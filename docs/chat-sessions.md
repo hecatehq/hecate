@@ -74,7 +74,7 @@ sequenceDiagram
     participant Gateway as Hecate gateway
     participant Store as chat session store
     participant Provider as Upstream provider
-    UI->>Gateway: POST /v1/chat/completions {session_id, messages: [history..., new_user]}
+    UI->>Gateway: POST /v1/chat/completions (session_id + history + new user message)
     Gateway->>Store: GetSession(id)
     Store-->>Gateway: persisted messages + system_prompt
     Gateway->>Gateway: applySessionSystemPrompt (prepend if absent)
@@ -85,7 +85,7 @@ sequenceDiagram
     Store-->>Gateway: refreshed session
     Gateway-->>UI: response + headers
     UI->>Gateway: GET /v1/chat/sessions/{id}
-    Gateway-->>UI: messages[] + provider_calls[]
+    Gateway-->>UI: messages + provider_calls
 ```
 
 The "new messages this round" calculation in `RecordChatExchange` is:
