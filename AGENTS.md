@@ -88,8 +88,9 @@ When adding a new persisted thing, mirror all three.
 Non-negotiable rules of the system. Read them before writing code that
 touches request handling, persistence, or tool execution.
 
-- **Auth is path-level.** `/v1/chat/completions` accepts tenant API keys; `/admin/*` requires admin bearer; `/v1/tasks/*` accepts both. Don't blur these.
-- **Tenant scoping is automatic.** Once a request has a tenant principal, every store query gets `WHERE tenant = ?` injected. New endpoints respect this — never bypass via the admin path.
+- **Auth is path-level.** `/v1/chat/completions` accepts tenant API keys; `/admin/*` requires admin bearer; `/v1/tasks/*` accepts both. Don't blur these. Three observability surfaces have a tenant-readable mirror under `/v1/*` (`/v1/runtime/stats`, `/v1/traces`, `/v1/requests`) — share the same private body with their `/admin/*` equivalent and don't re-implement.
+- **Tenant scoping is automatic.** Once a request has a tenant principal, every store query gets `WHERE tenant = ?` injected. New endpoints respect this — never bypass via the admin path. Multi-tenant management surfaces (Tenants/Keys tabs, tenant API keys) are opt-in via `GATEWAY_MULTI_TENANT=true`; the published `Dockerfile.release` defaults to `false` so single-user installs don't see them. The flag flows through `/v1/whoami`'s `features.multi_tenant`; `features.auth_disabled` mirrors `GATEWAY_AUTH_DISABLED`.
+- **Bootstrap-token handshake is loopback-only.** `GET /v1/bootstrap-token` hands the gateway-managed admin bearer to a same-origin loopback caller — checks: TCP peer is loopback (XFF ignored), Origin host matches Host *or* is itself loopback (so Vite dev `localhost:5173` -> `127.0.0.1:8765` works), no operator-supplied `GATEWAY_AUTH_TOKEN`. Wire shape is `{object: "bootstrap_token", data: {token}}` — the same envelope as the rest of the API. Don't add bypasses.
 - **Sandbox is out-of-process.** Shell, file, and git execution runs inside `cmd/sandboxd`, invoked over an exec boundary. A buggy tool can't crash the gateway. New tools follow the same pattern.
 - **Approvals are blocking.** Pre-execution and mid-loop approvals halt the run; the run record persists in `awaiting_approval` until resolved. New gates use the `TaskApproval` shape.
 - **Events are appended, not mutated.** Every state transition writes a `run_event` with a monotonic sequence. The SSE stream replays from `after_sequence`. New event types go in `docs/events.md`.
@@ -136,6 +137,9 @@ Full ladder: [`ai/core/verification.md`](ai/core/verification.md).
 - **Pricebook preflight** in tests: `PROVIDER_FAKE_KIND=local` for synthetic models in e2e.
 - **mermaid `loop` is a reserved keyword**: don't use it as a sequence-diagram participant name. Use `Agent` or similar.
 - **CodeQL CWE-190**: don't compute `make([]T, 0, len(x)+N)` with arithmetic — use plain `len(x)` and let `append` grow.
+- **Env-PRECONFIGURED gate**: `PROVIDER_<NAME>_API_KEY` / `_BASE_URL` only auto-import into the CP store when `PROVIDER_<NAME>_PRECONFIGURED=1` is also set. E2E helpers (`hecateServer`, `startHecateProcess`) funnel through `autoPreconfiguredEnv` to inject the gate; new e2e spawn helpers must do the same or routed requests 400 with `no provider supports model …`.
+- **`:8765` collisions across launches**: `make dev` / `make run` / `make serve` now run `make stop` first so a stale `./hecate` from another shell never blocks a relaunch (or a `docker run -p 8765:8765 …`). New scripts that spawn the binary should call `make stop` (or replicate the `lsof -ti:8765 | xargs kill` step).
+- **API response envelope**: every `/v1/*` and `/admin/*` GET returns `{object, data}`. Don't write a UI client that reads top-level fields — the bootstrap-token regression burned a release tag because the UI did `payload.token` instead of `payload.data.token`.
 
 ## Canonical docs
 

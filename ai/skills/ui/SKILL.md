@@ -171,6 +171,9 @@ When the Go side adds a required prop (e.g. `streamTurnCosts`), update the `setu
 - **404 on stale task IDs** — `localStorage` may hold a task ID from a prior gateway boot (memory backend resets on restart). `TasksView` drops the dead row from the list and re-loads. Don't propagate the 404 as an error toast.
 - **`render1()` + `render2()` in the same `it` block** — don't. React Testing Library cleanup runs between tests, not within. Split into two `it`s if you need fresh mounts.
 - **Cost-ceiling banner** — gates on `run.otel_status_message === "cost_ceiling_exceeded"` (the specific string). A regression that drops or rewords that string silently breaks the "Raise ceiling & resume" affordance.
+- **Every gateway response is `{object, data}`** — `lib/api.ts` clients must read `payload.data.<field>`, not `payload.<field>`. The bootstrap-token UI shipped a release tag where it read `data.token` instead of `data.data.token` and silently fell through to TokenGate; the test stub mirrored the bug and didn't catch it. When mocking, copy the real wire shape, not the fields you happen to need.
+- **Bootstrap-token auto-skip** — empty-token Playwright tests must stub `/v1/bootstrap-token` to `403` (the default `mockGatewayAPIs` fixture in `ui/e2e/fixtures.ts` does this). Without the stub, the loopback handshake auto-skips TokenGate in the test env.
+- **Multi-tenant gating** — Tenants/Keys tabs in Settings only render when `state.session.multiTenant === true`. Components that touch those surfaces must read the flag, not assume they're visible. The fixture in `ui/src/test/runtime-console-fixture.ts` defaults `multiTenant: false`.
 
 ## UI recipes
 
