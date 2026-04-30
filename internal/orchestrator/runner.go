@@ -832,7 +832,7 @@ func (r *Runner) RejectTaskAfterApproval(ctx context.Context, task types.Task, a
 	}, nil
 }
 
-func (r *Runner) CancelRun(ctx context.Context, task types.Task, runID string) (types.TaskRun, error) {
+func (r *Runner) CancelRun(ctx context.Context, task types.Task, runID string, reason string) (types.TaskRun, error) {
 	run, found, err := r.store.GetRun(ctx, task.ID, runID)
 	if err != nil {
 		return types.TaskRun{}, err
@@ -844,9 +844,13 @@ func (r *Runner) CancelRun(ctx context.Context, task types.Task, runID string) (
 		return run, nil
 	}
 
+	message := "run cancelled"
+	if r := strings.TrimSpace(reason); r != "" {
+		message = "run cancelled: " + r
+	}
 	requestID := strings.TrimSpace(telemetry.RequestIDFromContext(ctx))
 	traceIDs := telemetry.TraceIDsFromContext(ctx)
-	return r.cancelRunWithMessage(ctx, task, run, "run cancelled", requestID, traceIDs.TraceID)
+	return r.cancelRunWithMessage(ctx, task, run, message, requestID, traceIDs.TraceID)
 }
 
 func (r *Runner) cancelRunWithMessage(ctx context.Context, task types.Task, run types.TaskRun, message, requestID, traceID string) (types.TaskRun, error) {

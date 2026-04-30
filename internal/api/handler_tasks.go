@@ -797,7 +797,15 @@ func (h *Handler) HandleCancelTaskRun(w http.ResponseWriter, r *http.Request) {
 	if !ok {
 		return
 	}
-	run, err := h.taskRunner.CancelRun(ctx, task, run.ID)
+	var body struct {
+		Reason string `json:"reason"`
+	}
+	// Body is optional — plain POST with no body (or an empty body) is fine.
+	if r.ContentLength > 0 {
+		_ = json.NewDecoder(r.Body).Decode(&body)
+	}
+
+	run, err := h.taskRunner.CancelRun(ctx, task, run.ID, body.Reason)
 	if err != nil {
 		WriteError(w, http.StatusInternalServerError, errCodeGatewayError, err.Error())
 		return

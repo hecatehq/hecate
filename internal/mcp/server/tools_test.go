@@ -314,8 +314,19 @@ func TestTool_CancelRun_PostsAndSummarizes(t *testing.T) {
 			if r.Method != http.MethodPost {
 				t.Errorf("method = %s, want POST", r.Method)
 			}
+			// Reason must be forwarded in the request body.
+			var body struct {
+				Reason string `json:"reason"`
+			}
+			if err := json.NewDecoder(r.Body).Decode(&body); err != nil {
+				t.Errorf("decode body: %v", err)
+			}
+			if body.Reason != "runaway loop" {
+				t.Errorf("reason = %q, want %q", body.Reason, "runaway loop")
+			}
 			w.Header().Set("Content-Type", "application/json")
-			_, _ = w.Write([]byte(`{"data":{"id":"run-3","task_id":"task-2","status":"cancelled","finished_at":"2026-04-29T10:00:00Z"}}`))
+			// Gateway echoes the reason in last_error so the tool output includes it.
+			_, _ = w.Write([]byte(`{"data":{"id":"run-3","task_id":"task-2","status":"cancelled","finished_at":"2026-04-29T10:00:00Z","last_error":"run cancelled: runaway loop"}}`))
 		},
 	})
 	server := NewServer("t", "0")

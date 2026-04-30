@@ -608,14 +608,13 @@ func cancelRunHandler(client *GatewayClient) ToolHandler {
 		if strings.TrimSpace(args.RunID) == "" {
 			return mcp.CallToolResult{}, fmt.Errorf("run_id is required")
 		}
-		// The cancel endpoint accepts no body today; we keep `reason`
-		// in the MCP-tool surface so future surface additions stay
-		// backward-compatible. For now the reason is dropped at this
-		// boundary with a hint included in the success message.
 		path := fmt.Sprintf("/v1/tasks/%s/runs/%s/cancel",
 			url.PathEscape(args.TaskID), url.PathEscape(args.RunID))
+		body := struct {
+			Reason string `json:"reason,omitempty"`
+		}{Reason: strings.TrimSpace(args.Reason)}
 		var resp cancelRunWireResponse
-		if err := client.Post(ctx, path, struct{}{}, &resp); err != nil {
+		if err := client.Post(ctx, path, body, &resp); err != nil {
 			return mcp.CallToolResult{}, err
 		}
 		var b strings.Builder
@@ -626,9 +625,6 @@ func cancelRunHandler(client *GatewayClient) ToolHandler {
 		}
 		if resp.Data.LastError != "" {
 			fmt.Fprintf(&b, "\nLast error: %s", resp.Data.LastError)
-		}
-		if strings.TrimSpace(args.Reason) != "" {
-			fmt.Fprintf(&b, "\n(reason note: %q — recorded locally; not yet forwarded to the gateway audit log)", args.Reason)
 		}
 		return mcp.CallToolResult{Content: mcp.TextContent(b.String())}, nil
 	}
