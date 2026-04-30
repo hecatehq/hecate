@@ -69,7 +69,9 @@ describe("api client", () => {
 
   describe("getBootstrapToken", () => {
     it("returns the trimmed token on a 200 response", async () => {
-      fetchMock.mockResolvedValue(jsonResponse({ token: "  loopback-secret  " }));
+      fetchMock.mockResolvedValue(
+        jsonResponse({ object: "bootstrap_token", data: { token: "  loopback-secret  " } }),
+      );
 
       const result = await getBootstrapToken();
 
@@ -90,7 +92,15 @@ describe("api client", () => {
     });
 
     it("returns null when the body has an empty token", async () => {
-      fetchMock.mockResolvedValue(jsonResponse({ token: "" }));
+      fetchMock.mockResolvedValue(
+        jsonResponse({ object: "bootstrap_token", data: { token: "" } }),
+      );
+
+      expect(await getBootstrapToken()).toBeNull();
+    });
+
+    it("returns null when the body is missing the data envelope", async () => {
+      fetchMock.mockResolvedValue(jsonResponse({ token: "stray" }));
 
       expect(await getBootstrapToken()).toBeNull();
     });

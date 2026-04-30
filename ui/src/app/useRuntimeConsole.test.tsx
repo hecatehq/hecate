@@ -100,7 +100,7 @@ describe("useRuntimeConsole", () => {
     window.localStorage.removeItem("hecate.authToken");
     fetchMock.mockImplementation(async (input) => {
       const url = String(input);
-      if (url === "/v1/bootstrap-token") return jsonResponse({ token: "loopback-secret" });
+      if (url === "/v1/bootstrap-token") return jsonResponse({ object: "bootstrap_token", data: { token: "loopback-secret" } });
       if (url === "/healthz") return jsonResponse({ status: "ok", time: "2026-04-20T00:00:00Z" });
       if (url === "/v1/whoami") {
         return jsonResponse({

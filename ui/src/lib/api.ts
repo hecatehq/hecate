@@ -182,8 +182,9 @@ export async function getBootstrapToken(): Promise<string | null> {
   try {
     const response = await fetch("/v1/bootstrap-token", { method: "GET" });
     if (!response.ok) return null;
-    const data = (await response.json()) as { token?: string };
-    const token = typeof data?.token === "string" ? data.token.trim() : "";
+    // Wire shape: { object: "bootstrap_token", data: { token: "…" } }.
+    const payload = (await response.json()) as { data?: { token?: string } };
+    const token = typeof payload?.data?.token === "string" ? payload.data.token.trim() : "";
     return token === "" ? null : token;
   } catch {
     return null;
