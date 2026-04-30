@@ -453,6 +453,7 @@ func startHecateProcess(extraEnv ...string) (string, error) {
 		"GATEWAY_DATA_DIR="+dataDir,
 	)
 	env = append(env, extraEnv...)
+	env = append(env, autoPreconfiguredEnv(extraEnv)...)
 
 	cmd := exec.Command(bin)
 	cmd.Env = env

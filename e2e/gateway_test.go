@@ -104,39 +104,7 @@ func hecateServer(t *testing.T, extraEnv ...string) string {
 		"GATEWAY_DATA_DIR="+t.TempDir(),
 	)
 	env = append(env, extraEnv...)
-	// Auto-import contract: env-supplied provider credentials are
-	// only registered when PROVIDER_<NAME>_PRECONFIGURED=1 is also
-	// set. The e2e tests describe a provider via PROVIDER_<NAME>_*
-	// vars and expect it to be routable; opt them all in so each
-	// test site doesn't have to repeat the gate.
-	preconfigured := map[string]bool{}
-	for _, kv := range extraEnv {
-		const prefix = "PROVIDER_"
-		if !strings.HasPrefix(kv, prefix) {
-			continue
-		}
-		eq := strings.IndexByte(kv, '=')
-		if eq < 0 {
-			continue
-		}
-		key := kv[:eq]
-		// PROVIDER_<NAME>_<FIELD> — extract <NAME> as the leading
-		// segment up to the next underscore after the prefix.
-		rest := key[len(prefix):]
-		nameEnd := strings.IndexByte(rest, '_')
-		if nameEnd <= 0 {
-			continue
-		}
-		name := rest[:nameEnd]
-		// Skip the gate var itself so we don't recurse into it.
-		if rest[nameEnd+1:] == "PRECONFIGURED" {
-			continue
-		}
-		preconfigured[name] = true
-	}
-	for name := range preconfigured {
-		env = append(env, "PROVIDER_"+name+"_PRECONFIGURED=1")
-	}
+	env = append(env, autoPreconfiguredEnv(extraEnv)...)
 
 	cmd := exec.Command(bin)
 	cmd.Env = env
@@ -153,6 +121,43 @@ func hecateServer(t *testing.T, extraEnv ...string) string {
 
 	waitHealthy(t, baseURL, 10*time.Second)
 	return baseURL
+}
+
+// autoPreconfiguredEnv scans extraEnv for PROVIDER_<NAME>_<FIELD>
+// pairs and returns PROVIDER_<NAME>_PRECONFIGURED=1 entries for each
+// distinct name. The auto-import contract requires the gate var to be
+// set before env-supplied credentials materialize a provider in the
+// CP store; e2e tests describe providers via PROVIDER_<NAME>_* vars
+// and expect them routable, so this helper opts them all in without
+// each test site having to repeat the gate.
+func autoPreconfiguredEnv(extraEnv []string) []string {
+	preconfigured := map[string]bool{}
+	for _, kv := range extraEnv {
+		const prefix = "PROVIDER_"
+		if !strings.HasPrefix(kv, prefix) {
+			continue
+		}
+		eq := strings.IndexByte(kv, '=')
+		if eq < 0 {
+			continue
+		}
+		rest := kv[len(prefix):eq]
+		nameEnd := strings.IndexByte(rest, '_')
+		if nameEnd <= 0 {
+			continue
+		}
+		name := rest[:nameEnd]
+		// Skip the gate var itself so we don't recurse into it.
+		if rest[nameEnd+1:] == "PRECONFIGURED" {
+			continue
+		}
+		preconfigured[name] = true
+	}
+	out := make([]string, 0, len(preconfigured))
+	for name := range preconfigured {
+		out = append(out, "PROVIDER_"+name+"_PRECONFIGURED=1")
+	}
+	return out
 }
 
 // waitHealthy polls GET /healthz until it returns 200 or the deadline expires.
