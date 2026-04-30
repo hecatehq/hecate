@@ -65,10 +65,23 @@ func isLoopbackRequest(r *http.Request) bool {
 }
 
 // sameOriginRequest confirms that when the browser supplied an Origin
-// header, its host matches the request's Host. Requests without an
-// Origin header (curl, server-to-server) pass — the loopback check is
-// the primary boundary; Origin only adds a cross-origin defense for
-// browser callers.
+// header, it's safe to honor on a loopback request. The loopback peer
+// check (isLoopbackRequest) is the primary boundary; this is the
+// browser-side defense. Requests without an Origin header (curl,
+// server-to-server) pass.
+//
+// We accept the Origin when either:
+//   - Its host matches the request's Host exactly (production: the
+//     embedded UI is served by the gateway, so same-origin trivially).
+//   - The Origin's hostname resolves to a loopback address (dev: a
+//     Vite dev server on http://localhost:5173 proxies to the gateway
+//     at http://127.0.0.1:8765, so Host and Origin disagree but both
+//     ends sit on the loopback interface — and the loopback peer
+//     check above already gates entry).
+//
+// The widened second clause is dev-server friendly without weakening
+// the guard: a remote attacker who could spoof an Origin header still
+// has to come from a loopback peer to reach this handler at all.
 func sameOriginRequest(r *http.Request) bool {
 	origin := r.Header.Get("Origin")
 	if origin == "" {
@@ -78,5 +91,18 @@ func sameOriginRequest(r *http.Request) bool {
 	if err != nil {
 		return false
 	}
-	return u.Host == r.Host
+	if u.Host == r.Host {
+		return true
+	}
+	hostname := u.Hostname()
+	if hostname == "" {
+		return false
+	}
+	if hostname == "localhost" {
+		return true
+	}
+	if ip := net.ParseIP(hostname); ip != nil && ip.IsLoopback() {
+		return true
+	}
+	return false
 }

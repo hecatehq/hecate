@@ -172,6 +172,37 @@ func TestBootstrapToken_SameOrigin_Allowed(t *testing.T) {
 	}
 }
 
+// TestBootstrapToken_LoopbackOriginMismatchedHost_Allowed: in dev a
+// Vite proxy forwards browser requests from http://localhost:5173 to
+// the gateway on http://127.0.0.1:8765. Origin and Host disagree but
+// both endpoints are loopback — and the loopback peer check above
+// already gates entry. We accept this case so `bun run dev` doesn't
+// trip the cross-origin guard.
+func TestBootstrapToken_LoopbackOriginMismatchedHost_Allowed(t *testing.T) {
+	t.Parallel()
+	handler, server := bootstrapTokenDirectFixture(t, "admin-secret")
+	handler.SetBootstrapTokenExposable(true)
+
+	cases := []string{
+		"http://localhost:5173",
+		"http://127.0.0.1:5173",
+		"http://[::1]:5173",
+	}
+	for _, origin := range cases {
+		t.Run(origin, func(t *testing.T) {
+			req := loopbackRequest(http.MethodGet, "/v1/bootstrap-token", "127.0.0.1:54321")
+			// Force a Host that differs from Origin to mimic the proxy.
+			req.Host = "127.0.0.1:8765"
+			req.Header.Set("Origin", origin)
+			rec := httptest.NewRecorder()
+			server.ServeHTTP(rec, req)
+			if rec.Code != http.StatusOK {
+				t.Fatalf("status = %d, want 200; body=%s", rec.Code, rec.Body.String())
+			}
+		})
+	}
+}
+
 // TestBootstrapToken_EmptyToken_Refused: nothing to hand out, refuse.
 func TestBootstrapToken_EmptyToken_Refused(t *testing.T) {
 	t.Parallel()
