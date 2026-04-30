@@ -20,6 +20,16 @@ import (
 	"github.com/hecate/agent-runtime/pkg/types"
 )
 
+// HandleCreateTask gates on requireAny rather than requireAdmin: tasks are
+// scoped to the principal that submits them (admin or tenant) and the
+// runtime enforces tenant scoping on every read/update via the principal
+// in context. An admin-only gate would force operators to share the
+// admin bearer with every CI/agent invocation just to queue work, which
+// defeats per-key auditing.
+//
+// Downstream surfaces that act on a task ID (run / approve / cancel /
+// retry) reuse the same gate; /v1/mcp/probe inherits it because probing
+// runs the same arbitrary command a task would.
 func (h *Handler) HandleCreateTask(w http.ResponseWriter, r *http.Request) {
 	principal, ok := h.requireAny(w, r)
 	if !ok {

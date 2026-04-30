@@ -178,8 +178,11 @@ func TestMemoryStore_PruneAuditEvents(t *testing.T) {
 		_, _ = store.SetTenantEnabled(ctx, tenant.ID, i%2 == 0)
 	}
 	state, _ := store.Snapshot(ctx)
+	// Memory store appends an audit event on every UpsertTenant /
+	// SetTenantEnabled call (see appendAuditEvent in store_memory.go).
+	// An empty slice here means the lifecycle hooks regressed.
 	if len(state.Events) == 0 {
-		t.Skip("no audit events recorded — Memory store may not support them")
+		t.Fatal("expected audit events from tenant lifecycle, got none")
 	}
 
 	// Prune to keep only most recent 1.
@@ -187,7 +190,9 @@ func TestMemoryStore_PruneAuditEvents(t *testing.T) {
 	if err != nil {
 		t.Fatalf("Prune: %v", err)
 	}
+	// We just generated 5 lifecycle events × 2 (upsert + enable toggle),
+	// so count-based pruning to 1 must have deleted at least one.
 	if deleted == 0 {
-		t.Skip("memory store may not implement count-based pruning")
+		t.Fatal("expected count-based prune to delete entries, got 0")
 	}
 }

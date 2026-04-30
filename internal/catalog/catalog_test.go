@@ -6,35 +6,10 @@ import (
 	"time"
 
 	"github.com/hecate/agent-runtime/internal/providers"
-	"github.com/hecate/agent-runtime/pkg/types"
 )
 
-type fakeProvider struct {
-	name         string
-	kind         providers.Kind
-	defaultModel string
-	caps         providers.Capabilities
-	capsErr      error
-}
-
-func (p *fakeProvider) Name() string         { return p.name }
-func (p *fakeProvider) Kind() providers.Kind { return p.kind }
-func (p *fakeProvider) DefaultModel() string { return p.defaultModel }
-func (p *fakeProvider) Capabilities(context.Context) (providers.Capabilities, error) {
-	if p.caps.Name != "" || len(p.caps.Models) > 0 || p.caps.DefaultModel != "" || !p.caps.RefreshedAt.IsZero() {
-		return p.caps, p.capsErr
-	}
-	return providers.Capabilities{
-		Name:         p.name,
-		Kind:         p.kind,
-		DefaultModel: p.defaultModel,
-		Models:       []string{p.defaultModel},
-	}, p.capsErr
-}
-func (p *fakeProvider) Chat(context.Context, types.ChatRequest) (*types.ChatResponse, error) {
-	return nil, nil
-}
-func (p *fakeProvider) Supports(string) bool { return true }
+// fakeProvider lives in fake_provider_test.go (shared with
+// registry_extra_test.go).
 
 func TestRegistryCatalogSnapshotIncludesHealthAndCapabilities(t *testing.T) {
 	t.Parallel()

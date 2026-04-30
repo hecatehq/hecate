@@ -896,12 +896,17 @@ func TestClaudeCodeClientToolUseResponseShape(t *testing.T) {
 // Layer 2 — Fake upstream server: real providers.OpenAICompatibleProvider
 // ===========================================================================
 
-// newFakeOpenAIUpstream starts an httptest.Server that responds to
-// POST /v1/chat/completions with a canned OpenAI chat completion response.
-// The caller must defer upstream.Close().
-func newFakeOpenAIUpstream(t *testing.T, responseBody string) *httptest.Server {
-	t.Helper()
-	return httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+// chatCompletionsRoute is the shared scaffold for fake OpenAI upstreams.
+// It handles GET /…/models with a canned model list, rejects anything
+// that isn't POST /…/chat/completions, and delegates the response body
+// to handle.
+//
+// All three test-helper constructors below — non-streaming success,
+// non-streaming error, streaming SSE — wrap this. Without the
+// extraction the path-suffix + method-guard prelude was repeated three
+// times verbatim.
+func chatCompletionsRoute(handle func(w http.ResponseWriter, r *http.Request)) http.HandlerFunc {
+	return func(w http.ResponseWriter, r *http.Request) {
 		if r.Method == http.MethodGet && strings.HasSuffix(r.URL.Path, "/models") {
 			writeFakeOpenAIModels(w)
 			return
@@ -914,6 +919,16 @@ func newFakeOpenAIUpstream(t *testing.T, responseBody string) *httptest.Server {
 			http.Error(w, "not found", http.StatusNotFound)
 			return
 		}
+		handle(w, r)
+	}
+}
+
+// newFakeOpenAIUpstream starts an httptest.Server that responds to
+// POST /v1/chat/completions with a canned OpenAI chat completion response.
+// The caller must defer upstream.Close().
+func newFakeOpenAIUpstream(t *testing.T, responseBody string) *httptest.Server {
+	t.Helper()
+	return httptest.NewServer(chatCompletionsRoute(func(w http.ResponseWriter, _ *http.Request) {
 		w.Header().Set("Content-Type", "application/json")
 		fmt.Fprint(w, responseBody)
 	}))
@@ -921,19 +936,7 @@ func newFakeOpenAIUpstream(t *testing.T, responseBody string) *httptest.Server {
 
 func newFakeOpenAIErrorUpstream(t *testing.T, status int, responseBody string) *httptest.Server {
 	t.Helper()
-	return httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		if r.Method == http.MethodGet && strings.HasSuffix(r.URL.Path, "/models") {
-			writeFakeOpenAIModels(w)
-			return
-		}
-		if r.Method != http.MethodPost {
-			http.Error(w, "method not allowed", http.StatusMethodNotAllowed)
-			return
-		}
-		if !strings.HasSuffix(r.URL.Path, "/chat/completions") {
-			http.Error(w, "not found", http.StatusNotFound)
-			return
-		}
+	return httptest.NewServer(chatCompletionsRoute(func(w http.ResponseWriter, _ *http.Request) {
 		w.Header().Set("Content-Type", "application/json")
 		w.WriteHeader(status)
 		fmt.Fprint(w, responseBody)
@@ -944,15 +947,7 @@ func newFakeOpenAIErrorUpstream(t *testing.T, status int, responseBody string) *
 // well-formed OpenAI SSE chunks for a given content string.
 func newFakeOpenAIStreamingUpstream(t *testing.T, id, model, content string) *httptest.Server {
 	t.Helper()
-	return httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		if r.Method == http.MethodGet && strings.HasSuffix(r.URL.Path, "/models") {
-			writeFakeOpenAIModels(w)
-			return
-		}
-		if !strings.HasSuffix(r.URL.Path, "/chat/completions") {
-			http.Error(w, "not found", http.StatusNotFound)
-			return
-		}
+	return httptest.NewServer(chatCompletionsRoute(func(w http.ResponseWriter, _ *http.Request) {
 		w.Header().Set("Content-Type", "text/event-stream")
 		w.Header().Set("Cache-Control", "no-cache")
 		flusher, _ := w.(http.Flusher)

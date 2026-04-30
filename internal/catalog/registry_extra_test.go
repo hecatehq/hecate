@@ -35,14 +35,7 @@ func TestIsSelfReferentialURL(t *testing.T) {
 	}
 }
 
-// fakeProviderWithBaseURL augments the existing fakeProvider with a BaseURL()
-// method so the self-referential branch in entryForProvider can be exercised.
-type fakeProviderWithBaseURL struct {
-	*fakeProvider
-	baseURL string
-}
-
-func (p *fakeProviderWithBaseURL) BaseURL() string { return p.baseURL }
+// fakeProviderWithBaseURL lives in fake_provider_test.go.
 
 func TestEntryForProviderSelfReferentialIsDegraded(t *testing.T) {
 	provider := &fakeProviderWithBaseURL{

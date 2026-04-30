@@ -138,7 +138,7 @@ func mcpFixtureMain() {
 // way the in-memory transport can't.
 func TestPool_RealSubprocess_StdioRoundTrip(t *testing.T) {
 	if testing.Short() {
-		t.Skip("subprocess test")
+		t.Skip("spawns a real subprocess; skipped under -short")
 	}
 	cfg := ServerConfig{
 		Name:    "fixture",
