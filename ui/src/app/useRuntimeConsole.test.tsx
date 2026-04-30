@@ -117,6 +117,75 @@ describe("useRuntimeConsole", () => {
     expect(result.current.state.bootstrapAttempted).toBe(true);
   });
 
+  // Regression: `make reset && make dev` regenerates the gateway's
+  // auto-managed admin token. The operator's localStorage carries the
+  // OLD token, which now fails whoami with invalid_token=true. The hook
+  // must re-probe /v1/bootstrap-token so the new token is adopted
+  // automatically — otherwise the operator faces TokenGate(rejected)
+  // every time they reset, even on a single-user dev install where the
+  // gateway is happy to hand back its admin bearer over loopback.
+  it("re-probes the bootstrap token when the saved bearer is rejected", async () => {
+    window.localStorage.setItem("hecate.authToken", "stale-token");
+    let bootstrapCalls = 0;
+    fetchMock.mockImplementation(async (input) => {
+      const url = String(input);
+      if (url === "/v1/bootstrap-token") {
+        bootstrapCalls += 1;
+        return jsonResponse({ object: "bootstrap_token", data: { token: "fresh-token" } });
+      }
+      if (url === "/healthz") return jsonResponse({ status: "ok", time: "2026-04-20T00:00:00Z" });
+      if (url === "/v1/whoami") {
+        return jsonResponse({
+          object: "session",
+          data: { authenticated: false, invalid_token: true, role: "anonymous", source: "invalid_token" },
+        });
+      }
+      return unauthorizedResponse();
+    });
+
+    const { result } = renderHook(() => useRuntimeConsole());
+
+    // Recovery: the hook detects the rejected token, re-probes
+    // /v1/bootstrap-token, and adopts the loopback-supplied bearer.
+    await waitFor(() => expect(result.current.state.authToken).toBe("fresh-token"));
+    expect(bootstrapCalls).toBeGreaterThanOrEqual(1);
+  });
+
+  // Defense: if the bootstrap probe also fails to hand back a token
+  // (multi-tenant config, env-supplied admin token, non-loopback
+  // browser), the hook must NOT loop endlessly probing — one attempt
+  // and then fall through to TokenGate(rejected) so the operator can
+  // paste a fresh bearer.
+  it("does not loop when the bootstrap re-probe also fails", async () => {
+    window.localStorage.setItem("hecate.authToken", "stale-token");
+    let bootstrapCalls = 0;
+    fetchMock.mockImplementation(async (input) => {
+      const url = String(input);
+      if (url === "/v1/bootstrap-token") {
+        bootstrapCalls += 1;
+        return new Response("forbidden", { status: 403 });
+      }
+      if (url === "/healthz") return jsonResponse({ status: "ok", time: "2026-04-20T00:00:00Z" });
+      if (url === "/v1/whoami") {
+        return jsonResponse({
+          object: "session",
+          data: { authenticated: false, invalid_token: true, role: "anonymous", source: "invalid_token" },
+        });
+      }
+      return unauthorizedResponse();
+    });
+
+    const { result } = renderHook(() => useRuntimeConsole());
+
+    await waitFor(() => expect(result.current.state.session.kind).toBe("invalid"));
+    // One probe was issued in response to invalid; further re-renders
+    // do not retry.
+    await new Promise((r) => setTimeout(r, 50));
+    expect(bootstrapCalls).toBeLessThanOrEqual(1);
+    // Token is unchanged — no fresh bearer was available.
+    expect(result.current.state.authToken).toBe("stale-token");
+  });
+
   it("loads dashboard data and tolerates unauthorized admin endpoints", async () => {
     // Use a tenant-authenticated session: the dashboard fires the
     // tenant-level fetches (models, providers, presets, sessions) but

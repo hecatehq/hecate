@@ -154,6 +154,13 @@ export function useRuntimeConsole() {
     if (typeof window === "undefined") return true;
     return (window.localStorage.getItem("hecate.authToken") ?? "") !== "";
   });
+  // staleTokenRetried prevents an infinite reprobe loop if the gateway
+  // hands us a loopback token that's somehow ALSO rejected (shouldn't
+  // happen — they come from the same source — but a defense in depth
+  // beats spinning). Reset to false on every explicit setAuthToken
+  // (operator paste), so a manual retry after a real-world fix
+  // re-arms the auto-recovery for the next reset cycle.
+  const [staleTokenRetried, setStaleTokenRetried] = useState(false);
   const [sessionInfo, setSessionInfo] = useState<SessionResponse["data"] | null>(null);
   const [adminConfigError, setAdminConfigError] = useState("");
   const [notice, setNotice] = useState<NoticeState | null>(null);
@@ -255,6 +262,32 @@ export function useRuntimeConsole() {
     };
   }, [bootstrapAttempted]);
 
+  // Auto-recover when the saved bearer was rejected. Common cause:
+  // `make reset && make dev` regenerates the gateway's auto-managed
+  // admin token, leaving the operator's localStorage token stale.
+  // The bootstrap-token endpoint is server-fenced (loopback +
+  // same-origin + gateway-managed token only), so re-probing it is
+  // safe: in single-user dev it hands back the new token, in any
+  // other config it returns 403 and the rejected gate still shows.
+  // staleTokenRetried prevents looping if the freshly-probed token
+  // is also somehow rejected.
+  useEffect(() => {
+    if (session.kind !== "invalid") return;
+    if (staleTokenRetried) return;
+    let cancelled = false;
+    void (async () => {
+      const token = await getBootstrapToken();
+      if (cancelled) return;
+      setStaleTokenRetried(true);
+      if (token && token !== authToken) {
+        setAuthToken(token);
+      }
+    })();
+    return () => {
+      cancelled = true;
+    };
+  }, [session.kind, staleTokenRetried, authToken]);
+
   useEffect(() => {
     // Wait until the bootstrap probe has resolved one way or the
     // other before deciding what to do — racing the probe risks
@@ -273,6 +306,11 @@ export function useRuntimeConsole() {
 
   useEffect(() => {
     window.localStorage.setItem("hecate.authToken", authToken);
+    // A new bearer (operator paste OR loopback probe) re-arms the
+    // stale-token auto-recovery so a future invalid transition gets a
+    // fresh probe attempt. Without this, the operator only gets one
+    // automatic recovery per page load.
+    setStaleTokenRetried(false);
   }, [authToken]);
 
   useEffect(() => {
