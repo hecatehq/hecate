@@ -104,6 +104,39 @@ func hecateServer(t *testing.T, extraEnv ...string) string {
 		"GATEWAY_DATA_DIR="+t.TempDir(),
 	)
 	env = append(env, extraEnv...)
+	// Auto-import contract: env-supplied provider credentials are
+	// only registered when PROVIDER_<NAME>_PRECONFIGURED=1 is also
+	// set. The e2e tests describe a provider via PROVIDER_<NAME>_*
+	// vars and expect it to be routable; opt them all in so each
+	// test site doesn't have to repeat the gate.
+	preconfigured := map[string]bool{}
+	for _, kv := range extraEnv {
+		const prefix = "PROVIDER_"
+		if !strings.HasPrefix(kv, prefix) {
+			continue
+		}
+		eq := strings.IndexByte(kv, '=')
+		if eq < 0 {
+			continue
+		}
+		key := kv[:eq]
+		// PROVIDER_<NAME>_<FIELD> — extract <NAME> as the leading
+		// segment up to the next underscore after the prefix.
+		rest := key[len(prefix):]
+		nameEnd := strings.IndexByte(rest, '_')
+		if nameEnd <= 0 {
+			continue
+		}
+		name := rest[:nameEnd]
+		// Skip the gate var itself so we don't recurse into it.
+		if rest[nameEnd+1:] == "PRECONFIGURED" {
+			continue
+		}
+		preconfigured[name] = true
+	}
+	for name := range preconfigured {
+		env = append(env, "PROVIDER_"+name+"_PRECONFIGURED=1")
+	}
 
 	cmd := exec.Command(bin)
 	cmd.Env = env
