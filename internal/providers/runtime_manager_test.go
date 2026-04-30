@@ -148,6 +148,47 @@ func TestControlPlaneRuntimeManagerPreservesExistingOverridesOnMinimalUpdate(t *
 	}
 }
 
+// TestControlPlaneRuntimeManagerNormalizesPresetNameCasing is the
+// regression for the "Ollama added via UI form, model dropdown empty"
+// bug. The UI's create form pre-fills `name` with the preset's display
+// name ("Ollama" with capital O), but cp.id is slugified to lowercase
+// ("ollama"). The catalog's provider name (used as model
+// metadata.provider on /v1/models) must match cp.id so the UI's
+// provider picker — which uses cp.id as the option value — finds the
+// catalog's models. hydrateControlPlaneProviderDefaults is the
+// normalization seam.
+func TestControlPlaneRuntimeManagerNormalizesPresetNameCasing(t *testing.T) {
+	t.Parallel()
+
+	logger := slog.New(slog.NewTextHandler(testWriter{t}, nil))
+	store := controlplane.NewMemoryStore()
+
+	manager := NewControlPlaneRuntimeManager(logger, nil, store, nil)
+	// Mimic what the UI form sends when the operator picks the Ollama
+	// preset: name = preset.Name ("Ollama"), kind = "local", no
+	// secret. cp.ID is slugified to "ollama" inside the create
+	// handler before reaching Upsert; we pre-set it here.
+	if _, err := manager.Upsert(context.Background(), controlplane.Provider{
+		ID:       "ollama",
+		Name:     "Ollama",
+		PresetID: "ollama",
+		Kind:     "local",
+		Protocol: "openai",
+		BaseURL:  "http://127.0.0.1:11434/v1",
+		Enabled:  true,
+	}, ""); err != nil {
+		t.Fatalf("Upsert() error = %v", err)
+	}
+
+	registry := manager.Registry()
+	if _, ok := registry.Get("ollama"); !ok {
+		t.Fatal(`registry should expose the provider under its canonical lowercase id ("ollama")`)
+	}
+	if _, ok := registry.Get("Ollama"); ok {
+		t.Fatal(`registry should NOT expose the provider under the display name ("Ollama"); it is the operator-facing label, not a catalog key`)
+	}
+}
+
 type testWriter struct {
 	t *testing.T
 }

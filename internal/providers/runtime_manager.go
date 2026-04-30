@@ -249,9 +249,19 @@ func hydrateControlPlaneProviderDefaults(provider controlplane.Provider) control
 			provider.PresetID = builtIn.ID
 		}
 		provider.ExplicitFields = normalizeFieldNames(provider.ExplicitFields)
-		if strings.TrimSpace(provider.Name) == "" {
-			provider.Name = builtIn.ID
-		}
+		// Force Name = builtIn.ID for preset-based providers. Name is
+		// the catalog join key — it's what shows up as
+		// `metadata.provider` on /v1/models — and it must match the
+		// canonical lowercase preset id so the UI's provider picker
+		// (which uses cp.id, also lowercase) finds models for it.
+		// Operators who added a preset via the UI form previously had
+		// Name set to the preset's display name ("Ollama"), which
+		// case-mismatched cp.id ("ollama") and left the model picker
+		// empty. The display label still resolves through preset
+		// lookup on the UI side, so clobbering Name is safe.
+		// Custom (non-preset) providers don't reach this branch and
+		// keep their operator-typed Name.
+		provider.Name = builtIn.ID
 		if strings.TrimSpace(provider.Kind) == "" {
 			provider.Kind = builtIn.Kind
 		}
