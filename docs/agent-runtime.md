@@ -4,6 +4,10 @@ Hecate's `agent_loop` execution kind runs an LLM-driven loop: the model picks to
 
 For the high-level execution flow that wraps it (queue, lease, sandbox, events), see [`architecture.md`](architecture.md#task-runtime-flow). For the API endpoints that drive it, see [`runtime-api.md`](runtime-api.md).
 
+The Tasks workspace in the operator UI is the human entry point — create a task, watch its run state, approve or retry, and inspect streamed output:
+
+![Tasks workspace — task list with run state and approval queue](screenshots/tasks.png)
+
 > Contributing here? Start at [`AGENTS.md`](../AGENTS.md) for the codebase map and runtime invariants; conventions, workflow, and verification ladders live under [`ai/`](../ai/README.md).
 
 ## Contents

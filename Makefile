@@ -156,7 +156,7 @@ screenshots:
 	@test -x ./hecate || $(MAKE) --no-print-directory build
 	@mkdir -p .data
 	@echo "starting hecate in background…"
-	@./hecate > .data/screenshots-gateway.log 2>&1 & echo $$! > .data/screenshots-gateway.pid
+	@GATEWAY_MULTI_TENANT=true ./hecate > .data/screenshots-gateway.log 2>&1 & echo $$! > .data/screenshots-gateway.pid
 	@for i in 1 2 3 4 5 6 7 8 9 10; do \
 	  curl -sf http://127.0.0.1:8765/healthz > /dev/null && break; \
 	  sleep 0.3; \

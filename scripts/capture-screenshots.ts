@@ -5,7 +5,11 @@
 //   make screenshots                     # from repo root
 //
 // Prerequisites:
-//   1. `make reset-dev && ./hecate &` — gateway running on :8765 with fresh state
+//   1. `make reset-dev && GATEWAY_MULTI_TENANT=true ./hecate &` — gateway
+//      running on :8765 with fresh state, multi-tenant on so the
+//      Tenants + Keys tabs show up under Settings for the admin-*
+//      captures. Single-tenant deployments are the published default;
+//      see docs/tenants.md for the runtime flag's effect on the UI.
 //   2. ollama running on :11434 with `ollama pull llama3.1:8b` (used to seed
 //      one realistic chat session and produce a trace for the observability
 //      screenshot). Set HECATE_SKIP_OLLAMA=1 to skip.
@@ -62,7 +66,7 @@ async function snap(page: Page, name: string) {
   console.log(`  saved ${path}`);
 }
 
-async function openWorkspace(page: Page, id: "overview" | "runs" | "chats" | "providers" | "admin") {
+async function openWorkspace(page: Page, id: "overview" | "runs" | "chats" | "providers" | "costs" | "admin") {
   await page.evaluate((workspace) => {
     window.localStorage.setItem("hecate.workspace", workspace);
   }, id);
@@ -234,10 +238,19 @@ async function main() {
   const page = await context.newPage();
 
   // ── 1. Login screen ────────────────────────────────────────────────────────
+  // The bootstrap-token handshake auto-skips TokenGate when the
+  // browser is on the same loopback host as the gateway. To force
+  // the manual gate for documentation purposes we override the
+  // bootstrap fetch to return 403 before the page mounts.
   console.log("→ onboard-wizard");
   await clearAndNavigate(page);
+  await page.route("**/v1/bootstrap-token", route =>
+    route.fulfill({ status: 403, body: "forbidden", headers: { "Content-Type": "text/plain" } }),
+  );
+  await page.reload();
   await page.waitForSelector("text=Admin token required", { timeout: 5_000 });
   await snap(page, "onboard-wizard");
+  await page.unroute("**/v1/bootstrap-token");
 
   // ── 2. Empty providers list ─────────────────────────────────────────────────
   // Sign in and land on the Providers tab before any providers exist.
@@ -328,9 +341,21 @@ async function main() {
   }
   await snap(page, "observe");
 
-  // ── 9. Admin panels (left → right: Tenants, Keys, Pricing, Balances, Clients) ─
-  // Seed two tenants + two API keys so the tables aren't empty before the
-  // captures start.
+  // ── 9. Costs workspace ─────────────────────────────────────────────
+  // Lifted from the old Admin → Balances tab. Visible to every
+  // authenticated role (admin + tenant); shows the balance card on
+  // top and the per-key usage table on the bottom.
+  console.log("→ costs");
+  await openWorkspace(page, "costs");
+  await page.waitForTimeout(500);
+  await snap(page, "costs");
+
+  // ── 10. Settings panels — Tenants, Keys, Pricing ──────────────────
+  // Tenants + Keys only render when the gateway is in multi-tenant
+  // mode (GATEWAY_MULTI_TENANT=true). Single-tenant deployments hide
+  // them; the prerequisite at the top of this file flips the flag so
+  // the captures land. Seed two tenants + two API keys so the
+  // tables aren't empty.
   console.log("→ seeding tenants + API keys");
   await seedTenants();
   await page.reload();
@@ -338,25 +363,20 @@ async function main() {
   await openWorkspace(page, "admin");
   await page.waitForTimeout(500);
 
-  console.log("→ admin / tenants");
+  console.log("→ settings / tenants");
   await page.getByRole("button", { name: /tenants/i }).click();
   await page.waitForTimeout(500);
   await snap(page, "admin-tenants");
 
-  console.log("→ admin / keys");
+  console.log("→ settings / keys");
   await page.getByRole("button", { name: /keys/i }).click();
   await page.waitForTimeout(500);
   await snap(page, "admin-keys");
 
-  console.log("→ admin / pricebook");
+  console.log("→ settings / pricebook");
   await page.getByRole("button", { name: /pricing/i }).click();
   await page.waitForTimeout(800);
   await snap(page, "admin-pricebook");
-
-  console.log("→ admin / budget");
-  await page.getByRole("button", { name: /balances/i }).click();
-  await page.waitForTimeout(500);
-  await snap(page, "admin-budget");
 
   // firstID is intentionally unused after the chat snap — captured for
   // future "open this specific session" workflows.

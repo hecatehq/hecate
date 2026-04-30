@@ -8,7 +8,7 @@
 
 Hecate is an open-source **AI gateway and agent-task runtime** for teams that want one control plane for model access, cost governance, routing, caching, observability, and controlled agent execution.
 
-It sits between AI clients and model providers. Existing OpenAI-compatible and Anthropic-compatible clients can point at Hecate, while operators get a place to manage providers, tenants, budgets, traces, cache behavior, and queued agent work.
+It sits between AI clients and model providers. Existing OpenAI-compatible and Anthropic-compatible clients can point at Hecate, while operators get a place to manage providers, costs, traces, cache behavior, and queued agent work. Multi-tenant management is opt-in — the default deployment is a single-user gateway with one admin bearer.
 
 ## Table Of Contents
 
@@ -29,7 +29,7 @@ AI workloads are moving from simple API calls to long-running agents, tool use, 
 
 - **One gateway for many clients** — OpenAI Chat Completions and Anthropic Messages shapes.
 - **Local and cloud providers together** — OpenAI, Anthropic, Ollama, LM Studio, LocalAI, llama.cpp-compatible servers, and other shipped presets.
-- **Operator-controlled spend** — tenant keys, model/provider scoping, balances, pricebook management, rate limits, and audit history.
+- **Operator-controlled spend** — balances, pricebook management, rate limits, audit history, and (opt-in) per-tenant API keys with model/provider scoping.
 - **Runtime visibility** — request ledger, route reports, failover details, cost, cache path, trace IDs, and OpenTelemetry export.
 - **Agent-task runtime** — queued tasks, approvals, controlled shell/file/git execution, resumable runs, and MCP integration.
 - **Single binary first** — Go gateway with embedded React operator UI; no premature microservice sprawl.
@@ -40,10 +40,10 @@ The fastest way is the published image — no clone required:
 
 ```bash
 docker run --rm -p 8765:8765 -v hecate-data:/data \
-  ghcr.io/chicoxyzzy/hecate:0.1.0-alpha.6
+  ghcr.io/chicoxyzzy/hecate:0.1.0-alpha.7
 ```
 
-Open `http://127.0.0.1:8765`, paste the generated admin bearer token from the container logs, and connect your first provider in the UI.
+Open `http://127.0.0.1:8765` and connect your first provider in the UI. On a localhost browser the console picks up the generated admin bearer through a same-origin loopback handshake — no token paste needed for single-user installs. Remote browsers, reverse proxies, and cross-origin setups still see the token paste prompt; the bootstrap token is also printed once to the container logs:
 
 ```text
 ============================================================
@@ -140,9 +140,10 @@ The embedded UI is a runtime console for operators.
 
 - **Chats** — send requests through Hecate, choose provider/model, inspect per-turn route/cost/cache metadata.
 - **Providers** — manage provider credentials, defaults, model discovery, base URLs, and health.
-- **Observability** — inspect requests, route candidates, skip reasons, failover, costs, cache decisions, and trace events.
 - **Tasks** — create and manage agent runs, approvals, retries, resumes, and streamed output.
-- **Admin** — tenants, API keys, balances, pricebook, policy rules, retention, and client snippets.
+- **Observability** — inspect requests, route candidates, skip reasons, failover, costs, cache decisions, and trace events.
+- **Costs** — balance, top-up / reset, usage table.
+- **Settings** — pricebook, policy rules, retention, and (when `GATEWAY_MULTI_TENANT=true`) tenants + API keys.
 
 <details>
 <summary>Various UI screenshots</summary>
@@ -151,13 +152,9 @@ The embedded UI is a runtime console for operators.
 
 ![Tasks workspace — task list with run state and approval queue](docs/screenshots/tasks.png)
 
-![Pricebook tab — model catalog with priced / unpriced / deprecated filters](docs/screenshots/admin-pricebook.png)
+![Costs workspace — balance card and per-key usage table](docs/screenshots/costs.png)
 
-![Balances tab — tenant and provider balances with usage history](docs/screenshots/admin-budget.png)
-
-![Tenants tab — tenant lifecycle and access controls](docs/screenshots/admin-tenants.png)
-
-![API keys tab — scoped keys for clients and agents](docs/screenshots/admin-keys.png)
+![Settings → Pricebook — model catalog with priced / unpriced / deprecated filters](docs/screenshots/admin-pricebook.png)
 
 </details>
 
@@ -171,7 +168,8 @@ Hecate is public-alpha software. The core gateway path is usable; the agent runt
 | Anthropic-compatible gateway | Usable | Messages API shape, streaming translation, Claude Code support |
 | Provider catalog | Usable | Built-in presets, encrypted credentials, health, routing readiness |
 | Local providers | Usable | Ollama, LM Studio, LocalAI, llama.cpp-compatible servers |
-| Auth, tenants, keys | Usable | Admin bearer plus tenant API keys with provider/model scoping |
+| Auth | Usable | Admin bearer with same-origin loopback handshake; `GATEWAY_AUTH_DISABLED` for upstream-terminated auth |
+| Tenants and API keys | Opt-in | `GATEWAY_MULTI_TENANT=true` exposes tenant + key management with provider/model scoping |
 | Budgets and rate limits | Usable | Balances, warning thresholds, pricebook, `429` rate-limit headers |
 | Caching | Usable | Exact cache; semantic cache is available but still early |
 | OpenTelemetry | Usable | OTLP traces, metrics, logs, response headers, local trace view |
@@ -199,6 +197,7 @@ The README intentionally stays light on configuration. The source of truth is:
 - [Agent runtime](docs/agent-runtime.md)
 - [Runtime API](docs/runtime-api.md)
 - [Providers](docs/providers.md)
+- [Tenants and API keys (opt-in)](docs/tenants.md)
 - [MCP integration](docs/mcp.md)
 - [Telemetry](docs/telemetry.md)
 - [Deployment](docs/deployment.md)

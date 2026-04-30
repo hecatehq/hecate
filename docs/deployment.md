@@ -10,7 +10,7 @@ To pin to a specific release, replace `:latest` with the published tag (no `v` p
 
 ```yaml
 # docker-compose.yml
-image: ghcr.io/chicoxyzzy/hecate:0.1.0-alpha.6
+image: ghcr.io/chicoxyzzy/hecate:0.1.0-alpha.7
 ```
 
 Pinning is recommended for any deployment beyond local experimentation — `:latest` floats over alpha increments that may include schema or config changes.
@@ -23,8 +23,8 @@ The release workflow publishes static, single-file binaries for `linux+darwin ×
 
 ```bash
 # pick the right tarball for your OS / arch
-curl -LO https://github.com/chicoxyzzy/hecate/releases/download/v0.1.0-alpha.6/hecate_0.1.0-alpha.6_linux_amd64.tar.gz
-tar -xzf hecate_0.1.0-alpha.6_linux_amd64.tar.gz
+curl -LO https://github.com/chicoxyzzy/hecate/releases/download/v0.1.0-alpha.7/hecate_0.1.0-alpha.7_linux_amd64.tar.gz
+tar -xzf hecate_0.1.0-alpha.7_linux_amd64.tar.gz
 ./hecate
 ```
 
@@ -38,12 +38,12 @@ GATEWAY_DATA_DIR=/var/lib/hecate ./hecate
 
 For systemd, launchd, or supervisor wrappers, the only requirements are: the working directory is writable for `GATEWAY_DATA_DIR`, port 8765 is available, and `.env` (if used) sits in the working directory or is sourced into the unit file. The binary path itself can live anywhere on `$PATH`.
 
-Available tarballs for `v0.1.0-alpha.6`:
+Available tarballs for `v0.1.0-alpha.7`:
 
-- `hecate_0.1.0-alpha.6_linux_amd64.tar.gz`
-- `hecate_0.1.0-alpha.6_linux_arm64.tar.gz`
-- `hecate_0.1.0-alpha.6_darwin_amd64.tar.gz`
-- `hecate_0.1.0-alpha.6_darwin_arm64.tar.gz`
+- `hecate_0.1.0-alpha.7_linux_amd64.tar.gz`
+- `hecate_0.1.0-alpha.7_linux_arm64.tar.gz`
+- `hecate_0.1.0-alpha.7_darwin_amd64.tar.gz`
+- `hecate_0.1.0-alpha.7_darwin_arm64.tar.gz`
 
 Each tarball includes the binary plus `LICENSE` and `README.md`. Verify integrity against `checksums.txt` published alongside the release.
 
@@ -73,8 +73,31 @@ Hecate can start with almost no secrets in the environment. If `GATEWAY_AUTH_TOK
 | Variable | Default | Notes |
 |---|---|---|
 | `GATEWAY_AUTH_TOKEN` | generated | Admin bearer token. Prefer the generated first-run token for local and single-host setups. |
+| `GATEWAY_AUTH_DISABLED` | `false` | When `true`, the gateway accepts unauthenticated requests and reports `source=auth_disabled` on `/v1/whoami`. Use it when an upstream reverse proxy already terminates auth, or for fully-controlled local setups. |
+| `GATEWAY_MULTI_TENANT` | `false` (Docker) / `false` (local) | When `true`, exposes tenant + API-key management surfaces in Settings and tenant-readable observability endpoints. Default deployments ship single-user; flip the flag when more than one consumer needs scoped access. See [`tenants.md`](tenants.md). |
 | `GATEWAY_DATA_DIR` | `.data` locally, `/data` in Docker | Holds bootstrap metadata and local state files. |
 | `GATEWAY_CONTROL_PLANE_SECRET_KEY` | development fallback | Encrypts persisted provider credentials. Set a strong value before sharing a deployment. |
+
+### Bootstrap handshake (loopback only)
+
+`GET /v1/bootstrap-token` returns the gateway-managed admin bearer token, but only when **all three** conditions hold:
+
+- The request comes from a loopback address (`127.0.0.1`, `::1`). `X-Forwarded-For` is ignored — the check looks at the actual TCP peer.
+- The `Origin` header host matches the request host (or `Origin` is absent — same-origin curl, etc).
+- The gateway is exposing a gateway-managed token, i.e. `GATEWAY_AUTH_TOKEN` was *not* supplied via env.
+
+The embedded operator UI uses this on mount when no token sits in `localStorage` — same-origin browsers on the host running the gateway pick up the bearer with no token paste. Anything cross-origin, remote, or behind a reverse proxy hits a `403` and falls back to the manual TokenGate.
+
+The endpoint never reads or trusts `X-Forwarded-For`, so a misconfigured proxy can't trick it into handing the token to a remote browser.
+
+### Single-user vs multi-tenant
+
+| Mode | When | What's exposed |
+|---|---|---|
+| **Single-user** (default) | One operator on one host, or a local-dev setup. The published `Dockerfile.release` ships this. | Admin bearer authorizes everything. Settings shows Pricing / Policy / Retention. |
+| **Multi-tenant** | More than one consumer of the gateway, per-key scoping, per-tenant attribution. | Settings adds Tenants + Keys tabs; `/v1/traces`, `/v1/requests`, `/v1/runtime/stats` accept tenant bearers. Flip with `GATEWAY_MULTI_TENANT=true`. |
+
+Switching modes between runs is non-destructive — existing tenant/key rows in the control-plane store stay intact, only the surfaces flip on/off. See [`tenants.md`](tenants.md) for the full breakdown.
 
 ## Recovering a lost admin token
 

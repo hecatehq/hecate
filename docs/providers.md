@@ -13,7 +13,14 @@ Hecate uses a vendor-neutral provider layer at the runtime boundary. It treats O
 
 ## Adding a provider
 
-The Providers tab starts empty. Click **Add provider** to open the modal:
+The Providers tab starts empty:
+
+![Empty Providers tab — Add provider CTA](screenshots/providers-empty.png)
+
+Click **Add provider** to open the modal:
+
+![Add provider modal — Cloud preset catalog](screenshots/providers-presets.png)
+
 
 1. Pick **Cloud** or **Local** at the top.
 2. Click a preset (e.g. Anthropic, OpenAI, Ollama) — or click **Custom** to point Hecate at any OpenAI-compatible endpoint.
@@ -24,6 +31,8 @@ The Providers tab starts empty. Click **Add provider** to open the modal:
 4. Click **Add provider**.
 
 A provider you add is immediately routable. There is no separate enable/disable toggle — to take a provider out of rotation, delete it.
+
+![Providers table populated with three providers — Health, Endpoint, Credentials, Models columns](screenshots/providers.png)
 
 ### Multiple instances
 

@@ -28,7 +28,7 @@ scripts/release.sh vX.Y.Z
 For pre-release tags:
 
 ```bash
-scripts/release.sh v0.1.0-alpha.6
+scripts/release.sh v0.1.0-alpha.7
 ```
 
 To skip the snapshot dry-run (e.g. already ran it manually):

@@ -2,7 +2,7 @@
 # release.sh — cut a Hecate release tag and push it to CI.
 #
 # Usage:
-#   scripts/release.sh <version>        # e.g. v0.1.0-alpha.6
+#   scripts/release.sh <version>        # e.g. v0.1.0-alpha.7
 #   scripts/release.sh v0.2.0 --skip-snapshot   # skip the goreleaser dry-run
 #
 # The script runs pre-flight checks, fires a goreleaser snapshot dry-run so
@@ -26,7 +26,7 @@ done
 
 if [[ -z "$VERSION" ]]; then
   echo "usage: scripts/release.sh <version> [--skip-snapshot]"
-  echo "       version: vX.Y.Z  or  vX.Y.Z-pre.N  (e.g. v0.1.0-alpha.6)"
+  echo "       version: vX.Y.Z  or  vX.Y.Z-pre.N  (e.g. v0.1.0-alpha.7)"
   exit 1
 fi
 

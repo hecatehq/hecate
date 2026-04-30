@@ -293,12 +293,41 @@ GET /v1/whoami
     "source": "bearer",
     "key_id": "",
     "allowed_providers": [],
-    "allowed_models": []
+    "allowed_models": [],
+    "features": {
+      "multi_tenant": false,
+      "auth_disabled": false
+    }
   }
 }
 ```
 
 Anonymous (no token / unrecognized token) returns `authenticated: false` with empty `role`. A token that's syntactically present but doesn't match any record returns `authenticated: false, invalid_token: true` — distinguishable so clients can show "your token is wrong" vs. "you're not signed in."
+
+The `features` object reflects the gateway's runtime configuration:
+
+- `multi_tenant` — `GATEWAY_MULTI_TENANT`. When `true`, the operator UI exposes Tenants + Keys management; clients wrapping Hecate can use the flag to decide whether to surface their own tenant-aware UI. See [`tenants.md`](tenants.md).
+- `auth_disabled` — `GATEWAY_AUTH_DISABLED`. When `true`, the gateway accepts unauthenticated requests; the embedded UI uses this to skip its TokenGate.
+
+### `GET /v1/bootstrap-token`
+
+Loopback handshake. Returns the gateway-managed admin bearer token to a same-origin loopback caller so the embedded UI can skip a manual paste on first boot. Refuses for any other source. See [`deployment.md` § Bootstrap handshake](deployment.md#bootstrap-handshake-loopback-only) for the full fencing rules.
+
+```json
+GET /v1/bootstrap-token
+→ 200
+{
+  "object": "bootstrap_token",
+  "data": { "token": "7f2a91…" }
+}
+```
+
+Refusal cases (all return `403`):
+
+- The TCP peer is not a loopback address (`X-Forwarded-For` is ignored).
+- The `Origin` header host is non-loopback and doesn't match the request `Host`.
+- `GATEWAY_AUTH_TOKEN` was supplied via env (the gateway never hands out a token it didn't generate).
+- No admin token is configured (auth disabled with no fallback).
 
 ### `GET /v1/provider-presets`
 
