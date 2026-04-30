@@ -19,7 +19,10 @@ test.beforeEach(async ({ page }) => {
   // Press 6 → Settings. Admin lineup is Chats / Providers / Tasks /
   // Observability / Costs / Settings, so Settings sits at position 6.
   await page.keyboard.press("6");
-  await page.waitForSelector("text=Admin token");
+  // "Pricing" is always the first visible Settings tab in both single-
+  // and multi-tenant mode. "Admin token" only appears in multi-tenant
+  // mode, so it's not a reliable beforeEach sentinel.
+  await page.waitForSelector("text=Pricing");
 });
 
 test("renders the single-tenant settings tabs (Pricing / Policy / Retention)", async ({ page }) => {
@@ -46,6 +49,19 @@ test("Settings nav button uses the 'Settings' label, not 'Admin'", async ({ page
 });
 
 test("admin token panel shows reveal/rotate", async ({ page }) => {
+  // Admin token row only renders in multi-tenant mode. Re-load with a
+  // whoami response that sets multi_tenant so the row appears.
+  await page.route("/v1/whoami*", r => r.fulfill({
+    status: 200,
+    contentType: "application/json",
+    body: JSON.stringify({
+      object: "session",
+      data: { authenticated: true, invalid_token: false, role: "admin", source: "config", key_id: "", features: { multi_tenant: true } },
+    }),
+  }));
+  await page.goto("/");
+  await page.waitForSelector(".hecate-activitybar");
+  await page.keyboard.press("6");
   await expect(page.locator("text=Admin token").first()).toBeVisible();
   await expect(page.getByRole("button", { name: /Reveal/i })).toBeVisible();
   // "Rotate" appears on token panel and possibly elsewhere; just ensure ≥1.
