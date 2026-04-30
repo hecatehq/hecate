@@ -6,6 +6,15 @@ Hecate uses a vendor-neutral provider layer at the runtime boundary. It treats O
 
 ![Providers tab — populated table with health, endpoint, credentials, and models columns](screenshots/providers.png)
 
+## Contents
+
+- [Providers vs. clients](#providers-vs-clients)
+- [Adding a provider](#adding-a-provider)
+- [Built-in presets](#built-in-presets)
+- [Env-configured providers](#env-configured-providers)
+- [Control-plane API](#control-plane-api)
+- [Health and circuit breaking](#health-and-circuit-breaking)
+
 ## Providers vs. clients
 
 - **Clients** call Hecate. Codex, Claude Code, OpenAI SDKs, Anthropic SDKs, curl scripts, and internal tools are supported as long as they speak Hecate's OpenAI-compatible or Anthropic-compatible gateway endpoints.

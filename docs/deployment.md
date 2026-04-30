@@ -1,6 +1,19 @@
 # Deployment
 
-The [Quick Start](../README.md#quick-start) covers `docker compose up` end-to-end. This page is the reference for everything past the first run: pinning images, optional services, recovering a lost admin token, and resetting state.
+The [Quick Start](../README.md#quick-start) covers `docker run` end-to-end. This page is the reference for everything past the first run: pinning images, the compose profile, the binary install, the auth modes (admin token, loopback bootstrap, auth-disabled), single-user vs multi-tenant, lost-token recovery, storage tiers, and rate limits.
+
+## Contents
+
+- [Image pinning](#image-pinning)
+- [Binary install](#binary-install)
+- [Optional services (compose profiles)](#optional-services-compose-profiles)
+- [Auth and generated state](#auth-and-generated-state)
+  - [Bootstrap handshake (loopback only)](#bootstrap-handshake-loopback-only)
+  - [Single-user vs multi-tenant](#single-user-vs-multi-tenant)
+- [Recovering a lost admin token](#recovering-a-lost-admin-token)
+- [Resetting state](#resetting-state)
+- [Storage backends](#storage-backends)
+- [Rate limiting](#rate-limiting)
 
 ## Image pinning
 
@@ -94,12 +107,9 @@ The endpoint never reads or trusts `X-Forwarded-For`, so a misconfigured proxy c
 
 ### Single-user vs multi-tenant
 
-| Mode | When | What's exposed |
-|---|---|---|
-| **Single-user** (default) | One operator on one host, or a local-dev setup. The published `Dockerfile.release` ships this. | Admin bearer authorizes everything. Settings shows Pricing / Policy / Retention. |
-| **Multi-tenant** | More than one consumer of the gateway, per-key scoping, per-tenant attribution. | Settings adds Tenants + Keys tabs; `/v1/traces`, `/v1/requests`, `/v1/runtime/stats` accept tenant bearers. Flip with `GATEWAY_MULTI_TENANT=true`. |
+The published Docker image ships single-user (`GATEWAY_MULTI_TENANT=false`). Flip the flag to expose tenant + API-key management surfaces and tenant-readable observability mirrors. Switching between runs is non-destructive — existing tenant/key rows stay intact, only the UI surfaces and the auth gates on `/v1/traces` etc. flip.
 
-Switching modes between runs is non-destructive — existing tenant/key rows in the control-plane store stay intact, only the surfaces flip on/off. See [`tenants.md`](tenants.md) for the full breakdown.
+The README has the at-a-glance comparison; full breakdown (roles, storage notes, when to enable) in [`tenants.md`](tenants.md).
 
 ## Recovering a lost admin token
 

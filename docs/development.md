@@ -2,6 +2,16 @@
 
 This guide covers the local-build path (Go + Bun), UI hot reload, the test surface, and the screenshot tooling. For the simplest get-it-running flow, see [Quick Start](../README.md#quick-start) — Docker is the recommended on-ramp for end users.
 
+## Contents
+
+- [Toolchain](#toolchain)
+- [Local build](#local-build)
+- [UI hot reload](#ui-hot-reload)
+- [Reset state](#reset-state)
+- [Testing](#testing)
+- [Project layout](#project-layout)
+- [Capturing documentation screenshots](#capturing-documentation-screenshots)
+
 ## Toolchain
 
 - **Go** — pinned via `go.mod` (`make build` runs `go build`)

@@ -13,8 +13,8 @@ It sits between AI clients and model providers. Existing OpenAI-compatible and A
 ## Table Of Contents
 
 - [Why Hecate](#why-hecate)
+- [Modes](#modes)
 - [Quick Start](#quick-start)
-- [Add Providers](#add-providers)
 - [Architecture](#architecture)
 - [Operator UI](#operator-ui)
 - [What Works Today](#what-works-today)
@@ -32,18 +32,61 @@ AI workloads are moving from simple API calls to long-running agents, tool use, 
 - **Operator-controlled spend** — balances, pricebook management, rate limits, audit history, and (opt-in) per-tenant API keys with model/provider scoping.
 - **Runtime visibility** — request ledger, route reports, failover details, cost, cache path, trace IDs, and OpenTelemetry export.
 - **Agent-task runtime** — queued tasks, approvals, controlled shell/file/git execution, resumable runs, and MCP integration.
-- **Single binary first** — Go gateway with embedded React operator UI; no premature microservice sprawl.
+- **Single binary deploy** — Go gateway with the React operator UI embedded via `go:embed`. One process, one port, one volume; no separate frontend service to run.
+
+## Modes
+
+Hecate runs in one of two modes. The flag flips at startup; you can switch between runs without losing state.
+
+| | **Single-user** (default) | **Multi-tenant** (opt-in) |
+|---|---|---|
+| Flag | `GATEWAY_MULTI_TENANT=false` | `GATEWAY_MULTI_TENANT=true` |
+| Auth | One admin bearer; loopback handshake auto-fills it for same-host browsers. | Admin bearer **plus** per-tenant API keys, each scoped to allowed providers and models. |
+| Operator UI | Chats, Providers, Tasks, Observability, Costs, Settings (Pricing / Policy / Retention). | Same plus the Tenants and Keys tabs in Settings. |
+| Observability | Admin sees everything; tenants see nothing because there are no tenants. | Tenants see their own traces / requests / runtime stats via `/v1/*` mirrors of the `/admin/*` endpoints. |
+| Use when | One operator on one host; local dev; a personal gateway behind a single key. | Multiple consumers, per-key audit, scoped credentials. |
+
+The published Docker image ships single-user. Full breakdown in [`docs/tenants.md`](docs/tenants.md).
 
 ## Quick Start
 
-The fastest way is the published image — no clone required:
+Single-user path; for multi-tenant see [`docs/tenants.md`](docs/tenants.md).
+
+### 1. Run the image
 
 ```bash
 docker run --rm -p 8765:8765 -v hecate-data:/data \
   ghcr.io/chicoxyzzy/hecate:0.1.0-alpha.7
 ```
 
-Open `http://127.0.0.1:8765` and connect your first provider in the UI. On a localhost browser the console picks up the generated admin bearer through a same-origin loopback handshake — no token paste needed for single-user installs. Remote browsers, reverse proxies, and cross-origin setups still see the token paste prompt; the bootstrap token is also printed once to the container logs:
+### 2. Open the UI
+
+Open `http://127.0.0.1:8765`. On a localhost browser the console picks up the generated admin bearer through a same-origin loopback handshake — no token paste needed.
+
+### 3. Add a provider
+
+The Providers tab starts empty. Click **Add provider**, pick a preset (or **Custom** for any OpenAI-compatible endpoint), and paste an API key (cloud) or endpoint URL (local).
+
+![Empty Providers tab on first boot — Add provider CTA](docs/screenshots/providers-empty.png)
+
+![Add provider modal on the Cloud tab — preset catalog](docs/screenshots/providers-presets.png)
+
+![Providers table populated with three providers — Health, Endpoint, Credentials, Models](docs/screenshots/providers.png)
+
+Cloud presets need an API key; local presets just need the runtime listening on its default port. Full catalog, custom-endpoint walk-through, and credential rotation in [`docs/providers.md`](docs/providers.md).
+
+### 4. Talk to it
+
+![Chats workspace talking to a local Ollama llama3.1:8b model with sessions sidebar and inline runtime metadata](docs/screenshots/chat.png)
+
+<details>
+<summary>Remote browsers, reverse proxies, and cross-origin setups</summary>
+
+The loopback handshake only fires for same-host browsers. Anywhere else (Tailscale, port-forward over SSH, reverse proxy with a different hostname) the UI shows a token paste prompt:
+
+![Token paste prompt — remote / cross-origin browsers](docs/screenshots/onboard-wizard.png)
+
+The bootstrap token is printed once to the container logs:
 
 ```text
 ============================================================
@@ -55,81 +98,58 @@ Open `http://127.0.0.1:8765` and connect your first provider in the UI. On a loc
 ============================================================
 ```
 
-If you've cloned the repo and want optional services (Postgres profile, dev rebuild from source):
+It also lives in `hecate.bootstrap.json` on the `hecate-data` volume — recovery instructions in [`docs/deployment.md`](docs/deployment.md#recovering-a-lost-admin-token).
+</details>
+
+<details>
+<summary>Other install paths (clone, Postgres profile, source build, env-as-code)</summary>
+
+Cloning the repo lets you pick up optional compose profiles or rebuild from source:
 
 ```bash
-docker compose up                    # uses ghcr.io image; first run pulls
-docker compose --profile postgres up # adds Postgres for durable state
+docker compose up                    # uses the ghcr.io image; first run pulls
+docker compose --profile postgres up # adds Postgres for durable state across all subsystems
 ```
 
-For local development from source:
+Local development:
 
 ```bash
 make dev
 ```
 
-Other install paths — pinned image tags, single-file binaries (linux/darwin × amd64/arm64), checksums — are documented in [docs/deployment.md](docs/deployment.md). Local development details are in [docs/development.md](docs/development.md). Provider API keys can be added in the UI after first boot, or pre-seeded via `.env.example`.
+Pinned image tags, single-file binaries (linux/darwin × amd64/arm64), and checksums are in [`docs/deployment.md`](docs/deployment.md). Local development knobs in [`docs/development.md`](docs/development.md).
 
-The first-run UI guides provider setup and token entry:
-
-![First-run onboarding wizard](docs/screenshots/onboard-wizard.png)
-
-## Add Providers
-
-Hecate ships with a preset catalog of cloud and local providers. The Providers tab starts empty until you add one from the catalog (or define a custom OpenAI-compatible endpoint). Open it on first boot, click **Add provider**, pick a preset (or **Custom**), and paste an API key (cloud) or endpoint URL (local).
-
-![Empty Providers tab on first boot — Add provider CTA](docs/screenshots/providers-empty.png)
-
-![Add provider modal on the Cloud tab — preset catalog](docs/screenshots/providers-presets.png)
-
-![Providers table populated with three providers — Health, Endpoint, Credentials, Models](docs/screenshots/providers.png)
-
-Congrats, now you can talk to robots.
-
-![Chats workspace talking to a local Ollama llama3.1:8b model with sessions sidebar and inline runtime metadata](docs/screenshots/chat.png)
-
-There are other ways to do it:
-
-| Method | When |
-|---|---|
-| **Environment variables** | First-run bootstrap or fleet automation. Setting `PROVIDER_<NAME>_API_KEY`, `PROVIDER_<NAME>_BASE_URL`, `PROVIDER_<NAME>_DEFAULT_MODEL` in `.env` is equivalent to adding the provider via the UI on first boot — useful when you want config-as-code. Env-seeded providers are routable but don't appear in the Providers tab; add them explicitly there if you want to edit credentials from the UI. |
-| **Control-plane API** | Programmatic management. `POST /admin/control-plane/providers`, `DELETE /admin/control-plane/providers/{id}`, `PUT /admin/control-plane/providers/{id}/api-key`, and `PATCH /admin/control-plane/providers/{id}` mirror every UI action. |
-
-**Cloud presets** (need an API key): `anthropic`, `openai`, `gemini`, `groq`, `mistral`, `deepseek`, `together_ai`, `xai`.
-
-**Local presets** (need the runtime listening on its default port): `ollama` (`:11434`), `lmstudio` (`:1234`), `localai` (`:8080`), `llamacpp` (`:8080`).
-
-Example `.env` snippet for first-run bootstrap:
-
-```bash
-PROVIDER_ANTHROPIC_API_KEY=sk-ant-...
-PROVIDER_OPENAI_API_KEY=sk-...
-PROVIDER_OPENAI_DEFAULT_MODEL=gpt-4o-mini
-# Local Ollama on the host machine — no key needed
-PROVIDER_OLLAMA_BASE_URL=http://host.docker.internal:11434/v1
-```
-
-Provider health, circuit-breaking, base-URL overrides, and the full preset catalog are documented in [docs/providers.md](docs/providers.md).
+Provider keys can also be pre-seeded via `.env` for fleet automation — `PROVIDER_<NAME>_API_KEY`, `_BASE_URL`, `_DEFAULT_MODEL`, plus the `_PRECONFIGURED=1` gate. See [`docs/providers.md`](docs/providers.md#env-configured-providers). The `/admin/control-plane/providers` endpoints mirror every UI action for programmatic management.
+</details>
 
 ## Architecture
 
-Hecate is one Go binary with two main surfaces:
-
-- **Gateway** — authenticates requests, applies policy/budget checks, resolves provider/model routing, handles cache paths, calls upstream model providers, and records traces.
-- **Task runtime** — queues agent-style work, manages approvals, runs controlled tools through the sandbox boundary, streams run events, and records artifacts.
+One Go process, one port. Inside it: a chat/messages **gateway** that mediates client traffic to upstream providers, and a **task runtime** that queues agent work, drives approvals, and shells out through a sandbox boundary. The React operator UI is embedded into the same binary and served from the same port.
 
 ```mermaid
 flowchart LR
-    Clients["Clients<br/>Codex, Claude Code, SDKs"] --> Gateway["Gateway<br/>OpenAI + Anthropic APIs"]
-    Clients --> Runtime["Task runtime<br/>queued agent work"]
+    Clients["Clients<br/>Codex, Claude Code, SDKs"]
+    Browser["Browser<br/>(operator UI)"]
+
+    subgraph Hecate["Hecate (single binary, :8765)"]
+        direction TB
+        Gateway["Gateway<br/>/v1/chat/completions<br/>/v1/messages<br/>/v1/models"]
+        Runtime["Task runtime<br/>/v1/tasks/*<br/>queue + workers + sandbox"]
+        UI["Embedded UI<br/>(go:embed ui/dist)"]
+    end
+
+    Clients --> Gateway
+    Clients --> Runtime
+    Browser --> UI
+    UI --> Gateway
+    UI --> Runtime
+
     Gateway --> Providers["Cloud + local providers"]
     Gateway --> Cache["Exact + semantic cache"]
-    Runtime --> Sandbox["sandboxd<br/>controlled execution"]
-    Runtime --> MCP["MCP servers"]
+    Runtime --> Sandbox["sandboxd<br/>(out-of-process exec)"]
+    Runtime --> MCP["External MCP servers"]
     Gateway --> OTel["OpenTelemetry"]
     Runtime --> OTel
-    UI["Operator UI"] --> Gateway
-    UI --> Runtime
 ```
 
 For deeper internals, read [docs/architecture.md](docs/architecture.md), [docs/runtime-api.md](docs/runtime-api.md), and [docs/events.md](docs/events.md).
@@ -193,17 +213,12 @@ The README intentionally stays light on configuration. The source of truth is:
 
 ## Documentation
 
-- [Architecture](docs/architecture.md)
-- [Agent runtime](docs/agent-runtime.md)
-- [Runtime API](docs/runtime-api.md)
-- [Providers](docs/providers.md)
-- [Tenants and API keys (opt-in)](docs/tenants.md)
-- [MCP integration](docs/mcp.md)
-- [Telemetry](docs/telemetry.md)
-- [Deployment](docs/deployment.md)
-- [Development](docs/development.md)
-- [Known limitations](docs/known-limitations.md)
-- [Release process](docs/release.md)
+Browse the full index at [`docs/README.md`](docs/README.md). Highlights:
+
+- **Run it** — [Deployment](docs/deployment.md), [Providers](docs/providers.md), [Tenants and API keys](docs/tenants.md), [Known limitations](docs/known-limitations.md)
+- **Use it** — [Runtime API](docs/runtime-api.md), [Agent runtime](docs/agent-runtime.md), [Events](docs/events.md), [MCP integration](docs/mcp.md)
+- **Observe it** — [Telemetry](docs/telemetry.md)
+- **Build it** — [Architecture](docs/architecture.md), [Development](docs/development.md), [Release](docs/release.md)
 
 ## Contributing
 
