@@ -152,6 +152,42 @@ type OpenAIChatMessage struct {
 	Name       string               `json:"name,omitempty"`
 	ToolCallID string               `json:"tool_call_id,omitempty"`
 	ToolCalls  []OpenAIToolCall     `json:"tool_calls,omitempty"`
+	// ContentBlocks carries provider-native content (Anthropic
+	// thinking / redacted_thinking / tool_use blocks, image blocks
+	// with cache_control hints) so cross-provider replay preserves
+	// fidelity. The OpenAI public spec doesn't define this field on
+	// the request side; we use it as a Hecate-specific extension.
+	// Unknown clients (real OpenAI SDK against the Hecate proxy)
+	// continue to work — they don't emit it. Hecate-aware clients
+	// (the operator UI replaying stored history) round-trip it
+	// through.
+	ContentBlocks []OpenAIPersistedContentBlock `json:"content_blocks,omitempty"`
+	// ToolError flags a tool-role message as the result of a failed
+	// tool call so the Anthropic adapter can set is_error on the
+	// downstream tool_result block. Without it, the model has to
+	// guess from the content text.
+	ToolError bool `json:"tool_error,omitempty"`
+}
+
+// OpenAIPersistedContentBlock mirrors types.ContentBlock on the
+// inbound/outbound wire. Used only by Hecate's session-fetch and
+// history-replay paths — the public chat-completion spec stays
+// OpenAI-shaped via the Content/Blocks polymorphic field. Fields are
+// the union of OpenAI image-block shape and Anthropic content-block
+// shape; the gateway translates between this and the canonical
+// types.ContentBlock.
+type OpenAIPersistedContentBlock struct {
+	Type         string                 `json:"type"`
+	Text         string                 `json:"text,omitempty"`
+	ID           string                 `json:"id,omitempty"`            // tool_use
+	Name         string                 `json:"name,omitempty"`          // tool_use
+	Input        json.RawMessage        `json:"input,omitempty"`         // tool_use
+	ToolUseID    string                 `json:"tool_use_id,omitempty"`   // tool_result
+	CacheControl json.RawMessage        `json:"cache_control,omitempty"` // Anthropic prompt caching
+	Thinking     string                 `json:"thinking,omitempty"`      // extended thinking
+	Signature    string                 `json:"signature,omitempty"`
+	Data         string                 `json:"data,omitempty"` // redacted_thinking
+	ImageURL     *OpenAIContentImageURL `json:"image_url,omitempty"`
 }
 
 type OpenAIChatCompletionResponse struct {
@@ -253,46 +289,71 @@ type SessionFeatures struct {
 }
 
 type ChatSessionSummaryItem struct {
-	ID            string `json:"id"`
-	Title         string `json:"title"`
-	Tenant        string `json:"tenant,omitempty"`
-	User          string `json:"user,omitempty"`
-	TurnCount     int    `json:"turn_count"`
-	CreatedAt     string `json:"created_at,omitempty"`
-	UpdatedAt     string `json:"updated_at,omitempty"`
-	LastModel     string `json:"last_model,omitempty"`
-	LastProvider  string `json:"last_provider,omitempty"`
-	LastCostUSD   string `json:"last_cost_usd,omitempty"`
-	LastRequestID string `json:"last_request_id,omitempty"`
+	ID                string `json:"id"`
+	Title             string `json:"title"`
+	Tenant            string `json:"tenant,omitempty"`
+	User              string `json:"user,omitempty"`
+	MessageCount      int    `json:"message_count"`
+	ProviderCallCount int    `json:"provider_call_count"`
+	CreatedAt         string `json:"created_at,omitempty"`
+	UpdatedAt         string `json:"updated_at,omitempty"`
+	LastModel         string `json:"last_model,omitempty"`
+	LastProvider      string `json:"last_provider,omitempty"`
+	LastCostUSD       string `json:"last_cost_usd,omitempty"`
+	LastRequestID     string `json:"last_request_id,omitempty"`
 }
 
+// ChatSessionItem is the full session payload returned by the
+// session-fetch endpoint. Messages and ProviderCalls are flat,
+// independently-iterable arrays — the relationship between them is
+// expressed through ChatSessionMessageItem.ProducedByCallID, which
+// references ChatProviderCallItem.ID. The UI builds whatever
+// projection it wants (exchange-grouped view, raw transcript, etc.).
 type ChatSessionItem struct {
-	ID           string                `json:"id"`
-	Title        string                `json:"title"`
-	SystemPrompt string                `json:"system_prompt,omitempty"`
-	Tenant       string                `json:"tenant,omitempty"`
-	User         string                `json:"user,omitempty"`
-	CreatedAt    string                `json:"created_at,omitempty"`
-	UpdatedAt    string                `json:"updated_at,omitempty"`
-	Turns        []ChatSessionTurnItem `json:"turns"`
+	ID            string                   `json:"id"`
+	Title         string                   `json:"title"`
+	SystemPrompt  string                   `json:"system_prompt,omitempty"`
+	Tenant        string                   `json:"tenant,omitempty"`
+	User          string                   `json:"user,omitempty"`
+	CreatedAt     string                   `json:"created_at,omitempty"`
+	UpdatedAt     string                   `json:"updated_at,omitempty"`
+	Messages      []ChatSessionMessageItem `json:"messages"`
+	ProviderCalls []ChatProviderCallItem   `json:"provider_calls"`
 }
 
-type ChatSessionTurnItem struct {
-	ID                string            `json:"id"`
-	RequestID         string            `json:"request_id"`
-	UserMessage       OpenAIChatMessage `json:"user_message"`
-	AssistantMessage  OpenAIChatMessage `json:"assistant_message"`
-	RequestedProvider string            `json:"requested_provider,omitempty"`
-	Provider          string            `json:"provider"`
-	ProviderKind      string            `json:"provider_kind,omitempty"`
-	RequestedModel    string            `json:"requested_model,omitempty"`
-	Model             string            `json:"model"`
-	CostMicrosUSD     int64             `json:"cost_micros_usd"`
-	CostUSD           string            `json:"cost_usd"`
-	PromptTokens      int               `json:"prompt_tokens"`
-	CompletionTokens  int               `json:"completion_tokens"`
-	TotalTokens       int               `json:"total_tokens"`
-	CreatedAt         string            `json:"created_at,omitempty"`
+// ChatSessionMessageItem is one row from the session's flat message
+// stream. Sequence is monotonic per session and is the authoritative
+// ordering. ProducedByCallID, when set, points at the
+// ChatProviderCallItem.ID that emitted this message (assistant or
+// runtime-emitted tool messages); empty for client-supplied messages
+// (user, system, client-injected tool results). The OpenAIChatMessage
+// embed flattens role / content / tool_calls / content_blocks /
+// tool_error onto the same JSON object.
+type ChatSessionMessageItem struct {
+	ID               string `json:"id"`
+	Sequence         int    `json:"sequence"`
+	ProducedByCallID string `json:"produced_by_call_id,omitempty"`
+	CreatedAt        string `json:"created_at,omitempty"`
+	OpenAIChatMessage
+}
+
+// ChatProviderCallItem is one row from the session's provider-call
+// observability stream. Each row corresponds to one upstream
+// chat-completion request (its routing decision, model, tokens, cost).
+type ChatProviderCallItem struct {
+	ID                string `json:"id"`
+	RequestID         string `json:"request_id"`
+	RequestedProvider string `json:"requested_provider,omitempty"`
+	Provider          string `json:"provider"`
+	ProviderKind      string `json:"provider_kind,omitempty"`
+	RequestedModel    string `json:"requested_model,omitempty"`
+	Model             string `json:"model"`
+	CostMicrosUSD     int64  `json:"cost_micros_usd"`
+	CostUSD           string `json:"cost_usd"`
+	PromptTokens      int    `json:"prompt_tokens"`
+	CompletionTokens  int    `json:"completion_tokens"`
+	TotalTokens       int    `json:"total_tokens"`
+	CreatedAt         string `json:"created_at,omitempty"`
 }
 
 type OpenAIModelData struct {

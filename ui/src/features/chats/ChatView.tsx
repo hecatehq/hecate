@@ -31,7 +31,22 @@ export function ChatView({ state, actions }: Props) {
   const userScrolledRef = useRef(false);
 
   const sessions = state.chatSessions ?? [];
-  const turns = state.activeChatSession?.turns ?? [];
+  const messages = state.activeChatSession?.messages ?? [];
+  const providerCalls = state.activeChatSession?.provider_calls ?? [];
+  // Lookup map so the assistant rows can pull tokens/cost from the
+  // call that produced them. The relationship is many-messages → one
+  // call (server-driven tool loops fold many tool steps under a single
+  // call), but for now the chat surface only emits one assistant per
+  // call.
+  const callsByID = new Map(providerCalls.map((c) => [c.id, c]));
+  // Hide system messages and any assistant placeholder that is still
+  // waiting for content — the streaming-content block below renders
+  // the live text instead.
+  const visibleMessages = messages.filter((m) => {
+    if (m.role === "system") return false;
+    if (m.role === "assistant" && m.content === null) return false;
+    return true;
+  });
   const streaming = state.chatLoading;
   const chatDiagnostic = describeGatewayError(state.chatErrorCode, state.chatErrorStatus ?? undefined);
 
@@ -39,7 +54,7 @@ export function ChatView({ state, actions }: Props) {
     if (!userScrolledRef.current) {
       bottomRef.current?.scrollIntoView({ behavior: "instant" });
     }
-  }, [state.streamingContent, turns.length]);
+  }, [state.streamingContent, visibleMessages.length]);
 
   useEffect(() => {
     // Reset scroll state on every session change. Focus is NOT applied
@@ -193,7 +208,7 @@ export function ChatView({ state, actions }: Props) {
                   )}
                 </div>
                 <div style={{ fontSize: 10, color: "var(--t3)", marginTop: 1, fontFamily: "var(--font-mono)" }}>
-                  {s.turn_count} turns{s.last_provider ? ` · ${s.last_provider}` : ""}
+                  {s.message_count} msg · {s.provider_call_count} call{s.provider_call_count === 1 ? "" : "s"}{s.last_provider ? ` · ${s.last_provider}` : ""}
                 </div>
               </div>
             ))}
@@ -308,13 +323,13 @@ export function ChatView({ state, actions }: Props) {
           <div style={{ borderBottom: "1px solid var(--border)", padding: "10px 14px", background: "var(--bg2)" }}>
             <div style={{ display: "flex", alignItems: "center", marginBottom: 5, gap: 8 }}>
               <span style={{ fontSize: 11, color: "var(--t2)", fontFamily: "var(--font-mono)" }}>SYSTEM PROMPT</span>
-              {turns.length > 0 && <span style={{ fontSize: 10, color: "var(--t3)", fontFamily: "var(--font-mono)" }}>locked — start a new session to change</span>}
+              {messages.length > 0 && <span style={{ fontSize: 10, color: "var(--t3)", fontFamily: "var(--font-mono)" }}>locked — start a new session to change</span>}
             </div>
             <textarea
               value={state.systemPrompt}
               onChange={e => actions.setSystemPrompt(e.target.value)}
-              disabled={turns.length > 0}
-              style={{ width: "100%", background: "var(--bg3)", border: "1px solid var(--border)", borderRadius: "var(--radius-sm)", color: turns.length > 0 ? "var(--t2)" : "var(--t0)", fontFamily: "var(--font-mono)", fontSize: 12, padding: "8px 10px", resize: "vertical", minHeight: 72, outline: "none", lineHeight: 1.5, opacity: turns.length > 0 ? 0.6 : 1 }}
+              disabled={messages.length > 0}
+              style={{ width: "100%", background: "var(--bg3)", border: "1px solid var(--border)", borderRadius: "var(--radius-sm)", color: messages.length > 0 ? "var(--t2)" : "var(--t0)", fontFamily: "var(--font-mono)", fontSize: 12, padding: "8px 10px", resize: "vertical", minHeight: 72, outline: "none", lineHeight: 1.5, opacity: messages.length > 0 ? 0.6 : 1 }}
             />
           </div>
         )}
@@ -322,32 +337,27 @@ export function ChatView({ state, actions }: Props) {
         {/* Messages */}
         <div style={{ flex: 1, overflow: "hidden", position: "relative" }}>
         <div ref={scrollRef} onScroll={handleScroll} style={{ height: "100%", overflowY: "auto", padding: "16px 0" }}>
-          {turns.map(turn => (
-            <div key={turn.id}>
+          {visibleMessages.map(m => {
+            const call = m.produced_by_call_id ? callsByID.get(m.produced_by_call_id) : undefined;
+            const role = m.role === "assistant" ? "assistant" : "user";
+            const content = typeof m.content === "string" ? m.content : (m.content === null ? "" : JSON.stringify(m.content));
+            const time = m.created_at ? new Date(m.created_at).toLocaleTimeString("en-US", { hour: "2-digit", minute: "2-digit" }) : "";
+            return (
               <MessageRow
-                id={`${turn.id}-user`}
-                role="user"
-                content={typeof turn.user_message.content === "string" ? turn.user_message.content : JSON.stringify(turn.user_message.content)}
-                time={turn.created_at ? new Date(turn.created_at).toLocaleTimeString("en-US", { hour: "2-digit", minute: "2-digit" }) : ""}
+                key={m.id}
+                id={m.id}
+                role={role}
+                model={call?.model}
+                content={content}
+                time={time}
+                promptTokens={call?.prompt_tokens}
+                completionTokens={call?.completion_tokens}
+                costUsd={call?.cost_usd}
                 onCopy={copyMsg}
-                copied={copiedMsgId === `${turn.id}-user`}
+                copied={copiedMsgId === m.id}
               />
-              {turn.assistant_message.content !== null && (
-                <MessageRow
-                  id={`${turn.id}-asst`}
-                  role="assistant"
-                  model={turn.model}
-                  content={typeof turn.assistant_message.content === "string" ? turn.assistant_message.content : JSON.stringify(turn.assistant_message.content)}
-                  time={turn.created_at ? new Date(turn.created_at).toLocaleTimeString("en-US", { hour: "2-digit", minute: "2-digit" }) : ""}
-                  promptTokens={turn.prompt_tokens}
-                  completionTokens={turn.completion_tokens}
-                  costUsd={turn.cost_usd}
-                  onCopy={copyMsg}
-                  copied={copiedMsgId === `${turn.id}-asst`}
-                />
-              )}
-            </div>
-          ))}
+            );
+          })}
 
           {/* Streaming */}
           {streaming && state.streamingContent !== null && (
@@ -403,7 +413,7 @@ export function ChatView({ state, actions }: Props) {
             </div>
           )}
 
-          {turns.length === 0 && !streaming && state.pendingToolCalls.length === 0 && (
+          {visibleMessages.length === 0 && !streaming && state.pendingToolCalls.length === 0 && (
             <div style={{ padding: "48px 16px", maxWidth: 820, margin: "0 auto", textAlign: "center" }}>
               <div style={{ fontSize: 13, color: "var(--t3)" }}>Send a message to start a conversation.</div>
             </div>

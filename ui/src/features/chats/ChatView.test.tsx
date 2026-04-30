@@ -70,8 +70,8 @@ describe("ChatView sessions sidebar", () => {
   it("renders one row per session with title", () => {
     const { state, actions } = setup({
       chatSessions: [
-        { id: "s1", title: "First chat", turn_count: 2, updated_at: "2026-04-25T00:00:00Z" } as any,
-        { id: "s2", title: "Second chat", turn_count: 1, updated_at: "2026-04-25T01:00:00Z" } as any,
+        { id: "s1", title: "First chat", message_count: 4, provider_call_count: 2, updated_at: "2026-04-25T00:00:00Z" } as any,
+        { id: "s2", title: "Second chat", message_count: 2, provider_call_count: 1, updated_at: "2026-04-25T01:00:00Z" } as any,
       ],
     });
     render(<ChatView state={state} actions={actions} />);
@@ -82,7 +82,7 @@ describe("ChatView sessions sidebar", () => {
   it("calls selectChatSession when clicking a session row", async () => {
     const selectChatSession = vi.fn(async () => undefined);
     const { state, actions } = setup({
-      chatSessions: [{ id: "s1", title: "Pick me", turn_count: 0 } as any],
+      chatSessions: [{ id: "s1", title: "Pick me", message_count: 0, provider_call_count: 0 } as any],
     }, { selectChatSession });
     render(<ChatView state={state} actions={actions} />);
     const user = userEvent.setup();
@@ -120,7 +120,7 @@ describe("ChatView session title", () => {
 
   it("shows the active session's title", () => {
     const { state, actions } = setup({
-      activeChatSession: { id: "s1", title: "Hello world", turns: [] } as any,
+      activeChatSession: { id: "s1", title: "Hello world", messages: [], provider_calls: [] } as any,
     });
     render(<ChatView state={state} actions={actions} />);
     expect(screen.getByText("Hello world")).toBeTruthy();
@@ -153,7 +153,7 @@ describe("ChatView session focus", () => {
     // (e2e regression — see shell.spec.ts shortcut tests).
     const selectChatSession = vi.fn(async () => undefined);
     const { state, actions } = setup({
-      chatSessions: [{ id: "s2", title: "Pick me", turn_count: 0 } as any],
+      chatSessions: [{ id: "s2", title: "Pick me", message_count: 0, provider_call_count: 0 } as any],
     }, { selectChatSession });
     const user = userEvent.setup();
     render(<ChatView state={state} actions={actions} />);

@@ -556,19 +556,44 @@ export function useRuntimeConsole() {
       clearPendingToolState();
 
       // Show the user message immediately, before streaming starts.
+      // The optimistic update appends a pending user message and a
+      // placeholder assistant + call. Sequence numbers don't matter
+      // here — the server overwrites the whole conversation on
+      // refreshChatSessionState; sequence is only authoritative once
+      // it round-trips.
       const optimisticMessage = message;
+      const pendingCallID = `pending-call-${Date.now()}`;
+      const pendingUserID = `pending-user-${Date.now()}`;
+      const pendingAssistantID = `pending-assistant-${Date.now()}`;
+      const pendingTimestamp = new Date().toISOString();
       setMessage("");
       setActiveChatSession((prev) =>
         prev
           ? {
               ...prev,
-              turns: [
-                ...(prev.turns ?? []),
+              messages: [
+                ...(prev.messages ?? []),
                 {
-                  id: `pending-${Date.now()}`,
+                  id: pendingUserID,
+                  sequence: (prev.messages?.length ?? 0),
+                  role: "user",
+                  content: optimisticMessage,
+                  created_at: pendingTimestamp,
+                },
+                {
+                  id: pendingAssistantID,
+                  sequence: (prev.messages?.length ?? 0) + 1,
+                  produced_by_call_id: pendingCallID,
+                  role: "assistant",
+                  content: null,
+                  created_at: pendingTimestamp,
+                },
+              ],
+              provider_calls: [
+                ...(prev.provider_calls ?? []),
+                {
+                  id: pendingCallID,
                   request_id: "",
-                  user_message: { role: "user", content: optimisticMessage },
-                  assistant_message: { role: "assistant", content: null },
                   provider: "",
                   model: "",
                   cost_micros_usd: 0,
@@ -576,7 +601,7 @@ export function useRuntimeConsole() {
                   prompt_tokens: 0,
                   completion_tokens: 0,
                   total_tokens: 0,
-                  created_at: new Date().toISOString(),
+                  created_at: pendingTimestamp,
                 },
               ],
             }
@@ -589,21 +614,19 @@ export function useRuntimeConsole() {
       }
       const { headers } = chatExecution;
 
-      // Patch the optimistic turn with the real assistant content so it's visible
-      // immediately, regardless of whether the backend session refresh wins the race.
+      // Patch the optimistic placeholders with the real assistant
+      // content so the UI doesn't blink while waiting for the
+      // session refresh round-trip.
       const assistantContent = chatExecution.chatResult.choices[0]?.message.content ?? "";
       setActiveChatSession((prev) => {
-        if (!prev?.turns?.length) return prev;
-        const turns = [...prev.turns];
-        const last = turns[turns.length - 1];
-        if (last.id.startsWith("pending-")) {
-          turns[turns.length - 1] = {
-            ...last,
-            assistant_message: { role: "assistant", content: assistantContent },
-            model: headers.resolvedModel || model,
-          };
-        }
-        return { ...prev, turns };
+        if (!prev) return prev;
+        const messages = (prev.messages ?? []).map((m) =>
+          m.id === pendingAssistantID ? { ...m, content: assistantContent } : m,
+        );
+        const provider_calls = (prev.provider_calls ?? []).map((c) =>
+          c.id === pendingCallID ? { ...c, model: headers.resolvedModel || model } : c,
+        );
+        return { ...prev, messages, provider_calls };
       });
 
       setChatResult(chatExecution.chatResult);
@@ -1327,16 +1350,45 @@ function deriveChatSessionTitle(message: string): string {
 }
 
 function buildMessagesForSubmission(activeSession: ChatSessionRecord | null, message: string, systemPrompt = ""): ChatMessage[] {
-  const history: ChatMessage[] =
-    activeSession?.turns?.flatMap((turn) => {
-      const user: ChatMessage = { role: "user", content: turn.user_message.content ?? "" };
-      const assistant: ChatMessage = turn.assistant_message.tool_calls?.length
-        ? { role: "assistant", content: turn.assistant_message.content ?? null, tool_calls: turn.assistant_message.tool_calls }
-        : { role: "assistant", content: turn.assistant_message.content ?? "" };
-      return [user, assistant];
-    }) ?? [];
+  // Replay is now a near-trivial transform: the persisted message
+  // stream is already in submission order. We carry content_blocks
+  // and tool_error through verbatim so Anthropic-aware history
+  // (thinking blocks, failed tool results) survives cross-provider
+  // resubmission.
+  const history: ChatMessage[] = (activeSession?.messages ?? [])
+    .filter((m) => m.id && !m.id.startsWith("pending-"))
+    .map((m) => persistedMessageToChatMessage(m));
   const prefix: ChatMessage[] = systemPrompt.trim() ? [{ role: "system", content: systemPrompt.trim() }] : [];
   return [...prefix, ...history, { role: "user", content: message }];
+}
+
+function persistedMessageToChatMessage(m: ChatSessionRecord["messages"] extends (infer U)[] | undefined ? U : never): ChatMessage {
+  const ext = {
+    ...(m.content_blocks ? { content_blocks: m.content_blocks } : {}),
+    ...(m.tool_error ? { tool_error: m.tool_error } : {}),
+  };
+  if (m.role === "assistant") {
+    return {
+      role: "assistant",
+      content: m.content,
+      ...(m.tool_calls && m.tool_calls.length > 0 ? { tool_calls: m.tool_calls } : {}),
+      ...ext,
+    } as ChatMessage;
+  }
+  if (m.role === "tool") {
+    return {
+      role: "tool",
+      content: m.content ?? "",
+      tool_call_id: m.tool_call_id ?? "",
+      ...ext,
+    } as ChatMessage;
+  }
+  // user / system / unknown
+  return {
+    role: m.role === "system" ? "system" : "user",
+    content: m.content ?? "",
+    ...ext,
+  } as ChatMessage;
 }
 
 function buildAssistantToolCallMessage(
@@ -1404,20 +1456,22 @@ function isModelValidForProvider(model: string, provider: ProviderFilter, models
 }
 
 function renderChatSessionSummary(session: ChatSessionRecord): ChatSessionsResponse["data"][number] {
-  const turns = session.turns ?? [];
-  const lastTurn = turns[turns.length - 1];
+  const messages = session.messages ?? [];
+  const calls = session.provider_calls ?? [];
+  const lastCall = calls[calls.length - 1];
   return {
     id: session.id,
     title: session.title,
     tenant: session.tenant,
     user: session.user,
-    turn_count: turns.length,
+    message_count: messages.length,
+    provider_call_count: calls.length,
     created_at: session.created_at,
     updated_at: session.updated_at,
-    last_model: lastTurn?.model,
-    last_provider: lastTurn?.provider,
-    last_cost_usd: lastTurn?.cost_usd,
-    last_request_id: lastTurn?.request_id,
+    last_model: lastCall?.model,
+    last_provider: lastCall?.provider,
+    last_cost_usd: lastCall?.cost_usd,
+    last_request_id: lastCall?.request_id,
   };
 }
 

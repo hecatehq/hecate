@@ -62,8 +62,8 @@ func TestSQLiteStoreCreateAndGetSession(t *testing.T) {
 	if got.SystemPrompt != "be terse" || got.Tenant != "tenant-a" || got.User != "alice" {
 		t.Fatalf("round-trip mismatch: %+v", got)
 	}
-	if len(got.Turns) != 0 {
-		t.Fatalf("new session has turns: %+v", got.Turns)
+	if len(got.Messages) != 0 || len(got.ProviderCalls) != 0 {
+		t.Fatalf("new session has messages/calls: %+v", got)
 	}
 
 	// Missing id -> ok=false, err=nil.
@@ -76,7 +76,7 @@ func TestSQLiteStoreCreateAndGetSession(t *testing.T) {
 	}
 }
 
-func TestSQLiteStoreAppendTurn(t *testing.T) {
+func TestSQLiteStoreAppendExchange(t *testing.T) {
 	t.Parallel()
 	store := newSQLiteTestStore(t)
 	ctx := context.Background()
@@ -85,11 +85,9 @@ func TestSQLiteStoreAppendTurn(t *testing.T) {
 		t.Fatalf("CreateSession: %v", err)
 	}
 
-	turn := types.ChatSessionTurn{
-		ID:                "turn-1",
+	call := types.ChatProviderCall{
+		ID:                "call-1",
 		RequestID:         "req-1",
-		UserMessage:       types.Message{Role: "user", Content: "hi"},
-		AssistantMessage:  types.Message{Role: "assistant", Content: "hello"},
 		RequestedProvider: "openai",
 		Provider:          "openai",
 		ProviderKind:      "chat",
@@ -100,30 +98,137 @@ func TestSQLiteStoreAppendTurn(t *testing.T) {
 		CompletionTokens:  5,
 		TotalTokens:       15,
 	}
-	updated, err := store.AppendTurn(ctx, "s1", turn)
+	messages := []types.ChatSessionMessage{
+		{ID: "msg-u1", Message: types.Message{Role: "user", Content: "hi"}},
+		{ID: "msg-a1", ProducedByCallID: "call-1", Message: types.Message{Role: "assistant", Content: "hello"}},
+	}
+	updated, err := store.AppendExchange(ctx, "s1", messages, call)
 	if err != nil {
-		t.Fatalf("AppendTurn: %v", err)
+		t.Fatalf("AppendExchange: %v", err)
 	}
-	if len(updated.Turns) != 1 {
-		t.Fatalf("turn count = %d, want 1", len(updated.Turns))
+	if len(updated.Messages) != 2 {
+		t.Fatalf("message count = %d, want 2", len(updated.Messages))
 	}
-	got := updated.Turns[0]
-	if got.ID != "turn-1" || got.RequestID != "req-1" {
-		t.Fatalf("turn round-trip mismatch: %+v", got)
+	if len(updated.ProviderCalls) != 1 {
+		t.Fatalf("provider call count = %d, want 1", len(updated.ProviderCalls))
 	}
-	if got.UserMessage.Content != "hi" || got.AssistantMessage.Content != "hello" {
-		t.Fatalf("messages round-trip mismatch: %+v", got)
+	if updated.Messages[0].Sequence != 0 || updated.Messages[1].Sequence != 1 {
+		t.Fatalf("sequences not assigned monotonically: %+v", updated.Messages)
+	}
+	if updated.Messages[1].ProducedByCallID != "call-1" {
+		t.Fatalf("ProducedByCallID lost: %+v", updated.Messages[1])
+	}
+	got := updated.ProviderCalls[0]
+	if got.ID != "call-1" || got.RequestID != "req-1" {
+		t.Fatalf("call round-trip mismatch: %+v", got)
 	}
 	if got.TotalTokens != 15 || got.CostMicrosUSD != 1234 {
 		t.Fatalf("numeric round-trip mismatch: %+v", got)
 	}
 	if got.CreatedAt.IsZero() {
-		t.Fatal("turn CreatedAt not populated")
+		t.Fatal("call CreatedAt not populated")
+	}
+	if updated.Messages[0].Message.Content != "hi" || updated.Messages[1].Message.Content != "hello" {
+		t.Fatalf("message body round-trip mismatch: %+v", updated.Messages)
 	}
 
 	// Appending updates the parent session's UpdatedAt.
 	if !updated.UpdatedAt.Equal(got.CreatedAt) {
 		t.Fatalf("session UpdatedAt = %v, want %v", updated.UpdatedAt, got.CreatedAt)
+	}
+}
+
+func TestSQLiteStoreAppendExchangeAssignsMonotonicSequences(t *testing.T) {
+	t.Parallel()
+	store := newSQLiteTestStore(t)
+	ctx := context.Background()
+
+	if _, err := store.CreateSession(ctx, types.ChatSession{ID: "s1", Title: "t", Tenant: "tA"}); err != nil {
+		t.Fatalf("CreateSession: %v", err)
+	}
+
+	for i, callID := range []string{"call-1", "call-2", "call-3"} {
+		_, err := store.AppendExchange(ctx, "s1",
+			[]types.ChatSessionMessage{
+				{ID: "msg-u-" + callID, Message: types.Message{Role: "user", Content: "u"}},
+				{ID: "msg-a-" + callID, ProducedByCallID: callID, Message: types.Message{Role: "assistant", Content: "a"}},
+			},
+			types.ChatProviderCall{ID: callID, RequestID: callID, Provider: "openai", Model: "gpt-4o"},
+		)
+		if err != nil {
+			t.Fatalf("AppendExchange %d: %v", i, err)
+		}
+	}
+
+	got, ok, err := store.GetSession(ctx, "s1")
+	if err != nil || !ok {
+		t.Fatalf("GetSession: ok=%v err=%v", ok, err)
+	}
+	if len(got.Messages) != 6 {
+		t.Fatalf("message count = %d, want 6", len(got.Messages))
+	}
+	for i, msg := range got.Messages {
+		if msg.Sequence != i {
+			t.Fatalf("messages[%d].Sequence = %d, want %d", i, msg.Sequence, i)
+		}
+	}
+}
+
+func TestSQLiteStoreAppendExchangePreservesContentBlocksAndToolCalls(t *testing.T) {
+	t.Parallel()
+	store := newSQLiteTestStore(t)
+	ctx := context.Background()
+
+	if _, err := store.CreateSession(ctx, types.ChatSession{ID: "s1", Title: "t", Tenant: "tA"}); err != nil {
+		t.Fatalf("CreateSession: %v", err)
+	}
+
+	assistantMessage := types.Message{
+		Role:    "assistant",
+		Content: "thinking...",
+		ContentBlocks: []types.ContentBlock{
+			{Type: "thinking", Thinking: "let me check", Signature: "sig"},
+			{Type: "text", Text: "thinking..."},
+		},
+		ToolCalls: []types.ToolCall{
+			{ID: "tc-1", Type: "function", Function: types.ToolCallFunction{Name: "get_weather", Arguments: `{"city":"Paris"}`}},
+		},
+	}
+	toolMessage := types.Message{
+		Role:       "tool",
+		Content:    "rainy",
+		ToolCallID: "tc-1",
+		ToolError:  true,
+	}
+	_, err := store.AppendExchange(ctx, "s1",
+		[]types.ChatSessionMessage{
+			{ID: "msg-u1", Message: types.Message{Role: "user", Content: "weather?"}},
+			{ID: "msg-a1", ProducedByCallID: "call-1", Message: assistantMessage},
+			{ID: "msg-t1", Message: toolMessage},
+		},
+		types.ChatProviderCall{ID: "call-1", RequestID: "req-1", Provider: "anthropic", Model: "claude"},
+	)
+	if err != nil {
+		t.Fatalf("AppendExchange: %v", err)
+	}
+
+	got, _, err := store.GetSession(ctx, "s1")
+	if err != nil {
+		t.Fatalf("GetSession: %v", err)
+	}
+	if len(got.Messages) != 3 {
+		t.Fatalf("message count = %d, want 3", len(got.Messages))
+	}
+	a := got.Messages[1].Message
+	if len(a.ContentBlocks) != 2 || a.ContentBlocks[0].Type != "thinking" || a.ContentBlocks[0].Thinking != "let me check" {
+		t.Fatalf("ContentBlocks lost on round-trip: %+v", a.ContentBlocks)
+	}
+	if len(a.ToolCalls) != 1 || a.ToolCalls[0].Function.Name != "get_weather" {
+		t.Fatalf("ToolCalls lost on round-trip: %+v", a.ToolCalls)
+	}
+	tm := got.Messages[2].Message
+	if tm.ToolCallID != "tc-1" || !tm.ToolError {
+		t.Fatalf("tool message metadata lost: %+v", tm)
 	}
 }
 
@@ -206,7 +311,7 @@ func TestSQLiteStoreListSessionsPagination(t *testing.T) {
 	}
 }
 
-func TestSQLiteStoreDeleteSessionCascadesTurns(t *testing.T) {
+func TestSQLiteStoreListSessionsAttachesLatestCall(t *testing.T) {
 	t.Parallel()
 	store := newSQLiteTestStore(t)
 	ctx := context.Background()
@@ -214,14 +319,62 @@ func TestSQLiteStoreDeleteSessionCascadesTurns(t *testing.T) {
 	if _, err := store.CreateSession(ctx, types.ChatSession{ID: "s1", Title: "t", Tenant: "tA"}); err != nil {
 		t.Fatalf("CreateSession: %v", err)
 	}
-	for _, id := range []string{"turn-1", "turn-2"} {
-		if _, err := store.AppendTurn(ctx, "s1", types.ChatSessionTurn{
-			ID:               id,
-			RequestID:        id,
-			UserMessage:      types.Message{Role: "user", Content: "u"},
-			AssistantMessage: types.Message{Role: "assistant", Content: "a"},
-		}); err != nil {
-			t.Fatalf("AppendTurn(%s): %v", id, err)
+	for i, callID := range []string{"call-1", "call-2"} {
+		_, err := store.AppendExchange(ctx, "s1",
+			[]types.ChatSessionMessage{
+				{ID: "msg-u-" + callID, Message: types.Message{Role: "user", Content: "u"}},
+				{ID: "msg-a-" + callID, ProducedByCallID: callID, Message: types.Message{Role: "assistant", Content: "a"}},
+			},
+			types.ChatProviderCall{
+				ID:        callID,
+				RequestID: callID,
+				Provider:  "openai",
+				Model:     "gpt-4o",
+				// Stagger so created_at ordering is deterministic.
+				CreatedAt: time.Now().UTC().Add(time.Duration(i) * time.Second),
+			},
+		)
+		if err != nil {
+			t.Fatalf("AppendExchange %d: %v", i, err)
+		}
+	}
+
+	listed, err := store.ListSessions(ctx, Filter{Tenant: "tA"})
+	if err != nil {
+		t.Fatalf("ListSessions: %v", err)
+	}
+	if len(listed) != 1 {
+		t.Fatalf("session count = %d, want 1", len(listed))
+	}
+	if len(listed[0].ProviderCalls) != 1 {
+		t.Fatalf("expected exactly one latest provider call attached, got %d", len(listed[0].ProviderCalls))
+	}
+	if listed[0].ProviderCalls[0].ID != "call-2" {
+		t.Fatalf("latest call = %q, want call-2", listed[0].ProviderCalls[0].ID)
+	}
+	// Messages are NOT carried in the list view.
+	if len(listed[0].Messages) != 0 {
+		t.Fatalf("list view should not carry messages, got %d", len(listed[0].Messages))
+	}
+}
+
+func TestSQLiteStoreDeleteSessionCascadesChildren(t *testing.T) {
+	t.Parallel()
+	store := newSQLiteTestStore(t)
+	ctx := context.Background()
+
+	if _, err := store.CreateSession(ctx, types.ChatSession{ID: "s1", Title: "t", Tenant: "tA"}); err != nil {
+		t.Fatalf("CreateSession: %v", err)
+	}
+	for _, callID := range []string{"call-1", "call-2"} {
+		if _, err := store.AppendExchange(ctx, "s1",
+			[]types.ChatSessionMessage{
+				{ID: "msg-u-" + callID, Message: types.Message{Role: "user", Content: "u"}},
+				{ID: "msg-a-" + callID, ProducedByCallID: callID, Message: types.Message{Role: "assistant", Content: "a"}},
+			},
+			types.ChatProviderCall{ID: callID, RequestID: callID, Provider: "openai", Model: "gpt-4o"},
+		); err != nil {
+			t.Fatalf("AppendExchange(%s): %v", callID, err)
 		}
 	}
 
@@ -238,20 +391,19 @@ func TestSQLiteStoreDeleteSessionCascadesTurns(t *testing.T) {
 		t.Fatal("session still present after delete")
 	}
 
-	// Turns are gone — query the turns table directly to confirm the
-	// cascade fired (the session lookup above is not a sufficient
-	// witness; the explicit DELETE-on-turns belt-and-braces in
-	// DeleteSession would also satisfy it).
-	var count int
-	if err := store.client.DB().QueryRowContext(
-		ctx,
-		"SELECT COUNT(*) FROM "+store.turnsTable+" WHERE session_id = ?",
-		"s1",
-	).Scan(&count); err != nil {
-		t.Fatalf("count turns: %v", err)
-	}
-	if count != 0 {
-		t.Fatalf("turns remaining after cascade delete: %d", count)
+	// Children are gone.
+	for _, table := range []string{store.messagesTable, store.providerCallsTable} {
+		var count int
+		if err := store.client.DB().QueryRowContext(
+			ctx,
+			"SELECT COUNT(*) FROM "+table+" WHERE session_id = ?",
+			"s1",
+		).Scan(&count); err != nil {
+			t.Fatalf("count rows in %s: %v", table, err)
+		}
+		if count != 0 {
+			t.Fatalf("rows remaining in %s after cascade delete: %d", table, count)
+		}
 	}
 }
 

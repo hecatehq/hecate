@@ -132,7 +132,7 @@ func TestTool_ListChatSessions_TenantFilter(t *testing.T) {
 				t.Errorf("limit query = %q, want 5", r.URL.Query().Get("limit"))
 			}
 			w.Header().Set("Content-Type", "application/json")
-			_, _ = w.Write([]byte(`{"data":[{"id":"sess-1","title":"Hello","tenant":"team-a","turn_count":3,"updated_at":"2026-04-22T10:00:00Z"}]}`))
+			_, _ = w.Write([]byte(`{"data":[{"id":"sess-1","title":"Hello","tenant":"team-a","message_count":6,"provider_call_count":3,"updated_at":"2026-04-22T10:00:00Z"}]}`))
 		},
 	})
 	server := NewServer("t", "0")
@@ -143,7 +143,7 @@ func TestTool_ListChatSessions_TenantFilter(t *testing.T) {
 		t.Fatalf("err: %v", err)
 	}
 	body := result.Content[0].Text
-	if !strings.Contains(body, "Hello") || !strings.Contains(body, "team-a") || !strings.Contains(body, "(3 turns)") {
+	if !strings.Contains(body, "Hello") || !strings.Contains(body, "team-a") || !strings.Contains(body, "(6 messages, 3 calls)") {
 		t.Errorf("body missing fields: %s", body)
 	}
 }

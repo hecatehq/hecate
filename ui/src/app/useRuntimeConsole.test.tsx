@@ -315,7 +315,8 @@ describe("useRuntimeConsole", () => {
             {
               id: "chat_123",
               title: "Say hello in one short sentence.",
-              turn_count: 1,
+              message_count: 2,
+              provider_call_count: 1,
               last_model: "gpt-4o-mini",
               last_provider: "openai",
               last_cost_usd: "0.000123",
@@ -330,12 +331,14 @@ describe("useRuntimeConsole", () => {
           data: {
             id: "chat_123",
             title: "Say hello in one short sentence.",
-            turns: [
+            messages: [
+              { id: "msg_u", sequence: 0, role: "user", content: "Say hello in one short sentence.", created_at: "2026-04-21T00:00:01Z" },
+              { id: "msg_a", sequence: 1, produced_by_call_id: "call_1", role: "assistant", content: "Hello!", created_at: "2026-04-21T00:00:01Z" },
+            ],
+            provider_calls: [
               {
-                id: "req-123",
+                id: "call_1",
                 request_id: "req-123",
-                user_message: { role: "user", content: "Say hello in one short sentence." },
-                assistant_message: { role: "assistant", content: "Hello!" },
                 provider: "openai",
                 provider_kind: "cloud",
                 model: "gpt-4o-mini",
@@ -427,7 +430,8 @@ describe("useRuntimeConsole", () => {
 
     await waitFor(() => {
       expect(result.current.state.runtimeHeaders?.requestId).toBe("req-123");
-      expect(result.current.state.activeChatSession?.turns).toHaveLength(1);
+      expect(result.current.state.activeChatSession?.messages?.length).toBeGreaterThan(0);
+      expect(result.current.state.activeChatSession?.provider_calls?.length).toBeGreaterThan(0);
     });
   });
 
@@ -1141,11 +1145,13 @@ describe("useRuntimeConsole", () => {
           data: {
             id: "sess_42",
             title: "Existing",
-            turns: [{
-              id: "turn_1",
+            messages: [
+              { id: "msg_u", sequence: 0, role: "user", content: "hi", created_at: "2026-04-20T00:00:00Z" },
+              { id: "msg_a", sequence: 1, produced_by_call_id: "call_1", role: "assistant", content: "hello", created_at: "2026-04-20T00:00:00Z" },
+            ],
+            provider_calls: [{
+              id: "call_1",
               request_id: "req_1",
-              user_message: { role: "user", content: "hi" },
-              assistant_message: { role: "assistant", content: "hello" },
               provider: "openai", model: "gpt-4o-mini",
               cost_micros_usd: 0, cost_usd: "0",
               prompt_tokens: 1, completion_tokens: 1, total_tokens: 2,
@@ -1164,7 +1170,8 @@ describe("useRuntimeConsole", () => {
       });
       await waitFor(() => expect(result.current.state.activeChatSession?.id).toBe("sess_42"));
       expect(result.current.state.activeChatSessionID).toBe("sess_42");
-      expect(result.current.state.activeChatSession?.turns).toHaveLength(1);
+      expect(result.current.state.activeChatSession?.messages).toHaveLength(2);
+      expect(result.current.state.activeChatSession?.provider_calls).toHaveLength(1);
       expect(result.current.state.chatError).toBe("");
     });
 

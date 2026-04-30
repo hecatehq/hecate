@@ -3,6 +3,8 @@ package gateway
 import (
 	"bytes"
 	"context"
+	cryptoRand "crypto/rand"
+	"encoding/hex"
 	"encoding/json"
 	"errors"
 	"fmt"
@@ -968,26 +970,63 @@ func (s *Service) UpdateChatSessionSystemPrompt(ctx context.Context, id string, 
 	return &ChatSessionResult{Session: session}, nil
 }
 
-func (s *Service) RecordChatTurn(ctx context.Context, sessionID string, req types.ChatRequest, result *ChatResult) (*ChatSessionResult, error) {
+// RecordChatExchange persists one upstream chat-completion request as a
+// (messages, provider_call) pair on the chat session.
+//
+// "New" client-supplied messages are everything in req.Messages that
+// comes after a possible session-system-prompt prefix and after the
+// already-persisted message count. They are appended verbatim with no
+// ProducedByCallID — the operator/runtime supplied them. The assistant
+// response from result.Response.Choices[0] is appended after them with
+// ProducedByCallID pointing at the new ChatProviderCall.
+//
+// This handles three flows uniformly:
+//   - First turn: req.Messages = [user]; persist [user, assistant_response].
+//   - Multi-turn replay: req.Messages = [...history, new_user]; persist [new_user, assistant_response].
+//   - Tool loop continuation: req.Messages = [...history, tool_result, ...];
+//     persist [tool_result..., assistant_response]. Orphan tool_call_ids
+//     no longer occur on subsequent provider switches because the full
+//     intermediate sequence is preserved.
+func (s *Service) RecordChatExchange(ctx context.Context, sessionID string, req types.ChatRequest, result *ChatResult) (*ChatSessionResult, error) {
 	if s.chatSessions == nil || sessionID == "" || result == nil || result.Response == nil {
 		return nil, nil
 	}
-	userMessage := types.Message{Role: "user"}
-	for i := len(req.Messages) - 1; i >= 0; i-- {
-		if req.Messages[i].Role == "user" {
-			userMessage = req.Messages[i]
-			break
+
+	// Read current state so we know how many messages are already
+	// persisted (and therefore which req.Messages tail is new).
+	existing, ok, err := s.chatSessions.GetSession(ctx, sessionID)
+	if err != nil {
+		return nil, err
+	}
+	if !ok {
+		return nil, fmt.Errorf("chat session %q not found", sessionID)
+	}
+
+	// applySessionSystemPrompt prepends a system message that isn't
+	// part of the persisted conversation. Skip it when computing the
+	// "new tail" if it matches the session's stored SystemPrompt.
+	skipPrefix := 0
+	if len(req.Messages) > 0 && strings.EqualFold(req.Messages[0].Role, "system") {
+		if existing.SystemPrompt != "" && req.Messages[0].Content == existing.SystemPrompt {
+			skipPrefix = 1
 		}
 	}
-	assistantMessage := types.Message{Role: "assistant"}
-	if len(result.Response.Choices) > 0 {
-		assistantMessage = result.Response.Choices[0].Message
+
+	start := skipPrefix + len(existing.Messages)
+	if start > len(req.Messages) {
+		// Defensive: a request that omits some prior history would
+		// otherwise produce a negative slice. Clamp and let the
+		// assistant message land alone — better than panicking, and
+		// consistent with the assistant being the only thing the
+		// provider actually emitted this round.
+		start = len(req.Messages)
 	}
-	session, err := s.chatSessions.AppendTurn(ctx, sessionID, types.ChatSessionTurn{
-		ID:                req.RequestID,
+	newInputs := req.Messages[start:]
+
+	callID := newProviderCallID()
+	call := types.ChatProviderCall{
+		ID:                callID,
 		RequestID:         req.RequestID,
-		UserMessage:       userMessage,
-		AssistantMessage:  assistantMessage,
 		RequestedProvider: req.Scope.ProviderHint,
 		Provider:          result.Metadata.Provider,
 		ProviderKind:      result.Metadata.ProviderKind,
@@ -998,11 +1037,56 @@ func (s *Service) RecordChatTurn(ctx context.Context, sessionID string, req type
 		CompletionTokens:  result.Metadata.CompletionTokens,
 		TotalTokens:       result.Metadata.TotalTokens,
 		CreatedAt:         result.Response.CreatedAt,
-	})
+	}
+
+	messages := make([]types.ChatSessionMessage, 0, len(newInputs)+1)
+	for _, m := range newInputs {
+		messages = append(messages, types.ChatSessionMessage{
+			ID:      newSessionMessageID(),
+			Message: m,
+			// ProducedByCallID empty: the operator/client supplied
+			// this. Tool-result messages the client hands back also
+			// land here without a producing call — they were emitted
+			// outside the gateway.
+		})
+	}
+
+	if len(result.Response.Choices) > 0 {
+		assistant := result.Response.Choices[0].Message
+		if assistant.Role == "" {
+			assistant.Role = "assistant"
+		}
+		messages = append(messages, types.ChatSessionMessage{
+			ID:               newSessionMessageID(),
+			ProducedByCallID: callID,
+			Message:          assistant,
+		})
+	}
+
+	session, err := s.chatSessions.AppendExchange(ctx, sessionID, messages, call)
 	if err != nil {
 		return nil, err
 	}
 	return &ChatSessionResult{Session: session}, nil
+}
+
+func newProviderCallID() string {
+	return "call_" + randomHex(12)
+}
+
+func newSessionMessageID() string {
+	return "msg_" + randomHex(12)
+}
+
+func randomHex(byteLen int) string {
+	buf := make([]byte, byteLen)
+	if _, err := cryptoRand.Read(buf); err != nil {
+		// Fall back to nanosecond timestamp; collision-resistant
+		// enough for an in-process fallback when /dev/urandom is
+		// unavailable, which is essentially never.
+		return time.Now().UTC().Format("20060102150405.000000000")
+	}
+	return hex.EncodeToString(buf)
 }
 
 type TraceListResult struct {

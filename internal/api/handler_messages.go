@@ -61,7 +61,7 @@ func (h *Handler) HandleMessages(w http.ResponseWriter, r *http.Request) {
 	}
 
 	if internalReq.SessionID != "" {
-		if _, err := h.service.RecordChatTurn(ctx, internalReq.SessionID, internalReq, result); err != nil {
+		if _, err := h.service.RecordChatExchange(ctx, internalReq.SessionID, internalReq, result); err != nil {
 			telemetry.Warn(h.logger, ctx, "gateway.chat.sessions.record_failed",
 				slog.String("event.name", "gateway.chat.sessions.record_failed"),
 				slog.String("hecate.chat.session_id", internalReq.SessionID),

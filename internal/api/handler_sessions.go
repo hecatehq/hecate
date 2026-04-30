@@ -265,11 +265,12 @@ func (h *Handler) HandleUpdateChatSession(w http.ResponseWriter, r *http.Request
 
 func renderChatSessionSummary(session types.ChatSession) ChatSessionSummaryItem {
 	item := ChatSessionSummaryItem{
-		ID:        session.ID,
-		Title:     session.Title,
-		Tenant:    session.Tenant,
-		User:      session.User,
-		TurnCount: len(session.Turns),
+		ID:                session.ID,
+		Title:             session.Title,
+		Tenant:            session.Tenant,
+		User:              session.User,
+		MessageCount:      len(session.Messages),
+		ProviderCallCount: len(session.ProviderCalls),
 	}
 	if !session.CreatedAt.IsZero() {
 		item.CreatedAt = session.CreatedAt.UTC().Format(time.RFC3339Nano)
@@ -277,8 +278,8 @@ func renderChatSessionSummary(session types.ChatSession) ChatSessionSummaryItem 
 	if !session.UpdatedAt.IsZero() {
 		item.UpdatedAt = session.UpdatedAt.UTC().Format(time.RFC3339Nano)
 	}
-	if len(session.Turns) > 0 {
-		last := session.Turns[len(session.Turns)-1]
+	if len(session.ProviderCalls) > 0 {
+		last := session.ProviderCalls[len(session.ProviderCalls)-1]
 		item.LastModel = last.Model
 		item.LastProvider = last.Provider
 		item.LastCostUSD = formatUSD(last.CostMicrosUSD)
@@ -289,12 +290,13 @@ func renderChatSessionSummary(session types.ChatSession) ChatSessionSummaryItem 
 
 func renderChatSession(session types.ChatSession) ChatSessionItem {
 	item := ChatSessionItem{
-		ID:           session.ID,
-		Title:        session.Title,
-		SystemPrompt: session.SystemPrompt,
-		Tenant:       session.Tenant,
-		User:         session.User,
-		Turns:        make([]ChatSessionTurnItem, 0, len(session.Turns)),
+		ID:            session.ID,
+		Title:         session.Title,
+		SystemPrompt:  session.SystemPrompt,
+		Tenant:        session.Tenant,
+		User:          session.User,
+		Messages:      make([]ChatSessionMessageItem, 0, len(session.Messages)),
+		ProviderCalls: make([]ChatProviderCallItem, 0, len(session.ProviderCalls)),
 	}
 	if !session.CreatedAt.IsZero() {
 		item.CreatedAt = session.CreatedAt.UTC().Format(time.RFC3339Nano)
@@ -302,27 +304,37 @@ func renderChatSession(session types.ChatSession) ChatSessionItem {
 	if !session.UpdatedAt.IsZero() {
 		item.UpdatedAt = session.UpdatedAt.UTC().Format(time.RFC3339Nano)
 	}
-	for _, turn := range session.Turns {
-		record := ChatSessionTurnItem{
-			ID:                turn.ID,
-			RequestID:         turn.RequestID,
-			UserMessage:       messageToWire(turn.UserMessage),
-			AssistantMessage:  messageToWire(turn.AssistantMessage),
-			RequestedProvider: turn.RequestedProvider,
-			Provider:          turn.Provider,
-			ProviderKind:      turn.ProviderKind,
-			RequestedModel:    turn.RequestedModel,
-			Model:             turn.Model,
-			CostMicrosUSD:     turn.CostMicrosUSD,
-			CostUSD:           formatUSD(turn.CostMicrosUSD),
-			PromptTokens:      turn.PromptTokens,
-			CompletionTokens:  turn.CompletionTokens,
-			TotalTokens:       turn.TotalTokens,
+	for _, msg := range session.Messages {
+		record := ChatSessionMessageItem{
+			ID:                msg.ID,
+			Sequence:          msg.Sequence,
+			ProducedByCallID:  msg.ProducedByCallID,
+			OpenAIChatMessage: messageToWire(msg.Message),
 		}
-		if !turn.CreatedAt.IsZero() {
-			record.CreatedAt = turn.CreatedAt.UTC().Format(time.RFC3339Nano)
+		if !msg.CreatedAt.IsZero() {
+			record.CreatedAt = msg.CreatedAt.UTC().Format(time.RFC3339Nano)
 		}
-		item.Turns = append(item.Turns, record)
+		item.Messages = append(item.Messages, record)
+	}
+	for _, call := range session.ProviderCalls {
+		record := ChatProviderCallItem{
+			ID:                call.ID,
+			RequestID:         call.RequestID,
+			RequestedProvider: call.RequestedProvider,
+			Provider:          call.Provider,
+			ProviderKind:      call.ProviderKind,
+			RequestedModel:    call.RequestedModel,
+			Model:             call.Model,
+			CostMicrosUSD:     call.CostMicrosUSD,
+			CostUSD:           formatUSD(call.CostMicrosUSD),
+			PromptTokens:      call.PromptTokens,
+			CompletionTokens:  call.CompletionTokens,
+			TotalTokens:       call.TotalTokens,
+		}
+		if !call.CreatedAt.IsZero() {
+			record.CreatedAt = call.CreatedAt.UTC().Format(time.RFC3339Nano)
+		}
+		item.ProviderCalls = append(item.ProviderCalls, record)
 	}
 	return item
 }

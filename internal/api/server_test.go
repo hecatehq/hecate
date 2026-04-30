@@ -2170,7 +2170,7 @@ func TestRequestLedgerReturnsRecentBudgetEvents(t *testing.T) {
 	}
 }
 
-func TestChatSessionsPersistTurnsWithRuntimeMetadata(t *testing.T) {
+func TestChatSessionsPersistMessagesAndProviderCalls(t *testing.T) {
 	t.Parallel()
 
 	logger := slog.New(slog.NewJSONHandler(io.Discard, nil))
@@ -2209,17 +2209,35 @@ func TestChatSessionsPersistTurnsWithRuntimeMetadata(t *testing.T) {
 	}
 
 	session := mustRequestJSON[ChatSessionResponse](client, http.MethodGet, "/v1/chat/sessions/"+created.Data.ID, "")
-	if len(session.Data.Turns) != 1 {
-		t.Fatalf("turns = %d, want 1", len(session.Data.Turns))
+	if len(session.Data.Messages) != 2 {
+		t.Fatalf("messages = %d, want 2 (user + assistant)", len(session.Data.Messages))
 	}
-	if session.Data.Turns[0].Provider != "anthropic" {
-		t.Fatalf("provider = %q, want anthropic", session.Data.Turns[0].Provider)
+	if len(session.Data.ProviderCalls) != 1 {
+		t.Fatalf("provider_calls = %d, want 1", len(session.Data.ProviderCalls))
 	}
-	if session.Data.Turns[0].Model != "claude-sonnet-4-20250514" {
-		t.Fatalf("model = %q, want Claude model", session.Data.Turns[0].Model)
+	user := session.Data.Messages[0]
+	assistant := session.Data.Messages[1]
+	if user.Role != "user" || user.Content.AsString() != "Say hello." {
+		t.Fatalf("user message = {%q, %q}, want user/Say hello.", user.Role, user.Content.AsString())
 	}
-	if got := session.Data.Turns[0].UserMessage.Content.AsString(); got != "Say hello." {
-		t.Fatalf("user content = %v, want original prompt", session.Data.Turns[0].UserMessage.Content)
+	if user.Sequence != 0 || user.ProducedByCallID != "" {
+		t.Fatalf("user metadata = {seq=%d, produced_by=%q}, want seq=0/produced_by=\"\"", user.Sequence, user.ProducedByCallID)
+	}
+	if assistant.Role != "assistant" || assistant.Content.AsString() != "Hello from Claude." {
+		t.Fatalf("assistant message = {%q, %q}", assistant.Role, assistant.Content.AsString())
+	}
+	if assistant.Sequence != 1 || assistant.ProducedByCallID == "" {
+		t.Fatalf("assistant metadata = {seq=%d, produced_by=%q}, want seq=1/produced_by != empty", assistant.Sequence, assistant.ProducedByCallID)
+	}
+	call := session.Data.ProviderCalls[0]
+	if call.Provider != "anthropic" || call.Model != "claude-sonnet-4-20250514" {
+		t.Fatalf("provider_call = {provider=%q, model=%q}, want anthropic/Claude", call.Provider, call.Model)
+	}
+	if assistant.ProducedByCallID != call.ID {
+		t.Fatalf("assistant.produced_by_call_id = %q, want %q (call.id)", assistant.ProducedByCallID, call.ID)
+	}
+	if call.PromptTokens != 12 || call.CompletionTokens != 4 || call.TotalTokens != 16 {
+		t.Fatalf("token usage on provider_call = {%d, %d, %d}, want 12/4/16", call.PromptTokens, call.CompletionTokens, call.TotalTokens)
 	}
 }
 

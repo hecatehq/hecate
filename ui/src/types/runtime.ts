@@ -50,7 +50,8 @@ export type ChatSessionSummaryRecord = {
   title: string;
   tenant?: string;
   user?: string;
-  turn_count: number;
+  message_count: number;
+  provider_call_count: number;
   created_at?: string;
   updated_at?: string;
   last_model?: string;
@@ -59,20 +60,48 @@ export type ChatSessionSummaryRecord = {
   last_request_id?: string;
 };
 
-export type ChatSessionTurnRecord = {
+// PersistedContentBlock mirrors the Hecate-extension wire shape used to
+// persist Anthropic-aware content (thinking, tool_use, image with
+// cache_control). Replay paths emit it; SDK clients hitting the OpenAI
+// proxy don't.
+export type PersistedContentBlock = {
+  type: string;
+  text?: string;
+  id?: string;
+  name?: string;
+  input?: unknown;
+  tool_use_id?: string;
+  cache_control?: unknown;
+  thinking?: string;
+  signature?: string;
+  data?: string;
+  image_url?: { url: string; detail?: string };
+};
+
+// ChatSessionMessageRecord is one entry in a session's flat message
+// stream as returned by GET /v1/chat/sessions/{id}. The role/content/
+// tool_calls/content_blocks fields are flattened onto the same object
+// (the gateway side embeds OpenAIChatMessage inside ChatSessionMessageItem).
+export type ChatSessionMessageRecord = {
+  id: string;
+  sequence: number;
+  produced_by_call_id?: string;
+  created_at?: string;
+  role: string;
+  content: string | null;
+  name?: string;
+  tool_call_id?: string;
+  tool_calls?: ToolCall[];
+  content_blocks?: PersistedContentBlock[];
+  tool_error?: boolean;
+};
+
+// ChatProviderCallRecord is one upstream chat-completion request: its
+// routing decision, model, tokens, and cost. Multiple messages can
+// reference the same call via produced_by_call_id.
+export type ChatProviderCallRecord = {
   id: string;
   request_id: string;
-  user_message: {
-    role: string;
-    content: string;
-    name?: string;
-  };
-  assistant_message: {
-    role: string;
-    content: string | null;
-    name?: string;
-    tool_calls?: ToolCall[];
-  };
   requested_provider?: string;
   provider: string;
   provider_kind?: string;
@@ -89,11 +118,13 @@ export type ChatSessionTurnRecord = {
 export type ChatSessionRecord = {
   id: string;
   title: string;
+  system_prompt?: string;
   tenant?: string;
   user?: string;
   created_at?: string;
   updated_at?: string;
-  turns?: ChatSessionTurnRecord[];
+  messages?: ChatSessionMessageRecord[];
+  provider_calls?: ChatProviderCallRecord[];
 };
 
 export type ChatSessionsResponse = {

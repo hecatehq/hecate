@@ -63,7 +63,7 @@ func (h *Handler) HandleChatCompletions(w http.ResponseWriter, r *http.Request) 
 	}
 
 	if internalReq.SessionID != "" {
-		if _, err := h.service.RecordChatTurn(ctx, internalReq.SessionID, internalReq, result); err != nil {
+		if _, err := h.service.RecordChatExchange(ctx, internalReq.SessionID, internalReq, result); err != nil {
 			telemetry.Warn(h.logger, ctx, "gateway.chat.sessions.record_failed",
 				slog.String("event.name", "gateway.chat.sessions.record_failed"),
 				slog.String("hecate.chat.session_id", internalReq.SessionID),
@@ -177,7 +177,7 @@ func (h *Handler) handleChatCompletionsStream(w http.ResponseWriter, r *http.Req
 				Model:        resolvedModel,
 			},
 		}
-		if _, err := h.service.RecordChatTurn(streamCtx, req.SessionID, req, syntheticResult); err != nil {
+		if _, err := h.service.RecordChatExchange(streamCtx, req.SessionID, req, syntheticResult); err != nil {
 			telemetry.Warn(h.logger, streamCtx, "gateway.chat.sessions.stream_record_failed",
 				slog.String("event.name", "gateway.chat.sessions.stream_record_failed"),
 				slog.String("hecate.chat.session_id", req.SessionID),
@@ -233,9 +233,19 @@ func normalizeChatRequest(req OpenAIChatCompletionRequest, requestID string, pri
 			Content:    msg.Content.AsString(),
 			Name:       msg.Name,
 			ToolCallID: msg.ToolCallID,
+			ToolError:  msg.ToolError,
 		}
 		if len(msg.Content.Blocks) > 0 {
 			m.ContentBlocks = openAIInboundBlocksToContentBlocks(msg.Content.Blocks)
+		}
+		// content_blocks (the Hecate-extension persisted-block shape)
+		// supersedes the OpenAI-spec inline blocks when both are set —
+		// it carries the richer Anthropic-aware data (thinking,
+		// redacted_thinking, tool_use, cache_control). Replay paths
+		// always emit content_blocks; SDK clients hitting the OpenAI
+		// proxy never set it.
+		if len(msg.ContentBlocks) > 0 {
+			m.ContentBlocks = persistedBlocksToContentBlocks(msg.ContentBlocks)
 		}
 		if len(msg.ToolCalls) > 0 {
 			m.ToolCalls = make([]types.ToolCall, 0, len(msg.ToolCalls))
@@ -362,6 +372,7 @@ func messageToWire(msg types.Message) OpenAIChatMessage {
 		Role:       msg.Role,
 		Name:       msg.Name,
 		ToolCallID: msg.ToolCallID,
+		ToolError:  msg.ToolError,
 	}
 	if len(msg.ToolCalls) > 0 {
 		wire.ToolCalls = make([]OpenAIToolCall, 0, len(msg.ToolCalls))
@@ -382,7 +393,71 @@ func messageToWire(msg types.Message) OpenAIChatMessage {
 	} else {
 		wire.Content = OpenAIMessageContent{Text: msg.Content}
 	}
+	if len(msg.ContentBlocks) > 0 {
+		wire.ContentBlocks = contentBlocksToPersistedBlocks(msg.ContentBlocks)
+	}
 	return wire
+}
+
+// contentBlocksToPersistedBlocks maps the canonical types.ContentBlock
+// to the persisted Hecate-extension wire shape. Used by session-fetch
+// rendering so Anthropic thinking / redacted_thinking / tool_use blocks
+// survive the round-trip back to a UI client. The OpenAI image-block
+// shape is also emitted here for completeness.
+func contentBlocksToPersistedBlocks(blocks []types.ContentBlock) []OpenAIPersistedContentBlock {
+	out := make([]OpenAIPersistedContentBlock, 0, len(blocks))
+	for _, cb := range blocks {
+		wire := OpenAIPersistedContentBlock{
+			Type:         cb.Type,
+			Text:         cb.Text,
+			ID:           cb.ID,
+			Name:         cb.Name,
+			Input:        cb.Input,
+			ToolUseID:    cb.ToolUseID,
+			CacheControl: cb.CacheControl,
+			Thinking:     cb.Thinking,
+			Signature:    cb.Signature,
+			Data:         cb.Data,
+		}
+		if cb.Image != nil && (cb.Type == "image_url" || cb.Type == "image") {
+			wire.ImageURL = &OpenAIContentImageURL{
+				URL:    cb.Image.URL,
+				Detail: cb.Image.Detail,
+			}
+		}
+		out = append(out, wire)
+	}
+	return out
+}
+
+// persistedBlocksToContentBlocks is the inverse: maps the wire
+// extension shape back to the canonical types.ContentBlock. Used on
+// the inbound side of normalizeChatRequest when the UI replays history
+// containing rich blocks.
+func persistedBlocksToContentBlocks(blocks []OpenAIPersistedContentBlock) []types.ContentBlock {
+	out := make([]types.ContentBlock, 0, len(blocks))
+	for _, b := range blocks {
+		cb := types.ContentBlock{
+			Type:         b.Type,
+			Text:         b.Text,
+			ID:           b.ID,
+			Name:         b.Name,
+			Input:        b.Input,
+			ToolUseID:    b.ToolUseID,
+			CacheControl: b.CacheControl,
+			Thinking:     b.Thinking,
+			Signature:    b.Signature,
+			Data:         b.Data,
+		}
+		if b.ImageURL != nil {
+			cb.Image = &types.ContentImage{
+				URL:    b.ImageURL.URL,
+				Detail: b.ImageURL.Detail,
+			}
+		}
+		out = append(out, cb)
+	}
+	return out
 }
 
 // openAIInboundBlocksToContentBlocks converts the inbound OpenAI

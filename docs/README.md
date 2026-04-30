@@ -17,6 +17,7 @@ Long-form references for operators, integrators, and contributors. The [project 
 |---|---|
 | [Runtime API](runtime-api.md) | Building a client against `/v1/tasks/*`. Lifecycle, approvals, run streaming, queue + lease semantics, health/discovery endpoints, bootstrap-token handshake. |
 | [Agent runtime](agent-runtime.md) | Configuring `agent_loop` runs. Built-in tools, four-layer system prompt, approval gates, cost ceiling, retry-from-turn. |
+| [Chat sessions](chat-sessions.md) | The flat-message + provider-call model behind `/v1/chat/sessions`, the operator UI's chat surface, and history replay across model/provider switches. |
 | [Events](events.md) | Consuming `/v1/events` or per-run SSE. Catalog of every event type with payload shape and when it fires. |
 | [MCP integration](mcp.md) | Wiring Hecate as an MCP server (Claude Desktop / Cursor / Zed) or attaching external MCP servers as tools to `agent_loop`. |
 

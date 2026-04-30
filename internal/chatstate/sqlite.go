@@ -3,6 +3,7 @@ package chatstate
 import (
 	"context"
 	"database/sql"
+	"encoding/json"
 	"errors"
 	"fmt"
 	"strings"
@@ -13,20 +14,22 @@ import (
 )
 
 // SQLiteStore mirrors PostgresStore — same Store-interface surface, same
-// sessions/turns table shape — so the gateway can swap chat-session
-// backends purely via config without touching call sites.
+// sessions / messages / provider_calls table shape — so the gateway can
+// swap chat-session backends purely via config without touching call
+// sites.
 //
 // Differences from the Postgres flavor that aren't accidental:
 //   - placeholders are `?` rather than `$N`.
 //   - timestamp columns are TEXT (SQLite has no TIMESTAMPTZ); the driver
 //     handles time.Time round-tripping via RFC3339-style encoding.
-//   - cascade-on-delete is declared on the turns table foreign key
+//   - cascade-on-delete is declared on the foreign keys
 //     (PRAGMA foreign_keys = ON is set by SQLiteClient on every conn).
 //   - no schema namespacing — QualifiedTable returns "hecate_<name>".
 type SQLiteStore struct {
-	client        *storage.SQLiteClient
-	sessionsTable string
-	turnsTable    string
+	client             *storage.SQLiteClient
+	sessionsTable      string
+	messagesTable      string
+	providerCallsTable string
 }
 
 func NewSQLiteStore(ctx context.Context, client *storage.SQLiteClient) (*SQLiteStore, error) {
@@ -34,9 +37,10 @@ func NewSQLiteStore(ctx context.Context, client *storage.SQLiteClient) (*SQLiteS
 		return nil, fmt.Errorf("sqlite client is required")
 	}
 	store := &SQLiteStore{
-		client:        client,
-		sessionsTable: client.QualifiedTable("chat_sessions"),
-		turnsTable:    client.QualifiedTable("chat_session_turns"),
+		client:             client,
+		sessionsTable:      client.QualifiedTable("chat_sessions"),
+		messagesTable:      client.QualifiedTable("chat_session_messages"),
+		providerCallsTable: client.QualifiedTable("chat_session_provider_calls"),
 	}
 	if err := store.migrate(ctx); err != nil {
 		return nil, err
@@ -133,70 +137,122 @@ func (s *SQLiteStore) ListSessions(ctx context.Context, filter Filter) ([]types.
 	if err := rows.Err(); err != nil {
 		return nil, fmt.Errorf("iterate sqlite chat sessions: %w", err)
 	}
+	if len(items) == 0 {
+		return items, nil
+	}
+	if err := s.attachLatestCalls(ctx, items); err != nil {
+		return nil, err
+	}
 	return items, nil
 }
 
-func (s *SQLiteStore) AppendTurn(ctx context.Context, sessionID string, turn types.ChatSessionTurn) (types.ChatSession, error) {
-	if turn.CreatedAt.IsZero() {
-		turn.CreatedAt = time.Now().UTC()
+func (s *SQLiteStore) AppendExchange(ctx context.Context, sessionID string, messages []types.ChatSessionMessage, call types.ChatProviderCall) (types.ChatSession, error) {
+	now := time.Now().UTC()
+	if call.CreatedAt.IsZero() {
+		call.CreatedAt = now
 	}
-	_, err := s.client.DB().ExecContext(
+
+	tx, err := s.client.DB().BeginTx(ctx, nil)
+	if err != nil {
+		return types.ChatSession{}, fmt.Errorf("begin sqlite tx: %w", err)
+	}
+	defer func() { _ = tx.Rollback() }()
+
+	var nextSeq sql.NullInt64
+	if err := tx.QueryRowContext(
+		ctx,
+		fmt.Sprintf(`SELECT COALESCE(MAX(sequence), -1) + 1 FROM %s WHERE session_id = ?`, s.messagesTable),
+		sessionID,
+	).Scan(&nextSeq); err != nil {
+		return types.ChatSession{}, fmt.Errorf("read next message sequence: %w", err)
+	}
+
+	if _, err := tx.ExecContext(
 		ctx,
 		fmt.Sprintf(
 			`INSERT INTO %s (
-				id, session_id, request_id, user_role, user_content, assistant_role, assistant_content,
-				requested_provider, provider, provider_kind, requested_model, model,
-				cost_micros_usd, prompt_tokens, completion_tokens, total_tokens, created_at
-			) VALUES (
-				?, ?, ?, ?, ?, ?, ?,
-				?, ?, ?, ?, ?,
-				?, ?, ?, ?, ?
-			)`,
-			s.turnsTable,
+				id, session_id, request_id, requested_provider, provider, provider_kind,
+				requested_model, model, cost_micros_usd, prompt_tokens, completion_tokens, total_tokens, created_at
+			) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+			s.providerCallsTable,
 		),
-		turn.ID,
+		call.ID,
 		sessionID,
-		turn.RequestID,
-		turn.UserMessage.Role,
-		turn.UserMessage.Content,
-		turn.AssistantMessage.Role,
-		turn.AssistantMessage.Content,
-		turn.RequestedProvider,
-		turn.Provider,
-		turn.ProviderKind,
-		turn.RequestedModel,
-		turn.Model,
-		turn.CostMicrosUSD,
-		turn.PromptTokens,
-		turn.CompletionTokens,
-		turn.TotalTokens,
-		turn.CreatedAt.UTC(),
-	)
-	if err != nil {
-		return types.ChatSession{}, fmt.Errorf("append sqlite chat turn: %w", err)
+		call.RequestID,
+		call.RequestedProvider,
+		call.Provider,
+		call.ProviderKind,
+		call.RequestedModel,
+		call.Model,
+		call.CostMicrosUSD,
+		call.PromptTokens,
+		call.CompletionTokens,
+		call.TotalTokens,
+		call.CreatedAt.UTC(),
+	); err != nil {
+		return types.ChatSession{}, fmt.Errorf("insert sqlite provider call: %w", err)
 	}
-	if _, err := s.client.DB().ExecContext(
+
+	for i := range messages {
+		if messages[i].CreatedAt.IsZero() {
+			messages[i].CreatedAt = now
+		}
+		messages[i].Sequence = int(nextSeq.Int64) + i
+		messageJSON, err := json.Marshal(messages[i].Message)
+		if err != nil {
+			return types.ChatSession{}, fmt.Errorf("marshal chat message: %w", err)
+		}
+		var producedBy sql.NullString
+		if messages[i].ProducedByCallID != "" {
+			producedBy = sql.NullString{String: messages[i].ProducedByCallID, Valid: true}
+		}
+		if _, err := tx.ExecContext(
+			ctx,
+			fmt.Sprintf(
+				`INSERT INTO %s (id, session_id, sequence, produced_by_call_id, message_json, created_at)
+				 VALUES (?, ?, ?, ?, ?, ?)`,
+				s.messagesTable,
+			),
+			messages[i].ID,
+			sessionID,
+			messages[i].Sequence,
+			producedBy,
+			string(messageJSON),
+			messages[i].CreatedAt.UTC(),
+		); err != nil {
+			return types.ChatSession{}, fmt.Errorf("insert sqlite chat message: %w", err)
+		}
+	}
+
+	if _, err := tx.ExecContext(
 		ctx,
 		fmt.Sprintf(`UPDATE %s SET updated_at = ? WHERE id = ?`, s.sessionsTable),
-		turn.CreatedAt.UTC(),
+		call.CreatedAt.UTC(),
 		sessionID,
 	); err != nil {
 		return types.ChatSession{}, fmt.Errorf("update sqlite chat session timestamp: %w", err)
+	}
+
+	if err := tx.Commit(); err != nil {
+		return types.ChatSession{}, fmt.Errorf("commit sqlite tx: %w", err)
 	}
 	return s.loadSession(ctx, sessionID)
 }
 
 func (s *SQLiteStore) DeleteSession(ctx context.Context, id string) error {
-	// Foreign key with ON DELETE CASCADE on the turns table handles the
-	// child rows; we still issue an explicit DELETE on turns first as a
-	// belt-and-braces guard for environments where PRAGMA foreign_keys
-	// somehow drifted off (the Postgres flavor does the same).
 	if _, err := s.client.DB().ExecContext(
 		ctx,
-		fmt.Sprintf(`DELETE FROM %s WHERE session_id = ?`, s.turnsTable),
+		fmt.Sprintf(`DELETE FROM %s WHERE session_id = ?`, s.messagesTable),
 		id,
 	); err != nil {
-		return fmt.Errorf("delete sqlite chat session turns: %w", err)
+		return fmt.Errorf("delete sqlite chat messages: %w", err)
+	}
+	if _, err := s.client.DB().ExecContext(
+		ctx,
+		fmt.Sprintf(`DELETE FROM %s WHERE session_id = ?`, s.providerCallsTable),
+		id,
+	); err != nil {
+		return fmt.Errorf("delete sqlite chat provider calls: %w", err)
 	}
 	if _, err := s.client.DB().ExecContext(
 		ctx,
@@ -265,6 +321,15 @@ func (s *SQLiteStore) migrate(ctx context.Context) error {
 			return fmt.Errorf("migrate sqlite chat sessions system_prompt: %w", err)
 		}
 	}
+	// Drop the legacy chat_session_turns table on upgrade. The new
+	// schema is incompatible row-shape; we are intentionally not
+	// carrying turn data forward (session metadata survives).
+	if _, err := s.client.DB().ExecContext(
+		ctx,
+		fmt.Sprintf(`DROP TABLE IF EXISTS %s`, s.client.QualifiedTable("chat_session_turns")),
+	); err != nil {
+		return fmt.Errorf("drop legacy sqlite chat session turns: %w", err)
+	}
 	if _, err := s.client.DB().ExecContext(
 		ctx,
 		fmt.Sprintf(
@@ -272,10 +337,6 @@ func (s *SQLiteStore) migrate(ctx context.Context) error {
 				id TEXT PRIMARY KEY,
 				session_id TEXT NOT NULL REFERENCES %s (id) ON DELETE CASCADE,
 				request_id TEXT NOT NULL,
-				user_role TEXT NOT NULL,
-				user_content TEXT NOT NULL,
-				assistant_role TEXT NOT NULL,
-				assistant_content TEXT NOT NULL,
 				requested_provider TEXT NOT NULL,
 				provider TEXT NOT NULL,
 				provider_kind TEXT NOT NULL,
@@ -287,22 +348,46 @@ func (s *SQLiteStore) migrate(ctx context.Context) error {
 				total_tokens INTEGER NOT NULL,
 				created_at TIMESTAMP NOT NULL
 			)`,
-			s.turnsTable,
+			s.providerCallsTable,
 			s.sessionsTable,
 		),
 	); err != nil {
-		return fmt.Errorf("migrate sqlite chat session turns: %w", err)
+		return fmt.Errorf("migrate sqlite chat session provider calls: %w", err)
 	}
-
-	// Index names use unquoted identifiers (matching the convention in
-	// internal/retention/history_sqlite.go) paired with quoted target
-	// tables.
-	turnsIndex := strings.Trim(s.turnsTable, `"`) + "_session_created_idx"
 	if _, err := s.client.DB().ExecContext(
 		ctx,
-		fmt.Sprintf(`CREATE INDEX IF NOT EXISTS "%s" ON %s (session_id, created_at)`, turnsIndex, s.turnsTable),
+		fmt.Sprintf(
+			`CREATE TABLE IF NOT EXISTS %s (
+				id TEXT PRIMARY KEY,
+				session_id TEXT NOT NULL REFERENCES %s (id) ON DELETE CASCADE,
+				sequence INTEGER NOT NULL,
+				produced_by_call_id TEXT REFERENCES %s (id) ON DELETE SET NULL,
+				message_json TEXT NOT NULL,
+				created_at TIMESTAMP NOT NULL,
+				UNIQUE (session_id, sequence)
+			)`,
+			s.messagesTable,
+			s.sessionsTable,
+			s.providerCallsTable,
+		),
 	); err != nil {
-		return fmt.Errorf("migrate sqlite chat session turns index: %w", err)
+		return fmt.Errorf("migrate sqlite chat session messages: %w", err)
+	}
+
+	// Index names use unquoted identifiers paired with quoted target tables.
+	messagesIndex := strings.Trim(s.messagesTable, `"`) + "_session_seq_idx"
+	if _, err := s.client.DB().ExecContext(
+		ctx,
+		fmt.Sprintf(`CREATE INDEX IF NOT EXISTS "%s" ON %s (session_id, sequence)`, messagesIndex, s.messagesTable),
+	); err != nil {
+		return fmt.Errorf("migrate sqlite chat session messages index: %w", err)
+	}
+	callsIndex := strings.Trim(s.providerCallsTable, `"`) + "_session_created_idx"
+	if _, err := s.client.DB().ExecContext(
+		ctx,
+		fmt.Sprintf(`CREATE INDEX IF NOT EXISTS "%s" ON %s (session_id, created_at)`, callsIndex, s.providerCallsTable),
+	); err != nil {
+		return fmt.Errorf("migrate sqlite chat session provider calls index: %w", err)
 	}
 	sessionsIndex := strings.Trim(s.sessionsTable, `"`) + "_tenant_updated_idx"
 	if _, err := s.client.DB().ExecContext(
@@ -362,50 +447,176 @@ func (s *SQLiteStore) loadSession(ctx context.Context, id string) (types.ChatSes
 		return types.ChatSession{}, fmt.Errorf("read sqlite chat session: %w", err)
 	}
 
+	calls, err := s.loadProviderCalls(ctx, id)
+	if err != nil {
+		return types.ChatSession{}, err
+	}
+	session.ProviderCalls = calls
+
+	messages, err := s.loadMessages(ctx, id)
+	if err != nil {
+		return types.ChatSession{}, err
+	}
+	session.Messages = messages
+	return session, nil
+}
+
+func (s *SQLiteStore) loadProviderCalls(ctx context.Context, sessionID string) ([]types.ChatProviderCall, error) {
 	rows, err := s.client.DB().QueryContext(
 		ctx,
 		fmt.Sprintf(
-			`SELECT id, request_id, user_role, user_content, assistant_role, assistant_content,
-			        requested_provider, provider, provider_kind, requested_model, model,
-			        cost_micros_usd, prompt_tokens, completion_tokens, total_tokens, created_at
+			`SELECT id, request_id, requested_provider, provider, provider_kind,
+			        requested_model, model, cost_micros_usd, prompt_tokens, completion_tokens, total_tokens, created_at
 			 FROM %s
 			 WHERE session_id = ?
-			 ORDER BY created_at ASC`,
-			s.turnsTable,
+			 ORDER BY created_at ASC, id ASC`,
+			s.providerCallsTable,
 		),
-		id,
+		sessionID,
 	)
 	if err != nil {
-		return types.ChatSession{}, fmt.Errorf("list sqlite chat turns: %w", err)
+		return nil, fmt.Errorf("list sqlite chat provider calls: %w", err)
 	}
 	defer rows.Close()
 
+	var calls []types.ChatProviderCall
 	for rows.Next() {
-		var turn types.ChatSessionTurn
+		var call types.ChatProviderCall
 		if err := rows.Scan(
-			&turn.ID,
-			&turn.RequestID,
-			&turn.UserMessage.Role,
-			&turn.UserMessage.Content,
-			&turn.AssistantMessage.Role,
-			&turn.AssistantMessage.Content,
-			&turn.RequestedProvider,
-			&turn.Provider,
-			&turn.ProviderKind,
-			&turn.RequestedModel,
-			&turn.Model,
-			&turn.CostMicrosUSD,
-			&turn.PromptTokens,
-			&turn.CompletionTokens,
-			&turn.TotalTokens,
-			&turn.CreatedAt,
+			&call.ID,
+			&call.RequestID,
+			&call.RequestedProvider,
+			&call.Provider,
+			&call.ProviderKind,
+			&call.RequestedModel,
+			&call.Model,
+			&call.CostMicrosUSD,
+			&call.PromptTokens,
+			&call.CompletionTokens,
+			&call.TotalTokens,
+			&call.CreatedAt,
 		); err != nil {
-			return types.ChatSession{}, fmt.Errorf("scan sqlite chat turn: %w", err)
+			return nil, fmt.Errorf("scan sqlite chat provider call: %w", err)
 		}
-		session.Turns = append(session.Turns, turn)
+		calls = append(calls, call)
 	}
 	if err := rows.Err(); err != nil {
-		return types.ChatSession{}, fmt.Errorf("iterate sqlite chat turns: %w", err)
+		return nil, fmt.Errorf("iterate sqlite chat provider calls: %w", err)
 	}
-	return session, nil
+	return calls, nil
+}
+
+func (s *SQLiteStore) loadMessages(ctx context.Context, sessionID string) ([]types.ChatSessionMessage, error) {
+	rows, err := s.client.DB().QueryContext(
+		ctx,
+		fmt.Sprintf(
+			`SELECT id, sequence, produced_by_call_id, message_json, created_at
+			 FROM %s
+			 WHERE session_id = ?
+			 ORDER BY sequence ASC`,
+			s.messagesTable,
+		),
+		sessionID,
+	)
+	if err != nil {
+		return nil, fmt.Errorf("list sqlite chat messages: %w", err)
+	}
+	defer rows.Close()
+
+	var messages []types.ChatSessionMessage
+	for rows.Next() {
+		var (
+			msg         types.ChatSessionMessage
+			producedBy  sql.NullString
+			messageJSON string
+		)
+		if err := rows.Scan(&msg.ID, &msg.Sequence, &producedBy, &messageJSON, &msg.CreatedAt); err != nil {
+			return nil, fmt.Errorf("scan sqlite chat message: %w", err)
+		}
+		if producedBy.Valid {
+			msg.ProducedByCallID = producedBy.String
+		}
+		if err := json.Unmarshal([]byte(messageJSON), &msg.Message); err != nil {
+			return nil, fmt.Errorf("decode sqlite chat message body (id=%s): %w", msg.ID, err)
+		}
+		messages = append(messages, msg)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, fmt.Errorf("iterate sqlite chat messages: %w", err)
+	}
+	return messages, nil
+}
+
+// attachLatestCalls populates the most-recent ProviderCall on each
+// session in items with a single query (avoiding N+1). SQLite's
+// equivalent of Postgres's DISTINCT ON is a correlated subquery.
+func (s *SQLiteStore) attachLatestCalls(ctx context.Context, items []types.ChatSession) error {
+	if len(items) == 0 {
+		return nil
+	}
+	placeholders := make([]string, len(items))
+	args := make([]any, len(items))
+	for i, item := range items {
+		placeholders[i] = "?"
+		args[i] = item.ID
+	}
+	query := fmt.Sprintf(
+		`SELECT c.session_id, c.id, c.request_id, c.requested_provider, c.provider, c.provider_kind,
+		        c.requested_model, c.model, c.cost_micros_usd, c.prompt_tokens, c.completion_tokens, c.total_tokens, c.created_at
+		 FROM %s c
+		 INNER JOIN (
+		     SELECT session_id, MAX(created_at) AS max_created
+		     FROM %s
+		     WHERE session_id IN (%s)
+		     GROUP BY session_id
+		 ) latest ON latest.session_id = c.session_id AND latest.max_created = c.created_at`,
+		s.providerCallsTable,
+		s.providerCallsTable,
+		strings.Join(placeholders, ", "),
+	)
+	rows, err := s.client.DB().QueryContext(ctx, query, args...)
+	if err != nil {
+		return fmt.Errorf("list sqlite chat session latest calls: %w", err)
+	}
+	defer rows.Close()
+
+	latestBySession := make(map[string]types.ChatProviderCall, len(items))
+	for rows.Next() {
+		var (
+			sessionID string
+			call      types.ChatProviderCall
+		)
+		if err := rows.Scan(
+			&sessionID,
+			&call.ID,
+			&call.RequestID,
+			&call.RequestedProvider,
+			&call.Provider,
+			&call.ProviderKind,
+			&call.RequestedModel,
+			&call.Model,
+			&call.CostMicrosUSD,
+			&call.PromptTokens,
+			&call.CompletionTokens,
+			&call.TotalTokens,
+			&call.CreatedAt,
+		); err != nil {
+			return fmt.Errorf("scan sqlite chat session latest call: %w", err)
+		}
+		// In the rare event of two calls with identical created_at,
+		// the join above can return multiple rows per session — keep
+		// the lexicographically-greatest id to stay deterministic.
+		if existing, ok := latestBySession[sessionID]; !ok || call.ID > existing.ID {
+			latestBySession[sessionID] = call
+		}
+	}
+	if err := rows.Err(); err != nil {
+		return fmt.Errorf("iterate sqlite chat session latest calls: %w", err)
+	}
+	for i := range items {
+		if call, ok := latestBySession[items[i].ID]; ok {
+			items[i].ProviderCalls = []types.ChatProviderCall{call}
+		}
+	}
+	return nil
 }

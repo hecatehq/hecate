@@ -294,11 +294,12 @@ type listChatSessionsArgs struct {
 
 type listChatSessionsResponse struct {
 	Data []struct {
-		ID        string `json:"id"`
-		Title     string `json:"title"`
-		Tenant    string `json:"tenant"`
-		TurnCount int    `json:"turn_count"`
-		UpdatedAt string `json:"updated_at"`
+		ID                string `json:"id"`
+		Title             string `json:"title"`
+		Tenant            string `json:"tenant"`
+		MessageCount      int    `json:"message_count"`
+		ProviderCallCount int    `json:"provider_call_count"`
+		UpdatedAt         string `json:"updated_at"`
 	} `json:"data"`
 }
 
@@ -329,7 +330,7 @@ func listChatSessionsHandler(client *GatewayClient) ToolHandler {
 			if title == "" {
 				title = "(untitled)"
 			}
-			fmt.Fprintf(&b, "- %s · %s (%d turns)", shortID(sess.ID), title, sess.TurnCount)
+			fmt.Fprintf(&b, "- %s · %s (%d messages, %d calls)", shortID(sess.ID), title, sess.MessageCount, sess.ProviderCallCount)
 			if sess.Tenant != "" {
 				fmt.Fprintf(&b, " · tenant=%s", sess.Tenant)
 			}

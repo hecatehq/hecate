@@ -41,7 +41,7 @@ Seven tools — four reads and three writes:
 |---|---|---|
 | `list_tasks` | read | Recent agent tasks: id, title, status, execution kind, step count |
 | `get_task_status` | read | Detailed status of one task by id, including its latest run |
-| `list_chat_sessions` | read | Recent chat sessions: id, title, tenant, turn count |
+| `list_chat_sessions` | read | Recent chat sessions: id, title, tenant, message count, provider-call count |
 | `summarize_recent_traffic` | read | Aggregated request stats: by-provider breakdown, error rate, avg latency |
 | `create_task` | write | Queue a new `agent_loop` task with optional title / working_directory / model / provider / budget. Returns the new task id |
 | `resolve_approval` | write (destructive) | Approve or reject a pending approval gate (pre-execution or mid-loop). Approve resumes; reject terminates the run as failed |

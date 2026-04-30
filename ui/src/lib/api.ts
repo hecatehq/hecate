@@ -44,10 +44,38 @@ type ErrorPayload = {
   };
 };
 
+// PersistedContentBlock mirrors internal/api.OpenAIPersistedContentBlock.
+// Used on history-replay paths so Anthropic thinking / redacted_thinking /
+// tool_use / cache_control survive the round-trip.
+export type PersistedContentBlock = {
+  type: string;
+  text?: string;
+  id?: string;
+  name?: string;
+  input?: unknown;
+  tool_use_id?: string;
+  cache_control?: unknown;
+  thinking?: string;
+  signature?: string;
+  data?: string;
+  image_url?: { url: string; detail?: string };
+};
+
+// Common shape for the persisted-block + tool_error extensions that
+// every role can carry. Empty for plain string-content messages.
+type ChatMessageExtensions = {
+  content_blocks?: PersistedContentBlock[];
+  tool_error?: boolean;
+};
+
 export type ChatMessage =
-  | { role: "user" | "system"; content: string }
-  | { role: "assistant"; content: string | null; tool_calls?: Array<{ id: string; type: string; function: { name: string; arguments: string } }> }
-  | { role: "tool"; content: string; tool_call_id: string };
+  | ({ role: "user" | "system"; content: string } & ChatMessageExtensions)
+  | ({
+      role: "assistant";
+      content: string | null;
+      tool_calls?: Array<{ id: string; type: string; function: { name: string; arguments: string } }>;
+    } & ChatMessageExtensions)
+  | ({ role: "tool"; content: string; tool_call_id: string } & ChatMessageExtensions);
 
 export type ChatCompletionPayload = {
   model: string;
