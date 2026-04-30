@@ -13,6 +13,7 @@ on:
       - '**/*.md'
       - '**/*.mdc'
       - '.lycheeignore'
+      - 'scripts/check-mermaid.ts'
       - '.github/workflows/links.yml'
   pull_request:
     branches: [master]
@@ -20,6 +21,7 @@ on:
       - '**/*.md'
       - '**/*.mdc'
       - '.lycheeignore'
+      - 'scripts/check-mermaid.ts'
       - '.github/workflows/links.yml'
   # Weekly to surface external link rot without anyone touching the docs.
   schedule:
@@ -34,34 +36,59 @@ concurrency:
   cancel-in-progress: true
 
 jobs:
-  lychee:
-    name: Check markdown links
+  mermaid:
+    name: Check Mermaid diagrams
     runs-on: ubuntu-latest
-    # Link failures are informational: a broken external URL or a stale anchor
-    # should not block the Test or Build workflows from merging. The lychee
-    # summary is still posted to the job so maintainers can act on it.
+    steps:
+      - uses: actions/checkout@v6
+
+      - uses: oven-sh/setup-bun@v2
+
+      - name: Validate Mermaid diagrams
+        run: bun scripts/check-mermaid.ts
+
+  lychee-internal:
+    name: Check relative links (hard fail)
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v6
+
+      - name: Run lychee (local files only)
+        uses: lycheeverse/lychee-action@v2
+        with:
+          # Scope to file:// and relative refs only — external URLs handled
+          # by the soft-fail job below. --include-fragments catches broken
+          # anchors like docs/foo.md#section.
+          args: >-
+            --no-progress
+            --include-fragments
+            --scheme file
+            --exclude-path .gomodcache
+            --exclude-path ui/node_modules
+            --exclude-path .claude/skills
+            './**/*.md'
+            './**/*.mdc'
+          fail: true
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+
+  lychee-external:
+    name: Check external links (informational)
+    runs-on: ubuntu-latest
+    # External URL rot should not block PRs — network is flaky and maintainers
+    # act on these out-of-band. The job result is still visible in the summary.
     continue-on-error: true
     steps:
       - uses: actions/checkout@v6
 
-      - name: Run lychee
+      - name: Run lychee (external URLs only)
         uses: lycheeverse/lychee-action@v2
         with:
-          # --no-progress: cleaner CI logs.
-          # --include-fragments: catches broken anchor refs like docs/foo.md#section.
-          # --exclude-path .gomodcache: third-party module CLAUDE.md's are not ours to fix.
-          # --exclude-path ui/node_modules: same idea for npm package docs.
-          # --exclude-path .claude/skills: these are symlinks pointing to ai/skills/.
-          #   Lychee resolves relative links from the *symlink* directory, not the
-          #   symlink target, so every cross-skill reference appears broken. The
-          #   canonical files live under ai/skills/ and are already scanned there.
-          # No --base: lychee resolves relative links from each file's own path
-          # by default, which is what we want. (Earlier --base . failed because
-          # lychee requires --base to be a URL or an absolute path; for local
-          # file scans the flag is unnecessary.)
           args: >-
             --no-progress
             --include-fragments
+            --scheme https
+            --scheme http
             --exclude-path .gomodcache
             --exclude-path ui/node_modules
             --exclude-path .claude/skills

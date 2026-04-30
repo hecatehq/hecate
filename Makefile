@@ -81,10 +81,10 @@ ui-build:
 	test -d ui/node_modules/@tailwindcss/vite || (echo "UI dependencies are out of date. Run 'make ui-install' first." && exit 1)
 	cd ui && bun run build
 	# Vite empties ui/dist before building, which deletes the tracked
-	# .gitkeep placeholder. Recreate it so the next `git status` doesn't
-	# show the file as deleted and so a future `git clean` still leaves
-	# something for //go:embed to grab.
-	@touch ui/dist/.gitkeep
+	# .gitkeep placeholder. Restore it exactly as git has it so the next
+	# `git status` stays clean. Fall back to touch outside a git repo
+	# (CI build steps, fresh checkouts before the first commit).
+	@git restore ui/dist/.gitkeep 2>/dev/null || touch ui/dist/.gitkeep
 
 ui-test:
 	test -d ui/node_modules/@tailwindcss/vite || (echo "UI dependencies are out of date. Run 'make ui-install' first." && exit 1)

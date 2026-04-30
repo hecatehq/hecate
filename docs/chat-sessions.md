@@ -84,7 +84,7 @@ sequenceDiagram
     Note over Store: assigns monotonic sequence and writes both streams in one tx
     Store-->>Gateway: refreshed session
     Gateway-->>UI: response + headers
-    UI->>Gateway: GET /v1/chat/sessions/{id}
+    UI->>Gateway: GET /v1/chat/sessions/:id
     Gateway-->>UI: messages + provider_calls
 ```
 
