@@ -125,15 +125,15 @@ sequenceDiagram
     participant Store
     Worker->>Agent: Execute
     Agent->>Store: load conversation if resume
-    Note over Agent: prepend workspace env message<br/>plus four-layer system prompt
-    Note over Agent,MCP: bring up cached MCP clients,<br/>merge their tools into the catalog
+    Note over Agent: prepend workspace env message + four-layer system prompt
+    Note over Agent,MCP: bring up cached MCP clients and merge their tools into the catalog
     loop turn cycle
         Agent->>LLM: Chat with messages, tools, and ProviderHint
         LLM-->>Agent: assistant message
         Agent->>Store: emit agent.turn.completed event
         Agent->>Store: persist conversation snapshot
         alt assistant emitted tool_calls
-            opt any tool gated by policy<br/>(built-in or per-MCP-server)
+            opt any tool gated by policy (built-in or per-MCP-server)
                 Agent->>Store: persist agent_loop_tool_call approval
                 Agent-->>Worker: pause as awaiting_approval
             end

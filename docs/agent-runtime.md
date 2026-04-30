@@ -44,13 +44,13 @@ sequenceDiagram
     participant Store
     Runner->>Agent: Execute
     Agent->>Store: load saved conversation if resume
-    Note over Agent,Tools: tool catalog = built-ins + every<br/>mcp_servers entry's tool list
+    Note over Agent,Tools: tool catalog = built-ins + every mcp_servers entry's tool list
     loop turn cycle
         Agent->>LLM: Chat with messages and tool schemas
         LLM-->>Agent: assistant message
         Agent->>Store: persist conversation snapshot
         alt assistant emitted tool_calls
-            opt any tool gated by policy<br/>(built-in approval or per-server MCP policy)
+            opt any tool gated by policy (built-in approval or per-server MCP policy)
                 Agent->>Store: persist approval as pending
                 Agent-->>Runner: pause as awaiting_approval
             end

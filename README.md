@@ -218,7 +218,7 @@ Browse the full index at [`docs/README.md`](docs/README.md). Highlights:
 - **Run it** — [Deployment](docs/deployment.md), [Providers](docs/providers.md), [Tenants and API keys](docs/tenants.md), [Known limitations](docs/known-limitations.md)
 - **Use it** — [Runtime API](docs/runtime-api.md), [Agent runtime](docs/agent-runtime.md), [Events](docs/events.md), [MCP integration](docs/mcp.md)
 - **Observe it** — [Telemetry](docs/telemetry.md)
-- **Build it** — [Architecture](docs/architecture.md), [Development](docs/development.md), [Release](docs/release.md)
+- **Build it** — [Architecture](docs/architecture.md), [Development](docs/development.md), [Release](docs/release.md), [Chat sessions internals](docs/chat-sessions.md)
 
 ## Contributing
 
