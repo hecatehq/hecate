@@ -81,7 +81,7 @@ sequenceDiagram
     Gateway->>Provider: chat-completion request
     Provider-->>Gateway: assistant response
     Gateway->>Store: AppendExchange(new_messages, provider_call)
-    Note over Store: assigns monotonic sequence; writes both streams in one tx
+    Note over Store: assigns monotonic sequence and writes both streams in one tx
     Store-->>Gateway: refreshed session
     Gateway-->>UI: response + headers
     UI->>Gateway: GET /v1/chat/sessions/{id}
