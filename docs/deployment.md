@@ -17,6 +17,8 @@ Pinning is recommended for any deployment beyond local experimentation — `:lat
 
 When the working tree is a checkout of the source, `docker compose up` rebuilds locally from the bundled `Dockerfile` instead of pulling. Useful for testing changes; remove the `image:` line or run `docker compose build` first if you want the local build to be the canonical artifact.
 
+If a `docker run` (or `docker compose up`) errors with `bind: address already in use` on `:8765`, a previous `make dev` / `make run` / `./hecate` is still listening from another shell. Free the port with `make stop` and retry; `make dev`, `make run`, and `make serve` also auto-run `stop` before starting so successive launches don't pile up.
+
 ## Binary install
 
 The release workflow publishes static, single-file binaries for `linux+darwin × amd64+arm64` to GitHub Releases. Skip Docker if you'd rather run the gateway directly:

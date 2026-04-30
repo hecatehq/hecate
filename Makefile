@@ -2,7 +2,7 @@ SHELL := /bin/sh
 
 GOCACHE_DIR := $(CURDIR)/.gocache
 
-.PHONY: test test-race vet coverage ui-coverage build run serve dev ui-install ui-dev ui-build ui-test ui-test-e2e test-docker-smoke docs-env-check check-links verify-alpha reset-dev reset-docker screenshots
+.PHONY: test test-race vet coverage ui-coverage build run serve dev stop ui-install ui-dev ui-build ui-test ui-test-e2e test-docker-smoke docs-env-check check-links verify-alpha reset-dev reset-docker screenshots
 
 # build produces a single self-contained hecate binary with the UI bundle
 # embedded. The UI is built first so //go:embed picks up the real assets;
@@ -34,29 +34,36 @@ ui-coverage:
 	test -d ui/node_modules/@tailwindcss/vite || (echo "UI dependencies are out of date. Run 'make ui-install' first." && exit 1)
 	cd ui && bun run test:coverage
 
-run:
-	mkdir -p "$(GOCACHE_DIR)"
-	GOCACHE="$(GOCACHE_DIR)" go run ./cmd/hecate
-
-# serve runs the pre-built ./hecate binary. It first stops any existing
-# process listening on :8765 (the previous run that the operator forgot to
-# Ctrl-C) so a stale "address already in use" never blocks a restart.
-# It also sources .env so providers configured there are available, matching
-# the `make dev` workflow.
-serve:
-	@test -x ./hecate || (echo "hecate binary not found — run 'make build' first." && exit 1)
+# stop frees :8765 by killing whatever is listening there. Useful before
+# `docker run -p 8765:8765 …` (a stale `make dev` / `make run` / `./hecate`
+# from a previous shell will otherwise produce "address already in use") or
+# any time the operator wants to make sure the dev gateway is down.
+stop:
 	@pid=$$(lsof -ti:8765 2>/dev/null); \
-	if [ -n "$$pid" ]; then \
-	  echo "stopping existing hecate on :8765 (pid $$pid)"; \
+	if [ -z "$$pid" ]; then \
+	  echo ":8765 already free"; \
+	else \
+	  echo "stopping hecate on :8765 (pid $$pid)"; \
 	  kill $$pid; \
 	  sleep 0.3; \
 	fi
+
+run: stop
+	mkdir -p "$(GOCACHE_DIR)"
+	GOCACHE="$(GOCACHE_DIR)" go run ./cmd/hecate
+
+# serve runs the pre-built ./hecate binary. The `stop` prerequisite frees
+# :8765 if a stale process is still listening, so a forgotten Ctrl-C never
+# blocks a restart. It also sources .env so providers configured there are
+# available, matching the `make dev` workflow.
+serve: stop
+	@test -x ./hecate || (echo "hecate binary not found — run 'make build' first." && exit 1)
 	set -a; \
 	[ -f ./.env ] && . ./.env; \
 	set +a; \
 	./hecate
 
-dev:
+dev: stop
 	mkdir -p "$(GOCACHE_DIR)"
 	set -a; \
 	. ./.env; \
