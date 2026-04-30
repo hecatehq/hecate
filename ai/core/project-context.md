@@ -83,7 +83,7 @@ Long-form references live in `docs/`. Update them in the same change as the code
 | [`docs/events.md`](../../docs/events.md) | Every event type at `/v1/events` with payload shapes |
 | [`docs/telemetry.md`](../../docs/telemetry.md) | OTel spans + metrics, OTLP wiring, status and gaps |
 | [`docs/providers.md`](../../docs/providers.md) | Provider catalog, configuration |
-| [`docs/client-integration.md`](../../docs/client-integration.md) | Codex / Claude Code setup, multi-modal, OpenAI cross-provider behavior |
+| [`docs/tenants.md`](../../docs/tenants.md) | Multi-tenant opt-in: roles, modes, storage |
 | [`docs/mcp.md`](../../docs/mcp.md) | MCP server: tools, transport, configure |
 | [`docs/deployment.md`](../../docs/deployment.md) | Compose profiles, image pinning, lost-token recovery |
 | [`docs/development.md`](../../docs/development.md) | Local build, testing, screenshot tooling, `[skip ci]` convention |
