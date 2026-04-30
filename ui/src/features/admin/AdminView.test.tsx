@@ -77,14 +77,25 @@ describe("AdminView tabs", () => {
 });
 
 describe("AdminView admin token panel", () => {
-  it("shows 'not set' when authToken is empty", () => {
-    const { state, actions } = setup({ authToken: "" });
+  // The token panel only renders in multi-tenant mode — single-user
+  // installs have already pasted (or auto-bootstrapped) the token and
+  // never need to see it again. The tests below seed multi-tenant.
+
+  it("is hidden in single-tenant mode", () => {
+    const { state, actions } = setup({ authToken: "super-secret-token-123" });
+    render(<AdminView state={state} actions={actions} />);
+    expect(screen.queryByText(/Admin token/i)).toBeNull();
+    expect(screen.queryByRole("button", { name: /reveal/i })).toBeNull();
+  });
+
+  it("shows 'not set' when authToken is empty (multi-tenant)", () => {
+    const { state, actions } = setup({ session: adminMultiTenantSession, authToken: "" });
     render(<AdminView state={state} actions={actions} />);
     expect(screen.getAllByText(/not set/i).length).toBeGreaterThan(0);
   });
 
-  it("masks the token by default and reveals on click", async () => {
-    const { state, actions, user } = setup({ authToken: "super-secret-token-123" });
+  it("masks the token by default and reveals on click (multi-tenant)", async () => {
+    const { state, actions, user } = setup({ session: adminMultiTenantSession, authToken: "super-secret-token-123" });
     render(<AdminView state={state} actions={actions} />);
     expect(screen.queryByText("super-secret-token-123")).toBeNull();
     await user.click(screen.getByRole("button", { name: /reveal/i }));

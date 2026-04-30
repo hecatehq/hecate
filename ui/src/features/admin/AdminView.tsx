@@ -65,8 +65,12 @@ export function AdminView({ state, actions }: Props) {
 
   return (
     <div style={{ height: "100%", display: "flex", flexDirection: "column", overflow: "hidden" }}>
-      {/* Admin bearer token */}
-      <AdminToken state={state} actions={actions} />
+      {/* Admin bearer token — only meaningful in multi-tenant mode where
+          operators issue tenant API keys against the admin bearer. In
+          single-user mode the bootstrap handshake has already populated
+          authToken in localStorage and the operator never types it
+          again, so the row is noise. */}
+      {state.session.multiTenant && <AdminToken state={state} actions={actions} />}
 
       {/* Tab bar */}
       <div style={{ display: "flex", gap: 2, padding: "0 16px", borderBottom: "1px solid var(--border)", flexShrink: 0 }}>
