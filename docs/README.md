@@ -18,12 +18,12 @@ Pick your role and read in order — each path is three to five docs.
 3. [Events](events.md) — every event type, payload shape, and when it fires.
 4. [MCP integration](mcp.md) — wire Hecate as an MCP server or attach external MCP servers to agent tasks.
 5. [Chat sessions](chat-sessions.md) — the two-stream model behind `/v1/chat/sessions` and history replay.
+6. [Semantic cache](semantic-cache.md) — vector-similarity caching: embedders, backends, threshold tuning.
 
 **I'm changing Hecate** (human contributor)
-1. [`AGENTS.md`](../AGENTS.md) — codebase map and runtime invariants. Read this first.
-2. [Architecture](architecture.md) — gateway request flow and the task-runtime queue / lease / sandbox boundary.
-3. [Development](development.md) — Go + Bun toolchain, UI hot reload, the test ladder.
-4. [`ai/`](../ai/README.md) — conventions, workflow, verification ladders, skill index.
+1. [Architecture](architecture.md) — gateway request flow and the task-runtime queue / lease / sandbox boundary.
+2. [Development](development.md) — Go + Bun toolchain, UI hot reload, the test ladder.
+3. [`ai/`](../ai/README.md) — conventions, workflow, verification ladders, skill index.
 
 **I'm an AI agent working on Hecate**
 1. [`AGENTS.md`](../AGENTS.md) — orientation, codebase map, runtime invariants, gotchas.
@@ -44,6 +44,7 @@ Pick your role and read in order — each path is three to five docs.
 | Doc | Read this when |
 |---|---|
 | [Runtime API](runtime-api.md) | Building a client against `/v1/tasks/*`. Lifecycle, approvals, run streaming, queue + lease semantics, health/discovery endpoints, bootstrap-token handshake. |
+| [Semantic cache](semantic-cache.md) | Enabling vector-similarity caching, choosing an embedder, Postgres vs memory backend, similarity threshold tuning, observability. |
 | [Agent runtime](agent-runtime.md) | Configuring `agent_loop` runs. Built-in tools, four-layer system prompt, approval gates, cost ceiling, retry-from-turn. |
 | [Chat sessions](chat-sessions.md) | The flat-message + provider-call model behind `/v1/chat/sessions`, the operator UI's chat surface, and history replay across model/provider switches. |
 | [Events](events.md) | Consuming `/v1/events` or per-run SSE. Catalog of every event type with payload shape and when it fires. |
