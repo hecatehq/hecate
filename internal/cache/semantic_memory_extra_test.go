@@ -2,6 +2,7 @@ package cache
 
 import (
 	"context"
+	"fmt"
 	"strings"
 	"testing"
 	"time"
@@ -184,5 +185,297 @@ func TestBuildSemanticTextSkipsEmptyContent(t *testing.T) {
 	}
 	if strings.Contains(got, "user:") {
 		t.Errorf("user line with empty content should be skipped, got %q", got)
+	}
+}
+
+func TestMemorySemanticStoreStatsCountsNonExpired(t *testing.T) {
+	t.Parallel()
+
+	store := NewMemorySemanticStore(0, 100, LocalSimpleEmbedder{Dimensions: 32})
+	ctx := context.Background()
+
+	for i := range 4 {
+		if err := store.Set(ctx, SemanticEntry{
+			Namespace: "ns",
+			Text:      fmt.Sprintf("entry %d alpha beta gamma", i),
+			Response:  &types.ChatResponse{},
+			ExpiresAt: time.Now().Add(time.Hour),
+		}); err != nil {
+			t.Fatalf("Set(%d): %v", i, err)
+		}
+	}
+	// Expire two entries in place.
+	store.mu.Lock()
+	store.entries[0].entry.ExpiresAt = time.Now().Add(-time.Minute)
+	store.entries[1].entry.ExpiresAt = time.Now().Add(-time.Minute)
+	store.mu.Unlock()
+
+	count, err := store.Stats(ctx)
+	if err != nil {
+		t.Fatalf("Stats(): %v", err)
+	}
+	if count != 2 {
+		t.Errorf("Stats() = %d, want 2 (only non-expired entries)", count)
+	}
+}
+
+func TestMemorySemanticStoreStatsZeroOnEmpty(t *testing.T) {
+	t.Parallel()
+
+	store := NewMemorySemanticStore(0, 100, LocalSimpleEmbedder{Dimensions: 32})
+	count, err := store.Stats(context.Background())
+	if err != nil {
+		t.Fatalf("Stats(): %v", err)
+	}
+	if count != 0 {
+		t.Errorf("Stats() = %d, want 0 on empty store", count)
+	}
+}
+
+func TestMemorySemanticStoreListNewestFirst(t *testing.T) {
+	t.Parallel()
+
+	store := NewMemorySemanticStore(0, 100, LocalSimpleEmbedder{Dimensions: 32})
+	ctx := context.Background()
+	texts := []string{
+		"first entry alpha bravo",
+		"second entry charlie delta",
+		"third entry echo foxtrot",
+	}
+	for _, text := range texts {
+		if err := store.Set(ctx, SemanticEntry{
+			Namespace: "ns",
+			Text:      text,
+			Response:  &types.ChatResponse{},
+			ExpiresAt: time.Now().Add(time.Hour),
+		}); err != nil {
+			t.Fatalf("Set(%q): %v", text, err)
+		}
+	}
+
+	metas, err := store.List(ctx, 10, 0)
+	if err != nil {
+		t.Fatalf("List(): %v", err)
+	}
+	if len(metas) != 3 {
+		t.Fatalf("List() len = %d, want 3", len(metas))
+	}
+	// Newest (last inserted) should be first.
+	if metas[0].TextSnippet != "third entry echo foxtrot" {
+		t.Errorf("metas[0].TextSnippet = %q, want third entry", metas[0].TextSnippet)
+	}
+	if metas[2].TextSnippet != "first entry alpha bravo" {
+		t.Errorf("metas[2].TextSnippet = %q, want first entry", metas[2].TextSnippet)
+	}
+	for _, m := range metas {
+		if m.Namespace != "ns" {
+			t.Errorf("Namespace = %q, want ns", m.Namespace)
+		}
+		if m.StoredAt.IsZero() {
+			t.Errorf("StoredAt is zero")
+		}
+	}
+}
+
+func TestMemorySemanticStoreListExcludesExpired(t *testing.T) {
+	t.Parallel()
+
+	store := NewMemorySemanticStore(0, 100, LocalSimpleEmbedder{Dimensions: 32})
+	ctx := context.Background()
+
+	if err := store.Set(ctx, SemanticEntry{
+		Namespace: "ns",
+		Text:      "expired entry alpha beta",
+		Response:  &types.ChatResponse{},
+		ExpiresAt: time.Now().Add(-time.Minute),
+	}); err != nil {
+		t.Fatalf("Set: %v", err)
+	}
+	if err := store.Set(ctx, SemanticEntry{
+		Namespace: "ns",
+		Text:      "live entry charlie delta",
+		Response:  &types.ChatResponse{},
+		ExpiresAt: time.Now().Add(time.Hour),
+	}); err != nil {
+		t.Fatalf("Set: %v", err)
+	}
+
+	metas, err := store.List(ctx, 10, 0)
+	if err != nil {
+		t.Fatalf("List(): %v", err)
+	}
+	if len(metas) != 1 {
+		t.Fatalf("List() len = %d, want 1 (expired entry excluded)", len(metas))
+	}
+	if metas[0].TextSnippet != "live entry charlie delta" {
+		t.Errorf("metas[0].TextSnippet = %q, want live entry", metas[0].TextSnippet)
+	}
+}
+
+func TestMemorySemanticStoreListPagination(t *testing.T) {
+	t.Parallel()
+
+	store := NewMemorySemanticStore(0, 100, LocalSimpleEmbedder{Dimensions: 32})
+	ctx := context.Background()
+
+	for i := range 5 {
+		if err := store.Set(ctx, SemanticEntry{
+			Namespace: "ns",
+			Text:      fmt.Sprintf("paginated entry %d alpha beta", i),
+			Response:  &types.ChatResponse{},
+			ExpiresAt: time.Now().Add(time.Hour),
+		}); err != nil {
+			t.Fatalf("Set(%d): %v", i, err)
+		}
+	}
+
+	page1, err := store.List(ctx, 2, 0)
+	if err != nil {
+		t.Fatalf("List(limit=2, offset=0): %v", err)
+	}
+	if len(page1) != 2 {
+		t.Fatalf("page1 len = %d, want 2", len(page1))
+	}
+
+	page2, err := store.List(ctx, 2, 2)
+	if err != nil {
+		t.Fatalf("List(limit=2, offset=2): %v", err)
+	}
+	if len(page2) != 2 {
+		t.Fatalf("page2 len = %d, want 2", len(page2))
+	}
+
+	page3, err := store.List(ctx, 2, 4)
+	if err != nil {
+		t.Fatalf("List(limit=2, offset=4): %v", err)
+	}
+	if len(page3) != 1 {
+		t.Fatalf("page3 len = %d, want 1 (last page)", len(page3))
+	}
+
+	// Pages should be disjoint.
+	seen := make(map[string]bool)
+	for _, p := range [][]SemanticEntryMeta{page1, page2, page3} {
+		for _, m := range p {
+			if seen[m.TextSnippet] {
+				t.Errorf("duplicate entry %q across pages", m.TextSnippet)
+			}
+			seen[m.TextSnippet] = true
+		}
+	}
+}
+
+func TestMemorySemanticStoreListSnippetTruncated(t *testing.T) {
+	t.Parallel()
+
+	store := NewMemorySemanticStore(0, 100, LocalSimpleEmbedder{Dimensions: 32})
+	ctx := context.Background()
+
+	longText := strings.Repeat("a", 300) + " extra words"
+	if err := store.Set(ctx, SemanticEntry{
+		Namespace: "ns",
+		Text:      longText,
+		Response:  &types.ChatResponse{},
+		ExpiresAt: time.Now().Add(time.Hour),
+	}); err != nil {
+		t.Fatalf("Set: %v", err)
+	}
+
+	metas, err := store.List(ctx, 10, 0)
+	if err != nil {
+		t.Fatalf("List(): %v", err)
+	}
+	if len(metas) != 1 {
+		t.Fatalf("List() len = %d, want 1", len(metas))
+	}
+	// Snippet must be ≤200 chars + "…" suffix.
+	if len([]rune(metas[0].TextSnippet)) > 201 {
+		t.Errorf("TextSnippet rune len = %d, want ≤201 (200 chars + ellipsis)", len([]rune(metas[0].TextSnippet)))
+	}
+	if !strings.HasSuffix(metas[0].TextSnippet, "…") {
+		t.Errorf("TextSnippet should end with ellipsis, got %q", metas[0].TextSnippet)
+	}
+}
+
+func TestMemorySemanticStoreListOffsetBeyondEnd(t *testing.T) {
+	t.Parallel()
+
+	store := NewMemorySemanticStore(0, 100, LocalSimpleEmbedder{Dimensions: 32})
+	ctx := context.Background()
+
+	if err := store.Set(ctx, SemanticEntry{
+		Namespace: "ns",
+		Text:      "only entry alpha beta",
+		Response:  &types.ChatResponse{},
+		ExpiresAt: time.Now().Add(time.Hour),
+	}); err != nil {
+		t.Fatalf("Set: %v", err)
+	}
+
+	metas, err := store.List(ctx, 10, 100)
+	if err != nil {
+		t.Fatalf("List(offset=100): %v", err)
+	}
+	if metas != nil {
+		t.Errorf("List(offset beyond end) = %v, want nil", metas)
+	}
+}
+
+func TestMemorySemanticStoreRetentionRoundtrip(t *testing.T) {
+	t.Parallel()
+
+	store := NewMemorySemanticStore(0, 100, LocalSimpleEmbedder{Dimensions: 32})
+	ctx := context.Background()
+
+	// Insert three entries; backdate two so a Prune(maxAge=1h, maxCount=0) removes them.
+	for i := range 3 {
+		if err := store.Set(ctx, SemanticEntry{
+			Namespace: "ns",
+			Text:      fmt.Sprintf("retention entry %d alpha beta gamma", i),
+			Response:  &types.ChatResponse{},
+			ExpiresAt: time.Now().Add(time.Hour),
+		}); err != nil {
+			t.Fatalf("Set(%d): %v", i, err)
+		}
+	}
+	store.mu.Lock()
+	store.entries[0].storedAt = time.Now().Add(-2 * time.Hour)
+	store.entries[1].storedAt = time.Now().Add(-2 * time.Hour)
+	store.mu.Unlock()
+
+	// Stats before: 3 entries.
+	before, err := store.Stats(ctx)
+	if err != nil {
+		t.Fatalf("Stats before: %v", err)
+	}
+	if before != 3 {
+		t.Fatalf("Stats before = %d, want 3", before)
+	}
+
+	// Prune entries older than 1 hour.
+	deleted, err := store.Prune(ctx, time.Hour, 0)
+	if err != nil {
+		t.Fatalf("Prune: %v", err)
+	}
+	if deleted != 2 {
+		t.Errorf("Prune deleted = %d, want 2", deleted)
+	}
+
+	// Stats after: 1 entry.
+	after, err := store.Stats(ctx)
+	if err != nil {
+		t.Fatalf("Stats after: %v", err)
+	}
+	if after != 1 {
+		t.Errorf("Stats after = %d, want 1", after)
+	}
+
+	// List after: 1 entry, newest first.
+	metas, err := store.List(ctx, 10, 0)
+	if err != nil {
+		t.Fatalf("List after: %v", err)
+	}
+	if len(metas) != 1 {
+		t.Errorf("List len after = %d, want 1", len(metas))
 	}
 }

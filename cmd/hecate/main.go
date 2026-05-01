@@ -565,7 +565,7 @@ func buildProviderHistoryStore(cfg config.Config, logger *slog.Logger, postgresC
 
 func buildSemanticStore(cfg config.Config, logger *slog.Logger, postgresClient *storage.PostgresClient) cache.SemanticStore {
 	if !cfg.Cache.Semantic.Enabled {
-		return cache.NoopSemanticStore{}
+		return nil
 	}
 	embedder := buildSemanticEmbedder(cfg)
 	switch cfg.Cache.Semantic.Backend {
@@ -596,7 +596,7 @@ func buildSemanticStore(cfg config.Config, logger *slog.Logger, postgresClient *
 		}
 		return store
 	default:
-		return cache.NoopSemanticStore{}
+		return nil
 	}
 }
 

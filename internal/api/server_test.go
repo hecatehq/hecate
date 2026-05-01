@@ -1448,6 +1448,253 @@ func assertRuntimeStatsCore(t *testing.T, response RuntimeStatsResponse) {
 	}
 }
 
+func TestSemanticCacheStatusUnconfigured(t *testing.T) {
+	t.Parallel()
+
+	logger := slog.New(slog.NewJSONHandler(io.Discard, nil))
+	// Default config has semantic cache disabled → NoopSemanticStore.
+	handler := newTestHTTPHandlerForProviders(logger, nil, config.Config{})
+	client := newAPITestClient(t, handler)
+
+	res := mustRequestJSON[SemanticCacheStatusResponse](client, http.MethodGet, "/admin/semantic-cache", "")
+	if res.Object != "semantic_cache_status" {
+		t.Fatalf("object = %q, want semantic_cache_status", res.Object)
+	}
+	if res.Data.Configured {
+		t.Errorf("configured = true, want false when semantic cache is disabled")
+	}
+	if res.Data.CheckedAt == "" {
+		t.Errorf("checked_at = empty, want timestamp")
+	}
+}
+
+func TestSemanticCacheStatusConfigured(t *testing.T) {
+	t.Parallel()
+
+	logger := slog.New(slog.NewJSONHandler(io.Discard, nil))
+	handler := newTestHTTPHandlerWithConfig(logger, &fakeProvider{name: "openai"}, config.Config{
+		Cache: config.CacheConfig{
+			Semantic: config.SemanticCacheConfig{
+				Enabled:       true,
+				Backend:       "memory",
+				DefaultTTL:    time.Hour,
+				MinSimilarity: 0.75,
+				MaxEntries:    500,
+				MaxTextChars:  2048,
+			},
+		},
+	})
+	client := newAPITestClient(t, handler)
+
+	res := mustRequestJSON[SemanticCacheStatusResponse](client, http.MethodGet, "/admin/semantic-cache", "")
+	if res.Object != "semantic_cache_status" {
+		t.Fatalf("object = %q, want semantic_cache_status", res.Object)
+	}
+	if !res.Data.Configured {
+		t.Errorf("configured = false, want true when semantic cache is enabled")
+	}
+	if !res.Data.Enabled {
+		t.Errorf("enabled = false, want true")
+	}
+	if res.Data.Backend != "memory" {
+		t.Errorf("backend = %q, want memory", res.Data.Backend)
+	}
+	if res.Data.MinSimilarity != 0.75 {
+		t.Errorf("min_similarity = %v, want 0.75", res.Data.MinSimilarity)
+	}
+	if res.Data.MaxEntries != 500 {
+		t.Errorf("max_entries = %d, want 500", res.Data.MaxEntries)
+	}
+	if res.Data.MaxTextChars != 2048 {
+		t.Errorf("max_text_chars = %d, want 2048", res.Data.MaxTextChars)
+	}
+}
+
+func TestSemanticCacheStatusEntryCountReflectsStore(t *testing.T) {
+	t.Parallel()
+
+	logger := slog.New(slog.NewJSONHandler(io.Discard, nil))
+	provider := &fakeProvider{
+		name: "ollama",
+		capabilities: providers.Capabilities{
+			Name:         "ollama",
+			Kind:         providers.KindLocal,
+			DefaultModel: "llama3.1:8b",
+			Models:       []string{"llama3.1:8b"},
+		},
+		response: &types.ChatResponse{
+			ID:    "chatcmpl-1",
+			Model: "llama3.1:8b",
+			Choices: []types.ChatChoice{{
+				Message:      types.Message{Role: "assistant", Content: "Go channels synchronise goroutines."},
+				FinishReason: "stop",
+			}},
+		},
+	}
+	handler := newTestHTTPHandlerWithConfig(logger, provider, config.Config{
+		Cache: config.CacheConfig{
+			Semantic: config.SemanticCacheConfig{
+				Enabled:       true,
+				Backend:       "memory",
+				DefaultTTL:    time.Hour,
+				MinSimilarity: 0.5,
+				MaxEntries:    100,
+				MaxTextChars:  2048,
+			},
+		},
+	})
+	client := newAPITestClient(t, handler)
+
+	// Populate the semantic cache with a chat completion request.
+	performJSONRequest(t, handler, `{"model":"llama3.1:8b","messages":[{"role":"user","content":"Explain Go channels briefly."}]}`)
+
+	res := mustRequestJSON[SemanticCacheStatusResponse](client, http.MethodGet, "/admin/semantic-cache", "")
+	if res.Data.Entries < 1 {
+		t.Errorf("entries = %d, want >= 1 after a cacheable request", res.Data.Entries)
+	}
+}
+
+func TestSemanticCacheEntriesEmptyWhenUnconfigured(t *testing.T) {
+	t.Parallel()
+
+	logger := slog.New(slog.NewJSONHandler(io.Discard, nil))
+	handler := newTestHTTPHandlerForProviders(logger, nil, config.Config{})
+	client := newAPITestClient(t, handler)
+
+	res := mustRequestJSON[SemanticCacheEntriesResponse](client, http.MethodGet, "/admin/semantic-cache/entries", "")
+	if res.Object != "semantic_cache_entries" {
+		t.Fatalf("object = %q, want semantic_cache_entries", res.Object)
+	}
+	if len(res.Data) != 0 {
+		t.Errorf("data len = %d, want 0 for unconfigured store", len(res.Data))
+	}
+}
+
+func TestSemanticCacheEntriesReturnsStoredEntries(t *testing.T) {
+	t.Parallel()
+
+	logger := slog.New(slog.NewJSONHandler(io.Discard, nil))
+	provider := &fakeProvider{
+		name: "ollama",
+		capabilities: providers.Capabilities{
+			Name:         "ollama",
+			Kind:         providers.KindLocal,
+			DefaultModel: "llama3.1:8b",
+			Models:       []string{"llama3.1:8b"},
+		},
+		response: &types.ChatResponse{
+			ID:    "chatcmpl-2",
+			Model: "llama3.1:8b",
+			Choices: []types.ChatChoice{{
+				Message:      types.Message{Role: "assistant", Content: "A goroutine is a lightweight thread."},
+				FinishReason: "stop",
+			}},
+		},
+	}
+	handler := newTestHTTPHandlerWithConfig(logger, provider, config.Config{
+		Cache: config.CacheConfig{
+			Semantic: config.SemanticCacheConfig{
+				Enabled:       true,
+				Backend:       "memory",
+				DefaultTTL:    time.Hour,
+				MinSimilarity: 0.5,
+				MaxEntries:    100,
+				MaxTextChars:  2048,
+			},
+		},
+	})
+	client := newAPITestClient(t, handler)
+
+	// Prime the cache.
+	performJSONRequest(t, handler, `{"model":"llama3.1:8b","messages":[{"role":"user","content":"What is a goroutine in Go?"}]}`)
+
+	res := mustRequestJSON[SemanticCacheEntriesResponse](client, http.MethodGet, "/admin/semantic-cache/entries", "")
+	if res.Object != "semantic_cache_entries" {
+		t.Fatalf("object = %q, want semantic_cache_entries", res.Object)
+	}
+	if len(res.Data) < 1 {
+		t.Fatalf("data len = %d, want >= 1", len(res.Data))
+	}
+	entry := res.Data[0]
+	if entry.Namespace == "" {
+		t.Errorf("namespace = empty, want non-empty")
+	}
+	if entry.TextSnippet == "" {
+		t.Errorf("text_snippet = empty, want non-empty")
+	}
+	if entry.StoredAt == "" {
+		t.Errorf("stored_at = empty, want timestamp")
+	}
+	if entry.ExpiresAt == "" {
+		t.Errorf("expires_at = empty, want timestamp")
+	}
+}
+
+func TestSemanticCacheEntriesPaginates(t *testing.T) {
+	t.Parallel()
+
+	logger := slog.New(slog.NewJSONHandler(io.Discard, nil))
+	provider := &fakeProvider{
+		name: "ollama",
+		capabilities: providers.Capabilities{
+			Name:         "ollama",
+			Kind:         providers.KindLocal,
+			DefaultModel: "llama3.1:8b",
+			Models:       []string{"llama3.1:8b"},
+		},
+		response: &types.ChatResponse{
+			ID:    "chatcmpl-pg",
+			Model: "llama3.1:8b",
+			Choices: []types.ChatChoice{{
+				Message:      types.Message{Role: "assistant", Content: "A response."},
+				FinishReason: "stop",
+			}},
+		},
+	}
+	// MinSimilarity=0.99 means only near-identical prompts hit the cache,
+	// so each of the 3 distinct prompts below is a cache miss and gets stored.
+	handler := newTestHTTPHandlerWithConfig(logger, provider, config.Config{
+		Cache: config.CacheConfig{
+			Semantic: config.SemanticCacheConfig{
+				Enabled:       true,
+				Backend:       "memory",
+				DefaultTTL:    time.Hour,
+				MinSimilarity: 0.99,
+				MaxEntries:    100,
+				MaxTextChars:  2048,
+			},
+		},
+	})
+	client := newAPITestClient(t, handler)
+
+	// 3 semantically distinct prompts (different topics → different embeddings → all cache misses).
+	for _, msg := range []string{
+		`{"model":"llama3.1:8b","messages":[{"role":"user","content":"Quantum physics fundamentals explained."}]}`,
+		`{"model":"llama3.1:8b","messages":[{"role":"user","content":"History of the Roman Empire overview."}]}`,
+		`{"model":"llama3.1:8b","messages":[{"role":"user","content":"Cooking pasta al dente technique."}]}`,
+	} {
+		performJSONRequest(t, handler, msg)
+	}
+
+	page1 := mustRequestJSON[SemanticCacheEntriesResponse](client, http.MethodGet, "/admin/semantic-cache/entries?limit=2&offset=0", "")
+	if len(page1.Data) != 2 {
+		t.Fatalf("page1 len = %d, want 2", len(page1.Data))
+	}
+	page2 := mustRequestJSON[SemanticCacheEntriesResponse](client, http.MethodGet, "/admin/semantic-cache/entries?limit=2&offset=2", "")
+	if len(page2.Data) != 1 {
+		t.Fatalf("page2 len = %d, want 1 (last page)", len(page2.Data))
+	}
+
+	// Pages must be disjoint.
+	seen := make(map[string]bool)
+	for _, e := range append(page1.Data, page2.Data...) {
+		if seen[e.TextSnippet] {
+			t.Errorf("duplicate entry %q across pages", e.TextSnippet)
+		}
+		seen[e.TextSnippet] = true
+	}
+}
+
 func TestBudgetEndpointsRequireAdminWhenTenantKeysConfigured(t *testing.T) {
 	t.Parallel()
 
@@ -4189,7 +4436,7 @@ func defaultPricebookForTests() config.PricebookConfig {
 
 func buildTestSemanticStore(cfg config.Config) cache.SemanticStore {
 	if !cfg.Cache.Semantic.Enabled {
-		return cache.NoopSemanticStore{}
+		return nil
 	}
 	return cache.NewMemorySemanticStore(
 		cfg.Cache.Semantic.DefaultTTL,
