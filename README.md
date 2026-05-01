@@ -1,6 +1,6 @@
 # Hecate
 
-[![Latest release](https://img.shields.io/github/v/release/chicoxyzzy/hecate)](https://github.com/chicoxyzzy/hecate/releases/latest)
+[![Latest release](https://img.shields.io/github/v/release/chicoxyzzy/hecate?include_prereleases)](https://github.com/chicoxyzzy/hecate/releases/latest)
 [![Container](https://img.shields.io/badge/Container-ghcr.io-2496ED?logo=docker&logoColor=white)](https://github.com/chicoxyzzy/hecate/pkgs/container/hecate)
 [![Test](https://github.com/chicoxyzzy/hecate/actions/workflows/test.yml/badge.svg)](https://github.com/chicoxyzzy/hecate/actions/workflows/test.yml)
 [![CodeQL](https://github.com/chicoxyzzy/hecate/actions/workflows/codeql.yml/badge.svg)](https://github.com/chicoxyzzy/hecate/actions/workflows/codeql.yml)
