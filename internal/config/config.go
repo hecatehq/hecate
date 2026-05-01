@@ -56,6 +56,11 @@ type ServerConfig struct {
 	TaskQueueBuffer            int
 	TaskQueueLeaseSeconds      int
 	TaskMaxConcurrentPerTenant int
+	// TaskReconcileInterval controls how often the periodic reconciler
+	// scans for runs stuck in "running" past 3× the lease duration.
+	// Default 30s. Set via GATEWAY_TASK_RECONCILE_INTERVAL (Go duration
+	// string, e.g. "30s", "1m").
+	TaskReconcileInterval time.Duration
 	// TaskAgentLoopMaxTurns caps how many LLM round-trips an
 	// agent_loop run can make. Acts as a runaway-cost safety net.
 	// Default 8 (set in NewAgentLoopExecutor when zero).
@@ -367,6 +372,7 @@ func LoadFromEnv() Config {
 			TaskQueueWorkers:               getEnvInt("GATEWAY_TASK_QUEUE_WORKERS", 1),
 			TaskQueueBuffer:                getEnvInt("GATEWAY_TASK_QUEUE_BUFFER", 128),
 			TaskQueueLeaseSeconds:          getEnvInt("GATEWAY_TASK_QUEUE_LEASE_SECONDS", 30),
+			TaskReconcileInterval:          getEnvDuration("GATEWAY_TASK_RECONCILE_INTERVAL", 30*time.Second),
 			TaskAgentLoopMaxTurns:          getEnvInt("GATEWAY_TASK_AGENT_LOOP_MAX_TURNS", 8),
 			TaskMaxMCPServersPerTask:       getEnvInt("GATEWAY_TASK_MAX_MCP_SERVERS_PER_TASK", 16),
 			TaskMCPClientCacheMaxEntries:   getEnvInt("GATEWAY_TASK_MCP_CLIENT_CACHE_MAX_ENTRIES", 256),

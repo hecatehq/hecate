@@ -56,7 +56,8 @@ operators should not assume yet.
 - Runs that are stuck in `running` state (e.g. after a worker crash or process
   restart) are recovered automatically by the periodic reconciler and re-queued
   without operator intervention. The recovery window is three times the
-  configured lease duration (`GATEWAY_TASK_QUEUE_LEASE_SECONDS`).
+  configured lease duration (`GATEWAY_TASK_QUEUE_LEASE_SECONDS`); the scan
+  cadence is `GATEWAY_TASK_RECONCILE_INTERVAL` (default `30s`).
 - `sandboxd` provides an out-of-process execution boundary and policy checks;
   it is not yet hardened container/VM/OS isolation.
 - Network allowlisting for task tools is best-effort static command parsing,
