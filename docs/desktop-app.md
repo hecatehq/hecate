@@ -23,7 +23,7 @@ PR validation: [`tauri-build.yml`](../.github/workflows/tauri-build.yml) runs
 the same matrix on PRs touching the desktop pipeline and persists bundles as
 14-day workflow artifacts so reviewers can test-launch before merge.
 
-## Current state — `v0.1.0-alpha.8`
+## Current state — `v0.1.0-alpha.9`
 
 What works:
 
@@ -37,16 +37,23 @@ What works:
   the 30 s healthz timeout error message points at the file.
 - Cross-platform CI matrix with PR validation, draft skipping, run
   cancellation on push, and signed nothing.
+- macOS bundle launch-validated end-to-end: download → mount → drag to
+  `/Applications` → right-click Open (Gatekeeper escape) → splash → UI →
+  configure provider → quit cleanly. Linux and Windows bundles build
+  green in CI but have not yet been launch-tested on real hardware.
 
 What doesn't yet:
 
-- No code signing — macOS Gatekeeper and Windows SmartScreen will warn on
-  every install.
+- No code signing — macOS Gatekeeper and Windows SmartScreen warn on
+  every install. Real users need the right-click-Open / More-info-Run-anyway
+  escape, documented in release notes.
 - Real artwork — current icons are a solid `#1a1a2e` block, format-correct
   but visually placeholder.
 - No auto-update — plugin is wired but `active: false` until a signing
   keypair and update endpoint are decided.
 - No native menubar, no tray, no window-state persistence, no deep links.
+- Linux and Windows: build-only. Need an actual launch on each platform
+  before claiming they work.
 
 ## Roadmap
 
@@ -59,7 +66,7 @@ the bundle is polished enough to recommend.
 
 | Item | Scope | Notes |
 |---|---|---|
-| **Test the bundle on each platform** | ~30 min per OS | Download from a release run, configure a provider, send one chat, quit, relaunch, confirm config persists. We've validated macOS only; Linux and Windows are unproven. |
+| **Test the Linux + Windows bundles** | ~30 min per OS | Download from the `v0.1.0-alpha.9` release, install the `.deb` / `.AppImage` / `.msi`, configure a provider, send one chat, quit, relaunch, confirm config persists. macOS is done; these two are the remaining platform unknowns. |
 | **Real icons** | ~5 min once art exists | Source a 1024×1024 PNG, run `bunx @tauri-apps/cli icon path/to/source.png`, prune the iOS/Android/Windows-Store outputs. Format-correct placeholders are committed today. |
 | **Better startup-error UX** | ~1 h | Today a sidecar failure leaves the splash spinning forever and surfaces the error only in the window title. Add a Tauri event channel + an error view in `splash/index.html` that quotes the `gateway.log` path. |
 | **Window state persistence** | ~15 min | Install [`tauri-plugin-window-state`](https://docs.rs/tauri-plugin-window-state/), register it. Save/restore size + position across launches. |

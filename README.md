@@ -50,20 +50,39 @@ The published Docker image ships single-user. Full breakdown in [`docs/tenants.m
 
 ## Quick Start
 
-Single-user path; for multi-tenant see [`docs/tenants.md`](docs/tenants.md).
+Single-user path; for multi-tenant see [`docs/tenants.md`](docs/tenants.md). Two ways to get up:
 
-### 1. Run the image
+| Path | Best for |
+|---|---|
+| **Desktop app** (below) | Personal use on your laptop. No terminal, no Docker. |
+| **Docker** (below) | Servers, scripted deployments, anything you'd run as a service. |
+
+### Desktop app
+
+Download from the [latest release](https://github.com/chicoxyzzy/hecate/releases/latest):
+
+| Platform | Bundle |
+|---|---|
+| macOS (Apple Silicon) | `Hecate_X.Y.Z_aarch64.dmg` |
+| Linux x86_64 | `hecate-app_X.Y.Z_amd64.deb` or `.AppImage` |
+| Windows x86_64 | `Hecate_X.Y.Z_x64_en-US.msi` |
+
+Open the bundle, launch Hecate. The gateway runs as a sidecar inside the app and the UI loads automatically — no token paste, no port to remember. State lives in the platform data dir (`~/Library/Application Support/com.hecate.app/` on macOS, `%APPDATA%\com.hecate.app\` on Windows, `~/.local/share/com.hecate.app/` on Linux).
+
+> **First-launch warnings.** Bundles are not yet code-signed. On macOS, double-clicking the first time fails with "Apple cannot check it for malicious software" — right-click `Hecate.app` → **Open**, confirm in the dialog. On Windows, click **More info** → **Run anyway** on the SmartScreen warning. Subsequent launches work normally. Full state, footguns, and roadmap: [docs/desktop-app.md](docs/desktop-app.md).
+
+Skip to [step 2](#2-add-a-provider) once it's running.
+
+### Docker
 
 ```bash
 docker run --rm -p 8765:8765 -v hecate-data:/data \
-  ghcr.io/chicoxyzzy/hecate:0.1.0-alpha.7
+  ghcr.io/chicoxyzzy/hecate:0.1.0-alpha.9
 ```
-
-### 2. Open the UI
 
 Open `http://127.0.0.1:8765`. On a localhost browser the console picks up the generated admin bearer through a same-origin loopback handshake — no token paste needed.
 
-### 3. Add a provider
+### 2. Add a provider
 
 The Providers tab starts empty. Click **Add provider**, pick a preset (or **Custom** for any OpenAI-compatible endpoint), and paste an API key (cloud) or endpoint URL (local).
 
@@ -75,7 +94,7 @@ The Providers tab starts empty. Click **Add provider**, pick a preset (or **Cust
 
 Cloud presets need an API key; local presets just need the runtime listening on its default port. Full catalog, custom-endpoint walk-through, and credential rotation in [`docs/providers.md`](docs/providers.md).
 
-### 4. Talk to it
+### 3. Talk to it
 
 ![Chats workspace talking to a local Ollama llama3.1:8b model with sessions sidebar and inline runtime metadata](docs/screenshots/chat.png)
 
@@ -215,7 +234,7 @@ The README intentionally stays light on configuration. The source of truth is:
 
 Browse the full index at [`docs/README.md`](docs/README.md). Highlights:
 
-- **Run it** — [Deployment](docs/deployment.md), [Providers](docs/providers.md), [Tenants and API keys](docs/tenants.md), [Known limitations](docs/known-limitations.md)
+- **Run it** — [Deployment](docs/deployment.md), [Desktop app](docs/desktop-app.md), [Providers](docs/providers.md), [Tenants and API keys](docs/tenants.md), [Known limitations](docs/known-limitations.md)
 - **Use it** — [Runtime API](docs/runtime-api.md), [Agent runtime](docs/agent-runtime.md), [Events](docs/events.md), [MCP integration](docs/mcp.md)
 - **Observe it** — [Telemetry](docs/telemetry.md)
 - **Build it** — [Architecture](docs/architecture.md), [Development](docs/development.md), [Release](docs/release.md), [Chat sessions internals](docs/chat-sessions.md)

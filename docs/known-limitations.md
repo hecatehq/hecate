@@ -80,3 +80,22 @@ operators should not assume yet.
   request inspection, budgets, tenants, keys, and task-run debugging.
 - Some bulk-management and deeper artifact-inspection flows are still lighter
   than a mature control-plane product.
+
+## Desktop App
+
+- Bundles are not code-signed. macOS Gatekeeper warns on first launch
+  ("Apple cannot check it for malicious software"); Windows SmartScreen
+  shows "Windows protected your PC." Both have user-facing escapes
+  (right-click → Open on macOS; "More info" → "Run anyway" on Windows)
+  but are not the smooth first-run that signed apps get. See
+  [desktop-app.md](desktop-app.md) for the full first-launch story.
+- Platforms shipped: macOS (Apple Silicon), Linux x86_64, Windows x86_64.
+  macOS Intel, Linux arm64, and Windows arm64 are not yet built.
+- Auto-update is not wired. The plugin is installed but inactive until a
+  signing keypair and update endpoint are decided. Operators upgrade by
+  downloading the next release manually.
+- Closing only the window on macOS does not quit the app — the gateway
+  sidecar keeps running. Use `cmd+Q` to fully quit.
+- Per-platform data dir: settings on macOS don't migrate to a Linux
+  build of the same version. Multi-machine users keep separate config
+  per OS.

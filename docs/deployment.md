@@ -6,6 +6,7 @@ The [Quick Start](../README.md#quick-start) covers `docker run` end-to-end. This
 
 - [Image pinning](#image-pinning)
 - [Binary install](#binary-install)
+- [Desktop app](#desktop-app)
 - [Optional services (compose profiles)](#optional-services-compose-profiles)
 - [Auth and generated state](#auth-and-generated-state)
   - [Bootstrap handshake (loopback only)](#bootstrap-handshake-loopback-only)
@@ -61,6 +62,40 @@ Available tarballs for `v0.1.0-alpha.7`:
 - `hecate_0.1.0-alpha.7_darwin_arm64.tar.gz`
 
 Each tarball includes the binary plus `LICENSE` and `README.md`. Verify integrity against `checksums.txt` published alongside the release.
+
+## Desktop app
+
+A third install path for single-user / personal use on a laptop. Same release, different artifacts:
+
+| Platform | Bundle |
+|---|---|
+| macOS (Apple Silicon) | `Hecate_X.Y.Z_aarch64.dmg` |
+| Linux x86_64 | `hecate-app_X.Y.Z_amd64.deb`, `hecate-app_X.Y.Z_amd64.AppImage` |
+| Windows x86_64 | `Hecate_X.Y.Z_x64_en-US.msi` |
+
+The bundle is a Tauri 2.x chrome around the same `hecate` binary used in Docker and the tarballs. On launch the app spawns hecate as a sidecar on a free loopback port, polls `/healthz`, then loads the embedded UI directly — same-origin loopback means the bootstrap-token handshake auto-logs you in without a token paste prompt.
+
+State lives in the platform data dir, not next to the binary:
+
+| Platform | Data dir |
+|---|---|
+| macOS | `~/Library/Application Support/com.hecate.app/` |
+| Linux | `~/.local/share/com.hecate.app/` |
+| Windows | `%APPDATA%\com.hecate.app\` |
+
+Bundles are not yet code-signed:
+
+- **macOS Gatekeeper** blocks the first launch with "Apple cannot check it for malicious software." Right-click `Hecate.app` → **Open**, confirm in the dialog. Subsequent launches work normally.
+- **Windows SmartScreen** shows a "Windows protected your PC" warning. Click **More info** → **Run anyway**. Reputation builds over hundreds of installs.
+- **Linux** has no Gatekeeper-equivalent. `.deb` installs as a normal package; `.AppImage` needs `chmod +x` before running.
+
+Desktop app distinct from `docker run` / bare binary:
+
+- No port conflict with a separately-running gateway — the app picks a free loopback port at launch.
+- Quitting the app via `cmd+Q` (macOS) / **File → Quit** (Windows / Linux) kills the sidecar; closing only the window does not (macOS hides the window, Windows / Linux behave per WM).
+- Multi-machine users keep separate config per OS — settings on macOS don't migrate to Linux even on the same release.
+
+Full state, footguns, and roadmap: [`desktop-app.md`](desktop-app.md).
 
 ## Optional services (compose profiles)
 

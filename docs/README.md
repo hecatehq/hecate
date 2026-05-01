@@ -6,11 +6,16 @@ Long-form references for operators, integrators, and contributors. The [project 
 
 Pick your role and read in order — each path is three to five docs.
 
-**I'm running Hecate** (operator / self-hoster)
+**I'm running Hecate on a server** (operator / self-hoster)
 1. [Deployment](deployment.md) — image pinning, storage tiers, single-user vs multi-tenant flags, lost-token recovery.
 2. [Providers](providers.md) — add your first provider, understand the preset catalog and health checks.
 3. [Telemetry](telemetry.md) — wire up OTLP, read the local trace view, set retention windows.
 4. [Known limitations](known-limitations.md) — what's still alpha before you depend on it.
+
+**I'm running Hecate on my laptop** (single-user / personal)
+1. [Desktop app](desktop-app.md) — `.dmg` / `.deb` / `.AppImage` / `.msi` install, current state, footguns, roadmap.
+2. [Providers](providers.md) — add your first provider once the app is running.
+3. [Known limitations](known-limitations.md) — what's still alpha before you depend on it.
 
 **I'm building against Hecate** (integrator / SDK consumer)
 1. [Runtime API](runtime-api.md) — task lifecycle, approvals, SSE streaming, bootstrap-token handshake.
@@ -34,7 +39,8 @@ Pick your role and read in order — each path is three to five docs.
 
 | Doc | Read this when |
 |---|---|
-| [Deployment](deployment.md) | You're past Quick Start. Image pinning, compose profiles, binary install, lost-token recovery, single-user vs multi-tenant flags, storage tiers, rate limits. |
+| [Deployment](deployment.md) | Server / scripted deploy. Image pinning, compose profiles, binary install, lost-token recovery, single-user vs multi-tenant flags, storage tiers, rate limits. |
+| [Desktop app](desktop-app.md) | Single-user / personal use on your laptop. Distribution bundles, first-launch footguns (Gatekeeper / SmartScreen), platform data dirs, roadmap. |
 | [Providers](providers.md) | Adding a provider, browsing the preset catalog, custom OpenAI-compatible endpoints, env-vs-UI lifecycle, health and circuit-breaker behavior. |
 | [Tenants and API keys](tenants.md) | You want more than one consumer of the gateway. Opt-in feature: roles, scopes, observability mirrors, what flips on when `GATEWAY_MULTI_TENANT=true`. |
 | [Known limitations](known-limitations.md) | Before treating Hecate as production-stable. Plain-language list of what's still alpha. |
@@ -63,7 +69,6 @@ Pick your role and read in order — each path is three to five docs.
 | [Architecture](architecture.md) | Internals of the gateway request flow and the task-runtime queue / lease / sandbox boundary. |
 | [Development](development.md) | Building from source: Go + Bun toolchain, UI hot reload, the test ladder, screenshot tooling. |
 | [Release](release.md) | Cutting a release tag. Versioning policy, alpha gate, image build, recovery if CI fails. |
-| [Desktop app](desktop-app.md) | The native Tauri 2.x app: distribution, current state, roadmap, footguns. |
 
 ## See also
 
