@@ -3457,7 +3457,10 @@ func TestTaskRunRetryReturnsConflictForActiveRun(t *testing.T) {
 	t.Parallel()
 
 	logger := slog.New(slog.NewJSONHandler(io.Discard, nil))
-	handler := newTestHTTPHandlerForProviders(logger, nil, config.Config{})
+	// shell_exec policy is required so the shell run lands in awaiting_approval
+	// rather than queued — the conflict check only fires for non-terminal runs.
+	cfg := config.Config{Server: config.ServerConfig{TaskApprovalPolicies: []string{"shell_exec"}}}
+	handler := newTestHTTPHandlerForProviders(logger, nil, cfg)
 	tasks := newTaskTestClient(t, handler)
 
 	created := mustTaskRequestJSON[TaskResponse](tasks, http.MethodPost, "/v1/tasks", `{"title":"Active retry","prompt":"Leave this run awaiting approval.","execution_kind":"shell","shell_command":"printf 'active\n'","working_directory":".","timeout_ms":1000}`)
@@ -3476,7 +3479,10 @@ func TestTaskRunResumeReturnsConflictForActiveRun(t *testing.T) {
 	t.Parallel()
 
 	logger := slog.New(slog.NewJSONHandler(io.Discard, nil))
-	handler := newTestHTTPHandlerForProviders(logger, nil, config.Config{})
+	// shell_exec policy is required so the shell run lands in awaiting_approval
+	// rather than queued — the conflict check only fires for non-terminal runs.
+	cfg := config.Config{Server: config.ServerConfig{TaskApprovalPolicies: []string{"shell_exec"}}}
+	handler := newTestHTTPHandlerForProviders(logger, nil, cfg)
 	tasks := newTaskTestClient(t, handler)
 
 	created := mustTaskRequestJSON[TaskResponse](tasks, http.MethodPost, "/v1/tasks", `{"title":"Active resume","prompt":"Leave this run awaiting approval.","execution_kind":"shell","shell_command":"printf 'active\n'","working_directory":".","timeout_ms":1000}`)
@@ -3495,7 +3501,10 @@ func TestTaskRunResumeFromCancelledRun(t *testing.T) {
 	t.Parallel()
 
 	logger := slog.New(slog.NewJSONHandler(io.Discard, nil))
-	handler := newTestHTTPHandlerForProviders(logger, nil, config.Config{})
+	// shell_exec policy puts the shell run in awaiting_approval so the test
+	// can reject the approval to force a cancelled state before resuming.
+	cfg := config.Config{Server: config.ServerConfig{TaskApprovalPolicies: []string{"shell_exec"}}}
+	handler := newTestHTTPHandlerForProviders(logger, nil, cfg)
 	tasks := newTaskTestClient(t, handler)
 
 	created := mustTaskRequestJSON[TaskResponse](tasks, http.MethodPost, "/v1/tasks", `{"title":"Resume shell","prompt":"Resume cancelled shell run.","execution_kind":"shell","shell_command":"printf 'resume'\n","working_directory":".","timeout_ms":1000}`)
