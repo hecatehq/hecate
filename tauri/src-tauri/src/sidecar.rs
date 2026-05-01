@@ -139,6 +139,16 @@ pub async fn spawn_and_wait(app: &AppHandle) -> Result<GatewayHandle, String> {
     let addr = format!("127.0.0.1:{port}");
     let base_url = format!("http://{addr}");
 
+    // Capture sidecar stderr to <data_dir>/gateway.log so a startup failure
+    // (port collision, missing data dir permissions, panic during init,
+    // etc.) is diagnosable instead of just timing out the healthz poll
+    // with no breadcrumb. Truncate on each launch — we don't want to
+    // accumulate logs across runs of an alpha-grade app, and the file is
+    // only useful for the most-recent failed start anyway.
+    let log_path = data_dir.join("gateway.log");
+    let stderr_log = std::fs::File::create(&log_path)
+        .map_err(|e| format!("failed to open {log_path:?} for sidecar stderr: {e}"))?;
+
     // Use std::process::Command (not tokio) so the returned Child::kill()
     // is synchronous and can be called from the window-close event handler
     // without an async runtime.
@@ -149,7 +159,7 @@ pub async fn spawn_and_wait(app: &AppHandle) -> Result<GatewayHandle, String> {
         // process for stdin/stdout in dev mode.
         .stdin(std::process::Stdio::null())
         .stdout(std::process::Stdio::null())
-        .stderr(std::process::Stdio::null())
+        .stderr(std::process::Stdio::from(stderr_log))
         .spawn()
         .map_err(|e| format!("failed to spawn {bin:?}: {e}"))?;
 
@@ -164,7 +174,8 @@ pub async fn spawn_and_wait(app: &AppHandle) -> Result<GatewayHandle, String> {
     loop {
         if Instant::now() >= deadline {
             return Err(format!(
-                "hecate did not become healthy within 30 s (checked {healthz})"
+                "hecate did not become healthy within 30 s (checked {healthz}). \
+                 See {log_path:?} for sidecar stderr."
             ));
         }
         match client.get(&healthz).send().await {

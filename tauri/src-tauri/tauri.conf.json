@@ -50,7 +50,7 @@
       "open": false
     },
     "updater": {
-      "active": true,
+      "active": false,
       "pubkey": "",
       "endpoints": []
     }

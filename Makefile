@@ -2,7 +2,7 @@ SHELL := /bin/sh
 
 GOCACHE_DIR := $(CURDIR)/.gocache
 
-.PHONY: test test-race vet coverage ui-coverage build run serve dev stop ui-install ui-dev ui-build ui-test ui-test-e2e test-docker-smoke docs-env-check check-links verify-alpha reset-dev reset-docker screenshots tauri-install tauri-version tauri-dev tauri-build
+.PHONY: test test-race vet coverage ui-coverage build run serve dev stop ui-install ui-dev ui-build ui-test ui-test-e2e test-docker-smoke docs-env-check check-links verify-alpha reset-dev reset-docker screenshots tauri-install tauri-version tauri-sidecar tauri-dev tauri-build
 
 # build produces a single self-contained hecate binary with the UI bundle
 # embedded. The UI is built first so //go:embed picks up the real assets;
@@ -220,13 +220,17 @@ tauri-version: tauri-install
 
 # tauri-sidecar: build the hecate binary and stage it as the Tauri sidecar.
 # Called automatically by tauri-dev and tauri-build so you rarely need it
-# directly.
+# directly. On Windows `go build -o hecate` produces hecate.exe, and the
+# bundler wants hecate-{triple}.exe — handle both source and dest names.
 tauri-sidecar: build
 	@if [ -z "$(RUST_TARGET)" ]; then \
 	  echo "rustc not found — cannot determine host triple" && exit 1; \
 	fi
-	@echo "staging sidecar: tauri/src-tauri/binaries/hecate-$(RUST_TARGET)"
-	@cp hecate "tauri/src-tauri/binaries/hecate-$(RUST_TARGET)"
+	@goexe=$$(go env GOEXE); \
+	src="hecate$$goexe"; \
+	dest="tauri/src-tauri/binaries/hecate-$(RUST_TARGET)$$goexe"; \
+	echo "staging sidecar: $$dest"; \
+	cp "$$src" "$$dest"
 
 # tauri-dev: hot-reload development mode. Launches the Tauri window backed by
 # a fresh hecate sidecar build. The gateway binary is rebuilt first so the
