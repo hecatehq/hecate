@@ -36,6 +36,8 @@ pkg/types/              public types (ChatRequest, Message, ContentBlock, ...)
                           — no internal/ imports
 
 ui/                     React/Vite operator UI, embedded via //go:embed ui/dist
+tauri/                  native desktop app (Tauri 2.x); wraps hecate as a sidecar,
+                          webview loads http://127.0.0.1:{port}/ served by the gateway
 e2e/                    binary-startup tests; build tag e2e (sub-tags: ollama, docker)
 docs/                   long-form references (architecture, runtime API, events, ...)
 ai/                     canonical agent guidance (this file points there for depth)
@@ -126,6 +128,7 @@ Full ladder: [`ai/core/verification.md`](ai/core/verification.md).
 | Add a passthrough wire field (the seven-step chain — most-redone task here) | [`ai/skills/providers/SKILL.md`](ai/skills/providers/SKILL.md) |
 | Add an MCP tool / persisted run-event type / test helper cheat-sheet | [`ai/skills/backend/SKILL.md`](ai/skills/backend/SKILL.md) |
 | UI recipes (SSE-driven state field, paired pickers, snapshot refresh) | [`ai/skills/ui/SKILL.md`](ai/skills/ui/SKILL.md) |
+| Native desktop app (sidecar lifecycle, bundling, Tauri commands) | [`ai/skills/tauri/SKILL.md`](ai/skills/tauri/SKILL.md) |
 
 ## Gotchas
 
