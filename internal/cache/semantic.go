@@ -78,22 +78,6 @@ type SemanticEntry struct {
 	ExpiresAt time.Time
 }
 
-type NoopSemanticStore struct{}
-
-func (NoopSemanticStore) Search(context.Context, SemanticQuery) (*SemanticMatch, bool) {
-	return nil, false
-}
-
-func (NoopSemanticStore) Set(context.Context, SemanticEntry) error {
-	return nil
-}
-
-func (NoopSemanticStore) Stats(context.Context) (int, error) { return 0, nil }
-
-func (NoopSemanticStore) List(context.Context, int, int) ([]SemanticEntryMeta, error) {
-	return nil, nil
-}
-
 type MemorySemanticStore struct {
 	mu         sync.RWMutex
 	entries    []semanticRecord
@@ -267,10 +251,6 @@ func (s *MemorySemanticStore) Prune(_ context.Context, maxAge time.Duration, max
 	}
 
 	return deleted, nil
-}
-
-func (NoopSemanticStore) Prune(context.Context, time.Duration, int) (int, error) {
-	return 0, nil
 }
 
 func BuildSemanticNamespace(req types.ChatRequest, decision types.RouteDecision) string {

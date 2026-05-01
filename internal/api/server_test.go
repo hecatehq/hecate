@@ -1452,7 +1452,7 @@ func TestSemanticCacheStatusUnconfigured(t *testing.T) {
 	t.Parallel()
 
 	logger := slog.New(slog.NewJSONHandler(io.Discard, nil))
-	// Default config has semantic cache disabled → NoopSemanticStore.
+	// Default config has semantic cache disabled → nil semantic store.
 	handler := newTestHTTPHandlerForProviders(logger, nil, config.Config{})
 	client := newAPITestClient(t, handler)
 

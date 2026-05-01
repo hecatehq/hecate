@@ -31,7 +31,7 @@ func TestGatewayCacheRuntimeLookupReturnsExactHit(t *testing.T) {
 	runtime := NewGatewayCacheRuntime(
 		slog.New(slog.NewJSONHandler(io.Discard, nil)),
 		exact,
-		cache.NoopSemanticStore{},
+		nil,
 		SemanticOptions{},
 		governor.NewStaticGovernor(config.GovernorConfig{}, store, store),
 		providers.NewRegistry(&sequenceProvider{name: "openai", kind: providers.KindCloud}),
@@ -74,7 +74,7 @@ func TestGatewayCacheRuntimeLookupRejectsExactHitWhenRouteDenied(t *testing.T) {
 	runtime := NewGatewayCacheRuntime(
 		slog.New(slog.NewJSONHandler(io.Discard, nil)),
 		exact,
-		cache.NoopSemanticStore{},
+		nil,
 		SemanticOptions{},
 		governor.NewStaticGovernor(config.GovernorConfig{
 			DeniedProviders: []string{"openai"},
