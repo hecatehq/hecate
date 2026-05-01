@@ -38,7 +38,12 @@
     "externalBin": [
       "binaries/hecate"
     ],
-    "resources": {}
+    "resources": {},
+    "windows": {
+      "wix": {
+        "version": "0.1.0.8"
+      }
+    }
   },
   "plugins": {
     "shell": {

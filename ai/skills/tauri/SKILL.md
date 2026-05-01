@@ -183,6 +183,7 @@ Three workflow files split responsibilities:
 - **Go's `-o hecate` extension on Windows shifts across versions.** Stage step tries `hecate.exe` then falls back to `hecate`, fails loudly with `ls -la` if neither exists — silent `cp` of a missing source is the worst failure mode.
 - **`make build` runs `make ui-build` which checks for `ui/node_modules/@vitejs/plugin-react`.** That's the canary file. CI must run `make ui-install` before `make build`. Goreleaser handles this via its `before:` hook (`bun install --cwd ui --frozen-lockfile`); the Tauri matrix does it explicitly.
 - **`stamp-version.ts` `TAURI_VERSION` env var must not include the `v` prefix.** The script strips it, but only since the recent fix; CI passes the bare semver to be safe. The git-tag fallback path (`gitVersion()`) has always stripped `v`.
+- **Windows MSI rejects pre-release identifiers in the version.** WiX requires a four-part numeric `Major.Minor.Build.Revision` (each ≤ 65535). `0.1.0-alpha.8` fails with "optional pre-release identifier in app version must be numeric-only". `stamp-version.ts` writes a derived four-part version to `bundle.windows.wix.version` (e.g. `0.1.0-alpha.8` → `0.1.0.8`); MSI uses that override, every other bundler still sees the canonical semver. NSIS has no version-override field in Tauri's schema — the matrix is MSI-only on Windows for that reason. If NSIS is ever added, expect the same failure mode and find an upstream fix.
 
 ### Code signing — not wired
 
