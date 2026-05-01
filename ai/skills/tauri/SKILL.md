@@ -149,6 +149,20 @@ make tauri-build TAURI_TARGET=universal-apple-darwin
 
 `cargo check` is the fast iteration loop. Full `tauri dev` is the integration test — it exercises the real binary, real port allocation, real healthz poll, and the webview navigation.
 
+## CI pipeline
+
+The release workflow (`.github/workflows/release.yml`) has a `tauri` job that runs after `goreleaser` succeeds. It builds native bundles for three platforms (matrix):
+
+| Runner | Rust target | Bundles produced |
+|---|---|---|
+| `macos-latest` | `aarch64-apple-darwin` | `.dmg` |
+| `ubuntu-22.04` | `x86_64-unknown-linux-gnu` | `.deb`, `.AppImage` |
+| `windows-latest` | `x86_64-pc-windows-msvc` | `.msi` |
+
+Steps per platform: Rust + Go + Bun setup → Linux webkit2gtk deps → `make build` (hecate binary) → stage sidecar as `binaries/hecate-{triple}[.exe]` → `bun install` → `bun scripts/stamp-version.ts` (version from git tag) → `bunx tauri build --bundles <list>` → `gh release upload` to the goreleaser-created release.
+
+**Code signing is not wired.** macOS bundles trigger Gatekeeper on first launch; Windows MSI shows SmartScreen. Document this for users until signing credentials are added as Actions secrets.
+
 ## Done criteria
 
 - `cargo check` passes with no warnings.

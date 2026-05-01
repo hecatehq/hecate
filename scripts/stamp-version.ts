@@ -46,7 +46,7 @@ function cargoVersion(): string {
 }
 
 const version =
-  process.env.TAURI_VERSION?.trim() || gitVersion() || cargoVersion();
+  process.env.TAURI_VERSION?.trim().replace(/^v/, "") || gitVersion() || cargoVersion();
 
 console.log(`stamping version: ${version}`);
 

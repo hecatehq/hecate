@@ -56,3 +56,98 @@ jobs:
           args: release --clean
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+
+  tauri:
+    needs: goreleaser
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - os: macos-latest
+            target: aarch64-apple-darwin
+            bundles: dmg
+          - os: ubuntu-22.04
+            target: x86_64-unknown-linux-gnu
+            bundles: deb,appimage
+          - os: windows-latest
+            target: x86_64-pc-windows-msvc
+            bundles: msi
+    runs-on: ${{ matrix.os }}
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0   # stamp-version.ts resolves version from git tag
+
+      - name: Set up Rust
+        uses: dtolnay/rust-toolchain@stable
+        with:
+          targets: ${{ matrix.target }}
+
+      - name: Cache Rust build artifacts
+        uses: Swatinem/rust-cache@v2
+        with:
+          workspaces: tauri/src-tauri -> target
+
+      - name: Set up Go
+        uses: actions/setup-go@v5
+        with:
+          go-version-file: go.mod
+          cache: true
+
+      - name: Set up Bun
+        uses: oven-sh/setup-bun@v2
+        with:
+          bun-version: 1.3.13
+
+      # webkit2gtk 4.1 is the Tauri 2 requirement on 22.04; 4.0 ships by default.
+      # patchelf is required by the AppImage bundler to rewrite ELF rpath.
+      - name: Install Linux system dependencies
+        if: matrix.os == 'ubuntu-22.04'
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y \
+            libwebkit2gtk-4.1-dev \
+            libgtk-3-dev \
+            libayatana-appindicator3-dev \
+            librsvg2-dev \
+            patchelf
+
+      # make build: compiles the Go binary (ui-build → go build).
+      # This is the same binary that becomes the Tauri sidecar.
+      - name: Build hecate binary
+        run: make build
+
+      # Tauri's bundler looks for binaries/hecate-{triple}[.exe] at bundle time.
+      # make tauri-sidecar does this locally; we replicate it here so the
+      # platform triple from the matrix is always used, not whatever rustc
+      # detects on the runner.
+      - name: Stage hecate sidecar
+        shell: bash
+        run: |
+          mkdir -p tauri/src-tauri/binaries
+          if [[ "$RUNNER_OS" == "Windows" ]]; then
+            cp hecate.exe "tauri/src-tauri/binaries/hecate-${{ matrix.target }}.exe"
+          else
+            cp hecate "tauri/src-tauri/binaries/hecate-${{ matrix.target }}"
+          fi
+
+      # Stamps Cargo.toml, package.json, and tauri.conf.json to the release
+      # version. Resolution order: TAURI_VERSION env → latest git tag → Cargo.toml.
+      # No TAURI_VERSION override needed here; the git tag is already present.
+      # Must run before tauri-action so the bundle metadata reflects the tag.
+      - name: Stamp Tauri version
+        run: bun scripts/stamp-version.ts
+
+      # tauri-action runs `tauri build`, auto-detects platform artifacts, and
+      # uploads them to the GitHub Release found by tagName. Code signing
+      # secrets (APPLE_CERTIFICATE, TAURI_SIGNING_PRIVATE_KEY, ...) plug in
+      # via env when we add them later — no workflow rewrite needed.
+      - name: Build and upload Tauri bundles
+        uses: tauri-apps/tauri-action@v0
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        with:
+          projectPath: tauri
+          tagName: ${{ github.ref_name }}
+          args: --bundles ${{ matrix.bundles }}
