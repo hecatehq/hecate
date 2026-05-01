@@ -299,21 +299,114 @@ func decodeWorkerError(message, kind string) error {
 	}
 }
 
+// sandboxdBinaryPath resolves the sandboxd executable using the following
+// order, stopping at the first hit:
+//
+//  1. SANDBOXD_BIN env var — explicit operator override.
+//  2. Next to os.Executable() — bundled app (Tauri release build). Tauri's
+//     externalBin copies the binary as sandboxd-{triple}; a plain "sandboxd"
+//     is also accepted for hand-built layouts and non-Tauri installs.
+//  3. exec.LookPath("sandboxd") — developer PATH install (make install).
+//  4. go build from source — dev / CI machines where the repo source and the
+//     Go toolchain are both present. Fails fast with a clear error if go is
+//     not on PATH instead of the generic "executable file not found" that
+//     callers used to see.
 func sandboxdBinaryPath() (string, error) {
 	sandboxdBinary.once.Do(func() {
-		cacheDir := filepath.Join(os.TempDir(), "hecate-sandboxd-cache")
-		if err := os.MkdirAll(cacheDir, 0o755); err != nil {
-			sandboxdBinary.err = err
-			return
-		}
-		sandboxdBinary.path = filepath.Join(cacheDir, "sandboxd")
-		cmd := exec.Command("go", "build", "-o", sandboxdBinary.path, filepath.Join(repoRoot(), "cmd", "sandboxd"))
-		if output, err := cmd.CombinedOutput(); err != nil {
-			sandboxdBinary.err = fmt.Errorf("build sandboxd: %w: %s", err, string(output))
-			return
-		}
+		sandboxdBinary.path, sandboxdBinary.err = resolveSandboxdPath()
 	})
 	return sandboxdBinary.path, sandboxdBinary.err
+}
+
+func resolveSandboxdPath() (string, error) {
+	// 1. Explicit override.
+	if v := strings.TrimSpace(os.Getenv("SANDBOXD_BIN")); v != "" {
+		if _, err := os.Stat(v); err == nil {
+			return v, nil
+		}
+		return "", fmt.Errorf("SANDBOXD_BIN=%q does not point to an existing file", v)
+	}
+
+	// 2. Next to the running executable (bundled Tauri app or make install).
+	if exe, err := os.Executable(); err == nil {
+		exe, _ = filepath.EvalSymlinks(exe)
+		dir := filepath.Dir(exe)
+		ext := ""
+		if runtime.GOOS == "windows" {
+			ext = ".exe"
+		}
+		// Tauri's externalBin copies binaries as name-{triple}; also try
+		// plain name for hand-built and non-Tauri layouts.
+		candidates := []string{
+			filepath.Join(dir, "sandboxd-"+rustTriple()+ext),
+			filepath.Join(dir, "sandboxd"+ext),
+		}
+		for _, c := range candidates {
+			if _, err := os.Stat(c); err == nil {
+				return c, nil
+			}
+		}
+	}
+
+	// 3. PATH lookup — developer machine with make install.
+	if p, err := exec.LookPath("sandboxd"); err == nil {
+		return p, nil
+	}
+
+	// 4. Build from source — dev / CI only. Requires go on PATH and the
+	// repo source to be present (runtime.Caller bakes the source path at
+	// compile time, so this only works on the build machine or identical
+	// file layouts).
+	if _, err := exec.LookPath("go"); err != nil {
+		return "", fmt.Errorf(
+			"sandboxd binary not found: set SANDBOXD_BIN, add sandboxd to PATH, " +
+				"or install the Go toolchain so it can be built from source",
+		)
+	}
+	src := repoRoot()
+	if _, err := os.Stat(filepath.Join(src, "cmd", "sandboxd")); err != nil {
+		return "", fmt.Errorf(
+			"sandboxd binary not found and source not available at %q: "+
+				"set SANDBOXD_BIN or add sandboxd to PATH",
+			src,
+		)
+	}
+	cacheDir := filepath.Join(os.TempDir(), "hecate-sandboxd-cache")
+	if err := os.MkdirAll(cacheDir, 0o755); err != nil {
+		return "", err
+	}
+	out := filepath.Join(cacheDir, "sandboxd")
+	cmd := exec.Command("go", "build", "-o", out, filepath.Join(src, "cmd", "sandboxd"))
+	if output, err := cmd.CombinedOutput(); err != nil {
+		return "", fmt.Errorf("build sandboxd: %w: %s", err, string(output))
+	}
+	return out, nil
+}
+
+// rustTriple returns an approximate Rust target triple for the current
+// platform, matching the suffix Tauri's externalBin bundler applies.
+// This does not need to be perfect — it is only used to probe for the
+// triple-suffixed binary before falling back to the plain name.
+func rustTriple() string {
+	arch := runtime.GOARCH
+	switch arch {
+	case "amd64":
+		arch = "x86_64"
+	case "arm64":
+		arch = "aarch64"
+	case "386":
+		arch = "i686"
+	}
+	switch runtime.GOOS {
+	case "darwin":
+		return arch + "-apple-darwin"
+	case "linux":
+		return arch + "-unknown-linux-gnu"
+	case "windows":
+		return arch + "-pc-windows-msvc"
+	default:
+		return arch + "-unknown-unknown"
+	}
 }
 
 func repoRoot() string {

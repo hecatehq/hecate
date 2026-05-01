@@ -218,10 +218,12 @@ tauri-install:
 tauri-version: tauri-install
 	bun scripts/stamp-version.ts
 
-# tauri-sidecar: build the hecate binary and stage it as the Tauri sidecar.
+# tauri-sidecar: build hecate and sandboxd, then stage both as Tauri sidecars.
 # Called automatically by tauri-dev and tauri-build so you rarely need it
 # directly. On Windows `go build -o hecate` produces hecate.exe, and the
 # bundler wants hecate-{triple}.exe — handle both source and dest names.
+# sandboxd is staged alongside hecate so the bundled app can locate it at
+# runtime without needing go on the end-user's PATH.
 tauri-sidecar: build
 	@if [ -z "$(RUST_TARGET)" ]; then \
 	  echo "rustc not found — cannot determine host triple" && exit 1; \
@@ -231,6 +233,12 @@ tauri-sidecar: build
 	dest="tauri/src-tauri/binaries/hecate-$(RUST_TARGET)$$goexe"; \
 	echo "staging sidecar: $$dest"; \
 	cp "$$src" "$$dest"
+	@goexe=$$(go env GOEXE); \
+	mkdir -p "$(GOCACHE_DIR)"; \
+	GOCACHE="$(GOCACHE_DIR)" go build -o "sandboxd$$goexe" ./cmd/sandboxd; \
+	dest="tauri/src-tauri/binaries/sandboxd-$(RUST_TARGET)$$goexe"; \
+	echo "staging sidecar: $$dest"; \
+	cp "sandboxd$$goexe" "$$dest"
 
 # tauri-dev: hot-reload development mode. Launches the Tauri window backed by
 # a fresh hecate sidecar build. The gateway binary is rebuilt first so the

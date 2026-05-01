@@ -36,7 +36,8 @@
       "icons/icon.ico"
     ],
     "externalBin": [
-      "binaries/hecate"
+      "binaries/hecate",
+      "binaries/sandboxd"
     ],
     "resources": {},
     "windows": {
