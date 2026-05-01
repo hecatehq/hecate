@@ -367,7 +367,7 @@ func LoadFromEnv() Config {
 			ControlPlaneKey:                getEnv("GATEWAY_CONTROL_PLANE_KEY", "control-plane"),
 			ControlPlaneSecretKey:          getEnv("GATEWAY_CONTROL_PLANE_SECRET_KEY", ""),
 			TasksBackend:                   getEnv("GATEWAY_TASKS_BACKEND", "memory"),
-			TaskApprovalPolicies:           splitCSV(getEnv("GATEWAY_TASK_APPROVAL_POLICIES", "shell_exec,git_exec,file_write")),
+			TaskApprovalPolicies:           splitCSV(getEnvApprovalPolicies()),
 			TaskQueueBackend:               getEnv("GATEWAY_TASK_QUEUE_BACKEND", "memory"),
 			TaskQueueWorkers:               getEnvInt("GATEWAY_TASK_QUEUE_WORKERS", 1),
 			TaskQueueBuffer:                getEnvInt("GATEWAY_TASK_QUEUE_BUFFER", 128),
@@ -982,6 +982,19 @@ func getEnv(key, fallback string) string {
 		return value
 	}
 	return fallback
+}
+
+// getEnvApprovalPolicies reads GATEWAY_TASK_APPROVAL_POLICIES and honours an
+// explicitly empty value (KEY=) as "no policies". os.Getenv cannot distinguish
+// "not set" from "set to empty"; os.LookupEnv can. An empty value is the
+// documented opt-out for fully-trusted environments, so we must not fall back
+// to the default in that case.
+func getEnvApprovalPolicies() string {
+	const key = "GATEWAY_TASK_APPROVAL_POLICIES"
+	if value, ok := os.LookupEnv(key); ok {
+		return value
+	}
+	return "shell_exec,git_exec,file_write"
 }
 
 func getEnvBool(key string, fallback bool) bool {

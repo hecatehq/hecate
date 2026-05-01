@@ -191,11 +191,21 @@ func (e *LocalExecutor) RunStreaming(ctx context.Context, command Command, onChu
 	go streamPipe(stdoutPipe, "stdout", streamEvents)
 	go streamPipe(stderrPipe, "stderr", streamEvents)
 
-	// drainProcessOutput calls cancel() if the output cap is exceeded,
-	// which kills the child via exec.CommandContext and causes the pipe
-	// goroutines to send their done events so the drain loop terminates
-	// cleanly without goroutine leaks.
-	readErr := drainProcessOutput(streamEvents, &stdout, &stderr, onChunk, command.Limits.MaxOutputBytes, cancel)
+	// cancelWithPipes kills the child process AND closes the pipe read-ends
+	// so that streamPipe goroutines unblock immediately even when an orphan
+	// grandchild (e.g. "yes" spawned by "sh -lc yes") keeps the write-end
+	// open after "sh" is killed. Without the pipe close the goroutines
+	// block on Read forever, drainProcessOutput waits for done events that
+	// never arrive, and cmd.Wait is never called — a goroutine leak.
+	cancelWithPipes := func() {
+		cancel()
+		_ = stdoutPipe.Close()
+		_ = stderrPipe.Close()
+	}
+
+	// drainProcessOutput calls cancelWithPipes() if the output cap is
+	// exceeded so the drain loop always terminates cleanly.
+	readErr := drainProcessOutput(streamEvents, &stdout, &stderr, onChunk, command.Limits.MaxOutputBytes, cancelWithPipes)
 	if readErr != nil {
 		_ = cmd.Wait()
 		return Result{Stdout: stdout.String(), Stderr: stderr.String(), ExitCode: -1}, readErr
