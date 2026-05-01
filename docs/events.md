@@ -40,7 +40,7 @@ These are **persisted events** (rows in the `task_state_run_events` table). They
 | `run.resume_requested` | Run lifecycle | Marker on the *prior* run that a resume started |
 | `run.throttled_tenant_concurrency` | Run lifecycle | Run held back by tenant concurrency limit |
 | `run.resume_checkpoint_failed` | Run lifecycle | Resume hydration failed; run will start fresh |
-| `run.reconciled_restart_requeued` | Run lifecycle | Stalled run recovered and re-queued by reconciler |
+| `run.reconciled_restart_requeued` | Run lifecycle | Stalled run recovered and re-queued by reconciler (boot-time scan or periodic background check) |
 | `step.created` | Steps | A new step (model / shell / file / etc.) was appended |
 | `step.updated` | Steps | An existing step's status/output changed |
 | `artifact.created` | Artifacts | A new artifact (stdout, conversation, file diff, etc.) was persisted |
@@ -178,13 +178,13 @@ A resume attempted to hydrate the prior run's conversation but the checkpoint bl
 
 ### `run.reconciled_restart_requeued`
 
-The reconciler recovered a stalled run on gateway boot or after a worker crash and pushed it back onto the queue. Use this event to detect runs that got "saved" automatically vs. ones the operator manually requeued.
+The reconciler recovered a stalled run and pushed it back onto the queue. This fires in two situations: on gateway boot (scanning for runs left in `running` state from a previous process), and during periodic background reconciliation (runs stuck in `running` longer than 3× the queue lease duration). Use `recovery_strategy` to distinguish the two. Use this event to detect runs that were saved automatically vs. ones the operator manually requeued.
 
 | Extra key | Type | Notes |
 |---|---|---|
 | `prior_status` | `string` | Status before reconciliation (e.g. `running`) |
 | `recovered_status` | `string` | Status after reconciliation (typically `queued`) |
-| `recovery_strategy` | `string` | Which reconciliation rule fired |
+| `recovery_strategy` | `string` | `"requeue"` — boot-time scan; `"periodic_requeue"` — periodic background reconciler fired |
 
 ## Steps
 

@@ -64,7 +64,7 @@ The `task` resource accepts these fields on `POST /v1/tasks`:
 - `GET /v1/tasks`
 - `GET /v1/tasks/{id}`
 - `DELETE /v1/tasks/{id}`
-- `POST /v1/tasks/{id}/start`
+- `POST /v1/tasks/{id}/start` — returns `422 model_not_configured` when an `agent_loop` task has no model resolvable (neither `requested_model` on the task nor the gateway's default model is set). No run is created.
 - `POST /v1/tasks/{id}/runs/{run_id}/retry`
 - `POST /v1/tasks/{id}/runs/{run_id}/resume`
 - `POST /v1/tasks/{id}/runs/{run_id}/retry-from-turn`
@@ -204,6 +204,7 @@ sequenceDiagram
 - `GATEWAY_TASK_QUEUE_BUFFER=<int>`
 - `GATEWAY_TASK_QUEUE_LEASE_SECONDS=<int>`
 - `GATEWAY_TASK_MAX_CONCURRENT_PER_TENANT=<int>` (`0` disables the limit)
+- Periodic reconciliation runs every 30 s. Runs stuck in `running` longer than 3× `GATEWAY_TASK_QUEUE_LEASE_SECONDS` are automatically re-queued and emit `run.reconciled_restart_requeued` with `recovery_strategy=periodic_requeue`.
 - `GATEWAY_TASK_MAX_MCP_SERVERS_PER_TASK=<int>` (default `16`; caps `mcp_servers` entries on `agent_loop` task creates; `0` disables the check)
 - `GATEWAY_TASK_MCP_CLIENT_CACHE_MAX_ENTRIES=<int>` (default `256`; soft cap on the gateway-wide MCP client cache; LRU-idle eviction kicks in at the cap, with fail-open when every entry is in use)
 - `GATEWAY_TASK_MCP_CLIENT_CACHE_PING_INTERVAL=<duration>` (default `60s`; how often the cache pings each idle cached upstream to detect wedged subprocesses; `0` disables the proactive health check, leaving only reactive eviction in `Pool.Call`)

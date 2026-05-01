@@ -48,6 +48,15 @@ operators should not assume yet.
 
 - `agent_loop` and MCP integration are alpha. They are useful for controlled
   workflows, but the behavior surface is still expanding.
+- `agent_loop` tasks require a model to be configured — either via
+  `requested_model` on the task or the gateway's default model. A missing model
+  is caught at start time and returns a 422 `model_not_configured` error; the
+  run is never created. There is no runtime check that the configured model
+  actually supports tool-calling until the loop's first LLM call.
+- Runs that are stuck in `running` state (e.g. after a worker crash or process
+  restart) are recovered automatically by the periodic reconciler and re-queued
+  without operator intervention. The recovery window is three times the
+  configured lease duration (`GATEWAY_TASK_QUEUE_LEASE_SECONDS`).
 - `sandboxd` provides an out-of-process execution boundary and policy checks;
   it is not yet hardened container/VM/OS isolation.
 - Network allowlisting for task tools is best-effort static command parsing,
