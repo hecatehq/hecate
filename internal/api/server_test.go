@@ -28,6 +28,8 @@ import (
 	"github.com/hecate/agent-runtime/internal/controlplane"
 	"github.com/hecate/agent-runtime/internal/gateway"
 	"github.com/hecate/agent-runtime/internal/governor"
+	"github.com/hecate/agent-runtime/internal/mcp"
+	mcpclient "github.com/hecate/agent-runtime/internal/mcp/client"
 	"github.com/hecate/agent-runtime/internal/profiler"
 	"github.com/hecate/agent-runtime/internal/providers"
 	"github.com/hecate/agent-runtime/internal/ratelimit"
@@ -1445,6 +1447,63 @@ func assertRuntimeStatsCore(t *testing.T, response RuntimeStatsResponse) {
 	}
 	if response.Data.WorkerCount <= 0 {
 		t.Fatalf("worker_count = %d, want > 0", response.Data.WorkerCount)
+	}
+}
+
+func TestMCPCacheStatsUnconfigured(t *testing.T) {
+	t.Parallel()
+
+	logger := slog.New(slog.NewJSONHandler(io.Discard, nil))
+	// Handler with no MCP client cache wired → configured=false.
+	handler := newTestHTTPHandlerForProviders(logger, nil, config.Config{})
+	client := newAPITestClient(t, handler)
+
+	res := mustRequestJSON[MCPCacheStatsResponse](client, http.MethodGet, "/admin/mcp/cache", "")
+	if res.Object != "mcp_cache_stats" {
+		t.Fatalf("object = %q, want mcp_cache_stats", res.Object)
+	}
+	if res.Data.Configured {
+		t.Errorf("configured = true, want false when no cache is wired")
+	}
+	if res.Data.CheckedAt == "" {
+		t.Errorf("checked_at = empty, want timestamp")
+	}
+	if res.Data.Entries != 0 || res.Data.InUse != 0 || res.Data.Idle != 0 {
+		t.Errorf("counters = {entries:%d in_use:%d idle:%d}, want all zero for unconfigured cache",
+			res.Data.Entries, res.Data.InUse, res.Data.Idle)
+	}
+}
+
+func TestMCPCacheStatsConfiguredEmpty(t *testing.T) {
+	t.Parallel()
+
+	logger := slog.New(slog.NewJSONHandler(io.Discard, nil))
+
+	// Wire an idle (empty) cache directly — bypasses newTestHTTPHandlerForProviders
+	// so we can call SetMCPClientCache before the handler is used.
+	c := mcpclient.NewSharedClientCache(time.Minute, mcp.ClientInfo{Name: "test", Version: "0"})
+	defer c.Close()
+
+	h := NewHandler(config.Config{}, logger, nil, nil, nil, nil)
+	h.SetMCPClientCache(c)
+	server := NewServer(logger, h)
+	client := newAPITestClient(t, server)
+
+	res := mustRequestJSON[MCPCacheStatsResponse](client, http.MethodGet, "/admin/mcp/cache", "")
+	if res.Object != "mcp_cache_stats" {
+		t.Fatalf("object = %q, want mcp_cache_stats", res.Object)
+	}
+	if !res.Data.Configured {
+		t.Errorf("configured = false, want true when cache is wired")
+	}
+	if res.Data.Entries != 0 {
+		t.Errorf("entries = %d, want 0 for empty cache", res.Data.Entries)
+	}
+	if res.Data.InUse != 0 {
+		t.Errorf("in_use = %d, want 0 for empty cache", res.Data.InUse)
+	}
+	if res.Data.CheckedAt == "" {
+		t.Errorf("checked_at = empty, want timestamp")
 	}
 }
 

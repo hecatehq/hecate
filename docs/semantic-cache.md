@@ -11,6 +11,7 @@ Hecate's semantic cache sits after the exact cache in the gateway request pipeli
 - [Embedders](#embedders)
 - [Storage backends](#storage-backends)
 - [Tuning](#tuning)
+- [Admin endpoints](#admin-endpoints)
 - [Observability](#observability)
 - [Limitations](#limitations)
 
@@ -106,6 +107,59 @@ Indexed vector similarity in SQLite requires the `sqlite-vec` extension, which i
 - `0.92` — default; catches common rephrasings of the same question.
 - `0.85–0.90` — aggressive; may return responses for loosely related prompts. Inspect hits in traces before lowering here.
 - Below `0.85` — not recommended without careful workload-specific validation.
+
+## Admin endpoints
+
+Two admin-gated endpoints expose live cache state without needing access to traces or metrics.
+
+### `GET /admin/semantic-cache`
+
+Returns configuration and a live non-expired entry count:
+
+```json
+{
+  "object": "semantic_cache_status",
+  "data": {
+    "checked_at": "2026-04-29T01:00:00.123Z",
+    "configured": true,
+    "enabled": true,
+    "backend": "memory",
+    "entries": 42,
+    "max_entries": 10000,
+    "default_ttl_sec": 86400,
+    "min_similarity": 0.92,
+    "max_text_chars": 8000
+  }
+}
+```
+
+`configured: false` when the cache is not wired (disabled in config). All numeric fields are zero in that case.
+
+### `GET /admin/semantic-cache/entries`
+
+Lists cached entries newest-first. Supports `limit` (default `50`, max `500`) and `offset` query parameters for pagination:
+
+```
+GET /admin/semantic-cache/entries?limit=50&offset=0
+```
+
+```json
+{
+  "object": "semantic_cache_entries",
+  "data": [
+    {
+      "namespace": "model:gpt-4o-mini|provider:openai|tenant:anonymous",
+      "text_snippet": "user: Explain Go channels and goroutines.",
+      "stored_at": "2026-04-29T01:00:00Z",
+      "expires_at": "2026-04-30T01:00:00Z"
+    }
+  ]
+}
+```
+
+`text_snippet` is the first 200 characters of the indexed prompt text. The `namespace` encodes the tenant, provider, and canonical model — three `|`-separated `key:value` pairs. Returns an empty array (not an error) when the cache is unconfigured or empty.
+
+Both endpoints are also surfaced in the operator UI under **Admin → Semantic Cache**.
 
 ## Observability
 
