@@ -122,9 +122,26 @@ jobs:
       - name: Stamp Tauri version
         run: bun scripts/stamp-version.ts
 
-      # No tagName → tauri-action builds only, doesn't upload.
+      # No tagName → tauri-action builds only, doesn't upload to a release.
       - name: Build Tauri bundles
         uses: tauri-apps/tauri-action@v0
         with:
           projectPath: tauri
           args: --bundles ${{ matrix.bundles }}
+
+      # Persist the built bundles as workflow artifacts so reviewers can
+      # download and test-launch them from the PR run page. Each platform
+      # uploads under a distinct name so they don't collide. 14-day
+      # retention keeps storage usage reasonable; bump if reviews routinely
+      # take longer than that.
+      - name: Upload bundles as workflow artifacts
+        uses: actions/upload-artifact@v4
+        with:
+          name: tauri-${{ matrix.target }}
+          path: |
+            tauri/src-tauri/target/release/bundle/dmg/*.dmg
+            tauri/src-tauri/target/release/bundle/deb/*.deb
+            tauri/src-tauri/target/release/bundle/appimage/*.AppImage
+            tauri/src-tauri/target/release/bundle/msi/*.msi
+          if-no-files-found: error
+          retention-days: 14
