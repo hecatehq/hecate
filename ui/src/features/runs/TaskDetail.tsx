@@ -1,6 +1,6 @@
 import { useEffect, useRef, useState } from "react";
 import type { TaskApprovalRecord, TaskArtifactRecord, TaskRecord, TaskRunEventRecord, TaskRunRecord, TaskStepRecord } from "../../types/runtime";
-import { Badge, Dot, Icon, Icons } from "../shared/ui";
+import { Badge, Dot, Icon, Icons, Modal } from "../shared/ui";
 
 type StreamState = "idle" | "connecting" | "live" | "closed" | "error";
 
@@ -241,7 +241,9 @@ type Props = {
   // conversation viewer. Only meaningful for terminal agent_loop runs;
   // the conversation viewer itself only renders for those, so we don't
   // need to gate the button further at the bubble level.
-  onRetryFromTurn: (turn: number) => void;
+  // reason is the operator's annotation for why they're branching —
+  // stored in run events and shown in the timeline.
+  onRetryFromTurn: (turn: number, reason: string) => void;
   // onResumeRaisingCeiling raises the task's per-task cost ceiling
   // and resumes the run in one server-side transaction. Surfaced
   // only when the run failed with otel_status_message =
@@ -773,13 +775,19 @@ function AgentConversationView({
   raw: string;
   canRetryFromTurn?: boolean;
   busy?: boolean;
-  onRetryFromTurn?: (turn: number) => void;
+  // reason is collected via the inline modal before the call is made.
+  onRetryFromTurn?: (turn: number, reason: string) => void;
   steps?: TaskStepRecord[];
   // streamTurnCosts is a turn → µUSD map pushed by the SSE stream.
   // Used to fill in costs missing from the model-step output_summary
   // path. Optional — the steps path is the primary source.
   streamTurnCosts?: Map<number, number>;
 }) {
+  // pendingRetryTurn is set when the operator clicks "↻ retry from here"
+  // on a bubble. The inline modal collects an optional reason, then
+  // fires onRetryFromTurn(turn, reason) on confirm.
+  const [pendingRetryTurn, setPendingRetryTurn] = useState<number | null>(null);
+
   let messages: AgentConversationMessage[] = [];
   try {
     const parsed = JSON.parse(raw);
@@ -825,22 +833,99 @@ function AgentConversationView({
   }
 
   return (
-    <div style={{ padding: "12px 16px", borderBottom: "1px solid var(--border)", display: "flex", flexDirection: "column", gap: 8 }}>
-      <div className="kicker" style={{ marginBottom: 4 }}>
-        Agent conversation · {messages.length} message{messages.length === 1 ? "" : "s"}
+    <>
+      <div style={{ padding: "12px 16px", borderBottom: "1px solid var(--border)", display: "flex", flexDirection: "column", gap: 8 }}>
+        <div className="kicker" style={{ marginBottom: 4 }}>
+          Agent conversation · {messages.length} message{messages.length === 1 ? "" : "s"}
+        </div>
+        {messages.map((m, i) => (
+          <ConversationBubble
+            key={i}
+            message={m}
+            turn={turnByIndex[i]}
+            turnCostMicros={turnByIndex[i] > 0 ? costByTurn.get(turnByIndex[i]) : undefined}
+            canRetryFromTurn={canRetryFromTurn}
+            busy={busy || pendingRetryTurn !== null}
+            onRetryFromTurn={canRetryFromTurn ? (turn) => setPendingRetryTurn(turn) : undefined}
+          />
+        ))}
       </div>
-      {messages.map((m, i) => (
-        <ConversationBubble
-          key={i}
-          message={m}
-          turn={turnByIndex[i]}
-          turnCostMicros={turnByIndex[i] > 0 ? costByTurn.get(turnByIndex[i]) : undefined}
-          canRetryFromTurn={canRetryFromTurn}
+      {pendingRetryTurn !== null && (
+        <RetryFromTurnModal
+          turn={pendingRetryTurn}
           busy={busy}
-          onRetryFromTurn={onRetryFromTurn}
+          onConfirm={(reason) => {
+            onRetryFromTurn?.(pendingRetryTurn, reason);
+            setPendingRetryTurn(null);
+          }}
+          onClose={() => setPendingRetryTurn(null)}
         />
-      ))}
-    </div>
+      )}
+    </>
+  );
+}
+
+// RetryFromTurnModal collects an optional reason before submitting the
+// retry-from-turn request. The reason is stored in the run.resumed event
+// and shown in the run timeline so operators can annotate why they
+// branched from a particular turn.
+function RetryFromTurnModal({
+  turn,
+  busy,
+  onConfirm,
+  onClose,
+}: {
+  turn: number;
+  busy: boolean;
+  onConfirm: (reason: string) => void;
+  onClose: () => void;
+}) {
+  const [reason, setReason] = useState("");
+  return (
+    <Modal
+      title={`Retry from turn ${turn}`}
+      onClose={onClose}
+      width={440}
+      footer={
+        <div style={{ display: "flex", gap: 8, justifyContent: "flex-end" }}>
+          <button className="btn btn-ghost" onClick={onClose} disabled={busy}>
+            Cancel
+          </button>
+          <button
+            className="btn btn-primary"
+            disabled={busy}
+            onClick={() => onConfirm(reason.trim())}
+          >
+            {busy ? "Working…" : "Retry"}
+          </button>
+        </div>
+      }
+    >
+      <div style={{ display: "flex", flexDirection: "column", gap: 10 }}>
+        <p style={{ margin: 0, fontSize: 13, color: "var(--t1)", lineHeight: 1.5 }}>
+          A new run will be created with the conversation truncated to just before
+          turn {turn}'s assistant message. The prior steps and file state are preserved.
+        </p>
+        <label style={{ display: "flex", flexDirection: "column", gap: 4 }}>
+          <span style={{ fontSize: 11, fontWeight: 500, color: "var(--t2)", textTransform: "uppercase", letterSpacing: "0.05em" }}>
+            Reason <span style={{ fontWeight: 400, color: "var(--t3)" }}>(optional)</span>
+          </span>
+          <textarea
+            autoFocus
+            rows={2}
+            value={reason}
+            onChange={e => setReason(e.target.value)}
+            placeholder="Why are you branching from this turn?"
+            style={{
+              resize: "vertical", fontFamily: "var(--font-sans)", fontSize: 13,
+              color: "var(--t0)", background: "var(--bg2)",
+              border: "1px solid var(--border)", borderRadius: "var(--radius-sm)",
+              padding: "6px 8px", lineHeight: 1.5, width: "100%", boxSizing: "border-box",
+            }}
+          />
+        </label>
+      </div>
+    </Modal>
   );
 }
 

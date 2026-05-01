@@ -512,11 +512,13 @@ export async function resumeTaskRunRaisingCeiling(
 // retryTaskRunFromTurn re-runs an agent_loop run starting at turn N
 // with the prior conversation preserved up to (but not including)
 // that turn's assistant message. Returns the newly-created run.
-export async function retryTaskRunFromTurn(taskID: string, runID: string, turn: number, authToken?: string): Promise<TaskRunResponse> {
+// The optional reason is stored in the run.resumed event so operators
+// can annotate why they branched from a particular turn.
+export async function retryTaskRunFromTurn(taskID: string, runID: string, turn: number, authToken?: string, reason?: string): Promise<TaskRunResponse> {
   return fetchJSON<TaskRunResponse>(`/v1/tasks/${encodeURIComponent(taskID)}/runs/${encodeURIComponent(runID)}/retry-from-turn`, {
     authToken,
     method: "POST",
-    body: { turn },
+    body: { turn, reason: reason ?? "" },
   });
 }
 

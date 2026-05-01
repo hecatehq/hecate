@@ -304,12 +304,13 @@ export function TasksView({ authToken, session }: Props) {
   // turns and non-agent_loop runs with a 4xx — we surface the message
   // in the run-level notice so the operator can correct and try again
   // rather than silently failing.
-  async function handleRetryFromTurn(turn: number) {
+  async function handleRetryFromTurn(turn: number, reason: string) {
     if (!selectedTaskID || !selectedRunID) return;
     setBusyAction("retry-from-turn");
     try {
-      const res = await retryTaskRunFromTurn(selectedTaskID, selectedRunID, turn, authToken);
-      setNotice({ tone: "success", message: `Retrying from turn ${turn} (run #${res.data.number}).` });
+      const res = await retryTaskRunFromTurn(selectedTaskID, selectedRunID, turn, authToken, reason || undefined);
+      const reasonSuffix = reason ? ` — ${reason}` : "";
+      setNotice({ tone: "success", message: `Retrying from turn ${turn}${reasonSuffix} (run #${res.data.number}).` });
       await loadTasks(selectedTaskID, res.data.id);
     } catch (err) {
       setNotice({ tone: "error", message: err instanceof Error ? err.message : "retry-from-turn failed" });
@@ -388,7 +389,7 @@ export function TasksView({ authToken, session }: Props) {
           onCancelRun={() => void handleCancelRun()}
           onRetryRun={() => void handleRetryRun()}
           onResumeRun={() => void handleResumeRun()}
-          onRetryFromTurn={(turn) => void handleRetryFromTurn(turn)}
+          onRetryFromTurn={(turn, reason) => void handleRetryFromTurn(turn, reason)}
           onResumeRaisingCeiling={(budgetMicrosUSD) => void handleResumeRaisingCeiling(budgetMicrosUSD)}
         />
       ) : (

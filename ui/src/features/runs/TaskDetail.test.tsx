@@ -221,7 +221,7 @@ describe("TaskDetail runtime debugging", () => {
         id: "approval-1",
         task_id: "task-1",
         run_id: "run-1",
-        kind: "shell",
+        kind: "shell_command",
         status: "pending",
         reason: "Needs explicit shell approval",
         requested_by: "agent_loop",
@@ -231,7 +231,7 @@ describe("TaskDetail runtime debugging", () => {
     });
     render();
     expect(screen.getByText(/Approval required/i)).toBeTruthy();
-    expect(screen.getByText(/Shell command/i)).toBeTruthy();
+    expect(screen.getByText(/Shell execution/i)).toBeTruthy();
     expect(screen.getByText(/requested by/i)).toBeTruthy();
   });
 });
@@ -322,18 +322,68 @@ describe("TaskDetail agent conversation viewer", () => {
   });
 
   it("shows a 'retry from here' button on each assistant turn for terminal runs", async () => {
+    const { render } = setup({
+      artifacts: [makeConvoArtifact()],
+      run: makeRun({ status: "completed" }),
+    });
+    render();
+    // Two assistant turns in the fixture — both should show the retry control.
+    const retryButtons = screen.getAllByRole("button", { name: /retry from here/i });
+    expect(retryButtons.length).toBe(2);
+  });
+
+  it("opens the retry modal when the retry button is clicked", async () => {
+    const { user, render } = setup({
+      artifacts: [makeConvoArtifact()],
+      run: makeRun({ status: "completed" }),
+    });
+    render();
+    const retryButtons = screen.getAllByRole("button", { name: /retry from here/i });
+    await user.click(retryButtons[0]);
+    // Modal title includes the turn number.
+    expect(screen.getByText(/Retry from turn 1/i)).toBeTruthy();
+    // The reason textarea and Retry confirm button are present.
+    expect(screen.getByPlaceholderText(/why are you branching/i)).toBeTruthy();
+    expect(screen.getByRole("button", { name: /^retry$/i })).toBeTruthy();
+  });
+
+  it("fires onRetryFromTurn with turn and empty reason when confirmed without typing", async () => {
     const { props, user, render } = setup({
       artifacts: [makeConvoArtifact()],
       run: makeRun({ status: "completed" }),
     });
     render();
-    // Two assistant turns in the fixture — both should show the
-    // retry control. Click the first one and verify the callback
-    // fires with turn=1.
     const retryButtons = screen.getAllByRole("button", { name: /retry from here/i });
-    expect(retryButtons.length).toBe(2);
     await user.click(retryButtons[0]);
-    expect(props.onRetryFromTurn).toHaveBeenCalledWith(1);
+    await user.click(screen.getByRole("button", { name: /^retry$/i }));
+    expect(props.onRetryFromTurn).toHaveBeenCalledWith(1, "");
+  });
+
+  it("fires onRetryFromTurn with turn and trimmed reason when confirmed with a reason", async () => {
+    const { props, user, render } = setup({
+      artifacts: [makeConvoArtifact()],
+      run: makeRun({ status: "completed" }),
+    });
+    render();
+    const retryButtons = screen.getAllByRole("button", { name: /retry from here/i });
+    await user.click(retryButtons[1]);
+    // Turn 2 — type a reason.
+    await user.type(screen.getByPlaceholderText(/why are you branching/i), "  wrong tool choice  ");
+    await user.click(screen.getByRole("button", { name: /^retry$/i }));
+    expect(props.onRetryFromTurn).toHaveBeenCalledWith(2, "wrong tool choice");
+  });
+
+  it("closes the modal without firing when Cancel is clicked", async () => {
+    const { props, user, render } = setup({
+      artifacts: [makeConvoArtifact()],
+      run: makeRun({ status: "completed" }),
+    });
+    render();
+    await user.click(screen.getAllByRole("button", { name: /retry from here/i })[0]);
+    expect(screen.getByText(/Retry from turn 1/i)).toBeTruthy();
+    await user.click(screen.getByRole("button", { name: /cancel/i }));
+    expect(screen.queryByText(/Retry from turn 1/i)).toBeNull();
+    expect(props.onRetryFromTurn).not.toHaveBeenCalled();
   });
 
   it("hides the 'retry from here' button while the run is still active", () => {
