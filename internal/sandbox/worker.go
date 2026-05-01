@@ -11,6 +11,7 @@ import (
 	"os/exec"
 	"path/filepath"
 	"runtime"
+	"strconv"
 	"strings"
 	"sync"
 	"time"
@@ -62,6 +63,22 @@ func (e *WorkerExecutor) Run(ctx context.Context, command Command) (Result, erro
 }
 
 func (e *WorkerExecutor) RunStreaming(ctx context.Context, command Command, onChunk func(OutputChunk)) (Result, error) {
+	// Merge caller-supplied limits with the gateway defaults. A non-zero
+	// caller value always wins; zero means "use the default".
+	defaults := defaultWorkerLimits()
+	if command.Limits.MaxOutputBytes == 0 {
+		command.Limits.MaxOutputBytes = defaults.MaxOutputBytes
+	}
+	if command.Limits.MaxCPUSeconds == 0 {
+		command.Limits.MaxCPUSeconds = defaults.MaxCPUSeconds
+	}
+	if command.Limits.MaxOpenFiles == 0 {
+		command.Limits.MaxOpenFiles = defaults.MaxOpenFiles
+	}
+	if command.Limits.MaxAddressSpaceBytes == 0 {
+		command.Limits.MaxAddressSpaceBytes = defaults.MaxAddressSpaceBytes
+	}
+
 	result, err := invokeStreamingWorker(ctx, workerRequest{
 		Operation: workerOperationRun,
 		Command:   &command,
@@ -244,9 +261,88 @@ func newWorkerCommand(ctx context.Context, payload []byte) (*exec.Cmd, *bytes.Bu
 	}
 	cmd := exec.CommandContext(ctx, binaryPath, "worker")
 	cmd.Stdin = bytes.NewReader(payload)
+	cmd.Env = workerEnv() // sanitised environment — no gateway secrets
 	stderr := &bytes.Buffer{}
 	cmd.Stderr = stderr
 	return cmd, stderr, nil
+}
+
+// workerEnv returns a minimal, curated environment for the sandboxd worker
+// subprocess. Passing an explicit list instead of inheriting the full gateway
+// environment prevents the worker — and any shell command it spawns — from
+// reading gateway secrets such as OPENAI_API_KEY or POSTGRES_DSN.
+//
+// The allowlist is intentionally conservative: only variables required for
+// normal program execution are forwarded. Variables needed by git (author
+// identity) are also included because agent tasks commonly run git commands.
+func workerEnv() []string {
+	allowed := []string{
+		// Shell / process execution
+		"PATH", "SHELL",
+		// User identity
+		"HOME", "USER", "LOGNAME",
+		// Temporary file locations
+		"TMPDIR", "TEMP", "TMP",
+		// Locale
+		"LANG", "LC_ALL", "LC_CTYPE", "LC_MESSAGES", "LC_TIME",
+		// Timezone
+		"TZ",
+		// Terminal (needed by some interactive tools)
+		"TERM",
+		// Git author identity — agent tasks commonly run git commit.
+		"GIT_AUTHOR_NAME", "GIT_AUTHOR_EMAIL",
+		"GIT_COMMITTER_NAME", "GIT_COMMITTER_EMAIL",
+	}
+	env := make([]string, 0, len(allowed))
+	for _, key := range allowed {
+		if v, ok := os.LookupEnv(key); ok {
+			env = append(env, key+"="+v)
+		}
+	}
+	return env
+}
+
+// defaultWorkerLimits reads sandbox resource-limit configuration from
+// environment variables and returns a ResourceLimits with sensible defaults.
+// Set a variable to 0 to disable the corresponding cap.
+//
+// Environment variables:
+//
+//	GATEWAY_TASK_MAX_OUTPUT_BYTES     — stdout+stderr cap (default: 4 MiB)
+//	GATEWAY_SANDBOX_RLIMIT_CPU        — CPU time in seconds (default: 300)
+//	GATEWAY_SANDBOX_RLIMIT_NOFILE     — open file descriptors (default: 1024)
+//	GATEWAY_SANDBOX_RLIMIT_AS         — virtual address space in bytes (default: 0 = off)
+func defaultWorkerLimits() ResourceLimits {
+	return ResourceLimits{
+		MaxOutputBytes:       workerEnvInt64("GATEWAY_TASK_MAX_OUTPUT_BYTES", 4*1024*1024),
+		MaxCPUSeconds:        workerEnvUint64("GATEWAY_SANDBOX_RLIMIT_CPU", 300),
+		MaxOpenFiles:         workerEnvUint64("GATEWAY_SANDBOX_RLIMIT_NOFILE", 1024),
+		MaxAddressSpaceBytes: workerEnvUint64("GATEWAY_SANDBOX_RLIMIT_AS", 0),
+	}
+}
+
+func workerEnvInt64(key string, fallback int64) int64 {
+	s := strings.TrimSpace(os.Getenv(key))
+	if s == "" {
+		return fallback
+	}
+	v, err := strconv.ParseInt(s, 10, 64)
+	if err != nil || v < 0 {
+		return fallback
+	}
+	return v
+}
+
+func workerEnvUint64(key string, fallback uint64) uint64 {
+	s := strings.TrimSpace(os.Getenv(key))
+	if s == "" {
+		return fallback
+	}
+	v, err := strconv.ParseUint(s, 10, 64)
+	if err != nil {
+		return fallback
+	}
+	return v
 }
 
 func workerCommandError(execCtx context.Context, stderr *bytes.Buffer, err error) error {

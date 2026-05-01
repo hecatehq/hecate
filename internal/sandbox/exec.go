@@ -16,6 +16,43 @@ import (
 	"time"
 )
 
+// ResourceLimits caps resources consumed by the shell subprocess and its
+// descendants. Zero values leave the current kernel limit in place.
+// The gateway populates this from environment variables and embeds it in
+// the JSON request sent to the sandboxd worker; the worker applies the
+// limits before spawning the shell.
+type ResourceLimits struct {
+	// MaxOutputBytes caps the combined stdout+stderr that drainProcessOutput
+	// will buffer. When the cap is reached the command is cancelled and
+	// an OutputLimitExceededError is returned. 0 means no cap.
+	MaxOutputBytes int64
+	// MaxCPUSeconds caps CPU time via RLIMIT_CPU. 0 means no cap.
+	MaxCPUSeconds uint64
+	// MaxOpenFiles caps open file descriptors via RLIMIT_NOFILE. 0 means no cap.
+	MaxOpenFiles uint64
+	// MaxAddressSpaceBytes caps the virtual address space via RLIMIT_AS. 0
+	// means no cap. Behaviour on macOS matches RLIMIT_AS semantics (virtual
+	// memory); on Linux it is strictly the process address space.
+	MaxAddressSpaceBytes uint64
+}
+
+// OutputLimitExceededError is returned when a command's combined stdout and
+// stderr output exceeds ResourceLimits.MaxOutputBytes.
+type OutputLimitExceededError struct {
+	Limit int64
+}
+
+func (e *OutputLimitExceededError) Error() string {
+	return fmt.Sprintf("command output exceeded limit of %d bytes; configure GATEWAY_TASK_MAX_OUTPUT_BYTES to widen", e.Limit)
+}
+
+// IsOutputLimitExceeded reports whether err is or wraps an
+// OutputLimitExceededError.
+func IsOutputLimitExceeded(err error) bool {
+	var target *OutputLimitExceededError
+	return errors.As(err, &target)
+}
+
 type Policy struct {
 	AllowedRoot string
 	ReadOnly    bool
@@ -47,6 +84,7 @@ type Command struct {
 	WorkingDirectory string
 	Timeout          time.Duration
 	Policy           Policy
+	Limits           ResourceLimits
 }
 
 type FileRequest struct {
@@ -114,17 +152,26 @@ func (e *LocalExecutor) RunStreaming(ctx context.Context, command Command, onChu
 		return Result{ExitCode: -1}, err
 	}
 
-	runCtx := ctx
-	cancel := func() {}
-	if command.Timeout > 0 {
-		runCtx, cancel = context.WithTimeout(ctx, command.Timeout)
-	}
+	// Always derive a cancel-able context so drainProcessOutput can kill
+	// the child process when the output-size cap is hit.
+	runCtx, cancel := context.WithCancel(ctx)
 	defer cancel()
+	if command.Timeout > 0 {
+		var timeoutCancel context.CancelFunc
+		runCtx, timeoutCancel = context.WithTimeout(runCtx, command.Timeout)
+		defer timeoutCancel()
+	}
 
 	cmd := exec.CommandContext(runCtx, "sh", "-lc", command.Command)
 	if workingDirectory != "" {
 		cmd.Dir = workingDirectory
 	}
+
+	// Apply process resource limits (CPU, file descriptors, address space)
+	// before the child process starts so it inherits them. Each sandboxd
+	// worker handles exactly one command, so limiting the worker process is
+	// equivalent to limiting the command it spawns.
+	applyProcessResourceLimits(command.Limits)
 
 	var stdout bytes.Buffer
 	var stderr bytes.Buffer
@@ -144,7 +191,11 @@ func (e *LocalExecutor) RunStreaming(ctx context.Context, command Command, onChu
 	go streamPipe(stdoutPipe, "stdout", streamEvents)
 	go streamPipe(stderrPipe, "stderr", streamEvents)
 
-	readErr := drainProcessOutput(streamEvents, &stdout, &stderr, onChunk)
+	// drainProcessOutput calls cancel() if the output cap is exceeded,
+	// which kills the child via exec.CommandContext and causes the pipe
+	// goroutines to send their done events so the drain loop terminates
+	// cleanly without goroutine leaks.
+	readErr := drainProcessOutput(streamEvents, &stdout, &stderr, onChunk, command.Limits.MaxOutputBytes, cancel)
 	if readErr != nil {
 		_ = cmd.Wait()
 		return Result{Stdout: stdout.String(), Stderr: stderr.String(), ExitCode: -1}, readErr
@@ -246,9 +297,17 @@ func streamPipe(pipe io.ReadCloser, streamName string, events chan<- outputEvent
 	}
 }
 
-func drainProcessOutput(events <-chan outputEvent, stdout, stderr *bytes.Buffer, onChunk func(OutputChunk)) error {
-	var readErr error
-	completedStreams := 0
+// drainProcessOutput reads output events from the streaming goroutines until
+// both stdout and stderr report done. cancelCmd is called when the output cap
+// is exceeded — it cancels the exec.CommandContext that owns the child process,
+// causing the pipes to close and the drain loop to terminate without leaving
+// goroutines blocked.
+func drainProcessOutput(events <-chan outputEvent, stdout, stderr *bytes.Buffer, onChunk func(OutputChunk), maxBytes int64, cancelCmd context.CancelFunc) error {
+	var (
+		readErr          error
+		totalBytes       int64
+		completedStreams int
+	)
 	for completedStreams < 2 {
 		event := <-events
 		if event.done {
@@ -257,6 +316,21 @@ func drainProcessOutput(events <-chan outputEvent, stdout, stderr *bytes.Buffer,
 				readErr = event.err
 			}
 			continue
+		}
+		// If we already have an error (e.g. output cap hit), keep draining
+		// events without accumulating them so the pipe goroutines can finish.
+		if readErr != nil {
+			continue
+		}
+
+		n := int64(len(event.chunk.Text))
+		if maxBytes > 0 {
+			totalBytes += n
+			if totalBytes > maxBytes {
+				readErr = &OutputLimitExceededError{Limit: maxBytes}
+				cancelCmd() // kill the child; pipes close → goroutines send done events
+				continue
+			}
 		}
 
 		switch event.chunk.Stream {

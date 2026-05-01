@@ -99,6 +99,10 @@ SANDBOXD_BIN=/path/to/pre-built/sandboxd
 | Env var | Default | What it controls |
 |---|---|---|
 | `SANDBOXD_BIN` | `""` | Explicit path to the sandboxd binary; bypasses all other resolution |
+| `GATEWAY_TASK_MAX_OUTPUT_BYTES` | `4194304` (4 MiB) | Combined stdout + stderr cap per command. Commands exceeding this are killed and return an error. 0 = no cap |
+| `GATEWAY_SANDBOX_RLIMIT_CPU` | `300` | CPU time cap in seconds (`RLIMIT_CPU`). Complements the wall-clock task timeout. 0 = no cap |
+| `GATEWAY_SANDBOX_RLIMIT_NOFILE` | `1024` | Open file descriptor cap (`RLIMIT_NOFILE`). 0 = no cap |
+| `GATEWAY_SANDBOX_RLIMIT_AS` | `0` | Virtual address space cap in bytes (`RLIMIT_AS`). 0 = no cap (default off; useful on Linux) |
 | `GATEWAY_TASK_SHELL_ALLOW_PRIVATE_IPS` | `false` | Allow loopback / RFC1918 / link-local IP literals in shell and git command URLs when `sandbox_network=true` |
 | `GATEWAY_TASK_SHELL_ALLOWED_HOSTS` | `""` | Comma-separated exact-host allowlist for URLs in shell and git commands; empty = all public hosts |
 
@@ -138,6 +142,8 @@ weakest ────────────────────────
  (current)    (current)    (planned)         (planned)
 ```
 
+Layers 0 and 1 are active on every deployment today. Layers 2 and 3 are planned.
+
 ### Layer 0 — Process boundary (current)
 
 `sandboxd worker` runs as a separate OS process. A misbehaving or panicking
@@ -147,19 +153,29 @@ command runs. Network and write detection is **best-effort static string
 matching** — creative commands (inline Python, base64-encoded URLs, `nc`) can
 bypass it.
 
-### Layer 1 — Defensive hardening (planned)
+### Layer 1 — Defensive hardening (current)
 
 Cross-platform improvements that require no kernel features and work on Linux,
-macOS, and Windows:
+macOS, and Windows. All three are shipped and active by default.
 
-- **Environment sanitisation** — pass an explicit allowlist (`PATH`, `HOME`,
-  `TMPDIR`, `LANG`, `TZ`) to the worker's `exec.Command` instead of inheriting
-  the gateway's full environment. Prevents the subprocess from reading
-  `OPENAI_API_KEY`, `POSTGRES_DSN`, and other secrets present in the parent.
-- **Output size cap** — limit total stdout + stderr to a configurable ceiling
-  (e.g. 4 MiB). Prevents runaway commands from exhausting gateway memory.
-- **Resource limits** — `setrlimit` on Unix (CPU time, file descriptors, address
-  space) and Job Objects on Windows. Prevents fork bombs and runaway memory.
+- **Environment sanitisation** — `newWorkerCommand` passes an explicit allowlist
+  (`PATH`, `HOME`, `TMPDIR`, `LANG`, `TZ`, `GIT_*`, and a handful of others) to
+  the worker subprocess instead of inheriting the gateway's full environment.
+  Prevents the worker and any shell command it spawns from reading
+  `OPENAI_API_KEY`, `POSTGRES_DSN`, and other secrets present in the gateway
+  process. See `workerEnv()` in `internal/sandbox/worker.go`.
+- **Output size cap** — `GATEWAY_TASK_MAX_OUTPUT_BYTES` (default 4 MiB) bounds
+  the combined stdout + stderr a command can emit. When the cap is reached the
+  command is killed and `OutputLimitExceededError` is returned. Prevents runaway
+  commands from exhausting gateway memory. Enforced in `drainProcessOutput`
+  inside the sandboxd worker.
+- **Resource limits** — `GATEWAY_SANDBOX_RLIMIT_CPU` (default 300 s),
+  `GATEWAY_SANDBOX_RLIMIT_NOFILE` (default 1024), and
+  `GATEWAY_SANDBOX_RLIMIT_AS` (default 0 = off) are applied via
+  `syscall.Setrlimit` on Linux and macOS before the shell subprocess starts.
+  The child process inherits the limits. On Windows this is a no-op; Job Object
+  support is tracked as part of Layer 2. See `applyProcessResourceLimits` in
+  `internal/sandbox/exec_rlimit_{linux,darwin,windows,other}.go`.
 
 ### Layer 2 — OS-level isolation (planned)
 
