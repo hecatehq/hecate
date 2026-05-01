@@ -1329,7 +1329,8 @@ func TestRuntimeStatsReturnsQueueAndRunCounters(t *testing.T) {
 	t.Parallel()
 
 	logger := slog.New(slog.NewJSONHandler(io.Discard, nil))
-	handler := newTestHTTPHandlerForProviders(logger, nil, config.Config{})
+	cfg := config.Config{Server: config.ServerConfig{TaskApprovalPolicies: []string{"shell_exec"}}}
+	handler := newTestHTTPHandlerForProviders(logger, nil, cfg)
 	client := newAPITestClient(t, handler)
 	tasks := newTaskTestClient(t, handler)
 
@@ -1504,6 +1505,7 @@ func TestTaskRunPerTenantConcurrencyLimitQueuesSecondRun(t *testing.T) {
 		Server: config.ServerConfig{
 			AuthToken:                  "admin-secret",
 			TaskMaxConcurrentPerTenant: 1,
+			TaskApprovalPolicies:       []string{"shell_exec"},
 		},
 	}, cpStore)
 	tasks := newTaskTestClient(t, handler).withBearerToken("tenant-a-secret")
@@ -2533,7 +2535,8 @@ func TestTaskStartShellExecutor(t *testing.T) {
 	t.Parallel()
 
 	logger := slog.New(slog.NewJSONHandler(io.Discard, nil))
-	handler := newTestHTTPHandlerForProviders(logger, nil, config.Config{})
+	cfg := config.Config{Server: config.ServerConfig{TaskApprovalPolicies: []string{"shell_exec"}}}
+	handler := newTestHTTPHandlerForProviders(logger, nil, cfg)
 	tasks := newTaskTestClient(t, handler)
 
 	created := mustTaskRequestJSON[TaskResponse](tasks, http.MethodPost, "/v1/tasks", `{"title":"Run shell","prompt":"Run a shell command.","execution_kind":"shell","shell_command":"printf 'hello '; sleep 0.2; printf 'from shell\n'","working_directory":".","timeout_ms":2000}`)
@@ -2619,7 +2622,8 @@ func TestTaskApprovalResolveReturnsConflictWhenAlreadyResolved(t *testing.T) {
 	t.Parallel()
 
 	logger := slog.New(slog.NewJSONHandler(io.Discard, nil))
-	handler := newTestHTTPHandlerForProviders(logger, nil, config.Config{})
+	cfg := config.Config{Server: config.ServerConfig{TaskApprovalPolicies: []string{"shell_exec"}}}
+	handler := newTestHTTPHandlerForProviders(logger, nil, cfg)
 	tasks := newTaskTestClient(t, handler)
 
 	created := mustTaskRequestJSON[TaskResponse](tasks, http.MethodPost, "/v1/tasks", `{"title":"Approve once","prompt":"Resolve one approval once.","execution_kind":"shell","shell_command":"printf 'approved-once\n'","working_directory":".","timeout_ms":2000}`)
@@ -2663,7 +2667,8 @@ func TestTaskRejectApprovalCancelsRun(t *testing.T) {
 	t.Parallel()
 
 	logger := slog.New(slog.NewJSONHandler(io.Discard, nil))
-	handler := newTestHTTPHandlerForProviders(logger, nil, config.Config{})
+	cfg := config.Config{Server: config.ServerConfig{TaskApprovalPolicies: []string{"shell_exec"}}}
+	handler := newTestHTTPHandlerForProviders(logger, nil, cfg)
 	tasks := newTaskTestClient(t, handler)
 
 	created := mustTaskRequestJSON[TaskResponse](tasks, http.MethodPost, "/v1/tasks", `{"title":"Reject shell","prompt":"Reject a shell command.","execution_kind":"shell","shell_command":"printf 'should not run\n'","working_directory":".","timeout_ms":2000}`)
@@ -2791,7 +2796,8 @@ func TestTaskApprovedShellExecutorRespectsReadOnlyPolicy(t *testing.T) {
 	t.Parallel()
 
 	logger := slog.New(slog.NewJSONHandler(io.Discard, nil))
-	handler := newTestHTTPHandlerForProviders(logger, nil, config.Config{})
+	cfg := config.Config{Server: config.ServerConfig{TaskApprovalPolicies: []string{"shell_exec"}}}
+	handler := newTestHTTPHandlerForProviders(logger, nil, cfg)
 	tasks := newTaskTestClient(t, handler)
 
 	created := mustTaskRequestJSON[TaskResponse](tasks, http.MethodPost, "/v1/tasks", `{"title":"Denied shell","prompt":"Attempt a write.","execution_kind":"shell","shell_command":"touch denied.txt","working_directory":".","sandbox_read_only":true,"timeout_ms":2000}`)
@@ -2864,7 +2870,8 @@ func TestTaskRunCancellation(t *testing.T) {
 	t.Parallel()
 
 	logger := slog.New(slog.NewJSONHandler(io.Discard, nil))
-	handler := newTestHTTPHandlerForProviders(logger, nil, config.Config{})
+	cfg := config.Config{Server: config.ServerConfig{TaskApprovalPolicies: []string{"shell_exec"}}}
+	handler := newTestHTTPHandlerForProviders(logger, nil, cfg)
 	tasks := newTaskTestClient(t, handler)
 
 	created := mustTaskRequestJSON[TaskResponse](tasks, http.MethodPost, "/v1/tasks", `{"title":"Cancel shell","prompt":"Cancel a long shell run.","execution_kind":"shell","shell_command":"printf 'starting\n'; sleep 5; printf 'done\n'","working_directory":".","timeout_ms":10000}`)
@@ -2914,7 +2921,8 @@ func TestTaskRunStreamSSE(t *testing.T) {
 	t.Parallel()
 
 	logger := slog.New(slog.NewJSONHandler(io.Discard, nil))
-	handler := newTestHTTPHandlerForProviders(logger, nil, config.Config{})
+	cfg := config.Config{Server: config.ServerConfig{TaskApprovalPolicies: []string{"shell_exec"}}}
+	handler := newTestHTTPHandlerForProviders(logger, nil, cfg)
 	server := httptest.NewServer(handler)
 	defer server.Close()
 
@@ -3039,7 +3047,8 @@ func TestTaskRunStream_PendingApprovalRidesAlongInSnapshot(t *testing.T) {
 	t.Parallel()
 
 	logger := slog.New(slog.NewJSONHandler(io.Discard, nil))
-	handler := newTestHTTPHandlerForProviders(logger, nil, config.Config{})
+	cfg := config.Config{Server: config.ServerConfig{TaskApprovalPolicies: []string{"shell_exec"}}}
+	handler := newTestHTTPHandlerForProviders(logger, nil, cfg)
 	server := httptest.NewServer(handler)
 	defer server.Close()
 
@@ -3438,7 +3447,8 @@ func TestTaskStartReturnsConflictWhileRunActive(t *testing.T) {
 	t.Parallel()
 
 	logger := slog.New(slog.NewJSONHandler(io.Discard, nil))
-	handler := newTestHTTPHandlerForProviders(logger, nil, config.Config{})
+	cfg := config.Config{Server: config.ServerConfig{TaskApprovalPolicies: []string{"shell_exec"}}}
+	handler := newTestHTTPHandlerForProviders(logger, nil, cfg)
 	tasks := newTaskTestClient(t, handler)
 
 	created := mustTaskRequestJSON[TaskResponse](tasks, http.MethodPost, "/v1/tasks", `{"title":"Active start","prompt":"Leave this run awaiting approval.","execution_kind":"shell","shell_command":"printf 'active\n'","working_directory":".","timeout_ms":1000}`)
