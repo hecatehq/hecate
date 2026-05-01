@@ -115,6 +115,11 @@ jobs:
             librsvg2-dev \
             patchelf
 
+      # make build runs ui-build first (the //go:embed needs the bundled
+      # React assets), and ui-build refuses to run without node_modules.
+      - name: Install UI dependencies
+        run: make ui-install
+
       # make build: compiles the Go binary (ui-build → go build).
       # This is the same binary that becomes the Tauri sidecar.
       - name: Build hecate binary
