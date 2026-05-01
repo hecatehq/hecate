@@ -31,7 +31,7 @@ coverage:
 	@echo "Open coverage.html for line-level coverage."
 
 ui-coverage:
-	test -d ui/node_modules/@tailwindcss/vite || (echo "UI dependencies are out of date. Run 'make ui-install' first." && exit 1)
+	test -d ui/node_modules/@vitejs/plugin-react || (echo "UI dependencies are out of date. Run 'make ui-install' first." && exit 1)
 	cd ui && bun run test:coverage
 
 # stop frees :8765 by killing whatever is listening there. Useful before
@@ -74,11 +74,11 @@ ui-install:
 	cd ui && bun install
 
 ui-dev:
-	test -d ui/node_modules/@tailwindcss/vite || (echo "UI dependencies are out of date. Run 'make ui-install' first." && exit 1)
+	test -d ui/node_modules/@vitejs/plugin-react || (echo "UI dependencies are out of date. Run 'make ui-install' first." && exit 1)
 	cd ui && bun run dev
 
 ui-build:
-	test -d ui/node_modules/@tailwindcss/vite || (echo "UI dependencies are out of date. Run 'make ui-install' first." && exit 1)
+	test -d ui/node_modules/@vitejs/plugin-react || (echo "UI dependencies are out of date. Run 'make ui-install' first." && exit 1)
 	cd ui && bun run build
 	# Vite empties ui/dist before building, which deletes the tracked
 	# .gitkeep placeholder. Restore it exactly as git has it so the next
@@ -87,11 +87,11 @@ ui-build:
 	@git restore ui/dist/.gitkeep 2>/dev/null || touch ui/dist/.gitkeep
 
 ui-test:
-	test -d ui/node_modules/@tailwindcss/vite || (echo "UI dependencies are out of date. Run 'make ui-install' first." && exit 1)
+	test -d ui/node_modules/@vitejs/plugin-react || (echo "UI dependencies are out of date. Run 'make ui-install' first." && exit 1)
 	cd ui && bun run test
 
 ui-test-e2e:
-	test -d ui/node_modules/@tailwindcss/vite || (echo "UI dependencies are out of date. Run 'make ui-install' first." && exit 1)
+	test -d ui/node_modules/@vitejs/plugin-react || (echo "UI dependencies are out of date. Run 'make ui-install' first." && exit 1)
 	cd ui && bun run test:e2e
 
 # test-docker-smoke spins up `docker compose` with the production image
