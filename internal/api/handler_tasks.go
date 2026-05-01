@@ -61,7 +61,12 @@ func (h *Handler) HandleCreateTask(w http.ResponseWriter, r *http.Request) {
 			}
 		}
 	}
-	if prompt == "" {
+	// prompt is required for agent_loop tasks; direct-execution tasks
+	// (shell, git, file) carry their work in the command/file fields and
+	// don't need a natural-language prompt.
+	effectiveKind := strings.TrimSpace(req.ExecutionKind)
+	isAgentLoop := effectiveKind == "" || effectiveKind == "agent_loop"
+	if prompt == "" && isAgentLoop {
 		WriteError(w, http.StatusBadRequest, errCodeInvalidRequest, "prompt is required")
 		return
 	}
