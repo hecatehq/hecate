@@ -3,6 +3,7 @@ package orchestrator
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"log/slog"
 	"os"
@@ -17,6 +18,12 @@ import (
 	"github.com/hecate/agent-runtime/internal/telemetry"
 	"github.com/hecate/agent-runtime/pkg/types"
 )
+
+// ErrAgentLoopMisconfigured is returned by StartTask when an agent_loop
+// task cannot be started due to missing configuration detectable before
+// the run is created. Callers should surface this as a client error
+// (HTTP 422) rather than a gateway error (500).
+var ErrAgentLoopMisconfigured = errors.New("agent_loop misconfigured")
 
 type Config struct {
 	DefaultModel           string
@@ -618,6 +625,16 @@ func (r *Runner) startTaskWithOptions(ctx context.Context, task types.Task, idge
 	}
 	if r.workspaces == nil {
 		return nil, fmt.Errorf("workspace manager is not configured")
+	}
+
+	// Preflight: agent_loop needs a model before we create the run.
+	// Failing here (before the run row exists) gives the API caller a
+	// clean 422 and avoids a run that would immediately fail on its
+	// first LLM call with a confusing "no route" error.
+	if task.ExecutionKind == "agent_loop" {
+		if firstNonEmpty(task.RequestedModel, r.config.DefaultModel) == "" {
+			return nil, fmt.Errorf("%w: no model configured — set task.RequestedModel or GATEWAY_DEFAULT_MODEL", ErrAgentLoopMisconfigured)
+		}
 	}
 
 	requestID := strings.TrimSpace(telemetry.RequestIDFromContext(ctx))

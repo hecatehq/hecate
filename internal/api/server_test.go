@@ -3648,14 +3648,19 @@ func TestTaskStartAgentLoopWithoutLLM_FailsInRunNotAtQueue(t *testing.T) {
 	// it does so inside the run with an actionable error step the
 	// operator can see in the timeline, not at the queue boundary
 	// where the run never even appears.
+	//
+	// A model must be specified (or a default configured) — the start
+	// preflight rejects agent_loop tasks with no model before creating
+	// the run. Here we supply a model so the preflight passes and the
+	// test exercises the "LLM client not wired" failure path.
 	t.Parallel()
 
 	logger := slog.New(slog.NewJSONHandler(io.Discard, nil))
 	handler := newTestHTTPHandlerForProviders(logger, nil, config.Config{})
 	tasks := newTaskTestClient(t, handler)
 
-	created := mustTaskRequestJSON[TaskResponse](tasks, http.MethodPost, "/v1/tasks", `{"title":"Agent loop no LLM","prompt":"No LLM wired","execution_kind":"agent_loop"}`)
-	// Start succeeds — no flag gate any more.
+	created := mustTaskRequestJSON[TaskResponse](tasks, http.MethodPost, "/v1/tasks", `{"title":"Agent loop no LLM","prompt":"No LLM wired","execution_kind":"agent_loop","requested_model":"gpt-4o-mini"}`)
+	// Start succeeds — model is set so the preflight passes.
 	started := mustTaskRequestJSON[TaskRunResponse](tasks, http.MethodPost, "/v1/tasks/"+created.Data.ID+"/start", "")
 	if started.Data.Status != "queued" {
 		t.Fatalf("started run status = %q, want queued", started.Data.Status)
@@ -3665,6 +3670,25 @@ func TestTaskStartAgentLoopWithoutLLM_FailsInRunNotAtQueue(t *testing.T) {
 	finished := waitForRunStatusWithClient(tasks, created.Data.ID, started.Data.ID, "failed")
 	if !strings.Contains(finished.Data.LastError, "LLM") {
 		t.Fatalf("LastError = %q, want mention of LLM (no client configured)", finished.Data.LastError)
+	}
+}
+
+func TestTaskStartAgentLoopWithoutModel_FailsAtStart(t *testing.T) {
+	// When no model is configured (neither task.RequestedModel nor
+	// GATEWAY_DEFAULT_MODEL), starting an agent_loop run should return
+	// 422 immediately — no run is created, no tokens are spent.
+	t.Parallel()
+
+	logger := slog.New(slog.NewJSONHandler(io.Discard, nil))
+	// config.Config{} has DefaultModel == "" — no default configured.
+	handler := newTestHTTPHandlerForProviders(logger, nil, config.Config{})
+	tasks := newTaskTestClient(t, handler)
+
+	created := mustTaskRequestJSON[TaskResponse](tasks, http.MethodPost, "/v1/tasks", `{"title":"Agent loop no model","prompt":"No model","execution_kind":"agent_loop"}`)
+
+	rec := tasks.mustRequestStatus(http.StatusUnprocessableEntity, http.MethodPost, "/v1/tasks/"+created.Data.ID+"/start", "")
+	if !strings.Contains(rec.Body.String(), "model_not_configured") {
+		t.Fatalf("body = %s, want model_not_configured error code", rec.Body.String())
 	}
 }
 

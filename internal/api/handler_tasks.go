@@ -5,6 +5,7 @@ import (
 	"crypto/rand"
 	"encoding/hex"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"log/slog"
 	"net/http"
@@ -14,6 +15,7 @@ import (
 	"time"
 
 	"github.com/hecate/agent-runtime/internal/auth"
+	"github.com/hecate/agent-runtime/internal/orchestrator"
 	"github.com/hecate/agent-runtime/internal/secrets"
 	"github.com/hecate/agent-runtime/internal/taskstate"
 	"github.com/hecate/agent-runtime/internal/telemetry"
@@ -333,6 +335,10 @@ func (h *Handler) HandleStartTask(w http.ResponseWriter, r *http.Request) {
 			slog.String("event.name", "gateway.tasks.start.failed"),
 			slog.Any("error", err),
 		)
+		if errors.Is(err, orchestrator.ErrAgentLoopMisconfigured) {
+			WriteError(w, http.StatusUnprocessableEntity, "model_not_configured", err.Error())
+			return
+		}
 		WriteError(w, http.StatusInternalServerError, errCodeGatewayError, err.Error())
 		return
 	}
