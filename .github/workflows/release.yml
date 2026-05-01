@@ -8,6 +8,13 @@ on:
       - 'v*'
   workflow_dispatch:
 
+# A tag-push and a manual dispatch on the same ref shouldn't fight.
+# Don't cancel-in-progress for releases — half-completed releases are
+# worse than waiting for the queued one.
+concurrency:
+  group: release-${{ github.ref }}
+  cancel-in-progress: false
+
 permissions:
   contents: write   # create the GitHub release + upload archives
   packages: write   # push images to ghcr.io
@@ -57,138 +64,12 @@ jobs:
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
 
-  # Build steps mirror tauri-build.yml (PR validation). When you change
-  # the matrix, pre-steps, or system deps here, mirror it there.
+  # Native desktop bundles. All matrix steps live in _tauri-shared.yml.
   tauri:
     needs: goreleaser
-    strategy:
-      fail-fast: false
-      matrix:
-        include:
-          - os: macos-latest
-            target: aarch64-apple-darwin
-            bundles: dmg
-          - os: ubuntu-22.04
-            target: x86_64-unknown-linux-gnu
-            bundles: deb,appimage
-          - os: windows-latest
-            target: x86_64-pc-windows-msvc
-            bundles: msi
-    runs-on: ${{ matrix.os }}
-    # bash for every run: step. On Windows runners this resolves to Git Bash,
-    # which is what the Makefile (SHELL := /bin/sh) and our cp/if blocks need.
-    defaults:
-      run:
-        shell: bash
-    steps:
-      - name: Checkout
-        uses: actions/checkout@v4
-        with:
-          fetch-depth: 0   # stamp-version.ts resolves version from git tag
-
-      - name: Set up Rust
-        uses: dtolnay/rust-toolchain@stable
-        with:
-          targets: ${{ matrix.target }}
-
-      - name: Cache Rust build artifacts
-        uses: Swatinem/rust-cache@v2
-        with:
-          workspaces: tauri/src-tauri -> target
-
-      - name: Set up Go
-        uses: actions/setup-go@v5
-        with:
-          go-version-file: go.mod
-          cache: true
-
-      - name: Set up Bun
-        uses: oven-sh/setup-bun@v2
-        with:
-          bun-version: 1.3.13
-
-      # Tauri 2.x prerequisites for Ubuntu 22.04 (per the official docs).
-      # webkit2gtk 4.1 is the Tauri 2 requirement; 4.0 ships by default.
-      # patchelf is required by the AppImage bundler to rewrite ELF rpath.
-      # libxdo-dev is the global-shortcut/clipboard dep; safe to include
-      # even though we don't use those plugins yet — keeps the matrix
-      # ready for them.
-      - name: Install Linux system dependencies
-        if: matrix.os == 'ubuntu-22.04'
-        run: |
-          sudo apt-get update
-          sudo apt-get install -y \
-            build-essential \
-            curl \
-            wget \
-            file \
-            libssl-dev \
-            libwebkit2gtk-4.1-dev \
-            libgtk-3-dev \
-            libayatana-appindicator3-dev \
-            librsvg2-dev \
-            libxdo-dev \
-            patchelf
-
-      # make build runs ui-build first (the //go:embed needs the bundled
-      # React assets), and ui-build refuses to run without node_modules.
-      - name: Install UI dependencies
-        run: make ui-install
-
-      # make build: compiles the Go binary (ui-build → go build).
-      # This is the same binary that becomes the Tauri sidecar.
-      - name: Build hecate binary
-        run: make build
-
-      # Tauri's bundler looks for binaries/hecate-{triple}[.exe] at bundle time.
-      # make tauri-sidecar does this locally; we replicate it here so the
-      # platform triple from the matrix is always used, not whatever rustc
-      # detects on the runner. Defensive: try .exe first on Windows, fall
-      # back to the bare name (Go's behavior changed across versions).
-      # Must come before `cargo check` — build.rs validates externalBin
-      # paths and fails if the sidecar isn't staged yet.
-      - name: Stage hecate sidecar
-        run: |
-          mkdir -p tauri/src-tauri/binaries
-          if [[ "$RUNNER_OS" == "Windows" ]]; then
-            if [[ -f hecate.exe ]]; then src=hecate.exe
-            elif [[ -f hecate ]];     then src=hecate
-            else echo "no hecate binary found after make build"; ls -la; exit 1
-            fi
-            cp "$src" "tauri/src-tauri/binaries/hecate-${{ matrix.target }}.exe"
-          else
-            cp hecate "tauri/src-tauri/binaries/hecate-${{ matrix.target }}"
-          fi
-
-      # cargo check before the full tauri build. Catches Rust syntax /
-      # type errors in seconds rather than after the ~5-8min bundle step.
-      # Must run after stage-sidecar because build.rs validates externalBin.
-      - name: Cargo check (Tauri Rust)
-        run: cargo check --manifest-path tauri/src-tauri/Cargo.toml --target ${{ matrix.target }}
-
-      # Install Tauri JS deps explicitly. tauri-action claims to do this
-      # via auto-detection from the lockfile, but with projectPath set it
-      # silently skipped the install, leaving node_modules/.bin/tauri
-      # missing and `bun run tauri build` failing with command-not-found.
-      - name: Install Tauri JS dependencies
-        run: cd tauri && bun install --frozen-lockfile
-
-      # Stamps Cargo.toml, package.json, and tauri.conf.json to the release
-      # version. Resolution order: TAURI_VERSION env → latest git tag → Cargo.toml.
-      # No TAURI_VERSION override needed here; the git tag is already present.
-      # Must run before tauri-action so the bundle metadata reflects the tag.
-      - name: Stamp Tauri version
-        run: bun scripts/stamp-version.ts
-
-      # tauri-action runs `tauri build`, auto-detects platform artifacts, and
-      # uploads them to the GitHub Release found by tagName. Code signing
-      # secrets (APPLE_CERTIFICATE, TAURI_SIGNING_PRIVATE_KEY, ...) plug in
-      # via env when we add them later — no workflow rewrite needed.
-      - name: Build and upload Tauri bundles
-        uses: tauri-apps/tauri-action@v0
-        env:
-          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-        with:
-          projectPath: tauri
-          tagName: ${{ github.ref_name }}
-          args: --bundles ${{ matrix.bundles }}
+    uses: ./.github/workflows/_tauri-shared.yml
+    secrets: inherit
+    permissions:
+      contents: write   # tauri-action uploads bundles to the existing release
+    with:
+      tagName: ${{ github.ref_name }}
