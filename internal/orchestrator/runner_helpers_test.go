@@ -2,6 +2,8 @@ package orchestrator
 
 import (
 	"context"
+	"reflect"
+	"sort"
 	"testing"
 	"time"
 
@@ -127,6 +129,44 @@ func TestApprovalSpecForTask(t *testing.T) {
 			task:     types.Task{ExecutionKind: "shell", ShellCommand: "  "},
 			wantKind: "",
 		},
+		{
+			name:       "all_tools + shell task → shell_command",
+			policies:   []string{"all_tools"},
+			task:       types.Task{ExecutionKind: "shell", ShellCommand: "ls"},
+			wantKind:   "shell_command",
+			wantReason: true,
+		},
+		{
+			name:       "all_tools + git task → git_exec",
+			policies:   []string{"all_tools"},
+			task:       types.Task{ExecutionKind: "git", GitCommand: "status"},
+			wantKind:   "git_exec",
+			wantReason: true,
+		},
+		{
+			name:       "all_tools + file task → file_write",
+			policies:   []string{"all_tools"},
+			task:       types.Task{ExecutionKind: "file", FilePath: "/tmp/x"},
+			wantKind:   "file_write",
+			wantReason: true,
+		},
+		{
+			// shell check precedes network check in approvalSpecForTask, so
+			// shell_command fires first even when all_tools enables both gates.
+			name:       "all_tools + shell+network task → shell_command (shell checked first)",
+			policies:   []string{"all_tools"},
+			task:       types.Task{ExecutionKind: "shell", ShellCommand: "ls", SandboxNetwork: true},
+			wantKind:   "shell_command",
+			wantReason: true,
+		},
+		{
+			// When execution kind is not shell/git/file, network gate fires.
+			name:       "all_tools + network-only task → network_egress",
+			policies:   []string{"all_tools"},
+			task:       types.Task{ExecutionKind: "agent_loop", SandboxNetwork: true},
+			wantKind:   "network_egress",
+			wantReason: true,
+		},
 	}
 	for _, tc := range cases {
 		t.Run(tc.name, func(t *testing.T) {
@@ -140,6 +180,65 @@ func TestApprovalSpecForTask(t *testing.T) {
 			}
 			if got := r.approvalRequiredForTask(tc.task); got != tc.wantReason {
 				t.Errorf("approvalRequiredForTask = %v, want %v", got, tc.wantReason)
+			}
+		})
+	}
+}
+
+func TestHasPolicy(t *testing.T) {
+	r := runnerWithPolicies("shell_exec", "git_exec")
+	if !r.hasPolicy("shell_exec") {
+		t.Error("hasPolicy(shell_exec) = false, want true")
+	}
+	if r.hasPolicy("file_write") {
+		t.Error("hasPolicy(file_write) = true, want false")
+	}
+}
+
+func TestAgentLoopGatedTools(t *testing.T) {
+	cases := []struct {
+		name     string
+		policies []string
+		want     []string
+	}{
+		{
+			name:     "all_tools short-circuits to full set",
+			policies: []string{"all_tools"},
+			want:     []string{"file_write", "git_exec", "http_request", "list_dir", "read_file", "shell_exec"},
+		},
+		{
+			name:     "read_file adds read_file tool",
+			policies: []string{"read_file"},
+			want:     []string{"read_file"},
+		},
+		{
+			name:     "network_egress maps to http_request",
+			policies: []string{"network_egress"},
+			want:     []string{"http_request"},
+		},
+		{
+			name:     "shell_exec and git_exec pass through",
+			policies: []string{"shell_exec", "git_exec"},
+			want:     []string{"git_exec", "shell_exec"},
+		},
+		{
+			name:     "unknown policy produces no tools",
+			policies: []string{},
+			want:     []string{},
+		},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			pm := make(map[string]struct{})
+			for _, p := range tc.policies {
+				pm[p] = struct{}{}
+			}
+			got := agentLoopGatedTools(pm)
+			sort.Strings(got)
+			want := tc.want
+			sort.Strings(want)
+			if !reflect.DeepEqual(got, want) {
+				t.Errorf("agentLoopGatedTools = %v, want %v", got, want)
 			}
 		})
 	}

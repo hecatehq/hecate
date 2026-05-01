@@ -203,9 +203,14 @@ function describeRunEvent(eventType: string): { label: string; tone: "queued" | 
 }
 
 function describeApprovalKind(kind: string): string {
-  if (kind === "shell") return "Shell command";
-  if (kind === "git") return "Git command";
-  return kind.replaceAll("_", " ");
+  switch (kind) {
+    case "shell_command":        return "Shell execution";
+    case "git_exec":             return "Git execution";
+    case "file_write":           return "File write";
+    case "network_egress":       return "Network egress";
+    case "agent_loop_tool_call": return "Agent tool call";
+    default:                     return kind.replaceAll("_", " ");
+  }
 }
 
 type Props = {

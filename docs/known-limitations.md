@@ -62,8 +62,10 @@ operators should not assume yet.
   it is not yet hardened container/VM/OS isolation.
 - Network allowlisting for task tools is best-effort static command parsing,
   not a hard egress firewall.
-- Approval policies exist, but broader policy classes and safer defaults are
-  still evolving.
+- Approval policies cover shell, git, file, and network pre-execution gates plus
+  per-tool `agent_loop` gating (`read_file`, `all_tools`). Unknown policy names
+  are rejected at startup. The per-MCP-server `approval_policy` axis
+  (`auto` / `require_approval` / `block`) is separate.
 - Browser automation, WASM plugins, and broad tool marketplaces are out of
   scope for the current alpha.
 

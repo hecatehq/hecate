@@ -451,3 +451,37 @@ func TestLoadFromEnvBootstrapFileDefault(t *testing.T) {
 		t.Fatalf("BootstrapFile default = %q, want empty (cmd/hecate derives it from DataDir)", cfg.Server.BootstrapFile)
 	}
 }
+
+func TestValidateRejectsUnknownApprovalPolicyNames(t *testing.T) {
+	cfg := LoadFromEnv()
+	cfg.Server.TaskApprovalPolicies = []string{"shell_exec", "typo_policy"}
+
+	err := cfg.Validate()
+	if err == nil {
+		t.Fatal("Validate() error = nil, want unknown policy error")
+	}
+	if !strings.Contains(err.Error(), "typo_policy") {
+		t.Fatalf("Validate() error = %q, want it to name the bad policy", err)
+	}
+}
+
+func TestValidateAcceptsAllValidApprovalPolicyNames(t *testing.T) {
+	cfg := LoadFromEnv()
+	cfg.Server.TaskApprovalPolicies = []string{
+		"shell_exec", "git_exec", "file_write",
+		"network_egress", "read_file", "all_tools",
+	}
+
+	if err := cfg.Validate(); err != nil {
+		t.Fatalf("Validate() error = %v, want nil for all valid policy names", err)
+	}
+}
+
+func TestValidateAcceptsEmptyApprovalPolicies(t *testing.T) {
+	cfg := LoadFromEnv()
+	cfg.Server.TaskApprovalPolicies = nil
+
+	if err := cfg.Validate(); err != nil {
+		t.Fatalf("Validate() error = %v, want nil for empty policies (trusted env path)", err)
+	}
+}

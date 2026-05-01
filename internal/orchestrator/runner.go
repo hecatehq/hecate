@@ -229,9 +229,9 @@ func NewRunner(logger *slog.Logger, store taskstate.Store, tracer profiler.Trace
 		}
 		runner.policies[policy] = struct{}{}
 	}
-	if len(runner.policies) == 0 {
-		runner.policies["shell_exec"] = struct{}{}
-	}
+	// No silent fallback: config.Validate() rejects unknown names at boot.
+	// An empty GATEWAY_TASK_APPROVAL_POLICIES is the documented "no gates"
+	// path for fully-trusted environments.
 	workers := cfg.QueueWorkers
 	if workers <= 0 {
 		workers = 1
@@ -311,16 +311,26 @@ func (r *Runner) SetMCPHostFactory(factory AgentMCPHostFactory) {
 	}
 }
 
+// hasPolicy reports whether name is in the runner's active policy set.
+func (r *Runner) hasPolicy(name string) bool {
+	_, ok := r.policies[name]
+	return ok
+}
+
 // agentLoopGatedTools translates the runner's task-level approval
 // policy set into the agent-loop tool gating set. The mapping:
 // task policy "shell_exec" gates the agent's shell_exec tool, etc.
-// Network egress and any non-tool policies are dropped — they apply
-// at the task envelope, not per-tool.
+// Network egress maps to http_request; read_file maps to read_file.
+// all_tools short-circuits to the full set of every agent tool.
 func agentLoopGatedTools(policies map[string]struct{}) []string {
+	// all_tools gates every tool the agent can call — no need to enumerate.
+	if _, ok := policies["all_tools"]; ok {
+		return []string{"shell_exec", "git_exec", "file_write", "read_file", "list_dir", "http_request"}
+	}
 	out := make([]string, 0, len(policies))
 	for p := range policies {
 		switch p {
-		case "shell_exec", "git_exec", "file_write":
+		case "shell_exec", "git_exec", "file_write", "read_file":
 			out = append(out, p)
 		case "network_egress":
 			// `network_egress` is the historical name for the
@@ -1802,22 +1812,22 @@ func (r *Runner) approvalRequiredForTask(task types.Task) bool {
 
 func (r *Runner) approvalSpecForTask(task types.Task) (kind string, reason string) {
 	if task.ExecutionKind == "shell" && strings.TrimSpace(task.ShellCommand) != "" {
-		if _, ok := r.policies["shell_exec"]; ok {
+		if r.hasPolicy("shell_exec") || r.hasPolicy("all_tools") {
 			return "shell_command", "Shell execution requires approval before execution."
 		}
 	}
 	if task.ExecutionKind == "git" && strings.TrimSpace(task.GitCommand) != "" {
-		if _, ok := r.policies["git_exec"]; ok {
+		if r.hasPolicy("git_exec") || r.hasPolicy("all_tools") {
 			return "git_exec", "Git execution requires approval before execution."
 		}
 	}
 	if task.ExecutionKind == "file" && strings.TrimSpace(task.FilePath) != "" {
-		if _, ok := r.policies["file_write"]; ok {
+		if r.hasPolicy("file_write") || r.hasPolicy("all_tools") {
 			return "file_write", "File writes require approval before execution."
 		}
 	}
 	if task.SandboxNetwork {
-		if _, ok := r.policies["network_egress"]; ok {
+		if r.hasPolicy("network_egress") || r.hasPolicy("all_tools") {
 			return "network_egress", "Network-enabled tasks require approval before execution."
 		}
 	}

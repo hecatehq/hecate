@@ -76,12 +76,12 @@ The agent gets six tools by default. None require operator config beyond the app
 
 | Tool | What it does | Policy |
 |---|---|---|
-| `shell_exec` | Run a shell command in the workspace | Default-gated by `shell_exec` approval; executed out-of-process through `cmd/sandboxd` |
-| `git_exec` | Run a git command in the workspace | Default-gated by `git_exec` approval if configured |
-| `file_write` | Write or append a file under the workspace | Default-gated by `file_write` approval if configured |
-| `read_file` | Read a file under the workspace (8 KiB cap, binary detection) | Ungated; path must resolve within the sandbox root |
-| `list_dir` | List entries under a workspace path | Ungated; path must resolve within the sandbox root |
-| `http_request` | Make an outbound HTTP request | Default-gated by `network_egress` approval; SSRF guards (private-IP block, scheme allowlist, optional host allowlist) |
+| `shell_exec` | Run a shell command in the workspace | Gated by `shell_exec` or `all_tools` policy (default on); executed out-of-process through `cmd/sandboxd` |
+| `git_exec` | Run a git command in the workspace | Gated by `git_exec` or `all_tools` policy (default on) |
+| `file_write` | Write or append a file under the workspace | Gated by `file_write` or `all_tools` policy (default on) |
+| `read_file` | Read a file under the workspace (8 KiB cap, binary detection) | Ungated by default; gate with `read_file` or `all_tools` policy. Path must resolve within the sandbox root |
+| `list_dir` | List entries under a workspace path | Ungated unless `all_tools` is set. Path must resolve within the sandbox root |
+| `http_request` | Make an outbound HTTP request | Gated by `network_egress` or `all_tools` policy; SSRF guards (private-IP block, scheme allowlist, optional host allowlist) |
 
 Tool argument schemas are JSON-Schema-shaped and surfaced to the LLM in the standard `tools` array on each `Chat` request. Bad arguments are returned to the model as a tool-result error string rather than failing the run, so the model can correct itself.
 
@@ -141,11 +141,14 @@ Triggered when the task's `execution_kind` is `shell` / `git` / `file` (or `sand
 
 ### Mid-loop approval (`agent_loop_tool_call`)
 
-When the LLM calls a gated tool inside an `agent_loop` run, the loop pauses. Mapping:
+When the LLM calls a gated tool inside an `agent_loop` run, the loop pauses. Policy → tool mapping:
 
-- `shell_exec` policy → pauses on the `shell_exec` tool call
-- `network_egress` policy → pauses on the `http_request` tool call
-- (other policies map analogously)
+- `shell_exec` → pauses on `shell_exec` tool calls
+- `git_exec` → pauses on `git_exec` tool calls
+- `file_write` → pauses on `file_write` tool calls
+- `read_file` → pauses on `read_file` tool calls
+- `network_egress` → pauses on `http_request` tool calls
+- `all_tools` → pauses on every tool call (`shell_exec`, `git_exec`, `file_write`, `read_file`, `list_dir`, `http_request`)
 
 The runtime emits an approval record of kind `agent_loop_tool_call`, persists the conversation snapshot, and returns `status=awaiting_approval` for the run. The UI banner shows which tools the agent wants to use. On approve, the same run is re-queued; on resume, the loop detects the trailing assistant tool_calls without resolved results, dispatches them (no second LLM call), and continues. On reject, the run terminates `failed`.
 
@@ -188,7 +191,7 @@ Env vars that affect agent_loop runs:
 | `GATEWAY_TASK_SHELL_ALLOW_PRIVATE_IPS` | `false` | Same private-IP block, applied to URLs in shell_exec / git_exec commands when the task has `sandbox_network=true` |
 | `GATEWAY_TASK_SHELL_ALLOWED_HOSTS` | `""` | Same exact-host allowlist, applied to shell_exec / git_exec command URLs |
 
-For `GATEWAY_TASK_APPROVAL_POLICIES` (which gates `shell_exec` / `git_exec` / `file_write` / `network_egress` mid-loop tool calls and the matching pre-execution task gates) see [`runtime-api.md#approval-policy-configuration`](runtime-api.md#approval-policy-configuration). For per-task `mcp_servers` knobs (max-servers cap, client-cache sizing, ping intervals) see [`runtime-api.md#runtime-backend-and-queue-configuration`](runtime-api.md#runtime-backend-and-queue-configuration) and [`mcp.md#resource-limits`](mcp.md#resource-limits).
+For `GATEWAY_TASK_APPROVAL_POLICIES` (which gates mid-loop tool calls and the matching pre-execution task gates; valid values: `shell_exec`, `git_exec`, `file_write`, `network_egress`, `read_file`, `all_tools`) see [`runtime-api.md#approval-policy-configuration`](runtime-api.md#approval-policy-configuration). For per-task `mcp_servers` knobs (max-servers cap, client-cache sizing, ping intervals) see [`runtime-api.md#runtime-backend-and-queue-configuration`](runtime-api.md#runtime-backend-and-queue-configuration) and [`mcp.md#resource-limits`](mcp.md#resource-limits).
 
 Per-task fields on `POST /v1/tasks` that affect agent_loop:
 

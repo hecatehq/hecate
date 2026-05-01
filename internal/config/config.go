@@ -367,7 +367,7 @@ func LoadFromEnv() Config {
 			ControlPlaneKey:                getEnv("GATEWAY_CONTROL_PLANE_KEY", "control-plane"),
 			ControlPlaneSecretKey:          getEnv("GATEWAY_CONTROL_PLANE_SECRET_KEY", ""),
 			TasksBackend:                   getEnv("GATEWAY_TASKS_BACKEND", "memory"),
-			TaskApprovalPolicies:           splitCSV(getEnv("GATEWAY_TASK_APPROVAL_POLICIES", "shell_exec")),
+			TaskApprovalPolicies:           splitCSV(getEnv("GATEWAY_TASK_APPROVAL_POLICIES", "shell_exec,git_exec,file_write")),
 			TaskQueueBackend:               getEnv("GATEWAY_TASK_QUEUE_BACKEND", "memory"),
 			TaskQueueWorkers:               getEnvInt("GATEWAY_TASK_QUEUE_WORKERS", 1),
 			TaskQueueBuffer:                getEnvInt("GATEWAY_TASK_QUEUE_BUFFER", 128),
@@ -544,6 +544,20 @@ func (c Config) Validate() error {
 	validateBackend("GATEWAY_RETENTION_HISTORY_BACKEND", c.Retention.HistoryBackend, "memory", "sqlite", "postgres")
 	validateBackend("GATEWAY_SEMANTIC_CACHE_BACKEND", c.Cache.Semantic.Backend, "memory", "sqlite", "postgres")
 	validateBackend("GATEWAY_PROVIDER_HISTORY_BACKEND", c.Provider.HistoryBackend, "memory", "sqlite", "postgres")
+
+	validPolicies := map[string]struct{}{
+		"shell_exec": {}, "git_exec": {}, "file_write": {},
+		"network_egress": {}, "read_file": {}, "all_tools": {},
+	}
+	for _, p := range c.Server.TaskApprovalPolicies {
+		p = strings.TrimSpace(p)
+		if p == "" {
+			continue
+		}
+		if _, ok := validPolicies[p]; !ok {
+			errs = append(errs, fmt.Errorf("GATEWAY_TASK_APPROVAL_POLICIES: unknown policy name %q (valid: shell_exec, git_exec, file_write, network_egress, read_file, all_tools)", p))
+		}
+	}
 
 	if postgresRequired(c) && strings.TrimSpace(c.Postgres.DSN) == "" {
 		errs = append(errs, errors.New("POSTGRES_DSN is required when any backend is postgres"))

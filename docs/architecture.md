@@ -77,7 +77,7 @@ flowchart TD
     WorkerA -->|"heartbeat / extend_lease"| Queue
     WorkerA -->|"ack on success / nack on retryable"| Queue
 
-    WorkerA --> PreApproval{"Pre-execution approval?<br/>(shell_exec, git_exec, file_write,<br/>network_egress policies)"}
+    WorkerA --> PreApproval{"Pre-execution approval?<br/>(shell_exec, git_exec, file_write,<br/>network_egress, all_tools policies)"}
     PreApproval -->|"yes — block"| Pending["awaiting_approval"]
     PreApproval -->|"no / approved"| Executor
 
