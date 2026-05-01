@@ -151,7 +151,7 @@ Adding a Tauri command:
 # Rust type check (fast, no binary output)
 cd tauri/src-tauri && cargo check
 
-# Full debug build + launch (builds hecate first)
+# Full debug build + launch (builds gateway first)
 make tauri-dev
 
 # Release bundle for current platform
@@ -181,7 +181,7 @@ Three workflow files split responsibilities:
 | `ubuntu-22.04` | `x86_64-unknown-linux-gnu` | `.deb`, `.AppImage` |
 | `windows-latest` | `x86_64-pc-windows-msvc` | `.msi` |
 
-**Steps per matrix leg** (in `_tauri-shared.yml`): Rust + Go + Bun setup → Linux Tauri 2 prereqs (webkit2gtk-4.1, libxdo, patchelf, …) → `make ui-install` → `make build` → stage sidecar as `binaries/hecate-{triple}[.exe]` → `cd tauri && bun install --frozen-lockfile` → `bun scripts/stamp-version.ts` → `tauri-apps/tauri-action@v0` (build, conditionally upload).
+**Steps per matrix leg** (in `_tauri-shared.yml`): Rust + Go + Bun setup → Linux Tauri 2 prereqs (webkit2gtk-4.1, libxdo, patchelf, …) → `make ui-install` → `make build` → stage sidecar as `binaries/gateway-{triple}[.exe]` → `cd tauri && bun install --frozen-lockfile` → `bun scripts/stamp-version.ts` → `tauri-apps/tauri-action@v0` (build, conditionally upload).
 
 **PR-run behaviour:** `concurrency: cancel-in-progress: true` cancels older runs on the same ref. `if: pull_request.draft == false` skips drafts. Trigger types: `[opened, synchronize, reopened, ready_for_review]` — no fire on title-only edits. Path filter scopes to changes that could plausibly break a Tauri build (`tauri/**`, `cmd/gateway/**`, `ui/**`, `Makefile`, `scripts/stamp-version.ts`, `.github/workflows/*.yml`).
 
@@ -190,9 +190,9 @@ Three workflow files split responsibilities:
 ### Pipeline footguns
 
 - **`tauri-action`'s auto-install is unreliable with `projectPath` set.** It silently skips `bun install` in `tauri/`, leaving `node_modules/.bin/tauri` missing — `bun run tauri build` then fails with "tauri: command not found". Always run `cd tauri && bun install --frozen-lockfile` ourselves before the action.
-- **`build.rs` validates `externalBin` paths at build-script run time.** Any step that compiles the Rust crate (`cargo check`, `cargo build`, `tauri build`) needs the sidecar staged at `binaries/hecate-{triple}[.exe]` first. Stage in this order: `make build` → stage → any Rust compile.
+- **`build.rs` validates `externalBin` paths at build-script run time.** Any step that compiles the Rust crate (`cargo check`, `cargo build`, `tauri build`) needs the sidecar staged at `binaries/gateway-{triple}[.exe]` first. Stage in this order: `make build` → stage → any Rust compile.
 - **Make + Git Bash on Windows runners.** Set `defaults.run.shell: bash` job-wide. Default Windows shell is PowerShell; the Makefile's `SHELL := /bin/sh` and our `cp`/`if` blocks only work in bash. On Windows runners, `bash` resolves to Git Bash.
-- **Go's `-o hecate` extension on Windows shifts across versions.** Stage step tries `hecate.exe` then falls back to `hecate`, fails loudly with `ls -la` if neither exists — silent `cp` of a missing source is the worst failure mode.
+- **Go's `-o gateway` extension on Windows shifts across versions.** Stage step tries `gateway.exe` then falls back to `gateway`, fails loudly with `ls -la` if neither exists — silent `cp` of a missing source is the worst failure mode.
 - **`make build` runs `make ui-build` which checks for `ui/node_modules/@vitejs/plugin-react`.** That's the canary file. CI must run `make ui-install` before `make build`. Goreleaser handles this via its `before:` hook (`bun install --cwd ui --frozen-lockfile`); the Tauri matrix does it explicitly.
 - **`stamp-version.ts` `TAURI_VERSION` env var must not include the `v` prefix.** The script strips it, but only since the recent fix; CI passes the bare semver to be safe. The git-tag fallback path (`gitVersion()`) has always stripped `v`.
 - **Windows MSI rejects pre-release identifiers in the version.** WiX requires a four-part numeric `Major.Minor.Build.Revision` (each ≤ 65535). `0.1.0-alpha.8` fails with "optional pre-release identifier in app version must be numeric-only". `stamp-version.ts` writes a derived four-part version to `bundle.windows.wix.version` (e.g. `0.1.0-alpha.8` → `0.1.0.8`); MSI uses that override, every other bundler still sees the canonical semver. NSIS has no version-override field in Tauri's schema — the matrix is MSI-only on Windows for that reason. If NSIS is ever added, expect the same failure mode and find an upstream fix.
@@ -205,5 +205,5 @@ macOS bundles trigger Gatekeeper on first launch; Windows MSI shows SmartScreen.
 
 - `cargo check` passes with no warnings.
 - `make tauri-dev` launches the window, shows the splash, navigates to the gateway UI, and auto-logs in without a token paste.
-- Closing the window does not leave a `hecate` process running (`pgrep hecate` returns nothing after quit).
+- Closing the window does not leave a `gateway` process running (`pgrep gateway` returns nothing after quit).
 - See [`../../core/verification.md`](../../core/verification.md) for the full ladder.

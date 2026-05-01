@@ -70,7 +70,7 @@ func TestMain(m *testing.M) {
 
 	// ── 4. Gateway binary ─────────────────────────────────────────────────────
 	var err error
-	suiteGateway, err = startHecateProcess(
+	suiteGateway, err = startGatewayProcess(
 		"PROVIDER_OLLAMA_BASE_URL="+suiteOllamaURL,
 		"PROVIDER_OLLAMA_KIND=local",
 		"PROVIDER_OLLAMA_DEFAULT_MODEL="+ollamaModel,
@@ -419,13 +419,13 @@ func (s *otlpSink) waitForMetric(substr string, timeout time.Duration) bool {
 
 // ─── gateway process lifecycle (TestMain-scoped, no *testing.T) ────────────
 
-// startHecateProcess builds the gateway binary once, starts it with the
+// startGatewayProcess builds the gateway binary once, starts it with the
 // given extra env vars plus a fixed admin token (so existing "Bearer
 // test-token" headers in tests authenticate) and a per-process temp data
 // dir for the bootstrap file. Waits for /healthz, returns the base URL.
 // The process is intentionally not tracked for cleanup: it is killed by
 // the OS when the test binary exits.
-func startHecateProcess(extraEnv ...string) (string, error) {
+func startGatewayProcess(extraEnv ...string) (string, error) {
 	bin, err := buildGatewayBin()
 	if err != nil {
 		return "", fmt.Errorf("build: %w", err)

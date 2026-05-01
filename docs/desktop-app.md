@@ -27,7 +27,7 @@ the same matrix on PRs touching the desktop pipeline and persists bundles as
 
 What works:
 
-- Sidecar lifecycle (spawn, healthz wait, kill on exit; `pgrep hecate` is
+- Sidecar lifecycle (spawn, healthz wait, kill on exit; `pgrep gateway` is
   empty after `cmd+Q`).
 - Same-origin loopback to the embedded gateway UI; bootstrap-token
   handshake auto-logs in without a token paste.
