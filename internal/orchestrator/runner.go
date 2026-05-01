@@ -642,15 +642,19 @@ func (r *Runner) startTaskWithOptions(ctx context.Context, task types.Task, idge
 		}
 		_, _ = r.emitRunEvent(ctx, task.ID, run.ID, "run.awaiting_approval", requestID, trace.TraceID, nil)
 		task.Status = "awaiting_approval"
-	} else if err := r.enqueueRun(task.ID, run.ID); err != nil {
-		return nil, err
 	} else {
+		// Emit run.queued before Enqueue. The in-memory queue can dispatch
+		// to a worker synchronously, so emitting after Enqueue risks the
+		// worker writing run.running before run.queued is persisted.
 		_, _ = r.emitRunEvent(ctx, task.ID, run.ID, "run.queued", requestID, trace.TraceID, nil)
 		trace.Record(telemetry.EventQueueEnqueued, map[string]any{
 			telemetry.AttrHecateTaskID:       task.ID,
 			telemetry.AttrHecateRunID:        run.ID,
 			telemetry.AttrHecateQueueBackend: r.getQueue().Backend(),
 		})
+		if err := r.enqueueRun(task.ID, run.ID); err != nil {
+			return nil, err
+		}
 	}
 
 	if _, err := r.store.UpdateTask(ctx, task); err != nil {
