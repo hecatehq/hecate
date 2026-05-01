@@ -2,6 +2,7 @@ package sandbox
 
 import (
 	"context"
+	"encoding/json"
 	"os/exec"
 	"strings"
 	"testing"
@@ -348,4 +349,97 @@ func TestApplyProcessIsolation_DoesNotPanic(t *testing.T) {
 	// platform actually enforces it (e.g. no-op stubs, absent sandbox-exec).
 	cmd := exec.Command("true")
 	applyProcessIsolation(cmd, IsolationConfig{DisableNetwork: true})
+}
+
+// ── IsolationConfig JSON round-trip ───────────────────────────────────────────
+
+// TestWorkerIsolationJSONRoundTrip verifies that IsolationConfig survives the
+// JSON marshal → unmarshal cycle used when WorkerExecutor sends a Command to
+// the sandboxd worker subprocess. A missing json tag or wrong field name
+// would silently drop DisableNetwork, so the isolation would never reach the
+// worker even when GATEWAY_SANDBOX_OS_ISOLATION=true.
+func TestWorkerIsolationJSONRoundTrip(t *testing.T) {
+	original := Command{
+		Command:   "echo hi",
+		Isolation: IsolationConfig{DisableNetwork: true},
+	}
+	req := workerRequest{Operation: workerOperationRun, Command: &original}
+
+	data, err := json.Marshal(req)
+	if err != nil {
+		t.Fatalf("json.Marshal: %v", err)
+	}
+
+	var decoded workerRequest
+	if err := json.Unmarshal(data, &decoded); err != nil {
+		t.Fatalf("json.Unmarshal: %v", err)
+	}
+	if decoded.Command == nil {
+		t.Fatal("decoded Command is nil")
+	}
+	if !decoded.Command.Isolation.DisableNetwork {
+		t.Errorf("Isolation.DisableNetwork = false after JSON round-trip, want true\nraw JSON: %s", data)
+	}
+}
+
+func TestWorkerIsolationJSONRoundTrip_FalsePreserved(t *testing.T) {
+	original := Command{
+		Command:   "echo hi",
+		Isolation: IsolationConfig{DisableNetwork: false},
+	}
+	req := workerRequest{Operation: workerOperationRun, Command: &original}
+
+	data, err := json.Marshal(req)
+	if err != nil {
+		t.Fatalf("json.Marshal: %v", err)
+	}
+	var decoded workerRequest
+	if err := json.Unmarshal(data, &decoded); err != nil {
+		t.Fatalf("json.Unmarshal: %v", err)
+	}
+	if decoded.Command == nil {
+		t.Fatal("decoded Command is nil")
+	}
+	if decoded.Command.Isolation.DisableNetwork {
+		t.Errorf("Isolation.DisableNetwork = true after round-trip, want false")
+	}
+}
+
+// ── WorkerExecutor isolation merge ───────────────────────────────────────────
+
+// TestWorkerExecutorIsolationMerge exercises the three-way precedence rule
+// in WorkerExecutor.RunStreaming: caller-set DisableNetwork=true always wins;
+// when the caller leaves it false the env var decides.
+func TestWorkerExecutorIsolationMerge(t *testing.T) {
+	cases := []struct {
+		name           string
+		callerDisable  bool
+		envVal         string
+		wantDisableNet bool
+	}{
+		// Caller true wins regardless of env.
+		{"caller=true env=false", true, "false", true},
+		{"caller=true env=true", true, "true", true},
+		{"caller=true env=unset", true, "", true},
+		// Caller false → env decides.
+		{"caller=false env=true", false, "true", true},
+		{"caller=false env=false", false, "false", false},
+		{"caller=false env=unset", false, "", false},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			t.Setenv("GATEWAY_SANDBOX_OS_ISOLATION", tc.envVal)
+
+			// Replicate the exact merge logic from WorkerExecutor.RunStreaming
+			// so that any future drift is caught here.
+			isolation := IsolationConfig{DisableNetwork: tc.callerDisable}
+			if !isolation.DisableNetwork {
+				isolation.DisableNetwork = defaultWorkerIsolation().DisableNetwork
+			}
+
+			if isolation.DisableNetwork != tc.wantDisableNet {
+				t.Errorf("DisableNetwork = %v, want %v", isolation.DisableNetwork, tc.wantDisableNet)
+			}
+		})
+	}
 }

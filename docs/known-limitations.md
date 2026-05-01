@@ -58,10 +58,16 @@ operators should not assume yet.
   without operator intervention. The recovery window is three times the
   configured lease duration (`GATEWAY_TASK_QUEUE_LEASE_SECONDS`); the scan
   cadence is `GATEWAY_TASK_RECONCILE_INTERVAL` (default `30s`).
-- `sandboxd` provides an out-of-process execution boundary and policy checks;
-  it is not yet hardened container/VM/OS isolation.
-- Network allowlisting for task tools is best-effort static command parsing,
-  not a hard egress firewall.
+- `sandboxd` provides an out-of-process execution boundary and policy checks.
+  It is not a container, chroot, or VM; the subprocess runs as the same OS
+  user as the gateway.  For kernel-enforced network isolation, set
+  `GATEWAY_SANDBOX_OS_ISOLATION=true` (Layer 2 — Linux network namespaces,
+  macOS Seatbelt; see `docs/sandbox.md`).
+- Network allowlisting for task tools is best-effort static command parsing
+  by default, not a hard egress firewall.  `GATEWAY_SANDBOX_OS_ISOLATION=true`
+  promotes the Linux network check to a kernel guarantee (CLONE_NEWNET); on
+  macOS it uses a Seatbelt profile.  Windows and other platforms remain
+  pattern-match only.
 - Approval policies cover shell, git, file, and network pre-execution gates plus
   per-tool `agent_loop` gating (`read_file`, `all_tools`). Unknown policy names
   are rejected at startup. The per-MCP-server `approval_policy` axis
