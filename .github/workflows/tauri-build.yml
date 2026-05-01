@@ -90,12 +90,10 @@ jobs:
       - name: Install UI dependencies
         run: make ui-install
 
-      - name: Cargo check (Tauri Rust)
-        run: cargo check --manifest-path tauri/src-tauri/Cargo.toml --target ${{ matrix.target }}
-
       - name: Build hecate binary
         run: make build
 
+      # Must come before `cargo check` — build.rs validates externalBin paths.
       - name: Stage hecate sidecar
         run: |
           mkdir -p tauri/src-tauri/binaries
@@ -108,6 +106,9 @@ jobs:
           else
             cp hecate "tauri/src-tauri/binaries/hecate-${{ matrix.target }}"
           fi
+
+      - name: Cargo check (Tauri Rust)
+        run: cargo check --manifest-path tauri/src-tauri/Cargo.toml --target ${{ matrix.target }}
 
       # tauri-action's auto-install is unreliable with projectPath set;
       # install explicitly so node_modules/.bin/tauri exists for the build.

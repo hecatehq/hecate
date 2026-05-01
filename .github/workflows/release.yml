@@ -135,11 +135,6 @@ jobs:
       - name: Install UI dependencies
         run: make ui-install
 
-      # cargo check first — fails fast if Rust source is broken, before
-      # eating ~3min on `make build` only to discover it later.
-      - name: Cargo check (Tauri Rust)
-        run: cargo check --manifest-path tauri/src-tauri/Cargo.toml --target ${{ matrix.target }}
-
       # make build: compiles the Go binary (ui-build → go build).
       # This is the same binary that becomes the Tauri sidecar.
       - name: Build hecate binary
@@ -150,6 +145,8 @@ jobs:
       # platform triple from the matrix is always used, not whatever rustc
       # detects on the runner. Defensive: try .exe first on Windows, fall
       # back to the bare name (Go's behavior changed across versions).
+      # Must come before `cargo check` — build.rs validates externalBin
+      # paths and fails if the sidecar isn't staged yet.
       - name: Stage hecate sidecar
         run: |
           mkdir -p tauri/src-tauri/binaries
@@ -162,6 +159,12 @@ jobs:
           else
             cp hecate "tauri/src-tauri/binaries/hecate-${{ matrix.target }}"
           fi
+
+      # cargo check before the full tauri build. Catches Rust syntax /
+      # type errors in seconds rather than after the ~5-8min bundle step.
+      # Must run after stage-sidecar because build.rs validates externalBin.
+      - name: Cargo check (Tauri Rust)
+        run: cargo check --manifest-path tauri/src-tauri/Cargo.toml --target ${{ matrix.target }}
 
       # Install Tauri JS deps explicitly. tauri-action claims to do this
       # via auto-detection from the lockfile, but with projectPath set it
