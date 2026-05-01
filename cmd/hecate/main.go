@@ -472,6 +472,15 @@ func pruneableSemanticCache(store cache.SemanticStore) retention.CachePruner {
 	return pruner
 }
 
+// Compile-time assertions: both concrete semantic store types must satisfy the
+// retention.CachePruner interface so that pruneableSemanticCache type-asserts
+// successfully at runtime. These lines produce a build error if Prune is
+// accidentally removed or its signature drifts.
+var (
+	_ retention.CachePruner = (*cache.MemorySemanticStore)(nil)
+	_ retention.CachePruner = (*cache.PostgresSemanticStore)(nil)
+)
+
 func pruneableProviderHistory(store providers.HealthHistoryStore) retention.CachePruner {
 	pruner, _ := store.(retention.CachePruner)
 	return pruner
