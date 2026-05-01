@@ -17,6 +17,9 @@ on:
       - 'go.sum'
       - 'cmd/hecate/**'
       - 'ui/**'
+      - 'embed.go'              # //go:embed all:ui/dist — UI bundle into binary
+      - '.goreleaser.yaml'      # release config; tag-time goreleaser pipeline
+      - 'Dockerfile.release'    # GHCR image baseline; not Tauri but same release flow
       - '.github/workflows/_tauri-shared.yml'
       - '.github/workflows/tauri-build.yml'
       - '.github/workflows/release.yml'
