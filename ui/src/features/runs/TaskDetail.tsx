@@ -202,6 +202,32 @@ function describeRunEvent(eventType: string): { label: string; tone: "queued" | 
   return labels[eventType] ?? { label: eventType.replaceAll("_", " "), tone: "queued" };
 }
 
+// describeRunEventNote extracts a human-readable annotation from an event's
+// data payload. Returns null when there is nothing worth surfacing.
+//
+// Covers two axes:
+//   retry_from_turn — the turn number a retry-from-turn was branched at
+//   reason          — the operator's annotation for why they resumed/branched
+//
+// run.resumed and run.resume_requested store the reason under "reason";
+// run.created stores it under "resume_reason" (a historical key name).
+// Both are checked so the annotation shows regardless of which event is
+// rendered on the current run's timeline.
+function describeRunEventNote(event: { data?: Record<string, unknown> }): string | null {
+  const d = event.data;
+  if (!d) return null;
+  const turn = typeof d["retry_from_turn"] === "number" ? (d["retry_from_turn"] as number) : null;
+  const reason = (
+    typeof d["reason"] === "string" ? d["reason"] :
+    typeof d["resume_reason"] === "string" ? d["resume_reason"] : ""
+  ).trim();
+  if (!turn && !reason) return null;
+  const parts: string[] = [];
+  if (turn) parts.push(`turn ${turn}`);
+  if (reason) parts.push(reason);
+  return parts.join(" — ");
+}
+
 function describeApprovalKind(kind: string): string {
   switch (kind) {
     case "shell_command":        return "Shell execution";
@@ -412,6 +438,14 @@ export function TaskDetail({
                           {event.trace_id ? `trace ${event.trace_id}` : ""}
                         </div>
                       )}
+                      {(() => {
+                        const note = describeRunEventNote(event);
+                        return note ? (
+                          <div style={{ fontSize: 11, color: "var(--t2)", marginTop: 2, wordBreak: "break-word" }}>
+                            {note}
+                          </div>
+                        ) : null;
+                      })()}
                     </div>
                   </div>
                 );

@@ -215,6 +215,79 @@ describe("TaskDetail runtime debugging", () => {
     expect(screen.getByText(/Completed/i)).toBeTruthy();
   });
 
+  it("annotates run.resumed events with turn and reason when both are present", () => {
+    const events: TaskRunEventRecord[] = [
+      {
+        id: "e1", task_id: "task-1", run_id: "run-1", sequence: 1,
+        event_type: "run.resumed",
+        data: { resumed_from_run_id: "run-0", reason: "wrong tool choice", retry_from_turn: 3 },
+        created_at: "2026-04-27T17:00:00Z",
+      },
+    ];
+    const { render } = setup({ events });
+    render();
+    // Both turn and reason should appear joined by " — ".
+    expect(screen.getByText("turn 3 — wrong tool choice")).toBeTruthy();
+  });
+
+  it("annotates run.resumed events with turn only when reason is absent", () => {
+    const events: TaskRunEventRecord[] = [
+      {
+        id: "e1", task_id: "task-1", run_id: "run-1", sequence: 1,
+        event_type: "run.resumed",
+        data: { resumed_from_run_id: "run-0", retry_from_turn: 2 },
+        created_at: "2026-04-27T17:00:00Z",
+      },
+    ];
+    const { render } = setup({ events });
+    render();
+    expect(screen.getByText("turn 2")).toBeTruthy();
+  });
+
+  it("annotates run.resumed events with reason only when retry_from_turn is absent", () => {
+    const events: TaskRunEventRecord[] = [
+      {
+        id: "e1", task_id: "task-1", run_id: "run-1", sequence: 1,
+        event_type: "run.resumed",
+        data: { resumed_from_run_id: "run-0", reason: "continue after cancellation" },
+        created_at: "2026-04-27T17:00:00Z",
+      },
+    ];
+    const { render } = setup({ events });
+    render();
+    expect(screen.getByText("continue after cancellation")).toBeTruthy();
+  });
+
+  it("shows no annotation on run.resumed events with no reason and no turn", () => {
+    const events: TaskRunEventRecord[] = [
+      {
+        id: "e1", task_id: "task-1", run_id: "run-1", sequence: 1,
+        event_type: "run.resumed",
+        data: { resumed_from_run_id: "run-0" },
+        created_at: "2026-04-27T17:00:00Z",
+      },
+    ];
+    const { render } = setup({ events });
+    render();
+    // Only "Resumed" label — no extra annotation line.
+    expect(screen.getByText(/Resumed/i)).toBeTruthy();
+    expect(screen.queryByText(/turn/i)).toBeNull();
+  });
+
+  it("reads resume_reason from run.created event data (historical key)", () => {
+    const events: TaskRunEventRecord[] = [
+      {
+        id: "e1", task_id: "task-1", run_id: "run-1", sequence: 1,
+        event_type: "run.created",
+        data: { resumed_from_run_id: "run-0", resume_reason: "exploring alternate path", retry_from_turn: 1 },
+        created_at: "2026-04-27T17:00:00Z",
+      },
+    ];
+    const { render } = setup({ events });
+    render();
+    expect(screen.getByText("turn 1 — exploring alternate path")).toBeTruthy();
+  });
+
   it("renders approval metadata for pending approvals", () => {
     const { render } = setup({
       approvals: [{
