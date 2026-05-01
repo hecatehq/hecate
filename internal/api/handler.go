@@ -179,6 +179,7 @@ func NewHandler(cfg config.Config, logger *slog.Logger, service *gateway.Service
 	if err := runner.ReconcilePendingRuns(context.Background()); err != nil {
 		logger.Warn("task runner reconciliation failed", slog.Any("error", err))
 	}
+	runner.StartReconcileLoop()
 
 	return &Handler{
 		config:              cfg,

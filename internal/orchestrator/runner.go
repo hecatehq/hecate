@@ -40,6 +40,10 @@ type Config struct {
 	// master gate is still task.SandboxNetwork — these only refine
 	// which destinations are reachable when network IS allowed.
 	ShellNetwork ShellNetworkPolicy
+	// ReconcileInterval controls how often the periodic reconciliation
+	// loop scans for runs stuck in "running" state. Default 30s.
+	// Set via StartReconcileLoop; zero falls back to the default.
+	ReconcileInterval time.Duration
 }
 
 // HTTPRequestPolicy is the agent-runtime-side projection of the
@@ -86,22 +90,23 @@ type ShellNetworkPolicy struct {
 type SystemPromptResolver func(ctx context.Context, tenantID, perTaskPrompt, workspacePath string) string
 
 type Runner struct {
-	logger     *slog.Logger
-	store      taskstate.Store
-	tracer     profiler.Tracer
-	exec       Executor
-	shell      Executor
-	file       Executor
-	git        Executor
-	agent      Executor
-	workspaces *WorkspaceManager
-	config     Config
-	queue      RunQueue
-	queueLease time.Duration
-	workerID   string
-	jobMu      sync.Mutex
-	queueMu    sync.RWMutex
-	jobs       map[string]context.CancelFunc
+	logger            *slog.Logger
+	store             taskstate.Store
+	tracer            profiler.Tracer
+	exec              Executor
+	shell             Executor
+	file              Executor
+	git               Executor
+	agent             Executor
+	workspaces        *WorkspaceManager
+	config            Config
+	queue             RunQueue
+	queueLease        time.Duration
+	reconcileInterval time.Duration
+	workerID          string
+	jobMu             sync.Mutex
+	queueMu           sync.RWMutex
+	jobs              map[string]context.CancelFunc
 	// workerCtx is the lifetime context for queue-worker goroutines and
 	// every in-flight job they process. Shutdown cancels this; processQueue
 	// observes the cancel and stops claiming new work, and every job's
@@ -174,25 +179,30 @@ func NewRunner(logger *slog.Logger, store taskstate.Store, tracer profiler.Trace
 	if queueLease <= 0 {
 		queueLease = 30 * time.Second
 	}
+	reconcileInterval := cfg.ReconcileInterval
+	if reconcileInterval <= 0 {
+		reconcileInterval = 30 * time.Second
+	}
 	queue := NewMemoryRunQueue(queueBuffer, queueLease)
 	workerCtx, workerCancel := context.WithCancel(context.Background())
 	runner := &Runner{
-		logger:       logger,
-		store:        store,
-		tracer:       tracer,
-		exec:         NewStubExecutor(),
-		shell:        NewShellExecutor(worker),
-		file:         NewFileExecutor(worker),
-		git:          NewGitExecutor(worker),
-		workspaces:   NewWorkspaceManager(""),
-		config:       cfg,
-		queue:        queue,
-		queueLease:   queueLease,
-		workerID:     defaultWorkerID(),
-		jobs:         make(map[string]context.CancelFunc),
-		policies:     make(map[string]struct{}),
-		workerCtx:    workerCtx,
-		workerCancel: workerCancel,
+		logger:            logger,
+		store:             store,
+		tracer:            tracer,
+		exec:              NewStubExecutor(),
+		shell:             NewShellExecutor(worker),
+		file:              NewFileExecutor(worker),
+		git:               NewGitExecutor(worker),
+		workspaces:        NewWorkspaceManager(""),
+		config:            cfg,
+		queue:             queue,
+		queueLease:        queueLease,
+		reconcileInterval: reconcileInterval,
+		workerID:          defaultWorkerID(),
+		jobs:              make(map[string]context.CancelFunc),
+		policies:          make(map[string]struct{}),
+		workerCtx:         workerCtx,
+		workerCancel:      workerCancel,
 	}
 	// LLM client + max-turns are wired post-construction via
 	// SetAgentLLMClient — main.go injects the gateway.Service after
@@ -443,6 +453,91 @@ func (r *Runner) ReconcilePendingRuns(ctx context.Context) error {
 			"prior_status":      priorStatus,
 			"recovered_status":  "queued",
 			"recovery_strategy": "requeue",
+		})
+	}
+	return nil
+}
+
+// StartReconcileLoop starts a background goroutine that periodically scans
+// for runs stuck in "running" state and re-enqueues them. It is distinct from
+// the boot-time ReconcilePendingRuns: it only targets runs whose StartedAt is
+// older than 3× the queue lease (i.e., the worker should have heartbeated or
+// completed by now), so it does not race with legitimately in-flight workers.
+//
+// The loop is tied to the runner's worker context and stops automatically when
+// Shutdown is called. It is safe to call once at startup after the boot-time
+// reconcile.
+func (r *Runner) StartReconcileLoop() {
+	staleThreshold := r.queueLease * 3
+	if staleThreshold <= 0 {
+		staleThreshold = 90 * time.Second
+	}
+	r.workerWg.Add(1)
+	go func() {
+		defer r.workerWg.Done()
+		ticker := time.NewTicker(r.reconcileInterval)
+		defer ticker.Stop()
+		for {
+			select {
+			case <-r.workerCtx.Done():
+				return
+			case <-ticker.C:
+				if err := r.reconcileStaleRuns(r.workerCtx, staleThreshold); err != nil {
+					r.logger.Warn("periodic task reconcile failed", slog.Any("error", err))
+				}
+			}
+		}
+	}()
+}
+
+// reconcileStaleRuns re-enqueues runs that are stuck in "running" state
+// with a StartedAt older than staleThreshold. Unlike ReconcilePendingRuns
+// (which is a boot-time sweep of all non-terminal runs), this targets only
+// runs that an active worker should have completed or heartbeated by now.
+func (r *Runner) reconcileStaleRuns(ctx context.Context, staleThreshold time.Duration) error {
+	if r.store == nil {
+		return nil
+	}
+	runs, err := r.store.ListRunsByFilter(ctx, taskstate.RunFilter{
+		Statuses: []string{"running"},
+		Limit:    500,
+	})
+	if err != nil {
+		return err
+	}
+	cutoff := time.Now().UTC().Add(-staleThreshold)
+	for _, run := range runs {
+		if ctx.Err() != nil {
+			return nil
+		}
+		if run.StartedAt.IsZero() || run.StartedAt.After(cutoff) {
+			continue
+		}
+		task, found, err := r.store.GetTask(ctx, run.TaskID)
+		if err != nil || !found {
+			continue
+		}
+		priorStatus := run.Status
+		now := time.Now().UTC()
+		run.Status = "queued"
+		run.LastError = ""
+		run.FinishedAt = time.Time{}
+		run.OtelStatusCode = ""
+		run.OtelStatusMessage = ""
+		if _, updateErr := r.store.UpdateRun(ctx, run); updateErr != nil {
+			continue
+		}
+		task.Status = "queued"
+		task.LatestRunID = run.ID
+		task.LastError = ""
+		task.UpdatedAt = now
+		task.FinishedAt = time.Time{}
+		_, _ = r.store.UpdateTask(ctx, task)
+		_ = r.enqueueRun(task.ID, run.ID)
+		_, _ = r.emitRunEvent(ctx, task.ID, run.ID, "run.reconciled_restart_requeued", "", "", map[string]any{
+			"prior_status":      priorStatus,
+			"recovered_status":  "queued",
+			"recovery_strategy": "periodic_requeue",
 		})
 	}
 	return nil
