@@ -249,6 +249,49 @@ func (s *PostgresSemanticStore) Set(ctx context.Context, entry SemanticEntry) er
 	return nil
 }
 
+func (s *PostgresSemanticStore) Stats(ctx context.Context) (int, error) {
+	var count int
+	err := s.db.QueryRowContext(ctx,
+		fmt.Sprintf(`SELECT COUNT(*) FROM %s WHERE expires_at > NOW()`, s.table),
+	).Scan(&count)
+	if err != nil {
+		return 0, fmt.Errorf("postgres semantic cache stats: %w", err)
+	}
+	return count, nil
+}
+
+func (s *PostgresSemanticStore) List(ctx context.Context, limit, offset int) ([]SemanticEntryMeta, error) {
+	rows, err := s.db.QueryContext(ctx,
+		fmt.Sprintf(`
+			SELECT namespace, text_content, expires_at, created_at
+			FROM %s
+			WHERE expires_at > NOW()
+			ORDER BY created_at DESC
+			LIMIT $1 OFFSET $2
+		`, s.table),
+		limit, offset,
+	)
+	if err != nil {
+		return nil, fmt.Errorf("postgres semantic cache list: %w", err)
+	}
+	defer rows.Close()
+
+	var out []SemanticEntryMeta
+	for rows.Next() {
+		var m SemanticEntryMeta
+		var snippet string
+		if err := rows.Scan(&m.Namespace, &snippet, &m.ExpiresAt, &m.StoredAt); err != nil {
+			return nil, fmt.Errorf("postgres semantic cache list scan: %w", err)
+		}
+		if len(snippet) > 200 {
+			snippet = snippet[:200] + "…"
+		}
+		m.TextSnippet = snippet
+		out = append(out, m)
+	}
+	return out, rows.Err()
+}
+
 func (s *PostgresSemanticStore) Prune(ctx context.Context, maxAge time.Duration, maxCount int) (int, error) {
 	deleted := int64(0)
 

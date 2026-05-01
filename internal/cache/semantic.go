@@ -38,6 +38,23 @@ import (
 type SemanticStore interface {
 	Search(ctx context.Context, query SemanticQuery) (*SemanticMatch, bool)
 	Set(ctx context.Context, entry SemanticEntry) error
+	// Stats returns the count of non-expired entries currently held by the
+	// store. Used by the admin status endpoint; errors are non-fatal.
+	Stats(ctx context.Context) (int, error)
+	// List returns entry metadata in reverse-insertion order, newest first.
+	// limit/offset provide simple pagination. Used by the admin entries
+	// endpoint; returns nil slice (not error) when the store is empty.
+	List(ctx context.Context, limit, offset int) ([]SemanticEntryMeta, error)
+}
+
+// SemanticEntryMeta is a lightweight view of a cached entry returned by
+// SemanticStore.List — it carries just enough for the admin UI to show a
+// useful table row without deserialising the full ChatResponse.
+type SemanticEntryMeta struct {
+	Namespace   string
+	TextSnippet string // first ≤200 chars of the indexed text
+	ExpiresAt   time.Time
+	StoredAt    time.Time
 }
 
 type SemanticQuery struct {
@@ -69,6 +86,12 @@ func (NoopSemanticStore) Search(context.Context, SemanticQuery) (*SemanticMatch,
 
 func (NoopSemanticStore) Set(context.Context, SemanticEntry) error {
 	return nil
+}
+
+func (NoopSemanticStore) Stats(context.Context) (int, error) { return 0, nil }
+
+func (NoopSemanticStore) List(context.Context, int, int) ([]SemanticEntryMeta, error) {
+	return nil, nil
 }
 
 type MemorySemanticStore struct {
@@ -170,6 +193,55 @@ func (s *MemorySemanticStore) Set(ctx context.Context, entry SemanticEntry) erro
 		s.entries = append([]semanticRecord(nil), s.entries[len(s.entries)-s.maxEntries:]...)
 	}
 	return nil
+}
+
+func (s *MemorySemanticStore) Stats(_ context.Context) (int, error) {
+	s.mu.RLock()
+	defer s.mu.RUnlock()
+	now := time.Now()
+	count := 0
+	for _, rec := range s.entries {
+		if rec.entry.ExpiresAt.IsZero() || rec.entry.ExpiresAt.After(now) {
+			count++
+		}
+	}
+	return count, nil
+}
+
+func (s *MemorySemanticStore) List(_ context.Context, limit, offset int) ([]SemanticEntryMeta, error) {
+	s.mu.RLock()
+	defer s.mu.RUnlock()
+	now := time.Now()
+	// Collect active entries newest-first (entries slice is append-only so
+	// iterating in reverse gives insertion-newest order).
+	active := make([]semanticRecord, 0, len(s.entries))
+	for i := len(s.entries) - 1; i >= 0; i-- {
+		rec := s.entries[i]
+		if rec.entry.ExpiresAt.IsZero() || rec.entry.ExpiresAt.After(now) {
+			active = append(active, rec)
+		}
+	}
+	if offset >= len(active) {
+		return nil, nil
+	}
+	end := offset + limit
+	if end > len(active) {
+		end = len(active)
+	}
+	out := make([]SemanticEntryMeta, 0, end-offset)
+	for _, rec := range active[offset:end] {
+		snippet := rec.entry.Text
+		if len(snippet) > 200 {
+			snippet = snippet[:200] + "…"
+		}
+		out = append(out, SemanticEntryMeta{
+			Namespace:   rec.entry.Namespace,
+			TextSnippet: snippet,
+			ExpiresAt:   rec.entry.ExpiresAt,
+			StoredAt:    rec.storedAt,
+		})
+	}
+	return out, nil
 }
 
 func (s *MemorySemanticStore) Prune(_ context.Context, maxAge time.Duration, maxCount int) (int, error) {

@@ -74,6 +74,8 @@ func NewServer(logger *slog.Logger, handler *Handler) http.Handler {
 	mux.HandleFunc("GET /admin/providers/history", handler.HandleProviderHealthHistory)
 	mux.HandleFunc("GET /admin/runtime/stats", handler.HandleRuntimeStats)
 	mux.HandleFunc("GET /admin/mcp/cache", handler.HandleMCPCacheStats)
+	mux.HandleFunc("GET /admin/semantic-cache", handler.HandleSemanticCacheStatus)
+	mux.HandleFunc("GET /admin/semantic-cache/entries", handler.HandleSemanticCacheEntries)
 	mux.HandleFunc("POST /v1/mcp/probe", handler.HandleMCPProbe)
 	mux.HandleFunc("GET /v1/models", handler.HandleModels)
 	mux.HandleFunc("POST /v1/chat/completions", handler.HandleChatCompletions)

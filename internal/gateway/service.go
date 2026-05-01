@@ -258,6 +258,13 @@ func (s *Service) Tracer() profiler.Tracer {
 	return s.tracer
 }
 
+func (s *Service) SemanticStore() (cache.SemanticStore, bool) {
+	if s == nil || s.semantic == nil {
+		return nil, false
+	}
+	return s.semantic, true
+}
+
 func (s *Service) HandleChat(ctx context.Context, req types.ChatRequest) (result *ChatResult, err error) {
 	startedAt := time.Now()
 	defer func() { s.recordRequestOutcome(ctx, err, time.Since(startedAt)) }()

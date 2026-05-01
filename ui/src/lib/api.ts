@@ -29,6 +29,8 @@ import type {
   TraceListResponse,
   RetentionRunResponse,
   RetentionRunsResponse,
+  SemanticCacheStatusResponse,
+  SemanticCacheEntriesResponse,
 } from "../types/runtime";
 
 type RequestOptions = {
@@ -234,6 +236,26 @@ export async function getRuntimeStats(authToken?: string, isAdmin = false): Prom
 
 export async function getMCPCacheStats(authToken?: string): Promise<MCPCacheStatsResponse> {
   return fetchJSON<MCPCacheStatsResponse>("/admin/mcp/cache", { authToken });
+}
+
+export async function getSemanticCacheStatus(
+  authToken?: string,
+): Promise<SemanticCacheStatusResponse> {
+  return fetchJSON<SemanticCacheStatusResponse>("/admin/semantic-cache", { authToken });
+}
+
+export async function listSemanticCacheEntries(
+  params: { limit?: number; offset?: number },
+  authToken?: string,
+): Promise<SemanticCacheEntriesResponse> {
+  const q = new URLSearchParams();
+  if (params.limit !== undefined) q.set("limit", String(params.limit));
+  if (params.offset !== undefined) q.set("offset", String(params.offset));
+  const qs = q.toString();
+  return fetchJSON<SemanticCacheEntriesResponse>(
+    `/admin/semantic-cache/entries${qs ? `?${qs}` : ""}`,
+    { authToken },
+  );
 }
 
 export async function getProviderPresets(authToken?: string): Promise<ProviderPresetResponse> {

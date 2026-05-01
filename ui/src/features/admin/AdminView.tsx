@@ -1,7 +1,9 @@
-import { useMemo, useState, type ReactNode } from "react";
+import { useCallback, useEffect, useMemo, useState, type ReactNode } from "react";
 import type { RuntimeConsoleViewModel } from "../../app/useRuntimeConsole";
 import type { ConfiguredAPIKeyRecord, ConfiguredPolicyRuleRecord } from "../../types/runtime";
 import type { PolicyRuleUpsertPayload } from "../../lib/api";
+import { getSemanticCacheStatus, listSemanticCacheEntries } from "../../lib/api";
+import type { SemanticCacheStatusResponse, SemanticCacheEntriesResponse } from "../../types/runtime";
 import { Badge, ChipInput, ConfirmModal, CopyBtn, Icon, Icons, InlineError, SlideOver } from "../shared/ui";
 import { PricebookTab } from "./PricebookTab";
 
@@ -15,7 +17,7 @@ type Props = {
 // tenant + key management surfaces (those endpoints stay live; the
 // tabs are simply UI noise when there's only one tenant). Balances
 // and Usage have moved to the Costs workspace.
-const TABS = ["pricebook", "policy", "retention", "tenants", "keys"] as const;
+const TABS = ["pricebook", "policy", "retention", "semantic", "tenants", "keys"] as const;
 type Tab = (typeof TABS)[number];
 const TAB_LABELS: Record<Tab, string> = {
   keys: "Keys",
@@ -23,6 +25,7 @@ const TAB_LABELS: Record<Tab, string> = {
   pricebook: "Pricing",
   policy: "Policy",
   retention: "Retention",
+  semantic: "Semantic Cache",
 };
 
 // Tabs that only appear in multi-tenant deployments. Single-tenant
@@ -102,6 +105,7 @@ export function AdminView({ state, actions }: Props) {
         {tab === "policy"       && <PolicyTab state={state} actions={actions} />}
         {tab === "pricebook"    && <PricebookTab state={state} actions={actions} />}
         {tab === "retention"    && <RetentionTab state={state} actions={actions} />}
+        {tab === "semantic"     && <SemanticCacheTab authToken={state.authToken} />}
       </div>
     </div>
   );
@@ -1157,6 +1161,174 @@ function RetentionTab({ state, actions }: Props) {
       )}
     </>
   );
+}
+
+// ─── Semantic Cache Tab ───────────────────────────────────────────────────────
+
+const PAGE_SIZE = 50;
+
+function SemanticCacheTab({ authToken }: { authToken: string }) {
+  const [status, setStatus] = useState<SemanticCacheStatusResponse["data"] | null>(null);
+  const [entries, setEntries] = useState<SemanticCacheEntriesResponse["data"]>([]);
+  const [loadingStatus, setLoadingStatus] = useState(true);
+  const [loadingEntries, setLoadingEntries] = useState(true);
+  const [offset, setOffset] = useState(0);
+  const [hasMore, setHasMore] = useState(false);
+  const [errorMsg, setErrorMsg] = useState("");
+
+  const fetchStatus = useCallback(async () => {
+    setLoadingStatus(true);
+    try {
+      const res = await getSemanticCacheStatus(authToken || undefined);
+      setStatus(res.data);
+    } catch (e) {
+      setErrorMsg(e instanceof Error ? e.message : "Failed to load status");
+    } finally {
+      setLoadingStatus(false);
+    }
+  }, [authToken]);
+
+  const fetchEntries = useCallback(async (off: number) => {
+    setLoadingEntries(true);
+    try {
+      const res = await listSemanticCacheEntries({ limit: PAGE_SIZE + 1, offset: off }, authToken || undefined);
+      const page = res.data.slice(0, PAGE_SIZE);
+      setEntries(page);
+      setHasMore(res.data.length > PAGE_SIZE);
+      setOffset(off);
+    } catch (e) {
+      setErrorMsg(e instanceof Error ? e.message : "Failed to load entries");
+    } finally {
+      setLoadingEntries(false);
+    }
+  }, [authToken]);
+
+  useEffect(() => {
+    void fetchStatus();
+    void fetchEntries(0);
+  }, [fetchStatus, fetchEntries]);
+
+  const configured = status?.configured ?? false;
+
+  return (
+    <>
+      <SectionHeader
+        title="Semantic Cache"
+        description="Vector-similarity cache for chat completions. Serves previously cached responses for semantically equivalent queries."
+        meta={loadingStatus ? "…" : configured ? `${status?.entries ?? 0} entries` : "not configured"}
+      />
+
+      {errorMsg && (
+        <div style={{ color: "var(--red)", fontSize: 12, marginBottom: 12 }}>{errorMsg}</div>
+      )}
+
+      {/* Status card */}
+      <div className="card" style={{ padding: "14px 16px", marginBottom: 16 }}>
+        <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fill, minmax(160px, 1fr))", gap: "12px 20px" }}>
+          <StatCell label="configured" value={loadingStatus ? "…" : configured ? "yes" : "no"} />
+          <StatCell label="enabled" value={loadingStatus ? "…" : (status?.enabled ? "yes" : "no")} />
+          <StatCell label="backend" value={loadingStatus ? "…" : (status?.backend || "—")} />
+          <StatCell label="entries" value={loadingStatus ? "…" : String(status?.entries ?? 0)} />
+          <StatCell label="max entries" value={loadingStatus ? "…" : String(status?.max_entries ?? 0)} />
+          <StatCell label="min similarity" value={loadingStatus ? "…" : String(status?.min_similarity ?? 0)} />
+          <StatCell label="default TTL" value={loadingStatus ? "…" : formatTTL(status?.default_ttl_sec ?? 0)} />
+          <StatCell label="max text chars" value={loadingStatus ? "…" : String(status?.max_text_chars ?? 0)} />
+        </div>
+      </div>
+
+      {/* Entries table */}
+      <div style={{ fontSize: 13, fontWeight: 500, color: "var(--t0)", marginBottom: 8, display: "flex", alignItems: "center", gap: 10 }}>
+        <span>Entries</span>
+        <button className="btn btn-secondary btn-sm" onClick={() => { void fetchStatus(); void fetchEntries(offset); }} disabled={loadingEntries}>
+          <Icon d={Icons.refresh} size={12} /> Refresh
+        </button>
+      </div>
+
+      {!configured ? (
+        <div className="card" style={{ padding: "24px", textAlign: "center", color: "var(--t3)", fontSize: 12 }}>
+          Semantic cache is not configured. Set <code>GATEWAY_SEMANTIC_CACHE_ENABLED=true</code> to enable it.
+        </div>
+      ) : entries.length === 0 && !loadingEntries ? (
+        <div className="card" style={{ padding: "24px", textAlign: "center", color: "var(--t3)", fontSize: 12 }}>
+          No cached entries.
+        </div>
+      ) : (
+        <div className="card" style={{ overflow: "hidden" }}>
+          <table style={{ width: "100%", borderCollapse: "collapse", fontSize: 12 }}>
+            <thead>
+              <tr style={{ borderBottom: "1px solid var(--border)", background: "var(--bg2)" }}>
+                <th style={{ padding: "6px 12px", textAlign: "left", fontFamily: "var(--font-mono)", fontWeight: 500, color: "var(--t2)", fontSize: 11 }}>Namespace</th>
+                <th style={{ padding: "6px 12px", textAlign: "left", fontFamily: "var(--font-mono)", fontWeight: 500, color: "var(--t2)", fontSize: 11 }}>Text snippet</th>
+                <th style={{ padding: "6px 12px", textAlign: "left", fontFamily: "var(--font-mono)", fontWeight: 500, color: "var(--t2)", fontSize: 11 }}>Stored</th>
+                <th style={{ padding: "6px 12px", textAlign: "left", fontFamily: "var(--font-mono)", fontWeight: 500, color: "var(--t2)", fontSize: 11 }}>Expires</th>
+              </tr>
+            </thead>
+            <tbody>
+              {loadingEntries ? (
+                <tr><td colSpan={4} style={{ padding: "20px", textAlign: "center", color: "var(--t3)" }}>Loading…</td></tr>
+              ) : entries.map((entry, i) => (
+                <tr key={i} style={{ borderBottom: i < entries.length - 1 ? "1px solid var(--border)" : "none" }}>
+                  <td style={{ padding: "7px 12px", fontFamily: "var(--font-mono)", color: "var(--t2)", fontSize: 11, whiteSpace: "nowrap" }}>
+                    {formatNamespace(entry.namespace)}
+                  </td>
+                  <td style={{ padding: "7px 12px", color: "var(--t1)", maxWidth: 400, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>
+                    {entry.text_snippet}
+                  </td>
+                  <td style={{ padding: "7px 12px", fontFamily: "var(--font-mono)", color: "var(--t3)", fontSize: 11, whiteSpace: "nowrap" }}>
+                    {entry.stored_at ? relativeTime(entry.stored_at) : "—"}
+                  </td>
+                  <td style={{ padding: "7px 12px", fontFamily: "var(--font-mono)", color: "var(--t3)", fontSize: 11, whiteSpace: "nowrap" }}>
+                    {entry.expires_at ? relativeTime(entry.expires_at) : "—"}
+                  </td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
+
+          {(offset > 0 || hasMore) && (
+            <div style={{ display: "flex", gap: 8, padding: "8px 12px", borderTop: "1px solid var(--border)", justifyContent: "flex-end" }}>
+              <button className="btn btn-secondary btn-sm" disabled={offset === 0 || loadingEntries}
+                onClick={() => void fetchEntries(Math.max(0, offset - PAGE_SIZE))}>
+                ← Prev
+              </button>
+              <span style={{ fontSize: 11, color: "var(--t3)", alignSelf: "center" }}>
+                {offset + 1}–{offset + entries.length}
+              </span>
+              <button className="btn btn-secondary btn-sm" disabled={!hasMore || loadingEntries}
+                onClick={() => void fetchEntries(offset + PAGE_SIZE)}>
+                Next →
+              </button>
+            </div>
+          )}
+        </div>
+      )}
+    </>
+  );
+}
+
+function StatCell({ label, value }: { label: string; value: string }) {
+  return (
+    <div>
+      <div style={{ fontSize: 10, fontFamily: "var(--font-mono)", color: "var(--t3)", textTransform: "uppercase", letterSpacing: "0.05em", marginBottom: 2 }}>{label}</div>
+      <div style={{ fontSize: 13, color: "var(--t0)", fontFamily: "var(--font-mono)" }}>{value}</div>
+    </div>
+  );
+}
+
+function formatTTL(seconds: number): string {
+  if (seconds <= 0) return "—";
+  if (seconds < 60) return `${seconds}s`;
+  if (seconds < 3600) return `${Math.round(seconds / 60)}m`;
+  if (seconds < 86400) return `${Math.round(seconds / 3600)}h`;
+  return `${Math.round(seconds / 86400)}d`;
+}
+
+function formatNamespace(ns: string): string {
+  // namespace format: "model:foo|provider:bar|tenant:baz" — render just the key values
+  return ns.split("|").map(part => {
+    const idx = part.indexOf(":");
+    return idx >= 0 ? part.slice(idx + 1) : part;
+  }).join(" · ");
 }
 
 // ─── Shared helpers ───────────────────────────────────────────────────────────

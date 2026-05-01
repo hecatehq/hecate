@@ -881,3 +881,32 @@ export type MCPCacheStatsResponse = {
     idle: number;
   };
 };
+
+// SemanticCacheStatusResponse is the wire shape for GET /admin/semantic-cache.
+// `configured: false` when the store is not wired (disabled or noop);
+// all counters carry zeros so the UI can show a sensible empty state.
+export type SemanticCacheStatusResponse = {
+  object: string;
+  data: {
+    checked_at: string;
+    configured: boolean;
+    enabled: boolean;
+    backend: string;
+    entries: number;
+    max_entries: number;
+    default_ttl_sec: number;
+    min_similarity: number;
+    max_text_chars: number;
+  };
+};
+
+// SemanticCacheEntriesResponse is the wire shape for GET /admin/semantic-cache/entries.
+export type SemanticCacheEntriesResponse = {
+  object: string;
+  data: Array<{
+    namespace: string;
+    text_snippet: string;
+    expires_at: string;
+    stored_at: string;
+  }>;
+};
