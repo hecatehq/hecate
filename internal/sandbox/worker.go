@@ -319,6 +319,18 @@ func sandboxdBinaryPath() (string, error) {
 }
 
 func resolveSandboxdPath() (string, error) {
+	exeDir := ""
+	if exe, err := os.Executable(); err == nil {
+		exe, _ = filepath.EvalSymlinks(exe)
+		exeDir = filepath.Dir(exe)
+	}
+	return resolveSandboxdPathFrom(exeDir)
+}
+
+// resolveSandboxdPathFrom contains the actual resolution logic with the
+// executable directory supplied externally so it can be exercised in tests
+// without relying on os.Executable() returning a controllable path.
+func resolveSandboxdPathFrom(exeDir string) (string, error) {
 	// 1. Explicit override.
 	if v := strings.TrimSpace(os.Getenv("SANDBOXD_BIN")); v != "" {
 		if _, err := os.Stat(v); err == nil {
@@ -328,9 +340,7 @@ func resolveSandboxdPath() (string, error) {
 	}
 
 	// 2. Next to the running executable (bundled Tauri app or make install).
-	if exe, err := os.Executable(); err == nil {
-		exe, _ = filepath.EvalSymlinks(exe)
-		dir := filepath.Dir(exe)
+	if exeDir != "" {
 		ext := ""
 		if runtime.GOOS == "windows" {
 			ext = ".exe"
@@ -338,8 +348,8 @@ func resolveSandboxdPath() (string, error) {
 		// Tauri's externalBin copies binaries as name-{triple}; also try
 		// plain name for hand-built and non-Tauri layouts.
 		candidates := []string{
-			filepath.Join(dir, "sandboxd-"+rustTriple()+ext),
-			filepath.Join(dir, "sandboxd"+ext),
+			filepath.Join(exeDir, "sandboxd-"+rustTriple()+ext),
+			filepath.Join(exeDir, "sandboxd"+ext),
 		}
 		for _, c := range candidates {
 			if _, err := os.Stat(c); err == nil {

@@ -97,6 +97,18 @@ the bundle is polished enough to recommend.
 - **Mobile (iOS/Android).** Tauri 2 supports it; we deleted the icon CLI's
   mobile output. Off-roadmap.
 
+## Sandbox executor
+
+The desktop app bundles both `hecate` and `sandboxd` as Tauri `externalBin`
+sidecars. `sandboxd` is the out-of-process executor that runs agent tool calls
+(`shell_exec`, `git_exec`, `file_write`) in a separate process so a misbehaving
+command cannot crash the gateway. In the distributed bundle it sits next to the
+`hecate` executable and is found automatically — no `PATH` setup or
+`SANDBOXD_BIN` override is required.
+
+See [`docs/sandbox.md`](sandbox.md) for the full binary resolution order and
+policy reference.
+
 ## Footguns to know
 
 Captured in detail at [`ai/skills/tauri/SKILL.md`](../ai/skills/tauri/SKILL.md);
