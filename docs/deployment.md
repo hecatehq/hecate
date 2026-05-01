@@ -14,6 +14,7 @@ The [Quick Start](../README.md#quick-start) covers `docker run` end-to-end. This
 - [Recovering a lost admin token](#recovering-a-lost-admin-token)
 - [Resetting state](#resetting-state)
 - [Storage backends](#storage-backends)
+- [Multi-node deployment](#multi-node-deployment)
 - [Rate limiting](#rate-limiting)
 
 ## Image pinning
@@ -198,6 +199,63 @@ Deployment-specific notes:
 - The semantic cache has no SQLite backend and stays on `memory` in the docker image. To get persistent semantic search, switch just that subsystem to Postgres with `GATEWAY_SEMANTIC_CACHE_BACKEND=postgres`.
 - `POSTGRES_DSN` is required when any subsystem uses `postgres`.
 - To make any subsystem ephemeral in docker, override its backend via `.env` or compose env: `GATEWAY_TASKS_BACKEND=memory`, etc.
+
+## Multi-node deployment
+
+Running more than one replica against a shared Postgres backend is supported. Workers use a claim/lease protocol on the task queue so multiple replicas share load without stepping on each other. This section covers what to configure.
+
+### Requirements
+
+All replicas must point at the same Postgres instance and share the same secrets:
+
+```bash
+# Every replica needs these identical values
+POSTGRES_DSN=postgres://hecate:hecate@db:5432/hecate?sslmode=disable
+GATEWAY_CONTROL_PLANE_SECRET_KEY=<same-strong-value-on-all-replicas>
+GATEWAY_AUTH_TOKEN=<explicit-shared-admin-token>
+
+# All durable subsystems on postgres
+GATEWAY_CONTROL_PLANE_BACKEND=postgres
+GATEWAY_AUTH_BACKEND=postgres
+GATEWAY_PROVIDER_STORE_BACKEND=postgres
+GATEWAY_PRICEBOOK_BACKEND=postgres
+GATEWAY_BUDGET_BACKEND=postgres
+GATEWAY_USAGE_BACKEND=postgres
+GATEWAY_AUDIT_BACKEND=postgres
+GATEWAY_POLICY_BACKEND=postgres
+GATEWAY_CACHE_BACKEND=postgres
+GATEWAY_TRACE_STORE_BACKEND=postgres
+GATEWAY_RETENTION_HISTORY_BACKEND=postgres
+GATEWAY_CHAT_SESSIONS_BACKEND=postgres
+GATEWAY_TASKS_BACKEND=postgres
+GATEWAY_TASK_QUEUE_BACKEND=postgres
+```
+
+**`GATEWAY_CONTROL_PLANE_SECRET_KEY`** encrypts persisted provider credentials. All replicas must share the same value or each will fail to decrypt the other's stored keys.
+
+**`GATEWAY_AUTH_TOKEN`** must be set explicitly. The auto-generated bootstrap token is written to the local `GATEWAY_DATA_DIR` on first boot — it won't be shared across replicas automatically. Set a fixed token so any replica can authenticate any request.
+
+### Bootstrap handshake and load balancers
+
+The loopback bootstrap handshake (`GET /v1/bootstrap-token`) only fires for same-host browsers. Behind a load balancer, the UI will always show the token-paste prompt. This is expected — use `GATEWAY_AUTH_TOKEN` and distribute the token to operators via your secrets manager.
+
+For load balancer health checks, use `GET /healthz`. It returns `200` with a short JSON body when the gateway is up. No auth required.
+
+### Task queue and workers
+
+With `GATEWAY_TASK_QUEUE_BACKEND=postgres`, workers across all replicas share one queue. Each worker claims a job with a time-bound lease (`GATEWAY_TASK_QUEUE_LEASE_SECONDS`, default `30`). If a worker crashes, the lease expires and another worker on any replica re-claims the job. The periodic reconciler (`GATEWAY_TASK_RECONCILE_INTERVAL`, default `30s`) additionally re-queues any run stuck in `running` past 3× the lease duration.
+
+Worker count is per-replica (`GATEWAY_TASK_QUEUE_WORKERS`, default `1`). Total concurrent workers = replicas × workers-per-replica.
+
+### Observability
+
+`GET /admin/runtime/stats` reports queue depth, worker count, and backend per replica — not aggregate. For a fleet view, scrape it from each replica or aggregate in your OTel backend. Each request carries a `X-Trace-Id` header; spans from all replicas land in the same OTLP endpoint if configured identically.
+
+### What is not yet covered
+
+- Schema migrations across replicas — currently manual; no migration CLI yet.
+- Replica-aware rate limiting — per-key token buckets are in-process; two replicas each allow the configured RPM, doubling the effective limit.
+- Session affinity — not required for correctness (all state is in Postgres) but SSE streams (`/stream`) will disconnect on replica failover.
 
 ## Rate limiting
 

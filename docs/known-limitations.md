@@ -71,8 +71,10 @@ operators should not assume yet.
 
 - Single-node Docker or bare-binary deployments are the primary tested paths.
 - SQLite is the pragmatic single-node durable default in Docker.
-- Postgres is supported for shared durable state, but multi-node production
-  operations still need more soak testing and operational docs.
+- Postgres is supported for shared durable state and multi-replica deployments.
+  Basic multi-node operational guidance is in
+  [`docs/deployment.md#multi-node-deployment`](deployment.md#multi-node-deployment);
+  production soak testing and deeper runbooks are still thin.
 - Kubernetes, Helm, Nomad, and hosted deployment matrices are not first-class
   release targets yet.
 
