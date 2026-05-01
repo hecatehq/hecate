@@ -5,7 +5,7 @@ out-of-process executor called `sandboxd`. Every `shell_exec`, `git_exec`, and
 `file_write` tool call crosses an exec boundary into a fresh `sandboxd worker`
 subprocess. A buggy or misbehaving command crashes the worker, not the gateway.
 
-Code: [`internal/sandbox/`](../internal/sandbox/) · binary: [`cmd/sandboxd/`](../cmd/sandboxd/) · policy reference: [`agent-runtime.md#network-and-filesystem-policy`](agent-runtime.md#network-and-filesystem-policy).
+Code: [`internal/sandbox/`](../internal/sandbox/) · binary: [`cmd/sandboxd/`](../cmd/sandboxd/) · policy reference: [`agent-runtime.md#network-egress-for-shell_exec--git_exec`](agent-runtime.md#network-egress-for-shell_exec--git_exec).
 
 > Contributing here? Start at [`AGENTS.md`](../AGENTS.md) and [`ai/README.md`](../ai/README.md).
 
@@ -16,6 +16,7 @@ Code: [`internal/sandbox/`](../internal/sandbox/) · binary: [`cmd/sandboxd/`](.
 - [Deployment scenarios](#deployment-scenarios)
 - [Environment variables](#environment-variables)
 - [Policy controls](#policy-controls)
+- [Isolation layers](#isolation-layers)
 - [Limitations](#limitations)
 
 ## How it works
@@ -102,7 +103,7 @@ SANDBOXD_BIN=/path/to/pre-built/sandboxd
 | `GATEWAY_TASK_SHELL_ALLOWED_HOSTS` | `""` | Comma-separated exact-host allowlist for URLs in shell and git commands; empty = all public hosts |
 
 The `http_request` tool has its own parallel pair (`GATEWAY_TASK_HTTP_*`) — see
-[`agent-runtime.md`](agent-runtime.md#environment-reference).
+[`agent-runtime.md`](agent-runtime.md#configuration-knobs).
 
 ## Policy controls
 
@@ -120,6 +121,77 @@ Network enforcement is **best-effort static string matching** on the command
 text before execution. A sufficiently creative command (inline Python, base64
 encoding, raw sockets via `nc`) can bypass it. For hard egress control, run the
 gateway in a network namespace or behind a filtering egress proxy.
+
+## Isolation layers
+
+The process boundary that `sandboxd` provides is one layer in a spectrum of
+isolation mechanisms. The layers below are ordered from weakest to strongest
+and from most to least cross-platform. Layers 0 and 1 apply to every
+deployment today; Layers 2 and 3 are planned.
+
+```
+weakest ─────────────────────────────────────────── strongest
+
+[Layer 0]    [Layer 1]    [Layer 2]         [Layer 3]
+ process      defensive    OS-level          Wasm /
+ boundary     hardening    isolation         VM
+ (current)    (current)    (planned)         (planned)
+```
+
+### Layer 0 — Process boundary (current)
+
+`sandboxd worker` runs as a separate OS process. A misbehaving or panicking
+tool call crashes the worker, not the gateway. Policy violations (network
+denial, read-only enforcement, path escape) return a `PolicyError` before the
+command runs. Network and write detection is **best-effort static string
+matching** — creative commands (inline Python, base64-encoded URLs, `nc`) can
+bypass it.
+
+### Layer 1 — Defensive hardening (planned)
+
+Cross-platform improvements that require no kernel features and work on Linux,
+macOS, and Windows:
+
+- **Environment sanitisation** — pass an explicit allowlist (`PATH`, `HOME`,
+  `TMPDIR`, `LANG`, `TZ`) to the worker's `exec.Command` instead of inheriting
+  the gateway's full environment. Prevents the subprocess from reading
+  `OPENAI_API_KEY`, `POSTGRES_DSN`, and other secrets present in the parent.
+- **Output size cap** — limit total stdout + stderr to a configurable ceiling
+  (e.g. 4 MiB). Prevents runaway commands from exhausting gateway memory.
+- **Resource limits** — `setrlimit` on Unix (CPU time, file descriptors, address
+  space) and Job Objects on Windows. Prevents fork bombs and runaway memory.
+
+### Layer 2 — OS-level isolation (planned)
+
+Platform-adaptive isolation behind a unified `PlatformSandbox` interface with
+build-tag implementations. Applied to the `sandboxd worker` process before
+spawn — no changes to the worker itself.
+
+| Platform | Mechanism | What it enforces |
+|---|---|---|
+| Linux | `SysProcAttr.Cloneflags` (namespaces) | `CLONE_NEWNET` — no network interface; `CLONE_NEWPID` — private PID tree; `CLONE_NEWUSER` — no root required |
+| macOS | `sandbox-exec` Seatbelt profile | Kernel-enforced network denial, filesystem restrictions; no CGO, system binary always present |
+| Windows | Job Objects | Kill-on-close, memory limit, process count — network isolation not achievable without WFP |
+
+Linux namespaces turn the network policy gate from string matching into a
+kernel guarantee: `curl`, Python `urllib`, Node `fetch` all fail at the socket
+layer because the process has no network interface.
+
+### Layer 3 — WebAssembly / wazero (planned)
+
+A structured tool execution model where tools are compiled to Wasm modules
+rather than arbitrary shell commands. The
+[wazero](https://github.com/tetratelabs/wazero) runtime (pure Go, no CGO) runs
+modules with explicit WASI capability grants — the module receives exactly the
+filesystem paths and environment variables you grant, nothing else.
+
+**What this enables:** real cross-platform capability-based isolation for
+well-defined tools (formatters, linters, git helpers compiled to WASI).
+
+**What it does not solve:** `shell_exec` with arbitrary bash commands. The
+shell itself would need to be a WASI-compiled binary, which is experimental.
+This layer is better understood as an architectural path toward a typed tool
+plugin model rather than a drop-in replacement for the current shell executor.
 
 ## Limitations
 
