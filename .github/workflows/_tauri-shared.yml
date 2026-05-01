@@ -53,7 +53,7 @@ jobs:
         shell: bash
     steps:
       - name: Checkout
-        uses: actions/checkout@v4
+        uses: actions/checkout@v6
         with:
           fetch-depth: 0   # stamp-version.ts resolves version from latest git tag
 
@@ -68,7 +68,7 @@ jobs:
           workspaces: tauri/src-tauri -> target
 
       - name: Set up Go
-        uses: actions/setup-go@v5
+        uses: actions/setup-go@v6
         with:
           go-version-file: go.mod
           cache: true
@@ -155,7 +155,7 @@ jobs:
       # those upload directly to the GitHub Release.
       - name: Upload bundles as workflow artifacts
         if: ${{ inputs.uploadArtifacts }}
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@v7
         with:
           name: tauri-${{ matrix.target }}
           path: |
