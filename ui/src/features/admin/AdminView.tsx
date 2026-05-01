@@ -2,8 +2,8 @@ import { useCallback, useEffect, useMemo, useState, type ReactNode } from "react
 import type { RuntimeConsoleViewModel } from "../../app/useRuntimeConsole";
 import type { ConfiguredAPIKeyRecord, ConfiguredPolicyRuleRecord } from "../../types/runtime";
 import type { PolicyRuleUpsertPayload } from "../../lib/api";
-import { getSemanticCacheStatus, listSemanticCacheEntries } from "../../lib/api";
-import type { SemanticCacheStatusResponse, SemanticCacheEntriesResponse } from "../../types/runtime";
+import { getSemanticCacheStatus, listSemanticCacheEntries, getMCPCacheStats } from "../../lib/api";
+import type { SemanticCacheStatusResponse, SemanticCacheEntriesResponse, MCPCacheStatsResponse } from "../../types/runtime";
 import { Badge, ChipInput, ConfirmModal, CopyBtn, Icon, Icons, InlineError, SlideOver } from "../shared/ui";
 import { PricebookTab } from "./PricebookTab";
 
@@ -17,7 +17,7 @@ type Props = {
 // tenant + key management surfaces (those endpoints stay live; the
 // tabs are simply UI noise when there's only one tenant). Balances
 // and Usage have moved to the Costs workspace.
-const TABS = ["pricebook", "policy", "retention", "semantic", "tenants", "keys"] as const;
+const TABS = ["pricebook", "policy", "retention", "semantic", "mcp", "tenants", "keys"] as const;
 type Tab = (typeof TABS)[number];
 const TAB_LABELS: Record<Tab, string> = {
   keys: "Keys",
@@ -26,6 +26,7 @@ const TAB_LABELS: Record<Tab, string> = {
   policy: "Policy",
   retention: "Retention",
   semantic: "Semantic Cache",
+  mcp: "MCP Cache",
 };
 
 // Tabs that only appear in multi-tenant deployments. Single-tenant
@@ -106,6 +107,7 @@ export function AdminView({ state, actions }: Props) {
         {tab === "pricebook"    && <PricebookTab state={state} actions={actions} />}
         {tab === "retention"    && <RetentionTab state={state} actions={actions} />}
         {tab === "semantic"     && <SemanticCacheTab authToken={state.authToken} />}
+        {tab === "mcp"          && <MCPCacheTab authToken={state.authToken} />}
       </div>
     </div>
   );
@@ -1329,6 +1331,67 @@ function formatNamespace(ns: string): string {
     const idx = part.indexOf(":");
     return idx >= 0 ? part.slice(idx + 1) : part;
   }).join(" · ");
+}
+
+// ─── MCP Cache Tab ────────────────────────────────────────────────────────────
+
+function MCPCacheTab({ authToken }: { authToken: string }) {
+  const [data, setData] = useState<MCPCacheStatsResponse["data"] | null>(null);
+  const [loading, setLoading] = useState(true);
+  const [errorMsg, setErrorMsg] = useState("");
+
+  const fetch = useCallback(async () => {
+    setLoading(true);
+    setErrorMsg("");
+    try {
+      const res = await getMCPCacheStats(authToken || undefined);
+      setData(res.data);
+    } catch (e) {
+      setErrorMsg(e instanceof Error ? e.message : "Failed to load MCP cache stats");
+    } finally {
+      setLoading(false);
+    }
+  }, [authToken]);
+
+  useEffect(() => { void fetch(); }, [fetch]);
+
+  const configured = data?.configured ?? false;
+
+  return (
+    <>
+      <SectionHeader
+        title="MCP Client Cache"
+        description="Shared MCP subprocess cache. Amortises spawn cost across runs with the same upstream server config."
+        meta={loading ? "…" : configured ? `${data?.entries ?? 0} entries` : "not configured"}
+      />
+
+      {errorMsg && (
+        <div style={{ color: "var(--red)", fontSize: 12, marginBottom: 12 }}>{errorMsg}</div>
+      )}
+
+      <div className="card" style={{ padding: "14px 16px", marginBottom: 16 }}>
+        <div style={{ display: "flex", alignItems: "center", gap: 8, marginBottom: 12 }}>
+          <span style={{ fontSize: 12, fontWeight: 500, color: "var(--t0)" }}>Status</span>
+          <button className="btn btn-secondary btn-sm" style={{ marginLeft: "auto" }} onClick={() => void fetch()} disabled={loading}>
+            <Icon d={Icons.refresh} size={12} /> Refresh
+          </button>
+        </div>
+        <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fill, minmax(140px, 1fr))", gap: "12px 20px" }}>
+          <StatCell label="configured" value={loading ? "…" : configured ? "yes" : "no"} />
+          <StatCell label="entries"    value={loading ? "…" : String(data?.entries ?? 0)} />
+          <StatCell label="in use"     value={loading ? "…" : String(data?.in_use ?? 0)} />
+          <StatCell label="idle"       value={loading ? "…" : String(data?.idle ?? 0)} />
+          <StatCell label="checked"    value={loading ? "…" : data?.checked_at ? relativeTime(data.checked_at) : "—"} />
+        </div>
+      </div>
+
+      {!configured && !loading && (
+        <div className="card" style={{ padding: "24px", textAlign: "center", color: "var(--t3)", fontSize: 12 }}>
+          MCP client cache is not configured. It is enabled automatically when MCP servers are used with shared subprocess pooling.
+        </div>
+      )}
+    </>
+  );
 }
 
 // ─── Shared helpers ───────────────────────────────────────────────────────────
