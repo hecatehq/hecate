@@ -29,6 +29,7 @@ Pick your role and read in order — each path is three to five docs.
 1. [Architecture](architecture.md) — gateway request flow and the task-runtime queue / lease / sandbox boundary.
 2. [Development](development.md) — Go + Bun toolchain, UI hot reload, the test ladder.
 3. [`ai/`](../ai/README.md) — conventions, workflow, verification ladders, skill index.
+4. [Release](release.md) — when you're cutting a tag: alpha gate, what CI produces, recovery.
 
 **I'm an AI agent working on Hecate**
 1. [`AGENTS.md`](../AGENTS.md) — orientation, codebase map, runtime invariants, gotchas.
@@ -42,7 +43,7 @@ Pick your role and read in order — each path is three to five docs.
 | [Deployment](deployment.md) | Server / scripted deploy. Image pinning, compose profiles, binary install, lost-token recovery, single-user vs multi-tenant flags, storage tiers, rate limits. |
 | [Desktop app](desktop-app.md) | Single-user / personal use on your laptop. Distribution bundles, first-launch footguns (Gatekeeper / SmartScreen), platform data dirs, roadmap. |
 | [Providers](providers.md) | Adding a provider, browsing the preset catalog, custom OpenAI-compatible endpoints, env-vs-UI lifecycle, health and circuit-breaker behavior. |
-| [Tenants and API keys](tenants.md) | You want more than one consumer of the gateway. Opt-in feature: roles, scopes, observability mirrors, what flips on when `GATEWAY_MULTI_TENANT=true`. |
+| [Tenants and API keys](tenants.md) | More than one consumer of the gateway. Opt-in: roles, scopes, observability mirrors, what flips on when `GATEWAY_MULTI_TENANT=true`. |
 | [Known limitations](known-limitations.md) | Before treating Hecate as production-stable. Plain-language list of what's still alpha. |
 
 ## Use it

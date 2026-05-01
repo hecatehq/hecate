@@ -176,12 +176,12 @@ When a run is queued, workers consume it through a claim/lease protocol:
 
 ```mermaid
 sequenceDiagram
-    participant Client
+    participant Caller
     participant API
     participant Queue
     participant Worker
     participant Store
-    Client->>API: POST /v1/tasks/:id/start
+    Caller->>API: POST /v1/tasks/:id/start
     API->>Queue: enqueue(task_id, run_id)
     Worker->>Queue: claim(worker_id, lease)
     Queue-->>Worker: claim_id, run_id

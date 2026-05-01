@@ -18,7 +18,7 @@ Every chat / messages call goes through the same pipeline. Each gate can short-c
 
 ```mermaid
 flowchart TD
-    Client["Gateway client<br/>POST /v1/chat/completions or /v1/messages"] --> Validate["Request validation"]
+    Caller["POST /v1/chat/completions<br/>or /v1/messages"] --> Validate["Request validation"]
     Validate -->|"invalid"| ErrInvalid["400 invalid_request"]
     Validate --> Auth["Auth<br/>(Bearer or x-api-key)"]
     Auth -->|"missing/invalid"| ErrAuth["401 unauthorized"]
@@ -40,7 +40,7 @@ flowchart TD
     Usage --> Cost["Cost calculation<br/>(pricebook lookup)"]
     Cost --> RecordUsage["Debit budget + append history"]
     RecordUsage --> Telemetry["X-Runtime-* headers<br/>+ traces/metrics/logs"]
-    Telemetry --> Response["Client response"]
+    Telemetry --> Response["Response"]
     CacheReturn --> Response
 ```
 
@@ -58,7 +58,7 @@ Tasks are durable: a run survives process restarts, can be resumed from a termin
 
 ```mermaid
 flowchart TD
-    Client["Task client or UI"] --> TasksApi["POST /v1/tasks/{id}/start"]
+    Caller["POST /v1/tasks/{id}/start"] --> TasksApi["Tasks API"]
     TasksApi --> Runner["Orchestrator runner"]
     Runner --> Workspace["Workspace manager<br/>(clone source to temp dir,<br/>or use source in_place)"]
     Workspace --> Queue["Run queue<br/>(memory / sqlite / postgres lease)"]
