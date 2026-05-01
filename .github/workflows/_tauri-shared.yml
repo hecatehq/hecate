@@ -1,0 +1,167 @@
+name: tauri-shared
+
+# Reusable Tauri matrix build. Called by:
+#   - release.yml      (tagged release: tagName set → tauri-action uploads to GitHub Release)
+#   - tauri-build.yml  (PR validation: uploadArtifacts true → preserved as workflow artifact)
+#
+# When you change anything in this file, both callers pick it up
+# automatically. Keep their path filters wide enough to trigger on
+# changes to this workflow itself.
+
+on:
+  workflow_call:
+    inputs:
+      tagName:
+        description: 'Git tag to attach release artifacts to. Empty → build only, no release upload.'
+        type: string
+        required: false
+        default: ''
+      uploadArtifacts:
+        description: 'Upload built bundles as workflow artifacts (for PR runs).'
+        type: boolean
+        required: false
+        default: false
+
+# Maximum permissions any caller needs:
+#   - contents: write   tauri-action uploads bundles to a GitHub Release
+#                       (when called from release.yml with tagName set)
+# Callers that don't upload (PR validation via tauri-build.yml) restrict
+# this back down to contents: read at their own workflow-level block.
+permissions:
+  contents: write
+
+jobs:
+  build:
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - os: macos-latest
+            target: aarch64-apple-darwin
+            bundles: dmg
+          - os: ubuntu-22.04
+            target: x86_64-unknown-linux-gnu
+            bundles: deb,appimage
+          - os: windows-latest
+            target: x86_64-pc-windows-msvc
+            bundles: msi
+    runs-on: ${{ matrix.os }}
+    # bash for every run: step. Resolves to Git Bash on Windows runners,
+    # which is what the Makefile (SHELL := /bin/sh) and our cp/if blocks need.
+    defaults:
+      run:
+        shell: bash
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0   # stamp-version.ts resolves version from latest git tag
+
+      - name: Set up Rust
+        uses: dtolnay/rust-toolchain@stable
+        with:
+          targets: ${{ matrix.target }}
+
+      - name: Cache Rust build artifacts
+        uses: Swatinem/rust-cache@v2
+        with:
+          workspaces: tauri/src-tauri -> target
+
+      - name: Set up Go
+        uses: actions/setup-go@v5
+        with:
+          go-version-file: go.mod
+          cache: true
+
+      - name: Set up Bun
+        uses: oven-sh/setup-bun@v2
+        with:
+          bun-version: 1.3.13
+
+      # Tauri 2.x prerequisites for Ubuntu 22.04 (per the official docs).
+      # webkit2gtk 4.1 is the Tauri 2 requirement; 4.0 ships by default.
+      # patchelf is required by the AppImage bundler. libxdo-dev is for
+      # global-shortcut/clipboard plugins (kept ready, not currently used).
+      - name: Install Linux system dependencies
+        if: matrix.os == 'ubuntu-22.04'
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y \
+            build-essential \
+            curl \
+            wget \
+            file \
+            libssl-dev \
+            libwebkit2gtk-4.1-dev \
+            libgtk-3-dev \
+            libayatana-appindicator3-dev \
+            librsvg2-dev \
+            libxdo-dev \
+            patchelf
+
+      # make build runs ui-build first (//go:embed needs the React assets).
+      - name: Install UI dependencies
+        run: make ui-install
+
+      # make build: ui-build → go build. Produces the binary that becomes
+      # the Tauri sidecar.
+      - name: Build hecate binary
+        run: make build
+
+      # Tauri's bundler looks for binaries/hecate-{triple}[.exe] at bundle
+      # time. We replicate `make tauri-sidecar` so the platform triple from
+      # the matrix is always used (not whatever rustc on the runner reports).
+      # Defensive: try .exe first on Windows, fall back to bare name —
+      # Go's `-o` extension behavior has shifted across versions.
+      - name: Stage hecate sidecar
+        run: |
+          mkdir -p tauri/src-tauri/binaries
+          if [[ "$RUNNER_OS" == "Windows" ]]; then
+            if [[ -f hecate.exe ]]; then src=hecate.exe
+            elif [[ -f hecate ]];     then src=hecate
+            else echo "no hecate binary found after make build"; ls -la; exit 1
+            fi
+            cp "$src" "tauri/src-tauri/binaries/hecate-${{ matrix.target }}.exe"
+          else
+            cp hecate "tauri/src-tauri/binaries/hecate-${{ matrix.target }}"
+          fi
+
+      # tauri-action's auto-install is unreliable when projectPath is set;
+      # install explicitly so node_modules/.bin/tauri exists for the build.
+      - name: Install Tauri JS dependencies
+        run: cd tauri && bun install --frozen-lockfile
+
+      # Stamps Cargo.toml, package.json, and tauri.conf.json. Resolution
+      # order: TAURI_VERSION env → latest git tag → existing Cargo.toml.
+      - name: Stamp Tauri version
+        run: bun scripts/stamp-version.ts
+
+      # Single tauri-action call serves both modes:
+      #   - tagName empty  → build only
+      #   - tagName set    → upload to the existing GitHub Release for that tag
+      # Code signing secrets (APPLE_CERTIFICATE, TAURI_SIGNING_PRIVATE_KEY,
+      # ...) plug in via env when added — no workflow rewrite needed.
+      - name: Build Tauri bundles
+        uses: tauri-apps/tauri-action@v0
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        with:
+          projectPath: tauri
+          tagName: ${{ inputs.tagName }}
+          args: --bundles ${{ matrix.bundles }}
+
+      # Persist as workflow artifact for PR runs so reviewers can download
+      # and test-launch from the run page. Skipped on tagged releases —
+      # those upload directly to the GitHub Release.
+      - name: Upload bundles as workflow artifacts
+        if: ${{ inputs.uploadArtifacts }}
+        uses: actions/upload-artifact@v4
+        with:
+          name: tauri-${{ matrix.target }}
+          path: |
+            tauri/src-tauri/target/release/bundle/dmg/*.dmg
+            tauri/src-tauri/target/release/bundle/deb/*.deb
+            tauri/src-tauri/target/release/bundle/appimage/*.AppImage
+            tauri/src-tauri/target/release/bundle/msi/*.msi
+          if-no-files-found: error
+          retention-days: 14

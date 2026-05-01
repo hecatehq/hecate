@@ -10,8 +10,9 @@ This is the Hecate repo — an open-source AI gateway and agent-task runtime (si
 
 Pick the right skill for the change:
 
-- **Backend** (anything outside `ui/`) — [`hecate-backend`](ai/skills/backend/SKILL.md).
+- **Backend** (anything outside `ui/` and `tauri/`) — [`hecate-backend`](ai/skills/backend/SKILL.md).
 - **UI** (`ui/`) — [`hecate-ui`](ai/skills/ui/SKILL.md).
+- **Native desktop app** (`tauri/`) — [`hecate-tauri`](ai/skills/tauri/SKILL.md). Tauri 2.x Rust layer, sidecar lifecycle, platform bundling, gateway↔webview integration.
 - **Provider adapters** (`internal/providers/`, anything that crosses the api↔providers boundary) — [`hecate-providers`](ai/skills/providers/SKILL.md). Owns the canonical seven-step "add a wire field" chain.
 - **Planning a substantial change** — [`hecate-architect`](ai/skills/architect/SKILL.md). Produces a plan, not code.
 - **Test strategy / coverage audit / verification report** — [`hecate-tester`](ai/skills/tester/SKILL.md).

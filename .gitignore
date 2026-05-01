@@ -40,3 +40,12 @@ coverage.out
 # is in a dirty state" the next time it cleans. Anchored with leading
 # / so the rule doesn't shadow ui/dist/ (which has its own block above).
 /dist/
+
+# Tauri desktop app build artifacts.
+tauri/node_modules/
+# Rust build output (target/) is large and fully reproducible.
+tauri/src-tauri/target/
+# The sidecar binary is copied into binaries/ by make tauri-sidecar;
+# it is platform-specific and built on demand — not tracked.
+tauri/src-tauri/binaries/hecate*
+!tauri/src-tauri/binaries/.gitkeep

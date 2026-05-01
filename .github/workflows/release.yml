@@ -8,6 +8,13 @@ on:
       - 'v*'
   workflow_dispatch:
 
+# A tag-push and a manual dispatch on the same ref shouldn't fight.
+# Don't cancel-in-progress for releases — half-completed releases are
+# worse than waiting for the queued one.
+concurrency:
+  group: release-${{ github.ref }}
+  cancel-in-progress: false
+
 permissions:
   contents: write   # create the GitHub release + upload archives
   packages: write   # push images to ghcr.io
@@ -56,3 +63,13 @@ jobs:
           args: release --clean
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+
+  # Native desktop bundles. All matrix steps live in _tauri-shared.yml.
+  tauri:
+    needs: goreleaser
+    uses: ./.github/workflows/_tauri-shared.yml
+    secrets: inherit
+    permissions:
+      contents: write   # tauri-action uploads bundles to the existing release
+    with:
+      tagName: ${{ github.ref_name }}

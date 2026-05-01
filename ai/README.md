@@ -20,8 +20,10 @@ ai/
     code-review.md                review rubric and output format
     release.md                    cut a release tag (pre-flight, snapshot, gate, recovery)
   skills/
-    backend/SKILL.md              Go backend skill (anything outside ui/)
+    backend/SKILL.md              Go backend skill (anything outside ui/ and tauri/)
     ui/SKILL.md                   React UI skill (ui/)
+    tauri/SKILL.md                native desktop app skill (tauri/): Rust layer, sidecar
+                                  lifecycle, platform bundling, gateway↔webview integration
     providers/SKILL.md            internal/providers/ skill (parallel-struct boundary, seven-step chain)
     architect/SKILL.md            posture skill: plan-first for substantial changes
     tester/SKILL.md               posture skill: test strategy and verification reporting
@@ -31,8 +33,9 @@ ai/
 ## Where to start
 
 - **First time in this repo**: read [`core/project-context.md`](core/project-context.md), then [`core/workflow.md`](core/workflow.md).
-- **Backend work** (anything outside `ui/`): also read [`skills/backend/SKILL.md`](skills/backend/SKILL.md).
+- **Backend work** (anything outside `ui/` and `tauri/`): also read [`skills/backend/SKILL.md`](skills/backend/SKILL.md).
 - **UI work** (`ui/`): also read [`skills/ui/SKILL.md`](skills/ui/SKILL.md).
+- **Native desktop app** (`tauri/`): also read [`skills/tauri/SKILL.md`](skills/tauri/SKILL.md).
 - **Provider adapters** (`internal/providers/`): also read [`skills/providers/SKILL.md`](skills/providers/SKILL.md) — the canonical home for the seven-step "add a wire field" chain.
 - **Planning a substantial change**: see [`skills/architect/SKILL.md`](skills/architect/SKILL.md) and [`tasks/planning.md`](tasks/planning.md).
 - **Reviewing code** (yours or another agent's): see [`tasks/code-review.md`](tasks/code-review.md).

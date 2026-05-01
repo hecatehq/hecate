@@ -1,0 +1,50 @@
+name: tauri-build
+
+# PR-triggered Tauri matrix build. All build steps live in
+# _tauri-shared.yml — this file is just the trigger + caller.
+#
+# Path filter scopes the run to changes that could plausibly break the
+# Tauri pipeline; anything else skips the matrix entirely.
+
+on:
+  pull_request:
+    types: [opened, synchronize, reopened, ready_for_review]
+    paths:
+      - 'tauri/**'
+      - 'scripts/stamp-version.ts'
+      - 'Makefile'
+      - 'go.mod'
+      - 'go.sum'
+      - 'cmd/hecate/**'
+      - 'ui/**'
+      - 'embed.go'              # //go:embed all:ui/dist — UI bundle into binary
+      - '.goreleaser.yaml'      # release config; tag-time goreleaser pipeline
+      - 'Dockerfile.release'    # GHCR image baseline; not Tauri but same release flow
+      - '.github/workflows/_tauri-shared.yml'
+      - '.github/workflows/tauri-build.yml'
+      - '.github/workflows/release.yml'
+  workflow_dispatch:
+
+# Cancel queued/running PR runs when a new commit lands on the same ref.
+# A 30-minute matrix on every push during active dev burns minutes
+# fast otherwise.
+concurrency:
+  group: tauri-build-${{ github.ref }}
+  cancel-in-progress: true
+
+# PR validation only — no release upload. Restricts the GITHUB_TOKEN
+# below the contents: write that _tauri-shared.yml declares as its max.
+permissions:
+  contents: read
+
+jobs:
+  tauri:
+    # Skip drafts to save runners during work-in-progress. Mark the PR
+    # ready-for-review to trigger the matrix.
+    if: github.event_name != 'pull_request' || github.event.pull_request.draft == false
+    uses: ./.github/workflows/_tauri-shared.yml
+    secrets: inherit
+    permissions:
+      contents: read
+    with:
+      uploadArtifacts: true

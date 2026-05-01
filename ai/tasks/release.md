@@ -22,33 +22,83 @@ Before running the release script, verify:
 Use the release script. It checks clean worktree, tag uniqueness, goreleaser on PATH, fires a snapshot dry-run, then prompts before tagging:
 
 ```bash
-scripts/release.sh vX.Y.Z
+bun scripts/release.ts vX.Y.Z
 ```
 
 For pre-release tags:
 
 ```bash
-scripts/release.sh v0.1.0-alpha.7
+bun scripts/release.ts v0.1.0-alpha.7
 ```
 
 To skip the snapshot dry-run (e.g. already ran it manually):
 
 ```bash
-scripts/release.sh v0.2.0 --skip-snapshot
+bun scripts/release.ts v0.2.0 --skip-snapshot
 ```
 
 The annotated tag message becomes the canonical release notes — it's what `git show vX.Y.Z` and the GitHub Releases page surface. Write it before tagging; the script prompts for confirmation but doesn't prompt for the message (pass it as the annotation when the script creates the tag, or edit via `git tag -a -f` before pushing if needed).
 
+## Tauri desktop app
+
+The native desktop app (`tauri/`) **is built and uploaded by CI** as part of the release pipeline — no manual `make tauri-build` step is required when cutting a tag. Bundle architecture and the per-platform build details live in [`../skills/tauri/SKILL.md`](../skills/tauri/SKILL.md); the operator-facing distribution + roadmap view is at [`../../docs/desktop-app.md`](../../docs/desktop-app.md); this section is the release-time view.
+
+### What CI does
+
+`.github/workflows/release.yml` runs two jobs on a `v*` tag push:
+
+1. `goreleaser` — Linux/macOS/Windows binary tarballs, multi-arch Docker images on GHCR, GitHub Release entry.
+2. `tauri` (`needs: goreleaser`) — three-platform matrix (macOS arm64, Linux x86_64, Windows x86_64) calls the reusable `_tauri-shared.yml` workflow with `tagName: ${{ github.ref_name }}`. Each leg builds the hecate sidecar, the Tauri bundle, and uploads platform-native artifacts (`.dmg` / `.deb` + `.AppImage` / `.msi`) to the existing release.
+
+End state of a successful tag: the GitHub Release page has goreleaser tarballs + Docker images + four desktop bundles, all attached.
+
+### Version stamping
+
+`bun scripts/release.ts` handles the stamp automatically: after confirmation it calls `scripts/stamp-version.ts` with `TAURI_VERSION=<semver>`, commits the changed files (`Cargo.toml`, `package.json`, `tauri.conf.json`), then creates the annotated tag on that commit. CI re-runs the stamp from the tag name as a belt-and-suspenders measure (`stamp-version.ts` is idempotent).
+
+The Tauri matrix doesn't need any local action — pushing the tag fires the workflow.
+
+### Pre-tag validation
+
+`.github/workflows/tauri-build.yml` runs the same matrix on PRs (path-filtered to changes that could break it: `tauri/**`, `cmd/hecate/**`, `ui/**`, `Makefile`, `scripts/stamp-version.ts`, the workflows themselves). Bundles persist as workflow artifacts (14-day retention) so reviewers can download and test-launch from the run page.
+
+If the change set touches the desktop pipeline, prefer landing it via PR so the matrix runs before the tag — it's the only way to find out a Windows-only or Linux-only regression without burning a release.
+
+### Manual local build (rarely needed)
+
+```bash
+TAURI_VERSION=X.Y.Z make tauri-build
+```
+
+Outputs land in `tauri/src-tauri/target/release/bundle/`. Use this for iterating on Tauri-specific issues that the cargo-cache hides on rebuilds; for shipping, let CI do it.
+
+### Tauri-specific footguns
+
+- **Don't build manually then expect CI artifacts to match.** The CI matrix produces bundles signed differently (or unsigned) from a local build. Local artifacts are for debugging, not distribution.
+- **`0.1.0-alpha.N` is valid semver for Tauri**, but macOS `CFBundleShortVersionString` strips the pre-release suffix in the About dialog. That's expected — Tauri handles it internally.
+- **Code signing is not configured.** macOS shows Gatekeeper warning on first launch; Windows MSI shows SmartScreen. Document this for users in release notes until signing secrets land. tauri-action picks up `APPLE_CERTIFICATE` / `TAURI_SIGNING_PRIVATE_KEY` / etc. from env when added — no workflow rewrite needed.
+- **`tauri/src-tauri/target/` is large** (~1–2 GB after a release build). Don't accidentally `git add` it — it's gitignored, but be specific with paths anyway.
+- **Icons must be format-correct.** A `.png` renamed to `.ico` will pass macOS but fail Windows `RC.EXE`. Regenerate via `bunx @tauri-apps/cli icon source.png` if changing artwork.
+
 ## Watch CI
 
-Push triggers `.github/workflows/release.yml` → goreleaser → multi-arch binaries + Docker images on `ghcr.io/chicoxyzzy/hecate` + GitHub release entry. The full pipeline runs ~5–10 minutes (Docker buildx multi-arch dominates).
+Push triggers `.github/workflows/release.yml` with two jobs:
+
+1. `goreleaser` (~5–10 min, Docker buildx multi-arch dominates) — multi-arch binaries + Docker images on `ghcr.io/chicoxyzzy/hecate` + GitHub Release entry.
+2. `tauri` (`needs: goreleaser`, ~10–15 min, three platforms in parallel) — desktop bundles attached to the same release entry. Cold rust-cache adds ~5 min on first run; subsequent runs at the same dep set are warm.
+
+Total wall-clock: ~15–25 min.
 
 Acceptance:
 
-- Workflow run is green.
+- Both workflow jobs are green.
 - GitHub Releases page has the entry, marked **Pre-release** for `-alpha.N` tags.
+- Goreleaser-side artifacts attached: tarballs for each `goos/goarch`, source tarball, checksums.
+- Tauri-side artifacts attached: one `.dmg`, one `.deb`, one `.AppImage`, one `.msi`. If any is missing, the matrix leg silently skipped upload — open the run, find the leg, see what failed.
+- Bundle sizes look right: `.dmg` ~20–40 MB, `.deb` ~15–25 MB, `.AppImage` ~80–120 MB (bundles its own libs), `.msi` ~15–25 MB. A 1 MB `.dmg` means the sidecar didn't embed — investigate before announcing.
 - `docker pull ghcr.io/chicoxyzzy/hecate:X.Y.Z` succeeds (no `v` prefix — see footgun below).
 - `docker run --rm -p 8765:8765 ghcr.io/chicoxyzzy/hecate:X.Y.Z` then `curl :8765/healthz` returns `version: "X.Y.Z"`.
+- (Optional but recommended for `-alpha.N`) Download the `.dmg` and verify it launches: window opens, splash → gateway UI, auto-logged in (no token paste), `cmd+Q` leaves no orphan `hecate` process. ~10 min and catches >90% of desktop-side regressions.
 
 ## Footguns
 

@@ -2,7 +2,7 @@ SHELL := /bin/sh
 
 GOCACHE_DIR := $(CURDIR)/.gocache
 
-.PHONY: test test-race vet coverage ui-coverage build run serve dev stop ui-install ui-dev ui-build ui-test ui-test-e2e test-docker-smoke docs-env-check check-links verify-alpha reset-dev reset-docker screenshots
+.PHONY: test test-race vet coverage ui-coverage build run serve dev stop ui-install ui-dev ui-build ui-test ui-test-e2e test-docker-smoke docs-env-check check-links verify-alpha reset-dev reset-docker screenshots tauri-install tauri-version tauri-sidecar tauri-dev tauri-build
 
 # build produces a single self-contained hecate binary with the UI bundle
 # embedded. The UI is built first so //go:embed picks up the real assets;
@@ -31,7 +31,7 @@ coverage:
 	@echo "Open coverage.html for line-level coverage."
 
 ui-coverage:
-	test -d ui/node_modules/@tailwindcss/vite || (echo "UI dependencies are out of date. Run 'make ui-install' first." && exit 1)
+	test -d ui/node_modules/@vitejs/plugin-react || (echo "UI dependencies are out of date. Run 'make ui-install' first." && exit 1)
 	cd ui && bun run test:coverage
 
 # stop frees :8765 by killing whatever is listening there. Useful before
@@ -74,11 +74,11 @@ ui-install:
 	cd ui && bun install
 
 ui-dev:
-	test -d ui/node_modules/@tailwindcss/vite || (echo "UI dependencies are out of date. Run 'make ui-install' first." && exit 1)
+	test -d ui/node_modules/@vitejs/plugin-react || (echo "UI dependencies are out of date. Run 'make ui-install' first." && exit 1)
 	cd ui && bun run dev
 
 ui-build:
-	test -d ui/node_modules/@tailwindcss/vite || (echo "UI dependencies are out of date. Run 'make ui-install' first." && exit 1)
+	test -d ui/node_modules/@vitejs/plugin-react || (echo "UI dependencies are out of date. Run 'make ui-install' first." && exit 1)
 	cd ui && bun run build
 	# Vite empties ui/dist before building, which deletes the tracked
 	# .gitkeep placeholder. Restore it exactly as git has it so the next
@@ -87,11 +87,11 @@ ui-build:
 	@git restore ui/dist/.gitkeep 2>/dev/null || touch ui/dist/.gitkeep
 
 ui-test:
-	test -d ui/node_modules/@tailwindcss/vite || (echo "UI dependencies are out of date. Run 'make ui-install' first." && exit 1)
+	test -d ui/node_modules/@vitejs/plugin-react || (echo "UI dependencies are out of date. Run 'make ui-install' first." && exit 1)
 	cd ui && bun run test
 
 ui-test-e2e:
-	test -d ui/node_modules/@tailwindcss/vite || (echo "UI dependencies are out of date. Run 'make ui-install' first." && exit 1)
+	test -d ui/node_modules/@vitejs/plugin-react || (echo "UI dependencies are out of date. Run 'make ui-install' first." && exit 1)
 	cd ui && bun run test:e2e
 
 # test-docker-smoke spins up `docker compose` with the production image
@@ -185,3 +185,67 @@ reset-docker:
 	docker compose --profile postgres down -v --remove-orphans
 	@echo "Docker stack reset. Next 'docker compose up' regenerates the admin token."
 	@echo "On next page load, the UI auto-detects the rejected stale token and re-prompts."
+
+# ---------------------------------------------------------------------------
+# Tauri native desktop app
+# ---------------------------------------------------------------------------
+#
+# The Tauri app bundles the hecate gateway binary as a sidecar. The workflow:
+#   1. Build the hecate binary for the current platform (make build).
+#   2. Copy it into tauri/src-tauri/binaries/ with the platform-triple suffix
+#      that Tauri's bundler expects (e.g. hecate-aarch64-apple-darwin).
+#   3. Install Tauri JS dependencies (bun install inside tauri/).
+#   4. tauri dev / tauri build handles the Rust compile + bundle.
+#
+# Prerequisites (one-time):
+#   cargo install tauri-cli --version "^2"   # Tauri CLI
+#   rustup target add aarch64-apple-darwin   # macOS arm64 (if on Intel)
+#   # Linux: sudo apt install libgtk-3-dev libwebkit2gtk-4.1-dev ...
+#   # Windows: VS Build Tools (C++ workload) — see Tauri docs
+
+# Detect the Rust target triple for the current host so the sidecar binary
+# gets the correct suffix that Tauri's bundler expects.
+RUST_TARGET := $(shell rustc -vV 2>/dev/null | awk '/^host:/{print $$2}')
+
+# tauri-install: install JS deps (includes @tauri-apps/cli; invoked via bunx tauri).
+tauri-install:
+	cd tauri && bun install
+
+# tauri-version: stamp Cargo.toml, package.json, and tauri.conf.json with the
+# current release version. Resolution order: TAURI_VERSION env var → latest
+# git tag → existing Cargo.toml value (dev/untagged builds).
+# Called automatically by tauri-build; run manually when cutting a release.
+tauri-version: tauri-install
+	bun scripts/stamp-version.ts
+
+# tauri-sidecar: build the hecate binary and stage it as the Tauri sidecar.
+# Called automatically by tauri-dev and tauri-build so you rarely need it
+# directly. On Windows `go build -o hecate` produces hecate.exe, and the
+# bundler wants hecate-{triple}.exe — handle both source and dest names.
+tauri-sidecar: build
+	@if [ -z "$(RUST_TARGET)" ]; then \
+	  echo "rustc not found — cannot determine host triple" && exit 1; \
+	fi
+	@goexe=$$(go env GOEXE); \
+	src="hecate$$goexe"; \
+	dest="tauri/src-tauri/binaries/hecate-$(RUST_TARGET)$$goexe"; \
+	echo "staging sidecar: $$dest"; \
+	cp "$$src" "$$dest"
+
+# tauri-dev: hot-reload development mode. Launches the Tauri window backed by
+# a fresh hecate sidecar build. The gateway binary is rebuilt first so the
+# sidecar is up to date; UI changes require a full `make tauri-sidecar` since
+# the gateway embeds the UI bundle at build time.
+tauri-dev: tauri-sidecar tauri-install
+	cd tauri && bunx tauri dev
+
+# tauri-build: produce a signed (or unsigned) distributable bundle for the
+# current platform. Outputs land in tauri/src-tauri/target/release/bundle/.
+# To cross-compile (e.g. universal macOS), set TAURI_TARGET:
+#   make tauri-build TAURI_TARGET=universal-apple-darwin
+tauri-build: tauri-sidecar tauri-version
+	@if [ -n "$(TAURI_TARGET)" ]; then \
+	  cd tauri && bunx tauri build --target $(TAURI_TARGET); \
+	else \
+	  cd tauri && bunx tauri build; \
+	fi

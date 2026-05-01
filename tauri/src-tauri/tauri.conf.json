@@ -1,0 +1,58 @@
+{
+  "$schema": "https://schema.tauri.app/config/2",
+  "productName": "Hecate",
+  "identifier": "com.hecate.app",
+  "version": "0.1.0-alpha.8",
+  "build": {
+    "beforeDevCommand": "",
+    "beforeBuildCommand": "",
+    "frontendDist": "../splash"
+  },
+  "app": {
+    "windows": [
+      {
+        "title": "Hecate",
+        "width": 1280,
+        "height": 800,
+        "minWidth": 900,
+        "minHeight": 600,
+        "fullscreen": false,
+        "resizable": true,
+        "center": true
+      }
+    ],
+    "security": {
+      "csp": null
+    }
+  },
+  "bundle": {
+    "active": true,
+    "targets": "all",
+    "icon": [
+      "icons/32x32.png",
+      "icons/128x128.png",
+      "icons/128x128@2x.png",
+      "icons/icon.icns",
+      "icons/icon.ico"
+    ],
+    "externalBin": [
+      "binaries/hecate"
+    ],
+    "resources": {},
+    "windows": {
+      "wix": {
+        "version": "0.1.0.8"
+      }
+    }
+  },
+  "plugins": {
+    "shell": {
+      "open": false
+    },
+    "updater": {
+      "active": false,
+      "pubkey": "",
+      "endpoints": []
+    }
+  }
+}
