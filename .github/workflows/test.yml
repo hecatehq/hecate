@@ -108,10 +108,10 @@ jobs:
       - name: Test
         run: go test -race -timeout 10m ./...
 
-  build-hecate:
-    name: Build hecate
+  build-gateway:
+    name: Build gateway
     needs: changes
-    # Triggers on Go OR TypeScript changes because the hecate binary now
+    # Triggers on Go OR TypeScript changes because the gateway binary now
     # embeds the built UI via //go:embed — a typescript-only change must
     # produce a rebuilt binary so any embed regression is caught here.
     if: needs.changes.outputs.go == 'true' || needs.changes.outputs.typescript == 'true' || needs.changes.outputs.workflow == 'true'
@@ -137,17 +137,17 @@ jobs:
         run: bun run build
         working-directory: ui
 
-      - name: Build hecate binary
-        run: go build -o hecate ./cmd/hecate
+      - name: Build gateway binary
+        run: go build -o gateway ./cmd/gateway
 
       - name: Build sandboxd binary
         run: go build -o sandboxd ./cmd/sandboxd
 
-      - name: Upload hecate artifact
+      - name: Upload gateway artifact
         uses: actions/upload-artifact@v7
         with:
-          name: hecate-binary
-          path: hecate
+          name: gateway-binary
+          path: gateway
           retention-days: 1
           if-no-files-found: error
 
@@ -161,7 +161,7 @@ jobs:
 
   e2e:
     name: E2E tests (fake upstream)
-    needs: [changes, build-hecate]
+    needs: [changes, build-gateway]
     if: needs.changes.outputs.go == 'true' || needs.changes.outputs.workflow == 'true'
     runs-on: ubuntu-latest
     steps:
@@ -172,10 +172,10 @@ jobs:
           go-version-file: go.mod
           cache: true
 
-      - name: Download hecate binary
+      - name: Download gateway binary
         uses: actions/download-artifact@v8
         with:
-          name: hecate-binary
+          name: gateway-binary
           path: /tmp
 
       - name: Download sandboxd binary
@@ -186,15 +186,15 @@ jobs:
 
       - name: Run e2e tests
         run: |
-          chmod +x /tmp/hecate /tmp/sandboxd
+          chmod +x /tmp/gateway /tmp/sandboxd
           go test -tags e2e -count=1 -timeout 3m ./e2e/...
         env:
-          E2E_HECATE_BIN: /tmp/hecate
+          E2E_GATEWAY_BIN: /tmp/gateway
           E2E_SANDBOXD_BIN: /tmp/sandboxd
 
   e2e-ollama:
     name: E2E tests (Ollama)
-    needs: [changes, build-hecate]
+    needs: [changes, build-gateway]
     if: needs.changes.outputs.go == 'true' || needs.changes.outputs.workflow == 'true'
     runs-on: ubuntu-latest
     steps:
@@ -205,10 +205,10 @@ jobs:
           go-version-file: go.mod
           cache: true
 
-      - name: Download hecate binary
+      - name: Download gateway binary
         uses: actions/download-artifact@v8
         with:
-          name: hecate-binary
+          name: gateway-binary
           path: /tmp
 
       - name: Download sandboxd binary
@@ -259,10 +259,10 @@ jobs:
         # -run TestOllama: fake-upstream (TestGateway*) tests are already covered
         # by the e2e job running in parallel.
         run: |
-          chmod +x /tmp/hecate /tmp/sandboxd
+          chmod +x /tmp/gateway /tmp/sandboxd
           go test -tags 'e2e ollama' -count=1 -run TestOllama -timeout 10m ./e2e/...
         env:
-          E2E_HECATE_BIN: /tmp/hecate
+          E2E_GATEWAY_BIN: /tmp/gateway
           E2E_SANDBOXD_BIN: /tmp/sandboxd
           OLLAMA_HOST: http://127.0.0.1:11434
 

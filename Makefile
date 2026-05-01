@@ -4,13 +4,13 @@ GOCACHE_DIR := $(CURDIR)/.gocache
 
 .PHONY: test test-race vet coverage ui-coverage build run serve dev stop ui-install ui-dev ui-build ui-test ui-test-e2e test-docker-smoke docs-env-check check-links verify-alpha reset-dev reset-docker screenshots tauri-install tauri-version tauri-sidecar tauri-dev tauri-build
 
-# build produces a single self-contained hecate binary with the UI bundle
+# build produces a single self-contained gateway binary with the UI bundle
 # embedded. The UI is built first so //go:embed picks up the real assets;
 # without this step the binary still runs but serves a "UI not built"
 # fallback page instead of the React app.
 build: ui-build
 	mkdir -p "$(GOCACHE_DIR)"
-	GOCACHE="$(GOCACHE_DIR)" go build -o hecate ./cmd/hecate
+	GOCACHE="$(GOCACHE_DIR)" go build -o gateway ./cmd/gateway
 
 test:
 	mkdir -p "$(GOCACHE_DIR)"
@@ -35,7 +35,7 @@ ui-coverage:
 	cd ui && bun run test:coverage
 
 # stop frees :8765 by killing whatever is listening there. Useful before
-# `docker run -p 8765:8765 …` (a stale `make dev` / `make run` / `./hecate`
+# `docker run -p 8765:8765 …` (a stale `make dev` / `make run` / `./gateway`
 # from a previous shell will otherwise produce "address already in use") or
 # any time the operator wants to make sure the dev gateway is down.
 stop:
@@ -43,32 +43,32 @@ stop:
 	if [ -z "$$pid" ]; then \
 	  echo ":8765 already free"; \
 	else \
-	  echo "stopping hecate on :8765 (pid $$pid)"; \
+	  echo "stopping gateway on :8765 (pid $$pid)"; \
 	  kill $$pid; \
 	  sleep 0.3; \
 	fi
 
 run: stop
 	mkdir -p "$(GOCACHE_DIR)"
-	GOCACHE="$(GOCACHE_DIR)" go run ./cmd/hecate
+	GOCACHE="$(GOCACHE_DIR)" go run ./cmd/gateway
 
-# serve runs the pre-built ./hecate binary. The `stop` prerequisite frees
+# serve runs the pre-built ./gateway binary. The `stop` prerequisite frees
 # :8765 if a stale process is still listening, so a forgotten Ctrl-C never
 # blocks a restart. It also sources .env so providers configured there are
 # available, matching the `make dev` workflow.
 serve: stop
-	@test -x ./hecate || (echo "hecate binary not found — run 'make build' first." && exit 1)
+	@test -x ./gateway || (echo "gateway binary not found — run 'make build' first." && exit 1)
 	set -a; \
 	[ -f ./.env ] && . ./.env; \
 	set +a; \
-	./hecate
+	./gateway
 
 dev: stop
 	mkdir -p "$(GOCACHE_DIR)"
 	set -a; \
 	. ./.env; \
 	set +a; \
-	GOCACHE="$(GOCACHE_DIR)" go run ./cmd/hecate
+	GOCACHE="$(GOCACHE_DIR)" go run ./cmd/gateway
 
 ui-install:
 	cd ui && bun install
@@ -129,7 +129,7 @@ check-links:
 # non-destructive checks, but it is not cheap: Docker and UI e2e can take a bit.
 verify-alpha: docs-env-check test vet test-race test-docker-smoke ui-test ui-test-e2e build
 
-# reset-dev wipes local dev state back to first-run: stops the hecate on
+# reset-dev wipes local dev state back to first-run: stops the gateway on
 # :8765 and deletes the data directory (which holds the bootstrap file
 # with the admin token + AES-GCM key) so the next start regenerates
 # fresh secrets. Memory-backed control plane is already wiped on
@@ -138,7 +138,7 @@ verify-alpha: docs-env-check test vet test-race test-docker-smoke ui-test ui-tes
 reset-dev:
 	@pid=$$(lsof -ti:8765 2>/dev/null); \
 	if [ -n "$$pid" ]; then \
-	  echo "stopping existing hecate on :8765 (pid $$pid)"; \
+	  echo "stopping existing gateway on :8765 (pid $$pid)"; \
 	  kill $$pid; \
 	  sleep 0.3; \
 	fi
@@ -148,8 +148,8 @@ reset-dev:
 	@echo "On next page load, the UI auto-detects the rejected stale token and re-prompts."
 
 # screenshots is the one-shot end-to-end capture workflow:
-# reset → build (if needed) → start hecate in the background → wait
-# for /healthz → run the bun capture script → stop hecate. Everything
+# reset → build (if needed) → start gateway in the background → wait
+# for /healthz → run the bun capture script → stop gateway. Everything
 # is reset to a clean state on entry and torn down on exit, so two
 # successive `make screenshots` calls always produce identical files.
 #
@@ -160,10 +160,10 @@ screenshots:
 	@test -d ui/node_modules/@playwright/test || (echo "UI dependencies missing. Run 'make ui-install' first." && exit 1)
 	@pid=$$(lsof -ti:8765 2>/dev/null); [ -n "$$pid" ] && (echo "stopping existing :8765 (pid $$pid)"; kill $$pid; sleep 0.3) || true
 	@$(MAKE) --no-print-directory reset-dev > /dev/null
-	@test -x ./hecate || $(MAKE) --no-print-directory build
+	@test -x ./gateway || $(MAKE) --no-print-directory build
 	@mkdir -p .data
-	@echo "starting hecate in background…"
-	@GATEWAY_MULTI_TENANT=true ./hecate > .data/screenshots-gateway.log 2>&1 & echo $$! > .data/screenshots-gateway.pid
+	@echo "starting gateway in background…"
+	@GATEWAY_MULTI_TENANT=true ./gateway > .data/screenshots-gateway.log 2>&1 & echo $$! > .data/screenshots-gateway.pid
 	@for i in 1 2 3 4 5 6 7 8 9 10; do \
 	  curl -sf http://127.0.0.1:8765/healthz > /dev/null && break; \
 	  sleep 0.3; \
@@ -190,10 +190,10 @@ reset-docker:
 # Tauri native desktop app
 # ---------------------------------------------------------------------------
 #
-# The Tauri app bundles the hecate gateway binary as a sidecar. The workflow:
-#   1. Build the hecate binary for the current platform (make build).
+# The Tauri app bundles the gateway binary as a sidecar. The workflow:
+#   1. Build the gateway binary for the current platform (make build).
 #   2. Copy it into tauri/src-tauri/binaries/ with the platform-triple suffix
-#      that Tauri's bundler expects (e.g. hecate-aarch64-apple-darwin).
+#      that Tauri's bundler expects (e.g. gateway-aarch64-apple-darwin).
 #   3. Install Tauri JS dependencies (bun install inside tauri/).
 #   4. tauri dev / tauri build handles the Rust compile + bundle.
 #
@@ -218,19 +218,19 @@ tauri-install:
 tauri-version: tauri-install
 	bun scripts/stamp-version.ts
 
-# tauri-sidecar: build hecate and sandboxd, then stage both as Tauri sidecars.
+# tauri-sidecar: build gateway and sandboxd, then stage both as Tauri sidecars.
 # Called automatically by tauri-dev and tauri-build so you rarely need it
-# directly. On Windows `go build -o hecate` produces hecate.exe, and the
-# bundler wants hecate-{triple}.exe — handle both source and dest names.
-# sandboxd is staged alongside hecate so the bundled app can locate it at
+# directly. On Windows `go build -o gateway` produces gateway.exe, and the
+# bundler wants gateway-{triple}.exe — handle both source and dest names.
+# sandboxd is staged alongside gateway so the bundled app can locate it at
 # runtime without needing go on the end-user's PATH.
 tauri-sidecar: build
 	@if [ -z "$(RUST_TARGET)" ]; then \
 	  echo "rustc not found — cannot determine host triple" && exit 1; \
 	fi
 	@goexe=$$(go env GOEXE); \
-	src="hecate$$goexe"; \
-	dest="tauri/src-tauri/binaries/hecate-$(RUST_TARGET)$$goexe"; \
+	src="gateway$$goexe"; \
+	dest="tauri/src-tauri/binaries/gateway-$(RUST_TARGET)$$goexe"; \
 	echo "staging sidecar: $$dest"; \
 	cp "$$src" "$$dest"
 	@goexe=$$(go env GOEXE); \
@@ -241,7 +241,7 @@ tauri-sidecar: build
 	cp "sandboxd$$goexe" "$$dest"
 
 # tauri-dev: hot-reload development mode. Launches the Tauri window backed by
-# a fresh hecate sidecar build. The gateway binary is rebuilt first so the
+# a fresh gateway sidecar build. The gateway binary is rebuilt first so the
 # sidecar is up to date; UI changes require a full `make tauri-sidecar` since
 # the gateway embeds the UI bundle at build time.
 tauri-dev: tauri-sidecar tauri-install

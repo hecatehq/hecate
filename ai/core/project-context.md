@@ -5,7 +5,7 @@ Hecate is an open-source AI gateway and agent-task runtime. A single Go binary e
 ## Repository layout
 
 ```
-cmd/hecate/                gateway binary entry
+cmd/gateway/               gateway binary entry
 cmd/sandboxd/              out-of-process sandbox executor
 
 pkg/types/                 public types (ChatRequest, Message, ContentBlock, ...)

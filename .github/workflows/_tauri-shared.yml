@@ -105,25 +105,25 @@ jobs:
 
       # make build: ui-build → go build. Produces the binary that becomes
       # the Tauri sidecar.
-      - name: Build hecate binary
+      - name: Build gateway binary
         run: make build
 
-      # Tauri's bundler looks for binaries/hecate-{triple}[.exe] at bundle
+      # Tauri's bundler looks for binaries/gateway-{triple}[.exe] at bundle
       # time. We replicate `make tauri-sidecar` so the platform triple from
       # the matrix is always used (not whatever rustc on the runner reports).
       # Defensive: try .exe first on Windows, fall back to bare name —
       # Go's `-o` extension behavior has shifted across versions.
-      - name: Stage hecate sidecar
+      - name: Stage gateway sidecar
         run: |
           mkdir -p tauri/src-tauri/binaries
           if [[ "$RUNNER_OS" == "Windows" ]]; then
-            if [[ -f hecate.exe ]]; then src=hecate.exe
-            elif [[ -f hecate ]];     then src=hecate
-            else echo "no hecate binary found after make build"; ls -la; exit 1
+            if [[ -f gateway.exe ]]; then src=gateway.exe
+            elif [[ -f gateway ]];     then src=gateway
+            else echo "no gateway binary found after make build"; ls -la; exit 1
             fi
-            cp "$src" "tauri/src-tauri/binaries/hecate-${{ matrix.target }}.exe"
+            cp "$src" "tauri/src-tauri/binaries/gateway-${{ matrix.target }}.exe"
           else
-            cp hecate "tauri/src-tauri/binaries/hecate-${{ matrix.target }}"
+            cp gateway "tauri/src-tauri/binaries/gateway-${{ matrix.target }}"
           fi
 
       # tauri-action's auto-install is unreliable when projectPath is set;

@@ -33,15 +33,15 @@ The gateway binary is a single executable with the React UI embedded via `//go:e
    # Edit .env — at minimum set GATEWAY_DEFAULT_MODEL plus a PROVIDER_*_API_KEY
    ```
 
-2. Build the hecate binary with the UI bundled in (single binary, single port):
+2. Build the gateway binary with the UI bundled in (single binary, single port):
 
    ```bash
    make ui-install         # installs UI dependencies (bun install)
-   make build              # ui-build + go build → ./hecate
-   make serve              # run prebuilt ./hecate; sources .env; auto-stops stale :8765
+   make build              # ui-build + go build → ./gateway
+   make serve              # run prebuilt ./gateway; sources .env; auto-stops stale :8765
    ```
 
-The gateway and the operator UI are both served from `http://127.0.0.1:8765`. `make serve` stops any earlier `./hecate` process still bound to that port before starting, so re-running it is always safe.
+The gateway and the operator UI are both served from `http://127.0.0.1:8765`. `make serve` stops any earlier `./gateway` process still bound to that port before starting, so re-running it is always safe.
 
 On first run, an admin-bearer banner is printed to stderr, and the bootstrap file is persisted at `.data/hecate.bootstrap.json` (mode 0600). Read the token back at any time:
 
@@ -108,10 +108,10 @@ Recognized markers: `[skip ci]`, `[ci skip]`, `[no ci]`, `[skip actions]`, `[act
 Top-level entry points:
 
 ```
-cmd/hecate/             # binary entry point (CLI flags + bootstrap wiring)
+cmd/gateway/            # binary entry point (CLI flags + bootstrap wiring)
 cmd/sandboxd/           # out-of-process sandbox executor for tasks
 ui/                     # React app (Vite + Bun); src/ is the source, dist/ is the embed target
-tauri/                  # native desktop app (Tauri 2.x); wraps hecate as a sidecar
+tauri/                  # native desktop app (Tauri 2.x); wraps `gateway` as a sidecar
 e2e/                    # Go end-to-end tests (build tag: e2e; sub-tags: ollama, docker)
 scripts/                # release tooling (release.ts, stamp-version.ts) + documentation tooling (capture-screenshots)
 docs/                   # markdown references + screenshots
@@ -155,7 +155,7 @@ version                 # build-time version metadata
 make screenshots
 ```
 
-That's the whole command. The target resets dev state, builds the binary if needed, boots `hecate` in the background, waits for `/healthz`, walks the operator UI through every documented surface (seeding tenants / keys / chat sessions / a task via the public API), snapshots each route, optimizes the PNGs in parallel, and shuts the gateway down. End-to-end: ~13 seconds on a warm machine.
+That's the whole command. The target resets dev state, builds the binary if needed, boots the gateway in the background, waits for `/healthz`, walks the operator UI through every documented surface (seeding tenants / keys / chat sessions / a task via the public API), snapshots each route, optimizes the PNGs in parallel, and shuts the gateway down. End-to-end: ~13 seconds on a warm machine.
 
 Optional inputs:
 

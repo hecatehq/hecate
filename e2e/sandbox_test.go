@@ -17,7 +17,7 @@ import (
 
 // buildSandboxd compiles cmd/sandboxd into dir and returns the binary path.
 // Accepts E2E_SANDBOXD_BIN to skip the build entirely — mirrors the
-// E2E_HECATE_BIN convention for the gateway binary.
+// E2E_GATEWAY_BIN convention for the gateway binary.
 func buildSandboxd(t *testing.T, dir string) string {
 	t.Helper()
 	if bin := os.Getenv("E2E_SANDBOXD_BIN"); bin != "" {
@@ -37,16 +37,16 @@ func buildSandboxd(t *testing.T, dir string) string {
 }
 
 // TestSandboxBundledLayout is the highest-fidelity smoke test for the Tauri
-// bundled-app scenario. It places sandboxd next to the hecate executable and
+// bundled-app scenario. It places sandboxd next to the gateway executable and
 // starts the gateway without SANDBOXD_BIN set — exactly the layout the
 // desktop app uses. The shell task must complete successfully without relying
 // on go build for binary resolution.
 func TestSandboxBundledLayout(t *testing.T) {
-	hecateBin := hecateBinary(t)
-	hecateDir := filepath.Dir(hecateBin)
+	gatewayBin := gatewayBinary(t)
+	gatewayDir := filepath.Dir(gatewayBin)
 
-	// Stage sandboxd next to hecate, mirroring what `make tauri-sidecar` does.
-	buildSandboxd(t, hecateDir)
+	// Stage sandboxd next to gateway, mirroring what `make tauri-sidecar` does.
+	buildSandboxd(t, gatewayDir)
 
 	workDir := t.TempDir()
 	baseURL := hecateServer(t,
