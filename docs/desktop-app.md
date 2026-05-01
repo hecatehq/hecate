@@ -1,8 +1,8 @@
 # Desktop app
 
 Hecate ships a native desktop app (`tauri/`) alongside the binary tarball and
-Docker image. It's a thin Tauri 2.x chrome around the same `hecate` gateway
-binary used everywhere else: on launch, the Rust layer spawns hecate as a
+Docker image. It's a thin Tauri 2.x chrome around the same `gateway` binary
+used everywhere else: on launch, the Rust layer spawns the gateway as a
 companion process on a free loopback port, polls `/healthz`, then navigates a
 webview to `http://127.0.0.1:{port}/` where the gateway serves its embedded UI.
 
@@ -99,11 +99,11 @@ the bundle is polished enough to recommend.
 
 ## Sandbox executor
 
-The desktop app bundles both `hecate` and `sandboxd` as Tauri `externalBin`
+The desktop app bundles both `gateway` and `sandboxd` as Tauri `externalBin`
 sidecars. `sandboxd` is the out-of-process executor that runs agent tool calls
 (`shell_exec`, `git_exec`, `file_write`) in a separate process so a misbehaving
 command cannot crash the gateway. In the distributed bundle it sits next to the
-`hecate` executable and is found automatically — no `PATH` setup or
+`gateway` executable and is found automatically — no `PATH` setup or
 `SANDBOXD_BIN` override is required.
 
 See [`docs/sandbox.md`](sandbox.md) for the full binary resolution order and

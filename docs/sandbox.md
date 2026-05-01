@@ -56,15 +56,15 @@ earlier releases produced.
 Tauri's `externalBin` bundler copies sidecar binaries with a Rust target-triple
 suffix (e.g. `sandboxd-aarch64-apple-darwin`). The gateway probes for the
 suffixed name first, then falls back to plain `sandboxd` / `sandboxd.exe`. Both
-sit in the same directory as the `hecate` executable.
+sit in the same directory as the `gateway` executable.
 
 ## Deployment scenarios
 
 ### Docker / bare binary
 
-`sandboxd` must be on `$PATH` or co-located with `hecate`. The official Docker
+`sandboxd` must be on `$PATH` or co-located with `gateway`. The official Docker
 image and release tarballs include it. If you build from source, `make build`
-produces `hecate`; you must also build `sandboxd`:
+produces `gateway`; you must also build `sandboxd`:
 
 ```sh
 go build -o sandboxd ./cmd/sandboxd
@@ -78,11 +78,11 @@ SANDBOXD_BIN=/usr/local/bin/sandboxd
 
 ### Tauri desktop app
 
-`make tauri-sidecar` builds both `hecate` and `sandboxd` and stages them in
+`make tauri-sidecar` builds both `gateway` and `sandboxd` and stages them in
 `tauri/src-tauri/binaries/` with the correct triple suffix. Tauri's bundler
 then includes both in the distributed `.dmg` / `.deb` / `.msi` / `.AppImage`.
 No additional configuration is required — step 2 of binary resolution finds
-`sandboxd` automatically next to the running `hecate` executable.
+`sandboxd` automatically next to the running `gateway` executable.
 
 ### CI / testing
 

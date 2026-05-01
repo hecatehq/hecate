@@ -2,7 +2,7 @@
 #
 # Multi-stage build. Three layers:
 #   1. ui-builder:  Bun compiles the React operator UI to ui/dist.
-#   2. go-builder:  Go compiles cmd/hecate with //go:embed pulling in
+#   2. go-builder:  Go compiles cmd/gateway with //go:embed pulling in
 #                   ui/dist from the previous stage. Result is one static
 #                   binary with the UI embedded.
 #   3. runtime:     distroless/static — ~2 MB base, no shell, runs as
@@ -52,8 +52,8 @@ COPY --from=ui-builder /app/ui/dist ./ui/dist
 RUN CGO_ENABLED=0 GOOS=linux go build \
     -trimpath \
     -ldflags='-s -w' \
-    -o /out/hecate \
-    ./cmd/hecate
+    -o /out/gateway \
+    ./cmd/gateway
 
 # Pre-create an empty /data dir owned by distroless's nonroot uid (65532)
 # so that, when compose mounts a named volume on top, the volume inherits
@@ -68,8 +68,8 @@ RUN mkdir -p /out/data && chown 65532:65532 /out/data
 FROM gcr.io/distroless/static-debian12:nonroot AS runtime
 
 # Copy the static binary. distroless has no package manager, no shell — the
-# only file we add is the hecate binary itself.
-COPY --from=go-builder /out/hecate /usr/local/bin/hecate
+# only file we add is the gateway binary itself.
+COPY --from=go-builder /out/gateway /usr/local/bin/gateway
 
 # /data holds the auto-generated bootstrap secrets (control-plane encryption
 # key + admin bearer token) and any file-backed control-plane state. We
@@ -115,4 +115,4 @@ VOLUME ["/data"]
 
 EXPOSE 8765
 USER nonroot:nonroot
-ENTRYPOINT ["/usr/local/bin/hecate"]
+ENTRYPOINT ["/usr/local/bin/gateway"]

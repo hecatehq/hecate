@@ -25,7 +25,7 @@ The Tauri app is a thin chrome-frame around the Hecate gateway. On launch the Ru
 Most Tauri apps point `tauri.conf.json` → `frontendDist: "../ui/dist"` and let the webview load UI files directly from the bundled app. We don't, on purpose:
 
 - **Same-origin handshake.** The webview loads from `http://127.0.0.1:{port}/` and the API is at `http://127.0.0.1:{port}/v1/...`. Same origin → no CORS dance, no Tauri IPC bridge, and `GET /v1/bootstrap-token` works because the loopback Origin/Host check passes. Splitting UI (`tauri://localhost`) from API (`127.0.0.1:{port}`) breaks this and requires a meaningful security refactor to restore.
-- **One-binary property.** The same `hecate` binary ships through Docker, the goreleaser tarballs, *and* the Tauri sidecar. The embed makes that work without conditional builds or runtime path resolution. Reading `ui/dist` from disk inside a bundled `.app` would require a working-dir-independent resolver and a new "UI files missing" failure mode.
+- **One-binary property.** The same `gateway` binary ships through Docker, the goreleaser tarballs, *and* the Tauri sidecar. The embed makes that work without conditional builds or runtime path resolution. Reading `ui/dist` from disk inside a bundled `.app` would require a working-dir-independent resolver and a new "UI files missing" failure mode.
 - **Bundle-size cost is small.** Embedding adds ~13 MB to the binary, which means a `.dmg` of ~25 MB instead of ~12 MB. Desktop apps routinely ship at 100+ MB; this isn't a real constraint.
 
 If the gateway and UI ever decouple (gateway as pure API + separate static-server for UI), revisit this. Until then, keep the embed.
@@ -66,7 +66,7 @@ tauri/
 |---|---|
 | `make tauri-install` | `bun install` inside `tauri/` |
 | `make tauri-version` | runs `scripts/stamp-version.ts` — stamps Cargo.toml, package.json, tauri.conf.json to current git tag (or `TAURI_VERSION`) |
-| `make tauri-sidecar` | `make build` then copies `hecate` → `tauri/src-tauri/binaries/hecate-{triple}` |
+| `make tauri-sidecar` | `make build` then copies `gateway` → `tauri/src-tauri/binaries/gateway-{triple}` |
 | `make tauri-dev` | `tauri-sidecar` + `tauri-install` + `bunx tauri dev` |
 | `make tauri-build` | `tauri-sidecar` + `tauri-version` + `bunx tauri build` |
 
@@ -78,17 +78,17 @@ Pass `TAURI_TARGET=universal-apple-darwin` (or any Rust target triple) to `tauri
 
 Three responsibilities:
 
-**`resolve_binary()`** — finds the `hecate` binary. Priority:
-1. `HECATE_BIN` env var (override for CI / custom layouts)
-2. Debug build: walks up from `CARGO_MANIFEST_DIR` (= `tauri/src-tauri`) → repo root → `hecate`
-3. Release build: looks next to the running executable for `hecate-{TARGET}` (externalBin canonical name) then plain `hecate`
+**`resolve_binary()`** — finds the `gateway` binary. Priority:
+1. `GATEWAY_BIN` env var (override for CI / custom layouts)
+2. Debug build: walks up from `CARGO_MANIFEST_DIR` (= `tauri/src-tauri`) → repo root → `gateway`
+3. Release build: looks next to the running executable for `gateway-{TARGET}` (externalBin canonical name) then plain `gateway`
 
-**`resolve_data_dir(app)`** — resolves the platform data directory via Tauri's path API, creates it if absent, passes it to hecate as `GATEWAY_DATA_DIR`:
+**`resolve_data_dir(app)`** — resolves the platform data directory via Tauri's path API, creates it if absent, passes it to the gateway as `GATEWAY_DATA_DIR`:
 - macOS: `~/Library/Application Support/com.hecate.app/`
 - Windows: `%APPDATA%\com.hecate.app\`
 - Linux: `~/.local/share/com.hecate.app/`
 
-**`spawn_and_wait(app)`** — spawns hecate (via `std::process::Command`, not tokio — see gotchas), polls `/healthz` every 250 ms, returns `GatewayHandle { base_url, port, child }` on success.
+**`spawn_and_wait(app)`** — spawns the gateway binary (via `std::process::Command`, not tokio — see gotchas), polls `/healthz` every 250 ms, returns `GatewayHandle { base_url, port, child }` on success.
 
 ### `lib.rs`
 
@@ -107,13 +107,13 @@ The webview loads `http://127.0.0.1:{port}/`. Because this is a loopback connect
 
 ## Binary resolver — dev vs release
 
-| Context | How `hecate` is found |
+| Context | How `gateway` is found |
 |---|---|
-| `make tauri-dev` | `CARGO_MANIFEST_DIR/../../hecate` (repo root, built by `make build`) |
-| `make tauri-build` bundle | `exe_dir/hecate-{TARGET}` (placed by Tauri's externalBin bundler) |
-| Any context | `HECATE_BIN` env var wins if set |
+| `make tauri-dev` | `CARGO_MANIFEST_DIR/../../gateway` (repo root, built by `make build`) |
+| `make tauri-build` bundle | `exe_dir/gateway-{TARGET}` (placed by Tauri's externalBin bundler) |
+| Any context | `GATEWAY_BIN` env var wins if set |
 
-The `externalBin: ["binaries/hecate"]` entry in `tauri.conf.json` tells Tauri's bundler to include the sidecar binary and sign/notarize it correctly on each platform. `make tauri-sidecar` stages it as `binaries/hecate-{triple}` which is the name the bundler expects.
+The `externalBin: ["binaries/gateway"]` entry in `tauri.conf.json` tells Tauri's bundler to include the sidecar binary and sign/notarize it correctly on each platform. `make tauri-sidecar` stages it as `binaries/gateway-{triple}` which is the name the bundler expects.
 
 ## Process lifecycle
 
@@ -127,7 +127,7 @@ The `externalBin: ["binaries/hecate"]` entry in `tauri.conf.json` tells Tauri's 
 - **Never call `WebviewWindowBuilder::new(app, "main", …)` in setup.** The window is already created by `tauri.conf.json`; calling the builder again panics with "a webview with label `main` already exists". Use `app.get_webview_window("main")` instead.
 - **`tauri.conf.json` `plugins.shell` does not accept a `sidecar` field.** In Tauri 2.x the shell plugin config only accepts `open`. Sidecar permissions are set in `capabilities/default.json`.
 - **Use `std::process::Command`, not `tokio::process::Command`.** The `Child::kill()` call must be synchronous (called from `RunEvent::Exit`, not an async runtime). tokio's `Child::kill()` is async and cannot be awaited from the exit handler.
-- **`externalBin` uses the target triple suffix.** The binary must be named `hecate-{triple}` in `tauri/src-tauri/binaries/`. `make tauri-sidecar` does this automatically. The release-mode path resolver tries `hecate-{TARGET}` (compile-time constant) then plain `hecate`.
+- **`externalBin` uses the target triple suffix.** The binary must be named `gateway-{triple}` in `tauri/src-tauri/binaries/`. `make tauri-sidecar` does this automatically. The release-mode path resolver tries `gateway-{TARGET}` (compile-time constant) then plain `gateway`.
 - **The gateway data directory must be writable.** A bundled `.app` on macOS is read-only. Always pass `GATEWAY_DATA_DIR` pointing to the Tauri-resolved app data directory — never let the gateway default to `.data/` next to its binary.
 - **`gen/schemas/` is committed.** These files are generated by `tauri dev`/`tauri build` and needed at compile time for the capabilities system. Don't gitignore them.
 - **`env!("TARGET")` requires `build.rs` forwarding.** Cargo sets `TARGET` for build scripts, not for the main crate compile. `tauri/src-tauri/build.rs` re-exports it via `cargo:rustc-env=TARGET=...` so `env!("TARGET")` resolves in `src/sidecar.rs`. Worked locally only because the incremental cache held the artifact; clean builds (CI) surface the error.
@@ -183,7 +183,7 @@ Three workflow files split responsibilities:
 
 **Steps per matrix leg** (in `_tauri-shared.yml`): Rust + Go + Bun setup → Linux Tauri 2 prereqs (webkit2gtk-4.1, libxdo, patchelf, …) → `make ui-install` → `make build` → stage sidecar as `binaries/hecate-{triple}[.exe]` → `cd tauri && bun install --frozen-lockfile` → `bun scripts/stamp-version.ts` → `tauri-apps/tauri-action@v0` (build, conditionally upload).
 
-**PR-run behaviour:** `concurrency: cancel-in-progress: true` cancels older runs on the same ref. `if: pull_request.draft == false` skips drafts. Trigger types: `[opened, synchronize, reopened, ready_for_review]` — no fire on title-only edits. Path filter scopes to changes that could plausibly break a Tauri build (`tauri/**`, `cmd/hecate/**`, `ui/**`, `Makefile`, `scripts/stamp-version.ts`, `.github/workflows/*.yml`).
+**PR-run behaviour:** `concurrency: cancel-in-progress: true` cancels older runs on the same ref. `if: pull_request.draft == false` skips drafts. Trigger types: `[opened, synchronize, reopened, ready_for_review]` — no fire on title-only edits. Path filter scopes to changes that could plausibly break a Tauri build (`tauri/**`, `cmd/gateway/**`, `ui/**`, `Makefile`, `scripts/stamp-version.ts`, `.github/workflows/*.yml`).
 
 **Release-run behaviour:** `concurrency: cancel-in-progress: false` — a half-cancelled release is worse than waiting. The `tauri` job has `needs: goreleaser` so the GitHub Release entry exists before tauri-action's upload tries to attach to it.
 

@@ -43,23 +43,23 @@ var (
 	builtBinErr  error
 )
 
-// hecateBinary returns the path to the compiled hecate binary.
+// gatewayBinary returns the path to the compiled gateway binary.
 // The binary is built exactly once per test-binary execution using sync.Once,
 // so parallel tests don't trigger redundant go build invocations.
-// Set E2E_HECATE_BIN to a pre-built path to skip the build entirely (CI).
-func hecateBinary(t *testing.T) string {
+// Set E2E_GATEWAY_BIN to a pre-built path to skip the build entirely (CI).
+func gatewayBinary(t *testing.T) string {
 	t.Helper()
-	if bin := os.Getenv("E2E_HECATE_BIN"); bin != "" {
+	if bin := os.Getenv("E2E_GATEWAY_BIN"); bin != "" {
 		return bin
 	}
 	buildOnce.Do(func() {
-		dir, err := os.MkdirTemp("", "hecate-e2e-*")
+		dir, err := os.MkdirTemp("", "gateway-e2e-*")
 		if err != nil {
 			builtBinErr = err
 			return
 		}
-		builtBinPath = dir + "/hecate"
-		cmd := exec.Command("go", "build", "-o", builtBinPath, "./cmd/hecate")
+		builtBinPath = dir + "/gateway"
+		cmd := exec.Command("go", "build", "-o", builtBinPath, "./cmd/gateway")
 		cmd.Dir = moduleRootDir()
 		out, err := cmd.CombinedOutput()
 		if err != nil {
@@ -67,7 +67,7 @@ func hecateBinary(t *testing.T) string {
 		}
 	})
 	if builtBinErr != nil {
-		t.Fatalf("build hecate binary: %v", builtBinErr)
+		t.Fatalf("build gateway binary: %v", builtBinErr)
 	}
 	return builtBinPath
 }
@@ -82,12 +82,12 @@ func moduleRootDir() string {
 	return mod[:strings.LastIndex(mod, string(os.PathSeparator))]
 }
 
-// hecateServer starts the hecate binary on a free port and returns the base
+// hecateServer starts the gateway binary on a free port and returns the base
 // URL once /healthz responds 200.  The process is killed when the test ends.
 func hecateServer(t *testing.T, extraEnv ...string) string {
 	t.Helper()
 
-	bin := hecateBinary(t)
+	bin := gatewayBinary(t)
 	port := freePort(t)
 	addr := fmt.Sprintf("127.0.0.1:%d", port)
 	baseURL := "http://" + addr
@@ -112,7 +112,7 @@ func hecateServer(t *testing.T, extraEnv ...string) string {
 	cmd.Stderr = io.Discard
 
 	if err := cmd.Start(); err != nil {
-		t.Fatalf("start hecate: %v", err)
+		t.Fatalf("start gateway: %v", err)
 	}
 	t.Cleanup(func() {
 		_ = cmd.Process.Kill()
@@ -175,7 +175,7 @@ func waitHealthy(t *testing.T, baseURL string, timeout time.Duration) {
 		}
 		time.Sleep(100 * time.Millisecond)
 	}
-	t.Fatalf("hecate at %s never became healthy within %s", baseURL, timeout)
+	t.Fatalf("gateway at %s never became healthy within %s", baseURL, timeout)
 }
 
 // freePort asks the OS for an available TCP port.
@@ -1181,7 +1181,7 @@ func fakeOpenAIServer(t *testing.T, path, body string, streaming bool) string {
 func TestBootstrapAutoGenerationDefaultPath(t *testing.T) {
 	t.Parallel()
 
-	bin := hecateBinary(t)
+	bin := gatewayBinary(t)
 	workDir := t.TempDir()
 
 	// First start: no token / no data dir env. Cwd-rooted defaults apply,
@@ -1307,7 +1307,7 @@ func TestBootstrapAutoGenerationDefaultPath(t *testing.T) {
 func TestGatewayVersionFlag(t *testing.T) {
 	t.Parallel()
 
-	bin := hecateBinary(t)
+	bin := gatewayBinary(t)
 	for _, flag := range []string{"--version", "-v", "version"} {
 		flag := flag
 		t.Run(flag, func(t *testing.T) {
@@ -1318,17 +1318,17 @@ func TestGatewayVersionFlag(t *testing.T) {
 			cmd := exec.CommandContext(ctx, bin, flag)
 			out, err := cmd.Output()
 			if err != nil {
-				t.Fatalf("hecate %s: %v (stderr: %s)", flag, err, errOutput(err))
+				t.Fatalf("gateway %s: %v (stderr: %s)", flag, err, errOutput(err))
 			}
 			got := strings.TrimSpace(string(out))
 			if got == "" {
-				t.Fatalf("hecate %s printed empty stdout", flag)
+				t.Fatalf("gateway %s printed empty stdout", flag)
 			}
 			// We don't assert exact equality with "dev" because tooling
 			// might inject a version even in test builds; the contract
 			// is "prints something non-empty and exits 0".
 			if strings.Contains(got, "\n") {
-				t.Fatalf("hecate %s should print a single line, got %q", flag, got)
+				t.Fatalf("gateway %s should print a single line, got %q", flag, got)
 			}
 		})
 	}

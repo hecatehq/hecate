@@ -22,8 +22,8 @@
 .gomodcache/
 .gopath/
 # Built binary produced by `make build`. Anchored to the repo root so a
-# package or test happening to be named "hecate" elsewhere isn't ignored.
-/hecate
+# package or test happening to be named "gateway" elsewhere isn't ignored.
+/gateway
 node_modules/
 ui/node_modules/
 e2e/local-ollama-*.log

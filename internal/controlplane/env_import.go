@@ -15,7 +15,7 @@ import (
 // conflict: if a row already exists for the same id we leave it alone and let
 // the operator's admin-panel changes stand.
 //
-// Called once at startup from cmd/hecate/main.go after the provider runtime
+// Called once at startup from cmd/gateway/main.go after the provider runtime
 // reload. Logs each upsert at info level and tolerates per-row failures
 // (logs at warn) so a single bad config can't keep the gateway from booting.
 func AutoImportEnvProviders(ctx context.Context, logger *slog.Logger, store Store, configs []config.OpenAICompatibleProviderConfig) error {

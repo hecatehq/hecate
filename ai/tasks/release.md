@@ -48,7 +48,7 @@ The native desktop app (`tauri/`) **is built and uploaded by CI** as part of the
 `.github/workflows/release.yml` runs two jobs on a `v*` tag push:
 
 1. `goreleaser` — Linux/macOS/Windows binary tarballs, multi-arch Docker images on GHCR, GitHub Release entry.
-2. `tauri` (`needs: goreleaser`) — three-platform matrix (macOS arm64, Linux x86_64, Windows x86_64) calls the reusable `_tauri-shared.yml` workflow with `tagName: ${{ github.ref_name }}`. Each leg builds the hecate sidecar, the Tauri bundle, and uploads platform-native artifacts (`.dmg` / `.deb` + `.AppImage` / `.msi`) to the existing release.
+2. `tauri` (`needs: goreleaser`) — three-platform matrix (macOS arm64, Linux x86_64, Windows x86_64) calls the reusable `_tauri-shared.yml` workflow with `tagName: ${{ github.ref_name }}`. Each leg builds the gateway sidecar, the Tauri bundle, and uploads platform-native artifacts (`.dmg` / `.deb` + `.AppImage` / `.msi`) to the existing release.
 
 End state of a successful tag: the GitHub Release page has goreleaser tarballs + Docker images + four desktop bundles, all attached.
 
@@ -60,7 +60,7 @@ The Tauri matrix doesn't need any local action — pushing the tag fires the wor
 
 ### Pre-tag validation
 
-`.github/workflows/tauri-build.yml` runs the same matrix on PRs (path-filtered to changes that could break it: `tauri/**`, `cmd/hecate/**`, `ui/**`, `Makefile`, `scripts/stamp-version.ts`, the workflows themselves). Bundles persist as workflow artifacts (14-day retention) so reviewers can download and test-launch from the run page.
+`.github/workflows/tauri-build.yml` runs the same matrix on PRs (path-filtered to changes that could break it: `tauri/**`, `cmd/gateway/**`, `ui/**`, `Makefile`, `scripts/stamp-version.ts`, the workflows themselves). Bundles persist as workflow artifacts (14-day retention) so reviewers can download and test-launch from the run page.
 
 If the change set touches the desktop pipeline, prefer landing it via PR so the matrix runs before the tag — it's the only way to find out a Windows-only or Linux-only regression without burning a release.
 
@@ -98,7 +98,7 @@ Acceptance:
 - Bundle sizes look right: `.dmg` ~20–40 MB, `.deb` ~15–25 MB, `.AppImage` ~80–120 MB (bundles its own libs), `.msi` ~15–25 MB. A 1 MB `.dmg` means the sidecar didn't embed — investigate before announcing.
 - `docker pull ghcr.io/chicoxyzzy/hecate:X.Y.Z` succeeds (no `v` prefix — see footgun below).
 - `docker run --rm -p 8765:8765 ghcr.io/chicoxyzzy/hecate:X.Y.Z` then `curl :8765/healthz` returns `version: "X.Y.Z"`.
-- (Optional but recommended for `-alpha.N`) Download the `.dmg` and verify it launches: window opens, splash → gateway UI, auto-logged in (no token paste), `cmd+Q` leaves no orphan `hecate` process. ~10 min and catches >90% of desktop-side regressions.
+- (Optional but recommended for `-alpha.N`) Download the `.dmg` and verify it launches: window opens, splash → gateway UI, auto-logged in (no token paste), `cmd+Q` leaves no orphan `gateway` process. ~10 min and catches >90% of desktop-side regressions.
 
 ## Footguns
 

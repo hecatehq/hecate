@@ -5,7 +5,7 @@
 # publishing (skips the docker push and GitHub release).
 #
 # The UI bundle has to be built BEFORE goreleaser runs the Go cross-
-# compile, because cmd/hecate uses //go:embed ui/dist. The `before:`
+# compile, because cmd/gateway uses //go:embed ui/dist. The `before:`
 # hook handles that — bun is fast and runs once on the host, before
 # any goarch loop starts.
 
@@ -17,9 +17,9 @@ before:
     - bun run --cwd ui build
 
 builds:
-  - id: hecate
-    main: ./cmd/hecate
-    binary: hecate
+  - id: gateway
+    main: ./cmd/gateway
+    binary: gateway
     env:
       - CGO_ENABLED=0
     flags:
@@ -35,7 +35,7 @@ builds:
       - arm64
 
 archives:
-  - id: hecate
+  - id: gateway
     format: tar.gz
     name_template: >-
       {{ .ProjectName }}_
@@ -47,7 +47,7 @@ archives:
       - README.md
 
 # Per-arch docker images. goreleaser stages the freshly cross-compiled
-# binary into the build context as `hecate`, then docker buildx builds
+# binary into the build context as `gateway`, then docker buildx builds
 # Dockerfile.release for the matching --platform. The two arch-specific
 # images are stitched together into a multi-arch manifest below.
 dockers:

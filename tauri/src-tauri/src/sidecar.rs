@@ -1,19 +1,19 @@
-// sidecar.rs — spawn, health-poll, and supervise the hecate gateway process.
+// sidecar.rs — spawn, health-poll, and supervise the gateway process.
 //
 // Design:
-//   1. Resolve the hecate binary path:
+//   1. Resolve the gateway binary path:
 //      - Release build: look next to the running executable (bundled app).
 //      - Debug build: walk up from CARGO_MANIFEST_DIR to the repo root,
-//        where `make build` places the `hecate` binary.
-//      - Override: HECATE_BIN env var always wins.
-//   2. Resolve the data directory via Tauri's platform path API so hecate
+//        where `make build` places the `gateway` binary.
+//      - Override: GATEWAY_BIN env var always wins.
+//   2. Resolve the data directory via Tauri's platform path API so the gateway
 //      writes its files to the right place on every OS:
 //        macOS   ~/Library/Application Support/com.hecate.app/
 //        Windows %APPDATA%\com.hecate.app\
 //        Linux   ~/.local/share/com.hecate.app/
 //   3. Allocate a free TCP port by binding to :0, then dropping the listener.
-//   4. Spawn hecate (std::process::Child — sync, so kill() works from the
-//      window-close event handler without needing an async runtime).
+//   4. Spawn the gateway (std::process::Child — sync, so kill() works from
+//      the window-close event handler without needing an async runtime).
 //   5. Poll /healthz every 250 ms (async reqwest) with a 30 s hard deadline.
 //   6. On success return the base URL + Child handle. Caller is responsible
 //      for calling child.kill() when the app exits.
@@ -35,22 +35,22 @@ pub struct GatewayHandle {
     pub child: std::process::Child,
 }
 
-/// Find the hecate binary. Resolution order:
-///   1. `HECATE_BIN` env var (explicit override).
-///   2. Debug build: `{repo_root}/hecate` (placed by `make build`).
+/// Find the gateway binary. Resolution order:
+///   1. `GATEWAY_BIN` env var (explicit override).
+///   2. Debug build: `{repo_root}/gateway` (placed by `make build`).
 ///   3. Release build: next to the running executable (bundled app).
 fn resolve_binary() -> Result<PathBuf, String> {
     // 1. Explicit override.
-    if let Ok(p) = std::env::var("HECATE_BIN") {
+    if let Ok(p) = std::env::var("GATEWAY_BIN") {
         let path = PathBuf::from(&p);
         if path.is_file() {
             return Ok(path);
         }
-        return Err(format!("HECATE_BIN={p} does not point to an existing file"));
+        return Err(format!("GATEWAY_BIN={p} does not point to an existing file"));
     }
 
     // 2. Debug build: walk up from the Cargo manifest directory to find the
-    //    repo root, where `make build` writes the hecate binary.
+    //    repo root, where `make build` writes the gateway binary.
     #[cfg(debug_assertions)]
     {
         // CARGO_MANIFEST_DIR is tauri/src-tauri; repo root is two levels up.
@@ -61,20 +61,20 @@ fn resolve_binary() -> Result<PathBuf, String> {
             .map(|p| p.to_path_buf())
             .ok_or_else(|| "cannot determine repo root from CARGO_MANIFEST_DIR".to_string())?;
 
-        let candidate = repo_root.join("hecate");
+        let candidate = repo_root.join("gateway");
         if candidate.is_file() {
             return Ok(candidate);
         }
         return Err(format!(
-            "hecate binary not found at {candidate:?}. Run `make build` first."
+            "gateway binary not found at {candidate:?}. Run `make build` first."
         ));
     }
 
     // 3. Release build: look next to the running executable using the names
     //    that Tauri's externalBin bundler produces. The bundler copies the
-    //    binary as `hecate-{target_triple}` (e.g. `hecate-aarch64-apple-darwin`),
+    //    binary as `gateway-{target_triple}` (e.g. `gateway-aarch64-apple-darwin`),
     //    which lets a single repo hold binaries for multiple platforms. We try
-    //    the triple-suffixed name first, then fall back to plain `hecate` for
+    //    the triple-suffixed name first, then fall back to plain `gateway` for
     //    any hand-built layouts.
     #[cfg(not(debug_assertions))]
     {
@@ -87,7 +87,7 @@ fn resolve_binary() -> Result<PathBuf, String> {
         // TARGET is the Rust target triple baked in at compile time,
         // e.g. "aarch64-apple-darwin" or "x86_64-pc-windows-msvc".
         let triple = env!("TARGET");
-        let names = [format!("hecate-{triple}"), "hecate".to_string()];
+        let names = [format!("gateway-{triple}"), "gateway".to_string()];
         for name in &names {
             let candidate = dir.join(name);
             if candidate.is_file() {
@@ -95,7 +95,7 @@ fn resolve_binary() -> Result<PathBuf, String> {
             }
         }
         Err(format!(
-            "hecate binary not found next to app executable ({dir:?}). \
+            "gateway binary not found next to app executable ({dir:?}). \
              Tried: {names:?}"
         ))
     }
@@ -103,7 +103,7 @@ fn resolve_binary() -> Result<PathBuf, String> {
 
 /// Find a free loopback port. Binds to 127.0.0.1:0, records the assigned
 /// port, then drops the listener. There is a small TOCTOU window between the
-/// drop and hecate's bind; in practice this is negligible on a desktop.
+/// drop and the gateway's bind; in practice this is negligible on a desktop.
 pub fn free_port() -> Result<u16, String> {
     TcpListener::bind("127.0.0.1:0")
         .map_err(|e| format!("could not allocate free port: {e}"))?
@@ -112,11 +112,11 @@ pub fn free_port() -> Result<u16, String> {
         .map_err(|e| format!("could not read local address: {e}"))
 }
 
-/// Resolve the platform-appropriate data directory for the hecate gateway.
+/// Resolve the platform-appropriate data directory for the gateway.
 /// Uses Tauri's path API so the location is correct on every OS without
 /// any platform-specific code here.
 ///
-/// The directory is created if it doesn't exist yet. hecate itself also
+/// The directory is created if it doesn't exist yet. The gateway itself also
 /// creates it, but doing it here gives a clearer error if the path is
 /// unwritable (e.g. inside a read-only .app bundle — which it won't be
 /// after this fix, but belt-and-suspenders).
@@ -130,7 +130,7 @@ fn resolve_data_dir(app: &AppHandle) -> Result<PathBuf, String> {
     Ok(dir)
 }
 
-/// Spawn the hecate binary and block (async) until `/healthz` responds 200
+/// Spawn the gateway binary and block (async) until `/healthz` responds 200
 /// or the deadline expires. Returns the gateway base URL on success.
 pub async fn spawn_and_wait(app: &AppHandle) -> Result<GatewayHandle, String> {
     let bin = resolve_binary()?;
@@ -174,7 +174,7 @@ pub async fn spawn_and_wait(app: &AppHandle) -> Result<GatewayHandle, String> {
     loop {
         if Instant::now() >= deadline {
             return Err(format!(
-                "hecate did not become healthy within 30 s (checked {healthz}). \
+                "gateway did not become healthy within 30 s (checked {healthz}). \
                  See {log_path:?} for sidecar stderr."
             ));
         }
