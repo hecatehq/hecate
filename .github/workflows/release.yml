@@ -57,6 +57,8 @@ jobs:
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
 
+  # Build steps mirror tauri-build.yml (PR validation). When you change
+  # the matrix, pre-steps, or system deps here, mirror it there.
   tauri:
     needs: goreleaser
     strategy:
