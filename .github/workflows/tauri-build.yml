@@ -40,6 +40,9 @@ jobs:
             target: x86_64-pc-windows-msvc
             bundles: msi
     runs-on: ${{ matrix.os }}
+    defaults:
+      run:
+        shell: bash
     steps:
       - name: Checkout
         uses: actions/checkout@v4
@@ -72,29 +75,44 @@ jobs:
         run: |
           sudo apt-get update
           sudo apt-get install -y \
+            build-essential \
+            curl \
+            wget \
+            file \
+            libssl-dev \
             libwebkit2gtk-4.1-dev \
             libgtk-3-dev \
             libayatana-appindicator3-dev \
             librsvg2-dev \
+            libxdo-dev \
             patchelf
 
-      # make build runs ui-build first (the //go:embed needs the bundled
-      # React assets), and ui-build refuses to run without node_modules.
       - name: Install UI dependencies
         run: make ui-install
+
+      - name: Cargo check (Tauri Rust)
+        run: cargo check --manifest-path tauri/src-tauri/Cargo.toml --target ${{ matrix.target }}
 
       - name: Build hecate binary
         run: make build
 
       - name: Stage hecate sidecar
-        shell: bash
         run: |
           mkdir -p tauri/src-tauri/binaries
           if [[ "$RUNNER_OS" == "Windows" ]]; then
-            cp hecate.exe "tauri/src-tauri/binaries/hecate-${{ matrix.target }}.exe"
+            if [[ -f hecate.exe ]]; then src=hecate.exe
+            elif [[ -f hecate ]];     then src=hecate
+            else echo "no hecate binary found after make build"; ls -la; exit 1
+            fi
+            cp "$src" "tauri/src-tauri/binaries/hecate-${{ matrix.target }}.exe"
           else
             cp hecate "tauri/src-tauri/binaries/hecate-${{ matrix.target }}"
           fi
+
+      # tauri-action's auto-install is unreliable with projectPath set;
+      # install explicitly so node_modules/.bin/tauri exists for the build.
+      - name: Install Tauri JS dependencies
+        run: cd tauri && bun install --frozen-lockfile
 
       # On a PR there's no tag at HEAD; stamp-version.ts falls through to
       # `git describe --tags --abbrev=0` which returns the latest reachable

@@ -75,6 +75,11 @@ jobs:
             target: x86_64-pc-windows-msvc
             bundles: msi
     runs-on: ${{ matrix.os }}
+    # bash for every run: step. On Windows runners this resolves to Git Bash,
+    # which is what the Makefile (SHELL := /bin/sh) and our cp/if blocks need.
+    defaults:
+      run:
+        shell: bash
     steps:
       - name: Checkout
         uses: actions/checkout@v4
@@ -102,23 +107,38 @@ jobs:
         with:
           bun-version: 1.3.13
 
-      # webkit2gtk 4.1 is the Tauri 2 requirement on 22.04; 4.0 ships by default.
+      # Tauri 2.x prerequisites for Ubuntu 22.04 (per the official docs).
+      # webkit2gtk 4.1 is the Tauri 2 requirement; 4.0 ships by default.
       # patchelf is required by the AppImage bundler to rewrite ELF rpath.
+      # libxdo-dev is the global-shortcut/clipboard dep; safe to include
+      # even though we don't use those plugins yet — keeps the matrix
+      # ready for them.
       - name: Install Linux system dependencies
         if: matrix.os == 'ubuntu-22.04'
         run: |
           sudo apt-get update
           sudo apt-get install -y \
+            build-essential \
+            curl \
+            wget \
+            file \
+            libssl-dev \
             libwebkit2gtk-4.1-dev \
             libgtk-3-dev \
             libayatana-appindicator3-dev \
             librsvg2-dev \
+            libxdo-dev \
             patchelf
 
       # make build runs ui-build first (the //go:embed needs the bundled
       # React assets), and ui-build refuses to run without node_modules.
       - name: Install UI dependencies
         run: make ui-install
+
+      # cargo check first — fails fast if Rust source is broken, before
+      # eating ~3min on `make build` only to discover it later.
+      - name: Cargo check (Tauri Rust)
+        run: cargo check --manifest-path tauri/src-tauri/Cargo.toml --target ${{ matrix.target }}
 
       # make build: compiles the Go binary (ui-build → go build).
       # This is the same binary that becomes the Tauri sidecar.
@@ -128,16 +148,27 @@ jobs:
       # Tauri's bundler looks for binaries/hecate-{triple}[.exe] at bundle time.
       # make tauri-sidecar does this locally; we replicate it here so the
       # platform triple from the matrix is always used, not whatever rustc
-      # detects on the runner.
+      # detects on the runner. Defensive: try .exe first on Windows, fall
+      # back to the bare name (Go's behavior changed across versions).
       - name: Stage hecate sidecar
-        shell: bash
         run: |
           mkdir -p tauri/src-tauri/binaries
           if [[ "$RUNNER_OS" == "Windows" ]]; then
-            cp hecate.exe "tauri/src-tauri/binaries/hecate-${{ matrix.target }}.exe"
+            if [[ -f hecate.exe ]]; then src=hecate.exe
+            elif [[ -f hecate ]];     then src=hecate
+            else echo "no hecate binary found after make build"; ls -la; exit 1
+            fi
+            cp "$src" "tauri/src-tauri/binaries/hecate-${{ matrix.target }}.exe"
           else
             cp hecate "tauri/src-tauri/binaries/hecate-${{ matrix.target }}"
           fi
+
+      # Install Tauri JS deps explicitly. tauri-action claims to do this
+      # via auto-detection from the lockfile, but with projectPath set it
+      # silently skipped the install, leaving node_modules/.bin/tauri
+      # missing and `bun run tauri build` failing with command-not-found.
+      - name: Install Tauri JS dependencies
+        run: cd tauri && bun install --frozen-lockfile
 
       # Stamps Cargo.toml, package.json, and tauri.conf.json to the release
       # version. Resolution order: TAURI_VERSION env → latest git tag → Cargo.toml.
