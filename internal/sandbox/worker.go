@@ -79,6 +79,12 @@ func (e *WorkerExecutor) RunStreaming(ctx context.Context, command Command, onCh
 		command.Limits.MaxAddressSpaceBytes = defaults.MaxAddressSpaceBytes
 	}
 
+	// Apply gateway-side isolation defaults. Caller-set DisableNetwork=true
+	// is preserved; otherwise the env-var default decides.
+	if !command.Isolation.DisableNetwork {
+		command.Isolation.DisableNetwork = defaultWorkerIsolation().DisableNetwork
+	}
+
 	result, err := invokeStreamingWorker(ctx, workerRequest{
 		Operation: workerOperationRun,
 		Command:   &command,
@@ -331,6 +337,35 @@ func workerEnvInt64(key string, fallback int64) int64 {
 		return fallback
 	}
 	return v
+}
+
+// defaultWorkerIsolation reads OS-level isolation configuration from
+// environment variables.
+//
+// Environment variables:
+//
+//	GATEWAY_SANDBOX_OS_ISOLATION — enable OS-level process isolation.
+//	  true/1/yes → DisableNetwork: true (Linux: network namespace; macOS:
+//	  sandbox-exec Seatbelt profile).  Default: false.
+func defaultWorkerIsolation() IsolationConfig {
+	return IsolationConfig{
+		DisableNetwork: workerEnvBool("GATEWAY_SANDBOX_OS_ISOLATION", false),
+	}
+}
+
+func workerEnvBool(key string, fallback bool) bool {
+	s := strings.TrimSpace(os.Getenv(key))
+	if s == "" {
+		return fallback
+	}
+	switch strings.ToLower(s) {
+	case "1", "true", "yes":
+		return true
+	case "0", "false", "no":
+		return false
+	default:
+		return fallback
+	}
 }
 
 func workerEnvUint64(key string, fallback uint64) uint64 {

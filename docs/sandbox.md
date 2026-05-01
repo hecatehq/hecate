@@ -130,8 +130,8 @@ gateway in a network namespace or behind a filtering egress proxy.
 
 The process boundary that `sandboxd` provides is one layer in a spectrum of
 isolation mechanisms. The layers below are ordered from weakest to strongest
-and from most to least cross-platform. Layers 0 and 1 apply to every
-deployment today; Layers 2 and 3 are planned.
+and from most to least cross-platform. Layers 0–2 are shipped; Layer 3 is
+planned.
 
 ```
 weakest ─────────────────────────────────────────── strongest
@@ -139,10 +139,11 @@ weakest ────────────────────────
 [Layer 0]    [Layer 1]    [Layer 2]         [Layer 3]
  process      defensive    OS-level          Wasm /
  boundary     hardening    isolation         VM
- (current)    (current)    (planned)         (planned)
+ (current)    (current)    (current)         (planned)
 ```
 
-Layers 0 and 1 are active on every deployment today. Layers 2 and 3 are planned.
+Layers 0–2 are active today. Layer 2 is opt-in (off by default) and provides
+kernel-enforced network isolation on Linux and macOS. Layer 3 is planned.
 
 ### Layer 0 — Process boundary (current)
 
@@ -177,21 +178,29 @@ macOS, and Windows. All three are shipped and active by default.
   support is tracked as part of Layer 2. See `applyProcessResourceLimits` in
   `internal/sandbox/exec_rlimit_{linux,darwin,windows,other}.go`.
 
-### Layer 2 — OS-level isolation (planned)
+### Layer 2 — OS-level isolation (current)
 
-Platform-adaptive isolation behind a unified `PlatformSandbox` interface with
-build-tag implementations. Applied to the `sandboxd worker` process before
-spawn — no changes to the worker itself.
+Platform-adaptive isolation via build-tagged `applyProcessIsolation`
+implementations in `internal/sandbox/exec_isolation_{linux,darwin,windows,other}.go`.
+Applied to the `sh` subprocess inside each `sandboxd worker` before it is
+started — no changes to the worker protocol or the gateway API.
+
+Enable with `GATEWAY_SANDBOX_OS_ISOLATION=true` (default: `false`).
 
 | Platform | Mechanism | What it enforces |
 |---|---|---|
 | Linux | `SysProcAttr.Cloneflags` (namespaces) | `CLONE_NEWNET` — no network interface; `CLONE_NEWPID` — private PID tree; `CLONE_NEWUSER` — no root required |
-| macOS | `sandbox-exec` Seatbelt profile | Kernel-enforced network denial, filesystem restrictions; no CGO, system binary always present |
-| Windows | Job Objects | Kill-on-close, memory limit, process count — network isolation not achievable without WFP |
+| macOS | `sandbox-exec` Seatbelt profile | Kernel-enforced network denial via `(deny network*)`; binary present through macOS 14+ (deprecated in SDK headers only) |
+| Windows | no-op | WFP-based network isolation requires elevated privileges not held by the worker; string-match gate still applies |
 
 Linux namespaces turn the network policy gate from string matching into a
 kernel guarantee: `curl`, Python `urllib`, Node `fetch` all fail at the socket
 layer because the process has no network interface.
+
+**Requirements:**
+- Linux: user namespaces must be enabled (`/proc/sys/kernel/unprivileged_userns_clone` = 1 on Debian/Ubuntu derivatives; always enabled on Fedora/RHEL). If unavailable, `cmd.Start()` returns an error; set `GATEWAY_SANDBOX_OS_ISOLATION=false` to disable.
+- macOS: `/usr/bin/sandbox-exec` must exist (standard on all supported macOS versions). If absent, isolation silently falls back to string-match only.
+- Windows: no kernel-level network isolation; this setting has no effect.
 
 ### Layer 3 — WebAssembly / wazero (planned)
 
@@ -211,11 +220,12 @@ plugin model rather than a drop-in replacement for the current shell executor.
 
 ## Limitations
 
-- **Process boundary only.** `sandboxd` is not a container, chroot, or VM. The
-  subprocess runs as the same OS user as the gateway and can access anything
-  that user can access outside the workspace root. Stronger OS-level isolation
-  (Linux namespaces, seccomp-bpf) is planned — see
-  [known-limitations.md](known-limitations.md#task-runtime-and-sandbox).
+- **Process boundary only (default).** `sandboxd` is not a container, chroot,
+  or VM. The subprocess runs as the same OS user as the gateway and can access
+  anything that user can access outside the workspace root. Enable
+  `GATEWAY_SANDBOX_OS_ISOLATION=true` for kernel-enforced network isolation on
+  Linux and macOS (Layer 2). seccomp-bpf filtering is not yet implemented —
+  see [known-limitations.md](known-limitations.md#task-runtime-and-sandbox).
 - **Memory backend does not persist across restarts.** The binary resolution
   cache resets on gateway restart; step 4 rebuilds the binary on next use.
 - **No pooling.** A fresh subprocess is spawned per operation. Pre-warmed

@@ -2,6 +2,7 @@ package sandbox
 
 import (
 	"context"
+	"os/exec"
 	"strings"
 	"testing"
 	"time"
@@ -288,4 +289,63 @@ func TestApplyProcessResourceLimits_DoesNotPanic(t *testing.T) {
 		MaxCPUSeconds: 3600,
 		MaxOpenFiles:  4096,
 	})
+}
+
+// ── defaultWorkerIsolation ────────────────────────────────────────────────────
+
+func TestDefaultWorkerIsolation_Default(t *testing.T) {
+	t.Setenv("GATEWAY_SANDBOX_OS_ISOLATION", "")
+	iso := defaultWorkerIsolation()
+	if iso.DisableNetwork {
+		t.Errorf("DisableNetwork = true, want false (default)")
+	}
+}
+
+func TestDefaultWorkerIsolation_EnvOverride(t *testing.T) {
+	for _, val := range []string{"true", "1", "yes", "TRUE", "Yes"} {
+		t.Run(val, func(t *testing.T) {
+			t.Setenv("GATEWAY_SANDBOX_OS_ISOLATION", val)
+			iso := defaultWorkerIsolation()
+			if !iso.DisableNetwork {
+				t.Errorf("GATEWAY_SANDBOX_OS_ISOLATION=%q: DisableNetwork = false, want true", val)
+			}
+		})
+	}
+	for _, val := range []string{"false", "0", "no", "FALSE"} {
+		t.Run(val, func(t *testing.T) {
+			t.Setenv("GATEWAY_SANDBOX_OS_ISOLATION", val)
+			iso := defaultWorkerIsolation()
+			if iso.DisableNetwork {
+				t.Errorf("GATEWAY_SANDBOX_OS_ISOLATION=%q: DisableNetwork = true, want false", val)
+			}
+		})
+	}
+}
+
+func TestDefaultWorkerIsolation_InvalidEnvFallsBackToDefault(t *testing.T) {
+	t.Setenv("GATEWAY_SANDBOX_OS_ISOLATION", "not-a-bool")
+	iso := defaultWorkerIsolation()
+	if iso.DisableNetwork {
+		t.Errorf("DisableNetwork = true, want false (invalid env falls back to default)")
+	}
+}
+
+// ── applyProcessIsolation smoke test ─────────────────────────────────────────
+
+func TestApplyProcessIsolation_ZeroIsolationIsNoop(t *testing.T) {
+	// DisableNetwork=false should leave cmd completely unmodified on every
+	// platform. The test passes if it does not panic.
+	cmd := exec.Command("true")
+	originalPath := cmd.Path
+	applyProcessIsolation(cmd, IsolationConfig{})
+	// On Linux the path stays "true"-resolved; on darwin it should not be
+	// rewritten to sandbox-exec. We can only guarantee no panic cross-platform.
+	_ = originalPath
+}
+
+func TestApplyProcessIsolation_DoesNotPanic(t *testing.T) {
+	// Non-zero IsolationConfig should not panic regardless of whether the
+	// platform actually enforces it (e.g. no-op stubs, absent sandbox-exec).
+	cmd := exec.Command("true")
+	applyProcessIsolation(cmd, IsolationConfig{DisableNetwork: true})
 }

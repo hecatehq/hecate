@@ -16,6 +16,25 @@ import (
 	"time"
 )
 
+// IsolationConfig requests OS-level process isolation for the shell
+// subprocess. Each field is best-effort — the platform implementation
+// applies what it can and silently skips what it cannot (e.g. the
+// applyProcessIsolation no-op stubs on unsupported platforms). Layer 0
+// (process boundary) and Layer 1 (rlimits, output cap, env sanitisation)
+// remain active regardless of this config.
+type IsolationConfig struct {
+	// DisableNetwork, when true, asks the platform to enforce a no-network
+	// constraint at the OS level — a Linux network namespace, a macOS
+	// Seatbelt profile, etc. This turns the best-effort string-matching
+	// check in validateCommand into a kernel guarantee: even commands that
+	// bypass the pattern list (inline Python, raw sockets via nc, etc.)
+	// cannot reach the network.
+	//
+	// When false (the default), no OS-level network isolation is applied;
+	// the string-matching policy gate from validateCommand still applies.
+	DisableNetwork bool
+}
+
 // ResourceLimits caps resources consumed by the shell subprocess and its
 // descendants. Zero values leave the current kernel limit in place.
 // The gateway populates this from environment variables and embeds it in
@@ -85,6 +104,7 @@ type Command struct {
 	Timeout          time.Duration
 	Policy           Policy
 	Limits           ResourceLimits
+	Isolation        IsolationConfig
 }
 
 type FileRequest struct {
@@ -172,6 +192,11 @@ func (e *LocalExecutor) RunStreaming(ctx context.Context, command Command, onChu
 	// worker handles exactly one command, so limiting the worker process is
 	// equivalent to limiting the command it spawns.
 	applyProcessResourceLimits(command.Limits)
+
+	// Apply OS-level isolation (Layer 2) — network namespaces on Linux,
+	// sandbox-exec Seatbelt profile on macOS, no-op elsewhere. Must be
+	// called before cmd.Start().
+	applyProcessIsolation(cmd, command.Isolation)
 
 	var stdout bytes.Buffer
 	var stderr bytes.Buffer
