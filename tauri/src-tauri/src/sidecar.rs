@@ -6,16 +6,21 @@
 //      - Debug build: walk up from CARGO_MANIFEST_DIR to the repo root,
 //        where `make build` places the `hecate` binary.
 //      - Override: HECATE_BIN env var always wins.
-//   2. Allocate a free TCP port by binding to :0, then dropping the listener.
-//   3. Spawn hecate with GATEWAY_ADDRESS=127.0.0.1:{port}.
-//   4. Poll /healthz every 250 ms with a 30 s hard deadline.
-//   5. On success return the base URL. On failure return an error string.
+//   2. Resolve the data directory via Tauri's platform path API so hecate
+//      writes its files to the right place on every OS:
+//        macOS   ~/Library/Application Support/com.hecate.app/
+//        Windows %APPDATA%\com.hecate.app\
+//        Linux   ~/.local/share/com.hecate.app/
+//   3. Allocate a free TCP port by binding to :0, then dropping the listener.
+//   4. Spawn hecate with GATEWAY_ADDRESS and GATEWAY_DATA_DIR set.
+//   5. Poll /healthz every 250 ms with a 30 s hard deadline.
+//   6. On success return the base URL. On failure return an error string.
 
 use std::net::TcpListener;
 use std::path::PathBuf;
 use std::time::{Duration, Instant};
 
-use tauri::AppHandle;
+use tauri::{AppHandle, Manager};
 
 /// Returned by [`spawn_and_wait`] on success.
 #[allow(dead_code)] // `port` reserved for future use (deep links, auto-update, etc.)
@@ -103,16 +108,36 @@ pub fn free_port() -> Result<u16, String> {
         .map_err(|e| format!("could not read local address: {e}"))
 }
 
+/// Resolve the platform-appropriate data directory for the hecate gateway.
+/// Uses Tauri's path API so the location is correct on every OS without
+/// any platform-specific code here.
+///
+/// The directory is created if it doesn't exist yet. hecate itself also
+/// creates it, but doing it here gives a clearer error if the path is
+/// unwritable (e.g. inside a read-only .app bundle — which it won't be
+/// after this fix, but belt-and-suspenders).
+fn resolve_data_dir(app: &AppHandle) -> Result<PathBuf, String> {
+    let dir = app
+        .path()
+        .app_data_dir()
+        .map_err(|e| format!("cannot resolve app data directory: {e}"))?;
+    std::fs::create_dir_all(&dir)
+        .map_err(|e| format!("cannot create data directory {dir:?}: {e}"))?;
+    Ok(dir)
+}
+
 /// Spawn the hecate binary and block (async) until `/healthz` responds 200
 /// or the deadline expires. Returns the gateway base URL on success.
-pub async fn spawn_and_wait(_app: &AppHandle) -> Result<GatewayHandle, String> {
+pub async fn spawn_and_wait(app: &AppHandle) -> Result<GatewayHandle, String> {
     let bin = resolve_binary()?;
+    let data_dir = resolve_data_dir(app)?;
     let port = free_port()?;
     let addr = format!("127.0.0.1:{port}");
     let base_url = format!("http://{addr}");
 
     tokio::process::Command::new(&bin)
         .env("GATEWAY_ADDRESS", &addr)
+        .env("GATEWAY_DATA_DIR", &data_dir)
         // Suppress inherited terminal so the gateway doesn't fight the Tauri
         // process for stdin/stdout in dev mode.
         .stdin(std::process::Stdio::null())
