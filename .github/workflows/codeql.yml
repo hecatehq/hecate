@@ -1,0 +1,64 @@
+name: CodeQL
+
+on:
+  push:
+    branches: [main]
+    paths-ignore:
+      - '**/*.md'
+      - 'ui/**'
+      - 'tauri/**'
+      - 'docs/**'
+  pull_request:
+    branches: [main]
+    paths-ignore:
+      - '**/*.md'
+      - 'ui/**'
+      - 'tauri/**'
+      - 'docs/**'
+  schedule:
+    # Weekly scan on Monday at 08:00 UTC — catches newly published CVEs
+    # against unchanged code without waiting for a push.
+    - cron: '0 8 * * 1'
+
+concurrency:
+  group: codeql-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  analyze:
+    name: Analyze (go)
+    runs-on: ubuntu-latest
+
+    permissions:
+      security-events: write  # upload SARIF to the Security tab
+      actions: read           # required by CodeQL action
+      contents: read
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Set up Go
+        uses: actions/setup-go@v5
+        with:
+          go-version-file: go.mod
+          cache: true
+
+      - name: Initialize CodeQL
+        uses: github/codeql-action/init@v3
+        with:
+          languages: go
+          # Default query suite covers security-and-quality.
+          # Swap for 'security-extended' to catch more patterns at the cost
+          # of higher false-positive rate.
+          queries: security-and-quality
+
+      - name: Build
+        # CodeQL needs a real build to trace symbol resolution. The embedded
+        # UI is skipped (ui/dist not needed for Go analysis) by omitting bun.
+        run: go build ./...
+
+      - name: Perform CodeQL Analysis
+        uses: github/codeql-action/analyze@v3
+        with:
+          category: /language:go
