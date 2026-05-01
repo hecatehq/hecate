@@ -2,6 +2,15 @@
 
 How to implement once a plan exists, or when the change is small enough to skip planning.
 
+## Pre-edit checklist
+
+Before touching any file:
+
+1. `go build ./...` passes — establish a clean baseline. Don't modify a broken tree.
+2. The file is read and the local patterns are understood — naming, error wrapping, comment density, test layout.
+3. The neighboring test file is read — understand what helpers and fixtures exist before writing new ones.
+4. The change fits in one logical commit. If it fans out for unrelated reasons, identify the split points now, not mid-edit.
+
 ## Make minimal coherent changes
 
 One logical change at a time. If it fans out across unrelated reasons, split into separate commits. The reviewer (human or agent) should be able to hold the whole change in their head; "and while I was here…" diffs defeat that.
@@ -14,19 +23,25 @@ Read the neighboring code first. Mirror its conventions — naming, error wrappi
 
 Drive-by formatting, renaming, or "while I'm here" cleanups bloat the diff and obscure review. If a cleanup is worth doing, it's worth a follow-up commit.
 
-## When to update docs
+## Post-edit checklist
 
-Docs are part of the deliverable, not a follow-up. The same change syncs them.
+After each logical step:
+
+1. `go build ./...` still passes.
+2. If platform-specific files changed, cross-compile: `GOOS=linux go build ./...` and `GOOS=darwin go build ./...`.
+3. New or updated tests match the local pattern — table-driven where the variant set is obvious, named `TestPackage_Behavior`.
+4. Docs updated in the same change (not as a follow-up):
 
 | Change | Doc |
 |---|---|
-| New env var | `.env.example` and the relevant `docs/<feature>.md` env-var table |
+| New env var | `.env.example` AND the relevant `docs/<feature>.md` env-var table |
 | New API field | `docs/runtime-api.md` (or wherever the contract lives) |
 | New event type | `docs/events.md` with payload shape |
 | New built-in tool | `docs/agent-runtime.md` and/or `docs/mcp.md` |
 | New behavior on the api↔providers boundary | both sides' tests |
+| New isolation / sandbox capability | `docs/sandbox.md` |
 
-Stale env-var docs cause more on-call pages than missing features.
+5. `git diff --stat` reviewed — confirm the change is cohesive, no accidental drift, no unrelated formatting.
 
 ## When to add comments
 

@@ -1,14 +1,16 @@
 # Hecate agent instructions
 
-This directory is the canonical, vendor-neutral instruction layer for working on the Hecate repository. It is shared by Claude Code, Codex, Cursor, and any other agentic coding tool. Tool-specific entry points (`CLAUDE.md`, `AGENTS.md`, `.cursor/rules/`) are thin adapters that point here; the substance lives in this directory.
+Canonical agent instruction layer for the Hecate repo. Tool-specific entry
+points (`CLAUDE.md`, `AGENTS.md`, `.cursor/rules/`) are thin adapters that
+point here — the substance lives in this directory.
 
 ## Layout
 
 ```
 ai/
-  README.md                       this file
+  README.md                       this file — load order and quick rules
   core/
-    project-context.md            what Hecate is, repo layout, rings, storage tiers, toolchain pins
+    project-context.md            what Hecate is, repo layout, rings, storage tiers, toolchain pins, risky areas
     engineering-standards.md      project-wide coding/style standards (backend + UI)
     workflow.md                   default operating loop, planning triggers, commit etiquette
     verification.md               build/test ladders, done criteria, manual smoke expectations
@@ -30,25 +32,31 @@ ai/
     devops/SKILL.md               posture skill: delivery surfaces and rollback paths
 ```
 
-## Where to start
+## What to load
 
-- **First time in this repo**: read [`core/project-context.md`](core/project-context.md), then [`core/workflow.md`](core/workflow.md).
-- **Backend work** (anything outside `ui/` and `tauri/`): also read [`skills/backend/SKILL.md`](skills/backend/SKILL.md).
-- **UI work** (`ui/`): also read [`skills/ui/SKILL.md`](skills/ui/SKILL.md).
-- **Native desktop app** (`tauri/`): also read [`skills/tauri/SKILL.md`](skills/tauri/SKILL.md).
-- **Provider adapters** (`internal/providers/`): also read [`skills/providers/SKILL.md`](skills/providers/SKILL.md) — the canonical home for the seven-step "add a wire field" chain.
-- **Planning a substantial change**: see [`skills/architect/SKILL.md`](skills/architect/SKILL.md) and [`tasks/planning.md`](tasks/planning.md).
-- **Reviewing code** (yours or another agent's): see [`tasks/code-review.md`](tasks/code-review.md).
+Load the skill for your area first, then `core/project-context.md` if you
+need repo layout, ring rules, or risky-area guidance. `core/engineering-standards.md`
+and `core/workflow.md` are reference — reach for them when you hit a style or
+commit question.
 
-## Relationship to other agent surfaces
+| Task | Load first | Also load |
+|---|---|---|
+| Backend — any Go outside `ui/` and `tauri/` | `skills/backend/SKILL.md` | `core/project-context.md`, `core/verification.md` |
+| Provider adapter (`internal/providers/`) | `skills/providers/SKILL.md` | `skills/backend/SKILL.md` |
+| React UI (`ui/`) | `skills/ui/SKILL.md` | `core/project-context.md`, `core/verification.md` |
+| Native desktop (`tauri/`) | `skills/tauri/SKILL.md` | `core/project-context.md`, `core/verification.md` |
+| Substantial change — plan first | `skills/architect/SKILL.md` + `tasks/planning.md` | `core/project-context.md` |
+| Debugging | `tasks/debugging.md` | skill for the relevant area |
+| Code review | `tasks/code-review.md` | skill for the relevant area |
+| Test strategy / coverage | `skills/tester/SKILL.md` | `core/verification.md` |
+| Delivery / CI / env vars / schema | `skills/devops/SKILL.md` | `core/verification.md` |
+| Release / tag | `tasks/release.md` | `core/verification.md` |
 
-- `/AGENTS.md` and `/ui/AGENTS.md` and `/internal/providers/AGENTS.md` — the codebase map and Codex-discoverable entry points. They point here for conventions, workflow, and longer-form recipes.
-- `/CLAUDE.md` — thin Claude Code adapter that points here.
-- `/.cursor/rules/` — thin Cursor adapter that points here.
-- `/.claude/commands/*.md` — slash commands (`/race`, `/typecheck`, `/test-affected`).
+## Core rules (always in force)
 
-This directory is the canonical source. Those are adapters.
-
-## Repo policy
-
-Shared agent guidance is repository-owned and committed. There is no `.local` override layer and no personal customization tier. If a rule belongs in agent context, it lives here, in the open, under version control.
+- **Don't auto-commit.** Propose a Conventional Commits message; operator merges.
+- **Docs in the same change.** New env var → `.env.example` + `docs/<feature>.md`. New event type → `docs/events.md`. Not as a follow-up.
+- **Race suite is the floor** for backend/runtime changes — not a nice-to-have. Use `/race` or `go test -race -timeout 10m ./...`.
+- **No plan labels** (`Phase 1`, `P0`, `#15`, `Milestone N`) in commit messages or code comments.
+- **Probe before assuming paths.** `grep`, `ls`, `go build` before writing file paths from memory. Wrong paths compound.
+- **Build early, build often.** `go build ./...` before the first edit (confirm the tree is clean) and after each logical step.

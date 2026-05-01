@@ -8,7 +8,7 @@ How "done" is determined. Treat the floors as floors, not nice-to-haves.
 |---|---|---|
 | Build | `go build ./...` | Always, before claiming done |
 | Focused tests | `/test-affected` (or `go test -race -count=1 ./<package>/...`) | During iteration |
-| Race suite | `GOCACHE=/Users/chicoxyzzy/dev/hecate/.gocache go test -race -timeout 10m ./...` (or `/race`) | **Floor** for runtime/backend changes |
+| Race suite | `go test -race -timeout 10m ./...` (or `/race`) | **Floor** for runtime/backend changes |
 | E2E | `go test -tags e2e ./e2e/...` | When the change crosses the api → orchestrator → providers/sandbox/mcp chain |
 
 The race suite is the floor — not a nice-to-have — for any change that touches `internal/gateway`, `internal/router`, `internal/providers`, `internal/orchestrator`, `internal/sandbox`, retention/state wiring, or other request execution paths.

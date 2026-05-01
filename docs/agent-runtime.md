@@ -93,7 +93,7 @@ Tool argument schemas are JSON-Schema-shaped and surfaced to the LLM in the stan
 - Hosts that parse as a private/loopback IP literal (10/8, 172.16/12, 192.168/16, 127/8, 169.254/16, link-local, multicast) are rejected unless `GATEWAY_TASK_SHELL_ALLOW_PRIVATE_IPS=true`.
 - When `GATEWAY_TASK_SHELL_ALLOWED_HOSTS` is set, only those exact hostnames are reachable. Empty = all public hosts allowed.
 
-Enforcement is **best-effort static parsing** of the command string. Tools that respect the allowlist (`curl`, `wget`, `git fetch`, `bun install`, `pip install`, etc.) get covered; clever obfuscation (base64-encoded URLs, `nc`/`telnet` raw sockets, custom-binary egress) bypasses it. For hard isolation, run the gateway in a network namespace or behind a filtering egress proxy. The default `sandbox_network=false` (no network at all) remains the strongest guarantee.
+Enforcement is **best-effort static parsing** of the command string. Tools that respect the allowlist (`curl`, `wget`, `git fetch`, `bun install`, `pip install`, etc.) get covered; clever obfuscation (base64-encoded URLs, `nc`/`telnet` raw sockets, custom-binary egress) bypasses it. For kernel-enforced network isolation, set `GATEWAY_SANDBOX_OS_ISOLATION=true` (Linux: network namespace; macOS: Seatbelt profile) — see [`sandbox.md`](sandbox.md#layer-2--os-level-isolation-current) for requirements and platform coverage. The default `sandbox_network=false` (no network at all) combined with OS isolation remains the strongest available guarantee short of a full container.
 
 ## External MCP tools
 

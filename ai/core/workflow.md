@@ -2,6 +2,14 @@
 
 The default operating loop, when to stop and plan, and how to propose commits.
 
+## Before you edit
+
+1. **Probe, don't assume paths.** Run `grep`, `ls`, or open a file before writing its path in an edit. A wrong path in a tool call cascades — the next step is now working on a file that doesn't exist or the wrong file.
+2. **`go build ./...` before the first edit.** Confirm the tree compiles cleanly before you touch it. Editing on a broken tree turns one bug into two.
+3. **Read the neighboring test first.** The test shows the exact interface shape, available helpers, and expected assertion style. Writing tests without reading them first is the most common wasted iteration.
+4. **Don't re-read what's already in context.** Check your context before issuing a Read. Re-reads burn context budget without adding information.
+5. **Build after each logical step, not at the end.** Type errors in adjacent files surface immediately; catching them at the end costs multiple round-trips.
+
 ## Default loop
 
 1. **Understand the task.** Restate it in your own words if non-trivial. Resolve ambiguity before coding.
