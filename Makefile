@@ -2,7 +2,7 @@ SHELL := /bin/sh
 
 GOCACHE_DIR := $(CURDIR)/.gocache
 
-.PHONY: test test-race vet coverage ui-coverage build run serve dev stop ui-install ui-dev ui-build ui-test ui-test-e2e test-docker-smoke docs-env-check check-links verify-alpha reset-dev reset-docker screenshots tauri-install tauri-dev tauri-build
+.PHONY: test test-race vet coverage ui-coverage build run serve dev stop ui-install ui-dev ui-build ui-test ui-test-e2e test-docker-smoke docs-env-check check-links verify-alpha reset-dev reset-docker screenshots tauri-install tauri-version tauri-dev tauri-build
 
 # build produces a single self-contained hecate binary with the UI bundle
 # embedded. The UI is built first so //go:embed picks up the real assets;
@@ -211,6 +211,13 @@ RUST_TARGET := $(shell rustc -vV 2>/dev/null | awk '/^host:/{print $$2}')
 tauri-install:
 	cd tauri && bun install
 
+# tauri-version: stamp Cargo.toml, package.json, and tauri.conf.json with the
+# current release version. Resolution order: TAURI_VERSION env var → latest
+# git tag → existing Cargo.toml value (dev/untagged builds).
+# Called automatically by tauri-build; run manually when cutting a release.
+tauri-version: tauri-install
+	bun scripts/stamp-version.ts
+
 # tauri-sidecar: build the hecate binary and stage it as the Tauri sidecar.
 # Called automatically by tauri-dev and tauri-build so you rarely need it
 # directly.
@@ -232,7 +239,7 @@ tauri-dev: tauri-sidecar tauri-install
 # current platform. Outputs land in tauri/src-tauri/target/release/bundle/.
 # To cross-compile (e.g. universal macOS), set TAURI_TARGET:
 #   make tauri-build TAURI_TARGET=universal-apple-darwin
-tauri-build: tauri-sidecar tauri-install
+tauri-build: tauri-sidecar tauri-version
 	@if [ -n "$(TAURI_TARGET)" ]; then \
 	  cd tauri && bunx tauri build --target $(TAURI_TARGET); \
 	else \

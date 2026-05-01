@@ -53,9 +53,10 @@ tauri/
 | Target | What it does |
 |---|---|
 | `make tauri-install` | `bun install` inside `tauri/` |
+| `make tauri-version` | runs `scripts/stamp-version.ts` — stamps Cargo.toml, package.json, tauri.conf.json to current git tag (or `TAURI_VERSION`) |
 | `make tauri-sidecar` | `make build` then copies `hecate` → `tauri/src-tauri/binaries/hecate-{triple}` |
 | `make tauri-dev` | `tauri-sidecar` + `tauri-install` + `bunx tauri dev` |
-| `make tauri-build` | `tauri-sidecar` + `tauri-install` + `bunx tauri build` |
+| `make tauri-build` | `tauri-sidecar` + `tauri-version` + `bunx tauri build` |
 
 Pass `TAURI_TARGET=universal-apple-darwin` (or any Rust target triple) to `tauri-build` for cross-compile. Run `make tauri-sidecar` separately when you change Go code but not Rust — it's the fast path.
 

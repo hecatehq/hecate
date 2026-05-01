@@ -38,6 +38,10 @@ pkg/types/              public types (ChatRequest, Message, ContentBlock, ...)
 ui/                     React/Vite operator UI, embedded via //go:embed ui/dist
 tauri/                  native desktop app (Tauri 2.x); wraps hecate as a sidecar,
                           webview loads http://127.0.0.1:{port}/ served by the gateway
+scripts/
+  release.ts            cut a release: pre-flight, goreleaser snapshot, Tauri
+                          version stamp, tag, push  (`bun scripts/release.ts vX.Y.Z`)
+  stamp-version.ts      stamp Tauri version files to current git tag / TAURI_VERSION
 e2e/                    binary-startup tests; build tag e2e (sub-tags: ollama, docker)
 docs/                   long-form references (architecture, runtime API, events, ...)
 ai/                     canonical agent guidance (this file points there for depth)
@@ -129,6 +133,8 @@ Full ladder: [`ai/core/verification.md`](ai/core/verification.md).
 | Add an MCP tool / persisted run-event type / test helper cheat-sheet | [`ai/skills/backend/SKILL.md`](ai/skills/backend/SKILL.md) |
 | UI recipes (SSE-driven state field, paired pickers, snapshot refresh) | [`ai/skills/ui/SKILL.md`](ai/skills/ui/SKILL.md) |
 | Native desktop app (sidecar lifecycle, bundling, Tauri commands) | [`ai/skills/tauri/SKILL.md`](ai/skills/tauri/SKILL.md) |
+| Cut a release tag | `bun scripts/release.ts vX.Y.Z` — checks worktree, snapshot dry-run, stamps Tauri versions, tags, pushes. Full procedure: [`ai/tasks/release.md`](ai/tasks/release.md) |
+| Stamp Tauri version files | `bun scripts/stamp-version.ts` (or `make tauri-version`) — syncs Cargo.toml, package.json, tauri.conf.json to current git tag |
 
 ## Gotchas
 

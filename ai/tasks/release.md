@@ -22,22 +22,65 @@ Before running the release script, verify:
 Use the release script. It checks clean worktree, tag uniqueness, goreleaser on PATH, fires a snapshot dry-run, then prompts before tagging:
 
 ```bash
-scripts/release.sh vX.Y.Z
+bun scripts/release.ts vX.Y.Z
 ```
 
 For pre-release tags:
 
 ```bash
-scripts/release.sh v0.1.0-alpha.7
+bun scripts/release.ts v0.1.0-alpha.7
 ```
 
 To skip the snapshot dry-run (e.g. already ran it manually):
 
 ```bash
-scripts/release.sh v0.2.0 --skip-snapshot
+bun scripts/release.ts v0.2.0 --skip-snapshot
 ```
 
 The annotated tag message becomes the canonical release notes — it's what `git show vX.Y.Z` and the GitHub Releases page surface. Write it before tagging; the script prompts for confirmation but doesn't prompt for the message (pass it as the annotation when the script creates the tag, or edit via `git tag -a -f` before pushing if needed).
+
+## Tauri desktop app
+
+The native desktop app (`tauri/`) is **not yet part of the goreleaser pipeline**. It is built and distributed separately, out-of-band from the Docker images and binary tarballs.
+
+### Version stamping
+
+`bun scripts/release.ts` handles the stamp automatically: after confirmation it calls `scripts/stamp-version.ts` with `TAURI_VERSION=<semver>`, commits the changed files (`Cargo.toml`, `package.json`, `tauri.conf.json`), then creates the annotated tag on that commit. No manual stamp step needed when using `release.ts`.
+
+`make tauri-build` also depends on `make tauri-version` (`scripts/stamp-version.ts`), which resolves the version from: `TAURI_VERSION` env var → latest git tag → existing `Cargo.toml`. This means the tag must exist before `make tauri-build` runs — `release.ts` guarantees this since it tags before you run the build.
+
+```bash
+# Full flow:
+bun scripts/release.ts vX.Y.Z   # stamps + commits + tags + pushes to CI
+make tauri-build                 # builds desktop bundles; picks up vX.Y.Z from tag
+# upload tauri/src-tauri/target/release/bundle/* to the GitHub Release manually
+```
+
+Or stamp and build without going through `release.ts`:
+
+```bash
+TAURI_VERSION=X.Y.Z make tauri-build
+```
+
+### Build artifacts
+
+`make tauri-build` outputs to `tauri/src-tauri/target/release/bundle/`. Platform-specific:
+
+| Platform | Output |
+|---|---|
+| macOS | `.app` bundle + `.dmg` installer |
+| Windows | `.msi` installer + `.exe` setup |
+| Linux | `.deb`, `.rpm`, `.AppImage` |
+
+Upload these to the GitHub Release entry manually until CI automation is added.
+
+### Tauri-specific footguns
+
+- **Tag before build, not after.** `make tauri-version` reads the git tag at script run time. If you build first and tag second, the bundle version will be the previous release.
+- **`0.1.0-alpha.N` is valid semver for Tauri**, but macOS `CFBundleShortVersionString` strips the pre-release suffix in the About dialog. That's expected — Tauri handles it internally.
+- **`tauri/src-tauri/binaries/hecate-{triple}` must exist before `tauri-build`.** `make tauri-build` runs `make tauri-sidecar` which calls `make build` (Go binary) first. If Go fails to compile, the Tauri build fails. Run `make build` independently first if you want to isolate the Go failure.
+- **Code signing is not configured.** macOS will show a Gatekeeper warning on first launch for unsigned builds. Windows will show a SmartScreen warning. Document this for users until signing is wired.
+- **`tauri/src-tauri/target/` is large** (~1–2 GB after a release build). Don't accidentally `git add` it — it's gitignored but `git add -A` from the repo root will not descend into it. If you're adding Tauri files manually, use specific paths.
 
 ## Watch CI
 
