@@ -236,6 +236,43 @@ func TestLocalExecutorOutputCapZeroMeansUnlimited(t *testing.T) {
 	}
 }
 
+// ── Timeout-path pipe-close (orphan grandchild) ──────────────────────────────
+
+// TestLocalExecutorTimeoutUnblocksOrphanPipes verifies that a command whose
+// grandchild keeps the stdout pipe open after sh is killed still terminates
+// within the configured Timeout. This is the context-timeout analogue of
+// TestLocalExecutorOutputCapEnforced: instead of the output cap firing the
+// cancel, the wall-clock deadline does. Both paths must close the pipe
+// read-ends so streamPipe goroutines can exit — without the watchdog goroutine
+// the test would hang until the test suite's own deadline.
+func TestLocalExecutorTimeoutUnblocksOrphanPipes(t *testing.T) {
+	t.Parallel()
+
+	exec := NewLocalExecutor()
+	start := time.Now()
+	_, err := exec.Run(context.Background(), Command{
+		// sh spawns yes as a child; yes keeps writing to stdout. When the
+		// 300 ms deadline fires, sh is killed. Without the watchdog goroutine
+		// closing the pipe read-ends, yes (now orphaned) would keep the
+		// write-end open and streamPipe would block forever.
+		Command: `yes`,
+		Timeout: 300 * time.Millisecond,
+		// No output cap — this must be driven by the Timeout, not by
+		// MaxOutputBytes.
+		Limits: ResourceLimits{MaxOutputBytes: 0},
+	})
+	elapsed := time.Since(start)
+
+	if err == nil {
+		t.Fatal("Run() error = nil, want timeout error")
+	}
+	// The call must return well within 2× the timeout — generous headroom
+	// for slow CI, but tight enough to catch a real hang.
+	if elapsed > 2*time.Second {
+		t.Errorf("Run() took %v, want < 2s (possible pipe deadlock)", elapsed)
+	}
+}
+
 // ── applyProcessResourceLimits smoke test ────────────────────────────────────
 
 func TestApplyProcessResourceLimits_ZeroLimitsIsNoop(t *testing.T) {

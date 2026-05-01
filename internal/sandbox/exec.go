@@ -191,12 +191,23 @@ func (e *LocalExecutor) RunStreaming(ctx context.Context, command Command, onChu
 	go streamPipe(stdoutPipe, "stdout", streamEvents)
 	go streamPipe(stderrPipe, "stderr", streamEvents)
 
+	// Watchdog: close the pipe read-ends whenever runCtx ends so that
+	// streamPipe goroutines unblock even when orphan grandchildren of sh
+	// keep the write-end open. This covers the context-timeout and
+	// external-cancel paths. cancelWithPipes (below) handles the same
+	// problem for the synchronous output-cap path — both may fire; the
+	// second Close() on each pipe is a harmless os.ErrClosed.
+	go func() {
+		<-runCtx.Done()
+		_ = stdoutPipe.Close()
+		_ = stderrPipe.Close()
+	}()
+
 	// cancelWithPipes kills the child process AND closes the pipe read-ends
-	// so that streamPipe goroutines unblock immediately even when an orphan
-	// grandchild (e.g. "yes" spawned by "sh -lc yes") keeps the write-end
-	// open after "sh" is killed. Without the pipe close the goroutines
-	// block on Read forever, drainProcessOutput waits for done events that
-	// never arrive, and cmd.Wait is never called — a goroutine leak.
+	// synchronously so drainProcessOutput can return immediately when the
+	// output-size cap is hit (without waiting for the watchdog to be
+	// scheduled). The watchdog above provides the same guarantee for the
+	// timeout / external-cancel paths.
 	cancelWithPipes := func() {
 		cancel()
 		_ = stdoutPipe.Close()
