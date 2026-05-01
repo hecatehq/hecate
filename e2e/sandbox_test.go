@@ -49,7 +49,7 @@ func TestSandboxBundledLayout(t *testing.T) {
 	buildSandboxd(t, gatewayDir)
 
 	workDir := t.TempDir()
-	baseURL := hecateServer(t,
+	baseURL := gatewayServer(t,
 		// Explicitly unset so resolution falls through to the
 		// next-to-executable probe rather than any ambient env var.
 		"SANDBOXD_BIN=",
@@ -77,7 +77,7 @@ func TestSandboxSANDBOXDBINOverride(t *testing.T) {
 	sandboxdBin := buildSandboxd(t, t.TempDir())
 	workDir := t.TempDir()
 
-	baseURL := hecateServer(t,
+	baseURL := gatewayServer(t,
 		"SANDBOXD_BIN="+sandboxdBin,
 		"GATEWAY_TASK_APPROVAL_POLICIES=",
 	)
@@ -103,7 +103,7 @@ func TestSandboxPolicyDeniesNetwork(t *testing.T) {
 	sandboxdBin := buildSandboxd(t, t.TempDir())
 	workDir := t.TempDir()
 
-	baseURL := hecateServer(t,
+	baseURL := gatewayServer(t,
 		"SANDBOXD_BIN="+sandboxdBin,
 		"GATEWAY_TASK_APPROVAL_POLICIES=",
 	)
@@ -123,7 +123,7 @@ func TestSandboxReadOnlyPolicyDeniesWrite(t *testing.T) {
 	sandboxdBin := buildSandboxd(t, t.TempDir())
 	workDir := t.TempDir()
 
-	baseURL := hecateServer(t,
+	baseURL := gatewayServer(t,
 		"SANDBOXD_BIN="+sandboxdBin,
 		"GATEWAY_TASK_APPROVAL_POLICIES=",
 	)

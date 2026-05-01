@@ -1,7 +1,7 @@
 //go:build e2e
 
 // Package e2e contains true end-to-end tests that build and start the real
-// hecate binary, send real HTTP requests (optionally against real upstream
+// gateway binary, send real HTTP requests (optionally against real upstream
 // providers), and verify the response shape.
 //
 // Run with:
@@ -82,9 +82,9 @@ func moduleRootDir() string {
 	return mod[:strings.LastIndex(mod, string(os.PathSeparator))]
 }
 
-// hecateServer starts the gateway binary on a free port and returns the base
+// gatewayServer starts the gateway binary on a free port and returns the base
 // URL once /healthz responds 200.  The process is killed when the test ends.
-func hecateServer(t *testing.T, extraEnv ...string) string {
+func gatewayServer(t *testing.T, extraEnv ...string) string {
 	t.Helper()
 
 	bin := gatewayBinary(t)
@@ -243,7 +243,7 @@ func readSSE(t *testing.T, resp *http.Response) []sseEvent {
 // the port, and returns 200 on /healthz.
 func TestGatewayStartsAndRespondsHealthy(t *testing.T) {
 	t.Parallel()
-	base := hecateServer(t)
+	base := gatewayServer(t)
 
 	resp, err := http.Get(base + "/healthz")
 	if err != nil {
@@ -264,7 +264,7 @@ func TestGatewayStartsAndRespondsHealthy(t *testing.T) {
 func TestGatewayNoProviderConfiguredReturns502(t *testing.T) {
 	t.Parallel()
 	// No PROVIDER_* env — no providers registered.
-	base := hecateServer(t)
+	base := gatewayServer(t)
 
 	body := `{"model":"gpt-4o-mini","messages":[{"role":"user","content":"hi"}]}`
 	resp := postJSON(t, base+"/v1/chat/completions", body, map[string]string{
@@ -288,7 +288,7 @@ func TestGatewayFakeUpstreamNonStreamingCodex(t *testing.T) {
 	fakeResp := `{"id":"chatcmpl-e2e","object":"chat.completion","created":1700000000,"model":"gpt-4o-mini","choices":[{"index":0,"message":{"role":"assistant","content":"Hello from fake upstream"},"finish_reason":"stop"}],"usage":{"prompt_tokens":5,"completion_tokens":8,"total_tokens":13}}`
 	upstream := fakeOpenAIServer(t, "/v1/chat/completions", fakeResp, false)
 
-	base := hecateServer(t,
+	base := gatewayServer(t,
 		"PROVIDER_FAKE_API_KEY=dummy",
 		"PROVIDER_FAKE_BASE_URL="+upstream,
 		"PROVIDER_FAKE_DEFAULT_MODEL=gpt-4o-mini",
@@ -328,7 +328,7 @@ func TestGatewayFakeUpstreamStreamingCodex(t *testing.T) {
 
 	upstream := fakeOpenAIServer(t, "/v1/chat/completions", "", true)
 
-	base := hecateServer(t,
+	base := gatewayServer(t,
 		"PROVIDER_FAKE_API_KEY=dummy",
 		"PROVIDER_FAKE_BASE_URL="+upstream,
 		"PROVIDER_FAKE_DEFAULT_MODEL=gpt-4o-mini",
@@ -370,7 +370,7 @@ func TestGatewayFakeUpstreamClaudeCode(t *testing.T) {
 	fakeResp := `{"id":"chatcmpl-e2e","object":"chat.completion","created":1700000000,"model":"claude-sonnet-4-20250514","choices":[{"index":0,"message":{"role":"assistant","content":"Hello from fake upstream"},"finish_reason":"stop"}],"usage":{"prompt_tokens":5,"completion_tokens":8,"total_tokens":13}}`
 	upstream := fakeOpenAIServer(t, "/v1/chat/completions", fakeResp, false)
 
-	base := hecateServer(t,
+	base := gatewayServer(t,
 		"PROVIDER_FAKE_API_KEY=dummy",
 		"PROVIDER_FAKE_BASE_URL="+upstream,
 		"PROVIDER_FAKE_DEFAULT_MODEL=claude-sonnet-4-20250514",
@@ -413,7 +413,7 @@ func TestGatewayFakeUpstreamClaudeCode(t *testing.T) {
 // TestGatewayMultimodalCodexImageURLPassthrough exercises the
 // full multi-modal pipe end-to-end on the OpenAI route: the
 // caller posts a content array (text + image_url) to the real
-// hecate binary, and the fake upstream must receive the array
+// gateway binary, and the fake upstream must receive the array
 // form on the wire with the image_url block intact.
 //
 // This catches regressions that the unit tests can't: the JSON
@@ -427,7 +427,7 @@ func TestGatewayMultimodalCodexImageURLPassthrough(t *testing.T) {
 	fakeResp := `{"id":"chatcmpl-mm","object":"chat.completion","created":1700000000,"model":"gpt-4o","choices":[{"index":0,"message":{"role":"assistant","content":"It's a cat."},"finish_reason":"stop"}],"usage":{"prompt_tokens":50,"completion_tokens":4,"total_tokens":54}}`
 	upstream, captured := fakeUpstreamCapturing(t, "/v1/chat/completions", fakeResp)
 
-	base := hecateServer(t,
+	base := gatewayServer(t,
 		"PROVIDER_FAKE_API_KEY=dummy",
 		"PROVIDER_FAKE_BASE_URL="+upstream,
 		"PROVIDER_FAKE_DEFAULT_MODEL=gpt-4o",
@@ -450,7 +450,7 @@ func TestGatewayMultimodalCodexImageURLPassthrough(t *testing.T) {
 		t.Fatalf("expected 200, got %d — body: %s", resp.StatusCode, readBody(t, resp))
 	}
 
-	// Inspect what hecate forwarded to the upstream.
+	// Inspect what the gateway forwarded to the upstream.
 	upstreamBody := captured.lastBody()
 	if upstreamBody == nil {
 		t.Fatal("upstream received no request body")
@@ -496,7 +496,7 @@ func TestGatewayMultimodalAnthropicImageURLTranslation(t *testing.T) {
 	fakeResp := `{"id":"msg_e2e_mm","type":"message","role":"assistant","model":"claude-sonnet-4-6","content":[{"type":"text","text":"It's a cat."}],"stop_reason":"end_turn","usage":{"input_tokens":50,"output_tokens":4}}`
 	upstream, captured := fakeUpstreamCapturing(t, "/v1/messages", fakeResp)
 
-	base := hecateServer(t,
+	base := gatewayServer(t,
 		"PROVIDER_ANTHROPIC_API_KEY=dummy",
 		"PROVIDER_ANTHROPIC_BASE_URL="+upstream,
 		"PROVIDER_ANTHROPIC_DEFAULT_MODEL=claude-sonnet-4-6",
@@ -559,7 +559,7 @@ func TestGatewayMultimodalAnthropicDataURITranslation(t *testing.T) {
 	fakeResp := `{"id":"msg_e2e_b64","type":"message","role":"assistant","model":"claude-sonnet-4-6","content":[{"type":"text","text":"ok"}],"stop_reason":"end_turn","usage":{"input_tokens":80,"output_tokens":1}}`
 	upstream, captured := fakeUpstreamCapturing(t, "/v1/messages", fakeResp)
 
-	base := hecateServer(t,
+	base := gatewayServer(t,
 		"PROVIDER_ANTHROPIC_API_KEY=dummy",
 		"PROVIDER_ANTHROPIC_BASE_URL="+upstream,
 		"PROVIDER_ANTHROPIC_DEFAULT_MODEL=claude-sonnet-4-6",
@@ -611,7 +611,7 @@ func TestGatewayRuntimeProviderHeader(t *testing.T) {
 	fakeResp := `{"id":"chatcmpl-e2e","object":"chat.completion","created":1700000000,"model":"gpt-4o-mini","choices":[{"index":0,"message":{"role":"assistant","content":"ok"},"finish_reason":"stop"}],"usage":{"prompt_tokens":3,"completion_tokens":1,"total_tokens":4}}`
 	upstream := fakeOpenAIServer(t, "/v1/chat/completions", fakeResp, false)
 
-	base := hecateServer(t,
+	base := gatewayServer(t,
 		"PROVIDER_FAKE_API_KEY=dummy",
 		"PROVIDER_FAKE_BASE_URL="+upstream,
 		"PROVIDER_FAKE_DEFAULT_MODEL=gpt-4o-mini",
@@ -645,7 +645,7 @@ func TestRealAnthropicClaudeCode(t *testing.T) {
 		t.Skip("PROVIDER_ANTHROPIC_API_KEY not set — skipping real-provider test")
 	}
 
-	base := hecateServer(t,
+	base := gatewayServer(t,
 		"PROVIDER_ANTHROPIC_API_KEY="+apiKey,
 		"GATEWAY_DEFAULT_MODEL=claude-haiku-4-5-20251001",
 	)
@@ -683,7 +683,7 @@ func TestRealAnthropicClaudeCodeStreaming(t *testing.T) {
 		t.Skip("PROVIDER_ANTHROPIC_API_KEY not set — skipping real-provider test")
 	}
 
-	base := hecateServer(t,
+	base := gatewayServer(t,
 		"PROVIDER_ANTHROPIC_API_KEY="+apiKey,
 		"GATEWAY_DEFAULT_MODEL=claude-haiku-4-5-20251001",
 	)
@@ -728,7 +728,7 @@ func TestRealOpenAICodex(t *testing.T) {
 		t.Skip("PROVIDER_OPENAI_API_KEY not set — skipping real-provider test")
 	}
 
-	base := hecateServer(t,
+	base := gatewayServer(t,
 		"PROVIDER_OPENAI_API_KEY="+apiKey,
 		"GATEWAY_DEFAULT_MODEL=gpt-4o-mini",
 	)
@@ -762,7 +762,7 @@ func TestRealOpenAICodexStreaming(t *testing.T) {
 		t.Skip("PROVIDER_OPENAI_API_KEY not set — skipping real-provider test")
 	}
 
-	base := hecateServer(t,
+	base := gatewayServer(t,
 		"PROVIDER_OPENAI_API_KEY="+apiKey,
 		"GATEWAY_DEFAULT_MODEL=gpt-4o-mini",
 	)
@@ -797,7 +797,7 @@ func TestRealOpenAICodexStreaming(t *testing.T) {
 // OpenAI-compatible list envelope even when no provider is configured.
 func TestGatewayModelsEndpoint(t *testing.T) {
 	t.Parallel()
-	base := hecateServer(t)
+	base := gatewayServer(t)
 
 	req, err := http.NewRequestWithContext(t.Context(), http.MethodGet, base+"/v1/models", nil)
 	if err != nil {
@@ -829,7 +829,7 @@ func TestGatewayModelsEndpoint(t *testing.T) {
 // in single-user admin mode.
 func TestGatewayWhoAmI(t *testing.T) {
 	t.Parallel()
-	base := hecateServer(t)
+	base := gatewayServer(t)
 
 	req, err := http.NewRequestWithContext(t.Context(), http.MethodGet, base+"/v1/whoami", nil)
 	if err != nil {
@@ -865,7 +865,7 @@ func TestGatewayWhoAmI(t *testing.T) {
 // the provider-status envelope shape.
 func TestGatewayAdminProviderStatus(t *testing.T) {
 	t.Parallel()
-	base := hecateServer(t)
+	base := gatewayServer(t)
 
 	req, err := http.NewRequestWithContext(t.Context(), http.MethodGet, base+"/admin/providers", nil)
 	if err != nil {
@@ -897,7 +897,7 @@ func TestGatewayAdminProviderStatus(t *testing.T) {
 // the runtime-stats envelope shape.
 func TestGatewayAdminRuntimeStats(t *testing.T) {
 	t.Parallel()
-	base := hecateServer(t)
+	base := gatewayServer(t)
 
 	req, err := http.NewRequestWithContext(t.Context(), http.MethodGet, base+"/admin/runtime/stats", nil)
 	if err != nil {
@@ -929,7 +929,7 @@ func TestGatewayAdminRuntimeStats(t *testing.T) {
 // non-empty list of built-in provider presets.
 func TestGatewayProviderPresets(t *testing.T) {
 	t.Parallel()
-	base := hecateServer(t)
+	base := gatewayServer(t)
 
 	req, err := http.NewRequestWithContext(t.Context(), http.MethodGet, base+"/v1/provider-presets", nil)
 	if err != nil {
@@ -961,7 +961,7 @@ func TestGatewayProviderPresets(t *testing.T) {
 // body to POST /v1/chat/completions results in a 400 Bad Request.
 func TestGatewayInvalidJSONBodyReturns400(t *testing.T) {
 	t.Parallel()
-	base := hecateServer(t)
+	base := gatewayServer(t)
 
 	resp := postJSON(t, base+"/v1/chat/completions", `{not valid json`, map[string]string{
 		"Authorization": "Bearer test-token",
@@ -989,7 +989,7 @@ func TestGatewayRateLimitHeaders(t *testing.T) {
 	fakeResp := `{"id":"chatcmpl-e2e","object":"chat.completion","created":1700000000,"model":"gpt-4o-mini","choices":[{"index":0,"message":{"role":"assistant","content":"ok"},"finish_reason":"stop"}],"usage":{"prompt_tokens":3,"completion_tokens":1,"total_tokens":4}}`
 	upstream := fakeOpenAIServer(t, "/v1/chat/completions", fakeResp, false)
 
-	base := hecateServer(t,
+	base := gatewayServer(t,
 		"PROVIDER_FAKE_API_KEY=dummy",
 		"PROVIDER_FAKE_BASE_URL="+upstream,
 		"PROVIDER_FAKE_DEFAULT_MODEL=gpt-4o-mini",
@@ -1027,7 +1027,7 @@ func TestGatewayFakeUpstreamStreamingClaudeCode(t *testing.T) {
 
 	upstream := fakeOpenAIServer(t, "/v1/chat/completions", "", true)
 
-	base := hecateServer(t,
+	base := gatewayServer(t,
 		"PROVIDER_FAKE_API_KEY=dummy",
 		"PROVIDER_FAKE_BASE_URL="+upstream,
 		"PROVIDER_FAKE_DEFAULT_MODEL=claude-sonnet-4-20250514",
@@ -1174,7 +1174,7 @@ func fakeOpenAIServer(t *testing.T, path, body string, streaming bool) string {
 //   - reuse the same file (and therefore the same token) on a second
 //     start so persisted credentials survive restarts.
 //
-// The standard hecateServer() helper pins both env vars, so this is the
+// The standard gatewayServer() helper pins both env vars, so this is the
 // only test that exercises the auto-generation default-path code in the
 // binary-only suite. The Docker smoke covers the same contract through
 // the `/data` volume; this is the cheap counterpart.
