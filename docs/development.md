@@ -1,6 +1,6 @@
 # Development
 
-This guide covers the local-build path (Go + Bun), UI hot reload, the test surface, and the screenshot tooling. For the simplest get-it-running flow, see [Quick Start](../README.md#quick-start) — Docker is the recommended on-ramp for end users.
+This guide covers the local-build path (Go + Bun), UI hot reload, the test surface, and the screenshot tooling. For the simplest get-it-running flow, see [Quick Start](../README.md#quick-start) — the desktop app is the recommended on-ramp for personal use; Docker for server use. The Tauri desktop app's local build (`make tauri-dev`) lives in [`ai/skills/tauri/SKILL.md`](../ai/skills/tauri/SKILL.md).
 
 ## Contents
 
@@ -111,8 +111,9 @@ Top-level entry points:
 cmd/hecate/             # binary entry point (CLI flags + bootstrap wiring)
 cmd/sandboxd/           # out-of-process sandbox executor for tasks
 ui/                     # React app (Vite + Bun); src/ is the source, dist/ is the embed target
+tauri/                  # native desktop app (Tauri 2.x); wraps hecate as a sidecar
 e2e/                    # Go end-to-end tests (build tag: e2e; sub-tags: ollama, docker)
-scripts/                # documentation tooling (Playwright capture-screenshots)
+scripts/                # release tooling (release.ts, stamp-version.ts) + documentation tooling (capture-screenshots)
 docs/                   # markdown references + screenshots
 pkg/types/              # public types shared with external Go code
 ```

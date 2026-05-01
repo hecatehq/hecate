@@ -24,7 +24,7 @@ To pin to a specific release, replace `:latest` with the published tag (no `v` p
 
 ```yaml
 # docker-compose.yml
-image: ghcr.io/chicoxyzzy/hecate:0.1.0-alpha.7
+image: ghcr.io/chicoxyzzy/hecate:0.1.0-alpha.9
 ```
 
 Pinning is recommended for any deployment beyond local experimentation — `:latest` floats over alpha increments that may include schema or config changes.
@@ -39,8 +39,8 @@ The release workflow publishes static, single-file binaries for `linux+darwin ×
 
 ```bash
 # pick the right tarball for your OS / arch
-curl -LO https://github.com/chicoxyzzy/hecate/releases/download/v0.1.0-alpha.7/hecate_0.1.0-alpha.7_linux_amd64.tar.gz
-tar -xzf hecate_0.1.0-alpha.7_linux_amd64.tar.gz
+curl -LO https://github.com/chicoxyzzy/hecate/releases/download/v0.1.0-alpha.9/hecate_0.1.0-alpha.9_linux_amd64.tar.gz
+tar -xzf hecate_0.1.0-alpha.9_linux_amd64.tar.gz
 ./hecate
 ```
 
@@ -54,12 +54,12 @@ GATEWAY_DATA_DIR=/var/lib/hecate ./hecate
 
 For systemd, launchd, or supervisor wrappers, the only requirements are: the working directory is writable for `GATEWAY_DATA_DIR`, port 8765 is available, and `.env` (if used) sits in the working directory or is sourced into the unit file. The binary path itself can live anywhere on `$PATH`.
 
-Available tarballs for `v0.1.0-alpha.7`:
+Available tarballs for `v0.1.0-alpha.9`:
 
-- `hecate_0.1.0-alpha.7_linux_amd64.tar.gz`
-- `hecate_0.1.0-alpha.7_linux_arm64.tar.gz`
-- `hecate_0.1.0-alpha.7_darwin_amd64.tar.gz`
-- `hecate_0.1.0-alpha.7_darwin_arm64.tar.gz`
+- `hecate_0.1.0-alpha.9_linux_amd64.tar.gz`
+- `hecate_0.1.0-alpha.9_linux_arm64.tar.gz`
+- `hecate_0.1.0-alpha.9_darwin_amd64.tar.gz`
+- `hecate_0.1.0-alpha.9_darwin_arm64.tar.gz`
 
 Each tarball includes the binary plus `LICENSE` and `README.md`. Verify integrity against `checksums.txt` published alongside the release.
 

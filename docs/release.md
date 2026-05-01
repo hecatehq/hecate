@@ -10,9 +10,39 @@ what is alpha-grade versus production-shaped.
 - Use patch releases for bug fixes, docs corrections, and small UI polish.
 - Use minor releases for API additions, storage changes, provider/runtime
   behavior changes, or operator workflow changes.
+- For pre-release tags use the dotted-suffix semver form: `v0.1.0-alpha.1`,
+  `v0.1.0-alpha.2`, `v0.1.0-rc.1`. Goreleaser and tauri-action handle them
+  the same as stable tags; consumers can opt out via semver tooling that
+  recognizes pre-release tags.
 - Do not publish a release from a dirty worktree.
 
-## Alpha Gate
+## What a release produces
+
+Every `v*` tag fires `.github/workflows/release.yml`, which runs two jobs:
+
+1. **`goreleaser`** (~5–10 min) — multi-arch Go binaries for
+   `linux+darwin × amd64+arm64`, multi-arch Docker images on
+   `ghcr.io/chicoxyzzy/hecate`, source tarball, checksums, GitHub Release
+   entry.
+2. **`tauri`** (matrix, ~10–15 min, runs after goreleaser) — three legs
+   building native desktop bundles and uploading them to the same Release
+   entry: `.dmg` (macOS arm64), `.deb` + `.AppImage` (Linux x86_64), `.msi`
+   (Windows x86_64). Wall-clock total ~15–25 min.
+
+Acceptance after the run:
+
+- Both jobs green.
+- Release entry marked **Pre-release** for `-alpha.N` tags.
+- Goreleaser-side artifacts attached: tarballs for each goos/goarch + checksums.
+- Tauri-side bundles attached: 1 `.dmg`, 1 `.deb`, 1 `.AppImage`, 1 `.msi`.
+  If any is missing, the matrix leg silently skipped upload — open the run
+  to see what failed.
+- `docker pull ghcr.io/chicoxyzzy/hecate:X.Y.Z` succeeds (no `v` prefix —
+  goreleaser uses bare semver as the docker tag).
+- `docker run --rm -p 8765:8765 ghcr.io/chicoxyzzy/hecate:X.Y.Z` then
+  `curl :8765/healthz` returns `version: "X.Y.Z"`.
+
+## Alpha gate
 
 Run the full local gate before cutting a public alpha tag:
 
@@ -35,20 +65,61 @@ If a check is intentionally skipped, call it out in the release notes with the
 reason and the risk. Docker smoke and UI e2e are allowed to be slow; they are
 not optional for a public alpha build.
 
-## Snapshot Dry-Run
+The gate does **not** exercise the Tauri matrix. PR validation
+(`tauri-build.yml`) covers that on every PR touching the desktop pipeline;
+post-tag, the release matrix is the next opportunity to catch regressions.
 
-Before pushing the tag, run goreleaser locally in snapshot mode to catch
-release-config issues without publishing anything:
+## Cut the release
+
+The canonical entry point is `scripts/release.ts`:
+
+```bash
+bun scripts/release.ts vX.Y.Z
+```
+
+It performs, in order: clean-worktree check, tag-uniqueness check,
+goreleaser-on-PATH check, goreleaser snapshot dry-run, interactive
+confirmation prompt, Tauri version stamp commit (Cargo.toml,
+package.json, tauri.conf.json), annotated tag, push.
+
+Pass `--skip-snapshot` to skip the dry-run when you've already validated
+locally:
+
+```bash
+bun scripts/release.ts vX.Y.Z --skip-snapshot
+```
+
+The script's annotated tag message is just the version string. For
+substantive release notes, tag manually instead so the message becomes
+the canonical release notes (what `git show vX.Y.Z` and the GitHub
+Releases page surface):
+
+```bash
+bun scripts/stamp-version.ts                   # stamps Tauri version files
+git add tauri/src-tauri/Cargo.toml tauri/src-tauri/Cargo.lock \
+        tauri/src-tauri/tauri.conf.json tauri/package.json
+git commit -m "chore(tauri): stamp version X.Y.Z"
+git push origin master
+git tag -a vX.Y.Z -F /tmp/release-notes.txt    # message from a file
+git push origin vX.Y.Z
+```
+
+## Snapshot dry-run
+
+Reproduces what CI's goreleaser job does, locally, without publishing:
 
 ```bash
 goreleaser release --snapshot --clean
 ```
 
-This builds the same set of artifacts the CI release workflow does — Go
-binaries for `linux+darwin × amd64+arm64` and the per-arch Docker images —
-into `./dist`, but skips publishing to GHCR and skips creating a GitHub
-release. The run takes ~2-3 minutes and surfaces almost every config issue
-you'd otherwise hit on the real tag push.
+Builds Go binaries for `linux+darwin × amd64+arm64` and per-arch Docker
+images into `./dist`, skips publishing to GHCR, skips the GitHub release.
+~2–3 minutes; surfaces almost every config issue you'd otherwise hit on
+the real tag push. **Does not exercise the Tauri matrix** — that's
+GitHub-Actions-only.
+
+`bun scripts/release.ts` runs this for you unless you pass
+`--skip-snapshot`.
 
 **Inspect the auto-generated changelog.** The first tag in the repo lists
 every commit since the dawn of git history; subsequent tags list only commits
@@ -56,10 +127,9 @@ since the previous tag. If the changelog is unusable, tune
 `.goreleaser.yaml`'s `changelog.filters` or use `--release-notes <file>` to
 override before tagging.
 
-**Pre-flight checks before the snapshot run:**
+Pre-flight checks before the snapshot run (the script enforces these):
 
-- `git status` is clean. Goreleaser refuses to release from a dirty worktree
-  (and the snapshot run is the rehearsal — same constraint applies).
+- `git status` is clean. Goreleaser refuses to release from a dirty worktree.
 - `dist/` is gitignored at repo root. The snapshot writes binaries and
   tarballs into `./dist`; if the directory is tracked, those artifacts can
   leak into a follow-up commit and break the next release on `--clean`. The
@@ -68,47 +138,49 @@ override before tagging.
 
 ## Bump pinned version references
 
-The README's Quick Start and Binary install sections pin the alpha tag in
-copy-pasted commands. Update them to the version you're about to cut so a
-new operator landing on the README pulls the right image / tarball:
+`scripts/release.ts` automatically stamps Tauri version files
+(`Cargo.toml`, `package.json`, `tauri.conf.json`). It does **not** update
+documentation that pins the alpha tag in copy-pasted commands. Sweep these
+manually before tagging so a new operator landing on the README pulls the
+right image / tarball:
 
 - [`README.md`](../README.md) — `docker run … ghcr.io/chicoxyzzy/hecate:<old>` → `<new>`.
 - [`docs/deployment.md`](deployment.md) — image-pinning example, tarball URLs,
   and the "Available tarballs for `vX.Y.Z`" list.
 
-This is a docs-only sweep; commit it on the release tag's branch alongside
-the release-notes draft, before tagging.
+This is a docs-only sweep; commit it on master before tagging.
 
-## Tag and Push
+## Recovery
 
-After the snapshot dry-run passes:
-
-```bash
-git tag -a v0.x.y -m "..."     # annotated tag with release notes
-git push origin v0.x.y         # triggers .github/workflows/release.yml
-```
-
-For pre-release tags, use the dotted-suffix semver form:
-`v0.1.0-alpha.1`, `v0.1.0-alpha.2`, `v0.1.0-rc.1`. Goreleaser handles them
-the same way; consumers can opt out via semver tooling that recognizes
-pre-release tags.
-
-If the published CI run fails, recover with:
+If the CI run fails after pushing the tag:
 
 ```bash
-git push --delete origin v0.x.y
-git tag -d v0.x.y
+git push --delete origin vX.Y.Z
+git tag -d vX.Y.Z
 # fix root cause, retag, retry
 ```
 
-## Image Build
+Tag deletion on GitHub also clears the dangling Release entry (if one was
+created before the failure step). Goreleaser's release pipeline is mostly
+idempotent — a clean retag at a fixed commit produces the same artifacts.
 
-Build and smoke-test the local image through the same path used by CI:
+For Tauri-side failures, the `.dmg` / `.deb` / `.AppImage` / `.msi` may be
+partially uploaded. `tauri-action` uploads with `--clobber`, so a retag
+re-uploads cleanly without manual cleanup.
+
+## Image build
+
+The published image is built by goreleaser in CI using `Dockerfile.release`.
+For local validation:
 
 ```bash
 docker compose build hecate
 make test-docker-smoke
 ```
+
+`docker compose` uses the development `Dockerfile`, not `Dockerfile.release`.
+Any new `ENV` var or runtime default needs to land in both files; otherwise
+local dev and the published image diverge silently.
 
 For published images, pin by tag in deployment examples and release notes.
 Avoid recommending `latest` for anything beyond quick experiments.

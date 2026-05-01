@@ -113,7 +113,7 @@ The full surface lives in [`internal/api/handler_controlplane.go`](../internal/a
 
 ## Health and circuit breaking
 
-Each provider has a per-process health tracker. After a configurable threshold of consecutive retryable failures the breaker opens; the router skips that provider and falls over to the next eligible one. A half-open probe re-opens the breaker after a cooldown. Upstream `429 Too Many Requests` responses cool a provider down immediately so later requests stop hammering a rate-limited backend and can fail over cleanly.
+Each provider has a per-process health tracker. After a configurable threshold of consecutive retryable failures the breaker opens — the router skips that provider and falls over to the next eligible one. After a cooldown, a half-open probe lets a single request through; if it succeeds, the breaker closes and normal traffic resumes. Upstream `429 Too Many Requests` responses cool a provider down immediately so later requests stop hammering a rate-limited backend and can fail over cleanly.
 
 When `GATEWAY_PROVIDER_HEALTH_LATENCY_DEGRADED_THRESHOLD` is set to a positive duration, successful calls that take at-or-above that latency mark the provider `degraded` with health reason `latency` instead of `healthy`. Degraded providers remain routable, but the router scores them behind healthy peers and route diagnostics surface them as `provider_slow` with the last observed latency.
 
