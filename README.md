@@ -211,7 +211,7 @@ Hecate is public-alpha software. The core gateway path is usable; the agent runt
 | OpenTelemetry | Usable | OTLP traces, metrics, logs, response headers, local trace view |
 | Storage tiers | Usable | Memory, SQLite, Postgres, selected per subsystem |
 | Operator UI | Usable | Main workflows are present; debugging ergonomics are still improving |
-| Agent task runtime | Alpha | Queues, approvals, resumable runs, `agent_loop`, MCP integration |
+| Agent task runtime | Alpha | Queues, approvals, resumable runs, `agent_loop`, MCP integration; periodic reconciler auto-recovers stale runs |
 | Execution isolation | Alpha | `sandboxd` boundary exists; stronger OS-level isolation is future work |
 
 Read [docs/known-limitations.md](docs/known-limitations.md) before treating Hecate as production-stable.
