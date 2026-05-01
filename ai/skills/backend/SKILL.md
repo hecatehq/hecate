@@ -78,9 +78,19 @@ The seven-step chain spans `pkg/types/` → `internal/api/` → `internal/provid
 
 ### Add a persisted run-event type
 
-1. `internal/orchestrator/runner.go` → call `r.emitRunEvent(ctx, taskID, runID, "your.event.type", ..., extraDataMap)` at the right life-cycle moment.
+1. `internal/orchestrator/runner.go` → call `r.emitRunEvent(ctx, taskID, runID, "your.event.type", ..., extraDataMap)` at the right life-cycle moment. Emit the event **before** handing off to the queue — see the emit-before-enqueue gotcha above.
 2. Document the event and its payload in `docs/events.md`.
 3. If high-cardinality, wire into `internal/retention/retention.go` as a new subsystem (see `turn_events` for the pattern).
+
+### Add a start-time validation error (HTTP 422)
+
+For errors that should surface before a run is created (bad config, missing required field):
+
+1. Define a sentinel error in `internal/orchestrator/runner.go`: `var ErrMyThing = errors.New("my_thing")`.
+2. Return it (wrapped is fine; use `errors.Is`) from `startTaskWithOptions` before any run is created.
+3. In `internal/api/handler_tasks.go` `HandleStartTask`, add an `errors.Is(err, orchestrator.ErrMyThing)` branch that returns `apiError(http.StatusUnprocessableEntity, "my_thing", err.Error())`.
+4. Add the error code to `internal/api/error_mapping.go` if it has an OTel span status implication.
+5. Test via `tasks.mustRequestStatus(http.StatusUnprocessableEntity, ...)` in `internal/api/server_test.go`.
 
 ## Test helper cheat-sheet
 
@@ -96,6 +106,7 @@ The seven-step chain spans `pkg/types/` → `internal/api/` → `internal/provid
 
 ## Backend gotchas
 
+- **Emit run events before enqueue, not after.** The in-memory queue dispatches synchronously: calling `enqueueRun` can cause a worker to claim the job and emit `run.running` before `run.queued` is persisted if the emit comes after. Always write the transition event first, then hand off to the queue (see `StartTask` in `internal/orchestrator/runner.go`).
 - **modernc/sqlite TIME-as-text format** — the driver writes `time.Time` using Go's default `time.Time.String()` format (`2026-04-28 02:37:38.4524 +0000 UTC`), which doesn't lex-compare with RFC3339Nano cutoffs and breaks the retention sweep silently. Always write timestamps as `t.UTC().Format(time.RFC3339Nano)` explicitly when the column is TEXT (see `internal/taskstate/sqlite.go` `AppendRunEvent`).
 - **Capability cache seeding** for provider tests — see [`../providers/SKILL.md`](../providers/SKILL.md) for the snippet. Without it the discovery path panics on a nil request body.
 - **Pricebook preflight** — cloud-kind providers in tests trigger a pricebook lookup. `PROVIDER_FAKE_KIND=local` bypasses it for synthetic models in e2e.
