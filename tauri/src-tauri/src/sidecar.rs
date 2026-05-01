@@ -12,9 +12,11 @@
 //        Windows %APPDATA%\com.hecate.app\
 //        Linux   ~/.local/share/com.hecate.app/
 //   3. Allocate a free TCP port by binding to :0, then dropping the listener.
-//   4. Spawn hecate with GATEWAY_ADDRESS and GATEWAY_DATA_DIR set.
-//   5. Poll /healthz every 250 ms with a 30 s hard deadline.
-//   6. On success return the base URL. On failure return an error string.
+//   4. Spawn hecate (std::process::Child — sync, so kill() works from the
+//      window-close event handler without needing an async runtime).
+//   5. Poll /healthz every 250 ms (async reqwest) with a 30 s hard deadline.
+//   6. On success return the base URL + Child handle. Caller is responsible
+//      for calling child.kill() when the app exits.
 
 use std::net::TcpListener;
 use std::path::PathBuf;
@@ -23,12 +25,14 @@ use std::time::{Duration, Instant};
 use tauri::{AppHandle, Manager};
 
 /// Returned by [`spawn_and_wait`] on success.
-#[allow(dead_code)] // `port` reserved for future use (deep links, auto-update, etc.)
 pub struct GatewayHandle {
     /// Base URL the gateway is listening on, e.g. `http://127.0.0.1:52341`.
     pub base_url: String,
     /// The allocated port.
+    #[allow(dead_code)] // reserved for future use (deep links, auto-update, etc.)
     pub port: u16,
+    /// The spawned gateway process. Caller must kill() this when the app exits.
+    pub child: std::process::Child,
 }
 
 /// Find the hecate binary. Resolution order:
@@ -135,7 +139,10 @@ pub async fn spawn_and_wait(app: &AppHandle) -> Result<GatewayHandle, String> {
     let addr = format!("127.0.0.1:{port}");
     let base_url = format!("http://{addr}");
 
-    tokio::process::Command::new(&bin)
+    // Use std::process::Command (not tokio) so the returned Child::kill()
+    // is synchronous and can be called from the window-close event handler
+    // without an async runtime.
+    let child = std::process::Command::new(&bin)
         .env("GATEWAY_ADDRESS", &addr)
         .env("GATEWAY_DATA_DIR", &data_dir)
         // Suppress inherited terminal so the gateway doesn't fight the Tauri
@@ -162,7 +169,7 @@ pub async fn spawn_and_wait(app: &AppHandle) -> Result<GatewayHandle, String> {
         }
         match client.get(&healthz).send().await {
             Ok(resp) if resp.status().is_success() => {
-                return Ok(GatewayHandle { base_url, port });
+                return Ok(GatewayHandle { base_url, port, child });
             }
             _ => tokio::time::sleep(Duration::from_millis(250)).await,
         }
