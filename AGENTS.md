@@ -164,3 +164,4 @@ Full ladder: [`ai/core/verification.md`](ai/core/verification.md).
 | [`docs/mcp.md`](docs/mcp.md) | MCP server: tools, transport, configure |
 | [`docs/deployment.md`](docs/deployment.md) | Compose profiles, image pinning, lost-token recovery |
 | [`docs/development.md`](docs/development.md) | Local build, testing, screenshot tooling, `[skip ci]` convention |
+| [`docs/desktop-app.md`](docs/desktop-app.md) | Native Tauri 2.x app: distribution, current state, roadmap, footguns |

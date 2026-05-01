@@ -63,6 +63,7 @@ Pick your role and read in order — each path is three to five docs.
 | [Architecture](architecture.md) | Internals of the gateway request flow and the task-runtime queue / lease / sandbox boundary. |
 | [Development](development.md) | Building from source: Go + Bun toolchain, UI hot reload, the test ladder, screenshot tooling. |
 | [Release](release.md) | Cutting a release tag. Versioning policy, alpha gate, image build, recovery if CI fails. |
+| [Desktop app](desktop-app.md) | The native Tauri 2.x app: distribution, current state, roadmap, footguns. |
 
 ## See also
 

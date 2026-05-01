@@ -41,7 +41,7 @@ The annotated tag message becomes the canonical release notes — it's what `git
 
 ## Tauri desktop app
 
-The native desktop app (`tauri/`) **is built and uploaded by CI** as part of the release pipeline — no manual `make tauri-build` step is required when cutting a tag. Bundle architecture and the per-platform build details live in [`../skills/tauri/SKILL.md`](../skills/tauri/SKILL.md); this section is the release-time view.
+The native desktop app (`tauri/`) **is built and uploaded by CI** as part of the release pipeline — no manual `make tauri-build` step is required when cutting a tag. Bundle architecture and the per-platform build details live in [`../skills/tauri/SKILL.md`](../skills/tauri/SKILL.md); the operator-facing distribution + roadmap view is at [`../../docs/desktop-app.md`](../../docs/desktop-app.md); this section is the release-time view.
 
 ### What CI does
 

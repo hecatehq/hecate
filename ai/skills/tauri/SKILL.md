@@ -7,6 +7,8 @@ description: Use when working on the Hecate native desktop app in `tauri/`. Cove
 
 Use this skill for any work inside `tauri/`. Gateway changes use [`../backend/SKILL.md`](../backend/SKILL.md); UI changes use [`../ui/SKILL.md`](../ui/SKILL.md).
 
+Operator-facing companion: [`../../../docs/desktop-app.md`](../../../docs/desktop-app.md) — distribution, current state, roadmap, footguns. When this skill grows a footgun an end user might hit, mirror it there.
+
 ## Canonical guidance lives here
 
 - [`../../core/project-context.md`](../../core/project-context.md) — repo layout, toolchain pins, storage tiers.
