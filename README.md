@@ -141,6 +141,8 @@ One Go process, one port. Inside it: a chat/messages **gateway** that routes tra
 ```mermaid
 flowchart LR
     Browser["Browser<br/>(operator UI)"]
+    APIClients["API clients<br/>(Claude Code, Codex, curl…)"]
+    MCPClients["MCP clients<br/>(Claude Desktop, Cursor, Zed)"]
 
     subgraph Hecate["Hecate (single binary, :8765)"]
         direction TB
@@ -152,6 +154,8 @@ flowchart LR
     Browser --> UI
     UI --> Gateway
     UI --> Runtime
+    APIClients --> Gateway
+    MCPClients --> Gateway
 
     Gateway --> Providers["Cloud + local providers"]
     Gateway --> Cache["Exact + semantic cache"]
