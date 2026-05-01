@@ -32,6 +32,11 @@ concurrency:
   group: tauri-build-${{ github.ref }}
   cancel-in-progress: true
 
+# PR validation only — no release upload. Restricts the GITHUB_TOKEN
+# below the contents: write that _tauri-shared.yml declares as its max.
+permissions:
+  contents: read
+
 jobs:
   tauri:
     # Skip drafts to save runners during work-in-progress. Mark the PR
@@ -39,5 +44,7 @@ jobs:
     if: github.event_name != 'pull_request' || github.event.pull_request.draft == false
     uses: ./.github/workflows/_tauri-shared.yml
     secrets: inherit
+    permissions:
+      contents: read
     with:
       uploadArtifacts: true

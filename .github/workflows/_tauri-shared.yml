@@ -22,6 +22,14 @@ on:
         required: false
         default: false
 
+# Maximum permissions any caller needs:
+#   - contents: write   tauri-action uploads bundles to a GitHub Release
+#                       (when called from release.yml with tagName set)
+# Callers that don't upload (PR validation via tauri-build.yml) restrict
+# this back down to contents: read at their own workflow-level block.
+permissions:
+  contents: write
+
 jobs:
   build:
     strategy:

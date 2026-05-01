@@ -94,7 +94,12 @@ console.log(`  commit    : ${run("git rev-parse --short HEAD", { silent: true })
 
 // 3. Tag must not already exist.
 try {
-  run(`git rev-parse ${version}`, { silent: true });
+  // execFileSync to avoid the same shell-injection class CodeQL flags on
+  // line 156 — version is regex-validated upstream, but defense in depth.
+  execFileSync("git", ["rev-parse", version], {
+    cwd: root,
+    stdio: ["ignore", "ignore", "ignore"],
+  });
   fail(
     `tag ${version} already exists locally.\n` +
     `  To delete: git tag -d ${version}  ` +
@@ -153,7 +158,12 @@ if (!confirm("\nTag, stamp Tauri version, and push?")) abort("cancelled by user"
 sep("Tauri version stamp");
 const stampScript = resolve(root, "scripts/stamp-version.ts");
 if (existsSync(stampScript)) {
-  execSync(`bun ${stampScript}`, {
+  // execFileSync (no shell) so that paths/args with spaces or special
+  // characters can't be interpreted as shell metacharacters. CodeQL also
+  // flags the template-string form as "shell command built from
+  // environment values" — execFileSync makes that warning go away because
+  // args are passed to the process verbatim.
+  execFileSync("bun", [stampScript], {
     cwd: root,
     stdio: "inherit",
     env: { ...process.env, TAURI_VERSION: semver },
@@ -163,7 +173,7 @@ if (existsSync(stampScript)) {
   const stampDirty = run("git status --porcelain", { silent: true });
   if (stampDirty) {
     run("git add tauri/src-tauri/Cargo.toml tauri/src-tauri/Cargo.lock tauri/src-tauri/tauri.conf.json tauri/package.json");
-    execSync(`git commit -m "chore(tauri): stamp version ${semver}"`, {
+    execFileSync("git", ["commit", "-m", `chore(tauri): stamp version ${semver}`], {
       cwd: root,
       stdio: "inherit",
     });
@@ -178,10 +188,10 @@ if (existsSync(stampScript)) {
 // ── Tag and push ──────────────────────────────────────────────────────────────
 
 sep("Tag and push");
-execSync(`git tag -a ${version} -m ${version}`, { cwd: root, stdio: "inherit" });
+execFileSync("git", ["tag", "-a", version, "-m", version], { cwd: root, stdio: "inherit" });
 console.log(`Tagged ${version}`);
 
-execSync(`git push origin ${version}`, { cwd: root, stdio: "inherit" });
+execFileSync("git", ["push", "origin", version], { cwd: root, stdio: "inherit" });
 
 // ── Done ──────────────────────────────────────────────────────────────────────
 
