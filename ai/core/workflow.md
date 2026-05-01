@@ -8,8 +8,9 @@ The default operating loop, when to stop and plan, and how to propose commits.
 2. **Gather context.** Read the files involved; run small probes (`grep`, `ls`, opening a neighboring test). Don't jump straight into edits.
 3. **Plan before non-trivial changes.** See "When to stop and propose a plan first" below. Substantial backend changes (new wire fields, cross-package ripple, new endpoints) and substantial UI changes (new persistent surfaces, new interaction patterns) require a written plan first. Format: [`../tasks/planning.md`](../tasks/planning.md).
 4. **Implement in coherent steps.** Minimal, scoped changes. Avoid drive-by edits that bloat the diff.
-5. **Verify.** Run the relevant ladder from [`verification.md`](verification.md). State exactly what was run.
-6. **Summarize.** What changed, what risks remain, what the operator should know — including manual smoke steps if any.
+5. **Update docs and diagrams.** For every `.md` file touched (or whose subject matter changed), check whether any Mermaid diagrams in that file — and in directly related docs (e.g. `architecture.md` when changing the task runtime) — still accurately reflect the change. Update stale diagrams in the same commit as the code change, not as a follow-up.
+6. **Verify.** Run the relevant ladder from [`verification.md`](verification.md). State exactly what was run.
+7. **Summarize.** What changed, what risks remain, what the operator should know — including manual smoke steps if any.
 
 ## When to ask clarifying questions
 
