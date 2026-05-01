@@ -249,4 +249,4 @@ See [CONTRIBUTING.md](CONTRIBUTING.md). If you work with an AI assistant, start 
 
 MIT. See [LICENSE](LICENSE).
 
-Third-party data and software notices live in [NOTICE.md](NOTICE.md), including LiteLLM pricing-data attribution.
+Third-party data notices live in [NOTICE.md](NOTICE.md), including LiteLLM pricing-data attribution.

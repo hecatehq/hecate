@@ -1,7 +1,7 @@
 # Third-Party Notices
 
-Hecate uses third-party data and software released under permissive
-licenses. Their copyright notices and license texts are included below.
+Hecate uses third-party data released under permissive licenses.
+Copyright notices and license texts are included below.
 
 ## LiteLLM model pricing data
 
