@@ -35,7 +35,7 @@ gateway:
    Best-effort static parsing of the command. Violations return a
    `PolicyError` and the command never runs.
 2. **Builds an `exec.Cmd`** for `sh -lc <command>` (or the bwrap /
-   sandbox-exec wrapped equivalent — see [Layer 2](#layer-2--os-level-isolation-automatic-where-available)).
+   sandbox-exec wrapped equivalent — see [Layer 2](#layer-2--os-level-isolation)).
 3. **Sanitises the environment** — explicit allowlist of variables
    the shell command will see; gateway secrets stay out of scope.
 4. **Spawns the subprocess** under the task's wall-clock timeout and
