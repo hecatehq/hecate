@@ -218,45 +218,6 @@ For `agent_loop`-specific knobs (max turns, system-prompt layers, HTTP policy fo
 
 `GET /admin/runtime/stats` also reports queue health fields including queue depth, queue capacity, worker count, and `queue_backend`.
 
-`GET /admin/semantic-cache` returns configuration and a live entry count for the semantic cache:
-
-```json
-{
-  "object": "semantic_cache_status",
-  "data": {
-    "checked_at": "2026-04-29T01:00:00.123Z",
-    "configured": true,
-    "enabled": true,
-    "backend": "memory",
-    "entries": 42,
-    "max_entries": 10000,
-    "default_ttl_sec": 86400,
-    "min_similarity": 0.92,
-    "max_text_chars": 8000
-  }
-}
-```
-
-`configured: false` when the semantic cache is not wired (disabled in config). All numeric fields are zero in that case. See [`semantic-cache.md`](semantic-cache.md) for configuration details.
-
-`GET /admin/semantic-cache/entries?limit=<n>&offset=<n>` lists cached entries newest-first with simple limit/offset pagination (default `limit=50`, max `500`):
-
-```json
-{
-  "object": "semantic_cache_entries",
-  "data": [
-    {
-      "namespace": "model:gpt-4o-mini|provider:openai",
-      "text_snippet": "user: Explain Go channels and goroutines.",
-      "stored_at": "2026-04-29T01:00:00Z",
-      "expires_at": "2026-04-30T01:00:00Z"
-    }
-  ]
-}
-```
-
-`text_snippet` is truncated to 200 characters. Returns an empty array (not an error) when the cache is unconfigured or empty.
-
 `GET /admin/mcp/cache` returns a snapshot of the shared MCP client cache:
 
 ```json

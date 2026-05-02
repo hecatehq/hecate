@@ -8,7 +8,7 @@
 [![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](LICENSE)
 [![OpenTelemetry](https://img.shields.io/badge/OpenTelemetry-enabled-f5a800?logo=opentelemetry&logoColor=white)](https://opentelemetry.io/)
 
-**Hecate is a small app you run on your own computer.** It connects to AI services — cloud ones like OpenAI and Anthropic, and local ones like Ollama — so you can chat with any of them, see how much each one costs you, and let them run small tasks on your machine.
+**Open-source, self-hosted AI gateway and agent-task runtime** — a single control plane for the cloud and local models you use, with built-in policy, spend controls, and first-class OpenTelemetry.
 
 > **Status: public alpha.** Core gateway is usable; agent runtime and sandbox are still evolving. Read [docs/known-limitations.md](docs/known-limitations.md) before depending on it.
 
