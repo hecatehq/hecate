@@ -5,7 +5,9 @@ import (
 	"crypto/rand"
 	"encoding/hex"
 	"log/slog"
+	"net"
 	"net/http"
+	"net/url"
 	"time"
 
 	"go.opentelemetry.io/otel"
@@ -67,6 +69,53 @@ func LoggingMiddleware(logger *slog.Logger) middleware {
 			)
 		})
 	}
+}
+
+// SameOriginMiddleware rejects browser-cross-origin requests with 403.
+// The gateway runs without auth, so the only thing standing between a
+// malicious page open in your browser and `fetch('http://127.0.0.1:8765/v1/...')`
+// is the Origin header check. Requests without an Origin header (curl,
+// SDKs, server-to-server) pass through — only browsers send Origin.
+//
+// Accepts when:
+//   - The Origin host matches the request Host exactly (production: the
+//     embedded UI is served by the gateway, so same-origin trivially).
+//   - The Origin's hostname resolves to a loopback address (dev: a Vite
+//     dev server on http://localhost:5173 proxies to http://127.0.0.1:8765,
+//     so Host and Origin disagree but both ends sit on loopback).
+func SameOriginMiddleware(next http.Handler) http.Handler {
+	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if !sameOriginAllowed(r) {
+			WriteError(w, http.StatusForbidden, "forbidden", "cross-origin browser request rejected")
+			return
+		}
+		next.ServeHTTP(w, r)
+	})
+}
+
+func sameOriginAllowed(r *http.Request) bool {
+	origin := r.Header.Get("Origin")
+	if origin == "" {
+		return true
+	}
+	u, err := url.Parse(origin)
+	if err != nil {
+		return false
+	}
+	if u.Host == r.Host {
+		return true
+	}
+	hostname := u.Hostname()
+	if hostname == "" {
+		return false
+	}
+	if hostname == "localhost" {
+		return true
+	}
+	if ip := net.ParseIP(hostname); ip != nil && ip.IsLoopback() {
+		return true
+	}
+	return false
 }
 
 func RecoveryMiddleware(logger *slog.Logger) middleware {

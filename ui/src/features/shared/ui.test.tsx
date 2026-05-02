@@ -119,7 +119,7 @@ describe("CopyBtn", () => {
 // Shared dialog primitives. The chrome contract — Escape closes, the
 // Close button closes, backdrop click closes, in-content click does NOT
 // close — is the same across all three. A regression here breaks every
-// admin form, every confirm dialog, and the pricebook consent flow.
+// settings form, every confirm dialog, and the pricebook consent flow.
 
 describe("Modal", () => {
   function renderModal(onClose = vi.fn()) {
@@ -307,7 +307,7 @@ describe("ModelPicker", () => {
     const onChange = vi.fn();
     const user = userEvent.setup();
     const disabled = new Map<string, string>([
-      ["anthropic", "Disabled in Admin → Providers"],
+      ["anthropic", "Add an API key for Anthropic on the Providers tab"],
     ]);
     render(
       <ModelPicker

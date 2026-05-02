@@ -70,11 +70,11 @@ func (s *SQLiteStore) CreateTask(ctx context.Context, task types.Task) (types.Ta
 		return types.Task{}, err
 	}
 	_, err = s.db.ExecContext(ctx, fmt.Sprintf(`
-		INSERT INTO %s (id, tenant, status, updated_at, payload)
-		VALUES (?, ?, ?, ?, ?)
+		INSERT INTO %s (id, status, updated_at, payload)
+		VALUES (?, ?, ?, ?)
 		ON CONFLICT (id)
-		DO UPDATE SET tenant = excluded.tenant, status = excluded.status, updated_at = excluded.updated_at, payload = excluded.payload
-	`, s.tasksTable), task.ID, task.Tenant, task.Status, task.UpdatedAt, string(payload))
+		DO UPDATE SET status = excluded.status, updated_at = excluded.updated_at, payload = excluded.payload
+	`, s.tasksTable), task.ID, task.Status, task.UpdatedAt, string(payload))
 	if err != nil {
 		return types.Task{}, err
 	}
@@ -100,10 +100,6 @@ func (s *SQLiteStore) GetTask(ctx context.Context, id string) (types.Task, bool,
 func (s *SQLiteStore) ListTasks(ctx context.Context, filter TaskFilter) ([]types.Task, error) {
 	args := []any{}
 	where := []string{"1=1"}
-	if filter.Tenant != "" {
-		args = append(args, filter.Tenant)
-		where = append(where, "tenant = ?")
-	}
 	if filter.Status != "" {
 		args = append(args, filter.Status)
 		where = append(where, "status = ?")
@@ -720,8 +716,8 @@ func (s *SQLiteStore) migrate(ctx context.Context) error {
 	eventsUnquoted := strings.Trim(s.eventsTable, `"`)
 
 	statements := []string{
-		fmt.Sprintf(`CREATE TABLE IF NOT EXISTS %s (id TEXT PRIMARY KEY, tenant TEXT NOT NULL DEFAULT '', status TEXT NOT NULL DEFAULT '', updated_at TEXT NOT NULL DEFAULT '', payload TEXT NOT NULL)`, s.tasksTable),
-		fmt.Sprintf(`CREATE INDEX IF NOT EXISTS "%s_tenant_status_updated_idx" ON %s (tenant, status, updated_at DESC)`, tasksUnquoted, s.tasksTable),
+		fmt.Sprintf(`CREATE TABLE IF NOT EXISTS %s (id TEXT PRIMARY KEY, status TEXT NOT NULL DEFAULT '', updated_at TEXT NOT NULL DEFAULT '', payload TEXT NOT NULL)`, s.tasksTable),
+		fmt.Sprintf(`CREATE INDEX IF NOT EXISTS "%s_status_updated_idx" ON %s (status, updated_at DESC)`, tasksUnquoted, s.tasksTable),
 		fmt.Sprintf(`CREATE TABLE IF NOT EXISTS %s (id TEXT PRIMARY KEY, task_id TEXT NOT NULL, number INTEGER NOT NULL DEFAULT 0, status TEXT NOT NULL DEFAULT '', started_at TEXT NOT NULL DEFAULT '', payload TEXT NOT NULL)`, s.runsTable),
 		fmt.Sprintf(`CREATE INDEX IF NOT EXISTS "%s_task_number_started_idx" ON %s (task_id, number DESC, started_at DESC)`, runsUnquoted, s.runsTable),
 		fmt.Sprintf(`CREATE INDEX IF NOT EXISTS "%s_status_started_idx" ON %s (status, started_at DESC)`, runsUnquoted, s.runsTable),

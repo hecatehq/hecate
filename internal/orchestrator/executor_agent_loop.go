@@ -353,8 +353,6 @@ func (e *AgentLoopExecutor) Execute(ctx context.Context, spec ExecutionSpec) (*E
 				Messages:  messages,
 				Tools:     tools,
 				Scope: types.RequestScope{
-					Tenant:       spec.Task.Tenant,
-					User:         spec.Task.User,
 					ProviderHint: spec.Run.Provider,
 				},
 			}

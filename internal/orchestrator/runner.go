@@ -1107,20 +1107,6 @@ func (r *Runner) processQueuedRun(claim QueueClaim) {
 		_ = q.Ack(context.Background(), claim.ClaimID)
 		return
 	}
-	allowed, limitErr := r.canStartRunForTenant(context.Background(), task, run.ID)
-	if limitErr != nil {
-		_ = q.Nack(context.Background(), claim.ClaimID, limitErr.Error())
-		return
-	}
-	if !allowed {
-		_, _ = r.emitRunEvent(context.Background(), task.ID, run.ID, "run.throttled_tenant_concurrency", run.RequestID, run.TraceID, map[string]any{
-			"tenant": task.Tenant,
-			"limit":  r.config.MaxConcurrentPerTenant,
-		})
-		_ = q.Nack(context.Background(), claim.ClaimID, "tenant concurrency limit")
-		return
-	}
-
 	requestID := strings.TrimSpace(run.RequestID)
 	if requestID == "" {
 		requestID = defaultResourceID("request")
@@ -1231,40 +1217,6 @@ func (r *Runner) processQueuedRun(claim QueueClaim) {
 	_ = q.Ack(context.Background(), claim.ClaimID)
 }
 
-func (r *Runner) canStartRunForTenant(ctx context.Context, task types.Task, runID string) (bool, error) {
-	if r.config.MaxConcurrentPerTenant <= 0 {
-		return true, nil
-	}
-	tenant := strings.TrimSpace(task.Tenant)
-	if tenant == "" {
-		return true, nil
-	}
-	runs, err := r.store.ListRunsByFilter(ctx, taskstate.RunFilter{
-		Statuses: []string{"running"},
-		Limit:    4000,
-	})
-	if err != nil {
-		return false, err
-	}
-	count := 0
-	for _, item := range runs {
-		if item.ID == runID {
-			continue
-		}
-		candidateTask, found, getErr := r.store.GetTask(ctx, item.TaskID)
-		if getErr != nil || !found {
-			continue
-		}
-		if strings.TrimSpace(candidateTask.Tenant) == tenant {
-			count++
-			if count >= r.config.MaxConcurrentPerTenant {
-				return false, nil
-			}
-		}
-	}
-	return true, nil
-}
-
 func (r *Runner) enqueueRun(taskID, runID string) error {
 	q := r.getQueue()
 	if q == nil {
@@ -1339,7 +1291,7 @@ func (r *Runner) executeRun(ctx context.Context, trace *profiler.Trace, task typ
 	executor := r.executorForTask(task)
 	systemPrompt := ""
 	if r.resolveSysPrompt != nil {
-		systemPrompt = r.resolveSysPrompt(ctx, task.Tenant, task.SystemPrompt, run.WorkspacePath)
+		systemPrompt = r.resolveSysPrompt(ctx, "", task.SystemPrompt, run.WorkspacePath)
 	}
 	execution, err := executor.Execute(ctx, ExecutionSpec{
 		Task:             taskForRun(task, run),
@@ -1843,7 +1795,7 @@ func (r *Runner) createApprovalForTask(ctx context.Context, trace *profiler.Trac
 		Kind:        kind,
 		Status:      "pending",
 		Reason:      reason,
-		RequestedBy: task.User,
+		RequestedBy: "operator",
 		CreatedAt:   createdAt,
 		RequestID:   requestID,
 		TraceID:     trace.TraceID,

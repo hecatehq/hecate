@@ -1,15 +1,14 @@
-import { useEffect, useState } from "react";
+import { useEffect } from "react";
 
-import { AdminView } from "../features/admin/AdminView";
+import { SettingsView } from "../features/settings/SettingsView";
 import { CostsView } from "../features/costs/CostsView";
 import { ObservabilityView } from "../features/overview/ObservabilityView";
 import { ChatView } from "../features/chats/ChatView";
 import { ProvidersView } from "../features/providers/ProvidersView";
 import { TasksView } from "../features/runs/TasksView";
-import { InlineError } from "../features/shared/ui";
 import type { RuntimeConsoleViewModel } from "./useRuntimeConsole";
 
-export type WorkspaceID = "overview" | "runs" | "chats" | "providers" | "costs" | "admin";
+export type WorkspaceID = "overview" | "runs" | "chats" | "providers" | "costs" | "settings";
 
 type WorkspaceDefinition = {
   id: WorkspaceID;
@@ -27,8 +26,10 @@ const IC = {
   chat:    "M8 12h.01M12 12h.01M16 12h.01M21 12c0 4.418-4.03 8-9 8a9.863 9.863 0 01-4.255-.949L3 20l1.395-3.72C3.512 15.042 3 13.574 3 12c0-4.418 4.03-8 9-8s9 3.582 9 8z",
   tasks:   "M9 5H7a2 2 0 00-2 2v12a2 2 0 002 2h10a2 2 0 002-2V7a2 2 0 00-2-2h-2M9 5a2 2 0 002 2h2a2 2 0 002-2M9 5a2 2 0 012-2h2a2 2 0 012 2m-6 9l2 2 4-4",
   providers: ["M5 12h14","M5 12a2 2 0 01-2-2V6a2 2 0 012-2h14a2 2 0 012 2v4a2 2 0 01-2 2M5 12a2 2 0 00-2 2v4a2 2 0 002 2h14a2 2 0 002-2v-4a2 2 0 00-2-2","M9 10h.01","M9 16h.01"],
-  keys:    "M15 7a2 2 0 012 2m4 0a6 6 0 01-7.743 5.743L11 17H9v2H7v2H4a1 1 0 01-1-1v-2.586a1 1 0 01.293-.707l5.964-5.964A6 6 0 1121 9z",
   budgets: "M12 8c-1.657 0-3 .895-3 2s1.343 2 3 2 3 .895 3 2-1.343 2-3 2m0-8c1.11 0 2.08.402 2.599 1M12 8V7m0 1v8m0 0v1m0-1c-1.11 0-2.08-.402-2.599-1M21 12a9 9 0 11-18 0 9 9 0 0118 0z",
+  // Settings — gear/cog. Distinct from any tab/inline icon so the
+  // activity bar's terminal entry reads as configuration at a glance.
+  settings: ["M10.325 4.317c.426-1.756 2.924-1.756 3.35 0a1.724 1.724 0 002.573 1.066c1.543-.94 3.31.826 2.37 2.37a1.724 1.724 0 001.065 2.572c1.756.426 1.756 2.924 0 3.35a1.724 1.724 0 00-1.066 2.573c.94 1.543-.826 3.31-2.37 2.37a1.724 1.724 0 00-2.572 1.065c-.426 1.756-2.924 1.756-3.35 0a1.724 1.724 0 00-2.573-1.066c-1.543.94-3.31-.826-2.37-2.37a1.724 1.724 0 00-1.065-2.572c-1.756-.426-1.756-2.924 0-3.35a1.724 1.724 0 001.066-2.573c-.94-1.543.826-3.31 2.37-2.37.996.608 2.296.07 2.572-1.065z", "M15 12a3 3 0 11-6 0 3 3 0 016 0z"],
   // Stack-of-coins outline. Three stacked ellipses with side rails —
   // visually distinct from IC.budgets (the dollar-circle) so the
   // activity bar doesn't have two near-identical glyphs.
@@ -44,18 +45,8 @@ function SvgIcon({ d, size = 18 }: { d: string | string[]; size?: number }) {
   );
 }
 
-// Workspace order is role-aware. The admin lineup is:
+// Workspace lineup, in order:
 //   Chats (1) · Providers (2) · Tasks (3) · Observability (4) · Costs (5) · Settings (6)
-// Tenants drop Providers and Settings (they don't have CP store access),
-// but keep Costs so they can monitor their own spend:
-//   Chats (1) · Tasks (2) · Observability (3) · Costs (4)
-// Anonymous fallthrough (TokenGate normally blocks this) is just
-// [chats] so the activity bar isn't empty if a session somehow slips
-// through.
-//
-// Note: the workspace id stays "admin" for back-compat with operator
-// localStorage values from earlier builds; only the rendered label
-// changes to "Settings".
 type WorkspaceLineupEntry = Omit<WorkspaceDefinition, "shortcut">;
 const WS: Record<WorkspaceID, WorkspaceLineupEntry> = {
   chats:     { id: "chats",     label: "Chats",         icon: <SvgIcon d={IC.chat} /> },
@@ -63,164 +54,15 @@ const WS: Record<WorkspaceID, WorkspaceLineupEntry> = {
   runs:      { id: "runs",      label: "Tasks",         icon: <SvgIcon d={IC.tasks} /> },
   overview:  { id: "overview",  label: "Observability", icon: <SvgIcon d={IC.observe} /> },
   costs:     { id: "costs",     label: "Costs",         icon: <SvgIcon d={IC.costs} /> },
-  admin:     { id: "admin",     label: "Settings",      icon: <SvgIcon d={IC.keys} /> },
+  settings:  { id: "settings",  label: "Settings",      icon: <SvgIcon d={IC.settings} /> },
 };
 
 const BARE_WORKSPACES: WorkspaceID[] = ["chats", "runs"];
 
-type SessionRole = "anonymous" | "tenant" | "admin";
-
-export function getAvailableWorkspaces(
-  isAdminOrLegacy: boolean | { isAdmin: boolean; isAuthenticated: boolean },
-): WorkspaceDefinition[] {
-  // Back-compat: tests historically passed a single boolean. Map it
-  // to the equivalent role so the new role-aware lineup applies.
-  const role: SessionRole = typeof isAdminOrLegacy === "boolean"
-    ? (isAdminOrLegacy ? "admin" : "tenant")
-    : isAdminOrLegacy.isAdmin
-      ? "admin"
-      : isAdminOrLegacy.isAuthenticated
-        ? "tenant"
-        : "anonymous";
-  let lineup: WorkspaceLineupEntry[];
-  if (role === "admin") {
-    lineup = [WS.chats, WS.providers, WS.runs, WS.overview, WS.costs, WS.admin];
-  } else if (role === "tenant") {
-    lineup = [WS.chats, WS.runs, WS.overview, WS.costs];
-  } else {
-    lineup = [WS.chats];
-  }
-  // Shortcut keys are positional (1..N) — keeps the keyboard contract
-  // the same regardless of which workspaces the role can see.
+export function getAvailableWorkspaces(): WorkspaceDefinition[] {
+  const lineup: WorkspaceLineupEntry[] = [WS.chats, WS.providers, WS.runs, WS.overview, WS.costs, WS.settings];
+  // Shortcut keys are positional (1..N).
   return lineup.map((ws, i) => ({ ...ws, shortcut: String(i + 1) }));
-}
-
-// TokenGate is the first-run / forgotten-token landing screen. The gateway
-// auto-generates an admin bearer token on first start and prints it to the
-// server logs; the operator pastes it here once and we persist it in
-// localStorage. We render this gate whenever no token is set so the rest of
-// the console doesn't 401-spin behind the scenes. Visually it mirrors the
-// rest of the console: same .card, .input, .btn-primary classes, same
-// monospace section labels, and the shared InlineError for the validation
-// message.
-function TokenGate({
-  onSubmit,
-  rejected,
-}: {
-  onSubmit: (token: string) => void;
-  rejected?: boolean;
-}) {
-  const [value, setValue] = useState("");
-  const [error, setError] = useState("");
-  const handleSubmit = (e: React.FormEvent) => {
-    e.preventDefault();
-    const trimmed = value.trim();
-    if (!trimmed) {
-      setError("Paste the token from your gateway logs to continue.");
-      return;
-    }
-    onSubmit(trimmed);
-  };
-  const displayedError =
-    error || (rejected ? "The saved token was rejected by the gateway. Paste a fresh one." : "");
-  return (
-    <div className="hecate-shell" style={{
-      display: "flex",
-      alignItems: "center",
-      justifyContent: "center",
-      padding: 16,
-    }}>
-      <form
-        onSubmit={handleSubmit}
-        className="card"
-        style={{
-          width: "100%",
-          maxWidth: "32rem",
-          padding: 20,
-          display: "flex",
-          flexDirection: "column",
-          gap: 14,
-        }}
-      >
-        <div style={{
-          fontSize: 11,
-          color: "var(--t3)",
-          fontFamily: "var(--font-mono)",
-          letterSpacing: "0.06em",
-          textTransform: "uppercase",
-        }}>
-          Authentication
-        </div>
-
-        <h1 style={{
-          fontSize: 18,
-          fontWeight: 600,
-          color: "var(--t0)",
-          margin: 0,
-          lineHeight: 1.3,
-        }}>
-          Admin token required
-        </h1>
-
-        <p style={{
-          color: "var(--t2)",
-          fontSize: 13,
-          lineHeight: 1.55,
-          margin: 0,
-        }}>
-          The gateway auto-generates an admin bearer token on first start.
-          Find it in the server logs (look for the
-          {" "}<code style={{
-            background: "var(--bg3)",
-            border: "1px solid var(--border)",
-            borderRadius: "var(--radius-sm)",
-            padding: "1px 5px",
-            fontFamily: "var(--font-mono)",
-            fontSize: 12,
-            color: "var(--t1)",
-          }}>Hecate first-run setup</code>{" "}
-          banner) or read it from the bootstrap file. We'll remember it in
-          this browser so you only paste it once.
-        </p>
-
-        <label
-          htmlFor="hecate-admin-token"
-          style={{
-            fontSize: 11,
-            color: "var(--t3)",
-            fontFamily: "var(--font-mono)",
-            letterSpacing: "0.06em",
-            textTransform: "uppercase",
-          }}
-        >
-          Admin bearer token
-        </label>
-        <input
-          id="hecate-admin-token"
-          className="input"
-          aria-label="Admin bearer token"
-          autoFocus
-          spellCheck={false}
-          autoComplete="off"
-          type="password"
-          value={value}
-          onChange={(e) => { setValue(e.target.value); setError(""); }}
-          placeholder="Paste token here"
-          style={{ fontFamily: "var(--font-mono)" }}
-        />
-
-        {displayedError && <InlineError message={displayedError} />}
-
-        <button
-          type="submit"
-          className="btn btn-primary"
-          style={{ alignSelf: "flex-start" }}
-        >
-          Connect
-        </button>
-      </form>
-    </div>
-  );
 }
 
 export function ConsoleShell({
@@ -234,40 +76,11 @@ export function ConsoleShell({
   state: ConsoleState;
   actions: ConsoleActions;
 }) {
-  // Block the rest of the console behind the token gate when no admin token
-  // is set OR when the saved token was rejected on the most recent attempt.
-  // Two escape hatches:
-  //   * Loopback bootstrap probe — the gateway hands back its admin
-  //     bearer over /v1/bootstrap-token when the request is
-  //     same-origin and from a loopback client. We wait for that
-  //     probe to resolve before deciding whether to render the gate,
-  //     otherwise localhost installs flash TokenGate for a frame.
-  //   * auth_disabled mode — the gateway accepts unauthenticated
-  //     requests, so an empty bearer is the intended state and we
-  //     route straight to the workspace.
-  if (!state.authToken) {
-    if (!state.bootstrapAttempted) {
-      return <AuthLoadingShell />;
-    }
-    if (state.health === null && !state.error) {
-      return <AuthLoadingShell />;
-    }
-    if (!state.session.authDisabled) {
-      return <TokenGate onSubmit={actions.setAuthToken} />;
-    }
-  } else {
-    // While the very first dashboard load is in flight we don't yet know if
-    // the saved token is valid. Render a quiet placeholder instead of
-    // flashing the workspace with stale state — once /healthz returns, the
-    // session check below routes to TokenGate(rejected) or the workspace.
-    // `state.health` stays populated across subsequent reloads, so this
-    // splash only shows on the very first load after a refresh.
-    if (state.health === null && !state.error) {
-      return <AuthLoadingShell />;
-    }
-    if (state.session.kind === "invalid") {
-      return <TokenGate onSubmit={actions.setAuthToken} rejected />;
-    }
+  // No auth: render the full console immediately. The brief
+  // first-load splash stays so the workspace doesn't flash with
+  // stale state before /healthz returns.
+  if (state.health === null && !state.error) {
+    return <AuthLoadingShell />;
   }
   return (
     <AuthenticatedShell
@@ -316,10 +129,7 @@ function AuthenticatedShell({
   state: ConsoleState;
   actions: ConsoleActions;
 }) {
-  const workspaces = getAvailableWorkspaces({
-    isAdmin: state.session.isAdmin,
-    isAuthenticated: state.session.isAuthenticated,
-  });
+  const workspaces = getAvailableWorkspaces();
 
   useEffect(() => {
     const handler = (e: KeyboardEvent) => {
@@ -340,7 +150,7 @@ function AuthenticatedShell({
         {/* Activity bar */}
         <nav className="hecate-activitybar" aria-label="Workspace navigation">
           {workspaces.map(ws => {
-            const noProviders = ws.id === "chats" && (state.adminConfig?.providers?.length ?? 0) === 0;
+            const noProviders = ws.id === "chats" && (state.controlPlaneConfig?.providers?.length ?? 0) === 0;
             return (
               <button key={ws.id}
                 aria-label={`${ws.label} (${ws.shortcut})`}
@@ -363,7 +173,7 @@ function AuthenticatedShell({
           <div className={`console-content${isBare ? " console-content--bare" : ""}`}>
             {activeWorkspace === "overview"   && <ObservabilityView actions={actions} state={state} onNavigate={onSelectWorkspace} />}
             {activeWorkspace === "chats" && (
-              (state.adminConfig?.providers?.length ?? 0) === 0 ? (
+              (state.controlPlaneConfig?.providers?.length ?? 0) === 0 ? (
                 <div style={{ display: "flex", flexDirection: "column", alignItems: "center", justifyContent: "center", height: "100%", gap: 8 }}>
                   <div style={{ fontSize: 14, color: "var(--t1)", fontWeight: 500 }}>No providers configured</div>
                   <div style={{ fontSize: 12, color: "var(--t3)" }}>Add a provider to start chatting</div>
@@ -375,10 +185,10 @@ function AuthenticatedShell({
                 <ChatView actions={actions} state={state} />
               )
             )}
-            {activeWorkspace === "runs"          && <TasksView authToken={state.authToken} session={state.session} />}
+            {activeWorkspace === "runs"          && <TasksView />}
             {activeWorkspace === "providers"     && <ProvidersView actions={actions} state={state} />}
             {activeWorkspace === "costs"         && <CostsView actions={actions} state={state} />}
-            {activeWorkspace === "admin" && state.session.isAdmin && <AdminView actions={actions} state={state} />}
+            {activeWorkspace === "settings" && <SettingsView actions={actions} state={state} />}
           </div>
         </main>
       </div>
@@ -399,11 +209,11 @@ function AuthenticatedShell({
             "models" is intersected with the configured set so the count
             reflects models the operator can actually route to from the
             chat picker — env-only models would inflate the number
-            without being selectable. Tenant sessions (no adminConfig)
+            without being selectable. Tenant sessions (no controlPlaneConfig)
             see the unfiltered model list since the runtime is their
             only source of truth. */}
         {(() => {
-          const configured = state.adminConfig?.providers ?? null;
+          const configured = state.controlPlaneConfig?.providers ?? null;
           const configuredCount = configured?.length ?? 0;
           const modelCount = configured
             ? state.models.filter(m => {

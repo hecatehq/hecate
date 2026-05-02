@@ -8,12 +8,8 @@ function setViewportWidth(px: number) {
   Object.defineProperty(window, "innerWidth", { value: px, configurable: true });
 }
 
-const adminSession = {
-  kind: "admin" as const, label: "Admin", role: "admin", isAdmin: true, isAuthenticated: true,
-  capabilities: [], name: "", tenant: "", source: "", keyID: "",
-  allowedProviders: [], allowedModels: [],
-  multiTenant: false, authDisabled: false,
-};
+// Single-user mode: there's only one session label.
+const localSession = { label: "Local" };
 
 const fetchMock = vi.fn<typeof fetch>();
 
@@ -58,7 +54,7 @@ function tracesFetchHandler(traces: unknown[], detail?: unknown) {
 
 describe("ObservabilityView", () => {
   it("renders the header with title, filters, and Live toggle", async () => {
-    const state = createRuntimeConsoleFixture({ session: adminSession });
+    const state = createRuntimeConsoleFixture({ session: localSession });
     let container = null as unknown as HTMLElement;
     await act(async () => {
       const result = render(<ObservabilityView state={state} actions={createRuntimeConsoleActions()} />);
@@ -70,19 +66,8 @@ describe("ObservabilityView", () => {
     expect(container.textContent).toMatch(/Live|Paused/);
   });
 
-  it("does not call admin endpoints for anonymous session", async () => {
-    const state = createRuntimeConsoleFixture(); // anonymous default
-    await act(async () => {
-      render(<ObservabilityView state={state} actions={createRuntimeConsoleActions()} />);
-    });
-    const adminCalls = fetchMock.mock.calls.filter(([url]) =>
-      String(url).startsWith("/admin/")
-    );
-    expect(adminCalls.length).toBe(0);
-  });
-
-  it("calls /admin/runtime/stats and /admin/traces for admin session", async () => {
-    const state = createRuntimeConsoleFixture({ session: adminSession });
+  it("calls /admin/runtime/stats and /admin/traces on mount", async () => {
+    const state = createRuntimeConsoleFixture({ session: localSession });
     await act(async () => {
       render(<ObservabilityView state={state} actions={createRuntimeConsoleActions()} />);
     });
@@ -106,7 +91,7 @@ describe("ObservabilityView", () => {
         status: 200, headers: { "Content-Type": "application/json" },
       });
     });
-    const state = createRuntimeConsoleFixture({ session: adminSession });
+    const state = createRuntimeConsoleFixture({ session: localSession });
     let container = null as unknown as HTMLElement;
     await act(async () => {
       const result = render(<ObservabilityView state={state} actions={createRuntimeConsoleActions()} />);
@@ -130,7 +115,7 @@ describe("ObservabilityView", () => {
         status: 200, headers: { "Content-Type": "application/json" },
       });
     });
-    const state = createRuntimeConsoleFixture({ session: adminSession });
+    const state = createRuntimeConsoleFixture({ session: localSession });
     let container = null as unknown as HTMLElement;
     await act(async () => {
       const result = render(<ObservabilityView state={state} actions={createRuntimeConsoleActions()} />);
@@ -144,7 +129,7 @@ describe("ObservabilityView", () => {
 
   it("renders empty state with Open Chats button when traces is empty", async () => {
     const onNavigate = vi.fn();
-    const state = createRuntimeConsoleFixture({ session: adminSession });
+    const state = createRuntimeConsoleFixture({ session: localSession });
     let container = null as unknown as HTMLElement;
     await act(async () => {
       const result = render(
@@ -181,7 +166,7 @@ describe("ObservabilityView", () => {
         route: { final_provider: "anthropic", final_model: "claude-3" },
       },
     ]));
-    const state = createRuntimeConsoleFixture({ session: adminSession });
+    const state = createRuntimeConsoleFixture({ session: localSession });
     let container = null as unknown as HTMLElement;
     await act(async () => {
       const result = render(<ObservabilityView state={state} actions={createRuntimeConsoleActions()} />);
@@ -203,7 +188,7 @@ describe("ObservabilityView", () => {
       { request_id: "ok-1", started_at: new Date().toISOString(), span_count: 1, duration_ms: 1, status_code: "ok", route: { final_provider: "openai", final_model: "m1" } },
       { request_id: "err-1", started_at: new Date().toISOString(), span_count: 1, duration_ms: 1, status_code: "error", route: { final_provider: "openai", final_model: "m2" } },
     ]));
-    const state = createRuntimeConsoleFixture({ session: adminSession });
+    const state = createRuntimeConsoleFixture({ session: localSession });
     let container = null as unknown as HTMLElement;
     await act(async () => {
       const result = render(<ObservabilityView state={state} actions={createRuntimeConsoleActions()} />);
@@ -239,7 +224,7 @@ describe("ObservabilityView", () => {
         route: { candidates: [] },
       },
     ));
-    const state = createRuntimeConsoleFixture({ session: adminSession });
+    const state = createRuntimeConsoleFixture({ session: localSession });
     let container = null as unknown as HTMLElement;
     await act(async () => {
       const result = render(<ObservabilityView state={state} actions={createRuntimeConsoleActions()} />);
@@ -267,7 +252,7 @@ describe("ObservabilityView", () => {
     fetchMock.mockImplementation(tracesFetchHandler([
       { request_id: "auto-pick", started_at: new Date().toISOString(), span_count: 1, duration_ms: 1, status_code: "ok", route: { final_provider: "openai", final_model: "m" } },
     ]));
-    const state = createRuntimeConsoleFixture({ session: adminSession });
+    const state = createRuntimeConsoleFixture({ session: localSession });
     await act(async () => {
       render(<ObservabilityView state={state} actions={createRuntimeConsoleActions()} />);
     });
@@ -284,7 +269,7 @@ describe("ObservabilityView", () => {
       { request_id: "zero-cost", started_at: new Date().toISOString(), span_count: 1, duration_ms: 1, status_code: "ok", route: { final_provider: "openai", final_model: "m" } },
     ]));
     const state = createRuntimeConsoleFixture({
-      session: adminSession,
+      session: localSession,
       requestLedger: [{
         type: "debit",
         request_id: "zero-cost",
@@ -329,7 +314,7 @@ describe("ObservabilityView", () => {
         route: { candidates: [] },
       },
     ));
-    const state = createRuntimeConsoleFixture({ session: adminSession });
+    const state = createRuntimeConsoleFixture({ session: localSession });
     let container = null as unknown as HTMLElement;
     await act(async () => {
       const result = render(<ObservabilityView state={state} actions={createRuntimeConsoleActions()} />);
@@ -365,7 +350,7 @@ describe("ObservabilityView", () => {
       }],
       { request_id: "req-drawer", started_at: new Date().toISOString(), spans: [], route: { candidates: [] } },
     ));
-    const state = createRuntimeConsoleFixture({ session: adminSession });
+    const state = createRuntimeConsoleFixture({ session: localSession });
     let container = null as unknown as HTMLElement;
     await act(async () => {
       const result = render(<ObservabilityView state={state} actions={createRuntimeConsoleActions()} />);
@@ -398,7 +383,7 @@ describe("ObservabilityView", () => {
       }],
       { request_id: "req-narrow", started_at: new Date().toISOString(), spans: [], route: { candidates: [] } },
     ));
-    const state = createRuntimeConsoleFixture({ session: adminSession });
+    const state = createRuntimeConsoleFixture({ session: localSession });
     let container = null as unknown as HTMLElement;
     await act(async () => {
       const result = render(<ObservabilityView state={state} actions={createRuntimeConsoleActions()} />);
@@ -449,7 +434,7 @@ describe("ObservabilityView", () => {
       }],
       { request_id: "req-spans", started_at: t0.toISOString(), spans, route: { candidates: [] } },
     ));
-    const state = createRuntimeConsoleFixture({ session: adminSession });
+    const state = createRuntimeConsoleFixture({ session: localSession });
     let container = null as unknown as HTMLElement;
     await act(async () => {
       const result = render(<ObservabilityView state={state} actions={createRuntimeConsoleActions()} />);
@@ -506,7 +491,7 @@ describe("ObservabilityView", () => {
       }],
       { request_id: "req-legend", started_at: t0.toISOString(), spans, route: { candidates: [] } },
     ));
-    const state = createRuntimeConsoleFixture({ session: adminSession });
+    const state = createRuntimeConsoleFixture({ session: localSession });
     let container = null as unknown as HTMLElement;
     await act(async () => {
       const result = render(<ObservabilityView state={state} actions={createRuntimeConsoleActions()} />);
@@ -529,7 +514,7 @@ describe("ObservabilityView", () => {
     fetchMock.mockImplementation(tracesFetchHandler([
       { request_id: "missing-ledger", started_at: new Date().toISOString(), span_count: 1, duration_ms: 1, status_code: "ok", route: { final_provider: "openai", final_model: "m" } },
     ]));
-    const state = createRuntimeConsoleFixture({ session: adminSession, requestLedger: [] });
+    const state = createRuntimeConsoleFixture({ session: localSession, requestLedger: [] });
     let container = null as unknown as HTMLElement;
     await act(async () => {
       const result = render(<ObservabilityView state={state} actions={createRuntimeConsoleActions()} />);

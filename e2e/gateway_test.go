@@ -92,15 +92,11 @@ func gatewayServer(t *testing.T, extraEnv ...string) string {
 	addr := fmt.Sprintf("127.0.0.1:%d", port)
 	baseURL := "http://" + addr
 
-	// Pin both bootstrap-managed values via env so the gateway doesn't
-	// generate or persist them. GATEWAY_AUTH_TOKEN supplies the admin
-	// bearer that the existing "Bearer test-token" headers expect.
 	// GATEWAY_DATA_DIR points at a per-test temp dir so any state file the
 	// runtime touches (bootstrap, control plane) lands under the test's
 	// own filesystem and gets cleaned up automatically.
 	env := append(os.Environ(),
 		"GATEWAY_ADDRESS="+addr,
-		"GATEWAY_AUTH_TOKEN=test-token",
 		"GATEWAY_DATA_DIR="+t.TempDir(),
 	)
 	env = append(env, extraEnv...)
@@ -267,9 +263,7 @@ func TestGatewayNoProviderConfiguredReturns502(t *testing.T) {
 	base := gatewayServer(t)
 
 	body := `{"model":"gpt-4o-mini","messages":[{"role":"user","content":"hi"}]}`
-	resp := postJSON(t, base+"/v1/chat/completions", body, map[string]string{
-		"Authorization": "Bearer test-token",
-	})
+	resp := postJSON(t, base+"/v1/chat/completions", body, nil)
 	defer resp.Body.Close()
 	// With no providers registered the router can't route the request; it
 	// returns either 500 or 502 depending on the error path.
@@ -297,9 +291,7 @@ func TestGatewayFakeUpstreamNonStreamingCodex(t *testing.T) {
 	)
 
 	body := `{"model":"gpt-4o-mini","messages":[{"role":"user","content":"hello"}]}`
-	resp := postJSON(t, base+"/v1/chat/completions", body, map[string]string{
-		"Authorization": "Bearer test-token",
-	})
+	resp := postJSON(t, base+"/v1/chat/completions", body, nil)
 	defer resp.Body.Close()
 
 	if resp.StatusCode != http.StatusOK {
@@ -337,9 +329,7 @@ func TestGatewayFakeUpstreamStreamingCodex(t *testing.T) {
 	)
 
 	body := `{"model":"gpt-4o-mini","stream":true,"messages":[{"role":"user","content":"hello"}]}`
-	resp := postJSON(t, base+"/v1/chat/completions", body, map[string]string{
-		"Authorization": "Bearer test-token",
-	})
+	resp := postJSON(t, base+"/v1/chat/completions", body, nil)
 
 	if resp.StatusCode != http.StatusOK {
 		body := readBody(t, resp)
@@ -380,7 +370,6 @@ func TestGatewayFakeUpstreamClaudeCode(t *testing.T) {
 
 	body := `{"model":"claude-sonnet-4-20250514","max_tokens":128,"messages":[{"role":"user","content":"hello"}]}`
 	resp := postJSON(t, base+"/v1/messages", body, map[string]string{
-		"x-api-key":         "test-token",
 		"anthropic-version": "2023-06-01",
 	})
 	defer resp.Body.Close()
@@ -442,9 +431,7 @@ func TestGatewayMultimodalCodexImageURLPassthrough(t *testing.T) {
 			{"type":"image_url","image_url":{"url":"https://example.com/cat.png","detail":"high"}}
 		]}]
 	}`
-	resp := postJSON(t, base+"/v1/chat/completions", body, map[string]string{
-		"Authorization": "Bearer test-token",
-	})
+	resp := postJSON(t, base+"/v1/chat/completions", body, nil)
 	defer resp.Body.Close()
 	if resp.StatusCode != http.StatusOK {
 		t.Fatalf("expected 200, got %d — body: %s", resp.StatusCode, readBody(t, resp))
@@ -514,9 +501,7 @@ func TestGatewayMultimodalAnthropicImageURLTranslation(t *testing.T) {
 			{"type":"image_url","image_url":{"url":"https://example.com/cat.png"}}
 		]}]
 	}`
-	resp := postJSON(t, base+"/v1/chat/completions", body, map[string]string{
-		"Authorization": "Bearer test-token",
-	})
+	resp := postJSON(t, base+"/v1/chat/completions", body, nil)
 	defer resp.Body.Close()
 	if resp.StatusCode != http.StatusOK {
 		t.Fatalf("expected 200, got %d — body: %s", resp.StatusCode, readBody(t, resp))
@@ -575,9 +560,7 @@ func TestGatewayMultimodalAnthropicDataURITranslation(t *testing.T) {
 			{"type":"image_url","image_url":{"url":"data:image/jpeg;base64,/9j/4AAQ"}}
 		]}]
 	}`
-	resp := postJSON(t, base+"/v1/chat/completions", body, map[string]string{
-		"Authorization": "Bearer test-token",
-	})
+	resp := postJSON(t, base+"/v1/chat/completions", body, nil)
 	defer resp.Body.Close()
 	if resp.StatusCode != http.StatusOK {
 		t.Fatalf("expected 200, got %d — body: %s", resp.StatusCode, readBody(t, resp))
@@ -620,9 +603,7 @@ func TestGatewayRuntimeProviderHeader(t *testing.T) {
 	)
 
 	body := `{"model":"gpt-4o-mini","messages":[{"role":"user","content":"hi"}]}`
-	resp := postJSON(t, base+"/v1/chat/completions", body, map[string]string{
-		"Authorization": "Bearer test-token",
-	})
+	resp := postJSON(t, base+"/v1/chat/completions", body, nil)
 	defer resp.Body.Close()
 
 	if resp.StatusCode != http.StatusOK {
@@ -652,7 +633,6 @@ func TestRealAnthropicClaudeCode(t *testing.T) {
 
 	body := `{"model":"claude-haiku-4-5-20251001","max_tokens":64,"messages":[{"role":"user","content":"Reply with exactly the word: pong"}]}`
 	resp := postJSON(t, base+"/v1/messages", body, map[string]string{
-		"x-api-key":         "test-token",
 		"anthropic-version": "2023-06-01",
 	})
 	defer resp.Body.Close()
@@ -690,7 +670,6 @@ func TestRealAnthropicClaudeCodeStreaming(t *testing.T) {
 
 	body := `{"model":"claude-haiku-4-5-20251001","max_tokens":32,"stream":true,"messages":[{"role":"user","content":"Say hi"}]}`
 	resp := postJSON(t, base+"/v1/messages", body, map[string]string{
-		"x-api-key":         "test-token",
 		"anthropic-version": "2023-06-01",
 	})
 
@@ -734,9 +713,7 @@ func TestRealOpenAICodex(t *testing.T) {
 	)
 
 	body := `{"model":"gpt-4o-mini","messages":[{"role":"user","content":"Reply with exactly the word: pong"}]}`
-	resp := postJSON(t, base+"/v1/chat/completions", body, map[string]string{
-		"Authorization": "Bearer test-token",
-	})
+	resp := postJSON(t, base+"/v1/chat/completions", body, nil)
 	defer resp.Body.Close()
 
 	if resp.StatusCode != http.StatusOK {
@@ -768,9 +745,7 @@ func TestRealOpenAICodexStreaming(t *testing.T) {
 	)
 
 	body := `{"model":"gpt-4o-mini","stream":true,"messages":[{"role":"user","content":"Say hi"}]}`
-	resp := postJSON(t, base+"/v1/chat/completions", body, map[string]string{
-		"Authorization": "Bearer test-token",
-	})
+	resp := postJSON(t, base+"/v1/chat/completions", body, nil)
 
 	if resp.StatusCode != http.StatusOK {
 		t.Fatalf("expected 200, got %d — body: %s", resp.StatusCode, readBody(t, resp))
@@ -803,7 +778,6 @@ func TestGatewayModelsEndpoint(t *testing.T) {
 	if err != nil {
 		t.Fatalf("new request: %v", err)
 	}
-	req.Header.Set("Authorization", "Bearer test-token")
 	resp, err := http.DefaultClient.Do(req)
 	if err != nil {
 		t.Fatalf("GET /v1/models: %v", err)
@@ -835,7 +809,6 @@ func TestGatewayWhoAmI(t *testing.T) {
 	if err != nil {
 		t.Fatalf("new request: %v", err)
 	}
-	req.Header.Set("Authorization", "Bearer test-token")
 	resp, err := http.DefaultClient.Do(req)
 	if err != nil {
 		t.Fatalf("GET /v1/whoami: %v", err)
@@ -871,7 +844,6 @@ func TestGatewayAdminProviderStatus(t *testing.T) {
 	if err != nil {
 		t.Fatalf("new request: %v", err)
 	}
-	req.Header.Set("Authorization", "Bearer test-token")
 	resp, err := http.DefaultClient.Do(req)
 	if err != nil {
 		t.Fatalf("GET /admin/providers: %v", err)
@@ -903,7 +875,6 @@ func TestGatewayAdminRuntimeStats(t *testing.T) {
 	if err != nil {
 		t.Fatalf("new request: %v", err)
 	}
-	req.Header.Set("Authorization", "Bearer test-token")
 	resp, err := http.DefaultClient.Do(req)
 	if err != nil {
 		t.Fatalf("GET /admin/runtime/stats: %v", err)
@@ -963,9 +934,7 @@ func TestGatewayInvalidJSONBodyReturns400(t *testing.T) {
 	t.Parallel()
 	base := gatewayServer(t)
 
-	resp := postJSON(t, base+"/v1/chat/completions", `{not valid json`, map[string]string{
-		"Authorization": "Bearer test-token",
-	})
+	resp := postJSON(t, base+"/v1/chat/completions", `{not valid json`, nil)
 	defer resp.Body.Close()
 
 	if resp.StatusCode != http.StatusBadRequest {
@@ -1000,9 +969,7 @@ func TestGatewayRateLimitHeaders(t *testing.T) {
 	)
 
 	body := `{"model":"gpt-4o-mini","messages":[{"role":"user","content":"hi"}]}`
-	resp := postJSON(t, base+"/v1/chat/completions", body, map[string]string{
-		"Authorization": "Bearer test-token",
-	})
+	resp := postJSON(t, base+"/v1/chat/completions", body, nil)
 	defer resp.Body.Close()
 
 	if resp.StatusCode != http.StatusOK {
@@ -1037,7 +1004,6 @@ func TestGatewayFakeUpstreamStreamingClaudeCode(t *testing.T) {
 
 	body := `{"model":"claude-sonnet-4-20250514","max_tokens":128,"stream":true,"messages":[{"role":"user","content":"hello"}]}`
 	resp := postJSON(t, base+"/v1/messages", body, map[string]string{
-		"x-api-key":         "test-token",
 		"anthropic-version": "2023-06-01",
 	})
 
@@ -1164,18 +1130,18 @@ func fakeOpenAIServer(t *testing.T, path, body string, streaming bool) string {
 }
 
 // TestBootstrapAutoGenerationDefaultPath proves the no-env-overrides
-// first-run path: with neither GATEWAY_AUTH_TOKEN nor GATEWAY_DATA_DIR
-// set, the gateway must
+// first-run path: with no GATEWAY_DATA_DIR override, the gateway must
 //   - create `.data/hecate.bootstrap.json` (the new default location)
 //     under its working directory, mode 0600,
 //   - persist a base64 control-plane secret + hex admin token in there,
-//   - accept that admin token on /v1/models while still 401-ing
-//     anonymous requests,
+//   - accept anonymous and bearer-token /v1/models calls (single-user
+//     mode is no-auth; the bootstrap token is preserved for forward
+//     compat with installs that later flip auth back on),
 //   - reuse the same file (and therefore the same token) on a second
 //     start so persisted credentials survive restarts.
 //
-// The standard gatewayServer() helper pins both env vars, so this is the
-// only test that exercises the auto-generation default-path code in the
+// The standard gatewayServer() helper pins GATEWAY_DATA_DIR, so this is
+// the only test that exercises the auto-generation default-path code in
 // binary-only suite. The Docker smoke covers the same contract through
 // the `/data` volume; this is the cheap counterpart.
 func TestBootstrapAutoGenerationDefaultPath(t *testing.T) {
@@ -1240,7 +1206,11 @@ func TestBootstrapAutoGenerationDefaultPath(t *testing.T) {
 		t.Fatalf("control_plane_secret_key decoded length = %d, want 32 bytes", len(decoded))
 	}
 
-	// The generated token must authenticate /v1/models; anonymous still 401s.
+	// Single-user mode: anonymous /v1/models 200s. The bootstrap token
+	// is still generated (so operators who later flip on auth get a
+	// stable token from the same file) but the gateway no longer
+	// enforces it. Authed call must also 200 — the shim ignores
+	// whatever token the client sends.
 	req, _ := http.NewRequest(http.MethodGet, "http://"+addr1+"/v1/models", nil)
 	req.Header.Set("Authorization", "Bearer "+boot.AdminToken)
 	resp, err := http.DefaultClient.Do(req)
@@ -1256,8 +1226,8 @@ func TestBootstrapAutoGenerationDefaultPath(t *testing.T) {
 		t.Fatalf("GET /v1/models anonymous: %v", err)
 	}
 	resp.Body.Close()
-	if resp.StatusCode != http.StatusUnauthorized {
-		t.Fatalf("GET /v1/models anonymous = %d, want 401", resp.StatusCode)
+	if resp.StatusCode != http.StatusOK {
+		t.Fatalf("GET /v1/models anonymous = %d, want 200 (single-user mode is no-auth)", resp.StatusCode)
 	}
 
 	if err := cmd1.Process.Kill(); err != nil {

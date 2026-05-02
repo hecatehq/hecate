@@ -82,19 +82,9 @@ The trace endpoint returns:
 - failover history
 - the final provider, model, and route reason
 
-### Tenant-readable mirrors
+### Trace endpoint
 
-When the gateway runs with `GATEWAY_MULTI_TENANT=true`, three observability surfaces also accept tenant bearers under the `/v1/*` prefix:
-
-| Endpoint | Admin equivalent | Notes |
-|---|---|---|
-| `GET /v1/runtime/stats` | `/admin/runtime/stats` | Queue + worker + MCP cache snapshot. |
-| `GET /v1/traces` | `/admin/traces` | Recent traces. Accepts the same `request_id=` / `limit=` query params. |
-| `GET /v1/requests` | `/admin/requests` | Request ledger (per-call usage rows). |
-
-The `/admin/*` variants stay admin-only for back-compat. Tenant scoping by `key_id` is queued — the trace and ledger schemas don't carry the tenant identity column yet, so for now tenant bearers see the same dataset the admin equivalent returns. Track [`tenants.md`](tenants.md) for the schema follow-up.
-
-The Observability workspace in the operator UI uses these mirrors when an authenticated tenant signs in.
+The trace UI fetches `GET /v1/traces` (with optional `request_id=` for a single trace, or `limit=` for the recent list). The `/admin/traces` route remains for parity with the rest of the admin surface.
 
 ![Observability workspace — request ledger, run-state cards, and span tree](screenshots/observe.png)
 

@@ -14,7 +14,6 @@ import (
 	"time"
 
 	"github.com/hecate/agent-runtime/internal/config"
-	"github.com/hecate/agent-runtime/internal/requestscope"
 	"github.com/hecate/agent-runtime/pkg/types"
 )
 
@@ -436,7 +435,6 @@ func (p *OpenAICompatibleProvider) chatUpstream(ctx context.Context, req types.C
 		Temperature:       req.Temperature,
 		TopP:              req.TopP,
 		Stop:              append([]string(nil), req.StopSequences...),
-		User:              requestscope.Normalize(req.Scope).User,
 		ToolChoice:        req.ToolChoice,
 		ResponseFormat:    req.ResponseFormat,
 		Seed:              req.Seed,
@@ -590,7 +588,6 @@ func (p *OpenAICompatibleProvider) ChatStream(ctx context.Context, req types.Cha
 		Temperature:       req.Temperature,
 		TopP:              req.TopP,
 		Stop:              append([]string(nil), req.StopSequences...),
-		User:              requestscope.Normalize(req.Scope).User,
 		ToolChoice:        req.ToolChoice,
 		ResponseFormat:    req.ResponseFormat,
 		Seed:              req.Seed,

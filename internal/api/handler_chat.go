@@ -9,7 +9,6 @@ import (
 	"strconv"
 	"strings"
 
-	"github.com/hecate/agent-runtime/internal/auth"
 	"github.com/hecate/agent-runtime/internal/gateway"
 	"github.com/hecate/agent-runtime/internal/providers"
 	"github.com/hecate/agent-runtime/internal/requestscope"
@@ -18,21 +17,17 @@ import (
 )
 
 func (h *Handler) HandleChatCompletions(w http.ResponseWriter, r *http.Request) {
-	principal, ok := h.requireAny(w, r)
-	if !ok {
+	if !h.checkRateLimit(w, "") {
 		return
 	}
-	if !h.checkRateLimit(w, principal.KeyID) {
-		return
-	}
-	ctx := h.contextWithPrincipal(r.Context(), principal)
+	ctx := r.Context()
 
 	var wireReq OpenAIChatCompletionRequest
 	if !decodeJSON(w, r, &wireReq) {
 		return
 	}
 
-	internalReq, err := normalizeChatRequest(wireReq, RequestIDFromContext(ctx), principal)
+	internalReq, err := normalizeChatRequest(wireReq, RequestIDFromContext(ctx))
 	if err != nil {
 		WriteError(w, http.StatusForbidden, errCodeForbidden, err.Error())
 		return
@@ -81,19 +76,8 @@ func (h *Handler) HandleChatCompletions(w http.ResponseWriter, r *http.Request) 
 	w.Header().Set("X-Runtime-Requested-Model-Canonical", result.Metadata.CanonicalRequestedModel)
 	w.Header().Set("X-Runtime-Model", result.Metadata.Model)
 	w.Header().Set("X-Runtime-Model-Canonical", result.Metadata.CanonicalResolvedModel)
-	w.Header().Set("X-Runtime-Cache", strconv.FormatBool(result.Metadata.CacheHit))
-	w.Header().Set("X-Runtime-Cache-Type", result.Metadata.CacheType)
 	w.Header().Set("X-Trace-Id", result.Metadata.TraceID)
 	w.Header().Set("X-Span-Id", result.Metadata.SpanID)
-	if result.Metadata.SemanticStrategy != "" {
-		w.Header().Set("X-Runtime-Semantic-Strategy", result.Metadata.SemanticStrategy)
-	}
-	if result.Metadata.SemanticIndexType != "" {
-		w.Header().Set("X-Runtime-Semantic-Index", result.Metadata.SemanticIndexType)
-	}
-	if result.Metadata.SemanticSimilarity > 0 {
-		w.Header().Set("X-Runtime-Semantic-Similarity", fmt.Sprintf("%.6f", result.Metadata.SemanticSimilarity))
-	}
 	w.Header().Set("X-Runtime-Attempts", strconv.Itoa(result.Metadata.AttemptCount))
 	w.Header().Set("X-Runtime-Retries", strconv.Itoa(result.Metadata.RetryCount))
 	if result.Metadata.FallbackFromProvider != "" {
@@ -220,7 +204,7 @@ func (h *Handler) applySessionSystemPrompt(ctx context.Context, req *types.ChatR
 	req.Messages = append([]types.Message{prompt}, req.Messages...)
 }
 
-func normalizeChatRequest(req OpenAIChatCompletionRequest, requestID string, principal auth.Principal) (types.ChatRequest, error) {
+func normalizeChatRequest(req OpenAIChatCompletionRequest, requestID string) (types.ChatRequest, error) {
 	messages := make([]types.Message, 0, len(req.Messages))
 	for _, msg := range req.Messages {
 		// Content can be a plain string OR an array of content
@@ -276,15 +260,7 @@ func normalizeChatRequest(req OpenAIChatCompletionRequest, requestID string, pri
 		})
 	}
 
-	tenant := req.User
-	if principal.Tenant != "" {
-		if req.User != "" && req.User != principal.Tenant {
-			return types.ChatRequest{}, fmt.Errorf("api key is bound to tenant %q and cannot act as %q", principal.Tenant, req.User)
-		}
-		tenant = principal.Tenant
-	}
-
-	scope := requestscope.Build(principal, tenant, req.Provider)
+	scope := requestscope.Build(req.Provider)
 
 	return types.ChatRequest{
 		RequestID:         requestID,
@@ -492,23 +468,6 @@ func openAIInboundBlocksToContentBlocks(blocks []OpenAIContentBlock) []types.Con
 		}
 	}
 	return out
-}
-
-func modelAllowedForPrincipal(principal auth.Principal, provider, model string) bool {
-	if principal.IsAdmin() {
-		return true
-	}
-	if len(principal.AllowedProviders) > 0 {
-		if !contains(principal.AllowedProviders, provider) {
-			return false
-		}
-	}
-	if len(principal.AllowedModels) > 0 {
-		if !contains(principal.AllowedModels, model) {
-			return false
-		}
-	}
-	return true
 }
 
 func contains(items []string, target string) bool {

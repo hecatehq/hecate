@@ -111,32 +111,17 @@ func TestDockerSmokeImageBootsAndAuthenticates(t *testing.T) {
 		t.Fatalf("admin_token empty in bootstrap.json; raw: %s", bootstrapJSON)
 	}
 
-	// Without the token, /v1/models must 401. This proves auth is on by
-	// default in the image (i.e. we successfully removed single-user-admin
-	// mode at the Dockerfile level too).
+	// Single-user mode: anonymous /v1/models must 200. The bootstrap
+	// admin token still gets generated (so installs that later flip
+	// auth back on get a stable token from the same file) but the
+	// gateway no longer enforces it.
 	resp, err := http.Get(baseURL + "/v1/models") //nolint:noctx
 	if err != nil {
-		t.Fatalf("GET /v1/models without token: %v", err)
+		t.Fatalf("GET /v1/models: %v", err)
 	}
 	resp.Body.Close()
-	if resp.StatusCode != http.StatusUnauthorized {
-		t.Errorf("GET /v1/models without token = %d, want 401", resp.StatusCode)
-	}
-
-	// With the token, it must 200. Round-trips the value retrieved from
-	// the volume — the same flow the operator follows.
-	req, err := http.NewRequestWithContext(ctx, http.MethodGet, baseURL+"/v1/models", nil)
-	if err != nil {
-		t.Fatalf("build authed request: %v", err)
-	}
-	req.Header.Set("Authorization", "Bearer "+boot.AdminToken)
-	authedResp, err := http.DefaultClient.Do(req)
-	if err != nil {
-		t.Fatalf("GET /v1/models with token: %v", err)
-	}
-	authedResp.Body.Close()
-	if authedResp.StatusCode != http.StatusOK {
-		t.Errorf("GET /v1/models with token = %d, want 200", authedResp.StatusCode)
+	if resp.StatusCode != http.StatusOK {
+		t.Errorf("GET /v1/models = %d, want 200 (single-user mode is no-auth)", resp.StatusCode)
 	}
 }
 

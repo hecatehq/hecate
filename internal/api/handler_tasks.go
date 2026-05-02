@@ -14,7 +14,6 @@ import (
 	"strings"
 	"time"
 
-	"github.com/hecate/agent-runtime/internal/auth"
 	"github.com/hecate/agent-runtime/internal/orchestrator"
 	"github.com/hecate/agent-runtime/internal/secrets"
 	"github.com/hecate/agent-runtime/internal/taskstate"
@@ -23,8 +22,8 @@ import (
 )
 
 // HandleCreateTask gates on requireAny rather than requireAdmin: tasks are
-// scoped to the principal that submits them (admin or tenant) and the
-// runtime enforces tenant scoping on every read/update via the principal
+// owned by the local operator (single-user mode); the runtime enforces
+// no tenant scoping —
 // in context. An admin-only gate would force operators to share the
 // admin bearer with every CI/agent invocation just to queue work, which
 // defeats per-key auditing.
@@ -33,11 +32,7 @@ import (
 // retry) reuse the same gate; /v1/mcp/probe inherits it because probing
 // runs the same arbitrary command a task would.
 func (h *Handler) HandleCreateTask(w http.ResponseWriter, r *http.Request) {
-	principal, ok := h.requireAny(w, r)
-	if !ok {
-		return
-	}
-	ctx := h.contextWithPrincipal(r.Context(), principal)
+	ctx := r.Context()
 	if h.taskStore == nil {
 		WriteError(w, http.StatusBadRequest, errCodeInvalidRequest, "task store is not configured")
 		return
@@ -92,8 +87,6 @@ func (h *Handler) HandleCreateTask(w http.ResponseWriter, r *http.Request) {
 		Title:              title,
 		Prompt:             prompt,
 		SystemPrompt:       strings.TrimSpace(req.SystemPrompt),
-		Tenant:             principal.Tenant,
-		User:               principal.Name,
 		Repo:               strings.TrimSpace(req.Repo),
 		BaseBranch:         strings.TrimSpace(req.BaseBranch),
 		WorkspaceMode:      workspaceMode,
@@ -166,11 +159,7 @@ func applyExecutionProfileDefaults(req *CreateTaskRequest) {
 }
 
 func (h *Handler) HandleTasks(w http.ResponseWriter, r *http.Request) {
-	principal, ok := h.requireAny(w, r)
-	if !ok {
-		return
-	}
-	ctx := h.contextWithPrincipal(r.Context(), principal)
+	ctx := r.Context()
 	if h.taskStore == nil {
 		WriteError(w, http.StatusBadRequest, errCodeInvalidRequest, "task store is not configured")
 		return
@@ -193,12 +182,6 @@ func (h *Handler) HandleTasks(w http.ResponseWriter, r *http.Request) {
 		Status: strings.TrimSpace(r.URL.Query().Get("status")),
 		Limit:  limit,
 	}
-	if principal.IsAdmin() {
-		filter.Tenant = strings.TrimSpace(r.URL.Query().Get("tenant"))
-	} else {
-		filter.Tenant = principal.Tenant
-	}
-
 	result, err := h.taskStore.ListTasks(ctx, filter)
 	if err != nil {
 		telemetry.Error(h.logger, ctx, "gateway.tasks.list.failed",
@@ -211,9 +194,6 @@ func (h *Handler) HandleTasks(w http.ResponseWriter, r *http.Request) {
 
 	items := make([]TaskItem, 0, len(result))
 	for _, task := range result {
-		if !principal.IsAdmin() && principal.Tenant != "" && task.Tenant != principal.Tenant {
-			continue
-		}
 		items = append(items, buildTaskItem(ctx, h.taskStore, task))
 	}
 	WriteJSON(w, http.StatusOK, TasksResponse{
@@ -223,11 +203,7 @@ func (h *Handler) HandleTasks(w http.ResponseWriter, r *http.Request) {
 }
 
 func (h *Handler) HandleTask(w http.ResponseWriter, r *http.Request) {
-	principal, ok := h.requireAny(w, r)
-	if !ok {
-		return
-	}
-	ctx := h.contextWithPrincipal(r.Context(), principal)
+	ctx := r.Context()
 	if h.taskStore == nil {
 		WriteError(w, http.StatusBadRequest, errCodeInvalidRequest, "task store is not configured")
 		return
@@ -252,11 +228,6 @@ func (h *Handler) HandleTask(w http.ResponseWriter, r *http.Request) {
 		WriteError(w, http.StatusNotFound, errCodeNotFound, "task not found")
 		return
 	}
-	if !principal.IsAdmin() && principal.Tenant != "" && task.Tenant != principal.Tenant {
-		WriteError(w, http.StatusForbidden, errCodeForbidden, "task is outside the active tenant scope")
-		return
-	}
-
 	WriteJSON(w, http.StatusOK, TaskResponse{
 		Object: "task",
 		Data:   buildTaskItem(ctx, h.taskStore, task),
@@ -264,11 +235,7 @@ func (h *Handler) HandleTask(w http.ResponseWriter, r *http.Request) {
 }
 
 func (h *Handler) HandleDeleteTask(w http.ResponseWriter, r *http.Request) {
-	principal, ok := h.requireAny(w, r)
-	if !ok {
-		return
-	}
-	ctx := h.contextWithPrincipal(r.Context(), principal)
+	ctx := r.Context()
 	if h.taskStore == nil {
 		WriteError(w, http.StatusBadRequest, errCodeInvalidRequest, "task store is not configured")
 		return
@@ -287,10 +254,6 @@ func (h *Handler) HandleDeleteTask(w http.ResponseWriter, r *http.Request) {
 	}
 	if !found {
 		WriteError(w, http.StatusNotFound, errCodeNotFound, "task not found")
-		return
-	}
-	if !principal.IsAdmin() && principal.Tenant != "" && task.Tenant != principal.Tenant {
-		WriteError(w, http.StatusForbidden, errCodeForbidden, "task is outside the active tenant scope")
 		return
 	}
 	if task.Status == "running" {
@@ -312,11 +275,7 @@ func (h *Handler) HandleDeleteTask(w http.ResponseWriter, r *http.Request) {
 }
 
 func (h *Handler) HandleStartTask(w http.ResponseWriter, r *http.Request) {
-	principal, ok := h.requireAny(w, r)
-	if !ok {
-		return
-	}
-	ctx := h.contextWithPrincipal(r.Context(), principal)
+	ctx := r.Context()
 	if h.taskStore == nil {
 		WriteError(w, http.StatusBadRequest, errCodeInvalidRequest, "task store is not configured")
 		return
@@ -326,7 +285,7 @@ func (h *Handler) HandleStartTask(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	task, ok := h.loadAuthorizedTask(ctx, w, r, principal)
+	task, ok := h.loadAuthorizedTask(ctx, w, r)
 	if !ok {
 		return
 	}
@@ -367,16 +326,12 @@ func taskHasActiveRun(task types.Task) bool {
 }
 
 func (h *Handler) HandleTaskApprovals(w http.ResponseWriter, r *http.Request) {
-	principal, ok := h.requireAny(w, r)
-	if !ok {
-		return
-	}
-	ctx := h.contextWithPrincipal(r.Context(), principal)
+	ctx := r.Context()
 	if h.taskStore == nil {
 		WriteError(w, http.StatusBadRequest, errCodeInvalidRequest, "task store is not configured")
 		return
 	}
-	task, ok := h.loadAuthorizedTask(ctx, w, r, principal)
+	task, ok := h.loadAuthorizedTask(ctx, w, r)
 	if !ok {
 		return
 	}
@@ -402,16 +357,12 @@ func (h *Handler) HandleTaskApprovals(w http.ResponseWriter, r *http.Request) {
 }
 
 func (h *Handler) HandleTaskApproval(w http.ResponseWriter, r *http.Request) {
-	principal, ok := h.requireAny(w, r)
-	if !ok {
-		return
-	}
-	ctx := h.contextWithPrincipal(r.Context(), principal)
+	ctx := r.Context()
 	if h.taskStore == nil {
 		WriteError(w, http.StatusBadRequest, errCodeInvalidRequest, "task store is not configured")
 		return
 	}
-	task, ok := h.loadAuthorizedTask(ctx, w, r, principal)
+	task, ok := h.loadAuthorizedTask(ctx, w, r)
 	if !ok {
 		return
 	}
@@ -442,11 +393,7 @@ func (h *Handler) HandleTaskApproval(w http.ResponseWriter, r *http.Request) {
 }
 
 func (h *Handler) HandleResolveTaskApproval(w http.ResponseWriter, r *http.Request) {
-	principal, ok := h.requireAny(w, r)
-	if !ok {
-		return
-	}
-	ctx := h.contextWithPrincipal(r.Context(), principal)
+	ctx := r.Context()
 	if h.taskStore == nil {
 		WriteError(w, http.StatusBadRequest, errCodeInvalidRequest, "task store is not configured")
 		return
@@ -455,7 +402,7 @@ func (h *Handler) HandleResolveTaskApproval(w http.ResponseWriter, r *http.Reque
 		WriteError(w, http.StatusBadRequest, errCodeInvalidRequest, "task runner is not configured")
 		return
 	}
-	task, ok := h.loadAuthorizedTask(ctx, w, r, principal)
+	task, ok := h.loadAuthorizedTask(ctx, w, r)
 	if !ok {
 		return
 	}
@@ -496,7 +443,7 @@ func (h *Handler) HandleResolveTaskApproval(w http.ResponseWriter, r *http.Reque
 	now := time.Now().UTC()
 	approval.Status = decision
 	approval.ResolutionNote = strings.TrimSpace(req.Note)
-	approval.ResolvedBy = principal.Name
+	approval.ResolvedBy = "operator"
 	approval.ResolvedAt = now
 	approval, err = h.taskStore.UpdateApproval(ctx, approval)
 	if err != nil {
@@ -560,16 +507,12 @@ func (h *Handler) HandleResolveTaskApproval(w http.ResponseWriter, r *http.Reque
 }
 
 func (h *Handler) HandleTaskRuns(w http.ResponseWriter, r *http.Request) {
-	principal, ok := h.requireAny(w, r)
-	if !ok {
-		return
-	}
-	ctx := h.contextWithPrincipal(r.Context(), principal)
+	ctx := r.Context()
 	if h.taskStore == nil {
 		WriteError(w, http.StatusBadRequest, errCodeInvalidRequest, "task store is not configured")
 		return
 	}
-	task, ok := h.loadAuthorizedTask(ctx, w, r, principal)
+	task, ok := h.loadAuthorizedTask(ctx, w, r)
 	if !ok {
 		return
 	}
@@ -595,16 +538,12 @@ func (h *Handler) HandleTaskRuns(w http.ResponseWriter, r *http.Request) {
 }
 
 func (h *Handler) HandleTaskRun(w http.ResponseWriter, r *http.Request) {
-	principal, ok := h.requireAny(w, r)
-	if !ok {
-		return
-	}
-	ctx := h.contextWithPrincipal(r.Context(), principal)
+	ctx := r.Context()
 	if h.taskStore == nil {
 		WriteError(w, http.StatusBadRequest, errCodeInvalidRequest, "task store is not configured")
 		return
 	}
-	task, ok := h.loadAuthorizedTask(ctx, w, r, principal)
+	task, ok := h.loadAuthorizedTask(ctx, w, r)
 	if !ok {
 		return
 	}
@@ -620,11 +559,7 @@ func (h *Handler) HandleTaskRun(w http.ResponseWriter, r *http.Request) {
 }
 
 func (h *Handler) HandleTaskRunStream(w http.ResponseWriter, r *http.Request) {
-	principal, ok := h.requireAny(w, r)
-	if !ok {
-		return
-	}
-	ctx := h.contextWithPrincipal(r.Context(), principal)
+	ctx := r.Context()
 	if h.taskStore == nil {
 		WriteError(w, http.StatusBadRequest, errCodeInvalidRequest, "task store is not configured")
 		return
@@ -634,7 +569,7 @@ func (h *Handler) HandleTaskRunStream(w http.ResponseWriter, r *http.Request) {
 		WriteError(w, http.StatusInternalServerError, errCodeGatewayError, "streaming not supported by server")
 		return
 	}
-	task, ok := h.loadAuthorizedTask(ctx, w, r, principal)
+	task, ok := h.loadAuthorizedTask(ctx, w, r)
 	if !ok {
 		return
 	}
@@ -787,11 +722,7 @@ func (h *Handler) HandleTaskRunStream(w http.ResponseWriter, r *http.Request) {
 }
 
 func (h *Handler) HandleCancelTaskRun(w http.ResponseWriter, r *http.Request) {
-	principal, ok := h.requireAny(w, r)
-	if !ok {
-		return
-	}
-	ctx := h.contextWithPrincipal(r.Context(), principal)
+	ctx := r.Context()
 	if h.taskStore == nil {
 		WriteError(w, http.StatusBadRequest, errCodeInvalidRequest, "task store is not configured")
 		return
@@ -800,7 +731,7 @@ func (h *Handler) HandleCancelTaskRun(w http.ResponseWriter, r *http.Request) {
 		WriteError(w, http.StatusBadRequest, errCodeInvalidRequest, "task runner is not configured")
 		return
 	}
-	task, ok := h.loadAuthorizedTask(ctx, w, r, principal)
+	task, ok := h.loadAuthorizedTask(ctx, w, r)
 	if !ok {
 		return
 	}
@@ -828,16 +759,12 @@ func (h *Handler) HandleCancelTaskRun(w http.ResponseWriter, r *http.Request) {
 }
 
 func (h *Handler) HandleTaskRunSteps(w http.ResponseWriter, r *http.Request) {
-	principal, ok := h.requireAny(w, r)
-	if !ok {
-		return
-	}
-	ctx := h.contextWithPrincipal(r.Context(), principal)
+	ctx := r.Context()
 	if h.taskStore == nil {
 		WriteError(w, http.StatusBadRequest, errCodeInvalidRequest, "task store is not configured")
 		return
 	}
-	task, ok := h.loadAuthorizedTask(ctx, w, r, principal)
+	task, ok := h.loadAuthorizedTask(ctx, w, r)
 	if !ok {
 		return
 	}
@@ -867,16 +794,12 @@ func (h *Handler) HandleTaskRunSteps(w http.ResponseWriter, r *http.Request) {
 }
 
 func (h *Handler) HandleTaskRunStep(w http.ResponseWriter, r *http.Request) {
-	principal, ok := h.requireAny(w, r)
-	if !ok {
-		return
-	}
-	ctx := h.contextWithPrincipal(r.Context(), principal)
+	ctx := r.Context()
 	if h.taskStore == nil {
 		WriteError(w, http.StatusBadRequest, errCodeInvalidRequest, "task store is not configured")
 		return
 	}
-	task, ok := h.loadAuthorizedTask(ctx, w, r, principal)
+	task, ok := h.loadAuthorizedTask(ctx, w, r)
 	if !ok {
 		return
 	}
@@ -910,16 +833,12 @@ func (h *Handler) HandleTaskRunStep(w http.ResponseWriter, r *http.Request) {
 }
 
 func (h *Handler) HandleTaskArtifacts(w http.ResponseWriter, r *http.Request) {
-	principal, ok := h.requireAny(w, r)
-	if !ok {
-		return
-	}
-	ctx := h.contextWithPrincipal(r.Context(), principal)
+	ctx := r.Context()
 	if h.taskStore == nil {
 		WriteError(w, http.StatusBadRequest, errCodeInvalidRequest, "task store is not configured")
 		return
 	}
-	task, ok := h.loadAuthorizedTask(ctx, w, r, principal)
+	task, ok := h.loadAuthorizedTask(ctx, w, r)
 	if !ok {
 		return
 	}
@@ -944,16 +863,12 @@ func (h *Handler) HandleTaskArtifacts(w http.ResponseWriter, r *http.Request) {
 }
 
 func (h *Handler) HandleTaskRunArtifacts(w http.ResponseWriter, r *http.Request) {
-	principal, ok := h.requireAny(w, r)
-	if !ok {
-		return
-	}
-	ctx := h.contextWithPrincipal(r.Context(), principal)
+	ctx := r.Context()
 	if h.taskStore == nil {
 		WriteError(w, http.StatusBadRequest, errCodeInvalidRequest, "task store is not configured")
 		return
 	}
-	task, ok := h.loadAuthorizedTask(ctx, w, r, principal)
+	task, ok := h.loadAuthorizedTask(ctx, w, r)
 	if !ok {
 		return
 	}
@@ -983,12 +898,8 @@ func (h *Handler) HandleTaskRunArtifacts(w http.ResponseWriter, r *http.Request)
 }
 
 func (h *Handler) HandleTaskRunArtifact(w http.ResponseWriter, r *http.Request) {
-	principal, ok := h.requireAny(w, r)
-	if !ok {
-		return
-	}
-	ctx := h.contextWithPrincipal(r.Context(), principal)
-	task, ok := h.loadAuthorizedTask(ctx, w, r, principal)
+	ctx := r.Context()
+	task, ok := h.loadAuthorizedTask(ctx, w, r)
 	if !ok {
 		return
 	}
@@ -1017,12 +928,8 @@ func (h *Handler) HandleTaskRunArtifact(w http.ResponseWriter, r *http.Request) 
 }
 
 func (h *Handler) HandleTaskRunEvents(w http.ResponseWriter, r *http.Request) {
-	principal, ok := h.requireAny(w, r)
-	if !ok {
-		return
-	}
-	ctx := h.contextWithPrincipal(r.Context(), principal)
-	task, ok := h.loadAuthorizedTask(ctx, w, r, principal)
+	ctx := r.Context()
+	task, ok := h.loadAuthorizedTask(ctx, w, r)
 	if !ok {
 		return
 	}
@@ -1047,12 +954,8 @@ func (h *Handler) HandleTaskRunEvents(w http.ResponseWriter, r *http.Request) {
 }
 
 func (h *Handler) HandleAppendTaskRunEvent(w http.ResponseWriter, r *http.Request) {
-	principal, ok := h.requireAny(w, r)
-	if !ok {
-		return
-	}
-	ctx := h.contextWithPrincipal(r.Context(), principal)
-	task, ok := h.loadAuthorizedTask(ctx, w, r, principal)
+	ctx := r.Context()
+	task, ok := h.loadAuthorizedTask(ctx, w, r)
 	if !ok {
 		return
 	}
@@ -1108,12 +1011,8 @@ func (h *Handler) HandleAppendTaskRunEvent(w http.ResponseWriter, r *http.Reques
 }
 
 func (h *Handler) HandleRetryTaskRun(w http.ResponseWriter, r *http.Request) {
-	principal, ok := h.requireAny(w, r)
-	if !ok {
-		return
-	}
-	ctx := h.contextWithPrincipal(r.Context(), principal)
-	task, ok := h.loadAuthorizedTask(ctx, w, r, principal)
+	ctx := r.Context()
+	task, ok := h.loadAuthorizedTask(ctx, w, r)
 	if !ok {
 		return
 	}
@@ -1134,12 +1033,8 @@ func (h *Handler) HandleRetryTaskRun(w http.ResponseWriter, r *http.Request) {
 }
 
 func (h *Handler) HandleResumeTaskRun(w http.ResponseWriter, r *http.Request) {
-	principal, ok := h.requireAny(w, r)
-	if !ok {
-		return
-	}
-	ctx := h.contextWithPrincipal(r.Context(), principal)
-	task, ok := h.loadAuthorizedTask(ctx, w, r, principal)
+	ctx := r.Context()
+	task, ok := h.loadAuthorizedTask(ctx, w, r)
 	if !ok {
 		return
 	}
@@ -1193,12 +1088,8 @@ func (h *Handler) HandleResumeTaskRun(w http.ResponseWriter, r *http.Request) {
 // agent_conversation artifact, and the requested turn must lie within
 // the source's completed assistant-turn count.
 func (h *Handler) HandleRetryTaskRunFromTurn(w http.ResponseWriter, r *http.Request) {
-	principal, ok := h.requireAny(w, r)
-	if !ok {
-		return
-	}
-	ctx := h.contextWithPrincipal(r.Context(), principal)
-	task, ok := h.loadAuthorizedTask(ctx, w, r, principal)
+	ctx := r.Context()
+	task, ok := h.loadAuthorizedTask(ctx, w, r)
 	if !ok {
 		return
 	}
@@ -1333,8 +1224,6 @@ func renderTaskItem(task types.Task) TaskItem {
 		Title:              task.Title,
 		Prompt:             task.Prompt,
 		SystemPrompt:       task.SystemPrompt,
-		Tenant:             task.Tenant,
-		User:               task.User,
 		Repo:               task.Repo,
 		BaseBranch:         task.BaseBranch,
 		WorkspaceMode:      task.WorkspaceMode,
@@ -1821,7 +1710,7 @@ func decodeTurnCostFromEventData(data map[string]any) *TaskRunStreamTurnCost {
 	}
 }
 
-func (h *Handler) loadAuthorizedTask(ctx context.Context, w http.ResponseWriter, r *http.Request, principal auth.Principal) (types.Task, bool) {
+func (h *Handler) loadAuthorizedTask(ctx context.Context, w http.ResponseWriter, r *http.Request) (types.Task, bool) {
 	id := strings.TrimSpace(r.PathValue("id"))
 	if id == "" {
 		WriteError(w, http.StatusBadRequest, errCodeInvalidRequest, "task id is required")
@@ -1839,10 +1728,6 @@ func (h *Handler) loadAuthorizedTask(ctx context.Context, w http.ResponseWriter,
 	}
 	if !found {
 		WriteError(w, http.StatusNotFound, errCodeNotFound, "task not found")
-		return types.Task{}, false
-	}
-	if !principal.IsAdmin() && principal.Tenant != "" && task.Tenant != principal.Tenant {
-		WriteError(w, http.StatusForbidden, errCodeForbidden, "task is outside the active tenant scope")
 		return types.Task{}, false
 	}
 	return task, true

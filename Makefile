@@ -133,8 +133,7 @@ verify-alpha: docs-env-check test vet test-race test-docker-smoke ui-test ui-tes
 # :8765 and deletes the data directory (which holds the bootstrap file
 # with the admin token + AES-GCM key) so the next start regenerates
 # fresh secrets. Memory-backed control plane is already wiped on
-# restart; if you've pointed Hecate at postgres or redis, drop those
-# out yourself.
+# restart; SQLite-backed state lives under .data/ and is removed too.
 reset-dev:
 	@pid=$$(lsof -ti:8765 2>/dev/null); \
 	if [ -n "$$pid" ]; then \
@@ -177,12 +176,10 @@ screenshots:
 	  exit $$status
 
 # reset-docker wipes the docker compose stack: stops + removes containers
-# and removes the hecate-data and postgres-data named volumes so the next
-# 'docker compose up' re-bootstraps from scratch.
-# --profile postgres activates the optional Postgres service so its volume
-# is also caught by 'down -v'.
+# and removes the hecate-data named volume so the next 'docker compose up'
+# re-bootstraps from scratch.
 reset-docker:
-	docker compose --profile postgres down -v --remove-orphans
+	docker compose down -v --remove-orphans
 	@echo "Docker stack reset. Next 'docker compose up' regenerates the admin token."
 	@echo "On next page load, the UI auto-detects the rejected stale token and re-prompts."
 

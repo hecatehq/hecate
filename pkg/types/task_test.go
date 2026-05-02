@@ -27,7 +27,6 @@ func TestTaskJSONRoundTrip_MCPServers(t *testing.T) {
 		ID:            "task-mcp-roundtrip",
 		Title:         "MCP round-trip",
 		Prompt:        "exercise every MCP server field",
-		Tenant:        "team-a",
 		Status:        "queued",
 		ExecutionKind: "agent_loop",
 		MCPServers: []MCPServerConfig{

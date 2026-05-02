@@ -21,11 +21,7 @@ import (
 )
 
 func (h *Handler) HandleProviderStatus(w http.ResponseWriter, r *http.Request) {
-	principal, ok := h.requireAdmin(w, r)
-	if !ok {
-		return
-	}
-	ctx := h.contextWithPrincipal(r.Context(), principal)
+	ctx := r.Context()
 
 	result, err := h.service.ProviderStatus(ctx)
 	if err != nil {
@@ -82,11 +78,7 @@ func (h *Handler) HandleProviderStatus(w http.ResponseWriter, r *http.Request) {
 }
 
 func (h *Handler) HandleProviderHealthHistory(w http.ResponseWriter, r *http.Request) {
-	principal, ok := h.requireAdmin(w, r)
-	if !ok {
-		return
-	}
-	ctx := h.contextWithPrincipal(r.Context(), principal)
+	ctx := r.Context()
 
 	limit := h.config.Provider.HistoryLimit
 	if raw := strings.TrimSpace(r.URL.Query().Get("limit")); raw != "" {
@@ -151,25 +143,8 @@ func (h *Handler) HandleProviderHealthHistory(w http.ResponseWriter, r *http.Req
 	})
 }
 
-// HandleTenantRuntimeStats is the tenant-readable counterpart. Runtime
-// stats are queue/worker globals (no per-key dimension), so there's no
-// scoping to apply — any authenticated principal sees the same numbers.
-// The /admin/runtime/stats route stays for back-compat.
-func (h *Handler) HandleTenantRuntimeStats(w http.ResponseWriter, r *http.Request) {
-	principal, ok := h.requireAny(w, r)
-	if !ok {
-		return
-	}
-	ctx := h.contextWithPrincipal(r.Context(), principal)
-	h.writeRuntimeStats(w, ctx)
-}
-
 func (h *Handler) HandleRuntimeStats(w http.ResponseWriter, r *http.Request) {
-	principal, ok := h.requireAdmin(w, r)
-	if !ok {
-		return
-	}
-	ctx := h.contextWithPrincipal(r.Context(), principal)
+	ctx := r.Context()
 	h.writeRuntimeStats(w, ctx)
 }
 
@@ -225,11 +200,7 @@ func (h *Handler) writeRuntimeStats(w http.ResponseWriter, ctx context.Context) 
 // caller. Callers can pass a shorter deadline by setting their own
 // timeout on the HTTP client; we don't extend.
 func (h *Handler) HandleMCPProbe(w http.ResponseWriter, r *http.Request) {
-	principal, ok := h.requireAny(w, r)
-	if !ok {
-		return
-	}
-	ctx := h.contextWithPrincipal(r.Context(), principal)
+	ctx := r.Context()
 
 	var req MCPProbeRequest
 	if !decodeJSON(w, r, &req) {
@@ -332,11 +303,7 @@ func renderMCPProbeTools(tools []mcpclient.NamespacedTool) []MCPProbeToolDescrip
 // bypass the setter); the data block still carries zeros so clients
 // can render a "no cache" cell instead of error-handling a 4xx.
 func (h *Handler) HandleMCPCacheStats(w http.ResponseWriter, r *http.Request) {
-	principal, ok := h.requireAdmin(w, r)
-	if !ok {
-		return
-	}
-	_ = h.contextWithPrincipal(r.Context(), principal) // for parity with other admin handlers; no downstream use yet
+	_ = r.Context() // for parity with other admin handlers; no downstream use yet
 
 	item := MCPCacheStatsResponseItem{
 		CheckedAt:  time.Now().UTC().Format(time.RFC3339Nano),
@@ -354,119 +321,8 @@ func (h *Handler) HandleMCPCacheStats(w http.ResponseWriter, r *http.Request) {
 	})
 }
 
-// HandleSemanticCacheStatus returns configuration and live entry count for the
-// semantic cache. Configured=false when no semantic store is wired (disabled
-// or in-process noop); the data block still carries zeros.
-func (h *Handler) HandleSemanticCacheStatus(w http.ResponseWriter, r *http.Request) {
-	principal, ok := h.requireAdmin(w, r)
-	if !ok {
-		return
-	}
-	ctx := h.contextWithPrincipal(r.Context(), principal)
-
-	cfg := h.config.Cache.Semantic
-	item := SemanticCacheStatusItem{
-		CheckedAt:     time.Now().UTC().Format(time.RFC3339Nano),
-		Configured:    false,
-		Enabled:       cfg.Enabled,
-		Backend:       cfg.Backend,
-		MaxEntries:    cfg.MaxEntries,
-		DefaultTTLSec: cfg.DefaultTTL.Seconds(),
-		MinSimilarity: cfg.MinSimilarity,
-		MaxTextChars:  cfg.MaxTextChars,
-	}
-
-	store, ok2 := h.service.SemanticStore()
-	if ok2 {
-		item.Configured = true
-		count, err := store.Stats(ctx)
-		if err != nil {
-			telemetry.Error(h.logger, ctx, "gateway.semantic_cache.stats.failed",
-				slog.String("event.name", "gateway.semantic_cache.stats.failed"),
-				slog.Any("error", err),
-			)
-		} else {
-			item.Entries = count
-		}
-	}
-
-	WriteJSON(w, http.StatusOK, SemanticCacheStatusResponse{
-		Object: "semantic_cache_status",
-		Data:   item,
-	})
-}
-
-// HandleSemanticCacheEntries lists semantic cache entries with simple
-// limit/offset pagination, newest first.
-func (h *Handler) HandleSemanticCacheEntries(w http.ResponseWriter, r *http.Request) {
-	principal, ok := h.requireAdmin(w, r)
-	if !ok {
-		return
-	}
-	ctx := h.contextWithPrincipal(r.Context(), principal)
-
-	limit := 50
-	if raw := strings.TrimSpace(r.URL.Query().Get("limit")); raw != "" {
-		if parsed, err := strconv.Atoi(raw); err == nil && parsed > 0 {
-			limit = parsed
-		}
-	}
-	if limit > 500 {
-		limit = 500
-	}
-	offset := 0
-	if raw := strings.TrimSpace(r.URL.Query().Get("offset")); raw != "" {
-		if parsed, err := strconv.Atoi(raw); err == nil && parsed >= 0 {
-			offset = parsed
-		}
-	}
-
-	store, configured := h.service.SemanticStore()
-	if !configured {
-		WriteJSON(w, http.StatusOK, SemanticCacheEntriesResponse{
-			Object: "semantic_cache_entries",
-			Data:   []SemanticCacheEntryItem{},
-		})
-		return
-	}
-
-	metas, err := store.List(ctx, limit, offset)
-	if err != nil {
-		telemetry.Error(h.logger, ctx, "gateway.semantic_cache.list.failed",
-			slog.String("event.name", "gateway.semantic_cache.list.failed"),
-			slog.Any("error", err),
-		)
-		WriteError(w, http.StatusInternalServerError, errCodeGatewayError, err.Error())
-		return
-	}
-
-	items := make([]SemanticCacheEntryItem, 0, len(metas))
-	for _, m := range metas {
-		item := SemanticCacheEntryItem{
-			Namespace:   m.Namespace,
-			TextSnippet: m.TextSnippet,
-		}
-		if !m.ExpiresAt.IsZero() {
-			item.ExpiresAt = m.ExpiresAt.UTC().Format(time.RFC3339)
-		}
-		if !m.StoredAt.IsZero() {
-			item.StoredAt = m.StoredAt.UTC().Format(time.RFC3339)
-		}
-		items = append(items, item)
-	}
-
-	WriteJSON(w, http.StatusOK, SemanticCacheEntriesResponse{
-		Object: "semantic_cache_entries",
-		Data:   items,
-	})
-}
-
 func (h *Handler) HandleRetentionRuns(w http.ResponseWriter, r *http.Request) {
-	principal, ok := h.requireAdmin(w, r)
-	if !ok {
-		return
-	}
-	ctx := h.contextWithPrincipal(r.Context(), principal)
+	ctx := r.Context()
 
 	limit := 20
 	if raw := strings.TrimSpace(r.URL.Query().Get("limit")); raw != "" {
@@ -507,11 +363,7 @@ type RetentionRunRequest struct {
 }
 
 func (h *Handler) HandleRetentionRun(w http.ResponseWriter, r *http.Request) {
-	principal, ok := h.requireAdmin(w, r)
-	if !ok {
-		return
-	}
-	ctx := h.contextWithPrincipal(r.Context(), principal)
+	ctx := r.Context()
 
 	var req RetentionRunRequest
 	if r.Body != nil && r.ContentLength != 0 {
@@ -524,7 +376,7 @@ func (h *Handler) HandleRetentionRun(w http.ResponseWriter, r *http.Request) {
 	result, err := h.service.RunRetention(ctx, retention.RunRequest{
 		Trigger:    "manual",
 		Subsystems: req.Subsystems,
-		Actor:      controlPlaneActor(principal, r),
+		Actor:      controlPlaneActor(r),
 		RequestID:  strings.TrimSpace(RequestIDFromContext(r.Context())),
 	})
 	if err != nil {
@@ -542,7 +394,7 @@ func (h *Handler) HandleRetentionRun(w http.ResponseWriter, r *http.Request) {
 			result.Run.StartedAt.UTC().Format(time.RFC3339Nano),
 			result.Run.FinishedAt.UTC().Format(time.RFC3339Nano),
 			result.Run.Trigger,
-			controlPlaneActor(principal, r),
+			controlPlaneActor(r),
 			strings.TrimSpace(RequestIDFromContext(r.Context())),
 			result.Run.Results,
 		),
@@ -550,11 +402,7 @@ func (h *Handler) HandleRetentionRun(w http.ResponseWriter, r *http.Request) {
 }
 
 func (h *Handler) HandleBudgetStatus(w http.ResponseWriter, r *http.Request) {
-	principal, ok := h.requireAdmin(w, r)
-	if !ok {
-		return
-	}
-	ctx := h.contextWithPrincipal(r.Context(), principal)
+	ctx := r.Context()
 
 	result, err := h.service.BudgetStatusWithFilter(ctx, budgetFilterFromRequest(r))
 	if err != nil {
@@ -570,11 +418,7 @@ func (h *Handler) HandleBudgetStatus(w http.ResponseWriter, r *http.Request) {
 }
 
 func (h *Handler) HandleAccountSummary(w http.ResponseWriter, r *http.Request) {
-	principal, ok := h.requireAdmin(w, r)
-	if !ok {
-		return
-	}
-	ctx := h.contextWithPrincipal(r.Context(), principal)
+	ctx := r.Context()
 
 	filter := budgetFilterFromRequest(r)
 	result, err := h.service.AccountSummaryWithFilter(ctx, filter)
@@ -612,26 +456,8 @@ func (h *Handler) HandleAccountSummary(w http.ResponseWriter, r *http.Request) {
 	})
 }
 
-// HandleTenantRequestLedger is the tenant-readable counterpart to
-// HandleRequestLedger. The brief spec says "filter by the calling
-// principal's KeyID/tenant" but BudgetHistoryEntry has no key_id column,
-// so we defer scoping for now and let any authenticated principal read
-// the unscoped ledger. The /admin/requests route stays for back-compat.
-func (h *Handler) HandleTenantRequestLedger(w http.ResponseWriter, r *http.Request) {
-	principal, ok := h.requireAny(w, r)
-	if !ok {
-		return
-	}
-	ctx := h.contextWithPrincipal(r.Context(), principal)
-	h.writeRequestLedger(w, r, ctx)
-}
-
 func (h *Handler) HandleRequestLedger(w http.ResponseWriter, r *http.Request) {
-	principal, ok := h.requireAdmin(w, r)
-	if !ok {
-		return
-	}
-	ctx := h.contextWithPrincipal(r.Context(), principal)
+	ctx := r.Context()
 	h.writeRequestLedger(w, r, ctx)
 }
 
@@ -667,11 +493,7 @@ func (h *Handler) writeRequestLedger(w http.ResponseWriter, r *http.Request, ctx
 }
 
 func (h *Handler) HandleBudgetReset(w http.ResponseWriter, r *http.Request) {
-	principal, ok := h.requireAdmin(w, r)
-	if !ok {
-		return
-	}
-	ctx := h.contextWithPrincipal(r.Context(), principal)
+	ctx := r.Context()
 
 	var resetReq BudgetResetRequest
 	if r.Body != nil && r.ContentLength != 0 {
@@ -691,9 +513,6 @@ func (h *Handler) HandleBudgetReset(w http.ResponseWriter, r *http.Request) {
 	if resetReq.Provider != "" {
 		filter.Provider = resetReq.Provider
 	}
-	if resetReq.Tenant != "" {
-		filter.Tenant = resetReq.Tenant
-	}
 
 	result, err := h.service.ResetBudgetWithFilter(ctx, filter)
 	if err != nil {
@@ -709,11 +528,7 @@ func (h *Handler) HandleBudgetReset(w http.ResponseWriter, r *http.Request) {
 }
 
 func (h *Handler) HandleBudgetTopUp(w http.ResponseWriter, r *http.Request) {
-	principal, ok := h.requireAdmin(w, r)
-	if !ok {
-		return
-	}
-	ctx := h.contextWithPrincipal(r.Context(), principal)
+	ctx := r.Context()
 
 	var topUpReq BudgetTopUpRequest
 	if !decodeJSON(w, r, &topUpReq) {
@@ -724,7 +539,7 @@ func (h *Handler) HandleBudgetTopUp(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	filter := budgetFilterFromMutation(topUpReq.Key, topUpReq.Scope, topUpReq.Provider, topUpReq.Tenant)
+	filter := budgetFilterFromMutation(topUpReq.Key, topUpReq.Scope, topUpReq.Provider)
 	result, err := h.service.TopUpBudgetWithFilter(ctx, filter, topUpReq.AmountMicrosUSD)
 	if err != nil {
 		telemetry.Error(h.logger, ctx, "gateway.budget.top_up.failed",
@@ -739,11 +554,7 @@ func (h *Handler) HandleBudgetTopUp(w http.ResponseWriter, r *http.Request) {
 }
 
 func (h *Handler) HandleBudgetSetLimit(w http.ResponseWriter, r *http.Request) {
-	principal, ok := h.requireAdmin(w, r)
-	if !ok {
-		return
-	}
-	ctx := h.contextWithPrincipal(r.Context(), principal)
+	ctx := r.Context()
 
 	var balanceReq BudgetBalanceRequest
 	if !decodeJSON(w, r, &balanceReq) {
@@ -754,7 +565,7 @@ func (h *Handler) HandleBudgetSetLimit(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	filter := budgetFilterFromMutation(balanceReq.Key, balanceReq.Scope, balanceReq.Provider, balanceReq.Tenant)
+	filter := budgetFilterFromMutation(balanceReq.Key, balanceReq.Scope, balanceReq.Provider)
 	result, err := h.service.SetBudgetBalanceWithFilter(ctx, filter, balanceReq.BalanceMicrosUSD)
 	if err != nil {
 		telemetry.Error(h.logger, ctx, "gateway.budget.limit_set.failed",
@@ -816,7 +627,6 @@ func renderBudgetStatusRecord(status types.BudgetStatus) BudgetStatusResponseIte
 		Key:                status.Key,
 		Scope:              status.Scope,
 		Provider:           status.Provider,
-		Tenant:             status.Tenant,
 		Backend:            status.Backend,
 		BalanceSource:      status.BalanceSource,
 		DebitedMicrosUSD:   status.DebitedMicrosUSD,
@@ -840,7 +650,6 @@ func renderBudgetHistoryRecords(entries []types.BudgetHistoryEntry) []BudgetHist
 			Type:              entry.Type,
 			Scope:             entry.Scope,
 			Provider:          entry.Provider,
-			Tenant:            entry.Tenant,
 			Model:             entry.Model,
 			RequestID:         entry.RequestID,
 			Actor:             entry.Actor,
@@ -865,12 +674,11 @@ func renderBudgetHistoryRecords(entries []types.BudgetHistoryEntry) []BudgetHist
 	return history
 }
 
-func budgetFilterFromMutation(key, scope, provider, tenant string) governor.BudgetFilter {
+func budgetFilterFromMutation(key, scope, provider string) governor.BudgetFilter {
 	return governor.BudgetFilter{
 		Key:      key,
 		Scope:    scope,
 		Provider: provider,
-		Tenant:   tenant,
 	}
 }
 
@@ -880,6 +688,5 @@ func budgetFilterFromRequest(r *http.Request) governor.BudgetFilter {
 		Key:      query.Get("key"),
 		Scope:    query.Get("scope"),
 		Provider: query.Get("provider"),
-		Tenant:   query.Get("tenant"),
 	}
 }

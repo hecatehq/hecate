@@ -6,7 +6,6 @@ import (
 	"log/slog"
 
 	"github.com/hecate/agent-runtime/internal/billing"
-	"github.com/hecate/agent-runtime/internal/cache"
 	"github.com/hecate/agent-runtime/internal/governor"
 	"github.com/hecate/agent-runtime/internal/models"
 	"github.com/hecate/agent-runtime/internal/profiler"
@@ -14,8 +13,10 @@ import (
 	"github.com/hecate/agent-runtime/pkg/types"
 )
 
+// ResponseFinalizer turns a successful provider call into a ChatResult.
+// Every request goes straight through to the upstream; the finalizer
+// records cost, metrics, and logs.
 type ResponseFinalizer interface {
-	FinalizeCache(ctx context.Context, trace *profiler.Trace, req types.ChatRequest, cached *CacheLookupResult) *ChatResult
 	FinalizeExecution(ctx context.Context, trace *profiler.Trace, plan *ExecutionPlan, callResult *providerCallResult) (*ChatResult, error)
 }
 
@@ -38,11 +39,6 @@ func NewDefaultResponseFinalizer(
 		pricebook: pricebook,
 		metrics:   metrics,
 	}
-}
-
-func (f *DefaultResponseFinalizer) FinalizeCache(ctx context.Context, trace *profiler.Trace, req types.ChatRequest, cached *CacheLookupResult) *ChatResult {
-	metadata := f.buildCacheMetadata(req, cached.Response, cached.Route, cached.ProviderKind, cached.CacheType, cached.Semantic, trace)
-	return f.completeResult(ctx, trace, cached.Response, metadata)
 }
 
 func (f *DefaultResponseFinalizer) FinalizeExecution(ctx context.Context, trace *profiler.Trace, plan *ExecutionPlan, callResult *providerCallResult) (*ChatResult, error) {
@@ -108,8 +104,6 @@ func (f *DefaultResponseFinalizer) FinalizeExecution(ctx context.Context, trace 
 		CanonicalRequestedModel: identity.CanonicalRequested,
 		Model:                   identity.Resolved,
 		CanonicalResolvedModel:  identity.CanonicalResolved,
-		CacheHit:                false,
-		CacheType:               "miss",
 		PromptTokens:            resp.Usage.PromptTokens,
 		CompletionTokens:        resp.Usage.CompletionTokens,
 		TotalTokens:             resp.Usage.TotalTokens,
@@ -124,34 +118,6 @@ func (f *DefaultResponseFinalizer) FinalizeExecution(ctx context.Context, trace 
 	return f.completeResult(ctx, trace, resp, metadata), nil
 }
 
-func (f *DefaultResponseFinalizer) buildCacheMetadata(req types.ChatRequest, resp *types.ChatResponse, route types.RouteDecision, providerKind, cacheType string, semantic *cache.SemanticMatch, trace *profiler.Trace) ResponseMetadata {
-	identity := models.BuildIdentity(req.Model, resp.Model)
-	metadata := ResponseMetadata{
-		RequestID:               req.RequestID,
-		Provider:                route.Provider,
-		ProviderKind:            providerKind,
-		RouteReason:             route.Reason,
-		RequestedModel:          identity.Requested,
-		CanonicalRequestedModel: identity.CanonicalRequested,
-		Model:                   identity.Resolved,
-		CanonicalResolvedModel:  identity.CanonicalResolved,
-		CacheHit:                true,
-		CacheType:               cacheType,
-		PromptTokens:            resp.Usage.PromptTokens,
-		CompletionTokens:        resp.Usage.CompletionTokens,
-		TotalTokens:             resp.Usage.TotalTokens,
-		CostMicrosUSD:           resp.Cost.TotalMicrosUSD,
-		TraceID:                 trace.TraceID,
-		SpanID:                  trace.RootSpanID(),
-	}
-	if semantic != nil {
-		metadata.SemanticStrategy = semantic.Strategy
-		metadata.SemanticIndexType = semantic.IndexType
-		metadata.SemanticSimilarity = semantic.Similarity
-	}
-	return metadata
-}
-
 func (f *DefaultResponseFinalizer) completeResult(ctx context.Context, trace *profiler.Trace, resp *types.ChatResponse, metadata ResponseMetadata) *ChatResult {
 	if f.metrics != nil {
 		f.metrics.RecordChat(ctx, telemetry.ChatMetricsRecord{
@@ -159,10 +125,6 @@ func (f *DefaultResponseFinalizer) completeResult(ctx context.Context, trace *pr
 			ProviderKind:         metadata.ProviderKind,
 			RequestedModel:       metadata.RequestedModel,
 			ResponseModel:        metadata.Model,
-			CacheHit:             metadata.CacheHit,
-			CacheType:            metadata.CacheType,
-			SemanticStrategy:     metadata.SemanticStrategy,
-			SemanticIndexType:    metadata.SemanticIndexType,
 			CostMicrosUSD:        metadata.CostMicrosUSD,
 			PromptTokens:         int64(metadata.PromptTokens),
 			CompletionTokens:     int64(metadata.CompletionTokens),
@@ -182,11 +144,6 @@ func (f *DefaultResponseFinalizer) completeResult(ctx context.Context, trace *pr
 		slog.String(telemetry.AttrHecateModelRequestedCanonical, metadata.CanonicalRequestedModel),
 		slog.String(telemetry.AttrGenAIResponseModel, metadata.Model),
 		slog.String(telemetry.AttrHecateModelResolvedCanonical, metadata.CanonicalResolvedModel),
-		slog.Bool(telemetry.AttrHecateCacheHit, metadata.CacheHit),
-		slog.String(telemetry.AttrHecateCacheType, metadata.CacheType),
-		slog.String(telemetry.AttrHecateSemanticStrategy, metadata.SemanticStrategy),
-		slog.String(telemetry.AttrHecateSemanticIndexType, metadata.SemanticIndexType),
-		slog.Float64(telemetry.AttrHecateSemanticSimilarity, metadata.SemanticSimilarity),
 		slog.Int(telemetry.AttrGenAIUsageInputTokens, metadata.PromptTokens),
 		slog.Int(telemetry.AttrGenAIUsageOutputTokens, metadata.CompletionTokens),
 		slog.Int(telemetry.AttrGenAIUsageTotalTokens, metadata.TotalTokens),

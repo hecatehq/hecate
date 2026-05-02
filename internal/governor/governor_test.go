@@ -53,47 +53,6 @@ func TestStaticGovernorBudgetTracking(t *testing.T) {
 	}
 }
 
-func TestStaticGovernorBudgetTrackingByTenantProvider(t *testing.T) {
-	t.Parallel()
-
-	store := NewMemoryBudgetStore()
-	gov := NewStaticGovernor(config.GovernorConfig{
-		MaxTotalBudgetMicros: 100,
-		BudgetKey:            "global",
-		BudgetScope:          "tenant_provider",
-		BudgetTenantFallback: "anonymous",
-	}, store, store)
-
-	req := types.ChatRequest{
-		Scope: types.RequestScope{
-			User: "team-a",
-		},
-	}
-	decision := types.RouteDecision{Provider: "openai", Model: "gpt-4o-mini"}
-
-	if err := gov.CheckRoute(context.Background(), req, decision, "cloud", 60); err != nil {
-		t.Fatalf("CheckRoute() unexpected error = %v", err)
-	}
-	if err := gov.RecordUsage(context.Background(), req, decision, types.Usage{PromptTokens: 8, CompletionTokens: 2, TotalTokens: 10}, 60); err != nil {
-		t.Fatalf("RecordUsage() error = %v", err)
-	}
-
-	status, err := gov.BudgetStatus(context.Background(), BudgetFilter{
-		Scope:    "tenant_provider",
-		Provider: "openai",
-		Tenant:   "team-a",
-	})
-	if err != nil {
-		t.Fatalf("BudgetStatus() error = %v", err)
-	}
-	if status.Key != "global:tenant:team-a:provider:openai" {
-		t.Fatalf("status key = %q, want tenant/provider segmented key", status.Key)
-	}
-	if status.BalanceMicrosUSD != 40 {
-		t.Fatalf("balance_micros_usd = %d, want 40", status.BalanceMicrosUSD)
-	}
-}
-
 func TestStaticGovernorBudgetTopUpOverridesConfigLimit(t *testing.T) {
 	t.Parallel()
 
@@ -152,9 +111,7 @@ func TestStaticGovernorBudgetWarningsAndHistory(t *testing.T) {
 
 	req := types.ChatRequest{
 		RequestID: "req_123",
-		Scope: types.RequestScope{
-			Tenant: "team-a",
-		},
+		Scope:     types.RequestScope{},
 	}
 	decision := types.RouteDecision{Provider: "openai", Model: "gpt-4o-mini"}
 
@@ -203,7 +160,6 @@ func TestStaticGovernorRequestPolicyRewrite(t *testing.T) {
 			{
 				ID:             "tenant-default-downgrade",
 				Action:         "rewrite_model",
-				Tenants:        []string{"team-a"},
 				Models:         []string{"gpt-4o"},
 				RewriteModelTo: "gpt-4o-mini",
 			},
@@ -212,9 +168,7 @@ func TestStaticGovernorRequestPolicyRewrite(t *testing.T) {
 
 	rewritten := gov.Rewrite(types.ChatRequest{
 		Model: "gpt-4o",
-		Scope: types.RequestScope{
-			Tenant: "team-a",
-		},
+		Scope: types.RequestScope{},
 	})
 	if rewritten.Model != "gpt-4o-mini" {
 		t.Fatalf("rewritten model = %q, want gpt-4o-mini", rewritten.Model)
@@ -229,7 +183,6 @@ func TestStaticGovernorRewriteResultIncludesPolicyMetadata(t *testing.T) {
 			{
 				ID:             "tenant-default-downgrade",
 				Action:         "rewrite_model",
-				Tenants:        []string{"team-a"},
 				Models:         []string{"gpt-4o"},
 				Reason:         "tenant default downgrade",
 				RewriteModelTo: "gpt-4o-mini",
@@ -239,9 +192,7 @@ func TestStaticGovernorRewriteResultIncludesPolicyMetadata(t *testing.T) {
 
 	result := gov.RewriteResult(types.ChatRequest{
 		Model: "gpt-4o",
-		Scope: types.RequestScope{
-			Tenant: "team-a",
-		},
+		Scope: types.RequestScope{},
 	})
 	if !result.Applied {
 		t.Fatal("Applied = false, want true")
@@ -257,46 +208,6 @@ func TestStaticGovernorRewriteResultIncludesPolicyMetadata(t *testing.T) {
 	}
 	if result.PolicyReason != "tenant default downgrade" {
 		t.Fatalf("policy reason = %q, want tenant default downgrade", result.PolicyReason)
-	}
-}
-
-func TestStaticGovernorRoutePolicyDenyByTenantAndProviderKind(t *testing.T) {
-	t.Parallel()
-
-	gov := NewStaticGovernor(config.GovernorConfig{
-		PolicyRules: []config.PolicyRuleConfig{
-			{
-				ID:                     "team-a-cloud-spillover-cap",
-				Action:                 "deny",
-				Reason:                 "team-a cannot use expensive cloud spillover",
-				Tenants:                []string{"team-a"},
-				ProviderKinds:          []string{"cloud"},
-				MinEstimatedCostMicros: 100,
-			},
-		},
-	}, NewMemoryBudgetStore(), NewMemoryBudgetStore())
-
-	err := gov.CheckRoute(context.Background(), types.ChatRequest{
-		Scope: types.RequestScope{
-			Tenant: "team-a",
-			Principal: types.PrincipalContext{
-				Role: "tenant",
-			},
-		},
-	}, types.RouteDecision{
-		Provider: "openai",
-		Model:    "gpt-4o-mini",
-		Reason:   "fallback",
-	}, "cloud", 250)
-	if err == nil {
-		t.Fatal("CheckRoute() error = nil, want policy denial")
-	}
-	if err.Error() != "team-a cannot use expensive cloud spillover" {
-		t.Fatalf("error = %q, want policy reason", err.Error())
-	}
-	var policyErr *policy.Error
-	if !errors.As(err, &policyErr) {
-		t.Fatalf("error = %T, want *policy.Error", err)
 	}
 }
 
@@ -362,7 +273,6 @@ func TestControlPlaneGovernorReflectsLivePolicyUpdatesAndKeepsConfiguredRules(t 
 			{
 				ID:             "tenant-default-downgrade",
 				Action:         "rewrite_model",
-				Tenants:        []string{"team-a"},
 				Models:         []string{"gpt-4o"},
 				RewriteModelTo: "gpt-4o-mini",
 			},
@@ -371,9 +281,7 @@ func TestControlPlaneGovernorReflectsLivePolicyUpdatesAndKeepsConfiguredRules(t 
 
 	req := types.ChatRequest{
 		Model: "gpt-4o",
-		Scope: types.RequestScope{
-			Tenant: "team-a",
-		},
+		Scope: types.RequestScope{},
 	}
 	rewritten := gov.Rewrite(req)
 	if rewritten.Model != "gpt-4o-mini" {
@@ -529,53 +437,3 @@ func TestStaticGovernor_RecordUsageNoLostUpdatesUnderConcurrency(t *testing.T) {
 // wire `User` field. Defends against a regression that reads tenant from
 // the wire payload — letting a key bound to "team-a" silently debit
 // "team-b"'s budget by passing user="team-b" in the request.
-func TestStaticGovernor_TenantImpersonationDebitsBoundTenant(t *testing.T) {
-	t.Parallel()
-	store := NewMemoryBudgetStore()
-	gov := NewStaticGovernor(config.GovernorConfig{
-		BudgetKey:            "global",
-		BudgetScope:          "tenant",
-		BudgetTenantFallback: "anonymous",
-	}, store, store)
-	ctx := context.Background()
-
-	// Seed both accounts so RecordUsage doesn't take the
-	// "no budget configured → skip debit" early-return branch.
-	if err := gov.TopUpBudget(ctx, BudgetFilter{Scope: "tenant", Tenant: "team-a"}, 1_000); err != nil {
-		t.Fatalf("seed team-a: %v", err)
-	}
-	if err := gov.TopUpBudget(ctx, BudgetFilter{Scope: "tenant", Tenant: "team-b"}, 1_000); err != nil {
-		t.Fatalf("seed team-b: %v", err)
-	}
-
-	// Request scope claims User=team-b (the wire tenant), but the
-	// principal is bound to team-a. The handler-level tenant check
-	// would reject this in production; here we exercise the budget
-	// path directly to prove that even if a malformed request slipped
-	// through, the resolved budget key uses Tenant (which the handler
-	// sets from principal.Tenant), not User.
-	req := types.ChatRequest{
-		Scope: types.RequestScope{
-			Tenant: "team-a", // set by the handler from principal.Tenant
-			User:   "team-b", // wire user — must NOT win
-			Principal: types.PrincipalContext{
-				Tenant: "team-a",
-			},
-		},
-	}
-	decision := types.RouteDecision{Provider: "openai", Model: "gpt-4o-mini"}
-
-	if err := gov.RecordUsage(ctx, req, decision, types.Usage{TotalTokens: 1}, 100); err != nil {
-		t.Fatalf("RecordUsage: %v", err)
-	}
-
-	statusA, _ := gov.BudgetStatus(ctx, BudgetFilter{Scope: "tenant", Tenant: "team-a"})
-	if statusA.DebitedMicrosUSD != 100 {
-		t.Errorf("team-a debited = %d, want 100 (the principal-bound tenant)", statusA.DebitedMicrosUSD)
-	}
-
-	statusB, _ := gov.BudgetStatus(ctx, BudgetFilter{Scope: "tenant", Tenant: "team-b"})
-	if statusB.DebitedMicrosUSD != 0 {
-		t.Errorf("team-b debited = %d, want 0 (tenant impersonation must not leak)", statusB.DebitedMicrosUSD)
-	}
-}

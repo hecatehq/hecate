@@ -238,10 +238,8 @@ export function ChatView({ state, actions }: Props) {
               // Source the picker from the operator's configured providers
               // (the CP store), not the runtime status list. Health is not
               // a filter — a temporarily-down provider is still a valid
-              // selection. Tenant-key sessions (no adminConfig) fall back
-              // to the runtime list which is the only thing they can see.
-              const allowed = state.session.allowedProviders;
-              const configured = state.adminConfig?.providers ?? [];
+              // selection.
+              const configured = state.controlPlaneConfig?.providers ?? [];
               const source = configured.length > 0
                 ? configured.map(c => ({ id: c.id, name: c.name, kind: c.kind }))
                 : state.providers
@@ -249,9 +247,8 @@ export function ChatView({ state, actions }: Props) {
                     .map(p => ({ id: p.name, name: p.name, kind: state.providerPresets.find(pr => pr.id === p.name)?.kind }));
 
               return source
-                .filter(p => allowed.length === 0 || allowed.includes(p.id))
                 .map(p => {
-                  const cfg = state.adminConfig?.providers.find(c => c.id === p.id);
+                  const cfg = state.controlPlaneConfig?.providers.find(c => c.id === p.id);
                   // Cloud-with-no-credentials is the only "disabled"
                   // reason left now that the toggle is gone — we
                   // surface it as a tooltip + key icon rather than
@@ -276,13 +273,10 @@ export function ChatView({ state, actions }: Props) {
             // Scope the model list to providers the operator has explicitly
             // configured. The /v1/models endpoint may return models from
             // env-driven providers too (e.g. Docker's PROVIDER_*_BASE_URL
-            // pre-filled vars), but those aren't in adminConfig.providers
-            // and shouldn't be selectable from the chat picker. Tenant-key
-            // sessions (no adminConfig) keep the unfiltered list — the CP
-            // catalog is admin-only and they have nothing better to fall
-            // back on.
+            // pre-filled vars), but those aren't in controlPlaneConfig.providers
+            // and shouldn't be selectable from the chat picker.
             models={(() => {
-              const configuredIDs = state.adminConfig?.providers;
+              const configuredIDs = state.controlPlaneConfig?.providers;
               if (!configuredIDs || configuredIDs.length === 0) return state.providerScopedModels;
               const ids = new Set(configuredIDs.map(c => c.id));
               return state.providerScopedModels.filter(m => {
@@ -303,7 +297,7 @@ export function ChatView({ state, actions }: Props) {
             // only "disabled" reason now that the toggle is gone.
             disabledProviders={(() => {
               const out = new Map<string, string>();
-              for (const cfg of state.adminConfig?.providers ?? []) {
+              for (const cfg of state.controlPlaneConfig?.providers ?? []) {
                 if (cfg.kind === "cloud" && !cfg.credential_configured) {
                   out.set(cfg.id, `Add an API key for ${cfg.name || cfg.id} on the Providers tab`);
                 }

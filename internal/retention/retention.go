@@ -16,8 +16,6 @@ const (
 	SubsystemTraces          = "trace_snapshots"
 	SubsystemBudgetEvents    = "budget_events"
 	SubsystemAuditEvents     = "audit_events"
-	SubsystemExactCache      = "exact_cache"
-	SubsystemSemanticCache   = "semantic_cache"
 	SubsystemProviderHistory = "provider_history"
 	// SubsystemTurnEvents prunes the high-cardinality
 	// `agent.turn.completed` rows from the task-run events table.
@@ -114,8 +112,6 @@ func NewManager(
 	traces Pruner,
 	budgets BudgetEventPruner,
 	audit AuditEventPruner,
-	exact Pruner,
-	semantic Pruner,
 	providerHistory Pruner,
 	turnEvents TurnEventPruner,
 	history HistoryStore,
@@ -140,8 +136,6 @@ func NewManager(
 			{SubsystemTraces, cfg.TraceSnapshots, traces},
 			{SubsystemBudgetEvents, cfg.BudgetEvents, budgetsPruner},
 			{SubsystemAuditEvents, cfg.AuditEvents, auditPruner},
-			{SubsystemExactCache, cfg.ExactCache, exact},
-			{SubsystemSemanticCache, cfg.SemanticCache, semantic},
 			{SubsystemProviderHistory, cfg.ProviderHistory, providerHistory},
 			{SubsystemTurnEvents, cfg.TurnEvents, turnEventsPruner},
 		},

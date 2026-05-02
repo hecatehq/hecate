@@ -176,11 +176,11 @@ The `http_request` tool has its own parallel pair (`GATEWAY_TASK_HTTP_*`) — se
   wrapping when active) runs as the same OS user as the gateway and
   shares the host's UID/GID, hostname, PID namespace beyond
   `--unshare-pid` (which we don't enable — it breaks job control),
-  and any non-restricted resources. For genuine adversarial
-  multi-tenant isolation, run the gateway in containers (one per
-  tenant, or one per task) — this is a deployment-time decision, not
-  a sandbox-layer property. seccomp-bpf syscall filtering is also
-  not implemented; tracked at [known-limitations.md](known-limitations.md#task-runtime-and-sandbox).
+  and any non-restricted resources. For genuine adversarial isolation,
+  run the gateway inside a container (one per task) — this is a
+  deployment-time decision, not a sandbox-layer property. seccomp-bpf
+  syscall filtering is also not implemented; tracked at
+  [known-limitations.md](known-limitations.md#task-runtime-and-sandbox).
 - **Linux without `bwrap` runs unwrapped.** Layer 0+1 still apply,
   but filesystem and network confinement reduce to the best-effort
   string match in pre-execution validation. Install `bubblewrap` to

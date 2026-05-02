@@ -25,31 +25,13 @@ export type ModelResponse = {
 export type SessionResponse = {
   object: string;
   data: {
-    authenticated: boolean;
-    invalid_token: boolean;
     role: string;
-    name?: string;
-    tenant?: string;
-    source?: string;
-    key_id?: string;
-    allowed_providers?: string[];
-    allowed_models?: string[];
-    // features mirrors GATEWAY_MULTI_TENANT and GATEWAY_AUTH_DISABLED so
-    // the UI can decide whether to render the multi-tenant tabs and
-    // whether to skip the TokenGate. Both default to false for clients
-    // talking to an older gateway that doesn't yet ship the field.
-    features?: {
-      multi_tenant?: boolean;
-      auth_disabled?: boolean;
-    };
   };
 };
 
 export type ChatSessionSummaryRecord = {
   id: string;
   title: string;
-  tenant?: string;
-  user?: string;
   message_count: number;
   provider_call_count: number;
   created_at?: string;
@@ -119,8 +101,6 @@ export type ChatSessionRecord = {
   id: string;
   title: string;
   system_prompt?: string;
-  tenant?: string;
-  user?: string;
   created_at?: string;
   updated_at?: string;
   messages?: ChatSessionMessageRecord[];
@@ -262,7 +242,6 @@ export type BudgetRecord = {
   key: string;
   scope: string;
   provider?: string;
-  tenant?: string;
   backend: string;
   balance_source: string;
   debited_micros_usd: number;
@@ -285,7 +264,6 @@ export type BudgetRecord = {
     type: string;
     scope?: string;
     provider?: string;
-    tenant?: string;
     model?: string;
     request_id?: string;
     actor?: string;
@@ -399,30 +377,6 @@ export type RuntimeStatsResponse = {
   };
 };
 
-export type ConfiguredTenantRecord = {
-  id: string;
-  name: string;
-  description?: string;
-  allowed_providers?: string[];
-  allowed_models?: string[];
-  enabled: boolean;
-  // Tenant-level layer of the agent_loop system prompt.
-  system_prompt?: string;
-};
-
-export type ConfiguredAPIKeyRecord = {
-  id: string;
-  name: string;
-  tenant?: string;
-  role: string;
-  allowed_providers?: string[];
-  allowed_models?: string[];
-  enabled: boolean;
-  key_preview?: string;
-  created_at?: string;
-  updated_at?: string;
-};
-
 export type ConfiguredProviderRecord = {
   id: string;
   name: string;
@@ -447,8 +401,6 @@ export type ConfiguredPolicyRuleRecord = {
   id: string;
   action: string;
   reason?: string;
-  roles?: string[];
-  tenants?: string[];
   providers?: string[];
   provider_kinds?: string[];
   models?: string[];
@@ -536,8 +488,6 @@ export type ConfiguredStateResponse = {
   object: string;
   data: {
     backend: string;
-    tenants: ConfiguredTenantRecord[];
-    api_keys: ConfiguredAPIKeyRecord[];
     providers: ConfiguredProviderRecord[];
     policy_rules: ConfiguredPolicyRuleRecord[];
     pricebook: ConfiguredPricebookRecord[];
@@ -608,11 +558,8 @@ export type TaskRecord = {
   title: string;
   prompt: string;
   // Per-task agent_loop system prompt — narrowest layer in the
-  // four-level composition (global → tenant → workspace
-  // CLAUDE.md/AGENTS.md → this).
+  // composition (global → workspace CLAUDE.md/AGENTS.md → this).
   system_prompt?: string;
-  tenant?: string;
-  user?: string;
   repo?: string;
   base_branch?: string;
   workspace_mode?: string;

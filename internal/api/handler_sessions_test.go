@@ -1,14 +1,12 @@
 package api
 
 import (
-	"encoding/json"
 	"io"
 	"log/slog"
 	"net/http"
 	"strings"
 	"testing"
 
-	"github.com/hecate/agent-runtime/internal/config"
 	"github.com/hecate/agent-runtime/pkg/types"
 )
 
@@ -87,21 +85,6 @@ func TestHandleChatSessionsRejectsBadOffset(t *testing.T) {
 	}
 }
 
-func TestHandleChatSessionsRequiresAuthWhenConfigured(t *testing.T) {
-	t.Parallel()
-	logger := slog.New(slog.NewJSONHandler(io.Discard, nil))
-	handler := newTestHTTPHandlerWithConfig(logger, &fakeProvider{name: "openai"}, config.Config{
-		Server: config.ServerConfig{AuthToken: "admin-secret"},
-	})
-	client := newAPITestClient(t, handler) // no bearer
-
-	client.mustRequestStatus(http.StatusUnauthorized, http.MethodGet, "/v1/chat/sessions", "")
-}
-
-// TestHandleDeleteChatSessionRemovesFromStore exercises the round-trip:
-// create a session, GET it (200), DELETE (204), GET again (404). Without
-// a 204 the UI's optimistic-removal flow can't tell the operation
-// succeeded; without the GET-then-delete check the test would miss a
 // regression in the soft-vs-hard delete branch.
 func TestHandleDeleteChatSessionRemovesFromStore(t *testing.T) {
 	t.Parallel()
@@ -191,30 +174,5 @@ func TestHandleTracesHonoursLimitClamp(t *testing.T) {
 	rec := client.mustRequest(http.MethodGet, "/admin/traces?limit=999", "")
 	if got := rec.Header().Get("Content-Type"); got != "application/json" {
 		t.Errorf("Content-Type = %q, want application/json", got)
-	}
-}
-
-func TestHandleTracesRequiresAdmin(t *testing.T) {
-	t.Parallel()
-	logger := slog.New(slog.NewJSONHandler(io.Discard, nil))
-	handler := newTestHTTPHandlerWithConfig(logger, &fakeProvider{name: "openai"}, config.Config{
-		Server: config.ServerConfig{AuthToken: "admin-secret"},
-	})
-	anon := newAPITestClient(t, handler)
-	anon.mustRequestStatus(http.StatusUnauthorized, http.MethodGet, "/admin/traces", "")
-
-	// Decode the body to make sure the 401 carries the unauthorized type
-	// (other handlers may return 401 with different envelope codes).
-	rec := anon.mustRequestStatus(http.StatusUnauthorized, http.MethodGet, "/admin/traces", "")
-	var payload struct {
-		Error struct {
-			Type string `json:"type"`
-		} `json:"error"`
-	}
-	if err := json.NewDecoder(rec.Body).Decode(&payload); err != nil {
-		t.Fatalf("decode body: %v", err)
-	}
-	if payload.Error.Type != "unauthorized" {
-		t.Errorf("error.type = %q, want unauthorized", payload.Error.Type)
 	}
 }

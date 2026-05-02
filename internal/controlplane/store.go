@@ -9,38 +9,6 @@ import (
 	"github.com/hecate/agent-runtime/internal/config"
 )
 
-type Tenant struct {
-	ID               string   `json:"id"`
-	Name             string   `json:"name"`
-	Description      string   `json:"description,omitempty"`
-	AllowedProviders []string `json:"allowed_providers,omitempty"`
-	AllowedModels    []string `json:"allowed_models,omitempty"`
-	Enabled          bool     `json:"enabled"`
-	// SystemPrompt is the tenant-level layer for agent_loop tasks. It
-	// stacks between the global default and per-task / workspace
-	// layers in the composed system prompt. Tenant admins set this
-	// via the admin UI to shape their agents' behavior (e.g. "You
-	// operate inside a financial-services context — never run code
-	// that touches production data without --dry-run.").
-	//
-	// Empty = no tenant-level addition; the global + task + workspace
-	// layers still apply.
-	SystemPrompt string `json:"system_prompt,omitempty"`
-}
-
-type APIKey struct {
-	ID               string    `json:"id"`
-	Name             string    `json:"name"`
-	Key              string    `json:"key"`
-	Tenant           string    `json:"tenant,omitempty"`
-	Role             string    `json:"role"`
-	AllowedProviders []string  `json:"allowed_providers,omitempty"`
-	AllowedModels    []string  `json:"allowed_models,omitempty"`
-	Enabled          bool      `json:"enabled"`
-	CreatedAt        time.Time `json:"created_at,omitempty"`
-	UpdatedAt        time.Time `json:"updated_at,omitempty"`
-}
-
 type Provider struct {
 	ID       string `json:"id"`
 	Name     string `json:"name"`
@@ -82,8 +50,6 @@ type AuditEvent struct {
 }
 
 type State struct {
-	Tenants         []Tenant                  `json:"tenants"`
-	APIKeys         []APIKey                  `json:"api_keys"`
 	Providers       []Provider                `json:"providers,omitempty"`
 	ProviderSecrets []ProviderSecret          `json:"provider_secrets,omitempty"`
 	PolicyRules     []config.PolicyRuleConfig `json:"policy_rules,omitempty"`
@@ -94,13 +60,6 @@ type State struct {
 type Store interface {
 	Backend() string
 	Snapshot(ctx context.Context) (State, error)
-	UpsertTenant(ctx context.Context, tenant Tenant) (Tenant, error)
-	UpsertAPIKey(ctx context.Context, key APIKey) (APIKey, error)
-	SetTenantEnabled(ctx context.Context, id string, enabled bool) (Tenant, error)
-	DeleteTenant(ctx context.Context, id string) error
-	SetAPIKeyEnabled(ctx context.Context, id string, enabled bool) (APIKey, error)
-	RotateAPIKey(ctx context.Context, id, secret string) (APIKey, error)
-	DeleteAPIKey(ctx context.Context, id string) error
 	UpsertProvider(ctx context.Context, provider Provider, secret *ProviderSecret) (Provider, error)
 	RotateProviderSecret(ctx context.Context, id string, secret ProviderSecret) (Provider, error)
 	DeleteProviderCredential(ctx context.Context, id string) (Provider, error)
@@ -126,38 +85,11 @@ func WithActor(ctx context.Context, actor string) context.Context {
 
 func cloneState(state State) State {
 	out := State{
-		Tenants:         make([]Tenant, 0, len(state.Tenants)),
-		APIKeys:         make([]APIKey, 0, len(state.APIKeys)),
 		Providers:       make([]Provider, 0, len(state.Providers)),
 		ProviderSecrets: make([]ProviderSecret, 0, len(state.ProviderSecrets)),
 		PolicyRules:     make([]config.PolicyRuleConfig, 0, len(state.PolicyRules)),
 		Pricebook:       make([]config.ModelPriceConfig, 0, len(state.Pricebook)),
 		Events:          make([]AuditEvent, 0, len(state.Events)),
-	}
-	for _, tenant := range state.Tenants {
-		out.Tenants = append(out.Tenants, Tenant{
-			ID:               tenant.ID,
-			Name:             tenant.Name,
-			Description:      tenant.Description,
-			AllowedProviders: append([]string(nil), tenant.AllowedProviders...),
-			AllowedModels:    append([]string(nil), tenant.AllowedModels...),
-			Enabled:          tenant.Enabled,
-			SystemPrompt:     tenant.SystemPrompt,
-		})
-	}
-	for _, key := range state.APIKeys {
-		out.APIKeys = append(out.APIKeys, APIKey{
-			ID:               key.ID,
-			Name:             key.Name,
-			Key:              key.Key,
-			Tenant:           key.Tenant,
-			Role:             key.Role,
-			AllowedProviders: append([]string(nil), key.AllowedProviders...),
-			AllowedModels:    append([]string(nil), key.AllowedModels...),
-			Enabled:          key.Enabled,
-			CreatedAt:        key.CreatedAt,
-			UpdatedAt:        key.UpdatedAt,
-		})
 	}
 	for _, provider := range state.Providers {
 		out.Providers = append(out.Providers, Provider{
@@ -284,39 +216,10 @@ func canonicalID(id, name string) string {
 	return strings.Trim(b.String(), "-")
 }
 
-func tenantExists(tenants []Tenant, id string) bool {
-	for _, tenant := range tenants {
-		if tenant.ID == id {
-			return true
-		}
-	}
-	return false
-}
-
-func tenantIndex(tenants []Tenant, id string) int {
-	for i := range tenants {
-		if tenants[i].ID == id {
-			return i
-		}
-	}
-	return -1
-}
-
-func apiKeyIndex(keys []APIKey, id string) int {
-	for i := range keys {
-		if keys[i].ID == id {
-			return i
-		}
-	}
-	return -1
-}
-
 func normalizePolicyRule(rule config.PolicyRuleConfig) (config.PolicyRuleConfig, error) {
 	rule.ID = strings.TrimSpace(rule.ID)
 	rule.Action = strings.TrimSpace(rule.Action)
 	rule.Reason = strings.TrimSpace(rule.Reason)
-	rule.Roles = normalizeStringList(rule.Roles)
-	rule.Tenants = normalizeStringList(rule.Tenants)
 	rule.Providers = normalizeStringList(rule.Providers)
 	rule.ProviderKinds = normalizeStringList(rule.ProviderKinds)
 	rule.Models = normalizeStringList(rule.Models)
@@ -414,20 +317,9 @@ func normalizeStringList(values []string) []string {
 }
 
 func clonePolicyRule(rule config.PolicyRuleConfig) config.PolicyRuleConfig {
-	rule.Roles = append([]string(nil), rule.Roles...)
-	rule.Tenants = append([]string(nil), rule.Tenants...)
 	rule.Providers = append([]string(nil), rule.Providers...)
 	rule.ProviderKinds = append([]string(nil), rule.ProviderKinds...)
 	rule.Models = append([]string(nil), rule.Models...)
 	rule.RouteReasons = append([]string(nil), rule.RouteReasons...)
 	return rule
-}
-
-func tenantReferencedByAPIKeys(keys []APIKey, tenantID string) bool {
-	for _, key := range keys {
-		if key.Tenant == tenantID {
-			return true
-		}
-	}
-	return false
 }

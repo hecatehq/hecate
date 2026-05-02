@@ -479,7 +479,7 @@ describe("runtime-utils", () => {
     expect(describeBudgetScope(null)).toBe("No scope");
 
     const base: BudgetRecord = {
-      key: "x", scope: "tenant_provider", backend: "memory", balance_source: "config",
+      key: "x", scope: "global", backend: "memory", balance_source: "config",
       debited_micros_usd: 0, debited_usd: "0",
       credited_micros_usd: 1, credited_usd: "0",
       balance_micros_usd: 1, balance_usd: "0",
@@ -487,15 +487,9 @@ describe("runtime-utils", () => {
       enforced: false,
     };
     // scope only → just the scope label.
-    expect(describeBudgetScope({ ...base })).toBe("tenant_provider");
-    // scope + tenant → " / " separators.
-    expect(describeBudgetScope({ ...base, tenant: "team-a" })).toBe("tenant_provider / tenant team-a");
-    // scope + provider, no tenant.
-    expect(describeBudgetScope({ ...base, provider: "openai" })).toBe("tenant_provider / provider openai");
-    // All three populated.
-    expect(describeBudgetScope({ ...base, tenant: "team-a", provider: "openai" })).toBe(
-      "tenant_provider / tenant team-a / provider openai",
-    );
+    expect(describeBudgetScope({ ...base })).toBe("global");
+    // scope + provider.
+    expect(describeBudgetScope({ ...base, scope: "provider", provider: "openai" })).toBe("provider / provider openai");
   });
 
   it("describeRouteSkipReason labels known and unknown skip reasons", () => {

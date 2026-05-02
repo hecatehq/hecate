@@ -36,27 +36,24 @@ function makeStatus(name: string, overrides: Partial<ProviderRecord> = {}): Prov
   };
 }
 
-const adminSession = {
-  kind: "admin" as const, label: "Admin", role: "admin", isAdmin: true, isAuthenticated: true,
-  capabilities: [], name: "", tenant: "", source: "", keyID: "",
-  allowedProviders: [], allowedModels: [],
-  multiTenant: false, authDisabled: false,
-};
+const localSession = { label: "Local" };
 
-function emptyAdminConfig() {
+function emptyControlPlaneConfig() {
   return {
     backend: "memory",
-    tenants: [], api_keys: [], policy_rules: [], pricebook: [], events: [],
     providers: [] as ConfiguredProviderRecord[],
+    pricebook: [],
+    policy_rules: [],
+    events: [],
   };
 }
 
 describe("ProvidersView empty state", () => {
   it("shows empty state with Add provider button when no providers are configured", () => {
     const state = createRuntimeConsoleFixture({
-      session: adminSession,
+      session: localSession,
       providerPresets: presets,
-      adminConfig: emptyAdminConfig(),
+      controlPlaneConfig: emptyControlPlaneConfig(),
       providers: [],
     });
 
@@ -76,10 +73,10 @@ describe("ProvidersView delete", () => {
     const actions = { ...createRuntimeConsoleActions(), deleteProvider };
 
     const state = createRuntimeConsoleFixture({
-      session: adminSession,
+      session: localSession,
       providerPresets: presets,
-      adminConfig: {
-        ...emptyAdminConfig(),
+      controlPlaneConfig: {
+        ...emptyControlPlaneConfig(),
         providers: [makeConfigured("ollama")],
       },
       providers: [makeStatus("ollama")],
@@ -106,9 +103,9 @@ describe("ProvidersView delete", () => {
 describe("ProvidersView add provider modal", () => {
   function openAddModal() {
     const state = createRuntimeConsoleFixture({
-      session: adminSession,
+      session: localSession,
       providerPresets: presets,
-      adminConfig: emptyAdminConfig(),
+      controlPlaneConfig: emptyControlPlaneConfig(),
       providers: [],
     });
     const actions = createRuntimeConsoleActions();
@@ -154,9 +151,9 @@ describe("ProvidersView add provider modal", () => {
   it("submitting the form calls createProvider with preset params", async () => {
     const createProvider = vi.fn(async () => undefined);
     const state = createRuntimeConsoleFixture({
-      session: adminSession,
+      session: localSession,
       providerPresets: presets,
-      adminConfig: emptyAdminConfig(),
+      controlPlaneConfig: emptyControlPlaneConfig(),
       providers: [],
     });
     const actions = { ...createRuntimeConsoleActions(), createProvider };
@@ -199,9 +196,9 @@ describe("ProvidersView add provider modal", () => {
       throw new Error("provider with id \"anthropic\" already exists");
     });
     const state = createRuntimeConsoleFixture({
-      session: adminSession,
+      session: localSession,
       providerPresets: presets,
-      adminConfig: emptyAdminConfig(),
+      controlPlaneConfig: emptyControlPlaneConfig(),
       providers: [],
     });
     const actions = { ...createRuntimeConsoleActions(), createProvider };
@@ -223,10 +220,10 @@ describe("ProvidersView add provider modal", () => {
 describe("ProvidersView edit modal", () => {
   it("clicking a row opens the edit modal with the provider name", async () => {
     const state = createRuntimeConsoleFixture({
-      session: adminSession,
+      session: localSession,
       providerPresets: presets,
-      adminConfig: {
-        ...emptyAdminConfig(),
+      controlPlaneConfig: {
+        ...emptyControlPlaneConfig(),
         providers: [makeConfigured("anthropic", { kind: "cloud", credential_configured: true })],
       },
       providers: [makeStatus("anthropic", { kind: "cloud", healthy: true, status: "healthy" })],
@@ -243,10 +240,10 @@ describe("ProvidersView edit modal", () => {
   it("cloud row exposes an API key input that calls setProviderAPIKey", async () => {
     const setProviderAPIKey = vi.fn(async () => undefined);
     const state = createRuntimeConsoleFixture({
-      session: adminSession,
+      session: localSession,
       providerPresets: presets,
-      adminConfig: {
-        ...emptyAdminConfig(),
+      controlPlaneConfig: {
+        ...emptyControlPlaneConfig(),
         providers: [makeConfigured("anthropic", { kind: "cloud", credential_configured: true })],
       },
       providers: [makeStatus("anthropic", { kind: "cloud", healthy: true, status: "healthy" })],
@@ -268,10 +265,10 @@ describe("ProvidersView edit modal", () => {
   it("local row exposes an Endpoint URL input that calls setProviderBaseURL", async () => {
     const setProviderBaseURL = vi.fn(async () => undefined);
     const state = createRuntimeConsoleFixture({
-      session: adminSession,
+      session: localSession,
       providerPresets: presets,
-      adminConfig: {
-        ...emptyAdminConfig(),
+      controlPlaneConfig: {
+        ...emptyControlPlaneConfig(),
         providers: [makeConfigured("ollama", { kind: "local", base_url: "http://127.0.0.1:11434/v1" })],
       },
       providers: [makeStatus("ollama", { kind: "local", healthy: true, status: "healthy" })],
@@ -293,10 +290,10 @@ describe("ProvidersView edit modal", () => {
 
   it("Save URL is disabled when the URL matches the current base_url", async () => {
     const state = createRuntimeConsoleFixture({
-      session: adminSession,
+      session: localSession,
       providerPresets: presets,
-      adminConfig: {
-        ...emptyAdminConfig(),
+      controlPlaneConfig: {
+        ...emptyControlPlaneConfig(),
         providers: [makeConfigured("ollama", { kind: "local", base_url: "http://127.0.0.1:11434/v1" })],
       },
       providers: [makeStatus("ollama", { kind: "local", healthy: true, status: "healthy" })],
@@ -311,10 +308,10 @@ describe("ProvidersView edit modal", () => {
 
   it("models list renders the default model with a 'default' badge", async () => {
     const state = createRuntimeConsoleFixture({
-      session: adminSession,
+      session: localSession,
       providerPresets: presets,
-      adminConfig: {
-        ...emptyAdminConfig(),
+      controlPlaneConfig: {
+        ...emptyControlPlaneConfig(),
         providers: [makeConfigured("ollama", { kind: "local", default_model: "m1" })],
       },
       providers: [makeStatus("ollama", { kind: "local", healthy: true, status: "healthy", models: ["m1", "m2"], model_count: 2 })],
@@ -333,10 +330,10 @@ describe("ProvidersView edit modal", () => {
 describe("ProvidersView table renders", () => {
   it("renders provider rows with correct names and status badges", () => {
     const state = createRuntimeConsoleFixture({
-      session: adminSession,
+      session: localSession,
       providerPresets: presets,
-      adminConfig: {
-        ...emptyAdminConfig(),
+      controlPlaneConfig: {
+        ...emptyControlPlaneConfig(),
         providers: [
           makeConfigured("anthropic", { kind: "cloud", credential_configured: true }),
           makeConfigured("ollama", { kind: "local" }),
@@ -366,10 +363,10 @@ describe("ProvidersView table renders", () => {
 
   it("warns inline when the typed Endpoint URL collides with an existing provider", async () => {
     const state = createRuntimeConsoleFixture({
-      session: adminSession,
+      session: localSession,
       providerPresets: presets,
-      adminConfig: {
-        ...emptyAdminConfig(),
+      controlPlaneConfig: {
+        ...emptyControlPlaneConfig(),
         providers: [makeConfigured("ollama", { base_url: "http://127.0.0.1:11434/v1" })],
       },
       providers: [makeStatus("ollama")],
@@ -405,10 +402,10 @@ describe("ProvidersView table renders", () => {
 
   it("shows provider health diagnostics and last errors", async () => {
     const state = createRuntimeConsoleFixture({
-      session: adminSession,
+      session: localSession,
       providerPresets: presets,
-      adminConfig: {
-        ...emptyAdminConfig(),
+      controlPlaneConfig: {
+        ...emptyControlPlaneConfig(),
         providers: [makeConfigured("ollama")],
       },
       providers: [

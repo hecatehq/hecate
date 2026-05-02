@@ -12,7 +12,6 @@ import (
 	"strconv"
 	"strings"
 
-	"github.com/hecate/agent-runtime/internal/auth"
 	"github.com/hecate/agent-runtime/internal/providers"
 	"github.com/hecate/agent-runtime/internal/requestscope"
 	"github.com/hecate/agent-runtime/internal/telemetry"
@@ -24,21 +23,17 @@ import (
 // / ChatResponse so that an Anthropic SDK pointed at Hecate (ANTHROPIC_BASE_URL)
 // can route through any configured provider (including OpenAI-compatible ones).
 func (h *Handler) HandleMessages(w http.ResponseWriter, r *http.Request) {
-	principal, ok := h.requireAny(w, r)
-	if !ok {
+	if !h.checkRateLimit(w, "") {
 		return
 	}
-	if !h.checkRateLimit(w, principal.KeyID) {
-		return
-	}
-	ctx := h.contextWithPrincipal(r.Context(), principal)
+	ctx := r.Context()
 
 	var wireReq AnthropicMessagesRequest
 	if !decodeJSON(w, r, &wireReq) {
 		return
 	}
 
-	internalReq, err := normalizeAnthropicRequest(wireReq, RequestIDFromContext(ctx), principal)
+	internalReq, err := normalizeAnthropicRequest(wireReq, RequestIDFromContext(ctx))
 	if err != nil {
 		WriteError(w, http.StatusBadRequest, errCodeInvalidRequest, err.Error())
 		return
@@ -74,9 +69,7 @@ func (h *Handler) HandleMessages(w http.ResponseWriter, r *http.Request) {
 	applyRuntimeHeaders(w, result.Metadata.Provider, result.Metadata.ProviderKind, result.Metadata.RouteReason,
 		result.Metadata.RequestedModel, result.Metadata.CanonicalRequestedModel,
 		result.Metadata.Model, result.Metadata.CanonicalResolvedModel,
-		result.Metadata.CacheHit, result.Metadata.CacheType,
 		result.Metadata.TraceID, result.Metadata.SpanID,
-		result.Metadata.SemanticStrategy, result.Metadata.SemanticIndexType, result.Metadata.SemanticSimilarity,
 		result.Metadata.AttemptCount, result.Metadata.RetryCount, result.Metadata.FallbackFromProvider,
 		result.Metadata.CostMicrosUSD,
 	)
@@ -166,9 +159,7 @@ func applyRuntimeHeaders(w http.ResponseWriter,
 	provider, providerKind, routeReason,
 	requestedModel, canonicalRequestedModel,
 	model, canonicalModel string,
-	cacheHit bool, cacheType string,
 	traceID, spanID string,
-	semanticStrategy, semanticIndex string, semanticSimilarity float64,
 	attempts, retries int, fallbackFrom string,
 	costMicrosUSD int64,
 ) {
@@ -179,19 +170,8 @@ func applyRuntimeHeaders(w http.ResponseWriter,
 	w.Header().Set("X-Runtime-Requested-Model-Canonical", canonicalRequestedModel)
 	w.Header().Set("X-Runtime-Model", model)
 	w.Header().Set("X-Runtime-Model-Canonical", canonicalModel)
-	w.Header().Set("X-Runtime-Cache", strconv.FormatBool(cacheHit))
-	w.Header().Set("X-Runtime-Cache-Type", cacheType)
 	w.Header().Set("X-Trace-Id", traceID)
 	w.Header().Set("X-Span-Id", spanID)
-	if semanticStrategy != "" {
-		w.Header().Set("X-Runtime-Semantic-Strategy", semanticStrategy)
-	}
-	if semanticIndex != "" {
-		w.Header().Set("X-Runtime-Semantic-Index", semanticIndex)
-	}
-	if semanticSimilarity > 0 {
-		w.Header().Set("X-Runtime-Semantic-Similarity", fmt.Sprintf("%.6f", semanticSimilarity))
-	}
 	w.Header().Set("X-Runtime-Attempts", strconv.Itoa(attempts))
 	w.Header().Set("X-Runtime-Retries", strconv.Itoa(retries))
 	if fallbackFrom != "" {
@@ -204,7 +184,7 @@ func writeMessagesError(w http.ResponseWriter, err error) {
 	writeAnthropicGatewayError(w, classifyGatewayError(err))
 }
 
-func normalizeAnthropicRequest(req AnthropicMessagesRequest, requestID string, principal auth.Principal) (types.ChatRequest, error) {
+func normalizeAnthropicRequest(req AnthropicMessagesRequest, requestID string) (types.ChatRequest, error) {
 	if strings.TrimSpace(req.Model) == "" {
 		return types.ChatRequest{}, fmt.Errorf("field \"model\" is required")
 	}
@@ -255,14 +235,7 @@ func normalizeAnthropicRequest(req AnthropicMessagesRequest, requestID string, p
 
 	toolChoice := anthropicInboundToolChoice(req.ToolChoice)
 
-	tenant := ""
-	if req.Metadata != nil {
-		tenant = req.Metadata.UserID
-	}
-	if principal.Tenant != "" {
-		tenant = principal.Tenant
-	}
-	scope := requestscope.Build(principal, tenant, req.Provider)
+	scope := requestscope.Build(req.Provider)
 
 	return types.ChatRequest{
 		RequestID:     requestID,

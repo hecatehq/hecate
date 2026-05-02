@@ -142,7 +142,7 @@ type UnifiedRow = {
 type StatusFilter = "all" | RowStatus;
 
 export function PricebookTab({ state, actions }: Props) {
-  const rows = state.adminConfig?.pricebook ?? [];
+  const rows = state.controlPlaneConfig?.pricebook ?? [];
   const [editingKey, setEditingKey] = useState<string | null>(null);
   // Filter state.
   const [providerFilter, setProviderFilter] = useState<string>("auto");
@@ -166,7 +166,7 @@ export function PricebookTab({ state, actions }: Props) {
   const [importingPending, setImportingPending] = useState(false);
   // Audit-history viewer. Click the row's clock icon → opens a modal
   // listing every audit event whose target_id matches "provider/model".
-  // We filter client-side from adminConfig.events because that surface
+  // We filter client-side from controlPlaneConfig.events because that surface
   // already streams the full event log; no separate endpoint needed.
   const [historyRow, setHistoryRow] = useState<{ provider: string; model: string } | null>(null);
 
@@ -180,9 +180,9 @@ export function PricebookTab({ state, actions }: Props) {
   // with no LiteLLM data in the cache, so "Import all" stays disabled
   // and the inline Import button never appears.
   //
-  // `state.adminConfig?.pricebook` is freshly allocated by every
-  // `loadDashboard()` call (which runs after every admin mutation), so
-  // depending on it is enough to refire after delete / upsert / apply.
+  // `state.controlPlaneConfig?.pricebook` is freshly allocated by every
+  // `loadDashboard()` call (which runs after every control-plane mutation),
+  // so depending on it is enough to refire after delete / upsert / apply.
   useEffect(() => {
     let cancelled = false;
     actions.previewPricebookImport()
@@ -194,7 +194,7 @@ export function PricebookTab({ state, actions }: Props) {
       .catch(err => { if (!cancelled) setDiffError(err instanceof Error ? err.message : "Failed to load LiteLLM data."); });
     return () => { cancelled = true; };
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [state.adminConfig?.pricebook]);
+  }, [state.controlPlaneConfig?.pricebook]);
 
   // Local-provider id set: pricebook hides these entirely. Local
   // providers (ollama, llamacpp, lmstudio, localai) are always free —
@@ -204,11 +204,11 @@ export function PricebookTab({ state, actions }: Props) {
     for (const p of state.providerPresets ?? []) {
       if (p.kind === "local") set.add(p.id);
     }
-    for (const p of state.adminConfig?.providers ?? []) {
+    for (const p of state.controlPlaneConfig?.providers ?? []) {
       if (p.kind === "local") set.add(p.id);
     }
     return set;
-  }, [state.providerPresets, state.adminConfig?.providers]);
+  }, [state.providerPresets, state.controlPlaneConfig?.providers]);
 
   // Build a key→litellm-record index from the diff. All three diff
   // sections contribute LiteLLM's proposed price:
@@ -241,11 +241,11 @@ export function PricebookTab({ state, actions }: Props) {
   const providerName = useMemo(() => {
     const presetById = new Map<string, string>();
     for (const p of state.providerPresets ?? []) presetById.set(p.id, p.name);
-    for (const p of state.adminConfig?.providers ?? []) {
+    for (const p of state.controlPlaneConfig?.providers ?? []) {
       if (!presetById.has(p.id)) presetById.set(p.id, p.name || p.id);
     }
     return (id: string) => presetById.get(id) ?? id;
-  }, [state.providerPresets, state.adminConfig?.providers]);
+  }, [state.providerPresets, state.controlPlaneConfig?.providers]);
 
   // Provider options for the filter dropdown — every CLOUD provider
   // that appears in either the catalog or the pricebook. Local providers
@@ -388,7 +388,7 @@ export function PricebookTab({ state, actions }: Props) {
   const bulkImportable = filteredImportableKeys.size;
 
 
-  // Status tabs: same visual language as the page-level admin tabs
+  // Status tabs: same visual language as the page-level Settings tabs
   // (mono, uppercase, teal underline on active). Counts inline so the
   // operator can see status distribution at a glance.
   const statusTabs: Array<{ value: StatusFilter; label: string; count: number }> = [
@@ -408,7 +408,7 @@ export function PricebookTab({ state, actions }: Props) {
 
       {/* Status tabs — primary segmentation. Border-bottom on the
           container makes the active tab's underline merge with the
-          page rule, matching the AdminView tab visual. */}
+          page rule, matching the SettingsView tab visual. */}
       <div
         role="tablist"
         aria-label="Pricebook status"
@@ -495,9 +495,9 @@ export function PricebookTab({ state, actions }: Props) {
         </button>
       </div>
 
-      {state.adminConfigError && (
+      {state.controlPlaneError && (
         <div style={{ marginBottom: 8 }}>
-          <InlineError message={state.adminConfigError} />
+          <InlineError message={state.controlPlaneError} />
         </div>
       )}
       {diffError && (
@@ -700,7 +700,7 @@ export function PricebookTab({ state, actions }: Props) {
         <PricebookHistoryModal
           provider={historyRow.provider}
           model={historyRow.model}
-          events={state.adminConfig?.events ?? []}
+          events={state.controlPlaneConfig?.events ?? []}
           onClose={() => setHistoryRow(null)}
         />
       )}
@@ -1049,7 +1049,7 @@ function PricebookImportConsent({
       const result = await onConfirm([...selected]);
       // Per-row failures: keep the dialog open so the operator can
       // see exactly which rows didn't land. Successful rows have
-      // already been removed from state.adminConfig.pricebook by the
+      // already been removed from state.controlPlaneConfig.pricebook by the
       // parent's loadDashboard call, so the next render of `changes`
       // will only show remaining work — including the failed ones,
       // which the operator can re-attempt or uncheck.
@@ -1365,7 +1365,7 @@ function ConsentSection({ title, count, hint, children }: {
 }) {
   return (
     <div style={{ marginBottom: 14 }}>
-      {/* Section header reads in the same voice as the AdminView group
+      {/* Section header reads in the same voice as the SettingsView group
           headers (KeysTab tenants, PricebookTab provider groups): mono,
           teal, count chip in muted t3. */}
       <div style={{ display: "flex", alignItems: "baseline", gap: 8, marginBottom: 6, paddingLeft: 4 }}>
@@ -1422,7 +1422,7 @@ function ConsentRow({
 }
 
 // PricebookHistoryModal renders the audit-event log filtered to a
-// single pricebook row. Events come from adminConfig.events (already
+// single pricebook row. Events come from controlPlaneConfig.events (already
 // streamed by the dashboard load) — we filter client-side because the
 // existing surface is sufficient and adding a per-entry endpoint just
 // to filter the same data would be churn.

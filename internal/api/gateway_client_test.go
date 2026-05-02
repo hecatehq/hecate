@@ -30,7 +30,6 @@ import (
 	"time"
 
 	"github.com/hecate/agent-runtime/internal/billing"
-	"github.com/hecate/agent-runtime/internal/cache"
 	"github.com/hecate/agent-runtime/internal/catalog"
 	"github.com/hecate/agent-runtime/internal/chatstate"
 	"github.com/hecate/agent-runtime/internal/config"
@@ -258,9 +257,6 @@ func TestCodexClientNonStreaming(t *testing.T) {
 	if got := resp.Header.Get("X-Runtime-Provider"); got != "openai" {
 		t.Errorf("X-Runtime-Provider = %q, want openai", got)
 	}
-	if got := resp.Header.Get("X-Runtime-Cache"); got != "false" {
-		t.Errorf("X-Runtime-Cache = %q, want false (first request is never cached)", got)
-	}
 
 	// Response body must be a valid OpenAI completion
 	var completion OpenAIChatCompletionResponse
@@ -357,48 +353,6 @@ func TestCodexClientStreaming(t *testing.T) {
 	}
 	if !contentSeen {
 		t.Error("no content delta found in SSE stream")
-	}
-}
-
-// TestCodexClientSecondRequestServedFromCache verifies that Codex can benefit
-// from the exact cache: the first request is a cache miss, the second an exact
-// hit with X-Runtime-Cache: true.
-func TestCodexClientSecondRequestServedFromCache(t *testing.T) {
-	t.Parallel()
-
-	provider := &fakeProvider{
-		name: "openai",
-		response: &types.ChatResponse{
-			ID:    "chatcmpl-cache",
-			Model: "gpt-4o-mini",
-			Choices: []types.ChatChoice{{
-				Message:      types.Message{Role: "assistant", Content: "cached"},
-				FinishReason: "stop",
-			}},
-			Usage: types.Usage{PromptTokens: 5, CompletionTokens: 1, TotalTokens: 6},
-		},
-	}
-	srv := newGatewayServer(t, provider, config.Config{})
-	defer srv.Close()
-
-	body := `{"model":"gpt-4o-mini","messages":[{"role":"user","content":"cache this please"}]}`
-
-	resp1 := gatewayPost(t, srv.URL+"/v1/chat/completions", body, nil)
-	readBody(t, resp1) // drain
-	if got := resp1.Header.Get("X-Runtime-Cache"); got != "false" {
-		t.Errorf("first request X-Runtime-Cache = %q, want false", got)
-	}
-
-	resp2 := gatewayPost(t, srv.URL+"/v1/chat/completions", body, nil)
-	raw2 := readBody(t, resp2)
-	if resp2.StatusCode != http.StatusOK {
-		t.Fatalf("second request status = %d, body=%s", resp2.StatusCode, raw2)
-	}
-	if got := resp2.Header.Get("X-Runtime-Cache"); got != "true" {
-		t.Errorf("second request X-Runtime-Cache = %q, want true", got)
-	}
-	if got := resp2.Header.Get("X-Runtime-Cache-Type"); got != "exact" {
-		t.Errorf("second request X-Runtime-Cache-Type = %q, want exact", got)
 	}
 }
 
@@ -1025,7 +979,6 @@ func newGatewayServerWithRealProvider(t *testing.T, upstreamURL, providerName, d
 
 	svc := gateway.NewService(gateway.Dependencies{
 		Logger:       logger,
-		Cache:        cache.NewMemoryStore(time.Minute),
 		Router:       router.NewRuleRouter(defaultModel, providerCatalog),
 		Catalog:      providerCatalog,
 		Governor:     governor.NewStaticGovernor(governorCfg, budgetStore, budgetStore),

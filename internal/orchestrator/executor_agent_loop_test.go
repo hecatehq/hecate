@@ -83,7 +83,6 @@ func newAgentLoopSpec(t *testing.T) ExecutionSpec {
 		Task: types.Task{
 			ID:     "task-1",
 			Prompt: "summarize the working directory",
-			Tenant: "team-a",
 		},
 		Run: types.TaskRun{
 			ID:    "run-1",

@@ -25,7 +25,6 @@ func TestNormalizeErrorKindPassesThroughKnownValues(t *testing.T) {
 		ErrorKindProviderCallFailed,
 		ErrorKindRetryBackoff,
 		ErrorKindProviderHealth,
-		ErrorKindSemanticCache,
 		ErrorKindUsageRecord,
 		ErrorKindOther,
 	}
@@ -192,7 +191,6 @@ func TestMetricNameConstantsMatchInstruments(t *testing.T) {
 		ProviderKind:         "cloud",
 		RequestedModel:       "gpt-4o-mini",
 		ResponseModel:        "gpt-4o-mini",
-		CacheHit:             false,
 		CostMicrosUSD:        100,
 		PromptTokens:         10,
 		CompletionTokens:     5,
@@ -265,7 +263,6 @@ func TestErrorKindConstantsCoverKnownSet(t *testing.T) {
 		ErrorKindProviderCallFailed: true,
 		ErrorKindRetryBackoff:       true,
 		ErrorKindProviderHealth:     true,
-		ErrorKindSemanticCache:      true,
 		ErrorKindUsageRecord:        true,
 		ErrorKindOther:              true,
 	}

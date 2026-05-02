@@ -63,21 +63,17 @@ func (s *SQLiteStore) CreateSession(ctx context.Context, session types.ChatSessi
 	_, err := s.client.DB().ExecContext(
 		ctx,
 		fmt.Sprintf(
-			`INSERT INTO %s (id, title, system_prompt, tenant, user_name, created_at, updated_at)
-			 VALUES (?, ?, ?, ?, ?, ?, ?)
+			`INSERT INTO %s (id, title, system_prompt, created_at, updated_at)
+			 VALUES (?, ?, ?, ?, ?)
 			 ON CONFLICT(id) DO UPDATE
 			 SET title = excluded.title,
 			     system_prompt = excluded.system_prompt,
-			     tenant = excluded.tenant,
-			     user_name = excluded.user_name,
 			     updated_at = excluded.updated_at`,
 			s.sessionsTable,
 		),
 		session.ID,
 		session.Title,
 		session.SystemPrompt,
-		session.Tenant,
-		session.User,
 		session.CreatedAt.UTC(),
 		session.UpdatedAt.UTC(),
 	)
@@ -99,12 +95,8 @@ func (s *SQLiteStore) GetSession(ctx context.Context, id string) (types.ChatSess
 }
 
 func (s *SQLiteStore) ListSessions(ctx context.Context, filter Filter) ([]types.ChatSession, error) {
-	query := fmt.Sprintf(`SELECT id, title, system_prompt, tenant, user_name, created_at, updated_at FROM %s`, s.sessionsTable)
-	args := make([]any, 0, 3)
-	if filter.Tenant != "" {
-		query += ` WHERE tenant = ?`
-		args = append(args, filter.Tenant)
-	}
+	query := fmt.Sprintf(`SELECT id, title, system_prompt, created_at, updated_at FROM %s`, s.sessionsTable)
+	args := make([]any, 0, 2)
 	query += ` ORDER BY updated_at DESC, created_at DESC`
 	if filter.Limit > 0 {
 		query += ` LIMIT ?`
@@ -129,7 +121,7 @@ func (s *SQLiteStore) ListSessions(ctx context.Context, filter Filter) ([]types.
 	var items []types.ChatSession
 	for rows.Next() {
 		var session types.ChatSession
-		if err := rows.Scan(&session.ID, &session.Title, &session.SystemPrompt, &session.Tenant, &session.User, &session.CreatedAt, &session.UpdatedAt); err != nil {
+		if err := rows.Scan(&session.ID, &session.Title, &session.SystemPrompt, &session.CreatedAt, &session.UpdatedAt); err != nil {
 			return nil, fmt.Errorf("scan sqlite chat session: %w", err)
 		}
 		items = append(items, session)
@@ -296,8 +288,6 @@ func (s *SQLiteStore) migrate(ctx context.Context) error {
 				id TEXT PRIMARY KEY,
 				title TEXT NOT NULL,
 				system_prompt TEXT NOT NULL DEFAULT '',
-				tenant TEXT NOT NULL,
-				user_name TEXT NOT NULL,
 				created_at TIMESTAMP NOT NULL,
 				updated_at TIMESTAMP NOT NULL
 			)`,
@@ -389,12 +379,12 @@ func (s *SQLiteStore) migrate(ctx context.Context) error {
 	); err != nil {
 		return fmt.Errorf("migrate sqlite chat session provider calls index: %w", err)
 	}
-	sessionsIndex := strings.Trim(s.sessionsTable, `"`) + "_tenant_updated_idx"
+	sessionsIndex := strings.Trim(s.sessionsTable, `"`) + "_updated_idx"
 	if _, err := s.client.DB().ExecContext(
 		ctx,
-		fmt.Sprintf(`CREATE INDEX IF NOT EXISTS "%s" ON %s (tenant, updated_at)`, sessionsIndex, s.sessionsTable),
+		fmt.Sprintf(`CREATE INDEX IF NOT EXISTS "%s" ON %s (updated_at)`, sessionsIndex, s.sessionsTable),
 	); err != nil {
-		return fmt.Errorf("migrate sqlite chat sessions tenant index: %w", err)
+		return fmt.Errorf("migrate sqlite chat sessions index: %w", err)
 	}
 	return nil
 }
@@ -437,9 +427,9 @@ func (s *SQLiteStore) loadSession(ctx context.Context, id string) (types.ChatSes
 	var session types.ChatSession
 	err := s.client.DB().QueryRowContext(
 		ctx,
-		fmt.Sprintf(`SELECT id, title, system_prompt, tenant, user_name, created_at, updated_at FROM %s WHERE id = ?`, s.sessionsTable),
+		fmt.Sprintf(`SELECT id, title, system_prompt, created_at, updated_at FROM %s WHERE id = ?`, s.sessionsTable),
 		id,
-	).Scan(&session.ID, &session.Title, &session.SystemPrompt, &session.Tenant, &session.User, &session.CreatedAt, &session.UpdatedAt)
+	).Scan(&session.ID, &session.Title, &session.SystemPrompt, &session.CreatedAt, &session.UpdatedAt)
 	if err != nil {
 		if errors.Is(err, sql.ErrNoRows) {
 			return types.ChatSession{}, sql.ErrNoRows

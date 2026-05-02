@@ -97,9 +97,9 @@ export function Toggle({ on, onChange, label, ariaLabel }: { on: boolean; onChan
 
 // ─── ChipInput ───────────────────────────────────────────────────────────────
 
-// ChipInput is the multi-select picker every admin form uses for
-// list-of-ids fields (allowed_providers, allowed_models, policy
-// match conditions). It replaces the old comma-separated text input —
+// ChipInput is the multi-select picker every settings form uses for
+// list-of-ids fields (provider lists, model allowlists, etc.). It
+// replaces the old comma-separated text input —
 // no more typo-and-pray, every chip is a value the gateway recognizes.
 //
 // Three modes:
@@ -375,10 +375,9 @@ export function CodeBlock({ code, lang = "bash" }: { code: string; lang?: string
 // ─── DialogShell (internal) ──────────────────────────────────────────────────
 
 // Shared header chrome for SlideOver and Modal. Renders the title in
-// the same mono-uppercase-teal section-label voice the rest of the
-// admin uses for group headers (KeysTab tenants, AdminView tabs), so
-// dialogs read as part of the page rather than a foreign system widget.
-// Keyboard: Escape closes.
+// the same mono-uppercase-teal section-label voice the SettingsView
+// tabs use, so dialogs read as part of the page rather than a foreign
+// system widget. Keyboard: Escape closes.
 function DialogChrome({
   title,
   children,
@@ -436,7 +435,7 @@ function DialogChrome({
 
 // ─── SlideOver ───────────────────────────────────────────────────────────────
 
-// SlideOver is the right-anchored panel used across admin tabs for
+// SlideOver is the right-anchored panel used across the console for
 // forms. The backdrop closes on click, Escape closes, and the close
 // button in the header carries the same affordance — so footers
 // don't need a redundant Cancel button.
@@ -503,7 +502,7 @@ export function Modal({ title, children, footer, onClose, width = 560 }: {
 
 // ConfirmModal is the styled replacement for `window.confirm` — same
 // frame as the import consent dialog (centered Modal) so destructive
-// or significant actions read consistently across the admin surface.
+// or significant actions read consistently across the console.
 //
 // Usage: track an "is-this-action-pending-confirmation" piece of state
 // in the parent. Render <ConfirmModal /> when it's truthy, pass the
@@ -648,8 +647,8 @@ export function ModelPicker({
   presets?: ProviderPresetRecord[];
   // Provider ids whose models render disabled (greyed, not clickable,
   // with a key indicator). Map value is the tooltip explaining why
-  // ("Configure X credentials in Admin → Providers" / "Disabled in
-  // Admin → Providers"). Pass an empty/omitted map to disable.
+  // (e.g. "Add an API key for X on the Providers tab"). Pass an
+  // empty/omitted map to disable.
   disabledProviders?: Map<string, string>;
   // Per-model non-blocking warnings keyed by model id. The model
   // stays selectable, but a small ⚠ icon renders next to its row

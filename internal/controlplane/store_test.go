@@ -3,6 +3,8 @@ package controlplane
 import (
 	"context"
 	"testing"
+
+	"github.com/hecate/agent-runtime/internal/config"
 )
 
 func TestMemoryStoreAuditEventsCaptureActorAndMutationTrail(t *testing.T) {
@@ -10,42 +12,41 @@ func TestMemoryStoreAuditEventsCaptureActorAndMutationTrail(t *testing.T) {
 
 	store := NewMemoryStore()
 
-	ctx := WithActor(context.Background(), "admin:req-123")
-	tenant, err := store.UpsertTenant(ctx, Tenant{Name: "Team A"})
+	ctx := WithActor(context.Background(), "operator:req-123")
+	rule, err := store.UpsertPolicyRule(ctx, config.PolicyRuleConfig{
+		ID:     "deny-cloud",
+		Action: "deny",
+		Reason: "test",
+	})
 	if err != nil {
-		t.Fatalf("UpsertTenant() error = %v", err)
+		t.Fatalf("UpsertPolicyRule() error = %v", err)
 	}
-	key, err := store.UpsertAPIKey(ctx, APIKey{Name: "Team A Dev", Key: "secret", Tenant: tenant.ID})
-	if err != nil {
-		t.Fatalf("UpsertAPIKey() error = %v", err)
+	if _, err := store.UpsertPricebookEntry(ctx, config.ModelPriceConfig{
+		Provider:                        "openai",
+		Model:                           "gpt-4o-mini",
+		InputMicrosUSDPerMillionTokens:  150_000,
+		OutputMicrosUSDPerMillionTokens: 600_000,
+	}); err != nil {
+		t.Fatalf("UpsertPricebookEntry() error = %v", err)
 	}
-	if _, err := store.RotateAPIKey(ctx, key.ID, "new-secret"); err != nil {
-		t.Fatalf("RotateAPIKey() error = %v", err)
-	}
-	if err := store.DeleteAPIKey(ctx, key.ID); err != nil {
-		t.Fatalf("DeleteAPIKey() error = %v", err)
+	if err := store.DeletePolicyRule(ctx, rule.ID); err != nil {
+		t.Fatalf("DeletePolicyRule() error = %v", err)
 	}
 
 	state, err := store.Snapshot(context.Background())
 	if err != nil {
 		t.Fatalf("Snapshot() error = %v", err)
 	}
-	if len(state.Events) != 4 {
-		t.Fatalf("event count = %d, want 4", len(state.Events))
+	if len(state.Events) != 3 {
+		t.Fatalf("event count = %d, want 3", len(state.Events))
 	}
-	if state.Events[0].Actor != "admin:req-123" {
-		t.Fatalf("event actor = %q, want admin:req-123", state.Events[0].Actor)
+	if state.Events[0].Actor != "operator:req-123" {
+		t.Fatalf("event actor = %q, want operator:req-123", state.Events[0].Actor)
 	}
-	if state.Events[0].Action != "tenant.created" {
-		t.Fatalf("first event action = %q, want tenant.created", state.Events[0].Action)
+	if state.Events[0].Action != "policy_rule.created" {
+		t.Fatalf("first event action = %q, want policy_rule.created", state.Events[0].Action)
 	}
-	if state.Events[2].Action != "api_key.rotated" {
-		t.Fatalf("third event action = %q, want api_key.rotated", state.Events[2].Action)
-	}
-	if state.Events[3].Action != "api_key.deleted" {
-		t.Fatalf("fourth event action = %q, want api_key.deleted", state.Events[3].Action)
-	}
-	if state.Events[3].TargetID != key.ID {
-		t.Fatalf("deleted key target id = %q, want %q", state.Events[3].TargetID, key.ID)
+	if state.Events[2].Action != "policy_rule.deleted" {
+		t.Fatalf("third event action = %q, want policy_rule.deleted", state.Events[2].Action)
 	}
 }

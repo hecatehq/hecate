@@ -21,7 +21,6 @@ const (
 	errorKindProviderCallFailed   = telemetry.ErrorKindProviderCallFailed
 	errorKindRetryBackoffFailed   = telemetry.ErrorKindRetryBackoff
 	errorKindProviderHealth       = telemetry.ErrorKindProviderHealth
-	errorKindSemanticCacheStore   = telemetry.ErrorKindSemanticCache
 	errorKindUsageRecordFailed    = telemetry.ErrorKindUsageRecord
 )
 

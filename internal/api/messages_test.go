@@ -11,7 +11,6 @@ import (
 	"testing"
 	"time"
 
-	"github.com/hecate/agent-runtime/internal/auth"
 	"github.com/hecate/agent-runtime/internal/config"
 	"github.com/hecate/agent-runtime/internal/providers"
 	"github.com/hecate/agent-runtime/pkg/types"
@@ -342,7 +341,7 @@ func TestNormalizeAnthropicRequestPassesThinking(t *testing.T) {
 		Thinking:  thinking,
 		Betas:     betas,
 	}
-	internal, err := normalizeAnthropicRequest(req, "req-1", auth.Principal{Role: "user"})
+	internal, err := normalizeAnthropicRequest(req, "req-1")
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
@@ -663,27 +662,9 @@ func TestMessagesDeniedReturns403WithUserFacingMessage(t *testing.T) {
 	}
 }
 
-func TestMessagesRequiresAuthWhenConfigured(t *testing.T) {
-	t.Parallel()
-	logger := slog.New(slog.NewJSONHandler(io.Discard, nil))
-	provider := &fakeProvider{name: "openai", response: &types.ChatResponse{}}
-	handler := newTestHTTPHandlerWithConfig(logger, provider, config.Config{
-		Server: config.ServerConfig{AuthToken: "admin-secret"},
-	})
-
-	body := `{"model":"gpt-4o-mini","max_tokens":32,"messages":[{"role":"user","content":"hi"}]}`
-	rec := performRequest(t, handler, http.MethodPost, "/v1/messages", body)
-	if rec.Code != http.StatusUnauthorized {
-		t.Fatalf("status = %d, want 401; body=%s", rec.Code, rec.Body.String())
-	}
-}
-
-// failingMessagesStreamProvider drives the mid-stream error path so we
-// can assert the Anthropic-flavoured terminal SSE error event. The
-// handler emits `event: error\ndata: {"type":"error","error":{...}}`,
-// which is shaped differently from chat completions' inline `data:`
-// error chunk — Anthropic SDKs detect mid-stream errors via the named
-// `error` event, so the framing matters.
+// failingMessagesStreamProvider wraps fakeProvider and overrides
+// ChatStream to return a configurable upstream error mid-stream.
+// Used by the mid-stream-error tests.
 type failingMessagesStreamProvider struct {
 	fakeProvider
 	streamErr error

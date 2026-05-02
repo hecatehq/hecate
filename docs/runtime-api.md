@@ -218,45 +218,6 @@ For `agent_loop`-specific knobs (max turns, system-prompt layers, HTTP policy fo
 
 `GET /admin/runtime/stats` also reports queue health fields including queue depth, queue capacity, worker count, and `queue_backend`.
 
-`GET /admin/semantic-cache` returns configuration and a live entry count for the semantic cache:
-
-```json
-{
-  "object": "semantic_cache_status",
-  "data": {
-    "checked_at": "2026-04-29T01:00:00.123Z",
-    "configured": true,
-    "enabled": true,
-    "backend": "memory",
-    "entries": 42,
-    "max_entries": 10000,
-    "default_ttl_sec": 86400,
-    "min_similarity": 0.92,
-    "max_text_chars": 8000
-  }
-}
-```
-
-`configured: false` when the semantic cache is not wired (disabled in config). All numeric fields are zero in that case. See [`semantic-cache.md`](semantic-cache.md) for configuration details.
-
-`GET /admin/semantic-cache/entries?limit=<n>&offset=<n>` lists cached entries newest-first with simple limit/offset pagination (default `limit=50`, max `500`):
-
-```json
-{
-  "object": "semantic_cache_entries",
-  "data": [
-    {
-      "namespace": "model:gpt-4o-mini|provider:openai|tenant:anonymous",
-      "text_snippet": "user: Explain Go channels and goroutines.",
-      "stored_at": "2026-04-29T01:00:00Z",
-      "expires_at": "2026-04-30T01:00:00Z"
-    }
-  ]
-}
-```
-
-`text_snippet` is truncated to 200 characters. Returns an empty array (not an error) when the cache is unconfigured or empty.
-
 `GET /admin/mcp/cache` returns a snapshot of the shared MCP client cache:
 
 ```json
@@ -337,7 +298,6 @@ GET /v1/whoami
     "allowed_providers": [],
     "allowed_models": [],
     "features": {
-      "multi_tenant": false,
       "auth_disabled": false
     }
   }
@@ -348,7 +308,6 @@ Anonymous (no token / unrecognized token) returns `authenticated: false` with em
 
 The `features` object reflects the gateway's runtime configuration:
 
-- `multi_tenant` — `GATEWAY_MULTI_TENANT`. When `true`, the operator UI exposes Tenants + Keys management; clients wrapping Hecate can use the flag to decide whether to surface their own tenant-aware UI. See [`tenants.md`](tenants.md).
 - `auth_disabled` — `GATEWAY_AUTH_DISABLED`. When `true`, the gateway accepts unauthenticated requests; the embedded UI uses this to skip its TokenGate.
 
 ### `GET /v1/bootstrap-token`

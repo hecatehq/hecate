@@ -20,8 +20,8 @@ func TestShouldRunFiltersBySubsystemName(t *testing.T) {
 	if !shouldRun(selected, SubsystemTraces) {
 		t.Error("traces should match")
 	}
-	if shouldRun(selected, SubsystemSemanticCache) {
-		t.Error("semantic cache not in selection should be skipped")
+	if shouldRun(selected, SubsystemAuditEvents) {
+		t.Error("audit events not in selection should be skipped")
 	}
 }
 

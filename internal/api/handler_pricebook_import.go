@@ -31,7 +31,7 @@ var pricebookImportFetcher = func(ctx context.Context) ([]config.ModelPriceConfi
 // Imported rows that exactly match the current pricebook are silently
 // counted in Unchanged.
 func (h *Handler) HandleControlPlanePricebookImportPreview(w http.ResponseWriter, r *http.Request) {
-	if _, ok := h.requireControlPlane(w, r); !ok {
+	if !h.requireControlPlane(w, r) {
 		return
 	}
 
@@ -55,8 +55,7 @@ func (h *Handler) HandleControlPlanePricebookImportPreview(w http.ResponseWriter
 // operator checked in the modal). Empty/missing keys means "apply
 // everything".
 func (h *Handler) HandleControlPlanePricebookImportApply(w http.ResponseWriter, r *http.Request) {
-	principal, ok := h.requireControlPlane(w, r)
-	if !ok {
+	if !h.requireControlPlane(w, r) {
 		return
 	}
 
@@ -69,7 +68,7 @@ func (h *Handler) HandleControlPlanePricebookImportApply(w http.ResponseWriter, 
 		}
 	}
 
-	ctx := controlplane.WithActor(r.Context(), controlPlaneActor(principal, r))
+	ctx := controlplane.WithActor(r.Context(), controlPlaneActor(r))
 	importer := h.newPricebookImporter()
 	summary, err := importer.Run(ctx, billing.PricebookImportOptions{Apply: true, Keys: req.Keys})
 	if err != nil {

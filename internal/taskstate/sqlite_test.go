@@ -52,7 +52,6 @@ func TestSQLiteStore_TaskRunStepRoundTrip(t *testing.T) {
 	task := types.Task{
 		ID:     "task-1",
 		Title:  "demo",
-		Tenant: "tenant-a",
 		Status: "queued",
 	}
 	saved, err := store.CreateTask(ctx, task)
@@ -67,7 +66,7 @@ func TestSQLiteStore_TaskRunStepRoundTrip(t *testing.T) {
 	if err != nil || !ok {
 		t.Fatalf("GetTask: ok=%v err=%v", ok, err)
 	}
-	if got.Title != "demo" || got.Tenant != "tenant-a" {
+	if got.Title != "demo" {
 		t.Fatalf("GetTask round-trip mismatch: %+v", got)
 	}
 
@@ -120,22 +119,20 @@ func TestSQLiteStore_ListTasksFilterAndLimit(t *testing.T) {
 	store := newSQLiteTestStore(t)
 	ctx := context.Background()
 
-	// Three tasks, two tenants. updated_at staggered so ordering is
+	// Three tasks with staggered updated_at so ordering is
 	// deterministic.
 	now := time.Now().UTC()
 	for i, spec := range []struct {
 		id     string
-		tenant string
 		status string
 		ts     time.Time
 	}{
-		{"t-a1", "alpha", "queued", now.Add(-3 * time.Minute)},
-		{"t-a2", "alpha", "running", now.Add(-2 * time.Minute)},
-		{"t-b1", "beta", "queued", now.Add(-1 * time.Minute)},
+		{"t-a1", "queued", now.Add(-3 * time.Minute)},
+		{"t-a2", "running", now.Add(-2 * time.Minute)},
+		{"t-b1", "queued", now.Add(-1 * time.Minute)},
 	} {
 		_, err := store.CreateTask(ctx, types.Task{
 			ID:        spec.id,
-			Tenant:    spec.tenant,
 			Status:    spec.status,
 			CreatedAt: spec.ts,
 			UpdatedAt: spec.ts,
@@ -155,14 +152,6 @@ func TestSQLiteStore_ListTasksFilterAndLimit(t *testing.T) {
 	// updated_at DESC: t-b1 first.
 	if all[0].ID != "t-b1" {
 		t.Fatalf("ListTasks ordering: got first %q, want t-b1", all[0].ID)
-	}
-
-	tenanted, err := store.ListTasks(ctx, TaskFilter{Tenant: "alpha"})
-	if err != nil {
-		t.Fatalf("ListTasks(tenant): %v", err)
-	}
-	if len(tenanted) != 2 {
-		t.Fatalf("ListTasks tenant len = %d, want 2", len(tenanted))
 	}
 
 	limited, err := store.ListTasks(ctx, TaskFilter{Limit: 2})
@@ -538,7 +527,6 @@ func TestSQLiteStore_TaskMCPServersRoundTrip(t *testing.T) {
 	task := types.Task{
 		ID:            "task-mcp",
 		Title:         "MCP store round-trip",
-		Tenant:        "team-a",
 		Status:        "queued",
 		ExecutionKind: "agent_loop",
 		MCPServers: []types.MCPServerConfig{

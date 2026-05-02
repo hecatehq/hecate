@@ -25,7 +25,7 @@ type Props = {
   // Optional escape hatch the empty-state "Open Chats" button uses.
   // AppShell wires it to onSelectWorkspace; in tests it's omitted and
   // the button no-ops.
-  onNavigate?: (workspace: "chats" | "providers" | "runs" | "overview" | "admin") => void;
+  onNavigate?: (workspace: "chats" | "providers" | "runs" | "overview" | "costs" | "settings") => void;
 };
 
 // 900px chosen because at narrower widths the inline split between
@@ -172,24 +172,21 @@ export function ObservabilityView({ state, onNavigate }: Props) {
 
   const loadStats = useCallback(async () => {
     try {
-      const res = await getRuntimeStats(state.authToken, state.session.isAdmin);
+      const res = await getRuntimeStats();
       setRuntimeStats(res.data);
     } catch { /* silently ignore */ }
-    // MCP cache stats are admin-only (operator visibility into a shared
-    // resource that has no tenant dimension); silently skip for tenants.
-    if (!state.session.isAdmin) return;
     try {
-      const res = await getMCPCacheStats(state.authToken);
+      const res = await getMCPCacheStats();
       setMCPCacheStats(res.data);
     } catch { /* silently ignore */ }
-  }, [state.authToken, state.session.isAdmin]);
+  }, []);
 
   const loadTraces = useCallback(async () => {
     try {
-      const res = await getRecentTraces(state.authToken, 50, state.session.isAdmin);
+      const res = await getRecentTraces(50);
       setTraces(res.data ?? []);
     } catch { /* silently ignore */ }
-  }, [state.authToken, state.session.isAdmin]);
+  }, []);
 
   useEffect(() => {
     void loadStats();
@@ -235,11 +232,11 @@ export function ObservabilityView({ state, onNavigate }: Props) {
 
   const fetchTraceDetail = useCallback((reqId: string) => {
     setTraceFetching(true);
-    getTrace(reqId, state.authToken)
+    getTrace(reqId)
       .then(res => setTraceDetail(res.data))
       .catch(() => setTraceDetail(null))
       .finally(() => setTraceFetching(false));
-  }, [state.authToken]);
+  }, []);
 
   // Fetch detail when the drawer opens or the selected ID changes
   // while open. Closing cancels the retry timer.
@@ -276,7 +273,7 @@ export function ObservabilityView({ state, onNavigate }: Props) {
   const traceTimeline = traceDetail?.spans?.length ? buildTraceTimeline(traceDetail.spans, traceDetail.started_at) : [];
 
   const providerOptions = useMemo(() => {
-    const configured = state.adminConfig?.providers ?? [];
+    const configured = state.controlPlaneConfig?.providers ?? [];
     if (configured.length > 0) {
       return configured.map(c => ({
         id: c.id,
@@ -289,7 +286,7 @@ export function ObservabilityView({ state, onNavigate }: Props) {
       name: state.providerPresets.find(pr => pr.id === p.name)?.name || p.name,
       kind: p.kind,
     }));
-  }, [state.adminConfig, state.providers, state.providerPresets]);
+  }, [state.controlPlaneConfig, state.providers, state.providerPresets]);
 
   const drawerTitle = selectedTrace
     ? `${(selectedTrace.request_id || "").slice(0, 8)}… · ${selectedTrace.route?.final_provider || "—"}/${selectedTrace.route?.final_model || "—"}`

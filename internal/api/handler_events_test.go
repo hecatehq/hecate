@@ -10,48 +10,30 @@ import (
 	"strconv"
 	"testing"
 
-	"github.com/hecate/agent-runtime/internal/auth"
-	"github.com/hecate/agent-runtime/internal/config"
-	"github.com/hecate/agent-runtime/internal/controlplane"
 	"github.com/hecate/agent-runtime/internal/taskstate"
 	"github.com/hecate/agent-runtime/pkg/types"
 )
 
 // newEventsTestHandler builds the smallest possible Handler that can
-// serve the public events endpoints — auth + task store, nothing more.
+// serve the public events endpoints — just a logger and a task store.
 // The full NewHandler wires gateway.Service, runner, etc., which are
 // irrelevant here and would mask the actual events behavior under
 // noise. Each test seeds events via store.AppendRunEvent directly.
-func newEventsTestHandler(t *testing.T) (*Handler, taskstate.Store, controlplane.Store) {
+func newEventsTestHandler(t *testing.T) (*Handler, taskstate.Store) {
 	t.Helper()
-	cpStore := controlplane.NewMemoryStore()
-	for _, id := range []string{"team-a", "team-b"} {
-		ctx := context.Background()
-		if _, err := cpStore.UpsertTenant(ctx, controlplane.Tenant{ID: id, Name: id, Enabled: true}); err != nil {
-			t.Fatalf("UpsertTenant(%s): %v", id, err)
-		}
-		if _, err := cpStore.UpsertAPIKey(ctx, controlplane.APIKey{
-			ID: id, Name: id, Key: id + "-secret", Tenant: id, Role: "tenant", Enabled: true,
-		}); err != nil {
-			t.Fatalf("UpsertAPIKey(%s): %v", id, err)
-		}
-	}
 	taskStore := taskstate.NewMemoryStore()
 
-	cfg := config.ServerConfig{AuthToken: "admin-secret"}
 	h := &Handler{
-		logger:        slog.New(slog.NewJSONHandler(io.Discard, nil)),
-		authenticator: auth.NewAuthenticator(cfg, cpStore),
-		controlPlane:  cpStore,
-		taskStore:     taskStore,
+		logger:    slog.New(slog.NewJSONHandler(io.Discard, nil)),
+		taskStore: taskStore,
 	}
-	return h, taskStore, cpStore
+	return h, taskStore
 }
 
-func seedTaskAndEvents(t *testing.T, store taskstate.Store, taskID, tenant string, events []types.TaskRunEvent) {
+func seedTaskAndEvents(t *testing.T, store taskstate.Store, taskID string, events []types.TaskRunEvent) {
 	t.Helper()
 	ctx := context.Background()
-	if _, err := store.CreateTask(ctx, types.Task{ID: taskID, Tenant: tenant, Status: "running"}); err != nil {
+	if _, err := store.CreateTask(ctx, types.Task{ID: taskID, Status: "running"}); err != nil {
 		t.Fatalf("CreateTask: %v", err)
 	}
 	for _, evt := range events {
@@ -62,15 +44,12 @@ func seedTaskAndEvents(t *testing.T, store taskstate.Store, taskID, tenant strin
 	}
 }
 
-// callEvents drives a GET request through the handler with a bearer
-// and returns the parsed JSON + status. Keeps each test focused on
-// the assertion rather than scaffolding.
-func callEvents(t *testing.T, h *Handler, path, bearer string) (int, EventsResponse) {
+// callEvents drives a GET request through the handler and returns the
+// parsed JSON + status. Keeps each test focused on the assertion
+// rather than scaffolding.
+func callEvents(t *testing.T, h *Handler, path string) (int, EventsResponse) {
 	t.Helper()
 	req := httptest.NewRequest(http.MethodGet, path, nil)
-	if bearer != "" {
-		req.Header.Set("Authorization", "Bearer "+bearer)
-	}
 	rec := httptest.NewRecorder()
 	h.HandleEvents(rec, req)
 	if rec.Code != http.StatusOK {
@@ -83,80 +62,35 @@ func callEvents(t *testing.T, h *Handler, path, bearer string) (int, EventsRespo
 	return rec.Code, resp
 }
 
-func TestHandleEvents_AdminSeesAllTenantsEvents(t *testing.T) {
-	h, store, _ := newEventsTestHandler(t)
-	seedTaskAndEvents(t, store, "task-A", "team-a", []types.TaskRunEvent{
+func TestHandleEvents_ReturnsAllEvents(t *testing.T) {
+	h, store := newEventsTestHandler(t)
+	seedTaskAndEvents(t, store, "task-A", []types.TaskRunEvent{
 		{RunID: "run-A", EventType: "run.created"},
 		{RunID: "run-A", EventType: "agent.turn.completed"},
 	})
-	seedTaskAndEvents(t, store, "task-B", "team-b", []types.TaskRunEvent{
+	seedTaskAndEvents(t, store, "task-B", []types.TaskRunEvent{
 		{RunID: "run-B", EventType: "run.created"},
 	})
 
-	code, resp := callEvents(t, h, "/v1/events", "admin-secret")
+	code, resp := callEvents(t, h, "/v1/events")
 	if code != http.StatusOK {
 		t.Fatalf("status = %d, want 200", code)
 	}
 	if len(resp.Data) != 3 {
-		t.Errorf("admin saw %d events, want 3 (all tenants)", len(resp.Data))
-	}
-}
-
-func TestHandleEvents_TenantOnlySeesOwnEvents(t *testing.T) {
-	h, store, _ := newEventsTestHandler(t)
-	seedTaskAndEvents(t, store, "task-A", "team-a", []types.TaskRunEvent{
-		{RunID: "run-A", EventType: "run.created"},
-		{RunID: "run-A", EventType: "agent.turn.completed"},
-	})
-	seedTaskAndEvents(t, store, "task-B", "team-b", []types.TaskRunEvent{
-		{RunID: "run-B", EventType: "run.created"},
-	})
-
-	code, resp := callEvents(t, h, "/v1/events", "team-a-secret")
-	if code != http.StatusOK {
-		t.Fatalf("status = %d, want 200", code)
-	}
-	if len(resp.Data) != 2 {
-		t.Errorf("team-a saw %d events, want 2 (own only)", len(resp.Data))
-	}
-	for _, e := range resp.Data {
-		if e.TaskID != "task-A" {
-			t.Errorf("leaked event from %q to team-a: %+v", e.TaskID, e)
-		}
-	}
-}
-
-func TestHandleEvents_TenantPassingForeignTaskIDReceivesEmpty(t *testing.T) {
-	// A non-admin who passes ?task_id=<another tenant's task> must
-	// not see those events. The intersection-with-tenant logic
-	// reduces TaskIDs to an empty slice; the listing returns nothing.
-	h, store, _ := newEventsTestHandler(t)
-	seedTaskAndEvents(t, store, "task-A", "team-a", []types.TaskRunEvent{
-		{RunID: "run-A", EventType: "run.created"},
-	})
-	seedTaskAndEvents(t, store, "task-B", "team-b", []types.TaskRunEvent{
-		{RunID: "run-B", EventType: "run.created"},
-	})
-
-	code, resp := callEvents(t, h, "/v1/events?task_id=task-B", "team-a-secret")
-	if code != http.StatusOK {
-		t.Fatalf("status = %d, want 200", code)
-	}
-	if len(resp.Data) != 0 {
-		t.Errorf("team-a got %d events for task-B (cross-tenant leak): %+v", len(resp.Data), resp.Data)
+		t.Errorf("got %d events, want 3", len(resp.Data))
 	}
 }
 
 func TestHandleEvents_EventTypeFilter(t *testing.T) {
-	h, store, _ := newEventsTestHandler(t)
-	seedTaskAndEvents(t, store, "task-A", "team-a", []types.TaskRunEvent{
+	h, store := newEventsTestHandler(t)
+	seedTaskAndEvents(t, store, "task-A", []types.TaskRunEvent{
 		{RunID: "run-A", EventType: "run.created"},
 		{RunID: "run-A", EventType: "agent.turn.completed"},
 		{RunID: "run-A", EventType: "agent.turn.completed"},
 		{RunID: "run-A", EventType: "run.finished"},
 	})
 
-	code, resp := callEvents(t, h, "/v1/events?event_type=agent.turn.completed", "team-a-secret")
+	code, resp := callEvents(t, h, "/v1/events?event_type=agent.turn.completed")
 	if code != http.StatusOK {
 		t.Fatalf("status = %d, want 200", code)
 	}
@@ -171,15 +105,14 @@ func TestHandleEvents_EventTypeFilter(t *testing.T) {
 }
 
 func TestHandleEvents_AfterSequenceCursor(t *testing.T) {
-	h, store, _ := newEventsTestHandler(t)
-	seedTaskAndEvents(t, store, "task-A", "team-a", []types.TaskRunEvent{
+	h, store := newEventsTestHandler(t)
+	seedTaskAndEvents(t, store, "task-A", []types.TaskRunEvent{
 		{RunID: "run-A", EventType: "run.created"},
 		{RunID: "run-A", EventType: "agent.turn.completed"},
 		{RunID: "run-A", EventType: "run.finished"},
 	})
 
-	// First page.
-	code, page1 := callEvents(t, h, "/v1/events?limit=1", "team-a-secret")
+	code, page1 := callEvents(t, h, "/v1/events?limit=1")
 	if code != http.StatusOK {
 		t.Fatalf("status = %d, want 200", code)
 	}
@@ -190,9 +123,8 @@ func TestHandleEvents_AfterSequenceCursor(t *testing.T) {
 		t.Errorf("NextAfterSequence missing on non-empty response")
 	}
 
-	// Resume from cursor — should get the rest.
 	resumePath := "/v1/events?after_sequence=" + strconv.FormatInt(page1.NextAfterSequence, 10) + "&limit=10"
-	code2, page2 := callEvents(t, h, resumePath, "team-a-secret")
+	code2, page2 := callEvents(t, h, resumePath)
 	if code2 != http.StatusOK {
 		t.Fatalf("page2 status = %d, want 200", code2)
 	}
@@ -206,20 +138,9 @@ func TestHandleEvents_AfterSequenceCursor(t *testing.T) {
 	}
 }
 
-func TestHandleEvents_RejectsMissingBearer(t *testing.T) {
-	h, _, _ := newEventsTestHandler(t)
-	req := httptest.NewRequest(http.MethodGet, "/v1/events", nil)
-	rec := httptest.NewRecorder()
-	h.HandleEvents(rec, req)
-	if rec.Code != http.StatusUnauthorized {
-		t.Errorf("status = %d, want 401 (no bearer)", rec.Code)
-	}
-}
-
 func TestHandleEvents_RejectsBadAfterSequence(t *testing.T) {
-	h, _, _ := newEventsTestHandler(t)
+	h, _ := newEventsTestHandler(t)
 	req := httptest.NewRequest(http.MethodGet, "/v1/events?after_sequence=not-a-number", nil)
-	req.Header.Set("Authorization", "Bearer team-a-secret")
 	rec := httptest.NewRecorder()
 	h.HandleEvents(rec, req)
 	if rec.Code != http.StatusBadRequest {

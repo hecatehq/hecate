@@ -312,10 +312,6 @@ func spanSpecForEvent(name string) spanSpec {
 		return spanSpec{name: "retention.run", kind: "internal"}
 	case hasPrefix(name, "governor."):
 		return spanSpec{name: "gateway.governor", kind: "internal"}
-	case hasPrefix(name, "cache."):
-		return spanSpec{name: "gateway.cache.exact", kind: "internal", attributes: map[string]any{"hecate.cache.type": "exact"}}
-	case hasPrefix(name, "semantic_cache."):
-		return spanSpec{name: "gateway.cache.semantic", kind: "internal", attributes: map[string]any{"hecate.cache.type": "semantic"}}
 	case hasPrefix(name, "router."):
 		return spanSpec{name: "gateway.router", kind: "internal"}
 	case hasPrefix(name, "provider.call.") || hasPrefix(name, "provider.retry.") || hasPrefix(name, "provider.failover.") || hasPrefix(name, "provider.health."):

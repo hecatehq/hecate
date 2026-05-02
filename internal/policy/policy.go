@@ -6,7 +6,6 @@ import (
 	"strings"
 
 	"github.com/hecate/agent-runtime/internal/config"
-	"github.com/hecate/agent-runtime/internal/requestscope"
 	"github.com/hecate/agent-runtime/pkg/types"
 )
 
@@ -19,8 +18,6 @@ type Rule struct {
 	ID                     string
 	Action                 string
 	Reason                 string
-	Roles                  []string
-	Tenants                []string
 	Providers              []string
 	ProviderKinds          []string
 	Models                 []string
@@ -31,8 +28,6 @@ type Rule struct {
 }
 
 type Subject struct {
-	Tenant              string
-	Role                string
 	Model               string
 	Provider            string
 	ProviderKind        string
@@ -79,8 +74,6 @@ func FromConfig(cfg []config.PolicyRuleConfig) []Rule {
 			ID:                     strings.TrimSpace(item.ID),
 			Action:                 action,
 			Reason:                 strings.TrimSpace(item.Reason),
-			Roles:                  slices.Clone(item.Roles),
-			Tenants:                slices.Clone(item.Tenants),
 			Providers:              slices.Clone(item.Providers),
 			ProviderKinds:          slices.Clone(item.ProviderKinds),
 			Models:                 slices.Clone(item.Models),
@@ -94,10 +87,7 @@ func FromConfig(cfg []config.PolicyRuleConfig) []Rule {
 }
 
 func BuildRequestSubject(req types.ChatRequest) Subject {
-	scope := requestscope.Normalize(req.Scope)
 	return Subject{
-		Tenant:       requestscope.EffectiveTenant(scope, ""),
-		Role:         scope.Principal.Role,
 		Model:        req.Model,
 		PromptTokens: promptEstimate(req),
 	}
@@ -152,12 +142,6 @@ func EvaluateRewrite(rules []Rule, subject Subject) (*Evaluation, string, bool) 
 }
 
 func matches(rule Rule, subject Subject) bool {
-	if len(rule.Roles) > 0 && !contains(rule.Roles, subject.Role) {
-		return false
-	}
-	if len(rule.Tenants) > 0 && !contains(rule.Tenants, subject.Tenant) {
-		return false
-	}
 	if len(rule.Models) > 0 && !contains(rule.Models, subject.Model) {
 		return false
 	}

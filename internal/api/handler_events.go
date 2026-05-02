@@ -9,7 +9,6 @@ import (
 	"strings"
 	"time"
 
-	"github.com/hecate/agent-runtime/internal/auth"
 	"github.com/hecate/agent-runtime/internal/taskstate"
 )
 
@@ -24,35 +23,19 @@ import (
 //   - after_sequence: cursor; only events with sequence > this are returned
 //   - limit:      max items, default 200, capped at 500
 //
-// Auth: any authenticated principal. Non-admin principals are
-// auto-scoped to their tenant — we look up their tenant tasks and
-// constrain the underlying store query to those task IDs. Admins see
-// all events across all tenants.
+// Single-user mode: every event is visible to the operator.
 func (h *Handler) HandleEvents(w http.ResponseWriter, r *http.Request) {
-	principal, ok := h.requireAny(w, r)
-	if !ok {
-		return
-	}
 	if h.taskStore == nil {
 		WriteError(w, http.StatusBadRequest, errCodeInvalidRequest, "task store is not configured")
 		return
 	}
-	ctx := h.contextWithPrincipal(r.Context(), principal)
+	ctx := r.Context()
 
 	filter, errMsg := buildEventFilterFromRequest(r)
 	if errMsg != "" {
 		WriteError(w, http.StatusBadRequest, errCodeInvalidRequest, errMsg)
 		return
 	}
-	proceed, scopedToNothing := applyTenantScopeForEvents(ctx, h, principal, &filter, w)
-	if !proceed {
-		return
-	}
-	if scopedToNothing {
-		WriteJSON(w, http.StatusOK, EventsResponse{Object: "events", Data: []TaskRunEventItem{}})
-		return
-	}
-
 	events, err := h.taskStore.ListEvents(ctx, filter)
 	if err != nil {
 		WriteError(w, http.StatusInternalServerError, errCodeGatewayError, err.Error())
@@ -82,10 +65,6 @@ func (h *Handler) HandleEvents(w http.ResponseWriter, r *http.Request) {
 // constraints are re-resolved every poll iteration to pick up newly
 // created tasks during the stream's lifetime.
 func (h *Handler) HandleEventsStream(w http.ResponseWriter, r *http.Request) {
-	principal, ok := h.requireAny(w, r)
-	if !ok {
-		return
-	}
 	if h.taskStore == nil {
 		WriteError(w, http.StatusBadRequest, errCodeInvalidRequest, "task store is not configured")
 		return
@@ -95,7 +74,7 @@ func (h *Handler) HandleEventsStream(w http.ResponseWriter, r *http.Request) {
 		WriteError(w, http.StatusInternalServerError, errCodeGatewayError, "streaming not supported by server")
 		return
 	}
-	ctx := h.contextWithPrincipal(r.Context(), principal)
+	ctx := r.Context()
 
 	baseFilter, errMsg := buildEventFilterFromRequest(r)
 	if errMsg != "" {
@@ -127,53 +106,8 @@ func (h *Handler) HandleEventsStream(w http.ResponseWriter, r *http.Request) {
 			return
 		}
 
-		// Re-scope per iteration so newly created tenant tasks are
-		// picked up mid-stream. For admins this is a no-op. For
-		// tenants we use the same empty-vs-nil-safe intersection
-		// logic as the polling endpoint — passing an empty TaskIDs
-		// to the store would match everything in some implementations
-		// but nothing in others, so we short-circuit explicitly.
 		filter := baseFilter
 		filter.AfterSequence = cursor
-		if !principal.IsAdmin() && strings.TrimSpace(principal.Tenant) != "" {
-			ids, err := loadTenantTaskIDs(ctx, h, principal.Tenant)
-			if err != nil {
-				fmt.Fprintf(w, "event: error\ndata: {\"error\":{\"message\":%q}}\n\n", err.Error())
-				flusher.Flush()
-				return
-			}
-			if len(ids) == 0 {
-				// Tenant has no tasks yet — nothing to stream this
-				// iteration; sleep with cancel awareness and retry.
-				if !sleepWithContext(ctx, pollInterval) {
-					return
-				}
-				continue
-			}
-			if len(baseFilter.TaskIDs) > 0 {
-				// Intersect with the tenant's set; if the caller
-				// asked exclusively for foreign tasks, idle out.
-				allowed := make(map[string]struct{}, len(ids))
-				for _, id := range ids {
-					allowed[id] = struct{}{}
-				}
-				intersected := make([]string, 0, len(baseFilter.TaskIDs))
-				for _, id := range baseFilter.TaskIDs {
-					if _, ok := allowed[id]; ok {
-						intersected = append(intersected, id)
-					}
-				}
-				if len(intersected) == 0 {
-					if !sleepWithContext(ctx, pollInterval) {
-						return
-					}
-					continue
-				}
-				filter.TaskIDs = intersected
-			} else {
-				filter.TaskIDs = ids
-			}
-		}
 
 		events, err := h.taskStore.ListEvents(ctx, filter)
 		if err != nil {
@@ -252,75 +186,6 @@ func buildEventFilterFromRequest(r *http.Request) (taskstate.EventFilter, string
 		filter.Limit = 200
 	}
 	return filter, ""
-}
-
-// applyTenantScopeForEvents constrains a non-admin principal's filter
-// to their tenant's task IDs. Returns (proceed, scopedToNothing):
-//   - proceed=false means an error response was already written.
-//   - scopedToNothing=true means the principal's effective scope is
-//     empty (no tenant tasks, or asked for a foreign task_id). The
-//     caller should write a successful empty response WITHOUT calling
-//     the store — passing an empty TaskIDs slice to ListEvents would
-//     match nothing in some store implementations but everything in
-//     others (the empty-vs-nil ambiguity is a footgun), so we
-//     short-circuit here instead.
-func applyTenantScopeForEvents(ctx context.Context, h *Handler, principal auth.Principal, filter *taskstate.EventFilter, w http.ResponseWriter) (proceed bool, scopedToNothing bool) {
-	if principal.IsAdmin() {
-		return true, false
-	}
-	tenant := strings.TrimSpace(principal.Tenant)
-	if tenant == "" {
-		// Anonymous (no auth configured) — let it through untouched
-		// so dev setups can subscribe without a tenant claim.
-		return true, false
-	}
-	ids, err := loadTenantTaskIDs(ctx, h, tenant)
-	if err != nil {
-		WriteError(w, http.StatusInternalServerError, errCodeGatewayError, err.Error())
-		return false, false
-	}
-	if len(ids) == 0 {
-		// Tenant has no tasks at all — empty result is the answer.
-		return true, true
-	}
-	if len(filter.TaskIDs) > 0 {
-		// Caller asked for specific tasks; only allow those that
-		// belong to their tenant. Intersect with the tenant's set.
-		allowed := make(map[string]struct{}, len(ids))
-		for _, id := range ids {
-			allowed[id] = struct{}{}
-		}
-		intersected := make([]string, 0, len(filter.TaskIDs))
-		for _, id := range filter.TaskIDs {
-			if _, ok := allowed[id]; ok {
-				intersected = append(intersected, id)
-			}
-		}
-		if len(intersected) == 0 {
-			// Caller asked only for foreign tasks; deny via empty
-			// response (rather than 403, which would leak existence).
-			return true, true
-		}
-		filter.TaskIDs = intersected
-	} else {
-		filter.TaskIDs = ids
-	}
-	return true, false
-}
-
-func loadTenantTaskIDs(ctx context.Context, h *Handler, tenant string) ([]string, error) {
-	tasks, err := h.taskStore.ListTasks(ctx, taskstate.TaskFilter{Tenant: tenant, Limit: 5000})
-	if err != nil {
-		return nil, err
-	}
-	if len(tasks) == 0 {
-		return nil, nil
-	}
-	ids := make([]string, 0, len(tasks))
-	for _, t := range tasks {
-		ids = append(ids, t.ID)
-	}
-	return ids, nil
 }
 
 // sleepWithContext sleeps for d or returns false if ctx is cancelled

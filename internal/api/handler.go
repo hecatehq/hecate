@@ -10,7 +10,6 @@ import (
 	"strings"
 	"time"
 
-	"github.com/hecate/agent-runtime/internal/auth"
 	"github.com/hecate/agent-runtime/internal/config"
 	"github.com/hecate/agent-runtime/internal/controlplane"
 	"github.com/hecate/agent-runtime/internal/gateway"
@@ -29,7 +28,6 @@ type Handler struct {
 	config          config.Config
 	logger          *slog.Logger
 	service         *gateway.Service
-	authenticator   *auth.Authenticator
 	controlPlane    controlplane.Store
 	providerRuntime ProviderRuntime
 	taskStore       taskstate.Store
@@ -53,22 +51,6 @@ type Handler struct {
 	// exposed via OrchestratorMetrics() so main.go can plumb the
 	// same instance into the cache.
 	orchestratorMetrics *telemetry.OrchestratorMetrics
-	// bootstrapTokenExposable controls whether GET /v1/bootstrap-token
-	// returns the admin token to a loopback caller. True when the token
-	// was auto-generated (gateway-managed); false when the operator
-	// supplied GATEWAY_AUTH_TOKEN at boot — the gateway doesn't hand
-	// out tokens it doesn't own. Set via SetBootstrapTokenExposable
-	// from main.go after bootstrap.Resolve.
-	bootstrapTokenExposable bool
-}
-
-// SetBootstrapTokenExposable controls whether GET /v1/bootstrap-token
-// hands out the admin token on loopback requests. main.go enables it
-// when the token is gateway-managed (auto-generated bootstrap),
-// disables it when GATEWAY_AUTH_TOKEN was supplied — that token
-// belongs to the operator, not the gateway.
-func (h *Handler) SetBootstrapTokenExposable(v bool) {
-	h.bootstrapTokenExposable = v
 }
 
 // OrchestratorMetrics returns the metrics instance the runner is using.
@@ -155,7 +137,7 @@ func NewHandler(cfg config.Config, logger *slog.Logger, service *gateway.Service
 	//   3. workspace — CLAUDE.md or AGENTS.md in the workspace root
 	//      (matches what Claude Code / Codex CLI users already write)
 	//   4. per-task — Task.SystemPrompt
-	runner.SetSystemPromptResolver(buildSystemPromptResolver(cfg.Server.TaskAgentSystemPrompt, cpStore))
+	runner.SetSystemPromptResolver(buildSystemPromptResolver(cfg.Server.TaskAgentSystemPrompt))
 	// Wire the gateway's chat path as the agent loop's LLM seam. The
 	// agent runtime issues its model calls through the same service
 	// that handles external client traffic — same routing, same
@@ -187,7 +169,6 @@ func NewHandler(cfg config.Config, logger *slog.Logger, service *gateway.Service
 		config:              cfg,
 		logger:              logger,
 		service:             service,
-		authenticator:       auth.NewAuthenticator(cfg.Server, cpStore),
 		controlPlane:        cpStore,
 		providerRuntime:     providerRuntime,
 		taskStore:           taskStore,
@@ -280,33 +261,14 @@ func (h *Handler) HandleHealth(w http.ResponseWriter, r *http.Request) {
 }
 
 func (h *Handler) HandleSession(w http.ResponseWriter, r *http.Request) {
-	introspection := h.authenticator.Introspect(r)
 	WriteJSON(w, http.StatusOK, SessionResponse{
 		Object: "session",
-		Data: SessionResponseItem{
-			Authenticated:    introspection.Authenticated,
-			InvalidToken:     introspection.InvalidToken,
-			Role:             introspection.Principal.Role,
-			Name:             introspection.Principal.Name,
-			Tenant:           introspection.Principal.Tenant,
-			Source:           introspection.Principal.Source,
-			KeyID:            introspection.Principal.KeyID,
-			AllowedProviders: introspection.Principal.AllowedProviders,
-			AllowedModels:    introspection.Principal.AllowedModels,
-			Features: SessionFeatures{
-				MultiTenant:  h.config.Server.MultiTenant,
-				AuthDisabled: !h.authenticator.Enabled(),
-			},
-		},
+		Data:   SessionResponseItem{Role: "operator"},
 	})
 }
 
 func (h *Handler) HandleModels(w http.ResponseWriter, r *http.Request) {
-	principal, ok := h.requireAny(w, r)
-	if !ok {
-		return
-	}
-	ctx := h.contextWithPrincipal(r.Context(), principal)
+	ctx := r.Context()
 
 	result, err := h.service.ListModels(ctx)
 	if err != nil {
@@ -320,9 +282,6 @@ func (h *Handler) HandleModels(w http.ResponseWriter, r *http.Request) {
 
 	data := make([]OpenAIModelData, 0, len(result.Models))
 	for _, model := range result.Models {
-		if !principal.IsAdmin() && !modelAllowedForPrincipal(principal, model.Provider, model.ID) {
-			continue
-		}
 		data = append(data, OpenAIModelData{
 			ID:      model.ID,
 			Object:  "model",
@@ -342,74 +301,20 @@ func (h *Handler) HandleModels(w http.ResponseWriter, r *http.Request) {
 	})
 }
 
-// contextWithPrincipal attaches principal identity to the context for telemetry.
-func (h *Handler) contextWithPrincipal(ctx context.Context, principal auth.Principal) context.Context {
-	return telemetry.WithPrincipal(ctx, telemetry.Principal{
-		Name:     principal.Name,
-		Role:     principal.Role,
-		TenantID: principal.Tenant,
-		Source:   principal.Source,
-		KeyID:    principal.KeyID,
-	})
-}
-
-func (h *Handler) authorizeAny(r *http.Request) (auth.Principal, bool) {
-	return h.authenticator.Authenticate(r)
-}
-
-func (h *Handler) authorizeAdmin(r *http.Request) (auth.Principal, bool) {
-	if h.authenticator == nil || !h.authenticator.Enabled() {
-		return auth.Principal{Role: "admin"}, true
-	}
-	principal, ok := h.authorizeAny(r)
-	if !ok || !principal.IsAdmin() {
-		return auth.Principal{}, false
-	}
-	return principal, true
-}
-
-// requireAny authenticates any valid principal and writes a 401 on failure.
-func (h *Handler) requireAny(w http.ResponseWriter, r *http.Request) (auth.Principal, bool) {
-	principal, ok := h.authorizeAny(r)
-	if !ok {
-		WriteError(w, http.StatusUnauthorized, errCodeUnauthorized, "missing or invalid bearer token")
-		return auth.Principal{}, false
-	}
-	return principal, true
-}
-
-// requireAdmin authenticates an admin principal and writes a 401 on failure.
-func (h *Handler) requireAdmin(w http.ResponseWriter, r *http.Request) (auth.Principal, bool) {
-	principal, ok := h.authorizeAdmin(r)
-	if !ok {
-		WriteError(w, http.StatusUnauthorized, errCodeUnauthorized, "missing or invalid bearer token")
-		return auth.Principal{}, false
-	}
-	return principal, true
-}
-
-// requireControlPlane authenticates an admin and verifies the control plane is configured.
-func (h *Handler) requireControlPlane(w http.ResponseWriter, r *http.Request) (auth.Principal, bool) {
-	principal, ok := h.requireAdmin(w, r)
-	if !ok {
-		return auth.Principal{}, false
-	}
+// requireControlPlane verifies the control plane is configured and writes a
+// 400 on failure. Single-user mode has no auth gate, so the only check left
+// is whether the operator wired up a control-plane store at boot.
+func (h *Handler) requireControlPlane(w http.ResponseWriter, r *http.Request) bool {
 	if h.controlPlane == nil {
 		WriteError(w, http.StatusBadRequest, errCodeInvalidRequest, "control plane backend is not configured")
-		return auth.Principal{}, false
+		return false
 	}
-	return principal, true
+	return true
 }
 
 // controlPlaneActor builds an actor string for audit log entries.
-func controlPlaneActor(principal auth.Principal, r *http.Request) string {
-	actor := strings.TrimSpace(principal.Name)
-	if actor == "" {
-		actor = principal.Role
-	}
-	if actor == "" {
-		actor = "admin"
-	}
+func controlPlaneActor(r *http.Request) string {
+	actor := "operator"
 	requestID := strings.TrimSpace(RequestIDFromContext(r.Context()))
 	if requestID == "" {
 		return actor

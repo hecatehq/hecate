@@ -41,8 +41,6 @@ func TestDenyMessageFallback(t *testing.T) {
 
 func TestMatchesAllConditions(t *testing.T) {
 	rule := Rule{
-		Roles:                  []string{"admin"},
-		Tenants:                []string{"acme"},
 		Models:                 []string{"gpt-4o"},
 		Providers:              []string{"openai"},
 		ProviderKinds:          []string{"cloud"},
@@ -51,8 +49,6 @@ func TestMatchesAllConditions(t *testing.T) {
 		MinEstimatedCostMicros: 50_000,
 	}
 	matchingSubject := Subject{
-		Role:                "admin",
-		Tenant:              "acme",
 		Model:               "gpt-4o",
 		Provider:            "openai",
 		ProviderKind:        "cloud",
@@ -64,13 +60,10 @@ func TestMatchesAllConditions(t *testing.T) {
 		t.Error("expected match for fully-aligned subject")
 	}
 
-	// Each mismatch in turn should disqualify the rule.
 	cases := []struct {
 		name   string
 		mutate func(*Subject)
 	}{
-		{"role mismatch", func(s *Subject) { s.Role = "user" }},
-		{"tenant mismatch", func(s *Subject) { s.Tenant = "other" }},
 		{"model mismatch", func(s *Subject) { s.Model = "claude-haiku" }},
 		{"provider mismatch", func(s *Subject) { s.Provider = "anthropic" }},
 		{"provider kind mismatch", func(s *Subject) { s.ProviderKind = "local" }},
@@ -92,7 +85,7 @@ func TestMatchesAllConditions(t *testing.T) {
 func TestEvaluateDenyMultipleRules(t *testing.T) {
 	rules := []Rule{
 		{ID: "rewrite", Action: ActionRewriteModel, Models: []string{"gpt-4o"}, RewriteModelTo: "gpt-4o-mini"},
-		{ID: "narrow-deny", Action: ActionDeny, Tenants: []string{"competitor"}},
+		{ID: "narrow-deny", Action: ActionDeny, Providers: []string{"anthropic"}},
 		{ID: "broad-deny", Action: ActionDeny, Models: []string{"gpt-4o"}},
 	}
 
@@ -104,7 +97,7 @@ func TestEvaluateDenyMultipleRules(t *testing.T) {
 	})
 
 	t.Run("first matching deny wins", func(t *testing.T) {
-		got := EvaluateDeny(rules, Subject{Tenant: "competitor", Model: "gpt-4o"})
+		got := EvaluateDeny(rules, Subject{Provider: "anthropic", Model: "gpt-4o"})
 		if got == nil || got.Evaluation.RuleID != "narrow-deny" {
 			t.Errorf("expected narrow-deny (first matching), got %+v", got)
 		}
@@ -150,7 +143,7 @@ func TestEvaluateRewriteNoMatch(t *testing.T) {
 
 func TestFromConfigSkipsBlankActions(t *testing.T) {
 	cfg := []config.PolicyRuleConfig{
-		{ID: "valid", Action: "deny", Roles: []string{"admin"}},
+		{ID: "valid", Action: "deny", Providers: []string{"openai"}},
 		{ID: "blank", Action: ""},
 		{ID: "whitespace", Action: "   "},
 	}
@@ -164,11 +157,11 @@ func TestFromConfigSkipsBlankActions(t *testing.T) {
 }
 
 func TestFromConfigClonesNestedSlices(t *testing.T) {
-	roles := []string{"admin"}
-	cfg := []config.PolicyRuleConfig{{ID: "r", Action: "deny", Roles: roles}}
+	providers := []string{"openai"}
+	cfg := []config.PolicyRuleConfig{{ID: "r", Action: "deny", Providers: providers}}
 	rules := FromConfig(cfg)
-	rules[0].Roles[0] = "MUTATED"
-	if roles[0] == "MUTATED" {
-		t.Error("FromConfig did not clone Roles slice — mutation leaked back to caller")
+	rules[0].Providers[0] = "MUTATED"
+	if providers[0] == "MUTATED" {
+		t.Error("FromConfig did not clone Providers slice — mutation leaked back to caller")
 	}
 }

@@ -8,7 +8,7 @@
 [![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](LICENSE)
 [![OpenTelemetry](https://img.shields.io/badge/OpenTelemetry-enabled-f5a800?logo=opentelemetry&logoColor=white)](https://opentelemetry.io/)
 
-**Open-source AI gateway and agent-task runtime.** One control plane for model access, cost governance, routing, caching, observability, and controlled agent execution. Single-user by default, multi-tenant opt-in.
+**Open-source AI gateway and agent-task runtime.** One control plane for model access, cost governance, routing, observability, and controlled agent execution.
 
 > **Status: public alpha.** Core gateway is usable; agent runtime + sandbox are still evolving. Read [docs/known-limitations.md](docs/known-limitations.md) before depending on it.
 
@@ -16,7 +16,6 @@
 
 - [Why Hecate](#why-hecate)
 - [Quick Start](#quick-start)
-- [Modes](#modes)
 - [Architecture](#architecture)
 - [Operator UI](#operator-ui)
 - [What Works Today](#what-works-today)
@@ -36,7 +35,7 @@ AI workloads are moving from simple API calls to long-running agents, tool use, 
 
 ## Quick Start
 
-Single-user path; for multi-tenant see [`docs/tenants.md`](docs/tenants.md).
+Single-user mode: one process, one user, no auth. Loopback by default.
 
 | Path | Best for |
 |---|---|
@@ -122,20 +121,6 @@ Cloud presets need an API key; local presets just need the runtime listening on 
 
 ![Chats workspace talking to a local Ollama llama3.1:8b model with sessions sidebar and inline runtime metadata](docs/screenshots/chat.png)
 
-## Modes
-
-Hecate runs in one of two modes. The flag flips at startup; you can switch between runs without losing state.
-
-| | **Single-user** (default) | **Multi-tenant** (opt-in) |
-|---|---|---|
-| Flag | `GATEWAY_MULTI_TENANT=false` | `GATEWAY_MULTI_TENANT=true` |
-| Auth | One admin bearer; loopback handshake auto-fills it for same-host browsers. | Admin bearer **plus** per-tenant API keys, each scoped to allowed providers and models. |
-| Operator UI | Chats, Providers, Tasks, Observability, Costs, Settings (Pricing / Policy / Retention). | Same plus the Tenants and Keys tabs in Settings. |
-| Observability | Admin sees everything; tenants see nothing because there are no tenants. | Tenants see their own traces / requests / runtime stats via `/v1/*` mirrors of the `/admin/*` endpoints. |
-| Use when | One operator on one host; local dev; a personal gateway behind a single key. | Multiple consumers, per-key audit, scoped credentials. |
-
-The published Docker image ships single-user. Full breakdown in [`docs/tenants.md`](docs/tenants.md).
-
 ## Architecture
 
 One Go process, one port. Inside it: a chat/messages **gateway** that routes traffic to upstream providers, and a **task runtime** that queues agent work, drives approvals, and shells out through a sandbox boundary. The React operator UI is embedded into the same binary and served from the same port.
@@ -203,12 +188,10 @@ Hecate is public-alpha software. The core gateway path is usable; the agent runt
 | Anthropic-compatible gateway | Usable | Messages API shape, streaming translation, Claude Code support |
 | Provider catalog | Usable | Built-in presets, encrypted credentials, health, routing readiness |
 | Local providers | Usable | Ollama, LM Studio, LocalAI, llama.cpp-compatible servers |
-| Auth | Usable | Admin bearer with same-origin loopback handshake; `GATEWAY_AUTH_DISABLED` for upstream-terminated auth |
-| Tenants and API keys | Opt-in | `GATEWAY_MULTI_TENANT=true` exposes tenant + key management with provider/model scoping |
-| Budgets and rate limits | Usable | Balances, warning thresholds, pricebook, `429` rate-limit headers |
-| Caching | Usable | Exact cache; semantic cache is available but still early |
+| Auth | n/a | Single-user mode. No auth. Loopback bind by default; expose at your own risk. |
+| Budget and rate limits | Usable | Single global cap, warning thresholds, pricebook, `429` rate-limit headers |
 | OpenTelemetry | Usable | OTLP traces, metrics, logs, response headers, local trace view |
-| Storage tiers | Usable | Memory, SQLite, Postgres, selected per subsystem |
+| Storage tiers | Usable | Memory, SQLite, selected per subsystem |
 | Operator UI | Usable | Main workflows are present; debugging ergonomics are still improving |
 | Agent task runtime | Alpha | Queues, approvals, resumable runs, `agent_loop`, MCP integration; periodic reconciler auto-recovers stale runs |
 | Execution isolation | Alpha | Per-call subprocess + env sanitisation + output cap + wall-clock timeout; `bwrap` (Linux) / `sandbox-exec` (macOS) wrapping where available. Not container-level — see [`docs/sandbox.md`](docs/sandbox.md) |
@@ -224,7 +207,6 @@ Full index lives at [`docs/README.md`](docs/README.md), organized by reader role
 - [Deployment](docs/deployment.md) — Docker, image pinning, binary install, lost-token recovery, storage tiers, rate limits.
 - [Desktop app](docs/desktop-app.md) — native bundles, first-launch footguns, platform data dirs, roadmap.
 - [Providers](docs/providers.md) — preset catalog, custom OpenAI-compatible endpoints, credentials, health, circuit breaking.
-- [Tenants and API keys](docs/tenants.md) — opt-in multi-tenant: roles, scopes, observability mirrors.
 - [Known limitations](docs/known-limitations.md) — plain-language list of what's still alpha.
 
 **Building against Hecate**

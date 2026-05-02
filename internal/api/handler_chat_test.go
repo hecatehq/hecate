@@ -9,7 +9,6 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/hecate/agent-runtime/internal/auth"
 	"github.com/hecate/agent-runtime/internal/config"
 	"github.com/hecate/agent-runtime/internal/providers"
 	"github.com/hecate/agent-runtime/pkg/types"
@@ -396,44 +395,6 @@ func TestChatCompletionsStreamMidStreamErrorMessageIsValidJSON(t *testing.T) {
 	}
 }
 
-// TestChatCompletionsRequiresAuthWhenConfigured guards the auth gate.
-// Without an AuthToken the handler is open by default (test fixtures
-// rely on this); flipping AuthToken on must produce a 401 for an
-// unauthenticated request, so an operator who configures auth doesn't
-// silently get an open gateway.
-func TestChatCompletionsRequiresAuthWhenConfigured(t *testing.T) {
-	t.Parallel()
-	logger := slog.New(slog.NewJSONHandler(io.Discard, nil))
-	provider := &fakeProvider{name: "openai", response: &types.ChatResponse{}}
-	handler := newTestHTTPHandlerWithConfig(logger, provider, config.Config{
-		Server: config.ServerConfig{AuthToken: "admin-secret"},
-	})
-
-	body := `{"model":"gpt-4o-mini","messages":[{"role":"user","content":"hi"}]}`
-	rec := performJSONRequest(t, handler, body)
-	if rec.Code != http.StatusUnauthorized {
-		t.Fatalf("status = %d, want 401; body=%s", rec.Code, rec.Body.String())
-	}
-	var payload struct {
-		Error struct {
-			Type string `json:"type"`
-		} `json:"error"`
-	}
-	if err := json.NewDecoder(rec.Body).Decode(&payload); err != nil {
-		t.Fatalf("decode body: %v", err)
-	}
-	if payload.Error.Type != "unauthorized" {
-		t.Errorf("error.type = %q, want unauthorized", payload.Error.Type)
-	}
-}
-
-// TestRenderChatCompletionResponseSurfacesCachedTokens pins the
-// new prompt_tokens_details.cached_tokens path: when an upstream
-// reports cache reads (Anthropic's cache_read_input_tokens or
-// OpenAI's prompt_tokens_details.cached_tokens), the wire response
-// to /v1/chat/completions clients must surface the figure under
-// the same OpenAI-canonical key. Without this, operators couldn't
-// reconcile per-request cost from raw response bodies.
 func TestRenderChatCompletionResponseSurfacesCachedTokens(t *testing.T) {
 	t.Parallel()
 	resp := &types.ChatResponse{
@@ -585,7 +546,7 @@ func TestNormalizeChatRequestParsesImageBlocks(t *testing.T) {
 	if err := json.Unmarshal([]byte(body), &req); err != nil {
 		t.Fatalf("decode wire request: %v", err)
 	}
-	internal, err := normalizeChatRequest(req, "req-1", auth.Principal{})
+	internal, err := normalizeChatRequest(req, "req-1")
 	if err != nil {
 		t.Fatalf("normalize: %v", err)
 	}
@@ -627,7 +588,7 @@ func TestNormalizeChatRequestStringContentUnchanged(t *testing.T) {
 	if err := json.Unmarshal([]byte(body), &req); err != nil {
 		t.Fatalf("decode: %v", err)
 	}
-	internal, err := normalizeChatRequest(req, "req-1", auth.Principal{})
+	internal, err := normalizeChatRequest(req, "req-1")
 	if err != nil {
 		t.Fatalf("normalize: %v", err)
 	}
@@ -653,7 +614,7 @@ func TestNormalizeChatRequestCapturesResponseFormat(t *testing.T) {
 		Messages:       []OpenAIChatMessage{{Role: "user", Content: OpenAIMessageContent{Text: hi}}},
 		ResponseFormat: rf,
 	}
-	internal, err := normalizeChatRequest(req, "req-1", auth.Principal{})
+	internal, err := normalizeChatRequest(req, "req-1")
 	if err != nil {
 		t.Fatalf("normalize: %v", err)
 	}

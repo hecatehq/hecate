@@ -3,9 +3,10 @@
 Open-source AI gateway and agent-task runtime. A single Go binary mediates
 OpenAI- and Anthropic-shaped client traffic to upstream providers, runs
 queued `agent_loop` tasks behind policy and approval gates, and emits
-OpenTelemetry traces. Tenant-aware, deny-by-default, runtime-aware,
-storage-tiered (memory / sqlite / postgres). The React operator UI is
-embedded via `//go:embed ui/dist`.
+OpenTelemetry traces. Single-user, single-process, deny-by-default,
+storage-tiered (memory / sqlite). Binds to 127.0.0.1 by default;
+no auth — the threat model is "trust your own machine." The React
+operator UI is embedded via `//go:embed ui/dist`.
 
 This file is the orientation entry — the codebase map, the runtime
 invariants, and the gotchas that bite often. It is what an agent
@@ -94,9 +95,7 @@ When adding a new persisted thing, mirror all three.
 Non-negotiable rules of the system. Read them before writing code that
 touches request handling, persistence, or tool execution.
 
-- **Auth is path-level.** `/v1/chat/completions` accepts tenant API keys; `/admin/*` requires admin bearer; `/v1/tasks/*` accepts both. Don't blur these. Three observability surfaces have a tenant-readable mirror under `/v1/*` (`/v1/runtime/stats`, `/v1/traces`, `/v1/requests`) — share the same private body with their `/admin/*` equivalent and don't re-implement.
-- **Tenant scoping is automatic.** Once a request has a tenant principal, every store query gets `WHERE tenant = ?` injected. New endpoints respect this — never bypass via the admin path. Multi-tenant management surfaces (Tenants/Keys tabs, tenant API keys) are opt-in via `GATEWAY_MULTI_TENANT=true`; the published `Dockerfile.release` defaults to `false` so single-user installs don't see them. The flag flows through `/v1/whoami`'s `features.multi_tenant`; `features.auth_disabled` mirrors `GATEWAY_AUTH_DISABLED`.
-- **Bootstrap-token handshake is loopback-only.** `GET /v1/bootstrap-token` hands the gateway-managed admin bearer to a same-origin loopback caller — checks: TCP peer is loopback (XFF ignored), Origin host matches Host *or* is itself loopback (so Vite dev `localhost:5173` -> `127.0.0.1:8765` works), no operator-supplied `GATEWAY_AUTH_TOKEN`. Wire shape is `{object: "bootstrap_token", data: {token}}` — the same envelope as the rest of the API. Don't add bypasses.
+- **No auth.** Every request is processed as the operator. The gateway binds to `127.0.0.1` by default; the threat model is "trust your own machine." Bind elsewhere only behind a reverse proxy or firewall.
 - **Sandbox is per-call subprocess, applied inline.** Shell, file, and git tool calls spawn a fresh `sh` from inside the gateway after policy validation + env sanitisation + output cap + wall-clock timeout. On Linux with `bwrap` installed and on macOS, the call is additionally wrapped by `bwrap` / `sandbox-exec` for filesystem and network confinement (auto-detected at startup). No separate sandbox daemon, no per-call rlimits (those would shrink the long-running gateway). New tools follow the same pattern.
 - **Approvals are blocking.** Pre-execution and mid-loop approvals halt the run; the run record persists in `awaiting_approval` until resolved. New gates use the `TaskApproval` shape.
 - **Events are appended, not mutated.** Every state transition writes a `run_event` with a monotonic sequence. The SSE stream replays from `after_sequence`. New event types go in `docs/events.md`.
@@ -160,7 +159,6 @@ Full ladder: [`ai/core/verification.md`](ai/core/verification.md).
 | [`docs/events.md`](docs/events.md) | Every event type at `/v1/events` with payload shapes |
 | [`docs/telemetry.md`](docs/telemetry.md) | OTel spans + metrics, OTLP wiring, status & gaps |
 | [`docs/providers.md`](docs/providers.md) | Provider catalog, configuration |
-| [`docs/tenants.md`](docs/tenants.md) | Multi-tenant opt-in: roles, modes, storage |
 | [`docs/mcp.md`](docs/mcp.md) | MCP server: tools, transport, configure |
 | [`docs/deployment.md`](docs/deployment.md) | Compose profiles, image pinning, lost-token recovery |
 | [`docs/development.md`](docs/development.md) | Local build, testing, screenshot tooling, `[skip ci]` convention |

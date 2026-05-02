@@ -1,6 +1,6 @@
 # Deployment
 
-The [Quick Start](../README.md#quick-start) covers `docker run` end-to-end. This page is the reference for everything past the first run: pinning images, the compose profile, the binary install, the auth modes (admin token, loopback bootstrap, auth-disabled), single-user vs multi-tenant, lost-token recovery, storage tiers, and rate limits.
+The [Quick Start](../README.md#quick-start) covers `docker run` end-to-end. This page is the reference for everything past the first run: pinning images, the compose profile, the binary install, generated state, lost-token recovery, storage tiers, and rate limits.
 
 ## Contents
 
@@ -10,7 +10,6 @@ The [Quick Start](../README.md#quick-start) covers `docker run` end-to-end. This
 - [Optional services (compose profiles)](#optional-services-compose-profiles)
 - [Auth and generated state](#auth-and-generated-state)
   - [Bootstrap handshake (loopback only)](#bootstrap-handshake-loopback-only)
-  - [Single-user vs multi-tenant](#single-user-vs-multi-tenant)
 - [Recovering a lost admin token](#recovering-a-lost-admin-token)
 - [Resetting state](#resetting-state)
 - [Storage backends](#storage-backends)
@@ -66,7 +65,7 @@ Each tarball includes the binary plus `LICENSE` and `README.md`. Verify integrit
 
 ## Desktop app
 
-A third install path for single-user / personal use on a laptop. Same release, different artifacts:
+A third install path for personal use on a laptop. Same release, different artifacts:
 
 | Platform | Bundle |
 |---|---|
@@ -125,7 +124,6 @@ Hecate can start with almost no secrets in the environment. If `GATEWAY_AUTH_TOK
 |---|---|---|
 | `GATEWAY_AUTH_TOKEN` | generated | Admin bearer token. Prefer the generated first-run token for local and single-host setups. |
 | `GATEWAY_AUTH_DISABLED` | `false` | When `true`, the gateway accepts unauthenticated requests and reports `source=auth_disabled` on `/v1/whoami`. Use it when an upstream reverse proxy already terminates auth, or for fully-controlled local setups. |
-| `GATEWAY_MULTI_TENANT` | `false` (Docker) / `false` (local) | When `true`, exposes tenant + API-key management surfaces in Settings and tenant-readable observability endpoints. Default deployments ship single-user; flip the flag when more than one consumer needs scoped access. See [`tenants.md`](tenants.md). |
 | `GATEWAY_DATA_DIR` | `.data` locally, `/data` in Docker | Holds bootstrap metadata and local state files. |
 | `GATEWAY_CONTROL_PLANE_SECRET_KEY` | development fallback | Encrypts persisted provider credentials. Set a strong value before sharing a deployment. |
 
@@ -140,12 +138,6 @@ Hecate can start with almost no secrets in the environment. If `GATEWAY_AUTH_TOK
 The embedded operator UI uses this on mount when no token sits in `localStorage` — same-origin browsers on the host running the gateway pick up the bearer with no token paste. Anything cross-origin, remote, or behind a reverse proxy hits a `403` and falls back to the manual TokenGate.
 
 The endpoint never reads or trusts `X-Forwarded-For`, so a misconfigured proxy can't trick it into handing the token to a remote browser.
-
-### Single-user vs multi-tenant
-
-The published Docker image ships single-user (`GATEWAY_MULTI_TENANT=false`). Flip the flag to expose tenant + API-key management surfaces and tenant-readable observability mirrors. Switching between runs is non-destructive — existing tenant/key rows stay intact, only the UI surfaces and the auth gates on `/v1/traces` etc. flip.
-
-The README has the at-a-glance comparison; full breakdown (roles, storage notes, when to enable) in [`tenants.md`](tenants.md).
 
 ## Recovering a lost admin token
 

@@ -56,8 +56,6 @@ func TestNormalizeStringListDedupesAndTrims(t *testing.T) {
 func TestClonePolicyRuleIsolatesAllSlices(t *testing.T) {
 	original := config.PolicyRuleConfig{
 		ID:            "r1",
-		Roles:         []string{"admin"},
-		Tenants:       []string{"t1"},
 		Providers:     []string{"openai"},
 		ProviderKinds: []string{"cloud"},
 		Models:        []string{"gpt-4o"},
@@ -66,19 +64,11 @@ func TestClonePolicyRuleIsolatesAllSlices(t *testing.T) {
 	clone := clonePolicyRule(original)
 
 	// Mutate every original slice; the clone must not see the changes.
-	original.Roles[0] = "MUTATED"
-	original.Tenants[0] = "MUTATED"
 	original.Providers[0] = "MUTATED"
 	original.ProviderKinds[0] = "MUTATED"
 	original.Models[0] = "MUTATED"
 	original.RouteReasons[0] = "MUTATED"
 
-	if clone.Roles[0] == "MUTATED" {
-		t.Error("Roles slice not cloned")
-	}
-	if clone.Tenants[0] == "MUTATED" {
-		t.Error("Tenants slice not cloned")
-	}
 	if clone.Providers[0] == "MUTATED" {
 		t.Error("Providers slice not cloned")
 	}
@@ -191,21 +181,20 @@ func TestPruneAuditEventsHandlesNilState(t *testing.T) {
 
 func TestCloneStateIsolatesNestedSlices(t *testing.T) {
 	original := State{
-		Tenants:     []Tenant{{ID: "t1", Name: "Tenant"}},
-		APIKeys:     []APIKey{{ID: "k1", Tenant: "t1"}},
-		PolicyRules: []config.PolicyRuleConfig{{ID: "r1", Roles: []string{"admin"}}},
+		Providers:   []Provider{{ID: "p1", Name: "OpenAI"}},
+		PolicyRules: []config.PolicyRuleConfig{{ID: "r1", Providers: []string{"openai"}}},
 		Events:      []AuditEvent{{Action: "create"}},
 	}
 	clone := cloneState(original)
 
-	original.Tenants[0].Name = "MUTATED"
-	original.PolicyRules[0].Roles[0] = "MUTATED"
+	original.Providers[0].Name = "MUTATED"
+	original.PolicyRules[0].Providers[0] = "MUTATED"
 
-	if clone.Tenants[0].Name == "MUTATED" {
-		t.Error("Tenants slice shared with original")
+	if clone.Providers[0].Name == "MUTATED" {
+		t.Error("Providers slice shared with original")
 	}
-	if clone.PolicyRules[0].Roles[0] == "MUTATED" {
-		t.Error("PolicyRules.Roles slice shared with original")
+	if clone.PolicyRules[0].Providers[0] == "MUTATED" {
+		t.Error("PolicyRules.Providers slice shared with original")
 	}
 }
 
