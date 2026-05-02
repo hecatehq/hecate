@@ -130,10 +130,8 @@ check-links:
 verify-alpha: docs-env-check test vet test-race test-docker-smoke ui-test ui-test-e2e build
 
 # reset-dev wipes local dev state back to first-run: stops the gateway on
-# :8765 and deletes the data directory (which holds the bootstrap file
-# with the admin token + AES-GCM key) so the next start regenerates
-# fresh secrets. Memory-backed control plane is already wiped on
-# restart; SQLite-backed state lives under .data/ and is removed too.
+# :8765 and deletes the data directory (which holds the AES-GCM key and
+# any sqlite databases) so the next start regenerates fresh state.
 reset-dev:
 	@pid=$$(lsof -ti:8765 2>/dev/null); \
 	if [ -n "$$pid" ]; then \
@@ -142,9 +140,7 @@ reset-dev:
 	  sleep 0.3; \
 	fi
 	rm -rf .data
-	rm -f hecate.bootstrap.json
-	@echo "Local dev state reset. Next 'make run'/'make serve' regenerates the admin token."
-	@echo "On next page load, the UI auto-detects the rejected stale token and re-prompts."
+	@echo "Local dev state reset."
 
 # screenshots is the one-shot end-to-end capture workflow:
 # reset → build (if needed) → start gateway in the background → wait
@@ -162,7 +158,7 @@ screenshots:
 	@test -x ./gateway || $(MAKE) --no-print-directory build
 	@mkdir -p .data
 	@echo "starting gateway in background…"
-	@GATEWAY_MULTI_TENANT=true ./gateway > .data/screenshots-gateway.log 2>&1 & echo $$! > .data/screenshots-gateway.pid
+	@./gateway > .data/screenshots-gateway.log 2>&1 & echo $$! > .data/screenshots-gateway.pid
 	@for i in 1 2 3 4 5 6 7 8 9 10; do \
 	  curl -sf http://127.0.0.1:8765/healthz > /dev/null && break; \
 	  sleep 0.3; \
@@ -176,12 +172,11 @@ screenshots:
 	  exit $$status
 
 # reset-docker wipes the docker compose stack: stops + removes containers
-# and removes the hecate-data named volume so the next 'docker compose up'
-# re-bootstraps from scratch.
+# and the hecate-data named volume so the next 'docker compose up'
+# starts from scratch.
 reset-docker:
 	docker compose down -v --remove-orphans
-	@echo "Docker stack reset. Next 'docker compose up' regenerates the admin token."
-	@echo "On next page load, the UI auto-detects the rejected stale token and re-prompts."
+	@echo "Docker stack reset."
 
 # ---------------------------------------------------------------------------
 # Tauri native desktop app

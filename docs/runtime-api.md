@@ -39,7 +39,7 @@ The `task` resource accepts these fields on `POST /v1/tasks`:
 
 - `execution_kind` — one of `shell`, `git`, `file`, `agent_loop`
 - `prompt` — the user-facing prompt; required for `agent_loop`, optional description for the others
-- `system_prompt` — per-task agent prompt (narrowest of the four-layer composition); `agent_loop` only
+- `system_prompt` — per-task agent prompt (narrowest of the three-layer composition); `agent_loop` only
 - `shell_command` / `git_command` / `file_path` / `file_content` / `file_operation` — execution-kind-specific
 - `working_directory` — absolute path; required when `workspace_mode=in_place`
 - `workspace_mode` — `""` / `"persistent"` / `"ephemeral"` (clone behavior, default) or `"in_place"` (run directly in `working_directory`); see [`agent-runtime.md`](agent-runtime.md#workspace-modes)
@@ -154,7 +154,7 @@ For external dashboards (Grafana, Slack notifiers, audit log shippers) that want
 - `GET /v1/events?event_type=<csv>&task_id=<id>&after_sequence=<n>&limit=<n>` — paginated JSON list with cursor-based pagination
 - `GET /v1/events/stream?event_type=<csv>` — long-lived SSE feed; reconnect via `Last-Event-ID`
 
-Filters AND together; within a slice (`event_type` is comma-separated) the match is OR. `after_sequence` is the global event sequence cursor, strictly greater. Tenant principals are auto-scoped to their tenant's tasks; admins see all events across all tenants. Asking for a foreign `task_id` returns an empty result rather than 403 (so existence isn't leaked).
+Filters AND together; within a slice (`event_type` is comma-separated) the match is OR. `after_sequence` is the global event sequence cursor, strictly greater.
 
 ### Event types
 
@@ -200,23 +200,62 @@ sequenceDiagram
 
 ## Runtime backend and queue configuration
 
-- `GATEWAY_TASKS_BACKEND=memory|sqlite|postgres`
-- `GATEWAY_TASK_QUEUE_BACKEND=memory|sqlite|postgres`
+- `GATEWAY_TASKS_BACKEND=memory|sqlite`
+- `GATEWAY_TASK_QUEUE_BACKEND=memory|sqlite`
 - `GATEWAY_TASK_QUEUE_WORKERS=<int>`
 - `GATEWAY_TASK_QUEUE_BUFFER=<int>`
 - `GATEWAY_TASK_QUEUE_LEASE_SECONDS=<int>`
-- `GATEWAY_TASK_MAX_CONCURRENT_PER_TENANT=<int>` (`0` disables the limit)
+- `GATEWAY_TASK_MAX_CONCURRENT=<int>` (`0` disables the limit)
 - `GATEWAY_TASK_RECONCILE_INTERVAL=<duration>` (default `30s`; Go duration string — e.g. `"1m"`; how often the periodic reconciler scans for stalled runs; runs stuck in `running` longer than 3× `GATEWAY_TASK_QUEUE_LEASE_SECONDS` are automatically re-queued and emit `run.reconciled_restart_requeued` with `recovery_strategy=periodic_requeue`)
 - `GATEWAY_TASK_MAX_MCP_SERVERS_PER_TASK=<int>` (default `16`; caps `mcp_servers` entries on `agent_loop` task creates; `0` disables the check)
 - `GATEWAY_TASK_MCP_CLIENT_CACHE_MAX_ENTRIES=<int>` (default `256`; soft cap on the gateway-wide MCP client cache; LRU-idle eviction kicks in at the cap, with fail-open when every entry is in use)
 - `GATEWAY_TASK_MCP_CLIENT_CACHE_PING_INTERVAL=<duration>` (default `60s`; how often the cache pings each idle cached upstream to detect wedged subprocesses; `0` disables the proactive health check, leaving only reactive eviction in `Pool.Call`)
 - `GATEWAY_TASK_MCP_CLIENT_CACHE_PING_TIMEOUT=<duration>` (default `5s`; per-ping deadline; failure or timeout evicts the entry)
 
-When `GATEWAY_TASKS_BACKEND` is `sqlite` or `postgres`, tasks/runs/steps/approvals/artifacts/run-events are persisted and the stream replay cursor is durable across restarts. When `GATEWAY_TASK_QUEUE_BACKEND` is `sqlite` or `postgres`, workers claim queue items with renewable leases, so pending runs survive process restarts and can be recovered by another worker when a lease expires.
+When `GATEWAY_TASKS_BACKEND` is `sqlite`, tasks/runs/steps/approvals/artifacts/run-events are persisted and the stream replay cursor is durable across restarts. When `GATEWAY_TASK_QUEUE_BACKEND` is `sqlite`, workers claim queue items with renewable leases, so pending runs survive process restarts and can be recovered when a lease expires.
 
 For `agent_loop`-specific knobs (max turns, system-prompt layers, HTTP policy for the `http_request` tool), see [`agent-runtime.md`](agent-runtime.md#configuration-knobs).
 
 `GET /admin/runtime/stats` also reports queue health fields including queue depth, queue capacity, worker count, and `queue_backend`.
+
+`GET /admin/semantic-cache` returns configuration and a live entry count for the semantic cache:
+
+```json
+{
+  "object": "semantic_cache_status",
+  "data": {
+    "checked_at": "2026-04-29T01:00:00.123Z",
+    "configured": true,
+    "enabled": true,
+    "backend": "memory",
+    "entries": 42,
+    "max_entries": 10000,
+    "default_ttl_sec": 86400,
+    "min_similarity": 0.92,
+    "max_text_chars": 8000
+  }
+}
+```
+
+`configured: false` when the semantic cache is not wired (disabled in config). All numeric fields are zero in that case. See [`semantic-cache.md`](semantic-cache.md) for configuration details.
+
+`GET /admin/semantic-cache/entries?limit=<n>&offset=<n>` lists cached entries newest-first with simple limit/offset pagination (default `limit=50`, max `500`):
+
+```json
+{
+  "object": "semantic_cache_entries",
+  "data": [
+    {
+      "namespace": "model:gpt-4o-mini|provider:openai",
+      "text_snippet": "user: Explain Go channels and goroutines.",
+      "stored_at": "2026-04-29T01:00:00Z",
+      "expires_at": "2026-04-30T01:00:00Z"
+    }
+  ]
+}
+```
+
+`text_snippet` is truncated to 200 characters. Returns an empty array (not an error) when the cache is unconfigured or empty.
 
 `GET /admin/mcp/cache` returns a snapshot of the shared MCP client cache:
 
@@ -256,15 +295,13 @@ POST /v1/mcp/probe
 }
 ```
 
-Tool names come back un-namespaced — the operator wants to see what the upstream itself calls them, not the gateway's runtime alias. Auth matches `POST /v1/tasks` (`requireAny`): if a principal can create a task with `mcp_servers` configured, it can probe with the same config (both paths exec the same arbitrary command). Bounded by a 10-second deadline; a stuck upstream surfaces as a 400 with the diagnostic rather than wedging the request.
+Tool names come back un-namespaced — the operator wants to see what the upstream itself calls them, not the gateway's runtime alias. Bounded by a 10-second deadline; a stuck upstream surfaces as a 400 with the diagnostic rather than wedging the request.
 
 ## Health and discovery endpoints
 
-Four small surfaces that don't need auth (or only need any-principal auth) and are useful for clients, ops, and the UI.
-
 ### `GET /healthz`
 
-Liveness probe. Returns `200` with the gateway's current time and version unconditionally — no auth, no upstream calls. Suitable for load-balancer health checks, Kubernetes `livenessProbe` / `readinessProbe`, and Docker Compose `healthcheck`.
+Liveness probe. Returns `200` with the gateway's current time and version. Suitable for sidecar health checks, Kubernetes `livenessProbe` / `readinessProbe`, and Docker Compose `healthcheck`.
 
 ```json
 GET /healthz
@@ -276,59 +313,7 @@ GET /healthz
 }
 ```
 
-The endpoint is intentionally cheap: it doesn't touch the database, providers, or queue. A `200` here means "the process is up and serving HTTP," not "every backend is healthy." For deeper signal use `GET /admin/runtime/stats` (admin-gated; see above).
-
-### `GET /v1/whoami`
-
-Auth introspection. Tells the caller which principal a presented token resolves to — admin, tenant API key, anonymous — without requiring authentication itself. The UI uses this to render the "you are signed in as …" indicator; client integrations use it to confirm a bearer token works before issuing real traffic.
-
-```json
-GET /v1/whoami
-→ 200
-{
-  "object": "session",
-  "data": {
-    "authenticated": true,
-    "invalid_token": false,
-    "role": "admin",
-    "name": "operator",
-    "tenant": "",
-    "source": "bearer",
-    "key_id": "",
-    "allowed_providers": [],
-    "allowed_models": [],
-    "features": {
-      "auth_disabled": false
-    }
-  }
-}
-```
-
-Anonymous (no token / unrecognized token) returns `authenticated: false` with empty `role`. A token that's syntactically present but doesn't match any record returns `authenticated: false, invalid_token: true` — distinguishable so clients can show "your token is wrong" vs. "you're not signed in."
-
-The `features` object reflects the gateway's runtime configuration:
-
-- `auth_disabled` — `GATEWAY_AUTH_DISABLED`. When `true`, the gateway accepts unauthenticated requests; the embedded UI uses this to skip its TokenGate.
-
-### `GET /v1/bootstrap-token`
-
-Loopback handshake. Returns the gateway-managed admin bearer token to a same-origin loopback caller so the embedded UI can skip a manual paste on first boot. Refuses for any other source. See [`deployment.md` § Bootstrap handshake](deployment.md#bootstrap-handshake-loopback-only) for the full fencing rules.
-
-```json
-GET /v1/bootstrap-token
-→ 200
-{
-  "object": "bootstrap_token",
-  "data": { "token": "7f2a91…" }
-}
-```
-
-Refusal cases (all return `403`):
-
-- The TCP peer is not a loopback address (`X-Forwarded-For` is ignored).
-- The `Origin` header host is non-loopback and doesn't match the request `Host`.
-- `GATEWAY_AUTH_TOKEN` was supplied via env (the gateway never hands out a token it didn't generate).
-- No admin token is configured (auth disabled with no fallback).
+The endpoint is intentionally cheap: it doesn't touch the database, providers, or queue. A `200` here means "the process is up and serving HTTP," not "every backend is healthy." For deeper signal use `GET /admin/runtime/stats`.
 
 ### `GET /v1/provider-presets`
 
@@ -365,8 +350,8 @@ Every response from `POST /v1/chat/completions` and `POST /v1/messages` carries 
 
 | Header | Type | Meaning |
 |---|---|---|
-| `X-RateLimit-Limit` | int | Steady-state refill rate per API key (`GATEWAY_RATE_LIMIT_RPM`). |
-| `X-RateLimit-Remaining` | int | Tokens still available in this key's bucket. Decrements per request. |
+| `X-RateLimit-Limit` | int | Steady-state refill rate (`GATEWAY_RATE_LIMIT_RPM`). |
+| `X-RateLimit-Remaining` | int | Tokens still available in the bucket. Decrements per request. |
 | `X-RateLimit-Reset` | Unix seconds | When the bucket will be full again. |
 
-Over-limit requests get `429 Too Many Requests` with the standard error envelope and `code: "rate_limit_exceeded"`. Bucketing is keyed on the tenant API key's `KeyID`; principals without a `KeyID` (admin bearer tokens, anonymous traffic when `auth_token` is empty) all share a single `"anonymous"` bucket. See [Deployment: Rate limiting](deployment.md#rate-limiting) for the env-var knobs.
+Over-limit requests get `429 Too Many Requests` with the standard error envelope and `code: "rate_limit_exceeded"`. See [Deployment: Rate limiting](deployment.md#rate-limiting) for the env-var knobs.

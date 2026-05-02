@@ -16,7 +16,7 @@ The Tasks workspace in the operator UI is the human entry point — create a tas
 - [Built-in tools](#built-in-tools)
 - [External MCP tools](#external-mcp-tools)
 - [Workspace modes](#workspace-modes)
-- [Four-layer system prompt](#four-layer-system-prompt)
+- [Four-layer system prompt](#three-layer-system-prompt)
 - [Approval gating](#approval-gating)
 - [Cost tracking](#cost-tracking)
 - [Retry and resume](#retry-and-resume)
@@ -120,14 +120,13 @@ Every fresh `agent_loop` run prepends a machine-generated system message that te
 
 Without this, the model would read `/Users/foo/myrepo` from the user prompt and use that path verbatim — landing outside the cloned sandbox and failing with `escapes allowed root`. The env message is environmental fact, kept separate from the operator-tunable system prompt so it can't be accidentally elided.
 
-## Four-layer system prompt
+## Three-layer system prompt
 
-The operator-tunable system prompt is composed from four layers, broadest first:
+The operator-tunable system prompt is composed from three layers, broadest first:
 
 1. **Global** — `GATEWAY_TASK_AGENT_SYSTEM_PROMPT` (env). Applies to every agent_loop run gateway-wide.
-2. **Tenant** — `Tenant.SystemPrompt` from the control plane. Applies to every run for that tenant.
-3. **Workspace** — `CLAUDE.md` or `AGENTS.md` in the task's working directory, capped at 8 KiB. Read once per run.
-4. **Per-task** — `Task.SystemPrompt` set when the task is created.
+2. **Workspace** — `CLAUDE.md` or `AGENTS.md` in the task's working directory, capped at 8 KiB. Read once per run.
+3. **Per-task** — `Task.SystemPrompt` set when the task is created.
 
 Layers are concatenated with blank lines between them. Empty layers are skipped (no wasted message). The composed prompt is the second system message in the conversation; the workspace-environment message above is the first.
 
@@ -183,7 +182,7 @@ Env vars that affect agent_loop runs:
 | Variable | Default | What it does |
 |---|---|---|
 | `GATEWAY_TASK_AGENT_LOOP_MAX_TURNS` | `8` | Hard ceiling on LLM round-trips per run |
-| `GATEWAY_TASK_AGENT_SYSTEM_PROMPT` | `""` | Global (broadest) layer of the four-layer system prompt |
+| `GATEWAY_TASK_AGENT_SYSTEM_PROMPT` | `""` | Global (broadest) layer of the three-layer system prompt |
 | `GATEWAY_TASK_HTTP_TIMEOUT` | `30s` | Timeout for the `http_request` tool |
 | `GATEWAY_TASK_HTTP_MAX_RESPONSE_BYTES` | `262144` (256 KiB) | Response size cap for `http_request` |
 | `GATEWAY_TASK_HTTP_ALLOW_PRIVATE_IPS` | `false` | When `false`, blocks loopback / RFC1918 / link-local destinations |
@@ -197,7 +196,7 @@ Per-task fields on `POST /v1/tasks` that affect agent_loop:
 
 - `execution_kind: "agent_loop"` — picks this runtime
 - `prompt` — the user message; required
-- `system_prompt` — narrowest layer of the four-layer composition; optional
+- `system_prompt` — narrowest layer of the three-layer composition; optional
 - `working_directory` — absolute path; required when `workspace_mode=in_place`
 - `workspace_mode` — `""` / `"persistent"` / `"ephemeral"` (all clone) or `"in_place"` (use source directly)
 - `requested_provider` / `requested_model` — pin the LLM provider and model. For `agent_loop`, a model must be resolvable at start time — either `requested_model` is set on the task, or the gateway has a default model configured (`GATEWAY_DEFAULT_MODEL`). A missing model returns 422 `model_not_configured` before a run is created.

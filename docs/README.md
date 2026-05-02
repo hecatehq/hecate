@@ -6,19 +6,14 @@ Long-form references for operators, integrators, and contributors. The [project 
 
 Pick your role and read in order — each path is three to five docs.
 
-**I'm running Hecate on a server** (operator / self-hoster)
-1. [Deployment](deployment.md) — image pinning, storage tiers, lost-token recovery.
-2. [Providers](providers.md) — add your first provider, understand the preset catalog and health checks.
-3. [Telemetry](telemetry.md) — wire up OTLP, read the local trace view, set retention windows.
+**I'm running Hecate on my laptop** (the only supported mode)
+1. [Desktop app](desktop-app.md) — `.dmg` / `.deb` / `.AppImage` / `.msi` install, current state, footguns, roadmap.
+2. [Deployment](deployment.md) — Docker, image pinning, binary install, storage tiers.
+3. [Providers](providers.md) — add your first provider, understand the preset catalog and health checks.
 4. [Known limitations](known-limitations.md) — what's still alpha before you depend on it.
 
-**I'm running Hecate on my laptop**
-1. [Desktop app](desktop-app.md) — `.dmg` / `.deb` / `.AppImage` / `.msi` install, current state, footguns, roadmap.
-2. [Providers](providers.md) — add your first provider once the app is running.
-3. [Known limitations](known-limitations.md) — what's still alpha before you depend on it.
-
 **I'm building against Hecate** (integrator / SDK consumer)
-1. [Runtime API](runtime-api.md) — task lifecycle, approvals, SSE streaming, bootstrap-token handshake.
+1. [Runtime API](runtime-api.md) — task lifecycle, approvals, SSE streaming.
 2. [Agent runtime](agent-runtime.md) — `agent_loop` configuration, built-in tools, cost ceiling, retry-from-turn.
 3. [Events](events.md) — every event type, payload shape, and when it fires.
 4. [MCP integration](mcp.md) — wire Hecate as an MCP server or attach external MCP servers to agent tasks.
@@ -39,7 +34,7 @@ Pick your role and read in order — each path is three to five docs.
 
 | Doc | Read this when |
 |---|---|
-| [Deployment](deployment.md) | Server / scripted deploy. Image pinning, compose profiles, binary install, lost-token recovery, storage tiers, rate limits. |
+| [Deployment](deployment.md) | Local container / scripted deploy. Image pinning, binary install, storage tiers, rate limits. |
 | [Desktop app](desktop-app.md) | Personal use on your laptop. Distribution bundles, first-launch footguns (Gatekeeper / SmartScreen), platform data dirs, roadmap. |
 | [Providers](providers.md) | Adding a provider, browsing the preset catalog, custom OpenAI-compatible endpoints, env-vs-UI lifecycle, health and circuit-breaker behavior. |
 | [Known limitations](known-limitations.md) | Before treating Hecate as production-stable. Plain-language list of what's still alpha. |
@@ -49,7 +44,7 @@ Pick your role and read in order — each path is three to five docs.
 | Doc | Read this when |
 |---|---|
 | [Runtime API](runtime-api.md) | Building a client against `/v1/tasks/*`. Lifecycle, approvals, run streaming, queue + lease semantics, health/discovery endpoints. |
-| [Agent runtime](agent-runtime.md) | Configuring `agent_loop` runs. Built-in tools, four-layer system prompt, approval gates, cost ceiling, retry-from-turn. |
+| [Agent runtime](agent-runtime.md) | Configuring `agent_loop` runs. Built-in tools, three-layer system prompt, approval gates, cost ceiling, retry-from-turn. |
 | [Sandbox](sandbox.md) | Per-call `sh` subprocess: policy validation, rlimits, env sanitisation, output cap; auto-detected `bwrap` (Linux) / `sandbox-exec` (macOS) wrapping for filesystem and network confinement. |
 | [Chat sessions](chat-sessions.md) | The flat-message + provider-call model behind `/v1/chat/sessions`, the operator UI's chat surface, and history replay across model/provider switches. |
 | [Events](events.md) | Consuming `/v1/events` or per-run SSE. Catalog of every event type with payload shape and when it fires. |

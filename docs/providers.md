@@ -143,7 +143,7 @@ Failover rows now also capture:
 
 The history store is configurable with:
 
-- `GATEWAY_PROVIDER_HISTORY_BACKEND` — `memory`, `sqlite`, or `postgres`
+- `GATEWAY_PROVIDER_HISTORY_BACKEND` — `memory` or `sqlite`
 - `GATEWAY_PROVIDER_HISTORY_LIMIT` — default page size for `/admin/providers/history`
 
 The Providers tab shows the current state on each card:

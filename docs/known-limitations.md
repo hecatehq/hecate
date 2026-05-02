@@ -6,10 +6,11 @@ operators should not assume yet.
 ## API And Schema Stability
 
 - Public APIs are designed to be stable, but pre-1.0 changes are still possible.
-- Persisted SQLite/Postgres schemas are young. Back up data before upgrading.
+- Persisted SQLite schemas are young. Back up data before upgrading.
 - There is not yet a dedicated migration CLI or rollback workflow.
-- Single-node operation is the primary tested deployment shape. Shared Postgres
-  state exists, but multi-node operational guidance is still thin.
+- Hecate is a single-user local tool: it binds `127.0.0.1`, enforces
+  same-origin, and has no auth layer. Trust your own machine is the
+  threat model.
 
 ## Provider Lifecycle
 
@@ -33,16 +34,11 @@ operators should not assume yet.
 - Local models can be zero-cost or manually priced, but host/GPU cost is not
   automatically measured.
 
-## Semantic Cache
+## Cache
 
-- Semantic cache is disabled by default.
-- Semantic cache supports `memory` and `postgres`; SQLite vector search is not
-  supported by the pure-Go SQLite driver used by Hecate.
-- The local simple embedder is useful for development and alpha experiments,
-  not a semantic-quality benchmark.
+- Exact cache supports `memory` and `sqlite` backends.
 - Cache hits are optimization hints, not correctness guarantees. Operators
-  should keep exact/semantic cache behavior visible in traces for important
-  workloads.
+  should keep cache behavior visible in traces for important workloads.
 
 ## Task Runtime And Sandbox
 
@@ -79,14 +75,12 @@ operators should not assume yet.
 
 ## Deployment
 
-- Single-node Docker or bare-binary deployments are the primary tested paths.
-- SQLite is the pragmatic single-node durable default in Docker.
-- Postgres is supported for shared durable state and multi-replica deployments.
-  Basic multi-node operational guidance is in
-  [`docs/deployment.md#multi-node-deployment`](deployment.md#multi-node-deployment);
-  production soak testing and deeper runbooks are still thin.
-- Kubernetes, Helm, Nomad, and hosted deployment matrices are not first-class
-  release targets yet.
+- Single-user local Docker, bare-binary, and desktop deployments are the
+  supported paths.
+- SQLite is the durable default in Docker.
+- Multi-node / clustered deployment is out of scope.
+- Kubernetes, Helm, Nomad, and hosted deployment matrices are not release
+  targets.
 
 ## Observability
 
@@ -99,7 +93,7 @@ operators should not assume yet.
 ## Operator UI
 
 - The operator UI is usable for the main alpha workflows: provider setup,
-  request inspection, budgets, tenants, keys, and task-run debugging.
+  request inspection, budgets, and task-run debugging.
 - Some bulk-management and deeper artifact-inspection flows are still lighter
   than a mature control-plane product.
 

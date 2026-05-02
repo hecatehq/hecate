@@ -799,8 +799,9 @@ func TestGatewayModelsEndpoint(t *testing.T) {
 	}
 }
 
-// TestGatewayWhoAmI verifies that GET /v1/whoami returns session information
-// in single-user admin mode.
+// TestGatewayWhoAmI verifies that GET /v1/whoami returns the operator
+// session envelope. There's no auth in single-user mode; the endpoint
+// just confirms the role on the other end.
 func TestGatewayWhoAmI(t *testing.T) {
 	t.Parallel()
 	base := gatewayServer(t)
@@ -829,8 +830,8 @@ func TestGatewayWhoAmI(t *testing.T) {
 	if !ok {
 		t.Fatalf("expected 'data' object in response, got %T", result["data"])
 	}
-	if auth, _ := data["authenticated"].(bool); !auth {
-		t.Fatal("expected authenticated=true in single-user admin mode")
+	if role, _ := data["role"].(string); role != "operator" {
+		t.Fatalf("expected role=operator, got %q", role)
 	}
 }
 
@@ -1131,19 +1132,17 @@ func fakeOpenAIServer(t *testing.T, path, body string, streaming bool) string {
 
 // TestBootstrapAutoGenerationDefaultPath proves the no-env-overrides
 // first-run path: with no GATEWAY_DATA_DIR override, the gateway must
-//   - create `.data/hecate.bootstrap.json` (the new default location)
+//   - create `.data/hecate.bootstrap.json` (the default location)
 //     under its working directory, mode 0600,
-//   - persist a base64 control-plane secret + hex admin token in there,
-//   - accept anonymous and bearer-token /v1/models calls (single-user
-//     mode is no-auth; the bootstrap token is preserved for forward
-//     compat with installs that later flip auth back on),
-//   - reuse the same file (and therefore the same token) on a second
-//     start so persisted credentials survive restarts.
+//   - persist a base64 control-plane secret in there,
+//   - accept anonymous /v1/models calls (single-user mode is no-auth),
+//   - reuse the same file on a second start so the persisted secret
+//     survives restarts.
 //
 // The standard gatewayServer() helper pins GATEWAY_DATA_DIR, so this is
 // the only test that exercises the auto-generation default-path code in
-// binary-only suite. The Docker smoke covers the same contract through
-// the `/data` volume; this is the cheap counterpart.
+// the binary-only suite. The Docker smoke covers the same contract
+// through the `/data` volume; this is the cheap counterpart.
 func TestBootstrapAutoGenerationDefaultPath(t *testing.T) {
 	t.Parallel()
 
@@ -1182,21 +1181,12 @@ func TestBootstrapAutoGenerationDefaultPath(t *testing.T) {
 	}
 	var boot struct {
 		ControlPlaneSecretKey string `json:"control_plane_secret_key"`
-		AdminToken            string `json:"admin_token"`
 	}
 	if err := json.Unmarshal(raw, &boot); err != nil {
 		t.Fatalf("decode bootstrap json: %v", err)
 	}
-	if boot.AdminToken == "" {
-		t.Fatal("admin_token empty in bootstrap file")
-	}
 	if boot.ControlPlaneSecretKey == "" {
 		t.Fatal("control_plane_secret_key empty in bootstrap file")
-	}
-	// Token should be hex-encoded 32 bytes (64 hex chars). This catches
-	// regressions where we accidentally write base64 or random ASCII.
-	if len(boot.AdminToken) != 64 {
-		t.Fatalf("admin_token length = %d, want 64 hex chars", len(boot.AdminToken))
 	}
 	// Secret should base64-decode to exactly 32 bytes — secrets.NewAESGCMCipher
 	// rejects anything else, so a regression here would crash the runtime.
@@ -1206,22 +1196,8 @@ func TestBootstrapAutoGenerationDefaultPath(t *testing.T) {
 		t.Fatalf("control_plane_secret_key decoded length = %d, want 32 bytes", len(decoded))
 	}
 
-	// Single-user mode: anonymous /v1/models 200s. The bootstrap token
-	// is still generated (so operators who later flip on auth get a
-	// stable token from the same file) but the gateway no longer
-	// enforces it. Authed call must also 200 — the shim ignores
-	// whatever token the client sends.
-	req, _ := http.NewRequest(http.MethodGet, "http://"+addr1+"/v1/models", nil)
-	req.Header.Set("Authorization", "Bearer "+boot.AdminToken)
-	resp, err := http.DefaultClient.Do(req)
-	if err != nil {
-		t.Fatalf("GET /v1/models with bootstrap token: %v", err)
-	}
-	resp.Body.Close()
-	if resp.StatusCode != http.StatusOK {
-		t.Fatalf("GET /v1/models with bootstrap token = %d, want 200", resp.StatusCode)
-	}
-	resp, err = http.Get("http://" + addr1 + "/v1/models")
+	// Single-user mode is no-auth: anonymous /v1/models 200s.
+	resp, err := http.Get("http://" + addr1 + "/v1/models")
 	if err != nil {
 		t.Fatalf("GET /v1/models anonymous: %v", err)
 	}
@@ -1236,7 +1212,8 @@ func TestBootstrapAutoGenerationDefaultPath(t *testing.T) {
 	_ = cmd1.Wait()
 
 	// Second start in the same workDir: the bootstrap file should be
-	// reused, not regenerated, so the same admin token still authenticates.
+	// reused, not regenerated, so the persisted control-plane secret
+	// survives restart.
 	addr2 := fmt.Sprintf("127.0.0.1:%d", freePort(t))
 	cmd2 := exec.Command(bin)
 	cmd2.Dir = workDir
@@ -1253,15 +1230,22 @@ func TestBootstrapAutoGenerationDefaultPath(t *testing.T) {
 	t.Cleanup(func() { _ = cmd2.Process.Kill(); _ = cmd2.Wait() })
 	waitHealthy(t, "http://"+addr2, 10*time.Second)
 
-	req2, _ := http.NewRequest(http.MethodGet, "http://"+addr2+"/v1/models", nil)
-	req2.Header.Set("Authorization", "Bearer "+boot.AdminToken)
-	resp, err = http.DefaultClient.Do(req2)
+	resp, err = http.Get("http://" + addr2 + "/v1/models")
 	if err != nil {
 		t.Fatalf("GET /v1/models on second run: %v", err)
 	}
 	resp.Body.Close()
 	if resp.StatusCode != http.StatusOK {
-		t.Fatalf("admin token from first run not honored on second run: status = %d", resp.StatusCode)
+		t.Fatalf("GET /v1/models on second run = %d, want 200", resp.StatusCode)
+	}
+
+	// Bootstrap file should be unchanged between starts.
+	raw2, err := os.ReadFile(bootstrapPath)
+	if err != nil {
+		t.Fatalf("re-read bootstrap file: %v", err)
+	}
+	if string(raw2) != string(raw) {
+		t.Fatalf("bootstrap file regenerated on second start; want identical contents")
 	}
 }
 

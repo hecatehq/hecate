@@ -21,7 +21,6 @@ erDiagram
         text id PK
         text title
         text system_prompt
-        text tenant
         text user_name
         timestamptz created_at
         timestamptz updated_at
@@ -108,7 +107,6 @@ This handles three flows uniformly: first-turn, multi-turn replay, and tool-loop
     "id": "chat_…",
     "title": "…",
     "system_prompt": "…",
-    "tenant": "…",
     "user": "…",
     "created_at": "…",
     "updated_at": "…",
@@ -157,20 +155,19 @@ The session-list endpoint (`GET /v1/chat/sessions`) returns a leaner summary per
 
 ## Storage backends
 
-Three implementations, same `Store` interface (`internal/chatstate/store.go`):
+Two implementations, same `Store` interface (`internal/chatstate/store.go`):
 
 | Backend | When | Notes |
 |---|---|---|
 | `memory` | tests, `--memory` mode | In-process, ephemeral; mutex-serialized. |
 | `sqlite` | `--sqlite-path …`, default in the docker image | WAL journal, `foreign_keys = ON`, `BEGIN IMMEDIATE`-style transactions for `AppendExchange`. |
-| `postgres` | production | Per-session `BEGIN/COMMIT` for `AppendExchange`. |
 
-Schema migration on upgrade drops the old `chat_session_turns` table — turn rows are not migrated forward. Session metadata (title, system_prompt, tenant, user_name, timestamps) survives the upgrade. Operators with stored conversation history they want to keep should export before upgrading; this is a one-way break.
+Schema migration on upgrade drops the old `chat_session_turns` table — turn rows are not migrated forward. Session metadata (title, system_prompt, user_name, timestamps) survives the upgrade. Operators with stored conversation history they want to keep should export before upgrading; this is a one-way break.
 
 ## Code map
 
 - `pkg/types/chat.go` — `ChatSession`, `ChatSessionMessage`, `ChatProviderCall`, the canonical `Message` type with `ContentBlocks` and `ToolError`.
-- `internal/chatstate/` — `Store` interface plus three implementations (`MemoryStore`, `PostgresStore`, `SQLiteStore`). `AppendExchange` is the canonical write; it assigns sequence numbers and writes both streams in one transaction.
+- `internal/chatstate/` — `Store` interface plus two implementations (`MemoryStore`, `SQLiteStore`). `AppendExchange` is the canonical write; it assigns sequence numbers and writes both streams in one transaction.
 - `internal/gateway/service.go` — `RecordChatExchange` decides which inbound messages are "new this round" and constructs the `ChatProviderCall` from response metadata.
 - `internal/api/openai.go` — `OpenAIChatMessage` extension fields (`content_blocks`, `tool_error`); `ChatSessionMessageItem` and `ChatProviderCallItem` are the wire shape for session-fetch.
 - `internal/api/handler_sessions.go` — render functions for list / get / create / update / delete.

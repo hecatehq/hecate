@@ -29,8 +29,7 @@ What works:
 
 - Sidecar lifecycle (spawn, healthz wait, kill on exit; `pgrep gateway` is
   empty after `cmd+Q`).
-- Same-origin loopback to the embedded gateway UI; bootstrap-token
-  handshake auto-logs in without a token paste.
+- Same-origin loopback to the embedded gateway UI; the sidecar UI just loads.
 - Per-platform writable data dir (`~/Library/Application Support/com.hecate.app/`,
   `%APPDATA%\com.hecate.app\`, `~/.local/share/com.hecate.app/`).
 - Sidecar stderr piped to `<data_dir>/gateway.log` (truncated per launch);
@@ -129,7 +128,6 @@ the ones likely to bite an operator:
 
 The default Tauri pattern is to point `frontendDist` at the UI build output and
 let the webview load files directly. We don't, on purpose: the gateway serves
-the UI over the same loopback origin as the API, which is what makes the
-bootstrap-token same-origin handshake work. Splitting them would be a
-meaningful refactor for ~13 MB of disk savings. Full rationale in the agent
-skill doc.
+the UI over the same loopback origin as the API, which keeps same-origin
+enforcement intact. Splitting them would be a meaningful refactor for ~13 MB
+of disk savings. Full rationale in the agent skill doc.

@@ -82,9 +82,7 @@ The trace endpoint returns:
 - failover history
 - the final provider, model, and route reason
 
-### Trace endpoint
-
-The trace UI fetches `GET /v1/traces` (with optional `request_id=` for a single trace, or `limit=` for the recent list). The `/admin/traces` route remains for parity with the rest of the admin surface.
+The Observability workspace in the operator UI surfaces traces, the request ledger, and run-state cards.
 
 ![Observability workspace — request ledger, run-state cards, and span tree](screenshots/observe.png)
 
@@ -161,8 +159,6 @@ Common standard or standard-shaped attributes include:
 - `request.id`
 - `trace.id`
 - `span.id`
-- `enduser.id`
-- `tenant.id`
 - `error.type`
 - `error.message`
 - `gen_ai.provider.name`
@@ -493,7 +489,6 @@ Not yet:
 - **OTLP/gRPC transport** — exporters are HTTP-only. Run a collector if you need gRPC downstream.
 - **Outbound trace propagation to upstream providers** — Hecate does not currently inject `traceparent` into provider HTTP calls, so OpenAI / Anthropic spans (where they exist) are not stitched into the gateway trace.
 - **Histogram exemplars** — duration histograms don't attach example trace ids, so backend-side trace-from-metric pivots aren't available.
-- **Tenant-scoped sampling** — the sampler is global. There's no per-tenant rate limiting / sampling tier yet.
 - **Cardinality protection beyond `hecate.error.kind`** — model and provider labels are trusted to be normalized upstream by the router; ad-hoc values in metric attributes can still blow up cardinality if you bypass that path.
 
 If any of these gaps are blocking your deployment, file an issue — operator demand drives the prioritization.

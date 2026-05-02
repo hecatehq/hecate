@@ -14,41 +14,35 @@ Hecate splits cleanly into two concurrent surfaces: a **gateway** for OpenAI- an
 
 ## Gateway request flow
 
-Every chat / messages call goes through the same pipeline. Each gate can short-circuit the request — auth/policy/budget failures never spend upstream tokens, and a cache hit returns without calling the provider at all. Errors produce a fixed status code per gate so client SDKs can handle them deterministically.
+Every chat / messages call goes through the same pipeline. Each gate can short-circuit the request — policy/budget failures never spend upstream tokens. Errors produce a fixed status code per gate so client SDKs can handle them deterministically.
 
 ```mermaid
 flowchart TD
-    Caller["POST /v1/chat/completions<br/>or /v1/messages"] --> Validate["Request validation"]
+    Caller["POST /v1/chat/completions<br/>or /v1/messages"] --> SameOrigin["Loopback + same-origin check"]
+    SameOrigin -->|"cross-origin"| ErrOrigin["403 forbidden"]
+    SameOrigin --> Validate["Request validation"]
     Validate -->|"invalid"| ErrInvalid["400 invalid_request"]
-    Validate --> Auth["Auth<br/>(Bearer or x-api-key)"]
-    Auth -->|"missing/invalid"| ErrAuth["401 unauthorized"]
-    Auth --> Governor["Governor<br/>(allowed providers/models, deny rules)"]
+    Validate --> Governor["Governor<br/>(deny rules)"]
     Governor -->|"denied"| ErrDenied["403 forbidden"]
     Governor --> Rewrite["Policy model rewrite<br/>(optional)"]
-    Rewrite --> RateLimit["Per-key rate limit"]
+    Rewrite --> RateLimit["Rate limit"]
     RateLimit -->|"exhausted"| ErrRateLimit["429 rate_limit_exceeded"]
     RateLimit --> Router["Router<br/>(provider/model selection)"]
     Router --> Preflight["Route preflight<br/>(cost estimate vs budget)"]
     Preflight -->|"budget exceeded"| ErrBudget["402 budget_exceeded"]
-    Preflight --> ExactCache{"Exact cache hit?"}
-    ExactCache -->|"yes"| CacheReturn["Return cached response<br/>X-Runtime-Cache: true"]
-    ExactCache -->|"no"| SemanticCache{"Semantic cache hit?"}
-    SemanticCache -->|"yes"| CacheReturn
-    SemanticCache -->|"no"| Provider["Provider call<br/>(OpenAI-compat or Anthropic)"]
+    Preflight --> Provider["Provider call<br/>(OpenAI-compat or Anthropic)"]
     Provider -->|"upstream 4xx/5xx"| ErrUpstream["502/4xx upstream_error"]
     Provider --> Usage["Usage normalization"]
     Usage --> Cost["Cost calculation<br/>(pricebook lookup)"]
     Cost --> RecordUsage["Debit budget + append history"]
     RecordUsage --> Telemetry["X-Runtime-* headers<br/>+ traces/metrics/logs"]
     Telemetry --> Response["Response"]
-    CacheReturn --> Response
 ```
 
 Key invariants:
 
-- **Auth runs once.** The handler resolves the principal up front; downstream stages read from the context, never re-validate the bearer.
+- **Loopback + same-origin is the trust boundary.** Hecate binds `127.0.0.1` and rejects any request whose `Origin` header isn't a loopback hostname. There is no auth layer beyond that — the threat model is "you trust your own machine."
 - **Policy/budget can deny without an upstream call.** A budget-exceeded request returns `402` with the gateway's own body — no provider tokens are spent.
-- **Cache hits short-circuit fully.** Exact and semantic cache both bypass the provider call entirely; the response carries `X-Runtime-Cache: true` and the original cached headers.
 - **Cost calculation is deterministic.** Pricebook is read after the provider returns usage; the same `(provider, model, usage)` tuple always produces the same cost in micros USD.
 - **CheckRoute is read-not-reservation.** Two concurrent requests can both pass when balance covers each individually but not their sum — the budget can briefly go negative under contention. Pinned in [tests](../internal/governor/governor_test.go) so a "fix" doesn't silently introduce write contention.
 
@@ -62,7 +56,7 @@ flowchart TD
     TasksApi --> Runner["Orchestrator runner"]
     Runner -->|"agent_loop, no model configured"| ErrModel["422 model_not_configured<br/>(no run created)"]
     Runner --> Workspace["Workspace manager<br/>(clone source to temp dir,<br/>or use source in_place)"]
-    Workspace --> Queue["Run queue<br/>(memory / sqlite / postgres lease)"]
+    Workspace --> Queue["Run queue<br/>(memory / sqlite lease)"]
 
     Reconciler["Periodic reconciler<br/>(every 30 s — re-queues runs<br/>stuck in running > 3× lease)"]
     Reconciler -->|"stale run detected<br/>run.reconciled_restart_requeued"| Queue
@@ -98,7 +92,7 @@ flowchart TD
     State --> Snapshot["Run snapshot<br/>(includes Approvals)"]
     RunEvents --> Snapshot
     Snapshot --> Stream["GET /runs/{id}/stream<br/>(SSE, resumable via<br/>after_sequence / Last-Event-ID)"]
-    RunEvents --> PublicEvents["GET /v1/events<br/>GET /v1/events/stream<br/>(cross-run feed,<br/>tenant-scoped for non-admins)"]
+    RunEvents --> PublicEvents["GET /v1/events<br/>GET /v1/events/stream<br/>(cross-run feed)"]
 
     Queue --> Stats["GET /admin/runtime/stats<br/>(queue depth, worker count, backend)"]
     State --> Stats
@@ -129,7 +123,7 @@ sequenceDiagram
     participant Store
     Worker->>Agent: Execute
     Agent->>Store: load conversation if resume
-    Note over Agent: prepend workspace env message + four-layer system prompt
+    Note over Agent: prepend workspace env message + three-layer system prompt
     Note over Agent,MCP: bring up cached MCP clients and merge their tools into the catalog
     loop turn cycle
         Agent->>LLM: Chat with messages, tools, and ProviderHint
@@ -167,13 +161,13 @@ Three runtime invariants worth pinning (full mechanics in [`agent-runtime.md`](a
 
 ## Storage tiers
 
-Three tiers — `memory`, `sqlite`, `postgres` — picked per subsystem via `GATEWAY_*_BACKEND` env vars. The bare binary defaults to `memory` everywhere; the docker image defaults to `sqlite` so `docker compose up` survives restarts. The semantic cache is the one subsystem with no `sqlite` option (indexed vector similarity needs the `sqlite-vec` extension, and the pure-Go SQLite driver can't load native extensions); single-node deploys that need persistent semantic search should run Postgres for that subsystem only.
+Two tiers — `memory` and `sqlite` — picked per subsystem via `GATEWAY_*_BACKEND` env vars. The bare binary defaults to `memory` everywhere; the docker image defaults to `sqlite` so the container survives restarts. One `GATEWAY_SQLITE_PATH` configures the shared SQLite client across all opted-in subsystems.
 
-The full per-subsystem matrix and footnotes live in [`docs/deployment.md`](deployment.md#storage-backends) — single source of truth. Implementation notes worth pinning here:
+The full per-subsystem matrix lives in [`docs/deployment.md`](deployment.md#storage-backends). Implementation notes worth pinning here:
 
-- One `GATEWAY_SQLITE_PATH` and one `POSTGRES_DSN` configure the shared clients across all opted-in subsystems.
-- SQLite's task queue uses `BEGIN IMMEDIATE` plus `UPDATE … RETURNING` for atomic claim under WAL; Postgres uses `SELECT … FOR UPDATE SKIP LOCKED`. Both are race-tested.
+- SQLite uses the pure-Go `modernc.org/sqlite` driver — no CGO, no native extensions.
+- The task queue uses `BEGIN IMMEDIATE` plus `UPDATE … RETURNING` for atomic claim under WAL. Race-tested.
 
 ## Why two flows in one binary
 
-The shared deployment is deliberate. An operator who only needs LLM-gateway features still gets the task runtime endpoints (returning empty lists) without configuring anything; an operator who runs agent tasks shares the same auth, budgets, and observability with the model traffic. There is no separate "task daemon" to deploy.
+The shared deployment is deliberate. An operator who only needs LLM-gateway features still gets the task runtime endpoints (returning empty lists) without configuring anything; an operator who runs agent tasks shares the same budgets and observability with the model traffic. There is no separate "task daemon" to deploy.

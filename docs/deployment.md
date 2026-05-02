@@ -1,19 +1,16 @@
 # Deployment
 
-The [Quick Start](../README.md#quick-start) covers `docker run` end-to-end. This page is the reference for everything past the first run: pinning images, the compose profile, the binary install, generated state, lost-token recovery, storage tiers, and rate limits.
+The [Quick Start](../README.md#quick-start) covers `docker run` end-to-end. This page is the reference for everything past the first run: pinning images, the compose profile, the binary install, storage tiers, and rate limits.
+
+Hecate binds `127.0.0.1` and enforces same-origin; there is no auth layer. The threat model is "trust your own machine" — anyone with local user access to the host has full access to the gateway.
 
 ## Contents
 
 - [Image pinning](#image-pinning)
 - [Binary install](#binary-install)
 - [Desktop app](#desktop-app)
-- [Optional services (compose profiles)](#optional-services-compose-profiles)
-- [Auth and generated state](#auth-and-generated-state)
-  - [Bootstrap handshake (loopback only)](#bootstrap-handshake-loopback-only)
-- [Recovering a lost admin token](#recovering-a-lost-admin-token)
 - [Resetting state](#resetting-state)
 - [Storage backends](#storage-backends)
-- [Multi-node deployment](#multi-node-deployment)
 - [Rate limiting](#rate-limiting)
 
 ## Image pinning
@@ -44,7 +41,7 @@ tar -xzf hecate_0.1.0-alpha.9_linux_amd64.tar.gz
 ./gateway
 ```
 
-The binary embeds the React operator UI, listens on `:8765` by default, generates an admin bearer token on first boot (saved under `GATEWAY_DATA_DIR`, default `.data/`), and prints it once to stderr. No additional runtime dependencies — the binary is statically linked and CGO-free.
+The binary embeds the React operator UI, listens on `127.0.0.1:8765` by default, and stores state under `GATEWAY_DATA_DIR` (default `.data/`). No additional runtime dependencies — the binary is statically linked and CGO-free.
 
 To pin the data directory to a known location:
 
@@ -65,7 +62,7 @@ Each tarball includes the binary plus `LICENSE` and `README.md`. Verify integrit
 
 ## Desktop app
 
-A third install path for personal use on a laptop. Same release, different artifacts:
+A third install path for single-user / personal use on a laptop. Same release, different artifacts:
 
 | Platform | Bundle |
 |---|---|
@@ -73,7 +70,7 @@ A third install path for personal use on a laptop. Same release, different artif
 | Linux x86_64 | `hecate-app_X.Y.Z_amd64.deb`, `hecate-app_X.Y.Z_amd64.AppImage` |
 | Windows x86_64 | `Hecate_X.Y.Z_x64_en-US.msi` |
 
-The bundle is a Tauri 2.x chrome around the same `gateway` binary used in Docker and the tarballs. On launch the app spawns the gateway as a sidecar on a free loopback port, polls `/healthz`, then loads the embedded UI directly — same-origin loopback means the bootstrap-token handshake auto-logs you in without a token paste prompt.
+The bundle is a Tauri 2.x chrome around the same `gateway` binary used in Docker and the tarballs. On launch the app spawns the gateway as a sidecar on a free loopback port, polls `/healthz`, then loads the embedded UI directly.
 
 State lives in the platform data dir, not next to the binary:
 
@@ -97,166 +94,47 @@ Desktop app distinct from `docker run` / bare binary:
 
 Full state, footguns, and roadmap: [`desktop-app.md`](desktop-app.md).
 
-## Optional services (compose profiles)
-
-```bash
-docker compose --profile postgres up    # adds Postgres on :5432 for durable state
-```
-
-Profiles are off by default so a bare `docker compose up` stays "just the gateway" with no extra containers.
-
-To use the Postgres profile across subsystems, point each backend at it via env vars in `.env`:
-
-```bash
-GATEWAY_CONTROL_PLANE_BACKEND=postgres
-GATEWAY_TASKS_BACKEND=postgres
-# ... etc, see Storage backends below
-POSTGRES_DSN=postgres://hecate:hecate@postgres:5432/hecate?sslmode=disable
-```
-
-## Auth and generated state
-
-Hecate can start with almost no secrets in the environment. If `GATEWAY_AUTH_TOKEN` is unset, the gateway generates an admin bearer token on first run, prints it once, and stores bootstrap metadata under `GATEWAY_DATA_DIR`.
-
-`PROVIDER_*_API_KEY`, `PROVIDER_*_BASE_URL`, and `PROVIDER_*_DEFAULT_MODEL` env vars seed the runtime provider registry but do not auto-add the provider to the Providers tab. Operators who want a provider visible and editable in the UI add it explicitly via the modal; env vars are a deployment-time convenience for first boot, not a UI source of truth. See [docs/providers.md](providers.md#env-configured-providers).
-
-| Variable | Default | Notes |
-|---|---|---|
-| `GATEWAY_AUTH_TOKEN` | generated | Admin bearer token. Prefer the generated first-run token for local and single-host setups. |
-| `GATEWAY_AUTH_DISABLED` | `false` | When `true`, the gateway accepts unauthenticated requests and reports `source=auth_disabled` on `/v1/whoami`. Use it when an upstream reverse proxy already terminates auth, or for fully-controlled local setups. |
-| `GATEWAY_DATA_DIR` | `.data` locally, `/data` in Docker | Holds bootstrap metadata and local state files. |
-| `GATEWAY_CONTROL_PLANE_SECRET_KEY` | development fallback | Encrypts persisted provider credentials. Set a strong value before sharing a deployment. |
-
-### Bootstrap handshake (loopback only)
-
-`GET /v1/bootstrap-token` returns the gateway-managed admin bearer token, but only when **all three** conditions hold:
-
-- The request comes from a loopback address (`127.0.0.1`, `::1`). `X-Forwarded-For` is ignored — the check looks at the actual TCP peer.
-- The `Origin` header host matches the request host (or `Origin` is absent — same-origin curl, etc).
-- The gateway is exposing a gateway-managed token, i.e. `GATEWAY_AUTH_TOKEN` was *not* supplied via env.
-
-The embedded operator UI uses this on mount when no token sits in `localStorage` — same-origin browsers on the host running the gateway pick up the bearer with no token paste. Anything cross-origin, remote, or behind a reverse proxy hits a `403` and falls back to the manual TokenGate.
-
-The endpoint never reads or trusts `X-Forwarded-For`, so a misconfigured proxy can't trick it into handing the token to a remote browser.
-
-## Recovering a lost admin token
-
-The first-run banner is the easiest path. If it's scrolled out of `docker compose logs`, the token also lives in the bootstrap file on the `hecate-data` volume. The gateway image is distroless (no shell), so use `docker compose cp` to copy the file out:
-
-```bash
-docker compose cp hecate:/data/hecate.bootstrap.json - | tar -xO | jq -r .admin_token
-```
-
-(`docker compose cp ... -` emits a tar archive, hence the `tar -xO`.)
-
-The bootstrap file (and the SQLite database, see below) persist across container restarts as long as the `hecate-data` volume sticks around — only `docker compose down -v` (or `make reset-docker`) wipes them.
-
 ## Resetting state
 
-To wipe the stack back to first-run — removes the `hecate-data` (admin token + SQLite db) and `postgres-data` volumes and regenerates the admin token on the next `docker compose up`:
+To wipe the stack back to first-run — removes the `hecate-data` volume (SQLite db) and regenerates state on the next `docker compose up`:
 
 ```bash
 make reset-docker
 ```
 
-The next page load in the browser detects the rejected stale token and re-prompts for the regenerated one — no manual `localStorage` cleanup needed.
-
 For local (non-Docker) development resets, see [`development.md`](development.md#reset-state).
 
 ## Storage backends
 
-Hecate keeps the storage model intentionally boring: each subsystem chooses a backend independently, usually `memory`, `sqlite`, or `postgres`.
+Hecate keeps the storage model intentionally boring: each subsystem chooses a backend independently — either `memory` or `sqlite`.
 
-| Subsystem | Env var | memory | sqlite | postgres |
-|---|---|---:|---:|---:|
-| Control plane | `GATEWAY_CONTROL_PLANE_BACKEND` | local default | Docker default | yes |
-| API key auth | `GATEWAY_AUTH_BACKEND` | local default | Docker default | yes |
-| Provider credentials | `GATEWAY_PROVIDER_STORE_BACKEND` | local default | Docker default | yes |
-| Pricebook | `GATEWAY_PRICEBOOK_BACKEND` | local default | Docker default | yes |
-| Budget / balances | `GATEWAY_BUDGET_BACKEND` | local default | Docker default | yes |
-| Usage ledger | `GATEWAY_USAGE_BACKEND` | local default | Docker default | yes |
-| Audit events | `GATEWAY_AUDIT_BACKEND` | local default | Docker default | yes |
-| Policy rules | `GATEWAY_POLICY_BACKEND` | local default | Docker default | yes |
-| Exact cache | `GATEWAY_CACHE_BACKEND` | local default | Docker default | yes |
-| Semantic cache | `GATEWAY_SEMANTIC_CACHE_BACKEND` | yes | no | yes |
-| Trace snapshots | `GATEWAY_TRACE_STORE_BACKEND` | local default | Docker default | yes |
-| Retention history | `GATEWAY_RETENTION_HISTORY_BACKEND` | local default | Docker default | yes |
-| Chat sessions | `GATEWAY_CHAT_SESSIONS_BACKEND` | local default | Docker default | yes |
-| Tasks | `GATEWAY_TASKS_BACKEND` | local default | Docker default | yes |
-| Task queue | `GATEWAY_TASK_QUEUE_BACKEND` | local default | Docker default | yes |
+| Subsystem | Env var | memory | sqlite |
+|---|---|---:|---:|
+| Control plane | `GATEWAY_CONTROL_PLANE_BACKEND` | local default | Docker default |
+| Provider credentials | `GATEWAY_PROVIDER_STORE_BACKEND` | local default | Docker default |
+| Pricebook | `GATEWAY_PRICEBOOK_BACKEND` | local default | Docker default |
+| Budget / balances | `GATEWAY_BUDGET_BACKEND` | local default | Docker default |
+| Usage ledger | `GATEWAY_USAGE_BACKEND` | local default | Docker default |
+| Audit events | `GATEWAY_AUDIT_BACKEND` | local default | Docker default |
+| Trace snapshots | `GATEWAY_TRACE_STORE_BACKEND` | local default | Docker default |
+| Retention history | `GATEWAY_RETENTION_HISTORY_BACKEND` | local default | Docker default |
+| Chat sessions | `GATEWAY_CHAT_SESSIONS_BACKEND` | local default | Docker default |
+| Tasks | `GATEWAY_TASKS_BACKEND` | local default | Docker default |
+| Task queue | `GATEWAY_TASK_QUEUE_BACKEND` | local default | Docker default |
 
 Deployment-specific notes:
 
-- The docker image **defaults to `sqlite`** for every durable subsystem, persisting state at `GATEWAY_SQLITE_PATH` (default `/data/hecate.db` on the `hecate-data` volume). This is why `docker compose up` keeps tenants, keys, pricebook, tasks, and chat sessions across restarts with no extra config.
-- The semantic cache has no SQLite backend and stays on `memory` in the docker image. To get persistent semantic search, switch just that subsystem to Postgres with `GATEWAY_SEMANTIC_CACHE_BACKEND=postgres`.
-- `POSTGRES_DSN` is required when any subsystem uses `postgres`.
+- The docker image **defaults to `sqlite`** for every durable subsystem, persisting state at `GATEWAY_SQLITE_PATH` (default `/data/hecate.db` on the `hecate-data` volume). This is why `docker compose up` keeps pricebook, tasks, and chat sessions across restarts with no extra config.
 - To make any subsystem ephemeral in docker, override its backend via `.env` or compose env: `GATEWAY_TASKS_BACKEND=memory`, etc.
-
-## Multi-node deployment
-
-Running more than one replica against a shared Postgres backend is supported. Workers use a claim/lease protocol on the task queue so multiple replicas share load without stepping on each other. This section covers what to configure.
-
-### Requirements
-
-All replicas must point at the same Postgres instance and share the same secrets:
-
-```bash
-# Every replica needs these identical values
-POSTGRES_DSN=postgres://hecate:hecate@db:5432/hecate?sslmode=disable
-GATEWAY_CONTROL_PLANE_SECRET_KEY=<same-strong-value-on-all-replicas>
-GATEWAY_AUTH_TOKEN=<explicit-shared-admin-token>
-
-# All durable subsystems on postgres
-GATEWAY_CONTROL_PLANE_BACKEND=postgres
-GATEWAY_AUTH_BACKEND=postgres
-GATEWAY_PROVIDER_STORE_BACKEND=postgres
-GATEWAY_PRICEBOOK_BACKEND=postgres
-GATEWAY_BUDGET_BACKEND=postgres
-GATEWAY_USAGE_BACKEND=postgres
-GATEWAY_AUDIT_BACKEND=postgres
-GATEWAY_POLICY_BACKEND=postgres
-GATEWAY_CACHE_BACKEND=postgres
-GATEWAY_TRACE_STORE_BACKEND=postgres
-GATEWAY_RETENTION_HISTORY_BACKEND=postgres
-GATEWAY_CHAT_SESSIONS_BACKEND=postgres
-GATEWAY_TASKS_BACKEND=postgres
-GATEWAY_TASK_QUEUE_BACKEND=postgres
-```
-
-**`GATEWAY_CONTROL_PLANE_SECRET_KEY`** encrypts persisted provider credentials. All replicas must share the same value or each will fail to decrypt the other's stored keys.
-
-**`GATEWAY_AUTH_TOKEN`** must be set explicitly. The auto-generated bootstrap token is written to the local `GATEWAY_DATA_DIR` on first boot — it won't be shared across replicas automatically. Set a fixed token so any replica can authenticate any request.
-
-### Bootstrap handshake and load balancers
-
-The loopback bootstrap handshake (`GET /v1/bootstrap-token`) only fires for same-host browsers. Behind a load balancer, the UI will always show the token-paste prompt. This is expected — use `GATEWAY_AUTH_TOKEN` and distribute the token to operators via your secrets manager.
-
-For load balancer health checks, use `GET /healthz`. It returns `200` with a short JSON body when the gateway is up. No auth required.
-
-### Task queue and workers
-
-With `GATEWAY_TASK_QUEUE_BACKEND=postgres`, workers across all replicas share one queue. Each worker claims a job with a time-bound lease (`GATEWAY_TASK_QUEUE_LEASE_SECONDS`, default `30`). If a worker crashes, the lease expires and another worker on any replica re-claims the job. The periodic reconciler (`GATEWAY_TASK_RECONCILE_INTERVAL`, default `30s`) additionally re-queues any run stuck in `running` past 3× the lease duration.
-
-Worker count is per-replica (`GATEWAY_TASK_QUEUE_WORKERS`, default `1`). Total concurrent workers = replicas × workers-per-replica.
-
-### Observability
-
-`GET /admin/runtime/stats` reports queue depth, worker count, and backend per replica — not aggregate. For a fleet view, scrape it from each replica or aggregate in your OTel backend. Each request carries a `X-Trace-Id` header; spans from all replicas land in the same OTLP endpoint if configured identically.
-
-### What is not yet covered
-
-- Schema migrations across replicas — currently manual; no migration CLI yet.
-- Replica-aware rate limiting — per-key token buckets are in-process; two replicas each allow the configured RPM, doubling the effective limit.
-- Session affinity — not required for correctness (all state is in Postgres) but SSE streams (`/stream`) will disconnect on replica failover.
 
 ## Rate limiting
 
-Rate limiting is a per-key token bucket. It is disabled by default so first-run local testing does not surprise users.
+Rate limiting is a per-process token bucket. It is disabled by default so first-run local testing does not surprise users.
 
 | Variable | Default | Notes |
 |---|---:|---|
-| `GATEWAY_RATE_LIMIT_ENABLED` | `false` | Enables per-key request rate limits. |
-| `GATEWAY_RATE_LIMIT_RPM` | `60` | Steady-state refill rate per API key. |
+| `GATEWAY_RATE_LIMIT_ENABLED` | `false` | Enables request rate limits. |
+| `GATEWAY_RATE_LIMIT_RPM` | `60` | Steady-state refill rate. |
 | `GATEWAY_RATE_LIMIT_BURST` | `0` | Optional burst capacity. `0` means "same as RPM". |
 
-Over-limit requests return `429 Too Many Requests` with `code: "rate_limit_exceeded"` and standard `X-RateLimit-*` headers. Admin bearer traffic and anonymous traffic share a single `anonymous` bucket because they do not have tenant key IDs.
+Over-limit requests return `429 Too Many Requests` with `code: "rate_limit_exceeded"` and standard `X-RateLimit-*` headers.

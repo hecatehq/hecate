@@ -41,7 +41,7 @@ Seven tools — four reads and three writes:
 |---|---|---|
 | `list_tasks` | read | Recent agent tasks: id, title, status, execution kind, step count |
 | `get_task_status` | read | Detailed status of one task by id, including its latest run |
-| `list_chat_sessions` | read | Recent chat sessions: id, title, tenant, message count, provider-call count |
+| `list_chat_sessions` | read | Recent chat sessions: id, title, message count, provider-call count |
 | `summarize_recent_traffic` | read | Aggregated request stats: by-provider breakdown, error rate, avg latency |
 | `create_task` | write | Queue a new `agent_loop` task with optional title / working_directory / model / provider / budget. Returns the new task id |
 | `resolve_approval` | write (destructive) | Approve or reject a pending approval gate (pre-execution or mid-loop). Approve resumes; reject terminates the run as failed |
@@ -62,12 +62,11 @@ Each tool declares MCP `annotations` so clients know whether to auto-approve inv
 
 ### Configure it
 
-The MCP server is a stdio subprocess. Two environment variables control where it talks:
+The MCP server is a stdio subprocess. One environment variable controls where it talks:
 
 | Variable | Default | Notes |
 |---|---|---|
 | `HECATE_BASE_URL` | `http://127.0.0.1:8765` | URL of the running Hecate gateway |
-| `HECATE_AUTH_TOKEN` | _required_ | The bearer token from the gateway's first-run banner (or `/data/hecate.bootstrap.json` → `admin_token`) |
 
 #### Claude Desktop
 
@@ -80,8 +79,7 @@ Edit `~/Library/Application Support/Claude/claude_desktop_config.json` (macOS) o
       "command": "hecate",
       "args": ["mcp-server"],
       "env": {
-        "HECATE_BASE_URL": "http://127.0.0.1:8765",
-        "HECATE_AUTH_TOKEN": "<paste from first-run banner>"
+        "HECATE_BASE_URL": "http://127.0.0.1:8765"
       }
     }
   }
@@ -103,7 +101,7 @@ printf '%s\n%s\n%s\n' \
   '{"jsonrpc":"2.0","id":1,"method":"initialize","params":{"protocolVersion":"2024-11-05","clientInfo":{"name":"smoke","version":"0"}}}' \
   '{"jsonrpc":"2.0","method":"notifications/initialized"}' \
   '{"jsonrpc":"2.0","id":2,"method":"tools/list"}' \
-  | HECATE_AUTH_TOKEN=<token> gateway mcp-server
+  | gateway mcp-server
 ```
 
 Expected output: two JSON-RPC responses on stdout (initialize result + tools list). The startup line `gateway mcp-server: started on stdio, talking to ...` goes to stderr, which the protocol channel ignores.
@@ -111,8 +109,6 @@ Expected output: two JSON-RPC responses on stdout (initialize result + tools lis
 ### Behavior notes
 
 - **Tool errors are not protocol errors.** When the upstream gateway is unreachable or returns a 5xx, the tool's `CallToolResult` carries `isError: true` with the error text in the content block. The MCP envelope itself stays a successful JSON-RPC response — that's what the spec requires, and it's also what clients render meaningfully.
-- **Auth is per-process.** The token is read once at startup from `HECATE_AUTH_TOKEN` and used as `Authorization: Bearer <token>` on every gateway request. Rotate the token in the gateway and restart the MCP subprocess; there's no live re-read.
-- **One token = one principal.** The MCP server runs against whatever role the token grants — admin token sees everything, a tenant API key sees only its own tasks/sessions. Pick deliberately.
 - **Pure-Go single binary.** The MCP server has no extra dependencies; it's the same `hecate` binary you already have, dispatched by the first arg.
 
 ### Spec compliance

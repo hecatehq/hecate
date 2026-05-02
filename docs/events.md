@@ -38,7 +38,7 @@ These are **persisted events** (rows in the `task_state_run_events` table). They
 | `run.cancelled` | Run lifecycle | Run was cancelled (operator or system) |
 | `run.resumed` | Run lifecycle | Run is a continuation of a prior run |
 | `run.resume_requested` | Run lifecycle | Marker on the *prior* run that a resume started |
-| `run.throttled_tenant_concurrency` | Run lifecycle | Run held back by tenant concurrency limit |
+| `run.throttled_concurrency` | Run lifecycle | Run held back by global concurrency limit |
 | `run.resume_checkpoint_failed` | Run lifecycle | Resume hydration failed; run will start fresh |
 | `run.reconciled_restart_requeued` | Run lifecycle | Stalled run recovered and re-queued by reconciler (boot-time scan or periodic background check) |
 | `step.created` | Steps | A new step (model / shell / file / etc.) was appended |
@@ -159,13 +159,12 @@ The run was cancelled before it could complete. May arrive while the run is stil
 |---|---|---|
 | `reason` | `string` | Cancellation reason (operator note or system message) |
 
-### `run.throttled_tenant_concurrency`
+### `run.throttled_concurrency`
 
-The run was held back because the tenant's concurrent-run limit was already hit. The runner re-tries claim later; this event surfaces the throttle for observability.
+The run was held back because the global concurrent-run limit was already hit. The runner re-tries claim later; this event surfaces the throttle for observability.
 
 | Extra key | Type | Notes |
 |---|---|---|
-| `tenant` | `string` | Tenant id that hit the limit |
 | `limit` | `int` | The configured max-concurrent value |
 
 ### `run.resume_checkpoint_failed`
@@ -326,7 +325,6 @@ Callers can also pass an arbitrary `data` map alongside; those keys are merged i
 
 ## Subscribing tips
 
-- **Tenant scoping** — non-admin principals only see events from their tenant's tasks. Admins see everything. Asking for a foreign `task_id` returns empty (existence is not leaked).
 - **Filtering** — `event_type` accepts a comma-separated allowlist; multiple values OR within the slice. `task_id` is a single id (not csv). Filters AND across types.
 - **Cursor pagination** — every response carries `next_after_sequence`; pass it back as `after_sequence` on the next call. `after_sequence` is strictly-greater, so a client passes the last sequence it saw.
 - **Reconnect** — both SSE feeds support resume via the `Last-Event-ID` header (id is the global sequence).

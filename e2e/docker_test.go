@@ -43,9 +43,9 @@ const dockerSmokeTimeout = 3 * time.Minute
 //   - the binary starts as nonroot under distroless;
 //   - the bootstrap file is generated and writable on the /data volume;
 //   - /healthz returns 200 (proves the UI embed didn't break the binary);
-//   - /v1/models 401s without a token, 200s with the token from the volume;
-//   - the auto-generated token is round-trip readable via `docker compose
-//     cp`, which is the path the README quickstart points operators at.
+//   - /v1/models 200s anonymously (single-user mode is no-auth);
+//   - the bootstrap file is round-trip readable via `docker compose cp`,
+//     so operators can inspect the persisted control-plane secret.
 //
 // Anything that could be wrong with the Dockerfile, compose volume mount,
 // nonroot permissions, or the bootstrap-file path inside the container
@@ -88,11 +88,12 @@ func TestDockerSmokeImageBootsAndAuthenticates(t *testing.T) {
 		t.Fatalf("healthz never responded 200 within 60s: %v\n--- hecate logs ---\n%s", err, out)
 	}
 
-	// Pull the admin token out of /data via `docker compose cp`. We copy
-	// to a host tempfile rather than to `-` (stdout): `cp ... -` writes
-	// a tar archive, which would force the README quickstart to pipe
-	// through `tar -xO`. Copying to a real path gives raw bytes back.
-	// Distroless has no shell, so `exec cat` is not an option; `cp` is.
+	// Pull the bootstrap file out of /data via `docker compose cp`. We
+	// copy to a host tempfile rather than to `-` (stdout): `cp ... -`
+	// writes a tar archive, which would force the README quickstart to
+	// pipe through `tar -xO`. Copying to a real path gives raw bytes
+	// back. Distroless has no shell, so `exec cat` is not an option;
+	// `cp` is.
 	hostCopy := filepath.Join(t.TempDir(), "hecate.bootstrap.json")
 	if out, err := dockerComposeCombined(ctx, composeDir, "cp", "hecate:/data/hecate.bootstrap.json", hostCopy); err != nil {
 		t.Fatalf("retrieve bootstrap from /data: %v\n%s", err, out)
@@ -102,19 +103,16 @@ func TestDockerSmokeImageBootsAndAuthenticates(t *testing.T) {
 		t.Fatalf("read copied bootstrap: %v", err)
 	}
 	var boot struct {
-		AdminToken string `json:"admin_token"`
+		ControlPlaneSecretKey string `json:"control_plane_secret_key"`
 	}
 	if err := json.Unmarshal(bootstrapJSON, &boot); err != nil {
 		t.Fatalf("decode bootstrap.json: %v\nraw: %s", err, bootstrapJSON)
 	}
-	if boot.AdminToken == "" {
-		t.Fatalf("admin_token empty in bootstrap.json; raw: %s", bootstrapJSON)
+	if boot.ControlPlaneSecretKey == "" {
+		t.Fatalf("control_plane_secret_key empty in bootstrap.json; raw: %s", bootstrapJSON)
 	}
 
-	// Single-user mode: anonymous /v1/models must 200. The bootstrap
-	// admin token still gets generated (so installs that later flip
-	// auth back on get a stable token from the same file) but the
-	// gateway no longer enforces it.
+	// Single-user mode: anonymous /v1/models must 200.
 	resp, err := http.Get(baseURL + "/v1/models") //nolint:noctx
 	if err != nil {
 		t.Fatalf("GET /v1/models: %v", err)

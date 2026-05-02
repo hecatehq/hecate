@@ -5,11 +5,11 @@
 //   make screenshots                     # from repo root
 //
 // Prerequisites:
-//   1. `make reset-dev && ./hecate &` — gateway running on :8765
-//      with fresh state.
-//   2. ollama running on :11434 with `ollama pull llama3.1:8b` (used to seed
-//      one realistic chat session and produce a trace for the observability
-//      screenshot). Set HECATE_SKIP_OLLAMA=1 to skip.
+//   1. `make reset-dev && ./hecate &` — gateway running on
+//      127.0.0.1:8765 with fresh state.
+//   2. ollama running on :11434 with `ollama pull llama3.1:8b` (used to
+//      seed one realistic chat session and produce a trace for the
+//      observability screenshot). Set HECATE_SKIP_OLLAMA=1 to skip.
 //
 // Optional optimize pass — the script auto-detects the best PNG
 // optimizer on PATH (preference: oxipng > pngquant > magick) and runs
@@ -17,22 +17,16 @@
 // captures; the standard "people usually use this for README PNGs"
 // install is `brew install oxipng`. Set HECATE_SKIP_OPTIMIZE=1 to skip.
 //
-// The admin token is read from .data/hecate.bootstrap.json. Outputs to
-// docs/screenshots/<name>.png.
+// Outputs to docs/screenshots/<name>.png.
 
 import { chromium, type Page } from "@playwright/test";
-import { readFileSync, mkdirSync, statSync } from "node:fs";
+import { mkdirSync, statSync } from "node:fs";
 import { resolve } from "node:path";
 import { spawnSync } from "node:child_process";
 
 const BASE_URL = process.env.HECATE_URL ?? "http://127.0.0.1:8765";
 const OUT_DIR = resolve(import.meta.dirname, "..", "docs", "screenshots");
 mkdirSync(OUT_DIR, { recursive: true });
-
-const bootstrap = JSON.parse(
-  readFileSync(resolve(import.meta.dirname, "..", ".data", "hecate.bootstrap.json"), "utf8"),
-) as { admin_token: string };
-const ADMIN_TOKEN = bootstrap.admin_token;
 
 // 1280×800 is a comfortable docs-rendering size — wide enough to show
 // the full sidebar + main pane with no horizontal scrolling, narrow
@@ -44,13 +38,6 @@ async function clearAndNavigate(page: Page, path = "/") {
   await page.goto(BASE_URL);
   await page.evaluate(() => window.localStorage.clear());
   await page.goto(`${BASE_URL}${path}`);
-}
-
-async function signIn(page: Page) {
-  await page.evaluate((token) => {
-    window.localStorage.setItem("hecate.authToken", token);
-  }, ADMIN_TOKEN);
-  await page.reload();
   await page.waitForSelector(".hecate-activitybar", { timeout: 10_000 });
 }
 
@@ -63,7 +50,7 @@ async function snap(page: Page, name: string) {
   console.log(`  saved ${path}`);
 }
 
-async function openWorkspace(page: Page, id: "overview" | "runs" | "chats" | "providers" | "costs" | "admin") {
+async function openWorkspace(page: Page, id: "overview" | "runs" | "chats" | "providers" | "costs" | "settings") {
   await page.evaluate((workspace) => {
     window.localStorage.setItem("hecate.workspace", workspace);
   }, id);
@@ -131,10 +118,7 @@ async function optimize() {
   })));
 }
 
-const adminHeaders = {
-  "Content-Type": "application/json",
-  "Authorization": `Bearer ${ADMIN_TOKEN}`,
-} as const;
+const jsonHeaders = { "Content-Type": "application/json" } as const;
 
 // addProvider creates a provider via the same POST endpoint the UI's
 // add modal calls. Mirrors the new explicit-add lifecycle: each
@@ -157,7 +141,7 @@ async function addProvider(params: {
   };
   const res = await fetch(`${BASE_URL}/admin/control-plane/providers`, {
     method: "POST",
-    headers: adminHeaders,
+    headers: jsonHeaders,
     body: JSON.stringify(body),
   });
   if (!res.ok && res.status !== 409) {
@@ -186,7 +170,7 @@ async function seedChatSessions() {
   for (const title of titles) {
     const res = await fetch(`${BASE_URL}/v1/chat/sessions`, {
       method: "POST",
-      headers: adminHeaders,
+      headers: jsonHeaders,
       body: JSON.stringify({ title }),
     });
     const json = (await res.json()) as { data: { id: string } };
@@ -204,7 +188,7 @@ async function seedChatSessions() {
   try {
     const chatRes = await fetch(`${BASE_URL}/v1/chat/completions`, {
       method: "POST",
-      headers: adminHeaders,
+      headers: jsonHeaders,
       body: JSON.stringify({
         model: "llama3.1:8b",
         provider: "ollama",
@@ -234,44 +218,25 @@ async function main() {
   const context = await browser.newContext({ viewport: VIEWPORT, deviceScaleFactor: 1 });
   const page = await context.newPage();
 
-  // ── 1. Login screen ────────────────────────────────────────────────────────
-  // The bootstrap-token handshake auto-skips TokenGate when the
-  // browser is on the same loopback host as the gateway. To force
-  // the manual gate for documentation purposes we override the
-  // bootstrap fetch to return 403 before the page mounts.
-  console.log("→ onboard-wizard");
-  await clearAndNavigate(page);
-  await page.route("**/v1/bootstrap-token", route =>
-    route.fulfill({ status: 403, body: "forbidden", headers: { "Content-Type": "text/plain" } }),
-  );
-  await page.reload();
-  await page.waitForSelector("text=Admin token required", { timeout: 5_000 });
-  await snap(page, "onboard-wizard");
-  await page.unroute("**/v1/bootstrap-token");
-
-  // ── 2. Empty providers list ─────────────────────────────────────────────────
-  // Sign in and land on the Providers tab before any providers exist.
+  // ── 1. Empty providers list ─────────────────────────────────────────────────
+  // The UI loads directly — no auth gate. Land on the Providers tab
+  // before any providers exist.
   console.log("→ providers-empty");
-  await signIn(page);
+  await clearAndNavigate(page);
   await openWorkspace(page, "providers");
   await page.waitForSelector("text=No providers configured", { timeout: 5_000 });
   await snap(page, "providers-empty");
 
-  // ── 3. Cloud presets in the Add modal ───────────────────────────────────────
+  // ── 2. Cloud presets in the Add modal ───────────────────────────────────────
   console.log("→ providers-presets (Add modal, Cloud tab)");
-  // Click the first "Add provider" button — both the header and empty-state
-  // CTAs render with the same label; either opens the modal.
   await page.getByRole("button", { name: "Add provider" }).first().click();
-  // Cloud tab is the default. Wait for a recognizable cloud preset to
-  // confirm the modal is rendered before snapping.
   await page.waitForSelector("text=Anthropic", { timeout: 5_000 });
   await page.waitForTimeout(300);
   await snap(page, "providers-presets");
-  // Close the modal — Esc dismisses it.
   await page.keyboard.press("Escape");
   await page.waitForTimeout(300);
 
-  // ── 4. Seed three providers via the API ─────────────────────────────────────
+  // ── 3. Seed three providers via the API ─────────────────────────────────────
   // These mirror the UI's add flow: one cloud (OpenAI with a fake key), two
   // local (Ollama, LM Studio) on their default ports. The fake OpenAI key is
   // enough to pass the create handler's "cloud-needs-key" guard; an actual
@@ -282,49 +247,37 @@ async function main() {
   await addProvider({ name: "OpenAI",   preset_id: "openai",   kind: "cloud",
     api_key: "sk-live-••••••••••••••••••••" });
 
-  // ── 5. Populated providers table ────────────────────────────────────────────
+  // ── 4. Populated providers table ────────────────────────────────────────────
   console.log("→ providers (populated table)");
   await page.reload();
   await page.waitForSelector("text=Cloud providers", { timeout: 5_000 });
-  // Give the runtime a moment to run an initial probe so the Health
-  // and Models cells aren't all "Pending".
   await page.waitForTimeout(2_000);
   await snap(page, "providers");
 
-  // ── 6. Chat: seed sessions + one real completion ────────────────────────────
+  // ── 5. Chat: seed sessions + one real completion ────────────────────────────
   console.log("→ seeding chat sessions");
   const { firstID } = await seedChatSessions();
 
   console.log("→ chat (with seeded sessions)");
   await openWorkspace(page, "chats");
   await page.waitForTimeout(500);
-  // Click the seeded session by its title so the main pane renders the
-  // user/assistant turn from the ollama completion above.
   await page.getByText("Go interfaces vs structs").first().click();
   await page.waitForTimeout(1500);
   await snap(page, "chat");
 
-  // ── 7. Tasks ────────────────────────────────────────────────────────────────
+  // ── 6. Tasks ────────────────────────────────────────────────────────────────
   console.log("→ tasks (do echo 42 + approval seeded)");
   await seedTask();
   await page.reload();
   await page.waitForSelector(".hecate-activitybar", { timeout: 5_000 });
   await openWorkspace(page, "runs");
-  // Wait long enough for the task list fetch + a soft moment for the
-  // run state to surface. The task is a simple shell echo; if the
-  // runner is wired the row will show "completed", otherwise it shows
-  // its pending state — either renders a usable list view.
   await page.waitForTimeout(2_000);
   await snap(page, "tasks");
 
-  // ── 8. Observability — pick a trace first ───────────────────────────────────
+  // ── 7. Observability — pick a trace first ───────────────────────────────────
   console.log("→ observe (trace selected)");
   await openWorkspace(page, "overview");
   await page.waitForTimeout(800);
-  // Click the first row in the request ledger / trace list. Selector
-  // strategy: the ledger renders rows with a monospace request id; the
-  // first selectable row gets clicked. Fall back to no-op if the list
-  // is empty (e.g. ollama wasn't running, no traces produced).
   try {
     const firstRow = page.locator("[data-trace-row], tbody tr").first();
     if (await firstRow.count() > 0 && await firstRow.isVisible()) {
@@ -338,23 +291,24 @@ async function main() {
   }
   await snap(page, "observe");
 
-  // ── 9. Costs workspace ─────────────────────────────────────────────
-  // Lifted from the old Admin → Balances tab. Visible to every
-  // authenticated role (admin + tenant); shows the balance card on
-  // top and the per-key usage table on the bottom.
+  // ── 8. Costs workspace ─────────────────────────────────────────────
   console.log("→ costs");
   await openWorkspace(page, "costs");
   await page.waitForTimeout(500);
   await snap(page, "costs");
 
-  // ── 10. Settings panels — Pricing ──────────────────
-  await openWorkspace(page, "admin");
-  await page.waitForTimeout(500);
-
+  // ── 9. Settings — Pricing + Retention ──────────────────────────────
   console.log("→ settings / pricebook");
+  await openWorkspace(page, "settings");
+  await page.waitForTimeout(500);
   await page.getByRole("button", { name: /pricing/i }).click();
   await page.waitForTimeout(800);
-  await snap(page, "admin-pricebook");
+  await snap(page, "settings-pricebook");
+
+  console.log("→ settings / retention");
+  await page.getByRole("button", { name: /retention/i }).click();
+  await page.waitForTimeout(500);
+  await snap(page, "settings-retention");
 
   // firstID is intentionally unused after the chat snap — captured for
   // future "open this specific session" workflows.
@@ -365,7 +319,6 @@ async function main() {
   console.log("done.");
 }
 
-
 // seedTask creates a "do echo 42" task so the runs table has at least
 // one row. If the task runtime auto-resolves the implicit approval the
 // row will land in a completed state; otherwise it sits in the queue
@@ -374,7 +327,7 @@ async function main() {
 async function seedTask() {
   const res = await fetch(`${BASE_URL}/v1/tasks`, {
     method: "POST",
-    headers: adminHeaders,
+    headers: jsonHeaders,
     body: JSON.stringify({
       title: "echo 42",
       prompt: "do echo 42",
@@ -388,26 +341,21 @@ async function seedTask() {
   const taskID = json.data.id;
   console.log(`  seeded task ${taskID} (do echo 42)`);
 
-  // Try to start the task (and resolve any pending approval) so the
-  // row in the tasks list shows real progress. Best-effort — if the
-  // endpoints aren't wired in this build, the row still renders.
   try {
-    await fetch(`${BASE_URL}/v1/tasks/${taskID}/start`, { method: "POST", headers: adminHeaders });
+    await fetch(`${BASE_URL}/v1/tasks/${taskID}/start`, { method: "POST", headers: jsonHeaders });
   } catch (err) {
     console.warn(`  task start skipped: ${(err as Error).message}`);
     return;
   }
-  // Pause briefly so an approval request has time to surface, then auto-resolve
-  // any pending approvals as "approve" so the run can proceed.
   await new Promise(r => setTimeout(r, 600));
   try {
-    const approvalsRes = await fetch(`${BASE_URL}/v1/tasks/${taskID}/approvals`, { headers: adminHeaders });
+    const approvalsRes = await fetch(`${BASE_URL}/v1/tasks/${taskID}/approvals`, { headers: jsonHeaders });
     if (approvalsRes.ok) {
       const approvals = (await approvalsRes.json()) as { data?: Array<{ id: string }> };
       for (const a of approvals.data ?? []) {
         await fetch(`${BASE_URL}/v1/tasks/${taskID}/approvals/${a.id}/resolve`, {
           method: "POST",
-          headers: adminHeaders,
+          headers: jsonHeaders,
           body: JSON.stringify({ decision: "approved" }),
         });
         console.log(`  approved task approval ${a.id}`);

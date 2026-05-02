@@ -43,12 +43,6 @@ The gateway binary is a single executable with the React UI embedded via `//go:e
 
 The gateway and the operator UI are both served from `http://127.0.0.1:8765`. `make serve` stops any earlier `./gateway` process still bound to that port before starting, so re-running it is always safe.
 
-On first run, an admin-bearer banner is printed to stderr, and the bootstrap file is persisted at `.data/hecate.bootstrap.json` (mode 0600). Read the token back at any time:
-
-```bash
-jq -r .admin_token .data/hecate.bootstrap.json
-```
-
 For iterative changes that don't touch the embed boundary, skip the binary build and run from source: `make run` is `go run` with quick defaults; `make dev` is the same but sources `.env` so provider keys are available.
 
 ## UI hot reload
@@ -70,10 +64,8 @@ The Vite dev server proxies every `/v1/*`, `/admin/*`, and `/healthz` request to
 
 ```bash
 make reset-dev        # local dev: stops :8765, removes .data/
-make reset-docker     # docker stack: `docker compose --profile postgres down -v`
+make reset-docker     # docker stack: `docker compose down -v`
 ```
-
-The next page load detects the rejected stale token in `localStorage` and re-prompts for the regenerated one — no manual cleanup required.
 
 ## Testing
 
@@ -85,7 +77,7 @@ make coverage          # go test -coverprofile + writes coverage.html
 make ui-test           # UI unit tests (vitest)
 make ui-test-e2e       # UI end-to-end tests (Playwright)
 make ui-coverage       # UI coverage report (vitest --coverage)
-make test-docker-smoke # boots the production image and probes /healthz, /v1/models, bootstrap volume
+make test-docker-smoke # boots the production image and probes /healthz, /v1/models
 make verify-alpha      # public-alpha gate: docs/env check, Go, Docker, UI, build
 ```
 
@@ -121,28 +113,25 @@ Internal packages (each `internal/<name>/` is a single Go package):
 
 ```
 api                     # HTTP handlers — chat, messages, tasks, admin, control-plane, telemetry
-auth                    # bearer + control-plane API-key authentication
 billing                 # pricebook + cost calculation
-bootstrap               # first-run admin token + AES-GCM control-plane key generation
-cache                   # exact + semantic response caches (memory / sqlite / postgres; semantic = memory / postgres only)
+cache                   # exact response cache (memory / sqlite)
 catalog                 # provider/model discovery and registration
-chatstate               # chat session storage (memory / sqlite / postgres)
+chatstate               # chat session storage (memory / sqlite)
 config                  # env-driven config loading
-controlplane            # tenants, API keys, persisted providers, policy/pricebook CRUD
-gateway                 # request lifecycle: auth, policy, cache, router, retry/fallback
+controlplane            # persisted providers, pricebook CRUD
+gateway                 # request lifecycle: policy, cache, router, retry/fallback
 governor                # budget enforcement, rate limiting, policy rules
 models                  # model identity + canonical-name resolution
 orchestrator            # task runtime: queue, runner, executors, sandbox boundary
 policy                  # declarative deny / rewrite policy rules
 profiler                # internal trace recorder + OTel SDK adapter
 providers               # provider adapters (OpenAI-compat + Anthropic Messages)
-ratelimit               # per-key token bucket for HTTP throttling
-requestscope            # request-scoped principal/tenant normalization
+ratelimit               # token bucket for HTTP throttling
 retention               # retention worker + history store
 router                  # provider/model routing engine (rules, failover)
 sandbox                 # sandbox-policy types used by orchestrator
 secrets                 # AES-GCM provider-credential encryption
-storage                 # shared Postgres / SQLite client connectors
+storage                 # shared SQLite client connector
 taskstate               # task / run / step / artifact / approval persistence
 telemetry               # OTel attribute keys, metrics, structured logging
 version                 # build-time version metadata
@@ -154,7 +143,7 @@ version                 # build-time version metadata
 make screenshots
 ```
 
-That's the whole command. The target resets dev state, builds the binary if needed, boots the gateway in the background, waits for `/healthz`, walks the operator UI through every documented surface (seeding tenants / keys / chat sessions / a task via the public API), snapshots each route, optimizes the PNGs in parallel, and shuts the gateway down. End-to-end: ~13 seconds on a warm machine.
+That's the whole command. The target resets dev state, builds the binary if needed, boots the gateway in the background, waits for `/healthz`, walks the operator UI through every documented surface (seeding chat sessions / a task via the public API), snapshots each route, optimizes the PNGs in parallel, and shuts the gateway down. End-to-end: ~13 seconds on a warm machine.
 
 Optional inputs:
 
