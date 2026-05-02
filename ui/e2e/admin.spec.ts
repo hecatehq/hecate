@@ -1,9 +1,7 @@
 import { expect, test } from "./fixtures";
 
 // Settings workspace (id stays "admin" for back-compat; label is now
-// "Settings"). The fixture's /v1/whoami doesn't set multi_tenant, so the
-// Settings page renders the single-tenant tab subset by default —
-// Pricing / Policy / Retention. Tenants and Keys are gated off.
+// "Settings"). Tabs: Pricing / Policy / Retention / MCP Cache.
 test.beforeEach(async ({ page }) => {
   // Override /v1/whoami to report admin so the Settings nav button appears.
   await page.route("/v1/whoami*", r => r.fulfill({
@@ -19,21 +17,14 @@ test.beforeEach(async ({ page }) => {
   // Press 6 → Settings. Admin lineup is Chats / Providers / Tasks /
   // Observability / Costs / Settings, so Settings sits at position 6.
   await page.keyboard.press("6");
-  // "Pricing" is always the first visible Settings tab in both single-
-  // and multi-tenant mode. "Admin token" only appears in multi-tenant
-  // mode, so it's not a reliable beforeEach sentinel.
   await page.waitForSelector("text=Pricing");
 });
 
-test("renders the single-tenant settings tabs (Pricing / Policy / Retention)", async ({ page }) => {
-  // The default fixture is single-tenant — only the always-visible
-  // tabs render. Tenants and Keys are gated to multi-tenant. Balances
-  // and Usage moved out to the Costs workspace.
-  for (const tab of ["Pricing", "Policy", "Retention"]) {
+test("renders the settings tabs (Pricing / Policy / Retention / MCP Cache)", async ({ page }) => {
+  for (const tab of ["Pricing", "Policy", "Retention", "MCP Cache"]) {
     await expect(page.getByRole("button", { name: tab })).toBeVisible();
   }
-  await expect(page.getByRole("button", { name: "Tenants" })).toHaveCount(0);
-  await expect(page.getByRole("button", { name: "Keys" })).toHaveCount(0);
+  // Balances and Usage moved out to the Costs workspace.
   await expect(page.getByRole("button", { name: "Balances" })).toHaveCount(0);
   await expect(page.getByRole("button", { name: "Usage" })).toHaveCount(0);
   await expect(page.getByRole("button", { name: "Clients" })).toHaveCount(0);
@@ -48,29 +39,9 @@ test("Settings nav button uses the 'Settings' label, not 'Admin'", async ({ page
   ).toHaveCount(0);
 });
 
-test("admin token panel shows reveal/rotate", async ({ page }) => {
-  // Admin token row only renders in multi-tenant mode. Re-load with a
-  // whoami response that sets multi_tenant so the row appears.
-  await page.route("/v1/whoami*", r => r.fulfill({
-    status: 200,
-    contentType: "application/json",
-    body: JSON.stringify({
-      object: "session",
-      data: { authenticated: true, invalid_token: false, role: "admin", source: "config", key_id: "", features: { multi_tenant: true } },
-    }),
-  }));
-  await page.goto("/");
-  await page.waitForSelector(".hecate-activitybar");
-  await page.keyboard.press("6");
-  await expect(page.locator("text=Admin token").first()).toBeVisible();
-  await expect(page.getByRole("button", { name: /Reveal/i })).toBeVisible();
-  // "Rotate" appears on token panel and possibly elsewhere; just ensure ≥1.
-  expect(await page.getByRole("button", { name: /Rotate/i }).count()).toBeGreaterThan(0);
-});
-
 test("retention tab shows known subsystem chips", async ({ page }) => {
   await page.getByRole("button", { name: "Retention" }).click();
-  for (const sub of ["trace_snapshots", "budget_events", "audit_events", "exact_cache", "semantic_cache"]) {
+  for (const sub of ["trace_snapshots", "budget_events", "audit_events"]) {
     await expect(page.locator(`text=${sub}`).first()).toBeVisible();
   }
 });
@@ -186,7 +157,7 @@ test("pricebook import all triggers preview + apply round-trip", async ({ page }
     });
   });
 
-  // Pricing is the first visible Settings tab (single-tenant default), so
+  // Pricing is the first visible Settings tab, so
   // it has already mounted once during beforeEach — before our route
   // handler was registered. Navigate away to Policy and back to Pricing
   // so the mount-time preview fetch fires under the test's mocked route.

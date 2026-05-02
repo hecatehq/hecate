@@ -15,11 +15,7 @@ import (
 )
 
 func (h *Handler) HandleCreateChatSession(w http.ResponseWriter, r *http.Request) {
-	principal, ok := h.requireAny(w, r)
-	if !ok {
-		return
-	}
-	ctx := h.contextWithPrincipal(r.Context(), principal)
+	ctx := r.Context()
 
 	var req CreateChatSessionRequest
 	if !decodeJSON(w, r, &req) {
@@ -33,8 +29,6 @@ func (h *Handler) HandleCreateChatSession(w http.ResponseWriter, r *http.Request
 	session := types.ChatSession{
 		ID:        newChatSessionID(),
 		Title:     title,
-		Tenant:    principal.Tenant,
-		User:      principal.Name,
 		CreatedAt: time.Now().UTC(),
 	}
 	result, err := h.service.CreateChatSession(ctx, session)
@@ -54,11 +48,7 @@ func (h *Handler) HandleCreateChatSession(w http.ResponseWriter, r *http.Request
 }
 
 func (h *Handler) HandleChatSessions(w http.ResponseWriter, r *http.Request) {
-	principal, ok := h.requireAny(w, r)
-	if !ok {
-		return
-	}
-	ctx := h.contextWithPrincipal(r.Context(), principal)
+	ctx := r.Context()
 
 	limit := h.config.Chat.SessionLimit
 	if limit <= 0 {
@@ -88,11 +78,6 @@ func (h *Handler) HandleChatSessions(w http.ResponseWriter, r *http.Request) {
 
 	// Fetch limit+1 to determine whether more sessions exist.
 	filter := chatstate.Filter{Limit: limit + 1, Offset: offset}
-	if principal.IsAdmin() {
-		filter.Tenant = strings.TrimSpace(r.URL.Query().Get("tenant"))
-	} else {
-		filter.Tenant = principal.Tenant
-	}
 
 	result, err := h.service.ListChatSessions(ctx, filter)
 	if err != nil {
@@ -112,9 +97,6 @@ func (h *Handler) HandleChatSessions(w http.ResponseWriter, r *http.Request) {
 
 	items := make([]ChatSessionSummaryItem, 0, len(sessions))
 	for _, session := range sessions {
-		if !principal.IsAdmin() && principal.Tenant != "" && session.Tenant != principal.Tenant {
-			continue
-		}
 		items = append(items, renderChatSessionSummary(session))
 	}
 	WriteJSON(w, http.StatusOK, ChatSessionsResponse{
@@ -125,11 +107,7 @@ func (h *Handler) HandleChatSessions(w http.ResponseWriter, r *http.Request) {
 }
 
 func (h *Handler) HandleChatSession(w http.ResponseWriter, r *http.Request) {
-	principal, ok := h.requireAny(w, r)
-	if !ok {
-		return
-	}
-	ctx := h.contextWithPrincipal(r.Context(), principal)
+	ctx := r.Context()
 
 	id := strings.TrimSpace(r.PathValue("id"))
 	if id == "" {
@@ -146,11 +124,6 @@ func (h *Handler) HandleChatSession(w http.ResponseWriter, r *http.Request) {
 		WriteError(w, http.StatusNotFound, errCodeInvalidRequest, "chat session not found")
 		return
 	}
-	if !principal.IsAdmin() && principal.Tenant != "" && result.Session.Tenant != principal.Tenant {
-		WriteError(w, http.StatusForbidden, errCodeForbidden, "chat session is outside the active tenant scope")
-		return
-	}
-
 	WriteJSON(w, http.StatusOK, ChatSessionResponse{
 		Object: "chat_session",
 		Data:   renderChatSession(result.Session),
@@ -158,11 +131,7 @@ func (h *Handler) HandleChatSession(w http.ResponseWriter, r *http.Request) {
 }
 
 func (h *Handler) HandleDeleteChatSession(w http.ResponseWriter, r *http.Request) {
-	principal, ok := h.requireAny(w, r)
-	if !ok {
-		return
-	}
-	ctx := h.contextWithPrincipal(r.Context(), principal)
+	ctx := r.Context()
 
 	id := strings.TrimSpace(r.PathValue("id"))
 	if id == "" {
@@ -170,16 +139,10 @@ func (h *Handler) HandleDeleteChatSession(w http.ResponseWriter, r *http.Request
 		return
 	}
 
-	result, err := h.service.GetChatSession(ctx, id)
-	if err != nil {
+	if _, err := h.service.GetChatSession(ctx, id); err != nil {
 		WriteError(w, http.StatusNotFound, errCodeInvalidRequest, "chat session not found")
 		return
 	}
-	if !principal.IsAdmin() && principal.Tenant != "" && result.Session.Tenant != principal.Tenant {
-		WriteError(w, http.StatusForbidden, errCodeForbidden, "chat session is outside the active tenant scope")
-		return
-	}
-
 	if err := h.service.DeleteChatSession(ctx, id); err != nil {
 		telemetry.Error(h.logger, ctx, "gateway.chat.sessions.delete.failed",
 			slog.String("event.name", "gateway.chat.sessions.delete.failed"),
@@ -192,11 +155,7 @@ func (h *Handler) HandleDeleteChatSession(w http.ResponseWriter, r *http.Request
 }
 
 func (h *Handler) HandleUpdateChatSession(w http.ResponseWriter, r *http.Request) {
-	principal, ok := h.requireAny(w, r)
-	if !ok {
-		return
-	}
-	ctx := h.contextWithPrincipal(r.Context(), principal)
+	ctx := r.Context()
 
 	id := strings.TrimSpace(r.PathValue("id"))
 	if id == "" {
@@ -220,10 +179,6 @@ func (h *Handler) HandleUpdateChatSession(w http.ResponseWriter, r *http.Request
 	existing, err := h.service.GetChatSession(ctx, id)
 	if err != nil {
 		WriteError(w, http.StatusNotFound, errCodeInvalidRequest, "chat session not found")
-		return
-	}
-	if !principal.IsAdmin() && principal.Tenant != "" && existing.Session.Tenant != principal.Tenant {
-		WriteError(w, http.StatusForbidden, errCodeForbidden, "chat session is outside the active tenant scope")
 		return
 	}
 
@@ -267,8 +222,6 @@ func renderChatSessionSummary(session types.ChatSession) ChatSessionSummaryItem 
 	item := ChatSessionSummaryItem{
 		ID:                session.ID,
 		Title:             session.Title,
-		Tenant:            session.Tenant,
-		User:              session.User,
 		MessageCount:      len(session.Messages),
 		ProviderCallCount: len(session.ProviderCalls),
 	}
@@ -293,8 +246,6 @@ func renderChatSession(session types.ChatSession) ChatSessionItem {
 		ID:            session.ID,
 		Title:         session.Title,
 		SystemPrompt:  session.SystemPrompt,
-		Tenant:        session.Tenant,
-		User:          session.User,
 		Messages:      make([]ChatSessionMessageItem, 0, len(session.Messages)),
 		ProviderCalls: make([]ChatProviderCallItem, 0, len(session.ProviderCalls)),
 	}

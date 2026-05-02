@@ -7,13 +7,10 @@ type Task struct {
 	Title  string
 	Prompt string
 	// SystemPrompt is the per-task agent system prompt. When set, it
-	// becomes the narrowest layer in the four-level composition:
-	// global default → tenant prompt → workspace CLAUDE.md/AGENTS.md
-	// → this. Concatenated, broadest first. Empty = no per-task add
-	// (still honors the broader layers).
+	// becomes the narrowest layer in the composition: global default →
+	// workspace CLAUDE.md/AGENTS.md → this. Concatenated, broadest
+	// first. Empty = no per-task add (still honors the broader layers).
 	SystemPrompt       string
-	Tenant             string
-	User               string
 	Repo               string
 	BaseBranch         string
 	WorkspaceMode      string

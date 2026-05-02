@@ -8,7 +8,7 @@
 [![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](LICENSE)
 [![OpenTelemetry](https://img.shields.io/badge/OpenTelemetry-enabled-f5a800?logo=opentelemetry&logoColor=white)](https://opentelemetry.io/)
 
-**Open-source AI gateway and agent-task runtime.** One control plane for model access, cost governance, routing, caching, observability, and controlled agent execution. Single-user by default, multi-tenant opt-in.
+**Open-source AI gateway and agent-task runtime.** One control plane for model access, cost governance, routing, observability, and controlled agent execution.
 
 > **Status: public alpha.** Core gateway is usable; agent runtime + sandbox are still evolving. Read [docs/known-limitations.md](docs/known-limitations.md) before depending on it.
 
@@ -16,7 +16,6 @@
 
 - [Why Hecate](#why-hecate)
 - [Quick Start](#quick-start)
-- [Modes](#modes)
 - [Architecture](#architecture)
 - [Operator UI](#operator-ui)
 - [What Works Today](#what-works-today)
@@ -121,12 +120,6 @@ Cloud presets need an API key; local presets just need the runtime listening on 
 ### Talk to it
 
 ![Chats workspace talking to a local Ollama llama3.1:8b model with sessions sidebar and inline runtime metadata](docs/screenshots/chat.png)
-
-## Mode
-
-Single-user, single-process. Hecate binds to `127.0.0.1` by default and runs without auth — the threat model is "trust your own machine," same as `bun run dev` or any local dev server. Override `GATEWAY_ADDRESS` to expose on other interfaces (and put a reverse proxy / firewall in front).
-
-The Operator UI surfaces are: Chats, Providers, Tasks, Observability, Costs, Settings (Pricing / Policy / Retention).
 
 ## Architecture
 

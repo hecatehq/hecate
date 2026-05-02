@@ -20,7 +20,6 @@ type AccountState struct {
 type UsageEvent struct {
 	BudgetKey  string
 	RequestID  string
-	Tenant     string
 	Provider   string
 	Model      string
 	Usage      types.Usage
@@ -41,7 +40,6 @@ type BudgetEvent struct {
 	Type              string    `json:"type"`
 	Scope             string    `json:"scope,omitempty"`
 	Provider          string    `json:"provider,omitempty"`
-	Tenant            string    `json:"tenant,omitempty"`
 	Model             string    `json:"model,omitempty"`
 	RequestID         string    `json:"request_id,omitempty"`
 	Actor             string    `json:"actor,omitempty"`

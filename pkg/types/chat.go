@@ -82,21 +82,11 @@ type ChatRequest struct {
 	ParallelToolCalls *bool
 }
 
+// RequestScope carries routing hints derived from the inbound request.
+// In single-user mode it's just the provider hint — multi-tenant
+// scoping (Tenant, AllowedProviders/Models, Principal) was removed.
 type RequestScope struct {
-	Tenant           string
-	User             string
-	ProviderHint     string
-	AllowedProviders []string
-	AllowedModels    []string
-	Principal        PrincipalContext
-}
-
-type PrincipalContext struct {
-	Role             string
-	Tenant           string
-	KeyID            string // API key ID; used for per-key budget and rate-limit scopes
-	AllowedProviders []string
-	AllowedModels    []string
+	ProviderHint string
 }
 
 type Tool struct {
@@ -287,7 +277,6 @@ type BudgetStatus struct {
 	Key                string
 	Scope              string
 	Provider           string
-	Tenant             string
 	Backend            string
 	BalanceSource      string
 	DebitedMicrosUSD   int64
@@ -311,7 +300,6 @@ type BudgetHistoryEntry struct {
 	Type              string
 	Scope             string
 	Provider          string
-	Tenant            string
 	Model             string
 	RequestID         string
 	Actor             string
@@ -347,8 +335,6 @@ type ChatSession struct {
 	// already starts with a system message. Empty means no per-session
 	// system prompt — clients fall back to whatever they send inline.
 	SystemPrompt  string
-	Tenant        string
-	User          string
 	CreatedAt     time.Time
 	UpdatedAt     time.Time
 	Messages      []ChatSessionMessage

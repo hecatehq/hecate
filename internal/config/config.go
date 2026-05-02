@@ -28,20 +28,7 @@ type Config struct {
 }
 
 type ServerConfig struct {
-	Address   string
-	AuthToken string
-	// AuthDisabled forces the gateway into a no-auth mode regardless of
-	// AuthToken / store presence. Wired to GATEWAY_AUTH_DISABLED. Used
-	// by test envs and reverse-proxy-fronted deployments where auth is
-	// terminated upstream. The single-user localhost path is served by
-	// the bootstrap-token handshake instead, not by flipping this flag.
-	AuthDisabled bool
-	// MultiTenant exposes the tenants/keys management surface in the
-	// operator UI. Wired to GATEWAY_MULTI_TENANT. Default false: a
-	// single-user workspace where Tenants/Keys/Usage tabs are hidden.
-	// The data layer is unaffected — multi_tenant is a UI-visibility
-	// flag, not a server-side gate.
-	MultiTenant                bool
+	Address                    string
 	DataDir                    string
 	BootstrapFile              string
 	ControlPlaneBackend        string
@@ -211,8 +198,6 @@ type PolicyRuleConfig struct {
 	ID                     string   `json:"id"`
 	Action                 string   `json:"action"`
 	Reason                 string   `json:"reason"`
-	Roles                  []string `json:"roles"`
-	Tenants                []string `json:"tenants"`
 	Providers              []string `json:"providers"`
 	ProviderKinds          []string `json:"provider_kinds"`
 	Models                 []string `json:"models"`
@@ -309,10 +294,7 @@ func LoadFromEnv() Config {
 	providersCfg := loadProvidersFromEnv()
 	return Config{
 		Server: ServerConfig{
-			Address:      getEnv("GATEWAY_ADDRESS", "127.0.0.1:8765"),
-			AuthToken:    getEnv("GATEWAY_AUTH_TOKEN", ""),
-			AuthDisabled: getEnvBool("GATEWAY_AUTH_DISABLED", false),
-			MultiTenant:  getEnvBool("GATEWAY_MULTI_TENANT", false),
+			Address: getEnv("GATEWAY_ADDRESS", "127.0.0.1:8765"),
 			// Default `.data/` keeps the auto-generated bootstrap file
 			// (admin token + AES-GCM key) out of the repo root so a stray
 			// `git add .` can't sweep it up. Docker overrides this to /data
@@ -425,8 +407,7 @@ func LoadFromEnv() Config {
 			ProviderHistory: loadRetentionPolicyFromEnv("GATEWAY_RETENTION_PROVIDER_HISTORY_", 7*24*time.Hour, 10_000),
 			// agent.turn.completed events accumulate fast on long
 			// agent runs (one per LLM round-trip). 7d/100k is a
-			// generous default for single-user installs; tune
-			// down on busy ones.
+			// generous default; tune down on busy installs.
 			TurnEvents: loadRetentionPolicyFromEnv("GATEWAY_RETENTION_TURN_EVENTS_", 7*24*time.Hour, 100_000),
 		},
 		SQLite: SQLiteConfig{

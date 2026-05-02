@@ -22,17 +22,10 @@ func slugify(name string) string {
 }
 
 func (h *Handler) HandleControlPlaneStatus(w http.ResponseWriter, r *http.Request) {
-	if _, ok := h.authorizeAdmin(r); !ok {
-		WriteError(w, http.StatusUnauthorized, errCodeUnauthorized, "missing or invalid bearer token")
-		return
-	}
-
 	payload := ControlPlaneResponse{
 		Object: "control_plane",
 		Data: ControlPlaneResponseItem{
 			Backend:     "env",
-			Tenants:     []ControlPlaneTenantItem{},
-			APIKeys:     []ControlPlaneAPIKeyRecord{},
 			Providers:   []ControlPlaneProviderRecord{},
 			PolicyRules: []ControlPlanePolicyRuleRecord{},
 			Pricebook:   []ControlPlanePricebookRecord{},
@@ -52,19 +45,6 @@ func (h *Handler) HandleControlPlaneStatus(w http.ResponseWriter, r *http.Reques
 	}
 
 	payload.Data.Backend = h.controlPlane.Backend()
-	for _, tenant := range state.Tenants {
-		payload.Data.Tenants = append(payload.Data.Tenants, ControlPlaneTenantItem{
-			ID:               tenant.ID,
-			Name:             tenant.Name,
-			Description:      tenant.Description,
-			AllowedProviders: tenant.AllowedProviders,
-			AllowedModels:    tenant.AllowedModels,
-			Enabled:          tenant.Enabled,
-		})
-	}
-	for _, key := range state.APIKeys {
-		payload.Data.APIKeys = append(payload.Data.APIKeys, renderControlPlaneAPIKey(key))
-	}
 	for _, record := range buildControlPlaneProviderList(h.config, state) {
 		payload.Data.Providers = append(payload.Data.Providers, record)
 	}
@@ -82,8 +62,7 @@ func (h *Handler) HandleControlPlaneStatus(w http.ResponseWriter, r *http.Reques
 }
 
 func (h *Handler) HandleControlPlaneUpdateProvider(w http.ResponseWriter, r *http.Request) {
-	principal, ok := h.requireControlPlane(w, r)
-	if !ok {
+	if !h.requireControlPlane(w, r) {
 		return
 	}
 	if h.providerRuntime == nil {
@@ -106,7 +85,7 @@ func (h *Handler) HandleControlPlaneUpdateProvider(w http.ResponseWriter, r *htt
 		return
 	}
 
-	ctx := controlplane.WithActor(r.Context(), controlPlaneActor(principal, r))
+	ctx := controlplane.WithActor(r.Context(), controlPlaneActor(r))
 
 	state, err := h.controlPlane.Snapshot(r.Context())
 	if err != nil {
@@ -167,8 +146,7 @@ func (h *Handler) HandleControlPlaneUpdateProvider(w http.ResponseWriter, r *htt
 // HandleControlPlaneSetProviderAPIKey is the single endpoint for managing a provider's
 // API key. PUT with a non-empty `key` sets/updates it; PUT with an empty `key` clears it.
 func (h *Handler) HandleControlPlaneSetProviderAPIKey(w http.ResponseWriter, r *http.Request) {
-	principal, ok := h.requireControlPlane(w, r)
-	if !ok {
+	if !h.requireControlPlane(w, r) {
 		return
 	}
 	if h.providerRuntime == nil {
@@ -184,7 +162,7 @@ func (h *Handler) HandleControlPlaneSetProviderAPIKey(w http.ResponseWriter, r *
 		return
 	}
 
-	ctx := controlplane.WithActor(r.Context(), controlPlaneActor(principal, r))
+	ctx := controlplane.WithActor(r.Context(), controlPlaneActor(r))
 	if req.Key == "" {
 		if err := h.providerRuntime.DeleteCredential(ctx, id); err != nil {
 			WriteError(w, http.StatusBadRequest, errCodeInvalidRequest, err.Error())
@@ -210,8 +188,7 @@ func (h *Handler) HandleControlPlaneSetProviderAPIKey(w http.ResponseWriter, r *
 }
 
 func (h *Handler) HandleControlPlaneCreateProvider(w http.ResponseWriter, r *http.Request) {
-	principal, ok := h.requireControlPlane(w, r)
-	if !ok {
+	if !h.requireControlPlane(w, r) {
 		return
 	}
 	if h.providerRuntime == nil {
@@ -287,7 +264,7 @@ func (h *Handler) HandleControlPlaneCreateProvider(w http.ResponseWriter, r *htt
 		protocol = "openai"
 	}
 
-	ctx := controlplane.WithActor(r.Context(), controlPlaneActor(principal, r))
+	ctx := controlplane.WithActor(r.Context(), controlPlaneActor(r))
 	provider, err := h.providerRuntime.Upsert(ctx, controlplane.Provider{
 		ID:         id,
 		Name:       req.Name,
@@ -311,8 +288,7 @@ func (h *Handler) HandleControlPlaneCreateProvider(w http.ResponseWriter, r *htt
 }
 
 func (h *Handler) HandleControlPlaneDeleteProvider(w http.ResponseWriter, r *http.Request) {
-	principal, ok := h.requireControlPlane(w, r)
-	if !ok {
+	if !h.requireControlPlane(w, r) {
 		return
 	}
 	if h.providerRuntime == nil {
@@ -320,7 +296,7 @@ func (h *Handler) HandleControlPlaneDeleteProvider(w http.ResponseWriter, r *htt
 		return
 	}
 	id := r.PathValue("id")
-	ctx := controlplane.WithActor(r.Context(), controlPlaneActor(principal, r))
+	ctx := controlplane.WithActor(r.Context(), controlPlaneActor(r))
 	if err := h.providerRuntime.Delete(ctx, id); err != nil {
 		WriteError(w, http.StatusBadRequest, errCodeInvalidRequest, err.Error())
 		return
@@ -329,8 +305,7 @@ func (h *Handler) HandleControlPlaneDeleteProvider(w http.ResponseWriter, r *htt
 }
 
 func (h *Handler) HandleControlPlaneUpsertPolicyRule(w http.ResponseWriter, r *http.Request) {
-	principal, ok := h.requireControlPlane(w, r)
-	if !ok {
+	if !h.requireControlPlane(w, r) {
 		return
 	}
 
@@ -339,12 +314,10 @@ func (h *Handler) HandleControlPlaneUpsertPolicyRule(w http.ResponseWriter, r *h
 		return
 	}
 
-	rule, err := h.controlPlane.UpsertPolicyRule(controlplane.WithActor(r.Context(), controlPlaneActor(principal, r)), config.PolicyRuleConfig{
+	rule, err := h.controlPlane.UpsertPolicyRule(controlplane.WithActor(r.Context(), controlPlaneActor(r)), config.PolicyRuleConfig{
 		ID:                     req.ID,
 		Action:                 req.Action,
 		Reason:                 req.Reason,
-		Roles:                  req.Roles,
-		Tenants:                req.Tenants,
 		Providers:              req.Providers,
 		ProviderKinds:          req.ProviderKinds,
 		Models:                 req.Models,
@@ -365,8 +338,7 @@ func (h *Handler) HandleControlPlaneUpsertPolicyRule(w http.ResponseWriter, r *h
 }
 
 func (h *Handler) HandleControlPlaneDeletePolicyRule(w http.ResponseWriter, r *http.Request) {
-	principal, ok := h.requireControlPlane(w, r)
-	if !ok {
+	if !h.requireControlPlane(w, r) {
 		return
 	}
 
@@ -374,7 +346,7 @@ func (h *Handler) HandleControlPlaneDeletePolicyRule(w http.ResponseWriter, r *h
 	if !decodeJSON(w, r, &req) {
 		return
 	}
-	if err := h.controlPlane.DeletePolicyRule(controlplane.WithActor(r.Context(), controlPlaneActor(principal, r)), req.ID); err != nil {
+	if err := h.controlPlane.DeletePolicyRule(controlplane.WithActor(r.Context(), controlPlaneActor(r)), req.ID); err != nil {
 		WriteError(w, http.StatusBadRequest, errCodeInvalidRequest, err.Error())
 		return
 	}
@@ -388,8 +360,7 @@ func (h *Handler) HandleControlPlaneDeletePolicyRule(w http.ResponseWriter, r *h
 }
 
 func (h *Handler) HandleControlPlaneUpsertPricebookEntry(w http.ResponseWriter, r *http.Request) {
-	principal, ok := h.requireControlPlane(w, r)
-	if !ok {
+	if !h.requireControlPlane(w, r) {
 		return
 	}
 
@@ -398,7 +369,7 @@ func (h *Handler) HandleControlPlaneUpsertPricebookEntry(w http.ResponseWriter, 
 		return
 	}
 
-	entry, err := h.controlPlane.UpsertPricebookEntry(controlplane.WithActor(r.Context(), controlPlaneActor(principal, r)), config.ModelPriceConfig{
+	entry, err := h.controlPlane.UpsertPricebookEntry(controlplane.WithActor(r.Context(), controlPlaneActor(r)), config.ModelPriceConfig{
 		Provider:                             req.Provider,
 		Model:                                req.Model,
 		InputMicrosUSDPerMillionTokens:       req.InputMicrosUSDPerMillionTokens,
@@ -418,8 +389,7 @@ func (h *Handler) HandleControlPlaneUpsertPricebookEntry(w http.ResponseWriter, 
 }
 
 func (h *Handler) HandleControlPlaneDeletePricebookEntry(w http.ResponseWriter, r *http.Request) {
-	principal, ok := h.requireControlPlane(w, r)
-	if !ok {
+	if !h.requireControlPlane(w, r) {
 		return
 	}
 
@@ -427,7 +397,7 @@ func (h *Handler) HandleControlPlaneDeletePricebookEntry(w http.ResponseWriter, 
 	if !decodeJSON(w, r, &req) {
 		return
 	}
-	if err := h.controlPlane.DeletePricebookEntry(controlplane.WithActor(r.Context(), controlPlaneActor(principal, r)), req.Provider, req.Model); err != nil {
+	if err := h.controlPlane.DeletePricebookEntry(controlplane.WithActor(r.Context(), controlPlaneActor(r)), req.Provider, req.Model); err != nil {
 		WriteError(w, http.StatusBadRequest, errCodeInvalidRequest, err.Error())
 		return
 	}
@@ -441,33 +411,11 @@ func (h *Handler) HandleControlPlaneDeletePricebookEntry(w http.ResponseWriter, 
 	})
 }
 
-func renderControlPlaneAPIKey(key controlplane.APIKey) ControlPlaneAPIKeyRecord {
-	record := ControlPlaneAPIKeyRecord{
-		ID:               key.ID,
-		Name:             key.Name,
-		Tenant:           key.Tenant,
-		Role:             key.Role,
-		AllowedProviders: key.AllowedProviders,
-		AllowedModels:    key.AllowedModels,
-		Enabled:          key.Enabled,
-		KeyPreview:       previewSecret(key.Key),
-	}
-	if !key.CreatedAt.IsZero() {
-		record.CreatedAt = key.CreatedAt.UTC().Format(time.RFC3339)
-	}
-	if !key.UpdatedAt.IsZero() {
-		record.UpdatedAt = key.UpdatedAt.UTC().Format(time.RFC3339)
-	}
-	return record
-}
-
 func renderControlPlanePolicyRule(rule config.PolicyRuleConfig) ControlPlanePolicyRuleRecord {
 	return ControlPlanePolicyRuleRecord{
 		ID:                     rule.ID,
 		Action:                 rule.Action,
 		Reason:                 rule.Reason,
-		Roles:                  rule.Roles,
-		Tenants:                rule.Tenants,
 		Providers:              rule.Providers,
 		ProviderKinds:          rule.ProviderKinds,
 		Models:                 rule.Models,

@@ -19,7 +19,6 @@ import (
 	"testing"
 	"time"
 
-	"github.com/hecate/agent-runtime/internal/auth"
 	"github.com/hecate/agent-runtime/internal/billing"
 	"github.com/hecate/agent-runtime/internal/catalog"
 	"github.com/hecate/agent-runtime/internal/chatstate"
@@ -54,9 +53,7 @@ func TestRetentionRunAndListEndpointsPersistHistory(t *testing.T) {
 	}
 
 	handler := newTestHTTPHandlerWithConfig(logger, provider, config.Config{
-		Server: config.ServerConfig{
-			AuthToken: "admin-secret",
-		},
+		Server: config.ServerConfig{},
 	})
 	admin := newAPITestClient(t, handler).withBearerToken("admin-secret")
 
@@ -390,21 +387,17 @@ func TestNormalizeChatRequestCarriesProviderHint(t *testing.T) {
 	req := OpenAIChatCompletionRequest{
 		Model:    "llama3.1:8b",
 		Provider: "ollama",
-		User:     "team-a",
 		Messages: []OpenAIChatMessage{
 			{Role: "user", Content: OpenAIMessageContent{Text: "hello"}},
 		},
 	}
 
-	got, err := normalizeChatRequest(req, "req-123", auth.Principal{})
+	got, err := normalizeChatRequest(req, "req-123")
 	if err != nil {
 		t.Fatalf("normalizeChatRequest() error = %v", err)
 	}
 	if got.Scope.ProviderHint != "ollama" {
 		t.Fatalf("provider hint = %q, want ollama", got.Scope.ProviderHint)
-	}
-	if got.Scope.User != "team-a" {
-		t.Fatalf("scope user = %q, want team-a", got.Scope.User)
 	}
 }
 
@@ -1132,105 +1125,6 @@ func TestMCPCacheStatsConfiguredEmpty(t *testing.T) {
 	}
 }
 
-func TestTaskRunPerTenantConcurrencyLimitQueuesSecondRun(t *testing.T) {
-	t.Parallel()
-
-	logger := slog.New(slog.NewJSONHandler(io.Discard, nil))
-	cpStore := controlplane.NewMemoryStore()
-	if _, err := cpStore.UpsertTenant(context.Background(), controlplane.Tenant{ID: "team-a", Name: "Team A", Enabled: true}); err != nil {
-		t.Fatalf("UpsertTenant() error = %v", err)
-	}
-	if _, err := cpStore.UpsertAPIKey(context.Background(), controlplane.APIKey{
-		ID:      "team-a-key",
-		Name:    "team-a-key",
-		Key:     "tenant-a-secret",
-		Tenant:  "team-a",
-		Role:    "tenant",
-		Enabled: true,
-	}); err != nil {
-		t.Fatalf("UpsertAPIKey() error = %v", err)
-	}
-
-	handler := newTestHTTPHandlerWithControlPlane(logger, nil, config.Config{
-		Server: config.ServerConfig{
-			AuthToken:                  "admin-secret",
-			TaskMaxConcurrentPerTenant: 1,
-			TaskApprovalPolicies:       []string{"shell_exec"},
-		},
-	}, cpStore)
-	tasks := newTaskTestClient(t, handler).withBearerToken("tenant-a-secret")
-
-	firstTask := mustTaskRequestJSON[TaskResponse](tasks, http.MethodPost, "/v1/tasks", `{"title":"first","prompt":"first","execution_kind":"shell","shell_command":"sleep 5","working_directory":".","timeout_ms":10000}`)
-	firstRun := mustTaskRequestJSON[TaskRunResponse](tasks, http.MethodPost, "/v1/tasks/"+firstTask.Data.ID+"/start", "")
-	firstApprovals := mustTaskRequestJSON[TaskApprovalsResponse](tasks, http.MethodGet, "/v1/tasks/"+firstTask.Data.ID+"/approvals", "")
-	tasks.mustRequest(http.MethodPost, "/v1/tasks/"+firstTask.Data.ID+"/approvals/"+firstApprovals.Data[0].ID+"/resolve", `{"decision":"approve"}`)
-	firstRunState := waitForRunStatusWithClient(tasks, firstTask.Data.ID, firstRun.Data.ID, "running", "failed")
-	if firstRunState.Data.Status == "failed" {
-		t.Fatalf("first run failed unexpectedly before concurrency check: %s", firstRunState.Data.LastError)
-	}
-
-	secondTask := mustTaskRequestJSON[TaskResponse](tasks, http.MethodPost, "/v1/tasks", `{"title":"second","prompt":"second","execution_kind":"shell","shell_command":"printf 'second\n'","working_directory":".","timeout_ms":5000}`)
-	secondRun := mustTaskRequestJSON[TaskRunResponse](tasks, http.MethodPost, "/v1/tasks/"+secondTask.Data.ID+"/start", "")
-	secondApprovals := mustTaskRequestJSON[TaskApprovalsResponse](tasks, http.MethodGet, "/v1/tasks/"+secondTask.Data.ID+"/approvals", "")
-	tasks.mustRequest(http.MethodPost, "/v1/tasks/"+secondTask.Data.ID+"/approvals/"+secondApprovals.Data[0].ID+"/resolve", `{"decision":"approve"}`)
-
-	deadline := time.Now().Add(500 * time.Millisecond)
-	observedQueued := false
-	for time.Now().Before(deadline) {
-		run := mustTaskRequestJSON[TaskRunResponse](tasks, http.MethodGet, "/v1/tasks/"+secondTask.Data.ID+"/runs/"+secondRun.Data.ID, "")
-		if run.Data.Status == "queued" {
-			observedQueued = true
-			break
-		}
-		if run.Data.Status == "running" || run.Data.Status == "completed" {
-			t.Fatalf("second run status = %q, want queued while first tenant run is active", run.Data.Status)
-		}
-		time.Sleep(20 * time.Millisecond)
-	}
-	if !observedQueued {
-		t.Fatal("did not observe second run in queued status under tenant concurrency limit")
-	}
-
-	tasks.mustRequest(http.MethodPost, "/v1/tasks/"+firstTask.Data.ID+"/runs/"+firstRun.Data.ID+"/cancel", "")
-	waitForRunStatusWithClient(tasks, firstTask.Data.ID, firstRun.Data.ID, "cancelled")
-	waitForRunStatusWithClient(tasks, secondTask.Data.ID, secondRun.Data.ID, "completed")
-}
-
-func TestClientEndpointsAcceptXAPIKeyAuth(t *testing.T) {
-	t.Parallel()
-
-	logger := slog.New(slog.NewJSONHandler(io.Discard, nil))
-	handler := newTestHTTPHandlerWithConfig(logger, &fakeProvider{
-		name: "openai",
-		response: &types.ChatResponse{
-			ID:    "chatcmpl-x-api-key",
-			Model: "gpt-4o-mini",
-			Choices: []types.ChatChoice{
-				{Message: types.Message{Role: "assistant", Content: "ok"}, FinishReason: "stop"},
-			},
-			Usage: types.Usage{PromptTokens: 5, CompletionTokens: 3, TotalTokens: 8},
-		},
-	}, config.Config{
-		Server: config.ServerConfig{
-			AuthToken: "admin-secret",
-		},
-	})
-	client := newAPITestClient(t, handler).withAPIKey("admin-secret")
-
-	models := mustRequestJSON[OpenAIModelsResponse](client, http.MethodGet, "/v1/models", "")
-	if len(models.Data) == 0 {
-		t.Fatal("models = 0, want at least one model")
-	}
-	chat := mustRequestJSON[OpenAIChatCompletionResponse](client, http.MethodPost, "/v1/chat/completions", `{"model":"gpt-4o-mini","messages":[{"role":"user","content":"hello"}]}`)
-	if len(chat.Choices) == 0 {
-		t.Fatal("chat choices = 0, want at least one")
-	}
-	msg := mustRequestJSON[AnthropicMessagesResponse](client, http.MethodPost, "/v1/messages", `{"model":"gpt-4o-mini","max_tokens":8,"messages":[{"role":"user","content":"hi"}]}`)
-	if len(msg.Content) == 0 {
-		t.Fatal("anthropic content = 0, want at least one block")
-	}
-}
-
 func TestBudgetStatusReturnsCurrentBalance(t *testing.T) {
 	t.Parallel()
 
@@ -1297,46 +1191,6 @@ func TestBudgetResetSupportsExplicitKey(t *testing.T) {
 	}
 	if response.Data.BalanceMicrosUSD != 0 {
 		t.Fatalf("balance_micros_usd = %d, want 0", response.Data.BalanceMicrosUSD)
-	}
-}
-
-func TestBudgetStatusSupportsTenantProviderScope(t *testing.T) {
-	t.Parallel()
-
-	logger := slog.New(slog.NewJSONHandler(io.Discard, nil))
-	budgetStore := governor.NewMemoryBudgetStore()
-	if _, err := budgetStore.Credit(context.Background(), "global:tenant:team-a:provider:ollama", 10_000); err != nil {
-		t.Fatalf("Credit() error = %v", err)
-	}
-	if _, err := budgetStore.Debit(context.Background(), governor.UsageEvent{
-		BudgetKey:  "global:tenant:team-a:provider:ollama",
-		CostMicros: 7_500,
-	}); err != nil {
-		t.Fatalf("Debit() error = %v", err)
-	}
-
-	handler := newBudgetTestHandler(logger, config.GovernorConfig{
-		MaxPromptTokens:      64_000,
-		MaxTotalBudgetMicros: 10_000_000,
-		BudgetBackend:        "memory",
-		BudgetKey:            "global",
-		BudgetScope:          "tenant_provider",
-		BudgetTenantFallback: "anonymous",
-	}, budgetStore)
-
-	client := newAPITestClient(t, handler)
-	response := mustRequestJSON[BudgetStatusResponse](client, http.MethodGet, "/admin/budget?scope=tenant_provider&tenant=team-a&provider=ollama", "")
-	if response.Data.Scope != "tenant_provider" {
-		t.Fatalf("scope = %q, want tenant_provider", response.Data.Scope)
-	}
-	if response.Data.Provider != "ollama" {
-		t.Fatalf("provider = %q, want ollama", response.Data.Provider)
-	}
-	if response.Data.Tenant != "team-a" {
-		t.Fatalf("tenant = %q, want team-a", response.Data.Tenant)
-	}
-	if response.Data.BalanceMicrosUSD != 2_500 {
-		t.Fatalf("balance_micros_usd = %d, want 2500", response.Data.BalanceMicrosUSD)
 	}
 }
 
@@ -1420,7 +1274,6 @@ func TestRequestLedgerReturnsRecentBudgetEvents(t *testing.T) {
 		Type:              "debit",
 		Scope:             "tenant_provider",
 		Provider:          "openai",
-		Tenant:            "team-a",
 		Model:             "gpt-4o-mini",
 		RequestID:         "req-newer",
 		AmountMicrosUSD:   3200,
@@ -1439,7 +1292,6 @@ func TestRequestLedgerReturnsRecentBudgetEvents(t *testing.T) {
 		Type:              "debit",
 		Scope:             "tenant_provider",
 		Provider:          "ollama",
-		Tenant:            "team-b",
 		Model:             "llama3.1:8b",
 		RequestID:         "req-older",
 		AmountMicrosUSD:   0,

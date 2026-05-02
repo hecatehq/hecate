@@ -25,10 +25,6 @@ func (h *Handler) HandleTracesOrTrace(w http.ResponseWriter, r *http.Request) {
 }
 
 func (h *Handler) HandleTraces(w http.ResponseWriter, r *http.Request) {
-	_, ok := h.requireAdmin(w, r)
-	if !ok {
-		return
-	}
 	h.writeTraceList(w, r)
 }
 
@@ -82,11 +78,7 @@ func (h *Handler) writeTraceList(w http.ResponseWriter, r *http.Request) {
 }
 
 func (h *Handler) HandleTrace(w http.ResponseWriter, r *http.Request) {
-	principal, ok := h.requireAny(w, r)
-	if !ok {
-		return
-	}
-	ctx := h.contextWithPrincipal(r.Context(), principal)
+	ctx := r.Context()
 
 	requestID := strings.TrimSpace(r.URL.Query().Get("request_id"))
 	if requestID == "" {

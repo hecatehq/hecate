@@ -93,9 +93,7 @@ func TestMain(m *testing.M) {
 func TestOllamaCodexNonStreaming(t *testing.T) {
 	t.Parallel()
 	body := fmt.Sprintf(`{"model":%q,"messages":[{"role":"user","content":"Reply with one word: pong"}]}`, ollamaModel)
-	resp := postJSON(t, suiteGateway+"/v1/chat/completions", body, map[string]string{
-		"Authorization": "Bearer test-token",
-	})
+	resp := postJSON(t, suiteGateway+"/v1/chat/completions", body, nil)
 	defer resp.Body.Close()
 
 	if resp.StatusCode != http.StatusOK {
@@ -117,9 +115,7 @@ func TestOllamaCodexNonStreaming(t *testing.T) {
 func TestOllamaCodexStreaming(t *testing.T) {
 	t.Parallel()
 	body := fmt.Sprintf(`{"model":%q,"stream":true,"messages":[{"role":"user","content":"Say hi briefly"}]}`, ollamaModel)
-	resp := postJSON(t, suiteGateway+"/v1/chat/completions", body, map[string]string{
-		"Authorization": "Bearer test-token",
-	})
+	resp := postJSON(t, suiteGateway+"/v1/chat/completions", body, nil)
 
 	if resp.StatusCode != http.StatusOK {
 		t.Fatalf("expected 200, got %d", resp.StatusCode)
@@ -143,7 +139,6 @@ func TestOllamaClaudeCodeNonStreaming(t *testing.T) {
 	t.Parallel()
 	body := fmt.Sprintf(`{"model":%q,"max_tokens":64,"messages":[{"role":"user","content":"Reply with one word: pong"}]}`, ollamaModel)
 	resp := postJSON(t, suiteGateway+"/v1/messages", body, map[string]string{
-		"x-api-key":         "test-token",
 		"anthropic-version": "2023-06-01",
 	})
 	defer resp.Body.Close()
@@ -171,7 +166,6 @@ func TestOllamaClaudeCodeStreaming(t *testing.T) {
 	t.Parallel()
 	body := fmt.Sprintf(`{"model":%q,"max_tokens":64,"stream":true,"messages":[{"role":"user","content":"Say hi briefly"}]}`, ollamaModel)
 	resp := postJSON(t, suiteGateway+"/v1/messages", body, map[string]string{
-		"x-api-key":         "test-token",
 		"anthropic-version": "2023-06-01",
 	})
 
@@ -202,9 +196,7 @@ func TestOllamaClaudeCodeStreaming(t *testing.T) {
 // exported a "gateway.request" span to the in-process OTLP sink.
 func TestOllamaTracesExported(t *testing.T) {
 	body := fmt.Sprintf(`{"model":%q,"messages":[{"role":"user","content":"ping"}]}`, ollamaModel)
-	resp := postJSON(t, suiteGateway+"/v1/chat/completions", body, map[string]string{
-		"Authorization": "Bearer test-token",
-	})
+	resp := postJSON(t, suiteGateway+"/v1/chat/completions", body, nil)
 	io.Copy(io.Discard, resp.Body) //nolint:errcheck
 	resp.Body.Close()
 	if resp.StatusCode != http.StatusOK {
@@ -221,9 +213,7 @@ func TestOllamaTracesExported(t *testing.T) {
 // the OTLP sink within the 2 s export interval configured in TestMain.
 func TestOllamaMetricsExported(t *testing.T) {
 	body := fmt.Sprintf(`{"model":%q,"messages":[{"role":"user","content":"count to three"}]}`, ollamaModel)
-	resp := postJSON(t, suiteGateway+"/v1/chat/completions", body, map[string]string{
-		"Authorization": "Bearer test-token",
-	})
+	resp := postJSON(t, suiteGateway+"/v1/chat/completions", body, nil)
 	io.Copy(io.Discard, resp.Body) //nolint:errcheck
 	resp.Body.Close()
 	if resp.StatusCode != http.StatusOK {
@@ -420,11 +410,10 @@ func (s *otlpSink) waitForMetric(substr string, timeout time.Duration) bool {
 // ─── gateway process lifecycle (TestMain-scoped, no *testing.T) ────────────
 
 // startGatewayProcess builds the gateway binary once, starts it with the
-// given extra env vars plus a fixed admin token (so existing "Bearer
-// test-token" headers in tests authenticate) and a per-process temp data
-// dir for the bootstrap file. Waits for /healthz, returns the base URL.
-// The process is intentionally not tracked for cleanup: it is killed by
-// the OS when the test binary exits.
+// given extra env vars and a per-process temp data dir for the bootstrap
+// file. Waits for /healthz, returns the base URL. The process is
+// intentionally not tracked for cleanup: it is killed by the OS when
+// the test binary exits.
 func startGatewayProcess(extraEnv ...string) (string, error) {
 	bin, err := buildGatewayBin()
 	if err != nil {
@@ -439,17 +428,15 @@ func startGatewayProcess(extraEnv ...string) (string, error) {
 	ln.Close()
 	baseURL := "http://" + addr
 
-	// See gateway_test.go for the auth/env rationale: explicit token + a
-	// temp data dir so the bootstrap file lands somewhere ephemeral. We use
-	// MkdirTemp here (not t.TempDir) because this helper is called from
-	// TestMain where no *testing.T is in scope.
+	// Per-process temp data dir so the bootstrap file lands somewhere
+	// ephemeral. MkdirTemp (not t.TempDir) because this helper is
+	// called from TestMain where no *testing.T is in scope.
 	dataDir, err := os.MkdirTemp("", "gateway-e2e-data-*")
 	if err != nil {
 		return "", fmt.Errorf("mkdir temp data dir: %w", err)
 	}
 	env := append(os.Environ(),
 		"GATEWAY_ADDRESS="+addr,
-		"GATEWAY_AUTH_TOKEN=test-token",
 		"GATEWAY_DATA_DIR="+dataDir,
 	)
 	env = append(env, extraEnv...)

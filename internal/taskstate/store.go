@@ -8,7 +8,6 @@ import (
 )
 
 type TaskFilter struct {
-	Tenant string
 	Status string
 	Limit  int
 }

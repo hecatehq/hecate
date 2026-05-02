@@ -173,8 +173,6 @@ type TaskItem struct {
 	Title              string `json:"title"`
 	Prompt             string `json:"prompt"`
 	SystemPrompt       string `json:"system_prompt,omitempty"`
-	Tenant             string `json:"tenant,omitempty"`
-	User               string `json:"user,omitempty"`
 	Repo               string `json:"repo,omitempty"`
 	BaseBranch         string `json:"base_branch,omitempty"`
 	WorkspaceMode      string `json:"workspace_mode,omitempty"`

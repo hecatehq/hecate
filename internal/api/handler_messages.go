@@ -12,7 +12,6 @@ import (
 	"strconv"
 	"strings"
 
-	"github.com/hecate/agent-runtime/internal/auth"
 	"github.com/hecate/agent-runtime/internal/providers"
 	"github.com/hecate/agent-runtime/internal/requestscope"
 	"github.com/hecate/agent-runtime/internal/telemetry"
@@ -24,21 +23,17 @@ import (
 // / ChatResponse so that an Anthropic SDK pointed at Hecate (ANTHROPIC_BASE_URL)
 // can route through any configured provider (including OpenAI-compatible ones).
 func (h *Handler) HandleMessages(w http.ResponseWriter, r *http.Request) {
-	principal, ok := h.requireAny(w, r)
-	if !ok {
+	if !h.checkRateLimit(w, "") {
 		return
 	}
-	if !h.checkRateLimit(w, principal.KeyID) {
-		return
-	}
-	ctx := h.contextWithPrincipal(r.Context(), principal)
+	ctx := r.Context()
 
 	var wireReq AnthropicMessagesRequest
 	if !decodeJSON(w, r, &wireReq) {
 		return
 	}
 
-	internalReq, err := normalizeAnthropicRequest(wireReq, RequestIDFromContext(ctx), principal)
+	internalReq, err := normalizeAnthropicRequest(wireReq, RequestIDFromContext(ctx))
 	if err != nil {
 		WriteError(w, http.StatusBadRequest, errCodeInvalidRequest, err.Error())
 		return
@@ -189,7 +184,7 @@ func writeMessagesError(w http.ResponseWriter, err error) {
 	writeAnthropicGatewayError(w, classifyGatewayError(err))
 }
 
-func normalizeAnthropicRequest(req AnthropicMessagesRequest, requestID string, principal auth.Principal) (types.ChatRequest, error) {
+func normalizeAnthropicRequest(req AnthropicMessagesRequest, requestID string) (types.ChatRequest, error) {
 	if strings.TrimSpace(req.Model) == "" {
 		return types.ChatRequest{}, fmt.Errorf("field \"model\" is required")
 	}
@@ -240,14 +235,7 @@ func normalizeAnthropicRequest(req AnthropicMessagesRequest, requestID string, p
 
 	toolChoice := anthropicInboundToolChoice(req.ToolChoice)
 
-	tenant := ""
-	if req.Metadata != nil {
-		tenant = req.Metadata.UserID
-	}
-	if principal.Tenant != "" {
-		tenant = principal.Tenant
-	}
-	scope := requestscope.Build(principal, tenant, req.Provider)
+	scope := requestscope.Build(req.Provider)
 
 	return types.ChatRequest{
 		RequestID:     requestID,

@@ -11,7 +11,6 @@ import (
 )
 
 type Filter struct {
-	Tenant string
 	Limit  int
 	Offset int
 }
@@ -77,9 +76,6 @@ func (s *MemoryStore) ListSessions(_ context.Context, filter Filter) ([]types.Ch
 	defer s.mu.Unlock()
 	items := make([]types.ChatSession, 0, len(s.sessions))
 	for _, session := range s.sessions {
-		if filter.Tenant != "" && session.Tenant != filter.Tenant {
-			continue
-		}
 		cloned := cloneSession(session)
 		// List view doesn't carry message bodies — clients that need
 		// them call GetSession. We DO keep ProviderCalls so the list

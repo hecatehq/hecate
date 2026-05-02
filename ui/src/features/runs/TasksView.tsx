@@ -18,14 +18,9 @@ import { TaskList } from "./TaskList";
 import { TaskDetail } from "./TaskDetail";
 import { NewTaskSlideOver, type CreateTaskPayload } from "./NewTaskSlideOver";
 
-type Props = {
-  authToken: string;
-  session: { isAuthenticated: boolean };
-};
-
 type StreamState = "idle" | "connecting" | "live" | "closed" | "error";
 
-export function TasksView({ authToken, session }: Props) {
+export function TasksView() {
   const [loading, setLoading] = useState(true);
   const [tasks, setTasks] = useState<TaskRecord[]>([]);
   const [selectedTaskID, setSelectedTaskID] = useState("");
@@ -49,7 +44,7 @@ export function TasksView({ authToken, session }: Props) {
   // Provider catalog feeds the new-task slideover's provider picker
   // and the model picker's per-row "(provider name)" suffix. Loaded
   // once on mount alongside models — the catalog rarely changes
-  // mid-session, so the simple one-shot fetch is enough; admin
+  // mid-session, so the simple one-shot fetch is enough; control-plane
   // changes (enabling/disabling a provider) take effect after the
   // operator opens a new tab or refreshes.
   const [availableProviders, setAvailableProviders] = useState<ProviderRecord[]>([]);
@@ -71,20 +66,20 @@ export function TasksView({ authToken, session }: Props) {
   const loadRunDetail = useCallback(async (taskID: string, runID: string) => {
     if (!taskID || !runID) { resetRunDetail(); return; }
     const [stepsRes, artifactsRes, eventsRes] = await Promise.all([
-      getTaskRunSteps(taskID, runID, authToken),
-      getTaskRunArtifacts(taskID, runID, authToken),
-      getTaskRunEvents(taskID, runID, 0, authToken),
+      getTaskRunSteps(taskID, runID),
+      getTaskRunArtifacts(taskID, runID),
+      getTaskRunEvents(taskID, runID, 0),
     ]);
     setSteps(stepsRes.data ?? []);
     setArtifacts(artifactsRes.data ?? []);
     setRunEvents((eventsRes.data ?? []).slice().sort((left, right) => left.sequence - right.sequence));
-  }, [authToken, resetRunDetail]);
+  }, [resetRunDetail]);
 
   const loadTaskDetail = useCallback(async (taskID: string, preferredRunID = "") => {
     if (!taskID) return;
     const [runsRes, approvalsRes] = await Promise.all([
-      getTaskRuns(taskID, authToken),
-      getTaskApprovals(taskID, authToken),
+      getTaskRuns(taskID),
+      getTaskApprovals(taskID),
     ]);
     const nextRuns = runsRes.data ?? [];
     setRuns(nextRuns);
@@ -93,13 +88,13 @@ export function TasksView({ authToken, session }: Props) {
     setSelectedRunID(nextRunID);
     if (nextRunID) await loadRunDetail(taskID, nextRunID);
     else resetRunDetail();
-  }, [authToken, loadRunDetail, resetRunDetail]);
+  }, [loadRunDetail, resetRunDetail]);
 
   const loadTasks = useCallback(async (preferredTaskID = "", preferredRunID = "") => {
-    if (!session.isAuthenticated) { setTasks([]); setLoading(false); return; }
+    // single-user: always authenticated
     setLoading(true);
     try {
-      const res = await getTasks(authToken, 30);
+      const res = await getTasks(30);
       const nextTasks = res.data ?? [];
       setTasks(nextTasks);
       const nextTaskID = (preferredTaskID && nextTasks.some(t => t.id === preferredTaskID) ? preferredTaskID : "") || nextTasks[0]?.id || "";
@@ -107,25 +102,24 @@ export function TasksView({ authToken, session }: Props) {
       if (nextTaskID) await loadTaskDetail(nextTaskID, preferredRunID);
     } catch { /* silently ignore */ }
     finally { setLoading(false); }
-  }, [authToken, loadTaskDetail, session.isAuthenticated]);
+  }, [loadTaskDetail]);
 
   useEffect(() => { void loadTasks(); }, [loadTasks]);
 
   useEffect(() => {
-    if (!session.isAuthenticated) return;
     // Models + providers + presets feed the new-task slideover's
     // model and provider pickers. Load all three in parallel; on
     // failure each falls back to its empty default rather than
     // blocking the whole page — a missing provider catalog just
     // means the picker shows raw provider ids instead of pretty
     // names, and a missing model list shows "no models match".
-    getModels(authToken).then(res => setAvailableModels(res.data ?? [])).catch(() => {});
-    getProviders(authToken).then(res => setAvailableProviders(res.data ?? [])).catch(() => {});
-    getProviderPresets(authToken).then(res => setProviderPresets(res.data ?? [])).catch(() => {});
-  }, [authToken, session.isAuthenticated]);
+    getModels().then(res => setAvailableModels(res.data ?? [])).catch(() => {});
+    getProviders().then(res => setAvailableProviders(res.data ?? [])).catch(() => {});
+    getProviderPresets().then(res => setProviderPresets(res.data ?? [])).catch(() => {});
+  }, []);
 
   useEffect(() => {
-    if (!selectedTaskID || !selectedRunID || !session.isAuthenticated) {
+    if (!selectedTaskID || !selectedRunID) {
       setStreamState(selectedRunID ? "closed" : "idle");
       return;
     }
@@ -133,7 +127,7 @@ export function TasksView({ authToken, session }: Props) {
     setStreamState("connecting");
 
     void streamTaskRun(
-      selectedTaskID, selectedRunID, authToken,
+      selectedTaskID, selectedRunID,
       ({ payload }) => {
         setStreamState("live");
         streamCursorRef.current = payload.data.sequence ?? streamCursorRef.current;
@@ -203,7 +197,7 @@ export function TasksView({ authToken, session }: Props) {
     });
 
     return () => controller.abort();
-  }, [authToken, loadTaskDetail, selectedRunID, selectedTaskID, session.isAuthenticated]);
+  }, [loadTaskDetail, selectedRunID, selectedTaskID]);
 
   async function handleSelectTask(taskID: string) {
     setSelectedTaskID(taskID);
@@ -242,7 +236,7 @@ export function TasksView({ authToken, session }: Props) {
     if (!selectedTaskID) return;
     setBusyAction(decision);
     try {
-      await resolveTaskApproval(selectedTaskID, approval.id, { decision }, authToken);
+      await resolveTaskApproval(selectedTaskID, approval.id, { decision });
       setNotice({ tone: "success", message: decision === "approve" ? "Approved." : "Denied." });
       await loadTaskDetail(selectedTaskID, approval.run_id);
     } catch (err) {
@@ -254,7 +248,7 @@ export function TasksView({ authToken, session }: Props) {
     if (!selectedTaskID || !selectedRunID) return;
     setBusyAction("cancel");
     try {
-      await cancelTaskRun(selectedTaskID, selectedRunID, authToken);
+      await cancelTaskRun(selectedTaskID, selectedRunID);
       await loadTaskDetail(selectedTaskID, selectedRunID);
     } catch { /* ignore */ }
     finally { setBusyAction(""); }
@@ -264,7 +258,7 @@ export function TasksView({ authToken, session }: Props) {
     if (!selectedTaskID || !selectedRunID) return;
     setBusyAction("retry");
     try {
-      const res = await retryTaskRun(selectedTaskID, selectedRunID, authToken);
+      const res = await retryTaskRun(selectedTaskID, selectedRunID);
       await loadTasks(selectedTaskID, res.data.id);
     } catch { /* ignore */ }
     finally { setBusyAction(""); }
@@ -274,7 +268,7 @@ export function TasksView({ authToken, session }: Props) {
     if (!selectedTaskID || !selectedRunID) return;
     setBusyAction("resume");
     try {
-      const res = await resumeTaskRun(selectedTaskID, selectedRunID, authToken);
+      const res = await resumeTaskRun(selectedTaskID, selectedRunID);
       await loadTasks(selectedTaskID, res.data.id);
     } catch { /* ignore */ }
     finally { setBusyAction(""); }
@@ -291,7 +285,7 @@ export function TasksView({ authToken, session }: Props) {
     if (!selectedTaskID || !selectedRunID) return;
     setBusyAction("resume-raise");
     try {
-      const res = await resumeTaskRunRaisingCeiling(selectedTaskID, selectedRunID, budgetMicrosUSD, authToken);
+      const res = await resumeTaskRunRaisingCeiling(selectedTaskID, selectedRunID, budgetMicrosUSD);
       setNotice({ tone: "success", message: `Ceiling raised to $${(budgetMicrosUSD / 1_000_000).toFixed(3)} and resumed (run #${res.data.number}).` });
       await loadTasks(selectedTaskID, res.data.id);
     } catch (err) {
@@ -308,7 +302,7 @@ export function TasksView({ authToken, session }: Props) {
     if (!selectedTaskID || !selectedRunID) return;
     setBusyAction("retry-from-turn");
     try {
-      const res = await retryTaskRunFromTurn(selectedTaskID, selectedRunID, turn, authToken, reason || undefined);
+      const res = await retryTaskRunFromTurn(selectedTaskID, selectedRunID, turn, reason || undefined);
       const reasonSuffix = reason ? ` — ${reason}` : "";
       setNotice({ tone: "success", message: `Retrying from turn ${turn}${reasonSuffix} (run #${res.data.number}).` });
       await loadTasks(selectedTaskID, res.data.id);
@@ -320,7 +314,7 @@ export function TasksView({ authToken, session }: Props) {
   async function handleDeleteTask(taskID: string) {
     setBusyAction("delete:" + taskID);
     try {
-      await deleteTask(taskID, authToken);
+      await deleteTask(taskID);
       const nextTasks = tasks.filter(t => t.id !== taskID);
       setTasks(nextTasks);
       if (selectedTaskID === taskID) {
@@ -337,24 +331,13 @@ export function TasksView({ authToken, session }: Props) {
   async function handleCreateTask(payload: CreateTaskPayload) {
     setBusyAction("create");
     try {
-      const created = await createTask(payload, authToken);
-      const started = await startTask(created.data.id, authToken);
+      const created = await createTask(payload);
+      const started = await startTask(created.data.id);
       setNewTaskOpen(false);
       await loadTasks(created.data.id, started.data.id);
     } catch (err) {
       setNotice({ tone: "error", message: err instanceof Error ? err.message : "failed to create task" });
     } finally { setBusyAction(""); }
-  }
-
-  if (!session.isAuthenticated) {
-    return (
-      <div style={{ display: "flex", height: "100%", alignItems: "center", justifyContent: "center" }}>
-        <div style={{ textAlign: "center", color: "var(--t2)", fontSize: 13 }}>
-          <div style={{ marginBottom: 8 }}>Authentication required</div>
-          <div style={{ fontSize: 11, color: "var(--t3)" }}>Add a bearer token in Access to manage tasks.</div>
-        </div>
-      </div>
-    );
   }
 
   return (

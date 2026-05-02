@@ -15,17 +15,8 @@ type contextKey string
 
 const (
 	requestIDContextKey contextKey = "telemetry.request_id"
-	principalContextKey contextKey = "telemetry.principal"
 	traceIDsContextKey  contextKey = "telemetry.trace_ids"
 )
-
-type Principal struct {
-	Name     string
-	Role     string
-	TenantID string
-	Source   string
-	KeyID    string
-}
 
 type TraceIDs struct {
 	TraceID string
@@ -64,15 +55,6 @@ func RequestIDFromContext(ctx context.Context) string {
 	return requestID
 }
 
-func WithPrincipal(ctx context.Context, principal Principal) context.Context {
-	return context.WithValue(ctx, principalContextKey, principal)
-}
-
-func PrincipalFromContext(ctx context.Context) (Principal, bool) {
-	principal, ok := ctx.Value(principalContextKey).(Principal)
-	return principal, ok
-}
-
 func WithTraceIDs(ctx context.Context, traceID, spanID string) context.Context {
 	if strings.TrimSpace(traceID) == "" && strings.TrimSpace(spanID) == "" {
 		return ctx
@@ -108,23 +90,6 @@ func ContextAttrs(ctx context.Context) []slog.Attr {
 	}
 	if traceIDs.SpanID != "" {
 		attrs = append(attrs, slog.String(AttrSpanID, traceIDs.SpanID))
-	}
-	if principal, ok := PrincipalFromContext(ctx); ok {
-		if principal.Name != "" {
-			attrs = append(attrs, slog.String(AttrEnduserID, principal.Name))
-		}
-		if principal.TenantID != "" {
-			attrs = append(attrs, slog.String(AttrTenantID, principal.TenantID))
-		}
-		if principal.Role != "" {
-			attrs = append(attrs, slog.String(AttrHecateAuthRole, principal.Role))
-		}
-		if principal.Source != "" {
-			attrs = append(attrs, slog.String(AttrHecateAuthSource, principal.Source))
-		}
-		if principal.KeyID != "" {
-			attrs = append(attrs, slog.String(AttrHecateAuthKeyID, principal.KeyID))
-		}
 	}
 	return attrs
 }

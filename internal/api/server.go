@@ -79,6 +79,7 @@ func NewServer(logger *slog.Logger, handler *Handler) http.Handler {
 		mux,
 		TraceContextMiddleware,
 		RequestIDMiddleware,
+		SameOriginMiddleware,
 		LoggingMiddleware(logger),
 		RecoveryMiddleware(logger),
 	)

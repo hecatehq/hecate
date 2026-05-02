@@ -7,12 +7,12 @@ Long-form references for operators, integrators, and contributors. The [project 
 Pick your role and read in order — each path is three to five docs.
 
 **I'm running Hecate on a server** (operator / self-hoster)
-1. [Deployment](deployment.md) — image pinning, storage tiers, single-user vs multi-tenant flags, lost-token recovery.
+1. [Deployment](deployment.md) — image pinning, storage tiers, lost-token recovery.
 2. [Providers](providers.md) — add your first provider, understand the preset catalog and health checks.
 3. [Telemetry](telemetry.md) — wire up OTLP, read the local trace view, set retention windows.
 4. [Known limitations](known-limitations.md) — what's still alpha before you depend on it.
 
-**I'm running Hecate on my laptop** (single-user / personal)
+**I'm running Hecate on my laptop**
 1. [Desktop app](desktop-app.md) — `.dmg` / `.deb` / `.AppImage` / `.msi` install, current state, footguns, roadmap.
 2. [Providers](providers.md) — add your first provider once the app is running.
 3. [Known limitations](known-limitations.md) — what's still alpha before you depend on it.
@@ -39,8 +39,8 @@ Pick your role and read in order — each path is three to five docs.
 
 | Doc | Read this when |
 |---|---|
-| [Deployment](deployment.md) | Server / scripted deploy. Image pinning, compose profiles, binary install, lost-token recovery, single-user vs multi-tenant flags, storage tiers, rate limits. |
-| [Desktop app](desktop-app.md) | Single-user / personal use on your laptop. Distribution bundles, first-launch footguns (Gatekeeper / SmartScreen), platform data dirs, roadmap. |
+| [Deployment](deployment.md) | Server / scripted deploy. Image pinning, compose profiles, binary install, lost-token recovery, storage tiers, rate limits. |
+| [Desktop app](desktop-app.md) | Personal use on your laptop. Distribution bundles, first-launch footguns (Gatekeeper / SmartScreen), platform data dirs, roadmap. |
 | [Providers](providers.md) | Adding a provider, browsing the preset catalog, custom OpenAI-compatible endpoints, env-vs-UI lifecycle, health and circuit-breaker behavior. |
 | [Known limitations](known-limitations.md) | Before treating Hecate as production-stable. Plain-language list of what's still alpha. |
 

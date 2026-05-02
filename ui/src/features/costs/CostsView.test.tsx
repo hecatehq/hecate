@@ -5,11 +5,7 @@ import { describe, expect, it, vi } from "vitest";
 import { CostsView } from "./CostsView";
 import { createRuntimeConsoleActions, createRuntimeConsoleFixture } from "../../test/runtime-console-fixture";
 
-const adminSession = {
-  kind: "admin" as const, label: "Admin", role: "admin", isAdmin: true, isAuthenticated: true,
-  capabilities: [], name: "", tenant: "", source: "", keyID: "",
-  allowedProviders: [], allowedModels: [], multiTenant: false, authDisabled: false,
-};
+const localSession = { label: "Local" };
 
 // Minimal budget fixture mirroring the wire shape that BudgetTab used to
 // consume. We only populate the fields CostsView actually reads.
@@ -26,7 +22,7 @@ const sampleBudget = {
 } as any;
 
 function setup(stateOverrides: Record<string, unknown> = {}, actionOverrides: Record<string, unknown> = {}) {
-  const state = createRuntimeConsoleFixture({ session: adminSession, ...stateOverrides });
+  const state = createRuntimeConsoleFixture({ session: localSession, ...stateOverrides });
   const actions = { ...createRuntimeConsoleActions(), ...actionOverrides };
   const user = userEvent.setup();
   return { state, actions, user };
@@ -79,7 +75,6 @@ describe("CostsView usage table", () => {
         {
           request_id: "req-1",
           timestamp: "2026-04-25T10:00:00Z",
-          tenant: "team-a",
           model: "gpt-4o-mini",
           total_tokens: 42,
           amount_usd: "$0.001",
@@ -88,7 +83,6 @@ describe("CostsView usage table", () => {
     });
     render(<CostsView state={state} actions={actions} />);
     expect(screen.getByText("req-1")).toBeTruthy();
-    expect(screen.getByText("team-a")).toBeTruthy();
     expect(screen.getByText("gpt-4o-mini")).toBeTruthy();
   });
 

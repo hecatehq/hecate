@@ -14,7 +14,6 @@ import (
 	"time"
 
 	"github.com/hecate/agent-runtime/internal/config"
-	"github.com/hecate/agent-runtime/internal/requestscope"
 	"github.com/hecate/agent-runtime/pkg/types"
 )
 
@@ -359,9 +358,6 @@ func (p *AnthropicProvider) chatUpstream(ctx context.Context, req types.ChatRequ
 	}
 	if req.Temperature > 0 {
 		wireReq.Temperature = req.Temperature
-	}
-	if userID := requestscope.Normalize(req.Scope).User; userID != "" {
-		wireReq.Metadata = &anthropicMessagesMetadata{UserID: userID}
 	}
 	if len(req.Thinking) > 0 {
 		wireReq.Thinking = req.Thinking
@@ -1000,9 +996,6 @@ func (p *AnthropicProvider) ChatStream(ctx context.Context, req types.ChatReques
 	}
 	if req.Temperature > 0 {
 		wireReq.Temperature = req.Temperature
-	}
-	if userID := requestscope.Normalize(req.Scope).User; userID != "" {
-		wireReq.Metadata = &anthropicMessagesMetadata{UserID: userID}
 	}
 	if len(req.Thinking) > 0 {
 		wireReq.Thinking = req.Thinking

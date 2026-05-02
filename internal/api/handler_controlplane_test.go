@@ -176,7 +176,7 @@ func newProviderRuntimeTestHandler(t *testing.T, runtime ProviderRuntime) (apiTe
 		rt.store = store
 		rt.mu.Unlock()
 	}
-	cfg := config.Config{Server: config.ServerConfig{AuthToken: "admin-secret"}}
+	cfg := config.Config{}
 	service := gateway.NewService(gateway.Dependencies{
 		Logger:    logger,
 		Router:    router.NewRuleRouter("gpt-4o-mini", providerCatalog),

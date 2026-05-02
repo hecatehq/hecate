@@ -210,7 +210,6 @@ func TestSQLiteBudgetStore_AppendAndListEvents(t *testing.T) {
 			Key:             "global",
 			Type:            "debit",
 			Provider:        "openai",
-			Tenant:          "t1",
 			Model:           "gpt-4o",
 			AmountMicrosUSD: int64(i * 100),
 			OccurredAt:      base.Add(time.Duration(i) * time.Second),

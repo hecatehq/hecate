@@ -69,9 +69,6 @@ func (s *MemoryStore) ListTasks(_ context.Context, filter TaskFilter) ([]types.T
 	defer s.mu.Unlock()
 	items := make([]types.Task, 0, len(s.tasks))
 	for _, task := range s.tasks {
-		if filter.Tenant != "" && task.Tenant != filter.Tenant {
-			continue
-		}
 		if filter.Status != "" && task.Status != filter.Status {
 			continue
 		}

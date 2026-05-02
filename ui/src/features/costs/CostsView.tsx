@@ -8,7 +8,7 @@ type Props = {
 };
 
 // CostsView is the operator-facing balance + spend view. It is lifted
-// wholesale from the AdminView Budget and Usage tabs — a balance card
+// wholesale from the SettingsView Budget and Usage tabs — a balance card
 // up top, a per-request ledger table at the bottom — and re-housed as
 // its own workspace so it sits alongside Providers / Tasks rather than
 // buried under Settings. The action surface is unchanged: top-up,
@@ -171,16 +171,15 @@ export function CostsView({ state, actions }: Props) {
           <div className="card" style={{ overflow: "hidden" }}>
             <table className="table" style={{ tableLayout: "fixed" }}>
               <colgroup>
-                <col style={{ width: 80 }} /><col style={{ width: 90 }} /><col /><col style={{ width: 80 }} /><col style={{ width: 70 }} /><col style={{ width: 130 }} /><col style={{ width: 52 }} />
+                <col style={{ width: 80 }} /><col /><col style={{ width: 80 }} /><col style={{ width: 70 }} /><col style={{ width: 130 }} /><col style={{ width: 52 }} />
               </colgroup>
               <thead>
-                <tr><th>Time</th><th>Tenant</th><th>Model</th><th>Tokens</th><th>Cost</th><th>Request ID</th><th></th></tr>
+                <tr><th>Time</th><th>Model</th><th>Tokens</th><th>Cost</th><th>Request ID</th><th></th></tr>
               </thead>
               <tbody>
                 {ledger.slice(0, 100).map(e => (
                   <tr key={e.request_id || e.timestamp}>
                     <td className="mono" style={{ color: "var(--t3)" }}>{e.timestamp ? new Date(e.timestamp).toLocaleTimeString() : "—"}</td>
-                    <td className="mono" style={{ color: "var(--teal)" }}>{e.tenant || "—"}</td>
                     <td className="mono" style={{ color: "var(--t1)", overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{e.model || "—"}</td>
                     <td className="mono">{e.total_tokens?.toLocaleString() ?? "—"}</td>
                     <td className="mono" style={{ color: "var(--t0)", fontWeight: 500 }}>{e.amount_usd || "—"}</td>

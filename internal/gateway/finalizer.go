@@ -14,9 +14,8 @@ import (
 )
 
 // ResponseFinalizer turns a successful provider call into a ChatResult.
-// In single-user mode there's no cache layer; every request goes
-// straight through to the upstream and the finalizer just records cost,
-// metrics, and logs.
+// Every request goes straight through to the upstream; the finalizer
+// records cost, metrics, and logs.
 type ResponseFinalizer interface {
 	FinalizeExecution(ctx context.Context, trace *profiler.Trace, plan *ExecutionPlan, callResult *providerCallResult) (*ChatResult, error)
 }

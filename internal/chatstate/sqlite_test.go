@@ -42,8 +42,6 @@ func TestSQLiteStoreCreateAndGetSession(t *testing.T) {
 		ID:           "s1",
 		Title:        "first session",
 		SystemPrompt: "be terse",
-		Tenant:       "tenant-a",
-		User:         "alice",
 	})
 	if err != nil {
 		t.Fatalf("CreateSession: %v", err)
@@ -59,7 +57,7 @@ func TestSQLiteStoreCreateAndGetSession(t *testing.T) {
 	if err != nil || !ok {
 		t.Fatalf("GetSession: ok=%v err=%v", ok, err)
 	}
-	if got.SystemPrompt != "be terse" || got.Tenant != "tenant-a" || got.User != "alice" {
+	if got.SystemPrompt != "be terse" {
 		t.Fatalf("round-trip mismatch: %+v", got)
 	}
 	if len(got.Messages) != 0 || len(got.ProviderCalls) != 0 {
@@ -81,7 +79,7 @@ func TestSQLiteStoreAppendExchange(t *testing.T) {
 	store := newSQLiteTestStore(t)
 	ctx := context.Background()
 
-	if _, err := store.CreateSession(ctx, types.ChatSession{ID: "s1", Title: "t", Tenant: "tA"}); err != nil {
+	if _, err := store.CreateSession(ctx, types.ChatSession{ID: "s1", Title: "t"}); err != nil {
 		t.Fatalf("CreateSession: %v", err)
 	}
 
@@ -143,7 +141,7 @@ func TestSQLiteStoreAppendExchangeAssignsMonotonicSequences(t *testing.T) {
 	store := newSQLiteTestStore(t)
 	ctx := context.Background()
 
-	if _, err := store.CreateSession(ctx, types.ChatSession{ID: "s1", Title: "t", Tenant: "tA"}); err != nil {
+	if _, err := store.CreateSession(ctx, types.ChatSession{ID: "s1", Title: "t"}); err != nil {
 		t.Fatalf("CreateSession: %v", err)
 	}
 
@@ -179,7 +177,7 @@ func TestSQLiteStoreAppendExchangePreservesContentBlocksAndToolCalls(t *testing.
 	store := newSQLiteTestStore(t)
 	ctx := context.Background()
 
-	if _, err := store.CreateSession(ctx, types.ChatSession{ID: "s1", Title: "t", Tenant: "tA"}); err != nil {
+	if _, err := store.CreateSession(ctx, types.ChatSession{ID: "s1", Title: "t"}); err != nil {
 		t.Fatalf("CreateSession: %v", err)
 	}
 
@@ -238,44 +236,32 @@ func TestSQLiteStoreListSessionsPagination(t *testing.T) {
 	ctx := context.Background()
 
 	base := time.Now().UTC().Truncate(time.Second)
-	// Create three sessions in tenant-a with strictly increasing
-	// CreatedAt/UpdatedAt so ORDER BY updated_at DESC, created_at DESC
-	// is deterministic.
+	// Create three sessions with strictly increasing CreatedAt/UpdatedAt
+	// so ORDER BY updated_at DESC, created_at DESC is deterministic.
 	for i, id := range []string{"s1", "s2", "s3"} {
 		ts := base.Add(time.Duration(i) * time.Minute)
 		if _, err := store.CreateSession(ctx, types.ChatSession{
 			ID:        id,
 			Title:     id,
-			Tenant:    "tenant-a",
 			CreatedAt: ts,
 		}); err != nil {
 			t.Fatalf("CreateSession(%s): %v", id, err)
 		}
 	}
-	// One session in a different tenant — should be filtered out.
-	if _, err := store.CreateSession(ctx, types.ChatSession{
-		ID:        "other",
-		Title:     "other tenant",
-		Tenant:    "tenant-b",
-		CreatedAt: base.Add(10 * time.Minute),
-	}); err != nil {
-		t.Fatalf("CreateSession(other): %v", err)
-	}
 
-	all, err := store.ListSessions(ctx, Filter{Tenant: "tenant-a"})
+	all, err := store.ListSessions(ctx, Filter{})
 	if err != nil {
 		t.Fatalf("ListSessions: %v", err)
 	}
 	if len(all) != 3 {
-		t.Fatalf("ListSessions tenant-a: got %d, want 3", len(all))
+		t.Fatalf("ListSessions: got %d, want 3", len(all))
 	}
 	// Newest first.
 	if all[0].ID != "s3" || all[1].ID != "s2" || all[2].ID != "s1" {
 		t.Fatalf("ordering: got %s,%s,%s want s3,s2,s1", all[0].ID, all[1].ID, all[2].ID)
 	}
 
-	// Limit cap.
-	page1, err := store.ListSessions(ctx, Filter{Tenant: "tenant-a", Limit: 2})
+	page1, err := store.ListSessions(ctx, Filter{Limit: 2})
 	if err != nil {
 		t.Fatalf("ListSessions(limit=2): %v", err)
 	}
@@ -283,8 +269,7 @@ func TestSQLiteStoreListSessionsPagination(t *testing.T) {
 		t.Fatalf("limit=2 page: %+v", page1)
 	}
 
-	// Offset.
-	page2, err := store.ListSessions(ctx, Filter{Tenant: "tenant-a", Limit: 2, Offset: 2})
+	page2, err := store.ListSessions(ctx, Filter{Limit: 2, Offset: 2})
 	if err != nil {
 		t.Fatalf("ListSessions(limit=2,offset=2): %v", err)
 	}
@@ -293,21 +278,12 @@ func TestSQLiteStoreListSessionsPagination(t *testing.T) {
 	}
 
 	// Offset without explicit limit still works (LIMIT -1 fallback).
-	page3, err := store.ListSessions(ctx, Filter{Tenant: "tenant-a", Offset: 1})
+	page3, err := store.ListSessions(ctx, Filter{Offset: 1})
 	if err != nil {
 		t.Fatalf("ListSessions(offset=1,no limit): %v", err)
 	}
 	if len(page3) != 2 || page3[0].ID != "s2" || page3[1].ID != "s1" {
 		t.Fatalf("offset-only page: %+v", page3)
-	}
-
-	// No tenant filter — sees both tenants.
-	mixed, err := store.ListSessions(ctx, Filter{})
-	if err != nil {
-		t.Fatalf("ListSessions(unfiltered): %v", err)
-	}
-	if len(mixed) != 4 {
-		t.Fatalf("ListSessions(unfiltered): got %d, want 4", len(mixed))
 	}
 }
 
@@ -316,7 +292,7 @@ func TestSQLiteStoreListSessionsAttachesLatestCall(t *testing.T) {
 	store := newSQLiteTestStore(t)
 	ctx := context.Background()
 
-	if _, err := store.CreateSession(ctx, types.ChatSession{ID: "s1", Title: "t", Tenant: "tA"}); err != nil {
+	if _, err := store.CreateSession(ctx, types.ChatSession{ID: "s1", Title: "t"}); err != nil {
 		t.Fatalf("CreateSession: %v", err)
 	}
 	for i, callID := range []string{"call-1", "call-2"} {
@@ -339,7 +315,7 @@ func TestSQLiteStoreListSessionsAttachesLatestCall(t *testing.T) {
 		}
 	}
 
-	listed, err := store.ListSessions(ctx, Filter{Tenant: "tA"})
+	listed, err := store.ListSessions(ctx, Filter{})
 	if err != nil {
 		t.Fatalf("ListSessions: %v", err)
 	}
@@ -363,7 +339,7 @@ func TestSQLiteStoreDeleteSessionCascadesChildren(t *testing.T) {
 	store := newSQLiteTestStore(t)
 	ctx := context.Background()
 
-	if _, err := store.CreateSession(ctx, types.ChatSession{ID: "s1", Title: "t", Tenant: "tA"}); err != nil {
+	if _, err := store.CreateSession(ctx, types.ChatSession{ID: "s1", Title: "t"}); err != nil {
 		t.Fatalf("CreateSession: %v", err)
 	}
 	for _, callID := range []string{"call-1", "call-2"} {
@@ -416,7 +392,6 @@ func TestSQLiteStoreUpdateSessionTitle(t *testing.T) {
 		ID:           "s1",
 		Title:        "original",
 		SystemPrompt: "keep me",
-		Tenant:       "tA",
 	}); err != nil {
 		t.Fatalf("CreateSession: %v", err)
 	}
@@ -447,9 +422,8 @@ func TestSQLiteStoreUpdateSessionSystemPrompt(t *testing.T) {
 	ctx := context.Background()
 
 	if _, err := store.CreateSession(ctx, types.ChatSession{
-		ID:     "s1",
-		Title:  "first",
-		Tenant: "tA",
+		ID:    "s1",
+		Title: "first",
 	}); err != nil {
 		t.Fatalf("CreateSession: %v", err)
 	}

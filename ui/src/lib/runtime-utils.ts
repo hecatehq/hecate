@@ -682,9 +682,6 @@ export function describeBudgetScope(budget?: BudgetRecord | null): string {
   }
 
   const parts = [budget.scope];
-  if (budget.tenant) {
-    parts.push(`tenant ${budget.tenant}`);
-  }
   if (budget.provider) {
     parts.push(`provider ${budget.provider}`);
   }

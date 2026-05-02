@@ -21,11 +21,7 @@ import (
 )
 
 func (h *Handler) HandleProviderStatus(w http.ResponseWriter, r *http.Request) {
-	principal, ok := h.requireAdmin(w, r)
-	if !ok {
-		return
-	}
-	ctx := h.contextWithPrincipal(r.Context(), principal)
+	ctx := r.Context()
 
 	result, err := h.service.ProviderStatus(ctx)
 	if err != nil {
@@ -82,11 +78,7 @@ func (h *Handler) HandleProviderStatus(w http.ResponseWriter, r *http.Request) {
 }
 
 func (h *Handler) HandleProviderHealthHistory(w http.ResponseWriter, r *http.Request) {
-	principal, ok := h.requireAdmin(w, r)
-	if !ok {
-		return
-	}
-	ctx := h.contextWithPrincipal(r.Context(), principal)
+	ctx := r.Context()
 
 	limit := h.config.Provider.HistoryLimit
 	if raw := strings.TrimSpace(r.URL.Query().Get("limit")); raw != "" {
@@ -152,11 +144,7 @@ func (h *Handler) HandleProviderHealthHistory(w http.ResponseWriter, r *http.Req
 }
 
 func (h *Handler) HandleRuntimeStats(w http.ResponseWriter, r *http.Request) {
-	principal, ok := h.requireAdmin(w, r)
-	if !ok {
-		return
-	}
-	ctx := h.contextWithPrincipal(r.Context(), principal)
+	ctx := r.Context()
 	h.writeRuntimeStats(w, ctx)
 }
 
@@ -212,11 +200,7 @@ func (h *Handler) writeRuntimeStats(w http.ResponseWriter, ctx context.Context) 
 // caller. Callers can pass a shorter deadline by setting their own
 // timeout on the HTTP client; we don't extend.
 func (h *Handler) HandleMCPProbe(w http.ResponseWriter, r *http.Request) {
-	principal, ok := h.requireAny(w, r)
-	if !ok {
-		return
-	}
-	ctx := h.contextWithPrincipal(r.Context(), principal)
+	ctx := r.Context()
 
 	var req MCPProbeRequest
 	if !decodeJSON(w, r, &req) {
@@ -319,11 +303,7 @@ func renderMCPProbeTools(tools []mcpclient.NamespacedTool) []MCPProbeToolDescrip
 // bypass the setter); the data block still carries zeros so clients
 // can render a "no cache" cell instead of error-handling a 4xx.
 func (h *Handler) HandleMCPCacheStats(w http.ResponseWriter, r *http.Request) {
-	principal, ok := h.requireAdmin(w, r)
-	if !ok {
-		return
-	}
-	_ = h.contextWithPrincipal(r.Context(), principal) // for parity with other admin handlers; no downstream use yet
+	_ = r.Context() // for parity with other admin handlers; no downstream use yet
 
 	item := MCPCacheStatsResponseItem{
 		CheckedAt:  time.Now().UTC().Format(time.RFC3339Nano),
@@ -342,11 +322,7 @@ func (h *Handler) HandleMCPCacheStats(w http.ResponseWriter, r *http.Request) {
 }
 
 func (h *Handler) HandleRetentionRuns(w http.ResponseWriter, r *http.Request) {
-	principal, ok := h.requireAdmin(w, r)
-	if !ok {
-		return
-	}
-	ctx := h.contextWithPrincipal(r.Context(), principal)
+	ctx := r.Context()
 
 	limit := 20
 	if raw := strings.TrimSpace(r.URL.Query().Get("limit")); raw != "" {
@@ -387,11 +363,7 @@ type RetentionRunRequest struct {
 }
 
 func (h *Handler) HandleRetentionRun(w http.ResponseWriter, r *http.Request) {
-	principal, ok := h.requireAdmin(w, r)
-	if !ok {
-		return
-	}
-	ctx := h.contextWithPrincipal(r.Context(), principal)
+	ctx := r.Context()
 
 	var req RetentionRunRequest
 	if r.Body != nil && r.ContentLength != 0 {
@@ -404,7 +376,7 @@ func (h *Handler) HandleRetentionRun(w http.ResponseWriter, r *http.Request) {
 	result, err := h.service.RunRetention(ctx, retention.RunRequest{
 		Trigger:    "manual",
 		Subsystems: req.Subsystems,
-		Actor:      controlPlaneActor(principal, r),
+		Actor:      controlPlaneActor(r),
 		RequestID:  strings.TrimSpace(RequestIDFromContext(r.Context())),
 	})
 	if err != nil {
@@ -422,7 +394,7 @@ func (h *Handler) HandleRetentionRun(w http.ResponseWriter, r *http.Request) {
 			result.Run.StartedAt.UTC().Format(time.RFC3339Nano),
 			result.Run.FinishedAt.UTC().Format(time.RFC3339Nano),
 			result.Run.Trigger,
-			controlPlaneActor(principal, r),
+			controlPlaneActor(r),
 			strings.TrimSpace(RequestIDFromContext(r.Context())),
 			result.Run.Results,
 		),
@@ -430,11 +402,7 @@ func (h *Handler) HandleRetentionRun(w http.ResponseWriter, r *http.Request) {
 }
 
 func (h *Handler) HandleBudgetStatus(w http.ResponseWriter, r *http.Request) {
-	principal, ok := h.requireAdmin(w, r)
-	if !ok {
-		return
-	}
-	ctx := h.contextWithPrincipal(r.Context(), principal)
+	ctx := r.Context()
 
 	result, err := h.service.BudgetStatusWithFilter(ctx, budgetFilterFromRequest(r))
 	if err != nil {
@@ -450,11 +418,7 @@ func (h *Handler) HandleBudgetStatus(w http.ResponseWriter, r *http.Request) {
 }
 
 func (h *Handler) HandleAccountSummary(w http.ResponseWriter, r *http.Request) {
-	principal, ok := h.requireAdmin(w, r)
-	if !ok {
-		return
-	}
-	ctx := h.contextWithPrincipal(r.Context(), principal)
+	ctx := r.Context()
 
 	filter := budgetFilterFromRequest(r)
 	result, err := h.service.AccountSummaryWithFilter(ctx, filter)
@@ -493,11 +457,7 @@ func (h *Handler) HandleAccountSummary(w http.ResponseWriter, r *http.Request) {
 }
 
 func (h *Handler) HandleRequestLedger(w http.ResponseWriter, r *http.Request) {
-	principal, ok := h.requireAdmin(w, r)
-	if !ok {
-		return
-	}
-	ctx := h.contextWithPrincipal(r.Context(), principal)
+	ctx := r.Context()
 	h.writeRequestLedger(w, r, ctx)
 }
 
@@ -533,11 +493,7 @@ func (h *Handler) writeRequestLedger(w http.ResponseWriter, r *http.Request, ctx
 }
 
 func (h *Handler) HandleBudgetReset(w http.ResponseWriter, r *http.Request) {
-	principal, ok := h.requireAdmin(w, r)
-	if !ok {
-		return
-	}
-	ctx := h.contextWithPrincipal(r.Context(), principal)
+	ctx := r.Context()
 
 	var resetReq BudgetResetRequest
 	if r.Body != nil && r.ContentLength != 0 {
@@ -557,9 +513,6 @@ func (h *Handler) HandleBudgetReset(w http.ResponseWriter, r *http.Request) {
 	if resetReq.Provider != "" {
 		filter.Provider = resetReq.Provider
 	}
-	if resetReq.Tenant != "" {
-		filter.Tenant = resetReq.Tenant
-	}
 
 	result, err := h.service.ResetBudgetWithFilter(ctx, filter)
 	if err != nil {
@@ -575,11 +528,7 @@ func (h *Handler) HandleBudgetReset(w http.ResponseWriter, r *http.Request) {
 }
 
 func (h *Handler) HandleBudgetTopUp(w http.ResponseWriter, r *http.Request) {
-	principal, ok := h.requireAdmin(w, r)
-	if !ok {
-		return
-	}
-	ctx := h.contextWithPrincipal(r.Context(), principal)
+	ctx := r.Context()
 
 	var topUpReq BudgetTopUpRequest
 	if !decodeJSON(w, r, &topUpReq) {
@@ -590,7 +539,7 @@ func (h *Handler) HandleBudgetTopUp(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	filter := budgetFilterFromMutation(topUpReq.Key, topUpReq.Scope, topUpReq.Provider, topUpReq.Tenant)
+	filter := budgetFilterFromMutation(topUpReq.Key, topUpReq.Scope, topUpReq.Provider)
 	result, err := h.service.TopUpBudgetWithFilter(ctx, filter, topUpReq.AmountMicrosUSD)
 	if err != nil {
 		telemetry.Error(h.logger, ctx, "gateway.budget.top_up.failed",
@@ -605,11 +554,7 @@ func (h *Handler) HandleBudgetTopUp(w http.ResponseWriter, r *http.Request) {
 }
 
 func (h *Handler) HandleBudgetSetLimit(w http.ResponseWriter, r *http.Request) {
-	principal, ok := h.requireAdmin(w, r)
-	if !ok {
-		return
-	}
-	ctx := h.contextWithPrincipal(r.Context(), principal)
+	ctx := r.Context()
 
 	var balanceReq BudgetBalanceRequest
 	if !decodeJSON(w, r, &balanceReq) {
@@ -620,7 +565,7 @@ func (h *Handler) HandleBudgetSetLimit(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	filter := budgetFilterFromMutation(balanceReq.Key, balanceReq.Scope, balanceReq.Provider, balanceReq.Tenant)
+	filter := budgetFilterFromMutation(balanceReq.Key, balanceReq.Scope, balanceReq.Provider)
 	result, err := h.service.SetBudgetBalanceWithFilter(ctx, filter, balanceReq.BalanceMicrosUSD)
 	if err != nil {
 		telemetry.Error(h.logger, ctx, "gateway.budget.limit_set.failed",
@@ -682,7 +627,6 @@ func renderBudgetStatusRecord(status types.BudgetStatus) BudgetStatusResponseIte
 		Key:                status.Key,
 		Scope:              status.Scope,
 		Provider:           status.Provider,
-		Tenant:             status.Tenant,
 		Backend:            status.Backend,
 		BalanceSource:      status.BalanceSource,
 		DebitedMicrosUSD:   status.DebitedMicrosUSD,
@@ -706,7 +650,6 @@ func renderBudgetHistoryRecords(entries []types.BudgetHistoryEntry) []BudgetHist
 			Type:              entry.Type,
 			Scope:             entry.Scope,
 			Provider:          entry.Provider,
-			Tenant:            entry.Tenant,
 			Model:             entry.Model,
 			RequestID:         entry.RequestID,
 			Actor:             entry.Actor,
@@ -731,12 +674,11 @@ func renderBudgetHistoryRecords(entries []types.BudgetHistoryEntry) []BudgetHist
 	return history
 }
 
-func budgetFilterFromMutation(key, scope, provider, tenant string) governor.BudgetFilter {
+func budgetFilterFromMutation(key, scope, provider string) governor.BudgetFilter {
 	return governor.BudgetFilter{
 		Key:      key,
 		Scope:    scope,
 		Provider: provider,
-		Tenant:   tenant,
 	}
 }
 
@@ -746,6 +688,5 @@ func budgetFilterFromRequest(r *http.Request) governor.BudgetFilter {
 		Key:      query.Get("key"),
 		Scope:    query.Get("scope"),
 		Provider: query.Get("provider"),
-		Tenant:   query.Get("tenant"),
 	}
 }

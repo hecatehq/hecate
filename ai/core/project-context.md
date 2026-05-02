@@ -70,8 +70,7 @@ These earn extra scrutiny; changes here are not drive-by territory.
 - **Approval lifecycle** (`internal/taskstate`, `awaiting_approval`) — pre-execution and mid-loop approvals halt the run. New gates use the same `TaskApproval` shape.
 - **Retention worker** (`internal/retention`) — high-cardinality history sweep. Subsystems: `traces`, `budget`, `audit`, `cache`, `turn_events`. Persisted things must mirror.
 - **Cost ledger** — all money is `int64` micro-USD (`1_000_000` = `$1`). Never `float64`.
-- **Tenant scoping** — automatic once the request has a tenant principal. New endpoints must respect it; admin-path bypass is forbidden. Multi-tenant *management* (Tenants/Keys tabs, tenant API keys) is opt-in via `GATEWAY_MULTI_TENANT=true`; the published Docker image defaults to single-user. Three observability surfaces have a tenant-readable mirror under `/v1/*` (`/v1/runtime/stats`, `/v1/traces`, `/v1/requests`) — these share the private body with the matching `/admin/*` handler.
-- **Bootstrap-token handshake** — `GET /v1/bootstrap-token` is loopback-only and same-origin-fenced (Origin host must match Host *or* be a loopback hostname so Vite dev `localhost:5173` -> `127.0.0.1:8765` works). Refuses when `GATEWAY_AUTH_TOKEN` is operator-supplied. Wire envelope is `{object: "bootstrap_token", data: {token}}` like the rest of the API — UI clients that read top-level fields will silently fail.
+- **No auth.** Every request is processed as the operator. The gateway binds to `127.0.0.1` by default; bind elsewhere only behind a reverse proxy or firewall.
 
 ## Which doc answers which question
 
@@ -86,7 +85,6 @@ code, not as a follow-up. Don't restate their content here — link and move on.
 | What does this SSE event payload look like? | [`docs/events.md`](../../docs/events.md) |
 | What OTel spans and metrics does the gateway emit? | [`docs/telemetry.md`](../../docs/telemetry.md) |
 | How do I configure a provider? What providers are supported? | [`docs/providers.md`](../../docs/providers.md) |
-| How does multi-tenant work? What are the roles and modes? | [`docs/tenants.md`](../../docs/tenants.md) |
 | How do I configure MCP? What tools does the server expose? | [`docs/mcp.md`](../../docs/mcp.md) |
 | How do I deploy? What are the Compose profiles? | [`docs/deployment.md`](../../docs/deployment.md) |
 | How do I build and test locally? What does `[skip ci]` mean? | [`docs/development.md`](../../docs/development.md) |

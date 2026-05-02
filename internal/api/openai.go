@@ -260,39 +260,16 @@ type UpdateChatSessionRequest struct {
 	SystemPrompt *string `json:"system_prompt,omitempty"`
 }
 
+// SessionResponseItem reports who is calling. In single-user mode this
+// always describes the anonymous local operator — auth was removed and
+// the gateway treats every caller as fully privileged.
 type SessionResponseItem struct {
-	Authenticated    bool            `json:"authenticated"`
-	InvalidToken     bool            `json:"invalid_token"`
-	Role             string          `json:"role"`
-	Name             string          `json:"name,omitempty"`
-	Tenant           string          `json:"tenant,omitempty"`
-	Source           string          `json:"source,omitempty"`
-	KeyID            string          `json:"key_id,omitempty"`
-	AllowedProviders []string        `json:"allowed_providers,omitempty"`
-	AllowedModels    []string        `json:"allowed_models,omitempty"`
-	Features         SessionFeatures `json:"features"`
-}
-
-// SessionFeatures advertises the gateway's UI-visibility flags so the
-// client console can show / hide surfaces accordingly. Both fields
-// reflect server config — the client never overrides them.
-//
-//   - MultiTenant: when true, the operator UI exposes Tenants/Keys/Usage
-//     management surfaces. Default false: a single-user workspace where
-//     tenant management is hidden. Backend endpoints are unaffected.
-//   - AuthDisabled: when true, the gateway accepts unauthenticated requests
-//     (GATEWAY_AUTH_DISABLED=1). The UI uses this to skip the TokenGate
-//     entirely instead of waiting for a paste / handshake.
-type SessionFeatures struct {
-	MultiTenant  bool `json:"multi_tenant"`
-	AuthDisabled bool `json:"auth_disabled"`
+	Role string `json:"role"`
 }
 
 type ChatSessionSummaryItem struct {
 	ID                string `json:"id"`
 	Title             string `json:"title"`
-	Tenant            string `json:"tenant,omitempty"`
-	User              string `json:"user,omitempty"`
 	MessageCount      int    `json:"message_count"`
 	ProviderCallCount int    `json:"provider_call_count"`
 	CreatedAt         string `json:"created_at,omitempty"`
@@ -313,8 +290,6 @@ type ChatSessionItem struct {
 	ID            string                   `json:"id"`
 	Title         string                   `json:"title"`
 	SystemPrompt  string                   `json:"system_prompt,omitempty"`
-	Tenant        string                   `json:"tenant,omitempty"`
-	User          string                   `json:"user,omitempty"`
 	CreatedAt     string                   `json:"created_at,omitempty"`
 	UpdatedAt     string                   `json:"updated_at,omitempty"`
 	Messages      []ChatSessionMessageItem `json:"messages"`
@@ -775,34 +750,10 @@ type ControlPlaneResponse struct {
 
 type ControlPlaneResponseItem struct {
 	Backend     string                         `json:"backend"`
-	Tenants     []ControlPlaneTenantItem       `json:"tenants"`
-	APIKeys     []ControlPlaneAPIKeyRecord     `json:"api_keys"`
 	Providers   []ControlPlaneProviderRecord   `json:"providers"`
 	PolicyRules []ControlPlanePolicyRuleRecord `json:"policy_rules"`
 	Pricebook   []ControlPlanePricebookRecord  `json:"pricebook"`
 	Events      []ControlPlaneAuditEventRecord `json:"events"`
-}
-
-type ControlPlaneTenantItem struct {
-	ID               string   `json:"id"`
-	Name             string   `json:"name"`
-	Description      string   `json:"description,omitempty"`
-	AllowedProviders []string `json:"allowed_providers,omitempty"`
-	AllowedModels    []string `json:"allowed_models,omitempty"`
-	Enabled          bool     `json:"enabled"`
-}
-
-type ControlPlaneAPIKeyRecord struct {
-	ID               string   `json:"id"`
-	Name             string   `json:"name"`
-	Tenant           string   `json:"tenant,omitempty"`
-	Role             string   `json:"role"`
-	AllowedProviders []string `json:"allowed_providers,omitempty"`
-	AllowedModels    []string `json:"allowed_models,omitempty"`
-	Enabled          bool     `json:"enabled"`
-	KeyPreview       string   `json:"key_preview,omitempty"`
-	CreatedAt        string   `json:"created_at,omitempty"`
-	UpdatedAt        string   `json:"updated_at,omitempty"`
 }
 
 type ControlPlaneProviderRecord struct {
@@ -825,8 +776,6 @@ type ControlPlanePolicyRuleRecord struct {
 	ID                     string   `json:"id"`
 	Action                 string   `json:"action"`
 	Reason                 string   `json:"reason,omitempty"`
-	Roles                  []string `json:"roles,omitempty"`
-	Tenants                []string `json:"tenants,omitempty"`
 	Providers              []string `json:"providers,omitempty"`
 	ProviderKinds          []string `json:"provider_kinds,omitempty"`
 	Models                 []string `json:"models,omitempty"`
@@ -904,26 +853,6 @@ type ControlPlaneAuditEventRecord struct {
 	TargetType string `json:"target_type"`
 	TargetID   string `json:"target_id"`
 	Detail     string `json:"detail,omitempty"`
-}
-
-type ControlPlaneTenantUpsertRequest struct {
-	ID               string   `json:"id"`
-	Name             string   `json:"name"`
-	Description      string   `json:"description"`
-	AllowedProviders []string `json:"allowed_providers"`
-	AllowedModels    []string `json:"allowed_models"`
-	Enabled          bool     `json:"enabled"`
-}
-
-type ControlPlaneAPIKeyUpsertRequest struct {
-	ID               string   `json:"id"`
-	Name             string   `json:"name"`
-	Key              string   `json:"key"`
-	Tenant           string   `json:"tenant"`
-	Role             string   `json:"role"`
-	AllowedProviders []string `json:"allowed_providers"`
-	AllowedModels    []string `json:"allowed_models"`
-	Enabled          bool     `json:"enabled"`
 }
 
 type ControlPlaneProviderUpsertRequest struct {

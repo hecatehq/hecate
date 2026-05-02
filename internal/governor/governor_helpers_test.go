@@ -105,8 +105,7 @@ func TestMemoryBudgetStoreListRecentEventsAcrossKeys(t *testing.T) {
 
 func TestResolveBudgetFilterScopes(t *testing.T) {
 	g := NewStaticGovernor(config.GovernorConfig{
-		BudgetKey:            "billing",
-		BudgetTenantFallback: "anon",
+		BudgetKey: "billing",
 	}, NewMemoryBudgetStore(), nil)
 
 	cases := []struct {
@@ -120,27 +119,9 @@ func TestResolveBudgetFilterScopes(t *testing.T) {
 		{"provider scope appends provider name",
 			BudgetFilter{Scope: "provider", Provider: "openai"},
 			"billing:provider:openai"},
-		{"tenant scope appends tenant",
-			BudgetFilter{Scope: "tenant", Tenant: "acme"},
-			"billing:tenant:acme"},
-		{"tenant_provider scope appends both",
-			BudgetFilter{Scope: "tenant_provider", Tenant: "acme", Provider: "openai"},
-			"billing:tenant:acme:provider:openai"},
-		{"key scope uses keyID",
-			BudgetFilter{Scope: "key", KeyID: "k1"},
-			"billing:key:k1"},
-		{"key scope without keyID falls back to anonymous",
-			BudgetFilter{Scope: "key"},
-			"billing:key:anonymous"},
-		{"key_provider combines keyID and provider",
-			BudgetFilter{Scope: "key_provider", KeyID: "k1", Provider: "openai"},
-			"billing:key:k1:provider:openai"},
 		{"unknown scope falls through to global baseKey",
 			BudgetFilter{Scope: "weird"},
 			"billing"},
-		{"missing tenant uses fallback",
-			BudgetFilter{Scope: "tenant"},
-			"billing:tenant:anon"},
 	}
 	for _, tc := range cases {
 		t.Run(tc.name, func(t *testing.T) {

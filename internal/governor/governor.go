@@ -8,7 +8,6 @@ import (
 
 	"github.com/hecate/agent-runtime/internal/config"
 	"github.com/hecate/agent-runtime/internal/policy"
-	"github.com/hecate/agent-runtime/internal/requestscope"
 	"github.com/hecate/agent-runtime/pkg/types"
 )
 
@@ -35,12 +34,13 @@ type RewriteResult struct {
 	PolicyReason   string
 }
 
+// BudgetFilter selects a budget account. In single-user mode the only
+// useful axes are global (one bucket for the whole gateway) and per
+// provider (one bucket per upstream).
 type BudgetFilter struct {
 	Key      string
 	Scope    string
 	Provider string
-	Tenant   string
-	KeyID    string // API key ID for "key" scope
 }
 
 type StaticGovernor struct {
@@ -86,14 +86,6 @@ func (g *StaticGovernor) Check(_ context.Context, req types.ChatRequest) error {
 }
 
 func (g *StaticGovernor) CheckRoute(ctx context.Context, req types.ChatRequest, decision types.RouteDecision, providerKind string, estimatedCostMicros int64) error {
-	scope := requestscope.Normalize(req.Scope)
-	if allowedProviders := scope.AllowedProviders; len(allowedProviders) > 0 && !slices.Contains(allowedProviders, decision.Provider) {
-		return fmt.Errorf("provider %q is not allowed for this api key", decision.Provider)
-	}
-	if allowedModels := scope.AllowedModels; len(allowedModels) > 0 && !slices.Contains(allowedModels, decision.Model) {
-		return fmt.Errorf("model %q is not allowed for this api key", decision.Model)
-	}
-
 	if len(g.config.AllowedProviders) > 0 && !slices.Contains(g.config.AllowedProviders, decision.Provider) {
 		return denyPolicyError(fmt.Sprintf("provider %q is not allowed by policy", decision.Provider))
 	}
@@ -151,7 +143,6 @@ func (g *StaticGovernor) RecordUsage(ctx context.Context, req types.ChatRequest,
 	event := UsageEvent{
 		BudgetKey:  g.budgetKeyForRequest(req, decision),
 		RequestID:  req.RequestID,
-		Tenant:     requestscope.EffectiveTenant(requestscope.Normalize(req.Scope), g.config.BudgetTenantFallback),
 		Provider:   decision.Provider,
 		Model:      decision.Model,
 		Usage:      usage,
@@ -177,7 +168,6 @@ func (g *StaticGovernor) RecordUsage(ctx context.Context, req types.ChatRequest,
 		Type:              "debit",
 		Scope:             g.config.BudgetScope,
 		Provider:          decision.Provider,
-		Tenant:            event.Tenant,
 		Model:             decision.Model,
 		RequestID:         req.RequestID,
 		AmountMicrosUSD:   costMicros,
@@ -200,7 +190,6 @@ func (g *StaticGovernor) BudgetStatus(ctx context.Context, filter BudgetFilter) 
 		Key:      resolved.Key,
 		Scope:    resolved.Scope,
 		Provider: resolved.Provider,
-		Tenant:   resolved.Tenant,
 		Backend:  g.config.BudgetBackend,
 	}
 	if g.store == nil {
@@ -257,7 +246,6 @@ func (g *StaticGovernor) RecentBudgetHistory(ctx context.Context, limit int) ([]
 			Type:              event.Type,
 			Scope:             event.Scope,
 			Provider:          event.Provider,
-			Tenant:            event.Tenant,
 			Model:             event.Model,
 			RequestID:         event.RequestID,
 			Actor:             event.Actor,
@@ -289,7 +277,6 @@ func (g *StaticGovernor) TopUpBudget(ctx context.Context, filter BudgetFilter, d
 		Type:              "top_up",
 		Scope:             resolved.Scope,
 		Provider:          resolved.Provider,
-		Tenant:            resolved.Tenant,
 		AmountMicrosUSD:   deltaMicros,
 		BalanceMicrosUSD:  account.BalanceMicrosUSD,
 		CreditedMicrosUSD: account.CreditedMicrosUSD,
@@ -315,7 +302,6 @@ func (g *StaticGovernor) SetBudgetBalance(ctx context.Context, filter BudgetFilt
 		Type:              "set_balance",
 		Scope:             resolved.Scope,
 		Provider:          resolved.Provider,
-		Tenant:            resolved.Tenant,
 		AmountMicrosUSD:   balanceMicros,
 		BalanceMicrosUSD:  account.BalanceMicrosUSD,
 		CreditedMicrosUSD: account.CreditedMicrosUSD,
@@ -340,7 +326,6 @@ func (g *StaticGovernor) ResetBudget(ctx context.Context, filter BudgetFilter) e
 		Type:             "reset",
 		Scope:            resolved.Scope,
 		Provider:         resolved.Provider,
-		Tenant:           resolved.Tenant,
 		BalanceMicrosUSD: 0,
 		OccurredAt:       time.Now().UTC(),
 	}); err != nil {
@@ -391,13 +376,10 @@ func denyPolicyError(message string) error {
 	}
 }
 
-func (g *StaticGovernor) budgetKeyForRequest(req types.ChatRequest, decision types.RouteDecision) string {
-	scope := requestscope.Normalize(req.Scope)
+func (g *StaticGovernor) budgetKeyForRequest(_ types.ChatRequest, decision types.RouteDecision) string {
 	return g.resolveBudgetFilter(BudgetFilter{
 		Scope:    g.config.BudgetScope,
 		Provider: decision.Provider,
-		Tenant:   requestscope.EffectiveTenant(scope, g.config.BudgetTenantFallback),
-		KeyID:    scope.Principal.KeyID,
 	}).Key
 }
 
@@ -423,33 +405,10 @@ func (g *StaticGovernor) resolveBudgetFilter(filter BudgetFilter) BudgetFilter {
 	}
 
 	provider := filter.Provider
-	tenant := filter.Tenant
-	if tenant == "" {
-		tenant = g.config.BudgetTenantFallback
-		if tenant == "" {
-			tenant = "anonymous"
-		}
-	}
 
 	switch scope {
 	case "provider":
 		filter.Key = baseKey + ":provider:" + provider
-	case "tenant":
-		filter.Key = baseKey + ":tenant:" + tenant
-	case "tenant_provider":
-		filter.Key = baseKey + ":tenant:" + tenant + ":provider:" + provider
-	case "key":
-		keyID := filter.KeyID
-		if keyID == "" {
-			keyID = "anonymous"
-		}
-		filter.Key = baseKey + ":key:" + keyID
-	case "key_provider":
-		keyID := filter.KeyID
-		if keyID == "" {
-			keyID = "anonymous"
-		}
-		filter.Key = baseKey + ":key:" + keyID + ":provider:" + provider
 	default:
 		scope = "global"
 		filter.Key = baseKey
@@ -457,7 +416,6 @@ func (g *StaticGovernor) resolveBudgetFilter(filter BudgetFilter) BudgetFilter {
 
 	filter.Scope = scope
 	filter.Provider = provider
-	filter.Tenant = tenant
 	return filter
 }
 
@@ -515,7 +473,6 @@ func (g *StaticGovernor) budgetHistory(ctx context.Context, key string, status t
 			Type:              event.Type,
 			Scope:             event.Scope,
 			Provider:          firstNonEmpty(event.Provider, status.Provider),
-			Tenant:            firstNonEmpty(event.Tenant, status.Tenant),
 			Model:             event.Model,
 			RequestID:         event.RequestID,
 			Actor:             event.Actor,

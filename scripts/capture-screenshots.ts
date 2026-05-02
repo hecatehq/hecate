@@ -5,11 +5,8 @@
 //   make screenshots                     # from repo root
 //
 // Prerequisites:
-//   1. `make reset-dev && GATEWAY_MULTI_TENANT=true ./hecate &` — gateway
-//      running on :8765 with fresh state, multi-tenant on so the
-//      Tenants + Keys tabs show up under Settings for the admin-*
-//      captures. Single-tenant deployments are the published default;
-//      see docs/tenants.md for the runtime flag's effect on the UI.
+//   1. `make reset-dev && ./hecate &` — gateway running on :8765
+//      with fresh state.
 //   2. ollama running on :11434 with `ollama pull llama3.1:8b` (used to seed
 //      one realistic chat session and produce a trace for the observability
 //      screenshot). Set HECATE_SKIP_OLLAMA=1 to skip.
@@ -350,28 +347,9 @@ async function main() {
   await page.waitForTimeout(500);
   await snap(page, "costs");
 
-  // ── 10. Settings panels — Tenants, Keys, Pricing ──────────────────
-  // Tenants + Keys only render when the gateway is in multi-tenant
-  // mode (GATEWAY_MULTI_TENANT=true). Single-tenant deployments hide
-  // them; the prerequisite at the top of this file flips the flag so
-  // the captures land. Seed two tenants + two API keys so the
-  // tables aren't empty.
-  console.log("→ seeding tenants + API keys");
-  await seedTenants();
-  await page.reload();
-  await page.waitForSelector(".hecate-activitybar", { timeout: 5_000 });
+  // ── 10. Settings panels — Pricing ──────────────────
   await openWorkspace(page, "admin");
   await page.waitForTimeout(500);
-
-  console.log("→ settings / tenants");
-  await page.getByRole("button", { name: /tenants/i }).click();
-  await page.waitForTimeout(500);
-  await snap(page, "admin-tenants");
-
-  console.log("→ settings / keys");
-  await page.getByRole("button", { name: /keys/i }).click();
-  await page.waitForTimeout(500);
-  await snap(page, "admin-keys");
 
   console.log("→ settings / pricebook");
   await page.getByRole("button", { name: /pricing/i }).click();
@@ -387,37 +365,6 @@ async function main() {
   console.log("done.");
 }
 
-async function seedTenants() {
-  const tenants = [
-    { id: "team-a", name: "Team A" },
-    { id: "team-b", name: "Team B" },
-  ];
-  for (const t of tenants) {
-    await fetch(`${BASE_URL}/admin/control-plane/tenants`, {
-      method: "POST",
-      headers: adminHeaders,
-      body: JSON.stringify({ ...t, enabled: true }),
-    });
-  }
-  const keys = [
-    { id: "team-a-prod", name: "team-a / prod", tenant: "team-a", role: "tenant",
-      key: "sk-team-a-prod-xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx",
-      allowed_providers: ["openai", "anthropic"],
-      allowed_models: [], enabled: true },
-    { id: "team-b-staging", name: "team-b / staging", tenant: "team-b", role: "tenant",
-      key: "sk-team-b-staging-xxxxxxxxxxxxxxxxxxxxxxxxxxxxxx",
-      allowed_providers: ["ollama"],
-      allowed_models: [], enabled: true },
-  ];
-  for (const k of keys) {
-    await fetch(`${BASE_URL}/admin/control-plane/api-keys`, {
-      method: "POST",
-      headers: adminHeaders,
-      body: JSON.stringify(k),
-    });
-  }
-  console.log(`  seeded ${tenants.length} tenants + ${keys.length} API keys`);
-}
 
 // seedTask creates a "do echo 42" task so the runs table has at least
 // one row. If the task runtime auto-resolves the implicit approval the

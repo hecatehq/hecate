@@ -10,15 +10,12 @@ import {
   createChatSession as createChatSessionRequest,
   deleteChatSession as deleteChatSessionRequest,
   updateChatSession as updateChatSessionRequest,
-  deleteAPIKey as deleteAPIKeyRequest,
   deletePolicyRule as deletePolicyRuleRequest,
-  deleteTenant as deleteTenantRequest,
   getAccountSummary,
-  getBootstrapToken,
   getBudget,
   getChatSession,
   getChatSessions,
-  getAdminConfig,
+  getControlPlaneConfig,
   getHealth,
   getModels,
   getProviderPresets,
@@ -26,7 +23,6 @@ import {
   getRequestLedger,
   getRetentionRuns,
   getSession,
-  rotateAPIKey as rotateAPIKeyRequest,
   setProviderAPIKey as setProviderAPIKeyRequest,
   upsertPricebookEntry as upsertPricebookEntryRequest,
   deletePricebookEntry as deletePricebookEntryRequest,
@@ -34,13 +30,9 @@ import {
   applyPricebookImport as applyPricebookImportRequest,
   runRetention as runRetentionRequest,
   resetBudget as resetBudgetRequest,
-  setAPIKeyEnabled as setAPIKeyEnabledRequest,
   setBudgetLimit as setBudgetLimitRequest,
-  setTenantEnabled as setTenantEnabledRequest,
   topUpBudget as topUpBudgetRequest,
-  upsertAPIKey as upsertAPIKeyRequest,
   upsertPolicyRule as upsertPolicyRuleRequest,
-  upsertTenant as upsertTenantRequest,
   createProvider as createProviderRequest,
   deleteProvider as deleteProviderRequest,
   setProviderBaseURL as setProviderBaseURLRequest,
@@ -69,35 +61,15 @@ import type {
   RetentionRunData,
 } from "../types/runtime";
 
-type SessionKind = "anonymous" | "tenant" | "admin" | "invalid";
+// Single-user mode: the session shape is a fixed label. Kept around so
+// the status bar has something to show without bespoke wiring.
 type SessionState = {
-  kind: SessionKind;
   label: string;
-  capabilities: string[];
-  isAdmin: boolean;
-  isAuthenticated: boolean;
-  role: string;
-  name: string;
-  tenant: string;
-  source: string;
-  keyID: string;
-  allowedProviders: string[];
-  allowedModels: string[];
-  // multiTenant: when true, the operator console exposes Tenants and
-  // Keys management surfaces. Mirrors the server's GATEWAY_MULTI_TENANT
-  // flag via /v1/whoami's features object. Defaults to false for
-  // clients talking to an older gateway that doesn't ship features yet.
-  multiTenant: boolean;
-  // authDisabled: when true, the gateway accepts unauthenticated
-  // requests. The UI uses this to skip the TokenGate entirely.
-  authDisabled: boolean;
 };
 type NoticeState = {
   kind: "success" | "error";
   message: string;
 };
-
-const invalidBearerTokenMessage = "missing or invalid bearer token";
 
 export function useRuntimeConsole() {
   const [health, setHealth] = useState<HealthResponse | null>(null);
@@ -107,12 +79,11 @@ export function useRuntimeConsole() {
   const [budget, setBudget] = useState<BudgetStatusResponse["data"] | null>(null);
   const [accountSummary, setAccountSummary] = useState<AccountSummaryResponse["data"] | null>(null);
   const [requestLedger, setRequestLedger] = useState<RequestLedgerResponse["data"]>([]);
-  const [adminConfig, setAdminConfig] = useState<ConfiguredStateResponse["data"] | null>(null);
+  const [controlPlaneConfig, setControlPlaneConfig] = useState<ConfiguredStateResponse["data"] | null>(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState("");
 
   const [model, setModel] = useState("");
-  const [tenant, setTenant] = useState("");
   const [message, setMessage] = useState("");
   const [systemPrompt, setSystemPrompt] = useState("");
   const [chatLoading, setChatLoading] = useState(false);
@@ -139,53 +110,10 @@ export function useRuntimeConsole() {
   const [budgetLimitUsd, setBudgetLimitUsd] = useState("5.00");
   const [budgetActionError, setBudgetActionError] = useState("");
 
-  // Lazy-init from localStorage so the very first render already knows
-  // whether we have a token. Otherwise the gate flashes the workspace
-  // shell with stale data on every refresh before TokenGate can mount.
-  const [authToken, setAuthToken] = useState<string>(() => {
-    if (typeof window === "undefined") return "";
-    return window.localStorage.getItem("hecate.authToken") ?? "";
-  });
-  // bootstrapAttempted gates the dashboard load + TokenGate render
-  // until we've had a chance to ask the gateway for a loopback
-  // bootstrap token. When a token is already in localStorage we treat
-  // the bootstrap step as already done and skip the network call.
-  const [bootstrapAttempted, setBootstrapAttempted] = useState<boolean>(() => {
-    if (typeof window === "undefined") return true;
-    return (window.localStorage.getItem("hecate.authToken") ?? "") !== "";
-  });
-  // staleTokenRetried prevents an infinite reprobe loop if the gateway
-  // hands us a loopback token that's somehow ALSO rejected (shouldn't
-  // happen — they come from the same source — but a defense in depth
-  // beats spinning). Reset to false on every explicit setAuthToken
-  // (operator paste), so a manual retry after a real-world fix
-  // re-arms the auto-recovery for the next reset cycle.
-  const [staleTokenRetried, setStaleTokenRetried] = useState(false);
   const [sessionInfo, setSessionInfo] = useState<SessionResponse["data"] | null>(null);
-  const [adminConfigError, setAdminConfigError] = useState("");
+  const [controlPlaneError, setControlPlaneError] = useState("");
   const [notice, setNotice] = useState<NoticeState | null>(null);
 
-  const [tenantFormName, setTenantFormName] = useState("");
-  const [tenantFormID, setTenantFormID] = useState("");
-  // The allowed_* form fields are arrays of ids — they were
-  // CSV-stringly-typed in an earlier iteration but are now backed by
-  // ChipInput multi-selects, so the wire shape (string[]) and the
-  // form shape match directly. parseCSV is no longer involved.
-  const [tenantFormProviders, setTenantFormProviders] = useState<string[]>([]);
-  const [tenantFormModels, setTenantFormModels] = useState<string[]>([]);
-  // Tenant-level layer of the agent_loop system prompt. Optional;
-  // empty falls back to the global / workspace / per-task layers.
-  const [tenantFormSystemPrompt, setTenantFormSystemPrompt] = useState("");
-
-  const [apiKeyFormName, setAPIKeyFormName] = useState("");
-  const [apiKeyFormID, setAPIKeyFormID] = useState("");
-  const [apiKeyFormSecret, setAPIKeyFormSecret] = useState("");
-  const [apiKeyFormTenant, setAPIKeyFormTenant] = useState("");
-  const [apiKeyFormRole, setAPIKeyFormRole] = useState("tenant");
-  const [apiKeyFormProviders, setAPIKeyFormProviders] = useState<string[]>([]);
-  const [apiKeyFormModels, setAPIKeyFormModels] = useState<string[]>([]);
-  const [rotateAPIKeyID, setRotateAPIKeyID] = useState("");
-  const [rotateAPIKeySecret, setRotateAPIKeySecret] = useState("");
   const [retentionSubsystems, setRetentionSubsystems] = useState("");
   const [retentionLoading, setRetentionLoading] = useState(false);
   const [retentionError, setRetentionError] = useState("");
@@ -217,7 +145,6 @@ export function useRuntimeConsole() {
   }, [sessionInfo]);
 
   useEffect(() => {
-    // authToken is hydrated synchronously above via the useState lazy init.
     const storedChatSessionID = window.localStorage.getItem("hecate.chatSessionID");
     if (storedChatSessionID) {
       setActiveChatSessionID(storedChatSessionID);
@@ -240,78 +167,10 @@ export function useRuntimeConsole() {
     window.localStorage.setItem("hecate.systemPrompt", systemPrompt);
   }, [systemPrompt]);
 
-  // One-shot bootstrap probe: when no bearer is in localStorage, ask
-  // the gateway for a loopback bootstrap token before falling through
-  // to TokenGate. Single-user installs running on the same host as the
-  // browser get a zero-config experience this way; everything else
-  // (remote browsers, published images, cross-origin) is fenced
-  // server-side and falls through to manual paste.
   useEffect(() => {
-    if (bootstrapAttempted) return;
-    let cancelled = false;
-    void (async () => {
-      const token = await getBootstrapToken();
-      if (cancelled) return;
-      if (token) {
-        setAuthToken(token);
-      }
-      setBootstrapAttempted(true);
-    })();
-    return () => {
-      cancelled = true;
-    };
-  }, [bootstrapAttempted]);
-
-  // Auto-recover when the saved bearer was rejected. Common cause:
-  // `make reset && make dev` regenerates the gateway's auto-managed
-  // admin token, leaving the operator's localStorage token stale.
-  // The bootstrap-token endpoint is server-fenced (loopback +
-  // same-origin + gateway-managed token only), so re-probing it is
-  // safe: in single-user dev it hands back the new token, in any
-  // other config it returns 403 and the rejected gate still shows.
-  // staleTokenRetried prevents looping if the freshly-probed token
-  // is also somehow rejected.
-  useEffect(() => {
-    if (session.kind !== "invalid") return;
-    if (staleTokenRetried) return;
-    let cancelled = false;
-    void (async () => {
-      const token = await getBootstrapToken();
-      if (cancelled) return;
-      setStaleTokenRetried(true);
-      if (token && token !== authToken) {
-        setAuthToken(token);
-      }
-    })();
-    return () => {
-      cancelled = true;
-    };
-  }, [session.kind, staleTokenRetried, authToken]);
-
-  useEffect(() => {
-    // Wait until the bootstrap probe has resolved one way or the
-    // other before deciding what to do — racing the probe risks
-    // flashing TokenGate for a single frame on a loopback host that's
-    // about to hand us a token.
-    if (!bootstrapAttempted) {
-      return;
-    }
-    // Even with no bearer we still load the dashboard once so whoami
-    // can tell us whether the gateway runs in auth-disabled mode. The
-    // load helper short-circuits per-endpoint based on the resolved
-    // role, so an enabled-auth + empty-token combination still avoids
-    // 401-spamming admin endpoints.
     void loadDashboard();
-  }, [authToken, bootstrapAttempted]);
-
-  useEffect(() => {
-    window.localStorage.setItem("hecate.authToken", authToken);
-    // A new bearer (operator paste OR loopback probe) re-arms the
-    // stale-token auto-recovery so a future invalid transition gets a
-    // fresh probe attempt. Without this, the operator only gets one
-    // automatic recovery per page load.
-    setStaleTokenRetried(false);
-  }, [authToken]);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
 
   useEffect(() => {
     if (model) {
@@ -354,13 +213,6 @@ export function useRuntimeConsole() {
   }, [model, models, providerFilter, providers, providerPresets]);
 
   useEffect(() => {
-    if (session.kind !== "tenant" || !session.tenant) {
-      return;
-    }
-    setTenant((current) => (current === session.tenant ? current : session.tenant));
-  }, [session.kind, session.tenant]);
-
-  useEffect(() => {
     if (providerFilter === "auto" || model !== "" || models.length === 0) {
       return;
     }
@@ -390,21 +242,6 @@ export function useRuntimeConsole() {
     if (defaultM) setModel(defaultM);
   }, [model, models, providerFilter]);
 
-  useEffect(() => {
-    if (providerFilter !== "auto" && session.allowedProviders.length > 0 && !session.allowedProviders.includes(providerFilter)) {
-      setProviderFilter("auto");
-      return;
-    }
-
-    if (session.allowedModels.length > 0 && model !== "" && !session.allowedModels.includes(model)) {
-      const nextAllowedModel =
-        models.find((entry) => session.allowedModels.includes(entry.id) && (providerFilter === "auto" || entry.metadata?.provider === providerFilter))?.id ??
-        models.find((entry) => session.allowedModels.includes(entry.id))?.id ??
-        "";
-      setModel(nextAllowedModel);
-    }
-  }, [model, models, providerFilter, session.allowedModels, session.allowedProviders]);
-
   function clearPendingToolState() {
     setPendingToolCalls([]);
     setPendingThread(null);
@@ -431,7 +268,7 @@ export function useRuntimeConsole() {
   }
 
   async function createChatSessionRecord(title: string): Promise<ChatSessionRecord> {
-    const payload = await createChatSessionRequest({ title }, authToken);
+    const payload = await createChatSessionRequest({ title });
     activateChatSession(payload.data);
     upsertChatSessionSummary(payload.data);
     return payload.data;
@@ -443,8 +280,8 @@ export function useRuntimeConsole() {
     }
     try {
       const [sessionsResult, sessionResult] = await Promise.all([
-        getChatSessions(authToken, 20),
-        getChatSession(sessionID, authToken),
+        getChatSessions(20),
+        getChatSession(sessionID),
       ]);
       setChatSessions(sessionsResult.data ?? []);
       setActiveChatSession(sessionResult.data);
@@ -453,21 +290,15 @@ export function useRuntimeConsole() {
     }
   }
 
-  async function refreshAdminRuntimeState() {
-    // Account summary remains admin-only (it's the cross-tenant rollup);
-    // the request ledger is now tenant-readable via /v1/requests, so we
-    // refresh it for any authenticated principal.
-    if (session.isAdmin) {
-      try {
-        const accountSummaryResult = await getAccountSummary("", authToken);
-        setAccountSummary(accountSummaryResult.data);
-      } catch {
-        // Keep chat responsive even if admin-only refresh paths fail.
-      }
-    }
-    if (!session.isAuthenticated) return;
+  async function refreshRuntimeState() {
     try {
-      const requestLedgerResult = await getRequestLedger(authToken, 20, session.isAdmin);
+      const accountSummaryResult = await getAccountSummary("");
+      setAccountSummary(accountSummaryResult.data);
+    } catch {
+      // Keep chat responsive even if refresh paths fail.
+    }
+    try {
+      const requestLedgerResult = await getRequestLedger(20);
       setRequestLedger(requestLedgerResult.data ?? []);
     } catch {
       // Best-effort.
@@ -480,12 +311,11 @@ export function useRuntimeConsole() {
   // Studio. Skipped when no providers are configured — the providers
   // tab renders its empty state, there's nothing to converge.
   async function refreshProviders() {
-    if (!session.isAdmin || !authToken) return;
-    if ((adminConfig?.providers?.length ?? 0) === 0) return;
+    if ((controlPlaneConfig?.providers?.length ?? 0) === 0) return;
     try {
       const [pResult, mResult] = await Promise.allSettled([
-        getProviders(authToken),
-        getModels(authToken),
+        getProviders(),
+        getModels(),
       ]);
       if (pResult.status === "fulfilled") setProviders(pResult.value.data ?? []);
       if (mResult.status === "fulfilled") setModels(mResult.value.data ?? []);
@@ -499,41 +329,18 @@ export function useRuntimeConsole() {
       model,
       provider: providerFilter === "auto" ? "" : providerFilter,
       session_id: sessionID,
-      user: tenant,
+      user: "",
       messages,
     };
-  }
-
-  function resetTenantForm() {
-    setTenantFormID("");
-    setTenantFormName("");
-    setTenantFormProviders([]);
-    setTenantFormModels([]);
-    setTenantFormSystemPrompt("");
-  }
-
-  function resetAPIKeyForm() {
-    setAPIKeyFormID("");
-    setAPIKeyFormName("");
-    setAPIKeyFormSecret("");
-    setAPIKeyFormTenant("");
-    setAPIKeyFormProviders([]);
-    setAPIKeyFormModels([]);
-  }
-
-  function resetRotateAPIKeyForm() {
-    setRotateAPIKeyID("");
-    setRotateAPIKeySecret("");
   }
 
   async function loadDashboard() {
     setLoading(true);
     setError("");
-    setAdminConfigError("");
+    setControlPlaneError("");
 
     try {
       const snapshot = await resolveDashboardSnapshot({
-        authToken,
         activeChatSessionID,
         previous: {
           providers,
@@ -542,7 +349,7 @@ export function useRuntimeConsole() {
           chatSessions,
           activeChatSession,
           requestLedger,
-          adminConfig,
+          controlPlaneConfig,
           retentionRuns,
           retentionLastRun,
         },
@@ -560,7 +367,7 @@ export function useRuntimeConsole() {
       setActiveChatSessionID(snapshot.activeChatSessionID);
       setActiveChatSession(snapshot.activeChatSession);
       setRequestLedger(snapshot.requestLedger);
-      setAdminConfig(snapshot.adminConfig);
+      setControlPlaneConfig(snapshot.controlPlaneConfig);
       setRetentionRuns(snapshot.retentionRuns);
       setRetentionLastRun(snapshot.retentionLastRun);
     } catch (loadError) {
@@ -671,17 +478,17 @@ export function useRuntimeConsole() {
 
       try {
         const scopedBudget = await getBudget(
-          `?scope=tenant_provider&tenant=${encodeURIComponent(tenant)}&provider=${encodeURIComponent(headers.provider)}`,
-          authToken,
+          `?scope=provider&provider=${encodeURIComponent(headers.provider)}`,
         );
         setBudget(scopedBudget.data);
       } catch {
-        // Tenant-key users may not be authorized for admin budget views.
+        // Best-effort; the gateway may not have a per-provider budget
+        // record for this slice yet.
       }
 
       await refreshChatSessionState(sessionID);
       setStreamingContent(null);
-      await refreshAdminRuntimeState();
+      await refreshRuntimeState();
     } catch (submitError) {
       const raw = submitError instanceof Error ? submitError.message : "unknown request error";
       const friendly = humanizeChatError(raw);
@@ -726,7 +533,7 @@ export function useRuntimeConsole() {
       setChatResult(chatExecution.chatResult);
       await refreshChatSessionState(activeChatSessionID);
       setStreamingContent(null);
-      await refreshAdminRuntimeState();
+      await refreshRuntimeState();
     } catch (err) {
       const raw = err instanceof Error ? err.message : "unknown error";
       setChatError(humanizeChatError(raw));
@@ -752,7 +559,7 @@ export function useRuntimeConsole() {
   > {
     let fullContent = "";
     setStreamingContent("");
-    const response = await chatCompletionsStream(chatPayload, authToken, (delta) => {
+    const response = await chatCompletionsStream(chatPayload, (delta) => {
       fullContent += delta;
       setStreamingContent(fullContent);
     });
@@ -789,10 +596,8 @@ export function useRuntimeConsole() {
         {
           scope: budget.scope,
           provider: budget.provider,
-          tenant: budget.tenant,
           key: budget.scope === "custom" ? budget.key : "",
         },
-        authToken,
       );
       await loadDashboard();
       setNotice({ kind: "success", message: "Budget usage reset." });
@@ -820,11 +625,9 @@ export function useRuntimeConsole() {
         {
           scope: budget.scope,
           provider: budget.provider,
-          tenant: budget.tenant,
           key: budget.scope === "custom" ? budget.key : "",
           amount_micros_usd: amountMicrosUSD,
         },
-        authToken,
       );
       await loadDashboard();
       setNotice({ kind: "success", message: "Budget topped up." });
@@ -852,11 +655,9 @@ export function useRuntimeConsole() {
         {
           scope: budget.scope,
           provider: budget.provider,
-          tenant: budget.tenant,
           key: budget.scope === "custom" ? budget.key : "",
           balance_micros_usd: limitMicrosUSD,
         },
-        authToken,
       );
       await loadDashboard();
       setNotice({ kind: "success", message: "Budget limit updated." });
@@ -875,94 +676,54 @@ export function useRuntimeConsole() {
     return error instanceof Error ? error.message : fallback;
   }
 
-  function resetAdminFeedback() {
-    setAdminConfigError("");
+  function resetControlPlaneFeedback() {
+    setControlPlaneError("");
     setNotice(null);
   }
 
-  async function runAdminMutation(options: {
+  async function runControlPlaneMutation(options: {
     action: () => Promise<void>;
     successMessage: string;
     errorMessage: string;
     failureDetail: string;
   }) {
-    resetAdminFeedback();
+    resetControlPlaneFeedback();
     try {
       await options.action();
       await loadDashboard();
       setNoticeMessage("success", options.successMessage);
     } catch (error) {
-      setAdminConfigError(describeError(error, options.failureDetail));
+      setControlPlaneError(describeError(error, options.failureDetail));
       setNoticeMessage("error", options.errorMessage);
     }
-  }
-
-  async function upsertTenant() {
-    await runAdminMutation({
-      successMessage: "Tenant saved.",
-      errorMessage: "Failed to save tenant.",
-      failureDetail: "failed to save tenant",
-      action: async () => {
-        await upsertTenantRequest(
-          {
-            id: tenantFormID,
-            name: tenantFormName,
-            allowed_providers: tenantFormProviders,
-            allowed_models: tenantFormModels,
-            enabled: true,
-            system_prompt: tenantFormSystemPrompt,
-          },
-          authToken,
-        );
-        resetTenantForm();
-      },
-    });
-  }
-
-  async function upsertAPIKey() {
-    await upsertAPIKeyRequest(
-      {
-        id: apiKeyFormID,
-        name: apiKeyFormName,
-        key: apiKeyFormSecret,
-        tenant: apiKeyFormTenant,
-        role: apiKeyFormRole,
-        allowed_providers: apiKeyFormProviders,
-        allowed_models: apiKeyFormModels,
-        enabled: true,
-      },
-      authToken,
-    );
-    resetAPIKeyForm();
-    void loadDashboard();
   }
 
   // setProviderAPIKey is the single operation for managing a provider's API key.
   // An empty `key` clears the existing credential; non-empty sets/replaces it.
   async function setProviderAPIKey(id: string, key: string) {
-    await runAdminMutation({
+    await runControlPlaneMutation({
       successMessage: key === "" ? "API key cleared." : "API key saved.",
       errorMessage: key === "" ? "Failed to clear API key." : "Failed to save API key.",
       failureDetail: key === "" ? "failed to clear provider api key" : "failed to save provider api key",
       action: async () => {
-        await setProviderAPIKeyRequest(id, key, authToken);
+        await setProviderAPIKeyRequest(id, key);
       },
     });
   }
 
   async function createProvider(params: { name: string; preset_id?: string; custom_name?: string; base_url?: string; api_key?: string; kind: string; protocol: string }): Promise<void> {
-    await createProviderRequest(params, authToken);
+    await createProviderRequest(params);
     await loadDashboard();
   }
 
   async function deleteProvider(id: string): Promise<void> {
-    await deleteProviderRequest(id, authToken);
+    await deleteProviderRequest(id);
     await loadDashboard();
   }
 
   async function setProviderBaseURL(id: string, baseURL: string): Promise<void> {
-    await setProviderBaseURLRequest(id, baseURL, authToken);
-    // loadDashboard refreshes adminConfig (the source of truth for base_url
+    await setProviderBaseURLRequest(id, baseURL);
+    // loadDashboard refreshes controlPlaneConfig (the source of truth for base_url
     // shown in the table), then refreshProviders re-runs model discovery
     // against the new endpoint so the model list updates immediately.
     await loadDashboard();
@@ -970,115 +731,51 @@ export function useRuntimeConsole() {
   }
 
   async function setProviderName(id: string, name: string): Promise<void> {
-    await setProviderNameRequest(id, name, authToken);
-    // The label change only affects adminConfig (table column) — no need
+    await setProviderNameRequest(id, name);
+    // The label change only affects controlPlaneConfig (table column) — no need
     // to rerun model discovery, so skip refreshProviders.
     await loadDashboard();
   }
 
   async function setProviderCustomName(id: string, customName: string): Promise<void> {
-    await setProviderCustomNameRequest(id, customName, authToken);
+    await setProviderCustomNameRequest(id, customName);
     await loadDashboard();
   }
 
-  async function setTenantEnabled(id: string, enabled: boolean) {
-    await runAdminMutation({
-      successMessage: `Tenant ${enabled ? "enabled" : "disabled"}.`,
-      errorMessage: "Failed to update tenant state.",
-      failureDetail: "failed to update tenant state",
-      action: async () => {
-        await setTenantEnabledRequest({ id, enabled }, authToken);
-      },
-    });
-  }
-
-  async function deleteTenant(id: string) {
-    resetAdminFeedback();
-    if (!window.confirm(`Delete tenant "${id}"? This cannot be undone.`)) {
-      return;
-    }
-    await runAdminMutation({
-      successMessage: "Tenant deleted.",
-      errorMessage: "Failed to delete tenant.",
-      failureDetail: "failed to delete tenant",
-      action: async () => {
-        await deleteTenantRequest({ id }, authToken);
-      },
-    });
-  }
-
-  // Policy rule mutations follow the same runAdminMutation contract
+  // Policy rule mutations follow the same runControlPlaneMutation contract
   // as the tenant / API key flows: success populates the toast notice
-  // + clears adminConfigError; failure populates BOTH inline banner
+  // + clears controlPlaneError; failure populates BOTH inline banner
   // and toast so an operator can't miss the error regardless of
   // viewport focus.
   async function upsertPolicyRule(payload: PolicyRuleUpsertPayload) {
-    await runAdminMutation({
+    await runControlPlaneMutation({
       successMessage: "Policy rule saved.",
       errorMessage: "Failed to save policy rule.",
       failureDetail: "failed to save policy rule",
       action: async () => {
-        await upsertPolicyRuleRequest(payload, authToken);
+        await upsertPolicyRuleRequest(payload);
       },
     });
   }
 
   async function deletePolicyRule(id: string) {
-    await runAdminMutation({
+    await runControlPlaneMutation({
       successMessage: "Policy rule deleted.",
       errorMessage: "Failed to delete policy rule.",
       failureDetail: "failed to delete policy rule",
       action: async () => {
-        await deletePolicyRuleRequest(id, authToken);
-      },
-    });
-  }
-
-  async function setAPIKeyEnabled(id: string, enabled: boolean) {
-    await runAdminMutation({
-      successMessage: `API key ${enabled ? "enabled" : "disabled"}.`,
-      errorMessage: "Failed to update API key state.",
-      failureDetail: "failed to update api key state",
-      action: async () => {
-        await setAPIKeyEnabledRequest({ id, enabled }, authToken);
-      },
-    });
-  }
-
-  async function rotateAPIKey() {
-    await runAdminMutation({
-      successMessage: "API key rotated.",
-      errorMessage: "Failed to rotate API key.",
-      failureDetail: "failed to rotate api key",
-      action: async () => {
-        await rotateAPIKeyRequest({ id: rotateAPIKeyID, key: rotateAPIKeySecret }, authToken);
-        resetRotateAPIKeyForm();
-      },
-    });
-  }
-
-  async function deleteAPIKey(id: string) {
-    resetAdminFeedback();
-    if (!window.confirm(`Delete API key "${id}"? This cannot be undone.`)) {
-      return;
-    }
-    await runAdminMutation({
-      successMessage: "API key deleted.",
-      errorMessage: "Failed to delete API key.",
-      failureDetail: "failed to delete api key",
-      action: async () => {
-        await deleteAPIKeyRequest({ id }, authToken);
+        await deletePolicyRuleRequest(id);
       },
     });
   }
 
   async function upsertPricebookEntry(entry: PricebookEntryUpsertPayload) {
-    await runAdminMutation({
+    await runControlPlaneMutation({
       successMessage: "Pricebook entry saved.",
       errorMessage: "Failed to save pricebook entry.",
       failureDetail: "failed to save pricebook entry",
       action: async () => {
-        await upsertPricebookEntryRequest(entry, authToken);
+        await upsertPricebookEntryRequest(entry);
       },
     });
   }
@@ -1087,27 +784,27 @@ export function useRuntimeConsole() {
     // Confirmation is the caller's concern now (PricebookTab routes
     // this through a styled ConfirmModal). The action itself just
     // performs the deletion.
-    resetAdminFeedback();
-    await runAdminMutation({
+    resetControlPlaneFeedback();
+    await runControlPlaneMutation({
       successMessage: "Price cleared.",
       errorMessage: "Failed to clear price.",
       failureDetail: "failed to clear pricebook entry",
       action: async () => {
-        await deletePricebookEntryRequest(provider, model, authToken);
+        await deletePricebookEntryRequest(provider, model);
       },
     });
   }
 
-  // previewPricebookImport intentionally does NOT call runAdminMutation —
+  // previewPricebookImport intentionally does NOT call runControlPlaneMutation —
   // it doesn't mutate anything. It just fetches the diff and lets the
   // caller (the import modal) render it.
   async function previewPricebookImport(): Promise<PricebookImportDiff> {
-    const response = await previewPricebookImportRequest(authToken);
+    const response = await previewPricebookImportRequest();
     return response.data;
   }
 
   async function applyPricebookImport(keys: string[]): Promise<PricebookImportDiff> {
-    const response = await applyPricebookImportRequest(keys, authToken);
+    const response = await applyPricebookImportRequest(keys);
     await loadDashboard();
     // Notice text varies with the partial-success outcome so the
     // operator sees the exact tally — silent "import applied" was
@@ -1146,7 +843,6 @@ export function useRuntimeConsole() {
         {
           subsystems: parseCSV(retentionSubsystems),
         },
-        authToken,
       );
       setRetentionLastRun(payload.data);
       setRetentionRuns((current) => [payload.data, ...current.filter((run) => run.finished_at !== payload.data.finished_at)].slice(0, 10));
@@ -1170,7 +866,7 @@ export function useRuntimeConsole() {
       return;
     }
     try {
-      const payload = await getChatSession(id, authToken);
+      const payload = await getChatSession(id);
       setActiveChatSession(payload.data);
     } catch (error) {
       const msg = error instanceof Error ? error.message : "failed to load chat session";
@@ -1187,7 +883,7 @@ export function useRuntimeConsole() {
 
   async function deleteChatSession(id: string) {
     try {
-      await deleteChatSessionRequest(id, authToken);
+      await deleteChatSessionRequest(id);
       setChatSessions((current) => current.filter((s) => s.id !== id));
       if (activeChatSessionID === id) {
         startNewChat();
@@ -1200,7 +896,7 @@ export function useRuntimeConsole() {
 
   async function renameChatSession(id: string, title: string) {
     try {
-      const payload = await updateChatSessionRequest(id, title, authToken);
+      const payload = await updateChatSessionRequest(id, title);
       setChatSessions((current) =>
         current.map((s) => (s.id === id ? { ...s, title: payload.data.title } : s)),
       );
@@ -1216,7 +912,7 @@ export function useRuntimeConsole() {
     if (chatSessionsLoadingMore || !chatSessionsHasMore) return;
     setChatSessionsLoadingMore(true);
     try {
-      const result = await getChatSessions(authToken, 20, chatSessions.length);
+      const result = await getChatSessions(20, chatSessions.length);
       setChatSessions((current) => [...current, ...(result.data ?? [])]);
       setChatSessionsHasMore(result.has_more ?? false);
     } catch {
@@ -1228,15 +924,6 @@ export function useRuntimeConsole() {
 
   return {
     state: {
-      apiKeyFormID,
-      apiKeyFormModels,
-      apiKeyFormName,
-      apiKeyFormProviders,
-      apiKeyFormRole,
-      apiKeyFormSecret,
-      apiKeyFormTenant,
-      authToken,
-      bootstrapAttempted,
       budget,
       accountSummary,
       requestLedger,
@@ -1253,8 +940,8 @@ export function useRuntimeConsole() {
       chatSessions,
       cloudModels,
       cloudProviders,
-      adminConfig,
-      adminConfigError,
+      controlPlaneConfig,
+      controlPlaneError,
       copiedCommand,
       error,
       health,
@@ -1283,39 +970,19 @@ export function useRuntimeConsole() {
       retentionLoading,
       retentionRuns,
       retentionSubsystems,
-      rotateAPIKeyID,
-      rotateAPIKeySecret,
       runtimeHeaders,
       chatSessionsHasMore,
       chatSessionsLoadingMore,
-      tenant,
-      tenantFormID,
-      tenantFormModels,
-      tenantFormName,
-      tenantFormProviders,
-      tenantFormSystemPrompt,
       visibleModels,
     },
     actions: {
       copyCommand,
-      deleteAPIKey,
       deletePolicyRule,
-      deleteTenant,
       createChatSession,
       deleteChatSession,
       renameChatSession,
       loadDashboard,
       resetBudget,
-      rotateAPIKey,
-      setAPIKeyEnabled,
-      setAPIKeyFormID,
-      setAPIKeyFormModels,
-      setAPIKeyFormName,
-      setAPIKeyFormProviders,
-      setAPIKeyFormRole,
-      setAPIKeyFormSecret,
-      setAPIKeyFormTenant,
-      setAuthToken,
       setBudgetAmountUsd,
       setBudgetLimitUsd,
       setMessage,
@@ -1325,15 +992,6 @@ export function useRuntimeConsole() {
       setProviderFilter: selectProviderRoute,
       refreshProviders,
       setRetentionSubsystems,
-      setRotateAPIKeyID,
-      setRotateAPIKeySecret,
-      setTenantEnabled,
-      setTenant,
-      setTenantFormID,
-      setTenantFormModels,
-      setTenantFormName,
-      setTenantFormProviders,
-      setTenantFormSystemPrompt,
       setBudgetLimit,
       runRetention,
       selectChatSession,
@@ -1343,7 +1001,6 @@ export function useRuntimeConsole() {
       submitToolResults,
       updateToolResult,
       topUpBudget,
-      upsertAPIKey,
       upsertPolicyRule,
       setProviderAPIKey,
       createProvider,
@@ -1355,8 +1012,6 @@ export function useRuntimeConsole() {
       deletePricebookEntry,
       previewPricebookImport,
       applyPricebookImport,
-      upsertTenant,
-      clearAuthToken: () => setAuthToken(""),
       dismissNotice: () => setNotice(null),
     },
   };
@@ -1500,8 +1155,6 @@ function renderChatSessionSummary(session: ChatSessionRecord): ChatSessionsRespo
   return {
     id: session.id,
     title: session.title,
-    tenant: session.tenant,
-    user: session.user,
     message_count: messages.length,
     provider_call_count: calls.length,
     created_at: session.created_at,
@@ -1525,7 +1178,7 @@ type DashboardResults = {
   accountSummary: PromiseSettledResult<AccountSummaryResponse>;
   chatSessions: PromiseSettledResult<ChatSessionsResponse>;
   requestLedger: PromiseSettledResult<RequestLedgerResponse>;
-  adminConfig: PromiseSettledResult<ConfiguredStateResponse>;
+  controlPlaneConfig: PromiseSettledResult<ConfiguredStateResponse>;
   retentionRuns: PromiseSettledResult<{ object: string; data: RetentionRunData[] }>;
 };
 
@@ -1536,7 +1189,7 @@ type DashboardPreviousState = {
   chatSessions: ChatSessionsResponse["data"];
   activeChatSession: ChatSessionRecord | null;
   requestLedger: RequestLedgerResponse["data"];
-  adminConfig: ConfiguredStateResponse["data"] | null;
+  controlPlaneConfig: ConfiguredStateResponse["data"] | null;
   retentionRuns: RetentionRunData[];
   retentionLastRun: RetentionRunData | null;
 };
@@ -1554,48 +1207,28 @@ type DashboardSnapshot = {
   activeChatSessionID: string;
   activeChatSession: ChatSessionRecord | null;
   requestLedger: RequestLedgerResponse["data"];
-  adminConfig: ConfiguredStateResponse["data"] | null;
+  controlPlaneConfig: ConfiguredStateResponse["data"] | null;
   retentionRuns: RetentionRunData[];
   retentionLastRun: RetentionRunData | null;
 };
 
 async function resolveDashboardSnapshot(args: {
-  authToken: string;
   activeChatSessionID: string;
   previous: DashboardPreviousState;
 }): Promise<DashboardSnapshot> {
-  const results = await loadDashboardResults(args.authToken);
+  const results = await loadDashboardResults();
   const health = requireFulfilledDashboardResult(results.health);
   const sessionInfo = results.session.status === "fulfilled" ? results.session.value.data : null;
   const models = resolveModelsResult(results.models);
-  const providers = resolveAuthorizedDashboardResult(results.providers, {
-    unauthorized: [],
-    other: args.previous.providers,
-  });
+  const providers = resolveDashboardResult(results.providers, args.previous.providers);
   const providerPresets = results.providerPresets.status === "fulfilled" ? results.providerPresets.value.data : [];
-  const budget = resolveAuthorizedDashboardResult(results.budget, {
-    unauthorized: null,
-    other: args.previous.budget,
-  });
-  const accountSummary = resolveAuthorizedDashboardResult(results.accountSummary, {
-    unauthorized: null,
-    other: args.previous.accountSummary,
-  });
-  const requestLedger = resolveAuthorizedDashboardResult(results.requestLedger, {
-    unauthorized: [],
-    other: args.previous.requestLedger,
-  });
-  const adminConfig = resolveAuthorizedDashboardResult(results.adminConfig, {
-    unauthorized: null,
-    other: args.previous.adminConfig,
-  });
-  const retentionRuns = resolveAuthorizedDashboardResult(results.retentionRuns, {
-    unauthorized: [],
-    other: args.previous.retentionRuns,
-  });
+  const budget = resolveDashboardResult(results.budget, args.previous.budget);
+  const accountSummary = resolveDashboardResult(results.accountSummary, args.previous.accountSummary);
+  const requestLedger = resolveDashboardResult(results.requestLedger, args.previous.requestLedger);
+  const controlPlaneConfig = resolveDashboardResult(results.controlPlaneConfig, args.previous.controlPlaneConfig);
+  const retentionRuns = resolveDashboardResult(results.retentionRuns, args.previous.retentionRuns);
   const retentionLastRun = retentionRuns[0] ?? null;
   const chatState = await resolveChatDashboardState({
-    authToken: args.authToken,
     activeChatSessionID: args.activeChatSessionID,
     previousSessions: args.previous.chatSessions,
     previousActiveSession: args.previous.activeChatSession,
@@ -1615,107 +1248,57 @@ async function resolveDashboardSnapshot(args: {
     activeChatSessionID: chatState.activeChatSessionID,
     activeChatSession: chatState.activeChatSession,
     requestLedger,
-    adminConfig,
+    controlPlaneConfig,
     retentionRuns,
     retentionLastRun,
   };
 }
 
-async function loadDashboardResults(authToken: string): Promise<DashboardResults> {
-  // Two-phase load to avoid the "401 storm" — every admin endpoint
-  // would fail for a tenant or anonymous bearer, and the browser
-  // network panel logs each as a console error. Phase 1 establishes
-  // identity (open /healthz + bearer-only /v1/whoami); Phase 2 only
-  // fires the endpoints the resolved role can actually reach.
+async function loadDashboardResults(): Promise<DashboardResults> {
+  // Single-user mode: no auth gate. /healthz + /v1/whoami still come
+  // first so the gateway has time to surface its health state, then
+  // every other endpoint fans out in parallel.
   const [health, session] = await Promise.allSettled([
     getHealth(),
-    getSession(authToken),
+    getSession(),
   ]);
 
-  // Identity gate: an invalid bearer means /v1/* will also 401, so we
-  // skip everything else and let TokenGate take over via the
-  // `invalid_token` branch in deriveSessionState.
-  const sessionData = session.status === "fulfilled" ? session.value.data : null;
-  const invalidToken = sessionData?.invalid_token === true;
-  const role = sessionData?.role ?? "anonymous";
-  const isAdmin = role === "admin" || sessionData?.source === "auth_disabled";
-  const isAuthenticated = sessionData?.authenticated === true;
+  // Initialize each result as rejected so TS knows these are definitely
+  // assigned before we read them; the inline .then handlers below
+  // overwrite them with the real outcome.
+  const initialReject = <T,>(): PromiseSettledResult<T> => ({ status: "rejected", reason: new Error("uninitialized") });
+  let models: PromiseSettledResult<ModelResponse> = initialReject();
+  let providers: PromiseSettledResult<ProviderStatusResponse> = initialReject();
+  let providerPresets: PromiseSettledResult<{ object: string; data: ProviderPresetRecord[] }> = initialReject();
+  let budget: PromiseSettledResult<BudgetStatusResponse> = initialReject();
+  let accountSummary: PromiseSettledResult<AccountSummaryResponse> = initialReject();
+  let chatSessions: PromiseSettledResult<ChatSessionsResponse> = initialReject();
+  let requestLedger: PromiseSettledResult<RequestLedgerResponse> = initialReject();
+  let controlPlaneConfig: PromiseSettledResult<ConfiguredStateResponse> = initialReject();
+  let retentionRuns: PromiseSettledResult<{ object: string; data: RetentionRunData[] }> = initialReject();
 
-  // Default each result to a fresh "rejected without firing" so the
-  // existing resolveAuthorizedDashboardResult path treats it as a
-  // 401-equivalent fallback. We only overwrite below for endpoints
-  // the role is allowed to call.
-  // A "skipped" fetch presents the same shape as a 401 from the
-  // existing per-resolver helpers — so they fall back to the
-  // unauthorized default (empty list / null) rather than throwing
-  // "failed to load runtime console data". Reusing
-  // invalidBearerTokenMessage keeps the resolvers single-branched.
-  const skipped = <T,>(): PromiseSettledResult<T> => ({ status: "rejected", reason: new Error(invalidBearerTokenMessage) });
+  await Promise.all([
+    getProviderPresets().then(r => { providerPresets = { status: "fulfilled", value: r }; }, e => { providerPresets = { status: "rejected", reason: e }; }),
+    getChatSessions(20).then(r => { chatSessions = { status: "fulfilled", value: r }; }, e => { chatSessions = { status: "rejected", reason: e }; }),
+    getModels().then(r => { models = { status: "fulfilled", value: r }; }, e => { models = { status: "rejected", reason: e }; }),
+    getBudget("").then(r => { budget = { status: "fulfilled", value: r }; }, e => { budget = { status: "rejected", reason: e }; }),
+    getAccountSummary("").then(r => { accountSummary = { status: "fulfilled", value: r }; }, e => { accountSummary = { status: "rejected", reason: e }; }),
+    getRequestLedger(20).then(r => { requestLedger = { status: "fulfilled", value: r }; }, e => { requestLedger = { status: "rejected", reason: e }; }),
+    getControlPlaneConfig().then(r => { controlPlaneConfig = { status: "fulfilled", value: r }; }, e => { controlPlaneConfig = { status: "rejected", reason: e }; }),
+    getRetentionRuns(10).then(r => { retentionRuns = { status: "fulfilled", value: r }; }, e => { retentionRuns = { status: "rejected", reason: e }; }),
+  ]);
 
-  let models: PromiseSettledResult<ModelResponse> = skipped();
-  let providers: PromiseSettledResult<ProviderStatusResponse> = skipped();
-  let providerPresets: PromiseSettledResult<{ object: string; data: ProviderPresetRecord[] }> = skipped();
-  let budget: PromiseSettledResult<BudgetStatusResponse> = skipped();
-  let accountSummary: PromiseSettledResult<AccountSummaryResponse> = skipped();
-  let chatSessions: PromiseSettledResult<ChatSessionsResponse> = skipped();
-  let requestLedger: PromiseSettledResult<RequestLedgerResponse> = skipped();
-  let adminConfig: PromiseSettledResult<ConfiguredStateResponse> = skipped();
-  let retentionRuns: PromiseSettledResult<{ object: string; data: RetentionRunData[] }> = skipped();
-
-  // auth_disabled mode reports authenticated:false but still wants
-  // the full dashboard load — treat it as authenticated for gating.
-  const authDisabled = sessionData?.source === "auth_disabled";
-  if (!invalidToken && (isAuthenticated || authDisabled)) {
-    // Common-to-all-roles: preset catalog + chat sessions + provider presets
-    // — these are static-ish reference data that doesn't probe upstream
-    // providers, so they're cheap and always fetched.
-    const baseFetches: Array<Promise<unknown>> = [
-      getProviderPresets(authToken).then(r => { providerPresets = { status: "fulfilled", value: r }; }, e => { providerPresets = { status: "rejected", reason: e }; }),
-      getChatSessions(authToken, 20).then(r => { chatSessions = { status: "fulfilled", value: r }; }, e => { chatSessions = { status: "rejected", reason: e }; }),
-    ];
-
-    if (isAdmin) {
-      // Admin path: load /admin/control-plane (CP store, source of truth
-      // for "what providers are configured") in parallel with the other
-      // admin-only endpoints AND the model catalog (admin tabs like the
-      // pricebook need the catalog regardless of configured-provider
-      // count). /admin/providers (runtime health/status) is the only
-      // discovery call we gate — when no providers are configured, the
-      // providers tab renders its empty state and there's nothing for
-      // the runtime status to feed.
-      baseFetches.push(
-        getModels(authToken).then(r => { models = { status: "fulfilled", value: r }; }, e => { models = { status: "rejected", reason: e }; }),
-        getBudget("", authToken).then(r => { budget = { status: "fulfilled", value: r }; }, e => { budget = { status: "rejected", reason: e }; }),
-        getAccountSummary("", authToken).then(r => { accountSummary = { status: "fulfilled", value: r }; }, e => { accountSummary = { status: "rejected", reason: e }; }),
-        getRequestLedger(authToken, 20, true).then(r => { requestLedger = { status: "fulfilled", value: r }; }, e => { requestLedger = { status: "rejected", reason: e }; }),
-        getAdminConfig(authToken).then(r => { adminConfig = { status: "fulfilled", value: r }; }, e => { adminConfig = { status: "rejected", reason: e }; }),
-        getRetentionRuns(authToken, 10).then(r => { retentionRuns = { status: "fulfilled", value: r }; }, e => { retentionRuns = { status: "rejected", reason: e }; }),
-      );
-      await Promise.all(baseFetches);
-
-      const configured = adminConfig.status === "fulfilled" ? (adminConfig.value.data?.providers ?? []) : [];
-      if (configured.length > 0) {
-        await new Promise<void>(resolve => {
-          getProviders(authToken).then(
-            r => { providers = { status: "fulfilled", value: r }; resolve(); },
-            e => { providers = { status: "rejected", reason: e }; resolve(); },
-          );
-        });
-      }
-    } else {
-      // Tenant path: no /admin/control-plane access, so the runtime
-      // discovery endpoints are the only source of truth for what
-      // provider/model the operator can pick. Always fetch.
-      baseFetches.push(
-        getModels(authToken).then(r => { models = { status: "fulfilled", value: r }; }, e => { models = { status: "rejected", reason: e }; }),
-        getProviders(authToken).then(r => { providers = { status: "fulfilled", value: r }; }, e => { providers = { status: "rejected", reason: e }; }),
-        // Tenant-readable ledger via /v1/requests. Currently un-scoped
-        // (no key_id column on BudgetHistoryEntry) — tenants see what the
-        // unscoped endpoint returns, same as the admin /admin/requests.
-        getRequestLedger(authToken, 20, false).then(r => { requestLedger = { status: "fulfilled", value: r }; }, e => { requestLedger = { status: "rejected", reason: e }; }),
-      );
-      await Promise.all(baseFetches);
-    }
+  // /admin/providers probes upstream provider runtimes; only call it
+  // when at least one provider has been configured, otherwise the call
+  // returns nothing useful.
+  const configured = controlPlaneConfig.status === "fulfilled" ? (controlPlaneConfig.value.data?.providers ?? []) : [];
+  if (configured.length > 0) {
+    await getProviders().then(
+      r => { providers = { status: "fulfilled", value: r }; },
+      e => { providers = { status: "rejected", reason: e }; },
+    );
+  } else {
+    providers = { status: "fulfilled", value: { object: "list", data: [] } as ProviderStatusResponse };
   }
 
   return {
@@ -1728,7 +1311,7 @@ async function loadDashboardResults(authToken: string): Promise<DashboardResults
     accountSummary,
     chatSessions,
     requestLedger,
-    adminConfig,
+    controlPlaneConfig,
     retentionRuns,
   };
 }
@@ -1744,27 +1327,20 @@ function resolveModelsResult(result: PromiseSettledResult<ModelResponse>): Model
   if (result.status === "fulfilled") {
     return result.value.data;
   }
-  if (isInvalidBearerTokenError(result.reason)) {
-    return [];
-  }
-  throw new Error("failed to load runtime console data");
+  return [];
 }
 
-function resolveAuthorizedDashboardResult<T>(
+function resolveDashboardResult<T>(
   result: PromiseSettledResult<{ data: T }>,
-  fallbacks: { unauthorized: T; other: T },
+  previous: T,
 ): T {
   if (result.status === "fulfilled") {
     return result.value.data;
   }
-  if (isInvalidBearerTokenError(result.reason)) {
-    return fallbacks.unauthorized;
-  }
-  return fallbacks.other;
+  return previous;
 }
 
 async function resolveChatDashboardState(args: {
-  authToken: string;
   activeChatSessionID: string;
   previousSessions: ChatSessionsResponse["data"];
   previousActiveSession: ChatSessionRecord | null;
@@ -1776,14 +1352,6 @@ async function resolveChatDashboardState(args: {
   activeChatSession: ChatSessionRecord | null;
 }> {
   if (args.result.status !== "fulfilled") {
-    if (isInvalidBearerTokenError(args.result.reason)) {
-      return {
-        sessions: [],
-        hasMore: false,
-        activeChatSessionID: "",
-        activeChatSession: null,
-      };
-    }
     return {
       sessions: args.previousSessions,
       hasMore: false,
@@ -1808,7 +1376,7 @@ async function resolveChatDashboardState(args: {
   }
 
   try {
-    const sessionResult = await getChatSession(activeChatSessionID, args.authToken);
+    const sessionResult = await getChatSession(activeChatSessionID);
     return {
       sessions,
       hasMore,
@@ -1825,57 +1393,9 @@ async function resolveChatDashboardState(args: {
   }
 }
 
-function isInvalidBearerTokenError(error: unknown): boolean {
-  return error instanceof Error && error.message === invalidBearerTokenMessage;
-}
-
-function deriveSessionState(sessionInfo: SessionResponse["data"] | null): SessionState {
-  const role = sessionInfo?.role ?? "anonymous";
-  const authDisabled = sessionInfo?.source === "auth_disabled";
-  const kind: SessionKind = sessionInfo?.invalid_token
-    ? "invalid"
-    : role === "admin" || authDisabled
-      ? "admin"
-      : sessionInfo?.authenticated
-        ? "tenant"
-        : "anonymous";
-
-  const label =
-    kind === "admin"
-      ? "Admin"
-      : kind === "tenant"
-        ? `Tenant${sessionInfo?.tenant ? `: ${sessionInfo.tenant}` : ""}`
-        : kind === "invalid"
-          ? "Invalid token"
-          : "Anonymous";
-
-  const capabilities =
-    kind === "admin"
-      ? ["Chats access", "Model catalog", "Provider status", "Budget admin", "Control-plane admin"]
-      : kind === "tenant"
-        ? ["Chats access", "Model catalog"]
-        : kind === "anonymous"
-          ? ["Health view", "Authentication setup"]
-          : ["No confirmed access"];
-
-  return {
-    kind,
-    label,
-    capabilities,
-    isAdmin: kind === "admin",
-    isAuthenticated: kind === "admin" || kind === "tenant",
-    role,
-    name: sessionInfo?.name ?? "",
-    tenant: sessionInfo?.tenant ?? "",
-    source: sessionInfo?.source ?? "",
-    keyID: sessionInfo?.key_id ?? "",
-    allowedProviders: sessionInfo?.allowed_providers ?? [],
-    allowedModels: sessionInfo?.allowed_models ?? [],
-    multiTenant: sessionInfo?.features?.multi_tenant === true,
-    // Two paths to "auth disabled": the explicit features.auth_disabled
-    // flag from a fresh gateway, and the legacy source==="auth_disabled"
-    // signal from older builds. Either one means the TokenGate should
-    // step out of the way.
-    authDisabled: sessionInfo?.features?.auth_disabled === true || sessionInfo?.source === "auth_disabled",
-  };
+// Single-user mode: the session label is fixed. The whoami endpoint
+// is still called to surface gateway features in the future, but we
+// don't read role/tenant/auth from it.
+function deriveSessionState(_sessionInfo: SessionResponse["data"] | null): SessionState {
+  return { label: "Local" };
 }

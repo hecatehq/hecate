@@ -9,7 +9,6 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/hecate/agent-runtime/internal/auth"
 	"github.com/hecate/agent-runtime/internal/config"
 	"github.com/hecate/agent-runtime/internal/providers"
 	"github.com/hecate/agent-runtime/pkg/types"
@@ -396,12 +395,6 @@ func TestChatCompletionsStreamMidStreamErrorMessageIsValidJSON(t *testing.T) {
 	}
 }
 
-// TestChatCompletionsRequiresAuthWhenConfigured guards the auth gate.
-// Without an AuthToken the handler is open by default (test fixtures
-// rely on this); flipping AuthToken on must produce a 401 for an
-// unauthenticated request, so an operator who configures auth doesn't
-// silently get an open gateway.
-// reconcile per-request cost from raw response bodies.
 func TestRenderChatCompletionResponseSurfacesCachedTokens(t *testing.T) {
 	t.Parallel()
 	resp := &types.ChatResponse{
@@ -553,7 +546,7 @@ func TestNormalizeChatRequestParsesImageBlocks(t *testing.T) {
 	if err := json.Unmarshal([]byte(body), &req); err != nil {
 		t.Fatalf("decode wire request: %v", err)
 	}
-	internal, err := normalizeChatRequest(req, "req-1", auth.Principal{})
+	internal, err := normalizeChatRequest(req, "req-1")
 	if err != nil {
 		t.Fatalf("normalize: %v", err)
 	}
@@ -595,7 +588,7 @@ func TestNormalizeChatRequestStringContentUnchanged(t *testing.T) {
 	if err := json.Unmarshal([]byte(body), &req); err != nil {
 		t.Fatalf("decode: %v", err)
 	}
-	internal, err := normalizeChatRequest(req, "req-1", auth.Principal{})
+	internal, err := normalizeChatRequest(req, "req-1")
 	if err != nil {
 		t.Fatalf("normalize: %v", err)
 	}
@@ -621,7 +614,7 @@ func TestNormalizeChatRequestCapturesResponseFormat(t *testing.T) {
 		Messages:       []OpenAIChatMessage{{Role: "user", Content: OpenAIMessageContent{Text: hi}}},
 		ResponseFormat: rf,
 	}
-	internal, err := normalizeChatRequest(req, "req-1", auth.Principal{})
+	internal, err := normalizeChatRequest(req, "req-1")
 	if err != nil {
 		t.Fatalf("normalize: %v", err)
 	}

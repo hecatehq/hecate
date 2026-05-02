@@ -11,7 +11,6 @@ import (
 	"testing"
 	"time"
 
-	"github.com/hecate/agent-runtime/internal/auth"
 	"github.com/hecate/agent-runtime/internal/config"
 	"github.com/hecate/agent-runtime/internal/providers"
 	"github.com/hecate/agent-runtime/pkg/types"
@@ -342,7 +341,7 @@ func TestNormalizeAnthropicRequestPassesThinking(t *testing.T) {
 		Thinking:  thinking,
 		Betas:     betas,
 	}
-	internal, err := normalizeAnthropicRequest(req, "req-1", auth.Principal{Role: "user"})
+	internal, err := normalizeAnthropicRequest(req, "req-1")
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
