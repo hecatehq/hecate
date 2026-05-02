@@ -53,7 +53,7 @@ Pick your role and read in order — each path is three to five docs.
 | [Runtime API](runtime-api.md) | Building a client against `/v1/tasks/*`. Lifecycle, approvals, run streaming, queue + lease semantics, health/discovery endpoints, bootstrap-token handshake. |
 | [Semantic cache](semantic-cache.md) | Enabling vector-similarity caching, choosing an embedder, Postgres vs memory backend, similarity threshold tuning, observability. |
 | [Agent runtime](agent-runtime.md) | Configuring `agent_loop` runs. Built-in tools, four-layer system prompt, approval gates, cost ceiling, retry-from-turn. |
-| [Sandbox](sandbox.md) | `sandboxd` binary resolution, deployment scenarios (Docker, Tauri desktop, CI), policy controls, isolation layer roadmap (OS namespaces, Wasm). |
+| [Sandbox](sandbox.md) | Per-call `sh` subprocess: policy validation, rlimits, env sanitisation, output cap; auto-detected `bwrap` (Linux) / `sandbox-exec` (macOS) wrapping for filesystem and network confinement. |
 | [Chat sessions](chat-sessions.md) | The flat-message + provider-call model behind `/v1/chat/sessions`, the operator UI's chat surface, and history replay across model/provider switches. |
 | [Events](events.md) | Consuming `/v1/events` or per-run SSE. Catalog of every event type with payload shape and when it fires. |
 | [MCP integration](mcp.md) | Wiring Hecate as an MCP server (Claude Desktop / Cursor / Zed) or attaching external MCP servers as tools to `agent_loop`. |

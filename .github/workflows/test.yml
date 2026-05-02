@@ -140,22 +140,11 @@ jobs:
       - name: Build gateway binary
         run: go build -o gateway ./cmd/gateway
 
-      - name: Build sandboxd binary
-        run: go build -o sandboxd ./cmd/sandboxd
-
       - name: Upload gateway artifact
         uses: actions/upload-artifact@v7
         with:
           name: gateway-binary
           path: gateway
-          retention-days: 1
-          if-no-files-found: error
-
-      - name: Upload sandboxd artifact
-        uses: actions/upload-artifact@v7
-        with:
-          name: sandboxd-binary
-          path: sandboxd
           retention-days: 1
           if-no-files-found: error
 
@@ -178,19 +167,12 @@ jobs:
           name: gateway-binary
           path: /tmp
 
-      - name: Download sandboxd binary
-        uses: actions/download-artifact@v8
-        with:
-          name: sandboxd-binary
-          path: /tmp
-
       - name: Run e2e tests
         run: |
-          chmod +x /tmp/gateway /tmp/sandboxd
+          chmod +x /tmp/gateway
           go test -tags e2e -count=1 -timeout 3m ./e2e/...
         env:
           E2E_GATEWAY_BIN: /tmp/gateway
-          E2E_SANDBOXD_BIN: /tmp/sandboxd
 
   e2e-ollama:
     name: E2E tests (Ollama)
@@ -209,12 +191,6 @@ jobs:
         uses: actions/download-artifact@v8
         with:
           name: gateway-binary
-          path: /tmp
-
-      - name: Download sandboxd binary
-        uses: actions/download-artifact@v8
-        with:
-          name: sandboxd-binary
           path: /tmp
 
       - name: Cache Ollama model weights
@@ -259,11 +235,10 @@ jobs:
         # -run TestOllama: fake-upstream (TestGateway*) tests are already covered
         # by the e2e job running in parallel.
         run: |
-          chmod +x /tmp/gateway /tmp/sandboxd
+          chmod +x /tmp/gateway
           go test -tags 'e2e ollama' -count=1 -run TestOllama -timeout 10m ./e2e/...
         env:
           E2E_GATEWAY_BIN: /tmp/gateway
-          E2E_SANDBOXD_BIN: /tmp/sandboxd
           OLLAMA_HOST: http://127.0.0.1:11434
 
   docker-smoke:
@@ -292,13 +267,8 @@ jobs:
       # the smoke job would rebuild the full UI + Go binary every run.
       - uses: docker/setup-buildx-action@v4
 
-      - name: Build sandboxd binary
-        run: go build -o /tmp/sandboxd ./cmd/sandboxd
-
       - name: Run docker smoke test
         run: go test -tags 'e2e docker' -count=1 -timeout 5m ./e2e/...
-        env:
-          E2E_SANDBOXD_BIN: /tmp/sandboxd
 
   typescript:
     name: TypeScript tests

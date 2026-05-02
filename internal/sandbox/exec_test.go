@@ -99,25 +99,6 @@ func TestResolvePathRejectsEscapeFromAllowedRoot(t *testing.T) {
 	}
 }
 
-func TestWorkerExecutorSeparatesStdoutAndStderr(t *testing.T) {
-	t.Parallel()
-
-	exec := NewWorkerExecutor()
-	result, err := exec.Run(context.Background(), Command{
-		Command: `printf 'hello stdout'; printf 'hello stderr' >&2`,
-		Timeout: time.Second,
-	})
-	if err != nil {
-		t.Fatalf("Run() error = %v", err)
-	}
-	if result.Stdout != "hello stdout" {
-		t.Fatalf("stdout = %q, want hello stdout", result.Stdout)
-	}
-	if result.Stderr != "hello stderr" {
-		t.Fatalf("stderr = %q, want hello stderr", result.Stderr)
-	}
-}
-
 func TestLocalExecutor_NetworkPolicy_BlocksPrivateIPLiteral(t *testing.T) {
 	// When Network=true (operator allowed network) the sandbox still
 	// rejects URLs whose host parses as a private/loopback IP literal
@@ -305,15 +286,15 @@ func TestLocalExecutor_NetworkPolicy_PrivateIPBlockedRegardlessOfAllowlist(t *te
 	}
 }
 
-func TestWorkerExecutorWritesFile(t *testing.T) {
+func TestLocalExecutorWritesFile(t *testing.T) {
 	t.Parallel()
 
 	root := t.TempDir()
-	exec := NewWorkerExecutor()
+	exec := NewLocalExecutor()
 	result, err := exec.WriteFile(context.Background(), FileRequest{
 		WorkingDirectory: root,
 		Path:             "note.txt",
-		Content:          "hello worker",
+		Content:          "hello sandbox",
 		Policy:           Policy{AllowedRoot: root},
 	})
 	if err != nil {
@@ -323,8 +304,8 @@ func TestWorkerExecutorWritesFile(t *testing.T) {
 	if err != nil {
 		t.Fatalf("ReadFile() error = %v", err)
 	}
-	if string(content) != "hello worker" {
-		t.Fatalf("file contents = %q, want hello worker", string(content))
+	if string(content) != "hello sandbox" {
+		t.Fatalf("file contents = %q, want hello sandbox", string(content))
 	}
 	if result.Path == "" {
 		t.Fatal("result path is empty")

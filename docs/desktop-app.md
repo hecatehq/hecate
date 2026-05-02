@@ -99,15 +99,16 @@ the bundle is polished enough to recommend.
 
 ## Sandbox executor
 
-The desktop app bundles both `gateway` and `sandboxd` as Tauri `externalBin`
-sidecars. `sandboxd` is the out-of-process executor that runs agent tool calls
-(`shell_exec`, `git_exec`, `file_write`) in a separate process so a misbehaving
-command cannot crash the gateway. In the distributed bundle it sits next to the
-`gateway` executable and is found automatically — no `PATH` setup or
-`SANDBOXD_BIN` override is required.
+The desktop app bundles only the `gateway` binary. Agent tool calls
+(`shell_exec`, `git_exec`, `file_write`) spawn a per-call `sh`
+subprocess directly from the gateway with rlimits, env sanitisation,
+and an output cap applied inline (Layer 1). On macOS the call is
+additionally wrapped by `sandbox-exec` (Layer 2) for filesystem and
+network confinement; the binary ships on every macOS install so this
+is automatic.
 
-See [`docs/sandbox.md`](sandbox.md) for the full binary resolution order and
-policy reference.
+See [`docs/sandbox.md`](sandbox.md) for the layer model and policy
+reference.
 
 ## Footguns to know
 

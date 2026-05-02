@@ -109,7 +109,6 @@ Top-level entry points:
 
 ```
 cmd/gateway/            # binary entry point (CLI flags + bootstrap wiring)
-cmd/sandboxd/           # out-of-process sandbox executor for tasks
 ui/                     # React app (Vite + Bun); src/ is the source, dist/ is the embed target
 tauri/                  # native desktop app (Tauri 2.x); wraps `gateway` as a sidecar
 e2e/                    # Go end-to-end tests (build tag: e2e; sub-tags: ollama, docker)
@@ -133,7 +132,7 @@ controlplane            # tenants, API keys, persisted providers, policy/pricebo
 gateway                 # request lifecycle: auth, policy, cache, router, retry/fallback
 governor                # budget enforcement, rate limiting, policy rules
 models                  # model identity + canonical-name resolution
-orchestrator            # task runtime: queue, runner, executors, sandboxd boundary
+orchestrator            # task runtime: queue, runner, executors, sandbox boundary
 policy                  # declarative deny / rewrite policy rules
 profiler                # internal trace recorder + OTel SDK adapter
 providers               # provider adapters (OpenAI-compat + Anthropic Messages)

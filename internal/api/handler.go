@@ -17,6 +17,7 @@ import (
 	mcpclient "github.com/hecate/agent-runtime/internal/mcp/client"
 	"github.com/hecate/agent-runtime/internal/orchestrator"
 	"github.com/hecate/agent-runtime/internal/ratelimit"
+	"github.com/hecate/agent-runtime/internal/sandbox"
 	"github.com/hecate/agent-runtime/internal/secrets"
 	"github.com/hecate/agent-runtime/internal/taskstate"
 	"github.com/hecate/agent-runtime/internal/telemetry"
@@ -272,6 +273,9 @@ func (h *Handler) HandleHealth(w http.ResponseWriter, r *http.Request) {
 		"status":  "ok",
 		"time":    time.Now().UTC().Format(time.RFC3339),
 		"version": version.Version,
+		"sandbox": map[string]any{
+			"os_isolation": sandbox.HealthInfo(),
+		},
 	})
 }
 

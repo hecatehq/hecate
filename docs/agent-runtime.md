@@ -76,7 +76,7 @@ The agent gets six tools by default. None require operator config beyond the app
 
 | Tool | What it does | Policy |
 |---|---|---|
-| `shell_exec` | Run a shell command in the workspace | Gated by `shell_exec` or `all_tools` policy (default on); executed out-of-process through `cmd/sandboxd` |
+| `shell_exec` | Run a shell command in the workspace | Gated by `shell_exec` or `all_tools` policy (default on); executed in a per-call `sh` subprocess with env sanitisation + output cap + wall-clock timeout, optionally wrapped by `bwrap` / `sandbox-exec` for OS-level fs+net confinement (see [`sandbox.md`](sandbox.md)) |
 | `git_exec` | Run a git command in the workspace | Gated by `git_exec` or `all_tools` policy (default on) |
 | `file_write` | Write or append a file under the workspace | Gated by `file_write` or `all_tools` policy (default on) |
 | `read_file` | Read a file under the workspace (8 KiB cap, binary detection) | Ungated by default; gate with `read_file` or `all_tools` policy. Path must resolve within the sandbox root |
@@ -93,7 +93,7 @@ Tool argument schemas are JSON-Schema-shaped and surfaced to the LLM in the stan
 - Hosts that parse as a private/loopback IP literal (10/8, 172.16/12, 192.168/16, 127/8, 169.254/16, link-local, multicast) are rejected unless `GATEWAY_TASK_SHELL_ALLOW_PRIVATE_IPS=true`.
 - When `GATEWAY_TASK_SHELL_ALLOWED_HOSTS` is set, only those exact hostnames are reachable. Empty = all public hosts allowed.
 
-Enforcement is **best-effort static parsing** of the command string. Tools that respect the allowlist (`curl`, `wget`, `git fetch`, `bun install`, `pip install`, etc.) get covered; clever obfuscation (base64-encoded URLs, `nc`/`telnet` raw sockets, custom-binary egress) bypasses it. For kernel-enforced network isolation, set `GATEWAY_SANDBOX_OS_ISOLATION=true` (Linux: network namespace; macOS: Seatbelt profile) — see [`sandbox.md`](sandbox.md#layer-2--os-level-isolation-current) for requirements and platform coverage. The default `sandbox_network=false` (no network at all) combined with OS isolation remains the strongest available guarantee short of a full container.
+Enforcement is **best-effort static parsing** of the command string. Tools that respect the allowlist (`curl`, `wget`, `git fetch`, `bun install`, `pip install`, etc.) get covered; clever obfuscation (base64-encoded URLs, `nc`/`telnet` raw sockets, custom-binary egress) bypasses it. The kernel-enforced backstop comes from Layer 2 of the sandbox: on Linux with `bwrap` installed, and on macOS, every shell/git call runs inside a wrapper that drops the network namespace (Linux) or applies a Seatbelt profile (macOS) when the task's `sandbox_network=false`. See [`sandbox.md`](sandbox.md#layer-2--os-level-isolation-auto-where-available) for the auto-detection logic and platform coverage. The default `sandbox_network=false` (no network at all) plus an active Layer 2 wrapper is the strongest guarantee short of a full container.
 
 ## External MCP tools
 

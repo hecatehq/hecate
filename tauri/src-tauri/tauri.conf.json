@@ -36,8 +36,7 @@
       "icons/icon.ico"
     ],
     "externalBin": [
-      "binaries/gateway",
-      "binaries/sandboxd"
+      "binaries/gateway"
     ],
     "resources": {},
     "windows": {

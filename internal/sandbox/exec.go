@@ -12,47 +12,23 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
+	"strconv"
 	"strings"
 	"time"
 )
 
-// IsolationConfig requests OS-level process isolation for the shell
-// subprocess. Each field is best-effort — the platform implementation
-// applies what it can and silently skips what it cannot (e.g. the
-// applyProcessIsolation no-op stubs on unsupported platforms). Layer 0
-// (process boundary) and Layer 1 (rlimits, output cap, env sanitisation)
-// remain active regardless of this config.
-type IsolationConfig struct {
-	// DisableNetwork, when true, asks the platform to enforce a no-network
-	// constraint at the OS level — a Linux network namespace, a macOS
-	// Seatbelt profile, etc. This turns the best-effort string-matching
-	// check in validateCommand into a kernel guarantee: even commands that
-	// bypass the pattern list (inline Python, raw sockets via nc, etc.)
-	// cannot reach the network.
-	//
-	// When false (the default), no OS-level network isolation is applied;
-	// the string-matching policy gate from validateCommand still applies.
-	DisableNetwork bool
-}
-
-// ResourceLimits caps resources consumed by the shell subprocess and its
-// descendants. Zero values leave the current kernel limit in place.
-// The gateway populates this from environment variables and embeds it in
-// the JSON request sent to the sandboxd worker; the worker applies the
-// limits before spawning the shell.
+// ResourceLimits caps resources consumed by the shell subprocess and the
+// reader goroutines that drain its output. The only knob today is the
+// combined-output byte cap: per-call CPU / FD / address-space caps via
+// setrlimit would shrink the calling process (the long-running gateway),
+// so they're intentionally left to deployment-level controls (systemd
+// CPUQuota=, LimitNOFILE=, MemoryMax=, or container --cpus / --memory
+// flags). See docs/sandbox.md for the layer model.
 type ResourceLimits struct {
 	// MaxOutputBytes caps the combined stdout+stderr that drainProcessOutput
 	// will buffer. When the cap is reached the command is cancelled and
 	// an OutputLimitExceededError is returned. 0 means no cap.
 	MaxOutputBytes int64
-	// MaxCPUSeconds caps CPU time via RLIMIT_CPU. 0 means no cap.
-	MaxCPUSeconds uint64
-	// MaxOpenFiles caps open file descriptors via RLIMIT_NOFILE. 0 means no cap.
-	MaxOpenFiles uint64
-	// MaxAddressSpaceBytes caps the virtual address space via RLIMIT_AS. 0
-	// means no cap. Behaviour on macOS matches RLIMIT_AS semantics (virtual
-	// memory); on Linux it is strictly the process address space.
-	MaxAddressSpaceBytes uint64
 }
 
 // OutputLimitExceededError is returned when a command's combined stdout and
@@ -104,7 +80,6 @@ type Command struct {
 	Timeout          time.Duration
 	Policy           Policy
 	Limits           ResourceLimits
-	Isolation        IsolationConfig
 }
 
 type FileRequest struct {
@@ -172,6 +147,12 @@ func (e *LocalExecutor) RunStreaming(ctx context.Context, command Command, onChu
 		return Result{ExitCode: -1}, err
 	}
 
+	// Merge caller-supplied limits with the gateway defaults. A non-zero
+	// caller value always wins; zero means "use the env-driven default".
+	if command.Limits.MaxOutputBytes == 0 {
+		command.Limits.MaxOutputBytes = defaultLimits().MaxOutputBytes
+	}
+
 	// Always derive a cancel-able context so drainProcessOutput can kill
 	// the child process when the output-size cap is hit.
 	runCtx, cancel := context.WithCancel(ctx)
@@ -186,17 +167,14 @@ func (e *LocalExecutor) RunStreaming(ctx context.Context, command Command, onChu
 	if workingDirectory != "" {
 		cmd.Dir = workingDirectory
 	}
+	// Sanitised environment — gateway secrets stay out of scope. See
+	// sanitisedEnv() for the allowlist and the reasoning.
+	cmd.Env = sanitisedEnv()
 
-	// Apply process resource limits (CPU, file descriptors, address space)
-	// before the child process starts so it inherits them. Each sandboxd
-	// worker handles exactly one command, so limiting the worker process is
-	// equivalent to limiting the command it spawns.
-	applyProcessResourceLimits(command.Limits)
-
-	// Apply OS-level isolation (Layer 2) — network namespaces on Linux,
-	// sandbox-exec Seatbelt profile on macOS, no-op elsewhere. Must be
-	// called before cmd.Start().
-	applyProcessIsolation(cmd, command.Isolation)
+	// Layer 2 — wrap the argv with bwrap (Linux) or sandbox-exec (macOS)
+	// when one is available. No-op on Windows / Linux without bwrap.
+	// Must run before cmd.Start().
+	applyWrapper(cmd, workingDirectory, command.Policy.Network)
 
 	var stdout bytes.Buffer
 	var stderr bytes.Buffer
@@ -630,4 +608,61 @@ func containsAnyPattern(value string, patterns []string) bool {
 		}
 	}
 	return false
+}
+
+// sanitisedEnv returns the allowlisted subset of the gateway's environment
+// that the shell subprocess is allowed to see. Passing an explicit list
+// instead of inheriting the full gateway env keeps secrets like
+// OPENAI_API_KEY and POSTGRES_DSN out of scope for tool-spawned commands.
+//
+// The allowlist is intentionally conservative: only variables required for
+// normal program execution are forwarded. Variables needed by git (author
+// identity) are also included because agent tasks commonly run git commands.
+func sanitisedEnv() []string {
+	allowed := []string{
+		// Shell / process execution
+		"PATH", "SHELL",
+		// User identity
+		"HOME", "USER", "LOGNAME",
+		// Temporary file locations
+		"TMPDIR", "TEMP", "TMP",
+		// Locale
+		"LANG", "LC_ALL", "LC_CTYPE", "LC_MESSAGES", "LC_TIME",
+		// Timezone
+		"TZ",
+		// Terminal (some tools branch on its presence)
+		"TERM",
+		// Git author identity — agent tasks commonly run git commit.
+		"GIT_AUTHOR_NAME", "GIT_AUTHOR_EMAIL",
+		"GIT_COMMITTER_NAME", "GIT_COMMITTER_EMAIL",
+	}
+	env := make([]string, 0, len(allowed))
+	for _, key := range allowed {
+		if v, ok := os.LookupEnv(key); ok {
+			env = append(env, key+"="+v)
+		}
+	}
+	return env
+}
+
+// defaultLimits reads sandbox limit configuration from environment
+// variables. Set GATEWAY_TASK_MAX_OUTPUT_BYTES=0 to disable the cap
+// entirely. The default of 4 MiB bounds memory growth in the gateway
+// reader goroutines for runaway commands.
+func defaultLimits() ResourceLimits {
+	return ResourceLimits{
+		MaxOutputBytes: envInt64("GATEWAY_TASK_MAX_OUTPUT_BYTES", 4*1024*1024),
+	}
+}
+
+func envInt64(key string, fallback int64) int64 {
+	s := strings.TrimSpace(os.Getenv(key))
+	if s == "" {
+		return fallback
+	}
+	v, err := strconv.ParseInt(s, 10, 64)
+	if err != nil || v < 0 {
+		return fallback
+	}
+	return v
 }

@@ -43,6 +43,32 @@ func TestHandleHealthIncludesVersion(t *testing.T) {
 	}
 }
 
+func TestHandleHealthIncludesSandboxInfo(t *testing.T) {
+	// /healthz must surface the active OS-isolation wrapper so operators
+	// can confirm whether bwrap / sandbox-exec / none was detected at
+	// startup without parsing logs. Schema is the same shape as
+	// sandbox.WrapperHealthInfo.
+	h := &Handler{}
+	rec := httptest.NewRecorder()
+	h.HandleHealth(rec, httptest.NewRequest(http.MethodGet, "/healthz", nil))
+
+	var body map[string]any
+	if err := json.Unmarshal(rec.Body.Bytes(), &body); err != nil {
+		t.Fatalf("decode body: %v", err)
+	}
+	sandboxField, ok := body["sandbox"].(map[string]any)
+	if !ok {
+		t.Fatalf("sandbox field missing or wrong shape: %#v", body["sandbox"])
+	}
+	osIso, ok := sandboxField["os_isolation"].(map[string]any)
+	if !ok {
+		t.Fatalf("sandbox.os_isolation field missing or wrong shape: %#v", sandboxField["os_isolation"])
+	}
+	if _, ok := osIso["kind"]; !ok {
+		t.Errorf("sandbox.os_isolation.kind missing: %#v", osIso)
+	}
+}
+
 func TestHandleHealthDefaultVersionIsDev(t *testing.T) {
 	// "dev" is what local source builds report; release builds override
 	// it via -ldflags. If this assertion regresses, something replaced

@@ -177,7 +177,7 @@ func NewRunner(logger *slog.Logger, store taskstate.Store, tracer profiler.Trace
 	if tracer == nil {
 		tracer = profiler.NewInMemoryTracer(nil)
 	}
-	worker := sandbox.NewWorkerExecutor()
+	worker := sandbox.NewLocalExecutor()
 	queueBuffer := cfg.QueueBuffer
 	if queueBuffer <= 0 {
 		queueBuffer = 128

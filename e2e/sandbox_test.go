@@ -6,59 +6,24 @@ import (
 	"encoding/json"
 	"fmt"
 	"net/http"
-	"os"
-	"os/exec"
-	"path/filepath"
-	"runtime"
 	"strings"
 	"testing"
 	"time"
 )
 
-// buildSandboxd compiles cmd/sandboxd into dir and returns the binary path.
-// Accepts E2E_SANDBOXD_BIN to skip the build entirely — mirrors the
-// E2E_GATEWAY_BIN convention for the gateway binary.
-func buildSandboxd(t *testing.T, dir string) string {
-	t.Helper()
-	if bin := os.Getenv("E2E_SANDBOXD_BIN"); bin != "" {
-		return bin
-	}
-	ext := ""
-	if runtime.GOOS == "windows" {
-		ext = ".exe"
-	}
-	out := filepath.Join(dir, "sandboxd"+ext)
-	cmd := exec.Command("go", "build", "-o", out, "./cmd/sandboxd")
-	cmd.Dir = moduleRootDir()
-	if output, err := cmd.CombinedOutput(); err != nil {
-		t.Fatalf("build sandboxd: %v\n%s", err, output)
-	}
-	return out
-}
-
-// TestSandboxBundledLayout is the highest-fidelity smoke test for the Tauri
-// bundled-app scenario. It places sandboxd next to the gateway executable and
-// starts the gateway without SANDBOXD_BIN set — exactly the layout the
-// desktop app uses. The shell task must complete successfully without relying
-// on go build for binary resolution.
-func TestSandboxBundledLayout(t *testing.T) {
-	gatewayBin := gatewayBinary(t)
-	gatewayDir := filepath.Dir(gatewayBin)
-
-	// Stage sandboxd next to gateway, mirroring what `make tauri-sidecar` does.
-	buildSandboxd(t, gatewayDir)
-
+// TestSandboxShellExecRunsInline is the highest-fidelity smoke test for the
+// inline-sandbox model: the gateway spawns the shell directly with no helper
+// binary. A simple echo task must round-trip through the runtime and produce
+// stdout in the artifacts.
+func TestSandboxShellExecRunsInline(t *testing.T) {
 	workDir := t.TempDir()
 	baseURL := gatewayServer(t,
-		// Explicitly unset so resolution falls through to the
-		// next-to-executable probe rather than any ambient env var.
-		"SANDBOXD_BIN=",
 		// Disable the shell_exec approval gate so the task runs without
 		// a human approval step in the test loop.
 		"GATEWAY_TASK_APPROVAL_POLICIES=",
 	)
 
-	taskID := sbCreateShellTask(t, baseURL, `echo "bundled-layout-ok"`, workDir)
+	taskID := sbCreateShellTask(t, baseURL, `echo "inline-sandbox-ok"`, workDir)
 	sbStartTask(t, baseURL, taskID)
 
 	runID, status := sbWaitTerminal(t, baseURL, taskID, 20*time.Second)
@@ -66,32 +31,8 @@ func TestSandboxBundledLayout(t *testing.T) {
 		t.Fatalf("task %s: status = %q, want completed (run %s)", taskID, status, runID)
 	}
 	stdout := sbStdout(t, baseURL, taskID, runID)
-	if !strings.Contains(stdout, "bundled-layout-ok") {
-		t.Errorf("stdout = %q, want to contain bundled-layout-ok", stdout)
-	}
-}
-
-// TestSandboxSANDBOXDBINOverride verifies that SANDBOXD_BIN is honoured
-// end-to-end: the gateway uses the specified binary to execute a shell task.
-func TestSandboxSANDBOXDBINOverride(t *testing.T) {
-	sandboxdBin := buildSandboxd(t, t.TempDir())
-	workDir := t.TempDir()
-
-	baseURL := gatewayServer(t,
-		"SANDBOXD_BIN="+sandboxdBin,
-		"GATEWAY_TASK_APPROVAL_POLICIES=",
-	)
-
-	taskID := sbCreateShellTask(t, baseURL, `echo "sandboxd-bin-override-ok"`, workDir)
-	sbStartTask(t, baseURL, taskID)
-
-	runID, status := sbWaitTerminal(t, baseURL, taskID, 20*time.Second)
-	if status != "completed" {
-		t.Fatalf("task %s: status = %q, want completed (run %s)", taskID, status, runID)
-	}
-	stdout := sbStdout(t, baseURL, taskID, runID)
-	if !strings.Contains(stdout, "sandboxd-bin-override-ok") {
-		t.Errorf("stdout = %q, want to contain sandboxd-bin-override-ok", stdout)
+	if !strings.Contains(stdout, "inline-sandbox-ok") {
+		t.Errorf("stdout = %q, want to contain inline-sandbox-ok", stdout)
 	}
 }
 
@@ -100,11 +41,9 @@ func TestSandboxSANDBOXDBINOverride(t *testing.T) {
 // The task must fail — not time out — confirming enforcement is static and
 // fast, not a network-level block.
 func TestSandboxPolicyDeniesNetwork(t *testing.T) {
-	sandboxdBin := buildSandboxd(t, t.TempDir())
 	workDir := t.TempDir()
 
 	baseURL := gatewayServer(t,
-		"SANDBOXD_BIN="+sandboxdBin,
 		"GATEWAY_TASK_APPROVAL_POLICIES=",
 	)
 
@@ -120,11 +59,9 @@ func TestSandboxPolicyDeniesNetwork(t *testing.T) {
 // TestSandboxReadOnlyPolicyDeniesWrite verifies that the read-only policy
 // gate blocks write operations before the command runs.
 func TestSandboxReadOnlyPolicyDeniesWrite(t *testing.T) {
-	sandboxdBin := buildSandboxd(t, t.TempDir())
 	workDir := t.TempDir()
 
 	baseURL := gatewayServer(t,
-		"SANDBOXD_BIN="+sandboxdBin,
 		"GATEWAY_TASK_APPROVAL_POLICIES=",
 	)
 

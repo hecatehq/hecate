@@ -1,117 +1,60 @@
 # Sandbox
 
-Hecate executes shell commands, git operations, and file writes inside an
-out-of-process executor called `sandboxd`. Every `shell_exec`, `git_exec`, and
-`file_write` tool call crosses an exec boundary into a fresh `sandboxd worker`
-subprocess. A buggy or misbehaving command crashes the worker, not the gateway.
+Hecate executes shell commands, git operations, and file writes inside
+a per-call subprocess that the gateway spawns directly. Every
+`shell_exec`, `git_exec`, and `file_write` tool call goes through the
+same code path: validate the task's policy, sanitise the environment,
+cap output and wall-clock time, optionally wrap with an OS-level
+confinement tool (`bwrap` / `sandbox-exec`), then `exec` the shell. A
+misbehaving command runs in its own process and cannot crash the
+gateway.
 
-Code: [`internal/sandbox/`](../internal/sandbox/) · binary: [`cmd/sandboxd/`](../cmd/sandboxd/) · policy reference: [`agent-runtime.md#network-egress-for-shell_exec--git_exec`](agent-runtime.md#network-egress-for-shell_exec--git_exec).
+There is no separate sandbox daemon. Hecate is a single binary, single
+process; the safety properties below are applied per-call inside the
+gateway.
+
+Code: [`internal/sandbox/`](../internal/sandbox/) · policy reference: [`agent-runtime.md#network-egress-for-shell_exec--git_exec`](agent-runtime.md#network-egress-for-shell_exec--git_exec).
 
 > Contributing here? Start at [`AGENTS.md`](../AGENTS.md) and [`ai/README.md`](../ai/README.md).
 
 ## Contents
 
 - [How it works](#how-it-works)
-- [Binary resolution](#binary-resolution)
-- [Deployment scenarios](#deployment-scenarios)
-- [Environment variables](#environment-variables)
-- [Policy controls](#policy-controls)
+- [Pre-execution policy validation](#pre-execution-policy-validation)
 - [Isolation layers](#isolation-layers)
+- [Environment variables](#environment-variables)
 - [Limitations](#limitations)
 
 ## How it works
 
-For every `shell_exec`, `git_exec`, or `file_write` tool call the gateway:
+For every `shell_exec`, `git_exec`, or `file_write` tool call the
+gateway:
 
-1. Serialises the request (command, working directory, policy) to JSON.
-2. Spawns `sandboxd worker` as a subprocess with the JSON on stdin.
-3. Reads a stream of newline-delimited JSON events from stdout — output chunks
-   arrive in real time; a final `result` event carries the exit code.
-4. The worker enforces the task's policy before executing anything. A policy
-   violation returns a `PolicyError` — the command never runs.
+1. **Validates the task's policy.** Allowed-root path containment,
+   read-only mode, network gate, host allowlist, private-IP block.
+   Best-effort static parsing of the command. Violations return a
+   `PolicyError` and the command never runs.
+2. **Builds an `exec.Cmd`** for `sh -lc <command>` (or the bwrap /
+   sandbox-exec wrapped equivalent — see [Layer 2](#layer-2--os-level-isolation-automatic-where-available)).
+3. **Sanitises the environment** — explicit allowlist of variables
+   the shell command will see; gateway secrets stay out of scope.
+4. **Spawns the subprocess** under the task's wall-clock timeout and
+   reads stdout / stderr through bounded pipes. Combined output is
+   capped (`GATEWAY_TASK_MAX_OUTPUT_BYTES`); over-cap commands are
+   killed and surface an `OutputLimitExceededError`.
+5. **Returns** stdout, stderr, and exit code as a structured `Result`.
+   The agent runtime turns that into a tool-result message for the
+   LLM.
 
-Communication is over a pipe pair. No network socket, no shared memory.
+No daemon. No JSON-RPC envelope. No binary-resolution dance. The
+shell subprocess is the only process boundary, and it's the one
+`os/exec` gives you for free.
 
-## Binary resolution
+## Pre-execution policy validation
 
-The gateway resolves the `sandboxd` binary at first use and caches the result
-for the process lifetime. Resolution order — first hit wins:
-
-| Step | Mechanism | When to use |
-|---|---|---|
-| 1 | `SANDBOXD_BIN` env var | Explicit operator override; path must exist |
-| 2 | Next to `os.Executable()` | Bundled app (Tauri desktop, hand-built tarballs) |
-| 3 | `$PATH` lookup | Developer machines after `make install` |
-| 4 | `go build` from source | Dev / CI only — requires `go` on `$PATH` and repo source |
-
-**Step 4 only works on the machine where Hecate was compiled.** The Go runtime
-bakes source file paths into the binary at build time; those paths don't exist
-on end-user machines. If `go` is not on `$PATH` and no binary is found via
-steps 1–3, the gateway returns a clear error naming the three remediation
-options rather than the opaque `executable file not found in $PATH` that
-earlier releases produced.
-
-### Triple-suffixed lookup (step 2)
-
-Tauri's `externalBin` bundler copies sidecar binaries with a Rust target-triple
-suffix (e.g. `sandboxd-aarch64-apple-darwin`). The gateway probes for the
-suffixed name first, then falls back to plain `sandboxd` / `sandboxd.exe`. Both
-sit in the same directory as the `gateway` executable.
-
-## Deployment scenarios
-
-### Docker / bare binary
-
-`sandboxd` must be on `$PATH` or co-located with `gateway`. The official Docker
-image and release tarballs include it. If you build from source, `make build`
-produces `gateway`; you must also build `sandboxd`:
-
-```sh
-go build -o sandboxd ./cmd/sandboxd
-```
-
-Or set `SANDBOXD_BIN` to point at a pre-built path:
-
-```env
-SANDBOXD_BIN=/usr/local/bin/sandboxd
-```
-
-### Tauri desktop app
-
-`make tauri-sidecar` builds both `gateway` and `sandboxd` and stages them in
-`tauri/src-tauri/binaries/` with the correct triple suffix. Tauri's bundler
-then includes both in the distributed `.dmg` / `.deb` / `.msi` / `.AppImage`.
-No additional configuration is required — step 2 of binary resolution finds
-`sandboxd` automatically next to the running `gateway` executable.
-
-### CI / testing
-
-`go test ./...` uses the `go build` fallback (step 4) to compile sandboxd into
-a temp cache on first run. Set `SANDBOXD_BIN` to a pre-built path to skip the
-build step and speed up CI:
-
-```env
-SANDBOXD_BIN=/path/to/pre-built/sandboxd
-```
-
-## Environment variables
-
-| Env var | Default | What it controls |
-|---|---|---|
-| `SANDBOXD_BIN` | `""` | Explicit path to the sandboxd binary; bypasses all other resolution |
-| `GATEWAY_TASK_MAX_OUTPUT_BYTES` | `4194304` (4 MiB) | Combined stdout + stderr cap per command. Commands exceeding this are killed and return an error. 0 = no cap |
-| `GATEWAY_SANDBOX_RLIMIT_CPU` | `300` | CPU time cap in seconds (`RLIMIT_CPU`). Complements the wall-clock task timeout. 0 = no cap |
-| `GATEWAY_SANDBOX_RLIMIT_NOFILE` | `1024` | Open file descriptor cap (`RLIMIT_NOFILE`). 0 = no cap |
-| `GATEWAY_SANDBOX_RLIMIT_AS` | `0` | Virtual address space cap in bytes (`RLIMIT_AS`). 0 = no cap (default off; useful on Linux) |
-| `GATEWAY_TASK_SHELL_ALLOW_PRIVATE_IPS` | `false` | Allow loopback / RFC1918 / link-local IP literals in shell and git command URLs when `sandbox_network=true` |
-| `GATEWAY_TASK_SHELL_ALLOWED_HOSTS` | `""` | Comma-separated exact-host allowlist for URLs in shell and git commands; empty = all public hosts |
-
-The `http_request` tool has its own parallel pair (`GATEWAY_TASK_HTTP_*`) — see
-[`agent-runtime.md`](agent-runtime.md#configuration-knobs).
-
-## Policy controls
-
-Enforced inside the worker before the command runs:
+These checks run before any subprocess is spawned. A failing check
+turns into a `PolicyError` returned to the caller; nothing is
+executed.
 
 | Control | Field | Effect |
 |---|---|---|
@@ -121,112 +64,137 @@ Enforced inside the worker before the command runs:
 | **Host allowlist** | `GATEWAY_TASK_SHELL_ALLOWED_HOSTS` | Restricts HTTP/S URLs in commands to exact hostnames |
 | **Private IP block** | `GATEWAY_TASK_SHELL_ALLOW_PRIVATE_IPS` | Blocks IP literals in RFC1918 / loopback / link-local ranges |
 
-Network enforcement is **best-effort static string matching** on the command
-text before execution. A sufficiently creative command (inline Python, base64
-encoding, raw sockets via `nc`) can bypass it. For hard egress control, run the
-gateway in a network namespace or behind a filtering egress proxy.
+Network enforcement is **best-effort static string matching** on the
+command text before execution. A sufficiently creative command
+(inline Python, base64 encoding, raw sockets via `nc`) can bypass it.
+Layer 2 below upgrades this to kernel-enforced network denial when
+the platform supports it.
 
 ## Isolation layers
 
-The process boundary that `sandboxd` provides is one layer in a spectrum of
-isolation mechanisms. The layers below are ordered from weakest to strongest
-and from most to least cross-platform. Layers 0–2 are shipped; Layer 3 is
-planned.
+The safety properties below are organised from automatic to opt-in.
+Approval gates (per-task `shell_exec` / `git_exec` / `file_write`
+classes) sit upstream of all of these and are the primary safety
+story — the layers are belt-and-suspenders behind the operator's
+approval policy. See
+[`agent-runtime.md#approval-gating`](agent-runtime.md#approval-gating).
 
-```
-weakest ─────────────────────────────────────────── strongest
+### Layer 0 — Subprocess boundary
 
-[Layer 0]    [Layer 1]    [Layer 2]         [Layer 3]
- process      defensive    OS-level          Wasm /
- boundary     hardening    isolation         VM
- (current)    (current)    (current)         (planned)
-```
+Every shell, git, and file command runs as a `sh` child process
+spawned via `exec.Command`. A misbehaving or panicking command can't
+crash the gateway: when the child exits, the kernel reclaims its file
+descriptors, virtual memory, and any descendants. This is what
+`os/exec` gives you for free; it's named here only because it is
+part of the safety story.
 
-Layers 0–2 are active today. Layer 2 is opt-in (off by default) and provides
-kernel-enforced network isolation on Linux and macOS. Layer 3 is planned.
+What this layer is **not**: a chroot, a container, or a VM. The
+subprocess runs as the same OS user as the gateway and inherits the
+host's filesystem visibility (subject to the policy validation above
+and Layer 2 wrapping below).
 
-### Layer 0 — Process boundary (current)
+### Layer 1 — Defensive hardening
 
-`sandboxd worker` runs as a separate OS process. A misbehaving or panicking
-tool call crashes the worker, not the gateway. Policy violations (network
-denial, read-only enforcement, path escape) return a `PolicyError` before the
-command runs. Network and write detection is **best-effort static string
-matching** — creative commands (inline Python, base64-encoded URLs, `nc`) can
-bypass it.
+Cross-platform per-call mitigations applied by the gateway before
+spawning the shell. Both are always-on; the cap is configurable.
 
-### Layer 1 — Defensive hardening (current)
+- **Environment sanitisation** — the shell receives a curated
+  allowlist (`PATH`, `HOME`, `TMPDIR`, `LANG`, `TZ`, `GIT_*`, and a
+  handful of others) instead of inheriting the gateway's full env.
+  Prevents shell tools from reading `OPENAI_API_KEY`, `POSTGRES_DSN`,
+  and other gateway secrets. This is the layer that exists *because*
+  Hecate is a server: CLI agents (Claude Code, Codex CLI) deliberately
+  inherit the user's environment because that's what the user wants.
+  A long-running gateway must not.
+- **Output size cap + wall-clock timeout** —
+  `GATEWAY_TASK_MAX_OUTPUT_BYTES` (default 4 MiB) bounds the combined
+  stdout + stderr a command can emit; the task's `Timeout` field
+  bounds wall-clock. Both kill the subprocess on breach. Together they
+  are the per-call budget — runaway commands can't exhaust gateway
+  memory or hold a worker indefinitely.
 
-Cross-platform improvements that require no kernel features and work on Linux,
-macOS, and Windows. All three are shipped and active by default.
+CPU / file-descriptor / address-space caps are *not* applied
+per-call. `RLIMIT_*` values set via `setrlimit` modify the calling
+process's limits, and the gateway is long-running — using them per
+call would progressively shrink the gateway itself. Operators who
+want hard CPU / FD / memory caps should run the gateway under
+systemd with the appropriate `CPUQuota=` / `LimitNOFILE=` /
+`MemoryMax=` directives, or inside a container with the equivalent
+`docker run --cpus= --memory=` flags. Those caps apply to the gateway
+and every subprocess it spawns, which is what an operator actually
+wants.
 
-- **Environment sanitisation** — `newWorkerCommand` passes an explicit allowlist
-  (`PATH`, `HOME`, `TMPDIR`, `LANG`, `TZ`, `GIT_*`, and a handful of others) to
-  the worker subprocess instead of inheriting the gateway's full environment.
-  Prevents the worker and any shell command it spawns from reading
-  `OPENAI_API_KEY`, `POSTGRES_DSN`, and other secrets present in the gateway
-  process. See `workerEnv()` in `internal/sandbox/worker.go`.
-- **Output size cap** — `GATEWAY_TASK_MAX_OUTPUT_BYTES` (default 4 MiB) bounds
-  the combined stdout + stderr a command can emit. When the cap is reached the
-  command is killed and `OutputLimitExceededError` is returned. Prevents runaway
-  commands from exhausting gateway memory. Enforced in `drainProcessOutput`
-  inside the sandboxd worker.
-- **Resource limits** — `GATEWAY_SANDBOX_RLIMIT_CPU` (default 300 s),
-  `GATEWAY_SANDBOX_RLIMIT_NOFILE` (default 1024), and
-  `GATEWAY_SANDBOX_RLIMIT_AS` (default 0 = off) are applied via
-  `syscall.Setrlimit` on Linux and macOS before the shell subprocess starts.
-  The child process inherits the limits. On Windows this is a no-op; Job Object
-  support is tracked as part of Layer 2. See `applyProcessResourceLimits` in
-  `internal/sandbox/exec_rlimit_{linux,darwin,windows,other}.go`.
+### Layer 2 — OS-level isolation
 
-### Layer 2 — OS-level isolation (current)
+Where the platform ships a sandbox wrapper, the gateway uses it
+unconditionally. The choice is made once at startup, logged, and
+never reconfigured at runtime — there is no opt-out env var. If the
+deployment's platform doesn't have a usable wrapper, the gateway
+runs with Layer 0+1 only and surfaces that on `/healthz` so
+operators can see what they got.
 
-Platform-adaptive isolation via build-tagged `applyProcessIsolation`
-implementations in `internal/sandbox/exec_isolation_{linux,darwin,windows,other}.go`.
-Applied to the `sh` subprocess inside each `sandboxd worker` before it is
-started — no changes to the worker protocol or the gateway API.
+| Platform | Wrapper | When used | What it enforces |
+|---|---|---|---|
+| **Linux** | `bwrap` (bubblewrap) | Always when `/usr/bin/bwrap` is present and a probe call succeeds (catches the unprivileged-userns-disabled case). | Read-only root filesystem, read-write workspace bind-mount, separate network namespace (`--unshare-net`) when the task disallows network. Filesystem-confined and network-denied at the kernel level, not by string match. |
+| **macOS** | `sandbox-exec` | Always (binary ships on every supported macOS). | Seatbelt SBPL profile: file writes confined to the workspace; network denied when the task disallows it. |
+| **Linux without `bwrap`** | none | When `/usr/bin/bwrap` is absent or the probe fails. | No additional confinement beyond Layer 0+1. |
+| **Windows** | none | Always (no equivalent without elevated privileges and Windows Filtering Platform). | No additional confinement beyond Layer 0+1. |
 
-Enable with `GATEWAY_SANDBOX_OS_ISOLATION=true` (default: `false`).
+The wrapper is auto-detected once at gateway startup. The decision
+is reported on `/healthz` under `sandbox.os_isolation` (`bwrap` /
+`sandbox-exec` / `none`) and logged at info level on the first call.
+This is the same shape Claude Code and Codex CLI use, with one
+difference: it's automatic for Hecate (server context — no user
+sitting at a TTY to decide), and configured per-call in the local-CLI
+case.
 
-| Platform | Mechanism | What it enforces |
+The official Linux Docker image is distroless and ships without
+`bwrap` or `sh`, so shell-tool calls inside the published image
+return an executor error and Layer 2 is unavailable. Operators who
+need shell tools should run the gateway directly on a Linux host
+(`apt-get install bubblewrap` to activate Layer 2) or roll a custom
+image based on `debian-slim` / `ubuntu` that adds `bubblewrap` and a
+POSIX shell. The gateway logs whichever wrapper is active at startup
+and surfaces the same on `/healthz` so operators can confirm what
+they got.
+
+## Environment variables
+
+| Env var | Default | What it controls |
 |---|---|---|
-| Linux | `SysProcAttr.Cloneflags` (namespaces) | `CLONE_NEWNET` — no network interface; `CLONE_NEWPID` — private PID tree; `CLONE_NEWUSER` — no root required |
-| macOS | `sandbox-exec` Seatbelt profile | Kernel-enforced network denial via `(deny network*)`; binary present through macOS 14+ (deprecated in SDK headers only) |
-| Windows | no-op | WFP-based network isolation requires elevated privileges not held by the worker; string-match gate still applies |
+| `GATEWAY_TASK_MAX_OUTPUT_BYTES` | `4194304` (4 MiB) | Combined stdout + stderr cap per command. Commands exceeding this are killed and return an error. 0 = no cap |
+| `GATEWAY_TASK_SHELL_ALLOW_PRIVATE_IPS` | `false` | Allow loopback / RFC1918 / link-local IP literals in shell and git command URLs when `sandbox_network=true` |
+| `GATEWAY_TASK_SHELL_ALLOWED_HOSTS` | `""` | Comma-separated exact-host allowlist for URLs in shell and git commands; empty = all public hosts |
 
-Linux namespaces turn the network policy gate from string matching into a
-kernel guarantee: `curl`, Python `urllib`, Node `fetch` all fail at the socket
-layer because the process has no network interface.
+The `http_request` tool has its own parallel pair (`GATEWAY_TASK_HTTP_*`) — see
+[`agent-runtime.md`](agent-runtime.md#configuration-knobs).
 
-**Requirements:**
-- Linux: user namespaces must be enabled (`/proc/sys/kernel/unprivileged_userns_clone` = 1 on Debian/Ubuntu derivatives; always enabled on Fedora/RHEL). If unavailable, `cmd.Start()` returns an error; set `GATEWAY_SANDBOX_OS_ISOLATION=false` to disable.
-- macOS: `/usr/bin/sandbox-exec` must exist (standard on all supported macOS versions). If absent, isolation silently falls back to string-match only.
-- Windows: no kernel-level network isolation; this setting has no effect.
-
-### Layer 3 — WebAssembly / wazero (planned)
-
-A structured tool execution model where tools are compiled to Wasm modules
-rather than arbitrary shell commands. The
-[wazero](https://github.com/tetratelabs/wazero) runtime (pure Go, no CGO) runs
-modules with explicit WASI capability grants — the module receives exactly the
-filesystem paths and environment variables you grant, nothing else.
-
-**What this enables:** real cross-platform capability-based isolation for
-well-defined tools (formatters, linters, git helpers compiled to WASI).
-
-**What it does not solve:** `shell_exec` with arbitrary bash commands. The
-shell itself would need to be a WASI-compiled binary, which is experimental.
-This layer is better understood as an architectural path toward a typed tool
-plugin model rather than a drop-in replacement for the current shell executor.
 
 ## Limitations
 
-- **Process boundary only (default).** `sandboxd` is not a container, chroot,
-  or VM. The subprocess runs as the same OS user as the gateway and can access
-  anything that user can access outside the workspace root. Enable
-  `GATEWAY_SANDBOX_OS_ISOLATION=true` for kernel-enforced network isolation on
-  Linux and macOS (Layer 2). seccomp-bpf filtering is not yet implemented —
-  see [known-limitations.md](known-limitations.md#task-runtime-and-sandbox).
-- **Memory backend does not persist across restarts.** The binary resolution
-  cache resets on gateway restart; step 4 rebuilds the binary on next use.
-- **No pooling.** A fresh subprocess is spawned per operation. Pre-warmed
-  worker pools are future work.
+- **Not a container.** The subprocess (and its bwrap / sandbox-exec
+  wrapping when active) runs as the same OS user as the gateway and
+  shares the host's UID/GID, hostname, PID namespace beyond
+  `--unshare-pid` (which we don't enable — it breaks job control),
+  and any non-restricted resources. For genuine adversarial
+  multi-tenant isolation, run the gateway in containers (one per
+  tenant, or one per task) — this is a deployment-time decision, not
+  a sandbox-layer property. seccomp-bpf syscall filtering is also
+  not implemented; tracked at [known-limitations.md](known-limitations.md#task-runtime-and-sandbox).
+- **Linux without `bwrap` runs unwrapped.** Layer 0+1 still apply,
+  but filesystem and network confinement reduce to the best-effort
+  string match in pre-execution validation. Install `bubblewrap` to
+  upgrade. The gateway tells you in the logs and on `/healthz`.
+- **Windows runs unwrapped.** Job Objects could provide some of what
+  bwrap does (kill-on-close, memory cap, process count) but require
+  elevated privileges the gateway doesn't hold by default. Filesystem
+  and network isolation on Windows would need WFP integration.
+  Tracked separately.
+- **Best-effort policy parsing.** The pre-execution checks are static
+  string matching on the command text. A clever command (inline
+  Python, `nc` raw sockets, base64-encoded URLs) can bypass them.
+  Layer 2 (when active) catches the network half at the kernel; for
+  the filesystem half there's the workspace bind-mount.
+- **No pooling.** Each tool call spawns a fresh subprocess. The cost
+  is bounded (~5–10 ms) and dominated by LLM round-trips; pre-warmed
+  worker pools haven't earned their keep.

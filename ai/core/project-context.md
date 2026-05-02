@@ -6,7 +6,6 @@ Hecate is an open-source AI gateway and agent-task runtime. A single Go binary e
 
 ```
 cmd/gateway/               gateway binary entry
-cmd/sandboxd/              out-of-process sandbox executor
 
 pkg/types/                 public types (ChatRequest, Message, ContentBlock, ...)
                              — no internal/ imports
@@ -17,7 +16,9 @@ internal/providers/        outbound HTTP per provider (openai, anthropic)
                              openAIChatMessage, openAIMessageContent (lowercase)
                              — same JSON shape as api/, deliberate duplication
 internal/orchestrator/     task runtime (queue, runner, agent_loop, sandbox)
-internal/sandbox/          policy + sandboxd boundary
+internal/sandbox/          per-call sh subprocess: policy validation, rlimits,
+                             env sanitisation, output cap, optional
+                             bwrap/sandbox-exec wrapper
 internal/taskstate/        task / run / step / artifact / approval persistence
 internal/storage/          postgres + sqlite client wrappers
 internal/retention/        retention worker (subsystems: traces, budget, audit, cache, turn_events)
@@ -65,7 +66,7 @@ When adding a new persisted thing, mirror all three. Add a `<thing>_test.go` tha
 
 These earn extra scrutiny; changes here are not drive-by territory.
 
-- **Sandbox boundary** (`internal/sandbox`, `cmd/sandboxd`) — out-of-process tool execution. A buggy tool must not be able to crash the gateway. Layer 1 (env sanitisation, output cap, rlimits) and Layer 2 (OS-level network isolation, opt-in via `GATEWAY_SANDBOX_OS_ISOLATION`) are both shipped. New isolation capabilities follow the build-tagged per-platform pattern in `exec_isolation_*.go` and `exec_rlimit_*.go`. See `docs/sandbox.md` for the full isolation-layer model.
+- **Sandbox boundary** (`internal/sandbox/`) — per-call `sh` subprocess spawned directly from the gateway after policy validation, env sanitisation, output cap, and a wall-clock timeout (Layer 1). On Linux with `bwrap` installed and on macOS, the call is additionally wrapped by `bwrap` / `sandbox-exec` for filesystem and network confinement (Layer 2 — auto-detected at startup via `internal/sandbox/wrapper.go`, no opt-in flag). No separate `sandboxd` daemon — the safety properties run inline. CPU / FD / address-space caps are *not* applied per-call (`setrlimit` would shrink the long-running gateway) — operators who need them run under systemd or in a container with `--cpus` / `--memory` flags. New tool kinds follow the same `internal/sandbox/` shape. See `docs/sandbox.md` for the layer model and `docs/agent-runtime.md` for the network-egress policy that sits on top.
 - **Approval lifecycle** (`internal/taskstate`, `awaiting_approval`) — pre-execution and mid-loop approvals halt the run. New gates use the same `TaskApproval` shape.
 - **Retention worker** (`internal/retention`) — high-cardinality history sweep. Subsystems: `traces`, `budget`, `audit`, `cache`, `turn_events`. Persisted things must mirror.
 - **Cost ledger** — all money is `int64` micro-USD (`1_000_000` = `$1`). Never `float64`.

@@ -161,7 +161,7 @@ flowchart LR
 
     Gateway --> Providers["Cloud + local providers"]
     Gateway --> Cache["Exact + semantic cache"]
-    Runtime --> Sandbox["sandboxd<br/>(out-of-process exec)"]
+    Runtime --> Sandbox["Sandboxed sh<br/>(per-call subprocess,<br/>output-capped, bwrap/sandbox-exec<br/>wrapped where available)"]
     Runtime --> MCP["External MCP servers"]
     Gateway --> OTel["OpenTelemetry"]
     Runtime --> OTel
@@ -211,7 +211,7 @@ Hecate is public-alpha software. The core gateway path is usable; the agent runt
 | Storage tiers | Usable | Memory, SQLite, Postgres, selected per subsystem |
 | Operator UI | Usable | Main workflows are present; debugging ergonomics are still improving |
 | Agent task runtime | Alpha | Queues, approvals, resumable runs, `agent_loop`, MCP integration; periodic reconciler auto-recovers stale runs |
-| Execution isolation | Alpha | `sandboxd` boundary exists; stronger OS-level isolation is future work |
+| Execution isolation | Alpha | Per-call subprocess + env sanitisation + output cap + wall-clock timeout; `bwrap` (Linux) / `sandbox-exec` (macOS) wrapping where available. Not container-level — see [`docs/sandbox.md`](docs/sandbox.md) |
 
 Read [docs/known-limitations.md](docs/known-limitations.md) before treating Hecate as production-stable.
 

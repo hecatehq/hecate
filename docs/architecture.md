@@ -84,14 +84,14 @@ flowchart TD
     Executor["Executor<br/>(shell / git / file / agent_loop)"]
     Executor --> AgentLoop{"agent_loop?"}
     AgentLoop -->|"yes"| LoopRef["See: Agent loop turn cycle<br/>(mid-loop approval gate,<br/>per-turn cost events,<br/>built-in tools + MCP servers)"]
-    AgentLoop -->|"no"| Sandboxd["sandboxd<br/>(out-of-process controlled exec)"]
-    LoopRef --> Sandboxd
+    AgentLoop -->|"no"| Sandbox["Sandboxed sh<br/>(per-call subprocess,<br/>policy-validated, rlimited,<br/>bwrap/sandbox-exec wrapped<br/>where available)"]
+    LoopRef --> Sandbox
     LoopRef --> McpServers["External MCP servers<br/>(stdio / HTTP, per-server<br/>approval policy)"]
 
-    Sandboxd --> State["Task state<br/>(runs, steps, artifacts)"]
+    Sandbox --> State["Task state<br/>(runs, steps, artifacts)"]
     LoopRef --> State
     McpServers --> State
-    Sandboxd --> RunEvents["Run events<br/>(monotonic sequence)"]
+    Sandbox --> RunEvents["Run events<br/>(monotonic sequence)"]
     LoopRef --> RunEvents
     McpServers --> RunEvents
 
@@ -108,7 +108,7 @@ Key invariants:
 
 - **Workspace before queue.** Every run has a workspace before a worker can claim it. Default is an isolated clone of `task.WorkingDirectory` (or `task.Repo`) under `${TMPDIR}/hecate-workspaces/<task_id>/<run_id>`; opt in to `workspace_mode=in_place` to run directly in the source. The sandbox `AllowedRoot` is the workspace path either way.
 - **Lease before work.** A worker doesn't see a `task_run` until it has claimed a lease; if it crashes, the lease expires and another worker can pick the run up. Pinned by `GATEWAY_TASK_QUEUE_LEASE_SECONDS`.
-- **Execution is out-of-process.** Shell, file, and git execution runs inside `cmd/sandboxd`, which the worker invokes over an exec boundary with policy controls (roots, read-only mode, timeout, network denial). This protects the gateway process and gives Hecate a clear enforcement boundary. OS-level network isolation (Linux namespaces, macOS Seatbelt) is available as an opt-in via `GATEWAY_SANDBOX_OS_ISOLATION`; container/chroot/VM-level isolation is not provided. See [`sandbox.md`](sandbox.md) for the full isolation-layer model.
+- **Execution is per-call subprocess.** Shell, file, and git tool calls spawn a fresh `sh` subprocess from inside the gateway, after the task's policy is validated and per-call rlimits + env sanitisation + output cap are applied. On Linux with `bwrap` installed, and on macOS, the call is additionally wrapped by an OS-level isolation tool (`bwrap` / `sandbox-exec`) for filesystem and network confinement. No separate sandbox daemon — the safety properties are applied inline. Container/chroot/VM-level isolation is not provided. See [`sandbox.md`](sandbox.md) for the full isolation-layer model.
 - **Approvals are blocking and come in two flavors.** Pre-execution approval (shell/git/file kinds, or `sandbox_network=true`) halts the run at `awaiting_approval` before the executor runs. Mid-loop approval (`agent_loop_tool_call`, see below) halts an `agent_loop` run after a turn produced a gated tool call. Both resolve via `POST /approvals/{id}/resolve`.
 - **Events are appended, not mutated.** Every step transition writes a `run_event` with a monotonic sequence number. The SSE stream replays from `after_sequence=N` or `Last-Event-ID`, so a disconnected client can re-join exactly where it left off. Each snapshot carries the run's approvals so the operator UI's banner stays in sync without a separate refetch. The full catalog of event types and their payload shapes lives in [`events.md`](events.md).
 - **Resume creates a new attempt.** A resumed run gets a fresh `run_id`; the original run stays terminal. The new run reuses the prior workspace so file state carries forward, gets the prior checkpoint context in step input, and inherits the chain's cumulative cost via `PriorCostMicrosUSD` so the per-task ceiling holds across the full chain.

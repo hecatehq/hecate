@@ -218,12 +218,10 @@ tauri-install:
 tauri-version: tauri-install
 	bun scripts/stamp-version.ts
 
-# tauri-sidecar: build gateway and sandboxd, then stage both as Tauri sidecars.
+# tauri-sidecar: build the gateway and stage it as a Tauri sidecar.
 # Called automatically by tauri-dev and tauri-build so you rarely need it
 # directly. On Windows `go build -o gateway` produces gateway.exe, and the
 # bundler wants gateway-{triple}.exe — handle both source and dest names.
-# sandboxd is staged alongside gateway so the bundled app can locate it at
-# runtime without needing go on the end-user's PATH.
 tauri-sidecar: build
 	@if [ -z "$(RUST_TARGET)" ]; then \
 	  echo "rustc not found — cannot determine host triple" && exit 1; \
@@ -233,12 +231,6 @@ tauri-sidecar: build
 	dest="tauri/src-tauri/binaries/gateway-$(RUST_TARGET)$$goexe"; \
 	echo "staging sidecar: $$dest"; \
 	cp "$$src" "$$dest"
-	@goexe=$$(go env GOEXE); \
-	mkdir -p "$(GOCACHE_DIR)"; \
-	GOCACHE="$(GOCACHE_DIR)" go build -o "sandboxd$$goexe" ./cmd/sandboxd; \
-	dest="tauri/src-tauri/binaries/sandboxd-$(RUST_TARGET)$$goexe"; \
-	echo "staging sidecar: $$dest"; \
-	cp "sandboxd$$goexe" "$$dest"
 
 # tauri-dev: hot-reload development mode. Launches the Tauri window backed by
 # a fresh gateway sidecar build. The gateway binary is rebuilt first so the
