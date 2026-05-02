@@ -107,21 +107,10 @@ export async function mockGatewayAPIs(page: Page, opts: GatewayMockOptions = {})
   // Loopback handshake: stub a 403 by default so TokenGate-driven tests
   // see the manual-paste flow. Tests that specifically exercise the
   // auto-skip path can override this route with a 200 of their own.
-  await page.route("/v1/bootstrap-token", r =>
-    r.fulfill({ status: 403, contentType: "application/json", body: JSON.stringify({ error: { type: "unauthorized" } }) }),
-  );
-
   await page.route("/v1/whoami", r =>
     r.fulfill(ok({
       object: "session",
-      data: {
-        authenticated: true,
-        invalid_token: false,
-        role: "admin",
-        tenant: "",
-        source: "bearer",
-        key_id: "e2e-test-token",
-      },
+      data: { role: "operator" },
     })),
   );
 

@@ -60,7 +60,7 @@ Skip to [Add a provider](#add-a-provider) once it's running.
 
 ```bash
 docker run --rm -p 127.0.0.1:8765:8765 -v hecate-data:/data \
-  ghcr.io/chicoxyzzy/hecate:0.1.0-alpha.9
+  ghcr.io/chicoxyzzy/hecate:0.1.0-alpha.10
 ```
 
 Open `http://127.0.0.1:8765`. The UI loads with no further setup.

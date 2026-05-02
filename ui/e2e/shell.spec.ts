@@ -1,21 +1,5 @@
 import { expect, test } from "./fixtures";
 
-// The default fixture claims admin; tests that assert anonymous-session
-// behaviour register this override before navigating (last-registered
-// route wins for the same URL pattern).
-async function asAnonymous(page: import("@playwright/test").Page) {
-  await page.route("/v1/whoami", r =>
-    r.fulfill({
-      status: 200,
-      contentType: "application/json",
-      body: JSON.stringify({
-        object: "session",
-        data: { authenticated: false, invalid_token: false, role: "anonymous", tenant: "", source: "", key_id: "" },
-      }),
-    }),
-  );
-}
-
 test.beforeEach(async ({ page }) => {
   await page.goto("/");
   await page.waitForSelector(".hecate-activitybar");
@@ -31,13 +15,10 @@ test("renders the activity bar with all workspace buttons", async ({ page }) => 
 });
 
 test("shows the status bar with brand and session label", async ({ page }) => {
-  await asAnonymous(page);
-  await page.reload();
-  await page.waitForSelector(".hecate-activitybar");
   const bar = page.locator(".hecate-statusbar");
   await expect(bar).toBeVisible();
   await expect(bar.locator(".hecate-statusbar__brand")).toHaveText("hecate");
-  await expect(bar).toContainText("Anonymous");
+  await expect(bar).toContainText("Local");
 });
 
 test("status bar shows configured provider count and model count", async ({ page }) => {
@@ -96,9 +77,3 @@ test("keyboard shortcut 6 activates the Settings workspace", async ({ page }) =>
   );
 });
 
-test("does not show Settings nav button for anonymous session", async ({ page }) => {
-  await asAnonymous(page);
-  await page.reload();
-  await page.waitForSelector(".hecate-activitybar");
-  await expect(page.locator(".hecate-activitybar [aria-label^='Settings']")).not.toBeVisible();
-});

@@ -1,33 +1,23 @@
 import { expect, test } from "./fixtures";
 
-// Settings workspace (id stays "admin" for back-compat; label is now
-// "Settings"). Tabs: Pricing / Policy / Retention / MCP Cache.
+// Settings workspace. Tabs: Pricing / Retention.
 test.beforeEach(async ({ page }) => {
-  // Override /v1/whoami to report admin so the Settings nav button appears.
-  await page.route("/v1/whoami*", r => r.fulfill({
-    status: 200,
-    contentType: "application/json",
-    body: JSON.stringify({
-      object: "session",
-      data: { authenticated: true, invalid_token: false, role: "admin", source: "config", key_id: "" },
-    }),
-  }));
   await page.goto("/");
   await page.waitForSelector(".hecate-activitybar");
-  // Press 6 → Settings. Admin lineup is Chats / Providers / Tasks /
+  // Press 6 → Settings. Workspace lineup is Chats / Providers / Tasks /
   // Observability / Costs / Settings, so Settings sits at position 6.
   await page.keyboard.press("6");
   await page.waitForSelector("text=Pricing");
 });
 
-test("renders the settings tabs (Pricing / Policy / Retention / MCP Cache)", async ({ page }) => {
-  for (const tab of ["Pricing", "Policy", "Retention", "MCP Cache"]) {
+test("renders the settings tabs (Pricing / Retention)", async ({ page }) => {
+  for (const tab of ["Pricing", "Retention"]) {
     await expect(page.getByRole("button", { name: tab })).toBeVisible();
   }
-  // Balances and Usage moved out to the Costs workspace.
-  await expect(page.getByRole("button", { name: "Balances" })).toHaveCount(0);
-  await expect(page.getByRole("button", { name: "Usage" })).toHaveCount(0);
-  await expect(page.getByRole("button", { name: "Clients" })).toHaveCount(0);
+  // Removed tabs: Policy, MCP Cache, Tenants, Keys.
+  for (const removed of ["Policy", "MCP Cache", "Tenants", "Keys", "Balances", "Usage", "Clients"]) {
+    await expect(page.getByRole("button", { name: removed })).toHaveCount(0);
+  }
 });
 
 test("Settings nav button uses the 'Settings' label, not 'Admin'", async ({ page }) => {
@@ -157,11 +147,11 @@ test("pricebook import all triggers preview + apply round-trip", async ({ page }
     });
   });
 
-  // Pricing is the first visible Settings tab, so
-  // it has already mounted once during beforeEach — before our route
-  // handler was registered. Navigate away to Policy and back to Pricing
-  // so the mount-time preview fetch fires under the test's mocked route.
-  await page.getByRole("button", { name: "Policy" }).click();
+  // Pricing is the first visible Settings tab, so it has already
+  // mounted once during beforeEach — before our route handler was
+  // registered. Toggle to Retention and back so the mount-time
+  // preview fetch fires under the test's mocked route.
+  await page.getByRole("button", { name: "Retention" }).click();
   await page.getByRole("button", { name: "Pricing" }).click();
   // Preview is fetched on mount of the tab; the "Import all" button
   // becomes enabled once the diff arrives. Without this assertion, a
