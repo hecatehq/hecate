@@ -3,9 +3,10 @@
 Open-source AI gateway and agent-task runtime. A single Go binary mediates
 OpenAI- and Anthropic-shaped client traffic to upstream providers, runs
 queued `agent_loop` tasks behind policy and approval gates, and emits
-OpenTelemetry traces. Tenant-aware, deny-by-default, runtime-aware,
-storage-tiered (memory / sqlite / postgres). The React operator UI is
-embedded via `//go:embed ui/dist`.
+OpenTelemetry traces. Single-user, single-process, deny-by-default,
+storage-tiered (memory / sqlite). Binds to 127.0.0.1 by default;
+no auth — the threat model is "trust your own machine." The React
+operator UI is embedded via `//go:embed ui/dist`.
 
 This file is the orientation entry — the codebase map, the runtime
 invariants, and the gotchas that bite often. It is what an agent

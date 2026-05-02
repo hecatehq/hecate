@@ -14,7 +14,6 @@ import (
 	"time"
 
 	"github.com/hecate/agent-runtime/internal/billing"
-	"github.com/hecate/agent-runtime/internal/cache"
 	"github.com/hecate/agent-runtime/internal/catalog"
 	"github.com/hecate/agent-runtime/internal/chatstate"
 	"github.com/hecate/agent-runtime/internal/governor"
@@ -29,12 +28,8 @@ import (
 
 type Dependencies struct {
 	Logger          *slog.Logger
-	Cache           cache.Store
-	CacheRuntime    CacheRuntime
 	Finalizer       ResponseFinalizer
 	Preflight       RoutePreflight
-	Semantic        cache.SemanticStore
-	SemanticOptions SemanticOptions
 	Resilience      ResilienceOptions
 	Executor        ProviderExecutor
 	Router          router.Router
@@ -53,12 +48,6 @@ type Dependencies struct {
 	TraceBodyMaxBytes int
 }
 
-type SemanticOptions struct {
-	Enabled       bool
-	MinSimilarity float64
-	MaxTextChars  int
-}
-
 type ResilienceOptions struct {
 	MaxAttempts     int
 	RetryBackoff    time.Duration
@@ -66,12 +55,8 @@ type ResilienceOptions struct {
 }
 
 type Service struct {
-	cacheRuntime      CacheRuntime
 	finalizer         ResponseFinalizer
 	preflight         RoutePreflight
-	semantic          cache.SemanticStore
-	semanticOptions   SemanticOptions
-	keyBuilder        cache.KeyBuilder
 	executor          ProviderExecutor
 	router            router.Router
 	catalog           catalog.Catalog
@@ -151,11 +136,6 @@ type ResponseMetadata struct {
 	CanonicalRequestedModel string
 	Model                   string
 	CanonicalResolvedModel  string
-	CacheHit                bool
-	CacheType               string
-	SemanticStrategy        string
-	SemanticIndexType       string
-	SemanticSimilarity      float64
 	PromptTokens            int
 	CompletionTokens        int
 	TotalTokens             int
@@ -168,14 +148,10 @@ type ResponseMetadata struct {
 }
 
 type ExecutionPlan struct {
-	OriginalRequest  types.ChatRequest
-	Request          types.ChatRequest
-	CacheKey         string
-	Route            types.RouteDecision
-	ProviderKind     string
-	SemanticEligible bool
-	SemanticQuery    cache.SemanticQuery
-	SemanticScope    string
+	OriginalRequest types.ChatRequest
+	Request         types.ChatRequest
+	Route           types.RouteDecision
+	ProviderKind    string
 }
 
 func NewService(deps Dependencies) *Service {
@@ -201,18 +177,6 @@ func NewService(deps Dependencies) *Service {
 		)
 	}
 
-	cacheRuntime := deps.CacheRuntime
-	if cacheRuntime == nil {
-		cacheRuntime = NewGatewayCacheRuntime(
-			deps.Logger,
-			deps.Cache,
-			deps.Semantic,
-			deps.SemanticOptions,
-			deps.Governor,
-			deps.Providers,
-		)
-	}
-
 	finalizer := deps.Finalizer
 	if finalizer == nil {
 		finalizer = NewDefaultResponseFinalizer(
@@ -229,12 +193,8 @@ func NewService(deps Dependencies) *Service {
 	}
 
 	return &Service{
-		cacheRuntime:      cacheRuntime,
 		finalizer:         finalizer,
 		preflight:         preflight,
-		semantic:          deps.Semantic,
-		semanticOptions:   deps.SemanticOptions,
-		keyBuilder:        cache.StableKeyBuilder{},
 		executor:          executor,
 		router:            deps.Router,
 		catalog:           cat,
@@ -258,13 +218,6 @@ func (s *Service) Tracer() profiler.Tracer {
 	return s.tracer
 }
 
-func (s *Service) SemanticStore() (cache.SemanticStore, bool) {
-	if s == nil || s.semantic == nil {
-		return nil, false
-	}
-	return s.semantic, true
-}
-
 func (s *Service) HandleChat(ctx context.Context, req types.ChatRequest) (result *ChatResult, err error) {
 	startedAt := time.Now()
 	defer func() { s.recordRequestOutcome(ctx, err, time.Since(startedAt)) }()
@@ -280,16 +233,6 @@ func (s *Service) HandleChat(ctx context.Context, req types.ChatRequest) (result
 
 	if s.traceBodyCapture {
 		s.captureRequestBody(trace, req)
-	}
-
-	if cached, ok, err := s.cacheRuntime.Lookup(ctx, trace, plan); err != nil {
-		return nil, err
-	} else if ok {
-		result = s.finalizer.FinalizeCache(ctx, trace, plan.OriginalRequest, cached)
-		if s.traceBodyCapture && result != nil && result.Response != nil {
-			s.captureResponseBody(trace, result.Response)
-		}
-		return result, nil
 	}
 
 	result, err = s.executePlan(ctx, trace, plan)
@@ -359,11 +302,6 @@ func (s *Service) buildExecutionPlan(ctx context.Context, trace *profiler.Trace,
 		trace.Record("governor.model_rewrite", attrs)
 	}
 
-	cacheKey, err := s.keyBuilder.Key(rewrittenReq)
-	if err != nil {
-		return nil, fmt.Errorf("build cache key: %w", err)
-	}
-
 	decision, err := s.router.Route(ctx, rewrittenReq)
 	if err != nil {
 		recordTraceError(trace, "router.failed", "routing", errorKindRouterFailed, err, nil)
@@ -421,20 +359,8 @@ func (s *Service) buildExecutionPlan(ctx context.Context, trace *profiler.Trace,
 	plan := &ExecutionPlan{
 		OriginalRequest: req,
 		Request:         rewrittenReq,
-		CacheKey:        cacheKey,
 		Route:           decision,
 		ProviderKind:    preflight.ProviderKind,
-	}
-
-	if s.semantic != nil && s.semanticOptions.Enabled && cache.EligibleForSemanticCache(rewrittenReq, s.semanticOptions.MaxTextChars) {
-		plan.SemanticEligible = true
-		plan.SemanticScope = cache.BuildSemanticNamespace(rewrittenReq, decision)
-		plan.SemanticQuery = cache.SemanticQuery{
-			Namespace:     plan.SemanticScope,
-			Text:          cache.BuildSemanticText(rewrittenReq, s.semanticOptions.MaxTextChars),
-			MinSimilarity: s.semanticOptions.MinSimilarity,
-			MaxTextChars:  s.semanticOptions.MaxTextChars,
-		}
 	}
 
 	return plan, nil
@@ -449,7 +375,6 @@ func (s *Service) executePlan(ctx context.Context, trace *profiler.Trace, plan *
 	if err != nil {
 		return nil, err
 	}
-	s.cacheRuntime.Store(ctx, trace, plan, callResult.Decision, result.Response)
 	return result, nil
 }
 

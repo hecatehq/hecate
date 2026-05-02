@@ -648,35 +648,6 @@ type MCPCacheStatsResponseItem struct {
 	Idle int `json:"idle"`
 }
 
-type SemanticCacheStatusResponse struct {
-	Object string                  `json:"object"`
-	Data   SemanticCacheStatusItem `json:"data"`
-}
-
-type SemanticCacheStatusItem struct {
-	CheckedAt     string  `json:"checked_at"`
-	Configured    bool    `json:"configured"`
-	Enabled       bool    `json:"enabled"`
-	Backend       string  `json:"backend"`
-	Entries       int     `json:"entries"`
-	MaxEntries    int     `json:"max_entries"`
-	DefaultTTLSec float64 `json:"default_ttl_sec"`
-	MinSimilarity float64 `json:"min_similarity"`
-	MaxTextChars  int     `json:"max_text_chars"`
-}
-
-type SemanticCacheEntriesResponse struct {
-	Object string                   `json:"object"`
-	Data   []SemanticCacheEntryItem `json:"data"`
-}
-
-type SemanticCacheEntryItem struct {
-	Namespace   string `json:"namespace"`
-	TextSnippet string `json:"text_snippet"`
-	ExpiresAt   string `json:"expires_at"`
-	StoredAt    string `json:"stored_at"`
-}
-
 type AccountSummaryResponseItem struct {
 	Account   BudgetStatusResponseItem     `json:"account"`
 	Estimates []AccountModelEstimateRecord `json:"estimates"`

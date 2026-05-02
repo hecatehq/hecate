@@ -6,40 +6,6 @@ import (
 	"time"
 )
 
-func TestLoadFromEnvSemanticAndPostgresSettings(t *testing.T) {
-	t.Setenv("GATEWAY_SEMANTIC_CACHE_ENABLED", "true")
-	t.Setenv("GATEWAY_SEMANTIC_CACHE_BACKEND", "postgres")
-	t.Setenv("GATEWAY_SEMANTIC_CACHE_POSTGRES_VECTOR_MODE", "required")
-	t.Setenv("GATEWAY_SEMANTIC_CACHE_POSTGRES_VECTOR_INDEX_TYPE", "ivfflat")
-	t.Setenv("GATEWAY_SEMANTIC_CACHE_POSTGRES_VECTOR_SEARCH_PROBES", "42")
-	t.Setenv("POSTGRES_DSN", "postgres://user:pass@localhost:5432/hecate?sslmode=disable")
-	t.Setenv("POSTGRES_SCHEMA", "runtime")
-	t.Setenv("POSTGRES_TABLE_PREFIX", "gateway")
-
-	cfg := LoadFromEnv()
-	if !cfg.Cache.Semantic.Enabled {
-		t.Fatal("semantic cache enabled = false, want true")
-	}
-	if cfg.Cache.Semantic.Backend != "postgres" {
-		t.Fatalf("semantic backend = %q, want postgres", cfg.Cache.Semantic.Backend)
-	}
-	if cfg.Cache.Semantic.PostgresVectorMode != "required" {
-		t.Fatalf("vector mode = %q, want required", cfg.Cache.Semantic.PostgresVectorMode)
-	}
-	if cfg.Cache.Semantic.PostgresVectorIndexType != "ivfflat" {
-		t.Fatalf("index type = %q, want ivfflat", cfg.Cache.Semantic.PostgresVectorIndexType)
-	}
-	if cfg.Cache.Semantic.PostgresVectorSearchProbes != 42 {
-		t.Fatalf("search probes = %d, want 42", cfg.Cache.Semantic.PostgresVectorSearchProbes)
-	}
-	if cfg.Postgres.Schema != "runtime" {
-		t.Fatalf("schema = %q, want runtime", cfg.Postgres.Schema)
-	}
-	if cfg.Postgres.TablePrefix != "gateway" {
-		t.Fatalf("table prefix = %q, want gateway", cfg.Postgres.TablePrefix)
-	}
-}
-
 func TestLoadFromEnvUsesCurrentOpenAIDefaultModel(t *testing.T) {
 	t.Setenv("GATEWAY_DEFAULT_MODEL", "")
 
@@ -74,66 +40,27 @@ func TestValidateAcceptsDefaultConfig(t *testing.T) {
 
 func TestValidateRejectsInvalidBackendNames(t *testing.T) {
 	cfg := LoadFromEnv()
-	cfg.Cache.Backend = "redis"
+	cfg.Server.ControlPlaneBackend = "redis"
 
 	err := cfg.Validate()
 	if err == nil {
 		t.Fatal("Validate() error = nil, want invalid backend error")
 	}
-	if !strings.Contains(err.Error(), "GATEWAY_CACHE_BACKEND") {
-		t.Fatalf("Validate() error = %q, want GATEWAY_CACHE_BACKEND", err)
-	}
-}
-
-func TestValidateRequiresPostgresDSNForPostgresBackends(t *testing.T) {
-	cfg := LoadFromEnv()
-	cfg.Server.ControlPlaneBackend = "postgres"
-	cfg.Postgres.DSN = ""
-
-	err := cfg.Validate()
-	if err == nil {
-		t.Fatal("Validate() error = nil, want missing POSTGRES_DSN error")
-	}
-	if !strings.Contains(err.Error(), "POSTGRES_DSN") {
-		t.Fatalf("Validate() error = %q, want POSTGRES_DSN", err)
-	}
-}
-
-func TestValidateAllowsDisabledSemanticPostgresWithoutDSN(t *testing.T) {
-	cfg := LoadFromEnv()
-	cfg.Cache.Semantic.Enabled = false
-	cfg.Cache.Semantic.Backend = "postgres"
-	cfg.Postgres.DSN = ""
-
-	if err := cfg.Validate(); err != nil {
-		t.Fatalf("Validate() disabled semantic postgres error = %v, want nil", err)
-	}
-}
-
-func TestValidateRejectsEnabledSemanticSQLite(t *testing.T) {
-	cfg := LoadFromEnv()
-	cfg.Cache.Semantic.Enabled = true
-	cfg.Cache.Semantic.Backend = "sqlite"
-
-	err := cfg.Validate()
-	if err == nil {
-		t.Fatal("Validate() error = nil, want semantic sqlite error")
-	}
-	if !strings.Contains(err.Error(), "GATEWAY_SEMANTIC_CACHE_BACKEND=sqlite") {
-		t.Fatalf("Validate() error = %q, want semantic sqlite diagnostic", err)
+	if !strings.Contains(err.Error(), "GATEWAY_CONTROL_PLANE_BACKEND") {
+		t.Fatalf("Validate() error = %q, want GATEWAY_CONTROL_PLANE_BACKEND", err)
 	}
 }
 
 func TestValidateRejectsInvalidDurationEnvValues(t *testing.T) {
-	t.Setenv("GATEWAY_CACHE_TTL", "tomorrow-ish")
+	t.Setenv("GATEWAY_RETENTION_INTERVAL", "tomorrow-ish")
 	cfg := LoadFromEnv()
 
 	err := cfg.Validate()
 	if err == nil {
 		t.Fatal("Validate() error = nil, want invalid duration error")
 	}
-	if !strings.Contains(err.Error(), "GATEWAY_CACHE_TTL") {
-		t.Fatalf("Validate() error = %q, want GATEWAY_CACHE_TTL", err)
+	if !strings.Contains(err.Error(), "GATEWAY_RETENTION_INTERVAL") {
+		t.Fatalf("Validate() error = %q, want GATEWAY_RETENTION_INTERVAL", err)
 	}
 }
 
@@ -152,9 +79,6 @@ func TestValidateRejectsImpossibleRuntimeValues(t *testing.T) {
 	cfg.Server.RateLimit.Enabled = true
 	cfg.Server.RateLimit.RequestsPerMinute = 0
 	cfg.Server.RateLimit.BurstSize = -1
-	cfg.Cache.Semantic.MinSimilarity = 1.5
-	cfg.Cache.Semantic.MaxEntries = -1
-	cfg.Cache.Semantic.MaxTextChars = -1
 
 	err := cfg.Validate()
 	if err == nil {
@@ -172,9 +96,6 @@ func TestValidateRejectsImpossibleRuntimeValues(t *testing.T) {
 		"GATEWAY_TASK_QUEUE_BUFFER",
 		"GATEWAY_RATE_LIMIT_RPM",
 		"GATEWAY_RATE_LIMIT_BURST",
-		"GATEWAY_SEMANTIC_CACHE_MIN_SIMILARITY",
-		"GATEWAY_SEMANTIC_CACHE_MAX_ENTRIES",
-		"GATEWAY_SEMANTIC_CACHE_MAX_TEXT_CHARS",
 	} {
 		if !strings.Contains(err.Error(), want) {
 			t.Fatalf("Validate() error = %q, want %s", err, want)

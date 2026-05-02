@@ -14,10 +14,6 @@ type ChatMetricsRecord struct {
 	ProviderKind         string
 	RequestedModel       string
 	ResponseModel        string
-	CacheHit             bool
-	CacheType            string
-	SemanticStrategy     string
-	SemanticIndexType    string
 	CostMicrosUSD        int64
 	PromptTokens         int64
 	CompletionTokens     int64
@@ -514,16 +510,6 @@ func (m *Metrics) RecordChat(ctx context.Context, record ChatMetricsRecord) {
 	}
 	if record.ResponseModel != "" {
 		attrs = append(attrs, attribute.String(AttrGenAIResponseModel, record.ResponseModel))
-	}
-	attrs = append(attrs, attribute.Bool(AttrHecateCacheHit, record.CacheHit))
-	if record.CacheType != "" {
-		attrs = append(attrs, attribute.String(AttrHecateCacheType, record.CacheType))
-	}
-	if record.SemanticStrategy != "" {
-		attrs = append(attrs, attribute.String(AttrHecateSemanticStrategy, record.SemanticStrategy))
-	}
-	if record.SemanticIndexType != "" {
-		attrs = append(attrs, attribute.String(AttrHecateSemanticIndexType, record.SemanticIndexType))
 	}
 
 	options := otmetric.WithAttributes(attrs...)

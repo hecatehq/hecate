@@ -67,9 +67,6 @@ func TestDefaultResponseFinalizerFinalizeExecution(t *testing.T) {
 	if err != nil {
 		t.Fatalf("FinalizeExecution() error = %v", err)
 	}
-	if result.Metadata.CacheType != "miss" {
-		t.Fatalf("cache_type = %q, want miss", result.Metadata.CacheType)
-	}
 	if result.Metadata.CostMicrosUSD == 0 {
 		t.Fatal("cost_micros_usd = 0, want non-zero")
 	}
@@ -80,45 +77,6 @@ func TestDefaultResponseFinalizerFinalizeExecution(t *testing.T) {
 	}
 	if account.DebitedMicrosUSD == 0 {
 		t.Fatal("budget usage not recorded")
-	}
-}
-
-func TestDefaultResponseFinalizerFinalizeCache(t *testing.T) {
-	t.Parallel()
-
-	finalizer := NewDefaultResponseFinalizer(
-		slog.New(slog.NewJSONHandler(io.Discard, nil)),
-		governor.NewStaticGovernor(config.GovernorConfig{}, governor.NewMemoryBudgetStore(), governor.NewMemoryBudgetStore()),
-		billing.NewStaticPricebook(config.ProvidersConfig{}, config.PricebookConfig{}),
-		telemetry.NewMetrics(),
-	)
-
-	trace := profiler.NewTrace("finalize-cache", nil)
-	defer trace.Finalize()
-
-	result := finalizer.FinalizeCache(context.Background(), trace, types.ChatRequest{
-		RequestID: "req-2",
-		Model:     "llama3.1:8b",
-	}, &CacheLookupResult{
-		Response: &types.ChatResponse{
-			Model: "llama3.1:8b",
-			Usage: types.Usage{
-				PromptTokens:     12,
-				CompletionTokens: 6,
-				TotalTokens:      18,
-			},
-			Cost: types.CostBreakdown{TotalMicrosUSD: 0},
-		},
-		Route:        types.RouteDecision{Provider: "ollama", Model: "llama3.1:8b", Reason: "semantic"},
-		ProviderKind: "local",
-		CacheType:    "semantic",
-	})
-
-	if !result.Metadata.CacheHit {
-		t.Fatal("cache_hit = false, want true")
-	}
-	if result.Metadata.Provider != "ollama" {
-		t.Fatalf("provider = %q, want ollama", result.Metadata.Provider)
 	}
 }
 

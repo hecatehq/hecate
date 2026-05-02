@@ -8,7 +8,6 @@ import (
 	"time"
 
 	"github.com/hecate/agent-runtime/internal/billing"
-	"github.com/hecate/agent-runtime/internal/cache"
 	"github.com/hecate/agent-runtime/internal/config"
 	"github.com/hecate/agent-runtime/internal/governor"
 	"github.com/hecate/agent-runtime/internal/profiler"
@@ -50,7 +49,6 @@ func TestServiceHandleChatFallsBackWhenPrimaryPriceMissing(t *testing.T) {
 	}
 	service := NewService(Dependencies{
 		Logger:    slog.New(slog.NewJSONHandler(io.Discard, nil)),
-		Cache:     cache.NewMemoryStore(time.Minute),
 		Router:    router,
 		Governor:  governor.NewStaticGovernor(config.GovernorConfig{MaxPromptTokens: 64_000}, store, store),
 		Providers: registry,

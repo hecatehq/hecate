@@ -11,7 +11,6 @@ import (
 	"sync"
 	"testing"
 
-	"github.com/hecate/agent-runtime/internal/cache"
 	"github.com/hecate/agent-runtime/internal/catalog"
 	"github.com/hecate/agent-runtime/internal/config"
 	"github.com/hecate/agent-runtime/internal/controlplane"
@@ -180,7 +179,6 @@ func newProviderRuntimeTestHandler(t *testing.T, runtime ProviderRuntime) (apiTe
 	cfg := config.Config{Server: config.ServerConfig{AuthToken: "admin-secret"}}
 	service := gateway.NewService(gateway.Dependencies{
 		Logger:    logger,
-		Cache:     cache.NewMemoryStore(0),
 		Router:    router.NewRuleRouter("gpt-4o-mini", providerCatalog),
 		Catalog:   providerCatalog,
 		Governor:  governor.NewStaticGovernor(mergeGovernorDefaults(cfg.Governor), governor.NewMemoryBudgetStore(), governor.NewMemoryBudgetStore()),
@@ -204,20 +202,6 @@ func TestControlPlaneUpdateProviderRequires400WhenRuntimeNotConfigured(t *testin
 	rec := admin.mustRequestStatus(http.StatusBadRequest, http.MethodPatch, "/admin/control-plane/providers/anthropic", `{"base_url":"https://example.com/v1"}`)
 	if !contains([]string{"invalid_request"}, decodeErrorType(t, rec.Body.Bytes())) {
 		t.Errorf("error type = %q, want invalid_request", decodeErrorType(t, rec.Body.Bytes()))
-	}
-}
-
-func TestControlPlaneUpdateProviderRejectsAnonymous(t *testing.T) {
-	t.Parallel()
-	rt := &fakeProviderRuntime{}
-	admin, _ := newProviderRuntimeTestHandler(t, rt)
-	anon := apiTestClient{t: admin.t, handler: admin.handler}
-
-	anon.mustRequestStatus(http.StatusUnauthorized, http.MethodPatch, "/admin/control-plane/providers/anthropic", `{"base_url":"https://example.com/v1"}`)
-	rt.mu.Lock()
-	defer rt.mu.Unlock()
-	if len(rt.upsertCalls) != 0 {
-		t.Errorf("Upsert called %d times before auth; want 0", len(rt.upsertCalls))
 	}
 }
 
@@ -308,26 +292,6 @@ func TestControlPlaneSetProviderAPIKeyRequires400WhenRuntimeNotConfigured(t *tes
 // bearer must 401, never invoke the runtime. Without this, a
 // regression that drops `requireControlPlane` would open the
 // dynamic-runtime endpoints to anyone.
-func TestControlPlaneSetProviderAPIKeyRejectsAnonymous(t *testing.T) {
-	t.Parallel()
-	rt := &fakeProviderRuntime{}
-	admin, _ := newProviderRuntimeTestHandler(t, rt)
-	anon := apiTestClient{t: admin.t, handler: admin.handler}
-
-	anon.mustRequestStatus(http.StatusUnauthorized, http.MethodPut, "/admin/control-plane/providers/anthropic/api-key", `{"key":"sk-ant"}`)
-	rt.mu.Lock()
-	defer rt.mu.Unlock()
-	if len(rt.rotateCalls) != 0 || len(rt.deleteCredCalls) != 0 {
-		t.Errorf("runtime mutated before auth: rotate=%d delete=%d", len(rt.rotateCalls), len(rt.deleteCredCalls))
-	}
-}
-
-// ── Provider create / delete / update tests ─────────────────────────────────
-//
-// These exercise the explicit-add lifecycle (POST + DELETE + PATCH) the
-// UI relies on. The fake runtime's Upsert writes through to the real CP
-// store the handler reads from, so duplicate-id and base_url-conflict
-// detection paths see their own previous writes.
 
 func TestControlPlaneCreateProvider_Cloud_Success(t *testing.T) {
 	t.Parallel()

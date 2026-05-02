@@ -12,20 +12,13 @@ import (
 	"github.com/hecate/agent-runtime/pkg/types"
 )
 
-// HandleTenantTraces is the tenant-readable counterpart to HandleTraces /
-// HandleTrace. With a `request_id` query it forwards to the single-trace
-// path (HandleTrace already handles that). Without one it returns the
-// recent-traces list — currently un-scoped because the in-memory tracer
-// has no tenant/key column to filter on. Tenant-scoped trace storage is
-// a separate workstream; until then, /v1/traces shows whatever the admin
-// surface shows. The /admin/traces route remains for back-compat.
-func (h *Handler) HandleTenantTraces(w http.ResponseWriter, r *http.Request) {
+// HandleTracesOrTrace dispatches /v1/traces requests: with a
+// request_id query parameter it returns one trace; otherwise the recent
+// list. Single-user mode merges the historic tenant-readable mirror
+// path into the public /v1/traces surface.
+func (h *Handler) HandleTracesOrTrace(w http.ResponseWriter, r *http.Request) {
 	if strings.TrimSpace(r.URL.Query().Get("request_id")) != "" {
 		h.HandleTrace(w, r)
-		return
-	}
-	_, ok := h.requireAny(w, r)
-	if !ok {
 		return
 	}
 	h.writeTraceList(w, r)

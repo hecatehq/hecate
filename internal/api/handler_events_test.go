@@ -102,51 +102,6 @@ func TestHandleEvents_AdminSeesAllTenantsEvents(t *testing.T) {
 	}
 }
 
-func TestHandleEvents_TenantOnlySeesOwnEvents(t *testing.T) {
-	h, store, _ := newEventsTestHandler(t)
-	seedTaskAndEvents(t, store, "task-A", "team-a", []types.TaskRunEvent{
-		{RunID: "run-A", EventType: "run.created"},
-		{RunID: "run-A", EventType: "agent.turn.completed"},
-	})
-	seedTaskAndEvents(t, store, "task-B", "team-b", []types.TaskRunEvent{
-		{RunID: "run-B", EventType: "run.created"},
-	})
-
-	code, resp := callEvents(t, h, "/v1/events", "team-a-secret")
-	if code != http.StatusOK {
-		t.Fatalf("status = %d, want 200", code)
-	}
-	if len(resp.Data) != 2 {
-		t.Errorf("team-a saw %d events, want 2 (own only)", len(resp.Data))
-	}
-	for _, e := range resp.Data {
-		if e.TaskID != "task-A" {
-			t.Errorf("leaked event from %q to team-a: %+v", e.TaskID, e)
-		}
-	}
-}
-
-func TestHandleEvents_TenantPassingForeignTaskIDReceivesEmpty(t *testing.T) {
-	// A non-admin who passes ?task_id=<another tenant's task> must
-	// not see those events. The intersection-with-tenant logic
-	// reduces TaskIDs to an empty slice; the listing returns nothing.
-	h, store, _ := newEventsTestHandler(t)
-	seedTaskAndEvents(t, store, "task-A", "team-a", []types.TaskRunEvent{
-		{RunID: "run-A", EventType: "run.created"},
-	})
-	seedTaskAndEvents(t, store, "task-B", "team-b", []types.TaskRunEvent{
-		{RunID: "run-B", EventType: "run.created"},
-	})
-
-	code, resp := callEvents(t, h, "/v1/events?task_id=task-B", "team-a-secret")
-	if code != http.StatusOK {
-		t.Fatalf("status = %d, want 200", code)
-	}
-	if len(resp.Data) != 0 {
-		t.Errorf("team-a got %d events for task-B (cross-tenant leak): %+v", len(resp.Data), resp.Data)
-	}
-}
-
 func TestHandleEvents_EventTypeFilter(t *testing.T) {
 	h, store, _ := newEventsTestHandler(t)
 	seedTaskAndEvents(t, store, "task-A", "team-a", []types.TaskRunEvent{
@@ -203,16 +158,6 @@ func TestHandleEvents_AfterSequenceCursor(t *testing.T) {
 		if e.Sequence <= page1.NextAfterSequence {
 			t.Errorf("cursor leak: event seq %d <= cursor %d", e.Sequence, page1.NextAfterSequence)
 		}
-	}
-}
-
-func TestHandleEvents_RejectsMissingBearer(t *testing.T) {
-	h, _, _ := newEventsTestHandler(t)
-	req := httptest.NewRequest(http.MethodGet, "/v1/events", nil)
-	rec := httptest.NewRecorder()
-	h.HandleEvents(rec, req)
-	if rec.Code != http.StatusUnauthorized {
-		t.Errorf("status = %d, want 401 (no bearer)", rec.Code)
 	}
 }
 

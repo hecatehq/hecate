@@ -31,21 +31,6 @@ const (
 	EventRouterCandidateSelected   = "router.candidate.selected"
 )
 
-// Exact cache
-const (
-	EventCacheHit  = "cache.hit"
-	EventCacheMiss = "cache.miss"
-)
-
-// Semantic cache
-const (
-	EventSemanticCacheLookupStarted = "semantic_cache.lookup_started"
-	EventSemanticCacheHit           = "semantic_cache.hit"
-	EventSemanticCacheMiss          = "semantic_cache.miss"
-	EventSemanticCacheStoreFinished = "semantic_cache.store_finished"
-	EventSemanticCacheStoreFailed   = "semantic_cache.store_failed"
-)
-
 // Provider execution
 const (
 	EventProviderCallStarted        = "provider.call.started"
@@ -148,17 +133,15 @@ const (
 // ---------------------------------------------------------------------------
 
 const (
-	SpanGatewayRequest       = "gateway.request"
-	SpanGatewayRequestParse  = "gateway.request.parse"
-	SpanGatewayGovernor      = "gateway.governor"
-	SpanGatewayCacheExact    = "gateway.cache.exact"
-	SpanGatewayCacheSemantic = "gateway.cache.semantic"
-	SpanGatewayRouter        = "gateway.router"
-	SpanGatewayProvider      = "gateway.provider"
-	SpanGatewayUsage         = "gateway.usage"
-	SpanGatewayCost          = "gateway.cost"
-	SpanGatewayResponse      = "gateway.response"
-	SpanGatewayRuntime       = "gateway.runtime"
+	SpanGatewayRequest      = "gateway.request"
+	SpanGatewayRequestParse = "gateway.request.parse"
+	SpanGatewayGovernor     = "gateway.governor"
+	SpanGatewayRouter       = "gateway.router"
+	SpanGatewayProvider     = "gateway.provider"
+	SpanGatewayUsage        = "gateway.usage"
+	SpanGatewayCost         = "gateway.cost"
+	SpanGatewayResponse     = "gateway.response"
+	SpanGatewayRuntime      = "gateway.runtime"
 
 	SpanOrchestratorTask     = "orchestrator.task"
 	SpanOrchestratorRun      = "orchestrator.run"
@@ -223,7 +206,6 @@ const (
 	ErrorKindProviderCallFailed = "provider_call_failed"
 	ErrorKindRetryBackoff       = "retry_backoff_failed"
 	ErrorKindProviderHealth     = "provider_health_degraded"
-	ErrorKindSemanticCache      = "semantic_cache_store_failed"
 	ErrorKindUsageRecord        = "usage_record_failed"
 	// ErrorKindOther is the fallback for any value not in the known set.
 	ErrorKindOther = "other"
@@ -238,7 +220,6 @@ var knownErrorKinds = map[string]struct{}{
 	ErrorKindProviderCallFailed: {},
 	ErrorKindRetryBackoff:       {},
 	ErrorKindProviderHealth:     {},
-	ErrorKindSemanticCache:      {},
 	ErrorKindUsageRecord:        {},
 	ErrorKindOther:              {},
 }
@@ -330,26 +311,6 @@ var requiredEventAttrs = map[string][]string{
 		AttrGenAIProviderName,
 		AttrGenAIResponseModel,
 		AttrGenAIRequestModel,
-	},
-	EventCacheHit: {
-		AttrHecateCacheHit,
-		AttrHecateCacheType,
-		AttrHecateCacheKey,
-	},
-	EventCacheMiss: {
-		AttrHecateCacheHit,
-		AttrHecateCacheType,
-		AttrHecateCacheKey,
-	},
-	EventSemanticCacheHit: {
-		AttrHecateCacheHit,
-		AttrHecateCacheType,
-		AttrHecateSemanticScope,
-	},
-	EventSemanticCacheMiss: {
-		AttrHecateCacheHit,
-		AttrHecateCacheType,
-		AttrHecateSemanticScope,
 	},
 }
 

@@ -54,14 +54,6 @@ func TestSpanMappingForEventGroups(t *testing.T) {
 		{telemetry.EventRouterCandidateSkipped, telemetry.SpanGatewayRouter},
 		{telemetry.EventRouterCandidateDenied, telemetry.SpanGatewayRouter},
 		{telemetry.EventRouterCandidateSelected, telemetry.SpanGatewayRouter},
-		// Exact cache
-		{telemetry.EventCacheHit, telemetry.SpanGatewayCacheExact},
-		{telemetry.EventCacheMiss, telemetry.SpanGatewayCacheExact},
-		// Semantic cache
-		{telemetry.EventSemanticCacheLookupStarted, telemetry.SpanGatewayCacheSemantic},
-		{telemetry.EventSemanticCacheHit, telemetry.SpanGatewayCacheSemantic},
-		{telemetry.EventSemanticCacheMiss, telemetry.SpanGatewayCacheSemantic},
-		{telemetry.EventSemanticCacheStoreFinished, telemetry.SpanGatewayCacheSemantic},
 		// Provider
 		{telemetry.EventProviderCallStarted, telemetry.SpanGatewayProvider},
 		{telemetry.EventProviderCallFinished, telemetry.SpanGatewayProvider},

@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
+	"regexp"
 	"strings"
 	"time"
 
@@ -15,10 +16,31 @@ import (
 	// extensions (sqlite-vec, FTS5 fuzzy variants, etc.) because there
 	// is no native engine to load against. The semantic cache (which
 	// needs vector similarity) therefore has NO SQLite backend — it
-	// uses memory or postgres+pgvector. See internal/cache/semantic.go
-	// for the rationale.
+	// uses memory only. See internal/cache/semantic.go for the rationale.
 	_ "modernc.org/sqlite"
 )
+
+// identifierPattern matches characters that aren't allowed in a
+// SQLite identifier we'll splice into a CREATE TABLE statement.
+// We never substitute callers' identifiers via parameter binding —
+// SQL doesn't allow that — so the only safe move is to scrub them
+// to a known-good charset before formatting.
+var identifierPattern = regexp.MustCompile(`[^a-z0-9_]+`)
+
+// sanitizeIdentifier lowercases value, replaces non-alphanumeric runs
+// with underscores, trims edge underscores, and returns the fallback
+// if nothing usable remains. Used to build table prefixes and table
+// names from operator-supplied config without inviting SQL injection.
+func sanitizeIdentifier(value, fallback string) string {
+	value = strings.ToLower(strings.TrimSpace(value))
+	value = strings.ReplaceAll(value, "-", "_")
+	value = identifierPattern.ReplaceAllString(value, "_")
+	value = strings.Trim(value, "_")
+	if value == "" {
+		return fallback
+	}
+	return value
+}
 
 // SQLiteConfig captures the on-disk path and connection knobs the
 // SQLite-backed stores share. We keep TablePrefix here so multiple

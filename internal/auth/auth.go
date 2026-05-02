@@ -1,17 +1,25 @@
+// Package auth is a single-user-mode shim. It exposes the same surface
+// the handlers used to call against (Principal, Authenticator, etc.)
+// but every method returns a fully-permitted anonymous principal. The
+// gateway binds to 127.0.0.1 by default and a same-origin guard
+// rejects cross-origin browser calls — that's the whole threat model.
+//
+// Kept as a thin shim instead of deleted because the API handlers
+// thread `auth.Principal` through dozens of call sites; rewriting all
+// of them at once would be a much larger blast radius. This file lets
+// every existing import keep compiling while behaving as no-op.
 package auth
 
 import (
-	"context"
 	"net/http"
-	"strings"
-
-	"github.com/hecate/agent-runtime/internal/config"
-	"github.com/hecate/agent-runtime/internal/controlplane"
 )
 
+// Principal represents the (anonymous) caller. Single-user mode treats
+// every request as the operator; the fields are kept for compatibility
+// with code that reads them but they're always empty.
 type Principal struct {
-	Name             string
 	Role             string
+	Name             string
 	Tenant           string
 	Source           string
 	KeyID            string
@@ -19,214 +27,56 @@ type Principal struct {
 	AllowedModels    []string
 }
 
-func (p Principal) IsAdmin() bool {
-	return p.Role == "admin"
-}
+// IsAdmin always returns true: there's only one user and they own
+// everything.
+func (p Principal) IsAdmin() bool { return true }
 
-type Authenticator struct {
-	adminToken string
-	store      controlplane.Store
-	enabled    bool
-}
+// IsAnonymous reports whether the principal carries no identity
+// information. Always true in single-user mode.
+func (p Principal) IsAnonymous() bool { return true }
 
-// NewAuthenticator wires the authenticator. Auth is "enabled" iff at least
-// one credential source is configured (an admin token or an API-key store)
-// AND the operator hasn't explicitly opted out via GATEWAY_AUTH_DISABLED.
-// The gateway boot path always supplies the admin token now (auto-generated
-// in bootstrap), so the natural default is enabled. Operators reach for
-// AuthDisabled when running behind a reverse proxy that terminates auth
-// upstream, in test envs, or in a controlled no-auth local setup.
-func NewAuthenticator(cfg config.ServerConfig, store controlplane.Store) *Authenticator {
-	enabled := cfg.AuthToken != "" || store != nil
-	if cfg.AuthDisabled {
-		enabled = false
-	}
-	return &Authenticator{
-		adminToken: cfg.AuthToken,
-		store:      store,
-		enabled:    enabled,
-	}
-}
+// Anonymous is the canonical anonymous principal. Returned by every
+// authenticator call.
+var Anonymous = Principal{Role: "admin", Source: "anonymous"}
 
-func (a *Authenticator) Enabled() bool {
-	return a != nil && a.enabled
-}
-
-func (a *Authenticator) Authenticate(r *http.Request) (Principal, bool) {
-	if a == nil {
-		return Principal{Role: "anonymous"}, true
-	}
-	if !a.enabled {
-		return Principal{Role: "anonymous"}, true
-	}
-
-	token := requestToken(r)
-	if token == "" {
-		return Principal{}, false
-	}
-
-	if a.adminToken != "" && token == a.adminToken {
-		return Principal{
-			Name:   "admin",
-			Role:   "admin",
-			Source: "admin_token",
-		}, true
-	}
-
-	if a.store != nil {
-		state, err := a.store.Snapshot(context.Background())
-		if err == nil {
-			for _, key := range state.APIKeys {
-				if !key.Enabled || key.Key != token {
-					continue
-				}
-				if key.Tenant != "" && !tenantEnabled(state.Tenants, key.Tenant) {
-					return Principal{}, false
-				}
-				return Principal{
-					Name:             key.Name,
-					Role:             key.Role,
-					Tenant:           key.Tenant,
-					Source:           "control_plane_api_key",
-					KeyID:            key.ID,
-					AllowedProviders: mergedAllowlist(key.AllowedProviders, tenantAllowProviders(state.Tenants, key.Tenant)),
-					AllowedModels:    mergedAllowlist(key.AllowedModels, tenantAllowModels(state.Tenants, key.Tenant)),
-				}, true
-			}
-		}
-	}
-	return Principal{}, false
-}
-
+// Introspection mirrors the historical shape callers expected. Single-
+// user mode always reports authenticated=true with the anonymous
+// principal.
 type Introspection struct {
 	Authenticated bool
 	InvalidToken  bool
 	Principal     Principal
 }
 
-func (a *Authenticator) Introspect(r *http.Request) Introspection {
-	if a == nil {
-		return Introspection{
-			Authenticated: false,
-			Principal: Principal{
-				Role:   "anonymous",
-				Source: "auth_disabled",
-			},
-		}
-	}
-	if !a.enabled {
-		return Introspection{
-			Authenticated: false,
-			Principal: Principal{
-				Role:   "anonymous",
-				Source: "auth_disabled",
-			},
-		}
-	}
+// Authenticator is a no-op in single-user mode.
+type Authenticator struct{}
 
-	token := requestToken(r)
-	if token == "" {
-		return Introspection{
-			Authenticated: false,
-			Principal: Principal{
-				Role:   "anonymous",
-				Source: "no_token",
-			},
-		}
-	}
-
-	principal, ok := a.Authenticate(r)
-	if !ok {
-		return Introspection{
-			Authenticated: false,
-			InvalidToken:  true,
-			Principal: Principal{
-				Role:   "invalid",
-				Source: "invalid_token",
-			},
-		}
-	}
-
-	return Introspection{
-		Authenticated: true,
-		Principal:     principal,
-	}
+// NewAuthenticator returns an authenticator. Arguments are ignored —
+// single-user mode has no token to validate. Variadic so existing
+// callers that pass server-config + control-plane-store don't need
+// to be updated.
+func NewAuthenticator(_ ...any) *Authenticator {
+	return &Authenticator{}
 }
 
-// requestToken extracts the client auth token.
-//
-// Precedence:
-// 1. Authorization: Bearer <token>
-// 2. x-api-key: <token>
-//
-// This keeps behavior deterministic when both are present.
-func requestToken(r *http.Request) string {
-	if r == nil {
-		return ""
-	}
-	if token := bearerToken(r.Header.Get("Authorization")); token != "" {
-		return token
-	}
-	return strings.TrimSpace(r.Header.Get("x-api-key"))
+// Enabled always returns false in single-user mode — there's no auth
+// to enable. UI surfaces use this to decide whether to show login
+// flows.
+func (a *Authenticator) Enabled() bool { return false }
+
+// Introspect returns the anonymous principal regardless of the
+// request's headers.
+func (a *Authenticator) Introspect(_ *http.Request) Introspection {
+	return Introspection{Authenticated: true, Principal: Anonymous}
 }
 
-func bearerToken(header string) string {
-	header = strings.TrimSpace(header)
-	if header == "" {
-		return ""
-	}
-	const prefix = "Bearer "
-	if !strings.HasPrefix(header, prefix) {
-		return ""
-	}
-	return strings.TrimSpace(strings.TrimPrefix(header, prefix))
+// Authenticate matches the historical signature for callers that
+// expect a (Principal, ok) tuple. Always succeeds.
+func (a *Authenticator) Authenticate(_ *http.Request) (Principal, bool) {
+	return Anonymous, true
 }
 
-func mergedAllowlist(primary, fallback []string) []string {
-	if len(primary) > 0 && len(fallback) > 0 {
-		out := make([]string, 0, len(primary))
-		for _, item := range primary {
-			for _, candidate := range fallback {
-				if item == candidate {
-					out = append(out, item)
-					break
-				}
-			}
-		}
-		return out
-	}
-	if len(primary) > 0 {
-		return append([]string(nil), primary...)
-	}
-	if len(fallback) > 0 {
-		return append([]string(nil), fallback...)
-	}
-	return nil
-}
-
-func tenantAllowProviders(tenants []controlplane.Tenant, id string) []string {
-	for _, tenant := range tenants {
-		if tenant.ID == id && tenant.Enabled {
-			return tenant.AllowedProviders
-		}
-	}
-	return nil
-}
-
-func tenantAllowModels(tenants []controlplane.Tenant, id string) []string {
-	for _, tenant := range tenants {
-		if tenant.ID == id && tenant.Enabled {
-			return tenant.AllowedModels
-		}
-	}
-	return nil
-}
-
-func tenantEnabled(tenants []controlplane.Tenant, id string) bool {
-	for _, tenant := range tenants {
-		if tenant.ID == id {
-			return tenant.Enabled
-		}
-	}
-	return false
-}
+// PrincipalFromRequest returns the anonymous principal regardless of
+// any header state. Wired to the handlers that previously extracted a
+// tenant key from the Authorization header.
+func PrincipalFromRequest(_ *http.Request) Principal { return Anonymous }

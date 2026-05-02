@@ -53,22 +53,6 @@ type Handler struct {
 	// exposed via OrchestratorMetrics() so main.go can plumb the
 	// same instance into the cache.
 	orchestratorMetrics *telemetry.OrchestratorMetrics
-	// bootstrapTokenExposable controls whether GET /v1/bootstrap-token
-	// returns the admin token to a loopback caller. True when the token
-	// was auto-generated (gateway-managed); false when the operator
-	// supplied GATEWAY_AUTH_TOKEN at boot — the gateway doesn't hand
-	// out tokens it doesn't own. Set via SetBootstrapTokenExposable
-	// from main.go after bootstrap.Resolve.
-	bootstrapTokenExposable bool
-}
-
-// SetBootstrapTokenExposable controls whether GET /v1/bootstrap-token
-// hands out the admin token on loopback requests. main.go enables it
-// when the token is gateway-managed (auto-generated bootstrap),
-// disables it when GATEWAY_AUTH_TOKEN was supplied — that token
-// belongs to the operator, not the gateway.
-func (h *Handler) SetBootstrapTokenExposable(v bool) {
-	h.bootstrapTokenExposable = v
 }
 
 // OrchestratorMetrics returns the metrics instance the runner is using.

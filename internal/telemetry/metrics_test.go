@@ -61,10 +61,6 @@ func TestMetricsRecordChatTracksSemanticAndRetryDetails(t *testing.T) {
 		ProviderKind:         "local",
 		RequestedModel:       "llama3.1:8b",
 		ResponseModel:        "llama3.1:8b",
-		CacheHit:             true,
-		CacheType:            "semantic",
-		SemanticStrategy:     "postgres_pgvector",
-		SemanticIndexType:    "hnsw",
 		CostMicrosUSD:        123,
 		PromptTokens:         12,
 		CompletionTokens:     5,
@@ -82,13 +78,6 @@ func TestMetricsRecordChatTracksSemanticAndRetryDetails(t *testing.T) {
 	if chatRequests.DataPoints[0].Value != 1 {
 		t.Fatalf("chat request count = %d, want 1", chatRequests.DataPoints[0].Value)
 	}
-	if got := attrValue(chatRequests.DataPoints[0].Attributes, AttrHecateCacheType); got != "semantic" {
-		t.Fatalf("cache_type attribute = %q, want semantic", got)
-	}
-	if got := attrValue(chatRequests.DataPoints[0].Attributes, AttrHecateSemanticStrategy); got != "postgres_pgvector" {
-		t.Fatalf("semantic strategy attribute = %q, want postgres_pgvector", got)
-	}
-
 	cost := findMetric[metricdata.Sum[int64]](t, collected, "gen_ai.gateway.cost")
 	if cost.DataPoints[0].Value != 123 {
 		t.Fatalf("cost total = %d, want 123", cost.DataPoints[0].Value)
@@ -293,38 +282,6 @@ func TestGatewayMetricsMultipleResultsBucketedSeparately(t *testing.T) {
 	}
 	if buckets[ResultError] != 1 {
 		t.Errorf("error count = %d, want 1", buckets[ResultError])
-	}
-}
-
-// TestGatewayMetricsCacheHitBoolAttributePresent verifies that the chat-request
-// counter carries the boolean hecate.cache.hit attribute.
-func TestGatewayMetricsCacheHitBoolAttributePresent(t *testing.T) {
-	t.Parallel()
-
-	reader := sdkmetric.NewManualReader()
-	provider := sdkmetric.NewMeterProvider(sdkmetric.WithReader(reader))
-	m, err := NewMetricsWithMeterProvider(provider)
-	if err != nil {
-		t.Fatalf("NewMetricsWithMeterProvider() error = %v", err)
-	}
-
-	m.RecordChat(context.Background(), ChatMetricsRecord{
-		Provider:       "openai",
-		RequestedModel: "gpt-4o-mini",
-		CacheHit:       true,
-	})
-
-	collected := collectMetrics(t, reader)
-	data := findMetric[metricdata.Sum[int64]](t, collected, MetricChatRequestsTotal)
-	if len(data.DataPoints) == 0 {
-		t.Fatal("no data points for chat requests counter")
-	}
-	hit, ok := attrBool(data.DataPoints[0].Attributes, AttrHecateCacheHit)
-	if !ok {
-		t.Errorf("attribute %q missing from chat requests data point", AttrHecateCacheHit)
-	}
-	if !hit {
-		t.Errorf("cache_hit = false, want true")
 	}
 }
 

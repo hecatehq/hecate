@@ -10,22 +10,26 @@ import (
 	"github.com/hecate/agent-runtime/internal/storage"
 )
 
-// SQLiteBudgetStore mirrors PostgresBudgetStore — same Snapshot/Debit/
-// Credit/SetBalance/Reset/event-log surface — so the gateway can swap
-// budget backends purely via config without touching call sites.
+// maxBudgetEventListLimit caps how many budget events a single List
+// call can return. Bounds the gateway's memory growth and keeps the
+// observability surface predictable; the retention worker prunes the
+// table separately.
+const maxBudgetEventListLimit = 1_000
+
+// SQLiteBudgetStore is the budget tracker's persistent backing store.
+// Single row per balance entry plus an append-only events table.
 //
-// Differences from the Postgres flavor that aren't accidental:
-//   - id column is `INTEGER PRIMARY KEY AUTOINCREMENT` instead of
-//     BIGSERIAL — the SQLite idiom for monotonic row ids.
-//   - placeholders are `?` rather than `$N`.
+// On-disk shape:
+//   - id column is `INTEGER PRIMARY KEY AUTOINCREMENT` — the SQLite
+//     idiom for monotonic row ids.
+//   - placeholders are `?`.
 //   - timestamps live in TEXT columns (RFC3339); SQLite has no native
 //     TIMESTAMPTZ but the Go driver round-trips time.Time over TEXT.
 //   - upserts use `ON CONFLICT (...) DO UPDATE SET ... = excluded.<col>`
-//     (lowercase `excluded`, the SQLite spelling) instead of EXCLUDED.
-//   - prune-by-count uses a correlated subquery instead of ROW_NUMBER();
-//     SQLite's window functions exist (3.25+) but the correlated form
-//     is simpler and the events table is bounded by maxCount anyway.
-//   - Debit/Credit/SetBalance still use a single atomic UPDATE — SQLite
+//     (lowercase `excluded`, the SQLite spelling).
+//   - prune-by-count uses a correlated subquery — simpler than
+//     ROW_NUMBER() and the events table is bounded by maxCount.
+//   - Debit/Credit/SetBalance use a single atomic UPDATE — SQLite
 //     serializes writes via its file lock, so a single statement on a
 //     row is atomic without needing an explicit transaction.
 type SQLiteBudgetStore struct {

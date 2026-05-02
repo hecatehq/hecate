@@ -1,8 +1,7 @@
-# Quickstart stack. Defaults to "just the hecate gateway" so a `docker compose up`
-# is enough to try Hecate end-to-end on http://127.0.0.1:8765.
-#
-# Optional services live behind profiles so they don't start by default:
-#   docker compose --profile postgres up    # adds Postgres for state
+# Quickstart stack. Single-user single-binary: just the gateway. A
+# `docker compose up` is enough to try Hecate end-to-end on
+# http://127.0.0.1:8765. Persistence is sqlite into the hecate-data
+# volume; nothing else to wire up.
 #
 # ── Local inference from Docker ──────────────────────────────────────────────
 # Hecate discovers models by calling /v1/models on each local provider.
@@ -58,24 +57,5 @@ services:
       - hecate-data:/data
     restart: unless-stopped
 
-  postgres:
-    profiles: ["postgres"]
-    image: postgres:16-alpine
-    environment:
-      POSTGRES_DB: hecate
-      POSTGRES_USER: hecate
-      POSTGRES_PASSWORD: hecate
-    ports:
-      - "5432:5432"
-    volumes:
-      - postgres-data:/var/lib/postgresql/data
-    healthcheck:
-      test: ["CMD-SHELL", "pg_isready -U hecate -d hecate"]
-      interval: 5s
-      timeout: 3s
-      retries: 20
-    restart: unless-stopped
-
 volumes:
   hecate-data:
-  postgres-data:

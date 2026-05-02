@@ -16,10 +16,8 @@ type Config struct {
 	Chat      ChatConfig
 	OTel      OTelConfig
 	Governor  GovernorConfig
-	Cache     CacheConfig
 	Retention RetentionConfig
-	Postgres  PostgresConfig
-	// SQLite is the single-node-durable tier. Subsystems opt in via
+	// SQLite is the single-node durable tier. Subsystems opt in via
 	// GATEWAY_*_BACKEND=sqlite; the client is opened lazily once any
 	// subsystem actually needs it. See storage.SQLiteClient for the
 	// pragmas applied per connection.
@@ -224,12 +222,6 @@ type PolicyRuleConfig struct {
 	RewriteModelTo         string   `json:"rewrite_model_to"`
 }
 
-type CacheConfig struct {
-	DefaultTTL time.Duration
-	Backend    string
-	Semantic   SemanticCacheConfig
-}
-
 type RetentionConfig struct {
 	Enabled         bool
 	HistoryBackend  string
@@ -237,8 +229,6 @@ type RetentionConfig struct {
 	TraceSnapshots  RetentionPolicy
 	BudgetEvents    RetentionPolicy
 	AuditEvents     RetentionPolicy
-	ExactCache      RetentionPolicy
-	SemanticCache   RetentionPolicy
 	ProviderHistory RetentionPolicy
 	// TurnEvents prunes `agent.turn.completed` rows from the
 	// task-run events table. Other event types (run.started/finished,
@@ -249,38 +239,6 @@ type RetentionConfig struct {
 type RetentionPolicy struct {
 	MaxAge   time.Duration
 	MaxCount int
-}
-
-type SemanticCacheConfig struct {
-	Enabled                          bool
-	Backend                          string
-	DefaultTTL                       time.Duration
-	MinSimilarity                    float64
-	MaxEntries                       int
-	MaxTextChars                     int
-	Embedder                         string
-	EmbedderProvider                 string
-	EmbedderModel                    string
-	EmbedderBaseURL                  string
-	EmbedderAPIKey                   string
-	EmbedderTimeout                  time.Duration
-	PostgresVectorMode               string
-	PostgresVectorCandidates         int
-	PostgresVectorIndexMode          string
-	PostgresVectorIndexType          string
-	PostgresVectorHNSWM              int
-	PostgresVectorHNSWEfConstruction int
-	PostgresVectorIVFFlatLists       int
-	PostgresVectorSearchEf           int
-	PostgresVectorSearchProbes       int
-}
-
-type PostgresConfig struct {
-	DSN          string
-	Schema       string
-	TablePrefix  string
-	MaxOpenConns int
-	MaxIdleConns int
 }
 
 type SQLiteConfig struct {
@@ -351,7 +309,7 @@ func LoadFromEnv() Config {
 	providersCfg := loadProvidersFromEnv()
 	return Config{
 		Server: ServerConfig{
-			Address:      getEnv("GATEWAY_ADDRESS", ":8765"),
+			Address:      getEnv("GATEWAY_ADDRESS", "127.0.0.1:8765"),
 			AuthToken:    getEnv("GATEWAY_AUTH_TOKEN", ""),
 			AuthDisabled: getEnvBool("GATEWAY_AUTH_DISABLED", false),
 			MultiTenant:  getEnvBool("GATEWAY_MULTI_TENANT", false),
@@ -457,33 +415,6 @@ func LoadFromEnv() Config {
 			BudgetWarningThresholds: parseEnvCSVInts(getEnv("GATEWAY_BUDGET_WARNING_THRESHOLDS", "50,80,95")),
 			BudgetHistoryLimit:      getEnvInt("GATEWAY_BUDGET_HISTORY_LIMIT", 20),
 		},
-		Cache: CacheConfig{
-			DefaultTTL: getEnvDuration("GATEWAY_CACHE_TTL", 5*time.Minute),
-			Backend:    getEnv("GATEWAY_CACHE_BACKEND", "memory"),
-			Semantic: SemanticCacheConfig{
-				Enabled:                          getEnvBool("GATEWAY_SEMANTIC_CACHE_ENABLED", false),
-				Backend:                          getEnv("GATEWAY_SEMANTIC_CACHE_BACKEND", "memory"),
-				DefaultTTL:                       getEnvDuration("GATEWAY_SEMANTIC_CACHE_TTL", 24*time.Hour),
-				MinSimilarity:                    getEnvFloat64("GATEWAY_SEMANTIC_CACHE_MIN_SIMILARITY", 0.92),
-				MaxEntries:                       getEnvInt("GATEWAY_SEMANTIC_CACHE_MAX_ENTRIES", 10_000),
-				MaxTextChars:                     getEnvInt("GATEWAY_SEMANTIC_CACHE_MAX_TEXT_CHARS", 8_000),
-				Embedder:                         getEnv("GATEWAY_SEMANTIC_CACHE_EMBEDDER", "local_simple"),
-				EmbedderProvider:                 getEnv("GATEWAY_SEMANTIC_CACHE_EMBEDDER_PROVIDER", ""),
-				EmbedderModel:                    getEnv("GATEWAY_SEMANTIC_CACHE_EMBEDDER_MODEL", ""),
-				EmbedderBaseURL:                  getEnv("GATEWAY_SEMANTIC_CACHE_EMBEDDER_BASE_URL", ""),
-				EmbedderAPIKey:                   getEnv("GATEWAY_SEMANTIC_CACHE_EMBEDDER_API_KEY", ""),
-				EmbedderTimeout:                  getEnvDuration("GATEWAY_SEMANTIC_CACHE_EMBEDDER_TIMEOUT", 30*time.Second),
-				PostgresVectorMode:               getEnv("GATEWAY_SEMANTIC_CACHE_POSTGRES_VECTOR_MODE", "auto"),
-				PostgresVectorCandidates:         getEnvInt("GATEWAY_SEMANTIC_CACHE_POSTGRES_VECTOR_CANDIDATES", 200),
-				PostgresVectorIndexMode:          getEnv("GATEWAY_SEMANTIC_CACHE_POSTGRES_VECTOR_INDEX_MODE", "auto"),
-				PostgresVectorIndexType:          getEnv("GATEWAY_SEMANTIC_CACHE_POSTGRES_VECTOR_INDEX_TYPE", "hnsw"),
-				PostgresVectorHNSWM:              getEnvInt("GATEWAY_SEMANTIC_CACHE_POSTGRES_VECTOR_HNSW_M", 16),
-				PostgresVectorHNSWEfConstruction: getEnvInt("GATEWAY_SEMANTIC_CACHE_POSTGRES_VECTOR_HNSW_EF_CONSTRUCTION", 64),
-				PostgresVectorIVFFlatLists:       getEnvInt("GATEWAY_SEMANTIC_CACHE_POSTGRES_VECTOR_IVFFLAT_LISTS", 100),
-				PostgresVectorSearchEf:           getEnvInt("GATEWAY_SEMANTIC_CACHE_POSTGRES_VECTOR_SEARCH_EF", 80),
-				PostgresVectorSearchProbes:       getEnvInt("GATEWAY_SEMANTIC_CACHE_POSTGRES_VECTOR_SEARCH_PROBES", 10),
-			},
-		},
 		Retention: RetentionConfig{
 			Enabled:         getEnvBool("GATEWAY_RETENTION_ENABLED", false),
 			HistoryBackend:  getEnv("GATEWAY_RETENTION_HISTORY_BACKEND", "memory"),
@@ -491,21 +422,12 @@ func LoadFromEnv() Config {
 			TraceSnapshots:  loadRetentionPolicyFromEnv("GATEWAY_RETENTION_TRACES_", 24*time.Hour, 2000),
 			BudgetEvents:    loadRetentionPolicyFromEnv("GATEWAY_RETENTION_BUDGET_EVENTS_", 30*24*time.Hour, 200),
 			AuditEvents:     loadRetentionPolicyFromEnv("GATEWAY_RETENTION_AUDIT_EVENTS_", 30*24*time.Hour, 500),
-			ExactCache:      loadRetentionPolicyFromEnv("GATEWAY_RETENTION_EXACT_CACHE_", 24*time.Hour, 10_000),
-			SemanticCache:   loadRetentionPolicyFromEnv("GATEWAY_RETENTION_SEMANTIC_CACHE_", 7*24*time.Hour, 10_000),
 			ProviderHistory: loadRetentionPolicyFromEnv("GATEWAY_RETENTION_PROVIDER_HISTORY_", 7*24*time.Hour, 10_000),
 			// agent.turn.completed events accumulate fast on long
 			// agent runs (one per LLM round-trip). 7d/100k is a
-			// generous default for a single-tenant operator; tune
-			// down on busy multi-tenant deployments.
+			// generous default for single-user installs; tune
+			// down on busy ones.
 			TurnEvents: loadRetentionPolicyFromEnv("GATEWAY_RETENTION_TURN_EVENTS_", 7*24*time.Hour, 100_000),
-		},
-		Postgres: PostgresConfig{
-			DSN:          getEnv("POSTGRES_DSN", ""),
-			Schema:       getEnv("POSTGRES_SCHEMA", "public"),
-			TablePrefix:  getEnv("POSTGRES_TABLE_PREFIX", "hecate"),
-			MaxOpenConns: getEnvInt("POSTGRES_MAX_OPEN_CONNS", 10),
-			MaxIdleConns: getEnvInt("POSTGRES_MAX_IDLE_CONNS", 5),
 		},
 		SQLite: SQLiteConfig{
 			Path:        getEnv("GATEWAY_SQLITE_PATH", ".data/hecate.db"),
@@ -535,15 +457,13 @@ func (c Config) Validate() error {
 		errs = append(errs, fmt.Errorf("%s must be one of %s (got %q)", label, strings.Join(allowed, ", "), value))
 	}
 
-	validateBackend("GATEWAY_CONTROL_PLANE_BACKEND", c.Server.ControlPlaneBackend, "memory", "sqlite", "postgres")
-	validateBackend("GATEWAY_TASKS_BACKEND", c.Server.TasksBackend, "memory", "sqlite", "postgres")
-	validateBackend("GATEWAY_TASK_QUEUE_BACKEND", c.Server.TaskQueueBackend, "memory", "sqlite", "postgres")
-	validateBackend("GATEWAY_CHAT_SESSIONS_BACKEND", c.Chat.SessionsBackend, "memory", "sqlite", "postgres")
-	validateBackend("GATEWAY_CACHE_BACKEND", c.Cache.Backend, "memory", "sqlite", "postgres")
-	validateBackend("GATEWAY_BUDGET_BACKEND", c.Governor.BudgetBackend, "memory", "sqlite", "postgres")
-	validateBackend("GATEWAY_RETENTION_HISTORY_BACKEND", c.Retention.HistoryBackend, "memory", "sqlite", "postgres")
-	validateBackend("GATEWAY_SEMANTIC_CACHE_BACKEND", c.Cache.Semantic.Backend, "memory", "sqlite", "postgres")
-	validateBackend("GATEWAY_PROVIDER_HISTORY_BACKEND", c.Provider.HistoryBackend, "memory", "sqlite", "postgres")
+	validateBackend("GATEWAY_CONTROL_PLANE_BACKEND", c.Server.ControlPlaneBackend, "memory", "sqlite")
+	validateBackend("GATEWAY_TASKS_BACKEND", c.Server.TasksBackend, "memory", "sqlite")
+	validateBackend("GATEWAY_TASK_QUEUE_BACKEND", c.Server.TaskQueueBackend, "memory", "sqlite")
+	validateBackend("GATEWAY_CHAT_SESSIONS_BACKEND", c.Chat.SessionsBackend, "memory", "sqlite")
+	validateBackend("GATEWAY_BUDGET_BACKEND", c.Governor.BudgetBackend, "memory", "sqlite")
+	validateBackend("GATEWAY_RETENTION_HISTORY_BACKEND", c.Retention.HistoryBackend, "memory", "sqlite")
+	validateBackend("GATEWAY_PROVIDER_HISTORY_BACKEND", c.Provider.HistoryBackend, "memory", "sqlite")
 
 	validPolicies := map[string]struct{}{
 		"shell_exec": {}, "git_exec": {}, "file_write": {},
@@ -559,12 +479,6 @@ func (c Config) Validate() error {
 		}
 	}
 
-	if postgresRequired(c) && strings.TrimSpace(c.Postgres.DSN) == "" {
-		errs = append(errs, errors.New("POSTGRES_DSN is required when any backend is postgres"))
-	}
-	if c.Cache.Semantic.Enabled && strings.EqualFold(strings.TrimSpace(c.Cache.Semantic.Backend), "sqlite") {
-		errs = append(errs, errors.New("GATEWAY_SEMANTIC_CACHE_BACKEND=sqlite is unsupported; use memory or postgres"))
-	}
 	if c.Retention.Enabled && c.Retention.Interval <= 0 {
 		errs = append(errs, errors.New("GATEWAY_RETENTION_INTERVAL must be positive when retention is enabled"))
 	}
@@ -572,8 +486,6 @@ func (c Config) Validate() error {
 		"GATEWAY_RETENTION_TRACES":           c.Retention.TraceSnapshots,
 		"GATEWAY_RETENTION_BUDGET_EVENTS":    c.Retention.BudgetEvents,
 		"GATEWAY_RETENTION_AUDIT_EVENTS":     c.Retention.AuditEvents,
-		"GATEWAY_RETENTION_EXACT_CACHE":      c.Retention.ExactCache,
-		"GATEWAY_RETENTION_SEMANTIC_CACHE":   c.Retention.SemanticCache,
 		"GATEWAY_RETENTION_PROVIDER_HISTORY": c.Retention.ProviderHistory,
 		"GATEWAY_RETENTION_TURN_EVENTS":      c.Retention.TurnEvents,
 	} {
@@ -608,16 +520,6 @@ func (c Config) Validate() error {
 	if c.Server.RateLimit.BurstSize < 0 {
 		errs = append(errs, errors.New("GATEWAY_RATE_LIMIT_BURST must be zero or positive"))
 	}
-	if c.Cache.Semantic.MinSimilarity < 0 || c.Cache.Semantic.MinSimilarity > 1 {
-		errs = append(errs, errors.New("GATEWAY_SEMANTIC_CACHE_MIN_SIMILARITY must be between 0 and 1"))
-	}
-	if c.Cache.Semantic.MaxEntries < 0 {
-		errs = append(errs, errors.New("GATEWAY_SEMANTIC_CACHE_MAX_ENTRIES must be zero or positive"))
-	}
-	if c.Cache.Semantic.MaxTextChars < 0 {
-		errs = append(errs, errors.New("GATEWAY_SEMANTIC_CACHE_MAX_TEXT_CHARS must be zero or positive"))
-	}
-
 	for _, item := range durationEnvKeys() {
 		if raw := strings.TrimSpace(os.Getenv(item)); raw != "" {
 			if _, err := time.ParseDuration(raw); err != nil {
@@ -627,18 +529,6 @@ func (c Config) Validate() error {
 	}
 
 	return errors.Join(errs...)
-}
-
-func postgresRequired(cfg Config) bool {
-	return cfg.Cache.Backend == "postgres" ||
-		(cfg.Cache.Semantic.Enabled && cfg.Cache.Semantic.Backend == "postgres") ||
-		cfg.Governor.BudgetBackend == "postgres" ||
-		cfg.Server.ControlPlaneBackend == "postgres" ||
-		cfg.Chat.SessionsBackend == "postgres" ||
-		cfg.Server.TasksBackend == "postgres" ||
-		cfg.Server.TaskQueueBackend == "postgres" ||
-		cfg.Provider.HistoryBackend == "postgres" ||
-		cfg.Retention.HistoryBackend == "postgres"
 }
 
 func durationEnvKeys() []string {

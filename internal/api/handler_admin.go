@@ -151,19 +151,6 @@ func (h *Handler) HandleProviderHealthHistory(w http.ResponseWriter, r *http.Req
 	})
 }
 
-// HandleTenantRuntimeStats is the tenant-readable counterpart. Runtime
-// stats are queue/worker globals (no per-key dimension), so there's no
-// scoping to apply — any authenticated principal sees the same numbers.
-// The /admin/runtime/stats route stays for back-compat.
-func (h *Handler) HandleTenantRuntimeStats(w http.ResponseWriter, r *http.Request) {
-	principal, ok := h.requireAny(w, r)
-	if !ok {
-		return
-	}
-	ctx := h.contextWithPrincipal(r.Context(), principal)
-	h.writeRuntimeStats(w, ctx)
-}
-
 func (h *Handler) HandleRuntimeStats(w http.ResponseWriter, r *http.Request) {
 	principal, ok := h.requireAdmin(w, r)
 	if !ok {
@@ -354,113 +341,6 @@ func (h *Handler) HandleMCPCacheStats(w http.ResponseWriter, r *http.Request) {
 	})
 }
 
-// HandleSemanticCacheStatus returns configuration and live entry count for the
-// semantic cache. Configured=false when no semantic store is wired (disabled
-// or in-process noop); the data block still carries zeros.
-func (h *Handler) HandleSemanticCacheStatus(w http.ResponseWriter, r *http.Request) {
-	principal, ok := h.requireAdmin(w, r)
-	if !ok {
-		return
-	}
-	ctx := h.contextWithPrincipal(r.Context(), principal)
-
-	cfg := h.config.Cache.Semantic
-	item := SemanticCacheStatusItem{
-		CheckedAt:     time.Now().UTC().Format(time.RFC3339Nano),
-		Configured:    false,
-		Enabled:       cfg.Enabled,
-		Backend:       cfg.Backend,
-		MaxEntries:    cfg.MaxEntries,
-		DefaultTTLSec: cfg.DefaultTTL.Seconds(),
-		MinSimilarity: cfg.MinSimilarity,
-		MaxTextChars:  cfg.MaxTextChars,
-	}
-
-	store, ok2 := h.service.SemanticStore()
-	if ok2 {
-		item.Configured = true
-		count, err := store.Stats(ctx)
-		if err != nil {
-			telemetry.Error(h.logger, ctx, "gateway.semantic_cache.stats.failed",
-				slog.String("event.name", "gateway.semantic_cache.stats.failed"),
-				slog.Any("error", err),
-			)
-		} else {
-			item.Entries = count
-		}
-	}
-
-	WriteJSON(w, http.StatusOK, SemanticCacheStatusResponse{
-		Object: "semantic_cache_status",
-		Data:   item,
-	})
-}
-
-// HandleSemanticCacheEntries lists semantic cache entries with simple
-// limit/offset pagination, newest first.
-func (h *Handler) HandleSemanticCacheEntries(w http.ResponseWriter, r *http.Request) {
-	principal, ok := h.requireAdmin(w, r)
-	if !ok {
-		return
-	}
-	ctx := h.contextWithPrincipal(r.Context(), principal)
-
-	limit := 50
-	if raw := strings.TrimSpace(r.URL.Query().Get("limit")); raw != "" {
-		if parsed, err := strconv.Atoi(raw); err == nil && parsed > 0 {
-			limit = parsed
-		}
-	}
-	if limit > 500 {
-		limit = 500
-	}
-	offset := 0
-	if raw := strings.TrimSpace(r.URL.Query().Get("offset")); raw != "" {
-		if parsed, err := strconv.Atoi(raw); err == nil && parsed >= 0 {
-			offset = parsed
-		}
-	}
-
-	store, configured := h.service.SemanticStore()
-	if !configured {
-		WriteJSON(w, http.StatusOK, SemanticCacheEntriesResponse{
-			Object: "semantic_cache_entries",
-			Data:   []SemanticCacheEntryItem{},
-		})
-		return
-	}
-
-	metas, err := store.List(ctx, limit, offset)
-	if err != nil {
-		telemetry.Error(h.logger, ctx, "gateway.semantic_cache.list.failed",
-			slog.String("event.name", "gateway.semantic_cache.list.failed"),
-			slog.Any("error", err),
-		)
-		WriteError(w, http.StatusInternalServerError, errCodeGatewayError, err.Error())
-		return
-	}
-
-	items := make([]SemanticCacheEntryItem, 0, len(metas))
-	for _, m := range metas {
-		item := SemanticCacheEntryItem{
-			Namespace:   m.Namespace,
-			TextSnippet: m.TextSnippet,
-		}
-		if !m.ExpiresAt.IsZero() {
-			item.ExpiresAt = m.ExpiresAt.UTC().Format(time.RFC3339)
-		}
-		if !m.StoredAt.IsZero() {
-			item.StoredAt = m.StoredAt.UTC().Format(time.RFC3339)
-		}
-		items = append(items, item)
-	}
-
-	WriteJSON(w, http.StatusOK, SemanticCacheEntriesResponse{
-		Object: "semantic_cache_entries",
-		Data:   items,
-	})
-}
-
 func (h *Handler) HandleRetentionRuns(w http.ResponseWriter, r *http.Request) {
 	principal, ok := h.requireAdmin(w, r)
 	if !ok {
@@ -610,20 +490,6 @@ func (h *Handler) HandleAccountSummary(w http.ResponseWriter, r *http.Request) {
 			Estimates: estimates,
 		},
 	})
-}
-
-// HandleTenantRequestLedger is the tenant-readable counterpart to
-// HandleRequestLedger. The brief spec says "filter by the calling
-// principal's KeyID/tenant" but BudgetHistoryEntry has no key_id column,
-// so we defer scoping for now and let any authenticated principal read
-// the unscoped ledger. The /admin/requests route stays for back-compat.
-func (h *Handler) HandleTenantRequestLedger(w http.ResponseWriter, r *http.Request) {
-	principal, ok := h.requireAny(w, r)
-	if !ok {
-		return
-	}
-	ctx := h.contextWithPrincipal(r.Context(), principal)
-	h.writeRequestLedger(w, r, ctx)
 }
 
 func (h *Handler) HandleRequestLedger(w http.ResponseWriter, r *http.Request) {

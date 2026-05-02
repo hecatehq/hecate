@@ -10,16 +10,15 @@ import (
 	"github.com/hecate/agent-runtime/internal/storage"
 )
 
-// SQLiteHistoryStore mirrors PostgresHistoryStore — same Append/List
-// surface, same JSON-of-results column shape — so the gateway can swap
-// retention backends purely via config without touching call sites.
-//
-// Differences from the Postgres flavor that aren't accidental:
-//   - results column is TEXT (SQLite has no JSONB; JSON1 functions still
-//     work over plain TEXT for any future querying needs).
-//   - id column is `INTEGER PRIMARY KEY AUTOINCREMENT` instead of
-//     BIGSERIAL — the SQLite idiom for monotonic row ids.
-//   - placeholders are `?` rather than `$N`.
+// maxHistoryListLimit caps how many records List can return in one
+// call. Bounds the gateway's memory growth on a runaway query — the
+// retention worker walks the table in chunks anyway.
+const maxHistoryListLimit = 1_000
+
+// SQLiteHistoryStore is the retention worker's persistent backing
+// store. The on-disk shape: one row per recorded event with a
+// monotonic id (INTEGER PRIMARY KEY AUTOINCREMENT), a TEXT column
+// for the JSON payload, and a TEXT timestamp.
 type SQLiteHistoryStore struct {
 	db    *sql.DB
 	table string
