@@ -72,13 +72,14 @@ Three things bound the loop:
 
 ## Built-in tools
 
-The agent gets six tools by default. None require operator config beyond the approval policies; `http_request` reads the network policy from env.
+The agent gets seven tools by default. None require operator config beyond the approval policies; `http_request` reads the network policy from env.
 
 | Tool | What it does | Policy |
 |---|---|---|
 | `shell_exec` | Run a shell command in the workspace | Gated by `shell_exec` or `all_tools` policy (default on); executed in a per-call `sh` subprocess with env sanitisation + output cap + wall-clock timeout, optionally wrapped by `bwrap` / `sandbox-exec` for OS-level fs+net confinement (see [`sandbox.md`](sandbox.md)) |
 | `git_exec` | Run a git command in the workspace | Gated by `git_exec` or `all_tools` policy (default on) |
 | `file_write` | Write or append a file under the workspace | Gated by `file_write` or `all_tools` policy (default on) |
+| `file_edit` | Replace exact text in an existing workspace file | Gated by `file_write` or `all_tools` policy (default on) |
 | `read_file` | Read a file under the workspace (8 KiB cap, binary detection) | Ungated by default; gate with `read_file` or `all_tools` policy. Path must resolve within the sandbox root |
 | `list_dir` | List entries under a workspace path | Ungated unless `all_tools` is set. Path must resolve within the sandbox root |
 | `http_request` | Make an outbound HTTP request | Gated by `network_egress` or `all_tools` policy; SSRF guards (private-IP block, scheme allowlist, optional host allowlist) |
@@ -144,10 +145,10 @@ When the LLM calls a gated tool inside an `agent_loop` run, the loop pauses. Pol
 
 - `shell_exec` → pauses on `shell_exec` tool calls
 - `git_exec` → pauses on `git_exec` tool calls
-- `file_write` → pauses on `file_write` tool calls
+- `file_write` → pauses on `file_write` and `file_edit` tool calls
 - `read_file` → pauses on `read_file` tool calls
 - `network_egress` → pauses on `http_request` tool calls
-- `all_tools` → pauses on every tool call (`shell_exec`, `git_exec`, `file_write`, `read_file`, `list_dir`, `http_request`)
+- `all_tools` → pauses on every tool call (`shell_exec`, `git_exec`, `file_write`, `file_edit`, `read_file`, `list_dir`, `http_request`)
 
 The runtime emits an approval record of kind `agent_loop_tool_call`, persists the conversation snapshot, and returns `status=awaiting_approval` for the run. The UI banner shows which tools the agent wants to use. On approve, the same run is re-queued; on resume, the loop detects the trailing assistant tool_calls without resolved results, dispatches them (no second LLM call), and continues. On reject, the run terminates `failed`.
 
@@ -158,7 +159,7 @@ The approval banner stays in sync with the run state because approvals ride alon
 Per-turn LLM cost is captured at three granularities:
 
 - **`turn.completed` events** — one per LLM round-trip on the persisted run-event log. Each event carries the per-turn spend, the run-cumulative figure (this run only), and the task-cumulative figure (entire resume chain via `PriorCostMicrosUSD`). Subscribe via `/v1/events?event_type=turn.completed`; the wire shape is in [`events.md`](events.md#turncompleted). These rows are the only run events the retention worker prunes — see the `turn_events` subsystem in [`telemetry.md`](telemetry.md#retention-spans) and `GATEWAY_RETENTION_TURN_EVENTS_*` in `.env.example`.
-- **`tool.file.patch` events** — emitted whenever `file_write` changes a file. Each event points at a `patch` artifact containing the unified diff, giving operator UIs and future ACP/CLI consumers an inspectable edit record without re-deriving state from the workspace.
+- **`tool.file.patch` events** — emitted whenever `file_write` or `file_edit` changes a file. Each event points at a `patch` artifact containing the unified diff, giving operator UIs and future ACP/CLI consumers an inspectable edit record without re-deriving state from the workspace.
 - **Model-step `OutputSummary`** — each thinking step's `OutputSummary.cost_micros_usd` carries the same per-turn figure, so the run-replay UI surfaces it next to "turn N" without a separate event subscription.
 - **`TaskRun.TotalCostMicrosUSD` + `PriorCostMicrosUSD`** — finalized totals on the run record. Cumulative across the resume chain = `Prior + Total`.
 
@@ -191,7 +192,7 @@ Env vars that affect agent_loop runs:
 | `GATEWAY_TASK_SHELL_ALLOW_PRIVATE_IPS` | `false` | Same private-IP block, applied to URLs in shell_exec / git_exec commands when the task has `sandbox_network=true` |
 | `GATEWAY_TASK_SHELL_ALLOWED_HOSTS` | `""` | Same exact-host allowlist, applied to shell_exec / git_exec command URLs |
 
-For `GATEWAY_TASK_APPROVAL_POLICIES` (which gates mid-loop tool calls and the matching pre-execution task gates; valid values: `shell_exec`, `git_exec`, `file_write`, `network_egress`, `read_file`, `all_tools`) see [`runtime-api.md#approval-policy-configuration`](runtime-api.md#approval-policy-configuration). For per-task `mcp_servers` knobs (max-servers cap, client-cache sizing, ping intervals) see [`runtime-api.md#runtime-backend-and-queue-configuration`](runtime-api.md#runtime-backend-and-queue-configuration) and [`mcp.md#resource-limits`](mcp.md#resource-limits).
+For `GATEWAY_TASK_APPROVAL_POLICIES` (which gates mid-loop tool calls and the matching pre-execution task gates; valid values: `shell_exec`, `git_exec`, `file_write`, `network_egress`, `read_file`, `all_tools`) see [`runtime-api.md#approval-policy-configuration`](runtime-api.md#approval-policy-configuration). `file_write` gates both full-file writes and exact-match `file_edit` calls. For per-task `mcp_servers` knobs (max-servers cap, client-cache sizing, ping intervals) see [`runtime-api.md#runtime-backend-and-queue-configuration`](runtime-api.md#runtime-backend-and-queue-configuration) and [`mcp.md#resource-limits`](mcp.md#resource-limits).
 
 Per-task fields on `POST /v1/tasks` that affect agent_loop:
 

@@ -204,7 +204,12 @@ func TestAgentLoopGatedTools(t *testing.T) {
 		{
 			name:     "all_tools short-circuits to full set",
 			policies: []string{"all_tools"},
-			want:     []string{"file_write", "git_exec", "http_request", "list_dir", "read_file", "shell_exec"},
+			want:     []string{"file_edit", "file_write", "git_exec", "http_request", "list_dir", "read_file", "shell_exec"},
+		},
+		{
+			name:     "file_write gates write and exact edit tools",
+			policies: []string{"file_write"},
+			want:     []string{"file_edit", "file_write"},
 		},
 		{
 			name:     "read_file adds read_file tool",

@@ -130,10 +130,10 @@ Resolve payload: `{"decision": "approve" | "reject", "note": "..."}`. Approving 
 |---|---|
 | `shell_exec` | Gate `execution_kind=shell` task creates and `agent_loop` `shell_exec` tool calls. |
 | `git_exec` | Gate `execution_kind=git` task creates and `agent_loop` `git_exec` tool calls. |
-| `file_write` | Gate `execution_kind=file` task creates and `agent_loop` `file_write` tool calls. |
+| `file_write` | Gate `execution_kind=file` task creates and `agent_loop` `file_write` / `file_edit` tool calls. |
 | `network_egress` | Gate task creates that opt into `sandbox_network=true` and `agent_loop` `http_request` tool calls. |
 | `read_file` | Gate `agent_loop` `read_file` tool calls. Useful when operators want visibility into every file the agent reads, not just what it writes. |
-| `all_tools` | Gate every agent tool call (`shell_exec`, `git_exec`, `file_write`, `read_file`, `list_dir`, `http_request`) and all pre-execution task gates. Short-circuits to the full set — no need to list individual names. |
+| `all_tools` | Gate every agent tool call (`shell_exec`, `git_exec`, `file_write`, `file_edit`, `read_file`, `list_dir`, `http_request`) and all pre-execution task gates. Short-circuits to the full set — no need to list individual names. |
 
 Unknown policy names are rejected at startup with a clear error. Empty value disables every gate (use only in trusted environments). For per-MCP-server gating in `agent_loop` runs, see `approval_policy` on `mcp_servers` entries in [`mcp.md#approval-policy`](mcp.md#approval-policy).
 
