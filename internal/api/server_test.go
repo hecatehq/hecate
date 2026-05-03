@@ -3057,6 +3057,33 @@ func TestPatchContentExtractsBeforeAndAfter(t *testing.T) {
 	}
 }
 
+func TestVerifyPatchApplyPreconditionRejectsDrift(t *testing.T) {
+	t.Parallel()
+
+	path := filepath.Join(t.TempDir(), "main.go")
+	if err := os.WriteFile(path, []byte("changed\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	if err := verifyPatchApplyPrecondition(path, "original\n", true); err == nil {
+		t.Fatal("verifyPatchApplyPrecondition() error = nil, want conflict")
+	}
+	if err := os.WriteFile(path, []byte("original\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	if err := verifyPatchApplyPrecondition(path, "original\n", true); err != nil {
+		t.Fatalf("verifyPatchApplyPrecondition() error = %v", err)
+	}
+	if err := verifyPatchApplyPrecondition(path, "", false); err == nil {
+		t.Fatal("verifyPatchApplyPrecondition(new file) error = nil for existing file, want conflict")
+	}
+	if err := os.Remove(path); err != nil {
+		t.Fatal(err)
+	}
+	if err := verifyPatchApplyPrecondition(path, "", false); err != nil {
+		t.Fatalf("verifyPatchApplyPrecondition(new file) error = %v", err)
+	}
+}
+
 type apiTestClient struct {
 	t       *testing.T
 	handler http.Handler
