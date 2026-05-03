@@ -36,7 +36,7 @@ export function ChatView({ state, actions }: Props) {
   const isMac = typeof navigator !== "undefined" && /mac/i.test(navigator.platform);
   const modKey = isMac ? "⌘" : "Ctrl";
   const [modEnterMode, setModEnterMode] = useState(
-    () => localStorage.getItem("hecate.shiftEnterMode") !== "0"
+    () => localStorage.getItem("hecate.shiftEnterMode") === "1"
   );
   const formRef = useRef<HTMLFormElement>(null);
   const textareaRef = useRef<HTMLTextAreaElement>(null);
@@ -573,18 +573,17 @@ export function ChatView({ state, actions }: Props) {
             />
             {isAgentChat && streaming ? (
               <button type="button"
+                className="btn btn-danger"
                 aria-label="Stop agent"
+                title="Stop agent"
                 onClick={actions.cancelAgentChat}
                 style={{
                   position: "absolute", right: 8, top: "50%", transform: "translateY(-50%)",
                   width: 28, height: 28, borderRadius: "var(--radius-sm)",
-                  background: "var(--red)",
-                  border: "none", cursor: "pointer",
+                  padding: 0,
                   display: "flex", alignItems: "center", justifyContent: "center",
-                  transition: "background 0.1s",
-                  color: "var(--bg0)",
                 }}>
-                <Icon d={Icons.x} size={14} />
+                <Icon d={Icons.stop} size={13} fill="currentColor" strokeWidth={0} />
               </button>
             ) : (
               <button type="submit"
