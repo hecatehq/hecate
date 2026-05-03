@@ -24,6 +24,15 @@ use std::time::{Duration, Instant};
 
 use tauri::{AppHandle, Manager};
 
+/// Platform paths used by the gateway sidecar and native diagnostics.
+#[derive(Clone, Debug)]
+pub struct GatewayPaths {
+    /// Writable app data directory, resolved through Tauri.
+    pub data_dir: PathBuf,
+    /// Gateway stderr log captured for the most recent launch.
+    pub log_path: PathBuf,
+}
+
 /// Returned by [`spawn_and_wait`] on success.
 pub struct GatewayHandle {
     /// Base URL the gateway is listening on, e.g. `http://127.0.0.1:52341`.
@@ -46,7 +55,9 @@ fn resolve_binary() -> Result<PathBuf, String> {
         if path.is_file() {
             return Ok(path);
         }
-        return Err(format!("GATEWAY_BIN={p} does not point to an existing file"));
+        return Err(format!(
+            "GATEWAY_BIN={p} does not point to an existing file"
+        ));
     }
 
     // 2. Debug build: walk up from the Cargo manifest directory to find the
@@ -120,21 +131,25 @@ pub fn free_port() -> Result<u16, String> {
 /// creates it, but doing it here gives a clearer error if the path is
 /// unwritable (e.g. inside a read-only .app bundle — which it won't be
 /// after this fix, but belt-and-suspenders).
-fn resolve_data_dir(app: &AppHandle) -> Result<PathBuf, String> {
+pub fn resolve_paths(app: &AppHandle) -> Result<GatewayPaths, String> {
     let dir = app
         .path()
         .app_data_dir()
         .map_err(|e| format!("cannot resolve app data directory: {e}"))?;
     std::fs::create_dir_all(&dir)
         .map_err(|e| format!("cannot create data directory {dir:?}: {e}"))?;
-    Ok(dir)
+    let log_path = dir.join("gateway.log");
+    Ok(GatewayPaths {
+        data_dir: dir,
+        log_path,
+    })
 }
 
 /// Spawn the gateway binary and block (async) until `/healthz` responds 200
 /// or the deadline expires. Returns the gateway base URL on success.
 pub async fn spawn_and_wait(app: &AppHandle) -> Result<GatewayHandle, String> {
     let bin = resolve_binary()?;
-    let data_dir = resolve_data_dir(app)?;
+    let paths = resolve_paths(app)?;
     let port = free_port()?;
     let addr = format!("127.0.0.1:{port}");
     let base_url = format!("http://{addr}");
@@ -145,16 +160,19 @@ pub async fn spawn_and_wait(app: &AppHandle) -> Result<GatewayHandle, String> {
     // with no breadcrumb. Truncate on each launch — we don't want to
     // accumulate logs across runs of an alpha-grade app, and the file is
     // only useful for the most-recent failed start anyway.
-    let log_path = data_dir.join("gateway.log");
-    let stderr_log = std::fs::File::create(&log_path)
-        .map_err(|e| format!("failed to open {log_path:?} for sidecar stderr: {e}"))?;
+    let stderr_log = std::fs::File::create(&paths.log_path).map_err(|e| {
+        format!(
+            "failed to open {:?} for sidecar stderr: {e}",
+            paths.log_path
+        )
+    })?;
 
     // Use std::process::Command (not tokio) so the returned Child::kill()
     // is synchronous and can be called from the window-close event handler
     // without an async runtime.
     let child = std::process::Command::new(&bin)
         .env("GATEWAY_ADDRESS", &addr)
-        .env("GATEWAY_DATA_DIR", &data_dir)
+        .env("GATEWAY_DATA_DIR", &paths.data_dir)
         // Suppress inherited terminal so the gateway doesn't fight the Tauri
         // process for stdin/stdout in dev mode.
         .stdin(std::process::Stdio::null())
@@ -175,12 +193,17 @@ pub async fn spawn_and_wait(app: &AppHandle) -> Result<GatewayHandle, String> {
         if Instant::now() >= deadline {
             return Err(format!(
                 "gateway did not become healthy within 30 s (checked {healthz}). \
-                 See {log_path:?} for sidecar stderr."
+                 See {:?} for sidecar stderr.",
+                paths.log_path
             ));
         }
         match client.get(&healthz).send().await {
             Ok(resp) if resp.status().is_success() => {
-                return Ok(GatewayHandle { base_url, port, child });
+                return Ok(GatewayHandle {
+                    base_url,
+                    port,
+                    child,
+                });
             }
             _ => tokio::time::sleep(Duration::from_millis(250)).await,
         }
