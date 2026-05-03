@@ -74,7 +74,7 @@ var (
 		"run.checkpoint_saved",
 	}
 
-	legacyEventTypes = map[string]string{
+	forbiddenEventTypeReplacements = map[string]string{
 		"approval.approved":    "approval.resolved",
 		"approval.rejected":    "approval.resolved",
 		"run.claimed":          "run.started",
@@ -225,8 +225,8 @@ func validateFixtureEvent(t *testing.T, path string, index int, event fixtureEve
 	if !typePattern.MatchString(event.Type) {
 		t.Fatalf("%s: invalid event type format %q", where, event.Type)
 	}
-	if replacement, ok := legacyEventTypes[event.Type]; ok {
-		t.Fatalf("%s: legacy event type %q used; use %q", where, event.Type, replacement)
+	if replacement, ok := forbiddenEventTypeReplacements[event.Type]; ok {
+		t.Fatalf("%s: unsupported event type %q used; use %q", where, event.Type, replacement)
 	}
 	if _, ok := candidateCoreEventTypes[event.Type]; !ok {
 		t.Fatalf("%s: %q is not a candidate-core v1 event type", where, event.Type)
