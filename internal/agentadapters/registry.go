@@ -251,7 +251,7 @@ func RunAdapter(ctx context.Context, adapter Adapter, req RunRequest) (RunResult
 	diffStat, diff := captureGitDiff(ctx, workspace, maxOutput)
 	return RunResult{
 		Adapter:     adapter,
-		Output:      strings.TrimSpace(out.String()),
+		Output:      normalizeOutput(adapter.ID, out.String()),
 		ExitCode:    exitCode,
 		StartedAt:   started,
 		CompletedAt: completed,
