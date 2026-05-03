@@ -721,6 +721,19 @@ export type TaskArtifactsResponse = {
   data: TaskArtifactRecord[];
 };
 
+export type TaskPatchRecord = {
+  artifact: TaskArtifactRecord;
+  diff: string;
+  status: string;
+  path?: string;
+  before_existed: boolean;
+};
+
+export type TaskPatchResponse = {
+  object: string;
+  data: TaskPatchRecord;
+};
+
 export type TaskApprovalRecord = {
   id: string;
   task_id: string;
@@ -765,7 +778,25 @@ export type TaskRunStreamEventData = {
   steps?: TaskStepRecord[];
   approvals?: TaskApprovalRecord[];
   artifacts?: TaskArtifactRecord[];
+  activity?: TaskActivityRecord[];
   turn?: TaskRunStreamTurnCost;
+};
+
+export type TaskActivityRecord = {
+  id: string;
+  type: string;
+  status?: string;
+  title?: string;
+  step_id?: string;
+  artifact_id?: string;
+  approval_id?: string;
+  tool_name?: string;
+  kind?: string;
+  path?: string;
+  summary?: Record<string, unknown>;
+  occurred_at?: string;
+  terminal?: boolean;
+  needs_action?: boolean;
 };
 
 export type TaskRunStreamEventResponse = {

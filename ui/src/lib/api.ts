@@ -22,6 +22,7 @@ import type {
   TaskRunResponse,
   TaskRunEventsResponse,
   TaskRunStreamEventResponse,
+  TaskPatchResponse,
   TaskRunsResponse,
   TaskStepsResponse,
   TasksResponse,
@@ -372,6 +373,14 @@ export async function getTaskRunSteps(taskID: string, runID: string): Promise<Ta
 
 export async function getTaskRunArtifacts(taskID: string, runID: string): Promise<TaskArtifactsResponse> {
   return fetchJSON<TaskArtifactsResponse>(`/v1/tasks/${encodeURIComponent(taskID)}/runs/${encodeURIComponent(runID)}/artifacts`);
+}
+
+export async function applyTaskRunPatch(taskID: string, runID: string, artifactID: string): Promise<TaskPatchResponse> {
+  return fetchJSON<TaskPatchResponse>(`/v1/tasks/${encodeURIComponent(taskID)}/runs/${encodeURIComponent(runID)}/patches/${encodeURIComponent(artifactID)}/apply`, { method: "POST" });
+}
+
+export async function revertTaskRunPatch(taskID: string, runID: string, artifactID: string): Promise<TaskPatchResponse> {
+  return fetchJSON<TaskPatchResponse>(`/v1/tasks/${encodeURIComponent(taskID)}/runs/${encodeURIComponent(runID)}/patches/${encodeURIComponent(artifactID)}/revert`, { method: "POST" });
 }
 
 export async function getTaskRunEvents(taskID: string, runID: string, afterSequence = 0): Promise<TaskRunEventsResponse> {

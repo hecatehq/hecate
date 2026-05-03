@@ -1,5 +1,5 @@
 import { useEffect, useRef, useState } from "react";
-import type { TaskApprovalRecord, TaskArtifactRecord, TaskRecord, TaskRunEventRecord, TaskRunRecord, TaskStepRecord } from "../../types/runtime";
+import type { TaskActivityRecord, TaskApprovalRecord, TaskArtifactRecord, TaskRecord, TaskRunEventRecord, TaskRunRecord, TaskStepRecord } from "../../types/runtime";
 import { Badge, Dot, Icon, Icons, Modal } from "../shared/ui";
 
 type StreamState = "idle" | "connecting" | "live" | "closed" | "error";
@@ -239,6 +239,7 @@ type Props = {
   events: TaskRunEventRecord[];
   steps: TaskStepRecord[];
   artifacts: TaskArtifactRecord[];
+  activity: TaskActivityRecord[];
   approvals: TaskApprovalRecord[];
   // streamTurnCosts holds per-turn LLM spend pushed by the SSE stream
   // (one entry per `turn.completed` event). Used as a fallback
@@ -268,13 +269,15 @@ type Props = {
   // "cost_ceiling_exceeded" — the inline banner inside this
   // component drives it via an embedded budget input.
   onResumeRaisingCeiling: (budgetMicrosUSD: number) => void;
+  onApplyPatch: (artifactID: string) => void;
+  onRevertPatch: (artifactID: string) => void;
 };
 
 export function TaskDetail({
-  task, run, runs, selectedRunID, events, steps, artifacts, approvals,
+  task, run, runs, selectedRunID, events, steps, artifacts, activity, approvals,
   streamTurnCosts, streamState, busyAction, notice,
   onSelectRun, onResolveApproval, onCancelRun, onRetryRun, onResumeRun, onRetryFromTurn,
-  onResumeRaisingCeiling,
+  onResumeRaisingCeiling, onApplyPatch, onRevertPatch,
 }: Props) {
   const termRef = useRef<HTMLDivElement>(null);
   const [runPickerOpen, setRunPickerOpen] = useState(false);
@@ -437,6 +440,10 @@ export function TaskDetail({
               })}
             </div>
           </div>
+        )}
+
+        {activity.length > 0 && (
+          <RuntimeActivity activity={activity} />
         )}
 
         {/* Cost-ceiling banner: shown only when this run failed
@@ -619,7 +626,14 @@ export function TaskDetail({
             {artifacts.filter(isVisibleArtifactBadge).map(a => (
               <div key={a.id} style={{ display: "flex", alignItems: "center", gap: 6, background: "var(--bg3)", border: "1px solid var(--border)", borderRadius: "var(--radius-sm)", padding: "3px 8px" }}>
                 <span style={{ fontFamily: "var(--font-mono)", fontSize: 11, color: "var(--t0)" }}>{a.name || a.kind}</span>
+                {a.kind === "patch" && a.status && <Badge status={a.status === "proposed" ? "warn" : a.status === "applied" ? "ok" : "disabled"} label={a.status} />}
                 {a.size_bytes != null && a.size_bytes > 0 && <span style={{ fontFamily: "var(--font-mono)", fontSize: 10, color: "var(--green)" }}>{a.size_bytes}b</span>}
+                {a.kind === "patch" && a.status === "proposed" && (
+                  <button className="btn btn-primary btn-sm" disabled={busyAction !== ""} onClick={() => onApplyPatch(a.id)}>Apply</button>
+                )}
+                {a.kind === "patch" && a.status === "applied" && (
+                  <button className="btn btn-ghost btn-sm" disabled={busyAction !== ""} onClick={() => onRevertPatch(a.id)}>Revert</button>
+                )}
               </div>
             ))}
           </div>
@@ -671,6 +685,72 @@ function StepRowTitle({ step }: { step: TaskStepRecord }) {
       {step.title || step.kind || step.tool_name || "step"}
     </span>
   );
+}
+
+function RuntimeActivity({ activity }: { activity: TaskActivityRecord[] }) {
+  const rows = activity.slice(-12);
+  return (
+    <div style={{ padding: "12px 16px", borderBottom: "1px solid var(--border)" }}>
+      <div className="kicker" style={{ marginBottom: 8 }}>Runtime activity</div>
+      <div style={{ display: "flex", flexDirection: "column", gap: 7 }}>
+        {rows.map(item => (
+          <div key={item.id} style={{ display: "grid", gridTemplateColumns: "86px 1fr auto", gap: 10, alignItems: "center" }}>
+            <Badge status={activityTone(item)} label={activityTypeLabel(item.type)} />
+            <div style={{ minWidth: 0 }}>
+              <div style={{ fontSize: 12, color: "var(--t0)", overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>
+                {activityTitle(item)}
+              </div>
+              {activitySubtitle(item) && (
+                <div style={{ fontFamily: "var(--font-mono)", fontSize: 10, color: "var(--t3)", overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>
+                  {activitySubtitle(item)}
+                </div>
+              )}
+            </div>
+            {item.occurred_at && (
+              <span style={{ fontFamily: "var(--font-mono)", fontSize: 10, color: "var(--t3)" }}>
+                {new Date(item.occurred_at).toLocaleTimeString()}
+              </span>
+            )}
+          </div>
+        ))}
+      </div>
+    </div>
+  );
+}
+
+function activityTone(item: TaskActivityRecord): string {
+  if (item.needs_action) return "warn";
+  if (item.status === "failed") return "error";
+  if (item.status === "running") return "running";
+  if (item.status === "pending" || item.status === "proposed") return "warn";
+  if (item.terminal || item.status === "completed" || item.status === "applied") return "ok";
+  return "disabled";
+}
+
+function activityTypeLabel(type: string): string {
+  switch (type) {
+    case "thinking":      return "thinking";
+    case "tool_call":     return "tool";
+    case "patch":         return "patch";
+    case "changed_files": return "files";
+    case "final_answer":  return "answer";
+    case "approval":      return "approval";
+    case "run_result":    return "run";
+    default:              return type.replaceAll("_", " ");
+  }
+}
+
+function activityTitle(item: TaskActivityRecord): string {
+  return item.title || item.tool_name || item.path || activityTypeLabel(item.type);
+}
+
+function activitySubtitle(item: TaskActivityRecord): string {
+  const parts = [
+    item.path,
+    item.kind,
+    item.status,
+  ].filter(Boolean);
+  return parts.join(" · ");
 }
 
 function StepDetail({ step }: { step: TaskStepRecord }) {
