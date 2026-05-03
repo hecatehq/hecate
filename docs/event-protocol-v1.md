@@ -1,6 +1,6 @@
 # Agent Event Protocol — v1 Candidate (RFC)
 
-> **Status:** draft / RFC. Not implemented. Not stable. Not yet a frontend contract.
+> **Status:** draft / RFC. Partially implemented for shell tool events. Not stable. Not yet a frontend contract.
 > **Supersedes (when stable):** ad-hoc events documented in [`events.md`](events.md).
 > **Owner:** see [`AGENTS.md`](../AGENTS.md).
 
@@ -43,6 +43,11 @@ The draft envelope schema lives at
 [`docs/schemas/events/v1/envelope.schema.json`](schemas/events/v1/envelope.schema.json).
 Payload-specific schemas are intentionally deferred until runtime emitters are
 implemented.
+
+Implementation note: the shell executor currently emits the first typed slice
+(`tool.invoked`, `tool.started`, `tool.shell.*`, and terminal `tool.*` events)
+alongside the existing persisted run events. The rest of the candidate core
+remains RFC-only.
 
 Before this document can be called v1 stable:
 

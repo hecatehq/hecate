@@ -46,6 +46,12 @@ type ExecutionSpec struct {
 	// false (the master gate denies all network access first).
 	ShellNetworkAllowedHosts    []string
 	ShellNetworkAllowPrivateIPs bool
+	// ToolCallID/ToolName identify the model tool call that delegated
+	// into this executor. Direct shell/git/file tasks leave these
+	// empty; the executor falls back to its own step id/name for
+	// typed runtime events.
+	ToolCallID string
+	ToolName   string
 }
 
 type ResumeCheckpoint struct {
@@ -353,6 +359,31 @@ func executeStreamingCommand(ctx context.Context, exec sandbox.Executor, spec Ex
 		"working_directory": workingDirectory,
 		"timeout_ms":        timeout,
 	})
+	toolCallID := firstNonEmpty(spec.ToolCallID, step.ID)
+	eventToolName := firstNonEmpty(spec.ToolName, commandSpec.toolName)
+	if commandSpec.kind == "shell" {
+		emitTypedShellRunEvent(spec, "tool.invoked", map[string]any{
+			"tool_call_id": toolCallID,
+			"tool_name":    eventToolName,
+			"kind":         "shell",
+			"turn_index":   0,
+		})
+		emitTypedShellRunEvent(spec, "tool.started", map[string]any{
+			"tool_call_id": toolCallID,
+			"tool_name":    eventToolName,
+			"kind":         "shell",
+			"turn_index":   0,
+		})
+		emitTypedShellRunEvent(spec, "tool.shell.command", map[string]any{
+			"tool_call_id":   toolCallID,
+			"argv":           []string{"sh", "-lc", displayCommand},
+			"cwd":            workingDirectory,
+			"env_keys":       []string{"PATH", "HOME"},
+			"sandbox_layer":  string(sandbox.HealthInfo().Kind),
+			"timeout_ms":     timeout,
+			"command_string": displayCommand,
+		})
+	}
 	step.OutputSummary = map[string]any{
 		"stdout_bytes": 0,
 		"stderr_bytes": 0,
@@ -371,6 +402,8 @@ func executeStreamingCommand(ctx context.Context, exec sandbox.Executor, spec Ex
 		return nil, err
 	}
 
+	var stdoutOffset int
+	var stderrOffset int
 	resultData, err := exec.RunStreaming(ctx, sandbox.Command{
 		Command:          commandSpec.command,
 		WorkingDirectory: workingDirectory,
@@ -379,13 +412,33 @@ func executeStreamingCommand(ctx context.Context, exec sandbox.Executor, spec Ex
 	}, func(chunk sandbox.OutputChunk) {
 		switch chunk.Stream {
 		case "stdout":
+			offset := stdoutOffset
+			stdoutOffset += len(chunk.Text)
 			stdoutArtifact.ContentText += chunk.Text
 			stdoutArtifact.SizeBytes = int64(len(stdoutArtifact.ContentText))
 			_ = upsertTaskArtifact(spec, stdoutArtifact)
+			if commandSpec.kind == "shell" {
+				emitTypedShellRunEvent(spec, "tool.shell.output_chunk", map[string]any{
+					"tool_call_id": toolCallID,
+					"stream":       "stdout",
+					"data":         chunk.Text,
+					"byte_offset":  offset,
+				})
+			}
 		case "stderr":
+			offset := stderrOffset
+			stderrOffset += len(chunk.Text)
 			stderrArtifact.ContentText += chunk.Text
 			stderrArtifact.SizeBytes = int64(len(stderrArtifact.ContentText))
 			_ = upsertTaskArtifact(spec, stderrArtifact)
+			if commandSpec.kind == "shell" {
+				emitTypedShellRunEvent(spec, "tool.shell.output_chunk", map[string]any{
+					"tool_call_id": toolCallID,
+					"stream":       "stderr",
+					"data":         chunk.Text,
+					"byte_offset":  offset,
+				})
+			}
 		}
 	})
 
@@ -398,6 +451,41 @@ func executeStreamingCommand(ctx context.Context, exec sandbox.Executor, spec Ex
 		"exit_code":    resultData.ExitCode,
 	})
 	step.ExitCode = resultData.ExitCode
+	if commandSpec.kind == "shell" && !sandbox.IsPolicyDenied(err) {
+		emitTypedShellRunEvent(spec, "tool.shell.exited", map[string]any{
+			"tool_call_id": toolCallID,
+			"exit_code":    resultData.ExitCode,
+			"signal":       nil,
+			"stdout_bytes": len(resultData.Stdout),
+			"stderr_bytes": len(resultData.Stderr),
+			"truncated":    sandbox.IsOutputLimitExceeded(err),
+		})
+	}
+	if commandSpec.kind == "shell" {
+		eventType := "tool.completed"
+		switch {
+		case errors.Is(err, context.DeadlineExceeded):
+			eventType = "tool.timed_out"
+		case errors.Is(err, context.Canceled):
+			eventType = "tool.cancelled"
+		case err != nil:
+			eventType = "tool.failed"
+		}
+		data := map[string]any{
+			"tool_call_id": toolCallID,
+			"tool_name":    eventToolName,
+			"kind":         "shell",
+			"duration_ms":  finishedAt.Sub(step.StartedAt).Milliseconds(),
+			"summary":      shellEventSummary(status, resultData.ExitCode, lastError),
+		}
+		if lastError != "" {
+			data["error"] = lastError
+		}
+		if errors.Is(err, context.DeadlineExceeded) {
+			data["after_ms"] = timeout
+		}
+		emitTypedShellRunEvent(spec, eventType, data)
+	}
 	if err := upsertTaskStep(spec, step); err != nil {
 		return nil, err
 	}
@@ -416,6 +504,24 @@ func executeStreamingCommand(ctx context.Context, exec sandbox.Executor, spec Ex
 	}
 
 	return newExecutionResult(status, []types.TaskStep{step}, []types.TaskArtifact{stdoutArtifact, stderrArtifact}, lastError, otelStatusCode, otelStatusMessage), nil
+}
+
+func emitTypedShellRunEvent(spec ExecutionSpec, eventType string, data map[string]any) {
+	if spec.EmitRunEvent == nil {
+		return
+	}
+	spec.EmitRunEvent(eventType, data)
+}
+
+func shellEventSummary(status string, exitCode int, lastError string) string {
+	switch {
+	case status == "completed":
+		return fmt.Sprintf("exited with status %d", exitCode)
+	case lastError != "":
+		return lastError
+	default:
+		return status
+	}
 }
 
 func ensureSandboxExecutor(exec sandbox.Executor) sandbox.Executor {

@@ -1554,15 +1554,9 @@ func (r *Runner) upsertStep(ctx context.Context, step types.TaskStep) error {
 		step.SpanID = firstNonEmpty(step.SpanID, existing.SpanID)
 		step.ParentSpanID = firstNonEmpty(step.ParentSpanID, existing.ParentSpanID)
 		_, err = r.store.UpdateStep(ctx, step)
-		if err == nil {
-			_, _ = r.emitRunEvent(ctx, step.TaskID, step.RunID, "step.updated", step.RequestID, step.TraceID, map[string]any{"step_id": step.ID})
-		}
 		return err
 	}
 	_, err := r.store.AppendStep(ctx, step)
-	if err == nil {
-		_, _ = r.emitRunEvent(ctx, step.TaskID, step.RunID, "step.created", step.RequestID, step.TraceID, map[string]any{"step_id": step.ID})
-	}
 	return err
 }
 
@@ -1572,15 +1566,9 @@ func (r *Runner) upsertArtifact(ctx context.Context, artifact types.TaskArtifact
 	} else if found {
 		artifact.SpanID = firstNonEmpty(artifact.SpanID, existing.SpanID)
 		_, err = r.store.UpdateArtifact(ctx, artifact)
-		if err == nil {
-			_, _ = r.emitRunEvent(ctx, artifact.TaskID, artifact.RunID, "artifact.updated", artifact.RequestID, artifact.TraceID, map[string]any{"artifact_id": artifact.ID})
-		}
 		return err
 	}
 	_, err := r.store.CreateArtifact(ctx, artifact)
-	if err == nil {
-		_, _ = r.emitRunEvent(ctx, artifact.TaskID, artifact.RunID, "artifact.created", artifact.RequestID, artifact.TraceID, map[string]any{"artifact_id": artifact.ID})
-	}
 	return err
 }
 
