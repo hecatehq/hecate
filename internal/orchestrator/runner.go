@@ -150,6 +150,7 @@ type StartTaskResult struct {
 type startTaskOptions struct {
 	ResumeFromRun *types.TaskRun
 	ResumeReason  string
+	AppendPrompt  string
 	// RetryFromTurn, when > 0, signals the new run should resume from
 	// the source run's conversation truncated to right before turn N.
 	// Used by the retry-from-turn-N code path; ignored when
@@ -582,6 +583,45 @@ func (r *Runner) ResumeTask(ctx context.Context, task types.Task, run types.Task
 	})
 }
 
+func (r *Runner) ContinueAgentTask(ctx context.Context, task types.Task, run types.TaskRun, prompt string, idgen func(prefix string) string) (*StartTaskResult, error) {
+	if task.ExecutionKind != "agent_loop" {
+		return nil, fmt.Errorf("task %q is not an agent_loop task", task.ID)
+	}
+	prompt = strings.TrimSpace(prompt)
+	if prompt == "" {
+		return nil, fmt.Errorf("prompt is required")
+	}
+	if !types.IsTerminalTaskRunStatus(run.Status) {
+		return nil, fmt.Errorf("task run %q is not continuable until it reaches a terminal state", run.ID)
+	}
+	if r.store != nil {
+		artifacts, err := r.store.ListArtifacts(ctx, taskstate.ArtifactFilter{TaskID: task.ID, RunID: run.ID})
+		if err != nil {
+			return nil, err
+		}
+		foundConversation := false
+		for _, artifact := range artifacts {
+			if artifact.Kind != "agent_conversation" || len(artifact.ContentText) == 0 {
+				continue
+			}
+			var saved []types.Message
+			if err := json.Unmarshal([]byte(artifact.ContentText), &saved); err != nil {
+				return nil, fmt.Errorf("task run %q has malformed agent_conversation artifact: %w", run.ID, err)
+			}
+			foundConversation = true
+			break
+		}
+		if !foundConversation {
+			return nil, fmt.Errorf("task run %q has no agent_conversation artifact to continue", run.ID)
+		}
+	}
+	return r.startTaskWithOptions(ctx, task, idgen, startTaskOptions{
+		ResumeFromRun: &run,
+		ResumeReason:  "session_prompt",
+		AppendPrompt:  prompt,
+	})
+}
+
 // RetryTaskFromTurn creates a new run that re-issues turn N of the
 // source run with the prior conversation context preserved. Validates
 // the source is a terminal agent_loop run with at least N completed
@@ -727,6 +767,9 @@ func (r *Runner) startTaskWithOptions(ctx context.Context, task types.Task, idge
 		resumedData := map[string]any{
 			"resumed_from_run_id": options.ResumeFromRun.ID,
 			"reason":              options.ResumeReason,
+		}
+		if strings.TrimSpace(options.AppendPrompt) != "" {
+			resumedData["append_user_prompt"] = options.AppendPrompt
 		}
 		if options.RetryFromTurn > 0 {
 			resumedData["retry_from_turn"] = options.RetryFromTurn
@@ -1686,6 +1729,7 @@ func (r *Runner) resumeCheckpointForRun(ctx context.Context, taskID, runID strin
 	}
 	sourceRunID := ""
 	reason := ""
+	appendUserPrompt := ""
 	retryFromTurn := 0
 	for i := len(events) - 1; i >= 0; i-- {
 		event := events[i]
@@ -1704,6 +1748,9 @@ func (r *Runner) resumeCheckpointForRun(ctx context.Context, taskID, runID strin
 		sourceRunID = candidate
 		if rawReason, ok := event.Data["reason"]; ok {
 			reason, _ = rawReason.(string)
+		}
+		if rawPrompt, ok := event.Data["append_user_prompt"]; ok {
+			appendUserPrompt, _ = rawPrompt.(string)
 		}
 		// retry_from_turn is event-data JSON-decoded — depending on
 		// the store it may come back as float64 (JSON-roundtripped)
@@ -1767,11 +1814,12 @@ func (r *Runner) resumeCheckpointForRun(ctx context.Context, taskID, runID strin
 		return nil, err
 	}
 	checkpoint := &ResumeCheckpoint{
-		SourceRunID:   sourceRunID,
-		Reason:        strings.TrimSpace(reason),
-		LastStepIndex: 0,
-		ArtifactCount: len(artifacts),
-		RetryFromTurn: retryFromTurn,
+		SourceRunID:      sourceRunID,
+		Reason:           strings.TrimSpace(reason),
+		AppendUserPrompt: strings.TrimSpace(appendUserPrompt),
+		LastStepIndex:    0,
+		ArtifactCount:    len(artifacts),
+		RetryFromTurn:    retryFromTurn,
 	}
 	// Surface the new run's PriorCostMicrosUSD so the agent loop can
 	// apply the per-task cost ceiling against the cumulative spend

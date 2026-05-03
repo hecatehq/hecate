@@ -19,6 +19,10 @@ type GatewayClient interface {
 	// first run. Used on the first session/prompt of a session.
 	CreateAgentLoopTask(ctx context.Context, req CreateTaskRequest) (CreateTaskResult, error)
 
+	// ContinueAgentLoopTask appends a new user prompt to an existing
+	// agent_loop conversation and starts the next run for that task.
+	ContinueAgentLoopTask(ctx context.Context, taskID, runID, prompt string) (string, error)
+
 	// CancelRun calls POST /v1/tasks/{taskID}/runs/{runID}/cancel.
 	CancelRun(ctx context.Context, taskID, runID, reason string) error
 

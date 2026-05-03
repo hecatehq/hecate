@@ -37,6 +37,23 @@ type SessionCancelResult struct {
 	Cancelled bool   `json:"cancelled"`
 }
 
+type PermissionRequestParams struct {
+	SessionID  string         `json:"session_id"`
+	TaskID     string         `json:"task_id"`
+	RunID      string         `json:"run_id"`
+	ApprovalID string         `json:"approval_id"`
+	Kind       string         `json:"kind,omitempty"`
+	Reason     string         `json:"reason,omitempty"`
+	Message    string         `json:"message"`
+	Data       map[string]any `json:"data,omitempty"`
+}
+
+type PermissionResponseResult struct {
+	Decision string `json:"decision,omitempty"`
+	Note     string `json:"note,omitempty"`
+	Allowed  *bool  `json:"allowed,omitempty"`
+}
+
 type SessionUpdateParams struct {
 	SessionID string         `json:"session_id"`
 	Kind      string         `json:"kind"`
@@ -49,6 +66,24 @@ type SessionUpdateParams struct {
 	Terminal  bool           `json:"terminal,omitempty"`
 }
 
+func SessionRequestPermission(id string, params PermissionRequestParams) *Request {
+	rawID, err := json.Marshal(id)
+	if err != nil {
+		panic("acp: permission request id marshal failed: " + err.Error())
+	}
+	rawParams, err := json.Marshal(params)
+	if err != nil {
+		panic("acp: permission request params marshal failed: " + err.Error())
+	}
+	idMsg := json.RawMessage(rawID)
+	return &Request{
+		JSONRPC: JSONRPCVersion,
+		ID:      &idMsg,
+		Method:  MethodSessionRequestPerm,
+		Params:  rawParams,
+	}
+}
+
 func SessionUpdateNotification(update SessionUpdateParams) *Request {
 	raw, err := json.Marshal(update)
 	if err != nil {
@@ -59,6 +94,50 @@ func SessionUpdateNotification(update SessionUpdateParams) *Request {
 		Method:  MethodSessionUpdate,
 		Params:  raw,
 	}
+}
+
+func PendingPermissionFromSessionUpdate(update SessionUpdateParams) (PermissionRequestParams, bool) {
+	if update.EventType != "approval.requested" && update.EventType != "snapshot" {
+		return PermissionRequestParams{}, false
+	}
+	rawApprovals, ok := update.Data["approvals"]
+	if !ok {
+		return PermissionRequestParams{}, false
+	}
+	raw, err := json.Marshal(rawApprovals)
+	if err != nil {
+		return PermissionRequestParams{}, false
+	}
+	var approvals []struct {
+		ID     string         `json:"id"`
+		Kind   string         `json:"kind"`
+		Reason string         `json:"reason"`
+		Status string         `json:"status"`
+		Data   map[string]any `json:"data"`
+	}
+	if err := json.Unmarshal(raw, &approvals); err != nil {
+		return PermissionRequestParams{}, false
+	}
+	for _, approval := range approvals {
+		if approval.ID == "" || approval.Status != "pending" {
+			continue
+		}
+		message := approval.Reason
+		if message == "" {
+			message = "Hecate requests permission to continue this run."
+		}
+		return PermissionRequestParams{
+			SessionID:  update.SessionID,
+			TaskID:     update.TaskID,
+			RunID:      update.RunID,
+			ApprovalID: approval.ID,
+			Kind:       approval.Kind,
+			Reason:     approval.Reason,
+			Message:    message,
+			Data:       approval.Data,
+		}, true
+	}
+	return PermissionRequestParams{}, false
 }
 
 func RunEventToSessionUpdate(sessionID, taskID, runID string, event RunEvent) SessionUpdateParams {

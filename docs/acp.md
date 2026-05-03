@@ -10,14 +10,15 @@ run stream snapshots as `session/update` notifications.
 - Implemented: stdio JSON-RPC loop, parse/invalid-request responses,
   `initialize`, `session/new`, `session/prompt`, `session/cancel`,
   gateway model discovery, task creation/start, run cancellation, run-event
-  stream mapping, optional `HECATE_API_KEY` / `HECATE_AUTH_TOKEN` forwarding.
-- Not implemented yet: approval round-trip, editor-owned workspace calls,
-  true multi-prompt continuation inside a single Hecate task.
+  stream mapping, editor approval round-trip, multi-prompt continuation,
+  optional `HECATE_API_KEY` / `HECATE_AUTH_TOKEN` forwarding.
+- Not implemented yet: editor-owned workspace calls.
 
-For alpha, each `session/prompt` creates a fresh `coding_agent` task while
-preserving the editor-facing ACP session ID. Hecate needs a dedicated
-"append prompt to task conversation" runtime endpoint before ACP sessions can
-map perfectly to one durable Hecate task.
+For alpha, one ACP session maps to one durable Hecate `agent_loop` task after
+the first prompt. The first `session/prompt` creates and starts the task.
+Later prompts call `POST /v1/tasks/{id}/runs/{run_id}/continue`, which
+hydrates the saved conversation, appends the new user message, and starts the
+next run.
 
 ## Configuration
 
@@ -28,7 +29,7 @@ map perfectly to one durable Hecate task.
 | `HECATE_AUTH_TOKEN` | empty | Optional bearer token for admin/operator deployments. |
 | `HECATE_AGENT_NAME` | `Hecate` | Agent display name advertised during initialize. |
 | `HECATE_WORKSPACE_MODE` | `hecate-owned` | Future workspace ownership mode. |
-| `HECATE_APPROVAL_ROUTE` | `editor` | Future approval routing mode. |
+| `HECATE_APPROVAL_ROUTE` | `editor` | `editor` sends approval gates to ACP `session/request_permission`; other values leave approvals for the Hecate operator UI. |
 
 ## Smoke test
 

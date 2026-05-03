@@ -13,8 +13,12 @@ type fakeGateway struct {
 	modelsErr    error
 	createReqs   []CreateTaskRequest
 	createErr    error
+	continued    []string
+	continueErr  error
 	cancelled    []string
 	cancelErr    error
+	resolved     []string
+	resolveErr   error
 	streamEvents chan RunEvent
 }
 
@@ -30,13 +34,22 @@ func (f *fakeGateway) CreateAgentLoopTask(_ context.Context, req CreateTaskReque
 	return CreateTaskResult{TaskID: "task-1", RunID: "run-1"}, nil
 }
 
+func (f *fakeGateway) ContinueAgentLoopTask(_ context.Context, taskID, runID, prompt string) (string, error) {
+	f.continued = append(f.continued, taskID+"/"+runID+"/"+prompt)
+	if f.continueErr != nil {
+		return "", f.continueErr
+	}
+	return "run-2", nil
+}
+
 func (f *fakeGateway) CancelRun(_ context.Context, taskID, runID, reason string) error {
 	f.cancelled = append(f.cancelled, taskID+"/"+runID+"/"+reason)
 	return f.cancelErr
 }
 
-func (f *fakeGateway) ResolveApproval(_ context.Context, _, _, _ string, _ ApprovalDecision) error {
-	return nil
+func (f *fakeGateway) ResolveApproval(_ context.Context, taskID, runID, approvalID string, decision ApprovalDecision) error {
+	f.resolved = append(f.resolved, taskID+"/"+runID+"/"+approvalID+"/"+string(decision))
+	return f.resolveErr
 }
 
 func (f *fakeGateway) StreamRunEvents(_ context.Context, _, _ string) (<-chan RunEvent, error) {
@@ -208,6 +221,44 @@ func TestSessionNewAndPromptStartsTask(t *testing.T) {
 	}
 }
 
+func TestSessionPromptContinuesExistingTask(t *testing.T) {
+	gw := &fakeGateway{models: []string{"gpt-4o-mini"}}
+	d := NewDispatcher(gw, NewSessionStore(), Config{ApprovalRoute: "editor"})
+	if resp := d.Handle(context.Background(), &Request{JSONRPC: JSONRPCVersion, ID: makeID(t, 1), Method: MethodInitialize, Params: initParams(t, true)}); resp.Error != nil {
+		t.Fatalf("initialize error = %v", resp.Error)
+	}
+	resp := d.Handle(context.Background(), &Request{JSONRPC: JSONRPCVersion, ID: makeID(t, 2), Method: MethodSessionNew, Params: json.RawMessage(`{"model":"gpt-4o-mini","cwd":"/repo"}`)})
+	if resp.Error != nil {
+		t.Fatalf("session/new error = %v", resp.Error)
+	}
+	var created SessionNewResult
+	if err := json.Unmarshal(resp.Result, &created); err != nil {
+		t.Fatal(err)
+	}
+	firstPrompt, _ := json.Marshal(SessionPromptParams{SessionID: created.SessionID, Prompt: "first"})
+	if resp := d.Handle(context.Background(), &Request{JSONRPC: JSONRPCVersion, ID: makeID(t, 3), Method: MethodSessionPrompt, Params: firstPrompt}); resp.Error != nil {
+		t.Fatalf("first session/prompt error = %v", resp.Error)
+	}
+	secondPrompt, _ := json.Marshal(SessionPromptParams{SessionID: created.SessionID, Prompt: "second"})
+	resp = d.Handle(context.Background(), &Request{JSONRPC: JSONRPCVersion, ID: makeID(t, 4), Method: MethodSessionPrompt, Params: secondPrompt})
+	if resp.Error != nil {
+		t.Fatalf("second session/prompt error = %v", resp.Error)
+	}
+	if len(gw.createReqs) != 1 {
+		t.Fatalf("CreateAgentLoopTask calls = %d, want 1", len(gw.createReqs))
+	}
+	if strings.Join(gw.continued, ",") != "task-1/run-1/second" {
+		t.Fatalf("continued = %#v", gw.continued)
+	}
+	var prompted SessionPromptResult
+	if err := json.Unmarshal(resp.Result, &prompted); err != nil {
+		t.Fatal(err)
+	}
+	if prompted.TaskID != "task-1" || prompted.RunID != "run-2" {
+		t.Fatalf("prompt result = %+v, want same task with new run", prompted)
+	}
+}
+
 func TestSessionCancelCancelsCurrentRun(t *testing.T) {
 	gw := &fakeGateway{models: []string{"gpt-4o-mini"}}
 	d := NewDispatcher(gw, NewSessionStore(), Config{ApprovalRoute: "editor"})
@@ -243,6 +294,46 @@ func TestRunEventToSessionUpdateMapsTerminalFailure(t *testing.T) {
 	})
 	if update.Kind != "error" || update.Status != "failed" || !update.Terminal || update.Message != "boom" {
 		t.Fatalf("update = %+v", update)
+	}
+}
+
+func TestDispatcherPermissionResponseResolvesGatewayApproval(t *testing.T) {
+	gw := &fakeGateway{}
+	d := NewDispatcher(gw, NewSessionStore(), Config{ApprovalRoute: "editor"})
+	d.pendingPermissions["permission-1"] = pendingPermission{
+		SessionID:  "session-1",
+		TaskID:     "task-1",
+		RunID:      "run-1",
+		ApprovalID: "approval-1",
+	}
+	id := json.RawMessage(`"permission-1"`)
+	result := json.RawMessage(`{"decision":"allow","note":"ok"}`)
+
+	d.HandleResponse(context.Background(), &Response{
+		JSONRPC: JSONRPCVersion,
+		ID:      &id,
+		Result:  result,
+	})
+
+	if strings.Join(gw.resolved, ",") != "task-1/run-1/approval-1/allow" {
+		t.Fatalf("resolved = %#v", gw.resolved)
+	}
+}
+
+func TestPendingPermissionFromSessionUpdate(t *testing.T) {
+	update := RunEventToSessionUpdate("session-1", "task-1", "run-1", RunEvent{
+		Type: "approval.requested",
+		Data: []byte(`{"event_type":"approval.requested","approvals":[{"id":"approval-1","kind":"shell_command","reason":"run command?","status":"pending"}]}`),
+	})
+	params, ok := PendingPermissionFromSessionUpdate(update)
+	if !ok {
+		t.Fatal("PendingPermissionFromSessionUpdate returned false")
+	}
+	if params.SessionID != "session-1" || params.TaskID != "task-1" || params.RunID != "run-1" || params.ApprovalID != "approval-1" {
+		t.Fatalf("params = %+v", params)
+	}
+	if params.Kind != "shell_command" || params.Message != "run command?" {
+		t.Fatalf("params = %+v", params)
 	}
 }
 

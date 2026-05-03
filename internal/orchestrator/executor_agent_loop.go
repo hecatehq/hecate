@@ -2077,6 +2077,9 @@ func hydrateConversation(spec ExecutionSpec) []types.Message {
 	if spec.ResumeCheckpoint != nil && len(spec.ResumeCheckpoint.AgentConversation) > 0 {
 		var saved []types.Message
 		if err := json.Unmarshal(spec.ResumeCheckpoint.AgentConversation, &saved); err == nil && len(saved) > 0 {
+			if prompt := strings.TrimSpace(spec.ResumeCheckpoint.AppendUserPrompt); prompt != "" {
+				saved = append(saved, types.Message{Role: "user", Content: prompt})
+			}
 			return saved
 		}
 	}

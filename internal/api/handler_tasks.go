@@ -1281,6 +1281,40 @@ func (h *Handler) HandleResumeTaskRun(w http.ResponseWriter, r *http.Request) {
 	WriteJSON(w, http.StatusOK, TaskRunResponse{Object: "task_run", Data: renderTaskRun(result.Run)})
 }
 
+func (h *Handler) HandleContinueTaskRun(w http.ResponseWriter, r *http.Request) {
+	ctx := r.Context()
+	task, ok := h.loadAuthorizedTask(ctx, w, r)
+	if !ok {
+		return
+	}
+	run, ok := h.loadAuthorizedTaskRun(ctx, w, r, task)
+	if !ok {
+		return
+	}
+	var req ContinueTaskRunRequest
+	if !decodeJSON(w, r, &req) {
+		return
+	}
+	result, err := h.taskRunner.ContinueAgentTask(ctx, task, run, req.Prompt, newOpaqueTaskResourceID)
+	if err != nil {
+		msg := err.Error()
+		if strings.Contains(msg, "not continuable") {
+			WriteError(w, http.StatusConflict, errCodeInvalidRequest, msg)
+			return
+		}
+		if strings.Contains(msg, "not an agent_loop") ||
+			strings.Contains(msg, "prompt is required") ||
+			strings.Contains(msg, "no agent_conversation") ||
+			strings.Contains(msg, "malformed agent_conversation") {
+			WriteError(w, http.StatusBadRequest, errCodeInvalidRequest, msg)
+			return
+		}
+		WriteError(w, http.StatusInternalServerError, errCodeGatewayError, msg)
+		return
+	}
+	WriteJSON(w, http.StatusOK, TaskRunResponse{Object: "task_run", Data: renderTaskRun(result.Run)})
+}
+
 // HandleRetryTaskRunFromTurn re-runs an agent_loop run from turn N,
 // preserving the source conversation up to (but not including) that
 // turn's assistant message. The new run is a sibling of the source

@@ -74,6 +74,7 @@ The `task` resource accepts these fields on `POST /v1/tasks`:
 - `POST /v1/tasks/{id}/start` — returns `422 model_not_configured` when an `agent_loop` task has no model resolvable (neither `requested_model` on the task nor the gateway's default model is set). No run is created.
 - `POST /v1/tasks/{id}/runs/{run_id}/retry`
 - `POST /v1/tasks/{id}/runs/{run_id}/resume`
+- `POST /v1/tasks/{id}/runs/{run_id}/continue`
 - `POST /v1/tasks/{id}/runs/{run_id}/retry-from-turn`
 - `POST /v1/tasks/{id}/runs/{run_id}/cancel`
 
@@ -86,6 +87,19 @@ The `task` resource accepts these fields on `POST /v1/tasks`:
 - resumed executions include checkpoint context (source run id, last completed step, last event sequence) in step input so executors/tools can continue from the prior boundary
 - for `agent_loop` runs, the saved `agent_conversation` artifact is hydrated as the starting message history — the loop continues from where it left off rather than re-running prior turns
 - the new run inherits the chain's cumulative cost via `PriorCostMicrosUSD`, so the per-task ceiling holds across the full chain
+
+### Continue semantics
+
+`POST /v1/tasks/{id}/runs/{run_id}/continue` body:
+
+```json
+{ "prompt": "follow-up instruction" }
+```
+
+- only valid for terminal `agent_loop` runs that produced an `agent_conversation` artifact
+- creates a new run for the same task, hydrates the source conversation, appends the supplied user prompt, then resumes the loop
+- used by ACP/editor sessions where one editor conversation maps to one durable Hecate task and each user prompt becomes the next Hecate run
+- returns 409 when the source run is still active, and 400 for non-agent tasks, empty prompts, or missing/malformed conversation artifacts
 
 ### Retry-from-turn-N semantics
 

@@ -4,6 +4,8 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"strings"
+	"sync"
 )
 
 // Dispatcher routes incoming JSON-RPC requests to typed handlers.
@@ -15,6 +17,18 @@ type Dispatcher struct {
 	emit     func(*Request)
 
 	initialized bool
+
+	mu                     sync.Mutex
+	nextPermissionSequence int64
+	pendingPermissions     map[string]pendingPermission
+	pendingApprovalIDs     map[string]string
+}
+
+type pendingPermission struct {
+	SessionID  string
+	TaskID     string
+	RunID      string
+	ApprovalID string
 }
 
 // Config is the bridge's install-time configuration.
@@ -36,9 +50,11 @@ func NewDispatcher(gateway GatewayClient, sessions *SessionStore, cfg Config) *D
 		cfg.ApprovalRoute = "editor"
 	}
 	return &Dispatcher{
-		sessions: sessions,
-		gateway:  gateway,
-		cfg:      cfg,
+		sessions:           sessions,
+		gateway:            gateway,
+		cfg:                cfg,
+		pendingPermissions: make(map[string]pendingPermission),
+		pendingApprovalIDs: make(map[string]string),
 	}
 }
 
@@ -63,6 +79,40 @@ func (d *Dispatcher) Handle(ctx context.Context, req *Request) *Response {
 	default:
 		return errorResponse(req.ID, ErrorMethodNotFound,
 			fmt.Sprintf("method %q is not supported by this ACP bridge", req.Method), nil)
+	}
+}
+
+func (d *Dispatcher) HandleResponse(ctx context.Context, resp *Response) {
+	id := responseIDKey(resp.ID)
+	if id == "" {
+		return
+	}
+	pending, ok := d.takePendingPermission(id)
+	if !ok {
+		return
+	}
+	decision, note, err := approvalDecisionFromResponse(resp)
+	if err != nil {
+		d.emitUpdate(SessionUpdateParams{
+			SessionID: pending.SessionID,
+			Kind:      "error",
+			Status:    "failed",
+			Message:   err.Error(),
+			TaskID:    pending.TaskID,
+			RunID:     pending.RunID,
+		})
+		return
+	}
+	if err := d.gateway.ResolveApproval(ctx, pending.TaskID, pending.RunID, pending.ApprovalID, decision); err != nil {
+		d.emitUpdate(SessionUpdateParams{
+			SessionID: pending.SessionID,
+			Kind:      "error",
+			Status:    "failed",
+			Message:   "could not resolve Hecate approval: " + err.Error(),
+			TaskID:    pending.TaskID,
+			RunID:     pending.RunID,
+			Data:      map[string]any{"approval_id": pending.ApprovalID, "note": note},
+		})
 	}
 }
 
@@ -147,32 +197,39 @@ func (d *Dispatcher) handleSessionPrompt(ctx context.Context, req *Request) *Res
 	if session == nil {
 		return errorResponse(req.ID, ErrorSessionNotFound, "session not found", nil)
 	}
-	// Hecate's runtime does not yet have a true "append user message
-	// to existing task conversation" endpoint. For the ACP alpha
-	// bridge, each prompt creates a fresh coding-agent task while
-	// preserving the editor-facing ACP session ID.
-	result, err := d.gateway.CreateAgentLoopTask(ctx, CreateTaskRequest{
-		Model:            session.Model,
-		WorkingDirectory: session.CWD,
-		Prompt:           params.Prompt,
-	})
-	if err != nil {
-		return errorResponse(req.ID, ErrorGatewayUnreachable, "could not start Hecate task: "+err.Error(), nil)
+	taskID := session.HecateTaskID
+	runID := session.CurrentRunID
+	if taskID == "" || runID == "" {
+		result, err := d.gateway.CreateAgentLoopTask(ctx, CreateTaskRequest{
+			Model:            session.Model,
+			WorkingDirectory: session.CWD,
+			Prompt:           params.Prompt,
+		})
+		if err != nil {
+			return errorResponse(req.ID, ErrorGatewayUnreachable, "could not start Hecate task: "+err.Error(), nil)
+		}
+		taskID, runID = result.TaskID, result.RunID
+	} else {
+		nextRunID, err := d.gateway.ContinueAgentLoopTask(ctx, taskID, runID, params.Prompt)
+		if err != nil {
+			return errorResponse(req.ID, ErrorGatewayUnreachable, "could not continue Hecate task: "+err.Error(), nil)
+		}
+		runID = nextRunID
 	}
-	session, _ = d.sessions.UpdateRun(session.ID, result.TaskID, result.RunID)
+	session, _ = d.sessions.UpdateRun(session.ID, taskID, runID)
 	d.emitUpdate(SessionUpdateParams{
 		SessionID: session.ID,
 		Kind:      "runtime",
 		Status:    "started",
 		Message:   "Hecate task started",
-		TaskID:    result.TaskID,
-		RunID:     result.RunID,
+		TaskID:    taskID,
+		RunID:     runID,
 	})
-	go d.forwardRunEvents(ctx, session.ID, result.TaskID, result.RunID)
+	go d.forwardRunEvents(ctx, session.ID, taskID, runID)
 	return resultResponse(req.ID, SessionPromptResult{
 		SessionID: session.ID,
-		TaskID:    result.TaskID,
-		RunID:     result.RunID,
+		TaskID:    taskID,
+		RunID:     runID,
 	})
 }
 
@@ -217,8 +274,57 @@ func (d *Dispatcher) forwardRunEvents(ctx context.Context, sessionID, taskID, ru
 		return
 	}
 	for event := range events {
-		d.emitUpdate(RunEventToSessionUpdate(sessionID, taskID, runID, event))
+		update := RunEventToSessionUpdate(sessionID, taskID, runID, event)
+		d.emitUpdate(update)
+		if d.cfg.ApprovalRoute == "editor" {
+			d.emitPermissionRequest(update)
+		}
 	}
+}
+
+func (d *Dispatcher) emitPermissionRequest(update SessionUpdateParams) {
+	params, ok := PendingPermissionFromSessionUpdate(update)
+	if !ok {
+		return
+	}
+	id, ok := d.trackPendingPermission(params)
+	if !ok {
+		return
+	}
+	if d.emit != nil {
+		d.emit(SessionRequestPermission(id, params))
+	}
+}
+
+func (d *Dispatcher) trackPendingPermission(params PermissionRequestParams) (string, bool) {
+	approvalKey := params.TaskID + "/" + params.RunID + "/" + params.ApprovalID
+	d.mu.Lock()
+	defer d.mu.Unlock()
+	if id := d.pendingApprovalIDs[approvalKey]; id != "" {
+		return id, false
+	}
+	d.nextPermissionSequence++
+	id := fmt.Sprintf("permission-%d", d.nextPermissionSequence)
+	d.pendingApprovalIDs[approvalKey] = id
+	d.pendingPermissions[id] = pendingPermission{
+		SessionID:  params.SessionID,
+		TaskID:     params.TaskID,
+		RunID:      params.RunID,
+		ApprovalID: params.ApprovalID,
+	}
+	return id, true
+}
+
+func (d *Dispatcher) takePendingPermission(id string) (pendingPermission, bool) {
+	d.mu.Lock()
+	defer d.mu.Unlock()
+	pending, ok := d.pendingPermissions[id]
+	if !ok {
+		return pendingPermission{}, false
+	}
+	delete(d.pendingPermissions, id)
+	delete(d.pendingApprovalIDs, pending.TaskID+"/"+pending.RunID+"/"+pending.ApprovalID)
+	return pending, true
 }
 
 func (d *Dispatcher) emitUpdate(update SessionUpdateParams) {
@@ -247,6 +353,43 @@ func firstNonEmpty(values ...string) string {
 		}
 	}
 	return ""
+}
+
+func responseIDKey(id *json.RawMessage) string {
+	if id == nil {
+		return ""
+	}
+	var s string
+	if err := json.Unmarshal(*id, &s); err == nil {
+		return s
+	}
+	return strings.TrimSpace(string(*id))
+}
+
+func approvalDecisionFromResponse(resp *Response) (ApprovalDecision, string, error) {
+	if resp.Error != nil {
+		return ApprovalDeny, resp.Error.Message, fmt.Errorf("permission request failed: %s", resp.Error.Message)
+	}
+	var result PermissionResponseResult
+	if len(resp.Result) > 0 {
+		if err := json.Unmarshal(resp.Result, &result); err != nil {
+			return "", "", fmt.Errorf("permission response result is not valid JSON: %w", err)
+		}
+	}
+	if result.Allowed != nil {
+		if *result.Allowed {
+			return ApprovalAllow, result.Note, nil
+		}
+		return ApprovalDeny, result.Note, nil
+	}
+	switch strings.ToLower(strings.TrimSpace(result.Decision)) {
+	case "allow", "approve", "approved", "yes":
+		return ApprovalAllow, result.Note, nil
+	case "deny", "reject", "rejected", "no":
+		return ApprovalDeny, result.Note, nil
+	default:
+		return "", result.Note, fmt.Errorf("permission response decision must be allow or deny")
+	}
 }
 
 func errorResponse(id *json.RawMessage, code int, message string, data any) *Response {
