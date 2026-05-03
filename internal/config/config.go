@@ -280,6 +280,8 @@ type OpenAICompatibleProviderConfig struct {
 	BaseURL      string        `json:"base_url"`
 	APIKey       string        `json:"api_key"`
 	APIVersion   string        `json:"api_version"`
+	ChatPath     string        `json:"chat_path,omitempty"`
+	ModelsPath   string        `json:"models_path,omitempty"`
 	Timeout      time.Duration `json:"timeout"`
 	StubMode     bool          `json:"stub_mode"`
 	StubResponse string        `json:"stub_response"`
@@ -700,6 +702,38 @@ func defaultPricebookConfig() PricebookConfig {
 				InputMicrosUSDPerMillionTokens:       100_000,
 				OutputMicrosUSDPerMillionTokens:      400_000,
 				CachedInputMicrosUSDPerMillionTokens: 10_000,
+			},
+			// Seeded from Perplexity's published Sonar pricing/model docs as of 2026-05-03.
+			// Source: https://docs.perplexity.ai/docs/getting-started/pricing
+			// Current pricebook rows model token charges only; Perplexity also applies
+			// search-context/request charges that Hecate's pricebook cannot represent yet.
+			{
+				Provider:                             "perplexity",
+				Model:                                "sonar",
+				InputMicrosUSDPerMillionTokens:       1_000_000,
+				OutputMicrosUSDPerMillionTokens:      1_000_000,
+				CachedInputMicrosUSDPerMillionTokens: 0,
+			},
+			{
+				Provider:                             "perplexity",
+				Model:                                "sonar-pro",
+				InputMicrosUSDPerMillionTokens:       3_000_000,
+				OutputMicrosUSDPerMillionTokens:      15_000_000,
+				CachedInputMicrosUSDPerMillionTokens: 0,
+			},
+			{
+				Provider:                             "perplexity",
+				Model:                                "sonar-reasoning-pro",
+				InputMicrosUSDPerMillionTokens:       2_000_000,
+				OutputMicrosUSDPerMillionTokens:      8_000_000,
+				CachedInputMicrosUSDPerMillionTokens: 0,
+			},
+			{
+				Provider:                             "perplexity",
+				Model:                                "sonar-deep-research",
+				InputMicrosUSDPerMillionTokens:       2_000_000,
+				OutputMicrosUSDPerMillionTokens:      8_000_000,
+				CachedInputMicrosUSDPerMillionTokens: 0,
 			},
 		},
 	}

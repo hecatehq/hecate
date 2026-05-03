@@ -15,6 +15,8 @@ type BuiltInProvider struct {
 	BaseURL      string
 	APIKeyEnv    string
 	APIVersion   string
+	ChatPath     string
+	ModelsPath   string
 	DefaultModel string
 	DocsURL      string
 	Description  string
@@ -169,6 +171,23 @@ var builtInProviders = []BuiltInProvider{
 		},
 	},
 	{
+		ID:           "perplexity",
+		Name:         "Perplexity",
+		Kind:         "cloud",
+		Protocol:     "openai",
+		BaseURL:      "https://api.perplexity.ai",
+		APIKeyEnv:    "PROVIDER_PERPLEXITY_API_KEY",
+		ChatPath:     "/chat/completions",
+		ModelsPath:   "/v1/models",
+		DefaultModel: "sonar",
+		DocsURL:      "https://docs.perplexity.ai/docs/sonar/openai-compatibility",
+		Description:  "OpenAI-compatible preset for Perplexity Sonar models. Hecate discovers available models from /v1/models.",
+		StubResponse: "Stubbed response from the AI Agent Runtime MVP.",
+		Models: []string{
+			"sonar", "sonar-pro", "sonar-reasoning-pro", "sonar-deep-research",
+		},
+	},
+	{
 		ID:           "together_ai",
 		Name:         "Together AI",
 		Kind:         "cloud",
@@ -244,6 +263,8 @@ func (p BuiltInProvider) RuntimeConfig(globalDefaultModel string) OpenAICompatib
 		Protocol:     p.Protocol,
 		BaseURL:      p.BaseURL,
 		APIVersion:   p.APIVersion,
+		ChatPath:     p.ChatPath,
+		ModelsPath:   p.ModelsPath,
 		Timeout:      30 * time.Second,
 		StubMode:     false,
 		StubResponse: p.StubResponse,

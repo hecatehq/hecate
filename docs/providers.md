@@ -62,7 +62,7 @@ Each row has a trash button. Clicking it confirms via a browser dialog and then 
 
 ## Built-in presets
 
-The gateway ships with twelve provider presets. None of them are auto-added — operators pick from the catalog when adding a provider.
+The gateway ships with thirteen provider presets. None of them are auto-added — operators pick from the catalog when adding a provider.
 
 ### Cloud presets
 
@@ -74,6 +74,7 @@ The gateway ships with twelve provider presets. None of them are auto-added — 
 | `groq` | Groq | `https://api.groq.com/openai/v1` |
 | `mistral` | Mistral | `https://api.mistral.ai/v1` |
 | `openai` | OpenAI | `https://api.openai.com/v1` |
+| `perplexity` | Perplexity | `https://api.perplexity.ai` |
 | `together_ai` | Together AI | `https://api.together.xyz/v1` |
 | `xai` | xAI | `https://api.x.ai/v1` |
 
@@ -98,7 +99,15 @@ Env vars are convenient for first-run bootstrapping in `.env` / Docker compose; 
 PROVIDER_ANTHROPIC_API_KEY=sk-ant-...
 PROVIDER_OPENAI_API_KEY=sk-...
 PROVIDER_OPENAI_DEFAULT_MODEL=gpt-4o-mini
+PROVIDER_PERPLEXITY_API_KEY=pplx-...
 ```
+
+Perplexity's Sonar API is OpenAI Chat Completions-compatible but uses a
+provider-specific endpoint layout: Hecate sends chat traffic to
+`https://api.perplexity.ai/chat/completions` and model discovery to
+`https://api.perplexity.ai/v1/models`. Perplexity-specific response extension
+fields such as `citations` and `search_results` are not forwarded yet; the
+normalized assistant text, model, and token usage are.
 
 ## Control-plane API
 
@@ -167,4 +176,3 @@ returns:
 
 Route reports in the trace inspector reuse the same readiness vocabulary when
 they explain why a provider/model candidate was skipped.
-

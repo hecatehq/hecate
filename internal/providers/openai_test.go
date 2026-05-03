@@ -109,6 +109,79 @@ func TestOpenAIProviderChatUpstream(t *testing.T) {
 	}
 }
 
+func TestOpenAIProviderCustomEndpointPaths(t *testing.T) {
+	t.Parallel()
+
+	seen := map[string]bool{}
+	transport := testRoundTripperFunc(func(r *http.Request) (*http.Response, error) {
+		seen[r.URL.Path] = true
+		switch r.URL.Path {
+		case "/v1/models":
+			return &http.Response{
+				StatusCode: http.StatusOK,
+				Header:     http.Header{"Content-Type": []string{"application/json"}},
+				Body:       io.NopCloser(strings.NewReader(`{"object":"list","data":[{"id":"sonar","object":"model"}]}`)),
+			}, nil
+		case "/chat/completions":
+			responseBody, err := json.Marshal(openAIChatCompletionResponse{
+				ID:      "chatcmpl-sonar",
+				Created: 1_700_000_000,
+				Model:   "sonar",
+				Choices: []openAIChatCompletionChoice{
+					{
+						Index: 0,
+						Message: openAIChatMessage{
+							Role:    "assistant",
+							Content: openAIMessageContent{Text: "grounded answer"},
+						},
+						FinishReason: "stop",
+					},
+				},
+				Usage: openAIUsage{PromptTokens: 2, CompletionTokens: 2, TotalTokens: 4},
+			})
+			if err != nil {
+				return nil, err
+			}
+			return &http.Response{
+				StatusCode: http.StatusOK,
+				Header:     http.Header{"Content-Type": []string{"application/json"}},
+				Body:       io.NopCloser(bytes.NewReader(responseBody)),
+			}, nil
+		default:
+			return nil, fmt.Errorf("unexpected path %s", r.URL.Path)
+		}
+	})
+
+	provider := NewOpenAIProvider(config.OpenAICompatibleProviderConfig{
+		Name:         "perplexity",
+		Kind:         "cloud",
+		BaseURL:      "https://api.perplexity.test",
+		APIKey:       "test-key",
+		ChatPath:     "/chat/completions",
+		ModelsPath:   "/v1/models",
+		DefaultModel: "sonar",
+		Timeout:      time.Second,
+	}, slog.New(slog.NewTextHandler(io.Discard, nil)))
+	provider.httpClient.Transport = transport
+
+	caps, err := provider.Capabilities(context.Background())
+	if err != nil {
+		t.Fatalf("Capabilities() error = %v", err)
+	}
+	if len(caps.Models) != 1 || caps.Models[0] != "sonar" {
+		t.Fatalf("models = %#v, want sonar", caps.Models)
+	}
+	if _, err := provider.Chat(context.Background(), types.ChatRequest{
+		Model:    "sonar",
+		Messages: []types.Message{{Role: "user", Content: "hello"}},
+	}); err != nil {
+		t.Fatalf("Chat() error = %v", err)
+	}
+	if !seen["/v1/models"] || !seen["/chat/completions"] {
+		t.Fatalf("seen paths = %#v, want /v1/models and /chat/completions", seen)
+	}
+}
+
 func TestOpenAIProviderChatUpstreamError(t *testing.T) {
 	t.Parallel()
 

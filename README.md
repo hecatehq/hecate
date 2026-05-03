@@ -30,7 +30,7 @@ OpenTelemetry.
 
 AI workloads are moving from simple API calls to long-running agents, tool use, local/cloud routing, and budget-sensitive automation. Hecate gives you that runtime layer as one self-contained binary you run yourself: part LLM gateway, part operator console, part early coding-agent substrate.
 
-- **Cloud and local providers together** — OpenAI-compatible providers, Anthropic, Ollama, LM Studio, LocalAI, llama.cpp-compatible servers, and other shipped presets.
+- **Cloud and local providers together** — OpenAI, Anthropic, Perplexity, Ollama, LM Studio, LocalAI, llama.cpp-compatible servers, and other shipped presets.
 - **Operator-controlled spend** — balances, pricebook, rate limits, audit history.
 - **Runtime visibility** — request ledger, route reports, failover details, cost, trace IDs, OpenTelemetry export.
 - **Agent-task runtime** — queued tasks, approvals, controlled shell/file/git execution, patch artifacts, resumable runs, MCP integration.

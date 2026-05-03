@@ -369,7 +369,7 @@ func (p *OpenAICompatibleProvider) staticCapabilities(source string) Capabilitie
 }
 
 func (p *OpenAICompatibleProvider) discoverCapabilities(ctx context.Context) (Capabilities, error) {
-	endpoint := buildModelsURL(p.config.BaseURL)
+	endpoint := buildModelsURL(p.config.BaseURL, p.config.ModelsPath)
 	req, err := http.NewRequestWithContext(ctx, http.MethodGet, endpoint, nil)
 	if err != nil {
 		return Capabilities{}, fmt.Errorf("build models request: %w", err)
@@ -492,7 +492,7 @@ func (p *OpenAICompatibleProvider) chatUpstream(ctx context.Context, req types.C
 		return nil, fmt.Errorf("marshal upstream request: %w", err)
 	}
 
-	endpoint := buildChatCompletionsURL(p.config.BaseURL)
+	endpoint := buildChatCompletionsURL(p.config.BaseURL, p.config.ChatPath)
 	httpReq, err := http.NewRequestWithContext(ctx, http.MethodPost, endpoint, bytes.NewReader(payload))
 	if err != nil {
 		return nil, fmt.Errorf("build upstream request: %w", err)
@@ -646,7 +646,7 @@ func (p *OpenAICompatibleProvider) ChatStream(ctx context.Context, req types.Cha
 		return fmt.Errorf("marshal upstream request: %w", err)
 	}
 
-	endpoint := buildChatCompletionsURL(p.config.BaseURL)
+	endpoint := buildChatCompletionsURL(p.config.BaseURL, p.config.ChatPath)
 	httpReq, err := http.NewRequestWithContext(ctx, http.MethodPost, endpoint, bytes.NewReader(payload))
 	if err != nil {
 		return fmt.Errorf("build upstream request: %w", err)
@@ -731,7 +731,10 @@ func messageHasNonTextBlocks(msg types.Message) bool {
 	return false
 }
 
-func buildChatCompletionsURL(baseURL string) string {
+func buildChatCompletionsURL(baseURL, path string) string {
+	if strings.TrimSpace(path) != "" {
+		return buildProviderURL(baseURL, path)
+	}
 	trimmed := strings.TrimRight(baseURL, "/")
 	if strings.HasSuffix(trimmed, "/v1") {
 		return trimmed + "/chat/completions"
@@ -739,12 +742,19 @@ func buildChatCompletionsURL(baseURL string) string {
 	return trimmed + "/v1/chat/completions"
 }
 
-func buildModelsURL(baseURL string) string {
+func buildModelsURL(baseURL, path string) string {
+	if strings.TrimSpace(path) != "" {
+		return buildProviderURL(baseURL, path)
+	}
 	trimmed := strings.TrimRight(baseURL, "/")
 	if strings.HasSuffix(trimmed, "/v1") {
 		return trimmed + "/models"
 	}
 	return trimmed + "/v1/models"
+}
+
+func buildProviderURL(baseURL, path string) string {
+	return strings.TrimRight(baseURL, "/") + "/" + strings.TrimLeft(strings.TrimSpace(path), "/")
 }
 
 func decodeUpstreamError(resp *http.Response) error {

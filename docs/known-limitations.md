@@ -24,6 +24,10 @@ operators should not assume yet.
   provider record.
 - Provider model discovery depends on each upstream's OpenAI-compatible or
   Anthropic-compatible catalog behavior; local runtimes can differ.
+- Provider-specific response extensions are not all preserved yet. For example,
+  Perplexity's `citations` and `search_results` fields are currently consumed
+  by the upstream adapter but not forwarded through Hecate's normalized chat
+  response.
 
 ## Pricing And Budgets
 
@@ -31,6 +35,11 @@ operators should not assume yet.
   should verify pricing against provider invoices.
 - Unknown cloud-model prices fail closed by default so operators do not
   silently run unpriced traffic.
+- Perplexity Sonar defaults include token-price rows, but Hecate's current
+  pricebook cannot yet represent search-context request fees, citation tokens,
+  search-query fees, or reasoning-token fees. Treat those estimates as lower
+  bounds until the pricebook grows per-request and provider-specific usage
+  dimensions.
 - Local models can be zero-cost or manually priced, but host/GPU cost is not
   automatically measured.
 

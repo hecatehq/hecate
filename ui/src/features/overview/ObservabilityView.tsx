@@ -41,6 +41,7 @@ const PROVIDER_COLORS: Record<string, string> = {
   mistral:     "var(--brand-mistral)",
   groq:        "var(--brand-groq)",
   deepseek:    "var(--teal)",
+  perplexity:  "var(--teal)",
   together_ai: "var(--t2)",
   xai:         "var(--t0)",
   ollama:      "var(--teal)",
