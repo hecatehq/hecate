@@ -78,6 +78,10 @@ type ResumeTaskRunRequest struct {
 	BudgetMicrosUSD int64 `json:"budget_micros_usd,omitempty"`
 }
 
+type ContinueTaskRunRequest struct {
+	Prompt string `json:"prompt"`
+}
+
 // RetryFromTurnRequest is the body for
 // POST /v1/tasks/{id}/runs/{run_id}/retry-from-turn — re-run an
 // agent_loop run starting at turn N with the prior conversation

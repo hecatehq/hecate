@@ -783,6 +783,41 @@ func TestAgentLoop_HydratesFromResumeCheckpoint(t *testing.T) {
 	}
 }
 
+func TestAgentLoop_AppendsPromptFromContinuationCheckpoint(t *testing.T) {
+	saved := []types.Message{
+		{Role: "user", Content: "first prompt"},
+		{Role: "assistant", Content: "first answer"},
+	}
+	savedJSON, _ := json.Marshal(saved)
+
+	llm := &scriptedLLM{
+		responses: []*types.ChatResponse{
+			makeChatResp(makeAssistantMsg("Second answer.")),
+		},
+	}
+	loop := NewAgentLoopExecutor(llm, &stubExecutor{}, &stubExecutor{}, &stubExecutor{}, 8, nil, HTTPRequestPolicy{})
+	spec := newAgentLoopSpec(t)
+	spec.ResumeCheckpoint = &ResumeCheckpoint{
+		SourceRunID:       "run-prev",
+		AgentConversation: savedJSON,
+		AppendUserPrompt:  "second prompt",
+	}
+
+	if _, err := loop.Execute(context.Background(), spec); err != nil {
+		t.Fatalf("Execute: %v", err)
+	}
+	if len(llm.lastReqs) != 1 {
+		t.Fatalf("LLM calls = %d, want 1", len(llm.lastReqs))
+	}
+	got := llm.lastReqs[0].Messages
+	if len(got) != 3 {
+		t.Fatalf("messages = %d, want saved history plus appended prompt: %+v", len(got), got)
+	}
+	if got[2].Role != "user" || got[2].Content != "second prompt" {
+		t.Fatalf("appended message = %+v, want second user prompt", got[2])
+	}
+}
+
 func TestAgentLoop_HydrateGracefulFallbackOnCorruptCheckpoint(t *testing.T) {
 	// Corrupt JSON in the resume artifact must not crash the loop —
 	// fall back to a fresh user-prompt-only conversation. Lets a

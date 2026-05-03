@@ -94,6 +94,66 @@ func TestGatewayHTTPClientCreateAgentLoopTask(t *testing.T) {
 	}
 }
 
+func TestGatewayHTTPClientContinueAgentLoopTask(t *testing.T) {
+	t.Parallel()
+
+	var body map[string]string
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.Method != http.MethodPost || r.URL.Path != "/v1/tasks/task-123/runs/run-456/continue" {
+			t.Fatalf("unexpected request %s %s", r.Method, r.URL.Path)
+		}
+		if err := json.NewDecoder(r.Body).Decode(&body); err != nil {
+			t.Fatalf("decode continue body: %v", err)
+		}
+		w.Header().Set("Content-Type", "application/json")
+		_, _ = w.Write([]byte(`{"object":"task_run","data":{"id":"run-789"}}`))
+	}))
+	defer srv.Close()
+
+	client, err := newGatewayHTTPClient(bridgeConfig{GatewayURL: srv.URL})
+	if err != nil {
+		t.Fatalf("newGatewayHTTPClient() error = %v", err)
+	}
+	runID, err := client.ContinueAgentLoopTask(context.Background(), "task-123", "run-456", "next prompt")
+	if err != nil {
+		t.Fatalf("ContinueAgentLoopTask() error = %v", err)
+	}
+	if runID != "run-789" {
+		t.Fatalf("runID = %q, want run-789", runID)
+	}
+	if body["prompt"] != "next prompt" {
+		t.Fatalf("continue body = %+v", body)
+	}
+}
+
+func TestGatewayHTTPClientResolveApproval(t *testing.T) {
+	t.Parallel()
+
+	var body map[string]string
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.Method != http.MethodPost || r.URL.Path != "/v1/tasks/task-123/approvals/approval-456/resolve" {
+			t.Fatalf("unexpected request %s %s", r.Method, r.URL.Path)
+		}
+		if err := json.NewDecoder(r.Body).Decode(&body); err != nil {
+			t.Fatalf("decode resolve body: %v", err)
+		}
+		w.Header().Set("Content-Type", "application/json")
+		_, _ = w.Write([]byte(`{"object":"task_approval","data":{"id":"approval-456","status":"approved"}}`))
+	}))
+	defer srv.Close()
+
+	client, err := newGatewayHTTPClient(bridgeConfig{GatewayURL: srv.URL})
+	if err != nil {
+		t.Fatalf("newGatewayHTTPClient() error = %v", err)
+	}
+	if err := client.ResolveApproval(context.Background(), "task-123", "run-ignored", "approval-456", acp.ApprovalAllow); err != nil {
+		t.Fatalf("ResolveApproval() error = %v", err)
+	}
+	if body["decision"] != "approve" {
+		t.Fatalf("resolve body = %+v", body)
+	}
+}
+
 func TestGatewayHTTPClientStreamRunEvents(t *testing.T) {
 	t.Parallel()
 

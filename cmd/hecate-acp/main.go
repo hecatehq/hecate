@@ -106,13 +106,37 @@ func run(ctx context.Context, stdin io.Reader, stdout io.Writer, stderr io.Write
 		if len(line) == 0 {
 			continue
 		}
-		var req acp.Request
-		if err := json.Unmarshal(line, &req); err != nil {
+		var envelope struct {
+			JSONRPC string           `json:"jsonrpc"`
+			ID      *json.RawMessage `json:"id,omitempty"`
+			Method  string           `json:"method,omitempty"`
+			Result  json.RawMessage  `json:"result,omitempty"`
+			Error   *acp.RPCError    `json:"error,omitempty"`
+		}
+		if err := json.Unmarshal(line, &envelope); err != nil {
 			writeCh <- parseErrorResponse(err)
 			continue
 		}
-		if req.JSONRPC != acp.JSONRPCVersion || req.Method == "" {
-			writeCh <- invalidRequestResponse(req.ID)
+		if envelope.JSONRPC != acp.JSONRPCVersion {
+			writeCh <- invalidRequestResponse(envelope.ID)
+			continue
+		}
+		if envelope.Method == "" {
+			if envelope.ID == nil {
+				writeCh <- invalidRequestResponse(envelope.ID)
+				continue
+			}
+			dispatcher.HandleResponse(ctx, &acp.Response{
+				JSONRPC: envelope.JSONRPC,
+				ID:      envelope.ID,
+				Result:  envelope.Result,
+				Error:   envelope.Error,
+			})
+			continue
+		}
+		var req acp.Request
+		if err := json.Unmarshal(line, &req); err != nil {
+			writeCh <- parseErrorResponse(err)
 			continue
 		}
 		if resp := dispatcher.Handle(ctx, &req); resp != nil {
@@ -245,13 +269,35 @@ func (c *gatewayHTTPClient) CreateAgentLoopTask(ctx context.Context, request acp
 	return acp.CreateTaskResult{TaskID: created.Data.ID, RunID: started.Data.ID}, nil
 }
 
+func (c *gatewayHTTPClient) ContinueAgentLoopTask(ctx context.Context, taskID, runID, prompt string) (string, error) {
+	var continued struct {
+		Data struct {
+			ID string `json:"id"`
+		} `json:"data"`
+	}
+	path := "/v1/tasks/" + url.PathEscape(taskID) + "/runs/" + url.PathEscape(runID) + "/continue"
+	if err := c.doJSON(ctx, http.MethodPost, path, map[string]any{"prompt": prompt}, &continued); err != nil {
+		return "", err
+	}
+	if continued.Data.ID == "" {
+		return "", fmt.Errorf("gateway task continue response missing run id")
+	}
+	return continued.Data.ID, nil
+}
+
 func (c *gatewayHTTPClient) CancelRun(ctx context.Context, taskID, runID, reason string) error {
 	var ignored map[string]any
 	return c.doJSON(ctx, http.MethodPost, "/v1/tasks/"+url.PathEscape(taskID)+"/runs/"+url.PathEscape(runID)+"/cancel", map[string]any{"reason": reason}, &ignored)
 }
 
-func (c *gatewayHTTPClient) ResolveApproval(context.Context, string, string, string, acp.ApprovalDecision) error {
-	return fmt.Errorf("approval resolution is not implemented in hecate-acp yet")
+func (c *gatewayHTTPClient) ResolveApproval(ctx context.Context, taskID, _ string, approvalID string, decision acp.ApprovalDecision) error {
+	wireDecision := "reject"
+	if decision == acp.ApprovalAllow {
+		wireDecision = "approve"
+	}
+	var ignored map[string]any
+	path := "/v1/tasks/" + url.PathEscape(taskID) + "/approvals/" + url.PathEscape(approvalID) + "/resolve"
+	return c.doJSON(ctx, http.MethodPost, path, map[string]any{"decision": wireDecision}, &ignored)
 }
 
 func (c *gatewayHTTPClient) StreamRunEvents(ctx context.Context, taskID, runID string) (<-chan acp.RunEvent, error) {

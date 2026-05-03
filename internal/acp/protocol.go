@@ -74,6 +74,7 @@ const (
 	ErrorGatewayUnreachable = -32001 // network failure talking to gateway
 	ErrorModelNotPermitted  = -32002 // requested model isn't in the gateway's model list
 	ErrorSessionNotFound    = -32003 // session_id doesn't exist (or expired with bridge restart)
+	ErrorPermissionUnknown  = -32004 // response id doesn't match an outstanding permission request
 )
 
 // JSONRPCVersion is the protocol version string set on every envelope.

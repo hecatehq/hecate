@@ -7,7 +7,7 @@ import (
 )
 
 // Session is the in-memory state for one ACP session. A session
-// corresponds 1:1 to a Hecate task; each session/prompt creates a new
+// corresponds 1:1 to a Hecate task; each prompt creates or continues a
 // run. Sessions don't survive bridge restart.
 type Session struct {
 	ID              string

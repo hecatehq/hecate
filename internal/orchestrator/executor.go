@@ -101,6 +101,11 @@ type ResumeCheckpoint struct {
 	// rather than losing the pre-pause portion when the runner
 	// overwrites Total on finalization.
 	ThisRunCostMicrosUSD int64
+	// AppendUserPrompt, when set on a cross-run continuation,
+	// appends a new user message after the hydrated conversation.
+	// Used by ACP/editor sessions where one durable Hecate task
+	// receives multiple prompts over time.
+	AppendUserPrompt string
 }
 
 type ExecutionResult struct {
