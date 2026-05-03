@@ -38,6 +38,8 @@ tauri/
   bun.lock
   splash/
     index.html              loading screen shown while the gateway boots
+    fonts/                  vendored splash fonts + OFL notices; no runtime
+                            network fetch during startup
   src-tauri/
     Cargo.toml              Rust crate: tauri 2, tauri-plugin-shell,
                             tauri-plugin-updater, reqwest (rustls-tls), tokio
@@ -119,7 +121,7 @@ The `externalBin: ["binaries/gateway"]` entry in `tauri.conf.json` tells Tauri's
 - The gateway child is spawned with `stdin/stdout/stderr = null` so it doesn't inherit the Tauri terminal.
 - The `Child` handle is stored in `GatewayChild` managed state.
 - `RunEvent::Exit` kills the child via `child.kill()` before the app exits.
-- If the gateway fails to start within 30 s, the window title is updated with the error; the app stays open so the user can see it.
+- If the gateway fails to start within 30 s, the splash switches to a failure panel with the error, gateway log path, and data-dir path. The native Hecate menu can open both paths even when the gateway UI never loads.
 
 ## Tauri-specific rules
 

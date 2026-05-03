@@ -134,6 +134,66 @@
         letter-spacing: 0.02em;
       }
 
+      .failure {
+        background: rgba(22, 16, 31, 0.76);
+        border: 1px solid rgba(250, 248, 255, 0.12);
+        border-radius: 18px;
+        box-shadow: 0 24px 80px rgba(0, 0, 0, 0.35);
+        color: rgba(250, 248, 255, 0.82);
+        display: none;
+        font-family: "JetBrains Mono", ui-monospace, monospace;
+        max-width: min(720px, calc(100vw - 48px));
+        padding: 18px 20px;
+        text-align: left;
+      }
+
+      .failure.is-visible {
+        display: block;
+      }
+
+      .failure-title {
+        color: var(--foreground);
+        font-family: "Space Grotesk", ui-sans-serif, system-ui, sans-serif;
+        font-size: 18px;
+        letter-spacing: -0.01em;
+        margin-bottom: 8px;
+      }
+
+      .failure-copy {
+        color: rgba(250, 248, 255, 0.68);
+        font-size: 12px;
+        line-height: 1.55;
+        margin-bottom: 14px;
+      }
+
+      .failure-detail {
+        display: grid;
+        gap: 8px;
+      }
+
+      .failure-row {
+        display: grid;
+        gap: 4px;
+      }
+
+      .failure-label {
+        color: rgba(170, 162, 183, 0.82);
+        font-size: 10px;
+        letter-spacing: 0.12em;
+        text-transform: uppercase;
+      }
+
+      .failure-value {
+        background: rgba(10, 7, 16, 0.7);
+        border: 1px solid rgba(250, 248, 255, 0.08);
+        border-radius: 10px;
+        color: rgba(250, 248, 255, 0.84);
+        font-size: 11px;
+        line-height: 1.45;
+        overflow-wrap: anywhere;
+        padding: 8px 10px;
+      }
+
       .status-dots {
         display: inline-flex;
         gap: 6px;
@@ -220,6 +280,26 @@
           <span class="status-dot"></span>
         </span>
       </div>
+      <section class="failure" id="failure-panel" aria-live="polite">
+        <div class="failure-title">Gateway failed to start</div>
+        <p class="failure-copy">
+          Hecate could not launch the local gateway sidecar. Use the native Hecate menu to open the gateway log or data directory.
+        </p>
+        <div class="failure-detail">
+          <div class="failure-row">
+            <div class="failure-label">Error</div>
+            <div class="failure-value" id="failure-message"></div>
+          </div>
+          <div class="failure-row">
+            <div class="failure-label">Gateway log</div>
+            <div class="failure-value" id="failure-log-path"></div>
+          </div>
+          <div class="failure-row">
+            <div class="failure-label">Data directory</div>
+            <div class="failure-value" id="failure-data-dir"></div>
+          </div>
+        </div>
+      </section>
     </main>
     <script>
       (() => {
@@ -404,6 +484,19 @@
         window.addEventListener("resize", resize);
         render(0);
       })();
+
+      const renderStartupFailure = (details) => {
+        document.getElementById("status").style.display = "none";
+        document.getElementById("failure-message").textContent = details.message || "Unknown startup failure.";
+        document.getElementById("failure-log-path").textContent = details.logPath || "Not available.";
+        document.getElementById("failure-data-dir").textContent = details.dataDir || "Not available.";
+        document.getElementById("failure-panel").classList.add("is-visible");
+      };
+
+      window.__hecateStartupFailed = renderStartupFailure;
+      if (window.__hecateStartupFailureDetails) {
+        renderStartupFailure(window.__hecateStartupFailureDetails);
+      }
     </script>
   </body>
 </html>

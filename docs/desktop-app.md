@@ -33,10 +33,12 @@ What works:
 - Sidecar lifecycle (spawn, healthz wait, kill on exit; `pgrep gateway` is
   empty after `cmd+Q`).
 - Same-origin loopback to the embedded gateway UI; the sidecar UI just loads.
+- Native Hecate menu with actions to focus the window, open the gateway log,
+  open the data directory, and quit.
 - Per-platform writable data dir (`~/Library/Application Support/com.hecate.app/`,
   `%APPDATA%\com.hecate.app\`, `~/.local/share/com.hecate.app/`).
 - Sidecar stderr piped to `<data_dir>/gateway.log` (truncated per launch);
-  the 30 s healthz timeout error message points at the file.
+  the startup splash shows failures with the log and data-directory paths.
 - Cross-platform CI matrix with PR validation, draft skipping, run
   cancellation on push, and signed nothing.
 - macOS bundle launch-validated end-to-end: download → mount → drag to
@@ -51,7 +53,7 @@ What doesn't yet:
   escape, documented in release notes.
 - No auto-update — plugin is wired but `active: false` until a signing
   keypair and update endpoint are decided.
-- No native menubar, no tray, no window-state persistence, no deep links.
+- No tray, no window-state persistence, no deep links.
 - Linux and Windows: build-only. Need an actual launch on each platform
   before claiming they work.
 
@@ -67,7 +69,6 @@ the bundle is polished enough to recommend.
 | Item | Scope | Notes |
 |---|---|---|
 | **Test the Linux + Windows bundles** | ~30 min per OS | Download from the `v0.1.0-alpha.9` release, install the `.deb` / `.AppImage` / `.msi`, configure a provider, send one chat, quit, relaunch, confirm config persists. macOS is done; these two are the remaining platform unknowns. |
-| **Better startup-error UX** | ~1 h | Today a sidecar failure leaves the splash spinning forever and surfaces the error only in the window title. Add a Tauri event channel + an error view in `splash/index.html` that quotes the `gateway.log` path. |
 | **Window state persistence** | ~15 min | Install [`tauri-plugin-window-state`](https://docs.rs/tauri-plugin-window-state/), register it. Save/restore size + position across launches. |
 
 ### Tier 2 — operational gates
@@ -82,7 +83,6 @@ the bundle is polished enough to recommend.
 
 | Item | Scope | Notes |
 |---|---|---|
-| **Native menubar** | ~half a day | File / Edit / View / Window / Help with platform conventions (Cmd+Q on macOS, Alt+F4 on Windows). Tauri 2 menu API. |
 | **Tray / menubar mode** | Multi-day | "Always on, click to focus." Adds tray icon + show/hide window logic, dock-icon hiding on macOS. Worth doing if "background gateway" is a use case. |
 | **Deep links (`hecate://...`)** | ~1 day | Open specific runs, configure providers from a link. Real value depends on whether such links would appear anywhere — premature today. |
 

@@ -14,19 +14,103 @@
 
 mod sidecar;
 
+use std::path::{Path, PathBuf};
 use std::sync::Mutex;
+use tauri::menu::{MenuBuilder, SubmenuBuilder};
 use tauri::Manager;
 
 /// Tauri managed state: the gateway child process.
 /// Wrapped in Mutex<Option<…>> so the exit handler can take() it exactly once.
 struct GatewayChild(Mutex<Option<std::process::Child>>);
 
+/// Tauri managed state: filesystem paths surfaced by native diagnostics.
+struct GatewayDiagnostics {
+    data_dir: PathBuf,
+    log_path: PathBuf,
+}
+
+fn open_path(path: &Path) -> Result<(), String> {
+    #[cfg(target_os = "macos")]
+    let mut command = {
+        let mut command = std::process::Command::new("open");
+        command.arg(path);
+        command
+    };
+
+    #[cfg(target_os = "windows")]
+    let mut command = {
+        let mut command = std::process::Command::new("explorer");
+        command.arg(path);
+        command
+    };
+
+    #[cfg(all(unix, not(target_os = "macos")))]
+    let mut command = {
+        let mut command = std::process::Command::new("xdg-open");
+        command.arg(path);
+        command
+    };
+
+    command
+        .spawn()
+        .map(|_| ())
+        .map_err(|e| format!("failed to open {}: {e}", path.display()))
+}
+
+fn install_menu(app: &mut tauri::App) -> tauri::Result<()> {
+    let help = SubmenuBuilder::new(app, "Hecate")
+        .text("open-hecate", "Open Hecate")
+        .separator()
+        .text("open-gateway-log", "Open Gateway Log")
+        .text("open-data-directory", "Open Data Directory")
+        .separator()
+        .text("quit-hecate", "Quit Hecate")
+        .build()?;
+    let menu = MenuBuilder::new(app).item(&help).build()?;
+    app.set_menu(menu).map(|_| ())
+}
+
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
 pub fn run() {
     tauri::Builder::default()
         .plugin(tauri_plugin_shell::init())
         .plugin(tauri_plugin_updater::Builder::new().build())
+        .on_menu_event(|app, event| match event.id().as_ref() {
+            "open-hecate" => {
+                if let Some(win) = app.get_webview_window("main") {
+                    let _ = win.show();
+                    let _ = win.set_focus();
+                }
+            }
+            "open-gateway-log" => {
+                if let Some(paths) = app.try_state::<GatewayDiagnostics>() {
+                    if !paths.log_path.exists() {
+                        let _ = std::fs::write(
+                            &paths.log_path,
+                            "Gateway log has not been created yet.\n",
+                        );
+                    }
+                    if let Err(e) = open_path(&paths.log_path) {
+                        eprintln!("{e}");
+                    }
+                }
+            }
+            "open-data-directory" => {
+                if let Some(paths) = app.try_state::<GatewayDiagnostics>() {
+                    if let Err(e) = open_path(&paths.data_dir) {
+                        eprintln!("{e}");
+                    }
+                }
+            }
+            "quit-hecate" => app.exit(0),
+            _ => {}
+        })
         .setup(|app| {
+            install_menu(app)?;
+
+            let diagnostics = sidecar::resolve_paths(app.handle())
+                .map_err(|e| std::io::Error::new(std::io::ErrorKind::Other, e))?;
+
             // The main window is created by tauri.conf.json and starts on the
             // splash page (frontendDist). Grab a handle to it so we can
             // navigate once the gateway is healthy.
@@ -37,6 +121,10 @@ pub fn run() {
             // Seed managed state with an empty child slot. The background
             // task fills it once hecate is spawned.
             app.manage(GatewayChild(Mutex::new(None)));
+            app.manage(GatewayDiagnostics {
+                data_dir: diagnostics.data_dir.clone(),
+                log_path: diagnostics.log_path.clone(),
+            });
 
             let app_handle = app.handle().clone();
 
@@ -59,7 +147,16 @@ pub fn run() {
                     }
                     Err(e) => {
                         eprintln!("hecate gateway startup failed: {e}");
-                        let _ = win.set_title(&format!("Hecate — startup failed: {e}"));
+                        let payload = serde_json::json!({
+                            "message": e,
+                            "logPath": diagnostics.log_path.display().to_string(),
+                            "dataDir": diagnostics.data_dir.display().to_string(),
+                        });
+                        let script = format!(
+                            "window.__hecateStartupFailureDetails = {payload}; window.__hecateStartupFailed && window.__hecateStartupFailed(window.__hecateStartupFailureDetails);"
+                        );
+                        let _ = win.eval(script);
+                        let _ = win.set_title("Hecate — startup failed");
                     }
                 }
             });
