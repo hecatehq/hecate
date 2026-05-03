@@ -71,6 +71,7 @@ function makePatchArtifact(overrides: Partial<TaskArtifactRecord> = {}): TaskArt
     name: "main.go.patch",
     status: "proposed",
     path: "/repo/main.go",
+    content_text: "--- /repo/main.go\n+++ /repo/main.go\n@@ -1 +1 @@\n-old\n+new\n",
     size_bytes: 42,
     ...overrides,
   };
@@ -238,6 +239,18 @@ describe("TaskDetail runtime activity and patches", () => {
     const { render, user } = setup({ artifacts: [makePatchArtifact()], onApplyPatch });
     render();
     await user.click(screen.getByRole("button", { name: /apply/i }));
+    expect(onApplyPatch).toHaveBeenCalledWith("art-patch-1");
+  });
+
+  it("previews patch diffs before applying", async () => {
+    const onApplyPatch = vi.fn();
+    const { render, user } = setup({ artifacts: [makePatchArtifact()], onApplyPatch });
+    render();
+    await user.click(screen.getByRole("button", { name: /preview/i }));
+    expect(screen.getByText("Patch preview")).toBeTruthy();
+    expect(screen.getByText("-old")).toBeTruthy();
+    expect(screen.getByText("+new")).toBeTruthy();
+    await user.click(screen.getByRole("button", { name: /apply patch/i }));
     expect(onApplyPatch).toHaveBeenCalledWith("art-patch-1");
   });
 

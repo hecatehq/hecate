@@ -282,9 +282,11 @@ export function TaskDetail({
   const termRef = useRef<HTMLDivElement>(null);
   const [runPickerOpen, setRunPickerOpen] = useState(false);
   const [expandedStepID, setExpandedStepID] = useState<string>("");
+  const [previewPatchID, setPreviewPatchID] = useState<string>("");
   const stdoutArtifact = artifacts.find(a => a.kind === "stdout") ?? null;
   const stderrArtifact = artifacts.find(a => a.kind === "stderr") ?? null;
   const conversationArtifact = artifacts.find(a => a.kind === "agent_conversation") ?? null;
+  const previewPatch = artifacts.find(a => a.id === previewPatchID && a.kind === "patch") ?? null;
   const pendingApprovals = approvals.filter(a => a.status === "pending");
 
   useEffect(() => {
@@ -628,6 +630,9 @@ export function TaskDetail({
                 <span style={{ fontFamily: "var(--font-mono)", fontSize: 11, color: "var(--t0)" }}>{a.name || a.kind}</span>
                 {a.kind === "patch" && a.status && <Badge status={a.status === "proposed" ? "warn" : a.status === "applied" ? "ok" : "disabled"} label={a.status} />}
                 {a.size_bytes != null && a.size_bytes > 0 && <span style={{ fontFamily: "var(--font-mono)", fontSize: 10, color: "var(--green)" }}>{a.size_bytes}b</span>}
+                {a.kind === "patch" && (
+                  <button className="btn btn-ghost btn-sm" onClick={() => setPreviewPatchID(a.id)}>Preview</button>
+                )}
                 {a.kind === "patch" && a.status === "proposed" && (
                   <button className="btn btn-primary btn-sm" disabled={busyAction !== ""} onClick={() => onApplyPatch(a.id)}>Apply</button>
                 )}
@@ -639,7 +644,62 @@ export function TaskDetail({
           </div>
         )}
       </div>
+      {previewPatch && (
+        <Modal
+          title="Patch preview"
+          width={760}
+          onClose={() => setPreviewPatchID("")}
+          footer={(
+            <>
+              <button className="btn btn-ghost" onClick={() => setPreviewPatchID("")}>Close</button>
+              {previewPatch.status === "proposed" && (
+                <button className="btn btn-primary" disabled={busyAction !== ""} onClick={() => onApplyPatch(previewPatch.id)}>Apply patch</button>
+              )}
+              {previewPatch.status === "applied" && (
+                <button className="btn btn-ghost" disabled={busyAction !== ""} onClick={() => onRevertPatch(previewPatch.id)}>Revert patch</button>
+              )}
+            </>
+          )}
+        >
+          <div style={{ display: "flex", flexDirection: "column", gap: 10 }}>
+            <div style={{ display: "flex", alignItems: "center", gap: 8, minWidth: 0 }}>
+              <Badge status={previewPatch.status === "proposed" ? "warn" : previewPatch.status === "applied" ? "ok" : "disabled"} label={previewPatch.status || "patch"} />
+              <span style={{ fontFamily: "var(--font-mono)", fontSize: 12, color: "var(--t0)", overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>
+                {previewPatch.path || previewPatch.name || previewPatch.id}
+              </span>
+            </div>
+            <PatchDiffPreview diff={previewPatch.content_text || "No diff content captured for this patch."} />
+          </div>
+        </Modal>
+      )}
     </div>
+  );
+}
+
+function PatchDiffPreview({ diff }: { diff: string }) {
+  return (
+    <pre
+      data-testid="patch-diff-preview"
+      style={{
+        margin: 0,
+        maxHeight: "56vh",
+        overflow: "auto",
+        padding: 12,
+        borderRadius: "var(--radius-sm)",
+        border: "1px solid var(--border)",
+        background: "var(--bg0)",
+        fontFamily: "var(--font-mono)",
+        fontSize: 12,
+        lineHeight: 1.7,
+      }}
+    >
+      {diff.split("\n").map((line, index) => {
+        const color = line.startsWith("+") && !line.startsWith("+++") ? "var(--green)" :
+          line.startsWith("-") && !line.startsWith("---") ? "var(--red)" :
+            line.startsWith("@@") ? "var(--amber)" : "var(--t1)";
+        return <div key={`${index}-${line}`} style={{ color }}>{line || " "}</div>;
+      })}
+    </pre>
   );
 }
 
