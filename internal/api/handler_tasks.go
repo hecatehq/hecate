@@ -11,6 +11,7 @@ import (
 	"net/http"
 	"os"
 	"path/filepath"
+	"sort"
 	"strconv"
 	"strings"
 	"time"
@@ -133,7 +134,7 @@ func applyExecutionProfileDefaults(req *CreateTaskRequest) {
 		return
 	}
 	profile := strings.TrimSpace(req.ExecutionProfile)
-	if profile != "repo_local" {
+	if profile != "repo_local" && profile != "coding_agent" {
 		return
 	}
 	if strings.TrimSpace(req.ExecutionKind) == "" {
@@ -158,7 +159,19 @@ func applyExecutionProfileDefaults(req *CreateTaskRequest) {
 	if req.TimeoutMS <= 0 {
 		req.TimeoutMS = 120000
 	}
+	if profile == "coding_agent" {
+		if req.TimeoutMS <= 120000 {
+			req.TimeoutMS = 300000
+		}
+		if strings.TrimSpace(req.SystemPrompt) == "" {
+			req.SystemPrompt = codingAgentProfileSystemPrompt
+		}
+	}
 }
+
+const codingAgentProfileSystemPrompt = `You are running inside Hecate's coding-agent runtime.
+
+Use read_file and list_dir before editing. Prefer file_edit for targeted changes and file_write only for new files or full rewrites. Keep changes scoped to the user's request. Explain important tradeoffs in the final answer, and mention files changed when useful.`
 
 func (h *Handler) HandleTasks(w http.ResponseWriter, r *http.Request) {
 	ctx := r.Context()
@@ -1310,10 +1323,12 @@ func (h *Handler) buildTaskRunStreamState(ctx context.Context, taskID, runID str
 		}
 		approvalItems = append(approvalItems, renderTaskApproval(approval))
 	}
+	activityItems := buildTaskActivityItems(stepItems, artifactItems, approvalItems, run)
 	return TaskRunStreamEventData{
 		Run:       renderTaskRun(run),
 		Steps:     stepItems,
 		Artifacts: artifactItems,
+		Activity:  activityItems,
 		Approvals: approvalItems,
 	}, nil
 }
@@ -1336,6 +1351,102 @@ func buildTaskItem(ctx context.Context, store taskstate.Store, task types.Task) 
 		}
 	}
 	return item
+}
+
+func buildTaskActivityItems(steps []TaskStepItem, artifacts []TaskArtifactItem, approvals []TaskApprovalItem, run types.TaskRun) []TaskActivityItem {
+	items := make([]TaskActivityItem, 0, len(steps)+len(artifacts)+len(approvals)+1)
+	for _, step := range steps {
+		itemType := "step"
+		switch {
+		case step.Kind == "model":
+			itemType = "thinking"
+		case step.Kind == "tool" || step.Kind == "shell" || step.Kind == "git" || step.Kind == "file" || step.ToolName != "":
+			itemType = "tool_call"
+		}
+		items = append(items, TaskActivityItem{
+			ID:         "step:" + step.ID,
+			Type:       itemType,
+			Status:     step.Status,
+			Title:      step.Title,
+			StepID:     step.ID,
+			ToolName:   step.ToolName,
+			Kind:       step.Kind,
+			Summary:    step.OutputSummary,
+			OccurredAt: firstNonEmpty(step.StartedAt, step.FinishedAt),
+			Terminal:   step.Status == "completed" || step.Status == "failed" || step.Status == "cancelled",
+		})
+	}
+	for _, artifact := range artifacts {
+		itemType := "artifact"
+		switch artifact.Kind {
+		case "patch":
+			itemType = "patch"
+		case "git_summary":
+			itemType = "changed_files"
+		case "summary":
+			itemType = "final_answer"
+		}
+		items = append(items, TaskActivityItem{
+			ID:         "artifact:" + artifact.ID,
+			Type:       itemType,
+			Status:     artifact.Status,
+			Title:      artifact.Name,
+			StepID:     artifact.StepID,
+			ArtifactID: artifact.ID,
+			Kind:       artifact.Kind,
+			Path:       artifact.Path,
+			Summary: map[string]any{
+				"size_bytes": artifact.SizeBytes,
+				"mime_type":  artifact.MimeType,
+			},
+			OccurredAt: artifact.CreatedAt,
+			Terminal:   artifact.Status == "ready" || artifact.Status == "applied" || artifact.Status == "reverted",
+		})
+	}
+	for _, approval := range approvals {
+		items = append(items, TaskActivityItem{
+			ID:          "approval:" + approval.ID,
+			Type:        "approval",
+			Status:      approval.Status,
+			Title:       approval.Kind,
+			ApprovalID:  approval.ID,
+			Kind:        approval.Kind,
+			Summary:     map[string]any{"reason": approval.Reason},
+			OccurredAt:  approval.CreatedAt,
+			NeedsAction: approval.Status == "pending",
+			Terminal:    approval.Status != "pending",
+		})
+	}
+	if types.IsTerminalTaskRunStatus(run.Status) {
+		items = append(items, TaskActivityItem{
+			ID:         "run:" + run.ID + ":terminal",
+			Type:       "run_result",
+			Status:     run.Status,
+			Title:      firstNonEmpty(run.LastError, "Run "+run.Status),
+			OccurredAt: formatOptionalTime(run.FinishedAt),
+			Terminal:   true,
+		})
+	}
+	sortTaskActivityItems(items)
+	return items
+}
+
+func sortTaskActivityItems(items []TaskActivityItem) {
+	sort.SliceStable(items, func(i, j int) bool {
+		left := items[i].OccurredAt
+		right := items[j].OccurredAt
+		if left == "" || right == "" || left == right {
+			return items[i].ID < items[j].ID
+		}
+		return left < right
+	})
+}
+
+func formatOptionalTime(t time.Time) string {
+	if t.IsZero() {
+		return ""
+	}
+	return t.UTC().Format(time.RFC3339Nano)
 }
 
 type taskItemCounts struct {

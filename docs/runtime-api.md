@@ -50,6 +50,13 @@ The `task` resource accepts these fields on `POST /v1/tasks`:
 - `mcp_servers` — `agent_loop`-only array of external MCP server configs whose tools join the LLM's tool catalog under `mcp__<name>__<tool>` aliases. Each entry picks one transport (stdio: `command` + optional `args` / `env`; HTTP: `url` + optional `headers`), and may set `approval_policy` (`auto` / `require_approval` / `block`). Capped per-task by `GATEWAY_TASK_MAX_MCP_SERVERS_PER_TASK`. Full schema, secret handling, and lifecycle in [`mcp.md#hecate-as-mcp-client`](mcp.md#hecate-as-mcp-client).
 - `priority` / `timeout_ms`
 
+`execution_profile` applies task-create defaults:
+
+| Profile | Defaults |
+|---|---|
+| `repo_local` | `execution_kind=agent_loop`, `workspace_mode=persistent`, `working_directory=.`, `timeout_ms=120000` |
+| `coding_agent` | Same as `repo_local`, plus `timeout_ms=300000` and a coding-oriented system prompt that nudges the model toward read-before-edit and `file_edit` for targeted changes |
+
 ### Run fields
 
 `task_run` carries the cost figures the operator UI surfaces:
@@ -160,6 +167,11 @@ current artifacts, and any approvals scoped to that run — so the operator UI c
 drive the approval banner directly off the SSE without a separate refetch
 (`TaskRunStreamEventData.Approvals`). The snapshot's `event_type` mirrors the
 persisted event that produced it.
+
+Snapshots also include a normalized `activity` array for clients that want a
+coding-agent-style timeline without reconstructing it from raw steps and
+artifacts. Activity item types include `thinking`, `tool_call`, `patch`,
+`changed_files`, `final_answer`, `approval`, and `run_result`.
 
 ### Public events feed
 
