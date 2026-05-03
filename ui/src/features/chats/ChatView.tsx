@@ -3,11 +3,24 @@ import type { SyntheticEvent } from "react";
 import type { RuntimeConsoleViewModel } from "../../app/useRuntimeConsole";
 import { describeGatewayError, formatErrorCode } from "../../lib/error-diagnostics";
 import { parseInlineNodes, parseMarkdownBlocks } from "../../lib/markdown";
-import { CodeBlock, Icon, Icons, InlineError, ModelPicker, ProviderPicker } from "../shared/ui";
+import { AgentAdapterPicker, CodeBlock, Icon, Icons, InlineError, ModelPicker, ProviderPicker } from "../shared/ui";
 
 type Props = {
   state: RuntimeConsoleViewModel["state"];
   actions: RuntimeConsoleViewModel["actions"];
+};
+
+type VisibleChatMessage = {
+  id: string;
+  role: string;
+  content: string | null;
+  created_at?: string;
+  produced_by_call_id?: string;
+  agent_adapter_id?: string;
+  agent_adapter_name?: string;
+  agent_status?: string;
+  cost_mode?: string;
+  diff_stat?: string;
 };
 
 export function ChatView({ state, actions }: Props) {
@@ -15,7 +28,7 @@ export function ChatView({ state, actions }: Props) {
   const [syspromptOpen, setSyspromptOpen] = useState(false);
   const [renamingId, setRenamingId] = useState<string | null>(null);
   const [renameValue, setRenameValue] = useState("");
-  const [hoveredSessionId, setHoveredSessionId] = useState<string | null>(null);
+  const [hoveredChatId, setHoveredChatId] = useState<string | null>(null);
   const [copiedMsgId, setCopiedMsgId] = useState<string | null>(null);
   const [atBottom, setAtBottom] = useState(true);
   const isMac = typeof navigator !== "undefined" && /mac/i.test(navigator.platform);
@@ -30,9 +43,43 @@ export function ChatView({ state, actions }: Props) {
   const sidebarScrollRef = useRef<HTMLDivElement>(null);
   const userScrolledRef = useRef(false);
 
-  const sessions = state.chatSessions ?? [];
-  const messages = state.activeChatSession?.messages ?? [];
-  const providerCalls = state.activeChatSession?.provider_calls ?? [];
+  const isAgentChat = state.chatTarget === "agent";
+  const sessions = isAgentChat
+    ? (state.agentChatSessions ?? []).map((s) => ({
+        id: s.id,
+        title: s.title,
+        message_count: s.message_count,
+        provider_call_count: 0,
+        last_provider: s.adapter_id,
+        last_model: s.status,
+        created_at: s.created_at,
+        updated_at: s.updated_at,
+      }))
+    : (state.chatSessions ?? []);
+  const activeSessionID = isAgentChat ? state.activeAgentChatSessionID : state.activeChatSessionID;
+  const activeTitle = isAgentChat
+    ? state.activeAgentChatSession?.title
+    : state.activeChatSession?.title;
+  const messages: VisibleChatMessage[] = isAgentChat
+    ? (state.activeAgentChatSession?.messages ?? []).map((m, index) => ({
+        id: m.id || `agent-message-${index}`,
+        role: m.role,
+        content: m.content,
+        created_at: m.created_at,
+        agent_adapter_id: m.adapter_id,
+        agent_adapter_name: m.adapter_name,
+        agent_status: m.status,
+        cost_mode: m.cost_mode,
+        diff_stat: m.diff_stat,
+      }))
+    : (state.activeChatSession?.messages ?? []).map((m) => ({
+        id: m.id,
+        role: m.role,
+        content: m.content,
+        created_at: m.created_at,
+        produced_by_call_id: m.produced_by_call_id,
+      }));
+  const providerCalls = isAgentChat ? [] : (state.activeChatSession?.provider_calls ?? []);
   // Lookup map so the assistant rows can pull tokens/cost from the
   // call that produced them. The relationship is many-messages → one
   // call (server-driven tool loops fold many tool steps under a single
@@ -49,6 +96,8 @@ export function ChatView({ state, actions }: Props) {
   });
   const streaming = state.chatLoading;
   const chatDiagnostic = describeGatewayError(state.chatErrorCode, state.chatErrorStatus ?? undefined);
+  const selectedAgent = state.agentAdapters.find((adapter) => adapter.id === state.agentAdapterID);
+  const sendDisabled = !state.message.trim() || streaming || (isAgentChat && (!state.agentWorkspace.trim() || !selectedAgent?.available));
 
   useEffect(() => {
     if (!userScrolledRef.current) {
@@ -67,7 +116,7 @@ export function ChatView({ state, actions }: Props) {
     userScrolledRef.current = false;
     setAtBottom(true);
     bottomRef.current?.scrollIntoView({ behavior: "instant" });
-  }, [state.activeChatSessionID]);
+  }, [activeSessionID]);
 
   function handleScroll() {
     const el = scrollRef.current;
@@ -80,7 +129,7 @@ export function ChatView({ state, actions }: Props) {
 
   function handleSidebarScroll() {
     const el = sidebarScrollRef.current;
-    if (!el || !state.chatSessionsHasMore || state.chatSessionsLoadingMore) return;
+    if (isAgentChat || !el || !state.chatSessionsHasMore || state.chatSessionsLoadingMore) return;
     const nearBottom = el.scrollHeight - el.scrollTop - el.clientHeight < 60;
     if (nearBottom) {
       void actions.loadMoreChatSessions();
@@ -142,15 +191,18 @@ export function ChatView({ state, actions }: Props) {
                 textareaRef.current?.focus();
               }}
             >
-              <Icon d={Icons.plus} size={13} /> New session
+              <Icon d={Icons.plus} size={13} /> New chat
             </button>
             <button className="btn btn-ghost btn-sm" onClick={() => setSidebarOpen(false)} title="Close">
               <Icon d={Icons.chevL} size={13} />
             </button>
           </div>
-          <div ref={sidebarScrollRef} onScroll={handleSidebarScroll} style={{ flex: 1, overflowY: "auto", padding: "6px 0" }}>
+          <div style={{ padding: "8px 12px 4px", fontFamily: "var(--font-mono)", fontSize: 10, letterSpacing: "0.08em", textTransform: "uppercase", color: "var(--t3)" }}>
+            Chats
+          </div>
+          <div ref={sidebarScrollRef} onScroll={handleSidebarScroll} style={{ flex: 1, overflowY: "auto", padding: "2px 0 6px" }}>
             {sessions.length === 0 && (
-              <div style={{ padding: "16px 12px", fontSize: 12, color: "var(--t3)", textAlign: "center" }}>No sessions yet</div>
+              <div style={{ padding: "16px 12px", fontSize: 12, color: "var(--t3)", textAlign: "center" }}>No chats yet</div>
             )}
             {sessions.map(s => (
               <div key={s.id}
@@ -159,12 +211,12 @@ export function ChatView({ state, actions }: Props) {
                   void actions.selectChatSession(s.id);
                   textareaRef.current?.focus();
                 }}
-                onMouseEnter={() => setHoveredSessionId(s.id)}
-                onMouseLeave={() => setHoveredSessionId(null)}
+                onMouseEnter={() => setHoveredChatId(s.id)}
+                onMouseLeave={() => setHoveredChatId(null)}
                 style={{
                   padding: "8px 12px", cursor: "pointer",
-                  background: state.activeChatSessionID === s.id ? "var(--teal-bg)" : "transparent",
-                  borderLeft: state.activeChatSessionID === s.id ? "2px solid var(--teal)" : "2px solid transparent",
+                  background: activeSessionID === s.id ? "var(--teal-bg)" : "transparent",
+                  borderLeft: activeSessionID === s.id ? "2px solid var(--teal)" : "2px solid transparent",
                   transition: "background 0.1s",
                 }}>
                 <div style={{ display: "flex", alignItems: "center", gap: 2, height: 18 }}>
@@ -183,18 +235,20 @@ export function ChatView({ state, actions }: Props) {
                     />
                   ) : (
                     <>
-                      <div style={{ flex: 1, minWidth: 0, fontSize: 12, lineHeight: "18px", color: state.activeChatSessionID === s.id ? "var(--t0)" : "var(--t1)", fontWeight: state.activeChatSessionID === s.id ? 500 : 400, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>
+                      <div style={{ flex: 1, minWidth: 0, fontSize: 12, lineHeight: "18px", color: activeSessionID === s.id ? "var(--t0)" : "var(--t1)", fontWeight: activeSessionID === s.id ? 500 : 400, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>
                         {s.title || "Untitled"}
                       </div>
-                      <div style={{ display: "flex", gap: 1, opacity: hoveredSessionId === s.id ? 1 : 0, transition: "opacity 0.15s", flexShrink: 0 }}>
-                        <button
-                          className="btn btn-ghost btn-sm"
-                          onClick={e => { e.stopPropagation(); setRenamingId(s.id); setRenameValue(s.title || ""); }}
-                          style={{ padding: "1px 3px" }}
-                          title="Rename"
-                        >
-                          <Icon d={Icons.edit} size={10} />
-                        </button>
+                      <div style={{ display: "flex", gap: 1, opacity: hoveredChatId === s.id ? 1 : 0, transition: "opacity 0.15s", flexShrink: 0 }}>
+                        {!isAgentChat && (
+                          <button
+                            className="btn btn-ghost btn-sm"
+                            onClick={e => { e.stopPropagation(); setRenamingId(s.id); setRenameValue(s.title || ""); }}
+                            style={{ padding: "1px 3px" }}
+                            title="Rename"
+                          >
+                            <Icon d={Icons.edit} size={10} />
+                          </button>
+                        )}
                         <button
                           className="btn btn-ghost btn-sm"
                           onClick={e => { e.stopPropagation(); void actions.deleteChatSession(s.id); }}
@@ -208,12 +262,14 @@ export function ChatView({ state, actions }: Props) {
                   )}
                 </div>
                 <div style={{ fontSize: 10, color: "var(--t3)", marginTop: 1, fontFamily: "var(--font-mono)" }}>
-                  {s.message_count} msg · {s.provider_call_count} call{s.provider_call_count === 1 ? "" : "s"}{s.last_provider ? ` · ${s.last_provider}` : ""}
+                  {isAgentChat
+                    ? `${s.message_count} msg${s.last_provider ? ` · ${s.last_provider}` : ""}${s.last_model ? ` · ${s.last_model}` : ""}`
+                    : `${s.message_count} msg · ${s.provider_call_count} call${s.provider_call_count === 1 ? "" : "s"}${s.last_provider ? ` · ${s.last_provider}` : ""}`}
                 </div>
               </div>
             ))}
-            {state.chatSessionsLoadingMore && (
-              <div style={{ padding: "8px 12px", fontSize: 11, color: "var(--t3)", textAlign: "center" }}>Loading…</div>
+            {!isAgentChat && state.chatSessionsLoadingMore && (
+              <div style={{ padding: "8px 12px", fontSize: 11, color: "var(--t3)", textAlign: "center" }}>Loading chats…</div>
             )}
           </div>
         </div>
@@ -224,100 +280,139 @@ export function ChatView({ state, actions }: Props) {
         {/* Topbar */}
         <div style={{ height: "var(--topbar-h)", borderBottom: "1px solid var(--border)", display: "flex", alignItems: "center", padding: "0 12px", gap: 8, flexShrink: 0, background: "var(--bg1)" }}>
           {!sidebarOpen && (
-            <button className="btn btn-ghost btn-sm" onClick={() => setSidebarOpen(true)} title="Open history">
+            <button className="btn btn-ghost btn-sm" onClick={() => setSidebarOpen(true)} title="Open chats">
               <Icon d={Icons.chevR} size={13} />
             </button>
           )}
+          <div style={{ display: "flex", border: "1px solid var(--border)", borderRadius: "var(--radius-sm)", overflow: "hidden", flexShrink: 0 }}>
+            {(["model", "agent"] as const).map((target) => (
+              <button
+                key={target}
+                className="btn btn-ghost btn-sm"
+                onClick={() => actions.setChatTarget(target)}
+                style={{
+                  borderRadius: 0,
+                  background: state.chatTarget === target ? "var(--teal-bg)" : "transparent",
+                  color: state.chatTarget === target ? "var(--teal)" : "var(--t2)",
+                  border: 0,
+                }}
+                title={target === "model" ? "Chat with a model through Hecate providers" : "Chat with an external coding agent"}
+              >
+                {target === "model" ? "Model" : "Agent"}
+              </button>
+            ))}
+          </div>
           <span style={{ fontSize: 13, fontWeight: 500, color: "var(--t0)", flex: 1, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>
-            {state.activeChatSession?.title || (sessions.length === 0 ? "New conversation" : "Select a session")}
+            {activeTitle || (sessions.length === 0 ? "New chat" : "Select a chat")}
           </span>
-          <ProviderPicker
-            value={state.providerFilter}
-            onChange={v => actions.setProviderFilter(v as typeof state.providerFilter)}
-            options={(() => {
-              // Source the picker from the operator's configured providers
-              // (the CP store), not the runtime status list. Health is not
-              // a filter — a temporarily-down provider is still a valid
-              // selection.
-              const configured = state.controlPlaneConfig?.providers ?? [];
-              const source = configured.length > 0
-                ? configured.map(c => ({ id: c.id, name: c.name, kind: c.kind }))
-                : state.providers
-                    .filter(p => p.name)
-                    .map(p => ({ id: p.name, name: p.name, kind: state.providerPresets.find(pr => pr.id === p.name)?.kind }));
+          {isAgentChat ? (
+            <>
+              <AgentAdapterPicker
+                value={state.agentAdapterID}
+                onChange={actions.setAgentAdapterID}
+                adapters={state.agentAdapters}
+              />
+              <button
+                className="btn btn-ghost btn-sm"
+                onClick={() => void actions.chooseAgentWorkspace()}
+                title={state.agentWorkspace ? `Workspace: ${state.agentWorkspace}` : "Choose workspace folder"}
+                type="button"
+              >
+                <Icon d={Icons.folder} size={13} />
+                <span style={{ fontSize: 11 }}>{state.agentWorkspace ? "workspace" : "choose workspace"}</span>
+              </button>
+            </>
+          ) : (
+            <>
+              <ProviderPicker
+                value={state.providerFilter}
+                onChange={v => actions.setProviderFilter(v as typeof state.providerFilter)}
+                options={(() => {
+                  // Source the picker from the operator's configured providers
+                  // (the CP store), not the runtime status list. Health is not
+                  // a filter — a temporarily-down provider is still a valid
+                  // selection.
+                  const configured = state.controlPlaneConfig?.providers ?? [];
+                  const source = configured.length > 0
+                    ? configured.map(c => ({ id: c.id, name: c.name, kind: c.kind }))
+                    : state.providers
+                        .filter(p => p.name)
+                        .map(p => ({ id: p.name, name: p.name, kind: state.providerPresets.find(pr => pr.id === p.name)?.kind }));
 
-              return source
-                .map(p => {
-                  const cfg = state.controlPlaneConfig?.providers.find(c => c.id === p.id);
-                  // Cloud-with-no-credentials is the only "disabled"
-                  // reason left now that the toggle is gone — we
-                  // surface it as a tooltip + key icon rather than
-                  // hiding the row, so the operator sees why the
-                  // provider isn't usable and where to fix it.
-                  const cloudUnconfigured = !!cfg && cfg.kind === "cloud" && !cfg.credential_configured;
-                  return {
-                    id: p.id,
-                    name: state.providerPresets.find(pr => pr.id === p.id)?.name || p.name || p.id,
-                    healthy: true, // dot suppressed in the picker; field kept for type compatibility
-                    kind: p.kind,
-                    configured: cfg ? cfg.credential_configured : undefined,
-                    disabledReason: cloudUnconfigured ? `Add an API key for ${cfg!.name || cfg!.id} on the Providers tab` : undefined,
-                  };
-                });
-            })()}
-            includeAuto
-          />
-          <ModelPicker
-            value={state.model}
-            onChange={actions.setModel}
-            // Scope the model list to providers the operator has explicitly
-            // configured. The /v1/models endpoint may return models from
-            // env-driven providers too (e.g. Docker's PROVIDER_*_BASE_URL
-            // pre-filled vars), but those aren't in controlPlaneConfig.providers
-            // and shouldn't be selectable from the chat picker.
-            models={(() => {
-              const configuredIDs = state.controlPlaneConfig?.providers;
-              if (!configuredIDs || configuredIDs.length === 0) return state.providerScopedModels;
-              const ids = new Set(configuredIDs.map(c => c.id));
-              return state.providerScopedModels.filter(m => {
-                const provider = m.metadata?.provider;
-                return typeof provider === "string" ? ids.has(provider) : true;
-              });
-            })()}
-            presets={state.providerPresets}
-            // Pinned width pairs the chat header's model picker with
-            // the provider picker for a stable, non-jittery layout.
-            triggerWidth={220}
-            // Show the provider suffix only when "All providers" is
-            // selected — when a specific provider is filtered, the
-            // suffix is redundant on every row.
-            showProvider={state.providerFilter === "auto"}
-            // Provider ids whose models should render as disabled rows
-            // (with a key indicator). Cloud-with-no-credentials is the
-            // only "disabled" reason now that the toggle is gone.
-            disabledProviders={(() => {
-              const out = new Map<string, string>();
-              for (const cfg of state.controlPlaneConfig?.providers ?? []) {
-                if (cfg.kind === "cloud" && !cfg.credential_configured) {
-                  out.set(cfg.id, `Add an API key for ${cfg.name || cfg.id} on the Providers tab`);
-                }
-              }
-              return out;
-            })()}
-          />
-          <button className="btn btn-ghost btn-sm" onClick={() => setSyspromptOpen(o => !o)}
-            style={{ color: syspromptOpen ? "var(--teal)" : "var(--t2)" }} title="System prompt">
-            <Icon d={Icons.edit} size={13} />
-            <span style={{ fontSize: 11 }}>system</span>
-          </button>
+                  return source
+                    .map(p => {
+                      const cfg = state.controlPlaneConfig?.providers.find(c => c.id === p.id);
+                      // Cloud-with-no-credentials is the only "disabled"
+                      // reason left now that the toggle is gone — we
+                      // surface it as a tooltip + key icon rather than
+                      // hiding the row, so the operator sees why the
+                      // provider isn't usable and where to fix it.
+                      const cloudUnconfigured = !!cfg && cfg.kind === "cloud" && !cfg.credential_configured;
+                      return {
+                        id: p.id,
+                        name: state.providerPresets.find(pr => pr.id === p.id)?.name || p.name || p.id,
+                        healthy: true, // dot suppressed in the picker; field kept for type compatibility
+                        kind: p.kind,
+                        configured: cfg ? cfg.credential_configured : undefined,
+                        disabledReason: cloudUnconfigured ? `Add an API key for ${cfg!.name || cfg!.id} on the Providers tab` : undefined,
+                      };
+                    });
+                })()}
+                includeAuto
+              />
+              <ModelPicker
+                value={state.model}
+                onChange={actions.setModel}
+                // Scope the model list to providers the operator has explicitly
+                // configured. The /v1/models endpoint may return models from
+                // env-driven providers too (e.g. Docker's PROVIDER_*_BASE_URL
+                // pre-filled vars), but those aren't in controlPlaneConfig.providers
+                // and shouldn't be selectable from the chat picker.
+                models={(() => {
+                  const configuredIDs = state.controlPlaneConfig?.providers;
+                  if (!configuredIDs || configuredIDs.length === 0) return state.providerScopedModels;
+                  const ids = new Set(configuredIDs.map(c => c.id));
+                  return state.providerScopedModels.filter(m => {
+                    const provider = m.metadata?.provider;
+                    return typeof provider === "string" ? ids.has(provider) : true;
+                  });
+                })()}
+                presets={state.providerPresets}
+                // Pinned width pairs the chat header's model picker with
+                // the provider picker for a stable, non-jittery layout.
+                triggerWidth={220}
+                // Show the provider suffix only when "All providers" is
+                // selected — when a specific provider is filtered, the
+                // suffix is redundant on every row.
+                showProvider={state.providerFilter === "auto"}
+                // Provider ids whose models should render as disabled rows
+                // (with a key indicator). Cloud-with-no-credentials is the
+                // only "disabled" reason now that the toggle is gone.
+                disabledProviders={(() => {
+                  const out = new Map<string, string>();
+                  for (const cfg of state.controlPlaneConfig?.providers ?? []) {
+                    if (cfg.kind === "cloud" && !cfg.credential_configured) {
+                      out.set(cfg.id, `Add an API key for ${cfg.name || cfg.id} on the Providers tab`);
+                    }
+                  }
+                  return out;
+                })()}
+              />
+              <button className="btn btn-ghost btn-sm" onClick={() => setSyspromptOpen(o => !o)}
+                style={{ color: syspromptOpen ? "var(--teal)" : "var(--t2)" }} title="System prompt">
+                <Icon d={Icons.edit} size={13} />
+                <span style={{ fontSize: 11 }}>system</span>
+              </button>
+            </>
+          )}
         </div>
 
         {/* System prompt editor */}
-        {syspromptOpen && (
+        {!isAgentChat && syspromptOpen && (
           <div style={{ borderBottom: "1px solid var(--border)", padding: "10px 14px", background: "var(--bg2)" }}>
             <div style={{ display: "flex", alignItems: "center", marginBottom: 5, gap: 8 }}>
               <span style={{ fontSize: 11, color: "var(--t2)", fontFamily: "var(--font-mono)" }}>SYSTEM PROMPT</span>
-              {messages.length > 0 && <span style={{ fontSize: 10, color: "var(--t3)", fontFamily: "var(--font-mono)" }}>locked — start a new session to change</span>}
+              {messages.length > 0 && <span style={{ fontSize: 10, color: "var(--t3)", fontFamily: "var(--font-mono)" }}>locked — start a new chat to change</span>}
             </div>
             <textarea
               value={state.systemPrompt}
@@ -336,17 +431,19 @@ export function ChatView({ state, actions }: Props) {
             const role = m.role === "assistant" ? "assistant" : "user";
             const content = typeof m.content === "string" ? m.content : (m.content === null ? "" : JSON.stringify(m.content));
             const time = m.created_at ? new Date(m.created_at).toLocaleTimeString("en-US", { hour: "2-digit", minute: "2-digit" }) : "";
+            const agentModel = m.agent_adapter_name || m.agent_adapter_id;
             return (
               <MessageRow
                 key={m.id}
                 id={m.id}
                 role={role}
-                model={call?.model}
+                model={isAgentChat ? agentModel : call?.model}
                 content={content}
                 time={time}
                 promptTokens={call?.prompt_tokens}
                 completionTokens={call?.completion_tokens}
                 costUsd={call?.cost_usd}
+                badge={isAgentChat && role === "assistant" ? (m.agent_status || m.cost_mode) : undefined}
                 onCopy={copyMsg}
                 copied={copiedMsgId === m.id}
               />
@@ -362,8 +459,12 @@ export function ChatView({ state, actions }: Props) {
                 </div>
                 <div style={{ flex: 1, minWidth: 0 }}>
                   <div style={{ display: "flex", alignItems: "center", gap: 8, marginBottom: 6 }}>
-                    <span style={{ fontFamily: "var(--font-mono)", fontSize: 11, color: "var(--teal)" }}>{state.model || "hecate"}</span>
-                    <span className="badge badge-teal" style={{ animation: "pulse 1s ease-in-out infinite", fontSize: 10 }}>streaming</span>
+                    <span style={{ fontFamily: "var(--font-mono)", fontSize: 11, color: "var(--teal)" }}>
+                      {isAgentChat ? (selectedAgent?.name || state.agentAdapterID || "agent") : (state.model || "hecate")}
+                    </span>
+                    <span className="badge badge-teal" style={{ animation: "pulse 1s ease-in-out infinite", fontSize: 10 }}>
+                      {isAgentChat ? "running" : "streaming"}
+                    </span>
                   </div>
                   <p style={{ fontSize: 13, color: "var(--t0)", lineHeight: 1.7, whiteSpace: "pre-wrap" }}>
                     {state.streamingContent}<span className="cursor-blink">▋</span>
@@ -409,7 +510,7 @@ export function ChatView({ state, actions }: Props) {
 
           {visibleMessages.length === 0 && !streaming && state.pendingToolCalls.length === 0 && (
             <div style={{ padding: "48px 16px", maxWidth: 820, margin: "0 auto", textAlign: "center" }}>
-              <div style={{ fontSize: 13, color: "var(--t3)" }}>Send a message to start a conversation.</div>
+              <div style={{ fontSize: 13, color: "var(--t3)" }}>Send a message to start this chat.</div>
             </div>
           )}
           <div ref={bottomRef} />
@@ -465,15 +566,15 @@ export function ChatView({ state, actions }: Props) {
               onBlur={e => (e.target.style.borderColor = "var(--border)")}
             />
             <button type="submit"
-              disabled={!state.message.trim() || streaming}
+              disabled={sendDisabled}
               style={{
                 position: "absolute", right: 8, top: "50%", transform: "translateY(-50%)",
                 width: 28, height: 28, borderRadius: "var(--radius-sm)",
-                background: state.message.trim() && !streaming ? "var(--teal)" : "var(--bg4)",
-                border: "none", cursor: state.message.trim() && !streaming ? "pointer" : "default",
+                background: !sendDisabled ? "var(--teal)" : "var(--bg4)",
+                border: "none", cursor: !sendDisabled ? "pointer" : "default",
                 display: "flex", alignItems: "center", justifyContent: "center",
                 transition: "background 0.1s",
-                color: state.message.trim() && !streaming ? "var(--bg0)" : "var(--t3)",
+                color: !sendDisabled ? "var(--bg0)" : "var(--t3)",
               }}>
               <Icon d={Icons.send} size={14} />
             </button>
@@ -546,9 +647,10 @@ function ChatErrorPanel({
 // needs to pick a model with type-to-filter + disabled-provider
 // awareness.)
 
-function MessageRow({ id, role, model, content, time, promptTokens, completionTokens, costUsd, onCopy, copied }: {
+function MessageRow({ id, role, model, content, time, promptTokens, completionTokens, costUsd, badge, onCopy, copied }: {
   id: string; role: "user" | "assistant"; model?: string; content: string;
   time: string; promptTokens?: number; completionTokens?: number; costUsd?: string;
+  badge?: string;
   onCopy: (id: string, text: string) => void; copied: boolean;
 }) {
   const [hovered, setHovered] = useState(false);
@@ -581,6 +683,9 @@ function MessageRow({ id, role, model, content, time, promptTokens, completionTo
                 {promptTokens}↑ {completionTokens}↓
                 {costUsd && costUsd !== "0" ? ` · $${Number(costUsd).toFixed(5)}` : ""}
               </span>
+            )}
+            {isAssistant && badge && (
+              <span className="badge badge-muted" style={{ fontSize: 10 }}>{badge}</span>
             )}
             <div style={{ marginLeft: "auto", display: "flex", gap: 4, opacity: hovered ? 1 : 0, transition: "opacity 0.15s" }}>
               <button className="btn btn-ghost btn-sm" style={{ padding: "2px 6px", gap: 4 }}

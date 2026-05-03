@@ -143,28 +143,26 @@ function AuthenticatedShell({
   }, [workspaces, onSelectWorkspace]);
 
   const isBare = BARE_WORKSPACES.includes(activeWorkspace);
+  const agentWorkspace = state.activeAgentChatSession?.workspace || state.agentWorkspace;
+  const agentWorkspaceBranch = state.activeAgentChatSession?.workspace_branch || state.agentWorkspaceBranch;
 
   return (
     <div className="hecate-shell">
       <div className="hecate-workarea">
         {/* Activity bar */}
         <nav className="hecate-activitybar" aria-label="Workspace navigation">
-          {workspaces.map(ws => {
-            const noProviders = ws.id === "chats" && (state.controlPlaneConfig?.providers?.length ?? 0) === 0;
-            return (
-              <button key={ws.id}
-                aria-label={`${ws.label} (${ws.shortcut})`}
-                aria-current={activeWorkspace === ws.id ? "page" : undefined}
-                className={`hecate-activitybtn${activeWorkspace === ws.id ? " hecate-activitybtn--active" : ""}`}
-                onClick={() => onSelectWorkspace(ws.id)}
-                title={noProviders ? "Add a provider first" : `${ws.label} — press ${ws.shortcut}`}
-                style={noProviders ? { opacity: 0.4, pointerEvents: "none" } : undefined}
-                type="button">
-                {ws.icon}
-                <span className="hecate-activitybtn__key">{ws.shortcut}</span>
-              </button>
-            );
-          })}
+          {workspaces.map(ws => (
+            <button key={ws.id}
+              aria-label={`${ws.label} (${ws.shortcut})`}
+              aria-current={activeWorkspace === ws.id ? "page" : undefined}
+              className={`hecate-activitybtn${activeWorkspace === ws.id ? " hecate-activitybtn--active" : ""}`}
+              onClick={() => onSelectWorkspace(ws.id)}
+              title={`${ws.label} — press ${ws.shortcut}`}
+              type="button">
+              {ws.icon}
+              <span className="hecate-activitybtn__key">{ws.shortcut}</span>
+            </button>
+          ))}
         </nav>
 
         {/* Main content */}
@@ -172,19 +170,7 @@ function AuthenticatedShell({
           {state.error && <div className="page-banner page-banner--error">{state.error}</div>}
           <div className={`console-content${isBare ? " console-content--bare" : ""}`}>
             {activeWorkspace === "overview"   && <ObservabilityView actions={actions} state={state} onNavigate={onSelectWorkspace} />}
-            {activeWorkspace === "chats" && (
-              (state.controlPlaneConfig?.providers?.length ?? 0) === 0 ? (
-                <div style={{ display: "flex", flexDirection: "column", alignItems: "center", justifyContent: "center", height: "100%", gap: 8 }}>
-                  <div style={{ fontSize: 14, color: "var(--t1)", fontWeight: 500 }}>No providers configured</div>
-                  <div style={{ fontSize: 12, color: "var(--t3)" }}>Add a provider to start chatting</div>
-                  <button className="btn btn-primary btn-sm" style={{ marginTop: 8 }} onClick={() => onSelectWorkspace("providers")}>
-                    Go to Providers
-                  </button>
-                </div>
-              ) : (
-                <ChatView actions={actions} state={state} />
-              )
-            )}
+            {activeWorkspace === "chats" && <ChatView actions={actions} state={state} />}
             {activeWorkspace === "runs"          && <TasksView />}
             {activeWorkspace === "providers"     && <ProvidersView actions={actions} state={state} />}
             {activeWorkspace === "costs"         && <CostsView actions={actions} state={state} />}
@@ -229,6 +215,20 @@ function AuthenticatedShell({
             </>
           );
         })()}
+        {activeWorkspace === "chats" && state.chatTarget === "agent" && agentWorkspace && (
+          <>
+            <span className="hecate-statusbar__sep">|</span>
+            <span className="hecate-statusbar__path" title={agentWorkspace}>
+              {formatWorkspacePath(agentWorkspace)}
+            </span>
+            {agentWorkspaceBranch && (
+              <>
+                <span className="hecate-statusbar__sep">|</span>
+                <span title={`git branch: ${agentWorkspaceBranch}`}>git:{agentWorkspaceBranch}</span>
+              </>
+            )}
+          </>
+        )}
       </div>
 
       {/* Toast notifications */}
@@ -240,4 +240,13 @@ function AuthenticatedShell({
       )}
     </div>
   );
+}
+
+function formatWorkspacePath(path: string): string {
+  const normalized = path.replace(/\/+$/, "");
+  const parts = normalized.split("/").filter(Boolean);
+  if (parts.length <= 2) {
+    return normalized || path;
+  }
+  return `…/${parts.slice(-2).join("/")}`;
 }

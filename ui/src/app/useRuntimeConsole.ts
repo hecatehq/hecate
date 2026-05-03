@@ -6,6 +6,7 @@ import { filterModelsByKind, filterModelsByProvider, parseCSV, usdToMicros } fro
 import {
   ApiError,
   type ChatMessage,
+  chooseWorkspaceDirectory as chooseWorkspaceDirectoryRequest,
   chatCompletionsStream,
   createChatSession as createChatSessionRequest,
   deleteChatSession as deleteChatSessionRequest,
@@ -34,7 +35,13 @@ import {
   topUpBudget as topUpBudgetRequest,
   upsertPolicyRule as upsertPolicyRuleRequest,
   createProvider as createProviderRequest,
+  createAgentChatMessage as createAgentChatMessageRequest,
+  createAgentChatSession as createAgentChatSessionRequest,
+  deleteAgentChatSession as deleteAgentChatSessionRequest,
   deleteProvider as deleteProviderRequest,
+  getAgentAdapters,
+  getAgentChatSession,
+  getAgentChatSessions,
   setProviderBaseURL as setProviderBaseURLRequest,
   setProviderName as setProviderNameRequest,
   setProviderCustomName as setProviderCustomNameRequest,
@@ -43,6 +50,9 @@ import type { PolicyRuleUpsertPayload } from "../lib/api";
 import type {
   BudgetStatusResponse,
   AccountSummaryResponse,
+  AgentAdapterRecord,
+  AgentChatSessionRecord,
+  AgentChatSessionsResponse,
   ChatResponse,
   ChatSessionRecord,
   ChatSessionsResponse,
@@ -76,6 +86,14 @@ export function useRuntimeConsole() {
   const [models, setModels] = useState<ModelResponse["data"]>([]);
   const [providers, setProviders] = useState<ProviderStatusResponse["data"]>([]);
   const [providerPresets, setProviderPresets] = useState<ProviderPresetRecord[]>([]);
+  const [agentAdapters, setAgentAdapters] = useState<AgentAdapterRecord[]>([]);
+  const [chatTarget, setChatTarget] = useState<"model" | "agent">("model");
+  const [agentAdapterID, setAgentAdapterID] = useState("codex");
+  const [agentWorkspace, setAgentWorkspace] = useState("");
+  const [agentWorkspaceBranch, setAgentWorkspaceBranch] = useState("");
+  const [agentChatSessions, setAgentChatSessions] = useState<AgentChatSessionsResponse["data"]>([]);
+  const [activeAgentChatSessionID, setActiveAgentChatSessionID] = useState("");
+  const [activeAgentChatSession, setActiveAgentChatSession] = useState<AgentChatSessionRecord | null>(null);
   const [budget, setBudget] = useState<BudgetStatusResponse["data"] | null>(null);
   const [accountSummary, setAccountSummary] = useState<AccountSummaryResponse["data"] | null>(null);
   const [requestLedger, setRequestLedger] = useState<RequestLedgerResponse["data"]>([]);
@@ -161,6 +179,16 @@ export function useRuntimeConsole() {
     if (storedSystemPrompt) {
       setSystemPrompt(storedSystemPrompt);
     }
+    const storedTarget = window.localStorage.getItem("hecate.chatTarget");
+    if (storedTarget === "agent" || storedTarget === "model") {
+      setChatTarget(storedTarget);
+    }
+    const storedAgent = window.localStorage.getItem("hecate.agentAdapterID");
+    if (storedAgent) setAgentAdapterID(storedAgent);
+    const storedWorkspace = window.localStorage.getItem("hecate.agentWorkspace");
+    if (storedWorkspace) setAgentWorkspace(storedWorkspace);
+    const storedAgentSession = window.localStorage.getItem("hecate.agentChatSessionID");
+    if (storedAgentSession) setActiveAgentChatSessionID(storedAgentSession);
   }, []);
 
   useEffect(() => {
@@ -183,12 +211,32 @@ export function useRuntimeConsole() {
   }, [providerFilter]);
 
   useEffect(() => {
+    window.localStorage.setItem("hecate.chatTarget", chatTarget);
+  }, [chatTarget]);
+
+  useEffect(() => {
+    window.localStorage.setItem("hecate.agentAdapterID", agentAdapterID);
+  }, [agentAdapterID]);
+
+  useEffect(() => {
+    window.localStorage.setItem("hecate.agentWorkspace", agentWorkspace);
+  }, [agentWorkspace]);
+
+  useEffect(() => {
     if (activeChatSessionID) {
       window.localStorage.setItem("hecate.chatSessionID", activeChatSessionID);
       return;
     }
     window.localStorage.removeItem("hecate.chatSessionID");
   }, [activeChatSessionID]);
+
+  useEffect(() => {
+    if (activeAgentChatSessionID) {
+      window.localStorage.setItem("hecate.agentChatSessionID", activeAgentChatSessionID);
+      return;
+    }
+    window.localStorage.removeItem("hecate.agentChatSessionID");
+  }, [activeAgentChatSessionID]);
 
   useEffect(() => {
     if (!notice) {
@@ -342,12 +390,16 @@ export function useRuntimeConsole() {
     try {
       const snapshot = await resolveDashboardSnapshot({
         activeChatSessionID,
+        activeAgentChatSessionID,
         previous: {
           providers,
+          agentAdapters,
           budget,
           accountSummary,
           chatSessions,
           activeChatSession,
+          agentChatSessions,
+          activeAgentChatSession,
           requestLedger,
           controlPlaneConfig,
           retentionRuns,
@@ -360,12 +412,16 @@ export function useRuntimeConsole() {
       setModels(snapshot.models);
       setProviders(snapshot.providers);
       setProviderPresets(snapshot.providerPresets);
+      setAgentAdapters(snapshot.agentAdapters);
       setBudget(snapshot.budget);
       setAccountSummary(snapshot.accountSummary);
       setChatSessions(snapshot.chatSessions);
       setChatSessionsHasMore(snapshot.chatSessionsHasMore);
       setActiveChatSessionID(snapshot.activeChatSessionID);
       setActiveChatSession(snapshot.activeChatSession);
+      setAgentChatSessions(snapshot.agentChatSessions);
+      setActiveAgentChatSessionID(snapshot.activeAgentChatSessionID);
+      setActiveAgentChatSession(snapshot.activeAgentChatSession);
       setRequestLedger(snapshot.requestLedger);
       setControlPlaneConfig(snapshot.controlPlaneConfig);
       setRetentionRuns(snapshot.retentionRuns);
@@ -382,8 +438,17 @@ export function useRuntimeConsole() {
     setModel(defaultModelForProvider(nextProvider, models, providers, providerPresets));
   }
 
+  function updateAgentWorkspace(nextWorkspace: string) {
+    setAgentWorkspace(nextWorkspace);
+    setAgentWorkspaceBranch("");
+  }
+
   async function submitChat(event: SyntheticEvent<HTMLFormElement>) {
     event.preventDefault();
+    if (chatTarget === "agent") {
+      await submitAgentChat();
+      return;
+    }
     setChatLoading(true);
     setChatError("");
     setChatErrorCode("");
@@ -500,6 +565,90 @@ export function useRuntimeConsole() {
       // a corner toast just means they see the same message twice in
       // different fonts/positions.
     } finally {
+      setChatLoading(false);
+    }
+  }
+
+  async function submitAgentChat() {
+    setChatLoading(true);
+    setChatError("");
+    setChatErrorCode("");
+    setChatErrorStatus(null);
+    setRuntimeHeaders(null);
+    setStreamingContent("Starting external agent...");
+    let refreshDuringRun: number | undefined;
+
+    try {
+      const content = message.trim();
+      if (!content) return;
+      if (!agentWorkspace.trim()) {
+        setChatError("Choose a workspace path before starting an agent chat.");
+        return;
+      }
+
+      let sessionID = activeAgentChatSessionID;
+      if (sessionID && !activeAgentChatSession) {
+        // Agent Chat history is memory-backed in the MVP. After a gateway
+        // restart, localStorage can point at a session the server no longer
+        // knows about; start a fresh session instead of surfacing a stale 404.
+        sessionID = "";
+        setActiveAgentChatSessionID("");
+      }
+      if (!sessionID) {
+        const created = await createAgentChatSessionRequest({
+          title: deriveChatSessionTitle(content),
+          adapter_id: agentAdapterID,
+          workspace: agentWorkspace.trim(),
+        });
+        sessionID = created.data.id;
+        setActiveAgentChatSessionID(sessionID);
+        setActiveAgentChatSession(created.data);
+        setAgentWorkspaceBranch(created.data.workspace_branch ?? "");
+        setAgentChatSessions((current) => [renderAgentChatSessionSummary(created.data), ...current.filter((entry) => entry.id !== sessionID)]);
+      }
+
+      const pendingContent = content;
+      setMessage("");
+      setActiveAgentChatSession((prev) =>
+        prev
+          ? {
+              ...prev,
+              messages: [
+                ...(prev.messages ?? []),
+                {
+                  id: `pending-agent-user-${Date.now()}`,
+                  role: "user",
+                  content: pendingContent,
+                  created_at: new Date().toISOString(),
+                },
+              ],
+            }
+          : prev,
+      );
+
+      refreshDuringRun = window.setInterval(() => {
+        void getAgentChatSession(sessionID).then((payload) => {
+          setActiveAgentChatSession(payload.data);
+          setAgentChatSessions((current) => [renderAgentChatSessionSummary(payload.data), ...current.filter((entry) => entry.id !== payload.data.id)]);
+        }).catch(() => {
+          // The final request result is authoritative; polling is only
+          // there to make long-running external agents feel alive.
+        });
+      }, 1000);
+      const updated = await createAgentChatMessageRequest(sessionID, pendingContent);
+      setActiveAgentChatSession(updated.data);
+      setAgentWorkspaceBranch(updated.data.workspace_branch ?? "");
+      setAgentChatSessions((current) => [renderAgentChatSessionSummary(updated.data), ...current.filter((entry) => entry.id !== updated.data.id)]);
+    } catch (submitError) {
+      const raw = submitError instanceof Error ? submitError.message : "unknown request error";
+      setChatError(raw);
+      setChatErrorCode(submitError instanceof ApiError ? submitError.code : "");
+      setChatErrorStatus(submitError instanceof ApiError ? submitError.status : null);
+    } finally {
+      if (refreshDuringRun !== undefined) {
+        window.clearInterval(refreshDuringRun);
+      }
+      setStreamingContent(null);
       setChatLoading(false);
     }
   }
@@ -856,10 +1005,39 @@ export function useRuntimeConsole() {
   }
 
   function createChatSession() {
+    if (chatTarget === "agent") {
+      void createAgentChatSession();
+      return;
+    }
     startNewChat();
   }
 
+  async function createAgentChatSession() {
+    resetChatWorkspaceState();
+    if (!agentWorkspace.trim()) {
+      setChatError("Choose a workspace path before creating an agent chat.");
+      return;
+    }
+    try {
+      const created = await createAgentChatSessionRequest({
+        title: "New agent chat",
+        adapter_id: agentAdapterID,
+        workspace: agentWorkspace.trim(),
+      });
+      setActiveAgentChatSessionID(created.data.id);
+      setActiveAgentChatSession(created.data);
+      setAgentWorkspaceBranch(created.data.workspace_branch ?? "");
+      setAgentChatSessions((current) => [renderAgentChatSessionSummary(created.data), ...current.filter((entry) => entry.id !== created.data.id)]);
+    } catch (error) {
+      setChatError(error instanceof Error ? error.message : "failed to create agent chat");
+    }
+  }
+
   async function selectChatSession(id: string) {
+    if (chatTarget === "agent") {
+      await selectAgentChatSession(id);
+      return;
+    }
     setActiveChatSessionID(id);
     if (!id) {
       setActiveChatSession(null);
@@ -869,28 +1047,73 @@ export function useRuntimeConsole() {
       const payload = await getChatSession(id);
       setActiveChatSession(payload.data);
     } catch (error) {
-      const msg = error instanceof Error ? error.message : "failed to load chat session";
+      const msg = error instanceof Error ? error.message : "failed to load chat";
+      setChatError(msg);
+      setNoticeMessage("error", msg);
+    }
+  }
+
+  async function selectAgentChatSession(id: string) {
+    setActiveAgentChatSessionID(id);
+    if (!id) {
+      setActiveAgentChatSession(null);
+      return;
+    }
+    try {
+      const payload = await getAgentChatSession(id);
+      setActiveAgentChatSession(payload.data);
+      setAgentAdapterID(payload.data.adapter_id);
+      setAgentWorkspace(payload.data.workspace);
+      setAgentWorkspaceBranch(payload.data.workspace_branch ?? "");
+    } catch (error) {
+      const msg = error instanceof Error ? error.message : "failed to load agent chat";
+      setActiveAgentChatSessionID("");
+      setActiveAgentChatSession(null);
+      setAgentWorkspaceBranch("");
       setChatError(msg);
       setNoticeMessage("error", msg);
     }
   }
 
   function startNewChat() {
-    setActiveChatSessionID("");
-    setActiveChatSession(null);
+    if (chatTarget === "agent") {
+      setActiveAgentChatSessionID("");
+      setActiveAgentChatSession(null);
+      setAgentWorkspaceBranch("");
+    } else {
+      setActiveChatSessionID("");
+      setActiveChatSession(null);
+    }
     resetChatWorkspaceState();
   }
 
   async function deleteChatSession(id: string) {
+    if (chatTarget === "agent") {
+      await deleteAgentChatSession(id);
+      return;
+    }
     try {
       await deleteChatSessionRequest(id);
       setChatSessions((current) => current.filter((s) => s.id !== id));
       if (activeChatSessionID === id) {
         startNewChat();
       }
-      setNoticeMessage("success", "Session deleted.");
+      setNoticeMessage("success", "Chat deleted.");
     } catch (error) {
-      setNoticeMessage("error", error instanceof Error ? error.message : "Failed to delete session.");
+      setNoticeMessage("error", error instanceof Error ? error.message : "Failed to delete chat.");
+    }
+  }
+
+  async function deleteAgentChatSession(id: string) {
+    try {
+      await deleteAgentChatSessionRequest(id);
+      setAgentChatSessions((current) => current.filter((s) => s.id !== id));
+      if (activeAgentChatSessionID === id) {
+        startNewChat();
+      }
+      setNoticeMessage("success", "Agent chat deleted.");
+    } catch (error) {
+      setNoticeMessage("error", error instanceof Error ? error.message : "Failed to delete agent chat.");
     }
   }
 
@@ -904,7 +1127,7 @@ export function useRuntimeConsole() {
         setActiveChatSession((current) => (current ? { ...current, title: payload.data.title } : current));
       }
     } catch (error) {
-      setNoticeMessage("error", error instanceof Error ? error.message : "Failed to rename session.");
+      setNoticeMessage("error", error instanceof Error ? error.message : "Failed to rename chat.");
     }
   }
 
@@ -922,10 +1145,30 @@ export function useRuntimeConsole() {
     }
   }
 
+  async function chooseAgentWorkspace() {
+    setChatError("");
+    try {
+      const payload = await chooseWorkspaceDirectoryRequest();
+      if (payload.data.path) {
+      setAgentWorkspace(payload.data.path);
+      setAgentWorkspaceBranch(payload.data.branch ?? "");
+      }
+    } catch (error) {
+      setChatError(error instanceof Error ? error.message : "workspace folder dialog is unavailable");
+    }
+  }
+
   return {
     state: {
+      activeAgentChatSession,
+      activeAgentChatSessionID,
       budget,
       accountSummary,
+      agentAdapterID,
+      agentAdapters,
+      agentChatSessions,
+      agentWorkspace,
+      agentWorkspaceBranch,
       requestLedger,
       budgetActionError,
       budgetAmountUsd,
@@ -936,6 +1179,7 @@ export function useRuntimeConsole() {
       chatLoading,
       streamingContent,
       chatResult,
+      chatTarget,
       pendingToolCalls,
       chatSessions,
       cloudModels,
@@ -978,6 +1222,7 @@ export function useRuntimeConsole() {
     actions: {
       copyCommand,
       deletePolicyRule,
+      chooseAgentWorkspace,
       createChatSession,
       deleteChatSession,
       renameChatSession,
@@ -985,6 +1230,9 @@ export function useRuntimeConsole() {
       resetBudget,
       setBudgetAmountUsd,
       setBudgetLimitUsd,
+      setAgentAdapterID,
+      setAgentWorkspace: updateAgentWorkspace,
+      setChatTarget,
       setMessage,
       setSystemPrompt,
       setModel,
@@ -1166,6 +1414,20 @@ function renderChatSessionSummary(session: ChatSessionRecord): ChatSessionsRespo
   };
 }
 
+function renderAgentChatSessionSummary(session: AgentChatSessionRecord): AgentChatSessionsResponse["data"][number] {
+  return {
+    id: session.id,
+    title: session.title,
+    adapter_id: session.adapter_id,
+    workspace: session.workspace,
+    workspace_branch: session.workspace_branch,
+    status: session.status,
+    message_count: session.messages?.length ?? 0,
+    created_at: session.created_at,
+    updated_at: session.updated_at,
+  };
+}
+
 export type RuntimeConsoleViewModel = ReturnType<typeof useRuntimeConsole>;
 
 type DashboardResults = {
@@ -1174,9 +1436,11 @@ type DashboardResults = {
   models: PromiseSettledResult<ModelResponse>;
   providers: PromiseSettledResult<ProviderStatusResponse>;
   providerPresets: PromiseSettledResult<{ object: string; data: ProviderPresetRecord[] }>;
+  agentAdapters: PromiseSettledResult<{ object: string; data: AgentAdapterRecord[] }>;
   budget: PromiseSettledResult<BudgetStatusResponse>;
   accountSummary: PromiseSettledResult<AccountSummaryResponse>;
   chatSessions: PromiseSettledResult<ChatSessionsResponse>;
+  agentChatSessions: PromiseSettledResult<AgentChatSessionsResponse>;
   requestLedger: PromiseSettledResult<RequestLedgerResponse>;
   controlPlaneConfig: PromiseSettledResult<ConfiguredStateResponse>;
   retentionRuns: PromiseSettledResult<{ object: string; data: RetentionRunData[] }>;
@@ -1184,10 +1448,13 @@ type DashboardResults = {
 
 type DashboardPreviousState = {
   providers: ProviderStatusResponse["data"];
+  agentAdapters: AgentAdapterRecord[];
   budget: BudgetStatusResponse["data"] | null;
   accountSummary: AccountSummaryResponse["data"] | null;
   chatSessions: ChatSessionsResponse["data"];
   activeChatSession: ChatSessionRecord | null;
+  agentChatSessions: AgentChatSessionsResponse["data"];
+  activeAgentChatSession: AgentChatSessionRecord | null;
   requestLedger: RequestLedgerResponse["data"];
   controlPlaneConfig: ConfiguredStateResponse["data"] | null;
   retentionRuns: RetentionRunData[];
@@ -1200,12 +1467,16 @@ type DashboardSnapshot = {
   models: ModelResponse["data"];
   providers: ProviderStatusResponse["data"];
   providerPresets: ProviderPresetRecord[];
+  agentAdapters: AgentAdapterRecord[];
   budget: BudgetStatusResponse["data"] | null;
   accountSummary: AccountSummaryResponse["data"] | null;
   chatSessions: ChatSessionsResponse["data"];
   chatSessionsHasMore: boolean;
   activeChatSessionID: string;
   activeChatSession: ChatSessionRecord | null;
+  agentChatSessions: AgentChatSessionsResponse["data"];
+  activeAgentChatSessionID: string;
+  activeAgentChatSession: AgentChatSessionRecord | null;
   requestLedger: RequestLedgerResponse["data"];
   controlPlaneConfig: ConfiguredStateResponse["data"] | null;
   retentionRuns: RetentionRunData[];
@@ -1214,6 +1485,7 @@ type DashboardSnapshot = {
 
 async function resolveDashboardSnapshot(args: {
   activeChatSessionID: string;
+  activeAgentChatSessionID: string;
   previous: DashboardPreviousState;
 }): Promise<DashboardSnapshot> {
   const results = await loadDashboardResults();
@@ -1222,6 +1494,7 @@ async function resolveDashboardSnapshot(args: {
   const models = resolveModelsResult(results.models);
   const providers = resolveDashboardResult(results.providers, args.previous.providers);
   const providerPresets = results.providerPresets.status === "fulfilled" ? results.providerPresets.value.data : [];
+  const agentAdapters = resolveDashboardResult(results.agentAdapters, args.previous.agentAdapters);
   const budget = resolveDashboardResult(results.budget, args.previous.budget);
   const accountSummary = resolveDashboardResult(results.accountSummary, args.previous.accountSummary);
   const requestLedger = resolveDashboardResult(results.requestLedger, args.previous.requestLedger);
@@ -1234,6 +1507,12 @@ async function resolveDashboardSnapshot(args: {
     previousActiveSession: args.previous.activeChatSession,
     result: results.chatSessions,
   });
+  const agentChatState = await resolveAgentChatDashboardState({
+    activeSessionID: args.activeAgentChatSessionID,
+    previousSessions: args.previous.agentChatSessions,
+    previousActiveSession: args.previous.activeAgentChatSession,
+    result: results.agentChatSessions,
+  });
 
   return {
     health,
@@ -1241,12 +1520,16 @@ async function resolveDashboardSnapshot(args: {
     models,
     providers,
     providerPresets,
+    agentAdapters,
     budget,
     accountSummary,
     chatSessions: chatState.sessions,
     chatSessionsHasMore: chatState.hasMore,
     activeChatSessionID: chatState.activeChatSessionID,
     activeChatSession: chatState.activeChatSession,
+    agentChatSessions: agentChatState.sessions,
+    activeAgentChatSessionID: agentChatState.activeSessionID,
+    activeAgentChatSession: agentChatState.activeSession,
     requestLedger,
     controlPlaneConfig,
     retentionRuns,
@@ -1270,16 +1553,20 @@ async function loadDashboardResults(): Promise<DashboardResults> {
   let models: PromiseSettledResult<ModelResponse> = initialReject();
   let providers: PromiseSettledResult<ProviderStatusResponse> = initialReject();
   let providerPresets: PromiseSettledResult<{ object: string; data: ProviderPresetRecord[] }> = initialReject();
+  let agentAdapters: PromiseSettledResult<{ object: string; data: AgentAdapterRecord[] }> = initialReject();
   let budget: PromiseSettledResult<BudgetStatusResponse> = initialReject();
   let accountSummary: PromiseSettledResult<AccountSummaryResponse> = initialReject();
   let chatSessions: PromiseSettledResult<ChatSessionsResponse> = initialReject();
+  let agentChatSessions: PromiseSettledResult<AgentChatSessionsResponse> = initialReject();
   let requestLedger: PromiseSettledResult<RequestLedgerResponse> = initialReject();
   let controlPlaneConfig: PromiseSettledResult<ConfiguredStateResponse> = initialReject();
   let retentionRuns: PromiseSettledResult<{ object: string; data: RetentionRunData[] }> = initialReject();
 
   await Promise.all([
     getProviderPresets().then(r => { providerPresets = { status: "fulfilled", value: r }; }, e => { providerPresets = { status: "rejected", reason: e }; }),
+    getAgentAdapters().then(r => { agentAdapters = { status: "fulfilled", value: r }; }, e => { agentAdapters = { status: "rejected", reason: e }; }),
     getChatSessions(20).then(r => { chatSessions = { status: "fulfilled", value: r }; }, e => { chatSessions = { status: "rejected", reason: e }; }),
+    getAgentChatSessions().then(r => { agentChatSessions = { status: "fulfilled", value: r }; }, e => { agentChatSessions = { status: "rejected", reason: e }; }),
     getModels().then(r => { models = { status: "fulfilled", value: r }; }, e => { models = { status: "rejected", reason: e }; }),
     getBudget("").then(r => { budget = { status: "fulfilled", value: r }; }, e => { budget = { status: "rejected", reason: e }; }),
     getAccountSummary("").then(r => { accountSummary = { status: "fulfilled", value: r }; }, e => { accountSummary = { status: "rejected", reason: e }; }),
@@ -1307,9 +1594,11 @@ async function loadDashboardResults(): Promise<DashboardResults> {
     models,
     providers,
     providerPresets,
+    agentAdapters,
     budget,
     accountSummary,
     chatSessions,
+    agentChatSessions,
     requestLedger,
     controlPlaneConfig,
     retentionRuns,
@@ -1390,6 +1679,41 @@ async function resolveChatDashboardState(args: {
       activeChatSessionID,
       activeChatSession: null,
     };
+  }
+}
+
+async function resolveAgentChatDashboardState(args: {
+  activeSessionID: string;
+  previousSessions: AgentChatSessionsResponse["data"];
+  previousActiveSession: AgentChatSessionRecord | null;
+  result: PromiseSettledResult<AgentChatSessionsResponse>;
+}): Promise<{
+  sessions: AgentChatSessionsResponse["data"];
+  activeSessionID: string;
+  activeSession: AgentChatSessionRecord | null;
+}> {
+  if (args.result.status !== "fulfilled") {
+    return {
+      sessions: args.previousSessions,
+      activeSessionID: args.activeSessionID,
+      activeSession: args.previousActiveSession,
+    };
+  }
+
+  const sessions = args.result.value.data ?? [];
+  const activeSessionID = sessions.some((entry) => entry.id === args.activeSessionID)
+    ? args.activeSessionID
+    : sessions[0]?.id ?? "";
+
+  if (!activeSessionID) {
+    return { sessions, activeSessionID, activeSession: null };
+  }
+
+  try {
+    const sessionResult = await getAgentChatSession(activeSessionID);
+    return { sessions, activeSessionID, activeSession: sessionResult.data };
+  } catch {
+    return { sessions, activeSessionID, activeSession: null };
   }
 }
 
