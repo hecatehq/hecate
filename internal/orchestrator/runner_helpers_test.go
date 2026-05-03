@@ -2,8 +2,13 @@ package orchestrator
 
 import (
 	"context"
+	"encoding/json"
+	"os"
+	"os/exec"
+	"path/filepath"
 	"reflect"
 	"sort"
+	"strings"
 	"testing"
 	"time"
 
@@ -246,6 +251,62 @@ func TestAgentLoopGatedTools(t *testing.T) {
 				t.Errorf("agentLoopGatedTools = %v, want %v", got, want)
 			}
 		})
+	}
+}
+
+func TestGitSummaryArtifactCapturesChangedFiles(t *testing.T) {
+	dir := t.TempDir()
+	runGit(t, dir, "init")
+	runGit(t, dir, "config", "user.email", "test@example.com")
+	runGit(t, dir, "config", "user.name", "Test User")
+	if err := os.WriteFile(filepath.Join(dir, "main.go"), []byte("package main\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	runGit(t, dir, "add", "main.go")
+	runGit(t, dir, "commit", "-m", "initial")
+	if err := os.WriteFile(filepath.Join(dir, "main.go"), []byte("package main\n\nfunc main() {}\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(dir, "new.txt"), []byte("new\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+
+	r := &Runner{}
+	artifact, ok := r.gitSummaryArtifact(context.Background(), types.Task{ID: "task-1"}, types.TaskRun{ID: "run-1", WorkspacePath: dir}, "req-1", "trace-1")
+	if !ok {
+		t.Fatal("git summary artifact missing")
+	}
+	if artifact.Kind != "git_summary" || artifact.MimeType != "application/json" {
+		t.Fatalf("artifact shape = %+v", artifact)
+	}
+	var payload gitSummaryArtifactPayload
+	if err := json.Unmarshal([]byte(artifact.ContentText), &payload); err != nil {
+		t.Fatalf("Unmarshal payload: %v\n%s", err, artifact.ContentText)
+	}
+	if len(payload.Files) != 2 {
+		t.Fatalf("files = %+v, want modified and untracked", payload.Files)
+	}
+	seen := map[string]string{}
+	for _, file := range payload.Files {
+		seen[file.Path] = file.Status
+	}
+	if seen["main.go"] != "M" {
+		t.Fatalf("main.go status = %q, want M; payload=%+v", seen["main.go"], payload.Files)
+	}
+	if seen["new.txt"] != "??" {
+		t.Fatalf("new.txt status = %q, want ??; payload=%+v", seen["new.txt"], payload.Files)
+	}
+	if !strings.Contains(payload.DiffStat, "main.go") {
+		t.Fatalf("diff_stat missing tracked change: %q", payload.DiffStat)
+	}
+}
+
+func runGit(t *testing.T, dir string, args ...string) {
+	t.Helper()
+	cmd := exec.Command("git", args...)
+	cmd.Dir = dir
+	if out, err := cmd.CombinedOutput(); err != nil {
+		t.Fatalf("git %v failed: %v\n%s", args, err, string(out))
 	}
 }
 

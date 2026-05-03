@@ -9,6 +9,7 @@ import (
 	"fmt"
 	"log/slog"
 	"net/http"
+	"os"
 	"path/filepath"
 	"strconv"
 	"strings"
@@ -931,6 +932,131 @@ func (h *Handler) HandleTaskRunArtifact(w http.ResponseWriter, r *http.Request) 
 	})
 }
 
+func (h *Handler) HandleTaskRunPatches(w http.ResponseWriter, r *http.Request) {
+	ctx := r.Context()
+	task, ok := h.loadAuthorizedTask(ctx, w, r)
+	if !ok {
+		return
+	}
+	run, ok := h.loadAuthorizedTaskRun(ctx, w, r, task)
+	if !ok {
+		return
+	}
+
+	artifacts, err := h.taskStore.ListArtifacts(ctx, taskstate.ArtifactFilter{TaskID: task.ID, RunID: run.ID, Kind: "patch"})
+	if err != nil {
+		WriteError(w, http.StatusInternalServerError, errCodeGatewayError, err.Error())
+		return
+	}
+	items := make([]TaskPatchItem, 0, len(artifacts))
+	for _, artifact := range artifacts {
+		items = append(items, renderTaskPatch(artifact))
+	}
+	WriteJSON(w, http.StatusOK, TaskPatchesResponse{
+		Object: "task_patches",
+		Data:   items,
+	})
+}
+
+func (h *Handler) HandleTaskRunPatch(w http.ResponseWriter, r *http.Request) {
+	ctx := r.Context()
+	_, artifact, ok := h.loadTaskRunPatch(ctx, w, r)
+	if !ok {
+		return
+	}
+	WriteJSON(w, http.StatusOK, TaskPatchResponse{
+		Object: "task_patch",
+		Data:   renderTaskPatch(artifact),
+	})
+}
+
+func (h *Handler) HandleRevertTaskRunPatch(w http.ResponseWriter, r *http.Request) {
+	ctx := r.Context()
+	run, artifact, ok := h.loadTaskRunPatch(ctx, w, r)
+	if !ok {
+		return
+	}
+	if artifact.Status == "reverted" {
+		WriteError(w, http.StatusConflict, errCodeInvalidRequest, "patch artifact is already reverted")
+		return
+	}
+	before, beforeExisted, err := patchBeforeContent(artifact.ContentText)
+	if err != nil {
+		WriteError(w, http.StatusBadRequest, errCodeInvalidRequest, err.Error())
+		return
+	}
+	if artifact.Path == "" {
+		WriteError(w, http.StatusBadRequest, errCodeInvalidRequest, "patch artifact path is empty")
+		return
+	}
+	if !pathWithinRoot(artifact.Path, run.WorkspacePath) {
+		WriteError(w, http.StatusBadRequest, errCodeInvalidRequest, "patch artifact path is outside the run workspace")
+		return
+	}
+	if beforeExisted {
+		if err := os.WriteFile(artifact.Path, []byte(before), 0o644); err != nil {
+			WriteError(w, http.StatusInternalServerError, errCodeGatewayError, err.Error())
+			return
+		}
+	} else {
+		if err := os.Remove(artifact.Path); err != nil && !errors.Is(err, os.ErrNotExist) {
+			WriteError(w, http.StatusInternalServerError, errCodeGatewayError, err.Error())
+			return
+		}
+	}
+
+	artifact.Status = "reverted"
+	updated, err := h.taskStore.UpdateArtifact(ctx, artifact)
+	if err != nil {
+		WriteError(w, http.StatusInternalServerError, errCodeGatewayError, err.Error())
+		return
+	}
+	_, _ = h.taskStore.AppendRunEvent(ctx, types.TaskRunEvent{
+		TaskID:    updated.TaskID,
+		RunID:     updated.RunID,
+		EventType: "tool.file.reverted",
+		Data: map[string]any{
+			"artifact_id":     updated.ID,
+			"path":            updated.Path,
+			"artifact_status": updated.Status,
+			"before_existed":  beforeExisted,
+		},
+		RequestID: RequestIDFromContext(ctx),
+		TraceID:   telemetry.TraceIDsFromContext(ctx).TraceID,
+		CreatedAt: time.Now().UTC(),
+	})
+	WriteJSON(w, http.StatusOK, TaskPatchResponse{
+		Object: "task_patch",
+		Data:   renderTaskPatch(updated),
+	})
+}
+
+func (h *Handler) loadTaskRunPatch(ctx context.Context, w http.ResponseWriter, r *http.Request) (types.TaskRun, types.TaskArtifact, bool) {
+	task, ok := h.loadAuthorizedTask(ctx, w, r)
+	if !ok {
+		return types.TaskRun{}, types.TaskArtifact{}, false
+	}
+	run, ok := h.loadAuthorizedTaskRun(ctx, w, r, task)
+	if !ok {
+		return types.TaskRun{}, types.TaskArtifact{}, false
+	}
+	artifactID := strings.TrimSpace(r.PathValue("artifact_id"))
+	if artifactID == "" {
+		WriteError(w, http.StatusBadRequest, errCodeInvalidRequest, "artifact id is required")
+		return types.TaskRun{}, types.TaskArtifact{}, false
+	}
+	artifact, found, err := h.taskStore.GetArtifact(ctx, task.ID, artifactID)
+	if err != nil {
+		WriteError(w, http.StatusInternalServerError, errCodeGatewayError, err.Error())
+		return types.TaskRun{}, types.TaskArtifact{}, false
+	}
+	if !found || artifact.RunID != run.ID || artifact.Kind != "patch" {
+		WriteError(w, http.StatusNotFound, errCodeNotFound, "task patch not found")
+		return types.TaskRun{}, types.TaskArtifact{}, false
+	}
+	return run, artifact, true
+}
+
 func (h *Handler) HandleTaskRunEvents(w http.ResponseWriter, r *http.Request) {
 	ctx := r.Context()
 	task, ok := h.loadAuthorizedTask(ctx, w, r)
@@ -1585,6 +1711,47 @@ func renderTaskArtifact(artifact types.TaskArtifact) TaskArtifactItem {
 		item.CreatedAt = artifact.CreatedAt.UTC().Format(time.RFC3339Nano)
 	}
 	return item
+}
+
+func renderTaskPatch(artifact types.TaskArtifact) TaskPatchItem {
+	_, beforeExisted, _ := patchBeforeContent(artifact.ContentText)
+	return TaskPatchItem{
+		Artifact:      renderTaskArtifact(artifact),
+		Diff:          artifact.ContentText,
+		Status:        artifact.Status,
+		Path:          artifact.Path,
+		BeforeExisted: beforeExisted,
+	}
+}
+
+func patchBeforeContent(diff string) (string, bool, error) {
+	lines := strings.Split(diff, "\n")
+	if len(lines) < 3 {
+		return "", false, fmt.Errorf("patch artifact diff is malformed")
+	}
+	beforeExisted := !strings.HasPrefix(lines[0], "--- /dev/null")
+	if !strings.HasPrefix(lines[0], "--- ") || !strings.HasPrefix(lines[1], "+++ ") || !strings.HasPrefix(lines[2], "@@ ") {
+		return "", false, fmt.Errorf("patch artifact diff is malformed")
+	}
+	beforeLines := make([]string, 0)
+	for _, line := range lines[3:] {
+		if line == "" {
+			continue
+		}
+		if strings.HasPrefix(line, "-") {
+			beforeLines = append(beforeLines, strings.TrimPrefix(line, "-"))
+		}
+	}
+	if len(beforeLines) == 0 {
+		return "", beforeExisted, nil
+	}
+	return strings.Join(beforeLines, "\n") + "\n", beforeExisted, nil
+}
+
+func pathWithinRoot(path, root string) bool {
+	path = filepath.Clean(path)
+	root = filepath.Clean(root)
+	return path == root || strings.HasPrefix(path, root+string(filepath.Separator))
 }
 
 func (h *Handler) decodeTaskRunEventData(event types.TaskRunEvent) (TaskRunStreamEventData, bool, error) {

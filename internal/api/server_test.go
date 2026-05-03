@@ -5,6 +5,7 @@ import (
 	"bytes"
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"io"
 	"log/slog"
@@ -1949,6 +1950,32 @@ func TestTaskStartFileExecutor(t *testing.T) {
 	}
 	if got := patchEvent.Data["tool_name"]; got != "file" {
 		t.Fatalf("patch event tool_name = %v, want file", got)
+	}
+
+	patches := mustTaskRequestJSON[TaskPatchesResponse](tasks, http.MethodGet, "/v1/tasks/"+created.Data.ID+"/runs/"+started.Data.ID+"/patches", "")
+	if len(patches.Data) != 1 {
+		t.Fatalf("patches = %d, want 1", len(patches.Data))
+	}
+	if patches.Data[0].Artifact.ID != patchArtifact.ID {
+		t.Fatalf("patch list artifact id = %q, want %q", patches.Data[0].Artifact.ID, patchArtifact.ID)
+	}
+	if patches.Data[0].Status != "applied" {
+		t.Fatalf("patch status = %q, want applied", patches.Data[0].Status)
+	}
+	fetchedPatch := mustTaskRequestJSON[TaskPatchResponse](tasks, http.MethodGet, "/v1/tasks/"+created.Data.ID+"/runs/"+started.Data.ID+"/patches/"+patchArtifact.ID, "")
+	if !strings.Contains(fetchedPatch.Data.Diff, "+hello file") {
+		t.Fatalf("patch detail missing diff:\n%s", fetchedPatch.Data.Diff)
+	}
+	reverted := mustTaskRequestJSON[TaskPatchResponse](tasks, http.MethodPost, "/v1/tasks/"+created.Data.ID+"/runs/"+started.Data.ID+"/patches/"+patchArtifact.ID+"/revert", "")
+	if reverted.Data.Status != "reverted" {
+		t.Fatalf("reverted patch status = %q, want reverted", reverted.Data.Status)
+	}
+	revertEvents := waitForRunEvent(t, handler, created.Data.ID, started.Data.ID, "tool.file.reverted")
+	if countTaskRunEvents(revertEvents.Data, "tool.file.reverted") != 1 {
+		t.Fatalf("tool.file.reverted event missing: %+v", revertEvents.Data)
+	}
+	if _, err := os.Stat(filepath.Join(started.Data.WorkspacePath, "note.txt")); !errors.Is(err, os.ErrNotExist) {
+		t.Fatalf("reverted new-file patch should remove file, stat err=%v", err)
 	}
 }
 
