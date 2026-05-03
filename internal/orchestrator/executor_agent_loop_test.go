@@ -225,6 +225,27 @@ func TestAgentLoop_EmitsCandidateCoreAssistantEvents(t *testing.T) {
 		t.Fatalf("Status = %q, want completed", res.Status)
 	}
 
+	cap.mu.Lock()
+	events := append([]capturedEvent(nil), cap.events...)
+	cap.mu.Unlock()
+	wantTypes := []string{
+		"turn.started",
+		"assistant.text_complete",
+		"assistant.tool_call_proposed",
+		"turn.started",
+		"assistant.text_complete",
+		"assistant.final_answer",
+	}
+	if len(events) != len(wantTypes) {
+		t.Fatalf("event count = %d, want %d: %+v", len(events), len(wantTypes), events)
+	}
+	for i, want := range wantTypes {
+		if events[i].Type != want {
+			t.Fatalf("events[%d].Type = %q, want %q", i, events[i].Type, want)
+		}
+		assertAgentLoopEventContract(t, events[i])
+	}
+
 	if got := len(cap.byType("turn.started")); got != 2 {
 		t.Fatalf("turn.started count = %d, want 2", got)
 	}
@@ -255,6 +276,43 @@ func TestAgentLoop_EmitsCandidateCoreAssistantEvents(t *testing.T) {
 	}
 	if finals[0].Data["summary"] != "The workspace contains README.md." {
 		t.Fatalf("final answer summary = %v", finals[0].Data["summary"])
+	}
+}
+
+func assertAgentLoopEventContract(t *testing.T, event capturedEvent) {
+	t.Helper()
+	required := map[string][]string{
+		"turn.started": {
+			"turn_index",
+			"model",
+			"provider",
+			"input_tokens_estimate",
+		},
+		"assistant.text_complete": {
+			"turn_index",
+			"block_index",
+			"text",
+		},
+		"assistant.tool_call_proposed": {
+			"turn_index",
+			"tool_call_id",
+			"tool_name",
+			"input",
+		},
+		"assistant.final_answer": {
+			"turn_index",
+			"summary",
+		},
+	}
+	for _, key := range required[event.Type] {
+		if _, ok := event.Data[key]; !ok {
+			t.Fatalf("%s missing required data key %q: %+v", event.Type, key, event.Data)
+		}
+	}
+	for _, legacyKey := range []string{"turn", "tool_call_count"} {
+		if _, ok := event.Data[legacyKey]; ok {
+			t.Fatalf("%s carried legacy data key %q: %+v", event.Type, legacyKey, event.Data)
+		}
 	}
 }
 
