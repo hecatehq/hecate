@@ -91,7 +91,7 @@ Every event on the wire is a single JSON object:
   "session_id": "chat_01JXMZH...",
   "sequence": 42,
   "occurred_at": "2026-05-03T10:23:45.123Z",
-  "type": "tool.shell.output",
+  "type": "tool.shell.output_chunk",
   "data": { "...": "shape determined by `type`" }
 }
 ```
@@ -837,37 +837,35 @@ the v1 candidate core. They live in
 [`event-protocol-experimental.md`](event-protocol-experimental.md) until they
 earn a separate RFC or graduate into a later protocol version.
 
-## Migration from current events
+## Implementation status
 
-Current Hecate emits a smaller set of events: `run.started`, `run.finished`, `turn.completed`, `mcp.tool.dispatched`, `mcp.tool.failed`, `mcp.tool.blocked`, `approval.requested`, `run.reconciled_restart_requeued`, `run.throttled_concurrency`. Mapping:
+Hecate already wraps persisted run events in the v1 envelope on the per-run
+event endpoints and the cross-run feed. The implemented typed event slice is:
 
-| Current | v1 |
-|---|---|
-| `run.started` | `run.started` (envelope rewrap) |
-| `run.finished` | `run.finished` |
-| `turn.completed` | `turn.completed` |
-| `mcp.tool.dispatched` | `tool.invoked` + `tool.mcp.invoked` |
-| `mcp.tool.failed` | `tool.failed` |
-| `mcp.tool.blocked` | `policy.tool_blocked` |
-| `approval.requested` | `approval.requested` |
-| `run.reconciled_restart_requeued` | `gap.run_disconnected` (reason=`reconciled`) |
-| `run.throttled_concurrency` | `error.upstream` (code=`queue_throttled`) — TBD |
+- `run.started`, `run.finished`, `run.failed`, `run.cancelled`,
+  `run.resumed_from_event`
+- `turn.started`, `turn.completed`
+- `assistant.text_complete`, `assistant.tool_call_proposed`,
+  `assistant.final_answer`
+- `tool.invoked`, `tool.started`, `tool.shell.command`,
+  `tool.shell.output_chunk`, `tool.shell.exited`, `tool.completed`,
+  `tool.failed`, `tool.timed_out`
+- `approval.requested`, `approval.resolved`
 
-Candidate rollout strategy:
+The remaining normalization work is intentionally narrow:
 
-1. **Prototype the candidate core on the existing per-run event path.** Do not
-   change frontend consumers yet.
-2. **Add contract fixtures.** Check in example envelopes for each candidate-core
-   event type and validate them from Go and TypeScript tests.
-3. **Move one frontend at a time.** CLI or web should consume the candidate
-   stream first; ACP should come after one in-tree consumer proves the contract.
-4. **Only then decide the legacy cutoff.** Until Hecate publishes a semver-backed
-   API stability policy, avoid promising N+1/N+2 compatibility windows in the
-   RFC itself.
+- Replace MCP-specific `mcp.tool.*` event names with the generic `tool.*` /
+  `policy.*` taxonomy while preserving MCP details in `data`.
+- Map queue/reconciliation operational events into `gap.*` or `error.*`
+  events.
+- Add payload-specific schemas or generated Go/TypeScript types for the
+  implemented candidate-core events.
+- Keep golden fixtures in sync with the runtime and use them from frontend or
+  ACP tests before treating the candidate as stable.
 
 ## What this unlocks
 
-When this is implemented:
+When the remaining candidate-core work is implemented:
 
 - The CLI can render any tool call without knowing what tool kind it is — generic `tool.invoked → tool.completed` framing handles the unknowns; rich rendering kicks in for known kinds.
 - Once artifact storage is candidate-stable, the web UI's diff review can use artifact endpoints directly; no more re-deriving diffs from filesystem state.
