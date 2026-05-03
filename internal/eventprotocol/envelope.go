@@ -206,7 +206,7 @@ func normalizeData(event types.TaskRunEvent) map[string]any {
 	case "approval.requested", "approval.resolved", "turn.completed":
 		return data
 	default:
-		if strings.HasPrefix(event.EventType, "tool.") || strings.HasPrefix(event.EventType, "orchestrator.mcp.") {
+		if strings.HasPrefix(event.EventType, "tool.") || strings.HasPrefix(event.EventType, "policy.") {
 			return data
 		}
 		return data

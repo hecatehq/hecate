@@ -717,7 +717,7 @@ func (e *AgentLoopExecutor) dispatchMCPToolCall(ctx context.Context, spec Execut
 			"blocked":   true,
 			"text_size": len(text),
 		}
-		e.recordMCPCallTelemetry(ctx, spec, server, toolLeaf, telemetry.MCPCallResultBlocked, durationMS, "")
+		e.recordMCPCallTelemetry(ctx, spec, call.ID, call.Function.Name, server, toolLeaf, telemetry.MCPCallResultBlocked, durationMS, step.Error)
 		return text, &step, nil, nil
 	}
 
@@ -770,7 +770,7 @@ func (e *AgentLoopExecutor) dispatchMCPToolCall(ctx context.Context, spec Execut
 		"is_error":  isError || err != nil,
 		"text_size": len(text),
 	}
-	e.recordMCPCallTelemetry(ctx, spec, server, toolLeaf, callResult, durationMS, stepError)
+	e.recordMCPCallTelemetry(ctx, spec, call.ID, call.Function.Name, server, toolLeaf, callResult, durationMS, stepError)
 	return text, &step, nil, nil
 }
 
@@ -787,7 +787,7 @@ func (e *AgentLoopExecutor) dispatchMCPToolCall(ctx context.Context, spec Execut
 func (e *AgentLoopExecutor) recordMCPCallTelemetry(
 	ctx context.Context,
 	spec ExecutionSpec,
-	server, tool, result string,
+	toolCallID, toolName, server, tool, result string,
 	durationMS int64,
 	errMsg string,
 ) {
@@ -803,26 +803,33 @@ func (e *AgentLoopExecutor) recordMCPCallTelemetry(
 		return
 	}
 	// Map the four call-result values to event names. blocked +
-	// failed get distinct events because operators tend to alert on
-	// failed but treat blocked as an audit signal; conflating them
-	// would mask one or trigger pages on the other.
+	// failed get distinct protocol events because operators tend to
+	// alert on failed but treat blocked as an audit signal; conflating
+	// them would mask one or trigger pages on the other.
 	var eventType string
 	switch result {
 	case telemetry.MCPCallResultBlocked:
-		eventType = telemetry.EventOrchestratorMCPToolBlocked
+		eventType = telemetry.EventMCPToolBlocked
 	case telemetry.MCPCallResultFailed:
-		eventType = telemetry.EventOrchestratorMCPToolFailed
+		eventType = telemetry.EventMCPToolFailed
 	default:
-		// Both Dispatched and ToolError land on .dispatched — the
-		// payload's `result` distinguishes the two so consumers can
-		// filter without us having to spawn a third event type.
-		eventType = telemetry.EventOrchestratorMCPToolDispatched
+		// Both Dispatched and ToolError land on tool.completed — the
+		// payload's `result` distinguishes clean completions from
+		// upstream tool errors without spawning a provider-specific
+		// event name.
+		eventType = telemetry.EventMCPToolCompleted
 	}
 	data := map[string]any{
-		"server":      server,
-		"tool":        tool,
-		"result":      result,
-		"duration_ms": durationMS,
+		"tool_call_id": toolCallID,
+		"tool_name":    toolName,
+		"kind":         "mcp",
+		"mcp_server":   server,
+		"mcp_tool":     tool,
+		"result":       result,
+		"duration_ms":  durationMS,
+	}
+	if eventType == telemetry.EventMCPToolBlocked {
+		data["reason"] = errMsg
 	}
 	if errMsg != "" {
 		data["error"] = errMsg

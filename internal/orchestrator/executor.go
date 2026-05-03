@@ -30,7 +30,7 @@ type ExecutionSpec struct {
 	// EmitRunEvent appends an event to the run's event stream. Used
 	// by executors that want to emit telemetry beyond steps and
 	// artifacts — currently the agent loop's MCP dispatcher, which
-	// records mcp.tool.dispatched / .failed / .blocked alongside its
+	// records protocol-shaped MCP tool events alongside its
 	// steps so operators have a per-call audit signal independent of
 	// the step kinds. Optional; nil disables emission.
 	EmitRunEvent func(eventType string, data map[string]any)
