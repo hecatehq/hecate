@@ -6,6 +6,7 @@ import (
 	"os"
 	"path/filepath"
 	"reflect"
+	"strings"
 	"testing"
 )
 
@@ -224,5 +225,40 @@ func TestSanitizedEnvPreservesAgentAndRuntimeEssentials(t *testing.T) {
 	}
 	if got["GATEWAY_AUTH_TOKEN=secret"] {
 		t.Fatalf("gateway secret leaked into adapter env: %#v", env)
+	}
+}
+
+func TestNormalizeOutputPreservesPlainText(t *testing.T) {
+	t.Parallel()
+
+	raw := "plain text from claude\nwith another line"
+	if got := normalizeOutput("claude_code", raw); got != raw {
+		t.Fatalf("normalizeOutput plain text = %q, want %q", got, raw)
+	}
+}
+
+func TestNormalizeOutputExtractsCodexJSONLText(t *testing.T) {
+	t.Parallel()
+
+	raw := strings.Join([]string{
+		`{"type":"session.started","id":"s1"}`,
+		`{"type":"message","message":{"role":"assistant","content":[{"type":"text","text":"First paragraph."}]}}`,
+		`{"type":"message","content":"Second paragraph."}`,
+		`{"type":"usage","input_tokens":10,"output_tokens":5}`,
+	}, "\n")
+
+	got := normalizeOutput("codex", raw)
+	want := "First paragraph.\nSecond paragraph."
+	if got != want {
+		t.Fatalf("normalizeOutput codex JSONL = %q, want %q", got, want)
+	}
+}
+
+func TestNormalizeOutputFallsBackToRawCodexWhenNoText(t *testing.T) {
+	t.Parallel()
+
+	raw := `{"type":"usage","input_tokens":10}`
+	if got := normalizeOutput("codex", raw); got != raw {
+		t.Fatalf("normalizeOutput fallback = %q, want raw %q", got, raw)
 	}
 }

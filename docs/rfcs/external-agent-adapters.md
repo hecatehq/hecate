@@ -3,7 +3,8 @@
 > **Status:** accepted for alpha MVP. Adapter discovery, Agent Chat,
 > memory/SQLite persistence, live streaming, cancellation, and workspace diff
 > capture are implemented. Each adapter invocation now has stable run metadata
-> on the assistant message. API shape may still change before a stable release.
+> on the assistant message, and Codex JSONL output is normalized for transcript
+> readability. API shape may still change before a stable release.
 > **Related:** [ACP bridge](../acp.md), [Runtime API](../runtime-api.md),
 > [Agent runtime](../agent-runtime.md), [Agent event protocol](event-protocol-v1.md).
 > **Owner:** see [`AGENTS.md`](../../AGENTS.md).
@@ -54,6 +55,8 @@ Putting Codex, Claude Code, or Cursor Agent in the provider/model dropdown would
   conversation.
 - Capture stdout/stderr as runtime events first, then richer structured events
   when an adapter supports them.
+- Normalize structured CLI output into readable transcript text without
+  discarding the raw process-output path needed for future diagnostics.
 - Capture workspace diff / patch artifacts after a run when the workspace is a
   Git repo.
 - Keep ACP separate: ACP is an inbound editor integration, not the first
@@ -312,6 +315,7 @@ prefer reuse where possible, but not at the cost of a broken chat stream.
 - [x] `GET /v1/agent-adapters` reports built-in adapter definitions and availability.
 - [x] Hecate can run one Codex, Claude Code, or Cursor Agent prompt as a supervised process.
 - [x] Output is captured and displayed in the UI.
+- [x] Codex JSONL output is normalized into readable assistant text.
 - [x] Timeout marks the run failed with a stable error.
 - [x] Final response and raw output are replayable after refresh in the current gateway process.
 - [x] Workspace diff is captured when the workspace is a Git repo.
