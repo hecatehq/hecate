@@ -1,6 +1,7 @@
 package agentchat
 
 import (
+	"context"
 	"fmt"
 	"sort"
 	"sync"
@@ -33,16 +34,30 @@ type Message struct {
 	CreatedAt   time.Time
 }
 
-type Store struct {
+type Store interface {
+	Backend() string
+	Create(ctx context.Context, session Session) (Session, error)
+	Get(ctx context.Context, id string) (Session, bool, error)
+	List(ctx context.Context) ([]Session, error)
+	Delete(ctx context.Context, id string) error
+	AppendMessage(ctx context.Context, sessionID string, message Message) (Session, error)
+	UpdateMessage(ctx context.Context, sessionID string, messageID string, update func(*Message)) (Session, error)
+}
+
+type MemoryStore struct {
 	mu       sync.Mutex
 	sessions map[string]Session
 }
 
-func NewMemoryStore() *Store {
-	return &Store{sessions: make(map[string]Session)}
+func NewMemoryStore() *MemoryStore {
+	return &MemoryStore{sessions: make(map[string]Session)}
 }
 
-func (s *Store) Create(session Session) (Session, error) {
+func (s *MemoryStore) Backend() string {
+	return "memory"
+}
+
+func (s *MemoryStore) Create(_ context.Context, session Session) (Session, error) {
 	s.mu.Lock()
 	defer s.mu.Unlock()
 	if session.ID == "" {
@@ -61,17 +76,17 @@ func (s *Store) Create(session Session) (Session, error) {
 	return cloneSession(session), nil
 }
 
-func (s *Store) Get(id string) (Session, bool) {
+func (s *MemoryStore) Get(_ context.Context, id string) (Session, bool, error) {
 	s.mu.Lock()
 	defer s.mu.Unlock()
 	session, ok := s.sessions[id]
 	if !ok {
-		return Session{}, false
+		return Session{}, false, nil
 	}
-	return cloneSession(session), true
+	return cloneSession(session), true, nil
 }
 
-func (s *Store) List() []Session {
+func (s *MemoryStore) List(_ context.Context) ([]Session, error) {
 	s.mu.Lock()
 	defer s.mu.Unlock()
 	items := make([]Session, 0, len(s.sessions))
@@ -81,16 +96,17 @@ func (s *Store) List() []Session {
 	sort.SliceStable(items, func(i, j int) bool {
 		return items[i].UpdatedAt.After(items[j].UpdatedAt)
 	})
-	return items
+	return items, nil
 }
 
-func (s *Store) Delete(id string) {
+func (s *MemoryStore) Delete(_ context.Context, id string) error {
 	s.mu.Lock()
 	defer s.mu.Unlock()
 	delete(s.sessions, id)
+	return nil
 }
 
-func (s *Store) AppendMessage(sessionID string, message Message) (Session, error) {
+func (s *MemoryStore) AppendMessage(_ context.Context, sessionID string, message Message) (Session, error) {
 	s.mu.Lock()
 	defer s.mu.Unlock()
 	session, ok := s.sessions[sessionID]
@@ -112,7 +128,7 @@ func (s *Store) AppendMessage(sessionID string, message Message) (Session, error
 	return cloneSession(session), nil
 }
 
-func (s *Store) UpdateMessage(sessionID string, messageID string, update func(*Message)) (Session, error) {
+func (s *MemoryStore) UpdateMessage(_ context.Context, sessionID string, messageID string, update func(*Message)) (Session, error) {
 	s.mu.Lock()
 	defer s.mu.Unlock()
 	session, ok := s.sessions[sessionID]

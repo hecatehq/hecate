@@ -1,8 +1,9 @@
 # External Agent Adapters — Candidate (RFC)
 
-> **Status:** accepted for alpha MVP. Initial adapter discovery and synchronous
-> Agent Chat are implemented; streaming, cancellation, and durable persistence
-> remain future work. API shape may still change before a stable release.
+> **Status:** accepted for alpha MVP. Initial adapter discovery, synchronous
+> Agent Chat, and memory/SQLite persistence are implemented; streaming and
+> cancellation remain future work. API shape may still change before a stable
+> release.
 > **Related:** [ACP bridge](../acp.md), [Runtime API](../runtime-api.md),
 > [Agent runtime](../agent-runtime.md), [Agent event protocol](event-protocol-v1.md).
 > **Owner:** see [`AGENTS.md`](../../AGENTS.md).
@@ -199,8 +200,8 @@ GET  /v1/agent-chat/sessions/{id}/stream
 POST /v1/agent-chat/sessions/{id}/cancel
 ```
 
-The current API is memory-only and synchronous. Durable history should mirror
-memory + sqlite before the feature is treated as broadly usable.
+The current API is synchronous. History is memory-backed by default and SQLite
+backed when `GATEWAY_CHAT_SESSIONS_BACKEND=sqlite`.
 
 ## Process Adapter Behavior
 
@@ -320,7 +321,7 @@ prefer reuse where possible, but not at the cost of a broken chat stream.
 - [x] Docs clearly state cost is external/unknown for these adapters.
 - [ ] Streaming output reaches the UI while the process is still running.
 - [ ] Cancellation kills the process and marks the session/run cancelled.
-- [ ] Session history is durable across gateway restarts.
+- [x] Session history is durable across gateway restarts when the chat-session backend is SQLite.
 
 ## Open Questions
 

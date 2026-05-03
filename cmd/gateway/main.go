@@ -15,6 +15,7 @@ import (
 	"go.opentelemetry.io/otel"
 	"go.opentelemetry.io/otel/propagation"
 
+	"github.com/hecate/agent-runtime/internal/agentchat"
 	"github.com/hecate/agent-runtime/internal/api"
 	"github.com/hecate/agent-runtime/internal/billing"
 	"github.com/hecate/agent-runtime/internal/bootstrap"
@@ -191,6 +192,7 @@ func main() {
 	tracer := profiler.NewInMemoryTracer(profiler.NewOTelTracer(otelProvider))
 	budgetStore := buildBudgetStore(cfg, logger, sqliteClient)
 	chatSessionStore := buildChatSessionStore(cfg, logger, sqliteClient)
+	agentChatStore := buildAgentChatStore(cfg, logger, sqliteClient)
 	retentionHistoryStore := buildRetentionHistoryStore(cfg, logger, sqliteClient)
 	// Build the task-state store before the retention manager so the
 	// turn-events sweep can target its events table directly.
@@ -251,6 +253,7 @@ func main() {
 	)
 
 	handler := api.NewHandler(cfg, logger, service, controlPlaneStore, taskStore, taskQueue, providerRuntime)
+	handler.SetAgentChatStore(agentChatStore)
 	// Wire the cipher into the handler and its underlying runner so MCP
 	// server env values are encrypted at task-creation time and decrypted
 	// at subprocess spawn time. SetSecretCipher is a no-op when cipher
@@ -545,6 +548,20 @@ func buildChatSessionStore(cfg config.Config, logger *slog.Logger, sqliteClient 
 		return store
 	default:
 		return chatstate.NewMemoryStore()
+	}
+}
+
+func buildAgentChatStore(cfg config.Config, logger *slog.Logger, sqliteClient *storage.SQLiteClient) agentchat.Store {
+	switch cfg.Chat.SessionsBackend {
+	case "sqlite":
+		store, err := agentchat.NewSQLiteStore(context.Background(), sqliteClient)
+		if err != nil {
+			logger.Error("agent chat store init failed", slog.Any("error", err))
+			os.Exit(1)
+		}
+		return store
+	default:
+		return agentchat.NewMemoryStore()
 	}
 }
 

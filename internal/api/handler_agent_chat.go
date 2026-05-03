@@ -21,7 +21,11 @@ const (
 )
 
 func (h *Handler) HandleAgentChatSessions(w http.ResponseWriter, r *http.Request) {
-	items := h.agentChat.List()
+	items, err := h.agentChat.List(r.Context())
+	if err != nil {
+		WriteError(w, http.StatusInternalServerError, "gateway_error", err.Error())
+		return
+	}
 	data := make([]AgentChatSessionSummaryItem, 0, len(items))
 	for _, item := range items {
 		data = append(data, renderAgentChatSessionSummary(item))
@@ -49,7 +53,7 @@ func (h *Handler) HandleCreateAgentChatSession(w http.ResponseWriter, r *http.Re
 	if title == "" {
 		title = adapter.Name + " chat"
 	}
-	session, err := h.agentChat.Create(agentchat.Session{
+	session, err := h.agentChat.Create(r.Context(), agentchat.Session{
 		ID:        newAgentChatID("agent_chat"),
 		Title:     title,
 		AdapterID: adapter.ID,
@@ -63,7 +67,11 @@ func (h *Handler) HandleCreateAgentChatSession(w http.ResponseWriter, r *http.Re
 }
 
 func (h *Handler) HandleAgentChatSession(w http.ResponseWriter, r *http.Request) {
-	session, ok := h.agentChat.Get(r.PathValue("id"))
+	session, ok, err := h.agentChat.Get(r.Context(), r.PathValue("id"))
+	if err != nil {
+		WriteError(w, http.StatusInternalServerError, "gateway_error", err.Error())
+		return
+	}
 	if !ok {
 		WriteError(w, http.StatusNotFound, "not_found", "agent chat session not found")
 		return
@@ -72,12 +80,19 @@ func (h *Handler) HandleAgentChatSession(w http.ResponseWriter, r *http.Request)
 }
 
 func (h *Handler) HandleDeleteAgentChatSession(w http.ResponseWriter, r *http.Request) {
-	h.agentChat.Delete(r.PathValue("id"))
+	if err := h.agentChat.Delete(r.Context(), r.PathValue("id")); err != nil {
+		WriteError(w, http.StatusInternalServerError, "gateway_error", err.Error())
+		return
+	}
 	w.WriteHeader(http.StatusNoContent)
 }
 
 func (h *Handler) HandleCreateAgentChatMessage(w http.ResponseWriter, r *http.Request) {
-	session, ok := h.agentChat.Get(r.PathValue("id"))
+	session, ok, err := h.agentChat.Get(r.Context(), r.PathValue("id"))
+	if err != nil {
+		WriteError(w, http.StatusInternalServerError, "gateway_error", err.Error())
+		return
+	}
 	if !ok {
 		WriteError(w, http.StatusNotFound, "not_found", "agent chat session not found")
 		return
@@ -98,7 +113,7 @@ func (h *Handler) HandleCreateAgentChatMessage(w http.ResponseWriter, r *http.Re
 		WriteError(w, http.StatusBadRequest, errCodeInvalidRequest, fmt.Sprintf("agent adapter %q not found", session.AdapterID))
 		return
 	}
-	if _, err := h.agentChat.AppendMessage(session.ID, agentchat.Message{
+	if _, err := h.agentChat.AppendMessage(r.Context(), session.ID, agentchat.Message{
 		ID:        newAgentChatID("msg"),
 		Role:      "user",
 		Content:   content,
@@ -108,7 +123,7 @@ func (h *Handler) HandleCreateAgentChatMessage(w http.ResponseWriter, r *http.Re
 		return
 	}
 	assistantID := newAgentChatID("msg")
-	if _, err := h.agentChat.AppendMessage(session.ID, agentchat.Message{
+	if _, err := h.agentChat.AppendMessage(r.Context(), session.ID, agentchat.Message{
 		ID:          assistantID,
 		Role:        "assistant",
 		Content:     "",
@@ -135,7 +150,7 @@ func (h *Handler) HandleCreateAgentChatMessage(w http.ResponseWriter, r *http.Re
 			if chunk == "" {
 				return
 			}
-			_, _ = h.agentChat.UpdateMessage(session.ID, assistantID, func(message *agentchat.Message) {
+			_, _ = h.agentChat.UpdateMessage(runCtx, session.ID, assistantID, func(message *agentchat.Message) {
 				message.Content += chunk
 			})
 		},
@@ -154,7 +169,7 @@ func (h *Handler) HandleCreateAgentChatMessage(w http.ResponseWriter, r *http.Re
 		output = "(agent completed without output)"
 	}
 
-	updated, err := h.agentChat.UpdateMessage(session.ID, assistantID, func(message *agentchat.Message) {
+	updated, err := h.agentChat.UpdateMessage(r.Context(), session.ID, assistantID, func(message *agentchat.Message) {
 		if strings.TrimSpace(message.Content) == "" || runErr != nil {
 			message.Content = output
 		}
