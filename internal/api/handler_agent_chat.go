@@ -50,6 +50,11 @@ func (h *Handler) HandleCreateAgentChatSession(w http.ResponseWriter, r *http.Re
 		WriteError(w, http.StatusBadRequest, errCodeInvalidRequest, "workspace is required")
 		return
 	}
+	workspace, err := agentadapters.ValidateWorkspace(workspace)
+	if err != nil {
+		WriteError(w, http.StatusBadRequest, errCodeInvalidRequest, err.Error())
+		return
+	}
 	title := strings.TrimSpace(req.Title)
 	if title == "" {
 		title = adapter.Name + " chat"

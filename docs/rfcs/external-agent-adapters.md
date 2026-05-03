@@ -296,6 +296,7 @@ themselves execute tools.
 First-version safety rules:
 
 - Require an explicit workspace path.
+- Validate and canonicalize the workspace directory before storing a session.
 - Use sanitized env by default.
 - Do not pass provider API keys unless the adapter config explicitly opts in.
 - Enforce timeout and cancellation.
