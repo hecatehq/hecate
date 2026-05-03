@@ -6,8 +6,10 @@ used everywhere else: on launch, the Rust layer spawns the gateway as a
 companion process on a free loopback port, polls `/healthz`, then navigates a
 webview to `http://127.0.0.1:{port}/` where the gateway serves its embedded UI.
 
-The desktop app does **not** bundle `hecate-acp`. ACP clients launch that bridge
-binary themselves over stdio; release tarballs ship it next to `gateway`.
+The desktop app bundles both `gateway` and `hecate-acp`. ACP clients still
+launch `hecate-acp` themselves over stdio, but the gateway writes
+`gateway-state.json` into the app data directory so the bridge can discover the
+current dynamic gateway URL when `HECATE_GATEWAY_URL` is not set.
 
 Code: [`tauri/`](../tauri/) · agent guide: [`ai/skills/tauri/SKILL.md`](../ai/skills/tauri/SKILL.md) · CI: [`.github/workflows/release.yml`](../.github/workflows/release.yml), [`.github/workflows/tauri-build.yml`](../.github/workflows/tauri-build.yml).
 
@@ -30,8 +32,10 @@ the same matrix on PRs touching the desktop pipeline and persists bundles as
 
 What works:
 
-- Sidecar lifecycle (spawn, healthz wait, kill on exit; `pgrep gateway` is
+- Sidecar lifecycle (spawn, healthz wait, kill on exit; `pgrep hecate` is
   empty after `cmd+Q`).
+- Gateway discovery file for ACP bridges (`gateway-state.json`) written by the
+  sidecar gateway on successful startup and removed on app exit.
 - Same-origin loading of the embedded gateway UI from the sidecar port.
 - Native Hecate menu with actions to focus the window, open the gateway log,
   open the data directory, and quit.
@@ -43,8 +47,8 @@ What works:
 - Cross-platform CI matrix with PR validation, draft skipping, run
   cancellation on push, and signed nothing.
 - macOS bundle launch-validated end-to-end: build `.app` + `.dmg`, launch
-  the app, confirm the gateway sidecar listens on loopback and `/healthz`
-  returns `ok`, then quit and confirm both app and gateway processes exit.
+  the app, confirm the hecate sidecar listens on loopback and `/healthz`
+  returns `ok`, then quit and confirm both app and hecate processes exit.
   Linux and Windows bundles build green in CI but have not yet been
   launch-tested on real hardware.
 
@@ -101,7 +105,7 @@ the bundle is polished enough to recommend.
 
 ## Sandbox executor
 
-The desktop app bundles only the `gateway` binary. Agent tool calls
+The desktop app bundles the `gateway` and `hecate-acp` binaries. Agent tool calls
 (`shell_exec`, `git_exec`, `file_write`) spawn a per-call `sh`
 subprocess directly from the gateway with env sanitisation, output cap,
 and wall-clock timeout applied inline (Layer 1). On macOS the call is
@@ -119,7 +123,7 @@ make test-tauri-smoke
 ```
 
 The target builds only the native `.app` bundle, launches the packaged macOS
-app, waits for the gateway sidecar to answer `/healthz`, quits Hecate, and
+app, waits for the hecate sidecar to answer `/healthz`, quits Hecate, and
 verifies the sidecar process exits. It intentionally skips `.dmg` packaging so
 local smoke runs are faster and less vulnerable to temporary disk-image mount
 flakes. It is not part of `make verify-alpha` because it opens a real GUI app

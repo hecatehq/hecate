@@ -36,7 +36,8 @@
       "icons/icon.ico"
     ],
     "externalBin": [
-      "binaries/gateway"
+      "binaries/hecate",
+      "binaries/hecate-acp"
     ],
     "resources": {},
     "windows": {

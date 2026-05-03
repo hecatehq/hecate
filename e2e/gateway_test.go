@@ -1,7 +1,7 @@
 //go:build e2e
 
 // Package e2e contains true end-to-end tests that build and start the real
-// gateway binary, send real HTTP requests (optionally against real upstream
+// hecate binary, send real HTTP requests (optionally against real upstream
 // providers), and verify the response shape.
 //
 // Run with:
@@ -43,23 +43,23 @@ var (
 	builtBinErr  error
 )
 
-// gatewayBinary returns the path to the compiled gateway binary.
+// hecateBinary returns the path to the compiled hecate binary.
 // The binary is built exactly once per test-binary execution using sync.Once,
 // so parallel tests don't trigger redundant go build invocations.
-// Set E2E_GATEWAY_BIN to a pre-built path to skip the build entirely (CI).
-func gatewayBinary(t *testing.T) string {
+// Set E2E_HECATE_BIN to a pre-built path to skip the build entirely (CI).
+func hecateBinary(t *testing.T) string {
 	t.Helper()
-	if bin := os.Getenv("E2E_GATEWAY_BIN"); bin != "" {
+	if bin := os.Getenv("E2E_HECATE_BIN"); bin != "" {
 		return bin
 	}
 	buildOnce.Do(func() {
-		dir, err := os.MkdirTemp("", "gateway-e2e-*")
+		dir, err := os.MkdirTemp("", "hecate-e2e-*")
 		if err != nil {
 			builtBinErr = err
 			return
 		}
-		builtBinPath = dir + "/gateway"
-		cmd := exec.Command("go", "build", "-o", builtBinPath, "./cmd/gateway")
+		builtBinPath = dir + "/hecate"
+		cmd := exec.Command("go", "build", "-o", builtBinPath, "./cmd/hecate")
 		cmd.Dir = moduleRootDir()
 		out, err := cmd.CombinedOutput()
 		if err != nil {
@@ -67,7 +67,7 @@ func gatewayBinary(t *testing.T) string {
 		}
 	})
 	if builtBinErr != nil {
-		t.Fatalf("build gateway binary: %v", builtBinErr)
+		t.Fatalf("build hecate binary: %v", builtBinErr)
 	}
 	return builtBinPath
 }
@@ -82,12 +82,12 @@ func moduleRootDir() string {
 	return mod[:strings.LastIndex(mod, string(os.PathSeparator))]
 }
 
-// gatewayServer starts the gateway binary on a free port and returns the base
+// gatewayServer starts the hecate binary on a free port and returns the base
 // URL once /healthz responds 200.  The process is killed when the test ends.
 func gatewayServer(t *testing.T, extraEnv ...string) string {
 	t.Helper()
 
-	bin := gatewayBinary(t)
+	bin := hecateBinary(t)
 	port := freePort(t)
 	addr := fmt.Sprintf("127.0.0.1:%d", port)
 	baseURL := "http://" + addr
@@ -402,7 +402,7 @@ func TestGatewayFakeUpstreamClaudeCode(t *testing.T) {
 // TestGatewayMultimodalCodexImageURLPassthrough exercises the
 // full multi-modal pipe end-to-end on the OpenAI route: the
 // caller posts a content array (text + image_url) to the real
-// gateway binary, and the fake upstream must receive the array
+// hecate binary, and the fake upstream must receive the array
 // form on the wire with the image_url block intact.
 //
 // This catches regressions that the unit tests can't: the JSON
@@ -1146,7 +1146,7 @@ func fakeOpenAIServer(t *testing.T, path, body string, streaming bool) string {
 func TestBootstrapAutoGenerationDefaultPath(t *testing.T) {
 	t.Parallel()
 
-	bin := gatewayBinary(t)
+	bin := hecateBinary(t)
 	workDir := t.TempDir()
 
 	// First start: no token / no data dir env. Cwd-rooted defaults apply,
@@ -1261,7 +1261,7 @@ func TestBootstrapAutoGenerationDefaultPath(t *testing.T) {
 func TestGatewayVersionFlag(t *testing.T) {
 	t.Parallel()
 
-	bin := gatewayBinary(t)
+	bin := hecateBinary(t)
 	for _, flag := range []string{"--version", "-v", "version"} {
 		flag := flag
 		t.Run(flag, func(t *testing.T) {

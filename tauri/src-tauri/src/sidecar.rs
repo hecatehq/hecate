@@ -1,11 +1,11 @@
-// sidecar.rs — spawn, health-poll, and supervise the gateway process.
+// sidecar.rs — spawn, health-poll, and supervise the hecate sidecar process.
 //
 // Design:
-//   1. Resolve the gateway binary path:
+//   1. Resolve the hecate sidecar binary path:
 //      - Release build: look next to the running executable (bundled app).
 //      - Debug build: walk up from CARGO_MANIFEST_DIR to the repo root,
-//        where `make build` places the `gateway` binary.
-//      - Override: GATEWAY_BIN env var always wins.
+//        where `make build` places the `hecate` binary.
+//      - Override: HECATE_BIN env var always wins.
 //   2. Resolve the data directory via Tauri's platform path API so the gateway
 //      writes its files to the right place on every OS:
 //        macOS   ~/Library/Application Support/io.github.chicoxyzzy.hecate/
@@ -15,7 +15,8 @@
 //   4. Spawn the gateway (std::process::Child — sync, so kill() works from
 //      the window-close event handler without needing an async runtime).
 //   5. Poll /healthz every 250 ms (async reqwest) with a 30 s hard deadline.
-//   6. On success return the base URL + Child handle. Caller is responsible
+//   6. Pass GATEWAY_PUBLIC_URL so gateway-state.json advertises the sidecar URL.
+//   7. On success return the base URL + Child handle. Caller is responsible
 //      for calling child.kill() when the app exits.
 
 use std::net::TcpListener;
@@ -24,13 +25,15 @@ use std::time::{Duration, Instant};
 
 use tauri::{AppHandle, Manager};
 
-/// Platform paths used by the gateway sidecar and native diagnostics.
+/// Platform paths used by the hecate sidecar and native diagnostics.
 #[derive(Clone, Debug)]
 pub struct GatewayPaths {
     /// Writable app data directory, resolved through Tauri.
     pub data_dir: PathBuf,
     /// Gateway stderr log captured for the most recent launch.
     pub log_path: PathBuf,
+    /// Runtime state consumed by hecate-acp to discover the native sidecar URL.
+    pub state_path: PathBuf,
 }
 
 /// Returned by [`spawn_and_wait`] on success.
@@ -40,22 +43,22 @@ pub struct GatewayHandle {
     /// The allocated port.
     #[allow(dead_code)] // reserved for future use (deep links, auto-update, etc.)
     pub port: u16,
-    /// The spawned gateway process. Caller must kill() this when the app exits.
+    /// The spawned hecate process. Caller must kill() this when the app exits.
     pub child: std::process::Child,
 }
 
-/// Find the gateway binary. Resolution order:
-///   1. `GATEWAY_BIN` env var (explicit override).
-///   2. Debug build: `{repo_root}/gateway` (placed by `make build`).
+/// Find the hecate sidecar binary. Resolution order:
+///   1. `HECATE_BIN` env var (explicit override).
+///   2. Debug build: `{repo_root}/hecate` (placed by `make build`).
 ///   3. Release build: next to the running executable (bundled app).
 fn resolve_binary() -> Result<PathBuf, String> {
     // 1. Explicit override.
-    if let Ok(p) = std::env::var("GATEWAY_BIN") {
+    if let Ok(p) = std::env::var("HECATE_BIN") {
         return resolve_env_binary_path(&p);
     }
 
     // 2. Debug build: walk up from the Cargo manifest directory to find the
-    //    repo root, where `make build` writes the gateway binary.
+    //    repo root, where `make build` writes the hecate binary.
     #[cfg(debug_assertions)]
     {
         // CARGO_MANIFEST_DIR is tauri/src-tauri; repo root is two levels up.
@@ -66,20 +69,20 @@ fn resolve_binary() -> Result<PathBuf, String> {
             .map(|p| p.to_path_buf())
             .ok_or_else(|| "cannot determine repo root from CARGO_MANIFEST_DIR".to_string())?;
 
-        let candidate = repo_root.join("gateway");
+        let candidate = repo_root.join("hecate");
         if candidate.is_file() {
             return Ok(candidate);
         }
         return Err(format!(
-            "gateway binary not found at {candidate:?}. Run `make build` first."
+            "hecate binary not found at {candidate:?}. Run `make build` first."
         ));
     }
 
     // 3. Release build: look next to the running executable using the names
     //    that Tauri's externalBin bundler produces. The bundler copies the
-    //    binary as `gateway-{target_triple}` (e.g. `gateway-aarch64-apple-darwin`),
+    //    binary as `hecate-{target_triple}` (e.g. `hecate-aarch64-apple-darwin`),
     //    which lets a single repo hold binaries for multiple platforms. We try
-    //    the triple-suffixed name first, then fall back to plain `gateway` for
+    //    the triple-suffixed name first, then fall back to plain `hecate` for
     //    any hand-built layouts.
     #[cfg(not(debug_assertions))]
     {
@@ -92,7 +95,7 @@ fn resolve_binary() -> Result<PathBuf, String> {
         // TARGET is the Rust target triple baked in at compile time,
         // e.g. "aarch64-apple-darwin" or "x86_64-pc-windows-msvc".
         let triple = env!("TARGET");
-        let names = [format!("gateway-{triple}"), "gateway".to_string()];
+        let names = [format!("hecate-{triple}"), "hecate".to_string()];
         for name in &names {
             let candidate = dir.join(name);
             if candidate.is_file() {
@@ -100,7 +103,7 @@ fn resolve_binary() -> Result<PathBuf, String> {
             }
         }
         Err(format!(
-            "gateway binary not found next to app executable ({dir:?}). \
+            "hecate binary not found next to app executable ({dir:?}). \
              Tried: {names:?}"
         ))
     }
@@ -112,7 +115,7 @@ fn resolve_env_binary_path(value: &str) -> Result<PathBuf, String> {
         return Ok(path);
     }
     Err(format!(
-        "GATEWAY_BIN={value} does not point to an existing file"
+        "HECATE_BIN={value} does not point to an existing file"
     ))
 }
 
@@ -137,12 +140,8 @@ pub fn free_port() -> Result<u16, String> {
 /// after this fix, but belt-and-suspenders).
 pub fn resolve_paths(app: &AppHandle) -> Result<GatewayPaths, String> {
     let paths = diagnostic_paths(app)?;
-    std::fs::create_dir_all(&paths.data_dir).map_err(|e| {
-        format!(
-            "cannot create data directory {:?}: {e}",
-            paths.data_dir
-        )
-    })?;
+    std::fs::create_dir_all(&paths.data_dir)
+        .map_err(|e| format!("cannot create data directory {:?}: {e}", paths.data_dir))?;
     Ok(paths)
 }
 
@@ -161,11 +160,20 @@ pub fn diagnostic_paths(app: &AppHandle) -> Result<GatewayPaths, String> {
 fn paths_for_data_dir(dir: PathBuf) -> GatewayPaths {
     GatewayPaths {
         log_path: dir.join("gateway.log"),
+        state_path: dir.join("gateway-state.json"),
         data_dir: dir,
     }
 }
 
-/// Spawn the gateway binary and block (async) until `/healthz` responds 200
+pub fn remove_gateway_state(path: &std::path::Path) {
+    match std::fs::remove_file(path) {
+        Ok(()) => {}
+        Err(err) if err.kind() == std::io::ErrorKind::NotFound => {}
+        Err(err) => eprintln!("failed to remove gateway state {}: {err}", path.display()),
+    }
+}
+
+/// Spawn the hecate binary and block (async) until `/healthz` responds 200
 /// or the deadline expires. Returns the gateway base URL on success.
 pub async fn spawn_and_wait(app: &AppHandle) -> Result<GatewayHandle, String> {
     let bin = resolve_binary()?;
@@ -192,6 +200,7 @@ pub async fn spawn_and_wait(app: &AppHandle) -> Result<GatewayHandle, String> {
     // without an async runtime.
     let child = std::process::Command::new(&bin)
         .env("GATEWAY_ADDRESS", &addr)
+        .env("GATEWAY_PUBLIC_URL", &base_url)
         .env("GATEWAY_DATA_DIR", &paths.data_dir)
         // Suppress inherited terminal so the gateway doesn't fight the Tauri
         // process for stdin/stdout in dev mode.
@@ -251,8 +260,8 @@ mod tests {
 
     #[test]
     fn test_sidecar_resolve_env_binary_path_accepts_existing_file() {
-        let path = temp_path("gateway");
-        fs::write(&path, b"test gateway").expect("write temp gateway");
+        let path = temp_path("hecate");
+        fs::write(&path, b"test hecate").expect("write temp hecate");
 
         let resolved = resolve_env_binary_path(path.to_str().expect("utf8 path"))
             .expect("existing file should resolve");
@@ -263,12 +272,12 @@ mod tests {
 
     #[test]
     fn test_sidecar_resolve_env_binary_path_rejects_missing_file() {
-        let path = temp_path("missing-gateway");
+        let path = temp_path("missing-hecate");
 
         let err = resolve_env_binary_path(path.to_str().expect("utf8 path"))
             .expect_err("missing file should fail");
 
-        assert!(err.contains("GATEWAY_BIN="));
+        assert!(err.contains("HECATE_BIN="));
         assert!(err.contains("does not point to an existing file"));
     }
 
@@ -280,6 +289,7 @@ mod tests {
 
         assert_eq!(paths.data_dir, data_dir);
         assert_eq!(paths.log_path, paths.data_dir.join("gateway.log"));
+        assert_eq!(paths.state_path, paths.data_dir.join("gateway-state.json"));
     }
 
     #[test]

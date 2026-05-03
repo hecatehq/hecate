@@ -1,4 +1,4 @@
-# Quickstart stack. Single-user single-binary: just the gateway. A
+# Quickstart stack. Single-user gateway plus bundled companion binaries. A
 # `docker compose up` is enough to try Hecate end-to-end on
 # http://127.0.0.1:8765. Persistence is sqlite into the hecate-data
 # volume; nothing else to wire up.
@@ -39,6 +39,7 @@ services:
     extra_hosts:
       - "host.docker.internal:host-gateway"
     environment:
+      GATEWAY_PUBLIC_URL: "http://127.0.0.1:8765"
       PROVIDER_OLLAMA_BASE_URL: "http://host.docker.internal:11434/v1"
       PROVIDER_LMSTUDIO_BASE_URL: "http://host.docker.internal:1234/v1"
       PROVIDER_LLAMACPP_BASE_URL: "http://host.docker.internal:8080/v1"
@@ -49,11 +50,10 @@ services:
       - path: .env
         required: false
     volumes:
-      # Persist the bootstrap file (auto-generated encryption key + admin
-      # bearer token) and any file-backed control-plane state across
-      # restarts. Without this, every `docker compose up` would generate a
-      # fresh admin token and invalidate the one a user already pasted into
-      # the UI.
+      # Persist the bootstrap file (auto-generated control-plane encryption
+      # key) and any file-backed control-plane state across restarts. Without
+      # this, provider credentials encrypted in SQLite would become unreadable
+      # after the volume is recreated.
       - hecate-data:/data
     restart: unless-stopped
 

@@ -107,8 +107,8 @@ jobs:
       - name: Stage sidecar placeholder
         run: |
           mkdir -p tauri/src-tauri/binaries
-          printf '#!/bin/sh\nexit 0\n' > tauri/src-tauri/binaries/gateway-x86_64-unknown-linux-gnu
-          chmod +x tauri/src-tauri/binaries/gateway-x86_64-unknown-linux-gnu
+          printf '#!/bin/sh\nexit 0\n' > tauri/src-tauri/binaries/hecate-x86_64-unknown-linux-gnu
+          chmod +x tauri/src-tauri/binaries/hecate-x86_64-unknown-linux-gnu
 
       - name: Test
         run: cargo test
@@ -154,10 +154,10 @@ jobs:
       - name: Test
         run: go test -race -timeout 10m ./...
 
-  build-gateway:
-    name: Build gateway
+  build-hecate:
+    name: Build hecate
     needs: changes
-    # Triggers on Go OR TypeScript changes because the gateway binary now
+    # Triggers on Go OR TypeScript changes because the hecate binary now
     # embeds the built UI via //go:embed — a typescript-only change must
     # produce a rebuilt binary so any embed regression is caught here.
     if: needs.changes.outputs.go == 'true' || needs.changes.outputs.typescript == 'true' || needs.changes.outputs.workflow == 'true'
@@ -183,20 +183,20 @@ jobs:
         run: bun run build
         working-directory: ui
 
-      - name: Build gateway binary
-        run: go build -o gateway ./cmd/gateway
+      - name: Build hecate binary
+        run: go build -o hecate ./cmd/hecate
 
-      - name: Upload gateway artifact
+      - name: Upload hecate artifact
         uses: actions/upload-artifact@v7
         with:
-          name: gateway-binary
-          path: gateway
+          name: hecate-binary
+          path: hecate
           retention-days: 1
           if-no-files-found: error
 
   e2e:
     name: E2E tests (fake upstream)
-    needs: [changes, build-gateway]
+    needs: [changes, build-hecate]
     if: needs.changes.outputs.go == 'true' || needs.changes.outputs.workflow == 'true'
     runs-on: ubuntu-latest
     steps:
@@ -207,22 +207,22 @@ jobs:
           go-version-file: go.mod
           cache: true
 
-      - name: Download gateway binary
+      - name: Download hecate binary
         uses: actions/download-artifact@v8
         with:
-          name: gateway-binary
+          name: hecate-binary
           path: /tmp
 
       - name: Run e2e tests
         run: |
-          chmod +x /tmp/gateway
+          chmod +x /tmp/hecate
           go test -tags e2e -count=1 -timeout 3m ./e2e/...
         env:
-          E2E_GATEWAY_BIN: /tmp/gateway
+          E2E_HECATE_BIN: /tmp/hecate
 
   e2e-ollama:
     name: E2E tests (Ollama)
-    needs: [changes, build-gateway]
+    needs: [changes, build-hecate]
     if: needs.changes.outputs.go == 'true' || needs.changes.outputs.workflow == 'true'
     runs-on: ubuntu-latest
     steps:
@@ -233,10 +233,10 @@ jobs:
           go-version-file: go.mod
           cache: true
 
-      - name: Download gateway binary
+      - name: Download hecate binary
         uses: actions/download-artifact@v8
         with:
-          name: gateway-binary
+          name: hecate-binary
           path: /tmp
 
       - name: Cache Ollama model weights
@@ -281,10 +281,10 @@ jobs:
         # -run TestOllama: fake-upstream (TestGateway*) tests are already covered
         # by the e2e job running in parallel.
         run: |
-          chmod +x /tmp/gateway
+          chmod +x /tmp/hecate
           go test -tags 'e2e ollama' -count=1 -run TestOllama -timeout 10m ./e2e/...
         env:
-          E2E_GATEWAY_BIN: /tmp/gateway
+          E2E_HECATE_BIN: /tmp/hecate
           OLLAMA_HOST: http://127.0.0.1:11434
 
   docker-smoke:
@@ -293,7 +293,7 @@ jobs:
     # Triggers on go/ts/dockerfile/compose changes — anything that could
     # cause `docker compose up` to break in production. The smoke test
     # rebuilds the image inside docker compose, so we don't depend on
-    # build-gateway's artifact.
+    # build-hecate's artifact.
     if: |
       needs.changes.outputs.go == 'true' ||
       needs.changes.outputs.typescript == 'true' ||

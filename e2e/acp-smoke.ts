@@ -147,7 +147,7 @@ try {
 }
 
 async function startGateway(gatewayPort: number, fakePort: number): Promise<ChildProcessWithoutNullStreams> {
-  const gateway = spawn("go", ["run", "./cmd/gateway"], {
+  const gateway = spawn("go", ["run", "./cmd/hecate"], {
     cwd: repoRoot,
     env: {
       ...process.env,

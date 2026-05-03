@@ -21,7 +21,7 @@ what is alpha-grade versus production-shaped.
 Every `v*` tag fires `.github/workflows/release.yml`, which runs three jobs:
 
 1. **`goreleaser`** (~5–10 min) — multi-arch Go binary tarballs for
-   `linux+darwin × amd64+arm64`; each tarball includes `gateway` and
+   `linux+darwin × amd64+arm64`; each tarball includes `hecate` and
    `hecate-acp`. It also publishes multi-arch Docker images on
    `ghcr.io/chicoxyzzy/hecate`, source tarball, checksums, GitHub Release
    entry.
@@ -39,7 +39,7 @@ Acceptance after the run:
 - Both jobs green.
 - Release entry marked **Pre-release** for `-alpha.N` tags.
 - Goreleaser-side artifacts attached: tarballs for each goos/goarch + checksums.
-  Each tarball contains both `gateway` and `hecate-acp`.
+  Each tarball contains both `hecate` and `hecate-acp`.
 - Tauri-side bundles attached: 1 `.dmg`, 1 `.deb`, 1 `.AppImage`, 1 `.msi`.
   If any is missing, the matrix leg silently skipped upload — open the run
   to see what failed.
@@ -47,7 +47,9 @@ Acceptance after the run:
   release tag. The workflow commits this docs-only refresh to `master` with
   `[skip ci]`.
 - `docker pull ghcr.io/chicoxyzzy/hecate:X.Y.Z` succeeds (no `v` prefix —
-  goreleaser uses bare semver as the docker tag).
+  goreleaser uses bare semver as the docker tag). The image contains both
+  `/usr/local/bin/hecate` and `/usr/local/bin/hecate-acp`; the entrypoint is
+  still `gateway`.
 - `docker run --rm -p 8765:8765 ghcr.io/chicoxyzzy/hecate:X.Y.Z` then
   `curl :8765/healthz` returns `version: "X.Y.Z"`.
 

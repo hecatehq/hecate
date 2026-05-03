@@ -22,7 +22,7 @@ Do not use npm, pnpm, yarn, Corepack, Volta, or Node-specific workflow setup
 for the UI. The committed lockfile is `ui/bun.lock`, the install command is
 `bun install`, and all UI scripts run through `bun run ...`.
 
-The gateway binary embeds the React UI via `//go:embed ui/dist`. There's no separate UI deployment.
+The `hecate` binary embeds the React UI via `//go:embed ui/dist`. There's no separate UI deployment.
 
 ## Local build
 
@@ -33,15 +33,15 @@ The gateway binary embeds the React UI via `//go:embed ui/dist`. There's no sepa
    # Edit .env — at minimum set GATEWAY_DEFAULT_MODEL plus a PROVIDER_*_API_KEY
    ```
 
-2. Build the gateway binary with the UI bundled in (gateway binary, single port):
+2. Build `hecate` with the UI bundled in:
 
    ```bash
    make ui-install         # installs UI dependencies (bun install)
-   make build              # ui-build + go build → ./gateway
-   make serve              # run prebuilt ./gateway; sources .env; auto-stops stale :8765
+   make build              # ui-build + go build → ./hecate
+   make serve              # run prebuilt ./hecate; sources .env; auto-stops stale :8765
    ```
 
-The gateway and the operator UI are both served from `http://127.0.0.1:8765`. `make serve` stops any earlier `./gateway` process still bound to that port before starting, so re-running it is always safe.
+The gateway and the operator UI are both served from `http://127.0.0.1:8765`. `make serve` stops any earlier `./hecate` process still bound to that port before starting, so re-running it is always safe.
 
 For iterative changes that don't touch the embed boundary, skip the binary build and run from source: `make run` is `go run` with quick defaults; `make dev` is the same but sources `.env` so provider keys are available.
 
@@ -83,7 +83,7 @@ make test-tauri-smoke  # macOS native app smoke: build .app, probe /healthz, qui
 make verify-alpha      # public-alpha gate: docs/env check, Go, Docker, UI, build
 ```
 
-The race detector is the strongest correctness check (and the slowest); CI runs it on every push. `test-acp-smoke` starts a fake OpenAI-compatible upstream, the real gateway, and the real `cmd/hecate-acp` stdio bridge, then verifies model discovery, same-task continuation, SSE updates, and editor approval round-trip behavior. `test-docker-smoke` requires Docker but doesn't need any other infrastructure — it spins up its own compose project to avoid colliding with a developer's running stack. `test-tauri-smoke` builds only the packaged macOS `.app`, waits for the sidecar gateway to answer `/healthz`, quits Hecate, and confirms the sidecar exits; it is opt-in because it opens a real GUI window.
+The race detector is the strongest correctness check (and the slowest); CI runs it on every push. `test-acp-smoke` starts a fake OpenAI-compatible upstream, the real `hecate` gateway, and the real `cmd/hecate-acp` stdio bridge, then verifies model discovery, same-task continuation, SSE updates, and editor approval round-trip behavior. `test-docker-smoke` requires Docker but doesn't need any other infrastructure — it spins up its own compose project to avoid colliding with a developer's running stack. `test-tauri-smoke` builds only the packaged macOS `.app`, waits for the sidecar gateway to answer `/healthz`, quits Hecate, and confirms the sidecar exits; it is opt-in because it opens a real GUI window.
 
 Before cutting a public alpha tag, run `make verify-alpha` and follow the checklist in [Release](release.md).
 
@@ -102,10 +102,10 @@ Recognized markers: `[skip ci]`, `[ci skip]`, `[no ci]`, `[skip actions]`, `[act
 Top-level entry points:
 
 ```
-cmd/gateway/            # gateway entry point (CLI flags + bootstrap wiring)
+cmd/hecate/            # hecate entry point (gateway, embedded UI, MCP subcommand)
 cmd/hecate-acp/         # ACP stdio bridge for editor agent panels
 ui/                     # React app (Vite + Bun); src/ is the source, dist/ is the embed target
-tauri/                  # native desktop app (Tauri 2.x); wraps `gateway` as a sidecar
+tauri/                  # native desktop app (Tauri 2.x); wraps `hecate` as a sidecar
 e2e/                    # Go end-to-end tests (build tag: e2e; sub-tags: ollama, docker)
 scripts/                # release tooling (release.ts, stamp-version.ts) + documentation tooling (capture-screenshots)
 docs/                   # markdown references + screenshots

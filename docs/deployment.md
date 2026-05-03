@@ -28,7 +28,13 @@ Pinning is recommended for any deployment beyond local experimentation — `:lat
 
 When the working tree is a checkout of the source, `docker compose up` rebuilds locally from the bundled `Dockerfile` instead of pulling. Useful for testing changes; remove the `image:` line or run `docker compose build` first if you want the local build to be the canonical artifact.
 
-If a `docker run` (or `docker compose up`) errors with `bind: address already in use` on `:8765`, a previous `make dev` / `make run` / `./gateway` is still listening from another shell. Free the port with `make stop` and retry; `make dev`, `make run`, and `make serve` also auto-run `stop` before starting so successive launches don't pile up.
+The Docker image starts `gateway` by default and also includes `hecate-acp` at
+`/usr/local/bin/hecate-acp` so the image carries the same companion bridge as
+the tarballs and native app. The container sets
+`GATEWAY_PUBLIC_URL=http://127.0.0.1:8765`, which is the host URL users normally
+reach through `-p 8765:8765` or `docker compose`.
+
+If a `docker run` (or `docker compose up`) errors with `bind: address already in use` on `:8765`, a previous `make dev` / `make run` / `./hecate` is still listening from another shell. Free the port with `make stop` and retry; `make dev`, `make run`, and `make serve` also auto-run `stop` before starting so successive launches don't pile up.
 
 ## Binary install
 
@@ -38,15 +44,15 @@ The release workflow publishes static, single-file binaries for `linux+darwin ×
 # pick the right tarball for your OS / arch
 curl -LO https://github.com/chicoxyzzy/hecate/releases/download/v0.1.0-alpha.10/hecate_0.1.0-alpha.10_linux_amd64.tar.gz
 tar -xzf hecate_0.1.0-alpha.10_linux_amd64.tar.gz
-./gateway
+./hecate
 ```
 
-The binary embeds the React operator UI, listens on `127.0.0.1:8765` by default, and stores state under `GATEWAY_DATA_DIR` (default `.data/`). No additional runtime dependencies — the binary is statically linked and CGO-free.
+The gateway embeds the React operator UI, listens on `127.0.0.1:8765` by default, and stores state under `GATEWAY_DATA_DIR` (default `.data/`). No additional runtime dependencies — the binaries are statically linked and CGO-free.
 
 To pin the data directory to a known location:
 
 ```bash
-GATEWAY_DATA_DIR=/var/lib/hecate ./gateway
+GATEWAY_DATA_DIR=/var/lib/hecate ./hecate
 ```
 
 For systemd, launchd, or supervisor wrappers, the only requirements are: the working directory is writable for `GATEWAY_DATA_DIR`, port 8765 is available, and `.env` (if used) sits in the working directory or is sourced into the unit file. The binary path itself can live anywhere on `$PATH`.
@@ -58,7 +64,12 @@ Available tarballs for `v0.1.0-alpha.10`:
 - `hecate_0.1.0-alpha.10_darwin_amd64.tar.gz`
 - `hecate_0.1.0-alpha.10_darwin_arm64.tar.gz`
 
-Each tarball includes the binary plus `LICENSE` and `README.md`. Verify integrity against `checksums.txt` published alongside the release.
+Each tarball includes `hecate`, `hecate-acp`, `LICENSE`, and `README.md`.
+Verify integrity against `checksums.txt` published alongside the release.
+
+The gateway writes `gateway-state.json` into `GATEWAY_DATA_DIR` on startup.
+Local helper processes such as `hecate-acp` use it to discover the active
+gateway URL before falling back to `http://127.0.0.1:8765`.
 
 ## Desktop app
 
@@ -70,7 +81,7 @@ A third install path for single-user / personal use on a laptop. Same release, d
 | Linux x86_64 | `hecate-app_X.Y.Z_amd64.deb`, `hecate-app_X.Y.Z_amd64.AppImage` |
 | Windows x86_64 | `Hecate_X.Y.Z_x64_en-US.msi` |
 
-The bundle is a Tauri 2.x chrome around the same `gateway` binary used in Docker and the tarballs. On launch the app spawns the gateway as a sidecar on a free loopback port, polls `/healthz`, then loads the embedded UI directly.
+The bundle is a Tauri 2.x chrome around the same `hecate` binary used in Docker and the tarballs. On launch the app spawns Hecate as a sidecar on a free loopback port, polls `/healthz`, then loads the embedded UI directly.
 
 State lives in the platform data dir, not next to the binary:
 
