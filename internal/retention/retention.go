@@ -18,7 +18,7 @@ const (
 	SubsystemAuditEvents     = "audit_events"
 	SubsystemProviderHistory = "provider_history"
 	// SubsystemTurnEvents prunes the high-cardinality
-	// `agent.turn.completed` rows from the task-run events table.
+	// `turn.completed` rows from the task-run events table.
 	// Other event types (run.started / run.finished / approval.*) are
 	// kept for forensics — turn events are bulk telemetry that's only
 	// useful while the run is hot.
@@ -41,7 +41,7 @@ type AuditEventPruner interface {
 }
 
 // TurnEventPruner is implemented by task-state stores that support
-// pruning `agent.turn.completed` rows from the run-events table.
+// pruning `turn.completed` rows from the run-events table.
 // Other event types are not touched.
 type TurnEventPruner interface {
 	PruneTurnEvents(ctx context.Context, maxAge time.Duration, maxCount int) (int, error)

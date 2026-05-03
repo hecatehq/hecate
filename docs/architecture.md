@@ -128,7 +128,7 @@ sequenceDiagram
     loop turn cycle
         Agent->>LLM: Chat with messages, tools, and ProviderHint
         LLM-->>Agent: assistant message
-        Agent->>Store: emit agent.turn.completed event
+        Agent->>Store: emit turn.completed event
         Agent->>Store: persist conversation snapshot
         alt assistant emitted tool_calls
             opt any tool gated by policy (built-in or per-MCP-server)

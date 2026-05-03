@@ -125,7 +125,7 @@ type ExecutionResult struct {
 	// that turn, the cumulative spend through it (this run only —
 	// PriorCostMicrosUSD is added by the runner before emitting the
 	// event), the assistant step ID, and the tool-call count. The
-	// runner emits one `agent.turn.completed` event per entry so
+	// runner emits one `turn.completed` event per entry so
 	// operators can replay cost evolution from the events feed.
 	TurnCosts []TurnCostRecord
 }

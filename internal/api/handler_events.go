@@ -19,7 +19,7 @@ import (
 // rather than per-run polling.
 //
 // Query parameters:
-//   - event_type: comma-separated allowlist (e.g. "agent.turn.completed,run.finished")
+//   - event_type: comma-separated allowlist (e.g. "turn.completed,run.finished")
 //   - task_id:    optional single task scope
 //   - after_sequence: cursor; only events with sequence > this are returned
 //   - limit:      max items, default 200, capped at 500

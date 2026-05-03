@@ -31,7 +31,7 @@ export function TasksView() {
   const [artifacts, setArtifacts] = useState<TaskArtifactRecord[]>([]);
   const [runEvents, setRunEvents] = useState<TaskRunEventRecord[]>([]);
   // Streamed per-turn costs, keyed by turn number. Populated as
-  // `agent.turn.completed` events arrive on the SSE stream. Acts as a
+  // `turn.completed` events arrive on the SSE stream. Acts as a
   // fallback for the model-step output_summary path: when the step's
   // cost isn't recorded yet (or older runs that pre-date the cost
   // field), the conversation viewer reads from this map instead.
@@ -138,14 +138,14 @@ export function TasksView() {
         setSteps(payload.data.steps ?? []);
         setArtifacts(payload.data.artifacts ?? []);
         // Capture per-turn cost when the snapshot was driven by an
-        // `agent.turn.completed` event. Dedup by turn number — the
+        // `turn.completed` event. Dedup by turn number — the
         // SSE may replay the same event on reconnect, and we don't
         // want a duplicate to wipe the entry. A `0` cost keeps the
         // entry (legitimate free tier / cached turn).
-        if (payload.data.turn && payload.data.turn.turn > 0) {
+        if (payload.data.turn && payload.data.turn.turn_index > 0) {
           setStreamTurnCosts(prev => {
             const next = new Map(prev);
-            next.set(payload.data.turn!.turn, payload.data.turn!.cost_micros_usd ?? 0);
+            next.set(payload.data.turn!.turn_index, payload.data.turn!.cost_micros_usd ?? 0);
             return next;
           });
         }

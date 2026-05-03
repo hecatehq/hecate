@@ -177,12 +177,12 @@ func TestFromTaskRunEventStripsSnapshotsFromNonRunPayloads(t *testing.T) {
 	event := types.TaskRunEvent{
 		RunID:     "run_01HX0000000000000000000001",
 		Sequence:  4,
-		EventType: "agent.turn.completed",
+		EventType: "turn.completed",
 		Data: map[string]any{
 			"run":                            types.TaskRun{ID: "run_1"},
 			"steps":                          []types.TaskStep{{ID: "step_1"}},
 			"artifacts":                      []types.TaskArtifact{{ID: "artifact_1"}},
-			"turn":                           1,
+			"turn_index":                     1,
 			"cost_micros_usd":                int64(0),
 			"run_cumulative_cost_micros_usd": int64(0),
 		},
@@ -190,8 +190,8 @@ func TestFromTaskRunEventStripsSnapshotsFromNonRunPayloads(t *testing.T) {
 
 	envelope := FromTaskRunEvent(event)
 
-	if envelope.Data["turn"] != 1 {
-		t.Fatalf("turn = %v, want 1", envelope.Data["turn"])
+	if envelope.Data["turn_index"] != 1 {
+		t.Fatalf("turn_index = %v, want 1", envelope.Data["turn_index"])
 	}
 	if envelope.Data["cost_micros_usd"] != int64(0) {
 		t.Fatalf("cost_micros_usd = %v, want 0", envelope.Data["cost_micros_usd"])

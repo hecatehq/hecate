@@ -7,18 +7,18 @@ import (
 )
 
 // TestDecodeTurnCostFromEventData_LiftsAllFields confirms the helper
-// pulls every documented key out of the agent.turn.completed event
+// pulls every documented key out of the turn.completed event
 // payload, including JSON-roundtrip floats (numerics arrive as
 // float64 after json.Unmarshal into map[string]any).
 func TestDecodeTurnCostFromEventData_LiftsAllFields(t *testing.T) {
 	t.Parallel()
 	got := decodeTurnCostFromEventData(map[string]any{
-		"turn":                            float64(2),
+		"turn_index":                      float64(2),
 		"step_id":                         "step-xyz",
 		"cost_micros_usd":                 float64(1500),
 		"run_cumulative_cost_micros_usd":  float64(3000),
 		"task_cumulative_cost_micros_usd": float64(8000),
-		"tool_call_count":                 float64(3),
+		"tool_calls":                      float64(3),
 	})
 	if got == nil {
 		t.Fatal("decodeTurnCostFromEventData returned nil")
@@ -59,9 +59,9 @@ func TestDecodeTurnCostFromEventData_NilDataReturnsNil(t *testing.T) {
 func TestDecodeTurnCostFromEventData_TolerantToInts(t *testing.T) {
 	t.Parallel()
 	got := decodeTurnCostFromEventData(map[string]any{
-		"turn":            int(1),
+		"turn_index":      int(1),
 		"cost_micros_usd": int64(500),
-		"tool_call_count": int(0),
+		"tool_calls":      int(0),
 	})
 	if got == nil {
 		t.Fatal("decodeTurnCostFromEventData returned nil")
@@ -74,21 +74,21 @@ func TestDecodeTurnCostFromEventData_TolerantToInts(t *testing.T) {
 	}
 }
 
-// TestDecodeTaskRunEventData_AgentTurnCompletedReturnsTurnOverlay
-// verifies the decoder treats agent.turn.completed as a Turn-only
+// TestDecodeTaskRunEventData_TurnCompletedReturnsTurnOverlay
+// verifies the decoder treats turn.completed as a Turn-only
 // overlay (ok=false so the streaming handler rebuilds full state)
 // while still populating Turn so the overlay can be merged after.
-func TestDecodeTaskRunEventData_AgentTurnCompletedReturnsTurnOverlay(t *testing.T) {
+func TestDecodeTaskRunEventData_TurnCompletedReturnsTurnOverlay(t *testing.T) {
 	t.Parallel()
 	h := &Handler{}
 	event := types.TaskRunEvent{
-		EventType: "agent.turn.completed",
+		EventType: "turn.completed",
 		Data: map[string]any{
-			"turn":                            float64(1),
+			"turn_index":                      float64(1),
 			"cost_micros_usd":                 float64(1234),
 			"run_cumulative_cost_micros_usd":  float64(1234),
 			"task_cumulative_cost_micros_usd": float64(5678),
-			"tool_call_count":                 float64(2),
+			"tool_calls":                      float64(2),
 			"step_id":                         "step-1",
 		},
 	}
@@ -97,10 +97,10 @@ func TestDecodeTaskRunEventData_AgentTurnCompletedReturnsTurnOverlay(t *testing.
 		t.Fatalf("decodeTaskRunEventData error = %v", err)
 	}
 	if ok {
-		// `ok=false` is intentional — agent.turn.completed payloads
+		// `ok=false` is intentional — turn.completed payloads
 		// don't carry a full snapshot; the streaming handler treats
 		// false as "rebuild from store, then merge overlay".
-		t.Errorf("decodeTaskRunEventData(agent.turn.completed) ok = true, want false (overlay-only)")
+		t.Errorf("decodeTaskRunEventData(turn.completed) ok = true, want false (overlay-only)")
 	}
 	if state.Turn == nil {
 		t.Fatal("state.Turn is nil — overlay was not populated")
@@ -123,7 +123,7 @@ func TestDecodeTaskRunEventData_AgentTurnCompletedReturnsTurnOverlay(t *testing.
 }
 
 // TestDecodeTaskRunEventData_OtherEventsUnaffected confirms the new
-// agent.turn.completed branch doesn't accidentally short-circuit
+// turn.completed branch doesn't accidentally short-circuit
 // other event types — the existing snapshot-decode path stays.
 func TestDecodeTaskRunEventData_OtherEventsUnaffected(t *testing.T) {
 	t.Parallel()

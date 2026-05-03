@@ -174,7 +174,7 @@ The full catalog of event types — including payload shapes, when each fires, a
 - `run.*` lifecycle (`run.created` / `run.queued` / `run.started` / `run.finished` / `run.failed` / `run.cancelled`)
 - typed `tool.*` events for in-run tool lifecycle detail
 - `approval.requested` / `approval.resolved` for human-gating flows
-- `agent.turn.completed` for per-LLM-turn cost ledgers in `agent_loop` runs
+- `turn.completed` for per-LLM-turn cost ledgers in `agent_loop` runs
 - `run.resumed_from_event` for resume / retry-from-turn chains
 
 ## Queue execution model

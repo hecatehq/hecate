@@ -839,13 +839,13 @@ earn a separate RFC or graduate into a later protocol version.
 
 ## Migration from current events
 
-Current Hecate emits a smaller set of events: `run.started`, `run.finished`, `agent.turn.completed`, `mcp.tool.dispatched`, `mcp.tool.failed`, `mcp.tool.blocked`, `approval.requested`, `run.reconciled_restart_requeued`, `run.throttled_concurrency`. Mapping:
+Current Hecate emits a smaller set of events: `run.started`, `run.finished`, `turn.completed`, `mcp.tool.dispatched`, `mcp.tool.failed`, `mcp.tool.blocked`, `approval.requested`, `run.reconciled_restart_requeued`, `run.throttled_concurrency`. Mapping:
 
 | Current | v1 |
 |---|---|
 | `run.started` | `run.started` (envelope rewrap) |
 | `run.finished` | `run.finished` |
-| `agent.turn.completed` | `turn.completed` |
+| `turn.completed` | `turn.completed` |
 | `mcp.tool.dispatched` | `tool.invoked` + `tool.mcp.invoked` |
 | `mcp.tool.failed` | `tool.failed` |
 | `mcp.tool.blocked` | `policy.tool_blocked` |

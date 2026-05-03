@@ -411,7 +411,7 @@ func (e *AgentLoopExecutor) Execute(ctx context.Context, spec ExecutionSpec) (*E
 			allSteps = append(allSteps, thinkingStep)
 
 			// Per-turn cost record. We surface this on ExecutionResult
-			// so the runner can emit one `agent.turn.completed` event
+			// so the runner can emit one `turn.completed` event
 			// per turn for replay/operator UIs. CumulativeMicrosUSD is
 			// this-run-only; the runner adds priorCost when emitting.
 			turnCosts = append(turnCosts, TurnCostRecord{

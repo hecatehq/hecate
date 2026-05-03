@@ -1425,7 +1425,7 @@ func TestAgentLoop_TurnCostRecords_CapturedPerTurn(t *testing.T) {
 	// Per-turn cost telemetry: the loop must surface a TurnCostRecord
 	// for each LLM round-trip, including the assistant step ID and
 	// the running cumulative for this run. The runner consumes these
-	// to emit `agent.turn.completed` events.
+	// to emit `turn.completed` events.
 	respWithCost := func(content string, cost int64, calls ...types.ToolCall) *types.ChatResponse {
 		msg := makeAssistantMsg(content, calls...)
 		r := makeChatResp(msg)
