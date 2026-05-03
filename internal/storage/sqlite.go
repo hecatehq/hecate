@@ -54,9 +54,8 @@ type SQLiteConfig struct {
 	BusyTimeout time.Duration
 }
 
-// SQLiteClient mirrors PostgresClient in shape — same Close/DB/QualifiedTable/
-// TableName surface — so the per-subsystem stores can take either one
-// without their callers caring. SQLite has no schemas, so QualifiedTable
+// SQLiteClient exposes the shared Close/DB/QualifiedTable/TableName
+// surface used by durable subsystem stores. SQLite has no schemas, so QualifiedTable
 // just returns the prefixed table name with no schema namespace.
 type SQLiteClient struct {
 	db          *sql.DB
@@ -76,7 +75,7 @@ type SQLiteClient struct {
 //     need a timeout > 0 so concurrent transactions wait instead of
 //     erroring out.
 //   - foreign_keys ON: SQLite ships with FKs disabled by default, which
-//     is a footgun for anyone porting Postgres-shaped schemas.
+//     is a footgun for persisted relational state.
 func NewSQLiteClient(ctx context.Context, cfg SQLiteConfig) (*SQLiteClient, error) {
 	path := strings.TrimSpace(cfg.Path)
 	if path == "" {

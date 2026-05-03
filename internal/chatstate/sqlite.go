@@ -13,12 +13,10 @@ import (
 	"github.com/hecate/agent-runtime/pkg/types"
 )
 
-// SQLiteStore mirrors PostgresStore — same Store-interface surface, same
-// sessions / messages / provider_calls table shape — so the gateway can
-// swap chat-session backends purely via config without touching call
-// sites.
+// SQLiteStore mirrors the memory Store-interface surface with durable
+// sessions / messages / provider_calls tables.
 //
-// Differences from the Postgres flavor that aren't accidental:
+// SQLite-specific choices that aren't accidental:
 //   - placeholders are `?` rather than `$N`.
 //   - timestamp columns are TEXT (SQLite has no TIMESTAMPTZ); the driver
 //     handles time.Time round-tripping via RFC3339-style encoding.
@@ -538,8 +536,8 @@ func (s *SQLiteStore) loadMessages(ctx context.Context, sessionID string) ([]typ
 }
 
 // attachLatestCalls populates the most-recent ProviderCall on each
-// session in items with a single query (avoiding N+1). SQLite's
-// equivalent of Postgres's DISTINCT ON is a correlated subquery.
+// session in items with a single query (avoiding N+1). SQLite uses a
+// correlated subquery to select each session's latest provider call.
 func (s *SQLiteStore) attachLatestCalls(ctx context.Context, items []types.ChatSession) error {
 	if len(items) == 0 {
 		return nil

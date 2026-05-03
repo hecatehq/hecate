@@ -1,2 +1,2 @@
-// Package storage contains durable backend clients and helpers for Postgres and SQLite.
+// Package storage contains durable backend clients and helpers for SQLite.
 package storage

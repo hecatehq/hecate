@@ -20,7 +20,7 @@ type pricebookImporter func(ctx context.Context) ([]config.ModelPriceConfig, err
 
 // PricebookImportStore is the subset of controlplane.Store the importer
 // needs. Pulled out so the auto-import scheduler can be tested with a
-// thin fake instead of a full Postgres/SQLite stack.
+// thin fake instead of a full durable control-plane stack.
 type PricebookImportStore interface {
 	Snapshot(ctx context.Context) (controlplane.State, error)
 	UpsertPricebookEntry(ctx context.Context, entry config.ModelPriceConfig) (config.ModelPriceConfig, error)

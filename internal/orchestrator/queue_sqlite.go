@@ -10,14 +10,12 @@ import (
 	"github.com/hecate/agent-runtime/internal/storage"
 )
 
-// SQLiteRunQueue mirrors PostgresRunQueue — same RunQueue surface, same
-// pending/leased status shape, same lease-based reclaim semantics — so
-// the orchestrator can swap queue backends purely via config.
+// SQLiteRunQueue mirrors the in-memory RunQueue surface with durable
+// pending/leased status and lease-based reclaim semantics.
 //
-// Differences from the Postgres flavor that aren't accidental:
+// SQLite-specific choices that aren't accidental:
 //   - placeholders are `?` rather than `$N`.
-//   - id column is INTEGER PRIMARY KEY AUTOINCREMENT (the SQLite idiom)
-//     instead of BIGSERIAL.
+//   - id column is INTEGER PRIMARY KEY AUTOINCREMENT (the SQLite idiom).
 //   - timestamps are stored as TEXT (RFC3339Nano) rather than TIMESTAMPTZ.
 //     SQLite has no native timestamp type; storing strings keeps the
 //     ordering correct (RFC3339 sorts lexicographically) and dodges the
@@ -179,8 +177,8 @@ func (q *SQLiteRunQueue) Ack(ctx context.Context, claimID string) error {
 
 func (q *SQLiteRunQueue) Nack(ctx context.Context, claimID, reason string) error {
 	now := time.Now().UTC()
-	// Mirror the Postgres 200ms backoff so a flapping job doesn't
-	// immediately re-claim itself in a tight loop.
+	// Back off briefly so a flapping job doesn't immediately re-claim
+	// itself in a tight loop.
 	availableAt := now.Add(200 * time.Millisecond).Format(time.RFC3339Nano)
 	nowStr := now.Format(time.RFC3339Nano)
 	_, err := q.db.ExecContext(ctx, fmt.Sprintf(`
@@ -218,8 +216,8 @@ func (q *SQLiteRunQueue) Depth(ctx context.Context) (int, error) {
 	return count, err
 }
 
-// Capacity reports zero because SQLite (like Postgres) has no in-memory
-// channel-style cap — depth is only bounded by disk. The orchestrator
+// Capacity reports zero because SQLite has no in-memory channel-style
+// cap — depth is only bounded by disk. The orchestrator
 // uses this signal solely to gate the bounded MemoryRunQueue.
 func (q *SQLiteRunQueue) Capacity() int {
 	return 0

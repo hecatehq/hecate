@@ -28,7 +28,7 @@ type GatewayClient struct {
 
 // NewGatewayClient constructs a GatewayClient with a default 30-second
 // timeout. The timeout is deliberately generous: queue-stat queries
-// can be slow on a busy postgres-backed deploy, and the MCP client
+// can be slow on a busy durable-store deploy, and the MCP client
 // (Claude Desktop / Cursor) has its own user-facing wait UI.
 func NewGatewayClient(baseURL, token string) *GatewayClient {
 	return &GatewayClient{

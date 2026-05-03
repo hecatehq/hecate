@@ -90,8 +90,8 @@ func (s *SQLiteHistoryStore) ListRuns(ctx context.Context, limit int) ([]History
 	}
 	defer rows.Close()
 
-	// Pre-allocate to the constant cap (see Postgres-store note for the
-	// CodeQL rationale — same applies here).
+	// Pre-allocate to the constant cap so user-controlled values never
+	// reach make()'s size argument.
 	records := make([]HistoryRecord, 0, maxHistoryListLimit)
 	for rows.Next() {
 		var record HistoryRecord

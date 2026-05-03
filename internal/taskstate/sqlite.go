@@ -12,18 +12,17 @@ import (
 	"github.com/hecate/agent-runtime/pkg/types"
 )
 
-// SQLiteStore mirrors PostgresStore — same Store-interface surface, same
-// JSON-payload column shape — so the gateway can swap task-state backends
-// purely via config without touching call sites.
+// SQLiteStore mirrors the memory Store-interface surface with durable
+// JSON-payload task-state tables.
 //
-// Differences from the Postgres flavor that aren't accidental:
+// SQLite-specific choices that aren't accidental:
 //   - payload columns are TEXT (SQLite has no JSONB; JSON1 functions still
 //     work over plain TEXT for any future querying needs).
 //   - run_events.sequence is `INTEGER PRIMARY KEY AUTOINCREMENT` instead of
 //     BIGSERIAL — the SQLite idiom for monotonic row ids.
 //   - placeholders are `?` rather than `$N`.
-//   - status-set filtering uses `status IN (?, ?, ...)` rather than the
-//     Postgres `status = ANY($N)` form, since SQLite lacks array params.
+//   - status-set filtering uses `status IN (?, ?, ...)` because SQLite
+//     lacks array params.
 type SQLiteStore struct {
 	db             *sql.DB
 	tasksTable     string
@@ -505,8 +504,8 @@ func (s *SQLiteStore) AppendRunEvent(ctx context.Context, event types.TaskRunEve
 		return types.TaskRunEvent{}, err
 	}
 	// modernc.org/sqlite ships SQLite >= 3.35, so RETURNING works. We
-	// could also use LastInsertId() here, but RETURNING keeps the shape
-	// identical to the Postgres analog.
+	// could also use LastInsertId() here, but RETURNING keeps the insert
+	// and readback in one statement.
 	//
 	// We format the timestamp as RFC3339Nano text rather than binding a
 	// time.Time directly: the driver's default time-to-text mapping

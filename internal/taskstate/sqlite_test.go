@@ -509,10 +509,7 @@ func TestSQLiteStore_DeleteTaskCascades(t *testing.T) {
 // the sqlite backend's JSON-blob storage path. The pkg/types/task
 // JSON-round-trip test pins the marshaling contract on the type
 // itself; this test pins the actual storage layer (write JSON,
-// read JSON, deep-equal). Postgres uses the identical
-// json.Marshal/json.Unmarshal pair on its blob column, so this
-// test covers that backend's contract by construction — same code
-// path, no per-backend variance.
+// read JSON, deep-equal).
 //
 // Catches: a regression where someone changes a Task field tag,
 // adds an unmarshal hook that mishandles a default value, or

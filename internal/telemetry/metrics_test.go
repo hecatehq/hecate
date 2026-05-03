@@ -493,7 +493,7 @@ func TestOrchestratorMetricsQueueWaitAttributeDimension(t *testing.T) {
 	}
 
 	om.RecordQueueWait(context.Background(), QueueWaitRecord{
-		QueueBackend: "postgres",
+		QueueBackend: "sqlite",
 		WaitMS:       250,
 	})
 
@@ -506,8 +506,8 @@ func TestOrchestratorMetricsQueueWaitAttributeDimension(t *testing.T) {
 	if wait.DataPoints[0].Sum != 250 {
 		t.Errorf("queue wait sum = %d, want 250", wait.DataPoints[0].Sum)
 	}
-	if got := attrValue(wait.DataPoints[0].Attributes, AttrHecateQueueBackend); got != "postgres" {
-		t.Errorf("%s = %q, want postgres", AttrHecateQueueBackend, got)
+	if got := attrValue(wait.DataPoints[0].Attributes, AttrHecateQueueBackend); got != "sqlite" {
+		t.Errorf("%s = %q, want sqlite", AttrHecateQueueBackend, got)
 	}
 }
 
