@@ -51,13 +51,7 @@ pub struct GatewayHandle {
 fn resolve_binary() -> Result<PathBuf, String> {
     // 1. Explicit override.
     if let Ok(p) = std::env::var("GATEWAY_BIN") {
-        let path = PathBuf::from(&p);
-        if path.is_file() {
-            return Ok(path);
-        }
-        return Err(format!(
-            "GATEWAY_BIN={p} does not point to an existing file"
-        ));
+        return resolve_env_binary_path(&p);
     }
 
     // 2. Debug build: walk up from the Cargo manifest directory to find the
@@ -112,6 +106,16 @@ fn resolve_binary() -> Result<PathBuf, String> {
     }
 }
 
+fn resolve_env_binary_path(value: &str) -> Result<PathBuf, String> {
+    let path = PathBuf::from(value);
+    if path.is_file() {
+        return Ok(path);
+    }
+    Err(format!(
+        "GATEWAY_BIN={value} does not point to an existing file"
+    ))
+}
+
 /// Find a free loopback port. Binds to 127.0.0.1:0, records the assigned
 /// port, then drops the listener. There is a small TOCTOU window between the
 /// drop and the gateway's bind; in practice this is negligible on a desktop.
@@ -138,11 +142,14 @@ pub fn resolve_paths(app: &AppHandle) -> Result<GatewayPaths, String> {
         .map_err(|e| format!("cannot resolve app data directory: {e}"))?;
     std::fs::create_dir_all(&dir)
         .map_err(|e| format!("cannot create data directory {dir:?}: {e}"))?;
-    let log_path = dir.join("gateway.log");
-    Ok(GatewayPaths {
+    Ok(paths_for_data_dir(dir))
+}
+
+fn paths_for_data_dir(dir: PathBuf) -> GatewayPaths {
+    GatewayPaths {
+        log_path: dir.join("gateway.log"),
         data_dir: dir,
-        log_path,
-    })
+    }
 }
 
 /// Spawn the gateway binary and block (async) until `/healthz` responds 200
@@ -207,5 +214,67 @@ pub async fn spawn_and_wait(app: &AppHandle) -> Result<GatewayHandle, String> {
             }
             _ => tokio::time::sleep(Duration::from_millis(250)).await,
         }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::{free_port, paths_for_data_dir, resolve_env_binary_path};
+    use std::fs;
+    use std::net::TcpListener;
+    use std::path::PathBuf;
+    use std::time::{SystemTime, UNIX_EPOCH};
+
+    fn temp_path(name: &str) -> PathBuf {
+        let suffix = SystemTime::now()
+            .duration_since(UNIX_EPOCH)
+            .expect("system time should be after unix epoch")
+            .as_nanos();
+        std::env::temp_dir().join(format!(
+            "hecate-sidecar-test-{}-{suffix}-{name}",
+            std::process::id()
+        ))
+    }
+
+    #[test]
+    fn test_sidecar_resolve_env_binary_path_accepts_existing_file() {
+        let path = temp_path("gateway");
+        fs::write(&path, b"test gateway").expect("write temp gateway");
+
+        let resolved = resolve_env_binary_path(path.to_str().expect("utf8 path"))
+            .expect("existing file should resolve");
+
+        assert_eq!(resolved, path);
+        let _ = fs::remove_file(resolved);
+    }
+
+    #[test]
+    fn test_sidecar_resolve_env_binary_path_rejects_missing_file() {
+        let path = temp_path("missing-gateway");
+
+        let err = resolve_env_binary_path(path.to_str().expect("utf8 path"))
+            .expect_err("missing file should fail");
+
+        assert!(err.contains("GATEWAY_BIN="));
+        assert!(err.contains("does not point to an existing file"));
+    }
+
+    #[test]
+    fn test_sidecar_paths_for_data_dir_adds_gateway_log() {
+        let data_dir = temp_path("data-dir");
+
+        let paths = paths_for_data_dir(data_dir.clone());
+
+        assert_eq!(paths.data_dir, data_dir);
+        assert_eq!(paths.log_path, paths.data_dir.join("gateway.log"));
+    }
+
+    #[test]
+    fn test_sidecar_free_port_returns_bindable_loopback_port() {
+        let port = free_port().expect("free port");
+        let listener = TcpListener::bind(("127.0.0.1", port))
+            .expect("reported free port should be bindable");
+
+        drop(listener);
     }
 }
