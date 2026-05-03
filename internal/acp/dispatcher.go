@@ -21,7 +21,7 @@ type Dispatcher struct {
 	mu                     sync.Mutex
 	nextPermissionSequence int64
 	pendingPermissions     map[string]pendingPermission
-	pendingApprovalIDs     map[string]string
+	requestedApprovalIDs   map[string]string
 }
 
 type pendingPermission struct {
@@ -50,11 +50,11 @@ func NewDispatcher(gateway GatewayClient, sessions *SessionStore, cfg Config) *D
 		cfg.ApprovalRoute = "editor"
 	}
 	return &Dispatcher{
-		sessions:           sessions,
-		gateway:            gateway,
-		cfg:                cfg,
-		pendingPermissions: make(map[string]pendingPermission),
-		pendingApprovalIDs: make(map[string]string),
+		sessions:             sessions,
+		gateway:              gateway,
+		cfg:                  cfg,
+		pendingPermissions:   make(map[string]pendingPermission),
+		requestedApprovalIDs: make(map[string]string),
 	}
 }
 
@@ -300,12 +300,12 @@ func (d *Dispatcher) trackPendingPermission(params PermissionRequestParams) (str
 	approvalKey := params.TaskID + "/" + params.RunID + "/" + params.ApprovalID
 	d.mu.Lock()
 	defer d.mu.Unlock()
-	if id := d.pendingApprovalIDs[approvalKey]; id != "" {
+	if id := d.requestedApprovalIDs[approvalKey]; id != "" {
 		return id, false
 	}
 	d.nextPermissionSequence++
 	id := fmt.Sprintf("permission-%d", d.nextPermissionSequence)
-	d.pendingApprovalIDs[approvalKey] = id
+	d.requestedApprovalIDs[approvalKey] = id
 	d.pendingPermissions[id] = pendingPermission{
 		SessionID:  params.SessionID,
 		TaskID:     params.TaskID,
@@ -323,7 +323,6 @@ func (d *Dispatcher) takePendingPermission(id string) (pendingPermission, bool) 
 		return pendingPermission{}, false
 	}
 	delete(d.pendingPermissions, id)
-	delete(d.pendingApprovalIDs, pending.TaskID+"/"+pending.RunID+"/"+pending.ApprovalID)
 	return pending, true
 }
 
