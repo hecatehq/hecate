@@ -1032,11 +1032,15 @@ export function AgentAdapterPicker({
   value,
   onChange,
   adapters,
+  disabled = false,
+  disabledReason = "",
   triggerWidth = 170,
 }: {
   value: string;
   onChange: (v: string) => void;
   adapters: AgentAdapterRecord[];
+  disabled?: boolean;
+  disabledReason?: string;
   triggerWidth?: number;
 }) {
   const [open, setOpen] = useState(false);
@@ -1058,6 +1062,7 @@ export function AgentAdapterPicker({
   const selected = adapters.find((adapter) => adapter.id === value);
   const label = selected?.name ?? "select agent";
   const isEmpty = adapters.length === 0;
+  const locked = disabled || isEmpty;
 
   return (
     <div className="dropdown-wrap" ref={ref}>
@@ -1065,25 +1070,25 @@ export function AgentAdapterPicker({
         ref={triggerRef}
         aria-label="External agent adapter"
         className="btn btn-ghost btn-sm"
-        disabled={isEmpty}
-        onClick={() => { if (!isEmpty) setOpen((current) => !current); }}
+        disabled={locked}
+        onClick={() => { if (!locked) setOpen((current) => !current); }}
         style={{
           fontFamily: "var(--font-mono)",
           fontSize: 11,
           gap: 5,
-          color: isEmpty ? "var(--t3)" : "var(--t1)",
+          color: locked ? "var(--t3)" : "var(--t1)",
           width: triggerWidth,
-          opacity: isEmpty ? 0.6 : undefined,
-          cursor: isEmpty ? "not-allowed" : undefined,
+          opacity: locked ? 0.7 : undefined,
+          cursor: locked ? "not-allowed" : undefined,
         }}
-        title={isEmpty ? "No external agent adapters are registered" : label}
+        title={isEmpty ? "No external agent adapters are registered" : disabledReason || label}
         type="button"
       >
         <Icon d={Icons.terminal} size={13} />
         <span style={{ flex: 1, minWidth: 0, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap", textAlign: "left" }}>
           {label}
         </span>
-        <Icon d={Icons.chevD} size={11} />
+        {!locked && <Icon d={Icons.chevD} size={11} />}
       </button>
       {open && floatingStyle && (
         <div className="dropdown-menu dropdown-menu-floating" style={{ ...floatingStyle, minWidth: 220 }}>
