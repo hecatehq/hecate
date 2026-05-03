@@ -34,7 +34,7 @@ func TestWriteGatewayRuntimeState(t *testing.T) {
 	if err != nil {
 		t.Fatalf("writeGatewayRuntimeState() error = %v", err)
 	}
-	if path != filepath.Join(dir, gatewayStateFile) {
+	if path != filepath.Join(dir, hecateRuntimeFile) {
 		t.Fatalf("state path = %q", path)
 	}
 

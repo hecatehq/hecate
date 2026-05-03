@@ -15,7 +15,7 @@
 //   4. Spawn the gateway (std::process::Child — sync, so kill() works from
 //      the window-close event handler without needing an async runtime).
 //   5. Poll /healthz every 250 ms (async reqwest) with a 30 s hard deadline.
-//   6. Pass GATEWAY_PUBLIC_URL so gateway-state.json advertises the sidecar URL.
+//   6. Pass GATEWAY_PUBLIC_URL so hecate.runtime.json advertises the sidecar URL.
 //   7. On success return the base URL + Child handle. Caller is responsible
 //      for calling child.kill() when the app exits.
 
@@ -160,7 +160,7 @@ pub fn diagnostic_paths(app: &AppHandle) -> Result<GatewayPaths, String> {
 fn paths_for_data_dir(dir: PathBuf) -> GatewayPaths {
     GatewayPaths {
         log_path: dir.join("gateway.log"),
-        state_path: dir.join("gateway-state.json"),
+        state_path: dir.join("hecate.runtime.json"),
         data_dir: dir,
     }
 }
@@ -169,7 +169,10 @@ pub fn remove_gateway_state(path: &std::path::Path) {
     match std::fs::remove_file(path) {
         Ok(()) => {}
         Err(err) if err.kind() == std::io::ErrorKind::NotFound => {}
-        Err(err) => eprintln!("failed to remove gateway state {}: {err}", path.display()),
+        Err(err) => eprintln!(
+            "failed to remove hecate runtime state {}: {err}",
+            path.display()
+        ),
     }
 }
 
@@ -289,7 +292,7 @@ mod tests {
 
         assert_eq!(paths.data_dir, data_dir);
         assert_eq!(paths.log_path, paths.data_dir.join("gateway.log"));
-        assert_eq!(paths.state_path, paths.data_dir.join("gateway-state.json"));
+        assert_eq!(paths.state_path, paths.data_dir.join("hecate.runtime.json"));
     }
 
     #[test]

@@ -289,7 +289,7 @@ func main() {
 	}
 	gatewayStatePath, err := writeGatewayRuntimeState(cfg.Server.DataDir, listener.Addr().String(), cfg.Server.PublicURL)
 	if err != nil {
-		logger.Warn("gateway runtime state write failed", slog.Any("error", err))
+		logger.Warn("hecate runtime state write failed", slog.Any("error", err))
 	} else {
 		defer removeGatewayRuntimeState(gatewayStatePath)
 	}
@@ -298,7 +298,7 @@ func main() {
 		logger.Info("gateway starting",
 			slog.String("addr", cfg.Server.Address),
 			slog.String("listen_addr", listener.Addr().String()),
-			slog.String("gateway_state_path", gatewayStatePath),
+			slog.String("hecate.runtime.path", gatewayStatePath),
 			slog.String("default_model", cfg.Router.DefaultModel),
 			slog.Int("provider_max_attempts", cfg.Provider.MaxAttempts),
 			slog.Bool("provider_failover_enabled", cfg.Provider.FailoverEnabled),

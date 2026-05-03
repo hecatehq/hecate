@@ -26,7 +26,7 @@ const (
 	defaultHTTPTimeout   = 10 * time.Second
 	discoveryHTTPTimeout = 500 * time.Millisecond
 	nativeAppID          = "io.github.chicoxyzzy.hecate"
-	gatewayStateFileName = "gateway-state.json"
+	hecateRuntimeFile    = "hecate.runtime.json"
 	maxMessageBytes      = 4 << 20
 )
 
@@ -76,12 +76,12 @@ func configFromEnv() (bridgeConfig, error) {
 }
 
 func discoverGatewayURL() string {
-	return discoverGatewayURLFromStatePaths(gatewayStateCandidatePaths(), gatewayHealthy)
+	return discoverGatewayURLFromRuntimePaths(hecateRuntimeCandidatePaths(), gatewayHealthy)
 }
 
-func discoverGatewayURLFromStatePaths(paths []string, healthy func(string) bool) string {
-	for _, statePath := range paths {
-		baseURL, err := gatewayURLFromStateFile(statePath)
+func discoverGatewayURLFromRuntimePaths(paths []string, healthy func(string) bool) string {
+	for _, runtimePath := range paths {
+		baseURL, err := gatewayURLFromRuntimeFile(runtimePath)
 		if err != nil {
 			continue
 		}
@@ -92,15 +92,15 @@ func discoverGatewayURLFromStatePaths(paths []string, healthy func(string) bool)
 	return defaultGatewayURL
 }
 
-func gatewayStateCandidatePaths() []string {
+func hecateRuntimeCandidatePaths() []string {
 	var candidates []string
 	if dataDir := strings.TrimSpace(os.Getenv("GATEWAY_DATA_DIR")); dataDir != "" {
-		candidates = append(candidates, filepath.Join(dataDir, gatewayStateFileName))
+		candidates = append(candidates, filepath.Join(dataDir, hecateRuntimeFile))
 	}
 	if cwd, err := os.Getwd(); err == nil {
-		candidates = append(candidates, filepath.Join(cwd, ".data", gatewayStateFileName))
+		candidates = append(candidates, filepath.Join(cwd, ".data", hecateRuntimeFile))
 	}
-	if nativePath, err := nativeGatewayStatePath(); err == nil {
+	if nativePath, err := nativeHecateRuntimePath(); err == nil {
 		candidates = append(candidates, nativePath)
 	}
 	return uniqueNonEmptyStrings(candidates)
@@ -123,12 +123,12 @@ func uniqueNonEmptyStrings(values []string) []string {
 	return out
 }
 
-func nativeGatewayStatePath() (string, error) {
+func nativeHecateRuntimePath() (string, error) {
 	dir, err := nativeAppDataDir()
 	if err != nil {
 		return "", err
 	}
-	return filepath.Join(dir, gatewayStateFileName), nil
+	return filepath.Join(dir, hecateRuntimeFile), nil
 }
 
 func nativeAppDataDir() (string, error) {
@@ -158,8 +158,8 @@ func nativeAppDataDir() (string, error) {
 	}
 }
 
-func gatewayURLFromStateFile(statePath string) (string, error) {
-	raw, err := os.ReadFile(statePath)
+func gatewayURLFromRuntimeFile(runtimePath string) (string, error) {
+	raw, err := os.ReadFile(runtimePath)
 	if err != nil {
 		return "", err
 	}

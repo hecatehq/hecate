@@ -52,13 +52,13 @@ TODO:
 ## Distribution and lifecycle
 
 `hecate-acp` ships as a separate binary in the Go release tarballs, next to
-`gateway`. The Docker image and native desktop app also include it, so each
+`hecate`. The Docker image and native desktop app also include it, so each
 distribution shape carries the same gateway plus ACP bridge pair. ACP hosts
 still launch the bridge themselves over stdio.
 
 That split is deliberate:
 
-- The desktop app owns the gateway lifecycle: launch Hecate, start `gateway`,
+- The desktop app owns the gateway lifecycle: launch Hecate, start `hecate`,
   open the UI, stop the process when the app exits.
 - ACP clients own the bridge lifecycle: Zed, JetBrains, or another ACP host
   starts `hecate-acp` over stdio and stops it when the editor session ends.
@@ -66,8 +66,12 @@ That split is deliberate:
 Install the bridge somewhere stable and point the editor's ACP configuration at
 that executable. The bridge talks to a running Hecate gateway. If
 `HECATE_GATEWAY_URL` is set, it wins; otherwise the bridge checks
-`gateway-state.json` from the gateway data dir, then the native app data dir,
+`hecate.runtime.json` from the gateway data dir, then the native app data dir,
 then falls back to `http://127.0.0.1:8765`.
+
+Prefer `HECATE_GATEWAY_URL` when a parent process or launcher already knows the
+gateway URL. The runtime file is intentionally only an ephemeral discovery
+fallback for independently launched ACP hosts.
 
 ## Gateway launch options
 
@@ -76,13 +80,13 @@ Hecate first using whichever distribution fits your setup:
 
 | Setup | How to start Hecate | Bridge config |
 |---|---|---|
-| Native app | Open the Hecate desktop app | Omit `HECATE_GATEWAY_URL`; the bridge discovers the dynamic sidecar URL from `gateway-state.json`. |
+| Native app | Open the Hecate desktop app | Omit `HECATE_GATEWAY_URL`; the bridge discovers the dynamic sidecar URL from `hecate.runtime.json`. |
 | Release tarball | Run `./hecate` from the unpacked tarball | Usually omit `HECATE_GATEWAY_URL`; default fallback is `http://127.0.0.1:8765`. Set it only if you changed the port or URL. |
-| Source checkout | Run `make dev` | Usually omit `HECATE_GATEWAY_URL`; the bridge checks `.data/gateway-state.json` and then falls back to `http://127.0.0.1:8765`. |
+| Source checkout | Run `make dev` | Usually omit `HECATE_GATEWAY_URL`; the bridge checks `.data/hecate.runtime.json` and then falls back to `http://127.0.0.1:8765`. |
 | Docker / Compose | Run `docker compose up` or `docker run -p 8765:8765 ...` | Set `HECATE_GATEWAY_URL=http://127.0.0.1:8765` in the editor config unless the bridge is running inside the same container. |
 | Reverse proxy | Run Hecate behind your proxy | Set `HECATE_GATEWAY_URL` to the proxy URL. |
 
-The gateway state file contains the active `base_url`, for example:
+The runtime discovery file contains the active `base_url`, for example:
 
 ```json
 {
@@ -95,12 +99,12 @@ The gateway state file contains the active `base_url`, for example:
 
 For the native app, this file lives in the platform app data directory:
 
-- macOS: `~/Library/Application Support/io.github.chicoxyzzy.hecate/gateway-state.json`
-- Linux: `~/.local/share/io.github.chicoxyzzy.hecate/gateway-state.json`
-- Windows: `%APPDATA%\io.github.chicoxyzzy.hecate\gateway-state.json`
+- macOS: `~/Library/Application Support/io.github.chicoxyzzy.hecate/hecate.runtime.json`
+- Linux: `~/.local/share/io.github.chicoxyzzy.hecate/hecate.runtime.json`
+- Windows: `%APPDATA%\io.github.chicoxyzzy.hecate\hecate.runtime.json`
 
 For source, tarball, and Docker runs, it lives under `GATEWAY_DATA_DIR`
-(`.data/gateway-state.json` by default for local runs, `/data/gateway-state.json`
+(`.data/hecate.runtime.json` by default for local runs, `/data/hecate.runtime.json`
 inside the Docker image).
 
 ## Zed setup

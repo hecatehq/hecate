@@ -67,7 +67,7 @@ Available tarballs for `v0.1.0-alpha.10`:
 Each tarball includes `hecate`, `hecate-acp`, `LICENSE`, and `README.md`.
 Verify integrity against `checksums.txt` published alongside the release.
 
-The gateway writes `gateway-state.json` into `GATEWAY_DATA_DIR` on startup.
+The gateway writes `hecate.runtime.json` into `GATEWAY_DATA_DIR` on startup.
 Local helper processes such as `hecate-acp` use it to discover the active
 gateway URL before falling back to `http://127.0.0.1:8765`.
 

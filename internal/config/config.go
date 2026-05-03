@@ -299,7 +299,7 @@ func LoadFromEnv() Config {
 	return Config{
 		Server: ServerConfig{
 			Address: getEnv("GATEWAY_ADDRESS", "127.0.0.1:8765"),
-			// PublicURL is written to gateway-state.json so local helper
+			// PublicURL is written to hecate.runtime.json so local helper
 			// processes such as hecate-acp can discover the externally
 			// reachable gateway URL. Empty means derive from Address.
 			PublicURL: getEnv("GATEWAY_PUBLIC_URL", ""),

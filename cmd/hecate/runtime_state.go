@@ -11,7 +11,7 @@ import (
 	"time"
 )
 
-const gatewayStateFile = "gateway-state.json"
+const hecateRuntimeFile = "hecate.runtime.json"
 
 type gatewayRuntimeState struct {
 	BaseURL     string `json:"base_url"`
@@ -28,7 +28,7 @@ func writeGatewayRuntimeState(dataDir, listenAddr, publicURL string) (string, er
 	if err := os.MkdirAll(dataDir, 0o700); err != nil {
 		return "", fmt.Errorf("create data dir: %w", err)
 	}
-	path := filepath.Join(dataDir, gatewayStateFile)
+	path := filepath.Join(dataDir, hecateRuntimeFile)
 	payload, err := json.MarshalIndent(gatewayRuntimeState{
 		BaseURL:     baseURL,
 		ListenAddr:  listenAddr,
@@ -36,11 +36,11 @@ func writeGatewayRuntimeState(dataDir, listenAddr, publicURL string) (string, er
 		UpdatedUnix: time.Now().Unix(),
 	}, "", "  ")
 	if err != nil {
-		return "", fmt.Errorf("encode gateway state: %w", err)
+		return "", fmt.Errorf("encode hecate runtime state: %w", err)
 	}
 	payload = append(payload, '\n')
 	if err := os.WriteFile(path, payload, 0o600); err != nil {
-		return "", fmt.Errorf("write gateway state: %w", err)
+		return "", fmt.Errorf("write hecate runtime state: %w", err)
 	}
 	return path, nil
 }
@@ -50,7 +50,7 @@ func removeGatewayRuntimeState(path string) {
 		return
 	}
 	if err := os.Remove(path); err != nil && !os.IsNotExist(err) {
-		fmt.Fprintf(os.Stderr, "gateway: failed to remove gateway state %s: %v\n", path, err)
+		fmt.Fprintf(os.Stderr, "hecate: failed to remove runtime state %s: %v\n", path, err)
 	}
 }
 
