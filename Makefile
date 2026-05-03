@@ -2,7 +2,7 @@ SHELL := /bin/sh
 
 GOCACHE_DIR := $(CURDIR)/.gocache
 
-.PHONY: test test-race vet coverage ui-coverage build run serve dev stop ui-install ui-dev ui-build ui-test ui-test-e2e test-acp-smoke test-docker-smoke docs-env-check check-links verify-alpha reset-dev reset-docker screenshots tauri-install tauri-version tauri-sidecar tauri-dev tauri-build
+.PHONY: test test-race vet coverage ui-coverage build build-acp run serve dev stop ui-install ui-dev ui-build ui-test ui-test-e2e test-acp-smoke test-docker-smoke docs-env-check check-links verify-alpha reset-dev reset-docker screenshots tauri-install tauri-version tauri-sidecar tauri-dev tauri-build
 
 # build produces a single self-contained gateway binary with the UI bundle
 # embedded. The UI is built first so //go:embed picks up the real assets;
@@ -11,6 +11,10 @@ GOCACHE_DIR := $(CURDIR)/.gocache
 build: ui-build
 	mkdir -p "$(GOCACHE_DIR)"
 	GOCACHE="$(GOCACHE_DIR)" go build -o gateway ./cmd/gateway
+
+build-acp:
+	mkdir -p "$(GOCACHE_DIR)"
+	GOCACHE="$(GOCACHE_DIR)" go build -o hecate-acp ./cmd/hecate-acp
 
 test:
 	mkdir -p "$(GOCACHE_DIR)"

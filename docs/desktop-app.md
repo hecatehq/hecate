@@ -6,6 +6,9 @@ used everywhere else: on launch, the Rust layer spawns the gateway as a
 companion process on a free loopback port, polls `/healthz`, then navigates a
 webview to `http://127.0.0.1:{port}/` where the gateway serves its embedded UI.
 
+The desktop app does **not** bundle `hecate-acp`. ACP clients launch that bridge
+binary themselves over stdio; release tarballs ship it next to `gateway`.
+
 Code: [`tauri/`](../tauri/) · agent guide: [`ai/skills/tauri/SKILL.md`](../ai/skills/tauri/SKILL.md) · CI: [`.github/workflows/release.yml`](../.github/workflows/release.yml), [`.github/workflows/tauri-build.yml`](../.github/workflows/tauri-build.yml).
 
 ## Distribution
