@@ -145,7 +145,16 @@ Unknown policy names are rejected at startup with a clear error. Empty value dis
 - `POST /v1/tasks/{id}/runs/{run_id}/events`
 - `GET /v1/tasks/{id}/runs/{run_id}/stream?after_sequence=<n>`
 
-Stream resume also supports `Last-Event-ID`. Each SSE snapshot carries the run state, current steps, current artifacts, AND any approvals scoped to that run — so the operator UI can drive the approval banner directly off the SSE without a separate refetch (`TaskRunStreamEventData.Approvals`).
+The JSON list returns agent event protocol v1 envelopes:
+`schema_version`, `event_id`, `task_id`, `run_id`, `sequence`,
+`occurred_at`, `type`, and `data`.
+
+Stream resume also supports `Last-Event-ID`. The per-run state stream is still
+snapshot-oriented: each SSE snapshot carries the run state, current steps,
+current artifacts, and any approvals scoped to that run — so the operator UI can
+drive the approval banner directly off the SSE without a separate refetch
+(`TaskRunStreamEventData.Approvals`). The snapshot's `event_type` mirrors the
+persisted event that produced it.
 
 ### Public events feed
 
@@ -154,7 +163,9 @@ For external dashboards (Grafana, Slack notifiers, audit log shippers) that want
 - `GET /v1/events?event_type=<csv>&task_id=<id>&after_sequence=<n>&limit=<n>` — paginated JSON list with cursor-based pagination
 - `GET /v1/events/stream?event_type=<csv>` — long-lived SSE feed; reconnect via `Last-Event-ID`
 
-Filters AND together; within a slice (`event_type` is comma-separated) the match is OR. `after_sequence` is the global event sequence cursor, strictly greater.
+Both endpoints emit the same v1 event envelopes as the per-run event list.
+Filters AND together; within a slice (`event_type` is comma-separated) the match
+is OR. `after_sequence` is the event sequence cursor, strictly greater.
 
 ### Event types
 

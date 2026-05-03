@@ -411,24 +411,17 @@ export function TaskDetail({
             <div className="kicker" style={{ marginBottom: 8 }}>Run timeline</div>
             <div style={{ display: "flex", flexDirection: "column", gap: 8 }}>
               {events.slice().sort((left, right) => left.sequence - right.sequence).map((event) => {
-                const meta = describeRunEvent(event.event_type);
+                const meta = describeRunEvent(event.type);
                 return (
-                  <div key={event.id || `${event.sequence}-${event.event_type}`} style={{ display: "grid", gridTemplateColumns: "64px 110px 1fr", gap: 10, alignItems: "start" }}>
+                  <div key={event.event_id || `${event.sequence}-${event.type}`} style={{ display: "grid", gridTemplateColumns: "64px 110px 1fr", gap: 10, alignItems: "start" }}>
                     <div style={{ fontFamily: "var(--font-mono)", fontSize: 10, color: "var(--t3)" }}>
                       #{event.sequence}
                     </div>
                     <Badge status={meta.tone} label={meta.label} />
                     <div style={{ minWidth: 0 }}>
                       <div style={{ fontFamily: "var(--font-mono)", fontSize: 11, color: "var(--t2)" }}>
-                        {event.created_at ? new Date(event.created_at).toLocaleTimeString() : "streamed"}
+                        {event.occurred_at ? new Date(event.occurred_at).toLocaleTimeString() : "streamed"}
                       </div>
-                      {(event.request_id || event.trace_id) && (
-                        <div style={{ fontFamily: "var(--font-mono)", fontSize: 10, color: "var(--t3)", marginTop: 2, wordBreak: "break-all" }}>
-                          {event.request_id ? `req ${event.request_id}` : ""}
-                          {event.request_id && event.trace_id ? " · " : ""}
-                          {event.trace_id ? `trace ${event.trace_id}` : ""}
-                        </div>
-                      )}
                       {(() => {
                         const note = describeRunEventNote(event);
                         return note ? (

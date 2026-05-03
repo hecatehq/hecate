@@ -1,6 +1,8 @@
 # Agent Event Protocol — v1 Candidate (RFC)
 
-> **Status:** draft / RFC. Partially implemented for shell tool events. Not stable. Not yet a frontend contract.
+> **Status:** draft / RFC. The v1 envelope is implemented for task run event
+> list and cross-run event endpoints. Payload schemas remain candidate-stage.
+> Not stable until Hecate starts publishing semver-backed API guarantees.
 > **Supersedes (when stable):** ad-hoc events documented in [`events.md`](events.md).
 > **Owner:** see [`AGENTS.md`](../AGENTS.md).
 
@@ -44,10 +46,10 @@ The draft envelope schema lives at
 Payload-specific schemas are intentionally deferred until runtime emitters are
 implemented.
 
-Implementation note: the shell executor currently emits the first typed slice
-(`tool.invoked`, `tool.started`, `tool.shell.*`, and terminal `tool.*` events)
-alongside the existing persisted run events. The rest of the candidate core
-remains RFC-only.
+Implementation note: Hecate maps persisted task run events to this envelope at
+the API boundary. The shell executor emits the first typed tool slice
+(`tool.invoked`, `tool.started`, `tool.shell.*`, and terminal `tool.*` events).
+Some candidate-core payloads remain RFC-only until their runtime emitters land.
 
 Before this document can be called v1 stable:
 

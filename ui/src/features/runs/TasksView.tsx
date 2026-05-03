@@ -169,13 +169,14 @@ export function TasksView() {
             return [
               ...cur,
               {
-                id: `stream-${payload.data.sequence}`,
+                schema_version: "1",
+                event_id: `stream-${payload.data.sequence}`,
                 task_id: selectedTaskID,
                 run_id: selectedRunID,
                 sequence: payload.data.sequence,
-                event_type: eventType,
-                request_id: payload.data.run.request_id,
-                trace_id: payload.data.run.trace_id,
+                occurred_at: new Date().toISOString(),
+                type: eventType,
+                data: {},
               },
             ];
           });

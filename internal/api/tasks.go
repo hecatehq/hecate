@@ -1,5 +1,7 @@
 package api
 
+import "github.com/hecate/agent-runtime/internal/eventprotocol"
+
 type CreateTaskRequest struct {
 	Title  string `json:"title"`
 	Prompt string `json:"prompt"`
@@ -88,11 +90,11 @@ type RetryFromTurnRequest struct {
 }
 
 type AppendTaskRunEventRequest struct {
-	EventType string         `json:"event_type"`
-	StepID    string         `json:"step_id"`
-	Status    string         `json:"status"`
-	Note      string         `json:"note"`
-	Data      map[string]any `json:"data"`
+	Type   string         `json:"type"`
+	StepID string         `json:"step_id"`
+	Status string         `json:"status"`
+	Note   string         `json:"note"`
+	Data   map[string]any `json:"data"`
 }
 
 type TaskResponse struct {
@@ -151,17 +153,15 @@ type TaskArtifactsResponse struct {
 }
 
 type TaskRunEventsResponse struct {
-	Object string             `json:"object"`
-	Data   []TaskRunEventItem `json:"data"`
+	Object string                   `json:"object"`
+	Data   []eventprotocol.Envelope `json:"data"`
 }
 
 // EventsResponse is the body of GET /v1/events — a paginated cross-run
-// event feed. Same item shape as TaskRunEventsResponse but typed
-// distinctly so downstream changes (e.g. adding tenant to the item)
-// can evolve independently.
+// event feed.
 type EventsResponse struct {
-	Object string             `json:"object"`
-	Data   []TaskRunEventItem `json:"data"`
+	Object string                   `json:"object"`
+	Data   []eventprotocol.Envelope `json:"data"`
 	// NextAfterSequence is the sequence to pass back as
 	// `after_sequence` to fetch the next page. Equals the highest
 	// sequence in Data; zero when Data is empty.
@@ -281,18 +281,6 @@ type TaskRunStreamTurnCost struct {
 	RunCumulativeMicrosUSD  int64  `json:"run_cumulative_cost_micros_usd"`
 	TaskCumulativeMicrosUSD int64  `json:"task_cumulative_cost_micros_usd"`
 	ToolCallCount           int    `json:"tool_call_count,omitempty"`
-}
-
-type TaskRunEventItem struct {
-	ID        string         `json:"id"`
-	TaskID    string         `json:"task_id"`
-	RunID     string         `json:"run_id"`
-	Sequence  int64          `json:"sequence"`
-	EventType string         `json:"event_type"`
-	Data      map[string]any `json:"data,omitempty"`
-	CreatedAt string         `json:"created_at,omitempty"`
-	RequestID string         `json:"request_id,omitempty"`
-	TraceID   string         `json:"trace_id,omitempty"`
 }
 
 type TaskStepItem struct {

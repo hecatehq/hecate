@@ -14,6 +14,7 @@ import (
 	"strings"
 	"time"
 
+	"github.com/hecate/agent-runtime/internal/eventprotocol"
 	"github.com/hecate/agent-runtime/internal/orchestrator"
 	"github.com/hecate/agent-runtime/internal/secrets"
 	"github.com/hecate/agent-runtime/internal/taskstate"
@@ -946,13 +947,9 @@ func (h *Handler) HandleTaskRunEvents(w http.ResponseWriter, r *http.Request) {
 		WriteError(w, http.StatusInternalServerError, errCodeGatewayError, err.Error())
 		return
 	}
-	items := make([]TaskRunEventItem, 0, len(events))
-	for _, event := range events {
-		items = append(items, renderTaskRunEvent(event))
-	}
 	WriteJSON(w, http.StatusOK, TaskRunEventsResponse{
 		Object: "task_run_events",
-		Data:   items,
+		Data:   eventprotocol.FromTaskRunEvents(events),
 	})
 }
 
@@ -970,7 +967,7 @@ func (h *Handler) HandleAppendTaskRunEvent(w http.ResponseWriter, r *http.Reques
 	if !decodeJSON(w, r, &req) {
 		return
 	}
-	eventType := strings.TrimSpace(req.EventType)
+	eventType := strings.TrimSpace(req.Type)
 	if eventType == "" {
 		eventType = "external.event"
 	}
@@ -1009,7 +1006,7 @@ func (h *Handler) HandleAppendTaskRunEvent(w http.ResponseWriter, r *http.Reques
 	}
 	WriteJSON(w, http.StatusOK, map[string]any{
 		"object": "task_run_event",
-		"data":   renderTaskRunEvent(event),
+		"data":   eventprotocol.FromTaskRunEvent(event),
 	})
 }
 
@@ -1586,23 +1583,6 @@ func renderTaskArtifact(artifact types.TaskArtifact) TaskArtifactItem {
 	}
 	if !artifact.CreatedAt.IsZero() {
 		item.CreatedAt = artifact.CreatedAt.UTC().Format(time.RFC3339Nano)
-	}
-	return item
-}
-
-func renderTaskRunEvent(event types.TaskRunEvent) TaskRunEventItem {
-	item := TaskRunEventItem{
-		ID:        event.ID,
-		TaskID:    event.TaskID,
-		RunID:     event.RunID,
-		Sequence:  event.Sequence,
-		EventType: event.EventType,
-		Data:      event.Data,
-		RequestID: event.RequestID,
-		TraceID:   event.TraceID,
-	}
-	if !event.CreatedAt.IsZero() {
-		item.CreatedAt = event.CreatedAt.UTC().Format(time.RFC3339Nano)
 	}
 	return item
 }

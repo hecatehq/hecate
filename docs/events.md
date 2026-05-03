@@ -2,6 +2,7 @@
 
 Reference for every event Hecate emits to its persisted run-event log, surfaced via:
 
+- `GET /v1/tasks/{id}/runs/{run_id}/events` — per-run JSON list
 - `GET /v1/tasks/{id}/runs/{run_id}/stream` — per-run SSE feed
 - `GET /v1/events` — paginated cross-run list with cursor pagination
 - `GET /v1/events/stream` — long-lived cross-run SSE feed
@@ -57,6 +58,25 @@ These are **persisted events** (rows in the `task_state_run_events` table). They
 | `snapshot` | Housekeeping | Per-run SSE handler periodically writes a state snapshot |
 | `external.event` | Caller-driven | Default type for events posted via `POST /v1/tasks/{id}/runs/{run_id}/events` |
 
+## Wire envelope
+
+JSON list and cross-run SSE endpoints return the agent event protocol v1
+envelope:
+
+| Field | Notes |
+|---|---|
+| `schema_version` | Currently `"1"` |
+| `event_id` | Stable opaque event id; generated from timestamp + persisted event identity |
+| `task_id`, `run_id` | Task/run correlation |
+| `sequence` | Persisted cursor; pass back as `after_sequence` |
+| `occurred_at` | RFC3339Nano UTC |
+| `type` | One of the event strings in this catalog |
+| `data` | Event-specific JSON object |
+
+Per-run state SSE (`/v1/tasks/{id}/runs/{run_id}/stream`) still emits
+`TaskRunStreamEventData` snapshots optimized for the operator UI. Its
+`event_type` field mirrors the persisted event that produced the snapshot.
+
 ## Common payload structure
 
 Every event written by the orchestrator (`emitRunEvent`) automatically merges three keys into its `data` map:
@@ -71,15 +91,15 @@ Subscribers can therefore reconstruct a complete state snapshot from any single 
 
 Caller-driven events (`POST /v1/tasks/.../events`) instead serialize the rebuilt stream state under a `snapshot` key. The decoder in the per-run SSE handler honors both shapes.
 
-The persisted column shape is the same for every event:
+The internal persisted row is compact and is mapped to the public envelope on
+read:
 
 | Column | Notes |
 |---|---|
-| `sequence` | Monotonic global cursor; pass back as `after_sequence` |
+| `sequence` | Monotonic cursor; pass back as `after_sequence` |
 | `task_id`, `run_id` | Both required |
 | `event_type` | One of the strings in this catalog |
 | `event_data` | JSON map of keys above |
-| `request_id`, `trace_id` | Correlation handles into OTel + gateway logs |
 | `created_at` | RFC3339Nano UTC |
 
 ## Run lifecycle
@@ -327,7 +347,7 @@ Emitted when task-scoped metadata changed in a way that affects the run's view (
 
 ### `snapshot`
 
-The per-run SSE handler writes one of these every time it detects a state change between heartbeats. Subscribers reconnecting via `Last-Event-ID` rely on these to backfill state. Distinguishable from real lifecycle events by the leading `event_type=snapshot`; the `data.snapshot` key holds the rebuilt `TaskRunStreamEventData` JSON.
+The per-run SSE handler writes one of these every time it detects a state change between heartbeats. Subscribers reconnecting via `Last-Event-ID` rely on these to backfill state. Distinguishable from real lifecycle events by `type=snapshot` in JSON event lists and `event_type=snapshot` in per-run state SSE; the `data.snapshot` key holds the rebuilt `TaskRunStreamEventData` JSON.
 
 | Extra key | Type | Notes |
 |---|---|---|
@@ -335,7 +355,7 @@ The per-run SSE handler writes one of these every time it detects a state change
 
 ### `external.event`
 
-The default event type when a caller posts to `POST /v1/tasks/{id}/runs/{run_id}/events` without specifying an `event_type`. Use this to integrate human-in-the-loop signals or external systems into the run timeline without inventing new event-type strings.
+The default event type when a caller posts to `POST /v1/tasks/{id}/runs/{run_id}/events` without specifying `type`. Use this to integrate human-in-the-loop signals or external systems into the run timeline without inventing new event-type strings.
 
 | Extra key | Type | Notes |
 |---|---|---|

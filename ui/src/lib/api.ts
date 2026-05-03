@@ -145,7 +145,7 @@ export type ResolveTaskApprovalPayload = {
 };
 
 export type AppendTaskRunEventPayload = {
-  event_type: string;
+  type: string;
   step_id?: string;
   status?: string;
   note?: string;
