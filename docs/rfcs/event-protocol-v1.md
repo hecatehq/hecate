@@ -3,8 +3,8 @@
 > **Status:** draft / RFC. The v1 envelope is implemented for task run event
 > list and cross-run event endpoints. Payload schemas remain candidate-stage.
 > Not stable until Hecate starts publishing semver-backed API guarantees.
-> **Supersedes (when stable):** ad-hoc events documented in [`events.md`](events.md).
-> **Owner:** see [`AGENTS.md`](../AGENTS.md).
+> **Supersedes (when stable):** ad-hoc events documented in [`events.md`](../events.md).
+> **Owner:** see [`AGENTS.md`](../../AGENTS.md).
 
 This document proposes the typed event stream that the agent runtime will emit
 and that every frontend (CLI, web UI, ACP server, IDE plugin) can consume once
@@ -37,12 +37,12 @@ implementation ships golden fixtures and contract tests. Experimental events may
 exist behind flags, but frontends must treat them as optional.
 
 Candidate-core fixture examples live in
-[`docs/fixtures/events/v1/core/`](fixtures/events/v1/core/). They are validated
+[`docs/fixtures/events/v1/core/`](../fixtures/events/v1/core/). They are validated
 by `internal/eventprotocol` tests and are intended as golden inputs for early
 CLI, web, ACP, and IDE prototypes.
 
 The draft envelope schema lives at
-[`docs/schemas/events/v1/envelope.schema.json`](schemas/events/v1/envelope.schema.json).
+[`docs/schemas/events/v1/envelope.schema.json`](../schemas/events/v1/envelope.schema.json).
 Payload-specific schemas are intentionally deferred until runtime emitters are
 implemented.
 

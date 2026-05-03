@@ -2,7 +2,7 @@
 
 > **Status:** draft / RFC. Not implemented. Not stable. Not yet a frontend contract.
 > **Depends on:** [`event-protocol-v1.md`](event-protocol-v1.md) — artifacts are referenced by `artifact_id` from event payloads.
-> **Owner:** see [`AGENTS.md`](../AGENTS.md).
+> **Owner:** see [`AGENTS.md`](../../AGENTS.md).
 
 This document proposes how the agent runtime stores, fetches, and prunes the
 persisted byte blobs the [event protocol](event-protocol-v1.md) calls

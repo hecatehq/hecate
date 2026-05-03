@@ -291,7 +291,7 @@ These rows are the only event type pruned by the retention worker (`turn_events`
 ## Typed shell tool events
 
 These events are the first implemented slice of the draft
-[agent event protocol v1 candidate](event-protocol-v1.md). They are emitted by
+[agent event protocol v1 candidate](rfcs/event-protocol-v1.md). They are emitted by
 the shared shell executor for both direct `execution_kind=shell` tasks and
 `agent_loop` `shell_exec` tool calls. The old `step.*` and `artifact.*`
 persisted run events are no longer emitted; step and artifact records still

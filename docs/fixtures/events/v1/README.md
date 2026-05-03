@@ -1,7 +1,7 @@
 # Agent Event Protocol Fixtures
 
 These fixtures are contract examples for the draft event protocol in
-[`docs/event-protocol-v1.md`](../../../event-protocol-v1.md).
+[`docs/rfcs/event-protocol-v1.md`](../../../rfcs/event-protocol-v1.md).
 
 They are not runtime output yet. Their job is to make the RFC mechanically
 checkable before implementation starts.
@@ -13,9 +13,9 @@ checkable before implementation starts.
 | `core/*.json` | Candidate-core v1 event examples that frontend, CLI, and ACP prototypes may use as golden inputs. |
 
 Experimental event ideas from
-[`docs/event-protocol-experimental.md`](../../../event-protocol-experimental.md)
+[`docs/rfcs/event-protocol-experimental.md`](../../../rfcs/event-protocol-experimental.md)
 and artifact-dependent events from
-[`docs/artifact-storage-v1.md`](../../../artifact-storage-v1.md) intentionally
+[`docs/rfcs/artifact-storage-v1.md`](../../../rfcs/artifact-storage-v1.md) intentionally
 do not live in `core/`.
 
 ## Validation
