@@ -923,6 +923,7 @@ func TestProviderPresetsReturnsCatalog(t *testing.T) {
 	}
 
 	foundAnthropic := false
+	foundPerplexity := false
 	foundXAI := false
 	foundOllama := false
 	for _, item := range response.Data {
@@ -931,6 +932,9 @@ func TestProviderPresetsReturnsCatalog(t *testing.T) {
 		}
 		if item.ID == "xai" && item.Protocol == "openai" && strings.Contains(item.EnvSnippet, "PROVIDER_XAI_API_KEY") {
 			foundXAI = true
+		}
+		if item.ID == "perplexity" && item.Protocol == "openai" && strings.Contains(item.EnvSnippet, "PROVIDER_PERPLEXITY_API_KEY") {
+			foundPerplexity = true
 		}
 		if item.ID == "ollama" && item.Kind == "local" && item.EnvSnippet != "" {
 			foundOllama = true
@@ -941,6 +945,9 @@ func TestProviderPresetsReturnsCatalog(t *testing.T) {
 	}
 	if !foundXAI {
 		t.Fatalf("missing xai preset: %#v", response.Data)
+	}
+	if !foundPerplexity {
+		t.Fatalf("missing perplexity preset: %#v", response.Data)
 	}
 	if !foundOllama {
 		t.Fatalf("missing ollama preset: %#v", response.Data)

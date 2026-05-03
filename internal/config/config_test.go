@@ -117,6 +117,7 @@ func TestDefaultPricebookIncludesCurrentProviderDefaults(t *testing.T) {
 		{provider: "anthropic", model: "claude-sonnet-4-6"},
 		{provider: "groq", model: "llama-3.3-70b-versatile"},
 		{provider: "gemini", model: "gemini-2.5-flash"},
+		{provider: "perplexity", model: "sonar"},
 	} {
 		tt := tt
 		t.Run(tt.provider+"/"+tt.model, func(t *testing.T) {
@@ -272,6 +273,23 @@ func TestBuiltInProviderCatalogDefaults(t *testing.T) {
 		t.Fatalf("mistral default model = %q, want mistral-small-latest", got)
 	}
 
+	perplexity, ok := BuiltInProviderByID("perplexity")
+	if !ok {
+		t.Fatal("BuiltInProviderByID(perplexity) = not found")
+	}
+	if perplexity.Protocol != "openai" {
+		t.Fatalf("perplexity protocol = %q, want openai", perplexity.Protocol)
+	}
+	if perplexity.BaseURL != "https://api.perplexity.ai" {
+		t.Fatalf("perplexity base url = %q, want https://api.perplexity.ai", perplexity.BaseURL)
+	}
+	if perplexity.ChatPath != "/chat/completions" {
+		t.Fatalf("perplexity chat path = %q, want /chat/completions", perplexity.ChatPath)
+	}
+	if got := perplexity.RuntimeConfig("ignored").DefaultModel; got != "sonar" {
+		t.Fatalf("perplexity default model = %q, want sonar", got)
+	}
+
 	together, ok := BuiltInProviderByID("together_ai")
 	if !ok {
 		t.Fatal("BuiltInProviderByID(together_ai) = not found")
@@ -334,6 +352,26 @@ func TestLoadProvidersFromEnvSupportsXAIProviderEnv(t *testing.T) {
 	}
 	if xai.APIKey != "xai-secret" {
 		t.Fatalf("xai api key = %q, want xai-secret", xai.APIKey)
+	}
+}
+
+func TestLoadProvidersFromEnvSupportsPerplexityProviderEnv(t *testing.T) {
+	t.Setenv("PROVIDER_PERPLEXITY_PRECONFIGURED", "1")
+	t.Setenv("PROVIDER_PERPLEXITY_API_KEY", "pplx-secret")
+
+	cfg := LoadFromEnv()
+	perplexity, ok := testProviderByName(cfg.Providers.OpenAICompatible, "perplexity")
+	if !ok {
+		t.Fatal("perplexity provider missing")
+	}
+	if perplexity.APIKey != "pplx-secret" {
+		t.Fatalf("perplexity api key = %q, want pplx-secret", perplexity.APIKey)
+	}
+	if perplexity.ChatPath != "/chat/completions" {
+		t.Fatalf("perplexity chat path = %q, want /chat/completions", perplexity.ChatPath)
+	}
+	if perplexity.ModelsPath != "/v1/models" {
+		t.Fatalf("perplexity models path = %q, want /v1/models", perplexity.ModelsPath)
 	}
 }
 

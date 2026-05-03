@@ -207,8 +207,10 @@ func (m *ControlPlaneRuntimeManager) resolvedConfigs(ctx context.Context) ([]con
 			Timeout:      30 * time.Second,
 			Enabled:      true,
 		}
-		if builtIn, ok := config.BuiltInProviderByID(item.ID); ok {
+		if builtIn, ok := builtInForControlPlaneProvider(item); ok {
 			cfg.KnownModels = append([]string(nil), builtIn.Models...)
+			cfg.ChatPath = builtIn.ChatPath
+			cfg.ModelsPath = builtIn.ModelsPath
 		}
 		if _, ok := byName[cfg.Name]; !ok {
 			order = append(order, cfg.Name)
@@ -280,6 +282,18 @@ func hydrateControlPlaneProviderDefaults(provider controlplane.Provider) control
 		return provider
 	}
 	return provider
+}
+
+func builtInForControlPlaneProvider(provider controlplane.Provider) (config.BuiltInProvider, bool) {
+	for _, candidate := range []string{provider.PresetID, provider.ID, provider.Name} {
+		if strings.TrimSpace(candidate) == "" {
+			continue
+		}
+		if builtIn, ok := config.BuiltInProviderByID(candidate); ok {
+			return builtIn, true
+		}
+	}
+	return config.BuiltInProvider{}, false
 }
 
 func normalizeFieldNames(fields []string) []string {
