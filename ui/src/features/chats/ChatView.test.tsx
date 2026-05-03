@@ -185,6 +185,54 @@ describe("ChatView agent target", () => {
   });
 });
 
+describe("ChatView model target", () => {
+  it("keeps provider and model pickers editable for an active model chat", async () => {
+    const setProviderFilter = vi.fn();
+    const setModel = vi.fn();
+    const { state, actions } = setup({
+      chatTarget: "model",
+      providerFilter: "openai",
+      model: "gpt-4o-mini",
+      activeChatSessionID: "s1",
+      activeChatSession: {
+        id: "s1",
+        title: "Model switching",
+        messages: [],
+        provider_calls: [],
+      } as any,
+      controlPlaneConfig: {
+        providers: [
+          { id: "anthropic", name: "Anthropic", kind: "cloud", credential_configured: true },
+          { id: "openai", name: "OpenAI", kind: "cloud", credential_configured: true },
+        ],
+      } as any,
+      providerPresets: [
+        { id: "anthropic", name: "Anthropic", kind: "cloud" },
+        { id: "openai", name: "OpenAI", kind: "cloud" },
+      ] as any,
+      providerScopedModels: [
+        { id: "claude-sonnet-4-20250514", owned_by: "anthropic", metadata: { provider: "anthropic", provider_kind: "cloud" } },
+        { id: "gpt-4o-mini", owned_by: "openai", metadata: { provider: "openai", provider_kind: "cloud" } },
+        { id: "gpt-4.1-mini", owned_by: "openai", metadata: { provider: "openai", provider_kind: "cloud" } },
+      ],
+    }, { setProviderFilter, setModel });
+    render(<ChatView state={state} actions={actions} />);
+
+    const user = userEvent.setup();
+    const providerPicker = screen.getByRole("button", { name: /OpenAI/i }) as HTMLButtonElement;
+    expect(providerPicker.disabled).toBe(false);
+    await user.click(providerPicker);
+    await user.click(screen.getByText("Anthropic"));
+    expect(setProviderFilter).toHaveBeenCalledWith("anthropic");
+
+    const modelPicker = screen.getByRole("button", { name: /gpt-4o-mini/i }) as HTMLButtonElement;
+    expect(modelPicker.disabled).toBe(false);
+    await user.click(modelPicker);
+    await user.click(screen.getByText("gpt-4.1-mini"));
+    expect(setModel).toHaveBeenCalledWith("gpt-4.1-mini");
+  });
+});
+
 describe("ChatView error display", () => {
   it("renders chatError using InlineError styling", () => {
     const { state, actions } = setup({ chatError: "Provider returned 500" });
