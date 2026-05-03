@@ -166,15 +166,18 @@ func (s *SQLiteStore) AppendMessage(ctx context.Context, sessionID string, messa
 		ctx,
 		fmt.Sprintf(
 			`INSERT INTO %s (
-				id, session_id, sequence, run_id, role, content, raw_output, adapter_id, adapter_name, status, exit_code,
+				id, session_id, sequence, run_id, request_id, trace_id, span_id, role, content, raw_output, adapter_id, adapter_name, status, exit_code,
 				cost_mode, workspace, diff_stat, diff, created_at, started_at, completed_at, error, activities
-			) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+			) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
 			s.messagesTable,
 		),
 		message.ID,
 		sessionID,
 		nextSeq,
 		message.RunID,
+		message.RequestID,
+		message.TraceID,
+		message.SpanID,
 		message.Role,
 		message.Content,
 		message.RawOutput,
@@ -220,13 +223,16 @@ func (s *SQLiteStore) UpdateMessage(ctx context.Context, sessionID string, messa
 		ctx,
 		fmt.Sprintf(
 			`UPDATE %s SET
-			   run_id = ?, role = ?, content = ?, raw_output = ?, adapter_id = ?, adapter_name = ?, status = ?, exit_code = ?,
+			   run_id = ?, request_id = ?, trace_id = ?, span_id = ?, role = ?, content = ?, raw_output = ?, adapter_id = ?, adapter_name = ?, status = ?, exit_code = ?,
 			   cost_mode = ?, workspace = ?, diff_stat = ?, diff = ?, created_at = ?,
 			   started_at = ?, completed_at = ?, error = ?, activities = ?
 			 WHERE id = ? AND session_id = ?`,
 			s.messagesTable,
 		),
 		message.RunID,
+		message.RequestID,
+		message.TraceID,
+		message.SpanID,
 		message.Role,
 		message.Content,
 		message.RawOutput,
@@ -290,6 +296,9 @@ func (s *SQLiteStore) migrate(ctx context.Context) error {
 				status TEXT NOT NULL,
 				exit_code INTEGER NOT NULL,
 				run_id TEXT NOT NULL DEFAULT '',
+				request_id TEXT NOT NULL DEFAULT '',
+				trace_id TEXT NOT NULL DEFAULT '',
+				span_id TEXT NOT NULL DEFAULT '',
 				cost_mode TEXT NOT NULL,
 				workspace TEXT NOT NULL,
 				diff_stat TEXT NOT NULL,
@@ -312,6 +321,9 @@ func (s *SQLiteStore) migrate(ctx context.Context) error {
 		definition string
 	}{
 		{name: "run_id", definition: "TEXT NOT NULL DEFAULT ''"},
+		{name: "request_id", definition: "TEXT NOT NULL DEFAULT ''"},
+		{name: "trace_id", definition: "TEXT NOT NULL DEFAULT ''"},
+		{name: "span_id", definition: "TEXT NOT NULL DEFAULT ''"},
 		{name: "started_at", definition: "TIMESTAMP"},
 		{name: "completed_at", definition: "TIMESTAMP"},
 		{name: "error", definition: "TEXT NOT NULL DEFAULT ''"},
@@ -365,7 +377,7 @@ func (s *SQLiteStore) loadMessages(ctx context.Context, sessionID string) ([]Mes
 	rows, err := s.client.DB().QueryContext(
 		ctx,
 		fmt.Sprintf(
-			`SELECT id, run_id, role, content, raw_output, adapter_id, adapter_name, status, exit_code, cost_mode,
+			`SELECT id, run_id, request_id, trace_id, span_id, role, content, raw_output, adapter_id, adapter_name, status, exit_code, cost_mode,
 			        workspace, diff_stat, diff, created_at, started_at, completed_at, error, activities
 			 FROM %s
 			 WHERE session_id = ?
@@ -387,6 +399,9 @@ func (s *SQLiteStore) loadMessages(ctx context.Context, sessionID string) ([]Mes
 		if err := rows.Scan(
 			&message.ID,
 			&message.RunID,
+			&message.RequestID,
+			&message.TraceID,
+			&message.SpanID,
 			&message.Role,
 			&message.Content,
 			&message.RawOutput,
@@ -489,7 +504,7 @@ func loadMessage(ctx context.Context, tx txRunner, table string, sessionID strin
 	err := tx.QueryRowContext(
 		ctx,
 		fmt.Sprintf(
-			`SELECT id, run_id, role, content, raw_output, adapter_id, adapter_name, status, exit_code, cost_mode,
+			`SELECT id, run_id, request_id, trace_id, span_id, role, content, raw_output, adapter_id, adapter_name, status, exit_code, cost_mode,
 			        workspace, diff_stat, diff, created_at, started_at, completed_at, error, activities
 			 FROM %s
 			 WHERE id = ? AND session_id = ?`,
@@ -500,6 +515,9 @@ func loadMessage(ctx context.Context, tx txRunner, table string, sessionID strin
 	).Scan(
 		&message.ID,
 		&message.RunID,
+		&message.RequestID,
+		&message.TraceID,
+		&message.SpanID,
 		&message.Role,
 		&message.Content,
 		&message.RawOutput,

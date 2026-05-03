@@ -204,6 +204,9 @@ export type AgentChatSessionSummaryRecord = {
 export type AgentChatMessageRecord = {
   id: string;
   run_id?: string;
+  request_id?: string;
+  trace_id?: string;
+  span_id?: string;
   role: "user" | "assistant";
   content: string;
   raw_output?: string;

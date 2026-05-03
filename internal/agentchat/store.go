@@ -22,6 +22,9 @@ type Session struct {
 type Message struct {
 	ID          string
 	RunID       string
+	RequestID   string
+	TraceID     string
+	SpanID      string
 	Role        string
 	Content     string
 	RawOutput   string

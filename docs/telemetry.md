@@ -289,6 +289,25 @@ Steps carry `hecate.step.duration_ms`. Runs carry `hecate.run.duration_ms`. Queu
 
 `agent_loop` runs *also* emit one `turn.completed` per LLM round-trip on the **persisted run-event log** — not the OTel trace. That stream is documented in [`events.md`](events.md#turncompleted) and powers the per-run UI cost ledger and `/v1/events` subscriptions. The OTel side carries duration on the spans above; the cost breakdown lives on the run event.
 
+### Agent Chat Spans
+
+External coding-agent chats emit OTel-shaped trace data as well. `POST
+/v1/agent-chat/sessions/{id}/messages` returns `X-Trace-Id` and `X-Span-Id`;
+the assistant message stores `request_id`, `trace_id`, and `span_id` so the
+Chats UI can point operators back to `/v1/traces?request_id=...`.
+
+| Span name | Events |
+|---|---|
+| `agent_chat.run` | `agent_chat.run.started`, `agent_chat.output.started`, `agent_chat.files_changed`, `agent_chat.run.finished`, `agent_chat.run.failed`, `agent_chat.run.cancelled` |
+
+Agent-chat spans carry adapter and workspace attributes such as
+`hecate.agent_adapter.id`, `hecate.agent_adapter.command`,
+`hecate.agent_chat.session.id`, `hecate.run.id`,
+`hecate.workspace.path`, `hecate.agent_adapter.output.bytes`, and
+`hecate.agent_adapter.diff.captured`. Raw transcript text is intentionally not
+emitted as OTel attributes; it is persisted on the Agent Chat message and shown
+behind the raw-output diagnostic disclosure instead.
+
 ### Retention Spans
 
 Retention manager runs emit events under the `retention.run` span:

@@ -56,6 +56,9 @@ func runStoreLifecycle(t *testing.T, store Store) {
 	updated, err := store.UpdateMessage(ctx, created.ID, "msg_assistant", func(message *Message) {
 		message.Content = "done"
 		message.RawOutput = `{"type":"message","content":"done"}`
+		message.RequestID = "req_agent"
+		message.TraceID = "trace_agent"
+		message.SpanID = "span_agent"
 		message.Status = "completed"
 		message.ExitCode = 0
 		message.DiffStat = "1 file changed"
@@ -76,7 +79,7 @@ func runStoreLifecycle(t *testing.T, store Store) {
 	if len(updated.Messages) != 2 {
 		t.Fatalf("message count = %d, want 2", len(updated.Messages))
 	}
-	if got := updated.Messages[1]; got.Content != "done" || got.RawOutput == "" || got.DiffStat != "1 file changed" || got.RunID != "agent_run_1" || got.CompletedAt.IsZero() || len(got.Activities) != 2 {
+	if got := updated.Messages[1]; got.Content != "done" || got.RawOutput == "" || got.TraceID != "trace_agent" || got.DiffStat != "1 file changed" || got.RunID != "agent_run_1" || got.CompletedAt.IsZero() || len(got.Activities) != 2 {
 		t.Fatalf("assistant message not updated: %+v", got)
 	}
 
@@ -87,7 +90,7 @@ func runStoreLifecycle(t *testing.T, store Store) {
 	if got.Messages[1].Content != "done" {
 		t.Fatalf("persisted assistant content = %q, want done", got.Messages[1].Content)
 	}
-	if got.Messages[1].RawOutput == "" || len(got.Messages[1].Activities) != 2 {
+	if got.Messages[1].RawOutput == "" || got.Messages[1].TraceID != "trace_agent" || len(got.Messages[1].Activities) != 2 {
 		t.Fatalf("persisted diagnostics missing: %+v", got.Messages[1])
 	}
 

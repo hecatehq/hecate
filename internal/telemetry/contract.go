@@ -125,6 +125,16 @@ const (
 	EventRetentionHistoryPersisted  = "retention.history.persisted"
 )
 
+// External agent chats
+const (
+	EventAgentChatRunStarted    = "agent_chat.run.started"
+	EventAgentChatOutputStarted = "agent_chat.output.started"
+	EventAgentChatFilesChanged  = "agent_chat.files_changed"
+	EventAgentChatRunFinished   = "agent_chat.run.finished"
+	EventAgentChatRunFailed     = "agent_chat.run.failed"
+	EventAgentChatRunCancelled  = "agent_chat.run.cancelled"
+)
+
 // ---------------------------------------------------------------------------
 // Span name constants — the parent spans that events are grouped into.
 // These match the mapping in profiler.spanSpecForEvent.
@@ -149,6 +159,8 @@ const (
 	SpanOrchestratorQueue    = "orchestrator.queue"
 
 	SpanRetentionRun = "retention.run"
+
+	SpanAgentChatRun = "agent_chat.run"
 )
 
 // ---------------------------------------------------------------------------
@@ -309,6 +321,17 @@ var requiredEventAttrs = map[string][]string{
 		AttrGenAIProviderName,
 		AttrGenAIResponseModel,
 		AttrGenAIRequestModel,
+	},
+	EventAgentChatRunStarted: {
+		AttrHecateAgentChatSessionID,
+		AttrHecateRunID,
+		AttrHecateAgentAdapterID,
+	},
+	EventAgentChatRunFinished: {
+		AttrHecateAgentChatSessionID,
+		AttrHecateRunID,
+		AttrHecateAgentAdapterID,
+		AttrHecateRunDurationMS,
 	},
 }
 

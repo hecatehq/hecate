@@ -14,6 +14,8 @@ import (
 
 	"github.com/hecate/agent-runtime/internal/agentadapters"
 	"github.com/hecate/agent-runtime/internal/agentchat"
+	"github.com/hecate/agent-runtime/internal/profiler"
+	"github.com/hecate/agent-runtime/internal/telemetry"
 )
 
 const (
@@ -186,7 +188,12 @@ func (h *Handler) HandleCreateAgentChatMessage(w http.ResponseWriter, r *http.Re
 		WriteError(w, http.StatusBadRequest, errCodeInvalidRequest, fmt.Sprintf("agent adapter %q not found", session.AdapterID))
 		return
 	}
-	runCtx, cancel := context.WithTimeout(r.Context(), agentChatTimeout)
+	assistantID := newAgentChatID("msg")
+	runID := newAgentChatID("agent_run")
+	trace, traceCtx := h.startAgentChatTrace(w, r)
+	defer trace.Finalize()
+
+	runCtx, cancel := context.WithTimeout(traceCtx, agentChatTimeout)
 	if !h.agentChatLive.registerRun(session.ID, cancel) {
 		cancel()
 		WriteError(w, http.StatusConflict, errCodeInvalidRequest, "agent chat session is already running")
@@ -206,12 +213,16 @@ func (h *Handler) HandleCreateAgentChatMessage(w http.ResponseWriter, r *http.Re
 		return
 	}
 	h.agentChatLive.publish(updated)
-	assistantID := newAgentChatID("msg")
-	runID := newAgentChatID("agent_run")
 	startedAt := time.Now().UTC()
+	trace.Record(telemetry.EventAgentChatRunStarted, agentChatTraceAttrs(session, adapter, runID, assistantID, map[string]any{
+		telemetry.AttrHecateRunStatus: "running",
+	}))
 	updated, err = h.agentChat.AppendMessage(r.Context(), session.ID, agentchat.Message{
 		ID:          assistantID,
 		RunID:       runID,
+		RequestID:   RequestIDFromContext(r.Context()),
+		TraceID:     trace.TraceID,
+		SpanID:      trace.RootSpanID(),
 		Role:        "assistant",
 		Content:     "",
 		AdapterID:   adapter.ID,
@@ -252,6 +263,10 @@ func (h *Handler) HandleCreateAgentChatMessage(w http.ResponseWriter, r *http.Re
 				message.Content = normalized
 				if !outputSeen {
 					message.Activities = append(message.Activities, newAgentChatActivity("output", "running", "Process output", "Streaming normalized transcript"))
+					trace.Record(telemetry.EventAgentChatOutputStarted, agentChatTraceAttrs(session, adapter, runID, assistantID, map[string]any{
+						telemetry.AttrHecateRunStatus:           "running",
+						telemetry.AttrHecateAgentRawOutputBytes: int64(len(message.RawOutput)),
+					}))
 					outputSeen = true
 				}
 			})
@@ -294,6 +309,27 @@ func (h *Handler) HandleCreateAgentChatMessage(w http.ResponseWriter, r *http.Re
 	if status == "cancelled" {
 		errorText = "cancelled"
 	}
+	if result.DiffStat != "" {
+		trace.Record(telemetry.EventAgentChatFilesChanged, agentChatTraceAttrs(session, adapter, runID, assistantID, map[string]any{
+			telemetry.AttrHecateRunStatus:         status,
+			telemetry.AttrHecateAgentDiffCaptured: true,
+		}))
+	}
+	terminalAttrs := agentChatTraceAttrs(session, adapter, runID, assistantID, map[string]any{
+		telemetry.AttrHecateRunStatus:           status,
+		telemetry.AttrHecateRunDurationMS:       completedAt.Sub(startedAt).Milliseconds(),
+		telemetry.AttrHecateAgentOutputBytes:    int64(len(output)),
+		telemetry.AttrHecateAgentRawOutputBytes: int64(len(result.RawOutput)),
+		telemetry.AttrHecateAgentDiffCaptured:   result.Diff != "",
+		"process.exit.code":                     result.ExitCode,
+	})
+	if runErr != nil {
+		terminalAttrs[telemetry.AttrHecateResult] = telemetry.ResultError
+		terminalAttrs[telemetry.AttrHecateErrorKind] = telemetry.ErrorKindOther
+		terminalAttrs[telemetry.AttrErrorType] = "agent_adapter_failed"
+		terminalAttrs[telemetry.AttrErrorMessage] = runErr.Error()
+	}
+	trace.Record(agentChatTerminalEvent(status), terminalAttrs)
 
 	updated, err = h.agentChat.UpdateMessage(r.Context(), session.ID, assistantID, func(message *agentchat.Message) {
 		if strings.TrimSpace(message.Content) == "" || runErr != nil {
@@ -340,6 +376,9 @@ func renderAgentChatSession(session agentchat.Session) AgentChatSessionItem {
 		messages = append(messages, AgentChatMessageItem{
 			ID:          message.ID,
 			RunID:       message.RunID,
+			RequestID:   message.RequestID,
+			TraceID:     message.TraceID,
+			SpanID:      message.SpanID,
 			Role:        message.Role,
 			Content:     message.Content,
 			RawOutput:   message.RawOutput,
@@ -369,6 +408,47 @@ func renderAgentChatSession(session agentchat.Session) AgentChatSessionItem {
 		CreatedAt:       formatOptionalTime(session.CreatedAt),
 		UpdatedAt:       formatOptionalTime(session.UpdatedAt),
 		Messages:        messages,
+	}
+}
+
+func (h *Handler) startAgentChatTrace(w http.ResponseWriter, r *http.Request) (*profiler.Trace, context.Context) {
+	requestID := RequestIDFromContext(r.Context())
+	if requestID == "" {
+		requestID = newRequestID()
+	}
+	trace := h.tracer.Start(requestID)
+	ctx := telemetry.WithTraceIDs(r.Context(), trace.TraceID, trace.RootSpanID())
+	w.Header().Set("X-Trace-Id", trace.TraceID)
+	w.Header().Set("X-Span-Id", trace.RootSpanID())
+	return trace, ctx
+}
+
+func agentChatTraceAttrs(session agentchat.Session, adapter agentadapters.Adapter, runID, messageID string, attrs map[string]any) map[string]any {
+	out := map[string]any{
+		telemetry.AttrHecateAgentChatSessionID:  session.ID,
+		telemetry.AttrHecateAgentChatMessageID:  messageID,
+		telemetry.AttrHecateRunID:               runID,
+		telemetry.AttrHecateExecutionKind:       "agent_chat",
+		telemetry.AttrHecateAgentAdapterID:      adapter.ID,
+		telemetry.AttrHecateAgentAdapterName:    adapter.Name,
+		telemetry.AttrHecateAgentAdapterCommand: adapter.Command,
+		telemetry.AttrHecateWorkspacePath:       session.Workspace,
+		telemetry.AttrHecateResult:              telemetry.ResultSuccess,
+	}
+	for key, value := range attrs {
+		out[key] = value
+	}
+	return out
+}
+
+func agentChatTerminalEvent(status string) string {
+	switch status {
+	case "cancelled":
+		return telemetry.EventAgentChatRunCancelled
+	case "failed":
+		return telemetry.EventAgentChatRunFailed
+	default:
+		return telemetry.EventAgentChatRunFinished
 	}
 }
 

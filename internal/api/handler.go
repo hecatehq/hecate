@@ -16,6 +16,7 @@ import (
 	"github.com/hecate/agent-runtime/internal/gateway"
 	mcpclient "github.com/hecate/agent-runtime/internal/mcp/client"
 	"github.com/hecate/agent-runtime/internal/orchestrator"
+	"github.com/hecate/agent-runtime/internal/profiler"
 	"github.com/hecate/agent-runtime/internal/ratelimit"
 	"github.com/hecate/agent-runtime/internal/sandbox"
 	"github.com/hecate/agent-runtime/internal/secrets"
@@ -33,6 +34,7 @@ type Handler struct {
 	providerRuntime ProviderRuntime
 	taskStore       taskstate.Store
 	taskRunner      *orchestrator.Runner
+	tracer          profiler.Tracer
 	agentChat       agentchat.Store
 	agentChatLive   *agentChatLive
 	rateLimiter     *ratelimit.Store
@@ -101,7 +103,15 @@ func NewHandler(cfg config.Config, logger *slog.Logger, service *gateway.Service
 		rl = ratelimit.NewStore(burst, rpm)
 	}
 
-	runner := orchestrator.NewRunner(logger, taskStore, service.Tracer(), orchestrator.Config{
+	tracer := profiler.Tracer(nil)
+	if service != nil {
+		tracer = service.Tracer()
+	}
+	if tracer == nil {
+		tracer = profiler.NewInMemoryTracer(nil)
+	}
+
+	runner := orchestrator.NewRunner(logger, taskStore, tracer, orchestrator.Config{
 		DefaultModel:           cfg.Router.DefaultModel,
 		ApprovalPolicies:       cfg.Server.TaskApprovalPolicies,
 		QueueBackend:           cfg.Server.TaskQueueBackend,
@@ -176,6 +186,7 @@ func NewHandler(cfg config.Config, logger *slog.Logger, service *gateway.Service
 		providerRuntime:     providerRuntime,
 		taskStore:           taskStore,
 		taskRunner:          runner,
+		tracer:              tracer,
 		rateLimiter:         rl,
 		agentChat:           agentchat.NewMemoryStore(),
 		agentChatLive:       newAgentChatLive(),

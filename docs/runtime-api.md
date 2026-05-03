@@ -490,6 +490,9 @@ POST /v1/agent-chat/sessions/agent_chat_.../messages
       {
         "id": "msg_...",
         "run_id": "agent_run_...",
+        "request_id": "req_...",
+        "trace_id": "d4c5...",
+        "span_id": "8f3a...",
         "role": "assistant",
         "content": "...",
         "raw_output": "...",
@@ -533,6 +536,9 @@ POST /v1/agent-chat/sessions/agent_chat_.../messages
 Each adapter response gets a stable `run_id` plus start/end timestamps and
 duration so clients can correlate streamed updates, final output, and future
 artifacts without treating the assistant message id as the runtime identity.
+It also stores `request_id`, `trace_id`, and `span_id`; use
+`GET /v1/traces?request_id=<request_id>` to inspect the OTel-shaped
+`agent_chat.run` span for that prompt.
 `content` is the normalized transcript that should be shown by default.
 `raw_output` preserves the exact stdout/stderr stream for diagnostics when an
 adapter emits JSONL or otherwise surprising text. `activities` is the structured

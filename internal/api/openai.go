@@ -589,6 +589,9 @@ type AgentChatSessionItem struct {
 type AgentChatMessageItem struct {
 	ID          string                  `json:"id"`
 	RunID       string                  `json:"run_id,omitempty"`
+	RequestID   string                  `json:"request_id,omitempty"`
+	TraceID     string                  `json:"trace_id,omitempty"`
+	SpanID      string                  `json:"span_id,omitempty"`
 	Role        string                  `json:"role"`
 	Content     string                  `json:"content"`
 	RawOutput   string                  `json:"raw_output,omitempty"`

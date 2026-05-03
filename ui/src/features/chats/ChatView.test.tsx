@@ -112,6 +112,8 @@ describe("ChatView agent target", () => {
           { id: "m1", role: "user", content: "review this", created_at: "2026-05-03T10:00:00Z" },
           {
             id: "m2",
+            run_id: "agent_run_c4",
+            trace_id: "0123456789abcdef0123456789abcdef",
             role: "assistant",
             content: "Looks good.",
             raw_output: `{"type":"message","content":"Looks good."}`,
@@ -136,6 +138,7 @@ describe("ChatView agent target", () => {
     expect(screen.getByRole("button", { name: /workspace/i })).toBeTruthy();
     expect(screen.getAllByText("Codex work").length).toBeGreaterThan(0);
     expect(screen.getByText("Looks good.")).toBeTruthy();
+    expect(screen.getByText(/trace 01234567/)).toBeTruthy();
     expect(screen.getByText("Starting external agent")).toBeTruthy();
     expect(screen.getByText("workspace diff · 1 file changed")).toBeTruthy();
     expect(screen.getByText("raw process output")).toBeTruthy();
