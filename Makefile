@@ -2,7 +2,7 @@ SHELL := /bin/sh
 
 GOCACHE_DIR := $(CURDIR)/.gocache
 
-.PHONY: test test-race vet coverage ui-coverage build build-acp run serve dev stop ui-install ui-dev ui-build ui-test ui-test-e2e test-acp-smoke test-docker-smoke docs-env-check check-links verify-alpha reset-dev reset-docker screenshots tauri-install tauri-version tauri-sidecar tauri-dev tauri-build tauri-build-app test-tauri-smoke
+.PHONY: test test-race vet coverage ui-coverage build build-acp run serve dev stop ui-install ui-dev ui-build ui-test ui-test-e2e test-acp-smoke test-docker-smoke docs-env-check check-links verify-alpha reset-dev reset-docker screenshots tauri-install tauri-version tauri-sidecar tauri-dev tauri-build tauri-build-app test-tauri-smoke test-tauri-acp-smoke
 
 # build produces a single self-contained `hecate` binary with the UI bundle
 # embedded. The UI is built first so //go:embed picks up the real assets;
@@ -269,3 +269,9 @@ tauri-build-app: tauri-sidecar tauri-version
 # verify-alpha.
 test-tauri-smoke: tauri-build-app
 	bun scripts/tauri-smoke.ts
+
+# test-tauri-acp-smoke extends the native app smoke by launching the bundled
+# hecate-acp sidecar without HECATE_GATEWAY_URL and verifying it discovers the
+# native app's dynamic gateway URL through hecate.runtime.json.
+test-tauri-acp-smoke: tauri-build-app
+	bun scripts/tauri-smoke.ts --acp
