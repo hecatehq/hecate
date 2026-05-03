@@ -1,6 +1,6 @@
 # Architecture
 
-Hecate splits cleanly into two concurrent surfaces: a **gateway** for OpenAI- and Anthropic-shaped client traffic, and a **task runtime** for queued agent work. Both are served from the same binary on the same port, but the request paths are independent — you can use either in isolation, or both side-by-side.
+Hecate splits cleanly into two concurrent surfaces: a **gateway** for OpenAI- and Anthropic-shaped client traffic, and a **task runtime** for queued agent work. Both are served from the same gateway process on the same port, but the request paths are independent — you can use either in isolation, or both side-by-side.
 
 > Contributing here? Start at [`AGENTS.md`](../AGENTS.md) for the codebase map and runtime invariants; conventions, workflow, and verification ladders live under [`ai/`](../ai/README.md).
 
@@ -10,7 +10,7 @@ Hecate splits cleanly into two concurrent surfaces: a **gateway** for OpenAI- an
 - [Task runtime flow](#task-runtime-flow)
 - [Agent loop turn cycle](#agent-loop-turn-cycle)
 - [Storage tiers](#storage-tiers)
-- [Why two flows in one binary](#why-two-flows-in-one-binary)
+- [Why two flows share one gateway](#why-two-flows-share-one-gateway)
 
 ## Gateway request flow
 
@@ -56,7 +56,7 @@ flowchart TD
     TasksApi --> Runner["Orchestrator runner"]
     Runner -->|"agent_loop, no model configured"| ErrModel["422 model_not_configured<br/>(no run created)"]
     Runner --> Workspace["Workspace manager<br/>(clone source to temp dir,<br/>or use source in_place)"]
-    Workspace --> Queue["Run queue<br/>(memory / sqlite lease)"]
+    Workspace --> Queue["Run queue<br/>(leased)"]
 
     Reconciler["Periodic reconciler<br/>(every 30 s — re-queues runs<br/>stuck in running > 3× lease)"]
     Reconciler -->|"stale run detected<br/>gap.run_disconnected"| Queue
@@ -168,6 +168,6 @@ The full per-subsystem matrix lives in [`docs/deployment.md`](deployment.md#stor
 - SQLite uses the pure-Go `modernc.org/sqlite` driver — no CGO, no native extensions.
 - The task queue uses `BEGIN IMMEDIATE` plus `UPDATE … RETURNING` for atomic claim under WAL. Race-tested.
 
-## Why two flows in one binary
+## Why two flows share one gateway
 
 The shared deployment is deliberate. An operator who only needs LLM-gateway features still gets the task runtime endpoints (returning empty lists) without configuring anything; an operator who runs agent tasks shares the same budgets and observability with the model traffic. There is no separate "task daemon" to deploy.

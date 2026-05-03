@@ -1,9 +1,9 @@
 # Hecate
 
-Open-source AI gateway and agent-task runtime. A single Go binary mediates
+Open-source AI gateway and agent-task runtime. The gateway mediates
 OpenAI- and Anthropic-shaped client traffic to upstream providers, runs
 queued `agent_loop` tasks behind policy and approval gates, and emits
-OpenTelemetry traces. Single-user, single-process, deny-by-default,
+OpenTelemetry traces. Single-user, gateway-local, deny-by-default,
 storage-tiered (memory / sqlite). Binds to 127.0.0.1 by default;
 no auth — the threat model is "trust your own machine." The React
 operator UI is embedded via `//go:embed ui/dist`.
@@ -31,6 +31,7 @@ When in doubt: read [`ai/core/project-context.md`](ai/core/project-context.md) a
 
 ```
 cmd/gateway/            gateway binary entry
+cmd/hecate-acp/         ACP stdio bridge for editor agent panels
 
 pkg/types/              public types (ChatRequest, Message, ContentBlock, ...)
                           — no internal/ imports

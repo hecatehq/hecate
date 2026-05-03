@@ -24,6 +24,7 @@
 # Built binary produced by `make build`. Anchored to the repo root so a
 # package or test happening to be named "gateway" elsewhere isn't ignored.
 /gateway
+/hecate-acp
 node_modules/
 ui/node_modules/
 e2e/local-ollama-*.log
@@ -48,4 +49,5 @@ tauri/src-tauri/target/
 # The sidecar binary is copied into binaries/ by make tauri-sidecar;
 # it is platform-specific and built on demand — not tracked.
 tauri/src-tauri/binaries/hecate*
+tauri/src-tauri/binaries/gateway*
 !tauri/src-tauri/binaries/.gitkeep

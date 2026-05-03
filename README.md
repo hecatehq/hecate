@@ -25,7 +25,7 @@
 
 ## Why Hecate
 
-AI workloads are moving from simple API calls to long-running agents, tool use, local/cloud routing, and budget-sensitive automation. Hecate gives you that runtime layer as one self-contained binary you run yourself: part LLM gateway, part operator console, part coding-agent workbench.
+AI workloads are moving from simple API calls to long-running agents, tool use, local/cloud routing, and budget-sensitive automation. Hecate gives you that runtime layer as a self-hosted gateway you run yourself: part LLM gateway, part operator console, part coding-agent workbench.
 
 - **Cloud and local providers together** — OpenAI, Anthropic, Perplexity, Ollama, LM Studio, LocalAI, llama.cpp-compatible servers, and other shipped presets.
 - **External coding agents in Chats** — run Codex, Claude Code, and Cursor Agent as supervised local processes from the same UI you use for model chat.
@@ -33,7 +33,7 @@ AI workloads are moving from simple API calls to long-running agents, tool use, 
 - **Runtime visibility** — request ledger, route reports, failover details, cost, trace IDs, OpenTelemetry export.
 - **Agent-task runtime** — queued tasks, approvals, controlled shell/file/git execution, patch artifacts, resumable runs, MCP integration.
 - **Editor integration foundation** — experimental ACP stdio bridge for editor agent panels, backed by the same Hecate task/runtime stream.
-- **One artifact, many wrappers** — single Go binary with the React operator UI embedded via `//go:embed`. Ships as a Docker image, native desktop bundles (`.dmg` / `.deb` / `.AppImage` / `.msi`), and bare binary tarballs.
+- **Gateway-first distribution** — the gateway embeds the React operator UI via `//go:embed` and ships as a Docker image, native desktop bundles (`.dmg` / `.deb` / `.AppImage` / `.msi`), and bare binary tarballs. Companion entrypoints such as the ACP bridge stay separate where the protocol requires it.
 
 ## Quick Start
 
@@ -104,7 +104,7 @@ Model turns record route, cost, cache, and trace metadata. Agent turns record no
 
 ## Architecture
 
-One Go process, one port, bound to loopback. Inside it: a chat/messages **gateway** that routes traffic to upstream model providers, an **external-agent adapter layer** that supervises coding-agent CLIs, and a **task runtime** that queues native agent work, drives approvals, and shells out through a sandbox boundary. The React operator UI is embedded into the same binary and served from the same port; `cmd/hecate-acp` is a separate stdio bridge for ACP-aware editor clients.
+The gateway runs as one Go process on one loopback-bound port. Inside it: a chat/messages **gateway** that routes traffic to upstream model providers, an **external-agent adapter layer** that supervises coding-agent CLIs, and a **task runtime** that queues native agent work, drives approvals, and shells out through a sandbox boundary. The React operator UI is embedded into the gateway and served from the same port; `cmd/hecate-acp` is a separate stdio bridge for ACP-aware editor clients.
 
 ```mermaid
 flowchart LR
@@ -125,7 +125,7 @@ flowchart LR
     Gateway --> Providers["Cloud + local providers"]
     AgentAdapters --> CLIs["Codex / Claude Code / Cursor Agent"]
     Runtime --> Tools["Sandboxed tools + MCP"]
-    Gateway --> State["memory / SQLite"]
+    Gateway --> State["Runtime state"]
     Runtime --> State
     Gateway --> OTel["OpenTelemetry"]
     Runtime --> OTel

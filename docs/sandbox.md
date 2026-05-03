@@ -9,9 +9,8 @@ confinement tool (`bwrap` / `sandbox-exec`), then `exec` the shell. A
 misbehaving command runs in its own process and cannot crash the
 gateway.
 
-There is no separate sandbox daemon. Hecate is a single binary, single
-process; the safety properties below are applied per-call inside the
-gateway.
+There is no separate sandbox daemon. The safety properties below are
+applied per-call inside the gateway process.
 
 Code: [`internal/sandbox/`](../internal/sandbox/) · policy reference: [`agent-runtime.md#network-egress-for-shell_exec--git_exec`](agent-runtime.md#network-egress-for-shell_exec--git_exec).
 

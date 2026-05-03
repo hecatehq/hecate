@@ -20,7 +20,7 @@ Don't duplicate. This skill is the backend lens; the rules themselves live in:
 
 The backend should feel like:
 
-- A single-binary control plane.
+- A single-process gateway control plane.
 - A deny-by-default policy enforcer.
 - A runtime-aware proxy that explains its decisions.
 - A debugging surface — every request leaves a trace, every cost is itemized, every approval is logged.
@@ -37,7 +37,7 @@ Default to operator confidence: clear status, clear errors, deterministic state,
 
 Calm, durable, and explicit. Code should age well — the runtime is supposed to live for years, not iterations.
 
-Prefer single binary, single port, embedded UI (`//go:embed ui/dist`); deterministic startup with env-driven config; backend tier choice surfaced as a config knob, never inferred; explicit error wrapping with cause chains; standard library first, well-known third party second, novel deps last.
+Prefer one gateway process, one port, embedded UI (`//go:embed ui/dist`); deterministic startup with env-driven config; backend tier choice surfaced as a config knob, never inferred; explicit error wrapping with cause chains; standard library first, well-known third party second, novel deps last.
 
 ## Operator priorities
 

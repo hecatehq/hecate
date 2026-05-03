@@ -22,7 +22,7 @@ Do not use npm, pnpm, yarn, Corepack, Volta, or Node-specific workflow setup
 for the UI. The committed lockfile is `ui/bun.lock`, the install command is
 `bun install`, and all UI scripts run through `bun run ...`.
 
-The gateway binary is a single executable with the React UI embedded via `//go:embed ui/dist`. There's no separate UI deployment.
+The gateway binary embeds the React UI via `//go:embed ui/dist`. There's no separate UI deployment.
 
 ## Local build
 
@@ -33,7 +33,7 @@ The gateway binary is a single executable with the React UI embedded via `//go:e
    # Edit .env — at minimum set GATEWAY_DEFAULT_MODEL plus a PROVIDER_*_API_KEY
    ```
 
-2. Build the gateway binary with the UI bundled in (single binary, single port):
+2. Build the gateway binary with the UI bundled in (gateway binary, single port):
 
    ```bash
    make ui-install         # installs UI dependencies (bun install)
@@ -101,7 +101,8 @@ Recognized markers: `[skip ci]`, `[ci skip]`, `[no ci]`, `[skip actions]`, `[act
 Top-level entry points:
 
 ```
-cmd/gateway/            # binary entry point (CLI flags + bootstrap wiring)
+cmd/gateway/            # gateway entry point (CLI flags + bootstrap wiring)
+cmd/hecate-acp/         # ACP stdio bridge for editor agent panels
 ui/                     # React app (Vite + Bun); src/ is the source, dist/ is the embed target
 tauri/                  # native desktop app (Tauri 2.x); wraps `gateway` as a sidecar
 e2e/                    # Go end-to-end tests (build tag: e2e; sub-tags: ollama, docker)

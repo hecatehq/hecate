@@ -1,11 +1,12 @@
 # Project context
 
-Hecate is an open-source AI gateway and agent-task runtime. A single Go binary embeds the React operator UI, mediates OpenAI- and Anthropic-shaped client traffic to upstream LLM providers, runs queued `agent_loop` tasks with policy and approval gates, and emits OpenTelemetry traces for everything it does. It is tenant-aware, deny-by-default, runtime-aware, and storage-tiered (memory / sqlite). Every endpoint, config knob, and error message exists to answer five operator questions: what did the gateway just decide, why, what did it cost, what happens on the next failure, and where is the trace.
+Hecate is an open-source AI gateway and agent-task runtime. The Go gateway embeds the React operator UI, mediates OpenAI- and Anthropic-shaped client traffic to upstream LLM providers, runs queued `agent_loop` tasks with policy and approval gates, and emits OpenTelemetry traces for everything it does. Companion entrypoints such as `hecate-acp` handle protocols that need their own process lifecycle. Hecate is tenant-aware, deny-by-default, runtime-aware, and storage-tiered (memory / sqlite). Every endpoint, config knob, and error message exists to answer five operator questions: what did the gateway just decide, why, what did it cost, what happens on the next failure, and where is the trace.
 
 ## Repository layout
 
 ```
 cmd/gateway/               gateway binary entry
+cmd/hecate-acp/            ACP stdio bridge for editor agent panels
 
 pkg/types/                 public types (ChatRequest, Message, ContentBlock, ...)
                              — no internal/ imports

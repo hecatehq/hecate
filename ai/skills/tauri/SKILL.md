@@ -25,7 +25,7 @@ The Tauri app is a thin chrome-frame around the Hecate gateway. On launch the Ru
 Most Tauri apps point `tauri.conf.json` → `frontendDist: "../ui/dist"` and let the webview load UI files directly from the bundled app. We don't, on purpose:
 
 - **Same-origin handshake.** The webview loads from `http://127.0.0.1:{port}/` and the API is at `http://127.0.0.1:{port}/v1/...`. Same origin → no CORS dance, no Tauri IPC bridge, and `GET /v1/bootstrap-token` works because the loopback Origin/Host check passes. Splitting UI (`tauri://localhost`) from API (`127.0.0.1:{port}`) breaks this and requires a meaningful security refactor to restore.
-- **One-binary property.** The same `gateway` binary ships through Docker, the goreleaser tarballs, *and* the Tauri sidecar. The embed makes that work without conditional builds or runtime path resolution. Reading `ui/dist` from disk inside a bundled `.app` would require a working-dir-independent resolver and a new "UI files missing" failure mode.
+- **Gateway-sidecar property.** The same `gateway` binary ships through Docker, the goreleaser tarballs, *and* the Tauri sidecar. The embed makes that work without conditional builds or runtime path resolution. Reading `ui/dist` from disk inside a bundled `.app` would require a working-dir-independent resolver and a new "UI files missing" failure mode.
 - **Bundle-size cost is small.** Embedding adds ~13 MB to the binary, which means a `.dmg` of ~25 MB instead of ~12 MB. Desktop apps routinely ship at 100+ MB; this isn't a real constraint.
 
 If the gateway and UI ever decouple (gateway as pure API + separate static-server for UI), revisit this. Until then, keep the embed.

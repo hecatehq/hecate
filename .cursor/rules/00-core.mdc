@@ -6,7 +6,7 @@ alwaysApply: true
 
 # Hecate core rules
 
-Hecate is an open-source AI gateway and agent-task runtime. A single Go binary embeds the React operator UI, mediates OpenAI- and Anthropic-shaped client traffic, runs queued `agent_loop` tasks with policy and approval gates, and emits OpenTelemetry traces for everything it does.
+Hecate is an open-source AI gateway and agent-task runtime. The Go gateway embeds the React operator UI, mediates OpenAI- and Anthropic-shaped client traffic, runs queued `agent_loop` tasks with policy and approval gates, and emits OpenTelemetry traces for everything it does. Companion entrypoints such as `hecate-acp` handle protocols that need their own process lifecycle.
 
 The canonical, vendor-neutral instruction layer for this repo lives in [`ai/`](../../ai/README.md). Start there. This file is a thin Cursor adapter listing the top-level non-negotiables.
 
