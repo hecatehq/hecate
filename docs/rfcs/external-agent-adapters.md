@@ -317,13 +317,18 @@ prefer reuse where possible, but not at the cost of a broken chat stream.
 - [x] Hecate can run one Codex, Claude Code, or Cursor Agent prompt as a supervised process.
 - [x] Output is captured and displayed in the UI.
 - [x] Codex JSONL output is normalized into readable assistant text.
+- [x] Raw stdout/stderr is retained for diagnostics when normalized text hides adapter quirks.
+- [x] Chats show structured activity markers for start/running/output/files-changed/final failure states.
 - [x] Timeout marks the run failed with a stable error.
-- [x] Final response and raw output are replayable after refresh in the current gateway process.
+- [x] Final response and raw output are replayable after refresh, and durable across gateway restarts when SQLite chat sessions are enabled.
 - [x] Workspace diff is captured when the workspace is a Git repo.
 - [x] Docs clearly state cost is external/unknown for these adapters.
 - [x] Streaming output reaches the UI while the process is still running.
 - [x] Cancellation kills the process and marks the session/run cancelled.
 - [x] Session history is durable across gateway restarts when the chat-session backend is SQLite.
+- [ ] Dedicated patch review/apply/revert UX for captured diffs.
+- [ ] Adapter-specific structured mappers for Claude Code and Cursor Agent.
+- [ ] Decision on whether Agent Chat converges onto full Hecate Tasks/Runs.
 
 ## Open Questions
 

@@ -3,6 +3,7 @@ import type { SyntheticEvent } from "react";
 import type { RuntimeConsoleViewModel } from "../../app/useRuntimeConsole";
 import { describeGatewayError, formatErrorCode } from "../../lib/error-diagnostics";
 import { parseInlineNodes, parseMarkdownBlocks } from "../../lib/markdown";
+import type { AgentChatActivityRecord } from "../../types/runtime";
 import { AgentAdapterPicker, CodeBlock, Icon, Icons, InlineError, ModelPicker, ProviderPicker } from "../shared/ui";
 
 type Props = {
@@ -22,6 +23,9 @@ type VisibleChatMessage = {
   agent_status?: string;
   cost_mode?: string;
   diff_stat?: string;
+  diff?: string;
+  raw_output?: string;
+  activities?: AgentChatActivityRecord[];
   duration_ms?: number;
 };
 
@@ -74,6 +78,9 @@ export function ChatView({ state, actions }: Props) {
         agent_status: m.status,
         cost_mode: m.cost_mode,
         diff_stat: m.diff_stat,
+        diff: m.diff,
+        raw_output: m.raw_output,
+        activities: m.activities,
         duration_ms: m.duration_ms,
       }))
     : (state.activeChatSession?.messages ?? []).map((m) => ({
@@ -454,6 +461,10 @@ export function ChatView({ state, actions }: Props) {
                 costUsd={call?.cost_usd}
                 badge={isAgentChat && role === "assistant" ? (m.agent_status || m.cost_mode) : undefined}
                 runtimeMeta={agentRuntime}
+                activities={isAgentChat && role === "assistant" ? m.activities : undefined}
+                diffStat={isAgentChat && role === "assistant" ? m.diff_stat : undefined}
+                diff={isAgentChat && role === "assistant" ? m.diff : undefined}
+                rawOutput={isAgentChat && role === "assistant" ? m.raw_output : undefined}
                 onCopy={copyMsg}
                 copied={copiedMsgId === m.id}
               />
@@ -697,15 +708,17 @@ function formatDuration(durationMS: number): string {
 // needs to pick a model with type-to-filter + disabled-provider
 // awareness.)
 
-function MessageRow({ id, role, model, content, time, promptTokens, completionTokens, costUsd, badge, runtimeMeta, onCopy, copied }: {
+function MessageRow({ id, role, model, content, time, promptTokens, completionTokens, costUsd, badge, runtimeMeta, activities, diffStat, diff, rawOutput, onCopy, copied }: {
   id: string; role: "user" | "assistant"; model?: string; content: string;
   time: string; promptTokens?: number; completionTokens?: number; costUsd?: string;
   badge?: string; runtimeMeta?: string;
+  activities?: AgentChatActivityRecord[]; diffStat?: string; diff?: string; rawOutput?: string;
   onCopy: (id: string, text: string) => void; copied: boolean;
 }) {
   const [hovered, setHovered] = useState(false);
   const isAssistant = role === "assistant";
   const hasTokenData = isAssistant && (promptTokens ?? 0) > 0;
+  const showRawOutput = isAssistant && rawOutput && rawOutput.trim() && rawOutput.trim() !== content.trim();
 
   return (
     <div onMouseEnter={() => setHovered(true)} onMouseLeave={() => setHovered(false)}
@@ -747,11 +760,81 @@ function MessageRow({ id, role, model, content, time, promptTokens, completionTo
               </button>
             </div>
           </div>
+          {isAssistant && activities && activities.length > 0 && (
+            <ActivityTimeline activities={activities} />
+          )}
           <Markdown content={content} />
+          {isAssistant && diff && (
+            <details style={{ marginTop: 8 }}>
+              <summary style={{ cursor: "pointer", fontFamily: "var(--font-mono)", fontSize: 11, color: "var(--t3)" }}>
+                workspace diff{diffStat ? ` · ${diffStat}` : ""}
+              </summary>
+              <div style={{ marginTop: 6 }}>
+                <CodeBlock code={diff} lang="diff" />
+              </div>
+            </details>
+          )}
+          {showRawOutput && (
+            <details style={{ marginTop: 8 }}>
+              <summary style={{ cursor: "pointer", fontFamily: "var(--font-mono)", fontSize: 11, color: "var(--t3)" }}>
+                raw process output
+              </summary>
+              <div style={{ marginTop: 6 }}>
+                <CodeBlock code={rawOutput} lang="text" />
+              </div>
+            </details>
+          )}
         </div>
       </div>
     </div>
   );
+}
+
+function ActivityTimeline({ activities }: { activities: AgentChatActivityRecord[] }) {
+  return (
+    <div style={{
+      display: "grid",
+      gap: 5,
+      margin: "0 0 10px",
+      padding: "8px 10px",
+      border: "1px solid var(--border)",
+      borderRadius: "var(--radius-sm)",
+      background: "var(--bg2)",
+    }}>
+      {activities.map((activity, index) => (
+        <div key={`${activity.type}-${activity.created_at ?? index}`} style={{ display: "flex", alignItems: "baseline", gap: 8, minWidth: 0 }}>
+          <span style={{
+            width: 7,
+            height: 7,
+            borderRadius: 999,
+            background: activityStatusColor(activity.status),
+            flexShrink: 0,
+          }} />
+          <span style={{ fontFamily: "var(--font-mono)", fontSize: 11, color: "var(--t1)", whiteSpace: "nowrap" }}>
+            {activity.title}
+          </span>
+          {activity.detail && (
+            <span style={{ fontSize: 11, color: "var(--t3)", overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>
+              {activity.detail}
+            </span>
+          )}
+        </div>
+      ))}
+    </div>
+  );
+}
+
+function activityStatusColor(status?: string) {
+  switch (status) {
+  case "failed":
+    return "var(--red)";
+  case "cancelled":
+    return "var(--amber)";
+  case "running":
+    return "var(--teal)";
+  default:
+    return "var(--green)";
+  }
 }
 
 function Markdown({ content }: { content: string }) {

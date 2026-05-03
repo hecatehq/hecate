@@ -10,6 +10,7 @@ import (
 	"os/exec"
 	"path/filepath"
 	"strings"
+	"sync"
 	"time"
 )
 
@@ -51,6 +52,7 @@ type RunRequest struct {
 type RunResult struct {
 	Adapter     Adapter
 	Output      string
+	RawOutput   string
 	ExitCode    int
 	StartedAt   time.Time
 	CompletedAt time.Time
@@ -252,6 +254,7 @@ func RunAdapter(ctx context.Context, adapter Adapter, req RunRequest) (RunResult
 	return RunResult{
 		Adapter:     adapter,
 		Output:      normalizeOutput(adapter.ID, out.String()),
+		RawOutput:   out.String(),
 		ExitCode:    exitCode,
 		StartedAt:   started,
 		CompletedAt: completed,
@@ -391,12 +394,16 @@ func runGitCapture(ctx context.Context, workspace string, maxBytes int64, args .
 
 type limitedBuffer struct {
 	bytes.Buffer
+	mu        sync.Mutex
 	limit     int64
 	truncated bool
 	onWrite   func(string)
 }
 
 func (b *limitedBuffer) Write(p []byte) (int, error) {
+	b.mu.Lock()
+	defer b.mu.Unlock()
+
 	accepted := p
 	if b.limit <= 0 {
 		n, err := b.Buffer.Write(p)
@@ -424,4 +431,10 @@ func (b *limitedBuffer) Write(p []byte) (int, error) {
 		b.onWrite(string(accepted[:n]))
 	}
 	return n, err
+}
+
+func (b *limitedBuffer) String() string {
+	b.mu.Lock()
+	defer b.mu.Unlock()
+	return b.Buffer.String()
 }
