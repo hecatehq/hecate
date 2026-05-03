@@ -1,9 +1,8 @@
 # External Agent Adapters — Candidate (RFC)
 
-> **Status:** accepted for alpha MVP. Initial adapter discovery, synchronous
-> Agent Chat, and memory/SQLite persistence are implemented; streaming and
-> cancellation remain future work. API shape may still change before a stable
-> release.
+> **Status:** accepted for alpha MVP. Adapter discovery, Agent Chat,
+> memory/SQLite persistence, live streaming, cancellation, and workspace diff
+> capture are implemented. API shape may still change before a stable release.
 > **Related:** [ACP bridge](../acp.md), [Runtime API](../runtime-api.md),
 > [Agent runtime](../agent-runtime.md), [Agent event protocol](event-protocol-v1.md).
 > **Owner:** see [`AGENTS.md`](../../AGENTS.md).
@@ -189,18 +188,15 @@ GET  /v1/agent-adapters
 GET  /v1/agent-chat/sessions
 POST /v1/agent-chat/sessions
 GET  /v1/agent-chat/sessions/{id}
+GET  /v1/agent-chat/sessions/{id}/stream
 POST /v1/agent-chat/sessions/{id}/messages
+POST /v1/agent-chat/sessions/{id}/cancel
 DELETE /v1/agent-chat/sessions/{id}
 ```
 
-Future endpoints:
-
-```text
-GET  /v1/agent-chat/sessions/{id}/stream
-POST /v1/agent-chat/sessions/{id}/cancel
-```
-
-The current API is synchronous. History is memory-backed by default and SQLite
+Message creation is still a blocking POST for the submitted prompt, but clients
+can subscribe to the session SSE stream first to receive partial output while
+the external process is running. History is memory-backed by default and SQLite
 backed when `GATEWAY_CHAT_SESSIONS_BACKEND=sqlite`.
 
 ## Process Adapter Behavior
@@ -319,17 +315,15 @@ prefer reuse where possible, but not at the cost of a broken chat stream.
 - [x] Final response and raw output are replayable after refresh in the current gateway process.
 - [x] Workspace diff is captured when the workspace is a Git repo.
 - [x] Docs clearly state cost is external/unknown for these adapters.
-- [ ] Streaming output reaches the UI while the process is still running.
-- [ ] Cancellation kills the process and marks the session/run cancelled.
+- [x] Streaming output reaches the UI while the process is still running.
+- [x] Cancellation kills the process and marks the session/run cancelled.
 - [x] Session history is durable across gateway restarts when the chat-session backend is SQLite.
 
 ## Open Questions
 
 - Which non-interactive CLI invocation is stable across supported agent CLIs?
-- Do we persist agent-chat sessions in `chatstate`, `taskstate`, or a new
-  store?
-- Should Agent Chat be backed by Tasks from day one, or should it start as its
-  own lighter session API and later converge?
+- Should Agent Chat eventually converge with Tasks so external-agent prompts
+  get durable run events, approvals, and artifacts from the same substrate?
 - How much of the external process environment should be configurable by the
   operator?
 - Should Hecate allow these adapters in the desktop app by default, given the

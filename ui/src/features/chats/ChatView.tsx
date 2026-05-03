@@ -565,19 +565,36 @@ export function ChatView({ state, actions }: Props) {
               onFocus={e => (e.target.style.borderColor = "var(--teal)")}
               onBlur={e => (e.target.style.borderColor = "var(--border)")}
             />
-            <button type="submit"
-              disabled={sendDisabled}
-              style={{
-                position: "absolute", right: 8, top: "50%", transform: "translateY(-50%)",
-                width: 28, height: 28, borderRadius: "var(--radius-sm)",
-                background: !sendDisabled ? "var(--teal)" : "var(--bg4)",
-                border: "none", cursor: !sendDisabled ? "pointer" : "default",
-                display: "flex", alignItems: "center", justifyContent: "center",
-                transition: "background 0.1s",
-                color: !sendDisabled ? "var(--bg0)" : "var(--t3)",
-              }}>
-              <Icon d={Icons.send} size={14} />
-            </button>
+            {isAgentChat && streaming ? (
+              <button type="button"
+                aria-label="Stop agent"
+                onClick={actions.cancelAgentChat}
+                style={{
+                  position: "absolute", right: 8, top: "50%", transform: "translateY(-50%)",
+                  width: 28, height: 28, borderRadius: "var(--radius-sm)",
+                  background: "var(--red)",
+                  border: "none", cursor: "pointer",
+                  display: "flex", alignItems: "center", justifyContent: "center",
+                  transition: "background 0.1s",
+                  color: "var(--bg0)",
+                }}>
+                <Icon d={Icons.x} size={14} />
+              </button>
+            ) : (
+              <button type="submit"
+                disabled={sendDisabled}
+                style={{
+                  position: "absolute", right: 8, top: "50%", transform: "translateY(-50%)",
+                  width: 28, height: 28, borderRadius: "var(--radius-sm)",
+                  background: !sendDisabled ? "var(--teal)" : "var(--bg4)",
+                  border: "none", cursor: !sendDisabled ? "pointer" : "default",
+                  display: "flex", alignItems: "center", justifyContent: "center",
+                  transition: "background 0.1s",
+                  color: !sendDisabled ? "var(--bg0)" : "var(--t3)",
+                }}>
+                <Icon d={Icons.send} size={14} />
+              </button>
+            )}
           </div>
           <div style={{ maxWidth: 820, margin: "3px auto 0", display: "flex", justifyContent: "flex-end" }}>
             <button type="button" onClick={toggleModEnterMode} style={{

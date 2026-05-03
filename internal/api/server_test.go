@@ -1035,6 +1035,127 @@ func TestAgentChatRunsExternalAdapter(t *testing.T) {
 	}
 }
 
+func TestAgentChatStreamsExternalAdapterOutput(t *testing.T) {
+	dir := t.TempDir()
+	bin := filepath.Join(dir, "bin")
+	if err := os.Mkdir(bin, 0o755); err != nil {
+		t.Fatalf("mkdir bin: %v", err)
+	}
+	codexPath := filepath.Join(bin, "codex")
+	script := "#!/bin/sh\nprintf 'first chunk\\n'\nsleep 0.1\nprintf 'second chunk\\n'\n"
+	if err := os.WriteFile(codexPath, []byte(script), 0o755); err != nil {
+		t.Fatalf("write fake codex: %v", err)
+	}
+	t.Setenv("PATH", bin+string(os.PathListSeparator)+os.Getenv("PATH"))
+
+	logger := slog.New(slog.NewJSONHandler(io.Discard, nil))
+	handler := NewServer(logger, NewHandler(config.Config{}, logger, nil, nil, nil, nil))
+	server := httptest.NewServer(handler)
+	t.Cleanup(server.Close)
+
+	created := requestJSONToURL[AgentChatSessionResponse](t, http.MethodPost, server.URL+"/v1/agent-chat/sessions", fmt.Sprintf(`{"adapter_id":"codex","workspace":%q}`, dir))
+	streamReq, err := http.NewRequest(http.MethodGet, server.URL+"/v1/agent-chat/sessions/"+created.Data.ID+"/stream", nil)
+	if err != nil {
+		t.Fatalf("new stream request: %v", err)
+	}
+	streamResp, err := http.DefaultClient.Do(streamReq)
+	if err != nil {
+		t.Fatalf("stream request: %v", err)
+	}
+	defer streamResp.Body.Close()
+	if streamResp.StatusCode != http.StatusOK {
+		t.Fatalf("stream status = %d, want 200", streamResp.StatusCode)
+	}
+	events := readSSEEvents(t, streamResp.Body)
+
+	done := make(chan AgentChatSessionResponse, 1)
+	go func() {
+		done <- requestJSONToURL[AgentChatSessionResponse](t, http.MethodPost, server.URL+"/v1/agent-chat/sessions/"+created.Data.ID+"/messages", `{"content":"stream please"}`)
+	}()
+
+	seenFirst := false
+	seenSecond := false
+	timeout := time.After(3 * time.Second)
+	for !(seenFirst && seenSecond) {
+		select {
+		case event, ok := <-events:
+			if !ok {
+				t.Fatalf("stream closed before both chunks")
+			}
+			if event.Event != "snapshot" && event.Event != "done" {
+				continue
+			}
+			var payload AgentChatSessionResponse
+			if err := json.Unmarshal([]byte(event.Data), &payload); err != nil {
+				t.Fatalf("decode stream payload: %v", err)
+			}
+			if len(payload.Data.Messages) == 0 {
+				continue
+			}
+			content := payload.Data.Messages[len(payload.Data.Messages)-1].Content
+			seenFirst = seenFirst || strings.Contains(content, "first chunk")
+			seenSecond = seenSecond || strings.Contains(content, "second chunk")
+		case <-timeout:
+			t.Fatalf("timed out waiting for streamed chunks")
+		}
+	}
+
+	select {
+	case updated := <-done:
+		if got := updated.Data.Status; got != "completed" {
+			t.Fatalf("final status = %q, want completed", got)
+		}
+	case <-time.After(3 * time.Second):
+		t.Fatalf("timed out waiting for message POST")
+	}
+}
+
+func TestAgentChatCancelsExternalAdapter(t *testing.T) {
+	dir := t.TempDir()
+	bin := filepath.Join(dir, "bin")
+	if err := os.Mkdir(bin, 0o755); err != nil {
+		t.Fatalf("mkdir bin: %v", err)
+	}
+	codexPath := filepath.Join(bin, "codex")
+	script := "#!/bin/sh\nprintf 'started\\n'\nsleep 5\nprintf 'should not finish\\n'\n"
+	if err := os.WriteFile(codexPath, []byte(script), 0o755); err != nil {
+		t.Fatalf("write fake codex: %v", err)
+	}
+	t.Setenv("PATH", bin+string(os.PathListSeparator)+os.Getenv("PATH"))
+
+	logger := slog.New(slog.NewJSONHandler(io.Discard, nil))
+	handler := NewServer(logger, NewHandler(config.Config{}, logger, nil, nil, nil, nil))
+	server := httptest.NewServer(handler)
+	t.Cleanup(server.Close)
+
+	created := requestJSONToURL[AgentChatSessionResponse](t, http.MethodPost, server.URL+"/v1/agent-chat/sessions", fmt.Sprintf(`{"adapter_id":"codex","workspace":%q}`, dir))
+	done := make(chan AgentChatSessionResponse, 1)
+	go func() {
+		done <- requestJSONToURL[AgentChatSessionResponse](t, http.MethodPost, server.URL+"/v1/agent-chat/sessions/"+created.Data.ID+"/messages", `{"content":"please wait"}`)
+	}()
+
+	waitForAgentChatStatus(t, server.URL, created.Data.ID, "running")
+	cancelResp := postJSONToURL(t, server.URL+"/v1/agent-chat/sessions/"+created.Data.ID+"/cancel", `{}`)
+	defer cancelResp.Body.Close()
+	if cancelResp.StatusCode != http.StatusAccepted {
+		body, _ := io.ReadAll(cancelResp.Body)
+		t.Fatalf("cancel status = %d, want 202, body=%s", cancelResp.StatusCode, string(body))
+	}
+
+	select {
+	case updated := <-done:
+		if got := updated.Data.Status; got != "cancelled" {
+			t.Fatalf("final status = %q, want cancelled", got)
+		}
+		assistant := updated.Data.Messages[len(updated.Data.Messages)-1]
+		if assistant.Status != "cancelled" {
+			t.Fatalf("assistant status = %q, want cancelled", assistant.Status)
+		}
+	case <-time.After(3 * time.Second):
+		t.Fatalf("timed out waiting for cancelled message POST")
+	}
+}
+
 func TestAgentChatWorkspaceGitBranch(t *testing.T) {
 	if _, err := exec.LookPath("git"); err != nil {
 		t.Skip("git not available")
@@ -3505,6 +3626,48 @@ func postJSONToURL(t *testing.T, url, body string) *http.Response {
 		t.Fatalf("Post(%s) error = %v", url, err)
 	}
 	return resp
+}
+
+func requestJSONToURL[T any](t *testing.T, method, url, body string) T {
+	t.Helper()
+	var reqBody io.Reader
+	if body != "" {
+		reqBody = strings.NewReader(body)
+	}
+	req, err := http.NewRequest(method, url, reqBody)
+	if err != nil {
+		t.Fatalf("NewRequest(%s %s) error = %v", method, url, err)
+	}
+	if body != "" {
+		req.Header.Set("Content-Type", "application/json")
+	}
+	resp, err := http.DefaultClient.Do(req)
+	if err != nil {
+		t.Fatalf("%s %s error = %v", method, url, err)
+	}
+	defer resp.Body.Close()
+	if resp.StatusCode < 200 || resp.StatusCode >= 300 {
+		payload, _ := io.ReadAll(resp.Body)
+		t.Fatalf("%s %s status = %d, want 2xx, body=%s", method, url, resp.StatusCode, string(payload))
+	}
+	var out T
+	if err := json.NewDecoder(resp.Body).Decode(&out); err != nil {
+		t.Fatalf("decode %s %s: %v", method, url, err)
+	}
+	return out
+}
+
+func waitForAgentChatStatus(t *testing.T, baseURL, sessionID, want string) {
+	t.Helper()
+	deadline := time.Now().Add(3 * time.Second)
+	for time.Now().Before(deadline) {
+		payload := requestJSONToURL[AgentChatSessionResponse](t, http.MethodGet, baseURL+"/v1/agent-chat/sessions/"+sessionID, "")
+		if payload.Data.Status == want {
+			return
+		}
+		time.Sleep(20 * time.Millisecond)
+	}
+	t.Fatalf("timed out waiting for agent chat status %q", want)
 }
 
 func newTestHTTPHandler(logger *slog.Logger, provider providers.Provider) http.Handler {

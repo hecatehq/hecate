@@ -463,8 +463,9 @@ messages produced by the external adapter.
 ### `POST /v1/agent-chat/sessions/{id}/messages`
 
 Runs the session adapter once with the submitted prompt and appends both the
-user message and the adapter output. The first implementation is synchronous:
-the response returns after the external process exits, times out, or fails.
+user message and the adapter output. The response returns after the external
+process exits, times out, is cancelled, or fails. For live output while the
+process is running, subscribe to the session stream before posting the message.
 
 ```json
 POST /v1/agent-chat/sessions/agent_chat_.../messages
@@ -503,6 +504,38 @@ POST /v1/agent-chat/sessions/agent_chat_.../messages
 Failures from the external process are still represented as assistant messages
 with `"status": "failed"` so the transcript stays intact. Transport or request
 validation failures still use the normal Hecate error envelope.
+
+### `GET /v1/agent-chat/sessions/{id}/stream`
+
+Streams live Agent Chat session snapshots as Server-Sent Events. This is an
+in-process live feed, not the durable task-event log: session history remains in
+the configured Agent Chat backend, while the stream fans out updates from the
+currently running gateway process.
+
+```text
+event: snapshot
+data: {"object":"agent_chat_session","data":{...}}
+
+event: done
+data: {"object":"agent_chat_session","data":{"status":"completed",...}}
+```
+
+Clients should subscribe before sending a message so they can receive partial
+stdout/stderr output from the external adapter. The stream stays open for an
+idle or previously completed session and closes after it observes a new running
+message reach a terminal status (`completed`, `failed`, or `cancelled`).
+
+### `POST /v1/agent-chat/sessions/{id}/cancel`
+
+Cancels the currently running external adapter process for the session.
+
+```json
+POST /v1/agent-chat/sessions/agent_chat_.../cancel
+{}
+```
+
+Returns `202` when a running process was signalled. If the session is not
+currently running, the endpoint returns `409 invalid_request`.
 
 ### `DELETE /v1/agent-chat/sessions/{id}`
 

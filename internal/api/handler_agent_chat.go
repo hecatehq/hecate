@@ -5,6 +5,7 @@ import (
 	"crypto/rand"
 	"encoding/hex"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"net/http"
 	"os/exec"
@@ -79,12 +80,79 @@ func (h *Handler) HandleAgentChatSession(w http.ResponseWriter, r *http.Request)
 	WriteJSON(w, http.StatusOK, AgentChatSessionResponse{Object: "agent_chat_session", Data: renderAgentChatSession(session)})
 }
 
+func (h *Handler) HandleAgentChatSessionStream(w http.ResponseWriter, r *http.Request) {
+	flusher, ok := w.(http.Flusher)
+	if !ok {
+		WriteError(w, http.StatusInternalServerError, errCodeGatewayError, "streaming not supported by server")
+		return
+	}
+	session, ok, err := h.agentChat.Get(r.Context(), r.PathValue("id"))
+	if err != nil {
+		WriteError(w, http.StatusInternalServerError, "gateway_error", err.Error())
+		return
+	}
+	if !ok {
+		WriteError(w, http.StatusNotFound, "not_found", "agent chat session not found")
+		return
+	}
+	updates, unsubscribe := h.agentChatLive.subscribe(session.ID)
+	defer unsubscribe()
+
+	writeSSEHeaders(w)
+	sendAgentChatSSE(w, flusher, "snapshot", AgentChatSessionResponse{
+		Object: "agent_chat_session",
+		Data:   renderAgentChatSession(session),
+	})
+	heartbeat := time.NewTicker(15 * time.Second)
+	defer heartbeat.Stop()
+
+	observedRun := session.Status == "running"
+	for {
+		select {
+		case <-r.Context().Done():
+			return
+		case payload, ok := <-updates:
+			if !ok {
+				return
+			}
+			sendAgentChatSSE(w, flusher, "snapshot", payload)
+			if payload.Data.Status == "running" {
+				observedRun = true
+			}
+			if observedRun && isTerminalAgentChatStatus(payload.Data.Status) {
+				sendAgentChatSSE(w, flusher, "done", payload)
+				return
+			}
+		case <-heartbeat.C:
+			fmt.Fprint(w, ": heartbeat\n\n")
+			flusher.Flush()
+		}
+	}
+}
+
 func (h *Handler) HandleDeleteAgentChatSession(w http.ResponseWriter, r *http.Request) {
 	if err := h.agentChat.Delete(r.Context(), r.PathValue("id")); err != nil {
 		WriteError(w, http.StatusInternalServerError, "gateway_error", err.Error())
 		return
 	}
 	w.WriteHeader(http.StatusNoContent)
+}
+
+func (h *Handler) HandleCancelAgentChatSession(w http.ResponseWriter, r *http.Request) {
+	session, ok, err := h.agentChat.Get(r.Context(), r.PathValue("id"))
+	if err != nil {
+		WriteError(w, http.StatusInternalServerError, "gateway_error", err.Error())
+		return
+	}
+	if !ok {
+		WriteError(w, http.StatusNotFound, "not_found", "agent chat session not found")
+		return
+	}
+	if !h.agentChatLive.cancelRun(session.ID) {
+		WriteError(w, http.StatusConflict, errCodeInvalidRequest, "agent chat session is not running")
+		return
+	}
+	WriteJSON(w, http.StatusAccepted, AgentChatSessionResponse{Object: "agent_chat_session", Data: renderAgentChatSession(session)})
 }
 
 func (h *Handler) HandleCreateAgentChatMessage(w http.ResponseWriter, r *http.Request) {
@@ -113,17 +181,28 @@ func (h *Handler) HandleCreateAgentChatMessage(w http.ResponseWriter, r *http.Re
 		WriteError(w, http.StatusBadRequest, errCodeInvalidRequest, fmt.Sprintf("agent adapter %q not found", session.AdapterID))
 		return
 	}
-	if _, err := h.agentChat.AppendMessage(r.Context(), session.ID, agentchat.Message{
+	runCtx, cancel := context.WithTimeout(r.Context(), agentChatTimeout)
+	if !h.agentChatLive.registerRun(session.ID, cancel) {
+		cancel()
+		WriteError(w, http.StatusConflict, errCodeInvalidRequest, "agent chat session is already running")
+		return
+	}
+	defer h.agentChatLive.clearRun(session.ID)
+	defer cancel()
+
+	updated, err := h.agentChat.AppendMessage(r.Context(), session.ID, agentchat.Message{
 		ID:        newAgentChatID("msg"),
 		Role:      "user",
 		Content:   content,
 		CreatedAt: time.Now().UTC(),
-	}); err != nil {
+	})
+	if err != nil {
 		WriteError(w, http.StatusInternalServerError, "gateway_error", err.Error())
 		return
 	}
+	h.agentChatLive.publish(updated)
 	assistantID := newAgentChatID("msg")
-	if _, err := h.agentChat.AppendMessage(r.Context(), session.ID, agentchat.Message{
+	updated, err = h.agentChat.AppendMessage(r.Context(), session.ID, agentchat.Message{
 		ID:          assistantID,
 		Role:        "assistant",
 		Content:     "",
@@ -133,13 +212,13 @@ func (h *Handler) HandleCreateAgentChatMessage(w http.ResponseWriter, r *http.Re
 		CostMode:    adapter.CostMode,
 		Workspace:   session.Workspace,
 		CreatedAt:   time.Now().UTC(),
-	}); err != nil {
+	})
+	if err != nil {
 		WriteError(w, http.StatusInternalServerError, "gateway_error", err.Error())
 		return
 	}
+	h.agentChatLive.publish(updated)
 
-	runCtx, cancel := context.WithTimeout(r.Context(), agentChatTimeout)
-	defer cancel()
 	result, runErr := agentadapters.RunAdapter(runCtx, adapter, agentadapters.RunRequest{
 		AdapterID:      adapter.ID,
 		Workspace:      session.Workspace,
@@ -150,17 +229,27 @@ func (h *Handler) HandleCreateAgentChatMessage(w http.ResponseWriter, r *http.Re
 			if chunk == "" {
 				return
 			}
-			_, _ = h.agentChat.UpdateMessage(runCtx, session.ID, assistantID, func(message *agentchat.Message) {
+			updated, updateErr := h.agentChat.UpdateMessage(runCtx, session.ID, assistantID, func(message *agentchat.Message) {
 				message.Content += chunk
 			})
+			if updateErr == nil {
+				h.agentChatLive.publish(updated)
+			}
 		},
 	})
 	status := "completed"
 	if runErr != nil {
 		status = "failed"
 	}
+	if errors.Is(runCtx.Err(), context.Canceled) {
+		status = "cancelled"
+	}
 	output := strings.TrimSpace(result.Output)
-	if output == "" && runErr != nil {
+	if status == "cancelled" {
+		if output == "" {
+			output = "agent run cancelled"
+		}
+	} else if output == "" && runErr != nil {
 		output = runErr.Error()
 	} else if runErr != nil {
 		output = output + "\n\n" + runErr.Error()
@@ -169,7 +258,7 @@ func (h *Handler) HandleCreateAgentChatMessage(w http.ResponseWriter, r *http.Re
 		output = "(agent completed without output)"
 	}
 
-	updated, err := h.agentChat.UpdateMessage(r.Context(), session.ID, assistantID, func(message *agentchat.Message) {
+	updated, err = h.agentChat.UpdateMessage(r.Context(), session.ID, assistantID, func(message *agentchat.Message) {
 		if strings.TrimSpace(message.Content) == "" || runErr != nil {
 			message.Content = output
 		}
@@ -182,6 +271,7 @@ func (h *Handler) HandleCreateAgentChatMessage(w http.ResponseWriter, r *http.Re
 		WriteError(w, http.StatusInternalServerError, "gateway_error", err.Error())
 		return
 	}
+	h.agentChatLive.publish(updated)
 	WriteJSON(w, http.StatusOK, AgentChatSessionResponse{Object: "agent_chat_session", Data: renderAgentChatSession(updated)})
 }
 
@@ -227,6 +317,26 @@ func renderAgentChatSession(session agentchat.Session) AgentChatSessionItem {
 		CreatedAt:       formatOptionalTime(session.CreatedAt),
 		UpdatedAt:       formatOptionalTime(session.UpdatedAt),
 		Messages:        messages,
+	}
+}
+
+func sendAgentChatSSE(w http.ResponseWriter, flusher http.Flusher, event string, payload AgentChatSessionResponse) {
+	data, err := json.Marshal(payload)
+	if err != nil {
+		fmt.Fprintf(w, "event: error\ndata: {\"error\":{\"message\":%q}}\n\n", err.Error())
+		flusher.Flush()
+		return
+	}
+	fmt.Fprintf(w, "event: %s\ndata: %s\n\n", event, data)
+	flusher.Flush()
+}
+
+func isTerminalAgentChatStatus(status string) bool {
+	switch status {
+	case "completed", "failed", "cancelled":
+		return true
+	default:
+		return false
 	}
 }
 

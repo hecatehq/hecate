@@ -34,6 +34,7 @@ type Handler struct {
 	taskStore       taskstate.Store
 	taskRunner      *orchestrator.Runner
 	agentChat       agentchat.Store
+	agentChatLive   *agentChatLive
 	rateLimiter     *ratelimit.Store
 	// secretCipher encrypts literal MCP server env values at task-creation
 	// time and wires the matching decrypting factory into the runner. nil
@@ -177,6 +178,7 @@ func NewHandler(cfg config.Config, logger *slog.Logger, service *gateway.Service
 		taskRunner:          runner,
 		rateLimiter:         rl,
 		agentChat:           agentchat.NewMemoryStore(),
+		agentChatLive:       newAgentChatLive(),
 		orchestratorMetrics: orchestratorMetrics,
 	}
 }
