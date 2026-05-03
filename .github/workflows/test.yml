@@ -104,6 +104,12 @@ jobs:
         with:
           workspaces: tauri/src-tauri -> target
 
+      - name: Stage sidecar placeholder
+        run: |
+          mkdir -p tauri/src-tauri/binaries
+          printf '#!/bin/sh\nexit 0\n' > tauri/src-tauri/binaries/gateway-x86_64-unknown-linux-gnu
+          chmod +x tauri/src-tauri/binaries/gateway-x86_64-unknown-linux-gnu
+
       - name: Test
         run: cargo test
         working-directory: tauri/src-tauri
