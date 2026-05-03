@@ -100,40 +100,26 @@ One Go process, one port, bound to loopback. Inside it: a chat/messages **gatewa
 
 ```mermaid
 flowchart LR
-    Browser["Browser / desktop app<br/>(operator UI)"]
-    ModelClients["Model clients<br/>(OpenAI SDK, Anthropic SDK, curl)"]
-    EditorClients["Editor agent panels<br/>(ACP clients)"]
+    Clients["Operator UI<br/>OpenAI / Anthropic clients<br/>ACP editors"]
 
     subgraph Hecate["Hecate (single binary, 127.0.0.1:8765)"]
         direction TB
-        UI["Embedded React UI<br/>(Chats, Providers, Tasks, Observability)"]
-        Gateway["Gateway<br/>/v1/chat/completions<br/>/v1/messages<br/>/v1/models"]
-        AgentChat["External agent adapters<br/>/v1/agent-chat/*<br/>Codex / Claude Code / Cursor Agent"]
-        Runtime["Task runtime<br/>/v1/tasks/*<br/>queue + workers + sandbox"]
-        State["State<br/>memory / SQLite"]
+        Console["Embedded console"]
+        Gateway["Model gateway"]
+        AgentAdapters["External agent adapters"]
+        Runtime["Agent task runtime"]
     end
 
-    ACP["cmd/hecate-acp<br/>stdio JSON-RPC"]
-
-    Browser --> UI
-    ModelClients --> Gateway
-    EditorClients --> ACP
-    ACP --> Runtime
-
-    UI --> Gateway
-    UI --> AgentChat
-    UI --> Runtime
+    Clients --> Hecate
+    Console --> Gateway
+    Console --> AgentAdapters
+    Console --> Runtime
 
     Gateway --> Providers["Cloud + local providers"]
-    AgentChat --> ExternalAgents["Local coding-agent CLIs<br/>Codex / Claude Code / Cursor Agent"]
-    Runtime --> Sandbox["Sandboxed sh<br/>(per-call subprocess,<br/>output-capped, bwrap/sandbox-exec<br/>wrapped where available)"]
-    Runtime --> MCP["External MCP servers"]
-    Gateway --> State
-    AgentChat --> State
-    Runtime --> State
-    Gateway --> OTel["OpenTelemetry"]
-    AgentChat --> OTel
-    Runtime --> OTel
+    AgentAdapters --> CLIs["Codex / Claude Code / Cursor Agent"]
+    Runtime --> Tools["Sandboxed tools + MCP"]
+    Hecate --> State["memory / SQLite"]
+    Hecate --> OTel["OpenTelemetry"]
 ```
 
 For deeper internals, read [docs/architecture.md](docs/architecture.md), [docs/runtime-api.md](docs/runtime-api.md), and [docs/events.md](docs/events.md).
