@@ -14,6 +14,7 @@ type Props = {
 type VisibleChatMessage = {
   id: string;
   run_id?: string;
+  trace_id?: string;
   role: string;
   content: string | null;
   created_at?: string;
@@ -70,6 +71,7 @@ export function ChatView({ state, actions }: Props) {
     ? (state.activeAgentChatSession?.messages ?? []).map((m, index) => ({
         id: m.id || `agent-message-${index}`,
         run_id: m.run_id,
+        trace_id: m.trace_id,
         role: m.role,
         content: m.content,
         created_at: m.created_at,
@@ -447,7 +449,7 @@ export function ChatView({ state, actions }: Props) {
             const content = typeof m.content === "string" ? m.content : (m.content === null ? "" : JSON.stringify(m.content));
             const time = m.created_at ? new Date(m.created_at).toLocaleTimeString("en-US", { hour: "2-digit", minute: "2-digit" }) : "";
             const agentModel = m.agent_adapter_name || m.agent_adapter_id;
-            const agentRuntime = isAgentChat && role === "assistant" ? formatAgentRuntimeMeta(m.run_id, m.duration_ms) : "";
+            const agentRuntime = isAgentChat && role === "assistant" ? formatAgentRuntimeMeta(m.run_id, m.duration_ms, m.trace_id) : "";
             return (
               <MessageRow
                 key={m.id}
@@ -679,10 +681,13 @@ function ChatErrorPanel({
   );
 }
 
-function formatAgentRuntimeMeta(runID?: string, durationMS?: number): string {
+function formatAgentRuntimeMeta(runID?: string, durationMS?: number, traceID?: string): string {
   const parts: string[] = [];
   if (runID) {
     parts.push(`run ${runID.slice(0, 12)}`);
+  }
+  if (traceID) {
+    parts.push(`trace ${traceID.slice(0, 8)}`);
   }
   if (durationMS && durationMS > 0) {
     parts.push(formatDuration(durationMS));

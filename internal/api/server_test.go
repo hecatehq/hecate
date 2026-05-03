@@ -1006,7 +1006,7 @@ func TestAgentChatRunsExternalAdapter(t *testing.T) {
 	t.Setenv("PATH", bin+string(os.PathListSeparator)+os.Getenv("PATH"))
 
 	logger := slog.New(slog.NewJSONHandler(io.Discard, nil))
-	handler := NewServer(logger, NewHandler(config.Config{}, logger, nil, nil, nil, nil))
+	handler := newTestHTTPHandler(logger, &fakeProvider{})
 	client := newAPITestClient(t, handler)
 	created := mustRequestJSON[AgentChatSessionResponse](client, http.MethodPost, "/v1/agent-chat/sessions", fmt.Sprintf(`{"adapter_id":"codex","workspace":%q,"title":"Codex test"}`, dir))
 	if created.Data.AdapterID != "codex" {
@@ -1016,7 +1016,14 @@ func TestAgentChatRunsExternalAdapter(t *testing.T) {
 		t.Fatalf("workspace_branch = %q, want empty or main", got)
 	}
 
-	updated := mustRequestJSON[AgentChatSessionResponse](client, http.MethodPost, "/v1/agent-chat/sessions/"+created.Data.ID+"/messages", `{"content":"hello from hecate"}`)
+	recorder := client.mustRequest(http.MethodPost, "/v1/agent-chat/sessions/"+created.Data.ID+"/messages", `{"content":"hello from hecate"}`)
+	if recorder.Header().Get("X-Trace-Id") == "" {
+		t.Fatal("X-Trace-Id = empty, want agent chat trace id")
+	}
+	if recorder.Header().Get("X-Span-Id") == "" {
+		t.Fatal("X-Span-Id = empty, want agent chat span id")
+	}
+	updated := decodeRecorder[AgentChatSessionResponse](t, recorder)
 	if len(updated.Data.Messages) != 2 {
 		t.Fatalf("message count = %d, want 2: %#v", len(updated.Data.Messages), updated.Data.Messages)
 	}
@@ -1032,6 +1039,28 @@ func TestAgentChatRunsExternalAdapter(t *testing.T) {
 	}
 	if !strings.Contains(assistant.RawOutput, "hello from hecate") {
 		t.Fatalf("raw_output = %q, want prompt echoed", assistant.RawOutput)
+	}
+	if assistant.RequestID == "" || assistant.TraceID == "" || assistant.SpanID == "" {
+		t.Fatalf("assistant trace metadata missing: %#v", assistant)
+	}
+	if assistant.TraceID != recorder.Header().Get("X-Trace-Id") {
+		t.Fatalf("assistant trace_id = %q, want response header %q", assistant.TraceID, recorder.Header().Get("X-Trace-Id"))
+	}
+	tracePayload := mustRequestJSON[TraceResponse](client, http.MethodGet, "/v1/traces?request_id="+assistant.RequestID, "")
+	foundAgentSpan := false
+	foundFinishedEvent := false
+	for _, span := range tracePayload.Data.Spans {
+		if span.Name == telemetry.SpanAgentChatRun {
+			foundAgentSpan = true
+		}
+		for _, event := range span.Events {
+			if event.Name == telemetry.EventAgentChatRunFinished {
+				foundFinishedEvent = true
+			}
+		}
+	}
+	if !foundAgentSpan || !foundFinishedEvent {
+		t.Fatalf("agent chat trace missing span/event: spans=%#v", tracePayload.Data.Spans)
 	}
 	if len(assistant.Activities) == 0 {
 		t.Fatalf("activities missing: %#v", assistant)

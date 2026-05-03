@@ -67,6 +67,12 @@ stdout and stderr with an output cap, and records Git diff / diff stat after the
 run. External CLIs are still trusted subprocesses in the selected workspace;
 this is not equivalent to the task runtime sandbox.
 
+Every prompt also gets OTel-shaped observability. The message response includes
+`request_id`, `trace_id`, and `span_id`, and `GET
+/v1/traces?request_id=<request_id>` shows the `agent_chat.run` span with adapter
+identity, workspace, status, duration, output byte counts, and diff-capture
+state.
+
 ## Troubleshooting
 
 | Symptom | What to check |
