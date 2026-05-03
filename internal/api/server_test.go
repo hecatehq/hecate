@@ -1966,6 +1966,7 @@ func TestTaskStartFileExecutor(t *testing.T) {
 	if !strings.Contains(fetchedPatch.Data.Diff, "+hello file") {
 		t.Fatalf("patch detail missing diff:\n%s", fetchedPatch.Data.Diff)
 	}
+	tasks.mustRequestStatus(http.StatusConflict, http.MethodPost, "/v1/tasks/"+created.Data.ID+"/runs/"+started.Data.ID+"/patches/"+patchArtifact.ID+"/apply", "")
 	reverted := mustTaskRequestJSON[TaskPatchResponse](tasks, http.MethodPost, "/v1/tasks/"+created.Data.ID+"/runs/"+started.Data.ID+"/patches/"+patchArtifact.ID+"/revert", "")
 	if reverted.Data.Status != "reverted" {
 		t.Fatalf("reverted patch status = %q, want reverted", reverted.Data.Status)
@@ -3019,6 +3020,40 @@ func TestTaskRunArtifactFetchByID(t *testing.T) {
 	fetched := mustTaskRequestJSON[TaskArtifactResponse](tasks, http.MethodGet, "/v1/tasks/"+created.Data.ID+"/runs/"+started.Data.ID+"/artifacts/"+artifactID, "")
 	if fetched.Data.ID != artifactID {
 		t.Fatalf("artifact id = %q, want %q", fetched.Data.ID, artifactID)
+	}
+}
+
+func TestPatchContentExtractsBeforeAndAfter(t *testing.T) {
+	t.Parallel()
+
+	diff := strings.Join([]string{
+		"--- a/main.go",
+		"+++ b/main.go",
+		"@@ -1,2 +1,3 @@",
+		"-package main",
+		"-",
+		"+package main",
+		"+",
+		"+func main() {}",
+		"",
+	}, "\n")
+
+	before, existed, err := patchBeforeContent(diff)
+	if err != nil {
+		t.Fatalf("patchBeforeContent() error = %v", err)
+	}
+	if !existed {
+		t.Fatal("beforeExisted = false, want true")
+	}
+	if before != "package main\n\n" {
+		t.Fatalf("before = %q", before)
+	}
+	after, err := patchAfterContent(diff)
+	if err != nil {
+		t.Fatalf("patchAfterContent() error = %v", err)
+	}
+	if after != "package main\n\nfunc main() {}\n" {
+		t.Fatalf("after = %q", after)
 	}
 }
 
