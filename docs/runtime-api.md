@@ -400,9 +400,10 @@ adapter can supply structured usage.
 
 ### `GET /v1/agent-chat/sessions`
 
-Lists memory-backed Agent Chat sessions for the current gateway process.
-Agent Chat is the alpha dogfooding surface for running external coding-agent
-CLIs such as Codex, Claude Code, and Cursor Agent from the Hecate Chats UI.
+Lists Agent Chat sessions. Agent Chat uses the same backend selection as model
+chat history: memory by default, SQLite when `GATEWAY_CHAT_SESSIONS_BACKEND=sqlite`.
+It is the alpha dogfooding surface for running external coding-agent CLIs such
+as Codex, Claude Code, and Cursor Agent from the Hecate Chats UI.
 
 ```json
 GET /v1/agent-chat/sessions
@@ -429,7 +430,7 @@ GET /v1/agent-chat/sessions
 
 Creates an Agent Chat session. The session records which adapter should run
 and which workspace path the adapter process should use. The workspace must be
-an operator-controlled local path; v0 sessions are process-local memory state.
+an operator-controlled local path.
 
 ```json
 POST /v1/agent-chat/sessions
@@ -505,7 +506,7 @@ validation failures still use the normal Hecate error envelope.
 
 ### `DELETE /v1/agent-chat/sessions/{id}`
 
-Deletes a memory-backed Agent Chat session.
+Deletes an Agent Chat session from the configured chat-session backend.
 
 ### `POST /v1/workspace-dialog`
 

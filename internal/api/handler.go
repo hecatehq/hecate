@@ -33,7 +33,7 @@ type Handler struct {
 	providerRuntime ProviderRuntime
 	taskStore       taskstate.Store
 	taskRunner      *orchestrator.Runner
-	agentChat       *agentchat.Store
+	agentChat       agentchat.Store
 	rateLimiter     *ratelimit.Store
 	// secretCipher encrypts literal MCP server env values at task-creation
 	// time and wires the matching decrypting factory into the runner. nil
@@ -179,6 +179,13 @@ func NewHandler(cfg config.Config, logger *slog.Logger, service *gateway.Service
 		agentChat:           agentchat.NewMemoryStore(),
 		orchestratorMetrics: orchestratorMetrics,
 	}
+}
+
+func (h *Handler) SetAgentChatStore(store agentchat.Store) {
+	if store == nil {
+		return
+	}
+	h.agentChat = store
 }
 
 // SetSecretCipher wires the control-plane AES-GCM cipher into the
