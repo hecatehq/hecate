@@ -15,6 +15,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/hecate/agent-runtime/internal/sandbox"
 	"github.com/hecate/agent-runtime/pkg/types"
 )
 
@@ -1049,6 +1050,123 @@ func TestAgentLoop_NonGatedToolDispatchesNormally(t *testing.T) {
 	}
 	if len(res.PendingApprovals) != 0 {
 		t.Errorf("PendingApprovals = %d, want 0", len(res.PendingApprovals))
+	}
+}
+
+func TestAgentLoop_FileEditToolUsesExactReplacementAndPatchArtifact(t *testing.T) {
+	dir := t.TempDir()
+	path := filepath.Join(dir, "main.go")
+	if err := os.WriteFile(path, []byte("package main\n\nfunc main() {\n\tprintln(\"old\")\n}\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	var events []capturedRunEvent
+	llm := &scriptedLLM{
+		responses: []*types.ChatResponse{
+			makeChatResp(makeAssistantMsg("", types.ToolCall{
+				ID: "edit-1", Type: "function",
+				Function: types.ToolCallFunction{
+					Name:      "file_edit",
+					Arguments: `{"path":"main.go","old_text":"println(\"old\")","new_text":"println(\"new\")"}`,
+				},
+			})),
+			makeChatResp(makeAssistantMsg("Updated main.go.")),
+		},
+	}
+	loop := NewAgentLoopExecutor(llm, &stubExecutor{}, NewFileExecutor(sandbox.NewLocalExecutor()), &stubExecutor{}, 8, nil, HTTPRequestPolicy{})
+	spec := newAgentLoopSpec(t)
+	spec.Task.WorkingDirectory = dir
+	spec.Task.SandboxAllowedRoot = dir
+	spec.EmitRunEvent = func(eventType string, data map[string]any) {
+		events = append(events, capturedRunEvent{eventType: eventType, data: data})
+	}
+
+	res, err := loop.Execute(context.Background(), spec)
+	if err != nil {
+		t.Fatalf("Execute: %v", err)
+	}
+	if res.Status != "completed" {
+		t.Fatalf("Status = %q, want completed", res.Status)
+	}
+	content, err := os.ReadFile(path)
+	if err != nil {
+		t.Fatalf("ReadFile() error = %v", err)
+	}
+	if !strings.Contains(string(content), `println("new")`) {
+		t.Fatalf("file was not edited:\n%s", string(content))
+	}
+	patch := findArtifactByKind(res.Artifacts, "patch")
+	if patch == nil {
+		t.Fatalf("patch artifact missing; artifacts=%+v", res.Artifacts)
+	}
+	if !strings.Contains(patch.ContentText, `-	println("old")`) || !strings.Contains(patch.ContentText, `+	println("new")`) {
+		t.Fatalf("patch does not show exact replacement:\n%s", patch.ContentText)
+	}
+	foundPatchEvent := false
+	for _, event := range events {
+		if event.eventType != "tool.file.patch" {
+			continue
+		}
+		foundPatchEvent = true
+		if got := event.data["tool_name"]; got != "file_edit" {
+			t.Fatalf("tool.file.patch tool_name = %v, want file_edit", got)
+		}
+		if got := event.data["artifact_id"]; got != patch.ID {
+			t.Fatalf("tool.file.patch artifact_id = %v, want %s", got, patch.ID)
+		}
+	}
+	if !foundPatchEvent {
+		t.Fatalf("tool.file.patch event missing: %+v", events)
+	}
+}
+
+func TestAgentLoop_FileEditRejectsAmbiguousMatch(t *testing.T) {
+	dir := t.TempDir()
+	path := filepath.Join(dir, "repeat.txt")
+	if err := os.WriteFile(path, []byte("same\nsame\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	llm := &scriptedLLM{
+		responses: []*types.ChatResponse{
+			makeChatResp(makeAssistantMsg("", types.ToolCall{
+				ID: "edit-1", Type: "function",
+				Function: types.ToolCallFunction{
+					Name:      "file_edit",
+					Arguments: `{"path":"repeat.txt","old_text":"same","new_text":"changed"}`,
+				},
+			})),
+			makeChatResp(makeAssistantMsg("I need a more specific match.")),
+		},
+	}
+	file := &stubExecutor{}
+	loop := NewAgentLoopExecutor(llm, &stubExecutor{}, file, &stubExecutor{}, 8, nil, HTTPRequestPolicy{})
+	spec := newAgentLoopSpec(t)
+	spec.Task.WorkingDirectory = dir
+	res, err := loop.Execute(context.Background(), spec)
+	if err != nil {
+		t.Fatalf("Execute: %v", err)
+	}
+	if res.Status != "completed" {
+		t.Fatalf("Status = %q, want completed", res.Status)
+	}
+	if len(file.calls) != 0 {
+		t.Fatalf("file executor should not run on ambiguous edit; calls=%+v", file.calls)
+	}
+	var toolResult string
+	for _, msg := range llm.lastReqs[1].Messages {
+		if msg.Role == "tool" && msg.ToolCallID == "edit-1" {
+			toolResult = msg.Content
+			break
+		}
+	}
+	if !strings.Contains(toolResult, "appears 2 times") {
+		t.Fatalf("ambiguous edit error missing from tool result: %q", toolResult)
+	}
+	content, err := os.ReadFile(path)
+	if err != nil {
+		t.Fatalf("ReadFile() error = %v", err)
+	}
+	if string(content) != "same\nsame\n" {
+		t.Fatalf("file changed despite ambiguous edit:\n%s", string(content))
 	}
 }
 

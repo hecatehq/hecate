@@ -627,6 +627,17 @@ func (e *AgentLoopExecutor) dispatchToolCall(ctx context.Context, spec Execution
 		taskCopy.FileOperation = op
 		return e.runSubExecutor(ctx, spec, e.file, taskCopy, stepIndex, startedAt, call.ID, call.Function.Name)
 
+	case "file_edit":
+		var args fileEditArgs
+		if err := json.Unmarshal([]byte(call.Function.Arguments), &args); err != nil {
+			return fmt.Sprintf("invalid arguments for file_edit: %v", err), nil, nil, nil
+		}
+		taskCopy, errMsg := prepareFileEditTask(spec, args)
+		if errMsg != "" {
+			return errMsg, nil, nil, nil
+		}
+		return e.runSubExecutor(ctx, spec, e.file, taskCopy, stepIndex, startedAt, call.ID, call.Function.Name)
+
 	case "read_file":
 		var args readFileArgs
 		if err := json.Unmarshal([]byte(call.Function.Arguments), &args); err != nil {
@@ -1172,6 +1183,23 @@ func agentToolDefinitions() []types.Tool {
 		{
 			Type: "function",
 			Function: types.ToolFunction{
+				Name:        "file_edit",
+				Description: "Replace exact text in an existing workspace file. Prefer this over file_write for targeted code edits because it fails when the match is missing or ambiguous.",
+				Parameters: json.RawMessage(`{
+					"type": "object",
+					"properties": {
+						"path": {"type": "string", "description": "Relative path under the workspace, e.g. 'src/main.go'."},
+						"old_text": {"type": "string", "description": "Exact text to replace. Must appear exactly once unless replace_all=true."},
+						"new_text": {"type": "string", "description": "Replacement text."},
+						"replace_all": {"type": "boolean", "default": false, "description": "Replace every occurrence instead of requiring exactly one match."}
+					},
+					"required": ["path", "old_text", "new_text"]
+				}`),
+			},
+		},
+		{
+			Type: "function",
+			Function: types.ToolFunction{
 				Name:        "read_file",
 				Description: "Read the contents of a file in the task workspace. Use this instead of `shell_exec(cat ...)` — it's faster, doesn't need a shell, and isn't gated by approval.",
 				Parameters: json.RawMessage(`{
@@ -1231,6 +1259,13 @@ type fileWriteArgs struct {
 	Path      string `json:"path"`
 	Content   string `json:"content"`
 	Operation string `json:"operation,omitempty"`
+}
+
+type fileEditArgs struct {
+	Path       string `json:"path"`
+	OldText    string `json:"old_text"`
+	NewText    string `json:"new_text"`
+	ReplaceAll bool   `json:"replace_all,omitempty"`
 }
 
 type readFileArgs struct {
@@ -1326,7 +1361,7 @@ func toolInputForLog(name string, task types.Task) map[string]any {
 		return map[string]any{"command": task.ShellCommand, "working_directory": task.WorkingDirectory}
 	case "git_exec":
 		return map[string]any{"command": task.GitCommand, "working_directory": task.WorkingDirectory}
-	case "file_write":
+	case "file_write", "file_edit":
 		return map[string]any{"path": task.FilePath, "operation": task.FileOperation, "content_chars": len(task.FileContent)}
 	}
 	return nil
@@ -1379,6 +1414,7 @@ func summarizeSubResult(r *ExecutionResult) string {
 const (
 	readFileDefaultMaxBytes = 64 * 1024
 	readFileHardCapBytes    = 1024 * 1024
+	fileEditHardCapBytes    = 2 * 1024 * 1024
 	listDirEntryCap         = 500
 )
 
@@ -1409,6 +1445,56 @@ func resolveWorkspacePath(spec ExecutionSpec, relPath string) (string, string) {
 		return "", fmt.Sprintf("path %q escapes the workspace root", rel)
 	}
 	return abs, ""
+}
+
+func prepareFileEditTask(spec ExecutionSpec, args fileEditArgs) (types.Task, string) {
+	if args.Path == "" {
+		return types.Task{}, "file_edit: path is required"
+	}
+	if args.OldText == "" {
+		return types.Task{}, "file_edit: old_text is required"
+	}
+	abs, errMsg := resolveWorkspacePath(spec, args.Path)
+	if errMsg != "" {
+		return types.Task{}, errMsg
+	}
+	info, err := os.Stat(abs)
+	if err != nil {
+		return types.Task{}, fmt.Sprintf("file_edit: %v", err)
+	}
+	if info.IsDir() {
+		return types.Task{}, fmt.Sprintf("file_edit: %q is a directory", args.Path)
+	}
+	if info.Size() > fileEditHardCapBytes {
+		return types.Task{}, fmt.Sprintf("file_edit: %q is too large (%d bytes > %d)", args.Path, info.Size(), fileEditHardCapBytes)
+	}
+	raw, err := os.ReadFile(abs)
+	if err != nil {
+		return types.Task{}, fmt.Sprintf("file_edit: %v", err)
+	}
+	current := string(raw)
+	count := strings.Count(current, args.OldText)
+	if count == 0 {
+		return types.Task{}, fmt.Sprintf("file_edit: old_text not found in %q", args.Path)
+	}
+	if count > 1 && !args.ReplaceAll {
+		return types.Task{}, fmt.Sprintf("file_edit: old_text appears %d times in %q; set replace_all=true or provide a more specific match", count, args.Path)
+	}
+	limit := 1
+	if args.ReplaceAll {
+		limit = -1
+	}
+	next := strings.Replace(current, args.OldText, args.NewText, limit)
+	if next == current {
+		return types.Task{}, fmt.Sprintf("file_edit: replacement produced no change in %q", args.Path)
+	}
+
+	taskCopy := spec.Task
+	taskCopy.ExecutionKind = "file"
+	taskCopy.FilePath = args.Path
+	taskCopy.FileContent = next
+	taskCopy.FileOperation = "write"
+	return taskCopy, ""
 }
 
 // readFileTool reads a workspace file and returns the content as the

@@ -97,7 +97,7 @@ func RegisterDefaultTools(s *Server, client *GatewayClient) {
 		Title: "Create an agent task",
 		Description: "Queue a new agent_loop task on the Hecate gateway. " +
 			"The task runs an LLM-driven loop with built-in tools (shell_exec, " +
-			"git_exec, file_write, read_file, list_dir, http_request). " +
+			"git_exec, file_write, file_edit, read_file, list_dir, http_request). " +
 			"Returns the new task id; use get_task_status to follow progress. " +
 			"For non-agent_loop kinds (raw shell / git / file), use the gateway HTTP API directly.",
 		InputSchema: json.RawMessage(`{

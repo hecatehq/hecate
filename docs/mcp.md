@@ -123,7 +123,7 @@ Expected output: two JSON-RPC responses on stdout (initialize result + tools lis
 
 > The other half of the MCP integration: external MCP servers as tool sources for `agent_loop` tasks. The section above (Hecate as MCP server) is independent — read either standalone.
 
-An `agent_loop` task configures one or more external MCP servers, the agent loop brings them up at run start, and their tools become callable by the LLM alongside Hecate's built-ins (`shell_exec`, `file_write`, `git_exec`, `read_file`, `list_dir`, `http_request`).
+An `agent_loop` task configures one or more external MCP servers, the agent loop brings them up at run start, and their tools become callable by the LLM alongside Hecate's built-ins (`shell_exec`, `git_exec`, `file_write`, `file_edit`, `read_file`, `list_dir`, `http_request`).
 
 A server vending tool `read_file` under the operator-chosen alias `filesystem` shows up to the LLM as `mcp__filesystem__read_file`. The double-underscore is the namespace separator; the LLM picks the namespaced name and Hecate routes the call back to the right upstream.
 
