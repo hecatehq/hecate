@@ -9,6 +9,8 @@ A chat session has two independent streams:
 - **Messages** — the conversation, in order. Every entry is a complete `Message` (role, content, content_blocks, tool_calls, tool_call_id, tool_error). Sequence numbers are monotonic per session and authoritative for ordering.
 - **Provider calls** — observability for upstream chat-completion requests. Each call records routing decision (requested vs. resolved provider/model), token usage, and resolved cost.
 
+Provider and model selection are per request, not fixed on the session. A single chat session can therefore contain provider calls from multiple upstream providers or models; replay uses the message stream, while the provider-call stream explains what each request used.
+
 Messages and provider calls are linked by `produced_by_call_id`: a message's `produced_by_call_id` points at the call that emitted it. Assistant messages always have one; tool messages emitted by a server-side runtime have one; user, system, and client-supplied tool-result messages have an empty `produced_by_call_id`.
 
 ```mermaid
