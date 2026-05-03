@@ -13,10 +13,13 @@ type Session struct {
 	Title     string
 	AdapterID string
 	Workspace string
-	Status    string
-	CreatedAt time.Time
-	UpdatedAt time.Time
-	Messages  []Message
+	// WorkspaceBranch is captured when the session is created so API
+	// snapshots don't spawn git on every streamed update.
+	WorkspaceBranch string
+	Status          string
+	CreatedAt       time.Time
+	UpdatedAt       time.Time
+	Messages        []Message
 }
 
 type Message struct {

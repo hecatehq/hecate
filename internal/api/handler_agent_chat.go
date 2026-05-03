@@ -57,15 +57,17 @@ func (h *Handler) HandleCreateAgentChatSession(w http.ResponseWriter, r *http.Re
 		WriteError(w, http.StatusBadRequest, errCodeInvalidRequest, err.Error())
 		return
 	}
+	workspaceBranch := workspaceGitBranch(workspace)
 	title := strings.TrimSpace(req.Title)
 	if title == "" {
 		title = adapter.Name + " chat"
 	}
 	session, err := h.agentChat.Create(r.Context(), agentchat.Session{
-		ID:        newAgentChatID("agent_chat"),
-		Title:     title,
-		AdapterID: adapter.ID,
-		Workspace: workspace,
+		ID:              newAgentChatID("agent_chat"),
+		Title:           title,
+		AdapterID:       adapter.ID,
+		Workspace:       workspace,
+		WorkspaceBranch: workspaceBranch,
 	})
 	if err != nil {
 		WriteError(w, http.StatusInternalServerError, "gateway_error", err.Error())
@@ -362,7 +364,7 @@ func renderAgentChatSessionSummary(session agentchat.Session) AgentChatSessionSu
 		Title:           session.Title,
 		AdapterID:       session.AdapterID,
 		Workspace:       session.Workspace,
-		WorkspaceBranch: workspaceGitBranch(session.Workspace),
+		WorkspaceBranch: session.WorkspaceBranch,
 		Status:          session.Status,
 		MessageCount:    len(session.Messages),
 		CreatedAt:       formatOptionalTime(session.CreatedAt),
@@ -403,7 +405,7 @@ func renderAgentChatSession(session agentchat.Session) AgentChatSessionItem {
 		Title:           session.Title,
 		AdapterID:       session.AdapterID,
 		Workspace:       session.Workspace,
-		WorkspaceBranch: workspaceGitBranch(session.Workspace),
+		WorkspaceBranch: session.WorkspaceBranch,
 		Status:          session.Status,
 		CreatedAt:       formatOptionalTime(session.CreatedAt),
 		UpdatedAt:       formatOptionalTime(session.UpdatedAt),

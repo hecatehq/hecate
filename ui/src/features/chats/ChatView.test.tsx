@@ -176,7 +176,7 @@ describe("ChatView agent target", () => {
   });
 
   it("opens the workspace picker action from the folder button", async () => {
-    const chooseAgentWorkspace = vi.fn(async () => undefined);
+    const chooseAgentWorkspace = vi.fn(async () => true);
     const { state, actions } = setup({
       chatTarget: "agent",
       agentWorkspace: "",
@@ -189,6 +189,26 @@ describe("ChatView agent target", () => {
     const user = userEvent.setup();
     await user.click(screen.getByTitle("Choose workspace folder"));
     expect(chooseAgentWorkspace).toHaveBeenCalled();
+  });
+
+  it("allows pasting a workspace path when the folder dialog is unavailable", async () => {
+    const chooseAgentWorkspace = vi.fn(async () => false);
+    const setAgentWorkspace = vi.fn();
+    const { state, actions } = setup({
+      chatTarget: "agent",
+      agentWorkspace: "",
+      agentAdapters: [
+        { id: "codex", name: "Codex", kind: "process", command: "codex", available: true, status: "available", cost_mode: "external" },
+      ],
+    }, { chooseAgentWorkspace, setAgentWorkspace });
+    render(<ChatView state={state} actions={actions} />);
+
+    const user = userEvent.setup();
+    await user.click(screen.getByTitle("Choose workspace folder"));
+    await user.type(screen.getByPlaceholderText("/Users/alice/dev/project"), "/workspaces/hecate");
+    await user.click(screen.getByRole("button", { name: "Use" }));
+
+    expect(setAgentWorkspace).toHaveBeenCalledWith("/workspaces/hecate");
   });
 
   it("requires a workspace before sending to an external agent", () => {

@@ -20,16 +20,20 @@ func runStoreLifecycle(t *testing.T, store Store) {
 	}
 
 	created, err := store.Create(ctx, Session{
-		ID:        "agent_chat_1",
-		Title:     "Review diff",
-		AdapterID: "codex",
-		Workspace: "/tmp/hecate",
+		ID:              "agent_chat_1",
+		Title:           "Review diff",
+		AdapterID:       "codex",
+		Workspace:       "/tmp/hecate",
+		WorkspaceBranch: "main",
 	})
 	if err != nil {
 		t.Fatalf("Create: %v", err)
 	}
 	if created.Status != "idle" {
 		t.Fatalf("created status = %q, want idle", created.Status)
+	}
+	if created.WorkspaceBranch != "main" {
+		t.Fatalf("created workspace branch = %q, want main", created.WorkspaceBranch)
 	}
 
 	if _, err := store.AppendMessage(ctx, created.ID, Message{
@@ -90,6 +94,9 @@ func runStoreLifecycle(t *testing.T, store Store) {
 	if got.Messages[1].Content != "done" {
 		t.Fatalf("persisted assistant content = %q, want done", got.Messages[1].Content)
 	}
+	if got.WorkspaceBranch != "main" {
+		t.Fatalf("persisted workspace branch = %q, want main", got.WorkspaceBranch)
+	}
 	if got.Messages[1].RawOutput == "" || got.Messages[1].TraceID != "trace_agent" || len(got.Messages[1].Activities) != 2 {
 		t.Fatalf("persisted diagnostics missing: %+v", got.Messages[1])
 	}
@@ -100,6 +107,9 @@ func runStoreLifecycle(t *testing.T, store Store) {
 	}
 	if len(list) != 1 || list[0].ID != created.ID {
 		t.Fatalf("List = %+v, want created session", list)
+	}
+	if list[0].WorkspaceBranch != "main" || len(list[0].Messages) != 2 {
+		t.Fatalf("List summary = %+v, want cached branch and message count", list[0])
 	}
 
 	if err := store.Delete(ctx, created.ID); err != nil {

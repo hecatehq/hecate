@@ -1172,16 +1172,18 @@ export function useRuntimeConsole() {
     }
   }
 
-  async function chooseAgentWorkspace() {
+  async function chooseAgentWorkspace(): Promise<boolean> {
     setChatError("");
     try {
       const payload = await chooseWorkspaceDirectoryRequest();
       if (payload.data.path) {
-      setAgentWorkspace(payload.data.path);
-      setAgentWorkspaceBranch(payload.data.branch ?? "");
+        setAgentWorkspace(payload.data.path);
+        setAgentWorkspaceBranch(payload.data.branch ?? "");
       }
+      return true;
     } catch (error) {
       setChatError(error instanceof Error ? error.message : "workspace folder dialog is unavailable");
+      return false;
     }
   }
 

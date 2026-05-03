@@ -70,7 +70,7 @@ export function createRuntimeConsoleActions(): RuntimeConsoleViewModel["actions"
   return {
     copyCommand: async () => undefined,
     cancelAgentChat: async () => undefined,
-    chooseAgentWorkspace: async () => undefined,
+    chooseAgentWorkspace: async () => true,
     createChatSession: () => undefined,
     deleteChatSession: async () => undefined,
     deletePolicyRule: async () => undefined,

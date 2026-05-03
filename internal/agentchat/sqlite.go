@@ -53,12 +53,13 @@ func (s *SQLiteStore) Create(ctx context.Context, session Session) (Session, err
 	_, err := s.client.DB().ExecContext(
 		ctx,
 		fmt.Sprintf(
-			`INSERT INTO %s (id, title, adapter_id, workspace, status, created_at, updated_at)
-			 VALUES (?, ?, ?, ?, ?, ?, ?)
+			`INSERT INTO %s (id, title, adapter_id, workspace, workspace_branch, status, created_at, updated_at)
+			 VALUES (?, ?, ?, ?, ?, ?, ?, ?)
 			 ON CONFLICT(id) DO UPDATE SET
 			   title = excluded.title,
 			   adapter_id = excluded.adapter_id,
 			   workspace = excluded.workspace,
+			   workspace_branch = excluded.workspace_branch,
 			   status = excluded.status,
 			   updated_at = excluded.updated_at`,
 			s.sessionsTable,
@@ -67,6 +68,7 @@ func (s *SQLiteStore) Create(ctx context.Context, session Session) (Session, err
 		session.Title,
 		session.AdapterID,
 		session.Workspace,
+		session.WorkspaceBranch,
 		session.Status,
 		session.CreatedAt.UTC(),
 		session.UpdatedAt.UTC(),
@@ -92,10 +94,14 @@ func (s *SQLiteStore) List(ctx context.Context) ([]Session, error) {
 	rows, err := s.client.DB().QueryContext(
 		ctx,
 		fmt.Sprintf(
-			`SELECT id, title, adapter_id, workspace, status, created_at, updated_at
-			 FROM %s
-			 ORDER BY updated_at DESC, created_at DESC`,
+			`SELECT s.id, s.title, s.adapter_id, s.workspace, s.workspace_branch, s.status, s.created_at, s.updated_at,
+			        COUNT(m.id) AS message_count
+			 FROM %s AS s
+			 LEFT JOIN %s AS m ON m.session_id = s.id
+			 GROUP BY s.id, s.title, s.adapter_id, s.workspace, s.workspace_branch, s.status, s.created_at, s.updated_at
+			 ORDER BY s.updated_at DESC, s.created_at DESC`,
 			s.sessionsTable,
+			s.messagesTable,
 		),
 	)
 	if err != nil {
@@ -106,19 +112,22 @@ func (s *SQLiteStore) List(ctx context.Context) ([]Session, error) {
 	var items []Session
 	for rows.Next() {
 		var session Session
+		var messageCount int
 		if err := rows.Scan(
 			&session.ID,
 			&session.Title,
 			&session.AdapterID,
 			&session.Workspace,
+			&session.WorkspaceBranch,
 			&session.Status,
 			&session.CreatedAt,
 			&session.UpdatedAt,
+			&messageCount,
 		); err != nil {
 			return nil, fmt.Errorf("scan sqlite agent chat session: %w", err)
 		}
-		if count, err := s.messageCount(ctx, session.ID); err == nil && count > 0 {
-			session.Messages = make([]Message, count)
+		if messageCount > 0 {
+			session.Messages = make([]Message, messageCount)
 		}
 		items = append(items, session)
 	}
@@ -272,6 +281,7 @@ func (s *SQLiteStore) migrate(ctx context.Context) error {
 				title TEXT NOT NULL,
 				adapter_id TEXT NOT NULL,
 				workspace TEXT NOT NULL,
+				workspace_branch TEXT NOT NULL DEFAULT '',
 				status TEXT NOT NULL,
 				created_at TIMESTAMP NOT NULL,
 				updated_at TIMESTAMP NOT NULL
@@ -316,6 +326,9 @@ func (s *SQLiteStore) migrate(ctx context.Context) error {
 	); err != nil {
 		return fmt.Errorf("migrate sqlite agent chat messages: %w", err)
 	}
+	if err := s.ensureSessionColumn(ctx, "workspace_branch", "TEXT NOT NULL DEFAULT ''"); err != nil {
+		return err
+	}
 	for _, column := range []struct {
 		name       string
 		definition string
@@ -356,9 +369,9 @@ func (s *SQLiteStore) loadSession(ctx context.Context, id string) (Session, erro
 	var session Session
 	err := s.client.DB().QueryRowContext(
 		ctx,
-		fmt.Sprintf(`SELECT id, title, adapter_id, workspace, status, created_at, updated_at FROM %s WHERE id = ?`, s.sessionsTable),
+		fmt.Sprintf(`SELECT id, title, adapter_id, workspace, workspace_branch, status, created_at, updated_at FROM %s WHERE id = ?`, s.sessionsTable),
 		id,
-	).Scan(&session.ID, &session.Title, &session.AdapterID, &session.Workspace, &session.Status, &session.CreatedAt, &session.UpdatedAt)
+	).Scan(&session.ID, &session.Title, &session.AdapterID, &session.Workspace, &session.WorkspaceBranch, &session.Status, &session.CreatedAt, &session.UpdatedAt)
 	if err != nil {
 		if errors.Is(err, sql.ErrNoRows) {
 			return Session{}, sql.ErrNoRows
@@ -436,18 +449,6 @@ func (s *SQLiteStore) loadMessages(ctx context.Context, sessionID string) ([]Mes
 	return messages, nil
 }
 
-func (s *SQLiteStore) messageCount(ctx context.Context, sessionID string) (int, error) {
-	var count int
-	if err := s.client.DB().QueryRowContext(
-		ctx,
-		fmt.Sprintf(`SELECT COUNT(*) FROM %s WHERE session_id = ?`, s.messagesTable),
-		sessionID,
-	).Scan(&count); err != nil {
-		return 0, fmt.Errorf("count sqlite agent chat messages: %w", err)
-	}
-	return count, nil
-}
-
 func (s *SQLiteStore) ensureMessageColumn(ctx context.Context, column, definition string) error {
 	exists, err := s.columnExists(ctx, s.messagesTable, column)
 	if err != nil {
@@ -458,6 +459,20 @@ func (s *SQLiteStore) ensureMessageColumn(ctx context.Context, column, definitio
 	}
 	if _, err := s.client.DB().ExecContext(ctx, fmt.Sprintf(`ALTER TABLE %s ADD COLUMN %s %s`, s.messagesTable, column, definition)); err != nil {
 		return fmt.Errorf("migrate sqlite agent chat messages %s: %w", column, err)
+	}
+	return nil
+}
+
+func (s *SQLiteStore) ensureSessionColumn(ctx context.Context, column, definition string) error {
+	exists, err := s.columnExists(ctx, s.sessionsTable, column)
+	if err != nil {
+		return fmt.Errorf("inspect sqlite agent chat sessions columns: %w", err)
+	}
+	if exists {
+		return nil
+	}
+	if _, err := s.client.DB().ExecContext(ctx, fmt.Sprintf(`ALTER TABLE %s ADD COLUMN %s %s`, s.sessionsTable, column, definition)); err != nil {
+		return fmt.Errorf("migrate sqlite agent chat sessions %s: %w", column, err)
 	}
 	return nil
 }
