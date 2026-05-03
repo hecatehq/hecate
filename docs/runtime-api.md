@@ -430,7 +430,9 @@ GET /v1/agent-chat/sessions
 
 Creates an Agent Chat session. The session records which adapter should run
 and which workspace path the adapter process should use. The workspace must be
-an operator-controlled local path.
+an operator-controlled local directory. Hecate validates and canonicalizes the
+path at session creation, so later runs use the resolved directory instead of
+failing only after the external process starts.
 
 ```json
 POST /v1/agent-chat/sessions

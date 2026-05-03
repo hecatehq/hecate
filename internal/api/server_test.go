@@ -1038,6 +1038,17 @@ func TestAgentChatRunsExternalAdapter(t *testing.T) {
 	}
 }
 
+func TestAgentChatCreateRejectsInvalidWorkspace(t *testing.T) {
+	logger := slog.New(slog.NewJSONHandler(io.Discard, nil))
+	handler := NewServer(logger, NewHandler(config.Config{}, logger, nil, nil, nil, nil))
+	client := newAPITestClient(t, handler)
+
+	rec := client.mustRequestStatus(http.StatusBadRequest, http.MethodPost, "/v1/agent-chat/sessions", `{"adapter_id":"codex","workspace":"/path/that/does/not/exist"}`)
+	if !strings.Contains(rec.Body.String(), "not accessible") {
+		t.Fatalf("body = %s, want not accessible error", rec.Body.String())
+	}
+}
+
 func TestAgentChatStreamsExternalAdapterOutput(t *testing.T) {
 	dir := t.TempDir()
 	bin := filepath.Join(dir, "bin")

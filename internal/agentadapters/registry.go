@@ -190,7 +190,7 @@ func BuiltInByID(id string) (Adapter, bool) {
 }
 
 func RunAdapter(ctx context.Context, adapter Adapter, req RunRequest) (RunResult, error) {
-	workspace, err := validateWorkspace(req.Workspace)
+	workspace, err := ValidateWorkspace(req.Workspace)
 	if err != nil {
 		return RunResult{}, err
 	}
@@ -311,7 +311,7 @@ func expandPath(path string) string {
 	return path
 }
 
-func validateWorkspace(path string) (string, error) {
+func ValidateWorkspace(path string) (string, error) {
 	path = strings.TrimSpace(path)
 	if path == "" {
 		return "", errors.New("workspace is required")
@@ -320,14 +320,18 @@ func validateWorkspace(path string) (string, error) {
 	if err != nil {
 		return "", fmt.Errorf("resolve workspace: %w", err)
 	}
-	info, err := os.Stat(abs)
+	resolved, err := filepath.EvalSymlinks(abs)
 	if err != nil {
 		return "", fmt.Errorf("workspace %q is not accessible: %w", abs, err)
 	}
-	if !info.IsDir() {
-		return "", fmt.Errorf("workspace %q is not a directory", abs)
+	info, err := os.Stat(resolved)
+	if err != nil {
+		return "", fmt.Errorf("workspace %q is not accessible: %w", resolved, err)
 	}
-	return abs, nil
+	if !info.IsDir() {
+		return "", fmt.Errorf("workspace %q is not a directory", resolved)
+	}
+	return resolved, nil
 }
 
 func sanitizedEnv(env []string) []string {

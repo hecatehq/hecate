@@ -190,6 +190,40 @@ func TestCommandForAdapterPinsHeadlessInvocations(t *testing.T) {
 	}
 }
 
+func TestValidateWorkspaceCanonicalizesSymlink(t *testing.T) {
+	t.Parallel()
+
+	target := t.TempDir()
+	link := filepath.Join(t.TempDir(), "workspace-link")
+	if err := os.Symlink(target, link); err != nil {
+		t.Skipf("symlink not supported: %v", err)
+	}
+
+	got, err := ValidateWorkspace(link)
+	if err != nil {
+		t.Fatalf("ValidateWorkspace: %v", err)
+	}
+	want, err := filepath.EvalSymlinks(target)
+	if err != nil {
+		t.Fatalf("EvalSymlinks(target): %v", err)
+	}
+	if got != want {
+		t.Fatalf("workspace = %q, want canonical target %q", got, want)
+	}
+}
+
+func TestValidateWorkspaceRejectsFiles(t *testing.T) {
+	t.Parallel()
+
+	path := filepath.Join(t.TempDir(), "file.txt")
+	if err := os.WriteFile(path, []byte("not a directory"), 0o644); err != nil {
+		t.Fatalf("write file: %v", err)
+	}
+	if _, err := ValidateWorkspace(path); err == nil {
+		t.Fatalf("ValidateWorkspace(file) error = nil, want error")
+	}
+}
+
 func TestSanitizedEnvPreservesAgentAndRuntimeEssentials(t *testing.T) {
 	t.Parallel()
 
