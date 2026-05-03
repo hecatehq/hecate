@@ -39,6 +39,10 @@ These are **persisted events** (rows in the `task_state_run_events` table). They
 | `run.throttled_concurrency` | Run lifecycle | Run held back by global concurrency limit |
 | `run.resume_checkpoint_failed` | Run lifecycle | Resume hydration failed; run will start fresh |
 | `run.reconciled_restart_requeued` | Run lifecycle | Stalled run recovered and re-queued by reconciler (boot-time scan or periodic background check) |
+| `turn.started` | Agent loop | An `agent_loop` LLM turn is about to call the model |
+| `assistant.text_complete` | Agent loop | Assistant text content for a turn is available |
+| `assistant.tool_call_proposed` | Agent loop | Assistant proposed a tool call before runtime dispatch |
+| `assistant.final_answer` | Agent loop | Assistant ended the loop without more tool calls |
 | `approval.requested` | Approvals | An approval gate was created (pre-execution or mid-loop) |
 | `approval.resolved` | Approvals | Operator resolved an approval gate |
 | `agent.turn.completed` | Agent loop | One LLM round-trip in an `agent_loop` run finished |
@@ -227,6 +231,54 @@ The operator (or admin) resolved the gate. After approve, the run re-queues; aft
 | `status` | `string` | Mirrors `decision` for compatibility with approval records |
 
 ## Agent loop
+
+### `turn.started`
+
+Emitted immediately before an `agent_loop` LLM request. Resume-after-approval
+turns that only dispatch already-approved tool calls do not emit this event
+because no model call is made.
+
+| Extra key | Type | Notes |
+|---|---|---|
+| `turn_index` | `int` | 1-indexed turn number within this run |
+| `model` | `string` | Requested model for this run |
+| `provider` | `string` | Provider hint when pinned by the task |
+| `input_tokens_estimate` | `int` | Cheap local estimate for operator/debug rendering; provider usage remains authoritative after completion |
+
+### `assistant.text_complete`
+
+Emitted when the assistant response carries text content. Hecate does not yet
+stream internal agent-loop text deltas into the persisted event stream, so this
+is the full text block for the turn.
+
+| Extra key | Type | Notes |
+|---|---|---|
+| `turn_index` | `int` | 1-indexed turn number within this run |
+| `block_index` | `int` | Currently `0`; reserved for multi-block rendering |
+| `text` | `string` | Assistant text |
+
+### `assistant.tool_call_proposed`
+
+Emitted once per assistant tool call before policy gates or runtime dispatch.
+The later `approval.*`, `tool.*`, and `orchestrator.mcp.*` events describe what
+Hecate did with that proposal.
+
+| Extra key | Type | Notes |
+|---|---|---|
+| `turn_index` | `int` | 1-indexed turn number within this run |
+| `tool_call_id` | `string` | Provider tool-call id |
+| `tool_name` | `string` | Requested tool name |
+| `input` | `object` | Parsed tool arguments when valid JSON, otherwise `{ "raw": "..." }` |
+
+### `assistant.final_answer`
+
+Emitted when the assistant response contains no tool calls and the agent loop
+can finish.
+
+| Extra key | Type | Notes |
+|---|---|---|
+| `turn_index` | `int` | 1-indexed turn number within this run |
+| `summary` | `string` | Final assistant text |
 
 ### `agent.turn.completed`
 

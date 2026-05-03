@@ -190,6 +190,74 @@ func TestAgentLoop_ToolCallThenAnswer(t *testing.T) {
 	}
 }
 
+func TestAgentLoop_EmitsCandidateCoreAssistantEvents(t *testing.T) {
+	shell := &stubExecutor{
+		result: &ExecutionResult{
+			Status: "completed",
+			Artifacts: []types.TaskArtifact{
+				{Kind: "stdout", Name: "stdout.txt", ContentText: "README.md\n"},
+			},
+		},
+	}
+	llm := &scriptedLLM{
+		responses: []*types.ChatResponse{
+			makeChatResp(makeAssistantMsg("I'll inspect the files.", types.ToolCall{
+				ID:   "call-1",
+				Type: "function",
+				Function: types.ToolCallFunction{
+					Name:      "shell_exec",
+					Arguments: `{"command":"ls"}`,
+				},
+			})),
+			makeChatResp(makeAssistantMsg("The workspace contains README.md.")),
+		},
+	}
+	cap := &captureRunEvent{}
+	spec := newAgentLoopSpec(t)
+	spec.EmitRunEvent = cap.emit
+	loop := NewAgentLoopExecutor(llm, shell, &stubExecutor{}, &stubExecutor{}, 8, nil, HTTPRequestPolicy{})
+
+	res, err := loop.Execute(context.Background(), spec)
+	if err != nil {
+		t.Fatalf("Execute: %v", err)
+	}
+	if res.Status != "completed" {
+		t.Fatalf("Status = %q, want completed", res.Status)
+	}
+
+	if got := len(cap.byType("turn.started")); got != 2 {
+		t.Fatalf("turn.started count = %d, want 2", got)
+	}
+	textEvents := cap.byType("assistant.text_complete")
+	if len(textEvents) != 2 {
+		t.Fatalf("assistant.text_complete count = %d, want 2", len(textEvents))
+	}
+	if textEvents[0].Data["text"] != "I'll inspect the files." {
+		t.Fatalf("first text_complete text = %v", textEvents[0].Data["text"])
+	}
+	proposed := cap.byType("assistant.tool_call_proposed")
+	if len(proposed) != 1 {
+		t.Fatalf("assistant.tool_call_proposed count = %d, want 1", len(proposed))
+	}
+	if proposed[0].Data["tool_call_id"] != "call-1" || proposed[0].Data["tool_name"] != "shell_exec" {
+		t.Fatalf("tool proposal data = %+v", proposed[0].Data)
+	}
+	input, ok := proposed[0].Data["input"].(map[string]any)
+	if !ok {
+		t.Fatalf("tool proposal input = %T, want map", proposed[0].Data["input"])
+	}
+	if input["command"] != "ls" {
+		t.Fatalf("tool proposal command = %v, want ls", input["command"])
+	}
+	finals := cap.byType("assistant.final_answer")
+	if len(finals) != 1 {
+		t.Fatalf("assistant.final_answer count = %d, want 1", len(finals))
+	}
+	if finals[0].Data["summary"] != "The workspace contains README.md." {
+		t.Fatalf("final answer summary = %v", finals[0].Data["summary"])
+	}
+}
+
 func TestAgentLoop_MaxTurnsHonored(t *testing.T) {
 	// LLM keeps asking for tool calls forever; loop must stop at
 	// maxTurns and return failed status. Without this cap a runaway
