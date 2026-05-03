@@ -116,6 +116,26 @@ describe("ChatView chats sidebar", () => {
 });
 
 describe("ChatView agent target", () => {
+  it("does not show provider setup actions when agent chat has no available CLI", () => {
+    const { state, actions } = setup({
+      chatTarget: "agent",
+      message: "run codex",
+      controlPlaneConfig: { backend: "memory", providers: [], policy_rules: [], pricebook: [], events: [] },
+      agentAdapterID: "codex",
+      agentAdapters: [
+        { id: "codex", name: "Codex", kind: "process", command: "codex", available: false, status: "missing", error: "exec: \"codex\": executable file not found in $PATH", cost_mode: "external" },
+      ],
+    });
+    render(<ChatView state={state} actions={actions} />);
+
+    expect(screen.getByText("Codex is unavailable")).toBeTruthy();
+    expect(screen.getByText(/could not start Codex/)).toBeTruthy();
+    expect(screen.getAllByText("Codex").length).toBeGreaterThan(0);
+    expect(screen.getByText(/Install Codex CLI/)).toBeTruthy();
+    expect(screen.getByText(/exec: "codex"/)).toBeTruthy();
+    expect(screen.queryByRole("button", { name: /Add provider/i })).toBeNull();
+  });
+
   it("renders external agent controls and locks the adapter for an active chat", async () => {
     const setChatTarget = vi.fn();
     const setAgentAdapterID = vi.fn();

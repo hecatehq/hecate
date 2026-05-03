@@ -3,7 +3,7 @@ import type { SyntheticEvent } from "react";
 import type { RuntimeConsoleViewModel } from "../../app/useRuntimeConsole";
 import { describeGatewayError, formatErrorCode } from "../../lib/error-diagnostics";
 import { parseInlineNodes, parseMarkdownBlocks } from "../../lib/markdown";
-import type { AgentChatActivityRecord } from "../../types/runtime";
+import type { AgentAdapterRecord, AgentChatActivityRecord } from "../../types/runtime";
 import { AgentAdapterPicker, CodeBlock, Icon, Icons, InlineError, ModelPicker, ProviderPicker } from "../shared/ui";
 
 type Props = {
@@ -132,6 +132,7 @@ export function ChatView({ state, actions, onNavigate }: Props) {
   })();
   const modelRouteUnavailable = providerConfigLoaded && selectableModels.length === 0;
   const agentRouteUnavailable = availableAgents.length === 0;
+  const selectedAgentUnavailable = isAgentChat && Boolean(selectedAgent) && !selectedAgent?.available;
   const nothingRunnable = !state.loading && modelRouteUnavailable && agentRouteUnavailable;
   const agentPickerLocked = isAgentChat && Boolean(state.activeAgentChatSessionID);
   const sendDisabled = !state.message.trim()
@@ -605,7 +606,9 @@ export function ChatView({ state, actions, onNavigate }: Props) {
               modelRouteUnavailable={modelRouteUnavailable}
               agentRouteUnavailable={agentRouteUnavailable}
               nothingRunnable={nothingRunnable}
-              selectedAgent={selectedAgent?.name || activeAgentAdapterID}
+              agentAdapters={state.agentAdapters}
+              selectedAgent={selectedAgent}
+              selectedAgentUnavailable={selectedAgentUnavailable}
               onAddProvider={() => onNavigate?.("providers")}
               onSwitchTarget={actions.setChatTarget}
             />
@@ -760,7 +763,9 @@ function ChatEmptyState({
   modelRouteUnavailable,
   agentRouteUnavailable,
   nothingRunnable,
+  agentAdapters,
   selectedAgent,
+  selectedAgentUnavailable,
   onAddProvider,
   onSwitchTarget,
 }: {
@@ -768,32 +773,41 @@ function ChatEmptyState({
   modelRouteUnavailable: boolean;
   agentRouteUnavailable: boolean;
   nothingRunnable: boolean;
-  selectedAgent: string;
+  agentAdapters: AgentAdapterRecord[];
+  selectedAgent?: AgentAdapterRecord;
+  selectedAgentUnavailable: boolean;
   onAddProvider: () => void;
   onSwitchTarget: (target: "model" | "agent") => void;
 }) {
-  const title = nothingRunnable
-    ? "Nothing runnable yet"
-    : isAgentChat && agentRouteUnavailable
+  const title = isAgentChat && selectedAgentUnavailable
+      ? `${selectedAgent?.name || "Selected agent"} is unavailable`
+      : isAgentChat && agentRouteUnavailable
       ? "No available coding agent"
-      : !isAgentChat && modelRouteUnavailable
-        ? "No routable model"
-        : "Start a chat";
-  const detail = nothingRunnable
-    ? "Add a model provider or install a supported coding-agent CLI before sending a message."
-    : isAgentChat && agentRouteUnavailable
-      ? `${selectedAgent || "The selected agent"} is not available. Install the CLI, log in if required, then refresh this view.`
-      : !isAgentChat && modelRouteUnavailable
-        ? "Add a provider with discovered models before sending through Hecate."
-        : "Send a message to start this chat.";
+      : nothingRunnable
+        ? "Nothing runnable yet"
+        : !isAgentChat && modelRouteUnavailable
+          ? "No routable model"
+          : "Start a chat";
+  const detail = isAgentChat && selectedAgentUnavailable
+      ? `Hecate could not start ${selectedAgent?.name || "the selected agent"} because its CLI is not ready in this environment.`
+      : isAgentChat && agentRouteUnavailable
+      ? "Hecate did not find any supported coding-agent CLI on PATH or in the known app locations."
+      : nothingRunnable
+        ? "Add a model provider or install a supported coding-agent CLI before sending a message."
+        : !isAgentChat && modelRouteUnavailable
+          ? "Add a provider with discovered models before sending through Hecate."
+          : "Send a message to start this chat.";
 
   return (
     <div style={{ padding: "48px 16px", maxWidth: 820, margin: "0 auto", textAlign: "center" }}>
       <div style={{ fontSize: 13, fontWeight: 600, color: "var(--t1)", marginBottom: 5 }}>{title}</div>
       <div style={{ fontSize: 12, color: "var(--t3)", lineHeight: 1.5, maxWidth: 430, margin: "0 auto" }}>{detail}</div>
+      {isAgentChat && (agentRouteUnavailable || selectedAgentUnavailable) && (
+        <AgentSetupHints adapters={agentAdapters} selectedID={selectedAgent?.id} />
+      )}
       {(modelRouteUnavailable || agentRouteUnavailable) && (
         <div style={{ display: "flex", justifyContent: "center", gap: 8, marginTop: 14, flexWrap: "wrap" }}>
-          {modelRouteUnavailable && (
+          {modelRouteUnavailable && !isAgentChat && (
             <button className="btn btn-primary btn-sm" onClick={onAddProvider} type="button">
               <Icon d={Icons.providers} size={13} /> Add provider
             </button>
@@ -817,6 +831,88 @@ function ChatEmptyState({
       )}
     </div>
   );
+}
+
+function AgentSetupHints({ adapters, selectedID }: { adapters: AgentAdapterRecord[]; selectedID?: string }) {
+  const ordered = adapters
+    .slice()
+    .sort((a, b) => {
+      if (a.id === selectedID) return -1;
+      if (b.id === selectedID) return 1;
+      if (a.available !== b.available) return a.available ? 1 : -1;
+      return a.name.localeCompare(b.name);
+    });
+
+  if (ordered.length === 0) {
+    return (
+      <div style={{ margin: "14px auto 0", maxWidth: 520, borderTop: "1px solid var(--border)", paddingTop: 12, fontSize: 12, color: "var(--t2)", lineHeight: 1.5 }}>
+        No agent adapters are registered by this Hecate build.
+      </div>
+    );
+  }
+
+  return (
+    <div style={{ margin: "16px auto 0", maxWidth: 620, textAlign: "left", border: "1px solid var(--border)", borderRadius: "var(--radius)", background: "var(--bg2)", overflow: "hidden" }}>
+      {ordered.map((adapter, index) => {
+        const hint = agentSetupHint(adapter);
+        return (
+          <div
+            key={adapter.id}
+            style={{
+              padding: "10px 12px",
+              borderTop: index === 0 ? 0 : "1px solid var(--border)",
+              display: "grid",
+              gridTemplateColumns: "minmax(120px, 0.7fr) minmax(0, 1.3fr)",
+              gap: 10,
+              alignItems: "start",
+            }}
+          >
+            <div style={{ minWidth: 0 }}>
+              <div style={{ display: "flex", alignItems: "center", gap: 6 }}>
+                <span style={{ color: adapter.available ? "var(--green)" : "var(--red)", display: "inline-flex", flexShrink: 0 }}>
+                  <Icon d={adapter.available ? Icons.check : Icons.x} size={11} />
+                </span>
+                <span style={{ fontSize: 12, fontWeight: 600, color: "var(--t1)", overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>
+                  {adapter.name}
+                </span>
+              </div>
+              <div style={{ marginTop: 3, fontFamily: "var(--font-mono)", fontSize: 10, color: "var(--t3)", overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>
+                checks `{adapter.command}`
+              </div>
+            </div>
+            <div style={{ minWidth: 0, fontSize: 11, color: "var(--t2)", lineHeight: 1.45 }}>
+              <div style={{ color: adapter.available ? "var(--green)" : "var(--t1)" }}>
+                {adapter.available ? `Ready at ${adapter.path || adapter.command}` : hint.action}
+              </div>
+              {!adapter.available && adapter.error && (
+                <div style={{ marginTop: 3, fontFamily: "var(--font-mono)", fontSize: 10, color: "var(--t3)", overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>
+                  {adapter.error}
+                </div>
+              )}
+              {adapter.docs_url && (
+                <a href={adapter.docs_url} target="_blank" rel="noreferrer" style={{ display: "inline-flex", marginTop: 5, color: "var(--teal)", textDecoration: "none" }}>
+                  setup docs
+                </a>
+              )}
+            </div>
+          </div>
+        );
+      })}
+    </div>
+  );
+}
+
+function agentSetupHint(adapter: AgentAdapterRecord): { action: string } {
+  switch (adapter.id) {
+    case "codex":
+      return { action: "Install Codex CLI, make sure `codex` is on PATH, then run `codex login` if authentication is required." };
+    case "claude_code":
+      return { action: "Install Claude Code, make sure `claude` is on PATH, then run `claude login`." };
+    case "cursor_agent":
+      return { action: "Install Cursor Agent, make sure `cursor-agent` is on PATH, then run `cursor-agent login` or set `CURSOR_API_KEY`." };
+    default:
+      return { action: `Install ${adapter.name}, make sure \`${adapter.command}\` is on PATH, then refresh this view.` };
+  }
 }
 
 function formatAgentRuntimeMeta(runID?: string, durationMS?: number, traceID?: string): string {
