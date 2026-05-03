@@ -219,7 +219,7 @@ function AuthenticatedShell({
           <>
             <span className="hecate-statusbar__sep">|</span>
             <span className="hecate-statusbar__path" title={agentWorkspace}>
-              {formatWorkspacePath(agentWorkspace)}
+              {agentWorkspace}
             </span>
             {agentWorkspaceBranch && (
               <>
@@ -240,13 +240,4 @@ function AuthenticatedShell({
       )}
     </div>
   );
-}
-
-function formatWorkspacePath(path: string): string {
-  const normalized = path.replace(/\/+$/, "");
-  const parts = normalized.split("/").filter(Boolean);
-  if (parts.length <= 2) {
-    return normalized || path;
-  }
-  return `…/${parts.slice(-2).join("/")}`;
 }
