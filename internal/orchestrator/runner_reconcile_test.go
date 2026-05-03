@@ -90,12 +90,18 @@ func TestReconcilePendingRunsRequeuesRecoverableRuns(t *testing.T) {
 	}
 	foundEvent := false
 	for _, event := range events {
-		if event.EventType == "run.reconciled_restart_requeued" {
+		if event.EventType == "gap.run_disconnected" {
+			if got := event.Data["reason"]; got != "boot_reconcile" {
+				t.Fatalf("reason = %v, want boot_reconcile", got)
+			}
+			if got := event.Data["action"]; got != "requeued" {
+				t.Fatalf("action = %v, want requeued", got)
+			}
 			foundEvent = true
 			break
 		}
 	}
 	if !foundEvent {
-		t.Fatal("missing run.reconciled_restart_requeued event")
+		t.Fatal("missing gap.run_disconnected event")
 	}
 }

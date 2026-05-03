@@ -193,6 +193,7 @@ function describeRunEvent(eventType: string): { label: string; tone: "queued" | 
     "run.failed": { label: "Failed", tone: "failed" },
     "run.finished": { label: "Completed", tone: "done" },
     "run.resumed_from_event": { label: "Resumed", tone: "running" },
+    "gap.run_disconnected": { label: "Runtime recovered", tone: "queued" },
   };
   return labels[eventType] ?? { label: eventType.replaceAll("_", " "), tone: "queued" };
 }

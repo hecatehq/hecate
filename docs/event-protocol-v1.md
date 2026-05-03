@@ -858,11 +858,12 @@ event endpoints and the cross-run feed. The implemented typed event slice is:
   `tool.shell.output_chunk`, `tool.shell.exited`, `tool.completed`,
   `tool.failed`, `tool.timed_out`, `policy.tool_blocked`
 - `approval.requested`, `approval.resolved`
+- `gap.run_disconnected`
 
 The remaining normalization work is intentionally narrow:
 
-- Map queue/reconciliation operational events into `gap.*` or `error.*`
-  events.
+- Add a typed queue-throttle event if task-level concurrency throttling becomes
+  an operator-visible runtime event.
 - Add payload-specific schemas or generated Go/TypeScript types for the
   implemented candidate-core events.
 - Keep golden fixtures in sync with the runtime and use them from frontend or

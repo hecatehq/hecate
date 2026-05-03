@@ -59,7 +59,7 @@ flowchart TD
     Workspace --> Queue["Run queue<br/>(memory / sqlite lease)"]
 
     Reconciler["Periodic reconciler<br/>(every 30 s — re-queues runs<br/>stuck in running > 3× lease)"]
-    Reconciler -->|"stale run detected<br/>run.reconciled_restart_requeued"| Queue
+    Reconciler -->|"stale run detected<br/>gap.run_disconnected"| Queue
 
     subgraph Workers["Workers (each with its own lease)"]
         WorkerA["Worker A"]
