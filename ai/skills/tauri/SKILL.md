@@ -71,6 +71,7 @@ tauri/
 | `make tauri-sidecar` | `make build` then copies `gateway` → `tauri/src-tauri/binaries/gateway-{triple}` |
 | `make tauri-dev` | `tauri-sidecar` + `tauri-install` + `bunx tauri dev` |
 | `make tauri-build` | `tauri-sidecar` + `tauri-version` + `bunx tauri build` |
+| `make test-tauri-smoke` | `tauri-build` + launch packaged macOS app, probe `/healthz`, quit, verify sidecar exits |
 
 Pass `TAURI_TARGET=universal-apple-darwin` (or any Rust target triple) to `tauri-build` for cross-compile. Run `make tauri-sidecar` separately when you change Go code but not Rust — it's the fast path.
 
@@ -162,9 +163,14 @@ make tauri-build
 
 # Release bundle for macOS universal binary
 make tauri-build TAURI_TARGET=universal-apple-darwin
+
+# Opt-in native lifecycle smoke test (opens the packaged macOS app)
+make test-tauri-smoke
 ```
 
 `cargo check` is the fast iteration loop. Full `tauri dev` is the integration test — it exercises the real binary, real port allocation, real healthz poll, and the webview navigation.
+`make test-tauri-smoke` is the packaged-app lifecycle check for macOS; it is
+not part of `verify-alpha` because it opens a GUI window.
 
 ## CI pipeline
 
