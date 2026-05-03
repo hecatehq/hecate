@@ -125,8 +125,6 @@ flowchart LR
     Gateway --> Providers["Cloud + local providers"]
     AgentAdapters --> CLIs["Codex / Claude Code / Cursor Agent"]
     Runtime --> Tools["Sandboxed tools + MCP"]
-    Gateway --> State["Runtime state"]
-    Runtime --> State
     Gateway --> OTel["OpenTelemetry"]
     Runtime --> OTel
 ```
