@@ -26,7 +26,7 @@ PR validation: [`tauri-build.yml`](../.github/workflows/tauri-build.yml) runs
 the same matrix on PRs touching the desktop pipeline and persists bundles as
 14-day workflow artifacts so reviewers can test-launch before merge.
 
-## Current state — `v0.1.0-alpha.9`
+## Current state — `v0.1.0-alpha.10`
 
 What works:
 
@@ -41,10 +41,11 @@ What works:
   the startup splash shows failures with the log and data-directory paths.
 - Cross-platform CI matrix with PR validation, draft skipping, run
   cancellation on push, and signed nothing.
-- macOS bundle launch-validated end-to-end: download → mount → drag to
-  `/Applications` → right-click Open (Gatekeeper escape) → splash → UI →
-  configure provider → quit cleanly. Linux and Windows bundles build
-  green in CI but have not yet been launch-tested on real hardware.
+- macOS bundle launch-validated end-to-end: build `.app` + `.dmg`, launch
+  the app, confirm the gateway sidecar listens on loopback and `/healthz`
+  returns `ok`, then quit and confirm both app and gateway processes exit.
+  Linux and Windows bundles build green in CI but have not yet been
+  launch-tested on real hardware.
 
 What doesn't yet:
 
@@ -69,6 +70,7 @@ the bundle is polished enough to recommend.
 | Item | Scope | Notes |
 |---|---|---|
 | **Test the Linux + Windows bundles** | ~30 min per OS | Download from the `v0.1.0-alpha.9` release, install the `.deb` / `.AppImage` / `.msi`, configure a provider, send one chat, quit, relaunch, confirm config persists. macOS is done; these two are the remaining platform unknowns. |
+| **Rename bundle identifier** | ~15 min + migration decision | Tauri warns that `com.hecate.app` ends with `.app`, which can conflict with the macOS bundle extension. Changing it also changes the app data-dir identity, so decide whether to migrate or accept reset during alpha. |
 | **Window state persistence** | ~15 min | Install [`tauri-plugin-window-state`](https://docs.rs/tauri-plugin-window-state/), register it. Save/restore size + position across launches. |
 
 ### Tier 2 — operational gates
