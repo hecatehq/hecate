@@ -19,11 +19,8 @@ type GatewayClient interface {
 	// first run. Used on the first session/prompt of a session.
 	CreateAgentLoopTask(ctx context.Context, req CreateTaskRequest) (CreateTaskResult, error)
 
-	// ResumeTask starts a follow-up run on an existing task.
-	ResumeTask(ctx context.Context, taskID string, prompt string) (string, error)
-
 	// CancelRun calls POST /v1/tasks/{taskID}/runs/{runID}/cancel.
-	CancelRun(ctx context.Context, taskID, runID string) error
+	CancelRun(ctx context.Context, taskID, runID, reason string) error
 
 	// ResolveApproval posts an approval decision.
 	ResolveApproval(ctx context.Context, taskID, runID, approvalID string, decision ApprovalDecision) error

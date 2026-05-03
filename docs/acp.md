@@ -1,20 +1,23 @@
 # ACP bridge
 
-Hecate has an early ACP bridge binary at `cmd/hecate-acp`. It is intentionally
-small right now: the bridge starts a newline-delimited JSON-RPC stdio loop,
-handles `initialize`, calls the local Hecate gateway's `GET /v1/models`, and
-advertises those models to an ACP-capable editor.
+Hecate has an early ACP bridge binary at `cmd/hecate-acp`. It starts a
+newline-delimited JSON-RPC stdio loop, advertises gateway models during
+`initialize`, creates coding-agent tasks from `session/prompt`, and forwards
+run stream snapshots as `session/update` notifications.
 
 ## Current status
 
 - Implemented: stdio JSON-RPC loop, parse/invalid-request responses,
-  `initialize`, gateway model discovery, optional `HECATE_API_KEY` /
-  `HECATE_AUTH_TOKEN` forwarding.
-- Not implemented yet: `session/new`, `session/prompt`, `session/cancel`,
-  event streaming, approval round-trip, editor-owned workspace calls.
+  `initialize`, `session/new`, `session/prompt`, `session/cancel`,
+  gateway model discovery, task creation/start, run cancellation, run-event
+  stream mapping, optional `HECATE_API_KEY` / `HECATE_AUTH_TOKEN` forwarding.
+- Not implemented yet: approval round-trip, editor-owned workspace calls,
+  true multi-prompt continuation inside a single Hecate task.
 
-Session methods return structured JSON-RPC errors for now instead of silently
-pretending to support agent execution.
+For alpha, each `session/prompt` creates a fresh `coding_agent` task while
+preserving the editor-facing ACP session ID. Hecate needs a dedicated
+"append prompt to task conversation" runtime endpoint before ACP sessions can
+map perfectly to one durable Hecate task.
 
 ## Configuration
 

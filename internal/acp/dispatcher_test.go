@@ -9,30 +9,43 @@ import (
 )
 
 type fakeGateway struct {
-	models    []string
-	modelsErr error
+	models       []string
+	modelsErr    error
+	createReqs   []CreateTaskRequest
+	createErr    error
+	cancelled    []string
+	cancelErr    error
+	streamEvents chan RunEvent
 }
 
 func (f *fakeGateway) ListModels(_ context.Context) ([]string, error) {
 	return f.models, f.modelsErr
 }
 
-func (f *fakeGateway) CreateAgentLoopTask(_ context.Context, _ CreateTaskRequest) (CreateTaskResult, error) {
-	return CreateTaskResult{}, errors.New("not used in this test")
+func (f *fakeGateway) CreateAgentLoopTask(_ context.Context, req CreateTaskRequest) (CreateTaskResult, error) {
+	f.createReqs = append(f.createReqs, req)
+	if f.createErr != nil {
+		return CreateTaskResult{}, f.createErr
+	}
+	return CreateTaskResult{TaskID: "task-1", RunID: "run-1"}, nil
 }
 
-func (f *fakeGateway) ResumeTask(_ context.Context, _, _ string) (string, error) {
-	return "", errors.New("not used")
+func (f *fakeGateway) CancelRun(_ context.Context, taskID, runID, reason string) error {
+	f.cancelled = append(f.cancelled, taskID+"/"+runID+"/"+reason)
+	return f.cancelErr
 }
-
-func (f *fakeGateway) CancelRun(_ context.Context, _, _ string) error { return nil }
 
 func (f *fakeGateway) ResolveApproval(_ context.Context, _, _, _ string, _ ApprovalDecision) error {
 	return nil
 }
 
 func (f *fakeGateway) StreamRunEvents(_ context.Context, _, _ string) (<-chan RunEvent, error) {
-	return nil, errors.New("not used")
+	if f.streamEvents == nil {
+		ch := make(chan RunEvent)
+		close(ch)
+		return ch, nil
+	}
+	return f.streamEvents, nil
 }
 
 func makeID(t *testing.T, id int) *json.RawMessage {
@@ -157,14 +170,90 @@ func TestNotificationDropped(t *testing.T) {
 	}
 }
 
+func TestSessionNewAndPromptStartsTask(t *testing.T) {
+	gw := &fakeGateway{models: []string{"gpt-4o-mini"}}
+	d := NewDispatcher(gw, NewSessionStore(), Config{ApprovalRoute: "editor"})
+	updates := make(chan *Request, 4)
+	d.SetEmitter(func(req *Request) { updates <- req })
+	if resp := d.Handle(context.Background(), &Request{JSONRPC: JSONRPCVersion, ID: makeID(t, 1), Method: MethodInitialize, Params: initParams(t, true)}); resp.Error != nil {
+		t.Fatalf("initialize error = %v", resp.Error)
+	}
+	newParams := json.RawMessage(`{"model":"gpt-4o-mini","cwd":"/repo"}`)
+	resp := d.Handle(context.Background(), &Request{JSONRPC: JSONRPCVersion, ID: makeID(t, 2), Method: MethodSessionNew, Params: newParams})
+	if resp.Error != nil {
+		t.Fatalf("session/new error = %v", resp.Error)
+	}
+	var created SessionNewResult
+	if err := json.Unmarshal(resp.Result, &created); err != nil {
+		t.Fatal(err)
+	}
+	promptRaw, _ := json.Marshal(SessionPromptParams{SessionID: created.SessionID, Prompt: "fix tests"})
+	resp = d.Handle(context.Background(), &Request{JSONRPC: JSONRPCVersion, ID: makeID(t, 3), Method: MethodSessionPrompt, Params: promptRaw})
+	if resp.Error != nil {
+		t.Fatalf("session/prompt error = %v", resp.Error)
+	}
+	if len(gw.createReqs) != 1 {
+		t.Fatalf("CreateAgentLoopTask calls = %d, want 1", len(gw.createReqs))
+	}
+	if got := gw.createReqs[0]; got.Model != "gpt-4o-mini" || got.WorkingDirectory != "/repo" || got.Prompt != "fix tests" {
+		t.Fatalf("CreateAgentLoopTask req = %+v", got)
+	}
+	select {
+	case update := <-updates:
+		if update.Method != MethodSessionUpdate {
+			t.Fatalf("update method = %q", update.Method)
+		}
+	default:
+		t.Fatal("missing session/update notification")
+	}
+}
+
+func TestSessionCancelCancelsCurrentRun(t *testing.T) {
+	gw := &fakeGateway{models: []string{"gpt-4o-mini"}}
+	d := NewDispatcher(gw, NewSessionStore(), Config{ApprovalRoute: "editor"})
+	if resp := d.Handle(context.Background(), &Request{JSONRPC: JSONRPCVersion, ID: makeID(t, 1), Method: MethodInitialize, Params: initParams(t, true)}); resp.Error != nil {
+		t.Fatalf("initialize error = %v", resp.Error)
+	}
+	resp := d.Handle(context.Background(), &Request{JSONRPC: JSONRPCVersion, ID: makeID(t, 2), Method: MethodSessionNew, Params: json.RawMessage(`{}`)})
+	if resp.Error != nil {
+		t.Fatalf("session/new error = %v", resp.Error)
+	}
+	var created SessionNewResult
+	if err := json.Unmarshal(resp.Result, &created); err != nil {
+		t.Fatal(err)
+	}
+	promptRaw, _ := json.Marshal(SessionPromptParams{SessionID: created.SessionID, Prompt: "run"})
+	if resp := d.Handle(context.Background(), &Request{JSONRPC: JSONRPCVersion, ID: makeID(t, 3), Method: MethodSessionPrompt, Params: promptRaw}); resp.Error != nil {
+		t.Fatalf("session/prompt error = %v", resp.Error)
+	}
+	cancelRaw, _ := json.Marshal(SessionCancelParams{SessionID: created.SessionID, Reason: "user"})
+	resp = d.Handle(context.Background(), &Request{JSONRPC: JSONRPCVersion, ID: makeID(t, 4), Method: MethodSessionCancel, Params: cancelRaw})
+	if resp.Error != nil {
+		t.Fatalf("session/cancel error = %v", resp.Error)
+	}
+	if strings.Join(gw.cancelled, ",") != "task-1/run-1/user" {
+		t.Fatalf("cancelled = %#v", gw.cancelled)
+	}
+}
+
+func TestRunEventToSessionUpdateMapsTerminalFailure(t *testing.T) {
+	update := RunEventToSessionUpdate("s", "t", "r", RunEvent{
+		Type: "run.failed",
+		Data: []byte(`{"error":"boom"}`),
+	})
+	if update.Kind != "error" || update.Status != "failed" || !update.Terminal || update.Message != "boom" {
+		t.Fatalf("update = %+v", update)
+	}
+}
+
 func TestSessionStore_CreateAndGet(t *testing.T) {
 	s := NewSessionStore()
 	sess := s.Create("m", "/tmp")
 	if sess.ID == "" {
 		t.Fatal("empty ID")
 	}
-	if got := s.Get(sess.ID); got != sess {
-		t.Errorf("Get returned %p, want %p", got, sess)
+	if got := s.Get(sess.ID); got == nil || got.ID != sess.ID || got.Model != "m" || got.CWD != "/tmp" {
+		t.Errorf("Get returned %+v, want session %+v", got, sess)
 	}
 	s.Delete(sess.ID)
 	if got := s.Get(sess.ID); got != nil {

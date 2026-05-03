@@ -43,11 +43,24 @@ func (s *SessionStore) Create(model, cwd string) *Session {
 	return sess
 }
 
+// UpdateRun records the Hecate task/run currently backing this ACP session.
+func (s *SessionStore) UpdateRun(id, taskID, runID string) (*Session, bool) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	sess := s.sessions[id]
+	if sess == nil {
+		return nil, false
+	}
+	sess.HecateTaskID = taskID
+	sess.CurrentRunID = runID
+	return cloneSession(sess), true
+}
+
 // Get returns the session by ID, or nil if not found.
 func (s *SessionStore) Get(id string) *Session {
 	s.mu.Lock()
 	defer s.mu.Unlock()
-	return s.sessions[id]
+	return cloneSession(s.sessions[id])
 }
 
 // Delete removes a session. Idempotent.
@@ -70,4 +83,16 @@ func newSessionID() string {
 		panic("acp: crypto/rand.Read failed: " + err.Error())
 	}
 	return hex.EncodeToString(b[:])
+}
+
+func cloneSession(sess *Session) *Session {
+	if sess == nil {
+		return nil
+	}
+	copy := *sess
+	copy.AlwaysAllowKeys = make(map[string]bool, len(sess.AlwaysAllowKeys))
+	for key, value := range sess.AlwaysAllowKeys {
+		copy.AlwaysAllowKeys[key] = value
+	}
+	return &copy
 }

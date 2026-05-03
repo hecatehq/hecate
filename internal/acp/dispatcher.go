@@ -12,6 +12,7 @@ type Dispatcher struct {
 	sessions *SessionStore
 	gateway  GatewayClient
 	cfg      Config
+	emit     func(*Request)
 
 	initialized bool
 }
@@ -39,6 +40,10 @@ func NewDispatcher(gateway GatewayClient, sessions *SessionStore, cfg Config) *D
 		gateway:  gateway,
 		cfg:      cfg,
 	}
+}
+
+func (d *Dispatcher) SetEmitter(emit func(*Request)) {
+	d.emit = emit
 }
 
 // Handle dispatches one incoming request.
@@ -109,21 +114,118 @@ func (d *Dispatcher) handleSessionNew(_ context.Context, req *Request) *Response
 	if !d.initialized {
 		return errorResponse(req.ID, ErrorInvalidRequest, "session/new called before initialize", nil)
 	}
-	return errorResponse(req.ID, ErrorInternal, "session/new is not yet implemented in this build of hecate-acp", nil)
+	var params SessionNewParams
+	if len(req.Params) > 0 {
+		if err := json.Unmarshal(req.Params, &params); err != nil {
+			return errorResponse(req.ID, ErrorInvalidParams, "session/new params are not valid JSON: "+err.Error(), nil)
+		}
+	}
+	cwd := firstNonEmpty(params.CWD, params.WorkingDirectory, ".")
+	session := d.sessions.Create(params.Model, cwd)
+	return resultResponse(req.ID, SessionNewResult{
+		SessionID: session.ID,
+		Model:     session.Model,
+		CWD:       session.CWD,
+	})
 }
 
-func (d *Dispatcher) handleSessionPrompt(_ context.Context, req *Request) *Response {
+func (d *Dispatcher) handleSessionPrompt(ctx context.Context, req *Request) *Response {
 	if !d.initialized {
 		return errorResponse(req.ID, ErrorInvalidRequest, "session/prompt called before initialize", nil)
 	}
-	return errorResponse(req.ID, ErrorInternal, "session/prompt is not yet implemented in this build of hecate-acp", nil)
+	var params SessionPromptParams
+	if err := json.Unmarshal(req.Params, &params); err != nil {
+		return errorResponse(req.ID, ErrorInvalidParams, "session/prompt params are not valid JSON: "+err.Error(), nil)
+	}
+	if params.SessionID == "" {
+		return errorResponse(req.ID, ErrorInvalidParams, "session_id is required", nil)
+	}
+	if params.Prompt == "" {
+		return errorResponse(req.ID, ErrorInvalidParams, "prompt is required", nil)
+	}
+	session := d.sessions.Get(params.SessionID)
+	if session == nil {
+		return errorResponse(req.ID, ErrorSessionNotFound, "session not found", nil)
+	}
+	// Hecate's runtime does not yet have a true "append user message
+	// to existing task conversation" endpoint. For the ACP alpha
+	// bridge, each prompt creates a fresh coding-agent task while
+	// preserving the editor-facing ACP session ID.
+	result, err := d.gateway.CreateAgentLoopTask(ctx, CreateTaskRequest{
+		Model:            session.Model,
+		WorkingDirectory: session.CWD,
+		Prompt:           params.Prompt,
+	})
+	if err != nil {
+		return errorResponse(req.ID, ErrorGatewayUnreachable, "could not start Hecate task: "+err.Error(), nil)
+	}
+	session, _ = d.sessions.UpdateRun(session.ID, result.TaskID, result.RunID)
+	d.emitUpdate(SessionUpdateParams{
+		SessionID: session.ID,
+		Kind:      "runtime",
+		Status:    "started",
+		Message:   "Hecate task started",
+		TaskID:    result.TaskID,
+		RunID:     result.RunID,
+	})
+	go d.forwardRunEvents(ctx, session.ID, result.TaskID, result.RunID)
+	return resultResponse(req.ID, SessionPromptResult{
+		SessionID: session.ID,
+		TaskID:    result.TaskID,
+		RunID:     result.RunID,
+	})
 }
 
-func (d *Dispatcher) handleSessionCancel(_ context.Context, req *Request) *Response {
+func (d *Dispatcher) handleSessionCancel(ctx context.Context, req *Request) *Response {
 	if !d.initialized {
 		return errorResponse(req.ID, ErrorInvalidRequest, "session/cancel called before initialize", nil)
 	}
-	return errorResponse(req.ID, ErrorInternal, "session/cancel is not yet implemented in this build of hecate-acp", nil)
+	var params SessionCancelParams
+	if err := json.Unmarshal(req.Params, &params); err != nil {
+		return errorResponse(req.ID, ErrorInvalidParams, "session/cancel params are not valid JSON: "+err.Error(), nil)
+	}
+	session := d.sessions.Get(params.SessionID)
+	if session == nil {
+		return errorResponse(req.ID, ErrorSessionNotFound, "session not found", nil)
+	}
+	if session.HecateTaskID == "" || session.CurrentRunID == "" {
+		return resultResponse(req.ID, SessionCancelResult{SessionID: session.ID, Cancelled: false})
+	}
+	if err := d.gateway.CancelRun(ctx, session.HecateTaskID, session.CurrentRunID, params.Reason); err != nil {
+		return errorResponse(req.ID, ErrorGatewayUnreachable, "could not cancel Hecate run: "+err.Error(), nil)
+	}
+	return resultResponse(req.ID, SessionCancelResult{
+		SessionID: session.ID,
+		TaskID:    session.HecateTaskID,
+		RunID:     session.CurrentRunID,
+		Cancelled: true,
+	})
+}
+
+func (d *Dispatcher) forwardRunEvents(ctx context.Context, sessionID, taskID, runID string) {
+	events, err := d.gateway.StreamRunEvents(ctx, taskID, runID)
+	if err != nil {
+		d.emitUpdate(SessionUpdateParams{
+			SessionID: sessionID,
+			Kind:      "error",
+			Status:    "failed",
+			Message:   err.Error(),
+			TaskID:    taskID,
+			RunID:     runID,
+			Terminal:  true,
+		})
+		return
+	}
+	for event := range events {
+		d.emitUpdate(RunEventToSessionUpdate(sessionID, taskID, runID, event))
+	}
+}
+
+func (d *Dispatcher) emitUpdate(update SessionUpdateParams) {
+	if d.emit == nil {
+		return
+	}
+	d.emit(SessionUpdateNotification(update))
 }
 
 func resultResponse(id *json.RawMessage, result any) *Response {
@@ -136,6 +238,15 @@ func resultResponse(id *json.RawMessage, result any) *Response {
 		ID:      id,
 		Result:  encoded,
 	}
+}
+
+func firstNonEmpty(values ...string) string {
+	for _, value := range values {
+		if value != "" {
+			return value
+		}
+	}
+	return ""
 }
 
 func errorResponse(id *json.RawMessage, code int, message string, data any) *Response {
