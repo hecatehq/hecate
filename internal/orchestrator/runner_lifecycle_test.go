@@ -88,13 +88,19 @@ func TestStartReconcileLoop_RequeuesStaleRunningRun(t *testing.T) {
 	}
 	var found bool
 	for _, e := range events {
-		if e.EventType == "run.reconciled_restart_requeued" {
+		if e.EventType == "gap.run_disconnected" {
+			if got := e.Data["reason"]; got != "worker_lease_expired" {
+				t.Fatalf("reason = %v, want worker_lease_expired", got)
+			}
+			if got := e.Data["action"]; got != "requeued" {
+				t.Fatalf("action = %v, want requeued", got)
+			}
 			found = true
 			break
 		}
 	}
 	if !found {
-		t.Fatal("missing run.reconciled_restart_requeued event")
+		t.Fatal("missing gap.run_disconnected event")
 	}
 }
 

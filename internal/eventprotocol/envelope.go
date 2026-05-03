@@ -195,14 +195,14 @@ func normalizeData(event types.TaskRunEvent) map[string]any {
 			"prior_cost_micros_usd": numberValue(run, "PriorCostMicrosUSD", "prior_cost_micros_usd"),
 		})
 		return out
-	case "run.resume_checkpoint_failed":
-		return compactMap(map[string]any{
-			"message": firstPresent(data["error"]),
+	case "gap.run_disconnected":
+		out := compactMap(map[string]any{
+			"reason":  data["reason"],
+			"action":  data["action"],
+			"message": firstPresent(data["message"], data["error"]),
 		})
-	case "run.reconciled_restart_requeued":
-		out := map[string]any{}
-		copyKnown(out, data, "prior_status", "reason")
-		return compactMap(out)
+		copyKnown(out, data, "prior_status", "recovered_status", "recovery_strategy", "stale_threshold_ms")
+		return out
 	case "approval.requested", "approval.resolved", "turn.completed":
 		return data
 	default:

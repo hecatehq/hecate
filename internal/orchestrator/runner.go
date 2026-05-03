@@ -466,7 +466,9 @@ func (r *Runner) ReconcilePendingRuns(ctx context.Context) error {
 		task.FinishedAt = time.Time{}
 		_, _ = r.store.UpdateTask(ctx, task)
 		_ = r.enqueueRun(task.ID, run.ID)
-		_, _ = r.emitRunEvent(ctx, task.ID, run.ID, "run.reconciled_restart_requeued", "", "", map[string]any{
+		_, _ = r.emitRunEvent(ctx, task.ID, run.ID, "gap.run_disconnected", "", "", map[string]any{
+			"reason":            "boot_reconcile",
+			"action":            "requeued",
 			"prior_status":      priorStatus,
 			"recovered_status":  "queued",
 			"recovery_strategy": "requeue",
@@ -551,10 +553,13 @@ func (r *Runner) reconcileStaleRuns(ctx context.Context, staleThreshold time.Dur
 		task.FinishedAt = time.Time{}
 		_, _ = r.store.UpdateTask(ctx, task)
 		_ = r.enqueueRun(task.ID, run.ID)
-		_, _ = r.emitRunEvent(ctx, task.ID, run.ID, "run.reconciled_restart_requeued", "", "", map[string]any{
-			"prior_status":      priorStatus,
-			"recovered_status":  "queued",
-			"recovery_strategy": "periodic_requeue",
+		_, _ = r.emitRunEvent(ctx, task.ID, run.ID, "gap.run_disconnected", "", "", map[string]any{
+			"reason":             "worker_lease_expired",
+			"action":             "requeued",
+			"prior_status":       priorStatus,
+			"recovered_status":   "queued",
+			"recovery_strategy":  "periodic_requeue",
+			"stale_threshold_ms": staleThreshold.Milliseconds(),
 		})
 	}
 	return nil
@@ -1173,8 +1178,10 @@ func (r *Runner) processQueuedRun(claim QueueClaim) {
 
 	resumeCheckpoint, checkpointErr := r.resumeCheckpointForRun(ctx, task.ID, run.ID)
 	if checkpointErr != nil {
-		_, _ = r.emitRunEvent(ctx, task.ID, run.ID, "run.resume_checkpoint_failed", requestID, trace.TraceID, map[string]any{
-			"error": checkpointErr.Error(),
+		_, _ = r.emitRunEvent(ctx, task.ID, run.ID, "gap.run_disconnected", requestID, trace.TraceID, map[string]any{
+			"reason":  "resume_checkpoint_unavailable",
+			"action":  "start_fresh",
+			"message": checkpointErr.Error(),
 		})
 	}
 	runEvent := map[string]any{}

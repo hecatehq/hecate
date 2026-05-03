@@ -36,9 +36,7 @@ These are **persisted events** (rows in the `task_state_run_events` table). They
 | `run.failed` | Run lifecycle | Execution failed |
 | `run.cancelled` | Run lifecycle | Run was cancelled (operator or system) |
 | `run.resumed_from_event` | Run lifecycle | Run is a continuation of a prior run |
-| `run.throttled_concurrency` | Run lifecycle | Run held back by global concurrency limit |
-| `run.resume_checkpoint_failed` | Run lifecycle | Resume hydration failed; run will start fresh |
-| `run.reconciled_restart_requeued` | Run lifecycle | Stalled run recovered and re-queued by reconciler (boot-time scan or periodic background check) |
+| `gap.run_disconnected` | Gap / recovery | Runtime continuity was broken and Hecate recovered by re-queueing or starting fresh |
 | `turn.started` | Agent loop | An `agent_loop` LLM turn is about to call the model |
 | `assistant.text_complete` | Agent loop | Assistant text content for a turn is available |
 | `assistant.tool_call_proposed` | Agent loop | Assistant proposed a tool call before runtime dispatch |
@@ -168,31 +166,23 @@ The run was cancelled before it could complete. May arrive while the run is stil
 |---|---|---|
 | `reason` | `string` | Cancellation reason (operator note or system message) |
 
-### `run.throttled_concurrency`
+### `gap.run_disconnected`
 
-The run was held back because the global concurrent-run limit was already hit. The runner re-tries claim later; this event surfaces the throttle for observability.
+Runtime continuity was broken and Hecate recovered the run automatically. This fires in three situations:
 
-| Extra key | Type | Notes |
-|---|---|---|
-| `limit` | `int` | The configured max-concurrent value |
-
-### `run.resume_checkpoint_failed`
-
-A resume attempted to hydrate the prior run's conversation but the checkpoint blob was unreadable / corrupt. The run continues without the prior context (effectively a fresh start).
+- On gateway boot, when a previous process left a `queued` or `running` run behind and Hecate re-queues it.
+- During periodic background reconciliation, when a run is stuck in `running` longer than 3x the queue lease duration and Hecate re-queues it.
+- During resume, when checkpoint hydration fails and Hecate starts fresh instead of silently pretending the checkpoint was used.
 
 | Extra key | Type | Notes |
 |---|---|---|
-| `error` | `string` | Why hydration failed |
-
-### `run.reconciled_restart_requeued`
-
-The reconciler recovered a stalled run and pushed it back onto the queue. This fires in two situations: on gateway boot (scanning for runs left in `running` state from a previous process), and during periodic background reconciliation (runs stuck in `running` longer than 3× the queue lease duration). Use `recovery_strategy` to distinguish the two. Use this event to detect runs that were saved automatically vs. ones the operator manually requeued.
-
-| Extra key | Type | Notes |
-|---|---|---|
+| `reason` | `string` | `boot_reconcile`, `worker_lease_expired`, or `resume_checkpoint_unavailable` |
+| `action` | `string` | `requeued` or `start_fresh` |
+| `message` | `string` | Diagnostic message, present for checkpoint hydration failures |
 | `prior_status` | `string` | Status before reconciliation (e.g. `running`) |
 | `recovered_status` | `string` | Status after reconciliation (typically `queued`) |
 | `recovery_strategy` | `string` | `"requeue"` — boot-time scan; `"periodic_requeue"` — periodic background reconciler fired |
+| `stale_threshold_ms` | `int64` | Periodic reconciliation threshold, present for `worker_lease_expired` |
 
 ## Approvals
 
