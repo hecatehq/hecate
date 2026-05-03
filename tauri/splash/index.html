@@ -5,63 +5,405 @@
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
     <title>Hecate</title>
     <style>
-      * { margin: 0; padding: 0; box-sizing: border-box; }
-      html, body {
+      * {
+        box-sizing: border-box;
+        margin: 0;
+        padding: 0;
+      }
+
+      :root {
+        color-scheme: dark;
+        --background: #0a0710;
+        --foreground: #faf8ff;
+        --muted: #aaa2b7;
+      }
+
+      @font-face {
+        font-family: "Space Grotesk";
+        font-style: normal;
+        font-weight: 500;
+        font-display: block;
+        src: url("./fonts/space-grotesk-500.ttf") format("truetype");
+      }
+
+      @font-face {
+        font-family: "JetBrains Mono";
+        font-style: normal;
+        font-weight: 400;
+        font-display: block;
+        src: url("./fonts/jetbrains-mono-400.ttf") format("truetype");
+      }
+
+      html,
+      body {
         height: 100%;
-        background: #0a0a0a;
-        color: #e5e5e5;
-        font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
+        background: var(--background);
+        color: var(--foreground);
+        font-family: "Space Grotesk", ui-sans-serif, system-ui, sans-serif;
         display: flex;
         align-items: center;
         justify-content: center;
         user-select: none;
         -webkit-user-select: none;
+        overflow: hidden;
       }
-      .container {
+
+      .glitch-field {
+        position: fixed;
+        inset: 0;
+        width: 100%;
+        height: 100%;
+        pointer-events: none;
+      }
+
+      .screen-overlay {
+        position: fixed;
+        inset: 0;
+        background:
+          linear-gradient(rgba(255, 255, 255, 0.035) 1px, transparent 1px),
+          radial-gradient(circle at 50% 42%, rgba(250, 248, 255, 0.08), transparent 34%);
+        background-size: 100% 5px, 100% 100%;
+        mix-blend-mode: screen;
+        opacity: 0.5;
+        pointer-events: none;
+      }
+
+      .splash {
         display: flex;
         flex-direction: column;
         align-items: center;
-        gap: 24px;
+        gap: 34px;
+        padding: 48px;
+        position: relative;
+        text-align: center;
+        z-index: 1;
       }
-      .wordmark {
-        font-size: 28px;
-        font-weight: 600;
-        letter-spacing: -0.5px;
-        color: #fff;
-      }
-      .dots {
+
+      .lockup {
         display: flex;
-        gap: 8px;
+        align-items: center;
+        gap: clamp(22px, 4vw, 40px);
+        transform: translateX(-1.5vw);
       }
-      .dot {
-        width: 6px;
-        height: 6px;
-        border-radius: 50%;
-        background: #555;
-        animation: pulse 1.2s ease-in-out infinite;
+
+      .brand-primary {
+        color: var(--foreground);
+        filter: drop-shadow(0 0 24px rgba(250, 248, 255, 0.08));
       }
-      .dot:nth-child(2) { animation-delay: 0.2s; }
-      .dot:nth-child(3) { animation-delay: 0.4s; }
-      @keyframes pulse {
-        0%, 80%, 100% { background: #555; transform: scale(1); }
-        40%            { background: #aaa; transform: scale(1.3); }
+
+      .mark {
+        flex: 0 0 auto;
+        width: clamp(86px, 15vw, 160px);
+        height: clamp(86px, 15vw, 160px);
       }
+
+      .copy {
+        display: flex;
+        flex-direction: column;
+        align-items: flex-start;
+      }
+
+      .wordmark {
+        font-size: clamp(72px, 15vw, 168px);
+        font-weight: 500;
+        letter-spacing: -0.02em;
+        line-height: 0.86;
+        text-shadow:
+          1px 0 0 rgba(139, 107, 255, 0.28),
+          -1px 0 0 rgba(255, 255, 255, 0.08);
+      }
+
+      .tagline {
+        color: var(--muted);
+        font-family: "JetBrains Mono", ui-monospace, monospace;
+        font-size: clamp(12px, 2vw, 22px);
+        font-weight: 400;
+        letter-spacing: 0.18em;
+        line-height: 1.2;
+        margin-top: 18px;
+        text-transform: uppercase;
+      }
+
       .status {
+        align-items: center;
+        color: rgba(170, 162, 183, 0.72);
+        display: inline-flex;
+        gap: 10px;
+        font-family: "JetBrains Mono", ui-monospace, monospace;
         font-size: 13px;
-        color: #555;
         letter-spacing: 0.02em;
+      }
+
+      .status-dots {
+        display: inline-flex;
+        gap: 6px;
+      }
+
+      .status-dot {
+        width: 5px;
+        height: 5px;
+        animation: dotPulse 1.2s ease-in-out infinite;
+        background: rgba(250, 248, 255, 0.72);
+        border-radius: 999px;
+        box-shadow: 0 0 12px rgba(250, 248, 255, 0.24);
+      }
+
+      .status-dot:nth-child(2) {
+        animation-delay: 0.18s;
+      }
+
+      .status-dot:nth-child(3) {
+        animation-delay: 0.36s;
+      }
+
+      @keyframes dotPulse {
+        0%,
+        78%,
+        100% {
+          opacity: 0.28;
+          transform: translateY(0) scale(0.82);
+        }
+
+        36% {
+          opacity: 1;
+          transform: translateY(-2px) scale(1);
+        }
+      }
+
+      @media (prefers-reduced-motion: reduce) {
+        .screen-overlay {
+          opacity: 0.28;
+        }
+
+        .status-dot {
+          animation: none;
+          opacity: 0.56;
+          transform: none;
+        }
+      }
+
+      @media (max-width: 720px) {
+        .lockup {
+          transform: none;
+        }
+
+        .mark {
+          width: 68px;
+          height: 68px;
+        }
       }
     </style>
   </head>
   <body>
-    <div class="container">
-      <div class="wordmark">Hecate</div>
-      <div class="dots">
-        <div class="dot"></div>
-        <div class="dot"></div>
-        <div class="dot"></div>
+    <canvas class="glitch-field" id="glitch-field" aria-hidden="true"></canvas>
+    <div class="screen-overlay" aria-hidden="true"></div>
+    <main class="splash" aria-label="Hecate is starting">
+      <div class="lockup" role="img" aria-label="Hecate — AI Gateway and Agent Runtime">
+        <svg class="mark brand-primary" viewBox="0 0 256 256" fill="none" aria-hidden="true">
+          <g stroke="currentColor" stroke-width="14" stroke-linecap="round" stroke-linejoin="round">
+            <path d="M128 36 L128 128" />
+            <path d="M40 196 L128 128" />
+            <path d="M216 196 L128 128" />
+          </g>
+          <circle cx="128" cy="128" r="13" fill="currentColor" />
+        </svg>
+        <div class="copy">
+          <div class="wordmark brand-primary">hecate</div>
+          <div class="tagline">AI Gateway · Agent Runtime</div>
+        </div>
       </div>
-      <div class="status" id="status">Starting gateway…</div>
-    </div>
+      <div class="status" id="status">
+        <span>Starting gateway</span>
+        <span class="status-dots" aria-hidden="true">
+          <span class="status-dot"></span>
+          <span class="status-dot"></span>
+          <span class="status-dot"></span>
+        </span>
+      </div>
+    </main>
+    <script>
+      (() => {
+        const canvas = document.getElementById("glitch-field");
+        const reducedMotion = window.matchMedia("(prefers-reduced-motion: reduce)").matches;
+        const gl = canvas.getContext("webgl", {
+          alpha: false,
+          antialias: false,
+          depth: false,
+          preserveDrawingBuffer: false,
+          stencil: false,
+        });
+
+        if (!gl) {
+          const ctx = canvas.getContext("2d");
+
+          const paintFallback = () => {
+            const dpr = window.devicePixelRatio || 1;
+            const width = Math.max(1, Math.floor(window.innerWidth * dpr));
+            const height = Math.max(1, Math.floor(window.innerHeight * dpr));
+            canvas.width = width;
+            canvas.height = height;
+            canvas.style.width = "100%";
+            canvas.style.height = "100%";
+            ctx.scale(dpr, dpr);
+            ctx.fillStyle = "#0a0710";
+            ctx.fillRect(0, 0, window.innerWidth, window.innerHeight);
+
+            const glow = ctx.createRadialGradient(
+              window.innerWidth * 0.5,
+              window.innerHeight * 0.44,
+              0,
+              window.innerWidth * 0.5,
+              window.innerHeight * 0.44,
+              window.innerWidth * 0.48,
+            );
+            glow.addColorStop(0, "rgba(84, 55, 150, 0.36)");
+            glow.addColorStop(0.58, "rgba(25, 14, 48, 0.44)");
+            glow.addColorStop(1, "rgba(10, 7, 16, 1)");
+            ctx.fillStyle = glow;
+            ctx.fillRect(0, 0, window.innerWidth, window.innerHeight);
+
+            ctx.fillStyle = "rgba(250, 248, 255, 0.08)";
+            for (let y = 0; y < window.innerHeight; y += 18) {
+              const x = ((y * 17) % window.innerWidth) - 80;
+              ctx.fillRect(x, y, 180, 1);
+            }
+          };
+
+          window.addEventListener("resize", paintFallback);
+          paintFallback();
+          return;
+        }
+
+        const vertexSource = `
+          attribute vec2 position;
+          varying vec2 uv;
+
+          void main() {
+            uv = position * 0.5 + 0.5;
+            gl_Position = vec4(position, 0.0, 1.0);
+          }
+        `;
+
+        const fragmentSource = `
+          precision mediump float;
+
+          uniform vec2 resolution;
+          uniform float time;
+          uniform float motion;
+          varying vec2 uv;
+
+          float hash(vec2 p) {
+            return fract(sin(dot(p, vec2(127.1, 311.7))) * 43758.5453123);
+          }
+
+          float band(float value, float center, float width) {
+            return 1.0 - smoothstep(width, width + 0.002, abs(value - center));
+          }
+
+          void main() {
+            vec2 p = uv;
+            vec2 centered = (p - 0.5) * vec2(resolution.x / resolution.y, 1.0);
+            float t = time * motion;
+
+            float n = hash(floor(vec2(p.x * 180.0, p.y * 120.0 + t * 18.0)));
+            float scan = sin((p.y + t * 0.018) * 520.0) * 0.5 + 0.5;
+            float slowScan = sin((p.y - t * 0.052) * 42.0) * 0.5 + 0.5;
+            float slice = step(0.965, hash(vec2(floor(p.y * 42.0), floor(t * 8.0))));
+            float sliceOffset = (hash(vec2(floor(p.y * 42.0), floor(t * 8.0) + 4.0)) - 0.5) * 0.06 * slice;
+
+            vec2 warped = centered;
+            warped.x += sliceOffset;
+            float radius = length(warped);
+            float glow = smoothstep(0.72, 0.0, radius);
+            float core = smoothstep(0.34, 0.0, radius);
+
+            vec3 background = vec3(0.039, 0.027, 0.063);
+            vec3 violet = vec3(0.17, 0.11, 0.32);
+            vec3 electric = vec3(0.44, 0.34, 0.90);
+            vec3 ink = mix(background, violet, glow * 0.78);
+
+            float verticalTear = band(p.x + sliceOffset * 0.3, 0.5 + sin(t * 0.7) * 0.02, 0.002);
+            float horizontalTear = band(p.y, fract(t * 0.18), 0.004) * 0.45;
+            float interference = (scan * 0.06 + slowScan * 0.05 + n * 0.035) * glow;
+
+            vec3 color = ink;
+            color += electric * (core * 0.16 + interference);
+            color += vec3(0.90, 0.86, 1.0) * (verticalTear * 0.12 + horizontalTear);
+            color += vec3(0.34, 0.26, 0.68) * slice * 0.08;
+
+            float vignette = smoothstep(0.98, 0.28, length(centered));
+            color *= vignette;
+            color += vec3(n * 0.018);
+
+            gl_FragColor = vec4(color, 1.0);
+          }
+        `;
+
+        const compile = (type, source) => {
+          const shader = gl.createShader(type);
+          gl.shaderSource(shader, source);
+          gl.compileShader(shader);
+
+          if (!gl.getShaderParameter(shader, gl.COMPILE_STATUS)) {
+            throw new Error(gl.getShaderInfoLog(shader) || "shader compile failed");
+          }
+
+          return shader;
+        };
+
+        const program = gl.createProgram();
+        gl.attachShader(program, compile(gl.VERTEX_SHADER, vertexSource));
+        gl.attachShader(program, compile(gl.FRAGMENT_SHADER, fragmentSource));
+        gl.linkProgram(program);
+
+        if (!gl.getProgramParameter(program, gl.LINK_STATUS)) {
+          throw new Error(gl.getProgramInfoLog(program) || "program link failed");
+        }
+
+        const buffer = gl.createBuffer();
+        gl.bindBuffer(gl.ARRAY_BUFFER, buffer);
+        gl.bufferData(
+          gl.ARRAY_BUFFER,
+          new Float32Array([-1, -1, 1, -1, -1, 1, -1, 1, 1, -1, 1, 1]),
+          gl.STATIC_DRAW,
+        );
+
+        const position = gl.getAttribLocation(program, "position");
+        const resolution = gl.getUniformLocation(program, "resolution");
+        const time = gl.getUniformLocation(program, "time");
+        const motion = gl.getUniformLocation(program, "motion");
+
+        gl.useProgram(program);
+        gl.enableVertexAttribArray(position);
+        gl.vertexAttribPointer(position, 2, gl.FLOAT, false, 0, 0);
+
+        const resize = () => {
+          const dpr = window.devicePixelRatio || 1;
+          const width = Math.max(1, Math.floor(window.innerWidth * dpr));
+          const height = Math.max(1, Math.floor(window.innerHeight * dpr));
+
+          if (canvas.width !== width || canvas.height !== height) {
+            canvas.width = width;
+            canvas.height = height;
+            gl.viewport(0, 0, width, height);
+          }
+        };
+
+        const render = (now) => {
+          resize();
+          gl.uniform2f(resolution, canvas.width, canvas.height);
+          gl.uniform1f(time, now * 0.001);
+          gl.uniform1f(motion, reducedMotion ? 0.0 : 1.0);
+          gl.drawArrays(gl.TRIANGLES, 0, 6);
+
+          if (!reducedMotion) {
+            window.requestAnimationFrame(render);
+          }
+        };
+
+        window.addEventListener("resize", resize);
+        render(0);
+      })();
+    </script>
   </body>
 </html>
