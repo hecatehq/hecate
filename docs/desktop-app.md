@@ -39,6 +39,7 @@ What works:
   `%APPDATA%\io.github.chicoxyzzy.hecate\`, `~/.local/share/io.github.chicoxyzzy.hecate/`).
 - Sidecar stderr piped to `<data_dir>/gateway.log` (truncated per launch);
   the startup splash shows failures with the log and data-directory paths.
+- Window size and position persistence across launches.
 - Cross-platform CI matrix with PR validation, draft skipping, run
   cancellation on push, and signed nothing.
 - macOS bundle launch-validated end-to-end: build `.app` + `.dmg`, launch
@@ -54,7 +55,7 @@ What doesn't yet:
   escape, documented in release notes.
 - No auto-update — plugin is wired but `active: false` until a signing
   keypair and update endpoint are decided.
-- No tray, no window-state persistence, no deep links.
+- No tray and no deep links.
 - Linux and Windows: build-only. Need an actual launch on each platform
   before claiming they work.
 
@@ -70,7 +71,6 @@ the bundle is polished enough to recommend.
 | Item | Scope | Notes |
 |---|---|---|
 | **Test the Linux + Windows bundles** | ~30 min per OS | Download from the `v0.1.0-alpha.9` release, install the `.deb` / `.AppImage` / `.msi`, configure a provider, send one chat, quit, relaunch, confirm config persists. macOS is done; these two are the remaining platform unknowns. |
-| **Window state persistence** | ~15 min | Install [`tauri-plugin-window-state`](https://docs.rs/tauri-plugin-window-state/), register it. Save/restore size + position across launches. |
 
 ### Tier 2 — operational gates
 
