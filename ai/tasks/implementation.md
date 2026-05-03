@@ -36,7 +36,7 @@ After each logical step:
 |---|---|
 | New env var | `.env.example` AND the relevant `docs/<feature>.md` env-var table |
 | New API field | `docs/runtime-api.md` (or wherever the contract lives) |
-| New event type | `docs/events.md` with payload shape |
+| New event type | Event-protocol taxonomy check + `docs/events.md` with payload shape |
 | New built-in tool | `docs/agent-runtime.md` and/or `docs/mcp.md` |
 | New behavior on the api↔providers boundary | both sides' tests |
 | New isolation / sandbox capability | `docs/sandbox.md` |

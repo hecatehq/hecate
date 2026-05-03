@@ -57,7 +57,7 @@ When choosing between "elegant" and "operationally explicit," choose explicit.
 - **Tenant scoping is automatic.** Once a request has a tenant principal, every subsequent store query gets `WHERE tenant = ?` injected. New endpoints must respect this — never bypass via the admin path.
 - **Sandbox is per-call subprocess, applied inline.** Shell, file, git tool calls spawn a fresh `sh` from inside the gateway after policy validation + env sanitisation + output cap + wall-clock timeout. On Linux with `bwrap` installed and on macOS, the call is additionally wrapped by `bwrap` / `sandbox-exec` for fs+net confinement (auto-detected at startup, exposed on `/healthz` under `sandbox.os_isolation`). No separate sandbox daemon, no per-call rlimits — operators who want CPU/FD/memory caps run the gateway under systemd or in a container with `--cpus` / `--memory` flags. New tools follow the same `internal/sandbox/` shape.
 - **Approvals are blocking.** Pre-execution and mid-loop approvals halt the run; the run record persists in `awaiting_approval` until resolved. New gates use the same `TaskApproval` shape.
-- **Events are appended, not mutated.** Every state transition writes a `run_event` with a monotonic sequence. The SSE stream replays from `after_sequence`. New event types go in `docs/events.md`.
+- **Events are appended, not mutated.** Every state transition writes a `run_event` with a monotonic sequence. The SSE stream replays from `after_sequence`. New event types must follow the event-protocol v1 taxonomy (`run.*`, `turn.*`, `tool.*`, `policy.*`, `gap.*`, `error.*`) and be documented in `docs/events.md`.
 - **Cost is in micro-USD.** All money is `int64` in micro-USD (`1_000_000` = $1). Never `float64` for money — pricebook lookups, budgets, ledger entries all stay integer.
 - **OTel is first-class.** Every request gets a trace ID surfaced in the response header (`X-Trace-Id`) and persisted on the run record. New code paths add spans, not just log lines.
 
@@ -78,9 +78,10 @@ The seven-step chain spans `pkg/types/` → `internal/api/` → `internal/provid
 
 ### Add a persisted run-event type
 
-1. `internal/orchestrator/runner.go` → call `r.emitRunEvent(ctx, taskID, runID, "your.event.type", ..., extraDataMap)` at the right life-cycle moment. Emit the event **before** handing off to the queue — see the emit-before-enqueue gotcha above.
-2. Document the event and its payload in `docs/events.md`.
-3. If high-cardinality, wire into `internal/retention/retention.go` as a new subsystem (see `turn_events` for the pattern).
+1. Pick an event-protocol name from the existing taxonomy before adding a new dotted name. Prefer generic families such as `tool.*`, `policy.*`, `gap.*`, and `error.*` with specific details in `data` over subsystem-specific names.
+2. `internal/orchestrator/runner.go` → call `r.emitRunEvent(ctx, taskID, runID, "your.event.type", ..., extraDataMap)` at the right life-cycle moment. Emit the event **before** handing off to the queue — see the emit-before-enqueue gotcha above.
+3. Document the event and its payload in `docs/events.md`.
+4. If high-cardinality, wire into `internal/retention/retention.go` as a new subsystem (see `turn_events` for the pattern).
 
 ### Add a start-time validation error (HTTP 422)
 
@@ -106,7 +107,7 @@ For errors that should surface before a run is created (bad config, missing requ
 
 ## Backend gotchas
 
-- **Emit run events before enqueue, not after.** The in-memory queue dispatches synchronously: calling `enqueueRun` can cause a worker to claim the job and emit `run.running` before `run.queued` is persisted if the emit comes after. Always write the transition event first, then hand off to the queue (see `StartTask` in `internal/orchestrator/runner.go`).
+- **Emit run events before enqueue, not after.** The in-memory queue dispatches synchronously: calling `enqueueRun` can cause a worker to claim the job and emit `run.started` before `run.queued` is persisted if the emit comes after. Always write the transition event first, then hand off to the queue (see `StartTask` in `internal/orchestrator/runner.go`).
 - **modernc/sqlite TIME-as-text format** — the driver writes `time.Time` using Go's default `time.Time.String()` format (`2026-04-28 02:37:38.4524 +0000 UTC`), which doesn't lex-compare with RFC3339Nano cutoffs and breaks the retention sweep silently. Always write timestamps as `t.UTC().Format(time.RFC3339Nano)` explicitly when the column is TEXT (see `internal/taskstate/sqlite.go` `AppendRunEvent`).
 - **Capability cache seeding** for provider tests — see [`../providers/SKILL.md`](../providers/SKILL.md) for the snippet. Without it the discovery path panics on a nil request body.
 - **Pricebook preflight** — cloud-kind providers in tests trigger a pricebook lookup. `PROVIDER_FAKE_KIND=local` bypasses it for synthetic models in e2e.

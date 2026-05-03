@@ -55,7 +55,7 @@ commit question.
 ## Core rules (always in force)
 
 - **Don't auto-commit.** Propose a Conventional Commits message; operator merges.
-- **Docs in the same change.** New env var → `.env.example` + `docs/<feature>.md`. New event type → `docs/events.md`. Not as a follow-up.
+- **Docs in the same change.** New env var → `.env.example` + `docs/<feature>.md`. New event type → event-protocol taxonomy check + `docs/events.md`. Not as a follow-up.
 - **Race suite is the floor** for backend/runtime changes — not a nice-to-have. Use `/race` or `go test -race -timeout 10m ./...`.
 - **No plan labels** (`Phase 1`, `P0`, `#15`, `Milestone N`) in commit messages or code comments.
 - **Probe before assuming paths.** `grep`, `ls`, `go build` before writing file paths from memory. Wrong paths compound.

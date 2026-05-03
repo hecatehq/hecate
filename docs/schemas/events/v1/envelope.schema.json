@@ -2,7 +2,7 @@
   "$schema": "https://json-schema.org/draft/2020-12/schema",
   "$id": "https://hecate.dev/schemas/events/v1/envelope.schema.json",
   "title": "Hecate Agent Event Protocol v1 Envelope",
-  "description": "Draft candidate envelope for agent-runtime event protocol fixtures. Payload-specific schemas are intentionally deferred until the runtime implementation starts.",
+  "description": "Draft candidate envelope for agent-runtime event protocol fixtures. Payload-specific schemas are tracked separately as implemented event groups stabilize.",
   "type": "object",
   "additionalProperties": false,
   "required": [
