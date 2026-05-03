@@ -739,6 +739,7 @@ export function ModelPicker({
     <div className="dropdown-wrap" ref={ref}>
       <button
         ref={triggerRef}
+        aria-label={`Model picker: ${label}`}
         className="btn btn-ghost btn-sm"
         onClick={() => { if (!isEmpty) setOpen(o => !o); }}
         disabled={isEmpty}

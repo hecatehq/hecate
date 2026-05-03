@@ -23,6 +23,45 @@ export const MOCK_MODELS = [
   { id: "gpt-4o-mini",      owned_by: "openai",    metadata: { provider: "openai",    provider_kind: "cloud", default: false } },
 ];
 
+export const MOCK_AGENT_ADAPTERS = [
+  {
+    id: "codex",
+    name: "Codex",
+    kind: "process",
+    command: "codex",
+    available: false,
+    status: "missing",
+    error: "codex executable not found in PATH",
+    description: "Run Codex CLI as an external coding-agent process supervised by Hecate.",
+    cost_mode: "external",
+    docs_url: "https://github.com/openai/codex",
+  },
+  {
+    id: "claude_code",
+    name: "Claude Code",
+    kind: "process",
+    command: "claude",
+    available: false,
+    status: "missing",
+    error: "claude executable not found in PATH",
+    description: "Run Claude Code as an external coding-agent process supervised by Hecate.",
+    cost_mode: "external",
+    docs_url: "https://docs.anthropic.com/claude-code",
+  },
+  {
+    id: "cursor_agent",
+    name: "Cursor Agent",
+    kind: "process",
+    command: "cursor-agent",
+    available: false,
+    status: "missing",
+    error: "cursor-agent executable not found in PATH",
+    description: "Run Cursor Agent CLI as an external coding-agent process supervised by Hecate.",
+    cost_mode: "external",
+    docs_url: "https://cursor.com/cli",
+  },
+];
+
 // New model: providers are explicit. The list starts empty and stays empty
 // until the operator adds at least one via POST /admin/control-plane/providers.
 // Tests that need an existing provider opt into MOCK_ADMIN_CONFIG_WITH_PROVIDERS.
@@ -125,6 +164,22 @@ export async function mockGatewayAPIs(page: Page, opts: GatewayMockOptions = {})
   await page.route("/v1/provider-presets*", r =>
     r.fulfill(ok({ object: "list", data: MOCK_FULL_PRESETS })),
   );
+
+  await page.route("/v1/agent-adapters*", r =>
+    r.fulfill(ok({ object: "agent_adapters", data: MOCK_AGENT_ADAPTERS })),
+  );
+
+  await page.route("/v1/agent-chat/sessions*", async route => {
+    if (route.request().method() === "GET") {
+      await route.fulfill(ok({ object: "agent_chat_sessions", data: [] }));
+      return;
+    }
+    await route.fulfill({
+      status: 404,
+      contentType: "application/json",
+      body: JSON.stringify({ error: { type: "not_found", message: "agent chat session not found" } }),
+    });
+  });
 
   await page.route("/admin/budget*", r =>
     r.fulfill(ok({
@@ -261,6 +316,38 @@ export async function mockGatewayAPIs(page: Page, opts: GatewayMockOptions = {})
     }
 
     await route.continue();
+  });
+
+  const emptyPricebookImportDiff = {
+    fetched_at: "2026-04-25T00:00:00Z",
+    added: [],
+    updated: [],
+    skipped: [],
+    unchanged: 0,
+    applied: [],
+    failed: [],
+  };
+
+  await page.route("/admin/control-plane/pricebook/import/preview", async route => {
+    if (route.request().method() !== "POST") {
+      await route.continue();
+      return;
+    }
+    await route.fulfill(ok({
+      object: "control_plane_pricebook_import_diff",
+      data: emptyPricebookImportDiff,
+    }));
+  });
+
+  await page.route("/admin/control-plane/pricebook/import/apply", async route => {
+    if (route.request().method() !== "POST") {
+      await route.continue();
+      return;
+    }
+    await route.fulfill(ok({
+      object: "control_plane_pricebook_import_diff",
+      data: emptyPricebookImportDiff,
+    }));
   });
 
   await page.route("/admin/retention/runs*", r =>
