@@ -38,6 +38,7 @@ AI workloads are moving from simple API calls to long-running agents, tool use, 
 | Path | Best for |
 |---|---|
 | [Desktop app](#desktop-app) | Personal use on your laptop. No terminal, no Docker. |
+| [Homebrew](#homebrew) | macOS / Linux CLI install of just the gateway binary. |
 | [Docker](#docker) | Local container, scripted local deploys. |
 
 ### Desktop app
@@ -55,6 +56,15 @@ Open the bundle and launch Hecate. The gateway runs as a sidecar inside the app 
 > Bundles are not yet code-signed. On macOS, the first launch needs **right-click → Open** (Gatekeeper will block a plain double-click). On Windows, click **More info → Run anyway** on the SmartScreen warning. Subsequent launches work normally. Full footguns and roadmap in [docs/desktop-app.md](docs/desktop-app.md).
 
 Skip to [Add a provider](#add-a-provider) once it's running.
+
+### Homebrew
+
+```bash
+brew install chicoxyzzy/tap/hecate
+hecate
+```
+
+Open `http://127.0.0.1:8765`. The formula installs just the gateway binary (no `.app` wrapper); use it when you want `hecate` on your `PATH` and prefer to manage upgrades with `brew upgrade`. Works on macOS (Apple Silicon + Intel) and Linux x86_64/arm64.
 
 ### Docker
 

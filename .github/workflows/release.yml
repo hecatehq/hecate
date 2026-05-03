@@ -63,6 +63,13 @@ jobs:
           args: release --clean
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          # PAT with `repo` scope on chicoxyzzy/homebrew-tap. Goreleaser
+          # uses it to commit a regenerated Formula/hecate.rb on every
+          # stable tag. Pre-release tags (alpha/rc) are skipped via
+          # `skip_upload: auto` in .goreleaser.yaml. The default
+          # GITHUB_TOKEN can't reach a separate repo, so a PAT is
+          # required.
+          HOMEBREW_TAP_TOKEN: ${{ secrets.HOMEBREW_TAP_TOKEN }}
 
   # Native desktop bundles. All matrix steps live in _tauri-shared.yml.
   tauri:

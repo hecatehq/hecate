@@ -93,6 +93,46 @@ docker_manifests:
 checksum:
   name_template: "checksums.txt"
 
+# Homebrew tap publication. On every tag goreleaser regenerates
+# Formula/hecate.rb in chicoxyzzy/homebrew-tap with fresh darwin/linux
+# × amd64/arm64 download URLs and SHA-256s, so users can:
+#
+#     brew install chicoxyzzy/tap/hecate
+#
+# We deliberately publish alpha tags too — Hecate is pre-1.0 and the
+# tap would otherwise stay empty until v1. Switch to `skip_upload: auto`
+# once a stable channel exists if you want `brew install` to ignore
+# alphas.
+#
+# Requires HOMEBREW_TAP_TOKEN (a GitHub PAT with `repo` scope on
+# chicoxyzzy/homebrew-tap) to be set as a repo secret. Without it the
+# release fails; locally with --snapshot the section is skipped.
+brews:
+  - name: hecate
+    repository:
+      owner: chicoxyzzy
+      name: homebrew-tap
+      branch: main
+      token: "{{ .Env.HOMEBREW_TAP_TOKEN }}"
+    directory: Formula
+    homepage: "https://github.com/chicoxyzzy/hecate"
+    description: "Open-source self-hosted AI gateway and agent-task runtime"
+    license: "MIT"
+    commit_author:
+      name: goreleaserbot
+      email: bot@goreleaser.com
+    commit_msg_template: "chore(formula): bump hecate to {{ .Tag }}"
+    install: |
+      bin.install "gateway" => "hecate"
+    test: |
+      assert_match version.to_s, shell_output("#{bin}/hecate --version")
+    caveats: |
+      Hecate binds 127.0.0.1:8765 by default. After `hecate` is running,
+      open the operator UI at:
+        http://127.0.0.1:8765
+      Hecate has no built-in auth — put your own auth in front if you
+      expose it to a network.
+
 release:
   github:
     owner: chicoxyzzy
