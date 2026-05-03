@@ -33,6 +33,7 @@ jobs:
     outputs:
       go: ${{ steps.filter.outputs.go }}
       typescript: ${{ steps.filter.outputs.typescript }}
+      tauri: ${{ steps.filter.outputs.tauri }}
       workflow: ${{ steps.filter.outputs.workflow }}
       docker: ${{ steps.filter.outputs.docker }}
     steps:
@@ -67,6 +68,30 @@ jobs:
               - 'ui/vitest.config.*'
               - 'ui/playwright.config.*'
               - 'ui/e2e/**'
+            tauri:
+              - 'tauri/src-tauri/**/*.rs'
+              - 'tauri/src-tauri/Cargo.toml'
+              - 'tauri/src-tauri/Cargo.lock'
+              - 'tauri/src-tauri/tauri.conf.json'
+
+  test-tauri-rust:
+    name: Tauri Rust tests
+    needs: changes
+    if: needs.changes.outputs.tauri == 'true' || needs.changes.outputs.workflow == 'true'
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v6
+
+      - uses: dtolnay/rust-toolchain@stable
+
+      - name: Cache Rust build artifacts
+        uses: Swatinem/rust-cache@v2
+        with:
+          workspaces: tauri/src-tauri -> target
+
+      - name: Test
+        run: cargo test
+        working-directory: tauri/src-tauri
 
   lint-go:
     name: Lint (go)
