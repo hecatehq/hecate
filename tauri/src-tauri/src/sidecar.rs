@@ -49,7 +49,7 @@ pub struct GatewayHandle {
 
 /// Find the hecate sidecar binary. Resolution order:
 ///   1. `HECATE_BIN` env var (explicit override).
-///   2. Debug build: `{repo_root}/hecate` (placed by `make build`).
+///   2. Debug build: `{repo_root}/hecate[.exe]` (placed by `make build`).
 ///   3. Release build: next to the running executable (bundled app).
 fn resolve_binary() -> Result<PathBuf, String> {
     // 1. Explicit override.
@@ -69,12 +69,14 @@ fn resolve_binary() -> Result<PathBuf, String> {
             .map(|p| p.to_path_buf())
             .ok_or_else(|| "cannot determine repo root from CARGO_MANIFEST_DIR".to_string())?;
 
-        let candidate = repo_root.join("hecate");
-        if candidate.is_file() {
-            return Ok(candidate);
+        for name in sidecar_binary_names("hecate", None) {
+            let candidate = repo_root.join(&name);
+            if candidate.is_file() {
+                return Ok(candidate);
+            }
         }
         return Err(format!(
-            "hecate binary not found at {candidate:?}. Run `make build` first."
+            "hecate binary not found in {repo_root:?}. Run `make build` first."
         ));
     }
 
@@ -95,7 +97,7 @@ fn resolve_binary() -> Result<PathBuf, String> {
         // TARGET is the Rust target triple baked in at compile time,
         // e.g. "aarch64-apple-darwin" or "x86_64-pc-windows-msvc".
         let triple = env!("TARGET");
-        let names = [format!("hecate-{triple}"), "hecate".to_string()];
+        let names = sidecar_binary_names("hecate", Some(triple));
         for name in &names {
             let candidate = dir.join(name);
             if candidate.is_file() {
@@ -107,6 +109,22 @@ fn resolve_binary() -> Result<PathBuf, String> {
              Tried: {names:?}"
         ))
     }
+}
+
+fn sidecar_binary_names(base: &str, triple: Option<&str>) -> Vec<String> {
+    let suffix = std::env::consts::EXE_SUFFIX;
+    let mut names = Vec::new();
+    if let Some(triple) = triple {
+        names.push(format!("{base}-{triple}{suffix}"));
+        if !suffix.is_empty() {
+            names.push(format!("{base}-{triple}"));
+        }
+    }
+    names.push(format!("{base}{suffix}"));
+    if !suffix.is_empty() {
+        names.push(base.to_string());
+    }
+    names
 }
 
 fn resolve_env_binary_path(value: &str) -> Result<PathBuf, String> {
@@ -184,6 +202,10 @@ pub async fn spawn_and_wait(app: &AppHandle) -> Result<GatewayHandle, String> {
     let port = free_port()?;
     let addr = format!("127.0.0.1:{port}");
     let base_url = format!("http://{addr}");
+    let client = reqwest::Client::builder()
+        .timeout(Duration::from_secs(2))
+        .build()
+        .map_err(|e| format!("failed to build HTTP client: {e}"))?;
 
     // Capture sidecar stderr to <data_dir>/gateway.log so a startup failure
     // (port collision, missing data dir permissions, panic during init,
@@ -201,7 +223,7 @@ pub async fn spawn_and_wait(app: &AppHandle) -> Result<GatewayHandle, String> {
     // Use std::process::Command (not tokio) so the returned Child::kill()
     // is synchronous and can be called from the window-close event handler
     // without an async runtime.
-    let child = std::process::Command::new(&bin)
+    let mut child = std::process::Command::new(&bin)
         .env("GATEWAY_ADDRESS", &addr)
         .env("GATEWAY_PUBLIC_URL", &base_url)
         .env("GATEWAY_DATA_DIR", &paths.data_dir)
@@ -216,13 +238,10 @@ pub async fn spawn_and_wait(app: &AppHandle) -> Result<GatewayHandle, String> {
     // Poll /healthz. Hard deadline: 30 s.
     let deadline = Instant::now() + Duration::from_secs(30);
     let healthz = format!("{base_url}/healthz");
-    let client = reqwest::Client::builder()
-        .timeout(Duration::from_secs(2))
-        .build()
-        .map_err(|e| format!("failed to build HTTP client: {e}"))?;
-
     loop {
         if Instant::now() >= deadline {
+            let _ = child.kill();
+            let _ = child.wait();
             return Err(format!(
                 "gateway did not become healthy within 30 s (checked {healthz}). \
                  See {:?} for sidecar stderr.",
@@ -244,7 +263,7 @@ pub async fn spawn_and_wait(app: &AppHandle) -> Result<GatewayHandle, String> {
 
 #[cfg(test)]
 mod tests {
-    use super::{free_port, paths_for_data_dir, resolve_env_binary_path};
+    use super::{free_port, paths_for_data_dir, resolve_env_binary_path, sidecar_binary_names};
     use std::fs;
     use std::net::TcpListener;
     use std::path::PathBuf;
@@ -293,6 +312,19 @@ mod tests {
         assert_eq!(paths.data_dir, data_dir);
         assert_eq!(paths.log_path, paths.data_dir.join("gateway.log"));
         assert_eq!(paths.state_path, paths.data_dir.join("hecate.runtime.json"));
+    }
+
+    #[test]
+    fn test_sidecar_binary_names_include_platform_executable_suffix() {
+        let names = sidecar_binary_names("hecate", Some("x86_64-pc-windows-msvc"));
+        let expected_primary = format!(
+            "hecate-x86_64-pc-windows-msvc{}",
+            std::env::consts::EXE_SUFFIX
+        );
+        let expected_plain = format!("hecate{}", std::env::consts::EXE_SUFFIX);
+
+        assert_eq!(names.first(), Some(&expected_primary));
+        assert!(names.contains(&expected_plain));
     }
 
     #[test]

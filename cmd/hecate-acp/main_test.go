@@ -69,21 +69,8 @@ func TestDiscoverGatewayURLFromRuntimePathsUsesFirstHealthyState(t *testing.T) {
 	}
 }
 
-func TestHecateRuntimeCandidatePathsIncludesDataDirAndWorkingTree(t *testing.T) {
-	originalWD, err := os.Getwd()
-	if err != nil {
-		t.Fatalf("getwd: %v", err)
-	}
-	tempWD := t.TempDir()
-	if err := os.Chdir(tempWD); err != nil {
-		t.Fatalf("chdir temp: %v", err)
-	}
-	t.Cleanup(func() {
-		if err := os.Chdir(originalWD); err != nil {
-			t.Fatalf("restore wd: %v", err)
-		}
-	})
-	dataDir := filepath.Join(tempWD, "custom-data")
+func TestHecateRuntimeCandidatePathsIncludesTrustedDataDirOnly(t *testing.T) {
+	dataDir := filepath.Join(t.TempDir(), "custom-data")
 	t.Setenv("GATEWAY_DATA_DIR", dataDir)
 
 	paths := hecateRuntimeCandidatePaths()
@@ -91,8 +78,8 @@ func TestHecateRuntimeCandidatePathsIncludesDataDirAndWorkingTree(t *testing.T) 
 	if !strings.Contains(joined, filepath.Join(dataDir, hecateRuntimeFile)) {
 		t.Fatalf("candidate paths = %#v, want GATEWAY_DATA_DIR state", paths)
 	}
-	if !strings.Contains(joined, filepath.Join(tempWD, ".data", hecateRuntimeFile)) {
-		t.Fatalf("candidate paths = %#v, want working-tree .data state", paths)
+	if strings.Contains(joined, filepath.Join(".data", hecateRuntimeFile)) {
+		t.Fatalf("candidate paths = %#v, want no cwd-relative runtime state", paths)
 	}
 }
 
