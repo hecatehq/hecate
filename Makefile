@@ -2,7 +2,7 @@ SHELL := /bin/sh
 
 GOCACHE_DIR := $(CURDIR)/.gocache
 
-.PHONY: test test-race vet coverage ui-coverage build run serve dev stop ui-install ui-dev ui-build ui-test ui-test-e2e test-docker-smoke docs-env-check check-links verify-alpha reset-dev reset-docker screenshots tauri-install tauri-version tauri-sidecar tauri-dev tauri-build
+.PHONY: test test-race vet coverage ui-coverage build run serve dev stop ui-install ui-dev ui-build ui-test ui-test-e2e test-acp-smoke test-docker-smoke docs-env-check check-links verify-alpha reset-dev reset-docker screenshots tauri-install tauri-version tauri-sidecar tauri-dev tauri-build
 
 # build produces a single self-contained gateway binary with the UI bundle
 # embedded. The UI is built first so //go:embed picks up the real assets;
@@ -94,6 +94,10 @@ ui-test-e2e:
 	test -d ui/node_modules/@vitejs/plugin-react || (echo "UI dependencies are out of date. Run 'make ui-install' first." && exit 1)
 	cd ui && bun run test:e2e
 
+test-acp-smoke:
+	mkdir -p "$(GOCACHE_DIR)"
+	GOCACHE="$(GOCACHE_DIR)" bun e2e/acp-smoke.ts
+
 # test-docker-smoke spins up `docker compose` with the production image
 # and verifies /healthz, /v1/models auth, and the bootstrap volume round
 # trip. Runs against a separate compose project name so it can't collide
@@ -127,7 +131,7 @@ check-links:
 
 # verify-alpha is the public-alpha release gate. It intentionally runs only
 # non-destructive checks, but it is not cheap: Docker and UI e2e can take a bit.
-verify-alpha: docs-env-check test vet test-race test-docker-smoke ui-test ui-test-e2e build
+verify-alpha: docs-env-check test vet test-race test-acp-smoke test-docker-smoke ui-test ui-test-e2e build
 
 # reset-dev wipes local dev state back to first-run: stops the gateway on
 # :8765 and deletes the data directory (which holds the AES-GCM key and

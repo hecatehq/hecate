@@ -56,10 +56,11 @@ The target runs the non-destructive launch checks in order:
 2. Go unit tests
 3. `go vet`
 4. Go race tests
-5. Docker smoke test
-6. UI unit tests
-7. UI e2e tests
-8. production binary build with embedded UI
+5. ACP bridge smoke test
+6. Docker smoke test
+7. UI unit tests
+8. UI e2e tests
+9. production binary build with embedded UI
 
 If a check is intentionally skipped, call it out in the release notes with the
 reason and the risk. Docker smoke and UI e2e are allowed to be slow; they are
