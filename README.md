@@ -50,9 +50,9 @@ Download from the [latest release](https://github.com/chicoxyzzy/hecate/releases
 
 | Platform | Bundle |
 |---|---|
-| macOS (Apple Silicon) | `Hecate_X.Y.Z_aarch64.dmg` |
-| Linux x86_64 | `hecate-app_X.Y.Z_amd64.deb` or `.AppImage` |
-| Windows x86_64 | `Hecate_X.Y.Z_x64_en-US.msi` |
+| macOS (Apple Silicon) | [`Hecate_X.Y.Z_aarch64.dmg`](https://github.com/chicoxyzzy/hecate/releases/latest) |
+| Linux x86_64 | [`hecate-app_X.Y.Z_amd64.deb`](https://github.com/chicoxyzzy/hecate/releases/latest) or [`.AppImage`](https://github.com/chicoxyzzy/hecate/releases/latest) |
+| Windows x86_64 | [`Hecate_X.Y.Z_x64_en-US.msi`](https://github.com/chicoxyzzy/hecate/releases/latest) |
 
 Open the bundle and launch Hecate. The gateway runs as a sidecar inside the app and the UI loads automatically. State lives in the platform data dir (`~/Library/Application Support/io.github.chicoxyzzy.hecate/` on macOS, `%APPDATA%\io.github.chicoxyzzy.hecate\` on Windows, `~/.local/share/io.github.chicoxyzzy.hecate/` on Linux).
 
@@ -64,7 +64,7 @@ Skip to [Add a provider](#add-a-provider) once it's running.
 
 ```bash
 docker run --rm -p 127.0.0.1:8765:8765 -v hecate-data:/data \
-  ghcr.io/chicoxyzzy/hecate:0.1.0-alpha.10
+  ghcr.io/chicoxyzzy/hecate:0.1.0-alpha.11
 ```
 
 Open `http://127.0.0.1:8765`. The UI loads with no further setup.
