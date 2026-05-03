@@ -21,6 +21,7 @@ type Session struct {
 
 type Message struct {
 	ID          string
+	RunID       string
 	Role        string
 	Content     string
 	AdapterID   string
@@ -32,6 +33,9 @@ type Message struct {
 	DiffStat    string
 	Diff        string
 	CreatedAt   time.Time
+	StartedAt   time.Time
+	CompletedAt time.Time
+	Error       string
 }
 
 type Store interface {

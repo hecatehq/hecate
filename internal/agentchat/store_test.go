@@ -3,6 +3,7 @@ package agentchat
 import (
 	"context"
 	"testing"
+	"time"
 )
 
 func TestMemoryStoreLifecycle(t *testing.T) {
@@ -38,8 +39,10 @@ func runStoreLifecycle(t *testing.T, store Store) {
 	}); err != nil {
 		t.Fatalf("AppendMessage(user): %v", err)
 	}
+	startedAt := time.Now().UTC().Add(-2 * time.Second)
 	if _, err := store.AppendMessage(ctx, created.ID, Message{
 		ID:          "msg_assistant",
+		RunID:       "agent_run_1",
 		Role:        "assistant",
 		Content:     "running",
 		AdapterID:   "codex",
@@ -56,6 +59,8 @@ func runStoreLifecycle(t *testing.T, store Store) {
 		message.ExitCode = 0
 		message.DiffStat = "1 file changed"
 		message.Diff = "diff --git a/a b/a"
+		message.StartedAt = startedAt
+		message.CompletedAt = startedAt.Add(1500 * time.Millisecond)
 	})
 	if err != nil {
 		t.Fatalf("UpdateMessage: %v", err)
@@ -66,7 +71,7 @@ func runStoreLifecycle(t *testing.T, store Store) {
 	if len(updated.Messages) != 2 {
 		t.Fatalf("message count = %d, want 2", len(updated.Messages))
 	}
-	if got := updated.Messages[1]; got.Content != "done" || got.DiffStat != "1 file changed" {
+	if got := updated.Messages[1]; got.Content != "done" || got.DiffStat != "1 file changed" || got.RunID != "agent_run_1" || got.CompletedAt.IsZero() {
 		t.Fatalf("assistant message not updated: %+v", got)
 	}
 

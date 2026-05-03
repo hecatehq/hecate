@@ -2,7 +2,8 @@
 
 > **Status:** accepted for alpha MVP. Adapter discovery, Agent Chat,
 > memory/SQLite persistence, live streaming, cancellation, and workspace diff
-> capture are implemented. API shape may still change before a stable release.
+> capture are implemented. Each adapter invocation now has stable run metadata
+> on the assistant message. API shape may still change before a stable release.
 > **Related:** [ACP bridge](../acp.md), [Runtime API](../runtime-api.md),
 > [Agent runtime](../agent-runtime.md), [Agent event protocol](event-protocol-v1.md).
 > **Owner:** see [`AGENTS.md`](../../AGENTS.md).

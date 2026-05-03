@@ -487,6 +487,7 @@ POST /v1/agent-chat/sessions/agent_chat_.../messages
       },
       {
         "id": "msg_...",
+        "run_id": "agent_run_...",
         "role": "assistant",
         "content": "...",
         "adapter_id": "codex",
@@ -494,16 +495,22 @@ POST /v1/agent-chat/sessions/agent_chat_.../messages
         "status": "completed",
         "cost_mode": "external",
         "workspace": "/Users/alice/project",
-        "diff_stat": "..."
+        "diff_stat": "...",
+        "started_at": "2026-05-03T12:00:01Z",
+        "completed_at": "2026-05-03T12:00:08Z",
+        "duration_ms": 7000
       }
     ]
   }
 }
 ```
 
+Each adapter response gets a stable `run_id` plus start/end timestamps and
+duration so clients can correlate streamed updates, final output, and future
+artifacts without treating the assistant message id as the runtime identity.
 Failures from the external process are still represented as assistant messages
-with `"status": "failed"` so the transcript stays intact. Transport or request
-validation failures still use the normal Hecate error envelope.
+with `"status": "failed"` and `error` so the transcript stays intact. Transport
+or request validation failures still use the normal Hecate error envelope.
 
 ### `GET /v1/agent-chat/sessions/{id}/stream`
 
