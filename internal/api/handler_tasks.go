@@ -1044,6 +1044,59 @@ func (h *Handler) HandleRevertTaskRunPatch(w http.ResponseWriter, r *http.Reques
 	})
 }
 
+func (h *Handler) HandleApplyTaskRunPatch(w http.ResponseWriter, r *http.Request) {
+	ctx := r.Context()
+	run, artifact, ok := h.loadTaskRunPatch(ctx, w, r)
+	if !ok {
+		return
+	}
+	if artifact.Status != "proposed" {
+		WriteError(w, http.StatusConflict, errCodeInvalidRequest, "only proposed patch artifacts can be applied")
+		return
+	}
+	after, err := patchAfterContent(artifact.ContentText)
+	if err != nil {
+		WriteError(w, http.StatusBadRequest, errCodeInvalidRequest, err.Error())
+		return
+	}
+	if artifact.Path == "" {
+		WriteError(w, http.StatusBadRequest, errCodeInvalidRequest, "patch artifact path is empty")
+		return
+	}
+	if !pathWithinRoot(artifact.Path, run.WorkspacePath) {
+		WriteError(w, http.StatusBadRequest, errCodeInvalidRequest, "patch artifact path is outside the run workspace")
+		return
+	}
+	if err := os.WriteFile(artifact.Path, []byte(after), 0o644); err != nil {
+		WriteError(w, http.StatusInternalServerError, errCodeGatewayError, err.Error())
+		return
+	}
+
+	artifact.Status = "applied"
+	updated, err := h.taskStore.UpdateArtifact(ctx, artifact)
+	if err != nil {
+		WriteError(w, http.StatusInternalServerError, errCodeGatewayError, err.Error())
+		return
+	}
+	_, _ = h.taskStore.AppendRunEvent(ctx, types.TaskRunEvent{
+		TaskID:    updated.TaskID,
+		RunID:     updated.RunID,
+		EventType: "tool.file.applied",
+		Data: map[string]any{
+			"artifact_id":     updated.ID,
+			"path":            updated.Path,
+			"artifact_status": updated.Status,
+		},
+		RequestID: RequestIDFromContext(ctx),
+		TraceID:   telemetry.TraceIDsFromContext(ctx).TraceID,
+		CreatedAt: time.Now().UTC(),
+	})
+	WriteJSON(w, http.StatusOK, TaskPatchResponse{
+		Object: "task_patch",
+		Data:   renderTaskPatch(updated),
+	})
+}
+
 func (h *Handler) loadTaskRunPatch(ctx context.Context, w http.ResponseWriter, r *http.Request) (types.TaskRun, types.TaskArtifact, bool) {
 	task, ok := h.loadAuthorizedTask(ctx, w, r)
 	if !ok {
@@ -1836,6 +1889,16 @@ func renderTaskPatch(artifact types.TaskArtifact) TaskPatchItem {
 }
 
 func patchBeforeContent(diff string) (string, bool, error) {
+	content, beforeExisted, err := patchContent(diff, "-")
+	return content, beforeExisted, err
+}
+
+func patchAfterContent(diff string) (string, error) {
+	content, _, err := patchContent(diff, "+")
+	return content, err
+}
+
+func patchContent(diff, prefix string) (string, bool, error) {
 	lines := strings.Split(diff, "\n")
 	if len(lines) < 3 {
 		return "", false, fmt.Errorf("patch artifact diff is malformed")
@@ -1844,19 +1907,19 @@ func patchBeforeContent(diff string) (string, bool, error) {
 	if !strings.HasPrefix(lines[0], "--- ") || !strings.HasPrefix(lines[1], "+++ ") || !strings.HasPrefix(lines[2], "@@ ") {
 		return "", false, fmt.Errorf("patch artifact diff is malformed")
 	}
-	beforeLines := make([]string, 0)
+	contentLines := make([]string, 0)
 	for _, line := range lines[3:] {
 		if line == "" {
 			continue
 		}
-		if strings.HasPrefix(line, "-") {
-			beforeLines = append(beforeLines, strings.TrimPrefix(line, "-"))
+		if strings.HasPrefix(line, prefix) {
+			contentLines = append(contentLines, strings.TrimPrefix(line, prefix))
 		}
 	}
-	if len(beforeLines) == 0 {
+	if len(contentLines) == 0 {
 		return "", beforeExisted, nil
 	}
-	return strings.Join(beforeLines, "\n") + "\n", beforeExisted, nil
+	return strings.Join(contentLines, "\n") + "\n", beforeExisted, nil
 }
 
 func pathWithinRoot(path, root string) bool {

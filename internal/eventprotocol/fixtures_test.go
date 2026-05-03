@@ -50,6 +50,7 @@ var (
 		"tool.shell.output_chunk":        {},
 		"tool.shell.exited":              {},
 		"tool.file.patch":                {},
+		"tool.file.applied":              {},
 		"tool.file.reverted":             {},
 		"approval.requested":             {},
 		"approval.resolved":              {},

@@ -1170,6 +1170,73 @@ func TestAgentLoop_FileEditRejectsAmbiguousMatch(t *testing.T) {
 	}
 }
 
+func TestAgentLoop_FileEditCanProposePatchWithoutApplying(t *testing.T) {
+	dir := t.TempDir()
+	path := filepath.Join(dir, "main.go")
+	original := "package main\n\nfunc main() {\n\tprintln(\"old\")\n}\n"
+	if err := os.WriteFile(path, []byte(original), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	var events []capturedRunEvent
+	llm := &scriptedLLM{
+		responses: []*types.ChatResponse{
+			makeChatResp(makeAssistantMsg("", types.ToolCall{
+				ID: "edit-1", Type: "function",
+				Function: types.ToolCallFunction{
+					Name:      "file_edit",
+					Arguments: `{"path":"main.go","old_text":"println(\"old\")","new_text":"println(\"new\")","propose":true}`,
+				},
+			})),
+			makeChatResp(makeAssistantMsg("Patch proposed.")),
+		},
+	}
+	loop := NewAgentLoopExecutor(llm, &stubExecutor{}, NewFileExecutor(sandbox.NewLocalExecutor()), &stubExecutor{}, 8, nil, HTTPRequestPolicy{})
+	spec := newAgentLoopSpec(t)
+	spec.Task.WorkingDirectory = dir
+	spec.Task.SandboxAllowedRoot = dir
+	spec.EmitRunEvent = func(eventType string, data map[string]any) {
+		events = append(events, capturedRunEvent{eventType: eventType, data: data})
+	}
+
+	res, err := loop.Execute(context.Background(), spec)
+	if err != nil {
+		t.Fatalf("Execute: %v", err)
+	}
+	content, err := os.ReadFile(path)
+	if err != nil {
+		t.Fatalf("ReadFile() error = %v", err)
+	}
+	if string(content) != original {
+		t.Fatalf("proposed edit changed file:\n%s", string(content))
+	}
+	patch := findArtifactByKind(res.Artifacts, "patch")
+	if patch == nil {
+		t.Fatalf("patch artifact missing; artifacts=%+v", res.Artifacts)
+	}
+	if patch.Status != "proposed" {
+		t.Fatalf("patch status = %q, want proposed", patch.Status)
+	}
+	if !strings.Contains(patch.ContentText, `+	println("new")`) {
+		t.Fatalf("patch does not show proposed replacement:\n%s", patch.ContentText)
+	}
+	foundPatchEvent := false
+	for _, event := range events {
+		if event.eventType != "tool.file.patch" {
+			continue
+		}
+		foundPatchEvent = true
+		if got := event.data["artifact_status"]; got != "proposed" {
+			t.Fatalf("artifact_status = %v, want proposed", got)
+		}
+		if got := event.data["operation"]; got != "propose" {
+			t.Fatalf("operation = %v, want propose", got)
+		}
+	}
+	if !foundPatchEvent {
+		t.Fatalf("tool.file.patch event missing: %+v", events)
+	}
+}
+
 func TestAgentLoop_ResumeAfterApprovalDispatchesPendingCalls(t *testing.T) {
 	// On resume: the conversation has a trailing assistant message
 	// with tool_calls and no following tool result. The loop must

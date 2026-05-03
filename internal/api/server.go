@@ -30,6 +30,7 @@ func NewServer(logger *slog.Logger, handler *Handler) http.Handler {
 	mux.HandleFunc("GET /v1/tasks/{id}/runs/{run_id}/steps", handler.HandleTaskRunSteps)
 	mux.HandleFunc("GET /v1/tasks/{id}/runs/{run_id}/steps/{step_id}", handler.HandleTaskRunStep)
 	mux.HandleFunc("POST /v1/tasks/{id}/runs/{run_id}/patches/{artifact_id}/revert", handler.HandleRevertTaskRunPatch)
+	mux.HandleFunc("POST /v1/tasks/{id}/runs/{run_id}/patches/{artifact_id}/apply", handler.HandleApplyTaskRunPatch)
 	mux.HandleFunc("GET /v1/tasks/{id}/runs/{run_id}/patches/{artifact_id}", handler.HandleTaskRunPatch)
 	mux.HandleFunc("GET /v1/tasks/{id}/runs/{run_id}/patches", handler.HandleTaskRunPatches)
 	mux.HandleFunc("GET /v1/tasks/{id}/runs/{run_id}/artifacts/{artifact_id}", handler.HandleTaskRunArtifact)

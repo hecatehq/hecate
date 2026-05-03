@@ -50,6 +50,7 @@ These are **persisted events** (rows in the `task_state_run_events` table). They
 | `tool.shell.output_chunk` | Typed shell tool events | Incremental stdout/stderr chunk from the shell process |
 | `tool.shell.exited` | Typed shell tool events | Shell process reported exit metadata |
 | `tool.file.patch` | Typed file tool events | A file-writing tool produced an inspectable unified diff artifact |
+| `tool.file.applied` | Typed file tool events | A proposed patch artifact was applied by an operator |
 | `tool.file.reverted` | Typed file tool events | A previously applied patch artifact was reverted by an operator |
 | `tool.completed` | Tool events | Shell execution or MCP tool call completed |
 | `tool.failed` | Tool events | Shell execution or MCP tool call failed |
@@ -394,20 +395,30 @@ The task's `approval_policy=block` short-circuited the call. The upstream was ne
 
 ### `tool.file.patch`
 
-Emitted when `execution_kind=file` or an `agent_loop` file-writing tool (`file_write` / `file_edit`) writes a file. Hecate stores an inline `patch` artifact containing a unified diff of the before/after file contents, then emits this event so operator UIs, CLIs, and future ACP bridges can render the edit without re-running `git diff` against a moving workspace.
+Emitted when `execution_kind=file` or an `agent_loop` file-writing tool (`file_write` / `file_edit`) writes or proposes a file change. Hecate stores an inline `patch` artifact containing a unified diff of the before/after file contents, then emits this event so operator UIs, CLIs, and future ACP bridges can render the edit without re-running `git diff` against a moving workspace.
 
 | Extra key | Type | Notes |
 |---|---|---|
 | `tool_call_id` | `string` | Assistant tool call id, or the file step id for direct file tasks |
 | `tool_name` | `string` | `file_write` / `file_edit` for agent tools; `file` for direct file tasks |
 | `kind` | `string` | Always `file` |
-| `operation` | `string` | `write` or `append` |
+| `operation` | `string` | `write`, `append`, or `propose` |
 | `path` | `string` | Resolved path written by the sandbox |
 | `artifact_id` | `string` | Patch artifact id |
 | `bytes_written` | `int` | Bytes written by the file operation |
 | `diff_bytes` | `int64` | Patch body size |
 | `before_existed` | `bool` | Whether the file existed before the write |
-| `artifact_status` | `string` | Currently `applied`; review/apply transitions are future work |
+| `artifact_status` | `string` | `applied`, `proposed`, or `reverted` |
+
+### `tool.file.applied`
+
+Emitted when an operator calls the patch apply endpoint for a proposed patch artifact. The file is written from Hecate's own patch artifact and the artifact status changes from `proposed` to `applied`.
+
+| Extra key | Type | Notes |
+|---|---|---|
+| `artifact_id` | `string` | Patch artifact id |
+| `path` | `string` | Workspace path written |
+| `artifact_status` | `string` | `applied` |
 
 ### `tool.file.reverted`
 
