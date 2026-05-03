@@ -41,8 +41,7 @@ These are **persisted events** (rows in the `task_state_run_events` table). They
 | `run.resume_checkpoint_failed` | Run lifecycle | Resume hydration failed; run will start fresh |
 | `run.reconciled_restart_requeued` | Run lifecycle | Stalled run recovered and re-queued by reconciler (boot-time scan or periodic background check) |
 | `approval.requested` | Approvals | An approval gate was created (pre-execution or mid-loop) |
-| `approval.approved` | Approvals | Operator approved a gate |
-| `approval.rejected` | Approvals | Operator rejected a gate (terminates the run) |
+| `approval.resolved` | Approvals | Operator resolved an approval gate |
 | `agent.turn.completed` | Agent loop | One LLM round-trip in an `agent_loop` run finished |
 | `tool.invoked` | Typed shell tool events | Shell executor accepted a tool call or direct shell task |
 | `tool.started` | Typed shell tool events | Shell execution is about to start |
@@ -198,24 +197,30 @@ Two emit sites:
 - **Pre-execution gate** — task policy matched before the run started; the run is parked in `awaiting_approval`.
 - **Mid-loop gate** — the agent loop tried a tool call (`shell_exec`, `git_exec`, etc.) gated by `GATEWAY_TASK_APPROVAL_POLICIES` and paused.
 
-Both shapes share these fields. The mid-loop variant uses `approval_kind` instead of `kind` (legacy naming difference; both are equivalent strings like `agent_loop_tool_call`).
+Both shapes share these fields.
 
 | Extra key | Type | Notes |
 |---|---|---|
 | `approval_id` | `string` | The new approval record id |
-| `kind` / `approval_kind` | `string` | Approval type. One of `shell_command`, `git_exec`, `file_write`, `network_egress` (pre-execution gates), or `agent_loop_tool_call` (mid-loop gate). See [`runtime-api.md#approval-kinds`](runtime-api.md#approval-kinds). |
+| `kind` | `string` | Approval type. One of `shell_command`, `git_exec`, `file_write`, `network_egress` (pre-execution gates), or `agent_loop_tool_call` (mid-loop gate). See [`runtime-api.md#approval-kinds`](runtime-api.md#approval-kinds). |
 | `status` | `string` | `pending` at creation |
+| `policy_reason` | `string` | Human-readable policy reason that caused the gate |
+| `requested_by` | `string` | Principal that created the approval, when known |
+| `step_id` | `string` | Present for step-scoped approvals |
 
-### `approval.approved` / `approval.rejected`
+### `approval.resolved`
 
-The operator (or admin) resolved the gate. Event type is `approval.<status>`. After approve, the run re-queues; after reject, the run terminates `failed`.
+The operator (or admin) resolved the gate. After approve, the run re-queues; after reject, the run terminates `failed`.
 
 | Extra key | Type | Notes |
 |---|---|---|
 | `approval_id` | `string` | Resolved approval id |
+| `decision` | `string` | `approved` or `rejected` |
+| `by` | `string` | Principal that resolved the approval |
+| `comment` | `string` | Operator-supplied resolution note |
+| `scope` | `string` | Currently `once`; persistent always-allow is separate policy work |
 | `kind` | `string` | Approval type |
-| `status` | `string` | Mirrors the event-type suffix |
-| `note` | `string` | Operator-supplied resolution note |
+| `status` | `string` | Mirrors `decision` for compatibility with approval records |
 
 ## Agent loop
 
