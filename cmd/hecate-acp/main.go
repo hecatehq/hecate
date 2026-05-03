@@ -97,9 +97,6 @@ func hecateRuntimeCandidatePaths() []string {
 	if dataDir := strings.TrimSpace(os.Getenv("GATEWAY_DATA_DIR")); dataDir != "" {
 		candidates = append(candidates, filepath.Join(dataDir, hecateRuntimeFile))
 	}
-	if cwd, err := os.Getwd(); err == nil {
-		candidates = append(candidates, filepath.Join(cwd, ".data", hecateRuntimeFile))
-	}
 	if nativePath, err := nativeHecateRuntimePath(); err == nil {
 		candidates = append(candidates, nativePath)
 	}

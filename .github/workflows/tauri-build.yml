@@ -17,6 +17,7 @@ on:
       - 'go.mod'
       - 'go.sum'
       - 'cmd/hecate/**'
+      - 'cmd/hecate-acp/**'
       - 'ui/**'
       - 'embed.go'              # //go:embed all:ui/dist — UI bundle into binary
       - '.goreleaser.yaml'      # release config; tag-time goreleaser pipeline
