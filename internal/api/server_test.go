@@ -947,6 +947,94 @@ func TestProviderPresetsReturnsCatalog(t *testing.T) {
 	}
 }
 
+func TestAgentAdaptersReturnsBuiltIns(t *testing.T) {
+	t.Parallel()
+
+	logger := slog.New(slog.NewJSONHandler(io.Discard, nil))
+	handler := NewServer(logger, NewHandler(config.Config{}, logger, nil, nil, nil, nil))
+	client := newAPITestClient(t, handler)
+	response := mustRequestJSON[AgentAdapterResponse](client, http.MethodGet, "/v1/agent-adapters", "")
+	if response.Object != "agent_adapters" {
+		t.Fatalf("object = %q, want agent_adapters", response.Object)
+	}
+	if len(response.Data) != 3 {
+		t.Fatalf("adapter count = %d, want 3", len(response.Data))
+	}
+
+	foundCodex := false
+	foundClaude := false
+	foundCursor := false
+	for _, item := range response.Data {
+		if item.ID == "codex" && item.Kind == "process" && item.Command == "codex" && item.CostMode == "external" {
+			foundCodex = true
+		}
+		if item.ID == "claude_code" && item.Kind == "process" && item.Command == "claude" && item.CostMode == "external" {
+			foundClaude = true
+		}
+		if item.ID == "cursor_agent" && item.Kind == "process" && item.Command == "cursor-agent" && item.CostMode == "external" {
+			foundCursor = true
+		}
+		if item.Status == "" {
+			t.Fatalf("adapter %q missing status: %#v", item.ID, item)
+		}
+	}
+	if !foundCodex {
+		t.Fatalf("missing codex adapter: %#v", response.Data)
+	}
+	if !foundClaude {
+		t.Fatalf("missing claude_code adapter: %#v", response.Data)
+	}
+	if !foundCursor {
+		t.Fatalf("missing cursor_agent adapter: %#v", response.Data)
+	}
+}
+
+func TestAgentChatRunsExternalAdapter(t *testing.T) {
+	dir := t.TempDir()
+	if _, err := exec.LookPath("git"); err == nil {
+		_ = exec.Command("git", "-C", dir, "init", "-b", "main").Run()
+	}
+	bin := filepath.Join(dir, "bin")
+	if err := os.Mkdir(bin, 0o755); err != nil {
+		t.Fatalf("mkdir bin: %v", err)
+	}
+	codexPath := filepath.Join(bin, "codex")
+	script := "#!/bin/sh\nprintf 'agent saw: %s\\n' \"$*\"\n"
+	if err := os.WriteFile(codexPath, []byte(script), 0o755); err != nil {
+		t.Fatalf("write fake codex: %v", err)
+	}
+	t.Setenv("PATH", bin+string(os.PathListSeparator)+os.Getenv("PATH"))
+
+	logger := slog.New(slog.NewJSONHandler(io.Discard, nil))
+	handler := NewServer(logger, NewHandler(config.Config{}, logger, nil, nil, nil, nil))
+	client := newAPITestClient(t, handler)
+	created := mustRequestJSON[AgentChatSessionResponse](client, http.MethodPost, "/v1/agent-chat/sessions", fmt.Sprintf(`{"adapter_id":"codex","workspace":%q,"title":"Codex test"}`, dir))
+	if created.Data.AdapterID != "codex" {
+		t.Fatalf("adapter_id = %q, want codex", created.Data.AdapterID)
+	}
+	if got := created.Data.WorkspaceBranch; got != "" && got != "main" {
+		t.Fatalf("workspace_branch = %q, want empty or main", got)
+	}
+
+	updated := mustRequestJSON[AgentChatSessionResponse](client, http.MethodPost, "/v1/agent-chat/sessions/"+created.Data.ID+"/messages", `{"content":"hello from hecate"}`)
+	if len(updated.Data.Messages) != 2 {
+		t.Fatalf("message count = %d, want 2: %#v", len(updated.Data.Messages), updated.Data.Messages)
+	}
+	assistant := updated.Data.Messages[1]
+	if assistant.Role != "assistant" || assistant.AdapterID != "codex" || assistant.Status != "completed" {
+		t.Fatalf("assistant message = %#v", assistant)
+	}
+	if !strings.Contains(assistant.Content, "hello from hecate") {
+		t.Fatalf("assistant content = %q, want prompt echoed", assistant.Content)
+	}
+	if assistant.CostMode != "external" {
+		t.Fatalf("cost_mode = %q, want external", assistant.CostMode)
+	}
+	if got := updated.Data.WorkspaceBranch; got != "" && got != "main" {
+		t.Fatalf("workspace_branch = %q, want empty or main", got)
+	}
+}
+
 func TestRuntimeStatsReturnsQueueAndRunCounters(t *testing.T) {
 	t.Parallel()
 

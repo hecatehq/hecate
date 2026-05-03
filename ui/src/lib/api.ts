@@ -11,6 +11,10 @@ import type {
   PricebookEntryUpsertPayload,
   PricebookImportDiffResponse,
   ProviderPresetResponse,
+  AgentAdapterResponse,
+  AgentChatSessionResponse,
+  AgentChatSessionsResponse,
+  WorkspaceDialogResponse,
   ProviderStatusResponse,
   RuntimeStatsResponse,
   RequestLedgerResponse,
@@ -117,6 +121,12 @@ export type CreateChatSessionPayload = {
   title: string;
 };
 
+export type CreateAgentChatSessionPayload = {
+  title?: string;
+  adapter_id: string;
+  workspace: string;
+};
+
 export type CreateTaskPayload = {
   title?: string;
   prompt: string;
@@ -197,6 +207,10 @@ export async function getProviderPresets(): Promise<ProviderPresetResponse> {
   return fetchJSON<ProviderPresetResponse>("/v1/provider-presets");
 }
 
+export async function getAgentAdapters(): Promise<AgentAdapterResponse> {
+  return fetchJSON<AgentAdapterResponse>("/v1/agent-adapters");
+}
+
 export async function getTrace(requestID: string): Promise<TraceResponse> {
   return fetchJSON<TraceResponse>(`/v1/traces?request_id=${encodeURIComponent(requestID)}`);
 }
@@ -233,6 +247,30 @@ export async function deleteChatSession(id: string): Promise<void> {
 
 export async function updateChatSession(id: string, title: string): Promise<ChatSessionResponse> {
   return fetchJSON<ChatSessionResponse>(`/v1/chat/sessions/${encodeURIComponent(id)}`, { method: "PATCH", body: { title } });
+}
+
+export async function getAgentChatSessions(): Promise<AgentChatSessionsResponse> {
+  return fetchJSON<AgentChatSessionsResponse>("/v1/agent-chat/sessions");
+}
+
+export async function createAgentChatSession(payload: CreateAgentChatSessionPayload): Promise<AgentChatSessionResponse> {
+  return fetchJSON<AgentChatSessionResponse>("/v1/agent-chat/sessions", { method: "POST", body: payload });
+}
+
+export async function getAgentChatSession(id: string): Promise<AgentChatSessionResponse> {
+  return fetchJSON<AgentChatSessionResponse>(`/v1/agent-chat/sessions/${encodeURIComponent(id)}`);
+}
+
+export async function deleteAgentChatSession(id: string): Promise<void> {
+  await fetchJSON<unknown>(`/v1/agent-chat/sessions/${encodeURIComponent(id)}`, { method: "DELETE" });
+}
+
+export async function createAgentChatMessage(id: string, content: string): Promise<AgentChatSessionResponse> {
+  return fetchJSON<AgentChatSessionResponse>(`/v1/agent-chat/sessions/${encodeURIComponent(id)}/messages`, { method: "POST", body: { content } });
+}
+
+export async function chooseWorkspaceDirectory(): Promise<WorkspaceDialogResponse> {
+  return fetchJSON<WorkspaceDialogResponse>("/v1/workspace-dialog", { method: "POST", body: {} });
 }
 
 export async function getRequestLedger(limit = 20): Promise<RequestLedgerResponse> {

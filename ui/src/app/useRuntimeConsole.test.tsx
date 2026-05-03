@@ -392,7 +392,7 @@ describe("useRuntimeConsole", () => {
       expect(deleteCalls).toBe(1);
       await waitFor(() => expect(result.current.state.chatSessions.map(s => s.id)).toEqual(["sess_a"]));
       expect(result.current.state.notice?.kind).toBe("success");
-      expect(result.current.state.notice?.message).toBe("Session deleted.");
+      expect(result.current.state.notice?.message).toBe("Chat deleted.");
     });
 
     it("renameChatSession patches the title in the sidebar", async () => {

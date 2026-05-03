@@ -353,6 +353,26 @@ type ProviderPresetResponse struct {
 	Data   []ProviderPresetResponseItem `json:"data"`
 }
 
+type AgentAdapterResponse struct {
+	Object string                     `json:"object"`
+	Data   []AgentAdapterResponseItem `json:"data"`
+}
+
+type AgentChatSessionsResponse struct {
+	Object string                        `json:"object"`
+	Data   []AgentChatSessionSummaryItem `json:"data"`
+}
+
+type AgentChatSessionResponse struct {
+	Object string               `json:"object"`
+	Data   AgentChatSessionItem `json:"data"`
+}
+
+type WorkspaceDialogResponse struct {
+	Object string                      `json:"object"`
+	Data   WorkspaceDialogResponseItem `json:"data"`
+}
+
 type TraceListResponse struct {
 	Object string          `json:"object"`
 	Data   []TraceListItem `json:"data"`
@@ -516,6 +536,74 @@ type ProviderPresetResponseItem struct {
 	DocsURL      string `json:"docs_url,omitempty"`
 	Description  string `json:"description,omitempty"`
 	EnvSnippet   string `json:"env_snippet,omitempty"`
+}
+
+type AgentAdapterResponseItem struct {
+	ID          string `json:"id"`
+	Name        string `json:"name"`
+	Kind        string `json:"kind"`
+	Command     string `json:"command"`
+	Available   bool   `json:"available"`
+	Status      string `json:"status"`
+	Path        string `json:"path,omitempty"`
+	Error       string `json:"error,omitempty"`
+	Description string `json:"description,omitempty"`
+	CostMode    string `json:"cost_mode,omitempty"`
+	DocsURL     string `json:"docs_url,omitempty"`
+}
+
+type CreateAgentChatSessionRequest struct {
+	Title     string `json:"title,omitempty"`
+	AdapterID string `json:"adapter_id"`
+	Workspace string `json:"workspace"`
+}
+
+type CreateAgentChatMessageRequest struct {
+	Content string `json:"content"`
+}
+
+type AgentChatSessionSummaryItem struct {
+	ID              string `json:"id"`
+	Title           string `json:"title"`
+	AdapterID       string `json:"adapter_id"`
+	Workspace       string `json:"workspace"`
+	WorkspaceBranch string `json:"workspace_branch,omitempty"`
+	Status          string `json:"status"`
+	MessageCount    int    `json:"message_count"`
+	CreatedAt       string `json:"created_at,omitempty"`
+	UpdatedAt       string `json:"updated_at,omitempty"`
+}
+
+type AgentChatSessionItem struct {
+	ID              string                 `json:"id"`
+	Title           string                 `json:"title"`
+	AdapterID       string                 `json:"adapter_id"`
+	Workspace       string                 `json:"workspace"`
+	WorkspaceBranch string                 `json:"workspace_branch,omitempty"`
+	Status          string                 `json:"status"`
+	CreatedAt       string                 `json:"created_at,omitempty"`
+	UpdatedAt       string                 `json:"updated_at,omitempty"`
+	Messages        []AgentChatMessageItem `json:"messages"`
+}
+
+type AgentChatMessageItem struct {
+	ID          string `json:"id"`
+	Role        string `json:"role"`
+	Content     string `json:"content"`
+	AdapterID   string `json:"adapter_id,omitempty"`
+	AdapterName string `json:"adapter_name,omitempty"`
+	Status      string `json:"status,omitempty"`
+	ExitCode    int    `json:"exit_code,omitempty"`
+	CostMode    string `json:"cost_mode,omitempty"`
+	Workspace   string `json:"workspace,omitempty"`
+	DiffStat    string `json:"diff_stat,omitempty"`
+	Diff        string `json:"diff,omitempty"`
+	CreatedAt   string `json:"created_at,omitempty"`
+}
+
+type WorkspaceDialogResponseItem struct {
+	Path   string `json:"path"`
+	Branch string `json:"branch,omitempty"`
 }
 
 type BudgetStatusResponse struct {

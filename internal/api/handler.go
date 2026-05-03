@@ -10,6 +10,7 @@ import (
 	"strings"
 	"time"
 
+	"github.com/hecate/agent-runtime/internal/agentchat"
 	"github.com/hecate/agent-runtime/internal/config"
 	"github.com/hecate/agent-runtime/internal/controlplane"
 	"github.com/hecate/agent-runtime/internal/gateway"
@@ -32,6 +33,7 @@ type Handler struct {
 	providerRuntime ProviderRuntime
 	taskStore       taskstate.Store
 	taskRunner      *orchestrator.Runner
+	agentChat       *agentchat.Store
 	rateLimiter     *ratelimit.Store
 	// secretCipher encrypts literal MCP server env values at task-creation
 	// time and wires the matching decrypting factory into the runner. nil
@@ -174,6 +176,7 @@ func NewHandler(cfg config.Config, logger *slog.Logger, service *gateway.Service
 		taskStore:           taskStore,
 		taskRunner:          runner,
 		rateLimiter:         rl,
+		agentChat:           agentchat.NewMemoryStore(),
 		orchestratorMetrics: orchestratorMetrics,
 	}
 }

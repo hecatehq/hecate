@@ -1,5 +1,5 @@
 import { useEffect, useRef, useState } from "react";
-import type { ModelRecord, ProviderPresetRecord } from "../../types/runtime";
+import type { AgentAdapterRecord, ModelRecord, ProviderPresetRecord } from "../../types/runtime";
 
 // ─── Icon ────────────────────────────────────────────────────────────────────
 
@@ -31,6 +31,7 @@ export const Icons = {
   x:        "M6 18L18 6M6 6l12 12",
   refresh:  "M4 4v5h.582m15.356 2A8.001 8.001 0 004.582 9m0 0H9m11 11v-5h-.581m0 0a8.003 8.003 0 01-15.357-2m15.357 2H15",
   terminal: "M8 9l3 3-3 3m5 0h3M5 20h14a2 2 0 002-2V6a2 2 0 00-2-2H5a2 2 0 00-2 2v12a2 2 0 002 2z",
+  folder:   ["M3 7a2 2 0 012-2h4l2 2h8a2 2 0 012 2v8a2 2 0 01-2 2H5a2 2 0 01-2-2V7z"],
   send:     "M12 19l9 2-9-18-9 18 9-2zm0 0v-8",
   edit:     "M11 5H6a2 2 0 00-2 2v11a2 2 0 002 2h11a2 2 0 002-2v-5m-1.414-9.414a2 2 0 112.828 2.828L11.828 15H9v-2.828l8.586-8.586z",
   trash:    "M19 7l-.867 12.142A2 2 0 0116.138 21H7.862a2 2 0 01-1.995-1.858L5 7m5 4v6m4-6v6m1-10V4a1 1 0 00-1-1h-4a1 1 0 00-1 1v3M4 7h16",
@@ -1015,6 +1016,113 @@ export function ProviderPicker({
                     <Icon d={Icons.keys} size={11} />
                   </span>
                 )}
+              </div>
+            );
+          })}
+        </div>
+      )}
+    </div>
+  );
+}
+
+// ─── AgentAdapterPicker ─────────────────────────────────────────────────────
+
+export function AgentAdapterPicker({
+  value,
+  onChange,
+  adapters,
+  triggerWidth = 170,
+}: {
+  value: string;
+  onChange: (v: string) => void;
+  adapters: AgentAdapterRecord[];
+  triggerWidth?: number;
+}) {
+  const [open, setOpen] = useState(false);
+  const ref = useRef<HTMLDivElement>(null);
+  const triggerRef = useRef<HTMLButtonElement>(null);
+  const floatingStyle = useFloatingDropdownStyle(triggerRef, open, "left");
+
+  useEffect(() => {
+    const handler = (e: MouseEvent) => {
+      const target = e.target as Node;
+      if (ref.current && ref.current.contains(target)) return;
+      if (target instanceof HTMLElement && target.closest(".dropdown-menu-floating")) return;
+      setOpen(false);
+    };
+    document.addEventListener("mousedown", handler);
+    return () => document.removeEventListener("mousedown", handler);
+  }, []);
+
+  const selected = adapters.find((adapter) => adapter.id === value);
+  const label = selected?.name ?? "select agent";
+  const isEmpty = adapters.length === 0;
+
+  return (
+    <div className="dropdown-wrap" ref={ref}>
+      <button
+        ref={triggerRef}
+        aria-label="External agent adapter"
+        className="btn btn-ghost btn-sm"
+        disabled={isEmpty}
+        onClick={() => { if (!isEmpty) setOpen((current) => !current); }}
+        style={{
+          fontFamily: "var(--font-mono)",
+          fontSize: 11,
+          gap: 5,
+          color: isEmpty ? "var(--t3)" : "var(--t1)",
+          width: triggerWidth,
+          opacity: isEmpty ? 0.6 : undefined,
+          cursor: isEmpty ? "not-allowed" : undefined,
+        }}
+        title={isEmpty ? "No external agent adapters are registered" : label}
+        type="button"
+      >
+        <Icon d={Icons.terminal} size={13} />
+        <span style={{ flex: 1, minWidth: 0, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap", textAlign: "left" }}>
+          {label}
+        </span>
+        <Icon d={Icons.chevD} size={11} />
+      </button>
+      {open && floatingStyle && (
+        <div className="dropdown-menu dropdown-menu-floating" style={{ ...floatingStyle, minWidth: 220 }}>
+          {adapters.map((adapter) => {
+            const disabled = !adapter.available;
+            return (
+              <div
+                key={adapter.id}
+                className={`dropdown-item ${adapter.id === value ? "selected" : ""}`}
+                onClick={() => {
+                  if (disabled) return;
+                  onChange(adapter.id);
+                  setOpen(false);
+                }}
+                style={disabled ? { cursor: "not-allowed" } : undefined}
+                title={disabled ? adapter.error || `${adapter.name} command was not found` : adapter.path || adapter.description}
+              >
+                <span
+                  style={{
+                    flex: 1,
+                    fontSize: 12,
+                    overflow: "hidden",
+                    textOverflow: "ellipsis",
+                    whiteSpace: "nowrap",
+                    textAlign: "left",
+                    opacity: disabled ? 0.5 : 1,
+                  }}
+                >
+                  {adapter.name}
+                </span>
+                <span
+                  style={{
+                    color: adapter.available ? "var(--green)" : "var(--red)",
+                    display: "inline-flex",
+                    flexShrink: 0,
+                  }}
+                  aria-label={adapter.available ? "adapter available" : "adapter missing"}
+                >
+                  <Icon d={adapter.available ? Icons.check : Icons.x} size={11} />
+                </span>
               </div>
             );
           })}

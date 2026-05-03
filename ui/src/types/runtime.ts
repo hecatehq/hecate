@@ -170,6 +170,82 @@ export type ProviderPresetResponse = {
   data: ProviderPresetRecord[];
 };
 
+export type AgentAdapterRecord = {
+  id: string;
+  name: string;
+  kind: string;
+  command: string;
+  available: boolean;
+  status: string;
+  path?: string;
+  error?: string;
+  description?: string;
+  cost_mode?: string;
+  docs_url?: string;
+};
+
+export type AgentAdapterResponse = {
+  object: string;
+  data: AgentAdapterRecord[];
+};
+
+export type AgentChatSessionSummaryRecord = {
+  id: string;
+  title: string;
+  adapter_id: string;
+  workspace: string;
+  workspace_branch?: string;
+  status: string;
+  message_count: number;
+  created_at?: string;
+  updated_at?: string;
+};
+
+export type AgentChatMessageRecord = {
+  id: string;
+  role: "user" | "assistant";
+  content: string;
+  adapter_id?: string;
+  adapter_name?: string;
+  status?: string;
+  exit_code?: number;
+  cost_mode?: string;
+  workspace?: string;
+  diff_stat?: string;
+  diff?: string;
+  created_at?: string;
+};
+
+export type AgentChatSessionRecord = {
+  id: string;
+  title: string;
+  adapter_id: string;
+  workspace: string;
+  workspace_branch?: string;
+  status: string;
+  created_at?: string;
+  updated_at?: string;
+  messages?: AgentChatMessageRecord[];
+};
+
+export type AgentChatSessionsResponse = {
+  object: string;
+  data: AgentChatSessionSummaryRecord[];
+};
+
+export type AgentChatSessionResponse = {
+  object: string;
+  data: AgentChatSessionRecord;
+};
+
+export type WorkspaceDialogResponse = {
+  object: string;
+  data: {
+    path: string;
+    branch?: string;
+  };
+};
+
 export type TraceEventRecord = {
   name: string;
   timestamp: string;

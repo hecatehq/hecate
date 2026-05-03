@@ -104,6 +104,7 @@
   font-family: var(--font-mono);
   flex-shrink: 0;
   user-select: none;
+  min-width: 0;
 }
 
 .hecate-statusbar__brand {
@@ -112,6 +113,13 @@
 
 .hecate-statusbar__sep {
   opacity: 0.5;
+}
+
+.hecate-statusbar__path {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
 }
 
 

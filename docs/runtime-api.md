@@ -348,6 +348,189 @@ GET /v1/provider-presets
 
 The list is built from `config.BuiltInProviders()` — see [`docs/providers.md`](providers.md) for the full catalog and OpenAI-compatible custom-endpoint flow.
 
+### `GET /v1/agent-adapters`
+
+External coding-agent adapter catalog. This is the first discovery surface for
+Agent Chat: it reports the agent runtimes Hecate knows how to supervise and
+whether their CLI command is currently available on `PATH`.
+
+```json
+GET /v1/agent-adapters
+→ 200
+{
+  "object": "agent_adapters",
+  "data": [
+    {
+      "id": "codex",
+      "name": "Codex",
+      "kind": "process",
+      "command": "codex",
+      "available": true,
+      "status": "available",
+      "path": "/opt/homebrew/bin/codex",
+      "cost_mode": "external"
+    },
+    {
+      "id": "cursor_agent",
+      "name": "Cursor Agent",
+      "kind": "process",
+      "command": "cursor-agent",
+      "available": true,
+      "status": "available",
+      "path": "/Users/alice/.local/bin/cursor-agent",
+      "cost_mode": "external"
+    },
+    {
+      "id": "claude_code",
+      "name": "Claude Code",
+      "kind": "process",
+      "command": "claude",
+      "available": false,
+      "status": "missing",
+      "error": "exec: \"claude\": executable file not found in $PATH",
+      "cost_mode": "external"
+    }
+  ]
+}
+```
+
+These are **agent adapters**, not model providers. They run external coding
+agent CLIs under Hecate supervision; cost is reported as `external` until an
+adapter can supply structured usage.
+
+### `GET /v1/agent-chat/sessions`
+
+Lists memory-backed Agent Chat sessions for the current gateway process.
+Agent Chat is the alpha dogfooding surface for running external coding-agent
+CLIs such as Codex, Claude Code, and Cursor Agent from the Hecate Chats UI.
+
+```json
+GET /v1/agent-chat/sessions
+→ 200
+{
+  "object": "agent_chat_sessions",
+  "data": [
+    {
+      "id": "agent_chat_...",
+      "title": "Codex chat",
+      "adapter_id": "codex",
+      "workspace": "/Users/alice/project",
+      "workspace_branch": "main",
+      "status": "completed",
+      "message_count": 2,
+      "created_at": "2026-05-03T12:00:00Z",
+      "updated_at": "2026-05-03T12:00:08Z"
+    }
+  ]
+}
+```
+
+### `POST /v1/agent-chat/sessions`
+
+Creates an Agent Chat session. The session records which adapter should run
+and which workspace path the adapter process should use. The workspace must be
+an operator-controlled local path; v0 sessions are process-local memory state.
+
+```json
+POST /v1/agent-chat/sessions
+{
+  "adapter_id": "codex",
+  "workspace": "/Users/alice/project",
+  "title": "Codex dogfood"
+}
+
+→ 200
+{
+  "object": "agent_chat_session",
+  "data": {
+    "id": "agent_chat_...",
+    "title": "Codex dogfood",
+    "adapter_id": "codex",
+    "workspace": "/Users/alice/project",
+    "workspace_branch": "main",
+    "status": "idle",
+    "messages": []
+  }
+}
+```
+
+### `GET /v1/agent-chat/sessions/{id}`
+
+Returns the full session transcript, including user messages and assistant
+messages produced by the external adapter.
+
+### `POST /v1/agent-chat/sessions/{id}/messages`
+
+Runs the session adapter once with the submitted prompt and appends both the
+user message and the adapter output. The first implementation is synchronous:
+the response returns after the external process exits, times out, or fails.
+
+```json
+POST /v1/agent-chat/sessions/agent_chat_.../messages
+{
+  "content": "Review the current diff and suggest fixes."
+}
+
+→ 200
+{
+  "object": "agent_chat_session",
+  "data": {
+    "id": "agent_chat_...",
+    "status": "completed",
+    "messages": [
+      {
+        "id": "msg_...",
+        "role": "user",
+        "content": "Review the current diff and suggest fixes."
+      },
+      {
+        "id": "msg_...",
+        "role": "assistant",
+        "content": "...",
+        "adapter_id": "codex",
+        "adapter_name": "Codex",
+        "status": "completed",
+        "cost_mode": "external",
+        "workspace": "/Users/alice/project",
+        "diff_stat": "..."
+      }
+    ]
+  }
+}
+```
+
+Failures from the external process are still represented as assistant messages
+with `"status": "failed"` so the transcript stays intact. Transport or request
+validation failures still use the normal Hecate error envelope.
+
+### `DELETE /v1/agent-chat/sessions/{id}`
+
+Deletes a memory-backed Agent Chat session.
+
+### `POST /v1/workspace-dialog`
+
+Opens a local folder picker from the gateway process and returns the selected
+workspace path. The browser cannot safely expose absolute folder paths on its
+own, so this endpoint is intentionally local-runtime-oriented.
+
+```json
+POST /v1/workspace-dialog
+{}
+
+→ 200
+{
+  "object": "workspace_dialog",
+  "data": {
+    "path": "/Users/alice/project",
+    "branch": "main"
+  }
+}
+```
+
+Current support is macOS via `osascript`; unsupported platforms return `501`.
+If the operator cancels the dialog, the endpoint returns the standard error
+envelope and the UI keeps the workspace unchanged.
+
 ## Rate-limit headers on chat / messages
 
 Every response from `POST /v1/chat/completions` and `POST /v1/messages` carries three rate-limit headers, regardless of whether rate limiting is enabled (the headers are zero-value when off):

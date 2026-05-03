@@ -64,6 +64,7 @@ yet.
 | [Agent event protocol v1 candidate](rfcs/event-protocol-v1.md) | Candidate envelope exists; payload schemas and stability guarantees are still in progress. |
 | [Agent event protocol experimental extensions](rfcs/event-protocol-experimental.md) | Parking lot for future event groups such as thinking blocks, sub-agents, multimodal output, and branching. |
 | [Artifact storage v1 candidate](rfcs/artifact-storage-v1.md) | Candidate shape for persisted command output, patches, fetched resources, and artifact retention. |
+| [External agent adapters candidate](rfcs/external-agent-adapters.md) | Candidate shape for chatting with Codex, Claude Code, Cursor Agent, and future coding-agent CLIs through Hecate. |
 
 ## External Entry Points
 

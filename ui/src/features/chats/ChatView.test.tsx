@@ -55,14 +55,14 @@ describe("ChatView Enter switch", () => {
   });
 });
 
-describe("ChatView sessions sidebar", () => {
-  it("shows 'No sessions yet' when chatSessions is empty", () => {
+describe("ChatView chats sidebar", () => {
+  it("shows 'No chats yet' when chatSessions is empty", () => {
     const { state, actions } = setup({ chatSessions: [] });
     render(<ChatView state={state} actions={actions} />);
-    expect(screen.getByText(/No sessions yet/i)).toBeTruthy();
+    expect(screen.getByText(/No chats yet/i)).toBeTruthy();
   });
 
-  it("renders one row per session with title", () => {
+  it("renders one row per chat with title", () => {
     const { state, actions } = setup({
       chatSessions: [
         { id: "s1", title: "First chat", message_count: 4, provider_call_count: 2, updated_at: "2026-04-25T00:00:00Z" } as any,
@@ -74,7 +74,7 @@ describe("ChatView sessions sidebar", () => {
     expect(screen.getByText("Second chat")).toBeTruthy();
   });
 
-  it("calls selectChatSession when clicking a session row", async () => {
+  it("calls selectChatSession when clicking a chat row", async () => {
     const selectChatSession = vi.fn(async () => undefined);
     const { state, actions } = setup({
       chatSessions: [{ id: "s1", title: "Pick me", message_count: 0, provider_call_count: 0 } as any],
@@ -83,6 +83,82 @@ describe("ChatView sessions sidebar", () => {
     const user = userEvent.setup();
     await user.click(screen.getByText("Pick me"));
     expect(selectChatSession).toHaveBeenCalledWith("s1");
+  });
+});
+
+describe("ChatView agent target", () => {
+  it("renders external agent controls and disables missing adapters", async () => {
+    const setChatTarget = vi.fn();
+    const setAgentAdapterID = vi.fn();
+    const { state, actions } = setup({
+      chatTarget: "agent",
+      agentAdapterID: "codex",
+      agentWorkspace: "/tmp/hecate",
+      agentAdapters: [
+        { id: "codex", name: "Codex", kind: "process", command: "codex", available: true, status: "available", cost_mode: "external" },
+        { id: "claude_code", name: "Claude Code", kind: "process", command: "claude", available: false, status: "missing", cost_mode: "external" },
+      ],
+      agentChatSessions: [
+        { id: "a1", title: "Codex work", adapter_id: "codex", workspace: "/tmp/hecate", status: "completed", message_count: 2 } as any,
+      ],
+      activeAgentChatSessionID: "a1",
+      activeAgentChatSession: {
+        id: "a1",
+        title: "Codex work",
+        adapter_id: "codex",
+        workspace: "/tmp/hecate",
+        status: "completed",
+        messages: [
+          { id: "m1", role: "user", content: "review this", created_at: "2026-05-03T10:00:00Z" },
+          { id: "m2", role: "assistant", content: "Looks good.", adapter_id: "codex", adapter_name: "Codex", status: "completed", cost_mode: "external", created_at: "2026-05-03T10:00:01Z" },
+        ],
+      } as any,
+    }, { setChatTarget, setAgentAdapterID });
+    render(<ChatView state={state} actions={actions} />);
+
+    expect(screen.queryByDisplayValue("/tmp/hecate")).toBeNull();
+    expect(screen.getByRole("button", { name: /workspace/i })).toBeTruthy();
+    expect(screen.getAllByText("Codex work").length).toBeGreaterThan(0);
+    expect(screen.getByText("Looks good.")).toBeTruthy();
+    expect(screen.getByText("completed")).toBeTruthy();
+    const user = userEvent.setup();
+    await user.click(screen.getByRole("button", { name: "External agent adapter" }));
+    await user.click(screen.getByText("Claude Code"));
+    expect(setAgentAdapterID).not.toHaveBeenCalledWith("claude_code");
+
+    await user.click(screen.getByRole("button", { name: "Model" }));
+    expect(setChatTarget).toHaveBeenCalledWith("model");
+  });
+
+  it("opens the workspace picker action from the folder button", async () => {
+    const chooseAgentWorkspace = vi.fn(async () => undefined);
+    const { state, actions } = setup({
+      chatTarget: "agent",
+      agentWorkspace: "",
+      agentAdapters: [
+        { id: "codex", name: "Codex", kind: "process", command: "codex", available: true, status: "available", cost_mode: "external" },
+      ],
+    }, { chooseAgentWorkspace });
+    render(<ChatView state={state} actions={actions} />);
+
+    const user = userEvent.setup();
+    await user.click(screen.getByTitle("Choose workspace folder"));
+    expect(chooseAgentWorkspace).toHaveBeenCalled();
+  });
+
+  it("requires a workspace before sending to an external agent", () => {
+    const { state, actions } = setup({
+      chatTarget: "agent",
+      message: "run codex",
+      agentWorkspace: "",
+      agentAdapters: [
+        { id: "codex", name: "Codex", kind: "process", command: "codex", available: true, status: "available", cost_mode: "external" },
+      ],
+    });
+    render(<ChatView state={state} actions={actions} />);
+
+    const send = document.querySelector("button[type='submit']") as HTMLButtonElement;
+    expect(send.disabled).toBe(true);
   });
 });
 
@@ -107,10 +183,10 @@ describe("ChatView error display", () => {
 });
 
 describe("ChatView session title", () => {
-  it("shows 'New conversation' when no sessions and no active session", () => {
+  it("shows 'New chat' when no chats and no active chat", () => {
     const { state, actions } = setup({ chatSessions: [], activeChatSession: null });
     render(<ChatView state={state} actions={actions} />);
-    expect(screen.getByText("New conversation")).toBeTruthy();
+    expect(screen.getAllByText("New chat").length).toBeGreaterThan(0);
   });
 
   it("shows the active session's title", () => {
@@ -122,16 +198,16 @@ describe("ChatView session title", () => {
   });
 });
 
-describe("ChatView New session button", () => {
-  it("focuses the message textarea after clicking New session", async () => {
-    // The button starts a fresh conversation; the operator's next move
+describe("ChatView New chat button", () => {
+  it("focuses the message textarea after clicking New chat", async () => {
+    // The button starts a fresh chat; the operator's next move
     // is almost always to type. Auto-focusing the textarea saves a
     // click and matches the muscle-memory pattern from chat clients.
     const createChatSession = vi.fn();
     const { state, actions } = setup({}, { createChatSession });
     const user = userEvent.setup();
     render(<ChatView state={state} actions={actions} />);
-    await user.click(screen.getByRole("button", { name: /new session/i }));
+    await user.click(screen.getByRole("button", { name: /new chat/i }));
     expect(createChatSession).toHaveBeenCalled();
     const textarea = screen.getByPlaceholderText(/^Message…/i);
     expect(document.activeElement).toBe(textarea);
@@ -139,10 +215,10 @@ describe("ChatView New session button", () => {
 });
 
 describe("ChatView session focus", () => {
-  it("focuses the message textarea when a sidebar session row is clicked", async () => {
-    // Focus is applied on EXPLICIT user actions only — the New-session
-    // button onClick and session-row onClick. The activeChatSessionID
-    // effect deliberately does NOT focus, because data-load (sessions
+  it("focuses the message textarea when a sidebar chat row is clicked", async () => {
+    // Focus is applied on EXPLICIT user actions only — the New-chat
+    // button onClick and chat-row onClick. The activeChatSessionID
+    // effect deliberately does NOT focus, because data-load (chats
     // arriving from the API) also drives that transition and stealing
     // focus on load would block the dashboard's keyboard shortcuts
     // (e2e regression — see shell.spec.ts shortcut tests).
@@ -156,7 +232,7 @@ describe("ChatView session focus", () => {
     const closeBtn = screen.getByTitle("Close");
     closeBtn.focus();
     expect(document.activeElement).toBe(closeBtn);
-    // Click the session row — the only user-driven session switch.
+    // Click the chat row — the only user-driven chat switch.
     await user.click(screen.getByText("Pick me"));
     const textarea = screen.getByPlaceholderText(/^Message…/i);
     expect(document.activeElement).toBe(textarea);

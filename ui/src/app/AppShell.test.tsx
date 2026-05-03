@@ -36,6 +36,45 @@ describe("ConsoleShell loading state", () => {
   });
 });
 
+describe("ConsoleShell navigation", () => {
+  it("keeps Chats available when no providers are configured", () => {
+    const state = createRuntimeConsoleFixture({
+      controlPlaneConfig: { providers: [], pricebook: [], policy_rules: [] } as never,
+    });
+    render(
+      <ConsoleShell
+        activeWorkspace="chats"
+        onSelectWorkspace={() => {}}
+        state={state}
+        actions={createRuntimeConsoleActions()}
+      />,
+    );
+
+    expect(screen.getByRole("button", { name: /Chats \(1\)/ })).toBeEnabled();
+    expect(screen.queryByText(/No providers configured/i)).toBeNull();
+    expect(screen.getByText(/Send a message to start this chat/i)).toBeInTheDocument();
+  });
+
+  it("shows the selected agent workspace and git branch in the status bar", () => {
+    const state = createRuntimeConsoleFixture({
+      chatTarget: "agent",
+      agentWorkspace: "/Users/alice/dev/hecate",
+      agentWorkspaceBranch: "feature/agents",
+    });
+    render(
+      <ConsoleShell
+        activeWorkspace="chats"
+        onSelectWorkspace={() => {}}
+        state={state}
+        actions={createRuntimeConsoleActions()}
+      />,
+    );
+
+    expect(screen.getByText("…/dev/hecate")).toBeInTheDocument();
+    expect(screen.getByText("git:feature/agents")).toBeInTheDocument();
+  });
+});
+
 // Status bar version render — guards the conditional that hides the
 // version chip when /healthz didn't include one (older gateway, or the
 // field genuinely missing). The workspace branch renders the embedded
