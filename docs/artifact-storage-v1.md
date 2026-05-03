@@ -16,13 +16,16 @@ need to render diffs without re-deriving state from `git status`.
 
 Before this document can be treated as candidate-stable:
 
-- The auth model must match the rest of `/v1`.
+- The auth model must match the rest of `/v1`. _(Status: open)_
 - The storage design must fit Hecate's current backend model: memory for
-  ephemeral/dev state and SQLite for durable local state.
+  ephemeral/dev state and SQLite for durable local state. _(Status: open)_
 - Patch-review endpoint shapes must be decided before any diff-review UI
-  depends on artifact status transitions.
+  depends on artifact status transitions. _(Status: open)_
 - At least `command_output` must be implemented end-to-end with retention and
-  contract fixtures.
+  contract fixtures. _(Status: open)_
+
+Flip each gate from `open` → `resolved (#NNN)` as work lands so this list
+stays the source of truth.
 
 ## Why first-class artifacts
 
@@ -80,6 +83,9 @@ Backend expectations:
 |---|---|
 | `memory` | Metadata + bodies in process memory. Test/dev only. |
 | `sqlite` | Metadata + small bodies in SQLite; large bodies on local filesystem. |
+
+Default: `memory`, matching every other Hecate subsystem. Set
+`GATEWAY_ARTIFACTS_BACKEND=sqlite` for durable local state.
 
 Distributed storage is intentionally out of scope for this candidate. If Hecate
 reintroduces a networked durable backend later, artifact bodies should move to a
@@ -586,23 +592,32 @@ This avoids a heavy migration script and lets the cutover land behind a flag
 
 ## Open questions
 
-These need design before this draft can become v1.0 stable:
+These need design before this draft can become v1.0 stable. Each question
+carries a `Status:` line; flip from `open` → `resolved (#NNN)` as work lands so
+gates don't drift.
 
 1. **stdout vs stderr separation.** Today's plan stores them interleaved with byte counts in metadata. Should `command_output` be two artifacts (one per stream) instead? Pro: clean separation, easier filtering. Con: doubles the artifact count for every shell call, breaks the "tool call → one output blob" mental model.
+   - Status: open
 
 2. **HTTP header value capture.** `request_header_keys` and `response_header_keys` store key names only (values may contain secrets). Should we have an opt-in `GATEWAY_ARTIFACTS_CAPTURE_HEADER_VALUES=true` for debugging environments? With redaction of well-known auth keys (`Authorization`, `Cookie`, `X-Api-Key`, etc.)?
+   - Status: open
 
 3. **`command_output` short-TTL.** The "1-hour post-finished prune for command_output" idea trades disk for replayability. Off by default seems right, but is the knob worth shipping at all if no one will tune it?
+   - Status: open
 
 4. **Cross-run sha256 dedupe.** Deferred to v2. Needs a `refcount` column and careful prune semantics. Worth doing if patches turn out to be repeated frequently (e.g., the same lint fix across many files); useless if every patch is unique.
+   - Status: open
 
 5. **Patch-review endpoint shape.** Status-transition authority is runtime-owned,
    but the higher-level apply/reject/revert endpoints still need exact request
    and response shapes.
+   - Status: open
 
 6. **Streaming POST.** Large artifacts (multi-megabyte command outputs) currently require buffering the full body before POST. Should the API support a streaming form — `POST /v1/artifacts` with `Transfer-Encoding: chunked`, then a subsequent `PATCH` to mark complete? Probably yes, but adds non-trivial complexity. Defer until a real consumer needs it.
+   - Status: open
 
 7. **Garbage in inline blobs.** sqlite VACUUM is required to actually reclaim space from deleted inline blobs. Should the retention worker run `VACUUM INCREMENTAL` after large prune passes? Pro: bounded disk. Con: blocking writes during VACUUM. Probably yes with a backoff policy.
+   - Status: open
 
 ## Next steps
 
