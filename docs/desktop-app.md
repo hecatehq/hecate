@@ -113,6 +113,17 @@ is automatic.
 See [`docs/sandbox.md`](sandbox.md) for the layer model and policy
 reference.
 
+## Native smoke test
+
+```bash
+make test-tauri-smoke
+```
+
+The target builds the native bundle, launches the packaged macOS app, waits for
+the gateway sidecar to answer `/healthz`, quits Hecate, and verifies the
+sidecar process exits. It is intentionally not part of `make verify-alpha`
+because it opens a real GUI app and is macOS-specific today.
+
 ## Footguns to know
 
 Captured in detail at [`ai/skills/tauri/SKILL.md`](../ai/skills/tauri/SKILL.md);

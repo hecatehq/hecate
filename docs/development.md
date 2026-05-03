@@ -79,10 +79,11 @@ make ui-test-e2e       # UI end-to-end tests (Playwright)
 make test-acp-smoke    # ACP stdio bridge smoke against fake local upstream
 make ui-coverage       # UI coverage report (vitest --coverage)
 make test-docker-smoke # boots the production image and probes /healthz, /v1/models
+make test-tauri-smoke  # macOS native app smoke: launch bundle, probe /healthz, quit
 make verify-alpha      # public-alpha gate: docs/env check, Go, Docker, UI, build
 ```
 
-The race detector is the strongest correctness check (and the slowest); CI runs it on every push. `test-acp-smoke` starts a fake OpenAI-compatible upstream, the real gateway, and the real `cmd/hecate-acp` stdio bridge, then verifies model discovery, same-task continuation, SSE updates, and editor approval round-trip behavior. `test-docker-smoke` requires Docker but doesn't need any other infrastructure — it spins up its own compose project to avoid colliding with a developer's running stack.
+The race detector is the strongest correctness check (and the slowest); CI runs it on every push. `test-acp-smoke` starts a fake OpenAI-compatible upstream, the real gateway, and the real `cmd/hecate-acp` stdio bridge, then verifies model discovery, same-task continuation, SSE updates, and editor approval round-trip behavior. `test-docker-smoke` requires Docker but doesn't need any other infrastructure — it spins up its own compose project to avoid colliding with a developer's running stack. `test-tauri-smoke` opens the packaged macOS app, waits for the sidecar gateway to answer `/healthz`, quits Hecate, and confirms the sidecar exits; it is opt-in because it opens a real GUI window.
 
 Before cutting a public alpha tag, run `make verify-alpha` and follow the checklist in [Release](release.md).
 
