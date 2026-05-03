@@ -607,7 +607,7 @@ func (h *Handler) HandleTaskRunStream(w http.ResponseWriter, r *http.Request) {
 				return
 			}
 			if !ok {
-				// Some events carry an overlay (e.g. agent.turn.completed
+				// Some events carry an overlay (e.g. turn.completed
 				// passes a Turn cost block) but no full snapshot. Save
 				// the overlay across the rebuild so it survives.
 				overlayTurn := state.Turn
@@ -1591,13 +1591,13 @@ func (h *Handler) decodeTaskRunEventData(event types.TaskRunEvent) (TaskRunStrea
 	if event.Data == nil {
 		return TaskRunStreamEventData{}, false, nil
 	}
-	// `agent.turn.completed` is the per-turn cost telemetry the runner
+	// `turn.completed` is the per-turn cost telemetry the runner
 	// emits; its payload is a flat map (no `snapshot` envelope). We
 	// don't have enough state to fabricate a full snapshot here — the
 	// caller falls through to buildTaskRunStreamState — but we DO want
 	// to attach the per-turn breakdown so the UI can render a live
 	// cost-per-turn ledger without subscribing to /v1/events.
-	if event.EventType == "agent.turn.completed" {
+	if event.EventType == "turn.completed" {
 		turn := decodeTurnCostFromEventData(event.Data)
 		return TaskRunStreamEventData{Turn: turn}, false, nil
 	}
@@ -1648,7 +1648,7 @@ func (h *Handler) decodeTaskRunEventData(event types.TaskRunEvent) (TaskRunStrea
 }
 
 // decodeTurnCostFromEventData lifts the per-turn cost figures out of
-// the agent.turn.completed event payload. The runner writes them as
+// the turn.completed event payload. The runner writes them as
 // a flat map; we pull the keys defensively (event.Data is map[string]any
 // after a JSON round-trip, so numerics arrive as float64).
 func decodeTurnCostFromEventData(data map[string]any) *TaskRunStreamTurnCost {
@@ -1684,12 +1684,12 @@ func decodeTurnCostFromEventData(data map[string]any) *TaskRunStreamTurnCost {
 		return ""
 	}
 	return &TaskRunStreamTurnCost{
-		Turn:                    asInt(data["turn"]),
+		Turn:                    asInt(data["turn_index"]),
 		StepID:                  asString(data["step_id"]),
 		CostMicrosUSD:           asInt64(data["cost_micros_usd"]),
 		RunCumulativeMicrosUSD:  asInt64(data["run_cumulative_cost_micros_usd"]),
 		TaskCumulativeMicrosUSD: asInt64(data["task_cumulative_cost_micros_usd"]),
-		ToolCallCount:           asInt(data["tool_call_count"]),
+		ToolCallCount:           asInt(data["tool_calls"]),
 	}
 }
 

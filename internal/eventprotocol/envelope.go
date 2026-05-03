@@ -203,7 +203,7 @@ func normalizeData(event types.TaskRunEvent) map[string]any {
 		out := map[string]any{}
 		copyKnown(out, data, "prior_status", "reason")
 		return compactMap(out)
-	case "approval.requested", "approval.resolved", "agent.turn.completed":
+	case "approval.requested", "approval.resolved", "turn.completed":
 		return data
 	default:
 		if strings.HasPrefix(event.EventType, "tool.") || strings.HasPrefix(event.EventType, "orchestrator.mcp.") {

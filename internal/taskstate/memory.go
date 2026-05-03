@@ -460,7 +460,7 @@ func (s *MemoryStore) ListEvents(_ context.Context, filter EventFilter) ([]types
 	return result, nil
 }
 
-// PruneTurnEvents removes `agent.turn.completed` rows older than
+// PruneTurnEvents removes `turn.completed` rows older than
 // maxAge or, if maxCount > 0, beyond the most recent maxCount rows
 // (counted globally across all runs). Returns the number of rows
 // removed. Other event types are preserved.
@@ -489,12 +489,12 @@ func (s *MemoryStore) PruneTurnEvents(_ context.Context, maxAge time.Duration, m
 	for runID, list := range s.events {
 		kept := list[:0]
 		for _, evt := range list {
-			if evt.EventType == "agent.turn.completed" && maxAge > 0 && evt.CreatedAt.Before(cutoff) {
+			if evt.EventType == "turn.completed" && maxAge > 0 && evt.CreatedAt.Before(cutoff) {
 				deleted++
 				continue
 			}
 			kept = append(kept, evt)
-			if evt.EventType == "agent.turn.completed" {
+			if evt.EventType == "turn.completed" {
 				survivingTurns = append(survivingTurns, turnRef{
 					runID:    runID,
 					idx:      len(kept) - 1,
@@ -527,7 +527,7 @@ func (s *MemoryStore) PruneTurnEvents(_ context.Context, maxAge time.Duration, m
 			list := s.events[runID]
 			kept := list[:0]
 			for _, evt := range list {
-				if evt.EventType == "agent.turn.completed" {
+				if evt.EventType == "turn.completed" {
 					if _, ok := seqs[evt.Sequence]; ok {
 						deleted++
 						continue

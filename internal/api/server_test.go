@@ -2289,7 +2289,7 @@ func TestTaskRunStream_PendingApprovalRidesAlongInSnapshot(t *testing.T) {
 func TestTaskRunStream_AgentTurnCompletedFlowsTurnOverlayIntoSnapshot(t *testing.T) {
 	// End-to-end check on the Turn overlay path:
 	//
-	//   1. Runner emits `agent.turn.completed` to the run-event log
+	//   1. Runner emits `turn.completed` to the run-event log
 	//   2. SSE handler reads the event, decodeTaskRunEventData treats
 	//      it as Turn-only (ok=false)
 	//   3. Handler preserves the overlay across buildTaskRunStreamState
@@ -2331,20 +2331,20 @@ func TestTaskRunStream_AgentTurnCompletedFlowsTurnOverlayIntoSnapshot(t *testing
 	}
 	startResp.Body.Close()
 
-	// Inject an agent.turn.completed event via the public events
+	// Inject a turn.completed event via the public events
 	// endpoint. The endpoint always merges a `snapshot` key into
-	// data — but the decoder's agent.turn.completed branch is
+	// data — but the decoder's turn.completed branch is
 	// checked BEFORE the snapshot branch, so the type-specific
 	// path wins (which is what we're testing).
 	eventBody := `{
-		"type": "agent.turn.completed",
+		"type": "turn.completed",
 		"data": {
-			"turn": 2,
+			"turn_index": 2,
 			"step_id": "step-injected",
 			"cost_micros_usd": 4242,
 			"run_cumulative_cost_micros_usd": 7777,
 			"task_cumulative_cost_micros_usd": 12345,
-			"tool_call_count": 1
+			"tool_calls": 1
 		}
 	}`
 	eventResp := postJSONToURL(t, server.URL+"/v1/tasks/"+created.Data.ID+"/runs/"+started.Data.ID+"/events", eventBody)
@@ -2381,7 +2381,7 @@ func TestTaskRunStream_AgentTurnCompletedFlowsTurnOverlayIntoSnapshot(t *testing
 		if err := json.Unmarshal([]byte(event.Data), &payload); err != nil {
 			t.Fatalf("unmarshal snapshot: %v", err)
 		}
-		if payload.Data.EventType != "agent.turn.completed" {
+		if payload.Data.EventType != "turn.completed" {
 			continue
 		}
 		// This is the snapshot we drove. Three assertions:
@@ -2394,7 +2394,7 @@ func TestTaskRunStream_AgentTurnCompletedFlowsTurnOverlayIntoSnapshot(t *testing
 		//      not a Turn-only payload that lost the rest of the
 		//      run context)
 		if payload.Data.Turn == nil {
-			t.Fatal("snapshot.Turn is nil; overlay was not populated on agent.turn.completed snapshot")
+			t.Fatal("snapshot.Turn is nil; overlay was not populated on turn.completed snapshot")
 		}
 		if got := payload.Data.Turn.CostMicrosUSD; got != 4242 {
 			t.Errorf("Turn.CostMicrosUSD = %d, want 4242", got)
@@ -2417,7 +2417,7 @@ func TestTaskRunStream_AgentTurnCompletedFlowsTurnOverlayIntoSnapshot(t *testing
 	cancel()
 
 	if !sawTurn {
-		t.Fatal("never observed an agent.turn.completed snapshot with a populated Turn block")
+		t.Fatal("never observed a turn.completed snapshot with a populated Turn block")
 	}
 }
 

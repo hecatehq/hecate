@@ -215,7 +215,7 @@ type RetentionConfig struct {
 	BudgetEvents    RetentionPolicy
 	AuditEvents     RetentionPolicy
 	ProviderHistory RetentionPolicy
-	// TurnEvents prunes `agent.turn.completed` rows from the
+	// TurnEvents prunes `turn.completed` rows from the
 	// task-run events table. Other event types (run.started/finished,
 	// approval.*) are kept for forensics.
 	TurnEvents RetentionPolicy
@@ -405,7 +405,7 @@ func LoadFromEnv() Config {
 			BudgetEvents:    loadRetentionPolicyFromEnv("GATEWAY_RETENTION_BUDGET_EVENTS_", 30*24*time.Hour, 200),
 			AuditEvents:     loadRetentionPolicyFromEnv("GATEWAY_RETENTION_AUDIT_EVENTS_", 30*24*time.Hour, 500),
 			ProviderHistory: loadRetentionPolicyFromEnv("GATEWAY_RETENTION_PROVIDER_HISTORY_", 7*24*time.Hour, 10_000),
-			// agent.turn.completed events accumulate fast on long
+			// turn.completed events accumulate fast on long
 			// agent runs (one per LLM round-trip). 7d/100k is a
 			// generous default; tune down on busy installs.
 			TurnEvents: loadRetentionPolicyFromEnv("GATEWAY_RETENTION_TURN_EVENTS_", 7*24*time.Hour, 100_000),

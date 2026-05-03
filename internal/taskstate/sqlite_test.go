@@ -334,9 +334,9 @@ func TestSQLiteStore_ListEventsCrossRunFilters(t *testing.T) {
 		}
 		return evt
 	}
-	e1 := mustAppend("t-A", "r-A", "agent.turn.completed")
+	e1 := mustAppend("t-A", "r-A", "turn.completed")
 	e2 := mustAppend("t-A", "r-A", "run.finished")
-	e3 := mustAppend("t-B", "r-B", "agent.turn.completed")
+	e3 := mustAppend("t-B", "r-B", "turn.completed")
 	e4 := mustAppend("t-C", "r-C", "approval.requested")
 	_ = e1
 	_ = e2
@@ -359,15 +359,15 @@ func TestSQLiteStore_ListEventsCrossRunFilters(t *testing.T) {
 	})
 
 	t.Run("event_type filter matches OR semantics", func(t *testing.T) {
-		events, err := store.ListEvents(ctx, EventFilter{EventTypes: []string{"agent.turn.completed"}})
+		events, err := store.ListEvents(ctx, EventFilter{EventTypes: []string{"turn.completed"}})
 		if err != nil {
 			t.Fatalf("ListEvents: %v", err)
 		}
 		if len(events) != 2 {
-			t.Fatalf("len = %d, want 2 (two agent.turn.completed)", len(events))
+			t.Fatalf("len = %d, want 2 (two turn.completed)", len(events))
 		}
 		for _, e := range events {
-			if e.EventType != "agent.turn.completed" {
+			if e.EventType != "turn.completed" {
 				t.Errorf("unexpected type %q", e.EventType)
 			}
 		}
@@ -403,7 +403,7 @@ func TestSQLiteStore_ListEventsCrossRunFilters(t *testing.T) {
 
 	t.Run("combined filters AND together", func(t *testing.T) {
 		events, err := store.ListEvents(ctx, EventFilter{
-			EventTypes: []string{"agent.turn.completed"},
+			EventTypes: []string{"turn.completed"},
 			TaskIDs:    []string{"t-B"},
 		})
 		if err != nil {

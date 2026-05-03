@@ -1360,19 +1360,19 @@ func (r *Runner) executeRun(ctx context.Context, trace *profiler.Trace, task typ
 	}
 
 	// Per-turn cost telemetry. The agent loop reports TurnCosts —
-	// one entry per LLM round-trip — and we emit a `agent.turn.completed`
+	// one entry per LLM round-trip — and we emit a `turn.completed`
 	// event for each. Operators replay these via the events feed to
 	// see how spend evolved across the run; the cumulative figure
 	// includes prior runs in the resume chain so a long chain shows
 	// total task spend, not just per-run.
 	for _, tc := range execution.TurnCosts {
-		_, _ = r.emitRunEvent(ctx, task.ID, run.ID, "agent.turn.completed", requestID, trace.TraceID, map[string]any{
-			"turn":                            tc.Turn,
+		_, _ = r.emitRunEvent(ctx, task.ID, run.ID, "turn.completed", requestID, trace.TraceID, map[string]any{
+			"turn_index":                      tc.Turn,
 			"step_id":                         tc.StepID,
 			"cost_micros_usd":                 tc.CostMicrosUSD,
 			"run_cumulative_cost_micros_usd":  tc.CumulativeMicrosUSD,
 			"task_cumulative_cost_micros_usd": run.PriorCostMicrosUSD + tc.CumulativeMicrosUSD,
-			"tool_call_count":                 tc.ToolCallCount,
+			"tool_calls":                      tc.ToolCallCount,
 		})
 	}
 

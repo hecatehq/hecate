@@ -240,7 +240,7 @@ type Props = {
   artifacts: TaskArtifactRecord[];
   approvals: TaskApprovalRecord[];
   // streamTurnCosts holds per-turn LLM spend pushed by the SSE stream
-  // (one entry per `agent.turn.completed` event). Used as a fallback
+  // (one entry per `turn.completed` event). Used as a fallback
   // for the model-step output_summary path so old runs or steps
   // missing the cost field still show a per-turn figure.
   streamTurnCosts: Map<number, number>;

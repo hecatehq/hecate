@@ -12,7 +12,7 @@ import (
 // against every Store implementation that ships in this binary
 // (memory + sqlite). Each backend should:
 //
-//   - delete `agent.turn.completed` rows older than maxAge
+//   - delete `turn.completed` rows older than maxAge
 //   - leave other event types alone (run.finished, approval.*, etc.)
 //   - when maxCount > 0, keep only the most-recent maxCount turn rows
 //     by sequence DESC, dropping older surviving turns
@@ -42,7 +42,7 @@ func TestPruneTurnEvents_AgeAndCount(t *testing.T) {
 			stale, err := store.AppendRunEvent(ctx, types.TaskRunEvent{
 				TaskID:    "t-1",
 				RunID:     "r-1",
-				EventType: "agent.turn.completed",
+				EventType: "turn.completed",
 				CreatedAt: time.Now().UTC().Add(-10 * time.Hour),
 			})
 			if err != nil {
@@ -65,7 +65,7 @@ func TestPruneTurnEvents_AgeAndCount(t *testing.T) {
 			fresh, err := store.AppendRunEvent(ctx, types.TaskRunEvent{
 				TaskID:    "t-1",
 				RunID:     "r-1",
-				EventType: "agent.turn.completed",
+				EventType: "turn.completed",
 			})
 			if err != nil {
 				t.Fatalf("append fresh: %v", err)
@@ -105,7 +105,7 @@ func TestPruneTurnEvents_AgeAndCount(t *testing.T) {
 				t.Errorf("fresh turn was deleted by age sweep")
 			}
 			if !gotRunFinished {
-				t.Errorf("run.finished was deleted — sweep should only touch agent.turn.completed")
+				t.Errorf("run.finished was deleted — sweep should only touch turn.completed")
 			}
 
 			// --- count cap ---
@@ -116,7 +116,7 @@ func TestPruneTurnEvents_AgeAndCount(t *testing.T) {
 				_, err := store.AppendRunEvent(ctx, types.TaskRunEvent{
 					TaskID:    "t-1",
 					RunID:     "r-1",
-					EventType: "agent.turn.completed",
+					EventType: "turn.completed",
 				})
 				if err != nil {
 					t.Fatalf("append fresh[%d]: %v", i, err)
@@ -132,7 +132,7 @@ func TestPruneTurnEvents_AgeAndCount(t *testing.T) {
 			}
 
 			events, err = store.ListEvents(ctx, EventFilter{
-				EventTypes: []string{"agent.turn.completed"},
+				EventTypes: []string{"turn.completed"},
 				Limit:      100,
 			})
 			if err != nil {
@@ -166,7 +166,7 @@ func TestPruneTurnEvents_NoOpWithZeroBounds(t *testing.T) {
 				_, err := store.AppendRunEvent(ctx, types.TaskRunEvent{
 					TaskID:    "t-noop",
 					RunID:     "r-noop",
-					EventType: "agent.turn.completed",
+					EventType: "turn.completed",
 					CreatedAt: time.Now().UTC().Add(-100 * time.Hour),
 				})
 				if err != nil {

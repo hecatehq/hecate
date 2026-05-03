@@ -17,7 +17,7 @@ import (
 // MemoryStore into the retention Manager (instead of the fake
 // pruner used in retention_test.go) and verifies the end-to-end
 // path: the configured TurnEvents policy reaches the store, only
-// agent.turn.completed rows are pruned, and the SubsystemResult
+// turn.completed rows are pruned, and the SubsystemResult
 // returns the right deletion count.
 //
 // Without this test, a regression that — say — passed the wrong
@@ -38,7 +38,7 @@ func TestManagerSweepsRealTurnEventsButSparesOtherTypes(t *testing.T) {
 		_, err := store.AppendRunEvent(ctx, types.TaskRunEvent{
 			TaskID:    "t",
 			RunID:     "r",
-			EventType: "agent.turn.completed",
+			EventType: "turn.completed",
 			CreatedAt: stale,
 		})
 		if err != nil {
@@ -48,12 +48,12 @@ func TestManagerSweepsRealTurnEventsButSparesOtherTypes(t *testing.T) {
 	if _, err := store.AppendRunEvent(ctx, types.TaskRunEvent{
 		TaskID:    "t",
 		RunID:     "r",
-		EventType: "agent.turn.completed",
+		EventType: "turn.completed",
 	}); err != nil {
 		t.Fatalf("seed fresh turn: %v", err)
 	}
 	// Stale run.finished — same age as the stale turns. The sweep
-	// must NOT delete it; only event_type='agent.turn.completed'
+	// must NOT delete it; only event_type='turn.completed'
 	// is in scope.
 	if _, err := store.AppendRunEvent(ctx, types.TaskRunEvent{
 		TaskID:    "t",
@@ -118,14 +118,14 @@ func TestManagerSweepsRealTurnEventsButSparesOtherTypes(t *testing.T) {
 	turnCount, runFinishedCount := 0, 0
 	for _, e := range all {
 		switch e.EventType {
-		case "agent.turn.completed":
+		case "turn.completed":
 			turnCount++
 		case "run.finished":
 			runFinishedCount++
 		}
 	}
 	if turnCount != 1 {
-		t.Errorf("surviving agent.turn.completed = %d, want 1 (the fresh one)", turnCount)
+		t.Errorf("surviving turn.completed = %d, want 1 (the fresh one)", turnCount)
 	}
 	if runFinishedCount != 1 {
 		t.Errorf("surviving run.finished = %d, want 1 (sweep should not touch non-turn events)", runFinishedCount)
@@ -136,7 +136,7 @@ func TestManagerSweepsRealTurnEventsButSparesOtherTypes(t *testing.T) {
 // count-cap branch's scope: even when MaxCount is exceeded by
 // non-turn events present in the same store, only turn events
 // should be pruned. The PruneTurnEvents implementations take the
-// count over agent.turn.completed rows specifically — but a
+// count over turn.completed rows specifically — but a
 // regression that counted across all event types would silently
 // delete operator-visible run.* events, which is the worst kind
 // of forensic-data loss.
@@ -154,7 +154,7 @@ func TestManagerCountCapDoesNotAffectNonTurnEvents(t *testing.T) {
 	// run.finished rows alone.
 	for i := 0; i < 4; i++ {
 		if _, err := store.AppendRunEvent(ctx, types.TaskRunEvent{
-			TaskID: "t", RunID: "r", EventType: "agent.turn.completed",
+			TaskID: "t", RunID: "r", EventType: "turn.completed",
 		}); err != nil {
 			t.Fatalf("seed turn[%d]: %v", i, err)
 		}
@@ -190,14 +190,14 @@ func TestManagerCountCapDoesNotAffectNonTurnEvents(t *testing.T) {
 	turnCount, runFinishedCount := 0, 0
 	for _, e := range all {
 		switch e.EventType {
-		case "agent.turn.completed":
+		case "turn.completed":
 			turnCount++
 		case "run.finished":
 			runFinishedCount++
 		}
 	}
 	if turnCount != 2 {
-		t.Errorf("surviving agent.turn.completed = %d, want 2 (capped to MaxCount)", turnCount)
+		t.Errorf("surviving turn.completed = %d, want 2 (capped to MaxCount)", turnCount)
 	}
 	if runFinishedCount != 5 {
 		t.Errorf("surviving run.finished = %d, want 5 (count cap must not touch non-turn events)", runFinishedCount)

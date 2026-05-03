@@ -499,7 +499,7 @@ describe("TaskDetail agent conversation viewer", () => {
   });
 
   it("falls back to streamTurnCosts when the model step has no cost", () => {
-    // The agent.turn.completed SSE event is the canonical per-turn
+    // The turn.completed SSE event is the canonical per-turn
     // cost ledger. When the model step's OutputSummary doesn't
     // carry the cost — historical runs, or steps that finalized
     // before the cost was attached — the conversation viewer

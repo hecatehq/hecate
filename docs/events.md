@@ -45,7 +45,7 @@ These are **persisted events** (rows in the `task_state_run_events` table). They
 | `assistant.final_answer` | Agent loop | Assistant ended the loop without more tool calls |
 | `approval.requested` | Approvals | An approval gate was created (pre-execution or mid-loop) |
 | `approval.resolved` | Approvals | Operator resolved an approval gate |
-| `agent.turn.completed` | Agent loop | One LLM round-trip in an `agent_loop` run finished |
+| `turn.completed` | Agent loop | One LLM round-trip in an `agent_loop` run finished |
 | `tool.invoked` | Typed shell tool events | Shell executor accepted a tool call or direct shell task |
 | `tool.started` | Typed shell tool events | Shell execution is about to start |
 | `tool.shell.command` | Typed shell tool events | Shell command, cwd, timeout, and sandbox layer selected |
@@ -280,18 +280,18 @@ can finish.
 | `turn_index` | `int` | 1-indexed turn number within this run |
 | `summary` | `string` | Final assistant text |
 
-### `agent.turn.completed`
+### `turn.completed`
 
 Emitted once per LLM round-trip in an `agent_loop` run. The richest cost-tracking payload in the catalog.
 
 | Extra key | Type | Notes |
 |---|---|---|
-| `turn` | `int` | 1-indexed turn number within this run |
+| `turn_index` | `int` | 1-indexed turn number within this run |
 | `step_id` | `string` | The assistant model step produced this turn |
 | `cost_micros_usd` | `int64` | This turn's LLM spend in micro-USD |
 | `run_cumulative_cost_micros_usd` | `int64` | Running total across this run only |
 | `task_cumulative_cost_micros_usd` | `int64` | Running total across the entire resume chain (this run + every prior run via `PriorCostMicrosUSD`) |
-| `tool_call_count` | `int` | Tool calls the assistant emitted on this turn |
+| `tool_calls` | `int` | Tool calls the assistant emitted on this turn |
 
 The per-turn figure is also stamped on the matching model step's `OutputSummary.cost_micros_usd` so the run-replay UI surfaces it without subscribing here. See [agent-runtime.md](agent-runtime.md#cost-tracking) for the full cost model.
 
@@ -432,6 +432,6 @@ Callers can also pass an arbitrary `data` map alongside; those keys are merged i
 ## Related docs
 
 - [runtime-api.md](runtime-api.md#public-events-feed) — endpoint shape, query params, auth
-- [agent-runtime.md](agent-runtime.md#cost-tracking) — cost-model details for `agent.turn.completed`
+- [agent-runtime.md](agent-runtime.md#cost-tracking) — cost-model details for `turn.completed`
 - [telemetry.md](telemetry.md) — OTel spans / metrics (a different stream from this catalog)
 - [architecture.md](architecture.md) — where events fit in the request lifecycle
