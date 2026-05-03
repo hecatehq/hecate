@@ -100,8 +100,8 @@ the bundle is polished enough to recommend.
 
 The desktop app bundles only the `gateway` binary. Agent tool calls
 (`shell_exec`, `git_exec`, `file_write`) spawn a per-call `sh`
-subprocess directly from the gateway with rlimits, env sanitisation,
-and an output cap applied inline (Layer 1). On macOS the call is
+subprocess directly from the gateway with env sanitisation, output cap,
+and wall-clock timeout applied inline (Layer 1). On macOS the call is
 additionally wrapped by `sandbox-exec` (Layer 2) for filesystem and
 network confinement; the binary ships on every macOS install so this
 is automatic.

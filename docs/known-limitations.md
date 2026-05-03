@@ -14,8 +14,8 @@ operators should not assume yet.
 
 ## Provider Lifecycle
 
-- Operators add providers explicitly from the built-in preset catalog (or the
-  Custom OpenAI-compatible flow); none are auto-added.
+- Operators add providers explicitly from the built-in preset catalog (or an
+  OpenAI-compatible custom endpoint flow); none are auto-added.
 - Credentials, base URLs, defaults, and pricebook entries are managed through
   the persisted control plane. Taking a provider out of rotation is done by
   deleting it — there is no enable/disable toggle.
@@ -54,8 +54,8 @@ operators should not assume yet.
   without operator intervention. The recovery window is three times the
   configured lease duration (`GATEWAY_TASK_QUEUE_LEASE_SECONDS`); the scan
   cadence is `GATEWAY_TASK_RECONCILE_INTERVAL` (default `30s`).
-- The sandbox is a per-call `sh` subprocess with rlimits, env sanitisation,
-  and an output cap applied inline by the gateway. It is not a container,
+- The sandbox is a per-call `sh` subprocess with env sanitisation, output cap,
+  and wall-clock timeout applied inline by the gateway. It is not a container,
   chroot, or VM; the subprocess runs as the same OS user as the gateway.
   Where `bwrap` (Linux) or `sandbox-exec` (macOS) is available, every shell /
   git / file call is additionally wrapped for filesystem and network

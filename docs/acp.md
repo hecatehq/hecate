@@ -5,20 +5,48 @@ newline-delimited JSON-RPC stdio loop, advertises gateway models during
 `initialize`, creates coding-agent tasks from `session/prompt`, and forwards
 run stream snapshots as `session/update` notifications.
 
+The bridge is for editor-agent integrations. It is not a replacement for the
+gateway API; it is a thin adapter that lets an ACP client talk to Hecate's
+existing task runtime.
+
+## Contents
+
+- [Current status](#current-status)
+- [Session model](#session-model)
+- [Configuration](#configuration)
+- [Smoke test](#smoke-test)
+
 ## Current status
 
-- Implemented: stdio JSON-RPC loop, parse/invalid-request responses,
-  `initialize`, `session/new`, `session/prompt`, `session/cancel`,
-  gateway model discovery, task creation/start, run cancellation, run-event
-  stream mapping, editor approval round-trip, multi-prompt continuation,
-  optional `HECATE_API_KEY` / `HECATE_AUTH_TOKEN` forwarding.
-- Not implemented yet: editor-owned workspace calls.
+Implemented:
 
-For alpha, one ACP session maps to one durable Hecate `agent_loop` task after
-the first prompt. The first `session/prompt` creates and starts the task.
-Later prompts call `POST /v1/tasks/{id}/runs/{run_id}/continue`, which
-hydrates the saved conversation, appends the new user message, and starts the
-next run.
+- Stdio JSON-RPC loop and parse/invalid-request responses.
+- `initialize`, `session/new`, `session/prompt`, and `session/cancel`.
+- Gateway model discovery during initialize.
+- Task creation/start for the first prompt.
+- Multi-prompt continuation through the existing task/run chain.
+- Run cancellation.
+- Run-event stream mapping to `session/update`.
+- Editor approval round-trip through `session/request_permission`.
+- Optional `HECATE_API_KEY` / `HECATE_AUTH_TOKEN` forwarding.
+
+Not implemented yet:
+
+- Editor-owned workspace calls.
+- Registry packaging for a specific editor.
+- Headless compatibility tests against a real Zed or JetBrains ACP host.
+
+## Session model
+
+For alpha, one ACP session maps to one durable Hecate `agent_loop` task after the first prompt:
+
+1. `initialize` calls the gateway's model-discovery surface and advertises available models.
+2. `session/new` creates only bridge-local session state.
+3. The first `session/prompt` creates and starts the Hecate task.
+4. Later prompts call `POST /v1/tasks/{id}/runs/{run_id}/continue`, which hydrates the saved conversation, appends the new user message, and starts the next run.
+
+The gateway remains the source of truth. The bridge does not invent runtime
+state that Hecate did not emit.
 
 ## Configuration
 
@@ -42,3 +70,6 @@ printf '%s\n' '{"jsonrpc":"2.0","id":1,"method":"initialize","params":{"protocol
 
 The response should include `availableModels` populated from Hecate's
 `/v1/models` endpoint.
+
+The automated smoke lives in `e2e/acp-smoke.ts` and is wired into
+`make verify-alpha`.

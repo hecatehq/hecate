@@ -8,7 +8,10 @@
 [![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](LICENSE)
 [![OpenTelemetry](https://img.shields.io/badge/OpenTelemetry-enabled-f5a800?logo=opentelemetry&logoColor=white)](https://opentelemetry.io/)
 
-**Open-source, self-hosted AI gateway and agent-task runtime** — a single control plane for the cloud and local models you use, with built-in policy, spend controls, and first-class OpenTelemetry.
+**Hecate is an open-source AI gateway and agent-task runtime** for routing
+OpenAI- and Anthropic-compatible traffic across cloud and local models,
+controlling spend, and running agent work behind policy, approvals, and
+OpenTelemetry.
 
 > **Status: public alpha.** Core gateway is usable; agent runtime and sandbox are still evolving. Read [docs/known-limitations.md](docs/known-limitations.md) before depending on it.
 
@@ -25,12 +28,12 @@
 
 ## Why Hecate
 
-AI workloads are moving from simple API calls to long-running agents, tool use, local/cloud routing, and budget-sensitive automation. Hecate gives you that runtime layer as one self-contained binary you run yourself.
+AI workloads are moving from simple API calls to long-running agents, tool use, local/cloud routing, and budget-sensitive automation. Hecate gives you that runtime layer as one self-contained binary you run yourself: part LLM gateway, part operator console, part early coding-agent substrate.
 
-- **Cloud and local providers together** — OpenAI, Anthropic, Ollama, LM Studio, LocalAI, llama.cpp-compatible servers, and other shipped presets.
+- **Cloud and local providers together** — OpenAI-compatible providers, Anthropic, Ollama, LM Studio, LocalAI, llama.cpp-compatible servers, and other shipped presets.
 - **Operator-controlled spend** — balances, pricebook, rate limits, audit history.
 - **Runtime visibility** — request ledger, route reports, failover details, cost, trace IDs, OpenTelemetry export.
-- **Agent-task runtime** — queued tasks, approvals, controlled shell/file/git execution, resumable runs, MCP integration.
+- **Agent-task runtime** — queued tasks, approvals, controlled shell/file/git execution, patch artifacts, resumable runs, MCP integration.
 - **One artifact, many wrappers** — single Go binary with the React operator UI embedded via `//go:embed`. Ships as a Docker image, native desktop bundles (`.dmg` / `.deb` / `.AppImage` / `.msi`), and bare binary tarballs.
 
 ## Quick Start
@@ -167,7 +170,7 @@ Full index lives at [`docs/README.md`](docs/README.md), organized by reader role
 
 - [Deployment](docs/deployment.md) — Docker, image pinning, binary install, storage tiers, rate limits.
 - [Desktop app](docs/desktop-app.md) — native bundles, first-launch footguns, platform data dirs, roadmap.
-- [Providers](docs/providers.md) — preset catalog, custom OpenAI-compatible endpoints, credentials, health, circuit breaking.
+- [Providers](docs/providers.md) — preset catalog, OpenAI-compatible custom endpoints, credentials, health, circuit breaking.
 - [Known limitations](docs/known-limitations.md) — plain-language list of what's still alpha.
 
 **Building against Hecate**

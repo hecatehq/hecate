@@ -205,7 +205,7 @@ SLA. Keep these expectations visible:
 
 - APIs and persisted schemas can still change before v1.
 - The gateway/provider path is more mature than the task runtime.
-- The sandbox is a per-call subprocess with rlimits and an optional `bwrap` / `sandbox-exec` wrapper, not hardened OS isolation. Not container-level.
+- The sandbox is a per-call subprocess with env sanitisation, output cap, wall-clock timeout, and an auto-detected `bwrap` / `sandbox-exec` wrapper where available. It is not hardened OS isolation or container-level isolation.
 - Multi-node deployments are not the primary tested path yet.
-- Provider lifecycle covers preset and Custom OpenAI-compatible adds, plus
+- Provider lifecycle covers preset and OpenAI-compatible custom-endpoint adds, plus
   persisted control-plane edits; broader provider workflows are still evolving.

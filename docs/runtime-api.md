@@ -346,7 +346,7 @@ GET /v1/provider-presets
 }
 ```
 
-The list is built from `config.BuiltInProviders()` — see [`docs/providers.md`](providers.md) for the full catalog and the Custom OpenAI-compatible flow.
+The list is built from `config.BuiltInProviders()` — see [`docs/providers.md`](providers.md) for the full catalog and OpenAI-compatible custom-endpoint flow.
 
 ## Rate-limit headers on chat / messages
 
