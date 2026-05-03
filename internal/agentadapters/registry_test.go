@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"os"
+	"os/exec"
 	"path/filepath"
 	"reflect"
 	"strings"
@@ -221,6 +222,40 @@ func TestValidateWorkspaceRejectsFiles(t *testing.T) {
 	}
 	if _, err := ValidateWorkspace(path); err == nil {
 		t.Fatalf("ValidateWorkspace(file) error = nil, want error")
+	}
+}
+
+func TestCaptureGitDiffWorksFromRepositorySubdirectory(t *testing.T) {
+	t.Parallel()
+	if _, err := exec.LookPath("git"); err != nil {
+		t.Skip("git not available")
+	}
+
+	root := t.TempDir()
+	if err := exec.Command("git", "-C", root, "init", "-b", "main").Run(); err != nil {
+		t.Fatalf("git init: %v", err)
+	}
+	subdir := filepath.Join(root, "packages", "app")
+	if err := os.MkdirAll(subdir, 0o755); err != nil {
+		t.Fatalf("mkdir subdir: %v", err)
+	}
+	file := filepath.Join(subdir, "README.md")
+	if err := os.WriteFile(file, []byte("hello\n"), 0o644); err != nil {
+		t.Fatalf("write file: %v", err)
+	}
+	if err := exec.Command("git", "-C", root, "add", ".").Run(); err != nil {
+		t.Fatalf("git add: %v", err)
+	}
+	if err := os.WriteFile(file, []byte("hello\nfrom subdir\n"), 0o644); err != nil {
+		t.Fatalf("modify file: %v", err)
+	}
+
+	stat, diff := captureGitDiff(context.Background(), subdir, 64*1024)
+	if !strings.Contains(stat, "README.md") {
+		t.Fatalf("diff stat = %q, want README.md", stat)
+	}
+	if !strings.Contains(diff, "+from subdir") {
+		t.Fatalf("diff = %q, want added line", diff)
 	}
 }
 

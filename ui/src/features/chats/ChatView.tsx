@@ -38,6 +38,8 @@ export function ChatView({ state, actions }: Props) {
   const [hoveredChatId, setHoveredChatId] = useState<string | null>(null);
   const [copiedMsgId, setCopiedMsgId] = useState<string | null>(null);
   const [atBottom, setAtBottom] = useState(true);
+  const [workspaceEntryOpen, setWorkspaceEntryOpen] = useState(false);
+  const [workspacePathValue, setWorkspacePathValue] = useState("");
   const isMac = typeof navigator !== "undefined" && /mac/i.test(navigator.platform);
   const modKey = isMac ? "⌘" : "Ctrl";
   const [modEnterMode, setModEnterMode] = useState(
@@ -133,6 +135,10 @@ export function ChatView({ state, actions }: Props) {
     bottomRef.current?.scrollIntoView({ behavior: "instant" });
   }, [activeSessionID]);
 
+  useEffect(() => {
+    setWorkspacePathValue(state.agentWorkspace);
+  }, [state.agentWorkspace]);
+
   function handleScroll() {
     const el = scrollRef.current;
     if (!el) return;
@@ -155,6 +161,20 @@ export function ChatView({ state, actions }: Props) {
     userScrolledRef.current = false;
     setAtBottom(true);
     bottomRef.current?.scrollIntoView({ behavior: "smooth" });
+  }
+
+  async function chooseWorkspace() {
+    const selected = await actions.chooseAgentWorkspace();
+    if (!selected) {
+      setWorkspaceEntryOpen(true);
+    }
+  }
+
+  function useTypedWorkspace() {
+    const next = workspacePathValue.trim();
+    if (!next) return;
+    actions.setAgentWorkspace(next);
+    setWorkspaceEntryOpen(false);
   }
 
   function copyMsg(id: string, text: string) {
@@ -331,12 +351,23 @@ export function ChatView({ state, actions }: Props) {
               />
               <button
                 className="btn btn-ghost btn-sm"
-                onClick={() => void actions.chooseAgentWorkspace()}
+                onClick={() => void chooseWorkspace()}
                 title={state.agentWorkspace ? `Workspace: ${state.agentWorkspace}` : "Choose workspace folder"}
                 type="button"
               >
                 <Icon d={Icons.folder} size={13} />
                 <span style={{ fontSize: 11 }}>{state.agentWorkspace ? "workspace" : "choose workspace"}</span>
+              </button>
+              <button
+                className="btn btn-ghost btn-sm"
+                onClick={() => {
+                  setWorkspacePathValue(state.agentWorkspace);
+                  setWorkspaceEntryOpen(v => !v);
+                }}
+                title="Paste a workspace path"
+                type="button"
+              >
+                <span style={{ fontSize: 11 }}>paste path</span>
               </button>
             </>
           ) : (
@@ -423,6 +454,28 @@ export function ChatView({ state, actions }: Props) {
             </>
           )}
         </div>
+
+        {isAgentChat && workspaceEntryOpen && (
+          <div style={{ borderBottom: "1px solid var(--border)", padding: "10px 14px", background: "var(--bg2)", display: "flex", alignItems: "center", gap: 8 }}>
+            <span style={{ fontSize: 11, color: "var(--t2)", fontFamily: "var(--font-mono)", flexShrink: 0 }}>WORKSPACE PATH</span>
+            <input
+              className="input"
+              onChange={e => setWorkspacePathValue(e.target.value)}
+              onKeyDown={e => {
+                if (e.key === "Enter") {
+                  e.preventDefault();
+                  useTypedWorkspace();
+                }
+              }}
+              placeholder="/Users/alice/dev/project"
+              style={{ height: 30, minWidth: 0 }}
+              value={workspacePathValue}
+            />
+            <button className="btn btn-primary btn-sm" disabled={!workspacePathValue.trim()} onClick={useTypedWorkspace} type="button">
+              Use
+            </button>
+          </div>
+        )}
 
         {/* System prompt editor */}
         {!isAgentChat && syspromptOpen && (

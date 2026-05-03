@@ -604,9 +604,10 @@ POST /v1/workspace-dialog
 }
 ```
 
-Current support is macOS via `osascript`; unsupported platforms return `501`.
-If the operator cancels the dialog, the endpoint returns the standard error
-envelope and the UI keeps the workspace unchanged.
+Current native-dialog support is macOS via `osascript`; unsupported platforms
+return `501`. The UI falls back to a manual path entry so Agent Chat remains
+usable on Linux and Windows. If the operator cancels the dialog, the endpoint
+returns the standard error envelope and the UI keeps the workspace unchanged.
 
 ## Rate-limit headers on chat / messages
 

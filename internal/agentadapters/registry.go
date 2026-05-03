@@ -319,7 +319,10 @@ func ValidateWorkspace(path string) (string, error) {
 	if path == "" {
 		return "", errors.New("workspace is required")
 	}
-	abs, err := filepath.Abs(path)
+	if strings.ContainsRune(path, 0) {
+		return "", errors.New("workspace path contains a NUL byte")
+	}
+	abs, err := filepath.Abs(filepath.Clean(path))
 	if err != nil {
 		return "", fmt.Errorf("resolve workspace: %w", err)
 	}
@@ -327,7 +330,13 @@ func ValidateWorkspace(path string) (string, error) {
 	if err != nil {
 		return "", fmt.Errorf("workspace %q is not accessible: %w", abs, err)
 	}
-	info, err := os.Stat(resolved)
+	resolved = filepath.Clean(resolved)
+	root, err := os.OpenRoot(resolved)
+	if err != nil {
+		return "", fmt.Errorf("workspace %q is not accessible: %w", resolved, err)
+	}
+	defer root.Close()
+	info, err := root.Stat(".")
 	if err != nil {
 		return "", fmt.Errorf("workspace %q is not accessible: %w", resolved, err)
 	}
@@ -370,11 +379,11 @@ func sanitizedEnv(env []string) []string {
 }
 
 func captureGitDiff(ctx context.Context, workspace string, maxBytes int64) (string, string) {
-	if _, err := os.Stat(filepath.Join(workspace, ".git")); err != nil {
-		return "", ""
-	}
 	diffCtx, cancel := context.WithTimeout(ctx, 5*time.Second)
 	defer cancel()
+	if strings.TrimSpace(runGitCapture(diffCtx, workspace, 1024, "rev-parse", "--is-inside-work-tree")) != "true" {
+		return "", ""
+	}
 	return runGitCapture(diffCtx, workspace, maxBytes, "diff", "--stat"), runGitCapture(diffCtx, workspace, maxBytes, "diff", "--no-ext-diff", "--binary")
 }
 
