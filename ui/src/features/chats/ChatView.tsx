@@ -9,6 +9,7 @@ import { AgentAdapterPicker, CodeBlock, Icon, Icons, InlineError, ModelPicker, P
 type Props = {
   state: RuntimeConsoleViewModel["state"];
   actions: RuntimeConsoleViewModel["actions"];
+  onNavigate?: (workspace: "providers") => void;
 };
 
 type VisibleChatMessage = {
@@ -30,7 +31,7 @@ type VisibleChatMessage = {
   duration_ms?: number;
 };
 
-export function ChatView({ state, actions }: Props) {
+export function ChatView({ state, actions, onNavigate }: Props) {
   const [sidebarOpen, setSidebarOpen] = useState(true);
   const [syspromptOpen, setSyspromptOpen] = useState(false);
   const [renamingId, setRenamingId] = useState<string | null>(null);
@@ -113,8 +114,30 @@ export function ChatView({ state, actions }: Props) {
   const chatDiagnostic = describeGatewayError(state.chatErrorCode, state.chatErrorStatus ?? undefined);
   const activeAgentAdapterID = state.activeAgentChatSession?.adapter_id || state.agentAdapterID;
   const selectedAgent = state.agentAdapters.find((adapter) => adapter.id === activeAgentAdapterID);
+  const availableAgents = state.agentAdapters.filter((adapter) => adapter.available);
+  const configuredProviders = state.controlPlaneConfig?.providers ?? [];
+  const providerConfigLoaded = state.controlPlaneConfig !== null;
+  const selectableModels = (() => {
+    // Scope the model list to providers the operator has explicitly
+    // configured. The /v1/models endpoint may return models from
+    // env-driven providers too, but those aren't routable from Chats
+    // unless the control-plane store knows about them.
+    if (!providerConfigLoaded) return state.providerScopedModels;
+    if (configuredProviders.length === 0) return [];
+    const ids = new Set(configuredProviders.map(c => c.id));
+    return state.providerScopedModels.filter(m => {
+      const provider = m.metadata?.provider;
+      return typeof provider === "string" ? ids.has(provider) : true;
+    });
+  })();
+  const modelRouteUnavailable = providerConfigLoaded && selectableModels.length === 0;
+  const agentRouteUnavailable = availableAgents.length === 0;
+  const nothingRunnable = !state.loading && modelRouteUnavailable && agentRouteUnavailable;
   const agentPickerLocked = isAgentChat && Boolean(state.activeAgentChatSessionID);
-  const sendDisabled = !state.message.trim() || streaming || (isAgentChat && (!state.agentWorkspace.trim() || !selectedAgent?.available));
+  const sendDisabled = !state.message.trim()
+    || streaming
+    || (!isAgentChat && modelRouteUnavailable)
+    || (isAgentChat && (!state.agentWorkspace.trim() || !selectedAgent?.available));
 
   useEffect(() => {
     if (!userScrolledRef.current) {
@@ -416,15 +439,7 @@ export function ChatView({ state, actions }: Props) {
                 // env-driven providers too (e.g. Docker's PROVIDER_*_BASE_URL
                 // pre-filled vars), but those aren't in controlPlaneConfig.providers
                 // and shouldn't be selectable from the chat picker.
-                models={(() => {
-                  const configuredIDs = state.controlPlaneConfig?.providers;
-                  if (!configuredIDs || configuredIDs.length === 0) return state.providerScopedModels;
-                  const ids = new Set(configuredIDs.map(c => c.id));
-                  return state.providerScopedModels.filter(m => {
-                    const provider = m.metadata?.provider;
-                    return typeof provider === "string" ? ids.has(provider) : true;
-                  });
-                })()}
+                models={selectableModels}
                 presets={state.providerPresets}
                 // Pinned width pairs the chat header's model picker with
                 // the provider picker for a stable, non-jittery layout.
@@ -585,9 +600,15 @@ export function ChatView({ state, actions }: Props) {
           )}
 
           {visibleMessages.length === 0 && !streaming && state.pendingToolCalls.length === 0 && (
-            <div style={{ padding: "48px 16px", maxWidth: 820, margin: "0 auto", textAlign: "center" }}>
-              <div style={{ fontSize: 13, color: "var(--t3)" }}>Send a message to start this chat.</div>
-            </div>
+            <ChatEmptyState
+              isAgentChat={isAgentChat}
+              modelRouteUnavailable={modelRouteUnavailable}
+              agentRouteUnavailable={agentRouteUnavailable}
+              nothingRunnable={nothingRunnable}
+              selectedAgent={selectedAgent?.name || activeAgentAdapterID}
+              onAddProvider={() => onNavigate?.("providers")}
+              onSwitchTarget={actions.setChatTarget}
+            />
           )}
           <div ref={bottomRef} />
         </div>
@@ -730,6 +751,70 @@ function ChatErrorPanel({
       <div style={{ fontSize: 11, color: "var(--t2)", lineHeight: 1.45, marginTop: 5 }}>
         {provider ? `${provider}: ` : ""}{diagnostic.action}
       </div>
+    </div>
+  );
+}
+
+function ChatEmptyState({
+  isAgentChat,
+  modelRouteUnavailable,
+  agentRouteUnavailable,
+  nothingRunnable,
+  selectedAgent,
+  onAddProvider,
+  onSwitchTarget,
+}: {
+  isAgentChat: boolean;
+  modelRouteUnavailable: boolean;
+  agentRouteUnavailable: boolean;
+  nothingRunnable: boolean;
+  selectedAgent: string;
+  onAddProvider: () => void;
+  onSwitchTarget: (target: "model" | "agent") => void;
+}) {
+  const title = nothingRunnable
+    ? "Nothing runnable yet"
+    : isAgentChat && agentRouteUnavailable
+      ? "No available coding agent"
+      : !isAgentChat && modelRouteUnavailable
+        ? "No routable model"
+        : "Start a chat";
+  const detail = nothingRunnable
+    ? "Add a model provider or install a supported coding-agent CLI before sending a message."
+    : isAgentChat && agentRouteUnavailable
+      ? `${selectedAgent || "The selected agent"} is not available. Install the CLI, log in if required, then refresh this view.`
+      : !isAgentChat && modelRouteUnavailable
+        ? "Add a provider with discovered models before sending through Hecate."
+        : "Send a message to start this chat.";
+
+  return (
+    <div style={{ padding: "48px 16px", maxWidth: 820, margin: "0 auto", textAlign: "center" }}>
+      <div style={{ fontSize: 13, fontWeight: 600, color: "var(--t1)", marginBottom: 5 }}>{title}</div>
+      <div style={{ fontSize: 12, color: "var(--t3)", lineHeight: 1.5, maxWidth: 430, margin: "0 auto" }}>{detail}</div>
+      {(modelRouteUnavailable || agentRouteUnavailable) && (
+        <div style={{ display: "flex", justifyContent: "center", gap: 8, marginTop: 14, flexWrap: "wrap" }}>
+          {modelRouteUnavailable && (
+            <button className="btn btn-primary btn-sm" onClick={onAddProvider} type="button">
+              <Icon d={Icons.providers} size={13} /> Add provider
+            </button>
+          )}
+          {agentRouteUnavailable && !isAgentChat && (
+            <button className="btn btn-ghost btn-sm" onClick={() => onSwitchTarget("agent")} type="button">
+              <Icon d={Icons.terminal} size={13} /> Check agents
+            </button>
+          )}
+          {!agentRouteUnavailable && !isAgentChat && (
+            <button className="btn btn-ghost btn-sm" onClick={() => onSwitchTarget("agent")} type="button">
+              <Icon d={Icons.terminal} size={13} /> Use agent
+            </button>
+          )}
+          {!modelRouteUnavailable && isAgentChat && (
+            <button className="btn btn-ghost btn-sm" onClick={() => onSwitchTarget("model")} type="button">
+              <Icon d={Icons.model} size={13} /> Use model
+            </button>
+          )}
+        </div>
+      )}
     </div>
   );
 }

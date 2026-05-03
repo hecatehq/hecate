@@ -39,7 +39,7 @@ describe("ConsoleShell loading state", () => {
 describe("ConsoleShell navigation", () => {
   it("keeps Chats available when no providers are configured", () => {
     const state = createRuntimeConsoleFixture({
-      controlPlaneConfig: { providers: [], pricebook: [], policy_rules: [] } as never,
+      controlPlaneConfig: { backend: "memory", providers: [], pricebook: [], policy_rules: [], events: [] },
     });
     render(
       <ConsoleShell
@@ -52,7 +52,8 @@ describe("ConsoleShell navigation", () => {
 
     expect(screen.getByRole("button", { name: /Chats \(1\)/ })).toBeEnabled();
     expect(screen.queryByText(/No providers configured/i)).toBeNull();
-    expect(screen.getByText(/Send a message to start this chat/i)).toBeInTheDocument();
+    expect(screen.getByText(/Nothing runnable yet/i)).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: /Add provider/i })).toBeInTheDocument();
   });
 
   it("shows the selected agent workspace and git branch in the status bar", () => {

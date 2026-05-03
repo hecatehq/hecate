@@ -12,7 +12,7 @@
 //      observability screenshot). Set HECATE_SKIP_OLLAMA=1 to skip.
 //
 // Optional optimize pass — the script auto-detects the best PNG
-// optimizer on PATH (preference: oxipng > pngquant > magick) and runs
+// optimizer on PATH (preference: pngquant > oxipng > magick) and runs
 // it over each captured PNG. None of these are required to take
 // captures; the standard "people usually use this for README PNGs"
 // install is `brew install oxipng`. Set HECATE_SKIP_OPTIMIZE=1 to skip.
@@ -218,16 +218,66 @@ async function main() {
   const context = await browser.newContext({ viewport: VIEWPORT, deviceScaleFactor: 1 });
   const page = await context.newPage();
 
-  // ── 1. Empty providers list ─────────────────────────────────────────────────
+  // ── 1. Empty first-run Chats state ──────────────────────────────────────────
+  // No providers are configured yet. Mock missing external-agent CLIs for
+  // this one shot so the first-run state is deterministic even on machines
+  // where Codex, Claude Code, or Cursor Agent are installed.
+  console.log("→ chat-empty (first-run setup state)");
+  const missingAgentAdapters = `${BASE_URL}/v1/agent-adapters`;
+  await page.route(missingAgentAdapters, route => route.fulfill({
+    status: 200,
+    contentType: "application/json",
+    body: JSON.stringify({
+      object: "agent_adapters",
+      data: [
+        {
+          id: "codex",
+          name: "Codex",
+          kind: "process",
+          command: "codex",
+          available: false,
+          status: "missing",
+          error: "codex was not found on PATH",
+          cost_mode: "external",
+        },
+        {
+          id: "claude_code",
+          name: "Claude Code",
+          kind: "process",
+          command: "claude",
+          available: false,
+          status: "missing",
+          error: "claude was not found on PATH",
+          cost_mode: "external",
+        },
+        {
+          id: "cursor_agent",
+          name: "Cursor Agent",
+          kind: "process",
+          command: "cursor-agent",
+          available: false,
+          status: "missing",
+          error: "cursor-agent was not found on PATH",
+          cost_mode: "external",
+        },
+      ],
+    }),
+  }));
+  await clearAndNavigate(page);
+  await openWorkspace(page, "chats");
+  await page.waitForSelector("text=Nothing runnable yet", { timeout: 5_000 });
+  await snap(page, "chat-empty");
+  await page.unroute(missingAgentAdapters);
+
+  // ── 2. Empty providers list ─────────────────────────────────────────────────
   // The UI loads directly — no auth gate. Land on the Providers tab
   // before any providers exist.
   console.log("→ providers-empty");
-  await clearAndNavigate(page);
   await openWorkspace(page, "providers");
   await page.waitForSelector("text=No providers configured", { timeout: 5_000 });
   await snap(page, "providers-empty");
 
-  // ── 2. Cloud presets in the Add modal ───────────────────────────────────────
+  // ── 3. Cloud presets in the Add modal ───────────────────────────────────────
   console.log("→ providers-presets (Add modal, Cloud tab)");
   await page.getByRole("button", { name: "Add provider" }).first().click();
   await page.waitForSelector("text=Anthropic", { timeout: 5_000 });
@@ -236,7 +286,7 @@ async function main() {
   await page.keyboard.press("Escape");
   await page.waitForTimeout(300);
 
-  // ── 3. Seed three providers via the API ─────────────────────────────────────
+  // ── 4. Seed three providers via the API ─────────────────────────────────────
   // These mirror the UI's add flow: one cloud (OpenAI with a fake key), two
   // local (Ollama, LM Studio) on their default ports. The fake OpenAI key is
   // enough to pass the create handler's "cloud-needs-key" guard; an actual
@@ -245,16 +295,16 @@ async function main() {
   await addProvider({ name: "Ollama",   preset_id: "ollama",   kind: "local" });
   await addProvider({ name: "LM Studio", preset_id: "lmstudio", kind: "local" });
   await addProvider({ name: "OpenAI",   preset_id: "openai",   kind: "cloud",
-    api_key: "sk-live-••••••••••••••••••••" });
+    api_key: "sk-live-redacted-for-screenshots" });
 
-  // ── 4. Populated providers table ────────────────────────────────────────────
+  // ── 5. Populated providers table ────────────────────────────────────────────
   console.log("→ providers (populated table)");
   await page.reload();
   await page.waitForSelector("text=Cloud providers", { timeout: 5_000 });
   await page.waitForTimeout(2_000);
   await snap(page, "providers");
 
-  // ── 5. Chat: seed sessions + one real completion ────────────────────────────
+  // ── 6. Chat: seed sessions + one real completion ────────────────────────────
   console.log("→ seeding chat sessions");
   const { firstID } = await seedChatSessions();
 
@@ -265,7 +315,7 @@ async function main() {
   await page.waitForTimeout(1500);
   await snap(page, "chat");
 
-  // ── 6. Tasks ────────────────────────────────────────────────────────────────
+  // ── 7. Tasks ────────────────────────────────────────────────────────────────
   console.log("→ tasks (do echo 42 + approval seeded)");
   await seedTask();
   await page.reload();
@@ -274,7 +324,7 @@ async function main() {
   await page.waitForTimeout(2_000);
   await snap(page, "tasks");
 
-  // ── 7. Observability — pick a trace first ───────────────────────────────────
+  // ── 8. Observability — pick a trace first ───────────────────────────────────
   console.log("→ observe (trace selected)");
   await openWorkspace(page, "overview");
   await page.waitForTimeout(800);
@@ -291,13 +341,13 @@ async function main() {
   }
   await snap(page, "observe");
 
-  // ── 8. Costs workspace ─────────────────────────────────────────────
+  // ── 9. Costs workspace ─────────────────────────────────────────────
   console.log("→ costs");
   await openWorkspace(page, "costs");
   await page.waitForTimeout(500);
   await snap(page, "costs");
 
-  // ── 9. Settings — Pricing + Retention ──────────────────────────────
+  // ── 10. Settings — Pricing + Retention ─────────────────────────────
   console.log("→ settings / pricebook");
   await openWorkspace(page, "settings");
   await page.waitForTimeout(500);

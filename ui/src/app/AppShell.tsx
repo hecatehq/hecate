@@ -170,7 +170,7 @@ function AuthenticatedShell({
           {state.error && <div className="page-banner page-banner--error">{state.error}</div>}
           <div className={`console-content${isBare ? " console-content--bare" : ""}`}>
             {activeWorkspace === "overview"   && <ObservabilityView actions={actions} state={state} onNavigate={onSelectWorkspace} />}
-            {activeWorkspace === "chats" && <ChatView actions={actions} state={state} />}
+            {activeWorkspace === "chats" && <ChatView actions={actions} state={state} onNavigate={onSelectWorkspace} />}
             {activeWorkspace === "runs"          && <TasksView />}
             {activeWorkspace === "providers"     && <ProvidersView actions={actions} state={state} />}
             {activeWorkspace === "costs"         && <CostsView actions={actions} state={state} />}

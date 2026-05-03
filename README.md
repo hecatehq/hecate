@@ -73,7 +73,11 @@ Pinned image tags, single-file binaries (linux/darwin × amd64/arm64), and check
 
 ### Add a provider
 
-The Providers tab starts empty. Click **Add provider**, pick a preset (or **Custom** for any OpenAI-compatible endpoint), and paste an API key (cloud) or endpoint URL (local).
+On first boot, Chats is already available but may have nothing runnable yet. For model chat, open **Providers**, click **Add provider**, pick a preset, and save the minimal setup:
+
+- Cloud providers need an API key.
+- Local providers need a running local server URL, usually the preset default.
+- Custom OpenAI-compatible endpoints can be added from the same modal.
 
 ![Empty Providers tab on first boot — Add provider CTA](docs/screenshots/providers-empty.png)
 
@@ -81,18 +85,22 @@ The Providers tab starts empty. Click **Add provider**, pick a preset (or **Cust
 
 ![Providers table populated with three providers — Health, Endpoint, Credentials, Models](docs/screenshots/providers.png)
 
-Cloud presets need an API key; local presets just need the runtime listening on its default port. Full catalog, custom-endpoint walk-through, and credential rotation in [`docs/providers.md`](docs/providers.md).
+After a provider is saved, Hecate discovers models and the Chats model picker becomes routable. Full catalog, custom-endpoint walk-through, and credential rotation live in [`docs/providers.md`](docs/providers.md).
 
 ### Talk to it
 
+Chats is the first working surface. It explains missing setup before you send a request, then lets you choose between model traffic and local coding-agent CLIs.
+
+![Chats first-run state — no configured providers or available external agents yet](docs/screenshots/chat-empty.png)
+
 ![Chats workspace talking to a local Ollama llama3.1:8b model with sessions sidebar and inline runtime metadata](docs/screenshots/chat.png)
 
-Chats has two targets:
+There are two chat targets:
 
-- **Model** — send OpenAI-compatible Chat Completions or Anthropic Messages traffic through Hecate's provider router.
-- **Agent** — run an external coding-agent CLI such as Codex, Claude Code, or Cursor Agent in a selected workspace. Hecate records the normalized transcript, raw output, status, timing, trace IDs, workspace branch, and captured Git diff.
+- **Model** — select a configured provider/model and send OpenAI-compatible Chat Completions or Anthropic Messages traffic through Hecate's router.
+- **Agent** — select an installed external coding-agent CLI, choose a workspace, and run Codex, Claude Code, or Cursor Agent as a supervised local process.
 
-External agents are **not** providers and do not appear in the provider/model picker. They are local processes supervised by Hecate. See [docs/external-agent-adapters.md](docs/external-agent-adapters.md) for install checks and troubleshooting.
+Model turns record route, cost, cache, and trace metadata. Agent turns record normalized transcript, raw output, status, timing, trace IDs, workspace branch, and captured Git diff. External agents are **not** providers and do not appear in the provider/model picker; see [docs/external-agent-adapters.md](docs/external-agent-adapters.md) for install checks and troubleshooting.
 
 ## Architecture
 
@@ -100,26 +108,27 @@ One Go process, one port, bound to loopback. Inside it: a chat/messages **gatewa
 
 ```mermaid
 flowchart LR
-    Clients["Operator UI<br/>OpenAI / Anthropic clients<br/>ACP editors"]
+    Console["Operator UI"]
+    APIClients["OpenAI / Anthropic clients"]
+    Editors["ACP editors"]
 
-    subgraph Hecate["Hecate (single binary, 127.0.0.1:8765)"]
-        direction TB
-        Console["Embedded console"]
-        Gateway["Model gateway"]
-        AgentAdapters["External agent adapters"]
-        Runtime["Agent task runtime"]
-    end
+    Gateway["Model gateway"]
+    AgentAdapters["External agent adapters"]
+    Runtime["Agent task runtime"]
 
-    Clients --> Hecate
     Console --> Gateway
     Console --> AgentAdapters
     Console --> Runtime
+    APIClients --> Gateway
+    Editors --> Runtime
 
     Gateway --> Providers["Cloud + local providers"]
     AgentAdapters --> CLIs["Codex / Claude Code / Cursor Agent"]
     Runtime --> Tools["Sandboxed tools + MCP"]
-    Hecate --> State["memory / SQLite"]
-    Hecate --> OTel["OpenTelemetry"]
+    Gateway --> State["memory / SQLite"]
+    Runtime --> State
+    Gateway --> OTel["OpenTelemetry"]
+    Runtime --> OTel
 ```
 
 For deeper internals, read [docs/architecture.md](docs/architecture.md), [docs/runtime-api.md](docs/runtime-api.md), and [docs/events.md](docs/events.md).
@@ -145,6 +154,8 @@ The embedded UI is a runtime console for the operator.
 ![Costs workspace — balance card and usage table](docs/screenshots/costs.png)
 
 ![Settings → Pricing — model catalog with priced / unpriced / deprecated filters](docs/screenshots/settings-pricebook.png)
+
+![Settings → Retention — pruning windows and last-run history](docs/screenshots/settings-retention.png)
 
 </details>
 

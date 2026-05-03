@@ -31,6 +31,35 @@ describe("ChatView input", () => {
     expect(send.disabled).toBe(false);
   });
 
+  it("disables model send when no provider is configured", () => {
+    const { state, actions } = setup({
+      message: "hello",
+      controlPlaneConfig: { backend: "memory", providers: [], policy_rules: [], pricebook: [], events: [] },
+      agentAdapters: [
+        { id: "codex", name: "Codex", kind: "process", command: "codex", available: true, status: "available", cost_mode: "external" },
+      ],
+    });
+    render(<ChatView state={state} actions={actions} />);
+    const send = document.querySelector("button[type='submit']") as HTMLButtonElement;
+    expect(send.disabled).toBe(true);
+    expect(screen.getByText("No routable model")).toBeTruthy();
+    expect(screen.getByRole("button", { name: /Add provider/i })).toBeTruthy();
+  });
+
+  it("shows a first-run setup state when providers and agents are unavailable", () => {
+    const { state, actions } = setup({
+      message: "hello",
+      controlPlaneConfig: { backend: "memory", providers: [], policy_rules: [], pricebook: [], events: [] },
+      agentAdapters: [
+        { id: "codex", name: "Codex", kind: "process", command: "codex", available: false, status: "missing", cost_mode: "external" },
+      ],
+    });
+    render(<ChatView state={state} actions={actions} />);
+    expect(screen.getByText("Nothing runnable yet")).toBeTruthy();
+    expect(screen.getByRole("button", { name: /Add provider/i })).toBeTruthy();
+    expect(screen.getByRole("button", { name: /Check agents/i })).toBeTruthy();
+  });
+
   it("calls setMessage as user types", async () => {
     const setMessage = vi.fn();
     // Start with empty message so the assertion sees only what we typed.

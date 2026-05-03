@@ -147,7 +147,7 @@ reset-dev:
 	@echo "Local dev state reset."
 
 # screenshots is the one-shot end-to-end capture workflow:
-# reset → build (if needed) → start gateway in the background → wait
+# reset → build → start gateway in the background → wait
 # for /healthz → run the bun capture script → stop gateway. Everything
 # is reset to a clean state on entry and torn down on exit, so two
 # successive `make screenshots` calls always produce identical files.
@@ -159,7 +159,7 @@ screenshots:
 	@test -d ui/node_modules/@playwright/test || (echo "UI dependencies missing. Run 'make ui-install' first." && exit 1)
 	@pid=$$(lsof -ti:8765 2>/dev/null); [ -n "$$pid" ] && (echo "stopping existing :8765 (pid $$pid)"; kill $$pid; sleep 0.3) || true
 	@$(MAKE) --no-print-directory reset-dev > /dev/null
-	@test -x ./gateway || $(MAKE) --no-print-directory build
+	@$(MAKE) --no-print-directory build
 	@mkdir -p .data
 	@echo "starting gateway in background…"
 	@./gateway > .data/screenshots-gateway.log 2>&1 & echo $$! > .data/screenshots-gateway.pid
