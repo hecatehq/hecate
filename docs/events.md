@@ -412,7 +412,7 @@ Emitted when `execution_kind=file` or an `agent_loop` file-writing tool (`file_w
 
 ### `tool.file.applied`
 
-Emitted when an operator calls the patch apply endpoint for a proposed patch artifact. The file is written from Hecate's own patch artifact and the artifact status changes from `proposed` to `applied`.
+Emitted when an operator calls the patch apply endpoint for a proposed patch artifact. The file is written from Hecate's own patch artifact and the artifact status changes from `proposed` to `applied`. Apply is conflict-checked: if the target file no longer matches the captured before-content, the endpoint returns `409` and does not write.
 
 | Extra key | Type | Notes |
 |---|---|---|

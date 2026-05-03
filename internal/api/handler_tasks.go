@@ -1054,6 +1054,11 @@ func (h *Handler) HandleApplyTaskRunPatch(w http.ResponseWriter, r *http.Request
 		WriteError(w, http.StatusConflict, errCodeInvalidRequest, "only proposed patch artifacts can be applied")
 		return
 	}
+	before, beforeExisted, err := patchBeforeContent(artifact.ContentText)
+	if err != nil {
+		WriteError(w, http.StatusBadRequest, errCodeInvalidRequest, err.Error())
+		return
+	}
 	after, err := patchAfterContent(artifact.ContentText)
 	if err != nil {
 		WriteError(w, http.StatusBadRequest, errCodeInvalidRequest, err.Error())
@@ -1065,6 +1070,10 @@ func (h *Handler) HandleApplyTaskRunPatch(w http.ResponseWriter, r *http.Request
 	}
 	if !pathWithinRoot(artifact.Path, run.WorkspacePath) {
 		WriteError(w, http.StatusBadRequest, errCodeInvalidRequest, "patch artifact path is outside the run workspace")
+		return
+	}
+	if err := verifyPatchApplyPrecondition(artifact.Path, before, beforeExisted); err != nil {
+		WriteError(w, http.StatusConflict, errCodeInvalidRequest, err.Error())
 		return
 	}
 	if err := os.WriteFile(artifact.Path, []byte(after), 0o644); err != nil {
@@ -1920,6 +1929,26 @@ func patchContent(diff, prefix string) (string, bool, error) {
 		return "", beforeExisted, nil
 	}
 	return strings.Join(contentLines, "\n") + "\n", beforeExisted, nil
+}
+
+func verifyPatchApplyPrecondition(path, before string, beforeExisted bool) error {
+	current, err := os.ReadFile(path)
+	if beforeExisted {
+		if err != nil {
+			return fmt.Errorf("patch target changed before apply: %w", err)
+		}
+		if string(current) != before {
+			return fmt.Errorf("patch target changed before apply")
+		}
+		return nil
+	}
+	if err == nil {
+		return fmt.Errorf("patch target already exists before apply")
+	}
+	if errors.Is(err, os.ErrNotExist) {
+		return nil
+	}
+	return fmt.Errorf("patch target cannot be checked before apply: %w", err)
 }
 
 func pathWithinRoot(path, root string) bool {
