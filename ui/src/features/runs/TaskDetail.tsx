@@ -187,17 +187,12 @@ function describeRunEvent(eventType: string): { label: string; tone: "queued" | 
   const labels: Record<string, { label: string; tone: "queued" | "running" | "awaiting" | "done" | "failed" }> = {
     "run.created": { label: "Run created", tone: "queued" },
     "run.queued": { label: "Queued", tone: "queued" },
-    "run.claimed": { label: "Claimed by worker", tone: "running" },
-    "run.running": { label: "Execution started", tone: "running" },
+    "run.started": { label: "Execution started", tone: "running" },
     "run.awaiting_approval": { label: "Waiting for approval", tone: "awaiting" },
-    "run.approved": { label: "Approval granted", tone: "running" },
-    "run.rejected": { label: "Approval rejected", tone: "failed" },
     "run.cancelled": { label: "Cancelled", tone: "failed" },
     "run.failed": { label: "Failed", tone: "failed" },
-    "run.completed": { label: "Completed", tone: "done" },
-    "run.resumed": { label: "Resumed", tone: "running" },
-    "run.retry_from_turn": { label: "Retry from turn", tone: "running" },
-    "run.worker_shutdown": { label: "Worker shutdown", tone: "failed" },
+    "run.finished": { label: "Completed", tone: "done" },
+    "run.resumed_from_event": { label: "Resumed", tone: "running" },
   };
   return labels[eventType] ?? { label: eventType.replaceAll("_", " "), tone: "queued" };
 }
@@ -209,17 +204,13 @@ function describeRunEvent(eventType: string): { label: string; tone: "queued" | 
 //   retry_from_turn — the turn number a retry-from-turn was branched at
 //   reason          — the operator's annotation for why they resumed/branched
 //
-// run.resumed and run.resume_requested store the reason under "reason";
-// run.created stores it under "resume_reason" (a historical key name).
-// Both are checked so the annotation shows regardless of which event is
-// rendered on the current run's timeline.
+// run.resumed_from_event stores the operator annotation under "reason".
 function describeRunEventNote(event: { data?: Record<string, unknown> }): string | null {
   const d = event.data;
   if (!d) return null;
   const turn = typeof d["retry_from_turn"] === "number" ? (d["retry_from_turn"] as number) : null;
   const reason = (
-    typeof d["reason"] === "string" ? d["reason"] :
-    typeof d["resume_reason"] === "string" ? d["resume_reason"] : ""
+    typeof d["reason"] === "string" ? d["reason"] : ""
   ).trim();
   if (!turn && !reason) return null;
   const parts: string[] = [];
@@ -900,7 +891,7 @@ function AgentConversationView({
 }
 
 // RetryFromTurnModal collects an optional reason before submitting the
-// retry-from-turn request. The reason is stored in the run.resumed event
+// retry-from-turn request. The reason is stored in the run.resumed_from_event event
 // and shown in the run timeline so operators can annotate why they
 // branched from a particular turn.
 function RetryFromTurnModal({

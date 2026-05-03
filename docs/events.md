@@ -30,13 +30,11 @@ These are **persisted events** (rows in the `task_state_run_events` table). They
 | `run.created` | Run lifecycle | A run record is persisted (status `queued` or `awaiting_approval`) |
 | `run.queued` | Run lifecycle | Run is enqueued for execution (also re-emitted on resume) |
 | `run.awaiting_approval` | Run lifecycle | A pre-execution approval gate exists; the run is parked |
-| `run.running` | Run lifecycle | Worker claimed and started executing |
-| `run.finished` | Run lifecycle | Pre-resume checkpoint after a paused phase finishes |
-| `run.completed` | Run lifecycle | Execution finished successfully |
+| `run.started` | Run lifecycle | Worker claimed and started executing |
+| `run.finished` | Run lifecycle | Execution finished successfully |
 | `run.failed` | Run lifecycle | Execution failed |
 | `run.cancelled` | Run lifecycle | Run was cancelled (operator or system) |
-| `run.resumed` | Run lifecycle | Run is a continuation of a prior run |
-| `run.resume_requested` | Run lifecycle | Marker on the *prior* run that a resume started |
+| `run.resumed_from_event` | Run lifecycle | Run is a continuation of a prior run |
 | `run.throttled_concurrency` | Run lifecycle | Run held back by global concurrency limit |
 | `run.resume_checkpoint_failed` | Run lifecycle | Resume hydration failed; run will start fresh |
 | `run.reconciled_restart_requeued` | Run lifecycle | Stalled run recovered and re-queued by reconciler (boot-time scan or periodic background check) |
@@ -88,27 +86,13 @@ The persisted column shape is the same for every event:
 
 ### `run.created`
 
-Fires when a new run record is persisted. Status will be `queued` or, if a pre-execution approval is required, `awaiting_approval`.
+Fires when a new run record is persisted. Status will be `queued` or, if a
+pre-execution approval is required, `awaiting_approval`. Resume metadata is
+reported by `run.resumed_from_event`, not this event.
 
-| Extra key | Type | Notes |
-|---|---|---|
-| `resumed_from_run_id` | `string` | Set when this run continues a prior run via resume / retry-from-turn |
-| `resume_reason` | `string` | Operator-supplied resume rationale |
-| `retry_from_turn` | `int` | Set on retry-from-turn-N runs; the (1-indexed) turn the new run begins at |
+### `run.resumed_from_event`
 
-### `run.resume_requested`
-
-Marker emitted on the *prior* run when a new resumed run is created. Use this to thread "this run was continued as X" affordances in dashboards.
-
-| Extra key | Type | Notes |
-|---|---|---|
-| `new_run_id` | `string` | The id of the resumed run |
-| `reason` | `string` | Operator-supplied rationale |
-| `retry_from_turn` | `int` | Present on retry-from-turn-N |
-
-### `run.resumed`
-
-The mirror event on the *new* run, emitted right after `run.created`.
+The resume marker on the *new* run, emitted after `run.created`.
 
 | Extra key | Type | Notes |
 |---|---|---|
@@ -128,7 +112,7 @@ The run is on the queue. Emitted immediately after `run.created` for a fresh run
 |---|---|---|
 | `resume` | `bool` | Present and `true` on the resume re-queue path; absent on the initial queue |
 
-### `run.running`
+### `run.started`
 
 A worker claimed the run and started executing. For resumed runs the payload carries hydration cursors.
 
@@ -138,21 +122,16 @@ A worker claimed the run and started executing. For resumed runs the payload car
 | `resume_from_step_id` | `string` | Step the resume picks up after (resume only) |
 | `resume_from_event_sequence` | `int64` | Event sequence at resume cutover (resume only) |
 
-### `run.finished`
+### `run.finished` / `run.failed`
 
-The orchestrator emits this when a paused phase wraps up before re-queuing for the next phase. **It does NOT mean the run is terminal** — see `run.completed` / `run.failed` / `run.cancelled` for that.
-
-| Extra key | Type | Notes |
-|---|---|---|
-| `status` | `string` | The run's status at the phase boundary |
-
-### `run.completed` / `run.failed`
-
-Terminal status emit. The exact event type is `run.<status>` where `<status>` is the run's terminal status — currently `completed` or `failed`.
+Terminal status emit. Successful runs emit `run.finished`; failed runs emit
+`run.failed`. Read `data.run.status` or the `status` extra for the persisted
+run status.
 
 | Extra key | Type | Notes |
 |---|---|---|
-| `error` | `string` | Empty for `completed`; populated for `failed` |
+| `status` | `string` | `completed` for `run.finished`; `failed` for `run.failed` |
+| `error` | `string` | Empty for `run.finished`; populated for `run.failed` |
 
 ### `run.cancelled`
 

@@ -660,7 +660,7 @@ func newExecutionStep(spec ExecutionSpec, kind, title, toolName string, input ma
 		input["resume_from_run_id"] = spec.ResumeCheckpoint.SourceRunID
 		input["resume_from_step_id"] = spec.ResumeCheckpoint.LastCompletedStepID
 		input["resume_from_event_sequence"] = spec.ResumeCheckpoint.LastEventSequence
-		input["resume_reason"] = spec.ResumeCheckpoint.Reason
+		input["reason"] = spec.ResumeCheckpoint.Reason
 	}
 	return types.TaskStep{
 		ID:        spec.NewID("step"),
