@@ -218,6 +218,7 @@ func RunAdapter(ctx context.Context, adapter Adapter, req RunRequest) (RunResult
 		return RunResult{}, err
 	}
 	cmd := exec.CommandContext(runCtx, command, args...)
+	configureCommandProcessGroup(cmd)
 	cmd.Dir = workspace
 	cmd.Env = sanitizedEnv(os.Environ())
 
