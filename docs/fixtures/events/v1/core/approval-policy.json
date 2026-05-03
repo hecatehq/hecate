@@ -1,0 +1,95 @@
+[
+  {
+    "schema_version": "1",
+    "event_id": "evt_01HX0000000000000000000101",
+    "run_id": "run_01HX0000000000000000000101",
+    "task_id": "task_01HX0000000000000000000101",
+    "session_id": "chat_01HX0000000000000000000101",
+    "sequence": 0,
+    "occurred_at": "2026-05-03T10:05:00.000Z",
+    "type": "run.started",
+    "data": {
+      "worker_id": "worker-local-1",
+      "lease_until": "2026-05-03T10:06:00.000Z"
+    }
+  },
+  {
+    "schema_version": "1",
+    "event_id": "evt_01HX0000000000000000000102",
+    "run_id": "run_01HX0000000000000000000101",
+    "task_id": "task_01HX0000000000000000000101",
+    "session_id": "chat_01HX0000000000000000000101",
+    "sequence": 1,
+    "occurred_at": "2026-05-03T10:05:00.100Z",
+    "type": "policy.tool_blocked",
+    "data": {
+      "tool_call_id": "call_01HX000000000000000101",
+      "tool_name": "shell_exec",
+      "reason": "network access denied by tenant policy",
+      "policy_id": "default-shell"
+    }
+  },
+  {
+    "schema_version": "1",
+    "event_id": "evt_01HX0000000000000000000103",
+    "run_id": "run_01HX0000000000000000000101",
+    "task_id": "task_01HX0000000000000000000101",
+    "session_id": "chat_01HX0000000000000000000101",
+    "sequence": 2,
+    "occurred_at": "2026-05-03T10:05:00.200Z",
+    "type": "approval.requested",
+    "data": {
+      "approval_id": "appr_01HX000000000000000101",
+      "tool_call_id": "call_01HX000000000000000102",
+      "kind": "shell_exec",
+      "summary": "Run migration against local sqlite database",
+      "policy_reason": "database migration requires operator approval"
+    }
+  },
+  {
+    "schema_version": "1",
+    "event_id": "evt_01HX0000000000000000000104",
+    "run_id": "run_01HX0000000000000000000101",
+    "task_id": "task_01HX0000000000000000000101",
+    "session_id": "chat_01HX0000000000000000000101",
+    "sequence": 3,
+    "occurred_at": "2026-05-03T10:05:05.000Z",
+    "type": "approval.resolved",
+    "data": {
+      "approval_id": "appr_01HX000000000000000101",
+      "decision": "approved",
+      "by": "operator",
+      "comment": "Approved for this run only.",
+      "scope": "once"
+    }
+  },
+  {
+    "schema_version": "1",
+    "event_id": "evt_01HX0000000000000000000105",
+    "run_id": "run_01HX0000000000000000000101",
+    "task_id": "task_01HX0000000000000000000101",
+    "session_id": "chat_01HX0000000000000000000101",
+    "sequence": 4,
+    "occurred_at": "2026-05-03T10:05:06.000Z",
+    "type": "cost.budget_warning",
+    "data": {
+      "threshold_pct": 80,
+      "cumulative_cost_micros_usd": 40120,
+      "task_budget_micros_usd": 50000
+    }
+  },
+  {
+    "schema_version": "1",
+    "event_id": "evt_01HX0000000000000000000106",
+    "run_id": "run_01HX0000000000000000000101",
+    "task_id": "task_01HX0000000000000000000101",
+    "session_id": "chat_01HX0000000000000000000101",
+    "sequence": 5,
+    "occurred_at": "2026-05-03T10:05:06.100Z",
+    "type": "run.cancelled",
+    "data": {
+      "by": "operator",
+      "reason": "Operator stopped after budget warning."
+    }
+  }
+]

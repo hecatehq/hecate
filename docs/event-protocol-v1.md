@@ -34,6 +34,16 @@ Frontend work should only depend on the **candidate core** until the
 implementation ships golden fixtures and contract tests. Experimental events may
 exist behind flags, but frontends must treat them as optional.
 
+Candidate-core fixture examples live in
+[`docs/fixtures/events/v1/core/`](fixtures/events/v1/core/). They are validated
+by `internal/eventprotocol` tests and are intended as golden inputs for early
+CLI, web, ACP, and IDE prototypes.
+
+The draft envelope schema lives at
+[`docs/schemas/events/v1/envelope.schema.json`](schemas/events/v1/envelope.schema.json).
+Payload-specific schemas are intentionally deferred until runtime emitters are
+implemented.
+
 Before this document can be called v1 stable:
 
 - The candidate core must be implemented end-to-end for at least one real tool

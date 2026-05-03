@@ -1,0 +1,250 @@
+[
+  {
+    "schema_version": "1",
+    "event_id": "evt_01HX0000000000000000000001",
+    "run_id": "run_01HX0000000000000000000001",
+    "task_id": "task_01HX0000000000000000000001",
+    "session_id": "chat_01HX0000000000000000000001",
+    "sequence": 0,
+    "occurred_at": "2026-05-03T10:00:00.000Z",
+    "type": "run.queued",
+    "data": {
+      "kind": "agent_loop",
+      "model": "claude-sonnet-4-20250514",
+      "provider": "anthropic",
+      "workspace_path": "/tmp/hecate-workspaces/task_01HX0000000000000000000001/run_01HX0000000000000000000001",
+      "workspace_mode": "clone",
+      "prior_run_id": null
+    }
+  },
+  {
+    "schema_version": "1",
+    "event_id": "evt_01HX0000000000000000000002",
+    "run_id": "run_01HX0000000000000000000001",
+    "task_id": "task_01HX0000000000000000000001",
+    "session_id": "chat_01HX0000000000000000000001",
+    "sequence": 1,
+    "occurred_at": "2026-05-03T10:00:00.050Z",
+    "type": "run.started",
+    "data": {
+      "worker_id": "worker-local-1",
+      "lease_until": "2026-05-03T10:01:00.050Z"
+    }
+  },
+  {
+    "schema_version": "1",
+    "event_id": "evt_01HX0000000000000000000003",
+    "run_id": "run_01HX0000000000000000000001",
+    "task_id": "task_01HX0000000000000000000001",
+    "session_id": "chat_01HX0000000000000000000001",
+    "sequence": 2,
+    "occurred_at": "2026-05-03T10:00:00.100Z",
+    "type": "turn.started",
+    "data": {
+      "turn_index": 0,
+      "model": "claude-sonnet-4-20250514",
+      "provider": "anthropic",
+      "input_tokens_estimate": 418
+    }
+  },
+  {
+    "schema_version": "1",
+    "event_id": "evt_01HX0000000000000000000004",
+    "run_id": "run_01HX0000000000000000000001",
+    "task_id": "task_01HX0000000000000000000001",
+    "session_id": "chat_01HX0000000000000000000001",
+    "sequence": 3,
+    "occurred_at": "2026-05-03T10:00:00.250Z",
+    "type": "assistant.text_delta",
+    "data": {
+      "turn_index": 0,
+      "block_index": 0,
+      "delta": "I'll inspect the runtime status first."
+    }
+  },
+  {
+    "schema_version": "1",
+    "event_id": "evt_01HX0000000000000000000005",
+    "run_id": "run_01HX0000000000000000000001",
+    "task_id": "task_01HX0000000000000000000001",
+    "session_id": "chat_01HX0000000000000000000001",
+    "sequence": 4,
+    "occurred_at": "2026-05-03T10:00:00.300Z",
+    "type": "assistant.text_complete",
+    "data": {
+      "turn_index": 0,
+      "block_index": 0,
+      "text": "I'll inspect the runtime status first."
+    }
+  },
+  {
+    "schema_version": "1",
+    "event_id": "evt_01HX0000000000000000000006",
+    "run_id": "run_01HX0000000000000000000001",
+    "task_id": "task_01HX0000000000000000000001",
+    "session_id": "chat_01HX0000000000000000000001",
+    "sequence": 5,
+    "occurred_at": "2026-05-03T10:00:00.320Z",
+    "type": "assistant.tool_call_proposed",
+    "data": {
+      "turn_index": 0,
+      "tool_call_id": "call_01HX000000000000000001",
+      "tool_name": "shell_exec",
+      "input": {
+        "argv": ["make", "test-affected"],
+        "cwd": "/workspace"
+      }
+    }
+  },
+  {
+    "schema_version": "1",
+    "event_id": "evt_01HX0000000000000000000007",
+    "run_id": "run_01HX0000000000000000000001",
+    "task_id": "task_01HX0000000000000000000001",
+    "session_id": "chat_01HX0000000000000000000001",
+    "sequence": 6,
+    "occurred_at": "2026-05-03T10:00:00.350Z",
+    "type": "tool.invoked",
+    "data": {
+      "tool_call_id": "call_01HX000000000000000001",
+      "tool_name": "shell_exec",
+      "kind": "shell",
+      "turn_index": 0
+    }
+  },
+  {
+    "schema_version": "1",
+    "event_id": "evt_01HX0000000000000000000008",
+    "run_id": "run_01HX0000000000000000000001",
+    "task_id": "task_01HX0000000000000000000001",
+    "session_id": "chat_01HX0000000000000000000001",
+    "sequence": 7,
+    "occurred_at": "2026-05-03T10:00:00.360Z",
+    "type": "tool.shell.command",
+    "data": {
+      "tool_call_id": "call_01HX000000000000000001",
+      "argv": ["make", "test-affected"],
+      "cwd": "/workspace",
+      "env_keys": ["PATH", "HOME"],
+      "sandbox_layer": "sandbox-exec"
+    }
+  },
+  {
+    "schema_version": "1",
+    "event_id": "evt_01HX0000000000000000000009",
+    "run_id": "run_01HX0000000000000000000001",
+    "task_id": "task_01HX0000000000000000000001",
+    "session_id": "chat_01HX0000000000000000000001",
+    "sequence": 8,
+    "occurred_at": "2026-05-03T10:00:01.000Z",
+    "type": "tool.shell.output_chunk",
+    "data": {
+      "tool_call_id": "call_01HX000000000000000001",
+      "stream": "stdout",
+      "data": "ok  github.com/hecate/agent-runtime/internal/router  0.231s\n",
+      "byte_offset": 0
+    }
+  },
+  {
+    "schema_version": "1",
+    "event_id": "evt_01HX000000000000000000000A",
+    "run_id": "run_01HX0000000000000000000001",
+    "task_id": "task_01HX0000000000000000000001",
+    "session_id": "chat_01HX0000000000000000000001",
+    "sequence": 9,
+    "occurred_at": "2026-05-03T10:00:01.100Z",
+    "type": "tool.shell.exited",
+    "data": {
+      "tool_call_id": "call_01HX000000000000000001",
+      "exit_code": 0,
+      "signal": null,
+      "stdout_bytes": 64,
+      "stderr_bytes": 0,
+      "truncated": false
+    }
+  },
+  {
+    "schema_version": "1",
+    "event_id": "evt_01HX000000000000000000000B",
+    "run_id": "run_01HX0000000000000000000001",
+    "task_id": "task_01HX0000000000000000000001",
+    "session_id": "chat_01HX0000000000000000000001",
+    "sequence": 10,
+    "occurred_at": "2026-05-03T10:00:01.120Z",
+    "type": "tool.completed",
+    "data": {
+      "tool_call_id": "call_01HX000000000000000001",
+      "tool_name": "shell_exec",
+      "kind": "shell",
+      "duration_ms": 770,
+      "summary": "exited with status 0"
+    }
+  },
+  {
+    "schema_version": "1",
+    "event_id": "evt_01HX000000000000000000000C",
+    "run_id": "run_01HX0000000000000000000001",
+    "task_id": "task_01HX0000000000000000000001",
+    "session_id": "chat_01HX0000000000000000000001",
+    "sequence": 11,
+    "occurred_at": "2026-05-03T10:00:01.220Z",
+    "type": "turn.completed",
+    "data": {
+      "turn_index": 0,
+      "input_tokens": 420,
+      "output_tokens": 96,
+      "cached_input_tokens": 0,
+      "cost_micros_usd": 812,
+      "duration_ms": 1120,
+      "tool_calls": 1,
+      "stop_reason": "tool_use"
+    }
+  },
+  {
+    "schema_version": "1",
+    "event_id": "evt_01HX000000000000000000000D",
+    "run_id": "run_01HX0000000000000000000001",
+    "task_id": "task_01HX0000000000000000000001",
+    "session_id": "chat_01HX0000000000000000000001",
+    "sequence": 12,
+    "occurred_at": "2026-05-03T10:00:01.230Z",
+    "type": "cost.tick",
+    "data": {
+      "cumulative_input_tokens": 420,
+      "cumulative_output_tokens": 96,
+      "cumulative_cost_micros_usd": 812,
+      "task_budget_micros_usd": 50000,
+      "task_budget_remaining_micros_usd": 49188
+    }
+  },
+  {
+    "schema_version": "1",
+    "event_id": "evt_01HX000000000000000000000E",
+    "run_id": "run_01HX0000000000000000000001",
+    "task_id": "task_01HX0000000000000000000001",
+    "session_id": "chat_01HX0000000000000000000001",
+    "sequence": 13,
+    "occurred_at": "2026-05-03T10:00:01.300Z",
+    "type": "assistant.final_answer",
+    "data": {
+      "turn_index": 0,
+      "summary": "Runtime checks passed."
+    }
+  },
+  {
+    "schema_version": "1",
+    "event_id": "evt_01HX000000000000000000000F",
+    "run_id": "run_01HX0000000000000000000001",
+    "task_id": "task_01HX0000000000000000000001",
+    "session_id": "chat_01HX0000000000000000000001",
+    "sequence": 14,
+    "occurred_at": "2026-05-03T10:00:01.350Z",
+    "type": "run.finished",
+    "data": {
+      "final_status": "completed",
+      "turns": 1,
+      "cost_micros_usd": 812,
+      "duration_ms": 1350
+    }
+  }
+]
