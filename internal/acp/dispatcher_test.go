@@ -337,6 +337,42 @@ func TestPendingPermissionFromSessionUpdate(t *testing.T) {
 	}
 }
 
+func TestDispatcherDeduplicatesPermissionRequests(t *testing.T) {
+	d := NewDispatcher(&fakeGateway{}, NewSessionStore(), Config{ApprovalRoute: "editor"})
+	update := SessionUpdateParams{
+		SessionID: "session-1",
+		TaskID:    "task-1",
+		RunID:     "run-1",
+		EventType: "approval.requested",
+		Data: map[string]any{
+			"approvals": []map[string]any{
+				{"id": "approval-1", "kind": "shell_command", "reason": "run command?", "status": "pending"},
+			},
+		},
+	}
+
+	firstID, first := d.trackPendingPermission(mustPendingPermission(t, update))
+	if !first || firstID == "" {
+		t.Fatalf("first track = (%q, %v), want new id", firstID, first)
+	}
+	if _, ok := d.takePendingPermission(firstID); !ok {
+		t.Fatalf("takePendingPermission(%q) = false", firstID)
+	}
+	secondID, second := d.trackPendingPermission(mustPendingPermission(t, update))
+	if second || secondID != firstID {
+		t.Fatalf("second track = (%q, %v), want existing id and no emit", secondID, second)
+	}
+}
+
+func mustPendingPermission(t *testing.T, update SessionUpdateParams) PermissionRequestParams {
+	t.Helper()
+	params, ok := PendingPermissionFromSessionUpdate(update)
+	if !ok {
+		t.Fatal("expected pending permission")
+	}
+	return params
+}
+
 func TestSessionStore_CreateAndGet(t *testing.T) {
 	s := NewSessionStore()
 	sess := s.Create("m", "/tmp")
