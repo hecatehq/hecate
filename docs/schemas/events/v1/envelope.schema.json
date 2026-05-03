@@ -1,0 +1,53 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://hecate.dev/schemas/events/v1/envelope.schema.json",
+  "title": "Hecate Agent Event Protocol v1 Envelope",
+  "description": "Draft candidate envelope for agent-runtime event protocol fixtures. Payload-specific schemas are intentionally deferred until the runtime implementation starts.",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "schema_version",
+    "event_id",
+    "run_id",
+    "sequence",
+    "occurred_at",
+    "type",
+    "data"
+  ],
+  "properties": {
+    "schema_version": {
+      "const": "1"
+    },
+    "event_id": {
+      "type": "string",
+      "pattern": "^evt_[0-9A-HJKMNP-TV-Z]{26}$"
+    },
+    "run_id": {
+      "type": "string",
+      "pattern": "^run_[0-9A-HJKMNP-TV-Z]{26}$"
+    },
+    "task_id": {
+      "type": "string",
+      "pattern": "^task_[0-9A-HJKMNP-TV-Z]{26}$"
+    },
+    "session_id": {
+      "type": "string",
+      "pattern": "^chat_[0-9A-HJKMNP-TV-Z]{26}$"
+    },
+    "sequence": {
+      "type": "integer",
+      "minimum": 0
+    },
+    "occurred_at": {
+      "type": "string",
+      "format": "date-time"
+    },
+    "type": {
+      "type": "string",
+      "pattern": "^[a-z][a-z0-9_]*(\\.[a-z][a-z0-9_]*)+$"
+    },
+    "data": {
+      "type": "object"
+    }
+  }
+}

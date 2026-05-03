@@ -1,0 +1,97 @@
+[
+  {
+    "schema_version": "1",
+    "event_id": "evt_01HX0000000000000000000201",
+    "run_id": "run_01HX0000000000000000000201",
+    "task_id": "task_01HX0000000000000000000201",
+    "session_id": "chat_01HX0000000000000000000201",
+    "sequence": 0,
+    "occurred_at": "2026-05-03T10:10:00.000Z",
+    "type": "run.started",
+    "data": {
+      "worker_id": "worker-local-2",
+      "lease_until": "2026-05-03T10:11:00.000Z"
+    }
+  },
+  {
+    "schema_version": "1",
+    "event_id": "evt_01HX0000000000000000000202",
+    "run_id": "run_01HX0000000000000000000201",
+    "task_id": "task_01HX0000000000000000000201",
+    "session_id": "chat_01HX0000000000000000000201",
+    "sequence": 1,
+    "occurred_at": "2026-05-03T10:10:00.250Z",
+    "type": "turn.failed",
+    "data": {
+      "turn_index": 0,
+      "code": "model_timeout",
+      "message": "no response in 60s",
+      "will_retry": true
+    }
+  },
+  {
+    "schema_version": "1",
+    "event_id": "evt_01HX0000000000000000000203",
+    "run_id": "run_01HX0000000000000000000201",
+    "task_id": "task_01HX0000000000000000000201",
+    "session_id": "chat_01HX0000000000000000000201",
+    "sequence": 2,
+    "occurred_at": "2026-05-03T10:10:00.500Z",
+    "type": "error.upstream",
+    "data": {
+      "provider": "anthropic",
+      "status": 529,
+      "message": "upstream overloaded",
+      "retriable": true,
+      "attempt": 2,
+      "max_attempts": 3
+    }
+  },
+  {
+    "schema_version": "1",
+    "event_id": "evt_01HX0000000000000000000204",
+    "run_id": "run_01HX0000000000000000000201",
+    "task_id": "task_01HX0000000000000000000201",
+    "session_id": "chat_01HX0000000000000000000201",
+    "sequence": 3,
+    "occurred_at": "2026-05-03T10:10:01.000Z",
+    "type": "cost.budget_exceeded",
+    "data": {
+      "cumulative_cost_micros_usd": 50240,
+      "task_budget_micros_usd": 50000,
+      "action": "halted"
+    }
+  },
+  {
+    "schema_version": "1",
+    "event_id": "evt_01HX0000000000000000000205",
+    "run_id": "run_01HX0000000000000000000201",
+    "task_id": "task_01HX0000000000000000000201",
+    "session_id": "chat_01HX0000000000000000000201",
+    "sequence": 4,
+    "occurred_at": "2026-05-03T10:10:01.100Z",
+    "type": "run.failed",
+    "data": {
+      "code": "budget_exceeded",
+      "message": "task budget exceeded",
+      "retriable": false,
+      "turns": 1
+    }
+  },
+  {
+    "schema_version": "1",
+    "event_id": "evt_01HX0000000000000000000206",
+    "run_id": "run_01HX0000000000000000000201",
+    "task_id": "task_01HX0000000000000000000201",
+    "session_id": "chat_01HX0000000000000000000201",
+    "sequence": 5,
+    "occurred_at": "2026-05-10T00:00:00.000Z",
+    "type": "gap.events_pruned",
+    "data": {
+      "first_pruned_sequence": 0,
+      "last_pruned_sequence": 4,
+      "pruned_at": "2026-05-10T00:00:00.000Z",
+      "reason": "retention_window"
+    }
+  }
+]
