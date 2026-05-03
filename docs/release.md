@@ -18,7 +18,7 @@ what is alpha-grade versus production-shaped.
 
 ## What a release produces
 
-Every `v*` tag fires `.github/workflows/release.yml`, which runs two jobs:
+Every `v*` tag fires `.github/workflows/release.yml`, which runs three jobs:
 
 1. **`goreleaser`** (~5–10 min) — multi-arch Go binary tarballs for
    `linux+darwin × amd64+arm64`; each tarball includes `gateway` and
@@ -29,6 +29,10 @@ Every `v*` tag fires `.github/workflows/release.yml`, which runs two jobs:
    building native desktop bundles and uploading them to the same Release
    entry: `.dmg` (macOS arm64), `.deb` + `.AppImage` (Linux x86_64), `.msi`
    (Windows x86_64). Wall-clock total ~15–25 min.
+3. **`update-readme-desktop-links`** — reads the actual uploaded Release
+   assets and refreshes the README Desktop app table with direct download
+   links. This runs only after the Tauri matrix succeeds, so it never links
+   to bundles that were not published.
 
 Acceptance after the run:
 
@@ -39,6 +43,9 @@ Acceptance after the run:
 - Tauri-side bundles attached: 1 `.dmg`, 1 `.deb`, 1 `.AppImage`, 1 `.msi`.
   If any is missing, the matrix leg silently skipped upload — open the run
   to see what failed.
+- README Desktop app table points at the uploaded bundle assets for the
+  release tag. The workflow commits this docs-only refresh to `master` with
+  `[skip ci]`.
 - `docker pull ghcr.io/chicoxyzzy/hecate:X.Y.Z` succeeds (no `v` prefix —
   goreleaser uses bare semver as the docker tag).
 - `docker run --rm -p 8765:8765 ghcr.io/chicoxyzzy/hecate:X.Y.Z` then
@@ -142,10 +149,13 @@ Pre-flight checks before the snapshot run (the script enforces these):
 ## Bump pinned version references
 
 `scripts/release.ts` automatically stamps Tauri version files
-(`Cargo.toml`, `package.json`, `tauri.conf.json`). It does **not** update
-documentation that pins the alpha tag in copy-pasted commands. Sweep these
-manually before tagging so a new operator landing on the README pulls the
-right image / tarball:
+(`Cargo.toml`, `package.json`, `tauri.conf.json`). After the Release bundles
+are uploaded, `.github/workflows/release.yml` automatically refreshes the
+README Desktop app table via `scripts/update-release-links.ts`.
+
+The release script does **not** update documentation that pins the alpha tag
+in copy-pasted commands. Sweep these manually before tagging so a new operator
+landing on the README pulls the right image / tarball:
 
 - [`README.md`](../README.md) — `docker run … ghcr.io/chicoxyzzy/hecate:<old>` → `<new>`.
 - [`docs/deployment.md`](deployment.md) — image-pinning example, tarball URLs,
