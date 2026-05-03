@@ -61,6 +61,7 @@ Pick your role and read in order — each path is three to five docs.
 | Doc | Read this when |
 |---|---|
 | [Architecture](architecture.md) | Internals of the gateway request flow and the task-runtime queue / lease / sandbox boundary. |
+| [ACP bridge](acp.md) | Current status of the experimental ACP stdio bridge for editor integrations. |
 | [Development](development.md) | Building from source: Go + Bun toolchain, UI hot reload, the test ladder, screenshot tooling. |
 | [Release](release.md) | Cutting a release tag. Versioning policy, alpha gate, image build, recovery if CI fails. |
 
