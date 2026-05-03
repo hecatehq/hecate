@@ -51,13 +51,11 @@ These are **persisted events** (rows in the `task_state_run_events` table). They
 | `tool.shell.command` | Typed shell tool events | Shell command, cwd, timeout, and sandbox layer selected |
 | `tool.shell.output_chunk` | Typed shell tool events | Incremental stdout/stderr chunk from the shell process |
 | `tool.shell.exited` | Typed shell tool events | Shell process reported exit metadata |
-| `tool.completed` | Typed shell tool events | Shell execution completed successfully |
-| `tool.failed` | Typed shell tool events | Shell execution failed |
+| `tool.completed` | Tool events | Shell execution or MCP tool call completed |
+| `tool.failed` | Tool events | Shell execution or MCP tool call failed |
 | `tool.cancelled` | Typed shell tool events | Shell execution was cancelled |
 | `tool.timed_out` | Typed shell tool events | Shell execution exceeded its timeout |
-| `orchestrator.mcp.tool.dispatched` | MCP | Agent loop dispatched a tool call to an external MCP server (`is_error=false` OR upstream `is_error=true`) |
-| `orchestrator.mcp.tool.failed` | MCP | Protocol-level failure (transport closed, RPC error, unknown tool) before a result was returned |
-| `orchestrator.mcp.tool.blocked` | MCP | The configured `approval_policy=block` short-circuited the call before it reached the upstream |
+| `policy.tool_blocked` | Policy | A tool call was blocked before execution |
 | `task.updated` | Housekeeping | Task metadata changed (e.g. cancellation flushed) |
 | `snapshot` | Housekeeping | Per-run SSE handler periodically writes a state snapshot |
 | `external.event` | Caller-driven | Default type for events posted via `POST /v1/tasks/{id}/runs/{run_id}/events` |
@@ -372,29 +370,33 @@ Terminal shell lifecycle marker.
 
 ## MCP
 
-Three events form the audit trail for external MCP tool calls in `agent_loop` runs. Together they cover every dispatch outcome the loop's MCP dispatcher produces — successful calls (including upstream-side tool errors), protocol failures, and policy-blocked calls. See [mcp.md](mcp.md#hecate-as-mcp-client) for the underlying configuration and policy model.
+Generic `tool.*` and `policy.*` events form the audit trail for external MCP tool calls in `agent_loop` runs. Together they cover every dispatch outcome the loop's MCP dispatcher produces — successful calls (including upstream-side tool errors), protocol failures, and policy-blocked calls. See [mcp.md](mcp.md#hecate-as-mcp-client) for the underlying configuration and policy model.
 
-All three carry the same shared payload shape:
+MCP events carry the same shared payload shape:
 
 | Extra key | Type | Notes |
 |---|---|---|
-| `server` | `string` | Operator-chosen alias from the task's `mcp_servers` config (the `<server>` segment of `mcp__<server>__<tool>`) |
-| `tool` | `string` | Un-namespaced upstream tool name |
+| `tool_call_id` | `string` | Correlates with the assistant tool call |
+| `tool_name` | `string` | Full OpenAI-compatible tool name, e.g. `mcp__filesystem__read_file` |
+| `kind` | `string` | Always `mcp` for MCP-dispatched tools |
+| `mcp_server` | `string` | Operator-chosen alias from the task's `mcp_servers` config (the `<server>` segment of `mcp__<server>__<tool>`) |
+| `mcp_tool` | `string` | Un-namespaced upstream tool name |
 | `result` | `string` | One of `dispatched`, `tool_error`, `failed`, `blocked` — finer-grained than the event-type split |
 | `duration_ms` | `int64` | Wall-clock from dispatch start to result-in-hand |
-| `error` | `string` | Present on `orchestrator.mcp.tool.failed` and (when applicable) `orchestrator.mcp.tool.dispatched` with `result=tool_error` |
+| `error` | `string` | Present on `tool.failed`, `policy.tool_blocked`, and when applicable on `tool.completed` with `result=tool_error` |
+| `reason` | `string` | Present on `policy.tool_blocked` |
 
-### `orchestrator.mcp.tool.dispatched`
+### `tool.completed` for MCP
 
 Emitted on every dispatch that reached the upstream MCP server, regardless of whether the upstream returned `is_error=false` (clean success) or `is_error=true` (tool-level failure with diagnostic text). The `result` payload key disambiguates the two: `dispatched` for clean, `tool_error` for upstream-marked failures. Operators chart `tool_error / (dispatched + tool_error)` to spot servers that are answering but unhappy.
 
-### `orchestrator.mcp.tool.failed`
+### `tool.failed` for MCP
 
 Protocol-level failure before a result was in hand: transport closed, RPC error, unknown-tool routing miss. The agent loop forwards the diagnostic as a tool-error message to the LLM (the run does not fail), but the event is the audit signal a dashboard would alert on.
 
-### `orchestrator.mcp.tool.blocked`
+### `policy.tool_blocked` for MCP
 
-The task's `approval_policy=block` short-circuited the call. The upstream was never contacted; the LLM saw a tool error suggesting it pick a different path. Distinct from `orchestrator.mcp.tool.failed` so operators can alert on `failed` without their pages firing on the (legitimate) block path. Distinct from `approval.requested` because block doesn't pause the run — it's a hard refusal, not a gate.
+The task's `approval_policy=block` short-circuited the call. The upstream was never contacted; the LLM saw a tool error suggesting it pick a different path. Distinct from `tool.failed` so operators can alert on failed execution without their pages firing on the legitimate block path. Distinct from `approval.requested` because block doesn't pause the run — it's a hard refusal, not a gate.
 
 ## Housekeeping
 

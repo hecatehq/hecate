@@ -86,8 +86,8 @@ func findMetricSum(t *testing.T, reader *sdkmetric.ManualReader, name string) me
 
 // TestAgentLoop_MCPDispatch_EmitsTelemetry pins the success path:
 // when the LLM asks for an MCP tool and the host dispatches cleanly,
-// the agent loop emits an mcp.tool.dispatched run event and a
-// counter increment with result=dispatched.
+// the agent loop emits a protocol-shaped tool.completed run event and
+// a counter increment with result=dispatched.
 func TestAgentLoop_MCPDispatch_EmitsTelemetry(t *testing.T) {
 	t.Parallel()
 	host := &fakeMCPHost{
@@ -126,17 +126,23 @@ func TestAgentLoop_MCPDispatch_EmitsTelemetry(t *testing.T) {
 		t.Fatalf("Execute: status=%q err=%v", res.Status, err)
 	}
 
-	dispatched := cap.byType(telemetry.EventOrchestratorMCPToolDispatched)
-	if len(dispatched) != 1 {
-		t.Fatalf("dispatched events = %d, want 1", len(dispatched))
+	completed := cap.byType(telemetry.EventMCPToolCompleted)
+	if len(completed) != 1 {
+		t.Fatalf("completed events = %d, want 1", len(completed))
 	}
-	if got := dispatched[0].Data["server"]; got != "filesystem" {
-		t.Errorf("server attr = %v, want filesystem", got)
+	if got := completed[0].Data["kind"]; got != "mcp" {
+		t.Errorf("kind attr = %v, want mcp", got)
 	}
-	if got := dispatched[0].Data["tool"]; got != "read_file" {
-		t.Errorf("tool attr = %v, want read_file", got)
+	if got := completed[0].Data["tool_call_id"]; got != "c1" {
+		t.Errorf("tool_call_id attr = %v, want c1", got)
 	}
-	if got := dispatched[0].Data["result"]; got != telemetry.MCPCallResultDispatched {
+	if got := completed[0].Data["mcp_server"]; got != "filesystem" {
+		t.Errorf("mcp_server attr = %v, want filesystem", got)
+	}
+	if got := completed[0].Data["mcp_tool"]; got != "read_file" {
+		t.Errorf("mcp_tool attr = %v, want read_file", got)
+	}
+	if got := completed[0].Data["result"]; got != telemetry.MCPCallResultDispatched {
 		t.Errorf("result attr = %v, want %q", got, telemetry.MCPCallResultDispatched)
 	}
 
@@ -151,7 +157,7 @@ func TestAgentLoop_MCPDispatch_EmitsTelemetry(t *testing.T) {
 }
 
 // TestAgentLoop_MCPBlock_EmitsBlockedEvent: block-policy short
-// circuit emits mcp.tool.blocked (NOT .dispatched) and the counter
+// circuit emits policy.tool_blocked (NOT tool.completed) and the counter
 // records result=blocked.
 func TestAgentLoop_MCPBlock_EmitsBlockedEvent(t *testing.T) {
 	t.Parallel()
@@ -188,7 +194,7 @@ func TestAgentLoop_MCPBlock_EmitsBlockedEvent(t *testing.T) {
 		t.Fatalf("Execute: status=%q err=%v", res.Status, err)
 	}
 
-	blocked := cap.byType(telemetry.EventOrchestratorMCPToolBlocked)
+	blocked := cap.byType(telemetry.EventMCPToolBlocked)
 	if len(blocked) != 1 {
 		t.Fatalf("blocked events = %d, want 1", len(blocked))
 	}
@@ -197,8 +203,8 @@ func TestAgentLoop_MCPBlock_EmitsBlockedEvent(t *testing.T) {
 	}
 	// Block path must NOT emit the dispatched event — that would
 	// mislead operators who alert on dispatched calls.
-	if dispatched := cap.byType(telemetry.EventOrchestratorMCPToolDispatched); len(dispatched) != 0 {
-		t.Errorf("dispatched events = %d, want 0 on block", len(dispatched))
+	if completed := cap.byType(telemetry.EventMCPToolCompleted); len(completed) != 0 {
+		t.Errorf("completed events = %d, want 0 on block", len(completed))
 	}
 
 	calls := findMetricSum(t, reader, telemetry.MetricOrchestratorMCPToolCallsTotal)
@@ -214,7 +220,7 @@ func TestAgentLoop_MCPBlock_EmitsBlockedEvent(t *testing.T) {
 
 // TestAgentLoop_MCPTransportError_EmitsFailedEvent: a protocol-level
 // failure from the host (host.Call returned err) emits
-// mcp.tool.failed and counter result=failed.
+// tool.failed and counter result=failed.
 func TestAgentLoop_MCPTransportError_EmitsFailedEvent(t *testing.T) {
 	t.Parallel()
 	host := &fakeMCPHost{
@@ -250,7 +256,7 @@ func TestAgentLoop_MCPTransportError_EmitsFailedEvent(t *testing.T) {
 		t.Fatalf("Execute: %v", err)
 	}
 
-	failed := cap.byType(telemetry.EventOrchestratorMCPToolFailed)
+	failed := cap.byType(telemetry.EventMCPToolFailed)
 	if len(failed) != 1 {
 		t.Fatalf("failed events = %d, want 1", len(failed))
 	}
@@ -267,7 +273,7 @@ func TestAgentLoop_MCPTransportError_EmitsFailedEvent(t *testing.T) {
 
 // TestAgentLoop_MCPToolError_RecordedAsToolError: an upstream-returned
 // is_error=true is functionally a tool failure but a protocol success;
-// it lands on .dispatched with result=tool_error so dashboards can
+// it lands on tool.completed with result=tool_error so dashboards can
 // chart "model errors" separately from "transport failures."
 func TestAgentLoop_MCPToolError_RecordedAsToolError(t *testing.T) {
 	t.Parallel()
@@ -304,11 +310,11 @@ func TestAgentLoop_MCPToolError_RecordedAsToolError(t *testing.T) {
 		t.Fatalf("Execute: %v", err)
 	}
 
-	dispatched := cap.byType(telemetry.EventOrchestratorMCPToolDispatched)
-	if len(dispatched) != 1 {
-		t.Fatalf("dispatched events = %d, want 1", len(dispatched))
+	completed := cap.byType(telemetry.EventMCPToolCompleted)
+	if len(completed) != 1 {
+		t.Fatalf("completed events = %d, want 1", len(completed))
 	}
-	if got := dispatched[0].Data["result"]; got != telemetry.MCPCallResultToolError {
+	if got := completed[0].Data["result"]; got != telemetry.MCPCallResultToolError {
 		t.Errorf("result attr = %v, want %q", got, telemetry.MCPCallResultToolError)
 	}
 

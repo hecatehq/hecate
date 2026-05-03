@@ -142,7 +142,7 @@ sequenceDiagram
             else mcp__server__tool
                 Tools->>MCP: call upstream tool
                 MCP-->>Tools: result (or is_error=true)
-                Tools->>Store: emit mcp.tool.dispatched / failed / blocked
+                Tools->>Store: emit tool.completed / failed or policy.tool_blocked
             end
             Tools-->>Agent: tool result text
             Agent->>Store: persist updated conversation

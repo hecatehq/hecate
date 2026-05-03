@@ -83,15 +83,13 @@ const (
 	EventOrchestratorApprovalFailed    = "orchestrator.approval.failed"
 
 	// MCP-tool-call events — emitted by dispatchMCPToolCall on every
-	// dispatch outcome. Together with the per-step orchestrator
-	// records they form the audit trail for external MCP usage:
-	// which task / run hit which server / tool, when, with what
-	// outcome. Block decisions emit too — the LLM never reached the
-	// upstream, but the operator's policy fired and that's a
-	// security-relevant signal.
-	EventOrchestratorMCPToolDispatched = "orchestrator.mcp.tool.dispatched"
-	EventOrchestratorMCPToolFailed     = "orchestrator.mcp.tool.failed"
-	EventOrchestratorMCPToolBlocked    = "orchestrator.mcp.tool.blocked"
+	// dispatch outcome using the generic event-protocol taxonomy.
+	// MCP details stay in the payload so frontends can render all
+	// tool kinds uniformly while operators can still filter by
+	// server/tool.
+	EventMCPToolCompleted = "tool.completed"
+	EventMCPToolFailed    = "tool.failed"
+	EventMCPToolBlocked   = "policy.tool_blocked"
 )
 
 // MCP-tool-call result values for telemetry attributes / event

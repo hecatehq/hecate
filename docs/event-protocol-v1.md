@@ -587,22 +587,29 @@ Frontends render this as a sticky panel that updates in place.
 
 `tool.web_fetch.*` and `tool.web_search.*` follow the same shape with extra fields (`extracted_text_artifact_id`, search-result hits, etc.).
 
-### `tool.mcp.*`
+### MCP-dispatched tools
 
-Calls to external MCP servers. The server name comes from the tool name's prefix (`mcp__filesystem__read_text_file` → server `filesystem`).
+Calls to external MCP servers use the generic tool taxonomy. The server name comes from the tool name's prefix (`mcp__filesystem__read_text_file` → server `filesystem`) and is carried in MCP-specific payload fields.
 
 ```json
-{ "type": "tool.mcp.invoked", "data": {
+{ "type": "tool.completed", "data": {
     "tool_call_id": "call_01JXMZ...",
     "tool_name": "mcp__filesystem__read_text_file",
+    "kind": "mcp",
     "mcp_server": "filesystem",
-    "input": { "path": "/workspace/README.md" }
+    "mcp_tool": "read_text_file",
+    "result": "dispatched",
+    "duration_ms": 88
 }}
 
-{ "type": "tool.mcp.completed", "data": {
+{ "type": "policy.tool_blocked", "data": {
     "tool_call_id": "call_01JXMZ...",
-    "result_artifact_id": "art_01JXMZ...",
-    "is_error": false
+    "tool_name": "mcp__github__delete_repo",
+    "kind": "mcp",
+    "mcp_server": "github",
+    "mcp_tool": "delete_repo",
+    "result": "blocked",
+    "reason": "approval_policy=block"
 }}
 ```
 
@@ -685,7 +692,7 @@ This is the single most important architectural call in the protocol. Without it
 | `fetched_resource` | response body + headers + URL | `tool.http.*`, `tool.web_fetch.*` |
 | `search_results` | structured JSON | `tool.web_search.*` |
 | `image` | binary + mime | `user.attachment` (image inputs) |
-| `tool_result_blob` | opaque bytes + mime | `tool.mcp.*` for non-text MCP results |
+| `tool_result_blob` | opaque bytes + mime | `tool.completed` with `kind=mcp` for non-text MCP results |
 
 ### Patch artifact (the important one)
 
@@ -849,13 +856,11 @@ event endpoints and the cross-run feed. The implemented typed event slice is:
   `assistant.final_answer`
 - `tool.invoked`, `tool.started`, `tool.shell.command`,
   `tool.shell.output_chunk`, `tool.shell.exited`, `tool.completed`,
-  `tool.failed`, `tool.timed_out`
+  `tool.failed`, `tool.timed_out`, `policy.tool_blocked`
 - `approval.requested`, `approval.resolved`
 
 The remaining normalization work is intentionally narrow:
 
-- Replace MCP-specific `mcp.tool.*` event names with the generic `tool.*` /
-  `policy.*` taxonomy while preserving MCP details in `data`.
 - Map queue/reconciliation operational events into `gap.*` or `error.*`
   events.
 - Add payload-specific schemas or generated Go/TypeScript types for the
