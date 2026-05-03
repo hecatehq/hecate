@@ -12,6 +12,7 @@ type Props = {
 
 type VisibleChatMessage = {
   id: string;
+  run_id?: string;
   role: string;
   content: string | null;
   created_at?: string;
@@ -21,6 +22,7 @@ type VisibleChatMessage = {
   agent_status?: string;
   cost_mode?: string;
   diff_stat?: string;
+  duration_ms?: number;
 };
 
 export function ChatView({ state, actions }: Props) {
@@ -63,6 +65,7 @@ export function ChatView({ state, actions }: Props) {
   const messages: VisibleChatMessage[] = isAgentChat
     ? (state.activeAgentChatSession?.messages ?? []).map((m, index) => ({
         id: m.id || `agent-message-${index}`,
+        run_id: m.run_id,
         role: m.role,
         content: m.content,
         created_at: m.created_at,
@@ -71,6 +74,7 @@ export function ChatView({ state, actions }: Props) {
         agent_status: m.status,
         cost_mode: m.cost_mode,
         diff_stat: m.diff_stat,
+        duration_ms: m.duration_ms,
       }))
     : (state.activeChatSession?.messages ?? []).map((m) => ({
         id: m.id,
@@ -432,6 +436,7 @@ export function ChatView({ state, actions }: Props) {
             const content = typeof m.content === "string" ? m.content : (m.content === null ? "" : JSON.stringify(m.content));
             const time = m.created_at ? new Date(m.created_at).toLocaleTimeString("en-US", { hour: "2-digit", minute: "2-digit" }) : "";
             const agentModel = m.agent_adapter_name || m.agent_adapter_id;
+            const agentRuntime = isAgentChat && role === "assistant" ? formatAgentRuntimeMeta(m.run_id, m.duration_ms) : "";
             return (
               <MessageRow
                 key={m.id}
@@ -444,6 +449,7 @@ export function ChatView({ state, actions }: Props) {
                 completionTokens={call?.completion_tokens}
                 costUsd={call?.cost_usd}
                 badge={isAgentChat && role === "assistant" ? (m.agent_status || m.cost_mode) : undefined}
+                runtimeMeta={agentRuntime}
                 onCopy={copyMsg}
                 copied={copiedMsgId === m.id}
               />
@@ -659,15 +665,39 @@ function ChatErrorPanel({
   );
 }
 
+function formatAgentRuntimeMeta(runID?: string, durationMS?: number): string {
+  const parts: string[] = [];
+  if (runID) {
+    parts.push(`run ${runID.slice(0, 12)}`);
+  }
+  if (durationMS && durationMS > 0) {
+    parts.push(formatDuration(durationMS));
+  }
+  return parts.join(" · ");
+}
+
+function formatDuration(durationMS: number): string {
+  if (durationMS < 1000) {
+    return `${durationMS}ms`;
+  }
+  const seconds = durationMS / 1000;
+  if (seconds < 60) {
+    return `${seconds.toFixed(seconds < 10 ? 1 : 0)}s`;
+  }
+  const minutes = Math.floor(seconds / 60);
+  const rest = Math.round(seconds % 60);
+  return `${minutes}m ${rest}s`;
+}
+
 // (ModelPicker now lives in shared/ui — single component shared by the
 // chat header, the new-task slideover, and any future surface that
 // needs to pick a model with type-to-filter + disabled-provider
 // awareness.)
 
-function MessageRow({ id, role, model, content, time, promptTokens, completionTokens, costUsd, badge, onCopy, copied }: {
+function MessageRow({ id, role, model, content, time, promptTokens, completionTokens, costUsd, badge, runtimeMeta, onCopy, copied }: {
   id: string; role: "user" | "assistant"; model?: string; content: string;
   time: string; promptTokens?: number; completionTokens?: number; costUsd?: string;
-  badge?: string;
+  badge?: string; runtimeMeta?: string;
   onCopy: (id: string, text: string) => void; copied: boolean;
 }) {
   const [hovered, setHovered] = useState(false);
@@ -703,6 +733,9 @@ function MessageRow({ id, role, model, content, time, promptTokens, completionTo
             )}
             {isAssistant && badge && (
               <span className="badge badge-muted" style={{ fontSize: 10 }}>{badge}</span>
+            )}
+            {isAssistant && runtimeMeta && (
+              <span style={{ fontSize: 10, color: "var(--t3)", fontFamily: "var(--font-mono)" }}>{runtimeMeta}</span>
             )}
             <div style={{ marginLeft: "auto", display: "flex", gap: 4, opacity: hovered ? 1 : 0, transition: "opacity 0.15s" }}>
               <button className="btn btn-ghost btn-sm" style={{ padding: "2px 6px", gap: 4 }}

@@ -202,8 +202,11 @@ func (h *Handler) HandleCreateAgentChatMessage(w http.ResponseWriter, r *http.Re
 	}
 	h.agentChatLive.publish(updated)
 	assistantID := newAgentChatID("msg")
+	runID := newAgentChatID("agent_run")
+	startedAt := time.Now().UTC()
 	updated, err = h.agentChat.AppendMessage(r.Context(), session.ID, agentchat.Message{
 		ID:          assistantID,
+		RunID:       runID,
 		Role:        "assistant",
 		Content:     "",
 		AdapterID:   adapter.ID,
@@ -212,6 +215,7 @@ func (h *Handler) HandleCreateAgentChatMessage(w http.ResponseWriter, r *http.Re
 		CostMode:    adapter.CostMode,
 		Workspace:   session.Workspace,
 		CreatedAt:   time.Now().UTC(),
+		StartedAt:   startedAt,
 	})
 	if err != nil {
 		WriteError(w, http.StatusInternalServerError, "gateway_error", err.Error())
@@ -257,6 +261,20 @@ func (h *Handler) HandleCreateAgentChatMessage(w http.ResponseWriter, r *http.Re
 	if output == "" {
 		output = "(agent completed without output)"
 	}
+	completedAt := time.Now().UTC()
+	if !result.StartedAt.IsZero() {
+		startedAt = result.StartedAt
+	}
+	if !result.CompletedAt.IsZero() {
+		completedAt = result.CompletedAt
+	}
+	errorText := ""
+	if runErr != nil {
+		errorText = runErr.Error()
+	}
+	if status == "cancelled" {
+		errorText = "cancelled"
+	}
 
 	updated, err = h.agentChat.UpdateMessage(r.Context(), session.ID, assistantID, func(message *agentchat.Message) {
 		if strings.TrimSpace(message.Content) == "" || runErr != nil {
@@ -266,6 +284,9 @@ func (h *Handler) HandleCreateAgentChatMessage(w http.ResponseWriter, r *http.Re
 		message.ExitCode = result.ExitCode
 		message.DiffStat = result.DiffStat
 		message.Diff = result.Diff
+		message.StartedAt = startedAt
+		message.CompletedAt = completedAt
+		message.Error = errorText
 	})
 	if err != nil {
 		WriteError(w, http.StatusInternalServerError, "gateway_error", err.Error())
@@ -294,6 +315,7 @@ func renderAgentChatSession(session agentchat.Session) AgentChatSessionItem {
 	for _, message := range session.Messages {
 		messages = append(messages, AgentChatMessageItem{
 			ID:          message.ID,
+			RunID:       message.RunID,
 			Role:        message.Role,
 			Content:     message.Content,
 			AdapterID:   message.AdapterID,
@@ -305,6 +327,10 @@ func renderAgentChatSession(session agentchat.Session) AgentChatSessionItem {
 			DiffStat:    message.DiffStat,
 			Diff:        message.Diff,
 			CreatedAt:   formatOptionalTime(message.CreatedAt),
+			StartedAt:   formatOptionalTime(message.StartedAt),
+			CompletedAt: formatOptionalTime(message.CompletedAt),
+			DurationMS:  durationMillis(message.StartedAt, message.CompletedAt),
+			Error:       message.Error,
 		})
 	}
 	return AgentChatSessionItem{
@@ -318,6 +344,13 @@ func renderAgentChatSession(session agentchat.Session) AgentChatSessionItem {
 		UpdatedAt:       formatOptionalTime(session.UpdatedAt),
 		Messages:        messages,
 	}
+}
+
+func durationMillis(startedAt, completedAt time.Time) int64 {
+	if startedAt.IsZero() || completedAt.IsZero() || completedAt.Before(startedAt) {
+		return 0
+	}
+	return completedAt.Sub(startedAt).Milliseconds()
 }
 
 func sendAgentChatSSE(w http.ResponseWriter, flusher http.Flusher, event string, payload AgentChatSessionResponse) {

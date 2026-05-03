@@ -588,6 +588,7 @@ type AgentChatSessionItem struct {
 
 type AgentChatMessageItem struct {
 	ID          string `json:"id"`
+	RunID       string `json:"run_id,omitempty"`
 	Role        string `json:"role"`
 	Content     string `json:"content"`
 	AdapterID   string `json:"adapter_id,omitempty"`
@@ -599,6 +600,10 @@ type AgentChatMessageItem struct {
 	DiffStat    string `json:"diff_stat,omitempty"`
 	Diff        string `json:"diff,omitempty"`
 	CreatedAt   string `json:"created_at,omitempty"`
+	StartedAt   string `json:"started_at,omitempty"`
+	CompletedAt string `json:"completed_at,omitempty"`
+	DurationMS  int64  `json:"duration_ms,omitempty"`
+	Error       string `json:"error,omitempty"`
 }
 
 type WorkspaceDialogResponseItem struct {

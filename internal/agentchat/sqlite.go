@@ -165,14 +165,15 @@ func (s *SQLiteStore) AppendMessage(ctx context.Context, sessionID string, messa
 		ctx,
 		fmt.Sprintf(
 			`INSERT INTO %s (
-				id, session_id, sequence, role, content, adapter_id, adapter_name, status, exit_code,
-				cost_mode, workspace, diff_stat, diff, created_at
-			) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+				id, session_id, sequence, run_id, role, content, adapter_id, adapter_name, status, exit_code,
+				cost_mode, workspace, diff_stat, diff, created_at, started_at, completed_at, error
+			) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
 			s.messagesTable,
 		),
 		message.ID,
 		sessionID,
 		nextSeq,
+		message.RunID,
 		message.Role,
 		message.Content,
 		message.AdapterID,
@@ -184,6 +185,9 @@ func (s *SQLiteStore) AppendMessage(ctx context.Context, sessionID string, messa
 		message.DiffStat,
 		message.Diff,
 		message.CreatedAt.UTC(),
+		nullableTime(message.StartedAt),
+		nullableTime(message.CompletedAt),
+		message.Error,
 	); err != nil {
 		return Session{}, fmt.Errorf("insert sqlite agent chat message: %w", err)
 	}
@@ -213,11 +217,13 @@ func (s *SQLiteStore) UpdateMessage(ctx context.Context, sessionID string, messa
 		ctx,
 		fmt.Sprintf(
 			`UPDATE %s SET
-			   role = ?, content = ?, adapter_id = ?, adapter_name = ?, status = ?, exit_code = ?,
-			   cost_mode = ?, workspace = ?, diff_stat = ?, diff = ?, created_at = ?
+			   run_id = ?, role = ?, content = ?, adapter_id = ?, adapter_name = ?, status = ?, exit_code = ?,
+			   cost_mode = ?, workspace = ?, diff_stat = ?, diff = ?, created_at = ?,
+			   started_at = ?, completed_at = ?, error = ?
 			 WHERE id = ? AND session_id = ?`,
 			s.messagesTable,
 		),
+		message.RunID,
 		message.Role,
 		message.Content,
 		message.AdapterID,
@@ -229,6 +235,9 @@ func (s *SQLiteStore) UpdateMessage(ctx context.Context, sessionID string, messa
 		message.DiffStat,
 		message.Diff,
 		message.CreatedAt.UTC(),
+		nullableTime(message.StartedAt),
+		nullableTime(message.CompletedAt),
+		message.Error,
 		messageID,
 		sessionID,
 	); err != nil {
@@ -274,11 +283,15 @@ func (s *SQLiteStore) migrate(ctx context.Context) error {
 				adapter_name TEXT NOT NULL,
 				status TEXT NOT NULL,
 				exit_code INTEGER NOT NULL,
+				run_id TEXT NOT NULL DEFAULT '',
 				cost_mode TEXT NOT NULL,
 				workspace TEXT NOT NULL,
 				diff_stat TEXT NOT NULL,
 				diff TEXT NOT NULL,
 				created_at TIMESTAMP NOT NULL,
+				started_at TIMESTAMP,
+				completed_at TIMESTAMP,
+				error TEXT NOT NULL DEFAULT '',
 				UNIQUE (session_id, sequence)
 			)`,
 			s.messagesTable,
@@ -286,6 +299,19 @@ func (s *SQLiteStore) migrate(ctx context.Context) error {
 		),
 	); err != nil {
 		return fmt.Errorf("migrate sqlite agent chat messages: %w", err)
+	}
+	for _, column := range []struct {
+		name       string
+		definition string
+	}{
+		{name: "run_id", definition: "TEXT NOT NULL DEFAULT ''"},
+		{name: "started_at", definition: "TIMESTAMP"},
+		{name: "completed_at", definition: "TIMESTAMP"},
+		{name: "error", definition: "TEXT NOT NULL DEFAULT ''"},
+	} {
+		if err := s.ensureMessageColumn(ctx, column.name, column.definition); err != nil {
+			return err
+		}
 	}
 
 	messagesIndex := strings.Trim(s.messagesTable, `"`) + "_session_seq_idx"
@@ -330,8 +356,8 @@ func (s *SQLiteStore) loadMessages(ctx context.Context, sessionID string) ([]Mes
 	rows, err := s.client.DB().QueryContext(
 		ctx,
 		fmt.Sprintf(
-			`SELECT id, role, content, adapter_id, adapter_name, status, exit_code, cost_mode,
-			        workspace, diff_stat, diff, created_at
+			`SELECT id, run_id, role, content, adapter_id, adapter_name, status, exit_code, cost_mode,
+			        workspace, diff_stat, diff, created_at, started_at, completed_at, error
 			 FROM %s
 			 WHERE session_id = ?
 			 ORDER BY sequence ASC`,
@@ -347,8 +373,10 @@ func (s *SQLiteStore) loadMessages(ctx context.Context, sessionID string) ([]Mes
 	var messages []Message
 	for rows.Next() {
 		var message Message
+		var startedAt, completedAt sql.NullTime
 		if err := rows.Scan(
 			&message.ID,
+			&message.RunID,
 			&message.Role,
 			&message.Content,
 			&message.AdapterID,
@@ -360,8 +388,17 @@ func (s *SQLiteStore) loadMessages(ctx context.Context, sessionID string) ([]Mes
 			&message.DiffStat,
 			&message.Diff,
 			&message.CreatedAt,
+			&startedAt,
+			&completedAt,
+			&message.Error,
 		); err != nil {
 			return nil, fmt.Errorf("scan sqlite agent chat message: %w", err)
+		}
+		if startedAt.Valid {
+			message.StartedAt = startedAt.Time
+		}
+		if completedAt.Valid {
+			message.CompletedAt = completedAt.Time
 		}
 		messages = append(messages, message)
 	}
@@ -383,6 +420,50 @@ func (s *SQLiteStore) messageCount(ctx context.Context, sessionID string) (int, 
 	return count, nil
 }
 
+func (s *SQLiteStore) ensureMessageColumn(ctx context.Context, column, definition string) error {
+	exists, err := s.columnExists(ctx, s.messagesTable, column)
+	if err != nil {
+		return fmt.Errorf("inspect sqlite agent chat messages columns: %w", err)
+	}
+	if exists {
+		return nil
+	}
+	if _, err := s.client.DB().ExecContext(ctx, fmt.Sprintf(`ALTER TABLE %s ADD COLUMN %s %s`, s.messagesTable, column, definition)); err != nil {
+		return fmt.Errorf("migrate sqlite agent chat messages %s: %w", column, err)
+	}
+	return nil
+}
+
+func (s *SQLiteStore) columnExists(ctx context.Context, quotedTable, column string) (bool, error) {
+	bare := strings.Trim(quotedTable, `"`)
+	rows, err := s.client.DB().QueryContext(ctx, fmt.Sprintf(`PRAGMA table_info("%s")`, bare))
+	if err != nil {
+		return false, err
+	}
+	defer rows.Close()
+
+	for rows.Next() {
+		var (
+			cid       int
+			name      string
+			ctype     string
+			notnull   int
+			dfltValue sql.NullString
+			pk        int
+		)
+		if err := rows.Scan(&cid, &name, &ctype, &notnull, &dfltValue, &pk); err != nil {
+			return false, err
+		}
+		if name == column {
+			return true, nil
+		}
+	}
+	if err := rows.Err(); err != nil {
+		return false, err
+	}
+	return false, nil
+}
+
 type txRunner interface {
 	ExecContext(context.Context, string, ...any) (sql.Result, error)
 	QueryRowContext(context.Context, string, ...any) *sql.Row
@@ -390,11 +471,12 @@ type txRunner interface {
 
 func loadMessage(ctx context.Context, tx txRunner, table string, sessionID string, messageID string) (Message, error) {
 	var message Message
+	var startedAt, completedAt sql.NullTime
 	err := tx.QueryRowContext(
 		ctx,
 		fmt.Sprintf(
-			`SELECT id, role, content, adapter_id, adapter_name, status, exit_code, cost_mode,
-			        workspace, diff_stat, diff, created_at
+			`SELECT id, run_id, role, content, adapter_id, adapter_name, status, exit_code, cost_mode,
+			        workspace, diff_stat, diff, created_at, started_at, completed_at, error
 			 FROM %s
 			 WHERE id = ? AND session_id = ?`,
 			table,
@@ -403,6 +485,7 @@ func loadMessage(ctx context.Context, tx txRunner, table string, sessionID strin
 		sessionID,
 	).Scan(
 		&message.ID,
+		&message.RunID,
 		&message.Role,
 		&message.Content,
 		&message.AdapterID,
@@ -414,6 +497,9 @@ func loadMessage(ctx context.Context, tx txRunner, table string, sessionID strin
 		&message.DiffStat,
 		&message.Diff,
 		&message.CreatedAt,
+		&startedAt,
+		&completedAt,
+		&message.Error,
 	)
 	if err != nil {
 		if errors.Is(err, sql.ErrNoRows) {
@@ -421,7 +507,20 @@ func loadMessage(ctx context.Context, tx txRunner, table string, sessionID strin
 		}
 		return Message{}, fmt.Errorf("read sqlite agent chat message: %w", err)
 	}
+	if startedAt.Valid {
+		message.StartedAt = startedAt.Time
+	}
+	if completedAt.Valid {
+		message.CompletedAt = completedAt.Time
+	}
 	return message, nil
+}
+
+func nullableTime(value time.Time) any {
+	if value.IsZero() {
+		return nil
+	}
+	return value.UTC()
 }
 
 func updateSessionAfterMessage(ctx context.Context, tx txRunner, table string, sessionID string, message Message) error {

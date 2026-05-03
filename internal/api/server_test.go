@@ -1030,6 +1030,9 @@ func TestAgentChatRunsExternalAdapter(t *testing.T) {
 	if assistant.CostMode != "external" {
 		t.Fatalf("cost_mode = %q, want external", assistant.CostMode)
 	}
+	if assistant.RunID == "" || assistant.StartedAt == "" || assistant.CompletedAt == "" || assistant.DurationMS < 0 {
+		t.Fatalf("assistant runtime metadata missing: %#v", assistant)
+	}
 	if got := updated.Data.WorkspaceBranch; got != "" && got != "main" {
 		t.Fatalf("workspace_branch = %q, want empty or main", got)
 	}
