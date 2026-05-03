@@ -248,8 +248,8 @@ is the full text block for the turn.
 ### `assistant.tool_call_proposed`
 
 Emitted once per assistant tool call before policy gates or runtime dispatch.
-The later `approval.*`, `tool.*`, and `orchestrator.mcp.*` events describe what
-Hecate did with that proposal.
+The later `approval.*`, `tool.*`, and `policy.*` events describe what Hecate
+did with that proposal.
 
 | Extra key | Type | Notes |
 |---|---|---|
