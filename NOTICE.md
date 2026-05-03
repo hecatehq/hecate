@@ -1,7 +1,27 @@
 # Third-Party Notices
 
-Hecate uses third-party data released under permissive licenses.
-Copyright notices and license texts are included below.
+Hecate uses third-party data and vendored assets released under
+permissive licenses. Copyright notices and license texts are included
+below or in the referenced files.
+
+## Vendored splash-screen fonts
+
+The native desktop splash screen vendors two font files so the app can
+render the brand lockup without network access during startup:
+
+- Space Grotesk 500: `tauri/splash/fonts/space-grotesk-500.ttf`
+- JetBrains Mono 400: `tauri/splash/fonts/jetbrains-mono-400.ttf`
+
+Space Grotesk is copyright 2020 The Space Grotesk Project Authors
+(<https://github.com/floriankarsten/space-grotesk>). JetBrains Mono is
+copyright 2020 The JetBrains Mono Project Authors
+(<https://github.com/JetBrains/JetBrainsMono>).
+
+Both font files are licensed under the SIL Open Font License, Version
+1.1. The bundled license texts are included at:
+
+- `tauri/splash/fonts/OFL-space-grotesk.txt`
+- `tauri/splash/fonts/OFL-jetbrains-mono.txt`
 
 ## LiteLLM model pricing data
 
