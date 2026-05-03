@@ -161,8 +161,8 @@ Filters AND together; within a slice (`event_type` is comma-separated) the match
 The full catalog of event types — including payload shapes, when each fires, and per-event extras — lives in [`events.md`](events.md). Highlights:
 
 - `run.*` lifecycle (`run.created` / `run.queued` / `run.running` / `run.completed` / `run.failed` / `run.cancelled`)
-- `step.*` and `artifact.*` for in-run timeline detail
-- `approval.requested` / `approval.approved` / `approval.rejected` for human-gating flows
+- typed `tool.*` events for in-run tool lifecycle detail
+- `approval.requested` / `approval.resolved` for human-gating flows
 - `agent.turn.completed` for per-LLM-turn cost ledgers in `agent_loop` runs
 - `run.resumed` / `run.resume_requested` for resume / retry-from-turn chains
 

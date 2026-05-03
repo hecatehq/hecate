@@ -453,12 +453,15 @@ func (h *Handler) HandleResolveTaskApproval(w http.ResponseWriter, r *http.Reque
 	_, _ = h.taskStore.AppendRunEvent(ctx, types.TaskRunEvent{
 		TaskID:    task.ID,
 		RunID:     approval.RunID,
-		EventType: "approval." + approval.Status,
+		EventType: "approval.resolved",
 		Data: map[string]any{
 			"approval_id": approval.ID,
+			"decision":    approval.Status,
+			"by":          approval.ResolvedBy,
+			"comment":     approval.ResolutionNote,
+			"scope":       "once",
 			"kind":        approval.Kind,
 			"status":      approval.Status,
-			"note":        approval.ResolutionNote,
 		},
 		RequestID: RequestIDFromContext(ctx),
 		TraceID:   telemetry.TraceIDsFromContext(ctx).TraceID,

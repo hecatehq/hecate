@@ -1403,10 +1403,7 @@ func (r *Runner) executeRun(ctx context.Context, trace *profiler.Trace, task typ
 		if _, err := r.store.CreateApproval(ctx, approval); err != nil {
 			return nil, err
 		}
-		_, _ = r.emitRunEvent(ctx, task.ID, run.ID, "approval.requested", requestID, trace.TraceID, map[string]any{
-			"approval_id":   approval.ID,
-			"approval_kind": approval.Kind,
-		})
+		_, _ = r.emitRunEvent(ctx, task.ID, run.ID, "approval.requested", requestID, trace.TraceID, approvalRequestedEventData(approval))
 	}
 
 	resultKind := telemetry.ResultSuccess
@@ -1812,12 +1809,24 @@ func (r *Runner) createApprovalForTask(ctx context.Context, trace *profiler.Trac
 		})
 		return types.TaskApproval{}, err
 	}
-	_, _ = r.emitRunEvent(ctx, task.ID, run.ID, "approval.requested", requestID, trace.TraceID, map[string]any{
-		"approval_id": approval.ID,
-		"kind":        approval.Kind,
-		"status":      approval.Status,
-	})
+	_, _ = r.emitRunEvent(ctx, task.ID, run.ID, "approval.requested", requestID, trace.TraceID, approvalRequestedEventData(approval))
 	return approval, nil
+}
+
+func approvalRequestedEventData(approval types.TaskApproval) map[string]any {
+	data := map[string]any{
+		"approval_id":   approval.ID,
+		"kind":          approval.Kind,
+		"status":        approval.Status,
+		"policy_reason": approval.Reason,
+	}
+	if approval.StepID != "" {
+		data["step_id"] = approval.StepID
+	}
+	if approval.RequestedBy != "" {
+		data["requested_by"] = approval.RequestedBy
+	}
+	return data
 }
 
 func (r *Runner) emitRunEvent(ctx context.Context, taskID, runID, eventType, requestID, traceID string, extra map[string]any) (types.TaskRunEvent, error) {

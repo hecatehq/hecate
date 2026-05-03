@@ -1730,6 +1730,8 @@ func TestTaskStartShellExecutor(t *testing.T) {
 	if resolved.Data.Status != "approved" {
 		t.Fatalf("approval status = %q, want approved", resolved.Data.Status)
 	}
+	eventsAfterApproval := mustTaskRequestJSON[TaskRunEventsResponse](tasks, http.MethodGet, "/v1/tasks/"+created.Data.ID+"/runs/"+started.Data.ID+"/events", "")
+	assertApprovalResolvedEvent(t, eventsAfterApproval.Data, approvals.Data[0].ID, "approved", "looks safe")
 
 	partialArtifacts := waitForRunArtifactsContaining(t, handler, created.Data.ID, started.Data.ID, "stdout", "hello ")
 	foundPartial := false
@@ -1855,6 +1857,8 @@ func TestTaskRejectApprovalCancelsRun(t *testing.T) {
 	if resolved.Data.ResolutionNote != "not safe" {
 		t.Fatalf("resolution_note = %q, want not safe", resolved.Data.ResolutionNote)
 	}
+	eventsAfterApproval := mustTaskRequestJSON[TaskRunEventsResponse](tasks, http.MethodGet, "/v1/tasks/"+created.Data.ID+"/runs/"+started.Data.ID+"/events", "")
+	assertApprovalResolvedEvent(t, eventsAfterApproval.Data, approvals.Data[0].ID, "rejected", "not safe")
 
 	cancelledRun := waitForRunStatus(t, handler, created.Data.ID, started.Data.ID, "cancelled")
 	if cancelledRun.Data.LastError != "approval rejected" {
@@ -3146,6 +3150,35 @@ func countTaskRunEvents(events []TaskRunEventItem, eventType string) int {
 		}
 	}
 	return count
+}
+
+func assertApprovalResolvedEvent(t *testing.T, events []TaskRunEventItem, approvalID, decision, comment string) {
+	t.Helper()
+	for _, event := range events {
+		if event.EventType == "approval.approved" || event.EventType == "approval.rejected" {
+			t.Fatalf("legacy approval event %q emitted", event.EventType)
+		}
+		if event.EventType != "approval.resolved" {
+			continue
+		}
+		if event.Data["approval_id"] != approvalID {
+			continue
+		}
+		if event.Data["decision"] != decision {
+			t.Fatalf("approval.resolved decision = %v, want %s", event.Data["decision"], decision)
+		}
+		if event.Data["comment"] != comment {
+			t.Fatalf("approval.resolved comment = %v, want %s", event.Data["comment"], comment)
+		}
+		if event.Data["scope"] != "once" {
+			t.Fatalf("approval.resolved scope = %v, want once", event.Data["scope"])
+		}
+		if event.Data["by"] != "operator" {
+			t.Fatalf("approval.resolved by = %v, want operator", event.Data["by"])
+		}
+		return
+	}
+	t.Fatalf("approval.resolved event for %s not found", approvalID)
 }
 
 func containsStatus(status string, statuses ...string) bool {
