@@ -714,30 +714,16 @@ func (r *Runner) startTaskWithOptions(ctx context.Context, task types.Task, idge
 		recordOrchestratorRunFailed(trace, task.ID, run.ID, "run_create_failed", err)
 		return nil, err
 	}
-	createEvent := map[string]any{}
+	_, _ = r.emitRunEvent(ctx, task.ID, run.ID, "run.created", requestID, trace.TraceID, nil)
 	if options.ResumeFromRun != nil {
-		createEvent["resumed_from_run_id"] = options.ResumeFromRun.ID
-		createEvent["resume_reason"] = options.ResumeReason
-		if options.RetryFromTurn > 0 {
-			createEvent["retry_from_turn"] = options.RetryFromTurn
-		}
-	}
-	_, _ = r.emitRunEvent(ctx, task.ID, run.ID, "run.created", requestID, trace.TraceID, createEvent)
-	if options.ResumeFromRun != nil {
-		resumeRequestedData := map[string]any{
-			"new_run_id": run.ID,
-			"reason":     options.ResumeReason,
-		}
 		resumedData := map[string]any{
 			"resumed_from_run_id": options.ResumeFromRun.ID,
 			"reason":              options.ResumeReason,
 		}
 		if options.RetryFromTurn > 0 {
-			resumeRequestedData["retry_from_turn"] = options.RetryFromTurn
 			resumedData["retry_from_turn"] = options.RetryFromTurn
 		}
-		_, _ = r.emitRunEvent(ctx, task.ID, options.ResumeFromRun.ID, "run.resume_requested", requestID, trace.TraceID, resumeRequestedData)
-		_, _ = r.emitRunEvent(ctx, task.ID, run.ID, "run.resumed", requestID, trace.TraceID, resumedData)
+		_, _ = r.emitRunEvent(ctx, task.ID, run.ID, "run.resumed_from_event", requestID, trace.TraceID, resumedData)
 	}
 
 	recordOrchestratorRunStarted(trace, task.ID, run)
@@ -767,7 +753,7 @@ func (r *Runner) startTaskWithOptions(ctx context.Context, task types.Task, idge
 	} else {
 		// Emit run.queued before Enqueue. The in-memory queue can dispatch
 		// to a worker synchronously, so emitting after Enqueue risks the
-		// worker writing run.running before run.queued is persisted.
+		// worker writing run.started before run.queued is persisted.
 		_, _ = r.emitRunEvent(ctx, task.ID, run.ID, "run.queued", requestID, trace.TraceID, nil)
 		trace.Record(telemetry.EventQueueEnqueued, map[string]any{
 			telemetry.AttrHecateTaskID:       task.ID,
@@ -857,7 +843,6 @@ func (r *Runner) ResumeTaskAfterApproval(ctx context.Context, task types.Task, a
 	if _, err := r.store.UpdateRun(ctx, run); err != nil {
 		return nil, err
 	}
-	_, _ = r.emitRunEvent(ctx, task.ID, run.ID, "run.finished", requestID, trace.TraceID, map[string]any{"status": run.Status})
 	_, _ = r.emitRunEvent(ctx, task.ID, run.ID, "run.queued", requestID, trace.TraceID, map[string]any{"resume": true})
 
 	task.Status = "queued"
@@ -1198,7 +1183,7 @@ func (r *Runner) processQueuedRun(claim QueueClaim) {
 		runEvent["resume_from_step_id"] = resumeCheckpoint.LastCompletedStepID
 		runEvent["resume_from_event_sequence"] = resumeCheckpoint.LastEventSequence
 	}
-	_, _ = r.emitRunEvent(ctx, task.ID, run.ID, "run.running", requestID, trace.TraceID, runEvent)
+	_, _ = r.emitRunEvent(ctx, task.ID, run.ID, "run.started", requestID, trace.TraceID, runEvent)
 
 	if _, err := r.executeRun(ctx, trace, task, run, requestID, resumeCheckpoint); err != nil {
 		finalStatus := "failed"
@@ -1484,7 +1469,7 @@ func (r *Runner) executeRun(ctx context.Context, trace *profiler.Trace, task typ
 		return nil, err
 	}
 	if emitTerminalEvent {
-		_, _ = r.emitRunEvent(ctx, task.ID, run.ID, "run."+run.Status, requestID, trace.TraceID, map[string]any{
+		_, _ = r.emitRunEvent(ctx, task.ID, run.ID, terminalRunEventType(run.Status), requestID, trace.TraceID, map[string]any{
 			"error":  run.LastError,
 			"status": run.Status,
 		})
@@ -1532,7 +1517,7 @@ func (r *Runner) finalizeFailedRun(ctx context.Context, trace *profiler.Trace, t
 		Model:         run.Model,
 		DurationMS:    failedRunDurationMS,
 	})
-	_, _ = r.emitRunEvent(ctx, task.ID, run.ID, "run."+status, requestID, trace.TraceID, map[string]any{"error": message})
+	_, _ = r.emitRunEvent(ctx, task.ID, run.ID, terminalRunEventType(status), requestID, trace.TraceID, map[string]any{"error": message, "status": status})
 	task.Status = status
 	task.LatestRunID = run.ID
 	task.LastError = message
@@ -1591,6 +1576,9 @@ func (r *Runner) resumeCheckpointForRun(ctx context.Context, taskID, runID strin
 	retryFromTurn := 0
 	for i := len(events) - 1; i >= 0; i-- {
 		event := events[i]
+		if event.EventType != "run.resumed_from_event" {
+			continue
+		}
 		value, ok := event.Data["resumed_from_run_id"]
 		if !ok {
 			continue
@@ -1602,8 +1590,6 @@ func (r *Runner) resumeCheckpointForRun(ctx context.Context, taskID, runID strin
 		}
 		sourceRunID = candidate
 		if rawReason, ok := event.Data["reason"]; ok {
-			reason, _ = rawReason.(string)
-		} else if rawReason, ok := event.Data["resume_reason"]; ok {
 			reason, _ = rawReason.(string)
 		}
 		// retry_from_turn is event-data JSON-decoded — depending on
@@ -1906,6 +1892,13 @@ func firstNonEmpty(values ...string) string {
 		}
 	}
 	return ""
+}
+
+func terminalRunEventType(status string) string {
+	if status == "completed" {
+		return "run.finished"
+	}
+	return "run." + status
 }
 
 func recordOrchestratorRunStarted(trace *profiler.Trace, taskID string, run types.TaskRun) {

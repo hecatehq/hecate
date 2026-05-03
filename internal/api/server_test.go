@@ -1662,8 +1662,8 @@ func TestTaskRunLifecycleEventsForSuccessfulRun(t *testing.T) {
 		t.Fatalf("completed status = %q, want completed", completed.Data.Status)
 	}
 
-	events := waitForRunEvent(t, handler, created.Data.ID, started.Data.ID, "run.completed")
-	assertEventOrder(t, events.Data, []string{"run.created", "run.queued", "run.running", "run.completed"})
+	events := waitForRunEvent(t, handler, created.Data.ID, started.Data.ID, "run.finished")
+	assertEventOrder(t, events.Data, []string{"run.created", "run.queued", "run.started", "run.finished"})
 	assertEventSequencesIncrease(t, events.Data)
 
 	for _, event := range events.Data {
@@ -1673,9 +1673,9 @@ func TestTaskRunLifecycleEventsForSuccessfulRun(t *testing.T) {
 		if event.TraceID == "" {
 			t.Fatalf("event %s trace_id is empty", event.EventType)
 		}
-		if event.EventType == "run.completed" {
+		if event.EventType == "run.finished" {
 			if status, _ := event.Data["status"].(string); status != "completed" {
-				t.Fatalf("run.completed status payload = %q, want completed", status)
+				t.Fatalf("run.finished status payload = %q, want completed", status)
 			}
 		}
 	}
@@ -2062,7 +2062,7 @@ func TestTaskRunCancellation(t *testing.T) {
 	}
 
 	events := waitForRunEvent(t, handler, created.Data.ID, started.Data.ID, "run.cancelled")
-	assertEventOrder(t, events.Data, []string{"run.created", "run.queued", "run.running", "run.cancelled"})
+	assertEventOrder(t, events.Data, []string{"run.created", "run.queued", "run.started", "run.cancelled"})
 	cancelledCount := countTaskRunEvents(events.Data, "run.cancelled")
 	if cancelledCount != 1 {
 		t.Fatalf("run.cancelled event count = %d, want 1", cancelledCount)
@@ -2698,16 +2698,16 @@ func TestTaskRunResumeFromCancelledRun(t *testing.T) {
 	events := mustTaskRequestJSON[TaskRunEventsResponse](tasks, http.MethodGet, "/v1/tasks/"+created.Data.ID+"/runs/"+resumed.Data.ID+"/events", "")
 	foundResumedEvent := false
 	for _, event := range events.Data {
-		if event.EventType != "run.resumed" {
+		if event.EventType != "run.resumed_from_event" {
 			continue
 		}
 		foundResumedEvent = true
 		if got, _ := event.Data["resumed_from_run_id"].(string); got != started.Data.ID {
-			t.Fatalf("run.resumed resumed_from_run_id = %q, want %q", got, started.Data.ID)
+			t.Fatalf("run.resumed_from_event resumed_from_run_id = %q, want %q", got, started.Data.ID)
 		}
 	}
 	if !foundResumedEvent {
-		t.Fatal("missing run.resumed event for resumed run")
+		t.Fatal("missing run.resumed_from_event event for resumed run")
 	}
 }
 

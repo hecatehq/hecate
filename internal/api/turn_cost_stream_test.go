@@ -130,7 +130,7 @@ func TestDecodeTaskRunEventData_OtherEventsUnaffected(t *testing.T) {
 	h := &Handler{}
 	// Snapshot-shaped event (the legacy path).
 	event := types.TaskRunEvent{
-		EventType: "run.running",
+		EventType: "run.started",
 		Data: map[string]any{
 			"snapshot": map[string]any{
 				"run": map[string]any{"id": "run-A", "task_id": "task-A"},
@@ -142,7 +142,7 @@ func TestDecodeTaskRunEventData_OtherEventsUnaffected(t *testing.T) {
 		t.Fatalf("decodeTaskRunEventData error = %v", err)
 	}
 	if !ok {
-		t.Fatal("decodeTaskRunEventData(run.running) ok = false, want true")
+		t.Fatal("decodeTaskRunEventData(run.started) ok = false, want true")
 	}
 	if state.Run.ID != "run-A" {
 		t.Errorf("state.Run.ID = %q, want run-A", state.Run.ID)

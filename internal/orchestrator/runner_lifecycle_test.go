@@ -253,8 +253,8 @@ func TestRunner_FileExecutor_FullLifecycle(t *testing.T) {
 		t.Fatalf("ListRunEvents: %v", err)
 	}
 
-	// Assert the required subsequence: created → queued → running → completed.
-	wantOrder := []string{"run.created", "run.queued", "run.running", "run.completed"}
+	// Assert the required subsequence: created → queued → started → finished.
+	wantOrder := []string{"run.created", "run.queued", "run.started", "run.finished"}
 	cursor := 0
 	for _, e := range events {
 		if cursor >= len(wantOrder) {
