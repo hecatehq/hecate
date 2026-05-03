@@ -15,37 +15,37 @@ import (
 	"github.com/hecate/agent-runtime/internal/acp"
 )
 
-func TestGatewayURLFromStateFile(t *testing.T) {
+func TestGatewayURLFromRuntimeFile(t *testing.T) {
 	t.Parallel()
 
-	path := filepath.Join(t.TempDir(), "gateway-state.json")
+	path := filepath.Join(t.TempDir(), "hecate.runtime.json")
 	if err := os.WriteFile(path, []byte(`{"base_url":"http://127.0.0.1:52341","port":52341}`), 0o600); err != nil {
 		t.Fatalf("write state: %v", err)
 	}
 
-	got, err := gatewayURLFromStateFile(path)
+	got, err := gatewayURLFromRuntimeFile(path)
 	if err != nil {
-		t.Fatalf("gatewayURLFromStateFile() error = %v", err)
+		t.Fatalf("gatewayURLFromRuntimeFile() error = %v", err)
 	}
 	if got != "http://127.0.0.1:52341" {
-		t.Fatalf("gatewayURLFromStateFile() = %q", got)
+		t.Fatalf("gatewayURLFromRuntimeFile() = %q", got)
 	}
 }
 
-func TestGatewayURLFromStateFileRejectsInvalidURL(t *testing.T) {
+func TestGatewayURLFromRuntimeFileRejectsInvalidURL(t *testing.T) {
 	t.Parallel()
 
-	path := filepath.Join(t.TempDir(), "gateway-state.json")
+	path := filepath.Join(t.TempDir(), "hecate.runtime.json")
 	if err := os.WriteFile(path, []byte(`{"base_url":"file:///tmp/hecate"}`), 0o600); err != nil {
 		t.Fatalf("write state: %v", err)
 	}
 
-	if _, err := gatewayURLFromStateFile(path); err == nil {
-		t.Fatal("gatewayURLFromStateFile() error = nil, want invalid URL error")
+	if _, err := gatewayURLFromRuntimeFile(path); err == nil {
+		t.Fatal("gatewayURLFromRuntimeFile() error = nil, want invalid URL error")
 	}
 }
 
-func TestDiscoverGatewayURLFromStatePathsUsesFirstHealthyState(t *testing.T) {
+func TestDiscoverGatewayURLFromRuntimePathsUsesFirstHealthyState(t *testing.T) {
 	dir := t.TempDir()
 	stalePath := filepath.Join(dir, "stale.json")
 	healthyPath := filepath.Join(dir, "healthy.json")
@@ -56,7 +56,7 @@ func TestDiscoverGatewayURLFromStatePathsUsesFirstHealthyState(t *testing.T) {
 		t.Fatalf("write healthy state: %v", err)
 	}
 
-	got := discoverGatewayURLFromStatePaths([]string{
+	got := discoverGatewayURLFromRuntimePaths([]string{
 		filepath.Join(dir, "missing.json"),
 		stalePath,
 		healthyPath,
@@ -65,11 +65,11 @@ func TestDiscoverGatewayURLFromStatePathsUsesFirstHealthyState(t *testing.T) {
 	})
 
 	if got != "http://127.0.0.1:2222" {
-		t.Fatalf("discoverGatewayURLFromStatePaths() = %q", got)
+		t.Fatalf("discoverGatewayURLFromRuntimePaths() = %q", got)
 	}
 }
 
-func TestGatewayStateCandidatePathsIncludesDataDirAndWorkingTree(t *testing.T) {
+func TestHecateRuntimeCandidatePathsIncludesDataDirAndWorkingTree(t *testing.T) {
 	originalWD, err := os.Getwd()
 	if err != nil {
 		t.Fatalf("getwd: %v", err)
@@ -86,12 +86,12 @@ func TestGatewayStateCandidatePathsIncludesDataDirAndWorkingTree(t *testing.T) {
 	dataDir := filepath.Join(tempWD, "custom-data")
 	t.Setenv("GATEWAY_DATA_DIR", dataDir)
 
-	paths := gatewayStateCandidatePaths()
+	paths := hecateRuntimeCandidatePaths()
 	joined := strings.Join(paths, "\n")
-	if !strings.Contains(joined, filepath.Join(dataDir, gatewayStateFileName)) {
+	if !strings.Contains(joined, filepath.Join(dataDir, hecateRuntimeFile)) {
 		t.Fatalf("candidate paths = %#v, want GATEWAY_DATA_DIR state", paths)
 	}
-	if !strings.Contains(joined, filepath.Join(tempWD, ".data", gatewayStateFileName)) {
+	if !strings.Contains(joined, filepath.Join(tempWD, ".data", hecateRuntimeFile)) {
 		t.Fatalf("candidate paths = %#v, want working-tree .data state", paths)
 	}
 }

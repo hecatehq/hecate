@@ -6,9 +6,9 @@ used everywhere else: on launch, the Rust layer spawns the gateway as a
 companion process on a free loopback port, polls `/healthz`, then navigates a
 webview to `http://127.0.0.1:{port}/` where the gateway serves its embedded UI.
 
-The desktop app bundles both `gateway` and `hecate-acp`. ACP clients still
+The desktop app bundles both `hecate` and `hecate-acp`. ACP clients still
 launch `hecate-acp` themselves over stdio, but the gateway writes
-`gateway-state.json` into the app data directory so the bridge can discover the
+`hecate.runtime.json` into the app data directory so the bridge can discover the
 current dynamic gateway URL when `HECATE_GATEWAY_URL` is not set.
 
 Code: [`tauri/`](../tauri/) · agent guide: [`ai/skills/tauri/SKILL.md`](../ai/skills/tauri/SKILL.md) · CI: [`.github/workflows/release.yml`](../.github/workflows/release.yml), [`.github/workflows/tauri-build.yml`](../.github/workflows/tauri-build.yml).
@@ -34,7 +34,7 @@ What works:
 
 - Sidecar lifecycle (spawn, healthz wait, kill on exit; `pgrep hecate` is
   empty after `cmd+Q`).
-- Gateway discovery file for ACP bridges (`gateway-state.json`) written by the
+- Runtime discovery file for ACP bridges (`hecate.runtime.json`) written by the
   sidecar gateway on successful startup and removed on app exit.
 - Same-origin loading of the embedded gateway UI from the sidecar port.
 - Native Hecate menu with actions to focus the window, open the gateway log,
