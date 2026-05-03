@@ -1914,6 +1914,42 @@ func TestTaskStartFileExecutor(t *testing.T) {
 	if string(content) != "hello file" {
 		t.Fatalf("file contents = %q, want hello file", string(content))
 	}
+
+	artifacts := mustTaskRequestJSON[TaskArtifactsResponse](tasks, http.MethodGet, "/v1/tasks/"+created.Data.ID+"/runs/"+started.Data.ID+"/artifacts", "")
+	if len(artifacts.Data) != 2 {
+		t.Fatalf("artifacts = %d, want 2", len(artifacts.Data))
+	}
+	var patchArtifact TaskArtifactItem
+	for _, artifact := range artifacts.Data {
+		if artifact.Kind == "patch" {
+			patchArtifact = artifact
+			break
+		}
+	}
+	if patchArtifact.ID == "" {
+		t.Fatalf("patch artifact missing: %#v", artifacts.Data)
+	}
+	if patchArtifact.MimeType != "text/x-diff" {
+		t.Fatalf("patch mime_type = %q, want text/x-diff", patchArtifact.MimeType)
+	}
+	if !strings.Contains(patchArtifact.ContentText, "+hello file") {
+		t.Fatalf("patch content missing written line:\n%s", patchArtifact.ContentText)
+	}
+
+	events := waitForRunEvent(t, handler, created.Data.ID, started.Data.ID, "tool.file.patch")
+	var patchEvent eventprotocol.Envelope
+	for _, event := range events.Data {
+		if event.Type == "tool.file.patch" {
+			patchEvent = event
+			break
+		}
+	}
+	if got := patchEvent.Data["artifact_id"]; got != patchArtifact.ID {
+		t.Fatalf("patch event artifact_id = %v, want %s", got, patchArtifact.ID)
+	}
+	if got := patchEvent.Data["tool_name"]; got != "file" {
+		t.Fatalf("patch event tool_name = %v, want file", got)
+	}
 }
 
 func TestTaskStartGitExecutor(t *testing.T) {

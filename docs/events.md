@@ -49,6 +49,7 @@ These are **persisted events** (rows in the `task_state_run_events` table). They
 | `tool.shell.command` | Typed shell tool events | Shell command, cwd, timeout, and sandbox layer selected |
 | `tool.shell.output_chunk` | Typed shell tool events | Incremental stdout/stderr chunk from the shell process |
 | `tool.shell.exited` | Typed shell tool events | Shell process reported exit metadata |
+| `tool.file.patch` | Typed file tool events | `file_write` produced an inspectable unified diff artifact |
 | `tool.completed` | Tool events | Shell execution or MCP tool call completed |
 | `tool.failed` | Tool events | Shell execution or MCP tool call failed |
 | `tool.cancelled` | Typed shell tool events | Shell execution was cancelled |
@@ -387,6 +388,25 @@ Protocol-level failure before a result was in hand: transport closed, RPC error,
 ### `policy.tool_blocked` for MCP
 
 The task's `approval_policy=block` short-circuited the call. The upstream was never contacted; the LLM saw a tool error suggesting it pick a different path. Distinct from `tool.failed` so operators can alert on failed execution without their pages firing on the legitimate block path. Distinct from `approval.requested` because block doesn't pause the run — it's a hard refusal, not a gate.
+
+## Typed file tool events
+
+### `tool.file.patch`
+
+Emitted when `execution_kind=file` or an `agent_loop` `file_write` tool writes a file. Hecate stores an inline `patch` artifact containing a unified diff of the before/after file contents, then emits this event so operator UIs, CLIs, and future ACP bridges can render the edit without re-running `git diff` against a moving workspace.
+
+| Extra key | Type | Notes |
+|---|---|---|
+| `tool_call_id` | `string` | Assistant tool call id, or the file step id for direct file tasks |
+| `tool_name` | `string` | `file_write` for agent tools; `file` for direct file tasks |
+| `kind` | `string` | Always `file` |
+| `operation` | `string` | `write` or `append` |
+| `path` | `string` | Resolved path written by the sandbox |
+| `artifact_id` | `string` | Patch artifact id |
+| `bytes_written` | `int` | Bytes written by the file operation |
+| `diff_bytes` | `int64` | Patch body size |
+| `before_existed` | `bool` | Whether the file existed before the write |
+| `artifact_status` | `string` | Currently `applied`; review/apply transitions are future work |
 
 ## Housekeeping
 

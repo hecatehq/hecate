@@ -855,8 +855,8 @@ event endpoints and the cross-run feed. The implemented typed event slice is:
 - `assistant.text_complete`, `assistant.tool_call_proposed`,
   `assistant.final_answer`
 - `tool.invoked`, `tool.started`, `tool.shell.command`,
-  `tool.shell.output_chunk`, `tool.shell.exited`, `tool.completed`,
-  `tool.failed`, `tool.timed_out`, `policy.tool_blocked`
+  `tool.shell.output_chunk`, `tool.shell.exited`, `tool.file.patch`,
+  `tool.completed`, `tool.failed`, `tool.timed_out`, `policy.tool_blocked`
 - `approval.requested`, `approval.resolved`
 - `gap.run_disconnected`
 
