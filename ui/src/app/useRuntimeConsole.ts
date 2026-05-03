@@ -29,6 +29,7 @@ import {
   deletePricebookEntry as deletePricebookEntryRequest,
   previewPricebookImport as previewPricebookImportRequest,
   applyPricebookImport as applyPricebookImportRequest,
+  cancelAgentChatSession as cancelAgentChatSessionRequest,
   runRetention as runRetentionRequest,
   resetBudget as resetBudgetRequest,
   setBudgetLimit as setBudgetLimitRequest,
@@ -42,6 +43,7 @@ import {
   getAgentAdapters,
   getAgentChatSession,
   getAgentChatSessions,
+  streamAgentChatSession,
   setProviderBaseURL as setProviderBaseURLRequest,
   setProviderName as setProviderNameRequest,
   setProviderCustomName as setProviderCustomNameRequest,
@@ -569,6 +571,12 @@ export function useRuntimeConsole() {
     }
   }
 
+  function applyAgentChatSession(session: AgentChatSessionRecord) {
+    setActiveAgentChatSession(session);
+    setAgentWorkspaceBranch(session.workspace_branch ?? "");
+    setAgentChatSessions((current) => [renderAgentChatSessionSummary(session), ...current.filter((entry) => entry.id !== session.id)]);
+  }
+
   async function submitAgentChat() {
     setChatLoading(true);
     setChatError("");
@@ -576,7 +584,8 @@ export function useRuntimeConsole() {
     setChatErrorStatus(null);
     setRuntimeHeaders(null);
     setStreamingContent("Starting external agent...");
-    let refreshDuringRun: number | undefined;
+    let streamAbort: AbortController | null = null;
+    let streamPromise: Promise<void> | null = null;
 
     try {
       const content = message.trim();
@@ -602,9 +611,7 @@ export function useRuntimeConsole() {
         });
         sessionID = created.data.id;
         setActiveAgentChatSessionID(sessionID);
-        setActiveAgentChatSession(created.data);
-        setAgentWorkspaceBranch(created.data.workspace_branch ?? "");
-        setAgentChatSessions((current) => [renderAgentChatSessionSummary(created.data), ...current.filter((entry) => entry.id !== sessionID)]);
+        applyAgentChatSession(created.data);
       }
 
       const pendingContent = content;
@@ -626,30 +633,50 @@ export function useRuntimeConsole() {
           : prev,
       );
 
-      refreshDuringRun = window.setInterval(() => {
-        void getAgentChatSession(sessionID).then((payload) => {
-          setActiveAgentChatSession(payload.data);
-          setAgentChatSessions((current) => [renderAgentChatSessionSummary(payload.data), ...current.filter((entry) => entry.id !== payload.data.id)]);
-        }).catch(() => {
-          // The final request result is authoritative; polling is only
-          // there to make long-running external agents feel alive.
-        });
-      }, 1000);
+      streamAbort = new AbortController();
+      streamPromise = streamAgentChatSession(
+        sessionID,
+        ({ payload }) => {
+          applyAgentChatSession(payload.data);
+          const last = [...(payload.data.messages ?? [])].reverse().find((m) => m.role === "assistant");
+          if (last?.status === "running") {
+            setStreamingContent(last.content || "External agent is running...");
+          }
+        },
+        streamAbort.signal,
+      ).catch((streamError) => {
+        if (streamAbort?.signal.aborted) {
+          return;
+        }
+        const msg = streamError instanceof Error ? streamError.message : "agent chat stream failed";
+        setChatError((current) => current || msg);
+      });
       const updated = await createAgentChatMessageRequest(sessionID, pendingContent);
-      setActiveAgentChatSession(updated.data);
-      setAgentWorkspaceBranch(updated.data.workspace_branch ?? "");
-      setAgentChatSessions((current) => [renderAgentChatSessionSummary(updated.data), ...current.filter((entry) => entry.id !== updated.data.id)]);
+      applyAgentChatSession(updated.data);
     } catch (submitError) {
       const raw = submitError instanceof Error ? submitError.message : "unknown request error";
       setChatError(raw);
       setChatErrorCode(submitError instanceof ApiError ? submitError.code : "");
       setChatErrorStatus(submitError instanceof ApiError ? submitError.status : null);
     } finally {
-      if (refreshDuringRun !== undefined) {
-        window.clearInterval(refreshDuringRun);
-      }
+      streamAbort?.abort();
+      await streamPromise?.catch(() => undefined);
       setStreamingContent(null);
       setChatLoading(false);
+    }
+  }
+
+  async function cancelAgentChat() {
+    if (!activeAgentChatSessionID) {
+      return;
+    }
+    try {
+      await cancelAgentChatSessionRequest(activeAgentChatSessionID);
+      setStreamingContent("Stopping external agent...");
+    } catch (error) {
+      setChatError(error instanceof Error ? error.message : "failed to cancel agent chat");
+      setChatErrorCode(error instanceof ApiError ? error.code : "");
+      setChatErrorStatus(error instanceof ApiError ? error.status : null);
     }
   }
 
@@ -1221,6 +1248,7 @@ export function useRuntimeConsole() {
     },
     actions: {
       copyCommand,
+      cancelAgentChat,
       deletePolicyRule,
       chooseAgentWorkspace,
       createChatSession,

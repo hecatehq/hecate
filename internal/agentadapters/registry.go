@@ -236,6 +236,8 @@ func RunAdapter(ctx context.Context, adapter Adapter, req RunRequest) (RunResult
 		}
 		if errors.Is(runCtx.Err(), context.DeadlineExceeded) {
 			runErr = fmt.Errorf("agent adapter timed out after %s", timeout)
+		} else if errors.Is(runCtx.Err(), context.Canceled) {
+			runErr = context.Canceled
 		}
 	}
 	if out.truncated {

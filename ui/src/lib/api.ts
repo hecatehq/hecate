@@ -265,8 +265,76 @@ export async function deleteAgentChatSession(id: string): Promise<void> {
   await fetchJSON<unknown>(`/v1/agent-chat/sessions/${encodeURIComponent(id)}`, { method: "DELETE" });
 }
 
+export async function cancelAgentChatSession(id: string): Promise<AgentChatSessionResponse> {
+  return fetchJSON<AgentChatSessionResponse>(`/v1/agent-chat/sessions/${encodeURIComponent(id)}/cancel`, { method: "POST", body: {} });
+}
+
 export async function createAgentChatMessage(id: string, content: string): Promise<AgentChatSessionResponse> {
   return fetchJSON<AgentChatSessionResponse>(`/v1/agent-chat/sessions/${encodeURIComponent(id)}/messages`, { method: "POST", body: { content } });
+}
+
+export async function streamAgentChatSession(
+  id: string,
+  onEvent: (event: { event: string; payload: AgentChatSessionResponse }) => void,
+  signal?: AbortSignal,
+): Promise<void> {
+  const response = await fetchWithNetworkError(
+    `/v1/agent-chat/sessions/${encodeURIComponent(id)}/stream`,
+    { ...buildRequestOptions({}), signal },
+  );
+  if (!response.ok) {
+    throw await apiError(response, "request failed");
+  }
+  if (!response.body) {
+    throw new Error("stream response body is unavailable");
+  }
+
+  const reader = response.body.getReader();
+  const decoder = new TextDecoder();
+  let buffer = "";
+  let currentEvent = "message";
+  let currentData = "";
+
+  const flushEvent = () => {
+    if (!currentData.trim()) {
+      currentEvent = "message";
+      currentData = "";
+      return;
+    }
+    const payload = JSON.parse(currentData) as AgentChatSessionResponse;
+    onEvent({ event: currentEvent, payload });
+    currentEvent = "message";
+    currentData = "";
+  };
+
+  while (true) {
+    const { done, value } = await reader.read();
+    if (done) {
+      flushEvent();
+      return;
+    }
+    buffer += decoder.decode(value, { stream: true });
+    const lines = buffer.split("\n");
+    buffer = lines.pop() ?? "";
+
+    for (const line of lines) {
+      const trimmed = line.replace(/\r$/, "");
+      if (trimmed === "") {
+        flushEvent();
+        continue;
+      }
+      if (trimmed.startsWith(":")) {
+        continue;
+      }
+      if (trimmed.startsWith("event: ")) {
+        currentEvent = trimmed.slice(7).trim() || "message";
+        continue;
+      }
+      if (trimmed.startsWith("data: ")) {
+        currentData += trimmed.slice(6);
+      }
+    }
+  }
 }
 
 export async function chooseWorkspaceDirectory(): Promise<WorkspaceDialogResponse> {

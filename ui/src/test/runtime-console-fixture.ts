@@ -69,6 +69,7 @@ export function createRuntimeConsoleFixture(
 export function createRuntimeConsoleActions(): RuntimeConsoleViewModel["actions"] {
   return {
     copyCommand: async () => undefined,
+    cancelAgentChat: async () => undefined,
     chooseAgentWorkspace: async () => undefined,
     createChatSession: () => undefined,
     deleteChatSession: async () => undefined,
