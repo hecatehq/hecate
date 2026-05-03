@@ -51,9 +51,9 @@ Download from the [latest release](https://github.com/chicoxyzzy/hecate/releases
 <!-- desktop-release-links:start -->
 | Platform | Bundle |
 |---|---|
-| macOS (Apple Silicon) | [Hecate_0.1.0-alpha.11_aarch64.dmg](https://github.com/chicoxyzzy/hecate/releases/download/v0.1.0-alpha.11/Hecate_0.1.0-alpha.11_aarch64.dmg) |
-| Linux x86_64 | [Hecate_0.1.0-alpha.11_amd64.deb](https://github.com/chicoxyzzy/hecate/releases/download/v0.1.0-alpha.11/Hecate_0.1.0-alpha.11_amd64.deb) or [Hecate_0.1.0-alpha.11_amd64.AppImage](https://github.com/chicoxyzzy/hecate/releases/download/v0.1.0-alpha.11/Hecate_0.1.0-alpha.11_amd64.AppImage) |
-| Windows x86_64 | [Hecate_0.1.0-alpha.11_x64_en-US.msi](https://github.com/chicoxyzzy/hecate/releases/download/v0.1.0-alpha.11/Hecate_0.1.0-alpha.11_x64_en-US.msi) |
+| macOS (Apple Silicon) | [Hecate_0.1.0-alpha.12_aarch64.dmg](https://github.com/chicoxyzzy/hecate/releases/download/v0.1.0-alpha.12/Hecate_0.1.0-alpha.12_aarch64.dmg) |
+| Linux x86_64 | [Hecate_0.1.0-alpha.12_amd64.deb](https://github.com/chicoxyzzy/hecate/releases/download/v0.1.0-alpha.12/Hecate_0.1.0-alpha.12_amd64.deb) or [Hecate_0.1.0-alpha.12_amd64.AppImage](https://github.com/chicoxyzzy/hecate/releases/download/v0.1.0-alpha.12/Hecate_0.1.0-alpha.12_amd64.AppImage) |
+| Windows x86_64 | [Hecate_0.1.0-alpha.12_x64_en-US.msi](https://github.com/chicoxyzzy/hecate/releases/download/v0.1.0-alpha.12/Hecate_0.1.0-alpha.12_x64_en-US.msi) |
 <!-- desktop-release-links:end -->
 
 Open the bundle and launch Hecate. The gateway runs as a sidecar inside the app and the UI loads automatically. State lives in the platform data dir (`~/Library/Application Support/io.github.chicoxyzzy.hecate/` on macOS, `%APPDATA%\io.github.chicoxyzzy.hecate\` on Windows, `~/.local/share/io.github.chicoxyzzy.hecate/` on Linux).
