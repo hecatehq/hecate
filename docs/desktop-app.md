@@ -119,10 +119,12 @@ reference.
 make test-tauri-smoke
 ```
 
-The target builds the native bundle, launches the packaged macOS app, waits for
-the gateway sidecar to answer `/healthz`, quits Hecate, and verifies the
-sidecar process exits. It is intentionally not part of `make verify-alpha`
-because it opens a real GUI app and is macOS-specific today.
+The target builds only the native `.app` bundle, launches the packaged macOS
+app, waits for the gateway sidecar to answer `/healthz`, quits Hecate, and
+verifies the sidecar process exits. It intentionally skips `.dmg` packaging so
+local smoke runs are faster and less vulnerable to temporary disk-image mount
+flakes. It is not part of `make verify-alpha` because it opens a real GUI app
+and is macOS-specific today.
 
 ## Footguns to know
 

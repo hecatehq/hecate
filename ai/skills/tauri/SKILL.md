@@ -71,7 +71,7 @@ tauri/
 | `make tauri-sidecar` | `make build` then copies `gateway` → `tauri/src-tauri/binaries/gateway-{triple}` |
 | `make tauri-dev` | `tauri-sidecar` + `tauri-install` + `bunx tauri dev` |
 | `make tauri-build` | `tauri-sidecar` + `tauri-version` + `bunx tauri build` |
-| `make test-tauri-smoke` | `tauri-build` + launch packaged macOS app, probe `/healthz`, quit, verify sidecar exits |
+| `make test-tauri-smoke` | app-only Tauri build + launch packaged macOS app, probe `/healthz`, quit, verify sidecar exits |
 
 Pass `TAURI_TARGET=universal-apple-darwin` (or any Rust target triple) to `tauri-build` for cross-compile. Run `make tauri-sidecar` separately when you change Go code but not Rust — it's the fast path.
 
@@ -122,6 +122,7 @@ The `externalBin: ["binaries/gateway"]` entry in `tauri.conf.json` tells Tauri's
 
 - The gateway child is spawned with `stdin/stdout/stderr = null` so it doesn't inherit the Tauri terminal.
 - The `Child` handle is stored in `GatewayChild` managed state.
+- The splash remains visible for at least 2 s before navigating to the gateway UI; keep this native-side so fast startups don't create a flash.
 - `tauri-plugin-window-state` restores size and position between launches.
 - `RunEvent::Exit` kills the child via `child.kill()` before the app exits.
 - If the gateway fails to start within 30 s, the splash switches to a failure panel with the error, gateway log path, and data-dir path. The native Hecate menu can open both paths even when the gateway UI never loads.

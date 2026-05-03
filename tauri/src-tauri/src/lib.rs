@@ -16,8 +16,11 @@ mod sidecar;
 
 use std::path::{Path, PathBuf};
 use std::sync::Mutex;
+use std::time::{Duration, Instant};
 use tauri::menu::{MenuBuilder, SubmenuBuilder};
 use tauri::Manager;
+
+const MIN_SPLASH_DURATION: Duration = Duration::from_secs(2);
 
 /// Tauri managed state: the gateway child process.
 /// Wrapped in Mutex<Option<…>> so the exit handler can take() it exactly once.
@@ -68,6 +71,13 @@ fn install_menu(app: &mut tauri::App) -> tauri::Result<()> {
         .build()?;
     let menu = MenuBuilder::new(app).item(&help).build()?;
     app.set_menu(menu).map(|_| ())
+}
+
+fn remaining_splash_delay(elapsed: Duration) -> Option<Duration> {
+    if elapsed >= MIN_SPLASH_DURATION {
+        return None;
+    }
+    Some(MIN_SPLASH_DURATION - elapsed)
 }
 
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
@@ -128,6 +138,7 @@ pub fn run() {
             });
 
             let app_handle = app.handle().clone();
+            let splash_started = Instant::now();
 
             // Spawn the gateway in a background task.
             tauri::async_runtime::spawn(async move {
@@ -138,6 +149,9 @@ pub fn run() {
                             if let Ok(mut slot) = state.0.lock() {
                                 *slot = Some(handle.child);
                             }
+                        }
+                        if let Some(delay) = remaining_splash_delay(splash_started.elapsed()) {
+                            tokio::time::sleep(delay).await;
                         }
                         // Navigate to the gateway UI.
                         let url = tauri::Url::parse(&handle.base_url)
@@ -178,4 +192,27 @@ pub fn run() {
                 }
             }
         });
+}
+
+#[cfg(test)]
+mod tests {
+    use super::{remaining_splash_delay, MIN_SPLASH_DURATION};
+    use std::time::Duration;
+
+    #[test]
+    fn test_remaining_splash_delay_waits_for_unelapsed_minimum() {
+        assert_eq!(
+            remaining_splash_delay(Duration::from_millis(200)),
+            Some(MIN_SPLASH_DURATION - Duration::from_millis(200)),
+        );
+    }
+
+    #[test]
+    fn test_remaining_splash_delay_returns_none_after_minimum() {
+        assert_eq!(remaining_splash_delay(MIN_SPLASH_DURATION), None);
+        assert_eq!(
+            remaining_splash_delay(MIN_SPLASH_DURATION + Duration::from_millis(1)),
+            None,
+        );
+    }
 }

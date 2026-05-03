@@ -2,7 +2,7 @@ SHELL := /bin/sh
 
 GOCACHE_DIR := $(CURDIR)/.gocache
 
-.PHONY: test test-race vet coverage ui-coverage build build-acp run serve dev stop ui-install ui-dev ui-build ui-test ui-test-e2e test-acp-smoke test-docker-smoke docs-env-check check-links verify-alpha reset-dev reset-docker screenshots tauri-install tauri-version tauri-sidecar tauri-dev tauri-build test-tauri-smoke
+.PHONY: test test-race vet coverage ui-coverage build build-acp run serve dev stop ui-install ui-dev ui-build ui-test ui-test-e2e test-acp-smoke test-docker-smoke docs-env-check check-links verify-alpha reset-dev reset-docker screenshots tauri-install tauri-version tauri-sidecar tauri-dev tauri-build tauri-build-app test-tauri-smoke
 
 # build produces a single self-contained gateway binary with the UI bundle
 # embedded. The UI is built first so //go:embed picks up the real assets;
@@ -250,9 +250,20 @@ tauri-build: tauri-sidecar tauri-version
 	  cd tauri && bunx tauri build; \
 	fi
 
-# test-tauri-smoke builds the native bundle, launches it, waits for the
+# tauri-build-app produces only the platform app bundle, not installers
+# (.dmg/.msi/.deb/.AppImage). It is the fast path for local smoke tests:
+# enough to validate sidecar launch and webview navigation without paying
+# the slower and flakier installer packaging cost.
+tauri-build-app: tauri-sidecar tauri-version
+	@if [ -n "$(TAURI_TARGET)" ]; then \
+	  cd tauri && bunx tauri build --target $(TAURI_TARGET) --bundles app; \
+	else \
+	  cd tauri && bunx tauri build --bundles app; \
+	fi
+
+# test-tauri-smoke builds the native app bundle, launches it, waits for the
 # gateway sidecar to answer /healthz, quits the app, and verifies the sidecar
 # exits. It opens a real desktop window, so keep it opt-in rather than part of
 # verify-alpha.
-test-tauri-smoke: tauri-build
+test-tauri-smoke: tauri-build-app
 	bun scripts/tauri-smoke.ts
