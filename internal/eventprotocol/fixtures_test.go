@@ -64,6 +64,26 @@ var (
 		"gap.run_disconnected":           {},
 	}
 
+	candidateRunLifecycleEventTypes = []string{
+		"run.queued",
+		"run.started",
+		"run.finished",
+		"run.failed",
+		"run.cancelled",
+		"run.resumed_from_event",
+		"run.checkpoint_saved",
+	}
+
+	legacyEventTypes = map[string]string{
+		"approval.approved":    "approval.resolved",
+		"approval.rejected":    "approval.resolved",
+		"run.claimed":          "run.started",
+		"run.completed":        "run.finished",
+		"run.resumed":          "run.resumed_from_event",
+		"run.resume_requested": "run.resumed_from_event",
+		"run.running":          "run.started",
+	}
+
 	candidateCoreGroups = map[string]func(string) bool{
 		"run":             func(eventType string) bool { return strings.HasPrefix(eventType, "run.") },
 		"turn":            func(eventType string) bool { return strings.HasPrefix(eventType, "turn.") },
@@ -97,12 +117,14 @@ func TestEventProtocolV1CoreFixtures(t *testing.T) {
 	slices.Sort(paths)
 
 	seenGroups := make(map[string]bool)
+	seenTypes := make(map[string]bool)
 	for _, path := range paths {
 		t.Run(filepath.Base(path), func(t *testing.T) {
 			events := readFixtureEvents(t, path)
 			validateFixtureSequence(t, events)
 			for i, event := range events {
 				validateFixtureEvent(t, path, i, event)
+				seenTypes[event.Type] = true
 				for group, matches := range candidateCoreGroups {
 					if matches(event.Type) {
 						seenGroups[group] = true
@@ -121,6 +143,11 @@ func TestEventProtocolV1CoreFixtures(t *testing.T) {
 	slices.Sort(missing)
 	if len(missing) > 0 {
 		t.Fatalf("candidate-core fixture coverage missing groups: %s", strings.Join(missing, ", "))
+	}
+
+	missing = missingFixtureCoverage(candidateRunLifecycleEventTypes, seenTypes)
+	if len(missing) > 0 {
+		t.Fatalf("candidate-core fixture coverage missing run lifecycle events: %s", strings.Join(missing, ", "))
 	}
 }
 
@@ -198,15 +225,101 @@ func validateFixtureEvent(t *testing.T, path string, index int, event fixtureEve
 	if !typePattern.MatchString(event.Type) {
 		t.Fatalf("%s: invalid event type format %q", where, event.Type)
 	}
+	if replacement, ok := legacyEventTypes[event.Type]; ok {
+		t.Fatalf("%s: legacy event type %q used; use %q", where, event.Type, replacement)
+	}
 	if _, ok := candidateCoreEventTypes[event.Type]; !ok {
 		t.Fatalf("%s: %q is not a candidate-core v1 event type", where, event.Type)
 	}
 	if event.Data == nil {
 		t.Fatalf("%s: data must be a JSON object, got null or missing", where)
 	}
+	validateRunLifecycleData(t, where, event)
 	if strings.HasPrefix(event.Type, "assistant.thinking_") || strings.HasPrefix(event.Type, "artifact.") || strings.HasPrefix(event.Type, "tool.edit.") || strings.HasPrefix(event.Type, "tool.multi_edit.") {
 		t.Fatalf("%s: %q belongs in experimental or artifact-dependent fixtures, not core", where, event.Type)
 	}
+}
+
+func validateRunLifecycleData(t *testing.T, where string, event fixtureEvent) {
+	t.Helper()
+
+	switch event.Type {
+	case "run.queued":
+		requireStringField(t, where, event.Data, "kind")
+		requireStringField(t, where, event.Data, "model")
+		requireStringField(t, where, event.Data, "provider")
+	case "run.started":
+		requireStringField(t, where, event.Data, "worker_id")
+		leaseUntil := requireStringField(t, where, event.Data, "lease_until")
+		if _, err := time.Parse(time.RFC3339Nano, leaseUntil); err != nil {
+			t.Fatalf("%s: lease_until is not RFC3339Nano: %v", where, err)
+		}
+	case "run.finished":
+		if got := requireStringField(t, where, event.Data, "final_status"); got != "completed" {
+			t.Fatalf("%s: final_status = %q, want completed", where, got)
+		}
+		requireNumberField(t, where, event.Data, "duration_ms")
+	case "run.failed":
+		requireStringField(t, where, event.Data, "code")
+		requireStringField(t, where, event.Data, "message")
+		requireBoolField(t, where, event.Data, "retriable")
+	case "run.cancelled":
+		requireStringField(t, where, event.Data, "by")
+		requireStringField(t, where, event.Data, "reason")
+	case "run.resumed_from_event":
+		fromRunID := requireStringField(t, where, event.Data, "from_run_id")
+		if !runIDPattern.MatchString(fromRunID) {
+			t.Fatalf("%s: invalid from_run_id %q", where, fromRunID)
+		}
+		requireNumberField(t, where, event.Data, "from_sequence")
+	case "run.checkpoint_saved":
+		requireStringField(t, where, event.Data, "checkpoint_id")
+	}
+}
+
+func requireStringField(t *testing.T, where string, data map[string]any, field string) string {
+	t.Helper()
+
+	value, ok := data[field]
+	if !ok {
+		t.Fatalf("%s: missing data.%s", where, field)
+	}
+	text, ok := value.(string)
+	if !ok || text == "" {
+		t.Fatalf("%s: data.%s must be a non-empty string, got %T", where, field, value)
+	}
+	return text
+}
+
+func requireNumberField(t *testing.T, where string, data map[string]any, field string) float64 {
+	t.Helper()
+
+	value, ok := data[field]
+	if !ok {
+		t.Fatalf("%s: missing data.%s", where, field)
+	}
+	number, ok := value.(float64)
+	if !ok {
+		t.Fatalf("%s: data.%s must be a number, got %T", where, field, value)
+	}
+	if number < 0 {
+		t.Fatalf("%s: data.%s must be non-negative, got %v", where, field, number)
+	}
+	return number
+}
+
+func requireBoolField(t *testing.T, where string, data map[string]any, field string) bool {
+	t.Helper()
+
+	value, ok := data[field]
+	if !ok {
+		t.Fatalf("%s: missing data.%s", where, field)
+	}
+	boolean, ok := value.(bool)
+	if !ok {
+		t.Fatalf("%s: data.%s must be a bool, got %T", where, field, value)
+	}
+	return boolean
 }
 
 func validateFixtureSequence(t *testing.T, events []fixtureEvent) {
@@ -226,4 +339,15 @@ func validateFixtureSequence(t *testing.T, events []fixtureEvent) {
 		}
 		lastByRun[event.RunID] = event.Sequence
 	}
+}
+
+func missingFixtureCoverage(want []string, seen map[string]bool) []string {
+	missing := make([]string, 0)
+	for _, eventType := range want {
+		if !seen[eventType] {
+			missing = append(missing, eventType)
+		}
+	}
+	slices.Sort(missing)
+	return missing
 }

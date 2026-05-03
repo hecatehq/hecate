@@ -28,6 +28,10 @@ The Go contract test in `internal/eventprotocol` validates:
 - `occurred_at` is RFC3339/RFC3339Nano parseable;
 - `data` is always a JSON object;
 - event types belong to the candidate-core set;
+- removed legacy event names fail fast instead of lingering in examples;
+- the normalized run lifecycle fixture set covers queued, started, finished,
+  failed, cancelled, resumed-from-event, and checkpoint-saved paths;
+- core run lifecycle payloads include their required fields;
 - sequences are strictly increasing per `run_id`.
 
 The minimal envelope schema lives at
