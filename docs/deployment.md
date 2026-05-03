@@ -76,9 +76,9 @@ State lives in the platform data dir, not next to the binary:
 
 | Platform | Data dir |
 |---|---|
-| macOS | `~/Library/Application Support/com.hecate.app/` |
-| Linux | `~/.local/share/com.hecate.app/` |
-| Windows | `%APPDATA%\com.hecate.app\` |
+| macOS | `~/Library/Application Support/io.github.chicoxyzzy.hecate/` |
+| Linux | `~/.local/share/io.github.chicoxyzzy.hecate/` |
+| Windows | `%APPDATA%\io.github.chicoxyzzy.hecate\` |
 
 Bundles are not yet code-signed:
 

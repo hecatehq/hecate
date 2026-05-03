@@ -8,9 +8,9 @@
 //      - Override: GATEWAY_BIN env var always wins.
 //   2. Resolve the data directory via Tauri's platform path API so the gateway
 //      writes its files to the right place on every OS:
-//        macOS   ~/Library/Application Support/com.hecate.app/
-//        Windows %APPDATA%\com.hecate.app\
-//        Linux   ~/.local/share/com.hecate.app/
+//        macOS   ~/Library/Application Support/io.github.chicoxyzzy.hecate/
+//        Windows %APPDATA%\io.github.chicoxyzzy.hecate\
+//        Linux   ~/.local/share/io.github.chicoxyzzy.hecate/
 //   3. Allocate a free TCP port by binding to :0, then dropping the listener.
 //   4. Spawn the gateway (std::process::Child — sync, so kill() works from
 //      the window-close event handler without needing an async runtime).
