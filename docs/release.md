@@ -29,10 +29,10 @@ Every `v*` tag fires `.github/workflows/release.yml`, which runs three jobs:
    building native desktop bundles and uploading them to the same Release
    entry: `.dmg` (macOS arm64), `.deb` + `.AppImage` (Linux x86_64), `.msi`
    (Windows x86_64). Wall-clock total ~15–25 min.
-3. **`update-readme-desktop-links`** — reads the actual uploaded Release
-   assets and refreshes the README Desktop app table with direct download
-   links. This runs only after the Tauri matrix succeeds, so it never links
-   to bundles that were not published.
+3. **`update-release-docs`** — reads the actual uploaded Release assets and
+   refreshes the README Desktop app table plus pinned Docker/tarball examples.
+   This runs only after the Tauri matrix succeeds, so it never links to bundles
+   that were not published.
 
 Acceptance after the run:
 
@@ -43,9 +43,8 @@ Acceptance after the run:
 - Tauri-side bundles attached: 1 `.dmg`, 1 `.deb`, 1 `.AppImage`, 1 `.msi`.
   If any is missing, the matrix leg silently skipped upload — open the run
   to see what failed.
-- README Desktop app table points at the uploaded bundle assets for the
-  release tag. The workflow commits this docs-only refresh to `master` with
-  `[skip ci]`.
+- README Desktop app table and pinned install examples point at the release
+  tag. The workflow commits this docs-only refresh to `master` with `[skip ci]`.
 - `docker pull ghcr.io/chicoxyzzy/hecate:X.Y.Z` succeeds (no `v` prefix —
   goreleaser uses bare semver as the docker tag). The image contains both
   `/usr/local/bin/hecate` and `/usr/local/bin/hecate-acp`; the entrypoint is
@@ -148,22 +147,23 @@ Pre-flight checks before the snapshot run (the script enforces these):
   `ui/dist/` entry in `.gitignore` does **not** cover repo-root `dist/`.
 - `goreleaser` itself is on PATH (`go install github.com/goreleaser/goreleaser/v2@latest`).
 
-## Bump pinned version references
+## Post-release docs refresh
 
 `scripts/release.ts` automatically stamps Tauri version files
 (`Cargo.toml`, `package.json`, `tauri.conf.json`). After the Release bundles
-are uploaded, `.github/workflows/release.yml` automatically refreshes the
-README Desktop app table via `scripts/update-release-links.ts`.
+are uploaded, `.github/workflows/release.yml` automatically refreshes release
+docs via `scripts/update-release-links.ts`.
 
-The release script does **not** update documentation that pins the alpha tag
-in copy-pasted commands. Sweep these manually before tagging so a new operator
-landing on the README pulls the right image / tarball:
+The post-release updater covers:
 
-- [`README.md`](../README.md) — `docker run … ghcr.io/chicoxyzzy/hecate:<old>` → `<new>`.
+- [`README.md`](../README.md) — Desktop app download table and pinned Docker
+  image example.
 - [`docs/deployment.md`](deployment.md) — image-pinning example, tarball URLs,
   and the "Available tarballs for `vX.Y.Z`" list.
+- [`docs/desktop-app.md`](desktop-app.md) — current-state release heading.
 
-This is a docs-only sweep; commit it on master before tagging.
+If new docs add copy-pasted release tags, extend `scripts/update-release-links.ts`
+in the same change so future releases do not drift.
 
 ## Recovery
 

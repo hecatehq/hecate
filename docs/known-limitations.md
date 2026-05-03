@@ -115,6 +115,9 @@ operators should not assume yet.
   (right-click → Open on macOS; "More info" → "Run anyway" on Windows)
   but are not the smooth first-run that signed apps get. See
   [desktop-app.md](desktop-app.md) for the full first-launch story.
+- Homebrew distribution is not published yet. When it exists, it will improve
+  installation and upgrades, but it will not replace Apple Developer ID
+  signing/notarization for the native macOS app.
 - Platforms shipped: macOS (Apple Silicon), Linux x86_64, Windows x86_64.
   macOS Intel, Linux arm64, and Windows arm64 are not yet built.
 - Auto-update is not wired. The plugin is installed but inactive until a

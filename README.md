@@ -66,7 +66,7 @@ Skip to [Add a provider](#add-a-provider) once it's running.
 
 ```bash
 docker run --rm -p 127.0.0.1:8765:8765 -v hecate-data:/data \
-  ghcr.io/chicoxyzzy/hecate:0.1.0-alpha.11
+  ghcr.io/chicoxyzzy/hecate:0.1.0-alpha.12
 ```
 
 Open `http://127.0.0.1:8765`. The UI loads with no further setup.
@@ -176,10 +176,12 @@ Hecate is public-alpha software. The core gateway path is usable; the agent runt
 | OpenTelemetry | Usable | OTLP traces, metrics, logs, response headers, local trace view |
 | Storage tiers | Usable | Memory or SQLite, selected per subsystem |
 | Operator UI | Usable | Main workflows are present; debugging ergonomics are still improving |
+| Desktop app | Alpha | Native `.dmg`, `.deb`, `.AppImage`, and `.msi` bundles are published on each release and run Hecate as a sidecar. Bundles are unsigned, so macOS Gatekeeper / Windows SmartScreen first-launch warnings are expected |
 | External agent adapters | Alpha | Codex, Claude Code, and Cursor Agent discovery/run/cancel/session history. Codex has JSONL normalization; Claude Code and Cursor mappings are still mostly text-output based |
 | ACP bridge | Alpha | `cmd/hecate-acp` supports initialize, session new/prompt/cancel, continuation, run-event forwarding, and approval round-trip; editor packaging is not done |
 | Agent task runtime | Alpha | Queues, approvals, resumable runs, `agent_loop`, MCP integration; periodic reconciler auto-recovers stale runs |
 | Execution isolation | Alpha | Per-call subprocess + env sanitisation + output cap + wall-clock timeout; `bwrap` (Linux) / `sandbox-exec` (macOS) wrapping where available. Not container-level — see [`docs/sandbox.md`](docs/sandbox.md) |
+| Homebrew distribution | Not shipped | A CLI formula/cask is planned later. Homebrew helps installation, but it does not replace Apple Developer ID signing/notarization for a smooth macOS desktop-app launch |
 
 Read [docs/known-limitations.md](docs/known-limitations.md) before treating Hecate as production-stable.
 

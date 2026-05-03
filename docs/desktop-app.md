@@ -21,14 +21,14 @@ matrix legs in parallel and attaches bundles to the GitHub Release entry:
 | Platform | Bundle |
 |---|---|
 | macOS (Apple Silicon) | `Hecate_X.Y.Z_aarch64.dmg` |
-| Linux x86_64 | `hecate-app_X.Y.Z_amd64.deb`, `hecate-app_X.Y.Z_amd64.AppImage` |
+| Linux x86_64 | `Hecate_X.Y.Z_amd64.deb`, `Hecate_X.Y.Z_amd64.AppImage` |
 | Windows x86_64 | `Hecate_X.Y.Z_x64_en-US.msi` |
 
 PR validation: [`tauri-build.yml`](../.github/workflows/tauri-build.yml) runs
 the same matrix on PRs touching the desktop pipeline and persists bundles as
 14-day workflow artifacts so reviewers can test-launch before merge.
 
-## Current state — `v0.1.0-alpha.10`
+## Current state — `v0.1.0-alpha.12`
 
 What works:
 
@@ -49,14 +49,18 @@ What works:
 - macOS bundle launch-validated end-to-end: build `.app` + `.dmg`, launch
   the app, confirm the hecate sidecar listens on loopback and `/healthz`
   returns `ok`, then quit and confirm both app and hecate processes exit.
-  Linux and Windows bundles build green in CI but have not yet been
-  launch-tested on real hardware.
+- Linux and Windows bundles build green in CI, including Tauri Rust tests and
+  sidecar staging. They still need manual launch smoke on real hardware before
+  we describe them as fully platform-tested.
 
 What doesn't yet:
 
 - No code signing — macOS Gatekeeper and Windows SmartScreen warn on
   every install. Real users need the right-click-Open / More-info-Run-anyway
   escape, documented in release notes.
+- No Homebrew formula or cask yet. A formula would help CLI installation, and
+  a cask would help app distribution, but neither replaces Apple Developer ID
+  signing/notarization for a smooth macOS desktop launch.
 - No auto-update — plugin is wired but `active: false` until a signing
   keypair and update endpoint are decided.
 - No tray and no deep links.
@@ -74,7 +78,8 @@ the bundle is polished enough to recommend.
 
 | Item | Scope | Notes |
 |---|---|---|
-| **Test the Linux + Windows bundles** | ~30 min per OS | Download from the `v0.1.0-alpha.10` release, install the `.deb` / `.AppImage` / `.msi`, configure a provider, send one chat, quit, relaunch, confirm config persists. macOS is done; these two are the remaining platform unknowns. |
+| **Test the Linux + Windows bundles** | ~30 min per OS | Download from the latest release, install the `.deb` / `.AppImage` / `.msi`, configure a provider, send one chat, quit, relaunch, confirm config persists. macOS is done; these two are the remaining platform unknowns. |
+| **Homebrew distribution** | Formula/cask decision | Useful for install ergonomics, especially the CLI. Does not remove the need for macOS signing/notarization for the desktop app; treat it as distribution, not trust. |
 
 ### Tier 2 — operational gates
 

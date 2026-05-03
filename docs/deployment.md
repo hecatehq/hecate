@@ -21,7 +21,7 @@ To pin to a specific release, replace `:latest` with the published tag (no `v` p
 
 ```yaml
 # docker-compose.yml
-image: ghcr.io/chicoxyzzy/hecate:0.1.0-alpha.10
+image: ghcr.io/chicoxyzzy/hecate:0.1.0-alpha.12
 ```
 
 Pinning is recommended for any deployment beyond local experimentation — `:latest` floats over alpha increments that may include schema or config changes.
@@ -42,8 +42,8 @@ The release workflow publishes static, single-file binaries for `linux+darwin ×
 
 ```bash
 # pick the right tarball for your OS / arch
-curl -LO https://github.com/chicoxyzzy/hecate/releases/download/v0.1.0-alpha.10/hecate_0.1.0-alpha.10_linux_amd64.tar.gz
-tar -xzf hecate_0.1.0-alpha.10_linux_amd64.tar.gz
+curl -LO https://github.com/chicoxyzzy/hecate/releases/download/v0.1.0-alpha.12/hecate_0.1.0-alpha.12_linux_amd64.tar.gz
+tar -xzf hecate_0.1.0-alpha.12_linux_amd64.tar.gz
 ./hecate
 ```
 
@@ -57,12 +57,12 @@ GATEWAY_DATA_DIR=/var/lib/hecate ./hecate
 
 For systemd, launchd, or supervisor wrappers, the only requirements are: the working directory is writable for `GATEWAY_DATA_DIR`, port 8765 is available, and `.env` (if used) sits in the working directory or is sourced into the unit file. The binary path itself can live anywhere on `$PATH`.
 
-Available tarballs for `v0.1.0-alpha.10`:
+Available tarballs for `v0.1.0-alpha.12`:
 
-- `hecate_0.1.0-alpha.10_linux_amd64.tar.gz`
-- `hecate_0.1.0-alpha.10_linux_arm64.tar.gz`
-- `hecate_0.1.0-alpha.10_darwin_amd64.tar.gz`
-- `hecate_0.1.0-alpha.10_darwin_arm64.tar.gz`
+- `hecate_0.1.0-alpha.12_linux_amd64.tar.gz`
+- `hecate_0.1.0-alpha.12_linux_arm64.tar.gz`
+- `hecate_0.1.0-alpha.12_darwin_amd64.tar.gz`
+- `hecate_0.1.0-alpha.12_darwin_arm64.tar.gz`
 
 Each tarball includes `hecate`, `hecate-acp`, `LICENSE`, and `README.md`.
 Verify integrity against `checksums.txt` published alongside the release.
@@ -78,7 +78,7 @@ A third install path for single-user / personal use on a laptop. Same release, d
 | Platform | Bundle |
 |---|---|
 | macOS (Apple Silicon) | `Hecate_X.Y.Z_aarch64.dmg` |
-| Linux x86_64 | `hecate-app_X.Y.Z_amd64.deb`, `hecate-app_X.Y.Z_amd64.AppImage` |
+| Linux x86_64 | `Hecate_X.Y.Z_amd64.deb`, `Hecate_X.Y.Z_amd64.AppImage` |
 | Windows x86_64 | `Hecate_X.Y.Z_x64_en-US.msi` |
 
 The bundle is a Tauri 2.x chrome around the same `hecate` binary used in Docker and the tarballs. On launch the app spawns Hecate as a sidecar on a free loopback port, polls `/healthz`, then loads the embedded UI directly.

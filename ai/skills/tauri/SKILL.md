@@ -116,7 +116,7 @@ The webview loads `http://127.0.0.1:{port}/`. Because this is a loopback connect
 | `make tauri-build` bundle | `exe_dir/hecate-{TARGET}` (placed by Tauri's externalBin bundler) |
 | Any context | `HECATE_BIN` env var wins if set |
 
-The `externalBin: ["binaries/hecate"]` entry in `tauri.conf.json` tells Tauri's bundler to include the sidecar binary and sign/notarize it correctly on each platform. `make tauri-sidecar` stages it as `binaries/hecate-{triple}` which is the name the bundler expects.
+The `externalBin: ["binaries/hecate"]` entry in `tauri.conf.json` tells Tauri's bundler to include the sidecar binary. When signing is configured later, Tauri signs/notarizes bundled sidecars as part of the native app pipeline. `make tauri-sidecar` stages it as `binaries/hecate-{triple}` which is the name the bundler expects.
 
 ## Process lifecycle
 
