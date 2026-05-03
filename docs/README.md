@@ -6,7 +6,7 @@ Long-form references for operators, integrators, and contributors. The [project 
 
 Pick your role and read in order — each path is three to five docs.
 
-**I'm running Hecate on my laptop** (the only supported mode)
+**I'm running Hecate on my laptop** (the primary supported mode today)
 1. [Desktop app](desktop-app.md) — `.dmg` / `.deb` / `.AppImage` / `.msi` install, current state, footguns, roadmap.
 2. [Deployment](deployment.md) — Docker, image pinning, binary install, storage tiers.
 3. [Providers](providers.md) — add your first provider, understand the preset catalog and health checks.
@@ -63,6 +63,17 @@ Pick your role and read in order — each path is three to five docs.
 | [Architecture](architecture.md) | Internals of the gateway request flow and the task-runtime queue / lease / sandbox boundary. |
 | [Development](development.md) | Building from source: Go + Bun toolchain, UI hot reload, the test ladder, screenshot tooling. |
 | [Release](release.md) | Cutting a release tag. Versioning policy, alpha gate, image build, recovery if CI fails. |
+
+## RFCs
+
+These documents describe future contracts. They are useful for design review,
+but they are not implemented or stable frontend dependencies yet.
+
+| Doc | Read this when |
+|---|---|
+| [Agent event protocol v1 candidate](event-protocol-v1.md) | Designing the typed event stream for CLI, web, ACP, and IDE consumers. |
+| [Agent event protocol experimental extensions](event-protocol-experimental.md) | Parking future event ideas such as thinking blocks, sub-agents, multimodal output, branching, and write-side approval transport. |
+| [Artifact storage v1 candidate](artifact-storage-v1.md) | Designing persisted command output, patches, fetched resources, and artifact retention. |
 
 ## See also
 
