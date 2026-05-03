@@ -263,6 +263,7 @@ type TaskRunStreamEventData struct {
 	Run       TaskRunItem        `json:"run"`
 	Steps     []TaskStepItem     `json:"steps,omitempty"`
 	Artifacts []TaskArtifactItem `json:"artifacts,omitempty"`
+	Activity  []TaskActivityItem `json:"activity,omitempty"`
 	// Approvals are this task's approvals scoped to the run being
 	// streamed. Carried in every snapshot so the UI's approval banner
 	// stays in lock-step with run.status — without this the banner
@@ -278,6 +279,23 @@ type TaskRunStreamEventData struct {
 	// to subscribe to the public events stream separately.
 	Turn      *TaskRunStreamTurnCost `json:"turn,omitempty"`
 	EventType string                 `json:"event_type,omitempty"`
+}
+
+type TaskActivityItem struct {
+	ID          string         `json:"id"`
+	Type        string         `json:"type"`
+	Status      string         `json:"status,omitempty"`
+	Title       string         `json:"title,omitempty"`
+	StepID      string         `json:"step_id,omitempty"`
+	ArtifactID  string         `json:"artifact_id,omitempty"`
+	ApprovalID  string         `json:"approval_id,omitempty"`
+	ToolName    string         `json:"tool_name,omitempty"`
+	Kind        string         `json:"kind,omitempty"`
+	Path        string         `json:"path,omitempty"`
+	Summary     map[string]any `json:"summary,omitempty"`
+	OccurredAt  string         `json:"occurred_at,omitempty"`
+	Terminal    bool           `json:"terminal,omitempty"`
+	NeedsAction bool           `json:"needs_action,omitempty"`
 }
 
 // TaskRunStreamTurnCost mirrors the turn.completed event

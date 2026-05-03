@@ -2223,6 +2223,7 @@ func TestTaskRunStreamSSE(t *testing.T) {
 
 	var sawAwaitingApproval bool
 	var sawPartialStdout bool
+	var sawActivity bool
 	var sawTerminal bool
 	for event := range readSSEEvents(t, streamResp.Body) {
 		if event.Event != "snapshot" && event.Event != "done" {
@@ -2240,6 +2241,11 @@ func TestTaskRunStreamSSE(t *testing.T) {
 				sawPartialStdout = true
 			}
 		}
+		for _, activity := range payload.Data.Activity {
+			if activity.Type == "tool_call" && activity.Status != "" {
+				sawActivity = true
+			}
+		}
 		if payload.Data.Terminal || types.IsTerminalTaskRunStatus(payload.Data.Run.Status) {
 			sawTerminal = true
 		}
@@ -2253,6 +2259,9 @@ func TestTaskRunStreamSSE(t *testing.T) {
 	}
 	if !sawPartialStdout {
 		t.Fatal("did not observe partial stdout in stream snapshot")
+	}
+	if !sawActivity {
+		t.Fatal("did not observe normalized activity items in stream snapshot")
 	}
 	if !sawTerminal {
 		t.Fatal("did not observe terminal stream snapshot")
@@ -2882,6 +2891,28 @@ func TestTaskCreateRepoLocalProfileAppliesDefaults(t *testing.T) {
 	}
 	if created.Data.TimeoutMS != 120000 {
 		t.Fatalf("timeout_ms = %d, want 120000", created.Data.TimeoutMS)
+	}
+}
+
+func TestTaskCreateCodingAgentProfileAppliesDefaults(t *testing.T) {
+	t.Parallel()
+
+	logger := slog.New(slog.NewJSONHandler(io.Discard, nil))
+	handler := newTestHTTPHandlerForProviders(logger, nil, config.Config{})
+	tasks := newTaskTestClient(t, handler)
+
+	created := mustTaskRequestJSON[TaskResponse](tasks, http.MethodPost, "/v1/tasks", `{"title":"Coding profile","prompt":"Make a focused code change.","execution_profile":"coding_agent"}`)
+	if created.Data.ExecutionKind != "agent_loop" {
+		t.Fatalf("execution_kind = %q, want agent_loop", created.Data.ExecutionKind)
+	}
+	if created.Data.WorkspaceMode != "persistent" {
+		t.Fatalf("workspace_mode = %q, want persistent", created.Data.WorkspaceMode)
+	}
+	if created.Data.TimeoutMS != 300000 {
+		t.Fatalf("timeout_ms = %d, want 300000", created.Data.TimeoutMS)
+	}
+	if !strings.Contains(created.Data.SystemPrompt, "Prefer file_edit") {
+		t.Fatalf("system_prompt missing coding-agent guidance: %q", created.Data.SystemPrompt)
 	}
 }
 
