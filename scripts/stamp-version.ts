@@ -8,6 +8,7 @@
 //
 // Files updated:
 //   tauri/src-tauri/Cargo.toml      source of truth
+//   tauri/src-tauri/Cargo.lock      mirrors the local hecate-app package
 //   tauri/package.json              mirrors Cargo.toml
 //   tauri/src-tauri/tauri.conf.json mirrors Cargo.toml
 //     (Tauri 2.x removed "version": "package" — must be written explicitly)
@@ -70,7 +71,23 @@ if (updatedCargo === cargo) {
   console.log(`  Cargo.toml  → ${version}`);
 }
 
-// ── 3. package.json ───────────────────────────────────────────────────────────
+// ── 3. Cargo.lock ─────────────────────────────────────────────────────────────
+
+const cargoLockPath = resolve(tauri, "src-tauri/Cargo.lock");
+const cargoLock = readFileSync(cargoLockPath, "utf8");
+const updatedCargoLock = cargoLock.replace(
+  /(\[\[package\]\]\nname = "hecate-app"\nversion = )"[^"]+"/,
+  `$1"${version}"`,
+);
+
+if (updatedCargoLock === cargoLock) {
+  console.log(`  Cargo.lock  already at ${version}`);
+} else {
+  writeFileSync(cargoLockPath, updatedCargoLock);
+  console.log(`  Cargo.lock  → ${version}`);
+}
+
+// ── 4. package.json ───────────────────────────────────────────────────────────
 
 const pkgPath = resolve(tauri, "package.json");
 const pkg = JSON.parse(readFileSync(pkgPath, "utf8"));
@@ -83,7 +100,7 @@ if (pkg.version === version) {
   console.log(`  package.json → ${version}`);
 }
 
-// ── 4. tauri.conf.json ────────────────────────────────────────────────────────
+// ── 5. tauri.conf.json ────────────────────────────────────────────────────────
 //
 // Two version fields we maintain here:
 //   - top-level `version` — the canonical semver. Used by every bundler
