@@ -56,6 +56,9 @@ func TestFromTaskRunEventMapsV1Envelope(t *testing.T) {
 	if _, ok := envelope.Data["trace_id"]; ok {
 		t.Fatalf("Data unexpectedly contains trace_id")
 	}
+	if _, ok := envelope.Data["run"]; ok {
+		t.Fatalf("Data unexpectedly contains runtime snapshot")
+	}
 }
 
 func TestFromTaskRunEventKeepsExplicitEventID(t *testing.T) {
@@ -91,5 +94,111 @@ func TestFromTaskRunEventEventIDIsStable(t *testing.T) {
 
 	if first.EventID != second.EventID {
 		t.Fatalf("EventID changed between mappings: %q != %q", first.EventID, second.EventID)
+	}
+}
+
+func TestFromTaskRunEventNormalizesTerminalRunPayload(t *testing.T) {
+	startedAt := time.Date(2026, 5, 3, 10, 30, 0, 0, time.UTC)
+	finishedAt := startedAt.Add(1500 * time.Millisecond)
+	event := types.TaskRunEvent{
+		RunID:     "run_01HX0000000000000000000001",
+		Sequence:  3,
+		EventType: "run.finished",
+		Data: map[string]any{
+			"run": types.TaskRun{
+				Status:             "completed",
+				StepCount:          2,
+				TotalCostMicrosUSD: 0,
+				StartedAt:          startedAt,
+				FinishedAt:         finishedAt,
+				OtelStatusCode:     "ok",
+				OtelStatusMessage:  "",
+				PriorCostMicrosUSD: 0,
+				LastError:          "",
+			},
+			"steps":     []types.TaskStep{{ID: "step_1"}},
+			"artifacts": []types.TaskArtifact{{ID: "artifact_1"}},
+			"status":    "completed",
+			"error":     "",
+		},
+		CreatedAt: finishedAt,
+	}
+
+	envelope := FromTaskRunEvent(event)
+
+	if envelope.Data["final_status"] != "completed" {
+		t.Fatalf("final_status = %v", envelope.Data["final_status"])
+	}
+	if envelope.Data["turns"] != 2 {
+		t.Fatalf("turns = %v, want 2", envelope.Data["turns"])
+	}
+	if envelope.Data["cost_micros_usd"] != int64(0) {
+		t.Fatalf("cost_micros_usd = %v, want 0", envelope.Data["cost_micros_usd"])
+	}
+	if envelope.Data["duration_ms"] != int64(1500) {
+		t.Fatalf("duration_ms = %v, want 1500", envelope.Data["duration_ms"])
+	}
+	for _, key := range []string{"run", "steps", "artifacts", "status"} {
+		if _, ok := envelope.Data[key]; ok {
+			t.Fatalf("Data unexpectedly contains %s", key)
+		}
+	}
+}
+
+func TestFromTaskRunEventNormalizesResumePayload(t *testing.T) {
+	event := types.TaskRunEvent{
+		RunID:     "run_01HX0000000000000000000002",
+		Sequence:  1,
+		EventType: "run.resumed_from_event",
+		Data: map[string]any{
+			"run": types.TaskRun{
+				PriorCostMicrosUSD: 1234,
+			},
+			"resumed_from_run_id": "run_01HX0000000000000000000001",
+			"reason":              "continue after cancellation",
+			"retry_from_turn":     3,
+		},
+	}
+
+	envelope := FromTaskRunEvent(event)
+
+	if envelope.Data["from_run_id"] != "run_01HX0000000000000000000001" {
+		t.Fatalf("from_run_id = %v", envelope.Data["from_run_id"])
+	}
+	if envelope.Data["prior_cost_micros_usd"] != int64(1234) {
+		t.Fatalf("prior_cost_micros_usd = %v", envelope.Data["prior_cost_micros_usd"])
+	}
+	if _, ok := envelope.Data["resumed_from_run_id"]; ok {
+		t.Fatalf("Data unexpectedly contains resumed_from_run_id")
+	}
+}
+
+func TestFromTaskRunEventStripsSnapshotsFromNonRunPayloads(t *testing.T) {
+	event := types.TaskRunEvent{
+		RunID:     "run_01HX0000000000000000000001",
+		Sequence:  4,
+		EventType: "agent.turn.completed",
+		Data: map[string]any{
+			"run":                            types.TaskRun{ID: "run_1"},
+			"steps":                          []types.TaskStep{{ID: "step_1"}},
+			"artifacts":                      []types.TaskArtifact{{ID: "artifact_1"}},
+			"turn":                           1,
+			"cost_micros_usd":                int64(0),
+			"run_cumulative_cost_micros_usd": int64(0),
+		},
+	}
+
+	envelope := FromTaskRunEvent(event)
+
+	if envelope.Data["turn"] != 1 {
+		t.Fatalf("turn = %v, want 1", envelope.Data["turn"])
+	}
+	if envelope.Data["cost_micros_usd"] != int64(0) {
+		t.Fatalf("cost_micros_usd = %v, want 0", envelope.Data["cost_micros_usd"])
+	}
+	for _, key := range []string{"run", "steps", "artifacts"} {
+		if _, ok := envelope.Data[key]; ok {
+			t.Fatalf("Data unexpectedly contains %s", key)
+		}
 	}
 }

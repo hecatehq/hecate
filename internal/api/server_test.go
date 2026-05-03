@@ -1675,8 +1675,8 @@ func TestTaskRunLifecycleEventsForSuccessfulRun(t *testing.T) {
 			t.Fatalf("event %s occurred_at is empty", event.Type)
 		}
 		if event.Type == "run.finished" {
-			if status, _ := event.Data["status"].(string); status != "completed" {
-				t.Fatalf("run.finished status payload = %q, want completed", status)
+			if status, _ := event.Data["final_status"].(string); status != "completed" {
+				t.Fatalf("run.finished final_status payload = %q, want completed", status)
 			}
 		}
 	}
@@ -2703,8 +2703,8 @@ func TestTaskRunResumeFromCancelledRun(t *testing.T) {
 			continue
 		}
 		foundResumedEvent = true
-		if got, _ := event.Data["resumed_from_run_id"].(string); got != started.Data.ID {
-			t.Fatalf("run.resumed_from_event resumed_from_run_id = %q, want %q", got, started.Data.ID)
+		if got, _ := event.Data["from_run_id"].(string); got != started.Data.ID {
+			t.Fatalf("run.resumed_from_event from_run_id = %q, want %q", got, started.Data.ID)
 		}
 	}
 	if !foundResumedEvent {
