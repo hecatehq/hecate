@@ -70,8 +70,57 @@ describe("ConsoleShell navigation", () => {
       />,
     );
 
-    expect(screen.getByText("…/dev/hecate")).toBeInTheDocument();
+    expect(screen.getByText("/Users/alice/dev/hecate")).toBeInTheDocument();
     expect(screen.getByText("git:feature/agents")).toBeInTheDocument();
+  });
+
+  it("prefers the active agent chat workspace over the draft workspace", () => {
+    const state = createRuntimeConsoleFixture({
+      chatTarget: "agent",
+      agentWorkspace: "/Users/alice/dev/draft",
+      agentWorkspaceBranch: "draft",
+      activeAgentChatSession: {
+        id: "agent_chat_1",
+        title: "Active Cursor work",
+        adapter_id: "cursor_agent",
+        workspace: "/Users/alice/dev/hecate",
+        workspace_branch: "main",
+        status: "completed",
+        messages: [],
+      },
+    });
+    render(
+      <ConsoleShell
+        activeWorkspace="chats"
+        onSelectWorkspace={() => {}}
+        state={state}
+        actions={createRuntimeConsoleActions()}
+      />,
+    );
+
+    expect(screen.getByText("/Users/alice/dev/hecate")).toBeInTheDocument();
+    expect(screen.getByText("git:main")).toBeInTheDocument();
+    expect(screen.queryByText("/Users/alice/dev/draft")).toBeNull();
+    expect(screen.queryByText("git:draft")).toBeNull();
+  });
+
+  it("does not show agent workspace details while chatting with models", () => {
+    const state = createRuntimeConsoleFixture({
+      chatTarget: "model",
+      agentWorkspace: "/Users/alice/dev/hecate",
+      agentWorkspaceBranch: "main",
+    });
+    render(
+      <ConsoleShell
+        activeWorkspace="chats"
+        onSelectWorkspace={() => {}}
+        state={state}
+        actions={createRuntimeConsoleActions()}
+      />,
+    );
+
+    expect(screen.queryByText("/Users/alice/dev/hecate")).toBeNull();
+    expect(screen.queryByText("git:main")).toBeNull();
   });
 });
 

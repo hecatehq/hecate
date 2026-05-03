@@ -1035,6 +1035,27 @@ func TestAgentChatRunsExternalAdapter(t *testing.T) {
 	}
 }
 
+func TestAgentChatWorkspaceGitBranch(t *testing.T) {
+	if _, err := exec.LookPath("git"); err != nil {
+		t.Skip("git not available")
+	}
+
+	dir := t.TempDir()
+	if err := exec.Command("git", "-C", dir, "init", "-b", "feature/agent-chat").Run(); err != nil {
+		t.Fatalf("git init: %v", err)
+	}
+	if got := workspaceGitBranch(dir); got != "feature/agent-chat" {
+		t.Fatalf("workspaceGitBranch = %q, want feature/agent-chat", got)
+	}
+}
+
+func TestAgentChatWorkspaceGitBranchReturnsEmptyOutsideGit(t *testing.T) {
+	dir := t.TempDir()
+	if got := workspaceGitBranch(dir); got != "" {
+		t.Fatalf("workspaceGitBranch = %q, want empty", got)
+	}
+}
+
 func TestRuntimeStatsReturnsQueueAndRunCounters(t *testing.T) {
 	t.Parallel()
 
