@@ -4,13 +4,13 @@ GOCACHE_DIR := $(CURDIR)/.gocache
 
 .PHONY: test test-race vet coverage ui-coverage build build-acp run serve dev stop ui-install ui-dev ui-build ui-test ui-test-e2e test-acp-smoke test-docker-smoke docs-env-check check-links verify-alpha reset-dev reset-docker screenshots tauri-install tauri-version tauri-sidecar tauri-dev tauri-build tauri-build-app test-tauri-smoke
 
-# build produces a single self-contained gateway binary with the UI bundle
+# build produces a single self-contained `hecate` binary with the UI bundle
 # embedded. The UI is built first so //go:embed picks up the real assets;
 # without this step the binary still runs but serves a "UI not built"
 # fallback page instead of the React app.
 build: ui-build
 	mkdir -p "$(GOCACHE_DIR)"
-	GOCACHE="$(GOCACHE_DIR)" go build -o gateway ./cmd/gateway
+	GOCACHE="$(GOCACHE_DIR)" go build -o hecate ./cmd/hecate
 
 build-acp:
 	mkdir -p "$(GOCACHE_DIR)"
@@ -39,7 +39,7 @@ ui-coverage:
 	cd ui && bun run test:coverage
 
 # stop frees :8765 by killing whatever is listening there. Useful before
-# `docker run -p 8765:8765 …` (a stale `make dev` / `make run` / `./gateway`
+# `docker run -p 8765:8765 …` (a stale `make dev` / `make run` / `./hecate`
 # from a previous shell will otherwise produce "address already in use") or
 # any time the operator wants to make sure the dev gateway is down.
 stop:
@@ -54,25 +54,25 @@ stop:
 
 run: stop
 	mkdir -p "$(GOCACHE_DIR)"
-	GOCACHE="$(GOCACHE_DIR)" go run ./cmd/gateway
+	GOCACHE="$(GOCACHE_DIR)" go run ./cmd/hecate
 
-# serve runs the pre-built ./gateway binary. The `stop` prerequisite frees
+# serve runs the pre-built ./hecate binary. The `stop` prerequisite frees
 # :8765 if a stale process is still listening, so a forgotten Ctrl-C never
 # blocks a restart. It also sources .env so providers configured there are
 # available, matching the `make dev` workflow.
 serve: stop
-	@test -x ./gateway || (echo "gateway binary not found — run 'make build' first." && exit 1)
+	@test -x ./hecate || (echo "hecate binary not found — run 'make build' first." && exit 1)
 	set -a; \
 	[ -f ./.env ] && . ./.env; \
 	set +a; \
-	./gateway
+	./hecate
 
 dev: stop
 	mkdir -p "$(GOCACHE_DIR)"
 	set -a; \
 	. ./.env; \
 	set +a; \
-	GOCACHE="$(GOCACHE_DIR)" go run ./cmd/gateway
+	GOCACHE="$(GOCACHE_DIR)" go run ./cmd/hecate
 
 ui-install:
 	cd ui && bun install
@@ -151,7 +151,7 @@ reset-dev:
 	@echo "Local dev state reset."
 
 # screenshots is the one-shot end-to-end capture workflow:
-# reset → build → start gateway in the background → wait
+# reset → build → start hecate in the background → wait
 # for /healthz → run the bun capture script → stop gateway. Everything
 # is reset to a clean state on entry and torn down on exit, so two
 # successive `make screenshots` calls always produce identical files.
@@ -166,7 +166,7 @@ screenshots:
 	@$(MAKE) --no-print-directory build
 	@mkdir -p .data
 	@echo "starting gateway in background…"
-	@./gateway > .data/screenshots-gateway.log 2>&1 & echo $$! > .data/screenshots-gateway.pid
+	@./hecate > .data/screenshots-gateway.log 2>&1 & echo $$! > .data/screenshots-gateway.pid
 	@for i in 1 2 3 4 5 6 7 8 9 10; do \
 	  curl -sf http://127.0.0.1:8765/healthz > /dev/null && break; \
 	  sleep 0.3; \
@@ -190,10 +190,10 @@ reset-docker:
 # Tauri native desktop app
 # ---------------------------------------------------------------------------
 #
-# The Tauri app bundles the gateway binary as a sidecar. The workflow:
-#   1. Build the gateway binary for the current platform (make build).
-#   2. Copy it into tauri/src-tauri/binaries/ with the platform-triple suffix
-#      that Tauri's bundler expects (e.g. gateway-aarch64-apple-darwin).
+# The Tauri app bundles hecate and hecate-acp as sidecar binaries. The workflow:
+#   1. Build the Go binaries for the current platform (make build build-acp).
+#   2. Copy them into tauri/src-tauri/binaries/ with the platform-triple suffix
+#      that Tauri's bundler expects (e.g. hecate-aarch64-apple-darwin).
 #   3. Install Tauri JS dependencies (bun install inside tauri/).
 #   4. tauri dev / tauri build handles the Rust compile + bundle.
 #
@@ -218,22 +218,24 @@ tauri-install:
 tauri-version: tauri-install
 	bun scripts/stamp-version.ts
 
-# tauri-sidecar: build the gateway and stage it as a Tauri sidecar.
+# tauri-sidecar: build hecate + hecate-acp and stage them as Tauri sidecars.
 # Called automatically by tauri-dev and tauri-build so you rarely need it
-# directly. On Windows `go build -o gateway` produces gateway.exe, and the
-# bundler wants gateway-{triple}.exe — handle both source and dest names.
-tauri-sidecar: build
+# directly. On Windows `go build -o hecate` produces hecate.exe, and the
+# bundler wants hecate-{triple}.exe — handle both source and dest names.
+tauri-sidecar: build build-acp
 	@if [ -z "$(RUST_TARGET)" ]; then \
 	  echo "rustc not found — cannot determine host triple" && exit 1; \
 	fi
 	@goexe=$$(go env GOEXE); \
-	src="gateway$$goexe"; \
-	dest="tauri/src-tauri/binaries/gateway-$(RUST_TARGET)$$goexe"; \
-	echo "staging sidecar: $$dest"; \
-	cp "$$src" "$$dest"
+	for name in hecate hecate-acp; do \
+	  src="$$name$$goexe"; \
+	  dest="tauri/src-tauri/binaries/$$name-$(RUST_TARGET)$$goexe"; \
+	  echo "staging sidecar: $$dest"; \
+	  cp "$$src" "$$dest"; \
+	done
 
 # tauri-dev: hot-reload development mode. Launches the Tauri window backed by
-# a fresh gateway sidecar build. The gateway binary is rebuilt first so the
+# a fresh hecate sidecar build. The hecate binary is rebuilt first so the
 # sidecar is up to date; UI changes require a full `make tauri-sidecar` since
 # the gateway embeds the UI bundle at build time.
 tauri-dev: tauri-sidecar tauri-install
@@ -262,7 +264,7 @@ tauri-build-app: tauri-sidecar tauri-version
 	fi
 
 # test-tauri-smoke builds the native app bundle, launches it, waits for the
-# gateway sidecar to answer /healthz, quits the app, and verifies the sidecar
+# hecate sidecar to answer /healthz, quits the app, and verifies the sidecar
 # exits. It opens a real desktop window, so keep it opt-in rather than part of
 # verify-alpha.
 test-tauri-smoke: tauri-build-app

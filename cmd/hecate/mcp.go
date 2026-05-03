@@ -12,7 +12,7 @@ import (
 	"github.com/hecate/agent-runtime/internal/version"
 )
 
-// runMCPServer is the entry point for `gateway mcp-server`. It runs an
+// runMCPServer is the entry point for `hecate mcp-server`. It runs an
 // MCP server on stdio, talking back to a running Hecate gateway over
 // HTTP.
 //
@@ -23,7 +23,7 @@ import (
 // We deliberately don't read config.LoadFromEnv() — the MCP subprocess
 // runs out-of-process from the gateway and shouldn't share its config
 // surface. Operators add this to Claude Desktop / Cursor / Zed by
-// pointing their `mcpServers` config at the gateway binary.
+// pointing their `mcpServers` config at the hecate binary.
 func runMCPServer() {
 	baseURL := strings.TrimSpace(os.Getenv("HECATE_BASE_URL"))
 	if baseURL == "" {
@@ -47,9 +47,9 @@ func runMCPServer() {
 		cancel()
 	}()
 
-	fmt.Fprintln(os.Stderr, "gateway mcp-server: started on stdio, talking to "+baseURL)
+	fmt.Fprintln(os.Stderr, "hecate mcp-server: started on stdio, talking to "+baseURL)
 	if err := srv.Serve(ctx, os.Stdin, os.Stdout); err != nil {
-		fmt.Fprintln(os.Stderr, "gateway mcp-server: "+err.Error())
+		fmt.Fprintln(os.Stderr, "hecate mcp-server: "+err.Error())
 		os.Exit(1)
 	}
 }

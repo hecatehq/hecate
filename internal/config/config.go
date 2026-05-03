@@ -3,6 +3,7 @@ package config
 import (
 	"errors"
 	"fmt"
+	"net/url"
 	"os"
 	"strconv"
 	"strings"
@@ -29,6 +30,7 @@ type Config struct {
 
 type ServerConfig struct {
 	Address                    string
+	PublicURL                  string
 	DataDir                    string
 	BootstrapFile              string
 	ControlPlaneBackend        string
@@ -297,8 +299,12 @@ func LoadFromEnv() Config {
 	return Config{
 		Server: ServerConfig{
 			Address: getEnv("GATEWAY_ADDRESS", "127.0.0.1:8765"),
+			// PublicURL is written to gateway-state.json so local helper
+			// processes such as hecate-acp can discover the externally
+			// reachable gateway URL. Empty means derive from Address.
+			PublicURL: getEnv("GATEWAY_PUBLIC_URL", ""),
 			// Default `.data/` keeps the auto-generated bootstrap file
-			// (admin token + AES-GCM key) out of the repo root so a stray
+			// (AES-GCM key for persisted provider secrets) out of the repo root so a stray
 			// `git add .` can't sweep it up. Docker overrides this to /data
 			// via the Dockerfile.
 			DataDir:       getEnv("GATEWAY_DATA_DIR", ".data"),
@@ -447,6 +453,12 @@ func (c Config) Validate() error {
 	validateBackend("GATEWAY_BUDGET_BACKEND", c.Governor.BudgetBackend, "memory", "sqlite")
 	validateBackend("GATEWAY_RETENTION_HISTORY_BACKEND", c.Retention.HistoryBackend, "memory", "sqlite")
 	validateBackend("GATEWAY_PROVIDER_HISTORY_BACKEND", c.Provider.HistoryBackend, "memory", "sqlite")
+	if publicURL := strings.TrimSpace(c.Server.PublicURL); publicURL != "" {
+		u, err := url.ParseRequestURI(publicURL)
+		if err != nil || u.Host == "" || (u.Scheme != "http" && u.Scheme != "https") {
+			errs = append(errs, fmt.Errorf("GATEWAY_PUBLIC_URL must be an absolute http(s) URL (got %q)", publicURL))
+		}
+	}
 
 	validPolicies := map[string]struct{}{
 		"shell_exec": {}, "git_exec": {}, "file_write": {},

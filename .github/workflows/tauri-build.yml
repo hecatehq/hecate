@@ -16,7 +16,7 @@ on:
       - 'Makefile'
       - 'go.mod'
       - 'go.sum'
-      - 'cmd/gateway/**'
+      - 'cmd/hecate/**'
       - 'ui/**'
       - 'embed.go'              # //go:embed all:ui/dist — UI bundle into binary
       - '.goreleaser.yaml'      # release config; tag-time goreleaser pipeline

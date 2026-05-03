@@ -1,7 +1,7 @@
 // lib.rs — Hecate desktop app (Tauri 2.x)
 //
 // Architecture:
-//   The app bundles the hecate gateway binary as a companion process. On launch:
+//   The app bundles the hecate binary as a companion process. On launch:
 //   1. The main window (defined in tauri.conf.json) loads the splash page
 //      (../splash/index.html via frontendDist) while the gateway boots.
 //   2. sidecar::spawn_and_wait() resolves the data dir, finds a free loopback
@@ -22,7 +22,7 @@ use tauri::Manager;
 
 const MIN_SPLASH_DURATION: Duration = Duration::from_secs(2);
 
-/// Tauri managed state: the gateway child process.
+/// Tauri managed state: the hecate child process.
 /// Wrapped in Mutex<Option<…>> so the exit handler can take() it exactly once.
 struct GatewayChild(Mutex<Option<std::process::Child>>);
 
@@ -30,6 +30,7 @@ struct GatewayChild(Mutex<Option<std::process::Child>>);
 struct GatewayDiagnostics {
     data_dir: PathBuf,
     log_path: PathBuf,
+    state_path: PathBuf,
 }
 
 fn open_path(path: &Path) -> Result<(), String> {
@@ -135,6 +136,7 @@ pub fn run() {
             app.manage(GatewayDiagnostics {
                 data_dir: diagnostics.data_dir.clone(),
                 log_path: diagnostics.log_path.clone(),
+                state_path: diagnostics.state_path.clone(),
             });
 
             let app_handle = app.handle().clone();
@@ -182,13 +184,16 @@ pub fn run() {
         .expect("error building Hecate app")
         .run(|app_handle, event| {
             if let tauri::RunEvent::Exit = event {
-                // Kill the gateway process so it doesn't become an orphan.
+                // Kill the hecate process so it doesn't become an orphan.
                 if let Some(state) = app_handle.try_state::<GatewayChild>() {
                     if let Ok(mut slot) = state.0.lock() {
                         if let Some(mut child) = slot.take() {
                             let _ = child.kill();
                         }
                     }
+                }
+                if let Some(paths) = app_handle.try_state::<GatewayDiagnostics>() {
+                    sidecar::remove_gateway_state(&paths.state_path);
                 }
             }
         });

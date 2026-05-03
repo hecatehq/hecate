@@ -4,6 +4,7 @@ import (
 	"context"
 	"fmt"
 	"log/slog"
+	"net"
 	"net/http"
 	"os"
 	"os/signal"
@@ -66,7 +67,7 @@ func main() {
 	bootstrapPath := resolveBootstrapPath(cfg.Server.BootstrapFile, cfg.Server.DataDir)
 	boot, err := bootstrap.Resolve(bootstrapPath, cfg.Server.ControlPlaneSecretKey)
 	if err != nil {
-		slog.Error("bootstrap secrets init failed", slog.String("path", bootstrapPath), slog.Any("error", err))
+		slog.Error("bootstrap secret init failed", slog.String("path", bootstrapPath), slog.Any("error", err))
 		os.Exit(1)
 	}
 	cfg.Server.ControlPlaneSecretKey = boot.ControlPlaneSecretKey
@@ -281,10 +282,23 @@ func main() {
 		Handler:           api.NewServer(logger, handler),
 		ReadHeaderTimeout: 5 * time.Second,
 	}
+	listener, err := net.Listen("tcp", cfg.Server.Address)
+	if err != nil {
+		logger.Error("gateway listen failed", slog.String("addr", cfg.Server.Address), slog.Any("error", err))
+		os.Exit(1)
+	}
+	gatewayStatePath, err := writeGatewayRuntimeState(cfg.Server.DataDir, listener.Addr().String(), cfg.Server.PublicURL)
+	if err != nil {
+		logger.Warn("gateway runtime state write failed", slog.Any("error", err))
+	} else {
+		defer removeGatewayRuntimeState(gatewayStatePath)
+	}
 
 	go func() {
 		logger.Info("gateway starting",
 			slog.String("addr", cfg.Server.Address),
+			slog.String("listen_addr", listener.Addr().String()),
+			slog.String("gateway_state_path", gatewayStatePath),
 			slog.String("default_model", cfg.Router.DefaultModel),
 			slog.Int("provider_max_attempts", cfg.Provider.MaxAttempts),
 			slog.Bool("provider_failover_enabled", cfg.Provider.FailoverEnabled),
@@ -304,7 +318,7 @@ func main() {
 			slog.Int("provider_count", len(cfg.Providers.OpenAICompatible)),
 		)
 
-		if err := server.ListenAndServe(); err != nil && err != http.ErrServerClosed {
+		if err := server.Serve(listener); err != nil && err != http.ErrServerClosed {
 			logger.Error("gateway stopped unexpectedly", slog.Any("error", err))
 			os.Exit(1)
 		}
@@ -574,7 +588,7 @@ func retentionHistoryKey(key string) string {
 }
 
 // resolveBootstrapPath returns the location the gateway should read/write
-// the bootstrap secrets file from. An explicit GATEWAY_BOOTSTRAP_FILE
+// the bootstrap secret file from. An explicit GATEWAY_BOOTSTRAP_FILE
 // (carried in `bootstrapFile`) wins; otherwise the file lives at
 // `<dataDir>/hecate.bootstrap.json`, which keeps it under the same
 // volume mount in docker and the same `.data/` directory in local dev.

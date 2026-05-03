@@ -68,7 +68,7 @@ func TestMain(m *testing.M) {
 	// ── 3. In-process OTLP sink ───────────────────────────────────────────────
 	suiteOTLP = newOTLPSink()
 
-	// ── 4. Gateway binary ─────────────────────────────────────────────────────
+	// ── 4. Hecate binary ──────────────────────────────────────────────────────
 	var err error
 	suiteGateway, err = startGatewayProcess(
 		"PROVIDER_OLLAMA_BASE_URL="+suiteOllamaURL,
@@ -407,15 +407,15 @@ func (s *otlpSink) waitForMetric(substr string, timeout time.Duration) bool {
 	return false
 }
 
-// ─── gateway process lifecycle (TestMain-scoped, no *testing.T) ────────────
+// ─── hecate process lifecycle (TestMain-scoped, no *testing.T) ─────────────
 
-// startGatewayProcess builds the gateway binary once, starts it with the
+// startGatewayProcess builds the hecate binary once, starts it with the
 // given extra env vars and a per-process temp data dir for the bootstrap
 // file. Waits for /healthz, returns the base URL. The process is
 // intentionally not tracked for cleanup: it is killed by the OS when
 // the test binary exits.
 func startGatewayProcess(extraEnv ...string) (string, error) {
-	bin, err := buildGatewayBin()
+	bin, err := buildHecateBin()
 	if err != nil {
 		return "", fmt.Errorf("build: %w", err)
 	}
@@ -431,7 +431,7 @@ func startGatewayProcess(extraEnv ...string) (string, error) {
 	// Per-process temp data dir so the bootstrap file lands somewhere
 	// ephemeral. MkdirTemp (not t.TempDir) because this helper is
 	// called from TestMain where no *testing.T is in scope.
-	dataDir, err := os.MkdirTemp("", "gateway-e2e-data-*")
+	dataDir, err := os.MkdirTemp("", "hecate-e2e-data-*")
 	if err != nil {
 		return "", fmt.Errorf("mkdir temp data dir: %w", err)
 	}
@@ -459,16 +459,16 @@ func startGatewayProcess(extraEnv ...string) (string, error) {
 	return baseURL, nil
 }
 
-func buildGatewayBin() (string, error) {
-	if bin := os.Getenv("E2E_GATEWAY_BIN"); bin != "" {
+func buildHecateBin() (string, error) {
+	if bin := os.Getenv("E2E_HECATE_BIN"); bin != "" {
 		return bin, nil
 	}
-	dir, err := os.MkdirTemp("", "gateway-e2e-*")
+	dir, err := os.MkdirTemp("", "hecate-e2e-*")
 	if err != nil {
 		return "", err
 	}
-	bin := dir + "/gateway"
-	cmd := exec.Command("go", "build", "-o", bin, "./cmd/gateway")
+	bin := dir + "/hecate"
+	cmd := exec.Command("go", "build", "-o", bin, "./cmd/hecate")
 	cmd.Dir = moduleRootDir() // defined in gateway_test.go
 	if out, err := cmd.CombinedOutput(); err != nil {
 		return "", fmt.Errorf("go build: %v\n%s", err, out)

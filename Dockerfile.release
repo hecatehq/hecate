@@ -2,9 +2,9 @@
 #
 # Release image used by goreleaser. The dev Dockerfile (./Dockerfile)
 # builds Go from source in-image; this one is a pure copy job — it
-# expects goreleaser to have cross-compiled the static `gateway` binary
-# on the host and staged it into the buildx context under
-# ${TARGETPLATFORM}/gateway (for example linux/arm64/gateway).
+# expects goreleaser to have cross-compiled the static `hecate` and
+# `hecate-acp` binaries on the host and staged them into the buildx context
+# under ${TARGETPLATFORM}/hecate and ${TARGETPLATFORM}/hecate-acp.
 #
 # Final image is byte-identical in shape to the dev Dockerfile's runtime
 # stage (distroless static, nonroot, /data volume, port 8765), so users
@@ -22,10 +22,12 @@ RUN mkdir -p /data && chown 65532:65532 /data
 FROM gcr.io/distroless/static-debian12:nonroot
 
 ARG TARGETPLATFORM
-COPY ${TARGETPLATFORM}/gateway /usr/local/bin/gateway
+COPY ${TARGETPLATFORM}/hecate /usr/local/bin/hecate
+COPY ${TARGETPLATFORM}/hecate-acp /usr/local/bin/hecate-acp
 COPY --from=prep --chown=65532:65532 /data /data
 
 ENV GATEWAY_ADDRESS=0.0.0.0:8765 \
+    GATEWAY_PUBLIC_URL=http://127.0.0.1:8765 \
     GATEWAY_DATA_DIR=/data \
     GATEWAY_SQLITE_PATH=/data/hecate.db \
     GATEWAY_MULTI_TENANT=false \
@@ -44,4 +46,4 @@ ENV GATEWAY_ADDRESS=0.0.0.0:8765 \
 VOLUME ["/data"]
 EXPOSE 8765
 USER nonroot:nonroot
-ENTRYPOINT ["/usr/local/bin/gateway"]
+ENTRYPOINT ["/usr/local/bin/hecate"]

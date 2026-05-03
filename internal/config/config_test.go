@@ -51,6 +51,19 @@ func TestValidateRejectsInvalidBackendNames(t *testing.T) {
 	}
 }
 
+func TestValidateRejectsInvalidPublicURL(t *testing.T) {
+	cfg := LoadFromEnv()
+	cfg.Server.PublicURL = "file:///tmp/hecate"
+
+	err := cfg.Validate()
+	if err == nil {
+		t.Fatal("Validate() error = nil, want invalid public URL error")
+	}
+	if !strings.Contains(err.Error(), "GATEWAY_PUBLIC_URL") {
+		t.Fatalf("Validate() error = %q, want GATEWAY_PUBLIC_URL", err)
+	}
+}
+
 func TestValidateRejectsInvalidDurationEnvValues(t *testing.T) {
 	t.Setenv("GATEWAY_RETENTION_INTERVAL", "tomorrow-ish")
 	cfg := LoadFromEnv()

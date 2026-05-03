@@ -35,7 +35,7 @@ AI workloads are moving from simple API calls to long-running agents, tool use, 
 - **Runtime visibility** — request ledger, route reports, failover details, cost, trace IDs, OpenTelemetry export.
 - **Agent-task runtime** — queued tasks, approvals, controlled shell/file/git execution, patch artifacts, resumable runs, MCP integration.
 - **Editor integration foundation** — experimental ACP stdio bridge for editor agent panels, backed by the same Hecate task/runtime stream.
-- **Gateway-first distribution** — the gateway embeds the React operator UI via `//go:embed` and ships as a Docker image, native desktop bundles (`.dmg` / `.deb` / `.AppImage` / `.msi`), and bare binary tarballs. Companion entrypoints such as the ACP bridge stay separate where the protocol requires it.
+- **Hecate-first distribution** — the `hecate` binary embeds the React operator UI via `//go:embed` and ships as a Docker image, native desktop bundles (`.dmg` / `.deb` / `.AppImage` / `.msi`), and bare binary tarballs. Companion entrypoints such as the ACP bridge stay separate where the protocol requires it.
 
 ## Quick Start
 

@@ -2,10 +2,10 @@
 #
 # Multi-stage build. Three layers:
 #   1. ui-builder:  Bun compiles the React operator UI to ui/dist.
-#   2. go-builder:  Go compiles cmd/gateway with //go:embed pulling in
-#                   ui/dist from the previous stage. Result is one static
-#                   binary with the UI embedded.
-#   3. runtime:     distroless/static — ~2 MB base, no shell, runs as
+#   2. go-builder:  Go compiles cmd/hecate with //go:embed pulling in
+#                   ui/dist from the previous stage, plus cmd/hecate-acp
+#                   as the ACP stdio bridge companion.
+#   3. runtime:     distroless/static — small base, no shell, runs as
 #                   non-root. Suitable for production.
 #
 # Build:   docker build -t hecate:dev .
@@ -52,8 +52,13 @@ COPY --from=ui-builder /app/ui/dist ./ui/dist
 RUN CGO_ENABLED=0 GOOS=linux go build \
     -trimpath \
     -ldflags='-s -w' \
-    -o /out/gateway \
-    ./cmd/gateway
+    -o /out/hecate \
+    ./cmd/hecate
+RUN CGO_ENABLED=0 GOOS=linux go build \
+    -trimpath \
+    -ldflags='-s -w' \
+    -o /out/hecate-acp \
+    ./cmd/hecate-acp
 
 # Pre-create an empty /data dir owned by distroless's nonroot uid (65532)
 # so that, when compose mounts a named volume on top, the volume inherits
@@ -67,12 +72,13 @@ RUN mkdir -p /out/data && chown 65532:65532 /out/data
 
 FROM gcr.io/distroless/static-debian12:nonroot AS runtime
 
-# Copy the static binary. distroless has no package manager, no shell — the
-# only file we add is the gateway binary itself.
-COPY --from=go-builder /out/gateway /usr/local/bin/gateway
+# Copy the static binaries. The image starts the gateway by default; hecate-acp
+# is present so all distribution shapes carry the same bridge companion.
+COPY --from=go-builder /out/hecate /usr/local/bin/hecate
+COPY --from=go-builder /out/hecate-acp /usr/local/bin/hecate-acp
 
-# /data holds the auto-generated bootstrap secrets (control-plane encryption
-# key + admin bearer token) and any file-backed control-plane state. We
+# /data holds the auto-generated bootstrap secret (control-plane encryption
+# key) and any file-backed control-plane state. We
 # copy in a pre-chowned empty dir from the builder so that when compose
 # mounts a named volume here, the volume inherits nonroot ownership on
 # first creation. Without this, the volume mounts root-owned and the
@@ -80,6 +86,7 @@ COPY --from=go-builder /out/gateway /usr/local/bin/gateway
 COPY --from=go-builder --chown=65532:65532 /out/data /data
 
 ENV GATEWAY_ADDRESS=0.0.0.0:8765 \
+    GATEWAY_PUBLIC_URL=http://127.0.0.1:8765 \
     GATEWAY_DATA_DIR=/data \
     GATEWAY_SQLITE_PATH=/data/hecate.db \
     # Default the durable subsystems to SQLite in the docker image so
@@ -111,4 +118,4 @@ VOLUME ["/data"]
 
 EXPOSE 8765
 USER nonroot:nonroot
-ENTRYPOINT ["/usr/local/bin/gateway"]
+ENTRYPOINT ["/usr/local/bin/hecate"]

@@ -101,15 +101,15 @@ printf '%s\n%s\n%s\n' \
   '{"jsonrpc":"2.0","id":1,"method":"initialize","params":{"protocolVersion":"2024-11-05","clientInfo":{"name":"smoke","version":"0"}}}' \
   '{"jsonrpc":"2.0","method":"notifications/initialized"}' \
   '{"jsonrpc":"2.0","id":2,"method":"tools/list"}' \
-  | gateway mcp-server
+  | hecate mcp-server
 ```
 
-Expected output: two JSON-RPC responses on stdout (initialize result + tools list). The startup line `gateway mcp-server: started on stdio, talking to ...` goes to stderr, which the protocol channel ignores.
+Expected output: two JSON-RPC responses on stdout (initialize result + tools list). The startup line `hecate mcp-server: started on stdio, talking to ...` goes to stderr, which the protocol channel ignores.
 
 ### Behavior notes
 
 - **Tool errors are not protocol errors.** When the upstream gateway is unreachable or returns a 5xx, the tool's `CallToolResult` carries `isError: true` with the error text in the content block. The MCP envelope itself stays a successful JSON-RPC response — that's what the spec requires, and it's also what clients render meaningfully.
-- **Pure-Go gateway subcommand.** The MCP server has no extra dependencies; it runs from the gateway binary you already have, dispatched by the first arg.
+- **Pure-Go hecate subcommand.** The MCP server has no extra dependencies; it runs from the hecate binary you already have, dispatched by the first arg.
 
 ### Spec compliance
 

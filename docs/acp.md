@@ -15,9 +15,10 @@ Protocol reference: [Agent Client Protocol](https://agentclientprotocol.com/).
 
 - [Current status](#current-status)
 - [Distribution and lifecycle](#distribution-and-lifecycle)
+- [Gateway launch options](#gateway-launch-options)
 - [Zed setup](#zed-setup)
 - [JetBrains setup](#jetbrains-setup)
-- [Native app setup](#native-app-setup)
+- [VS Code / Cursor setup](#vs-code--cursor-setup)
 - [Other ACP clients](#other-acp-clients)
 - [Session model](#session-model)
 - [Configuration](#configuration)
@@ -42,10 +43,18 @@ Not implemented yet:
 - Registry packaging for a specific editor.
 - Headless compatibility tests against a real Zed or JetBrains ACP host.
 
+TODO:
+
+- Add Hecate to ACP registries once the bridge has been manually smoke-tested
+  against real hosts and the launch/config story is stable. Until then, use the
+  custom local agent setup below.
+
 ## Distribution and lifecycle
 
 `hecate-acp` ships as a separate binary in the Go release tarballs, next to
-`gateway`. It is not bundled as a Tauri sidecar.
+`gateway`. The Docker image and native desktop app also include it, so each
+distribution shape carries the same gateway plus ACP bridge pair. ACP hosts
+still launch the bridge themselves over stdio.
 
 That split is deliberate:
 
@@ -55,8 +64,44 @@ That split is deliberate:
   starts `hecate-acp` over stdio and stops it when the editor session ends.
 
 Install the bridge somewhere stable and point the editor's ACP configuration at
-that executable. The bridge talks to a running Hecate gateway via
-`HECATE_GATEWAY_URL`.
+that executable. The bridge talks to a running Hecate gateway. If
+`HECATE_GATEWAY_URL` is set, it wins; otherwise the bridge checks
+`gateway-state.json` from the gateway data dir, then the native app data dir,
+then falls back to `http://127.0.0.1:8765`.
+
+## Gateway launch options
+
+ACP hosts always start `hecate-acp`; they do not start the gateway. Start
+Hecate first using whichever distribution fits your setup:
+
+| Setup | How to start Hecate | Bridge config |
+|---|---|---|
+| Native app | Open the Hecate desktop app | Omit `HECATE_GATEWAY_URL`; the bridge discovers the dynamic sidecar URL from `gateway-state.json`. |
+| Release tarball | Run `./hecate` from the unpacked tarball | Usually omit `HECATE_GATEWAY_URL`; default fallback is `http://127.0.0.1:8765`. Set it only if you changed the port or URL. |
+| Source checkout | Run `make dev` | Usually omit `HECATE_GATEWAY_URL`; the bridge checks `.data/gateway-state.json` and then falls back to `http://127.0.0.1:8765`. |
+| Docker / Compose | Run `docker compose up` or `docker run -p 8765:8765 ...` | Set `HECATE_GATEWAY_URL=http://127.0.0.1:8765` in the editor config unless the bridge is running inside the same container. |
+| Reverse proxy | Run Hecate behind your proxy | Set `HECATE_GATEWAY_URL` to the proxy URL. |
+
+The gateway state file contains the active `base_url`, for example:
+
+```json
+{
+  "base_url": "http://127.0.0.1:52341",
+  "listen_addr": "127.0.0.1:52341",
+  "pid": 12345,
+  "updated_unix": 1770000000
+}
+```
+
+For the native app, this file lives in the platform app data directory:
+
+- macOS: `~/Library/Application Support/io.github.chicoxyzzy.hecate/gateway-state.json`
+- Linux: `~/.local/share/io.github.chicoxyzzy.hecate/gateway-state.json`
+- Windows: `%APPDATA%\io.github.chicoxyzzy.hecate\gateway-state.json`
+
+For source, tarball, and Docker runs, it lives under `GATEWAY_DATA_DIR`
+(`.data/gateway-state.json` by default for local runs, `/data/gateway-state.json`
+inside the Docker image).
 
 ## Zed setup
 
@@ -66,7 +111,7 @@ starts `hecate-acp` over stdio.
 
 Official reference: [Zed External Agents](https://zed.dev/docs/ai/external-agents).
 
-1. Build or install the bridge:
+1. Install the bridge:
 
    ```sh
    make build-acp
@@ -74,18 +119,30 @@ Official reference: [Zed External Agents](https://zed.dev/docs/ai/external-agent
 
    For local development, the command path is the repo-local
    `./hecate-acp`. For releases, unpack the Go tarball and use the absolute
-   path to the `hecate-acp` binary inside it.
+   path to the `hecate-acp` binary inside it. The native app also bundles the
+   bridge next to the app executable with Tauri's platform suffix, such as
+   `hecate-acp-aarch64-apple-darwin`.
 
-2. Start Hecate separately:
+2. Start Hecate using one of the [gateway launch options](#gateway-launch-options).
 
-   ```sh
-   make dev
+3. Add a custom agent server to Zed settings. For native app, source checkout,
+   or default tarball usage, omit `HECATE_GATEWAY_URL` and let the bridge
+   discover the gateway:
+
+   ```json
+   {
+     "agent_servers": {
+       "Hecate": {
+         "type": "custom",
+         "command": "/absolute/path/to/hecate-acp",
+         "args": []
+       }
+     }
+   }
    ```
 
-   The bridge expects a running gateway at `http://127.0.0.1:8765` unless
-   `HECATE_GATEWAY_URL` overrides it.
-
-3. Add a custom agent server to Zed settings:
+   If you run Hecate through Docker, a non-default port, or a reverse proxy,
+   set the URL explicitly:
 
    ```json
    {
@@ -119,20 +176,38 @@ the JetBrains ACP registry yet, so add it manually in `~/.jetbrains/acp.json`.
 
 Official reference: [JetBrains Agent Client Protocol documentation](https://www.jetbrains.com/help/ai-assistant/acp.html).
 
-1. Build or install the bridge:
+1. Install the bridge:
 
    ```sh
    make build-acp
    ```
 
-2. Start Hecate separately:
+   For releases, use the `hecate-acp` binary from the tarball or native app
+   bundle.
 
-   ```sh
-   make dev
-   ```
+2. Start Hecate using one of the [gateway launch options](#gateway-launch-options).
 
 3. In the IDE, open **AI Chat**, choose **Add Custom Agent**, and edit the
-   generated `~/.jetbrains/acp.json`:
+   generated `~/.jetbrains/acp.json`. For native app, source checkout, or
+   default tarball usage, omit `HECATE_GATEWAY_URL`:
+
+   ```json
+   {
+     "default_mcp_settings": {
+       "use_custom_mcp": true,
+       "use_idea_mcp": false
+     },
+     "agent_servers": {
+       "Hecate": {
+         "command": "/absolute/path/to/hecate-acp",
+         "args": []
+       }
+     }
+   }
+   ```
+
+   If the gateway is reachable only through Docker port publishing, a custom
+   port, or a reverse proxy, include `HECATE_GATEWAY_URL`:
 
    ```json
    {
@@ -165,55 +240,67 @@ Official reference: [JetBrains Agent Client Protocol documentation](https://www.
 
 Current JetBrains limitation: ACP-compatible agents are not supported in WSL.
 
-## Native app setup
+## VS Code / Cursor setup
 
-The native desktop app can run the gateway for the operator UI, but it does not
-bundle or launch `hecate-acp` for editors. ACP clients still need a separate
-`hecate-acp` binary and a `HECATE_GATEWAY_URL` pointing at a running gateway.
+VS Code and Cursor can use the same Hecate ACP configuration when an ACP client
+extension is installed. This is extension-backed host support, not a native
+Hecate integration.
 
-Important current limitation: the desktop app starts its gateway sidecar on a
-free port chosen at launch, such as `http://127.0.0.1:52341`. That port is not
-stable and is not yet exposed through an app command, config file, or registry
-entry for other processes to consume.
+Useful references:
 
-For a reliable editor setup today, run a fixed-port gateway separately and point
-both the editor bridge and your browser at it:
+- [ACP VS Code extension](https://marketplace.visualstudio.com/items?itemName=strato-space.acp-plugin)
 
-```sh
-make dev
-curl -s http://127.0.0.1:8765/healthz
-```
+1. Install an ACP client extension.
 
-Then configure Zed or JetBrains with:
+   In VS Code, install an ACP client extension from the Visual Studio
+   Marketplace. In Cursor, install the same extension if it is available in
+   Cursor's extension marketplace, or install a VSIX manually if needed.
 
-```json
-{
-  "HECATE_GATEWAY_URL": "http://127.0.0.1:8765"
-}
-```
+2. Install the bridge:
 
-You can keep the native app closed for this mode, or use it separately for UI
-testing. Running both the native app sidecar and a fixed-port development
-gateway is safe because the native app chooses a different free port.
+   ```sh
+   make build-acp
+   ```
 
-For local development only, you can connect to the native app's current sidecar
-port after launch:
+3. Start Hecate using one of the [gateway launch options](#gateway-launch-options).
 
-1. Open the native Hecate app.
-2. Open the gateway log from the Hecate menu, or inspect running gateway
-   processes.
-3. Find the `127.0.0.1:<port>` used by that launch.
-4. Set `HECATE_GATEWAY_URL` in the editor ACP config to that exact URL.
+4. Add Hecate to the editor settings using the same `agent_servers` shape used
+   by Zed. For native app, source checkout, or default tarball usage, omit
+   `HECATE_GATEWAY_URL`:
 
-That workaround must be repeated after every app restart. A future native-app
-integration should expose the active gateway URL in a stable place or launch the
-ACP bridge as an app-managed sidecar.
+   ```json
+   {
+     "agent_servers": {
+       "Hecate": {
+         "type": "custom",
+         "command": "/absolute/path/to/hecate-acp",
+         "args": []
+       }
+     }
+   }
+   ```
+
+   Add `HECATE_GATEWAY_URL` only when the gateway URL cannot be discovered or
+   is not `http://127.0.0.1:8765`.
+
+5. Open the ACP extension's chat view, select **Hecate**, and start a prompt.
+
+6. If startup fails, verify both sides:
+
+   ```sh
+   curl -s http://127.0.0.1:8765/healthz
+   /absolute/path/to/hecate-acp --version
+   ```
+
+Current status: this path is expected to work because it uses the same stdio ACP
+bridge and `agent_servers` convention, but Hecate has not smoke-tested VS Code
+or Cursor as ACP hosts yet.
 
 ## Other ACP clients
 
 Any ACP host that can spawn a local command and speak JSON-RPC over stdio should
-be able to launch `hecate-acp`, but only Zed and JetBrains are documented here
-as first-class manual setup targets for now.
+be able to launch `hecate-acp`, but only the hosts above have manual setup
+examples in this document.
 
 Known ACP client surfaces in the wider ecosystem include:
 
@@ -221,6 +308,8 @@ Known ACP client surfaces in the wider ecosystem include:
 |---|---|---|
 | Zed | Native | Custom `agent_servers` in `settings.json`, plus ACP registry support. |
 | JetBrains IDEs | Native via AI Assistant | Custom agents in `~/.jetbrains/acp.json`, plus curated registry support. |
+| VS Code | Extension | ACP client extensions can spawn `hecate-acp` with `agent_servers`; not smoke-tested by Hecate yet. |
+| Cursor | Extension | Same config as VS Code when an ACP client extension is available or installed from VSIX; not smoke-tested by Hecate yet. |
 | Neovim | Plugin | ACP support through plugins such as CodeCompanion / avante.nvim. |
 | Emacs | Plugin | ACP support through `agent-shell`. |
 | Obsidian | Plugin | ACP side-panel plugin for agent threads. |
@@ -246,7 +335,7 @@ state that Hecate did not emit.
 
 | Variable | Default | Meaning |
 |---|---:|---|
-| `HECATE_GATEWAY_URL` | `http://127.0.0.1:8765` | Gateway base URL the bridge talks to. |
+| `HECATE_GATEWAY_URL` | auto-discover, then `http://127.0.0.1:8765` | Gateway base URL the bridge talks to. Set explicitly to bypass runtime-state discovery. |
 | `HECATE_AGENT_NAME` | `Hecate` | Agent display name advertised during initialize. |
 | `HECATE_WORKSPACE_MODE` | `hecate-owned` | Future workspace ownership mode. |
 | `HECATE_APPROVAL_ROUTE` | `editor` | `editor` sends approval gates to ACP `session/request_permission`; other values leave approvals for the Hecate operator UI. |
@@ -262,6 +351,20 @@ printf '%s\n' '{"jsonrpc":"2.0","id":1,"method":"initialize","params":{"protocol
 
 The response should include `availableModels` populated from Hecate's
 `/v1/models` endpoint.
+
+For an editor-local test before registry packaging exists:
+
+1. Start Hecate using one of the [gateway launch options](#gateway-launch-options).
+2. Build or install `hecate-acp`.
+3. Add it as a custom local ACP agent in Zed, JetBrains, VS Code, or Cursor
+   using the examples above.
+4. Start a new agent session and send a simple prompt such as `say hello`.
+5. If the editor fails to start the bridge, run:
+
+   ```sh
+   /absolute/path/to/hecate-acp --version
+   curl -s http://127.0.0.1:8765/healthz
+   ```
 
 The automated smoke lives in `e2e/acp-smoke.ts` and is wired into
 `make verify-alpha`.

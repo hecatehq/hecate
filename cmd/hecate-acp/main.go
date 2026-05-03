@@ -11,6 +11,8 @@ import (
 	"net/url"
 	"os"
 	"path"
+	"path/filepath"
+	"runtime"
 	"strings"
 	"sync"
 	"time"
@@ -20,9 +22,12 @@ import (
 )
 
 const (
-	defaultGatewayURL  = "http://127.0.0.1:8765"
-	defaultHTTPTimeout = 10 * time.Second
-	maxMessageBytes    = 4 << 20
+	defaultGatewayURL    = "http://127.0.0.1:8765"
+	defaultHTTPTimeout   = 10 * time.Second
+	discoveryHTTPTimeout = 500 * time.Millisecond
+	nativeAppID          = "io.github.chicoxyzzy.hecate"
+	gatewayStateFileName = "gateway-state.json"
+	maxMessageBytes      = 4 << 20
 )
 
 type bridgeConfig struct {
@@ -34,6 +39,13 @@ type bridgeConfig struct {
 }
 
 func main() {
+	if len(os.Args) > 1 {
+		switch os.Args[1] {
+		case "--version", "-v", "version":
+			fmt.Println(version.Version)
+			return
+		}
+	}
 	cfg, err := configFromEnv()
 	if err != nil {
 		fmt.Fprintf(os.Stderr, "hecate-acp: %v\n", err)
@@ -46,8 +58,12 @@ func main() {
 }
 
 func configFromEnv() (bridgeConfig, error) {
+	gatewayURL := strings.TrimSpace(os.Getenv("HECATE_GATEWAY_URL"))
+	if gatewayURL == "" {
+		gatewayURL = discoverGatewayURL()
+	}
 	cfg := bridgeConfig{
-		GatewayURL:    firstNonEmpty(os.Getenv("HECATE_GATEWAY_URL"), defaultGatewayURL),
+		GatewayURL:    firstNonEmpty(gatewayURL, defaultGatewayURL),
 		AgentName:     firstNonEmpty(os.Getenv("HECATE_AGENT_NAME"), "Hecate"),
 		AgentVersion:  version.Version,
 		WorkspaceMode: firstNonEmpty(os.Getenv("HECATE_WORKSPACE_MODE"), "hecate-owned"),
@@ -57,6 +73,127 @@ func configFromEnv() (bridgeConfig, error) {
 		return bridgeConfig{}, fmt.Errorf("invalid HECATE_GATEWAY_URL: %w", err)
 	}
 	return cfg, nil
+}
+
+func discoverGatewayURL() string {
+	return discoverGatewayURLFromStatePaths(gatewayStateCandidatePaths(), gatewayHealthy)
+}
+
+func discoverGatewayURLFromStatePaths(paths []string, healthy func(string) bool) string {
+	for _, statePath := range paths {
+		baseURL, err := gatewayURLFromStateFile(statePath)
+		if err != nil {
+			continue
+		}
+		if healthy(baseURL) {
+			return baseURL
+		}
+	}
+	return defaultGatewayURL
+}
+
+func gatewayStateCandidatePaths() []string {
+	var candidates []string
+	if dataDir := strings.TrimSpace(os.Getenv("GATEWAY_DATA_DIR")); dataDir != "" {
+		candidates = append(candidates, filepath.Join(dataDir, gatewayStateFileName))
+	}
+	if cwd, err := os.Getwd(); err == nil {
+		candidates = append(candidates, filepath.Join(cwd, ".data", gatewayStateFileName))
+	}
+	if nativePath, err := nativeGatewayStatePath(); err == nil {
+		candidates = append(candidates, nativePath)
+	}
+	return uniqueNonEmptyStrings(candidates)
+}
+
+func uniqueNonEmptyStrings(values []string) []string {
+	seen := make(map[string]struct{}, len(values))
+	out := make([]string, 0, len(values))
+	for _, value := range values {
+		value = strings.TrimSpace(value)
+		if value == "" {
+			continue
+		}
+		if _, ok := seen[value]; ok {
+			continue
+		}
+		seen[value] = struct{}{}
+		out = append(out, value)
+	}
+	return out
+}
+
+func nativeGatewayStatePath() (string, error) {
+	dir, err := nativeAppDataDir()
+	if err != nil {
+		return "", err
+	}
+	return filepath.Join(dir, gatewayStateFileName), nil
+}
+
+func nativeAppDataDir() (string, error) {
+	home, _ := os.UserHomeDir()
+	switch runtime.GOOS {
+	case "darwin":
+		if home == "" {
+			return "", fmt.Errorf("home directory not found")
+		}
+		return filepath.Join(home, "Library", "Application Support", nativeAppID), nil
+	case "windows":
+		if appData := strings.TrimSpace(os.Getenv("APPDATA")); appData != "" {
+			return filepath.Join(appData, nativeAppID), nil
+		}
+		if home == "" {
+			return "", fmt.Errorf("home directory not found")
+		}
+		return filepath.Join(home, "AppData", "Roaming", nativeAppID), nil
+	default:
+		if xdg := strings.TrimSpace(os.Getenv("XDG_DATA_HOME")); xdg != "" {
+			return filepath.Join(xdg, nativeAppID), nil
+		}
+		if home == "" {
+			return "", fmt.Errorf("home directory not found")
+		}
+		return filepath.Join(home, ".local", "share", nativeAppID), nil
+	}
+}
+
+func gatewayURLFromStateFile(statePath string) (string, error) {
+	raw, err := os.ReadFile(statePath)
+	if err != nil {
+		return "", err
+	}
+	var state struct {
+		BaseURL string `json:"base_url"`
+	}
+	baseURL := ""
+	if err := json.Unmarshal(raw, &state); err == nil {
+		baseURL = state.BaseURL
+	} else {
+		return "", err
+	}
+	baseURL = strings.TrimRight(strings.TrimSpace(baseURL), "/")
+	u, err := url.ParseRequestURI(baseURL)
+	if err != nil {
+		return "", err
+	}
+	if u.Scheme != "http" && u.Scheme != "https" {
+		return "", fmt.Errorf("gateway URL must use http or https")
+	}
+	if u.Host == "" {
+		return "", fmt.Errorf("gateway URL is missing host")
+	}
+	return baseURL, nil
+}
+
+func gatewayHealthy(baseURL string) bool {
+	client := http.Client{Timeout: discoveryHTTPTimeout}
+	resp, err := client.Get(strings.TrimRight(baseURL, "/") + "/healthz")
+	if err != nil {
+		return false
+	}
+	defer resp.Body.Close()
+	return resp.StatusCode >= 200 && resp.StatusCode < 300
 }
 
 func run(ctx context.Context, stdin io.Reader, stdout io.Writer, stderr io.Writer, cfg bridgeConfig) error {

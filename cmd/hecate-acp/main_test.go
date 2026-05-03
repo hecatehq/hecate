@@ -7,11 +7,94 @@ import (
 	"fmt"
 	"net/http"
 	"net/http/httptest"
+	"os"
+	"path/filepath"
 	"strings"
 	"testing"
 
 	"github.com/hecate/agent-runtime/internal/acp"
 )
+
+func TestGatewayURLFromStateFile(t *testing.T) {
+	t.Parallel()
+
+	path := filepath.Join(t.TempDir(), "gateway-state.json")
+	if err := os.WriteFile(path, []byte(`{"base_url":"http://127.0.0.1:52341","port":52341}`), 0o600); err != nil {
+		t.Fatalf("write state: %v", err)
+	}
+
+	got, err := gatewayURLFromStateFile(path)
+	if err != nil {
+		t.Fatalf("gatewayURLFromStateFile() error = %v", err)
+	}
+	if got != "http://127.0.0.1:52341" {
+		t.Fatalf("gatewayURLFromStateFile() = %q", got)
+	}
+}
+
+func TestGatewayURLFromStateFileRejectsInvalidURL(t *testing.T) {
+	t.Parallel()
+
+	path := filepath.Join(t.TempDir(), "gateway-state.json")
+	if err := os.WriteFile(path, []byte(`{"base_url":"file:///tmp/hecate"}`), 0o600); err != nil {
+		t.Fatalf("write state: %v", err)
+	}
+
+	if _, err := gatewayURLFromStateFile(path); err == nil {
+		t.Fatal("gatewayURLFromStateFile() error = nil, want invalid URL error")
+	}
+}
+
+func TestDiscoverGatewayURLFromStatePathsUsesFirstHealthyState(t *testing.T) {
+	dir := t.TempDir()
+	stalePath := filepath.Join(dir, "stale.json")
+	healthyPath := filepath.Join(dir, "healthy.json")
+	if err := os.WriteFile(stalePath, []byte(`{"base_url":"http://127.0.0.1:1111"}`), 0o600); err != nil {
+		t.Fatalf("write stale state: %v", err)
+	}
+	if err := os.WriteFile(healthyPath, []byte(`{"base_url":"http://127.0.0.1:2222"}`), 0o600); err != nil {
+		t.Fatalf("write healthy state: %v", err)
+	}
+
+	got := discoverGatewayURLFromStatePaths([]string{
+		filepath.Join(dir, "missing.json"),
+		stalePath,
+		healthyPath,
+	}, func(baseURL string) bool {
+		return baseURL == "http://127.0.0.1:2222"
+	})
+
+	if got != "http://127.0.0.1:2222" {
+		t.Fatalf("discoverGatewayURLFromStatePaths() = %q", got)
+	}
+}
+
+func TestGatewayStateCandidatePathsIncludesDataDirAndWorkingTree(t *testing.T) {
+	originalWD, err := os.Getwd()
+	if err != nil {
+		t.Fatalf("getwd: %v", err)
+	}
+	tempWD := t.TempDir()
+	if err := os.Chdir(tempWD); err != nil {
+		t.Fatalf("chdir temp: %v", err)
+	}
+	t.Cleanup(func() {
+		if err := os.Chdir(originalWD); err != nil {
+			t.Fatalf("restore wd: %v", err)
+		}
+	})
+	dataDir := filepath.Join(tempWD, "custom-data")
+	t.Setenv("GATEWAY_DATA_DIR", dataDir)
+
+	paths := gatewayStateCandidatePaths()
+	joined := strings.Join(paths, "\n")
+	if !strings.Contains(joined, filepath.Join(dataDir, gatewayStateFileName)) {
+		t.Fatalf("candidate paths = %#v, want GATEWAY_DATA_DIR state", paths)
+	}
+	if !strings.Contains(joined, filepath.Join(tempWD, ".data", gatewayStateFileName)) {
+		t.Fatalf("candidate paths = %#v, want working-tree .data state", paths)
+	}
+}
 
 func TestGatewayHTTPClientListModels(t *testing.T) {
 	t.Parallel()

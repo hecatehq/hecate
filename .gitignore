@@ -15,14 +15,14 @@
 !.claude/skills/
 !.claude/settings.json
 # Default GATEWAY_DATA_DIR for local dev. Holds the auto-generated
-# bootstrap file (AES-GCM control-plane key + admin bearer token, mode
-# 0600). Never commit it.
+# bootstrap file (AES-GCM control-plane key, mode 0600). Never commit it.
 .data/
 .gocache/
 .gomodcache/
 .gopath/
 # Built binary produced by `make build`. Anchored to the repo root so a
-# package or test happening to be named "gateway" elsewhere isn't ignored.
+# package or test happening to be named "hecate" elsewhere isn't ignored.
+/hecate
 /gateway
 /hecate-acp
 node_modules/

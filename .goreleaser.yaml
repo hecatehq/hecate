@@ -5,7 +5,7 @@
 # publishing (skips the docker push and GitHub release).
 #
 # The UI bundle has to be built BEFORE goreleaser runs the Go cross-
-# compile, because cmd/gateway uses //go:embed ui/dist. The `before:`
+# compile, because cmd/hecate uses //go:embed ui/dist. The `before:`
 # hook handles that — bun is fast and runs once on the host, before
 # any goarch loop starts.
 
@@ -17,9 +17,9 @@ before:
     - make ui-build
 
 builds:
-  - id: gateway
-    main: ./cmd/gateway
-    binary: gateway
+  - id: hecate
+    main: ./cmd/hecate
+    binary: hecate
     env:
       - CGO_ENABLED=0
     flags:
@@ -53,7 +53,7 @@ builds:
 archives:
   - id: binaries
     ids:
-      - gateway
+      - hecate
       - hecate-acp
     formats:
       - tar.gz
@@ -67,14 +67,16 @@ archives:
       - README.md
 
 # Multi-arch Docker image. GoReleaser stages the freshly cross-compiled
-# gateway binary under linux/<arch>/gateway and docker buildx builds a
-# manifest for linux/amd64 + linux/arm64. hecate-acp is intentionally
-# excluded from the image; editors launch it from the release tarballs.
+# hecate and hecate-acp binaries under linux/<arch>/ and docker buildx builds
+# a manifest for linux/amd64 + linux/arm64. The container still starts
+# `hecate` by default; hecate-acp is included so every distribution shape
+# carries the same ACP bridge companion.
 dockers_v2:
   - id: hecate
     dockerfile: Dockerfile.release
     ids:
-      - gateway
+      - hecate
+      - hecate-acp
     images:
       - "ghcr.io/chicoxyzzy/hecate"
     tags:

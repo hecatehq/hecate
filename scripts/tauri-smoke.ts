@@ -57,7 +57,7 @@ function listenTargets(): ListenTarget[] {
   const targets: ListenTarget[] = [];
   for (const line of result.stdout.split("\n")) {
     const parts = line.trim().split(/\s+/);
-    if (parts.length < 9 || parts[0] !== "gateway") {
+    if (parts.length < 9 || parts[0] !== "hecate") {
       continue;
     }
     const endpoint = parts.at(-2) ?? "";
@@ -92,7 +92,7 @@ async function waitForGateway(beforePids: Set<string>): Promise<ListenTarget> {
     }
     await sleep(250);
   }
-  fail("gateway sidecar did not become healthy within 30s");
+  fail("hecate sidecar did not become healthy within 30s");
 }
 
 async function waitForPidExit(pid: string): Promise<void> {
@@ -104,7 +104,7 @@ async function waitForPidExit(pid: string): Promise<void> {
     }
     await sleep(250);
   }
-  fail(`gateway sidecar pid ${pid} was still running after app quit`);
+  fail(`hecate sidecar pid ${pid} was still running after app quit`);
 }
 
 async function main(): Promise<void> {
@@ -131,7 +131,7 @@ async function main(): Promise<void> {
 
   run("osascript", ["-e", 'tell application "Hecate" to quit']);
   await waitForPidExit(gateway.pid);
-  console.log("app quit cleanly and gateway sidecar exited");
+  console.log("app quit cleanly and hecate sidecar exited");
 }
 
 main().catch((error: unknown) => {

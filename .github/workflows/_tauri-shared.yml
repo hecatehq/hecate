@@ -103,28 +103,30 @@ jobs:
       - name: Install UI dependencies
         run: make ui-install
 
-      # make build: ui-build → go build. Produces the binary that becomes
-      # the Tauri sidecar.
-      - name: Build gateway binary
+      # make build: ui-build → go build. build-acp produces the companion
+      # ACP bridge sidecar shipped with the native app.
+      - name: Build hecate sidecars
         run: make build
+      - name: Build hecate-acp sidecar
+        run: make build-acp
 
-      # Tauri's bundler looks for binaries/gateway-{triple}[.exe] at bundle
-      # time. We replicate `make tauri-sidecar` so the platform triple from
-      # the matrix is always used (not whatever rustc on the runner reports).
-      # Defensive: try .exe first on Windows, fall back to bare name —
-      # Go's `-o` extension behavior has shifted across versions.
-      - name: Stage gateway sidecar
+      # Tauri's bundler looks for binaries/<name>-{triple}[.exe] at bundle
+      # time. Replicate `make tauri-sidecar` so the matrix triple is always
+      # used (not whatever rustc on the runner reports).
+      - name: Stage hecate sidecars
         run: |
           mkdir -p tauri/src-tauri/binaries
-          if [[ "$RUNNER_OS" == "Windows" ]]; then
-            if [[ -f gateway.exe ]]; then src=gateway.exe
-            elif [[ -f gateway ]];     then src=gateway
-            else echo "no gateway binary found after make build"; ls -la; exit 1
+          for name in hecate hecate-acp; do
+            if [[ "$RUNNER_OS" == "Windows" ]]; then
+              if [[ -f "${name}.exe" ]]; then src="${name}.exe"
+              elif [[ -f "$name" ]];     then src="$name"
+              else echo "no ${name} binary found after build"; ls -la; exit 1
+              fi
+              cp "$src" "tauri/src-tauri/binaries/${name}-${{ matrix.target }}.exe"
+            else
+              cp "$name" "tauri/src-tauri/binaries/${name}-${{ matrix.target }}"
             fi
-            cp "$src" "tauri/src-tauri/binaries/gateway-${{ matrix.target }}.exe"
-          else
-            cp gateway "tauri/src-tauri/binaries/gateway-${{ matrix.target }}"
-          fi
+          done
 
       # Runs Rust-side unit tests for deterministic native helpers. This keeps
       # sidecar path/port logic covered in CI without launching GUI windows.
