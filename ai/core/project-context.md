@@ -1,6 +1,6 @@
 # Project context
 
-Hecate is an open-source AI gateway and agent-task runtime. A single Go binary embeds the React operator UI, mediates OpenAI- and Anthropic-shaped client traffic to upstream LLM providers, runs queued `agent_loop` tasks with policy and approval gates, and emits OpenTelemetry traces for everything it does. It is tenant-aware, deny-by-default, runtime-aware, and storage-tiered (memory / sqlite / postgres). Every endpoint, config knob, and error message exists to answer five operator questions: what did the gateway just decide, why, what did it cost, what happens on the next failure, and where is the trace.
+Hecate is an open-source AI gateway and agent-task runtime. A single Go binary embeds the React operator UI, mediates OpenAI- and Anthropic-shaped client traffic to upstream LLM providers, runs queued `agent_loop` tasks with policy and approval gates, and emits OpenTelemetry traces for everything it does. It is tenant-aware, deny-by-default, runtime-aware, and storage-tiered (memory / sqlite). Every endpoint, config knob, and error message exists to answer five operator questions: what did the gateway just decide, why, what did it cost, what happens on the next failure, and where is the trace.
 
 ## Repository layout
 
@@ -16,11 +16,11 @@ internal/providers/        outbound HTTP per provider (openai, anthropic)
                              openAIChatMessage, openAIMessageContent (lowercase)
                              — same JSON shape as api/, deliberate duplication
 internal/orchestrator/     task runtime (queue, runner, agent_loop, sandbox)
-internal/sandbox/          per-call sh subprocess: policy validation, rlimits,
+internal/sandbox/          per-call sh subprocess: policy validation,
                              env sanitisation, output cap, optional
                              bwrap/sandbox-exec wrapper
 internal/taskstate/        task / run / step / artifact / approval persistence
-internal/storage/          postgres + sqlite client wrappers
+internal/storage/          sqlite client wrappers
 internal/retention/        retention worker (subsystems: traces, budget, audit, cache, turn_events)
 internal/mcp/              stdio MCP server (read tools + write tools)
 
@@ -47,13 +47,12 @@ The api↔providers parallel-struct duplication (`OpenAIChatMessage` ↔ `openAI
 
 ## Storage tier rule
 
-Every backend-bound concern (cache, taskstate, chatstate, governor, retention history) ships with three tiers, mirrored exactly:
+Every backend-bound concern (cache, taskstate, chatstate, governor, retention history) ships with two tiers, mirrored exactly:
 
 - `memory` — in-process, default, perfect for `go test` and `make dev`.
 - `sqlite` — single-file persistence via `modernc.org/sqlite` (no CGO).
-- `postgres` — production scale via `pgx`.
 
-When adding a new persisted thing, mirror all three. Add a `<thing>_test.go` that runs against memory and sqlite (postgres is structurally identical SQL — covered transitively).
+When adding a new persisted thing, mirror both. Add a `<thing>_test.go` that runs against memory and sqlite.
 
 ## Toolchain pins
 

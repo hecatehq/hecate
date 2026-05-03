@@ -69,7 +69,7 @@ func TestSQLiteClient_RejectsEmptyPath(t *testing.T) {
 func TestSQLiteClient_NilSafe(t *testing.T) {
 	// Stores hold *SQLiteClient pointers; a nil pointer (e.g. when no
 	// SQLite-backed subsystem is configured) must not panic on Close()
-	// or DB(). Mirrors the *PostgresClient nil-safety contract.
+	// or DB().
 	var c *SQLiteClient
 	if err := c.Close(); err != nil {
 		t.Fatalf("nil Close: %v", err)

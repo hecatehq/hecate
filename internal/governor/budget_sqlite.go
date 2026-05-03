@@ -237,7 +237,7 @@ func (s *SQLiteBudgetStore) ListEvents(ctx context.Context, key string, limit in
 
 	// Pre-allocate to the constant cap rather than `limit` so the
 	// user-controlled value never reaches make()'s size argument
-	// (matches the Postgres-store CodeQL rationale).
+	// (keeps user-controlled values out of make()'s size argument).
 	events := make([]BudgetEvent, 0, maxBudgetEventListLimit)
 	for rows.Next() {
 		var event BudgetEvent
@@ -351,8 +351,8 @@ func (s *SQLiteBudgetStore) PruneEvents(ctx context.Context, maxAge time.Duratio
 
 	if maxCount > 0 {
 		// Keep the newest maxCount rows per budget_key, drop the rest.
-		// SQLite supports window functions (3.25+), so we use the same
-		// ROW_NUMBER pattern as Postgres for parity and predictability.
+		// SQLite supports window functions (3.25+), so ROW_NUMBER keeps
+		// the max-count pruning deterministic.
 		result, err := s.db.ExecContext(ctx, fmt.Sprintf(`
 			DELETE FROM %s
 			WHERE id IN (

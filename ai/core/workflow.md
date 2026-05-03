@@ -41,7 +41,7 @@ If a refactor is the right move, split it into its own change first and rebuild 
 ## When to stop and propose a plan first
 
 - Adding a new wire field. The seven-step chain spans `pkg/types/` → `internal/api/` → `internal/providers/` and tests at every layer. See [`../skills/providers/SKILL.md`](../skills/providers/SKILL.md).
-- Adding a new persisted thing — must mirror memory + sqlite + postgres tiers and the relevant retention subsystem.
+- Adding a new persisted thing — must mirror memory + sqlite tiers and the relevant retention subsystem.
 - Adding a new persistent UI surface (inspector, side rail, dashboard block, summary panel). Requires explicit user approval first.
 - Adding a new approval policy or sandbox capability.
 - Anything that changes startup, config-loading semantics, or the public HTTP contract.

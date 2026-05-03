@@ -62,7 +62,7 @@ internal/
                           output cap + timeout, auto-detected bwrap/sandbox-exec wrapper
   taskstate/            task / run / step / artifact / approval persistence
   chatstate/            chat-completion conversation persistence
-  storage/              postgres + sqlite client wrappers
+  storage/              sqlite client wrappers
   retention/            retention worker (subsystems: traces, budget, audit, cache, turn_events)
   mcp/                  stdio MCP server (read tools + write tools)
   controlplane/         tenants, API keys, settings (admin surface state)
@@ -86,9 +86,9 @@ pkg/types/  ←  internal/api/  ←  internal/providers/
 
 The api↔providers parallel-struct duplication (`OpenAIChatMessage` ↔ `openAIChatMessage`) is intentional — it keeps `internal/providers/` free of `internal/api/` imports. Full rationale: [`ai/skills/providers/SKILL.md`](ai/skills/providers/SKILL.md).
 
-**Storage tier rule**: every backend-bound concern mirrors three tiers —
-memory (default), sqlite (`modernc.org/sqlite`, no CGO), postgres (`pgx`).
-When adding a new persisted thing, mirror all three.
+**Storage tier rule**: every backend-bound concern mirrors two tiers —
+memory (default) and sqlite (`modernc.org/sqlite`, no CGO).
+When adding a new persisted thing, mirror both.
 
 ## Runtime invariants
 

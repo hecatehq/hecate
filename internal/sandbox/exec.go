@@ -613,7 +613,7 @@ func containsAnyPattern(value string, patterns []string) bool {
 // sanitisedEnv returns the allowlisted subset of the gateway's environment
 // that the shell subprocess is allowed to see. Passing an explicit list
 // instead of inheriting the full gateway env keeps secrets like
-// OPENAI_API_KEY and POSTGRES_DSN out of scope for tool-spawned commands.
+// OPENAI_API_KEY and DATABASE_URL out of scope for tool-spawned commands.
 //
 // The allowlist is intentionally conservative: only variables required for
 // normal program execution are forwarded. Variables needed by git (author

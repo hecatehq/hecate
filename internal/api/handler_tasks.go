@@ -1439,7 +1439,7 @@ func buildTaskItem(ctx context.Context, store taskstate.Store, task types.Task) 
 	// provider actually ran (vs. what the operator requested, which
 	// may have been "auto"). One extra GetRun per task — same store
 	// hit pattern as loadTaskItemCounts already incurs. Cheap on
-	// memory/sqlite; the postgres tier indexes runs by id.
+	// memory/sqlite and avoids adding a dedicated task-list join.
 	if strings.TrimSpace(task.LatestRunID) != "" {
 		if run, found, err := store.GetRun(ctx, task.ID, task.LatestRunID); err == nil && found {
 			item.LatestModel = run.Model

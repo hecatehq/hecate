@@ -101,7 +101,7 @@ spawning the shell. Both are always-on; the cap is configurable.
 - **Environment sanitisation** — the shell receives a curated
   allowlist (`PATH`, `HOME`, `TMPDIR`, `LANG`, `TZ`, `GIT_*`, and a
   handful of others) instead of inheriting the gateway's full env.
-  Prevents shell tools from reading `OPENAI_API_KEY`, `POSTGRES_DSN`,
+  Prevents shell tools from reading `OPENAI_API_KEY`, `DATABASE_URL`,
   and other gateway secrets. This is the layer that exists *because*
   Hecate is a server: CLI agents (Claude Code, Codex CLI) deliberately
   inherit the user's environment because that's what the user wants.

@@ -18,9 +18,7 @@ import (
 //     by sequence DESC, dropping older surviving turns
 //
 // The age path is verified by injecting a stale CreatedAt directly;
-// the count path uses real append order. Postgres mirrors sqlite — we
-// don't hit a real Postgres in unit tests but the SQL is structurally
-// identical.
+// the count path uses real append order.
 func TestPruneTurnEvents_AgeAndCount(t *testing.T) {
 	t.Parallel()
 

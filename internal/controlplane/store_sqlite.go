@@ -13,16 +13,14 @@ import (
 	"github.com/hecate/agent-runtime/internal/storage"
 )
 
-// SQLiteStore mirrors PostgresStore — same Store-interface surface,
-// same single-row-per-key JSON payload shape — so the gateway can swap
-// between Postgres and SQLite purely via config.
+// SQLiteStore mirrors the memory Store-interface surface while keeping
+// a single-row-per-key JSON payload shape for simple local persistence.
 //
-// Differences from the Postgres flavor that aren't accidental:
+// SQLite-specific choices that aren't accidental:
 //   - state column is TEXT (SQLite has no JSONB; we marshal/unmarshal in
 //     Go regardless, so the on-disk type is moot).
 //   - placeholders are `?` rather than `$N`.
-//   - the upsert uses ON CONFLICT (store_key) DO UPDATE — same shape as
-//     Postgres, but with SQLite's syntax (no `EXCLUDED.state::jsonb` cast).
+//   - the upsert uses ON CONFLICT (store_key) DO UPDATE.
 //   - updated_at is stored as TEXT in RFC3339; SQLite has no native
 //     timestamptz type and the column is informational (we never read it
 //     back), so a plain ISO string is enough.
