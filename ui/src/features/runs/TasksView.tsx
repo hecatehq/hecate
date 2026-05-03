@@ -20,6 +20,13 @@ import { NewTaskSlideOver, type CreateTaskPayload } from "./NewTaskSlideOver";
 
 type StreamState = "idle" | "connecting" | "live" | "closed" | "error";
 
+export function streamTurnCostKey(turnIndex: number | undefined): number | null {
+  if (typeof turnIndex !== "number" || !Number.isFinite(turnIndex) || turnIndex < 0) {
+    return null;
+  }
+  return Math.trunc(turnIndex) + 1;
+}
+
 export function TasksView() {
   const [loading, setLoading] = useState(true);
   const [tasks, setTasks] = useState<TaskRecord[]>([]);
@@ -145,10 +152,11 @@ export function TasksView() {
         // SSE may replay the same event on reconnect, and we don't
         // want a duplicate to wipe the entry. A `0` cost keeps the
         // entry (legitimate free tier / cached turn).
-        if (payload.data.turn && payload.data.turn.turn_index > 0) {
+        const turnCostKey = streamTurnCostKey(payload.data.turn?.turn_index);
+        if (payload.data.turn && turnCostKey !== null) {
           setStreamTurnCosts(prev => {
             const next = new Map(prev);
-            next.set(payload.data.turn!.turn_index, payload.data.turn!.cost_micros_usd ?? 0);
+            next.set(turnCostKey, payload.data.turn!.cost_micros_usd ?? 0);
             return next;
           });
         }

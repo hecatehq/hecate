@@ -172,9 +172,9 @@ func RunEventToSessionUpdate(sessionID, taskID, runID string, event RunEvent) Se
 
 func kindForRunEvent(eventType string) string {
 	switch eventType {
-	case "assistant.message.delta", "assistant.message.completed", "assistant.final":
+	case "assistant.text_delta", "assistant.text_complete", "assistant.final_answer":
 		return "text"
-	case "assistant.thinking.delta", "assistant.thinking.completed":
+	case "assistant.thinking_delta", "assistant.thinking_complete":
 		return "thinking"
 	case "assistant.tool_call_proposed", "tool.started", "tool.completed", "tool.failed", "tool.file.patch", "tool.file.applied", "tool.file.reverted":
 		return "tool_call"
@@ -217,7 +217,7 @@ func statusForRunEvent(eventType string, data map[string]any) string {
 }
 
 func messageForRunEvent(eventType string, data map[string]any) string {
-	for _, key := range []string{"text", "content", "message", "error", "reason"} {
+	for _, key := range []string{"delta", "summary", "text", "content", "message", "tool_name", "status", "error", "reason"} {
 		if value, ok := data[key].(string); ok && value != "" {
 			return value
 		}

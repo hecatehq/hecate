@@ -66,6 +66,47 @@ func TestSQLiteClient_RejectsEmptyPath(t *testing.T) {
 	}
 }
 
+func TestSanitizeIdentifier(t *testing.T) {
+	tests := []struct {
+		name     string
+		value    string
+		fallback string
+		want     string
+	}{
+		{
+			name:     "hyphen replacement",
+			value:    "task-runs",
+			fallback: "fallback",
+			want:     "task_runs",
+		},
+		{
+			name:     "unsupported characters",
+			value:    `Tenant"; DROP TABLE tasks; --`,
+			fallback: "fallback",
+			want:     "tenant_drop_table_tasks",
+		},
+		{
+			name:     "empty input fallback",
+			value:    " !!! ",
+			fallback: "safe_default",
+			want:     "safe_default",
+		},
+		{
+			name:     "trims edge underscores",
+			value:    "__hecate__",
+			fallback: "fallback",
+			want:     "hecate",
+		},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			if got := sanitizeIdentifier(tt.value, tt.fallback); got != tt.want {
+				t.Fatalf("sanitizeIdentifier(%q, %q) = %q, want %q", tt.value, tt.fallback, got, tt.want)
+			}
+		})
+	}
+}
+
 func TestSQLiteClient_NilSafe(t *testing.T) {
 	// Stores hold *SQLiteClient pointers; a nil pointer (e.g. when no
 	// SQLite-backed subsystem is configured) must not panic on Close()

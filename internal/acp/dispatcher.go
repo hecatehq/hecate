@@ -64,6 +64,9 @@ func (d *Dispatcher) SetEmitter(emit func(*Request)) {
 
 // Handle dispatches one incoming request.
 func (d *Dispatcher) Handle(ctx context.Context, req *Request) *Response {
+	if req == nil {
+		return errorResponse(nil, ErrorInvalidRequest, "request is required", nil)
+	}
 	if req.IsNotification() {
 		return nil
 	}
@@ -126,7 +129,7 @@ func (d *Dispatcher) handleInitialize(ctx context.Context, req *Request) *Respon
 		return errorResponse(req.ID, ErrorInvalidParams,
 			"initialize params are not valid JSON: "+err.Error(), nil)
 	}
-	if params.ClientCaps.Permissions == nil {
+	if d.cfg.ApprovalRoute == "editor" && params.ClientCaps.Permissions == nil {
 		return errorResponse(req.ID, ErrorInvalidRequest,
 			"editor must declare permissions capability — Hecate's approval gates require session/request_permission support", nil)
 	}

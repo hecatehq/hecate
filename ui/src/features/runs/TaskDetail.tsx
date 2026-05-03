@@ -697,7 +697,7 @@ function PatchDiffPreview({ diff }: { diff: string }) {
         const color = line.startsWith("+") && !line.startsWith("+++") ? "var(--green)" :
           line.startsWith("-") && !line.startsWith("---") ? "var(--red)" :
             line.startsWith("@@") ? "var(--amber)" : "var(--t1)";
-        return <div key={`${index}-${line}`} style={{ color }}>{line || " "}</div>;
+        return <div key={index} style={{ color }}>{line || " "}</div>;
       })}
     </pre>
   );

@@ -14,9 +14,7 @@ import (
 	// pure Go via ccgo, so the gateway stays a single static binary
 	// without CGO. The trade-off: it cannot load native SQLite
 	// extensions (sqlite-vec, FTS5 fuzzy variants, etc.) because there
-	// is no native engine to load against. The semantic cache (which
-	// needs vector similarity) therefore has NO SQLite backend — it
-	// uses memory only. See internal/cache/semantic.go for the rationale.
+	// is no native engine to load against.
 	_ "modernc.org/sqlite"
 )
 

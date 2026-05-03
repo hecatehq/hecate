@@ -132,6 +132,27 @@ func TestInitialize_NoPermissions(t *testing.T) {
 	}
 }
 
+func TestInitialize_NoPermissionsAllowedWhenApprovalsStayWithOperator(t *testing.T) {
+	gw := &fakeGateway{models: []string{"x"}}
+	d := NewDispatcher(gw, NewSessionStore(), Config{ApprovalRoute: "operator"})
+	resp := d.Handle(context.Background(), &Request{
+		JSONRPC: JSONRPCVersion,
+		ID:      makeID(t, 1),
+		Method:  MethodInitialize,
+		Params:  initParams(t, false),
+	})
+	if resp.Error != nil {
+		t.Fatalf("initialize error = %v", resp.Error)
+	}
+	var result InitializeResult
+	if err := json.Unmarshal(resp.Result, &result); err != nil {
+		t.Fatalf("decode: %v", err)
+	}
+	if result.AgentCaps.Permissions {
+		t.Fatal("agentCaps.Permissions = true, want false when ApprovalRoute=operator")
+	}
+}
+
 func TestInitialize_GatewayUnreachable(t *testing.T) {
 	gw := &fakeGateway{modelsErr: errors.New("connection refused")}
 	d := NewDispatcher(gw, NewSessionStore(), Config{ApprovalRoute: "editor"})
@@ -173,6 +194,20 @@ func TestUnknownMethod(t *testing.T) {
 	})
 	if resp.Error == nil || resp.Error.Code != ErrorMethodNotFound {
 		t.Fatalf("expected ErrorMethodNotFound, got %v", resp.Error)
+	}
+}
+
+func TestHandleNilRequestReturnsInvalidRequest(t *testing.T) {
+	d := NewDispatcher(&fakeGateway{}, NewSessionStore(), Config{ApprovalRoute: "editor"})
+	resp := d.Handle(context.Background(), nil)
+	if resp == nil {
+		t.Fatal("Handle(nil) returned nil")
+	}
+	if resp.Error == nil || resp.Error.Code != ErrorInvalidRequest {
+		t.Fatalf("expected ErrorInvalidRequest, got %v", resp.Error)
+	}
+	if resp.ID != nil {
+		t.Fatalf("response ID = %s, want nil for invalid request", string(*resp.ID))
 	}
 }
 
@@ -294,6 +329,61 @@ func TestRunEventToSessionUpdateMapsTerminalFailure(t *testing.T) {
 	})
 	if update.Kind != "error" || update.Status != "failed" || !update.Terminal || update.Message != "boom" {
 		t.Fatalf("update = %+v", update)
+	}
+}
+
+func TestRunEventToSessionUpdateMapsAssistantTextEvents(t *testing.T) {
+	tests := []struct {
+		name      string
+		eventType string
+		data      string
+		wantMsg   string
+	}{
+		{
+			name:      "delta",
+			eventType: "assistant.text_delta",
+			data:      `{"delta":"hello"}`,
+			wantMsg:   "hello",
+		},
+		{
+			name:      "complete",
+			eventType: "assistant.text_complete",
+			data:      `{"text":"hello world"}`,
+			wantMsg:   "hello world",
+		},
+		{
+			name:      "final answer",
+			eventType: "assistant.final_answer",
+			data:      `{"summary":"done"}`,
+			wantMsg:   "done",
+		},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			update := RunEventToSessionUpdate("s", "t", "r", RunEvent{
+				Type: tt.eventType,
+				Data: []byte(tt.data),
+			})
+			if update.Kind != "text" {
+				t.Fatalf("Kind = %q, want text", update.Kind)
+			}
+			if update.Message != tt.wantMsg {
+				t.Fatalf("Message = %q, want %q", update.Message, tt.wantMsg)
+			}
+		})
+	}
+}
+
+func TestRunEventToSessionUpdateUsesToolMetadataMessage(t *testing.T) {
+	update := RunEventToSessionUpdate("s", "t", "r", RunEvent{
+		Type: "tool.started",
+		Data: []byte(`{"tool_name":"shell_exec","status":"running"}`),
+	})
+	if update.Kind != "tool_call" {
+		t.Fatalf("Kind = %q, want tool_call", update.Kind)
+	}
+	if update.Message != "shell_exec" {
+		t.Fatalf("Message = %q, want shell_exec", update.Message)
 	}
 }
 
