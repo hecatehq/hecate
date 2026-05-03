@@ -24,6 +24,7 @@ import (
 	"github.com/hecate/agent-runtime/internal/chatstate"
 	"github.com/hecate/agent-runtime/internal/config"
 	"github.com/hecate/agent-runtime/internal/controlplane"
+	"github.com/hecate/agent-runtime/internal/eventprotocol"
 	"github.com/hecate/agent-runtime/internal/gateway"
 	"github.com/hecate/agent-runtime/internal/governor"
 	"github.com/hecate/agent-runtime/internal/mcp"
@@ -1667,13 +1668,13 @@ func TestTaskRunLifecycleEventsForSuccessfulRun(t *testing.T) {
 	assertEventSequencesIncrease(t, events.Data)
 
 	for _, event := range events.Data {
-		if event.RequestID == "" {
-			t.Fatalf("event %s request_id is empty", event.EventType)
+		if event.EventID == "" {
+			t.Fatalf("event %s event_id is empty", event.Type)
 		}
-		if event.TraceID == "" {
-			t.Fatalf("event %s trace_id is empty", event.EventType)
+		if event.OccurredAt == "" {
+			t.Fatalf("event %s occurred_at is empty", event.Type)
 		}
-		if event.EventType == "run.finished" {
+		if event.Type == "run.finished" {
 			if status, _ := event.Data["status"].(string); status != "completed" {
 				t.Fatalf("run.finished status payload = %q, want completed", status)
 			}
@@ -2336,7 +2337,7 @@ func TestTaskRunStream_AgentTurnCompletedFlowsTurnOverlayIntoSnapshot(t *testing
 	// checked BEFORE the snapshot branch, so the type-specific
 	// path wins (which is what we're testing).
 	eventBody := `{
-		"event_type": "agent.turn.completed",
+		"type": "agent.turn.completed",
 		"data": {
 			"turn": 2,
 			"step_id": "step-injected",
@@ -2560,7 +2561,7 @@ func TestTaskRunEventsAppendAndList(t *testing.T) {
 	appendRecorder := tasks.mustRequest(
 		http.MethodPost,
 		"/v1/tasks/"+created.Data.ID+"/runs/"+started.Data.ID+"/events",
-		`{"event_type":"external.tool_result","step_id":"step_external","status":"ok","note":"client injected event","data":{"tool":"lint","result":"ok"}}`,
+		`{"type":"external.tool_result","step_id":"step_external","status":"ok","note":"client injected event","data":{"tool":"lint","result":"ok"}}`,
 	)
 	var appended map[string]any
 	if err := json.NewDecoder(appendRecorder.Body).Decode(&appended); err != nil {
@@ -2573,7 +2574,7 @@ func TestTaskRunEventsAppendAndList(t *testing.T) {
 		if event.Sequence <= baseSequence {
 			t.Fatalf("event sequence = %d, want > %d", event.Sequence, baseSequence)
 		}
-		if event.EventType == "external.tool_result" {
+		if event.Type == "external.tool_result" {
 			foundExternal = true
 		}
 	}
@@ -2698,7 +2699,7 @@ func TestTaskRunResumeFromCancelledRun(t *testing.T) {
 	events := mustTaskRequestJSON[TaskRunEventsResponse](tasks, http.MethodGet, "/v1/tasks/"+created.Data.ID+"/runs/"+resumed.Data.ID+"/events", "")
 	foundResumedEvent := false
 	for _, event := range events.Data {
-		if event.EventType != "run.resumed_from_event" {
+		if event.Type != "run.resumed_from_event" {
 			continue
 		}
 		foundResumedEvent = true
@@ -3111,54 +3112,54 @@ func waitForRunEvent(t *testing.T, handler http.Handler, taskID, runID, eventTyp
 	return TaskRunEventsResponse{}
 }
 
-func assertEventOrder(t *testing.T, events []TaskRunEventItem, want []string) {
+func assertEventOrder(t *testing.T, events []eventprotocol.Envelope, want []string) {
 	t.Helper()
 	cursor := 0
 	for _, event := range events {
 		if cursor >= len(want) {
 			return
 		}
-		if event.EventType == want[cursor] {
+		if event.Type == want[cursor] {
 			cursor++
 		}
 	}
 	if cursor != len(want) {
 		got := make([]string, 0, len(events))
 		for _, event := range events {
-			got = append(got, event.EventType)
+			got = append(got, event.Type)
 		}
 		t.Fatalf("event order missing %v; got %v", want[cursor:], got)
 	}
 }
 
-func assertEventSequencesIncrease(t *testing.T, events []TaskRunEventItem) {
+func assertEventSequencesIncrease(t *testing.T, events []eventprotocol.Envelope) {
 	t.Helper()
 	var previous int64
 	for _, event := range events {
 		if event.Sequence <= previous {
-			t.Fatalf("event sequence %d after %d for %s; want strictly increasing", event.Sequence, previous, event.EventType)
+			t.Fatalf("event sequence %d after %d for %s; want strictly increasing", event.Sequence, previous, event.Type)
 		}
 		previous = event.Sequence
 	}
 }
 
-func countTaskRunEvents(events []TaskRunEventItem, eventType string) int {
+func countTaskRunEvents(events []eventprotocol.Envelope, eventType string) int {
 	count := 0
 	for _, event := range events {
-		if event.EventType == eventType {
+		if event.Type == eventType {
 			count++
 		}
 	}
 	return count
 }
 
-func assertApprovalResolvedEvent(t *testing.T, events []TaskRunEventItem, approvalID, decision, comment string) {
+func assertApprovalResolvedEvent(t *testing.T, events []eventprotocol.Envelope, approvalID, decision, comment string) {
 	t.Helper()
 	for _, event := range events {
-		if event.EventType == "approval.approved" || event.EventType == "approval.rejected" {
-			t.Fatalf("legacy approval event %q emitted", event.EventType)
+		if event.Type == "approval.approved" || event.Type == "approval.rejected" {
+			t.Fatalf("legacy approval event %q emitted", event.Type)
 		}
-		if event.EventType != "approval.resolved" {
+		if event.Type != "approval.resolved" {
 			continue
 		}
 		if event.Data["approval_id"] != approvalID {

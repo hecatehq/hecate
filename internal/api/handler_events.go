@@ -9,6 +9,7 @@ import (
 	"strings"
 	"time"
 
+	"github.com/hecate/agent-runtime/internal/eventprotocol"
 	"github.com/hecate/agent-runtime/internal/taskstate"
 )
 
@@ -41,10 +42,10 @@ func (h *Handler) HandleEvents(w http.ResponseWriter, r *http.Request) {
 		WriteError(w, http.StatusInternalServerError, errCodeGatewayError, err.Error())
 		return
 	}
-	items := make([]TaskRunEventItem, 0, len(events))
+	items := make([]eventprotocol.Envelope, 0, len(events))
 	var nextSeq int64
 	for _, event := range events {
-		items = append(items, renderTaskRunEvent(event))
+		items = append(items, eventprotocol.FromTaskRunEvent(event))
 		if event.Sequence > nextSeq {
 			nextSeq = event.Sequence
 		}
@@ -118,7 +119,7 @@ func (h *Handler) HandleEventsStream(w http.ResponseWriter, r *http.Request) {
 		for _, event := range events {
 			payload, marshalErr := json.Marshal(map[string]any{
 				"object": "event",
-				"data":   renderTaskRunEvent(event),
+				"data":   eventprotocol.FromTaskRunEvent(event),
 			})
 			if marshalErr != nil {
 				continue

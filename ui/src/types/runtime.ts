@@ -774,15 +774,14 @@ export type TaskRunStreamEventResponse = {
 };
 
 export type TaskRunEventRecord = {
-  id: string;
+  schema_version: string;
+  event_id: string;
   task_id: string;
   run_id: string;
   sequence: number;
-  event_type: string;
-  data?: Record<string, unknown>;
-  created_at?: string;
-  request_id?: string;
-  trace_id?: string;
+  occurred_at: string;
+  type: string;
+  data: Record<string, unknown>;
 };
 
 export type TaskRunEventsResponse = {

@@ -48,6 +48,20 @@ function makeStep(overrides: Partial<TaskStepRecord> = {}): TaskStepRecord {
   } as TaskStepRecord;
 }
 
+function makeEvent(overrides: Partial<TaskRunEventRecord> = {}): TaskRunEventRecord {
+  return {
+    schema_version: "1",
+    event_id: "evt_01HX0000000000000000000001",
+    task_id: "task-1",
+    run_id: "run-1",
+    sequence: 1,
+    occurred_at: "2026-04-27T17:00:00Z",
+    type: "run.started",
+    data: {},
+    ...overrides,
+  };
+}
+
 function setup(propOverrides: Partial<React.ComponentProps<typeof TaskDetail>> = {}) {
   const task = makeTask();
   const run = makeRun();
@@ -203,9 +217,9 @@ describe("TaskDetail runtime debugging", () => {
 
   it("renders the run timeline from persisted events", () => {
     const events: TaskRunEventRecord[] = [
-      { id: "e1", task_id: "task-1", run_id: "run-1", sequence: 1, event_type: "run.created", created_at: "2026-04-27T17:00:00Z" },
-      { id: "e2", task_id: "task-1", run_id: "run-1", sequence: 2, event_type: "run.queued", created_at: "2026-04-27T17:00:01Z" },
-      { id: "e3", task_id: "task-1", run_id: "run-1", sequence: 3, event_type: "run.finished", created_at: "2026-04-27T17:00:02Z" },
+      makeEvent({ event_id: "evt_01HX0000000000000000000001", sequence: 1, type: "run.created", occurred_at: "2026-04-27T17:00:00Z" }),
+      makeEvent({ event_id: "evt_01HX0000000000000000000002", sequence: 2, type: "run.queued", occurred_at: "2026-04-27T17:00:01Z" }),
+      makeEvent({ event_id: "evt_01HX0000000000000000000003", sequence: 3, type: "run.finished", occurred_at: "2026-04-27T17:00:02Z" }),
     ];
     const { render } = setup({ events });
     render();
@@ -217,12 +231,10 @@ describe("TaskDetail runtime debugging", () => {
 
   it("annotates run.resumed_from_event events with turn and reason when both are present", () => {
     const events: TaskRunEventRecord[] = [
-      {
-        id: "e1", task_id: "task-1", run_id: "run-1", sequence: 1,
-        event_type: "run.resumed_from_event",
+      makeEvent({
+        type: "run.resumed_from_event",
         data: { resumed_from_run_id: "run-0", reason: "wrong tool choice", retry_from_turn: 3 },
-        created_at: "2026-04-27T17:00:00Z",
-      },
+      }),
     ];
     const { render } = setup({ events });
     render();
@@ -232,12 +244,10 @@ describe("TaskDetail runtime debugging", () => {
 
   it("annotates run.resumed_from_event events with turn only when reason is absent", () => {
     const events: TaskRunEventRecord[] = [
-      {
-        id: "e1", task_id: "task-1", run_id: "run-1", sequence: 1,
-        event_type: "run.resumed_from_event",
+      makeEvent({
+        type: "run.resumed_from_event",
         data: { resumed_from_run_id: "run-0", retry_from_turn: 2 },
-        created_at: "2026-04-27T17:00:00Z",
-      },
+      }),
     ];
     const { render } = setup({ events });
     render();
@@ -246,12 +256,10 @@ describe("TaskDetail runtime debugging", () => {
 
   it("annotates run.resumed_from_event events with reason only when retry_from_turn is absent", () => {
     const events: TaskRunEventRecord[] = [
-      {
-        id: "e1", task_id: "task-1", run_id: "run-1", sequence: 1,
-        event_type: "run.resumed_from_event",
+      makeEvent({
+        type: "run.resumed_from_event",
         data: { resumed_from_run_id: "run-0", reason: "continue after cancellation" },
-        created_at: "2026-04-27T17:00:00Z",
-      },
+      }),
     ];
     const { render } = setup({ events });
     render();
@@ -260,12 +268,10 @@ describe("TaskDetail runtime debugging", () => {
 
   it("shows no annotation on run.resumed_from_event events with no reason and no turn", () => {
     const events: TaskRunEventRecord[] = [
-      {
-        id: "e1", task_id: "task-1", run_id: "run-1", sequence: 1,
-        event_type: "run.resumed_from_event",
+      makeEvent({
+        type: "run.resumed_from_event",
         data: { resumed_from_run_id: "run-0" },
-        created_at: "2026-04-27T17:00:00Z",
-      },
+      }),
     ];
     const { render } = setup({ events });
     render();

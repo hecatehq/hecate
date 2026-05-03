@@ -98,8 +98,8 @@ func TestHandleEvents_EventTypeFilter(t *testing.T) {
 		t.Errorf("got %d events, want 2 (event_type=agent.turn.completed)", len(resp.Data))
 	}
 	for _, e := range resp.Data {
-		if e.EventType != "agent.turn.completed" {
-			t.Errorf("filter leaked %q", e.EventType)
+		if e.Type != "agent.turn.completed" {
+			t.Errorf("filter leaked %q", e.Type)
 		}
 	}
 }
