@@ -12,6 +12,7 @@ existing task runtime.
 ## Contents
 
 - [Current status](#current-status)
+- [Distribution and lifecycle](#distribution-and-lifecycle)
 - [Session model](#session-model)
 - [Configuration](#configuration)
 - [Smoke test](#smoke-test)
@@ -35,6 +36,22 @@ Not implemented yet:
 - Editor-owned workspace calls.
 - Registry packaging for a specific editor.
 - Headless compatibility tests against a real Zed or JetBrains ACP host.
+
+## Distribution and lifecycle
+
+`hecate-acp` ships as a separate binary in the Go release tarballs, next to
+`gateway`. It is not bundled as a Tauri sidecar.
+
+That split is deliberate:
+
+- The desktop app owns the gateway lifecycle: launch Hecate, start `gateway`,
+  open the UI, stop the process when the app exits.
+- ACP clients own the bridge lifecycle: Zed, JetBrains, or another ACP host
+  starts `hecate-acp` over stdio and stops it when the editor session ends.
+
+Install the bridge somewhere stable and point the editor's ACP configuration at
+that executable. The bridge talks to a running Hecate gateway via
+`HECATE_GATEWAY_URL`.
 
 ## Session model
 

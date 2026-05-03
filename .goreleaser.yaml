@@ -14,7 +14,7 @@ version: 2
 before:
   hooks:
     - bun install --cwd ui --frozen-lockfile
-    - bun run --cwd ui build
+    - make ui-build
 
 builds:
   - id: gateway
@@ -33,10 +33,30 @@ builds:
     goarch:
       - amd64
       - arm64
+  - id: hecate-acp
+    main: ./cmd/hecate-acp
+    binary: hecate-acp
+    env:
+      - CGO_ENABLED=0
+    flags:
+      - -trimpath
+    ldflags:
+      - -s -w
+      - -X github.com/hecate/agent-runtime/internal/version.Version={{ .Version }}
+    goos:
+      - linux
+      - darwin
+    goarch:
+      - amd64
+      - arm64
 
 archives:
-  - id: gateway
-    format: tar.gz
+  - id: binaries
+    ids:
+      - gateway
+      - hecate-acp
+    formats:
+      - tar.gz
     name_template: >-
       {{ .ProjectName }}_
       {{- .Version }}_
@@ -46,49 +66,28 @@ archives:
       - LICENSE*
       - README.md
 
-# Per-arch docker images. goreleaser stages the freshly cross-compiled
-# binary into the build context as `gateway`, then docker buildx builds
-# Dockerfile.release for the matching --platform. The two arch-specific
-# images are stitched together into a multi-arch manifest below.
-dockers:
-  - image_templates:
-      - "ghcr.io/chicoxyzzy/hecate:{{ .Version }}-amd64"
+# Multi-arch Docker image. GoReleaser stages the freshly cross-compiled
+# gateway binary under linux/<arch>/gateway and docker buildx builds a
+# manifest for linux/amd64 + linux/arm64. hecate-acp is intentionally
+# excluded from the image; editors launch it from the release tarballs.
+dockers_v2:
+  - id: hecate
     dockerfile: Dockerfile.release
-    use: buildx
-    goos: linux
-    goarch: amd64
-    build_flag_templates:
-      - "--platform=linux/amd64"
-      - "--label=org.opencontainers.image.source=https://github.com/chicoxyzzy/hecate"
-      - "--label=org.opencontainers.image.version={{ .Version }}"
-      - "--label=org.opencontainers.image.created={{ .Date }}"
-      - "--label=org.opencontainers.image.revision={{ .FullCommit }}"
-
-  - image_templates:
-      - "ghcr.io/chicoxyzzy/hecate:{{ .Version }}-arm64"
-    dockerfile: Dockerfile.release
-    use: buildx
-    goos: linux
-    goarch: arm64
-    build_flag_templates:
-      - "--platform=linux/arm64"
-      - "--label=org.opencontainers.image.source=https://github.com/chicoxyzzy/hecate"
-      - "--label=org.opencontainers.image.version={{ .Version }}"
-      - "--label=org.opencontainers.image.created={{ .Date }}"
-      - "--label=org.opencontainers.image.revision={{ .FullCommit }}"
-
-# Multi-arch manifests so `docker pull ghcr.io/chicoxyzzy/hecate:vX.Y.Z`
-# resolves to the right arch automatically. We push both a versioned
-# manifest and `:latest`.
-docker_manifests:
-  - name_template: "ghcr.io/chicoxyzzy/hecate:{{ .Version }}"
-    image_templates:
-      - "ghcr.io/chicoxyzzy/hecate:{{ .Version }}-amd64"
-      - "ghcr.io/chicoxyzzy/hecate:{{ .Version }}-arm64"
-  - name_template: "ghcr.io/chicoxyzzy/hecate:latest"
-    image_templates:
-      - "ghcr.io/chicoxyzzy/hecate:{{ .Version }}-amd64"
-      - "ghcr.io/chicoxyzzy/hecate:{{ .Version }}-arm64"
+    ids:
+      - gateway
+    images:
+      - "ghcr.io/chicoxyzzy/hecate"
+    tags:
+      - "{{ .Version }}"
+      - latest
+    platforms:
+      - linux/amd64
+      - linux/arm64
+    labels:
+      "org.opencontainers.image.source": "https://github.com/chicoxyzzy/hecate"
+      "org.opencontainers.image.version": "{{ .Version }}"
+      "org.opencontainers.image.created": "{{ .Date }}"
+      "org.opencontainers.image.revision": "{{ .FullCommit }}"
 
 checksum:
   name_template: "checksums.txt"

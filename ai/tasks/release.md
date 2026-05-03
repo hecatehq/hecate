@@ -47,7 +47,7 @@ The native desktop app (`tauri/`) **is built and uploaded by CI** as part of the
 
 `.github/workflows/release.yml` runs two jobs on a `v*` tag push:
 
-1. `goreleaser` — Linux/macOS/Windows binary tarballs, multi-arch Docker images on GHCR, GitHub Release entry.
+1. `goreleaser` — Linux/macOS binary tarballs containing `gateway` and `hecate-acp`, multi-arch Docker images on GHCR, GitHub Release entry.
 2. `tauri` (`needs: goreleaser`) — three-platform matrix (macOS arm64, Linux x86_64, Windows x86_64) calls the reusable `_tauri-shared.yml` workflow with `tagName: ${{ github.ref_name }}`. Each leg builds the gateway sidecar, the Tauri bundle, and uploads platform-native artifacts (`.dmg` / `.deb` + `.AppImage` / `.msi`) to the existing release.
 
 End state of a successful tag: the GitHub Release page has goreleaser tarballs + Docker images + four desktop bundles, all attached.
@@ -93,7 +93,7 @@ Acceptance:
 
 - Both workflow jobs are green.
 - GitHub Releases page has the entry, marked **Pre-release** for `-alpha.N` tags.
-- Goreleaser-side artifacts attached: tarballs for each `goos/goarch`, source tarball, checksums.
+- Goreleaser-side artifacts attached: tarballs for each `goos/goarch`, source tarball, checksums. Each binary tarball contains `gateway` and `hecate-acp`.
 - Tauri-side artifacts attached: one `.dmg`, one `.deb`, one `.AppImage`, one `.msi`. If any is missing, the matrix leg silently skipped upload — open the run, find the leg, see what failed.
 - Bundle sizes look right: `.dmg` ~20–40 MB, `.deb` ~15–25 MB, `.AppImage` ~80–120 MB (bundles its own libs), `.msi` ~15–25 MB. A 1 MB `.dmg` means the sidecar didn't embed — investigate before announcing.
 - `docker pull ghcr.io/chicoxyzzy/hecate:X.Y.Z` succeeds (no `v` prefix — see footgun below).

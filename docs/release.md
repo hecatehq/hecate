@@ -20,8 +20,9 @@ what is alpha-grade versus production-shaped.
 
 Every `v*` tag fires `.github/workflows/release.yml`, which runs two jobs:
 
-1. **`goreleaser`** (~5–10 min) — multi-arch Go binaries for
-   `linux+darwin × amd64+arm64`, multi-arch Docker images on
+1. **`goreleaser`** (~5–10 min) — multi-arch Go binary tarballs for
+   `linux+darwin × amd64+arm64`; each tarball includes `gateway` and
+   `hecate-acp`. It also publishes multi-arch Docker images on
    `ghcr.io/chicoxyzzy/hecate`, source tarball, checksums, GitHub Release
    entry.
 2. **`tauri`** (matrix, ~10–15 min, runs after goreleaser) — three legs
@@ -34,6 +35,7 @@ Acceptance after the run:
 - Both jobs green.
 - Release entry marked **Pre-release** for `-alpha.N` tags.
 - Goreleaser-side artifacts attached: tarballs for each goos/goarch + checksums.
+  Each tarball contains both `gateway` and `hecate-acp`.
 - Tauri-side bundles attached: 1 `.dmg`, 1 `.deb`, 1 `.AppImage`, 1 `.msi`.
   If any is missing, the matrix leg silently skipped upload — open the run
   to see what failed.
