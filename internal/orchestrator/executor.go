@@ -2,9 +2,13 @@ package orchestrator
 
 import (
 	"context"
+	"crypto/sha256"
+	"encoding/hex"
 	"errors"
 	"fmt"
+	"os"
 	"path/filepath"
+	"strings"
 	"time"
 
 	"github.com/hecate/agent-runtime/internal/sandbox"
@@ -269,9 +273,12 @@ func (e *FileExecutor) Execute(ctx context.Context, spec ExecutionSpec) (*Execut
 		WorkingDirectory: spec.Task.WorkingDirectory,
 		Policy:           taskPolicy(spec),
 	}
+	beforeContent, beforeExists, _, err := fileContentBeforeWrite(request)
+	if err != nil {
+		return fileFailure(spec, operation, spec.Task.FilePath, err.Error(), fileErrorKind(err)), nil
+	}
 	var (
 		fileResult sandbox.FileResult
-		err        error
 	)
 	switch operation {
 	case "write":
@@ -284,6 +291,10 @@ func (e *FileExecutor) Execute(ctx context.Context, spec ExecutionSpec) (*Execut
 	if err != nil {
 		return fileFailure(spec, operation, spec.Task.FilePath, err.Error(), fileErrorKind(err)), nil
 	}
+	afterContent, err := os.ReadFile(fileResult.Path)
+	if err != nil {
+		return fileFailure(spec, operation, spec.Task.FilePath, err.Error(), fileErrorKind(err)), nil
+	}
 
 	status, result, lastError, otelStatusCode, otelStatusMessage := executionStatus(nil)
 	finishedAt := time.Now().UTC()
@@ -293,8 +304,10 @@ func (e *FileExecutor) Execute(ctx context.Context, spec ExecutionSpec) (*Execut
 		"bytes": fileResult.BytesWritten,
 	})
 	artifact := newInlineArtifact(spec, step.ID, "file", filepath.Base(fileResult.Path), "File executor output", fileResult.Path, spec.Task.FileContent, "ready", finishedAt)
+	patchArtifact := newPatchArtifact(spec, step.ID, operation, spec.Task.FilePath, fileResult.Path, beforeContent, string(afterContent), beforeExists, finishedAt)
+	emitFilePatchEvent(spec, step.ID, operation, patchArtifact, fileResult, beforeExists)
 
-	return newExecutionResult(status, []types.TaskStep{step}, []types.TaskArtifact{artifact}, lastError, otelStatusCode, otelStatusMessage), nil
+	return newExecutionResult(status, []types.TaskStep{step}, []types.TaskArtifact{artifact, patchArtifact}, lastError, otelStatusCode, otelStatusMessage), nil
 }
 
 type GitExecutor struct {
@@ -580,6 +593,87 @@ func commandErrorKind(err error, timeoutErrorKind, defaultErrorKind string) stri
 
 func newStreamingCommandArtifact(spec ExecutionSpec, stepID, kind, name, description string) types.TaskArtifact {
 	return newInlineArtifact(spec, stepID, kind, name, description, "", "", "streaming", spec.StartedAt)
+}
+
+func fileContentBeforeWrite(request sandbox.FileRequest) (content string, exists bool, resolvedPath string, err error) {
+	resolvedPath, err = sandbox.ResolvePath(request.WorkingDirectory, request.Path, request.Policy)
+	if err != nil {
+		return "", false, "", err
+	}
+	raw, err := os.ReadFile(resolvedPath)
+	if err == nil {
+		return string(raw), true, resolvedPath, nil
+	}
+	if errors.Is(err, os.ErrNotExist) {
+		return "", false, resolvedPath, nil
+	}
+	return "", false, resolvedPath, err
+}
+
+func newPatchArtifact(spec ExecutionSpec, stepID, operation, displayPath, artifactPath, before, after string, beforeExists bool, createdAt time.Time) types.TaskArtifact {
+	patch := unifiedPatch(displayPath, before, after, beforeExists)
+	artifact := newInlineArtifact(spec, stepID, "patch", filepath.Base(displayPath)+".patch", "Unified diff produced by file_write", artifactPath, patch, "applied", createdAt)
+	artifact.MimeType = "text/x-diff"
+	sum := sha256.Sum256([]byte(patch))
+	artifact.SHA256 = hex.EncodeToString(sum[:])
+	return artifact
+}
+
+func emitFilePatchEvent(spec ExecutionSpec, stepID, operation string, artifact types.TaskArtifact, result sandbox.FileResult, beforeExists bool) {
+	if spec.EmitRunEvent == nil {
+		return
+	}
+	toolCallID := firstNonEmpty(spec.ToolCallID, stepID)
+	toolName := firstNonEmpty(spec.ToolName, "file")
+	spec.EmitRunEvent("tool.file.patch", map[string]any{
+		"tool_call_id":    toolCallID,
+		"tool_name":       toolName,
+		"kind":            "file",
+		"operation":       operation,
+		"path":            artifact.Path,
+		"artifact_id":     artifact.ID,
+		"bytes_written":   result.BytesWritten,
+		"diff_bytes":      artifact.SizeBytes,
+		"before_existed":  beforeExists,
+		"artifact_status": artifact.Status,
+	})
+}
+
+func unifiedPatch(path, before, after string, beforeExists bool) string {
+	oldPath := "a/" + filepath.ToSlash(path)
+	if !beforeExists {
+		oldPath = "/dev/null"
+	}
+	newPath := "b/" + filepath.ToSlash(path)
+	beforeLines := patchLines(before)
+	afterLines := patchLines(after)
+
+	var b strings.Builder
+	fmt.Fprintf(&b, "--- %s\n", oldPath)
+	fmt.Fprintf(&b, "+++ %s\n", newPath)
+	fmt.Fprintf(&b, "@@ -1,%d +1,%d @@\n", len(beforeLines), len(afterLines))
+	for _, line := range beforeLines {
+		b.WriteByte('-')
+		b.WriteString(line)
+		b.WriteByte('\n')
+	}
+	for _, line := range afterLines {
+		b.WriteByte('+')
+		b.WriteString(line)
+		b.WriteByte('\n')
+	}
+	return b.String()
+}
+
+func patchLines(content string) []string {
+	if content == "" {
+		return nil
+	}
+	lines := strings.Split(content, "\n")
+	if lines[len(lines)-1] == "" {
+		lines = lines[:len(lines)-1]
+	}
+	return lines
 }
 
 func upsertTaskStep(spec ExecutionSpec, step types.TaskStep) error {

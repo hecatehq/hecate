@@ -4,6 +4,9 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"os"
+	"path/filepath"
+	"strings"
 	"testing"
 	"time"
 
@@ -110,6 +113,79 @@ func TestFileErrorKindClassification(t *testing.T) {
 	}
 	if got := fileErrorKind(errors.New("other")); got != "file_operation_failed" {
 		t.Errorf("fileErrorKind(other) = %q, want file_operation_failed", got)
+	}
+}
+
+func TestFileExecutorCreatesPatchArtifactAndEvent(t *testing.T) {
+	dir := t.TempDir()
+	if err := os.WriteFile(filepath.Join(dir, "note.txt"), []byte("old\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	var events []capturedRunEvent
+	exec := NewFileExecutor(sandbox.NewLocalExecutor())
+	result, err := exec.Execute(context.Background(), ExecutionSpec{
+		Task: types.Task{
+			ID:                 "task-1",
+			ExecutionKind:      "file",
+			FileOperation:      "write",
+			FilePath:           "note.txt",
+			FileContent:        "new\n",
+			WorkingDirectory:   dir,
+			SandboxAllowedRoot: dir,
+		},
+		Run:       types.TaskRun{ID: "run-1"},
+		StartedAt: time.Now().UTC(),
+		NewID:     deterministicIDGenerator(),
+		EmitRunEvent: func(eventType string, data map[string]any) {
+			events = append(events, capturedRunEvent{eventType: eventType, data: data})
+		},
+		ToolCallID: "call-file-1",
+		ToolName:   "file_write",
+	})
+	if err != nil {
+		t.Fatalf("Execute() error = %v", err)
+	}
+	if result.Status != "completed" {
+		t.Fatalf("status = %q, want completed", result.Status)
+	}
+	var patch types.TaskArtifact
+	for _, artifact := range result.Artifacts {
+		if artifact.Kind == "patch" {
+			patch = artifact
+			break
+		}
+	}
+	if patch.ID == "" {
+		t.Fatalf("patch artifact missing; artifacts=%+v", result.Artifacts)
+	}
+	if patch.MimeType != "text/x-diff" {
+		t.Fatalf("patch mime = %q, want text/x-diff", patch.MimeType)
+	}
+	if patch.Status != "applied" {
+		t.Fatalf("patch status = %q, want applied", patch.Status)
+	}
+	for _, want := range []string{"--- a/note.txt", "+++ b/note.txt", "-old", "+new"} {
+		if !strings.Contains(patch.ContentText, want) {
+			t.Fatalf("patch missing %q:\n%s", want, patch.ContentText)
+		}
+	}
+	if patch.SHA256 == "" {
+		t.Fatal("patch SHA256 is empty")
+	}
+	if len(events) != 1 {
+		t.Fatalf("event count = %d, want 1: %+v", len(events), events)
+	}
+	if events[0].eventType != "tool.file.patch" {
+		t.Fatalf("event type = %q, want tool.file.patch", events[0].eventType)
+	}
+	if got := events[0].data["artifact_id"]; got != patch.ID {
+		t.Fatalf("artifact_id = %v, want %s", got, patch.ID)
+	}
+	if got := events[0].data["tool_call_id"]; got != "call-file-1" {
+		t.Fatalf("tool_call_id = %v, want call-file-1", got)
+	}
+	if got := events[0].data["before_existed"]; got != true {
+		t.Fatalf("before_existed = %v, want true", got)
 	}
 }
 

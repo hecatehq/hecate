@@ -49,6 +49,7 @@ var (
 		"tool.shell.command":             {},
 		"tool.shell.output_chunk":        {},
 		"tool.shell.exited":              {},
+		"tool.file.patch":                {},
 		"approval.requested":             {},
 		"approval.resolved":              {},
 		"approval.timed_out":             {},
