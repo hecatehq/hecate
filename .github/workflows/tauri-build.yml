@@ -12,6 +12,7 @@ on:
     paths:
       - 'tauri/**'
       - 'scripts/stamp-version.ts'
+      - 'scripts/tauri-smoke.ts'
       - 'Makefile'
       - 'go.mod'
       - 'go.sum'

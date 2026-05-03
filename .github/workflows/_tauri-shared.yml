@@ -126,6 +126,13 @@ jobs:
             cp gateway "tauri/src-tauri/binaries/gateway-${{ matrix.target }}"
           fi
 
+      # Runs Rust-side unit tests for deterministic native helpers. This keeps
+      # sidecar path/port logic covered in CI without launching GUI windows.
+      # The packaged app lifecycle smoke remains opt-in via
+      # `make test-tauri-smoke`.
+      - name: Run Tauri Rust tests
+        run: cd tauri/src-tauri && cargo test
+
       # tauri-action's auto-install is unreliable when projectPath is set;
       # install explicitly so node_modules/.bin/tauri exists for the build.
       - name: Install Tauri JS dependencies

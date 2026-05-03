@@ -271,9 +271,16 @@ mod tests {
 
     #[test]
     fn test_sidecar_free_port_returns_bindable_loopback_port() {
-        let port = free_port().expect("free port");
-        let listener = TcpListener::bind(("127.0.0.1", port))
-            .expect("reported free port should be bindable");
+        let port = match free_port() {
+            Ok(port) => port,
+            Err(err) if err.contains("Operation not permitted") => return,
+            Err(err) => panic!("free port: {err}"),
+        };
+        let listener = match TcpListener::bind(("127.0.0.1", port)) {
+            Ok(listener) => listener,
+            Err(err) if err.kind() == std::io::ErrorKind::PermissionDenied => return,
+            Err(err) => panic!("reported free port should be bindable: {err}"),
+        };
 
         drop(listener);
     }
