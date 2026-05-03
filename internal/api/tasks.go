@@ -152,6 +152,16 @@ type TaskArtifactsResponse struct {
 	Data   []TaskArtifactItem `json:"data"`
 }
 
+type TaskPatchResponse struct {
+	Object string        `json:"object"`
+	Data   TaskPatchItem `json:"data"`
+}
+
+type TaskPatchesResponse struct {
+	Object string          `json:"object"`
+	Data   []TaskPatchItem `json:"data"`
+}
+
 type TaskRunEventsResponse struct {
 	Object string                   `json:"object"`
 	Data   []eventprotocol.Envelope `json:"data"`
@@ -347,4 +357,12 @@ type TaskArtifactItem struct {
 	RequestID   string `json:"request_id,omitempty"`
 	TraceID     string `json:"trace_id,omitempty"`
 	SpanID      string `json:"span_id,omitempty"`
+}
+
+type TaskPatchItem struct {
+	Artifact      TaskArtifactItem `json:"artifact"`
+	Diff          string           `json:"diff"`
+	Status        string           `json:"status"`
+	Path          string           `json:"path,omitempty"`
+	BeforeExisted bool             `json:"before_existed"`
 }

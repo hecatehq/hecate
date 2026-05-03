@@ -7,6 +7,7 @@ import (
 	"fmt"
 	"log/slog"
 	"os"
+	"os/exec"
 	"strconv"
 	"strings"
 	"sync"
@@ -1367,6 +1368,22 @@ func (r *Runner) executeRun(ctx context.Context, trace *profiler.Trace, task typ
 		}
 		persistedArtifacts = append(persistedArtifacts, artifact)
 	}
+	if artifact, ok := r.gitSummaryArtifact(ctx, task, run, requestID, trace.TraceID); ok {
+		trace.Record(telemetry.EventOrchestratorArtifactCreated, map[string]any{
+			telemetry.AttrHecatePhase:             "artifact",
+			telemetry.AttrHecateResult:            telemetry.ResultSuccess,
+			telemetry.AttrHecateTaskID:            task.ID,
+			telemetry.AttrHecateRunID:             run.ID,
+			telemetry.AttrHecateArtifactID:        artifact.ID,
+			telemetry.AttrHecateArtifactKind:      artifact.Kind,
+			telemetry.AttrHecateArtifactSizeBytes: artifact.SizeBytes,
+		})
+		artifact.SpanID = spanIDByName(trace, "orchestrator.artifact")
+		if err := r.upsertArtifact(ctx, artifact); err != nil {
+			return nil, err
+		}
+		persistedArtifacts = append(persistedArtifacts, artifact)
+	}
 
 	// Per-turn cost telemetry. The agent loop reports TurnCosts —
 	// one entry per LLM round-trip — and we emit a `turn.completed`
@@ -1492,6 +1509,93 @@ func (r *Runner) executeRun(ctx context.Context, trace *profiler.Trace, task typ
 		TraceID:   trace.TraceID,
 		SpanID:    trace.RootSpanID(),
 	}, nil
+}
+
+type gitSummaryArtifactPayload struct {
+	WorkspacePath string                 `json:"workspace_path"`
+	Files         []gitSummaryFileChange `json:"files"`
+	DiffStat      string                 `json:"diff_stat,omitempty"`
+}
+
+type gitSummaryFileChange struct {
+	Path   string `json:"path"`
+	Status string `json:"status"`
+	Raw    string `json:"raw"`
+}
+
+func (r *Runner) gitSummaryArtifact(ctx context.Context, task types.Task, run types.TaskRun, requestID, traceID string) (types.TaskArtifact, bool) {
+	workspace := strings.TrimSpace(run.WorkspacePath)
+	if workspace == "" {
+		return types.TaskArtifact{}, false
+	}
+	gitCtx, cancel := context.WithTimeout(ctx, 2*time.Second)
+	defer cancel()
+	if output, err := exec.CommandContext(gitCtx, "git", "-C", workspace, "rev-parse", "--is-inside-work-tree").CombinedOutput(); err != nil || strings.TrimSpace(string(output)) != "true" {
+		return types.TaskArtifact{}, false
+	}
+	statusOut, err := exec.CommandContext(gitCtx, "git", "-C", workspace, "status", "--porcelain=v1").CombinedOutput()
+	if err != nil {
+		return types.TaskArtifact{}, false
+	}
+	changes := parseGitPorcelainStatus(string(statusOut))
+	if len(changes) == 0 {
+		return types.TaskArtifact{}, false
+	}
+	diffStat := ""
+	if diffStatOut, err := exec.CommandContext(gitCtx, "git", "-C", workspace, "diff", "--stat", "HEAD", "--").CombinedOutput(); err == nil {
+		diffStat = strings.TrimSpace(string(diffStatOut))
+	}
+	payload := gitSummaryArtifactPayload{
+		WorkspacePath: workspace,
+		Files:         changes,
+		DiffStat:      diffStat,
+	}
+	raw, err := json.MarshalIndent(payload, "", "  ")
+	if err != nil {
+		return types.TaskArtifact{}, false
+	}
+	createdAt := time.Now().UTC()
+	return types.TaskArtifact{
+		ID:          defaultResourceID("artifact"),
+		TaskID:      task.ID,
+		RunID:       run.ID,
+		Kind:        "git_summary",
+		Name:        "git-changes.json",
+		Description: "Git changed-files summary captured after the run",
+		MimeType:    "application/json",
+		StorageKind: "inline",
+		Path:        workspace,
+		ContentText: string(raw),
+		SizeBytes:   int64(len(raw)),
+		Status:      "ready",
+		CreatedAt:   createdAt,
+		RequestID:   requestID,
+		TraceID:     traceID,
+	}, true
+}
+
+func parseGitPorcelainStatus(output string) []gitSummaryFileChange {
+	lines := strings.Split(output, "\n")
+	changes := make([]gitSummaryFileChange, 0, len(lines))
+	for _, line := range lines {
+		if strings.TrimSpace(line) == "" {
+			continue
+		}
+		status := strings.TrimSpace(line[:min(len(line), 2)])
+		path := ""
+		if len(line) > 3 {
+			path = strings.TrimSpace(line[3:])
+		}
+		if renamed := strings.Split(path, " -> "); len(renamed) == 2 {
+			path = renamed[1]
+		}
+		changes = append(changes, gitSummaryFileChange{
+			Path:   path,
+			Status: status,
+			Raw:    line,
+		})
+	}
+	return changes
 }
 
 func (r *Runner) finalizeFailedRun(ctx context.Context, trace *profiler.Trace, task types.Task, run types.TaskRun, requestID, status, message string) error {

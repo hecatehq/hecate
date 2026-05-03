@@ -50,6 +50,7 @@ These are **persisted events** (rows in the `task_state_run_events` table). They
 | `tool.shell.output_chunk` | Typed shell tool events | Incremental stdout/stderr chunk from the shell process |
 | `tool.shell.exited` | Typed shell tool events | Shell process reported exit metadata |
 | `tool.file.patch` | Typed file tool events | A file-writing tool produced an inspectable unified diff artifact |
+| `tool.file.reverted` | Typed file tool events | A previously applied patch artifact was reverted by an operator |
 | `tool.completed` | Tool events | Shell execution or MCP tool call completed |
 | `tool.failed` | Tool events | Shell execution or MCP tool call failed |
 | `tool.cancelled` | Typed shell tool events | Shell execution was cancelled |
@@ -407,6 +408,17 @@ Emitted when `execution_kind=file` or an `agent_loop` file-writing tool (`file_w
 | `diff_bytes` | `int64` | Patch body size |
 | `before_existed` | `bool` | Whether the file existed before the write |
 | `artifact_status` | `string` | Currently `applied`; review/apply transitions are future work |
+
+### `tool.file.reverted`
+
+Emitted when an operator calls the patch revert endpoint. The file is restored from Hecate's own patch artifact and the artifact status changes from `applied` to `reverted`.
+
+| Extra key | Type | Notes |
+|---|---|---|
+| `artifact_id` | `string` | Patch artifact id |
+| `path` | `string` | Workspace path restored or removed |
+| `artifact_status` | `string` | `reverted` |
+| `before_existed` | `bool` | Whether revert restored old content (`true`) or removed a file created by the patch (`false`) |
 
 ## Housekeeping
 

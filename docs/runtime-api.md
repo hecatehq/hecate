@@ -103,6 +103,11 @@ The `task` resource accepts these fields on `POST /v1/tasks`:
 - `GET /v1/tasks/{id}/runs/{run_id}/artifacts`
 - `GET /v1/tasks/{id}/runs/{run_id}/artifacts/{artifact_id}`
 - `GET /v1/tasks/{id}/artifacts`
+- `GET /v1/tasks/{id}/runs/{run_id}/patches`
+- `GET /v1/tasks/{id}/runs/{run_id}/patches/{artifact_id}`
+- `POST /v1/tasks/{id}/runs/{run_id}/patches/{artifact_id}/revert`
+
+`patches` is a review-focused projection over `patch` artifacts. File-writing tools create patches with `status=applied`; the revert endpoint restores the before-content captured in Hecate's patch artifact and updates the patch to `status=reverted`. Reverting a new-file patch removes the file. Reverting emits `tool.file.reverted` on the run-event stream.
 
 ## Approval endpoints
 
