@@ -28,7 +28,7 @@ Pinning is recommended for any deployment beyond local experimentation — `:lat
 
 When the working tree is a checkout of the source, `docker compose up` rebuilds locally from the bundled `Dockerfile` instead of pulling. Useful for testing changes; remove the `image:` line or run `docker compose build` first if you want the local build to be the canonical artifact.
 
-The Docker image starts `gateway` by default and also includes `hecate-acp` at
+The Docker image starts `hecate` by default and also includes `hecate-acp` at
 `/usr/local/bin/hecate-acp` so the image carries the same companion bridge as
 the tarballs and native app. The container sets
 `GATEWAY_PUBLIC_URL=http://127.0.0.1:8765`, which is the host URL users normally

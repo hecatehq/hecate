@@ -103,7 +103,7 @@ Recognized markers: `[skip ci]`, `[ci skip]`, `[no ci]`, `[skip actions]`, `[act
 Top-level entry points:
 
 ```
-cmd/hecate/            # hecate entry point (gateway, embedded UI, MCP subcommand)
+cmd/hecate/            # hecate entry point (gateway, embedded UI, `mcp-server` subcommand)
 cmd/hecate-acp/         # ACP stdio bridge for editor agent panels
 ui/                     # React app (Vite + Bun); src/ is the source, dist/ is the embed target
 tauri/                  # native desktop app (Tauri 2.x); wraps `hecate` as a sidecar
@@ -116,21 +116,27 @@ pkg/types/              # public types shared with external Go code
 Internal packages (each `internal/<name>/` is a single Go package):
 
 ```
+acp                     # ACP protocol types + dispatcher used by cmd/hecate-acp
+agentadapters           # external coding-agent adapter framework (Codex, Claude Code, Cursor Agent)
+agentchat               # agent chat session storage and replay
 api                     # HTTP handlers — chat, messages, tasks, admin, control-plane, telemetry
 billing                 # pricebook + cost calculation
-cache                   # exact response cache (memory / sqlite)
+bootstrap               # first-run secret-key generation and persistence
 catalog                 # provider/model discovery and registration
 chatstate               # chat session storage (memory / sqlite)
 config                  # env-driven config loading
 controlplane            # persisted providers, pricebook CRUD
-gateway                 # request lifecycle: policy, cache, router, retry/fallback
+eventprotocol           # typed agent-event envelope + emitter (see docs/event-protocol-v1.md)
+gateway                 # request lifecycle: policy, router, retry/fallback
 governor                # budget enforcement, rate limiting, policy rules
+mcp                     # Hecate-as-MCP-server implementation (the `hecate mcp-server` subcommand)
 models                  # model identity + canonical-name resolution
 orchestrator            # task runtime: queue, runner, executors, sandbox boundary
 policy                  # declarative deny / rewrite policy rules
 profiler                # internal trace recorder + OTel SDK adapter
 providers               # provider adapters (OpenAI-compat + Anthropic Messages)
 ratelimit               # token bucket for HTTP throttling
+requestscope            # request-scoped routing hints carried through the gateway
 retention               # retention worker + history store
 router                  # provider/model routing engine (rules, failover)
 sandbox                 # sandbox-policy types used by orchestrator
