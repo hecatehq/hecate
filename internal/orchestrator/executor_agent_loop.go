@@ -356,6 +356,7 @@ func (e *AgentLoopExecutor) Execute(ctx context.Context, spec ExecutionSpec) (*E
 					ProviderHint: spec.Run.Provider,
 				},
 			}
+			emitAgentTurnStarted(spec, turn, req)
 			r, err := e.llm.Chat(ctx, req)
 			if err != nil {
 				// Annotate the common "model doesn't support tools"
@@ -395,6 +396,7 @@ func (e *AgentLoopExecutor) Execute(ctx context.Context, spec ExecutionSpec) (*E
 			turnCost := resp.Cost.TotalMicrosUSD
 			costSpent += turnCost
 			assistantMsg = resp.Choices[0].Message
+			emitAssistantMessageEvents(spec, turn, assistantMsg)
 
 			// 2. Record this turn's "thinking" step — captures the
 			// assistant message content + which tools it asked for,
@@ -432,6 +434,7 @@ func (e *AgentLoopExecutor) Execute(ctx context.Context, spec ExecutionSpec) (*E
 
 			// 4. If no tool calls, assistant gave a final answer.
 			if len(assistantMsg.ToolCalls) == 0 {
+				emitAssistantFinalAnswer(spec, turn, assistantMsg)
 				finalArtifact := buildFinalAnswerArtifact(spec, thinkingStep.ID, turnStartedAt, assistantMsg.Content)
 				if err := upsertTaskArtifact(spec, finalArtifact); err != nil {
 					return nil, err
@@ -842,6 +845,83 @@ func mcpToolInputForLog(name string, args json.RawMessage) map[string]any {
 		out["arguments_truncated_bytes"] = len(args) - cap
 	}
 	return out
+}
+
+func emitAgentTurnStarted(spec ExecutionSpec, turn int, req types.ChatRequest) {
+	if spec.EmitRunEvent == nil {
+		return
+	}
+	spec.EmitRunEvent("turn.started", map[string]any{
+		"turn_index":            turn,
+		"model":                 req.Model,
+		"provider":              req.Scope.ProviderHint,
+		"input_tokens_estimate": estimateAgentPromptTokens(req.Messages),
+	})
+}
+
+func emitAssistantMessageEvents(spec ExecutionSpec, turn int, msg types.Message) {
+	if spec.EmitRunEvent == nil {
+		return
+	}
+	if strings.TrimSpace(msg.Content) != "" {
+		spec.EmitRunEvent("assistant.text_complete", map[string]any{
+			"turn_index":  turn,
+			"block_index": 0,
+			"text":        msg.Content,
+		})
+	}
+	for _, call := range msg.ToolCalls {
+		spec.EmitRunEvent("assistant.tool_call_proposed", map[string]any{
+			"turn_index":   turn,
+			"tool_call_id": call.ID,
+			"tool_name":    call.Function.Name,
+			"input":        decodeToolArgumentsForEvent(call.Function.Arguments),
+		})
+	}
+}
+
+func emitAssistantFinalAnswer(spec ExecutionSpec, turn int, msg types.Message) {
+	if spec.EmitRunEvent == nil {
+		return
+	}
+	spec.EmitRunEvent("assistant.final_answer", map[string]any{
+		"turn_index": turn,
+		"summary":    msg.Content,
+	})
+}
+
+func decodeToolArgumentsForEvent(raw string) any {
+	trimmed := strings.TrimSpace(raw)
+	if trimmed == "" {
+		return map[string]any{}
+	}
+	var decoded any
+	if err := json.Unmarshal([]byte(trimmed), &decoded); err != nil {
+		return map[string]any{
+			"raw": trimmed,
+		}
+	}
+	if decoded == nil {
+		return map[string]any{}
+	}
+	return decoded
+}
+
+func estimateAgentPromptTokens(messages []types.Message) int {
+	chars := 0
+	for _, msg := range messages {
+		chars += len(msg.Role) + len(msg.Content) + len(msg.ToolCallID)
+		for _, block := range msg.ContentBlocks {
+			chars += len(block.Type) + len(block.Text)
+		}
+		for _, call := range msg.ToolCalls {
+			chars += len(call.ID) + len(call.Function.Name) + len(call.Function.Arguments)
+		}
+	}
+	if chars == 0 {
+		return 0
+	}
+	return chars/4 + 1
 }
 
 // runSubExecutor delegates to one of the per-kind executors and

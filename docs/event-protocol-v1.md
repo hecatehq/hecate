@@ -47,7 +47,9 @@ Payload-specific schemas are intentionally deferred until runtime emitters are
 implemented.
 
 Implementation note: Hecate maps persisted task run events to this envelope at
-the API boundary. The shell executor emits the first typed tool slice
+the API boundary. The agent loop emits `turn.started`,
+`assistant.text_complete`, `assistant.tool_call_proposed`, and
+`assistant.final_answer`; the shell executor emits the first typed tool slice
 (`tool.invoked`, `tool.started`, `tool.shell.*`, and terminal `tool.*` events).
 Some candidate-core payloads remain RFC-only until their runtime emitters land.
 
