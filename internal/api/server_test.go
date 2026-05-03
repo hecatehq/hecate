@@ -1989,7 +1989,7 @@ func TestTaskStartShellExecutor(t *testing.T) {
 	handler := newTestHTTPHandlerForProviders(logger, nil, cfg)
 	tasks := newTaskTestClient(t, handler)
 
-	created := mustTaskRequestJSON[TaskResponse](tasks, http.MethodPost, "/v1/tasks", `{"title":"Run shell","prompt":"Run a shell command.","execution_kind":"shell","shell_command":"printf 'hello '; sleep 0.2; printf 'from shell\n'","working_directory":".","timeout_ms":2000}`)
+	created := mustTaskRequestJSON[TaskResponse](tasks, http.MethodPost, "/v1/tasks", `{"title":"Run shell","prompt":"Run a shell command.","execution_kind":"shell","shell_command":"printf 'hello '; printf 'diagnostic\n' >&2; sleep 0.2; printf 'from shell\n'","working_directory":".","timeout_ms":2000}`)
 	if created.Data.ExecutionKind != "shell" {
 		t.Fatalf("execution_kind = %q, want shell", created.Data.ExecutionKind)
 	}
@@ -2060,13 +2060,20 @@ func TestTaskStartShellExecutor(t *testing.T) {
 		t.Fatalf("run artifacts = %d, want 2", len(runArtifacts.Data))
 	}
 	foundStdout := false
+	foundStderr := false
 	for _, artifact := range runArtifacts.Data {
 		if artifact.Kind == "stdout" && strings.Contains(artifact.ContentText, "hello from shell") {
 			foundStdout = true
 		}
+		if artifact.Kind == "stderr" && strings.Contains(artifact.ContentText, "diagnostic") {
+			foundStderr = true
+		}
 	}
 	if !foundStdout {
 		t.Fatal("stdout artifact missing shell output")
+	}
+	if !foundStderr {
+		t.Fatal("stderr artifact missing shell output")
 	}
 }
 

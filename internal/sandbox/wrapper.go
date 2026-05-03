@@ -105,11 +105,17 @@ func SetWrapperForTesting(kind WrapperKind) (reset func()) {
 func probeWrapper(ctx context.Context) (WrapperKind, string) {
 	switch runtime.GOOS {
 	case "darwin":
-		// sandbox-exec ships on every supported macOS. If the
-		// operator stripped it from a hardened image, fall through
-		// to WrapperNone.
+		// sandbox-exec usually ships with macOS, but newer or hardened
+		// environments can leave the binary present while refusing to run
+		// profiles. Probe before enabling it so shell tools do not fail at
+		// execution time with sandbox-exec's generic service errors.
 		if _, err := os.Stat(sandboxExecBinary); err == nil {
-			return WrapperSandboxExec, sandboxExecBinary
+			probeCtx, cancel := context.WithTimeout(ctx, 5*time.Second)
+			defer cancel()
+			probe := exec.CommandContext(probeCtx, sandboxExecBinary, "-p", `(version 1)(allow default)`, "/bin/true")
+			if err := probe.Run(); err == nil {
+				return WrapperSandboxExec, sandboxExecBinary
+			}
 		}
 		return WrapperNone, ""
 	case "linux":
