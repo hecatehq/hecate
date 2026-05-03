@@ -19,6 +19,10 @@ func normalizeOutput(adapterID, raw string) string {
 	return raw
 }
 
+func NormalizeOutput(adapterID, raw string) string {
+	return normalizeOutput(adapterID, raw)
+}
+
 func normalizeJSONLines(raw string) string {
 	var out []string
 	for _, line := range strings.Split(raw, "\n") {

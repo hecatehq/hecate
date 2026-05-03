@@ -221,6 +221,10 @@ func (h *Handler) HandleCreateAgentChatMessage(w http.ResponseWriter, r *http.Re
 		Workspace:   session.Workspace,
 		CreatedAt:   time.Now().UTC(),
 		StartedAt:   startedAt,
+		Activities: []agentchat.Activity{
+			newAgentChatActivity("started", "completed", "Starting external agent", adapter.Name+" in "+session.Workspace),
+			newAgentChatActivity("running", "running", "Running", "Waiting for process output"),
+		},
 	})
 	if err != nil {
 		WriteError(w, http.StatusInternalServerError, "gateway_error", err.Error())
@@ -228,6 +232,7 @@ func (h *Handler) HandleCreateAgentChatMessage(w http.ResponseWriter, r *http.Re
 	}
 	h.agentChatLive.publish(updated)
 
+	outputSeen := false
 	result, runErr := agentadapters.RunAdapter(runCtx, adapter, agentadapters.RunRequest{
 		AdapterID:      adapter.ID,
 		Workspace:      session.Workspace,
@@ -239,7 +244,16 @@ func (h *Handler) HandleCreateAgentChatMessage(w http.ResponseWriter, r *http.Re
 				return
 			}
 			updated, updateErr := h.agentChat.UpdateMessage(runCtx, session.ID, assistantID, func(message *agentchat.Message) {
-				message.Content += chunk
+				message.RawOutput += chunk
+				normalized := agentadapters.NormalizeOutput(adapter.ID, message.RawOutput)
+				if strings.TrimSpace(normalized) == "" {
+					normalized = message.RawOutput
+				}
+				message.Content = normalized
+				if !outputSeen {
+					message.Activities = append(message.Activities, newAgentChatActivity("output", "running", "Process output", "Streaming normalized transcript"))
+					outputSeen = true
+				}
 			})
 			if updateErr == nil {
 				h.agentChatLive.publish(updated)
@@ -285,6 +299,7 @@ func (h *Handler) HandleCreateAgentChatMessage(w http.ResponseWriter, r *http.Re
 		if strings.TrimSpace(message.Content) == "" || runErr != nil {
 			message.Content = output
 		}
+		message.RawOutput = result.RawOutput
 		message.Status = status
 		message.ExitCode = result.ExitCode
 		message.DiffStat = result.DiffStat
@@ -292,6 +307,10 @@ func (h *Handler) HandleCreateAgentChatMessage(w http.ResponseWriter, r *http.Re
 		message.StartedAt = startedAt
 		message.CompletedAt = completedAt
 		message.Error = errorText
+		if result.DiffStat != "" {
+			message.Activities = append(message.Activities, newAgentChatActivity("files_changed", "completed", "Files changed", result.DiffStat))
+		}
+		message.Activities = append(message.Activities, newAgentChatActivity(status, status, finalAgentChatActivityTitle(status), errorText))
 	})
 	if err != nil {
 		WriteError(w, http.StatusInternalServerError, "gateway_error", err.Error())
@@ -323,6 +342,7 @@ func renderAgentChatSession(session agentchat.Session) AgentChatSessionItem {
 			RunID:       message.RunID,
 			Role:        message.Role,
 			Content:     message.Content,
+			RawOutput:   message.RawOutput,
 			AdapterID:   message.AdapterID,
 			AdapterName: message.AdapterName,
 			Status:      message.Status,
@@ -336,6 +356,7 @@ func renderAgentChatSession(session agentchat.Session) AgentChatSessionItem {
 			CompletedAt: formatOptionalTime(message.CompletedAt),
 			DurationMS:  durationMillis(message.StartedAt, message.CompletedAt),
 			Error:       message.Error,
+			Activities:  renderAgentChatActivities(message.Activities),
 		})
 	}
 	return AgentChatSessionItem{
@@ -348,6 +369,46 @@ func renderAgentChatSession(session agentchat.Session) AgentChatSessionItem {
 		CreatedAt:       formatOptionalTime(session.CreatedAt),
 		UpdatedAt:       formatOptionalTime(session.UpdatedAt),
 		Messages:        messages,
+	}
+}
+
+func renderAgentChatActivities(items []agentchat.Activity) []AgentChatActivityItem {
+	if len(items) == 0 {
+		return nil
+	}
+	out := make([]AgentChatActivityItem, 0, len(items))
+	for _, item := range items {
+		out = append(out, AgentChatActivityItem{
+			Type:      item.Type,
+			Status:    item.Status,
+			Title:     item.Title,
+			Detail:    item.Detail,
+			CreatedAt: formatOptionalTime(item.CreatedAt),
+		})
+	}
+	return out
+}
+
+func newAgentChatActivity(kind, status, title, detail string) agentchat.Activity {
+	return agentchat.Activity{
+		Type:      kind,
+		Status:    status,
+		Title:     title,
+		Detail:    strings.TrimSpace(detail),
+		CreatedAt: time.Now().UTC(),
+	}
+}
+
+func finalAgentChatActivityTitle(status string) string {
+	switch status {
+	case "completed":
+		return "Final answer"
+	case "failed":
+		return "Failed"
+	case "cancelled":
+		return "Cancelled"
+	default:
+		return status
 	}
 }
 

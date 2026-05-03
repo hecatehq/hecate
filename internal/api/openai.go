@@ -587,23 +587,33 @@ type AgentChatSessionItem struct {
 }
 
 type AgentChatMessageItem struct {
-	ID          string `json:"id"`
-	RunID       string `json:"run_id,omitempty"`
-	Role        string `json:"role"`
-	Content     string `json:"content"`
-	AdapterID   string `json:"adapter_id,omitempty"`
-	AdapterName string `json:"adapter_name,omitempty"`
-	Status      string `json:"status,omitempty"`
-	ExitCode    int    `json:"exit_code,omitempty"`
-	CostMode    string `json:"cost_mode,omitempty"`
-	Workspace   string `json:"workspace,omitempty"`
-	DiffStat    string `json:"diff_stat,omitempty"`
-	Diff        string `json:"diff,omitempty"`
-	CreatedAt   string `json:"created_at,omitempty"`
-	StartedAt   string `json:"started_at,omitempty"`
-	CompletedAt string `json:"completed_at,omitempty"`
-	DurationMS  int64  `json:"duration_ms,omitempty"`
-	Error       string `json:"error,omitempty"`
+	ID          string                  `json:"id"`
+	RunID       string                  `json:"run_id,omitempty"`
+	Role        string                  `json:"role"`
+	Content     string                  `json:"content"`
+	RawOutput   string                  `json:"raw_output,omitempty"`
+	AdapterID   string                  `json:"adapter_id,omitempty"`
+	AdapterName string                  `json:"adapter_name,omitempty"`
+	Status      string                  `json:"status,omitempty"`
+	ExitCode    int                     `json:"exit_code,omitempty"`
+	CostMode    string                  `json:"cost_mode,omitempty"`
+	Workspace   string                  `json:"workspace,omitempty"`
+	DiffStat    string                  `json:"diff_stat,omitempty"`
+	Diff        string                  `json:"diff,omitempty"`
+	CreatedAt   string                  `json:"created_at,omitempty"`
+	StartedAt   string                  `json:"started_at,omitempty"`
+	CompletedAt string                  `json:"completed_at,omitempty"`
+	DurationMS  int64                   `json:"duration_ms,omitempty"`
+	Error       string                  `json:"error,omitempty"`
+	Activities  []AgentChatActivityItem `json:"activities,omitempty"`
+}
+
+type AgentChatActivityItem struct {
+	Type      string `json:"type"`
+	Status    string `json:"status,omitempty"`
+	Title     string `json:"title"`
+	Detail    string `json:"detail,omitempty"`
+	CreatedAt string `json:"created_at,omitempty"`
 }
 
 type WorkspaceDialogResponseItem struct {

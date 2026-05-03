@@ -1030,6 +1030,12 @@ func TestAgentChatRunsExternalAdapter(t *testing.T) {
 	if assistant.CostMode != "external" {
 		t.Fatalf("cost_mode = %q, want external", assistant.CostMode)
 	}
+	if !strings.Contains(assistant.RawOutput, "hello from hecate") {
+		t.Fatalf("raw_output = %q, want prompt echoed", assistant.RawOutput)
+	}
+	if len(assistant.Activities) == 0 {
+		t.Fatalf("activities missing: %#v", assistant)
+	}
 	if assistant.RunID == "" || assistant.StartedAt == "" || assistant.CompletedAt == "" || assistant.DurationMS < 0 {
 		t.Fatalf("assistant runtime metadata missing: %#v", assistant)
 	}
@@ -1118,6 +1124,10 @@ func TestAgentChatStreamsExternalAdapterOutput(t *testing.T) {
 	case updated := <-done:
 		if got := updated.Data.Status; got != "completed" {
 			t.Fatalf("final status = %q, want completed", got)
+		}
+		assistant := updated.Data.Messages[len(updated.Data.Messages)-1]
+		if !strings.Contains(assistant.RawOutput, "first chunk") || !strings.Contains(assistant.RawOutput, "second chunk") {
+			t.Fatalf("raw_output = %q, want both chunks", assistant.RawOutput)
 		}
 	case <-time.After(3 * time.Second):
 		t.Fatalf("timed out waiting for message POST")

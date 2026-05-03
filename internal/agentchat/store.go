@@ -24,6 +24,7 @@ type Message struct {
 	RunID       string
 	Role        string
 	Content     string
+	RawOutput   string
 	AdapterID   string
 	AdapterName string
 	Status      string
@@ -36,6 +37,15 @@ type Message struct {
 	StartedAt   time.Time
 	CompletedAt time.Time
 	Error       string
+	Activities  []Activity
+}
+
+type Activity struct {
+	Type      string    `json:"type"`
+	Status    string    `json:"status,omitempty"`
+	Title     string    `json:"title"`
+	Detail    string    `json:"detail,omitempty"`
+	CreatedAt time.Time `json:"created_at,omitempty"`
 }
 
 type Store interface {
@@ -156,5 +166,8 @@ func (s *MemoryStore) UpdateMessage(_ context.Context, sessionID string, message
 
 func cloneSession(session Session) Session {
 	session.Messages = append([]Message(nil), session.Messages...)
+	for i := range session.Messages {
+		session.Messages[i].Activities = append([]Activity(nil), session.Messages[i].Activities...)
+	}
 	return session
 }

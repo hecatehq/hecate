@@ -12,7 +12,7 @@ Pick the path closest to what you are doing.
 |---|---|
 | Running Hecate locally | [Desktop app](desktop-app.md), [Deployment](deployment.md), [Providers](providers.md), [Known limitations](known-limitations.md) |
 | Calling Hecate from a client | [Runtime API](runtime-api.md), [Agent runtime](agent-runtime.md), [Events](events.md), [Chat sessions](chat-sessions.md) |
-| Building coding-agent integrations | [ACP bridge](acp.md), [Runtime API](runtime-api.md), [Events](events.md), [MCP integration](mcp.md) |
+| Building or using coding-agent integrations | [External agent adapters](external-agent-adapters.md), [ACP bridge](acp.md), [Runtime API](runtime-api.md), [Events](events.md), [MCP integration](mcp.md) |
 | Changing the codebase | [Architecture](architecture.md), [Development](development.md), [`ai/`](../ai/README.md), [Release](release.md) |
 | Working as an AI agent | [`AGENTS.md`](../AGENTS.md), [`ai/README.md`](../ai/README.md), then the relevant `ai/skills/*/SKILL.md` |
 
@@ -33,6 +33,7 @@ Pick the path closest to what you are doing.
 | [Agent runtime](agent-runtime.md) | `agent_loop` configuration, built-in tools, system prompt layers, approvals, cost ceiling, retry-from-turn. |
 | [Events](events.md) | Implemented event names, payloads, and when each is emitted. Use this for today's `/v1/events` consumers. |
 | [Chat sessions](chat-sessions.md) | Conversation persistence model behind the Chats UI and provider/model switching. |
+| [External agent adapters](external-agent-adapters.md) | Use Codex, Claude Code, and Cursor Agent from Hecate; install checks, runtime behavior, troubleshooting, current gaps. |
 | [MCP integration](mcp.md) | Hecate as an MCP server and external MCP servers as task tools. |
 | [ACP bridge](acp.md) | Experimental stdio bridge for editor agent panels. Implemented status, config, smoke test, and current gaps. |
 | [Sandbox](sandbox.md) | Per-call subprocess execution, policy validation, env sanitisation, output cap, timeout, and OS wrappers. |

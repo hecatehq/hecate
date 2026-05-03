@@ -492,6 +492,7 @@ POST /v1/agent-chat/sessions/agent_chat_.../messages
         "run_id": "agent_run_...",
         "role": "assistant",
         "content": "...",
+        "raw_output": "...",
         "adapter_id": "codex",
         "adapter_name": "Codex",
         "status": "completed",
@@ -500,7 +501,29 @@ POST /v1/agent-chat/sessions/agent_chat_.../messages
         "diff_stat": "...",
         "started_at": "2026-05-03T12:00:01Z",
         "completed_at": "2026-05-03T12:00:08Z",
-        "duration_ms": 7000
+        "duration_ms": 7000,
+        "activities": [
+          {
+            "type": "started",
+            "status": "completed",
+            "title": "Starting external agent",
+            "detail": "Codex in /Users/alice/project",
+            "created_at": "2026-05-03T12:00:01Z"
+          },
+          {
+            "type": "files_changed",
+            "status": "completed",
+            "title": "Files changed",
+            "detail": "2 files changed",
+            "created_at": "2026-05-03T12:00:08Z"
+          },
+          {
+            "type": "completed",
+            "status": "completed",
+            "title": "Final answer",
+            "created_at": "2026-05-03T12:00:08Z"
+          }
+        ]
       }
     ]
   }
@@ -510,6 +533,11 @@ POST /v1/agent-chat/sessions/agent_chat_.../messages
 Each adapter response gets a stable `run_id` plus start/end timestamps and
 duration so clients can correlate streamed updates, final output, and future
 artifacts without treating the assistant message id as the runtime identity.
+`content` is the normalized transcript that should be shown by default.
+`raw_output` preserves the exact stdout/stderr stream for diagnostics when an
+adapter emits JSONL or otherwise surprising text. `activities` is the structured
+progress model for the Chats UI: it records lifecycle markers such as starting,
+running, process output, files changed, failed, cancelled, and final answer.
 Failures from the external process are still represented as assistant messages
 with `"status": "failed"` and `error` so the transcript stays intact. Transport
 or request validation failures still use the normal Hecate error envelope.

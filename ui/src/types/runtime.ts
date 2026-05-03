@@ -206,6 +206,7 @@ export type AgentChatMessageRecord = {
   run_id?: string;
   role: "user" | "assistant";
   content: string;
+  raw_output?: string;
   adapter_id?: string;
   adapter_name?: string;
   status?: string;
@@ -219,6 +220,15 @@ export type AgentChatMessageRecord = {
   completed_at?: string;
   duration_ms?: number;
   error?: string;
+  activities?: AgentChatActivityRecord[];
+};
+
+export type AgentChatActivityRecord = {
+  type: string;
+  status?: string;
+  title: string;
+  detail?: string;
+  created_at?: string;
 };
 
 export type AgentChatSessionRecord = {

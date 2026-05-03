@@ -110,7 +110,23 @@ describe("ChatView agent target", () => {
         status: "completed",
         messages: [
           { id: "m1", role: "user", content: "review this", created_at: "2026-05-03T10:00:00Z" },
-          { id: "m2", role: "assistant", content: "Looks good.", adapter_id: "codex", adapter_name: "Codex", status: "completed", cost_mode: "external", created_at: "2026-05-03T10:00:01Z" },
+          {
+            id: "m2",
+            role: "assistant",
+            content: "Looks good.",
+            raw_output: `{"type":"message","content":"Looks good."}`,
+            adapter_id: "codex",
+            adapter_name: "Codex",
+            status: "completed",
+            cost_mode: "external",
+            diff_stat: "1 file changed",
+            diff: "diff --git a/README.md b/README.md",
+            created_at: "2026-05-03T10:00:01Z",
+            activities: [
+              { type: "started", status: "completed", title: "Starting external agent", detail: "Codex process launched" },
+              { type: "completed", status: "completed", title: "Final answer" },
+            ],
+          },
         ],
       } as any,
     }, { setChatTarget, setAgentAdapterID });
@@ -120,6 +136,9 @@ describe("ChatView agent target", () => {
     expect(screen.getByRole("button", { name: /workspace/i })).toBeTruthy();
     expect(screen.getAllByText("Codex work").length).toBeGreaterThan(0);
     expect(screen.getByText("Looks good.")).toBeTruthy();
+    expect(screen.getByText("Starting external agent")).toBeTruthy();
+    expect(screen.getByText("workspace diff · 1 file changed")).toBeTruthy();
+    expect(screen.getByText("raw process output")).toBeTruthy();
     expect(screen.getByText("completed")).toBeTruthy();
     const user = userEvent.setup();
     const adapterPicker = screen.getByRole("button", { name: "External agent adapter" }) as HTMLButtonElement;

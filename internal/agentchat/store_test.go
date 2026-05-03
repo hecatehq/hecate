@@ -55,12 +55,17 @@ func runStoreLifecycle(t *testing.T, store Store) {
 	}
 	updated, err := store.UpdateMessage(ctx, created.ID, "msg_assistant", func(message *Message) {
 		message.Content = "done"
+		message.RawOutput = `{"type":"message","content":"done"}`
 		message.Status = "completed"
 		message.ExitCode = 0
 		message.DiffStat = "1 file changed"
 		message.Diff = "diff --git a/a b/a"
 		message.StartedAt = startedAt
 		message.CompletedAt = startedAt.Add(1500 * time.Millisecond)
+		message.Activities = []Activity{
+			{Type: "started", Status: "completed", Title: "Started external agent", CreatedAt: startedAt},
+			{Type: "files_changed", Status: "completed", Title: "Files changed", Detail: "1 file changed", CreatedAt: startedAt.Add(time.Second)},
+		}
 	})
 	if err != nil {
 		t.Fatalf("UpdateMessage: %v", err)
@@ -71,7 +76,7 @@ func runStoreLifecycle(t *testing.T, store Store) {
 	if len(updated.Messages) != 2 {
 		t.Fatalf("message count = %d, want 2", len(updated.Messages))
 	}
-	if got := updated.Messages[1]; got.Content != "done" || got.DiffStat != "1 file changed" || got.RunID != "agent_run_1" || got.CompletedAt.IsZero() {
+	if got := updated.Messages[1]; got.Content != "done" || got.RawOutput == "" || got.DiffStat != "1 file changed" || got.RunID != "agent_run_1" || got.CompletedAt.IsZero() || len(got.Activities) != 2 {
 		t.Fatalf("assistant message not updated: %+v", got)
 	}
 
@@ -81,6 +86,9 @@ func runStoreLifecycle(t *testing.T, store Store) {
 	}
 	if got.Messages[1].Content != "done" {
 		t.Fatalf("persisted assistant content = %q, want done", got.Messages[1].Content)
+	}
+	if got.Messages[1].RawOutput == "" || len(got.Messages[1].Activities) != 2 {
+		t.Fatalf("persisted diagnostics missing: %+v", got.Messages[1])
 	}
 
 	list, err := store.List(ctx)
