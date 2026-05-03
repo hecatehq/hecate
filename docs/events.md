@@ -14,7 +14,7 @@ These are **persisted events** (rows in the `task_state_run_events` table). They
 ## Contents
 
 - [Quick reference](#quick-reference)
-- [Common payload structure](#common-payload-structure)
+- [Runtime snapshot payloads](#runtime-snapshot-payloads)
 - [Run lifecycle](#run-lifecycle)
 - [Approvals](#approvals)
 - [Agent loop](#agent-loop)
@@ -77,7 +77,7 @@ Per-run state SSE (`/v1/tasks/{id}/runs/{run_id}/stream`) still emits
 `TaskRunStreamEventData` snapshots optimized for the operator UI. Its
 `event_type` field mirrors the persisted event that produced the snapshot.
 
-## Common payload structure
+## Runtime snapshot payloads
 
 Every event written by the orchestrator (`emitRunEvent`) automatically merges three keys into its `data` map:
 
@@ -87,9 +87,12 @@ Every event written by the orchestrator (`emitRunEvent`) automatically merges th
 | `steps` | `[]TaskStep` | Every step recorded for this run so far |
 | `artifacts` | `[]TaskArtifact` | Every artifact recorded for this run so far |
 
-Subscribers can therefore reconstruct a complete state snapshot from any single event without a separate fetch — at the cost of payload size. Only `agent.turn.completed` adds extra cost-specific keys on top; the others list event-specific keys below.
+The per-run state SSE decoder uses those keys to reconstruct complete operator
+snapshots without a separate fetch. Public event-list and cross-run-feed
+responses intentionally strip these runtime snapshot keys and return compact,
+protocol-shaped `data` payloads instead.
 
-Caller-driven events (`POST /v1/tasks/.../events`) instead serialize the rebuilt stream state under a `snapshot` key. The decoder in the per-run SSE handler honors both shapes.
+Caller-driven events (`POST /v1/tasks/.../events`) instead serialize the rebuilt stream state under a `snapshot` key. The decoder in the per-run SSE handler honors both shapes; public event envelopes strip `snapshot` for the same reason they strip `run` / `steps` / `artifacts`.
 
 The internal persisted row is compact and is mapped to the public envelope on
 read:
@@ -116,9 +119,11 @@ The resume marker on the *new* run, emitted after `run.created`.
 
 | Extra key | Type | Notes |
 |---|---|---|
-| `resumed_from_run_id` | `string` | Source run id |
+| `from_run_id` | `string` | Source run id |
+| `from_sequence` | `int64` | Source event sequence when known |
 | `reason` | `string` | Operator-supplied rationale |
 | `retry_from_turn` | `int` | Present on retry-from-turn-N |
+| `prior_cost_micros_usd` | `int64` | Cost carried into the new run from prior runs |
 
 ### `run.awaiting_approval`
 

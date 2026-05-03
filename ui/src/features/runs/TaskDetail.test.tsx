@@ -233,7 +233,7 @@ describe("TaskDetail runtime debugging", () => {
     const events: TaskRunEventRecord[] = [
       makeEvent({
         type: "run.resumed_from_event",
-        data: { resumed_from_run_id: "run-0", reason: "wrong tool choice", retry_from_turn: 3 },
+        data: { from_run_id: "run-0", reason: "wrong tool choice", retry_from_turn: 3 },
       }),
     ];
     const { render } = setup({ events });
@@ -246,7 +246,7 @@ describe("TaskDetail runtime debugging", () => {
     const events: TaskRunEventRecord[] = [
       makeEvent({
         type: "run.resumed_from_event",
-        data: { resumed_from_run_id: "run-0", retry_from_turn: 2 },
+        data: { from_run_id: "run-0", retry_from_turn: 2 },
       }),
     ];
     const { render } = setup({ events });
@@ -258,7 +258,7 @@ describe("TaskDetail runtime debugging", () => {
     const events: TaskRunEventRecord[] = [
       makeEvent({
         type: "run.resumed_from_event",
-        data: { resumed_from_run_id: "run-0", reason: "continue after cancellation" },
+        data: { from_run_id: "run-0", reason: "continue after cancellation" },
       }),
     ];
     const { render } = setup({ events });
@@ -270,7 +270,7 @@ describe("TaskDetail runtime debugging", () => {
     const events: TaskRunEventRecord[] = [
       makeEvent({
         type: "run.resumed_from_event",
-        data: { resumed_from_run_id: "run-0" },
+        data: { from_run_id: "run-0" },
       }),
     ];
     const { render } = setup({ events });
