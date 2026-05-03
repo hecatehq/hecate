@@ -85,9 +85,9 @@ Three responsibilities:
 3. Release build: looks next to the running executable for `gateway-{TARGET}` (externalBin canonical name) then plain `gateway`
 
 **`resolve_data_dir(app)`** — resolves the platform data directory via Tauri's path API, creates it if absent, passes it to the gateway as `GATEWAY_DATA_DIR`:
-- macOS: `~/Library/Application Support/com.hecate.app/`
-- Windows: `%APPDATA%\com.hecate.app\`
-- Linux: `~/.local/share/com.hecate.app/`
+- macOS: `~/Library/Application Support/io.github.chicoxyzzy.hecate/`
+- Windows: `%APPDATA%\io.github.chicoxyzzy.hecate\`
+- Linux: `~/.local/share/io.github.chicoxyzzy.hecate/`
 
 **`spawn_and_wait(app)`** — spawns the gateway binary (via `std::process::Command`, not tokio — see gotchas), polls `/healthz` every 250 ms, returns `GatewayHandle { base_url, port, child }` on success.
 

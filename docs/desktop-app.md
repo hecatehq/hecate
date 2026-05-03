@@ -35,8 +35,8 @@ What works:
 - Same-origin loopback to the embedded gateway UI; the sidecar UI just loads.
 - Native Hecate menu with actions to focus the window, open the gateway log,
   open the data directory, and quit.
-- Per-platform writable data dir (`~/Library/Application Support/com.hecate.app/`,
-  `%APPDATA%\com.hecate.app\`, `~/.local/share/com.hecate.app/`).
+- Per-platform writable data dir (`~/Library/Application Support/io.github.chicoxyzzy.hecate/`,
+  `%APPDATA%\io.github.chicoxyzzy.hecate\`, `~/.local/share/io.github.chicoxyzzy.hecate/`).
 - Sidecar stderr piped to `<data_dir>/gateway.log` (truncated per launch);
   the startup splash shows failures with the log and data-directory paths.
 - Cross-platform CI matrix with PR validation, draft skipping, run
@@ -70,7 +70,6 @@ the bundle is polished enough to recommend.
 | Item | Scope | Notes |
 |---|---|---|
 | **Test the Linux + Windows bundles** | ~30 min per OS | Download from the `v0.1.0-alpha.9` release, install the `.deb` / `.AppImage` / `.msi`, configure a provider, send one chat, quit, relaunch, confirm config persists. macOS is done; these two are the remaining platform unknowns. |
-| **Rename bundle identifier** | ~15 min + migration decision | Tauri warns that `com.hecate.app` ends with `.app`, which can conflict with the macOS bundle extension. Changing it also changes the app data-dir identity, so decide whether to migrate or accept reset during alpha. |
 | **Window state persistence** | ~15 min | Install [`tauri-plugin-window-state`](https://docs.rs/tauri-plugin-window-state/), register it. Save/restore size + position across launches. |
 
 ### Tier 2 — operational gates
@@ -97,6 +96,9 @@ the bundle is polished enough to recommend.
   `gateway.log` capture covers most diagnostics.
 - **Mobile (iOS/Android).** Tauri 2 supports it; we deleted the icon CLI's
   mobile output. Off-roadmap.
+- **Desktop app data-dir migration.** The alpha bundle identifier changed from
+  `com.hecate.app` to `io.github.chicoxyzzy.hecate`; existing local app state
+  may reset, and we intentionally do not migrate it before semver stability.
 
 ## Sandbox executor
 
