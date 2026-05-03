@@ -70,7 +70,7 @@ the bundle is polished enough to recommend.
 
 | Item | Scope | Notes |
 |---|---|---|
-| **Test the Linux + Windows bundles** | ~30 min per OS | Download from the `v0.1.0-alpha.9` release, install the `.deb` / `.AppImage` / `.msi`, configure a provider, send one chat, quit, relaunch, confirm config persists. macOS is done; these two are the remaining platform unknowns. |
+| **Test the Linux + Windows bundles** | ~30 min per OS | Download from the `v0.1.0-alpha.10` release, install the `.deb` / `.AppImage` / `.msi`, configure a provider, send one chat, quit, relaunch, confirm config persists. macOS is done; these two are the remaining platform unknowns. |
 
 ### Tier 2 — operational gates
 

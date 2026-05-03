@@ -136,12 +136,25 @@ pub fn free_port() -> Result<u16, String> {
 /// unwritable (e.g. inside a read-only .app bundle — which it won't be
 /// after this fix, but belt-and-suspenders).
 pub fn resolve_paths(app: &AppHandle) -> Result<GatewayPaths, String> {
+    let paths = diagnostic_paths(app)?;
+    std::fs::create_dir_all(&paths.data_dir).map_err(|e| {
+        format!(
+            "cannot create data directory {:?}: {e}",
+            paths.data_dir
+        )
+    })?;
+    Ok(paths)
+}
+
+/// Resolve paths for diagnostics without creating the data directory.
+/// This lets the Tauri setup path install the splash and native menu first;
+/// if directory creation fails, the async sidecar startup reports that failure
+/// through the splash instead of aborting app initialization.
+pub fn diagnostic_paths(app: &AppHandle) -> Result<GatewayPaths, String> {
     let dir = app
         .path()
         .app_data_dir()
         .map_err(|e| format!("cannot resolve app data directory: {e}"))?;
-    std::fs::create_dir_all(&dir)
-        .map_err(|e| format!("cannot create data directory {dir:?}: {e}"))?;
     Ok(paths_for_data_dir(dir))
 }
 
