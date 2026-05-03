@@ -612,7 +612,7 @@ func fileContentBeforeWrite(request sandbox.FileRequest) (content string, exists
 
 func newPatchArtifact(spec ExecutionSpec, stepID, operation, displayPath, artifactPath, before, after string, beforeExists bool, createdAt time.Time) types.TaskArtifact {
 	patch := unifiedPatch(displayPath, before, after, beforeExists)
-	artifact := newInlineArtifact(spec, stepID, "patch", filepath.Base(displayPath)+".patch", "Unified diff produced by file_write", artifactPath, patch, "applied", createdAt)
+	artifact := newInlineArtifact(spec, stepID, "patch", filepath.Base(displayPath)+".patch", "Unified diff produced by a file-writing tool", artifactPath, patch, "applied", createdAt)
 	artifact.MimeType = "text/x-diff"
 	sum := sha256.Sum256([]byte(patch))
 	artifact.SHA256 = hex.EncodeToString(sum[:])
