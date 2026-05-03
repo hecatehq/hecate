@@ -32,7 +32,7 @@ What works:
 
 - Sidecar lifecycle (spawn, healthz wait, kill on exit; `pgrep gateway` is
   empty after `cmd+Q`).
-- Same-origin loopback to the embedded gateway UI; the sidecar UI just loads.
+- Same-origin loading of the embedded gateway UI from the sidecar port.
 - Native Hecate menu with actions to focus the window, open the gateway log,
   open the data directory, and quit.
 - Per-platform writable data dir (`~/Library/Application Support/io.github.chicoxyzzy.hecate/`,
@@ -90,8 +90,7 @@ the bundle is polished enough to recommend.
 ### Skip / reconsider later
 
 - **CSP design.** Real but blocked on the gateway UI not setting a CSP header
-  itself. Not a security emergency on a loopback-only app. Revisit when the
-  gateway UI grows a CSP.
+  itself. Revisit when the gateway UI grows a CSP.
 - **Crash reporting (Sentry / similar).** Premature for an alpha; the
   `gateway.log` capture covers most diagnostics.
 - **Mobile (iOS/Android).** Tauri 2 supports it; we deleted the icon CLI's
@@ -145,6 +144,6 @@ the ones likely to bite an operator:
 
 The default Tauri pattern is to point `frontendDist` at the UI build output and
 let the webview load files directly. We don't, on purpose: the gateway serves
-the UI over the same loopback origin as the API, which keeps same-origin
-enforcement intact. Splitting them would be a meaningful refactor for ~13 MB
-of disk savings. Full rationale in the agent skill doc.
+the UI from the same origin as the API, which keeps browser same-origin
+enforcement intact. Splitting them would be a meaningful refactor for ~13 MB of
+disk savings. Full rationale in the agent skill doc.

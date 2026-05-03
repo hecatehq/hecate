@@ -11,28 +11,22 @@ import (
 
 // fakeGateway spins up an in-process HTTP server with the routes the
 // MCP tools call. Test bodies install handlers per-route via the
-// handlers map; unmocked routes 404. The fake checks Authorization on
-// every request so tests cover the bearer-token contract too.
-func fakeGateway(t *testing.T, handlers map[string]http.HandlerFunc) (*httptest.Server, string) {
+// handlers map; unmocked routes 404.
+func fakeGateway(t *testing.T, handlers map[string]http.HandlerFunc) *httptest.Server {
 	t.Helper()
-	const token = "test-token"
 	mux := http.NewServeMux()
 	for path, h := range handlers {
 		mux.HandleFunc(path, func(w http.ResponseWriter, r *http.Request) {
-			if r.Header.Get("Authorization") != "Bearer "+token {
-				http.Error(w, "unauthorized", http.StatusUnauthorized)
-				return
-			}
 			h(w, r)
 		})
 	}
 	srv := httptest.NewServer(mux)
 	t.Cleanup(srv.Close)
-	return srv, token
+	return srv
 }
 
 func TestTool_ListTasks_FormatsRows(t *testing.T) {
-	srv, token := fakeGateway(t, map[string]http.HandlerFunc{
+	srv := fakeGateway(t, map[string]http.HandlerFunc{
 		"/v1/tasks": func(w http.ResponseWriter, r *http.Request) {
 			if r.URL.Query().Get("limit") != "5" {
 				t.Errorf("limit query = %q, want 5", r.URL.Query().Get("limit"))
@@ -44,7 +38,7 @@ func TestTool_ListTasks_FormatsRows(t *testing.T) {
 			]}`))
 		},
 	})
-	client := NewGatewayClient(srv.URL, token)
+	client := NewGatewayClient(srv.URL)
 	server := NewServer("hecate-test", "0.0.0")
 	RegisterDefaultTools(server, client)
 
@@ -74,14 +68,14 @@ func TestTool_ListTasks_FormatsRows(t *testing.T) {
 }
 
 func TestTool_ListTasks_EmptyState(t *testing.T) {
-	srv, token := fakeGateway(t, map[string]http.HandlerFunc{
+	srv := fakeGateway(t, map[string]http.HandlerFunc{
 		"/v1/tasks": func(w http.ResponseWriter, r *http.Request) {
 			w.Header().Set("Content-Type", "application/json")
 			_, _ = w.Write([]byte(`{"data":[]}`))
 		},
 	})
 	server := NewServer("t", "0")
-	RegisterDefaultTools(server, NewGatewayClient(srv.URL, token))
+	RegisterDefaultTools(server, NewGatewayClient(srv.URL))
 	result, err := registeredToolFor(t, server, "list_tasks")(context.Background(), json.RawMessage(`{}`))
 	if err != nil {
 		t.Fatalf("err: %v", err)
@@ -93,7 +87,7 @@ func TestTool_ListTasks_EmptyState(t *testing.T) {
 
 func TestTool_GetTaskStatus_RequiresID(t *testing.T) {
 	server := NewServer("t", "0")
-	RegisterDefaultTools(server, NewGatewayClient("http://unused", ""))
+	RegisterDefaultTools(server, NewGatewayClient("http://unused"))
 	_, err := registeredToolFor(t, server, "get_task_status")(context.Background(), json.RawMessage(`{}`))
 	if err == nil || !strings.Contains(err.Error(), "task_id is required") {
 		t.Fatalf("want task_id required error, got: %v", err)
@@ -101,14 +95,14 @@ func TestTool_GetTaskStatus_RequiresID(t *testing.T) {
 }
 
 func TestTool_GetTaskStatus_FormatsDetail(t *testing.T) {
-	srv, token := fakeGateway(t, map[string]http.HandlerFunc{
+	srv := fakeGateway(t, map[string]http.HandlerFunc{
 		"/v1/tasks/abc-123": func(w http.ResponseWriter, r *http.Request) {
 			w.Header().Set("Content-Type", "application/json")
 			_, _ = w.Write([]byte(`{"data":{"id":"abc-123","title":"Run db migration","status":"completed","execution_kind":"shell","shell_command":"./migrate.sh","step_count":3,"latest_run_id":"run-1","created_at":"2026-04-22T10:00:00Z"}}`))
 		},
 	})
 	server := NewServer("t", "0")
-	RegisterDefaultTools(server, NewGatewayClient(srv.URL, token))
+	RegisterDefaultTools(server, NewGatewayClient(srv.URL))
 	result, err := registeredToolFor(t, server, "get_task_status")(context.Background(),
 		json.RawMessage(`{"task_id":"abc-123"}`))
 	if err != nil {
@@ -123,7 +117,7 @@ func TestTool_GetTaskStatus_FormatsDetail(t *testing.T) {
 }
 
 func TestTool_ListChatSessions_TenantFilter(t *testing.T) {
-	srv, token := fakeGateway(t, map[string]http.HandlerFunc{
+	srv := fakeGateway(t, map[string]http.HandlerFunc{
 		"/v1/chat/sessions": func(w http.ResponseWriter, r *http.Request) {
 			if got := r.URL.Query().Get("tenant"); got != "team-a" {
 				t.Errorf("tenant query = %q, want team-a", got)
@@ -136,7 +130,7 @@ func TestTool_ListChatSessions_TenantFilter(t *testing.T) {
 		},
 	})
 	server := NewServer("t", "0")
-	RegisterDefaultTools(server, NewGatewayClient(srv.URL, token))
+	RegisterDefaultTools(server, NewGatewayClient(srv.URL))
 	result, err := registeredToolFor(t, server, "list_chat_sessions")(context.Background(),
 		json.RawMessage(`{"limit":5,"tenant":"team-a"}`))
 	if err != nil {
@@ -149,7 +143,7 @@ func TestTool_ListChatSessions_TenantFilter(t *testing.T) {
 }
 
 func TestTool_SummarizeTraffic_AggregatesByProvider(t *testing.T) {
-	srv, token := fakeGateway(t, map[string]http.HandlerFunc{
+	srv := fakeGateway(t, map[string]http.HandlerFunc{
 		"/v1/traces": func(w http.ResponseWriter, r *http.Request) {
 			w.Header().Set("Content-Type", "application/json")
 			_, _ = w.Write([]byte(`{"data":[
@@ -160,7 +154,7 @@ func TestTool_SummarizeTraffic_AggregatesByProvider(t *testing.T) {
 		},
 	})
 	server := NewServer("t", "0")
-	RegisterDefaultTools(server, NewGatewayClient(srv.URL, token))
+	RegisterDefaultTools(server, NewGatewayClient(srv.URL))
 	result, err := registeredToolFor(t, server, "summarize_recent_traffic")(context.Background(), json.RawMessage(`{}`))
 	if err != nil {
 		t.Fatalf("err: %v", err)
@@ -176,7 +170,7 @@ func TestTool_SummarizeTraffic_AggregatesByProvider(t *testing.T) {
 // ─── create_task ─────────────────────────────────────────────────────
 
 func TestTool_CreateTask_PostsAgentLoopAndSummarizes(t *testing.T) {
-	srv, token := fakeGateway(t, map[string]http.HandlerFunc{
+	srv := fakeGateway(t, map[string]http.HandlerFunc{
 		"/v1/tasks": func(w http.ResponseWriter, r *http.Request) {
 			if r.Method != http.MethodPost {
 				t.Errorf("method = %s, want POST", r.Method)
@@ -201,7 +195,7 @@ func TestTool_CreateTask_PostsAgentLoopAndSummarizes(t *testing.T) {
 		},
 	})
 	server := NewServer("t", "0")
-	RegisterDefaultTools(server, NewGatewayClient(srv.URL, token))
+	RegisterDefaultTools(server, NewGatewayClient(srv.URL))
 
 	args := json.RawMessage(`{"prompt":"summarize the working dir","title":"Summarize","requested_model":"claude-opus-4-5"}`)
 	result, err := registeredToolFor(t, server, "create_task")(context.Background(), args)
@@ -218,7 +212,7 @@ func TestTool_CreateTask_PostsAgentLoopAndSummarizes(t *testing.T) {
 
 func TestTool_CreateTask_RequiresPrompt(t *testing.T) {
 	server := NewServer("t", "0")
-	RegisterDefaultTools(server, NewGatewayClient("http://unused", ""))
+	RegisterDefaultTools(server, NewGatewayClient("http://unused"))
 	_, err := registeredToolFor(t, server, "create_task")(context.Background(), json.RawMessage(`{}`))
 	if err == nil || !strings.Contains(err.Error(), "prompt is required") {
 		t.Fatalf("want prompt-required error, got: %v", err)
@@ -231,7 +225,7 @@ func TestTool_CreateTask_RequiresWorkingDirectoryForInPlaceMode(t *testing.T) {
 	// catch it locally so the operator gets a clear error inside the
 	// editor instead of a "400 invalid_request_error" passthrough.
 	server := NewServer("t", "0")
-	RegisterDefaultTools(server, NewGatewayClient("http://unused", ""))
+	RegisterDefaultTools(server, NewGatewayClient("http://unused"))
 	_, err := registeredToolFor(t, server, "create_task")(context.Background(),
 		json.RawMessage(`{"prompt":"do the thing","workspace_mode":"in_place"}`))
 	if err == nil || !strings.Contains(err.Error(), "working_directory is required") {
@@ -242,7 +236,7 @@ func TestTool_CreateTask_RequiresWorkingDirectoryForInPlaceMode(t *testing.T) {
 // ─── resolve_approval ────────────────────────────────────────────────
 
 func TestTool_ResolveApproval_ApprovePostsDecision(t *testing.T) {
-	srv, token := fakeGateway(t, map[string]http.HandlerFunc{
+	srv := fakeGateway(t, map[string]http.HandlerFunc{
 		"/v1/tasks/task-1/approvals/appr-9/resolve": func(w http.ResponseWriter, r *http.Request) {
 			if r.Method != http.MethodPost {
 				t.Errorf("method = %s, want POST", r.Method)
@@ -262,7 +256,7 @@ func TestTool_ResolveApproval_ApprovePostsDecision(t *testing.T) {
 		},
 	})
 	server := NewServer("t", "0")
-	RegisterDefaultTools(server, NewGatewayClient(srv.URL, token))
+	RegisterDefaultTools(server, NewGatewayClient(srv.URL))
 
 	args := json.RawMessage(`{"task_id":"task-1","approval_id":"appr-9","decision":"approve","note":"looks safe"}`)
 	result, err := registeredToolFor(t, server, "resolve_approval")(context.Background(), args)
@@ -279,7 +273,7 @@ func TestTool_ResolveApproval_ApprovePostsDecision(t *testing.T) {
 
 func TestTool_ResolveApproval_RejectsInvalidDecision(t *testing.T) {
 	server := NewServer("t", "0")
-	RegisterDefaultTools(server, NewGatewayClient("http://unused", ""))
+	RegisterDefaultTools(server, NewGatewayClient("http://unused"))
 	_, err := registeredToolFor(t, server, "resolve_approval")(context.Background(),
 		json.RawMessage(`{"task_id":"t","approval_id":"a","decision":"maybe"}`))
 	if err == nil || !strings.Contains(err.Error(), `decision must be "approve" or "reject"`) {
@@ -293,7 +287,7 @@ func TestTool_ResolveApproval_RequiresIDs(t *testing.T) {
 	// the validation error from the MCP tool so the operator gets
 	// the right hint without a round-trip.
 	server := NewServer("t", "0")
-	RegisterDefaultTools(server, NewGatewayClient("http://unused", ""))
+	RegisterDefaultTools(server, NewGatewayClient("http://unused"))
 	_, err := registeredToolFor(t, server, "resolve_approval")(context.Background(),
 		json.RawMessage(`{"approval_id":"a","decision":"approve"}`))
 	if err == nil || !strings.Contains(err.Error(), "task_id is required") {
@@ -309,7 +303,7 @@ func TestTool_ResolveApproval_RequiresIDs(t *testing.T) {
 // ─── cancel_run ──────────────────────────────────────────────────────
 
 func TestTool_CancelRun_PostsAndSummarizes(t *testing.T) {
-	srv, token := fakeGateway(t, map[string]http.HandlerFunc{
+	srv := fakeGateway(t, map[string]http.HandlerFunc{
 		"/v1/tasks/task-2/runs/run-3/cancel": func(w http.ResponseWriter, r *http.Request) {
 			if r.Method != http.MethodPost {
 				t.Errorf("method = %s, want POST", r.Method)
@@ -330,7 +324,7 @@ func TestTool_CancelRun_PostsAndSummarizes(t *testing.T) {
 		},
 	})
 	server := NewServer("t", "0")
-	RegisterDefaultTools(server, NewGatewayClient(srv.URL, token))
+	RegisterDefaultTools(server, NewGatewayClient(srv.URL))
 
 	args := json.RawMessage(`{"task_id":"task-2","run_id":"run-3","reason":"runaway loop"}`)
 	result, err := registeredToolFor(t, server, "cancel_run")(context.Background(), args)
@@ -347,7 +341,7 @@ func TestTool_CancelRun_PostsAndSummarizes(t *testing.T) {
 
 func TestTool_CancelRun_RequiresIDs(t *testing.T) {
 	server := NewServer("t", "0")
-	RegisterDefaultTools(server, NewGatewayClient("http://unused", ""))
+	RegisterDefaultTools(server, NewGatewayClient("http://unused"))
 	_, err := registeredToolFor(t, server, "cancel_run")(context.Background(),
 		json.RawMessage(`{"run_id":"r"}`))
 	if err == nil || !strings.Contains(err.Error(), "task_id is required") {
@@ -367,7 +361,7 @@ func TestTool_CancelRun_RequiresIDs(t *testing.T) {
 // too conservative = friction on every read.
 func TestTool_WriteToolAnnotations(t *testing.T) {
 	server := NewServer("t", "0")
-	RegisterDefaultTools(server, NewGatewayClient("http://unused", ""))
+	RegisterDefaultTools(server, NewGatewayClient("http://unused"))
 
 	cases := []struct {
 		name              string
@@ -429,13 +423,13 @@ func TestTool_WriteToolAnnotations(t *testing.T) {
 }
 
 func TestTool_UpstreamError_BubblesAsToolError(t *testing.T) {
-	srv, token := fakeGateway(t, map[string]http.HandlerFunc{
+	srv := fakeGateway(t, map[string]http.HandlerFunc{
 		"/v1/tasks": func(w http.ResponseWriter, r *http.Request) {
 			http.Error(w, "internal", http.StatusInternalServerError)
 		},
 	})
 	server := NewServer("t", "0")
-	RegisterDefaultTools(server, NewGatewayClient(srv.URL, token))
+	RegisterDefaultTools(server, NewGatewayClient(srv.URL))
 	_, err := registeredToolFor(t, server, "list_tasks")(context.Background(), json.RawMessage(`{}`))
 	// Tool returns the error directly; the dispatcher wraps it in
 	// CallToolResult.IsError=true, but at this seam we just see the

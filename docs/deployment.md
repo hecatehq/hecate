@@ -2,7 +2,7 @@
 
 The [Quick Start](../README.md#quick-start) covers `docker run` end-to-end. This page is the reference for everything past the first run: pinning images, the compose profile, the binary install, storage tiers, and rate limits.
 
-Hecate binds `127.0.0.1` and enforces same-origin; there is no auth layer. The threat model is "trust your own machine" — anyone with local user access to the host has full access to the gateway.
+Hecate defaults to `127.0.0.1:8765` and enforces same-origin for browser requests; there is no auth layer. The threat model is "trust your own machine" — anyone with local user access to the host has full access to the gateway. If you change `GATEWAY_ADDRESS` to expose Hecate beyond the local machine, put your own auth, firewall, or reverse proxy in front.
 
 ## Contents
 

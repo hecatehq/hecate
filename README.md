@@ -71,7 +71,7 @@ docker run --rm -p 127.0.0.1:8765:8765 -v hecate-data:/data \
 
 Open `http://127.0.0.1:8765`. The UI loads with no further setup.
 
-> The container intentionally publishes only on `127.0.0.1`. Hecate is a single-operator local tool — it relies on the loopback boundary and enforces same-origin on every request. Don't expose it to the network without putting your own auth in front.
+> The container intentionally publishes only on `127.0.0.1`. Hecate is a single-operator local tool with no built-in auth; same-origin checks protect browser traffic, but they are not a network security boundary. Don't expose it to the network without putting your own auth, firewall, or reverse proxy in front.
 
 Pinned image tags, single-file binaries (linux/darwin × amd64/arm64), and checksums in [`docs/deployment.md`](docs/deployment.md). Local development knobs in [`docs/development.md`](docs/development.md). Provider keys can be pre-seeded via `.env` for fleet automation — `PROVIDER_<NAME>_API_KEY`, `_BASE_URL`, `_DEFAULT_MODEL`, plus the `_PRECONFIGURED=1` gate. See [`docs/providers.md`](docs/providers.md#env-configured-providers).
 
@@ -108,7 +108,7 @@ Model turns record route, cost, cache, and trace metadata. Agent turns record no
 
 ## Architecture
 
-The gateway runs as one Go process on one loopback-bound port. Inside it: a chat/messages **gateway** that routes traffic to upstream model providers, an **external-agent adapter layer** that supervises coding-agent CLIs, and a **task runtime** that queues native agent work, drives approvals, and shells out through a sandbox boundary. The React operator UI is embedded into the gateway and served from the same port; `cmd/hecate-acp` is a separate stdio bridge for ACP-aware editor clients.
+The gateway runs as one Go process on one local HTTP port. Inside it: a chat/messages **gateway** that routes traffic to upstream model providers, an **external-agent adapter layer** that supervises coding-agent CLIs, and a **task runtime** that queues native agent work, drives approvals, and shells out through a sandbox boundary. The React operator UI is embedded into the gateway and served from the same port; `cmd/hecate-acp` is a separate stdio bridge for ACP-aware editor clients.
 
 ```mermaid
 flowchart LR
@@ -171,7 +171,7 @@ Hecate is public-alpha software. The core gateway path is usable; the agent runt
 | Anthropic-compatible gateway | Usable | Messages API shape, streaming translation, Claude Code support |
 | Provider catalog | Usable | Built-in presets, encrypted credentials, health, routing readiness |
 | Local providers | Usable | Ollama, LM Studio, LocalAI, llama.cpp-compatible servers |
-| Loopback-only binding | Usable | Listens on `127.0.0.1`; same-origin enforced on every request |
+| Local default address | Usable | Defaults to `127.0.0.1:8765`; same-origin enforced for browser requests |
 | Budgets and rate limits | Usable | Balances, warning thresholds, pricebook, `429` rate-limit headers |
 | OpenTelemetry | Usable | OTLP traces, metrics, logs, response headers, local trace view |
 | Storage tiers | Usable | Memory or SQLite, selected per subsystem |

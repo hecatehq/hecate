@@ -18,7 +18,7 @@ Every chat / messages call goes through the same pipeline. Each gate can short-c
 
 ```mermaid
 flowchart TD
-    Caller["POST /v1/chat/completions<br/>or /v1/messages"] --> SameOrigin["Loopback + same-origin check"]
+    Caller["POST /v1/chat/completions<br/>or /v1/messages"] --> SameOrigin["Same-origin check"]
     SameOrigin -->|"cross-origin"| ErrOrigin["403 forbidden"]
     SameOrigin --> Validate["Request validation"]
     Validate -->|"invalid"| ErrInvalid["400 invalid_request"]
@@ -41,7 +41,7 @@ flowchart TD
 
 Key invariants:
 
-- **Loopback + same-origin is the trust boundary.** Hecate binds `127.0.0.1` and rejects any request whose `Origin` header isn't a loopback hostname. There is no auth layer beyond that — the threat model is "you trust your own machine."
+- **No built-in auth.** Hecate defaults to `127.0.0.1:8765` and rejects cross-origin browser requests. That same-origin check is browser protection, not a network security boundary. If you bind the gateway beyond the local machine, put your own auth, firewall, or reverse proxy in front.
 - **Policy/budget can deny without an upstream call.** A budget-exceeded request returns `402` with the gateway's own body — no provider tokens are spent.
 - **Cost calculation is deterministic.** Pricebook is read after the provider returns usage; the same `(provider, model, usage)` tuple always produces the same cost in micros USD.
 - **CheckRoute is read-not-reservation.** Two concurrent requests can both pass when balance covers each individually but not their sum — the budget can briefly go negative under contention. Pinned in [tests](../internal/governor/governor_test.go) so a "fix" doesn't silently introduce write contention.

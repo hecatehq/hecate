@@ -27,8 +27,6 @@ const (
 
 type bridgeConfig struct {
 	GatewayURL    string
-	APIKey        string
-	AuthToken     string
 	AgentName     string
 	AgentVersion  string
 	WorkspaceMode string
@@ -50,8 +48,6 @@ func main() {
 func configFromEnv() (bridgeConfig, error) {
 	cfg := bridgeConfig{
 		GatewayURL:    firstNonEmpty(os.Getenv("HECATE_GATEWAY_URL"), defaultGatewayURL),
-		APIKey:        os.Getenv("HECATE_API_KEY"),
-		AuthToken:     os.Getenv("HECATE_AUTH_TOKEN"),
 		AgentName:     firstNonEmpty(os.Getenv("HECATE_AGENT_NAME"), "Hecate"),
 		AgentVersion:  version.Version,
 		WorkspaceMode: firstNonEmpty(os.Getenv("HECATE_WORKSPACE_MODE"), "hecate-owned"),
@@ -177,8 +173,6 @@ func invalidRequestResponse(id *json.RawMessage) acp.Response {
 
 type gatewayHTTPClient struct {
 	baseURL    string
-	apiKey     string
-	authToken  string
 	httpClient *http.Client
 }
 
@@ -192,8 +186,6 @@ func newGatewayHTTPClient(cfg bridgeConfig) (*gatewayHTTPClient, error) {
 	}
 	return &gatewayHTTPClient{
 		baseURL:    strings.TrimRight(base.String(), "/"),
-		apiKey:     cfg.APIKey,
-		authToken:  cfg.AuthToken,
 		httpClient: &http.Client{Timeout: defaultHTTPTimeout},
 	}, nil
 }
@@ -203,7 +195,6 @@ func (c *gatewayHTTPClient) ListModels(ctx context.Context) ([]string, error) {
 	if err != nil {
 		return nil, err
 	}
-	c.authorize(req)
 	resp, err := c.httpClient.Do(req)
 	if err != nil {
 		return nil, err
@@ -305,7 +296,6 @@ func (c *gatewayHTTPClient) StreamRunEvents(ctx context.Context, taskID, runID s
 	if err != nil {
 		return nil, err
 	}
-	c.authorize(req)
 	resp, err := c.httpClient.Do(req)
 	if err != nil {
 		return nil, err
@@ -324,15 +314,6 @@ func (c *gatewayHTTPClient) StreamRunEvents(ctx context.Context, taskID, runID s
 	return events, nil
 }
 
-func (c *gatewayHTTPClient) authorize(req *http.Request) {
-	if c.apiKey != "" {
-		req.Header.Set("x-api-key", c.apiKey)
-	}
-	if c.authToken != "" {
-		req.Header.Set("Authorization", "Bearer "+c.authToken)
-	}
-}
-
 func (c *gatewayHTTPClient) doJSON(ctx context.Context, method, requestPath string, body any, out any) error {
 	var reader io.Reader
 	if body != nil {
@@ -346,7 +327,6 @@ func (c *gatewayHTTPClient) doJSON(ctx context.Context, method, requestPath stri
 	if err != nil {
 		return err
 	}
-	c.authorize(req)
 	if body != nil {
 		req.Header.Set("Content-Type", "application/json")
 	}

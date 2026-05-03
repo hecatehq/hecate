@@ -8,9 +8,10 @@ operators should not assume yet.
 - Public APIs are designed to be stable, but pre-1.0 changes are still possible.
 - Persisted SQLite schemas are young. Back up data before upgrading.
 - There is not yet a dedicated migration CLI or rollback workflow.
-- Hecate is a single-user local tool: it binds `127.0.0.1`, enforces
-  same-origin, and has no auth layer. Trust your own machine is the
-  threat model.
+- Hecate is a single-user local tool: it defaults to `127.0.0.1:8765`,
+  enforces same-origin for browser requests, and has no auth layer. Trust your
+  own machine is the threat model. If you bind it beyond the local machine,
+  bring your own auth, firewall, or reverse proxy.
 
 ## Provider Lifecycle
 

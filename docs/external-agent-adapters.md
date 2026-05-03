@@ -1,8 +1,8 @@
 # External agent adapters
 
 Hecate can run external coding-agent CLIs from the **Chats** view. This is for
-dogfooding Codex, Claude Code, Cursor Agent, and later similar tools through the
-same operator console used for model chat.
+using Codex, Claude Code, Cursor Agent, and later similar tools through the same
+operator console used for model chat.
 
 External agents are not model providers. They are supervised local processes
 running in a selected workspace. Hecate records their transcript, raw output,
@@ -25,6 +25,52 @@ curl -s http://127.0.0.1:8765/v1/agent-adapters | jq
 
 An adapter with `"available": false` is not on `PATH` and cannot be selected
 until the command is installed or reachable from the gateway process environment.
+
+## Setup checks
+
+Agent Chat does not use Hecate model providers. It only needs the selected
+coding-agent CLI to be installed, authenticated, and visible to the process that
+started Hecate.
+
+### Codex
+
+```sh
+command -v codex
+codex --help
+codex login
+```
+
+If Hecate reports `exec: "codex": executable file not found in $PATH`, install
+Codex or start Hecate from an environment where `codex` is on `PATH`.
+
+### Claude Code
+
+```sh
+command -v claude
+claude --help
+claude login
+```
+
+If Hecate reports `exec: "claude": executable file not found in $PATH`, install
+Claude Code or restart Hecate after your shell/runtime manager updates `PATH`.
+
+### Cursor Agent
+
+```sh
+command -v cursor-agent
+cursor-agent --help
+cursor-agent login
+```
+
+Cursor can also authenticate through:
+
+```sh
+export CURSOR_API_KEY=...
+```
+
+If a run fails with `Authentication required. Please run 'agent login' first, or
+set CURSOR_API_KEY environment variable.`, authenticate Cursor Agent in the same
+environment that starts Hecate.
 
 ## Manual smoke
 

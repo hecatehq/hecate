@@ -334,7 +334,7 @@ The artifact service maintains a small allowlist of mime types that compress; bi
 
 ## API surface
 
-All endpoints are loopback-only and same-origin enforced (single-user mode). Documented under `/v1/artifacts`.
+All endpoints are served by the single-user gateway and covered by the same browser same-origin checks as the rest of `/v1/*`. Documented under `/v1/artifacts`.
 
 ### Create
 

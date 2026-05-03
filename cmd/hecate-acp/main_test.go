@@ -16,13 +16,10 @@ import (
 func TestGatewayHTTPClientListModels(t *testing.T) {
 	t.Parallel()
 
-	var gotAPIKey, gotAuth string
 	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		if r.URL.Path != "/v1/models" {
 			t.Fatalf("path = %q, want /v1/models", r.URL.Path)
 		}
-		gotAPIKey = r.Header.Get("x-api-key")
-		gotAuth = r.Header.Get("Authorization")
 		w.Header().Set("Content-Type", "application/json")
 		_, _ = w.Write([]byte(`{"object":"list","data":[{"id":"gpt-4o-mini"},{"id":"claude-sonnet-4-20250514"},{"id":""}]}`))
 	}))
@@ -30,8 +27,6 @@ func TestGatewayHTTPClientListModels(t *testing.T) {
 
 	client, err := newGatewayHTTPClient(bridgeConfig{
 		GatewayURL: srv.URL,
-		APIKey:     "tenant-key",
-		AuthToken:  "admin-token",
 	})
 	if err != nil {
 		t.Fatalf("newGatewayHTTPClient() error = %v", err)
@@ -42,12 +37,6 @@ func TestGatewayHTTPClientListModels(t *testing.T) {
 	}
 	if strings.Join(models, ",") != "gpt-4o-mini,claude-sonnet-4-20250514" {
 		t.Fatalf("models = %#v", models)
-	}
-	if gotAPIKey != "tenant-key" {
-		t.Fatalf("x-api-key = %q", gotAPIKey)
-	}
-	if gotAuth != "Bearer admin-token" {
-		t.Fatalf("Authorization = %q", gotAuth)
 	}
 }
 

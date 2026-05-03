@@ -17,12 +17,8 @@ import (
 // through here — there's no shortcut into the gateway's in-process
 // services because the MCP server is meant to run as a separate
 // subprocess of the operator's MCP-aware editor.
-//
-// The auth token is the same one operators paste into the UI on first
-// load; we send it as a Bearer header on every request.
 type GatewayClient struct {
 	BaseURL    string
-	AuthToken  string
 	HTTPClient *http.Client
 }
 
@@ -30,10 +26,9 @@ type GatewayClient struct {
 // timeout. The timeout is deliberately generous: queue-stat queries
 // can be slow on a busy durable-store deploy, and the MCP client
 // (Claude Desktop / Cursor) has its own user-facing wait UI.
-func NewGatewayClient(baseURL, token string) *GatewayClient {
+func NewGatewayClient(baseURL string) *GatewayClient {
 	return &GatewayClient{
 		BaseURL:    strings.TrimRight(baseURL, "/"),
-		AuthToken:  token,
 		HTTPClient: &http.Client{Timeout: 30 * time.Second},
 	}
 }
@@ -68,9 +63,6 @@ func (c *GatewayClient) do(ctx context.Context, method, path string, query url.V
 	req, err := http.NewRequestWithContext(ctx, method, u, bodyReader)
 	if err != nil {
 		return fmt.Errorf("build request: %w", err)
-	}
-	if c.AuthToken != "" {
-		req.Header.Set("Authorization", "Bearer "+c.AuthToken)
 	}
 	if body != nil {
 		req.Header.Set("Content-Type", "application/json")
