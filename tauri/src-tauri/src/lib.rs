@@ -109,7 +109,7 @@ pub fn run() {
         .setup(|app| {
             install_menu(app)?;
 
-            let diagnostics = sidecar::resolve_paths(app.handle())
+            let diagnostics = sidecar::diagnostic_paths(app.handle())
                 .map_err(|e| std::io::Error::new(std::io::ErrorKind::Other, e))?;
 
             // The main window is created by tauri.conf.json and starts on the
