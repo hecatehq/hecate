@@ -100,7 +100,9 @@ export function ChatView({ state, actions }: Props) {
   });
   const streaming = state.chatLoading;
   const chatDiagnostic = describeGatewayError(state.chatErrorCode, state.chatErrorStatus ?? undefined);
-  const selectedAgent = state.agentAdapters.find((adapter) => adapter.id === state.agentAdapterID);
+  const activeAgentAdapterID = state.activeAgentChatSession?.adapter_id || state.agentAdapterID;
+  const selectedAgent = state.agentAdapters.find((adapter) => adapter.id === activeAgentAdapterID);
+  const agentPickerLocked = isAgentChat && Boolean(state.activeAgentChatSessionID);
   const sendDisabled = !state.message.trim() || streaming || (isAgentChat && (!state.agentWorkspace.trim() || !selectedAgent?.available));
 
   useEffect(() => {
@@ -312,9 +314,11 @@ export function ChatView({ state, actions }: Props) {
           {isAgentChat ? (
             <>
               <AgentAdapterPicker
-                value={state.agentAdapterID}
+                value={activeAgentAdapterID}
                 onChange={actions.setAgentAdapterID}
                 adapters={state.agentAdapters}
+                disabled={agentPickerLocked}
+                disabledReason="Agent is fixed for this chat. Start a new chat to choose another agent."
               />
               <button
                 className="btn btn-ghost btn-sm"

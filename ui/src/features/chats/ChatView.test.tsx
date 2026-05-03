@@ -87,7 +87,7 @@ describe("ChatView chats sidebar", () => {
 });
 
 describe("ChatView agent target", () => {
-  it("renders external agent controls and disables missing adapters", async () => {
+  it("renders external agent controls and locks the adapter for an active chat", async () => {
     const setChatTarget = vi.fn();
     const setAgentAdapterID = vi.fn();
     const { state, actions } = setup({
@@ -122,12 +122,35 @@ describe("ChatView agent target", () => {
     expect(screen.getByText("Looks good.")).toBeTruthy();
     expect(screen.getByText("completed")).toBeTruthy();
     const user = userEvent.setup();
-    await user.click(screen.getByRole("button", { name: "External agent adapter" }));
-    await user.click(screen.getByText("Claude Code"));
-    expect(setAgentAdapterID).not.toHaveBeenCalledWith("claude_code");
+    const adapterPicker = screen.getByRole("button", { name: "External agent adapter" }) as HTMLButtonElement;
+    expect(adapterPicker.disabled).toBe(true);
+    expect(adapterPicker.title).toContain("Start a new chat");
+    await user.click(adapterPicker);
+    expect(screen.queryByText("Claude Code")).toBeNull();
+    expect(setAgentAdapterID).not.toHaveBeenCalled();
 
     await user.click(screen.getByRole("button", { name: "Model" }));
     expect(setChatTarget).toHaveBeenCalledWith("model");
+  });
+
+  it("allows choosing an agent before an agent chat is created", async () => {
+    const setAgentAdapterID = vi.fn();
+    const { state, actions } = setup({
+      chatTarget: "agent",
+      agentAdapterID: "codex",
+      activeAgentChatSessionID: "",
+      activeAgentChatSession: null,
+      agentAdapters: [
+        { id: "codex", name: "Codex", kind: "process", command: "codex", available: true, status: "available", cost_mode: "external" },
+        { id: "claude_code", name: "Claude Code", kind: "process", command: "claude", available: true, status: "available", cost_mode: "external" },
+      ],
+    }, { setAgentAdapterID });
+    render(<ChatView state={state} actions={actions} />);
+
+    const user = userEvent.setup();
+    await user.click(screen.getByRole("button", { name: "External agent adapter" }));
+    await user.click(screen.getByText("Claude Code"));
+    expect(setAgentAdapterID).toHaveBeenCalledWith("claude_code");
   });
 
   it("opens the workspace picker action from the folder button", async () => {
