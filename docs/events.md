@@ -15,10 +15,9 @@ These are **persisted events** (rows in the `task_state_run_events` table). They
 - [Quick reference](#quick-reference)
 - [Common payload structure](#common-payload-structure)
 - [Run lifecycle](#run-lifecycle)
-- [Steps](#steps)
-- [Artifacts](#artifacts)
 - [Approvals](#approvals)
 - [Agent loop](#agent-loop)
+- [Typed shell tool events](#typed-shell-tool-events)
 - [MCP](#mcp)
 - [Housekeeping](#housekeeping)
 - [Subscribing tips](#subscribing-tips)
@@ -41,14 +40,19 @@ These are **persisted events** (rows in the `task_state_run_events` table). They
 | `run.throttled_concurrency` | Run lifecycle | Run held back by global concurrency limit |
 | `run.resume_checkpoint_failed` | Run lifecycle | Resume hydration failed; run will start fresh |
 | `run.reconciled_restart_requeued` | Run lifecycle | Stalled run recovered and re-queued by reconciler (boot-time scan or periodic background check) |
-| `step.created` | Steps | A new step (model / shell / file / etc.) was appended |
-| `step.updated` | Steps | An existing step's status/output changed |
-| `artifact.created` | Artifacts | A new artifact (stdout, conversation, file diff, etc.) was persisted |
-| `artifact.updated` | Artifacts | An existing artifact was overwritten |
 | `approval.requested` | Approvals | An approval gate was created (pre-execution or mid-loop) |
 | `approval.approved` | Approvals | Operator approved a gate |
 | `approval.rejected` | Approvals | Operator rejected a gate (terminates the run) |
 | `agent.turn.completed` | Agent loop | One LLM round-trip in an `agent_loop` run finished |
+| `tool.invoked` | Typed shell tool events | Shell executor accepted a tool call or direct shell task |
+| `tool.started` | Typed shell tool events | Shell execution is about to start |
+| `tool.shell.command` | Typed shell tool events | Shell command, cwd, timeout, and sandbox layer selected |
+| `tool.shell.output_chunk` | Typed shell tool events | Incremental stdout/stderr chunk from the shell process |
+| `tool.shell.exited` | Typed shell tool events | Shell process reported exit metadata |
+| `tool.completed` | Typed shell tool events | Shell execution completed successfully |
+| `tool.failed` | Typed shell tool events | Shell execution failed |
+| `tool.cancelled` | Typed shell tool events | Shell execution was cancelled |
+| `tool.timed_out` | Typed shell tool events | Shell execution exceeded its timeout |
 | `orchestrator.mcp.tool.dispatched` | MCP | Agent loop dispatched a tool call to an external MCP server (`is_error=false` OR upstream `is_error=true`) |
 | `orchestrator.mcp.tool.failed` | MCP | Protocol-level failure (transport closed, RPC error, unknown tool) before a result was returned |
 | `orchestrator.mcp.tool.blocked` | MCP | The configured `approval_policy=block` short-circuited the call before it reached the upstream |
@@ -185,44 +189,6 @@ The reconciler recovered a stalled run and pushed it back onto the queue. This f
 | `recovered_status` | `string` | Status after reconciliation (typically `queued`) |
 | `recovery_strategy` | `string` | `"requeue"` — boot-time scan; `"periodic_requeue"` — periodic background reconciler fired |
 
-## Steps
-
-### `step.created`
-
-A new step (model turn, shell command, file write, etc.) was appended to the run.
-
-| Extra key | Type | Notes |
-|---|---|---|
-| `step_id` | `string` | The newly created step's id |
-
-### `step.updated`
-
-An existing step's status or output changed (e.g. shell exec finished, model step got its `OutputSummary` filled in).
-
-| Extra key | Type | Notes |
-|---|---|---|
-| `step_id` | `string` | The mutated step's id |
-
-The full step content is in `data.steps[*]` (auto-merged); the `step_id` extra lets subscribers diff incrementally without scanning the whole list.
-
-## Artifacts
-
-### `artifact.created`
-
-A new artifact landed (stdout/stderr capture, agent conversation snapshot, file write, etc.).
-
-| Extra key | Type | Notes |
-|---|---|---|
-| `artifact_id` | `string` | The new artifact's id |
-
-### `artifact.updated`
-
-An existing artifact's content was overwritten — most commonly the streaming stdout artifact getting its incremental writes flushed.
-
-| Extra key | Type | Notes |
-|---|---|---|
-| `artifact_id` | `string` | The mutated artifact's id |
-
 ## Approvals
 
 ### `approval.requested`
@@ -269,6 +235,79 @@ Emitted once per LLM round-trip in an `agent_loop` run. The richest cost-trackin
 The per-turn figure is also stamped on the matching model step's `OutputSummary.cost_micros_usd` so the run-replay UI surfaces it without subscribing here. See [agent-runtime.md](agent-runtime.md#cost-tracking) for the full cost model.
 
 These rows are the only event type pruned by the retention worker (`turn_events` subsystem) — they accumulate fast on long agent runs. Other event types are kept indefinitely. See `GATEWAY_RETENTION_TURN_EVENTS_*` in `.env.example`.
+
+## Typed shell tool events
+
+These events are the first implemented slice of the draft
+[agent event protocol v1 candidate](event-protocol-v1.md). They are emitted by
+the shared shell executor for both direct `execution_kind=shell` tasks and
+`agent_loop` `shell_exec` tool calls. The old `step.*` and `artifact.*`
+persisted run events are no longer emitted; step and artifact records still
+persist as state, and subscribers should use typed lifecycle events plus the
+auto-merged snapshots on each emitted event.
+
+### `tool.invoked` / `tool.started`
+
+Generic shell tool lifecycle markers.
+
+| Extra key | Type | Notes |
+|---|---|---|
+| `tool_call_id` | `string` | Model tool-call id for `agent_loop`; direct shell tasks fall back to the shell step id |
+| `tool_name` | `string` | Usually `shell_exec` for agent-loop tool calls or `shell` for direct shell tasks |
+| `kind` | `string` | Always `shell` for this implemented slice |
+
+### `tool.shell.command`
+
+The normalized command execution plan.
+
+| Extra key | Type | Notes |
+|---|---|---|
+| `tool_call_id` | `string` | Correlates with the generic lifecycle events |
+| `argv` | `[]string` | Effective shell invocation shape, currently `["sh", "-lc", <command>]` |
+| `cwd` | `string` | Resolved working directory passed to the sandbox executor |
+| `env_keys` | `[]string` | Sanitized environment keys the event intentionally exposes |
+| `sandbox_layer` | `string` | Detected OS isolation wrapper: `bwrap`, `sandbox-exec`, or `none` |
+| `timeout_ms` | `int` | Wall-clock timeout for the command |
+| `command_string` | `string` | Human-readable shell command string |
+
+### `tool.shell.output_chunk`
+
+Incremental process output.
+
+| Extra key | Type | Notes |
+|---|---|---|
+| `tool_call_id` | `string` | Correlates with the command event |
+| `stream` | `string` | `stdout` or `stderr` |
+| `data` | `string` | Raw chunk text |
+| `byte_offset` | `int` | Offset within that stream before this chunk |
+
+### `tool.shell.exited`
+
+Process exit metadata. This event is skipped when sandbox policy denies the
+command before a child process starts.
+
+| Extra key | Type | Notes |
+|---|---|---|
+| `tool_call_id` | `string` | Correlates with the command event |
+| `exit_code` | `int` | Process exit code, or `-1` when the process did not produce a normal exit code |
+| `signal` | `string \| null` | Reserved for future signal reporting; currently `null` |
+| `stdout_bytes` | `int` | Final stdout byte count |
+| `stderr_bytes` | `int` | Final stderr byte count |
+| `truncated` | `bool` | True when the sandbox output cap stopped the command |
+
+### `tool.completed` / `tool.failed` / `tool.cancelled` / `tool.timed_out`
+
+Terminal shell lifecycle marker.
+
+| Extra key | Type | Notes |
+|---|---|---|
+| `tool_call_id` | `string` | Correlates with prior shell events |
+| `tool_name` | `string` | Same value as `tool.invoked` |
+| `kind` | `string` | Always `shell` |
+| `duration_ms` | `int64` | Wall-clock duration from shell step start to terminal result |
+| `summary` | `string` | Human-readable terminal summary |
+| `error` | `string` | Present on failed/cancelled/timed-out shell executions |
+| `after_ms` | `int` | Present on `tool.timed_out` |
 
 ## MCP
 

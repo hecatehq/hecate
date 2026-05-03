@@ -866,6 +866,9 @@ func (e *AgentLoopExecutor) runSubExecutor(ctx context.Context, spec ExecutionSp
 		// ExecutionResult carries the rows for us to renumber.
 		UpsertStep:     nil,
 		UpsertArtifact: nil,
+		EmitRunEvent:   spec.EmitRunEvent,
+		ToolCallID:     toolCallID,
+		ToolName:       toolName,
 	}
 	subResult, err := exec.Execute(ctx, subSpec)
 	if err != nil {
