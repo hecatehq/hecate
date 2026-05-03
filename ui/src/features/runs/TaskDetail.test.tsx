@@ -3,7 +3,7 @@ import userEvent from "@testing-library/user-event";
 import { describe, expect, it, vi } from "vitest";
 
 import { TaskDetail } from "./TaskDetail";
-import type { TaskRecord, TaskRunEventRecord, TaskRunRecord, TaskStepRecord } from "../../types/runtime";
+import type { TaskActivityRecord, TaskArtifactRecord, TaskRecord, TaskRunEventRecord, TaskRunRecord, TaskStepRecord } from "../../types/runtime";
 
 function makeTask(overrides: Partial<TaskRecord> = {}): TaskRecord {
   return {
@@ -62,6 +62,32 @@ function makeEvent(overrides: Partial<TaskRunEventRecord> = {}): TaskRunEventRec
   };
 }
 
+function makePatchArtifact(overrides: Partial<TaskArtifactRecord> = {}): TaskArtifactRecord {
+  return {
+    id: "art-patch-1",
+    task_id: "task-1",
+    run_id: "run-1",
+    kind: "patch",
+    name: "main.go.patch",
+    status: "proposed",
+    path: "/repo/main.go",
+    size_bytes: 42,
+    ...overrides,
+  };
+}
+
+function makeActivity(overrides: Partial<TaskActivityRecord> = {}): TaskActivityRecord {
+  return {
+    id: "activity-1",
+    type: "tool_call",
+    status: "completed",
+    title: "file_edit",
+    tool_name: "file_edit",
+    path: "main.go",
+    ...overrides,
+  };
+}
+
 function setup(propOverrides: Partial<React.ComponentProps<typeof TaskDetail>> = {}) {
   const task = makeTask();
   const run = makeRun();
@@ -73,6 +99,7 @@ function setup(propOverrides: Partial<React.ComponentProps<typeof TaskDetail>> =
     events: [],
     steps: [],
     artifacts: [],
+    activity: [],
     approvals: [],
     streamTurnCosts: new Map(),
     streamState: "closed",
@@ -85,6 +112,8 @@ function setup(propOverrides: Partial<React.ComponentProps<typeof TaskDetail>> =
     onResumeRun: vi.fn(),
     onRetryFromTurn: vi.fn(),
     onResumeRaisingCeiling: vi.fn(),
+    onApplyPatch: vi.fn(),
+    onRevertPatch: vi.fn(),
     ...propOverrides,
   };
   const user = userEvent.setup();
@@ -193,6 +222,34 @@ describe("TaskDetail step drill-down", () => {
     // The chevron is only rendered when hasDetail; assert no chevron path
     // shows up by checking the button does not contain an aria-expanded toggle effect.
     expect(button.getAttribute("aria-expanded")).toBe("false");
+  });
+});
+
+describe("TaskDetail runtime activity and patches", () => {
+  it("renders normalized runtime activity rows", () => {
+    const { render } = setup({ activity: [makeActivity({ type: "patch", status: "proposed", title: "main.go.patch" })] });
+    render();
+    expect(screen.getByText(/Runtime activity/i)).toBeTruthy();
+    expect(screen.getByText("main.go.patch")).toBeTruthy();
+  });
+
+  it("calls onApplyPatch for proposed patch artifacts", async () => {
+    const onApplyPatch = vi.fn();
+    const { render, user } = setup({ artifacts: [makePatchArtifact()], onApplyPatch });
+    render();
+    await user.click(screen.getByRole("button", { name: /apply/i }));
+    expect(onApplyPatch).toHaveBeenCalledWith("art-patch-1");
+  });
+
+  it("calls onRevertPatch for applied patch artifacts", async () => {
+    const onRevertPatch = vi.fn();
+    const { render, user } = setup({
+      artifacts: [makePatchArtifact({ status: "applied" })],
+      onRevertPatch,
+    });
+    render();
+    await user.click(screen.getByRole("button", { name: /revert/i }));
+    expect(onRevertPatch).toHaveBeenCalledWith("art-patch-1");
   });
 });
 

@@ -1,9 +1,9 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import {
   ApiError,
-  cancelTaskRun, createTask, deleteTask, getModels, getProviderPresets, getProviders,
+  applyTaskRunPatch, cancelTaskRun, createTask, deleteTask, getModels, getProviderPresets, getProviders,
   getTaskApprovals, getTaskRunArtifacts, getTaskRunEvents,
-  getTaskRuns, getTaskRunSteps, getTasks, resolveTaskApproval,
+  getTaskRuns, getTaskRunSteps, getTasks, resolveTaskApproval, revertTaskRunPatch,
   retryTaskRun, retryTaskRunFromTurn, resumeTaskRun, resumeTaskRunRaisingCeiling,
   startTask, streamTaskRun,
 } from "../../lib/api";
@@ -12,7 +12,7 @@ import type {
   ProviderPresetRecord,
   ProviderRecord,
   TaskApprovalRecord, TaskArtifactRecord, TaskRecord, TaskRunRecord, TaskStepRecord,
-  TaskRunEventRecord,
+  TaskRunEventRecord, TaskActivityRecord,
 } from "../../types/runtime";
 import { TaskList } from "./TaskList";
 import { TaskDetail } from "./TaskDetail";
@@ -29,6 +29,7 @@ export function TasksView() {
   const [approvals, setApprovals] = useState<TaskApprovalRecord[]>([]);
   const [steps, setSteps] = useState<TaskStepRecord[]>([]);
   const [artifacts, setArtifacts] = useState<TaskArtifactRecord[]>([]);
+  const [activity, setActivity] = useState<TaskActivityRecord[]>([]);
   const [runEvents, setRunEvents] = useState<TaskRunEventRecord[]>([]);
   // Streamed per-turn costs, keyed by turn number. Populated as
   // `turn.completed` events arrive on the SSE stream. Acts as a
@@ -58,6 +59,7 @@ export function TasksView() {
   const resetRunDetail = useCallback(() => {
     setSteps([]);
     setArtifacts([]);
+    setActivity([]);
     setRunEvents([]);
     setStreamTurnCosts(new Map());
     streamCursorRef.current = 0;
@@ -137,6 +139,7 @@ export function TasksView() {
         });
         setSteps(payload.data.steps ?? []);
         setArtifacts(payload.data.artifacts ?? []);
+        setActivity(payload.data.activity ?? []);
         // Capture per-turn cost when the snapshot was driven by an
         // `turn.completed` event. Dedup by turn number — the
         // SSE may replay the same event on reconnect, and we don't
@@ -294,6 +297,30 @@ export function TasksView() {
     } finally { setBusyAction(""); }
   }
 
+  async function handleApplyPatch(artifactID: string) {
+    if (!selectedTaskID || !selectedRunID) return;
+    setBusyAction("apply-patch:" + artifactID);
+    try {
+      await applyTaskRunPatch(selectedTaskID, selectedRunID, artifactID);
+      setNotice({ tone: "success", message: "Patch applied." });
+      await loadRunDetail(selectedTaskID, selectedRunID);
+    } catch (err) {
+      setNotice({ tone: "error", message: err instanceof Error ? err.message : "patch apply failed" });
+    } finally { setBusyAction(""); }
+  }
+
+  async function handleRevertPatch(artifactID: string) {
+    if (!selectedTaskID || !selectedRunID) return;
+    setBusyAction("revert-patch:" + artifactID);
+    try {
+      await revertTaskRunPatch(selectedTaskID, selectedRunID, artifactID);
+      setNotice({ tone: "success", message: "Patch reverted." });
+      await loadRunDetail(selectedTaskID, selectedRunID);
+    } catch (err) {
+      setNotice({ tone: "error", message: err instanceof Error ? err.message : "patch revert failed" });
+    } finally { setBusyAction(""); }
+  }
+
   // Retry-from-turn-N: re-issue the LLM call at turn N with the prior
   // conversation preserved. Server-side validation rejects out-of-range
   // turns and non-agent_loop runs with a 4xx — we surface the message
@@ -362,6 +389,7 @@ export function TasksView() {
           selectedRunID={selectedRunID}
           steps={steps}
           artifacts={artifacts}
+          activity={activity}
           events={runEvents}
           approvals={approvals}
           streamTurnCosts={streamTurnCosts}
@@ -375,6 +403,8 @@ export function TasksView() {
           onResumeRun={() => void handleResumeRun()}
           onRetryFromTurn={(turn, reason) => void handleRetryFromTurn(turn, reason)}
           onResumeRaisingCeiling={(budgetMicrosUSD) => void handleResumeRaisingCeiling(budgetMicrosUSD)}
+          onApplyPatch={(artifactID) => void handleApplyPatch(artifactID)}
+          onRevertPatch={(artifactID) => void handleRevertPatch(artifactID)}
         />
       ) : (
         <div style={{ flex: 1, display: "flex", alignItems: "center", justifyContent: "center" }}>
