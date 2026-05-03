@@ -42,7 +42,8 @@ tauri/
                             network fetch during startup
   src-tauri/
     Cargo.toml              Rust crate: tauri 2, tauri-plugin-shell,
-                            tauri-plugin-updater, reqwest (rustls-tls), tokio
+                            tauri-plugin-updater, tauri-plugin-window-state,
+                            reqwest (rustls-tls), tokio
     Cargo.lock              committed (app, not a library)
     build.rs                tauri_build::build()
     tauri.conf.json         app config (identifier, window, externalBin, icons)
@@ -120,6 +121,7 @@ The `externalBin: ["binaries/gateway"]` entry in `tauri.conf.json` tells Tauri's
 
 - The gateway child is spawned with `stdin/stdout/stderr = null` so it doesn't inherit the Tauri terminal.
 - The `Child` handle is stored in `GatewayChild` managed state.
+- `tauri-plugin-window-state` restores size and position between launches.
 - `RunEvent::Exit` kills the child via `child.kill()` before the app exits.
 - If the gateway fails to start within 30 s, the splash switches to a failure panel with the error, gateway log path, and data-dir path. The native Hecate menu can open both paths even when the gateway UI never loads.
 

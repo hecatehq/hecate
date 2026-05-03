@@ -75,6 +75,7 @@ pub fn run() {
     tauri::Builder::default()
         .plugin(tauri_plugin_shell::init())
         .plugin(tauri_plugin_updater::Builder::new().build())
+        .plugin(tauri_plugin_window_state::Builder::default().build())
         .on_menu_event(|app, event| match event.id().as_ref() {
             "open-hecate" => {
                 if let Some(win) = app.get_webview_window("main") {
