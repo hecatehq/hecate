@@ -4,10 +4,13 @@ import (
 	"bytes"
 	"context"
 	"encoding/json"
+	"fmt"
 	"net/http"
 	"net/http/httptest"
 	"strings"
 	"testing"
+
+	"github.com/hecate/agent-runtime/internal/acp"
 )
 
 func TestGatewayHTTPClientListModels(t *testing.T) {
@@ -45,6 +48,83 @@ func TestGatewayHTTPClientListModels(t *testing.T) {
 	}
 	if gotAuth != "Bearer admin-token" {
 		t.Fatalf("Authorization = %q", gotAuth)
+	}
+}
+
+func TestGatewayHTTPClientCreateAgentLoopTask(t *testing.T) {
+	t.Parallel()
+
+	var createdBody map[string]any
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("Content-Type", "application/json")
+		switch {
+		case r.Method == http.MethodPost && r.URL.Path == "/v1/tasks":
+			if err := json.NewDecoder(r.Body).Decode(&createdBody); err != nil {
+				t.Fatalf("decode create body: %v", err)
+			}
+			_, _ = w.Write([]byte(`{"object":"task","data":{"id":"task-123"}}`))
+		case r.Method == http.MethodPost && r.URL.Path == "/v1/tasks/task-123/start":
+			_, _ = w.Write([]byte(`{"object":"task_run","data":{"id":"run-456"}}`))
+		default:
+			t.Fatalf("unexpected request %s %s", r.Method, r.URL.Path)
+		}
+	}))
+	defer srv.Close()
+
+	client, err := newGatewayHTTPClient(bridgeConfig{GatewayURL: srv.URL})
+	if err != nil {
+		t.Fatalf("newGatewayHTTPClient() error = %v", err)
+	}
+	result, err := client.CreateAgentLoopTask(context.Background(), acp.CreateTaskRequest{
+		Model:            "gpt-4o-mini",
+		WorkingDirectory: "/repo",
+		Prompt:           "fix tests",
+	})
+	if err != nil {
+		t.Fatalf("CreateAgentLoopTask() error = %v", err)
+	}
+	if result.TaskID != "task-123" || result.RunID != "run-456" {
+		t.Fatalf("result = %+v", result)
+	}
+	if createdBody["execution_kind"] != "agent_loop" || createdBody["execution_profile"] != "coding_agent" {
+		t.Fatalf("create body = %+v", createdBody)
+	}
+	if createdBody["requested_model"] != "gpt-4o-mini" || createdBody["working_directory"] != "/repo" || createdBody["prompt"] != "fix tests" {
+		t.Fatalf("create body = %+v", createdBody)
+	}
+}
+
+func TestGatewayHTTPClientStreamRunEvents(t *testing.T) {
+	t.Parallel()
+
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.URL.Path != "/v1/tasks/task-1/runs/run-1/stream" {
+			t.Fatalf("path = %q", r.URL.Path)
+		}
+		w.Header().Set("Content-Type", "text/event-stream")
+		fmt.Fprint(w, "event: snapshot\n")
+		fmt.Fprint(w, `data: {"object":"task_run_stream_event","data":{"sequence":1,"event_type":"tool.completed","terminal":false}}`)
+		fmt.Fprint(w, "\n\n")
+		fmt.Fprint(w, "event: done\n")
+		fmt.Fprint(w, `data: {"object":"task_run_stream_event","data":{"sequence":2,"event_type":"run.finished","terminal":true}}`)
+		fmt.Fprint(w, "\n\n")
+	}))
+	defer srv.Close()
+
+	client, err := newGatewayHTTPClient(bridgeConfig{GatewayURL: srv.URL})
+	if err != nil {
+		t.Fatalf("newGatewayHTTPClient() error = %v", err)
+	}
+	events, err := client.StreamRunEvents(context.Background(), "task-1", "run-1")
+	if err != nil {
+		t.Fatalf("StreamRunEvents() error = %v", err)
+	}
+	var got []string
+	for event := range events {
+		got = append(got, event.Type)
+	}
+	if strings.Join(got, ",") != "tool.completed,run.finished" {
+		t.Fatalf("events = %#v", got)
 	}
 }
 

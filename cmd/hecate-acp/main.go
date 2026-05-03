@@ -5,13 +5,14 @@ import (
 	"bytes"
 	"context"
 	"encoding/json"
-	"errors"
 	"fmt"
 	"io"
 	"net/http"
 	"net/url"
 	"os"
+	"path"
 	"strings"
+	"sync"
 	"time"
 
 	"github.com/hecate/agent-runtime/internal/acp"
@@ -76,9 +77,30 @@ func run(ctx context.Context, stdin io.Reader, stdout io.Writer, stderr io.Write
 
 	fmt.Fprintf(stderr, "hecate-acp: started gateway=%s workspace_mode=%s approval_route=%s\n", cfg.GatewayURL, cfg.WorkspaceMode, cfg.ApprovalRoute)
 
+	writeCh := make(chan any, 32)
+	var writerWG sync.WaitGroup
+	var writerErr error
+	writerWG.Add(1)
+	go func() {
+		defer writerWG.Done()
+		encoder := json.NewEncoder(stdout)
+		for msg := range writeCh {
+			if err := encoder.Encode(msg); err != nil {
+				writerErr = err
+				return
+			}
+		}
+	}()
+	dispatcher.SetEmitter(func(req *acp.Request) {
+		defer func() { _ = recover() }()
+		select {
+		case writeCh <- req:
+		case <-ctx.Done():
+		}
+	})
+
 	scanner := bufio.NewScanner(stdin)
 	scanner.Buffer(make([]byte, 0, 64*1024), maxMessageBytes)
-	encoder := json.NewEncoder(stdout)
 	for scanner.Scan() {
 		line := bytes.TrimSpace(scanner.Bytes())
 		if len(line) == 0 {
@@ -86,27 +108,25 @@ func run(ctx context.Context, stdin io.Reader, stdout io.Writer, stderr io.Write
 		}
 		var req acp.Request
 		if err := json.Unmarshal(line, &req); err != nil {
-			if err := encoder.Encode(parseErrorResponse(err)); err != nil {
-				return err
-			}
+			writeCh <- parseErrorResponse(err)
 			continue
 		}
 		if req.JSONRPC != acp.JSONRPCVersion || req.Method == "" {
-			if err := encoder.Encode(invalidRequestResponse(req.ID)); err != nil {
-				return err
-			}
+			writeCh <- invalidRequestResponse(req.ID)
 			continue
 		}
 		if resp := dispatcher.Handle(ctx, &req); resp != nil {
-			if err := encoder.Encode(resp); err != nil {
-				return err
-			}
+			writeCh <- resp
 		}
 	}
 	if err := scanner.Err(); err != nil {
+		close(writeCh)
+		writerWG.Wait()
 		return err
 	}
-	return nil
+	close(writeCh)
+	writerWG.Wait()
+	return writerErr
 }
 
 func parseErrorResponse(err error) acp.Response {
@@ -186,24 +206,76 @@ func (c *gatewayHTTPClient) ListModels(ctx context.Context) ([]string, error) {
 	return models, nil
 }
 
-func (c *gatewayHTTPClient) CreateAgentLoopTask(context.Context, acp.CreateTaskRequest) (acp.CreateTaskResult, error) {
-	return acp.CreateTaskResult{}, errors.New("agent_loop task creation is not implemented in hecate-acp yet")
+func (c *gatewayHTTPClient) CreateAgentLoopTask(ctx context.Context, request acp.CreateTaskRequest) (acp.CreateTaskResult, error) {
+	body := map[string]any{
+		"title":             "ACP session",
+		"prompt":            request.Prompt,
+		"execution_kind":    "agent_loop",
+		"execution_profile": "coding_agent",
+		"workspace_mode":    "persistent",
+	}
+	if request.Model != "" {
+		body["requested_model"] = request.Model
+	}
+	if request.WorkingDirectory != "" {
+		body["working_directory"] = request.WorkingDirectory
+	}
+	var created struct {
+		Data struct {
+			ID string `json:"id"`
+		} `json:"data"`
+	}
+	if err := c.doJSON(ctx, http.MethodPost, "/v1/tasks", body, &created); err != nil {
+		return acp.CreateTaskResult{}, err
+	}
+	if created.Data.ID == "" {
+		return acp.CreateTaskResult{}, fmt.Errorf("gateway task create response missing task id")
+	}
+	var started struct {
+		Data struct {
+			ID string `json:"id"`
+		} `json:"data"`
+	}
+	if err := c.doJSON(ctx, http.MethodPost, "/v1/tasks/"+url.PathEscape(created.Data.ID)+"/start", map[string]any{}, &started); err != nil {
+		return acp.CreateTaskResult{}, err
+	}
+	if started.Data.ID == "" {
+		return acp.CreateTaskResult{}, fmt.Errorf("gateway task start response missing run id")
+	}
+	return acp.CreateTaskResult{TaskID: created.Data.ID, RunID: started.Data.ID}, nil
 }
 
-func (c *gatewayHTTPClient) ResumeTask(context.Context, string, string) (string, error) {
-	return "", errors.New("task resume is not implemented in hecate-acp yet")
-}
-
-func (c *gatewayHTTPClient) CancelRun(context.Context, string, string) error {
-	return errors.New("run cancellation is not implemented in hecate-acp yet")
+func (c *gatewayHTTPClient) CancelRun(ctx context.Context, taskID, runID, reason string) error {
+	var ignored map[string]any
+	return c.doJSON(ctx, http.MethodPost, "/v1/tasks/"+url.PathEscape(taskID)+"/runs/"+url.PathEscape(runID)+"/cancel", map[string]any{"reason": reason}, &ignored)
 }
 
 func (c *gatewayHTTPClient) ResolveApproval(context.Context, string, string, string, acp.ApprovalDecision) error {
-	return errors.New("approval resolution is not implemented in hecate-acp yet")
+	return fmt.Errorf("approval resolution is not implemented in hecate-acp yet")
 }
 
-func (c *gatewayHTTPClient) StreamRunEvents(context.Context, string, string) (<-chan acp.RunEvent, error) {
-	return nil, errors.New("run event streaming is not implemented in hecate-acp yet")
+func (c *gatewayHTTPClient) StreamRunEvents(ctx context.Context, taskID, runID string) (<-chan acp.RunEvent, error) {
+	req, err := http.NewRequestWithContext(ctx, http.MethodGet, c.baseURL+"/v1/tasks/"+url.PathEscape(taskID)+"/runs/"+url.PathEscape(runID)+"/stream", nil)
+	if err != nil {
+		return nil, err
+	}
+	c.authorize(req)
+	resp, err := c.httpClient.Do(req)
+	if err != nil {
+		return nil, err
+	}
+	if resp.StatusCode < 200 || resp.StatusCode >= 300 {
+		defer resp.Body.Close()
+		body, _ := io.ReadAll(io.LimitReader(resp.Body, 4096))
+		return nil, fmt.Errorf("gateway returned %d: %s", resp.StatusCode, strings.TrimSpace(string(body)))
+	}
+	events := make(chan acp.RunEvent, 16)
+	go func() {
+		defer close(events)
+		defer resp.Body.Close()
+		readSSE(resp.Body, events)
+	}()
+	return events, nil
 }
 
 func (c *gatewayHTTPClient) authorize(req *http.Request) {
@@ -213,6 +285,122 @@ func (c *gatewayHTTPClient) authorize(req *http.Request) {
 	if c.authToken != "" {
 		req.Header.Set("Authorization", "Bearer "+c.authToken)
 	}
+}
+
+func (c *gatewayHTTPClient) doJSON(ctx context.Context, method, requestPath string, body any, out any) error {
+	var reader io.Reader
+	if body != nil {
+		raw, err := json.Marshal(body)
+		if err != nil {
+			return err
+		}
+		reader = bytes.NewReader(raw)
+	}
+	req, err := http.NewRequestWithContext(ctx, method, c.baseURL+cleanAPIPath(requestPath), reader)
+	if err != nil {
+		return err
+	}
+	c.authorize(req)
+	if body != nil {
+		req.Header.Set("Content-Type", "application/json")
+	}
+	resp, err := c.httpClient.Do(req)
+	if err != nil {
+		return err
+	}
+	defer resp.Body.Close()
+	if resp.StatusCode < 200 || resp.StatusCode >= 300 {
+		raw, _ := io.ReadAll(io.LimitReader(resp.Body, 4096))
+		return fmt.Errorf("gateway returned %d: %s", resp.StatusCode, strings.TrimSpace(string(raw)))
+	}
+	if out == nil {
+		io.Copy(io.Discard, resp.Body)
+		return nil
+	}
+	return json.NewDecoder(resp.Body).Decode(out)
+}
+
+func cleanAPIPath(value string) string {
+	if strings.HasPrefix(value, "/") {
+		return path.Clean(value)
+	}
+	return "/" + path.Clean(value)
+}
+
+func readSSE(r io.Reader, out chan<- acp.RunEvent) {
+	scanner := bufio.NewScanner(r)
+	scanner.Buffer(make([]byte, 0, 64*1024), maxMessageBytes)
+	currentEvent := "message"
+	var currentData strings.Builder
+	flush := func() bool {
+		data := strings.TrimSpace(currentData.String())
+		if data == "" {
+			currentEvent = "message"
+			currentData.Reset()
+			return false
+		}
+		raw := []byte(data)
+		eventType := eventTypeFromStreamPayload(raw, currentEvent)
+		out <- acp.RunEvent{Type: eventType, Data: streamPayloadData(raw)}
+		terminal := streamPayloadTerminal(raw)
+		currentEvent = "message"
+		currentData.Reset()
+		return terminal
+	}
+	for scanner.Scan() {
+		line := strings.TrimSuffix(scanner.Text(), "\r")
+		if strings.HasPrefix(line, ":") {
+			continue
+		}
+		if line == "" {
+			if flush() {
+				return
+			}
+			continue
+		}
+		if value, ok := strings.CutPrefix(line, "event:"); ok {
+			currentEvent = strings.TrimSpace(value)
+			continue
+		}
+		if value, ok := strings.CutPrefix(line, "data:"); ok {
+			if currentData.Len() > 0 {
+				currentData.WriteByte('\n')
+			}
+			currentData.WriteString(strings.TrimSpace(value))
+		}
+	}
+	flush()
+}
+
+func eventTypeFromStreamPayload(raw []byte, fallback string) string {
+	var payload struct {
+		Data struct {
+			EventType string `json:"event_type"`
+		} `json:"data"`
+	}
+	if err := json.Unmarshal(raw, &payload); err == nil && payload.Data.EventType != "" {
+		return payload.Data.EventType
+	}
+	return fallback
+}
+
+func streamPayloadTerminal(raw []byte) bool {
+	var payload struct {
+		Data struct {
+			Terminal bool `json:"terminal"`
+		} `json:"data"`
+	}
+	return json.Unmarshal(raw, &payload) == nil && payload.Data.Terminal
+}
+
+func streamPayloadData(raw []byte) []byte {
+	var payload struct {
+		Data json.RawMessage `json:"data"`
+	}
+	if err := json.Unmarshal(raw, &payload); err == nil && len(payload.Data) > 0 {
+		return payload.Data
+	}
+	return raw
 }
 
 func firstNonEmpty(values ...string) string {
