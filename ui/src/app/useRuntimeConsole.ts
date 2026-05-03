@@ -298,6 +298,7 @@ export function useRuntimeConsole() {
   }
 
   function resetChatWorkspaceState() {
+    setMessage("");
     setChatResult(null);
     setStreamingContent(null);
     setRuntimeHeaders(null);

@@ -1,17 +1,18 @@
 import { expect, test } from "./fixtures";
 
-// End-to-end UI flow: an empty workspace blocks chat behind a placeholder.
-// Adding a provider unblocks it. Deleting the only provider blocks it again.
+// End-to-end UI flow: Chats stays available in first-run mode, while the
+// Providers workspace still owns provider create/delete state.
 // Pure UI — relies on the stateful create/delete mocks in fixtures.ts.
 
-test("adding a provider unblocks chat; deleting it blocks chat again", async ({ page }) => {
+test("adding and deleting a provider keeps chat available", async ({ page }) => {
   page.on("dialog", d => void d.accept());
 
   await page.goto("/");
   await page.waitForSelector(".hecate-activitybar");
 
-  // Default fixture starts empty — chat workspace shows the placeholder.
-  await expect(page.getByText("No providers configured")).toBeVisible();
+  // Default fixture starts empty, but Chats remains usable for model or
+  // external-agent setup flows.
+  await expect(page.locator("textarea")).toBeVisible();
 
   // Move to Providers via the activity bar shortcut and add Ollama.
   await page.keyboard.press("2");
@@ -23,9 +24,8 @@ test("adding a provider unblocks chat; deleting it blocks chat again", async ({ 
   await dlg.getByRole("button", { name: "Add provider", exact: true }).click();
   await expect(page.locator("tbody tr", { hasText: "Ollama" })).toBeVisible();
 
-  // Switch to Chats — the placeholder must be gone now that one provider exists.
+  // Switch to Chats — the conversation surface remains available.
   await page.keyboard.press("1");
-  await expect(page.getByText("No providers configured")).not.toBeVisible();
   await expect(page.locator("textarea")).toBeVisible();
 
   // Back to Providers, delete the row.
@@ -34,7 +34,7 @@ test("adding a provider unblocks chat; deleting it blocks chat again", async ({ 
   await page.getByTitle("Remove Ollama").click();
   await expect(page.locator("tbody tr", { hasText: "Ollama" })).toHaveCount(0);
 
-  // Chats — placeholder is back.
+  // Chats remains available after deleting the only configured provider.
   await page.keyboard.press("1");
-  await expect(page.getByText("No providers configured")).toBeVisible();
+  await expect(page.locator("textarea")).toBeVisible();
 });

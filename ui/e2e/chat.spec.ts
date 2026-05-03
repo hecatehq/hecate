@@ -35,7 +35,7 @@ test("send button becomes enabled when message has content", async ({ page }) =>
 
 test("model picker opens and lists models from mock data", async ({ page }) => {
   // Wait for models to load, then open the picker
-  const modelBtn = page.locator("button", { hasText: /claude|gpt|model/i }).first();
+  const modelBtn = page.getByRole("button", { name: /model picker/i });
   await modelBtn.click();
 
   for (const m of MOCK_MODELS) {
@@ -44,7 +44,7 @@ test("model picker opens and lists models from mock data", async ({ page }) => {
 });
 
 test("model picker filters by search input", async ({ page }) => {
-  const modelBtn = page.locator("button", { hasText: /claude|gpt|model/i }).first();
+  const modelBtn = page.getByRole("button", { name: /model picker/i });
   await modelBtn.click();
 
   const menu = page.locator(".dropdown-menu");
@@ -55,7 +55,7 @@ test("model picker filters by search input", async ({ page }) => {
 });
 
 test("selecting a model closes the picker and updates the button label", async ({ page }) => {
-  const modelBtn = page.locator("button", { hasText: /claude|gpt|model/i }).first();
+  const modelBtn = page.getByRole("button", { name: /model picker/i });
   await modelBtn.click();
 
   await page.locator(".dropdown-menu").locator("text=gpt-4o-mini").first().click();
@@ -75,12 +75,14 @@ test("provider picker shows healthy providers", async ({ page }) => {
   }
 });
 
-test("New session button clears the active conversation", async ({ page }) => {
+test("New chat button clears the active conversation", async ({ page }) => {
   // Fill the message box so we can verify the state resets
   await page.locator("textarea").fill("some prior message");
-  await page.locator("button", { hasText: /new session/i }).click();
-  // After starting a new session, the empty-state message is shown
-  await expect(page.locator("text=Send a message to start a conversation.")).toBeVisible();
+  await page.getByRole("button", { name: /new chat/i }).click();
+  // After starting a new chat, the empty state stays visible and
+  // composer state is cleared.
+  await expect(page.getByText("Send a message to start this chat.")).toBeVisible();
+  await expect(page.locator("textarea")).toHaveValue("");
 });
 
 test("system prompt editor opens and closes", async ({ page }) => {
