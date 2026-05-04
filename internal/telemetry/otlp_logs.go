@@ -9,6 +9,7 @@ import (
 	"time"
 
 	"go.opentelemetry.io/otel/attribute"
+	otlploggrpc "go.opentelemetry.io/otel/exporters/otlp/otlplog/otlploggrpc"
 	otlplog "go.opentelemetry.io/otel/exporters/otlp/otlplog/otlploghttp"
 	otellog "go.opentelemetry.io/otel/log"
 	sdklog "go.opentelemetry.io/otel/sdk/log"
@@ -17,11 +18,12 @@ import (
 )
 
 type OTelLogOptions struct {
-	Enabled  bool
-	Endpoint string
-	Headers  map[string]string
-	Resource *resource.Resource
-	Timeout  time.Duration
+	Enabled   bool
+	Endpoint  string
+	Headers   map[string]string
+	Resource  *resource.Resource
+	Timeout   time.Duration
+	Transport string
 }
 
 func NewLoggerWithOTLP(ctx context.Context, level string, opts OTelLogOptions) (*slog.Logger, func(context.Context) error, error) {
@@ -37,18 +39,7 @@ func NewLoggerWithOTLP(ctx context.Context, level string, opts OTelLogOptions) (
 		opts.Timeout = 5 * time.Second
 	}
 
-	exporterOpts := []otlplog.Option{
-		otlplog.WithHeaders(opts.Headers),
-		otlplog.WithTimeout(opts.Timeout),
-	}
-	if endpoint := strings.TrimSpace(opts.Endpoint); endpoint != "" {
-		exporterOpts = append(exporterOpts, otlplog.WithEndpointURL(endpoint))
-	}
-	if strings.HasPrefix(strings.TrimSpace(opts.Endpoint), "http://") {
-		exporterOpts = append(exporterOpts, otlplog.WithInsecure())
-	}
-
-	exporter, err := otlplog.New(ctx, exporterOpts...)
+	exporter, err := newLogExporter(ctx, opts)
 	if err != nil {
 		return nil, nil, fmt.Errorf("create otlp log exporter: %w", err)
 	}
@@ -68,6 +59,32 @@ func NewLoggerWithOTLP(ctx context.Context, level string, opts OTelLogOptions) (
 	}
 
 	return slog.New(handler).With(slog.String(AttrServiceName, serviceName)), shutdown, nil
+}
+
+func newLogExporter(ctx context.Context, opts OTelLogOptions) (sdklog.Exporter, error) {
+	if NormalizeOTLPTransport(opts.Transport) == OTLPTransportGRPC {
+		exporterOpts := []otlploggrpc.Option{
+			otlploggrpc.WithEndpoint(OTLPGRPCEndpoint(opts.Endpoint)),
+			otlploggrpc.WithHeaders(opts.Headers),
+			otlploggrpc.WithTimeout(opts.Timeout),
+		}
+		if IsOTLPGRPCInsecure(opts.Endpoint) {
+			exporterOpts = append(exporterOpts, otlploggrpc.WithInsecure())
+		}
+		return otlploggrpc.New(ctx, exporterOpts...)
+	}
+
+	exporterOpts := []otlplog.Option{
+		otlplog.WithHeaders(opts.Headers),
+		otlplog.WithTimeout(opts.Timeout),
+	}
+	if endpoint := strings.TrimSpace(opts.Endpoint); endpoint != "" {
+		exporterOpts = append(exporterOpts, otlplog.WithEndpointURL(endpoint))
+	}
+	if strings.HasPrefix(strings.TrimSpace(opts.Endpoint), "http://") {
+		exporterOpts = append(exporterOpts, otlplog.WithInsecure())
+	}
+	return otlplog.New(ctx, exporterOpts...)
 }
 
 // serviceNameFromResource extracts the service.name attribute from the supplied

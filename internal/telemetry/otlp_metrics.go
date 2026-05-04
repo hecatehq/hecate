@@ -6,18 +6,20 @@ import (
 	"strings"
 	"time"
 
+	"go.opentelemetry.io/otel/exporters/otlp/otlpmetric/otlpmetricgrpc"
 	"go.opentelemetry.io/otel/exporters/otlp/otlpmetric/otlpmetrichttp"
 	sdkmetric "go.opentelemetry.io/otel/sdk/metric"
 	"go.opentelemetry.io/otel/sdk/resource"
 )
 
 type OTelMetricOptions struct {
-	Enabled  bool
-	Endpoint string
-	Headers  map[string]string
-	Resource *resource.Resource
-	Timeout  time.Duration
-	Interval time.Duration
+	Enabled   bool
+	Endpoint  string
+	Headers   map[string]string
+	Resource  *resource.Resource
+	Timeout   time.Duration
+	Interval  time.Duration
+	Transport string
 }
 
 func NewMeterProvider(ctx context.Context, opts OTelMetricOptions) (*sdkmetric.MeterProvider, func(context.Context) error, error) {
@@ -34,18 +36,7 @@ func NewMeterProvider(ctx context.Context, opts OTelMetricOptions) (*sdkmetric.M
 	}
 
 	if opts.Enabled {
-		exporterOpts := []otlpmetrichttp.Option{
-			otlpmetrichttp.WithHeaders(opts.Headers),
-			otlpmetrichttp.WithTimeout(opts.Timeout),
-		}
-		if endpoint := strings.TrimSpace(opts.Endpoint); endpoint != "" {
-			exporterOpts = append(exporterOpts, otlpmetrichttp.WithEndpointURL(endpoint))
-		}
-		if strings.HasPrefix(strings.TrimSpace(opts.Endpoint), "http://") {
-			exporterOpts = append(exporterOpts, otlpmetrichttp.WithInsecure())
-		}
-
-		exporter, err := otlpmetrichttp.New(ctx, exporterOpts...)
+		exporter, err := newMetricExporter(ctx, opts)
 		if err != nil {
 			return nil, nil, fmt.Errorf("create otlp metric exporter: %w", err)
 		}
@@ -63,4 +54,30 @@ func NewMeterProvider(ctx context.Context, opts OTelMetricOptions) (*sdkmetric.M
 		return provider.Shutdown(ctx)
 	}
 	return provider, shutdown, nil
+}
+
+func newMetricExporter(ctx context.Context, opts OTelMetricOptions) (sdkmetric.Exporter, error) {
+	if NormalizeOTLPTransport(opts.Transport) == OTLPTransportGRPC {
+		exporterOpts := []otlpmetricgrpc.Option{
+			otlpmetricgrpc.WithEndpoint(OTLPGRPCEndpoint(opts.Endpoint)),
+			otlpmetricgrpc.WithHeaders(opts.Headers),
+			otlpmetricgrpc.WithTimeout(opts.Timeout),
+		}
+		if IsOTLPGRPCInsecure(opts.Endpoint) {
+			exporterOpts = append(exporterOpts, otlpmetricgrpc.WithInsecure())
+		}
+		return otlpmetricgrpc.New(ctx, exporterOpts...)
+	}
+
+	exporterOpts := []otlpmetrichttp.Option{
+		otlpmetrichttp.WithHeaders(opts.Headers),
+		otlpmetrichttp.WithTimeout(opts.Timeout),
+	}
+	if endpoint := strings.TrimSpace(opts.Endpoint); endpoint != "" {
+		exporterOpts = append(exporterOpts, otlpmetrichttp.WithEndpointURL(endpoint))
+	}
+	if strings.HasPrefix(strings.TrimSpace(opts.Endpoint), "http://") {
+		exporterOpts = append(exporterOpts, otlpmetrichttp.WithInsecure())
+	}
+	return otlpmetrichttp.New(ctx, exporterOpts...)
 }
