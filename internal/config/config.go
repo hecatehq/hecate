@@ -180,6 +180,7 @@ type OTelConfig struct {
 	TracesSamplerArg      float64
 	Metrics               OTelSignalConfig
 	MetricsInterval       time.Duration
+	MetricsExemplarFilter string
 	Logs                  OTelSignalConfig
 }
 
@@ -518,6 +519,11 @@ func (c Config) Validate() error {
 			errs = append(errs, fmt.Errorf("%s must be one of http or grpc", item.key))
 		}
 	}
+	switch strings.ToLower(strings.TrimSpace(c.OTel.MetricsExemplarFilter)) {
+	case "", "trace_based", "tracebased", "sampled", "always_on", "alwayson", "always_off", "alwaysoff":
+	default:
+		errs = append(errs, fmt.Errorf("GATEWAY_OTEL_METRICS_EXEMPLAR_FILTER must be one of trace_based, always_on, or always_off"))
+	}
 
 	return errors.Join(errs...)
 }
@@ -599,6 +605,7 @@ func loadOTelFromEnv() OTelConfig {
 		Timeout:               sharedTimeout,
 		Transport:             sharedTransport,
 		MetricsInterval:       getEnvDuration("GATEWAY_OTEL_METRICS_INTERVAL", 30*time.Second),
+		MetricsExemplarFilter: getEnv("GATEWAY_OTEL_METRICS_EXEMPLAR_FILTER", ""),
 		TracesSampler:         getEnv("GATEWAY_OTEL_TRACES_SAMPLER", ""),
 		TracesSamplerArg:      getEnvFloat64("GATEWAY_OTEL_TRACES_SAMPLER_ARG", 1.0),
 		Traces:                traces,

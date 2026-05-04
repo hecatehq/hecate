@@ -9,6 +9,7 @@ import (
 	"go.opentelemetry.io/otel/exporters/otlp/otlpmetric/otlpmetricgrpc"
 	"go.opentelemetry.io/otel/exporters/otlp/otlpmetric/otlpmetrichttp"
 	sdkmetric "go.opentelemetry.io/otel/sdk/metric"
+	"go.opentelemetry.io/otel/sdk/metric/exemplar"
 	"go.opentelemetry.io/otel/sdk/resource"
 )
 
@@ -20,6 +21,9 @@ type OTelMetricOptions struct {
 	Timeout   time.Duration
 	Interval  time.Duration
 	Transport string
+	// ExemplarFilter overrides the SDK's default exemplar filter when set.
+	// Accepted values are trace_based, always_on, and always_off.
+	ExemplarFilter string
 }
 
 func NewMeterProvider(ctx context.Context, opts OTelMetricOptions) (*sdkmetric.MeterProvider, func(context.Context) error, error) {
@@ -33,6 +37,11 @@ func NewMeterProvider(ctx context.Context, opts OTelMetricOptions) (*sdkmetric.M
 	providerOpts := []sdkmetric.Option{}
 	if opts.Resource != nil {
 		providerOpts = append(providerOpts, sdkmetric.WithResource(opts.Resource))
+	}
+	if filter, ok, err := otelMetricExemplarFilter(opts.ExemplarFilter); err != nil {
+		return nil, nil, err
+	} else if ok {
+		providerOpts = append(providerOpts, sdkmetric.WithExemplarFilter(filter))
 	}
 
 	if opts.Enabled {
@@ -54,6 +63,21 @@ func NewMeterProvider(ctx context.Context, opts OTelMetricOptions) (*sdkmetric.M
 		return provider.Shutdown(ctx)
 	}
 	return provider, shutdown, nil
+}
+
+func otelMetricExemplarFilter(value string) (exemplar.Filter, bool, error) {
+	switch strings.ToLower(strings.TrimSpace(value)) {
+	case "":
+		return nil, false, nil
+	case "trace_based", "tracebased", "sampled":
+		return exemplar.TraceBasedFilter, true, nil
+	case "always_on", "alwayson":
+		return exemplar.AlwaysOnFilter, true, nil
+	case "always_off", "alwaysoff":
+		return exemplar.AlwaysOffFilter, true, nil
+	default:
+		return nil, false, fmt.Errorf("invalid metric exemplar filter %q: must be one of trace_based, always_on, or always_off", value)
+	}
 }
 
 func newMetricExporter(ctx context.Context, opts OTelMetricOptions) (sdkmetric.Exporter, error) {
