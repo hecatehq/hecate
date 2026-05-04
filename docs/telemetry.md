@@ -134,6 +134,7 @@ Metrics:
 - `GATEWAY_OTEL_METRICS_TIMEOUT`
 - `GATEWAY_OTEL_METRICS_TRANSPORT`
 - `GATEWAY_OTEL_METRICS_INTERVAL`
+- `GATEWAY_OTEL_METRICS_EXEMPLAR_FILTER` — optional override for histogram/counter exemplar sampling: `trace_based` (SDK default), `always_on`, or `always_off`
 
 Logs:
 
@@ -474,6 +475,13 @@ MCP tool name are trimmed and reject control characters or labels longer than 96
 bytes. Put ad-hoc diagnostics in spans, logs, or persisted events — not metric
 labels.
 
+The Go OTel SDK records metric exemplars with the trace-based filter by
+default, so histogram/counter samples recorded under a sampled trace can carry
+trace/span IDs to supporting backends. Set
+`GATEWAY_OTEL_METRICS_EXEMPLAR_FILTER=always_on` for local collector smoke
+tests when you want every sample eligible for exemplars, or `always_off` if
+your backend does not support them yet.
+
 ## Error And Limit Signals
 
 Two operational response classes are worth calling out:
@@ -617,6 +625,7 @@ Working today:
 - ACP bridge tracing — `hecate-acp` emits JSON-RPC and gateway-client spans, and propagates trace context into gateway requests
 - Sandbox/tool trace depth — shell and file tool steps expose sandbox wrapper/policy, timeout, exit, output-size, truncation, and file patch metadata through OTel-shaped `hecate.*` attributes
 - Metric cardinality guardrails — closed-set labels collapse unknown values to `other`; free-form labels reject control characters and oversized values
+- Metric exemplar filter configuration — Hecate exposes the SDK exemplar filter through `GATEWAY_OTEL_METRICS_EXEMPLAR_FILTER`
 - Sampler selection: `always_on` / `always_off` / `traceidratio` / `parentbased_*` (default: `parentbased_always_on`)
 - Resource attributes auto-populated (telemetry SDK, host, process; service identity from `GATEWAY_OTEL_SERVICE_*`)
 - Stable span and metric vocabulary (`gen_ai.*` for OTel-standard fields, `hecate.*` for product-specific fields)

@@ -65,6 +65,7 @@ func TestLoadFromEnvOTelGRPCSharedEndpoint(t *testing.T) {
 	t.Setenv("GATEWAY_OTEL_TRANSPORT", "grpc")
 	t.Setenv("GATEWAY_OTEL_METRICS_ENDPOINT", "https://metrics-collector:4317")
 	t.Setenv("GATEWAY_OTEL_METRICS_TRANSPORT", "grpc")
+	t.Setenv("GATEWAY_OTEL_METRICS_EXEMPLAR_FILTER", "always_on")
 
 	cfg := LoadFromEnv()
 	if cfg.OTel.Traces.Endpoint != "http://collector:4317" || cfg.OTel.Traces.Transport != "grpc" {
@@ -72,6 +73,9 @@ func TestLoadFromEnvOTelGRPCSharedEndpoint(t *testing.T) {
 	}
 	if cfg.OTel.Metrics.Endpoint != "https://metrics-collector:4317" || cfg.OTel.Metrics.Transport != "grpc" {
 		t.Fatalf("metrics config = endpoint %q transport %q", cfg.OTel.Metrics.Endpoint, cfg.OTel.Metrics.Transport)
+	}
+	if cfg.OTel.MetricsExemplarFilter != "always_on" {
+		t.Fatalf("metrics exemplar filter = %q, want always_on", cfg.OTel.MetricsExemplarFilter)
 	}
 }
 
@@ -110,6 +114,19 @@ func TestValidateRejectsInvalidOTelTransport(t *testing.T) {
 	}
 	if !strings.Contains(err.Error(), "GATEWAY_OTEL_TRANSPORT") {
 		t.Fatalf("Validate() error = %q, want GATEWAY_OTEL_TRANSPORT", err)
+	}
+}
+
+func TestValidateRejectsInvalidOTelMetricsExemplarFilter(t *testing.T) {
+	t.Setenv("GATEWAY_OTEL_METRICS_EXEMPLAR_FILTER", "sometimes")
+	cfg := LoadFromEnv()
+
+	err := cfg.Validate()
+	if err == nil {
+		t.Fatal("Validate() error = nil, want invalid OTel metrics exemplar filter error")
+	}
+	if !strings.Contains(err.Error(), "GATEWAY_OTEL_METRICS_EXEMPLAR_FILTER") {
+		t.Fatalf("Validate() error = %q, want GATEWAY_OTEL_METRICS_EXEMPLAR_FILTER", err)
 	}
 }
 

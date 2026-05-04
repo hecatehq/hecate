@@ -108,13 +108,14 @@ func main() {
 		}
 	}()
 	meterProvider, shutdownMetrics, err := telemetry.NewMeterProvider(context.Background(), telemetry.OTelMetricOptions{
-		Enabled:   cfg.OTel.Metrics.Enabled,
-		Endpoint:  cfg.OTel.Metrics.Endpoint,
-		Headers:   cfg.OTel.Metrics.Headers,
-		Resource:  otelResource,
-		Timeout:   cfg.OTel.Metrics.Timeout,
-		Interval:  cfg.OTel.MetricsInterval,
-		Transport: cfg.OTel.Metrics.Transport,
+		Enabled:        cfg.OTel.Metrics.Enabled,
+		Endpoint:       cfg.OTel.Metrics.Endpoint,
+		Headers:        cfg.OTel.Metrics.Headers,
+		Resource:       otelResource,
+		Timeout:        cfg.OTel.Metrics.Timeout,
+		Interval:       cfg.OTel.MetricsInterval,
+		Transport:      cfg.OTel.Metrics.Transport,
+		ExemplarFilter: cfg.OTel.MetricsExemplarFilter,
 	})
 	if err != nil {
 		slog.Error("otel meter provider init failed", slog.Any("error", err))
@@ -318,6 +319,7 @@ func main() {
 			slog.Bool("otel_metrics_enabled", cfg.OTel.Metrics.Enabled),
 			slog.String("otel_metrics_endpoint", cfg.OTel.Metrics.Endpoint),
 			slog.String("otel_metrics_transport", cfg.OTel.Metrics.Transport),
+			slog.String("otel_metrics_exemplar_filter", cfg.OTel.MetricsExemplarFilter),
 			slog.Bool("otel_logs_enabled", cfg.OTel.Logs.Enabled),
 			slog.String("otel_logs_endpoint", firstNonEmpty(cfg.OTel.Logs.Endpoint, cfg.OTel.Traces.Endpoint)),
 			slog.String("otel_logs_transport", firstNonEmpty(cfg.OTel.Logs.Transport, cfg.OTel.Transport)),
