@@ -28,7 +28,15 @@ type otlpSink struct {
 }
 
 func newOTLPSink() *otlpSink {
-	ln, err := net.Listen("tcp", "127.0.0.1:0")
+	return newOTLPSinkOn("127.0.0.1:0")
+}
+
+func newDockerReachableOTLPSink() *otlpSink {
+	return newOTLPSinkOn("0.0.0.0:0")
+}
+
+func newOTLPSinkOn(addr string) *otlpSink {
+	ln, err := net.Listen("tcp", addr)
 	if err != nil {
 		log.Fatalf("otlpSink listen: %v", err)
 	}
