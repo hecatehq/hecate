@@ -45,7 +45,7 @@ Without artifacts, the protocol is a stream of pointers to nowhere. With them, i
 
 A two-tier body layout behind Hecate's current storage-backend model:
 **metadata and small bodies live in the configured artifact backend; large
-bodies spill to object-like blob storage**. For the single-user local path, that
+bodies spill to object-like blob storage**. For the local path, that
 blob storage is the filesystem under `GATEWAY_DATA_DIR`. Consumers never see
 the split.
 
@@ -334,7 +334,7 @@ The artifact service maintains a small allowlist of mime types that compress; bi
 
 ## API surface
 
-All endpoints are served by the single-user gateway and covered by the same browser same-origin checks as the rest of `/v1/*`. Documented under `/v1/artifacts`.
+All endpoints are served by the gateway and covered by the same browser same-origin checks as the rest of `/v1/*`. Documented under `/v1/artifacts`.
 
 ### Create
 

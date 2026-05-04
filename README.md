@@ -72,7 +72,7 @@ docker run --rm -p 127.0.0.1:8765:8765 -v hecate-data:/data \
 
 Open `http://127.0.0.1:8765`. The UI loads with no further setup.
 
-> The container intentionally publishes only on `127.0.0.1`. Hecate is a single-operator local tool with no built-in auth; same-origin checks protect browser traffic, but they are not a network security boundary. Do not expose it to the network without your own auth, firewall, or reverse proxy in front.
+> The container intentionally publishes only on `127.0.0.1`. Hecate has no built-in auth layer; same-origin checks protect browser traffic, but they are not a network security boundary. Do not expose it to the network without your own auth, firewall, or reverse proxy in front.
 
 Pinned image tags, binary tarballs (linux/darwin × amd64/arm64), checksums, compose examples, and storage notes live in [`docs/deployment.md`](docs/deployment.md). Local development setup lives in [`docs/development.md`](docs/development.md).
 

@@ -3,10 +3,9 @@
 Open-source AI gateway and agent-task runtime. The gateway mediates
 OpenAI- and Anthropic-shaped client traffic to upstream providers, runs
 queued `agent_loop` tasks behind policy and approval gates, and emits
-OpenTelemetry traces. Single-user, gateway-local, deny-by-default,
-storage-tiered (memory / sqlite). Binds to 127.0.0.1 by default;
-no auth — the threat model is "trust your own machine." The React
-operator UI is embedded via `//go:embed ui/dist`.
+OpenTelemetry traces. Gateway-local, deny-by-default, storage-tiered
+(memory / sqlite). Binds to 127.0.0.1 by default; no built-in auth
+layer. The React operator UI is embedded via `//go:embed ui/dist`.
 
 This file is the orientation entry — the codebase map, the runtime
 invariants, and the gotchas that bite often. It is what an agent
@@ -98,7 +97,7 @@ When adding a new persisted thing, mirror both.
 Non-negotiable rules of the system. Read them before writing code that
 touches request handling, persistence, or tool execution.
 
-- **No auth.** Every request is processed as the operator. The gateway binds to `127.0.0.1` by default; the threat model is "trust your own machine." Bind elsewhere only behind a reverse proxy or firewall.
+- **No auth layer.** Every request is processed as the operator. The gateway binds to `127.0.0.1` by default; bind elsewhere only behind a reverse proxy or firewall.
 - **Sandbox is per-call subprocess, applied inline.** Shell, file, and git tool calls spawn a fresh `sh` from inside the gateway after policy validation + env sanitisation + output cap + wall-clock timeout. On Linux with `bwrap` installed and on macOS, the call is additionally wrapped by `bwrap` / `sandbox-exec` for filesystem and network confinement (auto-detected at startup). No separate sandbox daemon, no per-call rlimits (those would shrink the long-running gateway). New tools follow the same pattern.
 - **Approvals are blocking.** Pre-execution and mid-loop approvals halt the run; the run record persists in `awaiting_approval` until resolved. New gates use the `TaskApproval` shape.
 - **Events are appended, not mutated.** Every state transition writes a `run_event` with a monotonic sequence. The SSE stream replays from `after_sequence`. New event types must follow the event-protocol v1 taxonomy (`run.*`, `turn.*`, `tool.*`, `policy.*`, `gap.*`, `error.*`) and be documented in `docs/events.md`.

@@ -69,8 +69,8 @@ Each section has exactly one job: orient, inspect, compare, edit, or confirm. If
 
 ## Hecate-specific UI rules
 
-- Treat Hecate as a single-operator local console. Do not add auth, tenant,
-  or account-management UI unless the product model changes again.
+- Do not add auth, tenant, or account-management UI unless the product model
+  changes again.
 - Provider and model selection exposes local and cloud distinctions clearly.
 - In Chats, keep **Model** and **Agent** mental models distinct. Providers and
   models belong to Model chat; external adapters/workspaces/native sessions
@@ -178,9 +178,8 @@ When the Go side adds a required prop (e.g. `streamTurnCosts`), update the `setu
 - **`render1()` + `render2()` in the same `it` block** — don't. React Testing Library cleanup runs between tests, not within. Split into two `it`s if you need fresh mounts.
 - **Cost-ceiling banner** — gates on `run.otel_status_message === "cost_ceiling_exceeded"` (the specific string). A regression that drops or rewords that string silently breaks the "Raise ceiling & resume" affordance.
 - **Every gateway response is `{object, data}`** — `lib/api.ts` clients must read `payload.data.<field>`, not `payload.<field>`. When mocking, copy the real wire shape, not the fields you happen to need; fixtures that skip the envelope hide production bugs.
-- **No auth surfaces in alpha** — Hecate is currently a single-operator local
-  console. Do not reintroduce token gates, tenant tabs, or key-management tabs
-  unless the product model changes again.
+- **No auth surfaces in alpha** — do not reintroduce token gates, tenant tabs,
+  or key-management tabs unless the product model changes again.
 
 ## UI recipes
 
