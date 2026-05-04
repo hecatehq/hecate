@@ -1,4 +1,4 @@
-import { render, screen } from "@testing-library/react";
+import { render, screen, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { describe, expect, it, vi } from "vitest";
 
@@ -12,15 +12,15 @@ function setup(stateOverrides = {}, actionOverrides = {}) {
   return { state, actions, user };
 }
 
-// Tab gating: TABS holds two ids — pricebook + retention. Policy and
-// MCP Cache were removed (single-user mode dropped tenant/role gating
-// and the MCP cache was pure informational stats). Balances and Usage
-// live in the Costs workspace.
+// Tab gating: TABS holds three ids — pricebook + retention + external
+// agents. Policy and MCP Cache were removed (single-user mode dropped
+// tenant/role gating and the MCP cache was pure informational stats).
+// Balances and Usage live in the Costs workspace.
 describe("SettingsView tabs", () => {
-  it("renders Pricing / Retention", () => {
+  it("renders Pricing / Retention / External agents", () => {
     const { state, actions } = setup();
     render(<SettingsView state={state} actions={actions} />);
-    for (const tab of ["Pricing", "Retention"]) {
+    for (const tab of ["Pricing", "Retention", "External agents"]) {
       expect(screen.getByRole("button", { name: tab })).toBeTruthy();
     }
   });
@@ -84,3 +84,115 @@ describe("SettingsView retention tab", () => {
 
 // Usage / Balances tabs were lifted into CostsView — see
 // features/costs/CostsView.test.tsx for the equivalent rendering tests.
+
+describe("SettingsView external agents tab", () => {
+  it("fires listAgentChatGrants when the tab opens", async () => {
+    const listAgentChatGrants = vi.fn(async () => undefined);
+    const { state, actions, user } = setup({}, { listAgentChatGrants });
+    render(<SettingsView state={state} actions={actions} />);
+    await user.click(screen.getByRole("button", { name: "External agents" }));
+    expect(listAgentChatGrants).toHaveBeenCalled();
+  });
+
+  it("renders the empty-state copy when there are no grants", async () => {
+    const { state, actions, user } = setup();
+    render(<SettingsView state={state} actions={actions} />);
+    await user.click(screen.getByRole("button", { name: "External agents" }));
+    expect(await screen.findByTestId("external-agents-empty")).toBeTruthy();
+  });
+
+  it("renders one row per grant with adapter / tool / decision metadata", async () => {
+    const { state, actions, user } = setup({
+      agentChatGrants: [
+        {
+          id: "g-1",
+          scope: "session",
+          adapter_id: "codex",
+          tool_kind: "fs",
+          decision: "approve",
+          granted_by: "operator",
+          granted_at: "2026-04-21T10:00:00Z",
+        },
+        {
+          id: "g-2",
+          scope: "adapter_tool",
+          adapter_id: "claude-code",
+          tool_kind: "exec",
+          decision: "deny",
+          granted_by: "operator",
+          granted_at: "2026-04-21T10:01:00Z",
+          expires_at: "2026-05-01T10:00:00Z",
+        },
+      ],
+    });
+    render(<SettingsView state={state} actions={actions} />);
+    await user.click(screen.getByRole("button", { name: "External agents" }));
+    expect(await screen.findByTestId("external-agents-list")).toBeTruthy();
+    // Scope decision-tone assertions to row content so they don't
+    // accidentally match the section description above.
+    const approveRow = screen.getByTestId("external-agents-row-g-1");
+    expect(within(approveRow).getByText(/always approve/i)).toBeTruthy();
+    const denyRow = screen.getByTestId("external-agents-row-g-2");
+    expect(within(denyRow).getByText(/always deny/i)).toBeTruthy();
+  });
+
+  it("revoke asks for inline confirmation before deleting the grant", async () => {
+    const deleteAgentChatGrant = vi.fn(async () => true);
+    const { state, actions, user } = setup(
+      {
+        agentChatGrants: [
+          {
+            id: "g-7",
+            scope: "session",
+            adapter_id: "codex",
+            tool_kind: "fs",
+            decision: "approve",
+            granted_at: "2026-04-21T10:00:00Z",
+          },
+        ],
+      },
+      { deleteAgentChatGrant },
+    );
+    render(<SettingsView state={state} actions={actions} />);
+    await user.click(screen.getByRole("button", { name: "External agents" }));
+    await user.click(await screen.findByTestId("external-agents-revoke-g-7"));
+    expect(deleteAgentChatGrant).not.toHaveBeenCalled();
+    await user.click(await screen.findByTestId("external-agents-confirm-revoke-g-7"));
+    expect(deleteAgentChatGrant).toHaveBeenCalledWith("g-7");
+  });
+
+  it("revoke confirmation can be cancelled inline", async () => {
+    const deleteAgentChatGrant = vi.fn(async () => true);
+    const { state, actions, user } = setup(
+      {
+        agentChatGrants: [
+          {
+            id: "g-8",
+            scope: "session",
+            adapter_id: "codex",
+            tool_kind: "fs",
+            decision: "approve",
+            granted_at: "2026-04-21T10:00:00Z",
+          },
+        ],
+      },
+      { deleteAgentChatGrant },
+    );
+    render(<SettingsView state={state} actions={actions} />);
+    await user.click(screen.getByRole("button", { name: "External agents" }));
+    await user.click(await screen.findByTestId("external-agents-revoke-g-8"));
+    expect(await screen.findByTestId("external-agents-confirm-revoke-g-8")).toBeTruthy();
+    await user.click(await screen.findByTestId("external-agents-cancel-revoke-g-8"));
+    expect(deleteAgentChatGrant).not.toHaveBeenCalled();
+    expect(screen.queryByTestId("external-agents-confirm-revoke-g-8")).toBeNull();
+  });
+
+  it("surfaces the listing error inline when the load fails", async () => {
+    const { state, actions, user } = setup({
+      agentChatGrantsError: "list failed: 500",
+    });
+    render(<SettingsView state={state} actions={actions} />);
+    await user.click(screen.getByRole("button", { name: "External agents" }));
+    expect(await screen.findByText(/list failed: 500/)).toBeTruthy();
+  });
+});
