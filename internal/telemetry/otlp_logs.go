@@ -64,12 +64,14 @@ func NewLoggerWithOTLP(ctx context.Context, level string, opts OTelLogOptions) (
 func newLogExporter(ctx context.Context, opts OTelLogOptions) (sdklog.Exporter, error) {
 	if NormalizeOTLPTransport(opts.Transport) == OTLPTransportGRPC {
 		exporterOpts := []otlploggrpc.Option{
-			otlploggrpc.WithEndpoint(OTLPGRPCEndpoint(opts.Endpoint)),
 			otlploggrpc.WithHeaders(opts.Headers),
 			otlploggrpc.WithTimeout(opts.Timeout),
 		}
-		if IsOTLPGRPCInsecure(opts.Endpoint) {
-			exporterOpts = append(exporterOpts, otlploggrpc.WithInsecure())
+		if endpoint := strings.TrimSpace(opts.Endpoint); endpoint != "" {
+			exporterOpts = append(exporterOpts, otlploggrpc.WithEndpoint(OTLPGRPCEndpoint(endpoint)))
+			if IsOTLPGRPCInsecure(endpoint) {
+				exporterOpts = append(exporterOpts, otlploggrpc.WithInsecure())
+			}
 		}
 		return otlploggrpc.New(ctx, exporterOpts...)
 	}

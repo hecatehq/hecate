@@ -581,7 +581,7 @@ export function tracePhaseFromSpan(name: string): TraceTimelineItem["phase"] {
   if (lower.includes("approval")) return "approval";
   if (lower.includes("artifact")) return "artifact";
   if (lower.includes("step") || lower.includes("tool")) return "tool";
-  if (lower.includes("orchestrator") || lower.includes("task") || lower.includes("run")) return "orchestration";
+  if (lower.includes("orchestrator") || lower.startsWith("task.")) return "orchestration";
   if (lower.includes("request") || lower.endsWith(".parse")) return "request";
   if (lower.includes("router") || lower.includes("route")) return "routing";
   if (lower.includes("cache") || lower.includes("semantic")) return "cache";

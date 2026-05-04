@@ -415,6 +415,7 @@ describe("runtime-utils", () => {
     expect(tracePhaseFromSpan("orchestrator.artifact")).toBe("artifact");
     expect(tracePhaseFromSpan("retention.run")).toBe("retention");
     expect(tracePhaseFromSpan("agent_chat.run")).toBe("agent_chat");
+    expect(tracePhaseFromSpan("gateway.runtime")).toBe("other");
   });
 
   // ── route helpers ────────────────────────────────────────────────────

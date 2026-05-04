@@ -4,9 +4,12 @@ import (
 	"context"
 	"strings"
 	"testing"
+	"time"
 
 	"go.opentelemetry.io/otel/trace"
 )
+
+const testOTLPTimeout = time.Second
 
 func TestOTelMetricExemplarFilterConfig(t *testing.T) {
 	t.Parallel()
@@ -73,5 +76,22 @@ func TestNewMeterProviderRejectsInvalidExemplarFilter(t *testing.T) {
 	}
 	if !strings.Contains(err.Error(), "invalid metric exemplar filter") {
 		t.Fatalf("NewMeterProvider() error = %q, want invalid metric exemplar filter", err)
+	}
+}
+
+func TestNewMeterProviderGRPCUsesDefaultEndpointWhenUnset(t *testing.T) {
+	t.Parallel()
+
+	ctx, cancel := context.WithTimeout(context.Background(), testOTLPTimeout)
+	defer cancel()
+
+	exporter, err := newMetricExporter(ctx, OTelMetricOptions{
+		Transport: OTLPTransportGRPC,
+	})
+	if err != nil {
+		t.Fatalf("newMetricExporter() error = %v", err)
+	}
+	if exporter == nil {
+		t.Fatal("newMetricExporter() exporter = nil")
 	}
 }
