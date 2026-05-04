@@ -592,6 +592,12 @@ POST /v1/agent-chat/sessions/agent_chat_.../cancel
 Returns `202` when a running turn was signalled. If the session is not
 currently running, the endpoint returns `409 invalid_request`.
 
+### `POST /v1/agent-chat/sessions/{id}/close`
+
+Closes the native ACP adapter session while keeping the Hecate chat history.
+If a turn is currently running, Hecate cancels and waits briefly before closing
+the external session.
+
 ### `DELETE /v1/agent-chat/sessions/{id}`
 
 Deletes an Agent Chat session from the configured chat-session backend.

@@ -171,6 +171,9 @@ On Hecate shutdown, active Agent Chat turns are cancelled first. Hecate waits
 briefly for the ACP turn to drain, asks the native ACP session to close, and
 then kills the owned adapter process group if it is still alive. This keeps app
 quit / restart from leaving Codex, Claude, or Cursor adapter processes behind.
+Operators can also close an Agent Chat session manually to release the external
+adapter process while keeping the Hecate chat history. Deleting a chat performs
+the same release step and then removes the persisted history.
 
 Every prompt also gets OTel-shaped observability. The message response includes
 `request_id`, `trace_id`, and `span_id`, and `GET

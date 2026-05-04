@@ -172,6 +172,34 @@ func (h *Handler) HandleCancelAgentChatSession(w http.ResponseWriter, r *http.Re
 	WriteJSON(w, http.StatusAccepted, AgentChatSessionResponse{Object: "agent_chat_session", Data: renderAgentChatSession(session)})
 }
 
+func (h *Handler) HandleCloseAgentChatSession(w http.ResponseWriter, r *http.Request) {
+	session, ok, err := h.agentChat.Get(r.Context(), r.PathValue("id"))
+	if err != nil {
+		WriteError(w, http.StatusInternalServerError, "gateway_error", err.Error())
+		return
+	}
+	if !ok {
+		WriteError(w, http.StatusNotFound, "not_found", "agent chat session not found")
+		return
+	}
+	cancelCtx, cancel := context.WithTimeout(r.Context(), 3*time.Second)
+	_ = h.agentChatLive.cancelRunAndWait(cancelCtx, session.ID)
+	cancel()
+	if h.agentChatRunner != nil {
+		_ = h.agentChatRunner.CloseSession(r.Context(), session.ID)
+	}
+	updated, found, err := h.agentChat.Get(r.Context(), session.ID)
+	if err != nil {
+		WriteError(w, http.StatusInternalServerError, "gateway_error", err.Error())
+		return
+	}
+	if !found {
+		WriteError(w, http.StatusNotFound, "not_found", "agent chat session not found")
+		return
+	}
+	WriteJSON(w, http.StatusOK, AgentChatSessionResponse{Object: "agent_chat_session", Data: renderAgentChatSession(updated)})
+}
+
 func (h *Handler) HandleCreateAgentChatMessage(w http.ResponseWriter, r *http.Request) {
 	session, ok, err := h.agentChat.Get(r.Context(), r.PathValue("id"))
 	if err != nil {
