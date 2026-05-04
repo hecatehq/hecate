@@ -1,6 +1,6 @@
 import { useEffect, useState, type ReactNode } from "react";
 import type { RuntimeConsoleViewModel } from "../../app/useRuntimeConsole";
-import type { AgentChatGrantRecord } from "../../types/runtime";
+import type { AgentAdapterHealthRecord, AgentAdapterRecord, AgentChatGrantRecord } from "../../types/runtime";
 import { Badge, Icon, Icons, InlineError } from "../shared/ui";
 import { PricebookTab } from "./PricebookTab";
 
@@ -292,6 +292,8 @@ function ExternalAgentsTab({ state, actions }: Props) {
 
   return (
     <>
+      <AdapterStatusSection state={state} actions={actions} />
+
       <SectionHeader
         title="External agent grants"
         description="Durable “always allow / always deny” rules persisted by the approval coordinator. Revoke removes a grant immediately and doesn't undo decisions already applied to in-flight calls."
@@ -337,6 +339,155 @@ function ExternalAgentsTab({ state, actions }: Props) {
       )}
     </>
   );
+}
+
+// AdapterStatusSection lists the configured external-agent adapters
+// with a "Test" button per row. The button calls
+// actions.probeAgentAdapter, which spawns the adapter, completes the
+// ACP handshake, and returns a typed health classification. Probe
+// state is cached on the hook so leaving and returning to the tab
+// doesn't lose the last-known status.
+//
+// The section is read-only otherwise: adapter discovery and
+// availability are still owned by the dashboard fan-out's
+// /v1/agent-adapters response. We just surface the additional
+// per-adapter "can I actually use this?" check here.
+function AdapterStatusSection({ state, actions }: Props) {
+  const adapters = state.agentAdapters;
+  if (!adapters || adapters.length === 0) {
+    return null;
+  }
+  return (
+    <div style={{ marginBottom: 24 }} data-testid="external-agents-adapters">
+      <SectionHeader
+        title="Adapters"
+        description="Test that an external coding-agent adapter can start, complete the ACP handshake, and create a session. Surfaces auth-required failures the chat workspace would otherwise hide behind a generic error."
+        meta={`${adapters.length} adapter${adapters.length === 1 ? "" : "s"}`}
+      />
+      <div className="card" style={{ overflow: "hidden" }}>
+        {adapters.map((adapter, i) => (
+          <AdapterStatusRow
+            key={adapter.id}
+            adapter={adapter}
+            divider={i < adapters.length - 1}
+            health={state.agentAdapterHealthByID.get(adapter.id) ?? null}
+            loading={Boolean(state.agentAdapterHealthLoadingByID.get(adapter.id))}
+            onTest={() => void actions.probeAgentAdapter(adapter.id)}
+          />
+        ))}
+      </div>
+    </div>
+  );
+}
+
+function AdapterStatusRow({
+  adapter,
+  divider,
+  health,
+  loading,
+  onTest,
+}: {
+  adapter: AgentAdapterRecord;
+  divider: boolean;
+  health: AgentAdapterHealthRecord | null;
+  loading: boolean;
+  onTest: () => void;
+}) {
+  // Two status sources: the dashboard's /v1/agent-adapters availability
+  // (binary discovery only) and the on-demand probe (full handshake).
+  // Probe wins when present — it's a strictly more informative signal.
+  const dashboardChip = adapter.available ? null : { tone: "amber" as const, label: "missing" };
+  const probeChip = health ? probeStatusChip(health.status) : null;
+  const chip = probeChip ?? dashboardChip;
+
+  return (
+    <div
+      data-testid={`external-agents-adapter-${adapter.id}`}
+      style={{
+        display: "flex",
+        alignItems: "center",
+        gap: 10,
+        padding: "10px 14px",
+        borderBottom: divider ? "1px solid var(--border)" : "none",
+      }}
+    >
+      <div style={{ minWidth: 0, flex: 1 }}>
+        <div style={{ display: "flex", alignItems: "baseline", gap: 8, marginBottom: 2 }}>
+          <span style={{ fontSize: 12, fontWeight: 500, color: "var(--t0)" }}>{adapter.name}</span>
+          <span style={{ fontFamily: "var(--font-mono)", fontSize: 11, color: "var(--t3)" }}>·</span>
+          <span style={{ fontFamily: "var(--font-mono)", fontSize: 11, color: "var(--t2)" }}>{adapter.id}</span>
+          {chip && (
+            <span
+              style={{
+                fontFamily: "var(--font-mono)",
+                fontSize: 10,
+                color: chipColor(chip.tone),
+                textTransform: "uppercase",
+                letterSpacing: "0.04em",
+              }}
+            >
+              {chip.label}
+            </span>
+          )}
+        </div>
+        <div style={{ display: "flex", flexWrap: "wrap", gap: 8, fontFamily: "var(--font-mono)", fontSize: 10, color: "var(--t3)" }}>
+          {adapter.command && <span>command <span style={{ color: "var(--t1)" }}>{adapter.command}</span></span>}
+          {health?.path && <span>path <span style={{ color: "var(--t1)" }}>{health.path}</span></span>}
+          {health?.duration_ms !== undefined && <span>{health.duration_ms} ms</span>}
+        </div>
+        {health && (health.hint || health.error) && (
+          <div
+            data-testid={`external-agents-adapter-${adapter.id}-detail`}
+            style={{
+              marginTop: 6,
+              fontSize: 11,
+              color: chipColor(probeStatusChip(health.status)?.tone ?? "muted"),
+              lineHeight: 1.4,
+              wordBreak: "break-word",
+            }}
+          >
+            {health.hint && <div>{health.hint}</div>}
+            {health.error && (
+              <div style={{ fontFamily: "var(--font-mono)", fontSize: 10, color: "var(--t3)", marginTop: 2 }}>
+                {health.error}
+              </div>
+            )}
+          </div>
+        )}
+      </div>
+      <button
+        type="button"
+        className="btn btn-ghost btn-sm"
+        onClick={onTest}
+        disabled={loading}
+        data-testid={`external-agents-test-${adapter.id}`}
+        title={loading ? "Probing…" : "Spawn the adapter, complete the ACP handshake, and report status"}
+      >
+        <Icon d={Icons.refresh} size={13} /> {loading ? "Testing…" : "Test"}
+      </button>
+    </div>
+  );
+}
+
+type ChipTone = "green" | "amber" | "red" | "muted";
+
+function probeStatusChip(status: string): { tone: ChipTone; label: string } | null {
+  switch (status) {
+    case "ready":         return { tone: "green", label: "ready" };
+    case "auth_required": return { tone: "amber", label: "auth required" };
+    case "not_installed": return { tone: "amber", label: "not installed" };
+    case "error":         return { tone: "red",   label: "error" };
+    default:              return null;
+  }
+}
+
+function chipColor(tone: ChipTone): string {
+  switch (tone) {
+    case "green": return "var(--teal)";
+    case "amber": return "var(--amber)";
+    case "red":   return "var(--red)";
+    case "muted": return "var(--t3)";
+  }
 }
 
 function GrantRow({

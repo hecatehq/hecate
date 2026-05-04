@@ -36,6 +36,7 @@ import {
   getAgentChatApproval as getAgentChatApprovalRequest,
   listAgentChatApprovals as listAgentChatApprovalsRequest,
   listAgentChatGrants as listAgentChatGrantsRequest,
+  probeAgentAdapter as probeAgentAdapterRequest,
   resolveAgentChatApproval as resolveAgentChatApprovalRequest,
   runRetention as runRetentionRequest,
   resetBudget as resetBudgetRequest,
@@ -59,6 +60,7 @@ import type { PolicyRuleUpsertPayload, ResolveAgentChatApprovalPayload, AgentCha
 import type {
   BudgetStatusResponse,
   AccountSummaryResponse,
+  AgentAdapterHealthRecord,
   AgentAdapterRecord,
   AgentChatApprovalRecord,
   AgentChatGrantRecord,
@@ -141,6 +143,18 @@ export function useRuntimeConsole() {
   // workspace surfaces a danger banner when this is "auto" — every
   // adapter RequestPermission is permitted without operator review.
   const [agentAdapterApprovalMode, setAgentAdapterApprovalMode] = useState<string>("");
+  // agentAdapterHealthByID stores the most recent probe result per
+  // adapter, keyed by adapter id. Operators trigger a probe via the
+  // "Test" button in Settings → External agents and the result is
+  // cached here so the picker dropdown can show a status chip without
+  // re-running the probe. Map instance is replaced on update — same
+  // invariant as pendingApprovalsBySessionID.
+  const [agentAdapterHealthByID, setAgentAdapterHealthByID] = useState<
+    Map<string, AgentAdapterHealthRecord>
+  >(() => new Map());
+  const [agentAdapterHealthLoadingByID, setAgentAdapterHealthLoadingByID] = useState<
+    Map<string, true>
+  >(() => new Map());
   const [budget, setBudget] = useState<BudgetStatusResponse["data"] | null>(null);
   const [accountSummary, setAccountSummary] = useState<AccountSummaryResponse["data"] | null>(null);
   const [requestLedger, setRequestLedger] = useState<RequestLedgerResponse["data"]>([]);
@@ -1338,6 +1352,40 @@ export function useRuntimeConsole() {
     }
   }
 
+  // probeAgentAdapter exercises the configured adapter and caches the
+  // typed result keyed by adapter id. Operators trigger this via the
+  // "Test" button in Settings → External agents; the result drives
+  // the status chip + the picker dropdown's inline diagnostic. The
+  // loading map is keyed by id so two adapters can be probing
+  // concurrently without confusing the UI.
+  async function probeAgentAdapter(adapterID: string): Promise<AgentAdapterHealthRecord | null> {
+    if (!adapterID) return null;
+    setAgentAdapterHealthLoadingByID((current) => {
+      const next = new Map(current);
+      next.set(adapterID, true);
+      return next;
+    });
+    try {
+      const payload = await probeAgentAdapterRequest(adapterID);
+      setAgentAdapterHealthByID((current) => {
+        const next = new Map(current);
+        next.set(adapterID, payload.data);
+        return next;
+      });
+      return payload.data;
+    } catch (error) {
+      setNoticeMessage("error", error instanceof Error ? error.message : "Failed to probe adapter.");
+      return null;
+    } finally {
+      setAgentAdapterHealthLoadingByID((current) => {
+        if (!current.has(adapterID)) return current;
+        const next = new Map(current);
+        next.delete(adapterID);
+        return next;
+      });
+    }
+  }
+
   async function renameChatSession(id: string, title: string) {
     try {
       const payload = await updateChatSessionRequest(id, title);
@@ -1447,6 +1495,8 @@ export function useRuntimeConsole() {
       agentChatGrantsLoading,
       agentChatGrantsError,
       agentAdapterApprovalMode,
+      agentAdapterHealthByID,
+      agentAdapterHealthLoadingByID,
     },
     actions: {
       copyCommand,
@@ -1495,6 +1545,7 @@ export function useRuntimeConsole() {
       cancelAgentChatApproval,
       listAgentChatGrants,
       deleteAgentChatGrant,
+      probeAgentAdapter,
       dismissNotice: () => setNotice(null),
     },
   };

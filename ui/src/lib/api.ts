@@ -11,6 +11,7 @@ import type {
   PricebookEntryUpsertPayload,
   PricebookImportDiffResponse,
   ProviderPresetResponse,
+  AgentAdapterHealthResponse,
   AgentAdapterResponse,
   AgentChatApprovalRequestedEvent,
   AgentChatApprovalResolvedEvent,
@@ -215,6 +216,18 @@ export async function getProviderPresets(): Promise<ProviderPresetResponse> {
 
 export async function getAgentAdapters(): Promise<AgentAdapterResponse> {
   return fetchJSON<AgentAdapterResponse>("/v1/agent-adapters");
+}
+
+// probeAgentAdapter exercises the configured adapter end-to-end and
+// returns a typed health classification. The probe spawns the adapter,
+// completes the ACP handshake, opens and discards a session, and
+// terminates — operators get back ready / not_installed / auth_required
+// / error plus a hint. See docs/runtime-api.md
+// `GET /v1/agent-adapters/{id}/health` for the wire contract.
+export async function probeAgentAdapter(adapterID: string): Promise<AgentAdapterHealthResponse> {
+  return fetchJSON<AgentAdapterHealthResponse>(
+    `/v1/agent-adapters/${encodeURIComponent(adapterID)}/health`,
+  );
 }
 
 export async function getTrace(requestID: string): Promise<TraceResponse> {

@@ -429,6 +429,7 @@ export function ChatView({ state, actions, onNavigate }: Props) {
                 value={activeAgentAdapterID}
                 onChange={actions.setAgentAdapterID}
                 adapters={state.agentAdapters}
+                healthByID={state.agentAdapterHealthByID}
                 disabled={agentPickerLocked}
                 disabledReason="Agent is fixed for this chat. Start a new chat to choose another agent."
               />
