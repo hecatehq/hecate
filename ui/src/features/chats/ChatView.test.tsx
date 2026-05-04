@@ -227,6 +227,9 @@ describe("ChatView agent target", () => {
             created_at: "2026-05-03T10:00:01Z",
             activities: [
               { type: "started", status: "completed", title: "Starting external agent", detail: "Codex ACP session started" },
+              { id: "plan:0:Inspect", type: "plan", status: "completed", kind: "high", title: "Inspect changes" },
+              { id: "plan:1:Summarize", type: "plan", status: "in_progress", kind: "medium", title: "Summarize result" },
+              { id: "tool:call_1", type: "tool_call", status: "completed", kind: "execute", title: "git diff --stat", detail: "README.md:12" },
               { type: "completed", status: "completed", title: "Final answer" },
             ],
           },
@@ -242,6 +245,11 @@ describe("ChatView agent target", () => {
     expect(screen.getAllByText(/ACP native_codex/).length).toBeGreaterThan(0);
     expect(screen.getByText(/trace 01234567/)).toBeTruthy();
     expect(screen.queryByText("Starting external agent")).toBeNull();
+    expect(screen.getByText("run completed · session started · 1/2 plan · 1 tool · files changed")).toBeTruthy();
+    expect(screen.getByText("Inspect changes")).toBeTruthy();
+    expect(screen.getByText("Summarize result")).toBeTruthy();
+    expect(screen.getByText("git diff --stat")).toBeTruthy();
+    expect(screen.getByText("README.md:12")).toBeTruthy();
     expect(screen.getByText("files changed · 1 file changed")).toBeTruthy();
     expect(screen.getByText("raw adapter output")).toBeTruthy();
     expect(screen.getByText("completed")).toBeTruthy();

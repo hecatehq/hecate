@@ -242,8 +242,10 @@ export type AgentChatUsageRecord = {
 };
 
 export type AgentChatActivityRecord = {
+  id?: string;
   type: string;
   status?: string;
+  kind?: string;
   title: string;
   detail?: string;
   created_at?: string;

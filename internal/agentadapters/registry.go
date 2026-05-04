@@ -63,6 +63,7 @@ type RunRequest struct {
 	Timeout                 time.Duration
 	MaxOutputBytes          int64
 	OnOutput                func(string)
+	OnActivity              func(Activity)
 }
 
 type RunResult struct {
@@ -86,6 +87,15 @@ type Usage struct {
 	ContextUsed          int
 	ReportedCostAmount   string
 	ReportedCostCurrency string
+}
+
+type Activity struct {
+	ID     string
+	Type   string
+	Status string
+	Kind   string
+	Title  string
+	Detail string
 }
 
 func (u Usage) Empty() bool {

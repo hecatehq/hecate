@@ -622,8 +622,10 @@ type AgentChatMessageItem struct {
 }
 
 type AgentChatActivityItem struct {
+	ID        string `json:"id,omitempty"`
 	Type      string `json:"type"`
 	Status    string `json:"status,omitempty"`
+	Kind      string `json:"kind,omitempty"`
 	Title     string `json:"title"`
 	Detail    string `json:"detail,omitempty"`
 	CreatedAt string `json:"created_at,omitempty"`
