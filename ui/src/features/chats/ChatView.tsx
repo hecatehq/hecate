@@ -32,6 +32,17 @@ type VisibleChatMessage = {
   duration_ms?: number;
 };
 
+type SidebarSession = {
+  id: string;
+  title?: string;
+  message_count: number;
+  provider_call_count: number;
+  last_provider?: string;
+  last_model?: string;
+  created_at?: string;
+  updated_at?: string;
+};
+
 export function ChatView({ state, actions, onNavigate }: Props) {
   const [sidebarOpen, setSidebarOpen] = useState(true);
   const [syspromptOpen, setSyspromptOpen] = useState(false);
@@ -42,6 +53,7 @@ export function ChatView({ state, actions, onNavigate }: Props) {
   const [atBottom, setAtBottom] = useState(true);
   const [workspaceEntryOpen, setWorkspaceEntryOpen] = useState(false);
   const [workspacePathValue, setWorkspacePathValue] = useState("");
+  const [sidebarQuery, setSidebarQuery] = useState("");
   const isMac = typeof navigator !== "undefined" && /mac/i.test(navigator.platform);
   const modKey = isMac ? "⌘" : "Ctrl";
   const [modEnterMode, setModEnterMode] = useState(
@@ -55,7 +67,7 @@ export function ChatView({ state, actions, onNavigate }: Props) {
   const userScrolledRef = useRef(false);
 
   const isAgentChat = state.chatTarget === "agent";
-  const sessions = isAgentChat
+  const sessions: SidebarSession[] = isAgentChat
     ? (state.agentChatSessions ?? []).map((s) => ({
         id: s.id,
         title: s.title,
@@ -67,6 +79,8 @@ export function ChatView({ state, actions, onNavigate }: Props) {
         updated_at: s.updated_at,
       }))
     : (state.chatSessions ?? []);
+  const filteredSessions = filterSidebarSessions(sessions, sidebarQuery);
+  const groupedSessions = groupSidebarSessions(filteredSessions);
   const activeSessionID = isAgentChat ? state.activeAgentChatSessionID : state.activeChatSessionID;
   const activeTitle = isAgentChat
     ? state.activeAgentChatSession?.title
@@ -176,7 +190,7 @@ export function ChatView({ state, actions, onNavigate }: Props) {
 
   function handleSidebarScroll() {
     const el = sidebarScrollRef.current;
-    if (isAgentChat || !el || !state.chatSessionsHasMore || state.chatSessionsLoadingMore) return;
+    if (isAgentChat || sidebarQuery.trim() || !el || !state.chatSessionsHasMore || state.chatSessionsLoadingMore) return;
     const nearBottom = el.scrollHeight - el.scrollTop - el.clientHeight < 60;
     if (nearBottom) {
       void actions.loadMoreChatSessions();
@@ -261,72 +275,92 @@ export function ChatView({ state, actions, onNavigate }: Props) {
           <div style={{ padding: "8px 12px 4px", fontFamily: "var(--font-mono)", fontSize: 10, letterSpacing: "0.08em", textTransform: "uppercase", color: "var(--t3)" }}>
             Chats
           </div>
+          <div style={{ padding: "4px 8px 8px" }}>
+            <input
+              aria-label="Search chats"
+              className="input"
+              onChange={(e) => setSidebarQuery(e.target.value)}
+              placeholder="Search chats"
+              style={{ height: 28, fontSize: 12, padding: "0 8px" }}
+              value={sidebarQuery}
+            />
+          </div>
           <div ref={sidebarScrollRef} onScroll={handleSidebarScroll} style={{ flex: 1, overflowY: "auto", padding: "2px 0 6px" }}>
             {sessions.length === 0 && (
               <div style={{ padding: "16px 12px", fontSize: 12, color: "var(--t3)", textAlign: "center" }}>No chats yet</div>
             )}
-            {sessions.map(s => (
-              <div key={s.id}
-                onClick={() => {
-                  if (renamingId === s.id) return;
-                  void actions.selectChatSession(s.id);
-                  textareaRef.current?.focus();
-                }}
-                onMouseEnter={() => setHoveredChatId(s.id)}
-                onMouseLeave={() => setHoveredChatId(null)}
-                style={{
-                  padding: "8px 12px", cursor: "pointer",
-                  background: activeSessionID === s.id ? "var(--teal-bg)" : "transparent",
-                  borderLeft: activeSessionID === s.id ? "2px solid var(--teal)" : "2px solid transparent",
-                  transition: "background 0.1s",
-                }}>
-                <div style={{ display: "flex", alignItems: "center", gap: 2, height: 18 }}>
-                  {renamingId === s.id ? (
-                    <input
-                      autoFocus
-                      value={renameValue}
-                      onChange={e => setRenameValue(e.target.value)}
-                      onClick={e => e.stopPropagation()}
-                      onKeyDown={e => {
-                        if (e.key === "Enter") { void actions.renameChatSession(s.id, renameValue); setRenamingId(null); }
-                        if (e.key === "Escape") setRenamingId(null);
-                      }}
-                      onBlur={() => { void actions.renameChatSession(s.id, renameValue); setRenamingId(null); }}
-                      style={{ flex: 1, minWidth: 0, height: 18, boxSizing: "border-box", fontSize: 12, background: "var(--bg3)", border: "1px solid var(--teal)", borderRadius: "var(--radius-sm)", color: "var(--t0)", padding: "0 4px", outline: "none", fontFamily: "var(--font-sans)", lineHeight: "16px" }}
-                    />
-                  ) : (
-                    <>
-                      <div style={{ flex: 1, minWidth: 0, fontSize: 12, lineHeight: "18px", color: activeSessionID === s.id ? "var(--t0)" : "var(--t1)", fontWeight: activeSessionID === s.id ? 500 : 400, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>
-                        {s.title || "Untitled"}
-                      </div>
-                      <div style={{ display: "flex", gap: 1, opacity: hoveredChatId === s.id ? 1 : 0, transition: "opacity 0.15s", flexShrink: 0 }}>
-                        {!isAgentChat && (
-                          <button
-                            className="btn btn-ghost btn-sm"
-                            onClick={e => { e.stopPropagation(); setRenamingId(s.id); setRenameValue(s.title || ""); }}
-                            style={{ padding: "1px 3px" }}
-                            title="Rename"
-                          >
-                            <Icon d={Icons.edit} size={10} />
-                          </button>
-                        )}
-                        <button
-                          className="btn btn-ghost btn-sm"
-                          onClick={e => { e.stopPropagation(); void actions.deleteChatSession(s.id); }}
-                          style={{ padding: "1px 3px", color: "var(--red)" }}
-                          title="Delete"
-                        >
-                          <Icon d={Icons.trash} size={10} />
-                        </button>
-                      </div>
-                    </>
-                  )}
+            {sessions.length > 0 && filteredSessions.length === 0 && (
+              <div style={{ padding: "16px 12px", fontSize: 12, color: "var(--t3)", textAlign: "center" }}>No matching chats</div>
+            )}
+            {groupedSessions.map((group) => (
+              <div key={group.label}>
+                <div style={{ padding: "8px 12px 3px", fontFamily: "var(--font-mono)", fontSize: 9, letterSpacing: "0.08em", textTransform: "uppercase", color: "var(--t3)" }}>
+                  {group.label}
                 </div>
-                <div style={{ fontSize: 10, color: "var(--t3)", marginTop: 1, fontFamily: "var(--font-mono)" }}>
-                  {isAgentChat
-                    ? `${s.message_count} msg${s.last_provider ? ` · ${s.last_provider}` : ""}${s.last_model ? ` · ${s.last_model}` : ""}`
-                    : `${s.message_count} msg · ${s.provider_call_count} call${s.provider_call_count === 1 ? "" : "s"}${s.last_provider ? ` · ${s.last_provider}` : ""}`}
-                </div>
+                {group.sessions.map(s => (
+                  <div key={s.id}
+                    onClick={() => {
+                      if (renamingId === s.id) return;
+                      void actions.selectChatSession(s.id);
+                      textareaRef.current?.focus();
+                    }}
+                    onMouseEnter={() => setHoveredChatId(s.id)}
+                    onMouseLeave={() => setHoveredChatId(null)}
+                    style={{
+                      padding: "8px 12px", cursor: "pointer",
+                      background: activeSessionID === s.id ? "var(--teal-bg)" : "transparent",
+                      borderLeft: activeSessionID === s.id ? "2px solid var(--teal)" : "2px solid transparent",
+                      transition: "background 0.1s",
+                    }}>
+                    <div style={{ display: "flex", alignItems: "center", gap: 2, height: 18 }}>
+                      {renamingId === s.id ? (
+                        <input
+                          autoFocus
+                          value={renameValue}
+                          onChange={e => setRenameValue(e.target.value)}
+                          onClick={e => e.stopPropagation()}
+                          onKeyDown={e => {
+                            if (e.key === "Enter") { void actions.renameChatSession(s.id, renameValue); setRenamingId(null); }
+                            if (e.key === "Escape") setRenamingId(null);
+                          }}
+                          onBlur={() => { void actions.renameChatSession(s.id, renameValue); setRenamingId(null); }}
+                          style={{ flex: 1, minWidth: 0, height: 18, boxSizing: "border-box", fontSize: 12, background: "var(--bg3)", border: "1px solid var(--teal)", borderRadius: "var(--radius-sm)", color: "var(--t0)", padding: "0 4px", outline: "none", fontFamily: "var(--font-sans)", lineHeight: "16px" }}
+                        />
+                      ) : (
+                        <>
+                          <div style={{ flex: 1, minWidth: 0, fontSize: 12, lineHeight: "18px", color: activeSessionID === s.id ? "var(--t0)" : "var(--t1)", fontWeight: activeSessionID === s.id ? 500 : 400, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>
+                            {s.title || "Untitled"}
+                          </div>
+                          <div style={{ display: "flex", gap: 1, opacity: hoveredChatId === s.id ? 1 : 0, transition: "opacity 0.15s", flexShrink: 0 }}>
+                            {!isAgentChat && (
+                              <button
+                                className="btn btn-ghost btn-sm"
+                                onClick={e => { e.stopPropagation(); setRenamingId(s.id); setRenameValue(s.title || ""); }}
+                                style={{ padding: "1px 3px" }}
+                                title="Rename"
+                              >
+                                <Icon d={Icons.edit} size={10} />
+                              </button>
+                            )}
+                            <button
+                              className="btn btn-ghost btn-sm"
+                              onClick={e => { e.stopPropagation(); void actions.deleteChatSession(s.id); }}
+                              style={{ padding: "1px 3px", color: "var(--red)" }}
+                              title="Delete"
+                            >
+                              <Icon d={Icons.trash} size={10} />
+                            </button>
+                          </div>
+                        </>
+                      )}
+                    </div>
+                    <div style={{ fontSize: 10, color: "var(--t3)", marginTop: 1, fontFamily: "var(--font-mono)" }}>
+                      {isAgentChat
+                        ? `${s.message_count} msg${s.last_provider ? ` · ${s.last_provider}` : ""}${s.last_model ? ` · ${s.last_model}` : ""}`
+                        : `${s.message_count} msg · ${s.provider_call_count} call${s.provider_call_count === 1 ? "" : "s"}${s.last_provider ? ` · ${s.last_provider}` : ""}`}
+                    </div>
+                  </div>
+                ))}
               </div>
             ))}
             {!isAgentChat && state.chatSessionsLoadingMore && (
@@ -716,6 +750,45 @@ export function ChatView({ state, actions, onNavigate }: Props) {
       `}</style>
     </div>
   );
+}
+
+function filterSidebarSessions(sessions: SidebarSession[], query: string): SidebarSession[] {
+  const needle = query.trim().toLowerCase();
+  if (!needle) return sessions;
+  return sessions.filter((session) => {
+    const searchable = [
+      session.title,
+      session.last_provider,
+      session.last_model,
+    ].filter(Boolean).join(" ").toLowerCase();
+    return searchable.includes(needle);
+  });
+}
+
+function groupSidebarSessions(sessions: SidebarSession[]): Array<{ label: string; sessions: SidebarSession[] }> {
+  const groups = new Map<string, SidebarSession[]>();
+  for (const session of sessions) {
+    const label = sidebarDateGroup(session.updated_at || session.created_at);
+    const group = groups.get(label) ?? [];
+    group.push(session);
+    groups.set(label, group);
+  }
+  return ["Today", "This week", "Older", "No date"]
+    .map((label) => ({ label, sessions: groups.get(label) ?? [] }))
+    .filter((group) => group.sessions.length > 0);
+}
+
+function sidebarDateGroup(value?: string): string {
+  if (!value) return "No date";
+  const date = new Date(value);
+  if (Number.isNaN(date.getTime())) return "No date";
+  const now = new Date();
+  const today = new Date(now.getFullYear(), now.getMonth(), now.getDate());
+  const chatDay = new Date(date.getFullYear(), date.getMonth(), date.getDate());
+  const ageDays = Math.floor((today.getTime() - chatDay.getTime()) / 86_400_000);
+  if (ageDays <= 0) return "Today";
+  if (ageDays < 7) return "This week";
+  return "Older";
 }
 
 function ChatErrorPanel({

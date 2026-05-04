@@ -95,6 +95,12 @@ describe("ChatView Enter switch", () => {
 });
 
 describe("ChatView chats sidebar", () => {
+  function daysAgo(days: number): string {
+    const date = new Date();
+    date.setDate(date.getDate() - days);
+    return date.toISOString();
+  }
+
   it("shows 'No chats yet' when chatSessions is empty", () => {
     const { state, actions } = setup({ chatTarget: "model", chatSessions: [] });
     render(<ChatView state={state} actions={actions} />);
@@ -105,13 +111,45 @@ describe("ChatView chats sidebar", () => {
     const { state, actions } = setup({
       chatTarget: "model",
       chatSessions: [
-        { id: "s1", title: "First chat", message_count: 4, provider_call_count: 2, updated_at: "2026-04-25T00:00:00Z" } as any,
-        { id: "s2", title: "Second chat", message_count: 2, provider_call_count: 1, updated_at: "2026-04-25T01:00:00Z" } as any,
+        { id: "s1", title: "First chat", message_count: 4, provider_call_count: 2, updated_at: daysAgo(0) } as any,
+        { id: "s2", title: "Second chat", message_count: 2, provider_call_count: 1, updated_at: daysAgo(10) } as any,
       ],
     });
     render(<ChatView state={state} actions={actions} />);
+    expect(screen.getByText("Today")).toBeTruthy();
+    expect(screen.getByText("Older")).toBeTruthy();
     expect(screen.getByText("First chat")).toBeTruthy();
     expect(screen.getByText("Second chat")).toBeTruthy();
+  });
+
+  it("filters chat history by title and route metadata", async () => {
+    const { state, actions } = setup({
+      chatTarget: "model",
+      chatSessions: [
+        { id: "s1", title: "Budget check", message_count: 4, provider_call_count: 2, last_provider: "anthropic", updated_at: daysAgo(0) } as any,
+        { id: "s2", title: "Draft release notes", message_count: 2, provider_call_count: 1, last_provider: "openai", updated_at: daysAgo(0) } as any,
+      ],
+    });
+    render(<ChatView state={state} actions={actions} />);
+    const user = userEvent.setup();
+    await user.type(screen.getByLabelText("Search chats"), "anthropic");
+    expect(screen.getByText("Budget check")).toBeTruthy();
+    expect(screen.queryByText("Draft release notes")).toBeNull();
+  });
+
+  it("filters agent history by adapter and status metadata", async () => {
+    const { state, actions } = setup({
+      chatTarget: "agent",
+      agentChatSessions: [
+        { id: "a1", title: "Codex refactor", adapter_id: "codex", status: "completed", message_count: 4, updated_at: daysAgo(0) } as any,
+        { id: "a2", title: "Cursor repro", adapter_id: "cursor_agent", status: "failed", message_count: 2, updated_at: daysAgo(0) } as any,
+      ],
+    });
+    render(<ChatView state={state} actions={actions} />);
+    const user = userEvent.setup();
+    await user.type(screen.getByLabelText("Search chats"), "failed");
+    expect(screen.getByText("Cursor repro")).toBeTruthy();
+    expect(screen.queryByText("Codex refactor")).toBeNull();
   });
 
   it("calls selectChatSession when clicking a chat row", async () => {
