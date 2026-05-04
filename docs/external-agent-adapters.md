@@ -167,6 +167,11 @@ captures ACP updates with an output cap, and records Git diff / diff stat after
 each turn. External agent adapters are still trusted subprocesses in the
 selected workspace; this is not equivalent to the task runtime sandbox.
 
+On Hecate shutdown, active Agent Chat turns are cancelled first. Hecate waits
+briefly for the ACP turn to drain, asks the native ACP session to close, and
+then kills the owned adapter process group if it is still alive. This keeps app
+quit / restart from leaving Codex, Claude, or Cursor adapter processes behind.
+
 Every prompt also gets OTel-shaped observability. The message response includes
 `request_id`, `trace_id`, and `span_id`, and `GET
 /v1/traces?request_id=<request_id>` shows the `agent_chat.run` span with adapter
