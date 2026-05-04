@@ -1617,9 +1617,37 @@ func TestAgentChatCloseKeepsHistoryAndClosesNativeSession(t *testing.T) {
 	if len(closed.Data.Messages) != 2 {
 		t.Fatalf("closed session messages = %d, want preserved history", len(closed.Data.Messages))
 	}
+	if closed.Data.DriverKind != "" || closed.Data.NativeSessionID != "" {
+		t.Fatalf("closed session ACP metadata = kind %q native %q, want cleared", closed.Data.DriverKind, closed.Data.NativeSessionID)
+	}
 	got := mustRequestJSON[AgentChatSessionResponse](client, http.MethodGet, "/v1/agent-chat/sessions/"+created.Data.ID, "")
 	if len(got.Data.Messages) != 2 {
 		t.Fatalf("reloaded messages = %d, want preserved history", len(got.Data.Messages))
+	}
+	if got.Data.DriverKind != "" || got.Data.NativeSessionID != "" {
+		t.Fatalf("reloaded closed session ACP metadata = kind %q native %q, want cleared", got.Data.DriverKind, got.Data.NativeSessionID)
+	}
+}
+
+func TestAgentChatLiveCancelRunAndWaitTimesOutUntilRunDone(t *testing.T) {
+	live := newAgentChatLive()
+	cancelled := false
+	if ok := live.registerRun("session_1", func() { cancelled = true }); !ok {
+		t.Fatal("registerRun = false, want true")
+	}
+
+	ctx, cancel := context.WithTimeout(context.Background(), time.Nanosecond)
+	defer cancel()
+	if live.cancelRunAndWait(ctx, "session_1") {
+		t.Fatal("cancelRunAndWait = true before run done, want false")
+	}
+	if !cancelled {
+		t.Fatal("cancel callback was not called")
+	}
+
+	live.clearRun("session_1")
+	if !live.cancelRunAndWait(context.Background(), "session_1") {
+		t.Fatal("cancelRunAndWait without active run = false, want true")
 	}
 }
 

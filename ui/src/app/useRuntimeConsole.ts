@@ -1740,7 +1740,10 @@ async function resolveAgentChatDashboardState(args: {
   try {
     const sessionResult = await getAgentChatSession(activeSessionID);
     return { sessions, activeSessionID, activeSession: sessionResult.data };
-  } catch {
+  } catch (error) {
+    if (!(error instanceof ApiError) || error.status !== 404) {
+      return { sessions, activeSessionID, activeSession: args.previousActiveSession };
+    }
     return { sessions, activeSessionID: "", activeSession: null };
   }
 }

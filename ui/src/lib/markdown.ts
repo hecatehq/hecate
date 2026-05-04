@@ -104,6 +104,7 @@ export function parseMarkdownBlocks(content: string): Block[] {
       lines[i].trim() !== "" &&
       !/^```/.test(lines[i]) &&
       !/^#{1,3} /.test(lines[i]) &&
+      !/^(-{3,}|\*{3,}|_{3,})$/.test(lines[i].trim()) &&
       !isTableStart(lines, i) &&
       !/^[-*] \[[ xX]\] /.test(lines[i]) &&
       !/^[-*] /.test(lines[i]) &&
@@ -127,6 +128,7 @@ function isTableRow(line: string): boolean {
 }
 
 function isTableSeparator(line: string): boolean {
+  if (!line.includes("|")) return false;
   const cells = splitTableRow(line);
   return cells.length > 0 && cells.every(cell => /^:?-{3,}:?$/.test(cell.trim()));
 }
