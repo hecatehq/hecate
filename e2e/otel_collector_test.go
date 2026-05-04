@@ -25,7 +25,7 @@ const otelCollectorImage = "otel/opentelemetry-collector-contrib:0.119.0"
 func TestDockerOTelCollectorReceivesGRPCExport(t *testing.T) {
 	requireDocker(t)
 
-	sink := newOTLPSink()
+	sink := newDockerReachableOTLPSink()
 	t.Cleanup(sink.close)
 
 	collectorHTTPPort := freePort(t)
@@ -80,11 +80,22 @@ func TestDockerOTelCollectorReceivesGRPCExport(t *testing.T) {
 	_, _ = io.Copy(io.Discard, resp.Body)
 
 	if !sink.waitForSpan("gateway.provider", 15*time.Second) {
+		t.Logf("otel collector logs:\n%s", dockerLogs(t, ctx, containerName))
 		t.Fatalf("collector did not forward gateway.provider span; got spans: %v", sink.spanNames())
 	}
 	if !sink.waitForMetric("hecate.provider.calls", 15*time.Second) {
+		t.Logf("otel collector logs:\n%s", dockerLogs(t, ctx, containerName))
 		t.Fatalf("collector did not forward hecate.provider.calls metric; got metrics: %v", sink.metricNames())
 	}
+}
+
+func dockerLogs(t *testing.T, ctx context.Context, containerName string) string {
+	t.Helper()
+	out, err := exec.CommandContext(ctx, "docker", "logs", containerName).CombinedOutput()
+	if err != nil {
+		return fmt.Sprintf("docker logs failed: %v\n%s", err, out)
+	}
+	return string(out)
 }
 
 func writeCollectorConfig(t *testing.T, sinkAddr string) string {
