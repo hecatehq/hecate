@@ -43,6 +43,7 @@ Full matrix in [`../skills/tester/SKILL.md`](../skills/tester/SKILL.md).
 - New env knobs documented in `.env.example` AND the relevant `docs/<feature>.md`.
 - Error paths return the right HTTP status with a useful message.
 - OTel attributes are populated for new spans.
+- New metric labels are emitted through `internal/telemetry` guardrails, with tests for closed-set and free-form dimensions when adding a new label.
 - New event types follow the event-protocol taxonomy and appear in `docs/events.md` with payload shape.
 
 ## Done criteria — UI

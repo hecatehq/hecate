@@ -32,6 +32,10 @@ Full reasoning, file inventory, and the mirroring chain: [`../skills/providers/S
 
 `ui/src/types/runtime.ts` mirrors `pkg/types/` and `internal/api/` exactly. When the Go side adds a field, mirror it in the UI in the same change. Otherwise the SSE consumers and detail panels start dropping data silently.
 
+## OpenTelemetry surface
+
+OTel is part of the runtime contract, not a debugging afterthought. New request, provider, task, sandbox, MCP, or agent-adapter paths should add spans and metrics through `internal/telemetry` in the same change as the behavior. Metric dimensions must stay bounded: add closed-set normalizers for enum-like values, sanitize free-form labels, and keep raw diagnostics in spans, logs, persisted events, or raw-output fields instead of metric attributes.
+
 ## No emojis
 
 No emojis in code or copy unless the operator explicitly requests them. This applies to source, tests, generated docs, log lines, and UI strings.
