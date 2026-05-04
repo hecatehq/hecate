@@ -16,7 +16,7 @@ import (
 	acp "github.com/coder/acp-go-sdk"
 )
 
-// ApprovalMode controls what the recorder does with an incoming
+// ApprovalMode controls what the coordinator does with an incoming
 // RequestPermission. The package default is ModeAuto, which preserves
 // legacy behavior (auto-select the first allow option). Operator-facing
 // runtime flips this default to ModePrompt — see internal/config.
@@ -170,7 +170,7 @@ var ErrApprovalNotFound = errors.New("approval not found")
 // from a state-machine perspective even though they're a single row.
 var ErrApprovalAlreadyResolved = errors.New("approval already resolved")
 
-// ErrAmbiguousOption is returned by Recorder helpers when the operator's
+// ErrAmbiguousOption is returned by Coordinator helpers when the operator's
 // decision could match multiple ACP options and no explicit
 // selected_option was provided. Surfaced as 409 by the HTTP handler in
 // slice 1B.
@@ -330,8 +330,8 @@ func (s *MemoryApprovalStore) FindMatchingGrant(_ context.Context, sessionID, wo
 	return best.grant, true, nil
 }
 
-// RecorderOptions configure an ApprovalRecorder.
-type RecorderOptions struct {
+// CoordinatorOptions configure an ApprovalCoordinator.
+type CoordinatorOptions struct {
 	Mode    ApprovalMode
 	Timeout time.Duration
 	Store   ApprovalStore
@@ -341,32 +341,51 @@ type RecorderOptions struct {
 	// IDFunc generates approval ids; defaults to ULID-shaped hex.
 	IDFunc func() string
 	// Hooks are optional callbacks for telemetry. Zero values are no-ops.
-	Hooks RecorderHooks
+	Hooks CoordinatorHooks
 }
 
-// RecorderHooks are optional callbacks invoked by the recorder at
-// well-defined lifecycle points. The recorder is the single place that
+// CoordinatorHooks are optional callbacks invoked by the coordinator at
+// well-defined lifecycle points. The coordinator is the single place that
 // knows the (adapter, tool_kind, mode, path) tuple, so all telemetry
 // instrumentation goes through here. Implementations live in the
-// telemetry package; the recorder package keeps no metric dependencies
+// telemetry package; the coordinator package keeps no metric dependencies
 // of its own.
-type RecorderHooks struct {
+type CoordinatorHooks struct {
 	OnRequested func(approval Approval)
 	OnResolved  func(approval Approval, durationMS int64)
 	OnTimedOut  func(approval Approval, durationMS int64)
 }
 
-// ApprovalRecorder applies the configured ApprovalMode to incoming
+// ApprovalCoordinator applies the configured ApprovalMode to incoming
 // ACP RequestPermission calls. It records every request, looks up
 // matching grants, applies the mode default, and produces the ACP
-// response that gets sent back to the adapter.
-type ApprovalRecorder struct {
-	opts RecorderOptions
+// response that gets sent back to the adapter. In prompt mode, a
+// blocked RequestPermission registers a process-local waiter that
+// the operator's Resolve / Cancel call wakes via the wake() helper.
+//
+// Waiters are intentionally not persisted: a Hecate restart cannot
+// resurrect an in-flight ACP RequestPermission, so any pending row
+// found in storage on startup is invalid as far as live blocking
+// goes — slice 1C will mark such rows as `timed_out` during the
+// startup-reconcile pass that the SQLite backend introduces.
+type ApprovalCoordinator struct {
+	opts CoordinatorOptions
+
+	mu      sync.Mutex
+	waiters map[string]*approvalWaiter
 }
 
-// NewApprovalRecorder constructs a recorder with the given options.
+// approvalWaiter is a process-local handoff for a blocked prompt-mode
+// RequestPermission. The buffered channel lets wake() deliver without
+// holding the coordinator lock; the receive in the prompt-mode select
+// races against the timeout timer and ctx.Done().
+type approvalWaiter struct {
+	ch chan acp.RequestPermissionResponse
+}
+
+// NewApprovalCoordinator constructs a coordinator with the given options.
 // Sensible defaults are filled in for empty fields.
-func NewApprovalRecorder(opts RecorderOptions) *ApprovalRecorder {
+func NewApprovalCoordinator(opts CoordinatorOptions) *ApprovalCoordinator {
 	if opts.Mode == "" {
 		opts.Mode = ModeAuto
 	}
@@ -382,29 +401,29 @@ func NewApprovalRecorder(opts RecorderOptions) *ApprovalRecorder {
 	if opts.IDFunc == nil {
 		opts.IDFunc = newApprovalID
 	}
-	return &ApprovalRecorder{opts: opts}
+	return &ApprovalCoordinator{opts: opts}
 }
 
 // Mode returns the configured mode (test introspection).
-func (r *ApprovalRecorder) Mode() ApprovalMode { return r.opts.Mode }
+func (c *ApprovalCoordinator) Mode() ApprovalMode { return c.opts.Mode }
 
 // Timeout returns the configured timeout.
-func (r *ApprovalRecorder) Timeout() time.Duration { return r.opts.Timeout }
+func (c *ApprovalCoordinator) Timeout() time.Duration { return c.opts.Timeout }
 
 // Store returns the configured store (test introspection).
-func (r *ApprovalRecorder) Store() ApprovalStore { return r.opts.Store }
+func (c *ApprovalCoordinator) Store() ApprovalStore { return c.opts.Store }
 
-// recordingContext bundles the per-request context that the session
+// RecordingContext bundles the per-request context that the session
 // manager carries about an in-flight ACP RequestPermission. Kept
-// separate from RecorderOptions so the recorder is reusable across
+// separate from CoordinatorOptions so the coordinator is reusable across
 // many sessions without rebuilding.
-type recordingContext struct {
+type RecordingContext struct {
 	SessionID string
 	AdapterID string
 	Workspace string
 }
 
-// Handle records the incoming RequestPermission, applies the configured
+// RequestPermission records the incoming ACP RequestPermission, applies the configured
 // mode, and returns the ACP response to send back to the adapter.
 //
 // In slice 1A:
@@ -413,13 +432,11 @@ type recordingContext struct {
 //     (preserves legacy behavior).
 //   - ModeDeny resolves immediately with the first reject option, or
 //     Cancelled if none.
-//   - ModePrompt has no UI to wait for yet, so it waits for the configured
-//     timeout (or context cancellation) and then resolves to Cancelled with
-//     status=timed_out, path=timeout. This is the intentional
-//     "prompt-without-UI behaves as deny-via-timeout" case.
-//     Slice 1B replaces this with real blocking on the operator decision.
-func (r *ApprovalRecorder) Handle(ctx context.Context, recCtx recordingContext, params acp.RequestPermissionRequest) (acp.RequestPermissionResponse, error) {
-	now := r.opts.NowFunc()
+//   - ModePrompt records a pending approval and waits for operator
+//     resolve/cancel through the HTTP API, the configured timeout, or
+//     context cancellation.
+func (c *ApprovalCoordinator) RequestPermission(ctx context.Context, recCtx RecordingContext, params acp.RequestPermissionRequest) (acp.RequestPermissionResponse, error) {
+	now := c.opts.NowFunc()
 	options := normalizeACPOptions(params.Options)
 	toolName := extractToolName(params.ToolCall)
 	toolKind := extractToolKind(params.ToolCall)
@@ -427,7 +444,7 @@ func (r *ApprovalRecorder) Handle(ctx context.Context, recCtx recordingContext, 
 	rawPayload, _ := json.Marshal(params)
 
 	row := Approval{
-		ID:           r.opts.IDFunc(),
+		ID:           c.opts.IDFunc(),
 		SessionID:    recCtx.SessionID,
 		AdapterID:    recCtx.AdapterID,
 		Workspace:    recCtx.Workspace,
@@ -438,54 +455,84 @@ func (r *ApprovalRecorder) Handle(ctx context.Context, recCtx recordingContext, 
 		ACPOptions:   options,
 		ScopeChoices: defaultScopeChoices(),
 		CreatedAt:    now,
-		ExpiresAt:    now.Add(r.opts.Timeout),
+		ExpiresAt:    now.Add(c.opts.Timeout),
 	}
-	created, err := r.opts.Store.CreateApproval(ctx, row)
+	created, err := c.opts.Store.CreateApproval(ctx, row)
 	if err != nil {
 		// Storage failure shouldn't deadlock the adapter; degrade by
 		// applying the configured mode without persistence and
 		// surfacing the error in the log.
-		r.logf("approval_store_create_failed", err, recCtx, toolKind)
+		c.logf("approval_store_create_failed", err, recCtx, toolKind)
 		created = row
 	}
-	if r.opts.Hooks.OnRequested != nil {
-		r.opts.Hooks.OnRequested(created)
-	}
-
 	// 1) Look for a live grant. A match short-circuits regardless of mode.
-	if grant, ok, gerr := r.opts.Store.FindMatchingGrant(ctx, recCtx.SessionID, recCtx.Workspace, recCtx.AdapterID, toolKind, now); gerr == nil && ok {
-		response, status, decision, selected := r.applyDecision(grant.Decision, options, false)
-		resolved := r.resolve(ctx, created.ID, status, decision, selected, grant.Scope, PathGrant, "", now)
-		return response, r.notifyResolved(resolved, now, nil)
+	if grant, ok, gerr := c.opts.Store.FindMatchingGrant(ctx, recCtx.SessionID, recCtx.Workspace, recCtx.AdapterID, toolKind, now); gerr == nil && ok {
+		if c.opts.Hooks.OnRequested != nil {
+			c.opts.Hooks.OnRequested(created)
+		}
+		response, status, decision, selected := c.applyDecision(grant.Decision, options, false)
+		resolved := c.resolveStore(ctx, created.ID, status, decision, selected, grant.Scope, PathGrant, "", now)
+		return response, c.notifyResolved(resolved, now, nil)
 	}
 
 	// 2) Apply the configured mode default.
-	switch r.opts.Mode {
+	switch c.opts.Mode {
 	case ModeAuto:
-		response, status, decision, selected := r.applyDecision(ApprovalDecisionApprove, options, true)
-		resolved := r.resolve(ctx, created.ID, status, decision, selected, ApprovalScopeOnce, PathDefaultMode, "", now)
-		return response, r.notifyResolved(resolved, now, nil)
+		if c.opts.Hooks.OnRequested != nil {
+			c.opts.Hooks.OnRequested(created)
+		}
+		response, status, decision, selected := c.applyDecision(ApprovalDecisionApprove, options, true)
+		resolved := c.resolveStore(ctx, created.ID, status, decision, selected, ApprovalScopeOnce, PathDefaultMode, "", now)
+		return response, c.notifyResolved(resolved, now, nil)
 
 	case ModeDeny:
-		response, status, decision, selected := r.applyDecision(ApprovalDecisionDeny, options, false)
-		resolved := r.resolve(ctx, created.ID, status, decision, selected, ApprovalScopeOnce, PathDefaultMode, "", now)
-		return response, r.notifyResolved(resolved, now, nil)
+		if c.opts.Hooks.OnRequested != nil {
+			c.opts.Hooks.OnRequested(created)
+		}
+		response, status, decision, selected := c.applyDecision(ApprovalDecisionDeny, options, false)
+		resolved := c.resolveStore(ctx, created.ID, status, decision, selected, ApprovalScopeOnce, PathDefaultMode, "", now)
+		return response, c.notifyResolved(resolved, now, nil)
 
 	case ModePrompt:
-		// Slice 1A: no UI yet. Slice 1B replaces this branch with a
-		// real wait on operator decision. For now we wait until the
-		// configured timeout and resolve to Cancelled with
-		// status=timed_out. Operators who need adapters working before
-		// the UI ships set GATEWAY_AGENT_ADAPTER_APPROVAL_MODE=auto.
-		resolvedAt := r.waitForPromptTimeout(ctx, now)
-		resolved := r.resolve(ctx, created.ID, ApprovalStatusTimedOut, "", "", ApprovalScopeOnce, PathTimeout, "no operator surface available yet (slice 1A)", resolvedAt)
-		r.notifyTimedOut(resolved, now, resolvedAt)
-		return acp.RequestPermissionResponse{Outcome: acp.RequestPermissionOutcome{Cancelled: &acp.RequestPermissionOutcomeCancelled{}}}, nil
+		// Block until the operator resolves/cancels via the HTTP API
+		// (which calls Resolve/Cancel and wakes the waiter), the
+		// configured timeout fires, or the request context is
+		// cancelled. The waiter is process-local; on Hecate restart
+		// any pending row in storage is unrecoverable for live
+		// blocking — slice 1C marks them timed_out at startup.
+		w := c.registerWaiter(created.ID)
+		defer c.unregisterWaiter(created.ID)
+		if c.opts.Hooks.OnRequested != nil {
+			c.opts.Hooks.OnRequested(created)
+		}
+		if refreshed, rerr := c.opts.Store.GetApproval(ctx, created.ID); rerr == nil && refreshed.Status != ApprovalStatusPending {
+			return responseForResolvedApproval(refreshed), nil
+		}
+		timer := time.NewTimer(c.opts.Timeout)
+		defer timer.Stop()
+		select {
+		case resp := <-w.ch:
+			// Operator resolved (or cancelled) via the API. The store
+			// row was already updated and the OnResolved hook fired
+			// inside Resolve/Cancel; just return the operator's chosen
+			// ACP response.
+			return resp, nil
+		case <-timer.C:
+			resolvedAt := c.opts.NowFunc()
+			resolved := c.resolveStore(ctx, created.ID, ApprovalStatusTimedOut, "", "", ApprovalScopeOnce, PathTimeout, "operator did not respond before approval timeout", resolvedAt)
+			c.notifyTimedOut(resolved, now, resolvedAt)
+			return acp.RequestPermissionResponse{Outcome: acp.RequestPermissionOutcome{Cancelled: &acp.RequestPermissionOutcomeCancelled{}}}, nil
+		case <-ctx.Done():
+			resolvedAt := c.opts.NowFunc()
+			resolved := c.resolveStore(ctx, created.ID, ApprovalStatusCancelled, "", "", ApprovalScopeOnce, PathOperator, "request context cancelled before resolution", resolvedAt)
+			_ = c.notifyResolved(resolved, now, nil)
+			return acp.RequestPermissionResponse{Outcome: acp.RequestPermissionOutcome{Cancelled: &acp.RequestPermissionOutcomeCancelled{}}}, nil
+		}
 
 	default:
 		// Unknown mode: fail closed.
-		resolved := r.resolve(ctx, created.ID, ApprovalStatusCancelled, "", "", ApprovalScopeOnce, PathDefaultMode, "unknown approval mode "+string(r.opts.Mode), now)
-		_ = r.notifyResolved(resolved, now, nil)
+		resolved := c.resolveStore(ctx, created.ID, ApprovalStatusCancelled, "", "", ApprovalScopeOnce, PathDefaultMode, "unknown approval mode "+string(c.opts.Mode), now)
+		_ = c.notifyResolved(resolved, now, nil)
 		return acp.RequestPermissionResponse{Outcome: acp.RequestPermissionOutcome{Cancelled: &acp.RequestPermissionOutcomeCancelled{}}}, nil
 	}
 }
@@ -497,7 +544,7 @@ func (r *ApprovalRecorder) Handle(ctx context.Context, recCtx recordingContext, 
 // intentional. Grants and deny paths stay strict: if Hecate cannot
 // identify a normalized allow/reject option, it cancels instead of
 // guessing what a custom adapter option means.
-func (r *ApprovalRecorder) applyDecision(decision ApprovalDecision, options []ApprovalOption, allowCustomFallback bool) (acp.RequestPermissionResponse, ApprovalStatus, ApprovalDecision, string) {
+func (c *ApprovalCoordinator) applyDecision(decision ApprovalDecision, options []ApprovalOption, allowCustomFallback bool) (acp.RequestPermissionResponse, ApprovalStatus, ApprovalDecision, string) {
 	switch decision {
 	case ApprovalDecisionApprove:
 		if opt, ok := pickOption(options, "allow_once", "allow_always"); ok {
@@ -534,52 +581,61 @@ func (r *ApprovalRecorder) applyDecision(decision ApprovalDecision, options []Ap
 	}
 }
 
-func (r *ApprovalRecorder) waitForPromptTimeout(ctx context.Context, createdAt time.Time) time.Time {
-	timer := time.NewTimer(r.opts.Timeout)
-	defer timer.Stop()
-	select {
-	case <-ctx.Done():
-		return r.opts.NowFunc()
-	case <-timer.C:
-		return createdAt.Add(r.opts.Timeout)
+func responseForResolvedApproval(row Approval) acp.RequestPermissionResponse {
+	switch row.Status {
+	case ApprovalStatusApproved, ApprovalStatusDenied:
+		if row.SelectedOption != "" {
+			return acp.RequestPermissionResponse{
+				Outcome: acp.RequestPermissionOutcome{
+					Selected: &acp.RequestPermissionOutcomeSelected{OptionId: acp.PermissionOptionId(row.SelectedOption)},
+				},
+			}
+		}
+	}
+	return acp.RequestPermissionResponse{
+		Outcome: acp.RequestPermissionOutcome{Cancelled: &acp.RequestPermissionOutcomeCancelled{}},
 	}
 }
 
-func (r *ApprovalRecorder) resolve(ctx context.Context, id string, status ApprovalStatus, decision ApprovalDecision, selected string, scope ApprovalScope, path ApprovalResolutionPath, note string, now time.Time) Approval {
-	row, err := r.opts.Store.ResolveApproval(ctx, id, status, decision, selected, scope, path, note, now)
+// resolveStore is the internal helper that flips a row in the store
+// to a terminal state. Different from the public Resolve method (slice
+// 1B) which validates an operator's resolve request, builds the ACP
+// response, and persists a grant when scope is broader than `once`.
+func (c *ApprovalCoordinator) resolveStore(ctx context.Context, id string, status ApprovalStatus, decision ApprovalDecision, selected string, scope ApprovalScope, path ApprovalResolutionPath, note string, now time.Time) Approval {
+	row, err := c.opts.Store.ResolveApproval(ctx, id, status, decision, selected, scope, path, note, now)
 	if err != nil {
-		r.logf("approval_store_resolve_failed", err, recordingContext{SessionID: row.SessionID, AdapterID: row.AdapterID, Workspace: row.Workspace}, row.ToolKind)
+		c.logf("approval_store_resolve_failed", err, RecordingContext{SessionID: row.SessionID, AdapterID: row.AdapterID, Workspace: row.Workspace}, row.ToolKind)
 	}
 	return row
 }
 
-func (r *ApprovalRecorder) notifyResolved(row Approval, now time.Time, _ error) error {
-	if r.opts.Hooks.OnResolved != nil {
+func (c *ApprovalCoordinator) notifyResolved(row Approval, now time.Time, _ error) error {
+	if c.opts.Hooks.OnResolved != nil {
 		var dur int64
 		if !row.CreatedAt.IsZero() {
 			dur = now.Sub(row.CreatedAt).Milliseconds()
 		}
-		r.opts.Hooks.OnResolved(row, dur)
+		c.opts.Hooks.OnResolved(row, dur)
 	}
 	return nil
 }
 
-func (r *ApprovalRecorder) notifyTimedOut(row Approval, createdAt, resolvedAt time.Time) {
-	if r.opts.Hooks.OnTimedOut == nil {
+func (c *ApprovalCoordinator) notifyTimedOut(row Approval, createdAt, resolvedAt time.Time) {
+	if c.opts.Hooks.OnTimedOut == nil {
 		return
 	}
 	var dur int64
 	if !createdAt.IsZero() && !resolvedAt.IsZero() {
 		dur = resolvedAt.Sub(createdAt).Milliseconds()
 	}
-	r.opts.Hooks.OnTimedOut(row, dur)
+	c.opts.Hooks.OnTimedOut(row, dur)
 }
 
-func (r *ApprovalRecorder) logf(event string, err error, recCtx recordingContext, toolKind string) {
-	if r.opts.Logger == nil {
+func (c *ApprovalCoordinator) logf(event string, err error, recCtx RecordingContext, toolKind string) {
+	if c.opts.Logger == nil {
 		return
 	}
-	r.opts.Logger.Warn(event,
+	c.opts.Logger.Warn(event,
 		slog.String("error", err.Error()),
 		slog.String("session_id", recCtx.SessionID),
 		slog.String("adapter_id", recCtx.AdapterID),
@@ -641,4 +697,336 @@ func prefixedID(prefix string) string {
 		return fmt.Sprintf("%s%x", prefix, time.Now().UnixNano())
 	}
 	return prefix + hex.EncodeToString(b[:])
+}
+
+// ─── Waiter primitive ────────────────────────────────────────────────────────
+
+// registerWaiter allocates a process-local waiter for a pending
+// approval and stores it under the approval id. Caller must invoke
+// unregisterWaiter via defer once the wait completes — leaking a
+// waiter doesn't deadlock anything (wake is a no-op when no receiver
+// is reading) but it keeps the entry in the map until the next
+// register replaces it.
+func (c *ApprovalCoordinator) registerWaiter(id string) *approvalWaiter {
+	c.mu.Lock()
+	defer c.mu.Unlock()
+	if c.waiters == nil {
+		c.waiters = make(map[string]*approvalWaiter)
+	}
+	w := &approvalWaiter{ch: make(chan acp.RequestPermissionResponse, 1)}
+	c.waiters[id] = w
+	return w
+}
+
+func (c *ApprovalCoordinator) unregisterWaiter(id string) {
+	c.mu.Lock()
+	defer c.mu.Unlock()
+	delete(c.waiters, id)
+}
+
+// wakeWaiter delivers the operator's ACP response to a registered
+// waiter and returns whether a waiter was found. If none is
+// registered (e.g. the approval already timed out, or the request
+// was for a non-prompt mode) wake is a no-op.
+func (c *ApprovalCoordinator) wakeWaiter(id string, resp acp.RequestPermissionResponse) bool {
+	c.mu.Lock()
+	w, ok := c.waiters[id]
+	c.mu.Unlock()
+	if !ok {
+		return false
+	}
+	select {
+	case w.ch <- resp:
+		return true
+	default:
+		// Buffer full — only happens on a redundant wake; safe to drop.
+		return false
+	}
+}
+
+// ─── Operator-facing API ─────────────────────────────────────────────────────
+
+// ResolveRequest is the input to ApprovalCoordinator.Resolve. The
+// HTTP layer parses POST bodies into this shape; coordinator-level
+// callers (tests, future programmatic users) build it directly.
+type ResolveRequest struct {
+	Decision       ApprovalDecision `json:"decision"`
+	Scope          ApprovalScope    `json:"scope"`
+	SelectedOption string           `json:"selected_option,omitempty"`
+	Note           string           `json:"note,omitempty"`
+	GrantedBy      string           `json:"granted_by,omitempty"`
+}
+
+// ErrUnknownOption is returned by Resolve when SelectedOption was
+// supplied but doesn't match any option_id on the recorded approval.
+// Surfaces as 400 invalid_request.
+var ErrUnknownOption = errors.New("selected_option does not match any option recorded for this approval")
+
+// ErrNoMatchingOption is returned by Resolve when the operator's
+// decision has no matching ACP option family on the recorded request
+// (e.g. operator says deny but the adapter offered no reject_*
+// option). Surfaces as 409 conflict; caller may retry as Cancel.
+var ErrNoMatchingOption = errors.New("no ACP option matches the requested decision")
+
+// ErrInvalidDecision / ErrInvalidScope are returned for malformed
+// resolve requests. Surface as 400 invalid_request.
+var ErrInvalidDecision = errors.New("decision must be approve or deny")
+var ErrInvalidScope = errors.New("scope must be once, session, workspace_tool, or adapter_tool")
+
+// AmbiguousOptionError carries the candidate options when Resolve
+// can't pick one unambiguously. The HTTP layer surfaces this as 409
+// conflict with the option list in the body so the operator UI can
+// re-render the choices.
+type AmbiguousOptionError struct {
+	Decision ApprovalDecision
+	Options  []ApprovalOption
+}
+
+func (e *AmbiguousOptionError) Error() string {
+	return fmt.Sprintf("multiple options match decision=%s; selected_option required", e.Decision)
+}
+
+// Resolve transitions a pending approval to approved/denied per the
+// operator's decision, persists a grant when scope > once, and (when
+// a prompt-mode RequestPermission is blocked on this id) wakes the
+// waiter so the adapter receives the operator's chosen ACP option
+// without further delay.
+//
+// Returns the resolved row. Errors:
+//   - ErrApprovalNotFound — id doesn't match a known row
+//   - ErrApprovalAlreadyResolved — row is already terminal
+//   - ErrInvalidDecision / ErrInvalidScope — malformed input
+//   - ErrUnknownOption — selected_option not in row's options
+//   - ErrNoMatchingOption — decision has no matching option family
+//   - *AmbiguousOptionError — multiple options match, no selected_option supplied
+func (c *ApprovalCoordinator) Resolve(ctx context.Context, id string, req ResolveRequest) (Approval, error) {
+	if req.Decision != ApprovalDecisionApprove && req.Decision != ApprovalDecisionDeny {
+		return Approval{}, ErrInvalidDecision
+	}
+	if !validScope(req.Scope) {
+		return Approval{}, ErrInvalidScope
+	}
+	row, err := c.opts.Store.GetApproval(ctx, id)
+	if err != nil {
+		return Approval{}, err
+	}
+	if row.Status != ApprovalStatusPending {
+		return row, ErrApprovalAlreadyResolved
+	}
+
+	response, selected, perr := c.pickOperatorOption(row.ACPOptions, req.Decision, req.SelectedOption)
+	if perr != nil {
+		return row, perr
+	}
+
+	now := c.opts.NowFunc()
+	terminalStatus := ApprovalStatusApproved
+	if req.Decision == ApprovalDecisionDeny {
+		terminalStatus = ApprovalStatusDenied
+	}
+	resolved, rerr := c.opts.Store.ResolveApproval(ctx, id, terminalStatus, req.Decision, selected, req.Scope, PathOperator, req.Note, now)
+	if rerr != nil {
+		// AlreadyResolved race against timeout: surface to caller.
+		return resolved, rerr
+	}
+
+	// Persist a grant when scope > once. Memory-only in slice 1B; sqlite
+	// backend lands in slice 1C. Failure to persist a grant should not
+	// block the operator's intent on this turn; we log and continue.
+	if req.Scope != ApprovalScopeOnce {
+		grant := Grant{
+			Scope:     req.Scope,
+			AdapterID: row.AdapterID,
+			ToolKind:  row.ToolKind,
+			Decision:  req.Decision,
+			GrantedBy: defaultGrantedBy(req.GrantedBy),
+			GrantedAt: now,
+		}
+		if req.Scope == ApprovalScopeWorkspaceTool {
+			grant.Workspace = row.Workspace
+		}
+		if req.Scope == ApprovalScopeSession {
+			grant.SessionID = row.SessionID
+		}
+		if memStore, ok := c.opts.Store.(*MemoryApprovalStore); ok {
+			if _, gerr := memStore.CreateGrant(ctx, grant); gerr != nil {
+				c.logf("approval_grant_create_failed", gerr, RecordingContext{SessionID: row.SessionID, AdapterID: row.AdapterID, Workspace: row.Workspace}, row.ToolKind)
+			}
+		} else {
+			c.logf("approval_grant_unsupported_backend", fmt.Errorf("store does not implement CreateGrant"), RecordingContext{SessionID: row.SessionID, AdapterID: row.AdapterID, Workspace: row.Workspace}, row.ToolKind)
+		}
+	}
+
+	c.wakeWaiter(id, response)
+	_ = c.notifyResolved(resolved, now, nil)
+	return resolved, nil
+}
+
+// Cancel transitions a pending approval to cancelled (ACP Cancelled
+// outcome). Different from a deny resolution: deny selects a reject
+// option (telling the adapter the action is forbidden); cancel says
+// "the operator declined to decide; back off and ask again later."
+func (c *ApprovalCoordinator) Cancel(ctx context.Context, id string) (Approval, error) {
+	row, err := c.opts.Store.GetApproval(ctx, id)
+	if err != nil {
+		return Approval{}, err
+	}
+	if row.Status != ApprovalStatusPending {
+		return row, ErrApprovalAlreadyResolved
+	}
+	now := c.opts.NowFunc()
+	resolved, rerr := c.opts.Store.ResolveApproval(ctx, id, ApprovalStatusCancelled, "", "", ApprovalScopeOnce, PathOperator, "operator cancelled", now)
+	if rerr != nil {
+		return resolved, rerr
+	}
+	c.wakeWaiter(id, acp.RequestPermissionResponse{
+		Outcome: acp.RequestPermissionOutcome{Cancelled: &acp.RequestPermissionOutcomeCancelled{}},
+	})
+	_ = c.notifyResolved(resolved, now, nil)
+	return resolved, nil
+}
+
+// GetApproval is a thin store-backed accessor for the HTTP GET handler.
+func (c *ApprovalCoordinator) GetApproval(ctx context.Context, id string) (Approval, error) {
+	return c.opts.Store.GetApproval(ctx, id)
+}
+
+// ListApprovals proxies to the store. Empty status returns all rows.
+func (c *ApprovalCoordinator) ListApprovals(ctx context.Context, sessionID string, status ApprovalStatus) ([]Approval, error) {
+	return c.opts.Store.ListApprovals(ctx, sessionID, status)
+}
+
+// ListGrants returns grants matching the filter (memory-only in
+// slice 1B). Empty filter returns all live grants. Expired grants
+// are excluded.
+func (c *ApprovalCoordinator) ListGrants(ctx context.Context, filter GrantFilter) ([]Grant, error) {
+	memStore, ok := c.opts.Store.(*MemoryApprovalStore)
+	if !ok {
+		return nil, fmt.Errorf("store does not support grant listing")
+	}
+	return memStore.ListGrants(ctx, filter, c.opts.NowFunc())
+}
+
+// DeleteGrant removes a grant by id (memory-only in slice 1B).
+func (c *ApprovalCoordinator) DeleteGrant(ctx context.Context, id string) error {
+	memStore, ok := c.opts.Store.(*MemoryApprovalStore)
+	if !ok {
+		return fmt.Errorf("store does not support grant deletion")
+	}
+	return memStore.DeleteGrant(ctx, id)
+}
+
+// pickOperatorOption resolves the operator's decision to a concrete
+// ACP option_id. Strict semantics:
+//   - If selected_option is supplied, it must exist on the row.
+//   - Otherwise, exactly one option of the matching kind family
+//     (allow_* for approve, reject_* for deny) must exist; multiple
+//     return *AmbiguousOptionError, none returns ErrNoMatchingOption.
+//
+// Returns the constructed ACP response and the recorded option_id.
+func (c *ApprovalCoordinator) pickOperatorOption(options []ApprovalOption, decision ApprovalDecision, selectedOption string) (acp.RequestPermissionResponse, string, error) {
+	if selectedOption != "" {
+		for _, opt := range options {
+			if opt.OptionID == selectedOption {
+				return acp.RequestPermissionResponse{
+					Outcome: acp.RequestPermissionOutcome{
+						Selected: &acp.RequestPermissionOutcomeSelected{OptionId: acp.PermissionOptionId(opt.OptionID)},
+					},
+				}, opt.OptionID, nil
+			}
+		}
+		return acp.RequestPermissionResponse{}, "", ErrUnknownOption
+	}
+	wanted := []string{"allow_once", "allow_always"}
+	if decision == ApprovalDecisionDeny {
+		wanted = []string{"reject_once", "reject_always"}
+	}
+	matches := optionsByKinds(options, wanted)
+	switch len(matches) {
+	case 0:
+		return acp.RequestPermissionResponse{}, "", ErrNoMatchingOption
+	case 1:
+		opt := matches[0]
+		return acp.RequestPermissionResponse{
+			Outcome: acp.RequestPermissionOutcome{
+				Selected: &acp.RequestPermissionOutcomeSelected{OptionId: acp.PermissionOptionId(opt.OptionID)},
+			},
+		}, opt.OptionID, nil
+	default:
+		return acp.RequestPermissionResponse{}, "", &AmbiguousOptionError{Decision: decision, Options: matches}
+	}
+}
+
+func optionsByKinds(options []ApprovalOption, kinds []string) []ApprovalOption {
+	out := make([]ApprovalOption, 0, 1)
+	for _, opt := range options {
+		for _, k := range kinds {
+			if strings.EqualFold(opt.Kind, k) {
+				out = append(out, opt)
+				break
+			}
+		}
+	}
+	return out
+}
+
+func validScope(s ApprovalScope) bool {
+	switch s {
+	case ApprovalScopeOnce, ApprovalScopeSession, ApprovalScopeWorkspaceTool, ApprovalScopeAdapterTool:
+		return true
+	}
+	return false
+}
+
+func defaultGrantedBy(s string) string {
+	if s == "" {
+		return "operator"
+	}
+	return s
+}
+
+// ─── Grant query helpers (memory-only in slice 1B) ───────────────────────────
+
+// GrantFilter narrows ListGrants results.
+type GrantFilter struct {
+	AdapterID string
+	Scope     ApprovalScope
+	ToolKind  string
+}
+
+// ListGrants returns grants matching the filter. Expired grants are
+// dropped using the supplied now timestamp.
+func (s *MemoryApprovalStore) ListGrants(_ context.Context, filter GrantFilter, now time.Time) ([]Grant, error) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	out := make([]Grant, 0, len(s.grants))
+	for _, g := range s.grants {
+		if g.ExpiresAt != nil && !g.ExpiresAt.After(now) {
+			continue
+		}
+		if filter.AdapterID != "" && g.AdapterID != filter.AdapterID {
+			continue
+		}
+		if filter.Scope != "" && g.Scope != filter.Scope {
+			continue
+		}
+		if filter.ToolKind != "" && g.ToolKind != filter.ToolKind {
+			continue
+		}
+		out = append(out, g)
+	}
+	sort.Slice(out, func(i, j int) bool { return out[i].GrantedAt.After(out[j].GrantedAt) })
+	return out, nil
+}
+
+// DeleteGrant removes a grant by id. Returns ErrApprovalNotFound (the
+// shared not-found sentinel) when the id is unknown.
+func (s *MemoryApprovalStore) DeleteGrant(_ context.Context, id string) error {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	if _, ok := s.grants[id]; !ok {
+		return ErrApprovalNotFound
+	}
+	delete(s.grants, id)
+	return nil
 }

@@ -204,11 +204,11 @@ func NewHandler(cfg config.Config, logger *slog.Logger, service *gateway.Service
 			slog.String("warning", "GATEWAY_AGENT_ADAPTER_APPROVAL_MODE=auto: every adapter RequestPermission is auto-approved with no operator review"),
 		)
 	}
-	approvalRecorder := agentadapters.NewApprovalRecorder(agentadapters.RecorderOptions{
+	approvalCoordinator := agentadapters.NewApprovalCoordinator(agentadapters.CoordinatorOptions{
 		Mode:    approvalMode,
 		Timeout: cfg.Server.AgentAdapterApprovalTimeout,
 		Logger:  logger,
-		Hooks: agentadapters.RecorderHooks{
+		Hooks: agentadapters.CoordinatorHooks{
 			OnRequested: func(a agentadapters.Approval) {
 				agentApprovalMetrics.RecordRequested(context.Background(), telemetry.AgentAdapterApprovalRequestRecord{
 					AdapterID: a.AdapterID,
@@ -240,7 +240,7 @@ func NewHandler(cfg config.Config, logger *slog.Logger, service *gateway.Service
 			},
 		},
 	})
-	agentChatRunner.SetApprovalRecorder(approvalRecorder)
+	agentChatRunner.SetApprovalCoordinator(approvalCoordinator)
 
 	return &Handler{
 		config:              cfg,

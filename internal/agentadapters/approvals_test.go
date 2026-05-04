@@ -220,23 +220,23 @@ func TestFindMatchingGrantIgnoresWrongAdapterOrTool(t *testing.T) {
 	}
 }
 
-// ─── Recorder ────────────────────────────────────────────────────────────────
+// ─── Coordinator ─────────────────────────────────────────────────────────────
 
-func TestRecorderModeAutoApprovesAndRecords(t *testing.T) {
+func TestCoordinatorModeAutoApprovesAndRecords(t *testing.T) {
 	t.Parallel()
 	store := NewMemoryApprovalStore()
 	now := time.Date(2026, 5, 4, 10, 0, 0, 0, time.UTC)
 
 	var requested, resolved int
-	r := NewApprovalRecorder(RecorderOptions{
+	c := NewApprovalCoordinator(CoordinatorOptions{
 		Mode: ModeAuto, Store: store, NowFunc: fixedClock(now),
-		Hooks: RecorderHooks{
+		Hooks: CoordinatorHooks{
 			OnRequested: func(Approval) { requested++ },
 			OnResolved:  func(Approval, int64) { resolved++ },
 		},
 	})
 
-	resp, err := r.Handle(context.Background(), recordingContext{SessionID: "s", AdapterID: "codex", Workspace: "/tmp/w"},
+	resp, err := c.RequestPermission(context.Background(), RecordingContext{SessionID: "s", AdapterID: "codex", Workspace: "/tmp/w"},
 		samplePermissionRequest(acp.ToolKindEdit, "Edit foo.go"))
 	if err != nil {
 		t.Fatalf("Handle: %v", err)
@@ -270,12 +270,12 @@ func TestRecorderModeAutoApprovesAndRecords(t *testing.T) {
 	}
 }
 
-func TestRecorderModeDenyRecordsAndRejects(t *testing.T) {
+func TestCoordinatorModeDenyRecordsAndRejects(t *testing.T) {
 	t.Parallel()
 	store := NewMemoryApprovalStore()
-	r := NewApprovalRecorder(RecorderOptions{Mode: ModeDeny, Store: store})
+	c := NewApprovalCoordinator(CoordinatorOptions{Mode: ModeDeny, Store: store})
 
-	resp, err := r.Handle(context.Background(), recordingContext{SessionID: "s", AdapterID: "codex"},
+	resp, err := c.RequestPermission(context.Background(), RecordingContext{SessionID: "s", AdapterID: "codex"},
 		samplePermissionRequest(acp.ToolKindExecute, "Run tests"))
 	if err != nil {
 		t.Fatalf("Handle: %v", err)
@@ -293,7 +293,7 @@ func TestRecorderModeDenyRecordsAndRejects(t *testing.T) {
 	}
 }
 
-func TestRecorderModePromptCancelsWithoutUI(t *testing.T) {
+func TestCoordinatorModePromptCancelsWithoutUI(t *testing.T) {
 	t.Parallel()
 	// Slice 1A: prompt mode degrades to a Cancelled outcome with
 	// status=timed_out after the configured timeout because the
@@ -302,9 +302,9 @@ func TestRecorderModePromptCancelsWithoutUI(t *testing.T) {
 	store := NewMemoryApprovalStore()
 	var timedOut int
 	timeout := 5 * time.Millisecond
-	r := NewApprovalRecorder(RecorderOptions{
+	c := NewApprovalCoordinator(CoordinatorOptions{
 		Mode: ModePrompt, Store: store, Timeout: timeout,
-		Hooks: RecorderHooks{
+		Hooks: CoordinatorHooks{
 			OnTimedOut: func(_ Approval, durationMS int64) {
 				timedOut++
 				if durationMS != timeout.Milliseconds() {
@@ -315,7 +315,7 @@ func TestRecorderModePromptCancelsWithoutUI(t *testing.T) {
 	})
 
 	started := time.Now()
-	resp, err := r.Handle(context.Background(), recordingContext{SessionID: "s", AdapterID: "codex"},
+	resp, err := c.RequestPermission(context.Background(), RecordingContext{SessionID: "s", AdapterID: "codex"},
 		samplePermissionRequest(acp.ToolKindEdit, "Edit foo.go"))
 	if err != nil {
 		t.Fatalf("Handle: %v", err)
@@ -336,7 +336,7 @@ func TestRecorderModePromptCancelsWithoutUI(t *testing.T) {
 	}
 }
 
-func TestRecorderGrantShortCircuitsAuto(t *testing.T) {
+func TestCoordinatorGrantShortCircuitsAuto(t *testing.T) {
 	t.Parallel()
 	store := NewMemoryApprovalStore()
 	now := time.Now().UTC()
@@ -346,9 +346,9 @@ func TestRecorderGrantShortCircuitsAuto(t *testing.T) {
 	})
 
 	// Mode is `auto` (would otherwise approve), but the grant says deny.
-	r := NewApprovalRecorder(RecorderOptions{Mode: ModeAuto, Store: store, NowFunc: fixedClock(now)})
+	c := NewApprovalCoordinator(CoordinatorOptions{Mode: ModeAuto, Store: store, NowFunc: fixedClock(now)})
 
-	resp, err := r.Handle(context.Background(), recordingContext{SessionID: "s", AdapterID: "codex"},
+	resp, err := c.RequestPermission(context.Background(), RecordingContext{SessionID: "s", AdapterID: "codex"},
 		samplePermissionRequest(acp.ToolKindExecute, "Run rm -rf /"))
 	if err != nil {
 		t.Fatalf("Handle: %v", err)
@@ -366,7 +366,7 @@ func TestRecorderGrantShortCircuitsAuto(t *testing.T) {
 	}
 }
 
-func TestRecorderGrantApproveWithoutAllowOptionCancels(t *testing.T) {
+func TestCoordinatorGrantApproveWithoutAllowOptionCancels(t *testing.T) {
 	t.Parallel()
 	store := NewMemoryApprovalStore()
 	now := time.Now().UTC()
@@ -374,7 +374,7 @@ func TestRecorderGrantApproveWithoutAllowOptionCancels(t *testing.T) {
 		Scope: ApprovalScopeAdapterTool, AdapterID: "codex", ToolKind: ToolKindOther,
 		Decision: ApprovalDecisionApprove, GrantedAt: now,
 	})
-	r := NewApprovalRecorder(RecorderOptions{Mode: ModeDeny, Store: store, NowFunc: fixedClock(now)})
+	c := NewApprovalCoordinator(CoordinatorOptions{Mode: ModeDeny, Store: store, NowFunc: fixedClock(now)})
 
 	req := acp.RequestPermissionRequest{
 		Options: []acp.PermissionOption{
@@ -383,7 +383,7 @@ func TestRecorderGrantApproveWithoutAllowOptionCancels(t *testing.T) {
 		},
 		ToolCall: acp.ToolCallUpdate{ToolCallId: "c"},
 	}
-	resp, err := r.Handle(context.Background(), recordingContext{SessionID: "s", AdapterID: "codex"}, req)
+	resp, err := c.RequestPermission(context.Background(), RecordingContext{SessionID: "s", AdapterID: "codex"}, req)
 	if err != nil {
 		t.Fatalf("Handle: %v", err)
 	}
@@ -400,13 +400,13 @@ func TestRecorderGrantApproveWithoutAllowOptionCancels(t *testing.T) {
 	}
 }
 
-func TestRecorderApproveWithoutAllowOptionFallsBackToFirst(t *testing.T) {
+func TestCoordinatorApproveWithoutAllowOptionFallsBackToFirst(t *testing.T) {
 	t.Parallel()
 	// Defensive: an adapter sends only custom-named options. We keep
 	// the legacy "first option" fallback for the auto path so we don't
 	// degrade to Cancelled silently.
 	store := NewMemoryApprovalStore()
-	r := NewApprovalRecorder(RecorderOptions{Mode: ModeAuto, Store: store})
+	c := NewApprovalCoordinator(CoordinatorOptions{Mode: ModeAuto, Store: store})
 
 	req := acp.RequestPermissionRequest{
 		Options: []acp.PermissionOption{
@@ -415,26 +415,26 @@ func TestRecorderApproveWithoutAllowOptionFallsBackToFirst(t *testing.T) {
 		},
 		ToolCall: acp.ToolCallUpdate{ToolCallId: "c"},
 	}
-	resp, _ := r.Handle(context.Background(), recordingContext{SessionID: "s", AdapterID: "codex"}, req)
+	resp, _ := c.RequestPermission(context.Background(), RecordingContext{SessionID: "s", AdapterID: "codex"}, req)
 	if resp.Outcome.Selected == nil || resp.Outcome.Selected.OptionId != "custom_proceed" {
 		t.Fatalf("expected fallback to first option; got %+v", resp.Outcome)
 	}
 }
 
-func TestRecorderDenyWithoutRejectOptionCancels(t *testing.T) {
+func TestCoordinatorDenyWithoutRejectOptionCancels(t *testing.T) {
 	t.Parallel()
 	// If the adapter offers no reject option, the only honest answer
 	// for ModeDeny is ACP Cancelled. Picking a custom option as a
 	// stand-in could approve an action by accident.
 	store := NewMemoryApprovalStore()
-	r := NewApprovalRecorder(RecorderOptions{Mode: ModeDeny, Store: store})
+	c := NewApprovalCoordinator(CoordinatorOptions{Mode: ModeDeny, Store: store})
 
 	req := acp.RequestPermissionRequest{
 		Options: []acp.PermissionOption{
 			{OptionId: acp.PermissionOptionId("allow_once"), Kind: acp.PermissionOptionKindAllowOnce, Name: "Allow"},
 		},
 	}
-	resp, _ := r.Handle(context.Background(), recordingContext{SessionID: "s", AdapterID: "codex"}, req)
+	resp, _ := c.RequestPermission(context.Background(), RecordingContext{SessionID: "s", AdapterID: "codex"}, req)
 	if resp.Outcome.Cancelled == nil {
 		t.Fatalf("expected cancelled outcome when no deny option present; got %+v", resp.Outcome)
 	}
@@ -445,16 +445,16 @@ func TestRecorderDenyWithoutRejectOptionCancels(t *testing.T) {
 	}
 }
 
-func TestRecorderDefaultsAreSafe(t *testing.T) {
+func TestCoordinatorDefaultsAreSafe(t *testing.T) {
 	t.Parallel()
-	r := NewApprovalRecorder(RecorderOptions{})
-	if r.Mode() != ModeAuto {
-		t.Fatalf("zero-value mode = %q, want auto", r.Mode())
+	c := NewApprovalCoordinator(CoordinatorOptions{})
+	if c.Mode() != ModeAuto {
+		t.Fatalf("zero-value mode = %q, want auto", c.Mode())
 	}
-	if r.Timeout() != 5*time.Minute {
-		t.Fatalf("zero-value timeout = %s, want 5m", r.Timeout())
+	if c.Timeout() != 5*time.Minute {
+		t.Fatalf("zero-value timeout = %s, want 5m", c.Timeout())
 	}
-	if r.Store() == nil {
+	if c.Store() == nil {
 		t.Fatal("expected default in-memory store")
 	}
 }
