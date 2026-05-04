@@ -1,5 +1,6 @@
-import { useState, type ReactNode } from "react";
+import { useEffect, useState, type ReactNode } from "react";
 import type { RuntimeConsoleViewModel } from "../../app/useRuntimeConsole";
+import type { AgentChatGrantRecord } from "../../types/runtime";
 import { Badge, Icon, Icons, InlineError } from "../shared/ui";
 import { PricebookTab } from "./PricebookTab";
 
@@ -9,13 +10,16 @@ type Props = {
 };
 
 // Visible settings sub-tabs. Pricing covers per-model pricebook
-// entries; Retention triggers and reviews stored-data sweeps. Balances
-// and usage live in the Costs workspace.
-const TABS = ["pricebook", "retention"] as const;
+// entries; Retention triggers and reviews stored-data sweeps; External
+// agents lists durable approval grants ("always allow / always deny"
+// rules) that survive process restart. Balances and usage live in the
+// Costs workspace.
+const TABS = ["pricebook", "retention", "external_agents"] as const;
 type Tab = (typeof TABS)[number];
 const TAB_LABELS: Record<Tab, string> = {
   pricebook: "Pricing",
   retention: "Retention",
+  external_agents: "External agents",
 };
 
 const TAB_STORAGE_KEY = "hecate.settingsTab";
@@ -60,8 +64,9 @@ export function SettingsView({ state, actions }: Props) {
 
       {/* Tab content */}
       <div style={{ flex: 1, overflowY: "auto", padding: 16 }}>
-        {tab === "pricebook"    && <PricebookTab state={state} actions={actions} />}
-        {tab === "retention"    && <RetentionTab state={state} actions={actions} />}
+        {tab === "pricebook"        && <PricebookTab state={state} actions={actions} />}
+        {tab === "retention"        && <RetentionTab state={state} actions={actions} />}
+        {tab === "external_agents"  && <ExternalAgentsTab state={state} actions={actions} />}
       </div>
     </div>
   );
@@ -258,5 +263,163 @@ function RetentionTab({ state, actions }: Props) {
         </div>
       )}
     </>
+  );
+}
+
+
+// ─── External agents tab ──────────────────────────────────────────────────────
+
+// ExternalAgentsTab lists durable approval grants ("always allow /
+// always deny" rules persisted by the approval coordinator) and lets
+// the operator revoke them. Grants survive normal retention pruning;
+// only ExpiresAt removes them automatically. Revoke is the only
+// operator-driven removal path.
+//
+// The grant list is lazy-loaded on tab mount — operators rarely visit
+// this surface, so we don't fetch on every dashboard load.
+function ExternalAgentsTab({ state, actions }: Props) {
+  useEffect(() => {
+    void actions.listAgentChatGrants();
+    // listAgentChatGrants is stable across renders; no need to put it
+    // in the deps. We also intentionally fire only once on tab mount —
+    // operators can re-fetch via the explicit Refresh button below.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
+
+  const grants = state.agentChatGrants;
+  const loading = state.agentChatGrantsLoading;
+  const error = state.agentChatGrantsError;
+
+  return (
+    <>
+      <SectionHeader
+        title="External agent grants"
+        description="Durable “always allow / always deny” rules persisted by the approval coordinator. Revoke removes a grant immediately and doesn't undo decisions already applied to in-flight calls."
+        meta={`${grants.length} grant${grants.length === 1 ? "" : "s"}`}
+        actions={
+          <button
+            type="button"
+            className="btn btn-ghost btn-sm"
+            onClick={() => void actions.listAgentChatGrants()}
+            disabled={loading}
+            data-testid="external-agents-refresh"
+          >
+            <Icon d={Icons.refresh} size={13} /> {loading ? "Loading…" : "Refresh"}
+          </button>
+        }
+      />
+
+      {error && (
+        <div style={{ marginBottom: 12 }}>
+          <InlineError message={error} />
+        </div>
+      )}
+
+      {grants.length === 0 ? (
+        <div
+          className="card"
+          style={{ padding: "24px", textAlign: "center", color: "var(--t3)", fontSize: 12 }}
+          data-testid="external-agents-empty"
+        >
+          {loading ? "Loading grants…" : "No grants yet. Approvals stay scoped to a single call until an operator picks a broader scope."}
+        </div>
+      ) : (
+        <div className="card" style={{ overflow: "hidden" }} data-testid="external-agents-list">
+          {grants.map((g, i) => (
+            <GrantRow
+              key={g.id}
+              grant={g}
+              divider={i < grants.length - 1}
+              onRevoke={() => void actions.deleteAgentChatGrant(g.id)}
+            />
+          ))}
+        </div>
+      )}
+    </>
+  );
+}
+
+function GrantRow({
+  grant,
+  divider,
+  onRevoke,
+}: {
+  grant: AgentChatGrantRecord;
+  divider: boolean;
+  onRevoke: () => void;
+}) {
+  const [confirmingRevoke, setConfirmingRevoke] = useState(false);
+  const decisionTone = grant.decision === "approve"
+    ? { color: "var(--teal)", label: "always approve" }
+    : grant.decision === "deny"
+      ? { color: "var(--red)", label: "always deny" }
+      : { color: "var(--t2)", label: grant.decision };
+  const expiresLabel = grant.expires_at
+    ? `expires ${new Date(grant.expires_at).toLocaleString()}`
+    : "no expiry";
+
+  return (
+    <div
+      data-testid={`external-agents-row-${grant.id}`}
+      style={{
+        display: "flex",
+        alignItems: "center",
+        gap: 10,
+        padding: "10px 14px",
+        borderBottom: divider ? "1px solid var(--border)" : "none",
+      }}
+    >
+      <div style={{ minWidth: 0, flex: 1 }}>
+        <div style={{ display: "flex", alignItems: "baseline", gap: 8, marginBottom: 2 }}>
+          <span style={{ fontSize: 12, fontWeight: 500, color: "var(--t0)" }}>{grant.adapter_id}</span>
+          <span style={{ fontFamily: "var(--font-mono)", fontSize: 11, color: "var(--t2)" }}>·</span>
+          <span style={{ fontFamily: "var(--font-mono)", fontSize: 11, color: "var(--t1)" }}>{grant.tool_kind}</span>
+          <span style={{ fontFamily: "var(--font-mono)", fontSize: 10, color: decisionTone.color, textTransform: "uppercase", letterSpacing: "0.04em" }}>
+            {decisionTone.label}
+          </span>
+        </div>
+        <div style={{ display: "flex", flexWrap: "wrap", gap: 8, fontFamily: "var(--font-mono)", fontSize: 10, color: "var(--t3)" }}>
+          <span>scope <span style={{ color: "var(--t1)" }}>{grant.scope}</span></span>
+          {grant.workspace && <span>workspace <span style={{ color: "var(--t1)" }}>{grant.workspace}</span></span>}
+          {grant.session_id && <span>session <span style={{ color: "var(--t1)" }}>{grant.session_id}</span></span>}
+          {grant.granted_by && <span>by <span style={{ color: "var(--t1)" }}>{grant.granted_by}</span></span>}
+          <span>{new Date(grant.granted_at).toLocaleString()}</span>
+          <span>{expiresLabel}</span>
+        </div>
+      </div>
+      {confirmingRevoke ? (
+        <div style={{ display: "flex", alignItems: "center", gap: 6 }}>
+          <button
+            type="button"
+            className="btn btn-danger btn-sm"
+            onClick={onRevoke}
+            title="Confirm revoke"
+            data-testid={`external-agents-confirm-revoke-${grant.id}`}
+          >
+            Revoke?
+          </button>
+          <button
+            type="button"
+            className="btn btn-ghost btn-sm"
+            onClick={() => setConfirmingRevoke(false)}
+            title="Cancel revoke"
+            data-testid={`external-agents-cancel-revoke-${grant.id}`}
+          >
+            Cancel
+          </button>
+        </div>
+      ) : (
+        <button
+          type="button"
+          className="btn btn-ghost btn-sm"
+          onClick={() => setConfirmingRevoke(true)}
+          title="Revoke this grant"
+          data-testid={`external-agents-revoke-${grant.id}`}
+          style={{ color: "var(--red)" }}
+        >
+          <Icon d={Icons.trash} size={13} /> Revoke
+        </button>
+      )}
+    </div>
   );
 }
