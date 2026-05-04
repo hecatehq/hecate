@@ -252,6 +252,10 @@ const (
 	MetricRetriesTotal           = "hecate.gateway.retries"
 	MetricFailoversTotal         = "hecate.gateway.failovers"
 
+	// External agent chat metrics
+	MetricAgentChatRunsTotal   = "hecate.agent_chat.runs"
+	MetricAgentChatRunDuration = "hecate.agent_chat.run.duration"
+
 	// Orchestrator metrics
 	MetricOrchestratorRunsTotal            = "hecate.orchestrator.runs"
 	MetricOrchestratorRunDuration          = "hecate.orchestrator.run.duration"

@@ -370,9 +370,14 @@ func (h *Handler) HandleCreateAgentChatMessage(w http.ResponseWriter, r *http.Re
 			telemetry.AttrHecateAgentDiffCaptured: true,
 		}))
 	}
+	durationMS := completedAt.Sub(startedAt).Milliseconds()
+	resultLabel := telemetry.ResultSuccess
+	if runErr != nil || status == "cancelled" {
+		resultLabel = telemetry.ResultError
+	}
 	terminalAttrs := agentChatTraceAttrs(session, adapter, runID, assistantID, map[string]any{
 		telemetry.AttrHecateRunStatus:            status,
-		telemetry.AttrHecateRunDurationMS:        completedAt.Sub(startedAt).Milliseconds(),
+		telemetry.AttrHecateRunDurationMS:        durationMS,
 		telemetry.AttrHecateAgentOutputBytes:     int64(len(output)),
 		telemetry.AttrHecateAgentRawOutputBytes:  int64(len(result.RawOutput)),
 		telemetry.AttrHecateAgentDiffCaptured:    result.Diff != "",
@@ -387,6 +392,17 @@ func (h *Handler) HandleCreateAgentChatMessage(w http.ResponseWriter, r *http.Re
 		terminalAttrs[telemetry.AttrErrorMessage] = displayErr
 	}
 	trace.Record(agentChatTerminalEvent(status), terminalAttrs)
+	driverKind := result.DriverKind
+	if driverKind == "" {
+		driverKind = adapter.Kind
+	}
+	h.agentChatMetrics.RecordRun(traceCtx, telemetry.AgentChatRunMetricsRecord{
+		AdapterID:  adapter.ID,
+		DriverKind: driverKind,
+		Status:     status,
+		Result:     resultLabel,
+		DurationMS: durationMS,
+	})
 
 	updated, err = h.agentChat.UpdateMessage(r.Context(), session.ID, assistantID, func(message *agentchat.Message) {
 		if output != "" {

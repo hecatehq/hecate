@@ -393,7 +393,14 @@ Each prefix has a `_MAX_AGE` and `_MAX_COUNT` suffix (e.g. `GATEWAY_RETENTION_TR
 | `hecate.orchestrator.mcp.tool_call.duration` | Histogram | `ms` | MCP tool dispatch wall-clock duration; same attribute set as the counter |
 | `hecate.orchestrator.mcp.cache_events` | Counter | `{event}` | Shared-client cache events grouped by `hecate.mcp.cache.event` (`hit` / `miss` / `evicted`) and (when known) `hecate.mcp.server` |
 
-Metric attributes reuse the same vocabulary as traces — provider, model, cache, failover, result, step kind, approval decision, queue backend, run status, plus the MCP-specific `hecate.mcp.*` attributes for the three MCP-client metrics above.
+### Agent Chat Metrics
+
+| Instrument | Type | Unit | Description |
+|---|---|---|---|
+| `hecate.agent_chat.runs` | Counter | `{run}` | External agent-chat runs grouped by adapter, driver kind, status, and result |
+| `hecate.agent_chat.run.duration` | Histogram | `ms` | External agent-chat run wall-clock duration |
+
+Metric attributes reuse the same vocabulary as traces — provider, model, cache, failover, result, step kind, approval decision, queue backend, run status, agent adapter id/driver kind, plus the MCP-specific `hecate.mcp.*` attributes for the three MCP-client metrics above.
 
 ## Error And Limit Signals
 
