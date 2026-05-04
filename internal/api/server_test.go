@@ -1010,6 +1010,12 @@ func TestAgentChatRunsExternalAdapter(t *testing.T) {
 		output:          "agent saw: hello from hecate\n",
 		nativeSessionID: "native_codex_1",
 		sessionStarted:  true,
+		usage: agentadapters.Usage{
+			ContextSize:          200_000,
+			ContextUsed:          42_000,
+			ReportedCostAmount:   "0.1234",
+			ReportedCostCurrency: "USD",
+		},
 	})
 	handler := NewServer(logger, apiHandler)
 	client := newAPITestClient(t, handler)
@@ -1044,6 +1050,12 @@ func TestAgentChatRunsExternalAdapter(t *testing.T) {
 	}
 	if assistant.CostMode != "external" {
 		t.Fatalf("cost_mode = %q, want external", assistant.CostMode)
+	}
+	if assistant.Usage == nil || assistant.Usage.ContextSize != 200_000 || assistant.Usage.ContextUsed != 42_000 {
+		t.Fatalf("usage = %#v, want context 42000/200000", assistant.Usage)
+	}
+	if assistant.Usage.ReportedCostAmount != "0.1234" || assistant.Usage.ReportedCostCurrency != "USD" {
+		t.Fatalf("reported cost = %#v, want 0.1234 USD", assistant.Usage)
 	}
 	if !strings.Contains(assistant.RawOutput, "hello from hecate") {
 		t.Fatalf("raw_output = %q, want prompt echoed", assistant.RawOutput)
@@ -1205,6 +1217,7 @@ type fakeAgentChatRunner struct {
 	sessionStarted  bool
 	sessionResumed  bool
 	seenPreviousID  string
+	usage           agentadapters.Usage
 	err             error
 }
 
@@ -1266,6 +1279,7 @@ func (r *fakeAgentChatRunner) result(req agentadapters.RunRequest, output string
 		ExitCode:        exitCode,
 		StartedAt:       started,
 		CompletedAt:     time.Now().UTC(),
+		Usage:           r.usage,
 	}
 }
 

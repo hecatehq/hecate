@@ -8,7 +8,8 @@ External agents are not model providers. They are long-lived ACP agent sessions
 running in a selected workspace. Hecate supervises the adapter process, forwards
 prompts over ACP, records the normalized transcript plus raw ACP updates, and
 captures timing, workspace branch, and Git diff. Cost is still reported as
-`external` unless a future adapter supplies structured usage.
+`external`; when an adapter emits ACP `usage_update`, Hecate also records the
+reported context-window usage and optional adapter-reported cost for display.
 
 Chat transcripts are durable when `GATEWAY_CHAT_SESSIONS_BACKEND=sqlite`.
 Hecate also stores the native ACP session id. After a gateway or native-app
@@ -147,6 +148,7 @@ environment that starts Hecate.
 6. Confirm the assistant message shows:
    - structured activity markers such as starting, running, files changed, or failed
    - normalized transcript text
+   - context usage in the shell status bar when the adapter reports it
    - captured workspace diff under the inline diff disclosure when files changed
    - raw ACP diagnostics under the inline diagnostic disclosure when they differ from the normalized transcript
 

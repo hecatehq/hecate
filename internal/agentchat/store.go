@@ -48,6 +48,7 @@ type Message struct {
 	CompletedAt     time.Time
 	Error           string
 	Activities      []Activity
+	Usage           Usage
 }
 
 type Activity struct {
@@ -56,6 +57,17 @@ type Activity struct {
 	Title     string    `json:"title"`
 	Detail    string    `json:"detail,omitempty"`
 	CreatedAt time.Time `json:"created_at,omitempty"`
+}
+
+type Usage struct {
+	ContextSize          int    `json:"context_size,omitempty"`
+	ContextUsed          int    `json:"context_used,omitempty"`
+	ReportedCostAmount   string `json:"reported_cost_amount,omitempty"`
+	ReportedCostCurrency string `json:"reported_cost_currency,omitempty"`
+}
+
+func (u Usage) Empty() bool {
+	return u.ContextSize == 0 && u.ContextUsed == 0 && u.ReportedCostAmount == "" && u.ReportedCostCurrency == ""
 }
 
 type Store interface {

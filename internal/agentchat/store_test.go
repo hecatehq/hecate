@@ -69,6 +69,12 @@ func runStoreLifecycle(t *testing.T, store Store) {
 		message.Diff = "diff --git a/a b/a"
 		message.StartedAt = startedAt
 		message.CompletedAt = startedAt.Add(1500 * time.Millisecond)
+		message.Usage = Usage{
+			ContextSize:          200_000,
+			ContextUsed:          42_000,
+			ReportedCostAmount:   "0.1234",
+			ReportedCostCurrency: "USD",
+		}
 		message.Activities = []Activity{
 			{Type: "started", Status: "completed", Title: "Started external agent", CreatedAt: startedAt},
 			{Type: "files_changed", Status: "completed", Title: "Files changed", Detail: "1 file changed", CreatedAt: startedAt.Add(time.Second)},
@@ -99,6 +105,9 @@ func runStoreLifecycle(t *testing.T, store Store) {
 	}
 	if got.Messages[1].RawOutput == "" || got.Messages[1].TraceID != "trace_agent" || len(got.Messages[1].Activities) != 2 {
 		t.Fatalf("persisted diagnostics missing: %+v", got.Messages[1])
+	}
+	if got.Messages[1].Usage.ContextSize != 200_000 || got.Messages[1].Usage.ContextUsed != 42_000 {
+		t.Fatalf("persisted usage = %+v, want 42000/200000", got.Messages[1].Usage)
 	}
 
 	list, err := store.List(ctx)

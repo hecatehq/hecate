@@ -231,6 +231,14 @@ export type AgentChatMessageRecord = {
   duration_ms?: number;
   error?: string;
   activities?: AgentChatActivityRecord[];
+  usage?: AgentChatUsageRecord;
+};
+
+export type AgentChatUsageRecord = {
+  context_size?: number;
+  context_used?: number;
+  reported_cost_amount?: string;
+  reported_cost_currency?: string;
 };
 
 export type AgentChatActivityRecord = {

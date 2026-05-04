@@ -9,6 +9,7 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
+	"strconv"
 	"strings"
 	"sync"
 	"time"
@@ -279,8 +280,8 @@ func (s *acpSession) RunTurn(ctx context.Context, req RunRequest) (RunResult, er
 			runErr = fmt.Errorf("%w; output exceeded %d bytes", runErr, req.MaxOutputBytes)
 		}
 	}
-	output, raw := turn.snapshot()
-	return captureACPTurnResult(ctx, s.adapter, req, s.nativeID, output, raw, exitCode, started, completed, runErr)
+	output, raw, usage := turn.snapshot()
+	return captureACPTurnResult(ctx, s.adapter, req, s.nativeID, output, raw, usage, exitCode, started, completed, runErr)
 }
 
 func (s *acpSession) Close(ctx context.Context) error {
@@ -298,7 +299,7 @@ func (s *acpSession) Close(ctx context.Context) error {
 	return nil
 }
 
-func captureACPTurnResult(ctx context.Context, adapter Adapter, req RunRequest, nativeSessionID, output, rawOutput string, exitCode int, started, completed time.Time, runErr error) (RunResult, error) {
+func captureACPTurnResult(ctx context.Context, adapter Adapter, req RunRequest, nativeSessionID, output, rawOutput string, usage Usage, exitCode int, started, completed time.Time, runErr error) (RunResult, error) {
 	maxOutput := req.MaxOutputBytes
 	if maxOutput <= 0 {
 		maxOutput = 1024 * 1024
@@ -315,6 +316,7 @@ func captureACPTurnResult(ctx context.Context, adapter Adapter, req RunRequest, 
 		CompletedAt:     completed,
 		DiffStat:        diffStat,
 		Diff:            diff,
+		Usage:           usage,
 	}, runErr
 }
 
@@ -447,6 +449,7 @@ func (c *acpChatClient) workspacePath(path string) (string, error) {
 type acpTurn struct {
 	output limitedBuffer
 	raw    limitedBuffer
+	usage  Usage
 
 	mu sync.Mutex
 }
@@ -471,7 +474,26 @@ func (t *acpTurn) recordUpdate(params acp.SessionNotification) {
 	switch {
 	case update.AgentMessageChunk != nil:
 		t.appendText("agent_message_chunk", contentBlockText(update.AgentMessageChunk.Content))
+	case update.UsageUpdate != nil:
+		t.recordUsage(update.UsageUpdate)
 	}
+}
+
+func (t *acpTurn) recordUsage(update *acp.SessionUsageUpdate) {
+	if update == nil {
+		return
+	}
+	usage := Usage{
+		ContextSize: update.Size,
+		ContextUsed: update.Used,
+	}
+	if update.Cost != nil {
+		usage.ReportedCostAmount = strconv.FormatFloat(update.Cost.Amount, 'f', -1, 64)
+		usage.ReportedCostCurrency = strings.ToUpper(strings.TrimSpace(update.Cost.Currency))
+	}
+	t.mu.Lock()
+	defer t.mu.Unlock()
+	t.usage = usage
 }
 
 func (t *acpTurn) appendText(_ string, text string) {
@@ -492,10 +514,10 @@ func (t *acpTurn) appendRaw(data []byte) {
 	_, _ = t.raw.Write(data)
 }
 
-func (t *acpTurn) snapshot() (string, string) {
+func (t *acpTurn) snapshot() (string, string, Usage) {
 	t.mu.Lock()
 	defer t.mu.Unlock()
-	return t.output.String(), t.raw.String()
+	return t.output.String(), t.raw.String(), t.usage
 }
 
 func (t *acpTurn) truncated() bool {

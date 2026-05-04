@@ -78,6 +78,18 @@ type RunResult struct {
 	CompletedAt     time.Time
 	DiffStat        string
 	Diff            string
+	Usage           Usage
+}
+
+type Usage struct {
+	ContextSize          int
+	ContextUsed          int
+	ReportedCostAmount   string
+	ReportedCostCurrency string
+}
+
+func (u Usage) Empty() bool {
+	return u.ContextSize == 0 && u.ContextUsed == 0 && u.ReportedCostAmount == "" && u.ReportedCostCurrency == ""
 }
 
 func BuiltIns() []Adapter {

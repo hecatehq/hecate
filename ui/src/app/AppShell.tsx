@@ -7,6 +7,7 @@ import { ChatView } from "../features/chats/ChatView";
 import { ProvidersView } from "../features/providers/ProvidersView";
 import { TasksView } from "../features/runs/TasksView";
 import type { RuntimeConsoleViewModel } from "./useRuntimeConsole";
+import type { AgentChatUsageRecord } from "../types/runtime";
 
 export type WorkspaceID = "overview" | "runs" | "chats" | "providers" | "costs" | "settings";
 
@@ -145,6 +146,8 @@ function AuthenticatedShell({
   const isBare = BARE_WORKSPACES.includes(activeWorkspace);
   const agentWorkspace = state.activeAgentChatSession?.workspace || state.agentWorkspace;
   const agentWorkspaceBranch = state.activeAgentChatSession?.workspace_branch || state.agentWorkspaceBranch;
+  const agentUsage = latestAgentUsage(state);
+  const agentUsageLabel = formatAgentUsagePill(agentUsage);
 
   return (
     <div className="hecate-shell">
@@ -227,6 +230,12 @@ function AuthenticatedShell({
                 <span title={`git branch: ${agentWorkspaceBranch}`}>git:{agentWorkspaceBranch}</span>
               </>
             )}
+            {agentUsageLabel && (
+              <>
+                <span className="hecate-statusbar__sep">|</span>
+                <span title={formatAgentUsageTitle(agentUsage!)}>{agentUsageLabel}</span>
+              </>
+            )}
           </>
         )}
       </div>
@@ -240,4 +249,62 @@ function AuthenticatedShell({
       )}
     </div>
   );
+}
+
+function latestAgentUsage(state: ConsoleState): AgentChatUsageRecord | undefined {
+  const messages = state.activeAgentChatSession?.messages ?? [];
+  for (let i = messages.length - 1; i >= 0; i -= 1) {
+    const usage = messages[i].usage;
+    if (usage && hasAgentUsage(usage)) return usage;
+  }
+  return undefined;
+}
+
+function hasAgentUsage(usage?: AgentChatUsageRecord): usage is AgentChatUsageRecord {
+  return Boolean(
+    usage
+    && (usage.context_size
+      || usage.context_used
+      || usage.reported_cost_amount
+      || usage.reported_cost_currency)
+  );
+}
+
+function formatAgentUsagePill(usage?: AgentChatUsageRecord): string {
+  if (!hasAgentUsage(usage)) return "";
+  const size = usage.context_size ?? 0;
+  const used = usage.context_used ?? 0;
+  if (size > 0) {
+    const remaining = Math.max(size - used, 0);
+    const pct = Math.max(0, Math.min(100, Math.round((remaining / size) * 100)));
+    return `context ${pct}% left`;
+  }
+  if (usage.reported_cost_amount) {
+    return `reported cost ${formatReportedCost(usage)}`;
+  }
+  return "";
+}
+
+function formatAgentUsageTitle(usage?: AgentChatUsageRecord): string {
+  if (!hasAgentUsage(usage)) return "";
+  const parts: string[] = [];
+  const size = usage.context_size ?? 0;
+  const used = usage.context_used ?? 0;
+  if (size > 0) {
+    const remaining = Math.max(size - used, 0);
+    parts.push(`Context: ${formatNumber(used)} used / ${formatNumber(size)} total · ${formatNumber(remaining)} remaining`);
+  }
+  if (usage.reported_cost_amount) {
+    parts.push(`Reported cost: ${formatReportedCost(usage)}`);
+  }
+  return parts.join(" · ");
+}
+
+function formatReportedCost(usage: AgentChatUsageRecord): string {
+  const currency = (usage.reported_cost_currency || "").trim().toUpperCase();
+  return currency ? `${usage.reported_cost_amount} ${currency}` : usage.reported_cost_amount || "";
+}
+
+function formatNumber(value: number): string {
+  return new Intl.NumberFormat(undefined, { maximumFractionDigits: 0 }).format(value);
 }

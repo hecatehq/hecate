@@ -105,6 +105,34 @@ describe("ConsoleShell navigation", () => {
     expect(screen.queryByText("git:draft")).toBeNull();
   });
 
+  it("shows latest reported agent context usage in the status bar", () => {
+    const state = createRuntimeConsoleFixture({
+      chatTarget: "agent",
+      activeAgentChatSession: {
+        id: "agent_chat_1",
+        title: "Codex work",
+        adapter_id: "codex",
+        workspace: "/Users/alice/dev/hecate",
+        workspace_branch: "main",
+        status: "completed",
+        messages: [
+          { id: "msg_1", role: "assistant", content: "Earlier", usage: { context_size: 200_000, context_used: 10_000 } },
+          { id: "msg_2", role: "assistant", content: "Latest", usage: { context_size: 200_000, context_used: 42_000 } },
+        ],
+      },
+    });
+    render(
+      <ConsoleShell
+        activeWorkspace="chats"
+        onSelectWorkspace={() => {}}
+        state={state}
+        actions={createRuntimeConsoleActions()}
+      />,
+    );
+
+    expect(screen.getByText("context 79% left")).toBeInTheDocument();
+  });
+
   it("does not show agent workspace details while chatting with models", () => {
     const state = createRuntimeConsoleFixture({
       chatTarget: "model",
