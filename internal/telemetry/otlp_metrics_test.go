@@ -2,6 +2,7 @@ package telemetry
 
 import (
 	"context"
+	"strings"
 	"testing"
 
 	"go.opentelemetry.io/otel/trace"
@@ -58,5 +59,19 @@ func TestOTelMetricExemplarFilterRejectsUnknownValue(t *testing.T) {
 
 	if _, _, err := otelMetricExemplarFilter("sometimes"); err == nil {
 		t.Fatal("otelMetricExemplarFilter() error = nil, want invalid filter error")
+	}
+}
+
+func TestNewMeterProviderRejectsInvalidExemplarFilter(t *testing.T) {
+	t.Parallel()
+
+	_, _, err := NewMeterProvider(context.Background(), OTelMetricOptions{
+		ExemplarFilter: "sometimes",
+	})
+	if err == nil {
+		t.Fatal("NewMeterProvider() error = nil, want invalid exemplar filter error")
+	}
+	if !strings.Contains(err.Error(), "invalid metric exemplar filter") {
+		t.Fatalf("NewMeterProvider() error = %q, want invalid metric exemplar filter", err)
 	}
 }

@@ -59,6 +59,7 @@ When choosing between "elegant" and "operationally explicit," choose explicit.
 - **Events are appended, not mutated.** Every state transition writes a `run_event` with a monotonic sequence. The SSE stream replays from `after_sequence`. New event types must follow the event-protocol v1 taxonomy (`run.*`, `turn.*`, `tool.*`, `policy.*`, `gap.*`, `error.*`) and be documented in `docs/events.md`.
 - **Cost is in micro-USD.** All money is `int64` in micro-USD (`1_000_000` = $1). Never `float64` for money — pricebook lookups, budgets, ledger entries all stay integer.
 - **OTel is first-class.** Every request gets a trace ID surfaced in the response header (`X-Trace-Id`) and persisted on the run record. New code paths add spans, not just log lines.
+- **Metric labels are guarded.** Record metrics through `internal/telemetry` helpers and normalizers. Closed-set dimensions collapse unknown values to `other`; free-form dimensions must reject control characters and oversized labels. Put raw commands, paths, stdout/stderr snippets, and adapter diagnostics in spans, logs, or persisted events — never metric labels.
 
 ## Backend recipes
 

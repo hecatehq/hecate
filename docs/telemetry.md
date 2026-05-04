@@ -475,6 +475,12 @@ MCP tool name are trimmed and reject control characters or labels longer than 96
 bytes. Put ad-hoc diagnostics in spans, logs, or persisted events — not metric
 labels.
 
+New metric dimensions should be added in `internal/telemetry` instead of at the
+call site. Closed-set dimensions need a normalizer; free-form dimensions must
+use the shared label sanitizer. This keeps provider names, model names, command
+output, paths, and tool diagnostics from accidentally becoming unbounded metric
+labels.
+
 The Go OTel SDK records metric exemplars with the trace-based filter by
 default, so histogram/counter samples recorded under a sampled trace can carry
 trace/span IDs to supporting backends. Set
@@ -633,7 +639,7 @@ Working today:
 
 Not yet:
 
-- **Histogram exemplars** — duration histograms don't attach example trace ids, so backend-side trace-from-metric pivots aren't available.
-- **Cardinality protection beyond `hecate.error.kind`** — model and provider labels are trusted to be normalized upstream by the router; ad-hoc values in metric attributes can still blow up cardinality if you bypass that path.
+- **Cross-backend exemplar verification** — the SDK filter is configurable, but backend-specific trace-from-metric UX still needs smoke coverage against the collectors/operators care about.
+- **Full semantic convention audit** — core runtime paths use `gen_ai.*` and `hecate.*`, but new adapter/tool surfaces still need regular reviews as OTel semantic conventions evolve.
 
 If any of these gaps are blocking your deployment, file an issue — operator demand drives the prioritization.

@@ -146,6 +146,44 @@ func TestMetricsRecordProviderCallEmitsAttemptAndHealthSignals(t *testing.T) {
 	}
 }
 
+func TestMetricsRecordProviderCallNormalizesMetricLabels(t *testing.T) {
+	t.Parallel()
+
+	reader := sdkmetric.NewManualReader()
+	provider := sdkmetric.NewMeterProvider(sdkmetric.WithReader(reader))
+	metrics, err := NewMetricsWithMeterProvider(provider)
+	if err != nil {
+		t.Fatalf("NewMetricsWithMeterProvider() error = %v", err)
+	}
+
+	metrics.RecordProviderCall(context.Background(), ProviderCallMetricsRecord{
+		Provider:     "  custom-provider  ",
+		ProviderKind: "edge",
+		Model:        "bad\nmodel",
+		Result:       "surprise",
+		Attempt:      1,
+		HealthStatus: "burning",
+		DurationMS:   10,
+	})
+
+	collected := collectMetrics(t, reader)
+	calls := findMetric[metricdata.Sum[int64]](t, collected, MetricProviderCallsTotal)
+	if len(calls.DataPoints) != 1 {
+		t.Fatalf("provider call data points = %d, want 1", len(calls.DataPoints))
+	}
+	for key, want := range map[string]string{
+		AttrGenAIProviderName:          "custom-provider",
+		AttrHecateProviderKind:         "other",
+		AttrGenAIRequestModel:          "other",
+		AttrHecateResult:               ResultError,
+		AttrHecateProviderHealthStatus: "other",
+	} {
+		if got := attrValue(calls.DataPoints[0].Attributes, key); got != want {
+			t.Fatalf("%s = %q, want %q", key, got, want)
+		}
+	}
+}
+
 func TestAgentChatMetricsRecordRunEmitsCounterAndHistogram(t *testing.T) {
 	t.Parallel()
 
