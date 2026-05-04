@@ -1008,6 +1008,8 @@ func TestAgentChatRunsExternalAdapter(t *testing.T) {
 	apiHandler := newTestAPIHandlerWithControlPlane(logger, []providers.Provider{&fakeProvider{}}, config.Config{}, nil)
 	apiHandler.SetAgentChatRunner(&fakeAgentChatRunner{
 		output:          "agent saw: hello from hecate\n",
+		diffStat:        "README.md | 1 +",
+		diff:            "diff --git a/README.md b/README.md\n",
 		nativeSessionID: "native_codex_1",
 		sessionStarted:  true,
 		usage: agentadapters.Usage{
@@ -1067,26 +1069,74 @@ func TestAgentChatRunsExternalAdapter(t *testing.T) {
 		t.Fatalf("assistant trace_id = %q, want response header %q", assistant.TraceID, recorder.Header().Get("X-Trace-Id"))
 	}
 	tracePayload := mustRequestJSON[TraceResponse](client, http.MethodGet, "/v1/traces?request_id="+assistant.RequestID, "")
-	foundAgentSpan := false
-	foundFinishedEvent := false
+	var agentSpan *TraceSpanRecord
+	events := make(map[string]TraceEventRecord)
 	for _, span := range tracePayload.Data.Spans {
 		if span.Name == telemetry.SpanAgentChatRun {
-			foundAgentSpan = true
+			span := span
+			agentSpan = &span
 		}
 		for _, event := range span.Events {
-			if event.Name == telemetry.EventAgentChatRunFinished {
-				foundFinishedEvent = true
-			}
+			events[event.Name] = event
 		}
 	}
-	if !foundAgentSpan || !foundFinishedEvent {
-		t.Fatalf("agent chat trace missing span/event: spans=%#v", tracePayload.Data.Spans)
+	if agentSpan == nil {
+		t.Fatalf("agent chat trace missing %s span: spans=%#v", telemetry.SpanAgentChatRun, tracePayload.Data.Spans)
+	}
+	if got := agentSpan.Attributes[telemetry.AttrHecatePhase]; got != "agent_chat" {
+		t.Fatalf("agent span phase = %#v, want agent_chat", got)
+	}
+	wantSpanAttrs := map[string]any{
+		telemetry.AttrHecateAgentChatSessionID:   created.Data.ID,
+		telemetry.AttrHecateAgentChatMessageID:   assistant.ID,
+		telemetry.AttrHecateRunID:                assistant.RunID,
+		telemetry.AttrHecateExecutionKind:        "agent_chat",
+		telemetry.AttrHecateAgentAdapterID:       "codex",
+		telemetry.AttrHecateAgentAdapterName:     "Codex",
+		telemetry.AttrHecateAgentAdapterCommand:  "codex-acp",
+		telemetry.AttrHecateAgentDriverKind:      agentadapters.DriverKindACP,
+		telemetry.AttrHecateAgentNativeSessionID: "native_codex_1",
+		telemetry.AttrHecateWorkspacePath:        assistant.Workspace,
+		telemetry.AttrHecateRunStatus:            "completed",
+		telemetry.AttrHecateResult:               telemetry.ResultSuccess,
+		telemetry.AttrHecateAgentDiffCaptured:    true,
+	}
+	for key, want := range wantSpanAttrs {
+		if got := agentSpan.Attributes[key]; got != want {
+			t.Fatalf("agent span attr %s = %#v, want %#v", key, got, want)
+		}
+	}
+	for _, key := range []string{
+		telemetry.AttrHecateRunDurationMS,
+		telemetry.AttrHecateAgentOutputBytes,
+		telemetry.AttrHecateAgentRawOutputBytes,
+	} {
+		if _, ok := agentSpan.Attributes[key]; !ok {
+			t.Fatalf("agent span attr %s missing: %#v", key, agentSpan.Attributes)
+		}
+	}
+	for _, eventName := range []string{
+		telemetry.EventAgentChatRunStarted,
+		telemetry.EventAgentChatOutputStarted,
+		telemetry.EventAgentChatFilesChanged,
+		telemetry.EventAgentChatRunFinished,
+	} {
+		event, ok := events[eventName]
+		if !ok {
+			t.Fatalf("agent chat trace missing event %s: %#v", eventName, events)
+		}
+		if missing := telemetry.ValidateEventAttrs(event.Name, event.Attributes); len(missing) != 0 {
+			t.Fatalf("agent chat event %s missing attrs %v: %#v", event.Name, missing, event.Attributes)
+		}
 	}
 	if len(assistant.Activities) == 0 {
 		t.Fatalf("activities missing: %#v", assistant)
 	}
 	if !agentChatActivitiesContain(assistant.Activities, "started") {
 		t.Fatalf("started activity missing for new native session: %#v", assistant.Activities)
+	}
+	if !agentChatActivitiesContain(assistant.Activities, "files_changed") {
+		t.Fatalf("files_changed activity missing: %#v", assistant.Activities)
 	}
 	if assistant.RunID == "" || assistant.StartedAt == "" || assistant.CompletedAt == "" || assistant.DurationMS < 0 {
 		t.Fatalf("assistant runtime metadata missing: %#v", assistant)
@@ -1350,6 +1400,8 @@ type fakeAgentChatRunner struct {
 	sessionRecovery string
 	seenPreviousID  string
 	usage           agentadapters.Usage
+	diffStat        string
+	diff            string
 	err             error
 	closedSessions  []string
 }
@@ -1421,6 +1473,8 @@ func (r *fakeAgentChatRunner) result(req agentadapters.RunRequest, output string
 		ExitCode:        exitCode,
 		StartedAt:       started,
 		CompletedAt:     time.Now().UTC(),
+		DiffStat:        r.diffStat,
+		Diff:            r.diff,
 		Usage:           r.usage,
 	}
 }
