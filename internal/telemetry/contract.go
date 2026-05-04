@@ -327,7 +327,33 @@ var requiredEventAttrs = map[string][]string{
 		AttrHecateRunID,
 		AttrHecateAgentAdapterID,
 	},
+	EventAgentChatOutputStarted: {
+		AttrHecateAgentChatSessionID,
+		AttrHecateRunID,
+		AttrHecateAgentAdapterID,
+		AttrHecateAgentOutputBytes,
+	},
+	EventAgentChatFilesChanged: {
+		AttrHecateAgentChatSessionID,
+		AttrHecateRunID,
+		AttrHecateAgentAdapterID,
+		AttrHecateAgentDiffCaptured,
+	},
 	EventAgentChatRunFinished: {
+		AttrHecateAgentChatSessionID,
+		AttrHecateRunID,
+		AttrHecateAgentAdapterID,
+		AttrHecateRunDurationMS,
+	},
+	EventAgentChatRunFailed: {
+		AttrHecateAgentChatSessionID,
+		AttrHecateRunID,
+		AttrHecateAgentAdapterID,
+		AttrHecateRunDurationMS,
+		AttrHecateErrorKind,
+		AttrErrorType,
+	},
+	EventAgentChatRunCancelled: {
 		AttrHecateAgentChatSessionID,
 		AttrHecateRunID,
 		AttrHecateAgentAdapterID,
