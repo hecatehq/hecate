@@ -361,6 +361,54 @@ func TestACPTurnCapturesUsageUpdate(t *testing.T) {
 	}
 }
 
+func TestACPTurnEmitsToolAndPlanActivities(t *testing.T) {
+	var activities []Activity
+	turn := newACPTurn(64*1024, nil)
+	turn.setActivityCallback(func(activity Activity) {
+		activities = append(activities, activity)
+	})
+	sessionID := acp.SessionId("session_1")
+	line := 42
+	turn.recordUpdate(acp.SessionNotification{
+		SessionId: sessionID,
+		Update: acp.SessionUpdate{
+			ToolCall: &acp.SessionUpdateToolCall{
+				SessionUpdate: "tool_call",
+				ToolCallId:    acp.ToolCallId("call_1"),
+				Title:         "git diff --stat",
+				Status:        acp.ToolCallStatusInProgress,
+				Kind:          acp.ToolKindExecute,
+				Locations:     []acp.ToolCallLocation{{Path: "README.md", Line: &line}},
+			},
+		},
+	})
+	turn.recordUpdate(acp.SessionNotification{
+		SessionId: sessionID,
+		Update: acp.SessionUpdate{
+			Plan: &acp.SessionUpdatePlan{
+				SessionUpdate: "plan",
+				Entries: []acp.PlanEntry{
+					{Content: "Inspect changes", Status: acp.PlanEntryStatusCompleted, Priority: acp.PlanEntryPriorityHigh},
+					{Content: "Summarize result", Status: acp.PlanEntryStatusInProgress, Priority: acp.PlanEntryPriorityMedium},
+				},
+			},
+		},
+	})
+
+	if len(activities) != 3 {
+		t.Fatalf("activities = %#v, want 3", activities)
+	}
+	if got := activities[0]; got.ID != "tool:call_1" || got.Type != "tool_call" || got.Status != "running" || got.Kind != "execute" || got.Title != "git diff --stat" || !strings.Contains(got.Detail, "README.md:42") {
+		t.Fatalf("tool activity = %#v", got)
+	}
+	if got := activities[1]; got.Type != "plan" || got.Status != "completed" || got.Kind != "high" || got.Title != "Inspect changes" {
+		t.Fatalf("first plan activity = %#v", got)
+	}
+	if got := activities[2]; got.Type != "plan" || got.Status != "in_progress" || got.Kind != "medium" || got.Title != "Summarize result" {
+		t.Fatalf("second plan activity = %#v", got)
+	}
+}
+
 func installFakeACPExecutable(t *testing.T, name string) {
 	t.Helper()
 	bin := filepath.Join(t.TempDir(), "bin")

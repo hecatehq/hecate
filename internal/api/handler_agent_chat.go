@@ -282,6 +282,14 @@ func (h *Handler) HandleCreateAgentChatMessage(w http.ResponseWriter, r *http.Re
 				h.agentChatLive.publish(updated)
 			}
 		},
+		OnActivity: func(activity agentadapters.Activity) {
+			updated, updateErr := h.agentChat.UpdateMessage(runCtx, session.ID, assistantID, func(message *agentchat.Message) {
+				message.Activities = mergeAgentChatActivity(message.Activities, agentChatActivityFromAdapter(activity))
+			})
+			if updateErr == nil {
+				h.agentChatLive.publish(updated)
+			}
+		},
 	})
 	status := "completed"
 	if runErr != nil {
@@ -530,8 +538,10 @@ func renderAgentChatActivities(items []agentchat.Activity) []AgentChatActivityIt
 	out := make([]AgentChatActivityItem, 0, len(items))
 	for _, item := range items {
 		out = append(out, AgentChatActivityItem{
+			ID:        item.ID,
 			Type:      item.Type,
 			Status:    item.Status,
+			Kind:      item.Kind,
 			Title:     item.Title,
 			Detail:    item.Detail,
 			CreatedAt: formatOptionalTime(item.CreatedAt),
@@ -548,6 +558,48 @@ func newAgentChatActivity(kind, status, title, detail string) agentchat.Activity
 		Detail:    strings.TrimSpace(detail),
 		CreatedAt: time.Now().UTC(),
 	}
+}
+
+func agentChatActivityFromAdapter(activity agentadapters.Activity) agentchat.Activity {
+	return agentchat.Activity{
+		ID:        strings.TrimSpace(activity.ID),
+		Type:      strings.TrimSpace(activity.Type),
+		Status:    strings.TrimSpace(activity.Status),
+		Kind:      strings.TrimSpace(activity.Kind),
+		Title:     strings.TrimSpace(activity.Title),
+		Detail:    strings.TrimSpace(activity.Detail),
+		CreatedAt: time.Now().UTC(),
+	}
+}
+
+func mergeAgentChatActivity(items []agentchat.Activity, next agentchat.Activity) []agentchat.Activity {
+	if next.Type == "" || (next.ID == "" && next.Title == "") {
+		return items
+	}
+	if next.ID != "" {
+		for i := range items {
+			if items[i].ID == next.ID {
+				if next.Status != "" {
+					items[i].Status = next.Status
+				}
+				if next.Kind != "" {
+					items[i].Kind = next.Kind
+				}
+				if next.Title != "" {
+					items[i].Title = next.Title
+				}
+				if next.Detail != "" {
+					items[i].Detail = next.Detail
+				}
+				items[i].CreatedAt = next.CreatedAt
+				return items
+			}
+		}
+	}
+	if next.Title == "" {
+		return items
+	}
+	return append(items, next)
 }
 
 func finalAgentChatActivityTitle(status string) string {

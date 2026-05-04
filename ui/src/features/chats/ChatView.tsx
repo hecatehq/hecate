@@ -1170,10 +1170,15 @@ function ActivityTimeline({ activities, diffStat }: { activities: AgentChatActiv
   if (visible.length === 0) return null;
   const terminal = terminalAgentActivity(activities);
   const hasRunning = !terminal && activities.some(activity => activity.status === "running");
-  const lifecycle = visible.find(activity => activity.type === "resumed" || activity.type === "started");
+  const lifecycle = activities.find(activity => activity.type === "resumed" || activity.type === "started");
+  const plan = visible.filter(activity => activity.type === "plan");
+  const tools = visible.filter(activity => activity.type === "tool_call");
+  const other = visible.filter(activity => activity.type !== "plan" && activity.type !== "tool_call");
   const summary = [
     terminal ? `run ${terminal.status}` : hasRunning ? "run running" : "run details",
     lifecycle?.type === "resumed" ? "session resumed" : lifecycle?.type === "started" ? "session started" : "",
+    plan.length > 0 ? `${plan.filter(item => item.status === "completed").length}/${plan.length} plan` : "",
+    tools.length > 0 ? `${tools.length} tool${tools.length === 1 ? "" : "s"}` : "",
     diffStat ? "files changed" : "",
   ].filter(Boolean).join(" · ");
 
@@ -1191,27 +1196,72 @@ function ActivityTimeline({ activities, diffStat }: { activities: AgentChatActiv
         borderRadius: "var(--radius-sm)",
         background: "var(--bg2)",
       }}>
-        {visible.map((activity, index) => (
-          <div key={`${activity.type}-${activity.created_at ?? index}`} style={{ display: "flex", alignItems: "baseline", gap: 8, minWidth: 0 }}>
-            <span style={{
-              width: 7,
-              height: 7,
-              borderRadius: 999,
-              background: activityStatusColor(activity.status),
-              flexShrink: 0,
-            }} />
-            <span style={{ fontFamily: "var(--font-mono)", fontSize: 11, color: "var(--t1)", whiteSpace: "nowrap" }}>
-              {activity.title}
-            </span>
-            {activity.detail && (
-              <span style={{ fontSize: 11, color: "var(--t3)", overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>
-                {activity.detail}
-              </span>
-            )}
-          </div>
+        {plan.length > 0 && <PlanActivityList items={plan} />}
+        {tools.length > 0 && <ToolActivityList items={tools} />}
+        {other.map((activity, index) => (
+          <ActivityLine key={activity.id || `${activity.type}-${activity.created_at ?? index}`} activity={activity} />
         ))}
       </div>
     </details>
+  );
+}
+
+function PlanActivityList({ items }: { items: AgentChatActivityRecord[] }) {
+  return (
+    <div style={{ display: "grid", gap: 5 }}>
+      {items.map((activity, index) => (
+        <div key={activity.id || `${activity.title}-${index}`} style={{ display: "flex", alignItems: "baseline", gap: 8, minWidth: 0 }}>
+          <span style={{ color: activity.status === "completed" ? "var(--green)" : activity.status === "in_progress" ? "var(--teal)" : "var(--t3)", flexShrink: 0, fontFamily: "var(--font-mono)", fontSize: 11 }}>
+            {activity.status === "completed" ? "x" : activity.status === "in_progress" ? ">" : "-"}
+          </span>
+          <span style={{ color: "var(--t1)", fontSize: 11, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>
+            {activity.title}
+          </span>
+          {activity.kind && (
+            <span style={{ color: "var(--t3)", flexShrink: 0, fontFamily: "var(--font-mono)", fontSize: 10 }}>
+              {activity.kind}
+            </span>
+          )}
+        </div>
+      ))}
+    </div>
+  );
+}
+
+function ToolActivityList({ items }: { items: AgentChatActivityRecord[] }) {
+  return (
+    <div style={{ display: "grid", gap: 5 }}>
+      {items.map((activity, index) => (
+        <ActivityLine key={activity.id || `${activity.type}-${activity.created_at ?? index}`} activity={activity} prefix={activity.kind || "tool"} />
+      ))}
+    </div>
+  );
+}
+
+function ActivityLine({ activity, prefix }: { activity: AgentChatActivityRecord; prefix?: string }) {
+  return (
+    <div style={{ display: "flex", alignItems: "baseline", gap: 8, minWidth: 0 }}>
+      <span style={{
+        width: 7,
+        height: 7,
+        borderRadius: 999,
+        background: activityStatusColor(activity.status),
+        flexShrink: 0,
+      }} />
+      {prefix && (
+        <span style={{ fontFamily: "var(--font-mono)", fontSize: 10, color: "var(--t3)", whiteSpace: "nowrap" }}>
+          {prefix}
+        </span>
+      )}
+      <span style={{ fontFamily: "var(--font-mono)", fontSize: 11, color: "var(--t1)", whiteSpace: "nowrap" }}>
+        {activity.title}
+      </span>
+      {activity.detail && (
+        <span style={{ fontSize: 11, color: "var(--t3)", overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>
+          {activity.detail}
+        </span>
+      )}
+    </div>
   );
 }
 

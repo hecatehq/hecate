@@ -1118,6 +1118,45 @@ func TestAgentChatOmitsStartedActivityWhenNativeSessionReused(t *testing.T) {
 	}
 }
 
+func TestAgentChatMergesAdapterActivityUpdates(t *testing.T) {
+	dir := t.TempDir()
+	logger := slog.New(slog.NewJSONHandler(io.Discard, nil))
+	apiHandler := newTestAPIHandlerWithControlPlane(logger, []providers.Provider{&fakeProvider{}}, config.Config{}, nil)
+	apiHandler.SetAgentChatRunner(&fakeAgentChatRunner{
+		output: "done",
+		activities: []agentadapters.Activity{
+			{ID: "tool:call_1", Type: "tool_call", Status: "running", Kind: "execute", Title: "git status", Detail: "README.md"},
+			{ID: "tool:call_1", Type: "tool_call", Status: "completed", Kind: "execute", Title: "git status", Detail: "README.md"},
+			{ID: "plan:0:Inspect", Type: "plan", Status: "completed", Kind: "high", Title: "Inspect"},
+		},
+	})
+	client := newAPITestClient(t, NewServer(logger, apiHandler))
+
+	created := mustRequestJSON[AgentChatSessionResponse](client, http.MethodPost, "/v1/agent-chat/sessions", fmt.Sprintf(`{"adapter_id":"codex","workspace":%q}`, dir))
+	updated := mustRequestJSON[AgentChatSessionResponse](client, http.MethodPost, "/v1/agent-chat/sessions/"+created.Data.ID+"/messages", `{"content":"hello"}`)
+	assistant := updated.Data.Messages[len(updated.Data.Messages)-1]
+
+	var toolCount int
+	var sawPlan bool
+	for _, activity := range assistant.Activities {
+		if activity.ID == "tool:call_1" {
+			toolCount++
+			if activity.Status != "completed" || activity.Kind != "execute" || activity.Detail != "README.md" {
+				t.Fatalf("tool activity = %#v", activity)
+			}
+		}
+		if activity.ID == "plan:0:Inspect" && activity.Type == "plan" && activity.Status == "completed" && activity.Kind == "high" {
+			sawPlan = true
+		}
+	}
+	if toolCount != 1 {
+		t.Fatalf("tool activity count = %d, want 1 in %#v", toolCount, assistant.Activities)
+	}
+	if !sawPlan {
+		t.Fatalf("plan activity missing in %#v", assistant.Activities)
+	}
+}
+
 func TestAgentChatPassesPersistedNativeSessionForResume(t *testing.T) {
 	dir := t.TempDir()
 	store := agentchat.NewMemoryStore()
@@ -1211,6 +1250,7 @@ func TestAgentChatCreateRejectsInvalidWorkspace(t *testing.T) {
 type fakeAgentChatRunner struct {
 	output          string
 	chunks          []string
+	activities      []agentadapters.Activity
 	delay           time.Duration
 	waitForCancel   bool
 	nativeSessionID string
@@ -1225,6 +1265,11 @@ func (r *fakeAgentChatRunner) Run(ctx context.Context, req agentadapters.RunRequ
 	started := time.Now().UTC()
 	r.seenPreviousID = req.PreviousNativeSessionID
 	output := r.output
+	for _, activity := range r.activities {
+		if req.OnActivity != nil {
+			req.OnActivity(activity)
+		}
+	}
 	for _, chunk := range r.chunks {
 		select {
 		case <-ctx.Done():

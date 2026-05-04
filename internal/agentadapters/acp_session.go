@@ -280,6 +280,7 @@ func (s *acpSession) RunTurn(ctx context.Context, req RunRequest) (RunResult, er
 
 	started := time.Now().UTC()
 	turn := newACPTurn(req.MaxOutputBytes, req.OnOutput)
+	turn.setActivityCallback(req.OnActivity)
 	s.client.setTurn(turn)
 	defer s.client.clearTurn(turn)
 
@@ -478,6 +479,7 @@ type acpTurn struct {
 	usage          Usage
 	agentMessageID string
 	onOutput       func(string)
+	onActivity     func(Activity)
 
 	mu sync.Mutex
 }
@@ -492,6 +494,12 @@ func newACPTurn(maxOutput int64, onOutput func(string)) *acpTurn {
 	return turn
 }
 
+func (t *acpTurn) setActivityCallback(onActivity func(Activity)) {
+	t.mu.Lock()
+	defer t.mu.Unlock()
+	t.onActivity = onActivity
+}
+
 func (t *acpTurn) recordUpdate(params acp.SessionNotification) {
 	raw, _ := json.Marshal(params)
 	if len(raw) > 0 {
@@ -501,6 +509,12 @@ func (t *acpTurn) recordUpdate(params acp.SessionNotification) {
 	switch {
 	case update.AgentMessageChunk != nil:
 		t.appendAgentMessageChunk(update.AgentMessageChunk)
+	case update.ToolCall != nil:
+		t.recordToolCall(update.ToolCall)
+	case update.ToolCallUpdate != nil:
+		t.recordToolCallUpdate(update.ToolCallUpdate)
+	case update.Plan != nil:
+		t.recordPlan(update.Plan)
 	case update.UsageUpdate != nil:
 		t.recordUsage(update.UsageUpdate)
 	}
@@ -537,6 +551,165 @@ func (t *acpTurn) appendAgentMessageChunk(update *acp.SessionUpdateAgentMessageC
 	if t.onOutput != nil {
 		t.onOutput(snapshot)
 	}
+}
+
+func (t *acpTurn) recordToolCall(update *acp.SessionUpdateToolCall) {
+	if update == nil {
+		return
+	}
+	t.emitActivity(Activity{
+		ID:     "tool:" + string(update.ToolCallId),
+		Type:   "tool_call",
+		Status: acpToolStatus(string(update.Status)),
+		Kind:   string(update.Kind),
+		Title:  firstNonEmpty(update.Title, string(update.ToolCallId)),
+		Detail: toolCallDetail(update.Kind, update.Locations, update.Content),
+	})
+}
+
+func (t *acpTurn) recordToolCallUpdate(update *acp.SessionToolCallUpdate) {
+	if update == nil {
+		return
+	}
+	title := ""
+	if update.Title != nil {
+		title = *update.Title
+	}
+	status := ""
+	if update.Status != nil {
+		status = string(*update.Status)
+	}
+	kind := ""
+	if update.Kind != nil {
+		kind = string(*update.Kind)
+	}
+	t.emitActivity(Activity{
+		ID:     "tool:" + string(update.ToolCallId),
+		Type:   "tool_call",
+		Status: acpToolStatus(status),
+		Kind:   kind,
+		Title:  title,
+		Detail: toolCallDetail(acp.ToolKind(""), update.Locations, update.Content),
+	})
+}
+
+func (t *acpTurn) recordPlan(update *acp.SessionUpdatePlan) {
+	if update == nil {
+		return
+	}
+	for index, entry := range update.Entries {
+		t.emitActivity(Activity{
+			ID:     fmt.Sprintf("plan:%d:%s", index, entry.Content),
+			Type:   "plan",
+			Status: string(entry.Status),
+			Kind:   string(entry.Priority),
+			Title:  entry.Content,
+			Detail: string(entry.Priority),
+		})
+	}
+}
+
+func (t *acpTurn) emitActivity(activity Activity) {
+	if strings.TrimSpace(activity.ID) == "" && strings.TrimSpace(activity.Title) == "" {
+		return
+	}
+	t.mu.Lock()
+	onActivity := t.onActivity
+	t.mu.Unlock()
+	if onActivity != nil {
+		onActivity(activity)
+	}
+}
+
+func acpToolStatus(status string) string {
+	switch strings.TrimSpace(status) {
+	case string(acp.ToolCallStatusPending):
+		return "pending"
+	case string(acp.ToolCallStatusInProgress):
+		return "running"
+	case string(acp.ToolCallStatusCompleted):
+		return "completed"
+	case string(acp.ToolCallStatusFailed):
+		return "failed"
+	default:
+		return strings.TrimSpace(status)
+	}
+}
+
+func toolCallDetail(kind acp.ToolKind, locations []acp.ToolCallLocation, content []acp.ToolCallContent) string {
+	parts := make([]string, 0, 3)
+	if kind != "" {
+		parts = append(parts, string(kind))
+	}
+	if len(locations) > 0 {
+		parts = append(parts, summarizeToolLocations(locations))
+	}
+	if len(content) > 0 {
+		if summary := summarizeToolContent(content); summary != "" {
+			parts = append(parts, summary)
+		}
+	}
+	return strings.Join(parts, " · ")
+}
+
+func summarizeToolLocations(locations []acp.ToolCallLocation) string {
+	const maxLocations = 3
+	parts := make([]string, 0, min(len(locations), maxLocations))
+	for i, location := range locations {
+		if i >= maxLocations {
+			break
+		}
+		if location.Line != nil && *location.Line > 0 {
+			parts = append(parts, fmt.Sprintf("%s:%d", location.Path, *location.Line))
+			continue
+		}
+		parts = append(parts, location.Path)
+	}
+	if len(locations) > maxLocations {
+		parts = append(parts, fmt.Sprintf("+%d more", len(locations)-maxLocations))
+	}
+	return strings.Join(parts, ", ")
+}
+
+func summarizeToolContent(content []acp.ToolCallContent) string {
+	var diffs, terminals, text int
+	for _, item := range content {
+		switch {
+		case item.Diff != nil:
+			diffs++
+		case item.Terminal != nil:
+			terminals++
+		case item.Content != nil:
+			text++
+		}
+	}
+	parts := make([]string, 0, 3)
+	if diffs > 0 {
+		parts = append(parts, pluralize(diffs, "diff"))
+	}
+	if terminals > 0 {
+		parts = append(parts, pluralize(terminals, "terminal"))
+	}
+	if text > 0 {
+		parts = append(parts, pluralize(text, "output"))
+	}
+	return strings.Join(parts, ", ")
+}
+
+func pluralize(count int, singular string) string {
+	if count == 1 {
+		return fmt.Sprintf("1 %s", singular)
+	}
+	return fmt.Sprintf("%d %ss", count, singular)
+}
+
+func firstNonEmpty(values ...string) string {
+	for _, value := range values {
+		if trimmed := strings.TrimSpace(value); trimmed != "" {
+			return trimmed
+		}
+	}
+	return ""
 }
 
 func (t *acpTurn) recordUsage(update *acp.SessionUsageUpdate) {
