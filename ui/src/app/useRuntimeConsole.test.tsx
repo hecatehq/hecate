@@ -68,6 +68,23 @@ describe("useRuntimeConsole", () => {
     expect(result.current.state.chatTarget).toBe("model");
   });
 
+  it("keeps the active agent chat selection when session refresh fails transiently", async () => {
+    window.localStorage.setItem("hecate.agentChatSessionID", "a1");
+    fetchMock.mockImplementation(defaultBackendMock({
+      "/v1/agent-chat/sessions": () => jsonResponse({
+        object: "agent_chat_sessions",
+        data: [{ id: "a1", title: "Still exists", adapter_id: "codex", status: "running", message_count: 2 }],
+      }),
+      "/v1/agent-chat/sessions/a1": () => jsonResponse({ error: { type: "gateway_error", message: "temporary failure" } }, 500),
+    }));
+
+    const { result } = renderHook(() => useRuntimeConsole());
+    await waitFor(() => expect(result.current.state.loading).toBe(false));
+
+    expect(result.current.state.activeAgentChatSessionID).toBe("a1");
+    expect(window.localStorage.getItem("hecate.agentChatSessionID")).toBe("a1");
+  });
+
   it("settles into a Local session after the dashboard loads", async () => {
     const { result } = renderHook(() => useRuntimeConsole());
     await waitFor(() => expect(result.current.state.loading).toBe(false));
@@ -460,9 +477,9 @@ describe("humanizeChatError", () => {
   });
 });
 
-function jsonResponse(payload: unknown): Response {
+function jsonResponse(payload: unknown, status = 200): Response {
   return new Response(JSON.stringify(payload), {
-    status: 200,
+    status,
     headers: { "Content-Type": "application/json" },
   });
 }

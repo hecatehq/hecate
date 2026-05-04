@@ -66,6 +66,14 @@ describe("parseMarkdownBlocks", () => {
     }]);
   });
 
+  it("does not treat a bare horizontal rule as a table separator", () => {
+    const blocks = parseMarkdownBlocks("a | b\n---");
+    expect(blocks).toEqual([
+      { type: "p", text: "a | b" },
+      { type: "hr", text: "" },
+    ]);
+  });
+
   it("parses horizontal rule", () => {
     expect(parseMarkdownBlocks("---")).toEqual([{ type: "hr", text: "" }]);
     expect(parseMarkdownBlocks("***")).toEqual([{ type: "hr", text: "" }]);

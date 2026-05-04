@@ -368,10 +368,10 @@ export function ChatView({ state, actions, onNavigate }: Props) {
             {!isAgentChat && state.chatSessionsLoadingMore && (
               <div style={{ padding: "8px 12px", fontSize: 11, color: "var(--t3)", textAlign: "center" }}>Loading chats…</div>
             )}
-            {!isAgentChat && !sidebarQuery.trim() && state.chatSessionsHasMore && !state.chatSessionsLoadingMore && (
+            {!isAgentChat && state.chatSessionsHasMore && !state.chatSessionsLoadingMore && (
               <div style={{ padding: "8px 12px" }}>
                 <button className="btn btn-ghost btn-sm" onClick={() => void actions.loadMoreChatSessions()} style={{ width: "100%", justifyContent: "center" }} type="button">
-                  Load earlier chats
+                  {sidebarQuery.trim() ? "Search earlier chats" : "Load earlier chats"}
                 </button>
               </div>
             )}
@@ -1492,7 +1492,8 @@ function Markdown({ content }: { content: string }) {
               {block.tasks!.map((task, j) => (
                 <li key={j} style={{ alignItems: "flex-start", display: "flex", gap: 8 }}>
                   <span
-                    aria-hidden="true"
+                    aria-label={task.checked ? "Completed task" : "Incomplete task"}
+                    role="img"
                     style={{
                       alignItems: "center",
                       background: task.checked ? "var(--teal-soft)" : "var(--bg3)",

@@ -107,12 +107,13 @@ func (l *agentChatLive) cancelRunAndWait(ctx context.Context, sessionID string) 
 	run, ok := l.running[sessionID]
 	l.mu.Unlock()
 	if !ok {
-		return false
+		return true
 	}
 	run.cancel()
 	select {
 	case <-run.done:
+		return true
 	case <-ctx.Done():
+		return false
 	}
-	return true
 }

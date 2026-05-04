@@ -143,8 +143,12 @@ func (h *Handler) HandleAgentChatSessionStream(w http.ResponseWriter, r *http.Re
 func (h *Handler) HandleDeleteAgentChatSession(w http.ResponseWriter, r *http.Request) {
 	sessionID := r.PathValue("id")
 	cancelCtx, cancel := context.WithTimeout(r.Context(), 3*time.Second)
-	_ = h.agentChatLive.cancelRunAndWait(cancelCtx, sessionID)
+	settled := h.agentChatLive.cancelRunAndWait(cancelCtx, sessionID)
 	cancel()
+	if !settled {
+		WriteError(w, http.StatusConflict, errCodeInvalidRequest, "agent chat session is still stopping")
+		return
+	}
 	if h.agentChatRunner != nil {
 		_ = h.agentChatRunner.CloseSession(r.Context(), sessionID)
 	}
@@ -183,18 +187,21 @@ func (h *Handler) HandleCloseAgentChatSession(w http.ResponseWriter, r *http.Req
 		return
 	}
 	cancelCtx, cancel := context.WithTimeout(r.Context(), 3*time.Second)
-	_ = h.agentChatLive.cancelRunAndWait(cancelCtx, session.ID)
+	settled := h.agentChatLive.cancelRunAndWait(cancelCtx, session.ID)
 	cancel()
+	if !settled {
+		WriteError(w, http.StatusConflict, errCodeInvalidRequest, "agent chat session is still stopping")
+		return
+	}
 	if h.agentChatRunner != nil {
 		_ = h.agentChatRunner.CloseSession(r.Context(), session.ID)
 	}
-	updated, found, err := h.agentChat.Get(r.Context(), session.ID)
+	updated, err := h.agentChat.UpdateSession(r.Context(), session.ID, func(item *agentchat.Session) {
+		item.DriverKind = ""
+		item.NativeSessionID = ""
+	})
 	if err != nil {
 		WriteError(w, http.StatusInternalServerError, "gateway_error", err.Error())
-		return
-	}
-	if !found {
-		WriteError(w, http.StatusNotFound, "not_found", "agent chat session not found")
 		return
 	}
 	WriteJSON(w, http.StatusOK, AgentChatSessionResponse{Object: "agent_chat_session", Data: renderAgentChatSession(updated)})

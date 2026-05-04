@@ -64,20 +64,39 @@ function isTauriRuntime(): boolean {
 }
 
 function editableTarget(target: EventTarget | null): HTMLInputElement | HTMLTextAreaElement | null {
-  if (!(target instanceof HTMLInputElement || target instanceof HTMLTextAreaElement)) {
+  if (target instanceof HTMLTextAreaElement) {
+    if (target.disabled || target.readOnly) {
+      return null;
+    }
+    return target;
+  }
+  if (!(target instanceof HTMLInputElement) || !isTextInput(target)) {
     return null;
   }
-  if (target.disabled || target.readOnly) {
-    return null;
-  }
+  if (target.disabled || target.readOnly) return null;
   return target;
 }
 
+function isTextInput(input: HTMLInputElement): boolean {
+  return [
+    "",
+    "email",
+    "password",
+    "search",
+    "tel",
+    "text",
+    "url",
+  ].includes(input.type);
+}
+
 async function pasteIntoEditable(target: HTMLInputElement | HTMLTextAreaElement) {
+  if (target.selectionStart === null || target.selectionEnd === null) {
+    return;
+  }
   const text = await navigator.clipboard?.readText().catch(() => "");
   if (!text) return;
-  const start = target.selectionStart ?? target.value.length;
-  const end = target.selectionEnd ?? target.value.length;
+  const start = target.selectionStart;
+  const end = target.selectionEnd;
   target.setRangeText(text, start, end, "end");
   target.dispatchEvent(new Event("input", { bubbles: true }));
 }

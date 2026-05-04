@@ -489,6 +489,25 @@ describe("ChatView agent target", () => {
 });
 
 describe("ChatView model target", () => {
+  it("announces markdown task-list checkbox state", () => {
+    const { state, actions } = setup({
+      chatTarget: "model",
+      activeChatSessionID: "s1",
+      activeChatSession: {
+        id: "s1",
+        title: "Tasks",
+        messages: [
+          { id: "m1", sequence: 1, role: "assistant", content: "- [x] done\n- [ ] todo" },
+        ],
+        provider_calls: [],
+      } as any,
+    });
+    render(<ChatView state={state} actions={actions} />);
+
+    expect(screen.getByRole("img", { name: "Completed task" })).toBeTruthy();
+    expect(screen.getByRole("img", { name: "Incomplete task" })).toBeTruthy();
+  });
+
   it("keeps provider and model pickers editable for an active model chat", async () => {
     const setProviderFilter = vi.fn();
     const setModel = vi.fn();
@@ -644,6 +663,23 @@ describe("ChatView history pagination", () => {
 
     const user = userEvent.setup();
     await user.click(screen.getByRole("button", { name: "Load earlier chats" }));
+    expect(loadMoreChatSessions).toHaveBeenCalled();
+  });
+
+  it("keeps a load-earlier action available while searching model chat history", async () => {
+    const loadMoreChatSessions = vi.fn(async () => undefined);
+    const { state, actions } = setup({
+      chatTarget: "model",
+      chatSessionsHasMore: true,
+      chatSessions: [
+        { id: "s1", title: "First page", message_count: 1, provider_call_count: 1 } as any,
+      ],
+    }, { loadMoreChatSessions });
+    render(<ChatView state={state} actions={actions} />);
+
+    const user = userEvent.setup();
+    await user.type(screen.getByRole("textbox", { name: "Search chats" }), "older match");
+    await user.click(screen.getByRole("button", { name: "Search earlier chats" }));
     expect(loadMoreChatSessions).toHaveBeenCalled();
   });
 });
