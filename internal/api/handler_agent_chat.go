@@ -125,13 +125,29 @@ func (h *Handler) HandleAgentChatSessionStream(w http.ResponseWriter, r *http.Re
 			if !ok {
 				return
 			}
-			sendAgentChatSSE(w, flusher, "snapshot", payload)
-			if payload.Data.Status == "running" {
-				observedRun = true
-			}
-			if observedRun && isTerminalAgentChatStatus(payload.Data.Status) {
-				sendAgentChatSSE(w, flusher, "done", payload)
-				return
+			switch payload.Type {
+			case AgentChatLiveEventSessionUpdate:
+				if payload.SessionUpdate == nil {
+					continue
+				}
+				sendAgentChatSSE(w, flusher, "snapshot", *payload.SessionUpdate)
+				if payload.SessionUpdate.Data.Status == "running" {
+					observedRun = true
+				}
+				if observedRun && isTerminalAgentChatStatus(payload.SessionUpdate.Data.Status) {
+					sendAgentChatSSE(w, flusher, "done", *payload.SessionUpdate)
+					return
+				}
+			case AgentChatLiveEventApprovalRequested:
+				if payload.ApprovalRequested == nil {
+					continue
+				}
+				sendAgentChatSSE(w, flusher, string(AgentChatLiveEventApprovalRequested), *payload.ApprovalRequested)
+			case AgentChatLiveEventApprovalResolved:
+				if payload.ApprovalResolved == nil {
+					continue
+				}
+				sendAgentChatSSE(w, flusher, string(AgentChatLiveEventApprovalResolved), *payload.ApprovalResolved)
 			}
 		case <-heartbeat.C:
 			fmt.Fprint(w, ": heartbeat\n\n")
@@ -257,7 +273,7 @@ func (h *Handler) HandleCreateAgentChatMessage(w http.ResponseWriter, r *http.Re
 		WriteError(w, http.StatusInternalServerError, "gateway_error", err.Error())
 		return
 	}
-	h.agentChatLive.publish(updated)
+	h.agentChatLive.publishSession(updated)
 	startedAt := time.Now().UTC()
 	trace.Record(telemetry.EventAgentChatRunStarted, agentChatTraceAttrs(session, adapter, runID, assistantID, map[string]any{
 		telemetry.AttrHecateRunStatus: "running",
@@ -286,7 +302,7 @@ func (h *Handler) HandleCreateAgentChatMessage(w http.ResponseWriter, r *http.Re
 		WriteError(w, http.StatusInternalServerError, "gateway_error", err.Error())
 		return
 	}
-	h.agentChatLive.publish(updated)
+	h.agentChatLive.publishSession(updated)
 
 	outputSeen := false
 	runner := h.agentChatRunner
@@ -321,7 +337,7 @@ func (h *Handler) HandleCreateAgentChatMessage(w http.ResponseWriter, r *http.Re
 				}
 			})
 			if updateErr == nil {
-				h.agentChatLive.publish(updated)
+				h.agentChatLive.publishSession(updated)
 			}
 		},
 		OnActivity: func(activity agentadapters.Activity) {
@@ -329,7 +345,7 @@ func (h *Handler) HandleCreateAgentChatMessage(w http.ResponseWriter, r *http.Re
 				message.Activities = mergeAgentChatActivity(message.Activities, agentChatActivityFromAdapter(activity))
 			})
 			if updateErr == nil {
-				h.agentChatLive.publish(updated)
+				h.agentChatLive.publishSession(updated)
 			}
 		},
 	})
@@ -461,7 +477,7 @@ func (h *Handler) HandleCreateAgentChatMessage(w http.ResponseWriter, r *http.Re
 			return
 		}
 	}
-	h.agentChatLive.publish(updated)
+	h.agentChatLive.publishSession(updated)
 	WriteJSON(w, http.StatusOK, AgentChatSessionResponse{Object: "agent_chat_session", Data: renderAgentChatSession(updated)})
 }
 
@@ -684,7 +700,13 @@ func durationMillis(startedAt, completedAt time.Time) int64 {
 	return completedAt.Sub(startedAt).Milliseconds()
 }
 
-func sendAgentChatSSE(w http.ResponseWriter, flusher http.Flusher, event string, payload AgentChatSessionResponse) {
+// sendAgentChatSSE writes one SSE event to the response. The payload
+// is marshalled to JSON; on encode failure we emit an `event: error`
+// frame so subscribers see something rather than silently stalling.
+// Accepts any payload so the same writer can carry session updates
+// (AgentChatSessionResponse) and approval events
+// (AgentChatApprovalRequestedEvent / AgentChatApprovalResolvedEvent).
+func sendAgentChatSSE(w http.ResponseWriter, flusher http.Flusher, event string, payload any) {
 	data, err := json.Marshal(payload)
 	if err != nil {
 		fmt.Fprintf(w, "event: error\ndata: {\"error\":{\"message\":%q}}\n\n", err.Error())

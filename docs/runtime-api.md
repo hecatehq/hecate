@@ -426,6 +426,50 @@ authored grants are NOT subject to that retention — only their own
 `expires_at` drives deletion, so explicit operator intent outlives normal
 retention windows.
 
+The same per-session SSE stream (`GET /v1/agent-chat/sessions/{id}/stream`)
+also carries approval lifecycle events so frontends don't have to poll. Two
+new event types in addition to the existing `snapshot` chat-update frames:
+
+```
+event: approval.requested
+data: {
+  "approval_id":   "appr_01JX...",
+  "session_id":    "chat_01JX...",
+  "adapter_id":    "codex",
+  "tool_kind":     "file_write",
+  "tool_name":     "Edit src/foo.go",
+  "scope_choices": ["once","session","workspace_tool","adapter_tool"],
+  "created_at":    "2026-05-04T10:23:45.123Z",
+  "expires_at":    "2026-05-04T10:28:45.123Z"
+}
+
+event: approval.resolved
+data: {
+  "approval_id":     "appr_01JX...",
+  "session_id":      "chat_01JX...",
+  "status":          "approved",
+  "decision":        "approve",
+  "scope":           "session",
+  "path":            "operator",
+  "selected_option": "allow_always_for_session",
+  "resolved_at":     "2026-05-04T10:24:01.000Z"
+}
+```
+
+Frontends switch on the `path` field of `approval.resolved` to render the
+disposition: `operator` (explicit decision), `grant` (pre-existing grant
+short-circuited the prompt), `default_mode` (`auto`/`deny` mode resolved
+without operator), `timeout` (prompt-mode timeout fired), or
+`request_cancelled` (the request context died — session shutdown, adapter
+teardown, HTTP context cancellation, process stop). `request_cancelled` is
+operationally distinct from `operator`: nobody clicked anything, the request
+just died.
+
+Backpressure: per-subscriber buffers are bounded (16 events). On overflow,
+approval events are **dropped** rather than blocking the coordinator. A
+slow operator UI catches up by re-fetching `/approvals?status=pending` on
+reconnect. Replay across restart is not supported in this slice.
+
 ```json
 GET /v1/agent-chat/sessions
 → 200
