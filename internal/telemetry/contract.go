@@ -264,6 +264,19 @@ const (
 	MetricAgentAdapterApprovalRequestedTotal = "hecate.agent_adapter.approval.requested"
 	MetricAgentAdapterApprovalResolvedTotal  = "hecate.agent_adapter.approval.resolved"
 	MetricAgentAdapterApprovalDurationMS     = "hecate.agent_adapter.approval.duration"
+	// MetricAgentAdapterApprovalTimedOutTotal counts approvals that hit
+	// the prompt-mode timeout (path=timeout, status=timed_out). It's a
+	// dedicated counter rather than a derived view over `resolved` so
+	// dashboards can alert on timeout rate without pivoting through a
+	// path label join.
+	MetricAgentAdapterApprovalTimedOutTotal = "hecate.agent_adapter.approval.timed_out"
+	// MetricAgentAdapterApprovalGrantsActive is the count of durable
+	// grants ("always allow / always deny" rules) currently live in
+	// the store. Implemented as an UpDownCounter — incremented on
+	// grant create, decremented on grant delete, and seeded at process
+	// start from the existing store contents so a SQLite restart
+	// doesn't reset the dashboard line to zero.
+	MetricAgentAdapterApprovalGrantsActive = "hecate.agent_adapter.approval.grants_active"
 
 	// Orchestrator metrics
 	MetricOrchestratorRunsTotal            = "hecate.orchestrator.runs"

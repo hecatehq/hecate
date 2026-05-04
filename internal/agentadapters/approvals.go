@@ -14,7 +14,16 @@ import (
 	"time"
 
 	acp "github.com/coder/acp-go-sdk"
+	"go.opentelemetry.io/otel"
+	"go.opentelemetry.io/otel/attribute"
+	"go.opentelemetry.io/otel/codes"
+	"go.opentelemetry.io/otel/trace"
 )
+
+// approvalTracer is the OTel tracer for the approval coordinator. The
+// instrumentation name matches the Go module path so spans are easy
+// to filter in operator dashboards.
+var approvalTracer = otel.Tracer("github.com/hecate/agent-runtime/internal/agentadapters")
 
 // ApprovalMode controls what the coordinator does with an incoming
 // RequestPermission. The package default is ModeAuto, which preserves
@@ -401,6 +410,14 @@ type CoordinatorHooks struct {
 	OnRequested func(approval Approval)
 	OnResolved  func(approval Approval, durationMS int64)
 	OnTimedOut  func(approval Approval, durationMS int64)
+	// OnGrantCreated fires after a successful CreateGrant inside the
+	// coordinator's resolve path (i.e. when the operator's decision
+	// scope is broader than `once`). Used to drive the
+	// `approval.grants_active` UpDownCounter; nil-safe.
+	OnGrantCreated func(grant Grant)
+	// OnGrantDeleted fires after a successful DeleteGrant. Symmetric
+	// with OnGrantCreated; nil-safe.
+	OnGrantDeleted func()
 }
 
 // ApprovalCoordinator applies the configured ApprovalMode to incoming
@@ -488,6 +505,27 @@ func (c *ApprovalCoordinator) RequestPermission(ctx context.Context, recCtx Reco
 	toolName := extractToolName(params.ToolCall)
 	toolKind := extractToolKind(params.ToolCall)
 
+	// agent_adapter.approval.request span — covers the full
+	// coordinator decision (grant short-circuit, mode default, prompt-
+	// mode wait). The path is set on span end via the resolution
+	// branch the request takes.
+	ctx, span := approvalTracer.Start(ctx, "agent_adapter.approval.request",
+		trace.WithSpanKind(trace.SpanKindInternal),
+		trace.WithAttributes(
+			attribute.String("hecate.agent_adapter.id", recCtx.AdapterID),
+			attribute.String("hecate.agent_adapter.session_id", recCtx.SessionID),
+			attribute.String("hecate.agent_adapter.tool_kind", toolKind),
+			attribute.String("hecate.agent_adapter.approval.mode", string(c.opts.Mode)),
+		),
+	)
+	var spanPath ApprovalResolutionPath
+	defer func() {
+		if spanPath != "" {
+			span.SetAttributes(attribute.String("hecate.agent_adapter.approval.path", string(spanPath)))
+		}
+		span.End()
+	}()
+
 	rawPayload, _ := json.Marshal(params)
 
 	row := Approval{
@@ -522,6 +560,7 @@ func (c *ApprovalCoordinator) RequestPermission(ctx context.Context, recCtx Reco
 		if rerr == nil {
 			_ = c.notifyResolved(resolved, now, nil)
 		}
+		spanPath = PathGrant
 		return response, nil
 	}
 
@@ -536,6 +575,7 @@ func (c *ApprovalCoordinator) RequestPermission(ctx context.Context, recCtx Reco
 		if rerr == nil {
 			_ = c.notifyResolved(resolved, now, nil)
 		}
+		spanPath = PathDefaultMode
 		return response, nil
 
 	case ModeDeny:
@@ -547,6 +587,7 @@ func (c *ApprovalCoordinator) RequestPermission(ctx context.Context, recCtx Reco
 		if rerr == nil {
 			_ = c.notifyResolved(resolved, now, nil)
 		}
+		spanPath = PathDefaultMode
 		return response, nil
 
 	case ModePrompt:
@@ -562,6 +603,7 @@ func (c *ApprovalCoordinator) RequestPermission(ctx context.Context, recCtx Reco
 			c.opts.Hooks.OnRequested(created)
 		}
 		if refreshed, rerr := c.opts.Store.GetApproval(ctx, created.ID); rerr == nil && refreshed.Status != ApprovalStatusPending {
+			spanPath = refreshed.Path
 			return responseForResolvedApproval(refreshed), nil
 		}
 		timer := time.NewTimer(c.opts.Timeout)
@@ -572,6 +614,7 @@ func (c *ApprovalCoordinator) RequestPermission(ctx context.Context, recCtx Reco
 			// row was already updated and the OnResolved hook fired
 			// inside Resolve/Cancel; just return the operator's chosen
 			// ACP response.
+			spanPath = PathOperator
 			return resp, nil
 		case <-timer.C:
 			// Timeout fired. The store transition is the source of
@@ -584,6 +627,8 @@ func (c *ApprovalCoordinator) RequestPermission(ctx context.Context, recCtx Reco
 			if rerr == nil {
 				c.notifyTimedOut(resolved, now, resolvedAt)
 			}
+			spanPath = PathTimeout
+			span.SetStatus(codes.Error, "approval prompt timed out")
 			return acp.RequestPermissionResponse{Outcome: acp.RequestPermissionOutcome{Cancelled: &acp.RequestPermissionOutcomeCancelled{}}}, nil
 		case <-ctx.Done():
 			// Request context cancelled — adapter teardown, session
@@ -597,6 +642,8 @@ func (c *ApprovalCoordinator) RequestPermission(ctx context.Context, recCtx Reco
 			if rerr == nil {
 				_ = c.notifyResolved(resolved, now, nil)
 			}
+			spanPath = PathRequestCancelled
+			span.SetStatus(codes.Error, "request context cancelled")
 			return acp.RequestPermissionResponse{Outcome: acp.RequestPermissionOutcome{Cancelled: &acp.RequestPermissionOutcomeCancelled{}}}, nil
 		}
 
@@ -606,6 +653,8 @@ func (c *ApprovalCoordinator) RequestPermission(ctx context.Context, recCtx Reco
 		if rerr == nil {
 			_ = c.notifyResolved(resolved, now, nil)
 		}
+		spanPath = PathDefaultMode
+		span.SetStatus(codes.Error, "unknown approval mode")
 		return acp.RequestPermissionResponse{Outcome: acp.RequestPermissionOutcome{Cancelled: &acp.RequestPermissionOutcomeCancelled{}}}, nil
 	}
 }
@@ -881,22 +930,47 @@ func (e *AmbiguousOptionError) Error() string {
 //   - ErrNoMatchingOption — decision has no matching option family
 //   - *AmbiguousOptionError — multiple options match, no selected_option supplied
 func (c *ApprovalCoordinator) Resolve(ctx context.Context, id string, req ResolveRequest) (Approval, error) {
+	// agent_adapter.approval.resolve span — wraps the operator's
+	// decision-application path. Attributes pin the (decision, scope)
+	// tuple so dashboards can split resolutions by operator intent.
+	ctx, span := approvalTracer.Start(ctx, "agent_adapter.approval.resolve",
+		trace.WithSpanKind(trace.SpanKindInternal),
+		trace.WithAttributes(
+			attribute.String("hecate.agent_adapter.approval.id", id),
+			attribute.String("hecate.agent_adapter.approval.decision", string(req.Decision)),
+			attribute.String("hecate.agent_adapter.approval.scope", string(req.Scope)),
+		),
+	)
+	defer span.End()
+
 	if req.Decision != ApprovalDecisionApprove && req.Decision != ApprovalDecisionDeny {
+		span.SetStatus(codes.Error, "invalid decision")
 		return Approval{}, ErrInvalidDecision
 	}
 	if !validScope(req.Scope) {
+		span.SetStatus(codes.Error, "invalid scope")
 		return Approval{}, ErrInvalidScope
 	}
 	row, err := c.opts.Store.GetApproval(ctx, id)
 	if err != nil {
+		span.RecordError(err)
+		span.SetStatus(codes.Error, "approval not found")
 		return Approval{}, err
 	}
 	if row.Status != ApprovalStatusPending {
+		span.SetStatus(codes.Error, "already resolved")
 		return row, ErrApprovalAlreadyResolved
 	}
+	span.SetAttributes(
+		attribute.String("hecate.agent_adapter.id", row.AdapterID),
+		attribute.String("hecate.agent_adapter.session_id", row.SessionID),
+		attribute.String("hecate.agent_adapter.tool_kind", row.ToolKind),
+	)
 
 	response, selected, perr := c.pickOperatorOption(row.ACPOptions, req.Decision, req.SelectedOption)
 	if perr != nil {
+		span.RecordError(perr)
+		span.SetStatus(codes.Error, "approval option resolution failed")
 		return row, perr
 	}
 
@@ -908,6 +982,8 @@ func (c *ApprovalCoordinator) Resolve(ctx context.Context, id string, req Resolv
 	resolved, rerr := c.opts.Store.ResolveApproval(ctx, id, terminalStatus, req.Decision, selected, req.Scope, PathOperator, req.Note, now)
 	if rerr != nil {
 		// AlreadyResolved race against timeout: surface to caller.
+		span.RecordError(rerr)
+		span.SetStatus(codes.Error, "approval resolve failed")
 		return resolved, rerr
 	}
 
@@ -929,8 +1005,11 @@ func (c *ApprovalCoordinator) Resolve(ctx context.Context, id string, req Resolv
 		if req.Scope == ApprovalScopeSession {
 			grant.SessionID = row.SessionID
 		}
-		if _, gerr := c.opts.Store.CreateGrant(ctx, grant); gerr != nil {
+		stored, gerr := c.opts.Store.CreateGrant(ctx, grant)
+		if gerr != nil {
 			c.logf("approval_grant_create_failed", gerr, RecordingContext{SessionID: row.SessionID, AdapterID: row.AdapterID, Workspace: row.Workspace}, row.ToolKind)
+		} else if c.opts.Hooks.OnGrantCreated != nil {
+			c.opts.Hooks.OnGrantCreated(stored)
 		}
 	}
 
@@ -981,7 +1060,13 @@ func (c *ApprovalCoordinator) ListGrants(ctx context.Context, filter GrantFilter
 
 // DeleteGrant removes a grant by id.
 func (c *ApprovalCoordinator) DeleteGrant(ctx context.Context, id string) error {
-	return c.opts.Store.DeleteGrant(ctx, id)
+	if err := c.opts.Store.DeleteGrant(ctx, id); err != nil {
+		return err
+	}
+	if c.opts.Hooks.OnGrantDeleted != nil {
+		c.opts.Hooks.OnGrantDeleted()
+	}
+	return nil
 }
 
 // pickOperatorOption resolves the operator's decision to a concrete
