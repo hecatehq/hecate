@@ -163,6 +163,19 @@ func BuiltIns() []Adapter {
 	}
 }
 
+// FindAdapter returns the built-in adapter matching id (exact match,
+// case-sensitive — adapter ids are stable identifiers chosen by the
+// gateway, not user-typed). Second return is false when id doesn't
+// match any registered adapter.
+func FindAdapter(id string) (Adapter, bool) {
+	for _, a := range BuiltIns() {
+		if a.ID == id {
+			return a, true
+		}
+	}
+	return Adapter{}, false
+}
+
 func List(ctx context.Context) []Status {
 	return ListWithLookup(ctx, exec.LookPath)
 }

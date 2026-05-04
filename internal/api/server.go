@@ -10,6 +10,7 @@ func NewServer(logger *slog.Logger, handler *Handler) http.Handler {
 	mux.HandleFunc("GET /healthz", handler.HandleHealth)
 	mux.HandleFunc("GET /v1/whoami", handler.HandleSession)
 	mux.HandleFunc("GET /v1/agent-adapters", handler.HandleAgentAdapters)
+	mux.HandleFunc("GET /v1/agent-adapters/{id}/health", handler.HandleAgentAdapterHealth)
 	mux.HandleFunc("GET /v1/agent-chat/sessions", handler.HandleAgentChatSessions)
 	mux.HandleFunc("POST /v1/agent-chat/sessions", handler.HandleCreateAgentChatSession)
 	mux.HandleFunc("GET /v1/agent-chat/sessions/{id}", handler.HandleAgentChatSession)

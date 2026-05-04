@@ -405,6 +405,54 @@ These are **agent adapters**, not model providers. They run ACP-compatible
 external coding agents under Hecate supervision; cost is reported as `external`
 until an adapter can supply structured usage.
 
+### `GET /v1/agent-adapters/{id}/health`
+
+Probes a single adapter end-to-end and classifies the outcome so operators can
+distinguish "binary missing" from "binary on PATH but auth failing" without
+reading raw error text. The probe does spawn → ACP `Initialize` → ACP
+`NewSession` against a temporary workspace → terminate; it never issues a
+chat prompt.
+
+```json
+GET /v1/agent-adapters/codex/health
+→ 200
+{
+  "object": "agent_adapter_health",
+  "data": {
+    "adapter_id": "codex",
+    "status": "auth_required",
+    "stage": "initialize",
+    "path": "/Users/alice/.local/bin/codex-acp",
+    "error": "Authentication required",
+    "hint": "Adapter started but failed authentication. Try the adapter's CLI login flow or set its API-key env var.",
+    "duration_ms": 412
+  }
+}
+```
+
+`status` is one of:
+
+- `ready` — spawn + Initialize + NewSession all succeeded.
+- `not_installed` — binary not on PATH and managed launcher unavailable.
+- `auth_required` — process started but Initialize or NewSession failed with
+  an auth-shaped error (`Authentication required`, `Please log in`, `API key`,
+  `Credit balance is too low`, `401`, `403`, …).
+- `error` — anything else. `error` and `stderr` carry the verbatim diagnostic
+  so the operator can act on it.
+
+`stage` reports which step in the sequence completed (on success) or failed (on
+error): `lookup` / `spawn` / `initialize` / `new_session` / `ready`.
+
+Status codes:
+- `200 OK` with the typed result on every classification (`ready`,
+  `not_installed`, `auth_required`, `error`). The probe completing
+  successfully is itself a 200; the adapter's status lives in the body.
+- `404 not_found` when the adapter id is not registered.
+
+The probe creates and immediately abandons a fresh ACP session, so adapters
+that bill on session creation will see one no-op session per call. Adapters
+that bill on prompt completion see no charge.
+
 ### `GET /v1/agent-chat/sessions`
 
 Lists Agent Chat sessions. Agent Chat uses the same backend selection as model
