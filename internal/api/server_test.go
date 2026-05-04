@@ -1522,6 +1522,33 @@ func TestAgentChatDeleteCancelsRunBeforeDeletingSession(t *testing.T) {
 	}
 }
 
+func TestAgentChatCloseKeepsHistoryAndClosesNativeSession(t *testing.T) {
+	dir := t.TempDir()
+
+	logger := slog.New(slog.NewJSONHandler(io.Discard, nil))
+	apiHandler := newTestAPIHandlerWithControlPlane(logger, []providers.Provider{&fakeProvider{}}, config.Config{}, nil)
+	runner := &fakeAgentChatRunner{output: "done", nativeSessionID: "native_close_1", sessionStarted: true}
+	apiHandler.SetAgentChatRunner(runner)
+	client := newAPITestClient(t, NewServer(logger, apiHandler))
+
+	created := mustRequestJSON[AgentChatSessionResponse](client, http.MethodPost, "/v1/agent-chat/sessions", fmt.Sprintf(`{"adapter_id":"codex","workspace":%q}`, dir))
+	updated := mustRequestJSON[AgentChatSessionResponse](client, http.MethodPost, "/v1/agent-chat/sessions/"+created.Data.ID+"/messages", `{"content":"hello"}`)
+	if len(updated.Data.Messages) != 2 {
+		t.Fatalf("messages = %d, want 2", len(updated.Data.Messages))
+	}
+	closed := mustRequestJSON[AgentChatSessionResponse](client, http.MethodPost, "/v1/agent-chat/sessions/"+created.Data.ID+"/close", `{}`)
+	if len(runner.closedSessions) != 1 || runner.closedSessions[0] != created.Data.ID {
+		t.Fatalf("closed sessions = %#v, want %q", runner.closedSessions, created.Data.ID)
+	}
+	if len(closed.Data.Messages) != 2 {
+		t.Fatalf("closed session messages = %d, want preserved history", len(closed.Data.Messages))
+	}
+	got := mustRequestJSON[AgentChatSessionResponse](client, http.MethodGet, "/v1/agent-chat/sessions/"+created.Data.ID, "")
+	if len(got.Data.Messages) != 2 {
+		t.Fatalf("reloaded messages = %d, want preserved history", len(got.Data.Messages))
+	}
+}
+
 func TestAgentChatWorkspaceGitBranch(t *testing.T) {
 	if _, err := exec.LookPath("git"); err != nil {
 		t.Skip("git not available")

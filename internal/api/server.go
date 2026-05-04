@@ -16,6 +16,7 @@ func NewServer(logger *slog.Logger, handler *Handler) http.Handler {
 	mux.HandleFunc("DELETE /v1/agent-chat/sessions/{id}", handler.HandleDeleteAgentChatSession)
 	mux.HandleFunc("GET /v1/agent-chat/sessions/{id}/stream", handler.HandleAgentChatSessionStream)
 	mux.HandleFunc("POST /v1/agent-chat/sessions/{id}/cancel", handler.HandleCancelAgentChatSession)
+	mux.HandleFunc("POST /v1/agent-chat/sessions/{id}/close", handler.HandleCloseAgentChatSession)
 	mux.HandleFunc("POST /v1/agent-chat/sessions/{id}/messages", handler.HandleCreateAgentChatMessage)
 	mux.HandleFunc("POST /v1/workspace-dialog", handler.HandleWorkspaceDialog)
 	mux.HandleFunc("GET /v1/provider-presets", handler.HandleProviderPresets)
