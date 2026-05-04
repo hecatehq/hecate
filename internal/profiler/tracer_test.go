@@ -47,6 +47,7 @@ func TestSpanMappingForEventGroups(t *testing.T) {
 		{telemetry.EventGovernorBudgetEstimateFailed, telemetry.SpanGatewayGovernor},
 		{telemetry.EventGovernorRouteDenied, telemetry.SpanGatewayGovernor},
 		{telemetry.EventGovernorRouteAllowed, telemetry.SpanGatewayGovernor},
+		{telemetry.EventGovernorUsageRecordFailed, telemetry.SpanGatewayGovernor},
 		// Router
 		{telemetry.EventRouterFailed, telemetry.SpanGatewayRouter},
 		{telemetry.EventRouterSelected, telemetry.SpanGatewayRouter},
@@ -59,11 +60,18 @@ func TestSpanMappingForEventGroups(t *testing.T) {
 		{telemetry.EventProviderCallFinished, telemetry.SpanGatewayProvider},
 		{telemetry.EventProviderCallFailed, telemetry.SpanGatewayProvider},
 		{telemetry.EventProviderRetryScheduled, telemetry.SpanGatewayProvider},
+		{telemetry.EventProviderRetryBackoffFailed, telemetry.SpanGatewayProvider},
 		{telemetry.EventProviderFailoverSelected, telemetry.SpanGatewayProvider},
+		{telemetry.EventProviderFailoverSkipped, telemetry.SpanGatewayProvider},
+		{telemetry.EventProviderHealthDegraded, telemetry.SpanGatewayProvider},
 		// Usage / cost / response
 		{telemetry.EventUsageNormalized, telemetry.SpanGatewayUsage},
 		{telemetry.EventCostCalculated, telemetry.SpanGatewayCost},
+		{telemetry.EventCostEstimateUnpriced, telemetry.SpanGatewayCost},
 		{telemetry.EventResponseReturned, telemetry.SpanGatewayResponse},
+		// Body capture
+		{telemetry.EventRequestBodyCaptured, telemetry.SpanGatewayRequestParse},
+		{telemetry.EventResponseBodyCaptured, telemetry.SpanGatewayResponse},
 		// Orchestrator
 		{telemetry.EventOrchestratorTaskStarted, telemetry.SpanOrchestratorTask},
 		{telemetry.EventOrchestratorTaskFinished, telemetry.SpanOrchestratorTask},
@@ -73,8 +81,14 @@ func TestSpanMappingForEventGroups(t *testing.T) {
 		{telemetry.EventOrchestratorStepCompleted, telemetry.SpanOrchestratorStep},
 		{telemetry.EventOrchestratorStepFailed, telemetry.SpanOrchestratorStep},
 		{telemetry.EventOrchestratorArtifactCreated, telemetry.SpanOrchestratorArtifact},
+		{telemetry.EventOrchestratorArtifactFailed, telemetry.SpanOrchestratorArtifact},
 		{telemetry.EventOrchestratorApprovalRequested, telemetry.SpanOrchestratorApproval},
 		{telemetry.EventOrchestratorApprovalResolved, telemetry.SpanOrchestratorApproval},
+		{telemetry.EventOrchestratorApprovalFailed, telemetry.SpanOrchestratorApproval},
+		// Tool / policy runtime events
+		{telemetry.EventMCPToolCompleted, telemetry.SpanOrchestratorStep},
+		{telemetry.EventMCPToolFailed, telemetry.SpanOrchestratorStep},
+		{telemetry.EventMCPToolBlocked, telemetry.SpanOrchestratorApproval},
 		// Queue lifecycle
 		{telemetry.EventQueueEnqueued, telemetry.SpanOrchestratorQueue},
 		{telemetry.EventQueueClaimed, telemetry.SpanOrchestratorQueue},
@@ -125,6 +139,43 @@ func TestSpanMappingForEventGroups(t *testing.T) {
 					names[i] = s.Name
 				}
 				t.Errorf("event %q: want span %q, got spans %v", tc.event, tc.wantSpan, names)
+			}
+		})
+	}
+}
+
+func TestAllTelemetryEventsHaveSpecificSpanAndPhase(t *testing.T) {
+	t.Parallel()
+
+	for _, eventName := range telemetry.AllEventNames() {
+		eventName := eventName
+		t.Run(eventName, func(t *testing.T) {
+			t.Parallel()
+
+			trace := NewTrace("req-all-events", nil)
+			trace.Record(eventName, map[string]any{})
+
+			spans := trace.Spans()
+			if len(spans) < 2 {
+				t.Fatalf("event %q created no child span", eventName)
+			}
+			found := false
+			for _, span := range spans[1:] {
+				if span.Name == telemetry.SpanGatewayRuntime {
+					t.Fatalf("event %q fell back to %s", eventName, telemetry.SpanGatewayRuntime)
+				}
+				for _, event := range span.Events {
+					if event.Name != eventName {
+						continue
+					}
+					found = true
+					if got := span.Attributes[telemetry.AttrHecatePhase]; got == "" {
+						t.Fatalf("event %q span %q missing %s: %#v", eventName, span.Name, telemetry.AttrHecatePhase, span.Attributes)
+					}
+				}
+			}
+			if !found {
+				t.Fatalf("event %q missing from child spans: %#v", eventName, spans)
 			}
 		})
 	}
