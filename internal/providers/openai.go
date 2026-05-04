@@ -377,6 +377,7 @@ func (p *OpenAICompatibleProvider) discoverCapabilities(ctx context.Context) (Ca
 	if p.config.APIKey != "" {
 		req.Header.Set("Authorization", "Bearer "+p.config.APIKey)
 	}
+	injectTraceContext(req)
 
 	resp, err := p.httpClient.Do(req)
 	if err != nil {
@@ -501,6 +502,7 @@ func (p *OpenAICompatibleProvider) chatUpstream(ctx context.Context, req types.C
 	if p.config.APIKey != "" {
 		httpReq.Header.Set("Authorization", "Bearer "+p.config.APIKey)
 	}
+	injectTraceContext(httpReq)
 
 	resp, err := p.httpClient.Do(httpReq)
 	if err != nil {
@@ -655,6 +657,7 @@ func (p *OpenAICompatibleProvider) ChatStream(ctx context.Context, req types.Cha
 	if p.config.APIKey != "" {
 		httpReq.Header.Set("Authorization", "Bearer "+p.config.APIKey)
 	}
+	injectTraceContext(httpReq)
 
 	resp, err := p.httpClient.Do(httpReq)
 	if err != nil {

@@ -291,6 +291,7 @@ func (p *AnthropicProvider) discoverCapabilities(ctx context.Context) (Capabilit
 		return Capabilities{}, fmt.Errorf("build models request: %w", err)
 	}
 	p.applyHeaders(req)
+	injectTraceContext(req)
 
 	resp, err := p.httpClient.Do(req)
 	if err != nil {
@@ -397,6 +398,7 @@ func (p *AnthropicProvider) chatUpstream(ctx context.Context, req types.ChatRequ
 	if len(req.Betas) > 0 {
 		httpReq.Header.Set("anthropic-beta", strings.Join(req.Betas, ","))
 	}
+	injectTraceContext(httpReq)
 
 	resp, err := p.httpClient.Do(httpReq)
 	if err != nil {
@@ -1035,6 +1037,7 @@ func (p *AnthropicProvider) ChatStream(ctx context.Context, req types.ChatReques
 	if len(req.Betas) > 0 {
 		httpReq.Header.Set("anthropic-beta", strings.Join(req.Betas, ","))
 	}
+	injectTraceContext(httpReq)
 
 	resp, err := p.httpClient.Do(httpReq)
 	if err != nil {
