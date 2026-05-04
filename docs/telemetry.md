@@ -375,6 +375,8 @@ Chats UI can point operators back to `/v1/traces?request_id=...`.
 | Span name | Events |
 |---|---|
 | `agent_chat.run` | `agent_chat.run.started`, `agent_chat.output.started`, `agent_chat.files_changed`, `agent_chat.run.finished`, `agent_chat.run.failed`, `agent_chat.run.cancelled` |
+| `agent_adapter.approval.request` | wraps the coordinator's RequestPermission decision (grant short-circuit, mode default, or prompt-mode wait); attributes include `hecate.agent_adapter.id`, `hecate.agent_adapter.session_id`, `hecate.agent_adapter.tool_kind`, `hecate.agent_adapter.approval.mode`, and `hecate.agent_adapter.approval.path` once the resolution path is known |
+| `agent_adapter.approval.resolve` | wraps the operator decision-application path; attributes include `hecate.agent_adapter.approval.id`, `hecate.agent_adapter.approval.decision`, `hecate.agent_adapter.approval.scope`, and the same adapter / session / tool_kind context once the row loads |
 
 Agent-chat spans carry adapter and workspace attributes such as
 `hecate.agent_adapter.id`, `hecate.agent_adapter.command`,
@@ -384,6 +386,16 @@ Agent-chat spans carry adapter and workspace attributes such as
 `hecate.agent_adapter.diff.captured`. Raw transcript text is intentionally not
 emitted as OTel attributes; it is persisted on the Agent Chat message and shown
 behind the raw-output diagnostic disclosure instead.
+
+External-agent approval metrics:
+
+| Metric | Type | Labels | Meaning |
+|---|---|---|---|
+| `hecate.agent_adapter.approval.requested` | counter | `adapter`, `tool_kind`, `mode` | ACP RequestPermission calls received from external agent adapters. |
+| `hecate.agent_adapter.approval.resolved` | counter | `adapter`, `tool_kind`, `mode`, `decision`, `scope`, `path`, `status` | Approvals resolved, labeled by how (operator / grant / default_mode / timeout / request_cancelled). |
+| `hecate.agent_adapter.approval.duration` | histogram | same labels as `resolved` | Time from RequestPermission to resolution. |
+| `hecate.agent_adapter.approval.timed_out` | counter | `adapter`, `tool_kind`, `mode` | Approvals that hit the prompt-mode timeout. Dedicated counter so dashboards can alert on timeout rate without joining `resolved` on `path=timeout`. |
+| `hecate.agent_adapter.approval.grants_active` | up-down counter | none | Live count of durable "always allow / always deny" grants. Incremented on grant create, decremented on grant delete. Seeded at process start from the SQLite store so a restart doesn't reset the dashboard line to zero. |
 
 ### ACP Bridge Spans
 

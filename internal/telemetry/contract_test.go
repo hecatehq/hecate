@@ -252,6 +252,12 @@ func TestMetricNameConstantsMatchInstruments(t *testing.T) {
 		AdapterID: "codex", ToolKind: "file_write", Mode: "auto",
 		Decision: "approve", Scope: "once", Path: "default_mode", Status: "approved", DurationMS: 5,
 	})
+	apm.RecordTimedOut(ctx, AgentAdapterApprovalResolveRecord{
+		AdapterID: "codex", ToolKind: "file_write", Mode: "prompt",
+		Path: "timeout", Status: "timed_out", DurationMS: 300_000,
+	})
+	apm.RecordGrantCreated(ctx)
+	apm.RecordGrantDeleted(ctx)
 
 	var rm metricdata.ResourceMetrics
 	if err := reader.Collect(ctx, &rm); err != nil {
@@ -285,6 +291,8 @@ func TestMetricNameConstantsMatchInstruments(t *testing.T) {
 		MetricAgentAdapterApprovalRequestedTotal,
 		MetricAgentAdapterApprovalResolvedTotal,
 		MetricAgentAdapterApprovalDurationMS,
+		MetricAgentAdapterApprovalTimedOutTotal,
+		MetricAgentAdapterApprovalGrantsActive,
 		// Orchestrator
 		MetricOrchestratorRunsTotal,
 		MetricOrchestratorRunDuration,

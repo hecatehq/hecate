@@ -295,6 +295,26 @@ func (h *Handler) SetAgentApprovalStore(store agentadapters.ApprovalStore) {
 		Hooks:   h.approvalConfig.hooks,
 	})
 	mgr.SetApprovalCoordinator(coord)
+
+	// Seed the grants_active UpDownCounter from the live store so a
+	// SQLite restart doesn't reset the dashboard line to zero. The
+	// in-memory backend is empty at this point and the seed is a
+	// no-op; with SQLite there may be persisted grants from a prior
+	// process. We deliberately do NOT subtract on subsequent
+	// SetAgentApprovalStore calls — replacing the store is a test/dev
+	// path; in production the seed runs once.
+	if metrics := h.approvalConfig.metrics; metrics != nil {
+		ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+		defer cancel()
+		if grants, err := store.ListGrants(ctx, agentadapters.GrantFilter{}, time.Now().UTC()); err == nil {
+			metrics.SeedGrantsActive(ctx, int64(len(grants)))
+		} else {
+			telemetry.Warn(h.logger, ctx, "agent_adapter.grants_active.seed_failed",
+				slog.String("event.name", "agent_adapter.grants_active.seed_failed"),
+				slog.Any("error", err),
+			)
+		}
+	}
 }
 
 func (h *Handler) SetAgentChatStore(store agentchat.Store) {
@@ -559,17 +579,29 @@ func buildApprovalCoordinatorHooks(
 			}
 		},
 		OnTimedOut: func(a agentadapters.Approval, durationMS int64) {
-			metrics.RecordResolved(context.Background(), telemetry.AgentAdapterApprovalResolveRecord{
+			rec := telemetry.AgentAdapterApprovalResolveRecord{
 				AdapterID:  a.AdapterID,
 				ToolKind:   a.ToolKind,
 				Mode:       string(mode),
 				Path:       string(agentadapters.PathTimeout),
 				Status:     string(agentadapters.ApprovalStatusTimedOut),
 				DurationMS: durationMS,
-			})
+			}
+			// Record via both the resolved-with-path-timeout
+			// counter AND the dedicated timed-out counter so
+			// dashboards can alert on timeout rate without
+			// pivoting through a path label join.
+			metrics.RecordResolved(context.Background(), rec)
+			metrics.RecordTimedOut(context.Background(), rec)
 			if live != nil {
 				live.publishApprovalResolved(approvalResolvedEventFromRow(a))
 			}
+		},
+		OnGrantCreated: func(_ agentadapters.Grant) {
+			metrics.RecordGrantCreated(context.Background())
+		},
+		OnGrantDeleted: func() {
+			metrics.RecordGrantDeleted(context.Background())
 		},
 	}
 }

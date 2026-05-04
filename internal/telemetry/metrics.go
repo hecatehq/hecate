@@ -324,6 +324,17 @@ type AgentAdapterApprovalMetrics struct {
 	requestedTotal otmetric.Int64Counter
 	resolvedTotal  otmetric.Int64Counter
 	durationMS     otmetric.Int64Histogram
+	// timedOutTotal is the prompt-mode-timeout dedicated counter.
+	// Operators alert on this when a chat session has nobody
+	// reviewing approvals — RecordResolved already covers the
+	// terminal transition, but a separate counter is materially
+	// easier to dashboard.
+	timedOutTotal otmetric.Int64Counter
+	// grantsActive tracks the live durable-grant count. UpDownCounter
+	// because we want both directions (create / delete) and the
+	// running total. Seeded at process start via SeedGrantsActive so
+	// a restart doesn't reset the line to zero.
+	grantsActive otmetric.Int64UpDownCounter
 }
 
 func NewAgentAdapterApprovalMetrics() *AgentAdapterApprovalMetrics {
@@ -367,10 +378,30 @@ func NewAgentAdapterApprovalMetricsWithMeterProvider(provider otmetric.MeterProv
 		return nil, err
 	}
 
+	timedOutTotal, err := meter.Int64Counter(
+		MetricAgentAdapterApprovalTimedOutTotal,
+		otmetric.WithDescription("Total approvals that hit the prompt-mode timeout (path=timeout)."),
+		otmetric.WithUnit("{approval}"),
+	)
+	if err != nil {
+		return nil, err
+	}
+
+	grantsActive, err := meter.Int64UpDownCounter(
+		MetricAgentAdapterApprovalGrantsActive,
+		otmetric.WithDescription("Live count of durable approval grants. Incremented on grant create, decremented on grant delete; seeded from store contents at process start."),
+		otmetric.WithUnit("{grant}"),
+	)
+	if err != nil {
+		return nil, err
+	}
+
 	return &AgentAdapterApprovalMetrics{
 		requestedTotal: requestedTotal,
 		resolvedTotal:  resolvedTotal,
 		durationMS:     durationMS,
+		timedOutTotal:  timedOutTotal,
+		grantsActive:   grantsActive,
 	}, nil
 }
 
@@ -422,6 +453,57 @@ func (m *AgentAdapterApprovalMetrics) RecordResolved(ctx context.Context, rec Ag
 	if rec.DurationMS >= 0 {
 		m.durationMS.Record(ctx, rec.DurationMS, opt)
 	}
+}
+
+// RecordTimedOut increments the dedicated timeout counter. Called
+// alongside RecordResolved when the prompt-mode timeout fires; the
+// labels mirror RecordResolved so a dashboard can split timed_out by
+// adapter / tool_kind without joining against the resolved counter.
+func (m *AgentAdapterApprovalMetrics) RecordTimedOut(ctx context.Context, rec AgentAdapterApprovalResolveRecord) {
+	if m == nil || m.timedOutTotal == nil {
+		return
+	}
+	attrs := make([]attribute.KeyValue, 0, 3)
+	if rec.AdapterID != "" {
+		attrs = append(attrs, attribute.String(AttrHecateAgentAdapterID, NormalizeMetricLabel(rec.AdapterID)))
+	}
+	if rec.ToolKind != "" {
+		attrs = append(attrs, attribute.String(AttrHecateAgentApprovalToolKind, NormalizeMetricLabel(rec.ToolKind)))
+	}
+	if rec.Mode != "" {
+		attrs = append(attrs, attribute.String(AttrHecateAgentApprovalMode, NormalizeMetricLabel(rec.Mode)))
+	}
+	m.timedOutTotal.Add(ctx, 1, otmetric.WithAttributes(attrs...))
+}
+
+// RecordGrantCreated increments the active-grants UpDownCounter.
+// Coordinator hooks fire this after a successful CreateGrant.
+func (m *AgentAdapterApprovalMetrics) RecordGrantCreated(ctx context.Context) {
+	if m == nil || m.grantsActive == nil {
+		return
+	}
+	m.grantsActive.Add(ctx, 1)
+}
+
+// RecordGrantDeleted decrements the active-grants UpDownCounter.
+// Coordinator hooks fire this after a successful DeleteGrant.
+func (m *AgentAdapterApprovalMetrics) RecordGrantDeleted(ctx context.Context) {
+	if m == nil || m.grantsActive == nil {
+		return
+	}
+	m.grantsActive.Add(ctx, -1)
+}
+
+// SeedGrantsActive is the startup-reconcile hook for the active-grants
+// counter. The handler calls this once after wiring the store with the
+// count of currently-live grants so a SQLite restart doesn't reset
+// the dashboard line to zero. Safe to call repeatedly — each call
+// adds delta to the counter. Pass a negative value to subtract.
+func (m *AgentAdapterApprovalMetrics) SeedGrantsActive(ctx context.Context, delta int64) {
+	if m == nil || m.grantsActive == nil || delta == 0 {
+		return
+	}
+	m.grantsActive.Add(ctx, delta)
 }
 
 // ---------------------------------------------------------------------------

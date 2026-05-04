@@ -179,7 +179,36 @@ Every prompt also gets OTel-shaped observability. The message response includes
 `request_id`, `trace_id`, and `span_id`, and `GET
 /v1/traces?request_id=<request_id>` shows the `agent_chat.run` span with adapter
 identity, workspace, status, duration, output byte counts, and diff-capture
-state.
+state. Approval gating adds two more spans:
+`agent_adapter.approval.request` covers the coordinator's decision (grant
+short-circuit, mode default, or prompt-mode wait) and carries
+`hecate.agent_adapter.approval.path` once the path is known;
+`agent_adapter.approval.resolve` wraps the operator's decision-application
+path with `decision` and `scope` attributes.
+
+## Approval mode and the alpha → prompt migration
+
+`GATEWAY_AGENT_ADAPTER_APPROVAL_MODE` controls how the gateway responds to ACP
+`RequestPermission` from external adapters. Three values:
+
+- `prompt` (default) — the gateway records a pending row and waits for an
+  operator decision via the Chats workspace banner / modal or the
+  `/v1/agent-chat/sessions/{id}/approvals` REST surface. Without an operator
+  reviewing within `GATEWAY_AGENT_ADAPTER_APPROVAL_TIMEOUT` (default 5m), the
+  approval times out and the adapter receives ACP `Cancelled`.
+- `auto` — every adapter request is permitted without review. Surfaces a red
+  danger banner across every Chats session because every adapter call runs
+  unsupervised. Useful only for headless / CI usage where no operator is
+  available; never the right setting for interactive use.
+- `deny` — every adapter request is refused.
+
+**Alpha → prompt migration.** Through the alpha cycle the effective default
+was `auto`; from this release the default is `prompt`. Operators who relied
+on the old auto-approve behaviour — typically headless / CI flows where no
+operator UI is connected — must explicitly set
+`GATEWAY_AGENT_ADAPTER_APPROVAL_MODE=auto`. Without this, the first adapter
+request in a new chat will block for the full timeout and then surface as
+`Cancelled` to the adapter, looking like an inert hang.
 
 ## Troubleshooting
 
