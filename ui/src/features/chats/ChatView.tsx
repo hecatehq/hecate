@@ -16,6 +16,7 @@ type VisibleChatMessage = {
   id: string;
   run_id?: string;
   trace_id?: string;
+  native_session_id?: string;
   role: string;
   content: string | null;
   created_at?: string;
@@ -75,6 +76,7 @@ export function ChatView({ state, actions, onNavigate }: Props) {
         id: m.id || `agent-message-${index}`,
         run_id: m.run_id,
         trace_id: m.trace_id,
+        native_session_id: m.native_session_id,
         role: m.role,
         content: m.content,
         created_at: m.created_at,
@@ -518,7 +520,9 @@ export function ChatView({ state, actions, onNavigate }: Props) {
             const content = typeof m.content === "string" ? m.content : (m.content === null ? "" : JSON.stringify(m.content));
             const time = m.created_at ? new Date(m.created_at).toLocaleTimeString("en-US", { hour: "2-digit", minute: "2-digit" }) : "";
             const agentModel = m.agent_adapter_name || m.agent_adapter_id;
-            const agentRuntime = isAgentChat && role === "assistant" ? formatAgentRuntimeMeta(m.run_id, m.duration_ms, m.trace_id) : "";
+            const agentRuntime = isAgentChat && role === "assistant"
+              ? formatAgentRuntimeMeta(m.run_id, m.duration_ms, m.trace_id, m.native_session_id)
+              : "";
             return (
               <MessageRow
                 key={m.id}
@@ -903,11 +907,11 @@ function AgentSetupHints({ adapters, selectedID }: { adapters: AgentAdapterRecor
 }
 
 function agentSetupHint(adapter: AgentAdapterRecord): { action: string } {
-  switch (adapter.id) {
-    case "codex":
-      return { action: "Install Codex CLI, make sure `codex` is on PATH, then run `codex login` if authentication is required." };
-    case "claude_code":
-      return { action: "Install Claude Code, make sure `claude` is on PATH, then run `claude login`." };
+	switch (adapter.id) {
+		case "codex":
+			return { action: "Install the Codex ACP adapter, make sure `codex-acp` is on PATH, then authenticate the underlying Codex CLI." };
+		case "claude_code":
+			return { action: "Install the Claude ACP adapter, make sure `claude-agent-acp` is on PATH, then authenticate the underlying Claude agent." };
     case "cursor_agent":
       return { action: "Install Cursor Agent, make sure `cursor-agent` is on PATH, then run `cursor-agent login` or set `CURSOR_API_KEY`." };
     default:
@@ -915,9 +919,12 @@ function agentSetupHint(adapter: AgentAdapterRecord): { action: string } {
   }
 }
 
-function formatAgentRuntimeMeta(runID?: string, durationMS?: number, traceID?: string): string {
-  const parts: string[] = [];
-  if (runID) {
+function formatAgentRuntimeMeta(runID?: string, durationMS?: number, traceID?: string, nativeSessionID?: string): string {
+	const parts: string[] = [];
+	if (nativeSessionID) {
+		parts.push(`ACP ${nativeSessionID.slice(0, 12)}`);
+	}
+	if (runID) {
     parts.push(`run ${runID.slice(0, 12)}`);
   }
   if (traceID) {
@@ -1016,7 +1023,7 @@ function MessageRow({ id, role, model, content, time, promptTokens, completionTo
           {showRawOutput && (
             <details style={{ marginTop: 8 }}>
               <summary style={{ cursor: "pointer", fontFamily: "var(--font-mono)", fontSize: 11, color: "var(--t3)" }}>
-                raw process output
+                raw ACP diagnostics
               </summary>
               <div style={{ marginTop: 6 }}>
                 <CodeBlock code={rawOutput} lang="text" />

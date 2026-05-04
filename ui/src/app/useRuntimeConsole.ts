@@ -1450,6 +1450,8 @@ function renderAgentChatSessionSummary(session: AgentChatSessionRecord): AgentCh
     id: session.id,
     title: session.title,
     adapter_id: session.adapter_id,
+    driver_kind: session.driver_kind,
+    native_session_id: session.native_session_id,
     workspace: session.workspace,
     workspace_branch: session.workspace_branch,
     status: session.status,

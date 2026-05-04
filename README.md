@@ -177,7 +177,7 @@ Hecate is public-alpha software. The core gateway path is usable; the agent runt
 | Storage tiers | Usable | Memory or SQLite, selected per subsystem |
 | Operator UI | Usable | Main workflows are present; debugging ergonomics are still improving |
 | Desktop app | Alpha | Native `.dmg`, `.deb`, `.AppImage`, and `.msi` bundles are published on each release and run Hecate as a sidecar. Bundles are unsigned, so macOS Gatekeeper / Windows SmartScreen first-launch warnings are expected |
-| External agent adapters | Alpha | Codex, Claude Code, and Cursor Agent discovery/run/cancel/session history. Codex has JSONL normalization; Claude Code and Cursor mappings are still mostly text-output based |
+| External agent adapters | Alpha | Codex, Claude Code, and Cursor Agent discovery, long-lived ACP sessions, cancel, session history, raw diagnostics, and workspace diff capture |
 | ACP bridge | Alpha | `cmd/hecate-acp` supports initialize, session new/prompt/cancel, continuation, run-event forwarding, and approval round-trip; editor packaging is not done |
 | Agent task runtime | Alpha | Queues, approvals, resumable runs, `agent_loop`, MCP integration; periodic reconciler auto-recovers stale runs |
 | Execution isolation | Alpha | Per-call subprocess + env sanitisation + output cap + wall-clock timeout; `bwrap` (Linux) / `sandbox-exec` (macOS) wrapping where available. Not container-level — see [`docs/sandbox.md`](docs/sandbox.md) |

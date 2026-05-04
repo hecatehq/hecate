@@ -15,6 +15,7 @@ func (h *Handler) HandleAgentAdapters(w http.ResponseWriter, r *http.Request) {
 			Name:        item.Name,
 			Kind:        item.Kind,
 			Command:     item.Command,
+			Args:        item.Args,
 			Available:   item.Available,
 			Status:      item.Status,
 			Path:        item.Path,

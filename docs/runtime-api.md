@@ -363,18 +363,19 @@ GET /v1/agent-adapters
     {
       "id": "codex",
       "name": "Codex",
-      "kind": "process",
-      "command": "codex",
+      "kind": "acp",
+      "command": "codex-acp",
       "available": true,
       "status": "available",
-      "path": "/opt/homebrew/bin/codex",
+      "path": "/opt/homebrew/bin/codex-acp",
       "cost_mode": "external"
     },
     {
       "id": "cursor_agent",
       "name": "Cursor Agent",
-      "kind": "process",
+      "kind": "acp",
       "command": "cursor-agent",
+      "args": ["acp"],
       "available": true,
       "status": "available",
       "path": "/Users/alice/.local/bin/cursor-agent",
@@ -383,27 +384,27 @@ GET /v1/agent-adapters
     {
       "id": "claude_code",
       "name": "Claude Code",
-      "kind": "process",
-      "command": "claude",
+      "kind": "acp",
+      "command": "claude-agent-acp",
       "available": false,
       "status": "missing",
-      "error": "exec: \"claude\": executable file not found in $PATH",
+      "error": "exec: \"claude-agent-acp\": executable file not found in $PATH",
       "cost_mode": "external"
     }
   ]
 }
 ```
 
-These are **agent adapters**, not model providers. They run external coding
-agent CLIs under Hecate supervision; cost is reported as `external` until an
-adapter can supply structured usage.
+These are **agent adapters**, not model providers. They run ACP-compatible
+external coding agents under Hecate supervision; cost is reported as `external`
+until an adapter can supply structured usage.
 
 ### `GET /v1/agent-chat/sessions`
 
 Lists Agent Chat sessions. Agent Chat uses the same backend selection as model
 chat history: memory by default, SQLite when `GATEWAY_CHAT_SESSIONS_BACKEND=sqlite`.
-It is the alpha dogfooding surface for running external coding-agent CLIs such
-as Codex, Claude Code, and Cursor Agent from the Hecate Chats UI.
+It is the alpha surface for running external coding agents such as Codex,
+Claude Code, and Cursor Agent from the Hecate Chats UI.
 
 ```json
 GET /v1/agent-chat/sessions
@@ -415,6 +416,8 @@ GET /v1/agent-chat/sessions
       "id": "agent_chat_...",
       "title": "Codex chat",
       "adapter_id": "codex",
+      "driver_kind": "acp",
+      "native_session_id": "session_...",
       "workspace": "/Users/alice/project",
       "workspace_branch": "main",
       "status": "completed",
@@ -429,7 +432,7 @@ GET /v1/agent-chat/sessions
 ### `POST /v1/agent-chat/sessions`
 
 Creates an Agent Chat session. The session records which adapter should run
-and which workspace path the adapter process should use. The workspace must be
+and which workspace path the ACP session should use. The workspace must be
 an operator-controlled local directory. Hecate validates and canonicalizes the
 path at session creation, so later runs use the resolved directory instead of
 failing only after the external process starts.
@@ -439,7 +442,7 @@ POST /v1/agent-chat/sessions
 {
   "adapter_id": "codex",
   "workspace": "/Users/alice/project",
-  "title": "Codex dogfood"
+  "title": "Codex review"
 }
 
 → 200
@@ -447,8 +450,9 @@ POST /v1/agent-chat/sessions
   "object": "agent_chat_session",
   "data": {
     "id": "agent_chat_...",
-    "title": "Codex dogfood",
+    "title": "Codex review",
     "adapter_id": "codex",
+    "driver_kind": "acp",
     "workspace": "/Users/alice/project",
     "workspace_branch": "main",
     "status": "idle",
@@ -464,10 +468,10 @@ messages produced by the external adapter.
 
 ### `POST /v1/agent-chat/sessions/{id}/messages`
 
-Runs the session adapter once with the submitted prompt and appends both the
-user message and the adapter output. The response returns after the external
-process exits, times out, is cancelled, or fails. For live output while the
-process is running, subscribe to the session stream before posting the message.
+Sends the submitted prompt to the session's native ACP session and appends both
+the user message and the adapter output. The response returns after the ACP turn
+finishes, times out, is cancelled, or fails. For live output while the turn is
+running, subscribe to the session stream before posting the message.
 
 ```json
 POST /v1/agent-chat/sessions/agent_chat_.../messages
@@ -498,6 +502,8 @@ POST /v1/agent-chat/sessions/agent_chat_.../messages
         "raw_output": "...",
         "adapter_id": "codex",
         "adapter_name": "Codex",
+        "driver_kind": "acp",
+        "native_session_id": "session_...",
         "status": "completed",
         "cost_mode": "external",
         "workspace": "/Users/alice/project",
@@ -540,13 +546,15 @@ It also stores `request_id`, `trace_id`, and `span_id`; use
 `GET /v1/traces?request_id=<request_id>` to inspect the OTel-shaped
 `agent_chat.run` span for that prompt.
 `content` is the normalized transcript that should be shown by default.
-`raw_output` preserves the exact stdout/stderr stream for diagnostics when an
-adapter emits JSONL or otherwise surprising text. `activities` is the structured
-progress model for the Chats UI: it records lifecycle markers such as starting,
-running, process output, files changed, failed, cancelled, and final answer.
-Failures from the external process are still represented as assistant messages
-with `"status": "failed"` and `error` so the transcript stays intact. Transport
-or request validation failures still use the normal Hecate error envelope.
+`raw_output` preserves raw ACP update JSON for diagnostics when an adapter emits
+surprising structured output. `driver_kind` and `native_session_id` identify the
+underlying ACP session reused across turns in the Hecate chat. `activities` is
+the structured progress model for the Chats UI: it records lifecycle markers
+such as starting, running, output, files changed, failed, cancelled, and final
+answer. Failures from the ACP adapter are still represented as assistant
+messages with `"status": "failed"` and `error` so the transcript stays intact.
+Transport or request validation failures still use the normal Hecate error
+envelope.
 
 ### `GET /v1/agent-chat/sessions/{id}/stream`
 
@@ -564,20 +572,20 @@ data: {"object":"agent_chat_session","data":{"status":"completed",...}}
 ```
 
 Clients should subscribe before sending a message so they can receive partial
-stdout/stderr output from the external adapter. The stream stays open for an
-idle or previously completed session and closes after it observes a new running
-message reach a terminal status (`completed`, `failed`, or `cancelled`).
+ACP output from the external adapter. The stream stays open for an idle or
+previously completed session and closes after it observes a new running message
+reach a terminal status (`completed`, `failed`, or `cancelled`).
 
 ### `POST /v1/agent-chat/sessions/{id}/cancel`
 
-Cancels the currently running external adapter process for the session.
+Cancels the currently running ACP turn for the session.
 
 ```json
 POST /v1/agent-chat/sessions/agent_chat_.../cancel
 {}
 ```
 
-Returns `202` when a running process was signalled. If the session is not
+Returns `202` when a running turn was signalled. If the session is not
 currently running, the endpoint returns `409 invalid_request`.
 
 ### `DELETE /v1/agent-chat/sessions/{id}`

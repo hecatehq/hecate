@@ -539,17 +539,18 @@ type ProviderPresetResponseItem struct {
 }
 
 type AgentAdapterResponseItem struct {
-	ID          string `json:"id"`
-	Name        string `json:"name"`
-	Kind        string `json:"kind"`
-	Command     string `json:"command"`
-	Available   bool   `json:"available"`
-	Status      string `json:"status"`
-	Path        string `json:"path,omitempty"`
-	Error       string `json:"error,omitempty"`
-	Description string `json:"description,omitempty"`
-	CostMode    string `json:"cost_mode,omitempty"`
-	DocsURL     string `json:"docs_url,omitempty"`
+	ID          string   `json:"id"`
+	Name        string   `json:"name"`
+	Kind        string   `json:"kind"`
+	Command     string   `json:"command"`
+	Args        []string `json:"args,omitempty"`
+	Available   bool     `json:"available"`
+	Status      string   `json:"status"`
+	Path        string   `json:"path,omitempty"`
+	Error       string   `json:"error,omitempty"`
+	Description string   `json:"description,omitempty"`
+	CostMode    string   `json:"cost_mode,omitempty"`
+	DocsURL     string   `json:"docs_url,omitempty"`
 }
 
 type CreateAgentChatSessionRequest struct {
@@ -566,6 +567,8 @@ type AgentChatSessionSummaryItem struct {
 	ID              string `json:"id"`
 	Title           string `json:"title"`
 	AdapterID       string `json:"adapter_id"`
+	DriverKind      string `json:"driver_kind,omitempty"`
+	NativeSessionID string `json:"native_session_id,omitempty"`
 	Workspace       string `json:"workspace"`
 	WorkspaceBranch string `json:"workspace_branch,omitempty"`
 	Status          string `json:"status"`
@@ -578,6 +581,8 @@ type AgentChatSessionItem struct {
 	ID              string                 `json:"id"`
 	Title           string                 `json:"title"`
 	AdapterID       string                 `json:"adapter_id"`
+	DriverKind      string                 `json:"driver_kind,omitempty"`
+	NativeSessionID string                 `json:"native_session_id,omitempty"`
 	Workspace       string                 `json:"workspace"`
 	WorkspaceBranch string                 `json:"workspace_branch,omitempty"`
 	Status          string                 `json:"status"`
@@ -587,28 +592,30 @@ type AgentChatSessionItem struct {
 }
 
 type AgentChatMessageItem struct {
-	ID          string                  `json:"id"`
-	RunID       string                  `json:"run_id,omitempty"`
-	RequestID   string                  `json:"request_id,omitempty"`
-	TraceID     string                  `json:"trace_id,omitempty"`
-	SpanID      string                  `json:"span_id,omitempty"`
-	Role        string                  `json:"role"`
-	Content     string                  `json:"content"`
-	RawOutput   string                  `json:"raw_output,omitempty"`
-	AdapterID   string                  `json:"adapter_id,omitempty"`
-	AdapterName string                  `json:"adapter_name,omitempty"`
-	Status      string                  `json:"status,omitempty"`
-	ExitCode    int                     `json:"exit_code,omitempty"`
-	CostMode    string                  `json:"cost_mode,omitempty"`
-	Workspace   string                  `json:"workspace,omitempty"`
-	DiffStat    string                  `json:"diff_stat,omitempty"`
-	Diff        string                  `json:"diff,omitempty"`
-	CreatedAt   string                  `json:"created_at,omitempty"`
-	StartedAt   string                  `json:"started_at,omitempty"`
-	CompletedAt string                  `json:"completed_at,omitempty"`
-	DurationMS  int64                   `json:"duration_ms,omitempty"`
-	Error       string                  `json:"error,omitempty"`
-	Activities  []AgentChatActivityItem `json:"activities,omitempty"`
+	ID              string                  `json:"id"`
+	RunID           string                  `json:"run_id,omitempty"`
+	RequestID       string                  `json:"request_id,omitempty"`
+	TraceID         string                  `json:"trace_id,omitempty"`
+	SpanID          string                  `json:"span_id,omitempty"`
+	Role            string                  `json:"role"`
+	Content         string                  `json:"content"`
+	RawOutput       string                  `json:"raw_output,omitempty"`
+	AdapterID       string                  `json:"adapter_id,omitempty"`
+	AdapterName     string                  `json:"adapter_name,omitempty"`
+	DriverKind      string                  `json:"driver_kind,omitempty"`
+	NativeSessionID string                  `json:"native_session_id,omitempty"`
+	Status          string                  `json:"status,omitempty"`
+	ExitCode        int                     `json:"exit_code,omitempty"`
+	CostMode        string                  `json:"cost_mode,omitempty"`
+	Workspace       string                  `json:"workspace,omitempty"`
+	DiffStat        string                  `json:"diff_stat,omitempty"`
+	Diff            string                  `json:"diff,omitempty"`
+	CreatedAt       string                  `json:"created_at,omitempty"`
+	StartedAt       string                  `json:"started_at,omitempty"`
+	CompletedAt     string                  `json:"completed_at,omitempty"`
+	DurationMS      int64                   `json:"duration_ms,omitempty"`
+	Error           string                  `json:"error,omitempty"`
+	Activities      []AgentChatActivityItem `json:"activities,omitempty"`
 }
 
 type AgentChatActivityItem struct {

@@ -20,6 +20,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/hecate/agent-runtime/internal/agentadapters"
 	"github.com/hecate/agent-runtime/internal/billing"
 	"github.com/hecate/agent-runtime/internal/catalog"
 	"github.com/hecate/agent-runtime/internal/chatstate"
@@ -972,13 +973,13 @@ func TestAgentAdaptersReturnsBuiltIns(t *testing.T) {
 	foundClaude := false
 	foundCursor := false
 	for _, item := range response.Data {
-		if item.ID == "codex" && item.Kind == "process" && item.Command == "codex" && item.CostMode == "external" {
+		if item.ID == "codex" && item.Kind == "acp" && item.Command == "codex-acp" && item.CostMode == "external" {
 			foundCodex = true
 		}
-		if item.ID == "claude_code" && item.Kind == "process" && item.Command == "claude" && item.CostMode == "external" {
+		if item.ID == "claude_code" && item.Kind == "acp" && item.Command == "claude-agent-acp" && item.CostMode == "external" {
 			foundClaude = true
 		}
-		if item.ID == "cursor_agent" && item.Kind == "process" && item.Command == "cursor-agent" && item.CostMode == "external" {
+		if item.ID == "cursor_agent" && item.Kind == "acp" && item.Command == "cursor-agent" && item.CostMode == "external" {
 			foundCursor = true
 		}
 		if item.Status == "" {
@@ -1001,19 +1002,14 @@ func TestAgentChatRunsExternalAdapter(t *testing.T) {
 	if _, err := exec.LookPath("git"); err == nil {
 		_ = exec.Command("git", "-C", dir, "init", "-b", "main").Run()
 	}
-	bin := filepath.Join(dir, "bin")
-	if err := os.Mkdir(bin, 0o755); err != nil {
-		t.Fatalf("mkdir bin: %v", err)
-	}
-	codexPath := filepath.Join(bin, "codex")
-	script := "#!/bin/sh\nprintf 'agent saw: %s\\n' \"$*\"\n"
-	if err := os.WriteFile(codexPath, []byte(script), 0o755); err != nil {
-		t.Fatalf("write fake codex: %v", err)
-	}
-	t.Setenv("PATH", bin+string(os.PathListSeparator)+os.Getenv("PATH"))
 
 	logger := slog.New(slog.NewJSONHandler(io.Discard, nil))
-	handler := newTestHTTPHandler(logger, &fakeProvider{})
+	apiHandler := newTestAPIHandlerWithControlPlane(logger, []providers.Provider{&fakeProvider{}}, config.Config{}, nil)
+	apiHandler.SetAgentChatRunner(&fakeAgentChatRunner{
+		output:          "agent saw: hello from hecate\n",
+		nativeSessionID: "native_codex_1",
+	})
+	handler := NewServer(logger, apiHandler)
 	client := newAPITestClient(t, handler)
 	created := mustRequestJSON[AgentChatSessionResponse](client, http.MethodPost, "/v1/agent-chat/sessions", fmt.Sprintf(`{"adapter_id":"codex","workspace":%q,"title":"Codex test"}`, dir))
 	if created.Data.AdapterID != "codex" {
@@ -1037,6 +1033,9 @@ func TestAgentChatRunsExternalAdapter(t *testing.T) {
 	assistant := updated.Data.Messages[1]
 	if assistant.Role != "assistant" || assistant.AdapterID != "codex" || assistant.Status != "completed" {
 		t.Fatalf("assistant message = %#v", assistant)
+	}
+	if assistant.DriverKind != "acp" || assistant.NativeSessionID != "native_codex_1" {
+		t.Fatalf("assistant ACP metadata = kind %q native %q", assistant.DriverKind, assistant.NativeSessionID)
 	}
 	if !strings.Contains(assistant.Content, "hello from hecate") {
 		t.Fatalf("assistant content = %q, want prompt echoed", assistant.Content)
@@ -1078,6 +1077,9 @@ func TestAgentChatRunsExternalAdapter(t *testing.T) {
 	if got := updated.Data.WorkspaceBranch; got != "" && got != "main" {
 		t.Fatalf("workspace_branch = %q, want empty or main", got)
 	}
+	if updated.Data.DriverKind != "acp" || updated.Data.NativeSessionID != "native_codex_1" {
+		t.Fatalf("session ACP metadata = kind %q native %q", updated.Data.DriverKind, updated.Data.NativeSessionID)
+	}
 }
 
 func TestAgentChatCreateRejectsInvalidWorkspace(t *testing.T) {
@@ -1091,21 +1093,83 @@ func TestAgentChatCreateRejectsInvalidWorkspace(t *testing.T) {
 	}
 }
 
+type fakeAgentChatRunner struct {
+	output          string
+	chunks          []string
+	delay           time.Duration
+	waitForCancel   bool
+	nativeSessionID string
+}
+
+func (r *fakeAgentChatRunner) Run(ctx context.Context, req agentadapters.RunRequest) (agentadapters.RunResult, error) {
+	started := time.Now().UTC()
+	output := r.output
+	for _, chunk := range r.chunks {
+		select {
+		case <-ctx.Done():
+			return r.result(req, output, started, 1), context.Canceled
+		default:
+		}
+		if req.OnOutput != nil {
+			req.OnOutput(chunk)
+		}
+		output += chunk
+		if r.delay > 0 {
+			timer := time.NewTimer(r.delay)
+			select {
+			case <-ctx.Done():
+				timer.Stop()
+				return r.result(req, output, started, 1), context.Canceled
+			case <-timer.C:
+			}
+		}
+	}
+	if r.waitForCancel {
+		if req.OnOutput != nil {
+			req.OnOutput("started\n")
+		}
+		output += "started\n"
+		<-ctx.Done()
+		return r.result(req, output, started, 1), context.Canceled
+	}
+	if req.OnOutput != nil && r.output != "" {
+		req.OnOutput(r.output)
+	}
+	return r.result(req, output, started, 0), nil
+}
+
+func (r *fakeAgentChatRunner) result(req agentadapters.RunRequest, output string, started time.Time, exitCode int) agentadapters.RunResult {
+	nativeSessionID := r.nativeSessionID
+	if nativeSessionID == "" {
+		nativeSessionID = "native_" + req.SessionID
+	}
+	adapter, _ := agentadapters.BuiltInByID(req.AdapterID)
+	return agentadapters.RunResult{
+		Adapter:         adapter,
+		DriverKind:      agentadapters.DriverKindACP,
+		NativeSessionID: nativeSessionID,
+		Output:          output,
+		RawOutput:       output,
+		ExitCode:        exitCode,
+		StartedAt:       started,
+		CompletedAt:     time.Now().UTC(),
+	}
+}
+
+func (r *fakeAgentChatRunner) CloseSession(context.Context, string) error { return nil }
+
+func (r *fakeAgentChatRunner) Shutdown(context.Context) error { return nil }
+
 func TestAgentChatStreamsExternalAdapterOutput(t *testing.T) {
 	dir := t.TempDir()
-	bin := filepath.Join(dir, "bin")
-	if err := os.Mkdir(bin, 0o755); err != nil {
-		t.Fatalf("mkdir bin: %v", err)
-	}
-	codexPath := filepath.Join(bin, "codex")
-	script := "#!/bin/sh\nprintf 'first chunk\\n'\nsleep 0.1\nprintf 'second chunk\\n'\n"
-	if err := os.WriteFile(codexPath, []byte(script), 0o755); err != nil {
-		t.Fatalf("write fake codex: %v", err)
-	}
-	t.Setenv("PATH", bin+string(os.PathListSeparator)+os.Getenv("PATH"))
 
 	logger := slog.New(slog.NewJSONHandler(io.Discard, nil))
-	handler := NewServer(logger, NewHandler(config.Config{}, logger, nil, nil, nil, nil))
+	apiHandler := newTestAPIHandlerWithControlPlane(logger, []providers.Provider{&fakeProvider{}}, config.Config{}, nil)
+	apiHandler.SetAgentChatRunner(&fakeAgentChatRunner{
+		chunks: []string{"first chunk\n", "second chunk\n"},
+		delay:  100 * time.Millisecond,
+	})
+	handler := NewServer(logger, apiHandler)
 	server := httptest.NewServer(handler)
 	t.Cleanup(server.Close)
 
@@ -1172,19 +1236,11 @@ func TestAgentChatStreamsExternalAdapterOutput(t *testing.T) {
 
 func TestAgentChatCancelsExternalAdapter(t *testing.T) {
 	dir := t.TempDir()
-	bin := filepath.Join(dir, "bin")
-	if err := os.Mkdir(bin, 0o755); err != nil {
-		t.Fatalf("mkdir bin: %v", err)
-	}
-	codexPath := filepath.Join(bin, "codex")
-	script := "#!/bin/sh\nprintf 'started\\n'\nsleep 5\nprintf 'should not finish\\n'\n"
-	if err := os.WriteFile(codexPath, []byte(script), 0o755); err != nil {
-		t.Fatalf("write fake codex: %v", err)
-	}
-	t.Setenv("PATH", bin+string(os.PathListSeparator)+os.Getenv("PATH"))
 
 	logger := slog.New(slog.NewJSONHandler(io.Discard, nil))
-	handler := NewServer(logger, NewHandler(config.Config{}, logger, nil, nil, nil, nil))
+	apiHandler := newTestAPIHandlerWithControlPlane(logger, []providers.Provider{&fakeProvider{}}, config.Config{}, nil)
+	apiHandler.SetAgentChatRunner(&fakeAgentChatRunner{waitForCancel: true})
+	handler := NewServer(logger, apiHandler)
 	server := httptest.NewServer(handler)
 	t.Cleanup(server.Close)
 
@@ -3750,6 +3806,10 @@ func newTestHTTPHandlerForProviders(logger *slog.Logger, items []providers.Provi
 }
 
 func newTestHTTPHandlerWithControlPlane(logger *slog.Logger, items []providers.Provider, cfg config.Config, cpStore controlplane.Store) http.Handler {
+	return NewServer(logger, newTestAPIHandlerWithControlPlane(logger, items, cfg, cpStore))
+}
+
+func newTestAPIHandlerWithControlPlane(logger *slog.Logger, items []providers.Provider, cfg config.Config, cpStore controlplane.Store) *Handler {
 	registry := providers.NewRegistry(items...)
 	providerHistoryStore := providers.NewMemoryHealthHistoryStore()
 	healthTracker := providers.NewMemoryHealthTrackerWithHistory(
@@ -3815,7 +3875,7 @@ func newTestHTTPHandlerWithControlPlane(logger *slog.Logger, items []providers.P
 
 	cfg.Governor = governorCfg
 	handler := NewHandler(cfg, logger, service, cpStore, nil, nil)
-	return NewServer(logger, handler)
+	return handler
 }
 
 func providerConfigsForTests(items []providers.Provider) []config.OpenAICompatibleProviderConfig {

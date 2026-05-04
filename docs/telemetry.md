@@ -302,8 +302,9 @@ Chats UI can point operators back to `/v1/traces?request_id=...`.
 
 Agent-chat spans carry adapter and workspace attributes such as
 `hecate.agent_adapter.id`, `hecate.agent_adapter.command`,
-`hecate.agent_chat.session.id`, `hecate.run.id`,
-`hecate.workspace.path`, `hecate.agent_adapter.output.bytes`, and
+`hecate.agent_adapter.driver.kind`, `hecate.agent_adapter.native_session.id`,
+`hecate.agent_chat.session.id`, `hecate.run.id`, `hecate.workspace.path`,
+`hecate.agent_adapter.output.bytes`, and
 `hecate.agent_adapter.diff.captured`. Raw transcript text is intentionally not
 emitted as OTel attributes; it is persisted on the Agent Chat message and shown
 behind the raw-output diagnostic disclosure instead.
