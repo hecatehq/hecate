@@ -156,7 +156,7 @@ Trace body capture is configured separately from OTLP export:
 - `GATEWAY_TRACE_BODIES`
 - `GATEWAY_TRACE_BODY_MAX_BYTES`
 
-## Inbound Trace Context Propagation
+## Trace Context Propagation
 
 Hecate registers a global W3C TextMap propagator on startup, so any inbound
 request carrying `traceparent` (and optional `tracestate` / `baggage`) headers
@@ -168,6 +168,13 @@ end-to-end across the gateway.
 If you front Hecate with a service that does not propagate trace context, the
 gateway starts a fresh trace per request and the request id remains the
 single correlation key.
+
+Outbound provider calls use the same propagator. OpenAI-compatible and
+Anthropic provider requests carry `traceparent`, `tracestate`, and `baggage`
+from the gateway request context into upstream HTTP calls, including model
+discovery, non-streaming chat, and streaming chat. If an upstream provider or
+local proxy emits its own spans, a collector can stitch those spans under the
+Hecate provider span.
 
 ## Telemetry Contract
 
@@ -564,6 +571,7 @@ Working today:
 
 - OTLP/HTTP and OTLP/gRPC export for traces, metrics, and logs (each independently toggleable)
 - W3C TextMap propagator on inbound — `traceparent`, `tracestate`, `baggage` are honored automatically; the gateway becomes a child of the upstream trace
+- W3C TextMap propagator on outbound provider calls — provider discovery, non-streaming chat, and streaming chat carry `traceparent` / `baggage` downstream
 - Sampler selection: `always_on` / `always_off` / `traceidratio` / `parentbased_*` (default: `parentbased_always_on`)
 - Resource attributes auto-populated (telemetry SDK, host, process; service identity from `GATEWAY_OTEL_SERVICE_*`)
 - Stable span and metric vocabulary (`gen_ai.*` for OTel-standard fields, `hecate.*` for product-specific fields)
@@ -571,7 +579,6 @@ Working today:
 
 Not yet:
 
-- **Outbound trace propagation to upstream providers** — Hecate does not currently inject `traceparent` into provider HTTP calls, so OpenAI / Anthropic spans (where they exist) are not stitched into the gateway trace.
 - **Histogram exemplars** — duration histograms don't attach example trace ids, so backend-side trace-from-metric pivots aren't available.
 - **Cardinality protection beyond `hecate.error.kind`** — model and provider labels are trusted to be normalized upstream by the router; ad-hoc values in metric attributes can still blow up cardinality if you bypass that path.
 
