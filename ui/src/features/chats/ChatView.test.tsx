@@ -245,13 +245,13 @@ describe("ChatView agent target", () => {
     expect(screen.getAllByText(/ACP native_codex/).length).toBeGreaterThan(0);
     expect(screen.getByText(/trace 01234567/)).toBeTruthy();
     expect(screen.queryByText("Starting external agent")).toBeNull();
-    expect(screen.getByText("run completed · session started · 1/2 plan · 1 tool · files changed")).toBeTruthy();
+    expect(screen.getByText("run completed · 1/2 plan · 1 tool · files changed")).toBeTruthy();
     expect(screen.getByText("Inspect changes")).toBeTruthy();
     expect(screen.getByText("Summarize result")).toBeTruthy();
     expect(screen.getByText("git diff --stat")).toBeTruthy();
     expect(screen.getByText("README.md:12")).toBeTruthy();
     expect(screen.getByText("files changed · 1 file changed")).toBeTruthy();
-    expect(screen.getByText("raw adapter output")).toBeTruthy();
+    expect(screen.getByText("raw adapter output · 1 line")).toBeTruthy();
     expect(screen.getByText("completed")).toBeTruthy();
     const user = userEvent.setup();
     const adapterPicker = screen.getByRole("button", { name: "External agent adapter" }) as HTMLButtonElement;
@@ -321,6 +321,48 @@ describe("ChatView agent target", () => {
 
     expect(screen.getByText("Waiting for agent output...")).toBeTruthy();
     expect(screen.getByText("run running")).toBeTruthy();
+  });
+
+  it("renders failed agent runs as an error notice with raw diagnostics separate", () => {
+    const { state, actions } = setup({
+      chatTarget: "agent",
+      agentWorkspace: "/tmp/hecate",
+      agentAdapters: [
+        { id: "claude_code", name: "Claude Code", kind: "acp", command: "claude-agent-acp", available: true, status: "available", cost_mode: "external" },
+      ],
+      activeAgentChatSessionID: "a1",
+      activeAgentChatSession: {
+        id: "a1",
+        title: "Failed work",
+        adapter_id: "claude_code",
+        driver_kind: "acp",
+        workspace: "/tmp/hecate",
+        status: "failed",
+        messages: [
+          { id: "m1", role: "user", content: "status", created_at: "2026-05-03T10:00:00Z" },
+          {
+            id: "m2",
+            role: "assistant",
+            content: "Claude Code usage limit: credit balance is too low",
+            raw_output: `{"code":-32603,"message":"Internal error: Credit balance is too low"}`,
+            error: "Claude Code usage limit: credit balance is too low",
+            adapter_id: "claude_code",
+            adapter_name: "Claude Code",
+            status: "failed",
+            created_at: "2026-05-03T10:00:01Z",
+            activities: [
+              { type: "failed", status: "failed", title: "Failed", detail: "Claude Code usage limit: credit balance is too low" },
+            ],
+          },
+        ],
+      } as any,
+    });
+    render(<ChatView state={state} actions={actions} />);
+
+    expect(screen.getByText("agent run failed")).toBeTruthy();
+    expect(screen.getAllByText("Claude Code usage limit: credit balance is too low").length).toBeGreaterThan(0);
+    expect(screen.getByText("raw adapter output · 1 line")).toBeTruthy();
+    expect(screen.getByText("run failed")).toBeTruthy();
   });
 
   it("opens the workspace picker action from the folder button", async () => {

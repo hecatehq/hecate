@@ -1157,6 +1157,24 @@ func TestAgentChatMergesAdapterActivityUpdates(t *testing.T) {
 	}
 }
 
+func TestAgentChatFinalOutputReplacesStreamedNarration(t *testing.T) {
+	dir := t.TempDir()
+	logger := slog.New(slog.NewJSONHandler(io.Discard, nil))
+	apiHandler := newTestAPIHandlerWithControlPlane(logger, []providers.Provider{&fakeProvider{}}, config.Config{}, nil)
+	apiHandler.SetAgentChatRunner(&fakeAgentChatRunner{
+		chunks:      []string{"I will inspect the diff first."},
+		finalOutput: "There is no current diff.",
+	})
+	client := newAPITestClient(t, NewServer(logger, apiHandler))
+
+	created := mustRequestJSON[AgentChatSessionResponse](client, http.MethodPost, "/v1/agent-chat/sessions", fmt.Sprintf(`{"adapter_id":"codex","workspace":%q}`, dir))
+	updated := mustRequestJSON[AgentChatSessionResponse](client, http.MethodPost, "/v1/agent-chat/sessions/"+created.Data.ID+"/messages", `{"content":"show diff"}`)
+	assistant := updated.Data.Messages[len(updated.Data.Messages)-1]
+	if assistant.Content != "There is no current diff." {
+		t.Fatalf("assistant content = %q, want final output replacing streamed narration", assistant.Content)
+	}
+}
+
 func TestAgentChatPassesPersistedNativeSessionForResume(t *testing.T) {
 	dir := t.TempDir()
 	store := agentchat.NewMemoryStore()
@@ -1249,6 +1267,7 @@ func TestAgentChatCreateRejectsInvalidWorkspace(t *testing.T) {
 
 type fakeAgentChatRunner struct {
 	output          string
+	finalOutput     string
 	chunks          []string
 	activities      []agentadapters.Activity
 	delay           time.Duration
@@ -1303,6 +1322,9 @@ func (r *fakeAgentChatRunner) Run(ctx context.Context, req agentadapters.RunRequ
 	}
 	if r.err != nil {
 		return r.result(req, output, started, 1), r.err
+	}
+	if r.finalOutput != "" {
+		output = r.finalOutput
 	}
 	return r.result(req, output, started, 0), nil
 }

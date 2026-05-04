@@ -30,6 +30,7 @@ type VisibleChatMessage = {
   raw_output?: string;
   activities?: AgentChatActivityRecord[];
   duration_ms?: number;
+  error?: string;
 };
 
 type SidebarSession = {
@@ -103,6 +104,7 @@ export function ChatView({ state, actions, onNavigate }: Props) {
         raw_output: m.raw_output,
         activities: m.activities,
         duration_ms: m.duration_ms,
+        error: m.error,
       }))
     : (state.activeChatSession?.messages ?? []).map((m) => ({
         id: m.id,
@@ -589,6 +591,7 @@ export function ChatView({ state, actions, onNavigate }: Props) {
                 diffStat={isAgentChat && role === "assistant" ? m.diff_stat : undefined}
                 diff={isAgentChat && role === "assistant" ? m.diff : undefined}
                 rawOutput={isAgentChat && role === "assistant" ? m.raw_output : undefined}
+                error={isAgentChat && role === "assistant" ? m.error : undefined}
                 onCopy={copyMsg}
                 copied={copiedMsgId === m.id}
               />
@@ -1075,11 +1078,11 @@ function formatDuration(durationMS: number): string {
 // needs to pick a model with type-to-filter + disabled-provider
 // awareness.)
 
-function MessageRow({ id, role, model, content, time, promptTokens, completionTokens, costUsd, badge, runtimeMeta, activities, diffStat, diff, rawOutput, onCopy, copied }: {
+function MessageRow({ id, role, model, content, time, promptTokens, completionTokens, costUsd, badge, runtimeMeta, activities, diffStat, diff, rawOutput, error, onCopy, copied }: {
   id: string; role: "user" | "assistant"; model?: string; content: string;
   time: string; promptTokens?: number; completionTokens?: number; costUsd?: string;
   badge?: string; runtimeMeta?: string;
-  activities?: AgentChatActivityRecord[]; diffStat?: string; diff?: string; rawOutput?: string;
+  activities?: AgentChatActivityRecord[]; diffStat?: string; diff?: string; rawOutput?: string; error?: string;
   onCopy: (id: string, text: string) => void; copied: boolean;
 }) {
   const [hovered, setHovered] = useState(false);
@@ -1087,6 +1090,8 @@ function MessageRow({ id, role, model, content, time, promptTokens, completionTo
   const hasTokenData = isAssistant && (promptTokens ?? 0) > 0;
   const showRawOutput = isAssistant && rawOutput && rawOutput.trim() && rawOutput.trim() !== content.trim();
   const waitingForAgentOutput = isAssistant && !content.trim() && activities?.some(activity => activity.status === "running");
+  const failed = isAssistant && badge === "failed";
+  const cancelled = isAssistant && badge === "cancelled";
 
   return (
     <div onMouseEnter={() => setHovered(true)} onMouseLeave={() => setHovered(false)}
@@ -1128,13 +1133,18 @@ function MessageRow({ id, role, model, content, time, promptTokens, completionTo
               </button>
             </div>
           </div>
-          {waitingForAgentOutput ? (
+          {failed || cancelled ? (
+            <AgentRunNotice status={failed ? "failed" : "cancelled"} message={error || content} />
+          ) : waitingForAgentOutput ? (
             <div style={{ alignItems: "center", color: "var(--t2)", display: "flex", fontSize: 13, gap: 8, lineHeight: 1.7 }}>
               <span style={{ background: "var(--teal)", borderRadius: 999, display: "inline-block", height: 6, opacity: 0.8, width: 6 }} />
               Waiting for agent output...
             </div>
           ) : (
             <Markdown content={content} />
+          )}
+          {isAssistant && activities && activities.length > 0 && (
+            <ActivityTimeline activities={activities} diffStat={diffStat} />
           )}
           {isAssistant && diff && (
             <details style={{ marginTop: 8 }}>
@@ -1149,18 +1159,37 @@ function MessageRow({ id, role, model, content, time, promptTokens, completionTo
           {showRawOutput && (
             <details style={{ marginTop: 8 }}>
               <summary style={{ cursor: "pointer", fontFamily: "var(--font-mono)", fontSize: 11, color: "var(--t3)" }}>
-                raw adapter output
+                raw adapter output{rawOutput ? ` · ${formatLineCount(rawOutput)}` : ""}
               </summary>
               <div style={{ marginTop: 6 }}>
                 <CodeBlock code={rawOutput} lang="text" />
               </div>
             </details>
           )}
-          {isAssistant && activities && activities.length > 0 && (
-            <ActivityTimeline activities={activities} diffStat={diffStat} />
-          )}
         </div>
       </div>
+    </div>
+  );
+}
+
+function AgentRunNotice({ status, message }: { status: "failed" | "cancelled"; message: string }) {
+  const color = status === "failed" ? "var(--red)" : "var(--amber)";
+  return (
+    <div style={{
+      border: "1px solid var(--border)",
+      borderLeft: `3px solid ${color}`,
+      borderRadius: "var(--radius-sm)",
+      background: "var(--bg2)",
+      padding: "9px 10px",
+    }}>
+      <div style={{ color, fontFamily: "var(--font-mono)", fontSize: 11, marginBottom: 4 }}>
+        agent run {status}
+      </div>
+      {message && (
+        <div style={{ color: "var(--t0)", fontSize: 13, lineHeight: 1.6, whiteSpace: "pre-wrap" }}>
+          {message}
+        </div>
+      )}
     </div>
   );
 }
@@ -1170,13 +1199,11 @@ function ActivityTimeline({ activities, diffStat }: { activities: AgentChatActiv
   if (visible.length === 0) return null;
   const terminal = terminalAgentActivity(activities);
   const hasRunning = !terminal && activities.some(activity => activity.status === "running");
-  const lifecycle = activities.find(activity => activity.type === "resumed" || activity.type === "started");
   const plan = visible.filter(activity => activity.type === "plan");
   const tools = visible.filter(activity => activity.type === "tool_call");
   const other = visible.filter(activity => activity.type !== "plan" && activity.type !== "tool_call");
   const summary = [
     terminal ? `run ${terminal.status}` : hasRunning ? "run running" : "run details",
-    lifecycle?.type === "resumed" ? "session resumed" : lifecycle?.type === "started" ? "session started" : "",
     plan.length > 0 ? `${plan.filter(item => item.status === "completed").length}/${plan.length} plan` : "",
     tools.length > 0 ? `${tools.length} tool${tools.length === 1 ? "" : "s"}` : "",
     diffStat ? "files changed" : "",
@@ -1295,6 +1322,13 @@ function activityStatusColor(status?: string) {
   default:
     return "var(--green)";
   }
+}
+
+function formatLineCount(value: string): string {
+  const trimmed = value.trim();
+  if (!trimmed) return "0 lines";
+  const count = trimmed.split(/\r?\n/).length;
+  return `${count} line${count === 1 ? "" : "s"}`;
 }
 
 function Markdown({ content }: { content: string }) {
