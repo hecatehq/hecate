@@ -177,7 +177,7 @@ Hecate is public-alpha software. The core gateway path is usable; the agent runt
 | Local default address | Usable | Defaults to `127.0.0.1:8765`; same-origin enforced for browser requests; no built-in auth |
 | Budgets and rate limits | Usable | Balances, warning thresholds, pricebook, `429` rate-limit headers |
 | OpenTelemetry | Usable | OTLP traces, metrics, logs, response headers, local trace view |
-| Storage tiers | Usable | Memory or SQLite, selected per subsystem |
+| Storage tiers | Usable | Memory or SQLite, selected per subsystem. `GATEWAY_CHAT_SESSIONS_BACKEND=sqlite` covers the full agent-chat bundle (sessions, messages, approvals, grants); orphaned pending approvals are reconciled on startup |
 | Operator UI | Usable | Main workflows are present; chat/debugging ergonomics are still improving |
 | Desktop app | Alpha | Native `.dmg`, `.deb`, `.AppImage`, and `.msi` bundles run Hecate as a sidecar. Bundles are unsigned |
 | External agent adapters | Alpha | Codex, Claude Code, and Cursor Agent discovery, long-lived ACP sessions, cancel, session history, raw diagnostics, and workspace diff capture |

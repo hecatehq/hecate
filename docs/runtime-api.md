@@ -410,6 +410,22 @@ chat history: memory by default, SQLite when `GATEWAY_CHAT_SESSIONS_BACKEND=sqli
 It is the alpha surface for running external coding agents such as Codex,
 Claude Code, and Cursor Agent from the Hecate Chats UI.
 
+`GATEWAY_CHAT_SESSIONS_BACKEND=sqlite` is the single selector for the entire
+agent-chat state bundle: sessions, messages, **and** the operator-facing
+approval rows + grants documented under
+`/v1/agent-chat/sessions/{id}/approvals` and `/v1/agent-chat/grants`. They all
+move together so agent-chat state can't go split-brain. On startup the gateway
+runs a reconcile pass that flips any approvals stuck in `pending` from a prior
+process to `status=timed_out` with `path=startup_reconcile` — process-local
+waiters can't be resurrected, so the operator UI never sees an actionable
+"pending" row that nothing is actually blocked on.
+
+Resolved approvals are pruned by the retention worker
+(`GATEWAY_RETENTION_AGENT_CHAT_APPROVALS_*`, default 30d / 10k). Operator-
+authored grants are NOT subject to that retention — only their own
+`expires_at` drives deletion, so explicit operator intent outlives normal
+retention windows.
+
 ```json
 GET /v1/agent-chat/sessions
 → 200

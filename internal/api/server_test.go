@@ -4306,6 +4306,7 @@ func newTestAPIHandlerWithControlPlane(logger *slog.Logger, items []providers.Pr
 		nil,
 		providerHistoryStore,
 		nil,
+		nil,
 		retention.NewMemoryHistoryStore(),
 	)
 	pricebookCfg := pricebookConfigForTests(items)

@@ -251,6 +251,12 @@ type RetentionConfig struct {
 	// task-run events table. Other event types (run.started/finished,
 	// approval.*) are kept for forensics.
 	TurnEvents RetentionPolicy
+	// AgentChatApprovals prunes resolved (non-pending) external-adapter
+	// approval rows. Pending rows are never auto-pruned — they're caller
+	// state, not history. Grants are not subject to MaxAge / MaxCount;
+	// only their own ExpiresAt drives deletion (operator-authored intent
+	// outlives normal retention windows).
+	AgentChatApprovals RetentionPolicy
 }
 
 type RetentionPolicy struct {
@@ -423,6 +429,10 @@ func LoadFromEnv() Config {
 			// agent runs (one per LLM round-trip). 7d/100k is a
 			// generous default; tune down on busy installs.
 			TurnEvents: loadRetentionPolicyFromEnv("GATEWAY_RETENTION_TURN_EVENTS_", 7*24*time.Hour, 100_000),
+			// External-adapter approval history. Only resolved rows
+			// are pruned; pending rows stay until startup reconcile
+			// flips them. Default 30d/10k mirrors task_approvals.
+			AgentChatApprovals: loadRetentionPolicyFromEnv("GATEWAY_RETENTION_AGENT_CHAT_APPROVALS_", 30*24*time.Hour, 10_000),
 		},
 		SQLite: SQLiteConfig{
 			Path:        getEnv("GATEWAY_SQLITE_PATH", ".data/hecate.db"),

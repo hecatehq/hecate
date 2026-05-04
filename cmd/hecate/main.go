@@ -16,6 +16,7 @@ import (
 	"go.opentelemetry.io/otel"
 	"go.opentelemetry.io/otel/propagation"
 
+	"github.com/hecate/agent-runtime/internal/agentadapters"
 	"github.com/hecate/agent-runtime/internal/agentchat"
 	"github.com/hecate/agent-runtime/internal/api"
 	"github.com/hecate/agent-runtime/internal/billing"
@@ -198,6 +199,28 @@ func main() {
 	budgetStore := buildBudgetStore(cfg, logger, sqliteClient)
 	chatSessionStore := buildChatSessionStore(cfg, logger, sqliteClient)
 	agentChatStore := buildAgentChatStore(cfg, logger, sqliteClient)
+	// Approval store shares the agent-chat backend selector
+	// (GATEWAY_CHAT_SESSIONS_BACKEND) so all agent-chat state lives
+	// together. Startup reconcile fires before the gateway accepts
+	// any request: pending rows from a prior process can't be
+	// resurrected (process-local waiters are lost), so they're
+	// marked timed_out with path=startup_reconcile up front.
+	approvalStore := buildApprovalStore(cfg, logger, sqliteClient)
+	if rec, ok := approvalStore.(agentadapters.ApprovalRetentionStore); ok {
+		ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
+		reconciled, err := rec.ReconcilePending(ctx, time.Now().UTC())
+		cancel()
+		if err != nil {
+			logger.Error("approval startup reconcile failed", slog.Any("error", err))
+			os.Exit(1)
+		}
+		if reconciled > 0 {
+			logger.Info("approval startup reconcile completed",
+				slog.Int64("reconciled", reconciled),
+				slog.String("path", "startup_reconcile"),
+			)
+		}
+	}
 	retentionHistoryStore := buildRetentionHistoryStore(cfg, logger, sqliteClient)
 	// Build the task-state store before the retention manager so the
 	// turn-events sweep can target its events table directly.
@@ -211,6 +234,7 @@ func main() {
 		controlPlaneStore,
 		pruneableProviderHistory(providerHistoryStore),
 		taskStore,
+		approvalRetentionPruner(approvalStore),
 		retentionHistoryStore,
 	)
 	providerCatalog := catalog.NewRegistryCatalogWithSelfAddr(providerRegistry, healthTracker, cfg.Server.Address)
@@ -259,6 +283,7 @@ func main() {
 
 	handler := api.NewHandler(cfg, logger, service, controlPlaneStore, taskStore, taskQueue, providerRuntime)
 	handler.SetAgentChatStore(agentChatStore)
+	handler.SetAgentApprovalStore(approvalStore)
 	// Wire the cipher into the handler and its underlying runner so MCP
 	// server env values are encrypted at task-creation time and decrypted
 	// at subprocess spawn time. SetSecretCipher is a no-op when cipher
@@ -433,6 +458,16 @@ func pruneableProviderHistory(store providers.HealthHistoryStore) retention.Cach
 	return pruner
 }
 
+// approvalRetentionPruner exposes the AgentChatApprovalPruner surface
+// when the configured approval store implements it. Memory and SQLite
+// both do; tests that swap in a stub may not — returning nil is
+// harmless because the retention worker skips subsystems with a nil
+// pruner.
+func approvalRetentionPruner(store agentadapters.ApprovalStore) retention.AgentChatApprovalPruner {
+	pruner, _ := store.(retention.AgentChatApprovalPruner)
+	return pruner
+}
+
 func buildControlPlaneStore(cfg config.Config, logger *slog.Logger, sqliteClient *storage.SQLiteClient) controlplane.Store {
 	// "memory" (the documented default) and any unrecognized value fall
 	// through to the default branch and produce a MemoryStore — same
@@ -584,6 +619,24 @@ func buildAgentChatStore(cfg config.Config, logger *slog.Logger, sqliteClient *s
 		return store
 	default:
 		return agentchat.NewMemoryStore()
+	}
+}
+
+// buildApprovalStore picks memory or sqlite for the agent-chat
+// approval coordinator. Keyed off the same env var as the agent-chat
+// session/message stores (GATEWAY_CHAT_SESSIONS_BACKEND) so the whole
+// agent-chat state bundle moves together.
+func buildApprovalStore(cfg config.Config, logger *slog.Logger, sqliteClient *storage.SQLiteClient) agentadapters.ApprovalStore {
+	switch cfg.Chat.SessionsBackend {
+	case "sqlite":
+		store, err := agentadapters.NewSQLiteApprovalStore(context.Background(), sqliteClient)
+		if err != nil {
+			logger.Error("approval store init failed", slog.Any("error", err))
+			os.Exit(1)
+		}
+		return store
+	default:
+		return agentadapters.NewMemoryApprovalStore()
 	}
 }
 

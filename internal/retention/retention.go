@@ -22,7 +22,8 @@ const (
 	// Other event types (run.started / run.finished / approval.*) are
 	// kept for forensics — turn events are bulk telemetry that's only
 	// useful while the run is hot.
-	SubsystemTurnEvents = "turn_events"
+	SubsystemTurnEvents         = "turn_events"
+	SubsystemAgentChatApprovals = "agent_chat_approvals"
 )
 
 // Pruner prunes old or excess records from a subsystem store.
@@ -47,6 +48,15 @@ type TurnEventPruner interface {
 	PruneTurnEvents(ctx context.Context, maxAge time.Duration, maxCount int) (int, error)
 }
 
+// AgentChatApprovalPruner is implemented by approval stores that
+// support pruning resolved external-adapter approvals + expired
+// grants. Pending rows are never pruned. Grants ignore maxAge /
+// maxCount; only their own ExpiresAt drives deletion.
+type AgentChatApprovalPruner interface {
+	PruneApprovals(ctx context.Context, now time.Time, maxAge time.Duration, maxCount int) (int64, error)
+	PruneExpiredGrants(ctx context.Context, now time.Time) (int64, error)
+}
+
 // CachePruner is an alias kept for compatibility with callers that type-assert cache stores.
 type CachePruner = Pruner
 
@@ -66,6 +76,28 @@ type turnEventPrunerAdapter struct{ p TurnEventPruner }
 
 func (a turnEventPrunerAdapter) Prune(ctx context.Context, maxAge time.Duration, maxCount int) (int, error) {
 	return a.p.PruneTurnEvents(ctx, maxAge, maxCount)
+}
+
+// agentChatApprovalPrunerAdapter wraps an AgentChatApprovalPruner so
+// the retention worker can call Prune(maxAge, maxCount) uniformly.
+// One pass deletes resolved approvals (subject to maxAge / maxCount)
+// then deletes expired grants (independent of maxAge / maxCount —
+// grants honor only their own ExpiresAt, never the retention window).
+// Both deletion counts are summed in the returned `deleted` total so
+// operators see total rows removed by this subsystem in one number.
+type agentChatApprovalPrunerAdapter struct{ p AgentChatApprovalPruner }
+
+func (a agentChatApprovalPrunerAdapter) Prune(ctx context.Context, maxAge time.Duration, maxCount int) (int, error) {
+	now := time.Now().UTC()
+	approvals, err := a.p.PruneApprovals(ctx, now, maxAge, maxCount)
+	if err != nil {
+		return int(approvals), err
+	}
+	grants, err := a.p.PruneExpiredGrants(ctx, now)
+	if err != nil {
+		return int(approvals + grants), err
+	}
+	return int(approvals + grants), nil
 }
 
 type subsystemEntry struct {
@@ -114,6 +146,7 @@ func NewManager(
 	audit AuditEventPruner,
 	providerHistory Pruner,
 	turnEvents TurnEventPruner,
+	approvals AgentChatApprovalPruner,
 	history HistoryStore,
 ) *Manager {
 	var budgetsPruner Pruner
@@ -128,6 +161,10 @@ func NewManager(
 	if turnEvents != nil {
 		turnEventsPruner = turnEventPrunerAdapter{turnEvents}
 	}
+	var approvalsPruner Pruner
+	if approvals != nil {
+		approvalsPruner = agentChatApprovalPrunerAdapter{approvals}
+	}
 	return &Manager{
 		logger: logger,
 		cfg:    cfg,
@@ -138,6 +175,7 @@ func NewManager(
 			{SubsystemAuditEvents, cfg.AuditEvents, auditPruner},
 			{SubsystemProviderHistory, cfg.ProviderHistory, providerHistory},
 			{SubsystemTurnEvents, cfg.TurnEvents, turnEventsPruner},
+			{SubsystemAgentChatApprovals, cfg.AgentChatApprovals, approvalsPruner},
 		},
 		history: history,
 	}
