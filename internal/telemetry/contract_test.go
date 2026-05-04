@@ -207,6 +207,10 @@ func TestMetricNameConstantsMatchInstruments(t *testing.T) {
 	if err != nil {
 		t.Fatalf("NewOrchestratorMetricsWithMeterProvider() error = %v", err)
 	}
+	am, err := NewAgentChatMetricsWithMeterProvider(provider)
+	if err != nil {
+		t.Fatalf("NewAgentChatMetricsWithMeterProvider() error = %v", err)
+	}
 
 	// Trigger every instrument so it appears in the collected output.
 	ctx := context.Background()
@@ -229,6 +233,7 @@ func TestMetricNameConstantsMatchInstruments(t *testing.T) {
 	om.RecordApproval(ctx, ApprovalMetricsRecord{ApprovalKind: "shell_command", Decision: "approved", WaitMS: 2000})
 	om.RecordQueueWait(ctx, QueueWaitRecord{QueueBackend: "memory", WaitMS: 50})
 	om.RecordLeaseExtendFailed(ctx)
+	am.RecordRun(ctx, AgentChatRunMetricsRecord{AdapterID: "codex", DriverKind: "acp", Status: "completed", Result: ResultSuccess, DurationMS: 750})
 
 	var rm metricdata.ResourceMetrics
 	if err := reader.Collect(ctx, &rm); err != nil {
@@ -253,6 +258,9 @@ func TestMetricNameConstantsMatchInstruments(t *testing.T) {
 		MetricTotalTokensTotal,
 		MetricRetriesTotal,
 		MetricFailoversTotal,
+		// Agent chat
+		MetricAgentChatRunsTotal,
+		MetricAgentChatRunDuration,
 		// Orchestrator
 		MetricOrchestratorRunsTotal,
 		MetricOrchestratorRunDuration,

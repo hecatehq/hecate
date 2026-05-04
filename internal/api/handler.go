@@ -59,6 +59,7 @@ type Handler struct {
 	// exposed via OrchestratorMetrics() so main.go can plumb the
 	// same instance into the cache.
 	orchestratorMetrics *telemetry.OrchestratorMetrics
+	agentChatMetrics    *telemetry.AgentChatMetrics
 }
 
 // OrchestratorMetrics returns the metrics instance the runner is using.
@@ -146,6 +147,7 @@ func NewHandler(cfg config.Config, logger *slog.Logger, service *gateway.Service
 	// metrics-SDK footgun on some providers.
 	orchestratorMetrics := telemetry.NewOrchestratorMetrics()
 	runner.SetMetrics(orchestratorMetrics)
+	agentChatMetrics := telemetry.NewAgentChatMetrics()
 	// Wire the four-layer agent_loop system-prompt composer. Layers
 	// are concatenated broadest-first:
 	//   1. global default — operator's GATEWAY_TASK_AGENT_SYSTEM_PROMPT
@@ -198,6 +200,7 @@ func NewHandler(cfg config.Config, logger *slog.Logger, service *gateway.Service
 		agentChatRunner:     agentChatRunner,
 		agentChatLive:       newAgentChatLive(),
 		orchestratorMetrics: orchestratorMetrics,
+		agentChatMetrics:    agentChatMetrics,
 	}
 }
 

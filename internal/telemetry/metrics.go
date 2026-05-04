@@ -154,6 +154,85 @@ func (m *Metrics) RecordRequestOutcome(ctx context.Context, result string, durat
 }
 
 // ---------------------------------------------------------------------------
+// AgentChatMetrics
+// ---------------------------------------------------------------------------
+
+type AgentChatRunMetricsRecord struct {
+	AdapterID  string
+	DriverKind string
+	Status     string
+	Result     string
+	DurationMS int64
+}
+
+type AgentChatMetrics struct {
+	runsTotal   otmetric.Int64Counter
+	runDuration otmetric.Int64Histogram
+}
+
+func NewAgentChatMetrics() *AgentChatMetrics {
+	m, err := NewAgentChatMetricsWithMeterProvider(otel.GetMeterProvider())
+	if err != nil {
+		return &AgentChatMetrics{}
+	}
+	return m
+}
+
+func NewAgentChatMetricsWithMeterProvider(provider otmetric.MeterProvider) (*AgentChatMetrics, error) {
+	if provider == nil {
+		provider = otel.GetMeterProvider()
+	}
+	meter := provider.Meter("github.com/hecate/agent-runtime/internal/telemetry")
+
+	runsTotal, err := meter.Int64Counter(
+		MetricAgentChatRunsTotal,
+		otmetric.WithDescription("Total external agent chat runs grouped by adapter, driver, status, and result."),
+		otmetric.WithUnit("{run}"),
+	)
+	if err != nil {
+		return nil, err
+	}
+
+	runDuration, err := meter.Int64Histogram(
+		MetricAgentChatRunDuration,
+		otmetric.WithDescription("External agent chat run wall-clock duration."),
+		otmetric.WithUnit("ms"),
+	)
+	if err != nil {
+		return nil, err
+	}
+
+	return &AgentChatMetrics{
+		runsTotal:   runsTotal,
+		runDuration: runDuration,
+	}, nil
+}
+
+func (m *AgentChatMetrics) RecordRun(ctx context.Context, rec AgentChatRunMetricsRecord) {
+	if m == nil {
+		return
+	}
+	attrs := make([]attribute.KeyValue, 0, 4)
+	if rec.AdapterID != "" {
+		attrs = append(attrs, attribute.String(AttrHecateAgentAdapterID, rec.AdapterID))
+	}
+	if rec.DriverKind != "" {
+		attrs = append(attrs, attribute.String(AttrHecateAgentDriverKind, rec.DriverKind))
+	}
+	if rec.Status != "" {
+		attrs = append(attrs, attribute.String(AttrHecateRunStatus, rec.Status))
+	}
+	if rec.Result != "" {
+		attrs = append(attrs, attribute.String(AttrHecateResult, rec.Result))
+	}
+	opt := otmetric.WithAttributes(attrs...)
+	m.runsTotal.Add(ctx, 1, opt)
+	if rec.DurationMS > 0 {
+		m.runDuration.Record(ctx, rec.DurationMS, opt)
+	}
+}
+
+// ---------------------------------------------------------------------------
 // OrchestratorMetrics
 // ---------------------------------------------------------------------------
 

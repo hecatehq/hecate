@@ -97,6 +97,54 @@ func TestMetricsRecordChatTracksSemanticAndRetryDetails(t *testing.T) {
 	}
 }
 
+func TestAgentChatMetricsRecordRunEmitsCounterAndHistogram(t *testing.T) {
+	t.Parallel()
+
+	reader := sdkmetric.NewManualReader()
+	provider := sdkmetric.NewMeterProvider(sdkmetric.WithReader(reader))
+	metrics, err := NewAgentChatMetricsWithMeterProvider(provider)
+	if err != nil {
+		t.Fatalf("NewAgentChatMetricsWithMeterProvider() error = %v", err)
+	}
+
+	metrics.RecordRun(context.Background(), AgentChatRunMetricsRecord{
+		AdapterID:  "codex",
+		DriverKind: "acp",
+		Status:     "completed",
+		Result:     ResultSuccess,
+		DurationMS: 1250,
+	})
+
+	collected := collectMetrics(t, reader)
+	runs := findMetric[metricdata.Sum[int64]](t, collected, MetricAgentChatRunsTotal)
+	if len(runs.DataPoints) != 1 {
+		t.Fatalf("run data points = %d, want 1", len(runs.DataPoints))
+	}
+	if runs.DataPoints[0].Value != 1 {
+		t.Fatalf("run count = %d, want 1", runs.DataPoints[0].Value)
+	}
+	if got := attrValue(runs.DataPoints[0].Attributes, AttrHecateAgentAdapterID); got != "codex" {
+		t.Fatalf("%s = %q, want codex", AttrHecateAgentAdapterID, got)
+	}
+	if got := attrValue(runs.DataPoints[0].Attributes, AttrHecateAgentDriverKind); got != "acp" {
+		t.Fatalf("%s = %q, want acp", AttrHecateAgentDriverKind, got)
+	}
+	if got := attrValue(runs.DataPoints[0].Attributes, AttrHecateRunStatus); got != "completed" {
+		t.Fatalf("%s = %q, want completed", AttrHecateRunStatus, got)
+	}
+	if got := attrValue(runs.DataPoints[0].Attributes, AttrHecateResult); got != ResultSuccess {
+		t.Fatalf("%s = %q, want %s", AttrHecateResult, got, ResultSuccess)
+	}
+
+	duration := findMetric[metricdata.Histogram[int64]](t, collected, MetricAgentChatRunDuration)
+	if len(duration.DataPoints) != 1 {
+		t.Fatalf("duration data points = %d, want 1", len(duration.DataPoints))
+	}
+	if duration.DataPoints[0].Count != 1 || duration.DataPoints[0].Sum != 1250 {
+		t.Fatalf("duration count/sum = %d/%d, want 1/1250", duration.DataPoints[0].Count, duration.DataPoints[0].Sum)
+	}
+}
+
 func collectMetrics(t *testing.T, reader *sdkmetric.ManualReader) metricdata.ResourceMetrics {
 	t.Helper()
 
