@@ -8,6 +8,8 @@ import (
 	"strconv"
 	"strings"
 	"time"
+
+	"github.com/hecate/agent-runtime/internal/telemetry"
 )
 
 type Config struct {
@@ -157,10 +159,11 @@ type ChatConfig struct {
 }
 
 type OTelSignalConfig struct {
-	Enabled  bool
-	Endpoint string
-	Headers  map[string]string
-	Timeout  time.Duration
+	Enabled   bool
+	Endpoint  string
+	Headers   map[string]string
+	Timeout   time.Duration
+	Transport string
 }
 
 type OTelConfig struct {
@@ -168,6 +171,10 @@ type OTelConfig struct {
 	ServiceVersion        string
 	ServiceInstanceID     string
 	DeploymentEnvironment string
+	Endpoint              string
+	Headers               map[string]string
+	Timeout               time.Duration
+	Transport             string
 	Traces                OTelSignalConfig
 	TracesSampler         string
 	TracesSamplerArg      float64
@@ -360,33 +367,7 @@ func LoadFromEnv() Config {
 			SessionsKey:     getEnv("GATEWAY_CHAT_SESSIONS_KEY", "chat-sessions"),
 			SessionLimit:    getEnvInt("GATEWAY_CHAT_SESSIONS_LIMIT", 50),
 		},
-		OTel: OTelConfig{
-			ServiceName:           getEnv("GATEWAY_OTEL_SERVICE_NAME", "hecate-gateway"),
-			ServiceVersion:        getEnv("GATEWAY_OTEL_SERVICE_VERSION", ""),
-			ServiceInstanceID:     getEnv("GATEWAY_OTEL_SERVICE_INSTANCE_ID", ""),
-			DeploymentEnvironment: getEnv("GATEWAY_OTEL_DEPLOYMENT_ENVIRONMENT", ""),
-			MetricsInterval:       getEnvDuration("GATEWAY_OTEL_METRICS_INTERVAL", 30*time.Second),
-			TracesSampler:         getEnv("GATEWAY_OTEL_TRACES_SAMPLER", ""),
-			TracesSamplerArg:      getEnvFloat64("GATEWAY_OTEL_TRACES_SAMPLER_ARG", 1.0),
-			Traces: OTelSignalConfig{
-				Enabled:  getEnvBool("GATEWAY_OTEL_TRACES_ENABLED", false),
-				Endpoint: getEnv("GATEWAY_OTEL_TRACES_ENDPOINT", ""),
-				Headers:  parseEnvMap(getEnv("GATEWAY_OTEL_TRACES_HEADERS", "")),
-				Timeout:  getEnvDuration("GATEWAY_OTEL_TRACES_TIMEOUT", 5*time.Second),
-			},
-			Metrics: OTelSignalConfig{
-				Enabled:  getEnvBool("GATEWAY_OTEL_METRICS_ENABLED", false),
-				Endpoint: getEnv("GATEWAY_OTEL_METRICS_ENDPOINT", ""),
-				Headers:  parseEnvMap(getEnv("GATEWAY_OTEL_METRICS_HEADERS", "")),
-				Timeout:  getEnvDuration("GATEWAY_OTEL_METRICS_TIMEOUT", 5*time.Second),
-			},
-			Logs: OTelSignalConfig{
-				Enabled:  getEnvBool("GATEWAY_OTEL_LOGS_ENABLED", false),
-				Endpoint: getEnv("GATEWAY_OTEL_LOGS_ENDPOINT", ""),
-				Headers:  parseEnvMap(getEnv("GATEWAY_OTEL_LOGS_HEADERS", "")),
-				Timeout:  getEnvDuration("GATEWAY_OTEL_LOGS_TIMEOUT", 5*time.Second),
-			},
-		},
+		OTel: loadOTelFromEnv(),
 		Governor: GovernorConfig{
 			DenyAll:                 getEnvBool("GATEWAY_DENY_ALL", false),
 			MaxPromptTokens:         getEnvInt("GATEWAY_MAX_PROMPT_TOKENS", 64_000),
@@ -522,6 +503,21 @@ func (c Config) Validate() error {
 			}
 		}
 	}
+	for _, item := range []struct {
+		key   string
+		value string
+	}{
+		{"GATEWAY_OTEL_TRANSPORT", c.OTel.Transport},
+		{"GATEWAY_OTEL_TRACES_TRANSPORT", c.OTel.Traces.Transport},
+		{"GATEWAY_OTEL_METRICS_TRANSPORT", c.OTel.Metrics.Transport},
+		{"GATEWAY_OTEL_LOGS_TRANSPORT", c.OTel.Logs.Transport},
+	} {
+		switch item.value {
+		case "", "http", "grpc":
+		default:
+			errs = append(errs, fmt.Errorf("%s must be one of http or grpc", item.key))
+		}
+	}
 
 	return errors.Join(errs...)
 }
@@ -534,6 +530,7 @@ func durationEnvKeys() []string {
 		"GATEWAY_PROVIDER_RETRY_BACKOFF",
 		"GATEWAY_PROVIDER_HEALTH_COOLDOWN",
 		"GATEWAY_PROVIDER_HEALTH_LATENCY_DEGRADED_THRESHOLD",
+		"GATEWAY_OTEL_TIMEOUT",
 		"GATEWAY_OTEL_TRACES_TIMEOUT",
 		"GATEWAY_OTEL_METRICS_TIMEOUT",
 		"GATEWAY_OTEL_LOGS_TIMEOUT",
@@ -552,6 +549,111 @@ func durationEnvKeys() []string {
 		"GATEWAY_SQLITE_BUSY_TIMEOUT",
 		"GATEWAY_PRICEBOOK_AUTO_IMPORT_INTERVAL",
 	}
+}
+
+func loadOTelFromEnv() OTelConfig {
+	sharedEndpoint := strings.TrimSpace(getEnv("GATEWAY_OTEL_ENDPOINT", ""))
+	sharedHeaders := parseEnvMap(getEnv("GATEWAY_OTEL_HEADERS", ""))
+	sharedTimeout := getEnvDuration("GATEWAY_OTEL_TIMEOUT", 5*time.Second)
+	sharedTransport := normalizeOTelTransport(getEnv("GATEWAY_OTEL_TRANSPORT", "http"))
+
+	traces := loadOTelSignalFromEnv(
+		"TRACES",
+		sharedEndpoint,
+		"traces",
+		sharedHeaders,
+		sharedTimeout,
+		sharedTransport,
+	)
+	metrics := loadOTelSignalFromEnv(
+		"METRICS",
+		sharedEndpoint,
+		"metrics",
+		sharedHeaders,
+		sharedTimeout,
+		sharedTransport,
+	)
+	logs := loadOTelSignalFromEnv(
+		"LOGS",
+		sharedEndpoint,
+		"logs",
+		sharedHeaders,
+		sharedTimeout,
+		sharedTransport,
+	)
+	if logs.Endpoint == "" && traces.Endpoint != "" {
+		logs.Endpoint = traces.Endpoint
+		logs.Transport = traces.Transport
+		if len(logs.Headers) == 0 {
+			logs.Headers = cloneStringMap(traces.Headers)
+		}
+	}
+
+	return OTelConfig{
+		ServiceName:           getEnv("GATEWAY_OTEL_SERVICE_NAME", "hecate-gateway"),
+		ServiceVersion:        getEnv("GATEWAY_OTEL_SERVICE_VERSION", ""),
+		ServiceInstanceID:     getEnv("GATEWAY_OTEL_SERVICE_INSTANCE_ID", ""),
+		DeploymentEnvironment: getEnv("GATEWAY_OTEL_DEPLOYMENT_ENVIRONMENT", ""),
+		Endpoint:              sharedEndpoint,
+		Headers:               cloneStringMap(sharedHeaders),
+		Timeout:               sharedTimeout,
+		Transport:             sharedTransport,
+		MetricsInterval:       getEnvDuration("GATEWAY_OTEL_METRICS_INTERVAL", 30*time.Second),
+		TracesSampler:         getEnv("GATEWAY_OTEL_TRACES_SAMPLER", ""),
+		TracesSamplerArg:      getEnvFloat64("GATEWAY_OTEL_TRACES_SAMPLER_ARG", 1.0),
+		Traces:                traces,
+		Metrics:               metrics,
+		Logs:                  logs,
+	}
+}
+
+func loadOTelSignalFromEnv(signal, sharedEndpoint, httpPath string, sharedHeaders map[string]string, sharedTimeout time.Duration, sharedTransport string) OTelSignalConfig {
+	prefix := "GATEWAY_OTEL_" + signal + "_"
+	transport := normalizeOTelTransport(getEnv(prefix+"TRANSPORT", sharedTransport))
+	endpoint := strings.TrimSpace(getEnv(prefix+"ENDPOINT", ""))
+	if endpoint == "" && sharedEndpoint != "" {
+		endpoint = deriveOTelSignalEndpoint(sharedEndpoint, transport, httpPath)
+	}
+	headers := parseEnvMap(getEnv(prefix+"HEADERS", ""))
+	if len(headers) == 0 {
+		headers = cloneStringMap(sharedHeaders)
+	}
+	return OTelSignalConfig{
+		Enabled:   getEnvBool(prefix+"ENABLED", false),
+		Endpoint:  endpoint,
+		Headers:   headers,
+		Timeout:   getEnvDuration(prefix+"TIMEOUT", sharedTimeout),
+		Transport: transport,
+	}
+}
+
+func deriveOTelSignalEndpoint(endpoint, transport, httpPath string) string {
+	endpoint = strings.TrimRight(strings.TrimSpace(endpoint), "/")
+	if endpoint == "" {
+		return ""
+	}
+	if normalizeOTelTransport(transport) == "grpc" {
+		return endpoint
+	}
+	if strings.HasSuffix(endpoint, "/v1/"+httpPath) {
+		return endpoint
+	}
+	return endpoint + "/v1/" + httpPath
+}
+
+func normalizeOTelTransport(value string) string {
+	return telemetry.NormalizeOTLPTransport(value)
+}
+
+func cloneStringMap(in map[string]string) map[string]string {
+	if len(in) == 0 {
+		return nil
+	}
+	out := make(map[string]string, len(in))
+	for key, value := range in {
+		out[key] = value
+	}
+	return out
 }
 
 func loadRetentionPolicyFromEnv(prefix string, defaultAge time.Duration, defaultCount int) RetentionPolicy {

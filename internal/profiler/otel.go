@@ -5,6 +5,8 @@ import (
 	"strings"
 	"time"
 
+	"github.com/hecate/agent-runtime/internal/telemetry"
+	"go.opentelemetry.io/otel/exporters/otlp/otlptrace/otlptracegrpc"
 	"go.opentelemetry.io/otel/exporters/otlp/otlptrace/otlptracehttp"
 	"go.opentelemetry.io/otel/sdk/resource"
 	sdktrace "go.opentelemetry.io/otel/sdk/trace"
@@ -16,17 +18,21 @@ import (
 // the shared service identity reused across signals, Sampler controls trace
 // volume, and an explicit nil-or-default fallback keeps tests trivial.
 type TracerProviderOptions struct {
-	Enabled  bool
-	Endpoint string
-	Headers  map[string]string
-	Timeout  time.Duration
-	Resource *resource.Resource
-	Sampler  sdktrace.Sampler
+	Enabled   bool
+	Endpoint  string
+	Headers   map[string]string
+	Timeout   time.Duration
+	Transport string
+	Resource  *resource.Resource
+	Sampler   sdktrace.Sampler
 }
 
 func NewTracerProvider(ctx context.Context, opts TracerProviderOptions) (*sdktrace.TracerProvider, error) {
 	if opts.Sampler == nil {
 		opts.Sampler = sdktrace.ParentBased(sdktrace.AlwaysSample())
+	}
+	if opts.Timeout <= 0 {
+		opts.Timeout = 5 * time.Second
 	}
 	tpOpts := []sdktrace.TracerProviderOption{
 		sdktrace.WithSampler(opts.Sampler),
@@ -36,12 +42,7 @@ func NewTracerProvider(ctx context.Context, opts TracerProviderOptions) (*sdktra
 	}
 
 	if opts.Enabled && strings.TrimSpace(opts.Endpoint) != "" {
-		exporter, err := otlptracehttp.New(
-			ctx,
-			otlptracehttp.WithEndpointURL(opts.Endpoint),
-			otlptracehttp.WithHeaders(opts.Headers),
-			otlptracehttp.WithTimeout(opts.Timeout),
-		)
+		exporter, err := newTraceExporter(ctx, opts)
 		if err != nil {
 			return nil, err
 		}
@@ -49,6 +50,27 @@ func NewTracerProvider(ctx context.Context, opts TracerProviderOptions) (*sdktra
 	}
 
 	return sdktrace.NewTracerProvider(tpOpts...), nil
+}
+
+func newTraceExporter(ctx context.Context, opts TracerProviderOptions) (sdktrace.SpanExporter, error) {
+	if telemetry.NormalizeOTLPTransport(opts.Transport) == telemetry.OTLPTransportGRPC {
+		exporterOpts := []otlptracegrpc.Option{
+			otlptracegrpc.WithEndpoint(telemetry.OTLPGRPCEndpoint(opts.Endpoint)),
+			otlptracegrpc.WithHeaders(opts.Headers),
+			otlptracegrpc.WithTimeout(opts.Timeout),
+		}
+		if telemetry.IsOTLPGRPCInsecure(opts.Endpoint) {
+			exporterOpts = append(exporterOpts, otlptracegrpc.WithInsecure())
+		}
+		return otlptracegrpc.New(ctx, exporterOpts...)
+	}
+
+	return otlptracehttp.New(
+		ctx,
+		otlptracehttp.WithEndpointURL(opts.Endpoint),
+		otlptracehttp.WithHeaders(opts.Headers),
+		otlptracehttp.WithTimeout(opts.Timeout),
+	)
 }
 
 func NewOTelTracer(provider oteltrace.TracerProvider) oteltrace.Tracer {

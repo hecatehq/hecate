@@ -89,7 +89,8 @@ The Observability workspace in the operator UI surfaces traces, the request ledg
 
 ## OTLP Configuration
 
-All OTLP export is over HTTP. Each signal is enabled independently.
+OTLP export supports HTTP/protobuf and gRPC. Each signal is enabled
+independently.
 
 Shared identity (applied to traces, metrics, and logs as a single OpenTelemetry Resource):
 
@@ -103,12 +104,25 @@ The runtime also auto-detects telemetry SDK, host, and process attributes
 (`telemetry.sdk.name`, `host.name`, `process.runtime.name`, etc.) so backends
 can group instances without extra wiring.
 
+Shared OTLP defaults:
+
+- `GATEWAY_OTEL_ENDPOINT`
+- `GATEWAY_OTEL_HEADERS`
+- `GATEWAY_OTEL_TIMEOUT`
+- `GATEWAY_OTEL_TRANSPORT` — `http` (default) or `grpc`
+
+When `GATEWAY_OTEL_ENDPOINT` is set with `http` transport, Hecate derives
+signal endpoints by appending `/v1/traces`, `/v1/metrics`, and `/v1/logs`.
+With `grpc` transport, the same host:port endpoint is used for every enabled
+signal. Per-signal variables below override the shared defaults.
+
 Traces:
 
 - `GATEWAY_OTEL_TRACES_ENABLED`
 - `GATEWAY_OTEL_TRACES_ENDPOINT`
 - `GATEWAY_OTEL_TRACES_HEADERS`
 - `GATEWAY_OTEL_TRACES_TIMEOUT`
+- `GATEWAY_OTEL_TRACES_TRANSPORT`
 - `GATEWAY_OTEL_TRACES_SAMPLER` — one of `always_on`, `always_off`, `traceidratio`, `parentbased_always_on` (default), `parentbased_always_off`, `parentbased_traceidratio`
 - `GATEWAY_OTEL_TRACES_SAMPLER_ARG` — float in `[0, 1]`, used by the ratio samplers
 
@@ -118,6 +132,7 @@ Metrics:
 - `GATEWAY_OTEL_METRICS_ENDPOINT`
 - `GATEWAY_OTEL_METRICS_HEADERS`
 - `GATEWAY_OTEL_METRICS_TIMEOUT`
+- `GATEWAY_OTEL_METRICS_TRANSPORT`
 - `GATEWAY_OTEL_METRICS_INTERVAL`
 
 Logs:
@@ -126,13 +141,15 @@ Logs:
 - `GATEWAY_OTEL_LOGS_ENDPOINT`
 - `GATEWAY_OTEL_LOGS_HEADERS`
 - `GATEWAY_OTEL_LOGS_TIMEOUT`
+- `GATEWAY_OTEL_LOGS_TRANSPORT`
 
 Behavior to know:
 
 - traces export only when `GATEWAY_OTEL_TRACES_ENABLED=true`
 - metrics export only when `GATEWAY_OTEL_METRICS_ENABLED=true`
 - logs export only when `GATEWAY_OTEL_LOGS_ENABLED=true`
-- if log endpoint, headers, or timeout are omitted, log export falls back to the trace signal settings
+- signal-specific endpoint, headers, timeout, and transport override shared settings
+- if log endpoint, headers, timeout, or transport are omitted, log export falls back to the trace signal settings
 
 Trace body capture is configured separately from OTLP export:
 
@@ -443,11 +460,20 @@ your preferred backend.
 
 ```bash
 GATEWAY_OTEL_TRACES_ENABLED=true
-GATEWAY_OTEL_TRACES_ENDPOINT=http://127.0.0.1:4318/v1/traces
 GATEWAY_OTEL_METRICS_ENABLED=true
-GATEWAY_OTEL_METRICS_ENDPOINT=http://127.0.0.1:4318/v1/metrics
 GATEWAY_OTEL_LOGS_ENABLED=true
-GATEWAY_OTEL_LOGS_ENDPOINT=http://127.0.0.1:4318/v1/logs
+GATEWAY_OTEL_ENDPOINT=http://127.0.0.1:4318
+GATEWAY_OTEL_TRANSPORT=http
+```
+
+For OTLP/gRPC, use the collector gRPC port instead:
+
+```bash
+GATEWAY_OTEL_TRACES_ENABLED=true
+GATEWAY_OTEL_METRICS_ENABLED=true
+GATEWAY_OTEL_LOGS_ENABLED=true
+GATEWAY_OTEL_ENDPOINT=127.0.0.1:4317
+GATEWAY_OTEL_TRANSPORT=grpc
 ```
 
 2. Run collector with an OTLP receiver and your exporter(s), for example:
@@ -456,6 +482,7 @@ GATEWAY_OTEL_LOGS_ENDPOINT=http://127.0.0.1:4318/v1/logs
 receivers:
   otlp:
     protocols:
+      grpc:
       http:
 
 processors:
@@ -487,7 +514,7 @@ This keeps Hecate vendor-neutral and lets you change backends without touching r
 ### Production collector topology
 
 - run collector as a sidecar/daemonset near Hecate pods
-- keep Hecate exporting OTLP/HTTP only to local collector
+- keep Hecate exporting OTLP to a local collector over HTTP or gRPC
 - do auth, retries, batching, sampling, and fan-out in collector
 - route to one or more backends (Tempo/Jaeger/Datadog/New Relic/etc.)
 - monitor collector queue and retry metrics as part of SLOs
@@ -535,7 +562,7 @@ This keeps Hecate vendor-neutral and lets you change backends without touching r
 
 Working today:
 
-- OTLP/HTTP export for traces, metrics, and logs (each independently toggleable)
+- OTLP/HTTP and OTLP/gRPC export for traces, metrics, and logs (each independently toggleable)
 - W3C TextMap propagator on inbound — `traceparent`, `tracestate`, `baggage` are honored automatically; the gateway becomes a child of the upstream trace
 - Sampler selection: `always_on` / `always_off` / `traceidratio` / `parentbased_*` (default: `parentbased_always_on`)
 - Resource attributes auto-populated (telemetry SDK, host, process; service identity from `GATEWAY_OTEL_SERVICE_*`)
@@ -544,7 +571,6 @@ Working today:
 
 Not yet:
 
-- **OTLP/gRPC transport** — exporters are HTTP-only. Run a collector if you need gRPC downstream.
 - **Outbound trace propagation to upstream providers** — Hecate does not currently inject `traceparent` into provider HTTP calls, so OpenAI / Anthropic spans (where they exist) are not stitched into the gateway trace.
 - **Histogram exemplars** — duration histograms don't attach example trace ids, so backend-side trace-from-metric pivots aren't available.
 - **Cardinality protection beyond `hecate.error.kind`** — model and provider labels are trusted to be normalized upstream by the router; ad-hoc values in metric attributes can still blow up cardinality if you bypass that path.

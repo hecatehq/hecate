@@ -30,11 +30,86 @@ func TestLoadFromEnvPricebookSettings(t *testing.T) {
 	}
 }
 
+func TestLoadFromEnvOTelSharedDefaults(t *testing.T) {
+	t.Setenv("GATEWAY_OTEL_ENDPOINT", "http://collector:4318")
+	t.Setenv("GATEWAY_OTEL_HEADERS", "x-api-key=secret,tenant=local")
+	t.Setenv("GATEWAY_OTEL_TIMEOUT", "9s")
+	t.Setenv("GATEWAY_OTEL_TRANSPORT", "http")
+	t.Setenv("GATEWAY_OTEL_TRACES_ENABLED", "true")
+	t.Setenv("GATEWAY_OTEL_METRICS_ENABLED", "true")
+	t.Setenv("GATEWAY_OTEL_LOGS_ENABLED", "true")
+
+	cfg := LoadFromEnv()
+	if cfg.OTel.Endpoint != "http://collector:4318" {
+		t.Fatalf("shared endpoint = %q, want http://collector:4318", cfg.OTel.Endpoint)
+	}
+	if cfg.OTel.Traces.Endpoint != "http://collector:4318/v1/traces" {
+		t.Fatalf("traces endpoint = %q", cfg.OTel.Traces.Endpoint)
+	}
+	if cfg.OTel.Metrics.Endpoint != "http://collector:4318/v1/metrics" {
+		t.Fatalf("metrics endpoint = %q", cfg.OTel.Metrics.Endpoint)
+	}
+	if cfg.OTel.Logs.Endpoint != "http://collector:4318/v1/logs" {
+		t.Fatalf("logs endpoint = %q", cfg.OTel.Logs.Endpoint)
+	}
+	if cfg.OTel.Traces.Headers["x-api-key"] != "secret" || cfg.OTel.Metrics.Headers["tenant"] != "local" {
+		t.Fatalf("signal headers did not inherit shared headers: %#v %#v", cfg.OTel.Traces.Headers, cfg.OTel.Metrics.Headers)
+	}
+	if cfg.OTel.Traces.Timeout != 9*time.Second || cfg.OTel.Metrics.Timeout != 9*time.Second || cfg.OTel.Logs.Timeout != 9*time.Second {
+		t.Fatalf("signal timeouts did not inherit shared timeout: traces=%s metrics=%s logs=%s", cfg.OTel.Traces.Timeout, cfg.OTel.Metrics.Timeout, cfg.OTel.Logs.Timeout)
+	}
+}
+
+func TestLoadFromEnvOTelGRPCSharedEndpoint(t *testing.T) {
+	t.Setenv("GATEWAY_OTEL_ENDPOINT", "http://collector:4317")
+	t.Setenv("GATEWAY_OTEL_TRANSPORT", "grpc")
+	t.Setenv("GATEWAY_OTEL_METRICS_ENDPOINT", "https://metrics-collector:4317")
+	t.Setenv("GATEWAY_OTEL_METRICS_TRANSPORT", "grpc")
+
+	cfg := LoadFromEnv()
+	if cfg.OTel.Traces.Endpoint != "http://collector:4317" || cfg.OTel.Traces.Transport != "grpc" {
+		t.Fatalf("traces config = endpoint %q transport %q", cfg.OTel.Traces.Endpoint, cfg.OTel.Traces.Transport)
+	}
+	if cfg.OTel.Metrics.Endpoint != "https://metrics-collector:4317" || cfg.OTel.Metrics.Transport != "grpc" {
+		t.Fatalf("metrics config = endpoint %q transport %q", cfg.OTel.Metrics.Endpoint, cfg.OTel.Metrics.Transport)
+	}
+}
+
+func TestLoadFromEnvOTelLogsFallbackToTraceSignal(t *testing.T) {
+	t.Setenv("GATEWAY_OTEL_TRACES_ENDPOINT", "127.0.0.1:4317")
+	t.Setenv("GATEWAY_OTEL_TRACES_TRANSPORT", "grpc")
+	t.Setenv("GATEWAY_OTEL_TRACES_HEADERS", "trace=true")
+
+	cfg := LoadFromEnv()
+	if cfg.OTel.Logs.Endpoint != "127.0.0.1:4317" {
+		t.Fatalf("logs endpoint = %q, want trace endpoint fallback", cfg.OTel.Logs.Endpoint)
+	}
+	if cfg.OTel.Logs.Transport != "grpc" {
+		t.Fatalf("logs transport = %q, want grpc fallback", cfg.OTel.Logs.Transport)
+	}
+	if cfg.OTel.Logs.Headers["trace"] != "true" {
+		t.Fatalf("logs headers = %#v, want trace header fallback", cfg.OTel.Logs.Headers)
+	}
+}
+
 func TestValidateAcceptsDefaultConfig(t *testing.T) {
 	cfg := LoadFromEnv()
 
 	if err := cfg.Validate(); err != nil {
 		t.Fatalf("Validate() default config error = %v, want nil", err)
+	}
+}
+
+func TestValidateRejectsInvalidOTelTransport(t *testing.T) {
+	t.Setenv("GATEWAY_OTEL_TRANSPORT", "smtp")
+	cfg := LoadFromEnv()
+
+	err := cfg.Validate()
+	if err == nil {
+		t.Fatal("Validate() error = nil, want invalid OTel transport error")
+	}
+	if !strings.Contains(err.Error(), "GATEWAY_OTEL_TRANSPORT") {
+		t.Fatalf("Validate() error = %q, want GATEWAY_OTEL_TRANSPORT", err)
 	}
 }
 
