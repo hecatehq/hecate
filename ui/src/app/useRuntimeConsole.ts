@@ -1033,32 +1033,7 @@ export function useRuntimeConsole() {
   }
 
   function createChatSession() {
-    if (chatTarget === "agent") {
-      void createAgentChatSession();
-      return;
-    }
     startNewChat();
-  }
-
-  async function createAgentChatSession() {
-    resetChatWorkspaceState();
-    if (!agentWorkspace.trim()) {
-      setChatError("Choose a workspace path before creating an agent chat.");
-      return;
-    }
-    try {
-      const created = await createAgentChatSessionRequest({
-        title: "New agent chat",
-        adapter_id: agentAdapterID,
-        workspace: agentWorkspace.trim(),
-      });
-      setActiveAgentChatSessionID(created.data.id);
-      setActiveAgentChatSession(created.data);
-      setAgentWorkspaceBranch(created.data.workspace_branch ?? "");
-      setAgentChatSessions((current) => [renderAgentChatSessionSummary(created.data), ...current.filter((entry) => entry.id !== created.data.id)]);
-    } catch (error) {
-      setChatError(error instanceof Error ? error.message : "failed to create agent chat");
-    }
   }
 
   async function selectChatSession(id: string) {
@@ -1734,9 +1709,9 @@ async function resolveAgentChatDashboardState(args: {
   }
 
   const sessions = args.result.value.data ?? [];
-  const activeSessionID = sessions.some((entry) => entry.id === args.activeSessionID)
+  const activeSessionID = args.activeSessionID && sessions.some((entry) => entry.id === args.activeSessionID)
     ? args.activeSessionID
-    : sessions[0]?.id ?? "";
+    : "";
 
   if (!activeSessionID) {
     return { sessions, activeSessionID, activeSession: null };
