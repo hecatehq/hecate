@@ -19,29 +19,25 @@ import (
 const otelCollectorImage = "otel/opentelemetry-collector-contrib:0.119.0"
 
 // TestDockerOTelCollectorReceivesGRPCExport puts a real OpenTelemetry Collector
-// between Hecate and the in-process e2e sink. Hecate exports OTLP/gRPC to the
-// collector; the collector forwards OTLP/HTTP to the sink. This catches both
-// exporter transport regressions and collector interoperability drift.
+// between Hecate and the collector debug exporter. Hecate exports OTLP/gRPC to
+// the collector; the collector renders received signals to logs. This catches
+// exporter transport regressions and collector interoperability drift without
+// relying on Docker-to-host callbacks that vary between Linux CI and Docker
+// Desktop.
 func TestDockerOTelCollectorReceivesGRPCExport(t *testing.T) {
 	requireDocker(t)
 
-	sink := newDockerReachableOTLPSink()
-	t.Cleanup(sink.close)
-
-	collectorHTTPPort := freePort(t)
 	collectorGRPCPort := freePort(t)
 	containerName := fmt.Sprintf("hecate-otel-collector-%d", time.Now().UnixNano())
-	configPath := writeCollectorConfig(t, sink.addr())
+	configPath := writeCollectorConfig(t)
 
 	ctx, cancel := context.WithTimeout(context.Background(), 3*time.Minute)
 	defer cancel()
 
 	runArgs := []string{
-		"run", "--rm", "-d",
+		"run", "-d",
 		"--name", containerName,
-		"--add-host", "host.docker.internal:host-gateway",
 		"-p", fmt.Sprintf("127.0.0.1:%d:4317", collectorGRPCPort),
-		"-p", fmt.Sprintf("127.0.0.1:%d:4318", collectorHTTPPort),
 		"-v", configPath + ":/etc/otelcol/config.yaml:ro",
 		otelCollectorImage,
 		"--config=/etc/otelcol/config.yaml",
@@ -79,14 +75,29 @@ func TestDockerOTelCollectorReceivesGRPCExport(t *testing.T) {
 	}
 	_, _ = io.Copy(io.Discard, resp.Body)
 
-	if !sink.waitForSpan("gateway.provider", 15*time.Second) {
+	if !waitForDockerLog(ctx, containerName, "gateway.provider", 15*time.Second) {
 		t.Logf("otel collector logs:\n%s", dockerLogs(t, ctx, containerName))
-		t.Fatalf("collector did not forward gateway.provider span; got spans: %v", sink.spanNames())
+		t.Fatal("collector did not log gateway.provider span")
 	}
-	if !sink.waitForMetric("hecate.provider.calls", 15*time.Second) {
+	if !waitForDockerLog(ctx, containerName, "hecate.provider.calls", 15*time.Second) {
 		t.Logf("otel collector logs:\n%s", dockerLogs(t, ctx, containerName))
-		t.Fatalf("collector did not forward hecate.provider.calls metric; got metrics: %v", sink.metricNames())
+		t.Fatal("collector did not log hecate.provider.calls metric")
 	}
+}
+
+func waitForDockerLog(ctx context.Context, containerName, substr string, timeout time.Duration) bool {
+	deadline := time.Now().Add(timeout)
+	for time.Now().Before(deadline) {
+		if ctx.Err() != nil {
+			return false
+		}
+		out, err := exec.CommandContext(ctx, "docker", "logs", containerName).CombinedOutput()
+		if err == nil && strings.Contains(string(out), substr) {
+			return true
+		}
+		time.Sleep(250 * time.Millisecond)
+	}
+	return false
 }
 
 func dockerLogs(t *testing.T, ctx context.Context, containerName string) string {
@@ -98,9 +109,9 @@ func dockerLogs(t *testing.T, ctx context.Context, containerName string) string 
 	return string(out)
 }
 
-func writeCollectorConfig(t *testing.T, sinkAddr string) string {
+func writeCollectorConfig(t *testing.T) string {
 	t.Helper()
-	config := fmt.Sprintf(`
+	config := `
 receivers:
   otlp:
     protocols:
@@ -110,32 +121,24 @@ receivers:
         endpoint: 0.0.0.0:4318
 
 exporters:
-  otlphttp:
-    endpoint: http://host.docker.internal:%s
+  debug:
+    verbosity: detailed
 
 service:
   pipelines:
     traces:
       receivers: [otlp]
-      exporters: [otlphttp]
+      exporters: [debug]
     metrics:
       receivers: [otlp]
-      exporters: [otlphttp]
-`, sinkPort(sinkAddr))
+      exporters: [debug]
+`
 
 	path := filepath.Join(t.TempDir(), "otelcol.yaml")
 	if err := os.WriteFile(path, []byte(strings.TrimSpace(config)+"\n"), 0o600); err != nil {
 		t.Fatalf("write collector config: %v", err)
 	}
 	return path
-}
-
-func sinkPort(addr string) string {
-	_, port, err := net.SplitHostPort(addr)
-	if err != nil {
-		return addr
-	}
-	return port
 }
 
 func waitTCP(t *testing.T, addr string, timeout time.Duration) {
