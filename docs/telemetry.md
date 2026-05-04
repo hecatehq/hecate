@@ -20,7 +20,7 @@ For the full request lifecycle that produces these traces, see [`architecture.md
 - [Three streams, not one](#three-streams-not-one)
 - [What You Can Inspect Today](#what-you-can-inspect-today)
 - [OTLP Configuration](#otlp-configuration)
-- [Inbound Trace Context Propagation](#inbound-trace-context-propagation)
+- [Trace Context Propagation](#trace-context-propagation)
 - [Telemetry Contract](#telemetry-contract)
 - [Core Vocabulary](#core-vocabulary)
 - [Traces](#traces)
@@ -362,6 +362,14 @@ Agent-chat spans carry adapter and workspace attributes such as
 emitted as OTel attributes; it is persisted on the Agent Chat message and shown
 behind the raw-output diagnostic disclosure instead.
 
+### ACP Bridge Spans
+
+The `hecate-acp` stdio bridge has its own OTel trace provider. When trace export
+is enabled for the bridge, JSON-RPC handling emits `acp.rpc` spans and each
+gateway HTTP call emits an `acp.gateway.request` client span. The bridge injects
+`traceparent`, `tracestate`, and `baggage` into gateway requests, so editor ACP
+sessions can stitch through `hecate-acp` into the gateway traces.
+
 ### Retention Spans
 
 Retention manager runs emit events under the `retention.run` span:
@@ -572,6 +580,7 @@ Working today:
 - OTLP/HTTP and OTLP/gRPC export for traces, metrics, and logs (each independently toggleable)
 - W3C TextMap propagator on inbound — `traceparent`, `tracestate`, `baggage` are honored automatically; the gateway becomes a child of the upstream trace
 - W3C TextMap propagator on outbound provider calls — provider discovery, non-streaming chat, and streaming chat carry `traceparent` / `baggage` downstream
+- ACP bridge tracing — `hecate-acp` emits JSON-RPC and gateway-client spans, and propagates trace context into gateway requests
 - Sampler selection: `always_on` / `always_off` / `traceidratio` / `parentbased_*` (default: `parentbased_always_on`)
 - Resource attributes auto-populated (telemetry SDK, host, process; service identity from `GATEWAY_OTEL_SERVICE_*`)
 - Stable span and metric vocabulary (`gen_ai.*` for OTel-standard fields, `hecate.*` for product-specific fields)
