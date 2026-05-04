@@ -460,7 +460,19 @@ Each prefix has a `_MAX_AGE` and `_MAX_COUNT` suffix (e.g. `GATEWAY_RETENTION_TR
 | `hecate.agent_chat.runs` | Counter | `{run}` | External agent-chat runs grouped by adapter, driver kind, status, and result |
 | `hecate.agent_chat.run.duration` | Histogram | `ms` | External agent-chat run wall-clock duration |
 
-Metric attributes reuse the same vocabulary as traces — provider, model, cache, failover, result, step kind, approval decision, queue backend, run status, agent adapter id/driver kind, plus the MCP-specific `hecate.mcp.*` attributes for the three MCP-client metrics above.
+Metric attributes reuse the same vocabulary as traces — provider, model,
+cache, failover, result, step kind, approval decision, queue backend, run
+status, agent adapter id/driver kind, plus the MCP-specific `hecate.mcp.*`
+attributes for the three MCP-client metrics above.
+
+Metric label guardrails are intentionally stricter than trace/event payloads:
+closed-set dimensions such as result, run status, execution kind, provider kind,
+health status, approval kind/decision, queue backend, driver kind, MCP result,
+and MCP cache event collapse unknown values to `other`. Free-form but useful
+dimensions such as provider id, model id, agent adapter id, MCP server alias, and
+MCP tool name are trimmed and reject control characters or labels longer than 96
+bytes. Put ad-hoc diagnostics in spans, logs, or persisted events — not metric
+labels.
 
 ## Error And Limit Signals
 
@@ -604,6 +616,7 @@ Working today:
 - W3C TextMap propagator on outbound provider calls — provider discovery, non-streaming chat, and streaming chat carry `traceparent` / `baggage` downstream
 - ACP bridge tracing — `hecate-acp` emits JSON-RPC and gateway-client spans, and propagates trace context into gateway requests
 - Sandbox/tool trace depth — shell and file tool steps expose sandbox wrapper/policy, timeout, exit, output-size, truncation, and file patch metadata through OTel-shaped `hecate.*` attributes
+- Metric cardinality guardrails — closed-set labels collapse unknown values to `other`; free-form labels reject control characters and oversized values
 - Sampler selection: `always_on` / `always_off` / `traceidratio` / `parentbased_*` (default: `parentbased_always_on`)
 - Resource attributes auto-populated (telemetry SDK, host, process; service identity from `GATEWAY_OTEL_SERVICE_*`)
 - Stable span and metric vocabulary (`gen_ai.*` for OTel-standard fields, `hecate.*` for product-specific fields)

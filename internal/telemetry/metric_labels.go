@@ -1,0 +1,160 @@
+package telemetry
+
+import (
+	"strings"
+	"unicode"
+)
+
+const (
+	MetricLabelOther     = "other"
+	metricLabelMaxLength = 96
+)
+
+var knownProviderKinds = map[string]struct{}{
+	"cloud": {},
+	"local": {},
+}
+
+var knownProviderHealthStatuses = map[string]struct{}{
+	"healthy":   {},
+	"degraded":  {},
+	"open":      {},
+	"half_open": {},
+}
+
+var knownRunStatuses = map[string]struct{}{
+	"queued":            {},
+	"running":           {},
+	"awaiting_approval": {},
+	"completed":         {},
+	"failed":            {},
+	"cancelled":         {},
+}
+
+var knownExecutionKinds = map[string]struct{}{
+	"agent_chat": {},
+	"agent_loop": {},
+	"file":       {},
+	"git":        {},
+	"shell":      {},
+}
+
+var knownStepKinds = map[string]struct{}{
+	"approval": {},
+	"file":     {},
+	"git":      {},
+	"model":    {},
+	"shell":    {},
+	"summary":  {},
+	"tool":     {},
+}
+
+var knownApprovalKinds = map[string]struct{}{
+	"agent_loop_tool_call": {},
+	"file_write":           {},
+	"git_exec":             {},
+	"network_egress":       {},
+	"shell_command":        {},
+}
+
+var knownApprovalDecisions = map[string]struct{}{
+	"approved": {},
+	"rejected": {},
+}
+
+var knownQueueBackends = map[string]struct{}{
+	"memory": {},
+	"sqlite": {},
+}
+
+var knownAgentDriverKinds = map[string]struct{}{
+	"acp": {},
+}
+
+var knownMCPCallResults = map[string]struct{}{
+	MCPCallResultDispatched: {},
+	MCPCallResultToolError:  {},
+	MCPCallResultFailed:     {},
+	MCPCallResultBlocked:    {},
+}
+
+var knownMCPCacheEvents = map[string]struct{}{
+	MCPCacheEventHit:     {},
+	MCPCacheEventMiss:    {},
+	MCPCacheEventEvicted: {},
+}
+
+// NormalizeMetricLabel applies a generic safety guard for labels that are
+// useful but not closed-set enums, such as provider IDs, model names, and MCP
+// server aliases. Closed-set dimensions should use the specific normalizers
+// below so unexpected values collapse to "other".
+func NormalizeMetricLabel(value string) string {
+	value = strings.TrimSpace(value)
+	if value == "" {
+		return ""
+	}
+	if len(value) > metricLabelMaxLength {
+		return MetricLabelOther
+	}
+	for _, r := range value {
+		if unicode.IsControl(r) {
+			return MetricLabelOther
+		}
+	}
+	return value
+}
+
+func NormalizeProviderKind(value string) string {
+	return normalizeKnownLabel(value, knownProviderKinds)
+}
+
+func NormalizeProviderHealthStatus(value string) string {
+	return normalizeKnownLabel(value, knownProviderHealthStatuses)
+}
+
+func NormalizeRunStatus(value string) string {
+	return normalizeKnownLabel(value, knownRunStatuses)
+}
+
+func NormalizeExecutionKind(value string) string {
+	return normalizeKnownLabel(value, knownExecutionKinds)
+}
+
+func NormalizeStepKind(value string) string {
+	return normalizeKnownLabel(value, knownStepKinds)
+}
+
+func NormalizeApprovalKind(value string) string {
+	return normalizeKnownLabel(value, knownApprovalKinds)
+}
+
+func NormalizeApprovalDecision(value string) string {
+	return normalizeKnownLabel(value, knownApprovalDecisions)
+}
+
+func NormalizeQueueBackend(value string) string {
+	return normalizeKnownLabel(value, knownQueueBackends)
+}
+
+func NormalizeAgentDriverKind(value string) string {
+	return normalizeKnownLabel(value, knownAgentDriverKinds)
+}
+
+func NormalizeMCPCallResult(value string) string {
+	return normalizeKnownLabel(value, knownMCPCallResults)
+}
+
+func NormalizeMCPCacheEvent(value string) string {
+	return normalizeKnownLabel(value, knownMCPCacheEvents)
+}
+
+func normalizeKnownLabel(value string, known map[string]struct{}) string {
+	value = strings.ToLower(strings.TrimSpace(value))
+	if value == "" {
+		return ""
+	}
+	if _, ok := known[value]; ok {
+		return value
+	}
+	return MetricLabelOther
+}
