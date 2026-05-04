@@ -39,6 +39,7 @@ const (
 	EventProviderRetryScheduled     = "provider.retry.scheduled"
 	EventProviderRetryBackoffFailed = "provider.retry.backoff_failed"
 	EventProviderFailoverSelected   = "provider.failover.selected"
+	EventProviderFailoverTriggered  = "provider.failover.triggered"
 	EventProviderFailoverSkipped    = "provider.failover.skipped"
 	EventProviderHealthDegraded     = "provider.health.degraded"
 )
@@ -157,6 +158,7 @@ var allEventNames = []string{
 	EventProviderRetryScheduled,
 	EventProviderRetryBackoffFailed,
 	EventProviderFailoverSelected,
+	EventProviderFailoverTriggered,
 	EventProviderFailoverSkipped,
 	EventProviderHealthDegraded,
 	EventUsageNormalized,
@@ -397,6 +399,102 @@ var requiredEventAttrs = map[string][]string{
 		AttrGenAIProviderName,
 		AttrGenAIResponseModel,
 		AttrGenAIRequestModel,
+	},
+	EventQueueEnqueued: {
+		AttrHecateTaskID,
+		AttrHecateRunID,
+		AttrHecateQueueBackend,
+	},
+	EventQueueClaimed: {
+		AttrHecateTaskID,
+		AttrHecateRunID,
+		AttrHecateQueueBackend,
+		AttrHecateQueueWaitMS,
+		AttrHecateWorkerID,
+	},
+	EventQueueAcked: {
+		AttrHecateTaskID,
+		AttrHecateRunID,
+		AttrHecateQueueBackend,
+	},
+	EventOrchestratorTaskStarted: {
+		AttrHecateTaskID,
+		AttrHecateTaskStatus,
+		AttrHecateResult,
+	},
+	EventOrchestratorTaskFinished: {
+		AttrHecateTaskID,
+		AttrHecateResult,
+	},
+	EventOrchestratorRunStarted: {
+		AttrHecateTaskID,
+		AttrHecateRunID,
+		AttrHecateRunNumber,
+		AttrHecateRunStatus,
+	},
+	EventOrchestratorRunFailed: {
+		AttrHecateTaskID,
+		AttrHecateResult,
+		AttrHecateErrorKind,
+		AttrErrorType,
+		AttrErrorMessage,
+	},
+	EventOrchestratorRunFinished: {
+		AttrHecateTaskID,
+		AttrHecateRunID,
+		AttrHecateResult,
+	},
+	EventOrchestratorStepCompleted: {
+		AttrHecateTaskID,
+		AttrHecateRunID,
+		AttrHecateStepID,
+		AttrHecateStepKind,
+		AttrHecateResult,
+	},
+	EventOrchestratorStepFailed: {
+		AttrHecateTaskID,
+		AttrHecateRunID,
+		AttrHecateStepID,
+		AttrHecateStepKind,
+		AttrHecateResult,
+	},
+	EventOrchestratorArtifactCreated: {
+		AttrHecateTaskID,
+		AttrHecateRunID,
+		AttrHecateArtifactID,
+		AttrHecateArtifactKind,
+		AttrHecateResult,
+	},
+	EventOrchestratorArtifactFailed: {
+		AttrHecateTaskID,
+		AttrHecateRunID,
+		AttrHecateArtifactID,
+		AttrHecateResult,
+		AttrHecateErrorKind,
+		AttrErrorType,
+	},
+	EventOrchestratorApprovalRequested: {
+		AttrHecateTaskID,
+		AttrHecateRunID,
+		AttrHecateApprovalID,
+		AttrHecateApprovalKind,
+		AttrHecateResult,
+	},
+	EventOrchestratorApprovalResolved: {
+		AttrHecateTaskID,
+		AttrHecateRunID,
+		AttrHecateApprovalID,
+		AttrHecateApprovalKind,
+		AttrHecateApprovalStatus,
+		AttrHecateResult,
+	},
+	EventOrchestratorApprovalFailed: {
+		AttrHecateTaskID,
+		AttrHecateRunID,
+		AttrHecateApprovalID,
+		AttrHecateResult,
+		AttrHecateErrorKind,
+		AttrErrorType,
 	},
 	EventAgentChatRunStarted: {
 		AttrHecateAgentChatSessionID,

@@ -72,7 +72,15 @@ function phaseColor(phase: TraceTimelineItem["phase"], span?: TraceSpanRecord): 
     case "routing":  return "var(--amber)";
     case "cache":    return "var(--green)";
     case "governor": return "var(--brand-mistral)";
+    case "cost":     return "var(--t2)";
     case "usage":    return "var(--t2)";
+    case "queue":    return "var(--amber)";
+    case "orchestration": return "var(--t2)";
+    case "tool":     return "var(--brand-openai)";
+    case "approval": return "var(--brand-anthropic)";
+    case "artifact": return "var(--green)";
+    case "retention": return "var(--t3)";
+    case "agent_chat": return "var(--brand-openai)";
     case "response": return "var(--teal)";
     default:         return "var(--t3)";
   }
@@ -81,7 +89,10 @@ function phaseColor(phase: TraceTimelineItem["phase"], span?: TraceSpanRecord): 
 const PHASE_LABEL: Record<TraceTimelineItem["phase"], string> = {
   request: "request", routing: "routing", cache: "cache",
   provider: "provider", governor: "governor", usage: "usage",
-  response: "response", other: "other",
+  cost: "cost", response: "response", queue: "queue",
+  orchestration: "orchestration", tool: "tool", approval: "approval",
+  artifact: "artifact", retention: "retention", agent_chat: "agent chat",
+  other: "other",
 };
 
 type StatCardProps = { label: string; value: string | number; sub?: string; highlight?: boolean };

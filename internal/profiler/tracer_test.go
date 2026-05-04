@@ -62,6 +62,7 @@ func TestSpanMappingForEventGroups(t *testing.T) {
 		{telemetry.EventProviderRetryScheduled, telemetry.SpanGatewayProvider},
 		{telemetry.EventProviderRetryBackoffFailed, telemetry.SpanGatewayProvider},
 		{telemetry.EventProviderFailoverSelected, telemetry.SpanGatewayProvider},
+		{telemetry.EventProviderFailoverTriggered, telemetry.SpanGatewayProvider},
 		{telemetry.EventProviderFailoverSkipped, telemetry.SpanGatewayProvider},
 		{telemetry.EventProviderHealthDegraded, telemetry.SpanGatewayProvider},
 		// Usage / cost / response

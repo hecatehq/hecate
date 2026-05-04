@@ -2442,6 +2442,9 @@ func TestTaskRunLifecycleEventsForSuccessfulRun(t *testing.T) {
 	if completed.Data.Status != "completed" {
 		t.Fatalf("completed status = %q, want completed", completed.Data.Status)
 	}
+	if completed.Data.RequestID == "" {
+		t.Fatal("completed run request_id = empty")
+	}
 
 	events := waitForRunEvent(t, handler, created.Data.ID, started.Data.ID, "run.finished")
 	assertEventOrder(t, events.Data, []string{"run.created", "run.queued", "run.started", "run.finished"})
@@ -2467,6 +2470,31 @@ func TestTaskRunLifecycleEventsForSuccessfulRun(t *testing.T) {
 	}
 	if task.Data.LatestRunID != started.Data.ID {
 		t.Fatalf("latest_run_id = %q, want %q", task.Data.LatestRunID, started.Data.ID)
+	}
+
+	runTrace := mustRequestJSON[TraceResponse](newAPITestClient(t, handler), http.MethodGet, "/v1/traces?request_id="+completed.Data.RequestID, "")
+	runTraceEvents := make(map[string]TraceEventRecord)
+	for _, span := range runTrace.Data.Spans {
+		for _, event := range span.Events {
+			runTraceEvents[event.Name] = event
+		}
+	}
+	for _, eventName := range []string{
+		telemetry.EventQueueClaimed,
+		telemetry.EventOrchestratorRunStarted,
+		telemetry.EventOrchestratorStepCompleted,
+		telemetry.EventOrchestratorArtifactCreated,
+		telemetry.EventOrchestratorRunFinished,
+		telemetry.EventOrchestratorTaskFinished,
+		telemetry.EventQueueAcked,
+	} {
+		event, ok := runTraceEvents[eventName]
+		if !ok {
+			t.Fatalf("run trace missing event %s: %#v", eventName, runTraceEvents)
+		}
+		if missing := telemetry.ValidateEventAttrs(event.Name, event.Attributes); len(missing) != 0 {
+			t.Fatalf("run trace event %s missing attrs %v: %#v", event.Name, missing, event.Attributes)
+		}
 	}
 }
 

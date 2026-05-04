@@ -40,7 +40,23 @@ export type TraceTimelineItem = {
   offsetLabel: string;
   spanName: string;
   spanKind: string;
-  phase: "request" | "routing" | "cache" | "provider" | "governor" | "usage" | "response" | "other";
+  phase:
+    | "request"
+    | "routing"
+    | "cache"
+    | "provider"
+    | "governor"
+    | "usage"
+    | "cost"
+    | "response"
+    | "queue"
+    | "orchestration"
+    | "tool"
+    | "approval"
+    | "artifact"
+    | "retention"
+    | "agent_chat"
+    | "other";
   attributes?: Record<string, unknown>;
 };
 
@@ -559,12 +575,20 @@ export type TraceWaterfall = {
 // of an event name — the legend in the waterfall reads off these.
 export function tracePhaseFromSpan(name: string): TraceTimelineItem["phase"] {
   const lower = name.toLowerCase();
+  if (lower.includes("agent_chat")) return "agent_chat";
+  if (lower.includes("retention")) return "retention";
+  if (lower.includes("queue")) return "queue";
+  if (lower.includes("approval")) return "approval";
+  if (lower.includes("artifact")) return "artifact";
+  if (lower.includes("step") || lower.includes("tool")) return "tool";
+  if (lower.includes("orchestrator") || lower.includes("task") || lower.includes("run")) return "orchestration";
   if (lower.includes("request") || lower.endsWith(".parse")) return "request";
   if (lower.includes("router") || lower.includes("route")) return "routing";
   if (lower.includes("cache") || lower.includes("semantic")) return "cache";
   if (lower.includes("provider")) return "provider";
   if (lower.includes("governor")) return "governor";
-  if (lower.includes("usage") || lower.includes("cost")) return "usage";
+  if (lower.includes("cost")) return "cost";
+  if (lower.includes("usage")) return "usage";
   if (lower.includes("response")) return "response";
   return "other";
 }
@@ -652,6 +676,27 @@ export function buildSpanWaterfall(spans: TraceSpanRecord[]): TraceWaterfall {
 }
 
 export function tracePhaseFromEvent(name: string): TraceTimelineItem["phase"] {
+  if (name.startsWith("agent_chat.")) {
+    return "agent_chat";
+  }
+  if (name.startsWith("retention.")) {
+    return "retention";
+  }
+  if (name.startsWith("queue.")) {
+    return "queue";
+  }
+  if (name.startsWith("orchestrator.approval.") || name.startsWith("policy.")) {
+    return "approval";
+  }
+  if (name.startsWith("orchestrator.artifact.")) {
+    return "artifact";
+  }
+  if (name.startsWith("orchestrator.step.") || name.startsWith("tool.")) {
+    return "tool";
+  }
+  if (name.startsWith("orchestrator.")) {
+    return "orchestration";
+  }
   if (name.startsWith("request.")) {
     return "request";
   }
@@ -667,7 +712,10 @@ export function tracePhaseFromEvent(name: string): TraceTimelineItem["phase"] {
   if (name.startsWith("governor.")) {
     return "governor";
   }
-  if (name.startsWith("usage.") || name.startsWith("cost.")) {
+  if (name.startsWith("cost.")) {
+    return "cost";
+  }
+  if (name.startsWith("usage.")) {
     return "usage";
   }
   if (name.startsWith("response.")) {
