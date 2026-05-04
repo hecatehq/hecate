@@ -367,40 +367,40 @@ type streamingCommandSpec struct {
 func executeStreamingCommand(ctx context.Context, exec sandbox.Executor, spec ExecutionSpec, commandSpec streamingCommandSpec) (*ExecutionResult, error) {
 	timeout := commandTimeout(spec.Task)
 	workingDirectory := commandWorkingDirectory(spec.Task)
+	policy := taskPolicy(spec)
+	wrapperKind := string(sandbox.HealthInfo().Kind)
+	outputLimit := sandbox.DefaultResourceLimits().MaxOutputBytes
 	displayCommand := commandSpec.displayCommand
 	if displayCommand == "" {
 		displayCommand = commandSpec.command
 	}
 
-	step := newExecutionStep(spec, commandSpec.kind, commandSpec.title, commandSpec.toolName, map[string]any{
-		"command":           displayCommand,
-		"working_directory": workingDirectory,
-		"timeout_ms":        timeout,
-	})
+	stepInput := map[string]any{
+		"command":                                displayCommand,
+		"working_directory":                      workingDirectory,
+		"timeout_ms":                             timeout,
+		telemetry.AttrHecateToolWorkingDirectory: workingDirectory,
+		telemetry.AttrHecateToolTimeoutMS:        timeout,
+	}
+	mergeMap(stepInput, sandboxTelemetryAttrs(policy, wrapperKind, outputLimit))
+	step := newExecutionStep(spec, commandSpec.kind, commandSpec.title, commandSpec.toolName, stepInput)
 	toolCallID := firstNonEmpty(spec.ToolCallID, step.ID)
 	eventToolName := firstNonEmpty(spec.ToolName, commandSpec.toolName)
 	if commandSpec.kind == "shell" {
-		emitTypedShellRunEvent(spec, "tool.invoked", map[string]any{
-			"tool_call_id": toolCallID,
-			"tool_name":    eventToolName,
-			"kind":         "shell",
-			"turn_index":   0,
-		})
-		emitTypedShellRunEvent(spec, "tool.started", map[string]any{
-			"tool_call_id": toolCallID,
-			"tool_name":    eventToolName,
-			"kind":         "shell",
-			"turn_index":   0,
-		})
-		emitTypedShellRunEvent(spec, "tool.shell.command", map[string]any{
-			"tool_call_id":   toolCallID,
-			"argv":           []string{"sh", "-lc", displayCommand},
-			"cwd":            workingDirectory,
-			"env_keys":       []string{"PATH", "HOME"},
-			"sandbox_layer":  string(sandbox.HealthInfo().Kind),
-			"timeout_ms":     timeout,
-			"command_string": displayCommand,
-		})
+		baseEvent := shellToolTelemetryAttrs(toolCallID, eventToolName, policy, wrapperKind, outputLimit)
+		baseEvent["turn_index"] = 0
+		emitTypedShellRunEvent(spec, "tool.invoked", cloneMap(baseEvent))
+		emitTypedShellRunEvent(spec, "tool.started", cloneMap(baseEvent))
+		commandEvent := shellToolTelemetryAttrs(toolCallID, eventToolName, policy, wrapperKind, outputLimit)
+		commandEvent["argv"] = []string{"sh", "-lc", displayCommand}
+		commandEvent["cwd"] = workingDirectory
+		commandEvent["env_keys"] = []string{"PATH", "HOME"}
+		commandEvent["sandbox_layer"] = wrapperKind
+		commandEvent["timeout_ms"] = timeout
+		commandEvent[telemetry.AttrHecateToolWorkingDirectory] = workingDirectory
+		commandEvent[telemetry.AttrHecateToolTimeoutMS] = timeout
+		commandEvent["command_string"] = displayCommand
+		emitTypedShellRunEvent(spec, "tool.shell.command", commandEvent)
 	}
 	step.OutputSummary = map[string]any{
 		"stdout_bytes": 0,
@@ -426,7 +426,8 @@ func executeStreamingCommand(ctx context.Context, exec sandbox.Executor, spec Ex
 		Command:          commandSpec.command,
 		WorkingDirectory: workingDirectory,
 		Timeout:          time.Duration(timeout) * time.Millisecond,
-		Policy:           taskPolicy(spec),
+		Policy:           policy,
+		Limits:           sandbox.ResourceLimits{MaxOutputBytes: outputLimit},
 	}, func(chunk sandbox.OutputChunk) {
 		switch chunk.Stream {
 		case "stdout":
@@ -463,21 +464,24 @@ func executeStreamingCommand(ctx context.Context, exec sandbox.Executor, spec Ex
 	status, result, lastError, otelStatusCode, otelStatusMessage := executionStatus(err)
 	finishedAt := time.Now().UTC()
 
-	finalizeExecutionStep(&step, finishedAt, status, result, lastError, commandErrorKind(err, commandSpec.timeoutErrorKind, commandSpec.defaultErrorKind), map[string]any{
-		"stdout_bytes": len(resultData.Stdout),
-		"stderr_bytes": len(resultData.Stderr),
-		"exit_code":    resultData.ExitCode,
-	})
+	stepOutput := commandResultTelemetryAttrs(resultData, err)
+	stepOutput["stdout_bytes"] = len(resultData.Stdout)
+	stepOutput["stderr_bytes"] = len(resultData.Stderr)
+	stepOutput["exit_code"] = resultData.ExitCode
+	mergeMap(stepOutput, sandboxTelemetryAttrs(policy, wrapperKind, outputLimit))
+	finalizeExecutionStep(&step, finishedAt, status, result, lastError, commandErrorKind(err, commandSpec.timeoutErrorKind, commandSpec.defaultErrorKind), stepOutput)
 	step.ExitCode = resultData.ExitCode
 	if commandSpec.kind == "shell" && !sandbox.IsPolicyDenied(err) {
-		emitTypedShellRunEvent(spec, "tool.shell.exited", map[string]any{
+		exitEvent := map[string]any{
 			"tool_call_id": toolCallID,
 			"exit_code":    resultData.ExitCode,
 			"signal":       nil,
 			"stdout_bytes": len(resultData.Stdout),
 			"stderr_bytes": len(resultData.Stderr),
 			"truncated":    sandbox.IsOutputLimitExceeded(err),
-		})
+		}
+		mergeMap(exitEvent, commandResultTelemetryAttrs(resultData, err))
+		emitTypedShellRunEvent(spec, "tool.shell.exited", exitEvent)
 	}
 	if commandSpec.kind == "shell" {
 		eventType := "tool.completed"
@@ -496,6 +500,7 @@ func executeStreamingCommand(ctx context.Context, exec sandbox.Executor, spec Ex
 			"duration_ms":  finishedAt.Sub(step.StartedAt).Milliseconds(),
 			"summary":      shellEventSummary(status, resultData.ExitCode, lastError),
 		}
+		mergeMap(data, commandResultTelemetryAttrs(resultData, err))
 		if lastError != "" {
 			data["error"] = lastError
 		}
@@ -522,6 +527,48 @@ func executeStreamingCommand(ctx context.Context, exec sandbox.Executor, spec Ex
 	}
 
 	return newExecutionResult(status, []types.TaskStep{step}, []types.TaskArtifact{stdoutArtifact, stderrArtifact}, lastError, otelStatusCode, otelStatusMessage), nil
+}
+
+func sandboxTelemetryAttrs(policy sandbox.Policy, wrapperKind string, outputLimit int64) map[string]any {
+	return map[string]any{
+		telemetry.AttrHecateSandboxWrapperKind:    wrapperKind,
+		telemetry.AttrHecateSandboxNetworkEnabled: policy.Network,
+		telemetry.AttrHecateSandboxReadOnly:       policy.ReadOnly,
+		telemetry.AttrHecateSandboxOutputLimit:    outputLimit,
+	}
+}
+
+func shellToolTelemetryAttrs(toolCallID, toolName string, policy sandbox.Policy, wrapperKind string, outputLimit int64) map[string]any {
+	attrs := map[string]any{
+		"tool_call_id": toolCallID,
+		"tool_name":    toolName,
+		"kind":         "shell",
+	}
+	mergeMap(attrs, sandboxTelemetryAttrs(policy, wrapperKind, outputLimit))
+	return attrs
+}
+
+func commandResultTelemetryAttrs(result sandbox.Result, err error) map[string]any {
+	return map[string]any{
+		telemetry.AttrHecateToolStdoutBytes:     len(result.Stdout),
+		telemetry.AttrHecateToolStderrBytes:     len(result.Stderr),
+		telemetry.AttrHecateToolExitCode:        result.ExitCode,
+		telemetry.AttrHecateToolTimedOut:        errors.Is(err, context.DeadlineExceeded),
+		telemetry.AttrHecateToolCancelled:       errors.Is(err, context.Canceled),
+		telemetry.AttrHecateToolOutputTruncated: sandbox.IsOutputLimitExceeded(err),
+	}
+}
+
+func mergeMap(dst map[string]any, src map[string]any) {
+	for key, value := range src {
+		dst[key] = value
+	}
+}
+
+func cloneMap(src map[string]any) map[string]any {
+	dst := make(map[string]any, len(src))
+	mergeMap(dst, src)
+	return dst
 }
 
 func emitTypedShellRunEvent(spec ExecutionSpec, eventType string, data map[string]any) {
@@ -630,18 +677,24 @@ func emitFilePatchEvent(spec ExecutionSpec, stepID, operation string, artifact t
 	}
 	toolCallID := firstNonEmpty(spec.ToolCallID, stepID)
 	toolName := firstNonEmpty(spec.ToolName, "file")
-	spec.EmitRunEvent("tool.file.patch", map[string]any{
-		"tool_call_id":    toolCallID,
-		"tool_name":       toolName,
-		"kind":            "file",
-		"operation":       operation,
-		"path":            artifact.Path,
-		"artifact_id":     artifact.ID,
-		"bytes_written":   result.BytesWritten,
-		"diff_bytes":      artifact.SizeBytes,
-		"before_existed":  beforeExists,
-		"artifact_status": artifact.Status,
-	})
+	data := map[string]any{
+		"tool_call_id":                           toolCallID,
+		"tool_name":                              toolName,
+		"kind":                                   "file",
+		"operation":                              operation,
+		"path":                                   artifact.Path,
+		"artifact_id":                            artifact.ID,
+		"bytes_written":                          result.BytesWritten,
+		"diff_bytes":                             artifact.SizeBytes,
+		"before_existed":                         beforeExists,
+		"artifact_status":                        artifact.Status,
+		telemetry.AttrHecateToolFileOperation:    operation,
+		telemetry.AttrHecateToolFileBytesWritten: result.BytesWritten,
+		telemetry.AttrHecateToolFileDiffBytes:    artifact.SizeBytes,
+		telemetry.AttrHecateToolFileBeforeExisted:  beforeExists,
+		telemetry.AttrHecateToolFileArtifactStatus: artifact.Status,
+	}
+	spec.EmitRunEvent("tool.file.patch", data)
 }
 
 func unifiedPatch(path, before, after string, beforeExists bool) string {

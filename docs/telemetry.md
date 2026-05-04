@@ -247,6 +247,22 @@ Orchestrator-specific attributes include:
 - `hecate.step.index`
 - `hecate.step.tool_name`
 - `hecate.step.duration_ms`
+- `hecate.sandbox.wrapper.kind`
+- `hecate.sandbox.network.enabled`
+- `hecate.sandbox.read_only`
+- `hecate.sandbox.output_limit.bytes`
+- `hecate.tool.timeout_ms`
+- `hecate.tool.exit_code`
+- `hecate.tool.stdout.bytes`
+- `hecate.tool.stderr.bytes`
+- `hecate.tool.timed_out`
+- `hecate.tool.cancelled`
+- `hecate.tool.output_truncated`
+- `hecate.tool.file.operation`
+- `hecate.tool.file.bytes_written`
+- `hecate.tool.file.before_existed`
+- `hecate.tool.file.diff_bytes`
+- `hecate.tool.file.artifact_status`
 - `hecate.artifact.id`
 - `hecate.artifact.kind`
 - `hecate.artifact.size_bytes`
@@ -338,7 +354,13 @@ Generic runtime tool events (`tool.completed`, `tool.failed`) are grouped under
 under `orchestrator.approval` because they represent a gate decision before
 execution.
 
-Steps carry `hecate.step.duration_ms`. Runs carry `hecate.run.duration_ms`. Queue claim events carry `hecate.queue.wait_ms` — the time the run spent in the queue between enqueue and claim.
+Steps carry `hecate.step.duration_ms`. Shell/file tool steps also promote a
+closed allowlist of sandbox/tool attributes such as wrapper kind, timeout,
+exit code, output sizes, truncation, and file patch metadata. Working
+directories and command strings stay in persisted run events, not OTel span
+attributes, to avoid accidental high-cardinality trace dimensions. Runs carry
+`hecate.run.duration_ms`. Queue claim events carry `hecate.queue.wait_ms` —
+the time the run spent in the queue between enqueue and claim.
 
 `agent_loop` runs *also* emit one `turn.completed` per LLM round-trip on the **persisted run-event log** — not the OTel trace. That stream is documented in [`events.md`](events.md#turncompleted) and powers the per-run UI cost ledger and `/v1/events` subscriptions. The OTel side carries duration on the spans above; the cost breakdown lives on the run event.
 
@@ -581,6 +603,7 @@ Working today:
 - W3C TextMap propagator on inbound — `traceparent`, `tracestate`, `baggage` are honored automatically; the gateway becomes a child of the upstream trace
 - W3C TextMap propagator on outbound provider calls — provider discovery, non-streaming chat, and streaming chat carry `traceparent` / `baggage` downstream
 - ACP bridge tracing — `hecate-acp` emits JSON-RPC and gateway-client spans, and propagates trace context into gateway requests
+- Sandbox/tool trace depth — shell and file tool steps expose sandbox wrapper/policy, timeout, exit, output-size, truncation, and file patch metadata through OTel-shaped `hecate.*` attributes
 - Sampler selection: `always_on` / `always_off` / `traceidratio` / `parentbased_*` (default: `parentbased_always_on`)
 - Resource attributes auto-populated (telemetry SDK, host, process; service identity from `GATEWAY_OTEL_SERVICE_*`)
 - Stable span and metric vocabulary (`gen_ai.*` for OTel-standard fields, `hecate.*` for product-specific fields)

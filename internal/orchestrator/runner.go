@@ -26,6 +26,25 @@ import (
 // (HTTP 422) rather than a gateway error (500).
 var ErrAgentLoopMisconfigured = errors.New("agent_loop misconfigured")
 
+var stepTelemetryAttrKeys = []string{
+	telemetry.AttrHecateSandboxWrapperKind,
+	telemetry.AttrHecateSandboxNetworkEnabled,
+	telemetry.AttrHecateSandboxReadOnly,
+	telemetry.AttrHecateSandboxOutputLimit,
+	telemetry.AttrHecateToolTimeoutMS,
+	telemetry.AttrHecateToolExitCode,
+	telemetry.AttrHecateToolStdoutBytes,
+	telemetry.AttrHecateToolStderrBytes,
+	telemetry.AttrHecateToolTimedOut,
+	telemetry.AttrHecateToolCancelled,
+	telemetry.AttrHecateToolOutputTruncated,
+	telemetry.AttrHecateToolFileOperation,
+	telemetry.AttrHecateToolFileBytesWritten,
+	telemetry.AttrHecateToolFileBeforeExisted,
+	telemetry.AttrHecateToolFileDiffBytes,
+	telemetry.AttrHecateToolFileArtifactStatus,
+}
+
 type Config struct {
 	DefaultModel           string
 	ApprovalPolicies       []string
@@ -1377,6 +1396,8 @@ func (r *Runner) executeRun(ctx context.Context, trace *profiler.Trace, task typ
 		if stepDurationMS > 0 {
 			stepAttrs[telemetry.AttrHecateStepDurationMS] = stepDurationMS
 		}
+		mergeStepTelemetryAttrs(stepAttrs, step.Input)
+		mergeStepTelemetryAttrs(stepAttrs, step.OutputSummary)
 		trace.Record(eventName, stepAttrs)
 		r.metrics.RecordStep(ctx, telemetry.StepMetricsRecord{
 			TaskID:     task.ID,
@@ -1552,6 +1573,17 @@ func (r *Runner) executeRun(ctx context.Context, trace *profiler.Trace, task typ
 		TraceID:   trace.TraceID,
 		SpanID:    trace.RootSpanID(),
 	}, nil
+}
+
+func mergeStepTelemetryAttrs(dst map[string]any, src map[string]any) {
+	if len(src) == 0 {
+		return
+	}
+	for _, key := range stepTelemetryAttrKeys {
+		if value, ok := src[key]; ok {
+			dst[key] = value
+		}
+	}
 }
 
 type gitSummaryArtifactPayload struct {
