@@ -1133,6 +1133,26 @@ function renderInline(text: string): React.ReactNode {
         {node.v}
       </code>
     );
+    if (node.t === "link") {
+      return (
+        <a
+          key={i}
+          href={safeMarkdownHref(node.href)}
+          rel="noreferrer"
+          target="_blank"
+          style={{ color: "var(--teal)", textDecoration: "none", borderBottom: "1px solid var(--teal-border)" }}
+        >
+          {node.v}
+        </a>
+      );
+    }
     return node.v;
   });
+}
+
+function safeMarkdownHref(href: string): string {
+  if (/^https?:\/\//i.test(href) || /^mailto:/i.test(href)) {
+    return href;
+  }
+  return "#";
 }

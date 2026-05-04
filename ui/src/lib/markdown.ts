@@ -10,7 +10,8 @@ export type InlineNode =
   | { t: "text"; v: string }
   | { t: "bold"; v: string }
   | { t: "italic"; v: string }
-  | { t: "code"; v: string };
+  | { t: "code"; v: string }
+  | { t: "link"; v: string; href: string };
 
 export function parseMarkdownBlocks(content: string): Block[] {
   const blocks: Block[] = [];
@@ -92,14 +93,16 @@ export function parseMarkdownBlocks(content: string): Block[] {
 
 export function parseInlineNodes(text: string): InlineNode[] {
   const nodes: InlineNode[] = [];
-  const re = /(\*\*(.+?)\*\*|\*(.+?)\*|`(.+?)`)/g;
+  const re = /(\[([^\]\n]+)\]\(([^)\s]+)\)|https?:\/\/[^\s<>)]+|\*\*(.+?)\*\*|\*(.+?)\*|`(.+?)`)/g;
   let last = 0;
   let m: RegExpExecArray | null;
   while ((m = re.exec(text)) !== null) {
     if (m.index > last) nodes.push({ t: "text", v: text.slice(last, m.index) });
-    if (m[0].startsWith("**")) nodes.push({ t: "bold", v: m[2] });
-    else if (m[0].startsWith("`")) nodes.push({ t: "code", v: m[4] });
-    else nodes.push({ t: "italic", v: m[3] });
+    if (m[0].startsWith("[")) nodes.push({ t: "link", v: m[2], href: m[3] });
+    else if (m[0].startsWith("http://") || m[0].startsWith("https://")) nodes.push({ t: "link", v: m[0], href: m[0] });
+    else if (m[0].startsWith("**")) nodes.push({ t: "bold", v: m[4] });
+    else if (m[0].startsWith("`")) nodes.push({ t: "code", v: m[6] });
+    else nodes.push({ t: "italic", v: m[5] });
     last = m.index + m[0].length;
   }
   if (last < text.length) nodes.push({ t: "text", v: text.slice(last) });

@@ -93,14 +93,30 @@ describe("parseInlineNodes", () => {
     ]);
   });
 
+  it("parses markdown links", () => {
+    expect(parseInlineNodes("open [Hecate](https://github.com/chicoxyzzy/hecate)")).toEqual([
+      { t: "text", v: "open " },
+      { t: "link", v: "Hecate", href: "https://github.com/chicoxyzzy/hecate" },
+    ]);
+  });
+
+  it("parses bare http links", () => {
+    expect(parseInlineNodes("see https://example.com/docs")).toEqual([
+      { t: "text", v: "see " },
+      { t: "link", v: "https://example.com/docs", href: "https://example.com/docs" },
+    ]);
+  });
+
   it("handles mixed inline markup", () => {
-    const nodes = parseInlineNodes("**bold** and `code` and *em*");
+    const nodes = parseInlineNodes("**bold** and `code` and *em* and [docs](https://example.com)");
     expect(nodes).toEqual([
       { t: "bold",   v: "bold" },
       { t: "text",   v: " and " },
       { t: "code",   v: "code" },
       { t: "text",   v: " and " },
       { t: "italic", v: "em" },
+      { t: "text",   v: " and " },
+      { t: "link",   v: "docs", href: "https://example.com" },
     ]);
   });
 
