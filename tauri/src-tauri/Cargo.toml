@@ -1,6 +1,6 @@
 [package]
 name = "hecate-app"
-version = "0.1.0-alpha.13"
+version = "0.1.0-alpha.14"
 description = "Hecate — AI gateway and agent-task runtime"
 authors = ["Hecate contributors"]
 license = "Apache-2.0"
