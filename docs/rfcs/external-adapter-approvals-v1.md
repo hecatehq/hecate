@@ -25,7 +25,7 @@ Before this document can be treated as candidate-stable:
   agreed and have a sqlite schema. _(Status: open)_
 - ACP permission options' free-form `id` and `name` fields are mapped to
   Hecate's stable decision shape without losing adapter intent. _(Status: open)_
-- A timeout-driven default behavior is decided so an unattended Hecate
+- A timeout-driven behavior is decided so an unattended Hecate
   doesn't deadlock indefinitely on a forgotten dialog. _(Status: open)_
 - At least one adapter (Codex *or* Claude Code) is wired end-to-end with a
   smoke test covering allow / deny / always-allow / timeout. _(Status: open)_
@@ -81,10 +81,10 @@ agent_chat_approval
   message_id      ULID  (the prompt turn that triggered it)
   adapter_id      string ("codex" | "claude_code" | "cursor_agent" | …)
   status          string ("pending" | "approved" | "denied" | "timed_out" | "cancelled")
-  acp_payload     jsonb  (the original RequestPermissionRequest, verbatim)
-  acp_options     jsonb  ([{option_id, kind, name}, …] from the adapter)
+  acp_payload     json   (the original RequestPermissionRequest, verbatim)
+  acp_options     json   ([{option_id, kind, name}, …] from the adapter)
   selected_option string (filled when status=approved/denied; null otherwise)
-  scope           string ("once" | "session" | "adapter_tool" | "workspace_tool")
+  scope           string ("once" | "session" | "workspace_tool" | "adapter_tool")
   decision_note   string (optional operator note)
   created_at      RFC3339 nano
   resolved_at     RFC3339 nano (null while pending)
@@ -106,10 +106,10 @@ decision. v1 supports four scopes, in increasing breadth:
 
 | Scope | Re-prompts when… | ACP option this maps to |
 |---|---|---|
-| `once` | every subsequent matching request | `allow_once` (or first allow option) |
+| `once` | every subsequent matching request | explicitly selected `allow_once`-style option |
 | `session` | re-asked next session, but auto-applied within this one | `allow_always` (when adapter scopes "always" to its session) |
-| `adapter_tool` | re-asked for a different tool, but auto-applied for this `(adapter, tool_name)` pair across sessions | (no native ACP equivalent — Hecate-side cache) |
 | `workspace_tool` | re-asked for the same `(adapter, tool_name)` in a different workspace | (no native ACP equivalent — Hecate-side cache) |
+| `adapter_tool` | re-asked for a different tool, but auto-applied for this `(adapter, tool_name)` pair across sessions | (no native ACP equivalent — Hecate-side cache) |
 
 Decisions broader than `once` persist in a new `agent_chat_approval_grants`
 table:
@@ -117,19 +117,19 @@ table:
 ```
 agent_chat_approval_grants
   id              ULID
-  scope           string ("session" | "adapter_tool" | "workspace_tool")
+  scope           string ("session" | "workspace_tool" | "adapter_tool")
   adapter_id      string
   tool_kind       string  (extracted from acp_payload — see "Tool kind extraction")
-  workspace       string  (canonical workspace path; null for adapter_tool)
+  workspace       string  (canonical workspace path; null unless scope=workspace_tool)
   session_id      ULID    (only for scope=session; null otherwise)
   decision        string  ("approve" | "deny")
   granted_by      string  (operator user-agent fingerprint or "operator")
   granted_at      RFC3339 nano
-  expires_at      RFC3339 nano (null = no expiry; v1 default = 7d for session, 30d for adapter_tool, 90d for workspace_tool — configurable)
+  expires_at      RFC3339 nano (null = no expiry; v1 default = 7d for session, 90d for workspace_tool, 30d for adapter_tool — configurable)
 ```
 
 When a new `RequestPermission` arrives, the session manager checks the grants
-table in scope-narrowest-first order (session → adapter_tool → workspace_tool).
+table from most-specific to broadest (session → workspace_tool → adapter_tool).
 A matching grant short-circuits the operator prompt; the resolution still gets
 recorded as an `agent_chat_approval` row with `status=approved/denied` and
 `scope` of the matching grant, so the audit trail stays complete.
@@ -158,24 +158,25 @@ actually asking for, not a sanitized lie.
 
 ### Default behavior + migration knob
 
-Today's behavior is auto-approve. Switching to operator-prompt is a behavior
-change for existing chats. v1 ships behind a config var:
+Today's behavior is auto-approve. Because External Agent Adapters are still
+alpha, v1 intentionally makes the breaking safety change now: operator-prompt
+is the default. A config var remains for explicit batch / smoke-test modes:
 
 ```
 GATEWAY_AGENT_ADAPTER_APPROVAL_MODE=auto|prompt|deny
                                        │     │     └─ auto-deny everything (smoke tests, audit mode)
-                                       │     └─ ask the operator (default for v1.0+)
-                                       └─ today's behavior, default for v1.0-rc
+                                       │     └─ ask the operator (default)
+                                       └─ auto-approve everything; danger mode, explicit only
 ```
 
-Migration plan:
+Rollout plan:
 
-- v1.0-rc: default `auto`, `prompt` is opt-in. Operator UI surfaces the
-  approvals tab even in `auto` mode (read-only) so users see what's being
-  auto-approved and can audit.
-- v1.0: default `prompt`. Operators who want the old behavior set
-  `GATEWAY_AGENT_ADAPTER_APPROVAL_MODE=auto` explicitly.
-- v1.1+: `auto` becomes a "danger" mode with a startup warning banner.
+- v1 lands with default `prompt`. This is a breaking alpha behavior change.
+- `auto` is available only as an explicit danger mode for batch / CI usage and
+  local smoke tests.
+- `deny` is useful for audit mode and unattended runs where adapter tool use
+  must not proceed.
+- Startup and the UI should clearly label `auto` as unsafe when enabled.
 
 ### Timeout policy
 
@@ -196,8 +197,9 @@ the action." The adapter is free to retry the action on the next prompt.
 
 ## API surface
 
-All endpoints are loopback-only and same-origin enforced (Hecate's existing
-threat model).
+All endpoints are served by the gateway and covered by Hecate's existing access
+model: loopback by default, same-origin checks for browser requests, and no
+built-in auth boundary if the operator binds the gateway elsewhere.
 
 ### Pending list
 
@@ -226,7 +228,7 @@ oldest pending first.
         { "option_id": "allow_always_for_session", "kind": "allow_always", "name": "Allow for this session" },
         { "option_id": "deny_once", "kind": "reject_once", "name": "Deny" }
       ],
-      "scope_choices": ["once", "session", "adapter_tool", "workspace_tool"],
+      "scope_choices": ["once", "session", "workspace_tool", "adapter_tool"],
       "created_at": "2026-05-04T10:23:45.123Z",
       "expires_at": "2026-05-04T10:28:45.123Z",
       "request_id": "req_01JX...",
@@ -248,7 +250,7 @@ GET /v1/agent-chat/sessions/{id}/approvals/{approval_id}
 POST /v1/agent-chat/sessions/{id}/approvals/{approval_id}/resolve
 {
   "decision": "approve",          // "approve" | "deny"
-  "scope":    "session",          // "once" | "session" | "adapter_tool" | "workspace_tool"
+  "scope":    "session",          // "once" | "session" | "workspace_tool" | "adapter_tool"
   "selected_option": "allow_always_for_session",  // optional; the adapter's option_id
   "note":     "checked the diff manually"         // optional
 }
@@ -256,10 +258,11 @@ POST /v1/agent-chat/sessions/{id}/approvals/{approval_id}/resolve
 
 Returns the resolved approval (`status=approved | denied`, `resolved_at` set).
 
-If `selected_option` is omitted, Hecate picks the canonical option for the
-decision: the first `allow_*` option for `approve`, the first `reject_*` for
-`deny`. If neither shape exists, Hecate falls back to the ACP `Cancelled`
-outcome.
+If `selected_option` is omitted, Hecate resolves only when the adapter option
+list contains exactly one normalized option for the chosen decision. Ambiguous
+option lists return a `409 conflict` with the available options so the frontend
+can ask the operator to choose explicitly. If no matching option exists, Hecate
+falls back to the ACP `Cancelled` outcome.
 
 ### Cancel (operator-initiated)
 
@@ -336,7 +339,7 @@ New OTel instruments under `hecate.agent_adapter.approval.*`:
 | Instrument | Type | Labels | Meaning |
 |---|---|---|---|
 | `hecate.agent_adapter.approval.requested_total` | counter | `adapter`, `tool_kind` | Approval requests received from adapters. |
-| `hecate.agent_adapter.approval.resolved_total` | counter | `adapter`, `tool_kind`, `decision`, `scope`, `path` (`operator` / `grant` / `default_mode`) | How approvals get resolved — by operator, by a pre-existing grant, or by the configured default mode. |
+| `hecate.agent_adapter.approval.resolved_total` | counter | `adapter`, `tool_kind`, `decision`, `scope`, `path` (`operator` / `grant` / `default_mode`) | How approvals get resolved — by operator, by a pre-existing grant, or by the configured default mode (`auto` / `deny`). |
 | `hecate.agent_adapter.approval.timed_out_total` | counter | `adapter`, `tool_kind` | Approvals that hit the timeout. |
 | `hecate.agent_adapter.approval.duration_ms` | histogram | `adapter`, `tool_kind`, `path` | Time from request to resolution. Buckets: `[100, 500, 1k, 5k, 30k, 60k, 300k]`. |
 | `hecate.agent_adapter.approval.grants_active` | gauge | `scope` | Current count of active grants. |
@@ -417,28 +420,26 @@ These need resolution before this draft can become v1.0 stable.
 
 ## Migration plan
 
-1. **Land the wire shape, persistence, and `mode=auto` retention** behind
-   `GATEWAY_AGENT_ADAPTER_APPROVAL_MODE` (defaults to current
-   auto-approve behavior). No UI yet. Approvals are recorded but
-   auto-resolved with `path=default_mode`. Audit-only.
+1. **Land the wire shape, persistence, and prompt-mode default** behind
+   `GATEWAY_AGENT_ADAPTER_APPROVAL_MODE`. The default is `prompt`; explicit
+   `auto` and `deny` modes still record approvals with `path=default_mode`.
 
 2. **Wire the SSE `approval.requested` / `approval.resolved` events**
-   without changing default behavior. Frontends start consuming.
+   before enabling the UI flow. Frontends start consuming the contract.
 
 3. **Land the operator UI** — pending banner + modal + grants management.
-   Default still `auto`. Operators who set `mode=prompt` get the new
-   experience.
+   Operators get the new prompt flow by default.
 
-4. **Flip default to `mode=prompt`.** Release notes call out the
-   behavior change. `mode=auto` becomes opt-in.
+4. **Document explicit `auto` mode.** Release notes call out the behavior
+   change from the previous alpha auto-approve stub. `mode=auto` is opt-in and
+   labeled unsafe.
 
 5. **Stable.** Telemetry confirms operators are using the surface;
    timeout rates and deny rates are healthy.
 
 Estimated wall-clock: 2.5–3 weeks. The persistence + wire shape is
 ~3 days; the SSE integration is ~2 days; the UI is ~1 week (modal +
-grants management); migration + tests + docs is ~3 days. Default flip is
-a follow-up.
+grants management); migration + tests + docs is ~3 days.
 
 ## What this unlocks
 
@@ -455,14 +456,14 @@ When this lands:
   `task_approvals` with a discriminator; the rest of the model already
   matches).
 - An "auto-approve" mode for batch / CI usage stays explicit and gated
-  by an env var, not a silent default.
+  by an env var, never a silent default.
 
 ## Next steps
 
 1. Land this RFC. Solicit feedback on the open questions, especially #2
    (tool-kind extraction) and #5 (unattended-mode behavior).
-2. Implement persistence + auto-mode telemetry as the smallest first slice
-   (no behavior change for users, full audit shape recorded).
+2. Implement persistence + default prompt-mode handling as the smallest first
+   slice (including explicit `auto` / `deny` default-mode telemetry).
 3. SSE event integration; first frontend (web UI) consumes.
 4. Operator UI — pending banner + modal + grants management.
-5. Default flip to `prompt`. Release notes + migration guidance.
+5. Release notes + migration guidance for the alpha behavior change.
