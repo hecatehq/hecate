@@ -256,12 +256,13 @@ func (h *Handler) HandleCreateAgentChatMessage(w http.ResponseWriter, r *http.Re
 		runner = agentadapters.NewSessionManager()
 	}
 	result, runErr := runner.Run(runCtx, agentadapters.RunRequest{
-		SessionID:      session.ID,
-		AdapterID:      adapter.ID,
-		Workspace:      session.Workspace,
-		Prompt:         content,
-		Timeout:        agentChatTimeout,
-		MaxOutputBytes: agentChatMaxOutputBytes,
+		SessionID:               session.ID,
+		AdapterID:               adapter.ID,
+		Workspace:               session.Workspace,
+		PreviousNativeSessionID: session.NativeSessionID,
+		Prompt:                  content,
+		Timeout:                 agentChatTimeout,
+		MaxOutputBytes:          agentChatMaxOutputBytes,
 		OnOutput: func(chunk string) {
 			if chunk == "" {
 				return
@@ -366,7 +367,9 @@ func (h *Handler) HandleCreateAgentChatMessage(w http.ResponseWriter, r *http.Re
 		message.StartedAt = startedAt
 		message.CompletedAt = completedAt
 		message.Error = errorText
-		if result.SessionStarted {
+		if result.SessionResumed {
+			message.Activities = append([]agentchat.Activity{newAgentChatActivity("resumed", "completed", "Resumed external session", adapter.Name+" restored "+result.NativeSessionID)}, message.Activities...)
+		} else if result.SessionStarted {
 			message.Activities = append([]agentchat.Activity{newAgentChatActivity("started", "completed", "Starting external agent", adapter.Name+" in "+session.Workspace)}, message.Activities...)
 		}
 		if result.DiffStat != "" {

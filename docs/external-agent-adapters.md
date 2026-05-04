@@ -10,6 +10,13 @@ prompts over ACP, records the normalized transcript plus raw ACP updates, and
 captures timing, workspace branch, and Git diff. Cost is still reported as
 `external` unless a future adapter supplies structured usage.
 
+Chat transcripts are durable when `GATEWAY_CHAT_SESSIONS_BACKEND=sqlite`.
+Hecate also stores the native ACP session id. After a gateway or native-app
+restart, the next prompt asks the adapter to `session/load` that native session
+when the adapter advertises ACP load-session support. If the adapter cannot load
+the saved id, Hecate starts a fresh native session and keeps the existing
+Hecate transcript.
+
 ## Supported adapters
 
 | Adapter | How Hecate starts it | Auth expected by the underlying agent |

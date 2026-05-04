@@ -55,13 +55,14 @@ type Status struct {
 type LookupFunc func(file string) (string, error)
 
 type RunRequest struct {
-	SessionID      string
-	AdapterID      string
-	Workspace      string
-	Prompt         string
-	Timeout        time.Duration
-	MaxOutputBytes int64
-	OnOutput       func(string)
+	SessionID               string
+	AdapterID               string
+	Workspace               string
+	PreviousNativeSessionID string
+	Prompt                  string
+	Timeout                 time.Duration
+	MaxOutputBytes          int64
+	OnOutput                func(string)
 }
 
 type RunResult struct {
@@ -69,6 +70,7 @@ type RunResult struct {
 	DriverKind      string
 	NativeSessionID string
 	SessionStarted  bool
+	SessionResumed  bool
 	Output          string
 	RawOutput       string
 	ExitCode        int
