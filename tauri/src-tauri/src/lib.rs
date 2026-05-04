@@ -62,7 +62,7 @@ fn open_path(path: &Path) -> Result<(), String> {
 }
 
 fn install_menu(app: &mut tauri::App) -> tauri::Result<()> {
-    let help = SubmenuBuilder::new(app, "Hecate")
+    let app_menu = SubmenuBuilder::new(app, "Hecate")
         .text("open-hecate", "Open Hecate")
         .separator()
         .text("open-gateway-log", "Open Gateway Log")
@@ -70,7 +70,16 @@ fn install_menu(app: &mut tauri::App) -> tauri::Result<()> {
         .separator()
         .text("quit-hecate", "Quit Hecate")
         .build()?;
-    let menu = MenuBuilder::new(app).item(&help).build()?;
+    let edit = SubmenuBuilder::new(app, "Edit")
+        .undo()
+        .redo()
+        .separator()
+        .cut()
+        .copy()
+        .paste()
+        .select_all()
+        .build()?;
+    let menu = MenuBuilder::new(app).item(&app_menu).item(&edit).build()?;
     app.set_menu(menu).map(|_| ())
 }
 
