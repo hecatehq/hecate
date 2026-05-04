@@ -62,6 +62,7 @@ func TestManagerRunFiltersSubsystems(t *testing.T) {
 		fakeAuditPruner{deleted: 3},
 		nil,
 		fakeTurnEventPruner{deleted: 6},
+		nil,
 		NewMemoryHistoryStore(),
 	)
 
@@ -75,8 +76,8 @@ func TestManagerRunFiltersSubsystems(t *testing.T) {
 	if result.Trigger != "manual" {
 		t.Fatalf("trigger = %q, want manual", result.Trigger)
 	}
-	if len(result.Results) != 5 {
-		t.Fatalf("results = %d, want 5", len(result.Results))
+	if len(result.Results) != 6 {
+		t.Fatalf("results = %d, want 6", len(result.Results))
 	}
 
 	if result.Results[1].Name != SubsystemBudgetEvents || result.Results[1].Deleted != 2 {
@@ -112,6 +113,7 @@ func TestManagerRunPersistsHistory(t *testing.T) {
 		fakeAuditPruner{deleted: 3},
 		nil,
 		fakeTurnEventPruner{deleted: 6},
+		nil,
 		history,
 	)
 
@@ -134,7 +136,7 @@ func TestManagerRunPersistsHistory(t *testing.T) {
 	if runs[0].RequestID != "req-1" {
 		t.Fatalf("request_id = %q, want req-1", runs[0].RequestID)
 	}
-	if len(runs[0].Results) != 5 {
-		t.Fatalf("results = %d, want 5", len(runs[0].Results))
+	if len(runs[0].Results) != 6 {
+		t.Fatalf("results = %d, want 6", len(runs[0].Results))
 	}
 }

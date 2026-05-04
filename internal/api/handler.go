@@ -60,6 +60,20 @@ type Handler struct {
 	// same instance into the cache.
 	orchestratorMetrics *telemetry.OrchestratorMetrics
 	agentChatMetrics    *telemetry.AgentChatMetrics
+	// approvalConfig retains the inputs needed to rebuild the
+	// ApprovalCoordinator if SetAgentApprovalStore replaces its
+	// backing store after NewHandler returned.
+	approvalConfig approvalConfig
+}
+
+// approvalConfig bundles everything the coordinator needs apart from
+// the store, so SetAgentApprovalStore can swap stores without
+// re-deriving mode/timeout/hook closures.
+type approvalConfig struct {
+	mode    agentadapters.ApprovalMode
+	timeout time.Duration
+	logger  *slog.Logger
+	hooks   agentadapters.CoordinatorHooks
 }
 
 // OrchestratorMetrics returns the metrics instance the runner is using.
@@ -204,41 +218,18 @@ func NewHandler(cfg config.Config, logger *slog.Logger, service *gateway.Service
 			slog.String("warning", "GATEWAY_AGENT_ADAPTER_APPROVAL_MODE=auto: every adapter RequestPermission is auto-approved with no operator review"),
 		)
 	}
+	approvalHooks := buildApprovalCoordinatorHooks(approvalMode, agentApprovalMetrics)
+	approvalCfg := approvalConfig{
+		mode:    approvalMode,
+		timeout: cfg.Server.AgentAdapterApprovalTimeout,
+		logger:  logger,
+		hooks:   approvalHooks,
+	}
 	approvalCoordinator := agentadapters.NewApprovalCoordinator(agentadapters.CoordinatorOptions{
-		Mode:    approvalMode,
-		Timeout: cfg.Server.AgentAdapterApprovalTimeout,
-		Logger:  logger,
-		Hooks: agentadapters.CoordinatorHooks{
-			OnRequested: func(a agentadapters.Approval) {
-				agentApprovalMetrics.RecordRequested(context.Background(), telemetry.AgentAdapterApprovalRequestRecord{
-					AdapterID: a.AdapterID,
-					ToolKind:  a.ToolKind,
-					Mode:      string(approvalMode),
-				})
-			},
-			OnResolved: func(a agentadapters.Approval, durationMS int64) {
-				agentApprovalMetrics.RecordResolved(context.Background(), telemetry.AgentAdapterApprovalResolveRecord{
-					AdapterID:  a.AdapterID,
-					ToolKind:   a.ToolKind,
-					Mode:       string(approvalMode),
-					Decision:   string(a.Decision),
-					Scope:      string(a.Scope),
-					Path:       string(a.Path),
-					Status:     string(a.Status),
-					DurationMS: durationMS,
-				})
-			},
-			OnTimedOut: func(a agentadapters.Approval, durationMS int64) {
-				agentApprovalMetrics.RecordResolved(context.Background(), telemetry.AgentAdapterApprovalResolveRecord{
-					AdapterID:  a.AdapterID,
-					ToolKind:   a.ToolKind,
-					Mode:       string(approvalMode),
-					Path:       string(agentadapters.PathTimeout),
-					Status:     string(agentadapters.ApprovalStatusTimedOut),
-					DurationMS: durationMS,
-				})
-			},
-		},
+		Mode:    approvalCfg.mode,
+		Timeout: approvalCfg.timeout,
+		Logger:  approvalCfg.logger,
+		Hooks:   approvalCfg.hooks,
 	})
 	agentChatRunner.SetApprovalCoordinator(approvalCoordinator)
 
@@ -257,7 +248,35 @@ func NewHandler(cfg config.Config, logger *slog.Logger, service *gateway.Service
 		agentChatLive:       newAgentChatLive(),
 		orchestratorMetrics: orchestratorMetrics,
 		agentChatMetrics:    agentChatMetrics,
+		approvalConfig:      approvalCfg,
 	}
+}
+
+// SetAgentApprovalStore swaps in a durable approval store and rebuilds
+// the coordinator that's already wired into the SessionManager. Called
+// from cmd/hecate after the store is constructed (and after startup
+// reconcile has run). Safe to call repeatedly; the previous coordinator
+// is replaced atomically inside the SessionManager.
+//
+// Hooks, mode, and timeout are reused from the original NewHandler call
+// — this method only swaps the persistence layer. Tests that don't call
+// it keep the default in-memory store wired during construction.
+func (h *Handler) SetAgentApprovalStore(store agentadapters.ApprovalStore) {
+	if store == nil {
+		return
+	}
+	mgr, ok := h.agentChatRunner.(*agentadapters.SessionManager)
+	if !ok {
+		return
+	}
+	coord := agentadapters.NewApprovalCoordinator(agentadapters.CoordinatorOptions{
+		Mode:    h.approvalConfig.mode,
+		Timeout: h.approvalConfig.timeout,
+		Store:   store,
+		Logger:  h.approvalConfig.logger,
+		Hooks:   h.approvalConfig.hooks,
+	})
+	mgr.SetApprovalCoordinator(coord)
 }
 
 func (h *Handler) SetAgentChatStore(store agentchat.Store) {
@@ -469,4 +488,42 @@ func (h *Handler) checkRateLimit(w http.ResponseWriter, keyID string) bool {
 		return false
 	}
 	return true
+}
+
+// buildApprovalCoordinatorHooks returns the OnRequested / OnResolved /
+// OnTimedOut callbacks that emit approval.* OTel metrics. Extracted so
+// SetAgentApprovalStore can rebuild the coordinator with the same
+// hook set when it swaps the store.
+func buildApprovalCoordinatorHooks(mode agentadapters.ApprovalMode, metrics *telemetry.AgentAdapterApprovalMetrics) agentadapters.CoordinatorHooks {
+	return agentadapters.CoordinatorHooks{
+		OnRequested: func(a agentadapters.Approval) {
+			metrics.RecordRequested(context.Background(), telemetry.AgentAdapterApprovalRequestRecord{
+				AdapterID: a.AdapterID,
+				ToolKind:  a.ToolKind,
+				Mode:      string(mode),
+			})
+		},
+		OnResolved: func(a agentadapters.Approval, durationMS int64) {
+			metrics.RecordResolved(context.Background(), telemetry.AgentAdapterApprovalResolveRecord{
+				AdapterID:  a.AdapterID,
+				ToolKind:   a.ToolKind,
+				Mode:       string(mode),
+				Decision:   string(a.Decision),
+				Scope:      string(a.Scope),
+				Path:       string(a.Path),
+				Status:     string(a.Status),
+				DurationMS: durationMS,
+			})
+		},
+		OnTimedOut: func(a agentadapters.Approval, durationMS int64) {
+			metrics.RecordResolved(context.Background(), telemetry.AgentAdapterApprovalResolveRecord{
+				AdapterID:  a.AdapterID,
+				ToolKind:   a.ToolKind,
+				Mode:       string(mode),
+				Path:       string(agentadapters.PathTimeout),
+				Status:     string(agentadapters.ApprovalStatusTimedOut),
+				DurationMS: durationMS,
+			})
+		},
+	}
 }

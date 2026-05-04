@@ -307,8 +307,11 @@ func TestCoordinatorModePromptCancelsWithoutUI(t *testing.T) {
 		Hooks: CoordinatorHooks{
 			OnTimedOut: func(_ Approval, durationMS int64) {
 				timedOut++
-				if durationMS != timeout.Milliseconds() {
-					t.Fatalf("durationMS = %d, want %d", durationMS, timeout.Milliseconds())
+				// Real wall-clock between createdAt and timeout fire;
+				// must be >= configured timeout but the upper bound is
+				// scheduler-dependent.
+				if durationMS < timeout.Milliseconds() {
+					t.Fatalf("durationMS = %d, want >= %d", durationMS, timeout.Milliseconds())
 				}
 			},
 		},

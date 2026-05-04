@@ -135,15 +135,18 @@ type Grant struct {
 	ExpiresAt *time.Time       `json:"expires_at,omitempty"`
 }
 
-// ApprovalStore is the persistence interface. Slice 1A ships an
-// in-memory implementation; slice 1B adds sqlite.
+// ApprovalStore is the persistence interface. Memory and SQLite
+// backends both implement it. Backend selection is wired in
+// cmd/hecate, keyed off GATEWAY_CHAT_SESSIONS_BACKEND.
 type ApprovalStore interface {
 	// CreateApproval persists a pending approval and returns the row
 	// with its assigned ID + timestamps filled in.
 	CreateApproval(ctx context.Context, a Approval) (Approval, error)
 
 	// ResolveApproval transitions a pending approval to a terminal
-	// status. Returns the updated row.
+	// status. Returns the updated row. Returns ErrApprovalNotFound
+	// when id is unknown and ErrApprovalAlreadyResolved when the row
+	// is already terminal — the second writer always loses the race.
 	ResolveApproval(ctx context.Context, id string, status ApprovalStatus, decision ApprovalDecision, selectedOption string, scope ApprovalScope, path ApprovalResolutionPath, note string, resolvedAt time.Time) (Approval, error)
 
 	// GetApproval fetches an approval by id.
@@ -153,12 +156,49 @@ type ApprovalStore interface {
 	// status="" returns all statuses; otherwise filters.
 	ListApprovals(ctx context.Context, sessionID string, status ApprovalStatus) ([]Approval, error)
 
+	// CreateGrant persists an operator-authored "always allow / always
+	// deny" grant. Used by the coordinator when scope > once.
+	CreateGrant(ctx context.Context, g Grant) (Grant, error)
+
+	// ListGrants returns grants matching the filter, newest-first.
+	// Expired grants (ExpiresAt <= now) are excluded.
+	ListGrants(ctx context.Context, filter GrantFilter, now time.Time) ([]Grant, error)
+
+	// DeleteGrant removes a grant by id. Returns ErrApprovalNotFound
+	// when the id is unknown so the HTTP layer can surface 404.
+	DeleteGrant(ctx context.Context, id string) error
+
 	// FindMatchingGrant returns the most-specific live grant for the
 	// given (sessionID, workspace, adapterID, toolKind) tuple, or
 	// (Grant{}, false). Lookup walks scopes session → workspace_tool →
 	// adapter_tool, returning the first match. Expired grants are
 	// ignored. The returned grant carries the operator's decision.
 	FindMatchingGrant(ctx context.Context, sessionID, workspace, adapterID, toolKind string, now time.Time) (Grant, bool, error)
+}
+
+// ApprovalRetentionStore extends ApprovalStore with maintenance
+// operations the retention worker calls. Memory and SQLite both
+// satisfy it; the type assertion in the worker keeps the smaller
+// ApprovalStore interface clean for the coordinator.
+type ApprovalRetentionStore interface {
+	ApprovalStore
+
+	// PruneApprovals deletes resolved (non-pending) approval rows
+	// older than maxAge OR beyond maxCount, whichever fires.
+	// Pending rows are never pruned. Returns total deleted.
+	PruneApprovals(ctx context.Context, now time.Time, maxAge time.Duration, maxCount int) (int64, error)
+
+	// PruneExpiredGrants removes grants whose ExpiresAt is in the
+	// past. Live grants (no expiry, or future expiry) are never
+	// touched. Returns total deleted.
+	PruneExpiredGrants(ctx context.Context, now time.Time) (int64, error)
+
+	// ReconcilePending sweeps any pending approval rows from a prior
+	// process and marks them status=timed_out, path=startup_reconcile.
+	// Process-local waiters can't be resurrected; callers must invoke
+	// this at startup before serving requests. Returns rows
+	// reconciled.
+	ReconcilePending(ctx context.Context, now time.Time) (int64, error)
 }
 
 // ErrApprovalNotFound is returned by ApprovalStore.GetApproval and
@@ -848,12 +888,8 @@ func (c *ApprovalCoordinator) Resolve(ctx context.Context, id string, req Resolv
 		if req.Scope == ApprovalScopeSession {
 			grant.SessionID = row.SessionID
 		}
-		if memStore, ok := c.opts.Store.(*MemoryApprovalStore); ok {
-			if _, gerr := memStore.CreateGrant(ctx, grant); gerr != nil {
-				c.logf("approval_grant_create_failed", gerr, RecordingContext{SessionID: row.SessionID, AdapterID: row.AdapterID, Workspace: row.Workspace}, row.ToolKind)
-			}
-		} else {
-			c.logf("approval_grant_unsupported_backend", fmt.Errorf("store does not implement CreateGrant"), RecordingContext{SessionID: row.SessionID, AdapterID: row.AdapterID, Workspace: row.Workspace}, row.ToolKind)
+		if _, gerr := c.opts.Store.CreateGrant(ctx, grant); gerr != nil {
+			c.logf("approval_grant_create_failed", gerr, RecordingContext{SessionID: row.SessionID, AdapterID: row.AdapterID, Workspace: row.Workspace}, row.ToolKind)
 		}
 	}
 
@@ -896,24 +932,15 @@ func (c *ApprovalCoordinator) ListApprovals(ctx context.Context, sessionID strin
 	return c.opts.Store.ListApprovals(ctx, sessionID, status)
 }
 
-// ListGrants returns grants matching the filter (memory-only in
-// slice 1B). Empty filter returns all live grants. Expired grants
-// are excluded.
+// ListGrants returns grants matching the filter. Empty filter returns
+// all live grants. Expired grants are excluded.
 func (c *ApprovalCoordinator) ListGrants(ctx context.Context, filter GrantFilter) ([]Grant, error) {
-	memStore, ok := c.opts.Store.(*MemoryApprovalStore)
-	if !ok {
-		return nil, fmt.Errorf("store does not support grant listing")
-	}
-	return memStore.ListGrants(ctx, filter, c.opts.NowFunc())
+	return c.opts.Store.ListGrants(ctx, filter, c.opts.NowFunc())
 }
 
-// DeleteGrant removes a grant by id (memory-only in slice 1B).
+// DeleteGrant removes a grant by id.
 func (c *ApprovalCoordinator) DeleteGrant(ctx context.Context, id string) error {
-	memStore, ok := c.opts.Store.(*MemoryApprovalStore)
-	if !ok {
-		return fmt.Errorf("store does not support grant deletion")
-	}
-	return memStore.DeleteGrant(ctx, id)
+	return c.opts.Store.DeleteGrant(ctx, id)
 }
 
 // pickOperatorOption resolves the operator's decision to a concrete
@@ -1029,4 +1056,94 @@ func (s *MemoryApprovalStore) DeleteGrant(_ context.Context, id string) error {
 	}
 	delete(s.grants, id)
 	return nil
+}
+
+// PruneApprovals deletes resolved approval rows older than maxAge or
+// beyond maxCount. Mirrors the SQLite store's behavior so the
+// retention worker can dispatch through ApprovalRetentionStore
+// without caring which backend is wired. Pending rows are never
+// auto-pruned.
+func (s *MemoryApprovalStore) PruneApprovals(_ context.Context, now time.Time, maxAge time.Duration, maxCount int) (int64, error) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	if now.IsZero() {
+		now = time.Now().UTC()
+	}
+	var deleted int64
+	if maxAge > 0 {
+		cutoff := now.Add(-maxAge)
+		for id, row := range s.approvals {
+			if row.Status == ApprovalStatusPending {
+				continue
+			}
+			if row.CreatedAt.Before(cutoff) {
+				delete(s.approvals, id)
+				deleted++
+			}
+		}
+	}
+	if maxCount > 0 {
+		// Collect non-pending rows, sort newest-first, drop the tail.
+		resolved := make([]Approval, 0, len(s.approvals))
+		for _, row := range s.approvals {
+			if row.Status != ApprovalStatusPending {
+				resolved = append(resolved, row)
+			}
+		}
+		sort.Slice(resolved, func(i, j int) bool { return resolved[i].CreatedAt.After(resolved[j].CreatedAt) })
+		for i := maxCount; i < len(resolved); i++ {
+			delete(s.approvals, resolved[i].ID)
+			deleted++
+		}
+	}
+	return deleted, nil
+}
+
+// PruneExpiredGrants removes grants whose ExpiresAt has passed. Live
+// grants are never touched; the retention worker must not erase
+// operator-authored intent.
+func (s *MemoryApprovalStore) PruneExpiredGrants(_ context.Context, now time.Time) (int64, error) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	if now.IsZero() {
+		now = time.Now().UTC()
+	}
+	var deleted int64
+	for id, g := range s.grants {
+		if g.ExpiresAt != nil && !g.ExpiresAt.After(now) {
+			delete(s.grants, id)
+			deleted++
+		}
+	}
+	return deleted, nil
+}
+
+// ReconcilePending sweeps pending rows and marks them timed_out
+// with path=startup_reconcile. The memory backend never has rows
+// surviving a restart in practice (the map is process-local), but
+// the method exists so memory and sqlite share the
+// ApprovalRetentionStore surface. Returns 0 on a normal startup;
+// non-zero only if the same process is restarted in-place (rare;
+// e.g. tests).
+func (s *MemoryApprovalStore) ReconcilePending(_ context.Context, now time.Time) (int64, error) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	if now.IsZero() {
+		now = time.Now().UTC()
+	}
+	const note = "process-local waiter lost on restart; reconciled at startup"
+	var rec int64
+	for id, row := range s.approvals {
+		if row.Status != ApprovalStatusPending {
+			continue
+		}
+		row.Status = ApprovalStatusTimedOut
+		row.Path = ApprovalResolutionPath("startup_reconcile")
+		row.DecisionNote = note
+		t := now.UTC()
+		row.ResolvedAt = &t
+		s.approvals[id] = row
+		rec++
+	}
+	return rec, nil
 }
