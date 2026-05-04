@@ -4,18 +4,19 @@ Hecate can run external coding-agent CLIs from the **Chats** view. This is for
 using Codex, Claude Code, Cursor Agent, and later similar tools through the same
 operator console used for model chat.
 
-External agents are not model providers. They are supervised local processes
-running in a selected workspace. Hecate records their transcript, raw output,
-status, timing, workspace branch, and captured Git diff, but cost is still
-reported as `external` unless a future adapter supplies structured usage.
+External agents are not model providers. They are long-lived ACP agent sessions
+running in a selected workspace. Hecate supervises the adapter process, forwards
+prompts over ACP, records the normalized transcript plus raw ACP updates, and
+captures timing, workspace branch, and Git diff. Cost is still reported as
+`external` unless a future adapter supplies structured usage.
 
 ## Supported adapters
 
-| Adapter | Command | Auth expected by the CLI |
+| Adapter | Command Hecate starts | Auth expected by the underlying agent |
 |---|---|---|
-| Codex | `codex` | Codex CLI login / config |
-| Claude Code | `claude` | Claude Code login / config |
-| Cursor Agent | `cursor-agent` | `cursor-agent login` or `CURSOR_API_KEY` |
+| Codex | `codex-acp` | Codex CLI / adapter login or config |
+| Claude Code | `claude-agent-acp` | Claude agent / adapter login or config |
+| Cursor Agent | `cursor-agent acp` | `cursor-agent login` or `CURSOR_API_KEY` |
 
 Check discovery:
 
@@ -32,33 +33,33 @@ Agent Chat does not use Hecate model providers. It only needs the selected
 coding-agent CLI to be installed, authenticated, and visible to the process that
 started Hecate.
 
-### Codex
+### Codex ACP
 
 ```sh
-command -v codex
-codex --help
-codex login
+command -v codex-acp
+codex-acp --help
 ```
 
-If Hecate reports `exec: "codex": executable file not found in $PATH`, install
-Codex or start Hecate from an environment where `codex` is on `PATH`.
+If Hecate reports `exec: "codex-acp": executable file not found in $PATH`,
+install the Codex ACP adapter or start Hecate from an environment where
+`codex-acp` is on `PATH`.
 
-### Claude Code
+### Claude ACP
 
 ```sh
-command -v claude
-claude --help
-claude login
+command -v claude-agent-acp
+claude-agent-acp --help
 ```
 
-If Hecate reports `exec: "claude": executable file not found in $PATH`, install
-Claude Code or restart Hecate after your shell/runtime manager updates `PATH`.
+If Hecate reports `exec: "claude-agent-acp": executable file not found in
+$PATH`, install the Claude ACP adapter or restart Hecate after your
+shell/runtime manager updates `PATH`.
 
 ### Cursor Agent
 
 ```sh
 command -v cursor-agent
-cursor-agent --help
+cursor-agent acp --help
 cursor-agent login
 ```
 
@@ -98,20 +99,22 @@ environment that starts Hecate.
    - structured activity markers such as starting, running, files changed, or failed
    - normalized transcript text
    - captured workspace diff under the inline diff disclosure when files changed
-   - raw process output under the inline diagnostic disclosure when it differs from the normalized transcript
+   - raw ACP diagnostics under the inline diagnostic disclosure when they differ from the normalized transcript
 
 ## Runtime behavior
 
-Each prompt runs the selected adapter once. The adapter is fixed for the chat
-session; start a new Agent Chat to choose another adapter. Model Chats are
-different: their provider/model selection is per request and can change inside
-one session.
+Each Agent Chat session maps to one native ACP session. Hecate starts the
+selected adapter process the first time the chat sends a prompt, creates the ACP
+session, and reuses it for later prompts in the same Hecate chat. The adapter is
+fixed for the chat session; start a new Agent Chat to choose another adapter.
+Model Chats are different: their provider/model selection is per request and
+can change inside one session.
 
 Hecate validates the workspace before creating a session, sanitizes the
-environment passed to the subprocess, applies timeout/cancel behavior, captures
-stdout and stderr with an output cap, and records Git diff / diff stat after the
-run. External CLIs are still trusted subprocesses in the selected workspace;
-this is not equivalent to the task runtime sandbox.
+environment passed to the ACP adapter process, applies timeout/cancel behavior,
+captures ACP updates with an output cap, and records Git diff / diff stat after
+each turn. External agent adapters are still trusted subprocesses in the
+selected workspace; this is not equivalent to the task runtime sandbox.
 
 Every prompt also gets OTel-shaped observability. The message response includes
 `request_id`, `trace_id`, and `span_id`, and `GET
@@ -123,19 +126,19 @@ state.
 
 | Symptom | What to check |
 |---|---|
-| Adapter is missing | The command is not visible to the gateway process `PATH`. Restart Hecate after changing shell/runtime managers such as Volta. |
+| Adapter is missing | The ACP adapter command is not visible to the gateway process `PATH`. Restart Hecate after changing shell/runtime managers such as Volta. |
 | Cursor says authentication is required | Run `cursor-agent login` or set `CURSOR_API_KEY` in the environment that starts Hecate. |
-| Output looks strange | Open the message's raw process output disclosure. The visible transcript is normalized, but raw stdout/stderr is retained for adapter debugging. |
-| Run hangs | Use the Stop button. Hecate cancels the process context and marks the run `cancelled`. |
+| Output looks strange | Open the message's raw output disclosure. The visible transcript is normalized from ACP updates, but raw update JSON is retained for adapter debugging. |
+| Run hangs | Use the Stop button. Hecate sends ACP cancellation and marks the run `cancelled`. |
 | Diff is empty | The workspace may not be a Git repo, or the adapter did not change files. |
 
 ## Current gaps
 
 - Patch apply/revert UX is not implemented yet. Hecate captures and displays
   diff data inline, but does not provide a dedicated patch action surface.
-- Claude Code and Cursor Agent currently use mostly text-output mapping. Codex
-  has JSONL normalization, and adapter-specific structured mappers should be
-  expanded as their CLI output contracts stabilize.
+- ACP terminal reverse-RPC is not implemented yet. Adapters that require the
+  editor/client to own terminal execution will receive a clear unsupported
+  response.
 - Agent Chat is a lightweight API, not yet a full Task/Run. Converging it onto
   Tasks would unlock durable events, approvals, artifacts, policy, and richer
   OpenTelemetry correlation.

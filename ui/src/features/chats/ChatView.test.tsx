@@ -36,7 +36,7 @@ describe("ChatView input", () => {
       message: "hello",
       controlPlaneConfig: { backend: "memory", providers: [], policy_rules: [], pricebook: [], events: [] },
       agentAdapters: [
-        { id: "codex", name: "Codex", kind: "process", command: "codex", available: true, status: "available", cost_mode: "external" },
+        { id: "codex", name: "Codex", kind: "acp", command: "codex-acp", available: true, status: "available", cost_mode: "external" },
       ],
     });
     render(<ChatView state={state} actions={actions} />);
@@ -51,7 +51,7 @@ describe("ChatView input", () => {
       message: "hello",
       controlPlaneConfig: { backend: "memory", providers: [], policy_rules: [], pricebook: [], events: [] },
       agentAdapters: [
-        { id: "codex", name: "Codex", kind: "process", command: "codex", available: false, status: "missing", cost_mode: "external" },
+        { id: "codex", name: "Codex", kind: "acp", command: "codex-acp", available: false, status: "missing", cost_mode: "external" },
       ],
     });
     render(<ChatView state={state} actions={actions} />);
@@ -123,7 +123,7 @@ describe("ChatView agent target", () => {
       controlPlaneConfig: { backend: "memory", providers: [], policy_rules: [], pricebook: [], events: [] },
       agentAdapterID: "codex",
       agentAdapters: [
-        { id: "codex", name: "Codex", kind: "process", command: "codex", available: false, status: "missing", error: "exec: \"codex\": executable file not found in $PATH", cost_mode: "external" },
+        { id: "codex", name: "Codex", kind: "acp", command: "codex-acp", available: false, status: "missing", error: "exec: \"codex-acp\": executable file not found in $PATH", cost_mode: "external" },
       ],
     });
     render(<ChatView state={state} actions={actions} />);
@@ -131,8 +131,8 @@ describe("ChatView agent target", () => {
     expect(screen.getByText("Codex is unavailable")).toBeTruthy();
     expect(screen.getByText(/could not start Codex/)).toBeTruthy();
     expect(screen.getAllByText("Codex").length).toBeGreaterThan(0);
-    expect(screen.getByText(/Install Codex CLI/)).toBeTruthy();
-    expect(screen.getByText(/exec: "codex"/)).toBeTruthy();
+    expect(screen.getByText(/Install the Codex ACP adapter/)).toBeTruthy();
+    expect(screen.getByText(/exec: "codex-acp"/)).toBeTruthy();
     expect(screen.queryByRole("button", { name: /Add provider/i })).toBeNull();
   });
 
@@ -144,8 +144,8 @@ describe("ChatView agent target", () => {
       agentAdapterID: "codex",
       agentWorkspace: "/tmp/hecate",
       agentAdapters: [
-        { id: "codex", name: "Codex", kind: "process", command: "codex", available: true, status: "available", cost_mode: "external" },
-        { id: "claude_code", name: "Claude Code", kind: "process", command: "claude", available: false, status: "missing", cost_mode: "external" },
+        { id: "codex", name: "Codex", kind: "acp", command: "codex-acp", available: true, status: "available", cost_mode: "external" },
+        { id: "claude_code", name: "Claude Code", kind: "acp", command: "claude-agent-acp", available: false, status: "missing", cost_mode: "external" },
       ],
       agentChatSessions: [
         { id: "a1", title: "Codex work", adapter_id: "codex", workspace: "/tmp/hecate", status: "completed", message_count: 2 } as any,
@@ -165,16 +165,18 @@ describe("ChatView agent target", () => {
             trace_id: "0123456789abcdef0123456789abcdef",
             role: "assistant",
             content: "Looks good.",
-            raw_output: `{"type":"message","content":"Looks good."}`,
+            raw_output: `{"sessionId":"native_codex_1","update":{"sessionUpdate":"agent_message_chunk","content":{"type":"text","text":"Looks good."}}}`,
             adapter_id: "codex",
             adapter_name: "Codex",
+            driver_kind: "acp",
+            native_session_id: "native_codex_1",
             status: "completed",
             cost_mode: "external",
             diff_stat: "1 file changed",
             diff: "diff --git a/README.md b/README.md",
             created_at: "2026-05-03T10:00:01Z",
             activities: [
-              { type: "started", status: "completed", title: "Starting external agent", detail: "Codex process launched" },
+              { type: "started", status: "completed", title: "Starting external agent", detail: "Codex ACP session started" },
               { type: "completed", status: "completed", title: "Final answer" },
             ],
           },
@@ -187,10 +189,11 @@ describe("ChatView agent target", () => {
     expect(screen.getByRole("button", { name: /workspace/i })).toBeTruthy();
     expect(screen.getAllByText("Codex work").length).toBeGreaterThan(0);
     expect(screen.getByText("Looks good.")).toBeTruthy();
+    expect(screen.getByText(/ACP native_codex/)).toBeTruthy();
     expect(screen.getByText(/trace 01234567/)).toBeTruthy();
     expect(screen.getByText("Starting external agent")).toBeTruthy();
     expect(screen.getByText("workspace diff · 1 file changed")).toBeTruthy();
-    expect(screen.getByText("raw process output")).toBeTruthy();
+    expect(screen.getByText("raw ACP diagnostics")).toBeTruthy();
     expect(screen.getByText("completed")).toBeTruthy();
     const user = userEvent.setup();
     const adapterPicker = screen.getByRole("button", { name: "External agent adapter" }) as HTMLButtonElement;
@@ -212,8 +215,8 @@ describe("ChatView agent target", () => {
       activeAgentChatSessionID: "",
       activeAgentChatSession: null,
       agentAdapters: [
-        { id: "codex", name: "Codex", kind: "process", command: "codex", available: true, status: "available", cost_mode: "external" },
-        { id: "claude_code", name: "Claude Code", kind: "process", command: "claude", available: true, status: "available", cost_mode: "external" },
+        { id: "codex", name: "Codex", kind: "acp", command: "codex-acp", available: true, status: "available", cost_mode: "external" },
+        { id: "claude_code", name: "Claude Code", kind: "acp", command: "claude-agent-acp", available: true, status: "available", cost_mode: "external" },
       ],
     }, { setAgentAdapterID });
     render(<ChatView state={state} actions={actions} />);
@@ -230,7 +233,7 @@ describe("ChatView agent target", () => {
       chatTarget: "agent",
       agentWorkspace: "",
       agentAdapters: [
-        { id: "codex", name: "Codex", kind: "process", command: "codex", available: true, status: "available", cost_mode: "external" },
+        { id: "codex", name: "Codex", kind: "acp", command: "codex-acp", available: true, status: "available", cost_mode: "external" },
       ],
     }, { chooseAgentWorkspace });
     render(<ChatView state={state} actions={actions} />);
@@ -247,7 +250,7 @@ describe("ChatView agent target", () => {
       chatTarget: "agent",
       agentWorkspace: "",
       agentAdapters: [
-        { id: "codex", name: "Codex", kind: "process", command: "codex", available: true, status: "available", cost_mode: "external" },
+        { id: "codex", name: "Codex", kind: "acp", command: "codex-acp", available: true, status: "available", cost_mode: "external" },
       ],
     }, { chooseAgentWorkspace, setAgentWorkspace });
     render(<ChatView state={state} actions={actions} />);
@@ -266,7 +269,7 @@ describe("ChatView agent target", () => {
       message: "run codex",
       agentWorkspace: "",
       agentAdapters: [
-        { id: "codex", name: "Codex", kind: "process", command: "codex", available: true, status: "available", cost_mode: "external" },
+        { id: "codex", name: "Codex", kind: "acp", command: "codex-acp", available: true, status: "available", cost_mode: "external" },
       ],
     });
     render(<ChatView state={state} actions={actions} />);

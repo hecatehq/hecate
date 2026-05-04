@@ -53,11 +53,13 @@ func (s *SQLiteStore) Create(ctx context.Context, session Session) (Session, err
 	_, err := s.client.DB().ExecContext(
 		ctx,
 		fmt.Sprintf(
-			`INSERT INTO %s (id, title, adapter_id, workspace, workspace_branch, status, created_at, updated_at)
-			 VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+			`INSERT INTO %s (id, title, adapter_id, driver_kind, native_session_id, workspace, workspace_branch, status, created_at, updated_at)
+			 VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
 			 ON CONFLICT(id) DO UPDATE SET
 			   title = excluded.title,
 			   adapter_id = excluded.adapter_id,
+			   driver_kind = excluded.driver_kind,
+			   native_session_id = excluded.native_session_id,
 			   workspace = excluded.workspace,
 			   workspace_branch = excluded.workspace_branch,
 			   status = excluded.status,
@@ -67,6 +69,8 @@ func (s *SQLiteStore) Create(ctx context.Context, session Session) (Session, err
 		session.ID,
 		session.Title,
 		session.AdapterID,
+		session.DriverKind,
+		session.NativeSessionID,
 		session.Workspace,
 		session.WorkspaceBranch,
 		session.Status,
@@ -94,11 +98,11 @@ func (s *SQLiteStore) List(ctx context.Context) ([]Session, error) {
 	rows, err := s.client.DB().QueryContext(
 		ctx,
 		fmt.Sprintf(
-			`SELECT s.id, s.title, s.adapter_id, s.workspace, s.workspace_branch, s.status, s.created_at, s.updated_at,
+			`SELECT s.id, s.title, s.adapter_id, s.driver_kind, s.native_session_id, s.workspace, s.workspace_branch, s.status, s.created_at, s.updated_at,
 			        COUNT(m.id) AS message_count
 			 FROM %s AS s
 			 LEFT JOIN %s AS m ON m.session_id = s.id
-			 GROUP BY s.id, s.title, s.adapter_id, s.workspace, s.workspace_branch, s.status, s.created_at, s.updated_at
+			 GROUP BY s.id, s.title, s.adapter_id, s.driver_kind, s.native_session_id, s.workspace, s.workspace_branch, s.status, s.created_at, s.updated_at
 			 ORDER BY s.updated_at DESC, s.created_at DESC`,
 			s.sessionsTable,
 			s.messagesTable,
@@ -117,6 +121,8 @@ func (s *SQLiteStore) List(ctx context.Context) ([]Session, error) {
 			&session.ID,
 			&session.Title,
 			&session.AdapterID,
+			&session.DriverKind,
+			&session.NativeSessionID,
 			&session.Workspace,
 			&session.WorkspaceBranch,
 			&session.Status,
@@ -147,6 +153,40 @@ func (s *SQLiteStore) Delete(ctx context.Context, id string) error {
 	return nil
 }
 
+func (s *SQLiteStore) UpdateSession(ctx context.Context, id string, update func(*Session)) (Session, error) {
+	session, err := s.loadSession(ctx, id)
+	if err != nil {
+		if errors.Is(err, sql.ErrNoRows) {
+			return Session{}, fmt.Errorf("agent chat session %q not found", id)
+		}
+		return Session{}, err
+	}
+	update(&session)
+	session.UpdatedAt = time.Now().UTC()
+	if _, err := s.client.DB().ExecContext(
+		ctx,
+		fmt.Sprintf(
+			`UPDATE %s SET
+			   title = ?, adapter_id = ?, driver_kind = ?, native_session_id = ?, workspace = ?, workspace_branch = ?,
+			   status = ?, updated_at = ?
+			 WHERE id = ?`,
+			s.sessionsTable,
+		),
+		session.Title,
+		session.AdapterID,
+		session.DriverKind,
+		session.NativeSessionID,
+		session.Workspace,
+		session.WorkspaceBranch,
+		session.Status,
+		session.UpdatedAt.UTC(),
+		id,
+	); err != nil {
+		return Session{}, fmt.Errorf("update sqlite agent chat session: %w", err)
+	}
+	return s.loadSession(ctx, id)
+}
+
 func (s *SQLiteStore) AppendMessage(ctx context.Context, sessionID string, message Message) (Session, error) {
 	if message.ID == "" {
 		return Session{}, fmt.Errorf("message id is required")
@@ -175,9 +215,9 @@ func (s *SQLiteStore) AppendMessage(ctx context.Context, sessionID string, messa
 		ctx,
 		fmt.Sprintf(
 			`INSERT INTO %s (
-				id, session_id, sequence, run_id, request_id, trace_id, span_id, role, content, raw_output, adapter_id, adapter_name, status, exit_code,
+				id, session_id, sequence, run_id, request_id, trace_id, span_id, role, content, raw_output, adapter_id, adapter_name, driver_kind, native_session_id, status, exit_code,
 				cost_mode, workspace, diff_stat, diff, created_at, started_at, completed_at, error, activities
-			) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+			) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
 			s.messagesTable,
 		),
 		message.ID,
@@ -192,6 +232,8 @@ func (s *SQLiteStore) AppendMessage(ctx context.Context, sessionID string, messa
 		message.RawOutput,
 		message.AdapterID,
 		message.AdapterName,
+		message.DriverKind,
+		message.NativeSessionID,
 		message.Status,
 		message.ExitCode,
 		message.CostMode,
@@ -232,7 +274,8 @@ func (s *SQLiteStore) UpdateMessage(ctx context.Context, sessionID string, messa
 		ctx,
 		fmt.Sprintf(
 			`UPDATE %s SET
-			   run_id = ?, request_id = ?, trace_id = ?, span_id = ?, role = ?, content = ?, raw_output = ?, adapter_id = ?, adapter_name = ?, status = ?, exit_code = ?,
+			   run_id = ?, request_id = ?, trace_id = ?, span_id = ?, role = ?, content = ?, raw_output = ?, adapter_id = ?, adapter_name = ?,
+			   driver_kind = ?, native_session_id = ?, status = ?, exit_code = ?,
 			   cost_mode = ?, workspace = ?, diff_stat = ?, diff = ?, created_at = ?,
 			   started_at = ?, completed_at = ?, error = ?, activities = ?
 			 WHERE id = ? AND session_id = ?`,
@@ -247,6 +290,8 @@ func (s *SQLiteStore) UpdateMessage(ctx context.Context, sessionID string, messa
 		message.RawOutput,
 		message.AdapterID,
 		message.AdapterName,
+		message.DriverKind,
+		message.NativeSessionID,
 		message.Status,
 		message.ExitCode,
 		message.CostMode,
@@ -280,6 +325,8 @@ func (s *SQLiteStore) migrate(ctx context.Context) error {
 				id TEXT PRIMARY KEY,
 				title TEXT NOT NULL,
 				adapter_id TEXT NOT NULL,
+				driver_kind TEXT NOT NULL DEFAULT '',
+				native_session_id TEXT NOT NULL DEFAULT '',
 				workspace TEXT NOT NULL,
 				workspace_branch TEXT NOT NULL DEFAULT '',
 				status TEXT NOT NULL,
@@ -303,6 +350,8 @@ func (s *SQLiteStore) migrate(ctx context.Context) error {
 				raw_output TEXT NOT NULL DEFAULT '',
 				adapter_id TEXT NOT NULL,
 				adapter_name TEXT NOT NULL,
+				driver_kind TEXT NOT NULL DEFAULT '',
+				native_session_id TEXT NOT NULL DEFAULT '',
 				status TEXT NOT NULL,
 				exit_code INTEGER NOT NULL,
 				run_id TEXT NOT NULL DEFAULT '',
@@ -329,6 +378,12 @@ func (s *SQLiteStore) migrate(ctx context.Context) error {
 	if err := s.ensureSessionColumn(ctx, "workspace_branch", "TEXT NOT NULL DEFAULT ''"); err != nil {
 		return err
 	}
+	if err := s.ensureSessionColumn(ctx, "driver_kind", "TEXT NOT NULL DEFAULT ''"); err != nil {
+		return err
+	}
+	if err := s.ensureSessionColumn(ctx, "native_session_id", "TEXT NOT NULL DEFAULT ''"); err != nil {
+		return err
+	}
 	for _, column := range []struct {
 		name       string
 		definition string
@@ -337,6 +392,8 @@ func (s *SQLiteStore) migrate(ctx context.Context) error {
 		{name: "request_id", definition: "TEXT NOT NULL DEFAULT ''"},
 		{name: "trace_id", definition: "TEXT NOT NULL DEFAULT ''"},
 		{name: "span_id", definition: "TEXT NOT NULL DEFAULT ''"},
+		{name: "driver_kind", definition: "TEXT NOT NULL DEFAULT ''"},
+		{name: "native_session_id", definition: "TEXT NOT NULL DEFAULT ''"},
 		{name: "started_at", definition: "TIMESTAMP"},
 		{name: "completed_at", definition: "TIMESTAMP"},
 		{name: "error", definition: "TEXT NOT NULL DEFAULT ''"},
@@ -369,9 +426,9 @@ func (s *SQLiteStore) loadSession(ctx context.Context, id string) (Session, erro
 	var session Session
 	err := s.client.DB().QueryRowContext(
 		ctx,
-		fmt.Sprintf(`SELECT id, title, adapter_id, workspace, workspace_branch, status, created_at, updated_at FROM %s WHERE id = ?`, s.sessionsTable),
+		fmt.Sprintf(`SELECT id, title, adapter_id, driver_kind, native_session_id, workspace, workspace_branch, status, created_at, updated_at FROM %s WHERE id = ?`, s.sessionsTable),
 		id,
-	).Scan(&session.ID, &session.Title, &session.AdapterID, &session.Workspace, &session.WorkspaceBranch, &session.Status, &session.CreatedAt, &session.UpdatedAt)
+	).Scan(&session.ID, &session.Title, &session.AdapterID, &session.DriverKind, &session.NativeSessionID, &session.Workspace, &session.WorkspaceBranch, &session.Status, &session.CreatedAt, &session.UpdatedAt)
 	if err != nil {
 		if errors.Is(err, sql.ErrNoRows) {
 			return Session{}, sql.ErrNoRows
@@ -390,7 +447,7 @@ func (s *SQLiteStore) loadMessages(ctx context.Context, sessionID string) ([]Mes
 	rows, err := s.client.DB().QueryContext(
 		ctx,
 		fmt.Sprintf(
-			`SELECT id, run_id, request_id, trace_id, span_id, role, content, raw_output, adapter_id, adapter_name, status, exit_code, cost_mode,
+			`SELECT id, run_id, request_id, trace_id, span_id, role, content, raw_output, adapter_id, adapter_name, driver_kind, native_session_id, status, exit_code, cost_mode,
 			        workspace, diff_stat, diff, created_at, started_at, completed_at, error, activities
 			 FROM %s
 			 WHERE session_id = ?
@@ -420,6 +477,8 @@ func (s *SQLiteStore) loadMessages(ctx context.Context, sessionID string) ([]Mes
 			&message.RawOutput,
 			&message.AdapterID,
 			&message.AdapterName,
+			&message.DriverKind,
+			&message.NativeSessionID,
 			&message.Status,
 			&message.ExitCode,
 			&message.CostMode,
@@ -519,7 +578,7 @@ func loadMessage(ctx context.Context, tx txRunner, table string, sessionID strin
 	err := tx.QueryRowContext(
 		ctx,
 		fmt.Sprintf(
-			`SELECT id, run_id, request_id, trace_id, span_id, role, content, raw_output, adapter_id, adapter_name, status, exit_code, cost_mode,
+			`SELECT id, run_id, request_id, trace_id, span_id, role, content, raw_output, adapter_id, adapter_name, driver_kind, native_session_id, status, exit_code, cost_mode,
 			        workspace, diff_stat, diff, created_at, started_at, completed_at, error, activities
 			 FROM %s
 			 WHERE id = ? AND session_id = ?`,
@@ -538,6 +597,8 @@ func loadMessage(ctx context.Context, tx txRunner, table string, sessionID strin
 		&message.RawOutput,
 		&message.AdapterID,
 		&message.AdapterName,
+		&message.DriverKind,
+		&message.NativeSessionID,
 		&message.Status,
 		&message.ExitCode,
 		&message.CostMode,

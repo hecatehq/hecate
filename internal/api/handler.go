@@ -10,6 +10,7 @@ import (
 	"strings"
 	"time"
 
+	"github.com/hecate/agent-runtime/internal/agentadapters"
 	"github.com/hecate/agent-runtime/internal/agentchat"
 	"github.com/hecate/agent-runtime/internal/config"
 	"github.com/hecate/agent-runtime/internal/controlplane"
@@ -36,6 +37,7 @@ type Handler struct {
 	taskRunner      *orchestrator.Runner
 	tracer          profiler.Tracer
 	agentChat       agentchat.Store
+	agentChatRunner agentadapters.Runner
 	agentChatLive   *agentChatLive
 	rateLimiter     *ratelimit.Store
 	// secretCipher encrypts literal MCP server env values at task-creation
@@ -178,6 +180,9 @@ func NewHandler(cfg config.Config, logger *slog.Logger, service *gateway.Service
 	}
 	runner.StartReconcileLoop()
 
+	agentChatRunner := agentadapters.NewSessionManager()
+	agentChatRunner.SetLogger(logger)
+
 	return &Handler{
 		config:              cfg,
 		logger:              logger,
@@ -189,6 +194,7 @@ func NewHandler(cfg config.Config, logger *slog.Logger, service *gateway.Service
 		tracer:              tracer,
 		rateLimiter:         rl,
 		agentChat:           agentchat.NewMemoryStore(),
+		agentChatRunner:     agentChatRunner,
 		agentChatLive:       newAgentChatLive(),
 		orchestratorMetrics: orchestratorMetrics,
 	}
@@ -199,6 +205,13 @@ func (h *Handler) SetAgentChatStore(store agentchat.Store) {
 		return
 	}
 	h.agentChat = store
+}
+
+func (h *Handler) SetAgentChatRunner(runner agentadapters.Runner) {
+	if runner == nil {
+		return
+	}
+	h.agentChatRunner = runner
 }
 
 // SetSecretCipher wires the control-plane AES-GCM cipher into the
@@ -260,13 +273,23 @@ func (h *Handler) Shutdown(ctx context.Context) error {
 	if h.mcpClientCache != nil {
 		cacheErr = h.mcpClientCache.Close()
 	}
+	var agentChatErr error
+	if h.agentChatRunner != nil {
+		agentChatErr = h.agentChatRunner.Shutdown(ctx)
+	}
 	switch {
 	case runnerErr != nil && cacheErr != nil:
 		return fmt.Errorf("runner shutdown: %w; mcp cache close: %v", runnerErr, cacheErr)
+	case runnerErr != nil && agentChatErr != nil:
+		return fmt.Errorf("runner shutdown: %w; agent chat shutdown: %v", runnerErr, agentChatErr)
+	case cacheErr != nil && agentChatErr != nil:
+		return fmt.Errorf("mcp cache close: %w; agent chat shutdown: %v", cacheErr, agentChatErr)
 	case runnerErr != nil:
 		return runnerErr
 	case cacheErr != nil:
 		return cacheErr
+	case agentChatErr != nil:
+		return agentChatErr
 	default:
 		return nil
 	}

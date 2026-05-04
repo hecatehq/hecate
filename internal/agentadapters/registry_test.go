@@ -6,7 +6,6 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
-	"reflect"
 	"strings"
 	"testing"
 )
@@ -24,13 +23,16 @@ func TestBuiltInsIncludeInitialExternalAgents(t *testing.T) {
 		found[item.ID] = item
 	}
 
-	if got := found["codex"]; got.Command != "codex" || got.Kind != "process" || got.CostMode != "external" {
+	if got := found["codex"]; got.Command != "codex-acp" || got.Kind != DriverKindACP || got.CostMode != "external" {
 		t.Fatalf("codex adapter = %#v", got)
 	}
-	if got := found["claude_code"]; got.Command != "claude" || got.Kind != "process" || got.CostMode != "external" {
+	if got := found["claude_code"]; got.Command != "claude-agent-acp" || got.Kind != DriverKindACP || got.CostMode != "external" {
 		t.Fatalf("claude_code adapter = %#v", got)
 	}
-	if got := found["cursor_agent"]; got.Command != "cursor-agent" || got.Kind != "process" || got.CostMode != "external" {
+	if got := found["cursor_agent"]; got.Command != "cursor-agent" || got.Kind != DriverKindACP || got.CostMode != "external" {
+		t.Fatalf("cursor_agent adapter = %#v", got)
+	}
+	if got := found["cursor_agent"]; len(got.Args) != 1 || got.Args[0] != "acp" {
 		t.Fatalf("cursor_agent adapter = %#v", got)
 	}
 }
@@ -39,8 +41,8 @@ func TestListWithLookupReportsAvailability(t *testing.T) {
 	t.Parallel()
 
 	response := ListWithLookup(context.Background(), func(file string) (string, error) {
-		if file == "codex" {
-			return "/usr/local/bin/codex", nil
+		if file == "codex-acp" {
+			return "/usr/local/bin/codex-acp", nil
 		}
 		return "", errors.New("not found")
 	})
@@ -51,7 +53,7 @@ func TestListWithLookupReportsAvailability(t *testing.T) {
 	}
 
 	codex := byID["codex"]
-	if !codex.Available || codex.Status != StatusAvailable || codex.Path != "/usr/local/bin/codex" {
+	if !codex.Available || codex.Status != StatusAvailable || codex.Path != "/usr/local/bin/codex-acp" {
 		t.Fatalf("codex status = %#v", codex)
 	}
 
@@ -67,7 +69,7 @@ func TestListWithLookupUsesCandidatePathFallback(t *testing.T) {
 	t.Parallel()
 
 	dir := t.TempDir()
-	exe := filepath.Join(dir, "codex")
+	exe := filepath.Join(dir, "codex-acp")
 	if err := os.WriteFile(exe, []byte("#!/bin/sh\nexit 0\n"), 0o755); err != nil {
 		t.Fatalf("write executable: %v", err)
 	}
@@ -104,7 +106,7 @@ func TestResolveExecutableExpandsHomeCandidate(t *testing.T) {
 	if err := os.MkdirAll(bin, 0o755); err != nil {
 		t.Fatalf("mkdir bin: %v", err)
 	}
-	exe := filepath.Join(bin, "codex")
+	exe := filepath.Join(bin, "codex-acp")
 	if err := os.WriteFile(exe, []byte("#!/bin/sh\nexit 0\n"), 0o755); err != nil {
 		t.Fatalf("write executable: %v", err)
 	}
@@ -112,7 +114,7 @@ func TestResolveExecutableExpandsHomeCandidate(t *testing.T) {
 	path, err := resolveExecutable(Adapter{
 		ID:             "codex",
 		Command:        "codex-missing",
-		CandidatePaths: []string{"${HOME}/.local/bin/codex"},
+		CandidatePaths: []string{"${HOME}/.local/bin/codex-acp"},
 	}, func(file string) (string, error) {
 		return "", errors.New("not found on PATH")
 	})
@@ -121,73 +123,6 @@ func TestResolveExecutableExpandsHomeCandidate(t *testing.T) {
 	}
 	if path != exe {
 		t.Fatalf("path = %q, want %q", path, exe)
-	}
-}
-
-func TestCommandForAdapterPinsHeadlessInvocations(t *testing.T) {
-	dir := t.TempDir()
-	for _, name := range []string{"codex", "claude", "cursor-agent"} {
-		path := filepath.Join(dir, name)
-		if err := os.WriteFile(path, []byte("#!/bin/sh\nexit 0\n"), 0o755); err != nil {
-			t.Fatalf("write %s: %v", name, err)
-		}
-	}
-	t.Setenv("PATH", dir+string(os.PathListSeparator)+os.Getenv("PATH"))
-
-	tests := []struct {
-		name    string
-		adapter Adapter
-		want    []string
-	}{
-		{
-			name:    "codex",
-			adapter: Adapter{ID: "codex", Command: "codex"},
-			want: []string{
-				"--ask-for-approval", "never",
-				"exec",
-				"--cd", "/tmp/workspace",
-				"--sandbox", "workspace-write",
-				"--json",
-				"hello",
-			},
-		},
-		{
-			name:    "claude_code",
-			adapter: Adapter{ID: "claude_code", Command: "claude"},
-			want: []string{
-				"-p",
-				"--permission-mode", "acceptEdits",
-				"--output-format", "text",
-				"hello",
-			},
-		},
-		{
-			name:    "cursor_agent",
-			adapter: Adapter{ID: "cursor_agent", Command: "cursor-agent"},
-			want: []string{
-				"--print",
-				"--output-format", "text",
-				"--workspace", "/tmp/workspace",
-				"--trust",
-				"--force",
-				"hello",
-			},
-		},
-	}
-
-	for _, tt := range tests {
-		t.Run(tt.name, func(t *testing.T) {
-			command, args, err := commandForAdapter(tt.adapter, "/tmp/workspace", "hello")
-			if err != nil {
-				t.Fatalf("commandForAdapter: %v", err)
-			}
-			if filepath.Base(command) != tt.adapter.Command {
-				t.Fatalf("command = %q, want executable named %q", command, tt.adapter.Command)
-			}
-			if !reflect.DeepEqual(args, tt.want) {
-				t.Fatalf("args = %#v, want %#v", args, tt.want)
-			}
-		})
 	}
 }
 

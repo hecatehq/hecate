@@ -175,6 +175,7 @@ export type AgentAdapterRecord = {
   name: string;
   kind: string;
   command: string;
+  args?: string[];
   available: boolean;
   status: string;
   path?: string;
@@ -193,6 +194,8 @@ export type AgentChatSessionSummaryRecord = {
   id: string;
   title: string;
   adapter_id: string;
+  driver_kind?: string;
+  native_session_id?: string;
   workspace: string;
   workspace_branch?: string;
   status: string;
@@ -212,6 +215,8 @@ export type AgentChatMessageRecord = {
   raw_output?: string;
   adapter_id?: string;
   adapter_name?: string;
+  driver_kind?: string;
+  native_session_id?: string;
   status?: string;
   exit_code?: number;
   cost_mode?: string;
@@ -238,6 +243,8 @@ export type AgentChatSessionRecord = {
   id: string;
   title: string;
   adapter_id: string;
+  driver_kind?: string;
+  native_session_id?: string;
   workspace: string;
   workspace_branch?: string;
   status: string;

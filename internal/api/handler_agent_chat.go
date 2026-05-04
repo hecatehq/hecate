@@ -66,6 +66,7 @@ func (h *Handler) HandleCreateAgentChatSession(w http.ResponseWriter, r *http.Re
 		ID:              newAgentChatID("agent_chat"),
 		Title:           title,
 		AdapterID:       adapter.ID,
+		DriverKind:      agentadapters.DriverKindACP,
 		Workspace:       workspace,
 		WorkspaceBranch: workspaceBranch,
 	})
@@ -140,7 +141,11 @@ func (h *Handler) HandleAgentChatSessionStream(w http.ResponseWriter, r *http.Re
 }
 
 func (h *Handler) HandleDeleteAgentChatSession(w http.ResponseWriter, r *http.Request) {
-	if err := h.agentChat.Delete(r.Context(), r.PathValue("id")); err != nil {
+	sessionID := r.PathValue("id")
+	if h.agentChatRunner != nil {
+		_ = h.agentChatRunner.CloseSession(r.Context(), sessionID)
+	}
+	if err := h.agentChat.Delete(r.Context(), sessionID); err != nil {
 		WriteError(w, http.StatusInternalServerError, "gateway_error", err.Error())
 		return
 	}
@@ -229,6 +234,7 @@ func (h *Handler) HandleCreateAgentChatMessage(w http.ResponseWriter, r *http.Re
 		Content:     "",
 		AdapterID:   adapter.ID,
 		AdapterName: adapter.Name,
+		DriverKind:  agentadapters.DriverKindACP,
 		Status:      "running",
 		CostMode:    adapter.CostMode,
 		Workspace:   session.Workspace,
@@ -236,7 +242,7 @@ func (h *Handler) HandleCreateAgentChatMessage(w http.ResponseWriter, r *http.Re
 		StartedAt:   startedAt,
 		Activities: []agentchat.Activity{
 			newAgentChatActivity("started", "completed", "Starting external agent", adapter.Name+" in "+session.Workspace),
-			newAgentChatActivity("running", "running", "Running", "Waiting for process output"),
+			newAgentChatActivity("running", "running", "Running", "Waiting for ACP output"),
 		},
 	})
 	if err != nil {
@@ -246,7 +252,12 @@ func (h *Handler) HandleCreateAgentChatMessage(w http.ResponseWriter, r *http.Re
 	h.agentChatLive.publish(updated)
 
 	outputSeen := false
-	result, runErr := agentadapters.RunAdapter(runCtx, adapter, agentadapters.RunRequest{
+	runner := h.agentChatRunner
+	if runner == nil {
+		runner = agentadapters.NewSessionManager()
+	}
+	result, runErr := runner.Run(runCtx, agentadapters.RunRequest{
+		SessionID:      session.ID,
 		AdapterID:      adapter.ID,
 		Workspace:      session.Workspace,
 		Prompt:         content,
@@ -264,7 +275,7 @@ func (h *Handler) HandleCreateAgentChatMessage(w http.ResponseWriter, r *http.Re
 				}
 				message.Content = normalized
 				if !outputSeen {
-					message.Activities = append(message.Activities, newAgentChatActivity("output", "running", "Process output", "Streaming normalized transcript"))
+					message.Activities = append(message.Activities, newAgentChatActivity("output", "running", "ACP output", "Streaming normalized transcript"))
 					trace.Record(telemetry.EventAgentChatOutputStarted, agentChatTraceAttrs(session, adapter, runID, assistantID, map[string]any{
 						telemetry.AttrHecateRunStatus:           "running",
 						telemetry.AttrHecateAgentRawOutputBytes: int64(len(message.RawOutput)),
@@ -318,12 +329,14 @@ func (h *Handler) HandleCreateAgentChatMessage(w http.ResponseWriter, r *http.Re
 		}))
 	}
 	terminalAttrs := agentChatTraceAttrs(session, adapter, runID, assistantID, map[string]any{
-		telemetry.AttrHecateRunStatus:           status,
-		telemetry.AttrHecateRunDurationMS:       completedAt.Sub(startedAt).Milliseconds(),
-		telemetry.AttrHecateAgentOutputBytes:    int64(len(output)),
-		telemetry.AttrHecateAgentRawOutputBytes: int64(len(result.RawOutput)),
-		telemetry.AttrHecateAgentDiffCaptured:   result.Diff != "",
-		"process.exit.code":                     result.ExitCode,
+		telemetry.AttrHecateRunStatus:            status,
+		telemetry.AttrHecateRunDurationMS:        completedAt.Sub(startedAt).Milliseconds(),
+		telemetry.AttrHecateAgentOutputBytes:     int64(len(output)),
+		telemetry.AttrHecateAgentRawOutputBytes:  int64(len(result.RawOutput)),
+		telemetry.AttrHecateAgentDiffCaptured:    result.Diff != "",
+		telemetry.AttrHecateAgentDriverKind:      result.DriverKind,
+		telemetry.AttrHecateAgentNativeSessionID: result.NativeSessionID,
+		"process.exit.code":                      result.ExitCode,
 	})
 	if runErr != nil {
 		terminalAttrs[telemetry.AttrHecateResult] = telemetry.ResultError
@@ -338,6 +351,8 @@ func (h *Handler) HandleCreateAgentChatMessage(w http.ResponseWriter, r *http.Re
 			message.Content = output
 		}
 		message.RawOutput = result.RawOutput
+		message.DriverKind = result.DriverKind
+		message.NativeSessionID = result.NativeSessionID
 		message.Status = status
 		message.ExitCode = result.ExitCode
 		message.DiffStat = result.DiffStat
@@ -354,6 +369,20 @@ func (h *Handler) HandleCreateAgentChatMessage(w http.ResponseWriter, r *http.Re
 		WriteError(w, http.StatusInternalServerError, "gateway_error", err.Error())
 		return
 	}
+	if result.DriverKind != "" || result.NativeSessionID != "" {
+		updated, err = h.agentChat.UpdateSession(r.Context(), session.ID, func(item *agentchat.Session) {
+			if result.DriverKind != "" {
+				item.DriverKind = result.DriverKind
+			}
+			if result.NativeSessionID != "" {
+				item.NativeSessionID = result.NativeSessionID
+			}
+		})
+		if err != nil {
+			WriteError(w, http.StatusInternalServerError, "gateway_error", err.Error())
+			return
+		}
+	}
 	h.agentChatLive.publish(updated)
 	WriteJSON(w, http.StatusOK, AgentChatSessionResponse{Object: "agent_chat_session", Data: renderAgentChatSession(updated)})
 }
@@ -363,6 +392,8 @@ func renderAgentChatSessionSummary(session agentchat.Session) AgentChatSessionSu
 		ID:              session.ID,
 		Title:           session.Title,
 		AdapterID:       session.AdapterID,
+		DriverKind:      session.DriverKind,
+		NativeSessionID: session.NativeSessionID,
 		Workspace:       session.Workspace,
 		WorkspaceBranch: session.WorkspaceBranch,
 		Status:          session.Status,
@@ -376,34 +407,38 @@ func renderAgentChatSession(session agentchat.Session) AgentChatSessionItem {
 	messages := make([]AgentChatMessageItem, 0, len(session.Messages))
 	for _, message := range session.Messages {
 		messages = append(messages, AgentChatMessageItem{
-			ID:          message.ID,
-			RunID:       message.RunID,
-			RequestID:   message.RequestID,
-			TraceID:     message.TraceID,
-			SpanID:      message.SpanID,
-			Role:        message.Role,
-			Content:     message.Content,
-			RawOutput:   message.RawOutput,
-			AdapterID:   message.AdapterID,
-			AdapterName: message.AdapterName,
-			Status:      message.Status,
-			ExitCode:    message.ExitCode,
-			CostMode:    message.CostMode,
-			Workspace:   message.Workspace,
-			DiffStat:    message.DiffStat,
-			Diff:        message.Diff,
-			CreatedAt:   formatOptionalTime(message.CreatedAt),
-			StartedAt:   formatOptionalTime(message.StartedAt),
-			CompletedAt: formatOptionalTime(message.CompletedAt),
-			DurationMS:  durationMillis(message.StartedAt, message.CompletedAt),
-			Error:       message.Error,
-			Activities:  renderAgentChatActivities(message.Activities),
+			ID:              message.ID,
+			RunID:           message.RunID,
+			RequestID:       message.RequestID,
+			TraceID:         message.TraceID,
+			SpanID:          message.SpanID,
+			Role:            message.Role,
+			Content:         message.Content,
+			RawOutput:       message.RawOutput,
+			AdapterID:       message.AdapterID,
+			AdapterName:     message.AdapterName,
+			DriverKind:      message.DriverKind,
+			NativeSessionID: message.NativeSessionID,
+			Status:          message.Status,
+			ExitCode:        message.ExitCode,
+			CostMode:        message.CostMode,
+			Workspace:       message.Workspace,
+			DiffStat:        message.DiffStat,
+			Diff:            message.Diff,
+			CreatedAt:       formatOptionalTime(message.CreatedAt),
+			StartedAt:       formatOptionalTime(message.StartedAt),
+			CompletedAt:     formatOptionalTime(message.CompletedAt),
+			DurationMS:      durationMillis(message.StartedAt, message.CompletedAt),
+			Error:           message.Error,
+			Activities:      renderAgentChatActivities(message.Activities),
 		})
 	}
 	return AgentChatSessionItem{
 		ID:              session.ID,
 		Title:           session.Title,
 		AdapterID:       session.AdapterID,
+		DriverKind:      session.DriverKind,
+		NativeSessionID: session.NativeSessionID,
 		Workspace:       session.Workspace,
 		WorkspaceBranch: session.WorkspaceBranch,
 		Status:          session.Status,
@@ -434,8 +469,12 @@ func agentChatTraceAttrs(session agentchat.Session, adapter agentadapters.Adapte
 		telemetry.AttrHecateAgentAdapterID:      adapter.ID,
 		telemetry.AttrHecateAgentAdapterName:    adapter.Name,
 		telemetry.AttrHecateAgentAdapterCommand: adapter.Command,
+		telemetry.AttrHecateAgentDriverKind:     adapter.Kind,
 		telemetry.AttrHecateWorkspacePath:       session.Workspace,
 		telemetry.AttrHecateResult:              telemetry.ResultSuccess,
+	}
+	if session.NativeSessionID != "" {
+		out[telemetry.AttrHecateAgentNativeSessionID] = session.NativeSessionID
 	}
 	for key, value := range attrs {
 		out[key] = value

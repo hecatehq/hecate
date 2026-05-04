@@ -23,6 +23,7 @@ type Adapter struct {
 	ID             string
 	Name           string
 	Command        string
+	Args           []string
 	CandidatePaths []string
 	Kind           string
 	Description    string
@@ -41,6 +42,7 @@ type Status struct {
 type LookupFunc func(file string) (string, error)
 
 type RunRequest struct {
+	SessionID      string
 	AdapterID      string
 	Workspace      string
 	Prompt         string
@@ -50,14 +52,16 @@ type RunRequest struct {
 }
 
 type RunResult struct {
-	Adapter     Adapter
-	Output      string
-	RawOutput   string
-	ExitCode    int
-	StartedAt   time.Time
-	CompletedAt time.Time
-	DiffStat    string
-	Diff        string
+	Adapter         Adapter
+	DriverKind      string
+	NativeSessionID string
+	Output          string
+	RawOutput       string
+	ExitCode        int
+	StartedAt       time.Time
+	CompletedAt     time.Time
+	DiffStat        string
+	Diff            string
 }
 
 func BuiltIns() []Adapter {
@@ -65,44 +69,43 @@ func BuiltIns() []Adapter {
 		{
 			ID:      "codex",
 			Name:    "Codex",
-			Command: "codex",
+			Command: "codex-acp",
 			CandidatePaths: []string{
-				"/Applications/Codex.app/Contents/Resources/codex",
-				"${HOME}/.local/bin/codex",
-				"/opt/homebrew/bin/codex",
-				"/usr/local/bin/codex",
+				"${HOME}/.local/bin/codex-acp",
+				"/opt/homebrew/bin/codex-acp",
+				"/usr/local/bin/codex-acp",
 			},
-			Kind:        "process",
-			Description: "Run Codex CLI as an external coding-agent process supervised by Hecate.",
+			Kind:        "acp",
+			Description: "Run Codex through its ACP adapter as a long-lived external coding-agent session supervised by Hecate.",
 			CostMode:    "external",
-			DocsURL:     "https://github.com/openai/codex",
+			DocsURL:     "https://github.com/zed-industries/codex-acp",
 		},
 		{
 			ID:      "claude_code",
 			Name:    "Claude Code",
-			Command: "claude",
+			Command: "claude-agent-acp",
 			CandidatePaths: []string{
-				"${HOME}/.volta/bin/claude",
-				"${HOME}/.local/bin/claude",
-				"/opt/homebrew/bin/claude",
-				"/usr/local/bin/claude",
+				"${HOME}/.local/bin/claude-agent-acp",
+				"/opt/homebrew/bin/claude-agent-acp",
+				"/usr/local/bin/claude-agent-acp",
 			},
-			Kind:        "process",
-			Description: "Run Claude Code as an external coding-agent process supervised by Hecate.",
+			Kind:        "acp",
+			Description: "Run Claude Agent through ACP as a long-lived external coding-agent session supervised by Hecate.",
 			CostMode:    "external",
-			DocsURL:     "https://docs.anthropic.com/claude-code",
+			DocsURL:     "https://github.com/agentclientprotocol/claude-agent-acp",
 		},
 		{
 			ID:      "cursor_agent",
 			Name:    "Cursor Agent",
 			Command: "cursor-agent",
+			Args:    []string{"acp"},
 			CandidatePaths: []string{
 				"${HOME}/.local/bin/cursor-agent",
 				"/opt/homebrew/bin/cursor-agent",
 				"/usr/local/bin/cursor-agent",
 			},
-			Kind:        "process",
-			Description: "Run Cursor Agent CLI as an external coding-agent process supervised by Hecate.",
+			Kind:        "acp",
+			Description: "Run Cursor Agent through ACP as a long-lived external coding-agent session supervised by Hecate.",
 			CostMode:    "external",
 			DocsURL:     "https://cursor.com/cli",
 		},
@@ -174,11 +177,7 @@ func resolveExecutable(adapter Adapter, lookup LookupFunc) (string, error) {
 }
 
 func Run(ctx context.Context, req RunRequest) (RunResult, error) {
-	adapter, ok := BuiltInByID(req.AdapterID)
-	if !ok {
-		return RunResult{}, fmt.Errorf("agent adapter %q not found", req.AdapterID)
-	}
-	return RunAdapter(ctx, adapter, req)
+	return NewSessionManager().Run(ctx, req)
 }
 
 func BuiltInByID(id string) (Adapter, bool) {
@@ -189,115 +188,6 @@ func BuiltInByID(id string) (Adapter, bool) {
 		}
 	}
 	return Adapter{}, false
-}
-
-func RunAdapter(ctx context.Context, adapter Adapter, req RunRequest) (RunResult, error) {
-	workspace, err := ValidateWorkspace(req.Workspace)
-	if err != nil {
-		return RunResult{}, err
-	}
-	prompt := strings.TrimSpace(req.Prompt)
-	if prompt == "" {
-		return RunResult{}, errors.New("prompt is required")
-	}
-	timeout := req.Timeout
-	if timeout <= 0 {
-		timeout = 10 * time.Minute
-	}
-	maxOutput := req.MaxOutputBytes
-	if maxOutput <= 0 {
-		maxOutput = 1024 * 1024
-	}
-
-	runCtx, cancel := context.WithTimeout(ctx, timeout)
-	defer cancel()
-
-	started := time.Now().UTC()
-	command, args, err := commandForAdapter(adapter, workspace, prompt)
-	if err != nil {
-		return RunResult{}, err
-	}
-	cmd := exec.CommandContext(runCtx, command, args...)
-	configureCommandProcessGroup(cmd)
-	cmd.Dir = workspace
-	cmd.Env = sanitizedEnv(os.Environ())
-
-	var out limitedBuffer
-	out.limit = maxOutput
-	out.onWrite = req.OnOutput
-	cmd.Stdout = &out
-	cmd.Stderr = &out
-	runErr := cmd.Run()
-	completed := time.Now().UTC()
-
-	exitCode := 0
-	if runErr != nil {
-		exitCode = 1
-		var exitErr *exec.ExitError
-		if errors.As(runErr, &exitErr) {
-			exitCode = exitErr.ExitCode()
-		}
-		if errors.Is(runCtx.Err(), context.DeadlineExceeded) {
-			runErr = fmt.Errorf("agent adapter timed out after %s", timeout)
-		} else if errors.Is(runCtx.Err(), context.Canceled) {
-			runErr = context.Canceled
-		}
-	}
-	if out.truncated {
-		if runErr == nil {
-			runErr = fmt.Errorf("agent adapter output exceeded %d bytes", maxOutput)
-		} else {
-			runErr = fmt.Errorf("%w; output exceeded %d bytes", runErr, maxOutput)
-		}
-	}
-
-	diffStat, diff := captureGitDiff(ctx, workspace, maxOutput)
-	return RunResult{
-		Adapter:     adapter,
-		Output:      normalizeOutput(adapter.ID, out.String()),
-		RawOutput:   out.String(),
-		ExitCode:    exitCode,
-		StartedAt:   started,
-		CompletedAt: completed,
-		DiffStat:    diffStat,
-		Diff:        diff,
-	}, runErr
-}
-
-func commandForAdapter(adapter Adapter, workspace string, prompt string) (string, []string, error) {
-	command, err := resolveExecutable(adapter, exec.LookPath)
-	if err != nil {
-		return "", nil, err
-	}
-	switch adapter.ID {
-	case "codex":
-		return command, []string{
-			"--ask-for-approval", "never",
-			"exec",
-			"--cd", workspace,
-			"--sandbox", "workspace-write",
-			"--json",
-			prompt,
-		}, nil
-	case "claude_code":
-		return command, []string{
-			"-p",
-			"--permission-mode", "acceptEdits",
-			"--output-format", "text",
-			prompt,
-		}, nil
-	case "cursor_agent":
-		return command, []string{
-			"--print",
-			"--output-format", "text",
-			"--workspace", workspace,
-			"--trust",
-			"--force",
-			prompt,
-		}, nil
-	default:
-		return "", nil, fmt.Errorf("agent adapter %q has no process invocation", adapter.ID)
-	}
 }
 
 func expandPath(path string) string {
