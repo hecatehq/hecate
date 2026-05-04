@@ -379,6 +379,14 @@ export type AgentChatStreamEvent =
   | { type: "approval.requested"; payload: AgentChatApprovalRequestedEvent }
   | { type: "approval.resolved"; payload: AgentChatApprovalResolvedEvent };
 
+// PendingAgentApproval is the banner-essentials projection of an
+// approval row. Stored in `pendingApprovalsBySessionID` and consumed
+// by the Chats banner / modal trigger. Field shape is identical to
+// the SSE `approval.requested` event payload — both the catch-up
+// refetch and the streamed event project down to this — but the alias
+// keeps UI components decoupled from the SSE wire vocabulary.
+export type PendingAgentApproval = AgentChatApprovalRequestedEvent;
+
 export type WorkspaceDialogResponse = {
   object: string;
   data: {
@@ -567,6 +575,10 @@ export type RuntimeStatsResponse = {
     oldest_queued_age_seconds: number;
     oldest_running_age_seconds: number;
     store_backend?: string;
+    // Configured external-agent approval mode: "auto", "prompt", or
+    // "deny". UI renders a danger banner when "auto". Empty when the
+    // backend was built without an approval coordinator.
+    agent_adapter_approval_mode?: string;
     // Optional extension points.
     telemetry?: {
       checked_at?: string;

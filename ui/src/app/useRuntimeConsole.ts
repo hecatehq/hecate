@@ -23,6 +23,7 @@ import {
   getProviders,
   getRequestLedger,
   getRetentionRuns,
+  getRuntimeStats,
   getSession,
   setProviderAPIKey as setProviderAPIKeyRequest,
   upsertPricebookEntry as upsertPricebookEntryRequest,
@@ -60,8 +61,8 @@ import type {
   AccountSummaryResponse,
   AgentAdapterRecord,
   AgentChatApprovalRecord,
-  AgentChatApprovalRequestedEvent,
   AgentChatGrantRecord,
+  PendingAgentApproval,
   AgentChatSessionRecord,
   AgentChatSessionsResponse,
   ChatResponse,
@@ -80,6 +81,7 @@ import type {
   RuntimeHeaders,
   SessionResponse,
   RetentionRunData,
+  RuntimeStatsResponse,
 } from "../types/runtime";
 
 // Single-user mode: the session shape is a fixed label. Kept around so
@@ -126,7 +128,7 @@ export function useRuntimeConsole() {
   // The Map instance is always replaced on update (never mutated in
   // place); React reference equality is the re-render trigger.
   const [pendingApprovalsBySessionID, setPendingApprovalsBySessionID] = useState<
-    Map<string, AgentChatApprovalRequestedEvent[]>
+    Map<string, PendingAgentApproval[]>
   >(() => new Map());
   // agentChatGrants holds the most recent listAgentChatGrants result
   // for the Settings → External Agents tab. Lazy-loaded by the action,
@@ -134,6 +136,11 @@ export function useRuntimeConsole() {
   const [agentChatGrants, setAgentChatGrants] = useState<AgentChatGrantRecord[]>([]);
   const [agentChatGrantsLoading, setAgentChatGrantsLoading] = useState(false);
   const [agentChatGrantsError, setAgentChatGrantsError] = useState("");
+  // agentAdapterApprovalMode mirrors the runtime-stats field of the
+  // same name. Empty until the dashboard fan-out resolves. The Chats
+  // workspace surfaces a danger banner when this is "auto" — every
+  // adapter RequestPermission is permitted without operator review.
+  const [agentAdapterApprovalMode, setAgentAdapterApprovalMode] = useState<string>("");
   const [budget, setBudget] = useState<BudgetStatusResponse["data"] | null>(null);
   const [accountSummary, setAccountSummary] = useState<AccountSummaryResponse["data"] | null>(null);
   const [requestLedger, setRequestLedger] = useState<RequestLedgerResponse["data"]>([]);
@@ -487,6 +494,7 @@ export function useRuntimeConsole() {
       setControlPlaneConfig(snapshot.controlPlaneConfig);
       setRetentionRuns(snapshot.retentionRuns);
       setRetentionLastRun(snapshot.retentionLastRun);
+      setAgentAdapterApprovalMode(snapshot.agentAdapterApprovalMode);
     } catch (loadError) {
       setError(loadError instanceof Error ? loadError.message : "unknown load error");
     } finally {
@@ -643,7 +651,7 @@ export function useRuntimeConsole() {
   // upsert/remove on top).
   function setPendingApprovalsForSession(
     sessionID: string,
-    rows: AgentChatApprovalRequestedEvent[],
+    rows: PendingAgentApproval[],
   ) {
     setPendingApprovalsBySessionID((current) => {
       const next = new Map(current);
@@ -656,7 +664,7 @@ export function useRuntimeConsole() {
     });
   }
 
-  function upsertPendingApproval(event: AgentChatApprovalRequestedEvent) {
+  function upsertPendingApproval(event: PendingAgentApproval) {
     setPendingApprovalsBySessionID((current) => {
       const next = new Map(current);
       const existing = next.get(event.session_id) ?? [];
@@ -692,7 +700,7 @@ export function useRuntimeConsole() {
     if (!sessionID) return;
     try {
       const result = await listAgentChatApprovalsRequest(sessionID, "pending");
-      const rows = (result.data ?? []).map(approvalRecordToRequestedEvent);
+      const rows = (result.data ?? []).map(approvalRecordToPending);
       setPendingApprovalsForSession(sessionID, rows);
     } catch {
       // Banner is best-effort; failure here just means the operator
@@ -1438,6 +1446,7 @@ export function useRuntimeConsole() {
       agentChatGrants,
       agentChatGrantsLoading,
       agentChatGrantsError,
+      agentAdapterApprovalMode,
     },
     actions: {
       copyCommand,
@@ -1640,11 +1649,11 @@ function renderChatSessionSummary(session: ChatSessionRecord): ChatSessionsRespo
   };
 }
 
-// approvalRecordToRequestedEvent projects a full approval row down to
+// approvalRecordToPending projects a full approval row down to
 // the banner-essentials shape. Used on the initial GET-list refetch so
 // rows from refetch and rows from streamed `approval.requested` events
 // share one storage shape.
-function approvalRecordToRequestedEvent(row: AgentChatApprovalRecord): AgentChatApprovalRequestedEvent {
+function approvalRecordToPending(row: AgentChatApprovalRecord): PendingAgentApproval {
   return {
     approval_id: row.id,
     session_id: row.session_id,
@@ -1689,6 +1698,7 @@ type DashboardResults = {
   requestLedger: PromiseSettledResult<RequestLedgerResponse>;
   controlPlaneConfig: PromiseSettledResult<ConfiguredStateResponse>;
   retentionRuns: PromiseSettledResult<{ object: string; data: RetentionRunData[] }>;
+  runtimeStats: PromiseSettledResult<RuntimeStatsResponse>;
 };
 
 type DashboardPreviousState = {
@@ -1726,6 +1736,7 @@ type DashboardSnapshot = {
   controlPlaneConfig: ConfiguredStateResponse["data"] | null;
   retentionRuns: RetentionRunData[];
   retentionLastRun: RetentionRunData | null;
+  agentAdapterApprovalMode: string;
 };
 
 async function resolveDashboardSnapshot(args: {
@@ -1746,6 +1757,9 @@ async function resolveDashboardSnapshot(args: {
   const controlPlaneConfig = resolveDashboardResult(results.controlPlaneConfig, args.previous.controlPlaneConfig);
   const retentionRuns = resolveDashboardResult(results.retentionRuns, args.previous.retentionRuns);
   const retentionLastRun = retentionRuns[0] ?? null;
+  const agentAdapterApprovalMode = results.runtimeStats.status === "fulfilled"
+    ? (results.runtimeStats.value.data.agent_adapter_approval_mode ?? "")
+    : "";
   const chatState = await resolveChatDashboardState({
     activeChatSessionID: args.activeChatSessionID,
     previousSessions: args.previous.chatSessions,
@@ -1779,6 +1793,7 @@ async function resolveDashboardSnapshot(args: {
     controlPlaneConfig,
     retentionRuns,
     retentionLastRun,
+    agentAdapterApprovalMode,
   };
 }
 
@@ -1806,6 +1821,7 @@ async function loadDashboardResults(): Promise<DashboardResults> {
   let requestLedger: PromiseSettledResult<RequestLedgerResponse> = initialReject();
   let controlPlaneConfig: PromiseSettledResult<ConfiguredStateResponse> = initialReject();
   let retentionRuns: PromiseSettledResult<{ object: string; data: RetentionRunData[] }> = initialReject();
+  let runtimeStats: PromiseSettledResult<RuntimeStatsResponse> = initialReject();
 
   await Promise.all([
     getProviderPresets().then(r => { providerPresets = { status: "fulfilled", value: r }; }, e => { providerPresets = { status: "rejected", reason: e }; }),
@@ -1818,6 +1834,7 @@ async function loadDashboardResults(): Promise<DashboardResults> {
     getRequestLedger(20).then(r => { requestLedger = { status: "fulfilled", value: r }; }, e => { requestLedger = { status: "rejected", reason: e }; }),
     getControlPlaneConfig().then(r => { controlPlaneConfig = { status: "fulfilled", value: r }; }, e => { controlPlaneConfig = { status: "rejected", reason: e }; }),
     getRetentionRuns(10).then(r => { retentionRuns = { status: "fulfilled", value: r }; }, e => { retentionRuns = { status: "rejected", reason: e }; }),
+    getRuntimeStats().then(r => { runtimeStats = { status: "fulfilled", value: r }; }, e => { runtimeStats = { status: "rejected", reason: e }; }),
   ]);
 
   // /admin/providers probes upstream provider runtimes; only call it
@@ -1847,6 +1864,7 @@ async function loadDashboardResults(): Promise<DashboardResults> {
     requestLedger,
     controlPlaneConfig,
     retentionRuns,
+    runtimeStats,
   };
 }
 

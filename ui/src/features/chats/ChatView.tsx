@@ -5,6 +5,8 @@ import { describeGatewayError, formatErrorCode } from "../../lib/error-diagnosti
 import { parseInlineNodes, parseMarkdownBlocks } from "../../lib/markdown";
 import type { AgentAdapterRecord, AgentChatActivityRecord, AgentChatSessionRecord } from "../../types/runtime";
 import { AgentAdapterPicker, CodeBlock, Icon, Icons, InlineError, ModelPicker, ProviderPicker } from "../shared/ui";
+import { AgentApprovalAutoModeBanner, AgentApprovalsBanner } from "./AgentApprovalBanner";
+import { AgentApprovalModal } from "./AgentApprovalModal";
 
 type Props = {
   state: RuntimeConsoleViewModel["state"];
@@ -47,6 +49,10 @@ type SidebarSession = {
 export function ChatView({ state, actions, onNavigate }: Props) {
   const [sidebarOpen, setSidebarOpen] = useState(true);
   const [syspromptOpen, setSyspromptOpen] = useState(false);
+  // approvalModalID is the per-banner-click open state for the
+  // approval modal. The modal itself fetches the full row on mount;
+  // we only carry the id here.
+  const [approvalModalID, setApprovalModalID] = useState<string | null>(null);
   const [renamingId, setRenamingId] = useState<string | null>(null);
   const [renameValue, setRenameValue] = useState("");
   const [hoveredChatId, setHoveredChatId] = useState<string | null>(null);
@@ -562,6 +568,22 @@ export function ChatView({ state, actions, onNavigate }: Props) {
           </div>
         )}
 
+        {/* External-agent approval surfaces. Both banners are agent-chat-only;
+            the auto-mode warning is persistent for as long as the gateway
+            runs in auto, the pending banner appears only when there's at
+            least one pending approval for the active session. */}
+        {isAgentChat && (
+          <>
+            <AgentApprovalAutoModeBanner mode={state.agentAdapterApprovalMode} />
+            {state.activeAgentChatSessionID && (
+              <AgentApprovalsBanner
+                pending={state.pendingApprovalsBySessionID.get(state.activeAgentChatSessionID) ?? []}
+                onSelect={(id) => setApprovalModalID(id)}
+              />
+            )}
+          </>
+        )}
+
         {/* Messages */}
         <div style={{ flex: 1, overflow: "hidden", position: "relative" }}>
         <div ref={scrollRef} onScroll={handleScroll} style={{ height: "100%", overflowY: "auto", padding: "16px 0" }}>
@@ -776,6 +798,17 @@ export function ChatView({ state, actions, onNavigate }: Props) {
           50% { opacity: 0.9; transform: translateY(-1px) scale(1.15); }
         }
       `}</style>
+
+      {approvalModalID && state.activeAgentChatSessionID && (
+        <AgentApprovalModal
+          sessionID={state.activeAgentChatSessionID}
+          approvalID={approvalModalID}
+          onClose={() => setApprovalModalID(null)}
+          fetchApproval={actions.getAgentChatApproval}
+          onResolve={actions.resolveAgentChatApproval}
+          onCancel={actions.cancelAgentChatApproval}
+        />
+      )}
     </div>
   );
 }

@@ -179,6 +179,12 @@ func (h *Handler) writeRuntimeStats(w http.ResponseWriter, ctx context.Context) 
 			OldestQueuedAgeSeconds:  stats.OldestQueuedAgeSeconds,
 			OldestRunningAgeSeconds: stats.OldestRunningAgeSeconds,
 			StoreBackend:            stats.StoreBackend,
+			// Surface the configured external-agent approval mode so
+			// the UI can render a danger banner when "auto" is set
+			// (every adapter tool call is permitted without operator
+			// review). Empty when the handler was built without an
+			// approval coordinator (test fixtures bypass NewHandler).
+			AgentAdapterApprovalMode: string(h.approvalConfig.mode),
 		},
 	})
 }

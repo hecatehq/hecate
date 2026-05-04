@@ -182,3 +182,173 @@ test("chat error renders inline with the humanized message", async ({ page }) =>
   // Inline banner under the chat header carries the humanized message.
   await expect(page.getByText(/has no API key/i).first()).toBeVisible();
 });
+
+// Slice 3 commit 2: approval flow happy path. Seeds an active agent
+// chat session with one pending approval, then exercises the operator
+// path: catch-up refetch populates the banner → click Review →
+// modal fetches the full row → Allow → resolve POST fires → modal
+// closes → banner clears (subsequent refetch returns empty).
+test("agent approval banner: review, allow, banner clears", async ({ page }) => {
+  // Seed the persisted active session before the page loads, so the
+  // dashboard fan-out runs the catch-up refetch on mount.
+  await page.addInitScript(() => {
+    window.localStorage.setItem("hecate.agentChatSessionID", "a-e2e-1");
+    window.localStorage.setItem("hecate.chatTarget", "agent");
+  });
+
+  // The dashboard fan-out asks for /v1/agent-chat/sessions on mount
+  // and prunes any stored activeSessionID that isn't in the list. So
+  // a-e2e-1 must appear here for the catch-up refetch to fire.
+  await page.route("/v1/agent-chat/sessions", (route) => {
+    if (route.request().method() !== "GET") {
+      void route.fulfill({ status: 405, body: "" });
+      return;
+    }
+    void route.fulfill({
+      status: 200,
+      contentType: "application/json",
+      body: JSON.stringify({
+        object: "agent_chat_sessions",
+        data: [{
+          id: "a-e2e-1",
+          title: "E2E approval test",
+          adapter_id: "codex",
+          status: "running",
+          message_count: 0,
+        }],
+      }),
+    });
+  });
+
+  // Approvals refetch — returns the pending row until the resolve
+  // POST fires, then returns an empty list. This matches what a
+  // backend would actually do (the row is the source of truth, not
+  // the call count) and stays stable under React 19 strict-mode
+  // double-fires of the catch-up effect.
+  let approvalResolved = false;
+  await page.route("/v1/agent-chat/sessions/a-e2e-1/approvals*", (route) => {
+    if (approvalResolved) {
+      void route.fulfill({
+        status: 200,
+        contentType: "application/json",
+        body: JSON.stringify({ object: "list", data: [] }),
+      });
+      return;
+    }
+    void route.fulfill({
+      status: 200,
+      contentType: "application/json",
+      body: JSON.stringify({
+        object: "list",
+        data: [{
+          id: "ap-e2e-1",
+          session_id: "a-e2e-1",
+          adapter_id: "codex",
+          tool_kind: "fs",
+          tool_name: "write_file",
+          status: "pending",
+          acp_options: [
+            { option_id: "approve_once", kind: "allow_once", name: "Approve once" },
+          ],
+          scope_choices: ["once", "session"],
+          created_at: "2026-04-21T10:00:00Z",
+          expires_at: "2026-04-21T10:05:00Z",
+        }],
+      }),
+    });
+  });
+
+  await page.route("/v1/agent-chat/sessions/a-e2e-1/approvals/ap-e2e-1", (route) => {
+    void route.fulfill({
+      status: 200,
+      contentType: "application/json",
+      body: JSON.stringify({
+        object: "agent_chat_approval",
+        data: {
+          id: "ap-e2e-1",
+          session_id: "a-e2e-1",
+          adapter_id: "codex",
+          tool_kind: "fs",
+          tool_name: "write_file",
+          status: "pending",
+          acp_options: [
+            { option_id: "approve_once", kind: "allow_once", name: "Approve once" },
+          ],
+          scope_choices: ["once", "session"],
+          created_at: "2026-04-21T10:00:00Z",
+          expires_at: "2026-04-21T10:05:00Z",
+        },
+      }),
+    });
+  });
+
+  let resolveCalls = 0;
+  await page.route("/v1/agent-chat/sessions/a-e2e-1/approvals/ap-e2e-1/resolve", (route) => {
+    resolveCalls += 1;
+    approvalResolved = true;
+    void route.fulfill({
+      status: 200,
+      contentType: "application/json",
+      body: JSON.stringify({
+        object: "agent_chat_approval",
+        data: {
+          id: "ap-e2e-1",
+          session_id: "a-e2e-1",
+          adapter_id: "codex",
+          tool_kind: "fs",
+          status: "resolved",
+          acp_options: [],
+          decision: "approve",
+          scope: "once",
+          path: "operator",
+          created_at: "2026-04-21T10:00:00Z",
+          expires_at: "2026-04-21T10:05:00Z",
+          resolved_at: "2026-04-21T10:00:30Z",
+        },
+      }),
+    });
+  });
+
+  // Override the default agent-chat route so the active session
+  // resolves to a real record (the default mock returns 404 for any
+  // POST/PATCH/etc.; GET-by-id is unstubbed and we want a 200 here).
+  await page.route("/v1/agent-chat/sessions/a-e2e-1", (route) => {
+    void route.fulfill({
+      status: 200,
+      contentType: "application/json",
+      body: JSON.stringify({
+        object: "agent_chat_session",
+        data: {
+          id: "a-e2e-1",
+          title: "E2E approval test",
+          adapter_id: "codex",
+          workspace: "/tmp/e2e",
+          status: "running",
+          messages: [],
+        },
+      }),
+    });
+  });
+
+  await page.reload();
+  await page.waitForSelector(".hecate-activitybar");
+
+  // Pending banner shows up after the catch-up refetch fires.
+  const banner = page.getByTestId("agent-approval-banner");
+  await expect(banner).toBeVisible();
+  await expect(banner.getByTestId("agent-approval-banner-review")).toBeVisible();
+
+  // Click Review — modal opens and fetches the full row.
+  await banner.getByTestId("agent-approval-banner-review").click();
+  await expect(page.getByTestId("agent-approval-modal-submit")).toBeVisible();
+  await expect(page.getByTestId("agent-approval-modal-loading")).toBeHidden();
+
+  // Allow with the seeded defaults.
+  await page.getByTestId("agent-approval-modal-submit").click();
+
+  // Modal closes; banner clears (second refetch returned an empty
+  // list, and the optimistic remove also fires).
+  await expect(page.getByTestId("agent-approval-modal-submit")).toBeHidden();
+  await expect(page.getByTestId("agent-approval-banner")).toBeHidden();
+  expect(resolveCalls).toBe(1);
+});

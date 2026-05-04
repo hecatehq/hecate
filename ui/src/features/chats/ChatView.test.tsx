@@ -683,3 +683,81 @@ describe("ChatView history pagination", () => {
     expect(loadMoreChatSessions).toHaveBeenCalled();
   });
 });
+
+// Slice 3 commit 2: external-agent approval surfaces in the Chats
+// workspace. These tests confirm the banner / modal wiring; the
+// component-level behavior (overflow stack, broad-scope confirm) is
+// covered in AgentApprovalBanner.test.tsx and AgentApprovalModal.test.tsx.
+describe("ChatView agent approvals", () => {
+  it("renders the auto-mode danger banner when the gateway runs in auto", () => {
+    const { state, actions } = setup({
+      chatTarget: "agent",
+      agentAdapterApprovalMode: "auto",
+    });
+    render(<ChatView state={state} actions={actions} />);
+    expect(screen.getByTestId("agent-approval-auto-banner")).toBeTruthy();
+  });
+
+  it("does not render the auto-mode banner when in prompt mode", () => {
+    const { state, actions } = setup({
+      chatTarget: "agent",
+      agentAdapterApprovalMode: "prompt",
+    });
+    render(<ChatView state={state} actions={actions} />);
+    expect(screen.queryByTestId("agent-approval-auto-banner")).toBeNull();
+  });
+
+  it("hides the auto-mode banner when in model chat target (it's an agent-only concern)", () => {
+    const { state, actions } = setup({
+      chatTarget: "model",
+      agentAdapterApprovalMode: "auto",
+    });
+    render(<ChatView state={state} actions={actions} />);
+    expect(screen.queryByTestId("agent-approval-auto-banner")).toBeNull();
+  });
+
+  it("renders the pending banner with rows scoped to the active session and opens the modal on Review", async () => {
+    const sessionID = "a1";
+    const pending = new Map<string, any>([
+      [sessionID, [{
+        approval_id: "ap-1",
+        session_id: sessionID,
+        adapter_id: "codex",
+        tool_kind: "fs",
+        tool_name: "write_file",
+        created_at: "2026-04-21T10:00:00Z",
+        expires_at: "2026-04-21T10:05:00Z",
+      }]],
+      ["other-session", [{
+        approval_id: "ap-2",
+        session_id: "other-session",
+        adapter_id: "codex",
+        tool_kind: "exec",
+        created_at: "2026-04-21T10:00:00Z",
+        expires_at: "2026-04-21T10:05:00Z",
+      }]],
+    ]);
+    const getAgentChatApproval = vi.fn(async () => null); // modal opens, fetch returns null → renders error
+    const { state, actions } = setup(
+      {
+        chatTarget: "agent",
+        activeAgentChatSessionID: sessionID,
+        activeAgentChatSession: { id: sessionID, title: "S1", adapter_id: "codex", workspace: "/tmp", status: "running" } as any,
+        pendingApprovalsBySessionID: pending,
+        agentChatSessions: [{ id: sessionID, title: "S1", adapter_id: "codex", status: "running", message_count: 0 } as any],
+      },
+      { getAgentChatApproval },
+    );
+    render(<ChatView state={state} actions={actions} />);
+
+    // Only the active session's pending row is visible — banner must
+    // not bleed approvals from other sessions.
+    const reviews = screen.getAllByTestId("agent-approval-banner-review");
+    expect(reviews).toHaveLength(1);
+
+    const user = userEvent.setup();
+    await user.click(reviews[0]!);
+    // The modal mounts and asks for the full row.
+    expect(getAgentChatApproval).toHaveBeenCalledWith(sessionID, "ap-1");
+  });
+});

@@ -1849,6 +1849,40 @@ func assertRuntimeStatsCore(t *testing.T, response RuntimeStatsResponse) {
 	}
 }
 
+// TestRuntimeStatsAgentAdapterApprovalMode covers the operator-UI
+// signal: the configured external-agent approval mode is surfaced on
+// /admin/runtime/stats so the client can render a danger banner when
+// "auto" is set (every adapter call permitted without review).
+//
+// Asserts both the default (NewHandler folds an empty mode to "prompt"
+// at construction) and the explicit "auto" override.
+func TestRuntimeStatsAgentAdapterApprovalMode(t *testing.T) {
+	t.Parallel()
+
+	logger := slog.New(slog.NewJSONHandler(io.Discard, nil))
+
+	t.Run("defaults to prompt", func(t *testing.T) {
+		t.Parallel()
+		handler := newTestHTTPHandlerForProviders(logger, nil, config.Config{})
+		client := newAPITestClient(t, handler)
+		response := mustRequestJSON[RuntimeStatsResponse](client, http.MethodGet, "/admin/runtime/stats", "")
+		if response.Data.AgentAdapterApprovalMode != "prompt" {
+			t.Fatalf("agent_adapter_approval_mode = %q, want prompt", response.Data.AgentAdapterApprovalMode)
+		}
+	})
+
+	t.Run("surfaces auto when configured", func(t *testing.T) {
+		t.Parallel()
+		cfg := config.Config{Server: config.ServerConfig{AgentAdapterApprovalMode: "auto"}}
+		handler := newTestHTTPHandlerForProviders(logger, nil, cfg)
+		client := newAPITestClient(t, handler)
+		response := mustRequestJSON[RuntimeStatsResponse](client, http.MethodGet, "/admin/runtime/stats", "")
+		if response.Data.AgentAdapterApprovalMode != "auto" {
+			t.Fatalf("agent_adapter_approval_mode = %q, want auto", response.Data.AgentAdapterApprovalMode)
+		}
+	})
+}
+
 func TestMCPCacheStatsUnconfigured(t *testing.T) {
 	t.Parallel()
 

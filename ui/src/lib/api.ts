@@ -402,7 +402,7 @@ export async function getAgentChatApproval(
 }
 
 export type ResolveAgentChatApprovalPayload = {
-  decision: string;
+  decision: "approve" | "deny";
   scope: string;
   selected_option?: string;
   note?: string;
