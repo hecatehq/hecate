@@ -13,6 +13,10 @@ import (
 	"testing"
 
 	"github.com/hecate/agent-runtime/internal/acp"
+	"go.opentelemetry.io/otel"
+	"go.opentelemetry.io/otel/baggage"
+	"go.opentelemetry.io/otel/propagation"
+	oteltrace "go.opentelemetry.io/otel/trace"
 )
 
 func TestGatewayURLFromRuntimeFile(t *testing.T) {
@@ -247,6 +251,85 @@ func TestGatewayHTTPClientStreamRunEvents(t *testing.T) {
 	}
 }
 
+func TestGatewayHTTPClientInjectsTraceContext(t *testing.T) {
+	old := otel.GetTextMapPropagator()
+	otel.SetTextMapPropagator(propagation.NewCompositeTextMapPropagator(
+		propagation.TraceContext{},
+		propagation.Baggage{},
+	))
+	t.Cleanup(func() {
+		otel.SetTextMapPropagator(old)
+	})
+
+	const wantTraceparent = "00-4bf92f3577b34da6a3ce929d0e0e4736-00f067aa0ba902b7-01"
+	seen := map[string]http.Header{}
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		seen[r.URL.Path] = r.Header.Clone()
+		w.Header().Set("Content-Type", "application/json")
+		switch r.URL.Path {
+		case "/v1/models":
+			_, _ = w.Write([]byte(`{"object":"list","data":[{"id":"gpt-4o-mini"}]}`))
+		case "/v1/tasks/task-123/runs/run-456/continue":
+			_, _ = w.Write([]byte(`{"object":"task_run","data":{"id":"run-789"}}`))
+		case "/v1/tasks/task-123/runs/run-789/stream":
+			w.Header().Set("Content-Type", "text/event-stream")
+			fmt.Fprint(w, `data: {"object":"task_run_stream_event","data":{"event_type":"run.finished","terminal":true}}`)
+			fmt.Fprint(w, "\n\n")
+		default:
+			t.Fatalf("unexpected request %s %s", r.Method, r.URL.Path)
+		}
+	}))
+	defer srv.Close()
+
+	client, err := newGatewayHTTPClient(bridgeConfig{GatewayURL: srv.URL})
+	if err != nil {
+		t.Fatalf("newGatewayHTTPClient() error = %v", err)
+	}
+	ctx := testTraceContext(t)
+	if _, err := client.ListModels(ctx); err != nil {
+		t.Fatalf("ListModels() error = %v", err)
+	}
+	if _, err := client.ContinueAgentLoopTask(ctx, "task-123", "run-456", "next prompt"); err != nil {
+		t.Fatalf("ContinueAgentLoopTask() error = %v", err)
+	}
+	events, err := client.StreamRunEvents(ctx, "task-123", "run-789")
+	if err != nil {
+		t.Fatalf("StreamRunEvents() error = %v", err)
+	}
+	for range events {
+	}
+
+	for _, requestPath := range []string{"/v1/models", "/v1/tasks/task-123/runs/run-456/continue", "/v1/tasks/task-123/runs/run-789/stream"} {
+		header, ok := seen[requestPath]
+		if !ok {
+			t.Fatalf("missing request %s in %#v", requestPath, seen)
+		}
+		if got := header.Get("traceparent"); got != wantTraceparent {
+			t.Fatalf("%s traceparent = %q, want %q", requestPath, got, wantTraceparent)
+		}
+		if got := header.Get("baggage"); got != "tenant=local" {
+			t.Fatalf("%s baggage = %q, want tenant=local", requestPath, got)
+		}
+	}
+}
+
+func TestBridgeOTelFromEnvUsesACPServiceIdentity(t *testing.T) {
+	t.Setenv("GATEWAY_OTEL_ENDPOINT", "http://collector:4318")
+	t.Setenv("GATEWAY_OTEL_TRACES_ENABLED", "true")
+	t.Setenv("GATEWAY_OTEL_SERVICE_NAME", "hecate-gateway")
+
+	cfg := bridgeOTelFromEnv()
+	if !cfg.TracesEnabled {
+		t.Fatal("TracesEnabled = false, want true")
+	}
+	if cfg.TracesEndpoint != "http://collector:4318/v1/traces" {
+		t.Fatalf("TracesEndpoint = %q", cfg.TracesEndpoint)
+	}
+	if cfg.ServiceName != "hecate-acp" {
+		t.Fatalf("ServiceName = %q, want hecate-acp", cfg.ServiceName)
+	}
+}
+
 func TestRunInitializeOverStdio(t *testing.T) {
 	t.Parallel()
 
@@ -296,6 +379,28 @@ func TestRunInitializeOverStdio(t *testing.T) {
 	if len(result.AvailableModels) != 1 || result.AvailableModels[0].ID != "llama3.1:8b" {
 		t.Fatalf("availableModels = %#v", result.AvailableModels)
 	}
+}
+
+func testTraceContext(t *testing.T) context.Context {
+	t.Helper()
+	traceID, err := oteltrace.TraceIDFromHex("4bf92f3577b34da6a3ce929d0e0e4736")
+	if err != nil {
+		t.Fatalf("TraceIDFromHex() error = %v", err)
+	}
+	spanID, err := oteltrace.SpanIDFromHex("00f067aa0ba902b7")
+	if err != nil {
+		t.Fatalf("SpanIDFromHex() error = %v", err)
+	}
+	ctx := oteltrace.ContextWithSpanContext(context.Background(), oteltrace.NewSpanContext(oteltrace.SpanContextConfig{
+		TraceID:    traceID,
+		SpanID:     spanID,
+		TraceFlags: oteltrace.FlagsSampled,
+	}))
+	bag, err := baggage.Parse("tenant=local")
+	if err != nil {
+		t.Fatalf("baggage.Parse() error = %v", err)
+	}
+	return baggage.ContextWithBaggage(ctx, bag)
 }
 
 func TestRunWritesParseError(t *testing.T) {

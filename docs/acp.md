@@ -366,6 +366,25 @@ for that behavior.
 | `HECATE_WORKSPACE_MODE` | `hecate-owned` | Future workspace ownership mode. |
 | `HECATE_APPROVAL_ROUTE` | `editor` | `editor` sends approval gates to ACP `session/request_permission`; other values leave approvals for the Hecate operator UI. |
 
+### Bridge telemetry
+
+`hecate-acp` can export OTel traces independently from the gateway. It uses
+`hecate-acp` as its default `service.name`, even when it inherits collector
+endpoint settings from the gateway environment.
+
+| Variable | Meaning |
+|---|---|
+| `HECATE_ACP_OTEL_TRACES_ENABLED` | Enable bridge trace export. Falls back to `GATEWAY_OTEL_TRACES_ENABLED`. |
+| `HECATE_ACP_OTEL_ENDPOINT` / `HECATE_ACP_OTEL_TRACES_ENDPOINT` | Shared or trace-specific collector endpoint. Falls back to `GATEWAY_OTEL_ENDPOINT` / `GATEWAY_OTEL_TRACES_ENDPOINT`. |
+| `HECATE_ACP_OTEL_TRANSPORT` / `HECATE_ACP_OTEL_TRACES_TRANSPORT` | `http` or `grpc`. Falls back to the gateway OTel transport variables. |
+| `HECATE_ACP_OTEL_HEADERS` / `HECATE_ACP_OTEL_TRACES_HEADERS` | Comma-separated `key=value` headers for OTLP export. |
+| `HECATE_ACP_OTEL_SERVICE_NAME` | Optional service-name override. Defaults to `hecate-acp`. |
+
+When enabled, the bridge emits `acp.rpc` spans for JSON-RPC calls and
+`acp.gateway.request` spans for gateway HTTP calls. It also injects W3C
+`traceparent` / `baggage` into gateway requests so editor ACP activity can be
+stitched into Hecate gateway traces.
+
 ## Smoke test
 
 Run the gateway, then send an initialize request to the bridge:
