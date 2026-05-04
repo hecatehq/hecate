@@ -295,14 +295,18 @@ func (h *Handler) HandleCreateAgentChatMessage(w http.ResponseWriter, r *http.Re
 		status = "cancelled"
 	}
 	output := strings.TrimSpace(result.Output)
+	displayErr := ""
+	if runErr != nil {
+		displayErr = agentadapters.NormalizeError(adapter.Name, runErr)
+	}
 	if status == "cancelled" {
 		if output == "" {
 			output = "agent run cancelled"
 		}
 	} else if output == "" && runErr != nil {
-		output = runErr.Error()
+		output = displayErr
 	} else if runErr != nil {
-		output = output + "\n\n" + runErr.Error()
+		output = output + "\n\n" + displayErr
 	}
 	if output == "" {
 		output = "(agent completed without output)"
@@ -316,7 +320,7 @@ func (h *Handler) HandleCreateAgentChatMessage(w http.ResponseWriter, r *http.Re
 	}
 	errorText := ""
 	if runErr != nil {
-		errorText = runErr.Error()
+		errorText = displayErr
 	}
 	if status == "cancelled" {
 		errorText = "cancelled"
@@ -341,7 +345,7 @@ func (h *Handler) HandleCreateAgentChatMessage(w http.ResponseWriter, r *http.Re
 		terminalAttrs[telemetry.AttrHecateResult] = telemetry.ResultError
 		terminalAttrs[telemetry.AttrHecateErrorKind] = telemetry.ErrorKindOther
 		terminalAttrs[telemetry.AttrErrorType] = "agent_adapter_failed"
-		terminalAttrs[telemetry.AttrErrorMessage] = runErr.Error()
+		terminalAttrs[telemetry.AttrErrorMessage] = displayErr
 	}
 	trace.Record(agentChatTerminalEvent(status), terminalAttrs)
 
@@ -350,6 +354,9 @@ func (h *Handler) HandleCreateAgentChatMessage(w http.ResponseWriter, r *http.Re
 			message.Content = output
 		}
 		message.RawOutput = result.RawOutput
+		if strings.TrimSpace(message.RawOutput) == "" && runErr != nil {
+			message.RawOutput = runErr.Error()
+		}
 		message.DriverKind = result.DriverKind
 		message.NativeSessionID = result.NativeSessionID
 		message.Status = status

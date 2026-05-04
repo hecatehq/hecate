@@ -1105,6 +1105,36 @@ func TestAgentChatOmitsStartedActivityWhenNativeSessionReused(t *testing.T) {
 	}
 }
 
+func TestAgentChatHumanizesAdapterJSONRPCBillingError(t *testing.T) {
+	dir := t.TempDir()
+	logger := slog.New(slog.NewJSONHandler(io.Discard, nil))
+	apiHandler := newTestAPIHandlerWithControlPlane(logger, []providers.Provider{&fakeProvider{}}, config.Config{}, nil)
+	rawErr := `{"code":-32603,"message":"Internal error: Credit balance is too low","data":{"errorKind":"billing_error"}}`
+	apiHandler.SetAgentChatRunner(&fakeAgentChatRunner{
+		err: errors.New(rawErr),
+	})
+	handler := NewServer(logger, apiHandler)
+	client := newAPITestClient(t, handler)
+	created := mustRequestJSON[AgentChatSessionResponse](client, http.MethodPost, "/v1/agent-chat/sessions", fmt.Sprintf(`{"adapter_id":"claude_code","workspace":%q}`, dir))
+	updated := mustRequestJSON[AgentChatSessionResponse](client, http.MethodPost, "/v1/agent-chat/sessions/"+created.Data.ID+"/messages", `{"content":"hello"}`)
+	assistant := updated.Data.Messages[1]
+	if assistant.Status != "failed" {
+		t.Fatalf("assistant status = %q, want failed", assistant.Status)
+	}
+	if !strings.Contains(assistant.Content, "Claude Code usage limit: credit balance is too low") {
+		t.Fatalf("assistant content = %q, want humanized Claude usage-limit error", assistant.Content)
+	}
+	if strings.Contains(assistant.Content, `"code":-32603`) {
+		t.Fatalf("assistant content leaked raw JSON-RPC error: %q", assistant.Content)
+	}
+	if !strings.Contains(assistant.RawOutput, `"errorKind":"billing_error"`) {
+		t.Fatalf("raw_output = %q, want raw adapter diagnostics preserved", assistant.RawOutput)
+	}
+	if assistant.Error != assistant.Content {
+		t.Fatalf("assistant error = %q, want content %q", assistant.Error, assistant.Content)
+	}
+}
+
 func agentChatActivitiesContain(items []AgentChatActivityItem, kind string) bool {
 	for _, item := range items {
 		if item.Type == kind {
@@ -1132,6 +1162,7 @@ type fakeAgentChatRunner struct {
 	waitForCancel   bool
 	nativeSessionID string
 	sessionStarted  bool
+	err             error
 }
 
 func (r *fakeAgentChatRunner) Run(ctx context.Context, req agentadapters.RunRequest) (agentadapters.RunResult, error) {
@@ -1167,6 +1198,9 @@ func (r *fakeAgentChatRunner) Run(ctx context.Context, req agentadapters.RunRequ
 	}
 	if req.OnOutput != nil && r.output != "" {
 		req.OnOutput(r.output)
+	}
+	if r.err != nil {
+		return r.result(req, output, started, 1), r.err
 	}
 	return r.result(req, output, started, 0), nil
 }

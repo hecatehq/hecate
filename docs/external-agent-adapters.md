@@ -74,6 +74,16 @@ cache the official `@agentclientprotocol/claude-agent-acp` package through
 If Hecate reports that the managed launcher is unavailable, install Node/npm or
 start Hecate from an environment where `npx` is available.
 
+Hecate strips `ANTHROPIC_*` provider variables from the Claude Code adapter
+environment. Claude Code subscription login is file-backed, and forwarding
+provider API variables can make the ACP runner use Console credits instead of
+the `/login` managed key shown by `claude /status`.
+
+If Claude reports `Credit balance is too low`, run `claude /status` from the
+same workspace and confirm it is using the account you expect. Hecate preserves
+the raw adapter error in diagnostics, but shows a friendlier usage-limit message
+in Chats.
+
 ### Cursor Agent
 
 ```sh

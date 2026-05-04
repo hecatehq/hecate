@@ -23,6 +23,69 @@ func NormalizeOutput(adapterID, raw string) string {
 	return normalizeOutput(adapterID, raw)
 }
 
+func NormalizeError(adapterName string, err error) string {
+	if err == nil {
+		return ""
+	}
+	raw := strings.TrimSpace(err.Error())
+	if raw == "" {
+		return ""
+	}
+	parsed, ok := parseJSONRPCError(raw)
+	if !ok {
+		return raw
+	}
+	message := strings.TrimSpace(strings.TrimPrefix(parsed.Message, "Internal error:"))
+	if message == "" {
+		message = strings.TrimSpace(parsed.Message)
+	}
+	if message == "" {
+		message = raw
+	}
+	if adapterName == "" {
+		adapterName = "Agent adapter"
+	}
+	switch parsed.Data.ErrorKind {
+	case "billing_error":
+		return adapterName + " usage limit: " + lowerFirst(message) + ". Check the active Claude credential and switch to subscription login or add API credits."
+	case "":
+		return adapterName + " error: " + message
+	default:
+		return adapterName + " error (" + parsed.Data.ErrorKind + "): " + message
+	}
+}
+
+type jsonRPCErrorPayload struct {
+	Message string `json:"message"`
+	Data    struct {
+		ErrorKind string `json:"errorKind"`
+	} `json:"data"`
+}
+
+func parseJSONRPCError(raw string) (jsonRPCErrorPayload, bool) {
+	var payload jsonRPCErrorPayload
+	if err := json.Unmarshal([]byte(raw), &payload); err == nil && payload.Message != "" {
+		return payload, true
+	}
+	start := strings.Index(raw, "{")
+	end := strings.LastIndex(raw, "}")
+	if start < 0 || end <= start {
+		return payload, false
+	}
+	if err := json.Unmarshal([]byte(raw[start:end+1]), &payload); err != nil || payload.Message == "" {
+		return payload, false
+	}
+	return payload, true
+}
+
+func lowerFirst(value string) string {
+	value = strings.TrimSpace(value)
+	if value == "" {
+		return ""
+	}
+	return strings.ToLower(value[:1]) + value[1:]
+}
+
 func normalizeJSONLines(raw string) string {
 	var out []string
 	for _, line := range strings.Split(raw, "\n") {
