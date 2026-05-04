@@ -401,7 +401,7 @@ func TestOrchestratorMetricsRunAttributeDimensions(t *testing.T) {
 
 	om.RecordRun(context.Background(), RunMetricsRecord{
 		Status:        "completed",
-		ExecutionKind: "agent",
+		ExecutionKind: "agent_loop",
 		Model:         "claude-sonnet-4-20250514",
 		DurationMS:    1500,
 	})
@@ -420,8 +420,8 @@ func TestOrchestratorMetricsRunAttributeDimensions(t *testing.T) {
 	if got := attrValue(dp.Attributes, AttrHecateRunStatus); got != "completed" {
 		t.Errorf("%s = %q, want completed", AttrHecateRunStatus, got)
 	}
-	if got := attrValue(dp.Attributes, AttrHecateExecutionKind); got != "agent" {
-		t.Errorf("%s = %q, want agent", AttrHecateExecutionKind, got)
+	if got := attrValue(dp.Attributes, AttrHecateExecutionKind); got != "agent_loop" {
+		t.Errorf("%s = %q, want agent_loop", AttrHecateExecutionKind, got)
 	}
 	if got := attrValue(dp.Attributes, AttrGenAIRequestModel); got != "claude-sonnet-4-20250514" {
 		t.Errorf("%s = %q, want claude-sonnet-4-20250514", AttrGenAIRequestModel, got)
@@ -439,8 +439,8 @@ func TestOrchestratorMetricsRunAttributeDimensions(t *testing.T) {
 	if got := attrValue(durDP.Attributes, AttrHecateRunStatus); got != "completed" {
 		t.Errorf("duration dp %s = %q, want completed", AttrHecateRunStatus, got)
 	}
-	if got := attrValue(durDP.Attributes, AttrHecateExecutionKind); got != "agent" {
-		t.Errorf("duration dp %s = %q, want agent", AttrHecateExecutionKind, got)
+	if got := attrValue(durDP.Attributes, AttrHecateExecutionKind); got != "agent_loop" {
+		t.Errorf("duration dp %s = %q, want agent_loop", AttrHecateExecutionKind, got)
 	}
 }
 

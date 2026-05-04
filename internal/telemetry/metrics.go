@@ -180,7 +180,7 @@ func (m *Metrics) RecordRequestOutcome(ctx context.Context, result string, durat
 		return
 	}
 
-	attrs := otmetric.WithAttributes(attribute.String(AttrHecateResult, result))
+	attrs := otmetric.WithAttributes(attribute.String(AttrHecateResult, NormalizeResult(result)))
 	m.requestsTotal.Add(ctx, 1, attrs)
 	m.requestDuration.Record(ctx, duration.Milliseconds(), attrs)
 }
@@ -191,12 +191,12 @@ func (m *Metrics) RecordProviderCall(ctx context.Context, rec ProviderCallMetric
 	}
 
 	attrs := make([]attribute.KeyValue, 0, 7)
-	attrs = append(attrs, attribute.String(AttrGenAIProviderName, rec.Provider))
+	attrs = append(attrs, attribute.String(AttrGenAIProviderName, NormalizeMetricLabel(rec.Provider)))
 	if rec.ProviderKind != "" {
-		attrs = append(attrs, attribute.String(AttrHecateProviderKind, rec.ProviderKind))
+		attrs = append(attrs, attribute.String(AttrHecateProviderKind, NormalizeProviderKind(rec.ProviderKind)))
 	}
 	if rec.Model != "" {
-		attrs = append(attrs, attribute.String(AttrGenAIRequestModel, rec.Model))
+		attrs = append(attrs, attribute.String(AttrGenAIRequestModel, NormalizeMetricLabel(rec.Model)))
 	}
 	if rec.Result != "" {
 		attrs = append(attrs, attribute.String(AttrHecateResult, NormalizeResult(rec.Result)))
@@ -205,7 +205,7 @@ func (m *Metrics) RecordProviderCall(ctx context.Context, rec ProviderCallMetric
 		attrs = append(attrs, attribute.Int(AttrHecateRetryAttempt, rec.Attempt))
 	}
 	if rec.HealthStatus != "" {
-		attrs = append(attrs, attribute.String(AttrHecateProviderHealthStatus, rec.HealthStatus))
+		attrs = append(attrs, attribute.String(AttrHecateProviderHealthStatus, NormalizeProviderHealthStatus(rec.HealthStatus)))
 	}
 	opt := otmetric.WithAttributes(attrs...)
 	m.providerCallsTotal.Add(ctx, 1, opt)
@@ -275,16 +275,16 @@ func (m *AgentChatMetrics) RecordRun(ctx context.Context, rec AgentChatRunMetric
 	}
 	attrs := make([]attribute.KeyValue, 0, 4)
 	if rec.AdapterID != "" {
-		attrs = append(attrs, attribute.String(AttrHecateAgentAdapterID, rec.AdapterID))
+		attrs = append(attrs, attribute.String(AttrHecateAgentAdapterID, NormalizeMetricLabel(rec.AdapterID)))
 	}
 	if rec.DriverKind != "" {
-		attrs = append(attrs, attribute.String(AttrHecateAgentDriverKind, rec.DriverKind))
+		attrs = append(attrs, attribute.String(AttrHecateAgentDriverKind, NormalizeAgentDriverKind(rec.DriverKind)))
 	}
 	if rec.Status != "" {
-		attrs = append(attrs, attribute.String(AttrHecateRunStatus, rec.Status))
+		attrs = append(attrs, attribute.String(AttrHecateRunStatus, NormalizeRunStatus(rec.Status)))
 	}
 	if rec.Result != "" {
-		attrs = append(attrs, attribute.String(AttrHecateResult, rec.Result))
+		attrs = append(attrs, attribute.String(AttrHecateResult, NormalizeResult(rec.Result)))
 	}
 	opt := otmetric.WithAttributes(attrs...)
 	m.runsTotal.Add(ctx, 1, opt)
@@ -491,13 +491,13 @@ func (m *OrchestratorMetrics) RecordRun(ctx context.Context, rec RunMetricsRecor
 	}
 	attrs := make([]attribute.KeyValue, 0, 4)
 	if rec.Status != "" {
-		attrs = append(attrs, attribute.String(AttrHecateRunStatus, rec.Status))
+		attrs = append(attrs, attribute.String(AttrHecateRunStatus, NormalizeRunStatus(rec.Status)))
 	}
 	if rec.ExecutionKind != "" {
-		attrs = append(attrs, attribute.String(AttrHecateExecutionKind, rec.ExecutionKind))
+		attrs = append(attrs, attribute.String(AttrHecateExecutionKind, NormalizeExecutionKind(rec.ExecutionKind)))
 	}
 	if rec.Model != "" {
-		attrs = append(attrs, attribute.String(AttrGenAIRequestModel, rec.Model))
+		attrs = append(attrs, attribute.String(AttrGenAIRequestModel, NormalizeMetricLabel(rec.Model)))
 	}
 	opt := otmetric.WithAttributes(attrs...)
 	m.runsTotal.Add(ctx, 1, opt)
@@ -513,10 +513,10 @@ func (m *OrchestratorMetrics) RecordStep(ctx context.Context, rec StepMetricsRec
 	}
 	attrs := make([]attribute.KeyValue, 0, 2)
 	if rec.StepKind != "" {
-		attrs = append(attrs, attribute.String(AttrHecateStepKind, rec.StepKind))
+		attrs = append(attrs, attribute.String(AttrHecateStepKind, NormalizeStepKind(rec.StepKind)))
 	}
 	if rec.Result != "" {
-		attrs = append(attrs, attribute.String(AttrHecateResult, rec.Result))
+		attrs = append(attrs, attribute.String(AttrHecateResult, NormalizeResult(rec.Result)))
 	}
 	opt := otmetric.WithAttributes(attrs...)
 	m.stepsTotal.Add(ctx, 1, opt)
@@ -533,10 +533,10 @@ func (m *OrchestratorMetrics) RecordApproval(ctx context.Context, rec ApprovalMe
 	}
 	attrs := make([]attribute.KeyValue, 0, 2)
 	if rec.ApprovalKind != "" {
-		attrs = append(attrs, attribute.String(AttrHecateApprovalKind, rec.ApprovalKind))
+		attrs = append(attrs, attribute.String(AttrHecateApprovalKind, NormalizeApprovalKind(rec.ApprovalKind)))
 	}
 	if rec.Decision != "" {
-		attrs = append(attrs, attribute.String(AttrHecateApprovalDecision, rec.Decision))
+		attrs = append(attrs, attribute.String(AttrHecateApprovalDecision, NormalizeApprovalDecision(rec.Decision)))
 	}
 	opt := otmetric.WithAttributes(attrs...)
 	m.approvalsTotal.Add(ctx, 1, opt)
@@ -553,7 +553,7 @@ func (m *OrchestratorMetrics) RecordQueueWait(ctx context.Context, rec QueueWait
 	}
 	attrs := make([]attribute.KeyValue, 0, 1)
 	if rec.QueueBackend != "" {
-		attrs = append(attrs, attribute.String(AttrHecateQueueBackend, rec.QueueBackend))
+		attrs = append(attrs, attribute.String(AttrHecateQueueBackend, NormalizeQueueBackend(rec.QueueBackend)))
 	}
 	m.queueWaitDuration.Record(ctx, rec.WaitMS, otmetric.WithAttributes(attrs...))
 }
@@ -588,13 +588,13 @@ func (m *OrchestratorMetrics) RecordMCPToolCall(ctx context.Context, rec MCPTool
 	}
 	attrs := make([]attribute.KeyValue, 0, 3)
 	if rec.Server != "" {
-		attrs = append(attrs, attribute.String(AttrHecateMCPServer, rec.Server))
+		attrs = append(attrs, attribute.String(AttrHecateMCPServer, NormalizeMetricLabel(rec.Server)))
 	}
 	if rec.Tool != "" {
-		attrs = append(attrs, attribute.String(AttrHecateMCPTool, rec.Tool))
+		attrs = append(attrs, attribute.String(AttrHecateMCPTool, NormalizeMetricLabel(rec.Tool)))
 	}
 	if rec.Result != "" {
-		attrs = append(attrs, attribute.String(AttrHecateMCPCallResult, rec.Result))
+		attrs = append(attrs, attribute.String(AttrHecateMCPCallResult, NormalizeMCPCallResult(rec.Result)))
 	}
 	opt := otmetric.WithAttributes(attrs...)
 	m.mcpToolCallsTotal.Add(ctx, 1, opt)
@@ -623,10 +623,10 @@ func (m *OrchestratorMetrics) RecordMCPCacheEvent(ctx context.Context, rec MCPCa
 	}
 	attrs := make([]attribute.KeyValue, 0, 2)
 	if rec.Server != "" {
-		attrs = append(attrs, attribute.String(AttrHecateMCPServer, rec.Server))
+		attrs = append(attrs, attribute.String(AttrHecateMCPServer, NormalizeMetricLabel(rec.Server)))
 	}
 	if rec.Event != "" {
-		attrs = append(attrs, attribute.String(AttrHecateMCPCacheEvent, rec.Event))
+		attrs = append(attrs, attribute.String(AttrHecateMCPCacheEvent, NormalizeMCPCacheEvent(rec.Event)))
 	}
 	m.mcpCacheEventsTotal.Add(ctx, 1, otmetric.WithAttributes(attrs...))
 }
@@ -640,16 +640,16 @@ func (m *Metrics) RecordChat(ctx context.Context, record ChatMetricsRecord) {
 
 	attrs := make([]attribute.KeyValue, 0, 9)
 	if record.Provider != "" {
-		attrs = append(attrs, attribute.String(AttrGenAIProviderName, record.Provider))
+		attrs = append(attrs, attribute.String(AttrGenAIProviderName, NormalizeMetricLabel(record.Provider)))
 	}
 	if record.ProviderKind != "" {
-		attrs = append(attrs, attribute.String(AttrHecateProviderKind, record.ProviderKind))
+		attrs = append(attrs, attribute.String(AttrHecateProviderKind, NormalizeProviderKind(record.ProviderKind)))
 	}
 	if record.RequestedModel != "" {
-		attrs = append(attrs, attribute.String(AttrGenAIRequestModel, record.RequestedModel))
+		attrs = append(attrs, attribute.String(AttrGenAIRequestModel, NormalizeMetricLabel(record.RequestedModel)))
 	}
 	if record.ResponseModel != "" {
-		attrs = append(attrs, attribute.String(AttrGenAIResponseModel, record.ResponseModel))
+		attrs = append(attrs, attribute.String(AttrGenAIResponseModel, NormalizeMetricLabel(record.ResponseModel)))
 	}
 
 	options := otmetric.WithAttributes(attrs...)
@@ -672,7 +672,7 @@ func (m *Metrics) RecordChat(ctx context.Context, record ChatMetricsRecord) {
 	}
 	if record.FallbackFromProvider != "" {
 		m.failoversTotal.Add(ctx, 1, otmetric.WithAttributes(append(attrs,
-			attribute.String(AttrHecateFailoverFromProvider, record.FallbackFromProvider),
+			attribute.String(AttrHecateFailoverFromProvider, NormalizeMetricLabel(record.FallbackFromProvider)),
 		)...))
 	}
 }
