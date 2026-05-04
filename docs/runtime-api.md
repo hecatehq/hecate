@@ -352,7 +352,7 @@ The list is built from `config.BuiltInProviders()` — see [`docs/providers.md`]
 
 External coding-agent adapter catalog. This is the first discovery surface for
 Agent Chat: it reports the agent runtimes Hecate knows how to supervise and
-whether their CLI command is currently available on `PATH`.
+whether their direct command or Hecate-managed launcher can be started.
 
 ```json
 GET /v1/agent-adapters
@@ -365,9 +365,11 @@ GET /v1/agent-adapters
       "name": "Codex",
       "kind": "acp",
       "command": "codex-acp",
+      "managed": true,
+      "managed_package": "@zed-industries/codex-acp",
       "available": true,
       "status": "available",
-      "path": "/opt/homebrew/bin/codex-acp",
+      "path": "/Users/alice/Library/Caches/hecate/agent-adapters/codex-acp",
       "cost_mode": "external"
     },
     {
@@ -386,9 +388,11 @@ GET /v1/agent-adapters
       "name": "Claude Code",
       "kind": "acp",
       "command": "claude-agent-acp",
+      "managed": true,
+      "managed_package": "@agentclientprotocol/claude-agent-acp",
       "available": false,
       "status": "missing",
-      "error": "exec: \"claude-agent-acp\": executable file not found in $PATH",
+      "error": "exec: \"claude-agent-acp\": executable file not found in $PATH; managed launcher unavailable: no local package runner found for @agentclientprotocol/claude-agent-acp",
       "cost_mode": "external"
     }
   ]

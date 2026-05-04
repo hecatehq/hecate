@@ -102,7 +102,7 @@ Chats is the first working surface. It explains missing setup before you send a 
 There are two chat targets:
 
 - **Model** — select a configured provider/model and send OpenAI-compatible Chat Completions or Anthropic Messages traffic through Hecate's router.
-- **Agent** — select an installed external coding-agent CLI, choose a workspace, and run Codex, Claude Code, or Cursor Agent as a supervised local process.
+- **Agent** — select a coding-agent adapter, choose a workspace, and run Codex, Claude Code, or Cursor Agent as a supervised local ACP session. Codex and Claude can use Hecate-managed local launchers; Cursor requires the Cursor Agent CLI.
 
 Model turns record route, cost, cache, and trace metadata. Agent turns record normalized transcript, raw output, status, timing, trace IDs, workspace branch, and captured Git diff. External agents are **not** providers and do not appear in the provider/model picker; see [docs/external-agent-adapters.md](docs/external-agent-adapters.md) for install checks and troubleshooting.
 

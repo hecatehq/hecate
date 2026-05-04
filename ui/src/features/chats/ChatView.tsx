@@ -547,7 +547,7 @@ export function ChatView({ state, actions, onNavigate }: Props) {
           })}
 
           {/* Streaming */}
-          {streaming && state.streamingContent !== null && (
+          {!isAgentChat && streaming && state.streamingContent !== null && (
             <div style={{ padding: "4px 16px 16px", maxWidth: 820, margin: "0 auto", width: "100%" }}>
               <div style={{ display: "flex", gap: 10, alignItems: "flex-start" }}>
                 <div style={{ width: 28, height: 28, borderRadius: "var(--radius-sm)", background: "var(--teal-bg)", border: "1px solid var(--teal-border)", display: "flex", alignItems: "center", justifyContent: "center", flexShrink: 0, marginTop: 2 }}>
@@ -795,7 +795,7 @@ function ChatEmptyState({
   const detail = isAgentChat && selectedAgentUnavailable
       ? `Hecate could not start ${selectedAgent?.name || "the selected agent"} because its CLI is not ready in this environment.`
       : isAgentChat && agentRouteUnavailable
-      ? "Hecate did not find any supported coding-agent CLI on PATH or in the known app locations."
+      ? "Hecate did not find any supported coding-agent CLI or local adapter runner in the known operator locations."
       : nothingRunnable
         ? "Add a model provider or install a supported coding-agent CLI before sending a message."
         : !isAgentChat && modelRouteUnavailable
@@ -881,12 +881,12 @@ function AgentSetupHints({ adapters, selectedID }: { adapters: AgentAdapterRecor
                 </span>
               </div>
               <div style={{ marginTop: 3, fontFamily: "var(--font-mono)", fontSize: 10, color: "var(--t3)", overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>
-                checks `{adapter.command}`
+                {adapter.managed ? `managed ${adapter.managed_package || adapter.command}` : `checks ${adapter.command}`}
               </div>
             </div>
             <div style={{ minWidth: 0, fontSize: 11, color: "var(--t2)", lineHeight: 1.45 }}>
               <div style={{ color: adapter.available ? "var(--green)" : "var(--t1)" }}>
-                {adapter.available ? `Ready at ${adapter.path || adapter.command}` : hint.action}
+                {adapter.available ? agentReadyLabel(adapter) : hint.action}
               </div>
               {!adapter.available && adapter.error && (
                 <div style={{ marginTop: 3, fontFamily: "var(--font-mono)", fontSize: 10, color: "var(--t3)", overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>
@@ -909,14 +909,21 @@ function AgentSetupHints({ adapters, selectedID }: { adapters: AgentAdapterRecor
 function agentSetupHint(adapter: AgentAdapterRecord): { action: string } {
 	switch (adapter.id) {
 		case "codex":
-			return { action: "Install the Codex ACP adapter, make sure `codex-acp` is on PATH, then authenticate the underlying Codex CLI." };
+			return { action: "Install Node/npm so Hecate can create its managed Codex ACP launcher, then authenticate the underlying Codex CLI." };
 		case "claude_code":
-			return { action: "Install the Claude ACP adapter, make sure `claude-agent-acp` is on PATH, then authenticate the underlying Claude agent." };
+			return { action: "Install Node/npm so Hecate can create its managed Claude ACP launcher, then authenticate the underlying Claude agent." };
     case "cursor_agent":
       return { action: "Install Cursor Agent, make sure `cursor-agent` is on PATH, then run `cursor-agent login` or set `CURSOR_API_KEY`." };
     default:
       return { action: `Install ${adapter.name}, make sure \`${adapter.command}\` is on PATH, then refresh this view.` };
   }
+}
+
+function agentReadyLabel(adapter: AgentAdapterRecord): string {
+  if (adapter.managed && adapter.managed_package) {
+    return `Ready through Hecate-managed ${adapter.managed_package}`;
+  }
+  return `Ready at ${adapter.path || adapter.command}`;
 }
 
 function formatAgentRuntimeMeta(runID?: string, durationMS?: number, traceID?: string, nativeSessionID?: string): string {
@@ -1006,14 +1013,11 @@ function MessageRow({ id, role, model, content, time, promptTokens, completionTo
               </button>
             </div>
           </div>
-          {isAssistant && activities && activities.length > 0 && (
-            <ActivityTimeline activities={activities} />
-          )}
           <Markdown content={content} />
           {isAssistant && diff && (
             <details style={{ marginTop: 8 }}>
               <summary style={{ cursor: "pointer", fontFamily: "var(--font-mono)", fontSize: 11, color: "var(--t3)" }}>
-                workspace diff{diffStat ? ` · ${diffStat}` : ""}
+                files changed{diffStat ? ` · ${diffStat}` : ""}
               </summary>
               <div style={{ marginTop: 6 }}>
                 <CodeBlock code={diff} lang="diff" />
@@ -1030,44 +1034,81 @@ function MessageRow({ id, role, model, content, time, promptTokens, completionTo
               </div>
             </details>
           )}
+          {isAssistant && activities && activities.length > 0 && (
+            <ActivityTimeline activities={activities} diffStat={diffStat} />
+          )}
         </div>
       </div>
     </div>
   );
 }
 
-function ActivityTimeline({ activities }: { activities: AgentChatActivityRecord[] }) {
+function ActivityTimeline({ activities, diffStat }: { activities: AgentChatActivityRecord[]; diffStat?: string }) {
+  const visible = compactAgentActivities(activities);
+  if (visible.length === 0) return null;
+  const terminal = terminalAgentActivity(activities);
+  const hasRunning = !terminal && activities.some(activity => activity.status === "running");
+  const summary = [
+    "run details",
+    terminal?.status,
+    diffStat ? "files changed" : "",
+  ].filter(Boolean).join(" · ");
+
   return (
-    <div style={{
-      display: "grid",
-      gap: 5,
-      margin: "0 0 10px",
-      padding: "8px 10px",
-      border: "1px solid var(--border)",
-      borderRadius: "var(--radius-sm)",
-      background: "var(--bg2)",
-    }}>
-      {activities.map((activity, index) => (
-        <div key={`${activity.type}-${activity.created_at ?? index}`} style={{ display: "flex", alignItems: "baseline", gap: 8, minWidth: 0 }}>
-          <span style={{
-            width: 7,
-            height: 7,
-            borderRadius: 999,
-            background: activityStatusColor(activity.status),
-            flexShrink: 0,
-          }} />
-          <span style={{ fontFamily: "var(--font-mono)", fontSize: 11, color: "var(--t1)", whiteSpace: "nowrap" }}>
-            {activity.title}
-          </span>
-          {activity.detail && (
-            <span style={{ fontSize: 11, color: "var(--t3)", overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>
-              {activity.detail}
+    <details open={hasRunning} style={{ marginTop: 8 }}>
+      <summary style={{ cursor: "pointer", fontFamily: "var(--font-mono)", fontSize: 11, color: "var(--t3)" }}>
+        {summary}
+      </summary>
+      <div style={{
+        display: "grid",
+        gap: 5,
+        marginTop: 6,
+        padding: "8px 10px",
+        border: "1px solid var(--border)",
+        borderRadius: "var(--radius-sm)",
+        background: "var(--bg2)",
+      }}>
+        {visible.map((activity, index) => (
+          <div key={`${activity.type}-${activity.created_at ?? index}`} style={{ display: "flex", alignItems: "baseline", gap: 8, minWidth: 0 }}>
+            <span style={{
+              width: 7,
+              height: 7,
+              borderRadius: 999,
+              background: activityStatusColor(activity.status),
+              flexShrink: 0,
+            }} />
+            <span style={{ fontFamily: "var(--font-mono)", fontSize: 11, color: "var(--t1)", whiteSpace: "nowrap" }}>
+              {activity.title}
             </span>
-          )}
-        </div>
-      ))}
-    </div>
+            {activity.detail && (
+              <span style={{ fontSize: 11, color: "var(--t3)", overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>
+                {activity.detail}
+              </span>
+            )}
+          </div>
+        ))}
+      </div>
+    </details>
   );
+}
+
+function compactAgentActivities(activities: AgentChatActivityRecord[]): AgentChatActivityRecord[] {
+  const hiddenTypes = new Set(["output"]);
+  const terminal = terminalAgentActivity(activities);
+  const out: AgentChatActivityRecord[] = [];
+  for (const activity of activities) {
+    if (hiddenTypes.has(activity.type)) continue;
+    if (activity.type === "completed" && activity.title.toLowerCase() === "final answer") continue;
+    if (terminal && (activity.type === "started" || activity.type === "running")) continue;
+    if (activity.type === "running" && activities.some(item => item.type === "output")) continue;
+    out.push(activity);
+  }
+  return out;
+}
+
+function terminalAgentActivity(activities: AgentChatActivityRecord[]): AgentChatActivityRecord | undefined {
+  const terminalTypes = new Set(["completed", "failed", "cancelled"]);
+  return [...activities].reverse().find(activity => terminalTypes.has(activity.type));
 }
 
 function activityStatusColor(status?: string) {

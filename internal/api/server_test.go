@@ -973,10 +973,10 @@ func TestAgentAdaptersReturnsBuiltIns(t *testing.T) {
 	foundClaude := false
 	foundCursor := false
 	for _, item := range response.Data {
-		if item.ID == "codex" && item.Kind == "acp" && item.Command == "codex-acp" && item.CostMode == "external" {
+		if item.ID == "codex" && item.Kind == "acp" && item.Command == "codex-acp" && item.Managed && item.ManagedPackage == "@zed-industries/codex-acp" && item.CostMode == "external" {
 			foundCodex = true
 		}
-		if item.ID == "claude_code" && item.Kind == "acp" && item.Command == "claude-agent-acp" && item.CostMode == "external" {
+		if item.ID == "claude_code" && item.Kind == "acp" && item.Command == "claude-agent-acp" && item.Managed && item.ManagedPackage == "@agentclientprotocol/claude-agent-acp" && item.CostMode == "external" {
 			foundClaude = true
 		}
 		if item.ID == "cursor_agent" && item.Kind == "acp" && item.Command == "cursor-agent" && item.CostMode == "external" {
@@ -1008,6 +1008,7 @@ func TestAgentChatRunsExternalAdapter(t *testing.T) {
 	apiHandler.SetAgentChatRunner(&fakeAgentChatRunner{
 		output:          "agent saw: hello from hecate\n",
 		nativeSessionID: "native_codex_1",
+		sessionStarted:  true,
 	})
 	handler := NewServer(logger, apiHandler)
 	client := newAPITestClient(t, handler)
@@ -1071,6 +1072,9 @@ func TestAgentChatRunsExternalAdapter(t *testing.T) {
 	if len(assistant.Activities) == 0 {
 		t.Fatalf("activities missing: %#v", assistant)
 	}
+	if !agentChatActivitiesContain(assistant.Activities, "started") {
+		t.Fatalf("started activity missing for new native session: %#v", assistant.Activities)
+	}
 	if assistant.RunID == "" || assistant.StartedAt == "" || assistant.CompletedAt == "" || assistant.DurationMS < 0 {
 		t.Fatalf("assistant runtime metadata missing: %#v", assistant)
 	}
@@ -1080,6 +1084,34 @@ func TestAgentChatRunsExternalAdapter(t *testing.T) {
 	if updated.Data.DriverKind != "acp" || updated.Data.NativeSessionID != "native_codex_1" {
 		t.Fatalf("session ACP metadata = kind %q native %q", updated.Data.DriverKind, updated.Data.NativeSessionID)
 	}
+}
+
+func TestAgentChatOmitsStartedActivityWhenNativeSessionReused(t *testing.T) {
+	dir := t.TempDir()
+	logger := slog.New(slog.NewJSONHandler(io.Discard, nil))
+	apiHandler := newTestAPIHandlerWithControlPlane(logger, []providers.Provider{&fakeProvider{}}, config.Config{}, nil)
+	apiHandler.SetAgentChatRunner(&fakeAgentChatRunner{
+		output:          "agent saw: reused session\n",
+		nativeSessionID: "native_codex_1",
+		sessionStarted:  false,
+	})
+	handler := NewServer(logger, apiHandler)
+	client := newAPITestClient(t, handler)
+	created := mustRequestJSON[AgentChatSessionResponse](client, http.MethodPost, "/v1/agent-chat/sessions", fmt.Sprintf(`{"adapter_id":"codex","workspace":%q}`, dir))
+	updated := mustRequestJSON[AgentChatSessionResponse](client, http.MethodPost, "/v1/agent-chat/sessions/"+created.Data.ID+"/messages", `{"content":"hello"}`)
+	assistant := updated.Data.Messages[1]
+	if agentChatActivitiesContain(assistant.Activities, "started") {
+		t.Fatalf("started activity present for reused native session: %#v", assistant.Activities)
+	}
+}
+
+func agentChatActivitiesContain(items []AgentChatActivityItem, kind string) bool {
+	for _, item := range items {
+		if item.Type == kind {
+			return true
+		}
+	}
+	return false
 }
 
 func TestAgentChatCreateRejectsInvalidWorkspace(t *testing.T) {
@@ -1099,6 +1131,7 @@ type fakeAgentChatRunner struct {
 	delay           time.Duration
 	waitForCancel   bool
 	nativeSessionID string
+	sessionStarted  bool
 }
 
 func (r *fakeAgentChatRunner) Run(ctx context.Context, req agentadapters.RunRequest) (agentadapters.RunResult, error) {
@@ -1148,6 +1181,7 @@ func (r *fakeAgentChatRunner) result(req agentadapters.RunRequest, output string
 		Adapter:         adapter,
 		DriverKind:      agentadapters.DriverKindACP,
 		NativeSessionID: nativeSessionID,
+		SessionStarted:  r.sessionStarted,
 		Output:          output,
 		RawOutput:       output,
 		ExitCode:        exitCode,

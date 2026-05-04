@@ -123,7 +123,7 @@ describe("ChatView agent target", () => {
       controlPlaneConfig: { backend: "memory", providers: [], policy_rules: [], pricebook: [], events: [] },
       agentAdapterID: "codex",
       agentAdapters: [
-        { id: "codex", name: "Codex", kind: "acp", command: "codex-acp", available: false, status: "missing", error: "exec: \"codex-acp\": executable file not found in $PATH", cost_mode: "external" },
+        { id: "codex", name: "Codex", kind: "acp", command: "codex-acp", managed: true, managed_package: "@zed-industries/codex-acp", available: false, status: "missing", error: "no local package runner found for @zed-industries/codex-acp", cost_mode: "external" },
       ],
     });
     render(<ChatView state={state} actions={actions} />);
@@ -131,8 +131,8 @@ describe("ChatView agent target", () => {
     expect(screen.getByText("Codex is unavailable")).toBeTruthy();
     expect(screen.getByText(/could not start Codex/)).toBeTruthy();
     expect(screen.getAllByText("Codex").length).toBeGreaterThan(0);
-    expect(screen.getByText(/Install the Codex ACP adapter/)).toBeTruthy();
-    expect(screen.getByText(/exec: "codex-acp"/)).toBeTruthy();
+    expect(screen.getByText(/Install Node\/npm/)).toBeTruthy();
+    expect(screen.getByText(/no local package runner/)).toBeTruthy();
     expect(screen.queryByRole("button", { name: /Add provider/i })).toBeNull();
   });
 
@@ -191,8 +191,8 @@ describe("ChatView agent target", () => {
     expect(screen.getByText("Looks good.")).toBeTruthy();
     expect(screen.getByText(/ACP native_codex/)).toBeTruthy();
     expect(screen.getByText(/trace 01234567/)).toBeTruthy();
-    expect(screen.getByText("Starting external agent")).toBeTruthy();
-    expect(screen.getByText("workspace diff · 1 file changed")).toBeTruthy();
+    expect(screen.queryByText("Starting external agent")).toBeNull();
+    expect(screen.getByText("files changed · 1 file changed")).toBeTruthy();
     expect(screen.getByText("raw ACP diagnostics")).toBeTruthy();
     expect(screen.getByText("completed")).toBeTruthy();
     const user = userEvent.setup();

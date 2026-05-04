@@ -23,10 +23,10 @@ func TestBuiltInsIncludeInitialExternalAgents(t *testing.T) {
 		found[item.ID] = item
 	}
 
-	if got := found["codex"]; got.Command != "codex-acp" || got.Kind != DriverKindACP || got.CostMode != "external" {
+	if got := found["codex"]; got.Command != "codex-acp" || got.Kind != DriverKindACP || got.Managed.Package != "@zed-industries/codex-acp" || got.CostMode != "external" {
 		t.Fatalf("codex adapter = %#v", got)
 	}
-	if got := found["claude_code"]; got.Command != "claude-agent-acp" || got.Kind != DriverKindACP || got.CostMode != "external" {
+	if got := found["claude_code"]; got.Command != "claude-agent-acp" || got.Kind != DriverKindACP || got.Managed.Package != "@agentclientprotocol/claude-agent-acp" || got.CostMode != "external" {
 		t.Fatalf("claude_code adapter = %#v", got)
 	}
 	if got := found["cursor_agent"]; got.Command != "cursor-agent" || got.Kind != DriverKindACP || got.CostMode != "external" {
@@ -123,6 +123,104 @@ func TestResolveExecutableExpandsHomeCandidate(t *testing.T) {
 	}
 	if path != exe {
 		t.Fatalf("path = %q, want %q", path, exe)
+	}
+}
+
+func TestResolveExecutableForStatusReportsManagedLauncherWithoutWriting(t *testing.T) {
+	dir := t.TempDir()
+	t.Setenv("HECATE_AGENT_ADAPTERS_DIR", dir)
+
+	adapter := Adapter{
+		ID:      "codex",
+		Command: "codex-acp",
+		Managed: ManagedLauncher{
+			Package: "@zed-industries/codex-acp",
+			Runners: []ManagedRunner{{Command: "npx", Args: []string{"-y", "@zed-industries/codex-acp"}}},
+		},
+	}
+	path, err := resolveExecutableForStatus(adapter, func(file string) (string, error) {
+		if file == "npx" {
+			return "/usr/local/bin/npx", nil
+		}
+		return "", errors.New("not found on PATH")
+	})
+	if err != nil {
+		t.Fatalf("resolve executable for status: %v", err)
+	}
+	want := filepath.Join(dir, managedLauncherName("codex-acp"))
+	if path != want {
+		t.Fatalf("path = %q, want %q", path, want)
+	}
+	if _, err := os.Stat(path); !os.IsNotExist(err) {
+		t.Fatalf("managed status lookup wrote launcher, stat error = %v", err)
+	}
+}
+
+func TestResolveExecutableCreatesManagedLauncher(t *testing.T) {
+	dir := t.TempDir()
+	t.Setenv("HECATE_AGENT_ADAPTERS_DIR", dir)
+
+	adapter := Adapter{
+		ID:      "codex",
+		Command: "codex-acp",
+		Managed: ManagedLauncher{
+			Package: "@zed-industries/codex-acp",
+			Runners: []ManagedRunner{{Command: "npx", Args: []string{"-y", "@zed-industries/codex-acp"}}},
+		},
+	}
+	path, err := resolveExecutable(adapter, func(file string) (string, error) {
+		if file == "npx" {
+			return "/usr/local/bin/npx", nil
+		}
+		return "", errors.New("not found on PATH")
+	})
+	if err != nil {
+		t.Fatalf("resolve executable: %v", err)
+	}
+	want := filepath.Join(dir, managedLauncherName("codex-acp"))
+	if path != want {
+		t.Fatalf("path = %q, want %q", path, want)
+	}
+	info, err := os.Stat(path)
+	if err != nil {
+		t.Fatalf("stat launcher: %v", err)
+	}
+	if info.Mode()&0o111 == 0 {
+		t.Fatalf("launcher mode = %v, want executable", info.Mode())
+	}
+	content, err := os.ReadFile(path)
+	if err != nil {
+		t.Fatalf("read launcher: %v", err)
+	}
+	text := string(content)
+	if !strings.Contains(text, "/usr/local/bin/npx") || !strings.Contains(text, "@zed-industries/codex-acp") {
+		t.Fatalf("launcher content = %q", text)
+	}
+}
+
+func TestResolveManagedRunnerUsesCandidatePath(t *testing.T) {
+	home := t.TempDir()
+	t.Setenv("HOME", home)
+	bin := filepath.Join(home, ".volta", "bin")
+	if err := os.MkdirAll(bin, 0o755); err != nil {
+		t.Fatalf("mkdir volta bin: %v", err)
+	}
+	npx := filepath.Join(bin, "npx")
+	if err := os.WriteFile(npx, []byte("#!/bin/sh\nexit 0\n"), 0o755); err != nil {
+		t.Fatalf("write npx: %v", err)
+	}
+
+	_, path, err := resolveManagedRunner(ManagedLauncher{
+		Package: "@zed-industries/codex-acp",
+		Runners: []ManagedRunner{{Command: "npx", CandidatePaths: []string{"${HOME}/.volta/bin/npx"}}},
+	}, func(file string) (string, error) {
+		return "", errors.New("not found on PATH")
+	})
+	if err != nil {
+		t.Fatalf("resolve managed runner: %v", err)
+	}
+	if path != npx {
+		t.Fatalf("path = %q, want %q", path, npx)
 	}
 }
 
