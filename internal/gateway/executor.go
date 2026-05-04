@@ -26,6 +26,7 @@ type ResilientExecutor struct {
 	providers     providers.Registry
 	healthTracker providers.HealthTracker
 	history       providers.HealthHistoryStore
+	metrics       *telemetry.Metrics
 	options       ResilienceOptions
 	sleep         func(context.Context, time.Duration) error
 }
@@ -55,6 +56,7 @@ func NewResilientExecutor(
 	providers providers.Registry,
 	healthTracker providers.HealthTracker,
 	history providers.HealthHistoryStore,
+	metrics *telemetry.Metrics,
 	options ResilienceOptions,
 ) *ResilientExecutor {
 	return &ResilientExecutor{
@@ -63,6 +65,7 @@ func NewResilientExecutor(
 		providers:     providers,
 		healthTracker: healthTracker,
 		history:       history,
+		metrics:       metrics,
 		options:       normalizeResilienceOptions(options),
 		sleep:         sleepContext,
 	}
@@ -244,6 +247,7 @@ func (e *ResilientExecutor) Execute(ctx context.Context, trace *profiler.Trace, 
 						e.healthTracker.Observe(candidate.Provider, providers.HealthObservation{Duration: latency})
 					}
 				}
+				e.recordProviderCallMetric(ctx, candidate, preflight.ProviderKind, telemetry.ResultSuccess, attempt, latency)
 				return &providerCallResult{
 					Response:             resp,
 					Decision:             candidate,
@@ -281,6 +285,7 @@ func (e *ResilientExecutor) Execute(ctx context.Context, trace *profiler.Trace, 
 					e.healthTracker.Observe(candidate.Provider, observation)
 				}
 			}
+			e.recordProviderCallMetric(ctx, candidate, preflight.ProviderKind, telemetry.ResultError, attempt, latency)
 
 			if !providers.IsRetryableError(err) {
 				break
@@ -355,6 +360,21 @@ func (e *ResilientExecutor) Execute(ctx context.Context, trace *profiler.Trace, 
 		lastErr = errors.New("provider call failed")
 	}
 	return nil, lastErr
+}
+
+func (e *ResilientExecutor) recordProviderCallMetric(ctx context.Context, candidate types.RouteDecision, providerKind, result string, attempt int, latency time.Duration) {
+	if e == nil || e.metrics == nil {
+		return
+	}
+	e.metrics.RecordProviderCall(ctx, telemetry.ProviderCallMetricsRecord{
+		Provider:     candidate.Provider,
+		ProviderKind: providerKind,
+		Model:        candidate.Model,
+		Result:       result,
+		Attempt:      attempt,
+		HealthStatus: healthStatus(e.healthTracker, candidate.Provider),
+		DurationMS:   latency.Milliseconds(),
+	})
 }
 
 func healthStatus(tracker providers.HealthTracker, provider string) string {

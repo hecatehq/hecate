@@ -285,6 +285,10 @@ policy rule. Rewrite events carry the same policy metadata when the governor
 changes the requested model before the router runs. Runtime failover events use the same provider/model vocabulary
 under `gateway.provider`.
 
+Provider execution also emits attempt-level metrics. These are intentionally
+separate from finalized chat metrics: retries and failed attempts are visible
+even when a later provider recovers the request.
+
 When `GATEWAY_TRACE_BODIES=true`, the gateway also records redacted, size-capped trace events named:
 
 - `request.body.captured`
@@ -376,6 +380,8 @@ Each prefix has a `_MAX_AGE` and `_MAX_COUNT` suffix (e.g. `GATEWAY_RETENTION_TR
 | `gen_ai.client.tokens.total` | Counter | `{token}` | Accumulated total tokens |
 | `hecate.gateway.retries` | Counter | `{retry}` | Provider retry attempts beyond the first |
 | `hecate.gateway.failovers` | Counter | `{failover}` | Provider failover events |
+| `hecate.provider.calls` | Counter | `{call}` | Upstream provider call attempts grouped by provider, model, result, retry attempt, and health status |
+| `hecate.provider.call.duration` | Histogram | `ms` | Upstream provider call latency with the same attributes as `hecate.provider.calls` |
 
 ### Orchestrator Metrics
 

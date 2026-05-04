@@ -227,6 +227,15 @@ func TestMetricNameConstantsMatchInstruments(t *testing.T) {
 		RetryCount:           1,
 		FallbackFromProvider: "prev-provider",
 	})
+	m.RecordProviderCall(ctx, ProviderCallMetricsRecord{
+		Provider:     "openai",
+		ProviderKind: "cloud",
+		Model:        "gpt-4o-mini",
+		Result:       ResultSuccess,
+		Attempt:      1,
+		HealthStatus: "healthy",
+		DurationMS:   25,
+	})
 
 	om.RecordRun(ctx, RunMetricsRecord{Status: "completed", ExecutionKind: "shell", Model: "gpt-4o", DurationMS: 500})
 	om.RecordStep(ctx, StepMetricsRecord{StepKind: "shell", Result: ResultSuccess, DurationMS: 100})
@@ -258,6 +267,8 @@ func TestMetricNameConstantsMatchInstruments(t *testing.T) {
 		MetricTotalTokensTotal,
 		MetricRetriesTotal,
 		MetricFailoversTotal,
+		MetricProviderCallsTotal,
+		MetricProviderCallDuration,
 		// Agent chat
 		MetricAgentChatRunsTotal,
 		MetricAgentChatRunDuration,

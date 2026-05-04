@@ -253,6 +253,8 @@ const (
 	MetricTotalTokensTotal       = "gen_ai.client.tokens.total"
 	MetricRetriesTotal           = "hecate.gateway.retries"
 	MetricFailoversTotal         = "hecate.gateway.failovers"
+	MetricProviderCallsTotal     = "hecate.provider.calls"
+	MetricProviderCallDuration   = "hecate.provider.call.duration"
 
 	// External agent chat metrics
 	MetricAgentChatRunsTotal   = "hecate.agent_chat.runs"

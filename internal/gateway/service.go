@@ -173,6 +173,7 @@ func NewService(deps Dependencies) *Service {
 			deps.Providers,
 			deps.HealthTracker,
 			deps.ProviderHistory,
+			deps.Metrics,
 			deps.Resilience,
 		)
 	}
