@@ -12,6 +12,7 @@ const (
 	errCodeGatewayError   = "gateway_error"
 	errCodeUpstreamError  = "upstream_error"
 	errCodeNotFound       = "not_found"
+	errCodeConflict       = "conflict"
 )
 
 func WriteJSON(w http.ResponseWriter, status int, payload any) {

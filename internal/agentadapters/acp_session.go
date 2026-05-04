@@ -31,12 +31,12 @@ type Runner interface {
 }
 
 type SessionManager struct {
-	mu       sync.Mutex
-	sessions map[string]*acpSession
-	starts   map[string]*sessionStart
-	logger   *slog.Logger
-	recorder *ApprovalRecorder
-	closed   bool
+	mu          sync.Mutex
+	sessions    map[string]*acpSession
+	starts      map[string]*sessionStart
+	logger      *slog.Logger
+	coordinator *ApprovalCoordinator
+	closed      bool
 }
 
 func NewSessionManager() *SessionManager {
@@ -55,14 +55,22 @@ func (m *SessionManager) SetLogger(logger *slog.Logger) {
 	m.logger = logger
 }
 
-// SetApprovalRecorder installs the recorder used to handle ACP
+// SetApprovalCoordinator installs the coordinator used to handle ACP
 // RequestPermission calls. When unset, the legacy auto-approve
 // behavior is preserved (matches existing tests + dev workflows that
 // build a SessionManager without going through internal/config).
-func (m *SessionManager) SetApprovalRecorder(recorder *ApprovalRecorder) {
+func (m *SessionManager) SetApprovalCoordinator(coordinator *ApprovalCoordinator) {
 	m.mu.Lock()
 	defer m.mu.Unlock()
-	m.recorder = recorder
+	m.coordinator = coordinator
+}
+
+// Coordinator returns the installed approval coordinator (or nil).
+// HTTP handlers route operator resolve/cancel calls through this.
+func (m *SessionManager) Coordinator() *ApprovalCoordinator {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	return m.coordinator
 }
 
 func (m *SessionManager) Run(ctx context.Context, req RunRequest) (RunResult, error) {
@@ -137,10 +145,10 @@ func (m *SessionManager) session(ctx context.Context, adapter Adapter, req RunRe
 		start := &sessionStart{done: make(chan struct{}), cancel: startCancel}
 		m.starts[req.SessionID] = start
 		logger := m.logger
-		recorder := m.recorder
+		coordinator := m.coordinator
 		m.mu.Unlock()
 
-		started, resumed, recovery, err := startACPSession(startCtx, adapter, req.SessionID, req.Workspace, req.PreviousNativeSessionID, logger, recorder)
+		started, resumed, recovery, err := startACPSession(startCtx, adapter, req.SessionID, req.Workspace, req.PreviousNativeSessionID, logger, coordinator)
 		startCancel()
 
 		var previous *acpSession
@@ -237,7 +245,7 @@ type acpSession struct {
 	activeDone   chan struct{}
 }
 
-func startACPSession(ctx context.Context, adapter Adapter, sessionID, workspace, previousNativeSessionID string, logger *slog.Logger, recorder *ApprovalRecorder) (*acpSession, bool, string, error) {
+func startACPSession(ctx context.Context, adapter Adapter, sessionID, workspace, previousNativeSessionID string, logger *slog.Logger, coordinator *ApprovalCoordinator) (*acpSession, bool, string, error) {
 	command, err := resolveExecutable(adapter, exec.LookPath)
 	if err != nil {
 		return nil, false, "", err
@@ -265,10 +273,10 @@ func startACPSession(ctx context.Context, adapter Adapter, sessionID, workspace,
 	}
 
 	client := &acpChatClient{
-		sessionID: sessionID,
-		adapterID: adapter.ID,
-		workspace: workspace,
-		recorder:  recorder,
+		sessionID:   sessionID,
+		adapterID:   adapter.ID,
+		workspace:   workspace,
+		coordinator: coordinator,
 	}
 	conn := acp.NewClientSideConnection(client, stdin, stdout)
 	if logger != nil {
@@ -462,10 +470,10 @@ func captureACPTurnResult(ctx context.Context, adapter Adapter, req RunRequest, 
 }
 
 type acpChatClient struct {
-	sessionID string
-	adapterID string
-	workspace string
-	recorder  *ApprovalRecorder
+	sessionID   string
+	adapterID   string
+	workspace   string
+	coordinator *ApprovalCoordinator
 
 	mu   sync.Mutex
 	turn *acpTurn
@@ -501,8 +509,8 @@ func (c *acpChatClient) SessionUpdate(_ context.Context, params acp.SessionNotif
 }
 
 func (c *acpChatClient) RequestPermission(ctx context.Context, params acp.RequestPermissionRequest) (acp.RequestPermissionResponse, error) {
-	if c.recorder != nil {
-		return c.recorder.Handle(ctx, recordingContext{
+	if c.coordinator != nil {
+		return c.coordinator.RequestPermission(ctx, RecordingContext{
 			SessionID: c.sessionID,
 			AdapterID: c.adapterID,
 			Workspace: c.workspace,
@@ -510,7 +518,7 @@ func (c *acpChatClient) RequestPermission(ctx context.Context, params acp.Reques
 	}
 	// Legacy auto-approve fallback. Preserved for callers that
 	// construct an acpChatClient (or SessionManager) without an
-	// approval recorder — primarily existing unit tests and dev
+	// approval coordinator — primarily existing unit tests and dev
 	// scaffolding that pre-date the approval RFC.
 	for _, option := range params.Options {
 		if option.Kind == acp.PermissionOptionKindAllowOnce || option.Kind == acp.PermissionOptionKindAllowAlways {
