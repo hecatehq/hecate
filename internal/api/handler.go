@@ -3,6 +3,7 @@ package api
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"log/slog"
 	"net/http"
@@ -277,22 +278,17 @@ func (h *Handler) Shutdown(ctx context.Context) error {
 	if h.agentChatRunner != nil {
 		agentChatErr = h.agentChatRunner.Shutdown(ctx)
 	}
-	switch {
-	case runnerErr != nil && cacheErr != nil:
-		return fmt.Errorf("runner shutdown: %w; mcp cache close: %v", runnerErr, cacheErr)
-	case runnerErr != nil && agentChatErr != nil:
-		return fmt.Errorf("runner shutdown: %w; agent chat shutdown: %v", runnerErr, agentChatErr)
-	case cacheErr != nil && agentChatErr != nil:
-		return fmt.Errorf("mcp cache close: %w; agent chat shutdown: %v", cacheErr, agentChatErr)
-	case runnerErr != nil:
-		return runnerErr
-	case cacheErr != nil:
-		return cacheErr
-	case agentChatErr != nil:
-		return agentChatErr
-	default:
-		return nil
+	var shutdownErrs []error
+	if runnerErr != nil {
+		shutdownErrs = append(shutdownErrs, fmt.Errorf("runner shutdown: %w", runnerErr))
 	}
+	if cacheErr != nil {
+		shutdownErrs = append(shutdownErrs, fmt.Errorf("mcp cache close: %w", cacheErr))
+	}
+	if agentChatErr != nil {
+		shutdownErrs = append(shutdownErrs, fmt.Errorf("agent chat shutdown: %w", agentChatErr))
+	}
+	return errors.Join(shutdownErrs...)
 }
 
 func (h *Handler) HandleHealth(w http.ResponseWriter, r *http.Request) {

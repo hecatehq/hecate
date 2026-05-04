@@ -75,6 +75,60 @@ func TestSessionManagerRunsTurnsThroughACP(t *testing.T) {
 	}
 }
 
+func TestSessionManagerSerializesConcurrentSessionStart(t *testing.T) {
+	installFakeACPExecutable(t, "codex-acp")
+	t.Setenv("HECATE_FAKE_ACP_NEW_SESSION_DELAY", "100ms")
+	workspace := t.TempDir()
+	manager := NewSessionManager()
+
+	type result struct {
+		run RunResult
+		err error
+	}
+	results := make(chan result, 2)
+	start := make(chan struct{})
+	for _, prompt := range []string{"first concurrent turn", "second concurrent turn"} {
+		prompt := prompt
+		go func() {
+			<-start
+			run, err := manager.Run(context.Background(), RunRequest{
+				SessionID:      "chat_concurrent",
+				AdapterID:      "codex",
+				Workspace:      workspace,
+				Prompt:         prompt,
+				Timeout:        5 * time.Second,
+				MaxOutputBytes: 64 * 1024,
+			})
+			results <- result{run: run, err: err}
+		}()
+	}
+	close(start)
+
+	first := <-results
+	second := <-results
+	if first.err != nil {
+		t.Fatalf("first Run: %v", first.err)
+	}
+	if second.err != nil {
+		t.Fatalf("second Run: %v", second.err)
+	}
+	if first.run.NativeSessionID == "" || second.run.NativeSessionID == "" {
+		t.Fatalf("native session ids = %q / %q, want non-empty", first.run.NativeSessionID, second.run.NativeSessionID)
+	}
+	if first.run.NativeSessionID != second.run.NativeSessionID {
+		t.Fatalf("native session ids = %q / %q, want same session", first.run.NativeSessionID, second.run.NativeSessionID)
+	}
+	startedCount := 0
+	for _, run := range []RunResult{first.run, second.run} {
+		if run.SessionStarted {
+			startedCount++
+		}
+	}
+	if startedCount != 1 {
+		t.Fatalf("SessionStarted count = %d, want exactly one ACP session start", startedCount)
+	}
+}
+
 func TestSessionManagerLoadsPersistedNativeSession(t *testing.T) {
 	installFakeACPExecutable(t, "codex-acp")
 	workspace := t.TempDir()
@@ -285,6 +339,9 @@ func (a *fakeACPAgent) Initialize(context.Context, acp.InitializeRequest) (acp.I
 }
 
 func (a *fakeACPAgent) NewSession(context.Context, acp.NewSessionRequest) (acp.NewSessionResponse, error) {
+	if delay, err := time.ParseDuration(os.Getenv("HECATE_FAKE_ACP_NEW_SESSION_DELAY")); err == nil && delay > 0 {
+		time.Sleep(delay)
+	}
 	id := fmt.Sprintf("fake_session_%d", time.Now().UnixNano())
 	a.mu.Lock()
 	a.sessions[id] = &fakeACPSession{}
