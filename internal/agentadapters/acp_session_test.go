@@ -268,6 +268,73 @@ func TestACPTurnIgnoresBookkeepingUpdatesInTranscript(t *testing.T) {
 	}
 }
 
+func TestACPTurnReplacesProgressNarrationWhenAgentMessageIDChanges(t *testing.T) {
+	var snapshots []string
+	turn := newACPTurn(64*1024, func(text string) {
+		snapshots = append(snapshots, text)
+	})
+	sessionID := acp.SessionId("session_1")
+	progressID := "019df226-progress"
+	finalID := "019df226-final"
+
+	turn.recordUpdate(acp.SessionNotification{
+		SessionId: sessionID,
+		Update: acp.SessionUpdate{
+			AgentMessageChunk: &acp.SessionUpdateAgentMessageChunk{
+				Content:   acp.TextBlock("I’ll inspect the current git diff and summarize it."),
+				MessageId: &progressID,
+			},
+		},
+	})
+	turn.recordUpdate(acp.SessionNotification{
+		SessionId: sessionID,
+		Update: acp.SessionUpdate{
+			AgentMessageChunk: &acp.SessionUpdateAgentMessageChunk{
+				Content:   acp.TextBlock("There’s no current tracked-file diff."),
+				MessageId: &finalID,
+			},
+		},
+	})
+
+	output, _, _ := turn.snapshot()
+	if output != "There’s no current tracked-file diff." {
+		t.Fatalf("output = %q, want latest agent message only", output)
+	}
+	if len(snapshots) != 2 || snapshots[0] != "I’ll inspect the current git diff and summarize it." || snapshots[1] != output {
+		t.Fatalf("snapshots = %#v, want progress then replacement final", snapshots)
+	}
+}
+
+func TestACPTurnConcatenatesChunksWithSameAgentMessageID(t *testing.T) {
+	turn := newACPTurn(64*1024, nil)
+	sessionID := acp.SessionId("session_1")
+	messageID := "019df226-final"
+
+	turn.recordUpdate(acp.SessionNotification{
+		SessionId: sessionID,
+		Update: acp.SessionUpdate{
+			AgentMessageChunk: &acp.SessionUpdateAgentMessageChunk{
+				Content:   acp.TextBlock("There’s no "),
+				MessageId: &messageID,
+			},
+		},
+	})
+	turn.recordUpdate(acp.SessionNotification{
+		SessionId: sessionID,
+		Update: acp.SessionUpdate{
+			AgentMessageChunk: &acp.SessionUpdateAgentMessageChunk{
+				Content:   acp.TextBlock("current diff."),
+				MessageId: &messageID,
+			},
+		},
+	})
+
+	output, _, _ := turn.snapshot()
+	if output != "There’s no current diff." {
+		t.Fatalf("output = %q, want same-message chunks concatenated", output)
+	}
+}
+
 func TestACPTurnCapturesUsageUpdate(t *testing.T) {
 	turn := newACPTurn(64*1024, nil)
 	turn.recordUpdate(acp.SessionNotification{

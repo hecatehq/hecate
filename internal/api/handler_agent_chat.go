@@ -263,22 +263,17 @@ func (h *Handler) HandleCreateAgentChatMessage(w http.ResponseWriter, r *http.Re
 		Prompt:                  content,
 		Timeout:                 agentChatTimeout,
 		MaxOutputBytes:          agentChatMaxOutputBytes,
-		OnOutput: func(chunk string) {
-			if chunk == "" {
+		OnOutput: func(display string) {
+			if display == "" {
 				return
 			}
 			updated, updateErr := h.agentChat.UpdateMessage(runCtx, session.ID, assistantID, func(message *agentchat.Message) {
-				message.RawOutput += chunk
-				normalized := agentadapters.NormalizeOutput(adapter.ID, message.RawOutput)
-				if strings.TrimSpace(normalized) == "" {
-					normalized = message.RawOutput
-				}
-				message.Content = normalized
+				message.Content = display
 				if !outputSeen {
 					message.Activities = append(message.Activities, newAgentChatActivity("output", "running", "ACP output", "Streaming normalized transcript"))
 					trace.Record(telemetry.EventAgentChatOutputStarted, agentChatTraceAttrs(session, adapter, runID, assistantID, map[string]any{
-						telemetry.AttrHecateRunStatus:           "running",
-						telemetry.AttrHecateAgentRawOutputBytes: int64(len(message.RawOutput)),
+						telemetry.AttrHecateRunStatus:        "running",
+						telemetry.AttrHecateAgentOutputBytes: int64(len(display)),
 					}))
 					outputSeen = true
 				}

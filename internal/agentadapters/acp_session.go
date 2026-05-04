@@ -473,9 +473,11 @@ func (c *acpChatClient) workspacePath(path string) (string, error) {
 }
 
 type acpTurn struct {
-	output limitedBuffer
-	raw    limitedBuffer
-	usage  Usage
+	output         limitedBuffer
+	raw            limitedBuffer
+	usage          Usage
+	agentMessageID string
+	onOutput       func(string)
 
 	mu sync.Mutex
 }
@@ -484,9 +486,8 @@ func newACPTurn(maxOutput int64, onOutput func(string)) *acpTurn {
 	if maxOutput <= 0 {
 		maxOutput = 1024 * 1024
 	}
-	turn := &acpTurn{}
+	turn := &acpTurn{onOutput: onOutput}
 	turn.output.limit = maxOutput
-	turn.output.onWrite = onOutput
 	turn.raw.limit = maxOutput
 	return turn
 }
@@ -499,9 +500,42 @@ func (t *acpTurn) recordUpdate(params acp.SessionNotification) {
 	update := params.Update
 	switch {
 	case update.AgentMessageChunk != nil:
-		t.appendText("agent_message_chunk", contentBlockText(update.AgentMessageChunk.Content))
+		t.appendAgentMessageChunk(update.AgentMessageChunk)
 	case update.UsageUpdate != nil:
 		t.recordUsage(update.UsageUpdate)
+	}
+}
+
+func (t *acpTurn) appendAgentMessageChunk(update *acp.SessionUpdateAgentMessageChunk) {
+	if update == nil {
+		return
+	}
+	text := contentBlockText(update.Content)
+	if text == "" {
+		return
+	}
+
+	var snapshot string
+	t.mu.Lock()
+	if update.MessageId != nil {
+		nextID := strings.TrimSpace(*update.MessageId)
+		if nextID != "" {
+			// ACP messageId is unstable but specifically exists to mark message
+			// boundaries. Codex sends short progress narration as one assistant
+			// message and the actual answer as another; when the id changes, the
+			// transcript should follow the latest visible assistant message.
+			if t.agentMessageID != "" && t.agentMessageID != nextID {
+				t.output.Buffer.Reset()
+			}
+			t.agentMessageID = nextID
+		}
+	}
+	_, _ = t.output.Write([]byte(text))
+	snapshot = t.output.String()
+	t.mu.Unlock()
+
+	if t.onOutput != nil {
+		t.onOutput(snapshot)
 	}
 }
 
@@ -520,15 +554,6 @@ func (t *acpTurn) recordUsage(update *acp.SessionUsageUpdate) {
 	t.mu.Lock()
 	defer t.mu.Unlock()
 	t.usage = usage
-}
-
-func (t *acpTurn) appendText(_ string, text string) {
-	if text == "" {
-		return
-	}
-	t.mu.Lock()
-	defer t.mu.Unlock()
-	_, _ = t.output.Write([]byte(text))
 }
 
 func (t *acpTurn) appendRaw(data []byte) {
