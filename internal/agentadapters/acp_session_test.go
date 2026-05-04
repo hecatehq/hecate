@@ -58,6 +58,12 @@ func TestSessionManagerRunsTurnsThroughACP(t *testing.T) {
 	if first.NativeSessionID == "" || second.NativeSessionID == "" || first.NativeSessionID != second.NativeSessionID {
 		t.Fatalf("native sessions = %q / %q, want same non-empty session", first.NativeSessionID, second.NativeSessionID)
 	}
+	if !first.SessionStarted {
+		t.Fatalf("first SessionStarted = false, want true")
+	}
+	if second.SessionStarted {
+		t.Fatalf("second SessionStarted = true, want false for reused ACP session")
+	}
 	if !strings.Contains(first.Output, "turn 1: first turn") {
 		t.Fatalf("first output = %q", first.Output)
 	}
@@ -97,6 +103,64 @@ func TestSessionManagerCancelsACPPrompt(t *testing.T) {
 		}
 	case <-time.After(5 * time.Second):
 		t.Fatalf("timed out waiting for cancelled ACP prompt")
+	}
+}
+
+func TestACPTurnIgnoresBookkeepingUpdatesInTranscript(t *testing.T) {
+	turn := newACPTurn(64*1024, nil)
+	sessionID := acp.SessionId("session_1")
+	turn.recordUpdate(acp.SessionNotification{
+		SessionId: sessionID,
+		Update:    acp.UpdateAgentMessageText("final answer"),
+	})
+	turn.recordUpdate(acp.SessionNotification{
+		SessionId: sessionID,
+		Update: acp.SessionUpdate{
+			UsageUpdate: &acp.SessionUsageUpdate{},
+		},
+	})
+	turn.recordUpdate(acp.SessionNotification{
+		SessionId: sessionID,
+		Update: acp.SessionUpdate{
+			SessionInfoUpdate: &acp.SessionSessionInfoUpdate{},
+		},
+	})
+	turn.recordUpdate(acp.SessionNotification{
+		SessionId: sessionID,
+		Update: acp.SessionUpdate{
+			AgentThoughtChunk: &acp.SessionUpdateAgentThoughtChunk{Content: acp.TextBlock("private thought")},
+		},
+	})
+	turn.recordUpdate(acp.SessionNotification{
+		SessionId: sessionID,
+		Update: acp.SessionUpdate{
+			ToolCall: &acp.SessionUpdateToolCall{
+				Title:         "git diff --stat",
+				Status:        acp.ToolCallStatusInProgress,
+				ToolCallId:    acp.ToolCallId("call_1"),
+				SessionUpdate: "tool_call",
+			},
+		},
+	})
+	status := acp.ToolCallStatusCompleted
+	title := "git diff --stat"
+	turn.recordUpdate(acp.SessionNotification{
+		SessionId: sessionID,
+		Update: acp.SessionUpdate{
+			ToolCallUpdate: &acp.SessionToolCallUpdate{
+				ToolCallId: acp.ToolCallId("call_1"),
+				Status:     &status,
+				Title:      &title,
+			},
+		},
+	})
+
+	output, raw := turn.snapshot()
+	if output != "final answer" {
+		t.Fatalf("output = %q, want final answer only", output)
+	}
+	if !strings.Contains(raw, "usage_update") {
+		t.Fatalf("raw output = %q, want usage update retained for diagnostics", raw)
 	}
 }
 

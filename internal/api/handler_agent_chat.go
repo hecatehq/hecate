@@ -241,7 +241,6 @@ func (h *Handler) HandleCreateAgentChatMessage(w http.ResponseWriter, r *http.Re
 		CreatedAt:   time.Now().UTC(),
 		StartedAt:   startedAt,
 		Activities: []agentchat.Activity{
-			newAgentChatActivity("started", "completed", "Starting external agent", adapter.Name+" in "+session.Workspace),
 			newAgentChatActivity("running", "running", "Running", "Waiting for ACP output"),
 		},
 	})
@@ -360,6 +359,9 @@ func (h *Handler) HandleCreateAgentChatMessage(w http.ResponseWriter, r *http.Re
 		message.StartedAt = startedAt
 		message.CompletedAt = completedAt
 		message.Error = errorText
+		if result.SessionStarted {
+			message.Activities = append([]agentchat.Activity{newAgentChatActivity("started", "completed", "Starting external agent", adapter.Name+" in "+session.Workspace)}, message.Activities...)
+		}
 		if result.DiffStat != "" {
 			message.Activities = append(message.Activities, newAgentChatActivity("files_changed", "completed", "Files changed", result.DiffStat))
 		}

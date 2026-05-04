@@ -9,6 +9,7 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
+	"runtime"
 	"strings"
 	"sync"
 	"time"
@@ -25,10 +26,22 @@ type Adapter struct {
 	Command        string
 	Args           []string
 	CandidatePaths []string
+	Managed        ManagedLauncher
 	Kind           string
 	Description    string
 	CostMode       string
 	DocsURL        string
+}
+
+type ManagedLauncher struct {
+	Package string
+	Runners []ManagedRunner
+}
+
+type ManagedRunner struct {
+	Command        string
+	Args           []string
+	CandidatePaths []string
 }
 
 type Status struct {
@@ -55,6 +68,7 @@ type RunResult struct {
 	Adapter         Adapter
 	DriverKind      string
 	NativeSessionID string
+	SessionStarted  bool
 	Output          string
 	RawOutput       string
 	ExitCode        int
@@ -75,6 +89,12 @@ func BuiltIns() []Adapter {
 				"/opt/homebrew/bin/codex-acp",
 				"/usr/local/bin/codex-acp",
 			},
+			Managed: ManagedLauncher{
+				Package: "@zed-industries/codex-acp",
+				Runners: []ManagedRunner{
+					{Command: "npx", Args: []string{"-y", "@zed-industries/codex-acp"}, CandidatePaths: managedNPXCandidates()},
+				},
+			},
 			Kind:        "acp",
 			Description: "Run Codex through its ACP adapter as a long-lived external coding-agent session supervised by Hecate.",
 			CostMode:    "external",
@@ -88,6 +108,12 @@ func BuiltIns() []Adapter {
 				"${HOME}/.local/bin/claude-agent-acp",
 				"/opt/homebrew/bin/claude-agent-acp",
 				"/usr/local/bin/claude-agent-acp",
+			},
+			Managed: ManagedLauncher{
+				Package: "@agentclientprotocol/claude-agent-acp",
+				Runners: []ManagedRunner{
+					{Command: "npx", Args: []string{"-y", "@agentclientprotocol/claude-agent-acp"}, CandidatePaths: managedNPXCandidates()},
+				},
 			},
 			Kind:        "acp",
 			Description: "Run Claude Agent through ACP as a long-lived external coding-agent session supervised by Hecate.",
@@ -133,7 +159,7 @@ func ListWithLookup(ctx context.Context, lookup LookupFunc) []Status {
 			out = append(out, status)
 			continue
 		}
-		path, err := resolveExecutable(item, lookup)
+		path, err := resolveExecutableForStatus(item, lookup)
 		if err != nil {
 			status.Error = err.Error()
 			out = append(out, status)
@@ -148,6 +174,14 @@ func ListWithLookup(ctx context.Context, lookup LookupFunc) []Status {
 }
 
 func resolveExecutable(adapter Adapter, lookup LookupFunc) (string, error) {
+	return resolveExecutableWithManaged(adapter, lookup, true)
+}
+
+func resolveExecutableForStatus(adapter Adapter, lookup LookupFunc) (string, error) {
+	return resolveExecutableWithManaged(adapter, lookup, false)
+}
+
+func resolveExecutableWithManaged(adapter Adapter, lookup LookupFunc, createManaged bool) (string, error) {
 	if lookup == nil {
 		lookup = exec.LookPath
 	}
@@ -173,7 +207,150 @@ func resolveExecutable(adapter Adapter, lookup LookupFunc) (string, error) {
 		}
 		return path, nil
 	}
+	if adapter.Managed.Package != "" {
+		var path string
+		var err error
+		if createManaged {
+			path, err = ensureManagedLauncher(adapter, lookup)
+		} else {
+			path, err = plannedManagedLauncher(adapter, lookup)
+		}
+		if err == nil {
+			return path, nil
+		}
+		return "", fmt.Errorf("%w; managed launcher unavailable: %v", firstErr, err)
+	}
 	return "", firstErr
+}
+
+func plannedManagedLauncher(adapter Adapter, lookup LookupFunc) (string, error) {
+	if adapter.Managed.Package == "" {
+		return "", errors.New("adapter has no managed launcher")
+	}
+	if _, _, err := resolveManagedRunner(adapter.Managed, lookup); err != nil {
+		return "", err
+	}
+	dir, err := managedLauncherDir()
+	if err != nil {
+		return "", err
+	}
+	return filepath.Join(dir, managedLauncherName(adapter.Command)), nil
+}
+
+func ensureManagedLauncher(adapter Adapter, lookup LookupFunc) (string, error) {
+	if adapter.Managed.Package == "" {
+		return "", errors.New("adapter has no managed launcher")
+	}
+	runner, runnerPath, err := resolveManagedRunner(adapter.Managed, lookup)
+	if err != nil {
+		return "", err
+	}
+	dir, err := managedLauncherDir()
+	if err != nil {
+		return "", err
+	}
+	if err := os.MkdirAll(dir, 0o755); err != nil {
+		return "", fmt.Errorf("create managed adapter directory: %w", err)
+	}
+	path := filepath.Join(dir, managedLauncherName(adapter.Command))
+	content := managedLauncherContent(runnerPath, runner.Args)
+	if existing, err := os.ReadFile(path); err == nil && string(existing) == content {
+		return path, nil
+	}
+	mode := os.FileMode(0o755)
+	if runtime.GOOS == "windows" {
+		mode = 0o644
+	}
+	if err := os.WriteFile(path, []byte(content), mode); err != nil {
+		return "", fmt.Errorf("write managed adapter launcher: %w", err)
+	}
+	return path, nil
+}
+
+func resolveManagedRunner(managed ManagedLauncher, lookup LookupFunc) (ManagedRunner, string, error) {
+	if lookup == nil {
+		lookup = exec.LookPath
+	}
+	var errorsText []string
+	for _, runner := range managed.Runners {
+		if strings.TrimSpace(runner.Command) == "" {
+			continue
+		}
+		path, err := lookup(runner.Command)
+		if err == nil {
+			return runner, path, nil
+		}
+		for _, candidate := range runner.CandidatePaths {
+			path := expandPath(candidate)
+			if path == "" {
+				continue
+			}
+			info, statErr := os.Stat(path)
+			if statErr != nil || info.IsDir() || info.Mode()&0o111 == 0 {
+				continue
+			}
+			return runner, path, nil
+		}
+		errorsText = append(errorsText, fmt.Sprintf("%s: %v", runner.Command, err))
+	}
+	if len(errorsText) == 0 {
+		return ManagedRunner{}, "", fmt.Errorf("no runner configured for managed adapter package %s", managed.Package)
+	}
+	return ManagedRunner{}, "", fmt.Errorf("no local package runner found for %s (%s)", managed.Package, strings.Join(errorsText, "; "))
+}
+
+func managedLauncherDir() (string, error) {
+	if dir := strings.TrimSpace(os.Getenv("HECATE_AGENT_ADAPTERS_DIR")); dir != "" {
+		return filepath.Abs(filepath.Clean(dir))
+	}
+	dir, err := os.UserCacheDir()
+	if err != nil {
+		return "", fmt.Errorf("resolve user cache directory: %w", err)
+	}
+	return filepath.Join(dir, "hecate", "agent-adapters"), nil
+}
+
+func managedNPXCandidates() []string {
+	return []string{
+		"${HOME}/.volta/bin/npx",
+		"${HOME}/.local/share/mise/shims/npx",
+		"${HOME}/.asdf/shims/npx",
+		"/opt/homebrew/bin/npx",
+		"/usr/local/bin/npx",
+		"/usr/bin/npx",
+	}
+}
+
+func managedLauncherName(command string) string {
+	if runtime.GOOS == "windows" {
+		return command + ".cmd"
+	}
+	return command
+}
+
+func managedLauncherContent(runnerPath string, args []string) string {
+	if runtime.GOOS == "windows" {
+		parts := []string{windowsQuote(runnerPath)}
+		for _, arg := range args {
+			parts = append(parts, windowsQuote(arg))
+		}
+		parts = append(parts, "%*")
+		return "@echo off\r\n" + strings.Join(parts, " ") + "\r\n"
+	}
+	parts := []string{"exec", shellQuote(runnerPath)}
+	for _, arg := range args {
+		parts = append(parts, shellQuote(arg))
+	}
+	parts = append(parts, "\"$@\"")
+	return "#!/bin/sh\n" + strings.Join(parts, " ") + "\n"
+}
+
+func shellQuote(value string) string {
+	return "'" + strings.ReplaceAll(value, "'", "'\\''") + "'"
+}
+
+func windowsQuote(value string) string {
+	return `"` + strings.ReplaceAll(value, `"`, `\"`) + `"`
 }
 
 func Run(ctx context.Context, req RunRequest) (RunResult, error) {

@@ -74,13 +74,16 @@ func (m *SessionManager) Run(ctx context.Context, req RunRequest) (RunResult, er
 	if err != nil {
 		return RunResult{}, err
 	}
-	return session.RunTurn(ctx, req)
+	result, err := session.RunTurn(ctx, req)
+	result.SessionStarted = session.startedForRun
+	return result, err
 }
 
 func (m *SessionManager) session(ctx context.Context, adapter Adapter, req RunRequest) (*acpSession, error) {
 	m.mu.Lock()
 	existing := m.sessions[req.SessionID]
 	if existing != nil && existing.adapter.ID == adapter.ID && existing.workspace == req.Workspace {
+		existing.startedForRun = false
 		m.mu.Unlock()
 		return existing, nil
 	}
@@ -98,6 +101,7 @@ func (m *SessionManager) session(ctx context.Context, adapter Adapter, req RunRe
 		_ = previous.Close(context.Background())
 	}
 	m.sessions[req.SessionID] = started
+	started.startedForRun = true
 	return started, nil
 }
 
@@ -143,7 +147,8 @@ type acpSession struct {
 	client    *acpChatClient
 	nativeID  string
 
-	turnMu sync.Mutex
+	turnMu        sync.Mutex
+	startedForRun bool
 }
 
 func startACPSession(ctx context.Context, adapter Adapter, workspace string, logger *slog.Logger) (*acpSession, error) {
@@ -326,14 +331,6 @@ func (c *acpChatClient) SessionUpdate(_ context.Context, params acp.SessionNotif
 }
 
 func (c *acpChatClient) RequestPermission(_ context.Context, params acp.RequestPermissionRequest) (acp.RequestPermissionResponse, error) {
-	if turn := c.currentTurn(); turn != nil {
-		title := params.ToolCall.Title
-		if title == nil {
-			fallback := "Permission requested"
-			title = &fallback
-		}
-		turn.appendText("permission", "\n["+*title+"]\n")
-	}
 	for _, option := range params.Options {
 		if option.Kind == acp.PermissionOptionKindAllowOnce || option.Kind == acp.PermissionOptionKindAllowAlways {
 			return acp.RequestPermissionResponse{Outcome: acp.RequestPermissionOutcome{Selected: &acp.RequestPermissionOutcomeSelected{OptionId: option.OptionId}}}, nil
@@ -450,33 +447,6 @@ func (t *acpTurn) recordUpdate(params acp.SessionNotification) {
 	switch {
 	case update.AgentMessageChunk != nil:
 		t.appendText("agent_message_chunk", contentBlockText(update.AgentMessageChunk.Content))
-	case update.AgentThoughtChunk != nil:
-		text := contentBlockText(update.AgentThoughtChunk.Content)
-		if strings.TrimSpace(text) != "" {
-			t.appendText("agent_thought_chunk", "\n[thinking]\n"+text+"\n")
-		}
-	case update.ToolCall != nil:
-		t.appendText("tool_call", "\n["+update.ToolCall.Title+" · "+string(update.ToolCall.Status)+"]\n")
-	case update.ToolCallUpdate != nil:
-		status := ""
-		if update.ToolCallUpdate.Status != nil {
-			status = string(*update.ToolCallUpdate.Status)
-		}
-		title := string(update.ToolCallUpdate.ToolCallId)
-		if update.ToolCallUpdate.Title != nil {
-			title = *update.ToolCallUpdate.Title
-		}
-		t.appendText("tool_call_update", "\n["+title+" · "+status+"]\n")
-	case update.Plan != nil:
-		t.appendText("plan", "\n[plan updated]\n")
-	case update.CurrentModeUpdate != nil:
-		t.appendText("mode", "\n[mode changed]\n")
-	case update.ConfigOptionUpdate != nil:
-		t.appendText("config", "\n[session config updated]\n")
-	case update.SessionInfoUpdate != nil:
-		t.appendText("session", "\n[session updated]\n")
-	case update.UsageUpdate != nil:
-		t.appendText("usage", "\n[usage updated]\n")
 	}
 }
 

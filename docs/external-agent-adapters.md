@@ -12,10 +12,10 @@ captures timing, workspace branch, and Git diff. Cost is still reported as
 
 ## Supported adapters
 
-| Adapter | Command Hecate starts | Auth expected by the underlying agent |
+| Adapter | How Hecate starts it | Auth expected by the underlying agent |
 |---|---|---|
-| Codex | `codex-acp` | Codex CLI / adapter login or config |
-| Claude Code | `claude-agent-acp` | Claude agent / adapter login or config |
+| Codex | Hecate-managed launcher for `@zed-industries/codex-acp` via local `npx`; direct `codex-acp` also works | Codex CLI / adapter login or config |
+| Claude Code | Hecate-managed launcher for `@agentclientprotocol/claude-agent-acp` via local `npx`; direct `claude-agent-acp` also works | Claude agent / adapter login or config |
 | Cursor Agent | `cursor-agent acp` | `cursor-agent login` or `CURSOR_API_KEY` |
 
 Check discovery:
@@ -24,36 +24,55 @@ Check discovery:
 curl -s http://127.0.0.1:8765/v1/agent-adapters | jq
 ```
 
-An adapter with `"available": false` is not on `PATH` and cannot be selected
-until the command is installed or reachable from the gateway process environment.
+For Codex and Claude, Hecate does not require `codex-acp` or
+`claude-agent-acp` to be installed on `PATH`. If the direct command is missing
+but `npx` is available, Hecate creates a small launcher in the operator cache
+directory and runs the official ACP npm package from there. Cursor still
+requires the Cursor Agent CLI because its ACP mode is shipped by `cursor-agent`.
+
+By default the managed launcher directory is the user cache location:
+
+```text
+<user-cache>/hecate/agent-adapters
+```
+
+Set `HECATE_AGENT_ADAPTERS_DIR` only if you want to override that location for
+development or a packaged desktop build.
 
 ## Setup checks
 
-Agent Chat does not use Hecate model providers. It only needs the selected
-coding-agent CLI to be installed, authenticated, and visible to the process that
-started Hecate.
+Agent Chat does not use Hecate model providers. It needs the selected
+coding-agent to be authenticated, and either a direct ACP command or a managed
+package runner to be visible to Hecate.
 
 ### Codex ACP
 
 ```sh
-command -v codex-acp
-codex-acp --help
+command -v npx
+curl -s http://127.0.0.1:8765/v1/agent-adapters | jq '.data[] | select(.id=="codex")'
 ```
 
-If Hecate reports `exec: "codex-acp": executable file not found in $PATH`,
-install the Codex ACP adapter or start Hecate from an environment where
-`codex-acp` is on `PATH`.
+If `available` is true, Hecate can start Codex ACP. The first run may fetch and
+cache the official `@zed-industries/codex-acp` package through `npx`.
+
+If Hecate reports that the managed launcher is unavailable, install Node/npm or
+start Hecate from an environment where `npx` is available. Hecate also checks
+common operator locations such as Volta, mise/asdf shims, Homebrew, and
+`/usr/bin`.
 
 ### Claude ACP
 
 ```sh
-command -v claude-agent-acp
-claude-agent-acp --help
+command -v npx
+curl -s http://127.0.0.1:8765/v1/agent-adapters | jq '.data[] | select(.id=="claude_code")'
 ```
 
-If Hecate reports `exec: "claude-agent-acp": executable file not found in
-$PATH`, install the Claude ACP adapter or restart Hecate after your
-shell/runtime manager updates `PATH`.
+If `available` is true, Hecate can start Claude ACP. The first run may fetch and
+cache the official `@agentclientprotocol/claude-agent-acp` package through
+`npx`.
+
+If Hecate reports that the managed launcher is unavailable, install Node/npm or
+start Hecate from an environment where `npx` is available.
 
 ### Cursor Agent
 
@@ -126,7 +145,8 @@ state.
 
 | Symptom | What to check |
 |---|---|
-| Adapter is missing | The ACP adapter command is not visible to the gateway process `PATH`. Restart Hecate after changing shell/runtime managers such as Volta. |
+| Codex or Claude adapter is missing | Hecate could not find the direct ACP command or a local `npx` runner. Install Node/npm, or make sure Volta/mise/asdf/Homebrew is visible to the process that starts Hecate. |
+| Cursor adapter is missing | `cursor-agent` is not visible to Hecate. Install Cursor Agent and restart Hecate after changing shell/runtime managers such as Volta. |
 | Cursor says authentication is required | Run `cursor-agent login` or set `CURSOR_API_KEY` in the environment that starts Hecate. |
 | Output looks strange | Open the message's raw output disclosure. The visible transcript is normalized from ACP updates, but raw update JSON is retained for adapter debugging. |
 | Run hangs | Use the Stop button. Hecate sends ACP cancellation and marks the run `cancelled`. |
