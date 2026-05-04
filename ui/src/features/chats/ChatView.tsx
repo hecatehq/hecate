@@ -907,11 +907,11 @@ function AgentSetupHints({ adapters, selectedID }: { adapters: AgentAdapterRecor
 }
 
 function agentSetupHint(adapter: AgentAdapterRecord): { action: string } {
-	switch (adapter.id) {
-		case "codex":
-			return { action: "Install Node/npm so Hecate can create its managed Codex ACP launcher, then authenticate the underlying Codex CLI." };
-		case "claude_code":
-			return { action: "Install Node/npm so Hecate can create its managed Claude ACP launcher, then authenticate the underlying Claude agent." };
+  switch (adapter.id) {
+    case "codex":
+      return { action: "Install Node/npm so Hecate can create its managed Codex ACP launcher, then authenticate the underlying Codex CLI." };
+    case "claude_code":
+      return { action: "Install Node/npm so Hecate can create its managed Claude ACP launcher, then authenticate the underlying Claude agent." };
     case "cursor_agent":
       return { action: "Install Cursor Agent, make sure `cursor-agent` is on PATH, then run `cursor-agent login` or set `CURSOR_API_KEY`." };
     default:
@@ -927,11 +927,11 @@ function agentReadyLabel(adapter: AgentAdapterRecord): string {
 }
 
 function formatAgentRuntimeMeta(runID?: string, durationMS?: number, traceID?: string, nativeSessionID?: string): string {
-	const parts: string[] = [];
-	if (nativeSessionID) {
-		parts.push(`ACP ${nativeSessionID.slice(0, 12)}`);
-	}
-	if (runID) {
+  const parts: string[] = [];
+  if (nativeSessionID) {
+    parts.push(`ACP ${nativeSessionID.slice(0, 12)}`);
+  }
+  if (runID) {
     parts.push(`run ${runID.slice(0, 12)}`);
   }
   if (traceID) {

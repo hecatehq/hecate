@@ -28,11 +28,15 @@ type Runner interface {
 type SessionManager struct {
 	mu       sync.Mutex
 	sessions map[string]*acpSession
+	starts   map[string]*sessionStart
 	logger   *slog.Logger
 }
 
 func NewSessionManager() *SessionManager {
-	return &SessionManager{sessions: make(map[string]*acpSession)}
+	return &SessionManager{
+		sessions: make(map[string]*acpSession),
+		starts:   make(map[string]*sessionStart),
+	}
 }
 
 func (m *SessionManager) SetLogger(logger *slog.Logger) {
@@ -71,41 +75,66 @@ func (m *SessionManager) Run(ctx context.Context, req RunRequest) (RunResult, er
 	if req.MaxOutputBytes <= 0 {
 		req.MaxOutputBytes = 1024 * 1024
 	}
-	session, err := m.session(ctx, adapter, req)
+	session, started, resumed, err := m.session(ctx, adapter, req)
 	if err != nil {
 		return RunResult{}, err
 	}
 	result, err := session.RunTurn(ctx, req)
-	result.SessionStarted = session.startedForRun
-	result.SessionResumed = session.resumedForRun
+	result.SessionStarted = started
+	result.SessionResumed = resumed
 	return result, err
 }
 
-func (m *SessionManager) session(ctx context.Context, adapter Adapter, req RunRequest) (*acpSession, error) {
-	m.mu.Lock()
-	existing := m.sessions[req.SessionID]
-	if existing != nil && existing.adapter.ID == adapter.ID && existing.workspace == req.Workspace {
-		existing.startedForRun = false
-		existing.resumedForRun = false
+type sessionStart struct {
+	done chan struct{}
+}
+
+func (m *SessionManager) session(ctx context.Context, adapter Adapter, req RunRequest) (*acpSession, bool, bool, error) {
+	for {
+		m.mu.Lock()
+		existing := m.sessions[req.SessionID]
+		if existing != nil && existing.adapter.ID == adapter.ID && existing.workspace == req.Workspace {
+			m.mu.Unlock()
+			return existing, false, false, nil
+		}
+		if start := m.starts[req.SessionID]; start != nil {
+			done := start.done
+			m.mu.Unlock()
+			select {
+			case <-done:
+				continue
+			case <-ctx.Done():
+				return nil, false, false, ctx.Err()
+			}
+		}
+		if m.starts == nil {
+			m.starts = make(map[string]*sessionStart)
+		}
+		start := &sessionStart{done: make(chan struct{})}
+		m.starts[req.SessionID] = start
+		logger := m.logger
 		m.mu.Unlock()
-		return existing, nil
-	}
-	logger := m.logger
-	m.mu.Unlock()
 
-	started, err := startACPSession(ctx, adapter, req.Workspace, req.PreviousNativeSessionID, logger)
-	if err != nil {
-		return nil, err
-	}
+		started, resumed, err := startACPSession(ctx, adapter, req.Workspace, req.PreviousNativeSessionID, logger)
 
-	m.mu.Lock()
-	defer m.mu.Unlock()
-	if previous := m.sessions[req.SessionID]; previous != nil {
-		_ = previous.Close(context.Background())
+		var previous *acpSession
+		m.mu.Lock()
+		delete(m.starts, req.SessionID)
+		if err == nil {
+			previous = m.sessions[req.SessionID]
+			m.sessions[req.SessionID] = started
+		}
+		close(start.done)
+		m.mu.Unlock()
+
+		if previous != nil {
+			_ = previous.Close(context.Background())
+		}
+		if err != nil {
+			return nil, false, false, err
+		}
+		return started, true, resumed, nil
 	}
-	m.sessions[req.SessionID] = started
-	started.startedForRun = true
-	return started, nil
 }
 
 func (m *SessionManager) CloseSession(ctx context.Context, sessionID string) error {
@@ -150,15 +179,13 @@ type acpSession struct {
 	client    *acpChatClient
 	nativeID  string
 
-	turnMu        sync.Mutex
-	startedForRun bool
-	resumedForRun bool
+	turnMu sync.Mutex
 }
 
-func startACPSession(ctx context.Context, adapter Adapter, workspace, previousNativeSessionID string, logger *slog.Logger) (*acpSession, error) {
+func startACPSession(ctx context.Context, adapter Adapter, workspace, previousNativeSessionID string, logger *slog.Logger) (*acpSession, bool, error) {
 	command, err := resolveExecutable(adapter, exec.LookPath)
 	if err != nil {
-		return nil, err
+		return nil, false, err
 	}
 	args := append([]string(nil), adapter.Args...)
 	cmd := exec.CommandContext(context.Background(), command, args...)
@@ -168,18 +195,18 @@ func startACPSession(ctx context.Context, adapter Adapter, workspace, previousNa
 
 	stdin, err := cmd.StdinPipe()
 	if err != nil {
-		return nil, fmt.Errorf("create ACP stdin pipe: %w", err)
+		return nil, false, fmt.Errorf("create ACP stdin pipe: %w", err)
 	}
 	stdout, err := cmd.StdoutPipe()
 	if err != nil {
-		return nil, fmt.Errorf("create ACP stdout pipe: %w", err)
+		return nil, false, fmt.Errorf("create ACP stdout pipe: %w", err)
 	}
 	var stderr limitedBuffer
 	stderr.limit = 256 * 1024
 	cmd.Stderr = &stderr
 
 	if err := cmd.Start(); err != nil {
-		return nil, fmt.Errorf("start ACP adapter %q: %w", adapter.ID, err)
+		return nil, false, fmt.Errorf("start ACP adapter %q: %w", adapter.ID, err)
 	}
 
 	client := &acpChatClient{workspace: workspace}
@@ -205,7 +232,7 @@ func startACPSession(ctx context.Context, adapter Adapter, workspace, previousNa
 	})
 	if err != nil {
 		terminateProcess(cmd)
-		return nil, fmt.Errorf("initialize ACP adapter %q: %w%s", adapter.ID, err, stderrSuffix(stderr.String()))
+		return nil, false, fmt.Errorf("initialize ACP adapter %q: %w%s", adapter.ID, err, stderrSuffix(stderr.String()))
 	}
 
 	nativeID := ""
@@ -233,19 +260,18 @@ func startACPSession(ctx context.Context, adapter Adapter, workspace, previousNa
 		cancel()
 		if err != nil {
 			terminateProcess(cmd)
-			return nil, fmt.Errorf("create ACP session for %q: %w%s", adapter.ID, err, stderrSuffix(stderr.String()))
+			return nil, false, fmt.Errorf("create ACP session for %q: %w%s", adapter.ID, err, stderrSuffix(stderr.String()))
 		}
 		nativeID = string(created.SessionId)
 	}
 	return &acpSession{
-		adapter:       adapter,
-		workspace:     workspace,
-		cmd:           cmd,
-		conn:          conn,
-		client:        client,
-		nativeID:      nativeID,
-		resumedForRun: resumed,
-	}, nil
+		adapter:   adapter,
+		workspace: workspace,
+		cmd:       cmd,
+		conn:      conn,
+		client:    client,
+		nativeID:  nativeID,
+	}, resumed, nil
 }
 
 func (s *acpSession) RunTurn(ctx context.Context, req RunRequest) (RunResult, error) {
