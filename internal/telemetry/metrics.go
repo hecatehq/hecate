@@ -22,6 +22,16 @@ type ChatMetricsRecord struct {
 	FallbackFromProvider string
 }
 
+type ProviderCallMetricsRecord struct {
+	Provider     string
+	ProviderKind string
+	Model        string
+	Result       string
+	Attempt      int
+	HealthStatus string
+	DurationMS   int64
+}
+
 type Metrics struct {
 	requestsTotal         otmetric.Int64Counter
 	requestDuration       otmetric.Int64Histogram
@@ -32,6 +42,8 @@ type Metrics struct {
 	totalTokensTotal      otmetric.Int64Counter
 	retriesTotal          otmetric.Int64Counter
 	failoversTotal        otmetric.Int64Counter
+	providerCallsTotal    otmetric.Int64Counter
+	providerCallDuration  otmetric.Int64Histogram
 }
 
 func NewMetrics() *Metrics {
@@ -130,6 +142,24 @@ func NewMetricsWithMeterProvider(provider otmetric.MeterProvider) (*Metrics, err
 		return nil, err
 	}
 
+	providerCallsTotal, err := meter.Int64Counter(
+		MetricProviderCallsTotal,
+		otmetric.WithDescription("Total upstream provider call attempts grouped by result."),
+		otmetric.WithUnit("{call}"),
+	)
+	if err != nil {
+		return nil, err
+	}
+
+	providerCallDuration, err := meter.Int64Histogram(
+		MetricProviderCallDuration,
+		otmetric.WithDescription("Upstream provider call latency."),
+		otmetric.WithUnit("ms"),
+	)
+	if err != nil {
+		return nil, err
+	}
+
 	return &Metrics{
 		requestsTotal:         requestsTotal,
 		requestDuration:       requestDuration,
@@ -140,6 +170,8 @@ func NewMetricsWithMeterProvider(provider otmetric.MeterProvider) (*Metrics, err
 		totalTokensTotal:      totalTokensTotal,
 		retriesTotal:          retriesTotal,
 		failoversTotal:        failoversTotal,
+		providerCallsTotal:    providerCallsTotal,
+		providerCallDuration:  providerCallDuration,
 	}, nil
 }
 
@@ -151,6 +183,35 @@ func (m *Metrics) RecordRequestOutcome(ctx context.Context, result string, durat
 	attrs := otmetric.WithAttributes(attribute.String(AttrHecateResult, result))
 	m.requestsTotal.Add(ctx, 1, attrs)
 	m.requestDuration.Record(ctx, duration.Milliseconds(), attrs)
+}
+
+func (m *Metrics) RecordProviderCall(ctx context.Context, rec ProviderCallMetricsRecord) {
+	if m == nil || rec.Provider == "" {
+		return
+	}
+
+	attrs := make([]attribute.KeyValue, 0, 7)
+	attrs = append(attrs, attribute.String(AttrGenAIProviderName, rec.Provider))
+	if rec.ProviderKind != "" {
+		attrs = append(attrs, attribute.String(AttrHecateProviderKind, rec.ProviderKind))
+	}
+	if rec.Model != "" {
+		attrs = append(attrs, attribute.String(AttrGenAIRequestModel, rec.Model))
+	}
+	if rec.Result != "" {
+		attrs = append(attrs, attribute.String(AttrHecateResult, NormalizeResult(rec.Result)))
+	}
+	if rec.Attempt > 0 {
+		attrs = append(attrs, attribute.Int(AttrHecateRetryAttempt, rec.Attempt))
+	}
+	if rec.HealthStatus != "" {
+		attrs = append(attrs, attribute.String(AttrHecateProviderHealthStatus, rec.HealthStatus))
+	}
+	opt := otmetric.WithAttributes(attrs...)
+	m.providerCallsTotal.Add(ctx, 1, opt)
+	if rec.DurationMS > 0 {
+		m.providerCallDuration.Record(ctx, rec.DurationMS, opt)
+	}
 }
 
 // ---------------------------------------------------------------------------
