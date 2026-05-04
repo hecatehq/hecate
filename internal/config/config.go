@@ -115,6 +115,28 @@ type ServerConfig struct {
 	TaskShellAllowPrivateIPs bool
 	TaskShellAllowedHosts    []string
 
+	// AgentAdapterApprovalMode controls how Hecate handles ACP
+	// RequestPermission reverse-RPCs from external coding-agent
+	// adapters (Codex, Claude Code, Cursor Agent). One of:
+	//   - "prompt": ask the operator (default; safe).
+	//   - "auto":   auto-approve everything. Danger mode kept for
+	//               batch / CI / smoke. Logged at WARN on startup.
+	//   - "deny":   auto-reject everything. Audit / compliance.
+	// Set via GATEWAY_AGENT_ADAPTER_APPROVAL_MODE.
+	//
+	// Background: prior to this knob the gateway silently auto-approved
+	// every adapter request. Default flips to "prompt" because the
+	// External Agent Adapters subsystem is alpha; operators who depend
+	// on the old behavior must opt into "auto" explicitly until the
+	// approval UI ships in a follow-up slice.
+	//
+	// See docs/rfcs/external-adapter-approvals-v1.md.
+	AgentAdapterApprovalMode string
+	// AgentAdapterApprovalTimeout is how long a pending approval waits
+	// before resolving to ACP `Cancelled`. Default 5m. Set via
+	// GATEWAY_AGENT_ADAPTER_APPROVAL_TIMEOUT (Go duration string).
+	AgentAdapterApprovalTimeout time.Duration
+
 	// TraceBodyCapture enables recording (redacted) request and response bodies
 	// in the distributed trace.  Off by default; enable via GATEWAY_TRACE_BODIES=true.
 	TraceBodyCapture bool
@@ -341,6 +363,8 @@ func LoadFromEnv() Config {
 			TaskHTTPAllowedHosts:           splitCSV(getEnv("GATEWAY_TASK_HTTP_ALLOWED_HOSTS", "")),
 			TaskShellAllowPrivateIPs:       getEnvBool("GATEWAY_TASK_SHELL_ALLOW_PRIVATE_IPS", false),
 			TaskShellAllowedHosts:          splitCSV(getEnv("GATEWAY_TASK_SHELL_ALLOWED_HOSTS", "")),
+			AgentAdapterApprovalMode:       getEnv("GATEWAY_AGENT_ADAPTER_APPROVAL_MODE", "prompt"),
+			AgentAdapterApprovalTimeout:    getEnvDuration("GATEWAY_AGENT_ADAPTER_APPROVAL_TIMEOUT", 5*time.Minute),
 			TaskMaxConcurrentPerTenant:     getEnvInt("GATEWAY_TASK_MAX_CONCURRENT_PER_TENANT", 0),
 			TraceBodyCapture:               getEnvBool("GATEWAY_TRACE_BODIES", false),
 			TraceBodyMaxBytes:              getEnvInt("GATEWAY_TRACE_BODY_MAX_BYTES", 4096),

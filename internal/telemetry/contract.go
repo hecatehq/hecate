@@ -260,6 +260,11 @@ const (
 	MetricAgentChatRunsTotal   = "hecate.agent_chat.runs"
 	MetricAgentChatRunDuration = "hecate.agent_chat.run.duration"
 
+	// External-adapter approval metrics — see docs/rfcs/external-adapter-approvals-v1.md.
+	MetricAgentAdapterApprovalRequestedTotal = "hecate.agent_adapter.approval.requested"
+	MetricAgentAdapterApprovalResolvedTotal  = "hecate.agent_adapter.approval.resolved"
+	MetricAgentAdapterApprovalDurationMS     = "hecate.agent_adapter.approval.duration"
+
 	// Orchestrator metrics
 	MetricOrchestratorRunsTotal            = "hecate.orchestrator.runs"
 	MetricOrchestratorRunDuration          = "hecate.orchestrator.run.duration"
