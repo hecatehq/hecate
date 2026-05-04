@@ -148,6 +148,7 @@ func NewHandler(cfg config.Config, logger *slog.Logger, service *gateway.Service
 	orchestratorMetrics := telemetry.NewOrchestratorMetrics()
 	runner.SetMetrics(orchestratorMetrics)
 	agentChatMetrics := telemetry.NewAgentChatMetrics()
+	agentApprovalMetrics := telemetry.NewAgentAdapterApprovalMetrics()
 	// Wire the four-layer agent_loop system-prompt composer. Layers
 	// are concatenated broadest-first:
 	//   1. global default — operator's GATEWAY_TASK_AGENT_SYSTEM_PROMPT
@@ -186,6 +187,60 @@ func NewHandler(cfg config.Config, logger *slog.Logger, service *gateway.Service
 
 	agentChatRunner := agentadapters.NewSessionManager()
 	agentChatRunner.SetLogger(logger)
+	// Approval recorder: applies GATEWAY_AGENT_ADAPTER_APPROVAL_MODE to
+	// each ACP RequestPermission, records the approval row, and emits
+	// approval.* metrics. Default mode is `prompt`; until the operator
+	// UI ships, prompt mode resolves to ACP Cancelled after the
+	// configured timeout. Operators who depend on the prior auto-approve
+	// behavior must set GATEWAY_AGENT_ADAPTER_APPROVAL_MODE=auto
+	// explicitly.
+	approvalMode := agentadapters.ApprovalMode(strings.TrimSpace(cfg.Server.AgentAdapterApprovalMode))
+	if approvalMode == "" {
+		approvalMode = agentadapters.ModePrompt
+	}
+	if approvalMode == agentadapters.ModeAuto {
+		telemetry.Warn(logger, context.Background(), "agent_adapter.approval_mode.auto",
+			slog.String("event.name", "agent_adapter.approval_mode.auto"),
+			slog.String("warning", "GATEWAY_AGENT_ADAPTER_APPROVAL_MODE=auto: every adapter RequestPermission is auto-approved with no operator review"),
+		)
+	}
+	approvalRecorder := agentadapters.NewApprovalRecorder(agentadapters.RecorderOptions{
+		Mode:    approvalMode,
+		Timeout: cfg.Server.AgentAdapterApprovalTimeout,
+		Logger:  logger,
+		Hooks: agentadapters.RecorderHooks{
+			OnRequested: func(a agentadapters.Approval) {
+				agentApprovalMetrics.RecordRequested(context.Background(), telemetry.AgentAdapterApprovalRequestRecord{
+					AdapterID: a.AdapterID,
+					ToolKind:  a.ToolKind,
+					Mode:      string(approvalMode),
+				})
+			},
+			OnResolved: func(a agentadapters.Approval, durationMS int64) {
+				agentApprovalMetrics.RecordResolved(context.Background(), telemetry.AgentAdapterApprovalResolveRecord{
+					AdapterID:  a.AdapterID,
+					ToolKind:   a.ToolKind,
+					Mode:       string(approvalMode),
+					Decision:   string(a.Decision),
+					Scope:      string(a.Scope),
+					Path:       string(a.Path),
+					Status:     string(a.Status),
+					DurationMS: durationMS,
+				})
+			},
+			OnTimedOut: func(a agentadapters.Approval, durationMS int64) {
+				agentApprovalMetrics.RecordResolved(context.Background(), telemetry.AgentAdapterApprovalResolveRecord{
+					AdapterID:  a.AdapterID,
+					ToolKind:   a.ToolKind,
+					Mode:       string(approvalMode),
+					Path:       string(agentadapters.PathTimeout),
+					Status:     string(agentadapters.ApprovalStatusTimedOut),
+					DurationMS: durationMS,
+				})
+			},
+		},
+	})
+	agentChatRunner.SetApprovalRecorder(approvalRecorder)
 
 	return &Handler{
 		config:              cfg,

@@ -291,6 +291,13 @@ func (h *Handler) HandleCreateAgentChatMessage(w http.ResponseWriter, r *http.Re
 	outputSeen := false
 	runner := h.agentChatRunner
 	if runner == nil {
+		// Defensive: the constructor in NewHandler always sets
+		// agentChatRunner. This branch only fires for programmer error
+		// (e.g. a test handler built without it). The fallback runner
+		// has no approval recorder installed, so it preserves the
+		// legacy auto-approve behavior — same as before the approval
+		// recorder existed. Tighten in a follow-up if the fallback
+		// remains in use.
 		runner = agentadapters.NewSessionManager()
 	}
 	result, runErr := runner.Run(runCtx, agentadapters.RunRequest{

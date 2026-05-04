@@ -298,6 +298,133 @@ func (m *AgentChatMetrics) RecordRun(ctx context.Context, rec AgentChatRunMetric
 }
 
 // ---------------------------------------------------------------------------
+// AgentAdapterApprovalMetrics — see docs/rfcs/external-adapter-approvals-v1.md.
+// ---------------------------------------------------------------------------
+
+// AgentAdapterApprovalRequestRecord labels an incoming RequestPermission.
+type AgentAdapterApprovalRequestRecord struct {
+	AdapterID string
+	ToolKind  string
+	Mode      string // configured GATEWAY_AGENT_ADAPTER_APPROVAL_MODE
+}
+
+// AgentAdapterApprovalResolveRecord labels a resolved approval.
+type AgentAdapterApprovalResolveRecord struct {
+	AdapterID  string
+	ToolKind   string
+	Mode       string
+	Decision   string // approve | deny | "" (cancelled / timed_out)
+	Scope      string // once | session | workspace_tool | adapter_tool
+	Path       string // operator | grant | default_mode | timeout
+	Status     string // approved | denied | timed_out | cancelled
+	DurationMS int64
+}
+
+type AgentAdapterApprovalMetrics struct {
+	requestedTotal otmetric.Int64Counter
+	resolvedTotal  otmetric.Int64Counter
+	durationMS     otmetric.Int64Histogram
+}
+
+func NewAgentAdapterApprovalMetrics() *AgentAdapterApprovalMetrics {
+	m, err := NewAgentAdapterApprovalMetricsWithMeterProvider(otel.GetMeterProvider())
+	if err != nil {
+		return &AgentAdapterApprovalMetrics{}
+	}
+	return m
+}
+
+func NewAgentAdapterApprovalMetricsWithMeterProvider(provider otmetric.MeterProvider) (*AgentAdapterApprovalMetrics, error) {
+	if provider == nil {
+		provider = otel.GetMeterProvider()
+	}
+	meter := provider.Meter("github.com/hecate/agent-runtime/internal/telemetry")
+
+	requestedTotal, err := meter.Int64Counter(
+		MetricAgentAdapterApprovalRequestedTotal,
+		otmetric.WithDescription("Total ACP RequestPermission calls received from external agent adapters."),
+		otmetric.WithUnit("{request}"),
+	)
+	if err != nil {
+		return nil, err
+	}
+
+	resolvedTotal, err := meter.Int64Counter(
+		MetricAgentAdapterApprovalResolvedTotal,
+		otmetric.WithDescription("Total approvals resolved, labeled by decision, scope, and resolution path."),
+		otmetric.WithUnit("{approval}"),
+	)
+	if err != nil {
+		return nil, err
+	}
+
+	durationMS, err := meter.Int64Histogram(
+		MetricAgentAdapterApprovalDurationMS,
+		otmetric.WithDescription("Time from RequestPermission to resolution."),
+		otmetric.WithUnit("ms"),
+	)
+	if err != nil {
+		return nil, err
+	}
+
+	return &AgentAdapterApprovalMetrics{
+		requestedTotal: requestedTotal,
+		resolvedTotal:  resolvedTotal,
+		durationMS:     durationMS,
+	}, nil
+}
+
+func (m *AgentAdapterApprovalMetrics) RecordRequested(ctx context.Context, rec AgentAdapterApprovalRequestRecord) {
+	if m == nil || m.requestedTotal == nil {
+		return
+	}
+	attrs := make([]attribute.KeyValue, 0, 3)
+	if rec.AdapterID != "" {
+		attrs = append(attrs, attribute.String(AttrHecateAgentAdapterID, NormalizeMetricLabel(rec.AdapterID)))
+	}
+	if rec.ToolKind != "" {
+		attrs = append(attrs, attribute.String(AttrHecateAgentApprovalToolKind, NormalizeMetricLabel(rec.ToolKind)))
+	}
+	if rec.Mode != "" {
+		attrs = append(attrs, attribute.String(AttrHecateAgentApprovalMode, NormalizeMetricLabel(rec.Mode)))
+	}
+	m.requestedTotal.Add(ctx, 1, otmetric.WithAttributes(attrs...))
+}
+
+func (m *AgentAdapterApprovalMetrics) RecordResolved(ctx context.Context, rec AgentAdapterApprovalResolveRecord) {
+	if m == nil || m.resolvedTotal == nil {
+		return
+	}
+	attrs := make([]attribute.KeyValue, 0, 7)
+	if rec.AdapterID != "" {
+		attrs = append(attrs, attribute.String(AttrHecateAgentAdapterID, NormalizeMetricLabel(rec.AdapterID)))
+	}
+	if rec.ToolKind != "" {
+		attrs = append(attrs, attribute.String(AttrHecateAgentApprovalToolKind, NormalizeMetricLabel(rec.ToolKind)))
+	}
+	if rec.Mode != "" {
+		attrs = append(attrs, attribute.String(AttrHecateAgentApprovalMode, NormalizeMetricLabel(rec.Mode)))
+	}
+	if rec.Decision != "" {
+		attrs = append(attrs, attribute.String(AttrHecateAgentApprovalDecision, NormalizeMetricLabel(rec.Decision)))
+	}
+	if rec.Scope != "" {
+		attrs = append(attrs, attribute.String(AttrHecateAgentApprovalScope, NormalizeMetricLabel(rec.Scope)))
+	}
+	if rec.Path != "" {
+		attrs = append(attrs, attribute.String(AttrHecateAgentApprovalPath, NormalizeMetricLabel(rec.Path)))
+	}
+	if rec.Status != "" {
+		attrs = append(attrs, attribute.String(AttrHecateAgentApprovalStatus, NormalizeMetricLabel(rec.Status)))
+	}
+	opt := otmetric.WithAttributes(attrs...)
+	m.resolvedTotal.Add(ctx, 1, opt)
+	if rec.DurationMS >= 0 {
+		m.durationMS.Record(ctx, rec.DurationMS, opt)
+	}
+}
+
+// ---------------------------------------------------------------------------
 // OrchestratorMetrics
 // ---------------------------------------------------------------------------
 

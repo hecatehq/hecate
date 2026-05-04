@@ -211,6 +211,10 @@ func TestMetricNameConstantsMatchInstruments(t *testing.T) {
 	if err != nil {
 		t.Fatalf("NewAgentChatMetricsWithMeterProvider() error = %v", err)
 	}
+	apm, err := NewAgentAdapterApprovalMetricsWithMeterProvider(provider)
+	if err != nil {
+		t.Fatalf("NewAgentAdapterApprovalMetricsWithMeterProvider() error = %v", err)
+	}
 
 	// Trigger every instrument so it appears in the collected output.
 	ctx := context.Background()
@@ -243,6 +247,11 @@ func TestMetricNameConstantsMatchInstruments(t *testing.T) {
 	om.RecordQueueWait(ctx, QueueWaitRecord{QueueBackend: "memory", WaitMS: 50})
 	om.RecordLeaseExtendFailed(ctx)
 	am.RecordRun(ctx, AgentChatRunMetricsRecord{AdapterID: "codex", DriverKind: "acp", Status: "completed", Result: ResultSuccess, DurationMS: 750})
+	apm.RecordRequested(ctx, AgentAdapterApprovalRequestRecord{AdapterID: "codex", ToolKind: "file_write", Mode: "prompt"})
+	apm.RecordResolved(ctx, AgentAdapterApprovalResolveRecord{
+		AdapterID: "codex", ToolKind: "file_write", Mode: "auto",
+		Decision: "approve", Scope: "once", Path: "default_mode", Status: "approved", DurationMS: 5,
+	})
 
 	var rm metricdata.ResourceMetrics
 	if err := reader.Collect(ctx, &rm); err != nil {
@@ -272,6 +281,10 @@ func TestMetricNameConstantsMatchInstruments(t *testing.T) {
 		// Agent chat
 		MetricAgentChatRunsTotal,
 		MetricAgentChatRunDuration,
+		// External-adapter approvals
+		MetricAgentAdapterApprovalRequestedTotal,
+		MetricAgentAdapterApprovalResolvedTotal,
+		MetricAgentAdapterApprovalDurationMS,
 		// Orchestrator
 		MetricOrchestratorRunsTotal,
 		MetricOrchestratorRunDuration,
