@@ -84,6 +84,13 @@ const (
 	PathGrant       ApprovalResolutionPath = "grant"
 	PathDefaultMode ApprovalResolutionPath = "default_mode"
 	PathTimeout     ApprovalResolutionPath = "timeout"
+	// PathRequestCancelled labels approvals that resolved because
+	// the request context was cancelled — session shutdown, adapter
+	// teardown, HTTP context cancellation, or process stop. Distinct
+	// from PathOperator (an explicit operator decision) so telemetry
+	// and the SSE stream can distinguish "operator declined to act"
+	// from "the request died under us."
+	PathRequestCancelled ApprovalResolutionPath = "request_cancelled"
 )
 
 // ApprovalOption mirrors acp.PermissionOption in a stable wire shape we
@@ -511,8 +518,11 @@ func (c *ApprovalCoordinator) RequestPermission(ctx context.Context, recCtx Reco
 			c.opts.Hooks.OnRequested(created)
 		}
 		response, status, decision, selected := c.applyDecision(grant.Decision, options, false)
-		resolved := c.resolveStore(ctx, created.ID, status, decision, selected, grant.Scope, PathGrant, "", now)
-		return response, c.notifyResolved(resolved, now, nil)
+		resolved, rerr := c.resolveStore(ctx, created.ID, status, decision, selected, grant.Scope, PathGrant, "", now)
+		if rerr == nil {
+			_ = c.notifyResolved(resolved, now, nil)
+		}
+		return response, nil
 	}
 
 	// 2) Apply the configured mode default.
@@ -522,16 +532,22 @@ func (c *ApprovalCoordinator) RequestPermission(ctx context.Context, recCtx Reco
 			c.opts.Hooks.OnRequested(created)
 		}
 		response, status, decision, selected := c.applyDecision(ApprovalDecisionApprove, options, true)
-		resolved := c.resolveStore(ctx, created.ID, status, decision, selected, ApprovalScopeOnce, PathDefaultMode, "", now)
-		return response, c.notifyResolved(resolved, now, nil)
+		resolved, rerr := c.resolveStore(ctx, created.ID, status, decision, selected, ApprovalScopeOnce, PathDefaultMode, "", now)
+		if rerr == nil {
+			_ = c.notifyResolved(resolved, now, nil)
+		}
+		return response, nil
 
 	case ModeDeny:
 		if c.opts.Hooks.OnRequested != nil {
 			c.opts.Hooks.OnRequested(created)
 		}
 		response, status, decision, selected := c.applyDecision(ApprovalDecisionDeny, options, false)
-		resolved := c.resolveStore(ctx, created.ID, status, decision, selected, ApprovalScopeOnce, PathDefaultMode, "", now)
-		return response, c.notifyResolved(resolved, now, nil)
+		resolved, rerr := c.resolveStore(ctx, created.ID, status, decision, selected, ApprovalScopeOnce, PathDefaultMode, "", now)
+		if rerr == nil {
+			_ = c.notifyResolved(resolved, now, nil)
+		}
+		return response, nil
 
 	case ModePrompt:
 		// Block until the operator resolves/cancels via the HTTP API
@@ -558,21 +574,38 @@ func (c *ApprovalCoordinator) RequestPermission(ctx context.Context, recCtx Reco
 			// ACP response.
 			return resp, nil
 		case <-timer.C:
+			// Timeout fired. The store transition is the source of
+			// truth for the timeout-vs-operator-resolve race; if the
+			// operator's HTTP Resolve already won, resolveStore returns
+			// AlreadyResolved and we suppress the notify so frontends
+			// see exactly one approval.resolved event for this row.
 			resolvedAt := c.opts.NowFunc()
-			resolved := c.resolveStore(ctx, created.ID, ApprovalStatusTimedOut, "", "", ApprovalScopeOnce, PathTimeout, "operator did not respond before approval timeout", resolvedAt)
-			c.notifyTimedOut(resolved, now, resolvedAt)
+			resolved, rerr := c.resolveStore(ctx, created.ID, ApprovalStatusTimedOut, "", "", ApprovalScopeOnce, PathTimeout, "operator did not respond before approval timeout", resolvedAt)
+			if rerr == nil {
+				c.notifyTimedOut(resolved, now, resolvedAt)
+			}
 			return acp.RequestPermissionResponse{Outcome: acp.RequestPermissionOutcome{Cancelled: &acp.RequestPermissionOutcomeCancelled{}}}, nil
 		case <-ctx.Done():
+			// Request context cancelled — adapter teardown, session
+			// shutdown, HTTP context cancellation, process stop. Same
+			// store-race rule: only the winner publishes the SSE/metric
+			// event. Path is request_cancelled (not operator) so
+			// telemetry distinguishes "operator declined to act" from
+			// "the request died under us."
 			resolvedAt := c.opts.NowFunc()
-			resolved := c.resolveStore(ctx, created.ID, ApprovalStatusCancelled, "", "", ApprovalScopeOnce, PathOperator, "request context cancelled before resolution", resolvedAt)
-			_ = c.notifyResolved(resolved, now, nil)
+			resolved, rerr := c.resolveStore(ctx, created.ID, ApprovalStatusCancelled, "", "", ApprovalScopeOnce, PathRequestCancelled, "request context cancelled before resolution", resolvedAt)
+			if rerr == nil {
+				_ = c.notifyResolved(resolved, now, nil)
+			}
 			return acp.RequestPermissionResponse{Outcome: acp.RequestPermissionOutcome{Cancelled: &acp.RequestPermissionOutcomeCancelled{}}}, nil
 		}
 
 	default:
 		// Unknown mode: fail closed.
-		resolved := c.resolveStore(ctx, created.ID, ApprovalStatusCancelled, "", "", ApprovalScopeOnce, PathDefaultMode, "unknown approval mode "+string(c.opts.Mode), now)
-		_ = c.notifyResolved(resolved, now, nil)
+		resolved, rerr := c.resolveStore(ctx, created.ID, ApprovalStatusCancelled, "", "", ApprovalScopeOnce, PathDefaultMode, "unknown approval mode "+string(c.opts.Mode), now)
+		if rerr == nil {
+			_ = c.notifyResolved(resolved, now, nil)
+		}
 		return acp.RequestPermissionResponse{Outcome: acp.RequestPermissionOutcome{Cancelled: &acp.RequestPermissionOutcomeCancelled{}}}, nil
 	}
 }
@@ -641,12 +674,20 @@ func responseForResolvedApproval(row Approval) acp.RequestPermissionResponse {
 // to a terminal state. Different from the public Resolve method (slice
 // 1B) which validates an operator's resolve request, builds the ACP
 // response, and persists a grant when scope is broader than `once`.
-func (c *ApprovalCoordinator) resolveStore(ctx context.Context, id string, status ApprovalStatus, decision ApprovalDecision, selected string, scope ApprovalScope, path ApprovalResolutionPath, note string, now time.Time) Approval {
+//
+// Returns the loaded row and any error. ErrApprovalAlreadyResolved is
+// the load-bearing case: callers must skip notify hooks (telemetry +
+// SSE) when this fires, or the same approval would publish two
+// terminal events. The race shape: prompt-mode timeout/ctx-cancel
+// and operator HTTP Resolve are both writers; the store atomic
+// UPDATE picks one winner, the loser sees AlreadyResolved here, and
+// must NOT publish a second SSE/metric event for the same row.
+func (c *ApprovalCoordinator) resolveStore(ctx context.Context, id string, status ApprovalStatus, decision ApprovalDecision, selected string, scope ApprovalScope, path ApprovalResolutionPath, note string, now time.Time) (Approval, error) {
 	row, err := c.opts.Store.ResolveApproval(ctx, id, status, decision, selected, scope, path, note, now)
 	if err != nil {
 		c.logf("approval_store_resolve_failed", err, RecordingContext{SessionID: row.SessionID, AdapterID: row.AdapterID, Workspace: row.Workspace}, row.ToolKind)
 	}
-	return row
+	return row, err
 }
 
 func (c *ApprovalCoordinator) notifyResolved(row Approval, now time.Time, _ error) error {

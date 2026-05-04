@@ -68,12 +68,16 @@ type Handler struct {
 
 // approvalConfig bundles everything the coordinator needs apart from
 // the store, so SetAgentApprovalStore can swap stores without
-// re-deriving mode/timeout/hook closures.
+// re-deriving mode/timeout/hook closures. Also retains the live bus +
+// metrics so a coordinator rebuild keeps publishing to the same
+// per-session subscribers and OTel instruments.
 type approvalConfig struct {
 	mode    agentadapters.ApprovalMode
 	timeout time.Duration
 	logger  *slog.Logger
 	hooks   agentadapters.CoordinatorHooks
+	live    *agentChatLive
+	metrics *telemetry.AgentAdapterApprovalMetrics
 }
 
 // OrchestratorMetrics returns the metrics instance the runner is using.
@@ -218,12 +222,20 @@ func NewHandler(cfg config.Config, logger *slog.Logger, service *gateway.Service
 			slog.String("warning", "GATEWAY_AGENT_ADAPTER_APPROVAL_MODE=auto: every adapter RequestPermission is auto-approved with no operator review"),
 		)
 	}
-	approvalHooks := buildApprovalCoordinatorHooks(approvalMode, agentApprovalMetrics)
+	// agentChatLive is constructed before the hook builder so the
+	// approval coordinator can publish SSE events on the same bus
+	// used for chat-session updates.
+	agentChatLive := newAgentChatLive()
+	approvalHooks := buildApprovalCoordinatorHooks(approvalMode, agentApprovalMetrics, agentChatLive)
 	approvalCfg := approvalConfig{
 		mode:    approvalMode,
 		timeout: cfg.Server.AgentAdapterApprovalTimeout,
 		logger:  logger,
 		hooks:   approvalHooks,
+		// Stash the bus + metrics on the config so SetAgentApprovalStore
+		// can rebuild the coordinator without re-deriving them.
+		live:    agentChatLive,
+		metrics: agentApprovalMetrics,
 	}
 	approvalCoordinator := agentadapters.NewApprovalCoordinator(agentadapters.CoordinatorOptions{
 		Mode:    approvalCfg.mode,
@@ -245,7 +257,7 @@ func NewHandler(cfg config.Config, logger *slog.Logger, service *gateway.Service
 		rateLimiter:         rl,
 		agentChat:           agentchat.NewMemoryStore(),
 		agentChatRunner:     agentChatRunner,
-		agentChatLive:       newAgentChatLive(),
+		agentChatLive:       agentChatLive,
 		orchestratorMetrics: orchestratorMetrics,
 		agentChatMetrics:    agentChatMetrics,
 		approvalConfig:      approvalCfg,
@@ -491,10 +503,20 @@ func (h *Handler) checkRateLimit(w http.ResponseWriter, keyID string) bool {
 }
 
 // buildApprovalCoordinatorHooks returns the OnRequested / OnResolved /
-// OnTimedOut callbacks that emit approval.* OTel metrics. Extracted so
-// SetAgentApprovalStore can rebuild the coordinator with the same
-// hook set when it swaps the store.
-func buildApprovalCoordinatorHooks(mode agentadapters.ApprovalMode, metrics *telemetry.AgentAdapterApprovalMetrics) agentadapters.CoordinatorHooks {
+// OnTimedOut callbacks that emit approval.* OTel metrics AND publish
+// SSE events on the per-session live bus so subscribers see approvals
+// fire in real time. Extracted so SetAgentApprovalStore can rebuild
+// the coordinator with the same hook set when it swaps the store.
+//
+// The hooks must NEVER block — the OnRequested path runs inline with
+// the adapter's ACP RequestPermission and any blocking would stall
+// the adapter. Both telemetry and the live bus are non-blocking by
+// design (the bus drops on full subscriber buffer).
+func buildApprovalCoordinatorHooks(
+	mode agentadapters.ApprovalMode,
+	metrics *telemetry.AgentAdapterApprovalMetrics,
+	live *agentChatLive,
+) agentadapters.CoordinatorHooks {
 	return agentadapters.CoordinatorHooks{
 		OnRequested: func(a agentadapters.Approval) {
 			metrics.RecordRequested(context.Background(), telemetry.AgentAdapterApprovalRequestRecord{
@@ -502,6 +524,18 @@ func buildApprovalCoordinatorHooks(mode agentadapters.ApprovalMode, metrics *tel
 				ToolKind:  a.ToolKind,
 				Mode:      string(mode),
 			})
+			if live != nil {
+				live.publishApprovalRequested(AgentChatApprovalRequestedEvent{
+					ApprovalID:   a.ID,
+					SessionID:    a.SessionID,
+					AdapterID:    a.AdapterID,
+					ToolKind:     a.ToolKind,
+					ToolName:     a.ToolName,
+					ScopeChoices: a.ScopeChoices,
+					CreatedAt:    a.CreatedAt.UTC().Format(time.RFC3339Nano),
+					ExpiresAt:    a.ExpiresAt.UTC().Format(time.RFC3339Nano),
+				})
+			}
 		},
 		OnResolved: func(a agentadapters.Approval, durationMS int64) {
 			metrics.RecordResolved(context.Background(), telemetry.AgentAdapterApprovalResolveRecord{
@@ -514,6 +548,9 @@ func buildApprovalCoordinatorHooks(mode agentadapters.ApprovalMode, metrics *tel
 				Status:     string(a.Status),
 				DurationMS: durationMS,
 			})
+			if live != nil {
+				live.publishApprovalResolved(approvalResolvedEventFromRow(a))
+			}
 		},
 		OnTimedOut: func(a agentadapters.Approval, durationMS int64) {
 			metrics.RecordResolved(context.Background(), telemetry.AgentAdapterApprovalResolveRecord{
@@ -524,6 +561,29 @@ func buildApprovalCoordinatorHooks(mode agentadapters.ApprovalMode, metrics *tel
 				Status:     string(agentadapters.ApprovalStatusTimedOut),
 				DurationMS: durationMS,
 			})
+			if live != nil {
+				live.publishApprovalResolved(approvalResolvedEventFromRow(a))
+			}
 		},
 	}
+}
+
+// approvalResolvedEventFromRow projects the coordinator's full
+// Approval shape down to the SSE payload. Frontends that need more
+// detail (acp_options, full payload) follow up with
+// GET /v1/agent-chat/sessions/{id}/approvals/{id}.
+func approvalResolvedEventFromRow(a agentadapters.Approval) AgentChatApprovalResolvedEvent {
+	out := AgentChatApprovalResolvedEvent{
+		ApprovalID:     a.ID,
+		SessionID:      a.SessionID,
+		Status:         string(a.Status),
+		Decision:       string(a.Decision),
+		Scope:          string(a.Scope),
+		Path:           string(a.Path),
+		SelectedOption: a.SelectedOption,
+	}
+	if a.ResolvedAt != nil {
+		out.ResolvedAt = a.ResolvedAt.UTC().Format(time.RFC3339Nano)
+	}
+	return out
 }

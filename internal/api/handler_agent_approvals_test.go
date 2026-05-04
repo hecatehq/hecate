@@ -23,6 +23,7 @@ import (
 // store and exercise the HTTP surface end-to-end.
 type approvalsHTTPFixture struct {
 	server   *httptest.Server
+	handler  *Handler
 	coord    *agentadapters.ApprovalCoordinator
 	store    *agentadapters.MemoryApprovalStore
 	chatMgmt *agentchat.MemoryStore
@@ -36,12 +37,15 @@ func newApprovalsHTTPFixture(t *testing.T) *approvalsHTTPFixture {
 	apiHandler := newTestAPIHandlerWithControlPlane(logger, []providers.Provider{provider}, config.Config{}, nil)
 
 	// Replace the auto-wired coordinator with one tied to our local
-	// store so the test can seed and inspect rows directly.
+	// store so tests can seed/inspect rows directly. Reuse the
+	// handler's existing approval hooks (telemetry + SSE bus) so
+	// approval.* SSE events flow on /v1/agent-chat/sessions/{id}/stream.
 	store := agentadapters.NewMemoryApprovalStore()
 	coord := agentadapters.NewApprovalCoordinator(agentadapters.CoordinatorOptions{
 		Mode:    agentadapters.ModePrompt,
 		Store:   store,
 		Timeout: 5 * time.Second,
+		Hooks:   apiHandler.approvalConfig.hooks,
 	})
 	mgr, _ := apiHandler.agentChatRunner.(*agentadapters.SessionManager)
 	if mgr == nil {
@@ -54,7 +58,7 @@ func newApprovalsHTTPFixture(t *testing.T) *approvalsHTTPFixture {
 
 	srv := httptest.NewServer(NewServer(logger, apiHandler))
 	t.Cleanup(srv.Close)
-	return &approvalsHTTPFixture{server: srv, coord: coord, store: store, chatMgmt: chat}
+	return &approvalsHTTPFixture{server: srv, handler: apiHandler, coord: coord, store: store, chatMgmt: chat}
 }
 
 func (f *approvalsHTTPFixture) seedSession(t *testing.T, id string) {
