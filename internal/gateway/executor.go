@@ -321,7 +321,7 @@ func (e *ResilientExecutor) Execute(ctx context.Context, trace *profiler.Trace, 
 
 		if index < len(candidates)-1 && providers.IsRetryableError(lastErr) {
 			nextCandidate := candidates[index+1]
-			recordTraceError(trace, "provider.failover.triggered", "provider", errorKindProviderCallFailed, lastErr, map[string]any{
+			recordTraceError(trace, telemetry.EventProviderFailoverTriggered, "provider", errorKindProviderCallFailed, lastErr, map[string]any{
 				telemetry.AttrGenAIProviderName:          candidate.Provider,
 				telemetry.AttrGenAIRequestModel:          candidate.Model,
 				telemetry.AttrHecateFailoverFromProvider: candidate.Provider,

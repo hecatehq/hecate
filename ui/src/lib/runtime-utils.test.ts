@@ -25,6 +25,7 @@ import {
   routeOutcomeTone,
   traceStatusBadge,
   tracePhaseFromEvent,
+  tracePhaseFromSpan,
   usdToMicros,
 } from "./runtime-utils";
 import type { TraceRouteRecord } from "./runtime-utils";
@@ -386,10 +387,34 @@ describe("runtime-utils", () => {
     expect(tracePhaseFromEvent("provider.invoked")).toBe("provider");
     expect(tracePhaseFromEvent("governor.allowed")).toBe("governor");
     expect(tracePhaseFromEvent("usage.recorded")).toBe("usage");
-    expect(tracePhaseFromEvent("cost.calculated")).toBe("usage");
+    expect(tracePhaseFromEvent("cost.calculated")).toBe("cost");
+    expect(tracePhaseFromEvent("queue.claimed")).toBe("queue");
+    expect(tracePhaseFromEvent("orchestrator.run.started")).toBe("orchestration");
+    expect(tracePhaseFromEvent("orchestrator.step.completed")).toBe("tool");
+    expect(tracePhaseFromEvent("orchestrator.approval.requested")).toBe("approval");
+    expect(tracePhaseFromEvent("orchestrator.artifact.created")).toBe("artifact");
+    expect(tracePhaseFromEvent("policy.tool_blocked")).toBe("approval");
+    expect(tracePhaseFromEvent("tool.completed")).toBe("tool");
+    expect(tracePhaseFromEvent("retention.run.finished")).toBe("retention");
+    expect(tracePhaseFromEvent("agent_chat.run.finished")).toBe("agent_chat");
     expect(tracePhaseFromEvent("response.returned")).toBe("response");
     // Unknown prefix → "other" (default branch).
     expect(tracePhaseFromEvent("custom.event")).toBe("other");
+  });
+
+  it("tracePhaseFromSpan maps OTel span names used by the gateway", () => {
+    expect(tracePhaseFromSpan("gateway.request")).toBe("request");
+    expect(tracePhaseFromSpan("gateway.router")).toBe("routing");
+    expect(tracePhaseFromSpan("gateway.cache")).toBe("cache");
+    expect(tracePhaseFromSpan("gateway.provider")).toBe("provider");
+    expect(tracePhaseFromSpan("gateway.cost")).toBe("cost");
+    expect(tracePhaseFromSpan("orchestrator.queue")).toBe("queue");
+    expect(tracePhaseFromSpan("orchestrator.run")).toBe("orchestration");
+    expect(tracePhaseFromSpan("orchestrator.step")).toBe("tool");
+    expect(tracePhaseFromSpan("orchestrator.approval")).toBe("approval");
+    expect(tracePhaseFromSpan("orchestrator.artifact")).toBe("artifact");
+    expect(tracePhaseFromSpan("retention.run")).toBe("retention");
+    expect(tracePhaseFromSpan("agent_chat.run")).toBe("agent_chat");
   });
 
   // ── route helpers ────────────────────────────────────────────────────
