@@ -1278,6 +1278,7 @@ type fakeAgentChatRunner struct {
 	seenPreviousID  string
 	usage           agentadapters.Usage
 	err             error
+	closedSessions  []string
 }
 
 func (r *fakeAgentChatRunner) Run(ctx context.Context, req agentadapters.RunRequest) (agentadapters.RunResult, error) {
@@ -1350,7 +1351,10 @@ func (r *fakeAgentChatRunner) result(req agentadapters.RunRequest, output string
 	}
 }
 
-func (r *fakeAgentChatRunner) CloseSession(context.Context, string) error { return nil }
+func (r *fakeAgentChatRunner) CloseSession(_ context.Context, sessionID string) error {
+	r.closedSessions = append(r.closedSessions, sessionID)
+	return nil
+}
 
 func (r *fakeAgentChatRunner) Shutdown(context.Context) error { return nil }
 
@@ -1463,6 +1467,58 @@ func TestAgentChatCancelsExternalAdapter(t *testing.T) {
 		}
 	case <-time.After(3 * time.Second):
 		t.Fatalf("timed out waiting for cancelled message POST")
+	}
+}
+
+func TestAgentChatDeleteCancelsRunBeforeDeletingSession(t *testing.T) {
+	dir := t.TempDir()
+
+	logger := slog.New(slog.NewJSONHandler(io.Discard, nil))
+	apiHandler := newTestAPIHandlerWithControlPlane(logger, []providers.Provider{&fakeProvider{}}, config.Config{}, nil)
+	runner := &fakeAgentChatRunner{waitForCancel: true}
+	apiHandler.SetAgentChatRunner(runner)
+	handler := NewServer(logger, apiHandler)
+	server := httptest.NewServer(handler)
+	t.Cleanup(server.Close)
+
+	created := requestJSONToURL[AgentChatSessionResponse](t, http.MethodPost, server.URL+"/v1/agent-chat/sessions", fmt.Sprintf(`{"adapter_id":"codex","workspace":%q}`, dir))
+	done := make(chan AgentChatSessionResponse, 1)
+	go func() {
+		done <- requestJSONToURL[AgentChatSessionResponse](t, http.MethodPost, server.URL+"/v1/agent-chat/sessions/"+created.Data.ID+"/messages", `{"content":"please wait"}`)
+	}()
+
+	waitForAgentChatStatus(t, server.URL, created.Data.ID, "running")
+	req, err := http.NewRequest(http.MethodDelete, server.URL+"/v1/agent-chat/sessions/"+created.Data.ID, nil)
+	if err != nil {
+		t.Fatalf("new delete request: %v", err)
+	}
+	resp, err := http.DefaultClient.Do(req)
+	if err != nil {
+		t.Fatalf("delete request: %v", err)
+	}
+	defer resp.Body.Close()
+	if resp.StatusCode != http.StatusNoContent {
+		body, _ := io.ReadAll(resp.Body)
+		t.Fatalf("delete status = %d, want 204, body=%s", resp.StatusCode, string(body))
+	}
+	if len(runner.closedSessions) != 1 || runner.closedSessions[0] != created.Data.ID {
+		t.Fatalf("closed sessions = %#v, want %q", runner.closedSessions, created.Data.ID)
+	}
+	select {
+	case updated := <-done:
+		if got := updated.Data.Status; got != "cancelled" {
+			t.Fatalf("post status = %q, want cancelled", got)
+		}
+	case <-time.After(5 * time.Second):
+		t.Fatalf("timed out waiting for cancelled message POST")
+	}
+	getResp, err := http.Get(server.URL + "/v1/agent-chat/sessions/" + created.Data.ID)
+	if err != nil {
+		t.Fatalf("get deleted session: %v", err)
+	}
+	defer getResp.Body.Close()
+	if getResp.StatusCode != http.StatusNotFound {
+		t.Fatalf("deleted session status = %d, want 404", getResp.StatusCode)
 	}
 }
 
