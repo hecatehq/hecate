@@ -367,6 +367,7 @@ func (h *Handler) HandleCreateAgentChatMessage(w http.ResponseWriter, r *http.Re
 		message.StartedAt = startedAt
 		message.CompletedAt = completedAt
 		message.Error = errorText
+		message.Usage = agentChatUsageFromResult(result.Usage)
 		if result.SessionResumed {
 			message.Activities = append([]agentchat.Activity{newAgentChatActivity("resumed", "completed", "Resumed external session", adapter.Name+" restored "+result.NativeSessionID)}, message.Activities...)
 		} else if result.SessionStarted {
@@ -443,6 +444,7 @@ func renderAgentChatSession(session agentchat.Session) AgentChatSessionItem {
 			DurationMS:      durationMillis(message.StartedAt, message.CompletedAt),
 			Error:           message.Error,
 			Activities:      renderAgentChatActivities(message.Activities),
+			Usage:           renderAgentChatUsage(message.Usage),
 		})
 	}
 	return AgentChatSessionItem{
@@ -457,6 +459,27 @@ func renderAgentChatSession(session agentchat.Session) AgentChatSessionItem {
 		CreatedAt:       formatOptionalTime(session.CreatedAt),
 		UpdatedAt:       formatOptionalTime(session.UpdatedAt),
 		Messages:        messages,
+	}
+}
+
+func agentChatUsageFromResult(usage agentadapters.Usage) agentchat.Usage {
+	return agentchat.Usage{
+		ContextSize:          usage.ContextSize,
+		ContextUsed:          usage.ContextUsed,
+		ReportedCostAmount:   usage.ReportedCostAmount,
+		ReportedCostCurrency: usage.ReportedCostCurrency,
+	}
+}
+
+func renderAgentChatUsage(usage agentchat.Usage) *AgentChatUsageItem {
+	if usage.Empty() {
+		return nil
+	}
+	return &AgentChatUsageItem{
+		ContextSize:          usage.ContextSize,
+		ContextUsed:          usage.ContextUsed,
+		ReportedCostAmount:   usage.ReportedCostAmount,
+		ReportedCostCurrency: usage.ReportedCostCurrency,
 	}
 }
 

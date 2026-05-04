@@ -70,6 +70,9 @@ func TestSessionManagerRunsTurnsThroughACP(t *testing.T) {
 	if !strings.Contains(second.Output, "turn 2: second turn") {
 		t.Fatalf("second output = %q", second.Output)
 	}
+	if second.Usage.ContextSize != 200_000 || second.Usage.ContextUsed != 20_000 {
+		t.Fatalf("second usage = %+v, want turn 2 context usage", second.Usage)
+	}
 }
 
 func TestSessionManagerLoadsPersistedNativeSession(t *testing.T) {
@@ -199,12 +202,41 @@ func TestACPTurnIgnoresBookkeepingUpdatesInTranscript(t *testing.T) {
 		},
 	})
 
-	output, raw := turn.snapshot()
+	output, raw, usage := turn.snapshot()
 	if output != "final answer" {
 		t.Fatalf("output = %q, want final answer only", output)
 	}
 	if !strings.Contains(raw, "usage_update") {
 		t.Fatalf("raw output = %q, want usage update retained for diagnostics", raw)
+	}
+	if usage.ContextSize != 0 || usage.ContextUsed != 0 {
+		t.Fatalf("usage = %+v, want empty bookkeeping usage", usage)
+	}
+}
+
+func TestACPTurnCapturesUsageUpdate(t *testing.T) {
+	turn := newACPTurn(64*1024, nil)
+	turn.recordUpdate(acp.SessionNotification{
+		SessionId: acp.SessionId("session_1"),
+		Update: acp.SessionUpdate{
+			UsageUpdate: &acp.SessionUsageUpdate{
+				SessionUpdate: "usage_update",
+				Size:          200_000,
+				Used:          42_000,
+				Cost:          &acp.Cost{Amount: 0.1234, Currency: "usd"},
+			},
+		},
+	})
+
+	output, _, usage := turn.snapshot()
+	if output != "" {
+		t.Fatalf("output = %q, want usage update excluded from transcript", output)
+	}
+	if usage.ContextSize != 200_000 || usage.ContextUsed != 42_000 {
+		t.Fatalf("usage context = %d/%d, want 42000/200000", usage.ContextUsed, usage.ContextSize)
+	}
+	if usage.ReportedCostAmount != "0.1234" || usage.ReportedCostCurrency != "USD" {
+		t.Fatalf("usage cost = %s %s, want 0.1234 USD", usage.ReportedCostAmount, usage.ReportedCostCurrency)
 	}
 }
 
@@ -295,6 +327,18 @@ func (a *fakeACPAgent) Prompt(ctx context.Context, params acp.PromptRequest) (ac
 	if err := a.conn.SessionUpdate(turnCtx, acp.SessionNotification{
 		SessionId: params.SessionId,
 		Update:    acp.UpdateAgentMessageText(fmt.Sprintf("turn %d: %s", turn, prompt)),
+	}); err != nil {
+		return acp.PromptResponse{}, err
+	}
+	if err := a.conn.SessionUpdate(turnCtx, acp.SessionNotification{
+		SessionId: params.SessionId,
+		Update: acp.SessionUpdate{
+			UsageUpdate: &acp.SessionUsageUpdate{
+				SessionUpdate: "usage_update",
+				Size:          200_000,
+				Used:          turn * 10_000,
+			},
+		},
 	}); err != nil {
 		return acp.PromptResponse{}, err
 	}

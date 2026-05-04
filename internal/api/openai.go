@@ -618,6 +618,7 @@ type AgentChatMessageItem struct {
 	DurationMS      int64                   `json:"duration_ms,omitempty"`
 	Error           string                  `json:"error,omitempty"`
 	Activities      []AgentChatActivityItem `json:"activities,omitempty"`
+	Usage           *AgentChatUsageItem     `json:"usage,omitempty"`
 }
 
 type AgentChatActivityItem struct {
@@ -626,6 +627,13 @@ type AgentChatActivityItem struct {
 	Title     string `json:"title"`
 	Detail    string `json:"detail,omitempty"`
 	CreatedAt string `json:"created_at,omitempty"`
+}
+
+type AgentChatUsageItem struct {
+	ContextSize          int    `json:"context_size,omitempty"`
+	ContextUsed          int    `json:"context_used,omitempty"`
+	ReportedCostAmount   string `json:"reported_cost_amount,omitempty"`
+	ReportedCostCurrency string `json:"reported_cost_currency,omitempty"`
 }
 
 type WorkspaceDialogResponseItem struct {
