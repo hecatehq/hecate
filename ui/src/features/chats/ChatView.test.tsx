@@ -239,11 +239,11 @@ describe("ChatView agent target", () => {
     expect(screen.getByRole("button", { name: /workspace/i })).toBeTruthy();
     expect(screen.getAllByText("Codex work").length).toBeGreaterThan(0);
     expect(screen.getByText("Looks good.")).toBeTruthy();
-    expect(screen.getByText(/ACP native_codex/)).toBeTruthy();
+    expect(screen.getAllByText(/ACP native_codex/).length).toBeGreaterThan(0);
     expect(screen.getByText(/trace 01234567/)).toBeTruthy();
     expect(screen.queryByText("Starting external agent")).toBeNull();
     expect(screen.getByText("files changed · 1 file changed")).toBeTruthy();
-    expect(screen.getByText("raw ACP diagnostics")).toBeTruthy();
+    expect(screen.getByText("raw adapter output")).toBeTruthy();
     expect(screen.getByText("completed")).toBeTruthy();
     const user = userEvent.setup();
     const adapterPicker = screen.getByRole("button", { name: "External agent adapter" }) as HTMLButtonElement;
@@ -275,6 +275,44 @@ describe("ChatView agent target", () => {
     await user.click(screen.getByRole("button", { name: "External agent adapter" }));
     await user.click(screen.getByText("Claude Code"));
     expect(setAgentAdapterID).toHaveBeenCalledWith("claude_code");
+  });
+
+  it("shows a waiting state for a running agent before transcript output arrives", () => {
+    const { state, actions } = setup({
+      chatTarget: "agent",
+      agentWorkspace: "/tmp/hecate",
+      agentAdapters: [
+        { id: "codex", name: "Codex", kind: "acp", command: "codex-acp", available: true, status: "available", cost_mode: "external" },
+      ],
+      activeAgentChatSessionID: "a1",
+      activeAgentChatSession: {
+        id: "a1",
+        title: "Running work",
+        adapter_id: "codex",
+        driver_kind: "acp",
+        workspace: "/tmp/hecate",
+        status: "running",
+        messages: [
+          { id: "m1", role: "user", content: "status", created_at: "2026-05-03T10:00:00Z" },
+          {
+            id: "m2",
+            role: "assistant",
+            content: "",
+            adapter_id: "codex",
+            adapter_name: "Codex",
+            status: "running",
+            created_at: "2026-05-03T10:00:01Z",
+            activities: [
+              { type: "running", status: "running", title: "Running", detail: "Waiting for ACP output" },
+            ],
+          },
+        ],
+      } as any,
+    });
+    render(<ChatView state={state} actions={actions} />);
+
+    expect(screen.getByText("Waiting for agent output...")).toBeTruthy();
+    expect(screen.getByText("run running")).toBeTruthy();
   });
 
   it("opens the workspace picker action from the folder button", async () => {
@@ -468,5 +506,23 @@ describe("ChatView session focus", () => {
     // Focus must STAY on the close button — the effect should not have
     // jumped to the textarea on a programmatic ID transition.
     expect(document.activeElement).toBe(closeBtn);
+  });
+});
+
+describe("ChatView history pagination", () => {
+  it("shows an explicit load-earlier action for model chat history", async () => {
+    const loadMoreChatSessions = vi.fn(async () => undefined);
+    const { state, actions } = setup({
+      chatTarget: "model",
+      chatSessionsHasMore: true,
+      chatSessions: [
+        { id: "s1", title: "First page", message_count: 1, provider_call_count: 1 } as any,
+      ],
+    }, { loadMoreChatSessions });
+    render(<ChatView state={state} actions={actions} />);
+
+    const user = userEvent.setup();
+    await user.click(screen.getByRole("button", { name: "Load earlier chats" }));
+    expect(loadMoreChatSessions).toHaveBeenCalled();
   });
 });

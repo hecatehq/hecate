@@ -3,7 +3,7 @@ import type { SyntheticEvent } from "react";
 import type { RuntimeConsoleViewModel } from "../../app/useRuntimeConsole";
 import { describeGatewayError, formatErrorCode } from "../../lib/error-diagnostics";
 import { parseInlineNodes, parseMarkdownBlocks } from "../../lib/markdown";
-import type { AgentAdapterRecord, AgentChatActivityRecord } from "../../types/runtime";
+import type { AgentAdapterRecord, AgentChatActivityRecord, AgentChatSessionRecord } from "../../types/runtime";
 import { AgentAdapterPicker, CodeBlock, Icon, Icons, InlineError, ModelPicker, ProviderPicker } from "../shared/ui";
 
 type Props = {
@@ -273,7 +273,7 @@ export function ChatView({ state, actions, onNavigate }: Props) {
             </button>
           </div>
           <div style={{ padding: "8px 12px 4px", fontFamily: "var(--font-mono)", fontSize: 10, letterSpacing: "0.08em", textTransform: "uppercase", color: "var(--t3)" }}>
-            Chats
+            Chats{sessions.length > 0 ? ` · ${filteredSessions.length}${filteredSessions.length === sessions.length ? "" : `/${sessions.length}`}` : ""}
           </div>
           <div style={{ padding: "4px 8px 8px" }}>
             <input
@@ -366,6 +366,13 @@ export function ChatView({ state, actions, onNavigate }: Props) {
             {!isAgentChat && state.chatSessionsLoadingMore && (
               <div style={{ padding: "8px 12px", fontSize: 11, color: "var(--t3)", textAlign: "center" }}>Loading chats…</div>
             )}
+            {!isAgentChat && !sidebarQuery.trim() && state.chatSessionsHasMore && !state.chatSessionsLoadingMore && (
+              <div style={{ padding: "8px 12px" }}>
+                <button className="btn btn-ghost btn-sm" onClick={() => void actions.loadMoreChatSessions()} style={{ width: "100%", justifyContent: "center" }} type="button">
+                  Load earlier chats
+                </button>
+              </div>
+            )}
           </div>
         </div>
       )}
@@ -400,6 +407,14 @@ export function ChatView({ state, actions, onNavigate }: Props) {
           <span style={{ fontSize: 13, fontWeight: 500, color: "var(--t0)", flex: 1, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>
             {activeTitle || (sessions.length === 0 ? "New chat" : "Select a chat")}
           </span>
+          {isAgentChat && (
+            <span
+              title={formatAgentSessionTitle(state.activeAgentChatSession, selectedAgent)}
+              style={{ flexShrink: 0, fontFamily: "var(--font-mono)", fontSize: 10, color: "var(--t3)", maxWidth: 260, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}
+            >
+              {formatAgentSessionLabel(state.activeAgentChatSession, selectedAgent)}
+            </span>
+          )}
           {isAgentChat ? (
             <>
               <AgentAdapterPicker
@@ -999,6 +1014,32 @@ function agentReadyLabel(adapter: AgentAdapterRecord): string {
   return `Ready at ${adapter.path || adapter.command}`;
 }
 
+function formatAgentSessionLabel(session: AgentChatSessionRecord | null, adapter?: AgentAdapterRecord): string {
+  if (!session) {
+    return adapter?.available ? "new agent session" : "agent not ready";
+  }
+  const driver = (session.driver_kind || "agent").toUpperCase();
+  if (session.native_session_id) {
+    return `${driver} ${session.native_session_id.slice(0, 12)} · ${session.status}`;
+  }
+  return `${driver} session · ${session.status}`;
+}
+
+function formatAgentSessionTitle(session: AgentChatSessionRecord | null, adapter?: AgentAdapterRecord): string {
+  if (!session) {
+    return adapter?.available
+      ? `A new ${adapter.name} session will be created on send.`
+      : "Install or authenticate an agent adapter before sending.";
+  }
+  const parts = [
+    `${session.title || "Agent chat"} is backed by a persistent ${session.driver_kind || "agent"} session.`,
+    session.native_session_id ? `Native session: ${session.native_session_id}.` : "",
+    session.workspace ? `Workspace: ${session.workspace}.` : "",
+    session.workspace_branch ? `Branch: ${session.workspace_branch}.` : "",
+  ].filter(Boolean);
+  return parts.join(" ");
+}
+
 function formatAgentRuntimeMeta(runID?: string, durationMS?: number, traceID?: string, nativeSessionID?: string): string {
   const parts: string[] = [];
   if (nativeSessionID) {
@@ -1045,6 +1086,7 @@ function MessageRow({ id, role, model, content, time, promptTokens, completionTo
   const isAssistant = role === "assistant";
   const hasTokenData = isAssistant && (promptTokens ?? 0) > 0;
   const showRawOutput = isAssistant && rawOutput && rawOutput.trim() && rawOutput.trim() !== content.trim();
+  const waitingForAgentOutput = isAssistant && !content.trim() && activities?.some(activity => activity.status === "running");
 
   return (
     <div onMouseEnter={() => setHovered(true)} onMouseLeave={() => setHovered(false)}
@@ -1086,7 +1128,14 @@ function MessageRow({ id, role, model, content, time, promptTokens, completionTo
               </button>
             </div>
           </div>
-          <Markdown content={content} />
+          {waitingForAgentOutput ? (
+            <div style={{ alignItems: "center", color: "var(--t2)", display: "flex", fontSize: 13, gap: 8, lineHeight: 1.7 }}>
+              <span style={{ background: "var(--teal)", borderRadius: 999, display: "inline-block", height: 6, opacity: 0.8, width: 6 }} />
+              Waiting for agent output...
+            </div>
+          ) : (
+            <Markdown content={content} />
+          )}
           {isAssistant && diff && (
             <details style={{ marginTop: 8 }}>
               <summary style={{ cursor: "pointer", fontFamily: "var(--font-mono)", fontSize: 11, color: "var(--t3)" }}>
@@ -1100,7 +1149,7 @@ function MessageRow({ id, role, model, content, time, promptTokens, completionTo
           {showRawOutput && (
             <details style={{ marginTop: 8 }}>
               <summary style={{ cursor: "pointer", fontFamily: "var(--font-mono)", fontSize: 11, color: "var(--t3)" }}>
-                raw ACP diagnostics
+                raw adapter output
               </summary>
               <div style={{ marginTop: 6 }}>
                 <CodeBlock code={rawOutput} lang="text" />
@@ -1121,9 +1170,10 @@ function ActivityTimeline({ activities, diffStat }: { activities: AgentChatActiv
   if (visible.length === 0) return null;
   const terminal = terminalAgentActivity(activities);
   const hasRunning = !terminal && activities.some(activity => activity.status === "running");
+  const lifecycle = visible.find(activity => activity.type === "resumed" || activity.type === "started");
   const summary = [
-    "run details",
-    terminal?.status,
+    terminal ? `run ${terminal.status}` : hasRunning ? "run running" : "run details",
+    lifecycle?.type === "resumed" ? "session resumed" : lifecycle?.type === "started" ? "session started" : "",
     diffStat ? "files changed" : "",
   ].filter(Boolean).join(" · ");
 
