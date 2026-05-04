@@ -222,7 +222,7 @@ describe("ChatView agent target", () => {
             native_session_id: "native_codex_1",
             status: "completed",
             cost_mode: "external",
-            diff_stat: "1 file changed",
+            diff_stat: "README.md | 2 +-\nui/src/features/chats/ChatView.tsx | 12 +++++++---\n2 files changed, 10 insertions(+), 4 deletions(-)",
             diff: "diff --git a/README.md b/README.md",
             created_at: "2026-05-03T10:00:01Z",
             activities: [
@@ -245,12 +245,16 @@ describe("ChatView agent target", () => {
     expect(screen.getAllByText(/ACP native_codex/).length).toBeGreaterThan(0);
     expect(screen.getByText(/trace 01234567/)).toBeTruthy();
     expect(screen.queryByText("Starting external agent")).toBeNull();
-    expect(screen.getByText("run completed · 1/2 plan · 1 tool · files changed")).toBeTruthy();
+    expect(screen.getByText("completed · 1/2 plan · 1 tool · files changed")).toBeTruthy();
     expect(screen.getByText("Inspect changes")).toBeTruthy();
     expect(screen.getByText("Summarize result")).toBeTruthy();
     expect(screen.getByText("git diff --stat")).toBeTruthy();
     expect(screen.getByText("README.md:12")).toBeTruthy();
-    expect(screen.getByText("files changed · 1 file changed")).toBeTruthy();
+    expect(screen.getByText("files changed · 2 files changed, 10 insertions(+), 4 deletions(-)")).toBeTruthy();
+    expect(screen.getByText("README.md")).toBeTruthy();
+    expect(screen.getByText("2 +-")).toBeTruthy();
+    expect(screen.getByText("ui/src/features/chats/ChatView.tsx")).toBeTruthy();
+    expect(screen.getByText("12 +++++++---")).toBeTruthy();
     expect(screen.getByText("raw adapter output · 1 line")).toBeTruthy();
     expect(screen.getByText("completed")).toBeTruthy();
     const user = userEvent.setup();
@@ -320,7 +324,46 @@ describe("ChatView agent target", () => {
     render(<ChatView state={state} actions={actions} />);
 
     expect(screen.getByText("Waiting for agent output...")).toBeTruthy();
-    expect(screen.getByText("run running")).toBeTruthy();
+    expect(screen.getAllByText("running").length).toBeGreaterThan(0);
+  });
+
+  it("shows transient agent narration as live assistant text while a run is active", () => {
+    const { state, actions } = setup({
+      chatTarget: "agent",
+      agentWorkspace: "/tmp/hecate",
+      agentAdapters: [
+        { id: "codex", name: "Codex", kind: "acp", command: "codex-acp", available: true, status: "available", cost_mode: "external" },
+      ],
+      activeAgentChatSessionID: "a1",
+      activeAgentChatSession: {
+        id: "a1",
+        title: "Inspect diff",
+        adapter_id: "codex",
+        driver_kind: "acp",
+        workspace: "/tmp/hecate",
+        status: "running",
+        messages: [
+          { id: "m1", role: "user", content: "show diff", created_at: "2026-05-03T10:00:00Z" },
+          {
+            id: "m2",
+            role: "assistant",
+            content: "I’ll check the current worktree diff and summarize the changed files plus the important hunks.",
+            adapter_id: "codex",
+            adapter_name: "Codex",
+            status: "running",
+            created_at: "2026-05-03T10:00:01Z",
+            activities: [
+              { type: "running", status: "running", title: "Running", detail: "Waiting for ACP output" },
+            ],
+          },
+        ],
+      } as any,
+    });
+    render(<ChatView state={state} actions={actions} />);
+
+    expect(screen.getByText("I’ll check the current worktree diff and summarize the changed files plus the important hunks.")).toBeTruthy();
+    expect(screen.getByText("I’ll check the current worktree diff and summarize the changed files plus the important hunks.").parentElement?.querySelector("[aria-hidden='true']")).toBeTruthy();
+    expect(screen.queryByText("Waiting for agent output...")).toBeNull();
   });
 
   it("disables stop and shows cancelling feedback after stop is requested", () => {
@@ -390,7 +433,7 @@ describe("ChatView agent target", () => {
     expect(screen.getByText("agent run failed")).toBeTruthy();
     expect(screen.getAllByText("Claude Code usage limit: credit balance is too low").length).toBeGreaterThan(0);
     expect(screen.getByText("raw adapter output · 1 line")).toBeTruthy();
-    expect(screen.getByText("run failed")).toBeTruthy();
+    expect(screen.getAllByText("failed").length).toBeGreaterThan(0);
   });
 
   it("opens the workspace picker action from the folder button", async () => {
