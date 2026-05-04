@@ -29,7 +29,13 @@ import {
   deletePricebookEntry as deletePricebookEntryRequest,
   previewPricebookImport as previewPricebookImportRequest,
   applyPricebookImport as applyPricebookImportRequest,
+  cancelAgentChatApproval as cancelAgentChatApprovalRequest,
   cancelAgentChatSession as cancelAgentChatSessionRequest,
+  deleteAgentChatGrant as deleteAgentChatGrantRequest,
+  getAgentChatApproval as getAgentChatApprovalRequest,
+  listAgentChatApprovals as listAgentChatApprovalsRequest,
+  listAgentChatGrants as listAgentChatGrantsRequest,
+  resolveAgentChatApproval as resolveAgentChatApprovalRequest,
   runRetention as runRetentionRequest,
   resetBudget as resetBudgetRequest,
   setBudgetLimit as setBudgetLimitRequest,
@@ -48,11 +54,14 @@ import {
   setProviderName as setProviderNameRequest,
   setProviderCustomName as setProviderCustomNameRequest,
 } from "../lib/api";
-import type { PolicyRuleUpsertPayload } from "../lib/api";
+import type { PolicyRuleUpsertPayload, ResolveAgentChatApprovalPayload, AgentChatGrantFilter } from "../lib/api";
 import type {
   BudgetStatusResponse,
   AccountSummaryResponse,
   AgentAdapterRecord,
+  AgentChatApprovalRecord,
+  AgentChatApprovalRequestedEvent,
+  AgentChatGrantRecord,
   AgentChatSessionRecord,
   AgentChatSessionsResponse,
   ChatResponse,
@@ -106,6 +115,25 @@ export function useRuntimeConsole() {
   const [agentChatSessions, setAgentChatSessions] = useState<AgentChatSessionsResponse["data"]>([]);
   const [activeAgentChatSessionID, setActiveAgentChatSessionID] = useState(() => readLocalStorage("hecate.agentChatSessionID"));
   const [activeAgentChatSession, setActiveAgentChatSession] = useState<AgentChatSessionRecord | null>(null);
+  // pendingApprovalsBySessionID stores the banner-essentials view of
+  // pending approvals, keyed by session id. Values are projected to
+  // the same shape carried by the SSE `approval.requested` event so the
+  // banner doesn't need to know whether a row came from the initial
+  // GET-list refetch or from a streamed event. The full row (ACP
+  // options, scope choices, diff preview, …) is fetched on modal open
+  // — keeping the map lean.
+  //
+  // The Map instance is always replaced on update (never mutated in
+  // place); React reference equality is the re-render trigger.
+  const [pendingApprovalsBySessionID, setPendingApprovalsBySessionID] = useState<
+    Map<string, AgentChatApprovalRequestedEvent[]>
+  >(() => new Map());
+  // agentChatGrants holds the most recent listAgentChatGrants result
+  // for the Settings → External Agents tab. Lazy-loaded by the action,
+  // not on hook mount.
+  const [agentChatGrants, setAgentChatGrants] = useState<AgentChatGrantRecord[]>([]);
+  const [agentChatGrantsLoading, setAgentChatGrantsLoading] = useState(false);
+  const [agentChatGrantsError, setAgentChatGrantsError] = useState("");
   const [budget, setBudget] = useState<BudgetStatusResponse["data"] | null>(null);
   const [accountSummary, setAccountSummary] = useState<AccountSummaryResponse["data"] | null>(null);
   const [requestLedger, setRequestLedger] = useState<RequestLedgerResponse["data"]>([]);
@@ -218,6 +246,19 @@ export function useRuntimeConsole() {
       setAgentChatCancelling(false);
     }
   }, [chatLoading]);
+
+  // Reconnect catch-up: whenever the active agent-chat session
+  // changes (initial mount with a persisted id, user-driven switch,
+  // post-loadDashboard hydration), refetch the pending approvals so
+  // anything created/resolved while we were disconnected is
+  // reconciled. Subsequent SSE events mutate this same map.
+  useEffect(() => {
+    if (!activeAgentChatSessionID) return;
+    void refetchPendingApprovals(activeAgentChatSessionID);
+    // refetchPendingApprovals is a stable closure declared in the
+    // hook body; no need to include it in deps.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [activeAgentChatSessionID]);
 
   useEffect(() => {
     if (model) {
@@ -595,6 +636,70 @@ export function useRuntimeConsole() {
     setAgentChatSessions((current) => [renderAgentChatSessionSummary(session), ...current.filter((entry) => entry.id !== session.id)]);
   }
 
+  // setPendingApprovalsForSession atomically replaces the pending list
+  // for a session. Used when an initial GET refetch races streamed
+  // events — the refetch result wins (it reflects the authoritative
+  // store state at fetch time, and any subsequent SSE event will
+  // upsert/remove on top).
+  function setPendingApprovalsForSession(
+    sessionID: string,
+    rows: AgentChatApprovalRequestedEvent[],
+  ) {
+    setPendingApprovalsBySessionID((current) => {
+      const next = new Map(current);
+      if (rows.length === 0) {
+        next.delete(sessionID);
+      } else {
+        next.set(sessionID, rows);
+      }
+      return next;
+    });
+  }
+
+  function upsertPendingApproval(event: AgentChatApprovalRequestedEvent) {
+    setPendingApprovalsBySessionID((current) => {
+      const next = new Map(current);
+      const existing = next.get(event.session_id) ?? [];
+      const filtered = existing.filter((row) => row.approval_id !== event.approval_id);
+      filtered.push(event);
+      next.set(event.session_id, filtered);
+      return next;
+    });
+  }
+
+  function removePendingApproval(sessionID: string, approvalID: string) {
+    setPendingApprovalsBySessionID((current) => {
+      const existing = current.get(sessionID);
+      if (!existing) return current;
+      const filtered = existing.filter((row) => row.approval_id !== approvalID);
+      if (filtered.length === existing.length) return current;
+      const next = new Map(current);
+      if (filtered.length === 0) {
+        next.delete(sessionID);
+      } else {
+        next.set(sessionID, filtered);
+      }
+      return next;
+    });
+  }
+
+  // refetchPendingApprovals is the catch-up path. Called when an
+  // operator selects a session: any approvals created or resolved while
+  // the SSE stream was disconnected (or before this session was
+  // active) are reconciled in one round trip. Subsequent SSE events
+  // mutate this same map.
+  async function refetchPendingApprovals(sessionID: string) {
+    if (!sessionID) return;
+    try {
+      const result = await listAgentChatApprovalsRequest(sessionID, "pending");
+      const rows = (result.data ?? []).map(approvalRecordToRequestedEvent);
+      setPendingApprovalsForSession(sessionID, rows);
+    } catch {
+      // Banner is best-effort; failure here just means the operator
+      // doesn't see the catch-up state until the next reconnect.
+    }
+  }
+
   async function submitAgentChat() {
     setChatLoading(true);
     setChatError("");
@@ -654,11 +759,26 @@ export function useRuntimeConsole() {
       streamAbort = new AbortController();
       streamPromise = streamAgentChatSession(
         sessionID,
-        ({ payload }) => {
-          applyAgentChatSession(payload.data);
-          const last = [...(payload.data.messages ?? [])].reverse().find((m) => m.role === "assistant");
-          if (last?.status === "running") {
-            setStreamingContent(last.content || "External agent is running...");
+        (event) => {
+          switch (event.type) {
+            case "session_update": {
+              applyAgentChatSession(event.payload.data);
+              const last = [...(event.payload.data.messages ?? [])]
+                .reverse()
+                .find((m) => m.role === "assistant");
+              if (last?.status === "running") {
+                setStreamingContent(last.content || "External agent is running...");
+              }
+              return;
+            }
+            case "approval.requested": {
+              upsertPendingApproval(event.payload);
+              return;
+            }
+            case "approval.resolved": {
+              removePendingApproval(event.payload.session_id, event.payload.approval_id);
+              return;
+            }
           }
         },
         streamAbort.signal,
@@ -1139,6 +1259,77 @@ export function useRuntimeConsole() {
     }
   }
 
+  // getAgentChatApproval is the modal-open path: fetches the full
+  // approval row (ACP options, scope choices, decision_note, …).
+  // Returns null on failure so the caller can render an error state.
+  async function getAgentChatApproval(
+    sessionID: string,
+    approvalID: string,
+  ): Promise<AgentChatApprovalRecord | null> {
+    try {
+      const payload = await getAgentChatApprovalRequest(sessionID, approvalID);
+      return payload.data;
+    } catch (error) {
+      setNoticeMessage("error", error instanceof Error ? error.message : "Failed to load approval.");
+      return null;
+    }
+  }
+
+  async function resolveAgentChatApproval(
+    sessionID: string,
+    approvalID: string,
+    decision: ResolveAgentChatApprovalPayload,
+  ): Promise<boolean> {
+    try {
+      await resolveAgentChatApprovalRequest(sessionID, approvalID, decision);
+      // Optimistic removal: the SSE `approval.resolved` event will
+      // also fire and remove the row, but updating immediately keeps
+      // the banner snappy when the operator closes the modal.
+      removePendingApproval(sessionID, approvalID);
+      return true;
+    } catch (error) {
+      setNoticeMessage("error", error instanceof Error ? error.message : "Failed to resolve approval.");
+      return false;
+    }
+  }
+
+  async function cancelAgentChatApproval(sessionID: string, approvalID: string): Promise<boolean> {
+    try {
+      await cancelAgentChatApprovalRequest(sessionID, approvalID);
+      removePendingApproval(sessionID, approvalID);
+      return true;
+    } catch (error) {
+      setNoticeMessage("error", error instanceof Error ? error.message : "Failed to cancel approval.");
+      return false;
+    }
+  }
+
+  async function listAgentChatGrants(filter: AgentChatGrantFilter = {}): Promise<void> {
+    setAgentChatGrantsLoading(true);
+    setAgentChatGrantsError("");
+    try {
+      const payload = await listAgentChatGrantsRequest(filter);
+      setAgentChatGrants(payload.data ?? []);
+    } catch (error) {
+      const msg = error instanceof Error ? error.message : "failed to load grants";
+      setAgentChatGrantsError(msg);
+    } finally {
+      setAgentChatGrantsLoading(false);
+    }
+  }
+
+  async function deleteAgentChatGrant(grantID: string): Promise<boolean> {
+    try {
+      await deleteAgentChatGrantRequest(grantID);
+      setAgentChatGrants((current) => current.filter((g) => g.id !== grantID));
+      setNoticeMessage("success", "Grant revoked.");
+      return true;
+    } catch (error) {
+      setNoticeMessage("error", error instanceof Error ? error.message : "Failed to revoke grant.");
+      return false;
+    }
+  }
+
   async function renameChatSession(id: string, title: string) {
     try {
       const payload = await updateChatSessionRequest(id, title);
@@ -1243,6 +1434,10 @@ export function useRuntimeConsole() {
       chatSessionsHasMore,
       chatSessionsLoadingMore,
       visibleModels,
+      pendingApprovalsBySessionID,
+      agentChatGrants,
+      agentChatGrantsLoading,
+      agentChatGrantsError,
     },
     actions: {
       copyCommand,
@@ -1286,6 +1481,11 @@ export function useRuntimeConsole() {
       deletePricebookEntry,
       previewPricebookImport,
       applyPricebookImport,
+      getAgentChatApproval,
+      resolveAgentChatApproval,
+      cancelAgentChatApproval,
+      listAgentChatGrants,
+      deleteAgentChatGrant,
       dismissNotice: () => setNotice(null),
     },
   };
@@ -1437,6 +1637,23 @@ function renderChatSessionSummary(session: ChatSessionRecord): ChatSessionsRespo
     last_provider: lastCall?.provider,
     last_cost_usd: lastCall?.cost_usd,
     last_request_id: lastCall?.request_id,
+  };
+}
+
+// approvalRecordToRequestedEvent projects a full approval row down to
+// the banner-essentials shape. Used on the initial GET-list refetch so
+// rows from refetch and rows from streamed `approval.requested` events
+// share one storage shape.
+function approvalRecordToRequestedEvent(row: AgentChatApprovalRecord): AgentChatApprovalRequestedEvent {
+  return {
+    approval_id: row.id,
+    session_id: row.session_id,
+    adapter_id: row.adapter_id,
+    tool_kind: row.tool_kind,
+    tool_name: row.tool_name,
+    scope_choices: row.scope_choices,
+    created_at: row.created_at,
+    expires_at: row.expires_at,
   };
 }
 

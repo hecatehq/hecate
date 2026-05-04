@@ -63,6 +63,10 @@ export function createRuntimeConsoleFixture(
     chatSessionsHasMore: false,
     chatSessionsLoadingMore: false,
     visibleModels: [],
+    pendingApprovalsBySessionID: new Map(),
+    agentChatGrants: [],
+    agentChatGrantsLoading: false,
+    agentChatGrantsError: "",
     ...overrides,
   };
 }
@@ -110,6 +114,11 @@ export function createRuntimeConsoleActions(): RuntimeConsoleViewModel["actions"
     deletePricebookEntry: async () => undefined,
     previewPricebookImport: async () => ({ fetched_at: "", unchanged: 0 }),
     applyPricebookImport: async () => ({ fetched_at: "", unchanged: 0 }),
+    getAgentChatApproval: async () => null,
+    resolveAgentChatApproval: async () => true,
+    cancelAgentChatApproval: async () => true,
+    listAgentChatGrants: async () => undefined,
+    deleteAgentChatGrant: async () => true,
     dismissNotice: () => undefined,
   };
 }

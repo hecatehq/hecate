@@ -275,6 +275,110 @@ export type AgentChatSessionResponse = {
   data: AgentChatSessionRecord;
 };
 
+// AgentChatApprovalOption mirrors agentApprovalOptionItem on the wire.
+// One per ACP option offered by the adapter.
+export type AgentChatApprovalOption = {
+  option_id: string;
+  kind: string;
+  name: string;
+};
+
+// AgentChatApprovalRecord is the full row returned by GET
+// /v1/agent-chat/sessions/{id}/approvals[/{approval_id}]. The
+// renderAgentApproval function on the backend is the source of truth
+// for field names and optionality.
+export type AgentChatApprovalRecord = {
+  id: string;
+  session_id: string;
+  adapter_id: string;
+  workspace?: string;
+  tool_kind: string;
+  tool_name?: string;
+  status: string;
+  acp_options: AgentChatApprovalOption[];
+  scope_choices?: string[];
+  selected_option?: string;
+  scope?: string;
+  decision?: string;
+  path?: string;
+  decision_note?: string;
+  created_at: string;
+  resolved_at?: string;
+  expires_at: string;
+};
+
+// AgentChatApprovalsResponse is the list-endpoint wire shape.
+export type AgentChatApprovalsResponse = {
+  object: string;
+  data: AgentChatApprovalRecord[];
+};
+
+// AgentChatApprovalResponse is the single-row wire shape.
+export type AgentChatApprovalResponse = {
+  object: string;
+  data: AgentChatApprovalRecord;
+};
+
+// AgentChatGrantRecord is the wire shape for an "always allow / always
+// deny" grant. Returned by GET /v1/agent-chat/grants.
+export type AgentChatGrantRecord = {
+  id: string;
+  scope: string;
+  adapter_id: string;
+  tool_kind: string;
+  workspace?: string;
+  session_id?: string;
+  decision: string;
+  granted_by?: string;
+  granted_at: string;
+  expires_at?: string;
+};
+
+export type AgentChatGrantsResponse = {
+  object: string;
+  data: AgentChatGrantRecord[];
+};
+
+// AgentChatApprovalRequestedEvent is the SSE payload published when a
+// new approval is recorded. Minimal — the full row is reachable via
+// GET /v1/agent-chat/sessions/{id}/approvals/{approval_id}.
+//
+// Mirror of api.AgentChatApprovalRequestedEvent (Go).
+export type AgentChatApprovalRequestedEvent = {
+  approval_id: string;
+  session_id: string;
+  adapter_id: string;
+  tool_kind: string;
+  tool_name?: string;
+  scope_choices?: string[];
+  created_at: string;
+  expires_at: string;
+};
+
+// AgentChatApprovalResolvedEvent is the SSE payload published on every
+// terminal transition. The Path field discriminates how the approval
+// resolved: operator | grant | default_mode | timeout | request_cancelled.
+//
+// Mirror of api.AgentChatApprovalResolvedEvent (Go).
+export type AgentChatApprovalResolvedEvent = {
+  approval_id: string;
+  session_id: string;
+  status: string;
+  decision?: string;
+  scope?: string;
+  path: string;
+  selected_option?: string;
+  resolved_at?: string;
+};
+
+// AgentChatStreamEvent is the discriminated union surfaced by
+// streamAgentChatSession. Consumers switch on `type` and tolerate
+// unknown values (forward-compat for new event kinds).
+export type AgentChatStreamEvent =
+  | { type: "session_update"; payload: AgentChatSessionResponse }
+  | { type: "approval.requested"; payload: AgentChatApprovalRequestedEvent }
+  | { type: "approval.resolved"; payload: AgentChatApprovalResolvedEvent };
+
 export type WorkspaceDialogResponse = {
   object: string;
   data: {
