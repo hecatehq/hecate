@@ -32,7 +32,7 @@ When updating snapshots, review the diff carefully. Accidental snapshot churn is
 
 Full matrix in [`../skills/tester/SKILL.md`](../skills/tester/SKILL.md).
 
-- **Unit**: data-to-UI transformation, wire-shape passthrough, error classification, tenant scoping, retry/failover decisions, streaming wire shape, agent_loop tool dispatch, MCP tool registration, conditional rendering of critical states.
+- **Unit**: data-to-UI transformation, wire-shape passthrough, error classification, storage scoping, retry/failover decisions, streaming wire shape, agent_loop tool dispatch, MCP tool registration, conditional rendering of critical states.
 - **E2E**: api → orchestrator → providers/sandbox/mcp chain end-to-end; subprocess lifecycle; startup/config semantics; new SSE event sequences operators rely on; public HTTP contract changes that downstream SDKs see.
 
 ## Done criteria — backend

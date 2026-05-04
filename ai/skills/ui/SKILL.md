@@ -54,11 +54,11 @@ When choosing between "pretty" and "operationally clear," choose clarity.
 
 Organize the UI around operator jobs, not components:
 
-- Authenticate and understand current access.
+- Understand local runtime readiness and current configuration.
 - Inspect providers and models.
 - Run and compare requests.
 - Inspect trace and runtime metadata.
-- Manage tenants, API keys, policy-adjacent state.
+- Manage providers, pricing, retention, and policy-adjacent state.
 - Inspect budget state and controls.
 
 Views are task-shaped, not component-shaped. If a page mixes too many concerns, split it.
@@ -69,9 +69,15 @@ Each section has exactly one job: orient, inspect, compare, edit, or confirm. If
 
 ## Hecate-specific UI rules
 
-- Authentication and identity context easy to find.
-- Tenant context always visible when it affects behavior.
+- Treat Hecate as a single-operator local console. Do not add auth, tenant,
+  or account-management UI unless the product model changes again.
 - Provider and model selection exposes local and cloud distinctions clearly.
+- In Chats, keep **Model** and **Agent** mental models distinct. Providers and
+  models belong to Model chat; external adapters/workspaces/native sessions
+  belong to Agent chat.
+- Agent Chat sessions store their workspace and native ACP session id. New UI
+  affordances should preserve that continuity instead of treating every prompt
+  as a one-off subprocess.
 - **Stable provider ordering.** Do not sort provider lists by health, blocked state, or availability unless explicitly asked. Fixed alphabetical/preset order within each section.
 - Runtime metadata first-class, not tucked in debug crumbs.
 - Trace and failure details readable without scanning raw JSON first.
@@ -88,7 +94,7 @@ Default app layout: top-level shell + primary navigation/mode switch + main work
 Cards only when the card itself is the interaction boundary:
 
 - A selectable provider target.
-- A tenant/API-key record with contained actions.
+- A provider credential or pricing record with contained actions.
 - A focused result panel that benefits from separation.
 
 **Do not add a new persistent inspector, side rail, dashboard block, or summary panel without explicit user approval first.** Improve the existing workspace before expanding the surface area.
@@ -97,7 +103,7 @@ Cards only when the card itself is the interaction boundary:
 
 Product UI copy, not marketing copy.
 
-Good labels: Session, Chats, Provider Routing, Runtime Output, Trace, Budget State, Tenant Access.
+Good labels: Session, Chats, Provider Routing, Runtime Output, Trace, Budget State, Policy.
 
 Good supporting copy explains scope, freshness, operator impact, and the next action. Bad supporting copy is hype, mood statements, abstract claims, or a repeated explanation of what Hecate is.
 
@@ -114,7 +120,7 @@ src/
     runs/               TasksView, TaskDetail, NewTaskSlideOver, TaskList — agent task list + run replay (the headline UI)
     chats/              ChatView — interactive chat against the gateway
     overview/           ConnectYourClient, ObservabilityView — request ledger + trace drilldown + Codex/Claude Code setup
-    admin/              AdminView, PricebookTab — tenants, keys, pricebook
+    admin/              AdminView, PricebookTab — settings, pricing, retention, policy
     providers/          ProvidersView — provider catalog + health
     shared/             ui.tsx — primitives (ProviderPicker, ModelPicker, useFloatingDropdownStyle)
   lib/
@@ -171,9 +177,10 @@ When the Go side adds a required prop (e.g. `streamTurnCosts`), update the `setu
 - **404 on stale task IDs** — `localStorage` may hold a task ID from a prior gateway boot (memory backend resets on restart). `TasksView` drops the dead row from the list and re-loads. Don't propagate the 404 as an error toast.
 - **`render1()` + `render2()` in the same `it` block** — don't. React Testing Library cleanup runs between tests, not within. Split into two `it`s if you need fresh mounts.
 - **Cost-ceiling banner** — gates on `run.otel_status_message === "cost_ceiling_exceeded"` (the specific string). A regression that drops or rewords that string silently breaks the "Raise ceiling & resume" affordance.
-- **Every gateway response is `{object, data}`** — `lib/api.ts` clients must read `payload.data.<field>`, not `payload.<field>`. The bootstrap-token UI shipped a release tag where it read `data.token` instead of `data.data.token` and silently fell through to TokenGate; the test stub mirrored the bug and didn't catch it. When mocking, copy the real wire shape, not the fields you happen to need.
-- **Bootstrap-token auto-skip** — empty-token Playwright tests must stub `/v1/bootstrap-token` to `403` (the default `mockGatewayAPIs` fixture in `ui/e2e/fixtures.ts` does this). Without the stub, the loopback handshake auto-skips TokenGate in the test env.
-- **Multi-tenant gating** — Tenants/Keys tabs in Settings only render when `state.session.multiTenant === true`. Components that touch those surfaces must read the flag, not assume they're visible. The fixture in `ui/src/test/runtime-console-fixture.ts` defaults `multiTenant: false`.
+- **Every gateway response is `{object, data}`** — `lib/api.ts` clients must read `payload.data.<field>`, not `payload.<field>`. When mocking, copy the real wire shape, not the fields you happen to need; fixtures that skip the envelope hide production bugs.
+- **No auth surfaces in alpha** — Hecate is currently a single-operator local
+  console. Do not reintroduce token gates, tenant tabs, or key-management tabs
+  unless the product model changes again.
 
 ## UI recipes
 

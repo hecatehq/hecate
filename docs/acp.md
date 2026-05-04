@@ -1,4 +1,4 @@
-# ACP bridge
+# ACP bridge: Hecate as an editor agent
 
 Hecate has an early ACP bridge binary at `cmd/hecate-acp`. It starts a
 newline-delimited JSON-RPC stdio loop, advertises gateway models during
@@ -11,8 +11,22 @@ existing task runtime.
 
 Protocol reference: [Agent Client Protocol](https://agentclientprotocol.com/).
 
+## ACP directions in Hecate
+
+ACP appears in Hecate in two different places:
+
+| Direction | What Hecate does | User-facing surface | Doc |
+|---|---|---|---|
+| **Hecate as an ACP agent** | `hecate-acp` is launched by an editor ACP host and translates editor sessions into Hecate task-runtime work. | Zed, JetBrains, VS Code/Cursor extensions, other ACP hosts. | This page |
+| **Hecate as an ACP client/operator** | The Chats view launches ACP-compatible coding-agent adapters such as Codex and Claude Code, then supervises their local process/session. | Hecate **Chats → Agent** target. | [External agent adapters](external-agent-adapters.md) |
+
+This is similar to the MCP documentation split by direction, but ACP currently
+uses two separate pages because the operator jobs are different: editor setup vs
+chatting with local coding-agent CLIs from inside Hecate.
+
 ## Contents
 
+- [ACP directions in Hecate](#acp-directions-in-hecate)
 - [Current status](#current-status)
 - [Distribution and lifecycle](#distribution-and-lifecycle)
 - [Gateway launch options](#gateway-launch-options)
@@ -42,6 +56,9 @@ Not implemented yet:
 - Editor-owned workspace calls.
 - Registry packaging for a specific editor.
 - Headless compatibility tests against a real Zed or JetBrains ACP host.
+- Durable editor-side session reattachment after bridge restart. The gateway
+  task state is durable when SQLite task storage is enabled, but the ACP host
+  still starts a fresh stdio bridge process.
 
 TODO:
 
@@ -334,6 +351,11 @@ For alpha, one ACP session maps to one durable Hecate `agent_loop` task after th
 
 The gateway remains the source of truth. The bridge does not invent runtime
 state that Hecate did not emit.
+
+This is separate from Agent Chat persistence. Chats that run Codex/Claude/Cursor
+from inside Hecate persist their own transcript and native ACP session id in
+the Agent Chat store. See [External agent adapters](external-agent-adapters.md)
+for that behavior.
 
 ## Configuration
 

@@ -33,9 +33,9 @@ Pick the path closest to what you are doing.
 | [Agent runtime](agent-runtime.md) | `agent_loop` configuration, built-in tools, system prompt layers, approvals, cost ceiling, retry-from-turn. |
 | [Events](events.md) | Implemented event names, payloads, and when each is emitted. Use this for today's `/v1/events` consumers. |
 | [Chat sessions](chat-sessions.md) | Conversation persistence model behind the Chats UI and provider/model switching. |
-| [External agent adapters](external-agent-adapters.md) | Use Codex, Claude Code, and Cursor Agent from Hecate; install checks, runtime behavior, troubleshooting, current gaps. |
+| [External agent adapters](external-agent-adapters.md) | Hecate as an ACP client/operator: use Codex, Claude Code, and Cursor Agent from Chats; install checks, persistence, troubleshooting, current gaps. |
 | [MCP integration](mcp.md) | Hecate as an MCP server and external MCP servers as task tools. |
-| [ACP bridge](acp.md) | Experimental stdio bridge for editor agent panels. Implemented status, config, smoke test, and current gaps. |
+| [ACP bridge](acp.md) | Hecate as an ACP agent for editor panels. Host setup, gateway discovery, session model, smoke test, and current gaps. |
 | [Sandbox](sandbox.md) | Per-call subprocess execution, policy validation, env sanitisation, output cap, timeout, and OS wrappers. |
 
 ## Observability Docs

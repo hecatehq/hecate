@@ -1,4 +1,4 @@
-# External agent adapters
+# External agent adapters: Hecate as an ACP client
 
 Hecate can run external coding-agent CLIs from the **Chats** view. This is for
 using Codex, Claude Code, Cursor Agent, and later similar tools through the same
@@ -16,6 +16,19 @@ restart, the next prompt asks the adapter to `session/load` that native session
 when the adapter advertises ACP load-session support. If the adapter cannot load
 the saved id, Hecate starts a fresh native session and keeps the existing
 Hecate transcript.
+
+## Relationship to the ACP bridge
+
+ACP appears in Hecate in two directions:
+
+| Direction | What Hecate does | Where to read |
+|---|---|---|
+| **Hecate as an ACP client/operator** | Launches and supervises external ACP adapters from **Chats → Agent**. This is the flow documented here. | This page |
+| **Hecate as an ACP agent** | Exposes Hecate's task runtime to external editor ACP hosts through `hecate-acp`. | [ACP bridge](acp.md) |
+
+The two flows share the ACP protocol vocabulary, but they do not share a
+process model. Agent Chat owns the external adapter process. Editor ACP hosts
+own the `hecate-acp` bridge process.
 
 ## Supported adapters
 

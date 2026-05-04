@@ -7,7 +7,7 @@ Debug deliberately. Blind edits convert a known problem into an unknown one.
 A bug you can't reproduce is a bug you can't fix. Pin the conditions before changing code:
 
 - Provider and model.
-- Tenant principal and auth path (`/v1/...` vs `/admin/...`).
+- Caller surface (`/v1/...`, `/admin/...`, native app, or ACP bridge).
 - Request shape (headers, body, streaming or not).
 - Environment (env vars that route the gateway differently).
 - OS / runtime (especially for sandbox or subprocess issues).

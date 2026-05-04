@@ -24,7 +24,7 @@ The Tauri app is a thin chrome-frame around the Hecate gateway. On launch the Ru
 
 Most Tauri apps point `tauri.conf.json` → `frontendDist: "../ui/dist"` and let the webview load UI files directly from the bundled app. We don't, on purpose:
 
-- **Same-origin handshake.** The webview loads from `http://127.0.0.1:{port}/` and the API is at `http://127.0.0.1:{port}/v1/...`. Same origin → no CORS dance, no Tauri IPC bridge, and `GET /v1/bootstrap-token` works because the loopback Origin/Host check passes. Splitting UI (`tauri://localhost`) from API (`127.0.0.1:{port}`) breaks this and requires a meaningful security refactor to restore.
+- **Same-origin loopback surface.** The webview loads from `http://127.0.0.1:{port}/` and the API is at `http://127.0.0.1:{port}/v1/...`. Same origin means no CORS dance and no Tauri IPC bridge. Splitting UI (`tauri://localhost`) from API (`127.0.0.1:{port}`) breaks that property and requires a meaningful security refactor to restore.
 - **Hecate-sidecar property.** The same `hecate` binary ships through Docker, the goreleaser tarballs, *and* the Tauri sidecar. The embed makes that work without conditional builds or runtime path resolution. Reading `ui/dist` from disk inside a bundled `.app` would require a working-dir-independent resolver and a new "UI files missing" failure mode.
 - **Bundle-size cost is small.** Embedding adds ~13 MB to the binary, which means a `.dmg` of ~25 MB instead of ~12 MB. Desktop apps routinely ship at 100+ MB; this isn't a real constraint.
 
@@ -104,9 +104,10 @@ Tauri builder setup:
 ## Gateway↔webview integration
 
 The webview loads `http://127.0.0.1:{port}/`. Because this is a loopback connection with no `Origin` header:
-- The gateway's `/v1/bootstrap-token` endpoint serves the admin bearer automatically.
-- The UI's existing bootstrap-token probe picks it up and auto-logs in — no manual token paste.
-- No changes to the UI or gateway are needed for this to work.
+- The gateway treats the native app as the local operator surface.
+- Browser same-origin checks still protect ordinary web traffic, but they are
+  not a network security boundary.
+- No auth token handoff is required in the current alpha.
 
 ## Binary resolver — dev vs release
 
