@@ -186,7 +186,7 @@ func (m *Manager) Run(ctx context.Context, req RunRequest) RunResult {
 				telemetry.AttrRetentionSubsystem: sub.name,
 				telemetry.AttrRetentionDeleted:   deleted,
 			})
-			m.logger.Info("retention subsystem finished",
+			telemetry.Info(m.logger, ctx, "retention subsystem finished",
 				slog.String("subsystem", sub.name),
 				slog.Int("deleted", deleted),
 				slog.Duration("max_age", sub.policy.MaxAge),
@@ -222,7 +222,7 @@ func (m *Manager) Run(ctx context.Context, req RunRequest) RunResult {
 			trace.Record(telemetry.EventRetentionHistoryFailed, map[string]any{
 				telemetry.AttrErrorMessage: err.Error(),
 			})
-			m.logger.Warn("retention history append failed", slog.Any("error", err))
+			telemetry.Warn(m.logger, ctx, "retention history append failed", slog.Any("error", err))
 		} else {
 			trace.Record(telemetry.EventRetentionHistoryPersisted, map[string]any{
 				telemetry.AttrRetentionTrigger: run.Trigger,
