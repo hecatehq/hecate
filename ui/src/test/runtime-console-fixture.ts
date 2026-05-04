@@ -15,6 +15,7 @@ export function createRuntimeConsoleFixture(
     activeChatSessionID: "",
     agentAdapterID: "codex",
     agentAdapters: [],
+    agentChatCancelling: false,
     agentChatSessions: [],
     agentWorkspace: "",
     agentWorkspaceBranch: "",

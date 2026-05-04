@@ -725,7 +725,8 @@ export function ChatView({ state, actions, onNavigate }: Props) {
               <button type="button"
                 className="btn btn-danger"
                 aria-label="Stop agent"
-                title="Stop agent"
+                disabled={state.agentChatCancelling}
+                title={state.agentChatCancelling ? "Stopping agent..." : "Stop agent"}
                 onClick={actions.cancelAgentChat}
                 style={{
                   position: "absolute", right: 8, top: "50%", transform: "translateY(-50%)",
@@ -751,6 +752,11 @@ export function ChatView({ state, actions, onNavigate }: Props) {
               </button>
             )}
           </div>
+          {isAgentChat && state.agentChatCancelling && (
+            <div style={{ maxWidth: 820, margin: "6px auto 0", color: "var(--t3)", fontFamily: "var(--font-mono)", fontSize: 11 }}>
+              Stopping external agent...
+            </div>
+          )}
           <div style={{ maxWidth: 820, margin: "3px auto 0", display: "flex", justifyContent: "flex-end" }}>
             <button type="button" onClick={toggleModEnterMode} style={{
               fontFamily: "var(--font-mono)", fontSize: 10, color: "var(--t3)",
