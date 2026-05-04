@@ -354,7 +354,7 @@ func (h *Handler) HandleCreateAgentChatMessage(w http.ResponseWriter, r *http.Re
 	trace.Record(agentChatTerminalEvent(status), terminalAttrs)
 
 	updated, err = h.agentChat.UpdateMessage(r.Context(), session.ID, assistantID, func(message *agentchat.Message) {
-		if strings.TrimSpace(message.Content) == "" || runErr != nil {
+		if output != "" {
 			message.Content = output
 		}
 		message.RawOutput = result.RawOutput
