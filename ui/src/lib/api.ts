@@ -12,8 +12,14 @@ import type {
   PricebookImportDiffResponse,
   ProviderPresetResponse,
   AgentAdapterResponse,
+  AgentChatApprovalRequestedEvent,
+  AgentChatApprovalResolvedEvent,
+  AgentChatApprovalResponse,
+  AgentChatApprovalsResponse,
+  AgentChatGrantsResponse,
   AgentChatSessionResponse,
   AgentChatSessionsResponse,
+  AgentChatStreamEvent,
   WorkspaceDialogResponse,
   ProviderStatusResponse,
   RuntimeStatsResponse,
@@ -273,9 +279,15 @@ export async function createAgentChatMessage(id: string, content: string): Promi
   return fetchJSON<AgentChatSessionResponse>(`/v1/agent-chat/sessions/${encodeURIComponent(id)}/messages`, { method: "POST", body: { content } });
 }
 
+// streamAgentChatSession reads the per-session SSE feed and dispatches
+// each event to the consumer as a typed AgentChatStreamEvent. The Type
+// discriminator on the wire (`session_update`, `approval.requested`,
+// `approval.resolved`) maps directly onto the union members. Unknown
+// event names are silently ignored — frontends are forward-compatible
+// with new event kinds added on the backend.
 export async function streamAgentChatSession(
   id: string,
-  onEvent: (event: { event: string; payload: AgentChatSessionResponse }) => void,
+  onEvent: (event: AgentChatStreamEvent) => void,
   signal?: AbortSignal,
 ): Promise<void> {
   const response = await fetchWithNetworkError(
@@ -301,10 +313,18 @@ export async function streamAgentChatSession(
       currentData = "";
       return;
     }
-    const payload = JSON.parse(currentData) as AgentChatSessionResponse;
-    onEvent({ event: currentEvent, payload });
-    currentEvent = "message";
+    const raw = currentData;
     currentData = "";
+    const eventName = currentEvent;
+    currentEvent = "message";
+
+    // Default event name is "message" (no `event:` line). The backend
+    // always sends an explicit `event: …` line for every typed event,
+    // so unnamed events are treated as legacy session updates.
+    const dispatched = dispatchAgentChatStreamEvent(eventName, raw);
+    if (dispatched) {
+      onEvent(dispatched);
+    }
   };
 
   while (true) {
@@ -335,6 +355,99 @@ export async function streamAgentChatSession(
       }
     }
   }
+}
+
+// dispatchAgentChatStreamEvent maps a wire SSE event name + JSON
+// payload onto the typed AgentChatStreamEvent union. Returns null for
+// unknown event types so the consumer doesn't see noise. Exported for
+// unit tests.
+export function dispatchAgentChatStreamEvent(
+  eventName: string,
+  rawData: string,
+): AgentChatStreamEvent | null {
+  switch (eventName) {
+    case "session_update":
+    case "message":
+      return { type: "session_update", payload: JSON.parse(rawData) as AgentChatSessionResponse };
+    case "approval.requested":
+      return { type: "approval.requested", payload: JSON.parse(rawData) as AgentChatApprovalRequestedEvent };
+    case "approval.resolved":
+      return { type: "approval.resolved", payload: JSON.parse(rawData) as AgentChatApprovalResolvedEvent };
+    default:
+      return null;
+  }
+}
+
+// ─── Agent-chat approvals ──────────────────────────────────────────────────────
+
+// listAgentChatApprovals fetches approvals for a session. Pass
+// status="pending" to scope to the operator's review queue.
+export async function listAgentChatApprovals(
+  sessionID: string,
+  status?: string,
+): Promise<AgentChatApprovalsResponse> {
+  const qs = status ? `?status=${encodeURIComponent(status)}` : "";
+  return fetchJSON<AgentChatApprovalsResponse>(
+    `/v1/agent-chat/sessions/${encodeURIComponent(sessionID)}/approvals${qs}`,
+  );
+}
+
+export async function getAgentChatApproval(
+  sessionID: string,
+  approvalID: string,
+): Promise<AgentChatApprovalResponse> {
+  return fetchJSON<AgentChatApprovalResponse>(
+    `/v1/agent-chat/sessions/${encodeURIComponent(sessionID)}/approvals/${encodeURIComponent(approvalID)}`,
+  );
+}
+
+export type ResolveAgentChatApprovalPayload = {
+  decision: string;
+  scope: string;
+  selected_option?: string;
+  note?: string;
+};
+
+export async function resolveAgentChatApproval(
+  sessionID: string,
+  approvalID: string,
+  payload: ResolveAgentChatApprovalPayload,
+): Promise<AgentChatApprovalResponse> {
+  return fetchJSON<AgentChatApprovalResponse>(
+    `/v1/agent-chat/sessions/${encodeURIComponent(sessionID)}/approvals/${encodeURIComponent(approvalID)}/resolve`,
+    { method: "POST", body: payload },
+  );
+}
+
+export async function cancelAgentChatApproval(
+  sessionID: string,
+  approvalID: string,
+): Promise<AgentChatApprovalResponse> {
+  return fetchJSON<AgentChatApprovalResponse>(
+    `/v1/agent-chat/sessions/${encodeURIComponent(sessionID)}/approvals/${encodeURIComponent(approvalID)}/cancel`,
+    { method: "POST", body: {} },
+  );
+}
+
+export type AgentChatGrantFilter = {
+  adapter_id?: string;
+  scope?: string;
+  tool_kind?: string;
+};
+
+export async function listAgentChatGrants(
+  filter: AgentChatGrantFilter = {},
+): Promise<AgentChatGrantsResponse> {
+  const params = new URLSearchParams();
+  if (filter.adapter_id) params.set("adapter_id", filter.adapter_id);
+  if (filter.scope) params.set("scope", filter.scope);
+  if (filter.tool_kind) params.set("tool_kind", filter.tool_kind);
+  const qs = params.toString();
+  return fetchJSON<AgentChatGrantsResponse>(`/v1/agent-chat/grants${qs ? `?${qs}` : ""}`);
+}
+
+export async function deleteAgentChatGrant(grantID: string): Promise<void> {
+  await fetchJSON<unknown>(`/v1/agent-chat/grants/${encodeURIComponent(grantID)}`, { method: "DELETE" });
 }
 
 export async function chooseWorkspaceDirectory(): Promise<WorkspaceDialogResponse> {

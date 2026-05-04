@@ -1,6 +1,25 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
-import { buildRequestOptions, chatCompletions, deletePolicyRule, getBudget, getSession, getTrace, setProviderAPIKey, setProviderBaseURL, upsertPolicyRule, type ApiError } from "./api";
+import {
+  buildRequestOptions,
+  cancelAgentChatApproval,
+  chatCompletions,
+  deleteAgentChatGrant,
+  deletePolicyRule,
+  dispatchAgentChatStreamEvent,
+  getAgentChatApproval,
+  getBudget,
+  getSession,
+  getTrace,
+  listAgentChatApprovals,
+  listAgentChatGrants,
+  resolveAgentChatApproval,
+  setProviderAPIKey,
+  setProviderBaseURL,
+  streamAgentChatSession,
+  upsertPolicyRule,
+  type ApiError,
+} from "./api";
 
 describe("api client", () => {
   const fetchMock = vi.fn<typeof fetch>();
@@ -335,6 +354,218 @@ describe("api client", () => {
     it("preserves non-network error messages with the request URL prepended", async () => {
       fetchMock.mockRejectedValue(new Error("AbortError: aborted"));
       await expect(getBudget("?scope=global")).rejects.toThrow(/\/admin\/budget.*AbortError: aborted/);
+    });
+  });
+
+  // ─── Agent-chat approvals & grants ─────────────────────────────────────────
+
+  describe("agent-chat approvals", () => {
+    it("lists approvals scoped to status=pending", async () => {
+      fetchMock.mockResolvedValue(jsonResponse({ object: "list", data: [] }));
+
+      await listAgentChatApprovals("sess-1", "pending");
+
+      expect(fetchMock).toHaveBeenCalledWith(
+        "/v1/agent-chat/sessions/sess-1/approvals?status=pending",
+        expect.objectContaining({ method: "GET" }),
+      );
+    });
+
+    it("omits the status query string when no filter is passed", async () => {
+      fetchMock.mockResolvedValue(jsonResponse({ object: "list", data: [] }));
+
+      await listAgentChatApprovals("sess-1");
+
+      expect(fetchMock).toHaveBeenCalledWith(
+        "/v1/agent-chat/sessions/sess-1/approvals",
+        expect.objectContaining({ method: "GET" }),
+      );
+    });
+
+    it("URL-encodes ids on get", async () => {
+      fetchMock.mockResolvedValue(
+        jsonResponse({ object: "agent_chat_approval", data: { id: "ap/1", session_id: "s 1" } }),
+      );
+
+      await getAgentChatApproval("s 1", "ap/1");
+
+      expect(fetchMock).toHaveBeenCalledWith(
+        "/v1/agent-chat/sessions/s%201/approvals/ap%2F1",
+        expect.objectContaining({ method: "GET" }),
+      );
+    });
+
+    it("posts the resolve decision body", async () => {
+      fetchMock.mockResolvedValue(
+        jsonResponse({ object: "agent_chat_approval", data: { id: "ap-1" } }),
+      );
+
+      await resolveAgentChatApproval("sess-1", "ap-1", {
+        decision: "allow",
+        scope: "this_call",
+        selected_option: "opt-1",
+        note: "looks fine",
+      });
+
+      const [url, options] = fetchMock.mock.lastCall ?? [];
+      expect(url).toBe("/v1/agent-chat/sessions/sess-1/approvals/ap-1/resolve");
+      expect(options?.method).toBe("POST");
+      const body = options?.body;
+      expect(typeof body === "string" ? JSON.parse(body) : body).toEqual({
+        decision: "allow",
+        scope: "this_call",
+        selected_option: "opt-1",
+        note: "looks fine",
+      });
+    });
+
+    it("posts an empty body to cancel", async () => {
+      fetchMock.mockResolvedValue(
+        jsonResponse({ object: "agent_chat_approval", data: { id: "ap-1" } }),
+      );
+
+      await cancelAgentChatApproval("sess-1", "ap-1");
+
+      expect(fetchMock).toHaveBeenCalledWith(
+        "/v1/agent-chat/sessions/sess-1/approvals/ap-1/cancel",
+        expect.objectContaining({ method: "POST" }),
+      );
+    });
+
+    it("builds the grants list query string from non-empty filter fields only", async () => {
+      fetchMock.mockResolvedValue(jsonResponse({ object: "list", data: [] }));
+
+      await listAgentChatGrants({ adapter_id: "codex", scope: "session" });
+
+      const [url] = fetchMock.mock.lastCall ?? [];
+      // URLSearchParams ordering is insertion-order; both forms are
+      // acceptable so long as the query string contains both pairs.
+      expect(url).toContain("/v1/agent-chat/grants?");
+      expect(url).toContain("adapter_id=codex");
+      expect(url).toContain("scope=session");
+    });
+
+    it("sends DELETE on grant revocation", async () => {
+      fetchMock.mockResolvedValue(new Response(null, { status: 204 }));
+
+      await deleteAgentChatGrant("grant-1");
+
+      expect(fetchMock).toHaveBeenCalledWith(
+        "/v1/agent-chat/grants/grant-1",
+        expect.objectContaining({ method: "DELETE" }),
+      );
+    });
+  });
+
+  // ─── Agent-chat SSE dispatch ───────────────────────────────────────────────
+
+  describe("dispatchAgentChatStreamEvent", () => {
+    it("maps named session_update events onto the typed union", () => {
+      const out = dispatchAgentChatStreamEvent(
+        "session_update",
+        JSON.stringify({ object: "agent_chat_session", data: { id: "s" } }),
+      );
+      expect(out).toEqual({
+        type: "session_update",
+        payload: { object: "agent_chat_session", data: { id: "s" } },
+      });
+    });
+
+    it("treats the default `message` event as session_update for backward compat", () => {
+      const out = dispatchAgentChatStreamEvent(
+        "message",
+        JSON.stringify({ object: "agent_chat_session", data: { id: "s" } }),
+      );
+      expect(out?.type).toBe("session_update");
+    });
+
+    it("maps approval.requested onto the requested-event payload", () => {
+      const out = dispatchAgentChatStreamEvent(
+        "approval.requested",
+        JSON.stringify({ approval_id: "ap-1", session_id: "s", adapter_id: "codex", tool_kind: "fs", created_at: "t", expires_at: "t" }),
+      );
+      expect(out).toEqual({
+        type: "approval.requested",
+        payload: {
+          approval_id: "ap-1",
+          session_id: "s",
+          adapter_id: "codex",
+          tool_kind: "fs",
+          created_at: "t",
+          expires_at: "t",
+        },
+      });
+    });
+
+    it("maps approval.resolved onto the resolved-event payload", () => {
+      const out = dispatchAgentChatStreamEvent(
+        "approval.resolved",
+        JSON.stringify({ approval_id: "ap-1", session_id: "s", status: "resolved", path: "operator" }),
+      );
+      expect(out?.type).toBe("approval.resolved");
+    });
+
+    it("returns null for unknown event names (forward-compat)", () => {
+      const out = dispatchAgentChatStreamEvent("approval.future_kind", "{}");
+      expect(out).toBeNull();
+    });
+  });
+
+  describe("streamAgentChatSession", () => {
+    it("dispatches mixed event types from one stream", async () => {
+      const events = [
+        "event: approval.requested",
+        `data: ${JSON.stringify({ approval_id: "ap-1", session_id: "s", adapter_id: "codex", tool_kind: "fs", created_at: "t", expires_at: "t" })}`,
+        "",
+        "event: session_update",
+        `data: ${JSON.stringify({ object: "agent_chat_session", data: { id: "s" } })}`,
+        "",
+        "event: approval.resolved",
+        `data: ${JSON.stringify({ approval_id: "ap-1", session_id: "s", status: "resolved", path: "operator" })}`,
+        "",
+      ].join("\n");
+
+      const encoder = new TextEncoder();
+      const stream = new ReadableStream<Uint8Array>({
+        start(controller) {
+          controller.enqueue(encoder.encode(events));
+          controller.close();
+        },
+      });
+      fetchMock.mockResolvedValue(
+        new Response(stream, {
+          status: 200,
+          headers: { "Content-Type": "text/event-stream" },
+        }),
+      );
+
+      const seen: string[] = [];
+      await streamAgentChatSession("s", (event) => {
+        seen.push(event.type);
+      });
+      expect(seen).toEqual(["approval.requested", "session_update", "approval.resolved"]);
+    });
+
+    it("silently drops unknown event types so old clients don't break on new server events", async () => {
+      const stream = new ReadableStream<Uint8Array>({
+        start(controller) {
+          const encoder = new TextEncoder();
+          controller.enqueue(encoder.encode("event: future.kind\ndata: {}\n\n"));
+          controller.close();
+        },
+      });
+      fetchMock.mockResolvedValue(
+        new Response(stream, {
+          status: 200,
+          headers: { "Content-Type": "text/event-stream" },
+        }),
+      );
+
+      const seen: string[] = [];
+      await streamAgentChatSession("s", (event) => {
+        seen.push(event.type);
+      });
+      expect(seen).toEqual([]);
     });
   });
 });

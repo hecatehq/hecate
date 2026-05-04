@@ -454,6 +454,194 @@ describe("useRuntimeConsole", () => {
       await waitFor(() => expect(result.current.state.chatSessions[0].title).toBe("Renamed"));
     });
   });
+
+  // ─── Agent-chat approvals state ───────────────────────────────────────────
+  //
+  // Slice 3 plumbing: on session select we fire a catch-up refetch
+  // against /v1/agent-chat/sessions/{id}/approvals?status=pending. The
+  // returned rows are projected to banner-essentials and stored in
+  // `pendingApprovalsBySessionID`. SSE events later upsert/remove on
+  // top of the same map. The Map instance is always replaced — never
+  // mutated in place.
+  describe("agent-chat approvals state", () => {
+    function approvalRow(overrides: Record<string, unknown> = {}) {
+      return {
+        id: "ap-1",
+        session_id: "a1",
+        adapter_id: "codex",
+        tool_kind: "fs",
+        tool_name: "write_file",
+        status: "pending",
+        acp_options: [],
+        scope_choices: ["this_call"],
+        created_at: "2026-04-21T10:00:00Z",
+        expires_at: "2026-04-21T10:05:00Z",
+        ...overrides,
+      };
+    }
+
+    it("starts with an empty pending map and no grants", async () => {
+      const { result } = renderHook(() => useRuntimeConsole());
+      await waitFor(() => expect(result.current.state.loading).toBe(false));
+      expect(result.current.state.pendingApprovalsBySessionID.size).toBe(0);
+      expect(result.current.state.agentChatGrants).toEqual([]);
+    });
+
+    it("populates the pending map from the catch-up refetch when a session is selected", async () => {
+      window.localStorage.setItem("hecate.agentChatSessionID", "a1");
+      fetchMock.mockImplementation(defaultBackendMock({
+        "/v1/agent-chat/sessions": () => jsonResponse({
+          object: "agent_chat_sessions",
+          data: [{ id: "a1", title: "S1", adapter_id: "codex", status: "running", message_count: 0 }],
+        }),
+        "/v1/agent-chat/sessions/a1": () => jsonResponse({
+          object: "agent_chat_session",
+          data: { id: "a1", title: "S1", adapter_id: "codex", workspace: "/tmp", status: "running" },
+        }),
+        "/v1/agent-chat/sessions/a1/approvals?status=pending": () => jsonResponse({
+          object: "list",
+          data: [approvalRow()],
+        }),
+      }));
+
+      const { result } = renderHook(() => useRuntimeConsole());
+      await waitFor(() => expect(result.current.state.loading).toBe(false));
+      // Effect-driven refetch may need a tick after activeAgentChatSessionID
+      // hydrates from localStorage.
+      await waitFor(() => {
+        expect(result.current.state.pendingApprovalsBySessionID.get("a1")).toBeDefined();
+      });
+      const rows = result.current.state.pendingApprovalsBySessionID.get("a1")!;
+      expect(rows).toHaveLength(1);
+      expect(rows[0]).toMatchObject({
+        approval_id: "ap-1",
+        session_id: "a1",
+        adapter_id: "codex",
+        tool_kind: "fs",
+      });
+    });
+
+    it("treats an empty refetch as authoritative — refetch wins over any prior optimistic state", async () => {
+      // Switch a→b→a. On the third select, the refetch for `a` returns
+      // an empty list (e.g. another operator resolved it from a
+      // different tab). The pending entry must clear, even though we
+      // never see an `approval.resolved` event for the missed transition.
+      let approvalsForA: unknown[] = [approvalRow({ id: "ap-1", session_id: "a1" })];
+      fetchMock.mockImplementation(defaultBackendMock({
+        "/v1/agent-chat/sessions": () => jsonResponse({ object: "agent_chat_sessions", data: [] }),
+        "/v1/agent-chat/sessions/a1": () => jsonResponse({
+          object: "agent_chat_session",
+          data: { id: "a1", title: "A", adapter_id: "codex", workspace: "/tmp", status: "running" },
+        }),
+        "/v1/agent-chat/sessions/b1": () => jsonResponse({
+          object: "agent_chat_session",
+          data: { id: "b1", title: "B", adapter_id: "codex", workspace: "/tmp", status: "running" },
+        }),
+        "/v1/agent-chat/sessions/a1/approvals?status=pending": () => jsonResponse({
+          object: "list",
+          data: approvalsForA,
+        }),
+        "/v1/agent-chat/sessions/b1/approvals?status=pending": () => jsonResponse({
+          object: "list",
+          data: [],
+        }),
+      }));
+
+      const { result } = renderHook(() => useRuntimeConsole());
+      await waitFor(() => expect(result.current.state.loading).toBe(false));
+
+      // Default chatTarget is "agent", so selectChatSession forwards
+      // to the agent variant.
+      await act(async () => {
+        await result.current.actions.selectChatSession("a1");
+      });
+      await waitFor(() =>
+        expect(result.current.state.pendingApprovalsBySessionID.get("a1")).toHaveLength(1),
+      );
+
+      // Switch away — pending state for a1 stays in the map (it
+      // wasn't resolved, just unobserved).
+      await act(async () => {
+        await result.current.actions.selectChatSession("b1");
+      });
+
+      // The approval was resolved by another actor while we were
+      // away. Refetch on switch-back should reflect the empty list.
+      approvalsForA = [];
+      await act(async () => {
+        await result.current.actions.selectChatSession("a1");
+      });
+
+      await waitFor(() =>
+        expect(result.current.state.pendingApprovalsBySessionID.has("a1")).toBe(false),
+      );
+    });
+
+    it("removes a pending approval when the operator resolves it (optimistic update)", async () => {
+      window.localStorage.setItem("hecate.agentChatSessionID", "a1");
+      fetchMock.mockImplementation(defaultBackendMock({
+        "/v1/agent-chat/sessions": () => jsonResponse({ object: "agent_chat_sessions", data: [] }),
+        "/v1/agent-chat/sessions/a1": () => jsonResponse({
+          object: "agent_chat_session",
+          data: { id: "a1", title: "S1", adapter_id: "codex", workspace: "/tmp", status: "running" },
+        }),
+        "/v1/agent-chat/sessions/a1/approvals?status=pending": () => jsonResponse({
+          object: "list",
+          data: [approvalRow()],
+        }),
+        "/v1/agent-chat/sessions/a1/approvals/ap-1/resolve": () => jsonResponse({
+          object: "agent_chat_approval",
+          data: approvalRow({ status: "resolved", decision: "allow", scope: "this_call", path: "operator" }),
+        }),
+      }));
+
+      const { result } = renderHook(() => useRuntimeConsole());
+      await waitFor(() => expect(result.current.state.loading).toBe(false));
+      await waitFor(() =>
+        expect(result.current.state.pendingApprovalsBySessionID.get("a1")).toHaveLength(1),
+      );
+
+      await act(async () => {
+        const ok = await result.current.actions.resolveAgentChatApproval("a1", "ap-1", {
+          decision: "allow",
+          scope: "this_call",
+        });
+        expect(ok).toBe(true);
+      });
+
+      // The optimistic remove fires regardless of whether the SSE
+      // `approval.resolved` event was observed — guarantees the
+      // banner clears even if the modal never fetched the full row.
+      expect(result.current.state.pendingApprovalsBySessionID.has("a1")).toBe(false);
+    });
+
+    it("loads grants and removes them on revoke", async () => {
+      fetchMock.mockImplementation(defaultBackendMock({
+        "/v1/agent-chat/grants": () => jsonResponse({
+          object: "list",
+          data: [
+            { id: "g1", scope: "session", adapter_id: "codex", tool_kind: "fs", decision: "allow", granted_by: "operator", granted_at: "2026-04-21T10:00:00Z" },
+            { id: "g2", scope: "workspace", adapter_id: "codex", tool_kind: "exec", decision: "allow", granted_by: "operator", granted_at: "2026-04-21T10:01:00Z" },
+          ],
+        }),
+        "/v1/agent-chat/grants/g1": () => new Response(null, { status: 204 }),
+      }));
+
+      const { result } = renderHook(() => useRuntimeConsole());
+      await waitFor(() => expect(result.current.state.loading).toBe(false));
+
+      await act(async () => {
+        await result.current.actions.listAgentChatGrants();
+      });
+      expect(result.current.state.agentChatGrants.map((g) => g.id)).toEqual(["g1", "g2"]);
+
+      await act(async () => {
+        const ok = await result.current.actions.deleteAgentChatGrant("g1");
+        expect(ok).toBe(true);
+      });
+      expect(result.current.state.agentChatGrants.map((g) => g.id)).toEqual(["g2"]);
+    });
+  });
 });
 
 describe("humanizeChatError", () => {
