@@ -32,6 +32,11 @@ func TestSQLiteStoreLifecycle(t *testing.T) {
 	runStoreLifecycle(t, newSQLiteTestStore(t))
 }
 
+func TestSQLiteStoreReconcileInterruptedRuns(t *testing.T) {
+	t.Parallel()
+	runStoreReconcileInterruptedRuns(t, newSQLiteTestStore(t))
+}
+
 func TestSQLiteStorePersistsAcrossInstances(t *testing.T) {
 	t.Parallel()
 	dir := t.TempDir()

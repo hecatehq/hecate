@@ -76,8 +76,8 @@ func TestSessionManagerRunsTurnsThroughACP(t *testing.T) {
 }
 
 func TestSessionManagerSerializesConcurrentSessionStart(t *testing.T) {
-	installFakeACPExecutable(t, "codex-acp")
 	t.Setenv("HECATE_FAKE_ACP_NEW_SESSION_DELAY", "100ms")
+	installFakeACPExecutable(t, "codex-acp")
 	workspace := t.TempDir()
 	manager := NewSessionManager()
 
@@ -170,6 +170,38 @@ func TestSessionManagerLoadsPersistedNativeSession(t *testing.T) {
 	}
 	if !second.SessionStarted || !second.SessionResumed {
 		t.Fatalf("session flags = started:%v resumed:%v, want both true", second.SessionStarted, second.SessionResumed)
+	}
+}
+
+func TestSessionManagerStartsFreshWhenPersistedNativeSessionIsStale(t *testing.T) {
+	t.Setenv("HECATE_FAKE_ACP_LOAD_SESSION_FAIL", "1")
+	installFakeACPExecutable(t, "codex-acp")
+	workspace := t.TempDir()
+
+	manager := NewSessionManager()
+	run, err := manager.Run(context.Background(), RunRequest{
+		SessionID:               "chat_stale",
+		AdapterID:               "codex",
+		Workspace:               workspace,
+		PreviousNativeSessionID: "fake_session_stale",
+		Prompt:                  "fresh turn",
+		Timeout:                 5 * time.Second,
+		MaxOutputBytes:          64 * 1024,
+	})
+	if err != nil {
+		t.Fatalf("Run: %v", err)
+	}
+	if run.NativeSessionID == "" || run.NativeSessionID == "fake_session_stale" {
+		t.Fatalf("native session id = %q, want fresh id", run.NativeSessionID)
+	}
+	if !run.SessionStarted || run.SessionResumed {
+		t.Fatalf("session flags = started:%v resumed:%v, want started fresh", run.SessionStarted, run.SessionResumed)
+	}
+	if !strings.Contains(run.SessionRecovery, "fake_session_stale") {
+		t.Fatalf("session recovery = %q, want stale id", run.SessionRecovery)
+	}
+	if !strings.Contains(run.Output, "fresh turn") {
+		t.Fatalf("output = %q, want fresh turn", run.Output)
 	}
 }
 
@@ -530,7 +562,12 @@ func installFakeACPExecutable(t *testing.T, name string) {
 		t.Fatalf("mkdir fake bin: %v", err)
 	}
 	exe := filepath.Join(bin, name)
-	script := fmt.Sprintf("#!/bin/sh\nHECATE_FAKE_ACP_AGENT=1 exec %q -test.run '^TestFakeACPAgentProcess$'\n", os.Args[0])
+	script := fmt.Sprintf(
+		"#!/bin/sh\nHECATE_FAKE_ACP_AGENT=1 HECATE_FAKE_ACP_LOAD_SESSION_FAIL=%q HECATE_FAKE_ACP_NEW_SESSION_DELAY=%q exec %q -test.run '^TestFakeACPAgentProcess$'\n",
+		os.Getenv("HECATE_FAKE_ACP_LOAD_SESSION_FAIL"),
+		os.Getenv("HECATE_FAKE_ACP_NEW_SESSION_DELAY"),
+		os.Args[0],
+	)
 	if err := os.WriteFile(exe, []byte(script), 0o755); err != nil {
 		t.Fatalf("write fake ACP executable: %v", err)
 	}
@@ -579,6 +616,9 @@ func (a *fakeACPAgent) NewSession(context.Context, acp.NewSessionRequest) (acp.N
 }
 
 func (a *fakeACPAgent) LoadSession(_ context.Context, params acp.LoadSessionRequest) (acp.LoadSessionResponse, error) {
+	if os.Getenv("HECATE_FAKE_ACP_LOAD_SESSION_FAIL") == "1" {
+		return acp.LoadSessionResponse{}, fmt.Errorf("fake persisted session %s not found", params.SessionId)
+	}
 	a.mu.Lock()
 	a.sessions[string(params.SessionId)] = &fakeACPSession{}
 	a.mu.Unlock()

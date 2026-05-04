@@ -16,6 +16,7 @@ import (
 	"github.com/hecate/agent-runtime/internal/orchestrator"
 	"github.com/hecate/agent-runtime/internal/profiler"
 	"github.com/hecate/agent-runtime/internal/taskstate"
+	"github.com/hecate/agent-runtime/pkg/types"
 )
 
 // newShutdownTestRunner builds a minimal *orchestrator.Runner suitable
@@ -40,6 +41,17 @@ func newShutdownTestCache() *mcpclient.SharedClientCache {
 		Name:    "hecate-handler-shutdown-test",
 		Version: "0",
 	})
+}
+
+type blockingShutdownExecutor struct {
+	started chan struct{}
+	release chan struct{}
+}
+
+func (e *blockingShutdownExecutor) Execute(context.Context, orchestrator.ExecutionSpec) (*orchestrator.ExecutionResult, error) {
+	close(e.started)
+	<-e.release
+	return &orchestrator.ExecutionResult{Status: "cancelled"}, nil
 }
 
 // TestHandler_Shutdown_ClosesBothRunnerAndCache pins the headline
@@ -192,31 +204,54 @@ func TestHandler_Shutdown_RunnerBeforeCache(t *testing.T) {
 // orphan subprocesses on top of a wedged runner.
 func TestHandler_Shutdown_RunnerErrorPropagated(t *testing.T) {
 	t.Parallel()
-	runner := newShutdownTestRunner(t)
+	store := taskstate.NewMemoryStore()
+	runner := orchestrator.NewRunner(
+		slog.New(slog.NewJSONHandler(io.Discard, nil)),
+		store,
+		profiler.NewInMemoryTracer(nil),
+		orchestrator.Config{QueueWorkers: 1},
+	)
 	cache := newShutdownTestCache()
+	blocker := &blockingShutdownExecutor{
+		started: make(chan struct{}),
+		release: make(chan struct{}),
+	}
+	runner.SetExecutor(blocker)
 	h := &Handler{
 		taskRunner:     runner,
 		mcpClientCache: cache,
 	}
 
-	// Park a goroutine that ignores cancellation so runner.Shutdown
-	// can't drain. We can't reach runner.workerWg from this package,
-	// so we drive the failure via a tight ctx deadline against an
-	// otherwise-empty runner — but with no in-flight work the runner
-	// would drain instantly. The deterministic error signal we have
-	// is: pass an ALREADY-cancelled context to Shutdown.
-	ctx, cancel := context.WithCancel(context.Background())
-	cancel()
-
-	// With an already-cancelled ctx, runner.Shutdown's wait path
-	// returns ctx.Err() (context.Canceled). Handler.Shutdown should
-	// propagate that, AND still close the cache.
-	err := h.Shutdown(ctx)
-	if err == nil {
-		t.Fatal("expected Shutdown error from cancelled ctx, got nil")
+	task, err := store.CreateTask(context.Background(), types.Task{
+		ID:     "task_shutdown_error",
+		Status: "created",
+	})
+	if err != nil {
+		t.Fatalf("CreateTask: %v", err)
 	}
-	if !errors.Is(err, context.Canceled) && !strings.Contains(err.Error(), "canceled") {
-		t.Errorf("Shutdown err = %v, want context.Canceled or wrapped", err)
+	if _, err := runner.StartTask(context.Background(), task, func(prefix string) string { return prefix + "_shutdown" }); err != nil {
+		t.Fatalf("StartTask: %v", err)
+	}
+	select {
+	case <-blocker.started:
+	case <-time.After(2 * time.Second):
+		t.Fatal("executor did not start")
+	}
+
+	ctx, cancel := context.WithTimeout(context.Background(), time.Millisecond)
+	defer cancel()
+	err = h.Shutdown(ctx)
+	if err == nil {
+		t.Fatal("expected Shutdown error from timed-out ctx, got nil")
+	}
+	if !errors.Is(err, context.DeadlineExceeded) && !strings.Contains(err.Error(), "deadline") {
+		t.Errorf("Shutdown err = %v, want context deadline exceeded or wrapped", err)
+	}
+	close(blocker.release)
+	drainCtx, drainCancel := context.WithTimeout(context.Background(), 2*time.Second)
+	defer drainCancel()
+	if err := runner.Shutdown(drainCtx); err != nil {
+		t.Fatalf("second runner shutdown after release: %v", err)
 	}
 
 	// Cache must still have been closed despite the runner error.

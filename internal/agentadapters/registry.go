@@ -72,6 +72,7 @@ type RunResult struct {
 	NativeSessionID string
 	SessionStarted  bool
 	SessionResumed  bool
+	SessionRecovery string
 	Output          string
 	RawOutput       string
 	ExitCode        int

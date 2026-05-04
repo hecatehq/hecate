@@ -81,13 +81,14 @@ func (m *SessionManager) Run(ctx context.Context, req RunRequest) (RunResult, er
 	if req.MaxOutputBytes <= 0 {
 		req.MaxOutputBytes = 1024 * 1024
 	}
-	session, started, resumed, err := m.session(ctx, adapter, req)
+	session, started, resumed, recovery, err := m.session(ctx, adapter, req)
 	if err != nil {
 		return RunResult{}, err
 	}
 	result, err := session.RunTurn(ctx, req)
 	result.SessionStarted = started
 	result.SessionResumed = resumed
+	result.SessionRecovery = recovery
 	return result, err
 }
 
@@ -96,17 +97,17 @@ type sessionStart struct {
 	cancel context.CancelFunc
 }
 
-func (m *SessionManager) session(ctx context.Context, adapter Adapter, req RunRequest) (*acpSession, bool, bool, error) {
+func (m *SessionManager) session(ctx context.Context, adapter Adapter, req RunRequest) (*acpSession, bool, bool, string, error) {
 	for {
 		m.mu.Lock()
 		if m.closed {
 			m.mu.Unlock()
-			return nil, false, false, fmt.Errorf("agent session manager is shut down")
+			return nil, false, false, "", fmt.Errorf("agent session manager is shut down")
 		}
 		existing := m.sessions[req.SessionID]
 		if existing != nil && existing.adapter.ID == adapter.ID && existing.workspace == req.Workspace {
 			m.mu.Unlock()
-			return existing, false, false, nil
+			return existing, false, false, "", nil
 		}
 		if start := m.starts[req.SessionID]; start != nil {
 			done := start.done
@@ -115,7 +116,7 @@ func (m *SessionManager) session(ctx context.Context, adapter Adapter, req RunRe
 			case <-done:
 				continue
 			case <-ctx.Done():
-				return nil, false, false, ctx.Err()
+				return nil, false, false, "", ctx.Err()
 			}
 		}
 		if m.starts == nil {
@@ -127,7 +128,7 @@ func (m *SessionManager) session(ctx context.Context, adapter Adapter, req RunRe
 		logger := m.logger
 		m.mu.Unlock()
 
-		started, resumed, err := startACPSession(startCtx, adapter, req.Workspace, req.PreviousNativeSessionID, logger)
+		started, resumed, recovery, err := startACPSession(startCtx, adapter, req.Workspace, req.PreviousNativeSessionID, logger)
 		startCancel()
 
 		var previous *acpSession
@@ -137,7 +138,7 @@ func (m *SessionManager) session(ctx context.Context, adapter Adapter, req RunRe
 			close(start.done)
 			m.mu.Unlock()
 			_ = started.Close(context.Background())
-			return nil, false, false, fmt.Errorf("agent session manager is shut down")
+			return nil, false, false, "", fmt.Errorf("agent session manager is shut down")
 		}
 		if err == nil {
 			previous = m.sessions[req.SessionID]
@@ -150,9 +151,9 @@ func (m *SessionManager) session(ctx context.Context, adapter Adapter, req RunRe
 			_ = previous.Close(context.Background())
 		}
 		if err != nil {
-			return nil, false, false, err
+			return nil, false, false, "", err
 		}
-		return started, true, resumed, nil
+		return started, true, resumed, recovery, nil
 	}
 }
 
@@ -224,10 +225,10 @@ type acpSession struct {
 	activeDone   chan struct{}
 }
 
-func startACPSession(ctx context.Context, adapter Adapter, workspace, previousNativeSessionID string, logger *slog.Logger) (*acpSession, bool, error) {
+func startACPSession(ctx context.Context, adapter Adapter, workspace, previousNativeSessionID string, logger *slog.Logger) (*acpSession, bool, string, error) {
 	command, err := resolveExecutable(adapter, exec.LookPath)
 	if err != nil {
-		return nil, false, err
+		return nil, false, "", err
 	}
 	args := append([]string(nil), adapter.Args...)
 	cmd := exec.CommandContext(context.Background(), command, args...)
@@ -237,18 +238,18 @@ func startACPSession(ctx context.Context, adapter Adapter, workspace, previousNa
 
 	stdin, err := cmd.StdinPipe()
 	if err != nil {
-		return nil, false, fmt.Errorf("create ACP stdin pipe: %w", err)
+		return nil, false, "", fmt.Errorf("create ACP stdin pipe: %w", err)
 	}
 	stdout, err := cmd.StdoutPipe()
 	if err != nil {
-		return nil, false, fmt.Errorf("create ACP stdout pipe: %w", err)
+		return nil, false, "", fmt.Errorf("create ACP stdout pipe: %w", err)
 	}
 	var stderr limitedBuffer
 	stderr.limit = 256 * 1024
 	cmd.Stderr = &stderr
 
 	if err := cmd.Start(); err != nil {
-		return nil, false, fmt.Errorf("start ACP adapter %q: %w", adapter.ID, err)
+		return nil, false, "", fmt.Errorf("start ACP adapter %q: %w", adapter.ID, err)
 	}
 
 	client := &acpChatClient{workspace: workspace}
@@ -274,11 +275,12 @@ func startACPSession(ctx context.Context, adapter Adapter, workspace, previousNa
 	})
 	if err != nil {
 		terminateProcess(cmd)
-		return nil, false, fmt.Errorf("initialize ACP adapter %q: %w%s", adapter.ID, err, stderrSuffix(stderr.String()))
+		return nil, false, "", fmt.Errorf("initialize ACP adapter %q: %w%s", adapter.ID, err, stderrSuffix(stderr.String()))
 	}
 
 	nativeID := ""
 	resumed := false
+	recovery := ""
 	previousNativeSessionID = strings.TrimSpace(previousNativeSessionID)
 	if previousNativeSessionID != "" && initResp.AgentCapabilities.LoadSession {
 		loadCtx, cancel := context.WithTimeout(ctx, 20*time.Second)
@@ -291,6 +293,8 @@ func startACPSession(ctx context.Context, adapter Adapter, workspace, previousNa
 		if err == nil {
 			nativeID = previousNativeSessionID
 			resumed = true
+		} else {
+			recovery = fmt.Sprintf("could not restore ACP session %s: %v", previousNativeSessionID, err)
 		}
 	}
 	if nativeID == "" {
@@ -302,7 +306,7 @@ func startACPSession(ctx context.Context, adapter Adapter, workspace, previousNa
 		cancel()
 		if err != nil {
 			terminateProcess(cmd)
-			return nil, false, fmt.Errorf("create ACP session for %q: %w%s", adapter.ID, err, stderrSuffix(stderr.String()))
+			return nil, false, "", fmt.Errorf("create ACP session for %q: %w%s", adapter.ID, err, stderrSuffix(stderr.String()))
 		}
 		nativeID = string(created.SessionId)
 	}
@@ -313,7 +317,7 @@ func startACPSession(ctx context.Context, adapter Adapter, workspace, previousNa
 		conn:      conn,
 		client:    client,
 		nativeID:  nativeID,
-	}, resumed, nil
+	}, resumed, recovery, nil
 }
 
 func (s *acpSession) RunTurn(ctx context.Context, req RunRequest) (RunResult, error) {
