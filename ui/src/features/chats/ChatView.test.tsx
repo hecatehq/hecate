@@ -17,6 +17,14 @@ function setup(stateOverrides = {}, actionOverrides = {}) {
 }
 
 describe("ChatView input", () => {
+  it("renders Agent as the first and active chat target by default", () => {
+    const { state, actions } = setup();
+    render(<ChatView state={state} actions={actions} />);
+    const targetButtons = screen.getAllByRole("button", { name: /^(Agent|Model)$/ });
+    expect(targetButtons.map((button) => button.textContent)).toEqual(["Agent", "Model"]);
+    expect(targetButtons[0]).toHaveStyle({ color: "var(--teal)" });
+  });
+
   it("disables the send button when message is empty", () => {
     const { state, actions } = setup({ message: "" });
     render(<ChatView state={state} actions={actions} />);
@@ -25,7 +33,7 @@ describe("ChatView input", () => {
   });
 
   it("enables the send button when message has content", () => {
-    const { state, actions } = setup({ message: "hello" });
+    const { state, actions } = setup({ chatTarget: "model", message: "hello" });
     render(<ChatView state={state} actions={actions} />);
     const send = document.querySelector("button[type='submit']") as HTMLButtonElement;
     expect(send.disabled).toBe(false);
@@ -33,6 +41,7 @@ describe("ChatView input", () => {
 
   it("disables model send when no provider is configured", () => {
     const { state, actions } = setup({
+      chatTarget: "model",
       message: "hello",
       controlPlaneConfig: { backend: "memory", providers: [], policy_rules: [], pricebook: [], events: [] },
       agentAdapters: [
@@ -48,6 +57,7 @@ describe("ChatView input", () => {
 
   it("shows a first-run setup state when providers and agents are unavailable", () => {
     const { state, actions } = setup({
+      chatTarget: "model",
       message: "hello",
       controlPlaneConfig: { backend: "memory", providers: [], policy_rules: [], pricebook: [], events: [] },
       agentAdapters: [
@@ -63,7 +73,7 @@ describe("ChatView input", () => {
   it("calls setMessage as user types", async () => {
     const setMessage = vi.fn();
     // Start with empty message so the assertion sees only what we typed.
-    const { state, actions } = setup({ message: "" }, { setMessage });
+    const { state, actions } = setup({ chatTarget: "model", message: "" }, { setMessage });
     render(<ChatView state={state} actions={actions} />);
     const ta = screen.getByPlaceholderText(/Message/i) as HTMLTextAreaElement;
     const user = userEvent.setup();
@@ -86,13 +96,14 @@ describe("ChatView Enter switch", () => {
 
 describe("ChatView chats sidebar", () => {
   it("shows 'No chats yet' when chatSessions is empty", () => {
-    const { state, actions } = setup({ chatSessions: [] });
+    const { state, actions } = setup({ chatTarget: "model", chatSessions: [] });
     render(<ChatView state={state} actions={actions} />);
     expect(screen.getByText(/No chats yet/i)).toBeTruthy();
   });
 
   it("renders one row per chat with title", () => {
     const { state, actions } = setup({
+      chatTarget: "model",
       chatSessions: [
         { id: "s1", title: "First chat", message_count: 4, provider_call_count: 2, updated_at: "2026-04-25T00:00:00Z" } as any,
         { id: "s2", title: "Second chat", message_count: 2, provider_call_count: 1, updated_at: "2026-04-25T01:00:00Z" } as any,
@@ -106,6 +117,7 @@ describe("ChatView chats sidebar", () => {
   it("calls selectChatSession when clicking a chat row", async () => {
     const selectChatSession = vi.fn(async () => undefined);
     const { state, actions } = setup({
+      chatTarget: "model",
       chatSessions: [{ id: "s1", title: "Pick me", message_count: 0, provider_call_count: 0 } as any],
     }, { selectChatSession });
     render(<ChatView state={state} actions={actions} />);
@@ -349,13 +361,14 @@ describe("ChatView error display", () => {
 
 describe("ChatView session title", () => {
   it("shows 'New chat' when no chats and no active chat", () => {
-    const { state, actions } = setup({ chatSessions: [], activeChatSession: null });
+    const { state, actions } = setup({ chatTarget: "model", chatSessions: [], activeChatSession: null });
     render(<ChatView state={state} actions={actions} />);
     expect(screen.getAllByText("New chat").length).toBeGreaterThan(0);
   });
 
   it("shows the active session's title", () => {
     const { state, actions } = setup({
+      chatTarget: "model",
       activeChatSession: { id: "s1", title: "Hello world", messages: [], provider_calls: [] } as any,
     });
     render(<ChatView state={state} actions={actions} />);
@@ -389,6 +402,7 @@ describe("ChatView session focus", () => {
     // (e2e regression — see shell.spec.ts shortcut tests).
     const selectChatSession = vi.fn(async () => undefined);
     const { state, actions } = setup({
+      chatTarget: "model",
       chatSessions: [{ id: "s2", title: "Pick me", message_count: 0, provider_call_count: 0 } as any],
     }, { selectChatSession });
     const user = userEvent.setup();
@@ -407,7 +421,7 @@ describe("ChatView session focus", () => {
   it("does NOT focus the textarea when activeChatSessionID changes from data-load", async () => {
     // Initial-load and API-driven session arrivals must not steal
     // focus — page-level shortcuts depend on it. Asserts the negative.
-    const { state, actions } = setup({ activeChatSessionID: "" });
+    const { state, actions } = setup({ chatTarget: "model", activeChatSessionID: "" });
     const { rerender } = render(<ChatView state={state} actions={actions} />);
     const closeBtn = screen.getByTitle("Close");
     closeBtn.focus();

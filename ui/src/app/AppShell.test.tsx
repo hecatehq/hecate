@@ -39,6 +39,7 @@ describe("ConsoleShell loading state", () => {
 describe("ConsoleShell navigation", () => {
   it("keeps Chats available when no providers are configured", () => {
     const state = createRuntimeConsoleFixture({
+      chatTarget: "model",
       controlPlaneConfig: { backend: "memory", providers: [], pricebook: [], policy_rules: [], events: [] },
     });
     render(

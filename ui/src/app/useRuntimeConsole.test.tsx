@@ -55,6 +55,19 @@ describe("useRuntimeConsole", () => {
     expect(result.current.state.message).toBe("");
   });
 
+  it("defaults to Agent chat when no chat target preference exists", async () => {
+    const { result } = renderHook(() => useRuntimeConsole());
+    await waitFor(() => expect(result.current.state.loading).toBe(false));
+    expect(result.current.state.chatTarget).toBe("agent");
+  });
+
+  it("preserves the saved chat target preference", async () => {
+    window.localStorage.setItem("hecate.chatTarget", "model");
+    const { result } = renderHook(() => useRuntimeConsole());
+    await waitFor(() => expect(result.current.state.loading).toBe(false));
+    expect(result.current.state.chatTarget).toBe("model");
+  });
+
   it("settles into a Local session after the dashboard loads", async () => {
     const { result } = renderHook(() => useRuntimeConsole());
     await waitFor(() => expect(result.current.state.loading).toBe(false));
@@ -303,6 +316,10 @@ describe("useRuntimeConsole", () => {
 
   // ─── chat session actions ──────────────────────────────────────────────────
   describe("chat session actions", () => {
+    beforeEach(() => {
+      window.localStorage.setItem("hecate.chatTarget", "model");
+    });
+
     function withSessions(sessions: Array<{ id: string; title: string }>, routes: Record<string, () => Response> = {}) {
       return defaultBackendMock({
         "/v1/chat/sessions?limit=20": () => {
