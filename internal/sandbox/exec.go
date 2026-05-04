@@ -32,8 +32,8 @@ type ResourceLimits struct {
 }
 
 // DefaultResourceLimits returns the env-driven resource caps that a zero-value
-// Command.Limits would receive at execution time. Callers use this for
-// telemetry only; LocalExecutor still performs the authoritative merge.
+// Command.Limits would receive at execution time. Callers may use this for
+// telemetry previews or to pass the same default limits explicitly.
 func DefaultResourceLimits() ResourceLimits {
 	return defaultLimits()
 }

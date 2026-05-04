@@ -186,12 +186,16 @@ func (m *Metrics) RecordRequestOutcome(ctx context.Context, result string, durat
 }
 
 func (m *Metrics) RecordProviderCall(ctx context.Context, rec ProviderCallMetricsRecord) {
-	if m == nil || rec.Provider == "" {
+	if m == nil {
+		return
+	}
+	provider := NormalizeMetricLabel(rec.Provider)
+	if provider == "" {
 		return
 	}
 
 	attrs := make([]attribute.KeyValue, 0, 7)
-	attrs = append(attrs, attribute.String(AttrGenAIProviderName, NormalizeMetricLabel(rec.Provider)))
+	attrs = append(attrs, attribute.String(AttrGenAIProviderName, provider))
 	if rec.ProviderKind != "" {
 		attrs = append(attrs, attribute.String(AttrHecateProviderKind, NormalizeProviderKind(rec.ProviderKind)))
 	}

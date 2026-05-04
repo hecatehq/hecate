@@ -192,6 +192,7 @@ func TestTelemetryEventPhasesMatchUIVocabulary(t *testing.T) {
 	}{
 		{"orchestrator step", telemetry.EventOrchestratorStepCompleted, "tool"},
 		{"policy block", telemetry.EventMCPToolBlocked, "approval"},
+		{"queue lifecycle", telemetry.EventQueueClaimed, "queue"},
 	}
 
 	for _, tc := range cases {

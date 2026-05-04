@@ -184,6 +184,30 @@ func TestMetricsRecordProviderCallNormalizesMetricLabels(t *testing.T) {
 	}
 }
 
+func TestMetricsRecordProviderCallSkipsEmptyNormalizedProvider(t *testing.T) {
+	t.Parallel()
+
+	reader := sdkmetric.NewManualReader()
+	provider := sdkmetric.NewMeterProvider(sdkmetric.WithReader(reader))
+	metrics, err := NewMetricsWithMeterProvider(provider)
+	if err != nil {
+		t.Fatalf("NewMetricsWithMeterProvider() error = %v", err)
+	}
+
+	metrics.RecordProviderCall(context.Background(), ProviderCallMetricsRecord{
+		Provider:     " \t ",
+		ProviderKind: "cloud",
+		Model:        "gpt-4o-mini",
+		Result:       ResultSuccess,
+		Attempt:      1,
+		DurationMS:   10,
+	})
+
+	collected := collectMetrics(t, reader)
+	assertMetricHasNoDataPoints(t, collected, MetricProviderCallsTotal)
+	assertMetricHasNoDataPoints(t, collected, MetricProviderCallDuration)
+}
+
 func TestAgentChatMetricsRecordRunEmitsCounterAndHistogram(t *testing.T) {
 	t.Parallel()
 
@@ -280,6 +304,31 @@ func attrBool(set attribute.Set, key string) (bool, bool) {
 		return false, false
 	}
 	return value.AsBool(), true
+}
+
+func assertMetricHasNoDataPoints(t *testing.T, collected metricdata.ResourceMetrics, name string) {
+	t.Helper()
+
+	for _, scope := range collected.ScopeMetrics {
+		for _, metric := range scope.Metrics {
+			if metric.Name != name {
+				continue
+			}
+			switch data := metric.Data.(type) {
+			case metricdata.Sum[int64]:
+				if len(data.DataPoints) != 0 {
+					t.Fatalf("metric %q data points = %d, want 0", name, len(data.DataPoints))
+				}
+			case metricdata.Histogram[int64]:
+				if len(data.DataPoints) != 0 {
+					t.Fatalf("metric %q data points = %d, want 0", name, len(data.DataPoints))
+				}
+			default:
+				t.Fatalf("metric %q type = %T, want sum or histogram", name, metric.Data)
+			}
+			return
+		}
+	}
 }
 
 // ===========================================================================

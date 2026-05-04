@@ -358,8 +358,10 @@ func otelAttributesForEvent(name string, attrs map[string]any) map[string]any {
 		out[telemetry.AttrHecatePhase] = "usage"
 	case name == telemetry.EventCostCalculated || name == telemetry.EventCostEstimateUnpriced:
 		out[telemetry.AttrHecatePhase] = "cost"
-	case hasPrefix(name, "orchestrator.task.") || hasPrefix(name, "orchestrator.run.") || hasPrefix(name, "queue."):
+	case hasPrefix(name, "orchestrator.task.") || hasPrefix(name, "orchestrator.run."):
 		out[telemetry.AttrHecatePhase] = "orchestration"
+	case hasPrefix(name, "queue."):
+		out[telemetry.AttrHecatePhase] = "queue"
 	case hasPrefix(name, "orchestrator.step."):
 		out[telemetry.AttrHecatePhase] = "tool"
 	case hasPrefix(name, "orchestrator.artifact."):
