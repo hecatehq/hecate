@@ -361,7 +361,7 @@ func otelAttributesForEvent(name string, attrs map[string]any) map[string]any {
 	case hasPrefix(name, "orchestrator.task.") || hasPrefix(name, "orchestrator.run.") || hasPrefix(name, "queue."):
 		out[telemetry.AttrHecatePhase] = "orchestration"
 	case hasPrefix(name, "orchestrator.step."):
-		out[telemetry.AttrHecatePhase] = "planning"
+		out[telemetry.AttrHecatePhase] = "tool"
 	case hasPrefix(name, "orchestrator.artifact."):
 		out[telemetry.AttrHecatePhase] = "artifact"
 	case hasPrefix(name, "orchestrator.approval."):
@@ -369,7 +369,7 @@ func otelAttributesForEvent(name string, attrs map[string]any) map[string]any {
 	case hasPrefix(name, "tool."):
 		out[telemetry.AttrHecatePhase] = "tool"
 	case hasPrefix(name, "policy."):
-		out[telemetry.AttrHecatePhase] = "policy"
+		out[telemetry.AttrHecatePhase] = "approval"
 	case hasPrefix(name, "retention."):
 		out[telemetry.AttrHecatePhase] = "retention"
 	case hasPrefix(name, "agent_chat."):

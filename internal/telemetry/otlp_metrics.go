@@ -83,12 +83,14 @@ func otelMetricExemplarFilter(value string) (exemplar.Filter, bool, error) {
 func newMetricExporter(ctx context.Context, opts OTelMetricOptions) (sdkmetric.Exporter, error) {
 	if NormalizeOTLPTransport(opts.Transport) == OTLPTransportGRPC {
 		exporterOpts := []otlpmetricgrpc.Option{
-			otlpmetricgrpc.WithEndpoint(OTLPGRPCEndpoint(opts.Endpoint)),
 			otlpmetricgrpc.WithHeaders(opts.Headers),
 			otlpmetricgrpc.WithTimeout(opts.Timeout),
 		}
-		if IsOTLPGRPCInsecure(opts.Endpoint) {
-			exporterOpts = append(exporterOpts, otlpmetricgrpc.WithInsecure())
+		if endpoint := strings.TrimSpace(opts.Endpoint); endpoint != "" {
+			exporterOpts = append(exporterOpts, otlpmetricgrpc.WithEndpoint(OTLPGRPCEndpoint(endpoint)))
+			if IsOTLPGRPCInsecure(endpoint) {
+				exporterOpts = append(exporterOpts, otlpmetricgrpc.WithInsecure())
+			}
 		}
 		return otlpmetricgrpc.New(ctx, exporterOpts...)
 	}

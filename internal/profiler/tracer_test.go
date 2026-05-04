@@ -181,3 +181,43 @@ func TestAllTelemetryEventsHaveSpecificSpanAndPhase(t *testing.T) {
 		})
 	}
 }
+
+func TestTelemetryEventPhasesMatchUIVocabulary(t *testing.T) {
+	t.Parallel()
+
+	cases := []struct {
+		name      string
+		eventName string
+		wantPhase string
+	}{
+		{"orchestrator step", telemetry.EventOrchestratorStepCompleted, "tool"},
+		{"policy block", telemetry.EventMCPToolBlocked, "approval"},
+	}
+
+	for _, tc := range cases {
+		tc := tc
+		t.Run(tc.name, func(t *testing.T) {
+			t.Parallel()
+
+			trace := NewTrace("req-phase", nil)
+			trace.Record(tc.eventName, map[string]any{})
+
+			for _, span := range trace.Spans() {
+				for _, event := range span.Events {
+					if event.Name != tc.eventName {
+						continue
+					}
+					got, ok := span.Attributes[telemetry.AttrHecatePhase]
+					if !ok {
+						continue
+					}
+					if got != tc.wantPhase {
+						t.Fatalf("span %q phase = %#v, want %q", span.Name, got, tc.wantPhase)
+					}
+					return
+				}
+			}
+			t.Fatalf("event %q not found on a phased trace span", tc.eventName)
+		})
+	}
+}
