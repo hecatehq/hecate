@@ -506,7 +506,7 @@ func (r *Runner) StartReconcileLoop() {
 				return
 			case <-ticker.C:
 				if err := r.reconcileStaleRuns(r.workerCtx, staleThreshold); err != nil {
-					r.logger.Warn("periodic task reconcile failed", slog.Any("error", err))
+					telemetry.Warn(r.logger, r.workerCtx, "periodic task reconcile failed", slog.Any("error", err))
 				}
 			}
 		}

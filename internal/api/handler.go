@@ -178,8 +178,9 @@ func NewHandler(cfg config.Config, logger *slog.Logger, service *gateway.Service
 		}
 		return result.Response, nil
 	}))
-	if err := runner.ReconcilePendingRuns(context.Background()); err != nil {
-		logger.Warn("task runner reconciliation failed", slog.Any("error", err))
+	reconcileCtx := context.Background()
+	if err := runner.ReconcilePendingRuns(reconcileCtx); err != nil {
+		telemetry.Warn(logger, reconcileCtx, "task runner reconciliation failed", slog.Any("error", err))
 	}
 	runner.StartReconcileLoop()
 
@@ -225,11 +226,11 @@ func (h *Handler) reconcileAgentChatStore(ctx context.Context) {
 	}
 	count, err := agentchat.ReconcileInterruptedRuns(ctx, h.agentChat, time.Now().UTC())
 	if err != nil {
-		h.logger.Warn("agent chat reconciliation failed", slog.Any("error", err))
+		telemetry.Warn(h.logger, ctx, "agent chat reconciliation failed", slog.Any("error", err))
 		return
 	}
 	if count > 0 {
-		h.logger.Info("agent chat reconciliation completed", slog.Int("interrupted_runs", count))
+		telemetry.Info(h.logger, ctx, "agent chat reconciliation completed", slog.Int("interrupted_runs", count))
 	}
 }
 
