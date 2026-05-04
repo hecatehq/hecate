@@ -207,6 +207,120 @@ func TestSessionManagerCancelsACPPrompt(t *testing.T) {
 	}
 }
 
+func TestSessionManagerShutdownCancelsActiveACPPrompt(t *testing.T) {
+	installFakeACPExecutable(t, "codex-acp")
+	workspace := t.TempDir()
+
+	manager := NewSessionManager()
+	ready := make(chan struct{})
+	done := make(chan error, 1)
+	var once sync.Once
+	go func() {
+		_, err := manager.Run(context.Background(), RunRequest{
+			SessionID:      "chat_shutdown_cancel",
+			AdapterID:      "codex",
+			Workspace:      workspace,
+			Prompt:         "wait",
+			Timeout:        30 * time.Second,
+			MaxOutputBytes: 64 * 1024,
+			OnOutput: func(chunk string) {
+				if strings.Contains(chunk, "waiting") {
+					once.Do(func() { close(ready) })
+				}
+			},
+		})
+		done <- err
+	}()
+
+	select {
+	case <-ready:
+	case <-time.After(5 * time.Second):
+		t.Fatalf("timed out waiting for ACP prompt to start")
+	}
+
+	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+	defer cancel()
+	if err := manager.Shutdown(ctx); err != nil {
+		t.Fatalf("Shutdown: %v", err)
+	}
+
+	select {
+	case err := <-done:
+		if err != context.Canceled {
+			t.Fatalf("Run error = %v, want context.Canceled", err)
+		}
+	case <-time.After(5 * time.Second):
+		t.Fatalf("timed out waiting for active ACP prompt cancellation")
+	}
+}
+
+func TestSessionManagerShutdownKillsStubbornACPProcess(t *testing.T) {
+	installFakeACPExecutable(t, "codex-acp")
+	workspace := t.TempDir()
+
+	manager := NewSessionManager()
+	ready := make(chan struct{})
+	done := make(chan error, 1)
+	var once sync.Once
+	go func() {
+		_, err := manager.Run(context.Background(), RunRequest{
+			SessionID:      "chat_shutdown_kill",
+			AdapterID:      "codex",
+			Workspace:      workspace,
+			Prompt:         "ignore_cancel",
+			Timeout:        30 * time.Second,
+			MaxOutputBytes: 64 * 1024,
+			OnOutput: func(chunk string) {
+				if strings.Contains(chunk, "waiting") {
+					once.Do(func() { close(ready) })
+				}
+			},
+		})
+		done <- err
+	}()
+
+	select {
+	case <-ready:
+	case <-time.After(5 * time.Second):
+		t.Fatalf("timed out waiting for stubborn ACP prompt to start")
+	}
+
+	ctx, cancel := context.WithTimeout(context.Background(), 6*time.Second)
+	defer cancel()
+	if err := manager.Shutdown(ctx); err != nil {
+		t.Fatalf("Shutdown: %v", err)
+	}
+
+	select {
+	case err := <-done:
+		if err == nil {
+			t.Fatalf("Run error = nil, want process termination error")
+		}
+	case <-time.After(5 * time.Second):
+		t.Fatalf("timed out waiting for stubborn ACP process termination")
+	}
+}
+
+func TestSessionManagerRejectsRunsAfterShutdown(t *testing.T) {
+	installFakeACPExecutable(t, "codex-acp")
+	manager := NewSessionManager()
+	if err := manager.Shutdown(context.Background()); err != nil {
+		t.Fatalf("Shutdown: %v", err)
+	}
+
+	_, err := manager.Run(context.Background(), RunRequest{
+		SessionID:      "chat_after_shutdown",
+		AdapterID:      "codex",
+		Workspace:      t.TempDir(),
+		Prompt:         "hello",
+		Timeout:        5 * time.Second,
+		MaxOutputBytes: 64 * 1024,
+	})
+	if err == nil || !strings.Contains(err.Error(), "shut down") {
+		t.Fatalf("Run error = %v, want shut down error", err)
+	}
+}
+
 func TestACPTurnIgnoresBookkeepingUpdatesInTranscript(t *testing.T) {
 	turn := newACPTurn(64*1024, nil)
 	sessionID := acp.SessionId("session_1")
@@ -494,6 +608,15 @@ func (a *fakeACPAgent) Prompt(ctx context.Context, params acp.PromptRequest) (ac
 		}
 		<-turnCtx.Done()
 		return acp.PromptResponse{StopReason: acp.StopReasonCancelled}, nil
+	}
+	if prompt == "ignore_cancel" {
+		if err := a.conn.SessionUpdate(turnCtx, acp.SessionNotification{
+			SessionId: params.SessionId,
+			Update:    acp.UpdateAgentMessageText("waiting"),
+		}); err != nil {
+			return acp.PromptResponse{}, err
+		}
+		select {}
 	}
 
 	if err := a.conn.SessionUpdate(turnCtx, acp.SessionNotification{

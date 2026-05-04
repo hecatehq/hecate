@@ -595,6 +595,8 @@ currently running, the endpoint returns `409 invalid_request`.
 ### `DELETE /v1/agent-chat/sessions/{id}`
 
 Deletes an Agent Chat session from the configured chat-session backend.
+If the session has an active native ACP adapter process, Hecate closes the
+native session and terminates the owned process as part of deletion.
 
 ### `POST /v1/workspace-dialog`
 

@@ -19,6 +19,11 @@ import (
 
 const DriverKindACP = "acp"
 
+const (
+	acpShutdownCancelTimeout = 2 * time.Second
+	acpShutdownCloseTimeout  = 2 * time.Second
+)
+
 type Runner interface {
 	Run(context.Context, RunRequest) (RunResult, error)
 	CloseSession(context.Context, string) error
@@ -30,6 +35,7 @@ type SessionManager struct {
 	sessions map[string]*acpSession
 	starts   map[string]*sessionStart
 	logger   *slog.Logger
+	closed   bool
 }
 
 func NewSessionManager() *SessionManager {
@@ -86,12 +92,17 @@ func (m *SessionManager) Run(ctx context.Context, req RunRequest) (RunResult, er
 }
 
 type sessionStart struct {
-	done chan struct{}
+	done   chan struct{}
+	cancel context.CancelFunc
 }
 
 func (m *SessionManager) session(ctx context.Context, adapter Adapter, req RunRequest) (*acpSession, bool, bool, error) {
 	for {
 		m.mu.Lock()
+		if m.closed {
+			m.mu.Unlock()
+			return nil, false, false, fmt.Errorf("agent session manager is shut down")
+		}
 		existing := m.sessions[req.SessionID]
 		if existing != nil && existing.adapter.ID == adapter.ID && existing.workspace == req.Workspace {
 			m.mu.Unlock()
@@ -110,16 +121,24 @@ func (m *SessionManager) session(ctx context.Context, adapter Adapter, req RunRe
 		if m.starts == nil {
 			m.starts = make(map[string]*sessionStart)
 		}
-		start := &sessionStart{done: make(chan struct{})}
+		startCtx, startCancel := context.WithCancel(ctx)
+		start := &sessionStart{done: make(chan struct{}), cancel: startCancel}
 		m.starts[req.SessionID] = start
 		logger := m.logger
 		m.mu.Unlock()
 
-		started, resumed, err := startACPSession(ctx, adapter, req.Workspace, req.PreviousNativeSessionID, logger)
+		started, resumed, err := startACPSession(startCtx, adapter, req.Workspace, req.PreviousNativeSessionID, logger)
+		startCancel()
 
 		var previous *acpSession
 		m.mu.Lock()
 		delete(m.starts, req.SessionID)
+		if err == nil && m.closed {
+			close(start.done)
+			m.mu.Unlock()
+			_ = started.Close(context.Background())
+			return nil, false, false, fmt.Errorf("agent session manager is shut down")
+		}
 		if err == nil {
 			previous = m.sessions[req.SessionID]
 			m.sessions[req.SessionID] = started
@@ -161,7 +180,26 @@ func (m *SessionManager) Shutdown(ctx context.Context) error {
 		items = append(items, session)
 		delete(m.sessions, id)
 	}
+	starts := make([]*sessionStart, 0, len(m.starts))
+	for _, start := range m.starts {
+		starts = append(starts, start)
+	}
+	m.closed = true
 	m.mu.Unlock()
+
+	for _, start := range starts {
+		if start.cancel != nil {
+			start.cancel()
+		}
+	}
+	for _, start := range starts {
+		select {
+		case <-start.done:
+		case <-ctx.Done():
+			return ctx.Err()
+		}
+	}
+
 	var firstErr error
 	for _, session := range items {
 		if err := session.Close(ctx); err != nil && firstErr == nil {
@@ -180,6 +218,10 @@ type acpSession struct {
 	nativeID  string
 
 	turnMu sync.Mutex
+
+	activeMu     sync.Mutex
+	activeCancel context.CancelFunc
+	activeDone   chan struct{}
 }
 
 func startACPSession(ctx context.Context, adapter Adapter, workspace, previousNativeSessionID string, logger *slog.Logger) (*acpSession, bool, error) {
@@ -284,8 +326,16 @@ func (s *acpSession) RunTurn(ctx context.Context, req RunRequest) (RunResult, er
 	s.client.setTurn(turn)
 	defer s.client.clearTurn(turn)
 
-	promptCtx, cancel := context.WithTimeout(ctx, req.Timeout)
-	defer cancel()
+	promptBaseCtx, timeoutCancel := context.WithTimeout(ctx, req.Timeout)
+	promptCtx, activeCancel := context.WithCancel(promptBaseCtx)
+	activeDone := make(chan struct{})
+	s.setActiveTurn(activeCancel, activeDone)
+	defer func() {
+		activeCancel()
+		timeoutCancel()
+		close(activeDone)
+		s.clearActiveTurn(activeDone)
+	}()
 	_, runErr := s.conn.Prompt(promptCtx, acp.PromptRequest{
 		SessionId: acp.SessionId(s.nativeID),
 		Prompt:    []acp.ContentBlock{acp.TextBlock(req.Prompt)},
@@ -315,8 +365,11 @@ func (s *acpSession) Close(ctx context.Context) error {
 	if s == nil {
 		return nil
 	}
+	cancelCtx, cancel := context.WithTimeout(ctx, acpShutdownCancelTimeout)
+	_ = s.cancelActiveTurn(cancelCtx)
+	cancel()
 	if s.conn != nil && s.nativeID != "" {
-		closeCtx, cancel := context.WithTimeout(ctx, 2*time.Second)
+		closeCtx, cancel := context.WithTimeout(ctx, acpShutdownCloseTimeout)
 		_, _ = s.conn.CloseSession(closeCtx, acp.CloseSessionRequest{SessionId: acp.SessionId(s.nativeID)})
 		cancel()
 	}
@@ -324,6 +377,46 @@ func (s *acpSession) Close(ctx context.Context) error {
 		terminateProcess(s.cmd)
 	}
 	return nil
+}
+
+func (s *acpSession) setActiveTurn(cancel context.CancelFunc, done chan struct{}) {
+	s.activeMu.Lock()
+	defer s.activeMu.Unlock()
+	s.activeCancel = cancel
+	s.activeDone = done
+}
+
+func (s *acpSession) clearActiveTurn(done chan struct{}) {
+	s.activeMu.Lock()
+	defer s.activeMu.Unlock()
+	if s.activeDone == done {
+		s.activeCancel = nil
+		s.activeDone = nil
+	}
+}
+
+func (s *acpSession) cancelActiveTurn(ctx context.Context) error {
+	s.activeMu.Lock()
+	cancel := s.activeCancel
+	done := s.activeDone
+	conn := s.conn
+	nativeID := s.nativeID
+	s.activeMu.Unlock()
+	if done == nil {
+		return nil
+	}
+	if conn != nil && nativeID != "" {
+		_ = conn.Cancel(ctx, acp.CancelNotification{SessionId: acp.SessionId(nativeID)})
+	}
+	if cancel != nil {
+		cancel()
+	}
+	select {
+	case <-done:
+		return nil
+	case <-ctx.Done():
+		return ctx.Err()
+	}
 }
 
 func captureACPTurnResult(ctx context.Context, adapter Adapter, req RunRequest, nativeSessionID, output, rawOutput string, usage Usage, exitCode int, started, completed time.Time, runErr error) (RunResult, error) {
