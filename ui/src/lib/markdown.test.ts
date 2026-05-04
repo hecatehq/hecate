@@ -38,6 +38,34 @@ describe("parseMarkdownBlocks", () => {
     expect(blocks).toEqual([{ type: "ol", text: "", items: ["first", "second"] }]);
   });
 
+  it("parses task list items", () => {
+    const blocks = parseMarkdownBlocks("- [x] done\n- [ ] todo\n* [X] shipped");
+    expect(blocks).toEqual([{
+      type: "task",
+      text: "",
+      tasks: [
+        { checked: true, text: "done" },
+        { checked: false, text: "todo" },
+        { checked: true, text: "shipped" },
+      ],
+    }]);
+  });
+
+  it("parses pipe tables", () => {
+    const blocks = parseMarkdownBlocks("| File | Status |\n| --- | --- |\n| README.md | updated |\n| docs.md | skipped |");
+    expect(blocks).toEqual([{
+      type: "table",
+      text: "",
+      table: {
+        headers: ["File", "Status"],
+        rows: [
+          ["README.md", "updated"],
+          ["docs.md", "skipped"],
+        ],
+      },
+    }]);
+  });
+
   it("parses horizontal rule", () => {
     expect(parseMarkdownBlocks("---")).toEqual([{ type: "hr", text: "" }]);
     expect(parseMarkdownBlocks("***")).toEqual([{ type: "hr", text: "" }]);
@@ -62,6 +90,14 @@ describe("parseMarkdownBlocks", () => {
     expect(blocks).toHaveLength(2);
     expect(blocks[0]).toEqual({ type: "p", text: "intro" });
     expect(blocks[1]).toEqual({ type: "code", text: "code", lang: "ts" });
+  });
+
+  it("stops paragraph accumulation at a task list and table", () => {
+    const blocks = parseMarkdownBlocks("intro\n- [ ] todo\n\n| A | B |\n| --- | --- |\n| one | two |");
+    expect(blocks).toHaveLength(3);
+    expect(blocks[0]).toEqual({ type: "p", text: "intro" });
+    expect(blocks[1].type).toBe("task");
+    expect(blocks[2].type).toBe("table");
   });
 });
 

@@ -1231,6 +1231,64 @@ function Markdown({ content }: { content: string }) {
             </ol>
           );
         }
+        if (block.type === "task") {
+          return (
+            <ul key={i} style={{ display: "grid", gap: 4, listStyle: "none", margin: "6px 0", padding: 0 }}>
+              {block.tasks!.map((task, j) => (
+                <li key={j} style={{ alignItems: "flex-start", display: "flex", gap: 8 }}>
+                  <span
+                    aria-hidden="true"
+                    style={{
+                      alignItems: "center",
+                      background: task.checked ? "var(--teal-soft)" : "var(--bg3)",
+                      border: `1px solid ${task.checked ? "var(--teal-border)" : "var(--border)"}`,
+                      borderRadius: 4,
+                      color: task.checked ? "var(--teal)" : "transparent",
+                      display: "inline-flex",
+                      flex: "0 0 auto",
+                      fontSize: 10,
+                      height: 14,
+                      justifyContent: "center",
+                      marginTop: 4,
+                      width: 14,
+                    }}
+                  >
+                    x
+                  </span>
+                  <span>{renderInline(task.text)}</span>
+                </li>
+              ))}
+            </ul>
+          );
+        }
+        if (block.type === "table") {
+          return (
+            <div key={i} style={{ border: "1px solid var(--border)", borderRadius: "var(--radius-sm)", margin: "8px 0", overflowX: "auto" }}>
+              <table style={{ borderCollapse: "collapse", minWidth: "100%", fontSize: 12 }}>
+                <thead>
+                  <tr>
+                    {block.table!.headers.map((header, j) => (
+                      <th key={j} style={{ background: "var(--bg3)", borderBottom: "1px solid var(--border)", color: "var(--t1)", fontWeight: 600, padding: "6px 8px", textAlign: "left", whiteSpace: "nowrap" }}>
+                        {renderInline(header)}
+                      </th>
+                    ))}
+                  </tr>
+                </thead>
+                <tbody>
+                  {block.table!.rows.map((row, j) => (
+                    <tr key={j}>
+                      {block.table!.headers.map((_, k) => (
+                        <td key={k} style={{ borderTop: j === 0 ? "none" : "1px solid var(--border)", color: "var(--t0)", padding: "6px 8px", verticalAlign: "top" }}>
+                          {renderInline(row[k] ?? "")}
+                        </td>
+                      ))}
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            </div>
+          );
+        }
         if (block.type === "hr") {
           return <hr key={i} style={{ border: "none", borderTop: "1px solid var(--border)", margin: "10px 0" }} />;
         }
