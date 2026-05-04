@@ -89,7 +89,7 @@ export function useRuntimeConsole() {
   const [providers, setProviders] = useState<ProviderStatusResponse["data"]>([]);
   const [providerPresets, setProviderPresets] = useState<ProviderPresetRecord[]>([]);
   const [agentAdapters, setAgentAdapters] = useState<AgentAdapterRecord[]>([]);
-  const [chatTarget, setChatTarget] = useState<"model" | "agent">("model");
+  const [chatTarget, setChatTarget] = useState<"model" | "agent">("agent");
   const [agentAdapterID, setAgentAdapterID] = useState("codex");
   const [agentWorkspace, setAgentWorkspace] = useState("");
   const [agentWorkspaceBranch, setAgentWorkspaceBranch] = useState("");

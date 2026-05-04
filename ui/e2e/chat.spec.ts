@@ -18,7 +18,13 @@ test.beforeEach(async ({ page }) => {
   await page.waitForSelector(".hecate-activitybar");
 });
 
+async function switchToModel(page: Page) {
+  await page.getByRole("button", { name: "Model", exact: true }).click();
+}
+
 test("renders the message textarea and send button", async ({ page }) => {
+  await expect(page.getByRole("button", { name: "Agent", exact: true })).toBeVisible();
+  await expect(page.getByRole("button", { name: "Model", exact: true })).toBeVisible();
   await expect(page.locator("textarea")).toBeVisible();
   await expect(page.locator("button[type='submit']")).toBeVisible();
 });
@@ -29,11 +35,13 @@ test("send button is disabled when message is empty", async ({ page }) => {
 });
 
 test("send button becomes enabled when message has content", async ({ page }) => {
+  await switchToModel(page);
   await page.locator("textarea").fill("Hello");
   await expect(page.locator("button[type='submit']")).toBeEnabled();
 });
 
 test("model picker opens and lists models from mock data", async ({ page }) => {
+  await switchToModel(page);
   // Wait for models to load, then open the picker
   const modelBtn = page.getByRole("button", { name: /model picker/i });
   await modelBtn.click();
@@ -44,6 +52,7 @@ test("model picker opens and lists models from mock data", async ({ page }) => {
 });
 
 test("model picker filters by search input", async ({ page }) => {
+  await switchToModel(page);
   const modelBtn = page.getByRole("button", { name: /model picker/i });
   await modelBtn.click();
 
@@ -55,6 +64,7 @@ test("model picker filters by search input", async ({ page }) => {
 });
 
 test("selecting a model closes the picker and updates the button label", async ({ page }) => {
+  await switchToModel(page);
   const modelBtn = page.getByRole("button", { name: /model picker/i });
   await modelBtn.click();
 
@@ -65,6 +75,7 @@ test("selecting a model closes the picker and updates the button label", async (
 });
 
 test("provider picker shows healthy providers", async ({ page }) => {
+  await switchToModel(page);
   const healthyProviders = MOCK_PROVIDERS.filter(p => p.healthy);
   const providerBtn = page.locator("button", { hasText: /all providers/i });
   await providerBtn.click();
@@ -76,6 +87,7 @@ test("provider picker shows healthy providers", async ({ page }) => {
 });
 
 test("New chat button clears the active conversation", async ({ page }) => {
+  await switchToModel(page);
   // Fill the message box so we can verify the state resets
   await page.locator("textarea").fill("some prior message");
   await page.getByRole("button", { name: /new chat/i }).click();
@@ -86,6 +98,7 @@ test("New chat button clears the active conversation", async ({ page }) => {
 });
 
 test("system prompt editor opens and closes", async ({ page }) => {
+  await switchToModel(page);
   const systemBtn = page.locator("button", { hasText: /system/i });
   await systemBtn.click();
   await expect(page.getByText("SYSTEM PROMPT")).toBeVisible();
@@ -133,6 +146,7 @@ test("workspace selection persists across reload", async ({ page }) => {
 // required for cloud provider X" wire message is humanized into "X has no
 // API key. Open the Providers tab and add one." before reaching the DOM.
 test("chat error renders inline with the humanized message", async ({ page }) => {
+  await switchToModel(page);
   await page.route("/v1/chat/sessions", r =>
     r.fulfill({
       status: 200,

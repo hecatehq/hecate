@@ -346,7 +346,7 @@ export function ChatView({ state, actions, onNavigate }: Props) {
             </button>
           )}
           <div style={{ display: "flex", border: "1px solid var(--border)", borderRadius: "var(--radius-sm)", overflow: "hidden", flexShrink: 0 }}>
-            {(["model", "agent"] as const).map((target) => (
+            {(["agent", "model"] as const).map((target) => (
               <button
                 key={target}
                 className="btn btn-ghost btn-sm"
