@@ -67,6 +67,7 @@ export function createRuntimeConsoleFixture(
     agentChatGrants: [],
     agentChatGrantsLoading: false,
     agentChatGrantsError: "",
+    agentAdapterApprovalMode: "",
     ...overrides,
   };
 }

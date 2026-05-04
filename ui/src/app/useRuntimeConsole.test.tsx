@@ -31,6 +31,21 @@ function defaultBackendMock(routes: Record<string, () => Response> = {}) {
     if (url.startsWith("/v1/chat/sessions")) return jsonResponse({ object: "chat_sessions", data: [], has_more: false });
     if (url.startsWith("/admin/retention/runs")) return jsonResponse({ object: "retention_runs", data: [] });
     if (url.startsWith("/admin/requests")) return jsonResponse({ object: "requests", data: [] });
+    if (url.startsWith("/admin/runtime/stats")) return jsonResponse({
+      object: "runtime_stats",
+      data: {
+        checked_at: "2026-04-21T10:00:00Z",
+        queue_depth: 0,
+        queue_capacity: 0,
+        worker_count: 0,
+        in_flight_jobs: 0,
+        queued_runs: 0,
+        running_runs: 0,
+        awaiting_approval_runs: 0,
+        oldest_queued_age_seconds: 0,
+        oldest_running_age_seconds: 0,
+      },
+    });
     void init;
     return new Response("not found", { status: 404 });
   };
@@ -473,7 +488,7 @@ describe("useRuntimeConsole", () => {
         tool_name: "write_file",
         status: "pending",
         acp_options: [],
-        scope_choices: ["this_call"],
+        scope_choices: ["once"],
         created_at: "2026-04-21T10:00:00Z",
         expires_at: "2026-04-21T10:05:00Z",
         ...overrides,
@@ -591,7 +606,7 @@ describe("useRuntimeConsole", () => {
         }),
         "/v1/agent-chat/sessions/a1/approvals/ap-1/resolve": () => jsonResponse({
           object: "agent_chat_approval",
-          data: approvalRow({ status: "resolved", decision: "allow", scope: "this_call", path: "operator" }),
+          data: approvalRow({ status: "resolved", decision: "approve", scope: "once", path: "operator" }),
         }),
       }));
 
@@ -603,8 +618,8 @@ describe("useRuntimeConsole", () => {
 
       await act(async () => {
         const ok = await result.current.actions.resolveAgentChatApproval("a1", "ap-1", {
-          decision: "allow",
-          scope: "this_call",
+          decision: "approve",
+          scope: "once",
         });
         expect(ok).toBe(true);
       });
@@ -620,8 +635,8 @@ describe("useRuntimeConsole", () => {
         "/v1/agent-chat/grants": () => jsonResponse({
           object: "list",
           data: [
-            { id: "g1", scope: "session", adapter_id: "codex", tool_kind: "fs", decision: "allow", granted_by: "operator", granted_at: "2026-04-21T10:00:00Z" },
-            { id: "g2", scope: "workspace", adapter_id: "codex", tool_kind: "exec", decision: "allow", granted_by: "operator", granted_at: "2026-04-21T10:01:00Z" },
+            { id: "g1", scope: "session", adapter_id: "codex", tool_kind: "fs", decision: "approve", granted_by: "operator", granted_at: "2026-04-21T10:00:00Z" },
+            { id: "g2", scope: "workspace_tool", adapter_id: "codex", tool_kind: "exec", decision: "approve", granted_by: "operator", granted_at: "2026-04-21T10:01:00Z" },
           ],
         }),
         "/v1/agent-chat/grants/g1": () => new Response(null, { status: 204 }),

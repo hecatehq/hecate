@@ -676,6 +676,13 @@ type RuntimeStatsResponseItem struct {
 	OldestQueuedAgeSeconds  int64  `json:"oldest_queued_age_seconds"`
 	OldestRunningAgeSeconds int64  `json:"oldest_running_age_seconds"`
 	StoreBackend            string `json:"store_backend,omitempty"`
+	// AgentAdapterApprovalMode reports the configured mode for the
+	// External Agent adapter approval coordinator: "auto", "prompt",
+	// or "deny". Operators surface a danger banner in the UI when this
+	// is "auto" since every adapter call is permitted without review.
+	// Empty when the gateway was built without an approval coordinator
+	// (test fixtures, legacy configs).
+	AgentAdapterApprovalMode string `json:"agent_adapter_approval_mode,omitempty"`
 }
 
 // MCPProbeRequest is the wire shape for POST /v1/mcp/probe — a

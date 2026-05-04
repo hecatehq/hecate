@@ -261,6 +261,8 @@ For `agent_loop`-specific knobs (max turns, system-prompt layers, HTTP policy fo
 
 `GET /admin/runtime/stats` also reports queue health fields including queue depth, queue capacity, worker count, and `queue_backend`.
 
+The response also surfaces `agent_adapter_approval_mode` — the configured mode for the external-agent adapter approval coordinator: `"auto"`, `"prompt"`, or `"deny"`. Operators surface a danger banner in the UI when this is `"auto"` since every adapter `RequestPermission` is permitted without review. Empty when the gateway was built without an approval coordinator (legacy configs / test fixtures).
+
 `GET /admin/mcp/cache` returns a snapshot of the shared MCP client cache:
 
 ```json

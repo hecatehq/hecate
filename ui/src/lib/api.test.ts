@@ -401,8 +401,8 @@ describe("api client", () => {
       );
 
       await resolveAgentChatApproval("sess-1", "ap-1", {
-        decision: "allow",
-        scope: "this_call",
+        decision: "approve",
+        scope: "once",
         selected_option: "opt-1",
         note: "looks fine",
       });
@@ -412,8 +412,8 @@ describe("api client", () => {
       expect(options?.method).toBe("POST");
       const body = options?.body;
       expect(typeof body === "string" ? JSON.parse(body) : body).toEqual({
-        decision: "allow",
-        scope: "this_call",
+        decision: "approve",
+        scope: "once",
         selected_option: "opt-1",
         note: "looks fine",
       });
