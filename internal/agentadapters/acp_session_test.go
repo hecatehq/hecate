@@ -72,6 +72,50 @@ func TestSessionManagerRunsTurnsThroughACP(t *testing.T) {
 	}
 }
 
+func TestSessionManagerLoadsPersistedNativeSession(t *testing.T) {
+	installFakeACPExecutable(t, "codex-acp")
+	workspace := t.TempDir()
+
+	firstManager := NewSessionManager()
+	first, err := firstManager.Run(context.Background(), RunRequest{
+		SessionID:      "chat_persisted",
+		AdapterID:      "codex",
+		Workspace:      workspace,
+		Prompt:         "first turn",
+		Timeout:        5 * time.Second,
+		MaxOutputBytes: 64 * 1024,
+	})
+	if err != nil {
+		t.Fatalf("first Run: %v", err)
+	}
+	if first.NativeSessionID == "" {
+		t.Fatalf("first native session id is empty")
+	}
+	if err := firstManager.Shutdown(context.Background()); err != nil {
+		t.Fatalf("Shutdown: %v", err)
+	}
+
+	secondManager := NewSessionManager()
+	second, err := secondManager.Run(context.Background(), RunRequest{
+		SessionID:               "chat_persisted",
+		AdapterID:               "codex",
+		Workspace:               workspace,
+		PreviousNativeSessionID: first.NativeSessionID,
+		Prompt:                  "second turn",
+		Timeout:                 5 * time.Second,
+		MaxOutputBytes:          64 * 1024,
+	})
+	if err != nil {
+		t.Fatalf("second Run: %v", err)
+	}
+	if second.NativeSessionID != first.NativeSessionID {
+		t.Fatalf("native session id = %q, want persisted %q", second.NativeSessionID, first.NativeSessionID)
+	}
+	if !second.SessionStarted || !second.SessionResumed {
+		t.Fatalf("session flags = started:%v resumed:%v, want both true", second.SessionStarted, second.SessionResumed)
+	}
+}
+
 func TestSessionManagerCancelsACPPrompt(t *testing.T) {
 	installFakeACPExecutable(t, "codex-acp")
 	workspace := t.TempDir()
@@ -202,6 +246,7 @@ func (a *fakeACPAgent) Initialize(context.Context, acp.InitializeRequest) (acp.I
 	return acp.InitializeResponse{
 		ProtocolVersion: acp.ProtocolVersionNumber,
 		AgentCapabilities: acp.AgentCapabilities{
+			LoadSession:         true,
 			SessionCapabilities: acp.SessionCapabilities{Close: &acp.SessionCloseCapabilities{}},
 		},
 	}, nil
@@ -213,6 +258,13 @@ func (a *fakeACPAgent) NewSession(context.Context, acp.NewSessionRequest) (acp.N
 	a.sessions[id] = &fakeACPSession{}
 	a.mu.Unlock()
 	return acp.NewSessionResponse{SessionId: acp.SessionId(id)}, nil
+}
+
+func (a *fakeACPAgent) LoadSession(_ context.Context, params acp.LoadSessionRequest) (acp.LoadSessionResponse, error) {
+	a.mu.Lock()
+	a.sessions[string(params.SessionId)] = &fakeACPSession{}
+	a.mu.Unlock()
+	return acp.LoadSessionResponse{}, nil
 }
 
 func (a *fakeACPAgent) Prompt(ctx context.Context, params acp.PromptRequest) (acp.PromptResponse, error) {

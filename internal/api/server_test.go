@@ -21,6 +21,7 @@ import (
 	"time"
 
 	"github.com/hecate/agent-runtime/internal/agentadapters"
+	"github.com/hecate/agent-runtime/internal/agentchat"
 	"github.com/hecate/agent-runtime/internal/billing"
 	"github.com/hecate/agent-runtime/internal/catalog"
 	"github.com/hecate/agent-runtime/internal/chatstate"
@@ -1105,6 +1106,46 @@ func TestAgentChatOmitsStartedActivityWhenNativeSessionReused(t *testing.T) {
 	}
 }
 
+func TestAgentChatPassesPersistedNativeSessionForResume(t *testing.T) {
+	dir := t.TempDir()
+	store := agentchat.NewMemoryStore()
+	logger := slog.New(slog.NewJSONHandler(io.Discard, nil))
+
+	firstRunner := &fakeAgentChatRunner{
+		output:          "first answer",
+		nativeSessionID: "native_persisted_1",
+		sessionStarted:  true,
+	}
+	firstHandler := newTestAPIHandlerWithControlPlane(logger, []providers.Provider{&fakeProvider{}}, config.Config{}, nil)
+	firstHandler.SetAgentChatStore(store)
+	firstHandler.SetAgentChatRunner(firstRunner)
+	firstClient := newAPITestClient(t, NewServer(logger, firstHandler))
+	created := mustRequestJSON[AgentChatSessionResponse](firstClient, http.MethodPost, "/v1/agent-chat/sessions", fmt.Sprintf(`{"adapter_id":"codex","workspace":%q}`, dir))
+	_ = mustRequestJSON[AgentChatSessionResponse](firstClient, http.MethodPost, "/v1/agent-chat/sessions/"+created.Data.ID+"/messages", `{"content":"first"}`)
+
+	secondRunner := &fakeAgentChatRunner{
+		output:          "second answer",
+		nativeSessionID: "native_persisted_1",
+		sessionStarted:  true,
+		sessionResumed:  true,
+	}
+	secondHandler := newTestAPIHandlerWithControlPlane(logger, []providers.Provider{&fakeProvider{}}, config.Config{}, nil)
+	secondHandler.SetAgentChatStore(store)
+	secondHandler.SetAgentChatRunner(secondRunner)
+	secondClient := newAPITestClient(t, NewServer(logger, secondHandler))
+	updated := mustRequestJSON[AgentChatSessionResponse](secondClient, http.MethodPost, "/v1/agent-chat/sessions/"+created.Data.ID+"/messages", `{"content":"second"}`)
+	if secondRunner.seenPreviousID != "native_persisted_1" {
+		t.Fatalf("previous native session id = %q, want native_persisted_1", secondRunner.seenPreviousID)
+	}
+	assistant := updated.Data.Messages[len(updated.Data.Messages)-1]
+	if !agentChatActivitiesContain(assistant.Activities, "resumed") {
+		t.Fatalf("resumed activity missing: %#v", assistant.Activities)
+	}
+	if agentChatActivitiesContain(assistant.Activities, "started") {
+		t.Fatalf("started activity present for resumed native session: %#v", assistant.Activities)
+	}
+}
+
 func TestAgentChatHumanizesAdapterJSONRPCBillingError(t *testing.T) {
 	dir := t.TempDir()
 	logger := slog.New(slog.NewJSONHandler(io.Discard, nil))
@@ -1162,11 +1203,14 @@ type fakeAgentChatRunner struct {
 	waitForCancel   bool
 	nativeSessionID string
 	sessionStarted  bool
+	sessionResumed  bool
+	seenPreviousID  string
 	err             error
 }
 
 func (r *fakeAgentChatRunner) Run(ctx context.Context, req agentadapters.RunRequest) (agentadapters.RunResult, error) {
 	started := time.Now().UTC()
+	r.seenPreviousID = req.PreviousNativeSessionID
 	output := r.output
 	for _, chunk := range r.chunks {
 		select {
@@ -1216,6 +1260,7 @@ func (r *fakeAgentChatRunner) result(req agentadapters.RunRequest, output string
 		DriverKind:      agentadapters.DriverKindACP,
 		NativeSessionID: nativeSessionID,
 		SessionStarted:  r.sessionStarted,
+		SessionResumed:  r.sessionResumed,
 		Output:          output,
 		RawOutput:       output,
 		ExitCode:        exitCode,

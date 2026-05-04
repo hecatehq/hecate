@@ -76,6 +76,7 @@ func (m *SessionManager) Run(ctx context.Context, req RunRequest) (RunResult, er
 	}
 	result, err := session.RunTurn(ctx, req)
 	result.SessionStarted = session.startedForRun
+	result.SessionResumed = session.resumedForRun
 	return result, err
 }
 
@@ -84,13 +85,14 @@ func (m *SessionManager) session(ctx context.Context, adapter Adapter, req RunRe
 	existing := m.sessions[req.SessionID]
 	if existing != nil && existing.adapter.ID == adapter.ID && existing.workspace == req.Workspace {
 		existing.startedForRun = false
+		existing.resumedForRun = false
 		m.mu.Unlock()
 		return existing, nil
 	}
 	logger := m.logger
 	m.mu.Unlock()
 
-	started, err := startACPSession(ctx, adapter, req.Workspace, logger)
+	started, err := startACPSession(ctx, adapter, req.Workspace, req.PreviousNativeSessionID, logger)
 	if err != nil {
 		return nil, err
 	}
@@ -149,9 +151,10 @@ type acpSession struct {
 
 	turnMu        sync.Mutex
 	startedForRun bool
+	resumedForRun bool
 }
 
-func startACPSession(ctx context.Context, adapter Adapter, workspace string, logger *slog.Logger) (*acpSession, error) {
+func startACPSession(ctx context.Context, adapter Adapter, workspace, previousNativeSessionID string, logger *slog.Logger) (*acpSession, error) {
 	command, err := resolveExecutable(adapter, exec.LookPath)
 	if err != nil {
 		return nil, err
@@ -185,7 +188,7 @@ func startACPSession(ctx context.Context, adapter Adapter, workspace string, log
 	}
 	initCtx, cancel := context.WithTimeout(ctx, 20*time.Second)
 	defer cancel()
-	if _, err := conn.Initialize(initCtx, acp.InitializeRequest{
+	initResp, err := conn.Initialize(initCtx, acp.InitializeRequest{
 		ProtocolVersion: acp.ProtocolVersionNumber,
 		ClientInfo: &acp.Implementation{
 			Name:    "hecate",
@@ -198,28 +201,49 @@ func startACPSession(ctx context.Context, adapter Adapter, workspace string, log
 			},
 			Terminal: false,
 		},
-	}); err != nil {
+	})
+	if err != nil {
 		terminateProcess(cmd)
 		return nil, fmt.Errorf("initialize ACP adapter %q: %w%s", adapter.ID, err, stderrSuffix(stderr.String()))
 	}
 
-	newCtx, cancel := context.WithTimeout(ctx, 20*time.Second)
-	defer cancel()
-	created, err := conn.NewSession(newCtx, acp.NewSessionRequest{
-		Cwd:        workspace,
-		McpServers: []acp.McpServer{},
-	})
-	if err != nil {
-		terminateProcess(cmd)
-		return nil, fmt.Errorf("create ACP session for %q: %w%s", adapter.ID, err, stderrSuffix(stderr.String()))
+	nativeID := ""
+	resumed := false
+	previousNativeSessionID = strings.TrimSpace(previousNativeSessionID)
+	if previousNativeSessionID != "" && initResp.AgentCapabilities.LoadSession {
+		loadCtx, cancel := context.WithTimeout(ctx, 20*time.Second)
+		_, err = conn.LoadSession(loadCtx, acp.LoadSessionRequest{
+			SessionId:  acp.SessionId(previousNativeSessionID),
+			Cwd:        workspace,
+			McpServers: []acp.McpServer{},
+		})
+		cancel()
+		if err == nil {
+			nativeID = previousNativeSessionID
+			resumed = true
+		}
+	}
+	if nativeID == "" {
+		newCtx, cancel := context.WithTimeout(ctx, 20*time.Second)
+		created, err := conn.NewSession(newCtx, acp.NewSessionRequest{
+			Cwd:        workspace,
+			McpServers: []acp.McpServer{},
+		})
+		cancel()
+		if err != nil {
+			terminateProcess(cmd)
+			return nil, fmt.Errorf("create ACP session for %q: %w%s", adapter.ID, err, stderrSuffix(stderr.String()))
+		}
+		nativeID = string(created.SessionId)
 	}
 	return &acpSession{
-		adapter:   adapter,
-		workspace: workspace,
-		cmd:       cmd,
-		conn:      conn,
-		client:    client,
-		nativeID:  string(created.SessionId),
+		adapter:       adapter,
+		workspace:     workspace,
+		cmd:           cmd,
+		conn:          conn,
+		client:        client,
+		nativeID:      nativeID,
+		resumedForRun: resumed,
 	}, nil
 }
 
