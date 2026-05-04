@@ -451,6 +451,64 @@ func TestACPTurnReplacesProgressNarrationWhenAgentMessageIDChanges(t *testing.T)
 	}
 }
 
+func TestACPTurnReplacesPreToolNarrationWhenAnswerContinuesSameMessage(t *testing.T) {
+	var snapshots []string
+	turn := newACPTurn(64*1024, func(text string) {
+		snapshots = append(snapshots, text)
+	})
+	sessionID := acp.SessionId("session_1")
+	messageID := "019df226-same-message"
+
+	turn.recordUpdate(acp.SessionNotification{
+		SessionId: sessionID,
+		Update: acp.SessionUpdate{
+			AgentMessageChunk: &acp.SessionUpdateAgentMessageChunk{
+				Content:   acp.TextBlock("I’ll check the current worktree diff and summarize the changed files plus the important hunks."),
+				MessageId: &messageID,
+			},
+		},
+	})
+	turn.recordUpdate(acp.SessionNotification{
+		SessionId: sessionID,
+		Update: acp.SessionUpdate{
+			ToolCall: &acp.SessionUpdateToolCall{
+				SessionUpdate: "tool_call",
+				ToolCallId:    acp.ToolCallId("call_diff"),
+				Title:         "git diff --stat",
+				Status:        acp.ToolCallStatusInProgress,
+				Kind:          acp.ToolKindExecute,
+			},
+		},
+	})
+	turn.recordUpdate(acp.SessionNotification{
+		SessionId: sessionID,
+		Update: acp.SessionUpdate{
+			AgentMessageChunk: &acp.SessionUpdateAgentMessageChunk{
+				Content:   acp.TextBlock("There are 11 modified files."),
+				MessageId: &messageID,
+			},
+		},
+	})
+
+	output, _, _ := turn.snapshot()
+	if output != "There are 11 modified files." {
+		t.Fatalf("output = %q, want final answer without pre-tool narration", output)
+	}
+	wantSnapshots := []string{
+		"I’ll check the current worktree diff and summarize the changed files plus the important hunks.",
+		"",
+		"There are 11 modified files.",
+	}
+	if len(snapshots) != len(wantSnapshots) {
+		t.Fatalf("snapshots = %#v, want %#v", snapshots, wantSnapshots)
+	}
+	for i := range wantSnapshots {
+		if snapshots[i] != wantSnapshots[i] {
+			t.Fatalf("snapshots[%d] = %q, want %q in %#v", i, snapshots[i], wantSnapshots[i], snapshots)
+		}
+	}
+}
+
 func TestACPTurnConcatenatesChunksWithSameAgentMessageID(t *testing.T) {
 	turn := newACPTurn(64*1024, nil)
 	sessionID := acp.SessionId("session_1")

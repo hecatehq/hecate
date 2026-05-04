@@ -771,6 +771,10 @@ export function ChatView({ state, actions, onNavigate }: Props) {
       <style>{`
         .cursor-blink { color: var(--teal); }
         @keyframes pulse { 0%,100%{opacity:1} 50%{opacity:0.5} }
+        @keyframes hecate-live-caret {
+          0%, 100% { opacity: 0.25; transform: translateY(-1px) scale(0.85); }
+          50% { opacity: 0.9; transform: translateY(-1px) scale(1.15); }
+        }
       `}</style>
     </div>
   );
@@ -1098,6 +1102,11 @@ function MessageRow({ id, role, model, content, time, promptTokens, completionTo
   const waitingForAgentOutput = isAssistant && !content.trim() && activities?.some(activity => activity.status === "running");
   const failed = isAssistant && badge === "failed";
   const cancelled = isAssistant && badge === "cancelled";
+  const thinkingForAgent = isAssistant
+    && badge === "running"
+    && content.trim() !== ""
+    && isLikelyTransientAgentNarration(content)
+    && !(activities ?? []).some(activity => activity.type === "tool_call");
 
   return (
     <div onMouseEnter={() => setHovered(true)} onMouseLeave={() => setHovered(false)}
@@ -1141,6 +1150,8 @@ function MessageRow({ id, role, model, content, time, promptTokens, completionTo
           </div>
           {failed || cancelled ? (
             <AgentRunNotice status={failed ? "failed" : "cancelled"} message={error || content} />
+          ) : thinkingForAgent ? (
+            <AgentLiveText content={content} />
           ) : waitingForAgentOutput ? (
             <div style={{ alignItems: "center", color: "var(--t2)", display: "flex", fontSize: 13, gap: 8, lineHeight: 1.7 }}>
               <span style={{ background: "var(--teal)", borderRadius: 999, display: "inline-block", height: 6, opacity: 0.8, width: 6 }} />
@@ -1152,13 +1163,14 @@ function MessageRow({ id, role, model, content, time, promptTokens, completionTo
           {isAssistant && activities && activities.length > 0 && (
             <ActivityTimeline activities={activities} diffStat={diffStat} />
           )}
-          {isAssistant && diff && (
+          {isAssistant && (diff || diffStat) && (
             <details style={{ marginTop: 8 }}>
               <summary style={{ cursor: "pointer", fontFamily: "var(--font-mono)", fontSize: 11, color: "var(--t3)" }}>
-                files changed{diffStat ? ` · ${diffStat}` : ""}
+                files changed{diffStat ? ` · ${formatDiffStatSummary(diffStat)}` : ""}
               </summary>
-              <div style={{ marginTop: 6 }}>
-                <CodeBlock code={diff} lang="diff" />
+              <div style={{ display: "grid", gap: 6, marginTop: 6 }}>
+                {diffStat && <DiffStatList diffStat={diffStat} />}
+                {diff && <CodeBlock code={diff} lang="diff" />}
               </div>
             </details>
           )}
@@ -1176,6 +1188,26 @@ function MessageRow({ id, role, model, content, time, promptTokens, completionTo
       </div>
     </div>
   );
+}
+
+function isLikelyTransientAgentNarration(text: string): boolean {
+  const normalized = text.trim().toLowerCase();
+  if (!normalized) return false;
+  return [
+    "i'll ",
+    "i’ll ",
+    "i will ",
+    "i'm going to ",
+    "i’m going to ",
+    "i'm checking ",
+    "i’m checking ",
+    "i'll check ",
+    "i’ll check ",
+    "i'll inspect ",
+    "i’ll inspect ",
+    "let me ",
+    "checking ",
+  ].some(prefix => normalized.startsWith(prefix));
 }
 
 function AgentRunNotice({ status, message }: { status: "failed" | "cancelled"; message: string }) {
@@ -1200,6 +1232,89 @@ function AgentRunNotice({ status, message }: { status: "failed" | "cancelled"; m
   );
 }
 
+function AgentLiveText({ content }: { content: string }) {
+  return (
+    <div style={{ alignItems: "baseline", display: "flex", gap: 6, minWidth: 0 }}>
+      <div style={{ color: "var(--t0)", flex: "0 1 auto", fontSize: 13, lineHeight: 1.7, minWidth: 0, whiteSpace: "pre-wrap" }}>
+        {content}
+      </div>
+      <span
+        aria-hidden="true"
+        style={{
+          animation: "hecate-live-caret 1.1s ease-in-out infinite",
+          background: "var(--teal)",
+          borderRadius: 999,
+          display: "inline-block",
+          flexShrink: 0,
+          height: 5,
+          opacity: 0.75,
+          transform: "translateY(-1px)",
+          width: 5,
+        }}
+      />
+    </div>
+  );
+}
+
+function DiffStatList({ diffStat }: { diffStat: string }) {
+  const rows = parseDiffStatRows(diffStat);
+  const summary = formatDiffStatSummary(diffStat);
+
+  if (rows.length === 0) {
+    return (
+      <div style={{ color: "var(--t2)", fontFamily: "var(--font-mono)", fontSize: 11 }}>
+        {summary}
+      </div>
+    );
+  }
+
+  return (
+    <div style={{
+      display: "grid",
+      gap: 5,
+      padding: "8px 10px",
+      border: "1px solid var(--border)",
+      borderRadius: "var(--radius-sm)",
+      background: "var(--bg2)",
+    }}>
+      {rows.map(row => (
+        <div key={row.path} style={{ display: "grid", gridTemplateColumns: "minmax(0, 1fr) auto", gap: 10, alignItems: "baseline" }}>
+          <span style={{ color: "var(--t1)", fontFamily: "var(--font-mono)", fontSize: 11, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>
+            {row.path}
+          </span>
+          <span style={{ color: "var(--t3)", fontFamily: "var(--font-mono)", fontSize: 11, whiteSpace: "nowrap" }}>
+            {row.change}
+          </span>
+        </div>
+      ))}
+      {summary && (
+        <div style={{ borderTop: "1px solid var(--border)", color: "var(--t2)", fontFamily: "var(--font-mono)", fontSize: 11, marginTop: 2, paddingTop: 6 }}>
+          {summary}
+        </div>
+      )}
+    </div>
+  );
+}
+
+function parseDiffStatRows(diffStat: string): Array<{ path: string; change: string }> {
+  return diffStat
+    .split(/\r?\n/)
+    .map(line => line.trim())
+    .filter(Boolean)
+    .filter(line => !/\bfiles? changed\b/.test(line))
+    .map(line => {
+      const match = line.match(/^(.+?)\s+\|\s+(.+)$/);
+      if (!match) return null;
+      return { path: match[1].trim(), change: match[2].trim() };
+    })
+    .filter((row): row is { path: string; change: string } => row !== null);
+}
+
+function formatDiffStatSummary(diffStat: string): string {
+  const lines = diffStat.split(/\r?\n/).map(line => line.trim()).filter(Boolean);
+  return lines.find(line => /\bfiles? changed\b/.test(line)) || lines[0] || "";
+}
+
 function ActivityTimeline({ activities, diffStat }: { activities: AgentChatActivityRecord[]; diffStat?: string }) {
   const visible = compactAgentActivities(activities);
   if (visible.length === 0) return null;
@@ -1209,7 +1324,7 @@ function ActivityTimeline({ activities, diffStat }: { activities: AgentChatActiv
   const tools = visible.filter(activity => activity.type === "tool_call");
   const other = visible.filter(activity => activity.type !== "plan" && activity.type !== "tool_call");
   const summary = [
-    terminal ? `run ${terminal.status}` : hasRunning ? "run running" : "run details",
+    terminal ? terminal.status : hasRunning ? "running" : "details",
     plan.length > 0 ? `${plan.filter(item => item.status === "completed").length}/${plan.length} plan` : "",
     tools.length > 0 ? `${tools.length} tool${tools.length === 1 ? "" : "s"}` : "",
     diffStat ? "files changed" : "",

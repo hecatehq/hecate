@@ -575,6 +575,8 @@ type acpTurn struct {
 	raw            limitedBuffer
 	usage          Usage
 	agentMessageID string
+	toolSeen       bool
+	postToolText   bool
 	onOutput       func(string)
 	onActivity     func(Activity)
 
@@ -628,6 +630,10 @@ func (t *acpTurn) appendAgentMessageChunk(update *acp.SessionUpdateAgentMessageC
 
 	var snapshot string
 	t.mu.Lock()
+	if t.toolSeen && !t.postToolText && isLikelyProgressNarration(t.output.String()) {
+		t.output.Buffer.Reset()
+		t.postToolText = true
+	}
 	if update.MessageId != nil {
 		nextID := strings.TrimSpace(*update.MessageId)
 		if nextID != "" {
@@ -654,6 +660,7 @@ func (t *acpTurn) recordToolCall(update *acp.SessionUpdateToolCall) {
 	if update == nil {
 		return
 	}
+	t.markToolSeen()
 	t.emitActivity(Activity{
 		ID:     "tool:" + string(update.ToolCallId),
 		Type:   "tool_call",
@@ -668,6 +675,7 @@ func (t *acpTurn) recordToolCallUpdate(update *acp.SessionToolCallUpdate) {
 	if update == nil {
 		return
 	}
+	t.markToolSeen()
 	title := ""
 	if update.Title != nil {
 		title = *update.Title
@@ -688,6 +696,50 @@ func (t *acpTurn) recordToolCallUpdate(update *acp.SessionToolCallUpdate) {
 		Title:  title,
 		Detail: toolCallDetail(acp.ToolKind(""), update.Locations, update.Content),
 	})
+}
+
+func (t *acpTurn) markToolSeen() {
+	var snapshot *string
+	t.mu.Lock()
+	t.toolSeen = true
+	if !t.postToolText && t.output.Len() > 0 && isLikelyProgressNarration(t.output.String()) {
+		t.output.Buffer.Reset()
+		empty := ""
+		snapshot = &empty
+	}
+	onOutput := t.onOutput
+	t.mu.Unlock()
+	if snapshot != nil && onOutput != nil {
+		onOutput(*snapshot)
+	}
+}
+
+func isLikelyProgressNarration(text string) bool {
+	text = strings.TrimSpace(strings.ToLower(text))
+	if text == "" {
+		return false
+	}
+	prefixes := []string{
+		"i'll ",
+		"i’ll ",
+		"i will ",
+		"i'm going to ",
+		"i’m going to ",
+		"i’m checking ",
+		"i'm checking ",
+		"i’ll check ",
+		"i'll check ",
+		"i’ll inspect ",
+		"i'll inspect ",
+		"let me ",
+		"checking ",
+	}
+	for _, prefix := range prefixes {
+		if strings.HasPrefix(text, prefix) {
+			return true
+		}
+	}
+	return false
 }
 
 func (t *acpTurn) recordPlan(update *acp.SessionUpdatePlan) {
