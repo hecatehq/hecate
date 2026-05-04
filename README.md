@@ -200,8 +200,8 @@ Full index lives at [`docs/README.md`](docs/README.md), organized by reader role
 
 - [Runtime API](docs/runtime-api.md) — task lifecycle, approvals, SSE streaming.
 - [Agent runtime](docs/agent-runtime.md) — `agent_loop` loop mechanics, tools, cost ceilings, retry-from-turn.
-- [External agent adapters](docs/external-agent-adapters.md) — use Codex, Claude Code, and Cursor Agent from Hecate.
-- [ACP bridge](docs/acp.md) — experimental stdio bridge for editor agent panels.
+- [External agent adapters](docs/external-agent-adapters.md) — Hecate as an ACP client/operator: use Codex, Claude Code, and Cursor Agent from Chats.
+- [ACP bridge](docs/acp.md) — Hecate as an ACP agent for editor panels such as Zed and JetBrains.
 - [Events](docs/events.md) — every event type, payload shape, when each fires.
 - [MCP integration](docs/mcp.md) — Hecate as MCP server + attaching external MCP servers as tools.
 

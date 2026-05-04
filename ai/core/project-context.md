@@ -1,6 +1,6 @@
 # Project context
 
-Hecate is an open-source AI gateway and agent-task runtime. The Go gateway embeds the React operator UI, mediates OpenAI- and Anthropic-shaped client traffic to upstream LLM providers, runs queued `agent_loop` tasks with policy and approval gates, and emits OpenTelemetry traces for everything it does. Companion entrypoints such as `hecate-acp` handle protocols that need their own process lifecycle. Hecate is tenant-aware, deny-by-default, runtime-aware, and storage-tiered (memory / sqlite). Every endpoint, config knob, and error message exists to answer five operator questions: what did the gateway just decide, why, what did it cost, what happens on the next failure, and where is the trace.
+Hecate is an open-source AI gateway and agent-task runtime. The Go gateway embeds the React operator UI, mediates OpenAI- and Anthropic-shaped client traffic to upstream LLM providers, runs external coding-agent adapters from Chats, runs queued `agent_loop` tasks with policy and approval gates, and emits OpenTelemetry traces for everything it does. Companion entrypoints such as `hecate-acp` handle protocols that need their own process lifecycle. Hecate is single-user, gateway-local, deny-by-default, runtime-aware, and storage-tiered (memory / sqlite). Every endpoint, config knob, and error message exists to answer five operator questions: what did the gateway just decide, why, what did it cost, what happens on the next failure, and where is the trace.
 
 ## Repository layout
 
@@ -24,6 +24,8 @@ internal/taskstate/        task / run / step / artifact / approval persistence
 internal/storage/          sqlite client wrappers
 internal/retention/        retention worker (subsystems: traces, budget, audit, cache, turn_events)
 internal/mcp/              stdio MCP server (read tools + write tools)
+internal/agentadapters/    ACP/process adapters for Codex, Claude Code, Cursor
+internal/agentchat/        Agent Chat transcript persistence (memory / sqlite)
 
 ui/                        React/Vite operator UI (embedded via //go:embed ui/dist)
 e2e/                       binary-startup tests, build tag e2e (sub-tags: ollama, docker)
@@ -86,6 +88,8 @@ code, not as a follow-up. Don't restate their content here — link and move on.
 | What OTel spans and metrics does the gateway emit? | [`docs/telemetry.md`](../../docs/telemetry.md) |
 | How do I configure a provider? What providers are supported? | [`docs/providers.md`](../../docs/providers.md) |
 | How do I configure MCP? What tools does the server expose? | [`docs/mcp.md`](../../docs/mcp.md) |
+| How do Agent Chat adapters work? | [`docs/external-agent-adapters.md`](../../docs/external-agent-adapters.md) |
+| How does an editor ACP host connect to Hecate? | [`docs/acp.md`](../../docs/acp.md) |
 | How do I deploy? What are the Compose profiles? | [`docs/deployment.md`](../../docs/deployment.md) |
 | How do I build and test locally? What does `[skip ci]` mean? | [`docs/development.md`](../../docs/development.md) |
 | What sandbox isolation layers are shipped? How do namespaces work? | [`docs/sandbox.md`](../../docs/sandbox.md) |

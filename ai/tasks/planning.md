@@ -14,7 +14,7 @@ How to write a plan when [`../core/workflow.md`](../core/workflow.md) says "stop
 ## Plan structure
 
 1. **Problem framing** — one paragraph. What is broken or missing, and what would "fixed" look like to an operator.
-2. **Constraints and assumptions** — bullets. Surface what the plan takes as given (existing code, conventions, performance, compatibility, tenant model).
+2. **Constraints and assumptions** — bullets. Surface what the plan takes as given (existing code, conventions, performance, compatibility, operator model).
 3. **Options considered** — for non-trivial design choices, one to three options with concrete pros and cons. Tables work well here.
 4. **Recommendation** — one option called out. State the trade-off being accepted.
 5. **Acceptance criteria** — specific, verifiable. "The race suite passes; the new event appears in `docs/events.md`; the UI snapshot reflects the new prop" beats "tested and documented".

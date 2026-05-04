@@ -53,8 +53,7 @@ When choosing between "elegant" and "operationally explicit," choose explicit.
 
 ## Hecate-specific backend rules
 
-- **Auth is a path-level decision.** `/v1/chat/completions` accepts tenant API keys; `/admin/*` requires admin bearer. `/v1/tasks/*` accepts both. Don't blur these.
-- **Tenant scoping is automatic.** Once a request has a tenant principal, every subsequent store query gets `WHERE tenant = ?` injected. New endpoints must respect this — never bypass via the admin path.
+- **No auth in current alpha.** Hecate is a single-operator local tool. Every request is processed as the operator, and the gateway binds to `127.0.0.1` by default. Do not add token/tenant assumptions back into new endpoints.
 - **Sandbox is per-call subprocess, applied inline.** Shell, file, git tool calls spawn a fresh `sh` from inside the gateway after policy validation + env sanitisation + output cap + wall-clock timeout. On Linux with `bwrap` installed and on macOS, the call is additionally wrapped by `bwrap` / `sandbox-exec` for fs+net confinement (auto-detected at startup, exposed on `/healthz` under `sandbox.os_isolation`). No separate sandbox daemon, no per-call rlimits — operators who want CPU/FD/memory caps run the gateway under systemd or in a container with `--cpus` / `--memory` flags. New tools follow the same `internal/sandbox/` shape.
 - **Approvals are blocking.** Pre-execution and mid-loop approvals halt the run; the run record persists in `awaiting_approval` until resolved. New gates use the same `TaskApproval` shape.
 - **Events are appended, not mutated.** Every state transition writes a `run_event` with a monotonic sequence. The SSE stream replays from `after_sequence`. New event types must follow the event-protocol v1 taxonomy (`run.*`, `turn.*`, `tool.*`, `policy.*`, `gap.*`, `error.*`) and be documented in `docs/events.md`.
@@ -75,6 +74,27 @@ The seven-step chain spans `pkg/types/` → `internal/api/` → `internal/provid
 2. Add a `<name>Handler` returning `ToolHandler` further down.
 3. Update the `docs/mcp.md` tool table.
 4. Tests in `internal/mcp/tools_test.go` using the `fakeGateway` helper.
+
+### Change Agent Chat / ACP adapter behavior
+
+Agent Chat has two persistence layers:
+
+1. `internal/agentchat` stores the Hecate transcript and native ACP session id
+   in memory or sqlite.
+2. `internal/agentadapters` owns the live ACP/process session manager.
+
+When changing this path:
+
+1. Keep `docs/external-agent-adapters.md` aligned for operator-visible
+   behavior such as launchers, env sanitisation, persistence, raw diagnostics,
+   and troubleshooting.
+2. Keep `docs/acp.md` aligned only when changing the separate `hecate-acp`
+   editor bridge.
+3. Add focused tests in `internal/agentadapters/*_test.go` for ACP/process
+   protocol behavior and `internal/api/server_test.go` for HTTP/session
+   persistence behavior.
+4. Run the race suite. Long-lived adapter sessions are runtime code, not just
+   a UI convenience.
 
 ### Add a persisted run-event type
 

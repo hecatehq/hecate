@@ -53,7 +53,7 @@ internal/
                           — same JSON shape as api/, deliberate duplication
   gateway/              top-level request orchestration: governor → router → cache → provider
   router/               provider/model selection, failover, retry, circuit
-  governor/             policy + budget + rate-limit decisions; tenant cost ledger
+  governor/             policy + budget + rate-limit decisions; local cost ledger
   policy/               approval policy + provider/model allowlists
   catalog/, models/     provider catalog + model registry
   cache/                exact + semantic response cache
@@ -62,12 +62,14 @@ internal/
   sandbox/              per-call sh subprocess: policy validation, env sanitisation,
                           output cap + timeout, auto-detected bwrap/sandbox-exec wrapper
   taskstate/            task / run / step / artifact / approval persistence
+  agentadapters/        ACP/process adapters for Codex, Claude Code, Cursor
+  agentchat/            Agent Chat transcript persistence (memory / sqlite)
   chatstate/            chat-completion conversation persistence
   storage/              sqlite client wrappers
   retention/            retention worker (subsystems: traces, budget, audit, cache, turn_events)
   mcp/                  stdio MCP server (read tools + write tools)
-  controlplane/         tenants, API keys, settings (admin surface state)
-  auth/                 bearer-token + tenant-key authentication
+  controlplane/         providers, pricing, settings (admin surface state)
+  auth/                 local operator principal / no-auth request context
   ratelimit/            per-key request limits
   requestscope/         per-request principal + tracing context
   config/, bootstrap/   env-driven config + startup wiring
@@ -148,7 +150,7 @@ Full ladder: [`ai/core/verification.md`](ai/core/verification.md).
 - **CodeQL CWE-190**: don't compute `make([]T, 0, len(x)+N)` with arithmetic — use plain `len(x)` and let `append` grow.
 - **Env-PRECONFIGURED gate**: `PROVIDER_<NAME>_API_KEY` / `_BASE_URL` only auto-import into the CP store when `PROVIDER_<NAME>_PRECONFIGURED=1` is also set. E2E helpers (`hecateServer`, `startHecateProcess`) funnel through `autoPreconfiguredEnv` to inject the gate; new e2e spawn helpers must do the same or routed requests 400 with `no provider supports model …`.
 - **`:8765` collisions across launches**: `make dev` / `make run` / `make serve` now run `make stop` first so a stale `./hecate` from another shell never blocks a relaunch (or a `docker run -p 8765:8765 …`). New scripts that spawn the binary should call `make stop` (or replicate the `lsof -ti:8765 | xargs kill` step).
-- **API response envelope**: every `/v1/*` and `/admin/*` GET returns `{object, data}`. Don't write a UI client that reads top-level fields — the bootstrap-token regression burned a release tag because the UI did `payload.token` instead of `payload.data.token`.
+- **API response envelope**: every `/v1/*` and `/admin/*` GET returns `{object, data}`. Don't write a UI client that reads top-level fields — always read `payload.data.<field>` and make test fixtures mirror the real envelope.
 
 ## Canonical docs
 
@@ -161,6 +163,8 @@ Full ladder: [`ai/core/verification.md`](ai/core/verification.md).
 | [`docs/telemetry.md`](docs/telemetry.md) | OTel spans + metrics, OTLP wiring, status & gaps |
 | [`docs/providers.md`](docs/providers.md) | Provider catalog, configuration |
 | [`docs/mcp.md`](docs/mcp.md) | MCP server: tools, transport, configure |
+| [`docs/external-agent-adapters.md`](docs/external-agent-adapters.md) | Hecate as an ACP client/operator: Chats runs Codex, Claude Code, and Cursor Agent |
+| [`docs/acp.md`](docs/acp.md) | Hecate as an ACP agent: `hecate-acp` bridge for editor agent panels |
 | [`docs/deployment.md`](docs/deployment.md) | Compose profiles, image pinning, lost-token recovery |
 | [`docs/development.md`](docs/development.md) | Local build, testing, screenshot tooling, `[skip ci]` convention |
 | [`docs/desktop-app.md`](docs/desktop-app.md) | Native Tauri 2.x app: distribution, current state, roadmap, footguns |

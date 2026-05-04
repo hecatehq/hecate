@@ -466,7 +466,7 @@ Callers can also pass an arbitrary `data` map alongside; those keys are merged i
 
 ## Related docs
 
-- [runtime-api.md](runtime-api.md#public-events-feed) — endpoint shape, query params, auth
+- [runtime-api.md](runtime-api.md#public-events-feed) — endpoint shape, query params, access model
 - [agent-runtime.md](agent-runtime.md#cost-tracking) — cost-model details for `turn.completed`
 - [telemetry.md](telemetry.md) — OTel spans / metrics (a different stream from this catalog)
 - [architecture.md](architecture.md) — where events fit in the request lifecycle
