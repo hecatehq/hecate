@@ -323,6 +323,34 @@ describe("ChatView agent target", () => {
     expect(screen.getByText("run running")).toBeTruthy();
   });
 
+  it("disables stop and shows cancelling feedback after stop is requested", () => {
+    const { state, actions } = setup({
+      chatTarget: "agent",
+      chatLoading: true,
+      agentChatCancelling: true,
+      agentWorkspace: "/tmp/hecate",
+      agentAdapters: [
+        { id: "codex", name: "Codex", kind: "acp", command: "codex-acp", available: true, status: "available", cost_mode: "external" },
+      ],
+      activeAgentChatSessionID: "a1",
+      activeAgentChatSession: {
+        id: "a1",
+        title: "Stopping work",
+        adapter_id: "codex",
+        driver_kind: "acp",
+        workspace: "/tmp/hecate",
+        status: "running",
+        messages: [],
+      } as any,
+    });
+    render(<ChatView state={state} actions={actions} />);
+
+    const stop = screen.getByRole("button", { name: "Stop agent" }) as HTMLButtonElement;
+    expect(stop.disabled).toBe(true);
+    expect(stop.title).toBe("Stopping agent...");
+    expect(screen.getByText("Stopping external agent...")).toBeTruthy();
+  });
+
   it("renders failed agent runs as an error notice with raw diagnostics separate", () => {
     const { state, actions } = setup({
       chatTarget: "agent",

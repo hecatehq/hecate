@@ -107,6 +107,7 @@ export function useRuntimeConsole() {
   const [message, setMessage] = useState("");
   const [systemPrompt, setSystemPrompt] = useState("");
   const [chatLoading, setChatLoading] = useState(false);
+  const [agentChatCancelling, setAgentChatCancelling] = useState(false);
   const [streamingContent, setStreamingContent] = useState<string | null>(null);
   const [chatResult, setChatResult] = useState<ChatResponse | null>(null);
   // pendingToolCalls: model responded with tool_calls; waiting for user to fill results.
@@ -201,6 +202,12 @@ export function useRuntimeConsole() {
     void loadDashboard();
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
+
+  useEffect(() => {
+    if (!chatLoading) {
+      setAgentChatCancelling(false);
+    }
+  }, [chatLoading]);
 
   useEffect(() => {
     if (model) {
@@ -668,13 +675,15 @@ export function useRuntimeConsole() {
   }
 
   async function cancelAgentChat() {
-    if (!activeAgentChatSessionID) {
+    if (!activeAgentChatSessionID || agentChatCancelling) {
       return;
     }
+    setAgentChatCancelling(true);
+    setStreamingContent("Stopping external agent...");
     try {
       await cancelAgentChatSessionRequest(activeAgentChatSessionID);
-      setStreamingContent("Stopping external agent...");
     } catch (error) {
+      setAgentChatCancelling(false);
       setChatError(error instanceof Error ? error.message : "failed to cancel agent chat");
       setChatErrorCode(error instanceof ApiError ? error.code : "");
       setChatErrorStatus(error instanceof ApiError ? error.status : null);
@@ -1171,6 +1180,7 @@ export function useRuntimeConsole() {
       accountSummary,
       agentAdapterID,
       agentAdapters,
+      agentChatCancelling,
       agentChatSessions,
       agentWorkspace,
       agentWorkspaceBranch,
