@@ -10,13 +10,18 @@ import (
 type agentChatLive struct {
 	mu          sync.Mutex
 	subscribers map[string]map[chan AgentChatSessionResponse]struct{}
-	running     map[string]context.CancelFunc
+	running     map[string]agentChatRunControl
+}
+
+type agentChatRunControl struct {
+	cancel context.CancelFunc
+	done   chan struct{}
 }
 
 func newAgentChatLive() *agentChatLive {
 	return &agentChatLive{
 		subscribers: make(map[string]map[chan AgentChatSessionResponse]struct{}),
-		running:     make(map[string]context.CancelFunc),
+		running:     make(map[string]agentChatRunControl),
 	}
 }
 
@@ -72,23 +77,42 @@ func (l *agentChatLive) registerRun(sessionID string, cancel context.CancelFunc)
 	if _, exists := l.running[sessionID]; exists {
 		return false
 	}
-	l.running[sessionID] = cancel
+	l.running[sessionID] = agentChatRunControl{cancel: cancel, done: make(chan struct{})}
 	return true
 }
 
 func (l *agentChatLive) clearRun(sessionID string) {
 	l.mu.Lock()
-	delete(l.running, sessionID)
+	run, ok := l.running[sessionID]
+	if ok {
+		delete(l.running, sessionID)
+		close(run.done)
+	}
 	l.mu.Unlock()
 }
 
 func (l *agentChatLive) cancelRun(sessionID string) bool {
 	l.mu.Lock()
-	cancel, ok := l.running[sessionID]
+	run, ok := l.running[sessionID]
 	l.mu.Unlock()
 	if !ok {
 		return false
 	}
-	cancel()
+	run.cancel()
+	return true
+}
+
+func (l *agentChatLive) cancelRunAndWait(ctx context.Context, sessionID string) bool {
+	l.mu.Lock()
+	run, ok := l.running[sessionID]
+	l.mu.Unlock()
+	if !ok {
+		return false
+	}
+	run.cancel()
+	select {
+	case <-run.done:
+	case <-ctx.Done():
+	}
 	return true
 }

@@ -142,6 +142,9 @@ func (h *Handler) HandleAgentChatSessionStream(w http.ResponseWriter, r *http.Re
 
 func (h *Handler) HandleDeleteAgentChatSession(w http.ResponseWriter, r *http.Request) {
 	sessionID := r.PathValue("id")
+	cancelCtx, cancel := context.WithTimeout(r.Context(), 3*time.Second)
+	_ = h.agentChatLive.cancelRunAndWait(cancelCtx, sessionID)
+	cancel()
 	if h.agentChatRunner != nil {
 		_ = h.agentChatRunner.CloseSession(r.Context(), sessionID)
 	}
