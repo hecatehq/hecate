@@ -294,38 +294,40 @@ type spanSpec struct {
 
 func spanSpecForEvent(name string) spanSpec {
 	switch {
-	case name == "request.received" || name == "request.invalid":
-		return spanSpec{name: "gateway.request.parse", kind: "internal"}
+	case name == telemetry.EventRequestReceived || name == telemetry.EventRequestInvalid || name == telemetry.EventRequestBodyCaptured:
+		return spanSpec{name: telemetry.SpanGatewayRequestParse, kind: "internal"}
+	case name == telemetry.EventResponseReturned || name == telemetry.EventResponseBodyCaptured:
+		return spanSpec{name: telemetry.SpanGatewayResponse, kind: "internal"}
 	case hasPrefix(name, "orchestrator.task."):
-		return spanSpec{name: "orchestrator.task", kind: "internal"}
+		return spanSpec{name: telemetry.SpanOrchestratorTask, kind: "internal"}
 	case hasPrefix(name, "orchestrator.run."):
-		return spanSpec{name: "orchestrator.run", kind: "internal"}
-	case hasPrefix(name, "orchestrator.step."):
-		return spanSpec{name: "orchestrator.step", kind: "internal"}
+		return spanSpec{name: telemetry.SpanOrchestratorRun, kind: "internal"}
+	case hasPrefix(name, "orchestrator.step.") || hasPrefix(name, "tool."):
+		return spanSpec{name: telemetry.SpanOrchestratorStep, kind: "internal"}
 	case hasPrefix(name, "orchestrator.artifact."):
-		return spanSpec{name: "orchestrator.artifact", kind: "internal"}
-	case hasPrefix(name, "orchestrator.approval."):
-		return spanSpec{name: "orchestrator.approval", kind: "internal"}
+		return spanSpec{name: telemetry.SpanOrchestratorArtifact, kind: "internal"}
+	case hasPrefix(name, "orchestrator.approval.") || hasPrefix(name, "policy."):
+		return spanSpec{name: telemetry.SpanOrchestratorApproval, kind: "internal"}
 	case hasPrefix(name, "queue."):
-		return spanSpec{name: "orchestrator.queue", kind: "internal"}
+		return spanSpec{name: telemetry.SpanOrchestratorQueue, kind: "internal"}
 	case hasPrefix(name, "retention."):
-		return spanSpec{name: "retention.run", kind: "internal"}
+		return spanSpec{name: telemetry.SpanRetentionRun, kind: "internal"}
 	case hasPrefix(name, "agent_chat."):
-		return spanSpec{name: "agent_chat.run", kind: "internal"}
+		return spanSpec{name: telemetry.SpanAgentChatRun, kind: "internal"}
 	case hasPrefix(name, "governor."):
-		return spanSpec{name: "gateway.governor", kind: "internal"}
+		return spanSpec{name: telemetry.SpanGatewayGovernor, kind: "internal"}
 	case hasPrefix(name, "router."):
-		return spanSpec{name: "gateway.router", kind: "internal"}
+		return spanSpec{name: telemetry.SpanGatewayRouter, kind: "internal"}
 	case hasPrefix(name, "provider.call.") || hasPrefix(name, "provider.retry.") || hasPrefix(name, "provider.failover.") || hasPrefix(name, "provider.health."):
-		return spanSpec{name: "gateway.provider", kind: "client"}
-	case name == "usage.normalized":
-		return spanSpec{name: "gateway.usage", kind: "internal"}
-	case name == "cost.calculated":
-		return spanSpec{name: "gateway.cost", kind: "internal"}
-	case name == "response.returned":
-		return spanSpec{name: "gateway.response", kind: "internal"}
+		return spanSpec{name: telemetry.SpanGatewayProvider, kind: "client"}
+	case hasPrefix(name, "cache.") || hasPrefix(name, "semantic_cache."):
+		return spanSpec{name: telemetry.SpanGatewayCache, kind: "internal"}
+	case name == telemetry.EventUsageNormalized:
+		return spanSpec{name: telemetry.SpanGatewayUsage, kind: "internal"}
+	case name == telemetry.EventCostCalculated || name == telemetry.EventCostEstimateUnpriced:
+		return spanSpec{name: telemetry.SpanGatewayCost, kind: "internal"}
 	default:
-		return spanSpec{name: "gateway.runtime", kind: "internal"}
+		return spanSpec{name: telemetry.SpanGatewayRuntime, kind: "internal"}
 	}
 }
 
@@ -335,24 +337,42 @@ func otelAttributesForEvent(name string, attrs map[string]any) map[string]any {
 		out[key] = value
 	}
 
-	switch name {
-	case "request.received":
+	if _, ok := out[telemetry.AttrHecatePhase]; ok {
+		return out
+	}
+
+	switch {
+	case name == telemetry.EventRequestReceived || name == telemetry.EventRequestInvalid || name == telemetry.EventRequestBodyCaptured:
 		out[telemetry.AttrHecatePhase] = "request"
-	case "orchestrator.task.started", "orchestrator.task.finished", "orchestrator.run.started", "orchestrator.run.finished":
-		out[telemetry.AttrHecatePhase] = "orchestration"
-	case "orchestrator.step.completed", "orchestrator.step.failed":
-		if _, ok := out[telemetry.AttrHecatePhase]; !ok {
-			out[telemetry.AttrHecatePhase] = "planning"
-		}
-	case "orchestrator.artifact.created", "orchestrator.artifact.failed":
-		out[telemetry.AttrHecatePhase] = "artifact"
-	case "cache.hit", "cache.miss":
-		out[telemetry.AttrHecatePhase] = "cache"
-	case "router.selected", "router.candidate.considered", "router.candidate.skipped", "router.candidate.denied", "router.candidate.selected":
-		out[telemetry.AttrHecatePhase] = "routing"
-	case "response.returned":
+	case name == telemetry.EventResponseReturned || name == telemetry.EventResponseBodyCaptured:
 		out[telemetry.AttrHecatePhase] = "response"
-	case "agent_chat.run.started", "agent_chat.output.started", "agent_chat.files_changed", "agent_chat.run.finished", "agent_chat.run.failed", "agent_chat.run.cancelled":
+	case hasPrefix(name, "governor."):
+		out[telemetry.AttrHecatePhase] = "governor"
+	case hasPrefix(name, "router."):
+		out[telemetry.AttrHecatePhase] = "routing"
+	case hasPrefix(name, "provider."):
+		out[telemetry.AttrHecatePhase] = "provider"
+	case hasPrefix(name, "cache.") || hasPrefix(name, "semantic_cache."):
+		out[telemetry.AttrHecatePhase] = "cache"
+	case name == telemetry.EventUsageNormalized:
+		out[telemetry.AttrHecatePhase] = "usage"
+	case name == telemetry.EventCostCalculated || name == telemetry.EventCostEstimateUnpriced:
+		out[telemetry.AttrHecatePhase] = "cost"
+	case hasPrefix(name, "orchestrator.task.") || hasPrefix(name, "orchestrator.run.") || hasPrefix(name, "queue."):
+		out[telemetry.AttrHecatePhase] = "orchestration"
+	case hasPrefix(name, "orchestrator.step."):
+		out[telemetry.AttrHecatePhase] = "planning"
+	case hasPrefix(name, "orchestrator.artifact."):
+		out[telemetry.AttrHecatePhase] = "artifact"
+	case hasPrefix(name, "orchestrator.approval."):
+		out[telemetry.AttrHecatePhase] = "approval"
+	case hasPrefix(name, "tool."):
+		out[telemetry.AttrHecatePhase] = "tool"
+	case hasPrefix(name, "policy."):
+		out[telemetry.AttrHecatePhase] = "policy"
+	case hasPrefix(name, "retention."):
+		out[telemetry.AttrHecatePhase] = "retention"
+	case hasPrefix(name, "agent_chat."):
 		out[telemetry.AttrHecatePhase] = "agent_chat"
 	}
 

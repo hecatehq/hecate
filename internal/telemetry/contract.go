@@ -135,6 +135,77 @@ const (
 	EventAgentChatRunCancelled  = "agent_chat.run.cancelled"
 )
 
+var allEventNames = []string{
+	EventRequestReceived,
+	EventRequestInvalid,
+	EventGovernorAllowed,
+	EventGovernorDenied,
+	EventGovernorModelRewrite,
+	EventGovernorBudgetEstimateFailed,
+	EventGovernorRouteDenied,
+	EventGovernorRouteAllowed,
+	EventGovernorUsageRecordFailed,
+	EventRouterFailed,
+	EventRouterSelected,
+	EventRouterCandidateConsidered,
+	EventRouterCandidateSkipped,
+	EventRouterCandidateDenied,
+	EventRouterCandidateSelected,
+	EventProviderCallStarted,
+	EventProviderCallFinished,
+	EventProviderCallFailed,
+	EventProviderRetryScheduled,
+	EventProviderRetryBackoffFailed,
+	EventProviderFailoverSelected,
+	EventProviderFailoverSkipped,
+	EventProviderHealthDegraded,
+	EventUsageNormalized,
+	EventCostCalculated,
+	EventCostEstimateUnpriced,
+	EventResponseReturned,
+	EventRequestBodyCaptured,
+	EventResponseBodyCaptured,
+	EventQueueEnqueued,
+	EventQueueClaimed,
+	EventQueueAcked,
+	EventQueueNacked,
+	EventQueueLeaseExtended,
+	EventQueueLeaseExtendFailed,
+	EventOrchestratorTaskStarted,
+	EventOrchestratorTaskFinished,
+	EventOrchestratorRunStarted,
+	EventOrchestratorRunFailed,
+	EventOrchestratorRunFinished,
+	EventOrchestratorStepCompleted,
+	EventOrchestratorStepFailed,
+	EventOrchestratorArtifactCreated,
+	EventOrchestratorArtifactFailed,
+	EventOrchestratorApprovalRequested,
+	EventOrchestratorApprovalResolved,
+	EventOrchestratorApprovalFailed,
+	EventMCPToolCompleted,
+	EventMCPToolFailed,
+	EventMCPToolBlocked,
+	EventRetentionRunStarted,
+	EventRetentionRunFinished,
+	EventRetentionSubsystemFailed,
+	EventRetentionSubsystemFinished,
+	EventRetentionHistoryFailed,
+	EventRetentionHistoryPersisted,
+	EventAgentChatRunStarted,
+	EventAgentChatOutputStarted,
+	EventAgentChatFilesChanged,
+	EventAgentChatRunFinished,
+	EventAgentChatRunFailed,
+	EventAgentChatRunCancelled,
+}
+
+func AllEventNames() []string {
+	out := make([]string, len(allEventNames))
+	copy(out, allEventNames)
+	return out
+}
+
 // ---------------------------------------------------------------------------
 // Span name constants — the parent spans that events are grouped into.
 // These match the mapping in profiler.spanSpecForEvent.
@@ -146,6 +217,7 @@ const (
 	SpanGatewayGovernor     = "gateway.governor"
 	SpanGatewayRouter       = "gateway.router"
 	SpanGatewayProvider     = "gateway.provider"
+	SpanGatewayCache        = "gateway.cache"
 	SpanGatewayUsage        = "gateway.usage"
 	SpanGatewayCost         = "gateway.cost"
 	SpanGatewayResponse     = "gateway.response"

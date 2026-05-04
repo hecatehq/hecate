@@ -21,6 +21,7 @@ For the full request lifecycle that produces these traces, see [`architecture.md
 - [What You Can Inspect Today](#what-you-can-inspect-today)
 - [OTLP Configuration](#otlp-configuration)
 - [Inbound Trace Context Propagation](#inbound-trace-context-propagation)
+- [Telemetry Contract](#telemetry-contract)
 - [Core Vocabulary](#core-vocabulary)
 - [Traces](#traces)
 - [Metrics](#metrics)
@@ -151,6 +152,23 @@ If you front Hecate with a service that does not propagate trace context, the
 gateway starts a fresh trace per request and the request id remains the
 single correlation key.
 
+## Telemetry Contract
+
+Hecate treats telemetry as a product contract, not best-effort debug output.
+Runtime code records events through the constants in `internal/telemetry`, and
+tests enforce three invariants for known events:
+
+- every event name is part of one enumerable contract
+- every known event maps to a specific child span instead of the catch-all
+  `gateway.runtime`
+- every known event produces a stable `hecate.phase` attribute
+
+Event families that need operator-facing guarantees can also declare required
+attributes. The test suite currently validates required attributes for the
+core gateway request path, provider execution, usage/cost, response return,
+and external agent-chat lifecycle. When adding a new runtime event, add it to
+the contract first, then choose the span and phase deliberately.
+
 ## Core Vocabulary
 
 Common standard or standard-shaped attributes include:
@@ -235,13 +253,15 @@ Gateway traces are centered around a small set of runtime stages. Each stage map
 | `gateway.request.parse` | Request parsing and validation |
 | `gateway.governor` | Governor and policy decisions |
 | `gateway.router` | Route selection |
-| `gateway.cache.exact` | Exact cache lookup |
-| `gateway.cache.semantic` | Semantic cache lookup and writeback |
+| `gateway.cache` | Exact and semantic cache lookup/writeback events |
 | `gateway.provider` | Provider execution, retry, and failover |
 | `gateway.usage` | Usage normalization |
 | `gateway.cost` | Cost calculation |
 | `gateway.response` | Response return |
-| `gateway.runtime` | Catch-all for unclassified events |
+| `gateway.runtime` | Catch-all for unknown or not-yet-classified events |
+
+Known Hecate event constants should not land in `gateway.runtime`; contract
+tests fail if they do.
 
 Route selection emits OTel-shaped events under `gateway.router` so the local
 trace inspector and OTLP backends can explain the route, not just show the
@@ -284,6 +304,11 @@ Coding-runtime operations emit their own spans, grouped by lifecycle stage:
 | `orchestrator.artifact` | `orchestrator.artifact.created`, `orchestrator.artifact.failed` |
 | `orchestrator.approval` | `orchestrator.approval.requested`, `orchestrator.approval.resolved`, `orchestrator.approval.failed` |
 | `orchestrator.queue` | `queue.enqueued`, `queue.claimed`, `queue.acked`, `queue.nacked`, `queue.lease_extended`, `queue.lease_extend_failed` |
+
+Generic runtime tool events (`tool.completed`, `tool.failed`) are grouped under
+`orchestrator.step`. Policy tool blocks (`policy.tool_blocked`) are grouped
+under `orchestrator.approval` because they represent a gate decision before
+execution.
 
 Steps carry `hecate.step.duration_ms`. Runs carry `hecate.run.duration_ms`. Queue claim events carry `hecate.queue.wait_ms` — the time the run spent in the queue between enqueue and claim.
 

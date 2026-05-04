@@ -74,6 +74,31 @@ func TestNormalizeResultClampsUnknownToError(t *testing.T) {
 // ValidateEventAttrs
 // ---------------------------------------------------------------------------
 
+func TestAllEventNamesReturnsStableUniqueCopy(t *testing.T) {
+	t.Parallel()
+
+	first := AllEventNames()
+	if len(first) == 0 {
+		t.Fatal("AllEventNames() returned no events")
+	}
+	seen := make(map[string]struct{}, len(first))
+	for _, name := range first {
+		if name == "" {
+			t.Fatal("AllEventNames() returned an empty event name")
+		}
+		if _, exists := seen[name]; exists {
+			t.Fatalf("AllEventNames() contains duplicate event %q", name)
+		}
+		seen[name] = struct{}{}
+	}
+
+	first[0] = "mutated"
+	second := AllEventNames()
+	if second[0] == "mutated" {
+		t.Fatal("AllEventNames() returned the underlying slice; mutations leak")
+	}
+}
+
 func TestValidateEventAttrsPassesWhenAllRequiredPresent(t *testing.T) {
 	t.Parallel()
 
