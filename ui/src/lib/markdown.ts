@@ -1,9 +1,11 @@
 export type Block = {
-  type: "code" | "heading" | "ul" | "ol" | "hr" | "p";
+  type: "code" | "heading" | "ul" | "ol" | "task" | "table" | "hr" | "p";
   text: string;
   lang?: string;
   level?: number;
   items?: string[];
+  tasks?: Array<{ checked: boolean; text: string }>;
+  table?: { headers: string[]; rows: string[][] };
 };
 
 export type InlineNode =
@@ -48,6 +50,29 @@ export function parseMarkdownBlocks(content: string): Block[] {
       continue;
     }
 
+    if (isTableStart(lines, i)) {
+      const headers = splitTableRow(lines[i]);
+      i += 2;
+      const rows: string[][] = [];
+      while (i < lines.length && isTableRow(lines[i])) {
+        rows.push(splitTableRow(lines[i]));
+        i++;
+      }
+      blocks.push({ type: "table", text: "", table: { headers, rows } });
+      continue;
+    }
+
+    if (/^[-*] \[[ xX]\] /.test(line)) {
+      const tasks: Array<{ checked: boolean; text: string }> = [];
+      while (i < lines.length && /^[-*] \[[ xX]\] /.test(lines[i])) {
+        const match = /^[-*] \[([ xX])\] (.*)/.exec(lines[i]);
+        if (match) tasks.push({ checked: match[1].toLowerCase() === "x", text: match[2] });
+        i++;
+      }
+      blocks.push({ type: "task", text: "", tasks });
+      continue;
+    }
+
     if (/^[-*] /.test(line)) {
       const items: string[] = [];
       while (i < lines.length && /^[-*] /.test(lines[i])) {
@@ -79,6 +104,8 @@ export function parseMarkdownBlocks(content: string): Block[] {
       lines[i].trim() !== "" &&
       !/^```/.test(lines[i]) &&
       !/^#{1,3} /.test(lines[i]) &&
+      !isTableStart(lines, i) &&
+      !/^[-*] \[[ xX]\] /.test(lines[i]) &&
       !/^[-*] /.test(lines[i]) &&
       !/^\d+\. /.test(lines[i])
     ) {
@@ -89,6 +116,28 @@ export function parseMarkdownBlocks(content: string): Block[] {
   }
 
   return blocks;
+}
+
+function isTableStart(lines: string[], index: number): boolean {
+  return isTableRow(lines[index]) && isTableSeparator(lines[index + 1] ?? "");
+}
+
+function isTableRow(line: string): boolean {
+  return line.includes("|") && line.trim().replace(/\|/g, "").trim() !== "";
+}
+
+function isTableSeparator(line: string): boolean {
+  const cells = splitTableRow(line);
+  return cells.length > 0 && cells.every(cell => /^:?-{3,}:?$/.test(cell.trim()));
+}
+
+function splitTableRow(line: string): string[] {
+  return line
+    .trim()
+    .replace(/^\|/, "")
+    .replace(/\|$/, "")
+    .split("|")
+    .map(cell => cell.trim());
 }
 
 export function parseInlineNodes(text: string): InlineNode[] {
