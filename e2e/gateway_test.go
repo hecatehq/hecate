@@ -313,6 +313,47 @@ func TestGatewayFakeUpstreamNonStreamingCodex(t *testing.T) {
 	}
 }
 
+// TestGatewayFakeUpstreamExportsOTLPTracesAndMetrics verifies that the
+// standard e2e path exports both traces and metrics to an OTLP/HTTP receiver
+// without requiring a real model runtime such as Ollama.
+func TestGatewayFakeUpstreamExportsOTLPTracesAndMetrics(t *testing.T) {
+	t.Parallel()
+
+	sink := newOTLPSink()
+	t.Cleanup(sink.close)
+
+	fakeResp := `{"id":"chatcmpl-otlp","object":"chat.completion","created":1700000000,"model":"gpt-4o-mini","choices":[{"index":0,"message":{"role":"assistant","content":"OTLP ok"},"finish_reason":"stop"}],"usage":{"prompt_tokens":5,"completion_tokens":8,"total_tokens":13}}`
+	upstream := fakeOpenAIServer(t, "/v1/chat/completions", fakeResp, false)
+
+	base := gatewayServer(t,
+		"PROVIDER_FAKE_API_KEY=dummy",
+		"PROVIDER_FAKE_BASE_URL="+upstream,
+		"PROVIDER_FAKE_DEFAULT_MODEL=gpt-4o-mini",
+		"PROVIDER_FAKE_KIND=local",
+		"GATEWAY_DEFAULT_MODEL=gpt-4o-mini",
+		"GATEWAY_OTEL_TRACES_ENABLED=true",
+		"GATEWAY_OTEL_TRACES_ENDPOINT=http://"+sink.addr(),
+		"GATEWAY_OTEL_METRICS_ENABLED=true",
+		"GATEWAY_OTEL_METRICS_ENDPOINT=http://"+sink.addr(),
+		"GATEWAY_OTEL_METRICS_INTERVAL=200ms",
+	)
+
+	body := `{"model":"gpt-4o-mini","messages":[{"role":"user","content":"hello"}]}`
+	resp := postJSON(t, base+"/v1/chat/completions", body, nil)
+	defer resp.Body.Close()
+	if resp.StatusCode != http.StatusOK {
+		t.Fatalf("expected 200, got %d — body: %s", resp.StatusCode, readBody(t, resp))
+	}
+	io.Copy(io.Discard, resp.Body) //nolint:errcheck
+
+	if !sink.waitForSpan("gateway.provider", 8*time.Second) {
+		t.Fatalf("no gateway.provider span within 8s; got spans: %v", sink.spanNames())
+	}
+	if !sink.waitForMetric("hecate.provider.calls", 10*time.Second) {
+		t.Fatalf("no hecate.provider.calls metric within 10s; got metrics: %v", sink.metricNames())
+	}
+}
+
 // TestGatewayFakeUpstreamStreamingCodex verifies that the gateway streams SSE
 // chunks from the upstream through to the client correctly.
 func TestGatewayFakeUpstreamStreamingCodex(t *testing.T) {
