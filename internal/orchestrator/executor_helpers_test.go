@@ -187,6 +187,15 @@ func TestFileExecutorCreatesPatchArtifactAndEvent(t *testing.T) {
 	if got := events[0].data["before_existed"]; got != true {
 		t.Fatalf("before_existed = %v, want true", got)
 	}
+	if got := events[0].data[telemetry.AttrHecateToolFileOperation]; got != "write" {
+		t.Fatalf("otel file operation = %v, want write", got)
+	}
+	if got := events[0].data[telemetry.AttrHecateToolFileBytesWritten]; got != len("new\n") {
+		t.Fatalf("otel bytes written = %v, want %d", got, len("new\n"))
+	}
+	if got := events[0].data[telemetry.AttrHecateToolFileBeforeExisted]; got != true {
+		t.Fatalf("otel before existed = %v, want true", got)
+	}
 }
 
 func TestTaskPolicyMaterializesSandboxFields(t *testing.T) {
@@ -280,6 +289,49 @@ func TestShellExecutorEmitsTypedEventProtocolShellEvents(t *testing.T) {
 	}
 	if got := events[5].data["exit_code"]; got != 0 {
 		t.Fatalf("exit_code = %v, want 0", got)
+	}
+	if got := events[2].data[telemetry.AttrHecateSandboxWrapperKind]; got != string(sandbox.HealthInfo().Kind) {
+		t.Fatalf("sandbox wrapper kind = %v, want %s", got, sandbox.HealthInfo().Kind)
+	}
+	if got := events[2].data[telemetry.AttrHecateSandboxNetworkEnabled]; got != false {
+		t.Fatalf("sandbox network enabled = %v, want false", got)
+	}
+	if got := events[2].data[telemetry.AttrHecateToolTimeoutMS]; got != 1000 {
+		t.Fatalf("tool timeout ms = %v, want 1000", got)
+	}
+	if got := events[5].data[telemetry.AttrHecateToolStdoutBytes]; got != len("hello\n") {
+		t.Fatalf("otel stdout bytes = %v, want %d", got, len("hello\n"))
+	}
+	if got := events[5].data[telemetry.AttrHecateToolExitCode]; got != 0 {
+		t.Fatalf("otel exit code = %v, want 0", got)
+	}
+	if got := result.Steps[0].Input[telemetry.AttrHecateSandboxOutputLimit]; got != sandbox.DefaultResourceLimits().MaxOutputBytes {
+		t.Fatalf("step input output limit = %v, want %d", got, sandbox.DefaultResourceLimits().MaxOutputBytes)
+	}
+	if got := result.Steps[0].OutputSummary[telemetry.AttrHecateToolOutputTruncated]; got != false {
+		t.Fatalf("output truncated = %v, want false", got)
+	}
+}
+
+func TestMergeStepTelemetryAttrsUsesAllowlist(t *testing.T) {
+	dst := map[string]any{"existing": "value"}
+	mergeStepTelemetryAttrs(dst, map[string]any{
+		telemetry.AttrHecateSandboxWrapperKind:   "sandbox-exec",
+		telemetry.AttrHecateToolExitCode:         7,
+		telemetry.AttrHecateToolWorkingDirectory: "/tmp/work",
+		"arbitrary":                              "ignored",
+	})
+	if got := dst[telemetry.AttrHecateSandboxWrapperKind]; got != "sandbox-exec" {
+		t.Fatalf("wrapper kind = %v, want sandbox-exec", got)
+	}
+	if got := dst[telemetry.AttrHecateToolExitCode]; got != 7 {
+		t.Fatalf("exit code = %v, want 7", got)
+	}
+	if _, ok := dst[telemetry.AttrHecateToolWorkingDirectory]; ok {
+		t.Fatal("working directory should not be promoted to trace attrs")
+	}
+	if _, ok := dst["arbitrary"]; ok {
+		t.Fatal("arbitrary key should not be promoted to trace attrs")
 	}
 }
 

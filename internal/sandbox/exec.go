@@ -31,6 +31,13 @@ type ResourceLimits struct {
 	MaxOutputBytes int64
 }
 
+// DefaultResourceLimits returns the env-driven resource caps that a zero-value
+// Command.Limits would receive at execution time. Callers use this for
+// telemetry only; LocalExecutor still performs the authoritative merge.
+func DefaultResourceLimits() ResourceLimits {
+	return defaultLimits()
+}
+
 // OutputLimitExceededError is returned when a command's combined stdout and
 // stderr output exceeds ResourceLimits.MaxOutputBytes.
 type OutputLimitExceededError struct {

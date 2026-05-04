@@ -109,6 +109,25 @@ const (
 	// Shell execution
 	AttrHecateShellCommand = "hecate.shell.command"
 
+	// Sandbox / tool execution
+	AttrHecateSandboxWrapperKind     = "hecate.sandbox.wrapper.kind"
+	AttrHecateSandboxNetworkEnabled  = "hecate.sandbox.network.enabled"
+	AttrHecateSandboxReadOnly        = "hecate.sandbox.read_only"
+	AttrHecateSandboxOutputLimit     = "hecate.sandbox.output_limit.bytes"
+	AttrHecateToolExitCode           = "hecate.tool.exit_code"
+	AttrHecateToolStdoutBytes        = "hecate.tool.stdout.bytes"
+	AttrHecateToolStderrBytes        = "hecate.tool.stderr.bytes"
+	AttrHecateToolTimedOut           = "hecate.tool.timed_out"
+	AttrHecateToolCancelled          = "hecate.tool.cancelled"
+	AttrHecateToolOutputTruncated    = "hecate.tool.output_truncated"
+	AttrHecateToolWorkingDirectory   = "hecate.tool.working_directory"
+	AttrHecateToolTimeoutMS          = "hecate.tool.timeout_ms"
+	AttrHecateToolFileOperation      = "hecate.tool.file.operation"
+	AttrHecateToolFileBytesWritten   = "hecate.tool.file.bytes_written"
+	AttrHecateToolFileBeforeExisted  = "hecate.tool.file.before_existed"
+	AttrHecateToolFileDiffBytes      = "hecate.tool.file.diff_bytes"
+	AttrHecateToolFileArtifactStatus = "hecate.tool.file.artifact_status"
+
 	// Retention
 	AttrRetentionTrigger   = "retention.trigger"
 	AttrRetentionSubsystem = "retention.subsystem"

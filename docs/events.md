@@ -307,6 +307,10 @@ Generic shell tool lifecycle markers.
 | `tool_call_id` | `string` | Model tool-call id for `agent_loop`; direct shell tasks fall back to the shell step id |
 | `tool_name` | `string` | Usually `shell_exec` for agent-loop tool calls or `shell` for direct shell tasks |
 | `kind` | `string` | Always `shell` for this implemented slice |
+| `hecate.sandbox.wrapper.kind` | `string` | Detected OS isolation wrapper |
+| `hecate.sandbox.network.enabled` | `bool` | Whether this task allowed sandbox network access |
+| `hecate.sandbox.read_only` | `bool` | Whether the sandbox policy is read-only |
+| `hecate.sandbox.output_limit.bytes` | `int64` | Effective combined stdout/stderr output cap |
 
 ### `tool.shell.command`
 
@@ -321,6 +325,8 @@ The normalized command execution plan.
 | `sandbox_layer` | `string` | Detected OS isolation wrapper: `bwrap`, `sandbox-exec`, or `none` |
 | `timeout_ms` | `int` | Wall-clock timeout for the command |
 | `command_string` | `string` | Human-readable shell command string |
+| `hecate.tool.working_directory` | `string` | Working directory as an OTel-shaped event attribute; not promoted to span attrs |
+| `hecate.tool.timeout_ms` | `int` | Timeout as an OTel-shaped event/span attribute |
 
 ### `tool.shell.output_chunk`
 
@@ -346,6 +352,12 @@ command before a child process starts.
 | `stdout_bytes` | `int` | Final stdout byte count |
 | `stderr_bytes` | `int` | Final stderr byte count |
 | `truncated` | `bool` | True when the sandbox output cap stopped the command |
+| `hecate.tool.exit_code` | `int` | Exit code as an OTel-shaped event/span attribute |
+| `hecate.tool.stdout.bytes` | `int` | Stdout byte count as an OTel-shaped event/span attribute |
+| `hecate.tool.stderr.bytes` | `int` | Stderr byte count as an OTel-shaped event/span attribute |
+| `hecate.tool.timed_out` | `bool` | True when the command hit its wall-clock timeout |
+| `hecate.tool.cancelled` | `bool` | True when execution was cancelled by context |
+| `hecate.tool.output_truncated` | `bool` | True when the sandbox output cap stopped the command |
 
 ### `tool.completed` / `tool.failed` / `tool.cancelled` / `tool.timed_out`
 
@@ -360,6 +372,12 @@ Terminal shell lifecycle marker.
 | `summary` | `string` | Human-readable terminal summary |
 | `error` | `string` | Present on failed/cancelled/timed-out shell executions |
 | `after_ms` | `int` | Present on `tool.timed_out` |
+| `hecate.tool.exit_code` | `int` | Exit code as an OTel-shaped event/span attribute |
+| `hecate.tool.stdout.bytes` | `int` | Stdout byte count as an OTel-shaped event/span attribute |
+| `hecate.tool.stderr.bytes` | `int` | Stderr byte count as an OTel-shaped event/span attribute |
+| `hecate.tool.timed_out` | `bool` | True when the command hit its wall-clock timeout |
+| `hecate.tool.cancelled` | `bool` | True when execution was cancelled by context |
+| `hecate.tool.output_truncated` | `bool` | True when the sandbox output cap stopped the command |
 
 ## MCP
 
@@ -409,6 +427,11 @@ Emitted when `execution_kind=file` or an `agent_loop` file-writing tool (`file_w
 | `diff_bytes` | `int64` | Patch body size |
 | `before_existed` | `bool` | Whether the file existed before the write |
 | `artifact_status` | `string` | `applied`, `proposed`, or `reverted` |
+| `hecate.tool.file.operation` | `string` | File operation as an OTel-shaped event/span attribute |
+| `hecate.tool.file.bytes_written` | `int` | Bytes written as an OTel-shaped event/span attribute |
+| `hecate.tool.file.diff_bytes` | `int64` | Patch size as an OTel-shaped event/span attribute |
+| `hecate.tool.file.before_existed` | `bool` | Pre-write existence as an OTel-shaped event/span attribute |
+| `hecate.tool.file.artifact_status` | `string` | Patch artifact status as an OTel-shaped event/span attribute |
 
 ### `tool.file.applied`
 
