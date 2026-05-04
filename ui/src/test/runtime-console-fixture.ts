@@ -68,6 +68,8 @@ export function createRuntimeConsoleFixture(
     agentChatGrantsLoading: false,
     agentChatGrantsError: "",
     agentAdapterApprovalMode: "",
+    agentAdapterHealthByID: new Map(),
+    agentAdapterHealthLoadingByID: new Map(),
     ...overrides,
   };
 }
@@ -120,6 +122,7 @@ export function createRuntimeConsoleActions(): RuntimeConsoleViewModel["actions"
     cancelAgentChatApproval: async () => true,
     listAgentChatGrants: async () => undefined,
     deleteAgentChatGrant: async () => true,
+    probeAgentAdapter: async () => null,
     dismissNotice: () => undefined,
   };
 }

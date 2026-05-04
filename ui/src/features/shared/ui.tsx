@@ -1,5 +1,5 @@
 import { useEffect, useRef, useState } from "react";
-import type { AgentAdapterRecord, ModelRecord, ProviderPresetRecord } from "../../types/runtime";
+import type { AgentAdapterHealthRecord, AgentAdapterRecord, ModelRecord, ProviderPresetRecord } from "../../types/runtime";
 
 // ─── Icon ────────────────────────────────────────────────────────────────────
 
@@ -1029,10 +1029,68 @@ export function ProviderPicker({
 
 // ─── AgentAdapterPicker ─────────────────────────────────────────────────────
 
+// adapterPickerDiagnostic combines the dashboard's "is the binary on
+// PATH?" flag with the on-demand probe result into one row diagnostic.
+// Probe data wins when present — it's a strictly more informative
+// signal — but we still fall back to the dashboard flag so the picker
+// reads correctly before any probe has run.
+function adapterPickerDiagnostic(
+  adapter: AgentAdapterRecord,
+  health: AgentAdapterHealthRecord | null | undefined,
+): { title: string; iconColor: string; chipLabel: string; chipColor: string } {
+  if (health) {
+    switch (health.status) {
+      case "ready":
+        return {
+          title: health.path ? `Ready (${health.path})` : "Ready",
+          iconColor: "var(--green)",
+          chipLabel: "ready",
+          chipColor: "var(--teal)",
+        };
+      case "auth_required":
+        return {
+          title: health.hint || health.error || "Authentication required",
+          iconColor: "var(--amber)",
+          chipLabel: "auth",
+          chipColor: "var(--amber)",
+        };
+      case "not_installed":
+        return {
+          title: health.hint || health.error || `${adapter.name} command was not found`,
+          iconColor: "var(--red)",
+          chipLabel: "missing",
+          chipColor: "var(--red)",
+        };
+      case "error":
+        return {
+          title: health.error || `${adapter.name} probe failed`,
+          iconColor: "var(--red)",
+          chipLabel: "error",
+          chipColor: "var(--red)",
+        };
+    }
+  }
+  if (!adapter.available) {
+    return {
+      title: adapter.error || `${adapter.name} command was not found`,
+      iconColor: "var(--red)",
+      chipLabel: "",
+      chipColor: "",
+    };
+  }
+  return {
+    title: adapter.path || adapter.description || adapter.name,
+    iconColor: "var(--green)",
+    chipLabel: "",
+    chipColor: "",
+  };
+}
+
 export function AgentAdapterPicker({
   value,
   onChange,
   adapters,
+  healthByID,
   disabled = false,
   disabledReason = "",
   triggerWidth = 170,
@@ -1040,6 +1098,12 @@ export function AgentAdapterPicker({
   value: string;
   onChange: (v: string) => void;
   adapters: AgentAdapterRecord[];
+  // healthByID is optional; when supplied, each row in the dropdown
+  // shows the most recent probe diagnostic (auth required / error) so
+  // operators can see why an adapter that's "available" might still
+  // fail. The dashboard's discovery flag (adapter.available) covers
+  // "binary on PATH"; the probe covers "auth + handshake works".
+  healthByID?: Map<string, AgentAdapterHealthRecord>;
   disabled?: boolean;
   disabledReason?: string;
   triggerWidth?: number;
@@ -1094,7 +1158,10 @@ export function AgentAdapterPicker({
       {open && floatingStyle && (
         <div className="dropdown-menu dropdown-menu-floating" style={{ ...floatingStyle, minWidth: 220 }}>
           {adapters.map((adapter) => {
-            const disabled = !adapter.available;
+            const health = healthByID?.get(adapter.id);
+            const isProbeReady = health?.status === "ready";
+            const disabled = !adapter.available && !isProbeReady;
+            const diag = adapterPickerDiagnostic(adapter, health);
             return (
               <div
                 key={adapter.id}
@@ -1105,7 +1172,7 @@ export function AgentAdapterPicker({
                   setOpen(false);
                 }}
                 style={disabled ? { cursor: "not-allowed" } : undefined}
-                title={disabled ? adapter.error || `${adapter.name} command was not found` : adapter.path || adapter.description}
+                title={diag.title}
               >
                 <span
                   style={{
@@ -1120,15 +1187,29 @@ export function AgentAdapterPicker({
                 >
                   {adapter.name}
                 </span>
+                {diag.chipLabel && (
+                  <span
+                    style={{
+                      fontFamily: "var(--font-mono)",
+                      fontSize: 9,
+                      color: diag.chipColor,
+                      textTransform: "uppercase",
+                      letterSpacing: "0.04em",
+                      flexShrink: 0,
+                    }}
+                  >
+                    {diag.chipLabel}
+                  </span>
+                )}
                 <span
                   style={{
-                    color: adapter.available ? "var(--green)" : "var(--red)",
+                    color: diag.iconColor,
                     display: "inline-flex",
                     flexShrink: 0,
                   }}
-                  aria-label={adapter.available ? "adapter available" : "adapter missing"}
+                  aria-label={diag.title}
                 >
-                  <Icon d={adapter.available ? Icons.check : Icons.x} size={11} />
+                  <Icon d={!disabled ? Icons.check : Icons.x} size={11} />
                 </span>
               </div>
             );

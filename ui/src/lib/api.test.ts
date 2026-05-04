@@ -13,6 +13,7 @@ import {
   getTrace,
   listAgentChatApprovals,
   listAgentChatGrants,
+  probeAgentAdapter,
   resolveAgentChatApproval,
   setProviderAPIKey,
   setProviderBaseURL,
@@ -454,6 +455,48 @@ describe("api client", () => {
         "/v1/agent-chat/grants/grant-1",
         expect.objectContaining({ method: "DELETE" }),
       );
+    });
+  });
+
+  // ─── Agent adapter health probe ────────────────────────────────────────────
+
+  describe("probeAgentAdapter", () => {
+    it("URL-encodes the adapter id and returns the typed payload", async () => {
+      fetchMock.mockResolvedValue(
+        jsonResponse({
+          object: "agent_adapter_health",
+          data: {
+            adapter_id: "codex",
+            status: "ready",
+            stage: "ready",
+            path: "/usr/local/bin/codex-acp",
+            duration_ms: 412,
+          },
+        }),
+      );
+
+      const result = await probeAgentAdapter("codex");
+
+      expect(fetchMock).toHaveBeenCalledWith(
+        "/v1/agent-adapters/codex/health",
+        expect.objectContaining({ method: "GET" }),
+      );
+      expect(result.data.status).toBe("ready");
+      expect(result.data.duration_ms).toBe(412);
+    });
+
+    it("escapes ids with special characters", async () => {
+      fetchMock.mockResolvedValue(
+        jsonResponse({
+          object: "agent_adapter_health",
+          data: { adapter_id: "weird id", status: "error", stage: "lookup", duration_ms: 0 },
+        }),
+      );
+
+      await probeAgentAdapter("weird id");
+
+      const [url] = fetchMock.mock.lastCall ?? [];
+      expect(url).toBe("/v1/agent-adapters/weird%20id/health");
     });
   });
 

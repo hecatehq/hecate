@@ -387,6 +387,27 @@ export type AgentChatStreamEvent =
 // keeps UI components decoupled from the SSE wire vocabulary.
 export type PendingAgentApproval = AgentChatApprovalRequestedEvent;
 
+// AgentAdapterHealthRecord mirrors agentadapters.ProbeResult. Returned
+// by GET /v1/agent-adapters/{id}/health. The status string is one of
+// "ready" | "not_installed" | "auth_required" | "error"; the UI uses
+// it to colour status chips (green / amber / red / red) and to drive
+// the adapter status panel in Settings → External agents.
+export type AgentAdapterHealthRecord = {
+  adapter_id: string;
+  status: string;
+  stage: string;
+  path?: string;
+  error?: string;
+  stderr?: string;
+  hint?: string;
+  duration_ms: number;
+};
+
+export type AgentAdapterHealthResponse = {
+  object: string;
+  data: AgentAdapterHealthRecord;
+};
+
 export type WorkspaceDialogResponse = {
   object: string;
   data: {

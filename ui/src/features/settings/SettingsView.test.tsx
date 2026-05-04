@@ -195,4 +195,85 @@ describe("SettingsView external agents tab", () => {
     await user.click(screen.getByRole("button", { name: "External agents" }));
     expect(await screen.findByText(/list failed: 500/)).toBeTruthy();
   });
+
+  // Adapter status panel — surfaces the on-demand probe result. The
+  // section is hidden when no adapters are registered (no point
+  // showing an empty card); otherwise each row exposes a Test button
+  // that calls actions.probeAgentAdapter, plus inline diagnostic
+  // copy when a result exists.
+  describe("adapter status panel", () => {
+    function withAdapter(overrides: Record<string, unknown> = {}) {
+      return {
+        agentAdapters: [
+          {
+            id: "codex",
+            name: "Codex",
+            kind: "acp",
+            command: "codex-acp",
+            available: true,
+            status: "available",
+            cost_mode: "external",
+          },
+        ],
+        ...overrides,
+      };
+    }
+
+    it("hides the panel when no adapters are registered", async () => {
+      const { state, actions, user } = setup({ agentAdapters: [] });
+      render(<SettingsView state={state} actions={actions} />);
+      await user.click(screen.getByRole("button", { name: "External agents" }));
+      expect(screen.queryByTestId("external-agents-adapters")).toBeNull();
+    });
+
+    it("renders one row per adapter with a Test button", async () => {
+      const { state, actions, user } = setup(withAdapter());
+      render(<SettingsView state={state} actions={actions} />);
+      await user.click(screen.getByRole("button", { name: "External agents" }));
+      expect(await screen.findByTestId("external-agents-adapters")).toBeTruthy();
+      expect(screen.getByTestId("external-agents-adapter-codex")).toBeTruthy();
+      expect(screen.getByTestId("external-agents-test-codex")).toBeTruthy();
+    });
+
+    it("calls probeAgentAdapter with the row id when Test is clicked", async () => {
+      const probeAgentAdapter = vi.fn(async () => null);
+      const { state, actions, user } = setup(withAdapter(), { probeAgentAdapter });
+      render(<SettingsView state={state} actions={actions} />);
+      await user.click(screen.getByRole("button", { name: "External agents" }));
+      await user.click(await screen.findByTestId("external-agents-test-codex"));
+      expect(probeAgentAdapter).toHaveBeenCalledWith("codex");
+    });
+
+    it("renders the auth-required hint when the cached probe says auth is missing", async () => {
+      const { state, actions, user } = setup(withAdapter({
+        agentAdapterHealthByID: new Map([
+          ["codex", {
+            adapter_id: "codex",
+            status: "auth_required",
+            stage: "initialize",
+            path: "/usr/local/bin/codex-acp",
+            error: "Authentication required",
+            hint: "Run codex login",
+            duration_ms: 412,
+          }],
+        ]),
+      }));
+      render(<SettingsView state={state} actions={actions} />);
+      await user.click(screen.getByRole("button", { name: "External agents" }));
+      const detail = await screen.findByTestId("external-agents-adapter-codex-detail");
+      expect(within(detail).getByText("Run codex login")).toBeTruthy();
+      expect(within(detail).getByText(/Authentication required/)).toBeTruthy();
+    });
+
+    it("disables the Test button while a probe is in flight", async () => {
+      const { state, actions, user } = setup(withAdapter({
+        agentAdapterHealthLoadingByID: new Map([["codex", true]]),
+      }));
+      render(<SettingsView state={state} actions={actions} />);
+      await user.click(screen.getByRole("button", { name: "External agents" }));
+      const button = await screen.findByTestId("external-agents-test-codex") as HTMLButtonElement;
+      expect(button.disabled).toBe(true);
+      expect(button.textContent).toMatch(/Testing/);
+    });
+  });
 });
