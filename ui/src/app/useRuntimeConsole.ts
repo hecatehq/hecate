@@ -83,18 +83,28 @@ type NoticeState = {
   message: string;
 };
 
+function readLocalStorage(key: string): string {
+  if (typeof window === "undefined") {
+    return "";
+  }
+  return window.localStorage.getItem(key) ?? "";
+}
+
 export function useRuntimeConsole() {
   const [health, setHealth] = useState<HealthResponse | null>(null);
   const [models, setModels] = useState<ModelResponse["data"]>([]);
   const [providers, setProviders] = useState<ProviderStatusResponse["data"]>([]);
   const [providerPresets, setProviderPresets] = useState<ProviderPresetRecord[]>([]);
   const [agentAdapters, setAgentAdapters] = useState<AgentAdapterRecord[]>([]);
-  const [chatTarget, setChatTarget] = useState<"model" | "agent">("agent");
-  const [agentAdapterID, setAgentAdapterID] = useState("codex");
-  const [agentWorkspace, setAgentWorkspace] = useState("");
+  const [chatTarget, setChatTarget] = useState<"model" | "agent">(() => {
+    const stored = readLocalStorage("hecate.chatTarget");
+    return stored === "model" ? "model" : "agent";
+  });
+  const [agentAdapterID, setAgentAdapterID] = useState(() => readLocalStorage("hecate.agentAdapterID") || "codex");
+  const [agentWorkspace, setAgentWorkspace] = useState(() => readLocalStorage("hecate.agentWorkspace"));
   const [agentWorkspaceBranch, setAgentWorkspaceBranch] = useState("");
   const [agentChatSessions, setAgentChatSessions] = useState<AgentChatSessionsResponse["data"]>([]);
-  const [activeAgentChatSessionID, setActiveAgentChatSessionID] = useState("");
+  const [activeAgentChatSessionID, setActiveAgentChatSessionID] = useState(() => readLocalStorage("hecate.agentChatSessionID"));
   const [activeAgentChatSession, setActiveAgentChatSession] = useState<AgentChatSessionRecord | null>(null);
   const [budget, setBudget] = useState<BudgetStatusResponse["data"] | null>(null);
   const [accountSummary, setAccountSummary] = useState<AccountSummaryResponse["data"] | null>(null);
@@ -605,9 +615,9 @@ export function useRuntimeConsole() {
 
       let sessionID = activeAgentChatSessionID;
       if (sessionID && !activeAgentChatSession) {
-        // Agent Chat history is memory-backed in the MVP. After a gateway
-        // restart, localStorage can point at a session the server no longer
-        // knows about; start a fresh session instead of surfacing a stale 404.
+        // The server owns chat persistence. If localStorage points at a
+        // deleted or unavailable session, start clean instead of making the
+        // next prompt fail with a stale 404.
         sessionID = "";
         setActiveAgentChatSessionID("");
       }
@@ -1731,7 +1741,7 @@ async function resolveAgentChatDashboardState(args: {
     const sessionResult = await getAgentChatSession(activeSessionID);
     return { sessions, activeSessionID, activeSession: sessionResult.data };
   } catch {
-    return { sessions, activeSessionID, activeSession: null };
+    return { sessions, activeSessionID: "", activeSession: null };
   }
 }
 

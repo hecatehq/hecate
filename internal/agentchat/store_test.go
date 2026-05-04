@@ -11,6 +11,11 @@ func TestMemoryStoreLifecycle(t *testing.T) {
 	runStoreLifecycle(t, NewMemoryStore())
 }
 
+func TestMemoryStoreReconcileInterruptedRuns(t *testing.T) {
+	t.Parallel()
+	runStoreReconcileInterruptedRuns(t, NewMemoryStore())
+}
+
 func runStoreLifecycle(t *testing.T, store Store) {
 	t.Helper()
 	ctx := context.Background()
@@ -130,5 +135,79 @@ func runStoreLifecycle(t *testing.T, store Store) {
 	}
 	if ok {
 		t.Fatal("Get after delete: ok = true, want false")
+	}
+}
+
+func runStoreReconcileInterruptedRuns(t *testing.T, store Store) {
+	t.Helper()
+	ctx := context.Background()
+	created, err := store.Create(ctx, Session{
+		ID:        "agent_chat_interrupted",
+		Title:     "Interrupted",
+		AdapterID: "codex",
+		Workspace: "/tmp/hecate",
+	})
+	if err != nil {
+		t.Fatalf("Create: %v", err)
+	}
+	if _, err := store.AppendMessage(ctx, created.ID, Message{
+		ID:        "msg_user",
+		Role:      "user",
+		Content:   "keep going",
+		CreatedAt: time.Now().UTC().Add(-2 * time.Minute),
+	}); err != nil {
+		t.Fatalf("AppendMessage(user): %v", err)
+	}
+	if _, err := store.AppendMessage(ctx, created.ID, Message{
+		ID:          "msg_assistant",
+		RunID:       "agent_run_interrupted",
+		Role:        "assistant",
+		Content:     "partial answer",
+		AdapterID:   "codex",
+		AdapterName: "Codex",
+		Status:      "running",
+		CostMode:    "external",
+		Workspace:   "/tmp/hecate",
+		StartedAt:   time.Now().UTC().Add(-time.Minute),
+		Activities: []Activity{
+			{Type: "running", Status: "running", Title: "Running"},
+		},
+	}); err != nil {
+		t.Fatalf("AppendMessage(assistant): %v", err)
+	}
+
+	now := time.Date(2026, 5, 4, 10, 0, 0, 0, time.UTC)
+	count, err := ReconcileInterruptedRuns(ctx, store, now)
+	if err != nil {
+		t.Fatalf("ReconcileInterruptedRuns: %v", err)
+	}
+	if count != 1 {
+		t.Fatalf("reconciled count = %d, want 1", count)
+	}
+
+	got, ok, err := store.Get(ctx, created.ID)
+	if err != nil || !ok {
+		t.Fatalf("Get: ok=%v err=%v", ok, err)
+	}
+	if got.Status != "cancelled" {
+		t.Fatalf("session status = %q, want cancelled", got.Status)
+	}
+	assistant := got.Messages[1]
+	if assistant.Status != "cancelled" || assistant.Error != "interrupted by Hecate restart" || !assistant.CompletedAt.Equal(now) {
+		t.Fatalf("assistant after reconcile = %+v", assistant)
+	}
+	if assistant.Content != "partial answer" {
+		t.Fatalf("assistant content = %q, want preserved partial answer", assistant.Content)
+	}
+	if !activityTypeExists(assistant.Activities, "interrupted") {
+		t.Fatalf("activities = %+v, want interrupted activity", assistant.Activities)
+	}
+
+	count, err = ReconcileInterruptedRuns(ctx, store, now.Add(time.Second))
+	if err != nil {
+		t.Fatalf("ReconcileInterruptedRuns second call: %v", err)
+	}
+	if count != 0 {
+		t.Fatalf("second reconciled count = %d, want 0", count)
 	}
 }

@@ -405,7 +405,11 @@ func (h *Handler) HandleCreateAgentChatMessage(w http.ResponseWriter, r *http.Re
 		if result.SessionResumed {
 			message.Activities = append([]agentchat.Activity{newAgentChatActivity("resumed", "completed", "Resumed external session", adapter.Name+" restored "+result.NativeSessionID)}, message.Activities...)
 		} else if result.SessionStarted {
-			message.Activities = append([]agentchat.Activity{newAgentChatActivity("started", "completed", "Starting external agent", adapter.Name+" in "+session.Workspace)}, message.Activities...)
+			activities := []agentchat.Activity{newAgentChatActivity("started", "completed", "Starting external agent", adapter.Name+" in "+session.Workspace)}
+			if result.SessionRecovery != "" {
+				activities = append(activities, newAgentChatActivity("recovered", "completed", "Started fresh external session", result.SessionRecovery))
+			}
+			message.Activities = append(activities, message.Activities...)
 		}
 		if result.DiffStat != "" {
 			message.Activities = append(message.Activities, newAgentChatActivity("files_changed", "completed", "Files changed", result.DiffStat))

@@ -83,6 +83,75 @@ type Store interface {
 	UpdateMessage(ctx context.Context, sessionID string, messageID string, update func(*Message)) (Session, error)
 }
 
+func ReconcileInterruptedRuns(ctx context.Context, store Store, now time.Time) (int, error) {
+	if store == nil {
+		return 0, nil
+	}
+	if now.IsZero() {
+		now = time.Now().UTC()
+	}
+	sessions, err := store.List(ctx)
+	if err != nil {
+		return 0, err
+	}
+	reconciled := 0
+	for _, summary := range sessions {
+		session, ok, err := store.Get(ctx, summary.ID)
+		if err != nil {
+			return reconciled, err
+		}
+		if !ok {
+			continue
+		}
+		sessionReconciled := false
+		for _, message := range session.Messages {
+			if message.Role != "assistant" || message.Status != "running" {
+				continue
+			}
+			if _, err := store.UpdateMessage(ctx, session.ID, message.ID, func(item *Message) {
+				item.Status = "cancelled"
+				item.ExitCode = 1
+				item.CompletedAt = now
+				item.Error = "interrupted by Hecate restart"
+				if item.Content == "" {
+					item.Content = "Agent run interrupted by Hecate restart."
+				}
+				if !activityTypeExists(item.Activities, "interrupted") {
+					item.Activities = append(item.Activities, Activity{
+						Type:      "interrupted",
+						Status:    "cancelled",
+						Title:     "Interrupted by restart",
+						Detail:    "Hecate restarted before this agent run finished.",
+						CreatedAt: now,
+					})
+				}
+			}); err != nil {
+				return reconciled, err
+			}
+			reconciled++
+			sessionReconciled = true
+		}
+		if !sessionReconciled && session.Status == "running" {
+			if _, err := store.UpdateSession(ctx, session.ID, func(item *Session) {
+				item.Status = "cancelled"
+			}); err != nil {
+				return reconciled, err
+			}
+			reconciled++
+		}
+	}
+	return reconciled, nil
+}
+
+func activityTypeExists(items []Activity, typ string) bool {
+	for _, item := range items {
+		if item.Type == typ {
+			return true
+		}
+	}
+	return false
+}
+
 type MemoryStore struct {
 	mu       sync.Mutex
 	sessions map[string]Session

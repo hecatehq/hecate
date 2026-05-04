@@ -1215,6 +1215,37 @@ func TestAgentChatPassesPersistedNativeSessionForResume(t *testing.T) {
 	}
 }
 
+func TestAgentChatShowsFreshSessionRecoveryActivity(t *testing.T) {
+	dir := t.TempDir()
+	store := agentchat.NewMemoryStore()
+	logger := slog.New(slog.NewJSONHandler(io.Discard, nil))
+
+	apiHandler := newTestAPIHandlerWithControlPlane(logger, []providers.Provider{&fakeProvider{}}, config.Config{}, nil)
+	apiHandler.SetAgentChatStore(store)
+	apiHandler.SetAgentChatRunner(&fakeAgentChatRunner{
+		output:          "recovered",
+		nativeSessionID: "native_fresh",
+		sessionStarted:  true,
+		sessionRecovery: "could not restore ACP session native_stale: not found",
+	})
+	client := newAPITestClient(t, NewServer(logger, apiHandler))
+
+	created := mustRequestJSON[AgentChatSessionResponse](client, http.MethodPost, "/v1/agent-chat/sessions", fmt.Sprintf(`{"adapter_id":"codex","workspace":%q}`, dir))
+	if _, err := store.UpdateSession(context.Background(), created.Data.ID, func(item *agentchat.Session) {
+		item.NativeSessionID = "native_stale"
+	}); err != nil {
+		t.Fatalf("UpdateSession: %v", err)
+	}
+	updated := mustRequestJSON[AgentChatSessionResponse](client, http.MethodPost, "/v1/agent-chat/sessions/"+created.Data.ID+"/messages", `{"content":"second"}`)
+	if updated.Data.NativeSessionID != "native_fresh" {
+		t.Fatalf("native session = %q, want fresh session", updated.Data.NativeSessionID)
+	}
+	assistant := updated.Data.Messages[len(updated.Data.Messages)-1]
+	if !agentChatActivitiesContain(assistant.Activities, "recovered") {
+		t.Fatalf("activities = %+v, want recovered activity", assistant.Activities)
+	}
+}
+
 func TestAgentChatHumanizesAdapterJSONRPCBillingError(t *testing.T) {
 	dir := t.TempDir()
 	logger := slog.New(slog.NewJSONHandler(io.Discard, nil))
@@ -1265,6 +1296,47 @@ func TestAgentChatCreateRejectsInvalidWorkspace(t *testing.T) {
 	}
 }
 
+func TestAgentChatStoreAttachReconcilesInterruptedRun(t *testing.T) {
+	store := agentchat.NewMemoryStore()
+	ctx := context.Background()
+	created, err := store.Create(ctx, agentchat.Session{
+		ID:        "agent_chat_restart",
+		Title:     "Restart",
+		AdapterID: "codex",
+		Workspace: t.TempDir(),
+		Status:    "running",
+	})
+	if err != nil {
+		t.Fatalf("Create: %v", err)
+	}
+	if _, err := store.AppendMessage(ctx, created.ID, agentchat.Message{
+		ID:        "msg_running",
+		Role:      "assistant",
+		Status:    "running",
+		Content:   "working",
+		CreatedAt: time.Now().UTC(),
+	}); err != nil {
+		t.Fatalf("AppendMessage: %v", err)
+	}
+
+	logger := slog.New(slog.NewJSONHandler(io.Discard, nil))
+	apiHandler := NewHandler(config.Config{}, logger, nil, nil, nil, nil)
+	apiHandler.SetAgentChatStore(store)
+	handler := NewServer(logger, apiHandler)
+	client := newAPITestClient(t, handler)
+
+	got := mustRequestJSON[AgentChatSessionResponse](client, http.MethodGet, "/v1/agent-chat/sessions/"+created.ID, "")
+	if got.Data.Status != "cancelled" {
+		t.Fatalf("session status = %q, want cancelled", got.Data.Status)
+	}
+	if got.Data.Messages[0].Status != "cancelled" || got.Data.Messages[0].Error != "interrupted by Hecate restart" {
+		t.Fatalf("message = %+v, want interrupted cancellation", got.Data.Messages[0])
+	}
+	if !agentChatActivitiesContain(got.Data.Messages[0].Activities, "interrupted") {
+		t.Fatalf("activities = %+v, want interrupted activity", got.Data.Messages[0].Activities)
+	}
+}
+
 type fakeAgentChatRunner struct {
 	output          string
 	finalOutput     string
@@ -1275,6 +1347,7 @@ type fakeAgentChatRunner struct {
 	nativeSessionID string
 	sessionStarted  bool
 	sessionResumed  bool
+	sessionRecovery string
 	seenPreviousID  string
 	usage           agentadapters.Usage
 	err             error
@@ -1342,6 +1415,7 @@ func (r *fakeAgentChatRunner) result(req agentadapters.RunRequest, output string
 		NativeSessionID: nativeSessionID,
 		SessionStarted:  r.sessionStarted,
 		SessionResumed:  r.sessionResumed,
+		SessionRecovery: r.sessionRecovery,
 		Output:          output,
 		RawOutput:       output,
 		ExitCode:        exitCode,

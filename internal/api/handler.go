@@ -206,6 +206,7 @@ func (h *Handler) SetAgentChatStore(store agentchat.Store) {
 		return
 	}
 	h.agentChat = store
+	h.reconcileAgentChatStore(context.Background())
 }
 
 func (h *Handler) SetAgentChatRunner(runner agentadapters.Runner) {
@@ -213,6 +214,20 @@ func (h *Handler) SetAgentChatRunner(runner agentadapters.Runner) {
 		return
 	}
 	h.agentChatRunner = runner
+}
+
+func (h *Handler) reconcileAgentChatStore(ctx context.Context) {
+	if h.agentChat == nil {
+		return
+	}
+	count, err := agentchat.ReconcileInterruptedRuns(ctx, h.agentChat, time.Now().UTC())
+	if err != nil {
+		h.logger.Warn("agent chat reconciliation failed", slog.Any("error", err))
+		return
+	}
+	if count > 0 {
+		h.logger.Info("agent chat reconciliation completed", slog.Int("interrupted_runs", count))
+	}
 }
 
 // SetSecretCipher wires the control-plane AES-GCM cipher into the
