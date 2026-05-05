@@ -1,6 +1,6 @@
 import { useEffect, useState } from "react";
 import type { ResolveAgentChatApprovalPayload } from "../../lib/api";
-import type { AgentChatApprovalRecord } from "../../types/runtime";
+import type { AgentChatApprovalOption, AgentChatApprovalRecord } from "../../types/runtime";
 import { Icon, Icons, Modal } from "../shared/ui";
 
 // AgentApprovalModal renders the operator decision UI for a single
@@ -49,10 +49,13 @@ export function AgentApprovalModal({ sessionID, approvalID, onClose, fetchApprov
         return;
       }
       setRow(result);
-      // Sensible defaults: first scope choice, first ACP option.
+      // Sensible defaults: first scope choice, first ACP option that
+      // matches the current decision. Never carry an allow option into
+      // a deny decision; the backend treats selected_option as the
+      // exact ACP response to send back to the adapter.
       const firstScope = result.scope_choices?.[0] ?? "once";
       setScope(firstScope);
-      setSelectedOption(result.acp_options[0]?.option_id ?? "");
+      setSelectedOption(defaultOptionForDecision(result.acp_options, "allow"));
     })();
     return () => {
       cancelled = true;
@@ -167,7 +170,10 @@ export function AgentApprovalModal({ sessionID, approvalID, onClose, fetchApprov
                 <button
                   key={kind}
                   type="button"
-                  onClick={() => setDecision(kind)}
+                  onClick={() => {
+                    setDecision(kind);
+                    setSelectedOption(defaultOptionForDecision(row.acp_options, kind));
+                  }}
                   data-testid={`agent-approval-modal-decision-${kind}`}
                   style={{
                     flex: 1,
@@ -202,34 +208,41 @@ export function AgentApprovalModal({ sessionID, approvalID, onClose, fetchApprov
                 Adapter option
               </label>
               <div style={{ display: "flex", flexDirection: "column", gap: 6 }}>
-                {row.acp_options.map((opt) => (
-                  <label
-                    key={opt.option_id}
-                    data-testid={`agent-approval-modal-option-${opt.option_id}`}
-                    style={{
-                      display: "flex",
-                      alignItems: "center",
-                      gap: 8,
-                      padding: "6px 10px",
-                      border: `1px solid ${selectedOption === opt.option_id ? "var(--teal-border)" : "var(--border)"}`,
-                      background: selectedOption === opt.option_id ? "var(--teal-bg)" : "var(--bg3)",
-                      borderRadius: "var(--radius-sm)",
-                      cursor: "pointer",
-                    }}
-                  >
-                    <input
-                      type="radio"
-                      name="acp-option"
-                      value={opt.option_id}
-                      checked={selectedOption === opt.option_id}
-                      onChange={() => setSelectedOption(opt.option_id)}
-                    />
-                    <span style={{ fontSize: 12, color: "var(--t0)", flex: 1 }}>{opt.name}</span>
-                    <span style={{ fontFamily: "var(--font-mono)", fontSize: 10, color: "var(--t3)" }}>
-                      {opt.kind}
-                    </span>
-                  </label>
-                ))}
+                {row.acp_options.map((opt) => {
+                  const matchesDecision = optionMatchesDecision(opt, decision);
+                  return (
+                    <label
+                      key={opt.option_id}
+                      data-testid={`agent-approval-modal-option-${opt.option_id}`}
+                      style={{
+                        display: "flex",
+                        alignItems: "center",
+                        gap: 8,
+                        padding: "6px 10px",
+                        border: `1px solid ${selectedOption === opt.option_id ? "var(--teal-border)" : "var(--border)"}`,
+                        background: selectedOption === opt.option_id ? "var(--teal-bg)" : "var(--bg3)",
+                        borderRadius: "var(--radius-sm)",
+                        cursor: matchesDecision ? "pointer" : "not-allowed",
+                        opacity: matchesDecision ? 1 : 0.5,
+                      }}
+                    >
+                      <input
+                        type="radio"
+                        name="acp-option"
+                        value={opt.option_id}
+                        checked={selectedOption === opt.option_id}
+                        disabled={!matchesDecision}
+                        onChange={() => {
+                          if (matchesDecision) setSelectedOption(opt.option_id);
+                        }}
+                      />
+                      <span style={{ fontSize: 12, color: "var(--t0)", flex: 1 }}>{opt.name}</span>
+                      <span style={{ fontFamily: "var(--font-mono)", fontSize: 10, color: "var(--t3)" }}>
+                        {opt.kind}
+                      </span>
+                    </label>
+                  );
+                })}
               </div>
             </div>
           )}
@@ -313,4 +326,21 @@ export function AgentApprovalModal({ sessionID, approvalID, onClose, fetchApprov
       )}
     </Modal>
   );
+}
+
+function defaultOptionForDecision(
+  options: AgentChatApprovalOption[],
+  decision: "allow" | "deny",
+): string {
+  return options.find((opt) => optionMatchesDecision(opt, decision))?.option_id ?? "";
+}
+
+function optionMatchesDecision(
+  option: AgentChatApprovalOption,
+  decision: "allow" | "deny",
+): boolean {
+  const wanted = decision === "allow"
+    ? new Set(["allow_once", "allow_always"])
+    : new Set(["reject_once", "reject_always"]);
+  return wanted.has(option.kind);
 }

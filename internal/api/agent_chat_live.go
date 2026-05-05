@@ -146,9 +146,10 @@ func (l *agentChatLive) publishApprovalResolved(payload AgentChatApprovalResolve
 
 // publish is the shared fan-out. The replacePolicy flag controls
 // behavior on a full subscriber buffer:
-//   - true  (session updates): drop the oldest pending event and
-//     enqueue this one. Latest-write-wins; matches the "operators
-//     want current state" semantics for session rows.
+//   - true  (session updates): replace an older pending session_update
+//     and enqueue this one. Latest-write-wins, but only among session
+//     rows; queued approval events are discrete observations and must
+//     not be evicted by chat-state churn.
 //   - false (approval events): drop this event. Each approval event
 //     is a discrete observation; replacing one with another would
 //     silently lose history. Operators recover via the GET list on
@@ -163,15 +164,43 @@ func (l *agentChatLive) publish(sessionID string, event AgentChatLiveEvent, repl
 			if !replacePolicy {
 				continue
 			}
-			select {
-			case <-ch:
-			default:
-			}
-			select {
-			case ch <- event:
-			default:
-			}
+			replaceBufferedSessionUpdate(ch, event)
 		}
+	}
+}
+
+func replaceBufferedSessionUpdate(ch chan AgentChatLiveEvent, event AgentChatLiveEvent) {
+	buffered := len(ch)
+	if buffered == 0 {
+		return
+	}
+	preserved := make([]AgentChatLiveEvent, 0, buffered)
+	replaced := false
+	for i := 0; i < buffered; i++ {
+		select {
+		case pending := <-ch:
+			if !replaced && pending.Type == AgentChatLiveEventSessionUpdate {
+				replaced = true
+				continue
+			}
+			preserved = append(preserved, pending)
+		default:
+			i = buffered
+		}
+	}
+	for _, pending := range preserved {
+		select {
+		case ch <- pending:
+		default:
+			return
+		}
+	}
+	if !replaced {
+		return
+	}
+	select {
+	case ch <- event:
+	default:
 	}
 }
 

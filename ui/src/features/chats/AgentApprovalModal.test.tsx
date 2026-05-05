@@ -156,7 +156,37 @@ describe("AgentApprovalModal", () => {
     expect(screen.getByText(/Could not load this approval/)).toBeTruthy();
   });
 
-  it("flips the decision to deny when the operator clicks the Deny pill", async () => {
+  it("flips the decision to deny and selects a reject option when available", async () => {
+    const { fetchApproval, onResolve, onCancel, onClose } = setup(approvalRecord({
+      acp_options: [
+        { option_id: "approve_once", kind: "allow_once", name: "Approve once" },
+        { option_id: "reject_once", kind: "reject_once", name: "Reject once" },
+      ],
+    }));
+    render(
+      <AgentApprovalModal
+        sessionID="s"
+        approvalID="ap-1"
+        onClose={onClose}
+        fetchApproval={fetchApproval}
+        onResolve={onResolve}
+        onCancel={onCancel}
+      />,
+    );
+    await waitFor(() => expect(fetchApproval).toHaveBeenCalled());
+    const user = userEvent.setup();
+    await user.click(screen.getByTestId("agent-approval-modal-decision-deny"));
+    expect(screen.getByTestId("agent-approval-modal-option-approve_once").querySelector("input")).toBeDisabled();
+    await user.click(screen.getByTestId("agent-approval-modal-submit"));
+    await waitFor(() =>
+      expect(onResolve).toHaveBeenCalledWith("s", "ap-1", expect.objectContaining({
+        decision: "deny",
+        selected_option: "reject_once",
+      })),
+    );
+  });
+
+  it("does not send an allow selected_option when denying without reject options", async () => {
     const { fetchApproval, onResolve, onCancel, onClose } = setup();
     render(
       <AgentApprovalModal
@@ -173,7 +203,10 @@ describe("AgentApprovalModal", () => {
     await user.click(screen.getByTestId("agent-approval-modal-decision-deny"));
     await user.click(screen.getByTestId("agent-approval-modal-submit"));
     await waitFor(() =>
-      expect(onResolve).toHaveBeenCalledWith("s", "ap-1", expect.objectContaining({ decision: "deny" })),
+      expect(onResolve).toHaveBeenCalledWith("s", "ap-1", {
+        decision: "deny",
+        scope: "once",
+      }),
     );
   });
 });

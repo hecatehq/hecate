@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useState, type SyntheticEvent } from "react";
+import { useEffect, useMemo, useRef, useState, type SyntheticEvent } from "react";
 
 import { buildLocalProviderIssue } from "../lib/provider-issues";
 import type { LocalProviderIssue } from "../lib/provider-issues";
@@ -132,6 +132,7 @@ export function useRuntimeConsole() {
   const [pendingApprovalsBySessionID, setPendingApprovalsBySessionID] = useState<
     Map<string, PendingAgentApproval[]>
   >(() => new Map());
+  const pendingApprovalsVersionBySessionID = useRef<Map<string, number>>(new Map());
   // agentChatGrants holds the most recent listAgentChatGrants result
   // for the Settings → External Agents tab. Lazy-loaded by the action,
   // not on hook mount.
@@ -659,10 +660,9 @@ export function useRuntimeConsole() {
   }
 
   // setPendingApprovalsForSession atomically replaces the pending list
-  // for a session. Used when an initial GET refetch races streamed
-  // events — the refetch result wins (it reflects the authoritative
-  // store state at fetch time, and any subsequent SSE event will
-  // upsert/remove on top).
+  // for a session. The catch-up path only calls this when no live SSE
+  // or optimistic local update landed while the request was in flight;
+  // otherwise the GET result may be stale relative to the stream.
   function setPendingApprovalsForSession(
     sessionID: string,
     rows: PendingAgentApproval[],
@@ -678,7 +678,13 @@ export function useRuntimeConsole() {
     });
   }
 
+  function bumpPendingApprovalsVersion(sessionID: string) {
+    const current = pendingApprovalsVersionBySessionID.current.get(sessionID) ?? 0;
+    pendingApprovalsVersionBySessionID.current.set(sessionID, current + 1);
+  }
+
   function upsertPendingApproval(event: PendingAgentApproval) {
+    bumpPendingApprovalsVersion(event.session_id);
     setPendingApprovalsBySessionID((current) => {
       const next = new Map(current);
       const existing = next.get(event.session_id) ?? [];
@@ -690,6 +696,7 @@ export function useRuntimeConsole() {
   }
 
   function removePendingApproval(sessionID: string, approvalID: string) {
+    bumpPendingApprovalsVersion(sessionID);
     setPendingApprovalsBySessionID((current) => {
       const existing = current.get(sessionID);
       if (!existing) return current;
@@ -712,8 +719,17 @@ export function useRuntimeConsole() {
   // mutate this same map.
   async function refetchPendingApprovals(sessionID: string) {
     if (!sessionID) return;
+    const startedAtVersion = pendingApprovalsVersionBySessionID.current.get(sessionID) ?? 0;
     try {
       const result = await listAgentChatApprovalsRequest(sessionID, "pending");
+      const currentVersion = pendingApprovalsVersionBySessionID.current.get(sessionID) ?? 0;
+      if (currentVersion !== startedAtVersion) {
+        // A live SSE update or optimistic local action landed while
+        // this catch-up request was in flight. Ignore the stale GET
+        // result rather than clearing a newer pending approval or
+        // re-adding one that was just resolved.
+        return;
+      }
       const rows = (result.data ?? []).map(approvalRecordToPending);
       setPendingApprovalsForSession(sessionID, rows);
     } catch {

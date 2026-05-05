@@ -372,6 +372,20 @@ func TestHTTPResolveUnknownSelectedOptionReturns400(t *testing.T) {
 	}
 }
 
+func TestHTTPResolveSelectedOptionMustMatchDecision(t *testing.T) {
+	t.Parallel()
+	f := newApprovalsHTTPFixture(t)
+	f.seedSession(t, "s")
+	row := f.seedPending(t, "s", defaultAllowDenyOptions())
+
+	resp := postJSONApprovalEndpoint(t, f.server.URL+"/v1/agent-chat/sessions/s/approvals/"+row.ID+"/resolve",
+		`{"decision":"deny","scope":"once","selected_option":"allow_once_id"}`)
+	defer resp.Body.Close()
+	if resp.StatusCode != http.StatusConflict {
+		t.Fatalf("status = %d, want 409", resp.StatusCode)
+	}
+}
+
 func TestHTTPResolveWrongSessionReturns404(t *testing.T) {
 	t.Parallel()
 	f := newApprovalsHTTPFixture(t)
