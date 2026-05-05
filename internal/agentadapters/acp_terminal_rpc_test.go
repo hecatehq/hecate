@@ -93,6 +93,13 @@ func TestAcpChatClientTerminalRPCsReturnTypedSentinel(t *testing.T) {
 			if !errors.Is(err, ErrTerminalRPCUnsupported) {
 				t.Fatalf("%s: errors.Is(err, ErrTerminalRPCUnsupported) = false; err = %v", tc.name, err)
 			}
+			var rpcErr *acp.RequestError
+			if !errors.As(err, &rpcErr) {
+				t.Fatalf("%s: errors.As(err, *acp.RequestError) = false; err = %v", tc.name, err)
+			}
+			if rpcErr.Code != -32601 {
+				t.Fatalf("%s: RequestError.Code = %d, want -32601", tc.name, rpcErr.Code)
+			}
 			// The wrapped JSON-RPC code must surface so adapters that
 			// don't know about Hecate's sentinel still classify via the
 			// standard method-not-found code (-32601).

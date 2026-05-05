@@ -1391,38 +1391,53 @@ function AgentDiffReview({
     if (!hasReviewAPI || !onListFiles) return;
     setLoadingFiles(true);
     setLocalError("");
-    const nextFiles = await onListFiles(sessionID, messageID);
-    setFiles(nextFiles);
-    setLoadingFiles(false);
+    try {
+      const nextFiles = await onListFiles(sessionID, messageID);
+      setFiles(nextFiles);
+    } catch {
+      setLocalError("Could not load changed files. The captured diff may no longer be available.");
+    } finally {
+      setLoadingFiles(false);
+    }
   }
 
   async function inspectFile(file: AgentChatChangedFileRecord) {
     if (!hasReviewAPI || !onGetFileDiff) return;
     setLoadingPath(file.path);
     setLocalError("");
-    const nextDiff = await onGetFileDiff(sessionID, messageID, file.path);
-    if (nextDiff) {
-      setSelectedDiff(nextDiff);
-    } else {
+    try {
+      const nextDiff = await onGetFileDiff(sessionID, messageID, file.path);
+      if (nextDiff) {
+        setSelectedDiff(nextDiff);
+      } else {
+        setLocalError("Could not load that file diff.");
+      }
+    } catch {
       setLocalError("Could not load that file diff.");
+    } finally {
+      setLoadingPath("");
     }
-    setLoadingPath("");
   }
 
   async function confirmRevert(paths: string[], label: string) {
     if (!hasReviewAPI || !onRevertFiles) return;
     setRevertingPath(label);
     setLocalError("");
-    const ok = await onRevertFiles(sessionID, messageID, paths);
-    setRevertingPath("");
-    setConfirmRevertPath("");
-    if (!ok) {
+    try {
+      const ok = await onRevertFiles(sessionID, messageID, paths);
+      if (!ok) {
+        setLocalError("Revert failed. The workspace may not be a Git repository, or the file changed since capture.");
+        return;
+      }
+      setSelectedDiff(null);
+      setFiles(null);
+      await loadFiles();
+    } catch {
       setLocalError("Revert failed. The workspace may not be a Git repository, or the file changed since capture.");
-      return;
+    } finally {
+      setRevertingPath("");
+      setConfirmRevertPath("");
     }
-    setSelectedDiff(null);
-    setFiles(null);
-    await loadFiles();
   }
 
   const summary = diffStat ? formatDiffStatSummary(diffStat) : "";

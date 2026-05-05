@@ -495,7 +495,7 @@ describe("api client", () => {
     it("escapes ids with special characters", async () => {
       fetchMock.mockResolvedValue(
         jsonResponse({
-          object: "agent_adapter_health",
+          object: "agent_adapter_probe",
           data: {
             adapter: { id: "weird id", name: "Weird", kind: "acp", command: "weird", available: false, status: "missing" },
             health: { adapter_id: "weird id", status: "error", stage: "lookup", duration_ms: 0 },
