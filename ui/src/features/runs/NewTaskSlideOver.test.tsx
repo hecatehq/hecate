@@ -61,19 +61,19 @@ describe("NewTaskSlideOver kind switching", () => {
     expect(screen.getByPlaceholderText(/describe the task/i)).toBeTruthy();
   });
 
-  it("hides the working-directory input for file kind, shows it for shell/git/agent_loop", async () => {
+  it("hides the workspace input for file kind, shows it for shell/git/agent_loop", async () => {
     const { render, user } = setup();
     render();
-    // Default kind shell — working dir is visible.
-    expect(screen.getByPlaceholderText(/\(default\)/i)).toBeTruthy();
+    // Default kind shell — workspace is visible.
+    expect(screen.getByPlaceholderText("/Users/alice/dev/project")).toBeTruthy();
     await user.click(screen.getByRole("button", { name: "File" }));
-    // File tasks have their own file_path field, no separate cwd.
-    expect(screen.queryByPlaceholderText(/\(default\)/i)).toBeNull();
-    // Agent_loop tasks DO show the working-directory input — needed
-    // for the "Run in place" toggle (target the operator's real
+    // File tasks have their own file_path field, no separate workspace.
+    expect(screen.queryByPlaceholderText("/Users/alice/dev/project")).toBeNull();
+    // Agent_loop tasks DO show the workspace input — needed
+    // for direct workspace mode (target the operator's real
     // repo). Switching to agent_loop should re-show it.
     await user.click(screen.getByRole("button", { name: "Agent loop" }));
-    expect(screen.getByPlaceholderText(/\(default\)/i)).toBeTruthy();
+    expect(screen.getByPlaceholderText("/Users/alice/dev/project")).toBeTruthy();
   });
 
   it("hides the description input on the agent_loop tab (the prompt IS the description)", async () => {
@@ -142,7 +142,7 @@ describe("NewTaskSlideOver submit", () => {
     const { render, user } = setup({ onCreate });
     render();
     await user.type(screen.getByPlaceholderText(/ls -la/i), "echo hi");
-    await user.type(screen.getByPlaceholderText(/\(default\)/i), "/tmp");
+    await user.type(screen.getByPlaceholderText("/Users/alice/dev/project"), "/tmp");
     await user.click(screen.getByRole("button", { name: /queue task/i }));
     expect(onCreate).toHaveBeenCalledWith(expect.objectContaining({
       working_directory: "/tmp",
@@ -160,6 +160,18 @@ describe("NewTaskSlideOver submit", () => {
     await user.click(screen.getByRole("button", { name: /queue task/i }));
     const payload = onCreate.mock.calls[0][0];
     expect(payload.working_directory).toBeUndefined();
+  });
+
+  it("prefills workspace from the shared agent workspace default", async () => {
+    const onCreate = vi.fn();
+    const { render, user } = setup({ onCreate, defaultWorkspace: "/Users/me/dev/hecate" });
+    render();
+    expect(screen.getByPlaceholderText("/Users/alice/dev/project")).toHaveValue("/Users/me/dev/hecate");
+    await user.type(screen.getByPlaceholderText(/ls -la/i), "echo hi");
+    await user.click(screen.getByRole("button", { name: /queue task/i }));
+    expect(onCreate).toHaveBeenCalledWith(expect.objectContaining({
+      working_directory: "/Users/me/dev/hecate",
+    }));
   });
 
   it("Enter key in shell command field submits when valid", async () => {
@@ -224,38 +236,38 @@ describe("NewTaskSlideOver workspace preview", () => {
   it("shows the isolated-clone preview by default for shell tasks", () => {
     const { render } = setup();
     render();
-    // Default kind is shell — working directory is visible, so the
+    // Default kind is shell — workspace is visible, so the
     // preview line should render with the temp-dir clone pattern.
     expect(screen.getByText(/isolated clone at/i)).toBeTruthy();
     expect(screen.getByText(/hecate-workspaces/)).toBeTruthy();
   });
 
-  it("switches to in-place messaging when 'Run in place' is checked", async () => {
+  it("switches to direct-workspace messaging when enabled", async () => {
     const { render, user } = setup();
     render();
     // Need an absolute path for the in-place preview to validate.
-    const wdInput = screen.getByPlaceholderText(/\(default\)/i);
+    const wdInput = screen.getByPlaceholderText("/Users/alice/dev/project");
     await user.type(wdInput, "/Users/me/project");
-    const inPlace = screen.getByLabelText(/Run in place/i);
+    const inPlace = screen.getByLabelText(/Run directly in this workspace/i);
     await user.click(inPlace);
     expect(screen.getByText(/writes land here directly/i)).toBeTruthy();
     // The isolated-clone path text must NOT appear once in-place is on.
     expect(screen.queryByText(/isolated clone at/i)).toBeNull();
   });
 
-  it("flags missing path when in-place is on but WORKING DIRECTORY is empty", async () => {
+  it("flags missing path when direct workspace mode is on but workspace is empty", async () => {
     const { render, user } = setup();
     render();
-    await user.click(screen.getByLabelText(/Run in place/i));
-    expect(screen.getByText(/needs an absolute WORKING DIRECTORY/i)).toBeTruthy();
+    await user.click(screen.getByLabelText(/Run directly in this workspace/i));
+    expect(screen.getByText(/needs an absolute workspace path/i)).toBeTruthy();
   });
 
   it("flags relative path when in-place is on but path isn't absolute", async () => {
     const { render, user } = setup();
     render();
-    const wdInput = screen.getByPlaceholderText(/\(default\)/i);
+    const wdInput = screen.getByPlaceholderText("/Users/alice/dev/project");
     await user.type(wdInput, "./relative/path");
-    await user.click(screen.getByLabelText(/Run in place/i));
+    await user.click(screen.getByLabelText(/Run directly in this workspace/i));
     expect(screen.getByText(/needs an absolute path/i)).toBeTruthy();
   });
 });

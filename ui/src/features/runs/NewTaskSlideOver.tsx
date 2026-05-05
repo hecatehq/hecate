@@ -1,4 +1,4 @@
-import { useMemo, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import type { ModelRecord, ProviderPresetRecord, ProviderRecord } from "../../types/runtime";
 import { Icon, Icons, ModelPicker, ProviderPicker, type ProviderOption } from "../shared/ui";
 
@@ -109,6 +109,7 @@ type Props = {
   // shows raw provider ids in its per-row suffix.
   providers?: ProviderRecord[];
   providerPresets?: ProviderPresetRecord[];
+  defaultWorkspace?: string;
   busyAction: string;
   errorMessage?: string;
   onClose: () => void;
@@ -120,16 +121,19 @@ export function NewTaskSlideOver({
   models,
   providers = [],
   providerPresets = [],
+  defaultWorkspace = "",
   busyAction,
   errorMessage,
   onClose,
   onCreate,
 }: Props) {
+  const normalizedDefaultWorkspace = defaultWorkspace.trim();
   const [taskKind, setTaskKind] = useState<ExecutionKind>("shell");
   const [taskPrompt, setTaskPrompt] = useState("");
   const [taskCommand, setTaskCommand] = useState("");
   const [taskGitCommand, setTaskGitCommand] = useState("");
-  const [taskWorkingDir, setTaskWorkingDir] = useState("");
+  const [taskWorkingDir, setTaskWorkingDir] = useState(normalizedDefaultWorkspace);
+  const [lastDefaultWorkspace, setLastDefaultWorkspace] = useState(normalizedDefaultWorkspace);
   const [taskFilePath, setTaskFilePath] = useState("");
   const [taskFileContent, setTaskFileContent] = useState("");
   const [taskFileOp, setTaskFileOp] = useState("write");
@@ -228,6 +232,18 @@ export function NewTaskSlideOver({
   // submit. Empty array = no external MCP host (built-in tools only).
   const [mcpServers, setMcpServers] = useState<McpServerFormEntry[]>([]);
 
+  useEffect(() => {
+    if (!open) return;
+    setTaskWorkingDir(current => {
+      const currentTrimmed = current.trim();
+      if (currentTrimmed === "" || currentTrimmed === lastDefaultWorkspace) {
+        return normalizedDefaultWorkspace;
+      }
+      return current;
+    });
+    setLastDefaultWorkspace(normalizedDefaultWorkspace);
+  }, [lastDefaultWorkspace, normalizedDefaultWorkspace, open]);
+
   function updateMcpServer(index: number, patch: Partial<McpServerFormEntry>) {
     setMcpServers(prev => prev.map((entry, i) => (i === index ? { ...entry, ...patch } : entry)));
   }
@@ -321,7 +337,7 @@ export function NewTaskSlideOver({
         : {}),
       ...(mcpPayload.length > 0 ? { mcp_servers: mcpPayload } : {}),
     });
-    setTaskPrompt(""); setTaskCommand(""); setTaskGitCommand(""); setTaskWorkingDir("");
+    setTaskPrompt(""); setTaskCommand(""); setTaskGitCommand(""); setTaskWorkingDir(normalizedDefaultWorkspace);
     setTaskFilePath(""); setTaskFileContent(""); setTaskFileOp("write");
     setTaskSystemPrompt("");
     setTaskBudgetUSD("");
@@ -441,10 +457,10 @@ export function NewTaskSlideOver({
 
           {(taskKind === "shell" || taskKind === "git" || taskKind === "agent_loop") && (
             <div>
-              <label style={{ fontSize: 11, color: "var(--t2)", display: "block", marginBottom: 4, fontFamily: "var(--font-mono)" }}>WORKING DIRECTORY</label>
+              <label style={{ fontSize: 11, color: "var(--t2)", display: "block", marginBottom: 4, fontFamily: "var(--font-mono)" }}>WORKSPACE</label>
               <input
                 className="input"
-                placeholder=". (default)"
+                placeholder="/Users/alice/dev/project"
                 value={taskWorkingDir}
                 onChange={e => setTaskWorkingDir(e.target.value)}
               />
@@ -460,7 +476,7 @@ export function NewTaskSlideOver({
                   onChange={e => setTaskInPlace(e.target.checked)}
                   style={{ accentColor: "var(--teal)" }}
                 />
-                Run in place (no isolated clone)
+                Run directly in this workspace
               </label>
               {/* Workspace preview — always visible so the operator
                   knows up-front where writes will land. The
@@ -702,7 +718,7 @@ function WorkspacePreview({ workingDir, inPlace }: { workingDir: string; inPlace
     if (!trimmed) {
       return (
         <div style={{ fontSize: 10, color: "var(--red)", fontFamily: "var(--font-mono)", marginTop: 4 }}>
-          ⚠ In-place mode needs an absolute WORKING DIRECTORY — the run will fail without it.
+          ⚠ Direct workspace mode needs an absolute workspace path — the run will fail without it.
         </div>
       );
     }
