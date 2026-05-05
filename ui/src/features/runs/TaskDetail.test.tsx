@@ -350,9 +350,36 @@ describe("TaskDetail runtime debugging", () => {
     expect(screen.queryByText(/turn/i)).toBeNull();
   });
 
-  it("renders approval metadata for pending approvals", () => {
+  it("renders approval metadata and actions in the top-level callout", async () => {
+    const onResolveApproval = vi.fn();
+    const approval = {
+      id: "approval-1",
+      task_id: "task-1",
+      run_id: "run-1",
+      kind: "shell_command",
+      status: "pending",
+      reason: "Needs explicit shell approval",
+      requested_by: "agent_loop",
+      created_at: "2026-04-27T17:00:00Z",
+    } as any;
+    const { render, user } = setup({
+      approvals: [approval],
+      run: makeRun({ status: "awaiting_approval" }),
+      onResolveApproval,
+    });
+    render();
+    expect(screen.getByTestId("task-approval-callout")).toBeTruthy();
+    expect(screen.getByText(/Approval required/i)).toBeTruthy();
+    expect(screen.getByText(/Shell execution/i)).toBeTruthy();
+    expect(screen.getByText(/requested by/i)).toBeTruthy();
+    await user.click(screen.getByRole("button", { name: /approve/i }));
+    expect(onResolveApproval).toHaveBeenCalledWith(approval, "approve");
+  });
+
+  it("renders multiple pending approvals as one visible approval queue", () => {
     const { render } = setup({
-      approvals: [{
+      approvals: [
+        {
         id: "approval-1",
         task_id: "task-1",
         run_id: "run-1",
@@ -361,13 +388,21 @@ describe("TaskDetail runtime debugging", () => {
         reason: "Needs explicit shell approval",
         requested_by: "agent_loop",
         created_at: "2026-04-27T17:00:00Z",
-      } as any],
+        } as any,
+        {
+          id: "approval-2",
+          task_id: "task-1",
+          run_id: "run-1",
+          kind: "network_egress",
+          status: "pending",
+          reason: "Needs network access",
+        } as any,
+      ],
       run: makeRun({ status: "awaiting_approval" }),
     });
     render();
-    expect(screen.getByText(/Approval required/i)).toBeTruthy();
-    expect(screen.getByText(/Shell execution/i)).toBeTruthy();
-    expect(screen.getByText(/requested by/i)).toBeTruthy();
+    expect(screen.getByText(/2 approvals required/i)).toBeTruthy();
+    expect(screen.getAllByRole("button", { name: /approve/i })).toHaveLength(2);
   });
 });
 

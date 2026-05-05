@@ -20,6 +20,15 @@ import { NewTaskSlideOver, type CreateTaskPayload } from "./NewTaskSlideOver";
 
 type StreamState = "idle" | "connecting" | "live" | "closed" | "error";
 
+function readStoredAgentWorkspace(): string {
+  if (typeof window === "undefined") return "";
+  try {
+    return window.localStorage.getItem("hecate.agentWorkspace")?.trim() ?? "";
+  } catch {
+    return "";
+  }
+}
+
 export function streamTurnCostKey(turnIndex: number | undefined): number | null {
   if (typeof turnIndex !== "number" || !Number.isFinite(turnIndex) || turnIndex < 0) {
     return null;
@@ -48,6 +57,7 @@ export function TasksView() {
   const [busyAction, setBusyAction] = useState("");
   const [notice, setNotice] = useState<{ tone: "success" | "error"; message: string } | null>(null);
   const [newTaskOpen, setNewTaskOpen] = useState(false);
+  const [defaultTaskWorkspace, setDefaultTaskWorkspace] = useState(readStoredAgentWorkspace);
   const [availableModels, setAvailableModels] = useState<ModelRecord[]>([]);
   // Provider catalog feeds the new-task slideover's provider picker
   // and the model picker's per-row "(provider name)" suffix. Loaded
@@ -385,7 +395,10 @@ export function TasksView() {
         busyAction={busyAction}
         onSelect={(id) => void handleSelectTask(id)}
         onDelete={(id) => void handleDeleteTask(id)}
-        onNewTask={() => setNewTaskOpen(true)}
+        onNewTask={() => {
+          setDefaultTaskWorkspace(readStoredAgentWorkspace());
+          setNewTaskOpen(true);
+        }}
         onRefresh={() => void loadTasks(selectedTaskID, selectedRunID)}
       />
 
@@ -427,6 +440,7 @@ export function TasksView() {
         models={availableModels}
         providers={availableProviders}
         providerPresets={providerPresets}
+        defaultWorkspace={defaultTaskWorkspace}
         busyAction={busyAction}
         errorMessage={notice?.tone === "error" ? notice.message : undefined}
         onClose={() => setNewTaskOpen(false)}

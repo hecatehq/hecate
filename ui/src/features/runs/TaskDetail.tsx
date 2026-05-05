@@ -173,6 +173,102 @@ function CostCeilingBanner({
   );
 }
 
+function TaskApprovalCallout({
+  task,
+  approvals,
+  busyAction,
+  onResolveApproval,
+}: {
+  task: TaskRecord;
+  approvals: TaskApprovalRecord[];
+  busyAction: string;
+  onResolveApproval: (approval: TaskApprovalRecord, decision: "approve" | "reject") => void;
+}) {
+  return (
+    <div
+      data-testid="task-approval-callout"
+      style={{
+        flexShrink: 0,
+        borderBottom: "1px solid var(--amber-border)",
+        background: "var(--amber-bg)",
+        padding: "12px 16px",
+        display: "flex",
+        flexDirection: "column",
+        gap: 10,
+      }}
+    >
+      <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
+        <Icon d={Icons.warning} size={15} />
+        <div style={{ minWidth: 0, flex: 1 }}>
+          <div style={{ fontWeight: 600, color: "var(--amber)", fontSize: 13 }}>
+            {approvals.length === 1 ? "Approval required" : `${approvals.length} approvals required`}
+          </div>
+          <div style={{ color: "var(--amber-lo)", fontSize: 11, fontFamily: "var(--font-mono)", marginTop: 2 }}>
+            This run is paused until you approve or deny the pending action.
+          </div>
+        </div>
+      </div>
+
+      {approvals.map(approval => (
+        <div
+          key={approval.id}
+          style={{
+            display: "grid",
+            gridTemplateColumns: "minmax(0, 1fr) auto",
+            gap: 12,
+            alignItems: "center",
+            border: "1px solid var(--amber-border)",
+            borderRadius: "var(--radius)",
+            background: "rgba(0,0,0,0.16)",
+            padding: "10px 12px",
+          }}
+        >
+          <div style={{ minWidth: 0 }}>
+            <div style={{ display: "flex", alignItems: "center", gap: 8, flexWrap: "wrap" }}>
+              <Badge status="awaiting" label={describeApprovalKind(approval.kind)} />
+              {approval.requested_by && (
+                <span style={{ fontFamily: "var(--font-mono)", fontSize: 10, color: "var(--t2)" }}>
+                  requested by <span style={{ color: "var(--t1)" }}>{approval.requested_by}</span>
+                </span>
+              )}
+              {approval.created_at && (
+                <span style={{ fontFamily: "var(--font-mono)", fontSize: 10, color: "var(--t3)" }}>
+                  {new Date(approval.created_at).toLocaleTimeString()}
+                </span>
+              )}
+            </div>
+            {approval.reason && (
+              <div style={{ color: "var(--amber)", fontSize: 12, marginTop: 6, lineHeight: 1.45 }}>
+                {approval.reason}
+              </div>
+            )}
+            {approvalCommandPreview(task) && (
+              <div style={{ fontFamily: "var(--font-mono)", fontSize: 11, color: "var(--t1)", marginTop: 8, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>
+                {approvalCommandPreview(task)}
+              </div>
+            )}
+          </div>
+          <div style={{ display: "flex", gap: 8, justifyContent: "flex-end" }}>
+            <button className="btn btn-primary btn-sm" disabled={busyAction !== ""} onClick={() => onResolveApproval(approval, "approve")} style={{ gap: 5 }}>
+              <Icon d={Icons.approve} size={13} /> Approve
+            </button>
+            <button className="btn btn-danger btn-sm" disabled={busyAction !== ""} onClick={() => onResolveApproval(approval, "reject")} style={{ gap: 5 }}>
+              <Icon d={Icons.deny} size={13} /> Deny
+            </button>
+          </div>
+        </div>
+      ))}
+    </div>
+  );
+}
+
+function approvalCommandPreview(task: TaskRecord): string {
+  if (task.execution_kind === "git" && task.git_command) return `git ${task.git_command}`;
+  if (task.shell_command) return task.shell_command;
+  if (task.file_path) return `${task.file_operation || "write"} ${task.file_path}`;
+  return "";
+}
+
 function formatDuration(start?: string, end?: string): string {
   if (!start) return "";
   const startMs = new Date(start).getTime();
@@ -383,6 +479,15 @@ export function TaskDetail({
         </div>
       )}
 
+      {pendingApprovals.length > 0 && (
+        <TaskApprovalCallout
+          task={task}
+          approvals={pendingApprovals}
+          busyAction={busyAction}
+          onResolveApproval={onResolveApproval}
+        />
+      )}
+
       <div style={{ flex: 1, overflowY: "auto", display: "flex", flexDirection: "column" }}>
         {run && (
           <div style={{ padding: "12px 16px", borderBottom: "1px solid var(--border)", background: "var(--bg1)" }}>
@@ -460,48 +565,6 @@ export function TaskDetail({
             onResumeRaisingCeiling={onResumeRaisingCeiling}
           />
         )}
-
-        {pendingApprovals.map(approval => (
-          <div key={approval.id} style={{ margin: "14px 16px", border: "1px solid var(--amber-border)", borderRadius: "var(--radius)", background: "var(--amber-bg)", overflow: "hidden" }}>
-            <div style={{ padding: "10px 14px", borderBottom: "1px solid var(--amber-border)", display: "flex", alignItems: "center", gap: 8 }}>
-              <Icon d={Icons.warning} size={15} />
-              <span style={{ fontWeight: 500, color: "var(--amber)", fontSize: 13 }}>Approval required</span>
-              <span style={{ fontSize: 11, color: "var(--amber-lo)", fontFamily: "var(--font-mono)", marginLeft: "auto" }}>{describeApprovalKind(approval.kind)}</span>
-            </div>
-            <div style={{ padding: "12px 14px" }}>
-              {approval.reason && (
-                <div style={{ fontSize: 12, color: "var(--amber)", marginBottom: 10 }}>
-                  <Icon d={Icons.info} size={13} /> {approval.reason}
-                </div>
-              )}
-              <div style={{ display: "flex", flexWrap: "wrap", gap: 10, marginBottom: 10 }}>
-                {approval.requested_by && (
-                  <span style={{ fontFamily: "var(--font-mono)", fontSize: 10, color: "var(--t2)" }}>
-                    requested by <span style={{ color: "var(--t1)" }}>{approval.requested_by}</span>
-                  </span>
-                )}
-                {approval.created_at && (
-                  <span style={{ fontFamily: "var(--font-mono)", fontSize: 10, color: "var(--t2)" }}>
-                    at <span style={{ color: "var(--t1)" }}>{new Date(approval.created_at).toLocaleString()}</span>
-                  </span>
-                )}
-              </div>
-              {(task.shell_command || task.git_command) && (
-                <div style={{ fontFamily: "var(--font-mono)", fontSize: 11, color: "var(--t1)", background: "var(--bg0)", border: "1px solid var(--border)", borderRadius: "var(--radius-sm)", padding: "6px 10px", marginBottom: 10 }}>
-                  {task.execution_kind === "git" ? `git ${task.git_command}` : task.shell_command}
-                </div>
-              )}
-              <div style={{ display: "flex", gap: 8 }}>
-                <button className="btn btn-primary btn-sm" disabled={busyAction !== ""} onClick={() => onResolveApproval(approval, "approve")} style={{ gap: 5 }}>
-                  <Icon d={Icons.approve} size={13} /> Approve & run
-                </button>
-                <button className="btn btn-danger btn-sm" disabled={busyAction !== ""} onClick={() => onResolveApproval(approval, "reject")} style={{ gap: 5 }}>
-                  <Icon d={Icons.deny} size={13} /> Deny
-                </button>
-              </div>
-            </div>
-          </div>
-        ))}
 
         {steps.length > 0 && (
           <div style={{ padding: "12px 16px", borderBottom: "1px solid var(--border)" }}>
