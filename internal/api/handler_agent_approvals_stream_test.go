@@ -409,7 +409,7 @@ func TestSSEResolveViaHTTPPublishesExactlyOneResolvedEvenWithActiveWaiter(t *tes
 }
 
 // TestSSEResolveVsTimeoutPublishesExactlyOneResolved pins the
-// store-race contract from slice 2's resolveStore fix. When operator
+// store-race contract for resolveStore. When operator
 // HTTP Resolve and prompt-mode timeout fire concurrently, the store's
 // atomic UPDATE ... WHERE status='pending' picks one winner; the
 // loser's resolveStore returns ErrApprovalAlreadyResolved and the
