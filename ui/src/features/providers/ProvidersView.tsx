@@ -1,6 +1,6 @@
 import { useEffect, useState, type CSSProperties } from "react";
 import type { RuntimeConsoleViewModel } from "../../app/useRuntimeConsole";
-import { resolvedBaseURL } from "../../lib/provider-utils";
+import { providerIconColor, resolvedBaseURL } from "../../lib/provider-utils";
 import { describeHealthErrorClass, describeRoutingBlockedReason } from "../../lib/runtime-utils";
 import { Badge, ConfirmModal, Icon, Icons, Modal } from "../shared/ui";
 import { AddProviderModal } from "./AddProviderModal";
@@ -9,26 +9,6 @@ type Props = {
   state: RuntimeConsoleViewModel["state"];
   actions: RuntimeConsoleViewModel["actions"];
 };
-
-const PRESET_COLORS: Record<string, string> = {
-  anthropic:   "var(--brand-anthropic)",
-  openai:      "var(--brand-openai)",
-  gemini:      "var(--brand-gemini)",
-  mistral:     "var(--brand-mistral)",
-  groq:        "var(--brand-groq)",
-  deepseek:    "var(--teal)",
-  perplexity:  "var(--teal)",
-  together_ai: "var(--t2)",
-  xai:         "var(--t0)",
-  ollama:      "var(--teal)",
-  lmstudio:    "var(--t2)",
-  llamacpp:    "var(--t2)",
-  localai:     "var(--t2)",
-};
-
-function iconColorByID(id: string): string {
-  return PRESET_COLORS[id.toLowerCase()] ?? "var(--teal)";
-}
 
 const PROVIDER_POLL_INTERVAL_MS = 30_000;
 
@@ -211,7 +191,7 @@ export function ProvidersView({ state, actions }: Props) {
               background: "var(--bg3)", border: "1px solid var(--border)",
               display: "flex", alignItems: "center", justifyContent: "center",
               fontFamily: "var(--font-mono)", fontSize: 11, fontWeight: 600,
-              color: iconColorByID(id), flexShrink: 0,
+              color: providerIconColor(id), flexShrink: 0,
             }}>
               {displayName[0].toUpperCase()}
             </div>
@@ -422,7 +402,7 @@ export function ProvidersView({ state, actions }: Props) {
                 background: "var(--bg3)", border: "1px solid var(--border)",
                 display: "flex", alignItems: "center", justifyContent: "center",
                 fontFamily: "var(--font-mono)", fontSize: 14, fontWeight: 600,
-                color: iconColorByID(selectedID), flexShrink: 0,
+                color: providerIconColor(selectedID), flexShrink: 0,
               }}>
                 {(selectedConfig.name || selectedID)[0].toUpperCase()}
               </div>
