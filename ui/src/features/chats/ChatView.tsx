@@ -3,7 +3,7 @@ import type { SyntheticEvent } from "react";
 import type { RuntimeConsoleViewModel } from "../../app/useRuntimeConsole";
 import { describeGatewayError, formatErrorCode } from "../../lib/error-diagnostics";
 import { parseInlineNodes, parseMarkdownBlocks } from "../../lib/markdown";
-import type { AgentAdapterRecord, AgentChatActivityRecord, AgentChatSessionRecord } from "../../types/runtime";
+import type { AgentAdapterRecord, AgentChatActivityRecord, AgentChatSessionRecord, AgentChatUsageRecord } from "../../types/runtime";
 import { AgentAdapterPicker, CodeBlock, Icon, Icons, InlineError, ModelPicker, ProviderPicker } from "../shared/ui";
 import { AgentApprovalAutoModeBanner, AgentApprovalsBanner } from "./AgentApprovalBanner";
 import { AgentApprovalModal } from "./AgentApprovalModal";
@@ -31,6 +31,7 @@ type VisibleChatMessage = {
   diff?: string;
   raw_output?: string;
   activities?: AgentChatActivityRecord[];
+  usage?: AgentChatUsageRecord;
   duration_ms?: number;
   error?: string;
 };
@@ -109,6 +110,7 @@ export function ChatView({ state, actions, onNavigate }: Props) {
         diff: m.diff,
         raw_output: m.raw_output,
         activities: m.activities,
+        usage: m.usage,
         duration_ms: m.duration_ms,
         error: m.error,
       }))
@@ -636,6 +638,7 @@ export function ChatView({ state, actions, onNavigate }: Props) {
                 diffStat={isAgentChat && role === "assistant" ? m.diff_stat : undefined}
                 diff={isAgentChat && role === "assistant" ? m.diff : undefined}
                 rawOutput={isAgentChat && role === "assistant" ? m.raw_output : undefined}
+                agentUsage={isAgentChat && role === "assistant" ? m.usage : undefined}
                 error={isAgentChat && role === "assistant" ? m.error : undefined}
                 onCopy={copyMsg}
                 copied={copiedMsgId === m.id}
@@ -802,7 +805,12 @@ export function ChatView({ state, actions, onNavigate }: Props) {
               Stopping external agent...
             </div>
           )}
-          <div style={{ maxWidth: 820, margin: "3px auto 0", display: "flex", justifyContent: "flex-end" }}>
+          <div style={{ maxWidth: 820, margin: "3px auto 0", display: "flex", alignItems: "center", gap: 10, justifyContent: "space-between" }}>
+            {isAgentChat ? (
+              <span style={{ color: "var(--t3)", fontFamily: "var(--font-mono)", fontSize: 10 }}>
+                External agents run as your OS user in the selected workspace — no sandbox
+              </span>
+            ) : <span />}
             <button type="button" onClick={toggleModEnterMode} style={{
               fontFamily: "var(--font-mono)", fontSize: 10, color: "var(--t3)",
               background: "none", border: "none", cursor: "pointer", padding: 0,
@@ -1144,11 +1152,11 @@ function formatDuration(durationMS: number): string {
 // needs to pick a model with type-to-filter + disabled-provider
 // awareness.)
 
-function MessageRow({ id, role, model, content, time, promptTokens, completionTokens, costUsd, badge, runtimeMeta, activities, diffStat, diff, rawOutput, error, onCopy, copied }: {
+function MessageRow({ id, role, model, content, time, promptTokens, completionTokens, costUsd, badge, runtimeMeta, activities, diffStat, diff, rawOutput, agentUsage, error, onCopy, copied }: {
   id: string; role: "user" | "assistant"; model?: string; content: string;
   time: string; promptTokens?: number; completionTokens?: number; costUsd?: string;
   badge?: string; runtimeMeta?: string;
-  activities?: AgentChatActivityRecord[]; diffStat?: string; diff?: string; rawOutput?: string; error?: string;
+  activities?: AgentChatActivityRecord[]; diffStat?: string; diff?: string; rawOutput?: string; agentUsage?: AgentChatUsageRecord; error?: string;
   onCopy: (id: string, text: string) => void; copied: boolean;
 }) {
   const [hovered, setHovered] = useState(false);
@@ -1218,6 +1226,9 @@ function MessageRow({ id, role, model, content, time, promptTokens, completionTo
           )}
           {isAssistant && activities && activities.length > 0 && (
             <ActivityTimeline activities={activities} diffStat={diffStat} />
+          )}
+          {isAssistant && agentUsage && !agentUsageEmpty(agentUsage) && (
+            <AgentUsage usage={agentUsage} />
           )}
           {isAssistant && (diff || diffStat) && (
             <details style={{ marginTop: 8 }}>
@@ -1310,6 +1321,36 @@ function AgentLiveText({ content }: { content: string }) {
       />
     </div>
   );
+}
+
+function AgentUsage({ usage }: { usage: AgentChatUsageRecord }) {
+  const cost = formatAgentReportedCost(usage);
+  const context = formatAgentContextUsage(usage);
+  return (
+    <div style={{ display: "flex", flexWrap: "wrap", gap: 8, marginTop: 8, fontFamily: "var(--font-mono)", fontSize: 10, color: "var(--t3)" }}>
+      {cost && <span>{cost}</span>}
+      {context && <span>{context}</span>}
+      <span>reported by adapter · not enforced by Hecate</span>
+    </div>
+  );
+}
+
+function agentUsageEmpty(usage: AgentChatUsageRecord): boolean {
+  return !usage.reported_cost_amount && !usage.reported_cost_currency && !(usage.context_size ?? 0) && !(usage.context_used ?? 0);
+}
+
+function formatAgentReportedCost(usage: AgentChatUsageRecord): string {
+  if (!usage.reported_cost_amount && !usage.reported_cost_currency) return "";
+  const currency = usage.reported_cost_currency ? ` ${usage.reported_cost_currency}` : "";
+  return `${usage.reported_cost_amount || "0"}${currency}`;
+}
+
+function formatAgentContextUsage(usage: AgentChatUsageRecord): string {
+  const used = usage.context_used ?? 0;
+  const size = usage.context_size ?? 0;
+  if (!used && !size) return "";
+  if (!size) return `${used} context used`;
+  return `${used}/${size} context`;
 }
 
 function DiffStatList({ diffStat }: { diffStat: string }) {

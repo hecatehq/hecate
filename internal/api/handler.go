@@ -29,18 +29,19 @@ import (
 )
 
 type Handler struct {
-	config          config.Config
-	logger          *slog.Logger
-	service         *gateway.Service
-	controlPlane    controlplane.Store
-	providerRuntime ProviderRuntime
-	taskStore       taskstate.Store
-	taskRunner      *orchestrator.Runner
-	tracer          profiler.Tracer
-	agentChat       agentchat.Store
-	agentChatRunner agentadapters.Runner
-	agentChatLive   *agentChatLive
-	rateLimiter     *ratelimit.Store
+	config                   config.Config
+	logger                   *slog.Logger
+	service                  *gateway.Service
+	controlPlane             controlplane.Store
+	providerRuntime          ProviderRuntime
+	taskStore                taskstate.Store
+	taskRunner               *orchestrator.Runner
+	tracer                   profiler.Tracer
+	agentChat                agentchat.Store
+	agentChatRunner          agentadapters.Runner
+	agentChatLive            *agentChatLive
+	agentChatIdleSweepCancel context.CancelFunc
+	rateLimiter              *ratelimit.Store
 	// secretCipher encrypts literal MCP server env values at task-creation
 	// time and wires the matching decrypting factory into the runner. nil
 	// when no control-plane key is configured — values are stored as-is
@@ -190,6 +191,11 @@ func NewHandler(cfg config.Config, logger *slog.Logger, service *gateway.Service
 			Reason:    "shutdown",
 		})
 	})
+	if removed, err := agentadapters.GCManagedLaunchers(); err != nil {
+		logger.Warn("agent adapter launcher GC failed", "error", err)
+	} else if removed > 0 {
+		logger.Info("agent adapter launcher GC removed stale entries", "removed", removed)
+	}
 	// Wire the four-layer agent_loop system-prompt composer. Layers
 	// are concatenated broadest-first:
 	//   1. global default — operator's GATEWAY_TASK_AGENT_SYSTEM_PROMPT
@@ -249,7 +255,7 @@ func NewHandler(cfg config.Config, logger *slog.Logger, service *gateway.Service
 	// agentChatLive is constructed before the hook builder so the
 	// approval coordinator can publish SSE events on the same bus
 	// used for chat-session updates.
-	agentChatLive := newAgentChatLive(cfg.Server.AgentChatMaxTurnsPerSession)
+	agentChatLive := newAgentChatLive(agentChatSnapshotConfigFromServer(cfg.Server))
 	approvalHooks := buildApprovalCoordinatorHooks(approvalMode, agentApprovalMetrics, agentChatLive)
 	approvalCfg := approvalConfig{
 		mode:    approvalMode,
@@ -269,7 +275,7 @@ func NewHandler(cfg config.Config, logger *slog.Logger, service *gateway.Service
 	})
 	agentChatRunner.SetApprovalCoordinator(approvalCoordinator)
 
-	return &Handler{
+	h := &Handler{
 		config:              cfg,
 		logger:              logger,
 		service:             service,
@@ -286,6 +292,8 @@ func NewHandler(cfg config.Config, logger *slog.Logger, service *gateway.Service
 		agentChatMetrics:    agentChatMetrics,
 		approvalConfig:      approvalCfg,
 	}
+	h.startAgentChatIdleSweeper()
+	return h
 }
 
 // SetAgentApprovalStore swaps in a durable approval store and rebuilds
@@ -415,6 +423,9 @@ func (h *Handler) rebuildMCPHostFactory() {
 // is still closed — orphaning subprocesses on top of a wedged runner
 // is the worst-of-both-worlds outcome we explicitly avoid.
 func (h *Handler) Shutdown(ctx context.Context) error {
+	if h.agentChatIdleSweepCancel != nil {
+		h.agentChatIdleSweepCancel()
+	}
 	var runnerErr error
 	if h.taskRunner != nil {
 		runnerErr = h.taskRunner.Shutdown(ctx)

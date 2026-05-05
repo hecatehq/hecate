@@ -1078,6 +1078,14 @@ function adapterPickerDiagnostic(
       chipColor: "",
     };
   }
+  if (adapter.auth_status && adapter.auth_status !== "ok") {
+    return {
+      title: adapter.auth_error || `Auth status: ${adapter.auth_status}`,
+      iconColor: adapter.auth_status === "billing" ? "var(--red)" : "var(--amber)",
+      chipLabel: adapter.auth_status === "billing" ? "billing" : "auth",
+      chipColor: adapter.auth_status === "billing" ? "var(--red)" : "var(--amber)",
+    };
+  }
   return {
     title: adapter.path || adapter.description || adapter.name,
     iconColor: "var(--green)",

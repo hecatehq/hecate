@@ -1385,10 +1385,11 @@ export function useRuntimeConsole() {
       const payload = await probeAgentAdapterRequest(adapterID);
       setAgentAdapterHealthByID((current) => {
         const next = new Map(current);
-        next.set(adapterID, payload.data);
+        next.set(adapterID, payload.data.health);
         return next;
       });
-      return payload.data;
+      setAgentAdapters((current) => current.map((item) => item.id === adapterID ? payload.data.adapter : item));
+      return payload.data.health;
     } catch (error) {
       setNoticeMessage("error", error instanceof Error ? error.message : "Failed to probe adapter.");
       return null;

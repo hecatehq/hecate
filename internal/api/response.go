@@ -14,6 +14,8 @@ const (
 	errCodeNotFound             = "not_found"
 	errCodeConflict             = "conflict"
 	errCodeSessionLimitExceeded = "agent_chat.session_limit_exceeded"
+	errCodeSessionDurationLimit = "agent_chat.session_duration_limit_exceeded"
+	errCodeSessionIdleTimeout   = "agent_chat.session_idle_timeout"
 )
 
 func WriteJSON(w http.ResponseWriter, status int, payload any) {

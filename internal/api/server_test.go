@@ -1771,7 +1771,7 @@ func TestAgentChatCloseKeepsHistoryAndClosesNativeSession(t *testing.T) {
 }
 
 func TestAgentChatLiveCancelRunAndWaitTimesOutUntilRunDone(t *testing.T) {
-	live := newAgentChatLive(0)
+	live := newAgentChatLive(agentChatSnapshotConfig{})
 	cancelled := false
 	if ok := live.registerRun("session_1", func() { cancelled = true }); !ok {
 		t.Fatal("registerRun = false, want true")
@@ -1798,7 +1798,7 @@ func TestAgentChatLiveCancelRunAndWaitTimesOutUntilRunDone(t *testing.T) {
 // session that never had cancel called against it surfaces empty
 // (the handler maps empty -> "request_cancelled").
 func TestAgentChatLiveCancelReasonForOperatorPath(t *testing.T) {
-	live := newAgentChatLive(0)
+	live := newAgentChatLive(agentChatSnapshotConfig{})
 	live.registerRun("session_explicit_cancel", func() {})
 	if !live.cancelRun("session_explicit_cancel") {
 		t.Fatal("cancelRun = false, want true")
