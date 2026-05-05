@@ -102,10 +102,10 @@ Chats is the primary day-to-day surface. It explains missing setup before you se
 
 There are two chat targets:
 
-- **Agent** — select Codex, Claude Code, or Cursor Agent, choose a workspace, and run a supervised local ACP session.
+- **Agent** — select Codex, Claude Code, or Cursor Agent, choose a workspace, and run a supervised local ACP session with approval prompts, guardrails, raw diagnostics, and Git diff review.
 - **Model** — select a configured provider/model and send OpenAI-compatible Chat Completions or Anthropic Messages traffic through Hecate's router.
 
-Model turns record route, cost, cache, and trace metadata. Agent turns record normalized transcript, raw output, status, timing, trace IDs, workspace branch, and captured Git diff. External agents are **not** providers and do not appear in the provider/model picker. See [docs/external-agent-adapters.md](docs/external-agent-adapters.md) for install checks and troubleshooting.
+Model turns record route, cost, cache, and trace metadata. Agent turns record normalized transcript, raw output, status, timing, trace IDs, workspace branch, approval decisions, and captured Git diffs that can be inspected or reverted from Chats. External agents are **not** providers and do not appear in the provider/model picker. See [docs/external-agent-adapters.md](docs/external-agent-adapters.md) for install checks and troubleshooting.
 
 ## Architecture
 
@@ -147,7 +147,7 @@ The embedded UI is a runtime console for the operator.
 - **Tasks** — create and manage agent runs, approvals, retries, resumes, and streamed output.
 - **Observability** — inspect requests, route candidates, skip reasons, failover, costs, traces, metrics, logs, and local trace events.
 - **Costs** — balance, top-up / reset, usage table.
-- **Settings** — pricebook and retention.
+- **Settings** — pricebook, retention, external-agent readiness checks, and durable approval grants.
 
 <details>
 <summary>Various UI screenshots</summary>
@@ -180,7 +180,7 @@ Hecate is public-alpha software. The core gateway path is usable; the agent runt
 | Storage tiers | Usable | Memory or SQLite, selected per subsystem. `GATEWAY_CHAT_SESSIONS_BACKEND=sqlite` covers the full agent-chat bundle (sessions, messages, approvals, grants); orphaned pending approvals are reconciled on startup |
 | Operator UI | Usable | Main workflows are present; chat/debugging ergonomics are still improving |
 | Desktop app | Alpha | Native `.dmg`, `.deb`, `.AppImage`, and `.msi` bundles run Hecate as a sidecar. Bundles are unsigned |
-| External agent adapters | Alpha | Codex, Claude Code, and Cursor Agent discovery, long-lived ACP sessions, cancel, session history, raw diagnostics, and workspace diff capture |
+| External agent adapters | Usable | Codex, Claude Code, and Cursor Agent discovery, long-lived ACP sessions, prompt-first approvals, grants, adapter health/version checks, cancel, guardrails, raw diagnostics, and Git diff inspect/revert. They run as trusted local subprocesses, not sandboxed providers |
 | ACP bridge | Alpha | `hecate-acp` supports initialize, session new/prompt/cancel, continuation, run-event forwarding, and approval round-trip; registry/editor packaging is not done |
 | Agent task runtime | Alpha | Queues, approvals, resumable runs, `agent_loop`, MCP integration; periodic reconciler auto-recovers stale runs |
 | Execution isolation | Alpha | Per-call subprocess + env sanitisation + output cap + wall-clock timeout; `bwrap` (Linux) / `sandbox-exec` (macOS) wrapping where available. Not container-level — see [`docs/sandbox.md`](docs/sandbox.md) |
