@@ -986,6 +986,9 @@ func TestAgentAdaptersReturnsBuiltIns(t *testing.T) {
 		if item.Status == "" {
 			t.Fatalf("adapter %q missing status: %#v", item.ID, item)
 		}
+		if item.SupportedRange == "" {
+			t.Fatalf("adapter %q missing supported_range: %#v", item.ID, item)
+		}
 	}
 	if !foundCodex {
 		t.Fatalf("missing codex adapter: %#v", response.Data)

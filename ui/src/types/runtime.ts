@@ -185,6 +185,9 @@ export type AgentAdapterRecord = {
   description?: string;
   cost_mode?: string;
   docs_url?: string;
+  version?: string;
+  supported_range?: string;
+  version_outside_range?: boolean;
 };
 
 export type AgentAdapterResponse = {

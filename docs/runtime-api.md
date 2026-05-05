@@ -372,7 +372,10 @@ GET /v1/agent-adapters
       "available": true,
       "status": "available",
       "path": "/Users/alice/Library/Caches/hecate/agent-adapters/codex-acp",
-      "cost_mode": "external"
+      "cost_mode": "external",
+      "version": "1.2.3",
+      "supported_range": ">=0.1.0",
+      "version_outside_range": false
     },
     {
       "id": "cursor_agent",
@@ -383,7 +386,10 @@ GET /v1/agent-adapters
       "available": true,
       "status": "available",
       "path": "/Users/alice/.local/bin/cursor-agent",
-      "cost_mode": "external"
+      "cost_mode": "external",
+      "version": "0.0.9",
+      "supported_range": ">=0.1.0",
+      "version_outside_range": true
     },
     {
       "id": "claude_code",
@@ -395,11 +401,19 @@ GET /v1/agent-adapters
       "available": false,
       "status": "missing",
       "error": "exec: \"claude-agent-acp\": executable file not found in $PATH; managed launcher unavailable: no local package runner found for @agentclientprotocol/claude-agent-acp",
-      "cost_mode": "external"
+      "cost_mode": "external",
+      "supported_range": ">=0.1.0"
     }
   ]
 }
 ```
+
+`version` is populated by running the binary with `--version` and extracting
+the first semver-shaped token from stdout; it is absent when the adapter is
+missing or when the binary does not print a recognisable version string.
+`version_outside_range` is `true` when both `version` and `supported_range`
+are present and the version does not satisfy the constraint — the Settings UI
+shows an amber "outside tested range" chip in that case.
 
 These are **agent adapters**, not model providers. They run ACP-compatible
 external coding agents under Hecate supervision; cost is reported as `external`

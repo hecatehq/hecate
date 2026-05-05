@@ -429,9 +429,24 @@ function AdapterStatusRow({
               {chip.label}
             </span>
           )}
+          {adapter.version_outside_range && (
+            <span
+              data-testid={`external-agents-adapter-${adapter.id}-version-warning`}
+              style={{
+                fontFamily: "var(--font-mono)",
+                fontSize: 10,
+                color: chipColor("amber"),
+                textTransform: "uppercase",
+                letterSpacing: "0.04em",
+              }}
+            >
+              outside tested range
+            </span>
+          )}
         </div>
         <div style={{ display: "flex", flexWrap: "wrap", gap: 8, fontFamily: "var(--font-mono)", fontSize: 10, color: "var(--t3)" }}>
           {adapter.command && <span>command <span style={{ color: "var(--t1)" }}>{adapter.command}</span></span>}
+          {adapter.version && <span>version <span style={{ color: "var(--t1)" }}>{adapter.version}</span></span>}
           {health?.path && <span>path <span style={{ color: "var(--t1)" }}>{health.path}</span></span>}
           {health?.duration_ms !== undefined && <span>{health.duration_ms} ms</span>}
         </div>
