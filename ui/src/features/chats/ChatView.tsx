@@ -291,19 +291,33 @@ export function ChatView({ state, actions }: Props) {
 
     setQuickAddingProviders(true);
     setQuickLocalError("");
+    let createdCount = 0;
+    let firstError: unknown = null;
     try {
       for (const { discovery, preset } of addable) {
-        await actions.createProvider({
-          name: preset.name,
-          preset_id: preset.id,
-          base_url: discovery.base_url || preset.base_url,
-          kind: preset.kind,
-          protocol: preset.protocol ?? "openai",
-        }, { refresh: false });
+        try {
+          await actions.createProvider({
+            name: preset.name,
+            preset_id: preset.id,
+            base_url: discovery.base_url || preset.base_url,
+            kind: preset.kind,
+            protocol: preset.protocol ?? "openai",
+          }, { refresh: false });
+          createdCount++;
+        } catch (error) {
+          firstError ??= error;
+        }
       }
-      await actions.loadDashboard();
-    } catch (error) {
-      setQuickLocalError(error instanceof Error ? error.message : "Failed to add detected providers");
+      if (createdCount > 0) {
+        try {
+          await actions.loadDashboard();
+        } catch (error) {
+          firstError ??= error;
+        }
+      }
+      if (firstError) {
+        setQuickLocalError(firstError instanceof Error ? firstError.message : "Some detected providers could not be added");
+      }
     } finally {
       setQuickAddingProviders(false);
     }

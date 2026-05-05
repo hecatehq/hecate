@@ -1083,8 +1083,14 @@ export function useRuntimeConsole() {
 
   async function deleteProvider(id: string): Promise<void> {
     resetControlPlaneFeedback();
-    const removedConfiguredProvider = controlPlaneConfig?.providers.find(provider => provider.id === id);
-    const removedProviderStatus = providers.find(provider => provider.name === id);
+    const removedConfiguredProviderIndex = controlPlaneConfig?.providers.findIndex(provider => provider.id === id) ?? -1;
+    const removedProviderStatusIndex = providers.findIndex(provider => provider.name === id);
+    const removedConfiguredProvider = removedConfiguredProviderIndex >= 0
+      ? controlPlaneConfig?.providers[removedConfiguredProviderIndex]
+      : undefined;
+    const removedProviderStatus = removedProviderStatusIndex >= 0
+      ? providers[removedProviderStatusIndex]
+      : undefined;
     const previousProviderFilter = providerFilter;
     const previousModel = model;
 
@@ -1104,13 +1110,16 @@ export function useRuntimeConsole() {
     } catch (error) {
       setControlPlaneConfig(current => {
         if (!removedConfiguredProvider) return current;
-        if (!current) return controlPlaneConfig;
+        if (!current) return current;
         if (current.providers.some(provider => provider.id === id)) return current;
-        return { ...current, providers: [...current.providers, removedConfiguredProvider] };
+        return {
+          ...current,
+          providers: insertAtIndex(current.providers, removedConfiguredProvider, removedConfiguredProviderIndex),
+        };
       });
       setProviders(current => {
         if (!removedProviderStatus || current.some(provider => provider.name === id)) return current;
-        return [...current, removedProviderStatus];
+        return insertAtIndex(current, removedProviderStatus, removedProviderStatusIndex);
       });
       setProviderFilter(previousProviderFilter);
       setModel(previousModel);
@@ -1654,6 +1663,13 @@ export function useRuntimeConsole() {
       dismissNotice: () => setNotice(null),
     },
   };
+}
+
+function insertAtIndex<T>(items: T[], item: T, index: number): T[] {
+  const next = items.slice();
+  const boundedIndex = Math.max(0, Math.min(index, next.length));
+  next.splice(boundedIndex, 0, item);
+  return next;
 }
 
 export type RuntimeConsoleViewModel = ReturnType<typeof useRuntimeConsole>;

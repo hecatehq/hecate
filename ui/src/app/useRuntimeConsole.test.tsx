@@ -423,6 +423,7 @@ describe("useRuntimeConsole", () => {
               providers: [
                 { id: "openai", name: "OpenAI", preset_id: "openai", kind: "cloud", protocol: "openai", base_url: "https://api.openai.com/v1", credential_configured: true },
                 { id: "ollama", name: "Ollama", preset_id: "ollama", kind: "local", protocol: "openai", base_url: "http://127.0.0.1:11434/v1", credential_configured: false },
+                { id: "anthropic", name: "Anthropic", preset_id: "anthropic", kind: "cloud", protocol: "anthropic", base_url: "https://api.anthropic.com", credential_configured: true },
               ],
               pricebook: [], policy_rules: [], events: [],
             },
@@ -434,6 +435,7 @@ describe("useRuntimeConsole", () => {
             data: [
               { name: "openai", kind: "cloud", healthy: true, status: "healthy", models: ["gpt-4o-mini"] },
               { name: "ollama", kind: "local", healthy: true, status: "healthy", models: ["llama3.1:8b"] },
+              { name: "anthropic", kind: "cloud", healthy: true, status: "healthy", models: ["claude-sonnet-4-6"] },
             ],
           });
         }
@@ -441,7 +443,7 @@ describe("useRuntimeConsole", () => {
       });
 
       const { result } = renderHook(() => useRuntimeConsole());
-      await waitFor(() => expect(result.current.state.controlPlaneConfig?.providers.map(p => p.id)).toEqual(["openai", "ollama"]));
+      await waitFor(() => expect(result.current.state.controlPlaneConfig?.providers.map(p => p.id)).toEqual(["openai", "ollama", "anthropic"]));
       await act(async () => {
         result.current.actions.setProviderFilter("ollama");
         result.current.actions.setModel("llama3.1:8b");
@@ -451,8 +453,8 @@ describe("useRuntimeConsole", () => {
         await result.current.actions.deleteProvider("ollama");
       });
 
-      expect(result.current.state.controlPlaneConfig?.providers.map(p => p.id)).toEqual(["openai", "ollama"]);
-      expect(result.current.state.providers.map(p => p.name)).toEqual(["openai", "ollama"]);
+      expect(result.current.state.controlPlaneConfig?.providers.map(p => p.id)).toEqual(["openai", "ollama", "anthropic"]);
+      expect(result.current.state.providers.map(p => p.name)).toEqual(["openai", "ollama", "anthropic"]);
       expect(result.current.state.providerFilter).toBe("ollama");
       expect(result.current.state.model).toBe("llama3.1:8b");
       expect(result.current.state.notice).toEqual({ kind: "error", message: "Failed to remove provider." });
