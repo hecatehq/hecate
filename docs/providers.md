@@ -2,7 +2,7 @@
 
 Hecate uses a vendor-neutral provider layer at the runtime boundary. It treats OpenAI-compatible upstreams and the Anthropic Messages API as first-class paths — every other supported model lives behind one of those two protocols.
 
-> Contributing here? Start at [`AGENTS.md`](../AGENTS.md) for the codebase map and runtime invariants; provider-package depth (the seven-step "add a wire field" chain, the api↔providers parallel-struct rule, capability cache seeding, streaming gotchas) lives in [`ai/skills/providers/SKILL.md`](../ai/skills/providers/SKILL.md).
+> Contributing here? Start at [`AGENTS.md`](../AGENTS.md) for the codebase map and runtime invariants; provider-package depth (the seven-step "add a wire field" chain, the api↔providers parallel-struct rule, capability cache seeding, streaming gotchas) lives in [`docs-ai/skills/providers/SKILL.md`](../docs-ai/skills/providers/SKILL.md).
 
 ![Providers tab — populated table with health, endpoint, credentials, and models columns](screenshots/providers.png)
 

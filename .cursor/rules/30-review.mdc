@@ -27,4 +27,4 @@ For each change, run a pass on each axis. Cite `file:line` for every finding.
 
 ## Pointer
 
-Full rubric and discussion: [`ai/tasks/code-review.md`](../../ai/tasks/code-review.md).
+Full rubric and discussion: [`docs-ai/tasks/code-review.md`](../../docs-ai/tasks/code-review.md).

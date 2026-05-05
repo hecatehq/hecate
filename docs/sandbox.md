@@ -14,7 +14,7 @@ applied per-call inside the gateway process.
 
 Code: [`internal/sandbox/`](../internal/sandbox/) · policy reference: [`agent-runtime.md#network-egress-for-shell_exec--git_exec`](agent-runtime.md#network-egress-for-shell_exec--git_exec).
 
-> Contributing here? Start at [`AGENTS.md`](../AGENTS.md) and [`ai/README.md`](../ai/README.md).
+> Contributing here? Start at [`AGENTS.md`](../AGENTS.md) and [`docs-ai/README.md`](../docs-ai/README.md).
 
 ## Contents
 

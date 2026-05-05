@@ -7,7 +7,7 @@ Reference for every event Hecate emits to its persisted run-event log, surfaced 
 - `GET /v1/events` — paginated cross-run list with cursor pagination
 - `GET /v1/events/stream` — long-lived cross-run SSE feed
 
-> Contributing here? Start at [`AGENTS.md`](../AGENTS.md) for the codebase map and runtime invariants; conventions, workflow, and verification ladders live under [`ai/`](../ai/README.md).
+> Contributing here? Start at [`AGENTS.md`](../AGENTS.md) for the codebase map and runtime invariants; conventions, workflow, and verification ladders live under [`docs-ai/`](../docs-ai/README.md).
 
 These are **persisted events** (rows in the `task_state_run_events` table). They are a different stream from OTel spans — spans live in your tracing backend; events live in the gateway's storage tier and are subscriber-friendly. See [telemetry.md](telemetry.md) for OTel.
 

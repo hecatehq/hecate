@@ -11,7 +11,7 @@ launch `hecate-acp` themselves over stdio, but the gateway writes
 `hecate.runtime.json` into the app data directory so the bridge can discover the
 current dynamic gateway URL when `HECATE_GATEWAY_URL` is not set.
 
-Code: [`tauri/`](../tauri/) · agent guide: [`ai/skills/tauri/SKILL.md`](../ai/skills/tauri/SKILL.md) · CI: [`.github/workflows/release.yml`](../.github/workflows/release.yml), [`.github/workflows/tauri-build.yml`](../.github/workflows/tauri-build.yml).
+Code: [`tauri/`](../tauri/) · agent guide: [`docs-ai/skills/tauri/SKILL.md`](../docs-ai/skills/tauri/SKILL.md) · CI: [`.github/workflows/release.yml`](../.github/workflows/release.yml), [`.github/workflows/tauri-build.yml`](../.github/workflows/tauri-build.yml).
 
 ## Distribution
 
@@ -143,7 +143,7 @@ approval/task behavior stays in `make test-acp-smoke`.
 
 ## Footguns to know
 
-Captured in detail at [`ai/skills/tauri/SKILL.md`](../ai/skills/tauri/SKILL.md);
+Captured in detail at [`docs-ai/skills/tauri/SKILL.md`](../docs-ai/skills/tauri/SKILL.md);
 the ones likely to bite an operator:
 
 - **Gatekeeper / SmartScreen on first launch.** Until signing lands, macOS

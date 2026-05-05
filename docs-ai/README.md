@@ -7,7 +7,7 @@ point here — the substance lives in this directory.
 ## Layout
 
 ```
-ai/
+docs-ai/
   README.md                       this file — load order and quick rules
   core/
     project-context.md            what Hecate is, repo layout, rings, storage tiers, toolchain pins, risky areas

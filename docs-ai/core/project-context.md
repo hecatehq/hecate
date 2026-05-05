@@ -33,7 +33,7 @@ docs/                      long-form references (canonical product/runtime docs)
 
 .claude/                   Claude Code adapter (slash commands, settings)
 .cursor/                   Cursor adapter (.mdc rule files)
-ai/                        canonical, vendor-neutral agent instruction layer (this directory)
+docs-ai/                        canonical, vendor-neutral agent instruction layer (this directory)
 ```
 
 ## Architecture rings

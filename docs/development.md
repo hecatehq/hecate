@@ -1,6 +1,6 @@
 # Development
 
-This guide covers the local-build path (Go + Bun), UI hot reload, the test surface, and the screenshot tooling. For the simplest get-it-running flow, see [Quick Start](../README.md#quick-start) — the desktop app is the recommended on-ramp for personal use; Docker for server use. The Tauri desktop app's local build (`make tauri-dev`) lives in [`ai/skills/tauri/SKILL.md`](../ai/skills/tauri/SKILL.md).
+This guide covers the local-build path (Go + Bun), UI hot reload, the test surface, and the screenshot tooling. For the simplest get-it-running flow, see [Quick Start](../README.md#quick-start) — the desktop app is the recommended on-ramp for personal use; Docker for server use. The Tauri desktop app's local build (`make tauri-dev`) lives in [`docs-ai/skills/tauri/SKILL.md`](../docs-ai/skills/tauri/SKILL.md).
 
 ## Contents
 

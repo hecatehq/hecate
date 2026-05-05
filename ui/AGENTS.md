@@ -4,7 +4,7 @@ React/Vite operator UI under `ui/`. Sibling to the root [`AGENTS.md`](../AGENTS.
 
 The substance for UI work — product lens, layout rules, conventions,
 build/test commands, gotchas, recipes — lives in the canonical UI skill:
-[`../ai/skills/ui/SKILL.md`](../ai/skills/ui/SKILL.md). Read it before
+[`../docs-ai/skills/ui/SKILL.md`](../docs-ai/skills/ui/SKILL.md). Read it before
 making UI changes.
 
 ## At a glance
@@ -15,10 +15,11 @@ ui/src/
   features/
     runs/                 TasksView, TaskDetail, NewTaskSlideOver
     chats/                ChatView
+    transcript/           reusable Chats transcript rendering pieces
     overview/             ConnectYourClient, ObservabilityView
-    admin/                AdminView, PricebookTab
+    settings/             SettingsView, PricebookTab
     providers/            ProvidersView
-    shared/ui.tsx         primitives, ProviderPicker, ModelPicker, useFloatingDropdownStyle
+    shared/               primitives, pickers, overlays; ui.tsx is a compatibility barrel
   lib/                    api.ts (incl. streamTaskRun SSE), markdown.ts, runtime-utils.ts
   types/runtime.ts        TypeScript mirrors of the Go API types — keep in lockstep
   styles.css              design tokens, .dropdown-menu rule, animations
@@ -37,11 +38,11 @@ Slash commands: `/typecheck` and `/test-affected` from the repo root.
 
 ## Where to go for depth
 
-- Conventions (match existing design, no duplicate summary surfaces, stable provider ordering, short tab labels, etc.) — [`../ai/skills/ui/SKILL.md`](../ai/skills/ui/SKILL.md).
-- Test patterns (the `setup()` helper) — [`../ai/skills/ui/SKILL.md`](../ai/skills/ui/SKILL.md).
-- UI gotchas (dropdown clipping, `bun test` vs `bun run test`, stale task IDs, snapshot churn) — [`../ai/skills/ui/SKILL.md`](../ai/skills/ui/SKILL.md).
-- Recipes (SSE-driven state field, paired pickers, snapshot refresh) — [`../ai/skills/ui/SKILL.md`](../ai/skills/ui/SKILL.md).
-- Project-wide rules (Conventional Commits, `chore(...)` for agent-doc updates, no emojis, no plan labels) — [`../ai/core/workflow.md`](../ai/core/workflow.md), [`../ai/core/engineering-standards.md`](../ai/core/engineering-standards.md).
+- Conventions (match existing design, no duplicate summary surfaces, stable provider ordering, short tab labels, etc.) — [`../docs-ai/skills/ui/SKILL.md`](../docs-ai/skills/ui/SKILL.md).
+- Test patterns (the `setup()` helper) — [`../docs-ai/skills/ui/SKILL.md`](../docs-ai/skills/ui/SKILL.md).
+- UI gotchas (dropdown clipping, `bun test` vs `bun run test`, stale task IDs, snapshot churn) — [`../docs-ai/skills/ui/SKILL.md`](../docs-ai/skills/ui/SKILL.md).
+- Recipes (SSE-driven state field, paired pickers, snapshot refresh) — [`../docs-ai/skills/ui/SKILL.md`](../docs-ai/skills/ui/SKILL.md).
+- Project-wide rules (Conventional Commits, `chore(...)` for agent-doc updates, no emojis, no plan labels) — [`../docs-ai/core/workflow.md`](../docs-ai/core/workflow.md), [`../docs-ai/core/engineering-standards.md`](../docs-ai/core/engineering-standards.md).
 
 ## Canonical product docs (UI-relevant)
 

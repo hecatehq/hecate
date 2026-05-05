@@ -13,8 +13,8 @@ Pick the path closest to what you are doing.
 | Running Hecate locally | [Desktop app](desktop-app.md), [Deployment](deployment.md), [Providers](providers.md), [Known limitations](known-limitations.md) |
 | Calling Hecate from a client | [Runtime API](runtime-api.md), [Agent runtime](agent-runtime.md), [Events](events.md), [Chat sessions](chat-sessions.md) |
 | Building or using coding-agent integrations | [External agent adapters](external-agent-adapters.md), [ACP bridge](acp.md), [Runtime API](runtime-api.md), [Events](events.md), [MCP integration](mcp.md) |
-| Changing the codebase | [Architecture](architecture.md), [Development](development.md), [`ai/`](../ai/README.md), [Release](release.md) |
-| Working as an AI agent | [`AGENTS.md`](../AGENTS.md), [`ai/README.md`](../ai/README.md), then the relevant `ai/skills/*/SKILL.md` |
+| Changing the codebase | [Architecture](architecture.md), [Development](development.md), [`docs-ai/`](../docs-ai/README.md), [Release](release.md) |
+| Working as an AI agent | [`AGENTS.md`](../AGENTS.md), [`docs-ai/README.md`](../docs-ai/README.md), then the relevant `docs-ai/skills/*/SKILL.md` |
 
 ## Operator Docs
 
@@ -51,7 +51,7 @@ Pick the path closest to what you are doing.
 | [Architecture](architecture.md) | Gateway flow, task-runtime queue/lease model, agent turn cycle, storage tiers. |
 | [Development](development.md) | Go + Bun setup, local dev, test ladder, screenshot tooling, package map. |
 | [Release](release.md) | Versioning, alpha gate, release script, image build, recovery, release-note shape. |
-| [`ai/`](../ai/README.md) | Vendor-neutral agent guidance: workflow, verification, skills, task recipes. |
+| [`docs-ai/`](../docs-ai/README.md) | Vendor-neutral agent guidance: workflow, verification, skills, task recipes. |
 
 ## Candidate Contracts
 

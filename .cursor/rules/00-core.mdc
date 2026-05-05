@@ -8,7 +8,7 @@ alwaysApply: true
 
 Hecate is an open-source AI gateway and agent-task runtime. The Go gateway embeds the React operator UI, mediates OpenAI- and Anthropic-shaped client traffic, runs queued `agent_loop` tasks with policy and approval gates, and emits OpenTelemetry traces for everything it does. Companion entrypoints such as `hecate-acp` handle protocols that need their own process lifecycle.
 
-The canonical, vendor-neutral instruction layer for this repo lives in [`ai/`](../../ai/README.md). Start there. This file is a thin Cursor adapter listing the top-level non-negotiables.
+The canonical, vendor-neutral instruction layer for this repo lives in [`docs-ai/`](../../docs-ai/README.md). Start there. This file is a thin Cursor adapter listing the top-level non-negotiables.
 
 ## Non-negotiables
 
@@ -25,7 +25,7 @@ The canonical, vendor-neutral instruction layer for this repo lives in [`ai/`](.
 
 ## Pointers
 
-- Full project context: [`ai/core/project-context.md`](../../ai/core/project-context.md).
-- Project-wide conventions: [`ai/core/engineering-standards.md`](../../ai/core/engineering-standards.md).
-- Operating loop: [`ai/core/workflow.md`](../../ai/core/workflow.md).
-- Verification ladders: [`ai/core/verification.md`](../../ai/core/verification.md).
+- Full project context: [`docs-ai/core/project-context.md`](../../docs-ai/core/project-context.md).
+- Project-wide conventions: [`docs-ai/core/engineering-standards.md`](../../docs-ai/core/engineering-standards.md).
+- Operating loop: [`docs-ai/core/workflow.md`](../../docs-ai/core/workflow.md).
+- Verification ladders: [`docs-ai/core/verification.md`](../../docs-ai/core/verification.md).

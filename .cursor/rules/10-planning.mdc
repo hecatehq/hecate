@@ -31,9 +31,9 @@ Substantial changes get a plan before code. Trivial changes (typo fixes, single-
 
 `pkg/types/chat.go` → `internal/api/openai.go` (request struct) → `internal/api/handler_chat.go` (`normalizeChatRequest`) → `internal/providers/openai.go` (lowercase parallel struct) → **both `Chat` and `ChatStream` `wireReq` constructions** in that same file → `internal/providers/anthropic.go` `warnUnsupportedFieldsDropped` → tests at every layer. Forgetting the streaming `wireReq` is the most common bug.
 
-Full chain with file references: [`ai/skills/providers/SKILL.md`](../../ai/skills/providers/SKILL.md).
+Full chain with file references: [`docs-ai/skills/providers/SKILL.md`](../../docs-ai/skills/providers/SKILL.md).
 
 ## Pointers
 
-- Plan format: [`ai/tasks/planning.md`](../../ai/tasks/planning.md).
-- Architect skill (plan template, output shape, anti-patterns): [`ai/skills/architect/SKILL.md`](../../ai/skills/architect/SKILL.md).
+- Plan format: [`docs-ai/tasks/planning.md`](../../docs-ai/tasks/planning.md).
+- Architect skill (plan template, output shape, anti-patterns): [`docs-ai/skills/architect/SKILL.md`](../../docs-ai/skills/architect/SKILL.md).

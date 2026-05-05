@@ -61,7 +61,7 @@ If a refactor is the right move, split it into its own change first and rebuild 
 
 **Types**: `feat`, `fix`, `test`, `docs`, `chore`, `refactor`.
 
-**Use `chore(agent):`** for agent-doc-only updates (anything under `ai/`, `AGENTS.md`, `CLAUDE.md`, `.cursor/rules/`, `.claude/commands/`). UI agent docs (`ui/AGENTS.md`, `ui/SKILL.md`) also go through `chore(...)`, not `docs(...)`.
+**Use `chore(agent):`** for agent-doc-only updates (anything under `docs-ai/`, `AGENTS.md`, `CLAUDE.md`, `.cursor/rules/`, `.claude/commands/`). UI agent docs (`ui/AGENTS.md`, `ui/SKILL.md`) also go through `chore(...)`, not `docs(...)`.
 
 **Pure-markdown changes** append `[skip ci]` to the subject. The CI workflow's `paths-ignore` already catches `**/*.md`; the marker is belt-and-suspenders.
 
