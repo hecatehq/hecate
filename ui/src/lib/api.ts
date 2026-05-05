@@ -11,7 +11,7 @@ import type {
   PricebookEntryUpsertPayload,
   PricebookImportDiffResponse,
   ProviderPresetResponse,
-  AgentAdapterHealthResponse,
+  AgentAdapterProbeResponse,
   AgentAdapterResponse,
   AgentChatApprovalRequestedEvent,
   AgentChatApprovalResolvedEvent,
@@ -218,15 +218,20 @@ export async function getAgentAdapters(): Promise<AgentAdapterResponse> {
   return fetchJSON<AgentAdapterResponse>("/v1/agent-adapters");
 }
 
-// probeAgentAdapter exercises the configured adapter end-to-end and
-// returns a typed health classification. The probe spawns the adapter,
-// completes the ACP handshake, opens and discards a session, and
-// terminates — operators get back ready / not_installed / auth_required
-// / error plus a hint. See docs/runtime-api.md
-// `GET /v1/agent-adapters/{id}/health` for the wire contract.
-export async function probeAgentAdapter(adapterID: string): Promise<AgentAdapterHealthResponse> {
-  return fetchJSON<AgentAdapterHealthResponse>(
-    `/v1/agent-adapters/${encodeURIComponent(adapterID)}/health`,
+// probeAgentAdapter re-runs discovery for one adapter and performs the
+// end-to-end ACP health probe. The response includes both the fresh list row
+// and the deeper handshake result so Settings can update in place.
+export async function probeAgentAdapter(adapterID: string): Promise<AgentAdapterProbeResponse> {
+  return fetchJSON<AgentAdapterProbeResponse>(
+    `/v1/agent-adapters/${encodeURIComponent(adapterID)}/probe`,
+    { method: "POST" },
+  );
+}
+
+export async function refreshAgentAdapterLauncher(adapterID: string): Promise<AgentAdapterResponse> {
+  return fetchJSON<AgentAdapterResponse>(
+    `/v1/agent-adapters/${encodeURIComponent(adapterID)}/refresh-launcher`,
+    { method: "POST" },
   );
 }
 

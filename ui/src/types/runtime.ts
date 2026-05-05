@@ -188,6 +188,8 @@ export type AgentAdapterRecord = {
   version?: string;
   supported_range?: string;
   version_outside_range?: boolean;
+  auth_status?: "ok" | "unauthenticated" | "billing" | "unknown" | string;
+  auth_error?: string;
 };
 
 export type AgentAdapterResponse = {
@@ -265,6 +267,9 @@ export type AgentChatSessionRecord = {
   status: string;
   turns_used?: number;
   max_turns_per_session?: number;
+  session_started_at?: string;
+  max_session_duration_ms?: number;
+  idle_timeout_ms?: number;
   created_at?: string;
   updated_at?: string;
   messages?: AgentChatMessageRecord[];
@@ -411,6 +416,14 @@ export type AgentAdapterHealthRecord = {
 export type AgentAdapterHealthResponse = {
   object: string;
   data: AgentAdapterHealthRecord;
+};
+
+export type AgentAdapterProbeResponse = {
+  object: string;
+  data: {
+    adapter: AgentAdapterRecord;
+    health: AgentAdapterHealthRecord;
+  };
 };
 
 export type WorkspaceDialogResponse = {

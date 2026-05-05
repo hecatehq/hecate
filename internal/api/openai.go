@@ -556,6 +556,8 @@ type AgentAdapterResponseItem struct {
 	Version             string   `json:"version,omitempty"`
 	SupportedRange      string   `json:"supported_range,omitempty"`
 	VersionOutsideRange bool     `json:"version_outside_range,omitempty"`
+	AuthStatus          string   `json:"auth_status,omitempty"`
+	AuthError           string   `json:"auth_error,omitempty"`
 }
 
 type CreateAgentChatSessionRequest struct {
@@ -583,19 +585,22 @@ type AgentChatSessionSummaryItem struct {
 }
 
 type AgentChatSessionItem struct {
-	ID                 string                 `json:"id"`
-	Title              string                 `json:"title"`
-	AdapterID          string                 `json:"adapter_id"`
-	DriverKind         string                 `json:"driver_kind,omitempty"`
-	NativeSessionID    string                 `json:"native_session_id,omitempty"`
-	Workspace          string                 `json:"workspace"`
-	WorkspaceBranch    string                 `json:"workspace_branch,omitempty"`
-	Status             string                 `json:"status"`
-	TurnsUsed          int                    `json:"turns_used"`
-	MaxTurnsPerSession int                    `json:"max_turns_per_session,omitempty"`
-	CreatedAt          string                 `json:"created_at,omitempty"`
-	UpdatedAt          string                 `json:"updated_at,omitempty"`
-	Messages           []AgentChatMessageItem `json:"messages"`
+	ID                   string                 `json:"id"`
+	Title                string                 `json:"title"`
+	AdapterID            string                 `json:"adapter_id"`
+	DriverKind           string                 `json:"driver_kind,omitempty"`
+	NativeSessionID      string                 `json:"native_session_id,omitempty"`
+	Workspace            string                 `json:"workspace"`
+	WorkspaceBranch      string                 `json:"workspace_branch,omitempty"`
+	Status               string                 `json:"status"`
+	TurnsUsed            int                    `json:"turns_used"`
+	MaxTurnsPerSession   int                    `json:"max_turns_per_session,omitempty"`
+	SessionStartedAt     string                 `json:"session_started_at,omitempty"`
+	MaxSessionDurationMS int64                  `json:"max_session_duration_ms,omitempty"`
+	IdleTimeoutMS        int64                  `json:"idle_timeout_ms,omitempty"`
+	CreatedAt            string                 `json:"created_at,omitempty"`
+	UpdatedAt            string                 `json:"updated_at,omitempty"`
+	Messages             []AgentChatMessageItem `json:"messages"`
 }
 
 type AgentChatMessageItem struct {

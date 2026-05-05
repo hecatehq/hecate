@@ -464,13 +464,16 @@ describe("api client", () => {
     it("URL-encodes the adapter id and returns the typed payload", async () => {
       fetchMock.mockResolvedValue(
         jsonResponse({
-          object: "agent_adapter_health",
+          object: "agent_adapter_probe",
           data: {
-            adapter_id: "codex",
-            status: "ready",
-            stage: "ready",
-            path: "/usr/local/bin/codex-acp",
-            duration_ms: 412,
+            adapter: { id: "codex", name: "Codex", kind: "acp", command: "codex-acp", available: true, status: "available" },
+            health: {
+              adapter_id: "codex",
+              status: "ready",
+              stage: "ready",
+              path: "/usr/local/bin/codex-acp",
+              duration_ms: 412,
+            },
           },
         }),
       );
@@ -478,25 +481,28 @@ describe("api client", () => {
       const result = await probeAgentAdapter("codex");
 
       expect(fetchMock).toHaveBeenCalledWith(
-        "/v1/agent-adapters/codex/health",
-        expect.objectContaining({ method: "GET" }),
+        "/v1/agent-adapters/codex/probe",
+        expect.objectContaining({ method: "POST" }),
       );
-      expect(result.data.status).toBe("ready");
-      expect(result.data.duration_ms).toBe(412);
+      expect(result.data.health.status).toBe("ready");
+      expect(result.data.health.duration_ms).toBe(412);
     });
 
     it("escapes ids with special characters", async () => {
       fetchMock.mockResolvedValue(
         jsonResponse({
           object: "agent_adapter_health",
-          data: { adapter_id: "weird id", status: "error", stage: "lookup", duration_ms: 0 },
+          data: {
+            adapter: { id: "weird id", name: "Weird", kind: "acp", command: "weird", available: false, status: "missing" },
+            health: { adapter_id: "weird id", status: "error", stage: "lookup", duration_ms: 0 },
+          },
         }),
       );
 
       await probeAgentAdapter("weird id");
 
       const [url] = fetchMock.mock.lastCall ?? [];
-      expect(url).toBe("/v1/agent-adapters/weird%20id/health");
+      expect(url).toBe("/v1/agent-adapters/weird%20id/probe");
     });
   });
 

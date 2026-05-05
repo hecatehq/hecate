@@ -20,6 +20,13 @@ const (
 	StatusMissing   = "missing"
 )
 
+const (
+	AuthStatusOK              = "ok"
+	AuthStatusUnauthenticated = "unauthenticated"
+	AuthStatusBilling         = "billing"
+	AuthStatusUnknown         = "unknown"
+)
+
 type Adapter struct {
 	ID             string
 	Name           string
@@ -53,6 +60,8 @@ type Status struct {
 	Error               string
 	Version             string
 	VersionOutsideRange bool
+	AuthStatus          string
+	AuthError           string
 }
 
 type LookupFunc func(file string) (string, error)
@@ -195,8 +204,9 @@ func ListWithLookup(ctx context.Context, lookup LookupFunc) []Status {
 	out := make([]Status, 0, len(items))
 	for _, item := range items {
 		status := Status{
-			Adapter: item,
-			Status:  StatusMissing,
+			Adapter:    item,
+			Status:     StatusMissing,
+			AuthStatus: AuthStatusUnknown,
 		}
 		if err := ctx.Err(); err != nil {
 			status.Error = err.Error()
@@ -216,9 +226,51 @@ func ListWithLookup(ctx context.Context, lookup LookupFunc) []Status {
 			status.Version = v
 			status.VersionOutsideRange = !satisfiesRange(v, item.SupportedRange)
 		}
+		authStatus, authError := DetectAuthStatus(item)
+		status.AuthStatus = authStatus
+		status.AuthError = authError
 		out = append(out, status)
 	}
 	return out
+}
+
+func StatusForAdapter(ctx context.Context, id string, lookup LookupFunc) (Status, bool) {
+	if lookup == nil {
+		lookup = exec.LookPath
+	}
+	for _, item := range BuiltIns() {
+		if item.ID != strings.TrimSpace(id) {
+			continue
+		}
+		return statusForAdapter(ctx, item, lookup), true
+	}
+	return Status{}, false
+}
+
+func statusForAdapter(ctx context.Context, item Adapter, lookup LookupFunc) Status {
+	status := Status{
+		Adapter:    item,
+		Status:     StatusMissing,
+		AuthStatus: AuthStatusUnknown,
+	}
+	if err := ctx.Err(); err != nil {
+		status.Error = err.Error()
+		return status
+	}
+	path, err := resolveExecutableForStatus(item, lookup)
+	if err != nil {
+		status.Error = err.Error()
+		return status
+	}
+	status.Available = true
+	status.Status = StatusAvailable
+	status.Path = path
+	if v := DetectVersion(ctx, path); v != "" {
+		status.Version = v
+		status.VersionOutsideRange = !satisfiesRange(v, item.SupportedRange)
+	}
+	status.AuthStatus, status.AuthError = DetectAuthStatus(item)
+	return status
 }
 
 func resolveExecutable(adapter Adapter, lookup LookupFunc) (string, error) {
@@ -313,6 +365,58 @@ func ensureManagedLauncher(adapter Adapter, lookup LookupFunc) (string, error) {
 		return "", fmt.Errorf("write managed adapter launcher: %w", err)
 	}
 	return path, nil
+}
+
+func RefreshManagedLauncher(ctx context.Context, id string, lookup LookupFunc) (Status, error) {
+	adapter, ok := FindAdapter(id)
+	if !ok {
+		return Status{}, fmt.Errorf("unknown adapter %q", id)
+	}
+	if adapter.Managed.Package == "" {
+		return Status{}, fmt.Errorf("adapter %q does not use a managed launcher", id)
+	}
+	dir, err := managedLauncherDir()
+	if err != nil {
+		return Status{}, err
+	}
+	_ = os.Remove(filepath.Join(dir, managedLauncherName(adapter.Command)))
+	if _, err := ensureManagedLauncher(adapter, lookup); err != nil {
+		return Status{}, err
+	}
+	return statusForAdapter(ctx, adapter, lookup), nil
+}
+
+func GCManagedLaunchers() (int, error) {
+	dir, err := managedLauncherDir()
+	if err != nil {
+		return 0, err
+	}
+	entries, err := os.ReadDir(dir)
+	if err != nil {
+		if os.IsNotExist(err) {
+			return 0, nil
+		}
+		return 0, err
+	}
+	keep := make(map[string]struct{})
+	for _, adapter := range BuiltIns() {
+		if adapter.Managed.Package != "" {
+			keep[managedLauncherName(adapter.Command)] = struct{}{}
+		}
+	}
+	removed := 0
+	for _, entry := range entries {
+		if entry.IsDir() {
+			continue
+		}
+		if _, ok := keep[entry.Name()]; ok {
+			continue
+		}
+		if err := os.Remove(filepath.Join(dir, entry.Name())); err == nil {
+			removed++
+		}
+	}
+	return removed, nil
 }
 
 func resolveManagedRunner(managed ManagedLauncher, lookup LookupFunc) (ManagedRunner, string, error) {

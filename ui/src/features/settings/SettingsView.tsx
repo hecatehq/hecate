@@ -443,10 +443,26 @@ function AdapterStatusRow({
               outside tested range
             </span>
           )}
+          {adapter.auth_status && adapter.auth_status !== "ok" && (
+            <span
+              data-testid={`external-agents-adapter-${adapter.id}-auth-warning`}
+              style={{
+                fontFamily: "var(--font-mono)",
+                fontSize: 10,
+                color: adapter.auth_status === "billing" ? chipColor("red") : chipColor("amber"),
+                textTransform: "uppercase",
+                letterSpacing: "0.04em",
+              }}
+              title={adapter.auth_error || undefined}
+            >
+              {adapter.auth_status === "billing" ? "billing" : adapter.auth_status === "unauthenticated" ? "auth required" : "auth unknown"}
+            </span>
+          )}
         </div>
         <div style={{ display: "flex", flexWrap: "wrap", gap: 8, fontFamily: "var(--font-mono)", fontSize: 10, color: "var(--t3)" }}>
           {adapter.command && <span>command <span style={{ color: "var(--t1)" }}>{adapter.command}</span></span>}
           {adapter.version && <span>version <span style={{ color: "var(--t1)" }}>{adapter.version}</span></span>}
+          {adapter.auth_status && <span>auth <span style={{ color: "var(--t1)" }}>{adapter.auth_status}</span></span>}
           {health?.path && <span>path <span style={{ color: "var(--t1)" }}>{health.path}</span></span>}
           {health?.duration_ms !== undefined && <span>{health.duration_ms} ms</span>}
         </div>
@@ -467,6 +483,14 @@ function AdapterStatusRow({
                 {health.error}
               </div>
             )}
+          </div>
+        )}
+        {!health && adapter.auth_error && (
+          <div
+            data-testid={`external-agents-adapter-${adapter.id}-auth-detail`}
+            style={{ marginTop: 6, fontSize: 11, color: "var(--t3)", lineHeight: 1.4 }}
+          >
+            {adapter.auth_error}
           </div>
         )}
       </div>

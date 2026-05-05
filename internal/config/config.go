@@ -142,6 +142,14 @@ type ServerConfig struct {
 	// returns HTTP 422 with code "agent_chat.session_limit_exceeded".
 	// Set via GATEWAY_AGENT_CHAT_MAX_TURNS_PER_SESSION.
 	AgentChatMaxTurnsPerSession int
+	// AgentChatMaxSessionDuration caps wall-clock age for an agent-chat
+	// session. 0 (default) means unlimited.
+	// Set via GATEWAY_AGENT_CHAT_MAX_SESSION_DURATION.
+	AgentChatMaxSessionDuration time.Duration
+	// AgentChatIdleTimeout auto-closes sessions that have not changed for this
+	// long. 0 (default) disables the sweeper.
+	// Set via GATEWAY_AGENT_CHAT_IDLE_TIMEOUT.
+	AgentChatIdleTimeout time.Duration
 
 	// TraceBodyCapture enables recording (redacted) request and response bodies
 	// in the distributed trace.  Off by default; enable via GATEWAY_TRACE_BODIES=true.
@@ -378,6 +386,8 @@ func LoadFromEnv() Config {
 			AgentAdapterApprovalMode:       getEnv("GATEWAY_AGENT_ADAPTER_APPROVAL_MODE", "prompt"),
 			AgentAdapterApprovalTimeout:    getEnvDuration("GATEWAY_AGENT_ADAPTER_APPROVAL_TIMEOUT", 5*time.Minute),
 			AgentChatMaxTurnsPerSession:    getEnvInt("GATEWAY_AGENT_CHAT_MAX_TURNS_PER_SESSION", 0),
+			AgentChatMaxSessionDuration:    getEnvDuration("GATEWAY_AGENT_CHAT_MAX_SESSION_DURATION", 0),
+			AgentChatIdleTimeout:           getEnvDuration("GATEWAY_AGENT_CHAT_IDLE_TIMEOUT", 0),
 			TaskMaxConcurrentPerTenant:     getEnvInt("GATEWAY_TASK_MAX_CONCURRENT_PER_TENANT", 0),
 			TraceBodyCapture:               getEnvBool("GATEWAY_TRACE_BODIES", false),
 			TraceBodyMaxBytes:              getEnvInt("GATEWAY_TRACE_BODY_MAX_BYTES", 4096),
@@ -535,6 +545,12 @@ func (c Config) Validate() error {
 	if c.Server.AgentChatMaxTurnsPerSession < 0 {
 		errs = append(errs, errors.New("GATEWAY_AGENT_CHAT_MAX_TURNS_PER_SESSION must be zero or positive"))
 	}
+	if c.Server.AgentChatMaxSessionDuration < 0 {
+		errs = append(errs, errors.New("GATEWAY_AGENT_CHAT_MAX_SESSION_DURATION must be zero or positive"))
+	}
+	if c.Server.AgentChatIdleTimeout < 0 {
+		errs = append(errs, errors.New("GATEWAY_AGENT_CHAT_IDLE_TIMEOUT must be zero or positive"))
+	}
 	if c.Server.RateLimit.Enabled && c.Server.RateLimit.RequestsPerMinute <= 0 {
 		errs = append(errs, errors.New("GATEWAY_RATE_LIMIT_RPM must be positive when rate limiting is enabled"))
 	}
@@ -596,6 +612,8 @@ func durationEnvKeys() []string {
 		"GATEWAY_RETENTION_SEMANTIC_CACHE_MAX_AGE",
 		"GATEWAY_RETENTION_PROVIDER_HISTORY_MAX_AGE",
 		"GATEWAY_RETENTION_TURN_EVENTS_MAX_AGE",
+		"GATEWAY_AGENT_CHAT_MAX_SESSION_DURATION",
+		"GATEWAY_AGENT_CHAT_IDLE_TIMEOUT",
 		"GATEWAY_SQLITE_BUSY_TIMEOUT",
 		"GATEWAY_PRICEBOOK_AUTO_IMPORT_INTERVAL",
 	}

@@ -14,6 +14,7 @@ import (
 
 	"github.com/hecate/agent-runtime/internal/agentadapters"
 	"github.com/hecate/agent-runtime/internal/agentchat"
+	"github.com/hecate/agent-runtime/internal/config"
 	"github.com/hecate/agent-runtime/internal/profiler"
 	"github.com/hecate/agent-runtime/internal/telemetry"
 )
@@ -74,7 +75,7 @@ func (h *Handler) HandleCreateAgentChatSession(w http.ResponseWriter, r *http.Re
 		WriteError(w, http.StatusInternalServerError, "gateway_error", err.Error())
 		return
 	}
-	WriteJSON(w, http.StatusOK, AgentChatSessionResponse{Object: "agent_chat_session", Data: renderAgentChatSession(session, h.config.Server.AgentChatMaxTurnsPerSession)})
+	WriteJSON(w, http.StatusOK, AgentChatSessionResponse{Object: "agent_chat_session", Data: renderAgentChatSession(session, h.agentChatSnapshotConfig())})
 }
 
 func (h *Handler) HandleAgentChatSession(w http.ResponseWriter, r *http.Request) {
@@ -87,7 +88,7 @@ func (h *Handler) HandleAgentChatSession(w http.ResponseWriter, r *http.Request)
 		WriteError(w, http.StatusNotFound, "not_found", "agent chat session not found")
 		return
 	}
-	WriteJSON(w, http.StatusOK, AgentChatSessionResponse{Object: "agent_chat_session", Data: renderAgentChatSession(session, h.config.Server.AgentChatMaxTurnsPerSession)})
+	WriteJSON(w, http.StatusOK, AgentChatSessionResponse{Object: "agent_chat_session", Data: renderAgentChatSession(session, h.agentChatSnapshotConfig())})
 }
 
 func (h *Handler) HandleAgentChatSessionStream(w http.ResponseWriter, r *http.Request) {
@@ -111,7 +112,7 @@ func (h *Handler) HandleAgentChatSessionStream(w http.ResponseWriter, r *http.Re
 	writeSSEHeaders(w)
 	sendAgentChatSSE(w, flusher, "snapshot", AgentChatSessionResponse{
 		Object: "agent_chat_session",
-		Data:   renderAgentChatSession(session, h.config.Server.AgentChatMaxTurnsPerSession),
+		Data:   renderAgentChatSession(session, h.agentChatSnapshotConfig()),
 	})
 	heartbeat := time.NewTicker(15 * time.Second)
 	defer heartbeat.Stop()
@@ -189,7 +190,7 @@ func (h *Handler) HandleCancelAgentChatSession(w http.ResponseWriter, r *http.Re
 		WriteError(w, http.StatusConflict, errCodeInvalidRequest, "agent chat session is not running")
 		return
 	}
-	WriteJSON(w, http.StatusAccepted, AgentChatSessionResponse{Object: "agent_chat_session", Data: renderAgentChatSession(session, h.config.Server.AgentChatMaxTurnsPerSession)})
+	WriteJSON(w, http.StatusAccepted, AgentChatSessionResponse{Object: "agent_chat_session", Data: renderAgentChatSession(session, h.agentChatSnapshotConfig())})
 }
 
 func (h *Handler) HandleCloseAgentChatSession(w http.ResponseWriter, r *http.Request) {
@@ -220,7 +221,7 @@ func (h *Handler) HandleCloseAgentChatSession(w http.ResponseWriter, r *http.Req
 		WriteError(w, http.StatusInternalServerError, "gateway_error", err.Error())
 		return
 	}
-	WriteJSON(w, http.StatusOK, AgentChatSessionResponse{Object: "agent_chat_session", Data: renderAgentChatSession(updated, h.config.Server.AgentChatMaxTurnsPerSession)})
+	WriteJSON(w, http.StatusOK, AgentChatSessionResponse{Object: "agent_chat_session", Data: renderAgentChatSession(updated, h.agentChatSnapshotConfig())})
 }
 
 func (h *Handler) HandleCreateAgentChatMessage(w http.ResponseWriter, r *http.Request) {
@@ -244,13 +245,38 @@ func (h *Handler) HandleCreateAgentChatMessage(w http.ResponseWriter, r *http.Re
 		return
 	}
 
-	maxTurns := h.config.Server.AgentChatMaxTurnsPerSession
+	limits := h.agentChatSnapshotConfig()
+	maxTurns := limits.MaxTurnsPerSession
 	if maxTurns > 0 && session.TurnsUsed >= maxTurns {
 		WriteJSON(w, http.StatusUnprocessableEntity, map[string]any{
 			"error": map[string]any{
 				"type":       errCodeSessionLimitExceeded,
 				"message":    fmt.Sprintf("session has reached the %d-turn limit; start a new session to continue", maxTurns),
 				"limit":      maxTurns,
+				"turns_used": session.TurnsUsed,
+			},
+		})
+		return
+	}
+	if limits.MaxSessionDuration > 0 && !session.CreatedAt.IsZero() && time.Since(session.CreatedAt) >= limits.MaxSessionDuration {
+		WriteJSON(w, http.StatusUnprocessableEntity, map[string]any{
+			"error": map[string]any{
+				"type":       errCodeSessionDurationLimit,
+				"message":    fmt.Sprintf("session has reached the %s wall-clock limit; start a new session to continue", limits.MaxSessionDuration),
+				"limit_ms":   limits.MaxSessionDuration.Milliseconds(),
+				"started_at": formatOptionalTime(session.CreatedAt),
+				"turns_used": session.TurnsUsed,
+			},
+		})
+		return
+	}
+	if limits.IdleTimeout > 0 && !session.UpdatedAt.IsZero() && time.Since(session.UpdatedAt) >= limits.IdleTimeout {
+		WriteJSON(w, http.StatusUnprocessableEntity, map[string]any{
+			"error": map[string]any{
+				"type":       errCodeSessionIdleTimeout,
+				"message":    fmt.Sprintf("session was idle for at least %s; start a new session to continue", limits.IdleTimeout),
+				"limit_ms":   limits.IdleTimeout.Milliseconds(),
+				"updated_at": formatOptionalTime(session.UpdatedAt),
 				"turns_used": session.TurnsUsed,
 			},
 		})
@@ -515,7 +541,7 @@ func (h *Handler) HandleCreateAgentChatMessage(w http.ResponseWriter, r *http.Re
 		h.logger.WarnContext(r.Context(), "agent_chat.turn_counter_increment_failed", "session_id", session.ID, "error", incErr)
 	}
 	h.agentChatLive.publishSession(updated)
-	WriteJSON(w, http.StatusOK, AgentChatSessionResponse{Object: "agent_chat_session", Data: renderAgentChatSession(updated, maxTurns)})
+	WriteJSON(w, http.StatusOK, AgentChatSessionResponse{Object: "agent_chat_session", Data: renderAgentChatSession(updated, h.agentChatSnapshotConfig())})
 }
 
 func renderAgentChatSessionSummary(session agentchat.Session) AgentChatSessionSummaryItem {
@@ -534,7 +560,25 @@ func renderAgentChatSessionSummary(session agentchat.Session) AgentChatSessionSu
 	}
 }
 
-func renderAgentChatSession(session agentchat.Session, maxTurns int) AgentChatSessionItem {
+type agentChatSnapshotConfig struct {
+	MaxTurnsPerSession int
+	MaxSessionDuration time.Duration
+	IdleTimeout        time.Duration
+}
+
+func agentChatSnapshotConfigFromServer(cfg config.ServerConfig) agentChatSnapshotConfig {
+	return agentChatSnapshotConfig{
+		MaxTurnsPerSession: cfg.AgentChatMaxTurnsPerSession,
+		MaxSessionDuration: cfg.AgentChatMaxSessionDuration,
+		IdleTimeout:        cfg.AgentChatIdleTimeout,
+	}
+}
+
+func (h *Handler) agentChatSnapshotConfig() agentChatSnapshotConfig {
+	return agentChatSnapshotConfigFromServer(h.config.Server)
+}
+
+func renderAgentChatSession(session agentchat.Session, limits agentChatSnapshotConfig) AgentChatSessionItem {
 	messages := make([]AgentChatMessageItem, 0, len(session.Messages))
 	for _, message := range session.Messages {
 		messages = append(messages, AgentChatMessageItem{
@@ -566,19 +610,22 @@ func renderAgentChatSession(session agentchat.Session, maxTurns int) AgentChatSe
 		})
 	}
 	return AgentChatSessionItem{
-		ID:                 session.ID,
-		Title:              session.Title,
-		AdapterID:          session.AdapterID,
-		DriverKind:         session.DriverKind,
-		NativeSessionID:    session.NativeSessionID,
-		Workspace:          session.Workspace,
-		WorkspaceBranch:    session.WorkspaceBranch,
-		Status:             session.Status,
-		TurnsUsed:          session.TurnsUsed,
-		MaxTurnsPerSession: maxTurns,
-		CreatedAt:          formatOptionalTime(session.CreatedAt),
-		UpdatedAt:          formatOptionalTime(session.UpdatedAt),
-		Messages:           messages,
+		ID:                   session.ID,
+		Title:                session.Title,
+		AdapterID:            session.AdapterID,
+		DriverKind:           session.DriverKind,
+		NativeSessionID:      session.NativeSessionID,
+		Workspace:            session.Workspace,
+		WorkspaceBranch:      session.WorkspaceBranch,
+		Status:               session.Status,
+		TurnsUsed:            session.TurnsUsed,
+		MaxTurnsPerSession:   limits.MaxTurnsPerSession,
+		SessionStartedAt:     formatOptionalTime(session.CreatedAt),
+		MaxSessionDurationMS: limits.MaxSessionDuration.Milliseconds(),
+		IdleTimeoutMS:        limits.IdleTimeout.Milliseconds(),
+		CreatedAt:            formatOptionalTime(session.CreatedAt),
+		UpdatedAt:            formatOptionalTime(session.UpdatedAt),
+		Messages:             messages,
 	}
 }
 
