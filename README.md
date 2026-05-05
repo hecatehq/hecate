@@ -52,9 +52,9 @@ Download from the [latest release](https://github.com/chicoxyzzy/hecate/releases
 <!-- desktop-release-links:start -->
 | Platform | Bundle |
 |---|---|
-| macOS (Apple Silicon) | [Hecate_0.1.0-alpha.14_aarch64.dmg](https://github.com/chicoxyzzy/hecate/releases/download/v0.1.0-alpha.14/Hecate_0.1.0-alpha.14_aarch64.dmg) |
-| Linux x86_64 | [Hecate_0.1.0-alpha.14_amd64.deb](https://github.com/chicoxyzzy/hecate/releases/download/v0.1.0-alpha.14/Hecate_0.1.0-alpha.14_amd64.deb) or [Hecate_0.1.0-alpha.14_amd64.AppImage](https://github.com/chicoxyzzy/hecate/releases/download/v0.1.0-alpha.14/Hecate_0.1.0-alpha.14_amd64.AppImage) |
-| Windows x86_64 | [Hecate_0.1.0-alpha.14_x64_en-US.msi](https://github.com/chicoxyzzy/hecate/releases/download/v0.1.0-alpha.14/Hecate_0.1.0-alpha.14_x64_en-US.msi) |
+| macOS (Apple Silicon) | [Hecate_0.1.0-alpha.15_aarch64.dmg](https://github.com/chicoxyzzy/hecate/releases/download/v0.1.0-alpha.15/Hecate_0.1.0-alpha.15_aarch64.dmg) |
+| Linux x86_64 | [Hecate_0.1.0-alpha.15_amd64.deb](https://github.com/chicoxyzzy/hecate/releases/download/v0.1.0-alpha.15/Hecate_0.1.0-alpha.15_amd64.deb) or [Hecate_0.1.0-alpha.15_amd64.AppImage](https://github.com/chicoxyzzy/hecate/releases/download/v0.1.0-alpha.15/Hecate_0.1.0-alpha.15_amd64.AppImage) |
+| Windows x86_64 | [Hecate_0.1.0-alpha.15_x64_en-US.msi](https://github.com/chicoxyzzy/hecate/releases/download/v0.1.0-alpha.15/Hecate_0.1.0-alpha.15_x64_en-US.msi) |
 <!-- desktop-release-links:end -->
 
 Open the bundle and launch Hecate. The app starts the gateway sidecar, waits for it to become healthy, and opens the embedded operator UI automatically. State lives in the platform data dir (`~/Library/Application Support/io.github.chicoxyzzy.hecate/` on macOS, `%APPDATA%\io.github.chicoxyzzy.hecate\` on Windows, `~/.local/share/io.github.chicoxyzzy.hecate/` on Linux).
@@ -67,7 +67,7 @@ Skip to [Add a provider](#add-a-provider) once it's running.
 
 ```bash
 docker run --rm -p 127.0.0.1:8765:8765 -v hecate-data:/data \
-  ghcr.io/chicoxyzzy/hecate:0.1.0-alpha.14
+  ghcr.io/chicoxyzzy/hecate:0.1.0-alpha.15
 ```
 
 Open `http://127.0.0.1:8765`. The UI loads with no further setup.
