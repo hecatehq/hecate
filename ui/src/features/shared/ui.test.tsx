@@ -1,8 +1,10 @@
-import { fireEvent, render, screen, within } from "@testing-library/react";
+import { useState } from "react";
+import { fireEvent, render, screen, waitFor, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { describe, expect, it, vi } from "vitest";
 
 import {
+  AgentAdapterPicker,
   Badge,
   ChipInput,
   CodeBlock,
@@ -18,7 +20,7 @@ import {
   SlideOver,
   Toggle,
 } from "./ui";
-import type { ModelRecord } from "../../types/runtime";
+import type { AgentAdapterRecord, ModelRecord } from "../../types/runtime";
 
 describe("Toggle", () => {
   it("renders with role=switch and aria-checked", () => {
@@ -42,6 +44,22 @@ describe("Toggle", () => {
     expect(onChange).toHaveBeenLastCalledWith(true);
     rerender(<Toggle on={true} onChange={onChange} ariaLabel="x" />);
     await user.click(screen.getByRole("switch"));
+    expect(onChange).toHaveBeenLastCalledWith(false);
+  });
+
+  it("supports Enter and Space keyboard activation", async () => {
+    const onChange = vi.fn();
+    const user = userEvent.setup();
+    const { rerender } = render(<Toggle on={false} onChange={onChange} ariaLabel="x" />);
+    const firstSwitch = screen.getByRole("switch", { name: "x" });
+    firstSwitch.focus();
+    await user.keyboard("{Enter}");
+    expect(onChange).toHaveBeenLastCalledWith(true);
+
+    rerender(<Toggle on={true} onChange={onChange} ariaLabel="x" />);
+    const secondSwitch = screen.getByRole("switch", { name: "x" });
+    secondSwitch.focus();
+    await user.keyboard(" ");
     expect(onChange).toHaveBeenLastCalledWith(false);
   });
 
@@ -155,6 +173,46 @@ describe("Modal", () => {
     const { onClose } = renderModal();
     await userEvent.click(screen.getByTestId("content"));
     expect(onClose).not.toHaveBeenCalled();
+  });
+
+  it("moves focus into the dialog and traps Tab navigation", async () => {
+    const user = userEvent.setup();
+    renderModal();
+    const close = screen.getByRole("button", { name: "Close" });
+    const ok = screen.getByRole("button", { name: "OK" });
+
+    await waitFor(() => expect(close).toHaveFocus());
+    await user.tab();
+    expect(ok).toHaveFocus();
+    await user.tab();
+    expect(close).toHaveFocus();
+    await user.tab({ shift: true });
+    expect(ok).toHaveFocus();
+  });
+
+  it("restores focus to the previously focused element on close", async () => {
+    const user = userEvent.setup();
+
+    function Harness() {
+      const [open, setOpen] = useState(false);
+      return (
+        <>
+          <button onClick={() => setOpen(true)}>Open modal</button>
+          {open && (
+            <Modal title="Test modal" footer={<button>OK</button>} onClose={() => setOpen(false)}>
+              <div>body content</div>
+            </Modal>
+          )}
+        </>
+      );
+    }
+
+    render(<Harness />);
+    const opener = screen.getByRole("button", { name: "Open modal" });
+    await user.click(opener);
+    await waitFor(() => expect(screen.getByRole("button", { name: "Close" })).toHaveFocus());
+    await user.click(screen.getByRole("button", { name: "Close" }));
+    await waitFor(() => expect(opener).toHaveFocus());
   });
 });
 
@@ -435,6 +493,63 @@ describe("ProviderPicker", () => {
     const trigger = screen.getByRole("button").textContent || "";
     expect(trigger).toContain("All providers");
     expect(trigger).not.toContain("select provider");
+  });
+
+  it("supports arrow-key navigation and Enter selection", async () => {
+    const onChange = vi.fn();
+    const user = userEvent.setup();
+    render(<ProviderPicker value="" onChange={onChange} options={options} />);
+    await user.click(screen.getByRole("button"));
+    const menu = document.querySelector(".dropdown-menu") as HTMLElement;
+    const openai = within(menu).getByText("OpenAI").closest("button");
+    const anthropic = within(menu).getByText("Anthropic").closest("button");
+
+    await waitFor(() => expect(openai).toHaveFocus());
+    await user.keyboard("{ArrowDown}");
+    expect(anthropic).toHaveFocus();
+    await user.keyboard("{Enter}");
+    expect(onChange).toHaveBeenCalledWith("anthropic");
+  });
+});
+
+// ─── AgentAdapterPicker ───────────────────────────────────────────────
+
+describe("AgentAdapterPicker", () => {
+  const adapters: AgentAdapterRecord[] = [
+    {
+      id: "codex",
+      name: "Codex",
+      kind: "acp",
+      command: "codex-acp",
+      available: true,
+      status: "available",
+      cost_mode: "external",
+    },
+    {
+      id: "claude_code",
+      name: "Claude Code",
+      kind: "acp",
+      command: "claude-agent-acp",
+      available: true,
+      status: "available",
+      cost_mode: "external",
+    },
+  ];
+
+  it("supports arrow-key navigation and Enter selection", async () => {
+    const onChange = vi.fn();
+    const user = userEvent.setup();
+    render(<AgentAdapterPicker value="" onChange={onChange} adapters={adapters} />);
+    await user.click(screen.getByRole("button", { name: "External agent adapter" }));
+    const menu = document.querySelector(".dropdown-menu") as HTMLElement;
+    const codex = within(menu).getByText("Codex").closest("button");
+    const claude = within(menu).getByText("Claude Code").closest("button");
+
+    await waitFor(() => expect(codex).toHaveFocus());
+    await user.keyboard("{ArrowDown}");
+    expect(claude).toHaveFocus();
+    await user.keyboard("{Enter}");
+    expect(onChange).toHaveBeenCalledWith("claude_code");
   });
 });
 

@@ -11,8 +11,10 @@
 // paints on top.
 
 import { useEffect, useRef, useState } from "react";
+import type { KeyboardEvent } from "react";
 
 import { Icon, Icons } from "./Icons";
+import { focusDropdownItem, focusInitialDropdownItem } from "./dropdownKeyboard";
 import { useFloatingDropdownStyle } from "./useFloatingDropdownStyle";
 
 // ProviderOption is the shape every caller of ProviderPicker hands in.
@@ -64,6 +66,7 @@ export function ProviderPicker({
 }) {
   const [open, setOpen] = useState(false);
   const ref = useRef<HTMLDivElement>(null);
+  const menuRef = useRef<HTMLDivElement>(null);
   const triggerRef = useRef<HTMLButtonElement>(null);
   const floatingStyle = useFloatingDropdownStyle(triggerRef, open, "left");
 
@@ -79,6 +82,14 @@ export function ProviderPicker({
     document.addEventListener("mousedown", handler);
     return () => document.removeEventListener("mousedown", handler);
   }, []);
+
+  useEffect(() => {
+    if (!open) return;
+    const frame = requestAnimationFrame(() => {
+      focusInitialDropdownItem(menuRef.current);
+    });
+    return () => cancelAnimationFrame(frame);
+  }, [open]);
 
   const selected = options.find(o => o.id === value);
   // When the saved `value` doesn't resolve to any current option (the
@@ -100,6 +111,19 @@ export function ProviderPicker({
     if (candidates.length === 0) return label;
     return candidates.reduce((a, b) => (b.length > a.length ? b : a));
   })();
+
+  function onMenuKeyDown(event: KeyboardEvent<HTMLDivElement>) {
+    if (event.key === "Escape") {
+      event.preventDefault();
+      setOpen(false);
+      triggerRef.current?.focus();
+      return;
+    }
+    if (event.key === "ArrowDown" || event.key === "ArrowUp" || event.key === "Home" || event.key === "End") {
+      event.preventDefault();
+      focusDropdownItem(menuRef.current, event.key);
+    }
+  }
 
   return (
     <div className="dropdown-wrap" ref={ref}>
@@ -131,14 +155,22 @@ export function ProviderPicker({
         <Icon d={Icons.chevD} size={11} />
       </button>
       {open && floatingStyle && (
-        <div className="dropdown-menu dropdown-menu-floating" style={{ ...floatingStyle, minWidth: 180 }}>
+        <div
+          ref={menuRef}
+          className="dropdown-menu dropdown-menu-floating"
+          onKeyDown={onMenuKeyDown}
+          style={{ ...floatingStyle, minWidth: 180 }}
+        >
           {includeAuto && (
             <>
-              <div
+              <button
+                type="button"
+                data-dropdown-item
+                data-selected={value === autoValue ? "true" : undefined}
                 className={`dropdown-item ${value === autoValue ? "selected" : ""}`}
                 onClick={() => { onChange(autoValue); setOpen(false); }}>
                 <span style={{ flex: 1, fontFamily: "var(--font-mono)", fontSize: 12, textAlign: "left" }}>{autoLabel}</span>
-              </div>
+              </button>
               {options.length > 0 && <div className="dropdown-divider" />}
             </>
           )}
@@ -149,9 +181,13 @@ export function ProviderPicker({
             const showKey = o.kind === "cloud" && o.configured !== undefined;
             const keyColor = o.configured ? "var(--green)" : "var(--red)";
             return (
-              <div
+              <button
+                type="button"
+                data-dropdown-item
+                data-selected={value === o.id ? "true" : undefined}
                 key={o.id}
                 className={`dropdown-item ${value === o.id ? "selected" : ""}`}
+                aria-disabled={disabled || undefined}
                 title={o.disabledReason}
                 style={disabled ? { cursor: "not-allowed" } : undefined}
                 onClick={() => {
@@ -181,7 +217,7 @@ export function ProviderPicker({
                     <Icon d={Icons.keys} size={11} />
                   </span>
                 )}
-              </div>
+              </button>
             );
           })}
         </div>
