@@ -11,20 +11,23 @@ func (h *Handler) HandleAgentAdapters(w http.ResponseWriter, r *http.Request) {
 	data := make([]AgentAdapterResponseItem, 0, len(items))
 	for _, item := range items {
 		data = append(data, AgentAdapterResponseItem{
-			ID:             item.ID,
-			Name:           item.Name,
-			Kind:           item.Kind,
-			Command:        item.Command,
-			Args:           item.Args,
-			Managed:        item.Managed.Package != "",
-			ManagedPackage: item.Managed.Package,
-			Available:      item.Available,
-			Status:         item.Status,
-			Path:           item.Path,
-			Error:          item.Error,
-			Description:    item.Description,
-			CostMode:       item.CostMode,
-			DocsURL:        item.DocsURL,
+			ID:                  item.ID,
+			Name:                item.Name,
+			Kind:                item.Kind,
+			Command:             item.Command,
+			Args:                item.Args,
+			Managed:             item.Managed.Package != "",
+			ManagedPackage:      item.Managed.Package,
+			Available:           item.Available,
+			Status:              item.Status,
+			Path:                item.Path,
+			Error:               item.Error,
+			Description:         item.Description,
+			CostMode:            item.CostMode,
+			DocsURL:             item.DocsURL,
+			Version:             item.Version,
+			SupportedRange:      item.SupportedRange,
+			VersionOutsideRange: item.VersionOutsideRange,
 		})
 	}
 

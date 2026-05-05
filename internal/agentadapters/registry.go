@@ -31,6 +31,7 @@ type Adapter struct {
 	Description    string
 	CostMode       string
 	DocsURL        string
+	SupportedRange string
 }
 
 type ManagedLauncher struct {
@@ -46,10 +47,12 @@ type ManagedRunner struct {
 
 type Status struct {
 	Adapter
-	Available bool
-	Status    string
-	Path      string
-	Error     string
+	Available           bool
+	Status              string
+	Path                string
+	Error               string
+	Version             string
+	VersionOutsideRange bool
 }
 
 type LookupFunc func(file string) (string, error)
@@ -120,10 +123,11 @@ func BuiltIns() []Adapter {
 					{Command: "npx", Args: []string{"-y", "@zed-industries/codex-acp"}, CandidatePaths: managedNPXCandidates()},
 				},
 			},
-			Kind:        "acp",
-			Description: "Run Codex through its ACP adapter as a long-lived external coding-agent session supervised by Hecate.",
-			CostMode:    "external",
-			DocsURL:     "https://github.com/zed-industries/codex-acp",
+			Kind:           "acp",
+			Description:    "Run Codex through its ACP adapter as a long-lived external coding-agent session supervised by Hecate.",
+			CostMode:       "external",
+			DocsURL:        "https://github.com/zed-industries/codex-acp",
+			SupportedRange: ">=0.1.0",
 		},
 		{
 			ID:      "claude_code",
@@ -140,10 +144,11 @@ func BuiltIns() []Adapter {
 					{Command: "npx", Args: []string{"-y", "@agentclientprotocol/claude-agent-acp"}, CandidatePaths: managedNPXCandidates()},
 				},
 			},
-			Kind:        "acp",
-			Description: "Run Claude Agent through ACP as a long-lived external coding-agent session supervised by Hecate.",
-			CostMode:    "external",
-			DocsURL:     "https://github.com/agentclientprotocol/claude-agent-acp",
+			Kind:           "acp",
+			Description:    "Run Claude Agent through ACP as a long-lived external coding-agent session supervised by Hecate.",
+			CostMode:       "external",
+			DocsURL:        "https://github.com/agentclientprotocol/claude-agent-acp",
+			SupportedRange: ">=0.1.0",
 		},
 		{
 			ID:      "cursor_agent",
@@ -155,10 +160,11 @@ func BuiltIns() []Adapter {
 				"/opt/homebrew/bin/cursor-agent",
 				"/usr/local/bin/cursor-agent",
 			},
-			Kind:        "acp",
-			Description: "Run Cursor Agent through ACP as a long-lived external coding-agent session supervised by Hecate.",
-			CostMode:    "external",
-			DocsURL:     "https://cursor.com/cli",
+			Kind:           "acp",
+			Description:    "Run Cursor Agent through ACP as a long-lived external coding-agent session supervised by Hecate.",
+			CostMode:       "external",
+			DocsURL:        "https://cursor.com/cli",
+			SupportedRange: ">=0.1.0",
 		},
 	}
 }
@@ -206,6 +212,10 @@ func ListWithLookup(ctx context.Context, lookup LookupFunc) []Status {
 		status.Available = true
 		status.Status = StatusAvailable
 		status.Path = path
+		if v := DetectVersion(ctx, path); v != "" {
+			status.Version = v
+			status.VersionOutsideRange = !satisfiesRange(v, item.SupportedRange)
+		}
 		out = append(out, status)
 	}
 	return out
