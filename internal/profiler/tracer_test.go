@@ -10,20 +10,20 @@ func TestTraceRecordCreatesEvent(t *testing.T) {
 	t.Parallel()
 
 	trace := NewTrace("req-123", nil)
-	trace.Record("cache.miss", map[string]any{"key": "abc"})
+	trace.Record(telemetry.EventRouterSelected, map[string]any{"route": "default"})
 
 	events := trace.Events()
 	if len(events) != 1 {
 		t.Fatalf("Events() len = %d, want 1", len(events))
 	}
-	if events[0].Name != "cache.miss" {
-		t.Fatalf("event name = %q, want %q", events[0].Name, "cache.miss")
+	if events[0].Name != telemetry.EventRouterSelected {
+		t.Fatalf("event name = %q, want %q", events[0].Name, telemetry.EventRouterSelected)
 	}
-	if events[0].Attributes["key"] != "abc" {
-		t.Fatalf("event attribute = %#v, want abc", events[0].Attributes["key"])
+	if events[0].Attributes["route"] != "default" {
+		t.Fatalf("event attribute = %#v, want default", events[0].Attributes["route"])
 	}
-	if spans := trace.Spans(); spans[1].Attributes[telemetry.AttrHecatePhase] != "cache" {
-		t.Fatalf("span phase attribute = %#v, want cache", spans[1].Attributes[telemetry.AttrHecatePhase])
+	if spans := trace.Spans(); spans[1].Attributes[telemetry.AttrHecatePhase] != "routing" {
+		t.Fatalf("span phase attribute = %#v, want routing", spans[1].Attributes[telemetry.AttrHecatePhase])
 	}
 }
 

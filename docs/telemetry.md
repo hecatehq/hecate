@@ -3,7 +3,7 @@
 Hecate uses OpenTelemetry-style traces, metrics, and logs, but the important thing for operators is simpler than that:
 
 - every request gets stable runtime identifiers
-- chat responses expose routing and cache metadata in headers
+- chat responses expose routing and provider metadata in headers
 - traces are inspectable locally over HTTP
 - OTLP export is available for traces, metrics, and logs
 
@@ -62,8 +62,6 @@ For request responses, the most useful headers are:
 - `X-Runtime-Route-Reason`
 - `X-Runtime-Requested-Model`
 - `X-Runtime-Model`
-- `X-Runtime-Cache`
-- `X-Runtime-Cache-Type`
 - `X-Runtime-Cost-USD`
 - `X-RateLimit-Limit`
 - `X-RateLimit-Remaining`
@@ -222,11 +220,6 @@ Common Hecate-specific attributes include:
 - `hecate.route.reason`
 - `hecate.route.outcome`
 - `hecate.route.skip_reason`
-- `hecate.cache.hit`
-- `hecate.cache.type`
-- `hecate.semantic.strategy`
-- `hecate.semantic.index_type`
-- `hecate.semantic.similarity`
 - `hecate.cost.total_micros_usd`
 - `hecate.retry.attempt_count`
 - `hecate.retry.retry_count`
@@ -294,7 +287,6 @@ Gateway traces are centered around a small set of runtime stages. Each stage map
 | `gateway.request.parse` | Request parsing and validation |
 | `gateway.governor` | Governor and policy decisions |
 | `gateway.router` | Route selection |
-| `gateway.cache` | Exact and semantic cache lookup/writeback events |
 | `gateway.provider` | Provider execution, retry, and failover |
 | `gateway.usage` | Usage normalization |
 | `gateway.cost` | Cost calculation |
@@ -427,8 +419,6 @@ The retention worker handles the following subsystems. The **subsystem name** is
 | `trace_snapshots` | `GATEWAY_RETENTION_TRACES_` | Per-request profiler trace snapshots |
 | `budget_events` | `GATEWAY_RETENTION_BUDGET_EVENTS_` | Governor budget ledger entries |
 | `audit_events` | `GATEWAY_RETENTION_AUDIT_EVENTS_` | Control-plane audit log |
-| `exact_cache` | `GATEWAY_RETENTION_EXACT_CACHE_` | Exact-match response cache |
-| `semantic_cache` | `GATEWAY_RETENTION_SEMANTIC_CACHE_` | Semantic-similarity response cache |
 | `provider_history` | `GATEWAY_RETENTION_PROVIDER_HISTORY_` | Persisted provider health and failover history rows exposed by `GET /admin/providers/history` |
 | `turn_events` | `GATEWAY_RETENTION_TURN_EVENTS_` | `turn.completed` rows in the run-events table — high-cardinality bulk telemetry from agent_loop runs. Other event types (`run.started`, `run.finished`, `approval.*`) are never touched |
 

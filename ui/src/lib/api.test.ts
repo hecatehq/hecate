@@ -102,11 +102,6 @@ describe("api client", () => {
             "X-Runtime-Route-Reason": "requested_model",
             "X-Runtime-Requested-Model": "gpt-4o-mini",
             "X-Runtime-Model": "gpt-4o-mini",
-            "X-Runtime-Cache": "false",
-            "X-Runtime-Cache-Type": "false",
-            "X-Runtime-Semantic-Strategy": "postgres_pgvector",
-            "X-Runtime-Semantic-Index": "hnsw",
-            "X-Runtime-Semantic-Similarity": "0.981234",
             "X-Runtime-Attempts": "2",
             "X-Runtime-Retries": "1",
             "X-Runtime-Fallback-From": "ollama",
@@ -128,10 +123,6 @@ describe("api client", () => {
     expect(result.headers.spanId).toBe("span-123");
     expect(result.headers.provider).toBe("openai");
     expect(result.headers.routeReason).toBe("requested_model");
-    expect(result.headers.cacheType).toBe("false");
-    expect(result.headers.semanticStrategy).toBe("postgres_pgvector");
-    expect(result.headers.semanticIndex).toBe("hnsw");
-    expect(result.headers.semanticSimilarity).toBe("0.981234");
     expect(result.headers.attempts).toBe("2");
     expect(result.headers.retries).toBe("1");
     expect(result.headers.fallbackFrom).toBe("ollama");

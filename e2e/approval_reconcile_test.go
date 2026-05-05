@@ -20,7 +20,7 @@ import (
 )
 
 // TestApprovalReconcilePersistsAndFlipsAcrossRestart is the binary-
-// level smoke for slice 1C's startup reconcile. It boots the real
+// level smoke for startup reconcile. It boots the real
 // hecate binary with GATEWAY_CHAT_SESSIONS_BACKEND=sqlite, inserts a
 // pending agent-chat approval directly into the SQLite db (simulating
 // a process that crashed mid-RequestPermission), kills the binary,

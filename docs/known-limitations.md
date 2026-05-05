@@ -43,12 +43,6 @@ operators should not assume yet.
 - Local models can be zero-cost or manually priced, but host/GPU cost is not
   automatically measured.
 
-## Cache
-
-- Exact cache supports `memory` and `sqlite` backends.
-- Cache hits are optimization hints, not correctness guarantees. Operators
-  should keep cache behavior visible in traces for important workloads.
-
 ## Task Runtime And Sandbox
 
 - `agent_loop` and MCP integration are alpha. They are useful for controlled

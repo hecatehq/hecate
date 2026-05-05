@@ -106,8 +106,9 @@ const KNOWN_SUBSYSTEMS = [
   "trace_snapshots",
   "budget_events",
   "audit_events",
-  "exact_cache",
-  "semantic_cache",
+  "provider_history",
+  "turn_events",
+  "agent_chat_approvals",
 ] as const;
 
 function relativeTime(iso: string): string {

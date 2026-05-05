@@ -290,7 +290,7 @@ These rows are the only event type pruned by the retention worker (`turn_events`
 
 ## Typed shell tool events
 
-These events are the first implemented slice of the draft
+These events implement the shell-tool portion of the draft
 [agent event protocol v1 candidate](rfcs/event-protocol-v1.md). They are emitted by
 the shared shell executor for both direct `execution_kind=shell` tasks and
 `agent_loop` `shell_exec` tool calls. The old `step.*` and `artifact.*`
@@ -306,7 +306,7 @@ Generic shell tool lifecycle markers.
 |---|---|---|
 | `tool_call_id` | `string` | Model tool-call id for `agent_loop`; direct shell tasks fall back to the shell step id |
 | `tool_name` | `string` | Usually `shell_exec` for agent-loop tool calls or `shell` for direct shell tasks |
-| `kind` | `string` | Always `shell` for this implemented slice |
+| `kind` | `string` | Always `shell` for these shell-tool events |
 | `hecate.sandbox.wrapper.kind` | `string` | Detected OS isolation wrapper |
 | `hecate.sandbox.network.enabled` | `bool` | Whether this task allowed sandbox network access |
 | `hecate.sandbox.read_only` | `bool` | Whether the sandbox policy is read-only |

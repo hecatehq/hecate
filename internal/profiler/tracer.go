@@ -320,8 +320,6 @@ func spanSpecForEvent(name string) spanSpec {
 		return spanSpec{name: telemetry.SpanGatewayRouter, kind: "internal"}
 	case hasPrefix(name, "provider.call.") || hasPrefix(name, "provider.retry.") || hasPrefix(name, "provider.failover.") || hasPrefix(name, "provider.health."):
 		return spanSpec{name: telemetry.SpanGatewayProvider, kind: "client"}
-	case hasPrefix(name, "cache.") || hasPrefix(name, "semantic_cache."):
-		return spanSpec{name: telemetry.SpanGatewayCache, kind: "internal"}
 	case name == telemetry.EventUsageNormalized:
 		return spanSpec{name: telemetry.SpanGatewayUsage, kind: "internal"}
 	case name == telemetry.EventCostCalculated || name == telemetry.EventCostEstimateUnpriced:
@@ -352,8 +350,6 @@ func otelAttributesForEvent(name string, attrs map[string]any) map[string]any {
 		out[telemetry.AttrHecatePhase] = "routing"
 	case hasPrefix(name, "provider."):
 		out[telemetry.AttrHecatePhase] = "provider"
-	case hasPrefix(name, "cache.") || hasPrefix(name, "semantic_cache."):
-		out[telemetry.AttrHecatePhase] = "cache"
 	case name == telemetry.EventUsageNormalized:
 		out[telemetry.AttrHecatePhase] = "usage"
 	case name == telemetry.EventCostCalculated || name == telemetry.EventCostEstimateUnpriced:
