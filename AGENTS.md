@@ -134,7 +134,7 @@ Full ladder: [`docs-ai/core/verification.md`](docs-ai/core/verification.md).
 | UI recipes (SSE-driven state field, paired pickers, snapshot refresh) | [`docs-ai/skills/ui/SKILL.md`](docs-ai/skills/ui/SKILL.md) |
 | Native desktop app (sidecar lifecycle, bundling, Tauri commands) | [`docs-ai/skills/tauri/SKILL.md`](docs-ai/skills/tauri/SKILL.md) |
 | Cut a release tag | `bun scripts/release.ts vX.Y.Z` — checks worktree, snapshot dry-run, stamps Tauri versions, tags, pushes. Full procedure: [`docs-ai/tasks/release.md`](docs-ai/tasks/release.md) |
-| Stamp Tauri version files | `bun scripts/stamp-version.ts` (or `make tauri-version`) — syncs Cargo.toml, package.json, tauri.conf.json to current git tag |
+| Stamp Tauri version files | `bun scripts/stamp-version.ts` (or `just tauri-version`) — syncs Cargo.toml, package.json, tauri.conf.json to current git tag |
 
 ## Gotchas
 
@@ -147,7 +147,7 @@ Full ladder: [`docs-ai/core/verification.md`](docs-ai/core/verification.md).
 - **mermaid `loop` is a reserved keyword**: don't use it as a sequence-diagram participant name. Use `Agent` or similar.
 - **CodeQL CWE-190**: don't compute `make([]T, 0, len(x)+N)` with arithmetic — use plain `len(x)` and let `append` grow.
 - **Env-PRECONFIGURED gate**: `PROVIDER_<NAME>_API_KEY` / `_BASE_URL` only auto-import into the CP store when `PROVIDER_<NAME>_PRECONFIGURED=1` is also set. E2E helpers (`hecateServer`, `startHecateProcess`) funnel through `autoPreconfiguredEnv` to inject the gate; new e2e spawn helpers must do the same or routed requests 400 with `no provider supports model …`.
-- **`:8765` collisions across launches**: `make dev` / `make run` / `make serve` now run `make stop` first so a stale `./hecate` from another shell never blocks a relaunch (or a `docker run -p 8765:8765 …`). New scripts that spawn the binary should call `make stop` (or replicate the `lsof -ti:8765 | xargs kill` step).
+- **`:8765` collisions across launches**: `just dev` / `just run` / `just serve` now run `just stop` first so a stale `./hecate` from another shell never blocks a relaunch (or a `docker run -p 8765:8765 …`). New scripts that spawn the binary should call `just stop` (or replicate the `lsof -ti:8765 | xargs kill` step).
 - **API response envelope**: every `/v1/*` and `/admin/*` GET returns `{object, data}`. Don't write a UI client that reads top-level fields — always read `payload.data.<field>` and make test fixtures mirror the real envelope.
 
 ## Canonical docs

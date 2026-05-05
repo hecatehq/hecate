@@ -91,7 +91,7 @@
       "tool_call_id": "call_01HX000000000000000001",
       "tool_name": "shell_exec",
       "input": {
-        "argv": ["make", "test-affected"],
+        "argv": ["just", "test"],
         "cwd": "/workspace"
       }
     }
@@ -123,7 +123,7 @@
     "type": "tool.shell.command",
     "data": {
       "tool_call_id": "call_01HX000000000000000001",
-      "argv": ["make", "test-affected"],
+      "argv": ["just", "test"],
       "cwd": "/workspace",
       "env_keys": ["PATH", "HOME"],
       "sandbox_layer": "sandbox-exec"

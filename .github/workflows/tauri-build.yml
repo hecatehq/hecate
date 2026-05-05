@@ -13,7 +13,7 @@ on:
       - 'tauri/**'
       - 'scripts/stamp-version.ts'
       - 'scripts/tauri-smoke.ts'
-      - 'Makefile'
+      - 'Justfile'
       - 'go.mod'
       - 'go.sum'
       - 'cmd/hecate/**'

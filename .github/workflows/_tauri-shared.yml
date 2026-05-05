@@ -47,7 +47,7 @@ jobs:
             bundles: msi
     runs-on: ${{ matrix.os }}
     # bash for every run: step. Resolves to Git Bash on Windows runners,
-    # which is what the Makefile (SHELL := /bin/sh) and our cp/if blocks need.
+    # which is what the Justfile shell recipes and our cp/if blocks need.
     defaults:
       run:
         shell: bash
@@ -82,6 +82,9 @@ jobs:
         with:
           bun-version: 1.3.13
 
+      - name: Set up just
+        uses: extractions/setup-just@v3
+
       # Tauri 2.x prerequisites for Ubuntu 22.04 (per the official docs).
       # webkit2gtk 4.1 is the Tauri 2 requirement; 4.0 ships by default.
       # patchelf is required by the AppImage bundler. libxdo-dev is for
@@ -103,19 +106,16 @@ jobs:
             libxdo-dev \
             patchelf
 
-      # make build runs ui-build first (//go:embed needs the React assets).
       - name: Install UI dependencies
-        run: make ui-install
+        run: just ui-install
 
-      # make build: ui-build → go build. build-acp produces the companion
-      # ACP bridge sidecar shipped with the native app.
       - name: Build hecate sidecars
-        run: make build
+        run: just build
       - name: Build hecate-acp sidecar
-        run: make build-acp
+        run: just build-acp
 
       # Tauri's bundler looks for binaries/<name>-{triple}[.exe] at bundle
-      # time. Replicate `make tauri-sidecar` so the matrix triple is always
+      # time. Replicate `just tauri-sidecar` so the matrix triple is always
       # used (not whatever rustc on the runner reports).
       - name: Stage hecate sidecars
         run: |
@@ -135,7 +135,7 @@ jobs:
       # Runs Rust-side unit tests for deterministic native helpers. This keeps
       # sidecar path/port logic covered in CI without launching GUI windows.
       # The packaged app lifecycle smoke remains opt-in via
-      # `make test-tauri-smoke`.
+      # `just test-tauri-smoke`.
       - name: Run Tauri Rust tests
         run: cd tauri/src-tauri && cargo test
 

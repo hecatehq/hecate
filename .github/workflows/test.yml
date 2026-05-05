@@ -49,6 +49,7 @@ jobs:
           filters: |
             workflow:
               - '.github/workflows/test.yml'
+              - 'Justfile'
             docker:
               - 'Dockerfile'
               - '.dockerignore'

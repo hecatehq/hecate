@@ -92,7 +92,7 @@ ENV GATEWAY_ADDRESS=0.0.0.0:8765 \
     # Default the durable subsystems to SQLite in the docker image so
     # `docker compose up` persists pricebook / tasks / chat sessions
     # across restarts without extra config. The .db lives on the /data
-    # volume and is wiped by `make reset-docker` along with the rest
+    # volume and is wiped by `just reset-docker` along with the rest
     # of the stack. Operators can override to `memory` for ephemeral.
     GATEWAY_CONTROL_PLANE_BACKEND=sqlite \
     GATEWAY_RETENTION_HISTORY_BACKEND=sqlite \

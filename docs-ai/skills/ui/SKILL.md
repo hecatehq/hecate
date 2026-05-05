@@ -161,7 +161,7 @@ When a file gets crowded, split by responsibility, not arbitrary line count: vie
 | `bun run typecheck` | `tsgo -b` — fast type check, no test execution | First sanity check after edits |
 | `bun run test` | `vitest run` — full test suite | Before committing |
 | `bun run test:watch` | watch mode | During iteration |
-| `bun run dev` (or `make ui-dev` from repo root) | Vite dev server on `:5173`, proxying API to `:8765` | Live UI iteration alongside `make dev` |
+| `bun run dev` (or `just ui-dev` from repo root) | Vite dev server on `:5173`, proxying API to `:8765` | Live UI iteration alongside `just dev` |
 
 **Never `bun test`** — it skips testing-library DOM setup and panics with `document[isPrepared]`. Always `bun run test`.
 

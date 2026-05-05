@@ -175,7 +175,7 @@ async function waitForPidExit(pid: string): Promise<void> {
 
 async function runACPInitialize(): Promise<InitializeResult> {
   if (!existsSync(acpSidecarPath)) {
-    fail(`missing bundled ACP sidecar at ${acpSidecarPath}; run make tauri-build-app first`);
+    fail(`missing bundled ACP sidecar at ${acpSidecarPath}; run just tauri-build-app first`);
   }
 
   const env = {
@@ -248,7 +248,7 @@ async function main(): Promise<void> {
   }
 
   if (!existsSync(appPath)) {
-    fail(`missing app bundle at ${appPath}; run make tauri-build first`);
+    fail(`missing app bundle at ${appPath}; run just tauri-build first`);
   }
 
   const before = new Set(listenTargets().map((target) => target.pid));

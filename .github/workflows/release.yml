@@ -39,6 +39,9 @@ jobs:
         with:
           bun-version: 1.3.13
 
+      - name: Set up just
+        uses: extractions/setup-just@v3
+
       # QEMU isn't strictly required for Option B (we cross-compile Go on
       # the host), but docker buildx prefers having it available for the
       # alpine prep stage when building the arm64 image on an amd64

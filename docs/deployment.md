@@ -35,7 +35,7 @@ the tarballs and native app. The container sets
 `GATEWAY_PUBLIC_URL=http://127.0.0.1:8765`, which is the host URL users normally
 reach through `-p 8765:8765` or `docker compose`.
 
-If a `docker run` (or `docker compose up`) errors with `bind: address already in use` on `:8765`, a previous `make dev` / `make run` / `./hecate` is still listening from another shell. Free the port with `make stop` and retry; `make dev`, `make run`, and `make serve` also auto-run `stop` before starting so successive launches don't pile up.
+If a `docker run` (or `docker compose up`) errors with `bind: address already in use` on `:8765`, a previous `just dev` / `just run` / `./hecate` is still listening from another shell. Free the port with `just stop` and retry; `just dev`, `just run`, and `just serve` also auto-run `stop` before starting so successive launches don't pile up.
 
 ## Binary install
 
@@ -133,7 +133,7 @@ handshake so login/billing problems are visible before a chat fails.
 To wipe the stack back to first-run — removes the `hecate-data` volume (SQLite db) and regenerates state on the next `docker compose up`:
 
 ```bash
-make reset-docker
+just reset-docker
 ```
 
 For local (non-Docker) development resets, see [`development.md`](development.md#reset-state).

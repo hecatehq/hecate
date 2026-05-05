@@ -2,10 +2,10 @@
 //
 // Run via the bun script (resolves its own cwd, no `cd ui` needed):
 //   bun run capture-screenshots          # from ui/
-//   make screenshots                     # from repo root
+//   just screenshots                     # from repo root
 //
 // Prerequisites:
-//   1. `make reset-dev && ./hecate &` — gateway running on
+//   1. `just reset-dev && ./hecate &` — gateway running on
 //      127.0.0.1:8765 with fresh state.
 //   2. ollama running on :11434 with `ollama pull llama3.1:8b` (used to
 //      seed one realistic chat session and produce a trace for the

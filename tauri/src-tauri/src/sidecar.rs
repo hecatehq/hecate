@@ -4,7 +4,7 @@
 //   1. Resolve the hecate sidecar binary path:
 //      - Release build: look next to the running executable (bundled app).
 //      - Debug build: walk up from CARGO_MANIFEST_DIR to the repo root,
-//        where `make build` places the `hecate` binary.
+//        where `just build` places the `hecate` binary.
 //      - Override: HECATE_BIN env var always wins.
 //   2. Resolve the data directory via Tauri's platform path API so the gateway
 //      writes its files to the right place on every OS:
@@ -49,7 +49,7 @@ pub struct GatewayHandle {
 
 /// Find the hecate sidecar binary. Resolution order:
 ///   1. `HECATE_BIN` env var (explicit override).
-///   2. Debug build: `{repo_root}/hecate[.exe]` (placed by `make build`).
+///   2. Debug build: `{repo_root}/hecate[.exe]` (placed by `just build`).
 ///   3. Release build: next to the running executable (bundled app).
 fn resolve_binary() -> Result<PathBuf, String> {
     // 1. Explicit override.
@@ -58,7 +58,7 @@ fn resolve_binary() -> Result<PathBuf, String> {
     }
 
     // 2. Debug build: walk up from the Cargo manifest directory to find the
-    //    repo root, where `make build` writes the hecate binary.
+    //    repo root, where `just build` writes the hecate binary.
     #[cfg(debug_assertions)]
     {
         // CARGO_MANIFEST_DIR is tauri/src-tauri; repo root is two levels up.
@@ -76,7 +76,7 @@ fn resolve_binary() -> Result<PathBuf, String> {
             }
         }
         return Err(format!(
-            "hecate binary not found in {repo_root:?}. Run `make build` first."
+            "hecate binary not found in {repo_root:?}. Run `just build` first."
         ));
     }
 

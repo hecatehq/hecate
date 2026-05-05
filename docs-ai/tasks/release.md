@@ -14,7 +14,7 @@ Default to producing a written plan first ([`../skills/architect/SKILL.md`](../s
 
 Before running the release script, verify:
 
-1. **`make verify-alpha` exits 0** — full gate: `docs-env-check`, race suite, docker-smoke, UI unit + e2e. See [`../core/verification.md`](../core/verification.md). Mandatory; calling out a skip in release notes is acceptable only when the risk is named.
+1. **`just verify-alpha` exits 0** — full gate: `docs-env-check`, race suite, docker-smoke, UI unit + e2e. See [`../core/verification.md`](../core/verification.md). Mandatory; calling out a skip in release notes is acceptable only when the risk is named.
 2. **`goreleaser` is installed.** `which goreleaser`. Install via `go install github.com/goreleaser/goreleaser/v2@latest` if missing.
 
 ## Cut the release
@@ -41,7 +41,7 @@ The annotated tag message becomes the canonical release notes — it's what `git
 
 ## Tauri desktop app
 
-The native desktop app (`tauri/`) **is built and uploaded by CI** as part of the release pipeline — no manual `make tauri-build` step is required when cutting a tag. Bundle architecture and the per-platform build details live in [`../skills/tauri/SKILL.md`](../skills/tauri/SKILL.md); the operator-facing distribution + roadmap view is at [`../../docs/desktop-app.md`](../../docs/desktop-app.md); this section is the release-time view.
+The native desktop app (`tauri/`) **is built and uploaded by CI** as part of the release pipeline — no manual `just tauri-build` step is required when cutting a tag. Bundle architecture and the per-platform build details live in [`../skills/tauri/SKILL.md`](../skills/tauri/SKILL.md); the operator-facing distribution + roadmap view is at [`../../docs/desktop-app.md`](../../docs/desktop-app.md); this section is the release-time view.
 
 ### What CI does
 
@@ -60,14 +60,14 @@ The Tauri matrix doesn't need any local action — pushing the tag fires the wor
 
 ### Pre-tag validation
 
-`.github/workflows/tauri-build.yml` runs the same matrix on PRs (path-filtered to changes that could break it: `tauri/**`, `cmd/hecate/**`, `ui/**`, `Makefile`, `scripts/stamp-version.ts`, the workflows themselves). Bundles persist as workflow artifacts (14-day retention) so reviewers can download and test-launch from the run page.
+`.github/workflows/tauri-build.yml` runs the same matrix on PRs (path-filtered to changes that could break it: `tauri/**`, `cmd/hecate/**`, `ui/**`, `Justfile`, `scripts/stamp-version.ts`, the workflows themselves). Bundles persist as workflow artifacts (14-day retention) so reviewers can download and test-launch from the run page.
 
 If the change set touches the desktop pipeline, prefer landing it via PR so the matrix runs before the tag — it's the only way to find out a Windows-only or Linux-only regression without burning a release.
 
 ### Manual local build (rarely needed)
 
 ```bash
-TAURI_VERSION=X.Y.Z make tauri-build
+TAURI_VERSION=X.Y.Z just tauri-build
 ```
 
 Outputs land in `tauri/src-tauri/target/release/bundle/`. Use this for iterating on Tauri-specific issues that the cargo-cache hides on rebuilds; for shipping, let CI do it.
@@ -103,13 +103,13 @@ Acceptance:
 ## Footguns
 
 - **`{{ .Version }}` strips the `v` prefix.** Docker tags are `0.1.0-alpha.1`, **not** `v0.1.0-alpha.1`. The git tag itself keeps the `v`. Same applies to tarball names. The `/healthz` `version` field also reports the bare semver.
-- **`.env_file` in compose overrides Dockerfile `ENV`.** If your local `.env` has `GATEWAY_DATA_DIR=.data` (relative), it'll override the Dockerfile's absolute `/data` and break `docker compose cp /data/...`. The current `.env.example` comments these out specifically; old developer-machine `.env` copies may still have the override and will fail `make test-docker-smoke` locally even though CI passes.
+- **`.env_file` in compose overrides Dockerfile `ENV`.** If your local `.env` has `GATEWAY_DATA_DIR=.data` (relative), it'll override the Dockerfile's absolute `/data` and break `docker compose cp /data/...`. The current `.env.example` comments these out specifically; old developer-machine `.env` copies may still have the override and will fail `just test-docker-smoke` locally even though CI passes.
 - **First-tag changelog is all-history.** Goreleaser builds the auto-changelog from git log between previous and current tags; if there's no previous tag, it includes every commit since the initial commit. Inspect the snapshot output before tagging.
 - **Don't run snapshot from a clean checkout, then `git add -A`.** The snapshot writes ~50 MB of binaries into `./dist`; a sweeping `git add` will pick them up if `dist/` isn't gitignored.
 - **`ui/dist/.gitkeep` must be tracked.** The `//go:embed all:ui/dist` directive in `embed.go` fails at compile time if `ui/dist` is completely absent from the tree. `.gitignore` keeps `ui/dist/*` but un-ignores `.gitkeep` via negation — the negation only works if `/dist/` (not `dist/`) is the rule anchoring the goreleaser output directory. If `go build` fails with `pattern all:ui/dist: no matching files found`, check that `ui/dist/.gitkeep` is tracked (`git ls-files ui/dist/`) and that `.gitignore` anchors the root dist rule with a leading `/`.
 - **`Dockerfile.release` is what goreleaser uses, not `Dockerfile`.** Changes to `Dockerfile` only affect `docker compose up --build` (local dev). The GHCR release image is built from `Dockerfile.release`. Any new `ENV` var or runtime default must go in both.
-- **CI's `e2e-ollama` job runs under `-tags 'e2e ollama'`** — `make verify-alpha` only covers `-tags 'e2e docker'` locally, so an ollama-only regression sails through the local gate. The `v0.1.0-alpha.7` cut hit this with the env-PRECONFIGURED gate: `gateway_test.go` was patched but `ollama_test.go` was missed. Before tagging, also run `OLLAMA_BASE_URL=http://127.0.0.1:11434 OLLAMA_MODEL=smollm2:135m go test -tags 'e2e ollama' -count=1 ./e2e/...` if any e2e helper has changed.
-- **Lychee link-check runs only on master pushes**, not on tag pushes — a broken markdown link in `AGENTS.md` / `docs-ai/**` won't block a release, but it'll blink red on the next master push. Run `make check-links` (or grep for the suspected dangling target) before tagging when the change set is doc-heavy.
+- **CI's `e2e-ollama` job runs under `-tags 'e2e ollama'`** — `just verify-alpha` only covers `-tags 'e2e docker'` locally, so an ollama-only regression sails through the local gate. The `v0.1.0-alpha.7` cut hit this with the env-PRECONFIGURED gate: `gateway_test.go` was patched but `ollama_test.go` was missed. Before tagging, also run `OLLAMA_BASE_URL=http://127.0.0.1:11434 OLLAMA_MODEL=smollm2:135m go test -tags 'e2e ollama' -count=1 ./e2e/...` if any e2e helper has changed.
+- **Lychee link-check runs only on master pushes**, not on tag pushes — a broken markdown link in `AGENTS.md` / `docs-ai/**` won't block a release, but it'll blink red on the next master push. Run `just check-links` (or grep for the suspected dangling target) before tagging when the change set is doc-heavy.
 
 ## Recovery
 

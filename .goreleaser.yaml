@@ -14,7 +14,7 @@ version: 2
 before:
   hooks:
     - bun install --cwd ui --frozen-lockfile
-    - make ui-build
+    - just ui-build
 
 builds:
   - id: hecate

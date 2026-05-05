@@ -57,7 +57,7 @@ Acceptance after the run:
 Run the full local gate before cutting a public alpha tag:
 
 ```bash
-make verify-alpha
+just verify-alpha
 ```
 
 The target runs the non-destructive launch checks in order:
@@ -190,7 +190,7 @@ For local validation:
 
 ```bash
 docker compose build hecate
-make test-docker-smoke
+just test-docker-smoke
 ```
 
 `docker compose` uses the development `Dockerfile`, not `Dockerfile.release`.
@@ -208,7 +208,7 @@ Each release note should include:
 - **Breaking or risky changes** — config, storage, API, auth, provider, or UI
   behavior changes that can surprise an operator.
 - **Migration notes** — storage/schema considerations and any manual steps.
-- **Verification** — the exact gate that passed, normally `make verify-alpha`.
+- **Verification** — the exact gate that passed, normally `just verify-alpha`.
 - **Known limitations** — link to [`known-limitations.md`](known-limitations.md)
   and call out any release-specific caveats.
 

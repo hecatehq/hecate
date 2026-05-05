@@ -103,7 +103,7 @@ Hecate first using whichever distribution fits your setup:
 |---|---|---|
 | Native app | Open the Hecate desktop app | Omit `HECATE_GATEWAY_URL`; the bridge discovers the dynamic sidecar URL from `hecate.runtime.json`. |
 | Release tarball | Run `./hecate` from the unpacked tarball | Usually omit `HECATE_GATEWAY_URL`; default fallback is `http://127.0.0.1:8765`. Set it only if you changed the port or URL. |
-| Source checkout | Run `make dev` | Usually omit `HECATE_GATEWAY_URL`; the bridge checks `.data/hecate.runtime.json` and then falls back to `http://127.0.0.1:8765`. |
+| Source checkout | Run `just dev` | Usually omit `HECATE_GATEWAY_URL`; the bridge checks `.data/hecate.runtime.json` and then falls back to `http://127.0.0.1:8765`. |
 | Docker / Compose | Run `docker compose up` or `docker run -p 8765:8765 ...` | Set `HECATE_GATEWAY_URL=http://127.0.0.1:8765` in the editor config unless the bridge is running inside the same container. |
 | Reverse proxy | Run Hecate behind your proxy | Set `HECATE_GATEWAY_URL` to the proxy URL. |
 
@@ -139,7 +139,7 @@ Official reference: [Zed External Agents](https://zed.dev/docs/ai/external-agent
 1. Install the bridge:
 
    ```sh
-   make build-acp
+   just build-acp
    ```
 
    For local development, the command path is the repo-local
@@ -204,7 +204,7 @@ Official reference: [JetBrains Agent Client Protocol documentation](https://www.
 1. Install the bridge:
 
    ```sh
-   make build-acp
+   just build-acp
    ```
 
    For releases, use the `hecate-acp` binary from the tarball or native app
@@ -284,7 +284,7 @@ Useful references:
 2. Install the bridge:
 
    ```sh
-   make build-acp
+   just build-acp
    ```
 
 3. Start Hecate using one of the [gateway launch options](#gateway-launch-options).
@@ -422,4 +422,4 @@ For an editor-local test before registry packaging exists:
    ```
 
 The automated smoke lives in `e2e/acp-smoke.ts` and is wired into
-`make verify-alpha`.
+`just verify-alpha`.

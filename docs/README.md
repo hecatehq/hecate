@@ -49,7 +49,7 @@ Pick the path closest to what you are doing.
 | Doc | What it answers |
 |---|---|
 | [Architecture](architecture.md) | Gateway flow, orchestrator responsibilities, task-runtime queue/lease model, agent turn cycle, storage tiers. |
-| [Development](development.md) | Go + Bun setup, local dev, test ladder, screenshot tooling, package map. |
+| [Development](development.md) | Go + Bun + just + Rust/Cargo setup, local dev, test ladder, screenshot tooling, package map. |
 | [Release](release.md) | Versioning, alpha gate, release script, image build, recovery, release-note shape. |
 | [`docs-ai/`](../docs-ai/README.md) | Vendor-neutral agent guidance: workflow, verification, skills, task recipes. |
 

@@ -145,7 +145,7 @@ environment that starts Hecate.
 1. Start Hecate:
 
    ```sh
-   make dev
+   just dev
    ```
 
 2. Open **Chats** and switch the target from **Model** to **Agent**.

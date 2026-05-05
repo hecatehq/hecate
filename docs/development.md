@@ -1,6 +1,6 @@
 # Development
 
-This guide covers the local-build path (Go + Bun), UI hot reload, the test surface, and the screenshot tooling. For the simplest get-it-running flow, see [Quick Start](../README.md#quick-start) — the desktop app is the recommended on-ramp for personal use; Docker for server use. The Tauri desktop app's local build (`make tauri-dev`) lives in [`docs-ai/skills/tauri/SKILL.md`](../docs-ai/skills/tauri/SKILL.md).
+This guide covers the source-build toolchain, local-build path, UI hot reload, the test surface, and the screenshot tooling. For the simplest get-it-running flow, see [Quick Start](../README.md#quick-start) — the desktop app is the recommended on-ramp for personal use; Docker for server use. The Tauri desktop app's local build (`just tauri-dev`) lives in [`docs-ai/skills/tauri/SKILL.md`](../docs-ai/skills/tauri/SKILL.md).
 
 ## Contents
 
@@ -14,9 +14,43 @@ This guide covers the local-build path (Go + Bun), UI hot reload, the test surfa
 
 ## Toolchain
 
-- **Go** — pinned via `go.mod` (`make build` runs `go build`)
-- **Bun** — pinned via `ui/package.json` (`packageManager: "bun@..."`) and used for UI dependency install, script execution, tests, screenshot tooling, and CI
-- **Docker** — only required for the docker-smoke test job; not needed for the gateway itself
+Required for the gateway + embedded UI:
+
+- **Go** — pinned via `go.mod`; `just build` runs `go build`.
+- **Bun** — pinned via `ui/package.json` (`packageManager: "bun@..."`); used for UI installs, scripts, tests, screenshots, and CI.
+- **just** — task runner for local build/test/dev recipes; replaces Make.
+
+Required only for the native desktop app:
+
+- **Rust + Cargo** — installed via `rustup`; needed for `just tauri-dev`, `just tauri-build`, and native smoke tests.
+
+Optional:
+
+- **Docker** — only required for the docker-smoke test job and container workflows; not needed for the gateway itself.
+
+Install examples:
+
+```bash
+# macOS with Homebrew
+brew install go bun just rustup-init
+rustup-init
+
+# Linux with shell installers / package manager
+curl -fsSL https://bun.sh/install | bash
+curl --proto '=https' --tlsv1.2 -sSf https://sh.rustup.rs | sh
+# Install Go and just through your distro package manager, asdf, mise, or:
+cargo install just
+
+# Verify the tools Hecate expects
+go version
+bun --version
+just --version
+cargo --version
+```
+
+If `cargo install just` fails because Cargo is not installed yet, install Rust
+with `rustup` first, then retry. On macOS, `brew install just` is usually the
+fastest path because it does not require compiling `just` locally.
 
 Do not use npm, pnpm, yarn, Corepack, Volta, or Node-specific workflow setup
 for the UI. The committed lockfile is `ui/bun.lock`, the install command is
@@ -36,21 +70,23 @@ The `hecate` binary embeds the React UI via `//go:embed ui/dist`. There's no sep
 2. Build `hecate` with the UI bundled in:
 
    ```bash
-   make ui-install         # installs UI dependencies (bun install)
-   make build              # ui-build + go build → ./hecate
-   make serve              # run prebuilt ./hecate; sources .env; auto-stops stale :8765
+   just                    # lists available project recipes
+   just ui-install         # installs UI dependencies (bun install)
+   just build              # ui-build + go build → ./hecate
+   just serve              # run prebuilt ./hecate; sources .env; auto-stops stale :8765
+   just serve --reset      # same, but wipe .data/ first
    ```
 
-The gateway and the operator UI are both served from `http://127.0.0.1:8765`. `make serve` stops any earlier `./hecate` process still bound to that port before starting, so re-running it is always safe.
+The gateway and the operator UI are both served from `http://127.0.0.1:8765`. `just serve` stops any earlier `./hecate` process still bound to that port before starting, so re-running it is always safe.
 
-For iterative changes that don't touch the embed boundary, skip the binary build and run from source: `make run` is `go run` with quick defaults; `make dev` is the same but sources `.env` so provider keys are available.
+For iterative changes that don't touch the embed boundary, skip the binary build and run from source: `just run` is `go run` with quick defaults; `just dev` is the same but sources `.env` so provider keys are available.
 
 ## UI hot reload
 
-For live UI iteration, run `make dev` (gateway on `:8765`) and the Vite dev server side by side:
+For live UI iteration, run `just dev` (gateway on `:8765`) and the Vite dev server side by side:
 
 ```bash
-make ui-dev       # Vite on :5173, proxying API calls to :8765
+just ui-dev       # Vite on :5173, proxying API calls to :8765
 ```
 
 Default addresses:
@@ -63,30 +99,32 @@ The Vite dev server proxies every `/v1/*`, `/admin/*`, and `/healthz` request to
 ## Reset state
 
 ```bash
-make reset-dev        # local dev: stops :8765, removes .data/
-make reset-docker     # docker stack: `docker compose down -v`
+just reset-dev        # local dev: stops :8765, removes .data/
+just reset-docker     # docker stack: `docker compose down -v`
+just dev --reset      # reset local state, then start from source
+just serve --reset    # reset local state, then start the prebuilt binary
 ```
 
 ## Testing
 
 ```bash
-make test              # go test ./...
-make vet               # go vet ./...
-make test-race         # go test -race ./...
-make coverage          # go test -coverprofile + writes coverage.html
-make ui-test           # UI unit tests (vitest)
-make ui-test-e2e       # UI end-to-end tests (Playwright)
-make test-acp-smoke    # ACP stdio bridge smoke against fake local upstream
-make ui-coverage       # UI coverage report (vitest --coverage)
-make test-docker-smoke # boots the production image and probes /healthz, /v1/models
-make test-tauri-smoke  # macOS native app smoke: build .app, probe /healthz, quit
-make test-tauri-acp-smoke # native app + bundled ACP bridge discovery smoke
-make verify-alpha      # public-alpha gate: docs/env check, Go, Docker, UI, build
+just test              # go test ./...
+just vet               # go vet ./...
+just test-race         # go test -race ./...
+just coverage          # go test -coverprofile + writes coverage.html
+just ui-test           # UI unit tests (vitest)
+just ui-test-e2e       # UI end-to-end tests (Playwright)
+just test-acp-smoke    # ACP stdio bridge smoke against fake local upstream
+just ui-coverage       # UI coverage report (vitest --coverage)
+just test-docker-smoke # boots the production image and probes /healthz, /v1/models
+just test-tauri-smoke  # macOS native app smoke: build .app, probe /healthz, quit
+just test-tauri-acp-smoke # native app + bundled ACP bridge discovery smoke
+just verify-alpha      # public-alpha gate: docs/env check, Go, Docker, UI, build
 ```
 
 The race detector is the strongest correctness check (and the slowest); CI runs it on every push. `test-acp-smoke` starts a fake OpenAI-compatible upstream, the real `hecate` gateway, and the real `cmd/hecate-acp` stdio bridge, then verifies model discovery, same-task continuation, SSE updates, and editor approval round-trip behavior. The Go e2e suite also includes binary-level Agent Chat approval smokes for SQLite startup reconcile and durable grant persistence; run them with `go test -tags e2e -run 'TestApproval' ./e2e` when touching approval storage or cmd/hecate startup wiring. `test-docker-smoke` requires Docker but doesn't need any other infrastructure — it spins up its own compose project to avoid colliding with a developer's running stack. `test-tauri-smoke` builds only the packaged macOS `.app`, waits for the sidecar gateway to answer `/healthz`, quits Hecate, and confirms the sidecar exits; `test-tauri-acp-smoke` additionally runs the bundled `hecate-acp` without `HECATE_GATEWAY_URL` and verifies native runtime discovery through `hecate.runtime.json`. Both native smokes are opt-in because they open a real GUI window.
 
-Before cutting a public alpha tag, run `make verify-alpha` and follow the checklist in [Release](release.md).
+Before cutting a public alpha tag, run `just verify-alpha` and follow the checklist in [Release](release.md).
 
 ### Skipping CI for inert changes
 
@@ -150,7 +188,7 @@ version                 # build-time version metadata
 ## Capturing documentation screenshots
 
 ```bash
-make screenshots
+just screenshots
 ```
 
 That's the whole command. The target resets dev state, builds the binary if needed, boots the gateway in the background, waits for `/healthz`, walks the operator UI through every documented surface (seeding chat sessions / a task via the public API), snapshots each route, optimizes the PNGs in parallel, and shuts the gateway down. End-to-end: ~13 seconds on a warm machine.

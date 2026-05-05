@@ -54,7 +54,7 @@ The api↔providers parallel-struct duplication (`OpenAIChatMessage` ↔ `openAI
 
 Every backend-bound concern (taskstate, chatstate, agentchat, approvals, governor, retention history) ships with two tiers, mirrored exactly:
 
-- `memory` — in-process, default, perfect for `go test` and `make dev`.
+- `memory` — in-process, default, perfect for `go test` and `just dev`.
 - `sqlite` — single-file persistence via `modernc.org/sqlite` (no CGO).
 
 When adding a new persisted thing, mirror both. Add a `<thing>_test.go` that runs against memory and sqlite.
@@ -62,7 +62,9 @@ When adding a new persisted thing, mirror both. Add a `<thing>_test.go` that run
 ## Toolchain pins
 
 - **Go**: see `go.mod` for the exact pinned version. CGO is not used; `modernc.org/sqlite` is the pure-Go sqlite driver.
+- **Task runner**: just. Use `just <recipe>` for repo-level build/test/dev flows; do not add Makefile targets or document `make ...` commands.
 - **UI package manager**: Bun (pinned via `packageManager` in `ui/package.json`). The lockfile is `bun.lock`; there is no `package-lock.json`. Use `bun install`, `bun run <script>`, `bun add <pkg>`, `bun x <tool>`. Do not introduce npm/yarn/pnpm lockfiles or workflow steps.
+- **Native app toolchain**: Rust + Cargo via rustup for Tauri work (`tauri/`, `just tauri-*`). Backend and UI-only work should not require Cargo.
 - **UI stack**: React 19, TypeScript, Vite, Vitest + Testing Library + jsdom. Plain CSS with design tokens in `ui/src/styles.css` — no CSS-in-JS, no utility-class framework.
 - **Critical command distinction**: `bun run test` ≠ `bun test`. The latter skips the testing-library DOM setup and panics with `document[isPrepared]` errors. Always `bun run test` (which dispatches to vitest).
 
