@@ -291,8 +291,10 @@ First-version safety rules:
 
 Current limitation: external adapters run as trusted subprocesses in the
 selected workspace. They are not the same as Hecate task-runtime sandboxed tool
-calls. Future sandboxing has to preserve ACP stdio/session behavior; it should
-not be treated as a drop-in reuse of per-call task tool wrappers.
+calls. This is intentional for alpha: Codex, Claude Code, and Cursor are
+long-lived interactive processes with their own auth, caches, child processes,
+and ACP stdio/session lifecycle. Reusing the task-runtime per-call sandbox is
+not a drop-in fit.
 
 ## Acceptance Criteria For First Implementation
 
@@ -323,6 +325,8 @@ not be treated as a drop-in reuse of per-call task tool wrappers.
   get durable run events, approvals, and artifacts from the same substrate?
 - How much of the external process environment should be configurable by the
   operator?
-- Should external adapters eventually run behind a stronger sandbox boundary,
-  and what process model preserves long-lived ACP stdio sessions?
+- Should Hecate eventually offer optional process containment for external
+  adapters? Not a near-term requirement. If it happens, it should be a separate
+  design for long-lived ACP subprocesses, not reuse of the task-runtime
+  per-call sandbox.
 - Which adapter-specific ACP update shapes deserve first-class UI mapping next?
