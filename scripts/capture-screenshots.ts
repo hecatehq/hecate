@@ -334,6 +334,45 @@ async function routeAgentDocsFixtures(page: Page) {
   });
 }
 
+async function routeLocalProviderDiscoveryDocsFixture(page: Page) {
+  await page.route(`${BASE_URL}/admin/control-plane/providers/local-discovery`, route => route.fulfill({
+    status: 200,
+    contentType: "application/json",
+    body: JSON.stringify({
+      object: "local_provider_discovery",
+      data: [
+        {
+          preset_id: "ollama",
+          name: "Ollama",
+          base_url: "http://127.0.0.1:11434/v1",
+          probe_url: "http://127.0.0.1:11434/api/tags",
+          status: "running",
+          command: "ollama",
+          command_available: true,
+          command_path: "/opt/homebrew/bin/ollama",
+          http_available: true,
+          model_count: 1,
+          models: ["llama3.1:8b"],
+        },
+        {
+          preset_id: "lmstudio",
+          name: "LM Studio",
+          base_url: "http://127.0.0.1:1234/v1",
+          probe_url: "http://127.0.0.1:1234/v1/models",
+          status: "installed",
+          command: "lms",
+          command_available: true,
+          command_path: "/Users/alice/.lmstudio/bin/lms",
+          http_available: false,
+          model_count: 0,
+          models: [],
+          error: "connection refused",
+        },
+      ],
+    }),
+  }));
+}
+
 // addProvider creates a provider via the same POST endpoint the UI's
 // add modal calls. Mirrors the new explicit-add lifecycle: each
 // provider is materialized in the CP store, no auto-discovery.
@@ -432,11 +471,11 @@ async function main() {
   const context = await browser.newContext({ viewport: VIEWPORT, deviceScaleFactor: 1 });
   const page = await context.newPage();
 
-  // ── 1. Empty first-run Chats state ──────────────────────────────────────────
-  // No providers are configured yet. Mock missing external-agent CLIs for
-  // this one shot so the first-run state is deterministic even on machines
-  // where Codex, Claude Code, or Cursor Agent are installed.
-  console.log("→ chat-empty (first-run setup state)");
+  // ── 1. First-run Chats onboarding ──────────────────────────────────────────
+  // No providers are configured yet. Keep this shot deterministic by mocking
+  // external-agent availability and local-provider discovery: it should show
+  // the one-click local setup path, not the capture machine's real state.
+  console.log("→ chat-empty (first-run one-click local setup)");
   const missingAgentAdapters = `${BASE_URL}/v1/agent-adapters`;
   await page.route(missingAgentAdapters, route => route.fulfill({
     status: 200,
@@ -477,16 +516,19 @@ async function main() {
       ],
     }),
   }));
+  await routeLocalProviderDiscoveryDocsFixture(page);
   await clearAndNavigate(page);
+  await page.evaluate(() => {
+    window.localStorage.setItem("hecate.workspace", "chats");
+    window.localStorage.setItem("hecate.chatTarget", "model");
+  });
+  await page.reload();
   await openWorkspace(page, "chats");
-  await page.waitForFunction(() => {
-    const text = document.body.textContent ?? "";
-    return text.includes("Nothing runnable yet")
-      || text.includes("No available coding agent")
-      || text.includes("Codex is unavailable");
-  }, { timeout: 5_000 });
+  await page.waitForSelector("text=Detected locally", { timeout: 5_000 });
+  await page.waitForSelector("text=Add detected providers", { timeout: 5_000 });
   await snap(page, "chat-empty");
   await page.unroute(missingAgentAdapters);
+  await page.unroute(`${BASE_URL}/admin/control-plane/providers/local-discovery`);
 
   // ── 2. Empty providers list ─────────────────────────────────────────────────
   // The UI loads directly — no auth gate. Land on the Providers tab
@@ -496,13 +538,16 @@ async function main() {
   await page.waitForSelector("text=No providers configured", { timeout: 5_000 });
   await snap(page, "providers-empty");
 
-  // ── 3. Cloud presets in the Add modal ───────────────────────────────────────
-  console.log("→ providers-presets (Add modal, Cloud tab)");
+  // ── 3. Local presets in the Add modal ───────────────────────────────────────
+  console.log("→ providers-presets (Add modal, Local tab)");
+  await routeLocalProviderDiscoveryDocsFixture(page);
   await page.getByRole("button", { name: "Add provider" }).first().click();
-  await page.waitForSelector("text=Anthropic", { timeout: 5_000 });
+  await page.waitForSelector("text=Ollama", { timeout: 5_000 });
+  await page.waitForSelector("text=Running", { timeout: 5_000 });
   await page.waitForTimeout(300);
   await snap(page, "providers-presets");
   await page.keyboard.press("Escape");
+  await page.unroute(`${BASE_URL}/admin/control-plane/providers/local-discovery`);
   await page.waitForTimeout(300);
 
   // ── 4. Seed three providers via the API ─────────────────────────────────────

@@ -28,7 +28,7 @@ The Providers tab starts empty:
 
 Click **Add provider** to open the modal:
 
-![Add provider modal — Cloud preset catalog](screenshots/providers-presets.png)
+![Add provider modal — Local preset catalog with detected runtime status](screenshots/providers-presets.png)
 
 
 1. Pick **Cloud** or **Local** at the top.
