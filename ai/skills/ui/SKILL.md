@@ -84,6 +84,9 @@ Each section has exactly one job: orient, inspect, compare, edit, or confirm. If
 - Agent Chat usage is adapter-reported. Show it as helpful telemetry with the
   "reported by adapter · not enforced by Hecate" caveat, never as Hecate-enforced
   billing.
+- Agent Chat file changes are already applied to the selected workspace when
+  Hecate captures them. UI copy should say "inspect" / "revert" / "keep", not
+  "apply", unless the backend grows a true staged-artifact flow.
 - **Stable provider ordering.** Do not sort provider lists by health, blocked state, or availability unless explicitly asked. Fixed alphabetical/preset order within each section.
 - Runtime metadata first-class, not tucked in debug crumbs.
 - Trace and failure details readable without scanning raw JSON first.

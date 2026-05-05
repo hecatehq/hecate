@@ -33,10 +33,13 @@ import {
   cancelAgentChatApproval as cancelAgentChatApprovalRequest,
   cancelAgentChatSession as cancelAgentChatSessionRequest,
   deleteAgentChatGrant as deleteAgentChatGrantRequest,
+  getAgentChatMessageFileDiff as getAgentChatMessageFileDiffRequest,
   getAgentChatApproval as getAgentChatApprovalRequest,
+  listAgentChatMessageFiles as listAgentChatMessageFilesRequest,
   listAgentChatApprovals as listAgentChatApprovalsRequest,
   listAgentChatGrants as listAgentChatGrantsRequest,
   probeAgentAdapter as probeAgentAdapterRequest,
+  revertAgentChatMessageFiles as revertAgentChatMessageFilesRequest,
   resolveAgentChatApproval as resolveAgentChatApprovalRequest,
   runRetention as runRetentionRequest,
   resetBudget as resetBudgetRequest,
@@ -63,6 +66,8 @@ import type {
   AgentAdapterHealthRecord,
   AgentAdapterRecord,
   AgentChatApprovalRecord,
+  AgentChatChangedFileDiffRecord,
+  AgentChatChangedFileRecord,
   AgentChatGrantRecord,
   PendingAgentApproval,
   AgentChatSessionRecord,
@@ -1368,6 +1373,46 @@ export function useRuntimeConsole() {
     }
   }
 
+  async function listAgentChatMessageFiles(sessionID: string, messageID: string): Promise<AgentChatChangedFileRecord[]> {
+    try {
+      const payload = await listAgentChatMessageFilesRequest(sessionID, messageID);
+      return payload.data ?? [];
+    } catch (error) {
+      setNoticeMessage("error", error instanceof Error ? error.message : "Failed to load changed files.");
+      return [];
+    }
+  }
+
+  async function getAgentChatMessageFileDiff(sessionID: string, messageID: string, path: string): Promise<AgentChatChangedFileDiffRecord | null> {
+    try {
+      const payload = await getAgentChatMessageFileDiffRequest(sessionID, messageID, path);
+      return payload.data;
+    } catch (error) {
+      setNoticeMessage("error", error instanceof Error ? error.message : "Failed to load file diff.");
+      return null;
+    }
+  }
+
+  async function revertAgentChatMessageFiles(sessionID: string, messageID: string, paths: string[]): Promise<boolean> {
+    try {
+      await revertAgentChatMessageFilesRequest(sessionID, messageID, paths);
+      const payload = await getAgentChatSession(sessionID);
+      setActiveAgentChatSession(payload.data);
+      setAgentChatSessions((current) => {
+        const summary = renderAgentChatSessionSummary(payload.data);
+        const found = current.some((session) => session.id === sessionID);
+        return found
+          ? current.map((session) => session.id === sessionID ? summary : session)
+          : [summary, ...current];
+      });
+      setNoticeMessage("success", paths.length > 0 ? "Selected files reverted." : "Captured diff reverted.");
+      return true;
+    } catch (error) {
+      setNoticeMessage("error", error instanceof Error ? error.message : "Failed to revert changed files.");
+      return false;
+    }
+  }
+
   // probeAgentAdapter exercises the configured adapter and caches the
   // typed result keyed by adapter id. Operators trigger this via the
   // "Test" button in Settings → External agents; the result drives
@@ -1558,6 +1603,9 @@ export function useRuntimeConsole() {
       previewPricebookImport,
       applyPricebookImport,
       getAgentChatApproval,
+      listAgentChatMessageFiles,
+      getAgentChatMessageFileDiff,
+      revertAgentChatMessageFiles,
       resolveAgentChatApproval,
       cancelAgentChatApproval,
       listAgentChatGrants,
