@@ -283,15 +283,29 @@ function describeRunEvent(eventType: string): { label: string; tone: "queued" | 
   const labels: Record<string, { label: string; tone: "queued" | "running" | "awaiting" | "done" | "failed" }> = {
     "run.created": { label: "Run created", tone: "queued" },
     "run.queued": { label: "Queued", tone: "queued" },
-    "run.started": { label: "Execution started", tone: "running" },
-    "run.awaiting_approval": { label: "Waiting for approval", tone: "awaiting" },
+    "run.started": { label: "Started", tone: "running" },
+    "run.awaiting_approval": { label: "Approval wait", tone: "awaiting" },
     "run.cancelled": { label: "Cancelled", tone: "failed" },
     "run.failed": { label: "Failed", tone: "failed" },
     "run.finished": { label: "Completed", tone: "done" },
     "run.resumed_from_event": { label: "Resumed", tone: "running" },
     "gap.run_disconnected": { label: "Runtime recovered", tone: "queued" },
+    "turn.started": { label: "Turn started", tone: "running" },
+    "turn.completed": { label: "Turn done", tone: "done" },
+    "assistant.tool_call_proposed": { label: "Tool proposed", tone: "queued" },
+    "tool.invoked": { label: "Tool invoked", tone: "running" },
+    "tool.started": { label: "Tool started", tone: "running" },
+    "tool.shell_command": { label: "Shell command", tone: "running" },
+    "tool.failed": { label: "Tool failed", tone: "failed" },
+    "tool.completed": { label: "Tool done", tone: "done" },
+    "approval.requested": { label: "Approval asked", tone: "awaiting" },
+    "approval.resolved": { label: "Approval done", tone: "done" },
   };
   return labels[eventType] ?? { label: eventType.replaceAll("_", " "), tone: "queued" };
+}
+
+function isVisibleRunEvent(event: TaskRunEventRecord): boolean {
+  return event.type !== "snapshot" && event.type !== "run.snapshot";
 }
 
 // describeRunEventNote extracts a human-readable annotation from an event's
@@ -384,6 +398,7 @@ export function TaskDetail({
   const conversationArtifact = artifacts.find(a => a.kind === "agent_conversation") ?? null;
   const previewPatch = artifacts.find(a => a.id === previewPatchID && a.kind === "patch") ?? null;
   const pendingApprovals = approvals.filter(a => a.status === "pending");
+  const visibleEvents = events.filter(isVisibleRunEvent);
 
   useEffect(() => {
     if (termRef.current) termRef.current.scrollTop = termRef.current.scrollHeight;
@@ -517,18 +532,20 @@ export function TaskDetail({
           </div>
         )}
 
-        {events.length > 0 && (
+        {visibleEvents.length > 0 && (
           <div style={{ padding: "12px 16px", borderBottom: "1px solid var(--border)" }}>
             <div className="kicker" style={{ marginBottom: 8 }}>Run timeline</div>
             <div style={{ display: "flex", flexDirection: "column", gap: 8 }}>
-              {events.slice().sort((left, right) => left.sequence - right.sequence).map((event) => {
+              {visibleEvents.slice().sort((left, right) => left.sequence - right.sequence).map((event) => {
                 const meta = describeRunEvent(event.type);
                 return (
-                  <div key={event.event_id || `${event.sequence}-${event.type}`} style={{ display: "grid", gridTemplateColumns: "64px 110px 1fr", gap: 10, alignItems: "start" }}>
+                  <div key={event.event_id || `${event.sequence}-${event.type}`} style={{ display: "grid", gridTemplateColumns: "64px minmax(132px, auto) minmax(0, 1fr)", gap: 10, alignItems: "start" }}>
                     <div style={{ fontFamily: "var(--font-mono)", fontSize: 10, color: "var(--t3)" }}>
                       #{event.sequence}
                     </div>
-                    <Badge status={meta.tone} label={meta.label} />
+                    <span style={{ minWidth: 0 }} title={meta.label}>
+                      <Badge status={meta.tone} label={meta.label} />
+                    </span>
                     <div style={{ minWidth: 0 }}>
                       <div style={{ fontFamily: "var(--font-mono)", fontSize: 11, color: "var(--t2)" }}>
                         {event.occurred_at ? new Date(event.occurred_at).toLocaleTimeString() : "streamed"}
@@ -1022,6 +1039,8 @@ function AgentConversationView({
     );
   }
   if (messages.length === 0) return null;
+  const visibleMessages = messages.filter(isVisibleConversationMessage);
+  if (visibleMessages.length === 0) return null;
 
   // Compute per-message turn numbers up-front so each bubble can render
   // its own "↻ retry from turn N" affordance. Only assistant messages
@@ -1029,7 +1048,7 @@ function AgentConversationView({
   // the button. Counting in a single pass here keeps the bubble itself
   // O(1) at render time.
   let assistantSeen = 0;
-  const turnByIndex: number[] = messages.map(m => {
+  const turnByIndex: number[] = visibleMessages.map(m => {
     if (m.role === "assistant") {
       assistantSeen++;
       return assistantSeen;
@@ -1058,9 +1077,9 @@ function AgentConversationView({
     <>
       <div style={{ padding: "12px 16px", borderBottom: "1px solid var(--border)", display: "flex", flexDirection: "column", gap: 8 }}>
         <div className="kicker" style={{ marginBottom: 4 }}>
-          Agent conversation · {messages.length} message{messages.length === 1 ? "" : "s"}
+          Agent conversation · {visibleMessages.length} message{visibleMessages.length === 1 ? "" : "s"}
         </div>
-        {messages.map((m, i) => (
+        {visibleMessages.map((m, i) => (
           <ConversationBubble
             key={i}
             message={m}
@@ -1085,6 +1104,10 @@ function AgentConversationView({
       )}
     </>
   );
+}
+
+function isVisibleConversationMessage(message: AgentConversationMessage): boolean {
+  return message.role === "user" || message.role === "assistant" || message.role === "tool";
 }
 
 // RetryFromTurnModal collects an optional reason before submitting the
