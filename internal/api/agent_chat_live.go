@@ -73,6 +73,10 @@ type agentChatLive struct {
 	mu          sync.Mutex
 	subscribers map[string]map[chan AgentChatLiveEvent]struct{}
 	running     map[string]*agentChatRunControl
+	// maxTurns mirrors config.Server.AgentChatMaxTurnsPerSession so
+	// publishSession can include it in every session snapshot without
+	// needing a reference back to the handler config.
+	maxTurns int
 }
 
 type agentChatRunControl struct {
@@ -103,10 +107,11 @@ func (c *agentChatRunControl) cancelReason() string {
 	return ""
 }
 
-func newAgentChatLive() *agentChatLive {
+func newAgentChatLive(maxTurns int) *agentChatLive {
 	return &agentChatLive{
 		subscribers: make(map[string]map[chan AgentChatLiveEvent]struct{}),
 		running:     make(map[string]*agentChatRunControl),
+		maxTurns:    maxTurns,
 	}
 }
 
@@ -141,7 +146,7 @@ func (l *agentChatLive) publishSession(session agentchat.Session) {
 		Type: AgentChatLiveEventSessionUpdate,
 		SessionUpdate: &AgentChatSessionResponse{
 			Object: "agent_chat_session",
-			Data:   renderAgentChatSession(session),
+			Data:   renderAgentChatSession(session, l.maxTurns),
 		},
 	}, true)
 }

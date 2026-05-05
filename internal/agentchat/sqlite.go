@@ -53,8 +53,8 @@ func (s *SQLiteStore) Create(ctx context.Context, session Session) (Session, err
 	_, err := s.client.DB().ExecContext(
 		ctx,
 		fmt.Sprintf(
-			`INSERT INTO %s (id, title, adapter_id, driver_kind, native_session_id, workspace, workspace_branch, status, created_at, updated_at)
-			 VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+			`INSERT INTO %s (id, title, adapter_id, driver_kind, native_session_id, workspace, workspace_branch, status, turns_used, created_at, updated_at)
+			 VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
 			 ON CONFLICT(id) DO UPDATE SET
 			   title = excluded.title,
 			   adapter_id = excluded.adapter_id,
@@ -74,6 +74,7 @@ func (s *SQLiteStore) Create(ctx context.Context, session Session) (Session, err
 		session.Workspace,
 		session.WorkspaceBranch,
 		session.Status,
+		session.TurnsUsed,
 		session.CreatedAt.UTC(),
 		session.UpdatedAt.UTC(),
 	)
@@ -98,11 +99,11 @@ func (s *SQLiteStore) List(ctx context.Context) ([]Session, error) {
 	rows, err := s.client.DB().QueryContext(
 		ctx,
 		fmt.Sprintf(
-			`SELECT s.id, s.title, s.adapter_id, s.driver_kind, s.native_session_id, s.workspace, s.workspace_branch, s.status, s.created_at, s.updated_at,
+			`SELECT s.id, s.title, s.adapter_id, s.driver_kind, s.native_session_id, s.workspace, s.workspace_branch, s.status, s.turns_used, s.created_at, s.updated_at,
 			        COUNT(m.id) AS message_count
 			 FROM %s AS s
 			 LEFT JOIN %s AS m ON m.session_id = s.id
-			 GROUP BY s.id, s.title, s.adapter_id, s.driver_kind, s.native_session_id, s.workspace, s.workspace_branch, s.status, s.created_at, s.updated_at
+			 GROUP BY s.id, s.title, s.adapter_id, s.driver_kind, s.native_session_id, s.workspace, s.workspace_branch, s.status, s.turns_used, s.created_at, s.updated_at
 			 ORDER BY s.updated_at DESC, s.created_at DESC`,
 			s.sessionsTable,
 			s.messagesTable,
@@ -126,6 +127,7 @@ func (s *SQLiteStore) List(ctx context.Context) ([]Session, error) {
 			&session.Workspace,
 			&session.WorkspaceBranch,
 			&session.Status,
+			&session.TurnsUsed,
 			&session.CreatedAt,
 			&session.UpdatedAt,
 			&messageCount,
@@ -168,7 +170,7 @@ func (s *SQLiteStore) UpdateSession(ctx context.Context, id string, update func(
 		fmt.Sprintf(
 			`UPDATE %s SET
 			   title = ?, adapter_id = ?, driver_kind = ?, native_session_id = ?, workspace = ?, workspace_branch = ?,
-			   status = ?, updated_at = ?
+			   status = ?, turns_used = ?, updated_at = ?
 			 WHERE id = ?`,
 			s.sessionsTable,
 		),
@@ -179,6 +181,7 @@ func (s *SQLiteStore) UpdateSession(ctx context.Context, id string, update func(
 		session.Workspace,
 		session.WorkspaceBranch,
 		session.Status,
+		session.TurnsUsed,
 		session.UpdatedAt.UTC(),
 		id,
 	); err != nil {
@@ -387,6 +390,9 @@ func (s *SQLiteStore) migrate(ctx context.Context) error {
 	if err := s.ensureSessionColumn(ctx, "native_session_id", "TEXT NOT NULL DEFAULT ''"); err != nil {
 		return err
 	}
+	if err := s.ensureSessionColumn(ctx, "turns_used", "INTEGER NOT NULL DEFAULT 0"); err != nil {
+		return err
+	}
 	for _, column := range []struct {
 		name       string
 		definition string
@@ -430,9 +436,9 @@ func (s *SQLiteStore) loadSession(ctx context.Context, id string) (Session, erro
 	var session Session
 	err := s.client.DB().QueryRowContext(
 		ctx,
-		fmt.Sprintf(`SELECT id, title, adapter_id, driver_kind, native_session_id, workspace, workspace_branch, status, created_at, updated_at FROM %s WHERE id = ?`, s.sessionsTable),
+		fmt.Sprintf(`SELECT id, title, adapter_id, driver_kind, native_session_id, workspace, workspace_branch, status, turns_used, created_at, updated_at FROM %s WHERE id = ?`, s.sessionsTable),
 		id,
-	).Scan(&session.ID, &session.Title, &session.AdapterID, &session.DriverKind, &session.NativeSessionID, &session.Workspace, &session.WorkspaceBranch, &session.Status, &session.CreatedAt, &session.UpdatedAt)
+	).Scan(&session.ID, &session.Title, &session.AdapterID, &session.DriverKind, &session.NativeSessionID, &session.Workspace, &session.WorkspaceBranch, &session.Status, &session.TurnsUsed, &session.CreatedAt, &session.UpdatedAt)
 	if err != nil {
 		if errors.Is(err, sql.ErrNoRows) {
 			return Session{}, sql.ErrNoRows

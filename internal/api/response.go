@@ -6,13 +6,14 @@ import (
 )
 
 const (
-	errCodeUnauthorized   = "unauthorized"
-	errCodeInvalidRequest = "invalid_request"
-	errCodeForbidden      = "forbidden"
-	errCodeGatewayError   = "gateway_error"
-	errCodeUpstreamError  = "upstream_error"
-	errCodeNotFound       = "not_found"
-	errCodeConflict       = "conflict"
+	errCodeUnauthorized         = "unauthorized"
+	errCodeInvalidRequest       = "invalid_request"
+	errCodeForbidden            = "forbidden"
+	errCodeGatewayError         = "gateway_error"
+	errCodeUpstreamError        = "upstream_error"
+	errCodeNotFound             = "not_found"
+	errCodeConflict             = "conflict"
+	errCodeSessionLimitExceeded = "agent_chat.session_limit_exceeded"
 )
 
 func WriteJSON(w http.ResponseWriter, status int, payload any) {

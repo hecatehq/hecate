@@ -1390,6 +1390,90 @@ func TestAgentChatStoreAttachReconcilesInterruptedRun(t *testing.T) {
 	}
 }
 
+func TestAgentChatTurnLimitReturns422(t *testing.T) {
+	t.Parallel()
+	dir := t.TempDir()
+	logger := slog.New(slog.NewJSONHandler(io.Discard, nil))
+	cfg := config.Config{Server: config.ServerConfig{AgentChatMaxTurnsPerSession: 2}}
+	apiHandler := newTestAPIHandlerWithControlPlane(logger, []providers.Provider{&fakeProvider{}}, cfg, nil)
+	apiHandler.SetAgentChatRunner(&fakeAgentChatRunner{output: "done"})
+	handler := NewServer(logger, apiHandler)
+	client := newAPITestClient(t, handler)
+
+	created := mustRequestJSON[AgentChatSessionResponse](client, http.MethodPost, "/v1/agent-chat/sessions", fmt.Sprintf(`{"adapter_id":"codex","workspace":%q}`, dir))
+	sessionID := created.Data.ID
+
+	// Two turns should succeed and increment TurnsUsed.
+	for i := 0; i < 2; i++ {
+		resp := mustRequestJSON[AgentChatSessionResponse](client, http.MethodPost, "/v1/agent-chat/sessions/"+sessionID+"/messages", `{"content":"turn"}`)
+		if resp.Data.MaxTurnsPerSession != 2 {
+			t.Fatalf("turn %d: max_turns_per_session = %d, want 2", i+1, resp.Data.MaxTurnsPerSession)
+		}
+	}
+
+	// Third turn should return 422.
+	rec := client.mustRequestStatus(http.StatusUnprocessableEntity, http.MethodPost, "/v1/agent-chat/sessions/"+sessionID+"/messages", `{"content":"one too many"}`)
+	var body map[string]any
+	if err := json.NewDecoder(rec.Body).Decode(&body); err != nil {
+		t.Fatalf("decode 422 body: %v", err)
+	}
+	errObj, _ := body["error"].(map[string]any)
+	if errObj["type"] != errCodeSessionLimitExceeded {
+		t.Fatalf("error.type = %v, want %q", errObj["type"], errCodeSessionLimitExceeded)
+	}
+	if limit, _ := errObj["limit"].(float64); int(limit) != 2 {
+		t.Fatalf("error.limit = %v, want 2", errObj["limit"])
+	}
+	if used, _ := errObj["turns_used"].(float64); int(used) != 2 {
+		t.Fatalf("error.turns_used = %v, want 2", errObj["turns_used"])
+	}
+}
+
+func TestAgentChatTurnsUsedIncrementsAndIsReturned(t *testing.T) {
+	t.Parallel()
+	dir := t.TempDir()
+	logger := slog.New(slog.NewJSONHandler(io.Discard, nil))
+	cfg := config.Config{Server: config.ServerConfig{AgentChatMaxTurnsPerSession: 5}}
+	apiHandler := newTestAPIHandlerWithControlPlane(logger, []providers.Provider{&fakeProvider{}}, cfg, nil)
+	apiHandler.SetAgentChatRunner(&fakeAgentChatRunner{output: "ok"})
+	handler := NewServer(logger, apiHandler)
+	client := newAPITestClient(t, handler)
+
+	created := mustRequestJSON[AgentChatSessionResponse](client, http.MethodPost, "/v1/agent-chat/sessions", fmt.Sprintf(`{"adapter_id":"codex","workspace":%q}`, dir))
+	sessionID := created.Data.ID
+
+	for turn := 1; turn <= 3; turn++ {
+		resp := mustRequestJSON[AgentChatSessionResponse](client, http.MethodPost, "/v1/agent-chat/sessions/"+sessionID+"/messages", `{"content":"hi"}`)
+		if resp.Data.TurnsUsed != turn {
+			t.Fatalf("after turn %d: turns_used = %d, want %d", turn, resp.Data.TurnsUsed, turn)
+		}
+	}
+}
+
+func TestAgentChatNoLimitWhenMaxTurnsIsZero(t *testing.T) {
+	t.Parallel()
+	dir := t.TempDir()
+	logger := slog.New(slog.NewJSONHandler(io.Discard, nil))
+	// Default config: AgentChatMaxTurnsPerSession = 0 (unlimited).
+	apiHandler := newTestAPIHandlerWithControlPlane(logger, []providers.Provider{&fakeProvider{}}, config.Config{}, nil)
+	apiHandler.SetAgentChatRunner(&fakeAgentChatRunner{output: "ok"})
+	handler := NewServer(logger, apiHandler)
+	client := newAPITestClient(t, handler)
+
+	created := mustRequestJSON[AgentChatSessionResponse](client, http.MethodPost, "/v1/agent-chat/sessions", fmt.Sprintf(`{"adapter_id":"codex","workspace":%q}`, dir))
+	sessionID := created.Data.ID
+
+	for i := 0; i < 5; i++ {
+		resp := mustRequestJSON[AgentChatSessionResponse](client, http.MethodPost, "/v1/agent-chat/sessions/"+sessionID+"/messages", `{"content":"hi"}`)
+		if resp.Data.TurnsUsed != i+1 {
+			t.Fatalf("turn %d: turns_used = %d, want %d", i+1, resp.Data.TurnsUsed, i+1)
+		}
+		if resp.Data.MaxTurnsPerSession != 0 {
+			t.Fatalf("turn %d: max_turns_per_session = %d, want 0", i+1, resp.Data.MaxTurnsPerSession)
+		}
+	}
+}
+
 type fakeAgentChatRunner struct {
 	output          string
 	finalOutput     string
@@ -1687,7 +1771,7 @@ func TestAgentChatCloseKeepsHistoryAndClosesNativeSession(t *testing.T) {
 }
 
 func TestAgentChatLiveCancelRunAndWaitTimesOutUntilRunDone(t *testing.T) {
-	live := newAgentChatLive()
+	live := newAgentChatLive(0)
 	cancelled := false
 	if ok := live.registerRun("session_1", func() { cancelled = true }); !ok {
 		t.Fatal("registerRun = false, want true")
@@ -1714,7 +1798,7 @@ func TestAgentChatLiveCancelRunAndWaitTimesOutUntilRunDone(t *testing.T) {
 // session that never had cancel called against it surfaces empty
 // (the handler maps empty -> "request_cancelled").
 func TestAgentChatLiveCancelReasonForOperatorPath(t *testing.T) {
-	live := newAgentChatLive()
+	live := newAgentChatLive(0)
 	live.registerRun("session_explicit_cancel", func() {})
 	if !live.cancelRun("session_explicit_cancel") {
 		t.Fatal("cancelRun = false, want true")

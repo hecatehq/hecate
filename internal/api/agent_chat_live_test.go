@@ -4,7 +4,7 @@ import "testing"
 
 func TestAgentChatLiveSessionReplacementPreservesApprovalEvents(t *testing.T) {
 	t.Parallel()
-	live := newAgentChatLive()
+	live := newAgentChatLive(0)
 	updates, unsubscribe := live.subscribe("s")
 	defer unsubscribe()
 
@@ -35,7 +35,7 @@ func TestAgentChatLiveSessionReplacementPreservesApprovalEvents(t *testing.T) {
 
 func TestAgentChatLiveSessionReplacementDropsNewSessionWhenOnlyApprovalsBuffered(t *testing.T) {
 	t.Parallel()
-	live := newAgentChatLive()
+	live := newAgentChatLive(0)
 	updates, unsubscribe := live.subscribe("s")
 	defer unsubscribe()
 

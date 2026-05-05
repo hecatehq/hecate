@@ -19,9 +19,13 @@ type Session struct {
 	// snapshots don't spawn git on every streamed update.
 	WorkspaceBranch string
 	Status          string
-	CreatedAt       time.Time
-	UpdatedAt       time.Time
-	Messages        []Message
+	// TurnsUsed counts how many user→assistant round-trips have completed
+	// (successfully or with failure) in this session. Used to enforce the
+	// GATEWAY_AGENT_CHAT_MAX_TURNS_PER_SESSION ceiling.
+	TurnsUsed int
+	CreatedAt time.Time
+	UpdatedAt time.Time
+	Messages  []Message
 }
 
 type Message struct {
