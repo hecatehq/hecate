@@ -235,13 +235,12 @@ func NewHandler(cfg config.Config, logger *slog.Logger, service *gateway.Service
 	agentChatRunner := agentadapters.NewSessionManager()
 	agentChatRunner.SetLogger(logger)
 	agentChatRunner.SetAdapterMetrics(agentAdapterMetrics)
-	// Approval recorder: applies GATEWAY_AGENT_ADAPTER_APPROVAL_MODE to
-	// each ACP RequestPermission, records the approval row, and emits
-	// approval.* metrics. Default mode is `prompt`; until the operator
-	// UI ships, prompt mode resolves to ACP Cancelled after the
-	// configured timeout. Operators who depend on the prior auto-approve
-	// behavior must set GATEWAY_AGENT_ADAPTER_APPROVAL_MODE=auto
-	// explicitly.
+	// Approval coordinator: applies GATEWAY_AGENT_ADAPTER_APPROVAL_MODE
+	// to each ACP RequestPermission, records the approval row, exposes
+	// it to the operator UI/API, and emits approval.* metrics. Default
+	// mode is `prompt`; headless operators who want the old
+	// auto-approve behavior must set
+	// GATEWAY_AGENT_ADAPTER_APPROVAL_MODE=auto explicitly.
 	approvalMode := agentadapters.ApprovalMode(strings.TrimSpace(cfg.Server.AgentAdapterApprovalMode))
 	if approvalMode == "" {
 		approvalMode = agentadapters.ModePrompt
