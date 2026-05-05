@@ -64,6 +64,10 @@ jobs:
 
       - name: Cache Rust build artifacts
         uses: Swatinem/rust-cache@v2
+        # Cache restore/save is an optimization only. A transient cache
+        # action failure must not block release packaging, especially on
+        # Windows runners where cache restore can fail before build steps.
+        continue-on-error: true
         with:
           workspaces: tauri/src-tauri -> target
 
