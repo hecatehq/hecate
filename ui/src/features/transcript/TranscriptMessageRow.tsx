@@ -2,11 +2,11 @@ import { useState } from "react";
 
 import type { AgentChatActivityRecord, AgentChatChangedFileDiffRecord, AgentChatChangedFileRecord, AgentChatUsageRecord } from "../../types/runtime";
 import { CodeBlock, Icon, Icons } from "../shared/ui";
-import { ActivityTimeline } from "./AgentActivityTimeline";
-import { AgentDiffReview } from "./AgentDiffReview";
-import { Markdown } from "./Markdown";
+import { TranscriptActivityTimeline } from "./TranscriptActivityTimeline";
+import { TranscriptDiffReview } from "./TranscriptDiffReview";
+import { TranscriptMarkdown } from "./TranscriptMarkdown";
 
-export function MessageRow({ id, role, model, content, time, promptTokens, completionTokens, costUsd, badge, runtimeMeta, activities, diffStat, diff, agentSessionID, onListAgentFiles, onGetAgentFileDiff, onRevertAgentFiles, rawOutput, agentUsage, error, onCopy, copied }: {
+export function TranscriptMessageRow({ id, role, model, content, time, promptTokens, completionTokens, costUsd, badge, runtimeMeta, activities, diffStat, diff, agentSessionID, onListAgentFiles, onGetAgentFileDiff, onRevertAgentFiles, rawOutput, agentUsage, error, onCopy, copied }: {
   id: string; role: "user" | "assistant"; model?: string; content: string;
   time: string; promptTokens?: number; completionTokens?: number; costUsd?: string;
   badge?: string; runtimeMeta?: string; agentSessionID?: string;
@@ -80,16 +80,16 @@ export function MessageRow({ id, role, model, content, time, promptTokens, compl
               Waiting for agent output...
             </div>
           ) : (
-            <Markdown content={content} />
+            <TranscriptMarkdown content={content} />
           )}
           {isAssistant && activities && activities.length > 0 && (
-            <ActivityTimeline activities={activities} diffStat={diffStat} />
+            <TranscriptActivityTimeline activities={activities} diffStat={diffStat} />
           )}
           {isAssistant && agentUsage && !agentUsageEmpty(agentUsage) && (
             <AgentUsage usage={agentUsage} />
           )}
           {isAssistant && (diff || diffStat) && (
-            <AgentDiffReview
+            <TranscriptDiffReview
               sessionID={agentSessionID ?? ""}
               messageID={id}
               diffStat={diffStat}

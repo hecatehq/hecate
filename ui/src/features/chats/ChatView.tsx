@@ -4,9 +4,9 @@ import type { RuntimeConsoleViewModel } from "../../app/useRuntimeConsole";
 import { describeGatewayError, formatErrorCode } from "../../lib/error-diagnostics";
 import type { AgentAdapterRecord, AgentChatActivityRecord, AgentChatSessionRecord, AgentChatUsageRecord } from "../../types/runtime";
 import { AgentAdapterPicker, CodeBlock, Icon, Icons, InlineError, ModelPicker, ProviderPicker } from "../shared/ui";
+import { TranscriptMessageRow } from "../transcript/TranscriptMessageRow";
 import { AgentApprovalAutoModeBanner, AgentApprovalsBanner } from "./AgentApprovalBanner";
 import { AgentApprovalModal } from "./AgentApprovalModal";
-import { MessageRow } from "./MessageRow";
 
 type Props = {
   state: RuntimeConsoleViewModel["state"];
@@ -622,7 +622,7 @@ export function ChatView({ state, actions, onNavigate }: Props) {
               ? formatAgentRuntimeMeta(m.run_id, m.duration_ms, m.trace_id, m.native_session_id)
               : "";
             return (
-              <MessageRow
+              <TranscriptMessageRow
                 key={m.id}
                 id={m.id}
                 role={role}

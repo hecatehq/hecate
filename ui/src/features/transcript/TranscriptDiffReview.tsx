@@ -3,7 +3,7 @@ import type { SyntheticEvent } from "react";
 
 import type { AgentChatChangedFileDiffRecord, AgentChatChangedFileRecord } from "../../types/runtime";
 import { CodeBlock, InlineError } from "../shared/ui";
-import { DiffStatList, formatDiffStatSummary } from "./AgentActivityTimeline";
+import { DiffStatList, formatDiffStatSummary } from "./TranscriptActivityTimeline";
 
 type Props = {
   sessionID: string;
@@ -15,7 +15,7 @@ type Props = {
   onRevertFiles?: (sessionID: string, messageID: string, paths: string[]) => Promise<boolean>;
 };
 
-export function AgentDiffReview({
+export function TranscriptDiffReview({
   sessionID,
   messageID,
   diffStat,

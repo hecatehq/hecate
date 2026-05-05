@@ -2,7 +2,7 @@ import { render, screen } from "@testing-library/react";
 import { describe, expect, it } from "vitest";
 
 import type { AgentChatActivityRecord } from "../../types/runtime";
-import { ActivityTimeline, DiffStatList, formatDiffStatSummary } from "./AgentActivityTimeline";
+import { TranscriptActivityTimeline, DiffStatList, formatDiffStatSummary } from "./TranscriptActivityTimeline";
 
 describe("formatDiffStatSummary", () => {
   it("returns the 'N files changed' line when present", () => {
@@ -43,9 +43,9 @@ describe("DiffStatList", () => {
   });
 });
 
-describe("ActivityTimeline", () => {
+describe("TranscriptActivityTimeline", () => {
   it("renders nothing when activities is empty", () => {
-    const { container } = render(<ActivityTimeline activities={[]} />);
+    const { container } = render(<TranscriptActivityTimeline activities={[]} />);
     expect(container).toBeEmptyDOMElement();
   });
 
@@ -53,7 +53,7 @@ describe("ActivityTimeline", () => {
     const activities: AgentChatActivityRecord[] = [
       { type: "tool_call", title: "read_file", status: "running", kind: "fs" },
     ];
-    render(<ActivityTimeline activities={activities} />);
+    render(<TranscriptActivityTimeline activities={activities} />);
     expect(screen.getByText(/running/)).toBeInTheDocument();
   });
 
@@ -62,7 +62,7 @@ describe("ActivityTimeline", () => {
       { type: "tool_call", title: "read_file", status: "completed" },
       { type: "completed", title: "Final answer", status: "completed" },
     ];
-    render(<ActivityTimeline activities={activities} />);
+    render(<TranscriptActivityTimeline activities={activities} />);
     expect(screen.getByText(/completed/)).toBeInTheDocument();
   });
 
@@ -72,7 +72,7 @@ describe("ActivityTimeline", () => {
       { type: "plan", title: "Step 2", status: "in_progress" },
       { type: "plan", title: "Step 3", status: "pending" },
     ];
-    render(<ActivityTimeline activities={activities} />);
+    render(<TranscriptActivityTimeline activities={activities} />);
     expect(screen.getByText("Step 1")).toBeInTheDocument();
     expect(screen.getByText("Step 2")).toBeInTheDocument();
     expect(screen.getByText("Step 3")).toBeInTheDocument();
@@ -82,7 +82,7 @@ describe("ActivityTimeline", () => {
     const activities: AgentChatActivityRecord[] = [
       { type: "tool_call", title: "read_file", status: "completed", kind: "fs", detail: "src/index.ts" },
     ];
-    render(<ActivityTimeline activities={activities} />);
+    render(<TranscriptActivityTimeline activities={activities} />);
     expect(screen.getByText("read_file")).toBeInTheDocument();
     expect(screen.getByText("fs")).toBeInTheDocument();
     expect(screen.getByText("src/index.ts")).toBeInTheDocument();
@@ -92,7 +92,7 @@ describe("ActivityTimeline", () => {
     const activities: AgentChatActivityRecord[] = [
       { type: "tool_call", title: "read_file", status: "completed" },
     ];
-    render(<ActivityTimeline activities={activities} diffStat="src/foo.ts | 3 +-" />);
+    render(<TranscriptActivityTimeline activities={activities} diffStat="src/foo.ts | 3 +-" />);
     expect(screen.getByText(/files changed/)).toBeInTheDocument();
   });
 
@@ -102,7 +102,7 @@ describe("ActivityTimeline", () => {
       { type: "tool_call", title: "read_file", status: "completed" },
       { type: "completed", title: "Final answer" },
     ];
-    render(<ActivityTimeline activities={activities} />);
+    render(<TranscriptActivityTimeline activities={activities} />);
     expect(screen.queryByText("Started")).toBeNull();
   });
 });

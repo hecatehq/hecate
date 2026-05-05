@@ -3,7 +3,7 @@ import type React from "react";
 import { parseInlineNodes, parseMarkdownBlocks } from "../../lib/markdown";
 import { CodeBlock } from "../shared/ui";
 
-export function Markdown({ content }: { content: string }) {
+export function TranscriptMarkdown({ content }: { content: string }) {
   const blocks = parseMarkdownBlocks(content);
   return (
     <div style={{ fontSize: 13, color: "var(--t0)", lineHeight: 1.7 }}>
