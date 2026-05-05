@@ -116,6 +116,82 @@ func TestApprovalReconcilePersistsAndFlipsAcrossRestart(t *testing.T) {
 	}
 }
 
+// TestApprovalGrantPersistsAcrossRestart is the binary-level smoke for
+// durable external-adapter approval grants. It creates a real agent-chat
+// session, injects a pending approval into SQLite, resolves it through
+// the public HTTP API with scope=session, restarts the binary, and
+// verifies the grant is still listed. Unit tests cover store parity;
+// this pins the cmd/hecate wiring and public route together.
+func TestApprovalGrantPersistsAcrossRestart(t *testing.T) {
+	t.Parallel()
+
+	bin := hecateBinary(t)
+	workDir := t.TempDir()
+	dataDir := filepath.Join(workDir, "data")
+	if err := os.MkdirAll(dataDir, 0o755); err != nil {
+		t.Fatalf("mkdir data: %v", err)
+	}
+	dbPath := filepath.Join(dataDir, "hecate.db")
+
+	commonEnv := []string{
+		"PATH=" + os.Getenv("PATH"),
+		"HOME=" + workDir,
+		"GATEWAY_DATA_DIR=" + dataDir,
+		"GATEWAY_CHAT_SESSIONS_BACKEND=sqlite",
+		"GATEWAY_SQLITE_PATH=" + dbPath,
+		"GATEWAY_AGENT_ADAPTER_APPROVAL_MODE=prompt",
+	}
+
+	addr1 := fmt.Sprintf("127.0.0.1:%d", freePort(t))
+	cmd1 := exec.Command(bin)
+	cmd1.Dir = workDir
+	cmd1.Env = append([]string{"GATEWAY_ADDRESS=" + addr1}, commonEnv...)
+	cmd1.Stdout = io.Discard
+	cmd1.Stderr = io.Discard
+	if err := cmd1.Start(); err != nil {
+		t.Fatalf("first start: %v", err)
+	}
+	waitHealthy(t, "http://"+addr1, 10*time.Second)
+
+	base1 := "http://" + addr1
+	sessionID := mustCreateAgentChatSession(t, base1)
+	approvalID := injectPendingApproval(t, dbPath, sessionID)
+	mustResolveApproval(t, base1, sessionID, approvalID, `{"decision":"approve","scope":"session"}`)
+
+	grants := mustListGrants(t, base1)
+	if len(grants) != 1 {
+		t.Fatalf("grants before restart = %d, want 1", len(grants))
+	}
+	if grants[0].Scope != "session" || grants[0].SessionID != sessionID || grants[0].Decision != "approve" {
+		t.Fatalf("grant before restart malformed: %+v", grants[0])
+	}
+
+	if err := cmd1.Process.Kill(); err != nil {
+		t.Fatalf("kill first run: %v", err)
+	}
+	_ = cmd1.Wait()
+
+	addr2 := fmt.Sprintf("127.0.0.1:%d", freePort(t))
+	cmd2 := exec.Command(bin)
+	cmd2.Dir = workDir
+	cmd2.Env = append([]string{"GATEWAY_ADDRESS=" + addr2}, commonEnv...)
+	cmd2.Stdout = io.Discard
+	cmd2.Stderr = io.Discard
+	if err := cmd2.Start(); err != nil {
+		t.Fatalf("second start: %v", err)
+	}
+	t.Cleanup(func() { _ = cmd2.Process.Kill(); _ = cmd2.Wait() })
+	waitHealthy(t, "http://"+addr2, 10*time.Second)
+
+	grants = mustListGrants(t, "http://"+addr2)
+	if len(grants) != 1 {
+		t.Fatalf("grants after restart = %d, want 1", len(grants))
+	}
+	if grants[0].Scope != "session" || grants[0].SessionID != sessionID || grants[0].Decision != "approve" {
+		t.Fatalf("grant after restart malformed: %+v", grants[0])
+	}
+}
+
 // ─── Helpers ─────────────────────────────────────────────────────────────────
 
 type apiApproval struct {
@@ -125,6 +201,15 @@ type apiApproval struct {
 	Path         string     `json:"path"`
 	ResolvedAt   *time.Time `json:"resolved_at,omitempty"`
 	DecisionNote string     `json:"decision_note,omitempty"`
+}
+
+type apiGrant struct {
+	ID        string `json:"id"`
+	Scope     string `json:"scope"`
+	AdapterID string `json:"adapter_id"`
+	ToolKind  string `json:"tool_kind"`
+	SessionID string `json:"session_id,omitempty"`
+	Decision  string `json:"decision"`
 }
 
 func mustCreateAgentChatSession(t *testing.T, baseURL string) string {
@@ -151,6 +236,40 @@ func mustCreateAgentChatSession(t *testing.T, baseURL string) string {
 		t.Fatal("session id missing")
 	}
 	return env.Data.ID
+}
+
+func mustResolveApproval(t *testing.T, baseURL, sessionID, approvalID, body string) {
+	t.Helper()
+	url := fmt.Sprintf("%s/v1/agent-chat/sessions/%s/approvals/%s/resolve", baseURL, sessionID, approvalID)
+	resp, err := http.Post(url, "application/json", strings.NewReader(body))
+	if err != nil {
+		t.Fatalf("resolve approval: %v", err)
+	}
+	defer resp.Body.Close()
+	if resp.StatusCode != http.StatusOK {
+		raw, _ := io.ReadAll(resp.Body)
+		t.Fatalf("resolve approval status = %d; body=%s", resp.StatusCode, raw)
+	}
+}
+
+func mustListGrants(t *testing.T, baseURL string) []apiGrant {
+	t.Helper()
+	resp, err := http.Get(baseURL + "/v1/agent-chat/grants")
+	if err != nil {
+		t.Fatalf("list grants: %v", err)
+	}
+	defer resp.Body.Close()
+	if resp.StatusCode != http.StatusOK {
+		raw, _ := io.ReadAll(resp.Body)
+		t.Fatalf("list grants status = %d; body=%s", resp.StatusCode, raw)
+	}
+	var env struct {
+		Data []apiGrant `json:"data"`
+	}
+	if err := json.NewDecoder(resp.Body).Decode(&env); err != nil {
+		t.Fatalf("decode grants: %v", err)
+	}
+	return env.Data
 }
 
 func mustGetApproval(t *testing.T, baseURL, sessionID, approvalID string) apiApproval {
