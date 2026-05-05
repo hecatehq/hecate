@@ -297,9 +297,10 @@ the sweeper has closed the stale session, the request returns HTTP 422 with
 
 ## Current gaps
 
-- Patch apply/revert UX is not implemented yet. Hecate captures and displays
-  diff data inline and exposes structured changed-file / per-file diff API
-  endpoints, but does not provide a dedicated patch action surface.
+- Dedicated patch review UX is not implemented yet. Hecate captures and
+  displays diff data inline, exposes structured changed-file / per-file diff
+  API endpoints, and can revert captured Git paths through the API, but the
+  Chats UI does not yet provide a full review/apply/revert surface.
 - ACP terminal reverse-RPC is not implemented yet. Adapters that require the
   editor/client to own terminal execution will receive a clear unsupported
   response.

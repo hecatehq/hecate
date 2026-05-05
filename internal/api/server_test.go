@@ -1429,6 +1429,115 @@ diff --git a/src/app.go b/src/app.go
 	}
 }
 
+func TestRevertAgentChatMessageFilesRestoresSelectedPaths(t *testing.T) {
+	workspace := t.TempDir()
+	runTestGit(t, workspace, "init")
+	runTestGit(t, workspace, "config", "user.email", "hecate@example.test")
+	runTestGit(t, workspace, "config", "user.name", "Hecate Test")
+	if err := os.MkdirAll(filepath.Join(workspace, "src"), 0o755); err != nil {
+		t.Fatalf("mkdir src: %v", err)
+	}
+	if err := os.WriteFile(filepath.Join(workspace, "README.md"), []byte("hello\n"), 0o644); err != nil {
+		t.Fatalf("write README: %v", err)
+	}
+	if err := os.WriteFile(filepath.Join(workspace, "src", "app.go"), []byte("package main\nvar value = 1\n"), 0o644); err != nil {
+		t.Fatalf("write app: %v", err)
+	}
+	runTestGit(t, workspace, "add", ".")
+	runTestGit(t, workspace, "commit", "-m", "initial")
+	if err := os.WriteFile(filepath.Join(workspace, "README.md"), []byte("hello\nworld\n"), 0o644); err != nil {
+		t.Fatalf("modify README: %v", err)
+	}
+	if err := os.WriteFile(filepath.Join(workspace, "src", "app.go"), []byte("package main\nvar value = 2\n"), 0o644); err != nil {
+		t.Fatalf("modify app: %v", err)
+	}
+	diff := runTestGit(t, workspace, "diff", "--binary")
+	diffStat := runTestGit(t, workspace, "diff", "--stat")
+
+	store := agentchat.NewMemoryStore()
+	sessionID := "agent_chat_revert"
+	messageID := "msg_revert"
+	if _, err := store.Create(context.Background(), agentchat.Session{
+		ID:        sessionID,
+		Title:     "Revert",
+		AdapterID: "codex",
+		Workspace: workspace,
+		Status:    "completed",
+		Messages:  []agentchat.Message{{ID: messageID, Role: "assistant", Status: "completed", Diff: diff, DiffStat: diffStat}},
+	}); err != nil {
+		t.Fatalf("Create: %v", err)
+	}
+	logger := slog.New(slog.NewJSONHandler(io.Discard, nil))
+	apiHandler := NewHandler(config.Config{}, logger, nil, nil, nil, nil)
+	apiHandler.SetAgentChatStore(store)
+	client := newAPITestClient(t, NewServer(logger, apiHandler))
+
+	resp := mustRequestJSON[AgentChatRevertResponse](client, http.MethodPost, "/v1/agent-chat/sessions/"+sessionID+"/messages/"+messageID+"/revert", `{"paths":["src/app.go"]}`)
+	if !resp.Data.Reverted || len(resp.Data.Paths) != 1 || resp.Data.Paths[0] != "src/app.go" {
+		t.Fatalf("revert response = %#v", resp.Data)
+	}
+	appContent, err := os.ReadFile(filepath.Join(workspace, "src", "app.go"))
+	if err != nil {
+		t.Fatalf("read app: %v", err)
+	}
+	if string(appContent) != "package main\nvar value = 1\n" {
+		t.Fatalf("app content = %q, want reverted", string(appContent))
+	}
+	readmeContent, err := os.ReadFile(filepath.Join(workspace, "README.md"))
+	if err != nil {
+		t.Fatalf("read README: %v", err)
+	}
+	if string(readmeContent) != "hello\nworld\n" {
+		t.Fatalf("README content = %q, want still modified", string(readmeContent))
+	}
+	if len(resp.Data.Files) != 1 || resp.Data.Files[0].Path != "README.md" {
+		t.Fatalf("remaining files = %#v, want README only", resp.Data.Files)
+	}
+	got := mustRequestJSON[AgentChatSessionResponse](client, http.MethodGet, "/v1/agent-chat/sessions/"+sessionID, "")
+	assistant := got.Data.Messages[0]
+	if !agentChatActivitiesContain(assistant.Activities, "files_reverted") {
+		t.Fatalf("activities = %#v, want files_reverted", assistant.Activities)
+	}
+	if strings.Contains(assistant.Diff, "src/app.go") {
+		t.Fatalf("updated message diff still contains reverted path: %q", assistant.Diff)
+	}
+}
+
+func TestRevertAgentChatMessageFilesRequiresGitWorkspace(t *testing.T) {
+	store := agentchat.NewMemoryStore()
+	sessionID := "agent_chat_revert_nongit"
+	messageID := "msg_revert"
+	if _, err := store.Create(context.Background(), agentchat.Session{
+		ID:        sessionID,
+		Title:     "Revert",
+		AdapterID: "codex",
+		Workspace: t.TempDir(),
+		Status:    "completed",
+		Messages:  []agentchat.Message{{ID: messageID, Role: "assistant", Status: "completed", DiffStat: "README.md | 1 +"}},
+	}); err != nil {
+		t.Fatalf("Create: %v", err)
+	}
+	logger := slog.New(slog.NewJSONHandler(io.Discard, nil))
+	apiHandler := NewHandler(config.Config{}, logger, nil, nil, nil, nil)
+	apiHandler.SetAgentChatStore(store)
+	client := newAPITestClient(t, NewServer(logger, apiHandler))
+
+	rec := client.mustRequestStatus(http.StatusBadRequest, http.MethodPost, "/v1/agent-chat/sessions/"+sessionID+"/messages/"+messageID+"/revert", `{"paths":["README.md"]}`)
+	if !strings.Contains(rec.Body.String(), "requires a git workspace") {
+		t.Fatalf("body = %s, want git workspace error", rec.Body.String())
+	}
+}
+
+func runTestGit(t *testing.T, workspace string, args ...string) string {
+	t.Helper()
+	cmdArgs := append([]string{"-C", workspace}, args...)
+	out, err := exec.Command("git", cmdArgs...).CombinedOutput()
+	if err != nil {
+		t.Fatalf("git %v: %v\n%s", args, err, out)
+	}
+	return string(out)
+}
+
 func agentChatActivitiesContain(items []AgentChatActivityItem, kind string) bool {
 	for _, item := range items {
 		if item.Type == kind {

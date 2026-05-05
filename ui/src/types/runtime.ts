@@ -306,6 +306,16 @@ export type AgentChatChangedFileDiffResponse = {
   data: AgentChatChangedFileDiffRecord;
 };
 
+export type AgentChatRevertResponse = {
+  object: string;
+  data: {
+    reverted: boolean;
+    paths: string[];
+    diff_stat?: string;
+    files: AgentChatChangedFileRecord[];
+  };
+};
+
 // AgentChatApprovalOption mirrors agentApprovalOptionItem on the wire.
 // One per ACP option offered by the adapter.
 export type AgentChatApprovalOption = {

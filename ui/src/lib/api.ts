@@ -20,6 +20,7 @@ import type {
   AgentChatChangedFileDiffResponse,
   AgentChatChangedFilesResponse,
   AgentChatGrantsResponse,
+  AgentChatRevertResponse,
   AgentChatSessionResponse,
   AgentChatSessionsResponse,
   AgentChatStreamEvent,
@@ -308,6 +309,13 @@ export async function listAgentChatMessageFiles(sessionID: string, messageID: st
 export async function getAgentChatMessageFileDiff(sessionID: string, messageID: string, path: string): Promise<AgentChatChangedFileDiffResponse> {
   return fetchJSON<AgentChatChangedFileDiffResponse>(
     `/v1/agent-chat/sessions/${encodeURIComponent(sessionID)}/messages/${encodeURIComponent(messageID)}/files/${encodeURIComponent(path)}`,
+  );
+}
+
+export async function revertAgentChatMessageFiles(sessionID: string, messageID: string, paths: string[] = []): Promise<AgentChatRevertResponse> {
+  return fetchJSON<AgentChatRevertResponse>(
+    `/v1/agent-chat/sessions/${encodeURIComponent(sessionID)}/messages/${encodeURIComponent(messageID)}/revert`,
+    { method: "POST", body: { paths } },
   );
 }
 
