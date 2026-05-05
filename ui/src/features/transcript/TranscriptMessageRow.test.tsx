@@ -52,6 +52,14 @@ describe("TranscriptMessageRow", () => {
     expect(screen.getByText(/Waiting for agent output/)).toBeInTheDocument();
   });
 
+  it("shows the waiting-for-output indicator for in-progress plan-only activity", () => {
+    const activities: AgentChatActivityRecord[] = [
+      { type: "plan", title: "Check the diff", status: "in_progress" },
+    ];
+    render(<TranscriptMessageRow {...baseProps} content="" activities={activities} />);
+    expect(screen.getByText(/Waiting for agent output/)).toBeInTheDocument();
+  });
+
   it("renders the user role label and U avatar for role=user", () => {
     render(<TranscriptMessageRow {...baseProps} role="user" content="hi there" />);
     expect(screen.getByText("You")).toBeInTheDocument();

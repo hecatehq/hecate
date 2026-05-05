@@ -57,6 +57,14 @@ describe("TranscriptActivityTimeline", () => {
     expect(screen.getByText(/running/)).toBeInTheDocument();
   });
 
+  it("renders the summary with running status for in-progress plan-only activity", () => {
+    const activities: AgentChatActivityRecord[] = [
+      { type: "plan", title: "Inspect the branch", status: "in_progress" },
+    ];
+    render(<TranscriptActivityTimeline activities={activities} />);
+    expect(screen.getByText(/running/)).toBeInTheDocument();
+  });
+
   it("renders the terminal status in the summary when a completed activity exists", () => {
     const activities: AgentChatActivityRecord[] = [
       { type: "tool_call", title: "read_file", status: "completed" },

@@ -34,6 +34,9 @@ func (s *MemoryApprovalStore) CreateApproval(_ context.Context, a Approval) (App
 	if a.CreatedAt.IsZero() {
 		a.CreatedAt = time.Now().UTC()
 	}
+	if a.Status == "" {
+		a.Status = ApprovalStatusPending
+	}
 	s.approvals[a.ID] = a
 	return a, nil
 }

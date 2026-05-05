@@ -47,6 +47,9 @@ func TestMemoryStoreCreateAndGet(t *testing.T) {
 	if got.ID == "" {
 		t.Fatal("expected store to assign id")
 	}
+	if got.Status != ApprovalStatusPending {
+		t.Fatalf("Status = %q, want %q", got.Status, ApprovalStatusPending)
+	}
 	got2, err := s.GetApproval(ctx, got.ID)
 	if err != nil {
 		t.Fatalf("GetApproval: %v", err)
