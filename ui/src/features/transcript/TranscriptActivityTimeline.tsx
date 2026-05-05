@@ -1,3 +1,5 @@
+import { useEffect, useState } from "react";
+
 import type { AgentChatActivityRecord } from "../../types/runtime";
 
 export function DiffStatList({ diffStat }: { diffStat: string }) {
@@ -47,9 +49,18 @@ export function formatDiffStatSummary(diffStat: string): string {
 
 export function TranscriptActivityTimeline({ activities, diffStat }: { activities: AgentChatActivityRecord[]; diffStat?: string }) {
   const visible = compactAgentActivities(activities);
-  if (visible.length === 0) return null;
   const terminal = terminalAgentActivity(activities);
   const hasRunning = !terminal && activities.some(isActiveAgentActivity);
+  const [open, setOpen] = useState(hasRunning);
+
+  useEffect(() => {
+    if (hasRunning) {
+      setOpen(true);
+    }
+  }, [hasRunning]);
+
+  if (visible.length === 0) return null;
+
   const plan = visible.filter(activity => activity.type === "plan");
   const tools = visible.filter(activity => activity.type === "tool_call");
   const other = visible.filter(activity => activity.type !== "plan" && activity.type !== "tool_call");
@@ -61,7 +72,11 @@ export function TranscriptActivityTimeline({ activities, diffStat }: { activitie
   ].filter(Boolean).join(" · ");
 
   return (
-    <details open={hasRunning} style={{ marginTop: 8 }}>
+    <details
+      onToggle={(event) => setOpen(event.currentTarget.open)}
+      open={open}
+      style={{ marginTop: 8 }}
+    >
       <summary style={{ cursor: "pointer", fontFamily: "var(--font-mono)", fontSize: 11, color: "var(--t3)" }}>
         {summary}
       </summary>

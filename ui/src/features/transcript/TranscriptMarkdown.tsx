@@ -1,7 +1,7 @@
 import type React from "react";
 
 import { parseInlineNodes, parseMarkdownBlocks } from "../../lib/markdown";
-import { CodeBlock } from "../shared/ui";
+import { CodeBlock } from "../shared/Atoms";
 
 export function TranscriptMarkdown({ content }: { content: string }) {
   const blocks = parseMarkdownBlocks(content);

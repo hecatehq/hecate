@@ -1,7 +1,8 @@
 import { useState } from "react";
 
 import type { AgentChatActivityRecord, AgentChatChangedFileDiffRecord, AgentChatChangedFileRecord, AgentChatUsageRecord } from "../../types/runtime";
-import { CodeBlock, Icon, Icons } from "../shared/ui";
+import { CodeBlock } from "../shared/Atoms";
+import { Icon, Icons } from "../shared/Icons";
 import { TranscriptActivityTimeline } from "./TranscriptActivityTimeline";
 import { TranscriptDiffReview } from "./TranscriptDiffReview";
 import { TranscriptMarkdown } from "./TranscriptMarkdown";
