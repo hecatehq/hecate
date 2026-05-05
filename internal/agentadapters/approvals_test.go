@@ -295,10 +295,10 @@ func TestCoordinatorModeDenyRecordsAndRejects(t *testing.T) {
 
 func TestCoordinatorModePromptCancelsWithoutUI(t *testing.T) {
 	t.Parallel()
-	// Slice 1A: prompt mode degrades to a Cancelled outcome with
-	// status=timed_out after the configured timeout because the
-	// operator UI doesn't ship until slice 1B. Slice 1B replaces
-	// this with real blocking on an operator decision.
+	// Sanity check: prompt mode falls back to a Cancelled outcome
+	// with status=timed_out when no operator decision arrives before
+	// the configured timeout fires. The "real blocking" path is
+	// covered by the resolve/cancel tests below.
 	store := NewMemoryApprovalStore()
 	var timedOut int
 	timeout := 5 * time.Millisecond
