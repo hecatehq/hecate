@@ -128,10 +128,11 @@ src/
   features/
     runs/               TasksView, TaskDetail, NewTaskSlideOver, TaskList — agent task list + run replay (the headline UI)
     chats/              ChatView — interactive chat against the gateway
+    transcript/         reusable Chats transcript pieces: markdown, message rows, activity timeline, file diff review
     overview/           ConnectYourClient, ObservabilityView — request ledger + trace drilldown + Codex/Claude Code setup
-    admin/              AdminView, PricebookTab — settings, pricing, retention, policy
+    settings/           SettingsView, PricebookTab — settings, pricing, retention, external-agent grants
     providers/          ProvidersView — provider catalog + health
-    shared/             ui.tsx — primitives (ProviderPicker, ModelPicker, useFloatingDropdownStyle)
+    shared/             primitives, pickers, overlays; ui.tsx is a compatibility barrel
   lib/
     api.ts              fetch wrappers + streamTaskRun (SSE consumer)
     markdown.ts, provider-utils.ts, runtime-utils.ts

@@ -8,7 +8,7 @@ The Tasks workspace in the operator UI is the human entry point — create a tas
 
 ![Tasks workspace — task list with run state and approval queue](screenshots/tasks.png)
 
-> Contributing here? Start at [`AGENTS.md`](../AGENTS.md) for the codebase map and runtime invariants; conventions, workflow, and verification ladders live under [`ai/`](../ai/README.md).
+> Contributing here? Start at [`AGENTS.md`](../AGENTS.md) for the codebase map and runtime invariants; conventions, workflow, and verification ladders live under [`docs-ai/`](../docs-ai/README.md).
 
 ## Contents
 

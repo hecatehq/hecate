@@ -11,20 +11,20 @@ This file is the orientation entry — the codebase map, the runtime
 invariants, and the gotchas that bite often. It is what an agent
 (Claude Code, Codex, Cursor, or human) reaches for when starting work
 on this repo. Conventions, workflow, verification, and longer-form
-guidance live in [`ai/`](ai/README.md).
+guidance live in [`docs-ai/`](docs-ai/README.md).
 
 ## Where guidance lives
 
 | Surface | What it carries |
 |---|---|
-| [`ai/`](ai/README.md) | Canonical agent guidance — project context, conventions, workflow, verification, task shapes, area + posture skills |
+| [`docs-ai/`](docs-ai/README.md) | Canonical agent guidance — project context, conventions, workflow, verification, task shapes, area + posture skills |
 | `AGENTS.md` (this) and `ui/AGENTS.md`, `internal/providers/AGENTS.md` | Codebase map per area |
-| [`CLAUDE.md`](CLAUDE.md) | Thin Claude Code adapter pointing to `ai/` |
-| [`.cursor/rules/`](.cursor/rules/) | Thin Cursor adapter pointing to `ai/` |
+| [`CLAUDE.md`](CLAUDE.md) | Thin Claude Code adapter pointing to `docs-ai/` |
+| [`.cursor/rules/`](.cursor/rules/) | Thin Cursor adapter pointing to `docs-ai/` |
 | [`.claude/commands/`](.claude/commands/) | Slash commands: `/race`, `/typecheck`, `/test-affected` |
 | [`docs/`](docs/) | Long-form references (architecture, runtime API, events, telemetry) |
 
-When in doubt: read [`ai/core/project-context.md`](ai/core/project-context.md) and [`ai/core/workflow.md`](ai/core/workflow.md).
+When in doubt: read [`docs-ai/core/project-context.md`](docs-ai/core/project-context.md) and [`docs-ai/core/workflow.md`](docs-ai/core/workflow.md).
 
 ## Codebase map
 
@@ -44,7 +44,7 @@ scripts/
   stamp-version.ts      stamp Tauri version files to current git tag / TAURI_VERSION
 e2e/                    binary-startup tests; build tag e2e (sub-tags: ollama, docker)
 docs/                   long-form references (architecture, runtime API, events, ...)
-ai/                     canonical agent guidance (this file points there for depth)
+docs-ai/                canonical agent guidance (this file points there for depth)
 
 internal/
   api/                  inbound HTTP shapes + handlers (OpenAIChatMessage, uppercase)
@@ -85,7 +85,7 @@ pkg/types/  ←  internal/api/  ←  internal/providers/
               internal/orchestrator/  (sits above api, drives runs through providers)
 ```
 
-The api↔providers parallel-struct duplication (`OpenAIChatMessage` ↔ `openAIChatMessage`) is intentional — it keeps `internal/providers/` free of `internal/api/` imports. Full rationale: [`ai/skills/providers/SKILL.md`](ai/skills/providers/SKILL.md).
+The api↔providers parallel-struct duplication (`OpenAIChatMessage` ↔ `openAIChatMessage`) is intentional — it keeps `internal/providers/` free of `internal/api/` imports. Full rationale: [`docs-ai/skills/providers/SKILL.md`](docs-ai/skills/providers/SKILL.md).
 
 **Storage tier rule**: every backend-bound concern mirrors two tiers —
 memory (default) and sqlite (`modernc.org/sqlite`, no CGO).
@@ -105,7 +105,7 @@ touches request handling, persistence, or tool execution.
 
 ## Conventions (in brief)
 
-Full standards: [`ai/core/engineering-standards.md`](ai/core/engineering-standards.md).
+Full standards: [`docs-ai/core/engineering-standards.md`](docs-ai/core/engineering-standards.md).
 
 - **Comments explain *why***, not what. State the trade-off.
 - **Pointer vs value for optional fields**: pointer when zero is a valid
@@ -118,7 +118,7 @@ Full standards: [`ai/core/engineering-standards.md`](ai/core/engineering-standar
 
 ## Verification
 
-Full ladder: [`ai/core/verification.md`](ai/core/verification.md).
+Full ladder: [`docs-ai/core/verification.md`](docs-ai/core/verification.md).
 
 - **Race suite is the floor for runtime/backend changes**: `go test -race -timeout 10m ./...` (or `/race`). Race builds are large; if your default `$GOCACHE` is on a small volume, point it at the repo: `GOCACHE="$(pwd)/.gocache" go test -race ...`.
 - **Iteration**: `/test-affected` for narrow runs.
@@ -129,11 +129,11 @@ Full ladder: [`ai/core/verification.md`](ai/core/verification.md).
 
 | Task | Where |
 |---|---|
-| Add a passthrough wire field (the seven-step chain — most-redone task here) | [`ai/skills/providers/SKILL.md`](ai/skills/providers/SKILL.md) |
-| Add an MCP tool / persisted run-event type / test helper cheat-sheet | [`ai/skills/backend/SKILL.md`](ai/skills/backend/SKILL.md) |
-| UI recipes (SSE-driven state field, paired pickers, snapshot refresh) | [`ai/skills/ui/SKILL.md`](ai/skills/ui/SKILL.md) |
-| Native desktop app (sidecar lifecycle, bundling, Tauri commands) | [`ai/skills/tauri/SKILL.md`](ai/skills/tauri/SKILL.md) |
-| Cut a release tag | `bun scripts/release.ts vX.Y.Z` — checks worktree, snapshot dry-run, stamps Tauri versions, tags, pushes. Full procedure: [`ai/tasks/release.md`](ai/tasks/release.md) |
+| Add a passthrough wire field (the seven-step chain — most-redone task here) | [`docs-ai/skills/providers/SKILL.md`](docs-ai/skills/providers/SKILL.md) |
+| Add an MCP tool / persisted run-event type / test helper cheat-sheet | [`docs-ai/skills/backend/SKILL.md`](docs-ai/skills/backend/SKILL.md) |
+| UI recipes (SSE-driven state field, paired pickers, snapshot refresh) | [`docs-ai/skills/ui/SKILL.md`](docs-ai/skills/ui/SKILL.md) |
+| Native desktop app (sidecar lifecycle, bundling, Tauri commands) | [`docs-ai/skills/tauri/SKILL.md`](docs-ai/skills/tauri/SKILL.md) |
+| Cut a release tag | `bun scripts/release.ts vX.Y.Z` — checks worktree, snapshot dry-run, stamps Tauri versions, tags, pushes. Full procedure: [`docs-ai/tasks/release.md`](docs-ai/tasks/release.md) |
 | Stamp Tauri version files | `bun scripts/stamp-version.ts` (or `make tauri-version`) — syncs Cargo.toml, package.json, tauri.conf.json to current git tag |
 
 ## Gotchas
@@ -142,7 +142,7 @@ Full ladder: [`ai/core/verification.md`](ai/core/verification.md).
 - **modernc/sqlite TIME-as-text format**: the driver writes `time.Time` using Go's default `time.Time.String()` format, which doesn't lex-compare with RFC3339Nano cutoffs and silently breaks the retention sweep. Always write timestamps as `t.UTC().Format(time.RFC3339Nano)` when the column is TEXT (see `internal/taskstate/sqlite.go` `AppendRunEvent`).
 - **OpenAI/openAI parallel structs are intentional**: don't unify. Mirror fields when adding on either side.
 - **Streaming `wireReq` plumbing**: when adding a passthrough field, plumb it into BOTH `Chat` and `ChatStream` `wireReq` constructions in `internal/providers/openai.go`. Forgetting one is the most common provider bug — non-stream tests pass; the field silently drops in production for any client using `stream: true`.
-- **Capability-cache seeding** for provider tests: seed `cachedCaps` and `capsExpiry` to skip the discovery path. Snippet in [`ai/skills/providers/SKILL.md`](ai/skills/providers/SKILL.md).
+- **Capability-cache seeding** for provider tests: seed `cachedCaps` and `capsExpiry` to skip the discovery path. Snippet in [`docs-ai/skills/providers/SKILL.md`](docs-ai/skills/providers/SKILL.md).
 - **Pricebook preflight** in tests: `PROVIDER_FAKE_KIND=local` for synthetic models in e2e.
 - **mermaid `loop` is a reserved keyword**: don't use it as a sequence-diagram participant name. Use `Agent` or similar.
 - **CodeQL CWE-190**: don't compute `make([]T, 0, len(x)+N)` with arithmetic — use plain `len(x)` and let `append` grow.

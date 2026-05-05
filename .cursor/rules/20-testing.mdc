@@ -34,5 +34,5 @@ Race suite is the floor for any change touching `internal/gateway`, `internal/ro
 
 ## Pointers
 
-- Full ladder and done criteria: [`ai/core/verification.md`](../../ai/core/verification.md).
-- Layer-choice matrix and edge cases: [`ai/skills/tester/SKILL.md`](../../ai/skills/tester/SKILL.md).
+- Full ladder and done criteria: [`docs-ai/core/verification.md`](../../docs-ai/core/verification.md).
+- Layer-choice matrix and edge cases: [`docs-ai/skills/tester/SKILL.md`](../../docs-ai/skills/tester/SKILL.md).
