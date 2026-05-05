@@ -1474,6 +1474,162 @@ func TestAgentChatNoLimitWhenMaxTurnsIsZero(t *testing.T) {
 	}
 }
 
+func TestAgentChatDurationLimitReturns422(t *testing.T) {
+	dir := t.TempDir()
+	logger := slog.New(slog.NewJSONHandler(io.Discard, nil))
+	cfg := config.Config{Server: config.ServerConfig{AgentChatMaxSessionDuration: time.Hour}}
+	apiHandler := newTestAPIHandlerWithControlPlane(logger, []providers.Provider{&fakeProvider{}}, cfg, nil)
+	apiHandler.SetAgentChatRunner(&fakeAgentChatRunner{output: "ok"})
+	handler := NewServer(logger, apiHandler)
+	client := newAPITestClient(t, handler)
+
+	created := mustRequestJSON[AgentChatSessionResponse](client, http.MethodPost, "/v1/agent-chat/sessions", fmt.Sprintf(`{"adapter_id":"codex","workspace":%q}`, dir))
+	oldStartedAt := time.Now().UTC().Add(-2 * time.Hour)
+	if _, err := apiHandler.agentChat.UpdateSession(context.Background(), created.Data.ID, func(item *agentchat.Session) {
+		item.CreatedAt = oldStartedAt
+	}); err != nil {
+		t.Fatalf("UpdateSession: %v", err)
+	}
+
+	rec := client.mustRequestStatus(http.StatusUnprocessableEntity, http.MethodPost, "/v1/agent-chat/sessions/"+created.Data.ID+"/messages", `{"content":"still there?"}`)
+	var body map[string]any
+	if err := json.NewDecoder(rec.Body).Decode(&body); err != nil {
+		t.Fatalf("decode 422 body: %v", err)
+	}
+	errObj, _ := body["error"].(map[string]any)
+	if errObj["type"] != errCodeSessionDurationLimit {
+		t.Fatalf("error.type = %v, want %q", errObj["type"], errCodeSessionDurationLimit)
+	}
+	if limit, _ := errObj["limit_ms"].(float64); int64(limit) != time.Hour.Milliseconds() {
+		t.Fatalf("error.limit_ms = %v, want %d", errObj["limit_ms"], time.Hour.Milliseconds())
+	}
+	if started, _ := errObj["started_at"].(string); started == "" {
+		t.Fatalf("error.started_at = empty, want session start timestamp")
+	}
+}
+
+func TestAgentChatSnapshotIncludesDurationAndIdleLimits(t *testing.T) {
+	t.Parallel()
+	dir := t.TempDir()
+	logger := slog.New(slog.NewJSONHandler(io.Discard, nil))
+	cfg := config.Config{Server: config.ServerConfig{
+		AgentChatMaxTurnsPerSession: 10,
+		AgentChatMaxSessionDuration: 2 * time.Hour,
+		AgentChatIdleTimeout:        30 * time.Minute,
+	}}
+	apiHandler := newTestAPIHandlerWithControlPlane(logger, []providers.Provider{&fakeProvider{}}, cfg, nil)
+	client := newAPITestClient(t, NewServer(logger, apiHandler))
+
+	created := mustRequestJSON[AgentChatSessionResponse](client, http.MethodPost, "/v1/agent-chat/sessions", fmt.Sprintf(`{"adapter_id":"codex","workspace":%q}`, dir))
+	if created.Data.MaxTurnsPerSession != 10 {
+		t.Fatalf("max_turns_per_session = %d, want 10", created.Data.MaxTurnsPerSession)
+	}
+	if created.Data.SessionStartedAt == "" {
+		t.Fatalf("session_started_at = empty")
+	}
+	if created.Data.MaxSessionDurationMS != (2 * time.Hour).Milliseconds() {
+		t.Fatalf("max_session_duration_ms = %d, want %d", created.Data.MaxSessionDurationMS, (2 * time.Hour).Milliseconds())
+	}
+	if created.Data.IdleTimeoutMS != (30 * time.Minute).Milliseconds() {
+		t.Fatalf("idle_timeout_ms = %d, want %d", created.Data.IdleTimeoutMS, (30 * time.Minute).Milliseconds())
+	}
+}
+
+func TestAgentChatIdleLimitReturns422(t *testing.T) {
+	store := agentchat.NewMemoryStore()
+	now := time.Now().UTC()
+	old := now.Add(-2 * time.Hour)
+	workspace := t.TempDir()
+	session, err := store.Create(context.Background(), agentchat.Session{
+		ID:        "agent_chat_idle_limit",
+		Title:     "Idle limit",
+		AdapterID: "codex",
+		Workspace: workspace,
+		Status:    "completed",
+		CreatedAt: old,
+	})
+	if err != nil {
+		t.Fatalf("Create: %v", err)
+	}
+
+	logger := slog.New(slog.NewJSONHandler(io.Discard, nil))
+	cfg := config.Config{Server: config.ServerConfig{AgentChatIdleTimeout: time.Hour}}
+	apiHandler := newTestAPIHandlerWithControlPlane(logger, []providers.Provider{&fakeProvider{}}, cfg, nil)
+	apiHandler.SetAgentChatStore(store)
+	apiHandler.SetAgentChatRunner(&fakeAgentChatRunner{output: "ok"})
+	client := newAPITestClient(t, NewServer(logger, apiHandler))
+
+	rec := client.mustRequestStatus(http.StatusUnprocessableEntity, http.MethodPost, "/v1/agent-chat/sessions/"+session.ID+"/messages", `{"content":"still there?"}`)
+	var body map[string]any
+	if err := json.NewDecoder(rec.Body).Decode(&body); err != nil {
+		t.Fatalf("decode 422 body: %v", err)
+	}
+	errObj, _ := body["error"].(map[string]any)
+	if errObj["type"] != errCodeSessionIdleTimeout {
+		t.Fatalf("error.type = %v, want %q", errObj["type"], errCodeSessionIdleTimeout)
+	}
+	if limit, _ := errObj["limit_ms"].(float64); int64(limit) != time.Hour.Milliseconds() {
+		t.Fatalf("error.limit_ms = %v, want %d", errObj["limit_ms"], time.Hour.Milliseconds())
+	}
+	if updated, _ := errObj["updated_at"].(string); updated == "" {
+		t.Fatalf("error.updated_at = empty, want last update timestamp")
+	}
+}
+
+func TestAgentChatIdleSweepCancelsStaleSession(t *testing.T) {
+	store := agentchat.NewMemoryStore()
+	now := time.Now().UTC()
+	old := now.Add(-2 * time.Hour)
+	workspace := t.TempDir()
+	session, err := store.Create(context.Background(), agentchat.Session{
+		ID:        "agent_chat_idle",
+		Title:     "Idle chat",
+		AdapterID: "codex",
+		Workspace: workspace,
+		Status:    "completed",
+		CreatedAt: old,
+		Messages: []agentchat.Message{
+			{
+				ID:        "msg_assistant",
+				Role:      "assistant",
+				Content:   "previous answer",
+				Status:    "completed",
+				CreatedAt: old,
+			},
+		},
+	})
+	if err != nil {
+		t.Fatalf("Create: %v", err)
+	}
+
+	logger := slog.New(slog.NewJSONHandler(io.Discard, nil))
+	runner := &fakeAgentChatRunner{}
+	apiHandler := newTestAPIHandlerWithControlPlane(logger, []providers.Provider{&fakeProvider{}}, config.Config{}, nil)
+	apiHandler.SetAgentChatStore(store)
+	apiHandler.SetAgentChatRunner(runner)
+	client := newAPITestClient(t, NewServer(logger, apiHandler))
+
+	apiHandler.closeIdleAgentChatSessions(context.Background(), time.Hour, now)
+
+	got := mustRequestJSON[AgentChatSessionResponse](client, http.MethodGet, "/v1/agent-chat/sessions/"+session.ID, "")
+	if got.Data.Status != "cancelled" {
+		t.Fatalf("session status = %q, want cancelled", got.Data.Status)
+	}
+	if got.Data.DriverKind != "" || got.Data.NativeSessionID != "" {
+		t.Fatalf("runtime handles = kind %q native %q, want cleared", got.Data.DriverKind, got.Data.NativeSessionID)
+	}
+	if len(runner.closedSessions) != 1 || runner.closedSessions[0] != session.ID {
+		t.Fatalf("closed sessions = %#v, want %q", runner.closedSessions, session.ID)
+	}
+	assistant := got.Data.Messages[0]
+	if assistant.Status != "cancelled" || assistant.Error != "idle timeout" {
+		t.Fatalf("assistant = %#v, want idle-timeout cancellation", assistant)
+	}
+	if !agentChatActivitiesContain(assistant.Activities, "interrupted") {
+		t.Fatalf("activities = %+v, want interrupted activity", assistant.Activities)
+	}
+}
+
 type fakeAgentChatRunner struct {
 	output          string
 	finalOutput     string

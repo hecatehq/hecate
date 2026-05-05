@@ -11,6 +11,7 @@ Hecate defaults to `127.0.0.1:8765` and enforces same-origin for browser request
 - [Desktop app](#desktop-app)
 - [Resetting state](#resetting-state)
 - [Storage backends](#storage-backends)
+- [External-agent startup knobs](#external-agent-startup-knobs)
 - [Rate limiting](#rate-limiting)
 
 ## Image pinning
@@ -104,6 +105,28 @@ Desktop app distinct from `docker run` / bare binary:
 - Multi-machine users keep separate config per OS — settings on macOS don't migrate to Linux even on the same release.
 
 Full state, footguns, and roadmap: [`desktop-app.md`](desktop-app.md).
+
+## External-agent startup knobs
+
+Web, Docker, tarball, and native-app launches use the same gateway env vars for
+Agent Chat. The native app spawns the bundled gateway sidecar with these env
+vars inherited from the app process; Docker reads them from `.env` / compose;
+bare binaries read the shell environment.
+
+| Env var | Default | Applies to |
+|---|---|---|
+| `HECATE_AGENT_ADAPTERS_DIR` | platform user cache | Managed Codex / Claude ACP launcher scripts |
+| `GATEWAY_AGENT_CHAT_MAX_TURNS_PER_SESSION` | `0` | Per-session user→assistant turn ceiling |
+| `GATEWAY_AGENT_CHAT_MAX_SESSION_DURATION` | `0s` | Wall-clock age ceiling before new turns are rejected |
+| `GATEWAY_AGENT_CHAT_IDLE_TIMEOUT` | `0s` | Background idle auto-close sweeper |
+
+Managed launchers are small wrapper scripts around a local package runner such
+as `npx`; Hecate garbage-collects stale launcher names at startup. If you move
+Node/npm managers, restart Hecate and use `POST
+/v1/agent-adapters/{id}/refresh-launcher` to recreate the affected wrapper.
+The Settings → External agents **Test** action calls `POST
+/v1/agent-adapters/{id}/probe`, which re-runs discovery and performs the ACP
+handshake so login/billing problems are visible before a chat fails.
 
 ## Resetting state
 

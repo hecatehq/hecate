@@ -136,3 +136,38 @@ func TestAgentAdapterHealth404OnUnknownAdapter(t *testing.T) {
 		t.Fatalf("error.message = %q, want substring %q", msg, "not found")
 	}
 }
+
+func TestAgentAdapterProbeEndpointReturnsFreshAdapterAndHealth(t *testing.T) {
+	t.Parallel()
+
+	logger := slog.New(slog.NewJSONHandler(io.Discard, nil))
+	apiHandler := NewHandler(config.Config{}, logger, nil, nil, nil, nil)
+	apiHandler.SetAgentAdapterProbe(func(_ context.Context, id string) agentadapters.ProbeResult {
+		if id != "codex" {
+			t.Fatalf("probe called for %q, want codex", id)
+		}
+		return agentadapters.ProbeResult{
+			AdapterID:  "codex",
+			Status:     agentadapters.ProbeStatusReady,
+			Stage:      agentadapters.ProbeStageReady,
+			Path:       "/usr/local/bin/codex-acp",
+			DurationMS: 42,
+		}
+	})
+	server := NewServer(logger, apiHandler)
+	client := newAPITestClient(t, server)
+
+	resp := mustRequestJSON[AgentAdapterProbeResponse](client, http.MethodPost, "/v1/agent-adapters/codex/probe", "")
+	if resp.Object != "agent_adapter_probe" {
+		t.Fatalf("object = %q, want agent_adapter_probe", resp.Object)
+	}
+	if resp.Data.Adapter.ID != "codex" || resp.Data.Health.AdapterID != "codex" {
+		t.Fatalf("probe response = %#v, want codex adapter and health", resp.Data)
+	}
+	if resp.Data.Adapter.AuthStatus != agentadapters.AuthStatusOK {
+		t.Fatalf("adapter auth_status = %q, want ok", resp.Data.Adapter.AuthStatus)
+	}
+	if resp.Data.Health.Status != agentadapters.ProbeStatusReady || resp.Data.Health.DurationMS != 42 {
+		t.Fatalf("health = %#v, want ready duration 42", resp.Data.Health)
+	}
+}

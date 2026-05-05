@@ -2,7 +2,8 @@
 
 > **Status:** accepted for alpha MVP. Adapter discovery, Agent Chat,
 > memory/SQLite persistence, long-lived ACP sessions, live streaming,
-> cancellation, raw diagnostics, and workspace diff capture are implemented.
+> cancellation, raw diagnostics, workspace diff capture, approval prompts,
+> readiness probes, version warnings, and session guardrails are implemented.
 > Each prompt has stable run metadata on the assistant message, and each chat
 > records the native ACP session id reused across turns. API shape may still
 > change before a stable release.
@@ -326,6 +327,9 @@ prefer reuse where possible, but not at the cost of a broken chat stream.
 - [x] Streaming output reaches the UI while the process is still running.
 - [x] Cancellation signals the ACP turn and marks the session/run cancelled.
 - [x] Session history is durable across gateway restarts when the chat-session backend is SQLite.
+- [x] Adapter readiness can distinguish missing binaries, auth/billing failures, and versions outside Hecate's tested range.
+- [x] Operator approvals are prompt-first by default and visible through REST, SSE, Settings grants, and Chats review UI.
+- [x] Optional turn, wall-clock, and idle guardrails protect long-lived external-agent sessions.
 - [ ] Dedicated patch review/apply/revert UX for captured diffs.
 - [ ] Deeper adapter-specific structured mappers for ACP tool/terminal output.
 - [ ] Decision on whether Agent Chat converges onto full Hecate Tasks/Runs.

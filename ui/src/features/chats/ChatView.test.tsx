@@ -166,6 +166,15 @@ describe("ChatView chats sidebar", () => {
 });
 
 describe("ChatView agent target", () => {
+  it("shows the unsandboxed external-agent reminder in agent mode only", () => {
+    const { state, actions } = setup({ chatTarget: "agent" });
+    const { rerender } = render(<ChatView state={state} actions={actions} />);
+    expect(screen.getByText(/External agents run as your OS user/)).toBeTruthy();
+
+    rerender(<ChatView state={{ ...state, chatTarget: "model" }} actions={actions} />);
+    expect(screen.queryByText(/External agents run as your OS user/)).toBeNull();
+  });
+
   it("does not show provider setup actions when agent chat has no available CLI", () => {
     const { state, actions } = setup({
       chatTarget: "agent",
@@ -364,6 +373,48 @@ describe("ChatView agent target", () => {
     expect(screen.getByText("I’ll check the current worktree diff and summarize the changed files plus the important hunks.")).toBeTruthy();
     expect(screen.getByText("I’ll check the current worktree diff and summarize the changed files plus the important hunks.").parentElement?.querySelector("[aria-hidden='true']")).toBeTruthy();
     expect(screen.queryByText("Waiting for agent output...")).toBeNull();
+  });
+
+  it("renders adapter-reported usage below completed agent messages", () => {
+    const { state, actions } = setup({
+      chatTarget: "agent",
+      agentWorkspace: "/tmp/hecate",
+      agentAdapters: [
+        { id: "codex", name: "Codex", kind: "acp", command: "codex-acp", available: true, status: "available", cost_mode: "external" },
+      ],
+      activeAgentChatSessionID: "a1",
+      activeAgentChatSession: {
+        id: "a1",
+        title: "Usage check",
+        adapter_id: "codex",
+        driver_kind: "acp",
+        workspace: "/tmp/hecate",
+        status: "completed",
+        messages: [
+          { id: "m1", role: "user", content: "status", created_at: "2026-05-03T10:00:00Z" },
+          {
+            id: "m2",
+            role: "assistant",
+            content: "Done.",
+            adapter_id: "codex",
+            adapter_name: "Codex",
+            status: "completed",
+            created_at: "2026-05-03T10:00:01Z",
+            usage: {
+              context_size: 200000,
+              context_used: 42000,
+              reported_cost_amount: "0.1234",
+              reported_cost_currency: "USD",
+            },
+          },
+        ],
+      } as any,
+    });
+    render(<ChatView state={state} actions={actions} />);
+
+    expect(screen.getByText("0.1234 USD")).toBeTruthy();
+    expect(screen.getByText("42000/200000 context")).toBeTruthy();
+    expect(screen.getByText("reported by adapter · not enforced by Hecate")).toBeTruthy();
   });
 
   it("disables stop and shows cancelling feedback after stop is requested", () => {

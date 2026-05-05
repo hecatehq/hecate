@@ -375,7 +375,8 @@ GET /v1/agent-adapters
       "cost_mode": "external",
       "version": "1.2.3",
       "supported_range": ">=0.1.0",
-      "version_outside_range": false
+      "version_outside_range": false,
+      "auth_status": "ok"
     },
     {
       "id": "cursor_agent",
@@ -389,7 +390,9 @@ GET /v1/agent-adapters
       "cost_mode": "external",
       "version": "0.0.9",
       "supported_range": ">=0.1.0",
-      "version_outside_range": true
+      "version_outside_range": true,
+      "auth_status": "unauthenticated",
+      "auth_error": "Run cursor-agent login, or set CURSOR_API_KEY for the adapter environment."
     },
     {
       "id": "claude_code",
@@ -402,7 +405,9 @@ GET /v1/agent-adapters
       "status": "missing",
       "error": "exec: \"claude-agent-acp\": executable file not found in $PATH; managed launcher unavailable: no local package runner found for @agentclientprotocol/claude-agent-acp",
       "cost_mode": "external",
-      "supported_range": ">=0.1.0"
+      "supported_range": ">=0.1.0",
+      "auth_status": "unknown",
+      "auth_error": "Run claude /status or claude login if the ACP probe reports auth or billing errors."
     }
   ]
 }
@@ -415,9 +420,51 @@ missing or when the binary does not print a recognisable version string.
 are present and the version does not satisfy the constraint — the Settings UI
 shows an amber "outside tested range" chip in that case.
 
+`auth_status` is a lightweight dashboard hint, not a full login check. Values:
+`ok`, `unauthenticated`, `billing`, or `unknown`. It is derived from known env
+vars and login files without spawning the adapter. Use `POST
+/v1/agent-adapters/{id}/probe` for the full ACP handshake.
+
 These are **agent adapters**, not model providers. They run ACP-compatible
 external coding agents under Hecate supervision; cost is reported as `external`
 until an adapter can supply structured usage.
+
+### `POST /v1/agent-adapters/{id}/probe`
+
+Re-runs discovery for one adapter, then performs the same end-to-end ACP probe
+as `/health`. The response includes the fresh catalog row plus the health
+result, so UIs can update a single Settings row after the operator logs in or
+installs a missing dependency.
+
+```json
+POST /v1/agent-adapters/codex/probe
+→ 200
+{
+  "object": "agent_adapter_probe",
+  "data": {
+    "adapter": {
+      "id": "codex",
+      "name": "Codex",
+      "kind": "acp",
+      "command": "codex-acp",
+      "available": true,
+      "status": "available",
+      "auth_status": "ok"
+    },
+    "health": {
+      "adapter_id": "codex",
+      "status": "ready",
+      "stage": "ready",
+      "duration_ms": 412
+    }
+  }
+}
+```
+
+Status codes:
+- `200 OK` when the adapter id is registered; `health.status` carries
+  `ready`, `not_installed`, `auth_required`, or `error`.
+- `404 not_found` when the adapter id is not registered.
 
 ### `GET /v1/agent-adapters/{id}/health`
 
@@ -466,6 +513,40 @@ Status codes:
 The probe creates and immediately abandons a fresh ACP session, so adapters
 that bill on session creation will see one no-op session per call. Adapters
 that bill on prompt completion see no charge.
+
+### `POST /v1/agent-adapters/{id}/refresh-launcher`
+
+Deletes and recreates the Hecate-managed launcher script for a managed adapter
+such as Codex or Claude Code, then returns a one-item `agent_adapters` response
+with the refreshed status. This is useful after changing Node/npm managers or
+when `HECATE_AGENT_ADAPTERS_DIR` points at a stale cache.
+
+```json
+POST /v1/agent-adapters/codex/refresh-launcher
+→ 200
+{
+  "object": "agent_adapters",
+  "data": [
+    {
+      "id": "codex",
+      "name": "Codex",
+      "kind": "acp",
+      "command": "codex-acp",
+      "managed": true,
+      "managed_package": "@zed-industries/codex-acp",
+      "available": true,
+      "status": "available"
+    }
+  ]
+}
+```
+
+Status codes:
+- `200 OK` for managed adapters when a local package runner such as `npx` is
+  available.
+- `404 not_found` when the adapter id is not registered.
+- `409 conflict` when the adapter is not managed or the launcher cannot be
+  recreated.
 
 ### `GET /v1/agent-chat/sessions`
 
@@ -549,6 +630,11 @@ GET /v1/agent-chat/sessions
       "workspace": "/Users/alice/project",
       "workspace_branch": "main",
       "status": "completed",
+      "turns_used": 3,
+      "max_turns_per_session": 50,
+      "session_started_at": "2026-05-03T12:00:00Z",
+      "max_session_duration_ms": 7200000,
+      "idle_timeout_ms": 1800000,
       "message_count": 2,
       "created_at": "2026-05-03T12:00:00Z",
       "updated_at": "2026-05-03T12:00:08Z"
@@ -584,6 +670,8 @@ POST /v1/agent-chat/sessions
     "workspace": "/Users/alice/project",
     "workspace_branch": "main",
     "status": "idle",
+    "turns_used": 0,
+    "session_started_at": "2026-05-03T12:00:00Z",
     "messages": []
   }
 }
@@ -600,6 +688,15 @@ Sends the submitted prompt to the session's native ACP session and appends both
 the user message and the adapter output. The response returns after the ACP turn
 finishes, times out, is cancelled, or fails. For live output while the turn is
 running, subscribe to the session stream before posting the message.
+
+Before starting the adapter, Hecate enforces optional agent-chat guardrails:
+`GATEWAY_AGENT_CHAT_MAX_TURNS_PER_SESSION`,
+`GATEWAY_AGENT_CHAT_MAX_SESSION_DURATION`, and
+`GATEWAY_AGENT_CHAT_IDLE_TIMEOUT`. Each returns HTTP 422 with a stable
+`error.type` when exceeded:
+`agent_chat.session_limit_exceeded`,
+`agent_chat.session_duration_limit_exceeded`, or
+`agent_chat.session_idle_timeout`.
 
 ```json
 POST /v1/agent-chat/sessions/agent_chat_.../messages

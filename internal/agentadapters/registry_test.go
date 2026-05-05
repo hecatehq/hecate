@@ -198,6 +198,71 @@ func TestResolveExecutableCreatesManagedLauncher(t *testing.T) {
 	}
 }
 
+func TestRefreshManagedLauncherRewritesLauncher(t *testing.T) {
+	dir := t.TempDir()
+	t.Setenv("HECATE_AGENT_ADAPTERS_DIR", dir)
+
+	stale := filepath.Join(dir, managedLauncherName("codex-acp"))
+	if err := os.MkdirAll(dir, 0o755); err != nil {
+		t.Fatalf("mkdir launcher dir: %v", err)
+	}
+	if err := os.WriteFile(stale, []byte("#!/bin/sh\nexit 99\n"), 0o755); err != nil {
+		t.Fatalf("write stale launcher: %v", err)
+	}
+
+	status, err := RefreshManagedLauncher(context.Background(), "codex", func(file string) (string, error) {
+		if file == "npx" {
+			return "/usr/local/bin/npx", nil
+		}
+		return "", errors.New("not found on PATH")
+	})
+	if err != nil {
+		t.Fatalf("RefreshManagedLauncher: %v", err)
+	}
+	if !status.Available || status.Path != stale {
+		t.Fatalf("status = %#v, want available refreshed launcher at %q", status, stale)
+	}
+	content, err := os.ReadFile(stale)
+	if err != nil {
+		t.Fatalf("read refreshed launcher: %v", err)
+	}
+	text := string(content)
+	if strings.Contains(text, "exit 99") || !strings.Contains(text, "@zed-industries/codex-acp") {
+		t.Fatalf("refreshed launcher content = %q", text)
+	}
+}
+
+func TestGCManagedLaunchersRemovesStaleFiles(t *testing.T) {
+	dir := t.TempDir()
+	t.Setenv("HECATE_AGENT_ADAPTERS_DIR", dir)
+
+	known := filepath.Join(dir, managedLauncherName("codex-acp"))
+	stale := filepath.Join(dir, "old-adapter-acp")
+	if err := os.MkdirAll(dir, 0o755); err != nil {
+		t.Fatalf("mkdir launcher dir: %v", err)
+	}
+	if err := os.WriteFile(known, []byte("#!/bin/sh\nexit 0\n"), 0o755); err != nil {
+		t.Fatalf("write known launcher: %v", err)
+	}
+	if err := os.WriteFile(stale, []byte("#!/bin/sh\nexit 0\n"), 0o755); err != nil {
+		t.Fatalf("write stale launcher: %v", err)
+	}
+
+	removed, err := GCManagedLaunchers()
+	if err != nil {
+		t.Fatalf("GCManagedLaunchers: %v", err)
+	}
+	if removed != 1 {
+		t.Fatalf("removed = %d, want 1", removed)
+	}
+	if _, err := os.Stat(known); err != nil {
+		t.Fatalf("known launcher stat: %v", err)
+	}
+	if _, err := os.Stat(stale); !os.IsNotExist(err) {
+		t.Fatalf("stale launcher stat error = %v, want not exist", err)
+	}
+}
+
 func TestResolveManagedRunnerUsesCandidatePath(t *testing.T) {
 	home := t.TempDir()
 	t.Setenv("HOME", home)

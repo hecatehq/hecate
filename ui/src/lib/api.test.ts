@@ -14,6 +14,7 @@ import {
   listAgentChatApprovals,
   listAgentChatGrants,
   probeAgentAdapter,
+  refreshAgentAdapterLauncher,
   resolveAgentChatApproval,
   setProviderAPIKey,
   setProviderBaseURL,
@@ -503,6 +504,44 @@ describe("api client", () => {
 
       const [url] = fetchMock.mock.lastCall ?? [];
       expect(url).toBe("/v1/agent-adapters/weird%20id/probe");
+    });
+  });
+
+  describe("refreshAgentAdapterLauncher", () => {
+    it("POSTs to the managed-launcher refresh endpoint and returns the updated adapter list", async () => {
+      fetchMock.mockResolvedValue(
+        jsonResponse({
+          object: "agent_adapters",
+          data: [
+            {
+              id: "codex",
+              name: "Codex",
+              kind: "acp",
+              command: "codex-acp",
+              managed: true,
+              available: true,
+              status: "available",
+            },
+          ],
+        }),
+      );
+
+      const result = await refreshAgentAdapterLauncher("codex");
+
+      expect(fetchMock).toHaveBeenCalledWith(
+        "/v1/agent-adapters/codex/refresh-launcher",
+        expect.objectContaining({ method: "POST" }),
+      );
+      expect(result.data[0]?.id).toBe("codex");
+    });
+
+    it("URL-encodes adapter ids", async () => {
+      fetchMock.mockResolvedValue(jsonResponse({ object: "agent_adapters", data: [] }));
+
+      await refreshAgentAdapterLauncher("weird id");
+
+      const [url] = fetchMock.mock.lastCall ?? [];
+      expect(url).toBe("/v1/agent-adapters/weird%20id/refresh-launcher");
     });
   });
 

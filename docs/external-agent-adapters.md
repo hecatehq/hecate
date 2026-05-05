@@ -45,6 +45,15 @@ Check discovery:
 curl -s http://127.0.0.1:8765/v1/agent-adapters | jq
 ```
 
+Discovery reports command availability, tested version range, and lightweight
+auth hints (`auth_status`: `ok`, `unauthenticated`, `billing`, or `unknown`).
+Use Settings → External agents → **Test**, or call the probe endpoint, for a
+full spawn + ACP handshake + no-op session check:
+
+```sh
+curl -X POST http://127.0.0.1:8765/v1/agent-adapters/codex/probe | jq
+```
+
 For Codex and Claude, Hecate does not require `codex-acp` or
 `claude-agent-acp` to be installed on `PATH`. If the direct command is missing
 but `npx` is available, Hecate creates a small launcher in the operator cache
@@ -58,7 +67,13 @@ By default the managed launcher directory is the user cache location:
 ```
 
 Set `HECATE_AGENT_ADAPTERS_DIR` only if you want to override that location for
-development or a packaged desktop build.
+development, Docker volume mapping, or a packaged desktop build. Hecate removes
+stale managed-launcher scripts at startup when their adapter no longer exists.
+To force-refresh one managed launcher after changing Node/npm managers:
+
+```sh
+curl -X POST http://127.0.0.1:8765/v1/agent-adapters/codex/refresh-launcher | jq
+```
 
 ## Setup checks
 
@@ -246,6 +261,28 @@ The badge turns amber when the ceiling is reached.
 
 Turns are counted per session, not per workspace — starting a new session in
 the same workspace resets the counter.
+
+### Wall-clock and idle limits
+
+Two optional time-based limits protect long-lived ACP sessions from turning
+into invisible background processes:
+
+| Setting | Behavior |
+|---|---|
+| `GATEWAY_AGENT_CHAT_MAX_SESSION_DURATION=0s` | Unlimited wall-clock age (default) |
+| `GATEWAY_AGENT_CHAT_MAX_SESSION_DURATION=2h` | Reject new turns once the session is at least 2 hours old |
+| `GATEWAY_AGENT_CHAT_IDLE_TIMEOUT=0s` | No idle sweeper (default) |
+| `GATEWAY_AGENT_CHAT_IDLE_TIMEOUT=1h` | Auto-close idle sessions after 1 hour without updates |
+
+When the wall-clock limit is exceeded, `POST
+/v1/agent-chat/sessions/{id}/messages` returns HTTP 422 with
+`agent_chat.session_duration_limit_exceeded`.
+
+When the idle limit is exceeded, the background sweeper cancels the session,
+clears the native ACP handle, and appends an `interrupted` activity to the last
+assistant message when one exists. If the operator sends a new prompt before
+the sweeper has closed the stale session, the request returns HTTP 422 with
+`agent_chat.session_idle_timeout`; start a new chat to continue.
 
 ## Troubleshooting
 
