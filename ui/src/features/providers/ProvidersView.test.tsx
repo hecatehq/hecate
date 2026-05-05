@@ -562,6 +562,68 @@ describe("ProvidersView table renders", () => {
     expect(await screen.findByText("Running")).toBeTruthy();
   });
 
+  it("ignores stale local discovery responses from a previous modal open", async () => {
+    let resolveSlow: (value: Awaited<ReturnType<typeof discoverLocalProviders>>) => void = () => {};
+    const slow = new Promise<Awaited<ReturnType<typeof discoverLocalProviders>>>(resolve => {
+      resolveSlow = resolve;
+    });
+    let resolveFast: (value: Awaited<ReturnType<typeof discoverLocalProviders>>) => void = () => {};
+    const fast = new Promise<Awaited<ReturnType<typeof discoverLocalProviders>>>(resolve => {
+      resolveFast = resolve;
+    });
+    vi.mocked(discoverLocalProviders).mockReturnValueOnce(slow).mockReturnValueOnce(fast);
+    const state = createRuntimeConsoleFixture({
+      session: localSession,
+      providerPresets: presets,
+      controlPlaneConfig: emptyControlPlaneConfig(),
+    });
+    const actions = createRuntimeConsoleActions();
+    const initialDiscoveryCalls = vi.mocked(discoverLocalProviders).mock.calls.length;
+
+    const { rerender } = render(<AddProviderModal open state={state} actions={actions} onClose={() => {}} />);
+    await waitFor(() => expect(discoverLocalProviders).toHaveBeenCalledTimes(initialDiscoveryCalls + 1));
+    rerender(<AddProviderModal open={false} state={state} actions={actions} onClose={() => {}} />);
+    rerender(<AddProviderModal open state={state} actions={actions} onClose={() => {}} />);
+    await waitFor(() => expect(discoverLocalProviders).toHaveBeenCalledTimes(initialDiscoveryCalls + 2));
+
+    resolveFast({
+      object: "local_provider_discovery",
+      data: [{
+        preset_id: "ollama",
+        name: "Ollama",
+        base_url: "http://127.0.0.1:11434/v1",
+        probe_url: "http://127.0.0.1:11434/api/tags",
+        status: "running",
+        command: "ollama",
+        command_available: true,
+        command_path: "/usr/local/bin/ollama",
+        http_available: true,
+        model_count: 1,
+        models: ["llama3.1:8b"],
+      }],
+    });
+    expect(await screen.findByText("Running")).toBeTruthy();
+
+    resolveSlow({
+      object: "local_provider_discovery",
+      data: [{
+        preset_id: "lmstudio",
+        name: "LM Studio",
+        base_url: "http://127.0.0.1:1234/v1",
+        probe_url: "http://127.0.0.1:1234/v1/models",
+        status: "installed",
+        command: "lms",
+        command_available: true,
+        command_path: "/Users/alice/.lmstudio/bin/lms",
+        http_available: false,
+        model_count: 0,
+        models: [],
+      }],
+    });
+    await waitFor(() => expect(screen.queryByText("LM Studio")).toBeNull());
+    expect(screen.getByText("Running")).toBeTruthy();
+  });
+
   it("does not steal focus back to Endpoint URL after typing in Custom name", async () => {
     window.requestAnimationFrame = callback => {
       callback(0);

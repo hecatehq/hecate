@@ -54,8 +54,10 @@ export function AddProviderModal({ open, state, actions, onClose }: Props) {
   const nameInputRef = useRef<HTMLInputElement>(null);
   const urlInputRef = useRef<HTMLInputElement>(null);
   const apiKeyInputRef = useRef<HTMLInputElement>(null);
+  const localDiscoveryRequestRef = useRef(0);
 
   useEffect(() => {
+    localDiscoveryRequestRef.current++;
     if (!open) return;
     setStep("pick");
     setPickTab("local");
@@ -97,15 +99,20 @@ export function AddProviderModal({ open, state, actions, onClose }: Props) {
   }
 
   async function refreshLocalDiscovery() {
+    const requestID = ++localDiscoveryRequestRef.current;
     setLocalDiscoveryLoading(true);
     setLocalDiscoveryError("");
     try {
       const response = await discoverLocalProviders();
+      if (requestID !== localDiscoveryRequestRef.current) return;
       setLocalDiscovery(response.data ?? []);
     } catch (e) {
+      if (requestID !== localDiscoveryRequestRef.current) return;
       setLocalDiscoveryError(e instanceof Error ? e.message : "Failed to discover local providers");
     } finally {
-      setLocalDiscoveryLoading(false);
+      if (requestID === localDiscoveryRequestRef.current) {
+        setLocalDiscoveryLoading(false);
+      }
     }
   }
 

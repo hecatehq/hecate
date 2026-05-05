@@ -243,6 +243,66 @@ describe("ChatView input", () => {
     expect(loadDashboard).toHaveBeenCalledTimes(1);
   });
 
+  it("quick-add refreshes dashboard after partial provider creation failures", async () => {
+    vi.mocked(discoverLocalProviders).mockResolvedValueOnce({
+      object: "local_provider_discovery",
+      data: [
+        {
+          preset_id: "ollama",
+          name: "Ollama",
+          base_url: "http://127.0.0.1:11434/v1",
+          probe_url: "http://127.0.0.1:11434/api/tags",
+          status: "running",
+          command: "ollama",
+          command_available: true,
+          command_path: "/usr/local/bin/ollama",
+          http_available: true,
+          model_count: 1,
+          models: ["llama3.1:8b"],
+        },
+        {
+          preset_id: "lmstudio",
+          name: "LM Studio",
+          base_url: "http://127.0.0.1:1234/v1",
+          probe_url: "http://127.0.0.1:1234/v1/models",
+          status: "running",
+          command: "lms",
+          command_available: true,
+          command_path: "/Users/alice/.lmstudio/bin/lms",
+          http_available: true,
+          model_count: 1,
+          models: ["qwen2.5"],
+        },
+      ],
+    });
+    const createProvider = vi.fn(async (params: unknown) => {
+      if ((params as { preset_id?: string }).preset_id === "lmstudio") {
+        throw new Error("LM Studio endpoint already exists");
+      }
+    });
+    const loadDashboard = vi.fn(async () => undefined);
+    const { state, actions } = setup({
+      chatTarget: "model",
+      controlPlaneConfig: { backend: "memory", providers: [], policy_rules: [], pricebook: [], events: [] },
+      providerPresets: [
+        { id: "ollama", name: "Ollama", kind: "local", protocol: "openai", base_url: "http://127.0.0.1:11434/v1", description: "" },
+        { id: "lmstudio", name: "LM Studio", kind: "local", protocol: "openai", base_url: "http://127.0.0.1:1234/v1", description: "" },
+      ],
+      providerScopedModels: [],
+      agentAdapters: [
+        { id: "codex", name: "Codex", kind: "acp", command: "codex-acp", available: true, status: "available", cost_mode: "external" },
+      ],
+    }, { createProvider, loadDashboard });
+    render(<ChatView state={state} actions={actions} />);
+
+    const user = userEvent.setup();
+    await user.click(await screen.findByRole("button", { name: /Add detected providers/i }));
+
+    expect(createProvider).toHaveBeenCalledTimes(2);
+    expect(loadDashboard).toHaveBeenCalledTimes(1);
+    expect(screen.getByText("LM Studio endpoint already exists")).toBeTruthy();
+  });
+
   it("shows a first-run setup state when providers and agents are unavailable", () => {
     const { state, actions } = setup({
       chatTarget: "model",
