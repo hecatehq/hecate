@@ -136,6 +136,12 @@ type ServerConfig struct {
 	// before resolving to ACP `Cancelled`. Default 5m. Set via
 	// GATEWAY_AGENT_ADAPTER_APPROVAL_TIMEOUT (Go duration string).
 	AgentAdapterApprovalTimeout time.Duration
+	// AgentChatMaxTurnsPerSession caps how many user→assistant round-trips
+	// a single agent-chat session may execute. 0 (default) means unlimited.
+	// When the ceiling is reached, POST /v1/agent-chat/sessions/{id}/messages
+	// returns HTTP 422 with code "agent_chat.session_limit_exceeded".
+	// Set via GATEWAY_AGENT_CHAT_MAX_TURNS_PER_SESSION.
+	AgentChatMaxTurnsPerSession int
 
 	// TraceBodyCapture enables recording (redacted) request and response bodies
 	// in the distributed trace.  Off by default; enable via GATEWAY_TRACE_BODIES=true.
@@ -371,6 +377,7 @@ func LoadFromEnv() Config {
 			TaskShellAllowedHosts:          splitCSV(getEnv("GATEWAY_TASK_SHELL_ALLOWED_HOSTS", "")),
 			AgentAdapterApprovalMode:       getEnv("GATEWAY_AGENT_ADAPTER_APPROVAL_MODE", "prompt"),
 			AgentAdapterApprovalTimeout:    getEnvDuration("GATEWAY_AGENT_ADAPTER_APPROVAL_TIMEOUT", 5*time.Minute),
+			AgentChatMaxTurnsPerSession:    getEnvInt("GATEWAY_AGENT_CHAT_MAX_TURNS_PER_SESSION", 0),
 			TaskMaxConcurrentPerTenant:     getEnvInt("GATEWAY_TASK_MAX_CONCURRENT_PER_TENANT", 0),
 			TraceBodyCapture:               getEnvBool("GATEWAY_TRACE_BODIES", false),
 			TraceBodyMaxBytes:              getEnvInt("GATEWAY_TRACE_BODY_MAX_BYTES", 4096),
@@ -524,6 +531,9 @@ func (c Config) Validate() error {
 	}
 	if c.Server.TaskQueueBuffer < 0 {
 		errs = append(errs, errors.New("GATEWAY_TASK_QUEUE_BUFFER must be zero or positive"))
+	}
+	if c.Server.AgentChatMaxTurnsPerSession < 0 {
+		errs = append(errs, errors.New("GATEWAY_AGENT_CHAT_MAX_TURNS_PER_SESSION must be zero or positive"))
 	}
 	if c.Server.RateLimit.Enabled && c.Server.RateLimit.RequestsPerMinute <= 0 {
 		errs = append(errs, errors.New("GATEWAY_RATE_LIMIT_RPM must be positive when rate limiting is enabled"))

@@ -583,17 +583,19 @@ type AgentChatSessionSummaryItem struct {
 }
 
 type AgentChatSessionItem struct {
-	ID              string                 `json:"id"`
-	Title           string                 `json:"title"`
-	AdapterID       string                 `json:"adapter_id"`
-	DriverKind      string                 `json:"driver_kind,omitempty"`
-	NativeSessionID string                 `json:"native_session_id,omitempty"`
-	Workspace       string                 `json:"workspace"`
-	WorkspaceBranch string                 `json:"workspace_branch,omitempty"`
-	Status          string                 `json:"status"`
-	CreatedAt       string                 `json:"created_at,omitempty"`
-	UpdatedAt       string                 `json:"updated_at,omitempty"`
-	Messages        []AgentChatMessageItem `json:"messages"`
+	ID                 string                 `json:"id"`
+	Title              string                 `json:"title"`
+	AdapterID          string                 `json:"adapter_id"`
+	DriverKind         string                 `json:"driver_kind,omitempty"`
+	NativeSessionID    string                 `json:"native_session_id,omitempty"`
+	Workspace          string                 `json:"workspace"`
+	WorkspaceBranch    string                 `json:"workspace_branch,omitempty"`
+	Status             string                 `json:"status"`
+	TurnsUsed          int                    `json:"turns_used"`
+	MaxTurnsPerSession int                    `json:"max_turns_per_session,omitempty"`
+	CreatedAt          string                 `json:"created_at,omitempty"`
+	UpdatedAt          string                 `json:"updated_at,omitempty"`
+	Messages           []AgentChatMessageItem `json:"messages"`
 }
 
 type AgentChatMessageItem struct {

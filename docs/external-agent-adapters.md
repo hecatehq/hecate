@@ -217,6 +217,36 @@ operator UI is connected — must explicitly set
 request in a new chat will block for the full timeout and then surface as
 `Cancelled` to the adapter, looking like an inert hang.
 
+## Runtime guardrails
+
+### Per-session turn ceiling
+
+`GATEWAY_AGENT_CHAT_MAX_TURNS_PER_SESSION` caps the number of user→assistant
+round-trips per agent-chat session. When a session reaches the ceiling,
+`POST /v1/agent-chat/sessions/{id}/messages` returns HTTP 422:
+
+```json
+{
+  "error": {
+    "type": "agent_chat.session_limit_exceeded",
+    "message": "session has reached the 50-turn limit; start a new session to continue",
+    "limit": 50,
+    "turns_used": 50
+  }
+}
+```
+
+| Setting | Behavior |
+|---|---|
+| `GATEWAY_AGENT_CHAT_MAX_TURNS_PER_SESSION=0` | Unlimited (default) |
+| `GATEWAY_AGENT_CHAT_MAX_TURNS_PER_SESSION=50` | Enforce 50-turn ceiling per session |
+
+When a limit is set, the chat header shows a `{turns_used}/{max} turns` badge.
+The badge turns amber when the ceiling is reached.
+
+Turns are counted per session, not per workspace — starting a new session in
+the same workspace resets the counter.
+
 ## Troubleshooting
 
 | Symptom | What to check |

@@ -263,6 +263,8 @@ export type AgentChatSessionRecord = {
   workspace: string;
   workspace_branch?: string;
   status: string;
+  turns_used?: number;
+  max_turns_per_session?: number;
   created_at?: string;
   updated_at?: string;
   messages?: AgentChatMessageRecord[];

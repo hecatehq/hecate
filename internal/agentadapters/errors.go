@@ -2,6 +2,12 @@ package agentadapters
 
 import "errors"
 
+// ErrSessionTurnLimitExceeded is returned when the operator has configured a
+// per-session turn ceiling (GATEWAY_AGENT_CHAT_MAX_TURNS_PER_SESSION) and the
+// session has already consumed that many turns. The API layer maps this to
+// HTTP 422 with code "agent_chat.session_limit_exceeded".
+var ErrSessionTurnLimitExceeded = errors.New("agent_chat.session_limit_exceeded")
+
 // ErrTerminalRPCUnsupported is the sentinel returned by every
 // acpChatClient terminal RPC stub. Hecate does not yet route shell
 // through ACP terminal methods (CreateTerminal, KillTerminal,

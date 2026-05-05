@@ -181,6 +181,7 @@ func TestValidateRejectsImpossibleRuntimeValues(t *testing.T) {
 	cfg.Provider.HistoryLimit = -1
 	cfg.Server.TaskQueueWorkers = 0
 	cfg.Server.TaskQueueBuffer = -1
+	cfg.Server.AgentChatMaxTurnsPerSession = -1
 	cfg.Server.RateLimit.Enabled = true
 	cfg.Server.RateLimit.RequestsPerMinute = 0
 	cfg.Server.RateLimit.BurstSize = -1
@@ -199,6 +200,7 @@ func TestValidateRejectsImpossibleRuntimeValues(t *testing.T) {
 		"GATEWAY_PROVIDER_HISTORY_LIMIT",
 		"GATEWAY_TASK_QUEUE_WORKERS",
 		"GATEWAY_TASK_QUEUE_BUFFER",
+		"GATEWAY_AGENT_CHAT_MAX_TURNS_PER_SESSION",
 		"GATEWAY_RATE_LIMIT_RPM",
 		"GATEWAY_RATE_LIMIT_BURST",
 	} {

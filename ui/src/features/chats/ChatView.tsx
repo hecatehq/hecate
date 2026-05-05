@@ -453,6 +453,28 @@ export function ChatView({ state, actions, onNavigate }: Props) {
               >
                 <span style={{ fontSize: 11 }}>paste path</span>
               </button>
+              {(() => {
+                const sess = state.activeAgentChatSession;
+                if (!sess || !sess.max_turns_per_session) return null;
+                const turnsUsed = sess.turns_used ?? 0;
+                const maxTurns = sess.max_turns_per_session;
+                const atLimit = turnsUsed >= maxTurns;
+                return (
+                  <span
+                    data-testid="agent-chat-turns-badge"
+                    style={{
+                      flexShrink: 0,
+                      fontFamily: "var(--font-mono)",
+                      fontSize: 10,
+                      color: atLimit ? "var(--amber)" : "var(--t3)",
+                      whiteSpace: "nowrap",
+                    }}
+                    title={atLimit ? "Turn limit reached — start a new chat to continue" : `${turnsUsed} of ${maxTurns} turns used`}
+                  >
+                    {turnsUsed}/{maxTurns} turns
+                  </span>
+                );
+              })()}
             </>
           ) : (
             <>

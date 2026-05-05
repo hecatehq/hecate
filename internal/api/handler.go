@@ -249,7 +249,7 @@ func NewHandler(cfg config.Config, logger *slog.Logger, service *gateway.Service
 	// agentChatLive is constructed before the hook builder so the
 	// approval coordinator can publish SSE events on the same bus
 	// used for chat-session updates.
-	agentChatLive := newAgentChatLive()
+	agentChatLive := newAgentChatLive(cfg.Server.AgentChatMaxTurnsPerSession)
 	approvalHooks := buildApprovalCoordinatorHooks(approvalMode, agentApprovalMetrics, agentChatLive)
 	approvalCfg := approvalConfig{
 		mode:    approvalMode,
