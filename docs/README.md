@@ -30,8 +30,8 @@ Pick the path closest to what you are doing.
 | Doc | What it answers |
 |---|---|
 | [Runtime API](runtime-api.md) | `/v1/tasks/*`, approvals, run streaming, queue/lease semantics, health/discovery endpoints. |
-| [Agent runtime](agent-runtime.md) | `agent_loop` configuration, built-in tools, system prompt layers, approvals, cost ceiling, retry-from-turn. |
-| [Events](events.md) | Implemented event names, payloads, and when each is emitted. Use this for today's `/v1/events` consumers. |
+| [Agent runtime](agent-runtime.md) | `agent_loop` configuration, built-in tools, stdout/stderr handling, system prompt layers, approvals, cost ceiling, retry-from-turn. |
+| [Events](events.md) | Implemented event names, payloads, stdout/stderr stream chunks, and when each is emitted. Use this for today's `/v1/events` consumers. |
 | [Chat sessions](chat-sessions.md) | Conversation persistence model behind the Chats UI and provider/model switching. |
 | [External agent adapters](external-agent-adapters.md) | Hecate as an ACP client/operator: use Codex, Claude Code, and Cursor Agent from Chats; install checks, persistence, troubleshooting, current gaps. |
 | [MCP integration](mcp.md) | Hecate as an MCP server and external MCP servers as task tools. |
@@ -48,7 +48,7 @@ Pick the path closest to what you are doing.
 
 | Doc | What it answers |
 |---|---|
-| [Architecture](architecture.md) | Gateway flow, task-runtime queue/lease model, agent turn cycle, storage tiers. |
+| [Architecture](architecture.md) | Gateway flow, orchestrator responsibilities, task-runtime queue/lease model, agent turn cycle, storage tiers. |
 | [Development](development.md) | Go + Bun setup, local dev, test ladder, screenshot tooling, package map. |
 | [Release](release.md) | Versioning, alpha gate, release script, image build, recovery, release-note shape. |
 | [`docs-ai/`](../docs-ai/README.md) | Vendor-neutral agent guidance: workflow, verification, skills, task recipes. |

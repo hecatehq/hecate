@@ -176,14 +176,13 @@ The JSON list returns agent event protocol v1 envelopes:
 `schema_version`, `event_id`, `task_id`, `run_id`, `sequence`,
 `occurred_at`, `type`, and `data`.
 
-Stream resume also supports `Last-Event-ID`. The per-run state stream is still
-snapshot-oriented: each SSE snapshot carries the run state, current steps,
-current artifacts, and any approvals scoped to that run — so the operator UI can
-drive the approval banner directly off the SSE without a separate refetch
-(`TaskRunStreamEventData.Approvals`). The snapshot's `event_type` mirrors the
-persisted event that produced it.
+Stream resume also supports `Last-Event-ID`. Each per-run SSE frame carries the
+current run state, steps, artifacts, activity, and approvals scoped to that run
+so the operator UI can drive approval banners and progress surfaces without a
+separate refetch (`TaskRunStreamEventData.Approvals`). The frame's `event_type`
+mirrors the persisted event that produced the state refresh.
 
-Snapshots also include a normalized `activity` array for clients that want a
+The frame also includes a normalized `activity` array for clients that want a
 coding-agent-style timeline without reconstructing it from raw steps and
 artifacts. Activity item types include `thinking`, `tool_call`, `patch`,
 `changed_files`, `final_answer`, `approval`, and `run_result`.
@@ -573,7 +572,7 @@ retention windows.
 
 The same per-session SSE stream (`GET /v1/agent-chat/sessions/{id}/stream`)
 also carries approval lifecycle events so frontends don't have to poll. Two
-new event types in addition to the existing `snapshot` chat-update frames:
+event types are emitted in addition to normal chat session updates:
 
 ```
 event: approval.requested

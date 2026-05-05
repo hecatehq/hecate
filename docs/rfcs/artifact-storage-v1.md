@@ -537,23 +537,21 @@ This decouples "stop counting toward quotas" from "actually free disk space," so
 
 `run.finished` and `run.failed` events trigger an immediate per-run prune sweep for `command_output` artifacts older than 1 hour, regardless of the global age. Rationale: most command output is interesting only while a run is in flight; once it's terminal, the metadata in `turn.completed` carries the operator-relevant summary. (Off by default — see [Open questions](#open-questions).)
 
-## Auth and access
+## Access and same-origin
 
 Artifacts may contain command output, file contents, patches, fetched HTTP
-bodies, image inputs, and model/tool results. They must inherit the same auth
-and same-origin rules as the runtime APIs that produced them.
+bodies, image inputs, and model/tool results. They must inherit the same
+local-runtime access model and same-origin rules as the runtime APIs that
+produced them.
 
 Candidate rules:
 
-- `/v1/artifacts/*` requires the same bearer/auth mode as `/v1/tasks/*`.
+- `/v1/artifacts/*` is local-operator API surface, like `/v1/tasks/*`.
 - Same-origin middleware still applies for browser callers.
-- Admin principals can read all artifacts.
-- Tenant principals can read artifacts for tasks/runs they are allowed to read.
 - Artifact bodies are never exposed through unauthenticated static-file serving.
-
-Single-user desktop mode can make this feel transparent by using the generated
-local admin token, but the API contract should not special-case artifacts as
-"no bearer auth".
+- If a deployment binds Hecate beyond loopback, the operator is responsible for
+  putting auth, a firewall, or a reverse proxy in front of artifact endpoints
+  exactly as they would for the rest of the gateway.
 
 ## Observability (OTel)
 

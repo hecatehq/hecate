@@ -16,7 +16,8 @@ The Tasks workspace in the operator UI is the human entry point — create a tas
 - [Built-in tools](#built-in-tools)
 - [External MCP tools](#external-mcp-tools)
 - [Workspace modes](#workspace-modes)
-- [Four-layer system prompt](#three-layer-system-prompt)
+- [Output and stderr in the UI](#output-and-stderr-in-the-ui)
+- [System prompt layers](#three-layer-system-prompt)
 - [Approval gating](#approval-gating)
 - [Cost tracking](#cost-tracking)
 - [Retry and resume](#retry-and-resume)
@@ -109,7 +110,22 @@ Every run has a workspace — a directory the sandbox locks tools to. Two modes:
 - **isolated clone** (default; `WorkspaceMode` empty / `persistent` / `ephemeral`) — the workspace manager copies or git-clones `task.WorkingDirectory` (or `task.Repo`) to a fresh temp dir under `${TMPDIR}/hecate-workspaces/<task_id>/<run_id>`. Writes don't touch the source. Safe by default.
 - **`in_place`** — the workspace IS `task.WorkingDirectory`. Tools write directly to the operator's source. Necessarily destructive; opt-in. Requires an absolute existing directory or the run fails up-front rather than silently flipping back to the clone behavior.
 
-The new-task UI exposes `in_place` as a "Run in place (no isolated clone)" checkbox under WORKING DIRECTORY.
+The new-task UI exposes `in_place` as a "Run directly in this workspace" checkbox under WORKSPACE.
+
+## Output and stderr in the UI
+
+Task runs capture process output as structured stdout/stderr artifacts and
+typed `tool.shell.*` events. The operator UI intentionally treats stdout as the
+primary terminal pane and only surfaces stderr when stderr exists.
+
+That default keeps successful runs readable: many healthy CLIs write progress,
+warnings, or diagnostics to stderr, and rendering an always-empty stderr panel
+creates noise. When both streams exist, they should remain visually separated
+(stdout first, stderr as a labeled section or toggle) rather than merged into
+one undifferentiated transcript. For lower-level consumers, use the run
+artifacts and `tool.shell.output_chunk` events; the event payload includes
+`stream: "stdout" | "stderr"` so tooling can reconstruct or filter either
+stream.
 
 ### Workspace environment system message
 

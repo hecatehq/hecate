@@ -76,6 +76,19 @@ operators should not assume yet.
 - Browser automation, WASM plugins, and broad tool marketplaces are out of
   scope for the current alpha.
 
+## External Agent Adapters
+
+- Codex, Claude Code, and Cursor Agent run as trusted local subprocesses in the
+  selected workspace. Hecate supervises lifecycle, approvals, timeouts,
+  diagnostics, and Git diff capture, but it does not sandbox those agents or
+  own their internal runtime loops.
+- Adapter auth and billing state belongs to the underlying CLI account. Hecate
+  can probe common failures and surface friendly hints, but operators still
+  need to use each agent's own login/status flow when credentials expire.
+- Patch review is alpha-grade: Hecate captures Git diffs, exposes changed-file
+  inspection, and can revert captured paths, but a full side-by-side review
+  workspace is not shipped yet.
+
 ## Deployment
 
 - Docker, bare-binary, and desktop deployments are the supported paths.
@@ -95,9 +108,10 @@ operators should not assume yet.
 ## Operator UI
 
 - The operator UI is usable for the main alpha workflows: provider setup,
-  request inspection, budgets, and task-run debugging.
-- Some bulk-management and deeper artifact-inspection flows are still lighter
-  than a mature control-plane product.
+  Chats for model and external-agent sessions, request inspection, budgets,
+  task approvals, and task-run debugging.
+- Some bulk-management flows and deeper side-by-side artifact review are still
+  lighter than a mature control-plane product.
 
 ## Desktop App
 
