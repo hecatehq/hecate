@@ -94,7 +94,10 @@ When changing this path:
 3. Add focused tests in `internal/agentadapters/*_test.go` for ACP/process
    protocol behavior and `internal/api/server_test.go` for HTTP/session
    persistence behavior.
-4. Run the race suite. Long-lived adapter sessions are runtime code, not just
+4. If the change touches approval/grant durability, startup reconcile, or
+   cmd/hecate store wiring, add or run the binary e2e approval smokes:
+   `go test -tags e2e -run 'TestApproval' ./e2e`.
+5. Run the race suite. Long-lived adapter sessions are runtime code, not just
    a UI convenience.
 
 ### Add a persisted run-event type
