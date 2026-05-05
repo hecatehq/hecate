@@ -78,25 +78,21 @@ Pinned image tags, binary tarballs (linux/darwin × amd64/arm64), checksums, com
 
 ### Add a provider
 
-On first boot, Chats is already available, but model chat needs at least one configured provider. Open **Providers**, click **Add provider**, pick a preset, and save the minimal setup:
+On first boot, Chats is already available. If Hecate detects a local runtime such as Ollama or LM Studio, the model chat setup can be one click: choose **Add detected providers** and Hecate adds the detected local endpoints with the preset defaults.
+
+![Chats first-run state — detected local providers and one-click Add detected providers setup](docs/screenshots/chat-empty.png)
+
+You can still configure providers manually from **Providers → Add provider**:
 
 - Cloud providers need an API key.
 - Local providers need a running local server URL, usually the preset default.
 - Custom OpenAI-compatible endpoints can be added from the same modal when the preset catalog is not enough.
-
-![Empty Providers tab on first boot — Add provider CTA](docs/screenshots/providers-empty.png)
-
-![Add provider modal on the Cloud tab — preset catalog](docs/screenshots/providers-presets.png)
-
-![Providers table populated with three providers — Health, Endpoint, Credentials, Models](docs/screenshots/providers.png)
 
 After a provider is saved, Hecate discovers models and the Chats model picker becomes routable. The full preset catalog, env bootstrapping, custom-endpoint walk-through, and credential rotation live in [`docs/providers.md`](docs/providers.md).
 
 ### Talk to it
 
 Chats is the primary day-to-day surface. It explains missing setup before you send a request, then lets you choose between model traffic and local coding-agent sessions.
-
-![Chats first-run state — no configured providers or available external agents yet](docs/screenshots/chat-empty.png)
 
 ![Chats workspace talking to a local Ollama llama3.1:8b model with sessions sidebar and inline runtime metadata](docs/screenshots/chat.png)
 
@@ -157,6 +153,12 @@ The embedded UI is a runtime console for the operator.
 <summary>Various UI screenshots</summary>
 
 ![Observability view — request ledger and route-report drilldown](docs/screenshots/observe.png)
+
+![Empty Providers tab — Add provider CTA](docs/screenshots/providers-empty.png)
+
+![Add provider modal — local preset catalog with detected runtime status](docs/screenshots/providers-presets.png)
+
+![Providers workspace — configured cloud and local providers with health, endpoint, credentials, and models](docs/screenshots/providers.png)
 
 ![Tasks workspace — task list with run state and approval queue](docs/screenshots/tasks.png)
 
