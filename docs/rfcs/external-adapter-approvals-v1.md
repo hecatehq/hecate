@@ -109,8 +109,8 @@ decision. v1 supports four scopes, in increasing breadth:
 |---|---|---|
 | `once` | every subsequent matching request | explicitly selected `allow_once`-style option |
 | `session` | re-asked next session, but auto-applied within this one | `allow_always` (when adapter scopes "always" to its session) |
-| `workspace_tool` | re-asked for the same `(adapter, tool_name)` in a different workspace | (no native ACP equivalent — Hecate-side cache) |
-| `adapter_tool` | re-asked for a different tool, but auto-applied for this `(adapter, tool_name)` pair across sessions | (no native ACP equivalent — Hecate-side cache) |
+| `workspace_tool` | re-asked for the same `(adapter, tool_name)` in a different workspace | Hecate-side approval grant |
+| `adapter_tool` | re-asked for a different tool, but auto-applied for this `(adapter, tool_name)` pair across sessions | Hecate-side approval grant |
 
 Decisions broader than `once` persist in a new `agent_chat_approval_grants`
 table:

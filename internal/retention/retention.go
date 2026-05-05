@@ -57,9 +57,6 @@ type AgentChatApprovalPruner interface {
 	PruneExpiredGrants(ctx context.Context, now time.Time) (int64, error)
 }
 
-// CachePruner is an alias kept for compatibility with callers that type-assert cache stores.
-type CachePruner = Pruner
-
 type budgetPrunerAdapter struct{ p BudgetEventPruner }
 
 func (a budgetPrunerAdapter) Prune(ctx context.Context, maxAge time.Duration, maxCount int) (int, error) {

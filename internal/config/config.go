@@ -127,8 +127,7 @@ type ServerConfig struct {
 	// Background: prior to this knob the gateway silently auto-approved
 	// every adapter request. Default flips to "prompt" because the
 	// External Agent Adapters subsystem is alpha; operators who depend
-	// on the old behavior must opt into "auto" explicitly until the
-	// approval UI ships in a follow-up slice.
+	// on the old behavior must opt into "auto" explicitly.
 	//
 	// See docs/rfcs/external-adapter-approvals-v1.md.
 	AgentAdapterApprovalMode string
@@ -601,15 +600,10 @@ func durationEnvKeys() []string {
 		"GATEWAY_OTEL_METRICS_TIMEOUT",
 		"GATEWAY_OTEL_LOGS_TIMEOUT",
 		"GATEWAY_OTEL_METRICS_INTERVAL",
-		"GATEWAY_CACHE_TTL",
-		"GATEWAY_SEMANTIC_CACHE_TTL",
-		"GATEWAY_SEMANTIC_CACHE_EMBEDDER_TIMEOUT",
 		"GATEWAY_RETENTION_INTERVAL",
 		"GATEWAY_RETENTION_TRACES_MAX_AGE",
 		"GATEWAY_RETENTION_BUDGET_EVENTS_MAX_AGE",
 		"GATEWAY_RETENTION_AUDIT_EVENTS_MAX_AGE",
-		"GATEWAY_RETENTION_EXACT_CACHE_MAX_AGE",
-		"GATEWAY_RETENTION_SEMANTIC_CACHE_MAX_AGE",
 		"GATEWAY_RETENTION_PROVIDER_HISTORY_MAX_AGE",
 		"GATEWAY_RETENTION_TURN_EVENTS_MAX_AGE",
 		"GATEWAY_AGENT_CHAT_MAX_SESSION_DURATION",

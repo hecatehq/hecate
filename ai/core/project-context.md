@@ -22,7 +22,7 @@ internal/sandbox/          per-call sh subprocess: policy validation,
                              bwrap/sandbox-exec wrapper
 internal/taskstate/        task / run / step / artifact / approval persistence
 internal/storage/          sqlite client wrappers
-internal/retention/        retention worker (subsystems: traces, budget, audit, cache, turn_events)
+internal/retention/        retention worker (subsystems: traces, budget, audit, provider_history, turn_events)
 internal/mcp/              stdio MCP server (read tools + write tools)
 internal/agentadapters/    ACP/process adapters for Codex, Claude Code, Cursor
 internal/agentchat/        Agent Chat transcript persistence (memory / sqlite)
@@ -44,13 +44,13 @@ The codebase has three concentric rings; cross-ring imports go inward only:
 - **`internal/api/`** — inbound HTTP shapes + handlers. Translates HTTP requests into internal types; never touches providers directly.
 - **`internal/providers/`** — outbound HTTP per provider (OpenAI-compat, Anthropic). Translates internal types to provider wire shapes. Never imports `internal/api/`.
 - **`internal/orchestrator/`** — task runtime (queue, runner, `agent_loop`, sandbox boundary). Sits above providers, called by api.
-- **`internal/<feature>/`** — gateway services (governor, router, cache, retention, taskstate, mcp, …). Each owns one concern.
+- **`internal/<feature>/`** — gateway services (governor, router, retention, taskstate, mcp, …). Each owns one concern.
 
 The api↔providers parallel-struct duplication (`OpenAIChatMessage` ↔ `openAIChatMessage`) is **intentional**. It keeps `internal/providers/` free of `internal/api/` imports and lets the wire shapes evolve independently. See [`../skills/providers/SKILL.md`](../skills/providers/SKILL.md) for full reasoning.
 
 ## Storage tier rule
 
-Every backend-bound concern (cache, taskstate, chatstate, governor, retention history) ships with two tiers, mirrored exactly:
+Every backend-bound concern (taskstate, chatstate, agentchat, approvals, governor, retention history) ships with two tiers, mirrored exactly:
 
 - `memory` — in-process, default, perfect for `go test` and `make dev`.
 - `sqlite` — single-file persistence via `modernc.org/sqlite` (no CGO).

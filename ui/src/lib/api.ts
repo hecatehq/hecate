@@ -44,8 +44,6 @@ import type {
   TraceListResponse,
   RetentionRunResponse,
   RetentionRunsResponse,
-  SemanticCacheStatusResponse,
-  SemanticCacheEntriesResponse,
 } from "../types/runtime";
 
 type RequestOptions = {
@@ -195,22 +193,6 @@ export async function getRuntimeStats(): Promise<RuntimeStatsResponse> {
 
 export async function getMCPCacheStats(): Promise<MCPCacheStatsResponse> {
   return fetchJSON<MCPCacheStatsResponse>("/admin/mcp/cache");
-}
-
-export async function getSemanticCacheStatus(): Promise<SemanticCacheStatusResponse> {
-  return fetchJSON<SemanticCacheStatusResponse>("/admin/semantic-cache");
-}
-
-export async function listSemanticCacheEntries(
-  params: { limit?: number; offset?: number },
-): Promise<SemanticCacheEntriesResponse> {
-  const q = new URLSearchParams();
-  if (params.limit !== undefined) q.set("limit", String(params.limit));
-  if (params.offset !== undefined) q.set("offset", String(params.offset));
-  const qs = q.toString();
-  return fetchJSON<SemanticCacheEntriesResponse>(
-    `/admin/semantic-cache/entries${qs ? `?${qs}` : ""}`,
-  );
 }
 
 export async function getProviderPresets(): Promise<ProviderPresetResponse> {
@@ -883,11 +865,6 @@ function readRuntimeHeaders(response: Response): RuntimeHeaders {
     routeReason: response.headers.get("X-Runtime-Route-Reason") ?? "",
     requestedModel: response.headers.get("X-Runtime-Requested-Model") ?? "",
     resolvedModel: response.headers.get("X-Runtime-Model") ?? "",
-    cache: response.headers.get("X-Runtime-Cache") ?? "",
-    cacheType: response.headers.get("X-Runtime-Cache-Type") ?? "",
-    semanticStrategy: response.headers.get("X-Runtime-Semantic-Strategy") ?? "",
-    semanticIndex: response.headers.get("X-Runtime-Semantic-Index") ?? "",
-    semanticSimilarity: response.headers.get("X-Runtime-Semantic-Similarity") ?? "",
     attempts: response.headers.get("X-Runtime-Attempts") ?? "",
     retries: response.headers.get("X-Runtime-Retries") ?? "",
     fallbackFrom: response.headers.get("X-Runtime-Fallback-From") ?? "",

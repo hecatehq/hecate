@@ -70,7 +70,6 @@ function phaseColor(phase: TraceTimelineItem["phase"], span?: TraceSpanRecord): 
   switch (phase) {
     case "request":  return "var(--teal)";
     case "routing":  return "var(--amber)";
-    case "cache":    return "var(--green)";
     case "governor": return "var(--brand-mistral)";
     case "cost":     return "var(--t2)";
     case "usage":    return "var(--t2)";
@@ -87,7 +86,7 @@ function phaseColor(phase: TraceTimelineItem["phase"], span?: TraceSpanRecord): 
 }
 
 const PHASE_LABEL: Record<TraceTimelineItem["phase"], string> = {
-  request: "request", routing: "routing", cache: "cache",
+  request: "request", routing: "routing",
   provider: "provider", governor: "governor", usage: "usage",
   cost: "cost", response: "response", queue: "queue",
   orchestration: "orchestration", tool: "tool", approval: "approval",
@@ -699,7 +698,7 @@ function TraceDetail({
                 <Badge
                   status={
                     event.phase === "provider" ? "healthy" :
-                    event.phase === "cache" ? "queued" :
+                    event.phase === "queue" ? "queued" :
                     event.phase === "routing" ? "ok" :
                     event.phase === "response" ? "done" :
                     "disabled"
@@ -803,7 +802,6 @@ const ATTR_PRIORITY_KEYS = [
   "provider", "gen_ai.provider.name",
   "model", "gen_ai.request.model", "gen_ai.response.model",
   "status_code", "error",
-  "cache.path", "cache.type",
   "usage.input_tokens", "gen_ai.usage.input_tokens",
   "usage.output_tokens", "gen_ai.usage.output_tokens",
   "route.skip_reason", "route.fallback_from",

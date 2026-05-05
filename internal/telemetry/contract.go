@@ -219,7 +219,6 @@ const (
 	SpanGatewayGovernor     = "gateway.governor"
 	SpanGatewayRouter       = "gateway.router"
 	SpanGatewayProvider     = "gateway.provider"
-	SpanGatewayCache        = "gateway.cache"
 	SpanGatewayUsage        = "gateway.usage"
 	SpanGatewayCost         = "gateway.cost"
 	SpanGatewayResponse     = "gateway.response"

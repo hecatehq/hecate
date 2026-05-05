@@ -50,12 +50,11 @@ internal/
   api/                  inbound HTTP shapes + handlers (OpenAIChatMessage, uppercase)
   providers/            outbound HTTP per provider (openAIChatMessage, lowercase)
                           — same JSON shape as api/, deliberate duplication
-  gateway/              top-level request orchestration: governor → router → cache → provider
+  gateway/              top-level request orchestration: governor → router → provider
   router/               provider/model selection, failover, retry, circuit
   governor/             policy + budget + rate-limit decisions; local cost ledger
   policy/               approval policy + provider/model allowlists
   catalog/, models/     provider catalog + model registry
-  cache/                exact + semantic response cache
   billing/              pricebook + invoice/usage rollups (cost tables live here)
   orchestrator/         task runtime: queue, runner, agent_loop, sandbox boundary
   sandbox/              per-call sh subprocess: policy validation, env sanitisation,
@@ -65,7 +64,7 @@ internal/
   agentchat/            Agent Chat transcript persistence (memory / sqlite)
   chatstate/            chat-completion conversation persistence
   storage/              sqlite client wrappers
-  retention/            retention worker (subsystems: traces, budget, audit, cache, turn_events)
+  retention/            retention worker (subsystems: traces, budget, audit, provider_history, turn_events)
   mcp/                  stdio MCP server (read tools + write tools)
   controlplane/         providers, pricing, settings (admin surface state)
   auth/                 local operator principal / no-auth request context
