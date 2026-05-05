@@ -256,6 +256,59 @@ func TestAgentChatMetricsRecordRunEmitsCounterAndHistogram(t *testing.T) {
 	}
 }
 
+func TestAgentAdapterApprovalMetricsTimeoutAndGrantCounters(t *testing.T) {
+	t.Parallel()
+
+	reader := sdkmetric.NewManualReader()
+	provider := sdkmetric.NewMeterProvider(sdkmetric.WithReader(reader))
+	apm, err := NewAgentAdapterApprovalMetricsWithMeterProvider(provider)
+	if err != nil {
+		t.Fatalf("NewAgentAdapterApprovalMetricsWithMeterProvider() error = %v", err)
+	}
+
+	apm.RecordTimedOut(context.Background(), AgentAdapterApprovalResolveRecord{
+		AdapterID:  "codex",
+		ToolKind:   "file_write",
+		Mode:       "prompt",
+		Path:       "timeout",
+		Status:     "timed_out",
+		DurationMS: 300_000,
+	})
+	apm.SeedGrantsActive(context.Background(), 2)
+	apm.RecordGrantCreated(context.Background())
+	apm.RecordGrantDeleted(context.Background())
+
+	collected := collectMetrics(t, reader)
+
+	timeouts := findMetric[metricdata.Sum[int64]](t, collected, MetricAgentAdapterApprovalTimedOutTotal)
+	if len(timeouts.DataPoints) != 1 {
+		t.Fatalf("timed-out data points = %d, want 1", len(timeouts.DataPoints))
+	}
+	if timeouts.DataPoints[0].Value != 1 {
+		t.Fatalf("timed-out count = %d, want 1", timeouts.DataPoints[0].Value)
+	}
+	if got := attrValue(timeouts.DataPoints[0].Attributes, AttrHecateAgentAdapterID); got != "codex" {
+		t.Errorf("%s = %q, want codex", AttrHecateAgentAdapterID, got)
+	}
+	if got := attrValue(timeouts.DataPoints[0].Attributes, AttrHecateAgentApprovalToolKind); got != "file_write" {
+		t.Errorf("%s = %q, want file_write", AttrHecateAgentApprovalToolKind, got)
+	}
+	if got := attrValue(timeouts.DataPoints[0].Attributes, AttrHecateAgentApprovalMode); got != "prompt" {
+		t.Errorf("%s = %q, want prompt", AttrHecateAgentApprovalMode, got)
+	}
+
+	grants := findMetric[metricdata.Sum[int64]](t, collected, MetricAgentAdapterApprovalGrantsActive)
+	if len(grants.DataPoints) != 1 {
+		t.Fatalf("grants-active data points = %d, want 1", len(grants.DataPoints))
+	}
+	if grants.DataPoints[0].Value != 2 {
+		t.Fatalf("grants-active value = %d, want 2", grants.DataPoints[0].Value)
+	}
+	if grants.IsMonotonic {
+		t.Fatal("grants-active must be non-monotonic because deletes decrement it")
+	}
+}
+
 func collectMetrics(t *testing.T, reader *sdkmetric.ManualReader) metricdata.ResourceMetrics {
 	t.Helper()
 

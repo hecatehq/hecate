@@ -125,6 +125,64 @@ func TestCoordinatorResolveCreatesGrantPerScope(t *testing.T) {
 	}
 }
 
+func TestCoordinatorGrantHooksFireAfterSuccessfulMutation(t *testing.T) {
+	t.Parallel()
+
+	store := NewMemoryApprovalStore()
+	var created []Grant
+	deleted := 0
+	c := NewApprovalCoordinator(CoordinatorOptions{
+		Mode:  ModePrompt,
+		Store: store,
+		Hooks: CoordinatorHooks{
+			OnGrantCreated: func(g Grant) {
+				created = append(created, g)
+			},
+			OnGrantDeleted: func() {
+				deleted++
+			},
+		},
+	})
+
+	once := pendingRow(t, store, "sess1", "codex", "/tmp/w", unambiguousAllowOnceRequest())
+	if _, err := c.Resolve(context.Background(), once.ID, ResolveRequest{
+		Decision: ApprovalDecisionApprove,
+		Scope:    ApprovalScopeOnce,
+	}); err != nil {
+		t.Fatalf("Resolve once: %v", err)
+	}
+	if len(created) != 0 {
+		t.Fatalf("scope=once fired OnGrantCreated %d time(s), want 0", len(created))
+	}
+
+	session := pendingRow(t, store, "sess1", "codex", "/tmp/w", unambiguousAllowOnceRequest())
+	if _, err := c.Resolve(context.Background(), session.ID, ResolveRequest{
+		Decision: ApprovalDecisionApprove,
+		Scope:    ApprovalScopeSession,
+	}); err != nil {
+		t.Fatalf("Resolve session scope: %v", err)
+	}
+	if len(created) != 1 {
+		t.Fatalf("OnGrantCreated count = %d, want 1", len(created))
+	}
+	if created[0].ID == "" || created[0].SessionID != "sess1" {
+		t.Fatalf("created grant hook received malformed grant: %+v", created[0])
+	}
+
+	if err := c.DeleteGrant(context.Background(), created[0].ID); err != nil {
+		t.Fatalf("DeleteGrant: %v", err)
+	}
+	if deleted != 1 {
+		t.Fatalf("OnGrantDeleted count = %d, want 1", deleted)
+	}
+	if err := c.DeleteGrant(context.Background(), created[0].ID); !errors.Is(err, ErrApprovalNotFound) {
+		t.Fatalf("second DeleteGrant err = %v, want ErrApprovalNotFound", err)
+	}
+	if deleted != 1 {
+		t.Fatalf("failed delete fired OnGrantDeleted; count = %d, want 1", deleted)
+	}
+}
+
 func TestCoordinatorResolveAlreadyResolvedReturns409(t *testing.T) {
 	t.Parallel()
 	store := NewMemoryApprovalStore()
