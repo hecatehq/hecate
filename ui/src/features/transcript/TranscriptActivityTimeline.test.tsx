@@ -1,4 +1,5 @@
 import { render, screen } from "@testing-library/react";
+import userEvent from "@testing-library/user-event";
 import { describe, expect, it } from "vitest";
 
 import type { AgentChatActivityRecord } from "../../types/runtime";
@@ -72,6 +73,24 @@ describe("TranscriptActivityTimeline", () => {
     ];
     render(<TranscriptActivityTimeline activities={activities} />);
     expect(screen.getByText(/completed/)).toBeInTheDocument();
+  });
+
+  it("preserves operator-expanded completed details across rerenders", async () => {
+    const activities: AgentChatActivityRecord[] = [
+      { type: "tool_call", title: "read_file", status: "completed" },
+      { type: "completed", title: "Final answer", status: "completed" },
+    ];
+    const user = userEvent.setup();
+    const { rerender } = render(<TranscriptActivityTimeline activities={activities} />);
+    const summary = screen.getByText(/completed/);
+    const details = summary.closest("details");
+    expect(details?.open).toBe(false);
+
+    await user.click(summary);
+    expect(details?.open).toBe(true);
+
+    rerender(<TranscriptActivityTimeline activities={activities} />);
+    expect(screen.getByText(/completed/).closest("details")?.open).toBe(true);
   });
 
   it("renders plan items with their plan-status indicators", () => {

@@ -2,7 +2,7 @@ import { useState } from "react";
 import type { SyntheticEvent } from "react";
 
 import type { AgentChatChangedFileDiffRecord, AgentChatChangedFileRecord } from "../../types/runtime";
-import { CodeBlock, InlineError } from "../shared/ui";
+import { CodeBlock, InlineError } from "../shared/Atoms";
 import { DiffStatList, formatDiffStatSummary } from "./TranscriptActivityTimeline";
 
 type Props = {
