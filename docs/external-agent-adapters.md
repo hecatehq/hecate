@@ -302,9 +302,6 @@ the sweeper has closed the stale session, the request returns HTTP 422 with
   Chats UI can inspect or revert captured Git paths. A fuller review surface
   with side-by-side hunks, batch selection, and richer artifact history is
   still future work.
-- ACP terminal reverse-RPC is not implemented yet. Adapters that require the
-  editor/client to own terminal execution will receive a clear unsupported
-  response.
 - Agent Chat is a lightweight API, not yet a full Task/Run. Converging it onto
   Tasks would unlock durable events, approvals, artifacts, policy, and richer
   OpenTelemetry correlation.

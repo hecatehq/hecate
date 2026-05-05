@@ -53,7 +53,11 @@ Implemented:
 
 Not implemented yet:
 
-- Editor-owned workspace calls.
+- Editor-owned workspace reverse-RPC calls. Hecate-owned mode is the current
+  implementation: work runs through the gateway task runtime. The future
+  editor-owned mode would let an ACP host such as Zed or JetBrains own file and
+  terminal operations through ACP reverse-RPC, including terminal lifecycle
+  calls like create, output, wait-for-exit, kill, and release.
 - Registry packaging for a specific editor.
 - Headless compatibility tests against a real Zed or JetBrains ACP host.
 - Durable editor-side session reattachment after bridge restart. The gateway
@@ -365,6 +369,12 @@ for that behavior.
 | `HECATE_AGENT_NAME` | `Hecate` | Agent display name advertised during initialize. |
 | `HECATE_WORKSPACE_MODE` | `hecate-owned` | Future workspace ownership mode. |
 | `HECATE_APPROVAL_ROUTE` | `editor` | `editor` sends approval gates to ACP `session/request_permission`; other values leave approvals for the Hecate operator UI. |
+
+`HECATE_WORKSPACE_MODE=editor-owned` is not implemented yet. When it lands, it
+belongs to this editor-host bridge scope: the editor would own file writes and
+terminal execution through ACP reverse-RPC. It is separate from
+[External agent adapters](external-agent-adapters.md), where Hecate itself
+launches Codex / Claude / Cursor-style adapters from Chats.
 
 ### Bridge telemetry
 
