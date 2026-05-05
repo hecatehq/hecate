@@ -7,12 +7,14 @@ import {
   deleteAgentChatGrant,
   deletePolicyRule,
   dispatchAgentChatStreamEvent,
+  getAgentChatMessageFileDiff,
   getAgentChatApproval,
   getBudget,
   getSession,
   getTrace,
   listAgentChatApprovals,
   listAgentChatGrants,
+  listAgentChatMessageFiles,
   probeAgentAdapter,
   refreshAgentAdapterLauncher,
   resolveAgentChatApproval,
@@ -542,6 +544,42 @@ describe("api client", () => {
 
       const [url] = fetchMock.mock.lastCall ?? [];
       expect(url).toBe("/v1/agent-adapters/weird%20id/refresh-launcher");
+    });
+  });
+
+  describe("agent chat changed-file endpoints", () => {
+    it("lists changed files for an agent message", async () => {
+      fetchMock.mockResolvedValue(
+        jsonResponse({
+          object: "agent_chat_changed_files",
+          data: [{ path: "src/app.go", additions: 2, deletions: 1, status: "modified" }],
+        }),
+      );
+
+      const result = await listAgentChatMessageFiles("s 1", "m/1");
+
+      expect(fetchMock).toHaveBeenCalledWith(
+        "/v1/agent-chat/sessions/s%201/messages/m%2F1/files",
+        expect.anything(),
+      );
+      expect(result.data[0]?.path).toBe("src/app.go");
+    });
+
+    it("fetches a single changed-file diff", async () => {
+      fetchMock.mockResolvedValue(
+        jsonResponse({
+          object: "agent_chat_changed_file_diff",
+          data: { path: "src/app.go", additions: 2, deletions: 1, status: "modified", diff: "diff --git a/src/app.go b/src/app.go" },
+        }),
+      );
+
+      const result = await getAgentChatMessageFileDiff("s1", "m1", "src/app.go");
+
+      expect(fetchMock).toHaveBeenCalledWith(
+        "/v1/agent-chat/sessions/s1/messages/m1/files/src%2Fapp.go",
+        expect.anything(),
+      );
+      expect(result.data.diff).toContain("src/app.go");
     });
   });
 

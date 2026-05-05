@@ -11,6 +11,7 @@ import (
 	"log/slog"
 	"net/http"
 	"net/http/httptest"
+	"net/url"
 	"os"
 	"os/exec"
 	"path/filepath"
@@ -1326,6 +1327,105 @@ func TestAgentChatHumanizesAdapterJSONRPCBillingError(t *testing.T) {
 	}
 	if assistant.Error != assistant.Content {
 		t.Fatalf("assistant error = %q, want content %q", assistant.Error, assistant.Content)
+	}
+}
+
+func TestAgentChatMessageFilesReturnsStructuredDiff(t *testing.T) {
+	store := agentchat.NewMemoryStore()
+	sessionID := "agent_chat_diff"
+	messageID := "msg_diff"
+	diff := `diff --git a/README.md b/README.md
+--- a/README.md
++++ b/README.md
+@@ -1 +1,2 @@
+ hello
++world
+diff --git a/src/app.go b/src/app.go
+--- a/src/app.go
++++ b/src/app.go
+@@ -1,2 +1,2 @@
+-old
++new
+ keep`
+	if _, err := store.Create(context.Background(), agentchat.Session{
+		ID:        sessionID,
+		Title:     "Diff",
+		AdapterID: "codex",
+		Workspace: t.TempDir(),
+		Status:    "completed",
+		Messages: []agentchat.Message{
+			{ID: messageID, Role: "assistant", Status: "completed", Diff: diff, DiffStat: "2 files changed, 2 insertions(+), 1 deletion(-)"},
+		},
+	}); err != nil {
+		t.Fatalf("Create: %v", err)
+	}
+	logger := slog.New(slog.NewJSONHandler(io.Discard, nil))
+	apiHandler := NewHandler(config.Config{}, logger, nil, nil, nil, nil)
+	apiHandler.SetAgentChatStore(store)
+	client := newAPITestClient(t, NewServer(logger, apiHandler))
+
+	resp := mustRequestJSON[AgentChatChangedFilesResponse](client, http.MethodGet, "/v1/agent-chat/sessions/"+sessionID+"/messages/"+messageID+"/files", "")
+	if resp.Object != "agent_chat_changed_files" {
+		t.Fatalf("object = %q, want agent_chat_changed_files", resp.Object)
+	}
+	if len(resp.Data) != 2 {
+		t.Fatalf("file count = %d, want 2: %#v", len(resp.Data), resp.Data)
+	}
+	if resp.Data[0].Path != "README.md" || resp.Data[0].Additions != 1 || resp.Data[0].Deletions != 0 || resp.Data[0].Status != "modified" {
+		t.Fatalf("first file = %#v", resp.Data[0])
+	}
+	if resp.Data[1].Path != "src/app.go" || resp.Data[1].Additions != 1 || resp.Data[1].Deletions != 1 {
+		t.Fatalf("second file = %#v", resp.Data[1])
+	}
+}
+
+func TestAgentChatMessageFileDiffReturnsSingleFileBlock(t *testing.T) {
+	store := agentchat.NewMemoryStore()
+	sessionID := "agent_chat_file_diff"
+	messageID := "msg_diff"
+	diff := `diff --git a/README.md b/README.md
+--- a/README.md
++++ b/README.md
+@@ -1 +1,2 @@
+ hello
++world
+diff --git a/src/app.go b/src/app.go
+--- a/src/app.go
++++ b/src/app.go
+@@ -1,2 +1,2 @@
+-old
++new
+ keep`
+	if _, err := store.Create(context.Background(), agentchat.Session{
+		ID:        sessionID,
+		Title:     "Diff",
+		AdapterID: "codex",
+		Workspace: t.TempDir(),
+		Status:    "completed",
+		Messages:  []agentchat.Message{{ID: messageID, Role: "assistant", Status: "completed", Diff: diff}},
+	}); err != nil {
+		t.Fatalf("Create: %v", err)
+	}
+	logger := slog.New(slog.NewJSONHandler(io.Discard, nil))
+	apiHandler := NewHandler(config.Config{}, logger, nil, nil, nil, nil)
+	apiHandler.SetAgentChatStore(store)
+	client := newAPITestClient(t, NewServer(logger, apiHandler))
+
+	encodedPath := url.PathEscape("src/app.go")
+	resp := mustRequestJSON[AgentChatChangedFileDiffResponse](client, http.MethodGet, "/v1/agent-chat/sessions/"+sessionID+"/messages/"+messageID+"/files/"+encodedPath, "")
+	if resp.Object != "agent_chat_changed_file_diff" {
+		t.Fatalf("object = %q, want agent_chat_changed_file_diff", resp.Object)
+	}
+	if resp.Data.Path != "src/app.go" || !strings.Contains(resp.Data.Diff, "diff --git a/src/app.go") {
+		t.Fatalf("data = %#v, want src/app.go diff", resp.Data)
+	}
+	if strings.Contains(resp.Data.Diff, "diff --git a/README.md") {
+		t.Fatalf("file diff included unrelated block: %q", resp.Data.Diff)
+	}
+
+	rec := client.mustRequestStatus(http.StatusNotFound, http.MethodGet, "/v1/agent-chat/sessions/"+sessionID+"/messages/"+messageID+"/files/"+url.PathEscape("missing.go"), "")
+	if !strings.Contains(rec.Body.String(), "changed file not found") {
+		t.Fatalf("missing body = %s", rec.Body.String())
 	}
 }
 

@@ -781,6 +781,55 @@ messages with `"status": "failed"` and `error` so the transcript stays intact.
 Transport or request validation failures still use the normal Hecate error
 envelope.
 
+### `GET /v1/agent-chat/sessions/{id}/messages/{message_id}/files`
+
+Returns a structured file list for an Agent Chat assistant message that captured
+a workspace diff. The data is derived from the stored `diff` first, then falls
+back to `diff_stat` when only the stat text is available.
+
+```json
+GET /v1/agent-chat/sessions/agent_chat_.../messages/msg_.../files
+→ 200
+{
+  "object": "agent_chat_changed_files",
+  "data": [
+    {
+      "path": "src/foo.go",
+      "additions": 12,
+      "deletions": 3,
+      "status": "modified"
+    }
+  ]
+}
+```
+
+`status` is best-effort: `modified`, `added`, `deleted`, `renamed`, or
+`binary`. Messages without a captured diff return an empty list.
+
+### `GET /v1/agent-chat/sessions/{id}/messages/{message_id}/files/{path}`
+
+Returns the stored unified diff block for one changed file. Encode the path as
+a URL path component (`encodeURIComponent(path)` in browser clients).
+
+```json
+GET /v1/agent-chat/sessions/agent_chat_.../messages/msg_.../files/src%2Ffoo.go
+→ 200
+{
+  "object": "agent_chat_changed_file_diff",
+  "data": {
+    "path": "src/foo.go",
+    "additions": 12,
+    "deletions": 3,
+    "status": "modified",
+    "diff": "diff --git a/src/foo.go b/src/foo.go\n..."
+  }
+}
+```
+
+Status codes:
+- `200 OK` with the per-file diff.
+- `404 not_found` when the session, message, or file path is unknown.
+
 ### `GET /v1/agent-chat/sessions/{id}/stream`
 
 Streams live Agent Chat session snapshots as Server-Sent Events. This is an

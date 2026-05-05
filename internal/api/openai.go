@@ -631,6 +631,31 @@ type AgentChatMessageItem struct {
 	Usage           *AgentChatUsageItem     `json:"usage,omitempty"`
 }
 
+type AgentChatChangedFileItem struct {
+	Path      string `json:"path"`
+	Additions int    `json:"additions"`
+	Deletions int    `json:"deletions"`
+	Status    string `json:"status"`
+}
+
+type AgentChatChangedFilesResponse struct {
+	Object string                     `json:"object"`
+	Data   []AgentChatChangedFileItem `json:"data"`
+}
+
+type AgentChatChangedFileDiffItem struct {
+	Path      string `json:"path"`
+	Additions int    `json:"additions"`
+	Deletions int    `json:"deletions"`
+	Status    string `json:"status"`
+	Diff      string `json:"diff"`
+}
+
+type AgentChatChangedFileDiffResponse struct {
+	Object string                       `json:"object"`
+	Data   AgentChatChangedFileDiffItem `json:"data"`
+}
+
 type AgentChatActivityItem struct {
 	ID        string `json:"id,omitempty"`
 	Type      string `json:"type"`
