@@ -380,6 +380,8 @@ export function dispatchAgentChatStreamEvent(
 ): AgentChatStreamEvent | null {
   switch (eventName) {
     case "session_update":
+    case "snapshot":
+    case "done":
     case "message":
       return { type: "session_update", payload: JSON.parse(rawData) as AgentChatSessionResponse };
     case "approval.requested":

@@ -1071,16 +1071,24 @@ func (c *ApprovalCoordinator) DeleteGrant(ctx context.Context, id string) error 
 
 // pickOperatorOption resolves the operator's decision to a concrete
 // ACP option_id. Strict semantics:
-//   - If selected_option is supplied, it must exist on the row.
+//   - If selected_option is supplied, it must exist on the row and
+//     match the selected decision family.
 //   - Otherwise, exactly one option of the matching kind family
 //     (allow_* for approve, reject_* for deny) must exist; multiple
 //     return *AmbiguousOptionError, none returns ErrNoMatchingOption.
 //
 // Returns the constructed ACP response and the recorded option_id.
 func (c *ApprovalCoordinator) pickOperatorOption(options []ApprovalOption, decision ApprovalDecision, selectedOption string) (acp.RequestPermissionResponse, string, error) {
+	wanted := []string{"allow_once", "allow_always"}
+	if decision == ApprovalDecisionDeny {
+		wanted = []string{"reject_once", "reject_always"}
+	}
 	if selectedOption != "" {
 		for _, opt := range options {
 			if opt.OptionID == selectedOption {
+				if !optionKindIn(opt.Kind, wanted) {
+					return acp.RequestPermissionResponse{}, "", ErrNoMatchingOption
+				}
 				return acp.RequestPermissionResponse{
 					Outcome: acp.RequestPermissionOutcome{
 						Selected: &acp.RequestPermissionOutcomeSelected{OptionId: acp.PermissionOptionId(opt.OptionID)},
@@ -1089,10 +1097,6 @@ func (c *ApprovalCoordinator) pickOperatorOption(options []ApprovalOption, decis
 			}
 		}
 		return acp.RequestPermissionResponse{}, "", ErrUnknownOption
-	}
-	wanted := []string{"allow_once", "allow_always"}
-	if decision == ApprovalDecisionDeny {
-		wanted = []string{"reject_once", "reject_always"}
 	}
 	matches := optionsByKinds(options, wanted)
 	switch len(matches) {
@@ -1108,6 +1112,15 @@ func (c *ApprovalCoordinator) pickOperatorOption(options []ApprovalOption, decis
 	default:
 		return acp.RequestPermissionResponse{}, "", &AmbiguousOptionError{Decision: decision, Options: matches}
 	}
+}
+
+func optionKindIn(got string, allowed []string) bool {
+	for _, want := range allowed {
+		if got == want {
+			return true
+		}
+	}
+	return false
 }
 
 func optionsByKinds(options []ApprovalOption, kinds []string) []ApprovalOption {

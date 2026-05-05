@@ -522,6 +522,19 @@ describe("api client", () => {
       expect(out?.type).toBe("session_update");
     });
 
+    it("maps existing backend snapshot/done events onto session_update", () => {
+      for (const eventName of ["snapshot", "done"]) {
+        const out = dispatchAgentChatStreamEvent(
+          eventName,
+          JSON.stringify({ object: "agent_chat_session", data: { id: "s" } }),
+        );
+        expect(out).toEqual({
+          type: "session_update",
+          payload: { object: "agent_chat_session", data: { id: "s" } },
+        });
+      }
+    });
+
     it("maps approval.requested onto the requested-event payload", () => {
       const out = dispatchAgentChatStreamEvent(
         "approval.requested",

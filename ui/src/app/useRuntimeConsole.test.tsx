@@ -8,7 +8,7 @@ import { useRuntimeConsole } from "./useRuntimeConsole";
 // stub /healthz + /v1/whoami + the dashboard fan-out and exercise the
 // hook's user-visible behavior on top of that.
 
-function defaultBackendMock(routes: Record<string, () => Response> = {}) {
+function defaultBackendMock(routes: Record<string, () => Response | Promise<Response>> = {}) {
   return async (input: RequestInfo | URL, init?: RequestInit): Promise<Response> => {
     const url = String(input);
     // Per-test overrides take precedence over the defaults below so a
@@ -590,6 +590,74 @@ describe("useRuntimeConsole", () => {
       await waitFor(() =>
         expect(result.current.state.pendingApprovalsBySessionID.has("a1")).toBe(false),
       );
+    });
+
+    it("ignores a stale catch-up refetch when a local approval update lands first", async () => {
+      let delayARefetch = false;
+      let releaseARefetch: (() => void) | undefined;
+      fetchMock.mockImplementation(defaultBackendMock({
+        "/v1/agent-chat/sessions": () => jsonResponse({ object: "agent_chat_sessions", data: [] }),
+        "/v1/agent-chat/sessions/a1": () => jsonResponse({
+          object: "agent_chat_session",
+          data: { id: "a1", title: "A", adapter_id: "codex", workspace: "/tmp", status: "running" },
+        }),
+        "/v1/agent-chat/sessions/b1": () => jsonResponse({
+          object: "agent_chat_session",
+          data: { id: "b1", title: "B", adapter_id: "codex", workspace: "/tmp", status: "running" },
+        }),
+        "/v1/agent-chat/sessions/a1/approvals?status=pending": () => {
+          if (!delayARefetch) {
+            return jsonResponse({ object: "list", data: [approvalRow()] });
+          }
+          return new Promise<Response>((resolve) => {
+            releaseARefetch = () => resolve(jsonResponse({ object: "list", data: [approvalRow()] }));
+          });
+        },
+        "/v1/agent-chat/sessions/b1/approvals?status=pending": () => jsonResponse({
+          object: "list",
+          data: [],
+        }),
+        "/v1/agent-chat/sessions/a1/approvals/ap-1/resolve": () => jsonResponse({
+          object: "agent_chat_approval",
+          data: approvalRow({ status: "approved", decision: "approve", scope: "once", path: "operator" }),
+        }),
+      }));
+
+      const { result } = renderHook(() => useRuntimeConsole());
+      await waitFor(() => expect(result.current.state.loading).toBe(false));
+
+      await act(async () => {
+        await result.current.actions.selectChatSession("a1");
+      });
+      await waitFor(() =>
+        expect(result.current.state.pendingApprovalsBySessionID.get("a1")).toHaveLength(1),
+      );
+
+      await act(async () => {
+        await result.current.actions.selectChatSession("b1");
+      });
+
+      delayARefetch = true;
+      await act(async () => {
+        await result.current.actions.selectChatSession("a1");
+      });
+      await waitFor(() => expect(releaseARefetch).toBeDefined());
+
+      await act(async () => {
+        const ok = await result.current.actions.resolveAgentChatApproval("a1", "ap-1", {
+          decision: "approve",
+          scope: "once",
+        });
+        expect(ok).toBe(true);
+      });
+      expect(result.current.state.pendingApprovalsBySessionID.has("a1")).toBe(false);
+
+      await act(async () => {
+        releaseARefetch?.();
+        await Promise.resolve();
+      });
+
+      expect(result.current.state.pendingApprovalsBySessionID.has("a1")).toBe(false);
     });
 
     it("removes a pending approval when the operator resolves it (optimistic update)", async () => {

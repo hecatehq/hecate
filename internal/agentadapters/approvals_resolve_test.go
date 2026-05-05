@@ -291,6 +291,28 @@ func TestCoordinatorResolveUnknownSelectedOption(t *testing.T) {
 	}
 }
 
+func TestCoordinatorResolveSelectedOptionMustMatchDecision(t *testing.T) {
+	t.Parallel()
+	store := NewMemoryApprovalStore()
+	c := NewApprovalCoordinator(CoordinatorOptions{Mode: ModePrompt, Store: store})
+
+	req := acp.RequestPermissionRequest{
+		Options: []acp.PermissionOption{
+			{OptionId: "allow_id", Kind: acp.PermissionOptionKindAllowOnce, Name: "Allow once"},
+			{OptionId: "reject_id", Kind: acp.PermissionOptionKindRejectOnce, Name: "Reject once"},
+		},
+	}
+	row := pendingRow(t, store, "s", "codex", "/tmp/w", req)
+	_, err := c.Resolve(context.Background(), row.ID, ResolveRequest{
+		Decision:       ApprovalDecisionDeny,
+		Scope:          ApprovalScopeOnce,
+		SelectedOption: "allow_id",
+	})
+	if !errors.Is(err, ErrNoMatchingOption) {
+		t.Fatalf("got %v, want ErrNoMatchingOption", err)
+	}
+}
+
 func TestCoordinatorResolveDenyWithoutRejectOption(t *testing.T) {
 	t.Parallel()
 	store := NewMemoryApprovalStore()
