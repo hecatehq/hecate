@@ -23,7 +23,6 @@ Pick the right skill for the change:
 | Command | What it does |
 |---|---|
 | `/race` | Full Go race suite — the canonical "ready to commit" check for runtime/backend changes |
-| `/typecheck` | UI type check (`cd ui && bun run typecheck`) — fast first sanity check after a UI edit |
 | `/test-affected` | Tests only for packages touched in the working tree |
 
 ## Repo policy

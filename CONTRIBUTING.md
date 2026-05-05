@@ -34,8 +34,8 @@ The race suite is the floor for runtime/backend changes — not a
 nice-to-have. UI tests use `bun run test` (never `bun test`, which skips
 the testing-library DOM setup).
 
-Slash-command shortcuts available in Claude Code: `/race`,
-`/typecheck`, `/test-affected`. See [`.claude/commands/`](.claude/commands/).
+Slash-command shortcuts available in Claude Code: `/race` and
+`/test-affected`. See [`.claude/commands/`](.claude/commands/).
 
 ## Commits
 
