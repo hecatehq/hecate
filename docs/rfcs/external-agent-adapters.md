@@ -317,12 +317,14 @@ not a drop-in fit.
   selection, and richer artifact history. The current Chats UI can inspect and
   revert already-applied Git paths.
 - [ ] Deeper adapter-specific structured mappers for ACP tool output.
-- [ ] Decision on whether Agent Chat converges onto full Hecate Tasks/Runs.
+- [ ] Decision on which task-runtime primitives Agent Chat should reuse without
+  pretending Hecate owns the external agent runtime.
 
 ## Open Questions
 
-- Should Agent Chat eventually converge with Tasks so external-agent prompts
-  get durable run events, approvals, and artifacts from the same substrate?
+- Should Agent Chat reuse task-runtime primitives for artifacts, event history,
+  retention, and trace correlation while keeping Codex, Claude Code, and Cursor
+  as opaque supervised runtimes?
 - How much of the external process environment should be configurable by the
   operator?
 - Should Hecate eventually offer optional process containment for external

@@ -302,6 +302,7 @@ the sweeper has closed the stale session, the request returns HTTP 422 with
   Chats UI can inspect or revert captured Git paths. A fuller review surface
   with side-by-side hunks, batch selection, and richer artifact history is
   still future work.
-- Agent Chat is a lightweight API, not yet a full Task/Run. Converging it onto
-  Tasks would unlock durable events, approvals, artifacts, policy, and richer
-  OpenTelemetry correlation.
+- Agent Chat is a lightweight API around opaque external runtimes. Future work
+  may reuse task-runtime primitives for artifacts, event history, retention,
+  and trace correlation, but Hecate should not pretend it owns the Codex /
+  Claude / Cursor runtime loop.
