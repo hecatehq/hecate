@@ -475,6 +475,99 @@ describe("ChatView agent target", () => {
     expect(revertAgentChatMessageFiles).toHaveBeenCalledWith("a1", "m2", ["README.md"]);
   });
 
+  it("surfaces diff-review API failures and clears loading states", async () => {
+    const listAgentChatMessageFiles = vi.fn(async () => [
+      { path: "README.md", additions: 2, deletions: 1, status: "modified" },
+    ]);
+    const getAgentChatMessageFileDiff = vi.fn(async () => {
+      throw new Error("diff unavailable");
+    });
+    const revertAgentChatMessageFiles = vi.fn(async () => {
+      throw new Error("git restore failed");
+    });
+    const { state, actions } = setup({
+      chatTarget: "agent",
+      agentWorkspace: "/tmp/hecate",
+      activeAgentChatSessionID: "a1",
+      activeAgentChatSession: {
+        id: "a1",
+        title: "Review files",
+        adapter_id: "codex",
+        workspace: "/tmp/hecate",
+        status: "completed",
+        messages: [
+          { id: "m1", role: "user", content: "change docs", created_at: "2026-05-03T10:00:00Z" },
+          {
+            id: "m2",
+            role: "assistant",
+            content: "Updated the docs.",
+            adapter_id: "codex",
+            adapter_name: "Codex",
+            status: "completed",
+            diff_stat: "README.md | 3 ++-\n1 file changed, 2 insertions(+), 1 deletion(-)",
+            diff: "diff --git a/README.md b/README.md\n+new line",
+            created_at: "2026-05-03T10:00:01Z",
+          },
+        ],
+      } as any,
+    }, { listAgentChatMessageFiles, getAgentChatMessageFileDiff, revertAgentChatMessageFiles });
+    render(<ChatView state={state} actions={actions} />);
+
+    const user = userEvent.setup();
+    await user.click(screen.getByText("files changed · 1 file changed, 2 insertions(+), 1 deletion(-)"));
+    expect(await screen.findByText("1 changed file")).toBeTruthy();
+
+    await user.click(screen.getByRole("button", { name: "Inspect README.md" }));
+    expect(await screen.findByText("Could not load that file diff.")).toBeTruthy();
+    expect(screen.getByRole("button", { name: "Inspect README.md" })).toBeTruthy();
+
+    await user.click(screen.getByRole("button", { name: "Revert README.md" }));
+    await user.click(screen.getByRole("button", { name: "Confirm revert README.md" }));
+    expect(await screen.findByText("Revert failed. The workspace may not be a Git repository, or the file changed since capture.")).toBeTruthy();
+    expect(screen.getByRole("button", { name: "Revert README.md" })).toBeTruthy();
+  });
+
+  it("surfaces changed-file list failures", async () => {
+    const listAgentChatMessageFiles = vi.fn(async () => {
+      throw new Error("files unavailable");
+    });
+    const { state, actions } = setup({
+      chatTarget: "agent",
+      agentWorkspace: "/tmp/hecate",
+      activeAgentChatSessionID: "a1",
+      activeAgentChatSession: {
+        id: "a1",
+        title: "Review files",
+        adapter_id: "codex",
+        workspace: "/tmp/hecate",
+        status: "completed",
+        messages: [
+          {
+            id: "m2",
+            role: "assistant",
+            content: "Updated the docs.",
+            adapter_id: "codex",
+            adapter_name: "Codex",
+            status: "completed",
+            diff_stat: "README.md | 3 ++-\n1 file changed, 2 insertions(+), 1 deletion(-)",
+            diff: "diff --git a/README.md b/README.md\n+new line",
+            created_at: "2026-05-03T10:00:01Z",
+          },
+        ],
+      } as any,
+    }, {
+      listAgentChatMessageFiles,
+      getAgentChatMessageFileDiff: vi.fn(async () => null),
+      revertAgentChatMessageFiles: vi.fn(async () => false),
+    });
+    render(<ChatView state={state} actions={actions} />);
+
+    const user = userEvent.setup();
+    await user.click(screen.getByText("files changed · 1 file changed, 2 insertions(+), 1 deletion(-)"));
+    expect(await screen.findByText("Could not load changed files. The captured diff may no longer be available.")).toBeTruthy();
+    expect(screen.queryByText("Loading changed files...")).toBeNull();
+  });
+
   it("requires confirmation before reverting the full captured diff", async () => {
     const listAgentChatMessageFiles = vi.fn(async () => [
       { path: "README.md", additions: 2, deletions: 1, status: "modified" },

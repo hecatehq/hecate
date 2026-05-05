@@ -543,7 +543,7 @@ type acpChatClient struct {
 // the case via errors.Is without string-matching.
 func terminalRPCUnsupported(method string) error {
 	rpcErr := acp.NewMethodNotFound(method)
-	return fmt.Errorf("%w: %s", ErrTerminalRPCUnsupported, rpcErr.Error())
+	return fmt.Errorf("%w: %w", ErrTerminalRPCUnsupported, rpcErr)
 }
 
 func (c *acpChatClient) setTurn(turn *acpTurn) {
