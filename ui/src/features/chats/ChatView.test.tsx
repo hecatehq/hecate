@@ -3,7 +3,16 @@ import userEvent from "@testing-library/user-event";
 import { describe, expect, it, vi } from "vitest";
 
 import { ChatView } from "./ChatView";
+import { discoverLocalProviders } from "../../lib/api";
 import { createRuntimeConsoleActions, createRuntimeConsoleFixture } from "../../test/runtime-console-fixture";
+
+vi.mock("../../lib/api", async importOriginal => {
+  const actual = await importOriginal<typeof import("../../lib/api")>();
+  return {
+    ...actual,
+    discoverLocalProviders: vi.fn(async () => ({ object: "local_provider_discovery", data: [] })),
+  };
+});
 
 function setup(stateOverrides = {}, actionOverrides = {}) {
   const state = createRuntimeConsoleFixture({
@@ -53,6 +62,123 @@ describe("ChatView input", () => {
     expect(send.disabled).toBe(true);
     expect(screen.getByText("No routable model")).toBeTruthy();
     expect(screen.getByRole("button", { name: /Add provider/i })).toBeTruthy();
+  });
+
+  it("opens the shared Add provider modal from the model empty state", async () => {
+    const { state, actions } = setup({
+      chatTarget: "model",
+      controlPlaneConfig: { backend: "memory", providers: [], policy_rules: [], pricebook: [], events: [] },
+      agentAdapters: [
+        { id: "codex", name: "Codex", kind: "acp", command: "codex-acp", available: true, status: "available", cost_mode: "external" },
+      ],
+    });
+    render(<ChatView state={state} actions={actions} />);
+
+    const user = userEvent.setup();
+    await user.click(screen.getByRole("button", { name: /Add provider/i }));
+
+    expect(screen.getByRole("dialog", { name: "Add provider" })).toBeTruthy();
+    expect(screen.getByRole("button", { name: "Local" })).toHaveStyle({ color: "var(--t0)" });
+  });
+
+  it("shows provider troubleshooting instead of detected-provider setup when a configured provider has no models", () => {
+    const { state, actions } = setup({
+      chatTarget: "model",
+      providerFilter: "ollama",
+      controlPlaneConfig: {
+        backend: "memory",
+        providers: [
+          { id: "ollama", name: "Ollama", preset_id: "ollama", kind: "local", protocol: "openai", base_url: "http://127.0.0.1:11434/v1", credential_configured: false },
+        ],
+        policy_rules: [],
+        pricebook: [],
+        events: [],
+      },
+      providers: [
+        { name: "ollama", kind: "local", healthy: true, status: "healthy", base_url: "http://127.0.0.1:11434/v1", models: [], model_count: 0 },
+      ],
+      providerScopedModels: [],
+      agentAdapters: [
+        { id: "codex", name: "Codex", kind: "acp", command: "codex-acp", available: true, status: "available", cost_mode: "external" },
+      ],
+    });
+    render(<ChatView state={state} actions={actions} />);
+
+    expect(screen.getByText("Provider is configured")).toBeTruthy();
+    expect(screen.getAllByText("Ollama").length).toBeGreaterThan(0);
+    expect(screen.getByText("none discovered")).toBeTruthy();
+    expect(screen.getByText(/Start the local provider app/)).toBeTruthy();
+    expect(screen.queryByText("Detected locally")).toBeNull();
+    expect(screen.queryByRole("button", { name: /Add detected provider/i })).toBeNull();
+  });
+
+  it("quick-adds all installed local providers from the model empty state", async () => {
+    vi.mocked(discoverLocalProviders).mockResolvedValueOnce({
+      object: "local_provider_discovery",
+      data: [
+        {
+          preset_id: "ollama",
+          name: "Ollama",
+          base_url: "http://127.0.0.1:11434/v1",
+          probe_url: "http://127.0.0.1:11434/api/tags",
+          status: "installed",
+          command: "ollama",
+          command_available: true,
+          command_path: "/usr/local/bin/ollama",
+          http_available: false,
+          model_count: 0,
+          models: [],
+        },
+        {
+          preset_id: "lmstudio",
+          name: "LM Studio",
+          base_url: "http://127.0.0.1:1234/v1",
+          probe_url: "http://127.0.0.1:1234/v1/models",
+          status: "running",
+          command: "lms",
+          command_available: true,
+          command_path: "/Users/alice/.lmstudio/bin/lms",
+          http_available: true,
+          model_count: 1,
+          models: ["qwen2.5"],
+        },
+      ],
+    });
+    const createProvider = vi.fn(async () => undefined);
+    const { state, actions } = setup({
+      chatTarget: "model",
+      controlPlaneConfig: { backend: "memory", providers: [], policy_rules: [], pricebook: [], events: [] },
+      providerPresets: [
+        { id: "ollama", name: "Ollama", kind: "local", protocol: "openai", base_url: "http://127.0.0.1:11434/v1", description: "" },
+        { id: "lmstudio", name: "LM Studio", kind: "local", protocol: "openai", base_url: "http://127.0.0.1:1234/v1", description: "" },
+      ],
+      providerScopedModels: [],
+      agentAdapters: [
+        { id: "codex", name: "Codex", kind: "acp", command: "codex-acp", available: true, status: "available", cost_mode: "external" },
+      ],
+    }, { createProvider });
+    render(<ChatView state={state} actions={actions} />);
+
+    const user = userEvent.setup();
+    const quickAdd = await screen.findByRole("button", { name: /Add detected providers/i });
+    expect(screen.getByText("Ollama")).toBeTruthy();
+    expect(screen.getByText("LM Studio")).toBeTruthy();
+    await user.click(quickAdd);
+
+    expect(createProvider).toHaveBeenNthCalledWith(1, expect.objectContaining({
+      name: "Ollama",
+      preset_id: "ollama",
+      base_url: "http://127.0.0.1:11434/v1",
+      kind: "local",
+      protocol: "openai",
+    }));
+    expect(createProvider).toHaveBeenNthCalledWith(2, expect.objectContaining({
+      name: "LM Studio",
+      preset_id: "lmstudio",
+      base_url: "http://127.0.0.1:1234/v1",
+      kind: "local",
+      protocol: "openai",
+    }));
   });
 
   it("shows a first-run setup state when providers and agents are unavailable", () => {

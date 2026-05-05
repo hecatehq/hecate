@@ -6,6 +6,7 @@ import {
   chatCompletions,
   deleteAgentChatGrant,
   deletePolicyRule,
+  discoverLocalProviders,
   dispatchAgentChatStreamEvent,
   getAgentChatMessageFileDiff,
   getAgentChatApproval,
@@ -227,6 +228,17 @@ describe("api client", () => {
           method: "PUT",
           body: JSON.stringify({ key: "" }),
         }),
+      );
+    });
+
+    it("GET /providers/local-discovery discovers local presets", async () => {
+      fetchMock.mockResolvedValue(jsonResponse({ object: "local_provider_discovery", data: [] }));
+
+      await discoverLocalProviders();
+
+      expect(fetchMock).toHaveBeenCalledWith(
+        "/admin/control-plane/providers/local-discovery",
+        expect.objectContaining({ method: "GET" }),
       );
     });
   });

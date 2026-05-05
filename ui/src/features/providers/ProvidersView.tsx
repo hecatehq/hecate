@@ -1,9 +1,9 @@
 import { useEffect, useState, type CSSProperties } from "react";
 import type { RuntimeConsoleViewModel } from "../../app/useRuntimeConsole";
-import { buildConflictMap, resolvedBaseURL } from "../../lib/provider-utils";
+import { resolvedBaseURL } from "../../lib/provider-utils";
 import { describeHealthErrorClass, describeRoutingBlockedReason } from "../../lib/runtime-utils";
-import { Badge, Icon, Icons, InlineError, Modal } from "../shared/ui";
-import type { ProviderPresetRecord } from "../../types/runtime";
+import { Badge, ConfirmModal, Icon, Icons, Modal } from "../shared/ui";
+import { AddProviderModal } from "./AddProviderModal";
 
 type Props = {
   state: RuntimeConsoleViewModel["state"];
@@ -83,20 +83,15 @@ export function ProvidersView({ state, actions }: Props) {
   const [pendingURL, setPendingURL] = useState("");
   const [pendingName, setPendingName] = useState("");
   const [pendingCustomName, setPendingCustomName] = useState("");
-  // Add-provider flow state
-  const [addStep, setAddStep] = useState<"pick" | "form" | null>(null);
-  const [addPickTab, setAddPickTab] = useState<"cloud" | "local">("cloud");
-  const [addPreset, setAddPreset] = useState<ProviderPresetRecord | null>(null);
-  const [addForm, setAddForm] = useState({ name: "", custom_name: "", base_url: "", api_key: "", kind: "cloud", protocol: "openai" });
-  const [addError, setAddError] = useState("");
-  const [addLoading, setAddLoading] = useState(false);
+  const [addProviderOpen, setAddProviderOpen] = useState(false);
+  const [deleteConfirmID, setDeleteConfirmID] = useState<string | null>(null);
 
   // Auto-poll model discovery only when there's something to discover for —
   // either at least one configured provider, or the Add modal is open
   // (so a freshly-added provider's models surface immediately). Otherwise
   // /admin/providers + /v1/models are no-op network calls; skip them.
   const hasProviders = (state.controlPlaneConfig?.providers?.length ?? 0) > 0;
-  const shouldPoll = hasProviders || addStep !== null;
+  const shouldPoll = hasProviders || addProviderOpen;
   useEffect(() => {
     if (!shouldPoll) return;
     const id = setInterval(() => {
@@ -149,47 +144,17 @@ export function ProvidersView({ state, actions }: Props) {
     return ai !== bi ? ai - bi : a.localeCompare(b);
   };
 
-  const configuredByName = new Map(
-    configuredProviders.filter(p => p.base_url).map(p => [p.name, p]),
-  );
-  const allConfiguredIDs = configuredProviders.map(p => p.id).sort(stableSort);
-  const conflictMap = buildConflictMap(allConfiguredIDs, configuredByName, state.providerPresets);
-
   const cloudIDs = configuredProviders.filter(p => p.kind === "cloud").map(p => p.id).sort(stableSort);
   const localIDs = configuredProviders.filter(p => p.kind !== "cloud").map(p => p.id).sort(stableSort);
 
   const selectedConfig = selectedID ? configuredByID.get(selectedID) ?? null : null;
   const selectedStatus = selectedID ? statusByName.get(selectedID) : null;
   const selectedPreset = selectedID ? state.providerPresets.find(p => p.id === selectedID) : null;
-
-  function closeAdd() {
-    setAddStep(null);
-    setAddPickTab("cloud");
-    setAddPreset(null);
-    setAddForm({ name: "", custom_name: "", base_url: "", api_key: "", kind: "cloud", protocol: "openai" });
-    setAddError("");
-  }
-
-  async function submitAdd() {
-    setAddLoading(true);
-    setAddError("");
-    try {
-      await actions.createProvider({
-        name: addForm.name.trim(),
-        preset_id: addPreset?.id,
-        custom_name: addForm.custom_name.trim() || undefined,
-        base_url: addForm.base_url.trim() || undefined,
-        api_key: addForm.api_key.trim() || undefined,
-        kind: addForm.kind,
-        protocol: addForm.protocol,
-      });
-      closeAdd();
-    } catch (e) {
-      setAddError(e instanceof Error ? e.message : "Failed to add provider");
-    } finally {
-      setAddLoading(false);
-    }
-  }
+  const deleteConfirmConfig = deleteConfirmID ? configuredByID.get(deleteConfirmID) ?? null : null;
+  const deleteConfirmPreset = deleteConfirmID ? state.providerPresets.find(p => p.id === deleteConfirmID) : null;
+  const deleteConfirmName = deleteConfirmConfig
+    ? deleteConfirmPreset?.name || deleteConfirmConfig.name || deleteConfirmID || "provider"
+    : "provider";
 
   const selectedHealthCounters = [
     selectedStatus?.consecutive_failures ? `${selectedStatus.consecutive_failures} consecutive failures` : "",
@@ -205,11 +170,6 @@ export function ProvidersView({ state, actions }: Props) {
     const rt = statusByName.get(id);
     const preset = state.providerPresets.find(p => p.id === id);
     const displayName = preset?.name || cp?.name || id;
-    const conflicts = conflictMap.get(id) ?? [];
-    const conflictTitle =
-      conflicts.length > 0
-        ? `Shares endpoint with ${conflicts.join(", ")} — only one can serve traffic at a time`
-        : undefined;
     const baseURL = rt?.base_url || resolvedBaseURL(id, cp ?? undefined, state.providerPresets);
     const modelCount = rt?.model_count ?? rt?.models?.length ?? 0;
     const protocol = cp?.protocol || preset?.protocol || "—";
@@ -265,15 +225,6 @@ export function ProvidersView({ state, actions }: Props) {
                 minWidth: 0,
               }}>
                 {cp.custom_name}
-              </span>
-            )}
-            {conflicts.length > 0 && (
-              <span
-                role="img"
-                aria-label={conflictTitle}
-                title={conflictTitle}
-                style={{ fontSize: 11, color: "var(--amber)", cursor: "help", flexShrink: 0 }}>
-                ⚠
               </span>
             )}
           </div>
@@ -343,10 +294,7 @@ export function ProvidersView({ state, actions }: Props) {
             type="button"
             onClick={e => {
               e.stopPropagation();
-              if (window.confirm(`Remove provider ${displayName}?`)) {
-                void actions.deleteProvider(id);
-                if (selectedID === id) setSelectedID(null);
-              }
+              setDeleteConfirmID(id);
             }}>
             <Icon d={Icons.trash} size={13} />
           </button>
@@ -404,279 +352,6 @@ export function ProvidersView({ state, actions }: Props) {
     );
   }
 
-  // ── Pick step ────────────────────────────────────────────────────────────────
-
-  const localPresets = state.providerPresets.filter(p => p.kind === "local");
-  const cloudPresets = state.providerPresets.filter(p => p.kind === "cloud");
-
-  function PickStep() {
-    function pickPreset(preset: ProviderPresetRecord) {
-      setAddPreset(preset);
-      setAddForm({ name: preset.name, custom_name: "", base_url: preset.base_url, api_key: "", kind: preset.kind, protocol: preset.protocol ?? "openai" });
-      setAddStep("form");
-    }
-    function pickCustom(kind: "cloud" | "local") {
-      setAddPreset(null);
-      setAddForm({ name: "Custom", custom_name: "", base_url: "", api_key: "", kind, protocol: "openai" });
-      setAddStep("form");
-    }
-
-    function PresetButton({ preset }: { preset: ProviderPresetRecord }) {
-      return (
-        <button
-          className="btn btn-ghost"
-          style={{
-            minHeight: 60, display: "flex", alignItems: "center", gap: 10,
-            textAlign: "left", padding: "10px 12px",
-            border: "1px solid var(--border)", borderRadius: "var(--radius)",
-          }}
-          onClick={() => pickPreset(preset)}>
-          <div style={{
-            width: 28, height: 28, borderRadius: "var(--radius-sm)",
-            background: "var(--bg3)", border: "1px solid var(--border)",
-            display: "flex", alignItems: "center", justifyContent: "center",
-            fontFamily: "var(--font-mono)", fontSize: 12, fontWeight: 600,
-            color: iconColorByID(preset.id), flexShrink: 0,
-          }}>
-            {preset.name[0].toUpperCase()}
-          </div>
-          <div style={{ flex: 1, minWidth: 0 }}>
-            <div style={{ fontSize: 13, fontWeight: 500, color: "var(--t0)", whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis" }}>
-              {preset.name}
-            </div>
-            {preset.description && (
-              <div style={{
-                fontSize: 11, color: "var(--t3)", lineHeight: 1.35, marginTop: 2,
-                display: "-webkit-box", WebkitLineClamp: 2, WebkitBoxOrient: "vertical",
-                overflow: "hidden",
-              }}>
-                {preset.description}
-              </div>
-            )}
-          </div>
-        </button>
-      );
-    }
-
-    function CustomButton({ kind }: { kind: "cloud" | "local" }) {
-      return (
-        <button
-          className="btn btn-ghost"
-          style={{
-            height: 60, display: "flex", alignItems: "center", gap: 10,
-            textAlign: "left", padding: "0 12px",
-            border: "1px dashed var(--border)", borderRadius: "var(--radius)",
-          }}
-          onClick={() => pickCustom(kind)}>
-          <div style={{
-            width: 28, height: 28, borderRadius: "var(--radius-sm)",
-            background: "var(--bg3)", border: "1px solid var(--border)",
-            display: "flex", alignItems: "center", justifyContent: "center",
-            fontSize: 18, color: "var(--t3)", flexShrink: 0,
-          }}>
-            +
-          </div>
-          <div style={{ flex: 1, minWidth: 0 }}>
-            <div style={{ fontSize: 13, fontWeight: 500, color: "var(--t0)" }}>Custom</div>
-            <div style={{ fontSize: 11, color: "var(--t3)", textTransform: "uppercase", letterSpacing: "0.04em" }}>openai-compatible</div>
-          </div>
-        </button>
-      );
-    }
-
-    function TabButton({ id, label }: { id: "cloud" | "local"; label: string }) {
-      const active = addPickTab === id;
-      return (
-        <button
-          type="button"
-          className="btn btn-ghost btn-sm"
-          onClick={() => setAddPickTab(id)}
-          style={{
-            padding: "6px 12px", borderRadius: 0,
-            borderBottom: `2px solid ${active ? "var(--teal)" : "transparent"}`,
-            color: active ? "var(--t0)" : "var(--t2)",
-            fontWeight: active ? 500 : 400,
-          }}>
-          {label}
-        </button>
-      );
-    }
-
-    const presets = addPickTab === "cloud" ? cloudPresets : localPresets;
-
-    // Pin the grid's min-height to the larger tab so the modal doesn't jump
-    // when the operator switches between Cloud and Local. Each row is sized
-    // by the tallest card in it (descriptions vary), so we estimate via
-    // gridAutoRows + a min-height that fits the max row count.
-    const cardsPerRow = 3;
-    const maxItemCount = Math.max(cloudPresets.length, localPresets.length) + 1; // +1 for Custom
-    const maxRows = Math.ceil(maxItemCount / cardsPerRow);
-    const rowHeight = 78; // tracks PresetButton minHeight + vertical padding
-    const rowGap = 8;
-    const gridMinHeight = maxRows * rowHeight + (maxRows - 1) * rowGap;
-
-    return (
-      <div style={{ display: "flex", flexDirection: "column", gap: 16 }}>
-        {/* Tab bar */}
-        <div style={{ display: "flex", gap: 4, borderBottom: "1px solid var(--border)", marginBottom: 4 }}>
-          <TabButton id="cloud" label="Cloud" />
-          <TabButton id="local" label="Local" />
-        </div>
-
-        {/* Preset grid + Custom for the active tab */}
-        <div style={{
-          display: "grid",
-          gridTemplateColumns: "repeat(3, minmax(0, 1fr))",
-          gridAutoRows: `minmax(${rowHeight}px, auto)`,
-          alignContent: "start",
-          gap: rowGap,
-          minHeight: gridMinHeight,
-        }}>
-          {presets.map(p => <PresetButton key={p.id} preset={p} />)}
-          <CustomButton kind={addPickTab} />
-        </div>
-      </div>
-    );
-  }
-
-  // ── Form step ────────────────────────────────────────────────────────────────
-
-  function FormStep() {
-    const showURL = addForm.kind === "local" || (!addPreset && addForm.kind === "cloud");
-    const showAPIKey = addForm.kind === "cloud";
-    const currentBaseURL = resolvedBaseURL(
-      addPreset?.id ?? "",
-      addPreset ? { id: addPreset.id, name: addPreset.name, kind: addPreset.kind, protocol: addPreset.protocol, base_url: addPreset.base_url, credential_configured: false } : undefined,
-      state.providerPresets,
-    );
-    const saveDisabled = addLoading || !addForm.name.trim();
-
-    // The URL the new provider would actually serve traffic on. For local
-    // and "custom cloud" providers that's whatever the operator typed; for
-    // a cloud preset it's the preset's fixed base_url. We use this to
-    // surface a yellow inline warning when the URL collides with an
-    // existing provider — the backend will 409 either way, but a heads-up
-    // before submit saves a round-trip.
-    const effectiveBaseURL = (showURL ? addForm.base_url.trim() : currentBaseURL).trim();
-    const baseURLConflictWith = effectiveBaseURL
-      ? configuredProviders.find(p => {
-          const url = resolvedBaseURL(p.id, p, state.providerPresets);
-          return url && url === effectiveBaseURL;
-        })
-      : undefined;
-
-    // First editable field gets autofocus on modal open. Custom → Name;
-    // cloud preset → API Key (Name + URL are fixed); local preset → URL
-    // (Name is fixed, URL may need tweaking from the preset default).
-    const focusName   = addPreset === null;
-    const focusURL    = addPreset !== null && showURL;
-    const focusAPIKey = addPreset !== null && !showURL && showAPIKey;
-
-    return (
-      <div style={{ display: "flex", flexDirection: "column", gap: 14 }}>
-        {/* Breadcrumb back-link to the preset picker. The Back button at
-            the bottom of the form is also wired, but a chevron link at
-            the top is the conventional "go up a level" affordance and
-            stays visible while the operator is filling fields. */}
-        <button
-          type="button"
-          className="btn btn-ghost btn-sm"
-          onClick={() => setAddStep("pick")}
-          disabled={addLoading}
-          style={{
-            alignSelf: "flex-start",
-            padding: "2px 6px 2px 0",
-            color: "var(--t2)",
-            display: "flex", alignItems: "center", gap: 4,
-          }}>
-          <Icon d={Icons.chevL} size={11} />
-          <span style={{ fontSize: 11 }}>All providers</span>
-        </button>
-        <div>
-          <label className="kicker-lg" style={{ display: "block", marginBottom: 6 }}>Name</label>
-          <input
-            className="input"
-            type="text"
-            value={addForm.name}
-            onChange={e => setAddForm(f => ({ ...f, name: e.target.value }))}
-            placeholder="My Provider"
-            readOnly={addPreset !== null}
-            disabled={addPreset !== null}
-            title={addPreset !== null ? "Preset names are fixed — use Custom name below to disambiguate two instances of the same preset" : undefined}
-            autoFocus={focusName}
-          />
-        </div>
-        {/* Custom name — optional disambiguator. Shown for every provider
-            but really earns its keep when the operator is adding a second
-            instance of an already-configured preset. */}
-        <div>
-          <label className="kicker-lg" style={{ display: "block", marginBottom: 6 }}>
-            Custom name <span style={{ color: "var(--t3)", fontWeight: 400, textTransform: "none" }}>optional</span>
-          </label>
-          <input
-            className="input"
-            type="text"
-            value={addForm.custom_name}
-            onChange={e => setAddForm(f => ({ ...f, custom_name: e.target.value }))}
-            placeholder="e.g. Prod, Dev, Staging"
-          />
-        </div>
-        {showURL && (
-          <div>
-            <label className="kicker-lg" style={{ display: "block", marginBottom: 6 }}>Endpoint URL</label>
-            <input
-              className="input"
-              type="text"
-              value={addForm.base_url}
-              onChange={e => setAddForm(f => ({ ...f, base_url: e.target.value }))}
-              placeholder={currentBaseURL || "http://localhost:11434/v1"}
-              style={{ fontFamily: "var(--font-mono)" }}
-              autoFocus={focusURL}
-            />
-            {baseURLConflictWith && (
-              <div
-                role="status"
-                style={{
-                  marginTop: 6,
-                  fontSize: 11,
-                  color: "var(--amber)",
-                  lineHeight: 1.4,
-                }}>
-                This URL is already used by{" "}
-                <span style={{ fontFamily: "var(--font-mono)" }}>
-                  {baseURLConflictWith.name || baseURLConflictWith.id}
-                </span>
-                . Backend will reject.
-              </div>
-            )}
-          </div>
-        )}
-        {showAPIKey && (
-          <div>
-            <label className="kicker-lg" style={{ display: "block", marginBottom: 6 }}>API Key</label>
-            <input
-              className="input"
-              type="password"
-              value={addForm.api_key}
-              onChange={e => setAddForm(f => ({ ...f, api_key: e.target.value }))}
-              placeholder="sk-…"
-              style={{ fontFamily: "var(--font-mono)", letterSpacing: "0.1em" }}
-              autoFocus={focusAPIKey}
-            />
-          </div>
-        )}
-        {addError && <InlineError message={addError} />}
-        <button
-          className="btn btn-primary btn-sm"
-          style={{ justifyContent: "center", marginTop: 4 }}
-          disabled={saveDisabled}
-          onClick={() => void submitAdd()}>
-          {addLoading ? "Adding…" : "Add provider"}
-        </button>
-      </div>
-    );
-  }
-
   // ── Render ───────────────────────────────────────────────────────────────────
 
   return (
@@ -691,7 +366,7 @@ export function ProvidersView({ state, actions }: Props) {
           <button
             className="btn btn-primary btn-sm"
             style={{ display: "flex", alignItems: "center", gap: 4, marginLeft: "auto" }}
-            onClick={() => setAddStep("pick")}>
+            onClick={() => setAddProviderOpen(true)}>
             <Icon d={Icons.plus} size={13} />
             Add provider
           </button>
@@ -709,7 +384,7 @@ export function ProvidersView({ state, actions }: Props) {
             <button
               className="btn btn-primary btn-sm"
               style={{ marginTop: 16, display: "flex", alignItems: "center", gap: 4 }}
-              onClick={() => setAddStep("pick")}>
+              onClick={() => setAddProviderOpen(true)}>
               <Icon d={Icons.plus} size={13} />
               Add provider
             </button>
@@ -990,15 +665,31 @@ export function ProvidersView({ state, actions }: Props) {
         </Modal>
       )}
 
-      {/* Add provider modal */}
-      {addStep && (
-        <Modal
-          title={addStep === "pick" ? "Add provider" : addPreset ? addPreset.name : "Custom provider"}
-          onClose={closeAdd}
-          footer={null}
-          width={680}>
-          {addStep === "pick" ? <PickStep /> : <FormStep />}
-        </Modal>
+      <AddProviderModal
+        open={addProviderOpen}
+        state={state}
+        actions={actions}
+        onClose={() => setAddProviderOpen(false)}
+      />
+
+      {deleteConfirmID && deleteConfirmConfig && (
+        <ConfirmModal
+          danger
+          title="Remove provider?"
+          message={
+            <>
+              Remove <span style={{ fontWeight: 600, color: "var(--t0)" }}>{deleteConfirmName}</span> from Hecate? Existing chats stay in history, but new requests will stop routing through this provider.
+            </>
+          }
+          confirmLabel="Remove provider"
+          onClose={() => setDeleteConfirmID(null)}
+          onConfirm={async () => {
+            const id = deleteConfirmID;
+            setDeleteConfirmID(null);
+            if (selectedID === id) setSelectedID(null);
+            await actions.deleteProvider(id);
+          }}
+        />
       )}
     </div>
   );

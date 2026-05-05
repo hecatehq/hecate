@@ -170,6 +170,26 @@ export type ProviderPresetResponse = {
   data: ProviderPresetRecord[];
 };
 
+export type LocalProviderDiscoveryRecord = {
+  preset_id: string;
+  name: string;
+  base_url: string;
+  probe_url: string;
+  status: "running" | "installed" | "not_detected" | "error" | string;
+  command?: string;
+  command_available: boolean;
+  command_path?: string;
+  http_available: boolean;
+  model_count?: number;
+  models?: string[];
+  error?: string;
+};
+
+export type LocalProviderDiscoveryResponse = {
+  object: string;
+  data: LocalProviderDiscoveryRecord[];
+};
+
 export type AgentAdapterRecord = {
   id: string;
   name: string;

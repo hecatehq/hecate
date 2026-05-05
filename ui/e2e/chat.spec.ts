@@ -183,6 +183,80 @@ test("chat error renders inline with the humanized message", async ({ page }) =>
   await expect(page.getByText(/has no API key/i).first()).toBeVisible();
 });
 
+test("empty model chat can add all detected local providers in one click", async ({ page }) => {
+  await page.unrouteAll({ behavior: "ignoreErrors" });
+  await mockGatewayAPIs(page);
+  const created: Array<Record<string, unknown>> = [];
+  await page.route("/admin/control-plane/providers", async route => {
+    if (route.request().method() === "POST") {
+      created.push(JSON.parse(route.request().postData() ?? "{}"));
+    }
+    await route.fallback();
+  });
+
+  await page.goto("/");
+  await page.waitForSelector(".hecate-activitybar");
+  await switchToModel(page);
+
+  await expect(page.getByText("Detected locally")).toBeVisible();
+  await expect(page.getByText("Ollama")).toBeVisible();
+  await expect(page.getByText("LM Studio")).toBeVisible();
+  await expect(page.getByText("Installed")).toBeVisible();
+  await expect(page.getByText("Running")).toBeVisible();
+
+  await page.getByRole("button", { name: "Add detected providers" }).click();
+
+  await expect.poll(() => created.map(body => body.preset_id).sort()).toEqual(["lmstudio", "ollama"]);
+  await expect(page.getByText("Provider is configured")).toBeVisible();
+  await expect(page.getByText("none discovered")).toBeVisible();
+  await expect(page.getByRole("button", { name: /Add detected provider/i })).toHaveCount(0);
+});
+
+test("configured provider with no models shows troubleshooting, not detected-provider setup", async ({ page }) => {
+  await page.unrouteAll({ behavior: "ignoreErrors" });
+  await mockGatewayAPIs(page, {
+    adminConfig: {
+      providers: [
+        { id: "ollama", name: "Ollama", preset_id: "ollama", kind: "local", protocol: "openai", base_url: "http://127.0.0.1:11434/v1", enabled: true, credential_configured: false },
+      ],
+      tenants: [],
+      api_keys: [],
+      policy_rules: [],
+    },
+  });
+  await page.route("/v1/models*", route => route.fulfill({
+    status: 200,
+    contentType: "application/json",
+    body: JSON.stringify({ object: "list", data: [] }),
+  }));
+  await page.route("/admin/providers*", route => route.fulfill({
+    status: 200,
+    contentType: "application/json",
+    body: JSON.stringify({
+      object: "provider_status",
+      data: [{
+        name: "ollama",
+        kind: "local",
+        healthy: true,
+        status: "healthy",
+        base_url: "http://127.0.0.1:11434/v1",
+        models: [],
+        model_count: 0,
+      }],
+    }),
+  }));
+
+  await page.goto("/");
+  await page.waitForSelector(".hecate-activitybar");
+  await switchToModel(page);
+
+  await expect(page.getByText("Provider is configured")).toBeVisible();
+  await expect(page.getByText("none discovered")).toBeVisible();
+  await expect(page.getByText(/Start the local provider app/)).toBeVisible();
+  await expect(page.getByText("Detected locally")).toHaveCount(0);
+  await expect(page.getByRole("button", { name: /Add detected provider/i })).toHaveCount(0);
+});
+
 // Slice 3 commit 2: approval flow happy path. Seeds an active agent
 // chat session with one pending approval, then exercises the operator
 // path: catch-up refetch populates the banner → click Review →

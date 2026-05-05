@@ -1077,8 +1077,31 @@ export function useRuntimeConsole() {
   }
 
   async function deleteProvider(id: string): Promise<void> {
-    await deleteProviderRequest(id);
-    await loadDashboard();
+    resetControlPlaneFeedback();
+    const previousControlPlaneConfig = controlPlaneConfig;
+    const previousProviders = providers;
+    const previousProviderFilter = providerFilter;
+
+    setControlPlaneConfig(current => current
+      ? { ...current, providers: current.providers.filter(provider => provider.id !== id) }
+      : current);
+    setProviders(current => current.filter(provider => provider.name !== id));
+    if (providerFilter === id) {
+      setProviderFilter("auto");
+      setModel(defaultModelForProvider("auto", models, providers.filter(provider => provider.name !== id), providerPresets));
+    }
+
+    try {
+      await deleteProviderRequest(id);
+      setNoticeMessage("success", "Provider removed.");
+      void loadDashboard();
+    } catch (error) {
+      setControlPlaneConfig(previousControlPlaneConfig);
+      setProviders(previousProviders);
+      setProviderFilter(previousProviderFilter);
+      setControlPlaneError(describeError(error, "failed to delete provider"));
+      setNoticeMessage("error", "Failed to remove provider.");
+    }
   }
 
   async function setProviderBaseURL(id: string, baseURL: string): Promise<void> {

@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 
-import { buildConflictMap, providerDotColor, resolvedBaseURL } from "./provider-utils";
+import { providerDotColor, resolvedBaseURL } from "./provider-utils";
 import type { ConfiguredProviderRecord, ProviderPresetRecord } from "../types/runtime";
 
 const presets: ProviderPresetRecord[] = [
@@ -34,38 +34,6 @@ describe("resolvedBaseURL", () => {
 
   it("returns empty string when no cp and no matching preset", () => {
     expect(resolvedBaseURL("unknown-provider", undefined, presets)).toBe("");
-  });
-});
-
-describe("buildConflictMap", () => {
-  it("detects providers sharing the same base_url", () => {
-    const configured = new Map<string, ConfiguredProviderRecord>();
-    const conflicts = buildConflictMap(["llamacpp", "localai", "ollama"], configured, presets);
-
-    expect(conflicts.get("llamacpp")).toEqual(["localai"]);
-    expect(conflicts.get("localai")).toEqual(["llamacpp"]);
-    expect(conflicts.has("ollama")).toBe(false);
-  });
-
-  it("returns empty map when no conflicts exist", () => {
-    const configured = new Map<string, ConfiguredProviderRecord>();
-    const conflicts = buildConflictMap(["openai", "ollama"], configured, presets);
-    expect(conflicts.size).toBe(0);
-  });
-
-  it("skips providers with no resolvable base_url", () => {
-    const configured = new Map<string, ConfiguredProviderRecord>();
-    const conflicts = buildConflictMap(["unknown-a", "unknown-b"], configured, presets);
-    expect(conflicts.size).toBe(0);
-  });
-
-  it("prefers cp base_url over preset when building conflict groups", () => {
-    const configured = new Map<string, ConfiguredProviderRecord>([
-      ["llamacpp", makeCP("llamacpp", "http://127.0.0.1:9999/v1")],
-    ]);
-    // llamacpp now points elsewhere — no longer conflicts with localai
-    const conflicts = buildConflictMap(["llamacpp", "localai"], configured, presets);
-    expect(conflicts.size).toBe(0);
   });
 });
 

@@ -538,6 +538,26 @@ type ProviderPresetResponseItem struct {
 	EnvSnippet   string `json:"env_snippet,omitempty"`
 }
 
+type LocalProviderDiscoveryResponse struct {
+	Object string                               `json:"object"`
+	Data   []LocalProviderDiscoveryResponseItem `json:"data"`
+}
+
+type LocalProviderDiscoveryResponseItem struct {
+	PresetID         string   `json:"preset_id"`
+	Name             string   `json:"name"`
+	BaseURL          string   `json:"base_url"`
+	ProbeURL         string   `json:"probe_url"`
+	Status           string   `json:"status"`
+	Command          string   `json:"command,omitempty"`
+	CommandAvailable bool     `json:"command_available"`
+	CommandPath      string   `json:"command_path,omitempty"`
+	HTTPAvailable    bool     `json:"http_available"`
+	ModelCount       int      `json:"model_count,omitempty"`
+	Models           []string `json:"models,omitempty"`
+	Error            string   `json:"error,omitempty"`
+}
+
 type AgentAdapterResponseItem struct {
 	ID                  string   `json:"id"`
 	Name                string   `json:"name"`

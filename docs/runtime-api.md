@@ -349,6 +349,48 @@ GET /v1/provider-presets
 
 The list is built from `config.BuiltInProviders()` — see [`docs/providers.md`](providers.md) for the full catalog and OpenAI-compatible custom-endpoint flow.
 
+### `GET /admin/control-plane/providers/local-discovery`
+
+Advisory discovery for the Providers tab's **Add provider → Local** catalog.
+The gateway checks whether the expected provider command is on `PATH` and
+probes each unique default local endpoint once. Shared endpoints, such as the
+`llama.cpp` / `LocalAI` default `127.0.0.1:8080/v1`, are only called once and
+then reused for every matching preset card.
+
+```json
+GET /admin/control-plane/providers/local-discovery
+→ 200
+{
+  "object": "local_provider_discovery",
+  "data": [
+    {
+      "preset_id": "ollama",
+      "name": "Ollama",
+      "base_url": "http://127.0.0.1:11434/v1",
+      "probe_url": "http://127.0.0.1:11434/api/tags",
+      "status": "running",
+      "command": "ollama",
+      "command_available": true,
+      "command_path": "/opt/homebrew/bin/ollama",
+      "http_available": true,
+      "model_count": 2,
+      "models": ["llama3.1:8b", "qwen2.5:7b"]
+    }
+  ]
+}
+```
+
+`status` is one of:
+
+- `running` — the HTTP probe returned 2xx.
+- `installed` — the command is present on `PATH`, but the default HTTP
+  endpoint did not respond.
+- `not_detected` — neither the command nor the default HTTP endpoint was found.
+
+This endpoint does not create or mutate provider records. It is a UX helper for
+the picker; routing readiness still comes from `GET /admin/providers` after the
+operator adds a provider.
+
 ### `GET /v1/agent-adapters`
 
 External coding-agent adapter catalog. This is the first discovery surface for

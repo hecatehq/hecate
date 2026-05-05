@@ -344,6 +344,114 @@ describe("useRuntimeConsole", () => {
       await waitFor(() => expect(result.current.state.notice?.message).toBe("Policy rule deleted."));
       expect(JSON.parse(deleteBody)).toEqual({ id: "deny-cloud" });
     });
+
+    it("deleteProvider optimistically removes the provider before the dashboard refresh completes", async () => {
+      let deleted = false;
+      let resolveDelete: ((response: Response) => void) | undefined;
+      let deleteCalls = 0;
+      fetchMock.mockImplementation(async (input, init) => {
+        const url = String(input);
+        if (url === "/admin/control-plane/providers/ollama" && init?.method === "DELETE") {
+          deleteCalls++;
+          return new Promise<Response>(resolve => {
+            resolveDelete = response => {
+              deleted = true;
+              resolve(response);
+            };
+          });
+        }
+        if (url === "/admin/control-plane") {
+          return jsonResponse({
+            object: "control_plane",
+            data: {
+              backend: "memory",
+              providers: [
+                { id: "openai", name: "OpenAI", preset_id: "openai", kind: "cloud", protocol: "openai", base_url: "https://api.openai.com/v1", credential_configured: true },
+                ...deleted ? [] : [{ id: "ollama", name: "Ollama", preset_id: "ollama", kind: "local", protocol: "openai", base_url: "http://127.0.0.1:11434/v1", credential_configured: false }],
+              ],
+              pricebook: [], policy_rules: [], events: [],
+            },
+          });
+        }
+        if (url === "/admin/providers") {
+          return jsonResponse({
+            object: "provider_status",
+            data: [
+              { name: "openai", kind: "cloud", healthy: true, status: "healthy", models: ["gpt-4o-mini"] },
+              ...deleted ? [] : [{ name: "ollama", kind: "local", healthy: true, status: "healthy", models: ["llama3.1:8b"] }],
+            ],
+          });
+        }
+        return defaultBackendMock()(input, init);
+      });
+
+      const { result } = renderHook(() => useRuntimeConsole());
+      await waitFor(() => expect(result.current.state.controlPlaneConfig?.providers.map(p => p.id)).toEqual(["openai", "ollama"]));
+
+      let pendingDelete: Promise<void> | undefined;
+      await act(async () => {
+        pendingDelete = result.current.actions.deleteProvider("ollama");
+      });
+
+      expect(deleteCalls).toBe(1);
+      expect(result.current.state.controlPlaneConfig?.providers.map(p => p.id)).toEqual(["openai"]);
+      expect(result.current.state.providers.map(p => p.name)).toEqual(["openai"]);
+
+      resolveDelete?.(new Response(null, { status: 204 }));
+      await act(async () => {
+        await pendingDelete;
+      });
+
+      await waitFor(() => expect(result.current.state.controlPlaneConfig?.providers.map(p => p.id)).toEqual(["openai"]));
+      expect(result.current.state.notice).toEqual({ kind: "success", message: "Provider removed." });
+    });
+
+    it("deleteProvider rolls back the optimistic removal when the request fails", async () => {
+      fetchMock.mockImplementation(async (input, init) => {
+        const url = String(input);
+        if (url === "/admin/control-plane/providers/ollama" && init?.method === "DELETE") {
+          return new Response(
+            JSON.stringify({ error: { message: "provider is still referenced by a policy rule" } }),
+            { status: 409, headers: { "Content-Type": "application/json" } },
+          );
+        }
+        if (url === "/admin/control-plane") {
+          return jsonResponse({
+            object: "control_plane",
+            data: {
+              backend: "memory",
+              providers: [
+                { id: "openai", name: "OpenAI", preset_id: "openai", kind: "cloud", protocol: "openai", base_url: "https://api.openai.com/v1", credential_configured: true },
+                { id: "ollama", name: "Ollama", preset_id: "ollama", kind: "local", protocol: "openai", base_url: "http://127.0.0.1:11434/v1", credential_configured: false },
+              ],
+              pricebook: [], policy_rules: [], events: [],
+            },
+          });
+        }
+        if (url === "/admin/providers") {
+          return jsonResponse({
+            object: "provider_status",
+            data: [
+              { name: "openai", kind: "cloud", healthy: true, status: "healthy", models: ["gpt-4o-mini"] },
+              { name: "ollama", kind: "local", healthy: true, status: "healthy", models: ["llama3.1:8b"] },
+            ],
+          });
+        }
+        return defaultBackendMock()(input, init);
+      });
+
+      const { result } = renderHook(() => useRuntimeConsole());
+      await waitFor(() => expect(result.current.state.controlPlaneConfig?.providers.map(p => p.id)).toEqual(["openai", "ollama"]));
+
+      await act(async () => {
+        await result.current.actions.deleteProvider("ollama");
+      });
+
+      expect(result.current.state.controlPlaneConfig?.providers.map(p => p.id)).toEqual(["openai", "ollama"]);
+      expect(result.current.state.providers.map(p => p.name)).toEqual(["openai", "ollama"]);
+      expect(result.current.state.notice).toEqual({ kind: "error", message: "Failed to remove provider." });
+      expect(result.current.state.controlPlaneError).toContain("provider is still referenced");
+    });
   });
 
   // ─── chat session actions ──────────────────────────────────────────────────

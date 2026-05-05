@@ -8,6 +8,7 @@ import type {
   HealthResponse,
   MCPCacheStatsResponse,
   ModelResponse,
+  LocalProviderDiscoveryResponse,
   PricebookEntryUpsertPayload,
   PricebookImportDiffResponse,
   ProviderPresetResponse,
@@ -197,6 +198,10 @@ export async function getMCPCacheStats(): Promise<MCPCacheStatsResponse> {
 
 export async function getProviderPresets(): Promise<ProviderPresetResponse> {
   return fetchJSON<ProviderPresetResponse>("/v1/provider-presets");
+}
+
+export async function discoverLocalProviders(): Promise<LocalProviderDiscoveryResponse> {
+  return fetchJSON<LocalProviderDiscoveryResponse>("/admin/control-plane/providers/local-discovery");
 }
 
 export async function getAgentAdapters(): Promise<AgentAdapterResponse> {
