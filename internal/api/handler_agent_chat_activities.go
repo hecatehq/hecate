@@ -1,0 +1,109 @@
+package api
+
+import (
+	"strings"
+	"time"
+
+	"github.com/hecate/agent-runtime/internal/agentadapters"
+	"github.com/hecate/agent-runtime/internal/agentchat"
+	"github.com/hecate/agent-runtime/internal/telemetry"
+)
+
+func renderAgentChatActivities(items []agentchat.Activity) []AgentChatActivityItem {
+	if len(items) == 0 {
+		return nil
+	}
+	out := make([]AgentChatActivityItem, 0, len(items))
+	for _, item := range items {
+		out = append(out, AgentChatActivityItem{
+			ID:        item.ID,
+			Type:      item.Type,
+			Status:    item.Status,
+			Kind:      item.Kind,
+			Title:     item.Title,
+			Detail:    item.Detail,
+			CreatedAt: formatOptionalTime(item.CreatedAt),
+		})
+	}
+	return out
+}
+
+func newAgentChatActivity(kind, status, title, detail string) agentchat.Activity {
+	return agentchat.Activity{
+		Type:      kind,
+		Status:    status,
+		Title:     title,
+		Detail:    strings.TrimSpace(detail),
+		CreatedAt: time.Now().UTC(),
+	}
+}
+
+func agentChatActivityFromAdapter(activity agentadapters.Activity) agentchat.Activity {
+	return agentchat.Activity{
+		ID:        strings.TrimSpace(activity.ID),
+		Type:      strings.TrimSpace(activity.Type),
+		Status:    strings.TrimSpace(activity.Status),
+		Kind:      strings.TrimSpace(activity.Kind),
+		Title:     strings.TrimSpace(activity.Title),
+		Detail:    strings.TrimSpace(activity.Detail),
+		CreatedAt: time.Now().UTC(),
+	}
+}
+
+func mergeAgentChatActivity(items []agentchat.Activity, next agentchat.Activity) []agentchat.Activity {
+	if next.Type == "" || (next.ID == "" && next.Title == "") {
+		return items
+	}
+	if next.ID != "" {
+		for i := range items {
+			if items[i].ID == next.ID {
+				if next.Status != "" {
+					items[i].Status = next.Status
+				}
+				if next.Kind != "" {
+					items[i].Kind = next.Kind
+				}
+				if next.Title != "" {
+					items[i].Title = next.Title
+				}
+				if next.Detail != "" {
+					items[i].Detail = next.Detail
+				}
+				items[i].CreatedAt = next.CreatedAt
+				return items
+			}
+		}
+	}
+	if next.Title == "" {
+		return items
+	}
+	return append(items, next)
+}
+
+func finalAgentChatActivityTitle(status string) string {
+	switch status {
+	case "completed":
+		return "Final answer"
+	case "failed":
+		return "Failed"
+	case "cancelled":
+		return "Cancelled"
+	default:
+		return status
+	}
+}
+
+// agentChatTerminalEvent maps an assistant message's terminal status
+// to the matching telemetry event name. Lives next to the activity
+// helpers because both translate the same terminal status enum into
+// either UI activities or trace events.
+func agentChatTerminalEvent(status string) string {
+	switch status {
+	case "cancelled":
+		return telemetry.EventAgentChatRunCancelled
+	case "failed":
+		return telemetry.EventAgentChatRunFailed
+	default:
+		return telemetry.EventAgentChatRunFinished
+	}
+}
