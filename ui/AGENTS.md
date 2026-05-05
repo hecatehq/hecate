@@ -34,7 +34,7 @@ ui/src/
 | `bun run test:watch` | Iteration |
 | `bun run dev` | Vite dev server on `:5173` proxying API to `:8765` |
 
-Slash commands: `/typecheck` and `/test-affected` from the repo root.
+Claude Code shortcut: `/test-affected` from the repo root when Go packages are touched. For UI work, run `bun run typecheck` and `bun run test` directly.
 
 ## Where to go for depth
 
