@@ -229,7 +229,10 @@ export function ProvidersView({ state, actions }: Props) {
         onClick={() => setSelectedID(s => (s === id ? null : id))}
         role="button"
         tabIndex={0}
+        aria-label={`Provider ${displayName}`}
+        aria-expanded={isSelected}
         onKeyDown={e => {
+          if (e.target !== e.currentTarget) return;
           if (e.key === "Enter" || e.key === " ") {
             e.preventDefault();
             setSelectedID(s => (s === id ? null : id));
@@ -239,7 +242,6 @@ export function ProvidersView({ state, actions }: Props) {
           background: isSelected ? "var(--teal-bg)" : undefined,
           borderBottom: isLast ? undefined : "1px solid var(--border)",
           cursor: "pointer",
-          outline: "none",
         }}>
         {/* Name */}
         <td style={{ padding: "8px 12px" }}>
@@ -337,6 +339,8 @@ export function ProvidersView({ state, actions }: Props) {
             className="btn btn-ghost btn-sm"
             style={{ padding: "3px 6px", color: "var(--t3)" }}
             title={`Remove ${displayName}`}
+            aria-label={`Remove provider ${displayName}`}
+            type="button"
             onClick={e => {
               e.stopPropagation();
               if (window.confirm(`Remove provider ${displayName}?`)) {

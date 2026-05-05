@@ -1,6 +1,6 @@
 import { useEffect, useMemo, useState } from "react";
 import type { ModelRecord, ProviderPresetRecord, ProviderRecord } from "../../types/runtime";
-import { Icon, Icons, ModelPicker, ProviderPicker, type ProviderOption } from "../shared/ui";
+import { Icon, Icons, ModelPicker, ProviderPicker, SlideOver, type ProviderOption } from "../shared/ui";
 
 export type ExecutionKind = "shell" | "git" | "file" | "agent_loop";
 
@@ -14,6 +14,8 @@ const KIND_LABELS: Record<ExecutionKind, string> = {
 function KindTab({ kind, selected, onClick }: { kind: ExecutionKind; selected: boolean; onClick: () => void }) {
   return (
     <button
+      type="button"
+      aria-pressed={selected}
       onClick={onClick}
       style={{
         padding: "5px 12px",
@@ -349,15 +351,22 @@ export function NewTaskSlideOver({
   if (!open) return null;
 
   return (
-    <div style={{ position: "absolute", inset: 0, zIndex: 50, display: "flex", background: "var(--scrim)" }} onClick={onClose}>
-      <div style={{ marginLeft: "auto", width: 480, background: "var(--bg1)", borderLeft: "1px solid var(--border)", display: "flex", flexDirection: "column", height: "100%" }} onClick={e => e.stopPropagation()}>
-        <div style={{ padding: "12px 16px", borderBottom: "1px solid var(--border)", display: "flex", alignItems: "center", gap: 8 }}>
-          <span style={{ fontWeight: 500, fontSize: 13 }}>New task</span>
-          <button className="btn btn-ghost btn-sm" style={{ marginLeft: "auto", padding: "3px 6px" }} onClick={onClose}>
-            <Icon d={Icons.x} size={14} />
+    <SlideOver
+      title="New task"
+      onClose={onClose}
+      width={480}
+      footer={
+        <div style={{ display: "flex", gap: 8 }}>
+          <button className="btn btn-primary" style={{ flex: 1, justifyContent: "center" }}
+            disabled={!formIsValid() || busyAction === "create"}
+            onClick={submit}
+            type="button">
+            <Icon d={Icons.send} size={14} /> {busyAction === "create" ? "Creating…" : "Queue task"}
           </button>
+          <button className="btn" onClick={onClose} type="button">Cancel</button>
         </div>
-        <div style={{ padding: 16, flex: 1, display: "flex", flexDirection: "column", gap: 14, overflowY: "auto" }}>
+      }>
+      <div style={{ display: "flex", flexDirection: "column", gap: 14 }}>
 
           <div>
             <label style={{ fontSize: 11, color: "var(--t2)", display: "block", marginBottom: 6, fontFamily: "var(--font-mono)" }}>EXECUTION KIND</label>
@@ -375,6 +384,7 @@ export function NewTaskSlideOver({
                 <span style={{ fontFamily: "var(--font-mono)", fontSize: 12, color: "var(--t3)", marginRight: 6 }}>$</span>
                 <input
                   className="input"
+                  aria-label="Shell command"
                   style={{ border: "none", background: "transparent", padding: "7px 0", flex: 1 }}
                   placeholder="ls -la / echo hello"
                   value={taskCommand}
@@ -395,6 +405,7 @@ export function NewTaskSlideOver({
                 <span style={{ fontFamily: "var(--font-mono)", fontSize: 12, color: "var(--t3)", marginRight: 6 }}>git</span>
                 <input
                   className="input"
+                  aria-label="Git command"
                   style={{ border: "none", background: "transparent", padding: "7px 0", flex: 1 }}
                   placeholder="status / log --oneline -5"
                   value={taskGitCommand}
@@ -412,7 +423,7 @@ export function NewTaskSlideOver({
                 <div style={{ display: "flex", gap: 8 }}>
                   {["write", "append"].map(op => (
                     <label key={op} style={{ display: "flex", alignItems: "center", gap: 6, fontSize: 12, color: taskFileOp === op ? "var(--t0)" : "var(--t2)", cursor: "pointer" }}>
-                      <input type="radio" checked={taskFileOp === op} onChange={() => setTaskFileOp(op)} style={{ accentColor: "var(--teal)" }} />
+                      <input type="radio" aria-label={`File operation: ${op}`} checked={taskFileOp === op} onChange={() => setTaskFileOp(op)} style={{ accentColor: "var(--teal)" }} />
                       {op}
                     </label>
                   ))}
@@ -422,6 +433,7 @@ export function NewTaskSlideOver({
                 <label style={{ fontSize: 11, color: "var(--t2)", display: "block", marginBottom: 4, fontFamily: "var(--font-mono)" }}>FILE PATH <span style={{ color: "var(--red)" }}>*</span></label>
                 <input
                   className="input"
+                  aria-label="File path"
                   placeholder="/path/to/file.txt"
                   value={taskFilePath}
                   onChange={e => setTaskFilePath(e.target.value)}
@@ -431,6 +443,7 @@ export function NewTaskSlideOver({
                 <label style={{ fontSize: 11, color: "var(--t2)", display: "block", marginBottom: 4, fontFamily: "var(--font-mono)" }}>CONTENT</label>
                 <textarea
                   className="input"
+                  aria-label="File content"
                   placeholder="File content…"
                   rows={4}
                   style={{ resize: "vertical" }}
@@ -446,6 +459,7 @@ export function NewTaskSlideOver({
               <label style={{ fontSize: 11, color: "var(--t2)", display: "block", marginBottom: 4, fontFamily: "var(--font-mono)" }}>PROMPT <span style={{ color: "var(--red)" }}>*</span></label>
               <textarea
                 className="input"
+                aria-label="Agent loop prompt"
                 placeholder="Describe the task…"
                 rows={4}
                 style={{ resize: "vertical" }}
@@ -460,6 +474,7 @@ export function NewTaskSlideOver({
               <label style={{ fontSize: 11, color: "var(--t2)", display: "block", marginBottom: 4, fontFamily: "var(--font-mono)" }}>WORKSPACE</label>
               <input
                 className="input"
+                aria-label="Workspace path"
                 placeholder="/Users/alice/dev/project"
                 value={taskWorkingDir}
                 onChange={e => setTaskWorkingDir(e.target.value)}
@@ -495,6 +510,7 @@ export function NewTaskSlideOver({
               <label style={{ fontSize: 11, color: "var(--t2)", display: "block", marginBottom: 4, fontFamily: "var(--font-mono)" }}>DESCRIPTION <span style={{ color: "var(--t3)" }}>(optional)</span></label>
               <input
                 className="input"
+                aria-label="Task description"
                 placeholder="Human-readable description…"
                 value={taskPrompt}
                 onChange={e => setTaskPrompt(e.target.value)}
@@ -509,6 +525,7 @@ export function NewTaskSlideOver({
               </label>
               <textarea
                 className="input"
+                aria-label="System prompt"
                 placeholder="Per-task agent directives. Stacks under global / tenant / workspace CLAUDE.md|AGENTS.md."
                 rows={3}
                 style={{ resize: "vertical" }}
@@ -525,6 +542,7 @@ export function NewTaskSlideOver({
               </label>
               <input
                 className="input"
+                aria-label="Cost ceiling in USD"
                 type="number"
                 step="0.01"
                 min="0"
@@ -557,6 +575,7 @@ export function NewTaskSlideOver({
                     <div style={{ display: "flex", gap: 6, alignItems: "center" }}>
                       <input
                         className="input"
+                        aria-label={`MCP server ${i + 1} name`}
                         placeholder="name (e.g. filesystem)"
                         value={entry.name}
                         onChange={e => updateMcpServer(i, { name: e.target.value })}
@@ -567,6 +586,8 @@ export function NewTaskSlideOver({
                         style={{ padding: "3px 6px" }}
                         onClick={() => removeMcpServer(i)}
                         title="Remove this server"
+                        aria-label={`Remove MCP server ${entry.name || i + 1}`}
+                        type="button"
                       >
                         <Icon d={Icons.x} size={12} />
                       </button>
@@ -589,18 +610,21 @@ export function NewTaskSlideOver({
                       <>
                         <input
                           className="input"
+                          aria-label={`MCP server ${i + 1} command`}
                           placeholder="command (e.g. npx)"
                           value={entry.command}
                           onChange={e => updateMcpServer(i, { command: e.target.value })}
                         />
                         <input
                           className="input"
+                          aria-label={`MCP server ${i + 1} args`}
                           placeholder="args (space-separated, e.g. -y @modelcontextprotocol/server-filesystem /workspace)"
                           value={entry.argsRaw}
                           onChange={e => updateMcpServer(i, { argsRaw: e.target.value })}
                         />
                         <textarea
                           className="input"
+                          aria-label={`MCP server ${i + 1} environment`}
                           placeholder="env (KEY=VALUE per line — encrypted at rest when a control-plane key is configured; $VAR_NAME refers to gateway env)"
                           rows={2}
                           style={{ resize: "vertical" }}
@@ -613,12 +637,14 @@ export function NewTaskSlideOver({
                       <>
                         <input
                           className="input"
+                          aria-label={`MCP server ${i + 1} URL`}
                           placeholder="url (e.g. https://api.example.com/mcp)"
                           value={entry.url}
                           onChange={e => updateMcpServer(i, { url: e.target.value })}
                         />
                         <textarea
                           className="input"
+                          aria-label={`MCP server ${i + 1} headers`}
                           placeholder="headers (KEY=VALUE per line, e.g. Authorization=Bearer $GITHUB_TOKEN — same secret rules as env)"
                           rows={2}
                           style={{ resize: "vertical" }}
@@ -651,6 +677,7 @@ export function NewTaskSlideOver({
                   className="btn btn-ghost btn-sm"
                   style={{ alignSelf: "flex-start" }}
                   onClick={addMcpServer}
+                  type="button"
                 >
                   <Icon d={Icons.plus} size={12} /> Add MCP server
                 </button>
@@ -689,17 +716,8 @@ export function NewTaskSlideOver({
           {errorMessage && (
             <div style={{ fontSize: 12, color: "var(--red)", fontFamily: "var(--font-mono)" }}>{errorMessage}</div>
           )}
-        </div>
-        <div style={{ padding: "12px 16px", borderTop: "1px solid var(--border)", display: "flex", gap: 8 }}>
-          <button className="btn btn-primary" style={{ flex: 1, justifyContent: "center" }}
-            disabled={!formIsValid() || busyAction === "create"}
-            onClick={submit}>
-            <Icon d={Icons.send} size={14} /> {busyAction === "create" ? "Creating…" : "Queue task"}
-          </button>
-          <button className="btn" onClick={onClose}>Cancel</button>
-        </div>
       </div>
-    </div>
+    </SlideOver>
   );
 }
 
@@ -808,6 +826,7 @@ function PillToggle<T extends string>({
           <button
             key={opt.value}
             type="button"
+            aria-pressed={selected}
             onClick={() => onChange(opt.value)}
             style={{
               padding: "4px 10px",

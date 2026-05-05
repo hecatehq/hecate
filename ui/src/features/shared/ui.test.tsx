@@ -321,6 +321,21 @@ describe("ModelPicker", () => {
     expect(document.querySelector(".dropdown-menu")).toBeNull();
   });
 
+  it("supports filtering, arrow-key navigation, and Enter selection", async () => {
+    const onChange = vi.fn();
+    const user = userEvent.setup();
+    render(<ModelPicker value="" onChange={onChange} models={models} />);
+    await user.click(screen.getByRole("button"));
+    const input = screen.getByRole("textbox", { name: /filter models/i });
+    await user.type(input, "gpt");
+    await user.keyboard("{ArrowDown}");
+    const menu = document.querySelector(".dropdown-menu") as HTMLElement;
+    const selected = within(menu).getByText("gpt-4o-mini").closest("button");
+    expect(selected).toHaveFocus();
+    await user.keyboard("{ArrowDown}{Enter}");
+    expect(onChange).toHaveBeenCalledWith("gpt-4o");
+  });
+
   it("disables the trigger when the model list is empty", async () => {
     // Selecting a provider whose runtime isn't running (Ollama / LM Studio
     // not started, llamacpp credentials missing) yields a 0-model list

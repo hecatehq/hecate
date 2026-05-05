@@ -271,6 +271,7 @@ export function ChatView({ state, actions, onNavigate }: Props) {
             <button
               className="btn btn-primary btn-sm"
               style={{ flex: 1, justifyContent: "center" }}
+              type="button"
               onClick={() => {
                 actions.createChatSession();
                 textareaRef.current?.focus();
@@ -278,7 +279,7 @@ export function ChatView({ state, actions, onNavigate }: Props) {
             >
               <Icon d={Icons.plus} size={13} /> New chat
             </button>
-            <button className="btn btn-ghost btn-sm" onClick={() => setSidebarOpen(false)} title="Close">
+            <button className="btn btn-ghost btn-sm" onClick={() => setSidebarOpen(false)} title="Close" aria-label="Close chats sidebar" type="button">
               <Icon d={Icons.chevL} size={13} />
             </button>
           </div>
@@ -309,10 +310,29 @@ export function ChatView({ state, actions, onNavigate }: Props) {
                 </div>
                 {group.sessions.map(s => (
                   <div key={s.id}
+                    role="button"
+                    tabIndex={renamingId === s.id ? -1 : 0}
+                    aria-current={(activeSessionID === s.id) ? "true" : undefined}
+                    aria-label={`Chat ${s.title || "Untitled"}`}
                     onClick={() => {
                       if (renamingId === s.id) return;
                       void actions.selectChatSession(s.id);
                       textareaRef.current?.focus();
+                    }}
+                    onKeyDown={e => {
+                      if (e.target !== e.currentTarget) return;
+                      if (renamingId === s.id) return;
+                      if (e.key !== "Enter" && e.key !== " ") return;
+                      e.preventDefault();
+                      void actions.selectChatSession(s.id);
+                      textareaRef.current?.focus();
+                    }}
+                    onFocus={() => setHoveredChatId(s.id)}
+                    onBlur={e => {
+                      const nextFocus = e.relatedTarget;
+                      if (!(nextFocus instanceof Node) || !e.currentTarget.contains(nextFocus)) {
+                        setHoveredChatId(null);
+                      }
                     }}
                     onMouseEnter={() => setHoveredChatId(s.id)}
                     onMouseLeave={() => setHoveredChatId(null)}
@@ -345,6 +365,8 @@ export function ChatView({ state, actions, onNavigate }: Props) {
                             {!isAgentChat && (
                               <button
                                 className="btn btn-ghost btn-sm"
+                                aria-label={`Rename chat ${s.title || "Untitled"}`}
+                                type="button"
                                 onClick={e => { e.stopPropagation(); setRenamingId(s.id); setRenameValue(s.title || ""); }}
                                 style={{ padding: "1px 3px" }}
                                 title="Rename"
@@ -354,6 +376,8 @@ export function ChatView({ state, actions, onNavigate }: Props) {
                             )}
                             <button
                               className="btn btn-ghost btn-sm"
+                              aria-label={`Delete chat ${s.title || "Untitled"}`}
+                              type="button"
                               onClick={e => { e.stopPropagation(); void actions.deleteChatSession(s.id); }}
                               style={{ padding: "1px 3px", color: "var(--red)" }}
                               title="Delete"
@@ -392,7 +416,7 @@ export function ChatView({ state, actions, onNavigate }: Props) {
         {/* Topbar */}
         <div style={{ height: "var(--topbar-h)", borderBottom: "1px solid var(--border)", display: "flex", alignItems: "center", padding: "0 12px", gap: 8, flexShrink: 0, background: "var(--bg1)" }}>
           {!sidebarOpen && (
-            <button className="btn btn-ghost btn-sm" onClick={() => setSidebarOpen(true)} title="Open chats">
+            <button className="btn btn-ghost btn-sm" onClick={() => setSidebarOpen(true)} title="Open chats" aria-label="Open chats sidebar" type="button">
               <Icon d={Icons.chevR} size={13} />
             </button>
           )}
@@ -401,6 +425,8 @@ export function ChatView({ state, actions, onNavigate }: Props) {
               <button
                 key={target}
                 className="btn btn-ghost btn-sm"
+                type="button"
+                aria-pressed={state.chatTarget === target}
                 onClick={() => actions.setChatTarget(target)}
                 style={{
                   borderRadius: 0,
@@ -702,7 +728,8 @@ export function ChatView({ state, actions, onNavigate }: Props) {
               ))}
               <button className="btn btn-primary btn-sm"
                 disabled={state.chatLoading || state.pendingToolCalls.some(tc => !tc.result.trim())}
-                onClick={() => void actions.submitToolResults()}>
+                onClick={() => void actions.submitToolResults()}
+                type="button">
                 {state.chatLoading ? "Running…" : "Submit results"}
               </button>
             </div>
@@ -725,7 +752,7 @@ export function ChatView({ state, actions, onNavigate }: Props) {
         </div>
 
         {!atBottom && (
-          <button onClick={scrollToBottom} style={{
+          <button type="button" aria-label="Scroll to bottom" onClick={scrollToBottom} style={{
             position: "absolute", bottom: 16, left: "50%", transform: "translateX(-50%)",
             height: 28, padding: "0 12px", borderRadius: 14,
             background: "var(--bg3)", border: "1px solid var(--border)",
@@ -754,6 +781,7 @@ export function ChatView({ state, actions, onNavigate }: Props) {
           <div style={{ maxWidth: 820, margin: "0 auto", position: "relative" }}>
             <textarea
               ref={textareaRef}
+              aria-label="Message"
               value={state.message}
               onChange={e => actions.setMessage(e.target.value)}
               onKeyDown={handleKeyDown}
@@ -790,6 +818,7 @@ export function ChatView({ state, actions, onNavigate }: Props) {
               </button>
             ) : (
               <button type="submit"
+                aria-label="Send message"
                 disabled={sendDisabled}
                 style={{
                   position: "absolute", right: 8, top: "50%", transform: "translateY(-50%)",

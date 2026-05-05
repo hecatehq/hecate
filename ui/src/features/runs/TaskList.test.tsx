@@ -84,6 +84,18 @@ describe("TaskList", () => {
     expect(onSelect).toHaveBeenCalledWith("task-1");
   });
 
+  it("selects a row with Enter and Space when focused", async () => {
+    const onSelect = vi.fn();
+    const { render, user } = setup({ onSelect });
+    render();
+    const row = screen.getByRole("button", { name: /^Task List the working directory$/ });
+    row.focus();
+    await user.keyboard("{Enter}");
+    expect(onSelect).toHaveBeenLastCalledWith("task-1");
+    await user.keyboard(" ");
+    expect(onSelect).toHaveBeenLastCalledWith("task-1");
+  });
+
   it("clicking the delete icon calls onDelete and does NOT trigger onSelect", async () => {
     // The row's onSelect handler wraps the delete button, so the button
     // must stop propagation. If it stops calling stopPropagation, every
@@ -93,7 +105,7 @@ describe("TaskList", () => {
     const onDelete = vi.fn();
     const { render, user } = setup({ onSelect, onDelete });
     render();
-    await user.click(screen.getByTitle("Delete"));
+    await user.click(screen.getByRole("button", { name: /delete task list the working directory/i }));
     expect(onDelete).toHaveBeenCalledWith("task-1");
     expect(onSelect).not.toHaveBeenCalled();
   });
@@ -122,7 +134,7 @@ describe("TaskList", () => {
     const onRefresh = vi.fn();
     const { render, user } = setup({ onRefresh });
     render();
-    await user.click(screen.getByTitle("Refresh"));
+    await user.click(screen.getByRole("button", { name: /refresh tasks/i }));
     expect(onRefresh).toHaveBeenCalled();
   });
 

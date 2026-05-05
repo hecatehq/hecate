@@ -29,13 +29,17 @@ function taskKindLabel(task: TaskRecord): string {
 }
 
 export function TaskList({ tasks, selectedTaskID, loading, busyAction, onSelect, onDelete, onNewTask, onRefresh }: Props) {
+  function activateTask(id: string) {
+    onSelect(id);
+  }
+
   return (
     <div style={{ width: 300, borderRight: "1px solid var(--border)", display: "flex", flexDirection: "column", flexShrink: 0 }}>
       <div style={{ padding: 8, borderBottom: "1px solid var(--border)", display: "flex", gap: 6, background: "var(--bg1)" }}>
-        <button className="btn btn-primary btn-sm" style={{ flex: 1, justifyContent: "center" }} onClick={onNewTask}>
+        <button className="btn btn-primary btn-sm" style={{ flex: 1, justifyContent: "center" }} onClick={onNewTask} type="button">
           <Icon d={Icons.plus} size={13} /> New task
         </button>
-        <button className="btn btn-ghost btn-sm" onClick={onRefresh} title="Refresh">
+        <button className="btn btn-ghost btn-sm" onClick={onRefresh} title="Refresh" aria-label="Refresh tasks" type="button">
           <Icon d={Icons.refresh} size={13} />
         </button>
       </div>
@@ -45,7 +49,19 @@ export function TaskList({ tasks, selectedTaskID, loading, busyAction, onSelect,
           <div style={{ padding: "24px 12px", textAlign: "center", fontSize: 12, color: "var(--t3)" }}>No tasks yet. Create one above.</div>
         )}
         {tasks.map(t => (
-          <div key={t.id} onClick={() => onSelect(t.id)}
+          <div
+            key={t.id}
+            role="button"
+            tabIndex={0}
+            aria-current={selectedTaskID === t.id ? "true" : undefined}
+            aria-label={`Task ${t.title || t.prompt || "Untitled task"}`}
+            onClick={() => activateTask(t.id)}
+            onKeyDown={e => {
+              if (e.target !== e.currentTarget) return;
+              if (e.key !== "Enter" && e.key !== " ") return;
+              e.preventDefault();
+              activateTask(t.id);
+            }}
             style={{
               padding: "10px 12px", cursor: "pointer",
               borderBottom: "1px solid var(--border)",
@@ -84,6 +100,8 @@ export function TaskList({ tasks, selectedTaskID, loading, busyAction, onSelect,
                   className="btn btn-ghost btn-sm"
                   style={{ padding: "1px 3px", color: "var(--red)" }}
                   title="Delete"
+                  aria-label={`Delete task ${t.title || t.prompt || t.id}`}
+                  type="button"
                   disabled={busyAction === "delete:" + t.id}
                   onClick={e => { e.stopPropagation(); onDelete(t.id); }}
                 >

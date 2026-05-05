@@ -142,6 +142,12 @@ button, input, select, textarea { font: inherit; }
 .toggle.on { background: var(--teal); border-color: var(--teal); }
 .toggle::after { content: ''; position: absolute; left: 2px; top: 50%; transform: translateY(-50%); width: 12px; height: 12px; background: var(--t2); border-radius: 50%; transition: left 0.15s, background 0.15s; }
 .toggle.on::after { left: 16px; background: var(--bg0); }
+.toggle:focus-visible,
+.btn:focus-visible,
+[role="button"]:focus-visible {
+  outline: 1px solid var(--teal-border);
+  outline-offset: 2px;
+}
 
 /* ─── Btn ─── */
 .btn {
@@ -168,6 +174,7 @@ button, input, select, textarea { font: inherit; }
   padding: 6px 10px; outline: none; transition: border-color 0.1s; width: 100%;
 }
 .input:focus { border-color: var(--teal); }
+.input:focus-visible { box-shadow: 0 0 0 1px var(--teal-border); }
 .input::placeholder { color: var(--t3); }
 
 .select {
@@ -176,6 +183,7 @@ button, input, select, textarea { font: inherit; }
   padding: 5px 8px; outline: none; cursor: pointer; appearance: none;
 }
 .select:focus { border-color: var(--teal); }
+.select:focus-visible { box-shadow: 0 0 0 1px var(--teal-border); }
 
 /* ─── Card ─── */
 .card { background: var(--bg2); border: 1px solid var(--border); border-radius: var(--radius); }
