@@ -45,7 +45,7 @@ export function formatDiffStatSummary(diffStat: string): string {
   return lines.find(line => /\bfiles? changed\b/.test(line)) || lines[0] || "";
 }
 
-export function ActivityTimeline({ activities, diffStat }: { activities: AgentChatActivityRecord[]; diffStat?: string }) {
+export function TranscriptActivityTimeline({ activities, diffStat }: { activities: AgentChatActivityRecord[]; diffStat?: string }) {
   const visible = compactAgentActivities(activities);
   if (visible.length === 0) return null;
   const terminal = terminalAgentActivity(activities);

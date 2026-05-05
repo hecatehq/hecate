@@ -8,7 +8,7 @@ import type {
   AgentChatChangedFileRecord,
   AgentChatUsageRecord,
 } from "../../types/runtime";
-import { MessageRow } from "./MessageRow";
+import { TranscriptMessageRow } from "./TranscriptMessageRow";
 
 const baseProps = {
   id: "m1",
@@ -20,26 +20,26 @@ const baseProps = {
   copied: false,
 };
 
-describe("MessageRow", () => {
+describe("TranscriptMessageRow", () => {
   it("renders assistant content as markdown", () => {
-    render(<MessageRow {...baseProps} content="**bold** and `code`" />);
+    render(<TranscriptMessageRow {...baseProps} content="**bold** and `code`" />);
     expect(screen.getByText("bold").tagName).toBe("STRONG");
     expect(screen.getByText("code").tagName).toBe("CODE");
   });
 
   it("renders the badge when supplied", () => {
-    render(<MessageRow {...baseProps} badge="running" />);
+    render(<TranscriptMessageRow {...baseProps} badge="running" />);
     expect(screen.getByText("running")).toBeInTheDocument();
   });
 
   it("renders an agent run failure notice when badge=failed and an error message is present", () => {
-    render(<MessageRow {...baseProps} badge="failed" error="adapter exited 1" />);
+    render(<TranscriptMessageRow {...baseProps} badge="failed" error="adapter exited 1" />);
     expect(screen.getByText("agent run failed")).toBeInTheDocument();
     expect(screen.getByText("adapter exited 1")).toBeInTheDocument();
   });
 
   it("renders an agent run cancelled notice when badge=cancelled", () => {
-    render(<MessageRow {...baseProps} badge="cancelled" content="user pressed stop" />);
+    render(<TranscriptMessageRow {...baseProps} badge="cancelled" content="user pressed stop" />);
     expect(screen.getByText("agent run cancelled")).toBeInTheDocument();
     expect(screen.getByText("user pressed stop")).toBeInTheDocument();
   });
@@ -48,12 +48,12 @@ describe("MessageRow", () => {
     const activities: AgentChatActivityRecord[] = [
       { type: "tool_call", title: "read_file", status: "running" },
     ];
-    render(<MessageRow {...baseProps} content="" activities={activities} />);
+    render(<TranscriptMessageRow {...baseProps} content="" activities={activities} />);
     expect(screen.getByText(/Waiting for agent output/)).toBeInTheDocument();
   });
 
   it("renders the user role label and U avatar for role=user", () => {
-    render(<MessageRow {...baseProps} role="user" content="hi there" />);
+    render(<TranscriptMessageRow {...baseProps} role="user" content="hi there" />);
     expect(screen.getByText("You")).toBeInTheDocument();
     expect(screen.getByText("U")).toBeInTheDocument();
     expect(screen.getByText("hi there")).toBeInTheDocument();
@@ -61,7 +61,7 @@ describe("MessageRow", () => {
 
   it("shows token + cost meta when promptTokens > 0", () => {
     render(
-      <MessageRow
+      <TranscriptMessageRow
         {...baseProps}
         promptTokens={1234}
         completionTokens={56}
@@ -75,7 +75,7 @@ describe("MessageRow", () => {
   it("invokes onCopy with id+content when the copy button is clicked", async () => {
     const onCopy = vi.fn();
     const user = userEvent.setup();
-    render(<MessageRow {...baseProps} onCopy={onCopy} />);
+    render(<TranscriptMessageRow {...baseProps} onCopy={onCopy} />);
     await user.click(screen.getByRole("button"));
     expect(onCopy).toHaveBeenCalledWith("m1", "hello");
   });
@@ -87,7 +87,7 @@ describe("MessageRow", () => {
       context_used: 12000,
       context_size: 200000,
     };
-    render(<MessageRow {...baseProps} agentUsage={usage} />);
+    render(<TranscriptMessageRow {...baseProps} agentUsage={usage} />);
     expect(screen.getByText(/0\.42 USD/)).toBeInTheDocument();
     expect(screen.getByText(/12000\/200000 context/)).toBeInTheDocument();
     expect(screen.getByText(/reported by adapter/)).toBeInTheDocument();
@@ -100,7 +100,7 @@ describe("MessageRow", () => {
       context_used: 0,
       context_size: 0,
     };
-    render(<MessageRow {...baseProps} agentUsage={usage} />);
+    render(<TranscriptMessageRow {...baseProps} agentUsage={usage} />);
     expect(screen.queryByText(/reported by adapter/)).toBeNull();
   });
 
@@ -110,7 +110,7 @@ describe("MessageRow", () => {
     const onRevertFiles: (sid: string, mid: string, ps: string[]) => Promise<boolean> = vi.fn(async () => true);
 
     render(
-      <MessageRow
+      <TranscriptMessageRow
         {...baseProps}
         agentSessionID="s1"
         diffStat="src/foo.ts | 3 +-"
@@ -123,12 +123,12 @@ describe("MessageRow", () => {
   });
 
   it("renders the raw adapter output details when rawOutput differs from content", () => {
-    render(<MessageRow {...baseProps} content="final answer" rawOutput="I'll do this. final answer" />);
+    render(<TranscriptMessageRow {...baseProps} content="final answer" rawOutput="I'll do this. final answer" />);
     expect(screen.getByText(/raw adapter output/)).toBeInTheDocument();
   });
 
   it("does not render the raw adapter output details when rawOutput equals content", () => {
-    render(<MessageRow {...baseProps} content="final answer" rawOutput="final answer" />);
+    render(<TranscriptMessageRow {...baseProps} content="final answer" rawOutput="final answer" />);
     expect(screen.queryByText(/raw adapter output/)).toBeNull();
   });
 });

@@ -3,7 +3,7 @@ import userEvent from "@testing-library/user-event";
 import { describe, expect, it, vi } from "vitest";
 
 import type { AgentChatChangedFileDiffRecord, AgentChatChangedFileRecord } from "../../types/runtime";
-import { AgentDiffReview } from "./AgentDiffReview";
+import { TranscriptDiffReview } from "./TranscriptDiffReview";
 
 function file(overrides: Partial<AgentChatChangedFileRecord> = {}): AgentChatChangedFileRecord {
   return {
@@ -26,10 +26,10 @@ function fileDiff(overrides: Partial<AgentChatChangedFileDiffRecord> = {}): Agen
   };
 }
 
-describe("AgentDiffReview", () => {
+describe("TranscriptDiffReview", () => {
   it("renders the static diff stat fallback when review APIs aren't wired", () => {
     render(
-      <AgentDiffReview
+      <TranscriptDiffReview
         sessionID=""
         messageID="m1"
         diffStat="src/foo.ts | 3 +-"
@@ -43,7 +43,7 @@ describe("AgentDiffReview", () => {
     const onListFiles = vi.fn(async () => [file({ path: "src/a.ts" }), file({ path: "src/b.ts" })]);
     const user = userEvent.setup();
     render(
-      <AgentDiffReview
+      <TranscriptDiffReview
         sessionID="s1"
         messageID="m1"
         diffStat="2 files changed"
@@ -64,7 +64,7 @@ describe("AgentDiffReview", () => {
     });
     const user = userEvent.setup();
     render(
-      <AgentDiffReview
+      <TranscriptDiffReview
         sessionID="s1"
         messageID="m1"
         diffStat="2 files changed"
@@ -82,7 +82,7 @@ describe("AgentDiffReview", () => {
     const onGetFileDiff = vi.fn(async () => fileDiff());
     const user = userEvent.setup();
     render(
-      <AgentDiffReview
+      <TranscriptDiffReview
         sessionID="s1"
         messageID="m1"
         diffStat="1 file changed"
@@ -105,7 +105,7 @@ describe("AgentDiffReview", () => {
     });
     const user = userEvent.setup();
     render(
-      <AgentDiffReview
+      <TranscriptDiffReview
         sessionID="s1"
         messageID="m1"
         diffStat="1 file changed"
@@ -126,7 +126,7 @@ describe("AgentDiffReview", () => {
     const onRevertFiles = vi.fn(async () => true);
     const user = userEvent.setup();
     render(
-      <AgentDiffReview
+      <TranscriptDiffReview
         sessionID="s1"
         messageID="m1"
         diffStat="1 file changed"
@@ -148,7 +148,7 @@ describe("AgentDiffReview", () => {
     const onRevertFiles = vi.fn(async () => false);
     const user = userEvent.setup();
     render(
-      <AgentDiffReview
+      <TranscriptDiffReview
         sessionID="s1"
         messageID="m1"
         diffStat="1 file changed"
@@ -169,7 +169,7 @@ describe("AgentDiffReview", () => {
     const onRevertFiles = vi.fn(async () => true);
     const user = userEvent.setup();
     render(
-      <AgentDiffReview
+      <TranscriptDiffReview
         sessionID="s1"
         messageID="m1"
         diffStat="2 files changed"
