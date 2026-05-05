@@ -417,6 +417,107 @@ describe("ChatView agent target", () => {
     expect(screen.getByText("reported by adapter · not enforced by Hecate")).toBeTruthy();
   });
 
+  it("loads changed files, inspects a file diff, and confirms per-file revert", async () => {
+    const listAgentChatMessageFiles = vi.fn(async () => [
+      { path: "README.md", additions: 2, deletions: 1, status: "modified" },
+      { path: "docs/runtime-api.md", additions: 4, deletions: 0, status: "added" },
+    ]);
+    const getAgentChatMessageFileDiff = vi.fn(async () => ({
+      path: "README.md",
+      additions: 2,
+      deletions: 1,
+      status: "modified",
+      diff: "diff --git a/README.md b/README.md\n+new line",
+    }));
+    const revertAgentChatMessageFiles = vi.fn(async () => true);
+    const { state, actions } = setup({
+      chatTarget: "agent",
+      agentWorkspace: "/tmp/hecate",
+      activeAgentChatSessionID: "a1",
+      activeAgentChatSession: {
+        id: "a1",
+        title: "Review files",
+        adapter_id: "codex",
+        workspace: "/tmp/hecate",
+        status: "completed",
+        messages: [
+          { id: "m1", role: "user", content: "change docs", created_at: "2026-05-03T10:00:00Z" },
+          {
+            id: "m2",
+            role: "assistant",
+            content: "Updated the docs.",
+            adapter_id: "codex",
+            adapter_name: "Codex",
+            status: "completed",
+            diff_stat: "README.md | 3 ++-\ndocs/runtime-api.md | 4 ++++\n2 files changed, 6 insertions(+), 1 deletion(-)",
+            diff: "diff --git a/README.md b/README.md\n+new line",
+            created_at: "2026-05-03T10:00:01Z",
+          },
+        ],
+      } as any,
+    }, { listAgentChatMessageFiles, getAgentChatMessageFileDiff, revertAgentChatMessageFiles });
+    render(<ChatView state={state} actions={actions} />);
+
+    const user = userEvent.setup();
+    await user.click(screen.getByText("files changed · 2 files changed, 6 insertions(+), 1 deletion(-)"));
+
+    expect(await screen.findByText("2 changed files")).toBeTruthy();
+    expect(listAgentChatMessageFiles).toHaveBeenCalledWith("a1", "m2");
+
+    await user.click(screen.getByRole("button", { name: "Inspect README.md" }));
+    expect(getAgentChatMessageFileDiff).toHaveBeenCalledWith("a1", "m2", "README.md");
+    expect(await screen.findByText("diff · README.md")).toBeTruthy();
+    expect(document.body.textContent).toContain("+new line");
+
+    await user.click(screen.getByRole("button", { name: "Revert README.md" }));
+    expect(revertAgentChatMessageFiles).not.toHaveBeenCalled();
+    await user.click(screen.getByRole("button", { name: "Confirm revert README.md" }));
+    expect(revertAgentChatMessageFiles).toHaveBeenCalledWith("a1", "m2", ["README.md"]);
+  });
+
+  it("requires confirmation before reverting the full captured diff", async () => {
+    const listAgentChatMessageFiles = vi.fn(async () => [
+      { path: "README.md", additions: 2, deletions: 1, status: "modified" },
+    ]);
+    const revertAgentChatMessageFiles = vi.fn(async () => true);
+    const { state, actions } = setup({
+      chatTarget: "agent",
+      agentWorkspace: "/tmp/hecate",
+      activeAgentChatSessionID: "a1",
+      activeAgentChatSession: {
+        id: "a1",
+        title: "Review all",
+        adapter_id: "codex",
+        workspace: "/tmp/hecate",
+        status: "completed",
+        messages: [
+          { id: "m1", role: "user", content: "change docs", created_at: "2026-05-03T10:00:00Z" },
+          {
+            id: "m2",
+            role: "assistant",
+            content: "Updated the docs.",
+            adapter_id: "codex",
+            adapter_name: "Codex",
+            status: "completed",
+            diff_stat: "README.md | 3 ++-\n1 file changed, 2 insertions(+), 1 deletion(-)",
+            diff: "diff --git a/README.md b/README.md",
+            created_at: "2026-05-03T10:00:01Z",
+          },
+        ],
+      } as any,
+    }, { listAgentChatMessageFiles, revertAgentChatMessageFiles });
+    render(<ChatView state={state} actions={actions} />);
+
+    const user = userEvent.setup();
+    await user.click(screen.getByText("files changed · 1 file changed, 2 insertions(+), 1 deletion(-)"));
+    expect(await screen.findByText("1 changed file")).toBeTruthy();
+
+    await user.click(screen.getByRole("button", { name: "Revert all" }));
+    expect(revertAgentChatMessageFiles).not.toHaveBeenCalled();
+    await user.click(screen.getByRole("button", { name: "Confirm revert all" }));
+    expect(revertAgentChatMessageFiles).toHaveBeenCalledWith("a1", "m2", []);
+  });
+
   it("disables stop and shows cancelling feedback after stop is requested", () => {
     const { state, actions } = setup({
       chatTarget: "agent",
