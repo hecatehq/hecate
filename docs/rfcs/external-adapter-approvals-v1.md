@@ -1,6 +1,6 @@
 # External-Adapter Approval Loop — v1 Candidate (RFC)
 
-> **Status:** draft / RFC. Not implemented. Not stable.
+> **Status:** implemented for alpha. Wire shape, persistence, SSE, UI, grants management, telemetry, and migration docs have landed. Still not a v1-stable contract.
 > **Depends on:** [`external-agent-adapters.md`](external-agent-adapters.md) — the broader Agent Chat surface this approval loop plugs into.
 > **Related:** [Runtime API](../runtime-api.md) — task-runtime approvals, whose persistence shape this RFC reuses.
 > **Owner:** see [`AGENTS.md`](../../AGENTS.md).
@@ -8,30 +8,31 @@
 This RFC defines how Hecate handles the `RequestPermission` reverse-RPC that
 external ACP adapters (Codex, Claude Code, Cursor Agent, future ACP CLIs) emit
 when they want to do something the operator should sign off on — write a file,
-run a shell command, hit the network, take a destructive action. Today Hecate
-auto-selects the first allow option in the adapter's option list every time;
-this is the largest user-visible safety gap for the External Agent Adapters
-subsystem and blocks calling that subsystem stable.
+run a shell command, hit the network, take a destructive action. Earlier alpha
+builds auto-selected the first allow option in the adapter's option list. The
+current alpha records approvals, defaults to prompt mode, streams pending and
+resolved events to Chats, persists durable grants, and makes explicit `auto`
+mode visible as a danger state.
 
 The goal of v1 is **operator control without forcing the operator to click
 through every adapter call**. Mid-1990s permission dialogs are correct but
 unusable. The shape that works is "ask once, remember the operator's choice for
 a scoped duration, surface what's been granted."
 
-Before this document can be treated as candidate-stable:
+Implementation gates:
 
-- Wire shape on `/v1/agent-chat/sessions/{id}/approvals` is finalized. _(Status: open)_
+- Wire shape on `/v1/agent-chat/sessions/{id}/approvals` is finalized for
+  alpha. _(Status: implemented)_
 - Persisted decision scopes (session / adapter+tool / workspace+tool) are
-  agreed and have a sqlite schema. _(Status: open)_
+  agreed and have memory + sqlite schemas. _(Status: implemented)_
 - ACP permission options' free-form `id` and `name` fields are mapped to
-  Hecate's stable decision shape without losing adapter intent. _(Status: open)_
+  Hecate's stable decision shape without losing adapter intent. _(Status: implemented)_
 - A timeout-driven behavior is decided so an unattended Hecate
-  doesn't deadlock indefinitely on a forgotten dialog. _(Status: open)_
-- At least one adapter (Codex *or* Claude Code) is wired end-to-end with a
-  smoke test covering allow / deny / always-allow / timeout. _(Status: open)_
-
-Flip each gate from `open` → `resolved (#NNN)` as work lands so this list
-stays the source of truth.
+  doesn't deadlock indefinitely on a forgotten dialog. _(Status: implemented:
+  prompt-mode timeout returns ACP `Cancelled` and records `path=timeout`.)_
+- At least one adapter path is covered end-to-end. _(Status: partially
+  implemented: binary e2e covers startup reconcile and durable grant
+  persistence; real-adapter allow/deny/timeout smoke remains pre-stable work.)_
 
 ## Why the auto-approve stub is a real risk
 
@@ -338,18 +339,19 @@ New OTel instruments under `hecate.agent_adapter.approval.*`:
 
 | Instrument | Type | Labels | Meaning |
 |---|---|---|---|
-| `hecate.agent_adapter.approval.requested_total` | counter | `adapter`, `tool_kind` | Approval requests received from adapters. |
-| `hecate.agent_adapter.approval.resolved_total` | counter | `adapter`, `tool_kind`, `decision`, `scope`, `path` (`operator` / `grant` / `default_mode`) | How approvals get resolved — by operator, by a pre-existing grant, or by the configured default mode (`auto` / `deny`). |
-| `hecate.agent_adapter.approval.timed_out_total` | counter | `adapter`, `tool_kind` | Approvals that hit the timeout. |
-| `hecate.agent_adapter.approval.duration_ms` | histogram | `adapter`, `tool_kind`, `path` | Time from request to resolution. Buckets: `[100, 500, 1k, 5k, 30k, 60k, 300k]`. |
-| `hecate.agent_adapter.approval.grants_active` | gauge | `scope` | Current count of active grants. |
+| `hecate.agent_adapter.approval.requested` | counter | `adapter`, `tool_kind`, `mode` | Approval requests received from adapters. |
+| `hecate.agent_adapter.approval.resolved` | counter | `adapter`, `tool_kind`, `mode`, `decision`, `scope`, `path`, `status` | How approvals get resolved — by operator, by a pre-existing grant, by the configured default mode (`auto` / `deny`), by timeout, or by request cancellation. |
+| `hecate.agent_adapter.approval.timed_out` | counter | `adapter`, `tool_kind`, `mode` | Approvals that hit the prompt-mode timeout. Dedicated counter so dashboards can alert without joining `resolved` on `path=timeout`. |
+| `hecate.agent_adapter.approval.duration` | histogram | same labels as `resolved` | Time from request to resolution. |
+| `hecate.agent_adapter.approval.grants_active` | up-down counter | none | Current count of active durable grants. Seeded from the live store at startup, incremented on grant create, decremented on grant delete. |
 
 Spans:
 
 - `agent_adapter.approval.request` — wraps the RequestPermission handler;
-  carries `adapter.id`, `tool_kind`, `mode`, `path`.
+  carries adapter id, session id, tool kind, mode, and the final path once
+  known.
 - `agent_adapter.approval.resolve` — wraps the resolve endpoint; carries
-  `decision`, `scope`.
+  approval id, decision, scope, and loaded adapter/session/tool context.
 
 Existing chat-message log lines get `approval_id` when an approval gated
 the turn, so log → trace → approval correlation is one-hop.
@@ -363,11 +365,10 @@ agent-chat memory store. The retention worker gets a new
 `agent_chat_approvals` subsystem with default `MAX_AGE=30d`,
 `MAX_COUNT=10000` (mirrors `task_approval` retention).
 
-Open question: should resolved grants survive longer than approvals?
-Probably yes — a grant is the operator's authored intent, not just a
-historical record. v1 retains grants indefinitely unless `expires_at` is
-set or the operator deletes them; the retention worker doesn't touch them
-by default.
+Resolved grants survive longer than approvals: a grant is the operator's
+authored intent, not just a historical record. v1 retains grants indefinitely
+unless `expires_at` is set or the operator deletes them. The retention worker
+only removes expired grants.
 
 ## Open questions
 
@@ -401,10 +402,12 @@ These need resolution before this draft can become v1.0 stable.
    - Status: open
 
 5. **`mode=prompt` vs unattended runs.** A scheduled or background Hecate
-   in `prompt` mode would block forever if no operator is around. Should
-   `mode=prompt` reduce to `mode=deny` after N consecutive timeouts to
-   avoid wedging adapter processes? Per-session opt-in?
-   - Status: open
+   in `prompt` mode waits until `GATEWAY_AGENT_ADAPTER_APPROVAL_TIMEOUT`,
+   then returns ACP `Cancelled` with `path=timeout`. Should repeated
+   timeouts reduce to `mode=deny` for that session to avoid repeated waits?
+   Per-session opt-in?
+   - Status: partially resolved; timeout is implemented, adaptive unattended
+     policy remains open.
 
 6. **Grant export / import.** An operator with grant lists on machine A
    wants the same grants on machine B. The simplest thing: operator copies
@@ -423,23 +426,27 @@ These need resolution before this draft can become v1.0 stable.
 1. **Land the wire shape, persistence, and prompt-mode default** behind
    `GATEWAY_AGENT_ADAPTER_APPROVAL_MODE`. The default is `prompt`; explicit
    `auto` and `deny` modes still record approvals with `path=default_mode`.
+   _(Done for alpha.)_
 
 2. **Wire the SSE `approval.requested` / `approval.resolved` events**
    before enabling the UI flow. Frontends start consuming the contract.
+   _(Done for alpha.)_
 
 3. **Land the operator UI** — pending banner + modal + grants management.
    Operators get the new prompt flow by default.
+   _(Done for alpha.)_
 
 4. **Document explicit `auto` mode.** Release notes call out the behavior
    change from the previous alpha auto-approve stub. `mode=auto` is opt-in and
    labeled unsafe.
+   _(Done for alpha.)_
 
 5. **Stable.** Telemetry confirms operators are using the surface;
-   timeout rates and deny rates are healthy.
+   timeout rates and deny rates are healthy. _(Still open.)_
 
-Estimated wall-clock: 2.5–3 weeks. The persistence + wire shape is
-~3 days; the SSE integration is ~2 days; the UI is ~1 week (modal +
-grants management); migration + tests + docs is ~3 days.
+The original implementation estimate was 2.5–3 weeks. The alpha slice is now
+implemented; stable readiness depends on real-adapter soak, timeout / deny-rate
+telemetry, and resolving the remaining open questions above.
 
 ## What this unlocks
 
@@ -460,10 +467,13 @@ When this lands:
 
 ## Next steps
 
-1. Land this RFC. Solicit feedback on the open questions, especially #2
-   (tool-kind extraction) and #5 (unattended-mode behavior).
-2. Implement persistence + default prompt-mode handling as the smallest first
-   slice (including explicit `auto` / `deny` default-mode telemetry).
-3. SSE event integration; first frontend (web UI) consumes.
-4. Operator UI — pending banner + modal + grants management.
-5. Release notes + migration guidance for the alpha behavior change.
+1. Soak the prompt-mode flow with real adapters and watch
+   `hecate.agent_adapter.approval.timed_out`, deny rate, and
+   `grants_active`.
+2. Add real-adapter smoke coverage for allow / deny / always-scope / timeout
+   once the adapters expose stable enough fixtures.
+3. Resolve the remaining open questions: tool-kind reliability, stale grants
+   for removed adapters, custom selected-option UX, unattended repeated
+   timeouts, grant export/import, and revocation races.
+4. Decide whether Agent Chat approvals remain a parallel store or converge into
+   the native task approval model before declaring the adapter subsystem stable.

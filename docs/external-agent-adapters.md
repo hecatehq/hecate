@@ -186,6 +186,13 @@ short-circuit, mode default, or prompt-mode wait) and carries
 `agent_adapter.approval.resolve` wraps the operator's decision-application
 path with `decision` and `scope` attributes.
 
+Durable approval grants are part of the Agent Chat SQLite bundle. When
+`GATEWAY_CHAT_SESSIONS_BACKEND=sqlite`, grants survive gateway restarts and are
+listed from `GET /v1/agent-chat/grants`; the operator can revoke them from
+Settings → External agents. Pending approvals from a dead process are not
+replayed as actionable prompts — startup reconcile marks them `timed_out` with
+`path=startup_reconcile` before the gateway accepts traffic.
+
 ## Approval mode and the alpha → prompt migration
 
 `GATEWAY_AGENT_ADAPTER_APPROVAL_MODE` controls how the gateway responds to ACP
