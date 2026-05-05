@@ -295,13 +295,24 @@ the sweeper has closed the stale session, the request returns HTTP 422 with
 | Run hangs | Use the Stop button. Hecate sends ACP cancellation and marks the run `cancelled`. |
 | Diff is empty | The workspace may not be a Git repo, or the adapter did not change files. |
 
-## Current gaps
+## Stable alpha scope
+
+External agent adapters are stable enough for alpha use when the operator
+accepts the trusted-subprocess model: Codex, Claude Code, and Cursor run as
+their own runtimes in the selected workspace while Hecate supervises lifecycle,
+approvals, output capture, diagnostics, observability, guardrails, and Git diff
+inspect/revert.
+
+## Future enhancements
 
 - Patch review is intentionally "already applied" for now. Hecate captures
   diff data, exposes structured changed-file / per-file diff APIs, and the
   Chats UI can inspect or revert captured Git paths. A fuller review surface
   with side-by-side hunks, batch selection, and richer artifact history is
   still future work.
+- Adapter-specific ACP mappers can make Codex, Claude Code, and Cursor progress
+  updates prettier over time. The current generic mapper plus raw diagnostics is
+  sufficient for alpha stability.
 - Agent Chat is a lightweight API around opaque external runtimes. Future work
   may reuse task-runtime primitives for artifacts, event history, retention,
   and trace correlation, but Hecate should not pretend it owns the Codex /

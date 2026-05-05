@@ -352,3 +352,137 @@ test("agent approval banner: review, allow, banner clears", async ({ page }) => 
   await expect(page.getByTestId("agent-approval-banner")).toBeHidden();
   expect(resolveCalls).toBe(1);
 });
+
+test("agent changed-files review inspects and reverts a captured file", async ({ page }) => {
+  await page.addInitScript(() => {
+    window.localStorage.setItem("hecate.agentChatSessionID", "a-diff-1");
+    window.localStorage.setItem("hecate.chatTarget", "agent");
+  });
+
+  await page.route("/v1/agent-chat/sessions", (route) => {
+    if (route.request().method() !== "GET") {
+      void route.fulfill({ status: 405, body: "" });
+      return;
+    }
+    void route.fulfill({
+      status: 200,
+      contentType: "application/json",
+      body: JSON.stringify({
+        object: "agent_chat_sessions",
+        data: [{
+          id: "a-diff-1",
+          title: "Diff review",
+          adapter_id: "codex",
+          status: "completed",
+          message_count: 2,
+        }],
+      }),
+    });
+  });
+
+  const sessionBody = {
+    object: "agent_chat_session",
+    data: {
+      id: "a-diff-1",
+      title: "Diff review",
+      adapter_id: "codex",
+      workspace: "/tmp/e2e",
+      status: "completed",
+      messages: [
+        { id: "m-user", role: "user", content: "update docs", created_at: "2026-04-21T10:00:00Z" },
+        {
+          id: "m-agent",
+          role: "assistant",
+          content: "Updated the docs.",
+          adapter_id: "codex",
+          adapter_name: "Codex",
+          status: "completed",
+          diff_stat: "README.md | 3 ++-\ndocs/runtime-api.md | 4 ++++\n2 files changed, 6 insertions(+), 1 deletion(-)",
+          diff: "diff --git a/README.md b/README.md\n+new line",
+          created_at: "2026-04-21T10:00:01Z",
+        },
+      ],
+    },
+  };
+
+  await page.route("/v1/agent-chat/sessions/a-diff-1", (route) => {
+    void route.fulfill({
+      status: 200,
+      contentType: "application/json",
+      body: JSON.stringify(sessionBody),
+    });
+  });
+
+  await page.route("/v1/agent-chat/sessions/a-diff-1/approvals*", (route) => {
+    void route.fulfill({
+      status: 200,
+      contentType: "application/json",
+      body: JSON.stringify({ object: "list", data: [] }),
+    });
+  });
+
+  await page.route("/v1/agent-chat/sessions/a-diff-1/messages/m-agent/files", (route) => {
+    void route.fulfill({
+      status: 200,
+      contentType: "application/json",
+      body: JSON.stringify({
+        object: "agent_chat_changed_files",
+        data: [
+          { path: "README.md", additions: 2, deletions: 1, status: "modified" },
+          { path: "docs/runtime-api.md", additions: 4, deletions: 0, status: "added" },
+        ],
+      }),
+    });
+  });
+
+  await page.route("/v1/agent-chat/sessions/a-diff-1/messages/m-agent/files/README.md", (route) => {
+    void route.fulfill({
+      status: 200,
+      contentType: "application/json",
+      body: JSON.stringify({
+        object: "agent_chat_changed_file_diff",
+        data: {
+          path: "README.md",
+          additions: 2,
+          deletions: 1,
+          status: "modified",
+          diff: "diff --git a/README.md b/README.md\n+new line",
+        },
+      }),
+    });
+  });
+
+  let revertedPaths: string[] | null = null;
+  await page.route("/v1/agent-chat/sessions/a-diff-1/messages/m-agent/revert", async (route) => {
+    revertedPaths = (await route.request().postDataJSON()).paths;
+    void route.fulfill({
+      status: 200,
+      contentType: "application/json",
+      body: JSON.stringify({
+        object: "agent_chat_revert",
+        data: {
+          reverted: true,
+          paths: revertedPaths,
+          diff_stat: "docs/runtime-api.md | 4 ++++\n1 file changed, 4 insertions(+)",
+          files: [{ path: "docs/runtime-api.md", additions: 4, deletions: 0, status: "added" }],
+        },
+      }),
+    });
+  });
+
+  await page.reload();
+  await page.waitForSelector(".hecate-activitybar");
+
+  await expect(page.getByText("Updated the docs.")).toBeVisible();
+  await page.getByText("files changed · 2 files changed, 6 insertions(+), 1 deletion(-)").click();
+  await expect(page.getByText("2 changed files")).toBeVisible();
+
+  await page.getByRole("button", { name: "Inspect README.md" }).click();
+  await expect(page.getByText("diff · README.md")).toBeVisible();
+  await expect(page.locator("body")).toContainText("+new line");
+
+  await page.getByRole("button", { name: "Revert README.md" }).click();
+  await expect(page.getByRole("button", { name: "Confirm revert README.md" })).toBeVisible();
+  await page.getByRole("button", { name: "Confirm revert README.md" }).click();
+  await expect.poll(() => revertedPaths).toEqual(["README.md"]);
+});
