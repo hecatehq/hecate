@@ -276,9 +276,17 @@ export function ChatView({ state, actions }: Props) {
 
   async function quickAddLocalProviders(discoveries: LocalProviderDiscoveryRecord[]) {
     if (quickAddingProviders) return;
+    const seenBaseURLs = new Set<string>();
     const addable = discoveries
       .map(discovery => ({ discovery, preset: state.providerPresets.find(p => p.id === discovery.preset_id) }))
-      .filter((entry): entry is { discovery: LocalProviderDiscoveryRecord; preset: ProviderPresetRecord } => Boolean(entry.preset));
+      .filter((entry): entry is { discovery: LocalProviderDiscoveryRecord; preset: ProviderPresetRecord } => Boolean(entry.preset))
+      .filter(({ discovery, preset }) => {
+        const baseURL = normalizeProviderBaseURL(discovery.base_url || preset.base_url);
+        if (!baseURL) return true;
+        if (seenBaseURLs.has(baseURL)) return false;
+        seenBaseURLs.add(baseURL);
+        return true;
+      });
     if (addable.length === 0) return;
 
     setQuickAddingProviders(true);
@@ -1370,6 +1378,10 @@ function QuickLocalProviderAdd({
 
 function isQuickAddableLocalProvider(discovery: LocalProviderDiscoveryRecord): boolean {
   return discovery.http_available || discovery.command_available;
+}
+
+function normalizeProviderBaseURL(baseURL: string | undefined): string {
+  return (baseURL ?? "").trim();
 }
 
 function localProviderReadiness(discovery: LocalProviderDiscoveryRecord): {

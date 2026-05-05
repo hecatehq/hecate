@@ -9,6 +9,7 @@ import (
 	"net/url"
 	"os/exec"
 	"strings"
+	"sync"
 	"time"
 
 	"github.com/hecate/agent-runtime/internal/config"
@@ -28,6 +29,22 @@ type localHTTPProbeResult struct {
 	err       string
 }
 
+type localProviderProbe struct {
+	provider config.BuiltInProvider
+	probeURL string
+}
+
+type localProviderDiscoveryResult struct {
+	command string
+	path    string
+	http    localHTTPProbeResult
+}
+
+type localHTTPProbeTask struct {
+	done   chan struct{}
+	result localHTTPProbeResult
+}
+
 func (h *Handler) HandleLocalProviderDiscovery(w http.ResponseWriter, r *http.Request) {
 	ctx, cancel := context.WithTimeout(r.Context(), localProviderDiscoveryTimeout)
 	defer cancel()
@@ -40,29 +57,32 @@ func (h *Handler) HandleLocalProviderDiscovery(w http.ResponseWriter, r *http.Re
 }
 
 func discoverLocalProviders(ctx context.Context, providers []config.BuiltInProvider, lookPath localProviderLookPath, client localProviderHTTPDoer) []LocalProviderDiscoveryResponseItem {
-	httpResults := make(map[string]localHTTPProbeResult)
-	out := make([]LocalProviderDiscoveryResponseItem, 0, len(providers))
-
+	localProviders := make([]localProviderProbe, 0, len(providers))
 	for _, provider := range providers {
 		if provider.Kind != "local" {
 			continue
 		}
-
-		command, commandPath := findLocalProviderCommand(provider.ID, lookPath)
 		probeURL := localProviderProbeURL(provider)
-		result, ok := httpResults[probeURL]
-		if !ok {
-			result = probeLocalProviderHTTP(ctx, client, probeURL, provider.ID)
-			httpResults[probeURL] = result
-		}
+		localProviders = append(localProviders, localProviderProbe{provider: provider, probeURL: probeURL})
+	}
+
+	results := discoverLocalProviderPairsConcurrently(ctx, localProviders, lookPath, client)
+
+	out := make([]LocalProviderDiscoveryResponseItem, 0, len(localProviders))
+	for i, entry := range localProviders {
+		provider := entry.provider
+		result := results[i]
+		command := result.command
+		commandPath := result.path
+		httpResult := result.http
 
 		status := "not_detected"
 		if commandPath != "" {
 			status = "installed"
 		}
-		if result.available {
+		if httpResult.available {
 			status = "running"
-		} else if result.err != "" && commandPath != "" {
+		} else if httpResult.err != "" && commandPath != "" {
 			status = "installed"
 		}
 
@@ -70,19 +90,62 @@ func discoverLocalProviders(ctx context.Context, providers []config.BuiltInProvi
 			PresetID:         provider.ID,
 			Name:             provider.Name,
 			BaseURL:          provider.BaseURL,
-			ProbeURL:         probeURL,
+			ProbeURL:         entry.probeURL,
 			Status:           status,
 			Command:          command,
 			CommandAvailable: commandPath != "",
 			CommandPath:      commandPath,
-			HTTPAvailable:    result.available,
-			ModelCount:       len(result.models),
-			Models:           result.models,
-			Error:            result.err,
+			HTTPAvailable:    httpResult.available,
+			ModelCount:       len(httpResult.models),
+			Models:           httpResult.models,
+			Error:            httpResult.err,
 		})
 	}
 
 	return out
+}
+
+func discoverLocalProviderPairsConcurrently(ctx context.Context, providers []localProviderProbe, lookPath localProviderLookPath, client localProviderHTTPDoer) []localProviderDiscoveryResult {
+	results := make([]localProviderDiscoveryResult, len(providers))
+	probes := make(map[string]*localHTTPProbeTask)
+	var probesMu sync.Mutex
+	var wg sync.WaitGroup
+
+	getProbe := func(probeURL, providerID string) *localHTTPProbeTask {
+		probesMu.Lock()
+		defer probesMu.Unlock()
+		if task, ok := probes[probeURL]; ok {
+			return task
+		}
+		task := &localHTTPProbeTask{done: make(chan struct{})}
+		probes[probeURL] = task
+		go func() {
+			probeCtx, cancel := context.WithTimeout(ctx, localProviderDiscoveryTimeout)
+			defer cancel()
+			task.result = probeLocalProviderHTTP(probeCtx, client, probeURL, providerID)
+			close(task.done)
+		}()
+		return task
+	}
+
+	for i, entry := range providers {
+		wg.Add(1)
+		go func() {
+			defer wg.Done()
+			command, path := findLocalProviderCommand(entry.provider.ID, lookPath)
+			task := getProbe(entry.probeURL, entry.provider.ID)
+			var httpResult localHTTPProbeResult
+			select {
+			case <-task.done:
+				httpResult = task.result
+			case <-ctx.Done():
+				httpResult = localHTTPProbeResult{err: compactLocalProbeError(ctx.Err())}
+			}
+			results[i] = localProviderDiscoveryResult{command: command, path: path, http: httpResult}
+		}()
+	}
+	wg.Wait()
+	return results
 }
 
 func findLocalProviderCommand(providerID string, lookPath localProviderLookPath) (string, string) {

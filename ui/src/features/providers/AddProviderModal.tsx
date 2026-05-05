@@ -335,7 +335,7 @@ export function AddProviderModal({ open, state, actions, onClose }: Props) {
 }
 
 function emptyAddForm(kind: "cloud" | "local"): AddFormState {
-  return { name: kind === "local" ? "Custom" : "Custom", custom_name: "", base_url: "", api_key: "", kind, protocol: "openai" };
+  return { name: "Custom", custom_name: "", base_url: "", api_key: "", kind, protocol: "openai" };
 }
 
 function providerSlug(name: string): string {
@@ -390,7 +390,7 @@ function PresetButton({
   return (
     <button
       className="btn btn-ghost"
-      style={{ minHeight: 60, display: "flex", alignItems: "center", gap: 10, textAlign: "left", padding: "10px 12px", border: "1px solid var(--border)", borderRadius: "var(--radius)" }}
+      style={{ minHeight: 60, height: "100%", display: "flex", alignItems: "center", gap: 10, textAlign: "left", padding: "10px 12px", border: "1px solid var(--border)", borderRadius: "var(--radius)" }}
       onClick={onClick}>
       <div style={{ width: 28, height: 28, borderRadius: "var(--radius-sm)", background: "var(--bg3)", border: "1px solid var(--border)", display: "flex", alignItems: "center", justifyContent: "center", fontFamily: "var(--font-mono)", fontSize: 12, fontWeight: 600, color: iconColorByID(preset.id), flexShrink: 0 }}>
         {preset.name[0].toUpperCase()}
@@ -420,7 +420,7 @@ function CustomButton({ onClick }: { onClick: () => void }) {
   return (
     <button
       className="btn btn-ghost"
-      style={{ height: 60, display: "flex", alignItems: "center", gap: 10, textAlign: "left", padding: "0 12px", border: "1px dashed var(--border)", borderRadius: "var(--radius)" }}
+      style={{ minHeight: 60, height: "100%", display: "flex", alignItems: "center", gap: 10, textAlign: "left", padding: "10px 12px", border: "1px dashed var(--border)", borderRadius: "var(--radius)" }}
       onClick={onClick}>
       <div style={{ width: 28, height: 28, borderRadius: "var(--radius-sm)", background: "var(--bg3)", border: "1px solid var(--border)", display: "flex", alignItems: "center", justifyContent: "center", fontSize: 18, color: "var(--t3)", flexShrink: 0 }}>
         +
