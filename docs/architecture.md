@@ -8,6 +8,7 @@ Hecate splits cleanly into two concurrent surfaces: a **gateway** for OpenAI- an
 
 - [Gateway request flow](#gateway-request-flow)
 - [Task runtime flow](#task-runtime-flow)
+- [What the orchestrator owns](#what-the-orchestrator-owns)
 - [Agent loop turn cycle](#agent-loop-turn-cycle)
 - [Storage tiers](#storage-tiers)
 - [Why two flows share one gateway](#why-two-flows-share-one-gateway)
@@ -89,7 +90,7 @@ flowchart TD
     LoopRef --> RunEvents
     McpServers --> RunEvents
 
-    State --> Snapshot["Run snapshot<br/>(includes Approvals)"]
+    State --> Snapshot["Run state payload<br/>(includes approvals)"]
     RunEvents --> Snapshot
     Snapshot --> Stream["GET /runs/{id}/stream<br/>(SSE, resumable via<br/>after_sequence / Last-Event-ID)"]
     RunEvents --> PublicEvents["GET /v1/events<br/>GET /v1/events/stream<br/>(cross-run feed)"]
@@ -104,8 +105,29 @@ Key invariants:
 - **Lease before work.** A worker doesn't see a `task_run` until it has claimed a lease; if it crashes, the lease expires and another worker can pick the run up. Pinned by `GATEWAY_TASK_QUEUE_LEASE_SECONDS`.
 - **Execution is per-call subprocess.** Shell, file, and git tool calls spawn a fresh `sh` subprocess from inside the gateway, after the task's policy is validated and env sanitisation, output cap, and wall-clock timeout are applied. On Linux with `bwrap` installed, and on macOS, the call is additionally wrapped by an OS-level isolation tool (`bwrap` / `sandbox-exec`) for filesystem and network confinement. No separate sandbox daemon — the safety properties are applied inline. Container/chroot/VM-level isolation is not provided. See [`sandbox.md`](sandbox.md) for the full isolation-layer model.
 - **Approvals are blocking and come in two flavors.** Pre-execution approval (shell/git/file kinds, or `sandbox_network=true`) halts the run at `awaiting_approval` before the executor runs. Mid-loop approval (`agent_loop_tool_call`, see below) halts an `agent_loop` run after a turn produced a gated tool call. Both resolve via `POST /approvals/{id}/resolve`.
-- **Events are appended, not mutated.** Every step transition writes a `run_event` with a monotonic sequence number. The SSE stream replays from `after_sequence=N` or `Last-Event-ID`, so a disconnected client can re-join exactly where it left off. Each snapshot carries the run's approvals so the operator UI's banner stays in sync without a separate refetch. The full catalog of event types and their payload shapes lives in [`events.md`](events.md).
+- **Events are appended, not mutated.** Every step transition writes a `run_event` with a monotonic sequence number. The SSE stream replays from `after_sequence=N` or `Last-Event-ID`, so a disconnected client can re-join exactly where it left off. Each state payload carries the run's approvals so the operator UI's banner stays in sync without a separate refetch. The full catalog of event types and their payload shapes lives in [`events.md`](events.md).
 - **Resume creates a new attempt.** A resumed run gets a fresh `run_id`; the original run stays terminal. The new run reuses the prior workspace so file state carries forward, gets the prior checkpoint context in step input, and inherits the chain's cumulative cost via `PriorCostMicrosUSD` so the per-task ceiling holds across the full chain.
+
+## What the orchestrator owns
+
+`internal/orchestrator/` is the task-runtime coordinator. It is not the
+provider router and it is not a separate daemon; it is the in-process boundary
+that turns task API requests into durable work.
+
+The orchestrator owns:
+
+- workspace preparation before a run is queued
+- run creation, queueing, leases, worker heartbeats, retries, resumes, and stale-run reconciliation
+- executor dispatch for `shell`, `git`, `file`, and `agent_loop`
+- blocking task approvals and the transition back to the queue after approval
+- run events, steps, artifacts, stdout/stderr capture, final-answer artifacts, and trace correlation
+
+The orchestrator does **not** own OpenAI/Anthropic request routing for normal
+chat traffic, and it does not own external-agent adapter runtimes such as Codex,
+Claude Code, or Cursor Agent. Those external adapters are supervised by Agent
+Chat and run as their own processes in the selected workspace. Task-runtime
+`agent_loop` work is the path that uses the orchestrator, task approvals,
+workspace manager, and sandbox boundary described here.
 
 ## Agent loop turn cycle
 

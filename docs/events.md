@@ -58,7 +58,7 @@ These are **persisted events** (rows in the `task_state_run_events` table). They
 | `tool.timed_out` | Typed shell tool events | Shell execution exceeded its timeout |
 | `policy.tool_blocked` | Policy | A tool call was blocked before execution |
 | `task.updated` | Housekeeping | Task metadata changed (e.g. cancellation flushed) |
-| `snapshot` | Housekeeping | Per-run SSE handler periodically writes a state snapshot |
+| `snapshot` | Housekeeping | Internal per-run state-sync frame |
 | `external.event` | Caller-driven | Default type for events posted via `POST /v1/tasks/{id}/runs/{run_id}/events` |
 
 ## Wire envelope
@@ -76,7 +76,7 @@ envelope:
 | `type` | One of the event strings in this catalog |
 | `data` | Event-specific JSON object |
 
-Per-run state SSE (`/v1/tasks/{id}/runs/{run_id}/stream`) still emits
+Per-run state SSE (`/v1/tasks/{id}/runs/{run_id}/stream`) emits
 `TaskRunStreamEventData` snapshots optimized for the operator UI. Its
 `event_type` field mirrors the persisted event that produced the snapshot.
 
