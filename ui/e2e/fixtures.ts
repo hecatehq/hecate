@@ -221,6 +221,40 @@ export async function mockGatewayAPIs(page: Page, opts: GatewayMockOptions = {})
       body: JSON.stringify({ object: "configured_state", data: state }) });
   });
 
+  await page.route("/admin/control-plane/providers/local-discovery", async route => {
+    await route.fulfill(ok({
+      object: "local_provider_discovery",
+      data: [
+        {
+          preset_id: "ollama",
+          name: "Ollama",
+          base_url: "http://127.0.0.1:11434/v1",
+          probe_url: "http://127.0.0.1:11434/api/tags",
+          status: "installed",
+          command: "ollama",
+          command_available: true,
+          command_path: "/usr/local/bin/ollama",
+          http_available: false,
+          model_count: 0,
+          models: [],
+        },
+        {
+          preset_id: "lmstudio",
+          name: "LM Studio",
+          base_url: "http://127.0.0.1:1234/v1",
+          probe_url: "http://127.0.0.1:1234/v1/models",
+          status: "running",
+          command: "lms",
+          command_available: true,
+          command_path: "/Users/alice/.lmstudio/bin/lms",
+          http_available: true,
+          model_count: 1,
+          models: ["qwen2.5"],
+        },
+      ],
+    }));
+  });
+
   // POST /admin/control-plane/providers → create. Slugifies the name to id,
   // appends to the in-memory list, and returns 201. Stateful so the next
   // GET /admin/control-plane reflects the new row.
@@ -232,12 +266,13 @@ export async function mockGatewayAPIs(page: Page, opts: GatewayMockOptions = {})
       const body = JSON.parse(route.request().postData() ?? "{}") as {
         name?: string;
         preset_id?: string;
+        custom_name?: string;
         base_url?: string;
         api_key?: string;
         kind?: string;
         protocol?: string;
       };
-      const id = slugify(body.name ?? "");
+      const id = slugify([body.name, body.custom_name].filter(Boolean).join(" "));
       if (!id) {
         await route.fulfill({ status: 400, contentType: "application/json",
           body: JSON.stringify({ error: { type: "invalid_request", message: "provider name is required" } }) });
@@ -260,6 +295,8 @@ export async function mockGatewayAPIs(page: Page, opts: GatewayMockOptions = {})
       const record = {
         id,
         name: body.name ?? id,
+        custom_name: body.custom_name,
+        preset_id: body.preset_id,
         kind: body.kind || "cloud",
         protocol: body.protocol || "openai",
         base_url: trimmedURL,

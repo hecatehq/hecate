@@ -32,6 +32,8 @@ test("adding and deleting a provider keeps chat available", async ({ page }) => 
   await page.keyboard.press("2");
   await page.waitForSelector("text=Providers");
   await page.getByTitle("Remove Ollama").click();
+  await expect(page.getByRole("dialog", { name: "Remove provider?" })).toBeVisible();
+  await page.getByRole("dialog", { name: "Remove provider?" }).getByRole("button", { name: "Remove provider", exact: true }).click();
   await expect(page.locator("tbody tr", { hasText: "Ollama" })).toHaveCount(0);
 
   // Chats remains available after deleting the only configured provider.

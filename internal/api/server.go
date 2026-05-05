@@ -77,6 +77,7 @@ func NewServer(logger *slog.Logger, handler *Handler) http.Handler {
 	mux.HandleFunc("POST /admin/budget/limit", handler.HandleBudgetSetLimit)
 	mux.HandleFunc("POST /admin/budget/reset", handler.HandleBudgetReset)
 	mux.HandleFunc("GET /admin/control-plane", handler.HandleControlPlaneStatus)
+	mux.HandleFunc("GET /admin/control-plane/providers/local-discovery", handler.HandleLocalProviderDiscovery)
 	mux.HandleFunc("POST /admin/control-plane/providers", handler.HandleControlPlaneCreateProvider)
 	mux.HandleFunc("PATCH /admin/control-plane/providers/{id}", handler.HandleControlPlaneUpdateProvider)
 	mux.HandleFunc("DELETE /admin/control-plane/providers/{id}", handler.HandleControlPlaneDeleteProvider)

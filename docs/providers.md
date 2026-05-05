@@ -39,6 +39,23 @@ Click **Add provider** to open the modal:
    - **API Key** is shown for cloud and custom-cloud providers; stored encrypted at rest with `GATEWAY_CONTROL_PLANE_SECRET_KEY`.
 4. Click **Add provider**.
 
+The Local tab also runs a lightweight discovery check before you choose a
+preset. Hecate checks whether the expected command is on `PATH` (`ollama`,
+`lms`, `llama-server`, `local-ai` / `localai`) and probes each unique local
+HTTP endpoint once. The preset cards then show:
+
+- **Running** — the local HTTP API responded; model count is shown when the
+  provider returned one.
+- **Installed** — the command is available, but the HTTP server is not running
+  yet.
+- **Not detected** — no command on `PATH` and no response from the default
+  endpoint.
+
+`llamacpp` and `localai` share `127.0.0.1:8080` by default, so Hecate sends one
+HTTP request and reuses that result for both cards. The signal is advisory:
+adding the provider still uses the configured endpoint URL, and routing health
+continues to come from the normal `/admin/providers` probes.
+
 A provider you add is immediately routable. There is no separate enable/disable toggle — to take a provider out of rotation, delete it.
 
 ![Providers table populated with three providers — Health, Endpoint, Credentials, Models columns](screenshots/providers.png)
@@ -114,6 +131,9 @@ normalized assistant text, model, and token usage are.
 Every UI action maps to a control-plane endpoint:
 
 - `POST /admin/control-plane/providers` — add a provider. Body `{name, kind, protocol, base_url?, api_key?, custom_name?, preset_id?}`.
+- `GET /admin/control-plane/providers/local-discovery` — probe local presets
+  for command presence and default endpoint availability. Used by the Add
+  provider modal before a provider is created.
 - `DELETE /admin/control-plane/providers/{id}` — remove it.
 - `PATCH /admin/control-plane/providers/{id}` — partial update; accepts `base_url`, `name`, and `custom_name`.
 - `PUT /admin/control-plane/providers/{id}/api-key` — set the API key (empty `key` clears it).

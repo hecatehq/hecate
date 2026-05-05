@@ -1,17 +1,19 @@
 import { useEffect, useRef, useState } from "react";
 import type { SyntheticEvent } from "react";
 import type { RuntimeConsoleViewModel } from "../../app/useRuntimeConsole";
+import { discoverLocalProviders } from "../../lib/api";
 import { describeGatewayError, formatErrorCode } from "../../lib/error-diagnostics";
-import type { AgentAdapterRecord, AgentChatActivityRecord, AgentChatSessionRecord, AgentChatUsageRecord } from "../../types/runtime";
+import { describeRoutingBlockedReason } from "../../lib/runtime-utils";
+import type { AgentAdapterRecord, AgentChatActivityRecord, AgentChatSessionRecord, AgentChatUsageRecord, LocalProviderDiscoveryRecord, ProviderPresetRecord } from "../../types/runtime";
 import { AgentAdapterPicker, CodeBlock, Icon, Icons, InlineError, ModelPicker, ProviderPicker } from "../shared/ui";
 import { TranscriptMessageRow } from "../transcript/TranscriptMessageRow";
 import { AgentApprovalAutoModeBanner, AgentApprovalsBanner } from "./AgentApprovalBanner";
 import { AgentApprovalModal } from "./AgentApprovalModal";
+import { AddProviderModal } from "../providers/AddProviderModal";
 
 type Props = {
   state: RuntimeConsoleViewModel["state"];
   actions: RuntimeConsoleViewModel["actions"];
-  onNavigate?: (workspace: "providers") => void;
 };
 
 type VisibleChatMessage = {
@@ -47,7 +49,7 @@ type SidebarSession = {
   updated_at?: string;
 };
 
-export function ChatView({ state, actions, onNavigate }: Props) {
+export function ChatView({ state, actions }: Props) {
   const [sidebarOpen, setSidebarOpen] = useState(true);
   const [syspromptOpen, setSyspromptOpen] = useState(false);
   // approvalModalID is the per-banner-click open state for the
@@ -60,8 +62,13 @@ export function ChatView({ state, actions, onNavigate }: Props) {
   const [copiedMsgId, setCopiedMsgId] = useState<string | null>(null);
   const [atBottom, setAtBottom] = useState(true);
   const [workspaceEntryOpen, setWorkspaceEntryOpen] = useState(false);
+  const [addProviderOpen, setAddProviderOpen] = useState(false);
   const [workspacePathValue, setWorkspacePathValue] = useState("");
   const [sidebarQuery, setSidebarQuery] = useState("");
+  const [quickLocalProviders, setQuickLocalProviders] = useState<LocalProviderDiscoveryRecord[]>([]);
+  const [quickLocalLoading, setQuickLocalLoading] = useState(false);
+  const [quickLocalError, setQuickLocalError] = useState("");
+  const [quickAddingProviders, setQuickAddingProviders] = useState(false);
   const isMac = typeof navigator !== "undefined" && /mac/i.test(navigator.platform);
   const modKey = isMac ? "⌘" : "Ctrl";
   const [modEnterMode, setModEnterMode] = useState(
@@ -157,6 +164,13 @@ export function ChatView({ state, actions, onNavigate }: Props) {
     });
   })();
   const modelRouteUnavailable = providerConfigLoaded && selectableModels.length === 0;
+  const hasConfiguredProviders = configuredProviders.length > 0;
+  const selectedConfiguredProvider = state.providerFilter === "auto"
+    ? configuredProviders.length === 1 ? configuredProviders[0] : undefined
+    : configuredProviders.find(provider => provider.id === state.providerFilter);
+  const selectedRuntimeProvider = state.providerFilter === "auto"
+    ? state.providers.length === 1 ? state.providers[0] : undefined
+    : state.providers.find(provider => provider.name === state.providerFilter);
   const agentRouteUnavailable = availableAgents.length === 0;
   const selectedAgentUnavailable = isAgentChat && Boolean(selectedAgent) && !selectedAgent?.available;
   const nothingRunnable = !state.loading && modelRouteUnavailable && agentRouteUnavailable;
@@ -188,6 +202,12 @@ export function ChatView({ state, actions, onNavigate }: Props) {
   useEffect(() => {
     setWorkspacePathValue(state.agentWorkspace);
   }, [state.agentWorkspace]);
+
+  useEffect(() => {
+    if (isAgentChat || !modelRouteUnavailable || hasConfiguredProviders || quickLocalProviders.length > 0 || quickLocalLoading) return;
+    void refreshQuickLocalProviders();
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [isAgentChat, modelRouteUnavailable, hasConfiguredProviders]);
 
   function handleScroll() {
     const el = scrollRef.current;
@@ -239,6 +259,45 @@ export function ChatView({ state, actions, onNavigate }: Props) {
       localStorage.setItem("hecate.shiftEnterMode", next ? "1" : "0");
       return next;
     });
+  }
+
+  async function refreshQuickLocalProviders() {
+    setQuickLocalLoading(true);
+    setQuickLocalError("");
+    try {
+      const response = await discoverLocalProviders();
+      setQuickLocalProviders((response.data ?? []).filter(isQuickAddableLocalProvider));
+    } catch (error) {
+      setQuickLocalError(error instanceof Error ? error.message : "Failed to check local providers");
+    } finally {
+      setQuickLocalLoading(false);
+    }
+  }
+
+  async function quickAddLocalProviders(discoveries: LocalProviderDiscoveryRecord[]) {
+    if (quickAddingProviders) return;
+    const addable = discoveries
+      .map(discovery => ({ discovery, preset: state.providerPresets.find(p => p.id === discovery.preset_id) }))
+      .filter((entry): entry is { discovery: LocalProviderDiscoveryRecord; preset: ProviderPresetRecord } => Boolean(entry.preset));
+    if (addable.length === 0) return;
+
+    setQuickAddingProviders(true);
+    setQuickLocalError("");
+    try {
+      for (const { discovery, preset } of addable) {
+        await actions.createProvider({
+          name: preset.name,
+          preset_id: preset.id,
+          base_url: discovery.base_url || preset.base_url,
+          kind: preset.kind,
+          protocol: preset.protocol ?? "openai",
+        });
+      }
+    } catch (error) {
+      setQuickLocalError(error instanceof Error ? error.message : "Failed to add detected providers");
+    } finally {
+      setQuickAddingProviders(false);
+    }
   }
 
   function handleKeyDown(e: React.KeyboardEvent<HTMLTextAreaElement>) {
@@ -744,7 +803,18 @@ export function ChatView({ state, actions, onNavigate }: Props) {
               agentAdapters={state.agentAdapters}
               selectedAgent={selectedAgent}
               selectedAgentUnavailable={selectedAgentUnavailable}
-              onAddProvider={() => onNavigate?.("providers")}
+              hasConfiguredProviders={hasConfiguredProviders}
+              providerFilter={state.providerFilter}
+              selectedConfiguredProvider={selectedConfiguredProvider}
+              selectedRuntimeProvider={selectedRuntimeProvider}
+              providerPresets={state.providerPresets}
+              quickLocalProviders={quickLocalProviders}
+              quickLocalLoading={quickLocalLoading}
+              quickLocalError={quickLocalError}
+              quickAddingProviders={quickAddingProviders}
+              onAddProvider={() => setAddProviderOpen(true)}
+              onQuickAddLocalProviders={quickAddLocalProviders}
+              onRefreshQuickLocalProviders={refreshQuickLocalProviders}
               onSwitchTarget={actions.setChatTarget}
             />
           )}
@@ -873,6 +943,12 @@ export function ChatView({ state, actions, onNavigate }: Props) {
           onCancel={actions.cancelAgentChatApproval}
         />
       )}
+      <AddProviderModal
+        open={addProviderOpen}
+        state={state}
+        actions={actions}
+        onClose={() => setAddProviderOpen(false)}
+      />
     </div>
   );
 }
@@ -968,7 +1044,18 @@ function ChatEmptyState({
   agentAdapters,
   selectedAgent,
   selectedAgentUnavailable,
+  hasConfiguredProviders,
+  providerFilter,
+  selectedConfiguredProvider,
+  selectedRuntimeProvider,
+  providerPresets,
+  quickLocalProviders,
+  quickLocalLoading,
+  quickLocalError,
+  quickAddingProviders,
   onAddProvider,
+  onQuickAddLocalProviders,
+  onRefreshQuickLocalProviders,
   onSwitchTarget,
 }: {
   isAgentChat: boolean;
@@ -978,7 +1065,18 @@ function ChatEmptyState({
   agentAdapters: AgentAdapterRecord[];
   selectedAgent?: AgentAdapterRecord;
   selectedAgentUnavailable: boolean;
+  hasConfiguredProviders: boolean;
+  providerFilter: string;
+  selectedConfiguredProvider?: NonNullable<RuntimeConsoleViewModel["state"]["controlPlaneConfig"]>["providers"][number];
+  selectedRuntimeProvider?: RuntimeConsoleViewModel["state"]["providers"][number];
+  providerPresets: ProviderPresetRecord[];
+  quickLocalProviders: LocalProviderDiscoveryRecord[];
+  quickLocalLoading: boolean;
+  quickLocalError: string;
+  quickAddingProviders: boolean;
   onAddProvider: () => void;
+  onQuickAddLocalProviders: (providers: LocalProviderDiscoveryRecord[]) => void;
+  onRefreshQuickLocalProviders: () => void;
   onSwitchTarget: (target: "model" | "agent") => void;
 }) {
   const title = isAgentChat && selectedAgentUnavailable
@@ -1007,11 +1105,22 @@ function ChatEmptyState({
       {isAgentChat && (agentRouteUnavailable || selectedAgentUnavailable) && (
         <AgentSetupHints adapters={agentAdapters} selectedID={selectedAgent?.id} />
       )}
+      {!isAgentChat && modelRouteUnavailable && hasConfiguredProviders && (
+        <ModelRouteTroubleshooting
+          providerFilter={providerFilter}
+          configuredProvider={selectedConfiguredProvider}
+          runtimeProvider={selectedRuntimeProvider}
+        />
+      )}
       {(modelRouteUnavailable || agentRouteUnavailable) && (
         <div style={{ display: "flex", justifyContent: "center", gap: 8, marginTop: 14, flexWrap: "wrap" }}>
           {modelRouteUnavailable && !isAgentChat && (
-            <button className="btn btn-primary btn-sm" onClick={onAddProvider} type="button">
-              <Icon d={Icons.providers} size={13} /> Add provider
+            <button
+              className="btn btn-primary btn-sm"
+              onClick={onAddProvider}
+              type="button"
+              style={{ display: "flex", alignItems: "center", gap: 4 }}>
+              <Icon d={Icons.plus} size={13} /> Add provider
             </button>
           )}
           {agentRouteUnavailable && !isAgentChat && (
@@ -1031,8 +1140,261 @@ function ChatEmptyState({
           )}
         </div>
       )}
+      {!isAgentChat && modelRouteUnavailable && !hasConfiguredProviders && (
+        <QuickLocalProviderAdd
+          discoveries={quickLocalProviders}
+          error={quickLocalError}
+          loading={quickLocalLoading}
+          presets={providerPresets}
+          adding={quickAddingProviders}
+          onAdd={onQuickAddLocalProviders}
+          onRefresh={onRefreshQuickLocalProviders}
+        />
+      )}
     </div>
   );
+}
+
+function ModelRouteTroubleshooting({
+  providerFilter,
+  configuredProvider,
+  runtimeProvider,
+}: {
+  providerFilter: string;
+  configuredProvider?: NonNullable<RuntimeConsoleViewModel["state"]["controlPlaneConfig"]>["providers"][number];
+  runtimeProvider?: RuntimeConsoleViewModel["state"]["providers"][number];
+}) {
+  const providerName = providerFilter === "auto"
+    ? "configured providers"
+    : configuredProvider?.name || runtimeProvider?.name || providerFilter;
+  const isLocal = configuredProvider?.kind === "local" || runtimeProvider?.kind === "local";
+  const endpoint = runtimeProvider?.base_url || configuredProvider?.base_url || "";
+  const modelCount = runtimeProvider?.model_count ?? runtimeProvider?.models?.length ?? 0;
+  const blockedReason = runtimeProvider?.routing_blocked_reason ? describeRoutingBlockedReason(runtimeProvider.routing_blocked_reason) : "";
+  const lastError = runtimeProvider?.last_error || "";
+
+  const guidance = isLocal
+    ? [
+        "Start the local provider app or server.",
+        "Pull or load at least one model in that provider.",
+        "Click Providers to confirm the endpoint and discovered model list.",
+      ]
+    : [
+        "Check that credentials are configured for this provider.",
+        "Confirm the account has access to at least one model.",
+        "Click Providers to inspect the latest health and discovery error.",
+      ];
+
+  return (
+    <div style={{
+      margin: "14px auto 0",
+      maxWidth: 560,
+      border: "1px solid var(--border)",
+      borderRadius: "var(--radius)",
+      background: "var(--bg2)",
+      padding: 12,
+      textAlign: "left",
+    }}>
+      <div style={{ display: "flex", alignItems: "center", gap: 8, marginBottom: 8 }}>
+        <span style={{ fontSize: 11, color: "var(--t2)", fontFamily: "var(--font-mono)", textTransform: "uppercase", letterSpacing: "0.04em" }}>
+          Provider is configured
+        </span>
+        <span style={{ fontSize: 11, color: "var(--t3)", overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>
+          {providerName}
+        </span>
+      </div>
+      <div style={{ fontSize: 12, color: "var(--t2)", lineHeight: 1.55 }}>
+        Hecate can see the provider configuration, but no routable models are available yet.
+      </div>
+      <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(160px, 1fr))", gap: 8, marginTop: 10 }}>
+        <InfoChip label="Endpoint" value={endpoint || "not reported"} />
+        <InfoChip label="Models" value={modelCount > 0 ? String(modelCount) : "none discovered"} />
+        <InfoChip label="Health" value={runtimeProvider?.status || "pending probe"} />
+      </div>
+      {(blockedReason || lastError) && (
+        <div style={{ marginTop: 10, fontSize: 11, color: "var(--amber)", lineHeight: 1.45 }}>
+          {blockedReason || lastError}
+        </div>
+      )}
+      <ul style={{ margin: "10px 0 0", paddingLeft: 18, color: "var(--t3)", fontSize: 11, lineHeight: 1.55 }}>
+        {guidance.map(item => <li key={item}>{item}</li>)}
+      </ul>
+    </div>
+  );
+}
+
+function InfoChip({ label, value }: { label: string; value: string }) {
+  return (
+    <div style={{ border: "1px solid var(--border)", borderRadius: "var(--radius-sm)", background: "var(--bg3)", padding: "7px 8px", minWidth: 0 }}>
+      <div style={{ fontSize: 10, color: "var(--t3)", fontFamily: "var(--font-mono)", textTransform: "uppercase", letterSpacing: "0.04em" }}>
+        {label}
+      </div>
+      <div title={value} style={{ marginTop: 3, fontSize: 11, color: "var(--t1)", overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>
+        {value}
+      </div>
+    </div>
+  );
+}
+
+function QuickLocalProviderAdd({
+  discoveries,
+  error,
+  loading,
+  presets,
+  adding,
+  onAdd,
+  onRefresh,
+}: {
+  discoveries: LocalProviderDiscoveryRecord[];
+  error: string;
+  loading: boolean;
+  presets: ProviderPresetRecord[];
+  adding: boolean;
+  onAdd: (providers: LocalProviderDiscoveryRecord[]) => void;
+  onRefresh: () => void;
+}) {
+  const candidates = discoveries.filter(discovery => presets.some(preset => preset.id === discovery.preset_id));
+  if (!loading && !error && candidates.length === 0) return null;
+
+  return (
+    <div style={{
+      margin: "14px auto 0",
+      maxWidth: 640,
+      border: "1px solid var(--border)",
+      borderRadius: "var(--radius)",
+      background: "var(--bg2)",
+      padding: 12,
+      textAlign: "left",
+    }}>
+      <div style={{ display: "flex", alignItems: "flex-start", gap: 10, marginBottom: candidates.length > 0 || error ? 12 : 0 }}>
+        <div style={{ flex: 1, minWidth: 0 }}>
+          <div style={{ fontSize: 11, color: "var(--t2)", fontFamily: "var(--font-mono)", textTransform: "uppercase", letterSpacing: "0.04em" }}>
+            Detected locally
+          </div>
+          <div style={{ fontSize: 12, color: "var(--t3)", lineHeight: 1.45, marginTop: 3 }}>
+            Hecate found local inference tools on this machine. Add them now, then pull or load models in the provider app if needed.
+          </div>
+        </div>
+        {loading && <span style={{ fontSize: 11, color: "var(--t3)", paddingTop: 2 }}>Checking...</span>}
+        <button className="btn btn-ghost btn-sm" disabled={loading || adding} onClick={onRefresh} type="button" style={{ padding: "4px 8px", flexShrink: 0 }}>
+          Check again
+        </button>
+      </div>
+      {error && <InlineError message={error} />}
+      {candidates.length > 0 && (
+        <div style={{ display: "flex", flexDirection: "column", gap: 10 }}>
+          <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(220px, 1fr))", gap: 8 }}>
+            {candidates.map(discovery => {
+              const preset = presets.find(preset => preset.id === discovery.preset_id);
+              const status = localProviderReadiness(discovery);
+              const modelCount = discovery.model_count ?? discovery.models?.length ?? 0;
+              const detail = discovery.http_available
+                ? `${discovery.base_url} · ${modelCount} model${modelCount === 1 ? "" : "s"}`
+                : `${discovery.command || "Command"} found${discovery.command_path ? ` · ${discovery.command_path}` : ""}`;
+              return (
+                <div key={discovery.preset_id} style={{
+                  minHeight: 60,
+                  display: "flex",
+                  alignItems: "center",
+                  gap: 10,
+                  border: "1px solid var(--border)",
+                  borderRadius: "var(--radius)",
+                  padding: "10px 12px",
+                  minWidth: 0,
+                }}>
+                  <div style={{
+                    width: 28,
+                    height: 28,
+                    borderRadius: "var(--radius-sm)",
+                    background: "var(--bg3)",
+                    border: "1px solid var(--border)",
+                    display: "flex",
+                    alignItems: "center",
+                    justifyContent: "center",
+                    fontFamily: "var(--font-mono)",
+                    fontSize: 12,
+                    fontWeight: 600,
+                    color: "var(--teal)",
+                    flexShrink: 0,
+                  }}>
+                    {(preset?.name || discovery.name)[0]?.toUpperCase()}
+                  </div>
+                  <div style={{ flex: 1, minWidth: 0 }}>
+                    <div style={{ display: "flex", alignItems: "center", gap: 6, minWidth: 0 }}>
+                      <div style={{ fontSize: 13, fontWeight: 500, color: "var(--t0)", overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>
+                        {preset?.name || discovery.name}
+                      </div>
+                      <span title={status.title} style={{
+                        fontSize: 10,
+                        lineHeight: "16px",
+                        height: 16,
+                        borderRadius: 999,
+                        padding: "0 6px",
+                        whiteSpace: "nowrap",
+                        color: status.color,
+                        background: status.background,
+                        border: `1px solid ${status.border}`,
+                        flexShrink: 0,
+                      }}>
+                        {status.label}
+                      </span>
+                    </div>
+                    <div title={detail} style={{ fontSize: 11, color: "var(--t3)", lineHeight: 1.35, marginTop: 2, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>
+                      {detail}
+                    </div>
+                  </div>
+                </div>
+              );
+            })}
+          </div>
+          <div style={{ display: "flex", flexDirection: "column", alignItems: "center", gap: 8 }}>
+            <span style={{ fontSize: 11, color: "var(--t3)", lineHeight: 1.4, textAlign: "center" }}>
+              Adds {candidates.length} provider{candidates.length === 1 ? "" : "s"} with the detected/default endpoints. You can edit names and URLs later in Providers.
+            </span>
+            <button
+              className="btn btn-primary btn-sm"
+              disabled={adding}
+              onClick={() => onAdd(candidates)}
+              type="button"
+              style={{ display: "flex", alignItems: "center", gap: 4 }}>
+              <Icon d={Icons.plus} size={13} />
+              {adding ? "Adding..." : `Add detected provider${candidates.length === 1 ? "" : "s"}`}
+            </button>
+          </div>
+        </div>
+      )}
+    </div>
+  );
+}
+
+function isQuickAddableLocalProvider(discovery: LocalProviderDiscoveryRecord): boolean {
+  return discovery.http_available || discovery.command_available;
+}
+
+function localProviderReadiness(discovery: LocalProviderDiscoveryRecord): {
+  label: string;
+  title: string;
+  color: string;
+  background: string;
+  border: string;
+} {
+  if (discovery.http_available) {
+    const models = discovery.model_count ? ` · ${discovery.model_count} model${discovery.model_count === 1 ? "" : "s"}` : "";
+    return {
+      label: "Running",
+      title: `HTTP probe passed at ${discovery.probe_url}${models}`,
+      color: "var(--green)",
+      background: "var(--green-bg)",
+      border: "var(--green-border)",
+    };
+  }
+  return {
+    label: "Installed",
+    title: `${discovery.command || "Command"} found${discovery.command_path ? ` at ${discovery.command_path}` : ""}; local HTTP endpoint is not running`,
+    color: "var(--amber)",
+    background: "var(--amber-bg)",
+    border: "var(--amber-border)",
+  };
 }
 
 function AgentSetupHints({ adapters, selectedID }: { adapters: AgentAdapterRecord[]; selectedID?: string }) {
