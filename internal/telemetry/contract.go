@@ -259,6 +259,22 @@ const (
 	// External agent chat metrics
 	MetricAgentChatRunsTotal   = "hecate.agent_chat.runs"
 	MetricAgentChatRunDuration = "hecate.agent_chat.run.duration"
+	// MetricAgentChatCancelledTotal counts agent-chat run/turn endings
+	// that terminated via cancellation. The reason label
+	// distinguishes operator (explicit Cancel call from the HTTP
+	// layer), request_cancelled (ctx died before the operator clicked
+	// anything), and shutdown (process tear-down). Runs that completed
+	// or failed organically don't fire this counter.
+	MetricAgentChatCancelledTotal = "hecate.agent_chat.cancelled"
+
+	// External-adapter runtime metrics — the sibling to
+	// AgentAdapterApprovalMetrics. probe is fired once per
+	// agentadapters.Probe call and labeled by the final classification;
+	// terminal_rpc_unsupported is fired every time an adapter calls a
+	// terminal method we don't implement so operators can spot
+	// adapters silently degrading on shell-via-terminal.
+	MetricAgentAdapterProbeTotal                  = "hecate.agent_adapter.probe"
+	MetricAgentAdapterTerminalRPCUnsupportedTotal = "hecate.agent_adapter.terminal_rpc_unsupported"
 
 	// External-adapter approval metrics — see docs/rfcs/external-adapter-approvals-v1.md.
 	MetricAgentAdapterApprovalRequestedTotal = "hecate.agent_adapter.approval.requested"

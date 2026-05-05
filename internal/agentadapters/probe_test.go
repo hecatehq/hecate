@@ -4,6 +4,11 @@ import (
 	"context"
 	"strings"
 	"testing"
+
+	sdkmetric "go.opentelemetry.io/otel/sdk/metric"
+	"go.opentelemetry.io/otel/sdk/metric/metricdata"
+
+	"github.com/hecate/agent-runtime/internal/telemetry"
 )
 
 // TestClassifyAdapterError pins the auth-detection heuristic. Adapter
@@ -94,6 +99,60 @@ func TestProbeUnknownAdapter(t *testing.T) {
 	}
 	if res.AdapterID != "no-such-adapter" {
 		t.Fatalf("AdapterID = %q, want round-tripped id", res.AdapterID)
+	}
+}
+
+// TestProbeRecordsCounterWithFinalStatus pins the probe-counter
+// contract: every Probe call fires exactly once, labeled with the
+// adapter id and the final classification — even on the
+// short-circuit path where the adapter isn't in the registry. The
+// test injects a metrics sink via SetProbeMetrics, runs Probe
+// against a non-existent adapter (so the test never spawns any real
+// binary), and asserts the counter saw exactly one
+// (codex-fake, error) increment.
+//
+// Cannot run in parallel — SetProbeMetrics installs a process-wide
+// hook that other Probe-driven tests in this package would observe.
+func TestProbeRecordsCounterWithFinalStatus(t *testing.T) {
+	reader := sdkmetric.NewManualReader()
+	provider := sdkmetric.NewMeterProvider(sdkmetric.WithReader(reader))
+	metrics, err := telemetry.NewAgentAdapterMetricsWithMeterProvider(provider)
+	if err != nil {
+		t.Fatalf("NewAgentAdapterMetricsWithMeterProvider: %v", err)
+	}
+
+	SetProbeMetrics(metrics)
+	t.Cleanup(func() { SetProbeMetrics(nil) })
+
+	res := Probe(context.Background(), "no-such-adapter")
+	if res.Status != ProbeStatusError {
+		t.Fatalf("res.Status = %q, want %q", res.Status, ProbeStatusError)
+	}
+
+	var rm metricdata.ResourceMetrics
+	if err := reader.Collect(context.Background(), &rm); err != nil {
+		t.Fatalf("Collect: %v", err)
+	}
+
+	totalByStatus := make(map[string]int64)
+	for _, scope := range rm.ScopeMetrics {
+		for _, m := range scope.Metrics {
+			if m.Name != telemetry.MetricAgentAdapterProbeTotal {
+				continue
+			}
+			sum, ok := m.Data.(metricdata.Sum[int64])
+			if !ok {
+				t.Fatalf("probe metric data type = %T, want Sum[int64]", m.Data)
+			}
+			for _, dp := range sum.DataPoints {
+				status, _ := dp.Attributes.Value(telemetry.AttrHecateAgentProbeStatus)
+				totalByStatus[status.AsString()] += dp.Value
+			}
+		}
+	}
+	if got := totalByStatus[ProbeStatusError]; got != 1 {
+		t.Errorf("probe counter for status=%q = %d, want exactly 1; full map = %v",
+			ProbeStatusError, got, totalByStatus)
 	}
 }
 

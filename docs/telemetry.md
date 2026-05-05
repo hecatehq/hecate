@@ -396,6 +396,8 @@ External-agent approval metrics:
 | `hecate.agent_adapter.approval.duration` | histogram | same labels as `resolved` | Time from RequestPermission to resolution. |
 | `hecate.agent_adapter.approval.timed_out` | counter | `adapter`, `tool_kind`, `mode` | Approvals that hit the prompt-mode timeout. Dedicated counter so dashboards can alert on timeout rate without joining `resolved` on `path=timeout`. |
 | `hecate.agent_adapter.approval.grants_active` | up-down counter | none | Live count of durable "always allow / always deny" grants. Incremented on grant create, decremented on grant delete. Seeded at process start from the SQLite store so a restart doesn't reset the dashboard line to zero. |
+| `hecate.agent_adapter.probe` | counter | `adapter`, `status` | Adapter health probes grouped by final classification (`ready` / `not_installed` / `auth_required` / `error`). One increment per `agentadapters.Probe` call. |
+| `hecate.agent_adapter.terminal_rpc_unsupported` | counter | `adapter`, `method` | ACP terminal RPC calls Hecate does not implement, grouped by method (`create` / `kill` / `output` / `release` / `wait`). The matching error returned to the adapter is `agentadapters.ErrTerminalRPCUnsupported`, wrapping JSON-RPC method-not-found (-32601). |
 
 ### ACP Bridge Spans
 
@@ -472,6 +474,7 @@ Each prefix has a `_MAX_AGE` and `_MAX_COUNT` suffix (e.g. `GATEWAY_RETENTION_TR
 |---|---|---|---|
 | `hecate.agent_chat.runs` | Counter | `{run}` | External agent-chat runs grouped by adapter, driver kind, status, and result |
 | `hecate.agent_chat.run.duration` | Histogram | `ms` | External agent-chat run wall-clock duration |
+| `hecate.agent_chat.cancelled` | Counter | `{cancellation}` | Agent-chat run/turn endings that terminated via cancellation, labeled by `adapter` and `reason` (`operator` / `request_cancelled` / `shutdown`). Distinguishes explicit operator cancels from request-context death and `SessionManager.Shutdown`-driven tear-downs. |
 
 Metric attributes reuse the same vocabulary as traces — provider, model,
 cache, failover, result, step kind, approval decision, queue backend, run

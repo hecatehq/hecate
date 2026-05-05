@@ -84,6 +84,38 @@ var knownMCPCacheEvents = map[string]struct{}{
 	MCPCacheEventEvicted: {},
 }
 
+// knownAgentAdapterProbeStatuses mirrors agentadapters.ProbeStatus*.
+// Duplicated here because the telemetry package can't import
+// agentadapters without a cycle; the contract test asserts every
+// known status passes through unchanged.
+var knownAgentAdapterProbeStatuses = map[string]struct{}{
+	"ready":         {},
+	"not_installed": {},
+	"auth_required": {},
+	"error":         {},
+}
+
+// knownAgentAdapterTerminalMethods covers the five ACP terminal
+// methods. Adapter calls into any other method don't reach
+// RecordTerminalRPCUnsupported, so the closed set here is exact.
+var knownAgentAdapterTerminalMethods = map[string]struct{}{
+	"create":  {},
+	"kill":    {},
+	"output":  {},
+	"release": {},
+	"wait":    {},
+}
+
+// knownAgentChatCancelReasons covers the three cancellation paths
+// the handler/runtime distinguishes. New paths require a label here
+// so unknown reasons collapse to "other" instead of polluting
+// dashboards.
+var knownAgentChatCancelReasons = map[string]struct{}{
+	"operator":          {},
+	"request_cancelled": {},
+	"shutdown":          {},
+}
+
 // NormalizeMetricLabel applies a generic safety guard for labels that are
 // useful but not closed-set enums, such as provider IDs, model names, and MCP
 // server aliases. Closed-set dimensions should use the specific normalizers
@@ -146,6 +178,18 @@ func NormalizeMCPCallResult(value string) string {
 
 func NormalizeMCPCacheEvent(value string) string {
 	return normalizeKnownLabel(value, knownMCPCacheEvents)
+}
+
+func NormalizeAgentAdapterProbeStatus(value string) string {
+	return normalizeKnownLabel(value, knownAgentAdapterProbeStatuses)
+}
+
+func NormalizeAgentAdapterTerminalMethod(value string) string {
+	return normalizeKnownLabel(value, knownAgentAdapterTerminalMethods)
+}
+
+func NormalizeAgentChatCancelReason(value string) string {
+	return normalizeKnownLabel(value, knownAgentChatCancelReasons)
 }
 
 func normalizeKnownLabel(value string, known map[string]struct{}) string {

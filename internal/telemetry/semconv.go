@@ -158,4 +158,14 @@ const (
 	AttrHecateAgentApprovalStatus   = "hecate.agent_adapter.approval.status"
 	AttrHecateAgentApprovalMode     = "hecate.agent_adapter.approval.mode"
 	AttrHecateAgentApprovalPath     = "hecate.agent_adapter.approval.path"
+
+	// External-adapter runtime attributes — paired with the
+	// adapter probe / terminal-RPC / chat-cancelled counters.
+	// `status` is one of probe.Probe's classifications
+	// (ready|not_installed|auth_required|error); `terminal.method`
+	// is one of create|kill|output|release|wait; `cancel.reason`
+	// is one of operator|request_cancelled|shutdown.
+	AttrHecateAgentProbeStatus      = "hecate.agent_adapter.probe.status"
+	AttrHecateAgentTerminalMethod   = "hecate.agent_adapter.terminal.method"
+	AttrHecateAgentChatCancelReason = "hecate.agent_chat.cancel.reason"
 )

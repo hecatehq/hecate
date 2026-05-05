@@ -3,6 +3,7 @@ package api
 import (
 	"context"
 	"sync"
+	"sync/atomic"
 
 	"github.com/hecate/agent-runtime/internal/agentadapters"
 	"github.com/hecate/agent-runtime/internal/agentchat"
@@ -71,18 +72,41 @@ type AgentChatApprovalResolvedEvent struct {
 type agentChatLive struct {
 	mu          sync.Mutex
 	subscribers map[string]map[chan AgentChatLiveEvent]struct{}
-	running     map[string]agentChatRunControl
+	running     map[string]*agentChatRunControl
 }
 
 type agentChatRunControl struct {
 	cancel context.CancelFunc
 	done   chan struct{}
+	// reason records the trigger for an operator-driven cancel
+	// (cancelRun / cancelRunAndWait). The handler reads this when
+	// the run terminates so the cancellation counter can label
+	// "operator" vs "request_cancelled" (parent ctx died first).
+	// Stored as an atomic *string so the cancel and complete paths
+	// can race without locking the live struct.
+	reason atomic.Pointer[string]
+}
+
+// markCancelReason CAS-installs the cancellation reason so the
+// handler can label the cancellation counter correctly. First write
+// wins — once a reason is recorded, later cancel calls (e.g.
+// cancelRunAndWait fired by Delete after Cancel) don't clobber it.
+func (c *agentChatRunControl) markCancelReason(reason string) {
+	c.reason.CompareAndSwap(nil, &reason)
+}
+
+// cancelReason reports the recorded reason or empty string.
+func (c *agentChatRunControl) cancelReason() string {
+	if r := c.reason.Load(); r != nil {
+		return *r
+	}
+	return ""
 }
 
 func newAgentChatLive() *agentChatLive {
 	return &agentChatLive{
 		subscribers: make(map[string]map[chan AgentChatLiveEvent]struct{}),
-		running:     make(map[string]agentChatRunControl),
+		running:     make(map[string]*agentChatRunControl),
 	}
 }
 
@@ -210,7 +234,7 @@ func (l *agentChatLive) registerRun(sessionID string, cancel context.CancelFunc)
 	if _, exists := l.running[sessionID]; exists {
 		return false
 	}
-	l.running[sessionID] = agentChatRunControl{cancel: cancel, done: make(chan struct{})}
+	l.running[sessionID] = &agentChatRunControl{cancel: cancel, done: make(chan struct{})}
 	return true
 }
 
@@ -224,6 +248,21 @@ func (l *agentChatLive) clearRun(sessionID string) {
 	l.mu.Unlock()
 }
 
+// cancelReasonFor reports the cancellation reason recorded for the
+// given session (operator-driven via cancelRun*) or empty if either
+// no run is registered or no operator action was taken. The handler
+// uses this on the run-completion path to distinguish operator
+// cancels from a request_cancelled (parent ctx died first).
+func (l *agentChatLive) cancelReasonFor(sessionID string) string {
+	l.mu.Lock()
+	run, ok := l.running[sessionID]
+	l.mu.Unlock()
+	if !ok || run == nil {
+		return ""
+	}
+	return run.cancelReason()
+}
+
 func (l *agentChatLive) cancelRun(sessionID string) bool {
 	l.mu.Lock()
 	run, ok := l.running[sessionID]
@@ -231,6 +270,7 @@ func (l *agentChatLive) cancelRun(sessionID string) bool {
 	if !ok {
 		return false
 	}
+	run.markCancelReason("operator")
 	run.cancel()
 	return true
 }
@@ -242,6 +282,7 @@ func (l *agentChatLive) cancelRunAndWait(ctx context.Context, sessionID string) 
 	if !ok {
 		return true
 	}
+	run.markCancelReason("operator")
 	run.cancel()
 	select {
 	case <-run.done:
