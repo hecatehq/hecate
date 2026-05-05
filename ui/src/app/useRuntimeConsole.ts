@@ -1071,16 +1071,22 @@ export function useRuntimeConsole() {
     });
   }
 
-  async function createProvider(params: { name: string; preset_id?: string; custom_name?: string; base_url?: string; api_key?: string; kind: string; protocol: string }): Promise<void> {
+  async function createProvider(
+    params: { name: string; preset_id?: string; custom_name?: string; base_url?: string; api_key?: string; kind: string; protocol: string },
+    options: { refresh?: boolean } = {},
+  ): Promise<void> {
     await createProviderRequest(params);
-    await loadDashboard();
+    if (options.refresh !== false) {
+      await loadDashboard();
+    }
   }
 
   async function deleteProvider(id: string): Promise<void> {
     resetControlPlaneFeedback();
-    const previousControlPlaneConfig = controlPlaneConfig;
-    const previousProviders = providers;
+    const removedConfiguredProvider = controlPlaneConfig?.providers.find(provider => provider.id === id);
+    const removedProviderStatus = providers.find(provider => provider.name === id);
     const previousProviderFilter = providerFilter;
+    const previousModel = model;
 
     setControlPlaneConfig(current => current
       ? { ...current, providers: current.providers.filter(provider => provider.id !== id) }
@@ -1096,11 +1102,21 @@ export function useRuntimeConsole() {
       setNoticeMessage("success", "Provider removed.");
       void loadDashboard();
     } catch (error) {
-      setControlPlaneConfig(previousControlPlaneConfig);
-      setProviders(previousProviders);
+      setControlPlaneConfig(current => {
+        if (!removedConfiguredProvider) return current;
+        if (!current) return controlPlaneConfig;
+        if (current.providers.some(provider => provider.id === id)) return current;
+        return { ...current, providers: [...current.providers, removedConfiguredProvider] };
+      });
+      setProviders(current => {
+        if (!removedProviderStatus || current.some(provider => provider.name === id)) return current;
+        return [...current, removedProviderStatus];
+      });
       setProviderFilter(previousProviderFilter);
+      setModel(previousModel);
       setControlPlaneError(describeError(error, "failed to delete provider"));
       setNoticeMessage("error", "Failed to remove provider.");
+      void refreshProviders();
     }
   }
 

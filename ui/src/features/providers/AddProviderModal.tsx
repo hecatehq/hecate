@@ -62,6 +62,9 @@ export function AddProviderModal({ open, state, actions, onClose }: Props) {
     setPreset(null);
     setForm(emptyAddForm("local"));
     setError("");
+    setLocalDiscovery([]);
+    setLocalDiscoveryLoading(false);
+    setLocalDiscoveryError("");
   }, [open]);
 
   useEffect(() => {
@@ -193,7 +196,7 @@ export function AddProviderModal({ open, state, actions, onClose }: Props) {
               onClick={() => pickPreset(p)}
             />
           ))}
-          <CustomButton kind={pickTab} onClick={() => pickCustom(pickTab)} />
+          <CustomButton onClick={() => pickCustom(pickTab)} />
         </div>
       </div>
     );
@@ -413,7 +416,7 @@ function PresetButton({
   );
 }
 
-function CustomButton({ onClick }: { kind: "cloud" | "local"; onClick: () => void }) {
+function CustomButton({ onClick }: { onClick: () => void }) {
   return (
     <button
       className="btn btn-ghost"

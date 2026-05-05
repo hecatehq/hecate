@@ -199,8 +199,8 @@ test("empty model chat can add all detected local providers in one click", async
   await switchToModel(page);
 
   await expect(page.getByText("Detected locally")).toBeVisible();
-  await expect(page.getByText("Ollama")).toBeVisible();
-  await expect(page.getByText("LM Studio")).toBeVisible();
+  await expect(page.getByText("Ollama", { exact: true })).toBeVisible();
+  await expect(page.getByText("LM Studio", { exact: true })).toBeVisible();
   await expect(page.getByText("Installed")).toBeVisible();
   await expect(page.getByText("Running")).toBeVisible();
 

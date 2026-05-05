@@ -4,6 +4,7 @@ import { afterEach, describe, expect, it, vi } from "vitest";
 
 import { ProvidersView } from "./ProvidersView";
 import { AddProviderModal } from "./AddProviderModal";
+import { discoverLocalProviders } from "../../lib/api";
 import { createRuntimeConsoleActions, createRuntimeConsoleFixture } from "../../test/runtime-console-fixture";
 import type { ConfiguredProviderRecord, ProviderPresetRecord, ProviderRecord } from "../../types/runtime";
 
@@ -523,6 +524,42 @@ describe("ProvidersView table renders", () => {
 
     expect(screen.queryByText(/Custom name is already used/)).toBeNull();
     expect(screen.getAllByText("Add provider").pop()).not.toBeDisabled();
+  });
+
+  it("clears stale local discovery state every time the add-provider modal opens", async () => {
+    vi.mocked(discoverLocalProviders)
+      .mockRejectedValueOnce(new Error("local probe failed"))
+      .mockResolvedValueOnce({
+        object: "local_provider_discovery",
+        data: [{
+          preset_id: "ollama",
+          name: "Ollama",
+          base_url: "http://127.0.0.1:11434/v1",
+          probe_url: "http://127.0.0.1:11434/api/tags",
+          status: "running",
+          command: "ollama",
+          command_available: true,
+          command_path: "/usr/local/bin/ollama",
+          http_available: true,
+          model_count: 1,
+          models: ["llama3.1:8b"],
+        }],
+      });
+    const state = createRuntimeConsoleFixture({
+      session: localSession,
+      providerPresets: presets,
+      controlPlaneConfig: emptyControlPlaneConfig(),
+    });
+    const actions = createRuntimeConsoleActions();
+
+    const { rerender } = render(<AddProviderModal open state={state} actions={actions} onClose={() => {}} />);
+    expect(await screen.findByText("local probe failed")).toBeTruthy();
+
+    rerender(<AddProviderModal open={false} state={state} actions={actions} onClose={() => {}} />);
+    rerender(<AddProviderModal open state={state} actions={actions} onClose={() => {}} />);
+
+    await waitFor(() => expect(screen.queryByText("local probe failed")).toBeNull());
+    expect(await screen.findByText("Running")).toBeTruthy();
   });
 
   it("does not steal focus back to Endpoint URL after typing in Custom name", async () => {
