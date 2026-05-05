@@ -231,7 +231,7 @@ describe("api client", () => {
       );
     });
 
-    it("GET /providers/local-discovery discovers local presets", async () => {
+    it("GET /admin/control-plane/providers/local-discovery discovers local presets", async () => {
       fetchMock.mockResolvedValue(jsonResponse({ object: "local_provider_discovery", data: [] }));
 
       await discoverLocalProviders();

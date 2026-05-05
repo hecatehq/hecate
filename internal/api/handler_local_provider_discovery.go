@@ -209,11 +209,14 @@ func probeLocalProviderHTTP(ctx context.Context, client localProviderHTTPDoer, p
 		return localHTTPProbeResult{err: fmt.Sprintf("HTTP %d", resp.StatusCode)}
 	}
 
-	models := decodeLocalProviderModels(resp, providerID)
+	models, err := decodeLocalProviderModels(resp, providerID)
+	if err != nil {
+		return localHTTPProbeResult{err: err.Error()}
+	}
 	return localHTTPProbeResult{available: true, models: models}
 }
 
-func decodeLocalProviderModels(resp *http.Response, providerID string) []string {
+func decodeLocalProviderModels(resp *http.Response, providerID string) ([]string, error) {
 	if providerID == "ollama" {
 		var payload struct {
 			Models []struct {
@@ -221,7 +224,7 @@ func decodeLocalProviderModels(resp *http.Response, providerID string) []string 
 			} `json:"models"`
 		}
 		if err := json.NewDecoder(resp.Body).Decode(&payload); err != nil {
-			return nil
+			return nil, fmt.Errorf("invalid %s response: %w", providerID, err)
 		}
 		models := make([]string, 0, len(payload.Models))
 		for _, model := range payload.Models {
@@ -229,7 +232,7 @@ func decodeLocalProviderModels(resp *http.Response, providerID string) []string 
 				models = append(models, model.Name)
 			}
 		}
-		return models
+		return models, nil
 	}
 
 	var payload struct {
@@ -238,7 +241,7 @@ func decodeLocalProviderModels(resp *http.Response, providerID string) []string 
 		} `json:"data"`
 	}
 	if err := json.NewDecoder(resp.Body).Decode(&payload); err != nil {
-		return nil
+		return nil, fmt.Errorf("invalid %s response: %w", providerID, err)
 	}
 	models := make([]string, 0, len(payload.Data))
 	for _, model := range payload.Data {
@@ -246,7 +249,7 @@ func decodeLocalProviderModels(resp *http.Response, providerID string) []string 
 			models = append(models, model.ID)
 		}
 	}
-	return models
+	return models, nil
 }
 
 func compactLocalProbeError(err error) string {

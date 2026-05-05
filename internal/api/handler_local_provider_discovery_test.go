@@ -261,6 +261,38 @@ func TestDiscoverLocalProvidersOllamaInstalledStoppedAndRunning(t *testing.T) {
 	}
 }
 
+func TestDiscoverLocalProvidersRejectsInvalidHTTPProbeBody(t *testing.T) {
+	t.Parallel()
+
+	providers := []config.BuiltInProvider{
+		{ID: "lmstudio", Name: "LM Studio", Kind: "local", BaseURL: "http://127.0.0.1:1234/v1"},
+	}
+	rt := &localProviderRoundTrip{
+		body: map[string]string{
+			"http://127.0.0.1:1234/v1/models": `not-json`,
+		},
+	}
+
+	items := discoverLocalProviders(context.Background(), providers, missingLocalCommand, rt)
+
+	if len(items) != 1 {
+		t.Fatalf("items = %d, want 1", len(items))
+	}
+	item := items[0]
+	if item.Status != "not_detected" {
+		t.Fatalf("status = %q, want not_detected", item.Status)
+	}
+	if item.HTTPAvailable {
+		t.Fatal("HTTPAvailable = true, want false")
+	}
+	if item.ModelCount != 0 || len(item.Models) != 0 {
+		t.Fatalf("models = %#v count = %d, want none", item.Models, item.ModelCount)
+	}
+	if !strings.Contains(item.Error, "invalid lmstudio response") {
+		t.Fatalf("error = %q, want invalid response detail", item.Error)
+	}
+}
+
 func TestLocalProviderProbeURLUsesOllamaNativeTagsEndpoint(t *testing.T) {
 	t.Parallel()
 
