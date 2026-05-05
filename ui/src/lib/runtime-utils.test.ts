@@ -1,13 +1,11 @@
 import { describe, expect, it } from "vitest";
 
 import {
-  buildSemanticCacheInsight,
   buildSpanWaterfall,
   budgetConsumedPercent,
   buildTraceTimeline,
   countRouteHealthStatuses,
   describeBudgetScope,
-  describeCachePath,
   describeHealthStatus,
   describeRouteReason,
   describeRouteRecovery,
@@ -41,7 +39,7 @@ const providers: ProviderRecord[] = [
   { name: "ollama", kind: "local", healthy: false, status: "open", default_model: "llama3.1:8b" },
 ];
 
-const semanticHeaders: RuntimeHeaders = {
+const runtimeHeaders: RuntimeHeaders = {
   requestId: "req-1",
   traceId: "trace-1",
   spanId: "span-1",
@@ -50,11 +48,6 @@ const semanticHeaders: RuntimeHeaders = {
   routeReason: "provider_default_model",
   requestedModel: "llama3.1:8b",
   resolvedModel: "llama3.1:8b",
-  cache: "true",
-  cacheType: "semantic",
-  semanticStrategy: "postgres_pgvector",
-  semanticIndex: "hnsw",
-  semanticSimilarity: "0.982",
   attempts: "1",
   retries: "0",
   fallbackFrom: "",
@@ -162,88 +155,6 @@ describe("runtime-utils", () => {
     expect(formatTraceAttributeValue({ ok: true })).toBe('{"ok":true}');
   });
 
-  it("describes cache path from runtime headers", () => {
-    expect(
-      describeCachePath(semanticHeaders),
-    ).toEqual(
-      expect.objectContaining({
-        title: "Semantic cache hit",
-        tone: "healthy",
-      }),
-    );
-  });
-
-  it("builds a semantic cache insight for hit and miss/writeback flows", () => {
-    const hitInsight = buildSemanticCacheInsight(semanticHeaders, [
-      {
-        trace_id: "trace-1",
-        span_id: "span-1",
-        name: "gateway.request",
-        events: [
-          {
-            name: "semantic_cache.hit",
-            timestamp: "2026-04-21T10:00:00Z",
-            attributes: {
-              "hecate.semantic.scope": "tenant:team-a/model:llama3.1:8b",
-              "hecate.semantic.strategy": "postgres_pgvector",
-              "hecate.semantic.index_type": "hnsw",
-              "hecate.semantic.similarity": 0.982,
-            },
-          },
-        ],
-      },
-    ]);
-
-    expect(hitInsight).toEqual(
-      expect.objectContaining({
-        title: "Semantic cache hit",
-        similarity: "98.2%",
-        writebackStatus: "Writeback not needed",
-      }),
-    );
-
-    const missInsight = buildSemanticCacheInsight(
-      {
-        ...semanticHeaders,
-        cache: "false",
-        cacheType: "false",
-        semanticStrategy: "",
-        semanticIndex: "",
-        semanticSimilarity: "",
-      },
-      [
-        {
-          trace_id: "trace-1",
-          span_id: "span-1",
-          name: "gateway.request",
-          events: [
-            {
-              name: "semantic_cache.lookup_started",
-              timestamp: "2026-04-21T10:00:00Z",
-              attributes: { "hecate.semantic.scope": "tenant:team-a/model:llama3.1:8b" },
-            },
-            {
-              name: "semantic_cache.miss",
-              timestamp: "2026-04-21T10:00:01Z",
-              attributes: { "hecate.semantic.scope": "tenant:team-a/model:llama3.1:8b" },
-            },
-            {
-              name: "semantic_cache.store_finished",
-              timestamp: "2026-04-21T10:00:02Z",
-            },
-          ],
-        },
-      ],
-    );
-
-    expect(missInsight).toEqual(
-      expect.objectContaining({
-        title: "Semantic lookup miss",
-        writebackStatus: "Writeback stored",
-      }),
-    );
-  });
-
   it("calculates budget consumption percent", () => {
     expect(
       budgetConsumedPercent({
@@ -319,71 +230,11 @@ describe("runtime-utils", () => {
     expect(formatTraceAttributeKey("alreadyClean")).toBe("alreadyClean");
   });
 
-  // ── cache-path branches ───────────────────────────────────────────────
-  // describeCachePath drives the "what happened in cache?" tile in the
-  // trace panel. Each branch emits a different operator-visible label;
-  // a regression that swaps "Semantic lookup executed" for "No cache hit"
-  // (or vice versa) misleads operators about what the gateway actually did.
-
-  it("describeCachePath returns a neutral default when no headers are present", () => {
-    expect(describeCachePath()).toEqual({
-      title: "No runtime metadata",
-      detail: expect.any(String),
-      tone: "neutral",
-    });
-    expect(describeCachePath(null)).toMatchObject({ tone: "neutral" });
-  });
-
-  it("describeCachePath classifies a semantic cache hit", () => {
-    const result = describeCachePath({
-      ...semanticHeaders,
-      cache: "true",
-      cacheType: "semantic",
-    });
-    expect(result.title).toBe("Semantic cache hit");
-    expect(result.tone).toBe("healthy");
-    expect(result.detail).toMatch(/postgres_pgvector/);
-    expect(result.detail).toMatch(/0\.982/);
-  });
-
-  it("describeCachePath classifies an exact cache hit when cacheType is not semantic", () => {
-    const result = describeCachePath({
-      ...semanticHeaders,
-      cache: "true",
-      cacheType: "exact",
-      semanticStrategy: "",
-    });
-    expect(result.title).toBe("Exact cache hit");
-    expect(result.tone).toBe("healthy");
-  });
-
-  it("describeCachePath classifies a semantic-lookup-but-miss as a warning", () => {
-    const result = describeCachePath({
-      ...semanticHeaders,
-      cache: "false",
-      cacheType: "false",
-    });
-    expect(result.title).toBe("Semantic lookup executed");
-    expect(result.tone).toBe("warning");
-  });
-
-  it("describeCachePath falls through to neutral when nothing about cache fired", () => {
-    const result = describeCachePath({
-      ...semanticHeaders,
-      cache: "false",
-      cacheType: "false",
-      semanticStrategy: "",
-    });
-    expect(result.tone).toBe("neutral");
-  });
-
   // ── tracePhaseFromEvent ──────────────────────────────────────────────
 
   it("tracePhaseFromEvent maps every prefix the gateway emits", () => {
     expect(tracePhaseFromEvent("request.received")).toBe("request");
     expect(tracePhaseFromEvent("router.selected")).toBe("routing");
-    expect(tracePhaseFromEvent("cache.exact_hit")).toBe("cache");
-    expect(tracePhaseFromEvent("semantic.miss")).toBe("cache");
     expect(tracePhaseFromEvent("provider.invoked")).toBe("provider");
     expect(tracePhaseFromEvent("governor.allowed")).toBe("governor");
     expect(tracePhaseFromEvent("usage.recorded")).toBe("usage");
@@ -405,7 +256,6 @@ describe("runtime-utils", () => {
   it("tracePhaseFromSpan maps OTel span names used by the gateway", () => {
     expect(tracePhaseFromSpan("gateway.request")).toBe("request");
     expect(tracePhaseFromSpan("gateway.router")).toBe("routing");
-    expect(tracePhaseFromSpan("gateway.cache")).toBe("cache");
     expect(tracePhaseFromSpan("gateway.provider")).toBe("provider");
     expect(tracePhaseFromSpan("gateway.cost")).toBe("cost");
     expect(tracePhaseFromSpan("orchestrator.queue")).toBe("queue");
@@ -424,11 +274,11 @@ describe("runtime-utils", () => {
     const route: TraceRouteRecord = {
       candidates: [{ provider: "openai", model: "gpt-4o", outcome: "selected", health_status: "half_open" }],
     } as unknown as TraceRouteRecord;
-    expect(describeRouteRecovery(route, semanticHeaders)).toBe("Recovered via half-open provider probe");
+    expect(describeRouteRecovery(route, runtimeHeaders)).toBe("Recovered via half-open provider probe");
   });
 
   it("describeRouteRecovery names the fallback source when one is present", () => {
-    const headers: RuntimeHeaders = { ...semanticHeaders, fallbackFrom: "anthropic" };
+    const headers: RuntimeHeaders = { ...runtimeHeaders, fallbackFrom: "anthropic" };
     expect(describeRouteRecovery(undefined, headers)).toBe("Failed over from anthropic");
   });
 
