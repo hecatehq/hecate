@@ -39,6 +39,7 @@ Claude Code shortcut: `/test-affected` from the repo root when Go packages are t
 ## Where to go for depth
 
 - Conventions (match existing design, no duplicate summary surfaces, stable provider ordering, short tab labels, etc.) — [`../docs-ai/skills/ui/SKILL.md`](../docs-ai/skills/ui/SKILL.md).
+- Accessibility baseline (semantic controls, keyboard paths, focus management, contrast, reduced motion) — [`../docs-ai/skills/ui/SKILL.md`](../docs-ai/skills/ui/SKILL.md).
 - Test patterns (the `setup()` helper) — [`../docs-ai/skills/ui/SKILL.md`](../docs-ai/skills/ui/SKILL.md).
 - UI gotchas (dropdown clipping, `bun test` vs `bun run test`, stale task IDs, snapshot churn) — [`../docs-ai/skills/ui/SKILL.md`](../docs-ai/skills/ui/SKILL.md).
 - Recipes (SSE-driven state field, paired pickers, snapshot refresh) — [`../docs-ai/skills/ui/SKILL.md`](../docs-ai/skills/ui/SKILL.md).

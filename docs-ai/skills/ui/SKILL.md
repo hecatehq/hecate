@@ -50,6 +50,29 @@ Every screen should answer the following quickly:
 
 When choosing between "pretty" and "operationally clear," choose clarity.
 
+## Accessibility baseline
+
+Accessibility is part of the design pass, not a cleanup pass. Every UI change
+should preserve keyboard, screen-reader, focus, contrast, and motion ergonomics
+unless there is an explicit product reason and a documented follow-up.
+
+- Use semantic HTML first: buttons for actions, anchors for navigation, labels
+  for form controls, tables for real tables, headings that reflect structure.
+- Every interactive control needs a visible focus state and a keyboard path.
+  Dropdowns, dialogs, popovers, and slideovers must support Escape / outside
+  dismissal where appropriate and return focus to the trigger.
+- Icon-only controls need accessible names. Status chips and color-coded states
+  need text, not color alone.
+- Modal and dialog work must include focus management, `aria-modal`, labelled
+  titles, and non-trapping escape paths.
+- Keep contrast readable in the dark operator theme. Muted text can be quiet,
+  but it still needs to be legible against panels and borders.
+- Respect reduced-motion expectations. Motion should orient; avoid relying on
+  animation to convey state.
+- Add or update tests for accessibility-sensitive behavior when changing UI
+  primitives: role/name queries, focus movement, disabled states, and keyboard
+  interactions are preferred over brittle DOM selectors.
+
 ## Information architecture
 
 Organize the UI around operator jobs, not components:
