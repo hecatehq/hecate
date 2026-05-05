@@ -299,6 +299,23 @@ describe("TaskDetail runtime debugging", () => {
     expect(screen.getByText(/Completed/i)).toBeTruthy();
   });
 
+  it("hides snapshot sync events and renders compact operator labels", () => {
+    const events: TaskRunEventRecord[] = [
+      makeEvent({ sequence: 10, type: "snapshot" }),
+      makeEvent({ sequence: 11, type: "assistant.tool_call_proposed" }),
+      makeEvent({ sequence: 12, type: "approval.requested" }),
+      makeEvent({ sequence: 13, type: "tool.shell_command" }),
+      makeEvent({ sequence: 14, type: "approval.resolved" }),
+    ];
+    const { render } = setup({ events });
+    render();
+    expect(screen.queryByText(/snapshot/i)).toBeNull();
+    expect(screen.getByText(/Tool proposed/i)).toBeTruthy();
+    expect(screen.getByText(/Approval asked/i)).toBeTruthy();
+    expect(screen.getByText(/Shell command/i)).toBeTruthy();
+    expect(screen.getByText(/Approval done/i)).toBeTruthy();
+  });
+
   it("annotates run.resumed_from_event events with turn and reason when both are present", () => {
     const events: TaskRunEventRecord[] = [
       makeEvent({
@@ -446,6 +463,20 @@ describe("TaskDetail agent conversation viewer", () => {
     expect(screen.getByText("Let me read it.")).toBeTruthy();
     expect(screen.getByText(/Hecate is the gateway/)).toBeTruthy();
     expect(screen.getByText("It introduces Hecate as the gateway.")).toBeTruthy();
+  });
+
+  it("hides internal system context from the conversation flow", () => {
+    const content = JSON.stringify([
+      { role: "system", content: "Your workspace is at: /tmp/hecate-workspaces/run-1" },
+      { role: "user", content: "echo lol please" },
+      { role: "assistant", content: "I'll run it." },
+    ]);
+    const { render } = setup({ artifacts: [makeConvoArtifact(content)] });
+    render();
+    expect(screen.getByText(/Agent conversation · 2 messages/)).toBeTruthy();
+    expect(screen.queryByText(/Your workspace is at/i)).toBeNull();
+    expect(screen.getByText("echo lol please")).toBeTruthy();
+    expect(screen.getByText("I'll run it.")).toBeTruthy();
   });
 
   it("renders tool calls as chips with the function name", () => {
