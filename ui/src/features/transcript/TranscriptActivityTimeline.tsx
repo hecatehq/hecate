@@ -49,7 +49,7 @@ export function TranscriptActivityTimeline({ activities, diffStat }: { activitie
   const visible = compactAgentActivities(activities);
   if (visible.length === 0) return null;
   const terminal = terminalAgentActivity(activities);
-  const hasRunning = !terminal && activities.some(activity => activity.status === "running");
+  const hasRunning = !terminal && activities.some(isActiveAgentActivity);
   const plan = visible.filter(activity => activity.type === "plan");
   const tools = visible.filter(activity => activity.type === "tool_call");
   const other = visible.filter(activity => activity.type !== "plan" && activity.type !== "tool_call");
@@ -183,8 +183,13 @@ function activityStatusColor(status?: string) {
   case "cancelled":
     return "var(--amber)";
   case "running":
+  case "in_progress":
     return "var(--teal)";
   default:
     return "var(--green)";
   }
+}
+
+function isActiveAgentActivity(activity: AgentChatActivityRecord): boolean {
+  return activity.status === "running" || activity.status === "in_progress";
 }

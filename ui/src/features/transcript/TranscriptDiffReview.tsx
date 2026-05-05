@@ -51,6 +51,7 @@ export function TranscriptDiffReview({
     if (!hasReviewAPI || !onGetFileDiff) return;
     setLoadingPath(file.path);
     setLocalError("");
+    setSelectedDiff(null);
     try {
       const nextDiff = await onGetFileDiff(sessionID, messageID, file.path);
       if (nextDiff) {

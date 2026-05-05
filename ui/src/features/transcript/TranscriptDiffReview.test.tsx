@@ -121,6 +121,37 @@ describe("TranscriptDiffReview", () => {
     expect(screen.getByRole("button", { name: /^Inspect src\/foo\.ts/ })).not.toBeDisabled();
   });
 
+  it("clears the previous file diff when loading another file fails", async () => {
+    const onListFiles = vi.fn(async () => [
+      file({ path: "src/foo.ts" }),
+      file({ path: "src/bar.ts" }),
+    ]);
+    const onGetFileDiff = vi.fn(async (_sessionID: string, _messageID: string, path: string) => {
+      if (path === "src/foo.ts") return fileDiff({ path: "src/foo.ts", diff: "@@ foo\n+first\n" });
+      throw new Error("boom");
+    });
+    const user = userEvent.setup();
+    render(
+      <TranscriptDiffReview
+        sessionID="s1"
+        messageID="m1"
+        diffStat="2 files changed"
+        onListFiles={onListFiles}
+        onGetFileDiff={onGetFileDiff}
+        onRevertFiles={vi.fn(async () => true)}
+      />,
+    );
+
+    await user.click(screen.getByText(/^files changed · /));
+    await waitFor(() => expect(screen.getByText("src/foo.ts")).toBeInTheDocument());
+    await user.click(screen.getByRole("button", { name: /^Inspect src\/foo\.ts/ }));
+    await waitFor(() => expect(screen.getByText(/diff · src\/foo\.ts/)).toBeInTheDocument());
+    await user.click(screen.getByRole("button", { name: /^Inspect src\/bar\.ts/ }));
+
+    await waitFor(() => expect(screen.getByText(/Could not load that file diff/)).toBeInTheDocument());
+    expect(screen.queryByText(/diff · src\/foo\.ts/)).toBeNull();
+  });
+
   it("requires a confirm step before reverting an individual file", async () => {
     const onListFiles = vi.fn(async () => [file()]);
     const onRevertFiles = vi.fn(async () => true);

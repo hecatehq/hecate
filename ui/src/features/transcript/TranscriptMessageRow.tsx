@@ -21,7 +21,7 @@ export function TranscriptMessageRow({ id, role, model, content, time, promptTok
   const isAssistant = role === "assistant";
   const hasTokenData = isAssistant && (promptTokens ?? 0) > 0;
   const showRawOutput = isAssistant && rawOutput && rawOutput.trim() && rawOutput.trim() !== content.trim();
-  const waitingForAgentOutput = isAssistant && !content.trim() && activities?.some(activity => activity.status === "running");
+  const waitingForAgentOutput = isAssistant && !content.trim() && activities?.some(isActiveAgentActivity);
   const failed = isAssistant && badge === "failed";
   const cancelled = isAssistant && badge === "cancelled";
   const thinkingForAgent = isAssistant
@@ -133,6 +133,10 @@ function isLikelyTransientAgentNarration(text: string): boolean {
     "let me ",
     "checking ",
   ].some(prefix => normalized.startsWith(prefix));
+}
+
+function isActiveAgentActivity(activity: AgentChatActivityRecord): boolean {
+  return activity.status === "running" || activity.status === "in_progress";
 }
 
 function AgentRunNotice({ status, message }: { status: "failed" | "cancelled"; message: string }) {
