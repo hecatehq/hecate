@@ -17,6 +17,7 @@ import {
   listAgentChatMessageFiles,
   probeAgentAdapter,
   refreshAgentAdapterLauncher,
+  revertAgentChatMessageFiles,
   resolveAgentChatApproval,
   setProviderAPIKey,
   setProviderBaseURL,
@@ -580,6 +581,32 @@ describe("api client", () => {
         expect.anything(),
       );
       expect(result.data.diff).toContain("src/app.go");
+    });
+
+    it("reverts selected changed files", async () => {
+      fetchMock.mockResolvedValue(
+        jsonResponse({
+          object: "agent_chat_revert",
+          data: {
+            reverted: true,
+            paths: ["src/app.go"],
+            diff_stat: "README.md | 1 +",
+            files: [{ path: "README.md", additions: 1, deletions: 0, status: "modified" }],
+          },
+        }),
+      );
+
+      const result = await revertAgentChatMessageFiles("s1", "m1", ["src/app.go"]);
+
+      expect(fetchMock).toHaveBeenCalledWith(
+        "/v1/agent-chat/sessions/s1/messages/m1/revert",
+        expect.objectContaining({
+          method: "POST",
+          body: JSON.stringify({ paths: ["src/app.go"] }),
+        }),
+      );
+      expect(result.data.reverted).toBe(true);
+      expect(result.data.files[0]?.path).toBe("README.md");
     });
   });
 

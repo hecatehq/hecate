@@ -656,6 +656,22 @@ type AgentChatChangedFileDiffResponse struct {
 	Data   AgentChatChangedFileDiffItem `json:"data"`
 }
 
+type RevertAgentChatMessageFilesRequest struct {
+	Paths []string `json:"paths,omitempty"`
+}
+
+type AgentChatRevertItem struct {
+	Reverted bool                       `json:"reverted"`
+	Paths    []string                   `json:"paths"`
+	DiffStat string                     `json:"diff_stat,omitempty"`
+	Files    []AgentChatChangedFileItem `json:"files"`
+}
+
+type AgentChatRevertResponse struct {
+	Object string              `json:"object"`
+	Data   AgentChatRevertItem `json:"data"`
+}
+
 type AgentChatActivityItem struct {
 	ID        string `json:"id,omitempty"`
 	Type      string `json:"type"`

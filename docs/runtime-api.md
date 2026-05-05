@@ -830,6 +830,44 @@ Status codes:
 - `200 OK` with the per-file diff.
 - `404 not_found` when the session, message, or file path is unknown.
 
+### `POST /v1/agent-chat/sessions/{id}/messages/{message_id}/revert`
+
+Reverts workspace changes captured by an Agent Chat assistant message. This is
+only available for Git workspaces and only for paths present in the stored
+agent-message diff; Hecate rejects arbitrary paths. Pass a non-empty `paths`
+array to revert selected files, or an empty array to revert every file in the
+captured diff.
+
+```json
+POST /v1/agent-chat/sessions/agent_chat_.../messages/msg_.../revert
+{
+  "paths": ["src/foo.go"]
+}
+
+→ 200
+{
+  "object": "agent_chat_revert",
+  "data": {
+    "reverted": true,
+    "paths": ["src/foo.go"],
+    "diff_stat": "README.md | 1 +",
+    "files": [
+      {
+        "path": "README.md",
+        "additions": 1,
+        "deletions": 0,
+        "status": "modified"
+      }
+    ]
+  }
+}
+```
+
+After a successful revert, Hecate refreshes the message's stored `diff` and
+`diff_stat` for the originally captured path set, appends a `files_reverted`
+activity, and publishes an updated Agent Chat session snapshot. Non-Git
+workspaces return `400 invalid_request` with a human-readable limitation.
+
 ### `GET /v1/agent-chat/sessions/{id}/stream`
 
 Streams live Agent Chat session snapshots as Server-Sent Events. This is an
