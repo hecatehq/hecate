@@ -6,16 +6,16 @@ provider credentials. Contributions land easier when they read like that.
 
 ## Where to start
 
-- **Working with an AI assistant** (Claude Code, Codex, Cursor, etc.): the orientation entry is [`AGENTS.md`](AGENTS.md). The canonical, vendor-neutral instruction layer is [`ai/`](ai/README.md). Tool-specific files ([`CLAUDE.md`](CLAUDE.md), [`.cursor/rules/`](.cursor/rules/)) are thin adapters that point there.
+- **Working with an AI assistant** (Claude Code, Codex, Cursor, etc.): the orientation entry is [`AGENTS.md`](AGENTS.md). The canonical, vendor-neutral instruction layer is [`docs-ai/`](docs-ai/README.md). Tool-specific files ([`CLAUDE.md`](CLAUDE.md), [`.cursor/rules/`](.cursor/rules/)) are thin adapters that point there.
 - **Working without an AI assistant**: read [`AGENTS.md`](AGENTS.md) for the codebase map and runtime invariants, then [`docs/development.md`](docs/development.md) for local build / hot-reload / make targets.
 
-The `ai/` tree mirrors the operating loop:
+The `docs-ai/` tree mirrors the operating loop:
 
 | Directory | What's there |
 |---|---|
-| [`ai/core/`](ai/core/) | Project context, engineering standards, workflow, verification ladders |
-| [`ai/tasks/`](ai/tasks/) | Planning, implementation, debugging, refactoring, code-review shapes |
-| [`ai/skills/`](ai/skills/) | Area depth (`backend/`, `ui/`, `providers/`) and posture skills (`architect/` for plan-first, `tester/` for evidence-over-assumptions, `devops/` for delivery surfaces) |
+| [`docs-ai/core/`](docs-ai/core/) | Project context, engineering standards, workflow, verification ladders |
+| [`docs-ai/tasks/`](docs-ai/tasks/) | Planning, implementation, debugging, refactoring, code-review shapes |
+| [`docs-ai/skills/`](docs-ai/skills/) | Area depth (`backend/`, `ui/`, `providers/`) and posture skills (`architect/` for plan-first, `tester/` for evidence-over-assumptions, `devops/` for delivery surfaces) |
 
 ## Verification
 
@@ -48,27 +48,27 @@ Slash-command shortcuts available in Claude Code: `/race`,
 - Pure-markdown changes: append `[skip ci]` to the subject (CI's
   `paths-ignore` already catches `**/*.md`; the marker is
   belt-and-suspenders).
-- Agent-doc-only updates (anything under `ai/`, `AGENTS.md`,
+- Agent-doc-only updates (anything under `docs-ai/`, `AGENTS.md`,
   `CLAUDE.md`, `.cursor/rules/`, `.claude/commands/`) use
   `chore(agent):`.
 - **No plan, phase, or release labels** in commit messages or code
   comments. No `P0`, `Phase 2`, `#15`, `Milestone N`. The plan lives
   in chat; the repo record is permanent.
 
-The full discipline is in [`ai/core/workflow.md`](ai/core/workflow.md).
+The full discipline is in [`docs-ai/core/workflow.md`](docs-ai/core/workflow.md).
 
 ## Pull requests
 
 Keep them coherent. One logical change per PR; if a behavior change
 sneaks into a refactor, split. State the verification you ran in the
-description — see [`ai/tasks/code-review.md`](ai/tasks/code-review.md)
+description — see [`docs-ai/tasks/code-review.md`](docs-ai/tasks/code-review.md)
 for the rubric reviewers will apply.
 
 ## Repo policy
 
 Shared agent guidance is repository-owned and committed. There is no
 `.local` override layer and no personal customization tier. If a rule
-belongs in agent context, it lives under [`ai/`](ai/README.md), in the
+belongs in agent context, it lives under [`docs-ai/`](docs-ai/README.md), in the
 open, under version control.
 
 ## License

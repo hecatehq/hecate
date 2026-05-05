@@ -453,8 +453,8 @@ func buildGatewayDependencies(
 	}
 }
 
-func pruneableProviderHistory(store providers.HealthHistoryStore) retention.CachePruner {
-	pruner, _ := store.(retention.CachePruner)
+func pruneableProviderHistory(store providers.HealthHistoryStore) retention.Pruner {
+	pruner, _ := store.(retention.Pruner)
 	return pruner
 }
 

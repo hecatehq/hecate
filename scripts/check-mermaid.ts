@@ -198,7 +198,9 @@ function walkMd(dir: string, results: string[] = []): string[] {
   for (const entry of readdirSync(dir)) {
     if (SKIP_DIRS.has(entry)) continue;
     const full = join(dir, entry);
-    if (statSync(full).isDirectory()) {
+    const stat = statSync(full, { throwIfNoEntry: false });
+    if (!stat) continue;
+    if (stat.isDirectory()) {
       walkMd(full, results);
     } else if (extname(entry) === ".md") {
       results.push(full);
