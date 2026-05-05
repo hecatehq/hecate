@@ -147,6 +147,8 @@ export function AgentAdapterPicker({
       <button
         ref={triggerRef}
         aria-label="External agent adapter"
+        aria-expanded={open}
+        aria-haspopup="listbox"
         className="btn btn-ghost btn-sm"
         disabled={locked}
         onClick={() => { if (!locked) setOpen((current) => !current); }}
@@ -171,6 +173,7 @@ export function AgentAdapterPicker({
       {open && floatingStyle && (
         <div
           ref={menuRef}
+          role="listbox"
           className="dropdown-menu dropdown-menu-floating"
           onKeyDown={onMenuKeyDown}
           style={{ ...floatingStyle, minWidth: 220 }}
@@ -185,6 +188,8 @@ export function AgentAdapterPicker({
                 type="button"
                 data-dropdown-item
                 data-selected={adapter.id === value ? "true" : undefined}
+                role="option"
+                aria-selected={adapter.id === value}
                 key={adapter.id}
                 className={`dropdown-item ${adapter.id === value ? "selected" : ""}`}
                 onClick={() => {

@@ -27,7 +27,7 @@ describe("NewTaskSlideOver visibility", () => {
   it("renders the panel when open is true", () => {
     const { render } = setup();
     render();
-    expect(screen.getByText(/new task/i)).toBeTruthy();
+    expect(screen.getByRole("dialog", { name: /new task/i })).toBeTruthy();
   });
 
   it("starts on the shell tab and shows the shell command field", () => {
@@ -182,6 +182,18 @@ describe("NewTaskSlideOver submit", () => {
     await user.type(input, "echo hi{Enter}");
     expect(onCreate).toHaveBeenCalled();
   });
+
+  it("exposes labelled controls for keyboard and screen-reader users", async () => {
+    const { render, user } = setup();
+    render();
+    expect(screen.getByRole("textbox", { name: /shell command/i })).toBeTruthy();
+    expect(screen.getByRole("textbox", { name: /workspace path/i })).toBeTruthy();
+
+    await user.click(screen.getByRole("button", { name: "File" }));
+    expect(screen.getByRole("radio", { name: /file operation: write/i })).toBeTruthy();
+    expect(screen.getByRole("textbox", { name: /file path/i })).toBeTruthy();
+    expect(screen.getByRole("textbox", { name: /file content/i })).toBeTruthy();
+  });
 });
 
 describe("NewTaskSlideOver close behavior", () => {
@@ -189,14 +201,7 @@ describe("NewTaskSlideOver close behavior", () => {
     const onClose = vi.fn();
     const { render, user } = setup({ onClose });
     render();
-    // The X is the only ghost button in the header (no accessible name).
-    // Find it by walking up from the panel title.
-    const buttons = screen.getAllByRole("button");
-    // The cancel button has text "Cancel" — exclude it. The X is the first
-    // ghost button we encounter.
-    const xButton = buttons.find(b => b.querySelector("svg") && !b.textContent?.trim());
-    expect(xButton).toBeTruthy();
-    await user.click(xButton!);
+    await user.click(screen.getByRole("button", { name: "Close" }));
     expect(onClose).toHaveBeenCalled();
   });
 

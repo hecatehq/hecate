@@ -163,6 +163,22 @@ describe("ChatView chats sidebar", () => {
     await user.click(screen.getByText("Pick me"));
     expect(selectChatSession).toHaveBeenCalledWith("s1");
   });
+
+  it("calls selectChatSession when pressing Enter or Space on a focused chat row", async () => {
+    const selectChatSession = vi.fn(async () => undefined);
+    const { state, actions } = setup({
+      chatTarget: "model",
+      chatSessions: [{ id: "s1", title: "Pick me", message_count: 0, provider_call_count: 0 } as any],
+    }, { selectChatSession });
+    render(<ChatView state={state} actions={actions} />);
+    const user = userEvent.setup();
+    const row = screen.getByRole("button", { name: /^Chat Pick me$/ });
+    row.focus();
+    await user.keyboard("{Enter}");
+    expect(selectChatSession).toHaveBeenLastCalledWith("s1");
+    await user.keyboard(" ");
+    expect(selectChatSession).toHaveBeenLastCalledWith("s1");
+  });
 });
 
 describe("ChatView agent target", () => {

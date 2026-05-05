@@ -130,6 +130,8 @@ export function ProviderPicker({
       <button
         ref={triggerRef}
         type="button"
+        aria-expanded={open}
+        aria-haspopup="listbox"
         className="btn btn-ghost btn-sm"
         onClick={() => setOpen(o => !o)}
         style={{ fontFamily: "var(--font-mono)", fontSize: 11, gap: 5, color: "var(--t1)", width: triggerWidth }}>
@@ -157,6 +159,7 @@ export function ProviderPicker({
       {open && floatingStyle && (
         <div
           ref={menuRef}
+          role="listbox"
           className="dropdown-menu dropdown-menu-floating"
           onKeyDown={onMenuKeyDown}
           style={{ ...floatingStyle, minWidth: 180 }}
@@ -167,6 +170,8 @@ export function ProviderPicker({
                 type="button"
                 data-dropdown-item
                 data-selected={value === autoValue ? "true" : undefined}
+                role="option"
+                aria-selected={value === autoValue}
                 className={`dropdown-item ${value === autoValue ? "selected" : ""}`}
                 onClick={() => { onChange(autoValue); setOpen(false); }}>
                 <span style={{ flex: 1, fontFamily: "var(--font-mono)", fontSize: 12, textAlign: "left" }}>{autoLabel}</span>
@@ -185,6 +190,8 @@ export function ProviderPicker({
                 type="button"
                 data-dropdown-item
                 data-selected={value === o.id ? "true" : undefined}
+                role="option"
+                aria-selected={value === o.id}
                 key={o.id}
                 className={`dropdown-item ${value === o.id ? "selected" : ""}`}
                 aria-disabled={disabled || undefined}

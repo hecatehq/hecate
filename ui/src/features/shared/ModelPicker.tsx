@@ -13,9 +13,11 @@
 // look as the old simple picker minus the section headers.
 
 import { useEffect, useRef, useState } from "react";
+import type { KeyboardEvent } from "react";
 
 import type { ModelRecord, ProviderPresetRecord } from "../../types/runtime";
 import { Icon, Icons } from "./Icons";
+import { focusDropdownItem, focusInitialDropdownItem } from "./dropdownKeyboard";
 import { useFloatingDropdownStyle } from "./useFloatingDropdownStyle";
 
 export function ModelPicker({
@@ -60,6 +62,7 @@ export function ModelPicker({
   const [open, setOpen] = useState(false);
   const [filter, setFilter] = useState("");
   const ref = useRef<HTMLDivElement>(null);
+  const menuRef = useRef<HTMLDivElement>(null);
   const triggerRef = useRef<HTMLButtonElement>(null);
   const inputRef = useRef<HTMLInputElement>(null);
   // Right-anchored: the menu is 300px wide and the trigger is at the
@@ -121,11 +124,63 @@ export function ModelPicker({
     ? "No discovered models for this provider. Configure credentials or start the local runtime."
     : label;
 
+  function closeMenu() {
+    setOpen(false);
+    setFilter("");
+    triggerRef.current?.focus();
+  }
+
+  function selectModel(model: ModelRecord) {
+    const provider = model.metadata?.provider;
+    if (provider && disabledProviders?.has(provider)) return;
+    onChange(model.id);
+    setOpen(false);
+  }
+
+  function onInputKeyDown(event: KeyboardEvent<HTMLInputElement>) {
+    if (event.key === "Escape") {
+      event.preventDefault();
+      event.stopPropagation();
+      closeMenu();
+      return;
+    }
+    if (event.key === "ArrowDown") {
+      event.preventDefault();
+      event.stopPropagation();
+      focusInitialDropdownItem(menuRef.current);
+      return;
+    }
+    if (event.key === "Enter") {
+      const firstEnabled = filtered.find((model) => {
+        const provider = model.metadata?.provider;
+        return !provider || !disabledProviders?.has(provider);
+      });
+      if (!firstEnabled) return;
+      event.preventDefault();
+      event.stopPropagation();
+      selectModel(firstEnabled);
+    }
+  }
+
+  function onMenuKeyDown(event: KeyboardEvent<HTMLDivElement>) {
+    if (event.key === "Escape") {
+      event.preventDefault();
+      closeMenu();
+      return;
+    }
+    if (event.key === "ArrowDown" || event.key === "ArrowUp" || event.key === "Home" || event.key === "End") {
+      event.preventDefault();
+      focusDropdownItem(menuRef.current, event.key);
+    }
+  }
+
   return (
     <div className="dropdown-wrap" ref={ref}>
       <button
         ref={triggerRef}
         aria-label={`Model picker: ${label}`}
+        aria-expanded={open}
+        aria-haspopup="listbox"
         className="btn btn-ghost btn-sm"
         onClick={() => { if (!isEmpty) setOpen(o => !o); }}
         disabled={isEmpty}
@@ -146,19 +201,26 @@ export function ModelPicker({
         <Icon d={Icons.chevD} size={11} />
       </button>
       {open && floatingStyle && (
-        <div className="dropdown-menu dropdown-menu-floating" style={{ ...floatingStyle, minWidth: 300 }}>
+        <div
+          ref={menuRef}
+          className="dropdown-menu dropdown-menu-floating"
+          onKeyDown={onMenuKeyDown}
+          style={{ ...floatingStyle, minWidth: 300 }}
+        >
           <div style={{ padding: "6px 8px", borderBottom: "1px solid var(--border)" }}>
             <input
               ref={inputRef}
               className="input"
               style={{ fontSize: 12, padding: "4px 8px", fontFamily: "var(--font-mono)" }}
               placeholder="Filter models…"
+              aria-label="Filter models"
               value={filter}
               onChange={e => setFilter(e.target.value)}
               onClick={e => e.stopPropagation()}
+              onKeyDown={onInputKeyDown}
             />
           </div>
-          <div style={{ maxHeight: 300, overflowY: "auto", overflowX: "hidden" }}>
+          <div role="listbox" style={{ maxHeight: 300, overflowY: "auto", overflowX: "hidden" }}>
             {filtered.length === 0 && (
               <div style={{ padding: "10px 12px", fontSize: 12, color: "var(--t3)" }}>No models match</div>
             )}
@@ -173,16 +235,18 @@ export function ModelPicker({
               // important signal.
               const rowTitle = disabled ? reason : warning;
               return (
-                <div
+                <button
                   key={m.id}
+                  type="button"
+                  data-dropdown-item
+                  data-selected={m.id === value ? "true" : undefined}
                   className={`dropdown-item ${m.id === value ? "selected" : ""}`}
+                  aria-disabled={disabled || undefined}
+                  aria-selected={m.id === value}
+                  role="option"
                   title={rowTitle}
                   style={disabled ? { cursor: "not-allowed" } : undefined}
-                  onClick={() => {
-                    if (disabled) return;
-                    onChange(m.id);
-                    setOpen(false);
-                  }}>
+                  onClick={() => selectModel(m)}>
                   {/* Only the model id dims when disabled. Provider
                       name keeps its t3 color so the right column reads
                       consistently across enabled + disabled rows. */}
@@ -215,7 +279,7 @@ export function ModelPicker({
                       </span>
                     ) : null}
                   </span>
-                </div>
+                </button>
               );
             })}
           </div>

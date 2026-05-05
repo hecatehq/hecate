@@ -21,7 +21,7 @@
 //   - Click a chip's × to remove it
 //   - Esc to close the suggestion dropdown
 
-import { useEffect, useRef, useState } from "react";
+import { useEffect, useId, useRef, useState } from "react";
 
 export type ChipOption = { id: string; label: string };
 
@@ -47,6 +47,7 @@ export function ChipInput({
   const [highlight, setHighlight] = useState(0);
   const inputRef = useRef<HTMLInputElement>(null);
   const wrapRef = useRef<HTMLDivElement>(null);
+  const listboxID = useId();
 
   // Click outside closes the dropdown — same pattern the existing
   // ProviderPicker / ModelPicker use.
@@ -173,6 +174,11 @@ export function ChipInput({
           ref={inputRef}
           type="text"
           aria-label={ariaLabel}
+          aria-autocomplete={options?.length ? "list" : undefined}
+          aria-controls={open ? listboxID : undefined}
+          aria-expanded={open}
+          aria-activedescendant={open && suggestions[highlight] ? `${listboxID}-${suggestions[highlight].id}` : undefined}
+          role="combobox"
           value={draft}
           disabled={disabled}
           placeholder={values.length === 0 ? placeholder : ""}
@@ -193,10 +199,13 @@ export function ChipInput({
         />
       </div>
       {open && (suggestions.length > 0 || (freeText && draft.trim())) && (
-        <div className="dropdown-menu" style={{ minWidth: 200, maxHeight: 220, overflowY: "auto" }}>
+        <div id={listboxID} role="listbox" className="dropdown-menu" style={{ minWidth: 200, maxHeight: 220, overflowY: "auto" }}>
           {suggestions.map((s, i) => (
             <div
               key={s.id}
+              id={`${listboxID}-${s.id}`}
+              role="option"
+              aria-selected={i === highlight}
               className={`dropdown-item ${i === highlight ? "selected" : ""}`}
               // Hover to highlight matches the existing ModelPicker behavior.
               onMouseDown={e => { e.preventDefault(); commit(s.id); }}
@@ -209,6 +218,8 @@ export function ChipInput({
           ))}
           {freeText && draft.trim() && !suggestions.find(s => s.id === draft.trim()) && (
             <div
+              role="option"
+              aria-selected={suggestions.length === highlight}
               className="dropdown-item"
               style={{ fontStyle: "italic", color: "var(--t2)" }}
               onMouseDown={e => { e.preventDefault(); commit(draft.trim()); }}>
