@@ -293,6 +293,37 @@ func TestDiscoverLocalProvidersRejectsInvalidHTTPProbeBody(t *testing.T) {
 	}
 }
 
+func TestDiscoverLocalProvidersDecodesSharedHTTPProbePerProvider(t *testing.T) {
+	t.Parallel()
+
+	providers := []config.BuiltInProvider{
+		{ID: "llamacpp", Name: "llama.cpp", Kind: "local", BaseURL: "http://127.0.0.1:8080/v1"},
+		{ID: "localai", Name: "LocalAI", Kind: "local", BaseURL: "http://127.0.0.1:8080/v1"},
+	}
+	rt := &localProviderRoundTrip{
+		body: map[string]string{
+			"http://127.0.0.1:8080/v1/models": `not-json`,
+		},
+	}
+
+	items := discoverLocalProviders(context.Background(), providers, missingLocalCommand, rt)
+
+	if len(items) != 2 {
+		t.Fatalf("items = %d, want 2", len(items))
+	}
+	if got := rt.calls["http://127.0.0.1:8080/v1/models"]; got != 1 {
+		t.Fatalf("shared endpoint request count = %d, want 1", got)
+	}
+	for _, item := range items {
+		if item.HTTPAvailable {
+			t.Fatalf("%s HTTPAvailable = true, want false", item.PresetID)
+		}
+		if !strings.Contains(item.Error, "invalid "+item.PresetID+" response") {
+			t.Fatalf("%s error = %q, want provider-specific decode error", item.PresetID, item.Error)
+		}
+	}
+}
+
 func TestLocalProviderProbeURLUsesOllamaNativeTagsEndpoint(t *testing.T) {
 	t.Parallel()
 

@@ -1,10 +1,12 @@
 package api
 
 import (
+	"bytes"
 	"context"
 	"encoding/json"
 	"errors"
 	"fmt"
+	"io"
 	"net/http"
 	"net/url"
 	"os/exec"
@@ -29,6 +31,12 @@ type localHTTPProbeResult struct {
 	err       string
 }
 
+type localHTTPFetchResult struct {
+	statusCode int
+	body       []byte
+	err        string
+}
+
 type localProviderProbe struct {
 	provider config.BuiltInProvider
 	probeURL string
@@ -42,7 +50,7 @@ type localProviderDiscoveryResult struct {
 
 type localHTTPProbeTask struct {
 	done   chan struct{}
-	result localHTTPProbeResult
+	result localHTTPFetchResult
 }
 
 func (h *Handler) HandleLocalProviderDiscovery(w http.ResponseWriter, r *http.Request) {
@@ -111,7 +119,7 @@ func discoverLocalProviderPairsConcurrently(ctx context.Context, providers []loc
 	var probesMu sync.Mutex
 	var wg sync.WaitGroup
 
-	getProbe := func(probeURL, providerID string) *localHTTPProbeTask {
+	getProbe := func(probeURL string) *localHTTPProbeTask {
 		probesMu.Lock()
 		defer probesMu.Unlock()
 		if task, ok := probes[probeURL]; ok {
@@ -122,7 +130,7 @@ func discoverLocalProviderPairsConcurrently(ctx context.Context, providers []loc
 		go func() {
 			probeCtx, cancel := context.WithTimeout(ctx, localProviderDiscoveryTimeout)
 			defer cancel()
-			task.result = probeLocalProviderHTTP(probeCtx, client, probeURL, providerID)
+			task.result = fetchLocalProviderHTTP(probeCtx, client, probeURL)
 			close(task.done)
 		}()
 		return task
@@ -133,11 +141,11 @@ func discoverLocalProviderPairsConcurrently(ctx context.Context, providers []loc
 		go func() {
 			defer wg.Done()
 			command, path := findLocalProviderCommand(entry.provider.ID, lookPath)
-			task := getProbe(entry.probeURL, entry.provider.ID)
+			task := getProbe(entry.probeURL)
 			var httpResult localHTTPProbeResult
 			select {
 			case <-task.done:
-				httpResult = task.result
+				httpResult = decodeLocalProviderHTTPProbe(task.result, entry.provider.ID)
 			case <-ctx.Done():
 				httpResult = localHTTPProbeResult{err: compactLocalProbeError(ctx.Err())}
 			}
@@ -194,36 +202,47 @@ func localProviderProbeURL(provider config.BuiltInProvider) string {
 	return base + "/models"
 }
 
-func probeLocalProviderHTTP(ctx context.Context, client localProviderHTTPDoer, probeURL, providerID string) localHTTPProbeResult {
+func fetchLocalProviderHTTP(ctx context.Context, client localProviderHTTPDoer, probeURL string) localHTTPFetchResult {
 	req, err := http.NewRequestWithContext(ctx, http.MethodGet, probeURL, nil)
 	if err != nil {
-		return localHTTPProbeResult{err: err.Error()}
+		return localHTTPFetchResult{err: err.Error()}
 	}
 	resp, err := client.Do(req)
 	if err != nil {
-		return localHTTPProbeResult{err: compactLocalProbeError(err)}
+		return localHTTPFetchResult{err: compactLocalProbeError(err)}
 	}
 	defer resp.Body.Close()
 
-	if resp.StatusCode < 200 || resp.StatusCode >= 300 {
-		return localHTTPProbeResult{err: fmt.Sprintf("HTTP %d", resp.StatusCode)}
+	body, err := io.ReadAll(resp.Body)
+	if err != nil {
+		return localHTTPFetchResult{statusCode: resp.StatusCode, err: err.Error()}
+	}
+	return localHTTPFetchResult{statusCode: resp.StatusCode, body: body}
+}
+
+func decodeLocalProviderHTTPProbe(fetch localHTTPFetchResult, providerID string) localHTTPProbeResult {
+	if fetch.err != "" {
+		return localHTTPProbeResult{err: fetch.err}
+	}
+	if fetch.statusCode < 200 || fetch.statusCode >= 300 {
+		return localHTTPProbeResult{err: fmt.Sprintf("HTTP %d", fetch.statusCode)}
 	}
 
-	models, err := decodeLocalProviderModels(resp, providerID)
+	models, err := decodeLocalProviderModels(fetch.body, providerID)
 	if err != nil {
 		return localHTTPProbeResult{err: err.Error()}
 	}
 	return localHTTPProbeResult{available: true, models: models}
 }
 
-func decodeLocalProviderModels(resp *http.Response, providerID string) ([]string, error) {
+func decodeLocalProviderModels(body []byte, providerID string) ([]string, error) {
 	if providerID == "ollama" {
 		var payload struct {
 			Models []struct {
 				Name string `json:"name"`
 			} `json:"models"`
 		}
-		if err := json.NewDecoder(resp.Body).Decode(&payload); err != nil {
+		if err := json.NewDecoder(bytes.NewReader(body)).Decode(&payload); err != nil {
 			return nil, fmt.Errorf("invalid %s response: %w", providerID, err)
 		}
 		models := make([]string, 0, len(payload.Models))
@@ -240,7 +259,7 @@ func decodeLocalProviderModels(resp *http.Response, providerID string) ([]string
 			ID string `json:"id"`
 		} `json:"data"`
 	}
-	if err := json.NewDecoder(resp.Body).Decode(&payload); err != nil {
+	if err := json.NewDecoder(bytes.NewReader(body)).Decode(&payload); err != nil {
 		return nil, fmt.Errorf("invalid %s response: %w", providerID, err)
 	}
 	models := make([]string, 0, len(payload.Data))
