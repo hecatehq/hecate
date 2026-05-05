@@ -291,8 +291,9 @@ export function ChatView({ state, actions }: Props) {
           base_url: discovery.base_url || preset.base_url,
           kind: preset.kind,
           protocol: preset.protocol ?? "openai",
-        });
+        }, { refresh: false });
       }
+      await actions.loadDashboard();
     } catch (error) {
       setQuickLocalError(error instanceof Error ? error.message : "Failed to add detected providers");
     } finally {

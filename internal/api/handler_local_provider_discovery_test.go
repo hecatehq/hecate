@@ -94,6 +94,84 @@ func TestDiscoverLocalProvidersChecksCommandPresence(t *testing.T) {
 	}
 }
 
+func TestDiscoverLocalProvidersOllamaInstalledStoppedAndRunning(t *testing.T) {
+	t.Parallel()
+
+	providers := []config.BuiltInProvider{
+		{ID: "ollama", Name: "Ollama", Kind: "local", BaseURL: "http://127.0.0.1:11434/v1"},
+	}
+	lookPath := func(command string) (string, error) {
+		if command == "ollama" {
+			return "/usr/local/bin/ollama", nil
+		}
+		return "", errors.New("missing")
+	}
+
+	tests := []struct {
+		name          string
+		rt            *localProviderRoundTrip
+		wantStatus    string
+		wantHTTP      bool
+		wantModelList []string
+	}{
+		{
+			name: "stopped",
+			rt: &localProviderRoundTrip{
+				err: map[string]error{
+					"http://127.0.0.1:11434/api/tags": errors.New("connection refused"),
+				},
+			},
+			wantStatus: "installed",
+			wantHTTP:   false,
+		},
+		{
+			name: "running without models",
+			rt: &localProviderRoundTrip{
+				body: map[string]string{
+					"http://127.0.0.1:11434/api/tags": `{"models":[]}`,
+				},
+			},
+			wantStatus: "running",
+			wantHTTP:   true,
+		},
+		{
+			name: "running",
+			rt: &localProviderRoundTrip{
+				body: map[string]string{
+					"http://127.0.0.1:11434/api/tags": `{"models":[{"name":"llama3.1:8b"},{"name":"qwen2.5:7b"}]}`,
+				},
+			},
+			wantStatus:    "running",
+			wantHTTP:      true,
+			wantModelList: []string{"llama3.1:8b", "qwen2.5:7b"},
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+
+			items := discoverLocalProviders(context.Background(), providers, lookPath, tt.rt)
+			if len(items) != 1 {
+				t.Fatalf("items = %d, want 1", len(items))
+			}
+			item := items[0]
+			if item.Status != tt.wantStatus {
+				t.Fatalf("status = %q, want %q", item.Status, tt.wantStatus)
+			}
+			if !item.CommandAvailable || item.Command != "ollama" || item.CommandPath != "/usr/local/bin/ollama" {
+				t.Fatalf("command detection = command %q available %v path %q", item.Command, item.CommandAvailable, item.CommandPath)
+			}
+			if item.HTTPAvailable != tt.wantHTTP {
+				t.Fatalf("HTTPAvailable = %v, want %v", item.HTTPAvailable, tt.wantHTTP)
+			}
+			if strings.Join(item.Models, ",") != strings.Join(tt.wantModelList, ",") {
+				t.Fatalf("models = %#v, want %#v", item.Models, tt.wantModelList)
+			}
+		})
+	}
+}
+
 func TestLocalProviderProbeURLUsesOllamaNativeTagsEndpoint(t *testing.T) {
 	t.Parallel()
 

@@ -442,6 +442,10 @@ describe("useRuntimeConsole", () => {
 
       const { result } = renderHook(() => useRuntimeConsole());
       await waitFor(() => expect(result.current.state.controlPlaneConfig?.providers.map(p => p.id)).toEqual(["openai", "ollama"]));
+      await act(async () => {
+        result.current.actions.setProviderFilter("ollama");
+        result.current.actions.setModel("llama3.1:8b");
+      });
 
       await act(async () => {
         await result.current.actions.deleteProvider("ollama");
@@ -449,6 +453,8 @@ describe("useRuntimeConsole", () => {
 
       expect(result.current.state.controlPlaneConfig?.providers.map(p => p.id)).toEqual(["openai", "ollama"]);
       expect(result.current.state.providers.map(p => p.name)).toEqual(["openai", "ollama"]);
+      expect(result.current.state.providerFilter).toBe("ollama");
+      expect(result.current.state.model).toBe("llama3.1:8b");
       expect(result.current.state.notice).toEqual({ kind: "error", message: "Failed to remove provider." });
       expect(result.current.state.controlPlaneError).toContain("provider is still referenced");
     });

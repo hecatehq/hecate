@@ -145,6 +145,7 @@ describe("ChatView input", () => {
       ],
     });
     const createProvider = vi.fn(async () => undefined);
+    const loadDashboard = vi.fn(async () => undefined);
     const { state, actions } = setup({
       chatTarget: "model",
       controlPlaneConfig: { backend: "memory", providers: [], policy_rules: [], pricebook: [], events: [] },
@@ -156,7 +157,7 @@ describe("ChatView input", () => {
       agentAdapters: [
         { id: "codex", name: "Codex", kind: "acp", command: "codex-acp", available: true, status: "available", cost_mode: "external" },
       ],
-    }, { createProvider });
+    }, { createProvider, loadDashboard });
     render(<ChatView state={state} actions={actions} />);
 
     const user = userEvent.setup();
@@ -171,14 +172,15 @@ describe("ChatView input", () => {
       base_url: "http://127.0.0.1:11434/v1",
       kind: "local",
       protocol: "openai",
-    }));
+    }), { refresh: false });
     expect(createProvider).toHaveBeenNthCalledWith(2, expect.objectContaining({
       name: "LM Studio",
       preset_id: "lmstudio",
       base_url: "http://127.0.0.1:1234/v1",
       kind: "local",
       protocol: "openai",
-    }));
+    }), { refresh: false });
+    expect(loadDashboard).toHaveBeenCalledTimes(1);
   });
 
   it("shows a first-run setup state when providers and agents are unavailable", () => {
