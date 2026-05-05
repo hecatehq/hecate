@@ -50,6 +50,8 @@ auth hints (`auth_status`: `ok`, `unauthenticated`, `billing`, or `unknown`).
 Use Settings → External agents → **Test**, or call the probe endpoint, for a
 full spawn + ACP handshake + no-op session check:
 
+![Settings → External agents — adapter readiness checks and durable approval grants](screenshots/settings-external-agents.png)
+
 ```sh
 curl -X POST http://127.0.0.1:8765/v1/agent-adapters/codex/probe | jq
 ```
@@ -207,6 +209,10 @@ listed from `GET /v1/agent-chat/grants`; the operator can revoke them from
 Settings → External agents. Pending approvals from a dead process are not
 replayed as actionable prompts — startup reconcile marks them `timed_out` with
 `path=startup_reconcile` before the gateway accepts traffic.
+
+![Chats workspace with an external-agent file-write approval waiting for operator review](screenshots/chat-agent-approval.png)
+
+![Agent approval modal with ACP options, scope choices, and audit note](screenshots/chat-agent-approval-modal.png)
 
 ## Approval mode and the alpha → prompt migration
 

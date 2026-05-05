@@ -19,7 +19,7 @@
 //
 // Outputs to docs/screenshots/<name>.png.
 
-import { chromium, type Page } from "@playwright/test";
+import { chromium, type Page, type Route } from "@playwright/test";
 import { mkdirSync, statSync } from "node:fs";
 import { resolve } from "node:path";
 import { spawnSync } from "node:child_process";
@@ -119,6 +119,220 @@ async function optimize() {
 }
 
 const jsonHeaders = { "Content-Type": "application/json" } as const;
+
+const docsAgentChatSessionID = "agent-docs-session";
+const docsApprovalID = "appr_docs_file_write";
+
+function docsTimestamp(offsetMinutes = 0): string {
+  return new Date(Date.now() + offsetMinutes * 60_000).toISOString();
+}
+
+const docsAgentAdapters = [
+  {
+    id: "codex",
+    name: "Codex",
+    kind: "process",
+    command: "codex",
+    managed: true,
+    managed_package: "@zed-industries/codex-acp",
+    available: true,
+    status: "available",
+    path: "/Users/alice/.cache/hecate/agent-adapters/codex-acp",
+    cost_mode: "external",
+    docs_url: "https://github.com/openai/codex",
+    version: "0.12.0",
+    supported_range: ">=0.1.0",
+    auth_status: "ok",
+  },
+  {
+    id: "claude_code",
+    name: "Claude Code",
+    kind: "process",
+    command: "claude",
+    managed: true,
+    managed_package: "@zed-industries/claude-code-acp",
+    available: true,
+    status: "available",
+    path: "/Users/alice/.claude/local/claude",
+    cost_mode: "external",
+    docs_url: "https://docs.anthropic.com/claude-code",
+    version: "2.1.119",
+    supported_range: ">=0.1.0",
+    auth_status: "ok",
+  },
+  {
+    id: "cursor_agent",
+    name: "Cursor Agent",
+    kind: "process",
+    command: "cursor-agent",
+    available: true,
+    status: "available",
+    cost_mode: "external",
+    docs_url: "https://docs.cursor.com/cli",
+    version: "0.47.0",
+    supported_range: ">=0.1.0",
+    auth_status: "unauthenticated",
+    auth_error: "Run cursor-agent login or set CURSOR_API_KEY.",
+  },
+];
+
+function docsAgentApproval() {
+  return {
+    id: docsApprovalID,
+    approval_id: docsApprovalID,
+    session_id: docsAgentChatSessionID,
+    adapter_id: "codex",
+    workspace: "/Users/alice/dev/hecate",
+    tool_kind: "file_write",
+    tool_name: "Edit docs/runtime-api.md",
+    status: "pending",
+    acp_options: [
+      { option_id: "allow_once", kind: "allow_once", name: "Allow once" },
+      { option_id: "allow_always", kind: "allow_always", name: "Always allow this tool" },
+      { option_id: "reject_once", kind: "reject_once", name: "Deny once" },
+    ],
+    scope_choices: ["once", "session", "workspace_tool", "adapter_tool"],
+    created_at: docsTimestamp(-1),
+    expires_at: docsTimestamp(4),
+  };
+}
+
+function docsAgentSession() {
+  return {
+    id: docsAgentChatSessionID,
+    title: "Review API docs update",
+    adapter_id: "codex",
+    driver_kind: "acp",
+    native_session_id: "acp_doc_42",
+    workspace: "/Users/alice/dev/hecate",
+    workspace_branch: "feature/approval-docs",
+    status: "awaiting_approval",
+    turns_used: 2,
+    max_turns_per_session: 20,
+    session_started_at: docsTimestamp(-12),
+    max_session_duration_ms: 3_600_000,
+    idle_timeout_ms: 900_000,
+    created_at: docsTimestamp(-12),
+    updated_at: docsTimestamp(-1),
+    messages: [
+      {
+        id: "agent-docs-user-1",
+        role: "user",
+        content: "Update the runtime API docs with the new approval endpoints.",
+        created_at: docsTimestamp(-6),
+      },
+      {
+        id: "agent-docs-assistant-1",
+        role: "assistant",
+        content: "I found the runtime API section and prepared a small docs patch. Hecate needs your approval before the adapter writes the file.",
+        adapter_id: "codex",
+        adapter_name: "Codex",
+        driver_kind: "acp",
+        native_session_id: "acp_doc_42",
+        status: "awaiting_approval",
+        cost_mode: "external",
+        workspace: "/Users/alice/dev/hecate",
+        run_id: "agent_run_docs",
+        trace_id: "7c5a7e1f8a6d4b31",
+        duration_ms: 12_480,
+        diff_stat: "docs/runtime-api.md | 18 +++++++++++++-----\n1 file changed, 13 insertions(+), 5 deletions(-)",
+        diff: "diff --git a/docs/runtime-api.md b/docs/runtime-api.md\nindex 1a2b3c4..5d6e7f8 100644\n--- a/docs/runtime-api.md\n+++ b/docs/runtime-api.md\n@@ -10,6 +10,9 @@\n+External-agent approvals are visible on the agent-chat stream.\n",
+        activities: [
+          { id: "plan-1", type: "plan", status: "completed", title: "Inspect runtime API docs", created_at: docsTimestamp(-5) },
+          { id: "tool-1", type: "tool_call", status: "completed", kind: "read_file", title: "Read docs/runtime-api.md", created_at: docsTimestamp(-4) },
+          { id: "approval-1", type: "approval", status: "running", kind: "file_write", title: "Waiting for file_write approval", created_at: docsTimestamp(-1) },
+        ],
+        usage: {
+          context_size: 200_000,
+          context_used: 31_420,
+          reported_cost_amount: "0.04",
+          reported_cost_currency: "USD",
+        },
+        raw_output: "request_permission file_write docs/runtime-api.md\nwaiting for operator approval",
+        created_at: docsTimestamp(-5),
+        started_at: docsTimestamp(-5),
+      },
+    ],
+  };
+}
+
+async function routeAgentDocsFixtures(page: Page) {
+  const fulfillJSON = (route: Route, data: unknown) =>
+    route.fulfill({
+      status: 200,
+      contentType: "application/json",
+      body: JSON.stringify(data),
+    });
+
+  await page.route(`${BASE_URL}/v1/agent-adapters`, (route) => {
+    fulfillJSON(route, { object: "agent_adapters", data: docsAgentAdapters });
+  });
+  await page.route(`${BASE_URL}/v1/agent-chat/sessions`, (route) => {
+    const session = docsAgentSession();
+    fulfillJSON(route, {
+      object: "agent_chat_sessions",
+      data: [{
+        id: session.id,
+        title: session.title,
+        adapter_id: session.adapter_id,
+        driver_kind: session.driver_kind,
+        native_session_id: session.native_session_id,
+        workspace: session.workspace,
+        workspace_branch: session.workspace_branch,
+        status: session.status,
+        message_count: session.messages.length,
+        created_at: session.created_at,
+        updated_at: session.updated_at,
+      }],
+    });
+  });
+  await page.route(`${BASE_URL}/v1/agent-chat/sessions/${docsAgentChatSessionID}`, (route) => {
+    fulfillJSON(route, { object: "agent_chat_session", data: docsAgentSession() });
+  });
+  await page.route(`${BASE_URL}/v1/agent-chat/sessions/${docsAgentChatSessionID}/approvals?status=pending`, (route) => {
+    fulfillJSON(route, { object: "agent_chat_approvals", data: [docsAgentApproval()] });
+  });
+  await page.route(`${BASE_URL}/v1/agent-chat/sessions/${docsAgentChatSessionID}/approvals/${docsApprovalID}`, (route) => {
+    fulfillJSON(route, { object: "agent_chat_approval", data: docsAgentApproval() });
+  });
+  await page.route(`${BASE_URL}/v1/agent-chat/grants`, (route) => {
+    fulfillJSON(route, {
+      object: "agent_chat_grants",
+      data: [
+        {
+          id: "grant_docs_session",
+          scope: "workspace_tool",
+          adapter_id: "codex",
+          tool_kind: "read_file",
+          workspace: "/Users/alice/dev/hecate",
+          decision: "approve",
+          granted_by: "operator",
+          granted_at: docsTimestamp(-35),
+        },
+        {
+          id: "grant_docs_adapter",
+          scope: "adapter_tool",
+          adapter_id: "claude_code",
+          tool_kind: "read_file",
+          decision: "approve",
+          granted_by: "operator",
+          granted_at: docsTimestamp(-120),
+        },
+      ],
+    });
+  });
+  await page.route(`${BASE_URL}/admin/runtime/stats`, (route) => {
+    fulfillJSON(route, {
+      object: "runtime_stats",
+      data: {
+        uptime_seconds: 120,
+        requests_total: 32,
+        awaiting_approval_runs: 1,
+        agent_adapter_approval_mode: "prompt",
+      },
+    });
+  });
+}
 
 // addProvider creates a provider via the same POST endpoint the UI's
 // add modal calls. Mirrors the new explicit-add lifecycle: each
@@ -265,7 +479,12 @@ async function main() {
   }));
   await clearAndNavigate(page);
   await openWorkspace(page, "chats");
-  await page.waitForSelector("text=Nothing runnable yet", { timeout: 5_000 });
+  await page.waitForFunction(() => {
+    const text = document.body.textContent ?? "";
+    return text.includes("Nothing runnable yet")
+      || text.includes("No available coding agent")
+      || text.includes("Codex is unavailable");
+  }, { timeout: 5_000 });
   await snap(page, "chat-empty");
   await page.unroute(missingAgentAdapters);
 
@@ -309,6 +528,10 @@ async function main() {
   const { firstID } = await seedChatSessions();
 
   console.log("→ chat (with seeded sessions)");
+  await page.evaluate((sessionID) => {
+    window.localStorage.setItem("hecate.chatTarget", "model");
+    window.localStorage.setItem("hecate.chatSessionID", sessionID);
+  }, firstID);
   await openWorkspace(page, "chats");
   await page.waitForTimeout(500);
   await page.getByText("Go interfaces vs structs").first().click();
@@ -359,6 +582,38 @@ async function main() {
   await page.getByRole("button", { name: /retention/i }).click();
   await page.waitForTimeout(500);
   await snap(page, "settings-retention");
+
+  // ── 11. New external-agent surfaces ────────────────────────────────────────
+  // Mock these endpoints so the documentation shots stay deterministic:
+  // screenshots should show the intended UI shape, not whatever agent CLIs
+  // and auth state happen to exist on the capture machine.
+  console.log("→ settings / external agents");
+  await routeAgentDocsFixtures(page);
+  await clearAndNavigate(page);
+  await openWorkspace(page, "settings");
+  await page.getByRole("button", { name: /external agents/i }).click();
+  await page.waitForSelector("text=External agent grants", { timeout: 5_000 });
+  await page.waitForTimeout(700);
+  await snap(page, "settings-external-agents");
+
+  console.log("→ chat / pending agent approval");
+  await page.evaluate((sessionID) => {
+    window.localStorage.setItem("hecate.workspace", "chats");
+    window.localStorage.setItem("hecate.chatTarget", "agent");
+    window.localStorage.setItem("hecate.agentAdapterID", "codex");
+    window.localStorage.setItem("hecate.agentWorkspace", "/Users/alice/dev/hecate");
+    window.localStorage.setItem("hecate.agentChatSessionID", sessionID);
+  }, docsAgentChatSessionID);
+  await page.reload();
+  await page.waitForSelector("[data-testid='agent-approval-banner']", { timeout: 5_000 });
+  await page.waitForTimeout(700);
+  await snap(page, "chat-agent-approval");
+
+  console.log("→ chat / agent approval modal");
+  await page.getByTestId("agent-approval-banner-review").first().click();
+  await page.waitForSelector("[data-testid='agent-approval-modal-submit']", { timeout: 5_000 });
+  await page.waitForTimeout(500);
+  await snap(page, "chat-agent-approval-modal");
 
   // firstID is intentionally unused after the chat snap — captured for
   // future "open this specific session" workflows.

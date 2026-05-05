@@ -100,6 +100,10 @@ Chats is the primary day-to-day surface. It explains missing setup before you se
 
 ![Chats workspace talking to a local Ollama llama3.1:8b model with sessions sidebar and inline runtime metadata](docs/screenshots/chat.png)
 
+![Chats workspace with an external-agent file-write approval waiting for operator review](docs/screenshots/chat-agent-approval.png)
+
+![Agent approval modal with ACP options, scope choices, and audit note](docs/screenshots/chat-agent-approval-modal.png)
+
 There are two chat targets:
 
 - **Agent** — select Codex, Claude Code, or Cursor Agent, choose a workspace, and run a supervised local ACP session with approval prompts, guardrails, raw diagnostics, and Git diff review.
@@ -161,6 +165,8 @@ The embedded UI is a runtime console for the operator.
 ![Settings → Pricing — model catalog with priced / unpriced / deprecated filters](docs/screenshots/settings-pricebook.png)
 
 ![Settings → Retention — pruning windows and last-run history](docs/screenshots/settings-retention.png)
+
+![Settings → External agents — adapter readiness checks and durable approval grants](docs/screenshots/settings-external-agents.png)
 
 </details>
 
