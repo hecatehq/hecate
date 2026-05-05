@@ -17,7 +17,7 @@ Anything with a CI/CD, environment, deploy, or migration footprint:
 - New public HTTP endpoints (downstream SDKs depend on them).
 - Retention worker changes (new subsystem, changed cadence, retention windows).
 - OTel surface changes (new spans, new metrics, new error codes).
-- Release-note drafting and tag-cutting — see [`../../tasks/release.md`](../../tasks/release.md) for the procedure (snapshot dry-run, alpha gate, footguns, recovery).
+- Release-note drafting and tag-cutting — see [`../../tasks/release.md`](../../tasks/release.md) for the procedure (snapshot dry-run, verification gate, footguns, recovery).
 
 ## Surfaces to check
 

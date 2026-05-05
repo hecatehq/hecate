@@ -172,7 +172,7 @@ just test-tauri-smoke
 
 `cargo check` is the fast iteration loop. Full `tauri dev` is the integration test — it exercises the real binary, real port allocation, real healthz poll, and the webview navigation.
 `just test-tauri-smoke` is the packaged-app lifecycle check for macOS; it is
-not part of `verify-alpha` because it opens a GUI window.
+not part of `verify` because it opens a GUI window.
 
 ## CI pipeline
 

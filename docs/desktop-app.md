@@ -132,7 +132,7 @@ The target builds only the native `.app` bundle, launches the packaged macOS
 app, waits for the hecate sidecar to answer `/healthz`, quits Hecate, and
 verifies the sidecar process exits. It intentionally skips `.dmg` packaging so
 local smoke runs are faster and less vulnerable to temporary disk-image mount
-flakes. It is not part of `just verify-alpha` because it opens a real GUI app
+flakes. It is not part of `just verify` because it opens a real GUI app
 and is macOS-specific today.
 
 `just test-tauri-acp-smoke` uses the same packaged app launch but also starts

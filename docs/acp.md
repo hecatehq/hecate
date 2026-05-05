@@ -422,4 +422,4 @@ For an editor-local test before registry packaging exists:
    ```
 
 The automated smoke lives in `e2e/acp-smoke.ts` and is wired into
-`just verify-alpha`.
+`just verify`.

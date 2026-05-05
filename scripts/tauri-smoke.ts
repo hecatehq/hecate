@@ -3,7 +3,7 @@
 // tauri-smoke.ts — opt-in native app lifecycle / ACP discovery smoke test.
 //
 // This intentionally launches the real packaged desktop app. It is not part
-// of verify-alpha because GUI automation is host-specific and disruptive.
+// of verify because GUI automation is host-specific and disruptive.
 // Today the implementation is macOS-only, matching the platform we can
 // validate locally; Linux/Windows need their own launch semantics.
 

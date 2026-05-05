@@ -170,10 +170,16 @@ check-links:
 	  --exclude-path .claude/skills \
 	  './**/*.md' './**/*.mdc'
 
-# Public-alpha release gate. It intentionally runs only non-destructive
+# Project verification gate. It intentionally runs only non-destructive
 # checks, but it is not cheap: Docker and UI e2e can take a bit.
-# Run the public-alpha verification gate.
-verify-alpha: docs-env-check test vet test-race test-acp-smoke test-docker-smoke ui-test ui-test-e2e build
+# Run the full project verification gate.
+verify: docs-env-check test vet test-race test-acp-smoke test-docker-smoke ui-test ui-test-e2e build
+
+# Run verification, then cut a release tag. Optional args pass through to
+# scripts/release.ts, for example: just release vX.Y.Z --skip-snapshot.
+# Verify and cut a release tag.
+release version *args: verify
+	bun scripts/release.ts {{version}} {{args}}
 
 # Wipe local dev state back to first-run: stop the gateway on :8765 and delete
 # the data directory, which holds the AES-GCM key and any sqlite databases, so
@@ -307,7 +313,7 @@ tauri-build-app: tauri-sidecar tauri-version
 
 # Build the native app bundle, launch it, wait for the hecate sidecar to answer
 # /healthz, quit the app, and verify the sidecar exits. It opens a real desktop
-# window, so keep it opt-in rather than part of verify-alpha.
+# window, so keep it opt-in rather than part of verify.
 # Smoke-test the packaged native app.
 test-tauri-smoke: tauri-build-app
 	bun scripts/tauri-smoke.ts

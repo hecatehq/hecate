@@ -57,7 +57,7 @@ Acceptance after the run:
 Run the full local gate before cutting a public alpha tag:
 
 ```bash
-just verify-alpha
+just verify
 ```
 
 The target runs the non-destructive launch checks in order:
@@ -82,22 +82,24 @@ post-tag, the release matrix is the next opportunity to catch regressions.
 
 ## Cut the release
 
-The canonical entry point is `scripts/release.ts`:
+The canonical entry point is the `just release` recipe, which runs
+`just verify` first and then delegates to `scripts/release.ts`:
 
 ```bash
-bun scripts/release.ts vX.Y.Z
+just release vX.Y.Z
 ```
 
-It performs, in order: clean-worktree check, tag-uniqueness check,
-goreleaser-on-PATH check, goreleaser snapshot dry-run, interactive
-confirmation prompt, Tauri version stamp commit (Cargo.toml,
-package.json, tauri.conf.json), annotated tag, push.
+It performs, in order: the full project verification gate,
+clean-worktree check, tag-uniqueness check, goreleaser-on-PATH check,
+goreleaser snapshot dry-run, interactive confirmation prompt, Tauri
+version stamp commit (Cargo.toml, package.json, tauri.conf.json),
+annotated tag, push.
 
 Pass `--skip-snapshot` to skip the dry-run when you've already validated
 locally:
 
 ```bash
-bun scripts/release.ts vX.Y.Z --skip-snapshot
+just release vX.Y.Z --skip-snapshot
 ```
 
 The script's annotated tag message is just the version string. For
@@ -208,7 +210,7 @@ Each release note should include:
 - **Breaking or risky changes** — config, storage, API, auth, provider, or UI
   behavior changes that can surprise an operator.
 - **Migration notes** — storage/schema considerations and any manual steps.
-- **Verification** — the exact gate that passed, normally `just verify-alpha`.
+- **Verification** — the exact gate that passed, normally `just verify`.
 - **Known limitations** — link to [`known-limitations.md`](known-limitations.md)
   and call out any release-specific caveats.
 
