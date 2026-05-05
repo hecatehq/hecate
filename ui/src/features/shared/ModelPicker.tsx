@@ -1,0 +1,226 @@
+// ModelPicker: one picker shared by every surface that needs to pick
+// a model — the chat view, the new-task slideover, and any future
+// caller. Earlier the chat had its own richer copy with search +
+// disabled-provider rendering, while shared/ui exported a simpler
+// grouped one; the two fell out of sync (e.g. cost ceiling work
+// hadn't propagated to the new-task picker). Consolidating means
+// every surface gets the same affordances: type-to-filter, sort
+// disabled providers to the bottom, key-icon for unconfigured cloud
+// creds, optional per-row provider suffix.
+//
+// All extension points are optional — callers that don't care about
+// disabled-provider rendering or the provider suffix get the same
+// look as the old simple picker minus the section headers.
+
+import { useEffect, useRef, useState } from "react";
+
+import type { ModelRecord, ProviderPresetRecord } from "../../types/runtime";
+import { Icon, Icons } from "./Icons";
+import { useFloatingDropdownStyle } from "./useFloatingDropdownStyle";
+
+export function ModelPicker({
+  value, onChange, models,
+  presets,
+  disabledProviders,
+  modelWarnings,
+  showProvider = true,
+  triggerWidth,
+}: {
+  value: string;
+  onChange: (v: string) => void;
+  models: ModelRecord[];
+  // Maps provider id → display name. Used to render the per-row
+  // provider suffix as a friendly name (e.g. "openai" → "OpenAI").
+  // Without it the picker falls back to the raw provider id.
+  presets?: ProviderPresetRecord[];
+  // Provider ids whose models render disabled (greyed, not clickable,
+  // with a key indicator). Map value is the tooltip explaining why
+  // (e.g. "Add an API key for X on the Providers tab"). Pass an
+  // empty/omitted map to disable.
+  disabledProviders?: Map<string, string>;
+  // Per-model non-blocking warnings keyed by model id. The model
+  // stays selectable, but a small ⚠ icon renders next to its row
+  // with the value as a tooltip. Used by the new-task panel to
+  // flag models known to lack tool-calling support (e.g.
+  // smollm2:135m, embeddings models) — operators can still pick
+  // them if they know what they're doing, but the visual cue
+  // saves a confused round-trip when the agent loop fails with
+  // "model does not support tool-calling".
+  modelWarnings?: Map<string, string>;
+  // Render the per-row "(provider name)" suffix. Set false when the
+  // outer provider filter is already pinned to a single provider —
+  // every row would carry the same suffix, which is just noise.
+  showProvider?: boolean;
+  // Pin the trigger to a fixed width so it aligns with siblings
+  // (chat header pairs the model picker with the provider picker).
+  // Defaults to the historical chat width of 220px; pass `undefined`
+  // to let the button size to its content.
+  triggerWidth?: number | undefined;
+}) {
+  const [open, setOpen] = useState(false);
+  const [filter, setFilter] = useState("");
+  const ref = useRef<HTMLDivElement>(null);
+  const triggerRef = useRef<HTMLButtonElement>(null);
+  const inputRef = useRef<HTMLInputElement>(null);
+  // Right-anchored: the menu is 300px wide and the trigger is at the
+  // right side of its row in the chat header, so left-anchoring would
+  // push it off-screen on narrow viewports.
+  const floatingStyle = useFloatingDropdownStyle(triggerRef, open, "right");
+
+  useEffect(() => {
+    const handler = (e: MouseEvent) => {
+      const target = e.target as Node;
+      // Click-outside detection has to consider BOTH the wrap (which
+      // contains the trigger) and the floating menu (which lives at
+      // a different DOM ancestor when rendered fixed-position). Without
+      // checking the menu, clicking inside the menu would close it.
+      if (ref.current && ref.current.contains(target)) return;
+      if (target instanceof HTMLElement && target.closest(".dropdown-menu-floating")) return;
+      setOpen(false);
+      setFilter("");
+    };
+    document.addEventListener("mousedown", handler);
+    return () => document.removeEventListener("mousedown", handler);
+  }, []);
+
+  useEffect(() => {
+    if (open) setTimeout(() => inputRef.current?.focus(), 0);
+    else setFilter("");
+  }, [open]);
+
+  const providerName = (id: string) => presets?.find(p => p.id === id)?.name || id;
+  const matchedFilter = filter
+    ? models.filter(m => m.id.toLowerCase().includes(filter.toLowerCase()))
+    : models;
+  // Sort usable models above disabled ones — within each bucket the
+  // source order is preserved (provider-grouped, alphabetical-ish).
+  // Stable partition via two passes avoids accidentally reordering
+  // rows whose disabled state is the same.
+  const filtered = (() => {
+    if (!disabledProviders || disabledProviders.size === 0) return matchedFilter;
+    const usable: ModelRecord[] = [];
+    const disabled: ModelRecord[] = [];
+    for (const m of matchedFilter) {
+      const provider = m.metadata?.provider;
+      if (provider && disabledProviders.has(provider)) disabled.push(m);
+      else usable.push(m);
+    }
+    return [...usable, ...disabled];
+  })();
+  // Disable the picker when there are no models to show. This handles the
+  // "selected provider has no discovered models" case (e.g. Ollama or
+  // LM Studio with the runtime not running) — opening a dropdown only to
+  // see an empty list is worse than a clearly-disabled affordance. The
+  // outer caller already passes a provider-scoped `models` array, so this
+  // check covers both "no providers configured" and "scoped provider has
+  // no models" without extra plumbing.
+  const isEmpty = models.length === 0;
+  const label = isEmpty ? "no models available" : (value || models[0]?.id || "model");
+  const buttonWidth = triggerWidth === undefined ? undefined : triggerWidth;
+  const disabledTitle = isEmpty
+    ? "No discovered models for this provider. Configure credentials or start the local runtime."
+    : label;
+
+  return (
+    <div className="dropdown-wrap" ref={ref}>
+      <button
+        ref={triggerRef}
+        aria-label={`Model picker: ${label}`}
+        className="btn btn-ghost btn-sm"
+        onClick={() => { if (!isEmpty) setOpen(o => !o); }}
+        disabled={isEmpty}
+        title={disabledTitle}
+        style={{
+          fontFamily: "var(--font-mono)",
+          fontSize: 11,
+          gap: 5,
+          color: isEmpty ? "var(--t3)" : "var(--t1)",
+          width: buttonWidth,
+          cursor: isEmpty ? "not-allowed" : undefined,
+          opacity: isEmpty ? 0.6 : undefined,
+        }}>
+        <Icon d={Icons.model} size={13} />
+        <span style={{ flex: 1, minWidth: 0, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap", textAlign: "left" }}>
+          {label}
+        </span>
+        <Icon d={Icons.chevD} size={11} />
+      </button>
+      {open && floatingStyle && (
+        <div className="dropdown-menu dropdown-menu-floating" style={{ ...floatingStyle, minWidth: 300 }}>
+          <div style={{ padding: "6px 8px", borderBottom: "1px solid var(--border)" }}>
+            <input
+              ref={inputRef}
+              className="input"
+              style={{ fontSize: 12, padding: "4px 8px", fontFamily: "var(--font-mono)" }}
+              placeholder="Filter models…"
+              value={filter}
+              onChange={e => setFilter(e.target.value)}
+              onClick={e => e.stopPropagation()}
+            />
+          </div>
+          <div style={{ maxHeight: 300, overflowY: "auto", overflowX: "hidden" }}>
+            {filtered.length === 0 && (
+              <div style={{ padding: "10px 12px", fontSize: 12, color: "var(--t3)" }}>No models match</div>
+            )}
+            {filtered.map(m => {
+              const provider = m.metadata?.provider;
+              const reason = provider ? disabledProviders?.get(provider) : undefined;
+              const disabled = !!reason;
+              const warning = !disabled ? modelWarnings?.get(m.id) : undefined;
+              // Title combines warning (if any) with the disabled
+              // reason. We skip the warning when the row is already
+              // disabled — the disabled tooltip is the more
+              // important signal.
+              const rowTitle = disabled ? reason : warning;
+              return (
+                <div
+                  key={m.id}
+                  className={`dropdown-item ${m.id === value ? "selected" : ""}`}
+                  title={rowTitle}
+                  style={disabled ? { cursor: "not-allowed" } : undefined}
+                  onClick={() => {
+                    if (disabled) return;
+                    onChange(m.id);
+                    setOpen(false);
+                  }}>
+                  {/* Only the model id dims when disabled. Provider
+                      name keeps its t3 color so the right column reads
+                      consistently across enabled + disabled rows. */}
+                  <span
+                    style={{
+                      flex: 1, fontFamily: "var(--font-mono)", fontSize: 12,
+                      overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap",
+                      opacity: disabled ? 0.5 : 1,
+                    }}>
+                    {m.id}
+                  </span>
+                  {showProvider && provider && (
+                    <span style={{ fontSize: 10, color: "var(--t3)", fontFamily: "var(--font-mono)", flexShrink: 0, marginLeft: 6 }}>
+                      {providerName(provider)}
+                    </span>
+                  )}
+                  {/* Reserve a fixed slot whether or not a key/warning
+                      icon renders — keeps the right edge aligned
+                      across rows so the model-id and provider-name
+                      columns stay coherent. Disabled (red key) wins
+                      over warning (amber ⚠) when both could fire. */}
+                  <span style={{ display: "inline-flex", flexShrink: 0, marginLeft: 6, width: 11, justifyContent: "center" }}>
+                    {disabled ? (
+                      <span aria-label="credentials missing" style={{ color: "var(--red)", display: "inline-flex" }}>
+                        <Icon d={Icons.keys} size={11} />
+                      </span>
+                    ) : warning ? (
+                      <span aria-label={warning} style={{ color: "var(--amber)", display: "inline-flex" }}>
+                        <Icon d={Icons.warning} size={11} />
+                      </span>
+                    ) : null}
+                  </span>
+                </div>
+              );
+            })}
+          </div>
+        </div>
+      )}
+    </div>
+  );
+}
