@@ -7,6 +7,7 @@
 // shape.
 
 import { useState } from "react";
+import type { KeyboardEvent } from "react";
 
 import { Icon, Icons } from "./Icons";
 
@@ -46,9 +47,21 @@ export function Dot({ color = "green", pulse = false }: { color?: "green" | "amb
 // ─── Toggle ──────────────────────────────────────────────────────────────────
 
 export function Toggle({ on, onChange, label, ariaLabel }: { on: boolean; onChange: (v: boolean) => void; label?: string; ariaLabel?: string }) {
+  const toggle = () => onChange(!on);
+  const onKeyDown = (event: KeyboardEvent<HTMLSpanElement>) => {
+    if (event.key !== "Enter" && event.key !== " ") return;
+    event.preventDefault();
+    event.stopPropagation();
+    toggle();
+  };
   return (
-    <label className="toggle-wrap" onClick={() => onChange(!on)}>
-      <span role="switch" aria-checked={on} aria-label={ariaLabel ?? label} tabIndex={0}
+    <label className="toggle-wrap" onClick={toggle}>
+      <span
+        role="switch"
+        aria-checked={on}
+        aria-label={ariaLabel ?? label}
+        tabIndex={0}
+        onKeyDown={onKeyDown}
         className={`toggle ${on ? "on" : ""}`} />
       {label && <span style={{ fontSize: 12, color: "var(--t1)" }}>{label}</span>}
     </label>

@@ -5,9 +5,11 @@
 // adapter is actually usable on this machine.
 
 import { useEffect, useRef, useState } from "react";
+import type { KeyboardEvent } from "react";
 
 import type { AgentAdapterHealthRecord, AgentAdapterRecord } from "../../types/runtime";
 import { Icon, Icons } from "./Icons";
+import { focusDropdownItem, focusInitialDropdownItem } from "./dropdownKeyboard";
 import { useFloatingDropdownStyle } from "./useFloatingDropdownStyle";
 
 // adapterPickerDiagnostic combines the dashboard's "is the binary on
@@ -99,6 +101,7 @@ export function AgentAdapterPicker({
 }) {
   const [open, setOpen] = useState(false);
   const ref = useRef<HTMLDivElement>(null);
+  const menuRef = useRef<HTMLDivElement>(null);
   const triggerRef = useRef<HTMLButtonElement>(null);
   const floatingStyle = useFloatingDropdownStyle(triggerRef, open, "left");
 
@@ -112,6 +115,27 @@ export function AgentAdapterPicker({
     document.addEventListener("mousedown", handler);
     return () => document.removeEventListener("mousedown", handler);
   }, []);
+
+  useEffect(() => {
+    if (!open) return;
+    const frame = requestAnimationFrame(() => {
+      focusInitialDropdownItem(menuRef.current);
+    });
+    return () => cancelAnimationFrame(frame);
+  }, [open]);
+
+  function onMenuKeyDown(event: KeyboardEvent<HTMLDivElement>) {
+    if (event.key === "Escape") {
+      event.preventDefault();
+      setOpen(false);
+      triggerRef.current?.focus();
+      return;
+    }
+    if (event.key === "ArrowDown" || event.key === "ArrowUp" || event.key === "Home" || event.key === "End") {
+      event.preventDefault();
+      focusDropdownItem(menuRef.current, event.key);
+    }
+  }
 
   const selected = adapters.find((adapter) => adapter.id === value);
   const label = selected?.name ?? "select agent";
@@ -145,14 +169,22 @@ export function AgentAdapterPicker({
         {!locked && <Icon d={Icons.chevD} size={11} />}
       </button>
       {open && floatingStyle && (
-        <div className="dropdown-menu dropdown-menu-floating" style={{ ...floatingStyle, minWidth: 220 }}>
+        <div
+          ref={menuRef}
+          className="dropdown-menu dropdown-menu-floating"
+          onKeyDown={onMenuKeyDown}
+          style={{ ...floatingStyle, minWidth: 220 }}
+        >
           {adapters.map((adapter) => {
             const health = healthByID?.get(adapter.id);
             const isProbeReady = health?.status === "ready";
             const disabled = !adapter.available && !isProbeReady;
             const diag = adapterPickerDiagnostic(adapter, health);
             return (
-              <div
+              <button
+                type="button"
+                data-dropdown-item
+                data-selected={adapter.id === value ? "true" : undefined}
                 key={adapter.id}
                 className={`dropdown-item ${adapter.id === value ? "selected" : ""}`}
                 onClick={() => {
@@ -160,6 +192,7 @@ export function AgentAdapterPicker({
                   onChange(adapter.id);
                   setOpen(false);
                 }}
+                aria-disabled={disabled || undefined}
                 style={disabled ? { cursor: "not-allowed" } : undefined}
                 title={diag.title}
               >
@@ -200,7 +233,7 @@ export function AgentAdapterPicker({
                 >
                   <Icon d={!disabled ? Icons.check : Icons.x} size={11} />
                 </span>
-              </div>
+              </button>
             );
           })}
         </div>

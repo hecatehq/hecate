@@ -4,7 +4,7 @@
 // interrupts to ask a question; ConfirmModal is the styled replacement
 // for window.confirm.
 
-import { useEffect } from "react";
+import { useEffect, useRef } from "react";
 import type React from "react";
 
 import { Icon, Icons } from "./Icons";
@@ -26,9 +26,28 @@ function DialogChrome({
   onClose: () => void;
   surface: React.CSSProperties;
 }) {
+  const dialogRef = useRef<HTMLDivElement>(null);
+
+  useEffect(() => {
+    const previousFocus = document.activeElement instanceof HTMLElement ? document.activeElement : null;
+    const focusable = focusableDialogElements(dialogRef.current);
+    (focusable[0] ?? dialogRef.current)?.focus();
+    return () => {
+      if (previousFocus && document.contains(previousFocus)) {
+        previousFocus.focus();
+      }
+    };
+  }, []);
+
   useEffect(() => {
     const handler = (e: KeyboardEvent) => {
-      if (e.key === "Escape") onClose();
+      if (e.key === "Escape") {
+        onClose();
+        return;
+      }
+      if (e.key === "Tab") {
+        trapDialogFocus(e, dialogRef.current);
+      }
     };
     window.addEventListener("keydown", handler);
     return () => window.removeEventListener("keydown", handler);
@@ -39,8 +58,11 @@ function DialogChrome({
       style={{ position: "fixed", inset: 0, zIndex: 50, display: "flex", alignItems: "center", justifyContent: "center", background: "var(--scrim)", backdropFilter: "blur(2px)" }}
       onClick={onClose}>
       <div
+        ref={dialogRef}
         role="dialog"
+        aria-modal="true"
         aria-label={title}
+        tabIndex={-1}
         style={surface}
         onClick={e => e.stopPropagation()}>
         <div style={{ padding: "11px 16px", borderBottom: "1px solid var(--border)", display: "flex", alignItems: "center", gap: 8, background: "var(--bg2)" }}>
@@ -66,6 +88,40 @@ function DialogChrome({
       </div>
     </div>
   );
+}
+
+function focusableDialogElements(root: HTMLElement | null): HTMLElement[] {
+  if (!root) return [];
+  return Array.from(root.querySelectorAll<HTMLElement>(
+    'a[href], button:not([disabled]), textarea:not([disabled]), input:not([disabled]), select:not([disabled]), [tabindex]:not([tabindex="-1"])',
+  )).filter((el) => !el.hasAttribute("disabled") && el.getAttribute("aria-hidden") !== "true");
+}
+
+function trapDialogFocus(event: KeyboardEvent, root: HTMLElement | null) {
+  if (!root) return;
+  const focusable = focusableDialogElements(root);
+  if (focusable.length === 0) {
+    event.preventDefault();
+    root.focus();
+    return;
+  }
+  const first = focusable[0];
+  const last = focusable[focusable.length - 1];
+  const active = document.activeElement;
+  if (!root.contains(active)) {
+    event.preventDefault();
+    first.focus();
+    return;
+  }
+  if (event.shiftKey && active === first) {
+    event.preventDefault();
+    last.focus();
+    return;
+  }
+  if (!event.shiftKey && active === last) {
+    event.preventDefault();
+    first.focus();
+  }
 }
 
 // SlideOver is the right-anchored panel used across the console for
