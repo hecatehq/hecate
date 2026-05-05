@@ -78,6 +78,12 @@ Each section has exactly one job: orient, inspect, compare, edit, or confirm. If
 - Agent Chat sessions store their workspace and native ACP session id. New UI
   affordances should preserve that continuity instead of treating every prompt
   as a one-off subprocess.
+- Agent Chat readiness belongs in Settings → External agents and in the picker
+  diagnostics: distinguish missing binaries, auth/billing problems, unsupported
+  versions, and managed-launcher issues without sending users to raw logs first.
+- Agent Chat usage is adapter-reported. Show it as helpful telemetry with the
+  "reported by adapter · not enforced by Hecate" caveat, never as Hecate-enforced
+  billing.
 - **Stable provider ordering.** Do not sort provider lists by health, blocked state, or availability unless explicitly asked. Fixed alphabetical/preset order within each section.
 - Runtime metadata first-class, not tucked in debug crumbs.
 - Trace and failure details readable without scanning raw JSON first.

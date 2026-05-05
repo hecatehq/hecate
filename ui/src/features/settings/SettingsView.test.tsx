@@ -265,6 +265,28 @@ describe("SettingsView external agents tab", () => {
       expect(within(detail).getByText(/Authentication required/)).toBeTruthy();
     });
 
+    it("renders discovery auth warnings before a full probe has run", async () => {
+      const { state, actions, user } = setup(withAdapter({
+        agentAdapters: [
+          {
+            id: "cursor_agent",
+            name: "Cursor Agent",
+            kind: "acp",
+            command: "cursor-agent",
+            available: true,
+            status: "available",
+            cost_mode: "external",
+            auth_status: "unauthenticated",
+            auth_error: "Run cursor-agent login",
+          },
+        ],
+      }));
+      render(<SettingsView state={state} actions={actions} />);
+      await user.click(screen.getByRole("button", { name: "External agents" }));
+      expect(await screen.findByTestId("external-agents-adapter-cursor_agent-auth-warning")).toHaveTextContent("auth required");
+      expect(screen.getByTestId("external-agents-adapter-cursor_agent-auth-detail")).toHaveTextContent("Run cursor-agent login");
+    });
+
     it("disables the Test button while a probe is in flight", async () => {
       const { state, actions, user } = setup(withAdapter({
         agentAdapterHealthLoadingByID: new Map([["codex", true]]),

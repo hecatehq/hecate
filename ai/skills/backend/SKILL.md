@@ -88,12 +88,13 @@ When changing this path:
 
 1. Keep `docs/external-agent-adapters.md` aligned for operator-visible
    behavior such as launchers, env sanitisation, persistence, raw diagnostics,
-   and troubleshooting.
+   guardrails, auth/readiness probes, and troubleshooting.
 2. Keep `docs/acp.md` aligned only when changing the separate `hecate-acp`
    editor bridge.
 3. Add focused tests in `internal/agentadapters/*_test.go` for ACP/process
    protocol behavior and `internal/api/server_test.go` for HTTP/session
-   persistence behavior.
+   persistence behavior. Guardrail changes should cover both the HTTP 422
+   envelope and the session snapshot fields the UI consumes.
 4. If the change touches approval/grant durability, startup reconcile, or
    cmd/hecate store wiring, add or run the binary e2e approval smokes:
    `go test -tags e2e -run 'TestApproval' ./e2e`.
