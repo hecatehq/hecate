@@ -144,7 +144,7 @@ The embedded UI is a runtime console for the operator.
 
 - **Chats** — talk to model providers or external coding agents, inspect per-turn route/cost metadata, agent activity, raw output, and captured diffs.
 - **Providers** — manage provider credentials, defaults, model discovery, base URLs, and health.
-- **Tasks** — create and manage agent runs, approvals, retries, resumes, and streamed output.
+- **Tasks** — create and manage native Hecate `agent_loop` runs, task approvals, retries, resumes, and streamed tool output.
 - **Observability** — inspect requests, route candidates, skip reasons, failover, costs, traces, metrics, logs, and local trace events.
 - **Costs** — balance, top-up / reset, usage table.
 - **Settings** — pricebook, retention, external-agent readiness checks, and durable approval grants.
@@ -180,9 +180,9 @@ Hecate is public-alpha software. The core gateway path is usable; the agent runt
 | Storage tiers | Usable | Memory or SQLite, selected per subsystem. `GATEWAY_CHAT_SESSIONS_BACKEND=sqlite` covers the full agent-chat bundle (sessions, messages, approvals, grants); orphaned pending approvals are reconciled on startup |
 | Operator UI | Usable | Main workflows are present; chat/debugging ergonomics are still improving |
 | Desktop app | Alpha | Native `.dmg`, `.deb`, `.AppImage`, and `.msi` bundles run Hecate as a sidecar. Bundles are unsigned |
-| External agent adapters | Usable | Codex, Claude Code, and Cursor Agent discovery, long-lived ACP sessions, prompt-first approvals, grants, adapter health/version checks, cancel, guardrails, raw diagnostics, and Git diff inspect/revert. They run as trusted local subprocesses, not sandboxed providers |
+| External agent adapters | Usable | Stable enough for alpha use when you accept the trusted-subprocess model: Codex, Claude Code, and Cursor Agent discovery, long-lived ACP sessions, prompt-first approvals, grants, adapter health/version checks, cancel, guardrails, raw diagnostics, and Git diff inspect/revert |
 | ACP bridge | Alpha | `hecate-acp` supports initialize, session new/prompt/cancel, continuation, run-event forwarding, and approval round-trip; registry/editor packaging is not done |
-| Agent task runtime | Alpha | Queues, approvals, resumable runs, `agent_loop`, MCP integration; periodic reconciler auto-recovers stale runs |
+| Agent task runtime | Alpha | Native Hecate task runs: queue/lease execution, approvals, resumable `agent_loop`, MCP integration, streamed output, and periodic stale-run recovery |
 | Execution isolation | Alpha | Per-call subprocess + env sanitisation + output cap + wall-clock timeout; `bwrap` (Linux) / `sandbox-exec` (macOS) wrapping where available. Not container-level — see [`docs/sandbox.md`](docs/sandbox.md) |
 | Homebrew distribution | Not shipped | A CLI formula/cask is planned later. Homebrew helps installation, but it does not replace Apple Developer ID signing/notarization for a smooth macOS desktop-app launch |
 
@@ -201,8 +201,8 @@ Full index lives at [`docs/README.md`](docs/README.md), organized by reader role
 
 **Building against Hecate**
 
-- [Runtime API](docs/runtime-api.md) — task lifecycle, approvals, SSE streaming.
-- [Agent runtime](docs/agent-runtime.md) — `agent_loop` loop mechanics, tools, cost ceilings, retry-from-turn.
+- [Runtime API](docs/runtime-api.md) — task lifecycle, approvals, queue/lease execution, SSE streaming.
+- [Agent runtime](docs/agent-runtime.md) — `agent_loop` loop mechanics, tools, stdout/stderr handling, cost ceilings, retry-from-turn.
 - [External agent adapters](docs/external-agent-adapters.md) — Hecate as an ACP client/operator: use Codex, Claude Code, and Cursor Agent from Chats.
 - [ACP bridge](docs/acp.md) — Hecate as an ACP agent for editor panels such as Zed and JetBrains.
 - [Events](docs/events.md) — every event type, payload shape, when each fires.

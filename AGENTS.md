@@ -155,7 +155,7 @@ Full ladder: [`docs-ai/core/verification.md`](docs-ai/core/verification.md).
 | Doc | Covers |
 |---|---|
 | [`docs/architecture.md`](docs/architecture.md) | Request flow, lease semantics, storage tier matrix |
-| [`docs/agent-runtime.md`](docs/agent-runtime.md) | `agent_loop` tools, four-layer system prompt, cost model, retry-from-turn |
+| [`docs/agent-runtime.md`](docs/agent-runtime.md) | `agent_loop` tools, system prompt layers, cost model, retry-from-turn |
 | [`docs/runtime-api.md`](docs/runtime-api.md) | Task / run / step / approval endpoints, queue + lease |
 | [`docs/events.md`](docs/events.md) | Every event type at `/v1/events` with payload shapes |
 | [`docs/telemetry.md`](docs/telemetry.md) | OTel spans + metrics, OTLP wiring, status & gaps |
