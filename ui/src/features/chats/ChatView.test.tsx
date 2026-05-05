@@ -183,6 +183,66 @@ describe("ChatView input", () => {
     expect(loadDashboard).toHaveBeenCalledTimes(1);
   });
 
+  it("quick-add skips duplicate local provider endpoints", async () => {
+    vi.mocked(discoverLocalProviders).mockResolvedValueOnce({
+      object: "local_provider_discovery",
+      data: [
+        {
+          preset_id: "llamacpp",
+          name: "llama.cpp",
+          base_url: "http://127.0.0.1:8080/v1",
+          probe_url: "http://127.0.0.1:8080/v1/models",
+          status: "running",
+          command: "llama-server",
+          command_available: true,
+          command_path: "/usr/local/bin/llama-server",
+          http_available: true,
+          model_count: 1,
+          models: ["local-model"],
+        },
+        {
+          preset_id: "localai",
+          name: "LocalAI",
+          base_url: "http://127.0.0.1:8080/v1",
+          probe_url: "http://127.0.0.1:8080/v1/models",
+          status: "running",
+          command: "local-ai",
+          command_available: true,
+          command_path: "/usr/local/bin/local-ai",
+          http_available: true,
+          model_count: 1,
+          models: ["local-model"],
+        },
+      ],
+    });
+    const createProvider = vi.fn(async () => undefined);
+    const loadDashboard = vi.fn(async () => undefined);
+    const { state, actions } = setup({
+      chatTarget: "model",
+      controlPlaneConfig: { backend: "memory", providers: [], policy_rules: [], pricebook: [], events: [] },
+      providerPresets: [
+        { id: "llamacpp", name: "llama.cpp", kind: "local", protocol: "openai", base_url: "http://127.0.0.1:8080/v1", description: "" },
+        { id: "localai", name: "LocalAI", kind: "local", protocol: "openai", base_url: "http://127.0.0.1:8080/v1", description: "" },
+      ],
+      providerScopedModels: [],
+      agentAdapters: [
+        { id: "codex", name: "Codex", kind: "acp", command: "codex-acp", available: true, status: "available", cost_mode: "external" },
+      ],
+    }, { createProvider, loadDashboard });
+    render(<ChatView state={state} actions={actions} />);
+
+    const user = userEvent.setup();
+    await user.click(await screen.findByRole("button", { name: /Add detected providers/i }));
+
+    expect(createProvider).toHaveBeenCalledTimes(1);
+    expect(createProvider).toHaveBeenCalledWith(expect.objectContaining({
+      name: "llama.cpp",
+      preset_id: "llamacpp",
+      base_url: "http://127.0.0.1:8080/v1",
+    }), { refresh: false });
+    expect(loadDashboard).toHaveBeenCalledTimes(1);
+  });
+
   it("shows a first-run setup state when providers and agents are unavailable", () => {
     const { state, actions } = setup({
       chatTarget: "model",

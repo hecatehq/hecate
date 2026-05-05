@@ -6,26 +6,33 @@ import (
 	"io"
 	"net/http"
 	"strings"
+	"sync"
 	"testing"
+	"time"
 
 	"github.com/hecate/agent-runtime/internal/config"
 )
 
 type localProviderRoundTrip struct {
+	mu    sync.Mutex
 	calls map[string]int
 	body  map[string]string
 	err   map[string]error
 }
 
 func (rt *localProviderRoundTrip) Do(req *http.Request) (*http.Response, error) {
+	rt.mu.Lock()
 	if rt.calls == nil {
 		rt.calls = make(map[string]int)
 	}
 	rt.calls[req.URL.String()]++
-	if err := rt.err[req.URL.String()]; err != nil {
+	err := rt.err[req.URL.String()]
+	body := rt.body[req.URL.String()]
+	rt.mu.Unlock()
+
+	if err != nil {
 		return nil, err
 	}
-	body := rt.body[req.URL.String()]
 	return &http.Response{
 		StatusCode: http.StatusOK,
 		Body:       io.NopCloser(strings.NewReader(body)),
@@ -57,6 +64,88 @@ func TestDiscoverLocalProvidersDedupesSharedHTTPProbe(t *testing.T) {
 		if item.Status != "running" || !item.HTTPAvailable || item.ModelCount != 1 {
 			t.Fatalf("item = %+v, want running with one model", item)
 		}
+	}
+}
+
+func TestDiscoverLocalProvidersRunsCommandLookupsInParallel(t *testing.T) {
+	t.Parallel()
+
+	providers := []config.BuiltInProvider{
+		{ID: "ollama", Name: "Ollama", Kind: "local", BaseURL: "http://127.0.0.1:11434/v1"},
+		{ID: "lmstudio", Name: "LM Studio", Kind: "local", BaseURL: "http://127.0.0.1:1234/v1"},
+	}
+	started := make(chan string, 2)
+	release := make(chan struct{})
+	var releaseOnce sync.Once
+	defer releaseOnce.Do(func() { close(release) })
+	lookPath := func(command string) (string, error) {
+		started <- command
+		<-release
+		return "/usr/local/bin/" + command, nil
+	}
+	rt := &localProviderRoundTrip{
+		body: map[string]string{
+			"http://127.0.0.1:11434/api/tags": `{"models":[]}`,
+			"http://127.0.0.1:1234/v1/models": `{"data":[]}`,
+		},
+	}
+
+	done := make(chan []LocalProviderDiscoveryResponseItem, 1)
+	go func() {
+		done <- discoverLocalProviders(context.Background(), providers, lookPath, rt)
+	}()
+
+	commands := []string{
+		receiveLocalDiscoverySignal(t, started),
+		receiveLocalDiscoverySignal(t, started),
+	}
+	if strings.Join(commands, ",") != "ollama,lms" && strings.Join(commands, ",") != "lms,ollama" {
+		t.Fatalf("commands started = %#v, want ollama and lms", commands)
+	}
+
+	releaseOnce.Do(func() { close(release) })
+	items := receiveLocalDiscoveryResult(t, done)
+	if len(items) != 2 {
+		t.Fatalf("items = %d, want 2", len(items))
+	}
+}
+
+func TestDiscoverLocalProvidersRunsHTTPProbesInParallel(t *testing.T) {
+	t.Parallel()
+
+	providers := []config.BuiltInProvider{
+		{ID: "ollama", Name: "Ollama", Kind: "local", BaseURL: "http://127.0.0.1:11434/v1"},
+		{ID: "lmstudio", Name: "LM Studio", Kind: "local", BaseURL: "http://127.0.0.1:1234/v1"},
+	}
+	rt := &blockingLocalProviderRoundTrip{
+		started: make(chan string, 2),
+		release: make(chan struct{}),
+		body: map[string]string{
+			"http://127.0.0.1:11434/api/tags": `{"models":[]}`,
+			"http://127.0.0.1:1234/v1/models": `{"data":[]}`,
+		},
+	}
+	var releaseOnce sync.Once
+	defer releaseOnce.Do(func() { close(rt.release) })
+
+	done := make(chan []LocalProviderDiscoveryResponseItem, 1)
+	go func() {
+		done <- discoverLocalProviders(context.Background(), providers, missingLocalCommand, rt)
+	}()
+
+	urls := []string{
+		receiveLocalDiscoverySignal(t, rt.started),
+		receiveLocalDiscoverySignal(t, rt.started),
+	}
+	if strings.Join(urls, ",") != "http://127.0.0.1:11434/api/tags,http://127.0.0.1:1234/v1/models" &&
+		strings.Join(urls, ",") != "http://127.0.0.1:1234/v1/models,http://127.0.0.1:11434/api/tags" {
+		t.Fatalf("HTTP probes started = %#v, want both unique endpoints", urls)
+	}
+
+	releaseOnce.Do(func() { close(rt.release) })
+	items := receiveLocalDiscoveryResult(t, done)
+	if len(items) != 2 {
+		t.Fatalf("items = %d, want 2", len(items))
 	}
 }
 
@@ -186,4 +275,46 @@ func TestLocalProviderProbeURLUsesOllamaNativeTagsEndpoint(t *testing.T) {
 
 func missingLocalCommand(string) (string, error) {
 	return "", errors.New("missing")
+}
+
+type blockingLocalProviderRoundTrip struct {
+	started chan string
+	release chan struct{}
+	body    map[string]string
+}
+
+func (rt *blockingLocalProviderRoundTrip) Do(req *http.Request) (*http.Response, error) {
+	url := req.URL.String()
+	rt.started <- url
+	select {
+	case <-rt.release:
+	case <-req.Context().Done():
+		return nil, req.Context().Err()
+	}
+	return &http.Response{
+		StatusCode: http.StatusOK,
+		Body:       io.NopCloser(strings.NewReader(rt.body[url])),
+	}, nil
+}
+
+func receiveLocalDiscoverySignal(t *testing.T, ch <-chan string) string {
+	t.Helper()
+	select {
+	case value := <-ch:
+		return value
+	case <-time.After(200 * time.Millisecond):
+		t.Fatal("timed out waiting for parallel discovery signal")
+		return ""
+	}
+}
+
+func receiveLocalDiscoveryResult(t *testing.T, ch <-chan []LocalProviderDiscoveryResponseItem) []LocalProviderDiscoveryResponseItem {
+	t.Helper()
+	select {
+	case value := <-ch:
+		return value
+	case <-time.After(time.Second):
+		t.Fatal("timed out waiting for discovery result")
+		return nil
+	}
 }
