@@ -175,7 +175,7 @@ export type LocalProviderDiscoveryRecord = {
   name: string;
   base_url: string;
   probe_url: string;
-  status: "running" | "installed" | "not_detected" | "error" | string;
+  status: "running" | "installed" | "not_detected" | "error" | "unknown";
   command?: string;
   command_available: boolean;
   command_path?: string;
