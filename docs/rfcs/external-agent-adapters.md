@@ -330,8 +330,10 @@ prefer reuse where possible, but not at the cost of a broken chat stream.
 - [x] Adapter readiness can distinguish missing binaries, auth/billing failures, and versions outside Hecate's tested range.
 - [x] Operator approvals are prompt-first by default and visible through REST, SSE, Settings grants, and Chats review UI.
 - [x] Optional turn, wall-clock, and idle guardrails protect long-lived external-agent sessions.
-- [ ] Dedicated patch review/apply/revert UX for captured diffs.
-- [ ] Deeper adapter-specific structured mappers for ACP tool/terminal output.
+- [ ] Fuller patch review UX for captured diffs: side-by-side hunks, batch
+  selection, and richer artifact history. The current Chats UI can inspect and
+  revert already-applied Git paths.
+- [ ] Deeper adapter-specific structured mappers for ACP tool output.
 - [ ] Decision on whether Agent Chat converges onto full Hecate Tasks/Runs.
 
 ## Open Questions
