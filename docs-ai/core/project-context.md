@@ -82,7 +82,7 @@ code, not as a follow-up. Don't restate their content here — link and move on.
 | Question | Doc |
 |---|---|
 | How does a request flow through the gateway? What are the storage tiers? | [`docs/architecture.md`](../../docs/architecture.md) |
-| What `agent_loop` tools exist? What is the four-layer system prompt? Cost model? | [`docs/agent-runtime.md`](../../docs/agent-runtime.md) |
+| What `agent_loop` tools exist? What are the system prompt layers? Cost model? | [`docs/agent-runtime.md`](../../docs/agent-runtime.md) |
 | What are the task / run / step / approval HTTP endpoints? | [`docs/runtime-api.md`](../../docs/runtime-api.md) |
 | What does this SSE event payload look like? | [`docs/events.md`](../../docs/events.md) |
 | What OTel spans and metrics does the gateway emit? | [`docs/telemetry.md`](../../docs/telemetry.md) |
