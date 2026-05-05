@@ -426,6 +426,21 @@ func (h *Handler) HandleCreateAgentChatMessage(w http.ResponseWriter, r *http.Re
 		Result:     resultLabel,
 		DurationMS: durationMS,
 	})
+	if status == "cancelled" {
+		// Reason classification: cancelRun / cancelRunAndWait stamp
+		// "operator" before tripping the cancel func; if nothing was
+		// stamped, the parent r.Context() died first, which we label
+		// "request_cancelled". Shutdown-path cancels fire from
+		// SessionManager.Shutdown directly and don't reach this branch.
+		reason := h.agentChatLive.cancelReasonFor(session.ID)
+		if reason == "" {
+			reason = "request_cancelled"
+		}
+		h.agentChatMetrics.RecordChatCancelled(traceCtx, telemetry.AgentChatCancelledRecord{
+			AdapterID: adapter.ID,
+			Reason:    reason,
+		})
+	}
 
 	updated, err = h.agentChat.UpdateMessage(r.Context(), session.ID, assistantID, func(message *agentchat.Message) {
 		if output != "" {

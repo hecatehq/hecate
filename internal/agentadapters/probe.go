@@ -7,9 +7,12 @@ import (
 	"os"
 	"os/exec"
 	"strings"
+	"sync/atomic"
 	"time"
 
 	acp "github.com/coder/acp-go-sdk"
+
+	"github.com/hecate/agent-runtime/internal/telemetry"
 )
 
 // Probe statuses. The "ready" / "not_installed" / "auth_required" /
@@ -58,6 +61,20 @@ type ProbeResult struct {
 // roughly the time an operator will wait staring at a button.
 const probeTimeout = 15 * time.Second
 
+// probeMetrics holds the optional AgentAdapterMetrics sink used by
+// every Probe call. atomic.Pointer to avoid a lock on the hot path
+// — the handler installs this once at startup and Probe only ever
+// reads. Nil is safe (every Record* method is nil-tolerant).
+var probeMetrics atomic.Pointer[telemetry.AgentAdapterMetrics]
+
+// SetProbeMetrics installs the AgentAdapterMetrics used by every
+// subsequent Probe call. Pass nil to disable. Callers wire this once
+// at startup; Probe uses an atomic load so the setter is safe to
+// call after handlers are already serving.
+func SetProbeMetrics(metrics *telemetry.AgentAdapterMetrics) {
+	probeMetrics.Store(metrics)
+}
+
 // Probe attempts a minimal start-and-handshake against the named
 // adapter to determine whether it can serve a chat turn today.
 //
@@ -73,9 +90,22 @@ const probeTimeout = 15 * time.Second
 // no-op session per probe; adapters that bill on prompt completion
 // will see no charge. The `cwd` passed to NewSession is a temporary
 // directory that's removed before Probe returns.
-func Probe(ctx context.Context, adapterID string) ProbeResult {
+func Probe(ctx context.Context, adapterID string) (res ProbeResult) {
+	defer func() {
+		// Fire the probe counter at the very end, after every return
+		// path has converged on res.Status. Inline-defer rather than
+		// a wrapper so existing call sites keep their ergonomic
+		// `result := agentadapters.Probe(...)` signature.
+		if metrics := probeMetrics.Load(); metrics != nil {
+			metrics.RecordProbe(ctx, telemetry.AgentAdapterProbeRecord{
+				AdapterID: res.AdapterID,
+				Status:    res.Status,
+			})
+		}
+	}()
+
 	start := time.Now()
-	res := ProbeResult{AdapterID: adapterID, Stage: ProbeStageLookup}
+	res = ProbeResult{AdapterID: adapterID, Stage: ProbeStageLookup}
 
 	adapter, ok := FindAdapter(adapterID)
 	if !ok {

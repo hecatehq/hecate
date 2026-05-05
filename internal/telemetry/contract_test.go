@@ -215,6 +215,10 @@ func TestMetricNameConstantsMatchInstruments(t *testing.T) {
 	if err != nil {
 		t.Fatalf("NewAgentAdapterApprovalMetricsWithMeterProvider() error = %v", err)
 	}
+	adm, err := NewAgentAdapterMetricsWithMeterProvider(provider)
+	if err != nil {
+		t.Fatalf("NewAgentAdapterMetricsWithMeterProvider() error = %v", err)
+	}
 
 	// Trigger every instrument so it appears in the collected output.
 	ctx := context.Background()
@@ -258,6 +262,9 @@ func TestMetricNameConstantsMatchInstruments(t *testing.T) {
 	})
 	apm.RecordGrantCreated(ctx)
 	apm.RecordGrantDeleted(ctx)
+	adm.RecordProbe(ctx, AgentAdapterProbeRecord{AdapterID: "codex", Status: "ready"})
+	adm.RecordTerminalRPCUnsupported(ctx, "codex", "create")
+	am.RecordChatCancelled(ctx, AgentChatCancelledRecord{AdapterID: "codex", Reason: "operator"})
 
 	var rm metricdata.ResourceMetrics
 	if err := reader.Collect(ctx, &rm); err != nil {
@@ -287,12 +294,16 @@ func TestMetricNameConstantsMatchInstruments(t *testing.T) {
 		// Agent chat
 		MetricAgentChatRunsTotal,
 		MetricAgentChatRunDuration,
+		MetricAgentChatCancelledTotal,
 		// External-adapter approvals
 		MetricAgentAdapterApprovalRequestedTotal,
 		MetricAgentAdapterApprovalResolvedTotal,
 		MetricAgentAdapterApprovalDurationMS,
 		MetricAgentAdapterApprovalTimedOutTotal,
 		MetricAgentAdapterApprovalGrantsActive,
+		// External-adapter runtime
+		MetricAgentAdapterProbeTotal,
+		MetricAgentAdapterTerminalRPCUnsupportedTotal,
 		// Orchestrator
 		MetricOrchestratorRunsTotal,
 		MetricOrchestratorRunDuration,

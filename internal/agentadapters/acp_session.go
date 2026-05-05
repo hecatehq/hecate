@@ -12,9 +12,12 @@ import (
 	"strconv"
 	"strings"
 	"sync"
+	"sync/atomic"
 	"time"
 
 	acp "github.com/coder/acp-go-sdk"
+
+	"github.com/hecate/agent-runtime/internal/telemetry"
 )
 
 const DriverKindACP = "acp"
@@ -36,7 +39,12 @@ type SessionManager struct {
 	starts      map[string]*sessionStart
 	logger      *slog.Logger
 	coordinator *ApprovalCoordinator
-	closed      bool
+	// metrics carries the AgentAdapterMetrics used by every
+	// acpChatClient created from this manager. Optional — nil is
+	// safe (every Record* method is nil-tolerant) and matches the
+	// pre-existing constructor surface that older tests rely on.
+	metrics *telemetry.AgentAdapterMetrics
+	closed  bool
 }
 
 func NewSessionManager() *SessionManager {
@@ -63,6 +71,36 @@ func (m *SessionManager) SetApprovalCoordinator(coordinator *ApprovalCoordinator
 	m.mu.Lock()
 	defer m.mu.Unlock()
 	m.coordinator = coordinator
+}
+
+// SetAdapterMetrics installs the AgentAdapterMetrics used by every
+// acpChatClient spawned from this manager (currently for the
+// terminal-RPC-unsupported counter; probe metrics are wired separately
+// via SetProbeMetrics). Nil is safe and matches the construction
+// pattern used by tests that don't care about metrics.
+func (m *SessionManager) SetAdapterMetrics(metrics *telemetry.AgentAdapterMetrics) {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	m.metrics = metrics
+}
+
+// shutdownCancelHook is invoked once per adapter id torn down via
+// Shutdown so the handler can fire the agent-chat-cancelled counter
+// with reason="shutdown". atomic.Pointer to keep Shutdown lock-free
+// on the hot path; nil is the no-op default.
+var shutdownCancelHook atomic.Pointer[func(adapterID string)]
+
+// SetShutdownCancelHook installs the callback fired once per active
+// session being torn down via SessionManager.Shutdown. The handler
+// wires this so the agent-chat-cancelled counter fires with
+// reason="shutdown" without coupling the agentadapters package to
+// the handler's metrics struct directly.
+func SetShutdownCancelHook(hook func(adapterID string)) {
+	if hook == nil {
+		shutdownCancelHook.Store(nil)
+		return
+	}
+	shutdownCancelHook.Store(&hook)
 }
 
 // Coordinator returns the installed approval coordinator (or nil).
@@ -146,9 +184,10 @@ func (m *SessionManager) session(ctx context.Context, adapter Adapter, req RunRe
 		m.starts[req.SessionID] = start
 		logger := m.logger
 		coordinator := m.coordinator
+		metrics := m.metrics
 		m.mu.Unlock()
 
-		started, resumed, recovery, err := startACPSession(startCtx, adapter, req.SessionID, req.Workspace, req.PreviousNativeSessionID, logger, coordinator)
+		started, resumed, recovery, err := startACPSession(startCtx, adapter, req.SessionID, req.Workspace, req.PreviousNativeSessionID, logger, coordinator, metrics)
 		startCancel()
 
 		var previous *acpSession
@@ -208,6 +247,18 @@ func (m *SessionManager) Shutdown(ctx context.Context) error {
 	m.closed = true
 	m.mu.Unlock()
 
+	// Fire the shutdown cancellation hook once per active session
+	// before tearing each down so dashboards see the operator-vs
+	// shutdown split. No-op when no hook is installed.
+	if hook := shutdownCancelHook.Load(); hook != nil {
+		callback := *hook
+		for _, session := range items {
+			if session != nil {
+				callback(session.adapter.ID)
+			}
+		}
+	}
+
 	for _, start := range starts {
 		if start.cancel != nil {
 			start.cancel()
@@ -245,7 +296,7 @@ type acpSession struct {
 	activeDone   chan struct{}
 }
 
-func startACPSession(ctx context.Context, adapter Adapter, sessionID, workspace, previousNativeSessionID string, logger *slog.Logger, coordinator *ApprovalCoordinator) (*acpSession, bool, string, error) {
+func startACPSession(ctx context.Context, adapter Adapter, sessionID, workspace, previousNativeSessionID string, logger *slog.Logger, coordinator *ApprovalCoordinator, metrics *telemetry.AgentAdapterMetrics) (*acpSession, bool, string, error) {
 	command, err := resolveExecutable(adapter, exec.LookPath)
 	if err != nil {
 		return nil, false, "", err
@@ -277,6 +328,7 @@ func startACPSession(ctx context.Context, adapter Adapter, sessionID, workspace,
 		adapterID:   adapter.ID,
 		workspace:   workspace,
 		coordinator: coordinator,
+		metrics:     metrics,
 	}
 	conn := acp.NewClientSideConnection(client, stdin, stdout)
 	if logger != nil {
@@ -474,9 +526,24 @@ type acpChatClient struct {
 	adapterID   string
 	workspace   string
 	coordinator *ApprovalCoordinator
+	// metrics is optional; nil-safe across every Record* call.
+	// Populated by the SessionManager when an *AgentAdapterMetrics
+	// has been wired (see SessionManager.SetAdapterMetrics).
+	metrics *telemetry.AgentAdapterMetrics
 
 	mu   sync.Mutex
 	turn *acpTurn
+}
+
+// terminalRPCUnsupported builds the typed JSON-RPC error returned by
+// every terminal stub. The acp.RequestError carries code -32601
+// ("Method not found") so JSON-RPC tooling that doesn't know about
+// Hecate's sentinel can still classify the failure correctly; the
+// wrap with ErrTerminalRPCUnsupported lets adapter callers detect
+// the case via errors.Is without string-matching.
+func terminalRPCUnsupported(method string) error {
+	rpcErr := acp.NewMethodNotFound(method)
+	return fmt.Errorf("%w: %s", ErrTerminalRPCUnsupported, rpcErr.Error())
 }
 
 func (c *acpChatClient) setTurn(turn *acpTurn) {
@@ -570,24 +637,29 @@ func (c *acpChatClient) WriteTextFile(_ context.Context, params acp.WriteTextFil
 	return acp.WriteTextFileResponse{}, nil
 }
 
-func (c *acpChatClient) CreateTerminal(context.Context, acp.CreateTerminalRequest) (acp.CreateTerminalResponse, error) {
-	return acp.CreateTerminalResponse{}, fmt.Errorf("ACP terminal requests are not supported by Hecate agent chat yet")
+func (c *acpChatClient) CreateTerminal(ctx context.Context, _ acp.CreateTerminalRequest) (acp.CreateTerminalResponse, error) {
+	c.metrics.RecordTerminalRPCUnsupported(ctx, c.adapterID, "create")
+	return acp.CreateTerminalResponse{}, terminalRPCUnsupported("terminal/create")
 }
 
-func (c *acpChatClient) KillTerminal(context.Context, acp.KillTerminalRequest) (acp.KillTerminalResponse, error) {
-	return acp.KillTerminalResponse{}, fmt.Errorf("ACP terminal requests are not supported by Hecate agent chat yet")
+func (c *acpChatClient) KillTerminal(ctx context.Context, _ acp.KillTerminalRequest) (acp.KillTerminalResponse, error) {
+	c.metrics.RecordTerminalRPCUnsupported(ctx, c.adapterID, "kill")
+	return acp.KillTerminalResponse{}, terminalRPCUnsupported("terminal/kill")
 }
 
-func (c *acpChatClient) TerminalOutput(context.Context, acp.TerminalOutputRequest) (acp.TerminalOutputResponse, error) {
-	return acp.TerminalOutputResponse{}, fmt.Errorf("ACP terminal requests are not supported by Hecate agent chat yet")
+func (c *acpChatClient) TerminalOutput(ctx context.Context, _ acp.TerminalOutputRequest) (acp.TerminalOutputResponse, error) {
+	c.metrics.RecordTerminalRPCUnsupported(ctx, c.adapterID, "output")
+	return acp.TerminalOutputResponse{}, terminalRPCUnsupported("terminal/output")
 }
 
-func (c *acpChatClient) ReleaseTerminal(context.Context, acp.ReleaseTerminalRequest) (acp.ReleaseTerminalResponse, error) {
-	return acp.ReleaseTerminalResponse{}, fmt.Errorf("ACP terminal requests are not supported by Hecate agent chat yet")
+func (c *acpChatClient) ReleaseTerminal(ctx context.Context, _ acp.ReleaseTerminalRequest) (acp.ReleaseTerminalResponse, error) {
+	c.metrics.RecordTerminalRPCUnsupported(ctx, c.adapterID, "release")
+	return acp.ReleaseTerminalResponse{}, terminalRPCUnsupported("terminal/release")
 }
 
-func (c *acpChatClient) WaitForTerminalExit(context.Context, acp.WaitForTerminalExitRequest) (acp.WaitForTerminalExitResponse, error) {
-	return acp.WaitForTerminalExitResponse{}, fmt.Errorf("ACP terminal requests are not supported by Hecate agent chat yet")
+func (c *acpChatClient) WaitForTerminalExit(ctx context.Context, _ acp.WaitForTerminalExitRequest) (acp.WaitForTerminalExitResponse, error) {
+	c.metrics.RecordTerminalRPCUnsupported(ctx, c.adapterID, "wait")
+	return acp.WaitForTerminalExitResponse{}, terminalRPCUnsupported("terminal/wait")
 }
 
 func (c *acpChatClient) workspacePath(path string) (string, error) {

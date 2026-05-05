@@ -173,6 +173,23 @@ func NewHandler(cfg config.Config, logger *slog.Logger, service *gateway.Service
 	runner.SetMetrics(orchestratorMetrics)
 	agentChatMetrics := telemetry.NewAgentChatMetrics()
 	agentApprovalMetrics := telemetry.NewAgentAdapterApprovalMetrics()
+	agentAdapterMetrics := telemetry.NewAgentAdapterMetrics()
+	// Probe metrics are wired via a package-level setter because
+	// agentadapters.Probe is invoked by name from the handler — the
+	// alternative (pass an explicit pointer through every Probe call
+	// site) would change a stable signature. Setter is atomic.Pointer
+	// so it's safe to install after handlers are already serving.
+	agentadapters.SetProbeMetrics(agentAdapterMetrics)
+	// Shutdown-path cancellations route through the same package-level
+	// setter pattern: SessionManager.Shutdown fires this once per
+	// active session being torn down so the agent-chat-cancelled
+	// counter labels them reason="shutdown".
+	agentadapters.SetShutdownCancelHook(func(adapterID string) {
+		agentChatMetrics.RecordChatCancelled(context.Background(), telemetry.AgentChatCancelledRecord{
+			AdapterID: adapterID,
+			Reason:    "shutdown",
+		})
+	})
 	// Wire the four-layer agent_loop system-prompt composer. Layers
 	// are concatenated broadest-first:
 	//   1. global default — operator's GATEWAY_TASK_AGENT_SYSTEM_PROMPT
@@ -211,6 +228,7 @@ func NewHandler(cfg config.Config, logger *slog.Logger, service *gateway.Service
 
 	agentChatRunner := agentadapters.NewSessionManager()
 	agentChatRunner.SetLogger(logger)
+	agentChatRunner.SetAdapterMetrics(agentAdapterMetrics)
 	// Approval recorder: applies GATEWAY_AGENT_ADAPTER_APPROVAL_MODE to
 	// each ACP RequestPermission, records the approval row, and emits
 	// approval.* metrics. Default mode is `prompt`; until the operator

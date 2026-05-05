@@ -1705,6 +1705,44 @@ func TestAgentChatLiveCancelRunAndWaitTimesOutUntilRunDone(t *testing.T) {
 	}
 }
 
+// TestAgentChatLiveCancelReasonForOperatorPath pins the reason
+// classification used by the agent-chat-cancelled counter:
+// cancelRun and cancelRunAndWait both stamp "operator", and a
+// session that never had cancel called against it surfaces empty
+// (the handler maps empty -> "request_cancelled").
+func TestAgentChatLiveCancelReasonForOperatorPath(t *testing.T) {
+	live := newAgentChatLive()
+	live.registerRun("session_explicit_cancel", func() {})
+	if !live.cancelRun("session_explicit_cancel") {
+		t.Fatal("cancelRun = false, want true")
+	}
+	if got := live.cancelReasonFor("session_explicit_cancel"); got != "operator" {
+		t.Errorf("cancelReasonFor after cancelRun = %q, want %q", got, "operator")
+	}
+
+	live.registerRun("session_wait_cancel", func() {})
+	go func() { _ = live.cancelRunAndWait(context.Background(), "session_wait_cancel") }()
+	// Wait briefly for cancelRunAndWait to mark the reason; clearRun
+	// closes done so the goroutine returns. The reason itself must
+	// be set before cancel(), which the live impl does, so a small
+	// sleep here is safe.
+	time.Sleep(10 * time.Millisecond)
+	if got := live.cancelReasonFor("session_wait_cancel"); got != "operator" {
+		t.Errorf("cancelReasonFor after cancelRunAndWait = %q, want %q", got, "operator")
+	}
+	live.clearRun("session_wait_cancel")
+
+	live.registerRun("session_never_cancelled", func() {})
+	if got := live.cancelReasonFor("session_never_cancelled"); got != "" {
+		t.Errorf("cancelReasonFor on uncancelled session = %q, want empty (handler maps to request_cancelled)", got)
+	}
+
+	// Unknown session: empty, not a panic.
+	if got := live.cancelReasonFor("session_unknown"); got != "" {
+		t.Errorf("cancelReasonFor unknown session = %q, want empty", got)
+	}
+}
+
 func TestAgentChatWorkspaceGitBranch(t *testing.T) {
 	if _, err := exec.LookPath("git"); err != nil {
 		t.Skip("git not available")

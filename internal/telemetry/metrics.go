@@ -231,8 +231,19 @@ type AgentChatRunMetricsRecord struct {
 }
 
 type AgentChatMetrics struct {
-	runsTotal   otmetric.Int64Counter
-	runDuration otmetric.Int64Histogram
+	runsTotal      otmetric.Int64Counter
+	runDuration    otmetric.Int64Histogram
+	cancelledTotal otmetric.Int64Counter
+}
+
+// AgentChatCancelledRecord labels a single agent-chat cancellation
+// event. Reason takes one of operator|request_cancelled|shutdown
+// (see contract.go); unknown values collapse to "other" via the
+// label normalizer. Fired once per cancellation, not once per
+// retry / cleanup attempt.
+type AgentChatCancelledRecord struct {
+	AdapterID string
+	Reason    string
 }
 
 func NewAgentChatMetrics() *AgentChatMetrics {
@@ -267,9 +278,19 @@ func NewAgentChatMetricsWithMeterProvider(provider otmetric.MeterProvider) (*Age
 		return nil, err
 	}
 
+	cancelledTotal, err := meter.Int64Counter(
+		MetricAgentChatCancelledTotal,
+		otmetric.WithDescription("Total agent chat run/turn endings that terminated via cancellation, labeled by reason (operator | request_cancelled | shutdown)."),
+		otmetric.WithUnit("{cancellation}"),
+	)
+	if err != nil {
+		return nil, err
+	}
+
 	return &AgentChatMetrics{
-		runsTotal:   runsTotal,
-		runDuration: runDuration,
+		runsTotal:      runsTotal,
+		runDuration:    runDuration,
+		cancelledTotal: cancelledTotal,
 	}, nil
 }
 
@@ -295,6 +316,121 @@ func (m *AgentChatMetrics) RecordRun(ctx context.Context, rec AgentChatRunMetric
 	if rec.DurationMS > 0 {
 		m.runDuration.Record(ctx, rec.DurationMS, opt)
 	}
+}
+
+// RecordChatCancelled fires once per cancellation event. The
+// adapter-id label is best-effort — if the cancellation lands
+// before an adapter has been resolved it can be empty. The reason
+// label is closed-set; unknown values collapse to "other" via the
+// label normalizer.
+func (m *AgentChatMetrics) RecordChatCancelled(ctx context.Context, rec AgentChatCancelledRecord) {
+	if m == nil || m.cancelledTotal == nil {
+		return
+	}
+	attrs := make([]attribute.KeyValue, 0, 2)
+	if rec.AdapterID != "" {
+		attrs = append(attrs, attribute.String(AttrHecateAgentAdapterID, NormalizeMetricLabel(rec.AdapterID)))
+	}
+	if rec.Reason != "" {
+		attrs = append(attrs, attribute.String(AttrHecateAgentChatCancelReason, NormalizeAgentChatCancelReason(rec.Reason)))
+	}
+	m.cancelledTotal.Add(ctx, 1, otmetric.WithAttributes(attrs...))
+}
+
+// ---------------------------------------------------------------------------
+// AgentAdapterMetrics — adapter-runtime concerns sibling to
+// AgentAdapterApprovalMetrics. probe is fired once per Probe call;
+// terminal_rpc_unsupported is fired every time an adapter calls one
+// of the five ACP terminal methods we don't implement.
+// ---------------------------------------------------------------------------
+
+// AgentAdapterProbeRecord labels the outcome of a single Probe.
+// Status takes one of agentadapters.ProbeStatus*; unknown values
+// collapse to "other".
+type AgentAdapterProbeRecord struct {
+	AdapterID string
+	Status    string
+}
+
+type AgentAdapterMetrics struct {
+	probeTotal                  otmetric.Int64Counter
+	terminalRPCUnsupportedTotal otmetric.Int64Counter
+}
+
+func NewAgentAdapterMetrics() *AgentAdapterMetrics {
+	m, err := NewAgentAdapterMetricsWithMeterProvider(otel.GetMeterProvider())
+	if err != nil {
+		return &AgentAdapterMetrics{}
+	}
+	return m
+}
+
+func NewAgentAdapterMetricsWithMeterProvider(provider otmetric.MeterProvider) (*AgentAdapterMetrics, error) {
+	if provider == nil {
+		provider = otel.GetMeterProvider()
+	}
+	meter := provider.Meter("github.com/hecate/agent-runtime/internal/telemetry")
+
+	probeTotal, err := meter.Int64Counter(
+		MetricAgentAdapterProbeTotal,
+		otmetric.WithDescription("Total agentadapters.Probe calls grouped by adapter and final status (ready | not_installed | auth_required | error)."),
+		otmetric.WithUnit("{probe}"),
+	)
+	if err != nil {
+		return nil, err
+	}
+
+	terminalRPCUnsupportedTotal, err := meter.Int64Counter(
+		MetricAgentAdapterTerminalRPCUnsupportedTotal,
+		otmetric.WithDescription("Total ACP terminal RPC calls received from external agent adapters that Hecate does not implement, grouped by adapter and method (create | kill | output | release | wait)."),
+		otmetric.WithUnit("{call}"),
+	)
+	if err != nil {
+		return nil, err
+	}
+
+	return &AgentAdapterMetrics{
+		probeTotal:                  probeTotal,
+		terminalRPCUnsupportedTotal: terminalRPCUnsupportedTotal,
+	}, nil
+}
+
+// RecordProbe is the per-Probe-call hook. Fires once per Probe
+// regardless of which stage the probe terminated in; the status
+// label carries the operator-facing classification.
+func (m *AgentAdapterMetrics) RecordProbe(ctx context.Context, rec AgentAdapterProbeRecord) {
+	if m == nil || m.probeTotal == nil {
+		return
+	}
+	attrs := make([]attribute.KeyValue, 0, 2)
+	if rec.AdapterID != "" {
+		attrs = append(attrs, attribute.String(AttrHecateAgentAdapterID, NormalizeMetricLabel(rec.AdapterID)))
+	}
+	if rec.Status != "" {
+		attrs = append(attrs, attribute.String(AttrHecateAgentProbeStatus, NormalizeAgentAdapterProbeStatus(rec.Status)))
+	}
+	m.probeTotal.Add(ctx, 1, otmetric.WithAttributes(attrs...))
+}
+
+// RecordTerminalRPCUnsupported fires whenever an adapter calls one
+// of the five ACP terminal methods Hecate does not implement. The
+// matching error returned to the adapter is
+// agentadapters.ErrTerminalRPCUnsupported (wrapping a JSON-RPC
+// method-not-found RequestError); this counter exists so operators
+// can dashboard "is this adapter being silently degraded?" without
+// scanning logs for the typed error.
+func (m *AgentAdapterMetrics) RecordTerminalRPCUnsupported(ctx context.Context, adapterID, method string) {
+	if m == nil || m.terminalRPCUnsupportedTotal == nil {
+		return
+	}
+	attrs := make([]attribute.KeyValue, 0, 2)
+	if adapterID != "" {
+		attrs = append(attrs, attribute.String(AttrHecateAgentAdapterID, NormalizeMetricLabel(adapterID)))
+	}
+	if method != "" {
+		attrs = append(attrs, attribute.String(AttrHecateAgentTerminalMethod, NormalizeAgentAdapterTerminalMethod(method)))
+	}
+	m.terminalRPCUnsupportedTotal.Add(ctx, 1, otmetric.WithAttributes(attrs...))
 }
 
 // ---------------------------------------------------------------------------
