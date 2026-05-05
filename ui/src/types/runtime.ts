@@ -285,6 +285,27 @@ export type AgentChatSessionResponse = {
   data: AgentChatSessionRecord;
 };
 
+export type AgentChatChangedFileRecord = {
+  path: string;
+  additions: number;
+  deletions: number;
+  status: string;
+};
+
+export type AgentChatChangedFilesResponse = {
+  object: string;
+  data: AgentChatChangedFileRecord[];
+};
+
+export type AgentChatChangedFileDiffRecord = AgentChatChangedFileRecord & {
+  diff: string;
+};
+
+export type AgentChatChangedFileDiffResponse = {
+  object: string;
+  data: AgentChatChangedFileDiffRecord;
+};
+
 // AgentChatApprovalOption mirrors agentApprovalOptionItem on the wire.
 // One per ACP option offered by the adapter.
 export type AgentChatApprovalOption = {

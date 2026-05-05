@@ -21,6 +21,8 @@ func NewServer(logger *slog.Logger, handler *Handler) http.Handler {
 	mux.HandleFunc("POST /v1/agent-chat/sessions/{id}/cancel", handler.HandleCancelAgentChatSession)
 	mux.HandleFunc("POST /v1/agent-chat/sessions/{id}/close", handler.HandleCloseAgentChatSession)
 	mux.HandleFunc("POST /v1/agent-chat/sessions/{id}/messages", handler.HandleCreateAgentChatMessage)
+	mux.HandleFunc("GET /v1/agent-chat/sessions/{id}/messages/{message_id}/files", handler.HandleAgentChatMessageFiles)
+	mux.HandleFunc("GET /v1/agent-chat/sessions/{id}/messages/{message_id}/files/{path...}", handler.HandleAgentChatMessageFileDiff)
 	mux.HandleFunc("GET /v1/agent-chat/sessions/{id}/approvals", handler.HandleListAgentChatApprovals)
 	mux.HandleFunc("GET /v1/agent-chat/sessions/{id}/approvals/{approval_id}", handler.HandleGetAgentChatApproval)
 	mux.HandleFunc("POST /v1/agent-chat/sessions/{id}/approvals/{approval_id}/resolve", handler.HandleResolveAgentChatApproval)

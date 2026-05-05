@@ -17,6 +17,8 @@ import type {
   AgentChatApprovalResolvedEvent,
   AgentChatApprovalResponse,
   AgentChatApprovalsResponse,
+  AgentChatChangedFileDiffResponse,
+  AgentChatChangedFilesResponse,
   AgentChatGrantsResponse,
   AgentChatSessionResponse,
   AgentChatSessionsResponse,
@@ -295,6 +297,18 @@ export async function cancelAgentChatSession(id: string): Promise<AgentChatSessi
 
 export async function createAgentChatMessage(id: string, content: string): Promise<AgentChatSessionResponse> {
   return fetchJSON<AgentChatSessionResponse>(`/v1/agent-chat/sessions/${encodeURIComponent(id)}/messages`, { method: "POST", body: { content } });
+}
+
+export async function listAgentChatMessageFiles(sessionID: string, messageID: string): Promise<AgentChatChangedFilesResponse> {
+  return fetchJSON<AgentChatChangedFilesResponse>(
+    `/v1/agent-chat/sessions/${encodeURIComponent(sessionID)}/messages/${encodeURIComponent(messageID)}/files`,
+  );
+}
+
+export async function getAgentChatMessageFileDiff(sessionID: string, messageID: string, path: string): Promise<AgentChatChangedFileDiffResponse> {
+  return fetchJSON<AgentChatChangedFileDiffResponse>(
+    `/v1/agent-chat/sessions/${encodeURIComponent(sessionID)}/messages/${encodeURIComponent(messageID)}/files/${encodeURIComponent(path)}`,
+  );
 }
 
 // streamAgentChatSession reads the per-session SSE feed and dispatches
