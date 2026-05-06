@@ -80,7 +80,7 @@ The seven-step chain spans `pkg/types/` → `internal/api/` → `internal/provid
 
 Agent Chat has two runtime kinds:
 
-1. `hecate_agent`: the chat session points at one visible `agent_loop` task.
+1. `agent`: the chat session points at one visible `agent_loop` task.
    The first prompt creates the task; follow-ups continue the latest terminal
    run through the task runtime.
 2. `external_agent`: the chat session points at one supervised adapter session

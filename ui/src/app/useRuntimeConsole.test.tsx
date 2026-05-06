@@ -75,7 +75,7 @@ describe("useRuntimeConsole", () => {
   it("defaults to Agent chat when no chat target preference exists", async () => {
     const { result } = renderHook(() => useRuntimeConsole());
     await waitFor(() => expect(result.current.state.loading).toBe(false));
-    expect(result.current.state.chatTarget).toBe("hecate_agent");
+    expect(result.current.state.chatTarget).toBe("agent");
   });
 
   it("preserves the saved chat target preference", async () => {
@@ -521,6 +521,57 @@ describe("useRuntimeConsole", () => {
       expect(result.current.state.chatError).toBe("");
     });
 
+    it("keeps the tools toggle scoped to the selected Hecate chat", async () => {
+      const hecateSession = (id: string) => ({
+        object: "agent_chat_session",
+        data: {
+          id,
+          title: id,
+          runtime_kind: "agent",
+          status: "completed",
+          workspace: "/workspace",
+          provider: "openai",
+          model: "gpt-4o-mini",
+          messages: [],
+          created_at: "2026-04-20T00:00:00Z",
+          updated_at: "2026-04-20T00:00:00Z",
+        },
+      });
+      fetchMock.mockImplementation(withSessions([
+        { id: "chat_a", title: "A" },
+        { id: "chat_b", title: "B" },
+      ], {
+        "/v1/agent-chat/sessions/chat_a": () => jsonResponse(hecateSession("chat_a")),
+        "/v1/agent-chat/sessions/chat_b": () => jsonResponse(hecateSession("chat_b")),
+      }));
+
+      const { result } = renderHook(() => useRuntimeConsole());
+      await waitFor(() => expect(result.current.state.loading).toBe(false));
+
+      await act(async () => {
+        await result.current.actions.selectChatSession("chat_a");
+      });
+      await waitFor(() => expect(result.current.state.activeAgentChatSession?.id).toBe("chat_a"));
+      expect(result.current.state.chatTarget).toBe("agent");
+
+      act(() => {
+        result.current.actions.setChatTarget("model");
+      });
+      expect(result.current.state.chatTarget).toBe("model");
+
+      await act(async () => {
+        await result.current.actions.selectChatSession("chat_b");
+      });
+      await waitFor(() => expect(result.current.state.activeAgentChatSession?.id).toBe("chat_b"));
+      expect(result.current.state.chatTarget).toBe("agent");
+
+      await act(async () => {
+        await result.current.actions.selectChatSession("chat_a");
+      });
+      await waitFor(() => expect(result.current.state.activeAgentChatSession?.id).toBe("chat_a"));
+      expect(result.current.state.chatTarget).toBe("model");
+    });
+
     it("selectChatSession 404 clears the active agent-chat selection and surfaces an error", async () => {
       fetchMock.mockImplementation(withSessions([{ id: "sess_gone", title: "Gone" }], {
         "/v1/agent-chat/sessions/sess_gone": () => new Response(
@@ -693,7 +744,7 @@ describe("useRuntimeConsole", () => {
       const { result } = renderHook(() => useRuntimeConsole());
       await waitFor(() => expect(result.current.state.loading).toBe(false));
 
-      // Default chatTarget is "hecate_agent", so selectChatSession forwards
+      // Default chatTarget is "agent", so selectChatSession forwards
       // to the agent variant.
       await act(async () => {
         await result.current.actions.selectChatSession("a1");

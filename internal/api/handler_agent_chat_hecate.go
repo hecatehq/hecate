@@ -21,7 +21,7 @@ const hecateAgentPollInterval = 250 * time.Millisecond
 
 func (h *Handler) handleCreateHecateAgentChatMessage(w http.ResponseWriter, r *http.Request, session agentchat.Session, req CreateAgentChatMessageRequest) {
 	content := strings.TrimSpace(req.Content)
-	session.RuntimeKind = "hecate_agent"
+	session.RuntimeKind = "agent"
 	if workspace := strings.TrimSpace(req.Workspace); workspace != "" {
 		resolved, err := agentadapters.ValidateWorkspace(workspace)
 		if err != nil {
@@ -152,7 +152,7 @@ func (h *Handler) handleCreateHecateAgentChatMessage(w http.ResponseWriter, r *h
 			telemetry.AttrHecateRunDurationMS: completedAt.Sub(startedAt).Milliseconds(),
 			telemetry.AttrHecateResult:        telemetry.ResultError,
 			telemetry.AttrHecateErrorKind:     telemetry.ErrorKindOther,
-			telemetry.AttrErrorType:           "hecate_agent_start_failed",
+			telemetry.AttrErrorType:           "agent_start_failed",
 			telemetry.AttrErrorMessage:        err.Error(),
 		}))
 		h.agentChatMetrics.RecordRun(traceCtx, telemetry.AgentChatRunMetricsRecord{
@@ -202,7 +202,7 @@ func (h *Handler) handleCreateHecateAgentChatMessage(w http.ResponseWriter, r *h
 		h.agentChatLive.publishSession(updated)
 	}
 	updated, err = h.agentChat.UpdateSession(r.Context(), session.ID, func(item *agentchat.Session) {
-		item.RuntimeKind = "hecate_agent"
+		item.RuntimeKind = "agent"
 		item.TaskID = task.ID
 		item.LatestRunID = run.ID
 		item.Provider = session.Provider
@@ -270,7 +270,7 @@ func (h *Handler) handleCreateHecateAgentChatMessage(w http.ResponseWriter, r *h
 	if status == "failed" && strings.TrimSpace(errorText) != "" {
 		terminalAttrs[telemetry.AttrHecateResult] = telemetry.ResultError
 		terminalAttrs[telemetry.AttrHecateErrorKind] = telemetry.ErrorKindOther
-		terminalAttrs[telemetry.AttrErrorType] = "hecate_agent_failed"
+		terminalAttrs[telemetry.AttrErrorType] = "agent_failed"
 		terminalAttrs[telemetry.AttrErrorMessage] = errorText
 	}
 	if status == "cancelled" {
@@ -307,7 +307,7 @@ func (h *Handler) handleCreateHecateAgentChatMessage(w http.ResponseWriter, r *h
 	}); incErr == nil {
 		updated = inc
 	} else {
-		h.logger.WarnContext(r.Context(), "agent_chat.hecate_agent.turn_counter_increment_failed", "session_id", session.ID, "error", incErr)
+		h.logger.WarnContext(r.Context(), "agent_chat.agent.turn_counter_increment_failed", "session_id", session.ID, "error", incErr)
 	}
 	h.agentChatLive.publishSession(updated)
 	WriteJSON(w, http.StatusOK, AgentChatSessionResponse{Object: "agent_chat_session", Data: renderAgentChatSession(updated, h.agentChatSnapshotConfig())})
@@ -323,7 +323,7 @@ func hecateAgentSegmentID(session agentchat.Session) string {
 func hecateAgentMessageSnapshot(session agentchat.Session, caps types.ModelCapabilities, segmentID string) agentchat.Message {
 	runtimeKind := session.RuntimeKind
 	if runtimeKind == "" {
-		runtimeKind = "hecate_agent"
+		runtimeKind = "agent"
 	}
 	return agentchat.Message{
 		RuntimeKind:  runtimeKind,
@@ -357,7 +357,7 @@ func shouldStartNewHecateAgentSegment(session agentchat.Session, provider, model
 		if strings.TrimSpace(message.Content) == "" && message.Role == "assistant" {
 			continue
 		}
-		if message.RuntimeKind != "hecate_agent" {
+		if message.RuntimeKind != "agent" {
 			return true
 		}
 		if provider != "" && strings.TrimSpace(message.Provider) != "" && strings.TrimSpace(message.Provider) != provider {
@@ -386,7 +386,7 @@ func (h *Handler) startOrContinueHecateAgentRun(ctx context.Context, session age
 			Title:              title,
 			Prompt:             prompt,
 			ExecutionKind:      "agent_loop",
-			ExecutionProfile:   "chat_hecate_agent",
+			ExecutionProfile:   "chat_agent",
 			OriginKind:         "agent_chat",
 			OriginID:           session.ID,
 			WorkspaceMode:      "in_place",

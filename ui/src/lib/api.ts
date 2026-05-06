@@ -133,7 +133,7 @@ export type CreateChatSessionPayload = {
 
 export type CreateAgentChatSessionPayload = {
   title?: string;
-  runtime_kind?: "external_agent" | "hecate_agent" | "model";
+  runtime_kind?: "external_agent" | "agent" | "model";
   adapter_id?: string;
   provider?: string;
   model?: string;
@@ -142,7 +142,7 @@ export type CreateAgentChatSessionPayload = {
 
 export type CreateAgentChatMessagePayload = {
   content: string;
-  runtime_kind?: "external_agent" | "hecate_agent" | "model";
+  runtime_kind?: "external_agent" | "agent" | "model";
   provider?: string;
   model?: string;
   system_prompt?: string;

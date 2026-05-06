@@ -165,7 +165,7 @@ describe("TaskList", () => {
       tasks: [
         makeTask({
           execution_kind: "agent_loop",
-          execution_profile: "chat_hecate_agent",
+          execution_profile: "chat_agent",
           origin_kind: "agent_chat",
           origin_id: "agent_chat_123",
           shell_command: undefined,

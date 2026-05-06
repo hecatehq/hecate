@@ -141,7 +141,7 @@ overwrite an explicit operator override.
 Agent Chat sessions gain a `runtime_kind`:
 
 ```ts
-type AgentChatRuntimeKind = "model" | "hecate_agent" | "external_agent";
+type AgentChatRuntimeKind = "model" | "agent" | "external_agent";
 ```
 
 Hecate Chat sessions also store:
@@ -186,7 +186,7 @@ creation time. Profile edits should not silently rewrite historical sessions.
 
 ### First prompt
 
-For `runtime_kind="hecate_agent"` the first user message:
+For `runtime_kind="agent"` the first user message:
 
 1. Validates that tools are not explicitly disabled for the selected model
    (`tool_calling!="none"`). Unknown models are allowed by default for now;
@@ -195,7 +195,7 @@ For `runtime_kind="hecate_agent"` the first user message:
 3. Creates a visible task with `execution_kind="agent_loop"`.
 4. Marks the task origin as `origin_kind="agent_chat"` and
    `origin_id=<agent_chat_session_id>`.
-5. Uses an execution profile such as `chat_hecate_agent`.
+5. Uses an execution profile such as `chat_agent`.
 6. Starts the task run with the first user message as the prompt.
 7. Stores `task_id` and `latest_run_id` on the chat session.
 
@@ -402,7 +402,7 @@ Done in the core bridge:
 - pending task approvals can be approved or rejected from the Hecate Agent
   chat banner while Tasks remains canonical
 - direct model turns and Hecate Agent turns share one Agent Chat transcript
-  using `runtime_kind="model"` / `runtime_kind="hecate_agent"` message
+  using `runtime_kind="model"` / `runtime_kind="agent"` message
   snapshots
 - turning tools back on after a direct model segment creates a new task-backed
   segment in the same transcript

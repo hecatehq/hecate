@@ -24,7 +24,7 @@ function taskKindLabel(task: TaskRecord): string {
   if (kind === "shell") return task.shell_command ? `$ ${task.shell_command}` : "shell";
   if (kind === "git") return task.git_command ? `git ${task.git_command}` : "git";
   if (kind === "file") return task.file_path ? task.file_path : "file";
-  if (kind === "agent_loop") return task.execution_profile === "chat_hecate_agent" ? "hecate agent" : "agent";
+  if (kind === "agent_loop") return task.execution_profile === "chat_agent" ? "hecate agent" : "agent";
   return kind;
 }
 

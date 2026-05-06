@@ -697,7 +697,7 @@ Hecate Chat and External Agent sessions:
   gateway/router to the selected provider/model. No task is created and no
   tools run, but the turn is stored in the same transcript as later Hecate
   Agent turns.
-- `runtime_kind="hecate_agent"` — Hecate creates and continues a visible
+- `runtime_kind="agent"` — Hecate creates and continues a visible
   `agent_loop` task with Hecate tools, task approvals, artifacts, and OTel.
   The chat transcript projects backing task-run activity and can resolve
   pending task approvals through the existing task approval endpoint.
@@ -803,7 +803,7 @@ Creates an Agent Chat session. `runtime_kind` chooses the execution target:
 - `model` requires `model`. `provider` is optional; when omitted, Hecate uses
   the normal routing path for the requested model. `workspace` is optional
   because no local tools run.
-- `hecate_agent` requires `provider`, `model`, and `workspace`.
+- `agent` requires `provider`, `model`, and `workspace`.
 - `external_agent` requires `adapter_id` and `workspace`.
 
 When `workspace` is provided, it must be an operator-controlled local
@@ -862,8 +862,8 @@ the user message and assistant output.
 
 `POST` also accepts per-turn overrides:
 
-- `runtime_kind` — `model`, `hecate_agent`, or `external_agent`. Hecate Chat
-  sessions may switch between `model` and `hecate_agent`; External Agent
+- `runtime_kind` — `model`, `agent`, or `external_agent`. Hecate Chat
+  sessions may switch between `model` and `agent`; External Agent
   sessions cannot switch into Hecate Chat runtimes.
 - `provider` / `model` — used for direct model turns and new Hecate Agent
   task-backed segments. Existing Hecate Agent task segments continue with their
@@ -876,7 +876,7 @@ the user message and assistant output.
 For `runtime_kind="model"`, Hecate calls the normal gateway path and stores the
 user/assistant messages without creating a Task. For
 `runtime_kind="external_agent"`, Hecate sends the prompt to the session's
-native ACP session. For `runtime_kind="hecate_agent"`, the first tool-enabled
+native ACP session. For `runtime_kind="agent"`, the first tool-enabled
 prompt creates a visible `agent_loop` task and starts it; follow-up prompts
 continue the latest terminal run when the immediately previous segment was also
 Hecate Agent. If the previous segment was direct model chat, Hecate starts a
