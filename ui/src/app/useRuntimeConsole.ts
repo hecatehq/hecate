@@ -158,6 +158,23 @@ function deriveHecateChatTargetFromSession(session: AgentChatSessionRecord | nul
   return normalizeStoredHecateChatTarget(session.runtime_kind ?? "") || "agent";
 }
 
+function deriveHecateChatSelectionFromSession(session: AgentChatSessionRecord | null): { provider: string; model: string } {
+  if (!session || agentChatSessionIsExternal(session)) {
+    return { provider: "", model: "" };
+  }
+  const segments = [...(session.segments ?? [])].reverse();
+  const segment = segments.find((item) => item.runtime_kind === "agent" || item.runtime_kind === "model");
+  if (segment?.provider || segment?.model) {
+    return { provider: segment.provider ?? "", model: segment.model ?? "" };
+  }
+  const messages = [...(session.messages ?? [])].reverse();
+  const message = messages.find((item) => item.runtime_kind === "agent" || item.runtime_kind === "model");
+  if (message?.provider || message?.model) {
+    return { provider: message.provider ?? "", model: message.model ?? "" };
+  }
+  return { provider: session.provider ?? "", model: session.model ?? "" };
+}
+
 function readLocalStorage(key: string): string {
   if (typeof window === "undefined") {
     return "";
@@ -1294,13 +1311,12 @@ export function useRuntimeConsole() {
       if (payload.data.adapter_id) {
         setAgentAdapterID(payload.data.adapter_id);
       }
-      if (payload.data.runtime_kind !== "agent") {
-        if (payload.data.provider) {
-          setProviderFilter(payload.data.provider as ProviderFilter);
-        }
-        if (payload.data.model) {
-          setModel(payload.data.model);
-        }
+      const selection = deriveHecateChatSelectionFromSession(payload.data);
+      if (selection.provider) {
+        setProviderFilter(selection.provider as ProviderFilter);
+      }
+      if (selection.model) {
+        setModel(selection.model);
       }
       if (payload.data.workspace) {
         setAgentWorkspace(payload.data.workspace);

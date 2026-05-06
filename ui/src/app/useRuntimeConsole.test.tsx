@@ -572,6 +572,48 @@ describe("useRuntimeConsole", () => {
       expect(result.current.state.chatTarget).toBe("model");
     });
 
+    it("restores provider and model from the latest Hecate chat segment on selection", async () => {
+      fetchMock.mockImplementation(withSessions([{ id: "mixed_chat", title: "Mixed" }], {
+        "/v1/models": () => jsonResponse({
+          object: "list",
+          data: [
+            { id: "smollm2:135m", owned_by: "ollama", metadata: { provider: "ollama", provider_kind: "local" } },
+            { id: "qwen2.5-coder", owned_by: "ollama", metadata: { provider: "ollama", provider_kind: "local" } },
+          ],
+        }),
+        "/v1/agent-chat/sessions/mixed_chat": () => jsonResponse({
+          object: "agent_chat_session",
+          data: {
+            id: "mixed_chat",
+            title: "Mixed",
+            runtime_kind: "model",
+            status: "completed",
+            workspace: "/workspace",
+            provider: "ollama",
+            model: "smollm2:135m",
+            segments: [
+              { id: "model:first", runtime_kind: "model", provider: "ollama", model: "smollm2:135m", status: "completed", message_count: 2 },
+              { id: "task:task_tools", runtime_kind: "agent", provider: "ollama", model: "qwen2.5-coder", task_id: "task_tools", status: "completed", message_count: 2 },
+            ],
+            messages: [],
+            created_at: "2026-04-20T00:00:00Z",
+            updated_at: "2026-04-20T00:00:00Z",
+          },
+        }),
+      }));
+
+      const { result } = renderHook(() => useRuntimeConsole());
+      await waitFor(() => expect(result.current.state.loading).toBe(false));
+
+      await act(async () => {
+        await result.current.actions.selectChatSession("mixed_chat");
+      });
+
+      await waitFor(() => expect(result.current.state.activeAgentChatSession?.id).toBe("mixed_chat"));
+      expect(result.current.state.providerFilter).toBe("ollama");
+      expect(result.current.state.model).toBe("qwen2.5-coder");
+    });
+
     it("selectChatSession 404 clears the active agent-chat selection and surfaces an error", async () => {
       fetchMock.mockImplementation(withSessions([{ id: "sess_gone", title: "Gone" }], {
         "/v1/agent-chat/sessions/sess_gone": () => new Response(

@@ -90,6 +90,7 @@ export function ChatView({ state, actions, onNavigate, onOpenTask }: Props) {
   const [quickLocalError, setQuickLocalError] = useState("");
   const [quickAddingProviders, setQuickAddingProviders] = useState(false);
   const [taskApprovalBusyID, setTaskApprovalBusyID] = useState("");
+  const [capabilitySaving, setCapabilitySaving] = useState(false);
   const isMac = typeof navigator !== "undefined" && /mac/i.test(navigator.platform);
   const modKey = isMac ? "⌘" : "Ctrl";
   const [modEnterMode, setModEnterMode] = useState(
@@ -212,15 +213,13 @@ export function ChatView({ state, actions, onNavigate, onOpenTask }: Props) {
   const selectedAgentUnavailable = isExternalAgentChat && Boolean(selectedAgent) && !selectedAgent?.available;
   const nothingRunnable = !state.loading && modelRouteUnavailable && agentRouteUnavailable;
   const agentPickerLocked = isExternalAgentChat && Boolean(state.activeAgentChatSessionID);
-  const hecateAgentModelLocked = isHecateAgentChat
-    && state.activeAgentChatSession?.runtime_kind === "agent"
-    && Boolean(state.activeAgentChatSession.task_id)
-    && hecateAgentSessionIsActive(state.activeAgentChatSession.status);
+  const activeHecateAgentSegment = activeTaskBackedHecateSegment(state.activeAgentChatSession);
+  const hecateAgentModelLocked = isHecateAgentChat && Boolean(activeHecateAgentSegment);
   const hecateChatProviderValue = hecateAgentModelLocked
-    ? (state.activeAgentChatSession?.provider || "auto")
+    ? (activeHecateAgentSegment?.provider || state.activeAgentChatSession?.provider || "auto")
     : state.providerFilter;
   const hecateChatModelValue = hecateAgentModelLocked
-    ? (state.activeAgentChatSession?.model || "")
+    ? (activeHecateAgentSegment?.model || state.activeAgentChatSession?.model || "")
     : state.model;
   const selectedHecateModelRecord = hecateAgentModelLocked
     ? undefined
@@ -229,6 +228,10 @@ export function ChatView({ state, actions, onNavigate, onOpenTask }: Props) {
     ? state.activeAgentChatSession?.capabilities
     : selectedHecateModelRecord?.metadata?.capabilities;
   const hecateAgentToolsDisabledForModel = selectedModelCapabilities?.tool_calling === "none";
+  const selectedCapabilityProvider = hecateAgentModelLocked
+    ? ""
+    : (state.providerFilter !== "auto" ? state.providerFilter : selectedHecateModelRecord?.metadata?.provider ?? "");
+  const selectedCapabilityModel = hecateAgentModelLocked ? "" : state.model;
   const hecateChatModelReady = isHecateAgentChat && hecateAgentModelLocked
     ? Boolean(hecateChatModelValue)
     : Boolean(state.model) && !modelRouteUnavailable;
@@ -238,6 +241,25 @@ export function ChatView({ state, actions, onNavigate, onOpenTask }: Props) {
     || (!isAgentChat && modelRouteUnavailable)
     || (isExternalAgentChat && (!state.agentWorkspace.trim() || !selectedAgent?.available))
     || (isHecateAgentChat && (!state.agentWorkspace.trim() || !hecateChatModelReady || hecateAgentToolsDisabledForModel));
+
+  async function enableToolsForSelectedModel() {
+    if (!selectedCapabilityProvider || !selectedCapabilityModel || capabilitySaving) {
+      return;
+    }
+    setCapabilitySaving(true);
+    try {
+      await actions.upsertModelCapabilityOverride({
+        provider: selectedCapabilityProvider,
+        model: selectedCapabilityModel,
+        tool_calling: "basic",
+        streaming: selectedModelCapabilities?.streaming,
+        max_context_tokens: selectedModelCapabilities?.max_context_tokens,
+        note: "Tools enabled from Hecate Chat.",
+      });
+    } finally {
+      setCapabilitySaving(false);
+    }
+  }
 
   useEffect(() => {
     if (!userScrolledRef.current) {
@@ -1033,6 +1055,7 @@ export function ChatView({ state, actions, onNavigate, onOpenTask }: Props) {
               margin: "0 auto 8px",
               display: "flex",
               alignItems: "center",
+              justifyContent: "space-between",
               gap: 12,
               fontSize: 12,
               color: "var(--amber)",
@@ -1041,6 +1064,16 @@ export function ChatView({ state, actions, onNavigate, onOpenTask }: Props) {
               <span>
                 Tools are disabled for this model in Settings. Turn tools off for direct chat, or enable tools in Model capabilities.
               </span>
+              <button
+                type="button"
+                className="btn btn-ghost btn-sm"
+                onClick={() => void enableToolsForSelectedModel()}
+                disabled={!selectedCapabilityProvider || !selectedCapabilityModel || capabilitySaving}
+                title={selectedCapabilityProvider ? `Enable tools for ${selectedCapabilityProvider}/${selectedCapabilityModel}` : "Choose a concrete provider before enabling tools"}
+                style={{ flexShrink: 0, color: "var(--amber)", borderColor: "rgba(245, 191, 79, 0.35)" }}
+              >
+                {capabilitySaving ? "Saving..." : "Enable tools"}
+              </button>
             </div>
           )}
           <div style={{ maxWidth: 820, margin: "0 auto", position: "relative" }}>
@@ -1347,6 +1380,33 @@ function cleanApprovalDetail(detail?: string): string {
 
 function hecateAgentSessionIsActive(status?: string): boolean {
   return status === "queued" || status === "running" || status === "awaiting_approval";
+}
+
+function activeTaskBackedHecateSegment(session: AgentChatSessionRecord | null): AgentChatSegmentRecord | null {
+  const segments = [...(session?.segments ?? [])].reverse();
+  const activeSegment = segments.find((segment) =>
+    segment.runtime_kind === "agent"
+    && Boolean(segment.task_id)
+    && hecateAgentSessionIsActive(segment.status),
+  );
+  if (activeSegment) {
+    return activeSegment;
+  }
+  if (session?.task_id && hecateAgentSessionIsActive(session.status)) {
+    return {
+      id: `task:${session.task_id}`,
+      runtime_kind: "agent",
+      provider: session.provider,
+      model: session.model,
+      task_id: session.task_id,
+      latest_run_id: session.latest_run_id,
+      workspace: session.workspace,
+      status: session.status,
+      message_count: 0,
+      updated_at: session.updated_at,
+    };
+  }
+  return null;
 }
 
 function parseProjectedTaskApprovalID(id?: string): string {

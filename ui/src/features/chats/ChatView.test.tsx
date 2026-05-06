@@ -597,6 +597,53 @@ describe("ChatView input", () => {
     expect(screen.getByRole("button", { name: "Model picker: smollm2:135m" })).toBeTruthy();
   });
 
+  it("locks controls to the active task segment even when the session root is direct chat", () => {
+    const { state, actions } = setup({
+      chatTarget: "agent",
+      message: "continue",
+      agentWorkspace: "/tmp/hecate",
+      providerFilter: "ollama",
+      model: "smollm2:135m",
+      controlPlaneConfig: {
+        backend: "memory",
+        providers: [{ id: "ollama", name: "Ollama", kind: "local", credential_configured: true }],
+        policy_rules: [],
+        pricebook: [],
+        events: [],
+      },
+      providerPresets: [
+        { id: "ollama", name: "Ollama", kind: "local", protocol: "openai", base_url: "http://127.0.0.1:11434/v1", description: "" },
+      ],
+      providerScopedModels: [
+        {
+          id: "smollm2:135m",
+          owned_by: "ollama",
+          metadata: { provider: "ollama", provider_kind: "local", capabilities: { tool_calling: "unknown", streaming: true, source: "provider" } },
+        },
+      ],
+      activeAgentChatSessionID: "agent_chat_1",
+      activeAgentChatSession: {
+        id: "agent_chat_1",
+        runtime_kind: "model",
+        title: "Mixed chat",
+        provider: "ollama",
+        model: "smollm2:135m",
+        workspace: "/tmp/hecate",
+        status: "running",
+        segments: [
+          { id: "model:first", runtime_kind: "model", provider: "ollama", model: "smollm2:135m", status: "completed", message_count: 2 },
+          { id: "task:task_hecate_123456", runtime_kind: "agent", provider: "ollama", model: "qwen2.5-coder", task_id: "task_hecate_123456", latest_run_id: "run_hecate_abcdef", status: "running", message_count: 1 },
+        ],
+        messages: [],
+      } as any,
+    });
+    render(<ChatView state={state} actions={actions} />);
+
+    expect(screen.getByRole("button", { name: "Fixed provider: Ollama" })).toBeTruthy();
+    expect(screen.getByRole("button", { name: "Fixed model: qwen2.5-coder" })).toBeTruthy();
+    expect(screen.queryByText("smollm2:135m")).toBeNull();
+  });
+
   it("shows the Hecate Agent sandbox reminder only when tools are enabled", () => {
     const { state, actions } = setup({
       chatTarget: "agent",
@@ -621,7 +668,8 @@ describe("ChatView input", () => {
     expect(screen.queryByText(/Hecate Agent runs through task approvals and per-call sandboxing/)).toBeNull();
   });
 
-  it("blocks Hecate Agent sends when tools are explicitly disabled for the model", () => {
+  it("blocks Hecate Agent sends when tools are explicitly disabled for the model", async () => {
+    const upsertModelCapabilityOverride = vi.fn(async () => true);
     const { state, actions } = setup({
       chatTarget: "agent",
       message: "inspect this repo",
@@ -646,13 +694,22 @@ describe("ChatView input", () => {
           },
         },
       ],
-    });
+    }, { upsertModelCapabilityOverride });
     render(<ChatView state={state} actions={actions} />);
 
     expect(screen.getByRole("button", { name: "tools on" })).toBeTruthy();
     expect(screen.getByText(/Tools are disabled for this model/)).toBeTruthy();
     const send = document.querySelector("button[type='submit']") as HTMLButtonElement;
     expect(send.disabled).toBe(true);
+
+    const user = userEvent.setup();
+    await user.click(screen.getByRole("button", { name: "Enable tools" }));
+    expect(upsertModelCapabilityOverride).toHaveBeenCalledWith(expect.objectContaining({
+      provider: "ollama",
+      model: "llama3.1:8b",
+      tool_calling: "basic",
+      note: "Tools enabled from Hecate Chat.",
+    }));
   });
 
   it("opens the backing task from the Hecate Agent assistant turn, not the header", async () => {
