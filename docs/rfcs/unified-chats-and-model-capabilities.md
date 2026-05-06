@@ -277,7 +277,10 @@ task run event log and task artifacts.
 
 Chat rows should preserve the same top-to-bottom conversation order as Model
 and External Agent chats. Run activity is attached to the active assistant turn
-or shown in a collapsible run details block below it.
+or shown in a collapsible run details block below it. The primary activity
+list should stay quiet: model turns, tool calls, approvals, files changed, and
+the final outcome are first-class. Raw artifacts, stdout/stderr files, and
+other low-level task internals belong under an expandable **Details** group.
 
 ## Approval Flow In Chats
 
@@ -335,9 +338,11 @@ When a Hecate Agent task-backed segment is running, provider/model controls are
 locked to that segment's snapshot and the chat composer treats the whole
 session as busy. Operators can turn tools off while waiting, but direct model
 sends are blocked until the backing task finishes, is cancelled, or reaches an
-approval the operator resolves. After it settles, tools-off sends create normal
-direct model segments; turning tools on again creates a new task-backed segment
-instead of mutating the older task.
+approval the operator resolves. The busy composer should keep **Open task** and
+**Stop** close to the input so the operator does not need to hunt for the
+canonical Task view. After the active task settles, tools-off sends create
+normal direct model segments; turning tools on again creates a new task-backed
+segment instead of mutating the older task.
 
 Hecate Agent uses the task runtime, so approvals, artifacts, diff/patch review,
 workspace modes, retry/resume, and OTel should come from Tasks rather than a

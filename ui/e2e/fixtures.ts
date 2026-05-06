@@ -185,6 +185,10 @@ export async function mockGatewayAPIs(page: Page, opts: GatewayMockOptions = {})
     });
   });
 
+  await page.route("/v1/agent-chat/sessions/*/approvals*", async route => {
+    await route.fulfill(ok({ object: "agent_chat_approvals", data: [] }));
+  });
+
   await page.route("/admin/budget*", r =>
     r.fulfill(ok({
       object: "budget_status",

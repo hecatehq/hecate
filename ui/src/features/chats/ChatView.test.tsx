@@ -603,6 +603,7 @@ describe("ChatView input", () => {
   });
 
   it("locks controls to the active task segment even when the session root is direct chat", () => {
+    const onOpenTask = vi.fn();
     const { state, actions } = setup({
       chatTarget: "agent",
       message: "continue",
@@ -642,13 +643,15 @@ describe("ChatView input", () => {
         messages: [],
       } as any,
     });
-    render(<ChatView state={state} actions={actions} />);
+    render(<ChatView state={state} actions={actions} onOpenTask={onOpenTask} />);
 
     expect(screen.getByRole("button", { name: "Fixed provider: Ollama" })).toBeTruthy();
     expect(screen.getByRole("button", { name: "Fixed model: qwen2.5-coder" })).toBeTruthy();
     expect(screen.queryByText("smollm2:135m")).toBeNull();
     expect(screen.getByRole("button", { name: "Stop agent" })).toBeTruthy();
     expect(screen.getByText(/Wait for it to finish, resolve approval, or stop it/)).toBeTruthy();
+    screen.getByRole("button", { name: "Open task" }).click();
+    expect(onOpenTask).toHaveBeenCalledWith("task_hecate_123456", "run_hecate_abcdef");
   });
 
   it("shows the Hecate Agent sandbox reminder only when tools are enabled", () => {

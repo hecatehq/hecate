@@ -465,6 +465,12 @@ test("Hecate Chat can move tools on, tools off, then tools on again in one trans
     body: "",
   }));
 
+  await page.route("/v1/agent-chat/sessions/chat-tools-switch-e2e/approvals*", route => route.fulfill({
+    status: 200,
+    contentType: "application/json",
+    body: JSON.stringify({ object: "agent_chat_approvals", data: [] }),
+  }));
+
   await page.route("/v1/agent-chat/sessions/chat-tools-switch-e2e", route => route.fulfill({
     status: 200,
     contentType: "application/json",
@@ -570,7 +576,7 @@ test("Hecate Chat can move tools on, tools off, then tools on again in one trans
   ]);
 });
 
-test("Hecate Chat blocks direct sends while a task-backed segment is active", async ({ page }) => {
+test("Hecate Chat rehydrates an active task and blocks direct sends after refresh", async ({ page }) => {
   await page.unrouteAll({ behavior: "ignoreErrors" });
   await page.addInitScript(() => {
     window.localStorage.setItem("hecate.chatTarget", "agent");
@@ -607,7 +613,21 @@ test("Hecate Chat blocks direct sends while a task-backed segment is active", as
     ],
     messages: [
       { id: "msg-user", runtime_kind: "agent", segment_id: "task:task-busy-e2e", task_id: "task-busy-e2e", role: "user", content: "inspect", created_at: "2026-05-06T10:00:00Z" },
-      { id: "msg-assistant", runtime_kind: "agent", segment_id: "task:task-busy-e2e", task_id: "task-busy-e2e", run_id: "run-busy-e2e", role: "assistant", content: "", status: "running", model: "qwen2.5", created_at: "2026-05-06T10:00:01Z" },
+      {
+        id: "msg-assistant",
+        runtime_kind: "agent",
+        segment_id: "task:task-busy-e2e",
+        task_id: "task-busy-e2e",
+        run_id: "run-busy-e2e",
+        role: "assistant",
+        content: "",
+        status: "running",
+        model: "qwen2.5",
+        created_at: "2026-05-06T10:00:01Z",
+        activities: [
+          { id: "hecate_task_run:run-busy-e2e", type: "task_run", status: "running", title: "Backing task", detail: "running" },
+        ],
+      },
     ],
   };
   let messagePosts = 0;
@@ -639,6 +659,11 @@ test("Hecate Chat blocks direct sends while a task-backed segment is active", as
     contentType: "text/event-stream",
     body: "",
   }));
+  await page.route("/v1/agent-chat/sessions/chat-busy-e2e/approvals*", route => route.fulfill({
+    status: 200,
+    contentType: "application/json",
+    body: JSON.stringify({ object: "agent_chat_approvals", data: [] }),
+  }));
   await page.route("/v1/agent-chat/sessions/chat-busy-e2e/messages", route => {
     messagePosts += 1;
     return route.fulfill({ status: 500, body: "send should be blocked by the UI" });
@@ -650,7 +675,9 @@ test("Hecate Chat blocks direct sends while a task-backed segment is active", as
   await expect(page.getByRole("button", { name: "tools off", exact: true })).toBeVisible();
   await expect(page.getByRole("button", { name: "Fixed model: qwen2.5" })).toBeVisible();
   await expect(page.getByRole("button", { name: "Stop agent" })).toBeVisible();
+  await expect(page.getByRole("button", { name: "Open task" })).toBeVisible();
   await expect(page.getByText(/Hecate Chat is working on this task/)).toBeVisible();
+  await expect(page.getByText("Backing task")).toBeVisible();
 
   await page.locator("textarea").fill("try direct while busy");
   await expect(page.locator("button[type='submit']")).toHaveCount(0);
