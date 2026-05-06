@@ -891,7 +891,11 @@ fresh task-backed segment in the same transcript.
 
 The response returns after the backing turn finishes, times out, is cancelled,
 or fails. For live output while the turn is running, subscribe to the session
-stream before posting the message.
+stream before posting the message. Hecate Agent turns update the running
+assistant message's `content` when the backing task's model route supports
+streaming; non-streaming providers still publish the final assistant content
+when the run finishes. External Agent turns continue to publish normalized
+adapter output as it arrives.
 
 Before starting the adapter, Hecate enforces optional agent-chat guardrails:
 `GATEWAY_AGENT_CHAT_MAX_TURNS_PER_SESSION`,
@@ -1117,10 +1121,13 @@ event: done
 data: {"object":"agent_chat_session","data":{"status":"completed",...}}
 ```
 
-Clients should subscribe before sending a message so they can receive partial
-ACP output from the external adapter. The stream stays open for an idle or
-previously completed session and closes after it observes a new running message
-reach a terminal status (`completed`, `failed`, or `cancelled`).
+Clients should subscribe before sending a message so they can receive live
+updates. For External Agent sessions, snapshots include partial ACP output from
+the adapter. For Hecate Agent sessions, snapshots can include partial assistant
+text from the backing task's streamed model turn plus projected task activity.
+The stream stays open for an idle or previously completed session and closes
+after it observes a new running message reach a terminal status (`completed`,
+`failed`, or `cancelled`).
 
 ### `POST /v1/agent-chat/sessions/{id}/cancel`
 

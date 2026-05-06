@@ -78,12 +78,17 @@ The seven-step chain spans `pkg/types/` → `internal/api/` → `internal/provid
 
 ### Change Agent Chat / ACP adapter behavior
 
-Agent Chat has two runtime kinds:
+Agent Chat has three runtime kinds:
 
-1. `agent`: the chat session points at one visible `agent_loop` task.
+1. `model`: the chat session calls the gateway/router directly and stores
+   direct user/assistant messages. No task is created.
+2. `agent`: the chat session points at one visible `agent_loop` task-backed
+   segment.
    The first prompt creates the task; follow-ups continue the latest terminal
-   run through the task runtime.
-2. `external_agent`: the chat session points at one supervised adapter session
+   run through the task runtime while the immediately previous segment was also
+   Hecate Agent. Re-enabling tools after a direct model segment creates a new
+   task-backed segment in the same transcript.
+3. `external_agent`: the chat session points at one supervised adapter session
    such as Codex, Claude Code, or Cursor Agent.
 
 External Agent has two live/persistence layers:
@@ -94,7 +99,10 @@ External Agent has two live/persistence layers:
 
 Hecate Agent additionally uses `internal/orchestrator`, `internal/taskstate`,
 and `internal/modelcaps`. Do not add a second lightweight tool-loop runtime;
-reuse task approvals, run events, artifacts, patch review, and OTel.
+reuse task approvals, run events, artifacts, patch review, and OTel. When
+adding live-output behavior, stream through the existing gateway/provider path
+where possible and publish snapshots through Agent Chat; do not fork a second
+chat-only event stream for Hecate-owned tools.
 
 When changing this path:
 

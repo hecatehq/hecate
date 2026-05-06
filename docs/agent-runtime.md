@@ -9,7 +9,11 @@ Chats creates a visible task with `execution_profile=chat_agent` and
 `origin_kind=agent_chat`; the first user message starts the task, and follow-up
 messages continue the latest terminal run instead of creating a new task per
 message. Tasks remains canonical for approvals, events, artifacts, retry/resume,
-and patch review; Chats is the conversational entry point.
+and patch review; Chats is the conversational entry point. When the selected
+provider supports streaming, the agent loop streams assistant text into the
+conversation artifact during the model turn so Chats can show the answer before
+the task run reaches a terminal state. Providers without streaming fall back to
+the normal non-streaming chat call.
 
 The Tasks workspace in the operator UI is the human entry point — create a task, watch its run state, approve or retry, and inspect streamed output:
 
@@ -35,12 +39,12 @@ The Tasks workspace in the operator UI is the human entry point — create a tas
 
 A run with `execution_kind=agent_loop` walks turns:
 
-1. The runtime calls the LLM with the running conversation, available tool schemas, and the operator-composed system prompt.
+1. The runtime calls the LLM with the running conversation, available tool schemas, and the operator-composed system prompt. If the gateway route supports streaming, assistant text deltas are captured and persisted as a partial conversation snapshot while the turn is still running.
 2. The model responds with either tool calls or a final answer.
 3. If tool calls: each is dispatched, the result is appended as a `tool` message, the loop runs another turn.
 4. If a final answer: the loop ends. The answer is persisted as a `summary` artifact.
 
-The conversation is persisted as an artifact (`agent_conversation`, JSON-encoded `[]Message`) on every turn — so a crash mid-loop, an approval pause, or a deliberate retry-from-turn all start from a known state.
+The conversation is persisted as an artifact (`agent_conversation`, JSON-encoded `[]Message`) on every turn. During a streaming model turn, Hecate also refreshes that artifact with the partial assistant answer at a throttled cadence; after the provider finishes, the usual full turn snapshot replaces it. A crash mid-loop, an approval pause, or a deliberate retry-from-turn therefore all start from a known state.
 
 ```mermaid
 sequenceDiagram

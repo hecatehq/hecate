@@ -31,6 +31,14 @@ type AgentLLMClient interface {
 	Chat(ctx context.Context, req types.ChatRequest) (*types.ChatResponse, error)
 }
 
+// AgentLLMStreamingClient is the optional streaming extension for
+// AgentLLMClient. The agent loop uses it when available so chat UIs
+// can see assistant text while the model is still producing the turn,
+// then falls back to Chat for test doubles and non-streaming backends.
+type AgentLLMStreamingClient interface {
+	ChatStream(ctx context.Context, req types.ChatRequest, onContentDelta func(string)) (*types.ChatResponse, error)
+}
+
 // AgentLLMClientFunc is the function-form of AgentLLMClient — saves
 // callers from having to declare a struct just to satisfy a one-method
 // interface. Production wiring uses this to adapt
@@ -357,7 +365,7 @@ func (e *AgentLoopExecutor) Execute(ctx context.Context, spec ExecutionSpec) (*E
 				},
 			}
 			emitAgentTurnStarted(spec, turn, req)
-			r, err := e.llm.Chat(ctx, req)
+			r, err := e.chatTurn(ctx, spec, conversationArtifactID, messages, turn, req)
 			if err != nil {
 				// Annotate the common "model doesn't support tools"
 				// failure with a concrete remedy. agent_loop relies
@@ -561,6 +569,53 @@ func (e *AgentLoopExecutor) Execute(ctx context.Context, spec ExecutionSpec) (*E
 	finalResult.CostMicrosUSD = costSpent
 	finalResult.TurnCosts = turnCosts
 	return finalResult, nil
+}
+
+func (e *AgentLoopExecutor) chatTurn(ctx context.Context, spec ExecutionSpec, conversationArtifactID string, messages []types.Message, turn int, req types.ChatRequest) (*types.ChatResponse, error) {
+	streamer, ok := e.llm.(AgentLLMStreamingClient)
+	if !ok {
+		return e.llm.Chat(ctx, req)
+	}
+	var streamed strings.Builder
+	var lastPersistedLen int
+	var lastPersistedAt time.Time
+	var persistErr error
+	persistPartial := func(force bool) {
+		if persistErr != nil {
+			return
+		}
+		content := streamed.String()
+		if strings.TrimSpace(content) == "" {
+			return
+		}
+		now := time.Now().UTC()
+		if !force && len(content)-lastPersistedLen < 24 && now.Sub(lastPersistedAt) < 100*time.Millisecond {
+			return
+		}
+		partial := make([]types.Message, 0, len(messages)+1)
+		partial = append(partial, messages...)
+		partial = append(partial, types.Message{Role: "assistant", Content: content})
+		_, persistErr = upsertConversationArtifact(spec, conversationArtifactID, partial, turn, now)
+		if persistErr == nil {
+			lastPersistedLen = len(content)
+			lastPersistedAt = now
+		}
+	}
+	resp, err := streamer.ChatStream(ctx, req, func(delta string) {
+		if delta == "" {
+			return
+		}
+		streamed.WriteString(delta)
+		persistPartial(false)
+	})
+	persistPartial(true)
+	if err != nil {
+		return nil, err
+	}
+	if persistErr != nil {
+		return nil, persistErr
+	}
+	return resp, nil
 }
 
 // dispatchToolCall translates one assistant tool_call into an Executor
