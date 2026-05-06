@@ -260,6 +260,29 @@ func TestHecateChatCanSwitchBetweenModelAndToolsSegments(t *testing.T) {
 	if changedTask.Data.RequestedModel != "gpt-4o-mini-2024-07-18" {
 		t.Fatalf("model-change task requested_model = %q, want gpt-4o-mini-2024-07-18", changedTask.Data.RequestedModel)
 	}
+
+	segments := changedModelTools.Data.Segments
+	if len(segments) != 5 {
+		t.Fatalf("segments = %d, want 5: %+v", len(segments), segments)
+	}
+	wantKinds := []string{"model", "agent", "model", "agent", "agent"}
+	for i, want := range wantKinds {
+		if segments[i].RuntimeKind != want {
+			t.Fatalf("segment %d runtime_kind = %q, want %q: %+v", i, segments[i].RuntimeKind, want, segments)
+		}
+		if segments[i].MessageCount != 2 {
+			t.Fatalf("segment %d message_count = %d, want 2: %+v", i, segments[i].MessageCount, segments)
+		}
+	}
+	if segments[0].ID != modelAssistant.SegmentID || segments[0].TaskID != "" || segments[0].Model != "gpt-4o-mini" {
+		t.Fatalf("first model segment = %+v, want segment %q with gpt-4o-mini and no task", segments[0], modelAssistant.SegmentID)
+	}
+	if segments[1].ID != "task:"+firstTaskID || segments[1].TaskID != firstTaskID || segments[1].LatestRunID == "" {
+		t.Fatalf("first tools segment = %+v, want task %q with latest run", segments[1], firstTaskID)
+	}
+	if segments[4].ID != "task:"+changedModelTools.Data.TaskID || segments[4].TaskID != changedModelTools.Data.TaskID || segments[4].Model != "gpt-4o-mini-2024-07-18" {
+		t.Fatalf("model-change tools segment = %+v, want task %q and changed model", segments[4], changedModelTools.Data.TaskID)
+	}
 }
 
 func agentChatMessageHasActivity(message AgentChatMessageItem, activityType string) bool {

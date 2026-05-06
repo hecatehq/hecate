@@ -4,7 +4,7 @@ import type { RuntimeConsoleViewModel } from "../../app/useRuntimeConsole";
 import { discoverLocalProviders } from "../../lib/api";
 import { describeGatewayError, formatErrorCode } from "../../lib/error-diagnostics";
 import { describeRoutingBlockedReason } from "../../lib/runtime-utils";
-import type { AgentAdapterRecord, AgentChatActivityRecord, AgentChatSessionRecord, AgentChatTimingRecord, AgentChatUsageRecord, LocalProviderDiscoveryRecord, ProviderPresetRecord } from "../../types/runtime";
+import type { AgentAdapterRecord, AgentChatActivityRecord, AgentChatSegmentRecord, AgentChatSessionRecord, AgentChatTimingRecord, AgentChatUsageRecord, LocalProviderDiscoveryRecord, ProviderPresetRecord } from "../../types/runtime";
 import { AgentAdapterPicker, CodeBlock, Icon, Icons, InlineError, ModelPicker, ProviderPicker } from "../shared/ui";
 import { TranscriptMessageRow } from "../transcript/TranscriptMessageRow";
 import { AgentApprovalAutoModeBanner, AgentApprovalsBanner } from "./AgentApprovalBanner";
@@ -45,6 +45,10 @@ type VisibleChatMessage = {
   duration_ms?: number;
   error?: string;
 };
+
+type TranscriptItem =
+  | { type: "segment"; key: string; segment: AgentChatSegmentRecord }
+  | { type: "message"; key: string; message: VisibleChatMessage };
 
 type SidebarSession = {
   id: string;
@@ -171,6 +175,11 @@ export function ChatView({ state, actions, onNavigate, onOpenTask }: Props) {
     if (m.role === "assistant" && m.content === null) return false;
     return true;
   });
+  const transcriptItems = buildTranscriptItems(
+    visibleMessages,
+    state.activeAgentChatSession?.segments,
+    isHecateChat,
+  );
   const streaming = state.chatLoading;
   const chatDiagnostic = describeGatewayError(state.chatErrorCode, state.chatErrorStatus ?? undefined);
   const activeAgentAdapterID = state.activeAgentChatSession?.adapter_id || state.agentAdapterID;
@@ -843,7 +852,11 @@ export function ChatView({ state, actions, onNavigate, onOpenTask }: Props) {
         {/* Messages */}
         <div style={{ flex: 1, overflow: "hidden", position: "relative" }}>
         <div ref={scrollRef} onScroll={handleScroll} style={{ height: "100%", overflowY: "auto", padding: "16px 0" }}>
-          {visibleMessages.map(m => {
+          {transcriptItems.map(item => {
+            if (item.type === "segment") {
+              return <ChatSegmentDivider key={item.key} segment={item.segment} />;
+            }
+            const m = item.message;
             const call = m.produced_by_call_id ? callsByID.get(m.produced_by_call_id) : undefined;
             const role = m.role === "assistant" ? "assistant" : "user";
             const content = typeof m.content === "string" ? m.content : (m.content === null ? "" : JSON.stringify(m.content));
@@ -856,7 +869,7 @@ export function ChatView({ state, actions, onNavigate, onOpenTask }: Props) {
               : "";
             return (
               <TranscriptMessageRow
-                key={m.id}
+                key={item.key}
                 id={m.id}
                 role={role}
                 model={isAgentChat ? agentModel : call?.model}
@@ -1140,6 +1153,146 @@ export function ChatView({ state, actions, onNavigate, onOpenTask }: Props) {
       />
     </div>
   );
+}
+
+function buildTranscriptItems(
+  messages: VisibleChatMessage[],
+  segments: AgentChatSegmentRecord[] | undefined,
+  showSegments: boolean,
+): TranscriptItem[] {
+  if (!showSegments) {
+    return messages.map((message) => ({ type: "message", key: `message:${message.id}`, message }));
+  }
+  const segmentsByID = new Map((segments ?? []).map((segment) => [segment.id, segment]));
+  const items: TranscriptItem[] = [];
+  let previousSegmentID = "";
+  messages.forEach((message, index) => {
+    const segmentID = message.segment_id || fallbackSegmentID(message);
+    if (segmentID && segmentID !== previousSegmentID) {
+      items.push({
+        type: "segment",
+        key: `segment:${segmentID}:${index}`,
+        segment: segmentsByID.get(segmentID) ?? segmentFromMessage(message, segmentID),
+      });
+      previousSegmentID = segmentID;
+    }
+    items.push({ type: "message", key: `message:${message.id}`, message });
+  });
+  return items;
+}
+
+function fallbackSegmentID(message: VisibleChatMessage): string {
+  if (message.task_id) return `task:${message.task_id}`;
+  if (message.native_session_id) return `external:${message.native_session_id}`;
+  return "";
+}
+
+function segmentFromMessage(message: VisibleChatMessage, segmentID: string): AgentChatSegmentRecord {
+  return {
+    id: segmentID,
+    runtime_kind: message.runtime_kind || "model",
+    provider: message.provider,
+    model: message.model,
+    task_id: message.task_id,
+    latest_run_id: message.run_id,
+    status: message.agent_status,
+    message_count: 0,
+    started_at: message.created_at,
+    updated_at: message.created_at,
+  };
+}
+
+function ChatSegmentDivider({ segment }: { segment: AgentChatSegmentRecord }) {
+  const description = describeChatSegment(segment);
+  return (
+    <div
+      aria-label={description.label}
+      style={{
+        maxWidth: 820,
+        margin: "10px auto 14px",
+        padding: "0 16px",
+        display: "flex",
+        alignItems: "center",
+        gap: 10,
+      }}
+    >
+      <div style={{ height: 1, flex: 1, background: "linear-gradient(90deg, transparent, var(--border))" }} />
+      <div
+        style={{
+          display: "inline-flex",
+          alignItems: "center",
+          gap: 8,
+          minWidth: 0,
+          maxWidth: "100%",
+          border: "1px solid var(--border)",
+          background: "rgba(12, 18, 22, 0.78)",
+          borderRadius: 999,
+          padding: "5px 10px",
+          boxShadow: "0 0 0 1px rgba(255,255,255,0.02)",
+        }}
+      >
+        <span
+          style={{
+            color: description.tone === "on" ? "var(--teal)" : "var(--t2)",
+            fontFamily: "var(--font-mono)",
+            fontSize: 10,
+            fontWeight: 700,
+            textTransform: "uppercase",
+            letterSpacing: "0.08em",
+            whiteSpace: "nowrap",
+          }}
+        >
+          {description.kicker}
+        </span>
+        <span style={{ color: "var(--t1)", fontSize: 12, whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis" }}>
+          {description.title}
+        </span>
+        {description.meta && (
+          <span style={{ color: "var(--t3)", fontFamily: "var(--font-mono)", fontSize: 10, whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis" }}>
+            {description.meta}
+          </span>
+        )}
+      </div>
+      <div style={{ height: 1, flex: 1, background: "linear-gradient(90deg, var(--border), transparent)" }} />
+    </div>
+  );
+}
+
+function describeChatSegment(segment: AgentChatSegmentRecord): { kicker: string; title: string; meta: string; label: string; tone: "on" | "off" | "external" } {
+  const model = segment.model || "selected model";
+  const provider = segment.provider && segment.provider !== "auto" ? segment.provider : "";
+  switch (segment.runtime_kind) {
+    case "agent": {
+      const meta = [provider, segment.task_id ? formatTaskLinkLabel(segment.task_id) : "", segment.status].filter(Boolean).join(" · ");
+      return {
+        kicker: "Tools on",
+        title: model,
+        meta,
+        label: `Tools on segment using ${model}`,
+        tone: "on",
+      };
+    }
+    case "external_agent": {
+      const meta = [segment.status, segment.workspace ? "workspace" : ""].filter(Boolean).join(" · ");
+      return {
+        kicker: "External",
+        title: model === "selected model" ? "External Agent" : model,
+        meta,
+        label: "External Agent segment",
+        tone: "external",
+      };
+    }
+    default: {
+      const meta = [provider, "direct model chat"].filter(Boolean).join(" · ");
+      return {
+        kicker: "Tools off",
+        title: model,
+        meta,
+        label: `Tools off segment using ${model}`,
+        tone: "off",
+      };
+    }
+  }
 }
 
 function filterSidebarSessions(sessions: SidebarSession[], query: string): SidebarSession[] {

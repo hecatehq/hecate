@@ -692,6 +692,66 @@ describe("ChatView input", () => {
     expect(onOpenTask).toHaveBeenCalledWith("task_hecate_123456", "run_hecate_abcdef");
   });
 
+  it("renders explicit Hecate Chat segment dividers when tools switch", () => {
+    const { state, actions } = setup({
+      chatTarget: "agent",
+      activeAgentChatSessionID: "agent_chat_1",
+      activeAgentChatSession: {
+        id: "agent_chat_1",
+        runtime_kind: "agent",
+        title: "Mixed chat",
+        task_id: "task_second",
+        latest_run_id: "run_second",
+        provider: "ollama",
+        model: "qwen2.5-coder",
+        workspace: "/tmp/hecate",
+        status: "completed",
+        segments: [
+          {
+            id: "model:first",
+            runtime_kind: "model",
+            provider: "ollama",
+            model: "smollm2:135m",
+            status: "completed",
+            message_count: 2,
+          },
+          {
+            id: "task:task_first",
+            runtime_kind: "agent",
+            provider: "ollama",
+            model: "qwen2.5-coder",
+            task_id: "task_first",
+            latest_run_id: "run_first",
+            status: "completed",
+            message_count: 2,
+          },
+          {
+            id: "model:second",
+            runtime_kind: "model",
+            provider: "ollama",
+            model: "smollm2:135m",
+            status: "completed",
+            message_count: 2,
+          },
+        ],
+        messages: [
+          { id: "m1", runtime_kind: "model", segment_id: "model:first", role: "user", content: "answer directly", created_at: "2026-05-03T10:00:00Z" },
+          { id: "m2", runtime_kind: "model", segment_id: "model:first", role: "assistant", content: "Direct answer.", status: "completed", model: "smollm2:135m", created_at: "2026-05-03T10:00:01Z" },
+          { id: "m3", runtime_kind: "agent", segment_id: "task:task_first", task_id: "task_first", role: "user", content: "use tools", created_at: "2026-05-03T10:01:00Z" },
+          { id: "m4", runtime_kind: "agent", segment_id: "task:task_first", task_id: "task_first", run_id: "run_first", role: "assistant", content: "Tool answer.", status: "completed", model: "qwen2.5-coder", created_at: "2026-05-03T10:01:01Z" },
+          { id: "m5", runtime_kind: "model", segment_id: "model:second", role: "user", content: "back to direct", created_at: "2026-05-03T10:02:00Z" },
+          { id: "m6", runtime_kind: "model", segment_id: "model:second", role: "assistant", content: "Direct again.", status: "completed", model: "smollm2:135m", created_at: "2026-05-03T10:02:01Z" },
+        ],
+      } as any,
+    });
+    render(<ChatView state={state} actions={actions} />);
+
+    expect(screen.getAllByLabelText("Tools off segment using smollm2:135m")).toHaveLength(2);
+    expect(screen.getByLabelText("Tools on segment using qwen2.5-coder")).toBeTruthy();
+    expect(screen.getByText("task task_first")).toBeTruthy();
+    expect(screen.getAllByText(/direct model chat/)).toHaveLength(2);
+  });
+
   it("renders projected Hecate Agent task run activity in the transcript", () => {
     const { state, actions } = setup({
       chatTarget: "agent",

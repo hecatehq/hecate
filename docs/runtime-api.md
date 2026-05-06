@@ -855,6 +855,13 @@ can change as the operator switches tools on/off. If tools are re-enabled after
 a direct model segment, Hecate creates a new task-backed segment in the same
 transcript; older messages keep their original runtime/model/task snapshots.
 
+The response also includes a derived `segments` array. Messages remain the
+durable source of truth; segments are a render helper that groups contiguous
+turns with the same `segment_id` so clients can show transcript boundaries such
+as "tools off with smollm2" → "tools on with qwen2.5-coder". Each segment
+contains its `runtime_kind`, provider/model snapshot, optional `task_id`,
+latest run id, status, message count, and first/last timestamps.
+
 ### `POST /v1/agent-chat/sessions/{id}/messages`
 
 Sends the submitted prompt to the session's backing runtime and appends both

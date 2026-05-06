@@ -112,7 +112,111 @@ func renderAgentChatSession(session agentchat.Session, limits agentChatSnapshotC
 		IdleTimeoutMS:        limits.IdleTimeout.Milliseconds(),
 		CreatedAt:            formatOptionalTime(session.CreatedAt),
 		UpdatedAt:            formatOptionalTime(session.UpdatedAt),
+		Segments:             renderAgentChatSegments(session),
 		Messages:             messages,
+	}
+}
+
+type agentChatSegmentBuilder struct {
+	item      AgentChatSegmentItem
+	startedAt time.Time
+	updatedAt time.Time
+}
+
+func renderAgentChatSegments(session agentchat.Session) []AgentChatSegmentItem {
+	if len(session.Messages) == 0 {
+		return nil
+	}
+	builders := make([]agentChatSegmentBuilder, 0, len(session.Messages)/2+1)
+	positions := make(map[string]int)
+	for _, message := range session.Messages {
+		segmentID := agentChatMessageSegmentID(session, message)
+		if segmentID == "" {
+			continue
+		}
+		idx, ok := positions[segmentID]
+		if !ok {
+			idx = len(builders)
+			positions[segmentID] = idx
+			builders = append(builders, agentChatSegmentBuilder{
+				item: AgentChatSegmentItem{
+					ID:          segmentID,
+					RuntimeKind: firstNonEmpty(message.RuntimeKind, renderAgentChatRuntimeKind(session)),
+					Provider:    firstNonEmpty(message.Provider, session.Provider),
+					Model:       firstNonEmpty(message.Model, session.Model),
+					TaskID:      message.TaskID,
+					Workspace:   firstNonEmpty(message.Workspace, session.Workspace),
+				},
+			})
+		}
+		builder := &builders[idx]
+		builder.item.MessageCount++
+		if builder.item.RuntimeKind == "" {
+			builder.item.RuntimeKind = firstNonEmpty(message.RuntimeKind, renderAgentChatRuntimeKind(session))
+		}
+		if builder.item.Provider == "" {
+			builder.item.Provider = message.Provider
+		}
+		if builder.item.Model == "" {
+			builder.item.Model = message.Model
+		}
+		if builder.item.TaskID == "" {
+			builder.item.TaskID = message.TaskID
+		}
+		if builder.item.Workspace == "" {
+			builder.item.Workspace = message.Workspace
+		}
+		if message.RunID != "" {
+			builder.item.LatestRunID = message.RunID
+		}
+		if message.Status != "" {
+			builder.item.Status = message.Status
+		}
+		if t := agentChatMessageSegmentTime(message); !t.IsZero() {
+			if builder.startedAt.IsZero() || t.Before(builder.startedAt) {
+				builder.startedAt = t
+			}
+			if builder.updatedAt.IsZero() || t.After(builder.updatedAt) {
+				builder.updatedAt = t
+			}
+		}
+	}
+	segments := make([]AgentChatSegmentItem, 0, len(builders))
+	for _, builder := range builders {
+		item := builder.item
+		item.StartedAt = formatOptionalTime(builder.startedAt)
+		item.UpdatedAt = formatOptionalTime(builder.updatedAt)
+		segments = append(segments, item)
+	}
+	return segments
+}
+
+func agentChatMessageSegmentID(session agentchat.Session, message agentchat.Message) string {
+	if message.SegmentID != "" {
+		return message.SegmentID
+	}
+	if message.TaskID != "" {
+		return "task:" + message.TaskID
+	}
+	if session.NativeSessionID != "" {
+		return "external:" + session.NativeSessionID
+	}
+	if session.ID != "" {
+		return "session:" + session.ID
+	}
+	return ""
+}
+
+func agentChatMessageSegmentTime(message agentchat.Message) time.Time {
+	switch {
+	case !message.CreatedAt.IsZero():
+		return message.CreatedAt
+	case !message.StartedAt.IsZero():
+		return message.StartedAt
+	case !message.CompletedAt.IsZero():
+		return message.CompletedAt
+	default:
+		return time.Time{}
 	}
 }
 
