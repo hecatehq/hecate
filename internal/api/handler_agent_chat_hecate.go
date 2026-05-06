@@ -9,6 +9,7 @@ import (
 	"strings"
 	"time"
 
+	"github.com/hecate/agent-runtime/internal/agentadapters"
 	"github.com/hecate/agent-runtime/internal/agentchat"
 	"github.com/hecate/agent-runtime/internal/modelcaps"
 	"github.com/hecate/agent-runtime/internal/taskstate"
@@ -17,7 +18,29 @@ import (
 
 const hecateAgentPollInterval = 250 * time.Millisecond
 
-func (h *Handler) handleCreateHecateAgentChatMessage(w http.ResponseWriter, r *http.Request, session agentchat.Session, content string) {
+func (h *Handler) handleCreateHecateAgentChatMessage(w http.ResponseWriter, r *http.Request, session agentchat.Session, req CreateAgentChatMessageRequest) {
+	content := strings.TrimSpace(req.Content)
+	session.RuntimeKind = "hecate_agent"
+	if workspace := strings.TrimSpace(req.Workspace); workspace != "" {
+		resolved, err := agentadapters.ValidateWorkspace(workspace)
+		if err != nil {
+			WriteError(w, http.StatusBadRequest, errCodeInvalidRequest, err.Error())
+			return
+		}
+		session.Workspace = resolved
+		session.WorkspaceBranch = workspaceGitBranch(resolved)
+	}
+	if strings.TrimSpace(session.Workspace) == "" {
+		WriteError(w, http.StatusBadRequest, errCodeInvalidRequest, "workspace is required for Hecate Agent chat")
+		return
+	}
+	if provider := strings.TrimSpace(req.Provider); provider != "" {
+		session.Provider = provider
+	}
+	if model := strings.TrimSpace(req.Model); model != "" {
+		session.Model = model
+		session.Capabilities = types.ModelCapabilities{}
+	}
 	caps := session.Capabilities
 	if !modelcaps.ToolCapable(caps) {
 		resolved, err := h.resolveModelCapabilities(r.Context(), session.Provider, session.Model)
@@ -116,7 +139,8 @@ func (h *Handler) handleCreateHecateAgentChatMessage(w http.ResponseWriter, r *h
 	}
 	h.agentChatLive.publishSession(updated)
 
-	task, run, err := h.startOrContinueHecateAgentRun(runCtx, session, content)
+	forceNewTask := shouldStartNewHecateAgentSegment(session)
+	task, run, err := h.startOrContinueHecateAgentRun(runCtx, session, content, forceNewTask)
 	if err != nil {
 		h.finishHecateAgentMessage(r.Context(), session.ID, assistantID, "failed", "", err.Error(), startedAt, time.Now().UTC(), nil)
 		WriteError(w, http.StatusInternalServerError, errCodeGatewayError, err.Error())
@@ -155,11 +179,14 @@ func (h *Handler) handleCreateHecateAgentChatMessage(w http.ResponseWriter, r *h
 		h.agentChatLive.publishSession(updated)
 	}
 	updated, err = h.agentChat.UpdateSession(r.Context(), session.ID, func(item *agentchat.Session) {
+		item.RuntimeKind = "hecate_agent"
 		item.TaskID = task.ID
 		item.LatestRunID = run.ID
 		item.Provider = session.Provider
 		item.Model = session.Model
 		item.Capabilities = caps
+		item.Workspace = session.Workspace
+		item.WorkspaceBranch = session.WorkspaceBranch
 	})
 	if err != nil {
 		WriteError(w, http.StatusInternalServerError, errCodeGatewayError, err.Error())
@@ -256,11 +283,25 @@ func (h *Handler) hecateAgentSessionBusy(ctx context.Context, session agentchat.
 	return !types.IsTerminalTaskRunStatus(run.Status), run.Status
 }
 
-func (h *Handler) startOrContinueHecateAgentRun(ctx context.Context, session agentchat.Session, prompt string) (types.Task, types.TaskRun, error) {
+func shouldStartNewHecateAgentSegment(session agentchat.Session) bool {
+	if session.TaskID == "" {
+		return true
+	}
+	for i := len(session.Messages) - 1; i >= 0; i-- {
+		message := session.Messages[i]
+		if strings.TrimSpace(message.Content) == "" && message.Role == "assistant" {
+			continue
+		}
+		return message.RuntimeKind != "hecate_agent"
+	}
+	return false
+}
+
+func (h *Handler) startOrContinueHecateAgentRun(ctx context.Context, session agentchat.Session, prompt string, forceNewTask bool) (types.Task, types.TaskRun, error) {
 	if h.taskStore == nil || h.taskRunner == nil {
 		return types.Task{}, types.TaskRun{}, fmt.Errorf("task runtime is not configured")
 	}
-	if session.TaskID == "" {
+	if session.TaskID == "" || forceNewTask {
 		now := time.Now().UTC()
 		title := strings.TrimSpace(session.Title)
 		if title == "" {

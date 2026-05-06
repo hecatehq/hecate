@@ -246,7 +246,7 @@ export type AgentAdapterResponse = {
 export type AgentChatSessionSummaryRecord = {
   id: string;
   title: string;
-  runtime_kind?: "external_agent" | "hecate_agent" | string;
+  runtime_kind?: "external_agent" | "hecate_agent" | "model" | string;
   adapter_id?: string;
   driver_kind?: string;
   native_session_id?: string;
@@ -319,7 +319,7 @@ export type AgentChatActivityRecord = {
 export type AgentChatSessionRecord = {
   id: string;
   title: string;
-  runtime_kind?: "external_agent" | "hecate_agent" | string;
+  runtime_kind?: "external_agent" | "hecate_agent" | "model" | string;
   adapter_id?: string;
   driver_kind?: string;
   native_session_id?: string;

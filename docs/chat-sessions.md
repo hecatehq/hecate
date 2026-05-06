@@ -1,26 +1,38 @@
 # Chat sessions
 
-Hecate's chat-session subsystem stores direct model conversations against the gateway. It is *not* the agent runtime (see [agent-runtime.md](agent-runtime.md) for the `agent_loop` execution kind, which uses the word "turn" for a different concept). A model chat session is a flat append-only conversation with parallel observability records — the operator UI's Model target uses it; SDK clients hitting `/v1/chat/completions` with a `session_id` use it; the MCP `list_chat_sessions` tool surfaces it.
+Hecate has two chat persistence surfaces today. The legacy
+`/v1/chat/sessions` subsystem stores SDK-style direct model conversations
+against the gateway. It is *not* the agent runtime (see
+[agent-runtime.md](agent-runtime.md) for the `agent_loop` execution kind, which
+uses the word "turn" for a different concept). SDK clients hitting
+`/v1/chat/completions` with a `session_id` use this store; the MCP
+`list_chat_sessions` tool surfaces it.
 
 The Chats workspace has two top-level targets: **Hecate Chat** and
 **External Agent**. Hecate Chat covers both direct model chat and
 Hecate-owned agent execution: the tools toggle decides whether a prompt stays
 as a direct provider/model turn or enters the native agent task runtime.
 
-Tool-enabled Hecate Chat and External Agent use **Agent Chat** sessions under
-`/v1/agent-chat/sessions`. Those are separate records because they point at a
-runtime, not just provider calls:
+The operator UI's **Hecate Chat** target now uses **Agent Chat** sessions under
+`/v1/agent-chat/sessions` for both tools-off direct model turns and tools-on
+Hecate Agent turns. Those records can point at a runtime when tools are enabled,
+but they can also store direct model segments:
 
+- **Model** segments call the gateway/router directly and store user/assistant
+  messages with `runtime_kind="model"`. They do not create Tasks.
 - **Hecate Agent** sessions map one chat session to one visible
-  `agent_loop` task. The first prompt creates the task; follow-up prompts
-  continue the latest terminal run on that same task. Chats projects the
-  backing run activity into the transcript, links each assistant turn back to
-  its backing Task/run, and can approve/reject pending task approvals inline,
-  while Tasks remains the canonical run/artifact view.
+  `agent_loop` task-backed segment. The first tool-enabled prompt creates the
+  task; follow-up prompts continue the latest terminal run when the previous
+  segment was also Hecate Agent. If tools are re-enabled after a direct model
+  segment, Hecate creates a new task-backed segment in the same transcript.
+  Chats projects the backing run activity into the transcript, links each
+  assistant turn back to its backing Task/run, and can approve/reject pending
+  task approvals inline, while Tasks remains the canonical run/artifact view.
 - **External Agent** sessions map one chat session to one supervised adapter
   session such as Codex, Claude Code, or Cursor Agent.
 
-This document covers the direct Model target. The Agent Chat API shape is in
+The rest of this document covers the legacy `/v1/chat/sessions` storage model.
+The Agent Chat API shape used by the operator UI is in
 [`runtime-api.md`](runtime-api.md#get-v1agent-chatsessions), and external
 adapter behavior is in [`external-agent-adapters.md`](external-agent-adapters.md).
 

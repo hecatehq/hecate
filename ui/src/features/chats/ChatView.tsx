@@ -98,17 +98,17 @@ export function ChatView({ state, actions, onNavigate, onOpenTask }: Props) {
   const userScrolledRef = useRef(false);
 
   const isHecateChat = state.chatTarget === "hecate_agent" || state.chatTarget === "model";
-  const isAgentChat = state.chatTarget === "hecate_agent" || state.chatTarget === "external_agent";
+  const isAgentChat = isHecateChat || state.chatTarget === "external_agent";
   const isHecateAgentChat = state.chatTarget === "hecate_agent";
   const isExternalAgentChat = state.chatTarget === "external_agent";
   const sessions: SidebarSession[] = isAgentChat
-    ? (state.agentChatSessions ?? []).map((s) => ({
+      ? (state.agentChatSessions ?? []).map((s) => ({
         id: s.id,
         title: s.title,
         message_count: s.message_count,
         provider_call_count: 0,
-        last_provider: s.runtime_kind === "hecate_agent" ? s.provider : s.adapter_id,
-        last_model: s.runtime_kind === "hecate_agent" ? s.model : s.status,
+        last_provider: s.runtime_kind === "external_agent" || s.adapter_id ? s.adapter_id : s.provider,
+        last_model: s.runtime_kind === "external_agent" || s.adapter_id ? s.status : s.model,
         created_at: s.created_at,
         updated_at: s.updated_at,
       }))
@@ -599,7 +599,7 @@ export function ChatView({ state, actions, onNavigate, onOpenTask }: Props) {
           <span style={{ fontSize: 13, fontWeight: 500, color: "var(--t0)", flex: 1, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>
             {activeTitle || (sessions.length === 0 ? "New chat" : "Select a chat")}
           </span>
-          {isAgentChat && state.activeAgentChatSession?.runtime_kind !== "hecate_agent" && (
+          {isExternalAgentChat && (
             <span
               title={formatAgentSessionTitle(state.activeAgentChatSession, selectedAgent)}
               style={{ flexShrink: 0, fontFamily: "var(--font-mono)", fontSize: 10, color: "var(--t3)", maxWidth: 260, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}
@@ -1041,9 +1041,9 @@ export function ChatView({ state, actions, onNavigate, onOpenTask }: Props) {
             {isAgentChat && streaming ? (
               <button type="button"
                 className="btn btn-danger"
-                aria-label="Stop agent"
+                aria-label={isExternalAgentChat || isHecateAgentChat ? "Stop agent" : "Stop response"}
                 disabled={state.agentChatCancelling}
-                title={state.agentChatCancelling ? "Stopping agent..." : "Stop agent"}
+                title={state.agentChatCancelling ? "Stopping..." : (isExternalAgentChat || isHecateAgentChat ? "Stop agent" : "Stop response")}
                 onClick={actions.cancelAgentChat}
                 style={{
                   position: "absolute", right: 8, top: "50%", transform: "translateY(-50%)",
@@ -1072,7 +1072,7 @@ export function ChatView({ state, actions, onNavigate, onOpenTask }: Props) {
           </div>
           {isAgentChat && state.agentChatCancelling && (
             <div style={{ maxWidth: 820, margin: "6px auto 0", color: "var(--t3)", fontFamily: "var(--font-mono)", fontSize: 11 }}>
-              Stopping agent...
+              Stopping...
             </div>
           )}
           <div style={{ maxWidth: 820, margin: "3px auto 0", display: "flex", alignItems: "center", gap: 10, justifyContent: "space-between" }}>

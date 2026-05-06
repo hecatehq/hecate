@@ -21,6 +21,40 @@ function setup(stateOverrides = {}, actionOverrides = {}) {
     ],
     ...stateOverrides,
   });
+  if (state.chatTarget === "model") {
+    if ((state.agentChatSessions ?? []).length === 0 && (state.chatSessions ?? []).length > 0) {
+      state.agentChatSessions = state.chatSessions.map((session: any) => ({
+        id: session.id,
+        title: session.title,
+        runtime_kind: "model" as const,
+        workspace: "",
+        provider: session.last_provider,
+        model: session.last_model,
+        status: "completed",
+        message_count: session.message_count,
+        created_at: session.created_at,
+        updated_at: session.updated_at,
+      }));
+    }
+    if (!state.activeAgentChatSession && state.activeChatSession) {
+      state.activeAgentChatSession = {
+        id: state.activeChatSession.id,
+        title: state.activeChatSession.title,
+        runtime_kind: "model",
+        status: "completed",
+        messages: (state.activeChatSession.messages ?? []).map((message: any) => ({
+          id: message.id,
+          role: message.role,
+          content: message.content,
+          created_at: message.created_at,
+          runtime_kind: "model",
+        })),
+      } as any;
+    }
+    if (!state.activeAgentChatSessionID && state.activeChatSessionID) {
+      state.activeAgentChatSessionID = state.activeChatSessionID;
+    }
+  }
   const actions = { ...createRuntimeConsoleActions(), ...actionOverrides };
   return { state, actions };
 }
@@ -407,7 +441,7 @@ describe("ChatView input", () => {
     render(<ChatView state={state} actions={actions} />);
     expect(screen.getByText("Nothing runnable yet")).toBeTruthy();
     expect(screen.getByRole("button", { name: /Add provider/i })).toBeTruthy();
-    expect(screen.getByRole("button", { name: /Use agent/i })).toBeTruthy();
+    expect(screen.getByRole("button", { name: /External Agent/i })).toBeTruthy();
     expect(screen.queryByRole("textbox", { name: "Message" })).toBeNull();
     expect(screen.queryByRole("button", { name: "Send message" })).toBeNull();
   });
@@ -1334,8 +1368,8 @@ describe("ChatView external-agent target", () => {
 
     const stop = screen.getByRole("button", { name: "Stop agent" }) as HTMLButtonElement;
     expect(stop.disabled).toBe(true);
-    expect(stop.title).toBe("Stopping agent...");
-    expect(screen.getByText("Stopping agent...")).toBeTruthy();
+    expect(stop.title).toBe("Stopping...");
+    expect(screen.getByText("Stopping...")).toBeTruthy();
   });
 
   it("renders failed agent runs as an error notice with raw diagnostics separate", () => {
@@ -1594,7 +1628,7 @@ describe("ChatView session focus", () => {
 });
 
 describe("ChatView history pagination", () => {
-  it("shows an explicit load-earlier action for model chat history", async () => {
+  it("does not show the legacy model-history pagination action for unified Hecate Chat", () => {
     const loadMoreChatSessions = vi.fn(async () => undefined);
     const { state, actions } = setup({
       chatTarget: "model",
@@ -1605,12 +1639,11 @@ describe("ChatView history pagination", () => {
     }, { loadMoreChatSessions });
     render(<ChatView state={state} actions={actions} />);
 
-    const user = userEvent.setup();
-    await user.click(screen.getByRole("button", { name: "Load earlier chats" }));
-    expect(loadMoreChatSessions).toHaveBeenCalled();
+    expect(screen.queryByRole("button", { name: "Load earlier chats" })).toBeNull();
+    expect(loadMoreChatSessions).not.toHaveBeenCalled();
   });
 
-  it("keeps a load-earlier action available while searching model chat history", async () => {
+  it("does not show the legacy search pagination action for unified Hecate Chat", async () => {
     const loadMoreChatSessions = vi.fn(async () => undefined);
     const { state, actions } = setup({
       chatTarget: "model",
@@ -1623,8 +1656,8 @@ describe("ChatView history pagination", () => {
 
     const user = userEvent.setup();
     await user.type(screen.getByRole("textbox", { name: "Search chats" }), "older match");
-    await user.click(screen.getByRole("button", { name: "Search earlier chats" }));
-    expect(loadMoreChatSessions).toHaveBeenCalled();
+    expect(screen.queryByRole("button", { name: "Search earlier chats" })).toBeNull();
+    expect(loadMoreChatSessions).not.toHaveBeenCalled();
   });
 });
 

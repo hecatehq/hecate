@@ -133,11 +133,20 @@ export type CreateChatSessionPayload = {
 
 export type CreateAgentChatSessionPayload = {
   title?: string;
-  runtime_kind?: "external_agent" | "hecate_agent";
+  runtime_kind?: "external_agent" | "hecate_agent" | "model";
   adapter_id?: string;
   provider?: string;
   model?: string;
-  workspace: string;
+  workspace?: string;
+};
+
+export type CreateAgentChatMessagePayload = {
+  content: string;
+  runtime_kind?: "external_agent" | "hecate_agent" | "model";
+  provider?: string;
+  model?: string;
+  system_prompt?: string;
+  workspace?: string;
 };
 
 export type CreateTaskPayload = {
@@ -321,8 +330,9 @@ export async function cancelAgentChatSession(id: string): Promise<AgentChatSessi
   return fetchJSON<AgentChatSessionResponse>(`/v1/agent-chat/sessions/${encodeURIComponent(id)}/cancel`, { method: "POST", body: {} });
 }
 
-export async function createAgentChatMessage(id: string, content: string): Promise<AgentChatSessionResponse> {
-  return fetchJSON<AgentChatSessionResponse>(`/v1/agent-chat/sessions/${encodeURIComponent(id)}/messages`, { method: "POST", body: { content } });
+export async function createAgentChatMessage(id: string, payload: string | CreateAgentChatMessagePayload): Promise<AgentChatSessionResponse> {
+  const body = typeof payload === "string" ? { content: payload } : payload;
+  return fetchJSON<AgentChatSessionResponse>(`/v1/agent-chat/sessions/${encodeURIComponent(id)}/messages`, { method: "POST", body });
 }
 
 export async function listAgentChatMessageFiles(sessionID: string, messageID: string): Promise<AgentChatChangedFilesResponse> {
