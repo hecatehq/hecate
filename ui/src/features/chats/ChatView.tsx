@@ -14,8 +14,9 @@ import { AddProviderModal } from "../providers/AddProviderModal";
 type Props = {
   state: RuntimeConsoleViewModel["state"];
   actions: RuntimeConsoleViewModel["actions"];
-  onNavigate?: (workspace: "providers" | "runs") => void;
+  onNavigate?: (workspace: "providers" | "runs" | "overview") => void;
   onOpenTask?: (taskID: string, runID?: string) => void;
+  onOpenTrace?: (requestID: string) => void;
 };
 
 type VisibleChatMessage = {
@@ -24,6 +25,7 @@ type VisibleChatMessage = {
   segment_id?: string;
   task_id?: string;
   run_id?: string;
+  request_id?: string;
   trace_id?: string;
   native_session_id?: string;
   role: string;
@@ -69,7 +71,7 @@ type HecateTaskApproval = {
   createdAt?: string;
 };
 
-export function ChatView({ state, actions, onNavigate, onOpenTask }: Props) {
+export function ChatView({ state, actions, onNavigate, onOpenTask, onOpenTrace }: Props) {
   const [sidebarOpen, setSidebarOpen] = useState(true);
   const [syspromptOpen, setSyspromptOpen] = useState(false);
   // approvalModalID is the per-banner-click open state for the
@@ -132,6 +134,7 @@ export function ChatView({ state, actions, onNavigate, onOpenTask }: Props) {
         segment_id: m.segment_id,
         task_id: m.task_id,
         run_id: m.run_id,
+        request_id: m.request_id,
         trace_id: m.trace_id,
         native_session_id: m.native_session_id,
         role: m.role,
@@ -891,10 +894,12 @@ export function ChatView({ state, actions, onNavigate, onOpenTask }: Props) {
               ? (m.model || state.activeAgentChatSession?.model || "Hecate Agent")
               : (m.agent_adapter_name || m.agent_adapter_id);
             const agentRuntime = isAgentChat && role === "assistant"
-              ? formatAgentRuntimeMeta(m.run_id, m.duration_ms, m.trace_id, m.native_session_id)
+              ? formatAgentRuntimeMeta(m.run_id, m.duration_ms, m.native_session_id)
               : "";
             const taskID = m.runtime_kind === "agent" ? m.task_id : "";
             const taskRunID = taskID ? m.run_id : "";
+            const traceRequestID = isAgentChat ? m.request_id : call?.request_id;
+            const traceID = isAgentChat ? m.trace_id : undefined;
             return (
               <TranscriptMessageRow
                 key={item.key}
@@ -916,6 +921,16 @@ export function ChatView({ state, actions, onNavigate, onOpenTask }: Props) {
                         if (!taskID) return;
                         if (onOpenTask) onOpenTask(taskID, taskRunID);
                         else onNavigate?.("runs");
+                      },
+                    }
+                  : undefined}
+                traceLink={role === "assistant" && traceRequestID
+                  ? {
+                      label: formatTraceLinkLabel(traceRequestID),
+                      title: formatTraceLinkTitle(traceRequestID, traceID),
+                      onClick: () => {
+                        if (onOpenTrace) onOpenTrace(traceRequestID);
+                        else onNavigate?.("overview");
                       },
                     }
                   : undefined}
@@ -1475,13 +1490,24 @@ function isResolvedTaskApprovalStatus(status: string): boolean {
 }
 
 function formatTaskLinkLabel(taskID: string): string {
-  return `task ${taskID.slice(0, 12)}`;
+  return `Task ${taskID.slice(0, 12)}`;
 }
 
 function formatTaskLinkTitle(taskID: string, runID?: string): string {
   return [
     `Open backing task ${taskID}`,
     runID ? `run ${runID}` : "",
+  ].filter(Boolean).join(" · ");
+}
+
+function formatTraceLinkLabel(requestID: string): string {
+  return `Trace ${requestID.slice(0, 8)}`;
+}
+
+function formatTraceLinkTitle(requestID: string, traceID?: string): string {
+  return [
+    `Open trace for request ${requestID}`,
+    traceID ? `trace ${traceID}` : "",
   ].filter(Boolean).join(" · ");
 }
 
@@ -2300,16 +2326,13 @@ function formatAgentSessionTitle(session: AgentChatSessionRecord | null, adapter
   return parts.join(" ");
 }
 
-function formatAgentRuntimeMeta(runID?: string, durationMS?: number, traceID?: string, nativeSessionID?: string): string {
+function formatAgentRuntimeMeta(runID?: string, durationMS?: number, nativeSessionID?: string): string {
   const parts: string[] = [];
   if (nativeSessionID) {
     parts.push(`ACP ${nativeSessionID.slice(0, 12)}`);
   }
   if (runID) {
-    parts.push(`run ${runID.slice(0, 12)}`);
-  }
-  if (traceID) {
-    parts.push(`trace ${traceID.slice(0, 8)}`);
+    parts.push(`Run ${runID.slice(0, 12)}`);
   }
   if (durationMS && durationMS > 0) {
     parts.push(formatDuration(durationMS));

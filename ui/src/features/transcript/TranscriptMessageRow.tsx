@@ -7,11 +7,12 @@ import { TranscriptActivityTimeline } from "./TranscriptActivityTimeline";
 import { TranscriptDiffReview } from "./TranscriptDiffReview";
 import { TranscriptMarkdown } from "./TranscriptMarkdown";
 
-export function TranscriptMessageRow({ id, role, model, content, time, promptTokens, completionTokens, costUsd, badge, runtimeMeta, taskLink, activities, diffStat, diff, agentSessionID, onListAgentFiles, onGetAgentFileDiff, onRevertAgentFiles, rawOutput, agentUsage, agentTiming, error, onCopy, copied }: {
+export function TranscriptMessageRow({ id, role, model, content, time, promptTokens, completionTokens, costUsd, badge, runtimeMeta, taskLink, traceLink, activities, diffStat, diff, agentSessionID, onListAgentFiles, onGetAgentFileDiff, onRevertAgentFiles, rawOutput, agentUsage, agentTiming, error, onCopy, copied }: {
   id: string; role: "user" | "assistant"; model?: string; content: string;
   time: string; promptTokens?: number; completionTokens?: number; costUsd?: string;
   badge?: string; runtimeMeta?: string; agentSessionID?: string;
   taskLink?: { label: string; title?: string; onClick: () => void };
+  traceLink?: { label: string; title?: string; onClick: () => void };
   activities?: AgentChatActivityRecord[]; diffStat?: string; diff?: string;
   onListAgentFiles?: (sessionID: string, messageID: string) => Promise<AgentChatChangedFileRecord[]>;
   onGetAgentFileDiff?: (sessionID: string, messageID: string, path: string) => Promise<AgentChatChangedFileDiffRecord | null>;
@@ -47,7 +48,7 @@ export function TranscriptMessageRow({ id, role, model, content, time, promptTok
           </span>
         </div>
         <div style={{ flex: 1, minWidth: 0 }}>
-          <div style={{ display: "flex", alignItems: "center", gap: 8, marginBottom: 5 }}>
+          <div style={{ display: "flex", alignItems: "center", flexWrap: "wrap", gap: "5px 8px", marginBottom: 5 }}>
             {isAssistant
               ? <span style={{ fontFamily: "var(--font-mono)", fontSize: 11, color: "var(--teal)" }}>{model || "hecate"}</span>
               : <span style={{ fontSize: 11, color: "var(--t2)", fontWeight: 500 }}>You</span>
@@ -62,25 +63,14 @@ export function TranscriptMessageRow({ id, role, model, content, time, promptTok
             {isAssistant && badge && (
               <span className="badge badge-muted" style={{ fontSize: 10 }}>{badge}</span>
             )}
+            {isAssistant && taskLink && (
+              <HeaderMetaButton label={taskLink.label} title={taskLink.title} onClick={taskLink.onClick} />
+            )}
+            {isAssistant && traceLink && (
+              <HeaderMetaButton label={traceLink.label} title={traceLink.title} onClick={traceLink.onClick} />
+            )}
             {isAssistant && runtimeMeta && (
               <span style={{ fontSize: 10, color: "var(--t3)", fontFamily: "var(--font-mono)" }}>{runtimeMeta}</span>
-            )}
-            {isAssistant && taskLink && (
-              <button
-                type="button"
-                className="btn btn-ghost btn-sm"
-                onClick={taskLink.onClick}
-                title={taskLink.title}
-                aria-label={`Open ${taskLink.label}`}
-                style={{
-                  fontFamily: "var(--font-mono)",
-                  fontSize: 10,
-                  padding: "1px 5px",
-                  color: "var(--t2)",
-                }}
-              >
-                {taskLink.label}
-              </button>
             )}
             <div style={{ marginLeft: "auto", display: "flex", gap: 4, opacity: hovered ? 1 : 0, transition: "opacity 0.15s" }}>
               <button className="btn btn-ghost btn-sm" style={{ padding: "2px 6px", gap: 4 }}
@@ -134,6 +124,36 @@ export function TranscriptMessageRow({ id, role, model, content, time, promptTok
         </div>
       </div>
     </div>
+  );
+}
+
+function HeaderMetaButton({
+  label,
+  title,
+  onClick,
+}: {
+  label: string;
+  title?: string;
+  onClick: () => void;
+}) {
+  return (
+    <button
+      type="button"
+      className="btn btn-ghost btn-sm"
+      onClick={onClick}
+      title={title}
+      aria-label={`Open ${label}`}
+      style={{
+        borderColor: "var(--border)",
+        color: "var(--t2)",
+        fontFamily: "var(--font-mono)",
+        fontSize: 10,
+        gap: 4,
+        padding: "1px 6px",
+      }}
+    >
+      {label}
+    </button>
   );
 }
 

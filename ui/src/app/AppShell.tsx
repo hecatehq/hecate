@@ -21,6 +21,7 @@ type WorkspaceDefinition = {
 type ConsoleState = RuntimeConsoleViewModel["state"];
 type ConsoleActions = RuntimeConsoleViewModel["actions"];
 type TaskFocusRequest = { taskID: string; runID?: string; nonce: number };
+type TraceFocusRequest = { requestID: string; nonce: number };
 
 // Icon paths match the design handoff
 const IC = {
@@ -133,6 +134,7 @@ function AuthenticatedShell({
 }) {
   const workspaces = getAvailableWorkspaces();
   const [taskFocusRequest, setTaskFocusRequest] = useState<TaskFocusRequest | null>(null);
+  const [traceFocusRequest, setTraceFocusRequest] = useState<TraceFocusRequest | null>(null);
 
   function openTaskFromChat(taskID: string, runID?: string) {
     setTaskFocusRequest({ taskID, runID, nonce: Date.now() });
@@ -143,6 +145,11 @@ function AuthenticatedShell({
     actions.setChatTarget("agent");
     void actions.selectChatSession(sessionID);
     onSelectWorkspace("chats");
+  }
+
+  function openTraceFromChat(requestID: string) {
+    setTraceFocusRequest({ requestID, nonce: Date.now() });
+    onSelectWorkspace("overview");
   }
 
   useEffect(() => {
@@ -185,8 +192,8 @@ function AuthenticatedShell({
         <main className="hecate-content">
           {state.error && <div className="page-banner page-banner--error">{state.error}</div>}
           <div className={`console-content${isBare ? " console-content--bare" : ""}`}>
-            {activeWorkspace === "overview"   && <ObservabilityView actions={actions} state={state} onNavigate={onSelectWorkspace} />}
-            {activeWorkspace === "chats" && <ChatView actions={actions} state={state} onNavigate={onSelectWorkspace} onOpenTask={openTaskFromChat} />}
+            {activeWorkspace === "overview"   && <ObservabilityView actions={actions} state={state} onNavigate={onSelectWorkspace} focusRequest={traceFocusRequest} />}
+            {activeWorkspace === "chats" && <ChatView actions={actions} state={state} onNavigate={onSelectWorkspace} onOpenTask={openTaskFromChat} onOpenTrace={openTraceFromChat} />}
             {activeWorkspace === "runs"          && <TasksView focusRequest={taskFocusRequest} onOpenAgentChat={openAgentChatFromTask} />}
             {activeWorkspace === "providers"     && <ProvidersView actions={actions} state={state} />}
             {activeWorkspace === "costs"         && <CostsView actions={actions} state={state} />}

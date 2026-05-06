@@ -135,7 +135,10 @@ The shared renderer intentionally separates signal from bookkeeping. High-level
 activity stays visible in chronological order; raw task artifacts and internal
 markers are grouped under **Details**. Task Detail opens that activity section
 by default because it is a run-inspection view. Chats keeps it quieter so the
-conversation remains the primary surface.
+conversation remains the primary surface. Task Detail may additionally expose a
+per-row **Advanced** disclosure with raw activity metadata for debugging:
+activity id/type/status, step/artifact/approval ids, tool kind, path, timestamp,
+and summary payload.
 
 ## Output and stderr in the UI
 

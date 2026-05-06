@@ -189,7 +189,9 @@ artifacts. Activity item types include `thinking`, `tool_call`, `patch`,
 activities carry `approval_id` and `needs_action` when a user decision is
 pending. The operator UI uses this same array in both Task Detail and Hecate
 Chat transcript projections; clients should treat it as the compact timeline
-surface and use raw steps/artifacts/events only for deeper inspection.
+surface and use raw steps/artifacts/events only for deeper inspection. Task
+Detail may expose the raw `TaskActivityItem` fields behind an advanced
+disclosure, but Chats should favor the compact projection.
 
 ### Public events feed
 

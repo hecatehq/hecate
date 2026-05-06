@@ -841,13 +841,84 @@ function StepRowTitle({ step }: { step: TaskStepRecord }) {
 }
 
 function RuntimeActivity({ activity }: { activity: TaskActivityRecord[] }) {
+  const activityByID = new Map(activity.map(item => [item.id, item]));
   const rows = activity.slice(-12).map(taskActivityToTranscriptActivity);
   return (
     <div style={{ padding: "12px 16px", borderBottom: "1px solid var(--border)" }}>
       <div className="kicker" style={{ marginBottom: 8 }}>Runtime activity</div>
-      <TranscriptActivityTimeline activities={rows} defaultOpen />
+      <TranscriptActivityTimeline
+        activities={rows}
+        defaultOpen
+        renderAdvancedActivity={(item) => item.id
+          ? <TaskActivityAdvancedDetails activity={activityByID.get(item.id)} />
+          : null}
+      />
     </div>
   );
+}
+
+function TaskActivityAdvancedDetails({ activity }: { activity?: TaskActivityRecord }) {
+  if (!activity) return null;
+  const rows = taskActivityAdvancedRows(activity);
+  if (rows.length === 0) return null;
+
+  return (
+    <div style={{ display: "grid", gap: 5 }}>
+      {rows.map(row => (
+        <div
+          key={row.label}
+          style={{
+            display: "grid",
+            gridTemplateColumns: "92px minmax(0, 1fr)",
+            gap: 8,
+            alignItems: "baseline",
+          }}
+        >
+          <span style={{ color: "var(--t3)", fontFamily: "var(--font-mono)", fontSize: 10 }}>
+            {row.label}
+          </span>
+          <span style={{
+            color: "var(--t1)",
+            fontFamily: "var(--font-mono)",
+            fontSize: 10,
+            overflowWrap: "anywhere",
+            whiteSpace: row.multiline ? "pre-wrap" : "normal",
+          }}>
+            {row.value}
+          </span>
+        </div>
+      ))}
+    </div>
+  );
+}
+
+function taskActivityAdvancedRows(activity: TaskActivityRecord): Array<{ label: string; value: string; multiline?: boolean }> {
+  const rows: Array<{ label: string; value: string; multiline?: boolean }> = [
+    ["type", activity.type],
+    ["status", activity.status],
+    ["occurred", activity.occurred_at],
+    ["activity", activity.id],
+    ["step", activity.step_id],
+    ["artifact", activity.artifact_id],
+    ["approval", activity.approval_id],
+    ["tool", activity.tool_name],
+    ["kind", activity.kind],
+    ["path", activity.path],
+    ["needs action", activity.needs_action ? "yes" : ""],
+    ["terminal", activity.terminal ? "yes" : ""],
+  ]
+    .filter((row): row is [string, string] => Boolean(row[1]))
+    .map(([label, value]) => ({ label, value }));
+
+  if (activity.summary && Object.keys(activity.summary).length > 0) {
+    rows.push({
+      label: "summary",
+      value: JSON.stringify(activity.summary, null, 2),
+      multiline: true,
+    });
+  }
+
+  return rows;
 }
 
 function taskActivityToTranscriptActivity(item: TaskActivityRecord): AgentChatActivityRecord {

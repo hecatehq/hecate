@@ -245,10 +245,19 @@ describe("TaskDetail runtime activity and patches", () => {
     expect(screen.getByText("main.go.patch")).toBeTruthy();
   });
 
-  it("uses the shared transcript activity labels and Details grouping", () => {
-    const { render } = setup({
+  it("uses the shared transcript activity labels and Details grouping", async () => {
+    const { render, user } = setup({
       activity: [
-        makeActivity({ id: "activity-tool", type: "tool_call", title: "git_exec", tool_name: "git_exec", kind: "git", status: "completed" }),
+        makeActivity({
+          id: "activity-tool",
+          type: "tool_call",
+          title: "git_exec",
+          step_id: "step-git",
+          tool_name: "git_exec",
+          kind: "git",
+          status: "completed",
+          summary: { command: "git status" },
+        }),
         makeActivity({ id: "activity-files", type: "changed_files", title: "git-changes.json", path: "git-changes.json", status: "ready" }),
         makeActivity({ id: "activity-final", type: "final_answer", title: "agent-final-answer.txt", path: "agent-final-answer.txt", status: "ready" }),
       ],
@@ -258,9 +267,13 @@ describe("TaskDetail runtime activity and patches", () => {
     expect(screen.getByText("Ran git")).toBeTruthy();
     expect(screen.getByText("Details · 2 items")).toBeTruthy();
     expect(screen.getByText("Changed files")).toBeTruthy();
-    expect(screen.getByText("git-changes.json")).toBeTruthy();
+    expect(screen.getAllByText("git-changes.json").length).toBeGreaterThan(0);
     expect(screen.getByText("Final answer artifact")).toBeTruthy();
-    expect(screen.getByText("agent-final-answer.txt")).toBeTruthy();
+    expect(screen.getAllByText("agent-final-answer.txt").length).toBeGreaterThan(0);
+
+    await user.click(screen.getAllByText("Advanced")[0]);
+    expect(screen.getByText("step-git")).toBeTruthy();
+    expect(screen.getByText(/git status/)).toBeTruthy();
   });
 
   it("calls onApplyPatch for proposed patch artifacts", async () => {

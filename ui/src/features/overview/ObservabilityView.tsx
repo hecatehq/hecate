@@ -26,6 +26,7 @@ type Props = {
   // AppShell wires it to onSelectWorkspace; in tests it's omitted and
   // the button no-ops.
   onNavigate?: (workspace: "chats" | "providers" | "runs" | "overview" | "costs" | "settings") => void;
+  focusRequest?: { requestID: string; nonce: number } | null;
 };
 
 // 900px chosen because at narrower widths the inline split between
@@ -153,7 +154,7 @@ function CopyableID({ text }: { text: string }) {
   );
 }
 
-export function ObservabilityView({ state, onNavigate }: Props) {
+export function ObservabilityView({ state, onNavigate, focusRequest }: Props) {
   const [runtimeStats, setRuntimeStats] = useState<RuntimeStatsResponse["data"] | null>(null);
   const [mcpCacheStats, setMCPCacheStats] = useState<MCPCacheStatsResponse["data"] | null>(null);
   const [traces, setTraces] = useState<TraceListItem[]>([]);
@@ -317,6 +318,13 @@ export function ObservabilityView({ state, onNavigate }: Props) {
     setExpandedSpanID(null);
     setPhaseFilter(null);
   };
+
+  useEffect(() => {
+    const requestID = focusRequest?.requestID?.trim();
+    if (!requestID) return;
+    openTraceForRow(requestID);
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [focusRequest?.nonce]);
 
   // The top region (header + stats + table) shrinks when the drawer is
   // open. Both regions flex to ~50% with internal scroll.
