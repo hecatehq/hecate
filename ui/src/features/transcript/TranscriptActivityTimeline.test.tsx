@@ -178,4 +178,32 @@ describe("TranscriptActivityTimeline", () => {
     expect(screen.queryByText("Run completed")).toBeNull();
     expect(screen.queryByText("git_exec - completed")).toBeNull();
   });
+
+  it("renders expanded activity rows in chronological order instead of grouping tools first", () => {
+    const activities: AgentChatActivityRecord[] = [
+      { type: "started", title: "Starting Hecate Agent", status: "running" },
+      { type: "task_run", title: "Backing task", status: "running", detail: "running · task_123 · run_456" },
+      { type: "thinking", title: "Agent turn 1", status: "completed", detail: "builtin.agent_loop_llm - completed" },
+      { type: "tool_call", title: "shell_exec", status: "completed", kind: "tool", detail: "shell_exec - completed" },
+    ];
+    render(<TranscriptActivityTimeline activities={activities} />);
+
+    const labels = screen.getAllByText(/Starting Hecate Agent|Backing task|Agent turn 1|shell_exec/)
+      .map(node => node.textContent);
+    expect(labels).toEqual(["Starting Hecate Agent", "Backing task", "Agent turn 1", "shell_exec"]);
+  });
+
+  it("keeps external-agent activity rows chronological too", () => {
+    const activities: AgentChatActivityRecord[] = [
+      { type: "started", title: "Starting external agent", status: "running" },
+      { type: "running", title: "Running", status: "running" },
+      { type: "plan", title: "Inspect the repository", status: "in_progress" },
+      { type: "tool_call", title: "git status", status: "completed", kind: "command" },
+    ];
+    render(<TranscriptActivityTimeline activities={activities} />);
+
+    const labels = screen.getAllByText(/Starting external agent|Running|Inspect the repository|git status/)
+      .map(node => node.textContent);
+    expect(labels).toEqual(["Starting external agent", "Running", "Inspect the repository", "git status"]);
+  });
 });
