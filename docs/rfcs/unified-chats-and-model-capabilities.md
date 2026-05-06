@@ -16,7 +16,7 @@ inside Hecate Chat as a tools-enabled mode:
 | UI surface | Runtime mode | Who owns execution |
 |---|---|---|
 | Hecate Chat, tools off | Model | A selected provider/model answers directly through the gateway. |
-| Hecate Chat, tools enabled | Hecate Agent | Hecate creates and continues a visible `agent_loop` task with Hecate tools, approvals, artifacts, and telemetry. |
+| Hecate Chat, tools on | Hecate Agent | Hecate creates and continues a visible `agent_loop` task with Hecate tools, approvals, artifacts, and telemetry. |
 | External Agent | External Agent | Codex, Claude Code, Cursor Agent, or another adapter owns the native session; Hecate supervises it. |
 
 Use **Hecate Agent** as the product name. "Model + tools" is only an
@@ -188,8 +188,9 @@ creation time. Profile edits should not silently rewrite historical sessions.
 
 For `runtime_kind="hecate_agent"` the first user message:
 
-1. Validates that the selected model is known tool-capable
-   (`tool_calling="basic"` or `"parallel"`).
+1. Validates that tools are not explicitly disabled for the selected model
+   (`tool_calling!="none"`). Unknown models are allowed by default for now;
+   Settings provides the operator-facing tools on/off switch.
 2. Applies the selected Hecate Agent profile.
 3. Creates a visible task with `execution_kind="agent_loop"`.
 4. Marks the task origin as `origin_kind="agent_chat"` and
@@ -212,7 +213,7 @@ message endpoint returns:
 
 The UI should point the operator to the active task/run or approval.
 
-If the selected model is not known tool-capable, the message endpoint returns:
+If tools are explicitly disabled for the selected model, the message endpoint returns:
 
 ```text
 422 agent_chat.model_capability_required
@@ -221,7 +222,7 @@ If the selected model is not known tool-capable, the message endpoint returns:
 The UI copy is:
 
 ```text
-This model has unknown or no tool-calling support. Test it or override capabilities in Settings.
+Tools are disabled for this model. Turn tools off for direct model chat or enable tools in Settings.
 ```
 
 ## Workspace Modes
@@ -300,8 +301,9 @@ Hecate Chat | External Agent
 
 - **tools off** — direct provider/model chat. It keeps today's route/cost/cache
   / trace metadata and model-chat persistence.
-- **tools enabled** — Hecate Agent. The selected provider/model enters
-  Hecate's native task runtime.
+- **tools on** — Hecate Agent. This is the default. The selected
+  provider/model enters Hecate's native task runtime unless the model is
+  explicitly marked "tools off" in Settings.
 
 ### Hecate Agent
 
@@ -312,13 +314,14 @@ Shows:
 - workspace selector
 - workspace mode selector
 - profile selector
-- capability badges
+- tools on/off switch
 - per-assistant-turn backing Task/run links
 - live run activity from task-run events
 - pending task approvals with Approve / Deny actions
 
-Send is disabled unless a workspace is selected and the selected model has
-`tool_calling="basic"` or `"parallel"`.
+Send is disabled unless a workspace is selected. If the selected model has
+`tool_calling="none"`, the tools-on send path is disabled and the operator can
+either turn tools off for direct model chat or enable tools in Settings.
 
 When a Hecate Agent task-backed segment is running, provider/model controls are
 locked to that segment's snapshot. Operators can turn tools off to use direct
@@ -370,9 +373,9 @@ Minimum coverage:
 - Hecate Agent follow-up continues the same task after the latest run is
   terminal.
 - Busy backing runs return `409 agent_chat.agent_session_busy`.
-- Missing tool capability returns `422 agent_chat.model_capability_required`.
+- Explicitly disabled tools return `422 agent_chat.model_capability_required`.
 - Memory/SQLite parity for capability records and new session fields.
-- UI target picker, capability badges, disabled Hecate Agent send state, and
+- UI target picker, tools on/off switches, disabled Hecate Agent send state, and
   task/run links.
 - Hecate Agent run activity projection from task-run SSE into Chats.
 - Hecate Agent task approval banner in Chats, including approve, reject, and a
@@ -390,7 +393,7 @@ Done in the core bridge:
 - target picker exposes Hecate Chat and External Agent, with a tools toggle
   inside Hecate Chat for direct model chat vs. Hecate Agent execution
 - Hecate Agent creates and continues visible `agent_loop` tasks
-- model capability snapshots gate Hecate Agent sends
+- model capability snapshots gate only explicitly disabled tools
 - manual probe records and operator overrides persist
 - chat sessions store task/run linkage
 - Tasks labels chat-origin tasks and links back to Chats; Hecate Agent

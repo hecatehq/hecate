@@ -89,13 +89,13 @@ describe("ChatView input", () => {
     const toolsGroup = screen.getByRole("group", { name: "Hecate tools" });
     expect(toolsGroup).toHaveStyle({ height: "30px" });
     expect(screen.getByRole("button", { name: /tools off/i })).toHaveStyle({ width: "76px" });
-    expect(screen.getByRole("button", { name: /tools: basic/i })).toHaveStyle({ width: "108px" });
+    expect(screen.getByRole("button", { name: /tools on/i })).toHaveStyle({ width: "76px" });
 
     const user = userEvent.setup();
     await user.click(screen.getByRole("button", { name: /tools off/i }));
     expect(setChatTarget).toHaveBeenCalledWith("model");
 
-    await user.click(screen.getByRole("button", { name: /tools: basic/i }));
+    await user.click(screen.getByRole("button", { name: /tools on/i }));
     expect(setChatTarget).toHaveBeenCalledWith("hecate_agent");
   });
 
@@ -446,7 +446,7 @@ describe("ChatView input", () => {
     expect(screen.queryByRole("button", { name: "Send message" })).toBeNull();
   });
 
-  it("enables Hecate Agent only for models with known tool support", () => {
+  it("enables Hecate Agent when tools are not explicitly disabled for the model", () => {
     const { state, actions } = setup({
       chatTarget: "hecate_agent",
       message: "inspect this repo",
@@ -474,7 +474,7 @@ describe("ChatView input", () => {
     });
     render(<ChatView state={state} actions={actions} />);
 
-    expect(screen.getByRole("button", { name: "tools: basic" })).toBeTruthy();
+    expect(screen.getByRole("button", { name: "tools on" })).toBeTruthy();
     expect(screen.getByText(/task approvals and per-call sandboxing/)).toBeTruthy();
     const send = document.querySelector("button[type='submit']") as HTMLButtonElement;
     expect(send.disabled).toBe(false);
@@ -589,7 +589,7 @@ describe("ChatView input", () => {
     expect(fixedProvider.disabled).toBe(true);
     expect(fixedModel.disabled).toBe(true);
     expect(screen.queryByText("smollm2:135m")).toBeNull();
-    expect(screen.queryByText(/Tool support is unknown for this model/)).toBeNull();
+    expect(screen.queryByText(/Tools are disabled for this model/)).toBeNull();
     const send = document.querySelector("button[type='submit']") as HTMLButtonElement;
     expect(send.disabled).toBe(false);
 
@@ -621,8 +621,7 @@ describe("ChatView input", () => {
     expect(screen.queryByText(/Hecate Agent runs through task approvals and per-call sandboxing/)).toBeNull();
   });
 
-  it("blocks Hecate Agent sends when tool capability is unknown", async () => {
-    const upsertModelCapabilityOverride = vi.fn(async () => true);
+  it("blocks Hecate Agent sends when tools are explicitly disabled for the model", () => {
     const { state, actions } = setup({
       chatTarget: "hecate_agent",
       message: "inspect this repo",
@@ -643,24 +642,17 @@ describe("ChatView input", () => {
           metadata: {
             provider: "ollama",
             provider_kind: "local",
-            capabilities: { tool_calling: "unknown", streaming: true, source: "provider" },
+            capabilities: { tool_calling: "none", streaming: true, source: "operator_override" },
           },
         },
       ],
-    }, { upsertModelCapabilityOverride });
+    });
     render(<ChatView state={state} actions={actions} />);
 
-    expect(screen.getByText("tools: unknown")).toBeTruthy();
-    expect(screen.getByText(/Tool support is unknown for this model/)).toBeTruthy();
+    expect(screen.getByRole("button", { name: "tools on" })).toBeTruthy();
+    expect(screen.getByText(/Tools are disabled for this model/)).toBeTruthy();
     const send = document.querySelector("button[type='submit']") as HTMLButtonElement;
     expect(send.disabled).toBe(true);
-
-    await userEvent.click(screen.getByRole("button", { name: "Mark tools supported" }));
-    expect(upsertModelCapabilityOverride).toHaveBeenCalledWith(expect.objectContaining({
-      provider: "ollama",
-      model: "llama3.1:8b",
-      tool_calling: "basic",
-    }));
   });
 
   it("opens the backing task from the Hecate Agent assistant turn, not the header", async () => {

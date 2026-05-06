@@ -70,20 +70,19 @@ describe("SettingsView model capabilities tab", () => {
 
     expect(await screen.findByTestId("model-capabilities-list")).toBeTruthy();
     expect(screen.getByText("qwen2.5-coder")).toBeTruthy();
-    expect(screen.getByText("tools unknown")).toBeTruthy();
-    expect(screen.getByText("tools parallel")).toBeTruthy();
+    expect(screen.getAllByText("tools on").length).toBeGreaterThanOrEqual(2);
   });
 
-  it("records a manual probe result for the selected provider/model", async () => {
-    const recordModelCapabilityProbe = vi.fn(async () => true);
-    const { state, actions, user } = setup(modelState, { recordModelCapabilityProbe });
+  it("saves the tools switch for the selected provider/model", async () => {
+    const upsertModelCapabilityOverride = vi.fn(async () => true);
+    const { state, actions, user } = setup(modelState, { upsertModelCapabilityOverride });
     render(<SettingsView state={state} actions={actions} />);
     await user.click(screen.getByRole("button", { name: "Model capabilities" }));
     const row = await screen.findByTestId("model-capability-row-ollama-qwen2.5-coder");
 
-    await user.click(within(row).getByRole("button", { name: "Record manual test" }));
+    await user.click(within(row).getByRole("button", { name: "tools on" }));
 
-    expect(recordModelCapabilityProbe).toHaveBeenCalledWith(expect.objectContaining({
+    expect(upsertModelCapabilityOverride).toHaveBeenCalledWith(expect.objectContaining({
       provider: "ollama",
       model: "qwen2.5-coder",
       tool_calling: "basic",
@@ -113,7 +112,7 @@ describe("SettingsView model capabilities tab", () => {
     await user.click(screen.getByRole("button", { name: "Model capabilities" }));
     const row = await screen.findByTestId("model-capability-row-ollama-local-tools");
 
-    await user.click(within(row).getByRole("button", { name: "Override no tools" }));
+    await user.click(within(row).getByRole("button", { name: "tools off" }));
     await user.click(within(row).getByRole("button", { name: "Clear override" }));
 
     expect(upsertModelCapabilityOverride).toHaveBeenCalledWith(expect.objectContaining({

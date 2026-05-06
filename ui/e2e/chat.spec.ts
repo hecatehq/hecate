@@ -371,7 +371,7 @@ test("Hecate Agent local-provider onboarding renders the real final answer and u
 
   await page.getByRole("button", { name: /model picker/i }).click();
   await page.locator(".dropdown-menu").locator("text=qwen2.5").first().click();
-  await expect(page.getByRole("button", { name: "tools: basic" })).toBeVisible();
+  await expect(page.getByRole("button", { name: "tools on" })).toBeVisible();
 
   await page.locator("textarea").fill("show diff");
   await page.locator("button[type='submit']").click();
@@ -541,7 +541,7 @@ test("Hecate Chat can move tools on, tools off, then tools on again in one trans
 
   await page.getByRole("button", { name: /model picker/i }).click();
   await page.locator(".dropdown-menu").locator("text=qwen2.5").first().click();
-  await page.getByRole("button", { name: "tools: basic", exact: true }).click();
+  await page.getByRole("button", { name: "tools on", exact: true }).click();
 
   await page.locator("textarea").fill("first with tools");
   await page.locator("button[type='submit']").click();
@@ -552,7 +552,7 @@ test("Hecate Chat can move tools on, tools off, then tools on again in one trans
   await page.locator("button[type='submit']").click();
   await expect(page.locator("body")).toContainText("Direct model answer from qwen2.5");
 
-  await page.getByRole("button", { name: "tools: basic", exact: true }).click();
+  await page.getByRole("button", { name: "tools on", exact: true }).click();
   await page.locator("textarea").fill("tools again");
   await page.locator("button[type='submit']").click();
   await expect(page.locator("body")).toContainText("Tools answer two from qwen2.5");

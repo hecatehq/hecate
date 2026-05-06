@@ -427,9 +427,10 @@ GET /v1/models
 ```
 
 `capabilities.tool_calling` is one of `unknown`, `none`, `basic`, or
-`parallel`. Hecate Agent only accepts `basic` or `parallel`; local/custom
-models default to `unknown` until static catalog metadata, a manual probe
-result, or an operator override marks them capable.
+`parallel`. Hecate Agent treats tools as on by default and only blocks a model
+when the effective value is `none`. Local/custom models often report
+`unknown`; operators can use Settings → Model capabilities to explicitly turn
+tools on or off for a provider/model pair.
 
 ### `PUT /v1/model-capabilities/overrides`
 
@@ -1005,7 +1006,7 @@ Hecate Agent-specific errors:
 | Status | `error.type` | Meaning |
 |---|---|---|
 | `409` | `agent_chat.agent_session_busy` | The backing task run is queued, running, or awaiting approval. Resolve/cancel the active run before sending another prompt. |
-| `422` | `agent_chat.model_capability_required` | The selected model is not known to support tool calling. Record a manual probe result or operator override in Settings. |
+| `422` | `agent_chat.model_capability_required` | Tools are explicitly disabled for the selected model. Turn tools off for direct model chat or enable tools in Settings. |
 
 ### `GET /v1/agent-chat/sessions/{id}/messages/{message_id}/files`
 

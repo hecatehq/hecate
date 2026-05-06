@@ -55,7 +55,7 @@ func (h *Handler) handleCreateHecateAgentChatMessage(w http.ResponseWriter, r *h
 		WriteJSON(w, http.StatusUnprocessableEntity, map[string]any{
 			"error": map[string]any{
 				"type":         errCodeModelCapability,
-				"message":      "This model has unknown or no tool-calling support. Test it or override capabilities in Settings.",
+				"message":      "Tools are disabled for this model. Turn tools off for direct model chat or enable tools in Settings.",
 				"provider":     session.Provider,
 				"model":        session.Model,
 				"capabilities": caps,

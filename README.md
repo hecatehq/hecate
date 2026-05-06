@@ -102,7 +102,7 @@ Chats is the primary day-to-day surface. It explains missing setup before you se
 
 There are two top-level chat targets:
 
-- **Hecate Chat** — select a configured provider/model. Leave tools off for direct model chat through Hecate's router, or enable tools to run the prompt through Hecate's native `agent_loop` task runtime with task approvals, artifacts, per-call sandboxing, OTel, and a visible backing Task.
+- **Hecate Chat** — select a configured provider/model. Tools are on by default and run the prompt through Hecate's native `agent_loop` task runtime with task approvals, artifacts, per-call sandboxing, OTel, and a visible backing Task; turn tools off for direct model chat through Hecate's router.
 - **External Agent** — select Codex, Claude Code, or Cursor Agent, choose a workspace, and run a supervised local ACP session with approval prompts, guardrails, raw diagnostics, and Git diff review.
 
 Direct model turns and Hecate Agent turns now share one Hecate Chat transcript. Direct turns record route, cost, cache, and trace metadata; tools-on turns create task-backed segments with per-run timing buckets for queue/model/tool/approval/overhead work. The Tasks workspace remains canonical for Hecate Agent approvals, events, artifacts, retry/resume, and patch review, while each task-backed assistant turn links back to its backing Task/run. External Agent turns record normalized transcript, raw output, status, timing, trace IDs, workspace branch, approval decisions, and captured Git diffs that can be inspected or reverted from Chats. External agents are **not** providers and do not appear in the provider/model picker. See [docs/agent-runtime.md](docs/agent-runtime.md) for Hecate Agent internals and [docs/external-agent-adapters.md](docs/external-agent-adapters.md) for external-adapter install checks and troubleshooting.
@@ -189,7 +189,7 @@ Stability stages:
 | Anthropic-compatible gateway | Alpha-ready | Messages API shape, streaming translation, Claude Code support |
 | Provider catalog | Alpha-ready | Built-in presets, credentials, health, routing readiness |
 | Local providers | Alpha-ready | Ollama, LM Studio, LocalAI, llama.cpp-compatible servers |
-| Model capabilities | Implemented | `/v1/models` surfaces tool-calling capability metadata; Settings can record manual probe results and operator overrides for local/custom models |
+| Model capabilities | Implemented | `/v1/models` surfaces tool-calling capability metadata; Settings provides a per-model tools on/off switch for local/custom models |
 | Local default address | Alpha-ready | Defaults to `127.0.0.1:8765`; same-origin enforced for browser requests; no built-in auth |
 | Budgets and rate limits | Alpha-ready | Balances, warning thresholds, pricebook, `429` rate-limit headers |
 | OpenTelemetry | Alpha-ready | OTLP traces, metrics, logs, response headers, local trace view |
