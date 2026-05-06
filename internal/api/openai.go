@@ -5,6 +5,8 @@ import (
 	"encoding/json"
 	"fmt"
 	"strings"
+
+	"github.com/hecate/agent-runtime/pkg/types"
 )
 
 // OpenAIMessageContent is the polymorphic OpenAI message-content
@@ -229,6 +231,31 @@ type OpenAIPromptTokensDetails struct {
 type OpenAIModelsResponse struct {
 	Object string            `json:"object"`
 	Data   []OpenAIModelData `json:"data"`
+}
+
+type ModelCapabilityUpsertRequest struct {
+	Provider         string `json:"provider"`
+	Model            string `json:"model"`
+	ToolCalling      string `json:"tool_calling,omitempty"`
+	Streaming        *bool  `json:"streaming,omitempty"`
+	MaxContextTokens int    `json:"max_context_tokens,omitempty"`
+	Note             string `json:"note,omitempty"`
+}
+
+type ModelCapabilityResponse struct {
+	Object string              `json:"object"`
+	Data   ModelCapabilityItem `json:"data"`
+}
+
+type ModelCapabilityItem struct {
+	Provider         string `json:"provider"`
+	Model            string `json:"model"`
+	ToolCalling      string `json:"tool_calling"`
+	Streaming        bool   `json:"streaming"`
+	MaxContextTokens int    `json:"max_context_tokens,omitempty"`
+	Source           string `json:"source"`
+	Note             string `json:"note,omitempty"`
+	UpdatedAt        string `json:"updated_at,omitempty"`
 }
 
 type SessionResponse struct {
@@ -581,9 +608,12 @@ type AgentAdapterResponseItem struct {
 }
 
 type CreateAgentChatSessionRequest struct {
-	Title     string `json:"title,omitempty"`
-	AdapterID string `json:"adapter_id"`
-	Workspace string `json:"workspace"`
+	Title       string `json:"title,omitempty"`
+	RuntimeKind string `json:"runtime_kind,omitempty"`
+	AdapterID   string `json:"adapter_id,omitempty"`
+	Provider    string `json:"provider,omitempty"`
+	Model       string `json:"model,omitempty"`
+	Workspace   string `json:"workspace"`
 }
 
 type CreateAgentChatMessageRequest struct {
@@ -591,36 +621,48 @@ type CreateAgentChatMessageRequest struct {
 }
 
 type AgentChatSessionSummaryItem struct {
-	ID              string `json:"id"`
-	Title           string `json:"title"`
-	AdapterID       string `json:"adapter_id"`
-	DriverKind      string `json:"driver_kind,omitempty"`
-	NativeSessionID string `json:"native_session_id,omitempty"`
-	Workspace       string `json:"workspace"`
-	WorkspaceBranch string `json:"workspace_branch,omitempty"`
-	Status          string `json:"status"`
-	MessageCount    int    `json:"message_count"`
-	CreatedAt       string `json:"created_at,omitempty"`
-	UpdatedAt       string `json:"updated_at,omitempty"`
+	ID              string                  `json:"id"`
+	Title           string                  `json:"title"`
+	RuntimeKind     string                  `json:"runtime_kind"`
+	AdapterID       string                  `json:"adapter_id,omitempty"`
+	DriverKind      string                  `json:"driver_kind,omitempty"`
+	NativeSessionID string                  `json:"native_session_id,omitempty"`
+	TaskID          string                  `json:"task_id,omitempty"`
+	LatestRunID     string                  `json:"latest_run_id,omitempty"`
+	Provider        string                  `json:"provider,omitempty"`
+	Model           string                  `json:"model,omitempty"`
+	Capabilities    types.ModelCapabilities `json:"capabilities,omitempty"`
+	Workspace       string                  `json:"workspace"`
+	WorkspaceBranch string                  `json:"workspace_branch,omitempty"`
+	Status          string                  `json:"status"`
+	MessageCount    int                     `json:"message_count"`
+	CreatedAt       string                  `json:"created_at,omitempty"`
+	UpdatedAt       string                  `json:"updated_at,omitempty"`
 }
 
 type AgentChatSessionItem struct {
-	ID                   string                 `json:"id"`
-	Title                string                 `json:"title"`
-	AdapterID            string                 `json:"adapter_id"`
-	DriverKind           string                 `json:"driver_kind,omitempty"`
-	NativeSessionID      string                 `json:"native_session_id,omitempty"`
-	Workspace            string                 `json:"workspace"`
-	WorkspaceBranch      string                 `json:"workspace_branch,omitempty"`
-	Status               string                 `json:"status"`
-	TurnsUsed            int                    `json:"turns_used"`
-	MaxTurnsPerSession   int                    `json:"max_turns_per_session,omitempty"`
-	SessionStartedAt     string                 `json:"session_started_at,omitempty"`
-	MaxSessionDurationMS int64                  `json:"max_session_duration_ms,omitempty"`
-	IdleTimeoutMS        int64                  `json:"idle_timeout_ms,omitempty"`
-	CreatedAt            string                 `json:"created_at,omitempty"`
-	UpdatedAt            string                 `json:"updated_at,omitempty"`
-	Messages             []AgentChatMessageItem `json:"messages"`
+	ID                   string                  `json:"id"`
+	Title                string                  `json:"title"`
+	RuntimeKind          string                  `json:"runtime_kind"`
+	AdapterID            string                  `json:"adapter_id,omitempty"`
+	DriverKind           string                  `json:"driver_kind,omitempty"`
+	NativeSessionID      string                  `json:"native_session_id,omitempty"`
+	TaskID               string                  `json:"task_id,omitempty"`
+	LatestRunID          string                  `json:"latest_run_id,omitempty"`
+	Provider             string                  `json:"provider,omitempty"`
+	Model                string                  `json:"model,omitempty"`
+	Capabilities         types.ModelCapabilities `json:"capabilities,omitempty"`
+	Workspace            string                  `json:"workspace"`
+	WorkspaceBranch      string                  `json:"workspace_branch,omitempty"`
+	Status               string                  `json:"status"`
+	TurnsUsed            int                     `json:"turns_used"`
+	MaxTurnsPerSession   int                     `json:"max_turns_per_session,omitempty"`
+	SessionStartedAt     string                  `json:"session_started_at,omitempty"`
+	MaxSessionDurationMS int64                   `json:"max_session_duration_ms,omitempty"`
+	IdleTimeoutMS        int64                   `json:"idle_timeout_ms,omitempty"`
+	CreatedAt            string                  `json:"created_at,omitempty"`
+	UpdatedAt            string                  `json:"updated_at,omitempty"`
+	Messages             []AgentChatMessageItem  `json:"messages"`
 }
 
 type AgentChatMessageItem struct {
@@ -693,13 +735,15 @@ type AgentChatRevertResponse struct {
 }
 
 type AgentChatActivityItem struct {
-	ID        string `json:"id,omitempty"`
-	Type      string `json:"type"`
-	Status    string `json:"status,omitempty"`
-	Kind      string `json:"kind,omitempty"`
-	Title     string `json:"title"`
-	Detail    string `json:"detail,omitempty"`
-	CreatedAt string `json:"created_at,omitempty"`
+	ID          string `json:"id,omitempty"`
+	Type        string `json:"type"`
+	Status      string `json:"status,omitempty"`
+	Kind        string `json:"kind,omitempty"`
+	Title       string `json:"title"`
+	Detail      string `json:"detail,omitempty"`
+	CreatedAt   string `json:"created_at,omitempty"`
+	ApprovalID  string `json:"approval_id,omitempty"`
+	NeedsAction bool   `json:"needs_action,omitempty"`
 }
 
 type AgentChatUsageItem struct {

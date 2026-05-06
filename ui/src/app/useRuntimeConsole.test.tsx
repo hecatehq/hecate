@@ -73,7 +73,7 @@ describe("useRuntimeConsole", () => {
   it("defaults to Agent chat when no chat target preference exists", async () => {
     const { result } = renderHook(() => useRuntimeConsole());
     await waitFor(() => expect(result.current.state.loading).toBe(false));
-    expect(result.current.state.chatTarget).toBe("agent");
+    expect(result.current.state.chatTarget).toBe("hecate_agent");
   });
 
   it("preserves the saved chat target preference", async () => {
@@ -588,8 +588,8 @@ describe("useRuntimeConsole", () => {
 
   // ─── Agent-chat approvals state ───────────────────────────────────────────
   //
-  // Slice 3 plumbing: on session select we fire a catch-up refetch
-  // against /v1/agent-chat/sessions/{id}/approvals?status=pending. The
+  // On session select we fire a catch-up refetch against
+  // /v1/agent-chat/sessions/{id}/approvals?status=pending. The
   // returned rows are projected to banner-essentials and stored in
   // `pendingApprovalsBySessionID`. SSE events later upsert/remove on
   // top of the same map. The Map instance is always replaced — never
@@ -681,7 +681,7 @@ describe("useRuntimeConsole", () => {
       const { result } = renderHook(() => useRuntimeConsole());
       await waitFor(() => expect(result.current.state.loading).toBe(false));
 
-      // Default chatTarget is "agent", so selectChatSession forwards
+      // Default chatTarget is "hecate_agent", so selectChatSession forwards
       // to the agent variant.
       await act(async () => {
         await result.current.actions.selectChatSession("a1");

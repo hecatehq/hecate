@@ -24,7 +24,7 @@ function taskKindLabel(task: TaskRecord): string {
   if (kind === "shell") return task.shell_command ? `$ ${task.shell_command}` : "shell";
   if (kind === "git") return task.git_command ? `git ${task.git_command}` : "git";
   if (kind === "file") return task.file_path ? task.file_path : "file";
-  if (kind === "agent_loop") return "agent";
+  if (kind === "agent_loop") return task.execution_profile === "chat_hecate_agent" ? "hecate agent" : "agent";
   return kind;
 }
 
@@ -74,6 +74,15 @@ export function TaskList({ tasks, selectedTaskID, loading, busyAction, onSelect,
               {t.execution_kind && (
                 <span style={{ fontSize: 9, color: "var(--teal)", fontFamily: "var(--font-mono)", background: "var(--teal-bg)", padding: "1px 5px", borderRadius: 3 }}>
                   {t.execution_kind}
+                </span>
+              )}
+              {t.origin_kind === "agent_chat" && (
+                <span
+                  className="badge badge-muted"
+                  title={t.origin_id ? `Created from chat ${t.origin_id}` : "Created from a Hecate Agent chat"}
+                  style={{ fontSize: 9, fontFamily: "var(--font-mono)", padding: "1px 5px", flexShrink: 0 }}
+                >
+                  from chat
                 </span>
               )}
               {/* MCP-config chip — surfaced when the task configures

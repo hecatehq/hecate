@@ -1,305 +1,444 @@
-# Unified Chats and Model Capabilities — Exploratory RFC
+# Hecate Agent Chats and Model Capabilities
 
-> **Status:** exploratory. This document describes a target product and
-> architecture direction; it is not implemented behavior.
+> **Status:** accepted; the baseline chat-to-task bridge has landed, including
+> chat-visible run activity and task approval resolution. Stable Hecate Agent
+> still requires workspace modes, profiles, automatic probing, and broader e2e.
 > **Related:** [Chat sessions](../chat-sessions.md),
 > [External agent adapters](external-agent-adapters.md),
 > [Agent runtime](../agent-runtime.md), [Runtime API](../runtime-api.md).
 > **Owner:** see [`AGENTS.md`](../../AGENTS.md).
 
-Hecate currently exposes model chat and agent chat as adjacent but different
-surfaces. That distinction helped the alpha move quickly, but it should not
-become the long-term mental model. Operators should be able to start one chat
-and choose how Hecate executes each turn: direct model, model plus Hecate tools,
-Hecate-managed agent profile, or external agent adapter.
+## Summary
 
-The missing bridge is a first-class **model capability registry**. Hecate needs
-to know which models can call tools, stream, emit reasoning/thinking blocks,
-return structured output, accept vision inputs, and support long context before
-the UI can safely offer agent-like behavior for model chats.
+Chats exposes two top-level targets, with Hecate-owned agent execution nested
+inside Hecate Chat as a tools-enabled mode:
 
-## Problem
+| UI surface | Runtime mode | Who owns execution |
+|---|---|---|
+| Hecate Chat, tools off | Model | A selected provider/model answers directly through the gateway. |
+| Hecate Chat, tools enabled | Hecate Agent | Hecate creates and continues a visible `agent_loop` task with Hecate tools, approvals, artifacts, and telemetry. |
+| External Agent | External Agent | Codex, Claude Code, Cursor Agent, or another adapter owns the native session; Hecate supervises it. |
 
-There are two useful but currently separate chat modes:
+Use **Hecate Agent** as the product name. "Model + tools" is only an
+internal shorthand for the implementation idea; it should not appear in the UI
+as a target name.
 
-- **Model chat** routes directly through providers. It is good for plain
-  conversation and provider testing, but it does not expose Hecate's tool loop
-  as a first-class option.
-- **Agent chat** runs an external agent adapter such as Codex, Claude Code, or
-  Cursor Agent. It has workspace, session, run, approval, diff, and diagnostics
-  concepts, but it is not the same thing as selecting a model.
+The baseline implementation ships one built-in Hecate Agent mode: selected
+provider/model, shared workspace, Hecate `agent_loop` tools, task approvals,
+task artifacts, per-call sandboxing, OpenTelemetry, and visible Tasks
+integration.
 
-This creates confusing product boundaries:
+That core bridge is not the finish line. Hecate Agent should become a
+chat-native way to operate the task runtime, not a thin launcher that sends the
+operator away to Tasks for every serious action. The next implementation
+requirements after the baseline bridge are:
 
-- A tool-capable model can behave like a small agent, but the UI treats it as
-  plain chat.
-- External agents are not model providers, but they live in the same Chats
-  workspace and compete for the same operator attention.
-- Future external agentic frameworks should fit without turning the provider
-  picker into a junk drawer.
-- Hecate cannot route "use tools" requests safely until it knows whether the
-  selected model supports tool calling.
+- run activity rendered in Chats from task-run events _(implemented)_
+- task approvals resolved directly from Chats _(implemented)_
+- task workspace modes exposed in the Hecate Agent chat setup
+- named Hecate Agent profiles
+- automatic capability probing with explicit operator control
 
-## Goals
+## Why
 
-- Make Chats one unified workspace with execution targets instead of separate
-  mental worlds.
-- Add model capability metadata that can drive UI controls, routing, and agent
-  profile validation.
-- Let operators use either a direct model or a Hecate-managed agent profile that
-  selects compatible models through gateway rules.
-- Keep external agents as agent adapters, not fake providers.
-- Preserve provider routing, cost tracking, OTel, approvals, and workspace
-  semantics as Hecate-owned concerns where Hecate owns the loop.
-- Leave room for future external agentic frameworks without binding the design
-  to one framework.
+Hecate originally had two chat-like surfaces:
+
+- **Model chat** for direct OpenAI-/Anthropic-shaped provider traffic.
+- **Agent Chat** for external coding-agent adapters.
+
+That left a gap: Hecate already has a native `agent_loop` runtime with tools,
+approvals, artifacts, resumable runs, and telemetry, but there was no chat UX
+that used it directly. Hecate Agent fills that gap without creating a second
+lightweight tool-loop runtime.
+
+The session model follows the continuity users expect from Claude Code, Codex,
+and Cursor: one chat session maps to one long-lived unit of agent work. For
+Hecate Agent, that unit is one Hecate-owned task. The first prompt creates the
+task and starts the first run; follow-up prompts continue the latest terminal
+run on the same task.
+
+The staged implementation keeps runtime boundaries explicit. Today, once a
+Hecate Agent chat has a backing task, its provider/model picker renders the
+session snapshot read-only while tools are enabled. Turning tools off uses the
+normal direct model chat path and the current draft provider/model selection.
+The next schema step is to persist `segment_id` and per-message `runtime_kind`
+so a single transcript can explain mixed direct-model and task-backed stretches
+without relying on the current header state. A later step can then re-enable
+tools in the same chat by creating a new task-backed segment.
 
 ## Non-goals
 
 - Do not merge external agents into the provider/model list.
-- Do not claim every local model's capabilities can be known from `/models`.
-- Do not require all model providers to expose the same capability discovery
-  surface.
-- Do not replace the durable task runtime in this RFC.
-- Do not design a plugin marketplace or broad agent SDK here.
-
-## Execution Targets
-
-Chats should expose a small number of execution targets:
-
-| Target | Meaning | Who owns the loop |
-|---|---|---|
-| Direct model | One provider/model answers the turn directly. | Provider model only |
-| Model + tools | Hecate runs a lightweight tool loop around a tool-capable model. | Hecate |
-| Hecate agent profile | Hecate runs a named agent configuration with tools, workspace, approvals, and model policy. | Hecate |
-| External agent | Codex, Claude Code, Cursor Agent, or another adapter owns the native agent session. | External adapter, supervised by Hecate |
-
-The important distinction is ownership. If Hecate owns the loop, Hecate can
-enforce model capability requirements, approval policy, workspace behavior,
-artifacts, cost accounting, and telemetry. If an external adapter owns the loop,
-Hecate supervises process/session lifecycle and records what the adapter emits,
-but Hecate does not pretend the adapter is a model.
+- Do not call the product target "model + tools."
+- Do not create a second runtime beside `agent_loop` for Hecate-owned tools.
+- Do not solve endpoint namespace/versioning here. The endpoint-versioning RFC
+  can rename the current `/v1/...` Hecate endpoints later.
 
 ## Model Capability Registry
 
-Hecate should add a capability record per provider/model:
+Hecate needs to know whether a selected model can call tools before it offers
+Hecate Agent. The first capability record is deliberately small:
 
 ```ts
 type ModelCapabilities = {
-  tool_calling: "none" | "basic" | "parallel";
-  structured_output: "none" | "json_schema" | "provider_native" | "tool_emulated";
-  reasoning: "none" | "effort" | "token_budget" | "provider_native";
-  vision: boolean;
-  streaming: boolean;
+  tool_calling: "unknown" | "none" | "basic" | "parallel";
+  streaming?: boolean;
   max_context_tokens?: number;
-  source: "catalog" | "provider" | "probe" | "operator_override";
+  source: "unknown" | "catalog" | "provider" | "probe" | "operator_override";
 };
 ```
 
-These fields should be additive. More capability dimensions can be added later
-without changing the core model.
+Capability sources merge with this precedence:
 
-### Capability Sources
+1. **Operator override**: explicit setting in Hecate wins.
+2. **Manual probe result**: operator records a known test result.
+3. **Catalog default**: Hecate-shipped metadata for known provider/model
+   families.
+4. **Provider-discovered existence**: provider says the model exists but not
+   necessarily what it can do.
+5. **Unknown local/custom default**: local/custom models default to
+   `tool_calling="unknown"` until proven otherwise.
 
-Capability data should be layered because no single source is reliable for all
-providers:
+Manual controls are explicit:
 
-1. **Catalog default** — Hecate ships known capability metadata for common cloud
-   models and first-party presets.
-2. **Provider discovery** — provider endpoints tell Hecate which models exist
-   and sometimes expose useful metadata.
-3. **Capability probe** — Hecate can optionally send a tiny tool-call or
-   structured-output request and validate the model's behavior.
-4. **Operator override** — the UI lets the operator mark a model as supporting
-   or not supporting a capability, especially for local providers.
+- `PUT /v1/model-capabilities/overrides`
+- `DELETE /v1/model-capabilities/overrides?provider=...&model=...`
+- `POST /v1/model-capabilities/probes`
 
-The final capability record should keep the winning `source` so the UI can show
-confidence:
+`GET /v1/models` includes the effective capability snapshot in
+`metadata.capabilities` so the UI can render badges and disable Hecate Agent
+when tool support is unknown or absent.
+
+### Automatic probing
+
+Automatic probing is required before this feature can feel stable for local
+and custom providers. This is a product requirement, but it must be controlled,
+observable, and never surprising.
+
+Automatic probes should:
+
+1. Run only for models that are configured and routable.
+2. Use a small, deterministic tool-calling probe request with a harmless tool
+   schema.
+3. Never execute a tool or mutate a workspace.
+4. Respect a per-provider cooldown so the gateway does not probe every page
+   load.
+5. Persist results as `source="probe"` with timestamp, provider, model, probe
+   status, and any safe error summary.
+6. Surface probe state in Settings and the model picker: unknown, testing,
+   tools supported, no tools, failed.
+7. Let operators disable automatic probes globally or per provider/model.
+
+Manual override still wins over automatic probe. A failed probe must not
+overwrite an explicit operator override.
+
+## Hecate Agent Sessions
+
+Agent Chat sessions gain a `runtime_kind`:
+
+```ts
+type AgentChatRuntimeKind = "hecate_agent" | "external_agent";
+```
+
+Hecate Agent sessions also store:
+
+- `agent_profile_id`
+- `task_id`
+- `latest_run_id`
+- `provider`
+- `model`
+- `capabilities`
+- `workspace`
+- `workspace_branch`
+
+External Agent sessions keep their adapter fields. Existing sessions without
+`runtime_kind` default to `external_agent` when `adapter_id` is present.
+
+### Agent profiles
+
+Hecate Agent profiles are named presets for Hecate-owned agent execution. They
+should not be confused with External Agent adapters.
+
+A profile defines:
+
+- display name and description
+- default provider/model or provider/model policy
+- default workspace mode
+- optional system prompt layer
+- allowed tools and MCP servers
+- approval policy defaults
+- cost, turn, timeout, and network guardrails
+- optional model capability requirements
+
+The initial built-in profile is the current default Hecate Agent behavior:
+selected provider/model, selected workspace, `agent_loop`, task approvals,
+artifacts, sandboxed tool calls, and OTel. Operators can later create named
+profiles such as "Reviewer", "Builder", or "SRE" without changing the chat
+session model.
+
+Sessions snapshot the selected profile id and effective profile settings at
+creation time. Profile edits should not silently rewrite historical sessions.
+
+### First prompt
+
+For `runtime_kind="hecate_agent"` the first user message:
+
+1. Validates that the selected model is known tool-capable
+   (`tool_calling="basic"` or `"parallel"`).
+2. Applies the selected Hecate Agent profile.
+3. Creates a visible task with `execution_kind="agent_loop"`.
+4. Marks the task origin as `origin_kind="agent_chat"` and
+   `origin_id=<agent_chat_session_id>`.
+5. Uses an execution profile such as `chat_hecate_agent`.
+6. Starts the task run with the first user message as the prompt.
+7. Stores `task_id` and `latest_run_id` on the chat session.
+
+### Follow-up prompts
+
+Follow-up messages continue the latest terminal run through the existing
+`ContinueAgentTask` path. They do not create a new task per message.
+
+If the latest backing run is `queued`, `running`, or `awaiting_approval`, the
+message endpoint returns:
 
 ```text
-tools: supported · catalog
-tools: unknown · local provider
-tools: supported · operator override
+409 agent_chat.agent_session_busy
 ```
 
-## What Other Frameworks Do
+The UI should point the operator to the active task/run or approval.
 
-Most agent frameworks combine static metadata, provider-specific adapters, and
-operator overrides.
-
-- **LangChain** exposes model features such as tool calling, structured output,
-  multimodality, and reasoning at the integration/model layer. Strategy
-  selection can choose provider-native structured output when available and
-  fall back to tool-based output otherwise.
-- **Gateway-style routers** tend to keep model metadata near their cost and
-  routing tables, then expose helpers for capability checks and provider model
-  discovery.
-- **Provider SDKs** remain the source of truth for exact semantics. OpenAI,
-  Anthropic, and local OpenAI-compatible servers differ in how they advertise
-  tool calling, reasoning/thinking, structured output, and model lists.
-
-The lesson for Hecate: do not rely on one universal provider response. Keep a
-small Hecate-owned capability model, fill it from multiple sources, and let
-operators override local/unknown cases.
-
-## Agent Profiles
-
-Hecate should let users create **agent profiles**. A profile is not a model.
-It is a named execution policy that can select one or more compatible models.
-
-Example:
-
-```yaml
-name: Builder
-runtime: hecate_tool_loop
-model_policy:
-  preferred:
-    - anthropic/claude-sonnet
-    - openai/gpt-5.4
-    - ollama/qwen-local
-  requires:
-    tool_calling: basic
-    max_context_tokens: 32000
-  fallback: any_compatible
-tools:
-  - shell
-  - files
-  - git
-approvals:
-  shell: prompt
-  file_write: prompt
-workspace:
-  required: true
-```
-
-This gives Hecate a clean answer to "use the best available model for this
-agent": the gateway can route only among models whose capabilities satisfy the
-profile's requirements.
-
-## UI Direction
-
-Chats should keep one transcript but expose an execution target picker.
+If the selected model is not known tool-capable, the message endpoint returns:
 
 ```text
-Chat with: Direct model | Hecate agent | External agent
+422 agent_chat.model_capability_required
 ```
 
-### Direct Model
+The UI copy is:
 
 ```text
-Provider/model: [Ollama / llama3.1]
-Tools: Off / On if supported
-Reasoning: Off / Low / Medium / High if supported
+This model has unknown or no tool-calling support. Test it or override capabilities in Settings.
 ```
 
-If the selected model does not support tools, the Tools control should be
-disabled with useful copy:
+## Workspace Modes
+
+Hecate Agent must expose the same workspace mode choices that matter for
+Tasks. The chat setup should not hide this behind an implementation default.
+
+The UI should support:
+
+| Mode | Meaning | Default |
+|---|---|---|
+| Shared workspace | Run directly in the selected local workspace. | Default for Hecate Agent chats while the product is local-first. |
+| Isolated clone | Create an isolated task workspace from a repo/base branch when available. | Optional when repo metadata is configured. |
+| Read-only review | Allow reads and analysis, block writes unless the operator explicitly switches mode or approves a writable profile. | Useful for reviewer profiles. |
+
+The session stores both the chosen workspace path and workspace mode. The
+backing task should receive the same mode fields as a task created directly
+from Tasks, so approvals, patch review, artifacts, and OTel do not fork.
+
+When a workspace mode cannot be honored, the message endpoint should fail
+before starting the run with a stable error and operator-facing copy.
+
+## Run Activity In Chats
+
+Tasks remains canonical for task execution, but Hecate Agent Chats must render
+the live run activity directly. Operators should not need to switch to Tasks
+just to understand whether the agent is thinking, waiting, running a tool, or
+blocked on approval.
+
+Chats should subscribe to the backing task-run stream and project task events
+into the shared transcript/activity UI:
+
+| Task-run source | Chat rendering |
+|---|---|
+| `run.*` | run started, queued, completed, failed, cancelled |
+| `turn.*` | thinking / model turn progress |
+| `tool.*` | tool started, running, output, failed |
+| `approval.*` | approval requested/resolved |
+| `artifact.*` | final answer, patch, stdout/stderr, conversation snapshot |
+| `gap.*` / `error.*` | stream gap or runtime error |
+
+This is projection, not a second event system. The source of truth stays the
+task run event log and task artifacts.
+
+Chat rows should preserve the same top-to-bottom conversation order as Model
+and External Agent chats. Run activity is attached to the active assistant turn
+or shown in a collapsible run details block below it.
+
+## Approval Flow In Chats
+
+Hecate Agent approvals should be resolvable from Chats as well as Tasks.
+
+Approval UI requirements:
+
+- show pending task approvals for the backing task/run in the active chat
+- render the approval kind, command/tool name, workspace, and risk summary
+- offer Approve / Deny with optional note
+- link to the full Task approval view for deeper inspection
+- update from task SSE events without polling-only behavior
+- keep approval decisions persisted in the existing task approval store
+
+This must reuse task approvals. Do not create a new Hecate Agent chat approval
+store. External Agent approvals continue using the external-adapter approval
+coordinator because those requests come from ACP adapters, not Hecate's native
+task runtime.
+
+## UI Contract
+
+The Chats target picker is:
 
 ```text
-Tools unavailable for this model.
-Pick a tool-capable model or create an agent profile with compatible routing.
+Hecate Chat | External Agent
 ```
+
+`Hecate Chat` contains a tools toggle:
+
+- **tools off** — direct provider/model chat. It keeps today's route/cost/cache
+  / trace metadata and model-chat persistence.
+- **tools enabled** — Hecate Agent. The selected provider/model enters
+  Hecate's native task runtime.
 
 ### Hecate Agent
 
-```text
-Agent: Builder / Reviewer / Researcher / Custom
-Model policy: Auto compatible / Specific model
-Workspace: required
-Tools: files, shell, git
-Approvals: prompt for shell and writes
-```
+Shows:
 
-The UI should show capability badges for the resolved model:
+- provider picker
+- model picker
+- workspace selector
+- workspace mode selector
+- profile selector
+- capability badges
+- per-assistant-turn backing Task/run links
+- live run activity from task-run events
+- pending task approvals with Approve / Deny actions
 
-```text
-claude-sonnet · tools · reasoning · 200k context
-```
+Send is disabled unless a workspace is selected and the selected model has
+`tool_calling="basic"` or `"parallel"`.
 
-If auto-routing picks a different model because the preferred one lacks tools,
-the UI should say so explicitly.
+When a Hecate Agent task already exists, provider/model controls are locked to
+the session snapshot. Operators can turn tools off to use direct model chat, or
+start a new chat to use a different tools-enabled model until explicit segment
+metadata ships.
+
+Hecate Agent uses the task runtime, so approvals, artifacts, diff/patch review,
+workspace modes, retry/resume, and OTel should come from Tasks rather than a
+new parallel agent runtime.
 
 ### External Agent
 
-```text
-Agent: Codex / Claude Code / Cursor Agent
-Workspace: required
-Runtime: external adapter
-```
+Keeps the Codex / Claude Code / Cursor Agent flow. It remains unsandboxed and
+adapter-owned; Hecate supervises the session, records transcript/diagnostics,
+and exposes external-agent approvals.
 
-External agent sessions should keep their current unsandboxed/workspace
-disclosures. They are not model capability consumers unless the adapter itself
-reports model metadata in a future protocol.
+## Storage
 
-## Routing Implications
+Memory and SQLite must persist:
 
-The router should accept capability requirements in addition to provider/model
-preferences:
+- capability overrides
+- manual probe results
+- automatic probe results
+- Hecate Agent profiles
+- selected `agent_profile_id`
+- `runtime_kind`
+- Hecate Agent task/run linkage fields on agent-chat sessions
+- workspace mode snapshot on Hecate Agent sessions
 
-```json
-{
-  "model_policy": {
-    "preferred": ["anthropic/claude-sonnet", "openai/gpt-5.4"],
-    "requires": {
-      "tool_calling": "basic",
-      "reasoning": "any"
-    },
-    "fallback": "any_compatible"
-  }
-}
-```
+The effective capability record is a snapshot at session creation time. Model
+metadata can change later, but a running Hecate Agent session should keep the
+capability record it was created with for audit/debugging.
 
-The router should reject early when no configured provider/model can satisfy
-the capability requirements. This should produce a user-facing error such as:
+Profile settings and workspace mode should also be snapshotted onto the
+session or backing task. Historical sessions should explain what was actually
+run even if the profile changes later.
 
-```text
-No configured model supports tool calling. Add a capable model or disable tools.
-```
+## Testing
 
-## Storage and API Shape
+Minimum coverage:
 
-Likely additions:
+- Capability precedence: override > probe > catalog > provider existence >
+  unknown local default.
+- `/v1/models` includes capability metadata.
+- Override/probe endpoints persist and affect `/v1/models`.
+- Hecate Agent first message creates a visible task/run.
+- Hecate Agent follow-up continues the same task after the latest run is
+  terminal.
+- Busy backing runs return `409 agent_chat.agent_session_busy`.
+- Missing tool capability returns `422 agent_chat.model_capability_required`.
+- Memory/SQLite parity for capability records and new session fields.
+- UI target picker, capability badges, disabled Hecate Agent send state, and
+  task/run links.
+- Hecate Agent run activity projection from task-run SSE into Chats.
+- Hecate Agent task approval banner in Chats, including approve, reject, and a
+  link to the backing Task.
+- Workspace mode selection and task creation parity.
+- Agent profile CRUD, profile selection, session snapshotting, and built-in
+  default profile behavior.
+- Automatic probe scheduling, cooldown, persistence, disabled-probe behavior,
+  and override precedence.
 
-- `GET /v1/models` includes optional `capabilities`.
-- `GET /v1/settings/model-capabilities` returns overrides and source details.
-- `PATCH /v1/settings/model-capabilities/{provider}/{model}` stores operator
-  overrides.
-- Agent profile endpoints store model policy, tools, approval policy, and
-  workspace requirements.
+## Implementation Status
 
-Model capability records should be persisted in the settings backend when they
-come from operator overrides. Catalog-derived and provider-discovered values can
-be recomputed.
+Done in the core bridge:
 
-## Open Questions
+- target picker exposes Hecate Chat and External Agent, with a tools toggle
+  inside Hecate Chat for direct model chat vs. Hecate Agent execution
+- Hecate Agent creates and continues visible `agent_loop` tasks
+- model capability snapshots gate Hecate Agent sends
+- manual probe records and operator overrides persist
+- chat sessions store task/run linkage
+- Tasks labels chat-origin tasks and links back to Chats; Hecate Agent
+  assistant turns link back to their backing Task/run
+- backing task-run activity is projected into Hecate Agent chat transcripts
+- pending task approvals can be approved or rejected from the Hecate Agent
+  chat banner while Tasks remains canonical
 
-- Should capability probing happen automatically, or only when the operator asks
-  Hecate to "test this model"?
-- Should local provider models default to `tool_calling=unknown` or
-  `tool_calling=none` until proven otherwise?
-- How much of Hecate's durable task runtime should the lightweight
-  "model + tools" mode reuse?
-- Should agent profiles be exposed as first-class API objects before the UI
-  lands, or should the first implementation keep profiles UI-local?
-- Should reasoning/thinking support be a single capability, or provider-specific
-  sub-capabilities because OpenAI, Anthropic, and local models expose it so
-  differently?
+Still required for a complete Hecate Agent experience:
 
-## Recommended Implementation Order
+- workspace modes in the chat setup
+- named Hecate Agent profiles
+- automatic capability probing
+- full e2e covering provider setup, capability detection, Hecate Agent run,
+  approval from Chats, final answer, and follow-up continuation
 
-1. Add model capability types and catalog defaults for known built-in providers.
-2. Surface capabilities in `/v1/models` and the provider/model picker.
-3. Add operator overrides for local/unknown models.
-4. Add capability-aware UI affordances: disabled tools toggle, reasoning toggle,
-   capability badges.
-5. Add agent profiles with model-policy requirements.
-6. Route Hecate-owned tool loops only to models satisfying the profile.
-7. Revisit whether direct model chat with tools should become a lightweight
-   Hecate agent profile internally.
+## Recommended Next Work
+
+The missing stable-scope pieces should land in this order:
+
+1. **Message segments.** Persist `segment_id` and per-message `runtime_kind`,
+   provider/model, capability snapshot, and task/run linkage so one Hecate Chat
+   transcript can honestly contain direct-model turns and multiple task-backed
+   stretches.
+2. **Continue with tools again.** When tools are re-enabled in a transcript
+   that currently has direct-model turns, create a new task-backed segment
+   instead of mutating the previous task.
+3. **Workspace modes.** Expose the same workspace choices that Tasks supports,
+   store the selected mode on the session/task, and fail early when a requested
+   mode cannot be honored.
+4. **Agent profiles.** Add named Hecate Agent presets for model policy,
+   workspace mode, system prompt, tools/MCP, approvals, and guardrails. Store a
+   snapshot on each session so history remains explainable.
+5. **Automatic probing.** Add bounded, visible capability probes for configured
+   models so local/custom providers can become eligible without manual edits.
+   Overrides still win, and probes must not execute tools or mutate workspaces.
+6. **E2E hardening.** Cover provider setup, capability detection, chat-side task
+   approval, final answer, and same-task follow-up continuation in one browser
+   path.
+
+## Future Work
+
+- Auto-compatible model routing by profile capability requirements.
+- Richer capability dimensions: structured output, reasoning/thinking,
+  multimodal inputs, cache-control, context-window confidence.
+- Tool schema fidelity: distinguish basic tool calling from strict or
+  provider-native tool schemas, forced tool choice, nested JSON schema support,
+  `enum` / `required` reliability, and parallel-tool behavior. This should
+  become both a capability dimension and a probe target after the first stable
+  Hecate Agent path.
+- Convergence with endpoint-versioning (`/hecate/v1/...`) once that RFC lands.
 
 ## Decision Bias
 
-Prefer small, explicit capability records over magic. Hecate should not infer
+Prefer explicit capability records over magic. Hecate should not infer
 "agentness" from a model name. It should know what a model can do, show that
-clearly to the operator, and use that information to decide which execution
-targets are available.
+clearly to the operator, and only enable Hecate-owned agent execution when the
+selected model is known to support the required tools.

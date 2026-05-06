@@ -59,7 +59,7 @@ describe("ConsoleShell navigation", () => {
 
   it("shows the selected agent workspace and git branch in the status bar", () => {
     const state = createRuntimeConsoleFixture({
-      chatTarget: "agent",
+      chatTarget: "external_agent",
       agentWorkspace: "/Users/alice/dev/hecate",
       agentWorkspaceBranch: "feature/agents",
     });
@@ -78,7 +78,7 @@ describe("ConsoleShell navigation", () => {
 
   it("prefers the active agent chat workspace over the draft workspace", () => {
     const state = createRuntimeConsoleFixture({
-      chatTarget: "agent",
+      chatTarget: "external_agent",
       agentWorkspace: "/Users/alice/dev/draft",
       agentWorkspaceBranch: "draft",
       activeAgentChatSession: {
@@ -108,7 +108,7 @@ describe("ConsoleShell navigation", () => {
 
   it("shows latest reported agent context usage in the status bar", () => {
     const state = createRuntimeConsoleFixture({
-      chatTarget: "agent",
+      chatTarget: "external_agent",
       activeAgentChatSession: {
         id: "agent_chat_1",
         title: "Codex work",

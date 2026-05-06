@@ -1,6 +1,6 @@
-import { useEffect, useState, type ReactNode } from "react";
+import { useEffect, useMemo, useState, type ReactNode } from "react";
 import type { RuntimeConsoleViewModel } from "../../app/useRuntimeConsole";
-import type { AgentAdapterHealthRecord, AgentAdapterRecord, AgentChatGrantRecord } from "../../types/runtime";
+import type { AgentAdapterHealthRecord, AgentAdapterRecord, AgentChatGrantRecord, ModelRecord } from "../../types/runtime";
 import { Badge, Icon, Icons, InlineError } from "../shared/ui";
 import { PricebookTab } from "./PricebookTab";
 
@@ -14,10 +14,11 @@ type Props = {
 // agents lists durable approval grants ("always allow / always deny"
 // rules) that survive process restart. Balances and usage live in the
 // Costs workspace.
-const TABS = ["pricebook", "retention", "external_agents"] as const;
+const TABS = ["pricebook", "model_capabilities", "retention", "external_agents"] as const;
 type Tab = (typeof TABS)[number];
 const TAB_LABELS: Record<Tab, string> = {
   pricebook: "Pricing",
+  model_capabilities: "Model capabilities",
   retention: "Retention",
   external_agents: "External agents",
 };
@@ -64,9 +65,10 @@ export function SettingsView({ state, actions }: Props) {
 
       {/* Tab content */}
       <div style={{ flex: 1, overflowY: "auto", padding: 16 }}>
-        {tab === "pricebook"        && <PricebookTab state={state} actions={actions} />}
-        {tab === "retention"        && <RetentionTab state={state} actions={actions} />}
-        {tab === "external_agents"  && <ExternalAgentsTab state={state} actions={actions} />}
+        {tab === "pricebook"           && <PricebookTab state={state} actions={actions} />}
+        {tab === "model_capabilities" && <ModelCapabilitiesTab state={state} actions={actions} />}
+        {tab === "retention"           && <RetentionTab state={state} actions={actions} />}
+        {tab === "external_agents"     && <ExternalAgentsTab state={state} actions={actions} />}
       </div>
     </div>
   );
@@ -95,6 +97,179 @@ function SectionHeader({
         <span style={{ fontFamily: "var(--font-mono)", fontSize: 11, color: "var(--t3)", whiteSpace: "nowrap" }}>{meta}</span>
       )}
       {actions && <div style={{ marginLeft: "auto", display: "flex", gap: 8, alignItems: "center" }}>{actions}</div>}
+    </div>
+  );
+}
+
+
+// ─── Model capabilities tab ───────────────────────────────────────────────────
+
+function ModelCapabilitiesTab({ state, actions }: Props) {
+  const [query, setQuery] = useState("");
+  const rows = useMemo(() => {
+    const q = query.trim().toLowerCase();
+    return [...state.models]
+      .filter((model) => {
+        if (!q) return true;
+        const provider = model.metadata?.provider ?? "";
+        return model.id.toLowerCase().includes(q) || provider.toLowerCase().includes(q);
+      })
+      .sort((a, b) => {
+        const left = `${a.metadata?.provider ?? ""}/${a.id}`;
+        const right = `${b.metadata?.provider ?? ""}/${b.id}`;
+        return left.localeCompare(right);
+      });
+  }, [query, state.models]);
+
+  return (
+    <>
+      <SectionHeader
+        title="Model capabilities"
+        description="Tell Hecate which configured models can call tools. Hecate Agent only runs on models with known tool-calling support; local and custom models stay unknown until a catalog entry, manual test result, or operator override says otherwise."
+        meta={`${rows.length} model${rows.length === 1 ? "" : "s"}`}
+      />
+
+      <div className="card" style={{ padding: "12px 14px", marginBottom: 14 }}>
+        <label style={{ display: "block", fontSize: 11, color: "var(--t3)", marginBottom: 6 }} htmlFor="model-capability-search">
+          Filter by model or provider
+        </label>
+        <input
+          id="model-capability-search"
+          value={query}
+          onChange={(event) => setQuery(event.target.value)}
+          placeholder="ollama, qwen, gpt..."
+          style={{
+            width: "100%",
+            border: "1px solid var(--border)",
+            borderRadius: "var(--radius-sm)",
+            background: "var(--bg2)",
+            color: "var(--t0)",
+            fontSize: 12,
+            padding: "8px 10px",
+          }}
+        />
+      </div>
+
+      {rows.length === 0 ? (
+        <div className="card" style={{ padding: "24px", textAlign: "center", color: "var(--t3)", fontSize: 12 }}>
+          No models discovered yet. Add or start a provider, then refresh the dashboard.
+        </div>
+      ) : (
+        <div className="card" style={{ overflow: "hidden" }} data-testid="model-capabilities-list">
+          {rows.map((model, index) => (
+            <ModelCapabilityRow
+              key={`${model.metadata?.provider ?? "unknown"}:${model.id}`}
+              model={model}
+              divider={index < rows.length - 1}
+              onOverride={(toolCalling) => {
+                const provider = model.metadata?.provider ?? "";
+                if (!provider) return;
+                void actions.upsertModelCapabilityOverride({
+                  provider,
+                  model: model.id,
+                  tool_calling: toolCalling,
+                  streaming: model.metadata?.capabilities?.streaming,
+                  max_context_tokens: model.metadata?.capabilities?.max_context_tokens,
+                  note: "Set from Settings.",
+                });
+              }}
+              onProbe={(toolCalling) => {
+                const provider = model.metadata?.provider ?? "";
+                if (!provider) return;
+                void actions.recordModelCapabilityProbe({
+                  provider,
+                  model: model.id,
+                  tool_calling: toolCalling,
+                  streaming: model.metadata?.capabilities?.streaming,
+                  max_context_tokens: model.metadata?.capabilities?.max_context_tokens,
+                  note: "Manual result recorded from Settings.",
+                });
+              }}
+              onClear={() => {
+                const provider = model.metadata?.provider ?? "";
+                if (!provider) return;
+                void actions.deleteModelCapabilityOverride(provider, model.id);
+              }}
+            />
+          ))}
+        </div>
+      )}
+    </>
+  );
+}
+
+function ModelCapabilityRow({
+  model,
+  divider,
+  onOverride,
+  onProbe,
+  onClear,
+}: {
+  model: ModelRecord;
+  divider: boolean;
+  onOverride: (toolCalling: "none" | "basic" | "parallel") => void;
+  onProbe: (toolCalling: "none" | "basic" | "parallel") => void;
+  onClear: () => void;
+}) {
+  const capabilities = model.metadata?.capabilities;
+  const provider = model.metadata?.provider ?? "unknown";
+  const toolCalling = capabilities?.tool_calling ?? "unknown";
+  const source = capabilities?.source ?? "unknown";
+  const toolTone: ChipTone = toolCalling === "basic" || toolCalling === "parallel"
+    ? "green"
+    : toolCalling === "none"
+      ? "red"
+      : "amber";
+  const clearDisabled = source !== "operator_override";
+
+  return (
+    <div
+      data-testid={`model-capability-row-${provider}-${model.id}`}
+      style={{
+        display: "flex",
+        alignItems: "center",
+        gap: 12,
+        padding: "12px 14px",
+        borderBottom: divider ? "1px solid var(--border)" : "none",
+      }}
+    >
+      <div style={{ minWidth: 0, flex: 1 }}>
+        <div style={{ display: "flex", alignItems: "baseline", gap: 8, marginBottom: 3 }}>
+          <span style={{ fontSize: 12, fontWeight: 500, color: "var(--t0)" }}>{model.id}</span>
+          <span style={{ fontFamily: "var(--font-mono)", fontSize: 11, color: "var(--t3)" }}>·</span>
+          <span style={{ fontFamily: "var(--font-mono)", fontSize: 11, color: "var(--t2)" }}>{provider}</span>
+          <span
+            style={{
+              fontFamily: "var(--font-mono)",
+              fontSize: 10,
+              color: chipColor(toolTone),
+              textTransform: "uppercase",
+              letterSpacing: "0.04em",
+            }}
+          >
+            tools {toolCalling}
+          </span>
+        </div>
+        <div style={{ display: "flex", flexWrap: "wrap", gap: 8, fontFamily: "var(--font-mono)", fontSize: 10, color: "var(--t3)" }}>
+          <span>source <span style={{ color: "var(--t1)" }}>{source}</span></span>
+          {capabilities?.streaming !== undefined && <span>streaming <span style={{ color: "var(--t1)" }}>{capabilities.streaming ? "yes" : "no"}</span></span>}
+          {capabilities?.max_context_tokens !== undefined && <span>context <span style={{ color: "var(--t1)" }}>{capabilities.max_context_tokens.toLocaleString()}</span></span>}
+        </div>
+      </div>
+      <div style={{ display: "flex", flexWrap: "wrap", justifyContent: "flex-end", gap: 6 }}>
+        <button type="button" className="btn btn-ghost btn-sm" onClick={() => onProbe("basic")}>
+          Record test: tools
+        </button>
+        <button type="button" className="btn btn-ghost btn-sm" onClick={() => onOverride("basic")}>
+          Override tools
+        </button>
+        <button type="button" className="btn btn-ghost btn-sm" onClick={() => onOverride("none")}>
+          Override no tools
+        </button>
+        <button type="button" className="btn btn-ghost btn-sm" onClick={onClear} disabled={clearDisabled}>
+          Clear override
+        </button>
+      </div>
     </div>
   );
 }

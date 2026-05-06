@@ -283,7 +283,7 @@ func TestFreshPromptAfterCancel(t *testing.T) {
 
 	const sessionID = "chat_fresh_after_cancel"
 
-	// Phase 1: start a slow turn and cancel it.
+	// Start a slow turn and cancel it.
 	cancelledCtx, cancel := context.WithCancel(context.Background())
 	startedTurn := make(chan struct{})
 	var once sync.Once
@@ -328,7 +328,7 @@ func TestFreshPromptAfterCancel(t *testing.T) {
 		t.Fatalf("CloseSession after first turn: %v", err)
 	}
 
-	// Phase 2: send a fresh prompt against the same session id.
+	// Send a fresh prompt against the same session id.
 	freshCtx, freshCancel := context.WithTimeout(context.Background(), 10*time.Second)
 	defer freshCancel()
 	second, err := manager.Run(freshCtx, RunRequest{

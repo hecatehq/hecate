@@ -17,6 +17,7 @@ import (
 	"github.com/hecate/agent-runtime/internal/controlplane"
 	"github.com/hecate/agent-runtime/internal/gateway"
 	mcpclient "github.com/hecate/agent-runtime/internal/mcp/client"
+	"github.com/hecate/agent-runtime/internal/modelcaps"
 	"github.com/hecate/agent-runtime/internal/orchestrator"
 	"github.com/hecate/agent-runtime/internal/profiler"
 	"github.com/hecate/agent-runtime/internal/ratelimit"
@@ -481,8 +482,17 @@ func (h *Handler) HandleModels(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
+	cpState, err := h.controlPlaneState(ctx)
+	if err != nil {
+		WriteError(w, http.StatusInternalServerError, "gateway_error", err.Error())
+		return
+	}
 	data := make([]OpenAIModelData, 0, len(result.Models))
 	for _, model := range result.Models {
+		caps := model.Capabilities
+		if caps.ToolCalling == "" {
+			caps = modelcaps.Resolve(model.Provider, model.Kind, model.ID, model.DiscoverySource, cpState)
+		}
 		data = append(data, OpenAIModelData{
 			ID:      model.ID,
 			Object:  "model",
@@ -492,6 +502,7 @@ func (h *Handler) HandleModels(w http.ResponseWriter, r *http.Request) {
 				"provider_kind":    model.Kind,
 				"default":          model.Default,
 				"discovery_source": model.DiscoverySource,
+				"capabilities":     caps,
 			},
 		})
 	}
@@ -511,6 +522,13 @@ func (h *Handler) requireControlPlane(w http.ResponseWriter, r *http.Request) bo
 		return false
 	}
 	return true
+}
+
+func (h *Handler) controlPlaneState(ctx context.Context) (controlplane.State, error) {
+	if h.controlPlane == nil {
+		return controlplane.State{}, nil
+	}
+	return h.controlPlane.Snapshot(ctx)
 }
 
 // controlPlaneActor builds an actor string for audit log entries.

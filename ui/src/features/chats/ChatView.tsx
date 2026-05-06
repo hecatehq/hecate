@@ -14,6 +14,8 @@ import { AddProviderModal } from "../providers/AddProviderModal";
 type Props = {
   state: RuntimeConsoleViewModel["state"];
   actions: RuntimeConsoleViewModel["actions"];
+  onNavigate?: (workspace: "providers" | "runs") => void;
+  onOpenTask?: (taskID: string, runID?: string) => void;
 };
 
 type VisibleChatMessage = {
@@ -49,7 +51,15 @@ type SidebarSession = {
   updated_at?: string;
 };
 
-export function ChatView({ state, actions }: Props) {
+type HecateTaskApproval = {
+  approvalID: string;
+  title: string;
+  kind?: string;
+  detail?: string;
+  createdAt?: string;
+};
+
+export function ChatView({ state, actions, onNavigate, onOpenTask }: Props) {
   const [sidebarOpen, setSidebarOpen] = useState(true);
   const [syspromptOpen, setSyspromptOpen] = useState(false);
   // approvalModalID is the per-banner-click open state for the
@@ -69,6 +79,7 @@ export function ChatView({ state, actions }: Props) {
   const [quickLocalLoading, setQuickLocalLoading] = useState(false);
   const [quickLocalError, setQuickLocalError] = useState("");
   const [quickAddingProviders, setQuickAddingProviders] = useState(false);
+  const [taskApprovalBusyID, setTaskApprovalBusyID] = useState("");
   const isMac = typeof navigator !== "undefined" && /mac/i.test(navigator.platform);
   const modKey = isMac ? "⌘" : "Ctrl";
   const [modEnterMode, setModEnterMode] = useState(
@@ -81,15 +92,18 @@ export function ChatView({ state, actions }: Props) {
   const sidebarScrollRef = useRef<HTMLDivElement>(null);
   const userScrolledRef = useRef(false);
 
-  const isAgentChat = state.chatTarget === "agent";
+  const isHecateChat = state.chatTarget === "hecate_agent" || state.chatTarget === "model";
+  const isAgentChat = state.chatTarget === "hecate_agent" || state.chatTarget === "external_agent";
+  const isHecateAgentChat = state.chatTarget === "hecate_agent";
+  const isExternalAgentChat = state.chatTarget === "external_agent";
   const sessions: SidebarSession[] = isAgentChat
     ? (state.agentChatSessions ?? []).map((s) => ({
         id: s.id,
         title: s.title,
         message_count: s.message_count,
         provider_call_count: 0,
-        last_provider: s.adapter_id,
-        last_model: s.status,
+        last_provider: s.runtime_kind === "hecate_agent" ? s.provider : s.adapter_id,
+        last_model: s.runtime_kind === "hecate_agent" ? s.model : s.status,
         created_at: s.created_at,
         updated_at: s.updated_at,
       }))
@@ -129,6 +143,9 @@ export function ChatView({ state, actions }: Props) {
         produced_by_call_id: m.produced_by_call_id,
       }));
   const providerCalls = isAgentChat ? [] : (state.activeChatSession?.provider_calls ?? []);
+  const pendingTaskApprovals = isHecateAgentChat
+    ? pendingHecateTaskApprovals(state.activeAgentChatSession)
+    : [];
   // Lookup map so the assistant rows can pull tokens/cost from the
   // call that produced them. The relationship is many-messages → one
   // call (server-driven tool loops fold many tool steps under a single
@@ -172,13 +189,31 @@ export function ChatView({ state, actions }: Props) {
     ? state.providers.length === 1 ? state.providers[0] : undefined
     : state.providers.find(provider => provider.name === state.providerFilter);
   const agentRouteUnavailable = availableAgents.length === 0;
-  const selectedAgentUnavailable = isAgentChat && Boolean(selectedAgent) && !selectedAgent?.available;
+  const selectedAgentUnavailable = isExternalAgentChat && Boolean(selectedAgent) && !selectedAgent?.available;
   const nothingRunnable = !state.loading && modelRouteUnavailable && agentRouteUnavailable;
-  const agentPickerLocked = isAgentChat && Boolean(state.activeAgentChatSessionID);
+  const agentPickerLocked = isExternalAgentChat && Boolean(state.activeAgentChatSessionID);
+  const hecateAgentModelLocked = isHecateAgentChat
+    && state.activeAgentChatSession?.runtime_kind === "hecate_agent"
+    && Boolean(state.activeAgentChatSession.task_id);
+  const hecateChatProviderValue = hecateAgentModelLocked
+    ? (state.activeAgentChatSession?.provider || "auto")
+    : state.providerFilter;
+  const hecateChatModelValue = hecateAgentModelLocked
+    ? (state.activeAgentChatSession?.model || "")
+    : state.model;
+  const selectedModelCapabilities = hecateAgentModelLocked
+    ? state.activeAgentChatSession?.capabilities
+    : selectableModels.find((entry) => entry.id === state.model && (!state.providerFilter || state.providerFilter === "auto" || entry.metadata?.provider === state.providerFilter))?.metadata?.capabilities;
+  const hecateAgentModelToolCapable = selectedModelCapabilities?.tool_calling === "basic" || selectedModelCapabilities?.tool_calling === "parallel";
+  const hecateChatModelReady = isHecateAgentChat && hecateAgentModelLocked
+    ? Boolean(hecateChatModelValue)
+    : Boolean(state.model) && !modelRouteUnavailable;
+  const composerVisible = isExternalAgentChat || (isHecateChat && hecateChatModelReady);
   const sendDisabled = !state.message.trim()
     || streaming
     || (!isAgentChat && modelRouteUnavailable)
-    || (isAgentChat && (!state.agentWorkspace.trim() || !selectedAgent?.available));
+    || (isExternalAgentChat && (!state.agentWorkspace.trim() || !selectedAgent?.available))
+    || (isHecateAgentChat && (!state.agentWorkspace.trim() || !hecateChatModelReady || !hecateAgentModelToolCapable));
 
   useEffect(() => {
     if (!userScrolledRef.current) {
@@ -204,10 +239,10 @@ export function ChatView({ state, actions }: Props) {
   }, [state.agentWorkspace]);
 
   useEffect(() => {
-    if (isAgentChat || !modelRouteUnavailable || hasConfiguredProviders || quickLocalProviders.length > 0 || quickLocalLoading) return;
+    if (!isHecateChat || !modelRouteUnavailable || hasConfiguredProviders || quickLocalProviders.length > 0 || quickLocalLoading) return;
     void refreshQuickLocalProviders();
   // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [isAgentChat, modelRouteUnavailable, hasConfiguredProviders]);
+  }, [isHecateChat, modelRouteUnavailable, hasConfiguredProviders]);
 
   function handleScroll() {
     const el = scrollRef.current;
@@ -320,6 +355,17 @@ export function ChatView({ state, actions }: Props) {
       }
     } finally {
       setQuickAddingProviders(false);
+    }
+  }
+
+  async function handleResolveTaskApproval(approvalID: string, decision: "approve" | "reject") {
+    const taskID = state.activeAgentChatSession?.task_id;
+    if (!taskID) return;
+    setTaskApprovalBusyID(`${approvalID}:${decision}`);
+    try {
+      await actions.resolveTaskApproval(taskID, approvalID, { decision });
+    } finally {
+      setTaskApprovalBusyID("");
     }
   }
 
@@ -503,29 +549,47 @@ export function ChatView({ state, actions }: Props) {
             </button>
           )}
           <div style={{ display: "flex", border: "1px solid var(--border)", borderRadius: "var(--radius-sm)", overflow: "hidden", flexShrink: 0 }}>
-            {(["agent", "model"] as const).map((target) => (
+            {([
+              ["hecate", "Hecate Chat", "Chat with a selected model; enable tools to use Hecate's task runtime"],
+              ["external_agent", "External Agent", "Chat with Codex, Claude Code, Cursor, or another external agent"],
+            ] as const).map(([target, label, title]) => (
               <button
                 key={target}
                 className="btn btn-ghost btn-sm"
                 type="button"
-                aria-pressed={state.chatTarget === target}
-                onClick={() => actions.setChatTarget(target)}
+                aria-pressed={target === "hecate" ? isHecateChat : state.chatTarget === target}
+                onClick={() => {
+                  if (target === "hecate") {
+                    if (!isHecateChat) actions.setChatTarget("hecate_agent");
+                    return;
+                  }
+                  actions.setChatTarget(target);
+                }}
                 style={{
                   borderRadius: 0,
-                  background: state.chatTarget === target ? "var(--teal-bg)" : "transparent",
-                  color: state.chatTarget === target ? "var(--teal)" : "var(--t2)",
+                  background: (target === "hecate" ? isHecateChat : state.chatTarget === target) ? "var(--teal-bg)" : "transparent",
+                  color: (target === "hecate" ? isHecateChat : state.chatTarget === target) ? "var(--teal)" : "var(--t2)",
                   border: 0,
                 }}
-                title={target === "model" ? "Chat with a model through Hecate providers" : "Chat with an external coding agent"}
+                title={title}
               >
-                {target === "model" ? "Model" : "Agent"}
+                {label}
               </button>
             ))}
           </div>
+          {isHecateChat && (
+            <HecateToolsToggle
+              enabled={isHecateAgentChat}
+              toolCalling={selectedModelCapabilities?.tool_calling}
+              capabilitySource={selectedModelCapabilities?.source}
+              capable={hecateAgentModelToolCapable}
+              onChange={(enabled) => actions.setChatTarget(enabled ? "hecate_agent" : "model")}
+            />
+          )}
           <span style={{ fontSize: 13, fontWeight: 500, color: "var(--t0)", flex: 1, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>
             {activeTitle || (sessions.length === 0 ? "New chat" : "Select a chat")}
           </span>
-          {isAgentChat && (
+          {isAgentChat && state.activeAgentChatSession?.runtime_kind !== "hecate_agent" && (
             <span
               title={formatAgentSessionTitle(state.activeAgentChatSession, selectedAgent)}
               style={{ flexShrink: 0, fontFamily: "var(--font-mono)", fontSize: 10, color: "var(--t3)", maxWidth: 260, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}
@@ -533,7 +597,7 @@ export function ChatView({ state, actions }: Props) {
               {formatAgentSessionLabel(state.activeAgentChatSession, selectedAgent)}
             </span>
           )}
-          {isAgentChat ? (
+          {isExternalAgentChat ? (
             <>
               <AgentAdapterPicker
                 value={activeAgentAdapterID}
@@ -588,76 +652,111 @@ export function ChatView({ state, actions }: Props) {
             </>
           ) : (
             <>
-              <ProviderPicker
-                value={state.providerFilter}
-                onChange={v => actions.setProviderFilter(v as typeof state.providerFilter)}
-                options={(() => {
-                  // Source the picker from the operator's configured providers
-                  // (the CP store), not the runtime status list. Health is not
-                  // a filter — a temporarily-down provider is still a valid
-                  // selection.
-                  const configured = state.controlPlaneConfig?.providers ?? [];
-                  const source = configured.length > 0
-                    ? configured.map(c => ({ id: c.id, name: c.name, kind: c.kind }))
-                    : state.providers
-                        .filter(p => p.name)
-                        .map(p => ({ id: p.name, name: p.name, kind: state.providerPresets.find(pr => pr.id === p.name)?.kind }));
+              {hecateAgentModelLocked ? (
+                <LockedHecateModelSnapshot
+                  provider={providerLabelForHecateChat(state, hecateChatProviderValue)}
+                  model={hecateChatModelValue}
+                />
+              ) : (
+                <>
+                  <ProviderPicker
+                    value={state.providerFilter}
+                    onChange={v => actions.setProviderFilter(v as typeof state.providerFilter)}
+                    options={(() => {
+                      // Source the picker from the operator's configured providers
+                      // (the CP store), not the runtime status list. Health is not
+                      // a filter — a temporarily-down provider is still a valid
+                      // selection.
+                      const configured = state.controlPlaneConfig?.providers ?? [];
+                      const source = configured.length > 0
+                        ? configured.map(c => ({ id: c.id, name: c.name, kind: c.kind }))
+                        : state.providers
+                            .filter(p => p.name)
+                            .map(p => ({ id: p.name, name: p.name, kind: state.providerPresets.find(pr => pr.id === p.name)?.kind }));
 
-                  return source
-                    .map(p => {
-                      const cfg = state.controlPlaneConfig?.providers.find(c => c.id === p.id);
-                      // Cloud-with-no-credentials is the only "disabled"
-                      // reason left now that the toggle is gone — we
-                      // surface it as a tooltip + key icon rather than
-                      // hiding the row, so the operator sees why the
-                      // provider isn't usable and where to fix it.
-                      const cloudUnconfigured = !!cfg && cfg.kind === "cloud" && !cfg.credential_configured;
-                      return {
-                        id: p.id,
-                        name: state.providerPresets.find(pr => pr.id === p.id)?.name || p.name || p.id,
-                        healthy: true, // dot suppressed in the picker; field kept for type compatibility
-                        kind: p.kind,
-                        configured: cfg ? cfg.credential_configured : undefined,
-                        disabledReason: cloudUnconfigured ? `Add an API key for ${cfg!.name || cfg!.id} on the Providers tab` : undefined,
-                      };
-                    });
-                })()}
-                includeAuto
-              />
-              <ModelPicker
-                value={state.model}
-                onChange={actions.setModel}
-                // Scope the model list to providers the operator has explicitly
-                // configured. The /v1/models endpoint may return models from
-                // env-driven providers too (e.g. Docker's PROVIDER_*_BASE_URL
-                // pre-filled vars), but those aren't in controlPlaneConfig.providers
-                // and shouldn't be selectable from the chat picker.
-                models={selectableModels}
-                presets={state.providerPresets}
-                // Pinned width pairs the chat header's model picker with
-                // the provider picker for a stable, non-jittery layout.
-                triggerWidth={220}
-                // Show the provider suffix only when "All providers" is
-                // selected — when a specific provider is filtered, the
-                // suffix is redundant on every row.
-                showProvider={state.providerFilter === "auto"}
-                // Provider ids whose models should render as disabled rows
-                // (with a key indicator). Cloud-with-no-credentials is the
-                // only "disabled" reason now that the toggle is gone.
-                disabledProviders={(() => {
-                  const out = new Map<string, string>();
-                  for (const cfg of state.controlPlaneConfig?.providers ?? []) {
-                    if (cfg.kind === "cloud" && !cfg.credential_configured) {
-                      out.set(cfg.id, `Add an API key for ${cfg.name || cfg.id} on the Providers tab`);
-                    }
-                  }
-                  return out;
-                })()}
-              />
-              <button className="btn btn-ghost btn-sm" onClick={() => setSyspromptOpen(o => !o)}
-                style={{ color: syspromptOpen ? "var(--teal)" : "var(--t2)" }} title="System prompt">
-                <Icon d={Icons.edit} size={13} />
-                <span style={{ fontSize: 11 }}>system</span>
+                      return source
+                        .map(p => {
+                          const cfg = state.controlPlaneConfig?.providers.find(c => c.id === p.id);
+                          // Cloud-with-no-credentials is the only "disabled"
+                          // reason left now that the toggle is gone — we
+                          // surface it as a tooltip + key icon rather than
+                          // hiding the row, so the operator sees why the
+                          // provider isn't usable and where to fix it.
+                          const cloudUnconfigured = !!cfg && cfg.kind === "cloud" && !cfg.credential_configured;
+                          return {
+                            id: p.id,
+                            name: state.providerPresets.find(pr => pr.id === p.id)?.name || p.name || p.id,
+                            healthy: true, // dot suppressed in the picker; field kept for type compatibility
+                            kind: p.kind,
+                            configured: cfg ? cfg.credential_configured : undefined,
+                            disabledReason: cloudUnconfigured ? `Add an API key for ${cfg!.name || cfg!.id} on the Providers tab` : undefined,
+                          };
+                        });
+                    })()}
+                    includeAuto
+                  />
+                  <ModelPicker
+                    value={state.model}
+                    onChange={actions.setModel}
+                    // Scope the model list to providers the operator has explicitly
+                    // configured. The /v1/models endpoint may return models from
+                    // env-driven providers too (e.g. Docker's PROVIDER_*_BASE_URL
+                    // pre-filled vars), but those aren't in controlPlaneConfig.providers
+                    // and shouldn't be selectable from the chat picker.
+                    models={selectableModels}
+                    presets={state.providerPresets}
+                    // Pinned width pairs the chat header's model picker with
+                    // the provider picker for a stable, non-jittery layout.
+                    triggerWidth={220}
+                    // Show the provider suffix only when "All providers" is
+                    // selected — when a specific provider is filtered, the
+                    // suffix is redundant on every row.
+                    showProvider={state.providerFilter === "auto"}
+                    // Provider ids whose models should render as disabled rows
+                    // (with a key indicator). Cloud-with-no-credentials is the
+                    // only "disabled" reason now that the toggle is gone.
+                    disabledProviders={(() => {
+                      const out = new Map<string, string>();
+                      for (const cfg of state.controlPlaneConfig?.providers ?? []) {
+                        if (cfg.kind === "cloud" && !cfg.credential_configured) {
+                          out.set(cfg.id, `Add an API key for ${cfg.name || cfg.id} on the Providers tab`);
+                        }
+                      }
+                      return out;
+                    })()}
+                  />
+                </>
+              )}
+              {!isHecateAgentChat && (
+                <button className="btn btn-ghost btn-sm" onClick={() => setSyspromptOpen(o => !o)}
+                  style={{ color: syspromptOpen ? "var(--teal)" : "var(--t2)" }} title="System prompt">
+                  <Icon d={Icons.edit} size={13} />
+                  <span style={{ fontSize: 11 }}>system</span>
+                </button>
+              )}
+            </>
+          )}
+          {isHecateAgentChat && (
+            <>
+              <button
+                className="btn btn-ghost btn-sm"
+                onClick={() => void chooseWorkspace()}
+                title={state.agentWorkspace ? `Workspace: ${state.agentWorkspace}` : "Choose workspace folder"}
+                type="button"
+              >
+                <Icon d={Icons.folder} size={13} />
+                <span style={{ fontSize: 11 }}>{state.agentWorkspace ? "workspace" : "choose workspace"}</span>
+              </button>
+              <button
+                className="btn btn-ghost btn-sm"
+                onClick={() => {
+                  setWorkspacePathValue(state.agentWorkspace);
+                  setWorkspaceEntryOpen(v => !v);
+                }}
+                title="Paste a workspace path"
+                type="button"
+              >
+                <span style={{ fontSize: 11 }}>paste path</span>
               </button>
             </>
           )}
@@ -705,7 +804,7 @@ export function ChatView({ state, actions }: Props) {
             the auto-mode warning is persistent for as long as the gateway
             runs in auto, the pending banner appears only when there's at
             least one pending approval for the active session. */}
-        {isAgentChat && (
+        {isExternalAgentChat && (
           <>
             <AgentApprovalAutoModeBanner mode={state.agentAdapterApprovalMode} />
             {state.activeAgentChatSessionID && (
@@ -717,6 +816,17 @@ export function ChatView({ state, actions }: Props) {
           </>
         )}
 
+        {isHecateAgentChat && state.activeAgentChatSession?.task_id && pendingTaskApprovals.length > 0 && (
+          <HecateTaskApprovalsBanner
+            approvals={pendingTaskApprovals}
+            taskID={state.activeAgentChatSession.task_id}
+            runID={state.activeAgentChatSession.latest_run_id}
+            busyID={taskApprovalBusyID}
+            onOpenTask={onOpenTask}
+            onResolve={handleResolveTaskApproval}
+          />
+        )}
+
         {/* Messages */}
         <div style={{ flex: 1, overflow: "hidden", position: "relative" }}>
         <div ref={scrollRef} onScroll={handleScroll} style={{ height: "100%", overflowY: "auto", padding: "16px 0" }}>
@@ -725,7 +835,9 @@ export function ChatView({ state, actions }: Props) {
             const role = m.role === "assistant" ? "assistant" : "user";
             const content = typeof m.content === "string" ? m.content : (m.content === null ? "" : JSON.stringify(m.content));
             const time = m.created_at ? new Date(m.created_at).toLocaleTimeString("en-US", { hour: "2-digit", minute: "2-digit" }) : "";
-            const agentModel = m.agent_adapter_name || m.agent_adapter_id;
+            const agentModel = isHecateAgentChat
+              ? (state.activeAgentChatSession?.model || "Hecate Agent")
+              : (m.agent_adapter_name || m.agent_adapter_id);
             const agentRuntime = isAgentChat && role === "assistant"
               ? formatAgentRuntimeMeta(m.run_id, m.duration_ms, m.trace_id, m.native_session_id)
               : "";
@@ -742,6 +854,19 @@ export function ChatView({ state, actions }: Props) {
                 costUsd={call?.cost_usd}
                 badge={isAgentChat && role === "assistant" ? (m.agent_status || m.cost_mode) : undefined}
                 runtimeMeta={agentRuntime}
+                taskLink={isHecateAgentChat && role === "assistant" && state.activeAgentChatSession?.task_id
+                  ? {
+                      label: formatTaskLinkLabel(state.activeAgentChatSession.task_id),
+                      title: formatTaskLinkTitle(state.activeAgentChatSession.task_id, m.run_id || state.activeAgentChatSession.latest_run_id),
+                      onClick: () => {
+                        const taskID = state.activeAgentChatSession?.task_id;
+                        if (!taskID) return;
+                        const runID = m.run_id || state.activeAgentChatSession?.latest_run_id;
+                        if (onOpenTask) onOpenTask(taskID, runID);
+                        else onNavigate?.("runs");
+                      },
+                    }
+                  : undefined}
                 activities={isAgentChat && role === "assistant" ? m.activities : undefined}
                 diffStat={isAgentChat && role === "assistant" ? m.diff_stat : undefined}
                 diff={isAgentChat && role === "assistant" ? m.diff : undefined}
@@ -820,8 +945,10 @@ export function ChatView({ state, actions }: Props) {
           {visibleMessages.length === 0 && !streaming && state.pendingToolCalls.length === 0 && (
             <ChatEmptyState
               isAgentChat={isAgentChat}
+              isHecateChat={isHecateChat}
+              isExternalAgentChat={isExternalAgentChat}
               modelRouteUnavailable={modelRouteUnavailable}
-              agentRouteUnavailable={agentRouteUnavailable}
+              agentRouteUnavailable={isExternalAgentChat && agentRouteUnavailable}
               nothingRunnable={nothingRunnable}
               agentAdapters={state.agentAdapters}
               selectedAgent={selectedAgent}
@@ -858,7 +985,7 @@ export function ChatView({ state, actions }: Props) {
         )}
         </div>
 
-        {/* Input bar */}
+        {(composerVisible || state.chatError) && (
         <form ref={formRef} onSubmit={handleSubmit} style={{ borderTop: "1px solid var(--border)", padding: "10px 12px", background: "var(--bg1)", flexShrink: 0 }}>
           {state.chatError && (
             <div style={{ marginBottom: 8 }}>
@@ -869,6 +996,13 @@ export function ChatView({ state, actions }: Props) {
                 status={state.chatErrorStatus ?? undefined}
                 diagnostic={chatDiagnostic}
               />
+            </div>
+          )}
+          {composerVisible && (
+          <>
+          {isHecateAgentChat && hecateChatModelValue && !hecateAgentModelToolCapable && (
+            <div style={{ maxWidth: 820, margin: "0 auto 8px", fontSize: 12, color: "var(--amber)", lineHeight: 1.45 }}>
+              This model has unknown or no tool-calling support. Test it or override capabilities in Settings.
             </div>
           )}
           <div style={{ maxWidth: 820, margin: "0 auto", position: "relative" }}>
@@ -928,13 +1062,17 @@ export function ChatView({ state, actions }: Props) {
           </div>
           {isAgentChat && state.agentChatCancelling && (
             <div style={{ maxWidth: 820, margin: "6px auto 0", color: "var(--t3)", fontFamily: "var(--font-mono)", fontSize: 11 }}>
-              Stopping external agent...
+              Stopping agent...
             </div>
           )}
           <div style={{ maxWidth: 820, margin: "3px auto 0", display: "flex", alignItems: "center", gap: 10, justifyContent: "space-between" }}>
-            {isAgentChat ? (
+            {isExternalAgentChat ? (
               <span style={{ color: "var(--t3)", fontFamily: "var(--font-mono)", fontSize: 10 }}>
                 External agents run as your OS user in the selected workspace — no sandbox
+              </span>
+            ) : isHecateAgentChat ? (
+              <span style={{ color: "var(--t3)", fontFamily: "var(--font-mono)", fontSize: 10 }}>
+                Hecate Agent runs through task approvals and per-call sandboxing in the selected workspace.
               </span>
             ) : <span />}
             <button type="button" onClick={toggleModEnterMode} style={{
@@ -944,7 +1082,10 @@ export function ChatView({ state, actions }: Props) {
               {modEnterMode ? `${modKey}+↵ to send` : "↵ to send"}
             </button>
           </div>
+          </>
+          )}
         </form>
+        )}
       </div>
 
       <style>{`
@@ -987,6 +1128,338 @@ function filterSidebarSessions(sessions: SidebarSession[], query: string): Sideb
     ].filter(Boolean).join(" ").toLowerCase();
     return searchable.includes(needle);
   });
+}
+
+function pendingHecateTaskApprovals(session: AgentChatSessionRecord | null): HecateTaskApproval[] {
+  if (!session?.task_id) return [];
+  const byID = new Map<string, HecateTaskApproval>();
+  for (const message of session.messages ?? []) {
+    for (const activity of message.activities ?? []) {
+      if (activity.type !== "approval") continue;
+      const approvalID = activity.approval_id || parseProjectedTaskApprovalID(activity.id);
+      if (!approvalID) continue;
+      const status = activity.status || "";
+      if (isResolvedTaskApprovalStatus(status)) {
+        byID.delete(approvalID);
+        continue;
+      }
+      const pending = activity.needs_action || status === "pending" || status === "awaiting_approval";
+      if (!pending) {
+        byID.delete(approvalID);
+        continue;
+      }
+      byID.set(approvalID, {
+        approvalID,
+        title: activity.title || activity.kind || "Approval required",
+        kind: activity.kind,
+        detail: cleanApprovalDetail(activity.detail),
+        createdAt: activity.created_at,
+      });
+    }
+  }
+  return [...byID.values()].sort((a, b) => (a.createdAt || "").localeCompare(b.createdAt || ""));
+}
+
+function cleanApprovalDetail(detail?: string): string {
+  return (detail || "")
+    .replace(/\s+-\s+awaiting_approval$/i, "")
+    .replace(/\s+-\s+pending$/i, "")
+    .trim();
+}
+
+function parseProjectedTaskApprovalID(id?: string): string {
+  const prefix = "task:approval:";
+  if (!id?.startsWith(prefix)) return "";
+  return id.slice(prefix.length);
+}
+
+function isResolvedTaskApprovalStatus(status: string): boolean {
+  switch (status) {
+    case "approved":
+    case "rejected":
+    case "denied":
+    case "cancelled":
+    case "timed_out":
+      return true;
+    default:
+      return false;
+  }
+}
+
+function formatTaskLinkLabel(taskID: string): string {
+  return `task ${taskID.slice(0, 12)}`;
+}
+
+function formatTaskLinkTitle(taskID: string, runID?: string): string {
+  return [
+    `Open backing task ${taskID}`,
+    runID ? `run ${runID}` : "",
+  ].filter(Boolean).join(" · ");
+}
+
+function HecateToolsToggle({
+  enabled,
+  toolCalling,
+  capabilitySource,
+  capable,
+  onChange,
+}: {
+  enabled: boolean;
+  toolCalling?: string;
+  capabilitySource?: string;
+  capable: boolean;
+  onChange: (enabled: boolean) => void;
+}) {
+  const toolLabel = toolCalling || "unknown";
+  const basicTitle = capable
+    ? `Use Hecate's task runtime with tools, approvals, artifacts, and telemetry. Capability source: ${capabilitySource || "unknown"}.`
+    : `Tool support is ${toolLabel}. You can enable tools after testing or overriding this model's capabilities in Settings.`;
+  return (
+    <div
+      role="group"
+      aria-label="Hecate tools"
+      style={{
+        display: "inline-flex",
+        alignItems: "center",
+        border: "1px solid var(--border)",
+        borderRadius: "999px",
+        overflow: "hidden",
+        flexShrink: 0,
+        background: "var(--bg0)",
+        height: 30,
+      }}
+    >
+      <button
+        type="button"
+        className="btn btn-ghost btn-sm"
+        aria-pressed={!enabled}
+        onClick={() => onChange(false)}
+        title="Chat directly with the selected model. No task run or tools."
+        style={{
+          border: 0,
+          borderRadius: 0,
+          width: 76,
+          padding: "4px 0",
+          fontFamily: "var(--font-mono)",
+          fontSize: 10,
+          background: !enabled ? "var(--bg3)" : "transparent",
+          color: !enabled ? "var(--t0)" : "var(--t3)",
+          justifyContent: "center",
+        }}
+      >
+        tools off
+      </button>
+      <button
+        type="button"
+        className="btn btn-ghost btn-sm"
+        aria-pressed={enabled}
+        onClick={() => onChange(true)}
+        title={basicTitle}
+        style={{
+          border: 0,
+          borderLeft: "1px solid var(--border)",
+          borderRadius: 0,
+          width: 108,
+          padding: "4px 0",
+          fontFamily: "var(--font-mono)",
+          fontSize: 10,
+          background: enabled ? "var(--teal-bg)" : "transparent",
+          color: enabled ? (capable ? "var(--teal)" : "var(--amber)") : "var(--t3)",
+          justifyContent: "center",
+        }}
+      >
+        tools: {enabled ? toolLabel : "basic"}
+      </button>
+    </div>
+  );
+}
+
+function LockedHecateModelSnapshot({
+  provider,
+  model,
+}: {
+  provider: string;
+  model: string;
+}) {
+  const title = "Provider and model are fixed for this Hecate Agent task. Turn tools off for direct model chat, or start a new chat to use a different tools-enabled model.";
+  const sharedStyle = {
+    fontFamily: "var(--font-mono)",
+    fontSize: 11,
+    gap: 5,
+    color: "var(--t2)",
+    opacity: 0.78,
+    cursor: "not-allowed",
+  } as const;
+  return (
+    <>
+      <button
+        type="button"
+        className="btn btn-ghost btn-sm"
+        disabled
+        aria-label={`Fixed provider: ${provider}`}
+        title={title}
+        style={{ ...sharedStyle, width: 220 }}
+      >
+        <Icon d={Icons.providers} size={13} />
+        <span style={{ flex: 1, minWidth: 0, whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis", textAlign: "left" }}>
+          {provider}
+        </span>
+      </button>
+      <button
+        type="button"
+        className="btn btn-ghost btn-sm"
+        disabled
+        aria-label={`Fixed model: ${model || "model"}`}
+        title={title}
+        style={{ ...sharedStyle, width: 220 }}
+      >
+        <Icon d={Icons.model} size={13} />
+        <span style={{ flex: 1, minWidth: 0, whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis", textAlign: "left" }}>
+          {model || "model"}
+        </span>
+      </button>
+    </>
+  );
+}
+
+function providerLabelForHecateChat(state: RuntimeConsoleViewModel["state"], providerID: string): string {
+  if (!providerID || providerID === "auto") {
+    return "All providers";
+  }
+  return state.controlPlaneConfig?.providers.find(provider => provider.id === providerID)?.name
+    || state.providerPresets.find(preset => preset.id === providerID)?.name
+    || state.providers.find(provider => provider.name === providerID)?.name
+    || providerID;
+}
+
+function HecateTaskApprovalsBanner({
+  approvals,
+  taskID,
+  runID,
+  busyID,
+  onOpenTask,
+  onResolve,
+}: {
+  approvals: HecateTaskApproval[];
+  taskID: string;
+  runID?: string;
+  busyID: string;
+  onOpenTask?: (taskID: string, runID?: string) => void;
+  onResolve: (approvalID: string, decision: "approve" | "reject") => void;
+}) {
+  const visible = approvals.slice(0, 2);
+  const overflow = approvals.length - visible.length;
+  return (
+    <div
+      role="region"
+      aria-label="Pending Hecate Agent task approvals"
+      data-testid="hecate-task-approval-banner"
+      style={{
+        margin: "10px 16px 0",
+        border: "1px solid var(--amber-border)",
+        borderRadius: "var(--radius)",
+        background: "var(--amber-bg)",
+        overflow: "hidden",
+        flexShrink: 0,
+      }}
+    >
+      <div style={{
+        padding: "8px 12px",
+        borderBottom: "1px solid var(--amber-border)",
+        display: "flex",
+        alignItems: "center",
+        gap: 8,
+      }}>
+        <Icon d={Icons.warning} size={14} />
+        <span style={{ fontWeight: 500, color: "var(--amber)", fontSize: 12 }}>
+          {approvals.length === 1 ? "Task approval required" : `${approvals.length} task approvals required`}
+        </span>
+        {onOpenTask && (
+          <button
+            type="button"
+            className="btn btn-ghost btn-sm"
+            onClick={() => onOpenTask(taskID, runID)}
+            style={{ marginLeft: "auto" }}
+          >
+            Open Task
+          </button>
+        )}
+      </div>
+      {visible.map((approval) => {
+        const approveBusy = busyID === `${approval.approvalID}:approve`;
+        const rejectBusy = busyID === `${approval.approvalID}:reject`;
+        const disabled = busyID !== "";
+        const label = describeTaskApprovalKind(approval.kind || approval.title);
+        return (
+          <div
+            key={approval.approvalID}
+            style={{
+              padding: "9px 12px",
+              display: "grid",
+              gridTemplateColumns: "minmax(0, 1fr) auto",
+              gap: 12,
+              alignItems: "center",
+              borderTop: "1px solid var(--amber-border)",
+            }}
+          >
+            <div style={{ minWidth: 0 }}>
+              <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
+                <span style={{ fontFamily: "var(--font-mono)", fontSize: 11, color: "var(--amber)", overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>
+                  {label}
+                </span>
+                {approval.createdAt && (
+                  <span style={{ fontFamily: "var(--font-mono)", fontSize: 10, color: "var(--amber-lo)" }}>
+                    {new Date(approval.createdAt).toLocaleTimeString()}
+                  </span>
+                )}
+              </div>
+              {approval.detail && (
+                <div style={{ fontSize: 11, color: "var(--amber-lo)", marginTop: 3, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>
+                  {approval.detail}
+                </div>
+              )}
+            </div>
+            <div style={{ display: "flex", gap: 8 }}>
+              <button
+                type="button"
+                className="btn btn-primary btn-sm"
+                aria-label={`Approve ${label}`}
+                disabled={disabled}
+                onClick={() => onResolve(approval.approvalID, "approve")}
+              >
+                {approveBusy ? "Approving..." : "Approve"}
+              </button>
+              <button
+                type="button"
+                className="btn btn-danger btn-sm"
+                aria-label={`Reject ${label}`}
+                disabled={disabled}
+                onClick={() => onResolve(approval.approvalID, "reject")}
+              >
+                {rejectBusy ? "Rejecting..." : "Reject"}
+              </button>
+            </div>
+          </div>
+        );
+      })}
+      {overflow > 0 && (
+        <div style={{ padding: "7px 12px", borderTop: "1px solid var(--amber-border)", color: "var(--amber)", fontFamily: "var(--font-mono)", fontSize: 11 }}>
+          + {overflow} more in the backing Task
+        </div>
+      )}
+    </div>
+  );
+}
+
+function describeTaskApprovalKind(kind: string): string {
+  switch (kind) {
+    case "shell_command":        return "Shell execution";
+    case "git_exec":             return "Git execution";
+    case "file_write":           return "File write";
+    case "network_egress":       return "Network egress";
+    case "agent_loop_tool_call": return "Agent tool call";
+    default:                     return kind.replaceAll("_", " ");
+  }
 }
 
 function groupSidebarSessions(sessions: SidebarSession[]): Array<{ label: string; sessions: SidebarSession[] }> {
@@ -1061,6 +1534,8 @@ function ChatErrorPanel({
 
 function ChatEmptyState({
   isAgentChat,
+  isHecateChat,
+  isExternalAgentChat,
   modelRouteUnavailable,
   agentRouteUnavailable,
   nothingRunnable,
@@ -1082,6 +1557,8 @@ function ChatEmptyState({
   onSwitchTarget,
 }: {
   isAgentChat: boolean;
+  isHecateChat: boolean;
+  isExternalAgentChat: boolean;
   modelRouteUnavailable: boolean;
   agentRouteUnavailable: boolean;
   nothingRunnable: boolean;
@@ -1100,26 +1577,27 @@ function ChatEmptyState({
   onAddProvider: () => void;
   onQuickAddLocalProviders: (providers: LocalProviderDiscoveryRecord[]) => void;
   onRefreshQuickLocalProviders: () => void;
-  onSwitchTarget: (target: "model" | "agent") => void;
+  onSwitchTarget: (target: "model" | "hecate_agent" | "external_agent") => void;
 }) {
+  const hecateModelUnavailable = isHecateChat && modelRouteUnavailable;
   const title = isAgentChat && selectedAgentUnavailable
       ? `${selectedAgent?.name || "Selected agent"} is unavailable`
-      : isAgentChat && agentRouteUnavailable
+      : isExternalAgentChat && agentRouteUnavailable
       ? "No available coding agent"
       : nothingRunnable
         ? "Nothing runnable yet"
-        : !isAgentChat && modelRouteUnavailable
+        : hecateModelUnavailable
           ? "No routable model"
-          : "Start a chat";
+        : "Start a chat";
   const detail = isAgentChat && selectedAgentUnavailable
       ? `Hecate could not start ${selectedAgent?.name || "the selected agent"} because its CLI is not ready in this environment.`
-      : isAgentChat && agentRouteUnavailable
+      : isExternalAgentChat && agentRouteUnavailable
       ? "Hecate did not find any supported coding-agent CLI or local adapter runner in the known operator locations."
       : nothingRunnable
         ? "Add a model provider or install a supported coding-agent CLI before sending a message."
-        : !isAgentChat && modelRouteUnavailable
+        : hecateModelUnavailable
           ? "Add a provider with discovered models before sending through Hecate."
-          : "Send a message to start this chat.";
+        : "Send a message to start this chat.";
 
   return (
     <div style={{ padding: "48px 16px", maxWidth: 820, margin: "0 auto", textAlign: "center" }}>
@@ -1128,7 +1606,7 @@ function ChatEmptyState({
       {isAgentChat && (agentRouteUnavailable || selectedAgentUnavailable) && (
         <AgentSetupHints adapters={agentAdapters} selectedID={selectedAgent?.id} />
       )}
-      {!isAgentChat && modelRouteUnavailable && hasConfiguredProviders && (
+      {isHecateChat && modelRouteUnavailable && hasConfiguredProviders && (
         <ModelRouteTroubleshooting
           providerFilter={providerFilter}
           configuredProvider={selectedConfiguredProvider}
@@ -1137,7 +1615,7 @@ function ChatEmptyState({
       )}
       {(modelRouteUnavailable || agentRouteUnavailable) && (
         <div style={{ display: "flex", justifyContent: "center", gap: 8, marginTop: 14, flexWrap: "wrap" }}>
-          {modelRouteUnavailable && !isAgentChat && (
+          {modelRouteUnavailable && isHecateChat && (
             <button
               className="btn btn-primary btn-sm"
               onClick={onAddProvider}
@@ -1147,12 +1625,12 @@ function ChatEmptyState({
             </button>
           )}
           {agentRouteUnavailable && !isAgentChat && (
-            <button className="btn btn-ghost btn-sm" onClick={() => onSwitchTarget("agent")} type="button">
+            <button className="btn btn-ghost btn-sm" onClick={() => onSwitchTarget("external_agent")} type="button">
               <Icon d={Icons.terminal} size={13} /> Check agents
             </button>
           )}
           {!agentRouteUnavailable && !isAgentChat && (
-            <button className="btn btn-ghost btn-sm" onClick={() => onSwitchTarget("agent")} type="button">
+            <button className="btn btn-ghost btn-sm" onClick={() => onSwitchTarget("hecate_agent")} type="button">
               <Icon d={Icons.terminal} size={13} /> Use agent
             </button>
           )}
@@ -1163,7 +1641,7 @@ function ChatEmptyState({
           )}
         </div>
       )}
-      {!isAgentChat && modelRouteUnavailable && !hasConfiguredProviders && (
+      {isHecateChat && modelRouteUnavailable && !hasConfiguredProviders && (
         <QuickLocalProviderAdd
           discoveries={quickLocalProviders}
           error={quickLocalError}

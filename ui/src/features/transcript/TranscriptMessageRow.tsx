@@ -7,10 +7,11 @@ import { TranscriptActivityTimeline } from "./TranscriptActivityTimeline";
 import { TranscriptDiffReview } from "./TranscriptDiffReview";
 import { TranscriptMarkdown } from "./TranscriptMarkdown";
 
-export function TranscriptMessageRow({ id, role, model, content, time, promptTokens, completionTokens, costUsd, badge, runtimeMeta, activities, diffStat, diff, agentSessionID, onListAgentFiles, onGetAgentFileDiff, onRevertAgentFiles, rawOutput, agentUsage, error, onCopy, copied }: {
+export function TranscriptMessageRow({ id, role, model, content, time, promptTokens, completionTokens, costUsd, badge, runtimeMeta, taskLink, activities, diffStat, diff, agentSessionID, onListAgentFiles, onGetAgentFileDiff, onRevertAgentFiles, rawOutput, agentUsage, error, onCopy, copied }: {
   id: string; role: "user" | "assistant"; model?: string; content: string;
   time: string; promptTokens?: number; completionTokens?: number; costUsd?: string;
   badge?: string; runtimeMeta?: string; agentSessionID?: string;
+  taskLink?: { label: string; title?: string; onClick: () => void };
   activities?: AgentChatActivityRecord[]; diffStat?: string; diff?: string;
   onListAgentFiles?: (sessionID: string, messageID: string) => Promise<AgentChatChangedFileRecord[]>;
   onGetAgentFileDiff?: (sessionID: string, messageID: string, path: string) => Promise<AgentChatChangedFileDiffRecord | null>;
@@ -63,6 +64,23 @@ export function TranscriptMessageRow({ id, role, model, content, time, promptTok
             )}
             {isAssistant && runtimeMeta && (
               <span style={{ fontSize: 10, color: "var(--t3)", fontFamily: "var(--font-mono)" }}>{runtimeMeta}</span>
+            )}
+            {isAssistant && taskLink && (
+              <button
+                type="button"
+                className="btn btn-ghost btn-sm"
+                onClick={taskLink.onClick}
+                title={taskLink.title}
+                aria-label={`Open ${taskLink.label}`}
+                style={{
+                  fontFamily: "var(--font-mono)",
+                  fontSize: 10,
+                  padding: "1px 5px",
+                  color: "var(--t2)",
+                }}
+              >
+                {taskLink.label}
+              </button>
             )}
             <div style={{ marginLeft: "auto", display: "flex", gap: 4, opacity: hovered ? 1 : 0, transition: "opacity 0.15s" }}>
               <button className="btn btn-ghost btn-sm" style={{ padding: "2px 6px", gap: 4 }}

@@ -5,6 +5,7 @@ import {
   cancelAgentChatApproval,
   chatCompletions,
   deleteAgentChatGrant,
+  deleteModelCapabilityOverride,
   deletePolicyRule,
   discoverLocalProviders,
   dispatchAgentChatStreamEvent,
@@ -20,9 +21,11 @@ import {
   refreshAgentAdapterLauncher,
   revertAgentChatMessageFiles,
   resolveAgentChatApproval,
+  recordModelCapabilityProbe,
   setProviderAPIKey,
   setProviderBaseURL,
   streamAgentChatSession,
+  upsertModelCapabilityOverride,
   upsertPolicyRule,
   type ApiError,
 } from "./api";
@@ -239,6 +242,55 @@ describe("api client", () => {
       expect(fetchMock).toHaveBeenCalledWith(
         "/admin/control-plane/providers/local-discovery",
         expect.objectContaining({ method: "GET" }),
+      );
+    });
+  });
+
+  describe("model capability API", () => {
+    it("writes operator overrides to the current Hecate API namespace", async () => {
+      fetchMock.mockResolvedValue(jsonResponse({ object: "model_capability", data: { provider: "ollama", model: "qwen", tool_calling: "basic" } }));
+
+      await upsertModelCapabilityOverride({
+        provider: "ollama",
+        model: "qwen",
+        tool_calling: "basic",
+        streaming: true,
+        max_context_tokens: 32768,
+      });
+
+      expect(fetchMock).toHaveBeenCalledWith(
+        "/v1/model-capabilities/overrides",
+        expect.objectContaining({
+          method: "PUT",
+          body: JSON.stringify({
+            provider: "ollama",
+            model: "qwen",
+            tool_calling: "basic",
+            streaming: true,
+            max_context_tokens: 32768,
+          }),
+        }),
+      );
+    });
+
+    it("records manual probe results and clears overrides with provider/model keys", async () => {
+      fetchMock.mockClear();
+      fetchMock
+        .mockResolvedValueOnce(jsonResponse({ object: "model_capability", data: { provider: "ollama", model: "qwen", tool_calling: "basic" } }))
+        .mockResolvedValueOnce(new Response(null, { status: 204 }));
+
+      await recordModelCapabilityProbe({ provider: "ollama", model: "qwen", tool_calling: "basic" });
+      await deleteModelCapabilityOverride("ollama", "qwen");
+
+      expect(fetchMock).toHaveBeenNthCalledWith(
+        1,
+        "/v1/model-capabilities/probes",
+        expect.objectContaining({ method: "POST" }),
+      );
+      expect(fetchMock).toHaveBeenNthCalledWith(
+        2,
+        "/v1/model-capabilities/overrides?provider=ollama&model=qwen",
+        expect.objectContaining({ method: "DELETE" }),
       );
     });
   });

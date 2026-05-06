@@ -373,6 +373,7 @@ type Props = {
   // reason is the operator's annotation for why they're branching —
   // stored in run events and shown in the timeline.
   onRetryFromTurn: (turn: number, reason: string) => void;
+  onOpenAgentChat?: (sessionID: string) => void;
   // onResumeRaisingCeiling raises the task's per-task cost ceiling
   // and resumes the run in one server-side transaction. Surfaced
   // only when the run failed with otel_status_message =
@@ -387,7 +388,7 @@ export function TaskDetail({
   task, run, runs, selectedRunID, events, steps, artifacts, activity, approvals,
   streamTurnCosts, streamState, busyAction, notice,
   onSelectRun, onResolveApproval, onCancelRun, onRetryRun, onResumeRun, onRetryFromTurn,
-  onResumeRaisingCeiling, onApplyPatch, onRevertPatch,
+  onOpenAgentChat, onResumeRaisingCeiling, onApplyPatch, onRevertPatch,
 }: Props) {
   const termRef = useRef<HTMLDivElement>(null);
   const [runPickerOpen, setRunPickerOpen] = useState(false);
@@ -413,6 +414,17 @@ export function TaskDetail({
         <span style={{ fontWeight: 500, fontSize: 13, color: "var(--t0)", flex: 1, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>
           {task.title || task.prompt || "Untitled"}
         </span>
+        {task.origin_kind === "agent_chat" && task.origin_id && onOpenAgentChat && (
+          <button
+            className="btn btn-ghost btn-sm"
+            type="button"
+            onClick={() => onOpenAgentChat?.(task.origin_id!)}
+            title={`Open source chat ${task.origin_id}`}
+            style={{ fontFamily: "var(--font-mono)", fontSize: 10 }}
+          >
+            from chat
+          </button>
+        )}
         {runs.length > 0 && (
           <div style={{ position: "relative" }}>
             <button

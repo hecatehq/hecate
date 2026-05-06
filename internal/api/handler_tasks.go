@@ -90,6 +90,7 @@ func (h *Handler) HandleCreateTask(w http.ResponseWriter, r *http.Request) {
 		Title:              title,
 		Prompt:             prompt,
 		SystemPrompt:       strings.TrimSpace(req.SystemPrompt),
+		ExecutionProfile:   strings.TrimSpace(req.ExecutionProfile),
 		Repo:               strings.TrimSpace(req.Repo),
 		BaseBranch:         strings.TrimSpace(req.BaseBranch),
 		WorkspaceMode:      workspaceMode,
@@ -1451,25 +1452,39 @@ func buildTaskItem(ctx context.Context, store taskstate.Store, task types.Task) 
 
 func buildTaskActivityItems(steps []TaskStepItem, artifacts []TaskArtifactItem, approvals []TaskApprovalItem, run types.TaskRun) []TaskActivityItem {
 	items := make([]TaskActivityItem, 0, len(steps)+len(artifacts)+len(approvals)+1)
+	approvalStatusByID := make(map[string]string, len(approvals))
+	for _, approval := range approvals {
+		approvalStatusByID[approval.ID] = approval.Status
+	}
 	for _, step := range steps {
 		itemType := "step"
 		switch {
+		case step.ApprovalID != "" || step.Kind == "approval":
+			itemType = "approval"
 		case step.Kind == "model":
 			itemType = "thinking"
 		case step.Kind == "tool" || step.Kind == "shell" || step.Kind == "git" || step.Kind == "file" || step.ToolName != "":
 			itemType = "tool_call"
 		}
+		status := step.Status
+		needsAction := step.ApprovalID != "" && step.Status == "awaiting_approval"
+		if approvalStatus := approvalStatusByID[step.ApprovalID]; approvalStatus != "" {
+			status = approvalStatus
+			needsAction = approvalStatus == "pending"
+		}
 		items = append(items, TaskActivityItem{
-			ID:         "step:" + step.ID,
-			Type:       itemType,
-			Status:     step.Status,
-			Title:      step.Title,
-			StepID:     step.ID,
-			ToolName:   step.ToolName,
-			Kind:       step.Kind,
-			Summary:    step.OutputSummary,
-			OccurredAt: firstNonEmpty(step.StartedAt, step.FinishedAt),
-			Terminal:   step.Status == "completed" || step.Status == "failed" || step.Status == "cancelled",
+			ID:          "step:" + step.ID,
+			Type:        itemType,
+			Status:      status,
+			Title:       step.Title,
+			StepID:      step.ID,
+			ApprovalID:  step.ApprovalID,
+			ToolName:    step.ToolName,
+			Kind:        step.Kind,
+			Summary:     step.OutputSummary,
+			OccurredAt:  firstNonEmpty(step.StartedAt, step.FinishedAt),
+			NeedsAction: needsAction,
+			Terminal:    step.Status == "completed" || step.Status == "failed" || step.Status == "cancelled" || (step.ApprovalID != "" && !needsAction),
 		})
 	}
 	for _, artifact := range artifacts {
@@ -1557,6 +1572,9 @@ func renderTaskItem(task types.Task) TaskItem {
 		Title:              task.Title,
 		Prompt:             task.Prompt,
 		SystemPrompt:       task.SystemPrompt,
+		ExecutionProfile:   task.ExecutionProfile,
+		OriginKind:         task.OriginKind,
+		OriginID:           task.OriginID,
 		Repo:               task.Repo,
 		BaseBranch:         task.BaseBranch,
 		WorkspaceMode:      task.WorkspaceMode,

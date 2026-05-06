@@ -65,7 +65,7 @@ export function TranscriptActivityTimeline({ activities, diffStat }: { activitie
   const tools = visible.filter(activity => activity.type === "tool_call");
   const other = visible.filter(activity => activity.type !== "plan" && activity.type !== "tool_call");
   const summary = [
-    terminal ? terminal.status : hasRunning ? "running" : "details",
+    terminal ? terminalStatusLabel(terminal.status) : hasRunning ? "working" : "details",
     plan.length > 0 ? `${plan.filter(item => item.status === "completed").length}/${plan.length} plan` : "",
     tools.length > 0 ? `${tools.length} tool${tools.length === 1 ? "" : "s"}` : "",
     diffStat ? "files changed" : "",
@@ -146,6 +146,7 @@ function ToolActivityList({ items }: { items: AgentChatActivityRecord[] }) {
 }
 
 function ActivityLine({ activity, prefix }: { activity: AgentChatActivityRecord; prefix?: string }) {
+  const display = activityDisplay(activity);
   return (
     <div style={{ display: "flex", alignItems: "baseline", gap: 8, minWidth: 0 }}>
       <span style={{
@@ -161,11 +162,11 @@ function ActivityLine({ activity, prefix }: { activity: AgentChatActivityRecord;
         </span>
       )}
       <span style={{ fontFamily: "var(--font-mono)", fontSize: 11, color: "var(--t1)", whiteSpace: "nowrap" }}>
-        {activity.title}
+        {display.title}
       </span>
-      {activity.detail && (
+      {display.detail && (
         <span style={{ fontSize: 11, color: "var(--t3)", overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>
-          {activity.detail}
+          {display.detail}
         </span>
       )}
     </div>
@@ -173,22 +174,96 @@ function ActivityLine({ activity, prefix }: { activity: AgentChatActivityRecord;
 }
 
 function compactAgentActivities(activities: AgentChatActivityRecord[]): AgentChatActivityRecord[] {
-  const hiddenTypes = new Set(["output"]);
+  const hiddenTypes = new Set(["artifact", "changed_files", "final_answer", "output"]);
   const terminal = terminalAgentActivity(activities);
+  const lastTaskRunIndex = lastIndexOfTaskRunActivity(activities);
+  const lastApprovalIndexByID = lastIndexByApprovalID(activities);
   const out: AgentChatActivityRecord[] = [];
-  for (const activity of activities) {
+  for (const [index, activity] of activities.entries()) {
     if (hiddenTypes.has(activity.type)) continue;
     if (activity.type === "completed" && activity.title.toLowerCase() === "final answer") continue;
     if (terminal && (activity.type === "started" || activity.type === "running")) continue;
     if (activity.type === "running" && activities.some(item => item.type === "output")) continue;
+    if (isTaskRunActivity(activity) && index !== lastTaskRunIndex) continue;
+    if (activity.type === "approval" && activity.approval_id && lastApprovalIndexByID.get(activity.approval_id) !== index) continue;
     out.push(activity);
   }
   return out;
 }
 
+function lastIndexByApprovalID(activities: AgentChatActivityRecord[]): Map<string, number> {
+  const out = new Map<string, number>();
+  for (const [index, activity] of activities.entries()) {
+    if (activity.type === "approval" && activity.approval_id) {
+      out.set(activity.approval_id, index);
+    }
+  }
+  return out;
+}
+
+function lastIndexOfTaskRunActivity(activities: AgentChatActivityRecord[]): number {
+  for (let index = activities.length - 1; index >= 0; index -= 1) {
+    if (isTaskRunActivity(activities[index])) return index;
+  }
+  return -1;
+}
+
+function isTaskRunActivity(activity: AgentChatActivityRecord): boolean {
+  return activity.type === "task_run" || (activity.type.startsWith("task_") && activity.title.startsWith("Task run"));
+}
+
+function activityDisplay(activity: AgentChatActivityRecord): { title: string; detail?: string } {
+  if (activity.type === "approval") {
+    const title = approvalActivityTitle(activity);
+    const detail = (activity.detail || "")
+      .replace(/\s+-\s+awaiting_approval$/i, "")
+      .replace(/\s+-\s+pending$/i, "")
+      .trim();
+    return { title, detail };
+  }
+  if (!isTaskRunActivity(activity)) {
+    return { title: activity.title, detail: activity.detail };
+  }
+  const status = activity.status || activity.title.replace(/^Task run\s+/, "");
+  const humanStatus = status === "awaiting_approval" ? "waiting for approval" : status.replaceAll("_", " ");
+  const existingDetail = activity.detail || "";
+  const detail = existingDetail.startsWith(humanStatus)
+    ? existingDetail
+    : [humanStatus, existingDetail].filter(Boolean).join(" · ");
+  return { title: "Backing task", detail };
+}
+
+function approvalActivityTitle(activity: AgentChatActivityRecord): string {
+  if (activity.needs_action || activity.status === "awaiting_approval" || activity.status === "pending") {
+    return "Waiting for approval";
+  }
+  switch (activity.status) {
+    case "approved":
+      return "Approval approved";
+    case "rejected":
+    case "denied":
+      return "Approval rejected";
+    default:
+      return activity.title;
+  }
+}
+
 function terminalAgentActivity(activities: AgentChatActivityRecord[]): AgentChatActivityRecord | undefined {
   const terminalTypes = new Set(["completed", "failed", "cancelled"]);
   return [...activities].reverse().find(activity => terminalTypes.has(activity.type));
+}
+
+function terminalStatusLabel(status?: string): string {
+  switch (status) {
+    case "completed":
+      return "completed";
+    case "failed":
+      return "failed";
+    case "cancelled":
+      return "cancelled";
+    default:
+      return status || "details";
+  }
 }
 
 function activityStatusColor(status?: string) {

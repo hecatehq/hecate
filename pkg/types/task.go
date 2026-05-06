@@ -15,6 +15,9 @@ type Task struct {
 	BaseBranch         string
 	WorkspaceMode      string
 	ExecutionKind      string
+	ExecutionProfile   string
+	OriginKind         string
+	OriginID           string
 	ShellCommand       string
 	GitCommand         string
 	WorkingDirectory   string
