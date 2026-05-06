@@ -125,7 +125,7 @@ function ModelCapabilitiesTab({ state, actions }: Props) {
     <>
       <SectionHeader
         title="Model capabilities"
-        description="Tell Hecate which configured models can call tools. Hecate Agent only runs on models with known tool-calling support; local and custom models stay unknown until a catalog entry, manual test result, or operator override says otherwise."
+        description="Control whether Hecate should try tools for each model. Tools are on by default unless a model is explicitly marked off; use the switch when a local/custom model fails tool calls or when you want direct model chat only."
         meta={`${rows.length} model${rows.length === 1 ? "" : "s"}`}
       />
 
@@ -161,28 +161,16 @@ function ModelCapabilitiesTab({ state, actions }: Props) {
               key={`${model.metadata?.provider ?? "unknown"}:${model.id}`}
               model={model}
               divider={index < rows.length - 1}
-              onOverride={(toolCalling) => {
+              onToolsChange={(enabled) => {
                 const provider = model.metadata?.provider ?? "";
                 if (!provider) return;
                 void actions.upsertModelCapabilityOverride({
                   provider,
                   model: model.id,
-                  tool_calling: toolCalling,
+                  tool_calling: enabled ? "basic" : "none",
                   streaming: model.metadata?.capabilities?.streaming,
                   max_context_tokens: model.metadata?.capabilities?.max_context_tokens,
-                  note: "Set from Settings.",
-                });
-              }}
-              onProbe={(toolCalling) => {
-                const provider = model.metadata?.provider ?? "";
-                if (!provider) return;
-                void actions.recordModelCapabilityProbe({
-                  provider,
-                  model: model.id,
-                  tool_calling: toolCalling,
-                  streaming: model.metadata?.capabilities?.streaming,
-                  max_context_tokens: model.metadata?.capabilities?.max_context_tokens,
-                  note: "Manual result recorded from Settings.",
+                  note: enabled ? "Tools enabled from Settings." : "Tools disabled from Settings.",
                 });
               }}
               onClear={() => {
@@ -201,25 +189,20 @@ function ModelCapabilitiesTab({ state, actions }: Props) {
 function ModelCapabilityRow({
   model,
   divider,
-  onOverride,
-  onProbe,
+  onToolsChange,
   onClear,
 }: {
   model: ModelRecord;
   divider: boolean;
-  onOverride: (toolCalling: "none" | "basic" | "parallel") => void;
-  onProbe: (toolCalling: "none" | "basic" | "parallel") => void;
+  onToolsChange: (enabled: boolean) => void;
   onClear: () => void;
 }) {
   const capabilities = model.metadata?.capabilities;
   const provider = model.metadata?.provider ?? "unknown";
   const toolCalling = capabilities?.tool_calling ?? "unknown";
   const source = capabilities?.source ?? "unknown";
-  const toolTone: ChipTone = toolCalling === "basic" || toolCalling === "parallel"
-    ? "green"
-    : toolCalling === "none"
-      ? "red"
-      : "amber";
+  const toolsEnabled = toolCalling !== "none";
+  const toolTone: ChipTone = toolsEnabled ? "green" : "red";
   const clearDisabled = source !== "operator_override";
 
   return (
@@ -247,7 +230,7 @@ function ModelCapabilityRow({
               letterSpacing: "0.04em",
             }}
           >
-            tools {toolCalling}
+            tools {toolsEnabled ? "on" : "off"}
           </span>
         </div>
         <div style={{ display: "flex", flexWrap: "wrap", gap: 8, fontFamily: "var(--font-mono)", fontSize: 10, color: "var(--t3)" }}>
@@ -256,16 +239,60 @@ function ModelCapabilityRow({
           {capabilities?.max_context_tokens !== undefined && <span>context <span style={{ color: "var(--t1)" }}>{capabilities.max_context_tokens.toLocaleString()}</span></span>}
         </div>
       </div>
-      <div style={{ display: "flex", flexWrap: "wrap", justifyContent: "flex-end", gap: 6 }}>
-        <button type="button" className="btn btn-ghost btn-sm" onClick={() => onProbe("basic")}>
-          Record manual test
-        </button>
-        <button type="button" className="btn btn-ghost btn-sm" onClick={() => onOverride("basic")}>
-          Override tools
-        </button>
-        <button type="button" className="btn btn-ghost btn-sm" onClick={() => onOverride("none")}>
-          Override no tools
-        </button>
+      <div style={{ display: "flex", flexWrap: "wrap", justifyContent: "flex-end", alignItems: "center", gap: 6 }}>
+        <div
+          role="group"
+          aria-label={`Tools for ${model.id}`}
+          style={{
+            display: "inline-flex",
+            alignItems: "center",
+            border: "1px solid var(--border)",
+            borderRadius: "999px",
+            overflow: "hidden",
+            background: "var(--bg0)",
+            height: 30,
+          }}
+        >
+          <button
+            type="button"
+            className="btn btn-ghost btn-sm"
+            aria-pressed={toolsEnabled}
+            onClick={() => onToolsChange(true)}
+            style={{
+              border: 0,
+              borderRadius: 0,
+              width: 70,
+              padding: "4px 0",
+              fontFamily: "var(--font-mono)",
+              fontSize: 10,
+              background: toolsEnabled ? "var(--teal-bg)" : "transparent",
+              color: toolsEnabled ? "var(--teal)" : "var(--t3)",
+              justifyContent: "center",
+            }}
+          >
+            tools on
+          </button>
+          <button
+            type="button"
+            className="btn btn-ghost btn-sm"
+            aria-pressed={!toolsEnabled}
+            onClick={() => onToolsChange(false)}
+            style={{
+              border: 0,
+              borderLeft: "1px solid var(--border)",
+              borderRadius: 0,
+              width: 70,
+              padding: "4px 0",
+              fontFamily: "var(--font-mono)",
+              fontSize: 10,
+              background: !toolsEnabled ? "var(--bg3)" : "transparent",
+              color: !toolsEnabled ? "var(--t0)" : "var(--t3)",
+              justifyContent: "center",
+            }}
+          >
+            tools off
+          </button>
+        </div>
         <button type="button" className="btn btn-ghost btn-sm" onClick={onClear} disabled={clearDisabled}>
           Clear override
         </button>

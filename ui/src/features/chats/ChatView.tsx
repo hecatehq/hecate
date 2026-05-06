@@ -219,10 +219,7 @@ export function ChatView({ state, actions, onNavigate, onOpenTask }: Props) {
   const selectedModelCapabilities = hecateAgentModelLocked
     ? state.activeAgentChatSession?.capabilities
     : selectedHecateModelRecord?.metadata?.capabilities;
-  const selectedModelCapabilityProvider = hecateAgentModelLocked
-    ? state.activeAgentChatSession?.provider
-    : selectedHecateModelRecord?.metadata?.provider || (state.providerFilter !== "auto" ? state.providerFilter : "");
-  const hecateAgentModelToolCapable = selectedModelCapabilities?.tool_calling === "basic" || selectedModelCapabilities?.tool_calling === "parallel";
+  const hecateAgentToolsDisabledForModel = selectedModelCapabilities?.tool_calling === "none";
   const hecateChatModelReady = isHecateAgentChat && hecateAgentModelLocked
     ? Boolean(hecateChatModelValue)
     : Boolean(state.model) && !modelRouteUnavailable;
@@ -231,12 +228,7 @@ export function ChatView({ state, actions, onNavigate, onOpenTask }: Props) {
     || streaming
     || (!isAgentChat && modelRouteUnavailable)
     || (isExternalAgentChat && (!state.agentWorkspace.trim() || !selectedAgent?.available))
-    || (isHecateAgentChat && (!state.agentWorkspace.trim() || !hecateChatModelReady || !hecateAgentModelToolCapable));
-  const canMarkSelectedModelToolsSupported = isHecateAgentChat
-    && Boolean(hecateChatModelValue)
-    && Boolean(selectedModelCapabilityProvider)
-    && !hecateAgentModelLocked
-    && !hecateAgentModelToolCapable;
+    || (isHecateAgentChat && (!state.agentWorkspace.trim() || !hecateChatModelReady || hecateAgentToolsDisabledForModel));
 
   useEffect(() => {
     if (!userScrolledRef.current) {
@@ -379,18 +371,6 @@ export function ChatView({ state, actions, onNavigate, onOpenTask }: Props) {
     } finally {
       setQuickAddingProviders(false);
     }
-  }
-
-  async function markSelectedModelToolsSupported() {
-    if (!selectedModelCapabilityProvider || !hecateChatModelValue) return;
-    await actions.upsertModelCapabilityOverride({
-      provider: selectedModelCapabilityProvider,
-      model: hecateChatModelValue,
-      tool_calling: "basic",
-      streaming: selectedModelCapabilities?.streaming,
-      max_context_tokens: selectedModelCapabilities?.max_context_tokens,
-      note: "Marked as tool-capable from Chats.",
-    });
   }
 
   async function handleResolveTaskApproval(approvalID: string, decision: "approve" | "reject") {
@@ -615,9 +595,7 @@ export function ChatView({ state, actions, onNavigate, onOpenTask }: Props) {
           {isHecateChat && (
             <HecateToolsToggle
               enabled={isHecateAgentChat}
-              toolCalling={selectedModelCapabilities?.tool_calling}
-              capabilitySource={selectedModelCapabilities?.source}
-              capable={hecateAgentModelToolCapable}
+              toolsDisabledForModel={hecateAgentToolsDisabledForModel}
               onChange={(enabled) => actions.setChatTarget(enabled ? "hecate_agent" : "model")}
             />
           )}
@@ -1036,31 +1014,20 @@ export function ChatView({ state, actions, onNavigate, onOpenTask }: Props) {
           )}
           {composerVisible && (
           <>
-          {isHecateAgentChat && hecateChatModelValue && !hecateAgentModelToolCapable && (
+          {isHecateAgentChat && hecateChatModelValue && hecateAgentToolsDisabledForModel && (
             <div style={{
               maxWidth: 820,
               margin: "0 auto 8px",
               display: "flex",
               alignItems: "center",
-              justifyContent: "space-between",
               gap: 12,
               fontSize: 12,
               color: "var(--amber)",
               lineHeight: 1.45,
             }}>
               <span>
-                Tool support is unknown for this model. Mark it as tool-capable if you have tested it with tools.
+                Tools are disabled for this model in Settings. Turn tools off for direct chat, or enable tools in Model capabilities.
               </span>
-              <button
-                type="button"
-                className="btn btn-ghost btn-sm"
-                onClick={() => void markSelectedModelToolsSupported()}
-                disabled={!canMarkSelectedModelToolsSupported}
-                title={canMarkSelectedModelToolsSupported ? "Save an operator override for this provider/model" : "Choose a concrete provider/model first"}
-                style={{ color: "var(--amber)", flexShrink: 0 }}
-              >
-                Mark tools supported
-              </button>
             </div>
           )}
           <div style={{ maxWidth: 820, margin: "0 auto", position: "relative" }}>
@@ -1261,21 +1228,16 @@ function formatTaskLinkTitle(taskID: string, runID?: string): string {
 
 function HecateToolsToggle({
   enabled,
-  toolCalling,
-  capabilitySource,
-  capable,
+  toolsDisabledForModel,
   onChange,
 }: {
   enabled: boolean;
-  toolCalling?: string;
-  capabilitySource?: string;
-  capable: boolean;
+  toolsDisabledForModel: boolean;
   onChange: (enabled: boolean) => void;
 }) {
-  const toolLabel = toolCalling || "unknown";
-  const basicTitle = capable
-    ? `Use Hecate's task runtime with tools, approvals, artifacts, and telemetry. Capability source: ${capabilitySource || "unknown"}.`
-    : `Tool support is ${toolLabel}. You can enable tools after testing or overriding this model's capabilities in Settings.`;
+  const toolsOnTitle = toolsDisabledForModel
+    ? "Tools are disabled for this model in Settings. Enable them there or turn tools off for direct model chat."
+    : "Use Hecate's task runtime with tools, approvals, artifacts, and telemetry.";
   return (
     <div
       role="group"
@@ -1316,21 +1278,21 @@ function HecateToolsToggle({
         className="btn btn-ghost btn-sm"
         aria-pressed={enabled}
         onClick={() => onChange(true)}
-        title={basicTitle}
+        title={toolsOnTitle}
         style={{
           border: 0,
           borderLeft: "1px solid var(--border)",
           borderRadius: 0,
-          width: 108,
+          width: 76,
           padding: "4px 0",
           fontFamily: "var(--font-mono)",
           fontSize: 10,
           background: enabled ? "var(--teal-bg)" : "transparent",
-          color: enabled ? (capable ? "var(--teal)" : "var(--amber)") : "var(--t3)",
+          color: enabled ? (toolsDisabledForModel ? "var(--amber)" : "var(--teal)") : "var(--t3)",
           justifyContent: "center",
         }}
       >
-        tools: {enabled ? toolLabel : "basic"}
+        tools on
       </button>
     </div>
   );

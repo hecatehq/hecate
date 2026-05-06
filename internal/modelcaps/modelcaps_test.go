@@ -4,6 +4,7 @@ import (
 	"testing"
 
 	"github.com/hecate/agent-runtime/internal/controlplane"
+	"github.com/hecate/agent-runtime/pkg/types"
 )
 
 func TestResolvePrecedence(t *testing.T) {
@@ -81,6 +82,27 @@ func TestResolveCatalogDefaults(t *testing.T) {
 			}
 			if got.Source != tt.wantSource {
 				t.Fatalf("Source = %q, want %q", got.Source, tt.wantSource)
+			}
+		})
+	}
+}
+
+func TestToolCapableDefaultsToAllowedUnlessExplicitlyDisabled(t *testing.T) {
+	tests := []struct {
+		name string
+		cap  string
+		want bool
+	}{
+		{name: "unknown allowed", cap: ToolCallingUnknown, want: true},
+		{name: "basic allowed", cap: ToolCallingBasic, want: true},
+		{name: "parallel allowed", cap: ToolCallingParallel, want: true},
+		{name: "none disabled", cap: ToolCallingNone, want: false},
+		{name: "missing allowed", cap: "", want: true},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			if got := ToolCapable(types.ModelCapabilities{ToolCalling: tt.cap}); got != tt.want {
+				t.Fatalf("ToolCapable(%q) = %v, want %v", tt.cap, got, tt.want)
 			}
 		})
 	}

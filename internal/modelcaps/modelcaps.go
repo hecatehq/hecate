@@ -36,10 +36,10 @@ func Resolve(provider, providerKind, model, discoverySource string, state contro
 
 func ToolCapable(cap types.ModelCapabilities) bool {
 	switch cap.ToolCalling {
-	case ToolCallingBasic, ToolCallingParallel:
-		return true
-	default:
+	case ToolCallingNone:
 		return false
+	default:
+		return true
 	}
 }
 

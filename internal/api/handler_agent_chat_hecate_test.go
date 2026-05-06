@@ -440,10 +440,18 @@ func TestMergeHecateAgentAnswerReplacesCommandIntro(t *testing.T) {
 	}
 }
 
-func TestHecateAgentChatRejectsUnknownToolCapability(t *testing.T) {
+func TestHecateAgentChatRejectsDisabledToolCapability(t *testing.T) {
 	t.Parallel()
 
 	logger := slog.New(slog.NewJSONHandler(io.Discard, nil))
+	cpStore := controlplane.NewMemoryStore()
+	if _, err := cpStore.UpsertModelCapabilityOverride(context.Background(), controlplane.ModelCapabilityRecord{
+		Provider:    "ollama",
+		Model:       "llama3.1:8b",
+		ToolCalling: modelcaps.ToolCallingNone,
+	}); err != nil {
+		t.Fatalf("UpsertModelCapabilityOverride: %v", err)
+	}
 	provider := &fakeProvider{
 		name: "ollama",
 		capabilities: providers.Capabilities{
@@ -453,14 +461,14 @@ func TestHecateAgentChatRejectsUnknownToolCapability(t *testing.T) {
 			Models:       []string{"llama3.1:8b"},
 		},
 	}
-	handler := newTestHTTPHandlerWithControlPlane(logger, []providers.Provider{provider}, config.Config{}, controlplane.NewMemoryStore())
+	handler := newTestHTTPHandlerWithControlPlane(logger, []providers.Provider{provider}, config.Config{}, cpStore)
 	client := newTaskTestClient(t, handler)
 	workspace := t.TempDir()
 
 	session := mustRequestJSON[AgentChatSessionResponse](client, http.MethodPost, "/v1/agent-chat/sessions",
 		fmt.Sprintf(`{"runtime_kind":"hecate_agent","workspace":%q,"provider":"ollama","model":"llama3.1:8b"}`, workspace))
-	if session.Data.Capabilities.ToolCalling != modelcaps.ToolCallingUnknown {
-		t.Fatalf("session capabilities = %+v, want unknown", session.Data.Capabilities)
+	if session.Data.Capabilities.ToolCalling != modelcaps.ToolCallingNone {
+		t.Fatalf("session capabilities = %+v, want none", session.Data.Capabilities)
 	}
 
 	recorder := client.mustRequestStatus(http.StatusUnprocessableEntity, http.MethodPost, "/v1/agent-chat/sessions/"+session.Data.ID+"/messages",
@@ -486,7 +494,7 @@ func TestHecateAgentChatRejectsUnknownToolCapability(t *testing.T) {
 	if payload.Error.Type != errCodeModelCapability {
 		t.Fatalf("error type = %q, want %s", payload.Error.Type, errCodeModelCapability)
 	}
-	if !strings.Contains(payload.Error.Message, "unknown or no tool-calling support") {
+	if !strings.Contains(payload.Error.Message, "Tools are disabled for this model") {
 		t.Fatalf("message = %q", payload.Error.Message)
 	}
 }
