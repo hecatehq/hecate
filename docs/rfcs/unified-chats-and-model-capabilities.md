@@ -344,6 +344,11 @@ canonical Task view. After the active task settles, tools-off sends create
 normal direct model segments; turning tools on again creates a new task-backed
 segment instead of mutating the older task.
 
+On browser refresh or reconnect, the UI should hydrate from the persisted
+Agent Chat session plus its backing task/run snapshot. Active task-backed
+segments must come back as running, awaiting approval, completed, cancelled, or
+failed without requiring a fresh prompt.
+
 Hecate Agent uses the task runtime, so approvals, artifacts, diff/patch review,
 workspace modes, retry/resume, and OTel should come from Tasks rather than a
 new parallel agent runtime.

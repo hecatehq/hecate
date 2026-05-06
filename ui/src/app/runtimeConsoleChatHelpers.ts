@@ -24,6 +24,20 @@ export function humanizeChatError(raw: string): string {
   if (m) {
     return `${m[1]} has no API key. Open the Providers tab and add one.`;
   }
+  if (/agent_session_busy|already running for this chat session/i.test(raw)) {
+    return "Hecate Chat is still working on this task. Open the task, resolve approval, or stop it before sending another message.";
+  }
+  const explicitModel = raw.match(/no provider supports explicit model ["“]?([^"”]+)["”]?/i);
+  if (explicitModel) {
+    return `No configured provider can route to ${explicitModel[1]}. Choose another model or add/configure a provider.`;
+  }
+  const upstreamStatus = raw.match(/upstream returned (\d{3})/i);
+  if (upstreamStatus) {
+    return `The selected provider returned HTTP ${upstreamStatus[1]}. Check that the provider is running and reachable.`;
+  }
+  if (/upstream timeout|context deadline exceeded/i.test(raw)) {
+    return "The selected provider did not respond before the timeout. Check that it is running, reachable, and not overloaded.";
+  }
   return raw;
 }
 

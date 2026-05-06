@@ -634,6 +634,11 @@ export function useRuntimeConsole() {
     setAgentChatSessions((current) => [renderAgentChatSessionSummary(session), ...current.filter((entry) => entry.id !== session.id)]);
   }
 
+  async function refreshAgentChatSession(sessionID: string): Promise<void> {
+    const payload = await getAgentChatSession(sessionID);
+    applyAgentChatSession(payload.data);
+  }
+
   // setPendingApprovalsForSession atomically replaces the pending list
   // for a session. The catch-up path only calls this when no live SSE
   // or optimistic local update landed while the request was in flight;
@@ -1429,19 +1434,21 @@ export function useRuntimeConsole() {
           })),
         };
       });
+      if (activeAgentChatSessionID) {
+        try {
+          await refreshAgentChatSession(activeAgentChatSessionID);
+        } catch {
+          // The local approval state above already removes the action;
+          // a follow-up session refresh is best-effort because the run
+          // may still be transitioning after the operator decision.
+        }
+      }
       return true;
     } catch (error) {
       if (error instanceof Error && /not pending/i.test(error.message)) {
         if (activeAgentChatSessionID) {
           try {
-            const payload = await getAgentChatSession(activeAgentChatSessionID);
-            setActiveAgentChatSession(payload.data);
-            setAgentChatSessions((current) => {
-              const summary = renderAgentChatSessionSummary(payload.data);
-              return current.some((session) => session.id === payload.data.id)
-                ? current.map((session) => session.id === payload.data.id ? summary : session)
-                : [summary, ...current];
-            });
+            await refreshAgentChatSession(activeAgentChatSessionID);
           } catch {
             // The original failure already means the row is stale; if a
             // refresh also fails, avoid piling on a second noisy error.
@@ -1503,15 +1510,7 @@ export function useRuntimeConsole() {
   async function revertAgentChatMessageFiles(sessionID: string, messageID: string, paths: string[]): Promise<boolean> {
     try {
       await revertAgentChatMessageFilesRequest(sessionID, messageID, paths);
-      const payload = await getAgentChatSession(sessionID);
-      setActiveAgentChatSession(payload.data);
-      setAgentChatSessions((current) => {
-        const summary = renderAgentChatSessionSummary(payload.data);
-        const found = current.some((session) => session.id === sessionID);
-        return found
-          ? current.map((session) => session.id === sessionID ? summary : session)
-          : [summary, ...current];
-      });
+      await refreshAgentChatSession(sessionID);
       setNoticeMessage("success", paths.length > 0 ? "Selected files reverted." : "Captured diff reverted.");
       return true;
     } catch (error) {

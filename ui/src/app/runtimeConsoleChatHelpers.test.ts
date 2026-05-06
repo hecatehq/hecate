@@ -92,8 +92,19 @@ describe("humanizeChatError", () => {
       .toBe("openai has no API key. Open the Providers tab and add one.");
   });
 
+  it("rewrites common chat runtime failures into operator-actionable copy", () => {
+    expect(humanizeChatError("Hecate Agent is already running for this chat session."))
+      .toBe("Hecate Chat is still working on this task. Open the task, resolve approval, or stop it before sending another message.");
+    expect(humanizeChatError('route request: no provider supports explicit model "gpt-5.4-mini"'))
+      .toBe("No configured provider can route to gpt-5.4-mini. Choose another model or add/configure a provider.");
+    expect(humanizeChatError("upstream returned 502"))
+      .toBe("The selected provider returned HTTP 502. Check that the provider is running and reachable.");
+    expect(humanizeChatError("upstream timeout"))
+      .toBe("The selected provider did not respond before the timeout. Check that it is running, reachable, and not overloaded.");
+  });
+
   it("returns unrelated errors verbatim", () => {
-    expect(humanizeChatError("upstream returned 502")).toBe("upstream returned 502");
+    expect(humanizeChatError("something unusual happened")).toBe("something unusual happened");
   });
 });
 

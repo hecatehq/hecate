@@ -1696,6 +1696,31 @@ describe("ChatView external-agent target", () => {
     const send = document.querySelector("button[type='submit']") as HTMLButtonElement;
     expect(send.disabled).toBe(true);
   });
+
+  it("explains why Hecate Chat cannot send with tools before workspace selection", () => {
+    const { state, actions } = setup({
+      chatTarget: "agent",
+      message: "inspect repo",
+      agentWorkspace: "",
+      providerScopedModels: [
+        {
+          id: "gpt-4o-mini",
+          owned_by: "openai",
+          metadata: {
+            provider: "openai",
+            provider_kind: "cloud",
+            capabilities: { tool_calling: "basic", streaming: true, source: "catalog" },
+          },
+        },
+      ],
+    });
+    render(<ChatView state={state} actions={actions} />);
+
+    expect(screen.getByText(/Choose a workspace before sending/)).toBeTruthy();
+    expect(screen.getByRole("button", { name: "Choose workspace" })).toBeTruthy();
+    const send = document.querySelector("button[type='submit']") as HTMLButtonElement;
+    expect(send.disabled).toBe(true);
+  });
 });
 
 describe("ChatView model target", () => {
