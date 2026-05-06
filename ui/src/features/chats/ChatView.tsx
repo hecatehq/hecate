@@ -1200,9 +1200,9 @@ export function ChatView({ state, actions, onNavigate, onOpenTask, onOpenTrace }
             {agentBusy && !queueingMessage ? (
               <button type="button"
                 className="btn btn-danger"
-                aria-label="Stop agent"
+                aria-label="Stop current run"
                 disabled={state.agentChatCancelling}
-                title={state.agentChatCancelling ? "Stopping..." : "Stop agent"}
+                title={state.agentChatCancelling ? "Stopping..." : "Stop current run"}
                 onClick={actions.cancelAgentChat}
                 style={{
                   position: "absolute", right: 8, top: "50%", transform: "translateY(-50%)",
@@ -1251,8 +1251,8 @@ export function ChatView({ state, actions, onNavigate, onOpenTask, onOpenTrace }
                 <button
                   type="button"
                   className="btn btn-ghost btn-sm"
-                  aria-label="Stop agent"
-                  title={state.agentChatCancelling ? "Stopping..." : "Stop agent"}
+                  aria-label={isExternalAgentChat ? "Stop external agent" : "Stop active task"}
+                  title={state.agentChatCancelling ? "Stopping..." : isExternalAgentChat ? "Stop external agent" : "Stop active task"}
                   onClick={actions.cancelAgentChat}
                   disabled={state.agentChatCancelling}
                   style={{ fontFamily: "var(--font-mono)", fontSize: 10, padding: "2px 6px", color: "var(--danger)" }}

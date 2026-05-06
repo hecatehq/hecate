@@ -591,14 +591,14 @@ describe("ChatView input", () => {
     expect(screen.queryByText("smollm2:135m")).toBeNull();
     expect(screen.queryByText(/Tools are disabled for this model/)).toBeNull();
     expect(screen.getByRole("button", { name: "Queue message" })).toBeTruthy();
-    expect(document.querySelector('[aria-label="Stop agent"]')).toBeTruthy();
+    expect(screen.getByRole("button", { name: "Stop active task" })).toBeTruthy();
     expect(screen.getByText(/Hecate Chat is working on this task/)).toBeTruthy();
 
     rerender(<ChatView state={{ ...state, chatTarget: "model" }} actions={actions} />);
     expect(document.querySelector('[aria-label="Fixed provider: Ollama"]')).toBeTruthy();
     expect(document.querySelector('[aria-label="Fixed model: qwen2.5-coder"]')).toBeTruthy();
     expect(document.querySelector('[aria-label="Model picker: smollm2:135m"]')).toBeNull();
-    expect(document.querySelector('[aria-label="Stop agent"]')).toBeTruthy();
+    expect(screen.getByRole("button", { name: "Stop active task" })).toBeTruthy();
     expect(screen.getByText(/Hecate Chat is working on this task/)).toBeTruthy();
   });
 
@@ -648,7 +648,7 @@ describe("ChatView input", () => {
     expect(screen.getByRole("button", { name: "Fixed provider: Ollama" })).toBeTruthy();
     expect(screen.getByRole("button", { name: "Fixed model: qwen2.5-coder" })).toBeTruthy();
     expect(screen.queryByText("smollm2:135m")).toBeNull();
-    expect(screen.getByRole("button", { name: "Stop agent" })).toBeTruthy();
+    expect(screen.getByRole("button", { name: "Stop active task" })).toBeTruthy();
     expect(screen.getByText(/New messages will queue until the active run finishes/)).toBeTruthy();
     screen.getByRole("button", { name: "Open task" }).click();
     expect(onOpenTask).toHaveBeenCalledWith("task_hecate_123456", "run_hecate_abcdef");
@@ -1630,7 +1630,7 @@ describe("ChatView external-agent target", () => {
     });
     render(<ChatView state={state} actions={actions} />);
 
-    const stop = screen.getByRole("button", { name: "Stop agent" }) as HTMLButtonElement;
+    const stop = screen.getByRole("button", { name: "Stop external agent" }) as HTMLButtonElement;
     expect(stop.disabled).toBe(true);
     expect(stop.title).toBe("Stopping...");
     expect(screen.getByText("Stopping...")).toBeTruthy();
