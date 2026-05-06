@@ -1,9 +1,11 @@
-# Hecate Agent Chats and Model Capabilities
+# Hecate Chat and Model Capabilities
 
 > **Status:** accepted; the baseline chat-to-task bridge has landed, including
 > chat-visible run activity, task approval resolution, and streamed assistant
-> text for task-backed turns. Stable Hecate Agent still requires workspace
-> modes, profiles, automatic probing, and broader e2e.
+> text for task-backed turns. Hecate Chat now uses a two-target UI
+> (`Hecate Chat | External Agent`) with tools on/off inside Hecate Chat.
+> Stable Hecate Agent still requires workspace modes, profiles, automatic
+> probing, and broader product hardening.
 > **Related:** [Chat sessions](../chat-sessions.md),
 > [External agent adapters](external-agent-adapters.md),
 > [Agent runtime](../agent-runtime.md), [Runtime API](../runtime-api.md).
@@ -37,6 +39,7 @@ requirements after the baseline bridge are:
 - run activity rendered in Chats from task-run events _(implemented)_
 - task approvals resolved directly from Chats _(implemented)_
 - streamed assistant text for task-backed Hecate Agent turns _(implemented)_
+- local composer queueing while a backing task is busy _(implemented)_
 - task workspace modes exposed in the Hecate Agent chat setup
 - named Hecate Agent profiles
 - automatic capability probing with explicit operator control
@@ -220,6 +223,9 @@ message endpoint returns:
 ```
 
 The UI should point the operator to the active task/run or approval.
+The operator UI may also keep a local FIFO for prompts typed while the backing
+task is busy. That queue is a UX layer above the API invariant: queued prompts
+are not persisted until the UI submits them after the active task settles.
 
 If tools are explicitly disabled for the selected model, the message endpoint returns:
 
@@ -242,7 +248,7 @@ The UI should support:
 
 | Mode | Meaning | Default |
 |---|---|---|
-| Shared workspace | Run directly in the selected local workspace. | Default for Hecate Agent chats while the product is local-first. |
+| Shared workspace | Run directly in the selected local workspace. | Default for Hecate Chat tools-on segments while the product is local-first. |
 | Isolated clone | Create an isolated task workspace from a repo/base branch when available. | Optional when repo metadata is configured. |
 | Read-only review | Allow reads and analysis, block writes unless the operator explicitly switches mode or approves a writable profile. | Useful for reviewer profiles. |
 
@@ -402,6 +408,7 @@ Minimum coverage:
 - Hecate Agent run activity projection from task-run SSE into Chats.
 - Hecate Agent task approval banner in Chats, including approve, reject, and a
   link to the backing Task.
+- Busy-state UX and local queued-prompt behavior in Chats.
 - Workspace mode selection and task creation parity.
 - Agent profile CRUD, profile selection, session snapshotting, and built-in
   default profile behavior.
@@ -433,14 +440,18 @@ Done in the core bridge:
   snapshots
 - turning tools back on after a direct model segment creates a new task-backed
   segment in the same transcript
+- Hecate Chat queues prompts locally while the active task-backed segment is
+  busy and submits them after the run or approval reaches a terminal state
+- each assistant turn exposes user-friendly task and trace links in the message
+  header
 
 Still required for a complete Hecate Agent experience:
 
 - workspace modes in the chat setup
 - named Hecate Agent profiles
 - automatic capability probing
-- full e2e covering provider setup, capability detection, Hecate Agent run,
-  approval from Chats, final answer, and follow-up continuation
+- broader e2e/product hardening around workspace modes, profiles, automatic
+  capability detection, and mixed long-running sessions
 
 ## Recommended Next Work
 
@@ -455,9 +466,9 @@ The missing stable-scope pieces should land in this order:
 3. **Automatic probing.** Add bounded, visible capability probes for configured
    models so local/custom providers can become eligible without manual edits.
    Overrides still win, and probes must not execute tools or mutate workspaces.
-4. **E2E hardening.** Cover provider setup, capability detection, chat-side task
-   approval, final answer, and same-task follow-up continuation in one browser
-   path.
+4. **E2E hardening.** Extend the existing browser paths to cover workspace
+   modes, profiles, automatic capability detection, refresh/reconnect edges,
+   and long mixed chats with queued prompts.
 
 ## Future Work
 
@@ -474,6 +485,9 @@ The missing stable-scope pieces should land in this order:
 ## Decision Bias
 
 Prefer explicit capability records over magic. Hecate should not infer
-"agentness" from a model name. It should know what a model can do, show that
-clearly to the operator, and only enable Hecate-owned agent execution when the
-selected model is known to support the required tools.
+"agentness" from a model name. It should know what a model can do and show
+that clearly to the operator. During alpha, Hecate blocks tools-on execution
+only when a model is explicitly marked `tool_calling="none"`; unknown
+local/custom models stay visibly unknown until the operator records a probe or
+override. Before stable, automatic probing should make that unknown state much
+rarer without silently overwriting operator intent.

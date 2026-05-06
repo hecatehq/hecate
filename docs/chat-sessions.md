@@ -47,7 +47,6 @@ but they can also store direct model segments:
 - **External Agent** sessions map one chat session to one supervised adapter
   session such as Codex, Claude Code, or Cursor Agent.
 
-The rest of this document covers the legacy `/v1/chat/sessions` storage model.
 The Agent Chat API shape used by the operator UI is in
 [`runtime-api.md`](runtime-api.md#get-v1agent-chatsessions), and external
 adapter behavior is in [`external-agent-adapters.md`](external-agent-adapters.md).
@@ -75,6 +74,10 @@ show a per-row **Advanced** disclosure with raw activity metadata such as
 step/artifact/approval ids, tool kind, path, timestamp, and summary payload.
 
 ## Mental model
+
+This section covers the legacy `/v1/chat/sessions` storage model used by
+SDK-style direct model conversations. The operator UI's current Hecate Chat
+target uses Agent Chat sessions as described above.
 
 A chat session has two independent streams:
 

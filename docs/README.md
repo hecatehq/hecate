@@ -10,8 +10,8 @@ Pick the path closest to what you are doing.
 
 | You are... | Read in this order |
 |---|---|
-| Running Hecate locally | [Desktop app](desktop-app.md), [Deployment](deployment.md), [Providers](providers.md), [Known limitations](known-limitations.md) |
-| Calling Hecate from a client | [Runtime API](runtime-api.md), [Agent runtime](agent-runtime.md), [Events](events.md), [Chat sessions](chat-sessions.md) |
+| Running Hecate locally | [Desktop app](desktop-app.md), [Deployment](deployment.md), [Providers](providers.md), [Chat sessions](chat-sessions.md), [Known limitations](known-limitations.md) |
+| Calling Hecate from a client | [Runtime API](runtime-api.md), [Chat sessions](chat-sessions.md), [Agent runtime](agent-runtime.md), [Events](events.md) |
 | Building or using coding-agent integrations | [External agent adapters](external-agent-adapters.md), [ACP bridge](acp.md), [Runtime API](runtime-api.md), [Events](events.md), [MCP integration](mcp.md) |
 | Changing the codebase | [Architecture](architecture.md), [Development](development.md), [`docs-ai/`](../docs-ai/README.md), [Release](release.md) |
 | Working as an AI agent | [`AGENTS.md`](../AGENTS.md), [`docs-ai/README.md`](../docs-ai/README.md), then the relevant `docs-ai/skills/*/SKILL.md` |
@@ -23,16 +23,17 @@ Pick the path closest to what you are doing.
 | [Deployment](deployment.md) | Docker, binary install, image pinning, storage backends, rate limits, lost-token recovery. |
 | [Desktop app](desktop-app.md) | Native bundles, first-launch warnings, platform data dirs, sidecar lifecycle, roadmap. |
 | [Providers](providers.md) | Built-in provider presets, OpenAI-compatible custom endpoints, credentials, model discovery, health, circuit breaking. |
+| [Chat sessions](chat-sessions.md) | Hecate Chat transcript segments, tools on/off behavior, task-backed turns, queued prompts, approvals in Chats, and shared activity rendering. |
 | [Known limitations](known-limitations.md) | The honest alpha boundary: API/schema stability, sandbox limits, desktop gaps, deployment scope. |
 
 ## Runtime And Integration Docs
 
 | Doc | What it answers |
 |---|---|
-| [Runtime API](runtime-api.md) | `/v1/tasks/*`, approvals, run streaming, queue/lease semantics, health/discovery endpoints. |
+| [Runtime API](runtime-api.md) | `/v1/tasks/*`, `/v1/agent-chat/*`, approvals, run streaming, queue/lease semantics, health/discovery endpoints. |
 | [Agent runtime](agent-runtime.md) | `agent_loop` configuration, built-in tools, stdout/stderr handling, system prompt layers, approvals, cost ceiling, retry-from-turn. |
 | [Events](events.md) | Implemented event names, payloads, stdout/stderr stream chunks, and when each is emitted. Use this for today's `/v1/events` consumers. |
-| [Chat sessions](chat-sessions.md) | Conversation persistence model behind the Chats UI and provider/model switching. |
+| [Chat sessions](chat-sessions.md) | Conversation persistence model behind the Chats UI, Hecate Chat segments, provider/model switching, queued prompts, and external-agent sessions. |
 | [External agent adapters](external-agent-adapters.md) | Hecate as an ACP client/operator: use Codex, Claude Code, and Cursor Agent from Chats; install checks, persistence, troubleshooting, current gaps. |
 | [MCP integration](mcp.md) | Hecate as an MCP server and external MCP servers as task tools. |
 | [ACP bridge](acp.md) | Hecate as an ACP agent for editor panels. Host setup, gateway discovery, session model, smoke test, and current gaps. |
@@ -66,6 +67,7 @@ yet.
 | [Agent event protocol experimental extensions](rfcs/event-protocol-experimental.md) | Parking lot for future event groups such as thinking blocks, sub-agents, multimodal output, and branching. |
 | [Artifact storage v1 candidate](rfcs/artifact-storage-v1.md) | Candidate shape for persisted command output, patches, fetched resources, and artifact retention. |
 | [External agent adapters candidate](rfcs/external-agent-adapters.md) | Candidate shape for chatting with Codex, Claude Code, Cursor Agent, and future coding-agent CLIs through Hecate. |
+| [Hecate Chat and model capabilities](rfcs/unified-chats-and-model-capabilities.md) | Accepted alpha direction for Hecate Chat tools on/off segments, model capability metadata, profiles, and future probes. |
 
 ## External Entry Points
 

@@ -1,6 +1,6 @@
 # Project context
 
-Hecate is an open-source AI gateway and agent-task runtime. The Go gateway embeds the React operator UI, mediates OpenAI- and Anthropic-shaped client traffic to upstream LLM providers, runs Hecate Agent chats through visible `agent_loop` tasks, supervises external coding-agent adapters from Chats, runs queued `agent_loop` tasks with policy and approval gates, and emits OpenTelemetry traces for everything it does. Companion entrypoints such as `hecate-acp` handle protocols that need their own process lifecycle. Hecate is gateway-local, deny-by-default, runtime-aware, and storage-tiered (memory / sqlite). Every endpoint, config knob, and error message exists to answer five operator questions: what did the gateway just decide, why, what did it cost, what happens on the next failure, and where is the trace.
+Hecate is an open-source AI gateway and agent-task runtime. The Go gateway embeds the React operator UI, mediates OpenAI- and Anthropic-shaped client traffic to upstream LLM providers, runs Hecate Chat tools-on turns through visible `agent_loop` tasks, supervises external coding-agent adapters from Chats, runs queued `agent_loop` tasks with policy and approval gates, and emits OpenTelemetry traces for everything it does. Companion entrypoints such as `hecate-acp` handle protocols that need their own process lifecycle. Hecate is gateway-local, deny-by-default, runtime-aware, and storage-tiered (memory / sqlite). Every endpoint, config knob, and error message exists to answer five operator questions: what did the gateway just decide, why, what did it cost, what happens on the next failure, and where is the trace.
 
 ## Repository layout
 
@@ -93,7 +93,7 @@ code, not as a follow-up. Don't restate their content here — link and move on.
 | What OTel spans and metrics does the gateway emit? | [`docs/telemetry.md`](../../docs/telemetry.md) |
 | How do I configure a provider? What providers are supported? | [`docs/providers.md`](../../docs/providers.md) |
 | How do I configure MCP? What tools does the server expose? | [`docs/mcp.md`](../../docs/mcp.md) |
-| How do Hecate Agent chats and model capabilities work? | [`docs/rfcs/unified-chats-and-model-capabilities.md`](../../docs/rfcs/unified-chats-and-model-capabilities.md) |
+| How do Hecate Chat segments and model capabilities work? | [`docs/chat-sessions.md`](../../docs/chat-sessions.md), [`docs/rfcs/unified-chats-and-model-capabilities.md`](../../docs/rfcs/unified-chats-and-model-capabilities.md) |
 | How do external Agent Chat adapters work? | [`docs/external-agent-adapters.md`](../../docs/external-agent-adapters.md) |
 | How does an editor ACP host connect to Hecate? | [`docs/acp.md`](../../docs/acp.md) |
 | How do I deploy? What are the Compose profiles? | [`docs/deployment.md`](../../docs/deployment.md) |

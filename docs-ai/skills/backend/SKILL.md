@@ -90,7 +90,9 @@ Agent Chat has three runtime kinds:
    task-backed segment in the same transcript. While a task-backed segment is
    queued, running, or awaiting approval, the entire Hecate Chat session is
    busy: direct model turns are rejected too, so one transcript cannot race a
-   live task loop against a separate model call.
+   live task loop against a separate model call. The browser UI may queue a
+   prompt locally while busy, but the backend contract remains one active
+   task-backed turn per session.
 3. `external_agent`: the chat session points at one supervised adapter session
    such as Codex, Claude Code, or Cursor Agent.
 

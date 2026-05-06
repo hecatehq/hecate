@@ -4,16 +4,19 @@ Hecate's `agent_loop` execution kind runs an LLM-driven loop: the model picks to
 
 For the high-level execution flow that wraps it (queue, lease, sandbox, events), see [`architecture.md`](architecture.md#task-runtime-flow). For the API endpoints that drive it, see [`runtime-api.md`](runtime-api.md).
 
-`agent_loop` is also the runtime behind **Hecate Agent** chats. In that mode
-Chats creates a visible task with `execution_profile=chat_agent` and
-`origin_kind=agent_chat`; the first user message starts the task, and follow-up
-messages continue the latest terminal run instead of creating a new task per
-message. Tasks remains canonical for approvals, events, artifacts, retry/resume,
-and patch review; Chats is the conversational entry point. When the selected
-provider supports streaming, the agent loop streams assistant text into the
-conversation artifact during the model turn so Chats can show the answer before
-the task run reaches a terminal state. Providers without streaming fall back to
-the normal non-streaming chat call.
+`agent_loop` is also the runtime behind **Hecate Chat** when tools are on. In
+that mode Chats creates a visible task with `execution_profile=chat_agent` and
+`origin_kind=agent_chat`; the first tools-on user message starts the task, and
+follow-up tools-on messages continue the latest terminal run instead of
+creating a new task per message. Turning tools off switches the same transcript
+back to direct model chat. Turning tools on again after a direct model segment
+starts a fresh task-backed segment in that transcript. Tasks remains canonical
+for approvals, events, artifacts, retry/resume, and patch review; Chats is the
+conversational entry point with compact activity, task/trace links, and inline
+approval actions. When the selected provider supports streaming, the agent loop
+streams assistant text into the conversation artifact during the model turn so
+Chats can show the answer before the task run reaches a terminal state.
+Providers without streaming fall back to the normal non-streaming chat call.
 
 The Tasks workspace in the operator UI is the human entry point — create a task, watch its run state, approve or retry, and inspect streamed output:
 

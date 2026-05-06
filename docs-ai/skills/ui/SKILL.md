@@ -104,8 +104,10 @@ Each section has exactly one job: orient, inspect, compare, edit, or confirm. If
   transcript. Chats may resolve pending task approvals inline; Tasks remains
   canonical for artifacts, retry/resume, full event history, and patch review.
   While a task-backed segment is active, the whole Hecate Chat session is busy:
-  keep provider/model controls locked to the segment snapshot and block direct
-  model sends until the task finishes, is stopped, or reaches an approval.
+  keep provider/model controls locked to the segment snapshot. If the operator
+  submits another prompt, queue it locally in the composer and send it after
+  the task finishes, is stopped, or reaches a terminal approval outcome. Do not
+  pretend that local queue is durable before the message is submitted.
 - Use the shared `features/transcript` primitives for runtime storytelling.
   Task Detail and Hecate Chat should share `TranscriptActivityTimeline` labels
   and Details grouping instead of growing separate task/activity renderers.
