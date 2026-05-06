@@ -100,6 +100,9 @@ func PendingPermissionFromSessionUpdate(update SessionUpdateParams) (PermissionR
 	if update.EventType != "approval.requested" && update.EventType != "snapshot" {
 		return PermissionRequestParams{}, false
 	}
+	if params, ok := pendingPermissionFromDirectApprovalEvent(update); ok {
+		return params, true
+	}
 	rawApprovals, ok := update.Data["approvals"]
 	if !ok {
 		return PermissionRequestParams{}, false
@@ -138,6 +141,46 @@ func PendingPermissionFromSessionUpdate(update SessionUpdateParams) (PermissionR
 		}, true
 	}
 	return PermissionRequestParams{}, false
+}
+
+func pendingPermissionFromDirectApprovalEvent(update SessionUpdateParams) (PermissionRequestParams, bool) {
+	if update.EventType != "approval.requested" {
+		return PermissionRequestParams{}, false
+	}
+	approvalID, _ := update.Data["approval_id"].(string)
+	if approvalID == "" {
+		approvalID, _ = update.Data["id"].(string)
+	}
+	status, _ := update.Data["status"].(string)
+	if approvalID == "" || status != "pending" {
+		return PermissionRequestParams{}, false
+	}
+	kind, _ := update.Data["kind"].(string)
+	reason, _ := update.Data["policy_reason"].(string)
+	if reason == "" {
+		reason, _ = update.Data["reason"].(string)
+	}
+	message := reason
+	if message == "" {
+		message = update.Message
+	}
+	if message == "" {
+		message = "Hecate requests permission to continue this run."
+	}
+	data := make(map[string]any, len(update.Data))
+	for key, value := range update.Data {
+		data[key] = value
+	}
+	return PermissionRequestParams{
+		SessionID:  update.SessionID,
+		TaskID:     update.TaskID,
+		RunID:      update.RunID,
+		ApprovalID: approvalID,
+		Kind:       kind,
+		Reason:     reason,
+		Message:    message,
+		Data:       data,
+	}, true
 }
 
 func RunEventToSessionUpdate(sessionID, taskID, runID string, event RunEvent) SessionUpdateParams {

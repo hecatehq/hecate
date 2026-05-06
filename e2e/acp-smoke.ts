@@ -350,9 +350,70 @@ async function startFakeOpenAI(port: number, mode: FakeMode): Promise<Server> {
     }
 
     if (req.method === "POST" && req.url === "/v1/chat/completions") {
-      const parsed = JSON.parse(body || "{}") as { messages?: Array<{ role?: string }> };
+      const parsed = JSON.parse(body || "{}") as { messages?: Array<{ role?: string }>; stream?: boolean };
       const hasToolResult = parsed.messages?.some((message) => message.role === "tool") ?? false;
       if (mode === "tool" && !hasToolResult) {
+        if (parsed.stream) {
+          writeSSE(res, [
+            {
+              id: "chatcmpl-smoke-tool",
+              object: "chat.completion.chunk",
+              created: Math.floor(Date.now() / 1000),
+              model: modelID,
+              choices: [{
+                index: 0,
+                delta: { role: "assistant" },
+                finish_reason: null,
+              }],
+            },
+            {
+              id: "chatcmpl-smoke-tool",
+              object: "chat.completion.chunk",
+              created: Math.floor(Date.now() / 1000),
+              model: modelID,
+              choices: [{
+                index: 0,
+                delta: {
+                  tool_calls: [{
+                    index: 0,
+                    id: "call-smoke-pwd",
+                    type: "function",
+                    function: { name: "shell_exec", arguments: "{\"command\"" },
+                  }],
+                },
+                finish_reason: null,
+              }],
+            },
+            {
+              id: "chatcmpl-smoke-tool",
+              object: "chat.completion.chunk",
+              created: Math.floor(Date.now() / 1000),
+              model: modelID,
+              choices: [{
+                index: 0,
+                delta: {
+                  tool_calls: [{
+                    index: 0,
+                    function: { arguments: ":\"pwd\"}" },
+                  }],
+                },
+                finish_reason: null,
+              }],
+            },
+            {
+              id: "chatcmpl-smoke-tool",
+              object: "chat.completion.chunk",
+              created: Math.floor(Date.now() / 1000),
+              model: modelID,
+              choices: [{
+                index: 0,
+                delta: {},
+                finish_reason: "tool_calls",
+              }],
+            },
+          ]);
+          return;
+        }
         writeJSON(res, 200, {
           id: "chatcmpl-smoke-tool",
           object: "chat.completion",
@@ -376,6 +437,56 @@ async function startFakeOpenAI(port: number, mode: FakeMode): Promise<Server> {
           }],
           usage: { prompt_tokens: 12, completion_tokens: 3, total_tokens: 15 },
         });
+        return;
+      }
+
+      if (parsed.stream) {
+        writeSSE(res, [
+          {
+            id: "chatcmpl-smoke-final",
+            object: "chat.completion.chunk",
+            created: Math.floor(Date.now() / 1000),
+            model: modelID,
+            choices: [{
+              index: 0,
+              delta: { role: "assistant" },
+              finish_reason: null,
+            }],
+          },
+          {
+            id: "chatcmpl-smoke-final",
+            object: "chat.completion.chunk",
+            created: Math.floor(Date.now() / 1000),
+            model: modelID,
+            choices: [{
+              index: 0,
+              delta: { content: "Smoke " },
+              finish_reason: null,
+            }],
+          },
+          {
+            id: "chatcmpl-smoke-final",
+            object: "chat.completion.chunk",
+            created: Math.floor(Date.now() / 1000),
+            model: modelID,
+            choices: [{
+              index: 0,
+              delta: { content: "complete." },
+              finish_reason: null,
+            }],
+          },
+          {
+            id: "chatcmpl-smoke-final",
+            object: "chat.completion.chunk",
+            created: Math.floor(Date.now() / 1000),
+            model: modelID,
+            choices: [{
+              index: 0,
+              delta: {},
+              finish_reason: "stop",
+            }],
+          },
+        ]);
         return;
       }
 
@@ -461,6 +572,15 @@ function writeJSON(res: ServerResponse, status: number, payload: unknown): void 
   res.statusCode = status;
   res.setHeader("content-type", "application/json");
   res.end(JSON.stringify(payload));
+}
+
+function writeSSE(res: ServerResponse, chunks: unknown[]): void {
+  res.statusCode = 200;
+  res.setHeader("content-type", "text/event-stream");
+  for (const chunk of chunks) {
+    res.write(`data: ${JSON.stringify(chunk)}\n\n`);
+  }
+  res.end("data: [DONE]\n\n");
 }
 
 function hasPendingApprovalUpdate(updates: unknown[]): boolean {

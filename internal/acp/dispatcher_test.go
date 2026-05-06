@@ -411,19 +411,36 @@ func TestDispatcherPermissionResponseResolvesGatewayApproval(t *testing.T) {
 }
 
 func TestPendingPermissionFromSessionUpdate(t *testing.T) {
-	update := RunEventToSessionUpdate("session-1", "task-1", "run-1", RunEvent{
-		Type: "approval.requested",
-		Data: []byte(`{"event_type":"approval.requested","approvals":[{"id":"approval-1","kind":"shell_command","reason":"run command?","status":"pending"}]}`),
-	})
-	params, ok := PendingPermissionFromSessionUpdate(update)
-	if !ok {
-		t.Fatal("PendingPermissionFromSessionUpdate returned false")
+	tests := []struct {
+		name string
+		data string
+	}{
+		{
+			name: "snapshot approvals array",
+			data: `{"event_type":"approval.requested","approvals":[{"id":"approval-1","kind":"shell_command","reason":"run command?","status":"pending"}]}`,
+		},
+		{
+			name: "direct approval event",
+			data: `{"approval_id":"approval-1","kind":"shell_command","status":"pending","policy_reason":"run command?"}`,
+		},
 	}
-	if params.SessionID != "session-1" || params.TaskID != "task-1" || params.RunID != "run-1" || params.ApprovalID != "approval-1" {
-		t.Fatalf("params = %+v", params)
-	}
-	if params.Kind != "shell_command" || params.Message != "run command?" {
-		t.Fatalf("params = %+v", params)
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			update := RunEventToSessionUpdate("session-1", "task-1", "run-1", RunEvent{
+				Type: "approval.requested",
+				Data: []byte(tt.data),
+			})
+			params, ok := PendingPermissionFromSessionUpdate(update)
+			if !ok {
+				t.Fatal("PendingPermissionFromSessionUpdate returned false")
+			}
+			if params.SessionID != "session-1" || params.TaskID != "task-1" || params.RunID != "run-1" || params.ApprovalID != "approval-1" {
+				t.Fatalf("params = %+v", params)
+			}
+			if params.Kind != "shell_command" || params.Message != "run command?" {
+				t.Fatalf("params = %+v", params)
+			}
+		})
 	}
 }
 
