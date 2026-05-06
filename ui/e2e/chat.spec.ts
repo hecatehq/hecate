@@ -424,6 +424,26 @@ test("Hecate Chat can move tools on, tools off, then tools on again in one trans
   const submittedTurns: Array<Record<string, unknown>> = [];
   const messages: Array<Record<string, unknown>> = [];
   let session: Record<string, unknown> | null = null;
+  let taskApprovalResolved = false;
+
+  function completeFirstTaskApproval() {
+    taskApprovalResolved = true;
+    const assistant = messages.find(message => message.id === "msg-assistant-1") as Record<string, unknown> | undefined;
+    if (!assistant) return;
+    assistant.content = "Tools answer one from qwen2.5";
+    assistant.status = "completed";
+    assistant.activities = [
+      { id: "approval-1", type: "approval", status: "approved", title: "Approval approved", detail: "shell_exec - approved", approval_id: "appr-tools-1", needs_action: false },
+      { id: "task-1", type: "task_run", status: "completed", title: "Backing task", detail: "completed · task-tools-1 · run-tools-1" },
+      { id: "turns-1", type: "thinking", status: "completed", title: "Model turns", detail: "2 turns completed" },
+    ];
+    session = {
+      ...(session ?? {}),
+      status: "completed",
+      message_count: messages.length,
+      messages,
+    };
+  }
 
   await page.route("/v1/agent-chat/sessions", async route => {
     if (route.request().method() === "GET") {
@@ -477,15 +497,28 @@ test("Hecate Chat can move tools on, tools off, then tools on again in one trans
     body: JSON.stringify({ object: "agent_chat_session", data: session }),
   }));
 
+  await page.route("/v1/tasks/task-tools-1/approvals/appr-tools-1/resolve", async route => {
+    completeFirstTaskApproval();
+    await route.fulfill({
+      status: 200,
+      contentType: "application/json",
+      body: JSON.stringify({ object: "task_approval", data: { id: "appr-tools-1", status: "approved" } }),
+    });
+  });
+
   await page.route("/v1/agent-chat/sessions/chat-tools-switch-e2e/messages", async route => {
     const body = await route.request().postDataJSON();
     submittedTurns.push(body);
     const turn = submittedTurns.length;
     const runtimeKind = body.runtime_kind || "model";
     const isHecateAgent = runtimeKind === "agent";
-    const taskID = isHecateAgent ? `task-tools-${submittedTurns.filter(t => t.runtime_kind === "agent").length}` : "";
-    const runID = isHecateAgent ? `run-tools-${submittedTurns.filter(t => t.runtime_kind === "agent").length}` : "";
-    const assistantContent = isHecateAgent
+    const agentTurn = submittedTurns.filter(t => t.runtime_kind === "agent").length;
+    const taskID = isHecateAgent ? `task-tools-${agentTurn}` : "";
+    const runID = isHecateAgent ? `run-tools-${agentTurn}` : "";
+    const firstTaskNeedsApproval = isHecateAgent && agentTurn === 1 && !taskApprovalResolved;
+    const assistantContent = firstTaskNeedsApproval
+      ? ""
+      : isHecateAgent
       ? `Tools answer ${taskID.endsWith("-1") ? "one" : "two"} from ${body.model}`
       : `Direct model answer from ${body.model}`;
 
@@ -511,9 +544,14 @@ test("Hecate Chat can move tools on, tools off, then tools on again in one trans
         content: assistantContent,
         provider: body.provider || "",
         model: body.model,
-        status: "completed",
+        status: firstTaskNeedsApproval ? "awaiting_approval" : "completed",
         cost_mode: isHecateAgent ? "hecate" : "provider",
-        activities: isHecateAgent
+        activities: firstTaskNeedsApproval
+          ? [
+              { id: "approval-1", type: "approval", status: "awaiting_approval", kind: "agent_loop_tool_call", title: "Awaiting approval", detail: "Agent requested tools that require approval: shell_exec", approval_id: "appr-tools-1", needs_action: true },
+              { id: `task-${turn}`, type: "task_run", status: "awaiting_approval", title: "Backing task", detail: `awaiting approval · ${taskID} · ${runID}` },
+            ]
+          : isHecateAgent
           ? [
               { id: `task-${turn}`, type: "task_run", status: "completed", title: "Backing task", detail: `completed · ${taskID} · ${runID}` },
               { id: `done-${turn}`, type: "completed", status: "completed", title: "Run completed", detail: "completed" },
@@ -532,7 +570,7 @@ test("Hecate Chat can move tools on, tools off, then tools on again in one trans
       workspace: body.workspace || "/tmp/hecate-e2e-workspace",
       task_id: isHecateAgent ? taskID : session?.task_id,
       latest_run_id: isHecateAgent ? runID : session?.latest_run_id,
-      status: "completed",
+      status: firstTaskNeedsApproval ? "awaiting_approval" : "completed",
       message_count: messages.length,
       messages,
     };
@@ -553,6 +591,9 @@ test("Hecate Chat can move tools on, tools off, then tools on again in one trans
 
   await page.locator("textarea").fill("first with tools");
   await page.locator("button[type='submit']").click();
+  await expect(page.getByTestId("hecate-task-approval-banner")).toBeVisible();
+  await page.getByRole("button", { name: /Approve Agent tool call/i }).click();
+  await expect(page.getByTestId("hecate-task-approval-banner")).toBeHidden();
   await expect(page.locator("body")).toContainText("Tools answer one from qwen2.5");
 
   await page.getByRole("button", { name: "tools off", exact: true }).click();

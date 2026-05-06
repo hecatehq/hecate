@@ -33,7 +33,10 @@ but they can also store direct model segments:
   Chats projects the backing run activity into the transcript, links each
   assistant turn back to its backing Task/run, and can approve/reject pending
   task approvals inline. Low-level artifacts stay under transcript **Details**,
-  while Tasks remains the canonical run/artifact view.
+  while Tasks remains the canonical run/artifact view. On refresh, the UI
+  rehydrates the active Hecate Chat from the persisted session/task snapshot so
+  queued, running, and awaiting-approval states stay visible without sending a
+  new prompt.
   When the backing provider supports streaming, the running assistant message
   updates from the task conversation artifact before the task run completes.
 - **External Agent** sessions map one chat session to one supervised adapter

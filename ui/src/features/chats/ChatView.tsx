@@ -1080,6 +1080,31 @@ export function ChatView({ state, actions, onNavigate, onOpenTask }: Props) {
               </button>
             </div>
           )}
+          {isAgentChat && !state.agentWorkspace.trim() && (
+            <div style={{
+              maxWidth: 820,
+              margin: "0 auto 8px",
+              display: "flex",
+              alignItems: "center",
+              justifyContent: "space-between",
+              gap: 12,
+              fontSize: 12,
+              color: "var(--amber)",
+              lineHeight: 1.45,
+            }}>
+              <span>
+                Choose a workspace before sending. Hecate uses it as the working directory for this chat.
+              </span>
+              <button
+                type="button"
+                className="btn btn-ghost btn-sm"
+                onClick={chooseWorkspace}
+                style={{ flexShrink: 0, color: "var(--amber)", borderColor: "rgba(245, 191, 79, 0.35)" }}
+              >
+                Choose workspace
+              </button>
+            </div>
+          )}
           <div style={{ maxWidth: 820, margin: "0 auto", position: "relative" }}>
             <textarea
               ref={textareaRef}
