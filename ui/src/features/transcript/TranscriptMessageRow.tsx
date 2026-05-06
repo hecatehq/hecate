@@ -1,13 +1,13 @@
 import { useState } from "react";
 
-import type { AgentChatActivityRecord, AgentChatChangedFileDiffRecord, AgentChatChangedFileRecord, AgentChatUsageRecord } from "../../types/runtime";
+import type { AgentChatActivityRecord, AgentChatChangedFileDiffRecord, AgentChatChangedFileRecord, AgentChatTimingRecord, AgentChatUsageRecord } from "../../types/runtime";
 import { CodeBlock } from "../shared/Atoms";
 import { Icon, Icons } from "../shared/Icons";
 import { TranscriptActivityTimeline } from "./TranscriptActivityTimeline";
 import { TranscriptDiffReview } from "./TranscriptDiffReview";
 import { TranscriptMarkdown } from "./TranscriptMarkdown";
 
-export function TranscriptMessageRow({ id, role, model, content, time, promptTokens, completionTokens, costUsd, badge, runtimeMeta, taskLink, activities, diffStat, diff, agentSessionID, onListAgentFiles, onGetAgentFileDiff, onRevertAgentFiles, rawOutput, agentUsage, error, onCopy, copied }: {
+export function TranscriptMessageRow({ id, role, model, content, time, promptTokens, completionTokens, costUsd, badge, runtimeMeta, taskLink, activities, diffStat, diff, agentSessionID, onListAgentFiles, onGetAgentFileDiff, onRevertAgentFiles, rawOutput, agentUsage, agentTiming, error, onCopy, copied }: {
   id: string; role: "user" | "assistant"; model?: string; content: string;
   time: string; promptTokens?: number; completionTokens?: number; costUsd?: string;
   badge?: string; runtimeMeta?: string; agentSessionID?: string;
@@ -16,7 +16,7 @@ export function TranscriptMessageRow({ id, role, model, content, time, promptTok
   onListAgentFiles?: (sessionID: string, messageID: string) => Promise<AgentChatChangedFileRecord[]>;
   onGetAgentFileDiff?: (sessionID: string, messageID: string, path: string) => Promise<AgentChatChangedFileDiffRecord | null>;
   onRevertAgentFiles?: (sessionID: string, messageID: string, paths: string[]) => Promise<boolean>;
-  rawOutput?: string; agentUsage?: AgentChatUsageRecord; error?: string;
+  rawOutput?: string; agentUsage?: AgentChatUsageRecord; agentTiming?: AgentChatTimingRecord; error?: string;
   onCopy: (id: string, text: string) => void; copied: boolean;
 }) {
   const [hovered, setHovered] = useState(false);
@@ -103,6 +103,9 @@ export function TranscriptMessageRow({ id, role, model, content, time, promptTok
           )}
           {isAssistant && activities && activities.length > 0 && (
             <TranscriptActivityTimeline activities={activities} diffStat={diffStat} />
+          )}
+          {isAssistant && agentTiming && !agentTimingEmpty(agentTiming) && (
+            <AgentTiming timing={agentTiming} />
           )}
           {isAssistant && agentUsage && !agentUsageEmpty(agentUsage) && (
             <AgentUsage usage={agentUsage} />
@@ -216,8 +219,76 @@ function AgentUsage({ usage }: { usage: AgentChatUsageRecord }) {
   );
 }
 
+function AgentTiming({ timing }: { timing: AgentChatTimingRecord }) {
+  const bottleneck = timing.bottleneck && timing.bottleneck_ms
+    ? `${humanTimingLabel(timing.bottleneck)} ${formatDurationMS(timing.bottleneck_ms)}`
+    : "";
+  const items = [
+    ["total", timing.total_ms],
+    ["queue", timing.queue_ms],
+    ["model", timing.model_ms],
+    ["tools", timing.tool_ms],
+    ["approval", timing.approval_wait_ms],
+    ["overhead", timing.overhead_ms],
+  ].filter(([, value]) => typeof value === "number" && value > 0) as [string, number][];
+  const counts = [
+    timing.turn_count ? `${timing.turn_count} turn${timing.turn_count === 1 ? "" : "s"}` : "",
+    timing.tool_count ? `${timing.tool_count} tool${timing.tool_count === 1 ? "" : "s"}` : "",
+  ].filter(Boolean).join(" · ");
+  return (
+    <div
+      aria-label="Hecate Agent timing summary"
+      style={{
+        background: "rgba(0, 194, 184, 0.05)",
+        border: "1px solid var(--teal-border)",
+        borderRadius: "var(--radius-sm)",
+        color: "var(--t2)",
+        display: "flex",
+        flexWrap: "wrap",
+        fontFamily: "var(--font-mono)",
+        fontSize: 10,
+        gap: 8,
+        lineHeight: 1.6,
+        marginTop: 8,
+        padding: "7px 9px",
+      }}
+    >
+      {bottleneck && <span style={{ color: "var(--teal)" }}>bottleneck · {bottleneck}</span>}
+      {items.map(([label, value]) => (
+        <span key={label}>{label} {formatDurationMS(value)}</span>
+      ))}
+      {counts && <span>{counts}</span>}
+    </div>
+  );
+}
+
+function agentTimingEmpty(timing: AgentChatTimingRecord): boolean {
+  return !timing.total_ms &&
+    !timing.queue_ms &&
+    !timing.model_ms &&
+    !timing.tool_ms &&
+    !timing.approval_wait_ms &&
+    !timing.overhead_ms &&
+    !timing.turn_count &&
+    !timing.tool_count &&
+    !timing.bottleneck;
+}
+
 function agentUsageEmpty(usage: AgentChatUsageRecord): boolean {
   return !usage.reported_cost_amount && !usage.reported_cost_currency && !(usage.context_size ?? 0) && !(usage.context_used ?? 0);
+}
+
+function humanTimingLabel(label: string): string {
+  return label === "tools" ? "tools" : label;
+}
+
+function formatDurationMS(value: number): string {
+  if (!Number.isFinite(value) || value <= 0) return "0ms";
+  if (value < 1000) return `${Math.round(value)}ms`;
+  if (value < 60_000) return `${(value / 1000).toFixed(value < 10_000 ? 1 : 0)}s`;
+  const minutes = Math.floor(value / 60_000);
+  const seconds = Math.round((value - minutes * 60_000) / 1000);
+  return `${minutes}m ${seconds}s`;
 }
 
 function formatAgentReportedCost(usage: AgentChatUsageRecord): string {

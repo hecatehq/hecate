@@ -250,7 +250,7 @@ func TestMetricNameConstantsMatchInstruments(t *testing.T) {
 	om.RecordApproval(ctx, ApprovalMetricsRecord{ApprovalKind: "shell_command", Decision: "approved", WaitMS: 2000})
 	om.RecordQueueWait(ctx, QueueWaitRecord{QueueBackend: "memory", WaitMS: 50})
 	om.RecordLeaseExtendFailed(ctx)
-	am.RecordRun(ctx, AgentChatRunMetricsRecord{AdapterID: "codex", DriverKind: "acp", Status: "completed", Result: ResultSuccess, DurationMS: 750})
+	am.RecordRun(ctx, AgentChatRunMetricsRecord{AdapterID: "codex", DriverKind: "acp", Status: "completed", Result: ResultSuccess, DurationMS: 750, Timing: AgentChatRunTimingRecord{ModelMS: 600}})
 	apm.RecordRequested(ctx, AgentAdapterApprovalRequestRecord{AdapterID: "codex", ToolKind: "file_write", Mode: "prompt"})
 	apm.RecordResolved(ctx, AgentAdapterApprovalResolveRecord{
 		AdapterID: "codex", ToolKind: "file_write", Mode: "auto",
@@ -294,6 +294,7 @@ func TestMetricNameConstantsMatchInstruments(t *testing.T) {
 		// Agent chat
 		MetricAgentChatRunsTotal,
 		MetricAgentChatRunDuration,
+		MetricAgentChatRunTiming,
 		MetricAgentChatCancelledTotal,
 		// External-adapter approvals
 		MetricAgentAdapterApprovalRequestedTotal,

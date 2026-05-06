@@ -4,7 +4,7 @@ import type { RuntimeConsoleViewModel } from "../../app/useRuntimeConsole";
 import { discoverLocalProviders } from "../../lib/api";
 import { describeGatewayError, formatErrorCode } from "../../lib/error-diagnostics";
 import { describeRoutingBlockedReason } from "../../lib/runtime-utils";
-import type { AgentAdapterRecord, AgentChatActivityRecord, AgentChatSessionRecord, AgentChatUsageRecord, LocalProviderDiscoveryRecord, ProviderPresetRecord } from "../../types/runtime";
+import type { AgentAdapterRecord, AgentChatActivityRecord, AgentChatSessionRecord, AgentChatTimingRecord, AgentChatUsageRecord, LocalProviderDiscoveryRecord, ProviderPresetRecord } from "../../types/runtime";
 import { AgentAdapterPicker, CodeBlock, Icon, Icons, InlineError, ModelPicker, ProviderPicker } from "../shared/ui";
 import { TranscriptMessageRow } from "../transcript/TranscriptMessageRow";
 import { AgentApprovalAutoModeBanner, AgentApprovalsBanner } from "./AgentApprovalBanner";
@@ -41,6 +41,7 @@ type VisibleChatMessage = {
   raw_output?: string;
   activities?: AgentChatActivityRecord[];
   usage?: AgentChatUsageRecord;
+  timing?: AgentChatTimingRecord;
   duration_ms?: number;
   error?: string;
 };
@@ -910,6 +911,7 @@ export function ChatView({ state, actions, onNavigate, onOpenTask }: Props) {
                 onRevertAgentFiles={actions.revertAgentChatMessageFiles}
                 rawOutput={isAgentChat && role === "assistant" ? m.raw_output : undefined}
                 agentUsage={isAgentChat && role === "assistant" ? m.usage : undefined}
+                agentTiming={isAgentChat && role === "assistant" ? m.timing : undefined}
                 error={isAgentChat && role === "assistant" ? m.error : undefined}
                 onCopy={copyMsg}
                 copied={copiedMsgId === m.id}

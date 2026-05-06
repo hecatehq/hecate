@@ -258,6 +258,7 @@ const (
 	// External agent chat metrics
 	MetricAgentChatRunsTotal   = "hecate.agent_chat.runs"
 	MetricAgentChatRunDuration = "hecate.agent_chat.run.duration"
+	MetricAgentChatRunTiming   = "hecate.agent_chat.run.timing"
 	// MetricAgentChatCancelledTotal counts agent-chat run/turn endings
 	// that terminated via cancellation. The reason label
 	// distinguishes operator (explicit Cancel call from the HTTP

@@ -67,6 +67,7 @@ type Message struct {
 	Error           string
 	Activities      []Activity
 	Usage           Usage
+	Timing          Timing
 }
 
 type Activity struct {
@@ -90,6 +91,32 @@ type Usage struct {
 
 func (u Usage) Empty() bool {
 	return u.ContextSize == 0 && u.ContextUsed == 0 && u.ReportedCostAmount == "" && u.ReportedCostCurrency == ""
+}
+
+type Timing struct {
+	TotalMS        int64  `json:"total_ms,omitempty"`
+	QueueMS        int64  `json:"queue_ms,omitempty"`
+	ModelMS        int64  `json:"model_ms,omitempty"`
+	ToolMS         int64  `json:"tool_ms,omitempty"`
+	ApprovalWaitMS int64  `json:"approval_wait_ms,omitempty"`
+	OverheadMS     int64  `json:"overhead_ms,omitempty"`
+	TurnCount      int    `json:"turn_count,omitempty"`
+	ToolCount      int    `json:"tool_count,omitempty"`
+	Bottleneck     string `json:"bottleneck,omitempty"`
+	BottleneckMS   int64  `json:"bottleneck_ms,omitempty"`
+}
+
+func (t Timing) Empty() bool {
+	return t.TotalMS == 0 &&
+		t.QueueMS == 0 &&
+		t.ModelMS == 0 &&
+		t.ToolMS == 0 &&
+		t.ApprovalWaitMS == 0 &&
+		t.OverheadMS == 0 &&
+		t.TurnCount == 0 &&
+		t.ToolCount == 0 &&
+		t.Bottleneck == "" &&
+		t.BottleneckMS == 0
 }
 
 type Store interface {

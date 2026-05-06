@@ -224,6 +224,13 @@ func TestAgentChatMetricsRecordRunEmitsCounterAndHistogram(t *testing.T) {
 		Status:     "completed",
 		Result:     ResultSuccess,
 		DurationMS: 1250,
+		Timing: AgentChatRunTimingRecord{
+			QueueMS:        50,
+			ModelMS:        900,
+			ToolMS:         120,
+			ApprovalWaitMS: 0,
+			OverheadMS:     180,
+		},
 	})
 
 	collected := collectMetrics(t, reader)
@@ -253,6 +260,19 @@ func TestAgentChatMetricsRecordRunEmitsCounterAndHistogram(t *testing.T) {
 	}
 	if duration.DataPoints[0].Count != 1 || duration.DataPoints[0].Sum != 1250 {
 		t.Fatalf("duration count/sum = %d/%d, want 1/1250", duration.DataPoints[0].Count, duration.DataPoints[0].Sum)
+	}
+	timing := findMetric[metricdata.Histogram[int64]](t, collected, MetricAgentChatRunTiming)
+	if len(timing.DataPoints) != 4 {
+		t.Fatalf("timing data points = %d, want 4 non-zero buckets", len(timing.DataPoints))
+	}
+	gotBuckets := map[string]int64{}
+	for _, point := range timing.DataPoints {
+		gotBuckets[attrValue(point.Attributes, AttrHecateAgentChatTimingBucket)] = point.Sum
+	}
+	for bucket, want := range map[string]int64{"queue": 50, "model": 900, "tools": 120, "overhead": 180} {
+		if gotBuckets[bucket] != want {
+			t.Fatalf("timing bucket %s = %d, want %d (all buckets %#v)", bucket, gotBuckets[bucket], want, gotBuckets)
+		}
 	}
 }
 

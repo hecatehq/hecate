@@ -228,11 +228,21 @@ type AgentChatRunMetricsRecord struct {
 	Status     string
 	Result     string
 	DurationMS int64
+	Timing     AgentChatRunTimingRecord
+}
+
+type AgentChatRunTimingRecord struct {
+	QueueMS        int64
+	ModelMS        int64
+	ToolMS         int64
+	ApprovalWaitMS int64
+	OverheadMS     int64
 }
 
 type AgentChatMetrics struct {
 	runsTotal      otmetric.Int64Counter
 	runDuration    otmetric.Int64Histogram
+	runTiming      otmetric.Int64Histogram
 	cancelledTotal otmetric.Int64Counter
 }
 
@@ -278,6 +288,15 @@ func NewAgentChatMetricsWithMeterProvider(provider otmetric.MeterProvider) (*Age
 		return nil, err
 	}
 
+	runTiming, err := meter.Int64Histogram(
+		MetricAgentChatRunTiming,
+		otmetric.WithDescription("Agent chat run timing broken down by queue, model, tool, approval, and overhead buckets."),
+		otmetric.WithUnit("ms"),
+	)
+	if err != nil {
+		return nil, err
+	}
+
 	cancelledTotal, err := meter.Int64Counter(
 		MetricAgentChatCancelledTotal,
 		otmetric.WithDescription("Total agent chat run/turn endings that terminated via cancellation, labeled by reason (operator | request_cancelled | shutdown)."),
@@ -290,6 +309,7 @@ func NewAgentChatMetricsWithMeterProvider(provider otmetric.MeterProvider) (*Age
 	return &AgentChatMetrics{
 		runsTotal:      runsTotal,
 		runDuration:    runDuration,
+		runTiming:      runTiming,
 		cancelledTotal: cancelledTotal,
 	}, nil
 }
@@ -315,6 +335,30 @@ func (m *AgentChatMetrics) RecordRun(ctx context.Context, rec AgentChatRunMetric
 	m.runsTotal.Add(ctx, 1, opt)
 	if rec.DurationMS > 0 {
 		m.runDuration.Record(ctx, rec.DurationMS, opt)
+	}
+	for _, bucket := range rec.Timing.buckets() {
+		if bucket.ms <= 0 {
+			continue
+		}
+		bucketAttrs := append([]attribute.KeyValue{}, attrs...)
+		bucketAttrs = append(bucketAttrs, attribute.String(AttrHecateAgentChatTimingBucket, bucket.name))
+		m.runTiming.Record(ctx, bucket.ms, otmetric.WithAttributes(bucketAttrs...))
+	}
+}
+
+func (t AgentChatRunTimingRecord) buckets() []struct {
+	name string
+	ms   int64
+} {
+	return []struct {
+		name string
+		ms   int64
+	}{
+		{name: "queue", ms: t.QueueMS},
+		{name: "model", ms: t.ModelMS},
+		{name: "tools", ms: t.ToolMS},
+		{name: "approval", ms: t.ApprovalWaitMS},
+		{name: "overhead", ms: t.OverheadMS},
 	}
 }
 

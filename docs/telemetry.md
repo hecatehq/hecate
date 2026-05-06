@@ -462,8 +462,9 @@ Each prefix has a `_MAX_AGE` and `_MAX_COUNT` suffix (e.g. `GATEWAY_RETENTION_TR
 
 | Instrument | Type | Unit | Description |
 |---|---|---|---|
-| `hecate.agent_chat.runs` | Counter | `{run}` | External agent-chat runs grouped by adapter, driver kind, status, and result |
-| `hecate.agent_chat.run.duration` | Histogram | `ms` | External agent-chat run wall-clock duration |
+| `hecate.agent_chat.runs` | Counter | `{run}` | Agent-chat runs grouped by adapter/runtime, driver kind, status, and result |
+| `hecate.agent_chat.run.duration` | Histogram | `ms` | Agent-chat run wall-clock duration |
+| `hecate.agent_chat.run.timing` | Histogram | `ms` | Task-backed Hecate Agent timing buckets grouped by `hecate.agent_chat.timing.bucket` (`queue` / `model` / `tools` / `approval` / `overhead`) plus the same runtime/status/result labels as `hecate.agent_chat.run.duration` |
 | `hecate.agent_chat.cancelled` | Counter | `{cancellation}` | Agent-chat run/turn endings that terminated via cancellation, labeled by `adapter` and `reason` (`operator` / `request_cancelled` / `shutdown`). Distinguishes explicit operator cancels from request-context death and `SessionManager.Shutdown`-driven tear-downs. |
 
 Metric attributes reuse the same vocabulary as traces — provider, model,

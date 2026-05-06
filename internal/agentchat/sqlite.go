@@ -261,8 +261,8 @@ func (s *SQLiteStore) AppendMessage(ctx context.Context, sessionID string, messa
 				id, session_id, sequence, runtime_kind, segment_id, task_id, run_id, request_id, trace_id, span_id,
 				role, content, raw_output, adapter_id, adapter_name, driver_kind, native_session_id, status, exit_code,
 				cost_mode, provider, model, capabilities, workspace, diff_stat, diff, created_at, started_at, completed_at,
-				error, activities, usage
-			) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+				error, activities, usage, timing
+			) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
 			s.messagesTable,
 		),
 		message.ID,
@@ -297,6 +297,7 @@ func (s *SQLiteStore) AppendMessage(ctx context.Context, sessionID string, messa
 		message.Error,
 		marshalActivities(message.Activities),
 		marshalUsage(message.Usage),
+		marshalTiming(message.Timing),
 	); err != nil {
 		return Session{}, fmt.Errorf("insert sqlite agent chat message: %w", err)
 	}
@@ -329,7 +330,7 @@ func (s *SQLiteStore) UpdateMessage(ctx context.Context, sessionID string, messa
 			   runtime_kind = ?, segment_id = ?, task_id = ?, run_id = ?, request_id = ?, trace_id = ?, span_id = ?, role = ?, content = ?, raw_output = ?, adapter_id = ?, adapter_name = ?,
 			   driver_kind = ?, native_session_id = ?, status = ?, exit_code = ?,
 			   cost_mode = ?, provider = ?, model = ?, capabilities = ?, workspace = ?, diff_stat = ?, diff = ?, created_at = ?,
-			   started_at = ?, completed_at = ?, error = ?, activities = ?, usage = ?
+			   started_at = ?, completed_at = ?, error = ?, activities = ?, usage = ?, timing = ?
 			 WHERE id = ? AND session_id = ?`,
 			s.messagesTable,
 		),
@@ -362,6 +363,7 @@ func (s *SQLiteStore) UpdateMessage(ctx context.Context, sessionID string, messa
 		message.Error,
 		marshalActivities(message.Activities),
 		marshalUsage(message.Usage),
+		marshalTiming(message.Timing),
 		messageID,
 		sessionID,
 	); err != nil {
@@ -439,6 +441,7 @@ func (s *SQLiteStore) migrate(ctx context.Context) error {
 				error TEXT NOT NULL DEFAULT '',
 				activities TEXT NOT NULL DEFAULT '[]',
 				usage TEXT NOT NULL DEFAULT '{}',
+				timing TEXT NOT NULL DEFAULT '{}',
 				UNIQUE (session_id, sequence)
 			)`,
 			s.messagesTable,
@@ -496,6 +499,7 @@ func (s *SQLiteStore) migrate(ctx context.Context) error {
 		{name: "capabilities", definition: "TEXT NOT NULL DEFAULT '{}'"},
 		{name: "activities", definition: "TEXT NOT NULL DEFAULT '[]'"},
 		{name: "usage", definition: "TEXT NOT NULL DEFAULT '{}'"},
+		{name: "timing", definition: "TEXT NOT NULL DEFAULT '{}'"},
 	} {
 		if err := s.ensureMessageColumn(ctx, column.name, column.definition); err != nil {
 			return err
@@ -576,7 +580,7 @@ func (s *SQLiteStore) loadMessages(ctx context.Context, sessionID string) ([]Mes
 		ctx,
 		fmt.Sprintf(
 			`SELECT id, runtime_kind, segment_id, task_id, run_id, request_id, trace_id, span_id, role, content, raw_output, adapter_id, adapter_name, driver_kind, native_session_id, status, exit_code, cost_mode,
-			        provider, model, capabilities, workspace, diff_stat, diff, created_at, started_at, completed_at, error, activities, usage
+			        provider, model, capabilities, workspace, diff_stat, diff, created_at, started_at, completed_at, error, activities, usage, timing
 			 FROM %s
 			 WHERE session_id = ?
 			 ORDER BY sequence ASC`,
@@ -595,6 +599,7 @@ func (s *SQLiteStore) loadMessages(ctx context.Context, sessionID string) ([]Mes
 		var startedAt, completedAt sql.NullTime
 		var activities string
 		var usage string
+		var timing string
 		var capabilities string
 		if err := rows.Scan(
 			&message.ID,
@@ -627,6 +632,7 @@ func (s *SQLiteStore) loadMessages(ctx context.Context, sessionID string) ([]Mes
 			&message.Error,
 			&activities,
 			&usage,
+			&timing,
 		); err != nil {
 			return nil, fmt.Errorf("scan sqlite agent chat message: %w", err)
 		}
@@ -638,6 +644,7 @@ func (s *SQLiteStore) loadMessages(ctx context.Context, sessionID string) ([]Mes
 		}
 		message.Activities = unmarshalActivities(activities)
 		message.Usage = unmarshalUsage(usage)
+		message.Timing = unmarshalTiming(timing)
 		message.Capabilities = unmarshalModelCapabilities(capabilities)
 		messages = append(messages, message)
 	}
@@ -715,12 +722,13 @@ func loadMessage(ctx context.Context, tx txRunner, table string, sessionID strin
 	var startedAt, completedAt sql.NullTime
 	var activities string
 	var usage string
+	var timing string
 	var capabilities string
 	err := tx.QueryRowContext(
 		ctx,
 		fmt.Sprintf(
 			`SELECT id, runtime_kind, segment_id, task_id, run_id, request_id, trace_id, span_id, role, content, raw_output, adapter_id, adapter_name, driver_kind, native_session_id, status, exit_code, cost_mode,
-			        provider, model, capabilities, workspace, diff_stat, diff, created_at, started_at, completed_at, error, activities, usage
+			        provider, model, capabilities, workspace, diff_stat, diff, created_at, started_at, completed_at, error, activities, usage, timing
 			 FROM %s
 			 WHERE id = ? AND session_id = ?`,
 			table,
@@ -758,6 +766,7 @@ func loadMessage(ctx context.Context, tx txRunner, table string, sessionID strin
 		&message.Error,
 		&activities,
 		&usage,
+		&timing,
 	)
 	if err != nil {
 		if errors.Is(err, sql.ErrNoRows) {
@@ -773,6 +782,7 @@ func loadMessage(ctx context.Context, tx txRunner, table string, sessionID strin
 	}
 	message.Activities = unmarshalActivities(activities)
 	message.Usage = unmarshalUsage(usage)
+	message.Timing = unmarshalTiming(timing)
 	message.Capabilities = unmarshalModelCapabilities(capabilities)
 	return message, nil
 }
@@ -828,6 +838,29 @@ func unmarshalUsage(raw string) Usage {
 		return Usage{}
 	}
 	return usage
+}
+
+func marshalTiming(timing Timing) string {
+	if timing.Empty() {
+		return "{}"
+	}
+	data, err := json.Marshal(timing)
+	if err != nil {
+		return "{}"
+	}
+	return string(data)
+}
+
+func unmarshalTiming(raw string) Timing {
+	raw = strings.TrimSpace(raw)
+	if raw == "" {
+		return Timing{}
+	}
+	var timing Timing
+	if err := json.Unmarshal([]byte(raw), &timing); err != nil {
+		return Timing{}
+	}
+	return timing
 }
 
 func normalizeRuntimeKind(session Session) string {

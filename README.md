@@ -105,7 +105,7 @@ There are two top-level chat targets:
 - **Hecate Chat** — select a configured provider/model. Leave tools off for direct model chat through Hecate's router, or enable tools to run the prompt through Hecate's native `agent_loop` task runtime with task approvals, artifacts, per-call sandboxing, OTel, and a visible backing Task.
 - **External Agent** — select Codex, Claude Code, or Cursor Agent, choose a workspace, and run a supervised local ACP session with approval prompts, guardrails, raw diagnostics, and Git diff review.
 
-Direct model turns and Hecate Agent turns now share one Hecate Chat transcript. Direct turns record route, cost, cache, and trace metadata; tools-on turns create task-backed segments. The Tasks workspace remains canonical for Hecate Agent approvals, events, artifacts, retry/resume, and patch review, while each task-backed assistant turn links back to its backing Task/run. External Agent turns record normalized transcript, raw output, status, timing, trace IDs, workspace branch, approval decisions, and captured Git diffs that can be inspected or reverted from Chats. External agents are **not** providers and do not appear in the provider/model picker. See [docs/agent-runtime.md](docs/agent-runtime.md) for Hecate Agent internals and [docs/external-agent-adapters.md](docs/external-agent-adapters.md) for external-adapter install checks and troubleshooting.
+Direct model turns and Hecate Agent turns now share one Hecate Chat transcript. Direct turns record route, cost, cache, and trace metadata; tools-on turns create task-backed segments with per-run timing buckets for queue/model/tool/approval/overhead work. The Tasks workspace remains canonical for Hecate Agent approvals, events, artifacts, retry/resume, and patch review, while each task-backed assistant turn links back to its backing Task/run. External Agent turns record normalized transcript, raw output, status, timing, trace IDs, workspace branch, approval decisions, and captured Git diffs that can be inspected or reverted from Chats. External agents are **not** providers and do not appear in the provider/model picker. See [docs/agent-runtime.md](docs/agent-runtime.md) for Hecate Agent internals and [docs/external-agent-adapters.md](docs/external-agent-adapters.md) for external-adapter install checks and troubleshooting.
 
 ## Architecture
 
@@ -142,7 +142,7 @@ For deeper internals, read [docs/architecture.md](docs/architecture.md), [docs/r
 
 The embedded UI is a runtime console for the operator.
 
-- **Chats** — talk to model providers, run Hecate Agent chats backed by Tasks, or supervise external coding agents; inspect per-turn route/cost metadata, agent activity, raw output, and captured diffs.
+- **Chats** — talk to model providers, run Hecate Agent chats backed by Tasks, or supervise external coding agents; inspect per-turn route/cost metadata, agent activity, timing, raw output, and captured diffs.
 - **Providers** — manage provider credentials, defaults, model discovery, base URLs, and health.
 - **Tasks** — create and manage native Hecate `agent_loop` runs, task approvals, retries, resumes, and streamed tool output.
 - **Observability** — inspect requests, route candidates, skip reasons, failover, costs, traces, metrics, logs, and local trace events.

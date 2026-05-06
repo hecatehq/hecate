@@ -295,6 +295,7 @@ export type AgentChatMessageRecord = {
   error?: string;
   activities?: AgentChatActivityRecord[];
   usage?: AgentChatUsageRecord;
+  timing?: AgentChatTimingRecord;
 };
 
 export type AgentChatUsageRecord = {
@@ -302,6 +303,19 @@ export type AgentChatUsageRecord = {
   context_used?: number;
   reported_cost_amount?: string;
   reported_cost_currency?: string;
+};
+
+export type AgentChatTimingRecord = {
+  total_ms?: number;
+  queue_ms?: number;
+  model_ms?: number;
+  tool_ms?: number;
+  approval_wait_ms?: number;
+  overhead_ms?: number;
+  turn_count?: number;
+  tool_count?: number;
+  bottleneck?: string;
+  bottleneck_ms?: number;
 };
 
 export type AgentChatActivityRecord = {

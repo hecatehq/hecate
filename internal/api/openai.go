@@ -702,6 +702,7 @@ type AgentChatMessageItem struct {
 	Error           string                  `json:"error,omitempty"`
 	Activities      []AgentChatActivityItem `json:"activities,omitempty"`
 	Usage           *AgentChatUsageItem     `json:"usage,omitempty"`
+	Timing          *AgentChatTimingItem    `json:"timing,omitempty"`
 }
 
 type AgentChatChangedFileItem struct {
@@ -762,6 +763,19 @@ type AgentChatUsageItem struct {
 	ContextUsed          int    `json:"context_used,omitempty"`
 	ReportedCostAmount   string `json:"reported_cost_amount,omitempty"`
 	ReportedCostCurrency string `json:"reported_cost_currency,omitempty"`
+}
+
+type AgentChatTimingItem struct {
+	TotalMS        int64  `json:"total_ms,omitempty"`
+	QueueMS        int64  `json:"queue_ms,omitempty"`
+	ModelMS        int64  `json:"model_ms,omitempty"`
+	ToolMS         int64  `json:"tool_ms,omitempty"`
+	ApprovalWaitMS int64  `json:"approval_wait_ms,omitempty"`
+	OverheadMS     int64  `json:"overhead_ms,omitempty"`
+	TurnCount      int    `json:"turn_count,omitempty"`
+	ToolCount      int    `json:"tool_count,omitempty"`
+	Bottleneck     string `json:"bottleneck,omitempty"`
+	BottleneckMS   int64  `json:"bottleneck_ms,omitempty"`
 }
 
 type WorkspaceDialogResponseItem struct {

@@ -104,6 +104,17 @@ func runStoreLifecycle(t *testing.T, store Store) {
 			ReportedCostAmount:   "0.1234",
 			ReportedCostCurrency: "USD",
 		}
+		message.Timing = Timing{
+			TotalMS:      1500,
+			QueueMS:      20,
+			ModelMS:      900,
+			ToolMS:       200,
+			OverheadMS:   380,
+			TurnCount:    1,
+			ToolCount:    1,
+			Bottleneck:   "model",
+			BottleneckMS: 900,
+		}
 		message.Activities = []Activity{
 			{Type: "started", Status: "completed", Title: "Started external agent", CreatedAt: startedAt},
 			{Type: "files_changed", Status: "completed", Title: "Files changed", Detail: "1 file changed", CreatedAt: startedAt.Add(time.Second)},
@@ -143,6 +154,9 @@ func runStoreLifecycle(t *testing.T, store Store) {
 	}
 	if got.Messages[1].Usage.ContextSize != 200_000 || got.Messages[1].Usage.ContextUsed != 42_000 {
 		t.Fatalf("persisted usage = %+v, want 42000/200000", got.Messages[1].Usage)
+	}
+	if got.Messages[1].Timing.Bottleneck != "model" || got.Messages[1].Timing.ModelMS != 900 || got.Messages[1].Timing.TurnCount != 1 {
+		t.Fatalf("persisted timing = %+v, want model bottleneck", got.Messages[1].Timing)
 	}
 	if got.Messages[1].RuntimeKind != "hecate_agent" || got.Messages[1].SegmentID != "task:task_chat_1" || got.Messages[1].TaskID != "task_chat_1" {
 		t.Fatalf("persisted message runtime = runtime %q segment %q task %q", got.Messages[1].RuntimeKind, got.Messages[1].SegmentID, got.Messages[1].TaskID)
