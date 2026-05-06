@@ -47,13 +47,21 @@ export function formatDiffStatSummary(diffStat: string): string {
   return lines.find(line => /\bfiles? changed\b/.test(line)) || lines[0] || "";
 }
 
-export function TranscriptActivityTimeline({ activities, diffStat }: { activities: AgentChatActivityRecord[]; diffStat?: string }) {
+export function TranscriptActivityTimeline({
+  activities,
+  diffStat,
+  defaultOpen = false,
+}: {
+  activities: AgentChatActivityRecord[];
+  diffStat?: string;
+  defaultOpen?: boolean;
+}) {
   const visible = orderVisibleActivities(compactAgentActivities(activities));
   const details = orderVisibleActivities(compactDetailActivities(activities, Boolean(diffStat)));
   const primary = diffStat ? [...visible, fileChangesActivity(diffStat)] : visible;
   const terminal = terminalAgentActivity(activities);
   const hasRunning = !terminal && activities.some(isActiveAgentActivity);
-  const [open, setOpen] = useState(hasRunning);
+  const [open, setOpen] = useState(hasRunning || defaultOpen);
 
   useEffect(() => {
     if (hasRunning) {
@@ -450,7 +458,7 @@ function approvalActivityTitle(activity: AgentChatActivityRecord): string {
 
 function terminalAgentActivity(activities: AgentChatActivityRecord[]): AgentChatActivityRecord | undefined {
   const terminalTypes = new Set(["completed", "failed", "cancelled"]);
-  return [...activities].reverse().find(activity => terminalTypes.has(activity.type));
+  return [...activities].reverse().find(activity => activity.terminal || terminalTypes.has(activity.type));
 }
 
 function terminalStatusLabel(status?: string): string {
@@ -472,6 +480,10 @@ function activityStatusColor(status?: string) {
     return "var(--red)";
   case "cancelled":
     return "var(--amber)";
+  case "awaiting_approval":
+  case "pending":
+  case "proposed":
+    return "var(--amber)";
   case "running":
   case "in_progress":
     return "var(--teal)";
@@ -481,5 +493,5 @@ function activityStatusColor(status?: string) {
 }
 
 function isActiveAgentActivity(activity: AgentChatActivityRecord): boolean {
-  return activity.status === "running" || activity.status === "in_progress";
+  return activity.status === "running" || activity.status === "in_progress" || activity.status === "awaiting_approval" || activity.status === "pending" || Boolean(activity.needs_action);
 }

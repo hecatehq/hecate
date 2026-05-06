@@ -144,7 +144,7 @@ The embedded UI is a runtime console for the operator.
 
 - **Chats** — talk to model providers, run Hecate Agent chats backed by Tasks, or supervise external coding agents; inspect per-turn route/cost metadata, agent activity, timing, raw output, and captured diffs.
 - **Providers** — manage provider credentials, defaults, model discovery, base URLs, and health.
-- **Tasks** — create and manage native Hecate `agent_loop` runs, task approvals, retries, resumes, and streamed tool output.
+- **Tasks** — create and manage native Hecate `agent_loop` runs, task approvals, retries, resumes, streamed tool output, and the same compact run activity shown inside Hecate Chat.
 - **Observability** — inspect requests, route candidates, skip reasons, failover, costs, traces, metrics, logs, and local trace events.
 - **Costs** — balance, top-up / reset, usage table.
 - **Settings** — pricebook, model capability overrides, retention, external-agent readiness checks, and durable approval grants.

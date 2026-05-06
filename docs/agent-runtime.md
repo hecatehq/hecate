@@ -123,6 +123,20 @@ Every run has a workspace — a directory the sandbox locks tools to. Two modes:
 
 The new-task UI exposes `in_place` as a "Run directly in this workspace" checkbox under WORKSPACE.
 
+## Run activity in the UI
+
+Task Detail renders the run's normalized activity array as the primary
+inspection timeline. Hecate Chat uses the same renderer when a tools-on chat
+turn projects backing task activity into the transcript, so operators see the
+same labels in both places: tool calls, approvals, changed files, final-answer
+artifacts, and terminal run state.
+
+The shared renderer intentionally separates signal from bookkeeping. High-level
+activity stays visible in chronological order; raw task artifacts and internal
+markers are grouped under **Details**. Task Detail opens that activity section
+by default because it is a run-inspection view. Chats keeps it quieter so the
+conversation remains the primary surface.
+
 ## Output and stderr in the UI
 
 Task runs capture process output as structured stdout/stderr artifacts and

@@ -47,6 +47,26 @@ The Agent Chat API shape used by the operator UI is in
 [`runtime-api.md`](runtime-api.md#get-v1agent-chatsessions), and external
 adapter behavior is in [`external-agent-adapters.md`](external-agent-adapters.md).
 
+## Activity rendering
+
+Hecate uses one compact activity vocabulary across Hecate Chat transcripts and
+Task Detail. This is deliberate: an operator should see the same story whether
+they stay in Chats or open the canonical Task/run view.
+
+The shared renderer keeps the high-signal path visible:
+
+- model turns / thinking
+- tool calls
+- approval requested / approved / rejected / cancelled
+- files changed
+- final answer
+- terminal run state
+
+Lower-level task artifacts, raw output markers, and internal bookkeeping are
+grouped under **Details**. Chats keeps those details collapsed by default so the
+conversation stays readable; Task Detail opens the activity section by default
+because that view is already a run-inspection surface.
+
 ## Mental model
 
 A chat session has two independent streams:

@@ -245,6 +245,24 @@ describe("TaskDetail runtime activity and patches", () => {
     expect(screen.getByText("main.go.patch")).toBeTruthy();
   });
 
+  it("uses the shared transcript activity labels and Details grouping", () => {
+    const { render } = setup({
+      activity: [
+        makeActivity({ id: "activity-tool", type: "tool_call", title: "git_exec", tool_name: "git_exec", kind: "git", status: "completed" }),
+        makeActivity({ id: "activity-files", type: "changed_files", title: "git-changes.json", path: "git-changes.json", status: "ready" }),
+        makeActivity({ id: "activity-final", type: "final_answer", title: "agent-final-answer.txt", path: "agent-final-answer.txt", status: "ready" }),
+      ],
+    });
+    render();
+
+    expect(screen.getByText("Ran git")).toBeTruthy();
+    expect(screen.getByText("Details · 2 items")).toBeTruthy();
+    expect(screen.getByText("Changed files")).toBeTruthy();
+    expect(screen.getByText("git-changes.json")).toBeTruthy();
+    expect(screen.getByText("Final answer artifact")).toBeTruthy();
+    expect(screen.getByText("agent-final-answer.txt")).toBeTruthy();
+  });
+
   it("calls onApplyPatch for proposed patch artifacts", async () => {
     const onApplyPatch = vi.fn();
     const { render, user } = setup({ artifacts: [makePatchArtifact()], onApplyPatch });

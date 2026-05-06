@@ -187,7 +187,9 @@ coding-agent-style timeline without reconstructing it from raw steps and
 artifacts. Activity item types include `thinking`, `tool_call`, `patch`,
 `changed_files`, `final_answer`, `approval`, and `run_result`. Approval
 activities carry `approval_id` and `needs_action` when a user decision is
-pending.
+pending. The operator UI uses this same array in both Task Detail and Hecate
+Chat transcript projections; clients should treat it as the compact timeline
+surface and use raw steps/artifacts/events only for deeper inspection.
 
 ### Public events feed
 
@@ -1132,9 +1134,11 @@ Clients should subscribe before sending a message so they can receive live
 updates. For External Agent sessions, snapshots include partial ACP output from
 the adapter. For Hecate Agent sessions, snapshots can include partial assistant
 text from the backing task's streamed model turn plus projected task activity.
-The stream stays open for an idle or previously completed session and closes
-after it observes a new running message reach a terminal status (`completed`,
-`failed`, or `cancelled`).
+Projected task activity uses the same compact vocabulary as Task Detail:
+tool calls, approvals, changed files, final-answer artifacts, terminal state,
+and a low-level Details group. The stream stays open for an idle or previously
+completed session and closes after it observes a new running message reach a
+terminal status (`completed`, `failed`, or `cancelled`).
 
 ### `POST /v1/agent-chat/sessions/{id}/cancel`
 
