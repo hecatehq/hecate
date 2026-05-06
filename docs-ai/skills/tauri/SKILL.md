@@ -62,9 +62,9 @@ tauri/
       sidecar.rs            resolve_binary(), resolve_data_dir(), spawn_and_wait()
 ```
 
-## Make targets
+## Just recipes
 
-| Target | What it does |
+| Recipe | What it does |
 |---|---|
 | `just tauri-install` | `bun install` inside `tauri/` |
 | `just tauri-version` | runs `scripts/stamp-version.ts` — stamps Cargo.toml, package.json, tauri.conf.json to current git tag (or `TAURI_VERSION`) |

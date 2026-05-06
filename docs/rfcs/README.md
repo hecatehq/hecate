@@ -18,4 +18,4 @@ Implemented runtime behavior lives in the main docs:
 | [Artifact storage v1 candidate](artifact-storage-v1.md) | Candidate shape for persisted command output, patches, fetched resources, and artifact retention. |
 | [External agent adapters candidate](external-agent-adapters.md) | Candidate shape for chatting with Codex, Claude Code, Cursor Agent, and future coding-agent CLIs through Hecate. |
 | [External-adapter approval loop v1 candidate](external-adapter-approvals-v1.md) | Operator-controlled `RequestPermission` handling for external ACP adapters. Replaces the current auto-approve stub. |
-| [Hecate Agent Chats and model capabilities](unified-chats-and-model-capabilities.md) | Accepted alpha direction for Model / Hecate Agent / External Agent chat targets and tool-capability gating. |
+| [Hecate Chat and model capabilities](unified-chats-and-model-capabilities.md) | Accepted alpha direction for Hecate Chat tools on/off segments, Hecate-owned task execution, External Agent separation, and tool-capability metadata. |

@@ -898,7 +898,10 @@ If the latest backing task is queued, running, or awaiting approval, **all** new
 turns on that chat are rejected with `409 agent_chat.agent_session_busy`,
 including direct `runtime_kind="model"` turns. Operators should wait for the
 task to finish, resolve the pending approval, or cancel/stop the active run
-before sending another prompt.
+before sending another prompt. The operator UI layers a local composer queue on
+top of that API contract: prompts submitted while a run is busy are held in a
+client-side FIFO and posted only after the active task reaches a terminal
+state. That queue is intentionally not durable until each prompt is submitted.
 
 The response returns after the backing turn finishes, times out, is cancelled,
 or fails. For live output while the turn is running, subscribe to the session
@@ -1029,6 +1032,10 @@ Hecate Agent-specific errors:
 |---|---|---|
 | `409` | `agent_chat.agent_session_busy` | The backing task run is queued, running, or awaiting approval. Resolve/cancel the active run before sending another prompt, even for direct model turns in the same Hecate Chat session. |
 | `422` | `agent_chat.model_capability_required` | Tools are explicitly disabled for the selected model. Turn tools off for direct model chat or enable tools in Settings. |
+
+Client note: browser/operator clients may queue a prompt locally when they
+receive or predict `agent_chat.agent_session_busy`, but the server still
+accepts only one active task-backed turn per Hecate Chat session.
 
 ### `GET /v1/agent-chat/sessions/{id}/messages/{message_id}/files`
 

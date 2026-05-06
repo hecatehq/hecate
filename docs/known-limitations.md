@@ -76,6 +76,27 @@ operators should not assume yet.
 - Browser automation, WASM plugins, and broad tool marketplaces are out of
   scope for the current alpha.
 
+## Hecate Chat
+
+- Hecate Chat can mix tools-off direct model turns and tools-on task-backed
+  Hecate Agent turns in one transcript. Message-level runtime snapshots are
+  persisted so old turns keep their original provider/model/task context even
+  when the header selection changes later.
+- Only one task-backed Hecate Agent segment can be active in a chat at a time.
+  The HTTP API rejects new turns with `409 agent_chat.agent_session_busy` while
+  the backing task is queued, running, or awaiting approval. The operator UI
+  turns this into a local **Queued next** composer FIFO and sends the prompt
+  after the active run settles; queued prompts are not durable until submitted.
+- Tools-on Hecate Chat currently blocks only models explicitly marked
+  `tool_calling="none"`. Unknown local/custom models are labelled as unknown
+  and can be marked manually in Settings; automatic capability probing is not
+  shipped yet.
+- Workspace modes and named Hecate Agent profiles are still roadmap items.
+  Tools-on chat uses the selected workspace with the current built-in profile.
+- Tasks remains canonical for full run history, retry/resume, artifacts, and
+  patch review. Chats projects the high-signal run activity and approval
+  controls, but it is not a replacement for every Task Detail inspection flow.
+
 ## External Agent Adapters
 
 - Codex, Claude Code, and Cursor Agent run as trusted local subprocesses in the
