@@ -489,6 +489,8 @@ test("Hecate Chat can move tools on, tools off, then tools on again in one trans
         runtime_kind: runtimeKind,
         segment_id: isHecateAgent ? `task:${taskID}` : `model:${turn}`,
         task_id: isHecateAgent ? taskID : undefined,
+        provider: body.provider || "",
+        model: body.model,
         role: "user",
         content: body.content,
         created_at: `2026-05-06T10:00:0${turn}Z`,
@@ -556,6 +558,8 @@ test("Hecate Chat can move tools on, tools off, then tools on again in one trans
   await page.locator("textarea").fill("tools again");
   await page.locator("button[type='submit']").click();
   await expect(page.locator("body")).toContainText("Tools answer two from qwen2.5");
+  await expect(page.getByLabel("Tools on segment using qwen2.5")).toHaveCount(2);
+  await expect(page.getByLabel("Tools off segment using qwen2.5")).toHaveCount(1);
 
   expect(createSessionCount).toBe(1);
   expect(submittedTurns.map(turn => turn.runtime_kind)).toEqual(["agent", "model", "agent"]);

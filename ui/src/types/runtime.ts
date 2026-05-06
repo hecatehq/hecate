@@ -298,6 +298,20 @@ export type AgentChatMessageRecord = {
   timing?: AgentChatTimingRecord;
 };
 
+export type AgentChatSegmentRecord = {
+  id: string;
+  runtime_kind: "external_agent" | "agent" | "model" | string;
+  provider?: string;
+  model?: string;
+  task_id?: string;
+  latest_run_id?: string;
+  workspace?: string;
+  status?: string;
+  message_count: number;
+  started_at?: string;
+  updated_at?: string;
+};
+
 export type AgentChatUsageRecord = {
   context_size?: number;
   context_used?: number;
@@ -352,6 +366,7 @@ export type AgentChatSessionRecord = {
   idle_timeout_ms?: number;
   created_at?: string;
   updated_at?: string;
+  segments?: AgentChatSegmentRecord[];
   messages?: AgentChatMessageRecord[];
 };
 

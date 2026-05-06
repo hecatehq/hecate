@@ -667,7 +667,22 @@ type AgentChatSessionItem struct {
 	IdleTimeoutMS        int64                   `json:"idle_timeout_ms,omitempty"`
 	CreatedAt            string                  `json:"created_at,omitempty"`
 	UpdatedAt            string                  `json:"updated_at,omitempty"`
+	Segments             []AgentChatSegmentItem  `json:"segments,omitempty"`
 	Messages             []AgentChatMessageItem  `json:"messages"`
+}
+
+type AgentChatSegmentItem struct {
+	ID           string `json:"id"`
+	RuntimeKind  string `json:"runtime_kind"`
+	Provider     string `json:"provider,omitempty"`
+	Model        string `json:"model,omitempty"`
+	TaskID       string `json:"task_id,omitempty"`
+	LatestRunID  string `json:"latest_run_id,omitempty"`
+	Workspace    string `json:"workspace,omitempty"`
+	Status       string `json:"status,omitempty"`
+	MessageCount int    `json:"message_count"`
+	StartedAt    string `json:"started_at,omitempty"`
+	UpdatedAt    string `json:"updated_at,omitempty"`
 }
 
 type AgentChatMessageItem struct {

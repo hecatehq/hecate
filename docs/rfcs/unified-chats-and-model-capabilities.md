@@ -155,6 +155,12 @@ Hecate Chat sessions also store:
 - `workspace`
 - `workspace_branch`
 
+Each message carries its own runtime snapshot: `runtime_kind`, `segment_id`,
+provider/model, capabilities, workspace, and optional task/run linkage. The
+session response also exposes derived segment metadata so the UI can render
+clear transcript boundaries when a chat moves from direct model turns to
+Hecate Agent tool-backed turns and back again.
+
 External Agent sessions keep their adapter fields. Existing sessions without
 `runtime_kind` default to `external_agent` when `adapter_id` is present and
 `model` otherwise.
@@ -351,6 +357,7 @@ Memory and SQLite must persist:
 - Hecate Agent task/run linkage fields on agent-chat sessions
 - per-message `runtime_kind`, `segment_id`, provider/model, capability
   snapshot, and task/run linkage
+- derived API segment metadata from the persisted message snapshots
 - workspace mode snapshot on Hecate Agent sessions
 
 The effective capability record is a snapshot at session creation time. Model
