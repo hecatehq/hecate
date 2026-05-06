@@ -1,4 +1,4 @@
-import { useEffect, useState } from "react";
+import { useEffect, useState, type ReactNode } from "react";
 
 import type { AgentChatActivityRecord } from "../../types/runtime";
 
@@ -51,10 +51,12 @@ export function TranscriptActivityTimeline({
   activities,
   diffStat,
   defaultOpen = false,
+  renderAdvancedActivity,
 }: {
   activities: AgentChatActivityRecord[];
   diffStat?: string;
   defaultOpen?: boolean;
+  renderAdvancedActivity?: (activity: AgentChatActivityRecord) => ReactNode;
 }) {
   const visible = orderVisibleActivities(compactAgentActivities(activities));
   const details = orderVisibleActivities(compactDetailActivities(activities, Boolean(diffStat)));
@@ -102,6 +104,7 @@ export function TranscriptActivityTimeline({
           <TimelineActivityLine
             key={activity.id || `${activity.type}-${activity.created_at ?? index}`}
             activity={activity}
+            renderAdvancedActivity={renderAdvancedActivity}
           />
         ))}
         {details.length > 0 && (
@@ -114,6 +117,7 @@ export function TranscriptActivityTimeline({
                 <TimelineActivityLine
                   key={activity.id || `detail-${activity.type}-${activity.created_at ?? index}`}
                   activity={activity}
+                  renderAdvancedActivity={renderAdvancedActivity}
                 />
               ))}
             </div>
@@ -148,11 +152,38 @@ function parseDiffStatRows(diffStat: string): Array<{ path: string; change: stri
     .filter((row): row is { path: string; change: string } => row !== null);
 }
 
-function TimelineActivityLine({ activity }: { activity: AgentChatActivityRecord }) {
-  if (activity.type === "plan") {
-    return <PlanActivityLine activity={activity} />;
-  }
-  return <ActivityLine activity={activity} prefix={activityLinePrefix(activity)} />;
+function TimelineActivityLine({
+  activity,
+  renderAdvancedActivity,
+}: {
+  activity: AgentChatActivityRecord;
+  renderAdvancedActivity?: (activity: AgentChatActivityRecord) => ReactNode;
+}) {
+  const line = activity.type === "plan"
+    ? <PlanActivityLine activity={activity} />
+    : <ActivityLine activity={activity} prefix={activityLinePrefix(activity)} />;
+  const advanced = renderAdvancedActivity?.(activity);
+  if (!advanced) return line;
+
+  return (
+    <div style={{ display: "grid", gap: 4, minWidth: 0 }}>
+      {line}
+      <details style={{ marginLeft: 15 }}>
+        <summary style={{ cursor: "pointer", fontFamily: "var(--font-mono)", fontSize: 10, color: "var(--t3)" }}>
+          Advanced
+        </summary>
+        <div style={{
+          marginTop: 6,
+          padding: "7px 9px",
+          border: "1px solid var(--border)",
+          borderRadius: "var(--radius-sm)",
+          background: "var(--bg1)",
+        }}>
+          {advanced}
+        </div>
+      </details>
+    </div>
+  );
 }
 
 function PlanActivityLine({ activity }: { activity: AgentChatActivityRecord }) {

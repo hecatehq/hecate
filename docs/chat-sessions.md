@@ -65,7 +65,9 @@ The shared renderer keeps the high-signal path visible:
 Lower-level task artifacts, raw output markers, and internal bookkeeping are
 grouped under **Details**. Chats keeps those details collapsed by default so the
 conversation stays readable; Task Detail opens the activity section by default
-because that view is already a run-inspection surface.
+because that view is already a run-inspection surface. Task Detail can also
+show a per-row **Advanced** disclosure with raw activity metadata such as
+step/artifact/approval ids, tool kind, path, timestamp, and summary payload.
 
 ## Mental model
 

@@ -109,6 +109,8 @@ Each section has exactly one job: orient, inspect, compare, edit, or confirm. If
 - Use the shared `features/transcript` primitives for runtime storytelling.
   Task Detail and Hecate Chat should share `TranscriptActivityTimeline` labels
   and Details grouping instead of growing separate task/activity renderers.
+  Task Detail may add Task-specific advanced disclosures, but keep that debug
+  layer out of Chats unless the operator explicitly asks for it.
 - External Agent sessions store their workspace and native ACP session id. New
   UI affordances should preserve that continuity instead of treating every
   prompt as a one-off subprocess.

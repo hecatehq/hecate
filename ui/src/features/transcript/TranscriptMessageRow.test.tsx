@@ -89,6 +89,27 @@ describe("TranscriptMessageRow", () => {
     expect(onCopy).toHaveBeenCalledWith("m1", "hello");
   });
 
+  it("renders task and trace header links as compact debug actions", async () => {
+    const onOpenTask = vi.fn();
+    const onOpenTrace = vi.fn();
+    const user = userEvent.setup();
+    render(
+      <TranscriptMessageRow
+        {...baseProps}
+        runtimeMeta="Run run_123 · 2.0s"
+        taskLink={{ label: "Task task_123", onClick: onOpenTask }}
+        traceLink={{ label: "Trace req_1234", onClick: onOpenTrace }}
+      />,
+    );
+
+    await user.click(screen.getByRole("button", { name: "Open Task task_123" }));
+    await user.click(screen.getByRole("button", { name: "Open Trace req_1234" }));
+
+    expect(onOpenTask).toHaveBeenCalledTimes(1);
+    expect(onOpenTrace).toHaveBeenCalledTimes(1);
+    expect(screen.getByText("Run run_123 · 2.0s")).toBeInTheDocument();
+  });
+
   it("renders the agent usage line when adapter-reported usage is present", () => {
     const usage: AgentChatUsageRecord = {
       reported_cost_amount: "0.42",

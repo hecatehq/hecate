@@ -248,6 +248,43 @@ describe("ObservabilityView", () => {
     });
   });
 
+  it("opens a trace detail drawer when focused by request id", async () => {
+    fetchMock.mockImplementation(tracesFetchHandler(
+      [{
+        request_id: "req-focus-from-chat",
+        started_at: new Date().toISOString(),
+        span_count: 1,
+        duration_ms: 10,
+        status_code: "ok",
+        route: { final_provider: "ollama", final_model: "ministral-3:latest" },
+      }],
+      {
+        request_id: "req-focus-from-chat",
+        started_at: new Date().toISOString(),
+        spans: [],
+        route: { candidates: [] },
+      },
+    ));
+    const state = createRuntimeConsoleFixture({ session: localSession });
+    await act(async () => {
+      render(
+        <ObservabilityView
+          state={state}
+          actions={createRuntimeConsoleActions()}
+          focusRequest={{ requestID: "req-focus-from-chat", nonce: 1 }}
+        />,
+      );
+    });
+
+    await waitFor(() => {
+      const urls = fetchMock.mock.calls.map(([u]) => String(u));
+      expect(urls.some(u => u === "/v1/traces?request_id=req-focus-from-chat")).toBe(true);
+      const dialog = document.querySelector('[role="dialog"]');
+      expect(dialog?.getAttribute("aria-label")).toMatch(/req-focu/);
+      expect(dialog?.getAttribute("aria-label")).toMatch(/ollama\/ministral-3:latest/);
+    });
+  });
+
   it("live mode auto-highlight does NOT auto-open the modal", async () => {
     fetchMock.mockImplementation(tracesFetchHandler([
       { request_id: "auto-pick", started_at: new Date().toISOString(), span_count: 1, duration_ms: 1, status_code: "ok", route: { final_provider: "openai", final_model: "m" } },

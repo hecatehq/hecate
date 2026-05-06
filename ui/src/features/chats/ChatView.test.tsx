@@ -756,9 +756,9 @@ describe("ChatView input", () => {
     });
     render(<ChatView state={state} actions={actions} onOpenTask={onOpenTask} />);
     const user = userEvent.setup();
-    expect(screen.queryByRole("button", { name: /^task task_hecate_/i })).toBeNull();
+    expect(screen.queryByRole("button", { name: /^Task task_hecate_/i })).toBeNull();
 
-    await user.click(screen.getByRole("button", { name: /Open task task_hecate_/i }));
+    await user.click(screen.getByRole("button", { name: /Open Task task_hecate_/i }));
     expect(onOpenTask).toHaveBeenCalledWith("task_hecate_123456", "run_hecate_abcdef");
   });
 
@@ -797,7 +797,7 @@ describe("ChatView input", () => {
     render(<ChatView state={state} actions={actions} onOpenTask={onOpenTask} />);
 
     expect(screen.getByText("Direct answer.")).toBeTruthy();
-    expect(screen.queryByRole("button", { name: /Open task task_latest/i })).toBeNull();
+    expect(screen.queryByRole("button", { name: /Open Task task_latest/i })).toBeNull();
     expect(onOpenTask).not.toHaveBeenCalled();
   });
 
@@ -857,9 +857,9 @@ describe("ChatView input", () => {
 
     expect(screen.getAllByLabelText("Tools off segment using smollm2:135m")).toHaveLength(2);
     expect(screen.getByLabelText("Tools on segment using qwen2.5-coder")).toBeTruthy();
-    expect(screen.getByText("task task_first")).toBeTruthy();
-    expect(screen.queryByRole("button", { name: /Open task task_second/i })).toBeNull();
-    expect(screen.getAllByRole("button", { name: /Open task task_first/i })).toHaveLength(1);
+    expect(screen.getByText("Task task_first")).toBeTruthy();
+    expect(screen.queryByRole("button", { name: /Open Task task_second/i })).toBeNull();
+    expect(screen.getAllByRole("button", { name: /Open Task task_first/i })).toHaveLength(1);
     expect(screen.getAllByText(/direct model chat/)).toHaveLength(2);
   });
 
@@ -1180,6 +1180,7 @@ describe("ChatView external-agent target", () => {
           {
             id: "m2",
             run_id: "agent_run_c4",
+            request_id: "req_codex_123456",
             trace_id: "0123456789abcdef0123456789abcdef",
             role: "assistant",
             content: "Looks good.",
@@ -1204,14 +1205,16 @@ describe("ChatView external-agent target", () => {
         ],
       } as any,
     }, { setChatTarget, setAgentAdapterID });
-    const { rerender } = render(<ChatView state={state} actions={actions} />);
+    const onOpenTrace = vi.fn();
+    const { rerender } = render(<ChatView state={state} actions={actions} onOpenTrace={onOpenTrace} />);
 
     expect(screen.queryByDisplayValue("/tmp/hecate")).toBeNull();
     expect(screen.getByRole("button", { name: /workspace/i })).toBeTruthy();
     expect(screen.getAllByText("Codex work").length).toBeGreaterThan(0);
     expect(screen.getByText("Looks good.")).toBeTruthy();
     expect(screen.getAllByText(/ACP native_codex/).length).toBeGreaterThan(0);
-    expect(screen.getByText(/trace 01234567/)).toBeTruthy();
+    const traceButton = screen.getByRole("button", { name: /Open Trace req_code/i });
+    expect(traceButton).toBeTruthy();
     expect(screen.queryByText("Starting external agent")).toBeNull();
     expect(screen.getByText("completed · 1/2 plan · 1 tool · files changed")).toBeTruthy();
     expect(screen.getByText("Inspect changes")).toBeTruthy();
@@ -1226,6 +1229,8 @@ describe("ChatView external-agent target", () => {
     expect(screen.getByText("raw adapter output · 1 line")).toBeTruthy();
     expect(screen.getByText("completed")).toBeTruthy();
     const user = userEvent.setup();
+    await user.click(traceButton);
+    expect(onOpenTrace).toHaveBeenCalledWith("req_codex_123456");
     const adapterPicker = screen.getByRole("button", { name: "External agent adapter" }) as HTMLButtonElement;
     expect(adapterPicker.disabled).toBe(true);
     expect(adapterPicker.title).toContain("Start a new chat");
