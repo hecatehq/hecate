@@ -1560,7 +1560,7 @@ function isResolvedTaskApprovalStatus(status: string): boolean {
 }
 
 function formatTaskLinkLabel(taskID: string): string {
-  return `Task ${taskID.slice(0, 12)}`;
+  return `Task ${compactID(taskID, ["task_"], 12)}`;
 }
 
 function formatTaskLinkTitle(taskID: string, runID?: string): string {
@@ -2402,12 +2402,20 @@ function formatAgentRuntimeMeta(runID?: string, durationMS?: number, nativeSessi
     parts.push(`ACP ${nativeSessionID.slice(0, 12)}`);
   }
   if (runID) {
-    parts.push(`Run ${runID.slice(0, 12)}`);
+    parts.push(`Run ${compactID(runID, ["run_"], 12)}`);
   }
   if (durationMS && durationMS > 0) {
     parts.push(formatDuration(durationMS));
   }
   return parts.join(" · ");
+}
+
+function compactID(id: string, prefixes: string[], length: number): string {
+  const trimmed = id.trim();
+  const withoutPrefix = prefixes.reduce((current, prefix) => (
+    current.startsWith(prefix) ? current.slice(prefix.length) : current
+  ), trimmed);
+  return withoutPrefix.slice(0, length);
 }
 
 function formatDuration(durationMS: number): string {

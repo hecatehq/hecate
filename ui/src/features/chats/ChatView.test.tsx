@@ -784,8 +784,9 @@ describe("ChatView input", () => {
     render(<ChatView state={state} actions={actions} onOpenTask={onOpenTask} />);
     const user = userEvent.setup();
     expect(screen.queryByRole("button", { name: /^Task task_hecate_/i })).toBeNull();
+    expect(screen.getByText("Run hecate_abcde")).toBeTruthy();
 
-    await user.click(screen.getByRole("button", { name: /Open Task task_hecate_/i }));
+    await user.click(screen.getByRole("button", { name: /Open Task hecate_/i }));
     expect(onOpenTask).toHaveBeenCalledWith("task_hecate_123456", "run_hecate_abcdef");
   });
 
@@ -824,7 +825,7 @@ describe("ChatView input", () => {
     render(<ChatView state={state} actions={actions} onOpenTask={onOpenTask} />);
 
     expect(screen.getByText("Direct answer.")).toBeTruthy();
-    expect(screen.queryByRole("button", { name: /Open Task task_latest/i })).toBeNull();
+    expect(screen.queryByRole("button", { name: /Open Task latest/i })).toBeNull();
     expect(onOpenTask).not.toHaveBeenCalled();
   });
 
@@ -884,9 +885,9 @@ describe("ChatView input", () => {
 
     expect(screen.getAllByLabelText("Tools off segment using smollm2:135m")).toHaveLength(2);
     expect(screen.getByLabelText("Tools on segment using qwen2.5-coder")).toBeTruthy();
-    expect(screen.getByText("Task task_first")).toBeTruthy();
-    expect(screen.queryByRole("button", { name: /Open Task task_second/i })).toBeNull();
-    expect(screen.getAllByRole("button", { name: /Open Task task_first/i })).toHaveLength(1);
+    expect(screen.getByText("Task first")).toBeTruthy();
+    expect(screen.queryByRole("button", { name: /Open Task second/i })).toBeNull();
+    expect(screen.getAllByRole("button", { name: /Open Task first/i })).toHaveLength(1);
     expect(screen.getAllByText(/direct model chat/)).toHaveLength(2);
   });
 
