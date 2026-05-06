@@ -43,12 +43,14 @@ export function DiffStatList({ diffStat }: { diffStat: string }) {
 }
 
 export function formatDiffStatSummary(diffStat: string): string {
-  const lines = diffStat.split(/\r?\n/).map(line => line.trim()).filter(Boolean);
+  const lines = diffStat.split(/\\n|\r?\n/).map(line => line.trim()).filter(Boolean);
   return lines.find(line => /\bfiles? changed\b/.test(line)) || lines[0] || "";
 }
 
 export function TranscriptActivityTimeline({ activities, diffStat }: { activities: AgentChatActivityRecord[]; diffStat?: string }) {
   const visible = orderVisibleActivities(compactAgentActivities(activities));
+  const details = orderVisibleActivities(compactDetailActivities(activities, Boolean(diffStat)));
+  const primary = diffStat ? [...visible, fileChangesActivity(diffStat)] : visible;
   const terminal = terminalAgentActivity(activities);
   const hasRunning = !terminal && activities.some(isActiveAgentActivity);
   const [open, setOpen] = useState(hasRunning);
@@ -59,10 +61,10 @@ export function TranscriptActivityTimeline({ activities, diffStat }: { activitie
     }
   }, [hasRunning]);
 
-  if (visible.length === 0) return null;
+  if (primary.length === 0 && details.length === 0) return null;
 
-  const plan = visible.filter(activity => activity.type === "plan");
-  const tools = visible.filter(activity => activity.type === "tool_call");
+  const plan = primary.filter(activity => activity.type === "plan");
+  const tools = primary.filter(activity => activity.type === "tool_call");
   const summary = [
     terminal ? terminalStatusLabel(terminal.status) : hasRunning ? "working" : "details",
     plan.length > 0 ? `${plan.filter(item => item.status === "completed").length}/${plan.length} plan` : "",
@@ -88,20 +90,45 @@ export function TranscriptActivityTimeline({ activities, diffStat }: { activitie
         borderRadius: "var(--radius-sm)",
         background: "var(--bg2)",
       }}>
-        {visible.map((activity, index) => (
+        {primary.map((activity, index) => (
           <TimelineActivityLine
             key={activity.id || `${activity.type}-${activity.created_at ?? index}`}
             activity={activity}
           />
         ))}
+        {details.length > 0 && (
+          <details style={{ borderTop: primary.length > 0 ? "1px solid var(--border)" : "none", marginTop: primary.length > 0 ? 4 : 0, paddingTop: primary.length > 0 ? 6 : 0 }}>
+            <summary style={{ cursor: "pointer", fontFamily: "var(--font-mono)", fontSize: 10, color: "var(--t3)" }}>
+              Details · {details.length} item{details.length === 1 ? "" : "s"}
+            </summary>
+            <div style={{ display: "grid", gap: 5, marginTop: 6 }}>
+              {details.map((activity, index) => (
+                <TimelineActivityLine
+                  key={activity.id || `detail-${activity.type}-${activity.created_at ?? index}`}
+                  activity={activity}
+                />
+              ))}
+            </div>
+          </details>
+        )}
       </div>
     </details>
   );
 }
 
+function fileChangesActivity(diffStat: string): AgentChatActivityRecord {
+  return {
+    id: "hecate-agent:files-changed",
+    type: "files_changed",
+    status: "completed",
+    title: "Files changed",
+    detail: formatDiffStatSummary(diffStat),
+  };
+}
+
 function parseDiffStatRows(diffStat: string): Array<{ path: string; change: string }> {
   return diffStat
-    .split(/\r?\n/)
+    .split(/\\n|\r?\n/)
     .map(line => line.trim())
     .filter(Boolean)
     .filter(line => !/\bfiles? changed\b/.test(line))
@@ -183,6 +210,15 @@ function compactAgentActivities(activities: AgentChatActivityRecord[]): AgentCha
     out.push(activity);
   }
   return collapseModelTurnActivities(out);
+}
+
+function compactDetailActivities(activities: AgentChatActivityRecord[], hasDiffStat: boolean): AgentChatActivityRecord[] {
+  const detailTypes = new Set(["artifact", "changed_files", "final_answer", "output"]);
+  return activities.filter(activity => {
+    if (!detailTypes.has(activity.type)) return false;
+    if (hasDiffStat && activity.type === "changed_files") return false;
+    return true;
+  });
 }
 
 function orderVisibleActivities(activities: AgentChatActivityRecord[]): AgentChatActivityRecord[] {
@@ -273,6 +309,21 @@ function activityDisplay(activity: AgentChatActivityRecord): { title: string; de
   }
   if (activity.type === "model_turns") {
     return { title: "Thinking", detail: activity.detail };
+  }
+  if (activity.type === "files_changed") {
+    return { title: "Files changed", detail: activity.detail };
+  }
+  if (activity.type === "artifact") {
+    return { title: "Artifact", detail: cleanActivityDetail(activity) || activity.title };
+  }
+  if (activity.type === "output") {
+    return { title: "Output", detail: cleanActivityDetail(activity) || activity.title };
+  }
+  if (activity.type === "changed_files") {
+    return { title: "Changed files", detail: cleanActivityDetail(activity) || activity.title };
+  }
+  if (activity.type === "final_answer") {
+    return { title: "Final answer artifact", detail: cleanActivityDetail(activity) || activity.title };
   }
   if (activity.type === "started" && /^Starting Hecate Agent$/i.test(activity.title.trim())) {
     return { title: "Starting agent", detail: cleanActivityDetail(activity) };

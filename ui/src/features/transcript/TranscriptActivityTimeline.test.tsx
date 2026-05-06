@@ -124,12 +124,14 @@ describe("TranscriptActivityTimeline", () => {
     expect(screen.queryByText("git_exec - completed")).toBeNull();
   });
 
-  it("includes 'files changed' in the summary when diffStat is supplied", () => {
+  it("includes changed files in the summary and expanded activity list when diffStat is supplied", () => {
     const activities: AgentChatActivityRecord[] = [
       { type: "tool_call", title: "read_file", status: "completed" },
     ];
-    render(<TranscriptActivityTimeline activities={activities} diffStat="src/foo.ts | 3 +-" />);
+    render(<TranscriptActivityTimeline activities={activities} diffStat="src/foo.ts | 3 +-\n1 file changed, 2 insertions(+), 1 deletion(-)" />);
     expect(screen.getByText(/files changed/)).toBeInTheDocument();
+    expect(screen.getByText("Files changed")).toBeInTheDocument();
+    expect(screen.getByText("1 file changed, 2 insertions(+), 1 deletion(-)")).toBeInTheDocument();
   });
 
   it("hides the 'started' activity when a terminal activity has appeared", () => {
@@ -142,7 +144,7 @@ describe("TranscriptActivityTimeline", () => {
     expect(screen.queryByText("Started")).toBeNull();
   });
 
-  it("hides internal task artifacts from chat activity details", () => {
+  it("groups internal task artifacts under Details", () => {
     const activities: AgentChatActivityRecord[] = [
       { type: "tool_call", title: "git_exec", status: "completed", kind: "git" },
       { type: "artifact", title: "git-stdout.txt", status: "ready" },
@@ -152,10 +154,11 @@ describe("TranscriptActivityTimeline", () => {
     ];
     render(<TranscriptActivityTimeline activities={activities} />);
     expect(screen.getByText("Ran git")).toBeInTheDocument();
-    expect(screen.queryByText("git-stdout.txt")).toBeNull();
-    expect(screen.queryByText("git-stderr.txt")).toBeNull();
-    expect(screen.queryByText("git-changes.json")).toBeNull();
-    expect(screen.queryByText("agent-final-answer.txt")).toBeNull();
+    expect(screen.getByText("Details · 4 items")).toBeInTheDocument();
+    expect(screen.getByText("git-stdout.txt")).toBeInTheDocument();
+    expect(screen.getByText("git-stderr.txt")).toBeInTheDocument();
+    expect(screen.getByText("git-changes.json")).toBeInTheDocument();
+    expect(screen.getByText("agent-final-answer.txt")).toBeInTheDocument();
   });
 
   it("summarizes Hecate Agent task internals without duplicate terminal rows", () => {

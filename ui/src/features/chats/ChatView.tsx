@@ -215,6 +215,8 @@ export function ChatView({ state, actions, onNavigate, onOpenTask }: Props) {
   const agentPickerLocked = isExternalAgentChat && Boolean(state.activeAgentChatSessionID);
   const activeHecateAgentSegment = activeTaskBackedHecateSegment(state.activeAgentChatSession);
   const hecateAgentBusy = isHecateChat && Boolean(activeHecateAgentSegment);
+  const activeHecateTaskID = activeHecateAgentSegment?.task_id || "";
+  const activeHecateRunID = activeHecateAgentSegment?.latest_run_id || "";
   const hecateAgentModelLocked = isHecateChat && Boolean(activeHecateAgentSegment);
   const hecateChatProviderValue = hecateAgentModelLocked
     ? (activeHecateAgentSegment?.provider || state.activeAgentChatSession?.provider || "auto")
@@ -1134,8 +1136,20 @@ export function ChatView({ state, actions, onNavigate, onOpenTask }: Props) {
             )}
           </div>
           {hecateAgentBusy && (
-            <div style={{ maxWidth: 820, margin: "6px auto 0", color: "var(--amber)", fontFamily: "var(--font-mono)", fontSize: 11, lineHeight: 1.45 }}>
-              Hecate Chat is working on this task. Wait for it to finish, resolve approval, or stop it before sending another message.
+            <div style={{ maxWidth: 820, margin: "6px auto 0", color: "var(--amber)", fontFamily: "var(--font-mono)", fontSize: 11, lineHeight: 1.45, display: "flex", alignItems: "center", gap: 8, justifyContent: "space-between", flexWrap: "wrap" }}>
+              <span>
+                Hecate Chat is working on this task. Wait for it to finish, resolve approval, or stop it before sending another message.
+              </span>
+              {onOpenTask && activeHecateTaskID && (
+                <button
+                  type="button"
+                  className="btn btn-ghost btn-sm"
+                  onClick={() => onOpenTask(activeHecateTaskID, activeHecateRunID)}
+                  style={{ fontFamily: "var(--font-mono)", fontSize: 10, padding: "2px 6px", color: "var(--amber)" }}
+                >
+                  Open task
+                </button>
+              )}
             </div>
           )}
           {isAgentChat && state.agentChatCancelling && (
