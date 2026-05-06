@@ -28,6 +28,8 @@ function defaultBackendMock(routes: Record<string, () => Response | Promise<Resp
     if (url === "/admin/control-plane") return jsonResponse({ object: "control_plane", data: { backend: "memory", providers: [], pricebook: [], policy_rules: [], events: [] } });
     if (url.startsWith("/admin/budget")) return jsonResponse({ object: "budget_status", data: null });
     if (url.startsWith("/admin/accounts/summary")) return jsonResponse({ object: "account_summary", data: null });
+    if (url === "/v1/agent-chat/sessions") return jsonResponse({ object: "agent_chat_sessions", data: [] });
+    if (url.startsWith("/v1/agent-chat/sessions/") && url.endsWith("/approvals?status=pending")) return jsonResponse({ object: "list", data: [] });
     if (url.startsWith("/v1/chat/sessions")) return jsonResponse({ object: "chat_sessions", data: [], has_more: false });
     if (url.startsWith("/admin/retention/runs")) return jsonResponse({ object: "retention_runs", data: [] });
     if (url.startsWith("/admin/requests")) return jsonResponse({ object: "requests", data: [] });
@@ -462,41 +464,44 @@ describe("useRuntimeConsole", () => {
     });
   });
 
-  // ─── chat session actions ──────────────────────────────────────────────────
-  describe("chat session actions", () => {
+  // ─── Hecate Chat session actions ───────────────────────────────────────────
+  describe("Hecate Chat session actions", () => {
     beforeEach(() => {
       window.localStorage.setItem("hecate.chatTarget", "model");
     });
 
     function withSessions(sessions: Array<{ id: string; title: string }>, routes: Record<string, () => Response> = {}) {
       return defaultBackendMock({
-        "/v1/chat/sessions?limit=20": () => {
+        "/v1/agent-chat/sessions": () => {
           const data = sessions.map(s => ({
-            ...s, turns: [], created_at: "2026-04-20T00:00:00Z", updated_at: "2026-04-20T00:00:00Z",
+            ...s,
+            runtime_kind: "model",
+            status: "completed",
+            message_count: 0,
+            created_at: "2026-04-20T00:00:00Z",
+            updated_at: "2026-04-20T00:00:00Z",
           }));
-          return jsonResponse({ object: "chat_sessions", data, has_more: false });
+          return jsonResponse({ object: "agent_chat_sessions", data });
         },
         ...routes,
       });
     }
 
-    it("selectChatSession populates activeChatSession on success", async () => {
+    it("selectChatSession populates activeAgentChatSession on success", async () => {
       fetchMock.mockImplementation(withSessions([{ id: "sess_42", title: "Existing" }], {
-        "/v1/chat/sessions/sess_42": () => jsonResponse({
-          object: "chat_session",
+        "/v1/agent-chat/sessions/sess_42": () => jsonResponse({
+          object: "agent_chat_session",
           data: {
             id: "sess_42",
             title: "Existing",
+            runtime_kind: "model",
+            status: "completed",
             messages: [
-              { id: "msg_u", sequence: 0, role: "user", content: "hi", created_at: "2026-04-20T00:00:00Z" },
-              { id: "msg_a", sequence: 1, produced_by_call_id: "call_1", role: "assistant", content: "hello", created_at: "2026-04-20T00:00:00Z" },
+              { id: "msg_u", runtime_kind: "model", role: "user", content: "hi", created_at: "2026-04-20T00:00:00Z" },
+              { id: "msg_a", runtime_kind: "model", role: "assistant", content: "hello", status: "completed", created_at: "2026-04-20T00:00:00Z" },
             ],
-            provider_calls: [{
-              id: "call_1", request_id: "req_1", provider: "openai", model: "gpt-4o-mini",
-              cost_micros_usd: 0, cost_usd: "0",
-              prompt_tokens: 1, completion_tokens: 1, total_tokens: 2,
-              created_at: "2026-04-20T00:00:00Z",
-            }],
+            provider: "openai",
+            model: "gpt-4o-mini",
             created_at: "2026-04-20T00:00:00Z", updated_at: "2026-04-20T00:00:00Z",
           },
         }),
@@ -508,16 +513,17 @@ describe("useRuntimeConsole", () => {
       await act(async () => {
         await result.current.actions.selectChatSession("sess_42");
       });
-      await waitFor(() => expect(result.current.state.activeChatSession?.id).toBe("sess_42"));
-      expect(result.current.state.activeChatSessionID).toBe("sess_42");
-      expect(result.current.state.activeChatSession?.messages).toHaveLength(2);
-      expect(result.current.state.activeChatSession?.provider_calls).toHaveLength(1);
+      await waitFor(() => expect(result.current.state.activeAgentChatSession?.id).toBe("sess_42"));
+      expect(result.current.state.activeAgentChatSessionID).toBe("sess_42");
+      expect(result.current.state.activeAgentChatSession?.messages).toHaveLength(2);
+      expect(result.current.state.activeAgentChatSession?.model).toBe("gpt-4o-mini");
+      expect(result.current.state.providerFilter).toBe("openai");
       expect(result.current.state.chatError).toBe("");
     });
 
-    it("selectChatSession 404 sets chatError + error notice but still updates activeChatSessionID", async () => {
+    it("selectChatSession 404 clears the active agent-chat selection and surfaces an error", async () => {
       fetchMock.mockImplementation(withSessions([{ id: "sess_gone", title: "Gone" }], {
-        "/v1/chat/sessions/sess_gone": () => new Response(
+        "/v1/agent-chat/sessions/sess_gone": () => new Response(
           JSON.stringify({ error: { message: "session not found" } }),
           { status: 404, headers: { "Content-Type": "application/json" } },
         ),
@@ -529,16 +535,16 @@ describe("useRuntimeConsole", () => {
       await act(async () => {
         await result.current.actions.selectChatSession("sess_gone");
       });
-      expect(result.current.state.activeChatSessionID).toBe("sess_gone");
+      expect(result.current.state.activeAgentChatSessionID).toBe("");
       await waitFor(() => expect(result.current.state.chatError).toContain("session not found"));
       expect(result.current.state.notice?.kind).toBe("error");
     });
 
-    it("deleteChatSession removes the session from the sidebar and notices", async () => {
+    it("deleteChatSession removes the agent-chat session from the sidebar and notices", async () => {
       let deleteCalls = 0;
       fetchMock.mockImplementation(async (input, init) => {
         const url = String(input);
-        if (url === "/v1/chat/sessions/sess_b" && init?.method === "DELETE") {
+        if (url === "/v1/agent-chat/sessions/sess_b" && init?.method === "DELETE") {
           deleteCalls++;
           return new Response(null, { status: 204 });
         }
@@ -548,16 +554,16 @@ describe("useRuntimeConsole", () => {
       });
 
       const { result } = renderHook(() => useRuntimeConsole());
-      await waitFor(() => expect(result.current.state.chatSessions).toHaveLength(2));
+      await waitFor(() => expect(result.current.state.agentChatSessions).toHaveLength(2));
 
       await act(async () => {
         await result.current.actions.deleteChatSession("sess_b");
       });
 
       expect(deleteCalls).toBe(1);
-      await waitFor(() => expect(result.current.state.chatSessions.map(s => s.id)).toEqual(["sess_a"]));
+      await waitFor(() => expect(result.current.state.agentChatSessions.map(s => s.id)).toEqual(["sess_a"]));
       expect(result.current.state.notice?.kind).toBe("success");
-      expect(result.current.state.notice?.message).toBe("Chat deleted.");
+      expect(result.current.state.notice?.message).toBe("Agent chat deleted.");
     });
 
     it("renameChatSession patches the title in the sidebar", async () => {
@@ -572,7 +578,13 @@ describe("useRuntimeConsole", () => {
             },
           });
         }
-        return withSessions([{ id: "sess_a", title: "Old title" }])(input, init);
+        return defaultBackendMock({
+          "/v1/chat/sessions?limit=20": () => jsonResponse({
+            object: "chat_sessions",
+            data: [{ id: "sess_a", title: "Old title", turns: [], created_at: "2026-04-20T00:00:00Z", updated_at: "2026-04-20T00:00:00Z" }],
+            has_more: false,
+          }),
+        })(input, init);
       });
 
       const { result } = renderHook(() => useRuntimeConsole());

@@ -102,6 +102,77 @@ func TestHecateAgentChatCreatesVisibleTaskAndContinuesSameTask(t *testing.T) {
 	}
 }
 
+func TestHecateChatCanSwitchBetweenModelAndToolsSegments(t *testing.T) {
+	logger := slog.New(slog.NewJSONHandler(io.Discard, nil))
+	provider := &fakeProvider{
+		name: "openai",
+		response: &types.ChatResponse{
+			ID:        "chatcmpl-hecate-chat",
+			Model:     "gpt-4o-mini",
+			CreatedAt: time.Now().UTC(),
+			Choices: []types.ChatChoice{{
+				Index:        0,
+				Message:      types.Message{Role: "assistant", Content: "Segment answer."},
+				FinishReason: "stop",
+			}},
+			Usage: types.Usage{PromptTokens: 8, CompletionTokens: 3, TotalTokens: 11},
+		},
+	}
+	handler := newTestHTTPHandlerWithControlPlane(logger, []providers.Provider{provider}, config.Config{}, controlplane.NewMemoryStore())
+	client := newTaskTestClient(t, handler)
+	workspace := t.TempDir()
+
+	session := mustRequestJSON[AgentChatSessionResponse](client, http.MethodPost, "/v1/agent-chat/sessions",
+		`{"runtime_kind":"model","title":"Mixed chat","provider":"openai","model":"gpt-4o-mini"}`)
+	if session.Data.RuntimeKind != "model" || session.Data.TaskID != "" {
+		t.Fatalf("created session = runtime %q task %q, want model/no task", session.Data.RuntimeKind, session.Data.TaskID)
+	}
+
+	modelTurn := mustRequestJSON[AgentChatSessionResponse](client, http.MethodPost, "/v1/agent-chat/sessions/"+session.Data.ID+"/messages",
+		`{"runtime_kind":"model","provider":"openai","model":"gpt-4o-mini","content":"answer directly"}`)
+	if len(modelTurn.Data.Messages) != 2 {
+		t.Fatalf("model messages = %d, want 2", len(modelTurn.Data.Messages))
+	}
+	modelAssistant := modelTurn.Data.Messages[1]
+	if modelAssistant.RuntimeKind != "model" || modelAssistant.TaskID != "" || modelAssistant.Model != "gpt-4o-mini" {
+		t.Fatalf("model assistant snapshot = runtime %q task %q model %q", modelAssistant.RuntimeKind, modelAssistant.TaskID, modelAssistant.Model)
+	}
+	if !strings.Contains(modelAssistant.Content, "Segment answer") {
+		t.Fatalf("model assistant content = %q", modelAssistant.Content)
+	}
+
+	toolsTurn := mustRequestJSON[AgentChatSessionResponse](client, http.MethodPost, "/v1/agent-chat/sessions/"+session.Data.ID+"/messages",
+		fmt.Sprintf(`{"runtime_kind":"hecate_agent","provider":"openai","model":"gpt-4o-mini","workspace":%q,"content":"use tools"}`, workspace))
+	if toolsTurn.Data.TaskID == "" || toolsTurn.Data.LatestRunID == "" {
+		t.Fatalf("tools turn missing task/run: %+v", toolsTurn.Data)
+	}
+	firstTaskID := toolsTurn.Data.TaskID
+	toolsAssistant := toolsTurn.Data.Messages[len(toolsTurn.Data.Messages)-1]
+	if toolsAssistant.RuntimeKind != "hecate_agent" || toolsAssistant.TaskID != firstTaskID || toolsAssistant.SegmentID != "task:"+firstTaskID {
+		t.Fatalf("tools assistant snapshot = runtime %q task %q segment %q", toolsAssistant.RuntimeKind, toolsAssistant.TaskID, toolsAssistant.SegmentID)
+	}
+
+	secondModel := mustRequestJSON[AgentChatSessionResponse](client, http.MethodPost, "/v1/agent-chat/sessions/"+session.Data.ID+"/messages",
+		`{"runtime_kind":"model","provider":"openai","model":"gpt-4o-mini","content":"back to direct chat"}`)
+	if secondModel.Data.TaskID != firstTaskID {
+		t.Fatalf("model segment should preserve latest task pointer, got %q want %q", secondModel.Data.TaskID, firstTaskID)
+	}
+	secondModelAssistant := secondModel.Data.Messages[len(secondModel.Data.Messages)-1]
+	if secondModelAssistant.RuntimeKind != "model" || secondModelAssistant.TaskID != "" {
+		t.Fatalf("second model assistant snapshot = runtime %q task %q", secondModelAssistant.RuntimeKind, secondModelAssistant.TaskID)
+	}
+
+	secondTools := mustRequestJSON[AgentChatSessionResponse](client, http.MethodPost, "/v1/agent-chat/sessions/"+session.Data.ID+"/messages",
+		fmt.Sprintf(`{"runtime_kind":"hecate_agent","provider":"openai","model":"gpt-4o-mini","workspace":%q,"content":"tools again"}`, workspace))
+	if secondTools.Data.TaskID == "" || secondTools.Data.TaskID == firstTaskID {
+		t.Fatalf("tools re-entry task_id = %q, want new task distinct from %q", secondTools.Data.TaskID, firstTaskID)
+	}
+	secondToolsAssistant := secondTools.Data.Messages[len(secondTools.Data.Messages)-1]
+	if secondToolsAssistant.RuntimeKind != "hecate_agent" || secondToolsAssistant.TaskID != secondTools.Data.TaskID || secondToolsAssistant.SegmentID != "task:"+secondTools.Data.TaskID {
+		t.Fatalf("second tools assistant snapshot = runtime %q task %q segment %q", secondToolsAssistant.RuntimeKind, secondToolsAssistant.TaskID, secondToolsAssistant.SegmentID)
+	}
+}
+
 func agentChatMessageHasActivity(message AgentChatMessageItem, activityType string) bool {
 	for _, activity := range message.Activities {
 		if activity.Type == activityType {

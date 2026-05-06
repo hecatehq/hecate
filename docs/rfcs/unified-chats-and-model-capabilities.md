@@ -52,10 +52,12 @@ that used it directly. Hecate Agent fills that gap without creating a second
 lightweight tool-loop runtime.
 
 The session model follows the continuity users expect from Claude Code, Codex,
-and Cursor: one chat session maps to one long-lived unit of agent work. For
-Hecate Agent, that unit is one Hecate-owned task. The first prompt creates the
-task and starts the first run; follow-up prompts continue the latest terminal
-run on the same task.
+and Cursor: one chat session maps to one visible conversation, while each
+message records the runtime segment that produced it. For Hecate Agent, a
+tools-enabled segment is one Hecate-owned task. The first prompt in a
+tools-enabled segment creates the task and starts the first run; follow-up
+prompts continue the latest terminal run on the same task until the operator
+switches back to direct model chat.
 
 The staged implementation keeps runtime boundaries explicit. Once a Hecate
 Agent chat has a backing task, its provider/model picker renders the session
@@ -64,8 +66,9 @@ direct model chat path and the current draft provider/model selection. Agent
 chat messages now carry their own `runtime_kind`, `segment_id`, provider/model
 snapshot, capability snapshot, and task/run linkage so a single transcript can
 explain mixed direct-model and task-backed stretches without relying on the
-current header state. A later step can re-enable tools in the same chat by
-creating a new task-backed segment.
+current header state. Re-enabling tools after direct-model turns creates a new
+task-backed segment in the same chat instead of rewriting or resuming the older
+task segment.
 
 ## Non-goals
 
@@ -138,10 +141,10 @@ overwrite an explicit operator override.
 Agent Chat sessions gain a `runtime_kind`:
 
 ```ts
-type AgentChatRuntimeKind = "hecate_agent" | "external_agent";
+type AgentChatRuntimeKind = "model" | "hecate_agent" | "external_agent";
 ```
 
-Hecate Agent sessions also store:
+Hecate Chat sessions also store:
 
 - `agent_profile_id`
 - `task_id`
@@ -153,7 +156,8 @@ Hecate Agent sessions also store:
 - `workspace_branch`
 
 External Agent sessions keep their adapter fields. Existing sessions without
-`runtime_kind` default to `external_agent` when `adapter_id` is present.
+`runtime_kind` default to `external_agent` when `adapter_id` is present and
+`model` otherwise.
 
 ### Agent profiles
 
@@ -316,10 +320,10 @@ Shows:
 Send is disabled unless a workspace is selected and the selected model has
 `tool_calling="basic"` or `"parallel"`.
 
-When a Hecate Agent task already exists, provider/model controls are locked to
-the session snapshot. Operators can turn tools off to use direct model chat, or
-start a new chat to use a different tools-enabled model until explicit segment
-metadata ships.
+When a Hecate Agent task-backed segment is running, provider/model controls are
+locked to that segment's snapshot. Operators can turn tools off to use direct
+model chat in the same transcript. If they later turn tools on again, Hecate
+creates a new task-backed segment instead of mutating the older task.
 
 Hecate Agent uses the task runtime, so approvals, artifacts, diff/patch review,
 workspace modes, retry/resume, and OTel should come from Tasks rather than a
@@ -394,6 +398,11 @@ Done in the core bridge:
 - backing task-run activity is projected into Hecate Agent chat transcripts
 - pending task approvals can be approved or rejected from the Hecate Agent
   chat banner while Tasks remains canonical
+- direct model turns and Hecate Agent turns share one Agent Chat transcript
+  using `runtime_kind="model"` / `runtime_kind="hecate_agent"` message
+  snapshots
+- turning tools back on after a direct model segment creates a new task-backed
+  segment in the same transcript
 
 Still required for a complete Hecate Agent experience:
 
@@ -407,19 +416,16 @@ Still required for a complete Hecate Agent experience:
 
 The missing stable-scope pieces should land in this order:
 
-1. **Continue with tools again.** When tools are re-enabled in a transcript
-   that currently has direct-model turns, create a new task-backed segment
-   instead of mutating the previous task.
-2. **Workspace modes.** Expose the same workspace choices that Tasks supports,
+1. **Workspace modes.** Expose the same workspace choices that Tasks supports,
    store the selected mode on the session/task, and fail early when a requested
    mode cannot be honored.
-3. **Agent profiles.** Add named Hecate Agent presets for model policy,
+2. **Agent profiles.** Add named Hecate Agent presets for model policy,
    workspace mode, system prompt, tools/MCP, approvals, and guardrails. Store a
    snapshot on each session so history remains explainable.
-4. **Automatic probing.** Add bounded, visible capability probes for configured
+3. **Automatic probing.** Add bounded, visible capability probes for configured
    models so local/custom providers can become eligible without manual edits.
    Overrides still win, and probes must not execute tools or mutate workspaces.
-6. **E2E hardening.** Cover provider setup, capability detection, chat-side task
+4. **E2E hardening.** Cover provider setup, capability detection, chat-side task
    approval, final answer, and same-task follow-up continuation in one browser
    path.
 

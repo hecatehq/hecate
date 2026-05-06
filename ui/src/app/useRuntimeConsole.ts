@@ -8,12 +8,9 @@ import {
   type ChatMessage,
   chooseWorkspaceDirectory as chooseWorkspaceDirectoryRequest,
   chatCompletionsStream,
-  createChatSession as createChatSessionRequest,
-  deleteChatSession as deleteChatSessionRequest,
   updateChatSession as updateChatSessionRequest,
   deletePolicyRule as deletePolicyRuleRequest,
   getAccountSummary,
-  getBudget,
   getChatSession,
   getChatSessions,
   getModels,
@@ -59,14 +56,12 @@ import type { PolicyRuleUpsertPayload, ResolveAgentChatApprovalPayload, ResolveT
 import {
   approvalRecordToPending,
   buildAssistantToolCallMessage,
-  buildMessagesForSubmission,
   buildSyntheticChatResult,
   defaultModelForProvider,
   deriveChatSessionTitle,
   humanizeChatError,
   isModelValidForProvider,
   renderAgentChatSessionSummary,
-  renderChatSessionSummary,
 } from "./runtimeConsoleChatHelpers";
 import { deriveSessionState, resolveDashboardSnapshot } from "./runtimeConsoleDashboard";
 import type {
@@ -411,22 +406,6 @@ export function useRuntimeConsole() {
     setSystemPrompt("");
   }
 
-  function activateChatSession(sessionRecord: ChatSessionRecord) {
-    setActiveChatSessionID(sessionRecord.id);
-    setActiveChatSession(sessionRecord);
-  }
-
-  function upsertChatSessionSummary(sessionRecord: ChatSessionRecord) {
-    setChatSessions((current) => [renderChatSessionSummary(sessionRecord), ...current.filter((entry) => entry.id !== sessionRecord.id)]);
-  }
-
-  async function createChatSessionRecord(title: string): Promise<ChatSessionRecord> {
-    const payload = await createChatSessionRequest({ title });
-    activateChatSession(payload.data);
-    upsertChatSessionSummary(payload.data);
-    return payload.data;
-  }
-
   async function refreshChatSessionState(sessionID: string) {
     if (!sessionID) {
       return;
@@ -551,128 +530,7 @@ export function useRuntimeConsole() {
 
   async function submitChat(event: SyntheticEvent<HTMLFormElement>) {
     event.preventDefault();
-    if (chatTarget !== "model") {
-      await submitAgentChat();
-      return;
-    }
-    setChatLoading(true);
-    setChatError("");
-    setChatErrorCode("");
-    setChatErrorStatus(null);
-    setRuntimeHeaders(null);
-
-    try {
-      let sessionID = activeChatSessionID;
-      if (!sessionID) {
-        const createdSession = await createChatSessionRecord(deriveChatSessionTitle(message));
-        sessionID = createdSession.id;
-      }
-
-      const messages = buildMessagesForSubmission(activeChatSession, message, systemPrompt);
-      clearPendingToolState();
-
-      // Show the user message immediately, before streaming starts.
-      // The optimistic update appends a pending user message and a
-      // placeholder assistant + call. Sequence numbers don't matter
-      // here — the server overwrites the whole conversation on
-      // refreshChatSessionState; sequence is only authoritative once
-      // it round-trips.
-      const optimisticMessage = message;
-      const pendingCallID = `pending-call-${Date.now()}`;
-      const pendingUserID = `pending-user-${Date.now()}`;
-      const pendingAssistantID = `pending-assistant-${Date.now()}`;
-      const pendingTimestamp = new Date().toISOString();
-      setMessage("");
-      setActiveChatSession((prev) =>
-        prev
-          ? {
-              ...prev,
-              messages: [
-                ...(prev.messages ?? []),
-                {
-                  id: pendingUserID,
-                  sequence: (prev.messages?.length ?? 0),
-                  role: "user",
-                  content: optimisticMessage,
-                  created_at: pendingTimestamp,
-                },
-                {
-                  id: pendingAssistantID,
-                  sequence: (prev.messages?.length ?? 0) + 1,
-                  produced_by_call_id: pendingCallID,
-                  role: "assistant",
-                  content: null,
-                  created_at: pendingTimestamp,
-                },
-              ],
-              provider_calls: [
-                ...(prev.provider_calls ?? []),
-                {
-                  id: pendingCallID,
-                  request_id: "",
-                  provider: "",
-                  model: "",
-                  cost_micros_usd: 0,
-                  cost_usd: "0",
-                  prompt_tokens: 0,
-                  completion_tokens: 0,
-                  total_tokens: 0,
-                  created_at: pendingTimestamp,
-                },
-              ],
-            }
-          : prev,
-      );
-
-      const chatExecution = await executeChatRequest(buildChatPayload(messages, sessionID), messages);
-      if (chatExecution.kind === "tool_calls") {
-        return;
-      }
-      const { headers } = chatExecution;
-
-      // Patch the optimistic placeholders with the real assistant
-      // content so the UI doesn't blink while waiting for the
-      // session refresh round-trip.
-      const assistantContent = chatExecution.chatResult.choices[0]?.message.content ?? "";
-      setActiveChatSession((prev) => {
-        if (!prev) return prev;
-        const messages = (prev.messages ?? []).map((m) =>
-          m.id === pendingAssistantID ? { ...m, content: assistantContent } : m,
-        );
-        const provider_calls = (prev.provider_calls ?? []).map((c) =>
-          c.id === pendingCallID ? { ...c, model: headers.resolvedModel || model } : c,
-        );
-        return { ...prev, messages, provider_calls };
-      });
-
-      setChatResult(chatExecution.chatResult);
-
-      try {
-        const scopedBudget = await getBudget(
-          `?scope=provider&provider=${encodeURIComponent(headers.provider)}`,
-        );
-        setBudget(scopedBudget.data);
-      } catch {
-        // Best-effort; the gateway may not have a per-provider budget
-        // record for this provider.
-      }
-
-      await refreshChatSessionState(sessionID);
-      setStreamingContent(null);
-      await refreshRuntimeState();
-    } catch (submitError) {
-      const raw = submitError instanceof Error ? submitError.message : "unknown request error";
-      const friendly = humanizeChatError(raw);
-      setChatError(friendly);
-      setChatErrorCode(submitError instanceof ApiError ? submitError.code : "");
-      setChatErrorStatus(submitError instanceof ApiError ? submitError.status : null);
-      // Inline chat error is the single source — no toast. The user is
-      // already looking at the chat surface; mirroring the same string in
-      // a corner toast just means they see the same message twice in
-      // different fonts/positions.
-    } finally {
-      setChatLoading(false);
-    }
+    await submitAgentChat();
   }
 
   function applyAgentChatSession(session: AgentChatSessionRecord) {
@@ -766,15 +624,17 @@ export function useRuntimeConsole() {
     setChatErrorCode("");
     setChatErrorStatus(null);
     setRuntimeHeaders(null);
-    const isExternalAgent = chatTarget === "external_agent";
-    setStreamingContent(isExternalAgent ? "Starting external agent..." : "Starting Hecate Agent...");
+    const turnRuntimeKind = chatTarget === "external_agent" ? "external_agent" : chatTarget === "hecate_agent" ? "hecate_agent" : "model";
+    const isExternalAgent = turnRuntimeKind === "external_agent";
+    const isModelTurn = turnRuntimeKind === "model";
+    setStreamingContent(isExternalAgent ? "Starting external agent..." : isModelTurn ? "Waiting for model output..." : "Starting Hecate Agent...");
     let streamAbort: AbortController | null = null;
     let streamPromise: Promise<void> | null = null;
 
     try {
       const content = message.trim();
       if (!content) return;
-      if (!agentWorkspace.trim()) {
+      if (!isModelTurn && !agentWorkspace.trim()) {
         setChatError("Choose a workspace path before starting an agent chat.");
         return;
       }
@@ -787,19 +647,22 @@ export function useRuntimeConsole() {
         sessionID = "";
         setActiveAgentChatSessionID("");
       }
-      if (sessionID && activeAgentChatSession?.runtime_kind && activeAgentChatSession.runtime_kind !== (isExternalAgent ? "external_agent" : "hecate_agent")) {
-        sessionID = "";
-        setActiveAgentChatSessionID("");
-        setActiveAgentChatSession(null);
+      if (sessionID && activeAgentChatSession?.runtime_kind) {
+        const activeExternal = activeAgentChatSession.runtime_kind === "external_agent";
+        if (activeExternal !== isExternalAgent) {
+          sessionID = "";
+          setActiveAgentChatSessionID("");
+          setActiveAgentChatSession(null);
+        }
       }
       if (!sessionID) {
         const created = await createAgentChatSessionRequest({
           title: deriveChatSessionTitle(content),
-          runtime_kind: isExternalAgent ? "external_agent" : "hecate_agent",
+          runtime_kind: turnRuntimeKind,
           ...(isExternalAgent
             ? { adapter_id: agentAdapterID }
             : { provider: providerFilter === "auto" ? "" : providerFilter, model }),
-          workspace: agentWorkspace.trim(),
+          ...(!isModelTurn ? { workspace: agentWorkspace.trim() } : {}),
         });
         sessionID = created.data.id;
         setActiveAgentChatSessionID(sessionID);
@@ -816,6 +679,9 @@ export function useRuntimeConsole() {
                 ...(prev.messages ?? []),
                 {
                   id: `pending-agent-user-${Date.now()}`,
+                  runtime_kind: turnRuntimeKind,
+                  provider: !isExternalAgent ? (providerFilter === "auto" ? "" : providerFilter) : undefined,
+                  model: !isExternalAgent ? model : undefined,
                   role: "user",
                   content: pendingContent,
                   created_at: new Date().toISOString(),
@@ -836,7 +702,7 @@ export function useRuntimeConsole() {
                 .reverse()
                 .find((m) => m.role === "assistant");
               if (last?.status === "running") {
-                setStreamingContent(last.content || (isExternalAgent ? "External agent is running..." : "Hecate Agent is running..."));
+                setStreamingContent(last.content || (isExternalAgent ? "External agent is running..." : isModelTurn ? "Model is responding..." : "Hecate Agent is running..."));
               }
               return;
             }
@@ -858,7 +724,13 @@ export function useRuntimeConsole() {
         const msg = streamError instanceof Error ? streamError.message : "agent chat stream failed";
         setChatError((current) => current || msg);
       });
-      const updated = await createAgentChatMessageRequest(sessionID, pendingContent);
+      const updated = await createAgentChatMessageRequest(sessionID, {
+        content: pendingContent,
+        runtime_kind: turnRuntimeKind,
+        ...(!isExternalAgent ? { provider: providerFilter === "auto" ? "" : providerFilter, model } : {}),
+        ...(isModelTurn ? { system_prompt: systemPrompt } : {}),
+        ...(turnRuntimeKind === "hecate_agent" ? { workspace: agentWorkspace.trim() } : {}),
+      });
       applyAgentChatSession(updated.data);
     } catch (submitError) {
       const raw = submitError instanceof Error ? submitError.message : "unknown request error";
@@ -1329,23 +1201,7 @@ export function useRuntimeConsole() {
   }
 
   async function selectChatSession(id: string) {
-    if (chatTarget !== "model") {
-      await selectAgentChatSession(id);
-      return;
-    }
-    setActiveChatSessionID(id);
-    if (!id) {
-      setActiveChatSession(null);
-      return;
-    }
-    try {
-      const payload = await getChatSession(id);
-      setActiveChatSession(payload.data);
-    } catch (error) {
-      const msg = error instanceof Error ? error.message : "failed to load chat";
-      setChatError(msg);
-      setNoticeMessage("error", msg);
-    }
+    await selectAgentChatSession(id);
   }
 
   async function selectAgentChatSession(id: string) {
@@ -1368,8 +1224,10 @@ export function useRuntimeConsole() {
           setModel(payload.data.model);
         }
       }
-      setAgentWorkspace(payload.data.workspace);
-      setAgentWorkspaceBranch(payload.data.workspace_branch ?? "");
+      if (payload.data.workspace) {
+        setAgentWorkspace(payload.data.workspace);
+        setAgentWorkspaceBranch(payload.data.workspace_branch ?? "");
+      }
     } catch (error) {
       const msg = error instanceof Error ? error.message : "failed to load agent chat";
       setActiveAgentChatSessionID("");
@@ -1381,32 +1239,14 @@ export function useRuntimeConsole() {
   }
 
   function startNewChat() {
-    if (chatTarget !== "model") {
-      setActiveAgentChatSessionID("");
-      setActiveAgentChatSession(null);
-      setAgentWorkspaceBranch("");
-    } else {
-      setActiveChatSessionID("");
-      setActiveChatSession(null);
-    }
+    setActiveAgentChatSessionID("");
+    setActiveAgentChatSession(null);
+    setAgentWorkspaceBranch("");
     resetChatWorkspaceState();
   }
 
   async function deleteChatSession(id: string) {
-    if (chatTarget !== "model") {
-      await deleteAgentChatSession(id);
-      return;
-    }
-    try {
-      await deleteChatSessionRequest(id);
-      setChatSessions((current) => current.filter((s) => s.id !== id));
-      if (activeChatSessionID === id) {
-        startNewChat();
-      }
-      setNoticeMessage("success", "Chat deleted.");
-    } catch (error) {
-      setNoticeMessage("error", error instanceof Error ? error.message : "Failed to delete chat.");
-    }
+    await deleteAgentChatSession(id);
   }
 
   async function deleteAgentChatSession(id: string) {

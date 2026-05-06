@@ -688,9 +688,14 @@ Status codes:
 ### `GET /v1/agent-chat/sessions`
 
 Lists Agent Chat sessions. Agent Chat uses the same backend selection as model
-chat history: memory by default, SQLite when `GATEWAY_CHAT_SESSIONS_BACKEND=sqlite`.
-It is the alpha surface for non-direct-model chat targets:
+chat history: memory by default, SQLite when
+`GATEWAY_CHAT_SESSIONS_BACKEND=sqlite`. It is the alpha transcript surface for
+Hecate Chat and External Agent sessions:
 
+- `runtime_kind="model"` — Hecate Chat sends the turn directly through the
+  gateway/router to the selected provider/model. No task is created and no
+  tools run, but the turn is stored in the same transcript as later Hecate
+  Agent turns.
 - `runtime_kind="hecate_agent"` — Hecate creates and continues a visible
   `agent_loop` task with Hecate tools, task approvals, artifacts, and OTel.
   The chat transcript projects backing task-run activity and can resolve
@@ -767,10 +772,8 @@ GET /v1/agent-chat/sessions
   "data": [
     {
       "id": "agent_chat_...",
-      "title": "Hecate Agent chat",
-      "runtime_kind": "hecate_agent",
-      "task_id": "task_...",
-      "latest_run_id": "run_...",
+      "title": "Hecate Chat",
+      "runtime_kind": "model",
       "provider": "ollama",
       "model": "qwen2.5-coder",
       "capabilities": {
@@ -778,8 +781,6 @@ GET /v1/agent-chat/sessions
         "streaming": true,
         "source": "operator_override"
       },
-      "workspace": "/Users/alice/project",
-      "workspace_branch": "main",
       "status": "completed",
       "turns_used": 3,
       "max_turns_per_session": 50,
@@ -798,21 +799,24 @@ GET /v1/agent-chat/sessions
 
 Creates an Agent Chat session. `runtime_kind` chooses the execution target:
 
+- `model` requires `model`. `provider` is optional; when omitted, Hecate uses
+  the normal routing path for the requested model. `workspace` is optional
+  because no local tools run.
 - `hecate_agent` requires `provider`, `model`, and `workspace`.
 - `external_agent` requires `adapter_id` and `workspace`.
 
-The workspace must be an operator-controlled local directory. Hecate validates
-and canonicalizes the path at session creation, so later runs use the resolved
-directory instead of failing only after execution starts.
+When `workspace` is provided, it must be an operator-controlled local
+directory. Hecate validates and canonicalizes the path before a tool-backed or
+external-agent run starts, so later runs use the resolved directory instead of
+failing only after execution starts.
 
 ```json
 POST /v1/agent-chat/sessions
 {
-  "runtime_kind": "hecate_agent",
+  "runtime_kind": "model",
   "provider": "ollama",
   "model": "qwen2.5-coder",
-  "workspace": "/Users/alice/project",
-  "title": "Hecate Agent review"
+  "title": "Hecate Chat"
 }
 
 → 200
@@ -820,8 +824,8 @@ POST /v1/agent-chat/sessions
   "object": "agent_chat_session",
   "data": {
     "id": "agent_chat_...",
-    "title": "Hecate Agent review",
-    "runtime_kind": "hecate_agent",
+    "title": "Hecate Chat",
+    "runtime_kind": "model",
     "provider": "ollama",
     "model": "qwen2.5-coder",
     "capabilities": {
@@ -829,8 +833,6 @@ POST /v1/agent-chat/sessions
       "streaming": true,
       "source": "operator_override"
     },
-    "workspace": "/Users/alice/project",
-    "workspace_branch": "main",
     "status": "idle",
     "turns_used": 0,
     "session_started_at": "2026-05-03T12:00:00Z",
@@ -848,19 +850,36 @@ used when the session was created. Individual agent-chat messages also carry a
 runtime snapshot: `runtime_kind`, `segment_id`, optional `task_id`, optional
 `run_id`, provider/model, and capabilities. Frontends should prefer those
 message-level fields when rendering historical turns because the session header
-can change as the operator switches tools on/off or, in later versions, starts a
-new task-backed segment in the same transcript.
+can change as the operator switches tools on/off. If tools are re-enabled after
+a direct model segment, Hecate creates a new task-backed segment in the same
+transcript; older messages keep their original runtime/model/task snapshots.
 
 ### `POST /v1/agent-chat/sessions/{id}/messages`
 
 Sends the submitted prompt to the session's backing runtime and appends both
 the user message and assistant output.
 
-For `runtime_kind="external_agent"`, Hecate sends the prompt to the session's
-native ACP session. For `runtime_kind="hecate_agent"`, the first prompt creates
-a visible `agent_loop` task and starts it; follow-up prompts call the existing
-task continuation path on the latest terminal run so the same task receives the
-continued conversation.
+`POST` also accepts per-turn overrides:
+
+- `runtime_kind` — `model`, `hecate_agent`, or `external_agent`. Hecate Chat
+  sessions may switch between `model` and `hecate_agent`; External Agent
+  sessions cannot switch into Hecate Chat runtimes.
+- `provider` / `model` — used for direct model turns and new Hecate Agent
+  task-backed segments. Existing Hecate Agent task segments continue with their
+  saved model snapshot until the operator turns tools off or starts a new
+  task-backed segment.
+- `system_prompt` — applied to direct model turns.
+- `workspace` — required when starting a Hecate Agent turn on a session that
+  does not already have a workspace.
+
+For `runtime_kind="model"`, Hecate calls the normal gateway path and stores the
+user/assistant messages without creating a Task. For
+`runtime_kind="external_agent"`, Hecate sends the prompt to the session's
+native ACP session. For `runtime_kind="hecate_agent"`, the first tool-enabled
+prompt creates a visible `agent_loop` task and starts it; follow-up prompts
+continue the latest terminal run when the immediately previous segment was also
+Hecate Agent. If the previous segment was direct model chat, Hecate starts a
+fresh task-backed segment in the same transcript.
 
 The response returns after the backing turn finishes, times out, is cancelled,
 or fails. For live output while the turn is running, subscribe to the session

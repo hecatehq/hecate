@@ -307,7 +307,7 @@ func hydrateMessageRuntimeFromSession(message *Message, session Session) {
 	if message.RuntimeKind == "" {
 		message.RuntimeKind = normalizeMessageRuntimeKind(session)
 	}
-	if message.TaskID == "" {
+	if message.TaskID == "" && message.RuntimeKind != "model" {
 		message.TaskID = session.TaskID
 	}
 	if message.Provider == "" {

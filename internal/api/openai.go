@@ -617,7 +617,12 @@ type CreateAgentChatSessionRequest struct {
 }
 
 type CreateAgentChatMessageRequest struct {
-	Content string `json:"content"`
+	Content      string `json:"content"`
+	RuntimeKind  string `json:"runtime_kind,omitempty"`
+	Provider     string `json:"provider,omitempty"`
+	Model        string `json:"model,omitempty"`
+	SystemPrompt string `json:"system_prompt,omitempty"`
+	Workspace    string `json:"workspace,omitempty"`
 }
 
 type AgentChatSessionSummaryItem struct {

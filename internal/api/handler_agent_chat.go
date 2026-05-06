@@ -14,7 +14,9 @@ import (
 
 	"github.com/hecate/agent-runtime/internal/agentadapters"
 	"github.com/hecate/agent-runtime/internal/agentchat"
+	"github.com/hecate/agent-runtime/internal/requestscope"
 	"github.com/hecate/agent-runtime/internal/telemetry"
+	"github.com/hecate/agent-runtime/pkg/types"
 )
 
 const (
@@ -43,14 +45,21 @@ func (h *Handler) HandleCreateAgentChatSession(w http.ResponseWriter, r *http.Re
 	}
 	runtimeKind := normalizeAgentChatRuntimeKind(req.RuntimeKind, req.AdapterID)
 	workspace := strings.TrimSpace(req.Workspace)
-	if workspace == "" {
-		WriteError(w, http.StatusBadRequest, errCodeInvalidRequest, "workspace is required")
-		return
-	}
-	workspace, err := agentadapters.ValidateWorkspace(workspace)
-	if err != nil {
-		WriteError(w, http.StatusBadRequest, errCodeInvalidRequest, err.Error())
-		return
+	if runtimeKind != "model" {
+		if workspace == "" {
+			WriteError(w, http.StatusBadRequest, errCodeInvalidRequest, "workspace is required")
+			return
+		}
+		var err error
+		workspace, err = agentadapters.ValidateWorkspace(workspace)
+		if err != nil {
+			WriteError(w, http.StatusBadRequest, errCodeInvalidRequest, err.Error())
+			return
+		}
+	} else if workspace != "" {
+		if resolved, err := agentadapters.ValidateWorkspace(workspace); err == nil {
+			workspace = resolved
+		}
 	}
 	workspaceBranch := workspaceGitBranch(workspace)
 	title := strings.TrimSpace(req.Title)
@@ -62,7 +71,26 @@ func (h *Handler) HandleCreateAgentChatSession(w http.ResponseWriter, r *http.Re
 		Workspace:       workspace,
 		WorkspaceBranch: workspaceBranch,
 	}
+	var err error
 	switch runtimeKind {
+	case "model":
+		provider := strings.TrimSpace(req.Provider)
+		model := strings.TrimSpace(req.Model)
+		if model == "" {
+			WriteError(w, http.StatusBadRequest, errCodeInvalidRequest, "model is required for model chat")
+			return
+		}
+		caps, err := h.resolveModelCapabilities(r.Context(), provider, model)
+		if err != nil {
+			WriteError(w, http.StatusBadRequest, errCodeInvalidRequest, err.Error())
+			return
+		}
+		if session.Title == "" {
+			session.Title = "Hecate Chat"
+		}
+		session.Provider = provider
+		session.Model = model
+		session.Capabilities = caps
 	case "external_agent":
 		adapter, ok := agentadapters.BuiltInByID(strings.TrimSpace(req.AdapterID))
 		if !ok {
@@ -93,7 +121,7 @@ func (h *Handler) HandleCreateAgentChatSession(w http.ResponseWriter, r *http.Re
 		session.Model = model
 		session.Capabilities = caps
 	default:
-		WriteError(w, http.StatusBadRequest, errCodeInvalidRequest, "runtime_kind must be hecate_agent or external_agent")
+		WriteError(w, http.StatusBadRequest, errCodeInvalidRequest, "runtime_kind must be model, hecate_agent, or external_agent")
 		return
 	}
 	session, err = h.agentChat.Create(r.Context(), session)
@@ -111,7 +139,7 @@ func normalizeAgentChatRuntimeKind(runtimeKind, adapterID string) string {
 		if strings.TrimSpace(adapterID) != "" {
 			return "external_agent"
 		}
-		return "hecate_agent"
+		return "model"
 	default:
 		return runtimeKind
 	}
@@ -345,8 +373,25 @@ func (h *Handler) HandleCreateAgentChatMessage(w http.ResponseWriter, r *http.Re
 		})
 		return
 	}
-	if renderAgentChatRuntimeKind(session) == "hecate_agent" {
-		h.handleCreateHecateAgentChatMessage(w, r, session, content)
+	turnRuntimeKind := normalizeAgentChatTurnRuntimeKind(req.RuntimeKind, session)
+	switch turnRuntimeKind {
+	case "model":
+		h.handleCreateModelAgentChatMessage(w, r, session, req)
+		return
+	case "hecate_agent":
+		if renderAgentChatRuntimeKind(session) == "external_agent" {
+			WriteError(w, http.StatusBadRequest, errCodeInvalidRequest, "external agent sessions cannot run Hecate Agent turns")
+			return
+		}
+		h.handleCreateHecateAgentChatMessage(w, r, session, req)
+		return
+	case "external_agent":
+		if renderAgentChatRuntimeKind(session) != "external_agent" {
+			WriteError(w, http.StatusBadRequest, errCodeInvalidRequest, "Hecate Chat sessions cannot run external-agent turns")
+			return
+		}
+	default:
+		WriteError(w, http.StatusBadRequest, errCodeInvalidRequest, "runtime_kind must be model, hecate_agent, or external_agent")
 		return
 	}
 
@@ -608,6 +653,195 @@ func (h *Handler) HandleCreateAgentChatMessage(w http.ResponseWriter, r *http.Re
 	}
 	h.agentChatLive.publishSession(updated)
 	WriteJSON(w, http.StatusOK, AgentChatSessionResponse{Object: "agent_chat_session", Data: renderAgentChatSession(updated, h.agentChatSnapshotConfig())})
+}
+
+func normalizeAgentChatTurnRuntimeKind(runtimeKind string, session agentchat.Session) string {
+	runtimeKind = strings.TrimSpace(runtimeKind)
+	if runtimeKind != "" {
+		return runtimeKind
+	}
+	return renderAgentChatRuntimeKind(session)
+}
+
+func (h *Handler) handleCreateModelAgentChatMessage(w http.ResponseWriter, r *http.Request, session agentchat.Session, req CreateAgentChatMessageRequest) {
+	provider := strings.TrimSpace(req.Provider)
+	if provider == "" {
+		provider = session.Provider
+	}
+	model := strings.TrimSpace(req.Model)
+	if model == "" {
+		model = session.Model
+	}
+	if model == "" {
+		WriteError(w, http.StatusBadRequest, errCodeInvalidRequest, "model is required for model chat")
+		return
+	}
+	caps, err := h.resolveModelCapabilities(r.Context(), provider, model)
+	if err != nil {
+		WriteError(w, http.StatusBadRequest, errCodeInvalidRequest, err.Error())
+		return
+	}
+	content := strings.TrimSpace(req.Content)
+	assistantID := newAgentChatID("msg")
+	runID := newAgentChatID("model_run")
+	startedAt := time.Now().UTC()
+	runCtx, cancel := context.WithTimeout(r.Context(), agentChatTimeout)
+	if !h.agentChatLive.registerRun(session.ID, cancel) {
+		cancel()
+		WriteError(w, http.StatusConflict, errCodeAgentSessionBusy, "chat session is already running")
+		return
+	}
+	defer h.agentChatLive.clearRun(session.ID)
+	defer cancel()
+
+	segmentID := modelSegmentID(session, provider, model)
+	updated, err := h.agentChat.AppendMessage(r.Context(), session.ID, agentchat.Message{
+		ID:           newAgentChatID("msg"),
+		RuntimeKind:  "model",
+		SegmentID:    segmentID,
+		Provider:     provider,
+		Model:        model,
+		Capabilities: caps,
+		Role:         "user",
+		Content:      content,
+		CreatedAt:    startedAt,
+	})
+	if err != nil {
+		WriteError(w, http.StatusInternalServerError, errCodeGatewayError, err.Error())
+		return
+	}
+	h.agentChatLive.publishSession(updated)
+
+	updated, err = h.agentChat.AppendMessage(r.Context(), session.ID, agentchat.Message{
+		ID:           assistantID,
+		RuntimeKind:  "model",
+		SegmentID:    segmentID,
+		RunID:        runID,
+		RequestID:    RequestIDFromContext(r.Context()),
+		Provider:     provider,
+		Model:        model,
+		Capabilities: caps,
+		Role:         "assistant",
+		Content:      "",
+		Status:       "running",
+		CostMode:     "hecate",
+		Workspace:    session.Workspace,
+		CreatedAt:    startedAt,
+		StartedAt:    startedAt,
+		Activities: []agentchat.Activity{
+			newAgentChatActivity("model_request", "running", "Model request", "Waiting for provider response"),
+		},
+	})
+	if err != nil {
+		WriteError(w, http.StatusInternalServerError, errCodeGatewayError, err.Error())
+		return
+	}
+	h.agentChatLive.publishSession(updated)
+
+	chatReq := types.ChatRequest{
+		RequestID: RequestIDFromContext(r.Context()),
+		Model:     model,
+		Messages:  agentChatModelHistory(session, strings.TrimSpace(req.SystemPrompt), content),
+		Scope:     requestscope.Build(provider),
+	}
+	result, runErr := h.service.HandleChat(runCtx, chatReq)
+	completedAt := time.Now().UTC()
+	status := "completed"
+	output := ""
+	errorText := ""
+	if runErr != nil {
+		status = "failed"
+		errorText = runErr.Error()
+		output = errorText
+	}
+	if errors.Is(runCtx.Err(), context.Canceled) {
+		status = "cancelled"
+		errorText = "cancelled"
+		output = "model request cancelled"
+	}
+	if result != nil && result.Response != nil {
+		if len(result.Response.Choices) > 0 {
+			output = strings.TrimSpace(result.Response.Choices[0].Message.Content)
+		}
+		if output == "" {
+			output = "(model completed without output)"
+		}
+	}
+	updated, err = h.agentChat.UpdateMessage(r.Context(), session.ID, assistantID, func(message *agentchat.Message) {
+		message.Status = status
+		message.Content = output
+		message.Error = errorText
+		message.StartedAt = startedAt
+		message.CompletedAt = completedAt
+		if result != nil {
+			message.TraceID = result.Metadata.TraceID
+			message.SpanID = result.Metadata.SpanID
+			if result.Metadata.Provider != "" {
+				message.Provider = result.Metadata.Provider
+			}
+			if result.Metadata.Model != "" {
+				message.Model = result.Metadata.Model
+			}
+			message.Usage = agentchat.Usage{
+				ContextUsed: result.Metadata.TotalTokens,
+			}
+		}
+		message.Activities = append(message.Activities, newAgentChatActivity(status, status, finalAgentChatActivityTitle(status), errorText))
+	})
+	if err != nil {
+		WriteError(w, http.StatusInternalServerError, errCodeGatewayError, err.Error())
+		return
+	}
+	if inc, incErr := h.agentChat.UpdateSession(r.Context(), session.ID, func(item *agentchat.Session) {
+		item.RuntimeKind = "model"
+		item.Provider = provider
+		item.Model = model
+		item.Capabilities = caps
+		item.TurnsUsed++
+	}); incErr == nil {
+		updated = inc
+	}
+	h.agentChatLive.publishSession(updated)
+	if runErr != nil {
+		WriteJSON(w, http.StatusOK, AgentChatSessionResponse{Object: "agent_chat_session", Data: renderAgentChatSession(updated, h.agentChatSnapshotConfig())})
+		return
+	}
+	WriteJSON(w, http.StatusOK, AgentChatSessionResponse{Object: "agent_chat_session", Data: renderAgentChatSession(updated, h.agentChatSnapshotConfig())})
+}
+
+func agentChatModelHistory(session agentchat.Session, systemPrompt, content string) []types.Message {
+	messages := make([]types.Message, 0, len(session.Messages)+1)
+	if systemPrompt = strings.TrimSpace(systemPrompt); systemPrompt != "" {
+		messages = append(messages, types.Message{Role: "system", Content: systemPrompt})
+	}
+	for _, message := range session.Messages {
+		if message.Role != "user" && message.Role != "assistant" {
+			continue
+		}
+		if message.Role == "assistant" && !isTerminalAgentChatStatus(message.Status) {
+			continue
+		}
+		text := strings.TrimSpace(message.Content)
+		if text == "" {
+			continue
+		}
+		messages = append(messages, types.Message{Role: message.Role, Content: text})
+	}
+	messages = append(messages, types.Message{Role: "user", Content: content})
+	return messages
+}
+
+func modelSegmentID(session agentchat.Session, provider, model string) string {
+	for i := len(session.Messages) - 1; i >= 0; i-- {
+		message := session.Messages[i]
+		if message.RuntimeKind != "model" {
+			break
+		}
+		if message.Provider == provider && message.Model == model && message.SegmentID != "" {
+			return message.SegmentID
+		}
+	}
+	return newAgentChatID("segment")
 }
 
 func isTerminalAgentChatStatus(status string) bool {
