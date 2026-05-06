@@ -101,6 +101,17 @@ type NoticeState = {
 
 type ChatTarget = "model" | "agent" | "external_agent";
 type HecateChatTarget = "model" | "agent";
+type QueuedChatMessage = {
+  id: string;
+  content: string;
+  runtime_kind: ChatTarget;
+  provider_filter: ProviderFilter;
+  model: string;
+  workspace: string;
+  system_prompt: string;
+  adapter_id: string;
+  created_at: string;
+};
 
 function normalizeStoredChatTarget(value: string): ChatTarget {
   switch (value) {
@@ -146,6 +157,14 @@ function serializeChatTargetsBySessionID(targets: Map<string, HecateChatTarget>)
 
 function agentChatSessionIsExternal(session: AgentChatSessionRecord | null): boolean {
   return Boolean(session?.runtime_kind === "external_agent" || session?.adapter_id);
+}
+
+function agentChatSessionIsBusy(session: AgentChatSessionRecord | null): boolean {
+  const busy = (status?: string) => status === "queued" || status === "running" || status === "awaiting_approval";
+  if (!session) return false;
+  if (busy(session.status)) return true;
+  if ((session.segments ?? []).some((segment) => busy(segment.status))) return true;
+  return (session.messages ?? []).some((message) => message.role === "assistant" && busy(message.status));
 }
 
 function deriveHecateChatTargetFromSession(session: AgentChatSessionRecord | null): HecateChatTarget {
@@ -244,6 +263,7 @@ export function useRuntimeConsole() {
 
   const [model, setModel] = useState("");
   const [message, setMessage] = useState("");
+  const [queuedChatMessages, setQueuedChatMessages] = useState<QueuedChatMessage[]>([]);
   const [systemPrompt, setSystemPrompt] = useState("");
   const [chatLoading, setChatLoading] = useState(false);
   const [agentChatCancelling, setAgentChatCancelling] = useState(false);
@@ -628,6 +648,29 @@ export function useRuntimeConsole() {
     await submitAgentChat();
   }
 
+  function removeQueuedChatMessage(id: string) {
+    setQueuedChatMessages((current) => current.filter((item) => item.id !== id));
+  }
+
+  function buildQueuedChatMessage(content: string, runtimeKind: ChatTarget): QueuedChatMessage {
+    return {
+      id: `queued-chat-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`,
+      content,
+      runtime_kind: runtimeKind,
+      provider_filter: providerFilter,
+      model,
+      workspace: agentWorkspace.trim(),
+      system_prompt: systemPrompt,
+      adapter_id: agentAdapterID,
+      created_at: new Date().toISOString(),
+    };
+  }
+
+  function queueChatMessage(content: string, runtimeKind: ChatTarget) {
+    setQueuedChatMessages((current) => [...current, buildQueuedChatMessage(content, runtimeKind)]);
+    setMessage("");
+  }
+
   function applyAgentChatSession(session: AgentChatSessionRecord) {
     setActiveAgentChatSession(session);
     setAgentWorkspaceBranch(session.workspace_branch ?? "");
@@ -718,23 +761,34 @@ export function useRuntimeConsole() {
     }
   }
 
-  async function submitAgentChat() {
+  async function submitAgentChat(queued?: QueuedChatMessage) {
+    const content = (queued?.content ?? message).trim();
+    if (!content) return;
+
+    const turnRuntimeKind = queued?.runtime_kind ?? (chatTarget === "external_agent" ? "external_agent" : chatTarget === "agent" ? "agent" : "model");
+    if (!queued && activeAgentChatSessionID && agentChatSessionIsBusy(activeAgentChatSession)) {
+      queueChatMessage(content, turnRuntimeKind);
+      return;
+    }
+
     setChatLoading(true);
     setChatError("");
     setChatErrorCode("");
     setChatErrorStatus(null);
     setRuntimeHeaders(null);
-    const turnRuntimeKind = chatTarget === "external_agent" ? "external_agent" : chatTarget === "agent" ? "agent" : "model";
     const isExternalAgent = turnRuntimeKind === "external_agent";
     const isModelTurn = turnRuntimeKind === "model";
+    const turnProviderFilter = queued?.provider_filter ?? providerFilter;
+    const turnModel = queued?.model ?? model;
+    const turnWorkspace = queued?.workspace ?? agentWorkspace.trim();
+    const turnSystemPrompt = queued?.system_prompt ?? systemPrompt;
+    const turnAdapterID = queued?.adapter_id ?? agentAdapterID;
     setStreamingContent(isExternalAgent ? "Starting external agent..." : isModelTurn ? "Waiting for model output..." : "Starting Hecate Agent...");
     let streamAbort: AbortController | null = null;
     let streamPromise: Promise<void> | null = null;
 
     try {
-      const content = message.trim();
-      if (!content) return;
-      if (!isModelTurn && !agentWorkspace.trim()) {
+      if (!isModelTurn && !turnWorkspace) {
         setChatError("Choose a workspace path before starting an agent chat.");
         return;
       }
@@ -760,9 +814,9 @@ export function useRuntimeConsole() {
           title: deriveChatSessionTitle(content),
           runtime_kind: turnRuntimeKind,
           ...(isExternalAgent
-            ? { adapter_id: agentAdapterID }
-            : { provider: providerFilter === "auto" ? "" : providerFilter, model }),
-          ...(!isModelTurn ? { workspace: agentWorkspace.trim() } : {}),
+            ? { adapter_id: turnAdapterID }
+            : { provider: turnProviderFilter === "auto" ? "" : turnProviderFilter, model: turnModel }),
+          ...(!isModelTurn ? { workspace: turnWorkspace } : {}),
         });
         sessionID = created.data.id;
         setActiveAgentChatSessionID(sessionID);
@@ -780,8 +834,8 @@ export function useRuntimeConsole() {
                 {
                   id: `pending-agent-user-${Date.now()}`,
                   runtime_kind: turnRuntimeKind,
-                  provider: !isExternalAgent ? (providerFilter === "auto" ? "" : providerFilter) : undefined,
-                  model: !isExternalAgent ? model : undefined,
+                  provider: !isExternalAgent ? (turnProviderFilter === "auto" ? "" : turnProviderFilter) : undefined,
+                  model: !isExternalAgent ? turnModel : undefined,
                   role: "user",
                   content: pendingContent,
                   created_at: new Date().toISOString(),
@@ -827,9 +881,9 @@ export function useRuntimeConsole() {
       const updated = await createAgentChatMessageRequest(sessionID, {
         content: pendingContent,
         runtime_kind: turnRuntimeKind,
-        ...(!isExternalAgent ? { provider: providerFilter === "auto" ? "" : providerFilter, model } : {}),
-        ...(isModelTurn ? { system_prompt: systemPrompt } : {}),
-        ...(turnRuntimeKind === "agent" ? { workspace: agentWorkspace.trim() } : {}),
+        ...(!isExternalAgent ? { provider: turnProviderFilter === "auto" ? "" : turnProviderFilter, model: turnModel } : {}),
+        ...(isModelTurn ? { system_prompt: turnSystemPrompt } : {}),
+        ...(turnRuntimeKind === "agent" ? { workspace: turnWorkspace } : {}),
       });
       applyAgentChatSession(updated.data);
     } catch (submitError) {
@@ -844,6 +898,28 @@ export function useRuntimeConsole() {
       setChatLoading(false);
     }
   }
+
+  useEffect(() => {
+    if (queuedChatMessages.length === 0 || chatLoading || agentChatCancelling) {
+      return;
+    }
+    if (agentChatSessionIsBusy(activeAgentChatSession)) {
+      return;
+    }
+    const next = queuedChatMessages[0];
+    setQueuedChatMessages((current) => current.filter((item) => item.id !== next.id));
+    void submitAgentChat(next);
+  // submitAgentChat deliberately stays out of the dependency list: it
+  // reads the queued snapshot passed above, not the live composer state.
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [
+    activeAgentChatSession?.latest_run_id,
+    activeAgentChatSession?.status,
+    activeAgentChatSession?.updated_at,
+    agentChatCancelling,
+    chatLoading,
+    queuedChatMessages,
+  ]);
 
   async function cancelAgentChat() {
     if (!activeAgentChatSessionID || agentChatCancelling) {
@@ -1621,6 +1697,7 @@ export function useRuntimeConsole() {
       chatResult,
       chatTarget,
       pendingToolCalls,
+      queuedChatMessages,
       chatSessions,
       cloudModels,
       cloudProviders,
@@ -1682,6 +1759,7 @@ export function useRuntimeConsole() {
       setAgentWorkspace: updateAgentWorkspace,
       setChatTarget,
       setMessage,
+      removeQueuedChatMessage,
       setSystemPrompt,
       setModel,
       setModelFilter,

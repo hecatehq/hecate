@@ -23,12 +23,12 @@ export function parseMarkdownBlocks(content: string): Block[] {
   while (i < lines.length) {
     const line = lines[i];
 
-    const fenceMatch = /^```(\w*)/.exec(line);
+    const fenceMatch = /^\s*```([^\s`]*)\s*$/.exec(line);
     if (fenceMatch) {
       const lang = fenceMatch[1];
       const codeLines: string[] = [];
       i++;
-      while (i < lines.length && !lines[i].startsWith("```")) {
+      while (i < lines.length && !/^\s*```\s*$/.test(lines[i])) {
         codeLines.push(lines[i]);
         i++;
       }

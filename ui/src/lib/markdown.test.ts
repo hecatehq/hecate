@@ -13,6 +13,11 @@ describe("parseMarkdownBlocks", () => {
     expect(blocks).toEqual([{ type: "code", text: "const x = 1;", lang: "ts" }]);
   });
 
+  it("parses indented fenced code blocks", () => {
+    const blocks = parseMarkdownBlocks("  ```sh\ngit status\n  ```");
+    expect(blocks).toEqual([{ type: "code", text: "git status", lang: "sh" }]);
+  });
+
   it("parses fenced code block with no language tag", () => {
     const blocks = parseMarkdownBlocks("```\nraw code\n```");
     expect(blocks).toEqual([{ type: "code", text: "raw code", lang: "" }]);

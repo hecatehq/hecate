@@ -30,6 +30,11 @@ but they can also store direct model segments:
   transcript cannot race a live task loop against a separate model turn. The
   composer shows the busy state with **Open task** and **Stop** actions so the
   operator can jump to the canonical Task view or cancel the active loop.
+  If the operator submits another prompt while the active run is still busy,
+  the UI keeps it in a local **Queued next** FIFO and submits it automatically
+  after the run or approval reaches a terminal state. Queued prompts preserve
+  the selected runtime/model/workspace snapshot from the moment they were
+  queued, but they are not persisted until submitted.
   Chats projects the backing run activity into the transcript, links each
   assistant turn back to its backing Task/run, and can approve/reject pending
   task approvals inline. Low-level artifacts stay under transcript **Details**,
