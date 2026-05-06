@@ -791,9 +791,11 @@ describe("ChatView input", () => {
     render(<ChatView state={state} actions={actions} />);
 
     expect(screen.getByText("completed · 1 tool")).toBeTruthy();
-    expect(screen.getByText("Agent turn 1")).toBeTruthy();
-    expect(screen.getByText("shell_exec")).toBeTruthy();
+    expect(screen.getByText("Thinking")).toBeTruthy();
+    expect(screen.getByText("Ran shell")).toBeTruthy();
     expect(screen.getByText("Backing task")).toBeTruthy();
+    expect(screen.queryByText("Agent turn 1")).toBeNull();
+    expect(screen.queryByText("shell_exec")).toBeNull();
     expect(screen.queryByText("Task run running")).toBeNull();
     expect(screen.queryByText("Run completed")).toBeNull();
   });
