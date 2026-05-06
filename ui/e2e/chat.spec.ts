@@ -715,13 +715,16 @@ test("Hecate Chat rehydrates an active task and blocks direct sends after refres
 
   await expect(page.getByRole("button", { name: "tools off", exact: true })).toBeVisible();
   await expect(page.getByRole("button", { name: "Fixed model: qwen2.5" })).toBeVisible();
-  await expect(page.getByRole("button", { name: "Stop agent" })).toBeVisible();
+  await expect(page.getByRole("button", { name: "Stop active task" })).toBeVisible();
   await expect(page.getByRole("button", { name: "Open task" })).toBeVisible();
   await expect(page.getByText(/Hecate Chat is working on this task/)).toBeVisible();
   await expect(page.getByText("Backing task")).toBeVisible();
 
   await page.locator("textarea").fill("try direct while busy");
-  await expect(page.locator("button[type='submit']")).toHaveCount(0);
+  await expect(page.getByRole("button", { name: "Queue message" })).toBeVisible();
+  await page.getByRole("button", { name: "Queue message" }).click();
+  await expect(page.getByLabel("Queued messages")).toBeVisible();
+  await expect(page.getByText("try direct while busy")).toBeVisible();
   expect(messagePosts).toBe(0);
 });
 
