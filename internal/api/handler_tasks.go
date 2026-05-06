@@ -1451,7 +1451,7 @@ func buildTaskItem(ctx context.Context, store taskstate.Store, task types.Task) 
 }
 
 func buildTaskActivityItems(steps []TaskStepItem, artifacts []TaskArtifactItem, approvals []TaskApprovalItem, run types.TaskRun) []TaskActivityItem {
-	items := make([]TaskActivityItem, 0, len(steps)+len(artifacts)+len(approvals)+1)
+	items := make([]TaskActivityItem, 0, len(steps))
 	approvalStatusByID := make(map[string]string, len(approvals))
 	for _, approval := range approvals {
 		approvalStatusByID[approval.ID] = approval.Status

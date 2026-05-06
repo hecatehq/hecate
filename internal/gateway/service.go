@@ -1111,7 +1111,7 @@ func (s *Service) RecordChatExchange(ctx context.Context, sessionID string, req 
 		CreatedAt:         result.Response.CreatedAt,
 	}
 
-	messages := make([]types.ChatSessionMessage, 0, len(newInputs)+1)
+	messages := make([]types.ChatSessionMessage, 0, len(newInputs))
 	for _, m := range newInputs {
 		messages = append(messages, types.ChatSessionMessage{
 			ID:      newSessionMessageID(),

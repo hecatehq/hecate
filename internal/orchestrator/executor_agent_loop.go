@@ -592,7 +592,7 @@ func (e *AgentLoopExecutor) chatTurn(ctx context.Context, spec ExecutionSpec, co
 		if !force && len(content)-lastPersistedLen < 24 && now.Sub(lastPersistedAt) < 100*time.Millisecond {
 			return
 		}
-		partial := make([]types.Message, 0, len(messages)+1)
+		partial := make([]types.Message, 0, len(messages))
 		partial = append(partial, messages...)
 		partial = append(partial, types.Message{Role: "assistant", Content: content})
 		_, persistErr = upsertConversationArtifact(spec, conversationArtifactID, partial, turn, now)
