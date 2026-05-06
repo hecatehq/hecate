@@ -342,6 +342,7 @@ export type AgentChatActivityRecord = {
   created_at?: string;
   approval_id?: string;
   needs_action?: boolean;
+  terminal?: boolean;
 };
 
 export type AgentChatSessionRecord = {

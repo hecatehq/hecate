@@ -1,6 +1,7 @@
 import { useEffect, useRef, useState } from "react";
-import type { TaskActivityRecord, TaskApprovalRecord, TaskArtifactRecord, TaskRecord, TaskRunEventRecord, TaskRunRecord, TaskStepRecord } from "../../types/runtime";
+import type { AgentChatActivityRecord, TaskActivityRecord, TaskApprovalRecord, TaskArtifactRecord, TaskRecord, TaskRunEventRecord, TaskRunRecord, TaskStepRecord } from "../../types/runtime";
 import { Badge, Dot, Icon, Icons, Modal } from "../shared/ui";
+import { TranscriptActivityTimeline } from "../transcript/TranscriptActivityTimeline";
 
 type StreamState = "idle" | "connecting" | "live" | "closed" | "error";
 
@@ -840,69 +841,41 @@ function StepRowTitle({ step }: { step: TaskStepRecord }) {
 }
 
 function RuntimeActivity({ activity }: { activity: TaskActivityRecord[] }) {
-  const rows = activity.slice(-12);
+  const rows = activity.slice(-12).map(taskActivityToTranscriptActivity);
   return (
     <div style={{ padding: "12px 16px", borderBottom: "1px solid var(--border)" }}>
       <div className="kicker" style={{ marginBottom: 8 }}>Runtime activity</div>
-      <div style={{ display: "flex", flexDirection: "column", gap: 7 }}>
-        {rows.map(item => (
-          <div key={item.id} style={{ display: "grid", gridTemplateColumns: "86px 1fr auto", gap: 10, alignItems: "center" }}>
-            <Badge status={activityTone(item)} label={activityTypeLabel(item.type)} />
-            <div style={{ minWidth: 0 }}>
-              <div style={{ fontSize: 12, color: "var(--t0)", overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>
-                {activityTitle(item)}
-              </div>
-              {activitySubtitle(item) && (
-                <div style={{ fontFamily: "var(--font-mono)", fontSize: 10, color: "var(--t3)", overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>
-                  {activitySubtitle(item)}
-                </div>
-              )}
-            </div>
-            {item.occurred_at && (
-              <span style={{ fontFamily: "var(--font-mono)", fontSize: 10, color: "var(--t3)" }}>
-                {new Date(item.occurred_at).toLocaleTimeString()}
-              </span>
-            )}
-          </div>
-        ))}
-      </div>
+      <TranscriptActivityTimeline activities={rows} defaultOpen />
     </div>
   );
 }
 
-function activityTone(item: TaskActivityRecord): string {
-  if (item.needs_action) return "warn";
-  if (item.status === "failed") return "error";
-  if (item.status === "running") return "running";
-  if (item.status === "pending" || item.status === "proposed") return "warn";
-  if (item.terminal || item.status === "completed" || item.status === "applied") return "ok";
-  return "disabled";
+function taskActivityToTranscriptActivity(item: TaskActivityRecord): AgentChatActivityRecord {
+  return {
+    id: item.id,
+    type: item.type,
+    status: item.needs_action ? "awaiting_approval" : item.status,
+    title: taskActivityTitle(item),
+    kind: item.kind,
+    detail: taskActivitySubtitle(item),
+    created_at: item.occurred_at,
+    approval_id: item.approval_id,
+    needs_action: item.needs_action,
+    terminal: item.terminal,
+  };
 }
 
-function activityTypeLabel(type: string): string {
-  switch (type) {
-    case "thinking":      return "thinking";
-    case "tool_call":     return "tool";
-    case "patch":         return "patch";
-    case "changed_files": return "files";
-    case "final_answer":  return "answer";
-    case "approval":      return "approval";
-    case "run_result":    return "run";
-    default:              return type.replaceAll("_", " ");
-  }
+function taskActivityTitle(item: TaskActivityRecord): string {
+  return item.title || item.tool_name || item.path || item.type.replaceAll("_", " ");
 }
 
-function activityTitle(item: TaskActivityRecord): string {
-  return item.title || item.tool_name || item.path || activityTypeLabel(item.type);
-}
-
-function activitySubtitle(item: TaskActivityRecord): string {
+function taskActivitySubtitle(item: TaskActivityRecord): string | undefined {
   const parts = [
     item.path,
     item.kind,
     item.status,
   ].filter(Boolean);
-  return parts.join(" · ");
+  return parts.join(" · ") || undefined;
 }
 
 function StepDetail({ step }: { step: TaskStepRecord }) {

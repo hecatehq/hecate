@@ -421,6 +421,9 @@ Done in the core bridge:
 - Tasks labels chat-origin tasks and links back to Chats; Hecate Agent
   assistant turns link back to their backing Task/run
 - backing task-run activity is projected into Hecate Agent chat transcripts
+- Chats and Task Detail share the same compact transcript activity renderer
+  for tool calls, approvals, changed files, final-answer artifacts, and
+  low-level Details grouping
 - pending task approvals can be approved or rejected from the Hecate Agent
   chat banner while Tasks remains canonical
 - streamed assistant text from the backing task updates the chat transcript

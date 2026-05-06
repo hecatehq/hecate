@@ -106,6 +106,9 @@ Each section has exactly one job: orient, inspect, compare, edit, or confirm. If
   While a task-backed segment is active, the whole Hecate Chat session is busy:
   keep provider/model controls locked to the segment snapshot and block direct
   model sends until the task finishes, is stopped, or reaches an approval.
+- Use the shared `features/transcript` primitives for runtime storytelling.
+  Task Detail and Hecate Chat should share `TranscriptActivityTimeline` labels
+  and Details grouping instead of growing separate task/activity renderers.
 - External Agent sessions store their workspace and native ACP session id. New
   UI affordances should preserve that continuity instead of treating every
   prompt as a one-off subprocess.
@@ -163,7 +166,7 @@ src/
   features/
     runs/               TasksView, TaskDetail, NewTaskSlideOver, TaskList — agent task list + run replay (the headline UI)
     chats/              ChatView — interactive chat against the gateway
-    transcript/         reusable Chats transcript pieces: markdown, message rows, activity timeline, file diff review
+    transcript/         reusable transcript pieces for Chats and Task Detail: markdown, message rows, activity timeline, file diff review
     overview/           ConnectYourClient, ObservabilityView — request ledger + trace drilldown + Codex/Claude Code setup
     settings/           SettingsView, PricebookTab — settings, pricing, retention, external-agent grants
     providers/          ProvidersView — provider catalog + health
