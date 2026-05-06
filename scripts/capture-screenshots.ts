@@ -7,9 +7,9 @@
 // Prerequisites:
 //   1. `just reset-dev && ./hecate &` — gateway running on
 //      127.0.0.1:8765 with fresh state.
-//   2. ollama running on :11434 with `ollama pull llama3.1:8b` (used to
-//      seed one realistic chat session and produce a trace for the
-//      observability screenshot). Set HECATE_SKIP_OLLAMA=1 to skip.
+//   2. ollama running on :11434 with `ollama pull llama3.1:8b` (optional;
+//      used only to seed one realistic trace for the observability
+//      screenshot). Set HECATE_SKIP_OLLAMA=1 to skip.
 //
 // Optional optimize pass — the script auto-detects the best PNG
 // optimizer on PATH (preference: pngquant > oxipng > magick) and runs
@@ -122,6 +122,7 @@ const jsonHeaders = { "Content-Type": "application/json" } as const;
 
 const docsAgentChatSessionID = "agent-docs-session";
 const docsApprovalID = "appr_docs_file_write";
+const docsHecateChatSessionID = "chat-docs-hecate";
 
 function docsTimestamp(offsetMinutes = 0): string {
   return new Date(Date.now() + offsetMinutes * 60_000).toISOString();
@@ -201,6 +202,7 @@ function docsAgentSession() {
   return {
     id: docsAgentChatSessionID,
     title: "Review API docs update",
+    runtime_kind: "external_agent",
     adapter_id: "codex",
     driver_kind: "acp",
     native_session_id: "acp_doc_42",
@@ -256,6 +258,175 @@ function docsAgentSession() {
   };
 }
 
+function docsHecateChatSession() {
+  const taskID = "task_4fd22b7c9a1d";
+  const runID = "run_f7a8c1910b2e";
+  const requestID = "2f4574249a1b4e3f";
+  const createdAt = docsTimestamp(-9);
+  const updatedAt = docsTimestamp(-1);
+  return {
+    id: docsHecateChatSessionID,
+    title: "Review recent changes",
+    runtime_kind: "agent",
+    provider: "ollama",
+    model: "ministral-3:latest",
+    capabilities: {
+      tool_calling: "basic",
+      streaming: true,
+      max_context_tokens: 128_000,
+      source: "operator_override",
+    },
+    task_id: taskID,
+    latest_run_id: runID,
+    workspace: "/Users/alice/dev/hecate",
+    workspace_branch: "feature/local-agent",
+    status: "completed",
+    created_at: createdAt,
+    updated_at: updatedAt,
+    segments: [
+      {
+        id: "model:intro",
+        runtime_kind: "model",
+        provider: "ollama",
+        model: "ministral-3:latest",
+        status: "completed",
+        message_count: 2,
+        started_at: docsTimestamp(-9),
+        updated_at: docsTimestamp(-8),
+      },
+      {
+        id: `task:${taskID}`,
+        runtime_kind: "agent",
+        provider: "ollama",
+        model: "ministral-3:latest",
+        task_id: taskID,
+        latest_run_id: runID,
+        workspace: "/Users/alice/dev/hecate",
+        status: "completed",
+        message_count: 2,
+        started_at: docsTimestamp(-5),
+        updated_at: updatedAt,
+      },
+    ],
+    messages: [
+      {
+        id: "hecate-docs-user-1",
+        runtime_kind: "model",
+        segment_id: "model:intro",
+        role: "user",
+        content: "summarize what changed today",
+        provider: "ollama",
+        model: "ministral-3:latest",
+        created_at: docsTimestamp(-9),
+      },
+      {
+        id: "hecate-docs-assistant-1",
+        runtime_kind: "model",
+        segment_id: "model:intro",
+        role: "assistant",
+        content: "Today focused on polishing Hecate Chat: clearer task links, trace navigation, and smoother task-backed turns.",
+        provider: "ollama",
+        model: "ministral-3:latest",
+        status: "completed",
+        request_id: "8b2d6f42c1a0",
+        trace_id: "8b2d6f42c1a0d4ac8b7b0",
+        duration_ms: 6_200,
+        usage: {
+          context_size: 128_000,
+          context_used: 11_840,
+          reported_cost_amount: "0.00",
+          reported_cost_currency: "USD",
+        },
+        created_at: docsTimestamp(-8),
+        completed_at: docsTimestamp(-8),
+      },
+      {
+        id: "hecate-docs-user-2",
+        runtime_kind: "agent",
+        segment_id: `task:${taskID}`,
+        task_id: taskID,
+        role: "user",
+        content: "show last 3 commits",
+        provider: "ollama",
+        model: "ministral-3:latest",
+        workspace: "/Users/alice/dev/hecate",
+        created_at: docsTimestamp(-5),
+      },
+      {
+        id: "hecate-docs-assistant-2",
+        runtime_kind: "agent",
+        segment_id: `task:${taskID}`,
+        task_id: taskID,
+        run_id: runID,
+        request_id: requestID,
+        trace_id: `${requestID}d2a88c64e56b`,
+        role: "assistant",
+        content: "Here are the last 3 commits in the Hecate repository:\n\n- `c3c1e9a` fix(ui): compact chat header identifiers\n- `0fcbc52` fix(ui): stabilize busy chat e2e selectors\n- `f6572e5` fix(runtime): avoid overflowing slice capacity calculations\n\nThe branch is clean after those changes.",
+        provider: "ollama",
+        model: "ministral-3:latest",
+        capabilities: {
+          tool_calling: "basic",
+          streaming: true,
+          max_context_tokens: 128_000,
+          source: "operator_override",
+        },
+        workspace: "/Users/alice/dev/hecate",
+        status: "completed",
+        duration_ms: 25_400,
+        activities: [
+          {
+            id: "hecate-docs-activity-tool",
+            type: "tool_call",
+            status: "completed",
+            kind: "git_exec",
+            title: "git log --oneline -3",
+            detail: "3 commits returned",
+            created_at: docsTimestamp(-4),
+          },
+          {
+            id: "hecate-docs-activity-task",
+            type: "task_run",
+            status: "completed",
+            title: "Backing task",
+            detail: `${taskID} · ${runID}`,
+            terminal: true,
+            created_at: docsTimestamp(-1),
+          },
+          {
+            id: "hecate-docs-activity-model",
+            type: "model_turn",
+            status: "completed",
+            title: "Model turns",
+            detail: "2 turns completed",
+            terminal: true,
+            created_at: docsTimestamp(-1),
+          },
+        ],
+        raw_output: "c3c1e9a fix(ui): compact chat header identifiers\n0fcbc52 fix(ui): stabilize busy chat e2e selectors\nf6572e5 fix(runtime): avoid overflowing slice capacity calculations",
+        usage: {
+          context_size: 128_000,
+          context_used: 18_320,
+          reported_cost_amount: "0.00",
+          reported_cost_currency: "USD",
+        },
+        timing: {
+          total_ms: 25_400,
+          model_ms: 18_600,
+          tool_ms: 1_120,
+          overhead_ms: 5_680,
+          turn_count: 2,
+          tool_count: 1,
+          bottleneck: "model",
+          bottleneck_ms: 18_600,
+        },
+        created_at: docsTimestamp(-4),
+        started_at: docsTimestamp(-4),
+        completed_at: docsTimestamp(-1),
+      },
+    ],
+  };
+}
+
 async function routeAgentDocsFixtures(page: Page) {
   const fulfillJSON = (route: Route, data: unknown) =>
     route.fulfill({
@@ -274,6 +445,7 @@ async function routeAgentDocsFixtures(page: Page) {
       data: [{
         id: session.id,
         title: session.title,
+        runtime_kind: session.runtime_kind,
         adapter_id: session.adapter_id,
         driver_kind: session.driver_kind,
         native_session_id: session.native_session_id,
@@ -332,6 +504,130 @@ async function routeAgentDocsFixtures(page: Page) {
       },
     });
   });
+}
+
+async function routeHecateChatDocsFixture(page: Page) {
+  const fulfillJSON = (route: Route, data: unknown) =>
+    route.fulfill({
+      status: 200,
+      contentType: "application/json",
+      body: JSON.stringify(data),
+    });
+
+  const session = docsHecateChatSession();
+  await page.route(`${BASE_URL}/v1/models`, (route) => {
+    fulfillJSON(route, {
+      object: "list",
+      data: [
+        {
+          id: "ministral-3:latest",
+          owned_by: "ollama",
+          metadata: {
+            provider: "ollama",
+            provider_kind: "local",
+            default: true,
+            discovery_source: "provider",
+            capabilities: {
+              tool_calling: "basic",
+              streaming: true,
+              max_context_tokens: 128_000,
+              source: "operator_override",
+            },
+          },
+        },
+        {
+          id: "smollm2:135m",
+          owned_by: "ollama",
+          metadata: {
+            provider: "ollama",
+            provider_kind: "local",
+            discovery_source: "provider",
+            capabilities: { tool_calling: "unknown", streaming: true, source: "provider" },
+          },
+        },
+      ],
+    });
+  });
+  await page.route(`${BASE_URL}/admin/control-plane`, (route) => {
+    fulfillJSON(route, {
+      object: "control_plane",
+      data: {
+        backend: "memory",
+        providers: [
+          {
+            id: "ollama",
+            name: "Ollama",
+            preset_id: "ollama",
+            kind: "local",
+            protocol: "openai",
+            base_url: "http://127.0.0.1:11434/v1",
+            default_model: "ministral-3:latest",
+            credential_configured: true,
+          },
+        ],
+        policy_rules: [],
+        pricebook: [],
+        events: [],
+      },
+    });
+  });
+  await page.route(`${BASE_URL}/admin/providers`, (route) => {
+    fulfillJSON(route, {
+      object: "providers",
+      data: [
+        {
+          name: "ollama",
+          kind: "local",
+          base_url: "http://127.0.0.1:11434/v1",
+          credential_state: "not_required",
+          credential_ready: true,
+          healthy: true,
+          status: "ok",
+          routing_ready: true,
+          default_model: "ministral-3:latest",
+          models: ["ministral-3:latest", "smollm2:135m"],
+          model_count: 2,
+          discovery_source: "provider",
+        },
+      ],
+    });
+  });
+  await page.route(`${BASE_URL}/v1/agent-chat/sessions`, (route) => {
+    fulfillJSON(route, {
+      object: "agent_chat_sessions",
+      data: [{
+        id: session.id,
+        title: session.title,
+        runtime_kind: session.runtime_kind,
+        task_id: session.task_id,
+        latest_run_id: session.latest_run_id,
+        provider: session.provider,
+        model: session.model,
+        capabilities: session.capabilities,
+        workspace: session.workspace,
+        workspace_branch: session.workspace_branch,
+        status: session.status,
+        message_count: session.messages.length,
+        created_at: session.created_at,
+        updated_at: session.updated_at,
+      }],
+    });
+  });
+  await page.route(`${BASE_URL}/v1/agent-chat/sessions/${docsHecateChatSessionID}`, (route) => {
+    fulfillJSON(route, { object: "agent_chat_session", data: session });
+  });
+  await page.route(`${BASE_URL}/v1/agent-chat/sessions/${docsHecateChatSessionID}/approvals?status=pending`, (route) => {
+    fulfillJSON(route, { object: "agent_chat_approvals", data: [] });
+  });
+}
+
+async function unrouteHecateChatDocsFixture(page: Page) {
+  await page.unroute(`${BASE_URL}/v1/models`);
+  await page.unroute(`${BASE_URL}/admin/control-plane`);
+  await page.unroute(`${BASE_URL}/admin/providers`);
+  await page.unroute(`${BASE_URL}/v1/agent-chat/sessions`);
+  await page.unroute(`${BASE_URL}/v1/agent-chat/sessions/${docsHecateChatSessionID}`);
+  await page.unroute(`${BASE_URL}/v1/agent-chat/sessions/${docsHecateChatSessionID}/approvals?status=pending`);
 }
 
 async function routeLocalProviderDiscoveryDocsFixture(page: Page) {
@@ -409,10 +705,10 @@ async function addProvider(params: {
   console.log(`  added provider ${params.name} (${params.kind})`);
 }
 
-// seedChatSessions creates a few chat sessions through Hecate's API so
-// the sidebar isn't empty. The first session also gets a real
-// completion so the chat pane renders an assistant turn — and produces
-// a trace for the observability screenshot.
+// seedChatSessions creates a few direct model sessions through Hecate's
+// API. The first session optionally gets a real completion so the
+// observability screenshot has a trace row to open; the main Chats
+// screenshot below is fixture-backed so it stays stable without Ollama.
 async function seedChatSessions() {
   const titles = [
     "Go interfaces vs structs",
@@ -455,13 +751,13 @@ async function seedChatSessions() {
     if (!chatRes.ok) {
       const body = await chatRes.text();
       console.warn(`  chat seed skipped: ${chatRes.status} ${body.slice(0, 200)}`);
-      console.warn("  (the chat screenshot will show an empty session, observability will have no trace)");
+      console.warn("  (observability will have no seeded model trace)");
       return { firstID };
     }
     console.log(`  llama replied in ${((Date.now() - start) / 1000).toFixed(1)}s`);
   } catch (err) {
     console.warn(`  chat seed skipped: ${(err as Error).message}`);
-    console.warn("  (the chat screenshot will show an empty session)");
+    console.warn("  (observability will have no seeded model trace)");
   }
   return { firstID };
 }
@@ -568,20 +864,32 @@ async function main() {
   await page.waitForTimeout(2_000);
   await snap(page, "providers");
 
-  // ── 6. Chat: seed sessions + one real completion ────────────────────────────
-  console.log("→ seeding chat sessions");
+  // ── 6. Hecate Chat transcript ──────────────────────────────────────────────
+  // The README's primary chat screenshot should document the current
+  // product shape: one transcript with tools-off model turns and tools-on
+  // task-backed Hecate Agent turns. Keep it fixture-backed so the shot
+  // doesn't depend on whichever local model happens to be installed.
+  console.log("→ seeding chat sessions for observability");
   const { firstID } = await seedChatSessions();
 
-  console.log("→ chat (with seeded sessions)");
+  console.log("→ chat (Hecate Chat, tools on/off transcript)");
+  await routeHecateChatDocsFixture(page);
+  await clearAndNavigate(page);
   await page.evaluate((sessionID) => {
-    window.localStorage.setItem("hecate.chatTarget", "model");
-    window.localStorage.setItem("hecate.chatSessionID", sessionID);
-  }, firstID);
+    window.localStorage.setItem("hecate.workspace", "chats");
+    window.localStorage.setItem("hecate.chatTarget", "agent");
+    window.localStorage.setItem("hecate.chatTargetBySessionID", JSON.stringify({ [sessionID]: "agent" }));
+    window.localStorage.setItem("hecate.agentChatSessionID", sessionID);
+    window.localStorage.setItem("hecate.providerFilter", "ollama");
+    window.localStorage.setItem("hecate.model", "ministral-3:latest");
+    window.localStorage.setItem("hecate.agentWorkspace", "/Users/alice/dev/hecate");
+  }, docsHecateChatSessionID);
   await openWorkspace(page, "chats");
-  await page.waitForTimeout(500);
-  await page.getByText("Go interfaces vs structs").first().click();
-  await page.waitForTimeout(1500);
+  await page.waitForSelector("text=Here are the last 3 commits", { timeout: 5_000 });
+  await page.waitForSelector("text=Tools on", { timeout: 5_000 });
+  await page.waitForTimeout(700);
   await snap(page, "chat");
+  await unrouteHecateChatDocsFixture(page);
 
   // ── 7. Tasks ────────────────────────────────────────────────────────────────
   console.log("→ tasks (do echo 42 + approval seeded)");
@@ -644,7 +952,8 @@ async function main() {
   console.log("→ chat / pending agent approval");
   await page.evaluate((sessionID) => {
     window.localStorage.setItem("hecate.workspace", "chats");
-    window.localStorage.setItem("hecate.chatTarget", "agent");
+    window.localStorage.setItem("hecate.chatTarget", "external_agent");
+    window.localStorage.setItem("hecate.chatTargetBySessionID", JSON.stringify({ [sessionID]: "external_agent" }));
     window.localStorage.setItem("hecate.agentAdapterID", "codex");
     window.localStorage.setItem("hecate.agentWorkspace", "/Users/alice/dev/hecate");
     window.localStorage.setItem("hecate.agentChatSessionID", sessionID);

@@ -100,7 +100,7 @@ Chats is the primary day-to-day surface. It explains missing setup before you se
 - **Hecate Chat** — select a provider/model. Keep **tools on** for Hecate-owned task execution, approvals, artifacts, per-call sandboxing, and OpenTelemetry. Turn **tools off** for direct model chat through the gateway.
 - **External Agent** — select Codex, Claude Code, or Cursor Agent, choose a workspace, and run a supervised local ACP session.
 
-![Chats workspace talking to a local Ollama llama3.1:8b model with sessions sidebar and inline runtime metadata](docs/screenshots/chat.png)
+![Hecate Chat transcript showing tools-off direct model chat, tools-on task-backed run links, trace links, and activity details](docs/screenshots/chat.png)
 
 ![Chats workspace with an external-agent file-write approval waiting for operator review](docs/screenshots/chat-agent-approval.png)
 
