@@ -57,14 +57,15 @@ Hecate Agent, that unit is one Hecate-owned task. The first prompt creates the
 task and starts the first run; follow-up prompts continue the latest terminal
 run on the same task.
 
-The staged implementation keeps runtime boundaries explicit. Today, once a
-Hecate Agent chat has a backing task, its provider/model picker renders the
-session snapshot read-only while tools are enabled. Turning tools off uses the
-normal direct model chat path and the current draft provider/model selection.
-The next schema step is to persist `segment_id` and per-message `runtime_kind`
-so a single transcript can explain mixed direct-model and task-backed stretches
-without relying on the current header state. A later step can then re-enable
-tools in the same chat by creating a new task-backed segment.
+The staged implementation keeps runtime boundaries explicit. Once a Hecate
+Agent chat has a backing task, its provider/model picker renders the session
+snapshot read-only while tools are enabled. Turning tools off uses the normal
+direct model chat path and the current draft provider/model selection. Agent
+chat messages now carry their own `runtime_kind`, `segment_id`, provider/model
+snapshot, capability snapshot, and task/run linkage so a single transcript can
+explain mixed direct-model and task-backed stretches without relying on the
+current header state. A later step can re-enable tools in the same chat by
+creating a new task-backed segment.
 
 ## Non-goals
 
@@ -341,6 +342,8 @@ Memory and SQLite must persist:
 - selected `agent_profile_id`
 - `runtime_kind`
 - Hecate Agent task/run linkage fields on agent-chat sessions
+- per-message `runtime_kind`, `segment_id`, provider/model, capability
+  snapshot, and task/run linkage
 - workspace mode snapshot on Hecate Agent sessions
 
 The effective capability record is a snapshot at session creation time. Model
@@ -404,20 +407,16 @@ Still required for a complete Hecate Agent experience:
 
 The missing stable-scope pieces should land in this order:
 
-1. **Message segments.** Persist `segment_id` and per-message `runtime_kind`,
-   provider/model, capability snapshot, and task/run linkage so one Hecate Chat
-   transcript can honestly contain direct-model turns and multiple task-backed
-   stretches.
-2. **Continue with tools again.** When tools are re-enabled in a transcript
+1. **Continue with tools again.** When tools are re-enabled in a transcript
    that currently has direct-model turns, create a new task-backed segment
    instead of mutating the previous task.
-3. **Workspace modes.** Expose the same workspace choices that Tasks supports,
+2. **Workspace modes.** Expose the same workspace choices that Tasks supports,
    store the selected mode on the session/task, and fail early when a requested
    mode cannot be honored.
-4. **Agent profiles.** Add named Hecate Agent presets for model policy,
+3. **Agent profiles.** Add named Hecate Agent presets for model policy,
    workspace mode, system prompt, tools/MCP, approvals, and guardrails. Store a
    snapshot on each session so history remains explainable.
-5. **Automatic probing.** Add bounded, visible capability probes for configured
+4. **Automatic probing.** Add bounded, visible capability probes for configured
    models so local/custom providers can become eligible without manual edits.
    Overrides still win, and probes must not execute tools or mutate workspaces.
 6. **E2E hardening.** Cover provider setup, capability detection, chat-side task

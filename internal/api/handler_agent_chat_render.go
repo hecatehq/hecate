@@ -57,6 +57,9 @@ func renderAgentChatSession(session agentchat.Session, limits agentChatSnapshotC
 	for _, message := range session.Messages {
 		messages = append(messages, AgentChatMessageItem{
 			ID:              message.ID,
+			RuntimeKind:     message.RuntimeKind,
+			SegmentID:       message.SegmentID,
+			TaskID:          message.TaskID,
 			RunID:           message.RunID,
 			RequestID:       message.RequestID,
 			TraceID:         message.TraceID,
@@ -71,6 +74,9 @@ func renderAgentChatSession(session agentchat.Session, limits agentChatSnapshotC
 			Status:          message.Status,
 			ExitCode:        message.ExitCode,
 			CostMode:        message.CostMode,
+			Provider:        message.Provider,
+			Model:           message.Model,
+			Capabilities:    message.Capabilities,
 			Workspace:       message.Workspace,
 			DiffStat:        message.DiffStat,
 			Diff:            message.Diff,

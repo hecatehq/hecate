@@ -60,6 +60,15 @@ func TestHecateAgentChatCreatesVisibleTaskAndContinuesSameTask(t *testing.T) {
 		t.Fatalf("first transcript = %+v", first.Data.Messages)
 	}
 	assistant := first.Data.Messages[len(first.Data.Messages)-1]
+	if assistant.RuntimeKind != "hecate_agent" || assistant.TaskID != first.Data.TaskID || assistant.SegmentID != "task:"+first.Data.TaskID {
+		t.Fatalf("assistant message runtime snapshot = runtime %q segment %q task %q", assistant.RuntimeKind, assistant.SegmentID, assistant.TaskID)
+	}
+	if assistant.Provider != "openai" || assistant.Model != "gpt-4o-mini" || assistant.Capabilities.ToolCalling != modelcaps.ToolCallingParallel {
+		t.Fatalf("assistant message model snapshot = provider %q model %q caps %+v", assistant.Provider, assistant.Model, assistant.Capabilities)
+	}
+	if first.Data.Messages[0].SegmentID != assistant.SegmentID || first.Data.Messages[0].TaskID != first.Data.TaskID {
+		t.Fatalf("user message segment/task = %q/%q, want %q/%q", first.Data.Messages[0].SegmentID, first.Data.Messages[0].TaskID, assistant.SegmentID, first.Data.TaskID)
+	}
 	if !agentChatMessageHasActivity(assistant, "thinking") {
 		t.Fatalf("assistant activities missing projected task thinking activity: %+v", assistant.Activities)
 	}
@@ -82,6 +91,10 @@ func TestHecateAgentChatCreatesVisibleTaskAndContinuesSameTask(t *testing.T) {
 	}
 	if second.Data.LatestRunID == "" || second.Data.LatestRunID == first.Data.LatestRunID {
 		t.Fatalf("second latest_run_id = %q, want new continued run distinct from %q", second.Data.LatestRunID, first.Data.LatestRunID)
+	}
+	secondAssistant := second.Data.Messages[len(second.Data.Messages)-1]
+	if secondAssistant.SegmentID != "task:"+first.Data.TaskID || secondAssistant.TaskID != first.Data.TaskID || secondAssistant.Model != "gpt-4o-mini" {
+		t.Fatalf("second assistant runtime snapshot = segment %q task %q model %q", secondAssistant.SegmentID, secondAssistant.TaskID, secondAssistant.Model)
 	}
 	runs := mustRequestJSON[TaskRunsResponse](client, http.MethodGet, "/v1/tasks/"+first.Data.TaskID+"/runs", "")
 	if len(runs.Data) != 2 {

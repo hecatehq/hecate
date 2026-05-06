@@ -265,6 +265,9 @@ export type AgentChatSessionSummaryRecord = {
 
 export type AgentChatMessageRecord = {
   id: string;
+  runtime_kind?: "external_agent" | "hecate_agent" | "model" | string;
+  segment_id?: string;
+  task_id?: string;
   run_id?: string;
   request_id?: string;
   trace_id?: string;
@@ -279,6 +282,9 @@ export type AgentChatMessageRecord = {
   status?: string;
   exit_code?: number;
   cost_mode?: string;
+  provider?: string;
+  model?: string;
+  capabilities?: ModelCapabilitiesRecord;
   workspace?: string;
   diff_stat?: string;
   diff?: string;
