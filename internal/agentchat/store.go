@@ -4,6 +4,7 @@ import (
 	"context"
 	"fmt"
 	"sort"
+	"strings"
 	"sync"
 	"time"
 
@@ -334,7 +335,7 @@ func hydrateMessageRuntimeFromSession(message *Message, session Session) {
 	if message.RuntimeKind == "" {
 		message.RuntimeKind = normalizeMessageRuntimeKind(session)
 	}
-	if message.TaskID == "" && message.RuntimeKind != "model" {
+	if message.TaskID == "" && message.RuntimeKind != "model" && shouldHydrateMessageTaskID(message) {
 		message.TaskID = session.TaskID
 	}
 	if message.Provider == "" {
@@ -356,6 +357,13 @@ func hydrateMessageRuntimeFromSession(message *Message, session Session) {
 			message.SegmentID = "session:" + session.ID
 		}
 	}
+}
+
+func shouldHydrateMessageTaskID(message *Message) bool {
+	if strings.TrimSpace(message.SegmentID) == "" {
+		return true
+	}
+	return strings.HasPrefix(strings.TrimSpace(message.SegmentID), "task:")
 }
 
 func normalizeMessageRuntimeKind(session Session) string {

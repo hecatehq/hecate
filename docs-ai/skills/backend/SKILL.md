@@ -87,7 +87,10 @@ Agent Chat has three runtime kinds:
    The first prompt creates the task; follow-ups continue the latest terminal
    run through the task runtime while the immediately previous segment was also
    Hecate Agent. Re-enabling tools after a direct model segment creates a new
-   task-backed segment in the same transcript.
+   task-backed segment in the same transcript. While a task-backed segment is
+   queued, running, or awaiting approval, the entire Hecate Chat session is
+   busy: direct model turns are rejected too, so one transcript cannot race a
+   live task loop against a separate model call.
 3. `external_agent`: the chat session points at one supervised adapter session
    such as Codex, Claude Code, or Cursor Agent.
 

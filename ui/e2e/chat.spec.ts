@@ -570,6 +570,93 @@ test("Hecate Chat can move tools on, tools off, then tools on again in one trans
   ]);
 });
 
+test("Hecate Chat blocks direct sends while a task-backed segment is active", async ({ page }) => {
+  await page.unrouteAll({ behavior: "ignoreErrors" });
+  await page.addInitScript(() => {
+    window.localStorage.setItem("hecate.chatTarget", "agent");
+    window.localStorage.setItem("hecate.agentChatSessionID", "chat-busy-e2e");
+    window.localStorage.setItem("hecate.chatTargetBySessionID", JSON.stringify({ "chat-busy-e2e": "model" }));
+    window.localStorage.setItem("hecate.agentWorkspace", "/tmp/hecate-e2e-workspace");
+  });
+  await mockGatewayAPIs(page, {
+    adminConfig: {
+      providers: [
+        { id: "lmstudio", name: "LM Studio", preset_id: "lmstudio", kind: "local", protocol: "openai", base_url: "http://127.0.0.1:1234/v1", enabled: true, credential_configured: false },
+      ],
+      tenants: [],
+      api_keys: [],
+      policy_rules: [],
+    },
+  });
+
+  const session = {
+    id: "chat-busy-e2e",
+    title: "busy tools turn",
+    runtime_kind: "model",
+    provider: "lmstudio",
+    model: "qwen2.5",
+    capabilities: { tool_calling: "basic", streaming: true, source: "operator_override" },
+    workspace: "/tmp/hecate-e2e-workspace",
+    task_id: "task-busy-e2e",
+    latest_run_id: "run-busy-e2e",
+    status: "running",
+    message_count: 2,
+    segments: [
+      { id: "model:first", runtime_kind: "model", provider: "lmstudio", model: "qwen2.5", status: "completed", message_count: 2 },
+      { id: "task:task-busy-e2e", runtime_kind: "agent", provider: "lmstudio", model: "qwen2.5", task_id: "task-busy-e2e", latest_run_id: "run-busy-e2e", status: "running", message_count: 1 },
+    ],
+    messages: [
+      { id: "msg-user", runtime_kind: "agent", segment_id: "task:task-busy-e2e", task_id: "task-busy-e2e", role: "user", content: "inspect", created_at: "2026-05-06T10:00:00Z" },
+      { id: "msg-assistant", runtime_kind: "agent", segment_id: "task:task-busy-e2e", task_id: "task-busy-e2e", run_id: "run-busy-e2e", role: "assistant", content: "", status: "running", model: "qwen2.5", created_at: "2026-05-06T10:00:01Z" },
+    ],
+  };
+  let messagePosts = 0;
+
+  await page.route("/v1/models*", route => route.fulfill({
+    status: 200,
+    contentType: "application/json",
+    body: JSON.stringify({
+      object: "list",
+      data: [{
+        id: "qwen2.5",
+        owned_by: "lmstudio",
+        metadata: { provider: "lmstudio", provider_kind: "local", capabilities: { tool_calling: "basic", streaming: true, source: "operator_override" } },
+      }],
+    }),
+  }));
+  await page.route("/v1/agent-chat/sessions", route => route.fulfill({
+    status: 200,
+    contentType: "application/json",
+    body: JSON.stringify({ object: "agent_chat_sessions", data: [session] }),
+  }));
+  await page.route("/v1/agent-chat/sessions/chat-busy-e2e", route => route.fulfill({
+    status: 200,
+    contentType: "application/json",
+    body: JSON.stringify({ object: "agent_chat_session", data: session }),
+  }));
+  await page.route("/v1/agent-chat/sessions/chat-busy-e2e/stream", route => route.fulfill({
+    status: 200,
+    contentType: "text/event-stream",
+    body: "",
+  }));
+  await page.route("/v1/agent-chat/sessions/chat-busy-e2e/messages", route => {
+    messagePosts += 1;
+    return route.fulfill({ status: 500, body: "send should be blocked by the UI" });
+  });
+
+  await page.goto("/");
+  await page.waitForSelector(".hecate-activitybar");
+
+  await expect(page.getByRole("button", { name: "tools off", exact: true })).toBeVisible();
+  await expect(page.getByRole("button", { name: "Fixed model: qwen2.5" })).toBeVisible();
+  await expect(page.getByRole("button", { name: "Stop agent" })).toBeVisible();
+  await expect(page.getByText(/Hecate Chat is working on this task/)).toBeVisible();
+
+  await page.locator("textarea").fill("try direct while busy");
+  await expect(page.locator("button[type='submit']")).toHaveCount(0);
+  expect(messagePosts).toBe(0);
+});
+
 test("configured provider with no models shows troubleshooting, not detected-provider setup", async ({ page }) => {
   await page.unrouteAll({ behavior: "ignoreErrors" });
   await mockGatewayAPIs(page, {

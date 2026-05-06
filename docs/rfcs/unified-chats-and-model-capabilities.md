@@ -332,9 +332,12 @@ Send is disabled unless a workspace is selected. If the selected model has
 either turn tools off for direct model chat or enable tools in Settings.
 
 When a Hecate Agent task-backed segment is running, provider/model controls are
-locked to that segment's snapshot. Operators can turn tools off to use direct
-model chat in the same transcript. If they later turn tools on again, Hecate
-creates a new task-backed segment instead of mutating the older task.
+locked to that segment's snapshot and the chat composer treats the whole
+session as busy. Operators can turn tools off while waiting, but direct model
+sends are blocked until the backing task finishes, is cancelled, or reaches an
+approval the operator resolves. After it settles, tools-off sends create normal
+direct model segments; turning tools on again creates a new task-backed segment
+instead of mutating the older task.
 
 Hecate Agent uses the task runtime, so approvals, artifacts, diff/patch review,
 workspace modes, retry/resume, and OTel should come from Tasks rather than a

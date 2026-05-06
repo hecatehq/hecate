@@ -103,6 +103,9 @@ Each section has exactly one job: orient, inspect, compare, edit, or confirm. If
   `latest_run_id`. New UI affordances should show per-turn task links in the
   transcript. Chats may resolve pending task approvals inline; Tasks remains
   canonical for artifacts, retry/resume, full event history, and patch review.
+  While a task-backed segment is active, the whole Hecate Chat session is busy:
+  keep provider/model controls locked to the segment snapshot and block direct
+  model sends until the task finishes, is stopped, or reaches an approval.
 - External Agent sessions store their workspace and native ACP session id. New
   UI affordances should preserve that continuity instead of treating every
   prompt as a one-off subprocess.

@@ -36,7 +36,8 @@ func TestHecateAgentChatCreatesVisibleTaskAndContinuesSameTask(t *testing.T) {
 			Usage: types.Usage{PromptTokens: 10, CompletionTokens: 4, TotalTokens: 14},
 		},
 	}
-	handler := newTestHTTPHandlerWithControlPlane(logger, []providers.Provider{provider}, config.Config{}, controlplane.NewMemoryStore())
+	apiHandler := newTestAPIHandlerWithControlPlane(logger, []providers.Provider{provider}, config.Config{}, controlplane.NewMemoryStore())
+	handler := NewServer(logger, apiHandler)
 	client := newTaskTestClient(t, handler)
 	workspace := t.TempDir()
 
@@ -336,7 +337,8 @@ func TestHecateChatCanSwitchBetweenModelAndToolsSegments(t *testing.T) {
 			Usage: types.Usage{PromptTokens: 8, CompletionTokens: 3, TotalTokens: 11},
 		},
 	}
-	handler := newTestHTTPHandlerWithControlPlane(logger, []providers.Provider{provider}, config.Config{}, controlplane.NewMemoryStore())
+	apiHandler := newTestAPIHandlerWithControlPlane(logger, []providers.Provider{provider}, config.Config{}, controlplane.NewMemoryStore())
+	handler := NewServer(logger, apiHandler)
 	client := newTaskTestClient(t, handler)
 	workspace := t.TempDir()
 
@@ -425,6 +427,101 @@ func TestHecateChatCanSwitchBetweenModelAndToolsSegments(t *testing.T) {
 	}
 	if segments[4].ID != "task:"+changedModelTools.Data.TaskID || segments[4].TaskID != changedModelTools.Data.TaskID || segments[4].Model != "gpt-4o-mini-2024-07-18" {
 		t.Fatalf("model-change tools segment = %+v, want task %q and changed model", segments[4], changedModelTools.Data.TaskID)
+	}
+}
+
+func TestHecateAgentNewSegmentLivePlaceholderDoesNotBorrowPreviousTask(t *testing.T) {
+	logger := slog.New(slog.NewJSONHandler(io.Discard, nil))
+	provider := &fakeProvider{
+		name: "openai",
+		response: &types.ChatResponse{
+			ID:        "chatcmpl-hecate-chat-live-segment",
+			Model:     "gpt-4o-mini",
+			CreatedAt: time.Now().UTC(),
+			Choices: []types.ChatChoice{{
+				Index:        0,
+				Message:      types.Message{Role: "assistant", Content: "Segment answer."},
+				FinishReason: "stop",
+			}},
+			Usage: types.Usage{PromptTokens: 8, CompletionTokens: 3, TotalTokens: 11},
+		},
+	}
+	apiHandler := newTestAPIHandlerWithControlPlane(logger, []providers.Provider{provider}, config.Config{}, controlplane.NewMemoryStore())
+	handler := NewServer(logger, apiHandler)
+	client := newTaskTestClient(t, handler)
+	workspace := t.TempDir()
+
+	session := mustRequestJSON[AgentChatSessionResponse](client, http.MethodPost, "/v1/agent-chat/sessions",
+		`{"runtime_kind":"model","title":"Mixed chat","provider":"openai","model":"gpt-4o-mini"}`)
+	firstTools := mustRequestJSON[AgentChatSessionResponse](client, http.MethodPost, "/v1/agent-chat/sessions/"+session.Data.ID+"/messages",
+		fmt.Sprintf(`{"runtime_kind":"agent","provider":"openai","model":"gpt-4o-mini","workspace":%q,"content":"use tools"}`, workspace))
+	firstTaskID := firstTools.Data.TaskID
+	if firstTaskID == "" {
+		t.Fatalf("first tools turn task_id is empty: %+v", firstTools.Data)
+	}
+	secondModel := mustRequestJSON[AgentChatSessionResponse](client, http.MethodPost, "/v1/agent-chat/sessions/"+session.Data.ID+"/messages",
+		`{"runtime_kind":"model","provider":"openai","model":"gpt-4o-mini","content":"back to direct chat"}`)
+	if secondModel.Data.TaskID != firstTaskID {
+		t.Fatalf("direct model segment should preserve latest task pointer on the session, got %q want %q", secondModel.Data.TaskID, firstTaskID)
+	}
+
+	updates, unsubscribe := apiHandler.agentChatLive.subscribe(session.Data.ID)
+	defer unsubscribe()
+	type requestResult struct {
+		status   int
+		body     string
+		response AgentChatSessionResponse
+	}
+	done := make(chan requestResult, 1)
+	go func() {
+		recorder := performRequest(t, handler, http.MethodPost, "/v1/agent-chat/sessions/"+session.Data.ID+"/messages",
+			fmt.Sprintf(`{"runtime_kind":"agent","provider":"openai","model":"gpt-4o-mini","workspace":%q,"content":"tools again"}`, workspace))
+		payload, _ := tryDecodeRecorder[AgentChatSessionResponse](recorder)
+		done <- requestResult{status: recorder.Code, body: recorder.Body.String(), response: payload}
+	}()
+
+	var result requestResult
+	deadline := time.NewTimer(asyncWaitTimeout)
+	defer deadline.Stop()
+	for result.status == 0 {
+		select {
+		case event := <-updates:
+			assertNoLiveMessageBorrowedTask(t, event, "tools again", firstTaskID)
+		case result = <-done:
+		case <-deadline.C:
+			t.Fatal("timed out waiting for tools re-entry request")
+		}
+	}
+	for {
+		select {
+		case event := <-updates:
+			assertNoLiveMessageBorrowedTask(t, event, "tools again", firstTaskID)
+		default:
+			if result.status != http.StatusOK {
+				t.Fatalf("tools re-entry status = %d, want 200, body=%s", result.status, result.body)
+			}
+			if result.response.Data.TaskID == "" || result.response.Data.TaskID == firstTaskID {
+				t.Fatalf("tools re-entry task_id = %q, want new task distinct from %q", result.response.Data.TaskID, firstTaskID)
+			}
+			for _, message := range result.response.Data.Messages {
+				if strings.Contains(message.Content, "tools again") && message.TaskID == firstTaskID {
+					t.Fatalf("final response message borrowed previous task_id: %+v", message)
+				}
+			}
+			return
+		}
+	}
+}
+
+func assertNoLiveMessageBorrowedTask(t *testing.T, event AgentChatLiveEvent, content, previousTaskID string) {
+	t.Helper()
+	if event.Type != AgentChatLiveEventSessionUpdate || event.SessionUpdate == nil {
+		return
+	}
+	for _, message := range event.SessionUpdate.Data.Messages {
+		if strings.Contains(message.Content, content) && message.TaskID == previousTaskID {
+			t.Fatalf("live message %q borrowed previous task_id %q: %+v", content, previousTaskID, message)
+		}
 	}
 }
 
@@ -716,6 +813,7 @@ func TestHecateAgentChatRejectsBusyBackingRun(t *testing.T) {
 	var payload struct {
 		Error struct {
 			Type        string `json:"type"`
+			Message     string `json:"message"`
 			TaskID      string `json:"task_id"`
 			LatestRunID string `json:"latest_run_id"`
 			RunStatus   string `json:"run_status"`
@@ -724,6 +822,7 @@ func TestHecateAgentChatRejectsBusyBackingRun(t *testing.T) {
 	payload = decodeRecorder[struct {
 		Error struct {
 			Type        string `json:"type"`
+			Message     string `json:"message"`
 			TaskID      string `json:"task_id"`
 			LatestRunID string `json:"latest_run_id"`
 			RunStatus   string `json:"run_status"`
@@ -732,7 +831,77 @@ func TestHecateAgentChatRejectsBusyBackingRun(t *testing.T) {
 	if payload.Error.Type != errCodeAgentSessionBusy {
 		t.Fatalf("error type = %q, want %s", payload.Error.Type, errCodeAgentSessionBusy)
 	}
+	if !strings.Contains(payload.Error.Message, "still working on the current task") {
+		t.Fatalf("message = %q", payload.Error.Message)
+	}
 	if payload.Error.TaskID != task.ID || payload.Error.LatestRunID != run.ID || payload.Error.RunStatus != "running" {
 		t.Fatalf("busy payload = %+v", payload.Error)
+	}
+}
+
+func TestHecateChatRejectsDirectModelTurnWhileBackingRunBusy(t *testing.T) {
+	t.Parallel()
+
+	logger := slog.New(slog.NewJSONHandler(io.Discard, nil))
+	apiHandler := NewHandler(config.Config{}, logger, nil, controlplane.NewMemoryStore(), nil, nil)
+	server := NewServer(logger, apiHandler)
+	client := newTaskTestClient(t, server)
+	ctx := context.Background()
+	now := time.Now().UTC()
+
+	task, err := apiHandler.taskStore.CreateTask(ctx, types.Task{
+		ID:            "task_busy_model_turn",
+		Title:         "Busy chat",
+		ExecutionKind: "agent_loop",
+		Status:        "running",
+		CreatedAt:     now,
+		UpdatedAt:     now,
+	})
+	if err != nil {
+		t.Fatalf("CreateTask: %v", err)
+	}
+	run, err := apiHandler.taskStore.CreateRun(ctx, types.TaskRun{
+		ID:        "run_busy_model_turn",
+		TaskID:    task.ID,
+		Status:    "awaiting_approval",
+		StartedAt: now,
+	})
+	if err != nil {
+		t.Fatalf("CreateRun: %v", err)
+	}
+	session, err := apiHandler.agentChat.Create(ctx, agentchat.Session{
+		ID:           "agent_chat_busy_model_turn",
+		Title:        "Mixed busy",
+		RuntimeKind:  "model",
+		Workspace:    t.TempDir(),
+		TaskID:       task.ID,
+		LatestRunID:  run.ID,
+		Provider:     "openai",
+		Model:        "gpt-4o-mini",
+		Capabilities: types.ModelCapabilities{ToolCalling: modelcaps.ToolCallingParallel, Streaming: true, Source: modelcaps.SourceCatalog},
+	})
+	if err != nil {
+		t.Fatalf("Create session: %v", err)
+	}
+
+	recorder := client.mustRequestStatus(http.StatusConflict, http.MethodPost, "/v1/agent-chat/sessions/"+session.ID+"/messages",
+		`{"runtime_kind":"model","content":"answer directly","model":"gpt-4o-mini"}`)
+	payload := decodeRecorder[struct {
+		Error struct {
+			Type        string `json:"type"`
+			Message     string `json:"message"`
+			TaskID      string `json:"task_id"`
+			LatestRunID string `json:"latest_run_id"`
+			RunStatus   string `json:"run_status"`
+		} `json:"error"`
+	}](t, recorder)
+	if payload.Error.Type != errCodeAgentSessionBusy {
+		t.Fatalf("error type = %q, want %s", payload.Error.Type, errCodeAgentSessionBusy)
+	}
+	if payload.Error.TaskID != task.ID || payload.Error.LatestRunID != run.ID || payload.Error.RunStatus != "awaiting_approval" {
+		t.Fatalf("busy payload = %+v", payload.Error)
+	}
+	if !strings.Contains(payload.Error.Message, "still working on the current task") {
+		t.Fatalf("message = %q", payload.Error.Message)
 	}
 }

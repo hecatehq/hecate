@@ -18,6 +18,11 @@ func TestMemoryStoreReconcileInterruptedRuns(t *testing.T) {
 	runStoreReconcileInterruptedRuns(t, NewMemoryStore())
 }
 
+func TestMemoryStoreDoesNotHydrateTaskIDForAnonymousAgentSegment(t *testing.T) {
+	t.Parallel()
+	runStoreDoesNotHydrateTaskIDForAnonymousAgentSegment(t, NewMemoryStore())
+}
+
 func runStoreLifecycle(t *testing.T, store Store) {
 	t.Helper()
 	ctx := context.Background()
@@ -185,6 +190,50 @@ func runStoreLifecycle(t *testing.T, store Store) {
 	}
 	if ok {
 		t.Fatal("Get after delete: ok = true, want false")
+	}
+}
+
+func runStoreDoesNotHydrateTaskIDForAnonymousAgentSegment(t *testing.T, store Store) {
+	t.Helper()
+	ctx := context.Background()
+	created, err := store.Create(ctx, Session{
+		ID:          "agent_chat_1",
+		RuntimeKind: "agent",
+		TaskID:      "task_previous",
+		LatestRunID: "run_previous",
+		Provider:    "openai",
+		Model:       "gpt-4o-mini",
+	})
+	if err != nil {
+		t.Fatalf("Create: %v", err)
+	}
+
+	updated, err := store.AppendMessage(ctx, created.ID, Message{
+		ID:          "msg_new_segment",
+		RuntimeKind: "agent",
+		SegmentID:   "segment_pending_new_task",
+		Role:        "user",
+		Content:     "tools again",
+	})
+	if err != nil {
+		t.Fatalf("AppendMessage: %v", err)
+	}
+	if got := updated.Messages[len(updated.Messages)-1]; got.TaskID != "" {
+		t.Fatalf("anonymous agent segment task_id = %q, want empty until new task is assigned", got.TaskID)
+	}
+
+	updated, err = store.AppendMessage(ctx, created.ID, Message{
+		ID:          "msg_existing_task",
+		RuntimeKind: "agent",
+		SegmentID:   "task:task_previous",
+		Role:        "assistant",
+		Content:     "continuing previous task",
+	})
+	if err != nil {
+		t.Fatalf("AppendMessage(existing task): %v", err)
+	}
+	if got := updated.Messages[len(updated.Messages)-1]; got.TaskID != "task_previous" {
+		t.Fatalf("task segment task_id = %q, want hydrated previous task", got.TaskID)
 	}
 }
 

@@ -1447,7 +1447,6 @@ export function useRuntimeConsole() {
             // refresh also fails, avoid piling on a second noisy error.
           }
         }
-        setNoticeMessage("success", "Approval was already resolved.");
         return true;
       }
       setNoticeMessage("error", error instanceof Error ? error.message : "Failed to resolve task approval.");
