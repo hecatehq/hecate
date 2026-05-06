@@ -521,6 +521,76 @@ describe("useRuntimeConsole", () => {
       expect(result.current.state.chatError).toBe("");
     });
 
+    it("queues a prompt while the active agent run is busy and sends it after completion", async () => {
+      window.localStorage.setItem("hecate.chatTarget", "agent");
+      window.localStorage.setItem("hecate.agentChatSessionID", "a1");
+      window.localStorage.setItem("hecate.agentWorkspace", "/workspace");
+      let sessionStatus = "running";
+      let messagePostCount = 0;
+      fetchMock.mockImplementation(async (input, init) => {
+        const url = String(input);
+        if (url === "/v1/agent-chat/sessions") {
+          return jsonResponse({
+            object: "agent_chat_sessions",
+            data: [{ id: "a1", title: "Agent", runtime_kind: "agent", status: sessionStatus, workspace: "/workspace", message_count: 0 }],
+          });
+        }
+        if (url === "/v1/agent-chat/sessions/a1") {
+          return jsonResponse({
+            object: "agent_chat_session",
+            data: { id: "a1", title: "Agent", runtime_kind: "agent", status: sessionStatus, workspace: "/workspace", messages: [], created_at: "2026-04-20T00:00:00Z", updated_at: new Date().toISOString() },
+          });
+        }
+        if (url === "/v1/agent-chat/sessions/a1/stream") {
+          return emptyStreamResponse();
+        }
+        if (url === "/v1/agent-chat/sessions/a1/messages") {
+          messagePostCount += 1;
+          void init;
+          return jsonResponse({
+            object: "agent_chat_session",
+            data: {
+              id: "a1",
+              title: "Agent",
+              runtime_kind: "agent",
+              status: "completed",
+              workspace: "/workspace",
+              messages: [
+                { id: "u1", runtime_kind: "agent", role: "user", content: "after this", created_at: "2026-04-20T00:00:01Z" },
+              ],
+              created_at: "2026-04-20T00:00:00Z",
+              updated_at: new Date().toISOString(),
+            },
+          });
+        }
+        return defaultBackendMock()(input, init);
+      });
+
+      const { result } = renderHook(() => useRuntimeConsole());
+      await waitFor(() => expect(result.current.state.loading).toBe(false));
+      await waitFor(() => expect(result.current.state.activeAgentChatSession?.status).toBe("running"));
+
+      act(() => {
+        result.current.actions.setMessage("after this");
+      });
+      await act(async () => {
+        await result.current.actions.submitChat({ preventDefault: vi.fn() } as any);
+      });
+
+      expect(messagePostCount).toBe(0);
+      expect(result.current.state.message).toBe("");
+      expect(result.current.state.queuedChatMessages).toHaveLength(1);
+      expect(result.current.state.queuedChatMessages[0].content).toBe("after this");
+
+      sessionStatus = "completed";
+      await act(async () => {
+        await result.current.actions.selectChatSession("a1");
+      });
+
+      await waitFor(() => expect(messagePostCount).toBe(1));
+      await waitFor(() => expect(result.current.state.queuedChatMessages).toHaveLength(0));
+    });
+
     it("keeps the tools toggle scoped to the selected Hecate chat", async () => {
       const hecateSession = (id: string) => ({
         object: "agent_chat_session",
@@ -998,5 +1068,16 @@ function jsonResponse(payload: unknown, status = 200): Response {
   return new Response(JSON.stringify(payload), {
     status,
     headers: { "Content-Type": "application/json" },
+  });
+}
+
+function emptyStreamResponse(): Response {
+  return new Response(new ReadableStream({
+    start(controller) {
+      controller.close();
+    },
+  }), {
+    status: 200,
+    headers: { "Content-Type": "text/event-stream" },
   });
 }

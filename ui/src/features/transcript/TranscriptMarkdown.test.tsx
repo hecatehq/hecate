@@ -20,6 +20,14 @@ describe("TranscriptMarkdown", () => {
     expect(screen.getByText(/const x = 1/)).toBeInTheDocument();
   });
 
+  it("renders indented fenced code blocks as code blocks", () => {
+    const { container } = render(<TranscriptMarkdown content={"- Review changes:\n  ```sh\ngit diff\n  ```"} />);
+    const pre = container.querySelector("pre");
+    expect(pre).not.toBeNull();
+    expect(pre?.textContent).toContain("git diff");
+    expect(screen.queryByText("`")).toBeNull();
+  });
+
   it("renders headings of varying levels", () => {
     const { container } = render(<TranscriptMarkdown content={"# H1\n## H2\n### H3\nbody"} />);
     expect(container.textContent).toContain("H1");

@@ -590,7 +590,7 @@ describe("ChatView input", () => {
     expect(fixedModel.disabled).toBe(true);
     expect(screen.queryByText("smollm2:135m")).toBeNull();
     expect(screen.queryByText(/Tools are disabled for this model/)).toBeNull();
-    expect(document.querySelector("button[type='submit']")).toBeNull();
+    expect(screen.getByRole("button", { name: "Queue message" })).toBeTruthy();
     expect(document.querySelector('[aria-label="Stop agent"]')).toBeTruthy();
     expect(screen.getByText(/Hecate Chat is working on this task/)).toBeTruthy();
 
@@ -649,9 +649,36 @@ describe("ChatView input", () => {
     expect(screen.getByRole("button", { name: "Fixed model: qwen2.5-coder" })).toBeTruthy();
     expect(screen.queryByText("smollm2:135m")).toBeNull();
     expect(screen.getByRole("button", { name: "Stop agent" })).toBeTruthy();
-    expect(screen.getByText(/Wait for it to finish, resolve approval, or stop it/)).toBeTruthy();
+    expect(screen.getByText(/New messages will queue until the active run finishes/)).toBeTruthy();
     screen.getByRole("button", { name: "Open task" }).click();
     expect(onOpenTask).toHaveBeenCalledWith("task_hecate_123456", "run_hecate_abcdef");
+  });
+
+  it("renders queued messages with a remove action", async () => {
+    const removeQueuedChatMessage = vi.fn();
+    const user = userEvent.setup();
+    const { state, actions } = setup({
+      queuedChatMessages: [
+        {
+          id: "queued_1",
+          content: "run tests after this",
+          runtime_kind: "agent",
+          provider_filter: "ollama",
+          model: "qwen2.5-coder",
+          workspace: "/workspace",
+          system_prompt: "",
+          adapter_id: "codex",
+          created_at: "2026-04-20T00:00:00Z",
+        },
+      ],
+    }, { removeQueuedChatMessage });
+
+    render(<ChatView state={state} actions={actions} />);
+
+    expect(screen.getByLabelText("Queued messages")).toBeTruthy();
+    expect(screen.getByText("run tests after this")).toBeTruthy();
+    await user.click(screen.getByRole("button", { name: "Remove queued message 1" }));
+    expect(removeQueuedChatMessage).toHaveBeenCalledWith("queued_1");
   });
 
   it("shows the Hecate Agent sandbox reminder only when tools are enabled", () => {

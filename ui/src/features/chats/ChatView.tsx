@@ -242,12 +242,13 @@ export function ChatView({ state, actions, onNavigate, onOpenTask, onOpenTrace }
     ? Boolean(hecateChatModelValue)
     : Boolean(state.model) && !modelRouteUnavailable;
   const composerVisible = isExternalAgentChat || (isHecateChat && hecateChatModelReady);
+  const agentBusy = isAgentChat && (streaming || hecateAgentBusy);
+  const queueingMessage = agentBusy && Boolean(state.message.trim());
   const sendDisabled = !state.message.trim()
-    || streaming
-    || hecateAgentBusy
+    || (!agentBusy && streaming)
     || (!isAgentChat && modelRouteUnavailable)
-    || (isExternalAgentChat && (!state.agentWorkspace.trim() || !selectedAgent?.available))
-    || (isHecateAgentChat && (!state.agentWorkspace.trim() || !hecateChatModelReady || hecateAgentToolsDisabledForModel));
+    || (!agentBusy && isExternalAgentChat && (!state.agentWorkspace.trim() || !selectedAgent?.available))
+    || (!agentBusy && isHecateAgentChat && (!state.agentWorkspace.trim() || !hecateChatModelReady || hecateAgentToolsDisabledForModel));
 
   async function enableToolsForSelectedModel() {
     if (!selectedCapabilityProvider || !selectedCapabilityModel || capabilitySaving) {
@@ -1120,6 +1121,59 @@ export function ChatView({ state, actions, onNavigate, onOpenTask, onOpenTrace }
               </button>
             </div>
           )}
+          {state.queuedChatMessages.length > 0 && (
+            <div
+              aria-label="Queued messages"
+              style={{
+                maxWidth: 820,
+                margin: "0 auto 8px",
+                border: "1px solid var(--border)",
+                borderRadius: "var(--radius-sm)",
+                background: "var(--bg2)",
+                padding: "7px 9px",
+                display: "grid",
+                gap: 6,
+              }}
+            >
+              <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", gap: 8 }}>
+                <span style={{ color: "var(--t2)", fontFamily: "var(--font-mono)", fontSize: 10, textTransform: "uppercase", letterSpacing: "0.08em" }}>
+                  Queued next
+                </span>
+                <span style={{ color: "var(--t3)", fontSize: 11 }}>
+                  will send when the active run finishes
+                </span>
+              </div>
+              {state.queuedChatMessages.map((queued, index) => (
+                <div
+                  key={queued.id}
+                  style={{
+                    display: "grid",
+                    gridTemplateColumns: "auto minmax(0, 1fr) auto",
+                    alignItems: "center",
+                    gap: 8,
+                    color: "var(--t0)",
+                    fontSize: 12,
+                  }}
+                >
+                  <span style={{ color: "var(--teal)", fontFamily: "var(--font-mono)", fontSize: 10 }}>
+                    #{index + 1}
+                  </span>
+                  <span style={{ overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>
+                    {queued.content}
+                  </span>
+                  <button
+                    type="button"
+                    className="btn btn-ghost btn-sm"
+                    aria-label={`Remove queued message ${index + 1}`}
+                    onClick={() => actions.removeQueuedChatMessage(queued.id)}
+                    style={{ padding: "2px 6px", fontFamily: "var(--font-mono)", fontSize: 10 }}
+                  >
+                    remove
+                  </button>
+                </div>
+              ))}
+            </div>
+          )}
           <div style={{ maxWidth: 820, margin: "0 auto", position: "relative" }}>
             <textarea
               ref={textareaRef}
@@ -1143,7 +1197,7 @@ export function ChatView({ state, actions, onNavigate, onOpenTask, onOpenTrace }
               onFocus={e => (e.target.style.borderColor = "var(--teal)")}
               onBlur={e => (e.target.style.borderColor = "var(--border)")}
             />
-            {isAgentChat && (streaming || hecateAgentBusy) ? (
+            {agentBusy && !queueingMessage ? (
               <button type="button"
                 className="btn btn-danger"
                 aria-label="Stop agent"
@@ -1160,8 +1214,9 @@ export function ChatView({ state, actions, onNavigate, onOpenTask, onOpenTrace }
               </button>
             ) : (
               <button type="submit"
-                aria-label="Send message"
+                aria-label={queueingMessage ? "Queue message" : "Send message"}
                 disabled={sendDisabled}
+                title={queueingMessage ? "Queue this message after the active run finishes" : "Send message"}
                 style={{
                   position: "absolute", right: 8, top: "50%", transform: "translateY(-50%)",
                   width: 28, height: 28, borderRadius: "var(--radius-sm)",
@@ -1175,21 +1230,36 @@ export function ChatView({ state, actions, onNavigate, onOpenTask, onOpenTrace }
               </button>
             )}
           </div>
-          {hecateAgentBusy && (
+          {agentBusy && (
             <div style={{ maxWidth: 820, margin: "6px auto 0", color: "var(--amber)", fontFamily: "var(--font-mono)", fontSize: 11, lineHeight: 1.45, display: "flex", alignItems: "center", gap: 8, justifyContent: "space-between", flexWrap: "wrap" }}>
               <span>
-                Hecate Chat is working on this task. Wait for it to finish, resolve approval, or stop it before sending another message.
+                {isExternalAgentChat
+                  ? "External Agent is running. New messages will queue until it finishes."
+                  : "Hecate Chat is working on this task. New messages will queue until the active run finishes."}
               </span>
-              {onOpenTask && activeHecateTaskID && (
+              <span style={{ display: "inline-flex", alignItems: "center", gap: 6, flexWrap: "wrap" }}>
+                {onOpenTask && activeHecateTaskID && (
+                  <button
+                    type="button"
+                    className="btn btn-ghost btn-sm"
+                    onClick={() => onOpenTask(activeHecateTaskID, activeHecateRunID)}
+                    style={{ fontFamily: "var(--font-mono)", fontSize: 10, padding: "2px 6px", color: "var(--amber)" }}
+                  >
+                    Open task
+                  </button>
+                )}
                 <button
                   type="button"
                   className="btn btn-ghost btn-sm"
-                  onClick={() => onOpenTask(activeHecateTaskID, activeHecateRunID)}
-                  style={{ fontFamily: "var(--font-mono)", fontSize: 10, padding: "2px 6px", color: "var(--amber)" }}
+                  aria-label="Stop agent"
+                  title={state.agentChatCancelling ? "Stopping..." : "Stop agent"}
+                  onClick={actions.cancelAgentChat}
+                  disabled={state.agentChatCancelling}
+                  style={{ fontFamily: "var(--font-mono)", fontSize: 10, padding: "2px 6px", color: "var(--danger)" }}
                 >
-                  Open task
+                  Stop
                 </button>
-              )}
+              </span>
             </div>
           )}
           {isAgentChat && state.agentChatCancelling && (
