@@ -27,12 +27,33 @@ export function humanizeChatError(raw: string): string {
   if (/agent_session_busy|already running for this chat session/i.test(raw)) {
     return "Hecate Chat is still working on this task. Open the task, resolve approval, or stop it before sending another message.";
   }
+  if (/workspace (is )?(required|missing)|choose a workspace|workspace path/i.test(raw)) {
+    return "Choose a workspace before using Hecate Chat tools or External Agent.";
+  }
+  if (/tool.?calling.*(unknown|none|unavailable|not supported)|model.*does not support.*tools?/i.test(raw)) {
+    return "This model is not marked as tool-capable. Turn tools off, test it, or enable tools in Settings.";
+  }
   const explicitModel = raw.match(/no provider supports explicit model ["“]?([^"”]+)["”]?/i);
   if (explicitModel) {
     return `No configured provider can route to ${explicitModel[1]}. Choose another model or add/configure a provider.`;
   }
+  if (/no routable model|no route/i.test(raw)) {
+    return "No routable model is available. Choose another model, add a provider, or check provider health.";
+  }
+  if (/authentication required|please (run .*login|log in)|not signed in|unauthenticated/i.test(raw)) {
+    return "The selected runtime is not signed in. Run its login command or use Settings to test readiness.";
+  }
+  if (/credit balance is too low|billing|payment required|insufficient credits/i.test(raw)) {
+    return "The selected runtime reported a billing or credit problem. Check its account, subscription, or API key balance.";
+  }
+  if (/connection refused|econnrefused|connect: connection refused/i.test(raw)) {
+    return "The selected provider is not reachable. Start the local provider app or check its endpoint URL.";
+  }
   const upstreamStatus = raw.match(/upstream returned (\d{3})/i);
   if (upstreamStatus) {
+    if (upstreamStatus[1] === "401" || upstreamStatus[1] === "403") {
+      return `The selected provider rejected the request with HTTP ${upstreamStatus[1]}. Check credentials and account access.`;
+    }
     return `The selected provider returned HTTP ${upstreamStatus[1]}. Check that the provider is running and reachable.`;
   }
   if (/upstream timeout|context deadline exceeded/i.test(raw)) {
