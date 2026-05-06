@@ -10,6 +10,7 @@ import (
 	"fmt"
 	"io"
 	"log/slog"
+	"sort"
 	"strings"
 	"time"
 
@@ -422,31 +423,49 @@ func (h *StreamHandle) Execute(w io.Writer) error {
 
 // StreamedContent holds the text accumulated during a streaming response.
 type StreamedContent struct {
+	ID           string
 	Content      string
 	FinishReason string
 	Model        string
+	ToolCalls    []types.ToolCall
 }
 
 // ExecuteAndCapture writes the SSE stream to w and simultaneously captures
 // content deltas so the caller can record the turn after streaming completes.
 func (h *StreamHandle) ExecuteAndCapture(w io.Writer) (StreamedContent, error) {
-	cap := &sseCapture{dst: w}
+	return h.ExecuteAndCaptureDeltas(w, nil)
+}
+
+func (h *StreamHandle) ExecuteAndCaptureDeltas(w io.Writer, onContentDelta func(string)) (StreamedContent, error) {
+	cap := &sseCapture{dst: w, onContentDelta: onContentDelta}
 	err := h.stream(cap)
 	return StreamedContent{
+		ID:           cap.id,
 		Content:      cap.content.String(),
 		FinishReason: cap.finishReason,
 		Model:        cap.model,
+		ToolCalls:    cap.toolCalls(),
 	}, err
 }
 
 // sseCapture wraps a writer and parses OpenAI-format SSE content deltas as
 // they flow through, so the accumulated text is available after streaming ends.
 type sseCapture struct {
-	dst          io.Writer
-	pending      []byte
-	content      strings.Builder
-	model        string
-	finishReason string
+	dst            io.Writer
+	pending        []byte
+	content        strings.Builder
+	model          string
+	id             string
+	finishReason   string
+	onContentDelta func(string)
+	toolCallStates map[int]*streamedToolCall
+}
+
+type streamedToolCall struct {
+	id        string
+	callType  string
+	name      string
+	arguments strings.Builder
 }
 
 func (c *sseCapture) Write(p []byte) (int, error) {
@@ -474,10 +493,20 @@ func (c *sseCapture) drain() {
 			break
 		}
 		var chunk struct {
+			ID      string `json:"id"`
 			Model   string `json:"model"`
 			Choices []struct {
 				Delta struct {
-					Content string `json:"content"`
+					Content   string `json:"content"`
+					ToolCalls []struct {
+						Index    int    `json:"index"`
+						ID       string `json:"id"`
+						Type     string `json:"type"`
+						Function struct {
+							Name      string `json:"name"`
+							Arguments string `json:"arguments"`
+						} `json:"function"`
+					} `json:"tool_calls"`
 				} `json:"delta"`
 				FinishReason *string `json:"finish_reason"`
 			} `json:"choices"`
@@ -485,16 +514,126 @@ func (c *sseCapture) drain() {
 		if err := json.Unmarshal([]byte(data), &chunk); err != nil {
 			continue
 		}
+		if chunk.ID != "" && c.id == "" {
+			c.id = chunk.ID
+		}
 		if chunk.Model != "" && c.model == "" {
 			c.model = chunk.Model
 		}
 		for _, choice := range chunk.Choices {
-			c.content.WriteString(choice.Delta.Content)
+			if choice.Delta.Content != "" {
+				c.content.WriteString(choice.Delta.Content)
+				if c.onContentDelta != nil {
+					c.onContentDelta(choice.Delta.Content)
+				}
+			}
+			c.captureToolCallDeltas(choice.Delta.ToolCalls)
 			if choice.FinishReason != nil && *choice.FinishReason != "" {
 				c.finishReason = *choice.FinishReason
 			}
 		}
 	}
+}
+
+func (c *sseCapture) captureToolCallDeltas(deltas []struct {
+	Index    int    `json:"index"`
+	ID       string `json:"id"`
+	Type     string `json:"type"`
+	Function struct {
+		Name      string `json:"name"`
+		Arguments string `json:"arguments"`
+	} `json:"function"`
+}) {
+	for _, delta := range deltas {
+		if c.toolCallStates == nil {
+			c.toolCallStates = make(map[int]*streamedToolCall)
+		}
+		state := c.toolCallStates[delta.Index]
+		if state == nil {
+			state = &streamedToolCall{}
+			c.toolCallStates[delta.Index] = state
+		}
+		if delta.ID != "" {
+			state.id = delta.ID
+		}
+		if delta.Type != "" {
+			state.callType = delta.Type
+		}
+		if delta.Function.Name != "" {
+			state.name = delta.Function.Name
+		}
+		if delta.Function.Arguments != "" {
+			state.arguments.WriteString(delta.Function.Arguments)
+		}
+	}
+}
+
+func (c *sseCapture) toolCalls() []types.ToolCall {
+	if len(c.toolCallStates) == 0 {
+		return nil
+	}
+	indexes := make([]int, 0, len(c.toolCallStates))
+	for index := range c.toolCallStates {
+		indexes = append(indexes, index)
+	}
+	sort.Ints(indexes)
+	calls := make([]types.ToolCall, 0, len(indexes))
+	for _, index := range indexes {
+		state := c.toolCallStates[index]
+		if state == nil || (state.id == "" && state.name == "" && state.arguments.Len() == 0) {
+			continue
+		}
+		callType := state.callType
+		if callType == "" {
+			callType = "function"
+		}
+		calls = append(calls, types.ToolCall{
+			ID:   state.id,
+			Type: callType,
+			Function: types.ToolCallFunction{
+				Name:      state.name,
+				Arguments: state.arguments.String(),
+			},
+		})
+	}
+	return calls
+}
+
+func (s *Service) HandleChatStreamCapture(ctx context.Context, req types.ChatRequest, onContentDelta func(string)) (*types.ChatResponse, error) {
+	handle, _, err := s.RouteForStream(ctx, req)
+	if err != nil {
+		return nil, err
+	}
+	captured, err := handle.ExecuteAndCaptureDeltas(io.Discard, onContentDelta)
+	if err != nil {
+		return nil, err
+	}
+	model := captured.Model
+	if model == "" {
+		model = req.Model
+	}
+	finishReason := captured.FinishReason
+	if finishReason == "" {
+		finishReason = "stop"
+	}
+	id := captured.ID
+	if id == "" {
+		id = "chatcmpl-stream"
+	}
+	return &types.ChatResponse{
+		ID:        id,
+		Model:     model,
+		CreatedAt: time.Now().UTC(),
+		Choices: []types.ChatChoice{{
+			Index: 0,
+			Message: types.Message{
+				Role:      "assistant",
+				Content:   captured.Content,
+				ToolCalls: captured.ToolCalls,
+			},
+			FinishReason: finishReason,
+		}},
+	}, nil
 }
 
 // RouteForStream runs governor/routing checks and returns a StreamHandle ready to

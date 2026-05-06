@@ -101,12 +101,13 @@ Each section has exactly one job: orient, inspect, compare, edit, or confirm. If
   Adapter/workspace/native session diagnostics belong to External Agent.
 - Hecate Agent sessions store a workspace plus backing `task_id` /
   `latest_run_id`. New UI affordances should show per-turn task links in the
-  transcript and point operators to Tasks for approvals, artifacts,
-  retry/resume, and patch review.
+  transcript. Chats may resolve pending task approvals inline; Tasks remains
+  canonical for artifacts, retry/resume, full event history, and patch review.
 - External Agent sessions store their workspace and native ACP session id. New
   UI affordances should preserve that continuity instead of treating every
   prompt as a one-off subprocess.
-- Model capability badges gate Hecate Agent sends. Unknown local/custom models
+- Model capability badges gate Hecate Agent sends. Explicitly tools-off models
+  should offer an inline enable/override path; unknown local/custom models
   should explain how to record a manual probe result or operator override in
   Settings, not silently run as an agent.
 - Agent Chat readiness belongs in Settings → External agents and in the picker

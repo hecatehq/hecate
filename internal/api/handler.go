@@ -26,7 +26,6 @@ import (
 	"github.com/hecate/agent-runtime/internal/taskstate"
 	"github.com/hecate/agent-runtime/internal/telemetry"
 	"github.com/hecate/agent-runtime/internal/version"
-	"github.com/hecate/agent-runtime/pkg/types"
 )
 
 type Handler struct {
@@ -210,23 +209,15 @@ func NewHandler(cfg config.Config, logger *slog.Logger, service *gateway.Service
 	// that handles external client traffic — same routing, same
 	// caching, same budget enforcement, same audit trail. The
 	// adapter unwraps gateway.ChatResult into the bare ChatResponse
-	// the loop expects.
+	// the loop expects and uses the gateway streaming path when the
+	// provider supports SSE.
 	//
 	// Tests that build handlers with `nil` providers and don't
 	// exercise agent_loop are unaffected — only agent_loop tasks
 	// invoke this path, and agent_loop tasks with no providers
 	// configured surface a clean error to the operator rather than
 	// silently doing nothing.
-	runner.SetAgentLLMClient(orchestrator.AgentLLMClientFunc(func(ctx context.Context, req types.ChatRequest) (*types.ChatResponse, error) {
-		result, err := service.HandleChat(ctx, req)
-		if err != nil {
-			return nil, err
-		}
-		if result == nil {
-			return nil, nil
-		}
-		return result.Response, nil
-	}))
+	runner.SetAgentLLMClient(gatewayAgentLLMClient{service: service})
 	reconcileCtx := context.Background()
 	if err := runner.ReconcilePendingRuns(reconcileCtx); err != nil {
 		telemetry.Warn(logger, reconcileCtx, "task runner reconciliation failed", slog.Any("error", err))

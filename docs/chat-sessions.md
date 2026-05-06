@@ -28,6 +28,8 @@ but they can also store direct model segments:
   Chats projects the backing run activity into the transcript, links each
   assistant turn back to its backing Task/run, and can approve/reject pending
   task approvals inline, while Tasks remains the canonical run/artifact view.
+  When the backing provider supports streaming, the running assistant message
+  updates from the task conversation artifact before the task run completes.
 - **External Agent** sessions map one chat session to one supervised adapter
   session such as Codex, Claude Code, or Cursor Agent.
 

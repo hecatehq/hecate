@@ -436,6 +436,7 @@ func (h *Handler) waitForHecateAgentRun(ctx context.Context, taskID, runID, sess
 	defer ticker.Stop()
 	var lastStatus string
 	var lastActivitySignature string
+	var lastContent string
 	for {
 		run, found, err := h.taskStore.GetRun(ctx, taskID, runID)
 		if err != nil {
@@ -450,10 +451,15 @@ func (h *Handler) waitForHecateAgentRun(ctx context.Context, taskID, runID, sess
 			taskActivities = agentChatActivitiesFromTaskActivity(state.Activity)
 			activitySignature = agentChatActivitySignature(taskActivities)
 		}
-		if run.Status != lastStatus || (activitySignature != "" && activitySignature != lastActivitySignature) {
+		liveContent := h.finalHecateAgentAnswer(ctx, taskID, runID)
+		contentChanged := liveContent != "" && liveContent != lastContent
+		if run.Status != lastStatus || (activitySignature != "" && activitySignature != lastActivitySignature) || contentChanged {
 			lastStatus = run.Status
 			if activitySignature != "" {
 				lastActivitySignature = activitySignature
+			}
+			if contentChanged {
+				lastContent = liveContent
 			}
 			updated, updateErr := h.agentChat.UpdateMessage(ctx, sessionID, messageID, func(message *agentchat.Message) {
 				message.RunID = run.ID
@@ -461,6 +467,9 @@ func (h *Handler) waitForHecateAgentRun(ctx context.Context, taskID, runID, sess
 				message.TraceID = firstNonEmpty(run.TraceID, message.TraceID)
 				message.SpanID = firstNonEmpty(run.RootSpanID, message.SpanID)
 				message.Status = agentChatStatusFromTaskRun(run.Status)
+				if liveContent != "" {
+					message.Content = liveContent
+				}
 				message.Activities = mergeAgentChatActivity(message.Activities, newHecateAgentRunActivity(taskID, run.ID, run.Status))
 				for _, activity := range taskActivities {
 					message.Activities = mergeAgentChatActivity(message.Activities, activity)

@@ -1,8 +1,9 @@
 # Hecate Agent Chats and Model Capabilities
 
 > **Status:** accepted; the baseline chat-to-task bridge has landed, including
-> chat-visible run activity and task approval resolution. Stable Hecate Agent
-> still requires workspace modes, profiles, automatic probing, and broader e2e.
+> chat-visible run activity, task approval resolution, and streamed assistant
+> text for task-backed turns. Stable Hecate Agent still requires workspace
+> modes, profiles, automatic probing, and broader e2e.
 > **Related:** [Chat sessions](../chat-sessions.md),
 > [External agent adapters](external-agent-adapters.md),
 > [Agent runtime](../agent-runtime.md), [Runtime API](../runtime-api.md).
@@ -35,6 +36,7 @@ requirements after the baseline bridge are:
 
 - run activity rendered in Chats from task-run events _(implemented)_
 - task approvals resolved directly from Chats _(implemented)_
+- streamed assistant text for task-backed Hecate Agent turns _(implemented)_
 - task workspace modes exposed in the Hecate Agent chat setup
 - named Hecate Agent profiles
 - automatic capability probing with explicit operator control
@@ -408,6 +410,8 @@ Done in the core bridge:
 - backing task-run activity is projected into Hecate Agent chat transcripts
 - pending task approvals can be approved or rejected from the Hecate Agent
   chat banner while Tasks remains canonical
+- streamed assistant text from the backing task updates the chat transcript
+  before the run reaches a terminal state when the provider route supports SSE
 - direct model turns and Hecate Agent turns share one Agent Chat transcript
   using `runtime_kind="model"` / `runtime_kind="agent"` message
   snapshots

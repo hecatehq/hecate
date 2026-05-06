@@ -2,6 +2,7 @@ package api
 
 import (
 	"context"
+	"encoding/json"
 	"fmt"
 	"io"
 	"log/slog"
@@ -174,6 +175,148 @@ func TestHecateAgentTimingFromRunState(t *testing.T) {
 	}
 	if timing.Bottleneck != "approval" || timing.BottleneckMS != 3000 {
 		t.Fatalf("bottleneck = %s/%d, want approval/3000", timing.Bottleneck, timing.BottleneckMS)
+	}
+}
+
+func TestHecateAgentChatPublishesLiveAssistantContent(t *testing.T) {
+	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+	defer cancel()
+
+	taskStore := taskstate.NewMemoryStore()
+	chatStore := agentchat.NewMemoryStore()
+	live := newAgentChatLive(agentChatSnapshotConfig{})
+	handler := &Handler{
+		taskStore:     taskStore,
+		agentChat:     chatStore,
+		agentChatLive: live,
+	}
+	now := time.Now().UTC()
+	task, err := taskStore.CreateTask(ctx, types.Task{
+		ID:            "task_live",
+		Title:         "Live chat",
+		ExecutionKind: "agent_loop",
+		Status:        "running",
+		CreatedAt:     now,
+		UpdatedAt:     now,
+	})
+	if err != nil {
+		t.Fatalf("CreateTask: %v", err)
+	}
+	run, err := taskStore.CreateRun(ctx, types.TaskRun{
+		ID:        "run_live",
+		TaskID:    task.ID,
+		Status:    "running",
+		Model:     "gpt-4o-mini",
+		Provider:  "openai",
+		StartedAt: now,
+	})
+	if err != nil {
+		t.Fatalf("CreateRun: %v", err)
+	}
+	session, err := chatStore.Create(ctx, agentchat.Session{
+		ID:          "chat_live",
+		Title:       "Live chat",
+		RuntimeKind: "agent",
+		TaskID:      task.ID,
+		LatestRunID: run.ID,
+		Provider:    "openai",
+		Model:       "gpt-4o-mini",
+		Workspace:   t.TempDir(),
+		Status:      "running",
+		CreatedAt:   now,
+	})
+	if err != nil {
+		t.Fatalf("Create session: %v", err)
+	}
+	if _, err := chatStore.AppendMessage(ctx, session.ID, agentchat.Message{
+		ID:          "msg_assistant",
+		RuntimeKind: "agent",
+		SegmentID:   "task:" + task.ID,
+		TaskID:      task.ID,
+		RunID:       run.ID,
+		Role:        "assistant",
+		Status:      "running",
+		Content:     "",
+		CreatedAt:   now,
+		StartedAt:   now,
+	}); err != nil {
+		t.Fatalf("AppendMessage: %v", err)
+	}
+
+	updates, unsubscribe := live.subscribe(session.ID)
+	defer unsubscribe()
+	done := make(chan error, 1)
+	go func() {
+		_, err := handler.waitForHecateAgentRun(ctx, task.ID, run.ID, session.ID, "msg_assistant")
+		done <- err
+	}()
+
+	conversation, err := json.Marshal([]types.Message{
+		{Role: "user", Content: "show the diff"},
+		{Role: "assistant", Content: "I can see the diff now."},
+	})
+	if err != nil {
+		t.Fatalf("marshal conversation: %v", err)
+	}
+	if _, err := taskStore.CreateArtifact(ctx, types.TaskArtifact{
+		ID:          "convo-" + run.ID,
+		TaskID:      task.ID,
+		RunID:       run.ID,
+		Kind:        "agent_conversation",
+		Name:        "agent-conversation.json",
+		ContentText: string(conversation),
+		Status:      "ready",
+		CreatedAt:   now,
+	}); err != nil {
+		t.Fatalf("CreateArtifact: %v", err)
+	}
+
+	snapshot := awaitAgentChatLiveSession(t, updates, 2*time.Second, func(item AgentChatSessionItem) bool {
+		if len(item.Messages) == 0 {
+			return false
+		}
+		last := item.Messages[len(item.Messages)-1]
+		return last.ID == "msg_assistant" && last.Status == "running" && strings.Contains(last.Content, "I can see the diff now.")
+	})
+	last := snapshot.Messages[len(snapshot.Messages)-1]
+	if !strings.Contains(last.Content, "I can see the diff now.") {
+		t.Fatalf("live content = %q, want streamed assistant artifact text", last.Content)
+	}
+
+	run.Status = "completed"
+	run.FinishedAt = time.Now().UTC()
+	if _, err := taskStore.UpdateRun(ctx, run); err != nil {
+		t.Fatalf("UpdateRun: %v", err)
+	}
+	select {
+	case err := <-done:
+		if err != nil {
+			t.Fatalf("waitForHecateAgentRun returned error: %v", err)
+		}
+	case <-time.After(2 * time.Second):
+		t.Fatal("waitForHecateAgentRun did not finish after run completion")
+	}
+}
+
+func awaitAgentChatLiveSession(t *testing.T, updates <-chan AgentChatLiveEvent, timeout time.Duration, matches func(AgentChatSessionItem) bool) AgentChatSessionItem {
+	t.Helper()
+	timer := time.NewTimer(timeout)
+	defer timer.Stop()
+	for {
+		select {
+		case event, ok := <-updates:
+			if !ok {
+				t.Fatal("agent chat live channel closed before matching session update")
+			}
+			if event.Type != AgentChatLiveEventSessionUpdate || event.SessionUpdate == nil {
+				continue
+			}
+			if matches(event.SessionUpdate.Data) {
+				return event.SessionUpdate.Data
+			}
+		case <-timer.C:
+			t.Fatalf("timed out waiting for matching agent chat live session update")
+		}
 	}
 }
 

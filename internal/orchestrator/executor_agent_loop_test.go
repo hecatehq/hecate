@@ -40,6 +40,28 @@ func (s *scriptedLLM) Chat(ctx context.Context, req types.ChatRequest) (*types.C
 	return s.responses[idx], nil
 }
 
+type streamingScriptedLLM struct {
+	response      *types.ChatResponse
+	chunks        []string
+	chatCalls     atomic.Int32
+	streamCalls   atomic.Int32
+	lastStreamReq types.ChatRequest
+}
+
+func (s *streamingScriptedLLM) Chat(_ context.Context, _ types.ChatRequest) (*types.ChatResponse, error) {
+	s.chatCalls.Add(1)
+	return nil, errors.New("streamingScriptedLLM: non-streaming Chat should not be called")
+}
+
+func (s *streamingScriptedLLM) ChatStream(_ context.Context, req types.ChatRequest, onContentDelta func(string)) (*types.ChatResponse, error) {
+	s.streamCalls.Add(1)
+	s.lastStreamReq = req
+	for _, chunk := range s.chunks {
+		onContentDelta(chunk)
+	}
+	return s.response, nil
+}
+
 // erroringLLM returns the same canned error on every call. Used by
 // failure-path tests that need to assert the agent loop's wrapping
 // of upstream provider errors.
@@ -131,6 +153,44 @@ func TestAgentLoop_FinalAnswerOnFirstTurn(t *testing.T) {
 	convo := findArtifactByKind(res.Artifacts, "agent_conversation")
 	if convo == nil {
 		t.Fatalf("no agent_conversation artifact persisted; got: %+v", res.Artifacts)
+	}
+}
+
+func TestAgentLoop_StreamingLLMPersistsPartialConversation(t *testing.T) {
+	llm := &streamingScriptedLLM{
+		chunks: []string{"This is a streaming answer that arrives before completion."},
+		response: makeChatResp(makeAssistantMsg(
+			"This is a streaming answer that arrives before completion.",
+		)),
+	}
+	loop := NewAgentLoopExecutor(llm, &stubExecutor{}, &stubExecutor{}, &stubExecutor{}, 8, nil, HTTPRequestPolicy{})
+	spec := newAgentLoopSpec(t)
+	var conversationUpserts []types.TaskArtifact
+	spec.UpsertArtifact = func(artifact types.TaskArtifact) error {
+		if artifact.Kind == "agent_conversation" {
+			conversationUpserts = append(conversationUpserts, artifact)
+		}
+		return nil
+	}
+
+	res, err := loop.Execute(context.Background(), spec)
+	if err != nil {
+		t.Fatalf("Execute: %v", err)
+	}
+	if res.Status != "completed" {
+		t.Fatalf("status = %q, want completed", res.Status)
+	}
+	if llm.streamCalls.Load() != 1 || llm.chatCalls.Load() != 0 {
+		t.Fatalf("llm calls = stream %d chat %d, want stream-only", llm.streamCalls.Load(), llm.chatCalls.Load())
+	}
+	if len(conversationUpserts) < 2 {
+		t.Fatalf("conversation upserts = %d, want streaming partial + final snapshot: %+v", len(conversationUpserts), conversationUpserts)
+	}
+	if !strings.Contains(conversationUpserts[0].ContentText, "streaming answer") {
+		t.Fatalf("first conversation upsert did not contain streamed assistant text:\n%s", conversationUpserts[0].ContentText)
+	}
+	if llm.lastStreamReq.Model != "gpt-4o-mini" || len(llm.lastStreamReq.Tools) == 0 {
+		t.Fatalf("stream request = model %q tools %d, want agent loop model+tools", llm.lastStreamReq.Model, len(llm.lastStreamReq.Tools))
 	}
 }
 
