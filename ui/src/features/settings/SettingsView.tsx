@@ -258,7 +258,7 @@ function ModelCapabilityRow({
       </div>
       <div style={{ display: "flex", flexWrap: "wrap", justifyContent: "flex-end", gap: 6 }}>
         <button type="button" className="btn btn-ghost btn-sm" onClick={() => onProbe("basic")}>
-          Record test: tools
+          Record manual test
         </button>
         <button type="button" className="btn btn-ghost btn-sm" onClick={() => onOverride("basic")}>
           Override tools

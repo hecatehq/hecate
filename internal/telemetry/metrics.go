@@ -262,7 +262,7 @@ func NewAgentChatMetricsWithMeterProvider(provider otmetric.MeterProvider) (*Age
 
 	runsTotal, err := meter.Int64Counter(
 		MetricAgentChatRunsTotal,
-		otmetric.WithDescription("Total external agent chat runs grouped by adapter, driver, status, and result."),
+		otmetric.WithDescription("Total agent chat runs grouped by adapter/runtime, driver, status, and result."),
 		otmetric.WithUnit("{run}"),
 	)
 	if err != nil {
@@ -271,7 +271,7 @@ func NewAgentChatMetricsWithMeterProvider(provider otmetric.MeterProvider) (*Age
 
 	runDuration, err := meter.Int64Histogram(
 		MetricAgentChatRunDuration,
-		otmetric.WithDescription("External agent chat run wall-clock duration."),
+		otmetric.WithDescription("Agent chat run wall-clock duration."),
 		otmetric.WithUnit("ms"),
 	)
 	if err != nil {

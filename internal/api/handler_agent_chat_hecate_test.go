@@ -100,6 +100,31 @@ func TestHecateAgentChatCreatesVisibleTaskAndContinuesSameTask(t *testing.T) {
 	if len(runs.Data) != 2 {
 		t.Fatalf("runs = %d, want 2 continued runs: %+v", len(runs.Data), runs.Data)
 	}
+	firstRun := findTaskRunItem(runs.Data, first.Data.LatestRunID)
+	if firstRun.ID == "" {
+		t.Fatalf("first run %q not found in runs: %+v", first.Data.LatestRunID, runs.Data)
+	}
+	if assistant.RequestID != firstRun.RequestID || assistant.TraceID != firstRun.TraceID || assistant.SpanID != firstRun.RootSpanID {
+		t.Fatalf("assistant trace linkage = request %q trace %q span %q, want backing run request %q trace %q span %q",
+			assistant.RequestID, assistant.TraceID, assistant.SpanID, firstRun.RequestID, firstRun.TraceID, firstRun.RootSpanID)
+	}
+	secondRun := findTaskRunItem(runs.Data, second.Data.LatestRunID)
+	if secondRun.ID == "" {
+		t.Fatalf("second run %q not found in runs: %+v", second.Data.LatestRunID, runs.Data)
+	}
+	if secondAssistant.RequestID != secondRun.RequestID || secondAssistant.TraceID != secondRun.TraceID || secondAssistant.SpanID != secondRun.RootSpanID {
+		t.Fatalf("second assistant trace linkage = request %q trace %q span %q, want backing run request %q trace %q span %q",
+			secondAssistant.RequestID, secondAssistant.TraceID, secondAssistant.SpanID, secondRun.RequestID, secondRun.TraceID, secondRun.RootSpanID)
+	}
+}
+
+func findTaskRunItem(items []TaskRunItem, id string) TaskRunItem {
+	for _, item := range items {
+		if item.ID == id {
+			return item
+		}
+	}
+	return TaskRunItem{}
 }
 
 func TestHecateChatCanSwitchBetweenModelAndToolsSegments(t *testing.T) {
@@ -170,6 +195,20 @@ func TestHecateChatCanSwitchBetweenModelAndToolsSegments(t *testing.T) {
 	secondToolsAssistant := secondTools.Data.Messages[len(secondTools.Data.Messages)-1]
 	if secondToolsAssistant.RuntimeKind != "hecate_agent" || secondToolsAssistant.TaskID != secondTools.Data.TaskID || secondToolsAssistant.SegmentID != "task:"+secondTools.Data.TaskID {
 		t.Fatalf("second tools assistant snapshot = runtime %q task %q segment %q", secondToolsAssistant.RuntimeKind, secondToolsAssistant.TaskID, secondToolsAssistant.SegmentID)
+	}
+
+	changedModelTools := mustRequestJSON[AgentChatSessionResponse](client, http.MethodPost, "/v1/agent-chat/sessions/"+session.Data.ID+"/messages",
+		fmt.Sprintf(`{"runtime_kind":"hecate_agent","provider":"openai","model":"gpt-4o-mini-2024-07-18","workspace":%q,"content":"use a different model with tools"}`, workspace))
+	if changedModelTools.Data.TaskID == "" || changedModelTools.Data.TaskID == secondTools.Data.TaskID {
+		t.Fatalf("model-change task_id = %q, want new task distinct from %q", changedModelTools.Data.TaskID, secondTools.Data.TaskID)
+	}
+	changedModelAssistant := changedModelTools.Data.Messages[len(changedModelTools.Data.Messages)-1]
+	if changedModelAssistant.RuntimeKind != "hecate_agent" || changedModelAssistant.TaskID != changedModelTools.Data.TaskID || changedModelAssistant.Model != "gpt-4o-mini-2024-07-18" {
+		t.Fatalf("model-change assistant snapshot = runtime %q task %q model %q", changedModelAssistant.RuntimeKind, changedModelAssistant.TaskID, changedModelAssistant.Model)
+	}
+	changedTask := mustRequestJSON[TaskResponse](client, http.MethodGet, "/v1/tasks/"+changedModelTools.Data.TaskID, "")
+	if changedTask.Data.RequestedModel != "gpt-4o-mini-2024-07-18" {
+		t.Fatalf("model-change task requested_model = %q, want gpt-4o-mini-2024-07-18", changedTask.Data.RequestedModel)
 	}
 }
 
@@ -311,6 +350,30 @@ func TestHecateAgentCommandOutputPromotesGitStdout(t *testing.T) {
 	output := handler.finalHecateAgentCommandOutput(context.Background(), "task_1", "run_1")
 	if !strings.Contains(output, "Command output") || !strings.Contains(output, "```diff") || !strings.Contains(output, "+hello") {
 		t.Fatalf("command output not promoted as diff block:\n%s", output)
+	}
+}
+
+func TestHecateAgentFinalAnswerFallsBackToSummaryArtifact(t *testing.T) {
+	store := taskstate.NewMemoryStore()
+	handler := &Handler{taskStore: store}
+	now := time.Now().UTC()
+	_, err := store.CreateArtifact(context.Background(), types.TaskArtifact{
+		ID:          "art_final",
+		TaskID:      "task_1",
+		RunID:       "run_1",
+		Kind:        "summary",
+		Name:        "agent-final-answer.txt",
+		ContentText: "The current diff updates the chat UI.",
+		Status:      "ready",
+		CreatedAt:   now,
+	})
+	if err != nil {
+		t.Fatalf("CreateArtifact(summary): %v", err)
+	}
+
+	output := handler.finalHecateAgentAnswer(context.Background(), "task_1", "run_1")
+	if output != "The current diff updates the chat UI." {
+		t.Fatalf("final answer = %q", output)
 	}
 }
 

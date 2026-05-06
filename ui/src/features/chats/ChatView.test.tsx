@@ -480,7 +480,66 @@ describe("ChatView input", () => {
     expect(send.disabled).toBe(false);
   });
 
-  it("locks a task-backed Hecate Agent chat to the session model while tools are on", () => {
+  it("keeps provider and model pickers editable after a task-backed Hecate Agent segment completes", () => {
+    const { state, actions } = setup({
+      chatTarget: "hecate_agent",
+      message: "continue",
+      agentWorkspace: "/tmp/hecate",
+      providerFilter: "ollama",
+      model: "smollm2:135m",
+      controlPlaneConfig: {
+        backend: "memory",
+        providers: [{ id: "ollama", name: "Ollama", kind: "local", credential_configured: true }],
+        policy_rules: [],
+        pricebook: [],
+        events: [],
+      },
+      providerPresets: [
+        { id: "ollama", name: "Ollama", kind: "local", protocol: "openai", base_url: "http://127.0.0.1:11434/v1", description: "" },
+      ],
+      providerScopedModels: [
+        {
+          id: "qwen2.5-coder",
+          owned_by: "ollama",
+          metadata: {
+            provider: "ollama",
+            provider_kind: "local",
+            capabilities: { tool_calling: "basic", streaming: true, source: "operator_override" },
+          },
+        },
+        {
+          id: "smollm2:135m",
+          owned_by: "ollama",
+          metadata: {
+            provider: "ollama",
+            provider_kind: "local",
+            capabilities: { tool_calling: "unknown", streaming: true, source: "provider" },
+          },
+        },
+      ],
+      activeAgentChatSessionID: "agent_chat_1",
+      activeAgentChatSession: {
+        id: "agent_chat_1",
+        runtime_kind: "hecate_agent",
+        title: "Repo work",
+        task_id: "task_hecate_123456",
+        latest_run_id: "run_hecate_abcdef",
+        provider: "ollama",
+        model: "qwen2.5-coder",
+        capabilities: { tool_calling: "basic", streaming: true, source: "operator_override" },
+        workspace: "/tmp/hecate",
+        status: "completed",
+        messages: [],
+      } as any,
+    });
+    render(<ChatView state={state} actions={actions} />);
+
+    expect(screen.queryByRole("button", { name: "Fixed provider: Ollama" })).toBeNull();
+    expect(screen.queryByRole("button", { name: "Fixed model: qwen2.5-coder" })).toBeNull();
+    expect(screen.getByRole("button", { name: "Model picker: smollm2:135m" })).toBeTruthy();
+  });
+
+  it("locks provider and model while a task-backed Hecate Agent segment is active", () => {
     const { state, actions } = setup({
       chatTarget: "hecate_agent",
       message: "continue",
@@ -519,7 +578,7 @@ describe("ChatView input", () => {
         model: "qwen2.5-coder",
         capabilities: { tool_calling: "basic", streaming: true, source: "operator_override" },
         workspace: "/tmp/hecate",
-        status: "completed",
+        status: "running",
         messages: [],
       } as any,
     });
@@ -530,7 +589,7 @@ describe("ChatView input", () => {
     expect(fixedProvider.disabled).toBe(true);
     expect(fixedModel.disabled).toBe(true);
     expect(screen.queryByText("smollm2:135m")).toBeNull();
-    expect(screen.queryByText("This model has unknown or no tool-calling support. Test it or override capabilities in Settings.")).toBeNull();
+    expect(screen.queryByText(/Tool support is unknown for this model/)).toBeNull();
     const send = document.querySelector("button[type='submit']") as HTMLButtonElement;
     expect(send.disabled).toBe(false);
 
@@ -562,7 +621,8 @@ describe("ChatView input", () => {
     expect(screen.queryByText(/Hecate Agent runs through task approvals and per-call sandboxing/)).toBeNull();
   });
 
-  it("blocks Hecate Agent sends when tool capability is unknown", () => {
+  it("blocks Hecate Agent sends when tool capability is unknown", async () => {
+    const upsertModelCapabilityOverride = vi.fn(async () => true);
     const { state, actions } = setup({
       chatTarget: "hecate_agent",
       message: "inspect this repo",
@@ -587,13 +647,20 @@ describe("ChatView input", () => {
           },
         },
       ],
-    });
+    }, { upsertModelCapabilityOverride });
     render(<ChatView state={state} actions={actions} />);
 
     expect(screen.getByText("tools: unknown")).toBeTruthy();
-    expect(screen.getByText("This model has unknown or no tool-calling support. Test it or override capabilities in Settings.")).toBeTruthy();
+    expect(screen.getByText(/Tool support is unknown for this model/)).toBeTruthy();
     const send = document.querySelector("button[type='submit']") as HTMLButtonElement;
     expect(send.disabled).toBe(true);
+
+    await userEvent.click(screen.getByRole("button", { name: "Mark tools supported" }));
+    expect(upsertModelCapabilityOverride).toHaveBeenCalledWith(expect.objectContaining({
+      provider: "ollama",
+      model: "llama3.1:8b",
+      tool_calling: "basic",
+    }));
   });
 
   it("opens the backing task from the Hecate Agent assistant turn, not the header", async () => {
@@ -676,7 +743,7 @@ describe("ChatView input", () => {
     expect(screen.getByText("shell_exec")).toBeTruthy();
     expect(screen.getByText("Backing task")).toBeTruthy();
     expect(screen.queryByText("Task run running")).toBeNull();
-    expect(screen.getByText("Run completed")).toBeTruthy();
+    expect(screen.queryByText("Run completed")).toBeNull();
   });
 
   it("resolves projected Hecate Agent task approvals from the chat banner", async () => {

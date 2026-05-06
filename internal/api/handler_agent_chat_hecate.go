@@ -13,6 +13,7 @@ import (
 	"github.com/hecate/agent-runtime/internal/agentchat"
 	"github.com/hecate/agent-runtime/internal/modelcaps"
 	"github.com/hecate/agent-runtime/internal/taskstate"
+	"github.com/hecate/agent-runtime/internal/telemetry"
 	"github.com/hecate/agent-runtime/pkg/types"
 )
 
@@ -80,6 +81,9 @@ func (h *Handler) handleCreateHecateAgentChatMessage(w http.ResponseWriter, r *h
 	startedAt := time.Now().UTC()
 	trace, traceCtx := h.startAgentChatTrace(w, r)
 	defer trace.Finalize()
+	trace.Record(telemetry.EventAgentChatRunStarted, hecateAgentChatTraceAttrs(session, "", "", assistantID, map[string]any{
+		telemetry.AttrHecateRunStatus: "running",
+	}))
 
 	runCtx, cancel := context.WithTimeout(traceCtx, agentChatTimeout)
 	if !h.agentChatLive.registerRun(session.ID, cancel) {
@@ -139,10 +143,26 @@ func (h *Handler) handleCreateHecateAgentChatMessage(w http.ResponseWriter, r *h
 	}
 	h.agentChatLive.publishSession(updated)
 
-	forceNewTask := shouldStartNewHecateAgentSegment(session)
+	forceNewTask := shouldStartNewHecateAgentSegment(session, session.Provider, session.Model)
 	task, run, err := h.startOrContinueHecateAgentRun(runCtx, session, content, forceNewTask)
 	if err != nil {
-		h.finishHecateAgentMessage(r.Context(), session.ID, assistantID, "failed", "", err.Error(), startedAt, time.Now().UTC(), nil)
+		completedAt := time.Now().UTC()
+		trace.Record(telemetry.EventAgentChatRunFailed, hecateAgentChatTraceAttrs(session, "", "", assistantID, map[string]any{
+			telemetry.AttrHecateRunStatus:     "failed",
+			telemetry.AttrHecateRunDurationMS: completedAt.Sub(startedAt).Milliseconds(),
+			telemetry.AttrHecateResult:        telemetry.ResultError,
+			telemetry.AttrHecateErrorKind:     telemetry.ErrorKindOther,
+			telemetry.AttrErrorType:           "hecate_agent_start_failed",
+			telemetry.AttrErrorMessage:        err.Error(),
+		}))
+		h.agentChatMetrics.RecordRun(traceCtx, telemetry.AgentChatRunMetricsRecord{
+			AdapterID:  "hecate",
+			DriverKind: "hecate",
+			Status:     "failed",
+			Result:     telemetry.ResultError,
+			DurationMS: completedAt.Sub(startedAt).Milliseconds(),
+		})
+		h.finishHecateAgentMessage(r.Context(), session.ID, assistantID, "failed", "", err.Error(), startedAt, completedAt, nil)
 		WriteError(w, http.StatusInternalServerError, errCodeGatewayError, err.Error())
 		return
 	}
@@ -170,6 +190,9 @@ func (h *Handler) handleCreateHecateAgentChatMessage(w http.ResponseWriter, r *h
 		message.SegmentID = messageSnapshot.SegmentID
 		message.TaskID = messageSnapshot.TaskID
 		message.RunID = run.ID
+		message.RequestID = firstNonEmpty(run.RequestID, message.RequestID)
+		message.TraceID = firstNonEmpty(run.TraceID, message.TraceID)
+		message.SpanID = firstNonEmpty(run.RootSpanID, message.SpanID)
 		message.Provider = messageSnapshot.Provider
 		message.Model = messageSnapshot.Model
 		message.Capabilities = messageSnapshot.Capabilities
@@ -232,6 +255,43 @@ func (h *Handler) handleCreateHecateAgentChatMessage(w http.ResponseWriter, r *h
 		output = hecateAgentFallbackOutput(status, task.ID, finalRun.ID, errorText)
 	}
 	completedAt := time.Now().UTC()
+	durationMS := completedAt.Sub(startedAt).Milliseconds()
+	resultLabel := telemetry.ResultSuccess
+	if status == "failed" || status == "cancelled" {
+		resultLabel = telemetry.ResultError
+	}
+	terminalAttrs := hecateAgentChatTraceAttrs(session, task.ID, finalRun.ID, assistantID, map[string]any{
+		telemetry.AttrHecateRunStatus:        status,
+		telemetry.AttrHecateRunDurationMS:    durationMS,
+		telemetry.AttrHecateAgentOutputBytes: int64(len(output)),
+	})
+	if status == "failed" && strings.TrimSpace(errorText) != "" {
+		terminalAttrs[telemetry.AttrHecateResult] = telemetry.ResultError
+		terminalAttrs[telemetry.AttrHecateErrorKind] = telemetry.ErrorKindOther
+		terminalAttrs[telemetry.AttrErrorType] = "hecate_agent_failed"
+		terminalAttrs[telemetry.AttrErrorMessage] = errorText
+	}
+	if status == "cancelled" {
+		terminalAttrs[telemetry.AttrHecateResult] = telemetry.ResultError
+	}
+	trace.Record(agentChatTerminalEvent(status), terminalAttrs)
+	h.agentChatMetrics.RecordRun(traceCtx, telemetry.AgentChatRunMetricsRecord{
+		AdapterID:  "hecate",
+		DriverKind: "hecate",
+		Status:     status,
+		Result:     resultLabel,
+		DurationMS: durationMS,
+	})
+	if status == "cancelled" {
+		reason := h.agentChatLive.cancelReasonFor(session.ID)
+		if reason == "" {
+			reason = "request_cancelled"
+		}
+		h.agentChatMetrics.RecordChatCancelled(traceCtx, telemetry.AgentChatCancelledRecord{
+			AdapterID: "hecate",
+			Reason:    reason,
+		})
+	}
 	updated, err = h.finishHecateAgentMessage(r.Context(), session.ID, assistantID, status, output, errorText, startedAt, completedAt, &finalRun)
 	if err != nil {
 		WriteError(w, http.StatusInternalServerError, errCodeGatewayError, err.Error())
@@ -283,16 +343,27 @@ func (h *Handler) hecateAgentSessionBusy(ctx context.Context, session agentchat.
 	return !types.IsTerminalTaskRunStatus(run.Status), run.Status
 }
 
-func shouldStartNewHecateAgentSegment(session agentchat.Session) bool {
+func shouldStartNewHecateAgentSegment(session agentchat.Session, provider, model string) bool {
 	if session.TaskID == "" {
 		return true
 	}
+	provider = strings.TrimSpace(provider)
+	model = strings.TrimSpace(model)
 	for i := len(session.Messages) - 1; i >= 0; i-- {
 		message := session.Messages[i]
 		if strings.TrimSpace(message.Content) == "" && message.Role == "assistant" {
 			continue
 		}
-		return message.RuntimeKind != "hecate_agent"
+		if message.RuntimeKind != "hecate_agent" {
+			return true
+		}
+		if provider != "" && strings.TrimSpace(message.Provider) != "" && strings.TrimSpace(message.Provider) != provider {
+			return true
+		}
+		if model != "" && strings.TrimSpace(message.Model) != "" && strings.TrimSpace(message.Model) != model {
+			return true
+		}
+		return false
 	}
 	return false
 }
@@ -383,6 +454,9 @@ func (h *Handler) waitForHecateAgentRun(ctx context.Context, taskID, runID, sess
 			}
 			updated, updateErr := h.agentChat.UpdateMessage(ctx, sessionID, messageID, func(message *agentchat.Message) {
 				message.RunID = run.ID
+				message.RequestID = firstNonEmpty(run.RequestID, message.RequestID)
+				message.TraceID = firstNonEmpty(run.TraceID, message.TraceID)
+				message.SpanID = firstNonEmpty(run.RootSpanID, message.SpanID)
 				message.Status = agentChatStatusFromTaskRun(run.Status)
 				message.Activities = mergeAgentChatActivity(message.Activities, newHecateAgentRunActivity(taskID, run.ID, run.Status))
 				for _, activity := range taskActivities {
@@ -421,6 +495,28 @@ func (h *Handler) finalHecateAgentAnswer(ctx context.Context, taskID, runID stri
 			if messages[i].Role == "assistant" && strings.TrimSpace(messages[i].Content) != "" {
 				return strings.TrimSpace(messages[i].Content)
 			}
+		}
+	}
+	if answer := h.finalHecateAgentSummary(ctx, taskID, runID); answer != "" {
+		return answer
+	}
+	return ""
+}
+
+func (h *Handler) finalHecateAgentSummary(ctx context.Context, taskID, runID string) string {
+	artifacts, err := h.taskStore.ListArtifacts(ctx, taskstate.ArtifactFilter{TaskID: taskID, RunID: runID})
+	if err != nil {
+		return ""
+	}
+	for _, artifact := range artifacts {
+		if artifact.Kind != "summary" || artifact.Name != "agent-final-answer.txt" {
+			continue
+		}
+		if artifact.Status != "ready" && artifact.Status != "applied" {
+			continue
+		}
+		if content := strings.TrimSpace(artifact.ContentText); content != "" {
+			return content
 		}
 	}
 	return ""
@@ -506,6 +602,9 @@ func (h *Handler) finishHecateAgentMessage(ctx context.Context, sessionID, messa
 		message.CompletedAt = completedAt
 		if run != nil {
 			message.RunID = run.ID
+			message.RequestID = firstNonEmpty(run.RequestID, message.RequestID)
+			message.TraceID = firstNonEmpty(run.TraceID, message.TraceID)
+			message.SpanID = firstNonEmpty(run.RootSpanID, message.SpanID)
 			message.CostMode = "hecate"
 		}
 		message.Activities = append(message.Activities, newAgentChatActivity(message.Status, message.Status, finalAgentChatActivityTitle(message.Status), errorText))

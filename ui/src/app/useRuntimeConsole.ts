@@ -734,7 +734,7 @@ export function useRuntimeConsole() {
       applyAgentChatSession(updated.data);
     } catch (submitError) {
       const raw = submitError instanceof Error ? submitError.message : "unknown request error";
-      setChatError(raw);
+      setChatError(humanizeChatError(raw));
       setChatErrorCode(submitError instanceof ApiError ? submitError.code : "");
       setChatErrorStatus(submitError instanceof ApiError ? submitError.status : null);
     } finally {
