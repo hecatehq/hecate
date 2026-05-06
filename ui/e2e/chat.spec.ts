@@ -386,6 +386,186 @@ test("Hecate Agent local-provider onboarding renders the real final answer and u
   await expect(page.getByRole("button", { name: "Model picker: qwen2.5" })).toBeEnabled();
 });
 
+test("Hecate Chat can move tools on, tools off, then tools on again in one transcript", async ({ page }) => {
+  await page.unrouteAll({ behavior: "ignoreErrors" });
+  await page.addInitScript(() => {
+    window.localStorage.setItem("hecate.chatTarget", "hecate_agent");
+    window.localStorage.setItem("hecate.agentWorkspace", "/tmp/hecate-e2e-workspace");
+  });
+  await mockGatewayAPIs(page, {
+    adminConfig: {
+      providers: [
+        { id: "lmstudio", name: "LM Studio", preset_id: "lmstudio", kind: "local", protocol: "openai", base_url: "http://127.0.0.1:1234/v1", enabled: true, credential_configured: false },
+      ],
+      tenants: [],
+      api_keys: [],
+      policy_rules: [],
+    },
+  });
+
+  await page.route("/v1/models*", route => route.fulfill({
+    status: 200,
+    contentType: "application/json",
+    body: JSON.stringify({
+      object: "list",
+      data: [{
+        id: "qwen2.5",
+        owned_by: "lmstudio",
+        metadata: {
+          provider: "lmstudio",
+          provider_kind: "local",
+          capabilities: { tool_calling: "basic", streaming: true, source: "operator_override" },
+        },
+      }],
+    }),
+  }));
+
+  let createSessionCount = 0;
+  const submittedTurns: Array<Record<string, unknown>> = [];
+  const messages: Array<Record<string, unknown>> = [];
+  let session: Record<string, unknown> | null = null;
+
+  await page.route("/v1/agent-chat/sessions", async route => {
+    if (route.request().method() === "GET") {
+      await route.fulfill({
+        status: 200,
+        contentType: "application/json",
+        body: JSON.stringify({ object: "agent_chat_sessions", data: session ? [session] : [] }),
+      });
+      return;
+    }
+    if (route.request().method() === "POST") {
+      createSessionCount += 1;
+      const body = await route.request().postDataJSON();
+      session = {
+        id: "chat-tools-switch-e2e",
+        title: body.title || "tools switch",
+        runtime_kind: body.runtime_kind,
+        provider: body.provider || "",
+        model: body.model || "qwen2.5",
+        capabilities: { tool_calling: "basic", streaming: true, source: "operator_override" },
+        workspace: body.workspace,
+        status: "created",
+        message_count: 0,
+        messages,
+      };
+      await route.fulfill({
+        status: 200,
+        contentType: "application/json",
+        body: JSON.stringify({ object: "agent_chat_session", data: session }),
+      });
+      return;
+    }
+    await route.fulfill({ status: 405, body: "" });
+  });
+
+  await page.route("/v1/agent-chat/sessions/chat-tools-switch-e2e/stream", route => route.fulfill({
+    status: 200,
+    contentType: "text/event-stream",
+    body: "",
+  }));
+
+  await page.route("/v1/agent-chat/sessions/chat-tools-switch-e2e", route => route.fulfill({
+    status: 200,
+    contentType: "application/json",
+    body: JSON.stringify({ object: "agent_chat_session", data: session }),
+  }));
+
+  await page.route("/v1/agent-chat/sessions/chat-tools-switch-e2e/messages", async route => {
+    const body = await route.request().postDataJSON();
+    submittedTurns.push(body);
+    const turn = submittedTurns.length;
+    const runtimeKind = body.runtime_kind || "model";
+    const isHecateAgent = runtimeKind === "hecate_agent";
+    const taskID = isHecateAgent ? `task-tools-${submittedTurns.filter(t => t.runtime_kind === "hecate_agent").length}` : "";
+    const runID = isHecateAgent ? `run-tools-${submittedTurns.filter(t => t.runtime_kind === "hecate_agent").length}` : "";
+    const assistantContent = isHecateAgent
+      ? `Tools answer ${taskID.endsWith("-1") ? "one" : "two"} from ${body.model}`
+      : `Direct model answer from ${body.model}`;
+
+    messages.push(
+      {
+        id: `msg-user-${turn}`,
+        runtime_kind: runtimeKind,
+        segment_id: isHecateAgent ? `task:${taskID}` : `model:${turn}`,
+        task_id: isHecateAgent ? taskID : undefined,
+        role: "user",
+        content: body.content,
+        created_at: `2026-05-06T10:00:0${turn}Z`,
+      },
+      {
+        id: `msg-assistant-${turn}`,
+        runtime_kind: runtimeKind,
+        segment_id: isHecateAgent ? `task:${taskID}` : `model:${turn}`,
+        task_id: isHecateAgent ? taskID : undefined,
+        run_id: isHecateAgent ? runID : undefined,
+        role: "assistant",
+        content: assistantContent,
+        provider: body.provider || "",
+        model: body.model,
+        status: "completed",
+        cost_mode: isHecateAgent ? "hecate" : "provider",
+        activities: isHecateAgent
+          ? [
+              { id: `task-${turn}`, type: "task_run", status: "completed", title: "Backing task", detail: `completed · ${taskID} · ${runID}` },
+              { id: `done-${turn}`, type: "completed", status: "completed", title: "Run completed", detail: "completed" },
+            ]
+          : [],
+        created_at: `2026-05-06T10:00:0${turn}Z`,
+      },
+    );
+
+    session = {
+      ...(session ?? {}),
+      runtime_kind: runtimeKind,
+      provider: body.provider || "",
+      model: body.model,
+      capabilities: { tool_calling: "basic", streaming: true, source: "operator_override" },
+      workspace: body.workspace || "/tmp/hecate-e2e-workspace",
+      task_id: isHecateAgent ? taskID : session?.task_id,
+      latest_run_id: isHecateAgent ? runID : session?.latest_run_id,
+      status: "completed",
+      message_count: messages.length,
+      messages,
+    };
+
+    await route.fulfill({
+      status: 200,
+      contentType: "application/json",
+      body: JSON.stringify({ object: "agent_chat_session", data: session }),
+    });
+  });
+
+  await page.goto("/");
+  await page.waitForSelector(".hecate-activitybar");
+
+  await page.getByRole("button", { name: /model picker/i }).click();
+  await page.locator(".dropdown-menu").locator("text=qwen2.5").first().click();
+  await page.getByRole("button", { name: "tools: basic", exact: true }).click();
+
+  await page.locator("textarea").fill("first with tools");
+  await page.locator("button[type='submit']").click();
+  await expect(page.locator("body")).toContainText("Tools answer one from qwen2.5");
+
+  await page.getByRole("button", { name: "tools off", exact: true }).click();
+  await page.locator("textarea").fill("direct model turn");
+  await page.locator("button[type='submit']").click();
+  await expect(page.locator("body")).toContainText("Direct model answer from qwen2.5");
+
+  await page.getByRole("button", { name: "tools: basic", exact: true }).click();
+  await page.locator("textarea").fill("tools again");
+  await page.locator("button[type='submit']").click();
+  await expect(page.locator("body")).toContainText("Tools answer two from qwen2.5");
+
+  expect(createSessionCount).toBe(1);
+  expect(submittedTurns.map(turn => turn.runtime_kind)).toEqual(["hecate_agent", "model", "hecate_agent"]);
+  expect(submittedTurns.map(turn => turn.content)).toEqual(["first with tools", "direct model turn", "tools again"]);
+  expect(submittedTurns.filter(turn => turn.runtime_kind === "hecate_agent")).toEqual([
+    expect.objectContaining({ model: "qwen2.5", workspace: "/tmp/hecate-e2e-workspace" }),
+    expect.objectContaining({ model: "qwen2.5", workspace: "/tmp/hecate-e2e-workspace" }),
+  ]);
+});
+
 test("configured provider with no models shows troubleshooting, not detected-provider setup", async ({ page }) => {
   await page.unrouteAll({ behavior: "ignoreErrors" });
   await mockGatewayAPIs(page, {

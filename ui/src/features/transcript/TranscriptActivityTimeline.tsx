@@ -63,7 +63,6 @@ export function TranscriptActivityTimeline({ activities, diffStat }: { activitie
 
   const plan = visible.filter(activity => activity.type === "plan");
   const tools = visible.filter(activity => activity.type === "tool_call");
-  const other = visible.filter(activity => activity.type !== "plan" && activity.type !== "tool_call");
   const summary = [
     terminal ? terminalStatusLabel(terminal.status) : hasRunning ? "working" : "details",
     plan.length > 0 ? `${plan.filter(item => item.status === "completed").length}/${plan.length} plan` : "",
@@ -89,10 +88,11 @@ export function TranscriptActivityTimeline({ activities, diffStat }: { activitie
         borderRadius: "var(--radius-sm)",
         background: "var(--bg2)",
       }}>
-        {plan.length > 0 && <PlanActivityList items={plan} />}
-        {tools.length > 0 && <ToolActivityList items={tools} />}
-        {other.map((activity, index) => (
-          <ActivityLine key={activity.id || `${activity.type}-${activity.created_at ?? index}`} activity={activity} />
+        {visible.map((activity, index) => (
+          <TimelineActivityLine
+            key={activity.id || `${activity.type}-${activity.created_at ?? index}`}
+            activity={activity}
+          />
         ))}
       </div>
     </details>
@@ -113,34 +113,27 @@ function parseDiffStatRows(diffStat: string): Array<{ path: string; change: stri
     .filter((row): row is { path: string; change: string } => row !== null);
 }
 
-function PlanActivityList({ items }: { items: AgentChatActivityRecord[] }) {
-  return (
-    <div style={{ display: "grid", gap: 5 }}>
-      {items.map((activity, index) => (
-        <div key={activity.id || `${activity.title}-${index}`} style={{ display: "flex", alignItems: "baseline", gap: 8, minWidth: 0 }}>
-          <span style={{ color: activity.status === "completed" ? "var(--green)" : activity.status === "in_progress" ? "var(--teal)" : "var(--t3)", flexShrink: 0, fontFamily: "var(--font-mono)", fontSize: 11 }}>
-            {activity.status === "completed" ? "x" : activity.status === "in_progress" ? ">" : "-"}
-          </span>
-          <span style={{ color: "var(--t1)", fontSize: 11, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>
-            {activity.title}
-          </span>
-          {activity.kind && (
-            <span style={{ color: "var(--t3)", flexShrink: 0, fontFamily: "var(--font-mono)", fontSize: 10 }}>
-              {activity.kind}
-            </span>
-          )}
-        </div>
-      ))}
-    </div>
-  );
+function TimelineActivityLine({ activity }: { activity: AgentChatActivityRecord }) {
+  if (activity.type === "plan") {
+    return <PlanActivityLine activity={activity} />;
+  }
+  return <ActivityLine activity={activity} prefix={activity.type === "tool_call" ? activity.kind || "tool" : undefined} />;
 }
 
-function ToolActivityList({ items }: { items: AgentChatActivityRecord[] }) {
+function PlanActivityLine({ activity }: { activity: AgentChatActivityRecord }) {
   return (
-    <div style={{ display: "grid", gap: 5 }}>
-      {items.map((activity, index) => (
-        <ActivityLine key={activity.id || `${activity.type}-${activity.created_at ?? index}`} activity={activity} prefix={activity.kind || "tool"} />
-      ))}
+    <div style={{ display: "flex", alignItems: "baseline", gap: 8, minWidth: 0 }}>
+      <span style={{ color: activity.status === "completed" ? "var(--green)" : activity.status === "in_progress" ? "var(--teal)" : "var(--t3)", flexShrink: 0, fontFamily: "var(--font-mono)", fontSize: 11 }}>
+        {activity.status === "completed" ? "x" : activity.status === "in_progress" ? ">" : "-"}
+      </span>
+      <span style={{ color: "var(--t1)", fontSize: 11, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>
+        {activity.title}
+      </span>
+      {activity.kind && (
+        <span style={{ color: "var(--t3)", flexShrink: 0, fontFamily: "var(--font-mono)", fontSize: 10 }}>
+          {activity.kind}
+        </span>
+      )}
     </div>
   );
 }
