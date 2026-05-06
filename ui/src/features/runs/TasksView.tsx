@@ -19,6 +19,7 @@ import { TaskDetail } from "./TaskDetail";
 import { NewTaskSlideOver, type CreateTaskPayload } from "./NewTaskSlideOver";
 
 type StreamState = "idle" | "connecting" | "live" | "closed" | "error";
+type TaskFocusRequest = { taskID: string; runID?: string; nonce: number };
 
 function readStoredAgentWorkspace(): string {
   if (typeof window === "undefined") return "";
@@ -36,7 +37,13 @@ export function streamTurnCostKey(turnIndex: number | undefined): number | null 
   return Math.trunc(turnIndex) + 1;
 }
 
-export function TasksView() {
+export function TasksView({
+  focusRequest,
+  onOpenAgentChat,
+}: {
+  focusRequest?: TaskFocusRequest | null;
+  onOpenAgentChat?: (sessionID: string) => void;
+} = {}) {
   const [loading, setLoading] = useState(true);
   const [tasks, setTasks] = useState<TaskRecord[]>([]);
   const [selectedTaskID, setSelectedTaskID] = useState("");
@@ -124,6 +131,11 @@ export function TasksView() {
   }, [loadTaskDetail]);
 
   useEffect(() => { void loadTasks(); }, [loadTasks]);
+
+  useEffect(() => {
+    if (!focusRequest?.taskID) return;
+    void loadTasks(focusRequest.taskID, focusRequest.runID);
+  }, [focusRequest, loadTasks]);
 
   useEffect(() => {
     // Models + providers + presets feed the new-task slideover's
@@ -418,6 +430,7 @@ export function TasksView() {
           busyAction={busyAction}
           notice={notice}
           onSelectRun={(id) => void handleSelectRun(id)}
+          onOpenAgentChat={onOpenAgentChat}
           onResolveApproval={(approval, decision) => void handleResolveApproval(approval, decision)}
           onCancelRun={() => void handleCancelRun()}
           onRetryRun={() => void handleRetryRun()}

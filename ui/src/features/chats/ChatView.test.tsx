@@ -26,12 +26,43 @@ function setup(stateOverrides = {}, actionOverrides = {}) {
 }
 
 describe("ChatView input", () => {
-  it("renders Agent as the first and active chat target by default", () => {
+  it("renders Hecate Chat as the first and active chat target by default", () => {
     const { state, actions } = setup();
     render(<ChatView state={state} actions={actions} />);
-    const targetButtons = screen.getAllByRole("button", { name: /^(Agent|Model)$/ });
-    expect(targetButtons.map((button) => button.textContent)).toEqual(["Agent", "Model"]);
+    const targetButtons = screen.getAllByRole("button", { name: /^(Hecate Chat|External Agent)$/ });
+    expect(targetButtons.map((button) => button.textContent)).toEqual(["Hecate Chat", "External Agent"]);
     expect(targetButtons[0]).toHaveStyle({ color: "var(--teal)" });
+  });
+
+  it("toggles Hecate Chat between direct model chat and tool-backed agent mode", async () => {
+    const setChatTarget = vi.fn();
+    const { state, actions } = setup({
+      chatTarget: "hecate_agent",
+      providerScopedModels: [
+        {
+          id: "gpt-4o-mini",
+          owned_by: "openai",
+          metadata: {
+            provider: "openai",
+            provider_kind: "cloud",
+            capabilities: { tool_calling: "basic", streaming: true, source: "catalog" },
+          },
+        },
+      ],
+    }, { setChatTarget });
+    render(<ChatView state={state} actions={actions} />);
+
+    const toolsGroup = screen.getByRole("group", { name: "Hecate tools" });
+    expect(toolsGroup).toHaveStyle({ height: "30px" });
+    expect(screen.getByRole("button", { name: /tools off/i })).toHaveStyle({ width: "76px" });
+    expect(screen.getByRole("button", { name: /tools: basic/i })).toHaveStyle({ width: "108px" });
+
+    const user = userEvent.setup();
+    await user.click(screen.getByRole("button", { name: /tools off/i }));
+    expect(setChatTarget).toHaveBeenCalledWith("model");
+
+    await user.click(screen.getByRole("button", { name: /tools: basic/i }));
+    expect(setChatTarget).toHaveBeenCalledWith("hecate_agent");
   });
 
   it("disables the send button when message is empty", () => {
@@ -48,7 +79,19 @@ describe("ChatView input", () => {
     expect(send.disabled).toBe(false);
   });
 
-  it("disables model send when no provider is configured", () => {
+  it("hides Hecate Chat composer until a model is selected", () => {
+    const { state, actions } = setup({
+      chatTarget: "model",
+      model: "",
+      message: "hello",
+    });
+    render(<ChatView state={state} actions={actions} />);
+
+    expect(screen.queryByRole("textbox", { name: "Message" })).toBeNull();
+    expect(screen.queryByRole("button", { name: "Send message" })).toBeNull();
+  });
+
+  it("hides model composer when no provider is configured", () => {
     const { state, actions } = setup({
       chatTarget: "model",
       message: "hello",
@@ -58,10 +101,10 @@ describe("ChatView input", () => {
       ],
     });
     render(<ChatView state={state} actions={actions} />);
-    const send = document.querySelector("button[type='submit']") as HTMLButtonElement;
-    expect(send.disabled).toBe(true);
     expect(screen.getByText("No routable model")).toBeTruthy();
     expect(screen.getByRole("button", { name: /Add provider/i })).toBeTruthy();
+    expect(screen.queryByRole("textbox", { name: "Message" })).toBeNull();
+    expect(screen.queryByRole("button", { name: "Send message" })).toBeNull();
   });
 
   it("opens the shared Add provider modal from the model empty state", async () => {
@@ -179,6 +222,55 @@ describe("ChatView input", () => {
       base_url: "http://127.0.0.1:1234/v1",
       kind: "local",
       protocol: "openai",
+    }), { refresh: false });
+    expect(loadDashboard).toHaveBeenCalledTimes(1);
+  });
+
+  it("shows one-click local provider onboarding from Hecate Agent chat", async () => {
+    vi.mocked(discoverLocalProviders).mockResolvedValueOnce({
+      object: "local_provider_discovery",
+      data: [
+        {
+          preset_id: "ollama",
+          name: "Ollama",
+          base_url: "http://127.0.0.1:11434/v1",
+          probe_url: "http://127.0.0.1:11434/api/tags",
+          status: "running",
+          command: "ollama",
+          command_available: true,
+          command_path: "/usr/local/bin/ollama",
+          http_available: true,
+          model_count: 1,
+          models: ["qwen2.5-coder"],
+        },
+      ],
+    });
+    const createProvider = vi.fn(async () => undefined);
+    const loadDashboard = vi.fn(async () => undefined);
+    const { state, actions } = setup({
+      chatTarget: "hecate_agent",
+      agentWorkspace: "/tmp/hecate",
+      controlPlaneConfig: { backend: "memory", providers: [], policy_rules: [], pricebook: [], events: [] },
+      providerPresets: [
+        { id: "ollama", name: "Ollama", kind: "local", protocol: "openai", base_url: "http://127.0.0.1:11434/v1", description: "" },
+      ],
+      providerScopedModels: [],
+      agentAdapters: [
+        { id: "codex", name: "Codex", kind: "acp", command: "codex-acp", available: true, status: "available", cost_mode: "external" },
+      ],
+    }, { createProvider, loadDashboard });
+    render(<ChatView state={state} actions={actions} />);
+
+    expect(await screen.findByText("Detected locally")).toBeTruthy();
+    expect(screen.getByText("Ollama")).toBeTruthy();
+
+    const user = userEvent.setup();
+    await user.click(screen.getByRole("button", { name: /Add detected provider/i }));
+
+    expect(createProvider).toHaveBeenCalledWith(expect.objectContaining({
+      name: "Ollama",
+      preset_id: "ollama",
+      base_url: "http://127.0.0.1:11434/v1",
     }), { refresh: false });
     expect(loadDashboard).toHaveBeenCalledTimes(1);
   });
@@ -315,7 +407,344 @@ describe("ChatView input", () => {
     render(<ChatView state={state} actions={actions} />);
     expect(screen.getByText("Nothing runnable yet")).toBeTruthy();
     expect(screen.getByRole("button", { name: /Add provider/i })).toBeTruthy();
-    expect(screen.getByRole("button", { name: /Check agents/i })).toBeTruthy();
+    expect(screen.getByRole("button", { name: /Use agent/i })).toBeTruthy();
+    expect(screen.queryByRole("textbox", { name: "Message" })).toBeNull();
+    expect(screen.queryByRole("button", { name: "Send message" })).toBeNull();
+  });
+
+  it("enables Hecate Agent only for models with known tool support", () => {
+    const { state, actions } = setup({
+      chatTarget: "hecate_agent",
+      message: "inspect this repo",
+      agentWorkspace: "/tmp/hecate",
+      controlPlaneConfig: {
+        backend: "memory",
+        providers: [{ id: "ollama", name: "Ollama", kind: "local", credential_configured: true }],
+        policy_rules: [],
+        pricebook: [],
+        events: [],
+      },
+      providerFilter: "ollama",
+      model: "qwen2.5-coder",
+      providerScopedModels: [
+        {
+          id: "qwen2.5-coder",
+          owned_by: "ollama",
+          metadata: {
+            provider: "ollama",
+            provider_kind: "local",
+            capabilities: { tool_calling: "basic", streaming: true, source: "operator_override" },
+          },
+        },
+      ],
+    });
+    render(<ChatView state={state} actions={actions} />);
+
+    expect(screen.getByRole("button", { name: "tools: basic" })).toBeTruthy();
+    expect(screen.getByText(/task approvals and per-call sandboxing/)).toBeTruthy();
+    const send = document.querySelector("button[type='submit']") as HTMLButtonElement;
+    expect(send.disabled).toBe(false);
+  });
+
+  it("locks a task-backed Hecate Agent chat to the session model while tools are on", () => {
+    const { state, actions } = setup({
+      chatTarget: "hecate_agent",
+      message: "continue",
+      agentWorkspace: "/tmp/hecate",
+      providerFilter: "ollama",
+      model: "smollm2:135m",
+      controlPlaneConfig: {
+        backend: "memory",
+        providers: [{ id: "ollama", name: "Ollama", kind: "local", credential_configured: true }],
+        policy_rules: [],
+        pricebook: [],
+        events: [],
+      },
+      providerPresets: [
+        { id: "ollama", name: "Ollama", kind: "local", protocol: "openai", base_url: "http://127.0.0.1:11434/v1", description: "" },
+      ],
+      providerScopedModels: [
+        {
+          id: "smollm2:135m",
+          owned_by: "ollama",
+          metadata: {
+            provider: "ollama",
+            provider_kind: "local",
+            capabilities: { tool_calling: "unknown", streaming: true, source: "provider" },
+          },
+        },
+      ],
+      activeAgentChatSessionID: "agent_chat_1",
+      activeAgentChatSession: {
+        id: "agent_chat_1",
+        runtime_kind: "hecate_agent",
+        title: "Repo work",
+        task_id: "task_hecate_123456",
+        latest_run_id: "run_hecate_abcdef",
+        provider: "ollama",
+        model: "qwen2.5-coder",
+        capabilities: { tool_calling: "basic", streaming: true, source: "operator_override" },
+        workspace: "/tmp/hecate",
+        status: "completed",
+        messages: [],
+      } as any,
+    });
+    const { rerender } = render(<ChatView state={state} actions={actions} />);
+
+    const fixedProvider = screen.getByRole("button", { name: "Fixed provider: Ollama" }) as HTMLButtonElement;
+    const fixedModel = screen.getByRole("button", { name: "Fixed model: qwen2.5-coder" }) as HTMLButtonElement;
+    expect(fixedProvider.disabled).toBe(true);
+    expect(fixedModel.disabled).toBe(true);
+    expect(screen.queryByText("smollm2:135m")).toBeNull();
+    expect(screen.queryByText("This model has unknown or no tool-calling support. Test it or override capabilities in Settings.")).toBeNull();
+    const send = document.querySelector("button[type='submit']") as HTMLButtonElement;
+    expect(send.disabled).toBe(false);
+
+    rerender(<ChatView state={{ ...state, chatTarget: "model" }} actions={actions} />);
+    expect(screen.getByRole("button", { name: "Model picker: smollm2:135m" })).toBeTruthy();
+  });
+
+  it("shows the Hecate Agent sandbox reminder only when tools are enabled", () => {
+    const { state, actions } = setup({
+      chatTarget: "hecate_agent",
+      providerScopedModels: [
+        {
+          id: "qwen2.5-coder",
+          owned_by: "ollama",
+          metadata: {
+            provider: "ollama",
+            provider_kind: "local",
+            capabilities: { tool_calling: "basic", streaming: true, source: "operator_override" },
+          },
+        },
+      ],
+      model: "qwen2.5-coder",
+    });
+    const { rerender } = render(<ChatView state={state} actions={actions} />);
+
+    expect(screen.getByText(/Hecate Agent runs through task approvals and per-call sandboxing/)).toBeTruthy();
+
+    rerender(<ChatView state={{ ...state, chatTarget: "model" }} actions={actions} />);
+    expect(screen.queryByText(/Hecate Agent runs through task approvals and per-call sandboxing/)).toBeNull();
+  });
+
+  it("blocks Hecate Agent sends when tool capability is unknown", () => {
+    const { state, actions } = setup({
+      chatTarget: "hecate_agent",
+      message: "inspect this repo",
+      agentWorkspace: "/tmp/hecate",
+      controlPlaneConfig: {
+        backend: "memory",
+        providers: [{ id: "ollama", name: "Ollama", kind: "local", credential_configured: true }],
+        policy_rules: [],
+        pricebook: [],
+        events: [],
+      },
+      providerFilter: "ollama",
+      model: "llama3.1:8b",
+      providerScopedModels: [
+        {
+          id: "llama3.1:8b",
+          owned_by: "ollama",
+          metadata: {
+            provider: "ollama",
+            provider_kind: "local",
+            capabilities: { tool_calling: "unknown", streaming: true, source: "provider" },
+          },
+        },
+      ],
+    });
+    render(<ChatView state={state} actions={actions} />);
+
+    expect(screen.getByText("tools: unknown")).toBeTruthy();
+    expect(screen.getByText("This model has unknown or no tool-calling support. Test it or override capabilities in Settings.")).toBeTruthy();
+    const send = document.querySelector("button[type='submit']") as HTMLButtonElement;
+    expect(send.disabled).toBe(true);
+  });
+
+  it("opens the backing task from the Hecate Agent assistant turn, not the header", async () => {
+    const onOpenTask = vi.fn();
+    const { state, actions } = setup({
+      chatTarget: "hecate_agent",
+      activeAgentChatSessionID: "agent_chat_1",
+      activeAgentChatSession: {
+        id: "agent_chat_1",
+        runtime_kind: "hecate_agent",
+        title: "Repo work",
+        task_id: "task_hecate_123456",
+        latest_run_id: "run_hecate_abcdef",
+        provider: "ollama",
+        model: "qwen2.5-coder",
+        workspace: "/tmp/hecate",
+        status: "completed",
+        messages: [
+          { id: "m1", role: "user", content: "inspect this repo", created_at: "2026-05-03T10:00:00Z" },
+          {
+            id: "m2",
+            run_id: "run_hecate_abcdef",
+            role: "assistant",
+            content: "Done.",
+            status: "completed",
+            cost_mode: "hecate",
+            created_at: "2026-05-03T10:00:01Z",
+          },
+        ],
+      } as any,
+    });
+    render(<ChatView state={state} actions={actions} onOpenTask={onOpenTask} />);
+    const user = userEvent.setup();
+    expect(screen.queryByRole("button", { name: /^task task_hecate_/i })).toBeNull();
+
+    await user.click(screen.getByRole("button", { name: /Open task task_hecate_/i }));
+    expect(onOpenTask).toHaveBeenCalledWith("task_hecate_123456", "run_hecate_abcdef");
+  });
+
+  it("renders projected Hecate Agent task run activity in the transcript", () => {
+    const { state, actions } = setup({
+      chatTarget: "hecate_agent",
+      activeAgentChatSessionID: "agent_chat_1",
+      activeAgentChatSession: {
+        id: "agent_chat_1",
+        runtime_kind: "hecate_agent",
+        title: "Repo work",
+        task_id: "task_hecate_123456",
+        latest_run_id: "run_hecate_abcdef",
+        provider: "ollama",
+        model: "qwen2.5-coder",
+        workspace: "/tmp/hecate",
+        status: "completed",
+        messages: [
+          { id: "m1", role: "user", content: "inspect this repo", created_at: "2026-05-03T10:00:00Z" },
+          {
+            id: "m2",
+            run_id: "run_hecate_abcdef",
+            role: "assistant",
+            content: "Done.",
+            status: "completed",
+            cost_mode: "hecate",
+            created_at: "2026-05-03T10:00:01Z",
+            activities: [
+              { id: "legacy-task-run-running", type: "task_running", status: "running", title: "Task run running", detail: "run_hecate_abcdef" },
+              { id: "hecate_task_run:run_hecate_abcdef", type: "task_run", status: "running", title: "Backing task", detail: "running · run_hecate_abcdef" },
+              { id: "task:step:model", type: "thinking", status: "completed", kind: "model", title: "Agent turn 1", detail: "completed" },
+              { id: "task:step:shell", type: "tool_call", status: "completed", kind: "shell", title: "shell_exec", detail: "completed" },
+              { id: "task:run:terminal", type: "run_result", status: "completed", title: "Run completed" },
+              { type: "completed", status: "completed", title: "Final answer" },
+            ],
+          },
+        ],
+      } as any,
+    });
+    render(<ChatView state={state} actions={actions} />);
+
+    expect(screen.getByText("completed · 1 tool")).toBeTruthy();
+    expect(screen.getByText("Agent turn 1")).toBeTruthy();
+    expect(screen.getByText("shell_exec")).toBeTruthy();
+    expect(screen.getByText("Backing task")).toBeTruthy();
+    expect(screen.queryByText("Task run running")).toBeNull();
+    expect(screen.getByText("Run completed")).toBeTruthy();
+  });
+
+  it("resolves projected Hecate Agent task approvals from the chat banner", async () => {
+    const resolveTaskApproval = vi.fn(async () => true);
+    const onOpenTask = vi.fn();
+    const { state, actions } = setup({
+      chatTarget: "hecate_agent",
+      activeAgentChatSessionID: "agent_chat_1",
+      activeAgentChatSession: {
+        id: "agent_chat_1",
+        runtime_kind: "hecate_agent",
+        title: "Repo work",
+        task_id: "task_hecate_123456",
+        latest_run_id: "run_hecate_abcdef",
+        provider: "ollama",
+        model: "qwen2.5-coder",
+        workspace: "/tmp/hecate",
+        status: "awaiting_approval",
+        messages: [
+          { id: "m1", role: "user", content: "echo lol please", created_at: "2026-05-03T10:00:00Z" },
+          {
+            id: "m2",
+            run_id: "run_hecate_abcdef",
+            role: "assistant",
+            content: "",
+            status: "awaiting_approval",
+            cost_mode: "hecate",
+            created_at: "2026-05-03T10:00:01Z",
+            activities: [
+              {
+                id: "task:step:step_approval",
+                type: "approval",
+                status: "awaiting_approval",
+                kind: "approval",
+                title: "Awaiting approval — turn 1",
+                detail: "builtin.agent_loop_approval - awaiting_approval",
+                approval_id: "appr_123",
+                needs_action: true,
+                created_at: "2026-05-03T10:00:02Z",
+              },
+            ],
+          },
+        ],
+      } as any,
+    }, { resolveTaskApproval });
+    render(<ChatView state={state} actions={actions} onOpenTask={onOpenTask} />);
+
+    expect(screen.getByTestId("hecate-task-approval-banner")).toBeTruthy();
+    expect(screen.getByText("Task approval required")).toBeTruthy();
+    expect(screen.getAllByText("Waiting for approval").length).toBeGreaterThan(0);
+
+    const user = userEvent.setup();
+    await user.click(screen.getByRole("button", { name: "Open Task" }));
+    expect(onOpenTask).toHaveBeenCalledWith("task_hecate_123456", "run_hecate_abcdef");
+
+    await user.click(screen.getByRole("button", { name: /Approve approval/i }));
+    expect(resolveTaskApproval).toHaveBeenCalledWith("task_hecate_123456", "appr_123", { decision: "approve" });
+  });
+
+  it("does not keep stale resolved Hecate Agent task approvals actionable", () => {
+    const { state, actions } = setup({
+      chatTarget: "hecate_agent",
+      activeAgentChatSessionID: "agent_chat_1",
+      activeAgentChatSession: {
+        id: "agent_chat_1",
+        runtime_kind: "hecate_agent",
+        title: "Repo work",
+        task_id: "task_hecate_123456",
+        latest_run_id: "run_hecate_abcdef",
+        provider: "ollama",
+        model: "qwen2.5-coder",
+        workspace: "/tmp/hecate",
+        status: "running",
+        messages: [
+          {
+            id: "m2",
+            run_id: "run_hecate_abcdef",
+            role: "assistant",
+            content: "",
+            status: "running",
+            cost_mode: "hecate",
+            created_at: "2026-05-03T10:00:01Z",
+            activities: [
+              {
+                id: "task:step:step_approval",
+                type: "approval",
+                status: "approved",
+                kind: "agent_loop_tool_call",
+                title: "Awaiting approval — turn 1",
+                detail: "Agent requested tools that require approval: shell_exec - approved",
+                approval_id: "appr_123",
+                needs_action: true,
+              },
+            ],
+          },
+        ],
+      } as any,
+    });
+    render(<ChatView state={state} actions={actions} />);
+
+    expect(screen.queryByTestId("hecate-task-approval-banner")).toBeNull();
+    expect(screen.queryByRole("button", { name: /Approve Agent tool call/i })).toBeNull();
   });
 
   it("calls setMessage as user types", async () => {
@@ -387,7 +816,7 @@ describe("ChatView chats sidebar", () => {
 
   it("filters agent history by adapter and status metadata", async () => {
     const { state, actions } = setup({
-      chatTarget: "agent",
+      chatTarget: "external_agent",
       agentChatSessions: [
         { id: "a1", title: "Codex refactor", adapter_id: "codex", status: "completed", message_count: 4, updated_at: daysAgo(0) } as any,
         { id: "a2", title: "Cursor repro", adapter_id: "cursor_agent", status: "failed", message_count: 2, updated_at: daysAgo(0) } as any,
@@ -429,9 +858,9 @@ describe("ChatView chats sidebar", () => {
   });
 });
 
-describe("ChatView agent target", () => {
+describe("ChatView external-agent target", () => {
   it("shows the unsandboxed external-agent reminder in agent mode only", () => {
-    const { state, actions } = setup({ chatTarget: "agent" });
+    const { state, actions } = setup({ chatTarget: "external_agent" });
     const { rerender } = render(<ChatView state={state} actions={actions} />);
     expect(screen.getByText(/External agents run as your OS user/)).toBeTruthy();
 
@@ -441,7 +870,7 @@ describe("ChatView agent target", () => {
 
   it("does not show provider setup actions when agent chat has no available CLI", () => {
     const { state, actions } = setup({
-      chatTarget: "agent",
+      chatTarget: "external_agent",
       message: "run codex",
       controlPlaneConfig: { backend: "memory", providers: [], policy_rules: [], pricebook: [], events: [] },
       agentAdapterID: "codex",
@@ -463,7 +892,7 @@ describe("ChatView agent target", () => {
     const setChatTarget = vi.fn();
     const setAgentAdapterID = vi.fn();
     const { state, actions } = setup({
-      chatTarget: "agent",
+      chatTarget: "external_agent",
       agentAdapterID: "codex",
       agentWorkspace: "/tmp/hecate",
       agentAdapters: [
@@ -509,7 +938,7 @@ describe("ChatView agent target", () => {
         ],
       } as any,
     }, { setChatTarget, setAgentAdapterID });
-    render(<ChatView state={state} actions={actions} />);
+    const { rerender } = render(<ChatView state={state} actions={actions} />);
 
     expect(screen.queryByDisplayValue("/tmp/hecate")).toBeNull();
     expect(screen.getByRole("button", { name: /workspace/i })).toBeTruthy();
@@ -538,14 +967,20 @@ describe("ChatView agent target", () => {
     expect(screen.queryByText("Claude Code")).toBeNull();
     expect(setAgentAdapterID).not.toHaveBeenCalled();
 
-    await user.click(screen.getByRole("button", { name: "Model" }));
+    await user.click(screen.getByRole("button", { name: "Hecate Chat" }));
+    expect(setChatTarget).toHaveBeenCalledWith("hecate_agent");
+    setChatTarget.mockClear();
+    // Once inside Hecate Chat, tools can be disabled to use the
+    // direct model-chat runtime.
+    rerender(<ChatView state={{ ...state, chatTarget: "hecate_agent" }} actions={actions} />);
+    await user.click(screen.getByRole("button", { name: /tools off/i }));
     expect(setChatTarget).toHaveBeenCalledWith("model");
   });
 
   it("allows choosing an agent before an agent chat is created", async () => {
     const setAgentAdapterID = vi.fn();
     const { state, actions } = setup({
-      chatTarget: "agent",
+      chatTarget: "external_agent",
       agentAdapterID: "codex",
       activeAgentChatSessionID: "",
       activeAgentChatSession: null,
@@ -564,7 +999,7 @@ describe("ChatView agent target", () => {
 
   it("shows a waiting state for a running agent before transcript output arrives", () => {
     const { state, actions } = setup({
-      chatTarget: "agent",
+      chatTarget: "external_agent",
       agentWorkspace: "/tmp/hecate",
       agentAdapters: [
         { id: "codex", name: "Codex", kind: "acp", command: "codex-acp", available: true, status: "available", cost_mode: "external" },
@@ -602,7 +1037,7 @@ describe("ChatView agent target", () => {
 
   it("shows transient agent narration as live assistant text while a run is active", () => {
     const { state, actions } = setup({
-      chatTarget: "agent",
+      chatTarget: "external_agent",
       agentWorkspace: "/tmp/hecate",
       agentAdapters: [
         { id: "codex", name: "Codex", kind: "acp", command: "codex-acp", available: true, status: "available", cost_mode: "external" },
@@ -641,7 +1076,7 @@ describe("ChatView agent target", () => {
 
   it("renders adapter-reported usage below completed agent messages", () => {
     const { state, actions } = setup({
-      chatTarget: "agent",
+      chatTarget: "external_agent",
       agentWorkspace: "/tmp/hecate",
       agentAdapters: [
         { id: "codex", name: "Codex", kind: "acp", command: "codex-acp", available: true, status: "available", cost_mode: "external" },
@@ -695,7 +1130,7 @@ describe("ChatView agent target", () => {
     }));
     const revertAgentChatMessageFiles = vi.fn(async () => true);
     const { state, actions } = setup({
-      chatTarget: "agent",
+      chatTarget: "external_agent",
       agentWorkspace: "/tmp/hecate",
       activeAgentChatSessionID: "a1",
       activeAgentChatSession: {
@@ -750,7 +1185,7 @@ describe("ChatView agent target", () => {
       throw new Error("git restore failed");
     });
     const { state, actions } = setup({
-      chatTarget: "agent",
+      chatTarget: "external_agent",
       agentWorkspace: "/tmp/hecate",
       activeAgentChatSessionID: "a1",
       activeAgentChatSession: {
@@ -796,7 +1231,7 @@ describe("ChatView agent target", () => {
       throw new Error("files unavailable");
     });
     const { state, actions } = setup({
-      chatTarget: "agent",
+      chatTarget: "external_agent",
       agentWorkspace: "/tmp/hecate",
       activeAgentChatSessionID: "a1",
       activeAgentChatSession: {
@@ -838,7 +1273,7 @@ describe("ChatView agent target", () => {
     ]);
     const revertAgentChatMessageFiles = vi.fn(async () => true);
     const { state, actions } = setup({
-      chatTarget: "agent",
+      chatTarget: "external_agent",
       agentWorkspace: "/tmp/hecate",
       activeAgentChatSessionID: "a1",
       activeAgentChatSession: {
@@ -877,7 +1312,7 @@ describe("ChatView agent target", () => {
 
   it("disables stop and shows cancelling feedback after stop is requested", () => {
     const { state, actions } = setup({
-      chatTarget: "agent",
+      chatTarget: "external_agent",
       chatLoading: true,
       agentChatCancelling: true,
       agentWorkspace: "/tmp/hecate",
@@ -900,12 +1335,12 @@ describe("ChatView agent target", () => {
     const stop = screen.getByRole("button", { name: "Stop agent" }) as HTMLButtonElement;
     expect(stop.disabled).toBe(true);
     expect(stop.title).toBe("Stopping agent...");
-    expect(screen.getByText("Stopping external agent...")).toBeTruthy();
+    expect(screen.getByText("Stopping agent...")).toBeTruthy();
   });
 
   it("renders failed agent runs as an error notice with raw diagnostics separate", () => {
     const { state, actions } = setup({
-      chatTarget: "agent",
+      chatTarget: "external_agent",
       agentWorkspace: "/tmp/hecate",
       agentAdapters: [
         { id: "claude_code", name: "Claude Code", kind: "acp", command: "claude-agent-acp", available: true, status: "available", cost_mode: "external" },
@@ -948,7 +1383,7 @@ describe("ChatView agent target", () => {
   it("opens the workspace picker action from the folder button", async () => {
     const chooseAgentWorkspace = vi.fn(async () => true);
     const { state, actions } = setup({
-      chatTarget: "agent",
+      chatTarget: "external_agent",
       agentWorkspace: "",
       agentAdapters: [
         { id: "codex", name: "Codex", kind: "acp", command: "codex-acp", available: true, status: "available", cost_mode: "external" },
@@ -965,7 +1400,7 @@ describe("ChatView agent target", () => {
     const chooseAgentWorkspace = vi.fn(async () => false);
     const setAgentWorkspace = vi.fn();
     const { state, actions } = setup({
-      chatTarget: "agent",
+      chatTarget: "external_agent",
       agentWorkspace: "",
       agentAdapters: [
         { id: "codex", name: "Codex", kind: "acp", command: "codex-acp", available: true, status: "available", cost_mode: "external" },
@@ -983,7 +1418,7 @@ describe("ChatView agent target", () => {
 
   it("requires a workspace before sending to an external agent", () => {
     const { state, actions } = setup({
-      chatTarget: "agent",
+      chatTarget: "external_agent",
       message: "run codex",
       agentWorkspace: "",
       agentAdapters: [
@@ -1193,14 +1628,14 @@ describe("ChatView history pagination", () => {
   });
 });
 
-// Slice 3 commit 2: external-agent approval surfaces in the Chats
-// workspace. These tests confirm the banner / modal wiring; the
-// component-level behavior (overflow stack, broad-scope confirm) is
-// covered in AgentApprovalBanner.test.tsx and AgentApprovalModal.test.tsx.
+// External-agent approval surfaces in the Chats workspace. These tests
+// confirm the banner / modal wiring; the component-level behavior
+// (overflow stack, broad-scope confirm) is covered in
+// AgentApprovalBanner.test.tsx and AgentApprovalModal.test.tsx.
 describe("ChatView agent approvals", () => {
   it("renders the auto-mode danger banner when the gateway runs in auto", () => {
     const { state, actions } = setup({
-      chatTarget: "agent",
+      chatTarget: "external_agent",
       agentAdapterApprovalMode: "auto",
     });
     render(<ChatView state={state} actions={actions} />);
@@ -1209,7 +1644,7 @@ describe("ChatView agent approvals", () => {
 
   it("does not render the auto-mode banner when in prompt mode", () => {
     const { state, actions } = setup({
-      chatTarget: "agent",
+      chatTarget: "external_agent",
       agentAdapterApprovalMode: "prompt",
     });
     render(<ChatView state={state} actions={actions} />);
@@ -1249,7 +1684,7 @@ describe("ChatView agent approvals", () => {
     const getAgentChatApproval = vi.fn(async () => null); // modal opens, fetch returns null → renders error
     const { state, actions } = setup(
       {
-        chatTarget: "agent",
+      chatTarget: "external_agent",
         activeAgentChatSessionID: sessionID,
         activeAgentChatSession: { id: sessionID, title: "S1", adapter_id: "codex", workspace: "/tmp", status: "running" } as any,
         pendingApprovalsBySessionID: pending,

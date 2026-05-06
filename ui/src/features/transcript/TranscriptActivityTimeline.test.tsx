@@ -55,7 +55,7 @@ describe("TranscriptActivityTimeline", () => {
       { type: "tool_call", title: "read_file", status: "running", kind: "fs" },
     ];
     render(<TranscriptActivityTimeline activities={activities} />);
-    expect(screen.getByText(/running/)).toBeInTheDocument();
+    expect(screen.getByText(/working/)).toBeInTheDocument();
   });
 
   it("renders the summary with running status for in-progress plan-only activity", () => {
@@ -63,7 +63,7 @@ describe("TranscriptActivityTimeline", () => {
       { type: "plan", title: "Inspect the branch", status: "in_progress" },
     ];
     render(<TranscriptActivityTimeline activities={activities} />);
-    expect(screen.getByText(/running/)).toBeInTheDocument();
+    expect(screen.getByText(/working/)).toBeInTheDocument();
   });
 
   it("renders the terminal status in the summary when a completed activity exists", () => {
@@ -131,5 +131,21 @@ describe("TranscriptActivityTimeline", () => {
     ];
     render(<TranscriptActivityTimeline activities={activities} />);
     expect(screen.queryByText("Started")).toBeNull();
+  });
+
+  it("hides internal task artifacts from chat activity details", () => {
+    const activities: AgentChatActivityRecord[] = [
+      { type: "tool_call", title: "git_exec", status: "completed", kind: "git" },
+      { type: "artifact", title: "git-stdout.txt", status: "ready" },
+      { type: "artifact", title: "git-stderr.txt", status: "ready" },
+      { type: "changed_files", title: "git-changes.json", status: "ready" },
+      { type: "final_answer", title: "agent-final-answer.txt", status: "ready" },
+    ];
+    render(<TranscriptActivityTimeline activities={activities} />);
+    expect(screen.getByText("git_exec")).toBeInTheDocument();
+    expect(screen.queryByText("git-stdout.txt")).toBeNull();
+    expect(screen.queryByText("git-stderr.txt")).toBeNull();
+    expect(screen.queryByText("git-changes.json")).toBeNull();
+    expect(screen.queryByText("agent-final-answer.txt")).toBeNull();
   });
 });

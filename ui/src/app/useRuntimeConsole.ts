@@ -34,6 +34,7 @@ import {
   listAgentChatGrants as listAgentChatGrantsRequest,
   probeAgentAdapter as probeAgentAdapterRequest,
   revertAgentChatMessageFiles as revertAgentChatMessageFilesRequest,
+  resolveTaskApproval as resolveTaskApprovalRequest,
   resolveAgentChatApproval as resolveAgentChatApprovalRequest,
   runRetention as runRetentionRequest,
   resetBudget as resetBudgetRequest,
@@ -41,17 +42,20 @@ import {
   topUpBudget as topUpBudgetRequest,
   upsertPolicyRule as upsertPolicyRuleRequest,
   createProvider as createProviderRequest,
+  deleteModelCapabilityOverride as deleteModelCapabilityOverrideRequest,
   createAgentChatMessage as createAgentChatMessageRequest,
   createAgentChatSession as createAgentChatSessionRequest,
   deleteAgentChatSession as deleteAgentChatSessionRequest,
   deleteProvider as deleteProviderRequest,
   getAgentChatSession,
+  recordModelCapabilityProbe as recordModelCapabilityProbeRequest,
   streamAgentChatSession,
   setProviderBaseURL as setProviderBaseURLRequest,
   setProviderName as setProviderNameRequest,
   setProviderCustomName as setProviderCustomNameRequest,
+  upsertModelCapabilityOverride as upsertModelCapabilityOverrideRequest,
 } from "../lib/api";
-import type { PolicyRuleUpsertPayload, ResolveAgentChatApprovalPayload, AgentChatGrantFilter } from "../lib/api";
+import type { PolicyRuleUpsertPayload, ResolveAgentChatApprovalPayload, ResolveTaskApprovalPayload, AgentChatGrantFilter, ModelCapabilityUpsertPayload } from "../lib/api";
 import {
   approvalRecordToPending,
   buildAssistantToolCallMessage,
@@ -100,6 +104,21 @@ type NoticeState = {
   message: string;
 };
 
+type ChatTarget = "model" | "hecate_agent" | "external_agent";
+
+function normalizeStoredChatTarget(value: string): ChatTarget {
+  switch (value) {
+    case "model":
+    case "hecate_agent":
+    case "external_agent":
+      return value;
+    case "agent":
+      return "external_agent";
+    default:
+      return "hecate_agent";
+  }
+}
+
 function readLocalStorage(key: string): string {
   if (typeof window === "undefined") {
     return "";
@@ -115,10 +134,7 @@ export function useRuntimeConsole() {
   const [providers, setProviders] = useState<ProviderStatusResponse["data"]>([]);
   const [providerPresets, setProviderPresets] = useState<ProviderPresetRecord[]>([]);
   const [agentAdapters, setAgentAdapters] = useState<AgentAdapterRecord[]>([]);
-  const [chatTarget, setChatTarget] = useState<"model" | "agent">(() => {
-    const stored = readLocalStorage("hecate.chatTarget");
-    return stored === "model" ? "model" : "agent";
-  });
+  const [chatTarget, setChatTarget] = useState<ChatTarget>(() => normalizeStoredChatTarget(readLocalStorage("hecate.chatTarget")));
   const [agentAdapterID, setAgentAdapterID] = useState(() => readLocalStorage("hecate.agentAdapterID") || "codex");
   const [agentWorkspace, setAgentWorkspace] = useState(() => readLocalStorage("hecate.agentWorkspace"));
   const [agentWorkspaceBranch, setAgentWorkspaceBranch] = useState("");
@@ -249,8 +265,8 @@ export function useRuntimeConsole() {
       setSystemPrompt(storedSystemPrompt);
     }
     const storedTarget = window.localStorage.getItem("hecate.chatTarget");
-    if (storedTarget === "agent" || storedTarget === "model") {
-      setChatTarget(storedTarget);
+    if (storedTarget) {
+      setChatTarget(normalizeStoredChatTarget(storedTarget));
     }
     const storedAgent = window.localStorage.getItem("hecate.agentAdapterID");
     if (storedAgent) setAgentAdapterID(storedAgent);
@@ -535,7 +551,7 @@ export function useRuntimeConsole() {
 
   async function submitChat(event: SyntheticEvent<HTMLFormElement>) {
     event.preventDefault();
-    if (chatTarget === "agent") {
+    if (chatTarget !== "model") {
       await submitAgentChat();
       return;
     }
@@ -750,7 +766,8 @@ export function useRuntimeConsole() {
     setChatErrorCode("");
     setChatErrorStatus(null);
     setRuntimeHeaders(null);
-    setStreamingContent("Starting external agent...");
+    const isExternalAgent = chatTarget === "external_agent";
+    setStreamingContent(isExternalAgent ? "Starting external agent..." : "Starting Hecate Agent...");
     let streamAbort: AbortController | null = null;
     let streamPromise: Promise<void> | null = null;
 
@@ -770,10 +787,18 @@ export function useRuntimeConsole() {
         sessionID = "";
         setActiveAgentChatSessionID("");
       }
+      if (sessionID && activeAgentChatSession?.runtime_kind && activeAgentChatSession.runtime_kind !== (isExternalAgent ? "external_agent" : "hecate_agent")) {
+        sessionID = "";
+        setActiveAgentChatSessionID("");
+        setActiveAgentChatSession(null);
+      }
       if (!sessionID) {
         const created = await createAgentChatSessionRequest({
           title: deriveChatSessionTitle(content),
-          adapter_id: agentAdapterID,
+          runtime_kind: isExternalAgent ? "external_agent" : "hecate_agent",
+          ...(isExternalAgent
+            ? { adapter_id: agentAdapterID }
+            : { provider: providerFilter === "auto" ? "" : providerFilter, model }),
           workspace: agentWorkspace.trim(),
         });
         sessionID = created.data.id;
@@ -811,7 +836,7 @@ export function useRuntimeConsole() {
                 .reverse()
                 .find((m) => m.role === "assistant");
               if (last?.status === "running") {
-                setStreamingContent(last.content || "External agent is running...");
+                setStreamingContent(last.content || (isExternalAgent ? "External agent is running..." : "Hecate Agent is running..."));
               }
               return;
             }
@@ -1150,6 +1175,42 @@ export function useRuntimeConsole() {
     await loadDashboard();
   }
 
+  async function upsertModelCapabilityOverride(payload: ModelCapabilityUpsertPayload): Promise<boolean> {
+    try {
+      await upsertModelCapabilityOverrideRequest(payload);
+      await loadDashboard();
+      setNoticeMessage("success", "Model capability override saved.");
+      return true;
+    } catch (error) {
+      setNoticeMessage("error", error instanceof Error ? error.message : "Failed to save model capability override.");
+      return false;
+    }
+  }
+
+  async function recordModelCapabilityProbe(payload: ModelCapabilityUpsertPayload): Promise<boolean> {
+    try {
+      await recordModelCapabilityProbeRequest(payload);
+      await loadDashboard();
+      setNoticeMessage("success", "Manual capability result recorded.");
+      return true;
+    } catch (error) {
+      setNoticeMessage("error", error instanceof Error ? error.message : "Failed to record capability result.");
+      return false;
+    }
+  }
+
+  async function deleteModelCapabilityOverride(provider: string, modelName: string): Promise<boolean> {
+    try {
+      await deleteModelCapabilityOverrideRequest(provider, modelName);
+      await loadDashboard();
+      setNoticeMessage("success", "Model capability override cleared.");
+      return true;
+    } catch (error) {
+      setNoticeMessage("error", error instanceof Error ? error.message : "Failed to clear model capability override.");
+      return false;
+    }
+  }
+
   // Policy rule mutations follow the same runControlPlaneMutation contract
   // as the tenant / API key flows: success populates the toast notice
   // + clears controlPlaneError; failure populates BOTH inline banner
@@ -1268,7 +1329,7 @@ export function useRuntimeConsole() {
   }
 
   async function selectChatSession(id: string) {
-    if (chatTarget === "agent") {
+    if (chatTarget !== "model") {
       await selectAgentChatSession(id);
       return;
     }
@@ -1296,7 +1357,17 @@ export function useRuntimeConsole() {
     try {
       const payload = await getAgentChatSession(id);
       setActiveAgentChatSession(payload.data);
-      setAgentAdapterID(payload.data.adapter_id);
+      if (payload.data.adapter_id) {
+        setAgentAdapterID(payload.data.adapter_id);
+      }
+      if (payload.data.runtime_kind !== "hecate_agent") {
+        if (payload.data.provider) {
+          setProviderFilter(payload.data.provider as ProviderFilter);
+        }
+        if (payload.data.model) {
+          setModel(payload.data.model);
+        }
+      }
       setAgentWorkspace(payload.data.workspace);
       setAgentWorkspaceBranch(payload.data.workspace_branch ?? "");
     } catch (error) {
@@ -1310,7 +1381,7 @@ export function useRuntimeConsole() {
   }
 
   function startNewChat() {
-    if (chatTarget === "agent") {
+    if (chatTarget !== "model") {
       setActiveAgentChatSessionID("");
       setActiveAgentChatSession(null);
       setAgentWorkspaceBranch("");
@@ -1322,7 +1393,7 @@ export function useRuntimeConsole() {
   }
 
   async function deleteChatSession(id: string) {
-    if (chatTarget === "agent") {
+    if (chatTarget !== "model") {
       await deleteAgentChatSession(id);
       return;
     }
@@ -1392,6 +1463,53 @@ export function useRuntimeConsole() {
       return true;
     } catch (error) {
       setNoticeMessage("error", error instanceof Error ? error.message : "Failed to cancel approval.");
+      return false;
+    }
+  }
+
+  async function resolveTaskApproval(
+    taskID: string,
+    approvalID: string,
+    decision: ResolveTaskApprovalPayload,
+  ): Promise<boolean> {
+    try {
+      await resolveTaskApprovalRequest(taskID, approvalID, decision);
+      const status = decision.decision === "approve" ? "approved" : "rejected";
+      setActiveAgentChatSession((current) => {
+        if (!current || current.task_id !== taskID) return current;
+        return {
+          ...current,
+          messages: (current.messages ?? []).map((message) => ({
+            ...message,
+            activities: message.activities?.map((activity) => {
+              if (activity.approval_id !== approvalID && activity.id !== `task:approval:${approvalID}`) return activity;
+              return { ...activity, status, needs_action: false };
+            }),
+          })),
+        };
+      });
+      return true;
+    } catch (error) {
+      if (error instanceof Error && /not pending/i.test(error.message)) {
+        if (activeAgentChatSessionID) {
+          try {
+            const payload = await getAgentChatSession(activeAgentChatSessionID);
+            setActiveAgentChatSession(payload.data);
+            setAgentChatSessions((current) => {
+              const summary = renderAgentChatSessionSummary(payload.data);
+              return current.some((session) => session.id === payload.data.id)
+                ? current.map((session) => session.id === payload.data.id ? summary : session)
+                : [summary, ...current];
+            });
+          } catch {
+            // The original failure already means the row is stale; if a
+            // refresh also fails, avoid piling on a second noisy error.
+          }
+        }
+        setNoticeMessage("success", "Approval was already resolved.");
+        return true;
+      }
+      setNoticeMessage("error", error instanceof Error ? error.message : "Failed to resolve task approval.");
       return false;
     }
   }
@@ -1647,6 +1765,9 @@ export function useRuntimeConsole() {
       setProviderBaseURL,
       setProviderName,
       setProviderCustomName,
+      upsertModelCapabilityOverride,
+      recordModelCapabilityProbe,
+      deleteModelCapabilityOverride,
       upsertPricebookEntry,
       deletePricebookEntry,
       previewPricebookImport,
@@ -1655,6 +1776,7 @@ export function useRuntimeConsole() {
       listAgentChatMessageFiles,
       getAgentChatMessageFileDiff,
       revertAgentChatMessageFiles,
+      resolveTaskApproval,
       resolveAgentChatApproval,
       cancelAgentChatApproval,
       listAgentChatGrants,

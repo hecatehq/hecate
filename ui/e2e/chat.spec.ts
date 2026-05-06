@@ -19,12 +19,13 @@ test.beforeEach(async ({ page }) => {
 });
 
 async function switchToModel(page: Page) {
-  await page.getByRole("button", { name: "Model", exact: true }).click();
+  await page.getByRole("button", { name: "tools off", exact: true }).click();
 }
 
 test("renders the message textarea and send button", async ({ page }) => {
-  await expect(page.getByRole("button", { name: "Agent", exact: true })).toBeVisible();
-  await expect(page.getByRole("button", { name: "Model", exact: true })).toBeVisible();
+  await expect(page.getByRole("button", { name: "Hecate Chat", exact: true })).toBeVisible();
+  await expect(page.getByRole("button", { name: "External Agent", exact: true })).toBeVisible();
+  await expect(page.getByRole("button", { name: "tools off", exact: true })).toBeVisible();
   await expect(page.locator("textarea")).toBeVisible();
   await expect(page.locator("button[type='submit']")).toBeVisible();
 });
@@ -212,6 +213,31 @@ test("empty model chat can add all detected local providers in one click", async
   await expect(page.getByRole("button", { name: /Add detected provider/i })).toHaveCount(0);
 });
 
+test("empty Hecate Agent chat can add all detected local providers in one click", async ({ page }) => {
+  await page.unrouteAll({ behavior: "ignoreErrors" });
+  await mockGatewayAPIs(page);
+  const created: Array<Record<string, unknown>> = [];
+  await page.route("/admin/control-plane/providers", async route => {
+    if (route.request().method() === "POST") {
+      created.push(JSON.parse(route.request().postData() ?? "{}"));
+    }
+    await route.fallback();
+  });
+
+  await page.goto("/");
+  await page.waitForSelector(".hecate-activitybar");
+
+  await expect(page.getByText("Detected locally")).toBeVisible();
+  await expect(page.getByText("Ollama", { exact: true })).toBeVisible();
+  await expect(page.getByText("LM Studio", { exact: true })).toBeVisible();
+
+  await page.getByRole("button", { name: "Add detected providers" }).click();
+
+  await expect.poll(() => created.map(body => body.preset_id).sort()).toEqual(["lmstudio", "ollama"]);
+  await expect(page.getByText("Provider is configured")).toBeVisible();
+  await expect(page.getByRole("button", { name: /Add detected provider/i })).toHaveCount(0);
+});
+
 test("configured provider with no models shows troubleshooting, not detected-provider setup", async ({ page }) => {
   await page.unrouteAll({ behavior: "ignoreErrors" });
   await mockGatewayAPIs(page, {
@@ -257,17 +283,16 @@ test("configured provider with no models shows troubleshooting, not detected-pro
   await expect(page.getByRole("button", { name: /Add detected provider/i })).toHaveCount(0);
 });
 
-// Slice 3 commit 2: approval flow happy path. Seeds an active agent
-// chat session with one pending approval, then exercises the operator
-// path: catch-up refetch populates the banner → click Review →
-// modal fetches the full row → Allow → resolve POST fires → modal
-// closes → banner clears (subsequent refetch returns empty).
+// External-agent approval happy path. Seeds an active session with one
+// pending approval, then exercises the operator path: catch-up refetch
+// populates the banner, Review opens the modal, Allow resolves, and the
+// banner clears.
 test("agent approval banner: review, allow, banner clears", async ({ page }) => {
   // Seed the persisted active session before the page loads, so the
   // dashboard fan-out runs the catch-up refetch on mount.
   await page.addInitScript(() => {
     window.localStorage.setItem("hecate.agentChatSessionID", "a-e2e-1");
-    window.localStorage.setItem("hecate.chatTarget", "agent");
+    window.localStorage.setItem("hecate.chatTarget", "external_agent");
   });
 
   // The dashboard fan-out asks for /v1/agent-chat/sessions on mount
@@ -286,6 +311,7 @@ test("agent approval banner: review, allow, banner clears", async ({ page }) => 
         data: [{
           id: "a-e2e-1",
           title: "E2E approval test",
+          runtime_kind: "external_agent",
           adapter_id: "codex",
           status: "running",
           message_count: 0,
@@ -395,6 +421,7 @@ test("agent approval banner: review, allow, banner clears", async ({ page }) => 
         data: {
           id: "a-e2e-1",
           title: "E2E approval test",
+          runtime_kind: "external_agent",
           adapter_id: "codex",
           workspace: "/tmp/e2e",
           status: "running",
@@ -430,7 +457,7 @@ test("agent approval banner: review, allow, banner clears", async ({ page }) => 
 test("agent changed-files review inspects and reverts a captured file", async ({ page }) => {
   await page.addInitScript(() => {
     window.localStorage.setItem("hecate.agentChatSessionID", "a-diff-1");
-    window.localStorage.setItem("hecate.chatTarget", "agent");
+    window.localStorage.setItem("hecate.chatTarget", "external_agent");
   });
 
   await page.route("/v1/agent-chat/sessions", (route) => {
@@ -446,6 +473,7 @@ test("agent changed-files review inspects and reverts a captured file", async ({
         data: [{
           id: "a-diff-1",
           title: "Diff review",
+          runtime_kind: "external_agent",
           adapter_id: "codex",
           status: "completed",
           message_count: 2,
@@ -459,6 +487,7 @@ test("agent changed-files review inspects and reverts a captured file", async ({
     data: {
       id: "a-diff-1",
       title: "Diff review",
+      runtime_kind: "external_agent",
       adapter_id: "codex",
       workspace: "/tmp/e2e",
       status: "completed",

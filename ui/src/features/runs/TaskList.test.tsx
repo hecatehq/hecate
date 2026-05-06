@@ -160,6 +160,23 @@ describe("TaskList", () => {
     expect(screen.getByText("agent")).toBeTruthy();
   });
 
+  it("renders Hecate Agent chat origin metadata", () => {
+    const { render } = setup({
+      tasks: [
+        makeTask({
+          execution_kind: "agent_loop",
+          execution_profile: "chat_hecate_agent",
+          origin_kind: "agent_chat",
+          origin_id: "agent_chat_123",
+          shell_command: undefined,
+        }),
+      ],
+    });
+    render();
+    expect(screen.getByText("from chat")).toBeTruthy();
+    expect(screen.getByText("hecate agent")).toBeTruthy();
+  });
+
   it("renders an 'MCP × N' chip when the task configures MCP servers", () => {
     // Two configured servers → "MCP × 2" with an aria-label that
     // names the count, so screen readers announce the chip

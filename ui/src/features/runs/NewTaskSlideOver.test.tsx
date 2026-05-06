@@ -162,6 +162,63 @@ describe("NewTaskSlideOver submit", () => {
     expect(payload.working_directory).toBeUndefined();
   });
 
+  it("submits the visible provider-scoped model when the operator pins a provider", async () => {
+    const onCreate = vi.fn();
+    const { render, user } = setup({
+      onCreate,
+      models: [
+        { id: "gpt-5.4-mini", owned_by: "openai", metadata: { provider: "openai", provider_kind: "cloud", default: true } },
+        { id: "ministral-3:latest", owned_by: "ollama", metadata: { provider: "ollama", provider_kind: "local", default: true } },
+      ],
+      providers: [
+        { name: "openai", kind: "cloud", healthy: true, status: "ready" },
+        { name: "ollama", kind: "local", healthy: true, status: "ready" },
+      ],
+      providerPresets: [
+        { id: "openai", name: "OpenAI", kind: "cloud", protocol: "openai", base_url: "https://api.openai.com/v1", default_model: "gpt-5.4-mini" },
+        { id: "ollama", name: "Ollama", kind: "local", protocol: "openai", base_url: "http://127.0.0.1:11434/v1", default_model: "ministral-3:latest" },
+      ],
+    });
+    render();
+    await user.click(screen.getByRole("button", { name: "Agent loop" }));
+    await user.type(screen.getByPlaceholderText(/describe the task/i), "show git diff");
+    await user.click(screen.getByRole("button", { name: /Any provider/i }));
+    await user.click(screen.getByRole("option", { name: /Ollama/i }));
+    await user.click(screen.getByRole("button", { name: /queue task/i }));
+
+    expect(onCreate).toHaveBeenCalledWith(expect.objectContaining({
+      execution_kind: "agent_loop",
+      requested_provider: "ollama",
+      requested_model: "ministral-3:latest",
+    }));
+  });
+
+  it("submits the explicitly selected model from the model picker", async () => {
+    const onCreate = vi.fn();
+    const { render, user } = setup({
+      onCreate,
+      models: [
+        { id: "gpt-5.4-mini", owned_by: "openai", metadata: { provider: "openai", provider_kind: "cloud", default: true } },
+        { id: "ministral-3:latest", owned_by: "ollama", metadata: { provider: "ollama", provider_kind: "local", default: false } },
+      ],
+      providerPresets: [
+        { id: "openai", name: "OpenAI", kind: "cloud", protocol: "openai", base_url: "https://api.openai.com/v1", default_model: "gpt-5.4-mini" },
+        { id: "ollama", name: "Ollama", kind: "local", protocol: "openai", base_url: "http://127.0.0.1:11434/v1", default_model: "ministral-3:latest" },
+      ],
+    });
+    render();
+    await user.click(screen.getByRole("button", { name: "Agent loop" }));
+    await user.type(screen.getByPlaceholderText(/describe the task/i), "show git diff");
+    await user.click(screen.getByRole("button", { name: /Model picker:/i }));
+    await user.click(screen.getByRole("option", { name: /ministral-3:latest/i }));
+    await user.click(screen.getByRole("button", { name: /queue task/i }));
+
+    expect(onCreate).toHaveBeenCalledWith(expect.objectContaining({
+      execution_kind: "agent_loop",
+      requested_model: "ministral-3:latest",
+    }));
+  });
+
   it("prefills workspace from the shared agent workspace default", async () => {
     const onCreate = vi.fn();
     const { render, user } = setup({ onCreate, defaultWorkspace: "/Users/me/dev/hecate" });

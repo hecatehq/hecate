@@ -4,6 +4,8 @@ import (
 	"context"
 	"testing"
 	"time"
+
+	"github.com/hecate/agent-runtime/pkg/types"
 )
 
 func TestMemoryStoreLifecycle(t *testing.T) {
@@ -27,7 +29,12 @@ func runStoreLifecycle(t *testing.T, store Store) {
 	created, err := store.Create(ctx, Session{
 		ID:              "agent_chat_1",
 		Title:           "Review diff",
-		AdapterID:       "codex",
+		RuntimeKind:     "hecate_agent",
+		TaskID:          "task_chat_1",
+		LatestRunID:     "run_chat_1",
+		Provider:        "openai",
+		Model:           "gpt-4o-mini",
+		Capabilities:    types.ModelCapabilities{ToolCalling: "basic", Streaming: true, MaxContextTokens: 128000, Source: "operator_override"},
 		Workspace:       "/tmp/hecate",
 		WorkspaceBranch: "main",
 	})
@@ -39,6 +46,12 @@ func runStoreLifecycle(t *testing.T, store Store) {
 	}
 	if created.WorkspaceBranch != "main" {
 		t.Fatalf("created workspace branch = %q, want main", created.WorkspaceBranch)
+	}
+	if created.RuntimeKind != "hecate_agent" || created.TaskID != "task_chat_1" || created.LatestRunID != "run_chat_1" {
+		t.Fatalf("created linkage = runtime %q task %q run %q", created.RuntimeKind, created.TaskID, created.LatestRunID)
+	}
+	if created.Provider != "openai" || created.Model != "gpt-4o-mini" || created.Capabilities.ToolCalling != "basic" {
+		t.Fatalf("created model snapshot = provider %q model %q caps %+v", created.Provider, created.Model, created.Capabilities)
 	}
 
 	if _, err := store.AppendMessage(ctx, created.ID, Message{
@@ -108,6 +121,12 @@ func runStoreLifecycle(t *testing.T, store Store) {
 	if got.WorkspaceBranch != "main" {
 		t.Fatalf("persisted workspace branch = %q, want main", got.WorkspaceBranch)
 	}
+	if got.RuntimeKind != "hecate_agent" || got.TaskID != "task_chat_1" || got.LatestRunID != "run_chat_1" {
+		t.Fatalf("persisted linkage = runtime %q task %q run %q", got.RuntimeKind, got.TaskID, got.LatestRunID)
+	}
+	if got.Provider != "openai" || got.Model != "gpt-4o-mini" || got.Capabilities.ToolCalling != "basic" || got.Capabilities.Source != "operator_override" {
+		t.Fatalf("persisted model snapshot = provider %q model %q caps %+v", got.Provider, got.Model, got.Capabilities)
+	}
 	if got.Messages[1].RawOutput == "" || got.Messages[1].TraceID != "trace_agent" || len(got.Messages[1].Activities) != 2 {
 		t.Fatalf("persisted diagnostics missing: %+v", got.Messages[1])
 	}
@@ -122,7 +141,7 @@ func runStoreLifecycle(t *testing.T, store Store) {
 	if len(list) != 1 || list[0].ID != created.ID {
 		t.Fatalf("List = %+v, want created session", list)
 	}
-	if list[0].WorkspaceBranch != "main" || len(list[0].Messages) != 2 {
+	if list[0].WorkspaceBranch != "main" || len(list[0].Messages) != 2 || list[0].RuntimeKind != "hecate_agent" || list[0].TaskID != "task_chat_1" {
 		t.Fatalf("List summary = %+v, want cached branch and message count", list[0])
 	}
 

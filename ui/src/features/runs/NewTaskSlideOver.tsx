@@ -181,6 +181,10 @@ export function NewTaskSlideOver({
     if (taskProvider === "auto") return models;
     return models.filter(m => m.metadata?.provider === taskProvider);
   }, [models, taskProvider]);
+  const effectiveTaskModel = useMemo(() => {
+    if (taskModel) return taskModel;
+    return defaultModelID(scopedModels);
+  }, [scopedModels, taskModel]);
 
   // When the operator switches provider, clear the model selection if
   // it's no longer in the scoped list. Without this the trigger
@@ -330,7 +334,7 @@ export function NewTaskSlideOver({
       ...(taskKind === "git" ? { git_command: command } : {}),
       ...(taskKind === "file" ? { file_path: filePath, file_content: taskFileContent, file_operation: taskFileOp } : {}),
       ...(taskWorkingDir.trim() ? { working_directory: taskWorkingDir.trim() } : {}),
-      ...(taskModel ? { requested_model: taskModel } : {}),
+      ...(effectiveTaskModel ? { requested_model: effectiveTaskModel } : {}),
       ...(taskProvider !== "auto" ? { requested_provider: taskProvider } : {}),
       ...(taskInPlace ? { workspace_mode: "in_place" } : {}),
       ...(taskKind === "agent_loop" && taskSystemPrompt.trim() ? { system_prompt: taskSystemPrompt.trim() } : {}),
@@ -696,7 +700,7 @@ export function NewTaskSlideOver({
                 autoLabel="Any provider"
               />
               <ModelPicker
-                value={taskModel}
+                value={effectiveTaskModel}
                 onChange={setTaskModel}
                 models={scopedModels}
                 presets={providerPresets}
@@ -719,6 +723,10 @@ export function NewTaskSlideOver({
       </div>
     </SlideOver>
   );
+}
+
+function defaultModelID(models: ModelRecord[]): string {
+  return models.find(m => m.metadata?.default)?.id || models[0]?.id || "";
 }
 
 // WorkspacePreview tells the operator where writes will land on

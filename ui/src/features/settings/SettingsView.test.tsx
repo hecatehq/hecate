@@ -17,10 +17,10 @@ function setup(stateOverrides = {}, actionOverrides = {}) {
 // tenant/role gating and the MCP cache was pure informational stats).
 // Balances and Usage live in the Costs workspace.
 describe("SettingsView tabs", () => {
-  it("renders Pricing / Retention / External agents", () => {
+  it("renders Pricing / Model capabilities / Retention / External agents", () => {
     const { state, actions } = setup();
     render(<SettingsView state={state} actions={actions} />);
-    for (const tab of ["Pricing", "Retention", "External agents"]) {
+    for (const tab of ["Pricing", "Model capabilities", "Retention", "External agents"]) {
       expect(screen.getByRole("button", { name: tab })).toBeTruthy();
     }
   });
@@ -36,6 +36,92 @@ describe("SettingsView tabs", () => {
     render(<SettingsView state={state} actions={actions} />);
     await user.click(screen.getByRole("button", { name: "Retention" }));
     expect(await screen.findByText(/Subsystems to prune/i)).toBeTruthy();
+  });
+});
+
+describe("SettingsView model capabilities tab", () => {
+  const modelState = {
+    models: [
+      {
+        id: "qwen2.5-coder",
+        owned_by: "ollama",
+        metadata: {
+          provider: "ollama",
+          provider_kind: "local",
+          capabilities: { tool_calling: "unknown", streaming: true, source: "provider" },
+        },
+      },
+      {
+        id: "gpt-4o-mini",
+        owned_by: "openai",
+        metadata: {
+          provider: "openai",
+          provider_kind: "cloud",
+          capabilities: { tool_calling: "parallel", streaming: true, source: "catalog" },
+        },
+      },
+    ],
+  };
+
+  it("renders capability rows with source and tool support", async () => {
+    const { state, actions, user } = setup(modelState);
+    render(<SettingsView state={state} actions={actions} />);
+    await user.click(screen.getByRole("button", { name: "Model capabilities" }));
+
+    expect(await screen.findByTestId("model-capabilities-list")).toBeTruthy();
+    expect(screen.getByText("qwen2.5-coder")).toBeTruthy();
+    expect(screen.getByText("tools unknown")).toBeTruthy();
+    expect(screen.getByText("tools parallel")).toBeTruthy();
+  });
+
+  it("records a manual probe result for the selected provider/model", async () => {
+    const recordModelCapabilityProbe = vi.fn(async () => true);
+    const { state, actions, user } = setup(modelState, { recordModelCapabilityProbe });
+    render(<SettingsView state={state} actions={actions} />);
+    await user.click(screen.getByRole("button", { name: "Model capabilities" }));
+    const row = await screen.findByTestId("model-capability-row-ollama-qwen2.5-coder");
+
+    await user.click(within(row).getByRole("button", { name: "Record test: tools" }));
+
+    expect(recordModelCapabilityProbe).toHaveBeenCalledWith(expect.objectContaining({
+      provider: "ollama",
+      model: "qwen2.5-coder",
+      tool_calling: "basic",
+    }));
+  });
+
+  it("saves and clears operator overrides", async () => {
+    const upsertModelCapabilityOverride = vi.fn(async () => true);
+    const deleteModelCapabilityOverride = vi.fn(async () => true);
+    const { state, actions, user } = setup(
+      {
+        models: [
+          {
+            id: "local-tools",
+            owned_by: "ollama",
+            metadata: {
+              provider: "ollama",
+              provider_kind: "local",
+              capabilities: { tool_calling: "basic", streaming: true, source: "operator_override" },
+            },
+          },
+        ],
+      },
+      { upsertModelCapabilityOverride, deleteModelCapabilityOverride },
+    );
+    render(<SettingsView state={state} actions={actions} />);
+    await user.click(screen.getByRole("button", { name: "Model capabilities" }));
+    const row = await screen.findByTestId("model-capability-row-ollama-local-tools");
+
+    await user.click(within(row).getByRole("button", { name: "Override no tools" }));
+    await user.click(within(row).getByRole("button", { name: "Clear override" }));
+
+    expect(upsertModelCapabilityOverride).toHaveBeenCalledWith(expect.objectContaining({
+      provider: "ollama",
+      model: "local-tools",
+      tool_calling: "none",
+    }));
+    expect(deleteModelCapabilityOverride).toHaveBeenCalledWith("ollama", "local-tools");
   });
 });
 

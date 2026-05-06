@@ -95,12 +95,20 @@ Each section has exactly one job: orient, inspect, compare, edit, or confirm. If
 - Do not add auth, tenant, or account-management UI unless the product model
   changes again.
 - Provider and model selection exposes local and cloud distinctions clearly.
-- In Chats, keep **Model** and **Agent** mental models distinct. Providers and
-  models belong to Model chat; external adapters/workspaces/native sessions
-  belong to Agent chat.
-- Agent Chat sessions store their workspace and native ACP session id. New UI
-  affordances should preserve that continuity instead of treating every prompt
-  as a one-off subprocess.
+- In Chats, keep the two top-level targets distinct: **Hecate Chat** and
+  **External Agent**. Hecate Chat owns provider/model selection; its tools
+  toggle switches between direct Model chat and Hecate Agent task execution.
+  Adapter/workspace/native session diagnostics belong to External Agent.
+- Hecate Agent sessions store a workspace plus backing `task_id` /
+  `latest_run_id`. New UI affordances should show per-turn task links in the
+  transcript and point operators to Tasks for approvals, artifacts,
+  retry/resume, and patch review.
+- External Agent sessions store their workspace and native ACP session id. New
+  UI affordances should preserve that continuity instead of treating every
+  prompt as a one-off subprocess.
+- Model capability badges gate Hecate Agent sends. Unknown local/custom models
+  should explain how to record a manual probe result or operator override in
+  Settings, not silently run as an agent.
 - Agent Chat readiness belongs in Settings → External agents and in the picker
   diagnostics: distinguish missing binaries, auth/billing problems, unsupported
   versions, and managed-launcher issues without sending users to raw logs first.

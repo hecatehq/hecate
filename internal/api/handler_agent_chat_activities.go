@@ -1,6 +1,7 @@
 package api
 
 import (
+	"encoding/json"
 	"strings"
 	"time"
 
@@ -16,13 +17,15 @@ func renderAgentChatActivities(items []agentchat.Activity) []AgentChatActivityIt
 	out := make([]AgentChatActivityItem, 0, len(items))
 	for _, item := range items {
 		out = append(out, AgentChatActivityItem{
-			ID:        item.ID,
-			Type:      item.Type,
-			Status:    item.Status,
-			Kind:      item.Kind,
-			Title:     item.Title,
-			Detail:    item.Detail,
-			CreatedAt: formatOptionalTime(item.CreatedAt),
+			ID:          item.ID,
+			Type:        item.Type,
+			Status:      item.Status,
+			Kind:        item.Kind,
+			Title:       item.Title,
+			Detail:      item.Detail,
+			CreatedAt:   formatOptionalTime(item.CreatedAt),
+			ApprovalID:  item.ApprovalID,
+			NeedsAction: item.NeedsAction,
 		})
 	}
 	return out
@@ -50,6 +53,77 @@ func agentChatActivityFromAdapter(activity agentadapters.Activity) agentchat.Act
 	}
 }
 
+func agentChatActivitiesFromTaskActivity(items []TaskActivityItem) []agentchat.Activity {
+	if len(items) == 0 {
+		return nil
+	}
+	out := make([]agentchat.Activity, 0, len(items))
+	for _, item := range items {
+		activity := agentChatActivityFromTaskActivity(item)
+		if activity.Type == "" || activity.Title == "" {
+			continue
+		}
+		out = append(out, activity)
+	}
+	return out
+}
+
+func agentChatActivityFromTaskActivity(item TaskActivityItem) agentchat.Activity {
+	title := strings.TrimSpace(firstNonEmpty(item.Title, item.ToolName, item.Path, item.Kind, item.Type))
+	return agentchat.Activity{
+		ID:          strings.TrimSpace("task:" + item.ID),
+		Type:        strings.TrimSpace(item.Type),
+		Status:      strings.TrimSpace(item.Status),
+		Kind:        strings.TrimSpace(firstNonEmpty(item.Kind, item.ToolName)),
+		Title:       title,
+		Detail:      agentChatTaskActivityDetail(item),
+		CreatedAt:   parseAgentChatActivityTime(item.OccurredAt),
+		ApprovalID:  strings.TrimSpace(item.ApprovalID),
+		NeedsAction: item.NeedsAction,
+	}
+}
+
+func agentChatTaskActivityDetail(item TaskActivityItem) string {
+	parts := make([]string, 0, 3)
+	if item.Path != "" && item.Path != item.Title {
+		parts = append(parts, item.Path)
+	}
+	if item.ToolName != "" && item.ToolName != item.Title && item.ToolName != item.Kind {
+		parts = append(parts, item.ToolName)
+	}
+	if reason, ok := item.Summary["reason"].(string); ok && strings.TrimSpace(reason) != "" {
+		parts = append(parts, strings.TrimSpace(reason))
+	}
+	if item.Status != "" {
+		parts = append(parts, item.Status)
+	}
+	return strings.Join(parts, " - ")
+}
+
+func parseAgentChatActivityTime(value string) time.Time {
+	if strings.TrimSpace(value) == "" {
+		return time.Time{}
+	}
+	if parsed, err := time.Parse(time.RFC3339Nano, value); err == nil {
+		return parsed
+	}
+	if parsed, err := time.Parse(time.RFC3339, value); err == nil {
+		return parsed
+	}
+	return time.Time{}
+}
+
+func agentChatActivitySignature(items []agentchat.Activity) string {
+	if len(items) == 0 {
+		return "[]"
+	}
+	payload, err := json.Marshal(items)
+	if err != nil {
+		return ""
+	}
+	return string(payload)
+}
+
 func mergeAgentChatActivity(items []agentchat.Activity, next agentchat.Activity) []agentchat.Activity {
 	if next.Type == "" || (next.ID == "" && next.Title == "") {
 		return items
@@ -69,6 +143,10 @@ func mergeAgentChatActivity(items []agentchat.Activity, next agentchat.Activity)
 				if next.Detail != "" {
 					items[i].Detail = next.Detail
 				}
+				if next.ApprovalID != "" {
+					items[i].ApprovalID = next.ApprovalID
+				}
+				items[i].NeedsAction = next.NeedsAction
 				items[i].CreatedAt = next.CreatedAt
 				return items
 			}

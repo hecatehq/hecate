@@ -113,6 +113,24 @@ func (s *MemoryStore) DeletePricebookEntry(ctx context.Context, provider, model 
 	return nil
 }
 
+func (s *MemoryStore) UpsertModelCapabilityOverride(ctx context.Context, record ModelCapabilityRecord) (ModelCapabilityRecord, error) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	return applyModelCapabilityOverride(ctx, &s.data, record)
+}
+
+func (s *MemoryStore) DeleteModelCapabilityOverride(ctx context.Context, provider, model string) error {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	return applyDeleteModelCapabilityOverride(ctx, &s.data, provider, model)
+}
+
+func (s *MemoryStore) UpsertModelCapabilityProbe(ctx context.Context, record ModelCapabilityRecord) (ModelCapabilityRecord, error) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	return applyModelCapabilityProbe(ctx, &s.data, record)
+}
+
 func (s *MemoryStore) PruneAuditEvents(_ context.Context, maxAge time.Duration, maxCount int) (int, error) {
 	s.mu.Lock()
 	defer s.mu.Unlock()

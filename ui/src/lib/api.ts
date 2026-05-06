@@ -9,6 +9,7 @@ import type {
   MCPCacheStatsResponse,
   ModelResponse,
   LocalProviderDiscoveryResponse,
+  ModelCapabilityResponse,
   PricebookEntryUpsertPayload,
   PricebookImportDiffResponse,
   ProviderPresetResponse,
@@ -132,7 +133,10 @@ export type CreateChatSessionPayload = {
 
 export type CreateAgentChatSessionPayload = {
   title?: string;
-  adapter_id: string;
+  runtime_kind?: "external_agent" | "hecate_agent";
+  adapter_id?: string;
+  provider?: string;
+  model?: string;
   workspace: string;
 };
 
@@ -159,6 +163,15 @@ export type CreateTaskPayload = {
   workspace_mode?: string;
 };
 
+export type ModelCapabilityUpsertPayload = {
+  provider: string;
+  model: string;
+  tool_calling: "none" | "basic" | "parallel" | string;
+  streaming?: boolean;
+  max_context_tokens?: number;
+  note?: string;
+};
+
 export type ResolveTaskApprovalPayload = {
   decision: "approve" | "reject";
   note?: string;
@@ -182,6 +195,31 @@ export async function getSession(): Promise<SessionResponse> {
 
 export async function getModels(): Promise<ModelResponse> {
   return fetchJSON<ModelResponse>("/v1/models");
+}
+
+export async function upsertModelCapabilityOverride(
+  payload: ModelCapabilityUpsertPayload,
+): Promise<ModelCapabilityResponse> {
+  return fetchJSON<ModelCapabilityResponse>("/v1/model-capabilities/overrides", {
+    method: "PUT",
+    body: payload,
+  });
+}
+
+export async function deleteModelCapabilityOverride(provider: string, model: string): Promise<void> {
+  const params = new URLSearchParams({ provider, model });
+  await fetchJSON<unknown>(`/v1/model-capabilities/overrides?${params.toString()}`, {
+    method: "DELETE",
+  });
+}
+
+export async function recordModelCapabilityProbe(
+  payload: ModelCapabilityUpsertPayload,
+): Promise<ModelCapabilityResponse> {
+  return fetchJSON<ModelCapabilityResponse>("/v1/model-capabilities/probes", {
+    method: "POST",
+    body: payload,
+  });
 }
 
 export async function getProviders(): Promise<ProviderStatusResponse> {

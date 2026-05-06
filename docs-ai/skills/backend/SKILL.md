@@ -78,27 +78,44 @@ The seven-step chain spans `pkg/types/` → `internal/api/` → `internal/provid
 
 ### Change Agent Chat / ACP adapter behavior
 
-Agent Chat has two persistence layers:
+Agent Chat has two runtime kinds:
+
+1. `hecate_agent`: the chat session points at one visible `agent_loop` task.
+   The first prompt creates the task; follow-ups continue the latest terminal
+   run through the task runtime.
+2. `external_agent`: the chat session points at one supervised adapter session
+   such as Codex, Claude Code, or Cursor Agent.
+
+External Agent has two live/persistence layers:
 
 1. `internal/agentchat` stores the Hecate transcript and native ACP session id
    in memory or sqlite.
 2. `internal/agentadapters` owns the live ACP/process session manager.
 
+Hecate Agent additionally uses `internal/orchestrator`, `internal/taskstate`,
+and `internal/modelcaps`. Do not add a second lightweight tool-loop runtime;
+reuse task approvals, run events, artifacts, patch review, and OTel.
+
 When changing this path:
 
-1. Keep `docs/external-agent-adapters.md` aligned for operator-visible
+1. Keep `docs/rfcs/unified-chats-and-model-capabilities.md` and
+   `docs/runtime-api.md` aligned when changing Hecate Agent or capability
+   behavior.
+2. Keep `docs/external-agent-adapters.md` aligned for operator-visible
    behavior such as launchers, env sanitisation, persistence, raw diagnostics,
    guardrails, auth/readiness probes, and troubleshooting.
-2. Keep `docs/acp.md` aligned only when changing the separate `hecate-acp`
+3. Keep `docs/acp.md` aligned only when changing the separate `hecate-acp`
    editor bridge.
-3. Add focused tests in `internal/agentadapters/*_test.go` for ACP/process
+4. Add focused tests in `internal/agentadapters/*_test.go` for ACP/process
    protocol behavior and `internal/api/server_test.go` for HTTP/session
    persistence behavior. Guardrail changes should cover both the HTTP 422
    envelope and the session snapshot fields the UI consumes.
-4. If the change touches approval/grant durability, startup reconcile, or
+5. If the change touches model-capability precedence, add or update tests in
+   `internal/modelcaps` and the `/v1/models` API tests.
+6. If the change touches approval/grant durability, startup reconcile, or
    cmd/hecate store wiring, add or run the binary e2e approval smokes:
    `go test -tags e2e -run 'TestApproval' ./e2e`.
-5. Run the race suite. Long-lived adapter sessions are runtime code, not just
+7. Run the race suite. Long-lived adapter sessions are runtime code, not just
    a UI convenience.
 
 ### Add a persisted run-event type

@@ -34,9 +34,15 @@ func renderAgentChatSessionSummary(session agentchat.Session) AgentChatSessionSu
 	return AgentChatSessionSummaryItem{
 		ID:              session.ID,
 		Title:           session.Title,
+		RuntimeKind:     renderAgentChatRuntimeKind(session),
 		AdapterID:       session.AdapterID,
 		DriverKind:      session.DriverKind,
 		NativeSessionID: session.NativeSessionID,
+		TaskID:          session.TaskID,
+		LatestRunID:     session.LatestRunID,
+		Provider:        session.Provider,
+		Model:           session.Model,
+		Capabilities:    session.Capabilities,
 		Workspace:       session.Workspace,
 		WorkspaceBranch: session.WorkspaceBranch,
 		Status:          session.Status,
@@ -80,9 +86,15 @@ func renderAgentChatSession(session agentchat.Session, limits agentChatSnapshotC
 	return AgentChatSessionItem{
 		ID:                   session.ID,
 		Title:                session.Title,
+		RuntimeKind:          renderAgentChatRuntimeKind(session),
 		AdapterID:            session.AdapterID,
 		DriverKind:           session.DriverKind,
 		NativeSessionID:      session.NativeSessionID,
+		TaskID:               session.TaskID,
+		LatestRunID:          session.LatestRunID,
+		Provider:             session.Provider,
+		Model:                session.Model,
+		Capabilities:         session.Capabilities,
 		Workspace:            session.Workspace,
 		WorkspaceBranch:      session.WorkspaceBranch,
 		Status:               session.Status,
@@ -95,6 +107,16 @@ func renderAgentChatSession(session agentchat.Session, limits agentChatSnapshotC
 		UpdatedAt:            formatOptionalTime(session.UpdatedAt),
 		Messages:             messages,
 	}
+}
+
+func renderAgentChatRuntimeKind(session agentchat.Session) string {
+	if session.RuntimeKind != "" {
+		return session.RuntimeKind
+	}
+	if session.AdapterID != "" {
+		return "external_agent"
+	}
+	return "hecate_agent"
 }
 
 func agentChatUsageFromResult(usage agentadapters.Usage) agentchat.Usage {

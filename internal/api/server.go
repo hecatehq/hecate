@@ -94,6 +94,9 @@ func NewServer(logger *slog.Logger, handler *Handler) http.Handler {
 	mux.HandleFunc("GET /admin/mcp/cache", handler.HandleMCPCacheStats)
 	mux.HandleFunc("POST /v1/mcp/probe", handler.HandleMCPProbe)
 	mux.HandleFunc("GET /v1/models", handler.HandleModels)
+	mux.HandleFunc("PUT /v1/model-capabilities/overrides", handler.HandleUpsertModelCapabilityOverride)
+	mux.HandleFunc("DELETE /v1/model-capabilities/overrides", handler.HandleDeleteModelCapabilityOverride)
+	mux.HandleFunc("POST /v1/model-capabilities/probes", handler.HandleRecordModelCapabilityProbe)
 	mux.HandleFunc("POST /v1/chat/completions", handler.HandleChatCompletions)
 	mux.HandleFunc("POST /v1/messages", handler.HandleMessages)
 

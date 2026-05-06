@@ -14,7 +14,33 @@ export type ModelRecord = {
     provider_kind?: string;
     default?: boolean;
     discovery_source?: string;
+    capabilities?: ModelCapabilitiesRecord;
   };
+};
+
+export type ModelCapabilitiesRecord = {
+  tool_calling?: "unknown" | "none" | "basic" | "parallel" | string;
+  streaming?: boolean;
+  max_context_tokens?: number;
+  source?: "unknown" | "catalog" | "provider" | "probe" | "operator_override" | string;
+  note?: string;
+  updated_at?: string;
+};
+
+export type ModelCapabilityRecord = {
+  provider: string;
+  model: string;
+  tool_calling: "unknown" | "none" | "basic" | "parallel" | string;
+  streaming?: boolean;
+  max_context_tokens?: number;
+  source?: "unknown" | "catalog" | "provider" | "probe" | "operator_override" | string;
+  note?: string;
+  updated_at?: string;
+};
+
+export type ModelCapabilityResponse = {
+  object: string;
+  data: ModelCapabilityRecord;
 };
 
 export type ModelResponse = {
@@ -220,9 +246,15 @@ export type AgentAdapterResponse = {
 export type AgentChatSessionSummaryRecord = {
   id: string;
   title: string;
-  adapter_id: string;
+  runtime_kind?: "external_agent" | "hecate_agent" | string;
+  adapter_id?: string;
   driver_kind?: string;
   native_session_id?: string;
+  task_id?: string;
+  latest_run_id?: string;
+  provider?: string;
+  model?: string;
+  capabilities?: ModelCapabilitiesRecord;
   workspace: string;
   workspace_branch?: string;
   status: string;
@@ -274,14 +306,22 @@ export type AgentChatActivityRecord = {
   title: string;
   detail?: string;
   created_at?: string;
+  approval_id?: string;
+  needs_action?: boolean;
 };
 
 export type AgentChatSessionRecord = {
   id: string;
   title: string;
-  adapter_id: string;
+  runtime_kind?: "external_agent" | "hecate_agent" | string;
+  adapter_id?: string;
   driver_kind?: string;
   native_session_id?: string;
+  task_id?: string;
+  latest_run_id?: string;
+  provider?: string;
+  model?: string;
+  capabilities?: ModelCapabilitiesRecord;
   workspace: string;
   workspace_branch?: string;
   status: string;
@@ -883,6 +923,9 @@ export type TaskRecord = {
   base_branch?: string;
   workspace_mode?: string;
   execution_kind?: string;
+  execution_profile?: string;
+  origin_kind?: string;
+  origin_id?: string;
   shell_command?: string;
   git_command?: string;
   working_directory?: string;

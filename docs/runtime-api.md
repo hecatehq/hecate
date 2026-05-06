@@ -185,7 +185,9 @@ mirrors the persisted event that produced the state refresh.
 The frame also includes a normalized `activity` array for clients that want a
 coding-agent-style timeline without reconstructing it from raw steps and
 artifacts. Activity item types include `thinking`, `tool_call`, `patch`,
-`changed_files`, `final_answer`, `approval`, and `run_result`.
+`changed_files`, `final_answer`, `approval`, and `run_result`. Approval
+activities carry `approval_id` and `needs_action` when a user decision is
+pending.
 
 ### Public events feed
 
@@ -391,6 +393,100 @@ This endpoint does not create or mutate provider records. It is a UX helper for
 the picker; routing readiness still comes from `GET /admin/providers` after the
 operator adds a provider.
 
+### `GET /v1/models`
+
+Lists models currently known to configured providers. Each row includes Hecate
+metadata under `metadata`, including the effective model capability snapshot
+used by the Chats target picker.
+
+```json
+GET /v1/models
+→ 200
+{
+  "object": "list",
+  "data": [
+    {
+      "id": "qwen2.5-coder",
+      "object": "model",
+      "owned_by": "ollama",
+      "metadata": {
+        "provider": "ollama",
+        "provider_kind": "local",
+        "default": false,
+        "discovery_source": "provider",
+        "capabilities": {
+          "tool_calling": "unknown",
+          "streaming": true,
+          "max_context_tokens": 32768,
+          "source": "provider"
+        }
+      }
+    }
+  ]
+}
+```
+
+`capabilities.tool_calling` is one of `unknown`, `none`, `basic`, or
+`parallel`. Hecate Agent only accepts `basic` or `parallel`; local/custom
+models default to `unknown` until static catalog metadata, a manual probe
+result, or an operator override marks them capable.
+
+### `PUT /v1/model-capabilities/overrides`
+
+Stores an operator override for a provider/model capability record. Overrides
+win over manual probe results, catalog defaults, and provider-discovered
+metadata.
+
+```json
+PUT /v1/model-capabilities/overrides
+{
+  "provider": "ollama",
+  "model": "qwen2.5-coder",
+  "tool_calling": "basic",
+  "streaming": true,
+  "max_context_tokens": 32768,
+  "note": "Validated locally with a tool-call prompt."
+}
+
+→ 200
+{
+  "object": "model_capability",
+  "data": {
+    "provider": "ollama",
+    "model": "qwen2.5-coder",
+    "tool_calling": "basic",
+    "streaming": true,
+    "max_context_tokens": 32768,
+    "source": "operator_override",
+    "note": "Validated locally with a tool-call prompt.",
+    "updated_at": "2026-05-05T10:00:00Z"
+  }
+}
+```
+
+`tool_calling` must be `none`, `basic`, or `parallel` for overrides. Use
+`DELETE /v1/model-capabilities/overrides?provider=...&model=...` to remove an
+operator override and fall back to the next capability source.
+
+### `POST /v1/model-capabilities/probes`
+
+Records a manual probe result. Hecate does not run background capability probes
+in this version; this endpoint persists an operator-supplied result after the
+operator has tested the model.
+
+```json
+POST /v1/model-capabilities/probes
+{
+  "provider": "ollama",
+  "model": "qwen2.5-coder",
+  "tool_calling": "basic",
+  "note": "Manual tool-call probe succeeded."
+}
+```
+
+Manual probe results lose to operator overrides and win over catalog/provider
+defaults.
+
 ### `GET /v1/agent-adapters`
 
 External coding-agent adapter catalog. This is the first discovery surface for
@@ -593,8 +689,15 @@ Status codes:
 
 Lists Agent Chat sessions. Agent Chat uses the same backend selection as model
 chat history: memory by default, SQLite when `GATEWAY_CHAT_SESSIONS_BACKEND=sqlite`.
-It is the alpha surface for running external coding agents such as Codex,
-Claude Code, and Cursor Agent from the Hecate Chats UI.
+It is the alpha surface for non-direct-model chat targets:
+
+- `runtime_kind="hecate_agent"` — Hecate creates and continues a visible
+  `agent_loop` task with Hecate tools, task approvals, artifacts, and OTel.
+  The chat transcript projects backing task-run activity and can resolve
+  pending task approvals through the existing task approval endpoint.
+- `runtime_kind="external_agent"` — Codex, Claude Code, Cursor Agent, or
+  another adapter owns the native session while Hecate supervises lifecycle,
+  transcript, diagnostics, and external-agent approvals.
 
 `GATEWAY_CHAT_SESSIONS_BACKEND=sqlite` is the single selector for the entire
 agent-chat state bundle: sessions, messages, **and** the operator-facing
@@ -664,10 +767,17 @@ GET /v1/agent-chat/sessions
   "data": [
     {
       "id": "agent_chat_...",
-      "title": "Codex chat",
-      "adapter_id": "codex",
-      "driver_kind": "acp",
-      "native_session_id": "session_...",
+      "title": "Hecate Agent chat",
+      "runtime_kind": "hecate_agent",
+      "task_id": "task_...",
+      "latest_run_id": "run_...",
+      "provider": "ollama",
+      "model": "qwen2.5-coder",
+      "capabilities": {
+        "tool_calling": "basic",
+        "streaming": true,
+        "source": "operator_override"
+      },
       "workspace": "/Users/alice/project",
       "workspace_branch": "main",
       "status": "completed",
@@ -686,18 +796,23 @@ GET /v1/agent-chat/sessions
 
 ### `POST /v1/agent-chat/sessions`
 
-Creates an Agent Chat session. The session records which adapter should run
-and which workspace path the ACP session should use. The workspace must be
-an operator-controlled local directory. Hecate validates and canonicalizes the
-path at session creation, so later runs use the resolved directory instead of
-failing only after the external process starts.
+Creates an Agent Chat session. `runtime_kind` chooses the execution target:
+
+- `hecate_agent` requires `provider`, `model`, and `workspace`.
+- `external_agent` requires `adapter_id` and `workspace`.
+
+The workspace must be an operator-controlled local directory. Hecate validates
+and canonicalizes the path at session creation, so later runs use the resolved
+directory instead of failing only after execution starts.
 
 ```json
 POST /v1/agent-chat/sessions
 {
-  "adapter_id": "codex",
+  "runtime_kind": "hecate_agent",
+  "provider": "ollama",
+  "model": "qwen2.5-coder",
   "workspace": "/Users/alice/project",
-  "title": "Codex review"
+  "title": "Hecate Agent review"
 }
 
 → 200
@@ -705,9 +820,15 @@ POST /v1/agent-chat/sessions
   "object": "agent_chat_session",
   "data": {
     "id": "agent_chat_...",
-    "title": "Codex review",
-    "adapter_id": "codex",
-    "driver_kind": "acp",
+    "title": "Hecate Agent review",
+    "runtime_kind": "hecate_agent",
+    "provider": "ollama",
+    "model": "qwen2.5-coder",
+    "capabilities": {
+      "tool_calling": "basic",
+      "streaming": true,
+      "source": "operator_override"
+    },
     "workspace": "/Users/alice/project",
     "workspace_branch": "main",
     "status": "idle",
@@ -721,14 +842,24 @@ POST /v1/agent-chat/sessions
 ### `GET /v1/agent-chat/sessions/{id}`
 
 Returns the full session transcript, including user messages and assistant
-messages produced by the external adapter.
+messages produced by the backing runtime. Hecate Agent sessions include
+`task_id`, `latest_run_id`, `provider`, `model`, and the capability snapshot
+used when the session was created.
 
 ### `POST /v1/agent-chat/sessions/{id}/messages`
 
-Sends the submitted prompt to the session's native ACP session and appends both
-the user message and the adapter output. The response returns after the ACP turn
-finishes, times out, is cancelled, or fails. For live output while the turn is
-running, subscribe to the session stream before posting the message.
+Sends the submitted prompt to the session's backing runtime and appends both
+the user message and assistant output.
+
+For `runtime_kind="external_agent"`, Hecate sends the prompt to the session's
+native ACP session. For `runtime_kind="hecate_agent"`, the first prompt creates
+a visible `agent_loop` task and starts it; follow-up prompts call the existing
+task continuation path on the latest terminal run so the same task receives the
+continued conversation.
+
+The response returns after the backing turn finishes, times out, is cancelled,
+or fails. For live output while the turn is running, subscribe to the session
+stream before posting the message.
 
 Before starting the adapter, Hecate enforces optional agent-chat guardrails:
 `GATEWAY_AGENT_CHAT_MAX_TURNS_PER_SESSION`,
@@ -821,6 +952,13 @@ answer. Failures from the ACP adapter are still represented as assistant
 messages with `"status": "failed"` and `error` so the transcript stays intact.
 Transport or request validation failures still use the normal Hecate error
 envelope.
+
+Hecate Agent-specific errors:
+
+| Status | `error.type` | Meaning |
+|---|---|---|
+| `409` | `agent_chat.agent_session_busy` | The backing task run is queued, running, or awaiting approval. Resolve/cancel the active run before sending another prompt. |
+| `422` | `agent_chat.model_capability_required` | The selected model is not known to support tool calling. Record a manual probe result or operator override in Settings. |
 
 ### `GET /v1/agent-chat/sessions/{id}/messages/{message_id}/files`
 

@@ -1,4 +1,4 @@
-import { useEffect } from "react";
+import { useEffect, useState } from "react";
 
 import { SettingsView } from "../features/settings/SettingsView";
 import { CostsView } from "../features/costs/CostsView";
@@ -20,6 +20,7 @@ type WorkspaceDefinition = {
 
 type ConsoleState = RuntimeConsoleViewModel["state"];
 type ConsoleActions = RuntimeConsoleViewModel["actions"];
+type TaskFocusRequest = { taskID: string; runID?: string; nonce: number };
 
 // Icon paths match the design handoff
 const IC = {
@@ -131,6 +132,18 @@ function AuthenticatedShell({
   actions: ConsoleActions;
 }) {
   const workspaces = getAvailableWorkspaces();
+  const [taskFocusRequest, setTaskFocusRequest] = useState<TaskFocusRequest | null>(null);
+
+  function openTaskFromChat(taskID: string, runID?: string) {
+    setTaskFocusRequest({ taskID, runID, nonce: Date.now() });
+    onSelectWorkspace("runs");
+  }
+
+  function openAgentChatFromTask(sessionID: string) {
+    actions.setChatTarget("hecate_agent");
+    void actions.selectChatSession(sessionID);
+    onSelectWorkspace("chats");
+  }
 
   useEffect(() => {
     const handler = (e: KeyboardEvent) => {
@@ -173,8 +186,8 @@ function AuthenticatedShell({
           {state.error && <div className="page-banner page-banner--error">{state.error}</div>}
           <div className={`console-content${isBare ? " console-content--bare" : ""}`}>
             {activeWorkspace === "overview"   && <ObservabilityView actions={actions} state={state} onNavigate={onSelectWorkspace} />}
-            {activeWorkspace === "chats" && <ChatView actions={actions} state={state} />}
-            {activeWorkspace === "runs"          && <TasksView />}
+            {activeWorkspace === "chats" && <ChatView actions={actions} state={state} onNavigate={onSelectWorkspace} onOpenTask={openTaskFromChat} />}
+            {activeWorkspace === "runs"          && <TasksView focusRequest={taskFocusRequest} onOpenAgentChat={openAgentChatFromTask} />}
             {activeWorkspace === "providers"     && <ProvidersView actions={actions} state={state} />}
             {activeWorkspace === "costs"         && <CostsView actions={actions} state={state} />}
             {activeWorkspace === "settings" && <SettingsView actions={actions} state={state} />}
@@ -218,7 +231,7 @@ function AuthenticatedShell({
             </>
           );
         })()}
-        {activeWorkspace === "chats" && state.chatTarget === "agent" && agentWorkspace && (
+        {activeWorkspace === "chats" && state.chatTarget !== "model" && agentWorkspace && (
           <>
             <span className="hecate-statusbar__sep">|</span>
             <span className="hecate-statusbar__path" title={agentWorkspace}>

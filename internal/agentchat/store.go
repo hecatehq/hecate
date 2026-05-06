@@ -6,11 +6,14 @@ import (
 	"sort"
 	"sync"
 	"time"
+
+	"github.com/hecate/agent-runtime/pkg/types"
 )
 
 type Session struct {
 	ID              string
 	Title           string
+	RuntimeKind     string
 	AdapterID       string
 	DriverKind      string
 	NativeSessionID string
@@ -19,6 +22,11 @@ type Session struct {
 	// snapshots don't spawn git on every streamed update.
 	WorkspaceBranch string
 	Status          string
+	TaskID          string
+	LatestRunID     string
+	Provider        string
+	Model           string
+	Capabilities    types.ModelCapabilities
 	// TurnsUsed counts how many user→assistant round-trips have completed
 	// (successfully or with failure) in this session. Used to enforce the
 	// GATEWAY_AGENT_CHAT_MAX_TURNS_PER_SESSION ceiling.
@@ -56,13 +64,15 @@ type Message struct {
 }
 
 type Activity struct {
-	ID        string    `json:"id,omitempty"`
-	Type      string    `json:"type"`
-	Status    string    `json:"status,omitempty"`
-	Kind      string    `json:"kind,omitempty"`
-	Title     string    `json:"title"`
-	Detail    string    `json:"detail,omitempty"`
-	CreatedAt time.Time `json:"created_at,omitempty"`
+	ID          string    `json:"id,omitempty"`
+	Type        string    `json:"type"`
+	Status      string    `json:"status,omitempty"`
+	Kind        string    `json:"kind,omitempty"`
+	Title       string    `json:"title"`
+	Detail      string    `json:"detail,omitempty"`
+	CreatedAt   time.Time `json:"created_at,omitempty"`
+	ApprovalID  string    `json:"approval_id,omitempty"`
+	NeedsAction bool      `json:"needs_action,omitempty"`
 }
 
 type Usage struct {
@@ -184,6 +194,9 @@ func (s *MemoryStore) Create(_ context.Context, session Session) (Session, error
 		session.Status = "idle"
 	}
 	session.Messages = append([]Message(nil), session.Messages...)
+	if session.RuntimeKind == "" {
+		session.RuntimeKind = defaultRuntimeKind(session)
+	}
 	s.sessions[session.ID] = session
 	return cloneSession(session), nil
 }
@@ -281,4 +294,11 @@ func cloneSession(session Session) Session {
 		session.Messages[i].Activities = append([]Activity(nil), session.Messages[i].Activities...)
 	}
 	return session
+}
+
+func defaultRuntimeKind(session Session) string {
+	if session.AdapterID != "" {
+		return "external_agent"
+	}
+	return "hecate_agent"
 }

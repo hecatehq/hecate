@@ -16,6 +16,8 @@ const (
 	errCodeSessionLimitExceeded = "agent_chat.session_limit_exceeded"
 	errCodeSessionDurationLimit = "agent_chat.session_duration_limit_exceeded"
 	errCodeSessionIdleTimeout   = "agent_chat.session_idle_timeout"
+	errCodeAgentSessionBusy     = "agent_chat.agent_session_busy"
+	errCodeModelCapability      = "agent_chat.model_capability_required"
 )
 
 func WriteJSON(w http.ResponseWriter, status int, payload any) {

@@ -78,7 +78,7 @@ Start with **ACP session adapters**.
 
 ```text
 Hecate Chats
-  -> Target: Agent
+  -> Target: External Agent
   -> Agent adapter: Codex / Claude Code / Cursor Agent
   -> Workspace
   -> Prompt
@@ -87,20 +87,22 @@ Hecate Chats
 ```
 
 The implementation keeps one adapter process and one native ACP session alive
-per Hecate Agent Chat session. Each prompt becomes the next ACP turn in that
+per External Agent chat session. Each prompt becomes the next ACP turn in that
 session.
 
 ## UI Model
 
-Chats should gain a target switch:
+Chats exposes External Agent as a top-level target next to Hecate Chat:
 
 ```text
-Target: Model | Agent
+Target: Hecate Chat | External Agent
 ```
 
-When `Model` is selected, the existing provider/model controls remain.
+When `Hecate Chat` is selected, the provider/model controls remain and the
+tools toggle decides whether the prompt is direct model chat or Hecate Agent
+task execution.
 
-When `Agent` is selected, the primary controls become:
+When `External Agent` is selected, the primary controls become:
 
 ```text
 Agent: Codex | Claude Code | Cursor Agent
@@ -218,7 +220,7 @@ For the first prompt in an Agent Chat session:
 9. If the workspace is a Git repo, capture `git diff --stat` and
    `git diff --binary` onto the assistant message.
 
-For later prompts in the same Hecate Agent Chat session, Hecate reuses the same
+For later prompts in the same External Agent chat session, Hecate reuses the same
 adapter process and native ACP session. If the gateway restarts and SQLite chat
 storage is enabled, Hecate keeps the transcript and saved native session id. On
 the next prompt it asks the adapter to load that native session when the adapter

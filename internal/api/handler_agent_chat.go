@@ -41,11 +41,7 @@ func (h *Handler) HandleCreateAgentChatSession(w http.ResponseWriter, r *http.Re
 		WriteError(w, http.StatusBadRequest, errCodeInvalidRequest, "invalid JSON body")
 		return
 	}
-	adapter, ok := agentadapters.BuiltInByID(strings.TrimSpace(req.AdapterID))
-	if !ok {
-		WriteError(w, http.StatusBadRequest, errCodeInvalidRequest, fmt.Sprintf("agent adapter %q not found", req.AdapterID))
-		return
-	}
+	runtimeKind := normalizeAgentChatRuntimeKind(req.RuntimeKind, req.AdapterID)
 	workspace := strings.TrimSpace(req.Workspace)
 	if workspace == "" {
 		WriteError(w, http.StatusBadRequest, errCodeInvalidRequest, "workspace is required")
@@ -58,22 +54,67 @@ func (h *Handler) HandleCreateAgentChatSession(w http.ResponseWriter, r *http.Re
 	}
 	workspaceBranch := workspaceGitBranch(workspace)
 	title := strings.TrimSpace(req.Title)
-	if title == "" {
-		title = adapter.Name + " chat"
-	}
-	session, err := h.agentChat.Create(r.Context(), agentchat.Session{
+
+	session := agentchat.Session{
 		ID:              newAgentChatID("agent_chat"),
 		Title:           title,
-		AdapterID:       adapter.ID,
-		DriverKind:      agentadapters.DriverKindACP,
+		RuntimeKind:     runtimeKind,
 		Workspace:       workspace,
 		WorkspaceBranch: workspaceBranch,
-	})
+	}
+	switch runtimeKind {
+	case "external_agent":
+		adapter, ok := agentadapters.BuiltInByID(strings.TrimSpace(req.AdapterID))
+		if !ok {
+			WriteError(w, http.StatusBadRequest, errCodeInvalidRequest, fmt.Sprintf("agent adapter %q not found", req.AdapterID))
+			return
+		}
+		if session.Title == "" {
+			session.Title = adapter.Name + " chat"
+		}
+		session.AdapterID = adapter.ID
+		session.DriverKind = agentadapters.DriverKindACP
+	case "hecate_agent":
+		provider := strings.TrimSpace(req.Provider)
+		model := strings.TrimSpace(req.Model)
+		if model == "" {
+			WriteError(w, http.StatusBadRequest, errCodeInvalidRequest, "model is required for Hecate Agent chat")
+			return
+		}
+		caps, err := h.resolveModelCapabilities(r.Context(), provider, model)
+		if err != nil {
+			WriteError(w, http.StatusBadRequest, errCodeInvalidRequest, err.Error())
+			return
+		}
+		if session.Title == "" {
+			session.Title = "Hecate Agent chat"
+		}
+		session.Provider = provider
+		session.Model = model
+		session.Capabilities = caps
+	default:
+		WriteError(w, http.StatusBadRequest, errCodeInvalidRequest, "runtime_kind must be hecate_agent or external_agent")
+		return
+	}
+	session, err = h.agentChat.Create(r.Context(), session)
 	if err != nil {
 		WriteError(w, http.StatusInternalServerError, "gateway_error", err.Error())
 		return
 	}
 	WriteJSON(w, http.StatusOK, AgentChatSessionResponse{Object: "agent_chat_session", Data: renderAgentChatSession(session, h.agentChatSnapshotConfig())})
+}
+
+func normalizeAgentChatRuntimeKind(runtimeKind, adapterID string) string {
+	runtimeKind = strings.TrimSpace(runtimeKind)
+	switch runtimeKind {
+	case "":
+		if strings.TrimSpace(adapterID) != "" {
+			return "external_agent"
+		}
+		return "hecate_agent"
+	default:
+		return runtimeKind
+	}
 }
 
 func (h *Handler) HandleAgentChatSession(w http.ResponseWriter, r *http.Request) {
@@ -184,6 +225,30 @@ func (h *Handler) HandleCancelAgentChatSession(w http.ResponseWriter, r *http.Re
 		WriteError(w, http.StatusNotFound, "not_found", "agent chat session not found")
 		return
 	}
+	if renderAgentChatRuntimeKind(session) == "hecate_agent" && h.taskStore != nil && h.taskRunner != nil && session.TaskID != "" && session.LatestRunID != "" {
+		task, found, err := h.taskStore.GetTask(r.Context(), session.TaskID)
+		if err != nil {
+			WriteError(w, http.StatusInternalServerError, "gateway_error", err.Error())
+			return
+		}
+		if found {
+			run, err := h.taskRunner.CancelRun(r.Context(), task, session.LatestRunID, "operator")
+			if err == nil {
+				updated, updateErr := h.agentChat.UpdateSession(r.Context(), session.ID, func(item *agentchat.Session) {
+					item.Status = run.Status
+				})
+				if updateErr == nil {
+					h.agentChatLive.publishSession(updated)
+					WriteJSON(w, http.StatusAccepted, AgentChatSessionResponse{Object: "agent_chat_session", Data: renderAgentChatSession(updated, h.agentChatSnapshotConfig())})
+					return
+				}
+			}
+			if err != nil && !strings.Contains(err.Error(), "already terminal") {
+				WriteError(w, http.StatusConflict, errCodeInvalidRequest, err.Error())
+				return
+			}
+		}
+	}
 	if !h.agentChatLive.cancelRun(session.ID) {
 		WriteError(w, http.StatusConflict, errCodeInvalidRequest, "agent chat session is not running")
 		return
@@ -278,6 +343,10 @@ func (h *Handler) HandleCreateAgentChatMessage(w http.ResponseWriter, r *http.Re
 				"turns_used": session.TurnsUsed,
 			},
 		})
+		return
+	}
+	if renderAgentChatRuntimeKind(session) == "hecate_agent" {
+		h.handleCreateHecateAgentChatMessage(w, r, session, content)
 		return
 	}
 

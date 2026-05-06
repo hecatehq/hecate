@@ -212,6 +212,17 @@ type ModelInfo struct {
 	OwnedBy         string
 	Default         bool
 	DiscoverySource string
+	Capabilities    ModelCapabilities
+}
+
+// ModelCapabilities is the operator-facing capability snapshot Hecate uses
+// to decide whether a model can back Hecate Agent sessions. The source tells
+// callers where the currently effective value came from.
+type ModelCapabilities struct {
+	ToolCalling      string `json:"tool_calling,omitempty"`
+	Streaming        bool   `json:"streaming,omitempty"`
+	MaxContextTokens int    `json:"max_context_tokens,omitempty"`
+	Source           string `json:"source,omitempty"`
 }
 
 type ProviderStatus struct {
