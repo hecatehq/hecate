@@ -117,7 +117,7 @@ function TimelineActivityLine({ activity }: { activity: AgentChatActivityRecord 
   if (activity.type === "plan") {
     return <PlanActivityLine activity={activity} />;
   }
-  return <ActivityLine activity={activity} prefix={activity.type === "tool_call" ? activity.kind || "tool" : undefined} />;
+  return <ActivityLine activity={activity} prefix={activityLinePrefix(activity)} />;
 }
 
 function PlanActivityLine({ activity }: { activity: AgentChatActivityRecord }) {
@@ -222,8 +222,8 @@ function collapseModelTurnActivities(activities: AgentChatActivityRecord[]): Age
     type: "model_turns",
     status,
     kind: "model",
-    title: "Model turns",
-    detail: `${turnActivities.length} turns ${humanActivityStatus(status)}`,
+    title: "Thinking",
+    detail: `${turnActivities.length} model turns ${humanActivityStatus(status)}`,
   };
 
   const out = activities.filter(activity => !isModelTurnActivity(activity));
@@ -246,11 +246,20 @@ function aggregateActivityStatus(activities: AgentChatActivityRecord[]): string 
 function activityDisplay(activity: AgentChatActivityRecord): { title: string; detail?: string } {
   if (activity.type === "approval") {
     const title = approvalActivityTitle(activity);
-    const detail = (activity.detail || "")
-      .replace(/\s+-\s+awaiting_approval$/i, "")
-      .replace(/\s+-\s+pending$/i, "")
-      .trim();
+    const detail = cleanApprovalDetail(activity.detail);
     return { title, detail };
+  }
+  if (activity.type === "tool_call") {
+    return { title: toolActivityTitle(activity), detail: cleanActivityDetail(activity) };
+  }
+  if (activity.type === "thinking" && isModelTurnActivity(activity)) {
+    return { title: "Thinking", detail: modelTurnDetail(activity) };
+  }
+  if (activity.type === "model_turns") {
+    return { title: "Thinking", detail: activity.detail };
+  }
+  if (activity.type === "started" && /^Starting Hecate Agent$/i.test(activity.title.trim())) {
+    return { title: "Starting agent", detail: cleanActivityDetail(activity) };
   }
   if (!isTaskRunActivity(activity)) {
     return { title: activity.title, detail: cleanActivityDetail(activity) };
@@ -260,6 +269,65 @@ function activityDisplay(activity: AgentChatActivityRecord): { title: string; de
   const existingDetail = activity.detail || "";
   const detail = cleanTaskRunDetail(existingDetail, humanStatus);
   return { title: "Backing task", detail };
+}
+
+function activityLinePrefix(activity: AgentChatActivityRecord): string | undefined {
+  switch (activity.type) {
+    case "tool_call":
+      return "tool";
+    case "thinking":
+    case "model_turns":
+      return "model";
+    case "approval":
+      return "approval";
+    default:
+      return undefined;
+  }
+}
+
+function toolActivityTitle(activity: AgentChatActivityRecord): string {
+  const raw = (activity.title || activity.kind || "tool").trim();
+  const normalized = raw.toLowerCase();
+
+  switch (normalized) {
+    case "shell_exec":
+      return "Ran shell";
+    case "git_exec":
+      return "Ran git";
+    case "read_file":
+      return "Read file";
+    case "list_dir":
+      return "Listed files";
+    case "write_file":
+    case "edit_file":
+    case "apply_patch":
+      return "Edited file";
+    case "agent_loop_tool_call":
+      return "Requested tool";
+    default:
+      break;
+  }
+
+  const execMatch = normalized.match(/^([a-z0-9_-]+)_exec$/);
+  if (execMatch) {
+    return `Ran ${execMatch[1].replaceAll("_", " ")}`;
+  }
+
+  return raw;
+}
+
+function modelTurnDetail(activity: AgentChatActivityRecord): string {
+  const status = humanActivityStatus(activity.status);
+  const turn = activity.title.match(/turn\s+(\d+)/i)?.[1];
+  return turn ? `turn ${turn} ${status}` : status;
+}
+
+function cleanApprovalDetail(detail?: string): string | undefined {
+  const cleaned = detail
+    ?.replace(/^Agent requested tools that require approval:\s*/i, "")
+    .replace(/\s+-\s+(awaiting_approval|pending|approved|rejected|denied|cancelled|timed_out)$/i, "")
+    .trim();
+  return cleaned || undefined;
 }
 
 function cleanActivityDetail(activity: AgentChatActivityRecord): string | undefined {
@@ -304,7 +372,7 @@ function approvalActivityTitle(activity: AgentChatActivityRecord): string {
   }
   switch (activity.status) {
     case "approved":
-      return "Approval approved";
+      return "Approval granted";
     case "rejected":
     case "denied":
       return "Approval rejected";

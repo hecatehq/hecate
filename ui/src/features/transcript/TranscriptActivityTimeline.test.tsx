@@ -105,13 +105,13 @@ describe("TranscriptActivityTimeline", () => {
     expect(screen.getByText("Step 3")).toBeInTheDocument();
   });
 
-  it("renders tool calls with their kind prefix and detail", () => {
+  it("renders Hecate tool calls with operator-facing labels and detail", () => {
     const activities: AgentChatActivityRecord[] = [
       { type: "tool_call", title: "read_file", status: "completed", kind: "fs", detail: "src/index.ts" },
     ];
     render(<TranscriptActivityTimeline activities={activities} />);
-    expect(screen.getByText("read_file")).toBeInTheDocument();
-    expect(screen.getByText("fs")).toBeInTheDocument();
+    expect(screen.getByText("Read file")).toBeInTheDocument();
+    expect(screen.getByText("tool")).toBeInTheDocument();
     expect(screen.getByText("src/index.ts")).toBeInTheDocument();
   });
 
@@ -120,7 +120,7 @@ describe("TranscriptActivityTimeline", () => {
       { type: "tool_call", title: "git_exec", status: "completed", kind: "tool", detail: "git_exec - completed" },
     ];
     render(<TranscriptActivityTimeline activities={activities} />);
-    expect(screen.getByText("git_exec")).toBeInTheDocument();
+    expect(screen.getByText("Ran git")).toBeInTheDocument();
     expect(screen.queryByText("git_exec - completed")).toBeNull();
   });
 
@@ -151,7 +151,7 @@ describe("TranscriptActivityTimeline", () => {
       { type: "final_answer", title: "agent-final-answer.txt", status: "ready" },
     ];
     render(<TranscriptActivityTimeline activities={activities} />);
-    expect(screen.getByText("git_exec")).toBeInTheDocument();
+    expect(screen.getByText("Ran git")).toBeInTheDocument();
     expect(screen.queryByText("git-stdout.txt")).toBeNull();
     expect(screen.queryByText("git-stderr.txt")).toBeNull();
     expect(screen.queryByText("git-changes.json")).toBeNull();
@@ -169,10 +169,10 @@ describe("TranscriptActivityTimeline", () => {
     ];
     render(<TranscriptActivityTimeline activities={activities} />);
 
-    expect(screen.getByText("git_exec")).toBeInTheDocument();
+    expect(screen.getByText("Ran git")).toBeInTheDocument();
     expect(screen.getByText("Backing task")).toBeInTheDocument();
-    expect(screen.getByText("Model turns")).toBeInTheDocument();
-    expect(screen.getByText("2 turns completed")).toBeInTheDocument();
+    expect(screen.getByText("Thinking")).toBeInTheDocument();
+    expect(screen.getByText("2 model turns completed")).toBeInTheDocument();
     expect(screen.queryByText("Agent turn 1")).toBeNull();
     expect(screen.queryByText("Agent turn 2")).toBeNull();
     expect(screen.queryByText("Run completed")).toBeNull();
@@ -188,9 +188,9 @@ describe("TranscriptActivityTimeline", () => {
     ];
     render(<TranscriptActivityTimeline activities={activities} />);
 
-    const labels = screen.getAllByText(/Starting Hecate Agent|Backing task|Agent turn 1|shell_exec/)
+    const labels = screen.getAllByText(/Starting agent|Backing task|Thinking|Ran shell/)
       .map(node => node.textContent);
-    expect(labels).toEqual(["Starting Hecate Agent", "Backing task", "Agent turn 1", "shell_exec"]);
+    expect(labels).toEqual(["Starting agent", "Backing task", "Thinking", "Ran shell"]);
   });
 
   it("keeps external-agent activity rows chronological too", () => {
