@@ -55,23 +55,34 @@ func runStoreLifecycle(t *testing.T, store Store) {
 	}
 
 	if _, err := store.AppendMessage(ctx, created.ID, Message{
-		ID:      "msg_user",
-		Role:    "user",
-		Content: "review this",
+		ID:          "msg_user",
+		SegmentID:   "task:task_chat_1",
+		RuntimeKind: "hecate_agent",
+		TaskID:      "task_chat_1",
+		Provider:    "openai",
+		Model:       "gpt-4o-mini",
+		Role:        "user",
+		Content:     "review this",
 	}); err != nil {
 		t.Fatalf("AppendMessage(user): %v", err)
 	}
 	startedAt := time.Now().UTC().Add(-2 * time.Second)
 	if _, err := store.AppendMessage(ctx, created.ID, Message{
-		ID:          "msg_assistant",
-		RunID:       "agent_run_1",
-		Role:        "assistant",
-		Content:     "running",
-		AdapterID:   "codex",
-		AdapterName: "Codex",
-		Status:      "running",
-		CostMode:    "external",
-		Workspace:   "/tmp/hecate",
+		ID:           "msg_assistant",
+		RuntimeKind:  "hecate_agent",
+		SegmentID:    "task:task_chat_1",
+		TaskID:       "task_chat_1",
+		RunID:        "agent_run_1",
+		Provider:     "openai",
+		Model:        "gpt-4o-mini",
+		Capabilities: types.ModelCapabilities{ToolCalling: "basic", Streaming: true, Source: "operator_override"},
+		Role:         "assistant",
+		Content:      "running",
+		AdapterID:    "codex",
+		AdapterName:  "Codex",
+		Status:       "running",
+		CostMode:     "external",
+		Workspace:    "/tmp/hecate",
 	}); err != nil {
 		t.Fatalf("AppendMessage(assistant): %v", err)
 	}
@@ -132,6 +143,12 @@ func runStoreLifecycle(t *testing.T, store Store) {
 	}
 	if got.Messages[1].Usage.ContextSize != 200_000 || got.Messages[1].Usage.ContextUsed != 42_000 {
 		t.Fatalf("persisted usage = %+v, want 42000/200000", got.Messages[1].Usage)
+	}
+	if got.Messages[1].RuntimeKind != "hecate_agent" || got.Messages[1].SegmentID != "task:task_chat_1" || got.Messages[1].TaskID != "task_chat_1" {
+		t.Fatalf("persisted message runtime = runtime %q segment %q task %q", got.Messages[1].RuntimeKind, got.Messages[1].SegmentID, got.Messages[1].TaskID)
+	}
+	if got.Messages[1].Provider != "openai" || got.Messages[1].Model != "gpt-4o-mini" || got.Messages[1].Capabilities.ToolCalling != "basic" {
+		t.Fatalf("persisted message model snapshot = provider %q model %q caps %+v", got.Messages[1].Provider, got.Messages[1].Model, got.Messages[1].Capabilities)
 	}
 
 	list, err := store.List(ctx)

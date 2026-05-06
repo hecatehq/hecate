@@ -38,6 +38,9 @@ type Session struct {
 
 type Message struct {
 	ID              string
+	RuntimeKind     string
+	SegmentID       string
+	TaskID          string
 	RunID           string
 	RequestID       string
 	TraceID         string
@@ -52,6 +55,9 @@ type Message struct {
 	Status          string
 	ExitCode        int
 	CostMode        string
+	Provider        string
+	Model           string
+	Capabilities    types.ModelCapabilities
 	Workspace       string
 	DiffStat        string
 	Diff            string
@@ -257,6 +263,7 @@ func (s *MemoryStore) AppendMessage(_ context.Context, sessionID string, message
 	if message.CreatedAt.IsZero() {
 		message.CreatedAt = time.Now().UTC()
 	}
+	hydrateMessageRuntimeFromSession(&message, session)
 	session.Messages = append(session.Messages, message)
 	session.UpdatedAt = message.CreatedAt
 	if message.Status != "" && message.Role == "assistant" {
@@ -294,6 +301,41 @@ func cloneSession(session Session) Session {
 		session.Messages[i].Activities = append([]Activity(nil), session.Messages[i].Activities...)
 	}
 	return session
+}
+
+func hydrateMessageRuntimeFromSession(message *Message, session Session) {
+	if message.RuntimeKind == "" {
+		message.RuntimeKind = normalizeMessageRuntimeKind(session)
+	}
+	if message.TaskID == "" {
+		message.TaskID = session.TaskID
+	}
+	if message.Provider == "" {
+		message.Provider = session.Provider
+	}
+	if message.Model == "" {
+		message.Model = session.Model
+	}
+	if message.Capabilities.ToolCalling == "" && !message.Capabilities.Streaming && message.Capabilities.MaxContextTokens == 0 && message.Capabilities.Source == "" {
+		message.Capabilities = session.Capabilities
+	}
+	if message.SegmentID == "" {
+		switch {
+		case message.TaskID != "":
+			message.SegmentID = "task:" + message.TaskID
+		case session.NativeSessionID != "":
+			message.SegmentID = "external:" + session.NativeSessionID
+		default:
+			message.SegmentID = "session:" + session.ID
+		}
+	}
+}
+
+func normalizeMessageRuntimeKind(session Session) string {
+	if session.RuntimeKind != "" {
+		return session.RuntimeKind
+	}
+	return defaultRuntimeKind(session)
 }
 
 func defaultRuntimeKind(session Session) string {

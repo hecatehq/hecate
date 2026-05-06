@@ -844,7 +844,12 @@ POST /v1/agent-chat/sessions
 Returns the full session transcript, including user messages and assistant
 messages produced by the backing runtime. Hecate Agent sessions include
 `task_id`, `latest_run_id`, `provider`, `model`, and the capability snapshot
-used when the session was created.
+used when the session was created. Individual agent-chat messages also carry a
+runtime snapshot: `runtime_kind`, `segment_id`, optional `task_id`, optional
+`run_id`, provider/model, and capabilities. Frontends should prefer those
+message-level fields when rendering historical turns because the session header
+can change as the operator switches tools on/off or, in later versions, starts a
+new task-backed segment in the same transcript.
 
 ### `POST /v1/agent-chat/sessions/{id}/messages`
 

@@ -20,6 +20,9 @@ type Props = {
 
 type VisibleChatMessage = {
   id: string;
+  runtime_kind?: string;
+  segment_id?: string;
+  task_id?: string;
   run_id?: string;
   trace_id?: string;
   native_session_id?: string;
@@ -31,6 +34,8 @@ type VisibleChatMessage = {
   agent_adapter_name?: string;
   agent_status?: string;
   cost_mode?: string;
+  provider?: string;
+  model?: string;
   diff_stat?: string;
   diff?: string;
   raw_output?: string;
@@ -117,6 +122,9 @@ export function ChatView({ state, actions, onNavigate, onOpenTask }: Props) {
   const messages: VisibleChatMessage[] = isAgentChat
     ? (state.activeAgentChatSession?.messages ?? []).map((m, index) => ({
         id: m.id || `agent-message-${index}`,
+        runtime_kind: m.runtime_kind,
+        segment_id: m.segment_id,
+        task_id: m.task_id,
         run_id: m.run_id,
         trace_id: m.trace_id,
         native_session_id: m.native_session_id,
@@ -127,6 +135,8 @@ export function ChatView({ state, actions, onNavigate, onOpenTask }: Props) {
         agent_adapter_name: m.adapter_name,
         agent_status: m.status,
         cost_mode: m.cost_mode,
+        provider: m.provider,
+        model: m.model,
         diff_stat: m.diff_stat,
         diff: m.diff,
         raw_output: m.raw_output,
@@ -836,7 +846,7 @@ export function ChatView({ state, actions, onNavigate, onOpenTask }: Props) {
             const content = typeof m.content === "string" ? m.content : (m.content === null ? "" : JSON.stringify(m.content));
             const time = m.created_at ? new Date(m.created_at).toLocaleTimeString("en-US", { hour: "2-digit", minute: "2-digit" }) : "";
             const agentModel = isHecateAgentChat
-              ? (state.activeAgentChatSession?.model || "Hecate Agent")
+              ? (m.model || state.activeAgentChatSession?.model || "Hecate Agent")
               : (m.agent_adapter_name || m.agent_adapter_id);
             const agentRuntime = isAgentChat && role === "assistant"
               ? formatAgentRuntimeMeta(m.run_id, m.duration_ms, m.trace_id, m.native_session_id)
@@ -854,12 +864,12 @@ export function ChatView({ state, actions, onNavigate, onOpenTask }: Props) {
                 costUsd={call?.cost_usd}
                 badge={isAgentChat && role === "assistant" ? (m.agent_status || m.cost_mode) : undefined}
                 runtimeMeta={agentRuntime}
-                taskLink={isHecateAgentChat && role === "assistant" && state.activeAgentChatSession?.task_id
+                taskLink={isHecateAgentChat && role === "assistant" && (m.task_id || state.activeAgentChatSession?.task_id)
                   ? {
-                      label: formatTaskLinkLabel(state.activeAgentChatSession.task_id),
-                      title: formatTaskLinkTitle(state.activeAgentChatSession.task_id, m.run_id || state.activeAgentChatSession.latest_run_id),
+                      label: formatTaskLinkLabel(m.task_id || state.activeAgentChatSession?.task_id || ""),
+                      title: formatTaskLinkTitle(m.task_id || state.activeAgentChatSession?.task_id || "", m.run_id || state.activeAgentChatSession?.latest_run_id),
                       onClick: () => {
-                        const taskID = state.activeAgentChatSession?.task_id;
+                        const taskID = m.task_id || state.activeAgentChatSession?.task_id;
                         if (!taskID) return;
                         const runID = m.run_id || state.activeAgentChatSession?.latest_run_id;
                         if (onOpenTask) onOpenTask(taskID, runID);

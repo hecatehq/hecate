@@ -667,6 +667,9 @@ type AgentChatSessionItem struct {
 
 type AgentChatMessageItem struct {
 	ID              string                  `json:"id"`
+	RuntimeKind     string                  `json:"runtime_kind,omitempty"`
+	SegmentID       string                  `json:"segment_id,omitempty"`
+	TaskID          string                  `json:"task_id,omitempty"`
 	RunID           string                  `json:"run_id,omitempty"`
 	RequestID       string                  `json:"request_id,omitempty"`
 	TraceID         string                  `json:"trace_id,omitempty"`
@@ -681,6 +684,9 @@ type AgentChatMessageItem struct {
 	Status          string                  `json:"status,omitempty"`
 	ExitCode        int                     `json:"exit_code,omitempty"`
 	CostMode        string                  `json:"cost_mode,omitempty"`
+	Provider        string                  `json:"provider,omitempty"`
+	Model           string                  `json:"model,omitempty"`
+	Capabilities    types.ModelCapabilities `json:"capabilities,omitempty"`
 	Workspace       string                  `json:"workspace,omitempty"`
 	DiffStat        string                  `json:"diff_stat,omitempty"`
 	Diff            string                  `json:"diff,omitempty"`
