@@ -590,11 +590,16 @@ describe("ChatView input", () => {
     expect(fixedModel.disabled).toBe(true);
     expect(screen.queryByText("smollm2:135m")).toBeNull();
     expect(screen.queryByText(/Tools are disabled for this model/)).toBeNull();
-    const send = document.querySelector("button[type='submit']") as HTMLButtonElement;
-    expect(send.disabled).toBe(false);
+    expect(document.querySelector("button[type='submit']")).toBeNull();
+    expect(document.querySelector('[aria-label="Stop agent"]')).toBeTruthy();
+    expect(screen.getByText(/Hecate Chat is working on this task/)).toBeTruthy();
 
     rerender(<ChatView state={{ ...state, chatTarget: "model" }} actions={actions} />);
-    expect(screen.getByRole("button", { name: "Model picker: smollm2:135m" })).toBeTruthy();
+    expect(document.querySelector('[aria-label="Fixed provider: Ollama"]')).toBeTruthy();
+    expect(document.querySelector('[aria-label="Fixed model: qwen2.5-coder"]')).toBeTruthy();
+    expect(document.querySelector('[aria-label="Model picker: smollm2:135m"]')).toBeNull();
+    expect(document.querySelector('[aria-label="Stop agent"]')).toBeTruthy();
+    expect(screen.getByText(/Hecate Chat is working on this task/)).toBeTruthy();
   });
 
   it("locks controls to the active task segment even when the session root is direct chat", () => {
@@ -642,6 +647,8 @@ describe("ChatView input", () => {
     expect(screen.getByRole("button", { name: "Fixed provider: Ollama" })).toBeTruthy();
     expect(screen.getByRole("button", { name: "Fixed model: qwen2.5-coder" })).toBeTruthy();
     expect(screen.queryByText("smollm2:135m")).toBeNull();
+    expect(screen.getByRole("button", { name: "Stop agent" })).toBeTruthy();
+    expect(screen.getByText(/Wait for it to finish, resolve approval, or stop it/)).toBeTruthy();
   });
 
   it("shows the Hecate Agent sandbox reminder only when tools are enabled", () => {
@@ -728,9 +735,12 @@ describe("ChatView input", () => {
         workspace: "/tmp/hecate",
         status: "completed",
         messages: [
-          { id: "m1", role: "user", content: "inspect this repo", created_at: "2026-05-03T10:00:00Z" },
+          { id: "m1", runtime_kind: "agent", segment_id: "task:task_hecate_123456", task_id: "task_hecate_123456", role: "user", content: "inspect this repo", created_at: "2026-05-03T10:00:00Z" },
           {
             id: "m2",
+            runtime_kind: "agent",
+            segment_id: "task:task_hecate_123456",
+            task_id: "task_hecate_123456",
             run_id: "run_hecate_abcdef",
             role: "assistant",
             content: "Done.",
@@ -747,6 +757,45 @@ describe("ChatView input", () => {
 
     await user.click(screen.getByRole("button", { name: /Open task task_hecate_/i }));
     expect(onOpenTask).toHaveBeenCalledWith("task_hecate_123456", "run_hecate_abcdef");
+  });
+
+  it("does not borrow the session task link for direct model messages", () => {
+    const onOpenTask = vi.fn();
+    const { state, actions } = setup({
+      chatTarget: "agent",
+      activeAgentChatSessionID: "agent_chat_1",
+      activeAgentChatSession: {
+        id: "agent_chat_1",
+        runtime_kind: "model",
+        title: "Mixed chat",
+        task_id: "task_latest",
+        latest_run_id: "run_latest",
+        provider: "ollama",
+        model: "ministral-3:latest",
+        workspace: "/tmp/hecate",
+        status: "completed",
+        messages: [
+          { id: "m1", runtime_kind: "model", segment_id: "model:direct", role: "user", content: "tell a joke", created_at: "2026-05-03T10:00:00Z" },
+          {
+            id: "m2",
+            runtime_kind: "model",
+            segment_id: "model:direct",
+            run_id: "model_run_1",
+            trace_id: "trace_1",
+            role: "assistant",
+            content: "Direct answer.",
+            status: "completed",
+            model: "ministral-3:latest",
+            created_at: "2026-05-03T10:00:01Z",
+          },
+        ],
+      } as any,
+    });
+    render(<ChatView state={state} actions={actions} onOpenTask={onOpenTask} />);
+
+    expect(screen.getByText("Direct answer.")).toBeTruthy();
+    expect(screen.queryByRole("button", { name: /Open task task_latest/i })).toBeNull();
+    expect(onOpenTask).not.toHaveBeenCalled();
   });
 
   it("renders explicit Hecate Chat segment dividers when tools switch", () => {
@@ -806,6 +855,8 @@ describe("ChatView input", () => {
     expect(screen.getAllByLabelText("Tools off segment using smollm2:135m")).toHaveLength(2);
     expect(screen.getByLabelText("Tools on segment using qwen2.5-coder")).toBeTruthy();
     expect(screen.getByText("task task_first")).toBeTruthy();
+    expect(screen.queryByRole("button", { name: /Open task task_second/i })).toBeNull();
+    expect(screen.getAllByRole("button", { name: /Open task task_first/i })).toHaveLength(1);
     expect(screen.getAllByText(/direct model chat/)).toHaveLength(2);
   });
 

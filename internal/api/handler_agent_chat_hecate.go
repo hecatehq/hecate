@@ -65,15 +65,7 @@ func (h *Handler) handleCreateHecateAgentChatMessage(w http.ResponseWriter, r *h
 	}
 
 	if busy, runStatus := h.hecateAgentSessionBusy(r.Context(), session); busy {
-		WriteJSON(w, http.StatusConflict, map[string]any{
-			"error": map[string]any{
-				"type":          errCodeAgentSessionBusy,
-				"message":       "Hecate Agent is already running for this chat session.",
-				"task_id":       session.TaskID,
-				"latest_run_id": session.LatestRunID,
-				"run_status":    runStatus,
-			},
-		})
+		writeHecateAgentBusy(w, session, runStatus)
 		return
 	}
 
@@ -95,8 +87,18 @@ func (h *Handler) handleCreateHecateAgentChatMessage(w http.ResponseWriter, r *h
 	defer cancel()
 
 	userID := newAgentChatID("msg")
+	forceNewTask := shouldStartNewHecateAgentSegment(session, session.Provider, session.Model)
 	segmentID := hecateAgentSegmentID(session)
-	messageSnapshot := hecateAgentMessageSnapshot(session, caps, segmentID)
+	messageSnapshotSession := session
+	if forceNewTask {
+		// The live placeholder for a brand-new task segment must not borrow the
+		// session's previous task pointer. It will be rewritten to task:<id>
+		// immediately after the new backing task exists.
+		segmentID = newAgentChatID("segment")
+		messageSnapshotSession.TaskID = ""
+		messageSnapshotSession.LatestRunID = ""
+	}
+	messageSnapshot := hecateAgentMessageSnapshot(messageSnapshotSession, caps, segmentID)
 	updated, err := h.agentChat.AppendMessage(r.Context(), session.ID, agentchat.Message{
 		ID:           userID,
 		RuntimeKind:  messageSnapshot.RuntimeKind,
@@ -143,7 +145,6 @@ func (h *Handler) handleCreateHecateAgentChatMessage(w http.ResponseWriter, r *h
 	}
 	h.agentChatLive.publishSession(updated)
 
-	forceNewTask := shouldStartNewHecateAgentSegment(session, session.Provider, session.Model)
 	task, run, err := h.startOrContinueHecateAgentRun(runCtx, session, content, forceNewTask)
 	if err != nil {
 		completedAt := time.Now().UTC()
@@ -344,6 +345,18 @@ func (h *Handler) hecateAgentSessionBusy(ctx context.Context, session agentchat.
 		return false, ""
 	}
 	return !types.IsTerminalTaskRunStatus(run.Status), run.Status
+}
+
+func writeHecateAgentBusy(w http.ResponseWriter, session agentchat.Session, runStatus string) {
+	WriteJSON(w, http.StatusConflict, map[string]any{
+		"error": map[string]any{
+			"type":          errCodeAgentSessionBusy,
+			"message":       "Hecate Chat is still working on the current task. Wait for it to finish, resolve the approval, or stop it before sending another message.",
+			"task_id":       session.TaskID,
+			"latest_run_id": session.LatestRunID,
+			"run_status":    runStatus,
+		},
+	})
 }
 
 func shouldStartNewHecateAgentSegment(session agentchat.Session, provider, model string) bool {
@@ -636,14 +649,7 @@ func agentChatStatusFromTaskRun(status string) string {
 }
 
 func newHecateAgentRunActivity(taskID, runID, status string) agentchat.Activity {
-	detailParts := []string{humanHecateAgentRunStatus(status)}
-	if strings.TrimSpace(taskID) != "" {
-		detailParts = append(detailParts, taskID)
-	}
-	if strings.TrimSpace(runID) != "" {
-		detailParts = append(detailParts, runID)
-	}
-	activity := newAgentChatActivity("task_run", agentChatStatusFromTaskRun(status), "Backing task", strings.Join(detailParts, " · "))
+	activity := newAgentChatActivity("task_run", agentChatStatusFromTaskRun(status), "Backing task", humanHecateAgentRunStatus(status))
 	activity.ID = "hecate_task_run:" + strings.TrimSpace(runID)
 	if strings.TrimSpace(runID) == "" {
 		activity.ID = "hecate_task_run"

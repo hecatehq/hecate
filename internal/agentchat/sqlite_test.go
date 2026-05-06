@@ -37,6 +37,11 @@ func TestSQLiteStoreReconcileInterruptedRuns(t *testing.T) {
 	runStoreReconcileInterruptedRuns(t, newSQLiteTestStore(t))
 }
 
+func TestSQLiteStoreDoesNotHydrateTaskIDForAnonymousAgentSegment(t *testing.T) {
+	t.Parallel()
+	runStoreDoesNotHydrateTaskIDForAnonymousAgentSegment(t, newSQLiteTestStore(t))
+}
+
 func TestSQLiteStorePersistsAcrossInstances(t *testing.T) {
 	t.Parallel()
 	dir := t.TempDir()

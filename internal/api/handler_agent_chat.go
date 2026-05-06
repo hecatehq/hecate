@@ -664,6 +664,11 @@ func normalizeAgentChatTurnRuntimeKind(runtimeKind string, session agentchat.Ses
 }
 
 func (h *Handler) handleCreateModelAgentChatMessage(w http.ResponseWriter, r *http.Request, session agentchat.Session, req CreateAgentChatMessageRequest) {
+	if busy, runStatus := h.hecateAgentSessionBusy(r.Context(), session); busy {
+		writeHecateAgentBusy(w, session, runStatus)
+		return
+	}
+
 	provider := strings.TrimSpace(req.Provider)
 	if provider == "" {
 		provider = session.Provider

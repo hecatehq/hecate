@@ -214,7 +214,8 @@ export function ChatView({ state, actions, onNavigate, onOpenTask }: Props) {
   const nothingRunnable = !state.loading && modelRouteUnavailable && agentRouteUnavailable;
   const agentPickerLocked = isExternalAgentChat && Boolean(state.activeAgentChatSessionID);
   const activeHecateAgentSegment = activeTaskBackedHecateSegment(state.activeAgentChatSession);
-  const hecateAgentModelLocked = isHecateAgentChat && Boolean(activeHecateAgentSegment);
+  const hecateAgentBusy = isHecateChat && Boolean(activeHecateAgentSegment);
+  const hecateAgentModelLocked = isHecateChat && Boolean(activeHecateAgentSegment);
   const hecateChatProviderValue = hecateAgentModelLocked
     ? (activeHecateAgentSegment?.provider || state.activeAgentChatSession?.provider || "auto")
     : state.providerFilter;
@@ -238,6 +239,7 @@ export function ChatView({ state, actions, onNavigate, onOpenTask }: Props) {
   const composerVisible = isExternalAgentChat || (isHecateChat && hecateChatModelReady);
   const sendDisabled = !state.message.trim()
     || streaming
+    || hecateAgentBusy
     || (!isAgentChat && modelRouteUnavailable)
     || (isExternalAgentChat && (!state.agentWorkspace.trim() || !selectedAgent?.available))
     || (isHecateAgentChat && (!state.agentWorkspace.trim() || !hecateChatModelReady || hecateAgentToolsDisabledForModel));
@@ -889,6 +891,8 @@ export function ChatView({ state, actions, onNavigate, onOpenTask }: Props) {
             const agentRuntime = isAgentChat && role === "assistant"
               ? formatAgentRuntimeMeta(m.run_id, m.duration_ms, m.trace_id, m.native_session_id)
               : "";
+            const taskID = m.runtime_kind === "agent" ? m.task_id : "";
+            const taskRunID = taskID ? m.run_id : "";
             return (
               <TranscriptMessageRow
                 key={item.key}
@@ -902,15 +906,13 @@ export function ChatView({ state, actions, onNavigate, onOpenTask }: Props) {
                 costUsd={call?.cost_usd}
                 badge={isAgentChat && role === "assistant" ? (m.agent_status || m.cost_mode) : undefined}
                 runtimeMeta={agentRuntime}
-                taskLink={isHecateAgentChat && role === "assistant" && (m.task_id || state.activeAgentChatSession?.task_id)
+                taskLink={isHecateAgentChat && role === "assistant" && taskID
                   ? {
-                      label: formatTaskLinkLabel(m.task_id || state.activeAgentChatSession?.task_id || ""),
-                      title: formatTaskLinkTitle(m.task_id || state.activeAgentChatSession?.task_id || "", m.run_id || state.activeAgentChatSession?.latest_run_id),
+                      label: formatTaskLinkLabel(taskID),
+                      title: formatTaskLinkTitle(taskID, taskRunID),
                       onClick: () => {
-                        const taskID = m.task_id || state.activeAgentChatSession?.task_id;
                         if (!taskID) return;
-                        const runID = m.run_id || state.activeAgentChatSession?.latest_run_id;
-                        if (onOpenTask) onOpenTask(taskID, runID);
+                        if (onOpenTask) onOpenTask(taskID, taskRunID);
                         else onNavigate?.("runs");
                       },
                     }
@@ -1099,12 +1101,12 @@ export function ChatView({ state, actions, onNavigate, onOpenTask }: Props) {
               onFocus={e => (e.target.style.borderColor = "var(--teal)")}
               onBlur={e => (e.target.style.borderColor = "var(--border)")}
             />
-            {isAgentChat && streaming ? (
+            {isAgentChat && (streaming || hecateAgentBusy) ? (
               <button type="button"
                 className="btn btn-danger"
-                aria-label={isExternalAgentChat || isHecateAgentChat ? "Stop agent" : "Stop response"}
+                aria-label="Stop agent"
                 disabled={state.agentChatCancelling}
-                title={state.agentChatCancelling ? "Stopping..." : (isExternalAgentChat || isHecateAgentChat ? "Stop agent" : "Stop response")}
+                title={state.agentChatCancelling ? "Stopping..." : "Stop agent"}
                 onClick={actions.cancelAgentChat}
                 style={{
                   position: "absolute", right: 8, top: "50%", transform: "translateY(-50%)",
@@ -1131,6 +1133,11 @@ export function ChatView({ state, actions, onNavigate, onOpenTask }: Props) {
               </button>
             )}
           </div>
+          {hecateAgentBusy && (
+            <div style={{ maxWidth: 820, margin: "6px auto 0", color: "var(--amber)", fontFamily: "var(--font-mono)", fontSize: 11, lineHeight: 1.45 }}>
+              Hecate Chat is working on this task. Wait for it to finish, resolve approval, or stop it before sending another message.
+            </div>
+          )}
           {isAgentChat && state.agentChatCancelling && (
             <div style={{ maxWidth: 820, margin: "6px auto 0", color: "var(--t3)", fontFamily: "var(--font-mono)", fontSize: 11 }}>
               Stopping...

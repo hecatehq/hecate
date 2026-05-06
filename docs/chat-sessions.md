@@ -25,6 +25,9 @@ but they can also store direct model segments:
   task; follow-up prompts continue the latest terminal run when the previous
   segment was also Hecate Agent. If tools are re-enabled after a direct model
   segment, Hecate creates a new task-backed segment in the same transcript.
+  While a task-backed segment is queued, running, or awaiting approval, the
+  whole Hecate Chat session is busy: direct model sends are blocked too, so one
+  transcript cannot race a live task loop against a separate model turn.
   Chats projects the backing run activity into the transcript, links each
   assistant turn back to its backing Task/run, and can approve/reject pending
   task approvals inline, while Tasks remains the canonical run/artifact view.

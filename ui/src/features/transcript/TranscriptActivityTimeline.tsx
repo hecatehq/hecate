@@ -48,7 +48,7 @@ export function formatDiffStatSummary(diffStat: string): string {
 }
 
 export function TranscriptActivityTimeline({ activities, diffStat }: { activities: AgentChatActivityRecord[]; diffStat?: string }) {
-  const visible = compactAgentActivities(activities);
+  const visible = orderVisibleActivities(compactAgentActivities(activities));
   const terminal = terminalAgentActivity(activities);
   const hasRunning = !terminal && activities.some(isActiveAgentActivity);
   const [open, setOpen] = useState(hasRunning);
@@ -183,6 +183,22 @@ function compactAgentActivities(activities: AgentChatActivityRecord[]): AgentCha
     out.push(activity);
   }
   return collapseModelTurnActivities(out);
+}
+
+function orderVisibleActivities(activities: AgentChatActivityRecord[]): AgentChatActivityRecord[] {
+  return activities
+    .map((activity, index) => ({ activity, index, time: activitySortTime(activity.created_at) }))
+    .sort((a, b) => {
+      if (a.time !== b.time) return a.time - b.time;
+      return a.index - b.index;
+    })
+    .map(({ activity }) => activity);
+}
+
+function activitySortTime(value?: string): number {
+  if (!value) return Number.MAX_SAFE_INTEGER;
+  const parsed = new Date(value).getTime();
+  return Number.isNaN(parsed) ? Number.MAX_SAFE_INTEGER : parsed;
 }
 
 function lastIndexByApprovalID(activities: AgentChatActivityRecord[]): Map<string, number> {

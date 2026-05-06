@@ -889,6 +889,13 @@ continue the latest terminal run when the immediately previous segment was also
 Hecate Agent. If the previous segment was direct model chat, Hecate starts a
 fresh task-backed segment in the same transcript.
 
+Only one task-backed segment can be active in a Hecate Chat session at a time.
+If the latest backing task is queued, running, or awaiting approval, **all** new
+turns on that chat are rejected with `409 agent_chat.agent_session_busy`,
+including direct `runtime_kind="model"` turns. Operators should wait for the
+task to finish, resolve the pending approval, or cancel/stop the active run
+before sending another prompt.
+
 The response returns after the backing turn finishes, times out, is cancelled,
 or fails. For live output while the turn is running, subscribe to the session
 stream before posting the message. Hecate Agent turns update the running
@@ -1016,7 +1023,7 @@ Hecate Agent-specific errors:
 
 | Status | `error.type` | Meaning |
 |---|---|---|
-| `409` | `agent_chat.agent_session_busy` | The backing task run is queued, running, or awaiting approval. Resolve/cancel the active run before sending another prompt. |
+| `409` | `agent_chat.agent_session_busy` | The backing task run is queued, running, or awaiting approval. Resolve/cancel the active run before sending another prompt, even for direct model turns in the same Hecate Chat session. |
 | `422` | `agent_chat.model_capability_required` | Tools are explicitly disabled for the selected model. Turn tools off for direct model chat or enable tools in Settings. |
 
 ### `GET /v1/agent-chat/sessions/{id}/messages/{message_id}/files`
