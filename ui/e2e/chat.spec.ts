@@ -725,6 +725,137 @@ test("Hecate Chat rehydrates an active task and blocks direct sends after refres
   expect(messagePosts).toBe(0);
 });
 
+test("Hecate Chat rehydrates an awaiting-approval task and resolves it after refresh", async ({ page }) => {
+  await page.unrouteAll({ behavior: "ignoreErrors" });
+  await page.addInitScript(() => {
+    window.localStorage.setItem("hecate.chatTarget", "agent");
+    window.localStorage.setItem("hecate.agentChatSessionID", "chat-approval-refresh-e2e");
+    window.localStorage.setItem("hecate.agentWorkspace", "/tmp/hecate-e2e-workspace");
+  });
+  await mockGatewayAPIs(page, {
+    adminConfig: {
+      providers: [
+        { id: "lmstudio", name: "LM Studio", preset_id: "lmstudio", kind: "local", protocol: "openai", base_url: "http://127.0.0.1:1234/v1", enabled: true, credential_configured: false },
+      ],
+      tenants: [],
+      api_keys: [],
+      policy_rules: [],
+    },
+  });
+
+  let approvalResolved = false;
+  const pendingSession = {
+    id: "chat-approval-refresh-e2e",
+    title: "approval refresh",
+    runtime_kind: "agent",
+    provider: "lmstudio",
+    model: "qwen2.5",
+    capabilities: { tool_calling: "basic", streaming: true, source: "operator_override" },
+    workspace: "/tmp/hecate-e2e-workspace",
+    task_id: "task-approval-refresh-e2e",
+    latest_run_id: "run-approval-refresh-e2e",
+    status: "awaiting_approval",
+    message_count: 2,
+    segments: [
+      { id: "task:task-approval-refresh-e2e", runtime_kind: "agent", provider: "lmstudio", model: "qwen2.5", task_id: "task-approval-refresh-e2e", latest_run_id: "run-approval-refresh-e2e", status: "awaiting_approval", message_count: 2 },
+    ],
+    messages: [
+      { id: "msg-user-approval", runtime_kind: "agent", segment_id: "task:task-approval-refresh-e2e", task_id: "task-approval-refresh-e2e", role: "user", content: "show git diff", created_at: "2026-05-06T10:00:00Z" },
+      {
+        id: "msg-assistant-approval",
+        runtime_kind: "agent",
+        segment_id: "task:task-approval-refresh-e2e",
+        task_id: "task-approval-refresh-e2e",
+        run_id: "run-approval-refresh-e2e",
+        role: "assistant",
+        content: "",
+        status: "awaiting_approval",
+        model: "qwen2.5",
+        created_at: "2026-05-06T10:00:01Z",
+        activities: [
+          { id: "task:approval:appr-refresh-e2e", type: "approval", status: "awaiting_approval", kind: "agent_loop_tool_call", title: "Awaiting approval", detail: "Agent requested tools that require approval: git_exec", approval_id: "appr-refresh-e2e", needs_action: true },
+          { id: "hecate_task_run:run-approval-refresh-e2e", type: "task_run", status: "awaiting_approval", title: "Backing task", detail: "awaiting approval" },
+        ],
+      },
+    ],
+  };
+  const completedSession = {
+    ...pendingSession,
+    status: "completed",
+    messages: [
+      pendingSession.messages[0],
+      {
+        ...pendingSession.messages[1],
+        content: "The current diff touches ui/e2e/chat.spec.ts.",
+        status: "completed",
+        activities: [
+          { id: "task:approval:appr-refresh-e2e", type: "approval", status: "approved", kind: "agent_loop_tool_call", title: "Approval approved", detail: "git_exec - approved", approval_id: "appr-refresh-e2e", needs_action: false },
+          { id: "hecate_task_run:run-approval-refresh-e2e", type: "task_run", status: "completed", title: "Backing task", detail: "completed" },
+          { id: "turns-refresh", type: "thinking", status: "completed", title: "Model turns", detail: "2 turns completed" },
+        ],
+      },
+    ],
+    segments: [
+      { ...pendingSession.segments[0], status: "completed" },
+    ],
+  };
+  const currentSession = () => approvalResolved ? completedSession : pendingSession;
+
+  await page.route("/v1/models*", route => route.fulfill({
+    status: 200,
+    contentType: "application/json",
+    body: JSON.stringify({
+      object: "list",
+      data: [{
+        id: "qwen2.5",
+        owned_by: "lmstudio",
+        metadata: { provider: "lmstudio", provider_kind: "local", capabilities: { tool_calling: "basic", streaming: true, source: "operator_override" } },
+      }],
+    }),
+  }));
+  await page.route("/v1/agent-chat/sessions", route => route.fulfill({
+    status: 200,
+    contentType: "application/json",
+    body: JSON.stringify({ object: "agent_chat_sessions", data: [currentSession()] }),
+  }));
+  await page.route("/v1/agent-chat/sessions/chat-approval-refresh-e2e", route => route.fulfill({
+    status: 200,
+    contentType: "application/json",
+    body: JSON.stringify({ object: "agent_chat_session", data: currentSession() }),
+  }));
+  await page.route("/v1/agent-chat/sessions/chat-approval-refresh-e2e/stream", route => route.fulfill({
+    status: 200,
+    contentType: "text/event-stream",
+    body: "",
+  }));
+  await page.route("/v1/agent-chat/sessions/chat-approval-refresh-e2e/approvals*", route => route.fulfill({
+    status: 200,
+    contentType: "application/json",
+    body: JSON.stringify({ object: "agent_chat_approvals", data: [] }),
+  }));
+  await page.route("/v1/tasks/task-approval-refresh-e2e/approvals/appr-refresh-e2e/resolve", async route => {
+    approvalResolved = true;
+    await route.fulfill({
+      status: 200,
+      contentType: "application/json",
+      body: JSON.stringify({ object: "task_approval", data: { id: "appr-refresh-e2e", status: "approved" } }),
+    });
+  });
+
+  await page.goto("/");
+  await page.waitForSelector(".hecate-activitybar");
+
+  await expect(page.getByTestId("hecate-task-approval-banner")).toBeVisible();
+  await expect(page.getByText(/Hecate Chat is working on this task/)).toBeVisible();
+  await expect(page.getByRole("button", { name: "Open task", exact: true })).toBeVisible();
+  await expect(page.locator("button[type='submit']")).toHaveCount(0);
+
+  await page.getByRole("button", { name: /Approve Agent tool call/i }).click();
+  await expect(page.getByTestId("hecate-task-approval-banner")).toBeHidden();
+  await expect(page.locator("body")).toContainText("The current diff touches ui/e2e/chat.spec.ts.");
+  await expect(page.getByRole("button", { name: "Send message" })).toBeVisible();
+});
+
 test("configured provider with no models shows troubleshooting, not detected-provider setup", async ({ page }) => {
   await page.unrouteAll({ behavior: "ignoreErrors" });
   await mockGatewayAPIs(page, {

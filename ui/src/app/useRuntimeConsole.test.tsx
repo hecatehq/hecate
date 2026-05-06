@@ -971,8 +971,22 @@ describe("humanizeChatError", () => {
     const { humanizeChatError } = await import("./useRuntimeConsole");
     expect(humanizeChatError("Hecate Agent is already running for this chat session."))
       .toBe("Hecate Chat is still working on this task. Open the task, resolve approval, or stop it before sending another message.");
+    expect(humanizeChatError("workspace is required"))
+      .toBe("Choose a workspace before using Hecate Chat tools or External Agent.");
+    expect(humanizeChatError("tool calling support is unknown"))
+      .toBe("This model is not marked as tool-capable. Turn tools off, test it, or enable tools in Settings.");
     expect(humanizeChatError('route request: no provider supports explicit model "gpt-5.4-mini"'))
       .toBe("No configured provider can route to gpt-5.4-mini. Choose another model or add/configure a provider.");
+    expect(humanizeChatError("no routable model for selected provider"))
+      .toBe("No routable model is available. Choose another model, add a provider, or check provider health.");
+    expect(humanizeChatError("Authentication required. Please run 'agent login' first."))
+      .toBe("The selected runtime is not signed in. Run its login command or use Settings to test readiness.");
+    expect(humanizeChatError("Internal error: Credit balance is too low"))
+      .toBe("The selected runtime reported a billing or credit problem. Check its account, subscription, or API key balance.");
+    expect(humanizeChatError("ECONNREFUSED 127.0.0.1:11434"))
+      .toBe("The selected provider is not reachable. Start the local provider app or check its endpoint URL.");
+    expect(humanizeChatError("upstream returned 401"))
+      .toBe("The selected provider rejected the request with HTTP 401. Check credentials and account access.");
     expect(humanizeChatError("upstream returned 503"))
       .toBe("The selected provider returned HTTP 503. Check that the provider is running and reachable.");
     expect(humanizeChatError("upstream timeout"))
