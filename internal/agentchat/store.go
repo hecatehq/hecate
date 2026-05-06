@@ -369,5 +369,5 @@ func defaultRuntimeKind(session Session) string {
 	if session.AdapterID != "" {
 		return "external_agent"
 	}
-	return "hecate_agent"
+	return "agent"
 }

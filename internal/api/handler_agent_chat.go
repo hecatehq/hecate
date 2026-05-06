@@ -102,7 +102,7 @@ func (h *Handler) HandleCreateAgentChatSession(w http.ResponseWriter, r *http.Re
 		}
 		session.AdapterID = adapter.ID
 		session.DriverKind = agentadapters.DriverKindACP
-	case "hecate_agent":
+	case "agent":
 		provider := strings.TrimSpace(req.Provider)
 		model := strings.TrimSpace(req.Model)
 		if model == "" {
@@ -121,7 +121,7 @@ func (h *Handler) HandleCreateAgentChatSession(w http.ResponseWriter, r *http.Re
 		session.Model = model
 		session.Capabilities = caps
 	default:
-		WriteError(w, http.StatusBadRequest, errCodeInvalidRequest, "runtime_kind must be model, hecate_agent, or external_agent")
+		WriteError(w, http.StatusBadRequest, errCodeInvalidRequest, "runtime_kind must be model, agent, or external_agent")
 		return
 	}
 	session, err = h.agentChat.Create(r.Context(), session)
@@ -253,7 +253,7 @@ func (h *Handler) HandleCancelAgentChatSession(w http.ResponseWriter, r *http.Re
 		WriteError(w, http.StatusNotFound, "not_found", "agent chat session not found")
 		return
 	}
-	if renderAgentChatRuntimeKind(session) == "hecate_agent" && h.taskStore != nil && h.taskRunner != nil && session.TaskID != "" && session.LatestRunID != "" {
+	if renderAgentChatRuntimeKind(session) == "agent" && h.taskStore != nil && h.taskRunner != nil && session.TaskID != "" && session.LatestRunID != "" {
 		task, found, err := h.taskStore.GetTask(r.Context(), session.TaskID)
 		if err != nil {
 			WriteError(w, http.StatusInternalServerError, "gateway_error", err.Error())
@@ -378,7 +378,7 @@ func (h *Handler) HandleCreateAgentChatMessage(w http.ResponseWriter, r *http.Re
 	case "model":
 		h.handleCreateModelAgentChatMessage(w, r, session, req)
 		return
-	case "hecate_agent":
+	case "agent":
 		if renderAgentChatRuntimeKind(session) == "external_agent" {
 			WriteError(w, http.StatusBadRequest, errCodeInvalidRequest, "external agent sessions cannot run Hecate Agent turns")
 			return
@@ -391,7 +391,7 @@ func (h *Handler) HandleCreateAgentChatMessage(w http.ResponseWriter, r *http.Re
 			return
 		}
 	default:
-		WriteError(w, http.StatusBadRequest, errCodeInvalidRequest, "runtime_kind must be model, hecate_agent, or external_agent")
+		WriteError(w, http.StatusBadRequest, errCodeInvalidRequest, "runtime_kind must be model, agent, or external_agent")
 		return
 	}
 

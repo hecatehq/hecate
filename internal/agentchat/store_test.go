@@ -29,7 +29,7 @@ func runStoreLifecycle(t *testing.T, store Store) {
 	created, err := store.Create(ctx, Session{
 		ID:              "agent_chat_1",
 		Title:           "Review diff",
-		RuntimeKind:     "hecate_agent",
+		RuntimeKind:     "agent",
 		TaskID:          "task_chat_1",
 		LatestRunID:     "run_chat_1",
 		Provider:        "openai",
@@ -47,7 +47,7 @@ func runStoreLifecycle(t *testing.T, store Store) {
 	if created.WorkspaceBranch != "main" {
 		t.Fatalf("created workspace branch = %q, want main", created.WorkspaceBranch)
 	}
-	if created.RuntimeKind != "hecate_agent" || created.TaskID != "task_chat_1" || created.LatestRunID != "run_chat_1" {
+	if created.RuntimeKind != "agent" || created.TaskID != "task_chat_1" || created.LatestRunID != "run_chat_1" {
 		t.Fatalf("created linkage = runtime %q task %q run %q", created.RuntimeKind, created.TaskID, created.LatestRunID)
 	}
 	if created.Provider != "openai" || created.Model != "gpt-4o-mini" || created.Capabilities.ToolCalling != "basic" {
@@ -57,7 +57,7 @@ func runStoreLifecycle(t *testing.T, store Store) {
 	if _, err := store.AppendMessage(ctx, created.ID, Message{
 		ID:          "msg_user",
 		SegmentID:   "task:task_chat_1",
-		RuntimeKind: "hecate_agent",
+		RuntimeKind: "agent",
 		TaskID:      "task_chat_1",
 		Provider:    "openai",
 		Model:       "gpt-4o-mini",
@@ -69,7 +69,7 @@ func runStoreLifecycle(t *testing.T, store Store) {
 	startedAt := time.Now().UTC().Add(-2 * time.Second)
 	if _, err := store.AppendMessage(ctx, created.ID, Message{
 		ID:           "msg_assistant",
-		RuntimeKind:  "hecate_agent",
+		RuntimeKind:  "agent",
 		SegmentID:    "task:task_chat_1",
 		TaskID:       "task_chat_1",
 		RunID:        "agent_run_1",
@@ -143,7 +143,7 @@ func runStoreLifecycle(t *testing.T, store Store) {
 	if got.WorkspaceBranch != "main" {
 		t.Fatalf("persisted workspace branch = %q, want main", got.WorkspaceBranch)
 	}
-	if got.RuntimeKind != "hecate_agent" || got.TaskID != "task_chat_1" || got.LatestRunID != "run_chat_1" {
+	if got.RuntimeKind != "agent" || got.TaskID != "task_chat_1" || got.LatestRunID != "run_chat_1" {
 		t.Fatalf("persisted linkage = runtime %q task %q run %q", got.RuntimeKind, got.TaskID, got.LatestRunID)
 	}
 	if got.Provider != "openai" || got.Model != "gpt-4o-mini" || got.Capabilities.ToolCalling != "basic" || got.Capabilities.Source != "operator_override" {
@@ -158,7 +158,7 @@ func runStoreLifecycle(t *testing.T, store Store) {
 	if got.Messages[1].Timing.Bottleneck != "model" || got.Messages[1].Timing.ModelMS != 900 || got.Messages[1].Timing.TurnCount != 1 {
 		t.Fatalf("persisted timing = %+v, want model bottleneck", got.Messages[1].Timing)
 	}
-	if got.Messages[1].RuntimeKind != "hecate_agent" || got.Messages[1].SegmentID != "task:task_chat_1" || got.Messages[1].TaskID != "task_chat_1" {
+	if got.Messages[1].RuntimeKind != "agent" || got.Messages[1].SegmentID != "task:task_chat_1" || got.Messages[1].TaskID != "task_chat_1" {
 		t.Fatalf("persisted message runtime = runtime %q segment %q task %q", got.Messages[1].RuntimeKind, got.Messages[1].SegmentID, got.Messages[1].TaskID)
 	}
 	if got.Messages[1].Provider != "openai" || got.Messages[1].Model != "gpt-4o-mini" || got.Messages[1].Capabilities.ToolCalling != "basic" {
@@ -172,7 +172,7 @@ func runStoreLifecycle(t *testing.T, store Store) {
 	if len(list) != 1 || list[0].ID != created.ID {
 		t.Fatalf("List = %+v, want created session", list)
 	}
-	if list[0].WorkspaceBranch != "main" || len(list[0].Messages) != 2 || list[0].RuntimeKind != "hecate_agent" || list[0].TaskID != "task_chat_1" {
+	if list[0].WorkspaceBranch != "main" || len(list[0].Messages) != 2 || list[0].RuntimeKind != "agent" || list[0].TaskID != "task_chat_1" {
 		t.Fatalf("List summary = %+v, want cached branch and message count", list[0])
 	}
 

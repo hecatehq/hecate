@@ -25,7 +25,7 @@ export function createRuntimeConsoleFixture(
     chatLoading: false,
     streamingContent: null,
     chatResult: null,
-    chatTarget: "hecate_agent",
+    chatTarget: "agent",
     pendingToolCalls: [],
     chatSessions: [],
     cloudModels: [],

@@ -140,7 +140,7 @@ function AuthenticatedShell({
   }
 
   function openAgentChatFromTask(sessionID: string) {
-    actions.setChatTarget("hecate_agent");
+    actions.setChatTarget("agent");
     void actions.selectChatSession(sessionID);
     onSelectWorkspace("chats");
   }

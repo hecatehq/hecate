@@ -99,19 +99,63 @@ type NoticeState = {
   message: string;
 };
 
-type ChatTarget = "model" | "hecate_agent" | "external_agent";
+type ChatTarget = "model" | "agent" | "external_agent";
+type HecateChatTarget = "model" | "agent";
 
 function normalizeStoredChatTarget(value: string): ChatTarget {
   switch (value) {
     case "model":
-    case "hecate_agent":
+    case "agent":
     case "external_agent":
       return value;
-    case "agent":
-      return "external_agent";
     default:
-      return "hecate_agent";
+      return "agent";
   }
+}
+
+function normalizeStoredHecateChatTarget(value: string): HecateChatTarget | "" {
+  switch (value) {
+    case "model":
+    case "agent":
+      return value;
+    default:
+      return "";
+  }
+}
+
+function readStoredChatTargetsBySessionID(): Map<string, HecateChatTarget> {
+  if (typeof window === "undefined") {
+    return new Map();
+  }
+  try {
+    const raw = window.localStorage.getItem("hecate.chatTargetBySessionID");
+    if (!raw) return new Map();
+    const parsed = JSON.parse(raw) as Record<string, string>;
+    const entries = Object.entries(parsed)
+      .map(([sessionID, target]) => [sessionID, normalizeStoredHecateChatTarget(target)] as const)
+      .filter((entry): entry is readonly [string, HecateChatTarget] => Boolean(entry[0] && entry[1]));
+    return new Map(entries);
+  } catch {
+    return new Map();
+  }
+}
+
+function serializeChatTargetsBySessionID(targets: Map<string, HecateChatTarget>): string {
+  return JSON.stringify(Object.fromEntries(targets));
+}
+
+function agentChatSessionIsExternal(session: AgentChatSessionRecord | null): boolean {
+  return Boolean(session?.runtime_kind === "external_agent" || session?.adapter_id);
+}
+
+function deriveHecateChatTargetFromSession(session: AgentChatSessionRecord | null): HecateChatTarget {
+  if (!session) return "agent";
+  const messages = session.messages ?? [];
+  for (let i = messages.length - 1; i >= 0; i--) {
+    const target = normalizeStoredHecateChatTarget(messages[i]?.runtime_kind ?? "");
+    if (target) return target;
+  }
+  return normalizeStoredHecateChatTarget(session.runtime_kind ?? "") || "agent";
 }
 
 function readLocalStorage(key: string): string {
@@ -129,7 +173,8 @@ export function useRuntimeConsole() {
   const [providers, setProviders] = useState<ProviderStatusResponse["data"]>([]);
   const [providerPresets, setProviderPresets] = useState<ProviderPresetRecord[]>([]);
   const [agentAdapters, setAgentAdapters] = useState<AgentAdapterRecord[]>([]);
-  const [chatTarget, setChatTarget] = useState<ChatTarget>(() => normalizeStoredChatTarget(readLocalStorage("hecate.chatTarget")));
+  const [defaultChatTarget, setDefaultChatTarget] = useState<ChatTarget>(() => normalizeStoredChatTarget(readLocalStorage("hecate.chatTarget")));
+  const [chatTargetBySessionID, setChatTargetBySessionID] = useState<Map<string, HecateChatTarget>>(() => readStoredChatTargetsBySessionID());
   const [agentAdapterID, setAgentAdapterID] = useState(() => readLocalStorage("hecate.agentAdapterID") || "codex");
   const [agentWorkspace, setAgentWorkspace] = useState(() => readLocalStorage("hecate.agentWorkspace"));
   const [agentWorkspaceBranch, setAgentWorkspaceBranch] = useState("");
@@ -212,6 +257,12 @@ export function useRuntimeConsole() {
   const [controlPlaneError, setControlPlaneError] = useState("");
   const [notice, setNotice] = useState<NoticeState | null>(null);
 
+  const chatTarget = activeAgentChatSessionID && activeAgentChatSession
+    ? (agentChatSessionIsExternal(activeAgentChatSession)
+        ? "external_agent"
+        : (chatTargetBySessionID.get(activeAgentChatSessionID) ?? deriveHecateChatTargetFromSession(activeAgentChatSession)))
+    : defaultChatTarget;
+
   const [retentionSubsystems, setRetentionSubsystems] = useState("");
   const [retentionLoading, setRetentionLoading] = useState(false);
   const [retentionError, setRetentionError] = useState("");
@@ -261,7 +312,7 @@ export function useRuntimeConsole() {
     }
     const storedTarget = window.localStorage.getItem("hecate.chatTarget");
     if (storedTarget) {
-      setChatTarget(normalizeStoredChatTarget(storedTarget));
+      setDefaultChatTarget(normalizeStoredChatTarget(storedTarget));
     }
     const storedAgent = window.localStorage.getItem("hecate.agentAdapterID");
     if (storedAgent) setAgentAdapterID(storedAgent);
@@ -310,8 +361,12 @@ export function useRuntimeConsole() {
   }, [providerFilter]);
 
   useEffect(() => {
-    window.localStorage.setItem("hecate.chatTarget", chatTarget);
-  }, [chatTarget]);
+    window.localStorage.setItem("hecate.chatTarget", defaultChatTarget);
+  }, [defaultChatTarget]);
+
+  useEffect(() => {
+    window.localStorage.setItem("hecate.chatTargetBySessionID", serializeChatTargetsBySessionID(chatTargetBySessionID));
+  }, [chatTargetBySessionID]);
 
   useEffect(() => {
     window.localStorage.setItem("hecate.agentAdapterID", agentAdapterID);
@@ -528,6 +583,29 @@ export function useRuntimeConsole() {
     setAgentWorkspaceBranch("");
   }
 
+  function setChatTarget(nextTarget: ChatTarget) {
+    if (activeAgentChatSessionID && activeAgentChatSession) {
+      const currentExternal = agentChatSessionIsExternal(activeAgentChatSession);
+      const nextExternal = nextTarget === "external_agent";
+      if (currentExternal !== nextExternal) {
+        setActiveAgentChatSessionID("");
+        setActiveAgentChatSession(null);
+        setAgentWorkspaceBranch("");
+        setDefaultChatTarget(nextTarget);
+        return;
+      }
+      if (!nextExternal) {
+        setChatTargetBySessionID((current) => {
+          const next = new Map(current);
+          next.set(activeAgentChatSessionID, nextTarget);
+          return next;
+        });
+        return;
+      }
+    }
+    setDefaultChatTarget(nextTarget);
+  }
+
   async function submitChat(event: SyntheticEvent<HTMLFormElement>) {
     event.preventDefault();
     await submitAgentChat();
@@ -624,7 +702,7 @@ export function useRuntimeConsole() {
     setChatErrorCode("");
     setChatErrorStatus(null);
     setRuntimeHeaders(null);
-    const turnRuntimeKind = chatTarget === "external_agent" ? "external_agent" : chatTarget === "hecate_agent" ? "hecate_agent" : "model";
+    const turnRuntimeKind = chatTarget === "external_agent" ? "external_agent" : chatTarget === "agent" ? "agent" : "model";
     const isExternalAgent = turnRuntimeKind === "external_agent";
     const isModelTurn = turnRuntimeKind === "model";
     setStreamingContent(isExternalAgent ? "Starting external agent..." : isModelTurn ? "Waiting for model output..." : "Starting Hecate Agent...");
@@ -729,7 +807,7 @@ export function useRuntimeConsole() {
         runtime_kind: turnRuntimeKind,
         ...(!isExternalAgent ? { provider: providerFilter === "auto" ? "" : providerFilter, model } : {}),
         ...(isModelTurn ? { system_prompt: systemPrompt } : {}),
-        ...(turnRuntimeKind === "hecate_agent" ? { workspace: agentWorkspace.trim() } : {}),
+        ...(turnRuntimeKind === "agent" ? { workspace: agentWorkspace.trim() } : {}),
       });
       applyAgentChatSession(updated.data);
     } catch (submitError) {
@@ -1216,7 +1294,7 @@ export function useRuntimeConsole() {
       if (payload.data.adapter_id) {
         setAgentAdapterID(payload.data.adapter_id);
       }
-      if (payload.data.runtime_kind !== "hecate_agent") {
+      if (payload.data.runtime_kind !== "agent") {
         if (payload.data.provider) {
           setProviderFilter(payload.data.provider as ProviderFilter);
         }
@@ -1242,6 +1320,7 @@ export function useRuntimeConsole() {
     setActiveAgentChatSessionID("");
     setActiveAgentChatSession(null);
     setAgentWorkspaceBranch("");
+    setDefaultChatTarget("agent");
     resetChatWorkspaceState();
   }
 
@@ -1253,6 +1332,12 @@ export function useRuntimeConsole() {
     try {
       await deleteAgentChatSessionRequest(id);
       setAgentChatSessions((current) => current.filter((s) => s.id !== id));
+      setChatTargetBySessionID((current) => {
+        if (!current.has(id)) return current;
+        const next = new Map(current);
+        next.delete(id);
+        return next;
+      });
       if (activeAgentChatSessionID === id) {
         startNewChat();
       }

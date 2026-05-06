@@ -252,7 +252,7 @@ test("empty Hecate Agent chat can add all detected local providers in one click"
 test("Hecate Agent local-provider onboarding renders the real final answer and unlocks model choice after completion", async ({ page }) => {
   await page.unrouteAll({ behavior: "ignoreErrors" });
   await page.addInitScript(() => {
-    window.localStorage.setItem("hecate.chatTarget", "hecate_agent");
+    window.localStorage.setItem("hecate.chatTarget", "agent");
     window.localStorage.setItem("hecate.agentWorkspace", "/tmp/hecate-e2e-workspace");
   });
   await mockGatewayAPIs(page);
@@ -289,7 +289,7 @@ test("Hecate Agent local-provider onboarding renders the real final answer and u
       const session = {
         id: "chat-hecate-e2e",
         title: body.title || "show diff",
-        runtime_kind: "hecate_agent",
+        runtime_kind: "agent",
         provider: body.provider || "",
         model: body.model || "qwen2.5",
         capabilities: { tool_calling: "basic", streaming: true, source: "operator_override" },
@@ -327,7 +327,7 @@ test("Hecate Agent local-provider onboarding renders the real final answer and u
       messages: [
         {
           id: "msg-user-e2e",
-          runtime_kind: "hecate_agent",
+          runtime_kind: "agent",
           segment_id: "task:task-hecate-e2e",
           task_id: "task-hecate-e2e",
           role: "user",
@@ -336,7 +336,7 @@ test("Hecate Agent local-provider onboarding renders the real final answer and u
         },
         {
           id: "msg-assistant-e2e",
-          runtime_kind: "hecate_agent",
+          runtime_kind: "agent",
           segment_id: "task:task-hecate-e2e",
           task_id: "task-hecate-e2e",
           run_id: "run-hecate-e2e",
@@ -379,7 +379,7 @@ test("Hecate Agent local-provider onboarding renders the real final answer and u
   await expect(page.locator("body")).toContainText("+changed line");
   await expect(page.locator("body")).not.toContainText("Hecate Agent run completed.");
   await expect.poll(() => messagePayload).toMatchObject({
-    runtime_kind: "hecate_agent",
+    runtime_kind: "agent",
     model: "qwen2.5",
     workspace: "/tmp/hecate-e2e-workspace",
   });
@@ -389,7 +389,7 @@ test("Hecate Agent local-provider onboarding renders the real final answer and u
 test("Hecate Chat can move tools on, tools off, then tools on again in one transcript", async ({ page }) => {
   await page.unrouteAll({ behavior: "ignoreErrors" });
   await page.addInitScript(() => {
-    window.localStorage.setItem("hecate.chatTarget", "hecate_agent");
+    window.localStorage.setItem("hecate.chatTarget", "agent");
     window.localStorage.setItem("hecate.agentWorkspace", "/tmp/hecate-e2e-workspace");
   });
   await mockGatewayAPIs(page, {
@@ -476,9 +476,9 @@ test("Hecate Chat can move tools on, tools off, then tools on again in one trans
     submittedTurns.push(body);
     const turn = submittedTurns.length;
     const runtimeKind = body.runtime_kind || "model";
-    const isHecateAgent = runtimeKind === "hecate_agent";
-    const taskID = isHecateAgent ? `task-tools-${submittedTurns.filter(t => t.runtime_kind === "hecate_agent").length}` : "";
-    const runID = isHecateAgent ? `run-tools-${submittedTurns.filter(t => t.runtime_kind === "hecate_agent").length}` : "";
+    const isHecateAgent = runtimeKind === "agent";
+    const taskID = isHecateAgent ? `task-tools-${submittedTurns.filter(t => t.runtime_kind === "agent").length}` : "";
+    const runID = isHecateAgent ? `run-tools-${submittedTurns.filter(t => t.runtime_kind === "agent").length}` : "";
     const assistantContent = isHecateAgent
       ? `Tools answer ${taskID.endsWith("-1") ? "one" : "two"} from ${body.model}`
       : `Direct model answer from ${body.model}`;
@@ -558,9 +558,9 @@ test("Hecate Chat can move tools on, tools off, then tools on again in one trans
   await expect(page.locator("body")).toContainText("Tools answer two from qwen2.5");
 
   expect(createSessionCount).toBe(1);
-  expect(submittedTurns.map(turn => turn.runtime_kind)).toEqual(["hecate_agent", "model", "hecate_agent"]);
+  expect(submittedTurns.map(turn => turn.runtime_kind)).toEqual(["agent", "model", "agent"]);
   expect(submittedTurns.map(turn => turn.content)).toEqual(["first with tools", "direct model turn", "tools again"]);
-  expect(submittedTurns.filter(turn => turn.runtime_kind === "hecate_agent")).toEqual([
+  expect(submittedTurns.filter(turn => turn.runtime_kind === "agent")).toEqual([
     expect.objectContaining({ model: "qwen2.5", workspace: "/tmp/hecate-e2e-workspace" }),
     expect.objectContaining({ model: "qwen2.5", workspace: "/tmp/hecate-e2e-workspace" }),
   ]);

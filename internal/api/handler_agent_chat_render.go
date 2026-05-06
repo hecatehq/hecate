@@ -123,7 +123,7 @@ func renderAgentChatRuntimeKind(session agentchat.Session) string {
 	if session.AdapterID != "" {
 		return "external_agent"
 	}
-	return "hecate_agent"
+	return "agent"
 }
 
 func agentChatUsageFromResult(usage agentadapters.Usage) agentchat.Usage {

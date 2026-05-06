@@ -71,7 +71,7 @@ describe("ChatView input", () => {
   it("toggles Hecate Chat between direct model chat and tool-backed agent mode", async () => {
     const setChatTarget = vi.fn();
     const { state, actions } = setup({
-      chatTarget: "hecate_agent",
+      chatTarget: "agent",
       providerScopedModels: [
         {
           id: "gpt-4o-mini",
@@ -96,7 +96,7 @@ describe("ChatView input", () => {
     expect(setChatTarget).toHaveBeenCalledWith("model");
 
     await user.click(screen.getByRole("button", { name: /tools on/i }));
-    expect(setChatTarget).toHaveBeenCalledWith("hecate_agent");
+    expect(setChatTarget).toHaveBeenCalledWith("agent");
   });
 
   it("disables the send button when message is empty", () => {
@@ -282,7 +282,7 @@ describe("ChatView input", () => {
     const createProvider = vi.fn(async () => undefined);
     const loadDashboard = vi.fn(async () => undefined);
     const { state, actions } = setup({
-      chatTarget: "hecate_agent",
+      chatTarget: "agent",
       agentWorkspace: "/tmp/hecate",
       controlPlaneConfig: { backend: "memory", providers: [], policy_rules: [], pricebook: [], events: [] },
       providerPresets: [
@@ -448,7 +448,7 @@ describe("ChatView input", () => {
 
   it("enables Hecate Agent when tools are not explicitly disabled for the model", () => {
     const { state, actions } = setup({
-      chatTarget: "hecate_agent",
+      chatTarget: "agent",
       message: "inspect this repo",
       agentWorkspace: "/tmp/hecate",
       controlPlaneConfig: {
@@ -482,7 +482,7 @@ describe("ChatView input", () => {
 
   it("keeps provider and model pickers editable after a task-backed Hecate Agent segment completes", () => {
     const { state, actions } = setup({
-      chatTarget: "hecate_agent",
+      chatTarget: "agent",
       message: "continue",
       agentWorkspace: "/tmp/hecate",
       providerFilter: "ollama",
@@ -520,7 +520,7 @@ describe("ChatView input", () => {
       activeAgentChatSessionID: "agent_chat_1",
       activeAgentChatSession: {
         id: "agent_chat_1",
-        runtime_kind: "hecate_agent",
+        runtime_kind: "agent",
         title: "Repo work",
         task_id: "task_hecate_123456",
         latest_run_id: "run_hecate_abcdef",
@@ -541,7 +541,7 @@ describe("ChatView input", () => {
 
   it("locks provider and model while a task-backed Hecate Agent segment is active", () => {
     const { state, actions } = setup({
-      chatTarget: "hecate_agent",
+      chatTarget: "agent",
       message: "continue",
       agentWorkspace: "/tmp/hecate",
       providerFilter: "ollama",
@@ -570,7 +570,7 @@ describe("ChatView input", () => {
       activeAgentChatSessionID: "agent_chat_1",
       activeAgentChatSession: {
         id: "agent_chat_1",
-        runtime_kind: "hecate_agent",
+        runtime_kind: "agent",
         title: "Repo work",
         task_id: "task_hecate_123456",
         latest_run_id: "run_hecate_abcdef",
@@ -599,7 +599,7 @@ describe("ChatView input", () => {
 
   it("shows the Hecate Agent sandbox reminder only when tools are enabled", () => {
     const { state, actions } = setup({
-      chatTarget: "hecate_agent",
+      chatTarget: "agent",
       providerScopedModels: [
         {
           id: "qwen2.5-coder",
@@ -623,7 +623,7 @@ describe("ChatView input", () => {
 
   it("blocks Hecate Agent sends when tools are explicitly disabled for the model", () => {
     const { state, actions } = setup({
-      chatTarget: "hecate_agent",
+      chatTarget: "agent",
       message: "inspect this repo",
       agentWorkspace: "/tmp/hecate",
       controlPlaneConfig: {
@@ -658,11 +658,11 @@ describe("ChatView input", () => {
   it("opens the backing task from the Hecate Agent assistant turn, not the header", async () => {
     const onOpenTask = vi.fn();
     const { state, actions } = setup({
-      chatTarget: "hecate_agent",
+      chatTarget: "agent",
       activeAgentChatSessionID: "agent_chat_1",
       activeAgentChatSession: {
         id: "agent_chat_1",
-        runtime_kind: "hecate_agent",
+        runtime_kind: "agent",
         title: "Repo work",
         task_id: "task_hecate_123456",
         latest_run_id: "run_hecate_abcdef",
@@ -694,11 +694,11 @@ describe("ChatView input", () => {
 
   it("renders projected Hecate Agent task run activity in the transcript", () => {
     const { state, actions } = setup({
-      chatTarget: "hecate_agent",
+      chatTarget: "agent",
       activeAgentChatSessionID: "agent_chat_1",
       activeAgentChatSession: {
         id: "agent_chat_1",
-        runtime_kind: "hecate_agent",
+        runtime_kind: "agent",
         title: "Repo work",
         task_id: "task_hecate_123456",
         latest_run_id: "run_hecate_abcdef",
@@ -742,11 +742,11 @@ describe("ChatView input", () => {
     const resolveTaskApproval = vi.fn(async () => true);
     const onOpenTask = vi.fn();
     const { state, actions } = setup({
-      chatTarget: "hecate_agent",
+      chatTarget: "agent",
       activeAgentChatSessionID: "agent_chat_1",
       activeAgentChatSession: {
         id: "agent_chat_1",
-        runtime_kind: "hecate_agent",
+        runtime_kind: "agent",
         title: "Repo work",
         task_id: "task_hecate_123456",
         latest_run_id: "run_hecate_abcdef",
@@ -797,11 +797,11 @@ describe("ChatView input", () => {
 
   it("does not keep stale resolved Hecate Agent task approvals actionable", () => {
     const { state, actions } = setup({
-      chatTarget: "hecate_agent",
+      chatTarget: "agent",
       activeAgentChatSessionID: "agent_chat_1",
       activeAgentChatSession: {
         id: "agent_chat_1",
-        runtime_kind: "hecate_agent",
+        runtime_kind: "agent",
         title: "Repo work",
         task_id: "task_hecate_123456",
         latest_run_id: "run_hecate_abcdef",
@@ -1061,11 +1061,11 @@ describe("ChatView external-agent target", () => {
     expect(setAgentAdapterID).not.toHaveBeenCalled();
 
     await user.click(screen.getByRole("button", { name: "Hecate Chat" }));
-    expect(setChatTarget).toHaveBeenCalledWith("hecate_agent");
+    expect(setChatTarget).toHaveBeenCalledWith("agent");
     setChatTarget.mockClear();
     // Once inside Hecate Chat, tools can be disabled to use the
     // direct model-chat runtime.
-    rerender(<ChatView state={{ ...state, chatTarget: "hecate_agent" }} actions={actions} />);
+    rerender(<ChatView state={{ ...state, chatTarget: "agent" }} actions={actions} />);
     await user.click(screen.getByRole("button", { name: /tools off/i }));
     expect(setChatTarget).toHaveBeenCalledWith("model");
   });

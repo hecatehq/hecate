@@ -98,9 +98,9 @@ export function ChatView({ state, actions, onNavigate, onOpenTask }: Props) {
   const sidebarScrollRef = useRef<HTMLDivElement>(null);
   const userScrolledRef = useRef(false);
 
-  const isHecateChat = state.chatTarget === "hecate_agent" || state.chatTarget === "model";
+  const isHecateChat = state.chatTarget === "agent" || state.chatTarget === "model";
   const isAgentChat = isHecateChat || state.chatTarget === "external_agent";
-  const isHecateAgentChat = state.chatTarget === "hecate_agent";
+  const isHecateAgentChat = state.chatTarget === "agent";
   const isExternalAgentChat = state.chatTarget === "external_agent";
   const sessions: SidebarSession[] = isAgentChat
       ? (state.agentChatSessions ?? []).map((s) => ({
@@ -204,7 +204,7 @@ export function ChatView({ state, actions, onNavigate, onOpenTask }: Props) {
   const nothingRunnable = !state.loading && modelRouteUnavailable && agentRouteUnavailable;
   const agentPickerLocked = isExternalAgentChat && Boolean(state.activeAgentChatSessionID);
   const hecateAgentModelLocked = isHecateAgentChat
-    && state.activeAgentChatSession?.runtime_kind === "hecate_agent"
+    && state.activeAgentChatSession?.runtime_kind === "agent"
     && Boolean(state.activeAgentChatSession.task_id)
     && hecateAgentSessionIsActive(state.activeAgentChatSession.status);
   const hecateChatProviderValue = hecateAgentModelLocked
@@ -575,7 +575,7 @@ export function ChatView({ state, actions, onNavigate, onOpenTask }: Props) {
                 aria-pressed={target === "hecate" ? isHecateChat : state.chatTarget === target}
                 onClick={() => {
                   if (target === "hecate") {
-                    if (!isHecateChat) actions.setChatTarget("hecate_agent");
+                    if (!isHecateChat) actions.setChatTarget("agent");
                     return;
                   }
                   actions.setChatTarget(target);
@@ -596,7 +596,7 @@ export function ChatView({ state, actions, onNavigate, onOpenTask }: Props) {
             <HecateToolsToggle
               enabled={isHecateAgentChat}
               toolsDisabledForModel={hecateAgentToolsDisabledForModel}
-              onChange={(enabled) => actions.setChatTarget(enabled ? "hecate_agent" : "model")}
+              onChange={(enabled) => actions.setChatTarget(enabled ? "agent" : "model")}
             />
           )}
           <span style={{ fontSize: 13, fontWeight: 500, color: "var(--t0)", flex: 1, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>
@@ -1601,7 +1601,7 @@ function ChatEmptyState({
   onAddProvider: () => void;
   onQuickAddLocalProviders: (providers: LocalProviderDiscoveryRecord[]) => void;
   onRefreshQuickLocalProviders: () => void;
-  onSwitchTarget: (target: "model" | "hecate_agent" | "external_agent") => void;
+  onSwitchTarget: (target: "model" | "agent" | "external_agent") => void;
 }) {
   const hecateModelUnavailable = isHecateChat && modelRouteUnavailable;
   const title = isAgentChat && selectedAgentUnavailable
@@ -1654,7 +1654,7 @@ function ChatEmptyState({
             </button>
           )}
           {!agentRouteUnavailable && !isAgentChat && (
-            <button className="btn btn-ghost btn-sm" onClick={() => onSwitchTarget("hecate_agent")} type="button">
+            <button className="btn btn-ghost btn-sm" onClick={() => onSwitchTarget("agent")} type="button">
               <Icon d={Icons.terminal} size={13} /> Use agent
             </button>
           )}
