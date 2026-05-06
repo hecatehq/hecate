@@ -815,7 +815,7 @@ func (h *Handler) handleCreateModelAgentChatMessage(w http.ResponseWriter, r *ht
 }
 
 func agentChatModelHistory(session agentchat.Session, systemPrompt, content string) []types.Message {
-	messages := make([]types.Message, 0, len(session.Messages)+1)
+	messages := make([]types.Message, 0, len(session.Messages))
 	if systemPrompt = strings.TrimSpace(systemPrompt); systemPrompt != "" {
 		messages = append(messages, types.Message{Role: "system", Content: systemPrompt})
 	}
