@@ -75,6 +75,9 @@ func TestHecateAgentChatCreatesVisibleTaskAndContinuesSameTask(t *testing.T) {
 	if !agentChatMessageHasActivity(assistant, "run_result") {
 		t.Fatalf("assistant activities missing projected task run result activity: %+v", assistant.Activities)
 	}
+	if assistant.Timing == nil || assistant.Timing.TurnCount == 0 || assistant.Timing.Bottleneck == "" {
+		t.Fatalf("assistant timing = %+v, want persisted Hecate Agent run timing", assistant.Timing)
+	}
 
 	task := mustRequestJSON[TaskResponse](client, http.MethodGet, "/v1/tasks/"+first.Data.TaskID, "")
 	if task.Data.ExecutionKind != "agent_loop" || task.Data.ExecutionProfile != "chat_hecate_agent" {
@@ -125,6 +128,53 @@ func findTaskRunItem(items []TaskRunItem, id string) TaskRunItem {
 		}
 	}
 	return TaskRunItem{}
+}
+
+func TestHecateAgentTimingFromRunState(t *testing.T) {
+	base := time.Date(2026, 5, 6, 10, 0, 0, 0, time.UTC)
+	run := types.TaskRun{ID: "run_1", TaskID: "task_1", StartedAt: base.Add(100 * time.Millisecond), FinishedAt: base.Add(7 * time.Second)}
+	timing := hecateAgentTimingFromRunState(run, []types.TaskStep{
+		{
+			ID:         "step_model",
+			Kind:       "model",
+			ToolName:   "builtin.agent_loop_llm",
+			StartedAt:  base.Add(200 * time.Millisecond),
+			FinishedAt: base.Add(2200 * time.Millisecond),
+		},
+		{
+			ID:         "step_tool",
+			Kind:       "tool",
+			ToolName:   "git_exec",
+			StartedAt:  base.Add(2300 * time.Millisecond),
+			FinishedAt: base.Add(2800 * time.Millisecond),
+		},
+		{
+			ID:         "step_other_run",
+			Kind:       "tool",
+			ToolName:   "shell_exec",
+			StartedAt:  base.Add(3 * time.Second),
+			FinishedAt: base.Add(4 * time.Second),
+			RunID:      "other_run",
+		},
+	}, []types.TaskApproval{
+		{ID: "appr_1", RunID: "run_1", CreatedAt: base.Add(3 * time.Second), ResolvedAt: base.Add(6 * time.Second)},
+		{ID: "appr_other", RunID: "other_run", CreatedAt: base, ResolvedAt: base.Add(time.Hour)},
+	}, []types.TaskRunEvent{
+		{EventType: "run.started", CreatedAt: base.Add(100 * time.Millisecond)},
+	}, base, base.Add(7*time.Second))
+
+	if timing.TotalMS != 7000 || timing.QueueMS != 100 || timing.ModelMS != 2000 || timing.ToolMS != 500 || timing.ApprovalWaitMS != 3000 {
+		t.Fatalf("timing buckets = %+v", timing)
+	}
+	if timing.OverheadMS != 1400 {
+		t.Fatalf("overhead_ms = %d, want 1400", timing.OverheadMS)
+	}
+	if timing.TurnCount != 1 || timing.ToolCount != 1 {
+		t.Fatalf("counts = turns %d tools %d, want 1/1", timing.TurnCount, timing.ToolCount)
+	}
+	if timing.Bottleneck != "approval" || timing.BottleneckMS != 3000 {
+		t.Fatalf("bottleneck = %s/%d, want approval/3000", timing.Bottleneck, timing.BottleneckMS)
+	}
 }
 
 func TestHecateChatCanSwitchBetweenModelAndToolsSegments(t *testing.T) {

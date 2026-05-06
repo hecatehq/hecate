@@ -87,6 +87,7 @@ func renderAgentChatSession(session agentchat.Session, limits agentChatSnapshotC
 			Error:           message.Error,
 			Activities:      renderAgentChatActivities(message.Activities),
 			Usage:           renderAgentChatUsage(message.Usage),
+			Timing:          renderAgentChatTiming(message.Timing),
 		})
 	}
 	return AgentChatSessionItem{
@@ -143,6 +144,24 @@ func renderAgentChatUsage(usage agentchat.Usage) *AgentChatUsageItem {
 		ContextUsed:          usage.ContextUsed,
 		ReportedCostAmount:   usage.ReportedCostAmount,
 		ReportedCostCurrency: usage.ReportedCostCurrency,
+	}
+}
+
+func renderAgentChatTiming(timing agentchat.Timing) *AgentChatTimingItem {
+	if timing.Empty() {
+		return nil
+	}
+	return &AgentChatTimingItem{
+		TotalMS:        timing.TotalMS,
+		QueueMS:        timing.QueueMS,
+		ModelMS:        timing.ModelMS,
+		ToolMS:         timing.ToolMS,
+		ApprovalWaitMS: timing.ApprovalWaitMS,
+		OverheadMS:     timing.OverheadMS,
+		TurnCount:      timing.TurnCount,
+		ToolCount:      timing.ToolCount,
+		Bottleneck:     timing.Bottleneck,
+		BottleneckMS:   timing.BottleneckMS,
 	}
 }
 

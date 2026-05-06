@@ -6,6 +6,7 @@ import type {
   AgentChatActivityRecord,
   AgentChatChangedFileDiffRecord,
   AgentChatChangedFileRecord,
+  AgentChatTimingRecord,
   AgentChatUsageRecord,
 } from "../../types/runtime";
 import { TranscriptMessageRow } from "./TranscriptMessageRow";
@@ -110,6 +111,26 @@ describe("TranscriptMessageRow", () => {
     };
     render(<TranscriptMessageRow {...baseProps} agentUsage={usage} />);
     expect(screen.queryByText(/reported by adapter/)).toBeNull();
+  });
+
+  it("renders the Hecate Agent timing summary when timing is present", () => {
+    const timing: AgentChatTimingRecord = {
+      total_ms: 12_400,
+      queue_ms: 120,
+      model_ms: 8_500,
+      tool_ms: 700,
+      approval_wait_ms: 2_000,
+      overhead_ms: 1_080,
+      turn_count: 2,
+      tool_count: 1,
+      bottleneck: "model",
+      bottleneck_ms: 8_500,
+    };
+    render(<TranscriptMessageRow {...baseProps} agentTiming={timing} />);
+    expect(screen.getByLabelText("Hecate Agent timing summary")).toBeInTheDocument();
+    expect(screen.getByText(/bottleneck · model 8\.5s/)).toBeInTheDocument();
+    expect(screen.getByText(/total 12s/)).toBeInTheDocument();
+    expect(screen.getByText(/2 turns · 1 tool/)).toBeInTheDocument();
   });
 
   it("renders the diff review section when diff metadata is present", () => {

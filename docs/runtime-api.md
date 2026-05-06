@@ -966,6 +966,29 @@ artifacts without treating the assistant message id as the runtime identity.
 It also stores `request_id`, `trace_id`, and `span_id`; use
 `GET /v1/traces?request_id=<request_id>` to inspect the OTel-shaped
 `agent_chat.run` span for that prompt.
+Task-backed Hecate Agent messages also include a `timing` object derived from
+the backing run's task steps, approvals, and run events:
+
+```json
+{
+  "total_ms": 12400,
+  "queue_ms": 120,
+  "model_ms": 8500,
+  "tool_ms": 700,
+  "approval_wait_ms": 2000,
+  "overhead_ms": 1080,
+  "turn_count": 2,
+  "tool_count": 1,
+  "bottleneck": "model",
+  "bottleneck_ms": 8500
+}
+```
+
+`overhead_ms` is the remainder after queue/model/tool/approval buckets and
+covers gateway orchestration, artifact projection, polling cadence, and final
+transcript rendering. It is intentionally named as overhead rather than a fake
+artifact duration because Hecate does not yet record artifact-write spans for
+every task artifact.
 `content` is the normalized transcript that should be shown by default.
 `raw_output` preserves raw ACP update JSON for diagnostics when an adapter emits
 surprising structured output. `driver_kind` and `native_session_id` identify the

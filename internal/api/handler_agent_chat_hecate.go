@@ -162,7 +162,7 @@ func (h *Handler) handleCreateHecateAgentChatMessage(w http.ResponseWriter, r *h
 			Result:     telemetry.ResultError,
 			DurationMS: completedAt.Sub(startedAt).Milliseconds(),
 		})
-		h.finishHecateAgentMessage(r.Context(), session.ID, assistantID, "failed", "", err.Error(), startedAt, completedAt, nil)
+		h.finishHecateAgentMessage(r.Context(), session.ID, assistantID, "failed", "", err.Error(), startedAt, completedAt, nil, agentchat.Timing{})
 		WriteError(w, http.StatusInternalServerError, errCodeGatewayError, err.Error())
 		return
 	}
@@ -256,6 +256,7 @@ func (h *Handler) handleCreateHecateAgentChatMessage(w http.ResponseWriter, r *h
 	}
 	completedAt := time.Now().UTC()
 	durationMS := completedAt.Sub(startedAt).Milliseconds()
+	timing := h.hecateAgentTiming(r.Context(), finalRun, startedAt, completedAt)
 	resultLabel := telemetry.ResultSuccess
 	if status == "failed" || status == "cancelled" {
 		resultLabel = telemetry.ResultError
@@ -265,6 +266,7 @@ func (h *Handler) handleCreateHecateAgentChatMessage(w http.ResponseWriter, r *h
 		telemetry.AttrHecateRunDurationMS:    durationMS,
 		telemetry.AttrHecateAgentOutputBytes: int64(len(output)),
 	})
+	addHecateAgentTimingTraceAttrs(terminalAttrs, timing)
 	if status == "failed" && strings.TrimSpace(errorText) != "" {
 		terminalAttrs[telemetry.AttrHecateResult] = telemetry.ResultError
 		terminalAttrs[telemetry.AttrHecateErrorKind] = telemetry.ErrorKindOther
@@ -281,6 +283,7 @@ func (h *Handler) handleCreateHecateAgentChatMessage(w http.ResponseWriter, r *h
 		Status:     status,
 		Result:     resultLabel,
 		DurationMS: durationMS,
+		Timing:     agentChatRunTimingMetrics(timing),
 	})
 	if status == "cancelled" {
 		reason := h.agentChatLive.cancelReasonFor(session.ID)
@@ -292,7 +295,7 @@ func (h *Handler) handleCreateHecateAgentChatMessage(w http.ResponseWriter, r *h
 			Reason:    reason,
 		})
 	}
-	updated, err = h.finishHecateAgentMessage(r.Context(), session.ID, assistantID, status, output, errorText, startedAt, completedAt, &finalRun)
+	updated, err = h.finishHecateAgentMessage(r.Context(), session.ID, assistantID, status, output, errorText, startedAt, completedAt, &finalRun, timing)
 	if err != nil {
 		WriteError(w, http.StatusInternalServerError, errCodeGatewayError, err.Error())
 		return
@@ -593,7 +596,7 @@ func fencedCommandOutput(label, content string) string {
 	return fmt.Sprintf("%s:\n\n```%s\n%s\n```", label, lang, content)
 }
 
-func (h *Handler) finishHecateAgentMessage(ctx context.Context, sessionID, messageID, status, output, errorText string, startedAt, completedAt time.Time, run *types.TaskRun) (agentchat.Session, error) {
+func (h *Handler) finishHecateAgentMessage(ctx context.Context, sessionID, messageID, status, output, errorText string, startedAt, completedAt time.Time, run *types.TaskRun, timing agentchat.Timing) (agentchat.Session, error) {
 	return h.agentChat.UpdateMessage(ctx, sessionID, messageID, func(message *agentchat.Message) {
 		message.Status = agentChatStatusFromTaskRun(status)
 		message.Content = output
@@ -606,6 +609,7 @@ func (h *Handler) finishHecateAgentMessage(ctx context.Context, sessionID, messa
 			message.TraceID = firstNonEmpty(run.TraceID, message.TraceID)
 			message.SpanID = firstNonEmpty(run.RootSpanID, message.SpanID)
 			message.CostMode = "hecate"
+			message.Timing = timing
 		}
 		message.Activities = append(message.Activities, newAgentChatActivity(message.Status, message.Status, finalAgentChatActivityTitle(message.Status), errorText))
 	})
