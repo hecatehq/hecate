@@ -81,7 +81,7 @@ describe("SettingsView model capabilities tab", () => {
     await user.click(screen.getByRole("button", { name: "Model capabilities" }));
     const row = await screen.findByTestId("model-capability-row-ollama-qwen2.5-coder");
 
-    await user.click(within(row).getByRole("button", { name: "Record test: tools" }));
+    await user.click(within(row).getByRole("button", { name: "Record manual test" }));
 
     expect(recordModelCapabilityProbe).toHaveBeenCalledWith(expect.objectContaining({
       provider: "ollama",

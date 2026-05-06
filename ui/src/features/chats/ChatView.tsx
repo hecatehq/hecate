@@ -204,16 +204,23 @@ export function ChatView({ state, actions, onNavigate, onOpenTask }: Props) {
   const agentPickerLocked = isExternalAgentChat && Boolean(state.activeAgentChatSessionID);
   const hecateAgentModelLocked = isHecateAgentChat
     && state.activeAgentChatSession?.runtime_kind === "hecate_agent"
-    && Boolean(state.activeAgentChatSession.task_id);
+    && Boolean(state.activeAgentChatSession.task_id)
+    && hecateAgentSessionIsActive(state.activeAgentChatSession.status);
   const hecateChatProviderValue = hecateAgentModelLocked
     ? (state.activeAgentChatSession?.provider || "auto")
     : state.providerFilter;
   const hecateChatModelValue = hecateAgentModelLocked
     ? (state.activeAgentChatSession?.model || "")
     : state.model;
+  const selectedHecateModelRecord = hecateAgentModelLocked
+    ? undefined
+    : selectableModels.find((entry) => entry.id === state.model && (!state.providerFilter || state.providerFilter === "auto" || entry.metadata?.provider === state.providerFilter));
   const selectedModelCapabilities = hecateAgentModelLocked
     ? state.activeAgentChatSession?.capabilities
-    : selectableModels.find((entry) => entry.id === state.model && (!state.providerFilter || state.providerFilter === "auto" || entry.metadata?.provider === state.providerFilter))?.metadata?.capabilities;
+    : selectedHecateModelRecord?.metadata?.capabilities;
+  const selectedModelCapabilityProvider = hecateAgentModelLocked
+    ? state.activeAgentChatSession?.provider
+    : selectedHecateModelRecord?.metadata?.provider || (state.providerFilter !== "auto" ? state.providerFilter : "");
   const hecateAgentModelToolCapable = selectedModelCapabilities?.tool_calling === "basic" || selectedModelCapabilities?.tool_calling === "parallel";
   const hecateChatModelReady = isHecateAgentChat && hecateAgentModelLocked
     ? Boolean(hecateChatModelValue)
@@ -224,6 +231,11 @@ export function ChatView({ state, actions, onNavigate, onOpenTask }: Props) {
     || (!isAgentChat && modelRouteUnavailable)
     || (isExternalAgentChat && (!state.agentWorkspace.trim() || !selectedAgent?.available))
     || (isHecateAgentChat && (!state.agentWorkspace.trim() || !hecateChatModelReady || !hecateAgentModelToolCapable));
+  const canMarkSelectedModelToolsSupported = isHecateAgentChat
+    && Boolean(hecateChatModelValue)
+    && Boolean(selectedModelCapabilityProvider)
+    && !hecateAgentModelLocked
+    && !hecateAgentModelToolCapable;
 
   useEffect(() => {
     if (!userScrolledRef.current) {
@@ -366,6 +378,18 @@ export function ChatView({ state, actions, onNavigate, onOpenTask }: Props) {
     } finally {
       setQuickAddingProviders(false);
     }
+  }
+
+  async function markSelectedModelToolsSupported() {
+    if (!selectedModelCapabilityProvider || !hecateChatModelValue) return;
+    await actions.upsertModelCapabilityOverride({
+      provider: selectedModelCapabilityProvider,
+      model: hecateChatModelValue,
+      tool_calling: "basic",
+      streaming: selectedModelCapabilities?.streaming,
+      max_context_tokens: selectedModelCapabilities?.max_context_tokens,
+      note: "Marked as tool-capable from Chats.",
+    });
   }
 
   async function handleResolveTaskApproval(approvalID: string, decision: "approve" | "reject") {
@@ -795,7 +819,7 @@ export function ChatView({ state, actions, onNavigate, onOpenTask }: Props) {
         )}
 
         {/* System prompt editor */}
-        {!isAgentChat && syspromptOpen && (
+        {state.chatTarget === "model" && syspromptOpen && (
           <div style={{ borderBottom: "1px solid var(--border)", padding: "10px 14px", background: "var(--bg2)" }}>
             <div style={{ display: "flex", alignItems: "center", marginBottom: 5, gap: 8 }}>
               <span style={{ fontSize: 11, color: "var(--t2)", fontFamily: "var(--font-mono)" }}>SYSTEM PROMPT</span>
@@ -1011,8 +1035,30 @@ export function ChatView({ state, actions, onNavigate, onOpenTask }: Props) {
           {composerVisible && (
           <>
           {isHecateAgentChat && hecateChatModelValue && !hecateAgentModelToolCapable && (
-            <div style={{ maxWidth: 820, margin: "0 auto 8px", fontSize: 12, color: "var(--amber)", lineHeight: 1.45 }}>
-              This model has unknown or no tool-calling support. Test it or override capabilities in Settings.
+            <div style={{
+              maxWidth: 820,
+              margin: "0 auto 8px",
+              display: "flex",
+              alignItems: "center",
+              justifyContent: "space-between",
+              gap: 12,
+              fontSize: 12,
+              color: "var(--amber)",
+              lineHeight: 1.45,
+            }}>
+              <span>
+                Tool support is unknown for this model. Mark it as tool-capable if you have tested it with tools.
+              </span>
+              <button
+                type="button"
+                className="btn btn-ghost btn-sm"
+                onClick={() => void markSelectedModelToolsSupported()}
+                disabled={!canMarkSelectedModelToolsSupported}
+                title={canMarkSelectedModelToolsSupported ? "Save an operator override for this provider/model" : "Choose a concrete provider/model first"}
+                style={{ color: "var(--amber)", flexShrink: 0 }}
+              >
+                Mark tools supported
+              </button>
             </div>
           )}
           <div style={{ maxWidth: 820, margin: "0 auto", position: "relative" }}>
@@ -1175,6 +1221,10 @@ function cleanApprovalDetail(detail?: string): string {
     .replace(/\s+-\s+awaiting_approval$/i, "")
     .replace(/\s+-\s+pending$/i, "")
     .trim();
+}
+
+function hecateAgentSessionIsActive(status?: string): boolean {
+  return status === "queued" || status === "running" || status === "awaiting_approval";
 }
 
 function parseProjectedTaskApprovalID(id?: string): string {

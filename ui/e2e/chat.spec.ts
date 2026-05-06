@@ -148,24 +148,35 @@ test("workspace selection persists across reload", async ({ page }) => {
 // API key. Open the Providers tab and add one." before reaching the DOM.
 test("chat error renders inline with the humanized message", async ({ page }) => {
   await switchToModel(page);
-  await page.route("/v1/chat/sessions", r =>
-    r.fulfill({
+  await page.route("/v1/agent-chat/sessions", async route => {
+    if (route.request().method() !== "POST") {
+      await route.continue();
+      return;
+    }
+    await route.fulfill({
       status: 200,
       contentType: "application/json",
       body: JSON.stringify({
-        object: "chat_session",
+        object: "agent_chat_session",
         data: {
           id: "chat_err_e2e",
           title: "x",
-          turns: [],
+          runtime_kind: "model",
+          status: "created",
+          provider: "anthropic",
+          model: "claude-sonnet-4-6",
+          messages: [],
           created_at: "2026-04-21T00:00:00Z",
           updated_at: "2026-04-21T00:00:00Z",
         },
       }),
-    }),
+    });
+  });
+  await page.route("/v1/agent-chat/sessions/chat_err_e2e/stream", route =>
+    route.fulfill({ status: 200, contentType: "text/event-stream", body: "" }),
   );
-  await page.route("/v1/chat/completions", r =>
-    r.fulfill({
+  await page.route("/v1/agent-chat/sessions/chat_err_e2e/messages", route =>
+    route.fulfill({
       status: 400,
       contentType: "application/json",
       body: JSON.stringify({
@@ -236,6 +247,143 @@ test("empty Hecate Agent chat can add all detected local providers in one click"
   await expect.poll(() => created.map(body => body.preset_id).sort()).toEqual(["lmstudio", "ollama"]);
   await expect(page.getByText("Provider is configured")).toBeVisible();
   await expect(page.getByRole("button", { name: /Add detected provider/i })).toHaveCount(0);
+});
+
+test("Hecate Agent local-provider onboarding renders the real final answer and unlocks model choice after completion", async ({ page }) => {
+  await page.unrouteAll({ behavior: "ignoreErrors" });
+  await page.addInitScript(() => {
+    window.localStorage.setItem("hecate.chatTarget", "hecate_agent");
+    window.localStorage.setItem("hecate.agentWorkspace", "/tmp/hecate-e2e-workspace");
+  });
+  await mockGatewayAPIs(page);
+
+  await page.route("/v1/models*", route => route.fulfill({
+    status: 200,
+    contentType: "application/json",
+    body: JSON.stringify({
+      object: "list",
+      data: [{
+        id: "qwen2.5",
+        owned_by: "lm-studio",
+        metadata: {
+          provider: "lm-studio",
+          provider_kind: "local",
+          capabilities: { tool_calling: "basic", streaming: true, source: "operator_override" },
+        },
+      }],
+    }),
+  }));
+
+  const sessions: any[] = [];
+  await page.route("/v1/agent-chat/sessions", async route => {
+    if (route.request().method() === "GET") {
+      await route.fulfill({
+        status: 200,
+        contentType: "application/json",
+        body: JSON.stringify({ object: "agent_chat_sessions", data: sessions }),
+      });
+      return;
+    }
+    if (route.request().method() === "POST") {
+      const body = await route.request().postDataJSON();
+      const session = {
+        id: "chat-hecate-e2e",
+        title: body.title || "show diff",
+        runtime_kind: "hecate_agent",
+        provider: body.provider || "",
+        model: body.model || "qwen2.5",
+        capabilities: { tool_calling: "basic", streaming: true, source: "operator_override" },
+        workspace: body.workspace,
+        status: "created",
+        message_count: 0,
+        messages: [],
+      };
+      sessions.splice(0, sessions.length, session);
+      await route.fulfill({
+        status: 200,
+        contentType: "application/json",
+        body: JSON.stringify({ object: "agent_chat_session", data: session }),
+      });
+      return;
+    }
+    await route.fulfill({ status: 405, body: "" });
+  });
+
+  await page.route("/v1/agent-chat/sessions/chat-hecate-e2e/stream", route => route.fulfill({
+    status: 200,
+    contentType: "text/event-stream",
+    body: "",
+  }));
+
+  let messagePayload: Record<string, unknown> | null = null;
+  await page.route("/v1/agent-chat/sessions/chat-hecate-e2e/messages", async route => {
+    messagePayload = await route.request().postDataJSON();
+    const completed = {
+      ...sessions[0],
+      task_id: "task-hecate-e2e",
+      latest_run_id: "run-hecate-e2e",
+      status: "completed",
+      message_count: 2,
+      messages: [
+        {
+          id: "msg-user-e2e",
+          runtime_kind: "hecate_agent",
+          segment_id: "task:task-hecate-e2e",
+          task_id: "task-hecate-e2e",
+          role: "user",
+          content: "show diff",
+          created_at: "2026-05-06T10:00:00Z",
+        },
+        {
+          id: "msg-assistant-e2e",
+          runtime_kind: "hecate_agent",
+          segment_id: "task:task-hecate-e2e",
+          task_id: "task-hecate-e2e",
+          run_id: "run-hecate-e2e",
+          role: "assistant",
+          content: "Command output:\n\n```diff\n+changed line\n```",
+          provider: "lmstudio",
+          model: "qwen2.5",
+          status: "completed",
+          cost_mode: "hecate",
+          activities: [
+            { id: "run", type: "task_run", status: "completed", title: "Backing task", detail: "completed · task-hecate-e2e · run-hecate-e2e" },
+            { id: "done", type: "completed", status: "completed", title: "Run completed", detail: "completed" },
+          ],
+          created_at: "2026-05-06T10:00:01Z",
+        },
+      ],
+    };
+    sessions.splice(0, sessions.length, completed);
+    await route.fulfill({
+      status: 200,
+      contentType: "application/json",
+      body: JSON.stringify({ object: "agent_chat_session", data: completed }),
+    });
+  });
+
+  await page.goto("/");
+  await page.waitForSelector(".hecate-activitybar");
+
+  await page.getByRole("button", { name: "Add detected providers" }).click();
+  await expect(page.getByRole("button", { name: /Add detected provider/i })).toHaveCount(0);
+  await expect(page.getByText("2 configured")).toBeVisible();
+
+  await page.getByRole("button", { name: /model picker/i }).click();
+  await page.locator(".dropdown-menu").locator("text=qwen2.5").first().click();
+  await expect(page.getByRole("button", { name: "tools: basic" })).toBeVisible();
+
+  await page.locator("textarea").fill("show diff");
+  await page.locator("button[type='submit']").click();
+
+  await expect(page.locator("body")).toContainText("+changed line");
+  await expect(page.locator("body")).not.toContainText("Hecate Agent run completed.");
+  await expect.poll(() => messagePayload).toMatchObject({
+    runtime_kind: "hecate_agent",
+    model: "qwen2.5",
+    workspace: "/tmp/hecate-e2e-workspace",
+  });
+  await expect(page.getByRole("button", { name: "Model picker: qwen2.5" })).toBeEnabled();
 });
 
 test("configured provider with no models shows troubleshooting, not detected-provider setup", async ({ page }) => {

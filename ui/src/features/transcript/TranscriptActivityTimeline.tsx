@@ -182,13 +182,14 @@ function compactAgentActivities(activities: AgentChatActivityRecord[]): AgentCha
   for (const [index, activity] of activities.entries()) {
     if (hiddenTypes.has(activity.type)) continue;
     if (activity.type === "completed" && activity.title.toLowerCase() === "final answer") continue;
+    if (isTerminalRunSummary(activity)) continue;
     if (terminal && (activity.type === "started" || activity.type === "running")) continue;
     if (activity.type === "running" && activities.some(item => item.type === "output")) continue;
     if (isTaskRunActivity(activity) && index !== lastTaskRunIndex) continue;
     if (activity.type === "approval" && activity.approval_id && lastApprovalIndexByID.get(activity.approval_id) !== index) continue;
     out.push(activity);
   }
-  return out;
+  return collapseModelTurnActivities(out);
 }
 
 function lastIndexByApprovalID(activities: AgentChatActivityRecord[]): Map<string, number> {
@@ -212,6 +213,43 @@ function isTaskRunActivity(activity: AgentChatActivityRecord): boolean {
   return activity.type === "task_run" || (activity.type.startsWith("task_") && activity.title.startsWith("Task run"));
 }
 
+function isTerminalRunSummary(activity: AgentChatActivityRecord): boolean {
+  if (activity.type !== "run_result" && activity.type !== "completed") return false;
+  return /^run\s+(completed|failed|cancelled)$/i.test(activity.title.trim());
+}
+
+function collapseModelTurnActivities(activities: AgentChatActivityRecord[]): AgentChatActivityRecord[] {
+  const turnActivities = activities.filter(isModelTurnActivity);
+  if (turnActivities.length <= 1) return activities;
+
+  const firstTurnIndex = activities.findIndex(isModelTurnActivity);
+  const status = aggregateActivityStatus(turnActivities);
+  const collapsed: AgentChatActivityRecord = {
+    id: "hecate-agent:model-turns",
+    type: "model_turns",
+    status,
+    kind: "model",
+    title: "Model turns",
+    detail: `${turnActivities.length} turns ${humanActivityStatus(status)}`,
+  };
+
+  const out = activities.filter(activity => !isModelTurnActivity(activity));
+  out.splice(Math.max(firstTurnIndex, 0), 0, collapsed);
+  return out;
+}
+
+function isModelTurnActivity(activity: AgentChatActivityRecord): boolean {
+  return activity.type === "thinking" && /^Agent turn \d+/i.test(activity.title.trim());
+}
+
+function aggregateActivityStatus(activities: AgentChatActivityRecord[]): string {
+  if (activities.some(activity => activity.status === "failed")) return "failed";
+  if (activities.some(activity => activity.status === "cancelled")) return "cancelled";
+  if (activities.some(isActiveAgentActivity)) return "running";
+  if (activities.every(activity => activity.status === "completed")) return "completed";
+  return activities[activities.length - 1]?.status || "completed";
+}
+
 function activityDisplay(activity: AgentChatActivityRecord): { title: string; detail?: string } {
   if (activity.type === "approval") {
     const title = approvalActivityTitle(activity);
@@ -222,15 +260,49 @@ function activityDisplay(activity: AgentChatActivityRecord): { title: string; de
     return { title, detail };
   }
   if (!isTaskRunActivity(activity)) {
-    return { title: activity.title, detail: activity.detail };
+    return { title: activity.title, detail: cleanActivityDetail(activity) };
   }
   const status = activity.status || activity.title.replace(/^Task run\s+/, "");
-  const humanStatus = status === "awaiting_approval" ? "waiting for approval" : status.replaceAll("_", " ");
+  const humanStatus = humanActivityStatus(status);
   const existingDetail = activity.detail || "";
-  const detail = existingDetail.startsWith(humanStatus)
-    ? existingDetail
-    : [humanStatus, existingDetail].filter(Boolean).join(" · ");
+  const detail = cleanTaskRunDetail(existingDetail, humanStatus);
   return { title: "Backing task", detail };
+}
+
+function cleanActivityDetail(activity: AgentChatActivityRecord): string | undefined {
+  const detail = activity.detail?.trim();
+  if (!detail) return undefined;
+
+  const title = activity.title.trim();
+  const status = activity.status?.trim();
+  const duplicateForms = [
+    title,
+    status,
+    status ? `${title} - ${status}` : "",
+    status ? `${title} · ${status}` : "",
+  ].filter((value): value is string => Boolean(value)).map(value => value.toLowerCase());
+
+  return duplicateForms.includes(detail.toLowerCase()) ? undefined : detail;
+}
+
+function cleanTaskRunDetail(existingDetail: string, humanStatus: string): string {
+  const cleaned = existingDetail
+    .replace(/\s+-\s+(running|completed|failed|cancelled|awaiting_approval)$/i, "")
+    .trim();
+  return cleaned.startsWith(humanStatus)
+    ? existingDetail
+    : [humanStatus, cleaned].filter(Boolean).join(" · ");
+}
+
+function humanActivityStatus(status?: string): string {
+  switch (status) {
+    case "awaiting_approval":
+      return "waiting for approval";
+    case "in_progress":
+      return "running";
+    default:
+      return (status || "completed").replaceAll("_", " ");
+  }
 }
 
 function approvalActivityTitle(activity: AgentChatActivityRecord): string {

@@ -41,6 +41,7 @@ func TestMetricClosedSetNormalizersCollapseUnknownValues(t *testing.T) {
 		{"queue backend known", "sqlite", NormalizeQueueBackend, "sqlite"},
 		{"queue backend unknown", "postgres", NormalizeQueueBackend, MetricLabelOther},
 		{"driver kind known", "acp", NormalizeAgentDriverKind, "acp"},
+		{"driver kind hecate", "hecate", NormalizeAgentDriverKind, "hecate"},
 		{"driver kind unknown", "process", NormalizeAgentDriverKind, MetricLabelOther},
 		{"mcp result known", MCPCallResultToolError, NormalizeMCPCallResult, MCPCallResultToolError},
 		{"mcp result unknown", "timeout", NormalizeMCPCallResult, MetricLabelOther},

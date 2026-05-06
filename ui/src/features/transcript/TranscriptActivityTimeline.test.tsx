@@ -115,6 +115,15 @@ describe("TranscriptActivityTimeline", () => {
     expect(screen.getByText("src/index.ts")).toBeInTheDocument();
   });
 
+  it("removes duplicate tool details that repeat title and status", () => {
+    const activities: AgentChatActivityRecord[] = [
+      { type: "tool_call", title: "git_exec", status: "completed", kind: "tool", detail: "git_exec - completed" },
+    ];
+    render(<TranscriptActivityTimeline activities={activities} />);
+    expect(screen.getByText("git_exec")).toBeInTheDocument();
+    expect(screen.queryByText("git_exec - completed")).toBeNull();
+  });
+
   it("includes 'files changed' in the summary when diffStat is supplied", () => {
     const activities: AgentChatActivityRecord[] = [
       { type: "tool_call", title: "read_file", status: "completed" },
@@ -147,5 +156,26 @@ describe("TranscriptActivityTimeline", () => {
     expect(screen.queryByText("git-stderr.txt")).toBeNull();
     expect(screen.queryByText("git-changes.json")).toBeNull();
     expect(screen.queryByText("agent-final-answer.txt")).toBeNull();
+  });
+
+  it("summarizes Hecate Agent task internals without duplicate terminal rows", () => {
+    const activities: AgentChatActivityRecord[] = [
+      { type: "tool_call", title: "git_exec", status: "completed", kind: "git", detail: "git_exec - completed" },
+      { type: "task_run", title: "Backing task", status: "completed", detail: "completed · task_123 · run_456" },
+      { type: "thinking", title: "Agent turn 1", status: "completed", detail: "builtin.agent_loop_llm - completed" },
+      { type: "thinking", title: "Agent turn 2", status: "completed", detail: "builtin.agent_loop_llm - completed" },
+      { type: "run_result", title: "Run completed", status: "completed", detail: "completed" },
+      { type: "completed", title: "Final answer", status: "completed" },
+    ];
+    render(<TranscriptActivityTimeline activities={activities} />);
+
+    expect(screen.getByText("git_exec")).toBeInTheDocument();
+    expect(screen.getByText("Backing task")).toBeInTheDocument();
+    expect(screen.getByText("Model turns")).toBeInTheDocument();
+    expect(screen.getByText("2 turns completed")).toBeInTheDocument();
+    expect(screen.queryByText("Agent turn 1")).toBeNull();
+    expect(screen.queryByText("Agent turn 2")).toBeNull();
+    expect(screen.queryByText("Run completed")).toBeNull();
+    expect(screen.queryByText("git_exec - completed")).toBeNull();
   });
 });

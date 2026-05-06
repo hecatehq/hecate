@@ -68,7 +68,8 @@ var knownQueueBackends = map[string]struct{}{
 }
 
 var knownAgentDriverKinds = map[string]struct{}{
-	"acp": {},
+	"acp":    {},
+	"hecate": {},
 }
 
 var knownMCPCallResults = map[string]struct{}{
