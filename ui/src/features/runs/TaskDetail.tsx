@@ -689,11 +689,11 @@ export function TaskDetail({
             {stderrArtifact && (
               <span style={{
                 fontSize: 10,
-                color: stderrArtifact.content_text ? "var(--red)" : "var(--t3)",
+                color: artifactHasBytes(stderrArtifact) ? "var(--red)" : "var(--t3)",
                 fontFamily: "var(--font-mono)",
                 marginLeft: "auto",
               }}>
-                stderr {stderrArtifact.content_text ? "available" : "empty"}
+                stderr {artifactHasBytes(stderrArtifact) ? "available" : "empty"}
               </span>
             )}
           </div>
@@ -958,7 +958,12 @@ function taskActivityArtifactSize(item: TaskActivityRecord): number | undefined 
 
 function taskActivityArtifactPreview(item: TaskActivityRecord): string | undefined {
   const value = item.summary?.content_preview;
-  return typeof value === "string" && value.trim() ? value : undefined;
+  return typeof value === "string" && value.trimEnd() ? value.replace(/[\r\n]+$/, "") : undefined;
+}
+
+function artifactHasBytes(artifact: TaskArtifactRecord): boolean {
+  if (typeof artifact.size_bytes === "number") return artifact.size_bytes > 0;
+  return Boolean(artifact.content_text);
 }
 
 function taskActivityTitle(item: TaskActivityRecord): string {

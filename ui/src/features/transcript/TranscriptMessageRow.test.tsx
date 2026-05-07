@@ -159,12 +159,12 @@ describe("TranscriptMessageRow", () => {
     const user = userEvent.setup();
     const activities: AgentChatActivityRecord[] = [
       { type: "tool_call", title: "git_exec (failed)", status: "failed", kind: "git", detail: "git_exec - failed" },
-      { type: "artifact", title: "git-stdout.txt", status: "ready", artifact_id: "artifact_stdout", artifact_size_bytes: 42, artifact_preview: "diff --git a/README.md b/README.md\n+hello" },
+      { type: "artifact", title: "git-stdout.txt", status: "ready", artifact_id: "artifact_stdout", artifact_size_bytes: 42, artifact_preview: "  diff --git a/README.md b/README.md\n+hello\n" },
       { type: "artifact", title: "git-stderr.txt", status: "ready", artifact_id: "artifact_stderr", artifact_size_bytes: 19, artifact_preview: "fatal: not a git repository" },
       { type: "failed", title: "Run failed", status: "failed", terminal: true },
     ];
 
-    render(
+    const { container } = render(
       <TranscriptMessageRow
         {...baseProps}
         activities={activities}
@@ -175,6 +175,7 @@ describe("TranscriptMessageRow", () => {
     await user.click(screen.getByText(/1 failed tool/));
     await user.click(screen.getByText("Advanced"));
     expect(screen.getByText(/Preview the related run output/)).toBeInTheDocument();
+    expect([...container.querySelectorAll("pre")].some((node) => node.textContent?.startsWith("  diff --git"))).toBe(true);
     expect(screen.getByText(/\+hello/)).toBeInTheDocument();
     expect(screen.getByText("fatal: not a git repository")).toBeInTheDocument();
     await user.click(screen.getByRole("button", { name: "Open task output" }));
