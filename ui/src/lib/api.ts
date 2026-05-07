@@ -57,6 +57,10 @@ type ErrorPayload = {
   error?: {
     type?: string;
     message?: string;
+    user_message?: string;
+    operator_action?: string;
+    request_id?: string;
+    trace_id?: string;
   };
 };
 
@@ -952,11 +956,19 @@ export function buildRequestOptions(options: RequestOptions): RequestInit {
 export class ApiError extends Error {
   status: number;
   code: string;
-  constructor(message: string, status: number, code = "") {
+  userMessage: string;
+  operatorAction: string;
+  requestId: string;
+  traceId: string;
+  constructor(message: string, status: number, code = "", details: Partial<Pick<ApiError, "userMessage" | "operatorAction" | "requestId" | "traceId">> = {}) {
     super(message);
     this.name = "ApiError";
     this.status = status;
     this.code = code;
+    this.userMessage = details.userMessage ?? "";
+    this.operatorAction = details.operatorAction ?? "";
+    this.requestId = details.requestId ?? "";
+    this.traceId = details.traceId ?? "";
   }
 }
 
@@ -989,17 +1001,26 @@ function networkErrorMessage(url: string, error: unknown): string {
 
 async function apiError(response: Response, fallback: string): Promise<ApiError> {
   const payload = await errorPayload(response, fallback);
-  return new ApiError(payload.message, response.status, payload.code);
+  return new ApiError(payload.userMessage || payload.message, response.status, payload.code, {
+    userMessage: payload.userMessage,
+    operatorAction: payload.operatorAction,
+    requestId: payload.requestId || response.headers.get("X-Request-Id") || "",
+    traceId: payload.traceId || response.headers.get("X-Trace-Id") || "",
+  });
 }
 
-async function errorPayload(response: Response, fallback: string): Promise<{ message: string; code: string }> {
+async function errorPayload(response: Response, fallback: string): Promise<{ message: string; code: string; userMessage: string; operatorAction: string; requestId: string; traceId: string }> {
   try {
     const payload = (await response.json()) as ErrorPayload;
     return {
       message: payload.error?.message ?? fallback,
       code: payload.error?.type ?? "",
+      userMessage: payload.error?.user_message ?? "",
+      operatorAction: payload.error?.operator_action ?? "",
+      requestId: payload.error?.request_id ?? "",
+      traceId: payload.error?.trace_id ?? "",
     };
   } catch {
-    return { message: fallback, code: "" };
+    return { message: fallback, code: "", userMessage: "", operatorAction: "", requestId: "", traceId: "" };
   }
 }

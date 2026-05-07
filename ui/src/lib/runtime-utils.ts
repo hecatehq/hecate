@@ -80,7 +80,9 @@ export type { TraceRouteRecord } from "./runtime-routing";
 export {
   describeRouteReason,
   describeRouteSkipReason,
+  describeRouteCandidateOutcome,
   describeRoutingBlockedReason,
+  explainRouteCandidate,
   describeCredentialState,
   describeHealthErrorClass,
   routeOutcomeTone,

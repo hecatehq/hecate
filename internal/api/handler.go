@@ -96,6 +96,18 @@ func (h *Handler) OrchestratorMetrics() *telemetry.OrchestratorMetrics {
 	return h.orchestratorMetrics
 }
 
+func (h *Handler) gatewayErrorDetails(ctx context.Context, requestID string) ErrorDetails {
+	details := ErrorDetails{RequestID: requestID}
+	if h == nil || h.service == nil || requestID == "" {
+		return details
+	}
+	trace, err := h.service.Trace(ctx, requestID)
+	if err == nil && trace != nil {
+		details.TraceID = trace.TraceID
+	}
+	return details
+}
+
 type ProviderRuntime interface {
 	Reload(ctx context.Context) error
 	SecretStorageEnabled() bool

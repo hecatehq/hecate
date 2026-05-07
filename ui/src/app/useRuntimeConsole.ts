@@ -282,6 +282,9 @@ export function useRuntimeConsole() {
   const [chatError, setChatError] = useState("");
   const [chatErrorCode, setChatErrorCode] = useState("");
   const [chatErrorStatus, setChatErrorStatus] = useState<number | null>(null);
+  const [chatErrorAction, setChatErrorAction] = useState("");
+  const [chatErrorRequestID, setChatErrorRequestID] = useState("");
+  const [chatErrorTraceID, setChatErrorTraceID] = useState("");
   const [modelFilter, setModelFilter] = useState<ModelFilter>("all");
   const [providerFilter, setProviderFilter] = useState<ProviderFilter>("auto");
   const [copiedCommand, setCopiedCommand] = useState("");
@@ -492,9 +495,7 @@ export function useRuntimeConsole() {
     setStreamingContent(null);
     setRuntimeHeaders(null);
     clearPendingToolState();
-    setChatError("");
-    setChatErrorCode("");
-    setChatErrorStatus(null);
+    clearChatErrorState();
     setSystemPrompt("");
   }
 
@@ -761,6 +762,25 @@ export function useRuntimeConsole() {
     }
   }
 
+  function clearChatErrorState() {
+    setChatError("");
+    setChatErrorCode("");
+    setChatErrorStatus(null);
+    setChatErrorAction("");
+    setChatErrorRequestID("");
+    setChatErrorTraceID("");
+  }
+
+  function setChatErrorState(error: unknown, fallback = "unknown request error") {
+    const raw = error instanceof Error ? error.message : fallback;
+    setChatError(humanizeChatError(raw));
+    setChatErrorCode(error instanceof ApiError ? error.code : "");
+    setChatErrorStatus(error instanceof ApiError ? error.status : null);
+    setChatErrorAction(error instanceof ApiError ? error.operatorAction : "");
+    setChatErrorRequestID(error instanceof ApiError ? error.requestId : "");
+    setChatErrorTraceID(error instanceof ApiError ? error.traceId : "");
+  }
+
   async function submitAgentChat(queued?: QueuedChatMessage) {
     const content = (queued?.content ?? message).trim();
     if (!content) return;
@@ -772,9 +792,7 @@ export function useRuntimeConsole() {
     }
 
     setChatLoading(true);
-    setChatError("");
-    setChatErrorCode("");
-    setChatErrorStatus(null);
+    clearChatErrorState();
     setRuntimeHeaders(null);
     const isExternalAgent = turnRuntimeKind === "external_agent";
     const isModelTurn = turnRuntimeKind === "model";
@@ -887,10 +905,7 @@ export function useRuntimeConsole() {
       });
       applyAgentChatSession(updated.data);
     } catch (submitError) {
-      const raw = submitError instanceof Error ? submitError.message : "unknown request error";
-      setChatError(humanizeChatError(raw));
-      setChatErrorCode(submitError instanceof ApiError ? submitError.code : "");
-      setChatErrorStatus(submitError instanceof ApiError ? submitError.status : null);
+      setChatErrorState(submitError);
     } finally {
       streamAbort?.abort();
       await streamPromise?.catch(() => undefined);
@@ -931,9 +946,7 @@ export function useRuntimeConsole() {
       await cancelAgentChatSessionRequest(activeAgentChatSessionID);
     } catch (error) {
       setAgentChatCancelling(false);
-      setChatError(error instanceof Error ? error.message : "failed to cancel agent chat");
-      setChatErrorCode(error instanceof ApiError ? error.code : "");
-      setChatErrorStatus(error instanceof ApiError ? error.status : null);
+      setChatErrorState(error, "failed to cancel agent chat");
     }
   }
 
@@ -944,9 +957,7 @@ export function useRuntimeConsole() {
   async function submitToolResults() {
     if (!pendingThread || pendingToolCalls.length === 0) return;
     setChatLoading(true);
-    setChatError("");
-    setChatErrorCode("");
-    setChatErrorStatus(null);
+    clearChatErrorState();
 
     const toolMessages: ChatMessage[] = pendingToolCalls.map((tc) => ({
       role: "tool" as const,
@@ -968,10 +979,7 @@ export function useRuntimeConsole() {
       setStreamingContent(null);
       await refreshRuntimeState();
     } catch (err) {
-      const raw = err instanceof Error ? err.message : "unknown error";
-      setChatError(humanizeChatError(raw));
-      setChatErrorCode(err instanceof ApiError ? err.code : "");
-      setChatErrorStatus(err instanceof ApiError ? err.status : null);
+      setChatErrorState(err, "unknown error");
     } finally {
       setChatLoading(false);
     }
@@ -1408,7 +1416,7 @@ export function useRuntimeConsole() {
       setActiveAgentChatSessionID("");
       setActiveAgentChatSession(null);
       setAgentWorkspaceBranch("");
-      setChatError(msg);
+      setChatErrorState(error, "failed to load agent chat");
       setNoticeMessage("error", msg);
     }
   }
@@ -1659,7 +1667,7 @@ export function useRuntimeConsole() {
   }
 
   async function chooseAgentWorkspace(): Promise<boolean> {
-    setChatError("");
+    clearChatErrorState();
     try {
       const payload = await chooseWorkspaceDirectoryRequest();
       if (payload.data.path) {
@@ -1668,7 +1676,7 @@ export function useRuntimeConsole() {
       }
       return true;
     } catch (error) {
-      setChatError(error instanceof Error ? error.message : "workspace folder dialog is unavailable");
+      setChatErrorState(error, "workspace folder dialog is unavailable");
       return false;
     }
   }
@@ -1690,8 +1698,11 @@ export function useRuntimeConsole() {
       budgetAmountUsd,
       budgetLimitUsd,
       chatError,
+      chatErrorAction,
       chatErrorCode,
+      chatErrorRequestID,
       chatErrorStatus,
+      chatErrorTraceID,
       chatLoading,
       streamingContent,
       chatResult,

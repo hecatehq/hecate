@@ -51,7 +51,7 @@ func (h *Handler) HandleMessages(w http.ResponseWriter, r *http.Request) {
 			slog.String(telemetry.AttrGenAIRequestModel, internalReq.Model),
 			slog.Any("error", err),
 		)
-		writeMessagesError(w, err)
+		writeMessagesError(w, err, h.gatewayErrorDetails(ctx, internalReq.RequestID))
 		return
 	}
 
@@ -90,7 +90,7 @@ func (h *Handler) handleMessagesStream(w http.ResponseWriter, r *http.Request, c
 			slog.String(telemetry.AttrGenAIRequestModel, req.Model),
 			slog.Any("error", err),
 		)
-		writeMessagesError(w, err)
+		writeMessagesError(w, err, h.gatewayErrorDetails(ctx, req.RequestID))
 		return
 	}
 
@@ -180,8 +180,8 @@ func applyRuntimeHeaders(w http.ResponseWriter,
 	w.Header().Set("X-Runtime-Cost-USD", formatUSD(costMicrosUSD))
 }
 
-func writeMessagesError(w http.ResponseWriter, err error) {
-	writeAnthropicGatewayError(w, classifyGatewayError(err))
+func writeMessagesError(w http.ResponseWriter, err error, details ErrorDetails) {
+	writeAnthropicGatewayError(w, classifyGatewayError(err), details)
 }
 
 func normalizeAnthropicRequest(req AnthropicMessagesRequest, requestID string) (types.ChatRequest, error) {

@@ -27,10 +27,32 @@ func WriteJSON(w http.ResponseWriter, status int, payload any) {
 }
 
 func WriteError(w http.ResponseWriter, status int, code, message string) {
-	WriteJSON(w, status, map[string]any{
-		"error": map[string]any{
-			"type":    code,
-			"message": message,
-		},
-	})
+	WriteErrorDetails(w, status, code, message, ErrorDetails{})
+}
+
+type ErrorDetails struct {
+	UserMessage    string
+	OperatorAction string
+	RequestID      string
+	TraceID        string
+}
+
+func WriteErrorDetails(w http.ResponseWriter, status int, code, message string, details ErrorDetails) {
+	errorObject := map[string]any{
+		"type":    code,
+		"message": message,
+	}
+	if details.UserMessage != "" {
+		errorObject["user_message"] = details.UserMessage
+	}
+	if details.OperatorAction != "" {
+		errorObject["operator_action"] = details.OperatorAction
+	}
+	if details.RequestID != "" {
+		errorObject["request_id"] = details.RequestID
+	}
+	if details.TraceID != "" {
+		errorObject["trace_id"] = details.TraceID
+	}
+	WriteJSON(w, status, map[string]any{"error": errorObject})
 }

@@ -195,5 +195,12 @@ returns:
 - `model_count`, `discovery_source`, `last_checked_at`, and `last_error` for model-discovery freshness and failure context
 - `last_error_class`, `open_until`, `last_latency_ms`, `consecutive_failures`, `timeouts`, `server_errors`, `rate_limits`, `total_successes`, and `total_failures` for richer health debugging
 
+The UI keeps the checklist message verbatim and adds a short **Next** hint from
+the stable `reason` value. That means `credential_missing` points directly at
+credential setup, `no_models` points at starting/pulling a local model,
+`self_referential` points at fixing a base URL that loops back to Hecate, and
+`provider_rate_limited` points at waiting or routing elsewhere. The raw
+diagnostic fields remain available in the provider details disclosure.
+
 Route reports in the trace inspector reuse the same readiness vocabulary when
 they explain why a provider/model candidate was skipped.

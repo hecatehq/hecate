@@ -6,6 +6,7 @@
 import type { ProviderRecord, RuntimeHeaders, TraceResponse } from "../types/runtime";
 
 export type TraceRouteRecord = TraceResponse["data"]["route"];
+type TraceRouteCandidate = NonNullable<NonNullable<TraceRouteRecord>["candidates"]>[number];
 
 export function describeRouteReason(reason?: string): string {
   if (!reason) {
@@ -59,6 +60,40 @@ export function describeRouteSkipReason(reason?: string): string {
     provider_rate_limited: "Cooling down after upstream 429",
   };
   return labels[reason] ?? titleizeIdentifier(reason);
+}
+
+export function describeRouteCandidateOutcome(candidate: TraceRouteCandidate): string {
+  switch (candidate.outcome) {
+    case "selected":
+      return "Selected route";
+    case "completed":
+      return "Completed route";
+    case "failed":
+      return "Failed attempt";
+    case "denied":
+      return "Denied";
+    case "skipped":
+      return "Skipped";
+    default:
+      return candidate.outcome ? titleizeIdentifier(candidate.outcome) : "Candidate";
+  }
+}
+
+export function explainRouteCandidate(candidate: TraceRouteCandidate): string {
+  if (candidate.outcome === "selected" || candidate.outcome === "completed") {
+    const reason = describeRouteReason(candidate.reason);
+    return reason ? `Chosen because ${reason.toLowerCase()}.` : "Chosen by the router.";
+  }
+  if (candidate.skip_reason) {
+    return `Skipped because ${describeRouteSkipReason(candidate.skip_reason).toLowerCase()}.`;
+  }
+  if (candidate.outcome === "failed") {
+    return candidate.detail || "Provider attempt failed after selection.";
+  }
+  if (candidate.policy_reason) {
+    return candidate.policy_reason;
+  }
+  return candidate.detail || "Considered by the router.";
 }
 
 export function describeRoutingBlockedReason(reason?: string): string {

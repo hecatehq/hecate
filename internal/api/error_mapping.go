@@ -25,6 +25,8 @@ type gatewayHTTPError struct {
 	OpenAIType    string
 	AnthropicType string
 	Message       string
+	UserMessage   string
+	Action        string
 }
 
 func classifyGatewayError(err error) gatewayHTTPError {
@@ -161,18 +163,99 @@ func isRouteImpossibleMessage(message string) bool {
 		strings.Contains(message, "provider ") && strings.Contains(message, " not found")
 }
 
-func writeOpenAIGatewayError(w http.ResponseWriter, classified gatewayHTTPError) {
-	WriteError(w, classified.Status, classified.OpenAIType, classified.Message)
+func writeOpenAIGatewayError(w http.ResponseWriter, classified gatewayHTTPError, details ErrorDetails) {
+	details = enrichGatewayErrorDetails(classified, details)
+	if details.TraceID != "" {
+		w.Header().Set("X-Trace-Id", details.TraceID)
+	}
+	WriteErrorDetails(w, classified.Status, classified.OpenAIType, classified.Message, details)
 }
 
-func writeAnthropicGatewayError(w http.ResponseWriter, classified gatewayHTTPError) {
+func writeAnthropicGatewayError(w http.ResponseWriter, classified gatewayHTTPError, details ErrorDetails) {
+	details = enrichGatewayErrorDetails(classified, details)
+	if details.TraceID != "" {
+		w.Header().Set("X-Trace-Id", details.TraceID)
+	}
+	errorObject := map[string]any{
+		"type":    classified.AnthropicType,
+		"message": classified.Message,
+	}
+	if details.UserMessage != "" {
+		errorObject["user_message"] = details.UserMessage
+	}
+	if details.OperatorAction != "" {
+		errorObject["operator_action"] = details.OperatorAction
+	}
+	if details.RequestID != "" {
+		errorObject["request_id"] = details.RequestID
+	}
+	if details.TraceID != "" {
+		errorObject["trace_id"] = details.TraceID
+	}
 	WriteJSON(w, classified.Status, map[string]any{
-		"type": "error",
-		"error": map[string]any{
-			"type":    classified.AnthropicType,
-			"message": classified.Message,
-		},
+		"type":  "error",
+		"error": errorObject,
 	})
+}
+
+func enrichGatewayErrorDetails(classified gatewayHTTPError, details ErrorDetails) ErrorDetails {
+	if details.UserMessage == "" {
+		details.UserMessage = firstNonEmptyString(classified.UserMessage, gatewayErrorUserMessage(classified.OpenAIType), classified.Message)
+	}
+	if details.OperatorAction == "" {
+		details.OperatorAction = firstNonEmptyString(classified.Action, gatewayErrorAction(classified.OpenAIType))
+	}
+	return details
+}
+
+func gatewayErrorUserMessage(code string) string {
+	switch code {
+	case errCodeBudgetExceeded:
+		return "Budget is exhausted for this request."
+	case errCodePriceMissing:
+		return "Pricebook data is missing for the selected model."
+	case errCodeProviderAuthFailed:
+		return "Provider credentials failed."
+	case errCodeProviderRateLimited:
+		return "The selected provider is rate limited."
+	case errCodeProviderUnavailable:
+		return "The selected provider is unavailable."
+	case errCodeRouteImpossible:
+		return "No configured provider can serve this request."
+	case errCodeUnsupportedModel:
+		return "No configured provider supports the requested model."
+	case errCodeForbidden:
+		return "The request was blocked by policy."
+	case "rate_limit_exceeded":
+		return "Hecate's local gateway rate limit was exceeded."
+	default:
+		return "Gateway request failed."
+	}
+}
+
+func gatewayErrorAction(code string) string {
+	switch code {
+	case errCodeBudgetExceeded:
+		return "Raise the budget, choose a cheaper/local model, or wait for the budget window to reset."
+	case errCodePriceMissing:
+		return "Import or add a pricebook entry before routing cloud traffic for this model."
+	case errCodeProviderAuthFailed:
+		return "Update the provider credentials, then use Providers to test readiness again."
+	case errCodeProviderRateLimited:
+		return "Wait for the provider cooldown, reduce concurrency, or choose another provider/model."
+	case errCodeProviderUnavailable:
+		return "Check provider health, endpoint URL, local server status, or fail over to another provider."
+	case errCodeRouteImpossible:
+		return "Open Providers to inspect readiness checks, discover models, or enable a routable provider."
+	case errCodeUnsupportedModel:
+		return "Choose a discovered model for the selected provider, or switch provider routing back to Auto."
+	case errCodeForbidden:
+		return "Review policy rules, provider/model allowlists, and tenant budget settings."
+	case "rate_limit_exceeded":
+		return "Wait for the bucket to refill or adjust the local gateway rate limit."
+	default:
+		return "Open Observability for the request trace and inspect route/provider diagnostics."
+	}
 }
 
 func firstNonEmptyString(values ...string) string {

@@ -1063,7 +1063,11 @@ export function ChatView({ state, actions, onNavigate, onOpenTask, onOpenTrace }
                 message={state.chatError}
                 provider={state.runtimeHeaders?.provider}
                 code={state.chatErrorCode}
+                action={state.chatErrorAction}
+                requestID={state.chatErrorRequestID}
                 status={state.chatErrorStatus ?? undefined}
+                traceID={state.chatErrorTraceID}
+                onOpenTrace={onOpenTrace}
                 diagnostic={chatDiagnostic}
               />
             </div>
@@ -1872,16 +1876,25 @@ function ChatErrorPanel({
   message,
   provider,
   code,
+  action,
+  requestID,
   status,
+  traceID,
+  onOpenTrace,
   diagnostic,
 }: {
   message: string;
   provider?: string;
   code?: string;
+  action?: string;
+  requestID?: string;
   status?: number;
+  traceID?: string;
+  onOpenTrace?: (requestID: string) => void;
   diagnostic: ReturnType<typeof describeGatewayError>;
 }) {
   const label = formatErrorCode(code, status);
+  const recommendedAction = action || diagnostic?.action || "";
   if (!diagnostic) {
     return <InlineError message={`${provider ? `[${provider}] ` : ""}${message}`} />;
   }
@@ -1905,9 +1918,43 @@ function ChatErrorPanel({
         )}
       </div>
       <div style={{ fontSize: 12, color: "var(--t0)", lineHeight: 1.45 }}>{message}</div>
-      <div style={{ fontSize: 11, color: "var(--t2)", lineHeight: 1.45, marginTop: 5 }}>
-        {provider ? `${provider}: ` : ""}{diagnostic.action}
-      </div>
+      {recommendedAction && (
+        <div style={{ fontSize: 11, color: "var(--t2)", lineHeight: 1.45, marginTop: 5 }}>
+          {provider ? `${provider}: ` : ""}{recommendedAction}
+        </div>
+      )}
+      {(requestID || traceID) && (
+        <div style={{ marginTop: 7, display: "flex", flexWrap: "wrap", gap: 8, alignItems: "center" }}>
+          {requestID && (
+            <span style={{ fontFamily: "var(--font-mono)", fontSize: 10, color: "var(--t3)" }}>
+              request <span style={{ color: "var(--t1)" }}>{compactID(requestID, [], 10)}</span>
+            </span>
+          )}
+          {traceID && (
+            <span style={{ fontFamily: "var(--font-mono)", fontSize: 10, color: "var(--t3)" }}>
+              trace <span style={{ color: "var(--t1)" }}>{compactID(traceID, [], 10)}</span>
+            </span>
+          )}
+          {requestID && onOpenTrace && (
+            <button
+              type="button"
+              onClick={() => onOpenTrace(requestID)}
+              style={{
+                border: "1px solid var(--red-border)",
+                background: "transparent",
+                color: "var(--red)",
+                borderRadius: 999,
+                padding: "2px 8px",
+                fontSize: 10,
+                fontFamily: "var(--font-mono)",
+                cursor: "pointer",
+              }}
+            >
+              Open trace
+            </button>
+          )}
+        </div>
+      )}
     </div>
   );
 }

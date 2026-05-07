@@ -1847,15 +1847,23 @@ describe("ChatView error display", () => {
   });
 
   it("renders operator guidance for stable gateway error codes", () => {
+    const openTrace = vi.fn();
     const { state, actions } = setup({
       chatError: "Incorrect API key provided",
+      chatErrorAction: "Rotate the provider key in Settings, then test readiness again.",
       chatErrorCode: "provider_auth_failed",
+      chatErrorRequestID: "req_1234567890abcdef",
       chatErrorStatus: 502,
+      chatErrorTraceID: "trace_abcdef1234567890",
     });
-    render(<ChatView state={state} actions={actions} />);
+    render(<ChatView state={state} actions={actions} onOpenTrace={openTrace} />);
     expect(screen.getByText("Provider credentials failed")).toBeTruthy();
     expect(screen.getByText("502 · provider_auth_failed")).toBeTruthy();
-    expect(screen.getByText(/Update the provider API key/)).toBeTruthy();
+    expect(screen.getByText(/Rotate the provider key in Settings/)).toBeTruthy();
+    expect(screen.getByText("req_123456")).toBeTruthy();
+    expect(screen.getByText("trace_abcd")).toBeTruthy();
+    screen.getByRole("button", { name: "Open trace" }).click();
+    expect(openTrace).toHaveBeenCalledWith("req_1234567890abcdef");
   });
 });
 
