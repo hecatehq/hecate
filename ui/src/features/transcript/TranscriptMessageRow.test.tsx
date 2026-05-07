@@ -159,8 +159,8 @@ describe("TranscriptMessageRow", () => {
     const user = userEvent.setup();
     const activities: AgentChatActivityRecord[] = [
       { type: "tool_call", title: "git_exec (failed)", status: "failed", kind: "git", detail: "git_exec - failed" },
-      { type: "artifact", title: "git-stdout.txt", status: "ready", artifact_id: "artifact_stdout", artifact_size_bytes: 42 },
-      { type: "artifact", title: "git-stderr.txt", status: "ready", artifact_id: "artifact_stderr", artifact_size_bytes: 19 },
+      { type: "artifact", title: "git-stdout.txt", status: "ready", artifact_id: "artifact_stdout", artifact_size_bytes: 42, artifact_preview: "diff --git a/README.md b/README.md\n+hello" },
+      { type: "artifact", title: "git-stderr.txt", status: "ready", artifact_id: "artifact_stderr", artifact_size_bytes: 19, artifact_preview: "fatal: not a git repository" },
       { type: "failed", title: "Run failed", status: "failed", terminal: true },
     ];
 
@@ -174,17 +174,18 @@ describe("TranscriptMessageRow", () => {
 
     await user.click(screen.getByText(/1 failed tool/));
     await user.click(screen.getByText("Advanced"));
-    expect(screen.getByText(/Inspect the related run output/)).toBeInTheDocument();
-    await user.click(screen.getByRole("button", { name: "git-stderr.txt" }));
+    expect(screen.getByText(/Preview the related run output/)).toBeInTheDocument();
+    expect(screen.getByText(/\+hello/)).toBeInTheDocument();
+    expect(screen.getByText("fatal: not a git repository")).toBeInTheDocument();
+    await user.click(screen.getByRole("button", { name: "Open task output" }));
     expect(onOpenTask).toHaveBeenCalledTimes(1);
-    expect(screen.getByRole("button", { name: "git-stdout.txt" })).toBeInTheDocument();
   });
 
   it("does not link empty stderr artifacts from failed tools", async () => {
     const user = userEvent.setup();
     const activities: AgentChatActivityRecord[] = [
       { type: "tool_call", title: "git_exec (failed)", status: "failed", kind: "git", detail: "git_exec - failed" },
-      { type: "artifact", title: "git-stdout.txt", status: "ready", artifact_id: "artifact_stdout", artifact_size_bytes: 42 },
+      { type: "artifact", title: "git-stdout.txt", status: "ready", artifact_id: "artifact_stdout", artifact_size_bytes: 42, artifact_preview: "stdout details" },
       { type: "artifact", title: "git-stderr.txt", status: "ready", artifact_id: "artifact_stderr", artifact_size_bytes: 0 },
     ];
 
@@ -198,8 +199,8 @@ describe("TranscriptMessageRow", () => {
 
     await user.click(screen.getByText(/1 failed tool/));
     await user.click(screen.getByText("Advanced"));
-    expect(screen.getByRole("button", { name: "git-stdout.txt" })).toBeInTheDocument();
-    expect(screen.queryByRole("button", { name: "git-stderr.txt" })).toBeNull();
+    expect(screen.getByText("stdout details")).toBeInTheDocument();
+    expect(screen.queryByText("Preview unavailable in this snapshot.")).toBeNull();
   });
 
   it("renders the diff review section when diff metadata is present", () => {

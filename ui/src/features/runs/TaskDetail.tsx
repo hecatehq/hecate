@@ -944,6 +944,7 @@ function taskActivityToTranscriptActivity(item: TaskActivityRecord): AgentChatAc
     created_at: item.occurred_at,
     artifact_id: item.artifact_id,
     artifact_size_bytes: taskActivityArtifactSize(item),
+    artifact_preview: taskActivityArtifactPreview(item),
     approval_id: item.approval_id,
     needs_action: item.needs_action,
     terminal: item.terminal,
@@ -953,6 +954,11 @@ function taskActivityToTranscriptActivity(item: TaskActivityRecord): AgentChatAc
 function taskActivityArtifactSize(item: TaskActivityRecord): number | undefined {
   const value = item.summary?.size_bytes;
   return typeof value === "number" ? value : undefined;
+}
+
+function taskActivityArtifactPreview(item: TaskActivityRecord): string | undefined {
+  const value = item.summary?.content_preview;
+  return typeof value === "string" && value.trim() ? value : undefined;
 }
 
 function taskActivityTitle(item: TaskActivityRecord): string {
