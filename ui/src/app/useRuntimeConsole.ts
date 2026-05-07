@@ -598,6 +598,7 @@ export function useRuntimeConsole() {
       setActiveChatSessionID(snapshot.activeChatSessionID);
       setActiveChatSession(snapshot.activeChatSession);
       setAgentChatSessions(snapshot.agentChatSessions);
+      pruneQueuedChatMessagesForSessions(snapshot.agentChatSessions.map((session) => session.id));
       setActiveAgentChatSessionID(snapshot.activeAgentChatSessionID);
       setActiveAgentChatSession(snapshot.activeAgentChatSession);
       setRequestLedger(snapshot.requestLedger);
@@ -652,6 +653,11 @@ export function useRuntimeConsole() {
 
   function removeQueuedChatMessage(id: string) {
     setQueuedChatMessages((current) => current.filter((item) => item.id !== id));
+  }
+
+  function pruneQueuedChatMessagesForSessions(sessionIDs: Iterable<string>) {
+    const valid = new Set(sessionIDs);
+    setQueuedChatMessages((current) => current.filter((item) => valid.has(item.session_id)));
   }
 
   function buildQueuedChatMessage(content: string, runtimeKind: ChatTarget, sessionID: string): QueuedChatMessage {
@@ -1431,6 +1437,9 @@ export function useRuntimeConsole() {
   }
 
   function startNewChat() {
+    if (activeAgentChatSessionID) {
+      setQueuedChatMessages((current) => current.filter((item) => item.session_id !== activeAgentChatSessionID));
+    }
     setActiveAgentChatSessionID("");
     setActiveAgentChatSession(null);
     setAgentWorkspaceBranch("");
@@ -1446,6 +1455,7 @@ export function useRuntimeConsole() {
     try {
       await deleteAgentChatSessionRequest(id);
       setAgentChatSessions((current) => current.filter((s) => s.id !== id));
+      setQueuedChatMessages((current) => current.filter((item) => item.session_id !== id));
       setChatTargetBySessionID((current) => {
         if (!current.has(id)) return current;
         const next = new Map(current);
