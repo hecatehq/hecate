@@ -21,7 +21,7 @@ a scoped duration, surface what's been granted."
 
 Implementation gates:
 
-- Wire shape on `/v1/agent-chat/sessions/{id}/approvals` is finalized for
+- Wire shape on `/hecate/v1/agent-chat/sessions/{id}/approvals` is finalized for
   alpha. _(Status: implemented)_
 - Persisted decision scopes (session / adapter+tool / workspace+tool) are
   agreed and have memory + sqlite schemas. _(Status: implemented)_
@@ -190,7 +190,7 @@ Hecate replies to the adapter with an ACP `Cancelled` outcome.
 The 5-minute default matches operator-attention reality — long enough for a
 context switch, short enough that an abandoned session doesn't hold an adapter
 process forever. Configurable per session via a future
-`POST /v1/agent-chat/sessions/{id}` field; v1 keeps it global.
+`POST /hecate/v1/agent-chat/sessions/{id}` field; v1 keeps it global.
 
 When `mode=prompt` and timeout fires, the resulting cancellation is the
 operator's signal: the chat shows "Approval timed out — adapter cancelled
@@ -206,8 +206,8 @@ controls around it.
 ### Pending list
 
 ```
-GET /v1/agent-chat/sessions/{id}/approvals
-GET /v1/agent-chat/sessions/{id}/approvals?status=pending
+GET /hecate/v1/agent-chat/sessions/{id}/approvals
+GET /hecate/v1/agent-chat/sessions/{id}/approvals?status=pending
 ```
 
 Returns approvals for the session. Filterable by `status`. Default sort:
@@ -243,13 +243,13 @@ oldest pending first.
 ### Single approval
 
 ```
-GET /v1/agent-chat/sessions/{id}/approvals/{approval_id}
+GET /hecate/v1/agent-chat/sessions/{id}/approvals/{approval_id}
 ```
 
 ### Resolve
 
 ```
-POST /v1/agent-chat/sessions/{id}/approvals/{approval_id}/resolve
+POST /hecate/v1/agent-chat/sessions/{id}/approvals/{approval_id}/resolve
 {
   "decision": "approve",          // "approve" | "deny"
   "scope":    "session",          // "once" | "session" | "workspace_tool" | "adapter_tool"
@@ -269,7 +269,7 @@ falls back to the ACP `Cancelled` outcome.
 ### Cancel (operator-initiated)
 
 ```
-POST /v1/agent-chat/sessions/{id}/approvals/{approval_id}/cancel
+POST /hecate/v1/agent-chat/sessions/{id}/approvals/{approval_id}/cancel
 ```
 
 Operator-driven cancellation that resolves to ACP `Cancelled`. Different from
@@ -279,8 +279,8 @@ the adapter to "back off and ask again later."
 ### List grants
 
 ```
-GET /v1/agent-chat/grants?adapter_id=codex&scope=adapter_tool
-DELETE /v1/agent-chat/grants/{grant_id}
+GET /hecate/v1/agent-chat/grants?adapter_id=codex&scope=adapter_tool
+DELETE /hecate/v1/agent-chat/grants/{grant_id}
 ```
 
 So the operator can see and revoke "always allow" decisions they made earlier.
@@ -292,7 +292,7 @@ the existing approvals already record the audit trail).
 Pending approvals surface on the existing chat SSE stream:
 
 ```
-GET /v1/agent-chat/sessions/{id}/stream
+GET /hecate/v1/agent-chat/sessions/{id}/stream
 ```
 
 emits a new event type:

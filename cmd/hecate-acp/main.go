@@ -492,7 +492,7 @@ func (c *gatewayHTTPClient) CreateAgentLoopTask(ctx context.Context, request acp
 			ID string `json:"id"`
 		} `json:"data"`
 	}
-	if err := c.doJSON(ctx, http.MethodPost, "/v1/tasks", body, &created); err != nil {
+	if err := c.doJSON(ctx, http.MethodPost, "/hecate/v1/tasks", body, &created); err != nil {
 		return acp.CreateTaskResult{}, err
 	}
 	if created.Data.ID == "" {
@@ -503,7 +503,7 @@ func (c *gatewayHTTPClient) CreateAgentLoopTask(ctx context.Context, request acp
 			ID string `json:"id"`
 		} `json:"data"`
 	}
-	if err := c.doJSON(ctx, http.MethodPost, "/v1/tasks/"+url.PathEscape(created.Data.ID)+"/start", map[string]any{}, &started); err != nil {
+	if err := c.doJSON(ctx, http.MethodPost, "/hecate/v1/tasks/"+url.PathEscape(created.Data.ID)+"/start", map[string]any{}, &started); err != nil {
 		return acp.CreateTaskResult{}, err
 	}
 	if started.Data.ID == "" {
@@ -518,7 +518,7 @@ func (c *gatewayHTTPClient) ContinueAgentLoopTask(ctx context.Context, taskID, r
 			ID string `json:"id"`
 		} `json:"data"`
 	}
-	path := "/v1/tasks/" + url.PathEscape(taskID) + "/runs/" + url.PathEscape(runID) + "/continue"
+	path := "/hecate/v1/tasks/" + url.PathEscape(taskID) + "/runs/" + url.PathEscape(runID) + "/continue"
 	if err := c.doJSON(ctx, http.MethodPost, path, map[string]any{"prompt": prompt}, &continued); err != nil {
 		return "", err
 	}
@@ -530,7 +530,7 @@ func (c *gatewayHTTPClient) ContinueAgentLoopTask(ctx context.Context, taskID, r
 
 func (c *gatewayHTTPClient) CancelRun(ctx context.Context, taskID, runID, reason string) error {
 	var ignored map[string]any
-	return c.doJSON(ctx, http.MethodPost, "/v1/tasks/"+url.PathEscape(taskID)+"/runs/"+url.PathEscape(runID)+"/cancel", map[string]any{"reason": reason}, &ignored)
+	return c.doJSON(ctx, http.MethodPost, "/hecate/v1/tasks/"+url.PathEscape(taskID)+"/runs/"+url.PathEscape(runID)+"/cancel", map[string]any{"reason": reason}, &ignored)
 }
 
 func (c *gatewayHTTPClient) ResolveApproval(ctx context.Context, taskID, _ string, approvalID string, decision acp.ApprovalDecision) error {
@@ -539,12 +539,12 @@ func (c *gatewayHTTPClient) ResolveApproval(ctx context.Context, taskID, _ strin
 		wireDecision = "approve"
 	}
 	var ignored map[string]any
-	path := "/v1/tasks/" + url.PathEscape(taskID) + "/approvals/" + url.PathEscape(approvalID) + "/resolve"
+	path := "/hecate/v1/tasks/" + url.PathEscape(taskID) + "/approvals/" + url.PathEscape(approvalID) + "/resolve"
 	return c.doJSON(ctx, http.MethodPost, path, map[string]any{"decision": wireDecision}, &ignored)
 }
 
 func (c *gatewayHTTPClient) StreamRunEvents(ctx context.Context, taskID, runID string) (<-chan acp.RunEvent, error) {
-	requestPath := "/v1/tasks/" + url.PathEscape(taskID) + "/runs/" + url.PathEscape(runID) + "/stream"
+	requestPath := "/hecate/v1/tasks/" + url.PathEscape(taskID) + "/runs/" + url.PathEscape(runID) + "/stream"
 	ctx, span := startGatewaySpan(ctx, http.MethodGet, requestPath)
 	defer span.End()
 	req, err := http.NewRequestWithContext(ctx, http.MethodGet, c.baseURL+requestPath, nil)

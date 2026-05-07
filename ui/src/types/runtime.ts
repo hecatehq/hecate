@@ -87,7 +87,7 @@ export type PersistedContentBlock = {
 };
 
 // ChatSessionMessageRecord is one entry in a session's flat message
-// stream as returned by GET /v1/chat/sessions/{id}. The role/content/
+// stream as returned by GET /hecate/v1/chat/sessions/{id}. The role/content/
 // tool_calls/content_blocks fields are flattened onto the same object
 // (the gateway side embeds OpenAIChatMessage inside ChatSessionMessageItem).
 export type ChatSessionMessageRecord = {
@@ -421,7 +421,7 @@ export type AgentChatApprovalOption = {
 };
 
 // AgentChatApprovalRecord is the full row returned by GET
-// /v1/agent-chat/sessions/{id}/approvals[/{approval_id}]. The
+// /hecate/v1/agent-chat/sessions/{id}/approvals[/{approval_id}]. The
 // renderAgentApproval function on the backend is the source of truth
 // for field names and optionality.
 export type AgentChatApprovalRecord = {
@@ -457,7 +457,7 @@ export type AgentChatApprovalResponse = {
 };
 
 // AgentChatGrantRecord is the wire shape for an "always allow / always
-// deny" grant. Returned by GET /v1/agent-chat/grants.
+// deny" grant. Returned by GET /hecate/v1/agent-chat/grants.
 export type AgentChatGrantRecord = {
   id: string;
   scope: string;
@@ -478,7 +478,7 @@ export type AgentChatGrantsResponse = {
 
 // AgentChatApprovalRequestedEvent is the SSE payload published when a
 // new approval is recorded. Minimal — the full row is reachable via
-// GET /v1/agent-chat/sessions/{id}/approvals/{approval_id}.
+// GET /hecate/v1/agent-chat/sessions/{id}/approvals/{approval_id}.
 //
 // Mirror of api.AgentChatApprovalRequestedEvent (Go).
 export type AgentChatApprovalRequestedEvent = {
@@ -525,7 +525,7 @@ export type AgentChatStreamEvent =
 export type PendingAgentApproval = AgentChatApprovalRequestedEvent;
 
 // AgentAdapterHealthRecord mirrors agentadapters.ProbeResult. Returned
-// by GET /v1/agent-adapters/{id}/health. The status string is one of
+// by GET /hecate/v1/agent-adapters/{id}/health. The status string is one of
 // "ready" | "not_installed" | "auth_required" | "error"; the UI uses
 // it to colour status chips (green / amber / red / red) and to drive
 // the adapter status panel in Settings → External agents.
@@ -1236,7 +1236,7 @@ export type RuntimeHeaders = {
 export type ModelFilter = "all" | "local" | "cloud";
 export type ProviderFilter = "auto" | string;
 
-// MCPCacheStatsResponse is the wire shape for GET /admin/mcp/cache.
+// MCPCacheStatsResponse is the wire shape for GET /hecate/v1/system/mcp/cache.
 // `configured: false` means no cache is wired; the counters still
 // render as zeros so the UI can show a "no cache" cell instead of
 // error-handling a 4xx. See docs/mcp.md "Lifecycle and caching"

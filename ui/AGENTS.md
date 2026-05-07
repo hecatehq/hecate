@@ -49,5 +49,5 @@ Claude Code shortcut: `/test-affected` from the repo root when Go packages are t
 
 - [`../docs/architecture.md`](../docs/architecture.md) — request flow, what the UI is observing.
 - [`../docs/runtime-api.md`](../docs/runtime-api.md) — task / run / approval endpoints the UI calls.
-- [`../docs/events.md`](../docs/events.md) — every `/v1/events` event type with payload shapes.
+- [`../docs/events.md`](../docs/events.md) — every `/hecate/v1/events` event type with payload shapes.
 - [`../docs/development.md`](../docs/development.md) — UI hot reload, screenshot tooling.

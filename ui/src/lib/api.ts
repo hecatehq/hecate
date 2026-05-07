@@ -60,6 +60,8 @@ type ErrorPayload = {
   };
 };
 
+const HECATE_API = "/hecate/v1";
+
 // PersistedContentBlock mirrors internal/api.OpenAIPersistedContentBlock.
 // Used on history-replay paths so Anthropic thinking / redacted_thinking /
 // tool_use / cache_control survive the round-trip.
@@ -199,7 +201,7 @@ export async function getHealth(): Promise<HealthResponse> {
 }
 
 export async function getSession(): Promise<SessionResponse> {
-  return fetchJSON<SessionResponse>("/v1/whoami");
+  return fetchJSON<SessionResponse>(`${HECATE_API}/whoami`);
 }
 
 export async function getModels(): Promise<ModelResponse> {
@@ -209,7 +211,7 @@ export async function getModels(): Promise<ModelResponse> {
 export async function upsertModelCapabilityOverride(
   payload: ModelCapabilityUpsertPayload,
 ): Promise<ModelCapabilityResponse> {
-  return fetchJSON<ModelCapabilityResponse>("/v1/model-capabilities/overrides", {
+  return fetchJSON<ModelCapabilityResponse>(`${HECATE_API}/model-capabilities/overrides`, {
     method: "PUT",
     body: payload,
   });
@@ -217,7 +219,7 @@ export async function upsertModelCapabilityOverride(
 
 export async function deleteModelCapabilityOverride(provider: string, model: string): Promise<void> {
   const params = new URLSearchParams({ provider, model });
-  await fetchJSON<unknown>(`/v1/model-capabilities/overrides?${params.toString()}`, {
+  await fetchJSON<unknown>(`${HECATE_API}/model-capabilities/overrides?${params.toString()}`, {
     method: "DELETE",
   });
 }
@@ -225,34 +227,34 @@ export async function deleteModelCapabilityOverride(provider: string, model: str
 export async function recordModelCapabilityProbe(
   payload: ModelCapabilityUpsertPayload,
 ): Promise<ModelCapabilityResponse> {
-  return fetchJSON<ModelCapabilityResponse>("/v1/model-capabilities/probes", {
+  return fetchJSON<ModelCapabilityResponse>(`${HECATE_API}/model-capabilities/probes`, {
     method: "POST",
     body: payload,
   });
 }
 
 export async function getProviders(): Promise<ProviderStatusResponse> {
-  return fetchJSON<ProviderStatusResponse>("/admin/providers");
+  return fetchJSON<ProviderStatusResponse>(`${HECATE_API}/providers/status`);
 }
 
 export async function getRuntimeStats(): Promise<RuntimeStatsResponse> {
-  return fetchJSON<RuntimeStatsResponse>("/admin/runtime/stats");
+  return fetchJSON<RuntimeStatsResponse>(`${HECATE_API}/system/stats`);
 }
 
 export async function getMCPCacheStats(): Promise<MCPCacheStatsResponse> {
-  return fetchJSON<MCPCacheStatsResponse>("/admin/mcp/cache");
+  return fetchJSON<MCPCacheStatsResponse>(`${HECATE_API}/system/mcp/cache`);
 }
 
 export async function getProviderPresets(): Promise<ProviderPresetResponse> {
-  return fetchJSON<ProviderPresetResponse>("/v1/provider-presets");
+  return fetchJSON<ProviderPresetResponse>(`${HECATE_API}/providers/presets`);
 }
 
 export async function discoverLocalProviders(): Promise<LocalProviderDiscoveryResponse> {
-  return fetchJSON<LocalProviderDiscoveryResponse>("/admin/control-plane/providers/local-discovery");
+  return fetchJSON<LocalProviderDiscoveryResponse>(`${HECATE_API}/settings/providers/local-discovery`);
 }
 
 export async function getAgentAdapters(): Promise<AgentAdapterResponse> {
-  return fetchJSON<AgentAdapterResponse>("/v1/agent-adapters");
+  return fetchJSON<AgentAdapterResponse>(`${HECATE_API}/agent-adapters`);
 }
 
 // probeAgentAdapter re-runs discovery for one adapter and performs the
@@ -260,96 +262,96 @@ export async function getAgentAdapters(): Promise<AgentAdapterResponse> {
 // and the deeper handshake result so Settings can update in place.
 export async function probeAgentAdapter(adapterID: string): Promise<AgentAdapterProbeResponse> {
   return fetchJSON<AgentAdapterProbeResponse>(
-    `/v1/agent-adapters/${encodeURIComponent(adapterID)}/probe`,
+    `${HECATE_API}/agent-adapters/${encodeURIComponent(adapterID)}/probe`,
     { method: "POST" },
   );
 }
 
 export async function refreshAgentAdapterLauncher(adapterID: string): Promise<AgentAdapterResponse> {
   return fetchJSON<AgentAdapterResponse>(
-    `/v1/agent-adapters/${encodeURIComponent(adapterID)}/refresh-launcher`,
+    `${HECATE_API}/agent-adapters/${encodeURIComponent(adapterID)}/refresh-launcher`,
     { method: "POST" },
   );
 }
 
 export async function getTrace(requestID: string): Promise<TraceResponse> {
-  return fetchJSON<TraceResponse>(`/v1/traces?request_id=${encodeURIComponent(requestID)}`);
+  return fetchJSON<TraceResponse>(`${HECATE_API}/traces?request_id=${encodeURIComponent(requestID)}`);
 }
 
 export async function getRecentTraces(limit = 50): Promise<TraceListResponse> {
-  return fetchJSON<TraceListResponse>(`/admin/traces?limit=${encodeURIComponent(String(limit))}`);
+  return fetchJSON<TraceListResponse>(`${HECATE_API}/traces?limit=${encodeURIComponent(String(limit))}`);
 }
 
 export async function getBudget(query = ""): Promise<BudgetStatusResponse> {
-  return fetchJSON<BudgetStatusResponse>(`/admin/budget${query}`);
+  return fetchJSON<BudgetStatusResponse>(`${HECATE_API}/costs/budget${query}`);
 }
 
 export async function getAccountSummary(query = ""): Promise<AccountSummaryResponse> {
-  return fetchJSON<AccountSummaryResponse>(`/admin/accounts/summary${query}`);
+  return fetchJSON<AccountSummaryResponse>(`${HECATE_API}/costs/summary${query}`);
 }
 
 export async function getChatSessions(limit = 20, offset = 0): Promise<ChatSessionsResponse> {
   const params = new URLSearchParams({ limit: String(limit) });
   if (offset > 0) params.set("offset", String(offset));
-  return fetchJSON<ChatSessionsResponse>(`/v1/chat/sessions?${params.toString()}`);
+  return fetchJSON<ChatSessionsResponse>(`${HECATE_API}/chat/sessions?${params.toString()}`);
 }
 
 export async function createChatSession(payload: CreateChatSessionPayload): Promise<ChatSessionResponse> {
-  return fetchJSON<ChatSessionResponse>("/v1/chat/sessions", { method: "POST", body: payload });
+  return fetchJSON<ChatSessionResponse>(`${HECATE_API}/chat/sessions`, { method: "POST", body: payload });
 }
 
 export async function getChatSession(id: string): Promise<ChatSessionResponse> {
-  return fetchJSON<ChatSessionResponse>(`/v1/chat/sessions/${encodeURIComponent(id)}`);
+  return fetchJSON<ChatSessionResponse>(`${HECATE_API}/chat/sessions/${encodeURIComponent(id)}`);
 }
 
 export async function deleteChatSession(id: string): Promise<void> {
-  await fetchJSON<unknown>(`/v1/chat/sessions/${encodeURIComponent(id)}`, { method: "DELETE" });
+  await fetchJSON<unknown>(`${HECATE_API}/chat/sessions/${encodeURIComponent(id)}`, { method: "DELETE" });
 }
 
 export async function updateChatSession(id: string, title: string): Promise<ChatSessionResponse> {
-  return fetchJSON<ChatSessionResponse>(`/v1/chat/sessions/${encodeURIComponent(id)}`, { method: "PATCH", body: { title } });
+  return fetchJSON<ChatSessionResponse>(`${HECATE_API}/chat/sessions/${encodeURIComponent(id)}`, { method: "PATCH", body: { title } });
 }
 
 export async function getAgentChatSessions(): Promise<AgentChatSessionsResponse> {
-  return fetchJSON<AgentChatSessionsResponse>("/v1/agent-chat/sessions");
+  return fetchJSON<AgentChatSessionsResponse>(`${HECATE_API}/agent-chat/sessions`);
 }
 
 export async function createAgentChatSession(payload: CreateAgentChatSessionPayload): Promise<AgentChatSessionResponse> {
-  return fetchJSON<AgentChatSessionResponse>("/v1/agent-chat/sessions", { method: "POST", body: payload });
+  return fetchJSON<AgentChatSessionResponse>(`${HECATE_API}/agent-chat/sessions`, { method: "POST", body: payload });
 }
 
 export async function getAgentChatSession(id: string): Promise<AgentChatSessionResponse> {
-  return fetchJSON<AgentChatSessionResponse>(`/v1/agent-chat/sessions/${encodeURIComponent(id)}`);
+  return fetchJSON<AgentChatSessionResponse>(`${HECATE_API}/agent-chat/sessions/${encodeURIComponent(id)}`);
 }
 
 export async function deleteAgentChatSession(id: string): Promise<void> {
-  await fetchJSON<unknown>(`/v1/agent-chat/sessions/${encodeURIComponent(id)}`, { method: "DELETE" });
+  await fetchJSON<unknown>(`${HECATE_API}/agent-chat/sessions/${encodeURIComponent(id)}`, { method: "DELETE" });
 }
 
 export async function cancelAgentChatSession(id: string): Promise<AgentChatSessionResponse> {
-  return fetchJSON<AgentChatSessionResponse>(`/v1/agent-chat/sessions/${encodeURIComponent(id)}/cancel`, { method: "POST", body: {} });
+  return fetchJSON<AgentChatSessionResponse>(`${HECATE_API}/agent-chat/sessions/${encodeURIComponent(id)}/cancel`, { method: "POST", body: {} });
 }
 
 export async function createAgentChatMessage(id: string, payload: string | CreateAgentChatMessagePayload): Promise<AgentChatSessionResponse> {
   const body = typeof payload === "string" ? { content: payload } : payload;
-  return fetchJSON<AgentChatSessionResponse>(`/v1/agent-chat/sessions/${encodeURIComponent(id)}/messages`, { method: "POST", body });
+  return fetchJSON<AgentChatSessionResponse>(`${HECATE_API}/agent-chat/sessions/${encodeURIComponent(id)}/messages`, { method: "POST", body });
 }
 
 export async function listAgentChatMessageFiles(sessionID: string, messageID: string): Promise<AgentChatChangedFilesResponse> {
   return fetchJSON<AgentChatChangedFilesResponse>(
-    `/v1/agent-chat/sessions/${encodeURIComponent(sessionID)}/messages/${encodeURIComponent(messageID)}/files`,
+    `${HECATE_API}/agent-chat/sessions/${encodeURIComponent(sessionID)}/messages/${encodeURIComponent(messageID)}/files`,
   );
 }
 
 export async function getAgentChatMessageFileDiff(sessionID: string, messageID: string, path: string): Promise<AgentChatChangedFileDiffResponse> {
   return fetchJSON<AgentChatChangedFileDiffResponse>(
-    `/v1/agent-chat/sessions/${encodeURIComponent(sessionID)}/messages/${encodeURIComponent(messageID)}/files/${encodeURIComponent(path)}`,
+    `${HECATE_API}/agent-chat/sessions/${encodeURIComponent(sessionID)}/messages/${encodeURIComponent(messageID)}/files/${encodeURIComponent(path)}`,
   );
 }
 
 export async function revertAgentChatMessageFiles(sessionID: string, messageID: string, paths: string[] = []): Promise<AgentChatRevertResponse> {
   return fetchJSON<AgentChatRevertResponse>(
-    `/v1/agent-chat/sessions/${encodeURIComponent(sessionID)}/messages/${encodeURIComponent(messageID)}/revert`,
+    `${HECATE_API}/agent-chat/sessions/${encodeURIComponent(sessionID)}/messages/${encodeURIComponent(messageID)}/revert`,
     { method: "POST", body: { paths } },
   );
 }
@@ -366,7 +368,7 @@ export async function streamAgentChatSession(
   signal?: AbortSignal,
 ): Promise<void> {
   const response = await fetchWithNetworkError(
-    `/v1/agent-chat/sessions/${encodeURIComponent(id)}/stream`,
+    `${HECATE_API}/agent-chat/sessions/${encodeURIComponent(id)}/stream`,
     { ...buildRequestOptions({}), signal },
   );
   if (!response.ok) {
@@ -465,7 +467,7 @@ export async function listAgentChatApprovals(
 ): Promise<AgentChatApprovalsResponse> {
   const qs = status ? `?status=${encodeURIComponent(status)}` : "";
   return fetchJSON<AgentChatApprovalsResponse>(
-    `/v1/agent-chat/sessions/${encodeURIComponent(sessionID)}/approvals${qs}`,
+    `${HECATE_API}/agent-chat/sessions/${encodeURIComponent(sessionID)}/approvals${qs}`,
   );
 }
 
@@ -474,7 +476,7 @@ export async function getAgentChatApproval(
   approvalID: string,
 ): Promise<AgentChatApprovalResponse> {
   return fetchJSON<AgentChatApprovalResponse>(
-    `/v1/agent-chat/sessions/${encodeURIComponent(sessionID)}/approvals/${encodeURIComponent(approvalID)}`,
+    `${HECATE_API}/agent-chat/sessions/${encodeURIComponent(sessionID)}/approvals/${encodeURIComponent(approvalID)}`,
   );
 }
 
@@ -491,7 +493,7 @@ export async function resolveAgentChatApproval(
   payload: ResolveAgentChatApprovalPayload,
 ): Promise<AgentChatApprovalResponse> {
   return fetchJSON<AgentChatApprovalResponse>(
-    `/v1/agent-chat/sessions/${encodeURIComponent(sessionID)}/approvals/${encodeURIComponent(approvalID)}/resolve`,
+    `${HECATE_API}/agent-chat/sessions/${encodeURIComponent(sessionID)}/approvals/${encodeURIComponent(approvalID)}/resolve`,
     { method: "POST", body: payload },
   );
 }
@@ -501,7 +503,7 @@ export async function cancelAgentChatApproval(
   approvalID: string,
 ): Promise<AgentChatApprovalResponse> {
   return fetchJSON<AgentChatApprovalResponse>(
-    `/v1/agent-chat/sessions/${encodeURIComponent(sessionID)}/approvals/${encodeURIComponent(approvalID)}/cancel`,
+    `${HECATE_API}/agent-chat/sessions/${encodeURIComponent(sessionID)}/approvals/${encodeURIComponent(approvalID)}/cancel`,
     { method: "POST", body: {} },
   );
 }
@@ -520,43 +522,43 @@ export async function listAgentChatGrants(
   if (filter.scope) params.set("scope", filter.scope);
   if (filter.tool_kind) params.set("tool_kind", filter.tool_kind);
   const qs = params.toString();
-  return fetchJSON<AgentChatGrantsResponse>(`/v1/agent-chat/grants${qs ? `?${qs}` : ""}`);
+  return fetchJSON<AgentChatGrantsResponse>(`${HECATE_API}/agent-chat/grants${qs ? `?${qs}` : ""}`);
 }
 
 export async function deleteAgentChatGrant(grantID: string): Promise<void> {
-  await fetchJSON<unknown>(`/v1/agent-chat/grants/${encodeURIComponent(grantID)}`, { method: "DELETE" });
+  await fetchJSON<unknown>(`${HECATE_API}/agent-chat/grants/${encodeURIComponent(grantID)}`, { method: "DELETE" });
 }
 
 export async function chooseWorkspaceDirectory(): Promise<WorkspaceDialogResponse> {
-  return fetchJSON<WorkspaceDialogResponse>("/v1/workspace-dialog", { method: "POST", body: {} });
+  return fetchJSON<WorkspaceDialogResponse>(`${HECATE_API}/workspace-dialog`, { method: "POST", body: {} });
 }
 
 export async function getRequestLedger(limit = 20): Promise<RequestLedgerResponse> {
-  return fetchJSON<RequestLedgerResponse>(`/admin/requests?limit=${encodeURIComponent(String(limit))}`);
+  return fetchJSON<RequestLedgerResponse>(`${HECATE_API}/observability/requests?limit=${encodeURIComponent(String(limit))}`);
 }
 
 export async function resetBudget(payload: Record<string, unknown>): Promise<BudgetStatusResponse> {
-  return fetchJSON<BudgetStatusResponse>("/admin/budget/reset", { method: "POST", body: payload });
+  return fetchJSON<BudgetStatusResponse>(`${HECATE_API}/costs/budget/reset`, { method: "POST", body: payload });
 }
 
 export async function topUpBudget(payload: Record<string, unknown>): Promise<BudgetStatusResponse> {
-  return fetchJSON<BudgetStatusResponse>("/admin/budget/topup", { method: "POST", body: payload });
+  return fetchJSON<BudgetStatusResponse>(`${HECATE_API}/costs/budget/topup`, { method: "POST", body: payload });
 }
 
 export async function setBudgetLimit(payload: Record<string, unknown>): Promise<BudgetStatusResponse> {
-  return fetchJSON<BudgetStatusResponse>("/admin/budget/limit", { method: "POST", body: payload });
+  return fetchJSON<BudgetStatusResponse>(`${HECATE_API}/costs/budget/limit`, { method: "POST", body: payload });
 }
 
 export async function getControlPlaneConfig(): Promise<ConfiguredStateResponse> {
-  return fetchJSON<ConfiguredStateResponse>("/admin/control-plane");
+  return fetchJSON<ConfiguredStateResponse>(`${HECATE_API}/settings`);
 }
 
 export async function upsertPolicyRule(payload: PolicyRuleUpsertPayload): Promise<unknown> {
-  return fetchJSON("/admin/control-plane/policy-rules", { method: "POST", body: payload });
+  return fetchJSON(`${HECATE_API}/settings/policy-rules`, { method: "POST", body: payload });
 }
 
 export async function deletePolicyRule(id: string): Promise<unknown> {
-  return fetchJSON("/admin/control-plane/policy-rules/delete", { method: "POST", body: { id } });
+  return fetchJSON(`${HECATE_API}/settings/policy-rules/${encodeURIComponent(id)}`, { method: "DELETE" });
 }
 
 // updateProvider applies a partial update to an existing provider record.
@@ -569,38 +571,41 @@ export async function updateProvider(
   id: string,
   patch: { base_url?: string; name?: string; custom_name?: string }
 ): Promise<unknown> {
-  return fetchJSON(`/admin/control-plane/providers/${encodeURIComponent(id)}`, { method: "PATCH", body: patch });
+  return fetchJSON(`${HECATE_API}/settings/providers/${encodeURIComponent(id)}`, { method: "PATCH", body: patch });
 }
 
 export async function upsertPricebookEntry(entry: PricebookEntryUpsertPayload): Promise<unknown> {
-  return fetchJSON("/admin/control-plane/pricebook", { method: "POST", body: entry });
+  return fetchJSON(`${HECATE_API}/settings/pricebook`, { method: "POST", body: entry });
 }
 
 export async function deletePricebookEntry(provider: string, model: string): Promise<unknown> {
-  return fetchJSON("/admin/control-plane/pricebook/delete", { method: "POST", body: { provider, model } });
+  return fetchJSON(
+    `${HECATE_API}/settings/pricebook/${encodeURIComponent(provider)}/${encodeURIComponent(model)}`,
+    { method: "DELETE" },
+  );
 }
 
 export async function previewPricebookImport(): Promise<PricebookImportDiffResponse> {
-  return fetchJSON<PricebookImportDiffResponse>("/admin/control-plane/pricebook/import/preview", { method: "POST", body: {} });
+  return fetchJSON<PricebookImportDiffResponse>(`${HECATE_API}/settings/pricebook/import/preview`, { method: "POST", body: {} });
 }
 
 export async function applyPricebookImport(keys: string[]): Promise<PricebookImportDiffResponse> {
-  return fetchJSON<PricebookImportDiffResponse>("/admin/control-plane/pricebook/import/apply", { method: "POST", body: { keys } });
+  return fetchJSON<PricebookImportDiffResponse>(`${HECATE_API}/settings/pricebook/import/apply`, { method: "POST", body: { keys } });
 }
 
 // setProviderAPIKey sets the provider's API key. An empty `key` clears it.
 export async function setProviderAPIKey(id: string, key: string): Promise<unknown> {
-  return fetchJSON(`/admin/control-plane/providers/${encodeURIComponent(id)}/api-key`, { method: "PUT", body: { key } });
+  return fetchJSON(`${HECATE_API}/settings/providers/${encodeURIComponent(id)}/api-key`, { method: "PUT", body: { key } });
 }
 
 export async function createProvider(
   params: { name: string; preset_id?: string; custom_name?: string; base_url?: string; api_key?: string; kind: string; protocol: string }
 ): Promise<unknown> {
-  return fetchJSON("/admin/control-plane/providers", { method: "POST", body: params });
+  return fetchJSON(`${HECATE_API}/settings/providers`, { method: "POST", body: params });
 }
 
 export async function deleteProvider(id: string): Promise<unknown> {
-  return fetchJSON(`/admin/control-plane/providers/${encodeURIComponent(id)}`, { method: "DELETE" });
+  return fetchJSON(`${HECATE_API}/settings/providers/${encodeURIComponent(id)}`, { method: "DELETE" });
 }
 
 // setProviderBaseURL is a thin wrapper around updateProvider for the
@@ -628,82 +633,82 @@ export async function setProviderCustomName(id: string, customName: string): Pro
 // custom_name lifts the slug off the colliding default.
 
 export async function runRetention(payload: RetentionRunPayload): Promise<RetentionRunResponse> {
-  return fetchJSON<RetentionRunResponse>("/admin/retention/run", { method: "POST", body: payload });
+  return fetchJSON<RetentionRunResponse>(`${HECATE_API}/system/retention/run`, { method: "POST", body: payload });
 }
 
 export async function getRetentionRuns(limit = 10): Promise<RetentionRunsResponse> {
-  return fetchJSON<RetentionRunsResponse>(`/admin/retention/runs?limit=${encodeURIComponent(String(limit))}`);
+  return fetchJSON<RetentionRunsResponse>(`${HECATE_API}/system/retention/runs?limit=${encodeURIComponent(String(limit))}`);
 }
 
 export async function getTasks(limit = 20): Promise<TasksResponse> {
-  return fetchJSON<TasksResponse>(`/v1/tasks?limit=${encodeURIComponent(String(limit))}`);
+  return fetchJSON<TasksResponse>(`${HECATE_API}/tasks?limit=${encodeURIComponent(String(limit))}`);
 }
 
 export async function createTask(payload: CreateTaskPayload): Promise<TaskResponse> {
-  return fetchJSON<TaskResponse>("/v1/tasks", { method: "POST", body: payload });
+  return fetchJSON<TaskResponse>(`${HECATE_API}/tasks`, { method: "POST", body: payload });
 }
 
 export async function getTask(taskID: string): Promise<TaskResponse> {
-  return fetchJSON<TaskResponse>(`/v1/tasks/${encodeURIComponent(taskID)}`);
+  return fetchJSON<TaskResponse>(`${HECATE_API}/tasks/${encodeURIComponent(taskID)}`);
 }
 
 export async function getTaskRuns(taskID: string): Promise<TaskRunsResponse> {
-  return fetchJSON<TaskRunsResponse>(`/v1/tasks/${encodeURIComponent(taskID)}/runs`);
+  return fetchJSON<TaskRunsResponse>(`${HECATE_API}/tasks/${encodeURIComponent(taskID)}/runs`);
 }
 
 export async function deleteTask(taskID: string): Promise<void> {
-  await fetchJSON(`/v1/tasks/${encodeURIComponent(taskID)}`, { method: "DELETE" });
+  await fetchJSON(`${HECATE_API}/tasks/${encodeURIComponent(taskID)}`, { method: "DELETE" });
 }
 
 export async function startTask(taskID: string): Promise<TaskRunResponse> {
-  return fetchJSON<TaskRunResponse>(`/v1/tasks/${encodeURIComponent(taskID)}/start`, { method: "POST" });
+  return fetchJSON<TaskRunResponse>(`${HECATE_API}/tasks/${encodeURIComponent(taskID)}/start`, { method: "POST" });
 }
 
 export async function getTaskApprovals(taskID: string): Promise<TaskApprovalsResponse> {
-  return fetchJSON<TaskApprovalsResponse>(`/v1/tasks/${encodeURIComponent(taskID)}/approvals`);
+  return fetchJSON<TaskApprovalsResponse>(`${HECATE_API}/tasks/${encodeURIComponent(taskID)}/approvals`);
 }
 
 export async function getTaskRunSteps(taskID: string, runID: string): Promise<TaskStepsResponse> {
-  return fetchJSON<TaskStepsResponse>(`/v1/tasks/${encodeURIComponent(taskID)}/runs/${encodeURIComponent(runID)}/steps`);
+  return fetchJSON<TaskStepsResponse>(`${HECATE_API}/tasks/${encodeURIComponent(taskID)}/runs/${encodeURIComponent(runID)}/steps`);
 }
 
 export async function getTaskRunArtifacts(taskID: string, runID: string): Promise<TaskArtifactsResponse> {
-  return fetchJSON<TaskArtifactsResponse>(`/v1/tasks/${encodeURIComponent(taskID)}/runs/${encodeURIComponent(runID)}/artifacts`);
+  return fetchJSON<TaskArtifactsResponse>(`${HECATE_API}/tasks/${encodeURIComponent(taskID)}/runs/${encodeURIComponent(runID)}/artifacts`);
 }
 
 export async function applyTaskRunPatch(taskID: string, runID: string, artifactID: string): Promise<TaskPatchResponse> {
-  return fetchJSON<TaskPatchResponse>(`/v1/tasks/${encodeURIComponent(taskID)}/runs/${encodeURIComponent(runID)}/patches/${encodeURIComponent(artifactID)}/apply`, { method: "POST" });
+  return fetchJSON<TaskPatchResponse>(`${HECATE_API}/tasks/${encodeURIComponent(taskID)}/runs/${encodeURIComponent(runID)}/patches/${encodeURIComponent(artifactID)}/apply`, { method: "POST" });
 }
 
 export async function revertTaskRunPatch(taskID: string, runID: string, artifactID: string): Promise<TaskPatchResponse> {
-  return fetchJSON<TaskPatchResponse>(`/v1/tasks/${encodeURIComponent(taskID)}/runs/${encodeURIComponent(runID)}/patches/${encodeURIComponent(artifactID)}/revert`, { method: "POST" });
+  return fetchJSON<TaskPatchResponse>(`${HECATE_API}/tasks/${encodeURIComponent(taskID)}/runs/${encodeURIComponent(runID)}/patches/${encodeURIComponent(artifactID)}/revert`, { method: "POST" });
 }
 
 export async function getTaskRunEvents(taskID: string, runID: string, afterSequence = 0): Promise<TaskRunEventsResponse> {
   return fetchJSON<TaskRunEventsResponse>(
-    `/v1/tasks/${encodeURIComponent(taskID)}/runs/${encodeURIComponent(runID)}/events?after_sequence=${encodeURIComponent(String(afterSequence))}`,
+    `${HECATE_API}/tasks/${encodeURIComponent(taskID)}/runs/${encodeURIComponent(runID)}/events?after_sequence=${encodeURIComponent(String(afterSequence))}`,
   );
 }
 
 export async function resolveTaskApproval(taskID: string, approvalID: string, payload: ResolveTaskApprovalPayload): Promise<void> {
-  await fetchJSON(`/v1/tasks/${encodeURIComponent(taskID)}/approvals/${encodeURIComponent(approvalID)}/resolve`, { method: "POST",
+  await fetchJSON(`${HECATE_API}/tasks/${encodeURIComponent(taskID)}/approvals/${encodeURIComponent(approvalID)}/resolve`, { method: "POST",
     body: payload,
   });
 }
 
 export async function cancelTaskRun(taskID: string, runID: string): Promise<void> {
-  await fetchJSON(`/v1/tasks/${encodeURIComponent(taskID)}/runs/${encodeURIComponent(runID)}/cancel`, { method: "POST",
+  await fetchJSON(`${HECATE_API}/tasks/${encodeURIComponent(taskID)}/runs/${encodeURIComponent(runID)}/cancel`, { method: "POST",
   });
 }
 
 export async function retryTaskRun(taskID: string, runID: string): Promise<TaskRunResponse> {
-  return fetchJSON<TaskRunResponse>(`/v1/tasks/${encodeURIComponent(taskID)}/runs/${encodeURIComponent(runID)}/retry`, { method: "POST",
+  return fetchJSON<TaskRunResponse>(`${HECATE_API}/tasks/${encodeURIComponent(taskID)}/runs/${encodeURIComponent(runID)}/retry`, { method: "POST",
     body: {},
   });
 }
 
 export async function resumeTaskRun(taskID: string, runID: string): Promise<TaskRunResponse> {
-  return fetchJSON<TaskRunResponse>(`/v1/tasks/${encodeURIComponent(taskID)}/runs/${encodeURIComponent(runID)}/resume`, { method: "POST",
+  return fetchJSON<TaskRunResponse>(`${HECATE_API}/tasks/${encodeURIComponent(taskID)}/runs/${encodeURIComponent(runID)}/resume`, { method: "POST",
     body: {},
   });
 }
@@ -721,7 +726,7 @@ export async function resumeTaskRunRaisingCeiling(
   runID: string,
   budgetMicrosUSD: number
 ): Promise<TaskRunResponse> {
-  return fetchJSON<TaskRunResponse>(`/v1/tasks/${encodeURIComponent(taskID)}/runs/${encodeURIComponent(runID)}/resume`, { method: "POST",
+  return fetchJSON<TaskRunResponse>(`${HECATE_API}/tasks/${encodeURIComponent(taskID)}/runs/${encodeURIComponent(runID)}/resume`, { method: "POST",
     body: { budget_micros_usd: budgetMicrosUSD },
   });
 }
@@ -732,14 +737,14 @@ export async function resumeTaskRunRaisingCeiling(
 // The optional reason is stored in the run.resumed_from_event event so operators
 // can annotate why they branched from a particular turn.
 export async function retryTaskRunFromTurn(taskID: string, runID: string, turn: number, reason?: string): Promise<TaskRunResponse> {
-  return fetchJSON<TaskRunResponse>(`/v1/tasks/${encodeURIComponent(taskID)}/runs/${encodeURIComponent(runID)}/retry-from-turn`, {
+  return fetchJSON<TaskRunResponse>(`${HECATE_API}/tasks/${encodeURIComponent(taskID)}/runs/${encodeURIComponent(runID)}/retry-from-turn`, {
     method: "POST",
     body: { turn, reason: reason ?? "" },
   });
 }
 
 export async function appendTaskRunEvent(taskID: string, runID: string, payload: AppendTaskRunEventPayload): Promise<void> {
-  await fetchJSON(`/v1/tasks/${encodeURIComponent(taskID)}/runs/${encodeURIComponent(runID)}/events`, { method: "POST",
+  await fetchJSON(`${HECATE_API}/tasks/${encodeURIComponent(taskID)}/runs/${encodeURIComponent(runID)}/events`, { method: "POST",
     body: payload,
   });
 }
@@ -752,7 +757,7 @@ export async function streamTaskRun(
   signal?: AbortSignal,
 ): Promise<void> {
   const response = await fetchWithNetworkError(
-    `/v1/tasks/${encodeURIComponent(taskID)}/runs/${encodeURIComponent(runID)}/stream?after_sequence=${encodeURIComponent(String(afterSequence))}`,
+    `${HECATE_API}/tasks/${encodeURIComponent(taskID)}/runs/${encodeURIComponent(runID)}/stream?after_sequence=${encodeURIComponent(String(afterSequence))}`,
     { ...buildRequestOptions({}), signal },
   );
   if (!response.ok) {

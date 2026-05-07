@@ -1,6 +1,6 @@
 # Runtime API Notes
 
-Hecate exposes a coding-runtime API surface under `/v1/tasks` for client-orchestrated agents. The runtime is durable: a run survives process restarts, can be resumed from a terminal state, and is leased to one worker at a time so two replicas can share a queue without stepping on each other.
+Hecate exposes a coding-runtime API surface under `/hecate/v1/tasks` for client-orchestrated agents. The runtime is durable: a run survives process restarts, can be resumed from a terminal state, and is leased to one worker at a time so two replicas can share a queue without stepping on each other.
 
 For the high-level execution flow (lease semantics, sandbox boundary, event sequence), see [`architecture.md`](architecture.md#task-runtime-flow). For the LLM-driven `agent_loop` execution kind specifically (tools, approval gating, cost tracking, retry-from-turn semantics), see [`agent-runtime.md`](agent-runtime.md).
 
@@ -35,7 +35,7 @@ For the high-level execution flow (lease semantics, sandbox boundary, event sequ
 
 ### Task fields
 
-The `task` resource accepts these fields on `POST /v1/tasks`:
+The `task` resource accepts these fields on `POST /hecate/v1/tasks`:
 
 - `execution_kind` — one of `shell`, `git`, `file`, `agent_loop`
 - `prompt` — the user-facing prompt; required for `agent_loop`, optional description for the others
@@ -67,16 +67,16 @@ The `task` resource accepts these fields on `POST /v1/tasks`:
 
 ## Lifecycle endpoints
 
-- `POST /v1/tasks`
-- `GET /v1/tasks`
-- `GET /v1/tasks/{id}`
-- `DELETE /v1/tasks/{id}`
-- `POST /v1/tasks/{id}/start` — returns `422 model_not_configured` when an `agent_loop` task has no model resolvable (neither `requested_model` on the task nor the gateway's default model is set). No run is created.
-- `POST /v1/tasks/{id}/runs/{run_id}/retry`
-- `POST /v1/tasks/{id}/runs/{run_id}/resume`
-- `POST /v1/tasks/{id}/runs/{run_id}/continue`
-- `POST /v1/tasks/{id}/runs/{run_id}/retry-from-turn`
-- `POST /v1/tasks/{id}/runs/{run_id}/cancel`
+- `POST /hecate/v1/tasks`
+- `GET /hecate/v1/tasks`
+- `GET /hecate/v1/tasks/{id}`
+- `DELETE /hecate/v1/tasks/{id}`
+- `POST /hecate/v1/tasks/{id}/start` — returns `422 model_not_configured` when an `agent_loop` task has no model resolvable (neither `requested_model` on the task nor the gateway's default model is set). No run is created.
+- `POST /hecate/v1/tasks/{id}/runs/{run_id}/retry`
+- `POST /hecate/v1/tasks/{id}/runs/{run_id}/resume`
+- `POST /hecate/v1/tasks/{id}/runs/{run_id}/continue`
+- `POST /hecate/v1/tasks/{id}/runs/{run_id}/retry-from-turn`
+- `POST /hecate/v1/tasks/{id}/runs/{run_id}/cancel`
 
 ### Resume semantics
 
@@ -90,7 +90,7 @@ The `task` resource accepts these fields on `POST /v1/tasks`:
 
 ### Continue semantics
 
-`POST /v1/tasks/{id}/runs/{run_id}/continue` body:
+`POST /hecate/v1/tasks/{id}/runs/{run_id}/continue` body:
 
 ```json
 { "prompt": "follow-up instruction" }
@@ -103,7 +103,7 @@ The `task` resource accepts these fields on `POST /v1/tasks`:
 
 ### Retry-from-turn-N semantics
 
-`POST /v1/tasks/{id}/runs/{run_id}/retry-from-turn` body:
+`POST /hecate/v1/tasks/{id}/runs/{run_id}/retry-from-turn` body:
 
 ```json
 { "turn": 2, "reason": "explore alternative" }
@@ -117,25 +117,25 @@ The `task` resource accepts these fields on `POST /v1/tasks`:
 
 ## Execution detail endpoints
 
-- `GET /v1/tasks/{id}/runs`
-- `GET /v1/tasks/{id}/runs/{run_id}`
-- `GET /v1/tasks/{id}/runs/{run_id}/steps`
-- `GET /v1/tasks/{id}/runs/{run_id}/steps/{step_id}`
-- `GET /v1/tasks/{id}/runs/{run_id}/artifacts`
-- `GET /v1/tasks/{id}/runs/{run_id}/artifacts/{artifact_id}`
-- `GET /v1/tasks/{id}/artifacts`
-- `GET /v1/tasks/{id}/runs/{run_id}/patches`
-- `GET /v1/tasks/{id}/runs/{run_id}/patches/{artifact_id}`
-- `POST /v1/tasks/{id}/runs/{run_id}/patches/{artifact_id}/apply`
-- `POST /v1/tasks/{id}/runs/{run_id}/patches/{artifact_id}/revert`
+- `GET /hecate/v1/tasks/{id}/runs`
+- `GET /hecate/v1/tasks/{id}/runs/{run_id}`
+- `GET /hecate/v1/tasks/{id}/runs/{run_id}/steps`
+- `GET /hecate/v1/tasks/{id}/runs/{run_id}/steps/{step_id}`
+- `GET /hecate/v1/tasks/{id}/runs/{run_id}/artifacts`
+- `GET /hecate/v1/tasks/{id}/runs/{run_id}/artifacts/{artifact_id}`
+- `GET /hecate/v1/tasks/{id}/artifacts`
+- `GET /hecate/v1/tasks/{id}/runs/{run_id}/patches`
+- `GET /hecate/v1/tasks/{id}/runs/{run_id}/patches/{artifact_id}`
+- `POST /hecate/v1/tasks/{id}/runs/{run_id}/patches/{artifact_id}/apply`
+- `POST /hecate/v1/tasks/{id}/runs/{run_id}/patches/{artifact_id}/revert`
 
 `patches` is a review-focused projection over `patch` artifacts. File-writing tools create patches with `status=applied`; `file_edit` can also create `status=proposed` patches when called with `propose=true`. The apply endpoint writes the proposed after-content only when the current file still matches the captured before-content, then emits `tool.file.applied`. The revert endpoint restores the before-content captured in Hecate's patch artifact and updates the patch to `status=reverted`. Reverting a new-file patch removes the file. Reverting emits `tool.file.reverted` on the run-event stream.
 
 ## Approval endpoints
 
-- `GET /v1/tasks/{id}/approvals`
-- `GET /v1/tasks/{id}/approvals/{approval_id}`
-- `POST /v1/tasks/{id}/approvals/{approval_id}/resolve`
+- `GET /hecate/v1/tasks/{id}/approvals`
+- `GET /hecate/v1/tasks/{id}/approvals/{approval_id}`
+- `POST /hecate/v1/tasks/{id}/approvals/{approval_id}/resolve`
 
 ### Approval kinds
 
@@ -168,9 +168,9 @@ Unknown policy names are rejected at startup with a clear error. Empty value dis
 
 ### Per-run events
 
-- `GET /v1/tasks/{id}/runs/{run_id}/events?after_sequence=<n>`
-- `POST /v1/tasks/{id}/runs/{run_id}/events`
-- `GET /v1/tasks/{id}/runs/{run_id}/stream?after_sequence=<n>`
+- `GET /hecate/v1/tasks/{id}/runs/{run_id}/events?after_sequence=<n>`
+- `POST /hecate/v1/tasks/{id}/runs/{run_id}/events`
+- `GET /hecate/v1/tasks/{id}/runs/{run_id}/stream?after_sequence=<n>`
 
 The JSON list returns agent event protocol v1 envelopes:
 `schema_version`, `event_id`, `task_id`, `run_id`, `sequence`,
@@ -197,8 +197,8 @@ disclosure, but Chats should favor the compact projection.
 
 For external dashboards (Grafana, Slack notifiers, audit log shippers) that want one subscription instead of per-run polling:
 
-- `GET /v1/events?event_type=<csv>&task_id=<id>&after_sequence=<n>&limit=<n>` — paginated JSON list with cursor-based pagination
-- `GET /v1/events/stream?event_type=<csv>` — long-lived SSE feed; reconnect via `Last-Event-ID`
+- `GET /hecate/v1/events?event_type=<csv>&task_id=<id>&after_sequence=<n>&limit=<n>` — paginated JSON list with cursor-based pagination
+- `GET /hecate/v1/events/stream?event_type=<csv>` — long-lived SSE feed; reconnect via `Last-Event-ID`
 
 Both endpoints emit the same v1 event envelopes as the per-run event list.
 Filters AND together; within a slice (`event_type` is comma-separated) the match
@@ -231,7 +231,7 @@ sequenceDiagram
     participant Queue
     participant Worker
     participant Store
-    Caller->>API: POST /v1/tasks/:id/start
+    Caller->>API: POST /hecate/v1/tasks/:id/start
     API->>Queue: enqueue(task_id, run_id)
     Worker->>Queue: claim(worker_id, lease)
     Queue-->>Worker: claim_id, run_id
@@ -264,11 +264,11 @@ When `GATEWAY_TASKS_BACKEND` is `sqlite`, tasks/runs/steps/approvals/artifacts/r
 
 For `agent_loop`-specific knobs (max turns, system-prompt layers, HTTP policy for the `http_request` tool), see [`agent-runtime.md`](agent-runtime.md#configuration-knobs).
 
-`GET /admin/runtime/stats` also reports queue health fields including queue depth, queue capacity, worker count, and `queue_backend`.
+`GET /hecate/v1/system/stats` also reports queue health fields including queue depth, queue capacity, worker count, and `queue_backend`.
 
 The response also surfaces `agent_adapter_approval_mode` — the configured mode for the external-agent adapter approval coordinator: `"auto"`, `"prompt"`, or `"deny"`. Operators surface a danger banner in the UI when this is `"auto"` since every adapter `RequestPermission` is permitted without review. Empty when the gateway was built without an approval coordinator (legacy configs / test fixtures).
 
-`GET /admin/mcp/cache` returns a snapshot of the shared MCP client cache:
+`GET /hecate/v1/system/mcp/cache` returns a snapshot of the shared MCP client cache:
 
 ```json
 {
@@ -283,12 +283,12 @@ The response also surfaces `agent_adapter_approval_mode` — the configured mode
 }
 ```
 
-`configured: false` means no cache is wired (the deploy explicitly disabled it via `Handler.SetMCPClientCache(nil)`); the counter fields are present but zero so admin UIs can render a "no cache" cell instead of error-handling. `in_use` is the **sum** of refcounts across all entries (an entry held by two concurrent runs counts as 2), not the number of entries with at least one acquirer; `idle` is the count of entries with refcount=0. See [`mcp.md`](mcp.md#lifecycle-and-caching) for the underlying contract.
+`configured: false` means no cache is wired (the deploy explicitly disabled it via `Handler.SetMCPClientCache(nil)`); the counter fields are present but zero so operator UIs can render a "no cache" cell instead of error-handling. `in_use` is the **sum** of refcounts across all entries (an entry held by two concurrent runs counts as 2), not the number of entries with at least one acquirer; `idle` is the count of entries with refcount=0. See [`mcp.md`](mcp.md#lifecycle-and-caching) for the underlying contract.
 
-`POST /v1/mcp/probe` is the dry-run discovery surface for an MCP server config. It accepts a single MCP server entry (same shape as one item in the task-create `mcp_servers` array — `name` defaults to `probe` when omitted), brings the server up the way an `agent_loop` run would (same secret resolution, same uncached spawn path), calls `tools/list`, and tears it down. Returns the upstream's tool catalog so operators can confirm the config before committing it to a task.
+`POST /hecate/v1/mcp/probe` is the dry-run discovery surface for an MCP server config. It accepts a single MCP server entry (same shape as one item in the task-create `mcp_servers` array — `name` defaults to `probe` when omitted), brings the server up the way an `agent_loop` run would (same secret resolution, same uncached spawn path), calls `tools/list`, and tears it down. Returns the upstream's tool catalog so operators can confirm the config before committing it to a task.
 
 ```json
-POST /v1/mcp/probe
+POST /hecate/v1/mcp/probe
 {
   "command": "bunx",
   "args": ["--bun", "@modelcontextprotocol/server-filesystem", "/workspace"]
@@ -324,14 +324,14 @@ GET /healthz
 }
 ```
 
-The endpoint is intentionally cheap: it doesn't touch the database, providers, or queue. A `200` here means "the process is up and serving HTTP," not "every backend is healthy." For deeper signal use `GET /admin/runtime/stats`.
+The endpoint is intentionally cheap: it doesn't touch the database, providers, or queue. A `200` here means "the process is up and serving HTTP," not "every backend is healthy." For deeper signal use `GET /hecate/v1/system/stats`.
 
-### `GET /v1/provider-presets`
+### `GET /hecate/v1/providers/presets`
 
 Provider catalog the UI's task-create form uses to render the provider picker. Each entry carries the operator-facing display name, the kind (`cloud` / `local`), the protocol Hecate speaks to it, the `BASE_URL` / `API_KEY` env-var pattern (so the UI can show which `PROVIDER_<NAME>_*` variables to set), the default model, and a short `env_snippet` ready to paste into `.env`.
 
 ```json
-GET /v1/provider-presets
+GET /hecate/v1/providers/presets
 → 200
 {
   "object": "provider_presets",
@@ -355,7 +355,7 @@ GET /v1/provider-presets
 
 The list is built from `config.BuiltInProviders()` — see [`docs/providers.md`](providers.md) for the full catalog and OpenAI-compatible custom-endpoint flow.
 
-### `GET /admin/control-plane/providers/local-discovery`
+### `GET /hecate/v1/settings/providers/local-discovery`
 
 Advisory discovery for the Providers tab's **Add provider → Local** catalog.
 The gateway checks whether the expected provider command is on `PATH` and
@@ -364,7 +364,7 @@ probes each unique default local endpoint once. Shared endpoints, such as the
 then reused for every matching preset card.
 
 ```json
-GET /admin/control-plane/providers/local-discovery
+GET /hecate/v1/settings/providers/local-discovery
 → 200
 {
   "object": "local_provider_discovery",
@@ -394,7 +394,7 @@ GET /admin/control-plane/providers/local-discovery
 - `not_detected` — neither the command nor the default HTTP endpoint was found.
 
 This endpoint does not create or mutate provider records. It is a UX helper for
-the picker; routing readiness still comes from `GET /admin/providers` after the
+the picker; routing readiness still comes from `GET /hecate/v1/providers/status` after the
 operator adds a provider.
 
 ### `GET /v1/models`
@@ -436,14 +436,14 @@ when the effective value is `none`. Local/custom models often report
 `unknown`; operators can use Settings → Model capabilities to explicitly turn
 tools on or off for a provider/model pair.
 
-### `PUT /v1/model-capabilities/overrides`
+### `PUT /hecate/v1/model-capabilities/overrides`
 
 Stores an operator override for a provider/model capability record. Overrides
 win over manual probe results, catalog defaults, and provider-discovered
 metadata.
 
 ```json
-PUT /v1/model-capabilities/overrides
+PUT /hecate/v1/model-capabilities/overrides
 {
   "provider": "ollama",
   "model": "qwen2.5-coder",
@@ -470,17 +470,17 @@ PUT /v1/model-capabilities/overrides
 ```
 
 `tool_calling` must be `none`, `basic`, or `parallel` for overrides. Use
-`DELETE /v1/model-capabilities/overrides?provider=...&model=...` to remove an
+`DELETE /hecate/v1/model-capabilities/overrides?provider=...&model=...` to remove an
 operator override and fall back to the next capability source.
 
-### `POST /v1/model-capabilities/probes`
+### `POST /hecate/v1/model-capabilities/probes`
 
 Records a manual probe result. Hecate does not run background capability probes
 in this version; this endpoint persists an operator-supplied result after the
 operator has tested the model.
 
 ```json
-POST /v1/model-capabilities/probes
+POST /hecate/v1/model-capabilities/probes
 {
   "provider": "ollama",
   "model": "qwen2.5-coder",
@@ -492,14 +492,14 @@ POST /v1/model-capabilities/probes
 Manual probe results lose to operator overrides and win over catalog/provider
 defaults.
 
-### `GET /v1/agent-adapters`
+### `GET /hecate/v1/agent-adapters`
 
 External coding-agent adapter catalog. This is the first discovery surface for
 Agent Chat: it reports the agent runtimes Hecate knows how to supervise and
 whether their direct command or Hecate-managed launcher can be started.
 
 ```json
-GET /v1/agent-adapters
+GET /hecate/v1/agent-adapters
 → 200
 {
   "object": "agent_adapters",
@@ -565,13 +565,13 @@ shows an amber "outside tested range" chip in that case.
 `auth_status` is a lightweight dashboard hint, not a full login check. Values:
 `ok`, `unauthenticated`, `billing`, or `unknown`. It is derived from known env
 vars and login files without spawning the adapter. Use `POST
-/v1/agent-adapters/{id}/probe` for the full ACP handshake.
+/hecate/v1/agent-adapters/{id}/probe` for the full ACP handshake.
 
 These are **agent adapters**, not model providers. They run ACP-compatible
 external coding agents under Hecate supervision; cost is reported as `external`
 until an adapter can supply structured usage.
 
-### `POST /v1/agent-adapters/{id}/probe`
+### `POST /hecate/v1/agent-adapters/{id}/probe`
 
 Re-runs discovery for one adapter, then performs the same end-to-end ACP probe
 as `/health`. The response includes the fresh catalog row plus the health
@@ -579,7 +579,7 @@ result, so UIs can update a single Settings row after the operator logs in or
 installs a missing dependency.
 
 ```json
-POST /v1/agent-adapters/codex/probe
+POST /hecate/v1/agent-adapters/codex/probe
 → 200
 {
   "object": "agent_adapter_probe",
@@ -608,7 +608,7 @@ Status codes:
   `ready`, `not_installed`, `auth_required`, or `error`.
 - `404 not_found` when the adapter id is not registered.
 
-### `GET /v1/agent-adapters/{id}/health`
+### `GET /hecate/v1/agent-adapters/{id}/health`
 
 Probes a single adapter end-to-end and classifies the outcome so operators can
 distinguish "binary missing" from "binary on PATH but auth failing" without
@@ -617,7 +617,7 @@ reading raw error text. The probe does spawn → ACP `Initialize` → ACP
 chat prompt.
 
 ```json
-GET /v1/agent-adapters/codex/health
+GET /hecate/v1/agent-adapters/codex/health
 → 200
 {
   "object": "agent_adapter_health",
@@ -656,7 +656,7 @@ The probe creates and immediately abandons a fresh ACP session, so adapters
 that bill on session creation will see one no-op session per call. Adapters
 that bill on prompt completion see no charge.
 
-### `POST /v1/agent-adapters/{id}/refresh-launcher`
+### `POST /hecate/v1/agent-adapters/{id}/refresh-launcher`
 
 Deletes and recreates the Hecate-managed launcher script for a managed adapter
 such as Codex or Claude Code, then returns a one-item `agent_adapters` response
@@ -664,7 +664,7 @@ with the refreshed status. This is useful after changing Node/npm managers or
 when `HECATE_AGENT_ADAPTERS_DIR` points at a stale cache.
 
 ```json
-POST /v1/agent-adapters/codex/refresh-launcher
+POST /hecate/v1/agent-adapters/codex/refresh-launcher
 → 200
 {
   "object": "agent_adapters",
@@ -690,7 +690,7 @@ Status codes:
 - `409 conflict` when the adapter is not managed or the launcher cannot be
   recreated.
 
-### `GET /v1/agent-chat/sessions`
+### `GET /hecate/v1/agent-chat/sessions`
 
 Lists Agent Chat sessions. Agent Chat uses the same backend selection as model
 chat history: memory by default, SQLite when
@@ -712,7 +712,7 @@ Hecate Chat and External Agent sessions:
 `GATEWAY_CHAT_SESSIONS_BACKEND=sqlite` is the single selector for the entire
 agent-chat state bundle: sessions, messages, **and** the operator-facing
 approval rows + grants documented under
-`/v1/agent-chat/sessions/{id}/approvals` and `/v1/agent-chat/grants`. They all
+`/hecate/v1/agent-chat/sessions/{id}/approvals` and `/hecate/v1/agent-chat/grants`. They all
 move together so agent-chat state can't go split-brain. On startup the gateway
 runs a reconcile pass that flips any approvals stuck in `pending` from a prior
 process to `status=timed_out` with `path=startup_reconcile` — process-local
@@ -725,7 +725,7 @@ authored grants are NOT subject to that retention — only their own
 `expires_at` drives deletion, so explicit operator intent outlives normal
 retention windows.
 
-The same per-session SSE stream (`GET /v1/agent-chat/sessions/{id}/stream`)
+The same per-session SSE stream (`GET /hecate/v1/agent-chat/sessions/{id}/stream`)
 also carries approval lifecycle events so frontends don't have to poll. Two
 event types are emitted in addition to normal chat session updates:
 
@@ -770,7 +770,7 @@ slow operator UI catches up by re-fetching `/approvals?status=pending` on
 reconnect. Replay across restart is not supported in this slice.
 
 ```json
-GET /v1/agent-chat/sessions
+GET /hecate/v1/agent-chat/sessions
 → 200
 {
   "object": "agent_chat_sessions",
@@ -800,7 +800,7 @@ GET /v1/agent-chat/sessions
 }
 ```
 
-### `POST /v1/agent-chat/sessions`
+### `POST /hecate/v1/agent-chat/sessions`
 
 Creates an Agent Chat session. `runtime_kind` chooses the execution target:
 
@@ -816,7 +816,7 @@ external-agent run starts, so later runs use the resolved directory instead of
 failing only after execution starts.
 
 ```json
-POST /v1/agent-chat/sessions
+POST /hecate/v1/agent-chat/sessions
 {
   "runtime_kind": "model",
   "provider": "ollama",
@@ -846,7 +846,7 @@ POST /v1/agent-chat/sessions
 }
 ```
 
-### `GET /v1/agent-chat/sessions/{id}`
+### `GET /hecate/v1/agent-chat/sessions/{id}`
 
 Returns the full session transcript, including user messages and assistant
 messages produced by the backing runtime. Hecate Agent sessions include
@@ -866,7 +866,7 @@ as "tools off with smollm2" → "tools on with qwen2.5-coder". Each segment
 contains its `runtime_kind`, provider/model snapshot, optional `task_id`,
 latest run id, status, message count, and first/last timestamps.
 
-### `POST /v1/agent-chat/sessions/{id}/messages`
+### `POST /hecate/v1/agent-chat/sessions/{id}/messages`
 
 Sends the submitted prompt to the session's backing runtime and appends both
 the user message and assistant output.
@@ -921,7 +921,7 @@ Before starting the adapter, Hecate enforces optional agent-chat guardrails:
 `agent_chat.session_idle_timeout`.
 
 ```json
-POST /v1/agent-chat/sessions/agent_chat_.../messages
+POST /hecate/v1/agent-chat/sessions/agent_chat_.../messages
 {
   "content": "Review the current diff and suggest fixes."
 }
@@ -990,7 +990,7 @@ Each adapter response gets a stable `run_id` plus start/end timestamps and
 duration so clients can correlate streamed updates, final output, and future
 artifacts without treating the assistant message id as the runtime identity.
 It also stores `request_id`, `trace_id`, and `span_id`; use
-`GET /v1/traces?request_id=<request_id>` to inspect the OTel-shaped
+`GET /hecate/v1/traces?request_id=<request_id>` to inspect the OTel-shaped
 `agent_chat.run` span for that prompt.
 Task-backed Hecate Agent messages also include a `timing` object derived from
 the backing run's task steps, approvals, and run events:
@@ -1037,14 +1037,14 @@ Client note: browser/operator clients may queue a prompt locally when they
 receive or predict `agent_chat.agent_session_busy`, but the server still
 accepts only one active task-backed turn per Hecate Chat session.
 
-### `GET /v1/agent-chat/sessions/{id}/messages/{message_id}/files`
+### `GET /hecate/v1/agent-chat/sessions/{id}/messages/{message_id}/files`
 
 Returns a structured file list for an Agent Chat assistant message that captured
 a workspace diff. The data is derived from the stored `diff` first, then falls
 back to `diff_stat` when only the stat text is available.
 
 ```json
-GET /v1/agent-chat/sessions/agent_chat_.../messages/msg_.../files
+GET /hecate/v1/agent-chat/sessions/agent_chat_.../messages/msg_.../files
 → 200
 {
   "object": "agent_chat_changed_files",
@@ -1062,13 +1062,13 @@ GET /v1/agent-chat/sessions/agent_chat_.../messages/msg_.../files
 `status` is best-effort: `modified`, `added`, `deleted`, `renamed`, or
 `binary`. Messages without a captured diff return an empty list.
 
-### `GET /v1/agent-chat/sessions/{id}/messages/{message_id}/files/{path}`
+### `GET /hecate/v1/agent-chat/sessions/{id}/messages/{message_id}/files/{path}`
 
 Returns the stored unified diff block for one changed file. Encode the path as
 a URL path component (`encodeURIComponent(path)` in browser clients).
 
 ```json
-GET /v1/agent-chat/sessions/agent_chat_.../messages/msg_.../files/src%2Ffoo.go
+GET /hecate/v1/agent-chat/sessions/agent_chat_.../messages/msg_.../files/src%2Ffoo.go
 → 200
 {
   "object": "agent_chat_changed_file_diff",
@@ -1086,7 +1086,7 @@ Status codes:
 - `200 OK` with the per-file diff.
 - `404 not_found` when the session, message, or file path is unknown.
 
-### `POST /v1/agent-chat/sessions/{id}/messages/{message_id}/revert`
+### `POST /hecate/v1/agent-chat/sessions/{id}/messages/{message_id}/revert`
 
 Reverts workspace changes captured by an Agent Chat assistant message. This is
 only available for Git workspaces and only for paths present in the stored
@@ -1095,7 +1095,7 @@ array to revert selected files, or an empty array to revert every file in the
 captured diff.
 
 ```json
-POST /v1/agent-chat/sessions/agent_chat_.../messages/msg_.../revert
+POST /hecate/v1/agent-chat/sessions/agent_chat_.../messages/msg_.../revert
 {
   "paths": ["src/foo.go"]
 }
@@ -1124,7 +1124,7 @@ After a successful revert, Hecate refreshes the message's stored `diff` and
 activity, and publishes an updated Agent Chat session snapshot. Non-Git
 workspaces return `400 invalid_request` with a human-readable limitation.
 
-### `GET /v1/agent-chat/sessions/{id}/stream`
+### `GET /hecate/v1/agent-chat/sessions/{id}/stream`
 
 Streams live Agent Chat session snapshots as Server-Sent Events. This is an
 in-process live feed, not the durable task-event log: session history remains in
@@ -1149,38 +1149,38 @@ and a low-level Details group. The stream stays open for an idle or previously
 completed session and closes after it observes a new running message reach a
 terminal status (`completed`, `failed`, or `cancelled`).
 
-### `POST /v1/agent-chat/sessions/{id}/cancel`
+### `POST /hecate/v1/agent-chat/sessions/{id}/cancel`
 
 Cancels the currently running ACP turn for the session.
 
 ```json
-POST /v1/agent-chat/sessions/agent_chat_.../cancel
+POST /hecate/v1/agent-chat/sessions/agent_chat_.../cancel
 {}
 ```
 
 Returns `202` when a running turn was signalled. If the session is not
 currently running, the endpoint returns `409 invalid_request`.
 
-### `POST /v1/agent-chat/sessions/{id}/close`
+### `POST /hecate/v1/agent-chat/sessions/{id}/close`
 
 Closes the native ACP adapter session while keeping the Hecate chat history.
 If a turn is currently running, Hecate cancels and waits briefly before closing
 the external session.
 
-### `DELETE /v1/agent-chat/sessions/{id}`
+### `DELETE /hecate/v1/agent-chat/sessions/{id}`
 
 Deletes an Agent Chat session from the configured chat-session backend.
 If the session has an active native ACP adapter process, Hecate closes the
 native session and terminates the owned process as part of deletion.
 
-### `POST /v1/workspace-dialog`
+### `POST /hecate/v1/workspace-dialog`
 
 Opens a local folder picker from the gateway process and returns the selected
 workspace path. The browser cannot safely expose absolute folder paths on its
 own, so this endpoint is intentionally local-runtime-oriented.
 
 ```json
-POST /v1/workspace-dialog
+POST /hecate/v1/workspace-dialog
 {}
 
 → 200

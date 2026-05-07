@@ -137,8 +137,9 @@ type ServerConfig struct {
 	AgentAdapterApprovalTimeout time.Duration
 	// AgentChatMaxTurnsPerSession caps how many user→assistant round-trips
 	// a single agent-chat session may execute. 0 (default) means unlimited.
-	// When the ceiling is reached, POST /v1/agent-chat/sessions/{id}/messages
-	// returns HTTP 422 with code "agent_chat.session_limit_exceeded".
+	// When the ceiling is reached, POST
+	// /hecate/v1/agent-chat/sessions/{id}/messages returns HTTP 422 with code
+	// "agent_chat.session_limit_exceeded".
 	// Set via GATEWAY_AGENT_CHAT_MAX_TURNS_PER_SESSION.
 	AgentChatMaxTurnsPerSession int
 	// AgentChatMaxSessionDuration caps wall-clock age for an agent-chat
@@ -1007,7 +1008,7 @@ func providerConfigFromEnv(name string) (OpenAICompatibleProviderConfig, bool) {
 	// on their own. Operators who want a provider live from first boot
 	// set PROVIDER_<NAME>_PRECONFIGURED=1 alongside the rest. Otherwise
 	// the provider is only configured when added explicitly via the UI
-	// or POST /admin/control-plane/providers.
+	// or POST /hecate/v1/settings/providers.
 	if !getEnvBool(providerEnvPrefix(name)+"PRECONFIGURED", false) {
 		return OpenAICompatibleProviderConfig{}, false
 	}

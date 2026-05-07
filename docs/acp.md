@@ -351,7 +351,7 @@ For alpha, one ACP session maps to one durable Hecate `agent_loop` task after th
 1. `initialize` calls the gateway's model-discovery surface and advertises available models.
 2. `session/new` creates only bridge-local session state.
 3. The first `session/prompt` creates and starts the Hecate task.
-4. Later prompts call `POST /v1/tasks/{id}/runs/{run_id}/continue`, which hydrates the saved conversation, appends the new user message, and starts the next run.
+4. Later prompts call `POST /hecate/v1/tasks/{id}/runs/{run_id}/continue`, which hydrates the saved conversation, appends the new user message, and starts the next run.
 
 The gateway remains the source of truth. The bridge does not invent runtime
 state that Hecate did not emit.

@@ -37,7 +37,7 @@ type AgentChatLiveEvent struct {
 // AgentChatApprovalRequestedEvent is the SSE payload published when
 // the coordinator records a new approval. Minimal by design — the
 // full ACP options + scope_choices are reachable via
-// GET /v1/agent-chat/sessions/{id}/approvals/{id}.
+// GET /hecate/v1/agent-chat/sessions/{id}/approvals/{id}.
 type AgentChatApprovalRequestedEvent struct {
 	ApprovalID   string                        `json:"approval_id"`
 	SessionID    string                        `json:"session_id"`

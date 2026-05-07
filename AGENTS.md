@@ -67,7 +67,7 @@ internal/
   storage/              sqlite client wrappers
   retention/            retention worker (subsystems: traces, budget, audit, provider_history, turn_events)
   mcp/                  stdio MCP server (read tools + write tools)
-  controlplane/         providers, pricing, settings (admin surface state)
+  controlplane/         providers, pricing, settings state
   auth/                 local operator principal request context
   ratelimit/            per-key request limits
   requestscope/         per-request principal + tracing context
@@ -149,7 +149,7 @@ Full ladder: [`docs-ai/core/verification.md`](docs-ai/core/verification.md).
 - **CodeQL CWE-190**: don't compute `make([]T, 0, len(x)+N)` with arithmetic — use plain `len(x)` and let `append` grow.
 - **Env-PRECONFIGURED gate**: `PROVIDER_<NAME>_API_KEY` / `_BASE_URL` only auto-import into the CP store when `PROVIDER_<NAME>_PRECONFIGURED=1` is also set. E2E helpers (`hecateServer`, `startHecateProcess`) funnel through `autoPreconfiguredEnv` to inject the gate; new e2e spawn helpers must do the same or routed requests 400 with `no provider supports model …`.
 - **`:8765` collisions across launches**: `just dev` / `just run` / `just serve` now run `just stop` first so a stale `./hecate` from another shell never blocks a relaunch (or a `docker run -p 8765:8765 …`). New scripts that spawn the binary should call `just stop` (or replicate the `lsof -ti:8765 | xargs kill` step).
-- **API response envelope**: every `/v1/*` and `/admin/*` GET returns `{object, data}`. Don't write a UI client that reads top-level fields — always read `payload.data.<field>` and make test fixtures mirror the real envelope.
+- **API response envelope**: every Hecate-native `/hecate/v1/*` GET returns `{object, data}`. Compatibility endpoints (`/v1/models`, `/v1/chat/completions`, `/v1/messages`) keep provider-shaped contracts. Don't write a UI client that reads top-level fields — always read `payload.data.<field>` for Hecate-native endpoints and make test fixtures mirror the real envelope.
 
 ## Canonical docs
 
@@ -158,7 +158,7 @@ Full ladder: [`docs-ai/core/verification.md`](docs-ai/core/verification.md).
 | [`docs/architecture.md`](docs/architecture.md) | Request flow, lease semantics, storage tier matrix |
 | [`docs/agent-runtime.md`](docs/agent-runtime.md) | `agent_loop` tools, system prompt layers, cost model, retry-from-turn |
 | [`docs/runtime-api.md`](docs/runtime-api.md) | Task / run / step / approval endpoints, queue + lease |
-| [`docs/events.md`](docs/events.md) | Every event type at `/v1/events` with payload shapes |
+| [`docs/events.md`](docs/events.md) | Every event type at `/hecate/v1/events` with payload shapes |
 | [`docs/telemetry.md`](docs/telemetry.md) | OTel spans + metrics, OTLP wiring, status & gaps |
 | [`docs/security.md`](docs/security.md) | Local-first threat model, workspace safety, approvals, secrets, advisories |
 | [`docs/providers.md`](docs/providers.md) | Provider catalog, configuration |

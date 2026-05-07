@@ -121,12 +121,12 @@ func TestGatewayHTTPClientCreateAgentLoopTask(t *testing.T) {
 	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		w.Header().Set("Content-Type", "application/json")
 		switch {
-		case r.Method == http.MethodPost && r.URL.Path == "/v1/tasks":
+		case r.Method == http.MethodPost && r.URL.Path == "/hecate/v1/tasks":
 			if err := json.NewDecoder(r.Body).Decode(&createdBody); err != nil {
 				t.Fatalf("decode create body: %v", err)
 			}
 			_, _ = w.Write([]byte(`{"object":"task","data":{"id":"task-123"}}`))
-		case r.Method == http.MethodPost && r.URL.Path == "/v1/tasks/task-123/start":
+		case r.Method == http.MethodPost && r.URL.Path == "/hecate/v1/tasks/task-123/start":
 			_, _ = w.Write([]byte(`{"object":"task_run","data":{"id":"run-456"}}`))
 		default:
 			t.Fatalf("unexpected request %s %s", r.Method, r.URL.Path)
@@ -162,7 +162,7 @@ func TestGatewayHTTPClientContinueAgentLoopTask(t *testing.T) {
 
 	var body map[string]string
 	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		if r.Method != http.MethodPost || r.URL.Path != "/v1/tasks/task-123/runs/run-456/continue" {
+		if r.Method != http.MethodPost || r.URL.Path != "/hecate/v1/tasks/task-123/runs/run-456/continue" {
 			t.Fatalf("unexpected request %s %s", r.Method, r.URL.Path)
 		}
 		if err := json.NewDecoder(r.Body).Decode(&body); err != nil {
@@ -194,7 +194,7 @@ func TestGatewayHTTPClientResolveApproval(t *testing.T) {
 
 	var body map[string]string
 	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		if r.Method != http.MethodPost || r.URL.Path != "/v1/tasks/task-123/approvals/approval-456/resolve" {
+		if r.Method != http.MethodPost || r.URL.Path != "/hecate/v1/tasks/task-123/approvals/approval-456/resolve" {
 			t.Fatalf("unexpected request %s %s", r.Method, r.URL.Path)
 		}
 		if err := json.NewDecoder(r.Body).Decode(&body); err != nil {
@@ -221,7 +221,7 @@ func TestGatewayHTTPClientStreamRunEvents(t *testing.T) {
 	t.Parallel()
 
 	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		if r.URL.Path != "/v1/tasks/task-1/runs/run-1/stream" {
+		if r.URL.Path != "/hecate/v1/tasks/task-1/runs/run-1/stream" {
 			t.Fatalf("path = %q", r.URL.Path)
 		}
 		w.Header().Set("Content-Type", "text/event-stream")
@@ -269,9 +269,9 @@ func TestGatewayHTTPClientInjectsTraceContext(t *testing.T) {
 		switch r.URL.Path {
 		case "/v1/models":
 			_, _ = w.Write([]byte(`{"object":"list","data":[{"id":"gpt-4o-mini"}]}`))
-		case "/v1/tasks/task-123/runs/run-456/continue":
+		case "/hecate/v1/tasks/task-123/runs/run-456/continue":
 			_, _ = w.Write([]byte(`{"object":"task_run","data":{"id":"run-789"}}`))
-		case "/v1/tasks/task-123/runs/run-789/stream":
+		case "/hecate/v1/tasks/task-123/runs/run-789/stream":
 			w.Header().Set("Content-Type", "text/event-stream")
 			fmt.Fprint(w, `data: {"object":"task_run_stream_event","data":{"event_type":"run.finished","terminal":true}}`)
 			fmt.Fprint(w, "\n\n")
@@ -299,7 +299,7 @@ func TestGatewayHTTPClientInjectsTraceContext(t *testing.T) {
 	for range events {
 	}
 
-	for _, requestPath := range []string{"/v1/models", "/v1/tasks/task-123/runs/run-456/continue", "/v1/tasks/task-123/runs/run-789/stream"} {
+	for _, requestPath := range []string{"/v1/models", "/hecate/v1/tasks/task-123/runs/run-456/continue", "/hecate/v1/tasks/task-123/runs/run-789/stream"} {
 		header, ok := seen[requestPath]
 		if !ok {
 			t.Fatalf("missing request %s in %#v", requestPath, seen)

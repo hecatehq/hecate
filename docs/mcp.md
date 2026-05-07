@@ -132,7 +132,7 @@ A server vending tool `read_file` under the operator-chosen alias `filesystem` s
 External servers live on the task's `mcp_servers` field at create time:
 
 ```json
-POST /v1/tasks
+POST /hecate/v1/tasks
 {
   "execution_kind": "agent_loop",
   "prompt": "Read README.md and summarize.",
@@ -189,7 +189,7 @@ Values in `env` (stdio) and `headers` (HTTP) are stored in one of three forms. S
 Behavior of the API layer:
 
 - **On create**: any value that is NOT a `$VAR_NAME` reference and NOT already `enc:<base64>` gets auto-encrypted to `enc:...` if a control-plane key is configured, or stored bare if not.
-- **On render** (`GET /v1/tasks/...`): `$VAR_NAME` values come back verbatim; everything else (encrypted ciphertext, bare literals) is replaced with `[redacted]`. Stored secrets cannot leak through the task API.
+- **On render** (`GET /hecate/v1/tasks/...`): `$VAR_NAME` values come back verbatim; everything else (encrypted ciphertext, bare literals) is replaced with `[redacted]`. Stored secrets cannot leak through the task API.
 
 If a value arrives as `enc:...` and no control-plane key is configured, the run fails fast at spawn time with a clear error rather than forwarding ciphertext to the subprocess.
 
@@ -200,7 +200,7 @@ If a value arrives as `enc:...` and no control-plane key is configured, the run 
 | Value | Behavior |
 |---|---|
 | `auto` (default — omittable) | Tool calls dispatch immediately. |
-| `require_approval` | Every tool call to this server pauses the agent loop. The run goes to `awaiting_approval` with a pending approval record; the operator approves or rejects via `POST /v1/tasks/{id}/approvals/{approval_id}/resolve`; the same run resumes from the saved conversation and dispatches the previously-pending call. |
+| `require_approval` | Every tool call to this server pauses the agent loop. The run goes to `awaiting_approval` with a pending approval record; the operator approves or rejects via `POST /hecate/v1/tasks/{id}/approvals/{approval_id}/resolve`; the same run resumes from the saved conversation and dispatches the previously-pending call. |
 | `block` | Never dispatch. The agent loop returns a tool error to the LLM ("blocked by policy") so the model picks a different path on the next turn. Distinct from `require_approval` — block is a hard refusal, not a pause. The run does NOT go to `awaiting_approval`. |
 
 The pause-and-resume machinery is the same the gateway already uses for built-in `shell_exec` gating; MCP gating reuses it without changing the runner or resume path.
@@ -221,9 +221,9 @@ Hecate maintains a shared client cache so multiple tasks targeting the same upst
 - **Reactive eviction**: a transport-closed error from a tool call drops the entry so the next task respawns, instead of being handed back the same dead client.
 - **Proactive health check**: a background loop pings each idle cached client every `GATEWAY_TASK_MCP_CLIENT_CACHE_PING_INTERVAL` (default 60s, `0` disables). Failure or `GATEWAY_TASK_MCP_CLIENT_CACHE_PING_TIMEOUT` (default 5s) deadline-exceeded evicts the entry. Catches wedged subprocesses (event-loop deadlock, tight CPU loop) before the next real tool call hits the wall — reactive eviction only fires AFTER a call has already failed. In-use entries are never pinged (the active call's response would race with the ping reply on the same channel).
 - **Max-entries soft cap**: 256 by default (`GATEWAY_TASK_MCP_CLIENT_CACHE_MAX_ENTRIES`). On a fresh insert that would push the cache over the cap, the least-recently-used IDLE entry is evicted first. If every entry is in-use, the over-cap insert is allowed (rejecting an Acquire would break a legitimate run; TTL eviction catches up once anything goes idle). Set to `0` to disable the cap.
-- **Live snapshot**: `GET /admin/mcp/cache` returns the current `{entries, in_use, idle}` plus a `configured` boolean (false on deploys without a cache). Surfaced on the admin observability view alongside queue depth and worker count.
+- **Live snapshot**: `GET /hecate/v1/system/mcp/cache` returns the current `{entries, in_use, idle}` plus a `configured` boolean (false on deploys without a cache). Surfaced on the observability view alongside queue depth and worker count.
 - **HTTP-transport seam**: every HTTP MCP client the cache spawns shares one `*http.Client`. Default-constructed (5-minute timeout, Go's `http.DefaultTransport`) but overridable in code via `SharedClientCacheOptions.HTTPClient` for deploys that need a corporate proxy, mTLS, alternate `DialContext`, or different timeouts. Stdio servers ignore this; uncached pools (built via `NewPool` rather than `NewPoolWithCache`) keep the prior per-transport default.
-- **Dry-run probe**: `POST /v1/mcp/probe` brings a single MCP server up exactly the way a task would, calls `tools/list`, and returns the catalog without touching the cache. Lets operators confirm a config (and discover what tools an upstream vends) before committing it to a task. See [`runtime-api.md`](runtime-api.md#runtime-backend-and-queue-configuration) for the request/response shape.
+- **Dry-run probe**: `POST /hecate/v1/mcp/probe` brings a single MCP server up exactly the way a task would, calls `tools/list`, and returns the catalog without touching the cache. Lets operators confirm a config (and discover what tools an upstream vends) before committing it to a task. See [`runtime-api.md`](runtime-api.md#runtime-backend-and-queue-configuration) for the request/response shape.
 
 ### Resource limits
 

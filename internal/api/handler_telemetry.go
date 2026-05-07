@@ -12,10 +12,10 @@ import (
 	"github.com/hecate/agent-runtime/pkg/types"
 )
 
-// HandleTracesOrTrace dispatches /v1/traces requests: with a
+// HandleTracesOrTrace dispatches /hecate/v1/traces requests: with a
 // request_id query parameter it returns one trace; otherwise the recent
 // list. Single-user mode merges the historic tenant-readable mirror
-// path into the public /v1/traces surface.
+// path into the public /hecate/v1/traces surface.
 func (h *Handler) HandleTracesOrTrace(w http.ResponseWriter, r *http.Request) {
 	if strings.TrimSpace(r.URL.Query().Get("request_id")) != "" {
 		h.HandleTrace(w, r)

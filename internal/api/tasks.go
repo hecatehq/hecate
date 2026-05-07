@@ -83,7 +83,7 @@ type ContinueTaskRunRequest struct {
 }
 
 // RetryFromTurnRequest is the body for
-// POST /v1/tasks/{id}/runs/{run_id}/retry-from-turn — re-run an
+// POST /hecate/v1/tasks/{id}/runs/{run_id}/retry-from-turn — re-run an
 // agent_loop run starting at turn N with the prior conversation
 // context preserved up to (but not including) that turn's assistant
 // message. Turn must be >= 1 and <= the source run's completed
@@ -171,7 +171,7 @@ type TaskRunEventsResponse struct {
 	Data   []eventprotocol.Envelope `json:"data"`
 }
 
-// EventsResponse is the body of GET /v1/events — a paginated cross-run
+// EventsResponse is the body of GET /hecate/v1/events — a paginated cross-run
 // event feed.
 type EventsResponse struct {
 	Object string                   `json:"object"`

@@ -1,7 +1,7 @@
 # Chat sessions
 
 Hecate has two chat persistence surfaces today. The legacy
-`/v1/chat/sessions` subsystem stores SDK-style direct model conversations
+`/hecate/v1/chat/sessions` subsystem stores SDK-style direct model conversations
 against the gateway. It is *not* the agent runtime (see
 [agent-runtime.md](agent-runtime.md) for the `agent_loop` execution kind, which
 uses the word "turn" for a different concept). SDK clients hitting
@@ -14,7 +14,7 @@ Hecate-owned agent execution: the tools toggle decides whether a prompt stays
 as a direct provider/model turn or enters the native agent task runtime.
 
 The operator UI's **Hecate Chat** target now uses **Agent Chat** sessions under
-`/v1/agent-chat/sessions` for both tools-off direct model turns and tools-on
+`/hecate/v1/agent-chat/sessions` for both tools-off direct model turns and tools-on
 Hecate Agent turns. Those records can point at a runtime when tools are enabled,
 but they can also store direct model segments:
 
@@ -75,7 +75,7 @@ step/artifact/approval ids, tool kind, path, timestamp, and summary payload.
 
 ## Mental model
 
-This section covers the legacy `/v1/chat/sessions` storage model used by
+This section covers the legacy `/hecate/v1/chat/sessions` storage model used by
 SDK-style direct model conversations. The operator UI's current Hecate Chat
 target uses Agent Chat sessions as described above.
 
@@ -160,7 +160,7 @@ sequenceDiagram
     Note over Store: assigns monotonic sequence and writes both streams in one tx
     Store-->>Gateway: refreshed session
     Gateway-->>UI: response + headers
-    UI->>Gateway: GET /v1/chat/sessions/:id
+    UI->>Gateway: GET /hecate/v1/chat/sessions/:id
     Gateway-->>UI: messages + provider_calls
 ```
 
@@ -175,7 +175,7 @@ This handles three flows uniformly: first-turn, multi-turn replay, and tool-loop
 
 ## Wire shape
 
-`GET /v1/chat/sessions/{id}` returns:
+`GET /hecate/v1/chat/sessions/{id}` returns:
 
 ```json
 {
@@ -226,7 +226,7 @@ This handles three flows uniformly: first-turn, multi-turn replay, and tool-loop
 }
 ```
 
-The session-list endpoint (`GET /v1/chat/sessions`) returns a leaner summary per session: `message_count`, `provider_call_count`, and the most-recent call's `last_model` / `last_provider` / `last_cost_usd` / `last_request_id`. It does not include message bodies.
+The session-list endpoint (`GET /hecate/v1/chat/sessions`) returns a leaner summary per session: `message_count`, `provider_call_count`, and the most-recent call's `last_model` / `last_provider` / `last_cost_usd` / `last_request_id`. It does not include message bodies.
 
 `content_blocks` and `tool_error` are Hecate extensions to the OpenAI-compat `OpenAIChatMessage` shape. They are emitted on session-fetch responses and consumed on inbound chat-completion requests when the UI replays history. SDK clients hitting the public `/v1/chat/completions` proxy don't need to know about them — the fields are `omitempty` on the wire and the canonical `Message` is the lingua franca either way.
 

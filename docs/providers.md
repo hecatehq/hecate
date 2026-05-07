@@ -12,7 +12,7 @@ Hecate uses a vendor-neutral provider layer at the runtime boundary. It treats O
 - [Adding a provider](#adding-a-provider)
 - [Built-in presets](#built-in-presets)
 - [Env-configured providers](#env-configured-providers)
-- [Control-plane API](#control-plane-api)
+- [Settings API](#settings-api)
 - [Health and circuit breaking](#health-and-circuit-breaking)
 
 ## Providers vs. clients
@@ -54,7 +54,7 @@ HTTP endpoint once. The preset cards then show:
 `llamacpp` and `localai` share `127.0.0.1:8080` by default, so Hecate sends one
 HTTP request and reuses that result for both cards. The signal is advisory:
 adding the provider still uses the configured endpoint URL, and routing health
-continues to come from the normal `/admin/providers` probes.
+continues to come from the normal `/hecate/v1/providers/status` probes.
 
 A provider you add is immediately routable. There is no separate enable/disable toggle — to take a provider out of rotation, delete it.
 
@@ -126,19 +126,19 @@ provider-specific endpoint layout: Hecate sends chat traffic to
 fields such as `citations` and `search_results` are not forwarded yet; the
 normalized assistant text, model, and token usage are.
 
-## Control-plane API
+## Settings API
 
-Every UI action maps to a control-plane endpoint:
+Every UI action maps to a Hecate-native settings endpoint:
 
-- `POST /admin/control-plane/providers` — add a provider. Body `{name, kind, protocol, base_url?, api_key?, custom_name?, preset_id?}`.
-- `GET /admin/control-plane/providers/local-discovery` — probe local presets
+- `POST /hecate/v1/settings/providers` — add a provider. Body `{name, kind, protocol, base_url?, api_key?, custom_name?, preset_id?}`.
+- `GET /hecate/v1/settings/providers/local-discovery` — probe local presets
   for command presence and default endpoint availability. Used by the Add
   provider modal before a provider is created.
-- `DELETE /admin/control-plane/providers/{id}` — remove it.
-- `PATCH /admin/control-plane/providers/{id}` — partial update; accepts `base_url`, `name`, and `custom_name`.
-- `PUT /admin/control-plane/providers/{id}/api-key` — set the API key (empty `key` clears it).
+- `DELETE /hecate/v1/settings/providers/{id}` — remove it.
+- `PATCH /hecate/v1/settings/providers/{id}` — partial update; accepts `base_url`, `name`, and `custom_name`.
+- `PUT /hecate/v1/settings/providers/{id}/api-key` — set the API key (empty `key` clears it).
 
-The full surface lives in [`internal/api/handler_controlplane.go`](../internal/api/handler_controlplane.go). Useful for terraforming a fleet of gateways from a single config source of truth.
+The full surface lives in [`runtime-api.md`](runtime-api.md) and is implemented in [`internal/api/handler_controlplane.go`](../internal/api/handler_controlplane.go). Useful for terraforming a fleet of gateways from a single config source of truth.
 
 ## Health and circuit breaking
 
@@ -148,7 +148,7 @@ When `GATEWAY_PROVIDER_HEALTH_LATENCY_DEGRADED_THRESHOLD` is set to a positive d
 
 Within the same health tier, the router now also prefers the more stable provider: fewer recent retryable failures, fewer rate limits/timeouts/server errors, then lower observed latency. When a healthy candidate loses on that dimension, route diagnostics surface it as `provider_less_stable` instead of silently dropping it from the route report.
 
-The current snapshot lives at `GET /admin/providers`. A short persisted event history now also lives at `GET /admin/providers/history`, with optional `provider` and `limit` query params. History rows are operator-facing state transitions such as:
+The current snapshot lives at `GET /hecate/v1/providers/status`. A short persisted event history now also lives at `GET /hecate/v1/providers/history`, with optional `provider` and `limit` query params. History rows are operator-facing state transitions such as:
 
 - `success`
 - `slow_success`
@@ -173,7 +173,7 @@ Failover rows now also capture:
 The history store is configurable with:
 
 - `GATEWAY_PROVIDER_HISTORY_BACKEND` — `memory` or `sqlite`
-- `GATEWAY_PROVIDER_HISTORY_LIMIT` — default page size for `/admin/providers/history`
+- `GATEWAY_PROVIDER_HISTORY_LIMIT` — default page size for `/hecate/v1/providers/history`
 
 The Providers tab shows the current state on each card:
 
@@ -184,7 +184,7 @@ The Providers tab shows the current state on each card:
 
 Health state is in-process and resets on restart by design — durable health tracking would re-include known-broken upstreams that recovered while the gateway was down.
 
-`GET /admin/providers` is the operator diagnostics surface for provider
+`GET /hecate/v1/providers/status` is the operator diagnostics surface for provider
 readiness. In addition to raw health and discovery fields, each provider
 returns:
 

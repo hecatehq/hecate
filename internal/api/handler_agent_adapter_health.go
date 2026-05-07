@@ -26,7 +26,7 @@ func (h *Handler) SetAgentAdapterProbe(p AgentAdapterProbe) {
 // `not_installed` / `auth_required` / `error` — drives the operator
 // UI's status chips and "why doesn't this work" diagnostics.
 //
-// GET /v1/agent-adapters/{id}/health
+// GET /hecate/v1/agent-adapters/{id}/health
 //
 // Status codes:
 //   - 200 OK with the typed ProbeResult on every classification,

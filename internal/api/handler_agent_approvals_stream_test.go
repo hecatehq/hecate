@@ -20,7 +20,7 @@ import (
 
 // ─── SSE event capture ───────────────────────────────────────────────────────
 //
-// The runtime publishes typed envelopes on /v1/agent-chat/sessions/{id}/stream.
+// The runtime publishes typed envelopes on /hecate/v1/agent-chat/sessions/{id}/stream.
 // These tests connect a real HTTP client, parse the SSE frames, and assert
 // approval.requested / approval.resolved arrive when the coordinator drives
 // each terminal path (operator approve / cancel / timeout / grant short-circuit
@@ -43,7 +43,7 @@ type streamCollector struct {
 func startStreamCollector(t *testing.T, baseURL, sessionID string) *streamCollector {
 	t.Helper()
 	ctx, cancel := context.WithCancel(context.Background())
-	url := fmt.Sprintf("%s/v1/agent-chat/sessions/%s/stream", baseURL, sessionID)
+	url := fmt.Sprintf("%s/hecate/v1/agent-chat/sessions/%s/stream", baseURL, sessionID)
 	req, err := http.NewRequestWithContext(ctx, http.MethodGet, url, nil)
 	if err != nil {
 		cancel()
@@ -185,7 +185,7 @@ func TestSSEPublishesApprovalRequestedAndResolvedOnOperatorApprove(t *testing.T)
 	// Resolve via HTTP. The coordinator publishes approval.resolved
 	// from the OnResolved hook fired inside Resolve.
 	httpResp := postJSONApprovalEndpoint(t,
-		f.server.URL+"/v1/agent-chat/sessions/s/approvals/"+reqPayload.ApprovalID+"/resolve",
+		f.server.URL+"/hecate/v1/agent-chat/sessions/s/approvals/"+reqPayload.ApprovalID+"/resolve",
 		`{"decision":"approve","scope":"once"}`)
 	httpResp.Body.Close()
 	if httpResp.StatusCode != http.StatusOK {
@@ -233,7 +233,7 @@ func TestSSEPublishesResolvedOnOperatorCancel(t *testing.T) {
 	_ = json.Unmarshal([]byte(requested.Data), &reqPayload)
 
 	httpResp := postJSONApprovalEndpoint(t,
-		f.server.URL+"/v1/agent-chat/sessions/s/approvals/"+reqPayload.ApprovalID+"/cancel", "")
+		f.server.URL+"/hecate/v1/agent-chat/sessions/s/approvals/"+reqPayload.ApprovalID+"/cancel", "")
 	httpResp.Body.Close()
 
 	resolved := stream.awaitFrame(t, "approval.resolved", 2*time.Second)
@@ -392,7 +392,7 @@ func TestSSEResolveViaHTTPPublishesExactlyOneResolvedEvenWithActiveWaiter(t *tes
 	_ = json.Unmarshal([]byte(requested.Data), &reqPayload)
 
 	httpResp := postJSONApprovalEndpoint(t,
-		f.server.URL+"/v1/agent-chat/sessions/s/approvals/"+reqPayload.ApprovalID+"/resolve",
+		f.server.URL+"/hecate/v1/agent-chat/sessions/s/approvals/"+reqPayload.ApprovalID+"/resolve",
 		`{"decision":"approve","scope":"once"}`)
 	httpResp.Body.Close()
 
@@ -439,7 +439,7 @@ func TestSSEResolveVsTimeoutPublishesExactlyOneResolved(t *testing.T) {
 	// publishes; the loser must suppress.
 	go func() {
 		httpResp := postJSONApprovalEndpoint(t,
-			f.server.URL+"/v1/agent-chat/sessions/s/approvals/"+reqPayload.ApprovalID+"/resolve",
+			f.server.URL+"/hecate/v1/agent-chat/sessions/s/approvals/"+reqPayload.ApprovalID+"/resolve",
 			`{"decision":"approve","scope":"once"}`)
 		httpResp.Body.Close()
 	}()

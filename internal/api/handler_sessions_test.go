@@ -18,10 +18,10 @@ func TestHandleChatSessionsListReturnsCreatedSessionsWithSummary(t *testing.T) {
 	client := newAPITestClient(t, handler)
 
 	// Seed two sessions so the list reports both, in newest-first order.
-	first := mustRequestJSON[ChatSessionResponse](client, http.MethodPost, "/v1/chat/sessions", `{"title":"Session one"}`)
-	second := mustRequestJSON[ChatSessionResponse](client, http.MethodPost, "/v1/chat/sessions", `{"title":"Session two"}`)
+	first := mustRequestJSON[ChatSessionResponse](client, http.MethodPost, "/hecate/v1/chat/sessions", `{"title":"Session one"}`)
+	second := mustRequestJSON[ChatSessionResponse](client, http.MethodPost, "/hecate/v1/chat/sessions", `{"title":"Session two"}`)
 
-	listed := mustRequestJSON[ChatSessionsResponse](client, http.MethodGet, "/v1/chat/sessions", "")
+	listed := mustRequestJSON[ChatSessionsResponse](client, http.MethodGet, "/hecate/v1/chat/sessions", "")
 	if listed.Object != "chat_sessions" {
 		t.Errorf("object = %q, want chat_sessions", listed.Object)
 	}
@@ -49,9 +49,9 @@ func TestHandleChatSessionsHonoursLimitAndHasMore(t *testing.T) {
 
 	// Seed three sessions and ask for two — has_more must be true.
 	for i := 0; i < 3; i++ {
-		client.mustRequest(http.MethodPost, "/v1/chat/sessions", `{"title":"x"}`)
+		client.mustRequest(http.MethodPost, "/hecate/v1/chat/sessions", `{"title":"x"}`)
 	}
-	listed := mustRequestJSON[ChatSessionsResponse](client, http.MethodGet, "/v1/chat/sessions?limit=2", "")
+	listed := mustRequestJSON[ChatSessionsResponse](client, http.MethodGet, "/hecate/v1/chat/sessions?limit=2", "")
 	if len(listed.Data) != 2 {
 		t.Fatalf("data length = %d, want 2", len(listed.Data))
 	}
@@ -67,7 +67,7 @@ func TestHandleChatSessionsRejectsBadLimit(t *testing.T) {
 
 	// Negative and non-numeric limits both 400 — same branch handles both.
 	for _, q := range []string{"limit=-1", "limit=abc"} {
-		rec := client.mustRequestStatus(http.StatusBadRequest, http.MethodGet, "/v1/chat/sessions?"+q, "")
+		rec := client.mustRequestStatus(http.StatusBadRequest, http.MethodGet, "/hecate/v1/chat/sessions?"+q, "")
 		if msg := decodeErrorMessage(t, rec.Body.Bytes()); !strings.Contains(msg, "limit query parameter") {
 			t.Errorf("limit=%q error = %q, want limit-related 400", q, msg)
 		}
@@ -79,7 +79,7 @@ func TestHandleChatSessionsRejectsBadOffset(t *testing.T) {
 	handler := newTestHTTPHandler(slog.New(slog.NewJSONHandler(io.Discard, nil)), &fakeProvider{name: "openai"})
 	client := newAPITestClient(t, handler)
 
-	rec := client.mustRequestStatus(http.StatusBadRequest, http.MethodGet, "/v1/chat/sessions?offset=-5", "")
+	rec := client.mustRequestStatus(http.StatusBadRequest, http.MethodGet, "/hecate/v1/chat/sessions?offset=-5", "")
 	if msg := decodeErrorMessage(t, rec.Body.Bytes()); !strings.Contains(msg, "offset query parameter") {
 		t.Errorf("error = %q, want offset-related 400", msg)
 	}
@@ -91,20 +91,20 @@ func TestHandleDeleteChatSessionRemovesFromStore(t *testing.T) {
 	handler := newTestHTTPHandler(slog.New(slog.NewJSONHandler(io.Discard, nil)), &fakeProvider{name: "openai"})
 	client := newAPITestClient(t, handler)
 
-	created := mustRequestJSON[ChatSessionResponse](client, http.MethodPost, "/v1/chat/sessions", `{"title":"To delete"}`)
+	created := mustRequestJSON[ChatSessionResponse](client, http.MethodPost, "/hecate/v1/chat/sessions", `{"title":"To delete"}`)
 	id := created.Data.ID
 
 	// GET pre-delete: 200.
-	client.mustRequest(http.MethodGet, "/v1/chat/sessions/"+id, "")
+	client.mustRequest(http.MethodGet, "/hecate/v1/chat/sessions/"+id, "")
 
 	// DELETE: must be 204 No Content (no body).
-	rec := client.mustRequestStatus(http.StatusNoContent, http.MethodDelete, "/v1/chat/sessions/"+id, "")
+	rec := client.mustRequestStatus(http.StatusNoContent, http.MethodDelete, "/hecate/v1/chat/sessions/"+id, "")
 	if body := rec.Body.String(); body != "" {
 		t.Errorf("DELETE body = %q, want empty", body)
 	}
 
 	// GET post-delete: 404.
-	client.mustRequestStatus(http.StatusNotFound, http.MethodGet, "/v1/chat/sessions/"+id, "")
+	client.mustRequestStatus(http.StatusNotFound, http.MethodGet, "/hecate/v1/chat/sessions/"+id, "")
 }
 
 func TestHandleDeleteChatSessionMissingIdReturns404(t *testing.T) {
@@ -113,12 +113,12 @@ func TestHandleDeleteChatSessionMissingIdReturns404(t *testing.T) {
 	client := newAPITestClient(t, handler)
 
 	// Unknown id resolves through GetChatSession → not found.
-	client.mustRequestStatus(http.StatusNotFound, http.MethodDelete, "/v1/chat/sessions/sess_does_not_exist", "")
+	client.mustRequestStatus(http.StatusNotFound, http.MethodDelete, "/hecate/v1/chat/sessions/sess_does_not_exist", "")
 }
 
 // TestHandleTracesListsRecordedTraces creates a chat request (which
 // records a trace) and verifies HandleTraces lists it with the
-// route-report metadata. The /admin/traces endpoint is what the
+// route-report metadata. The /hecate/v1/traces endpoint is what the
 // observability dashboard polls; a regression that breaks the list
 // hides historical traces from operators investigating an incident.
 func TestHandleTracesListsRecordedTraces(t *testing.T) {
@@ -145,7 +145,7 @@ func TestHandleTracesListsRecordedTraces(t *testing.T) {
 	// route-report rendering.
 	client.mustRequest(http.MethodPost, "/v1/chat/completions", `{"model":"gpt-4o-mini","messages":[{"role":"user","content":"hi"}]}`)
 
-	listed := mustRequestJSON[TraceListResponse](client, http.MethodGet, "/admin/traces", "")
+	listed := mustRequestJSON[TraceListResponse](client, http.MethodGet, "/hecate/v1/traces", "")
 	if listed.Object != "list" {
 		t.Errorf("object = %q, want list", listed.Object)
 	}
@@ -171,7 +171,7 @@ func TestHandleTracesHonoursLimitClamp(t *testing.T) {
 	// falls back to the default 50. Verify the request still 200s — the
 	// alternative would be that callers passing a too-large limit see
 	// 400 noise in their logs for what's a benign over-ask.
-	rec := client.mustRequest(http.MethodGet, "/admin/traces?limit=999", "")
+	rec := client.mustRequest(http.MethodGet, "/hecate/v1/traces?limit=999", "")
 	if got := rec.Header().Get("Content-Type"); got != "application/json" {
 		t.Errorf("Content-Type = %q, want application/json", got)
 	}

@@ -42,7 +42,7 @@ own the `hecate-acp` bridge process.
 Check discovery:
 
 ```sh
-curl -s http://127.0.0.1:8765/v1/agent-adapters | jq
+curl -s http://127.0.0.1:8765/hecate/v1/agent-adapters | jq
 ```
 
 Discovery reports command availability, tested version range, and lightweight
@@ -53,7 +53,7 @@ full spawn + ACP handshake + no-op session check:
 ![Settings → External agents — adapter readiness checks and durable approval grants](screenshots/settings-external-agents.png)
 
 ```sh
-curl -X POST http://127.0.0.1:8765/v1/agent-adapters/codex/probe | jq
+curl -X POST http://127.0.0.1:8765/hecate/v1/agent-adapters/codex/probe | jq
 ```
 
 For Codex and Claude, Hecate does not require `codex-acp` or
@@ -74,7 +74,7 @@ stale managed-launcher scripts at startup when their adapter no longer exists.
 To force-refresh one managed launcher after changing Node/npm managers:
 
 ```sh
-curl -X POST http://127.0.0.1:8765/v1/agent-adapters/codex/refresh-launcher | jq
+curl -X POST http://127.0.0.1:8765/hecate/v1/agent-adapters/codex/refresh-launcher | jq
 ```
 
 ## Setup checks
@@ -87,7 +87,7 @@ package runner to be visible to Hecate.
 
 ```sh
 command -v npx
-curl -s http://127.0.0.1:8765/v1/agent-adapters | jq '.data[] | select(.id=="codex")'
+curl -s http://127.0.0.1:8765/hecate/v1/agent-adapters | jq '.data[] | select(.id=="codex")'
 ```
 
 If `available` is true, Hecate can start Codex ACP. The first run may fetch and
@@ -102,7 +102,7 @@ common operator locations such as Volta, mise/asdf shims, Homebrew, and
 
 ```sh
 command -v npx
-curl -s http://127.0.0.1:8765/v1/agent-adapters | jq '.data[] | select(.id=="claude_code")'
+curl -s http://127.0.0.1:8765/hecate/v1/agent-adapters | jq '.data[] | select(.id=="claude_code")'
 ```
 
 If `available` is true, Hecate can start Claude ACP. The first run may fetch and
@@ -196,7 +196,7 @@ the same release step and then removes the persisted history.
 
 Every prompt also gets OTel-shaped observability. The message response includes
 `request_id`, `trace_id`, and `span_id`, and `GET
-/v1/traces?request_id=<request_id>` shows the `agent_chat.run` span with adapter
+/hecate/v1/traces?request_id=<request_id>` shows the `agent_chat.run` span with adapter
 identity, workspace, status, duration, output byte counts, and diff-capture
 state. Approval gating adds two more spans:
 `agent_adapter.approval.request` covers the coordinator's decision (grant
@@ -207,7 +207,7 @@ path with `decision` and `scope` attributes.
 
 Durable approval grants are part of the Agent Chat SQLite bundle. When
 `GATEWAY_CHAT_SESSIONS_BACKEND=sqlite`, grants survive gateway restarts and are
-listed from `GET /v1/agent-chat/grants`; the operator can revoke them from
+listed from `GET /hecate/v1/agent-chat/grants`; the operator can revoke them from
 Settings → External agents. Pending approvals from a dead process are not
 replayed as actionable prompts — startup reconcile marks them `timed_out` with
 `path=startup_reconcile` before the gateway accepts traffic.
@@ -223,7 +223,7 @@ replayed as actionable prompts — startup reconcile marks them `timed_out` with
 
 - `prompt` (default) — the gateway records a pending row and waits for an
   operator decision via the Chats workspace banner / modal or the
-  `/v1/agent-chat/sessions/{id}/approvals` REST surface. Without an operator
+  `/hecate/v1/agent-chat/sessions/{id}/approvals` REST surface. Without an operator
   reviewing within `GATEWAY_AGENT_ADAPTER_APPROVAL_TIMEOUT` (default 5m), the
   approval times out and the adapter receives ACP `Cancelled`.
 - `auto` — every adapter request is permitted without review. Surfaces a red
@@ -246,7 +246,7 @@ request in a new chat will block for the full timeout and then surface as
 
 `GATEWAY_AGENT_CHAT_MAX_TURNS_PER_SESSION` caps the number of user→assistant
 round-trips per agent-chat session. When a session reaches the ceiling,
-`POST /v1/agent-chat/sessions/{id}/messages` returns HTTP 422:
+`POST /hecate/v1/agent-chat/sessions/{id}/messages` returns HTTP 422:
 
 ```json
 {
@@ -283,7 +283,7 @@ into invisible background processes:
 | `GATEWAY_AGENT_CHAT_IDLE_TIMEOUT=1h` | Auto-close idle sessions after 1 hour without updates |
 
 When the wall-clock limit is exceeded, `POST
-/v1/agent-chat/sessions/{id}/messages` returns HTTP 422 with
+/hecate/v1/agent-chat/sessions/{id}/messages` returns HTTP 422 with
 `agent_chat.session_duration_limit_exceeded`.
 
 When the idle limit is exceeded, the background sweeper cancels the session,

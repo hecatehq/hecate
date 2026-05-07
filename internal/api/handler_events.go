@@ -13,7 +13,7 @@ import (
 	"github.com/hecate/agent-runtime/internal/taskstate"
 )
 
-// HandleEvents serves GET /v1/events — a paginated cross-run feed of
+// HandleEvents serves GET /hecate/v1/events — a paginated cross-run feed of
 // task events. Useful for external dashboards (Grafana, Slack
 // notifiers, audit log shippers) that want a single subscription
 // rather than per-run polling.
@@ -57,7 +57,7 @@ func (h *Handler) HandleEvents(w http.ResponseWriter, r *http.Request) {
 	})
 }
 
-// HandleEventsStream serves GET /v1/events/stream — a long-lived SSE
+// HandleEventsStream serves GET /hecate/v1/events/stream — a long-lived SSE
 // connection that flushes new events as they're appended. Each
 // message is one event; the SSE `id` field is the event sequence so
 // reconnects via `Last-Event-ID` are seamless.

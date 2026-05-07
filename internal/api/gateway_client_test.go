@@ -1593,9 +1593,9 @@ func TestGatewayTraceEndpointShowsRequestSpans(t *testing.T) {
 	}
 
 	// Query the trace endpoint.
-	traceResp, err := http.Get(srv.URL + "/v1/traces?request_id=" + requestID)
+	traceResp, err := http.Get(srv.URL + "/hecate/v1/traces?request_id=" + requestID)
 	if err != nil {
-		t.Fatalf("GET /v1/traces error = %v", err)
+		t.Fatalf("GET /hecate/v1/traces error = %v", err)
 	}
 	raw := readBody(t, traceResp)
 	if traceResp.StatusCode != http.StatusOK {
@@ -1696,9 +1696,9 @@ func TestGatewayTraceEndpointShowsSkippedRouteCandidate(t *testing.T) {
 		t.Fatal("X-Request-Id = empty, cannot query trace")
 	}
 
-	traceResp, err := http.Get(srv.URL + "/v1/traces?request_id=" + requestID)
+	traceResp, err := http.Get(srv.URL + "/hecate/v1/traces?request_id=" + requestID)
 	if err != nil {
-		t.Fatalf("GET /v1/traces error = %v", err)
+		t.Fatalf("GET /hecate/v1/traces error = %v", err)
 	}
 	traceRaw := readBody(t, traceResp)
 	if traceResp.StatusCode != http.StatusOK {
@@ -1762,9 +1762,9 @@ func TestGatewayTraceEndpointShowsPolicyDeniedRouteCandidate(t *testing.T) {
 		t.Fatal("X-Request-Id = empty, cannot query trace")
 	}
 
-	traceResp, err := http.Get(srv.URL + "/v1/traces?request_id=" + requestID)
+	traceResp, err := http.Get(srv.URL + "/hecate/v1/traces?request_id=" + requestID)
 	if err != nil {
-		t.Fatalf("GET /v1/traces error = %v", err)
+		t.Fatalf("GET /hecate/v1/traces error = %v", err)
 	}
 	traceRaw := readBody(t, traceResp)
 	if traceResp.StatusCode != http.StatusOK {
@@ -1825,9 +1825,9 @@ func TestGatewayTraceEndpointShowsConfiguredRouteModePolicyMetadata(t *testing.T
 		t.Fatalf("chat status = %d, want 403, body=%s", chatResp.StatusCode, raw)
 	}
 
-	traceResp, err := http.Get(srv.URL + "/v1/traces?request_id=" + requestID)
+	traceResp, err := http.Get(srv.URL + "/hecate/v1/traces?request_id=" + requestID)
 	if err != nil {
-		t.Fatalf("GET /v1/traces error = %v", err)
+		t.Fatalf("GET /hecate/v1/traces error = %v", err)
 	}
 	traceRaw := readBody(t, traceResp)
 	if traceResp.StatusCode != http.StatusOK {
@@ -1899,9 +1899,9 @@ func TestGatewayTraceEndpointShowsRewritePolicyMetadata(t *testing.T) {
 		t.Fatalf("chat status = %d, want 200, body=%s", chatResp.StatusCode, raw)
 	}
 
-	traceResp, err := http.Get(srv.URL + "/v1/traces?request_id=" + requestID)
+	traceResp, err := http.Get(srv.URL + "/hecate/v1/traces?request_id=" + requestID)
 	if err != nil {
-		t.Fatalf("GET /v1/traces error = %v", err)
+		t.Fatalf("GET /hecate/v1/traces error = %v", err)
 	}
 	traceRaw := readBody(t, traceResp)
 	if traceResp.StatusCode != http.StatusOK {
@@ -1978,9 +1978,9 @@ func TestGatewayTraceEndpointShowsBudgetDeniedRouteCandidate(t *testing.T) {
 		t.Fatal("X-Request-Id = empty, cannot query trace")
 	}
 
-	traceResp, err := http.Get(srv.URL + "/v1/traces?request_id=" + requestID)
+	traceResp, err := http.Get(srv.URL + "/hecate/v1/traces?request_id=" + requestID)
 	if err != nil {
-		t.Fatalf("GET /v1/traces error = %v", err)
+		t.Fatalf("GET /hecate/v1/traces error = %v", err)
 	}
 	traceRaw := readBody(t, traceResp)
 	if traceResp.StatusCode != http.StatusOK {
@@ -2006,7 +2006,7 @@ func TestGatewayTraceEndpointShowsBudgetDeniedRouteCandidate(t *testing.T) {
 }
 
 // TestClaudeCodeClientTraceEndpointShowsAnthropicRequest verifies that a
-// /v1/messages request is also traceable via the GET /v1/traces endpoint.
+// /v1/messages request is also traceable via the GET /hecate/v1/traces endpoint.
 func TestClaudeCodeClientTraceEndpointShowsAnthropicRequest(t *testing.T) {
 	t.Parallel()
 
@@ -2041,9 +2041,9 @@ func TestClaudeCodeClientTraceEndpointShowsAnthropicRequest(t *testing.T) {
 		t.Fatal("X-Request-Id = empty on /v1/messages response")
 	}
 
-	traceResp, err := http.Get(srv.URL + "/v1/traces?request_id=" + requestID)
+	traceResp, err := http.Get(srv.URL + "/hecate/v1/traces?request_id=" + requestID)
 	if err != nil {
-		t.Fatalf("GET /v1/traces error = %v", err)
+		t.Fatalf("GET /hecate/v1/traces error = %v", err)
 	}
 	raw := readBody(t, traceResp)
 	if traceResp.StatusCode != http.StatusOK {

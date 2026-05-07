@@ -13,7 +13,7 @@ import (
 // HandleListAgentChatApprovals lists approvals for a chat session.
 // Filterable by status via ?status=pending. Returns oldest-first.
 //
-// GET /v1/agent-chat/sessions/{id}/approvals[?status=pending]
+// GET /hecate/v1/agent-chat/sessions/{id}/approvals[?status=pending]
 func (h *Handler) HandleListAgentChatApprovals(w http.ResponseWriter, r *http.Request) {
 	ctx := r.Context()
 	sessionID := strings.TrimSpace(r.PathValue("id"))
@@ -48,7 +48,7 @@ func (h *Handler) HandleListAgentChatApprovals(w http.ResponseWriter, r *http.Re
 
 // HandleGetAgentChatApproval returns a single approval row.
 //
-// GET /v1/agent-chat/sessions/{id}/approvals/{approval_id}
+// GET /hecate/v1/agent-chat/sessions/{id}/approvals/{approval_id}
 func (h *Handler) HandleGetAgentChatApproval(w http.ResponseWriter, r *http.Request) {
 	ctx := r.Context()
 	sessionID := strings.TrimSpace(r.PathValue("id"))
@@ -82,7 +82,7 @@ func (h *Handler) HandleGetAgentChatApproval(w http.ResponseWriter, r *http.Requ
 //   - 404 not_found: unknown approval id
 //   - 409 conflict: already_resolved | ambiguous_option | no_matching_option
 //
-// POST /v1/agent-chat/sessions/{id}/approvals/{approval_id}/resolve
+// POST /hecate/v1/agent-chat/sessions/{id}/approvals/{approval_id}/resolve
 func (h *Handler) HandleResolveAgentChatApproval(w http.ResponseWriter, r *http.Request) {
 	ctx := r.Context()
 	sessionID := strings.TrimSpace(r.PathValue("id"))
@@ -124,7 +124,7 @@ func (h *Handler) HandleResolveAgentChatApproval(w http.ResponseWriter, r *http.
 // HandleCancelAgentChatApproval cancels a pending approval (operator
 // declines to decide; ACP Cancelled outcome).
 //
-// POST /v1/agent-chat/sessions/{id}/approvals/{approval_id}/cancel
+// POST /hecate/v1/agent-chat/sessions/{id}/approvals/{approval_id}/cancel
 func (h *Handler) HandleCancelAgentChatApproval(w http.ResponseWriter, r *http.Request) {
 	ctx := r.Context()
 	sessionID := strings.TrimSpace(r.PathValue("id"))
@@ -156,7 +156,7 @@ func (h *Handler) HandleCancelAgentChatApproval(w http.ResponseWriter, r *http.R
 // HandleListAgentChatGrants returns persisted "always allow / always
 // deny" grants. Filterable by adapter_id and scope.
 //
-// GET /v1/agent-chat/grants[?adapter_id=&scope=]
+// GET /hecate/v1/agent-chat/grants[?adapter_id=&scope=]
 func (h *Handler) HandleListAgentChatGrants(w http.ResponseWriter, r *http.Request) {
 	ctx := r.Context()
 	coord := h.agentApprovalCoordinator()
@@ -183,7 +183,7 @@ func (h *Handler) HandleListAgentChatGrants(w http.ResponseWriter, r *http.Reque
 
 // HandleDeleteAgentChatGrant revokes a grant by id.
 //
-// DELETE /v1/agent-chat/grants/{grant_id}
+// DELETE /hecate/v1/agent-chat/grants/{grant_id}
 func (h *Handler) HandleDeleteAgentChatGrant(w http.ResponseWriter, r *http.Request) {
 	ctx := r.Context()
 	grantID := strings.TrimSpace(r.PathValue("grant_id"))

@@ -7,8 +7,8 @@ export default defineConfig({
     port: 5173,
     proxy: {
       "/healthz": "http://127.0.0.1:8765",
+      "/hecate": "http://127.0.0.1:8765",
       "/v1": "http://127.0.0.1:8765",
-      "/admin": "http://127.0.0.1:8765",
     },
   },
 });

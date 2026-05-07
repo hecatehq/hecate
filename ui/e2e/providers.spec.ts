@@ -90,9 +90,9 @@ test("duplicate preset prompts for custom name but still blocks duplicate endpoi
     return src.toLowerCase().replace(/[^a-z0-9]+/g, "-").replace(/^-+|-+$/g, "");
   };
 
-  await page.route("/admin/control-plane*", async route => {
+  await page.route("/hecate/v1/settings*", async route => {
     const url = route.request().url();
-    if (url.includes("/admin/control-plane/providers")) {
+    if (url.includes("/hecate/v1/settings/providers")) {
       await route.fallback();
       return;
     }
@@ -100,7 +100,7 @@ test("duplicate preset prompts for custom name but still blocks duplicate endpoi
       body: JSON.stringify({ object: "configured_state", data: { providers: created, tenants: [], api_keys: [], policy_rules: [] } }) });
   });
 
-  await page.route("/admin/control-plane/providers", async route => {
+  await page.route("/hecate/v1/settings/providers", async route => {
     if (route.request().method() !== "POST") {
       await route.fallback();
       return;
@@ -155,7 +155,7 @@ test("conflict response surfaces the inline error inside the modal", async ({ pa
   // Override the create route to return 409 unconditionally — the stateful
   // fixture would only return 409 on a real duplicate, and we want to pin
   // the inline-error path without juggling two adds.
-  await page.route("/admin/control-plane/providers", route => {
+  await page.route("/hecate/v1/settings/providers", route => {
     if (route.request().method() === "POST") {
       route.fulfill({
         status: 409,
@@ -188,7 +188,7 @@ test("deleting a provider removes its row after confirmation", async ({ context 
   populated.on("dialog", d => void d.accept());
 
   let deleteCalled = false;
-  await populated.route("/admin/control-plane/providers/anthropic", async route => {
+  await populated.route("/hecate/v1/settings/providers/anthropic", async route => {
     if (route.request().method() === "DELETE") {
       deleteCalled = true;
     }
@@ -217,7 +217,7 @@ test("editing the custom name PATCHes /providers/{id} with the new custom_name",
   await populated.waitForSelector("text=Cloud providers");
 
   let patchBody = "";
-  await populated.route("/admin/control-plane/providers/anthropic", async route => {
+  await populated.route("/hecate/v1/settings/providers/anthropic", async route => {
     if (route.request().method() === "PATCH") {
       patchBody = route.request().postData() ?? "";
     }
@@ -245,7 +245,7 @@ test("editing a local endpoint URL PATCHes /providers/{id} with the new base_url
   await populated.waitForSelector("text=Local inference");
 
   let patchBody = "";
-  await populated.route("/admin/control-plane/providers/ollama", async route => {
+  await populated.route("/hecate/v1/settings/providers/ollama", async route => {
     if (route.request().method() === "PATCH") {
       patchBody = route.request().postData() ?? "";
     }

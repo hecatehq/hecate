@@ -190,13 +190,13 @@ func (h *Handler) writeRuntimeStats(w http.ResponseWriter, ctx context.Context) 
 }
 
 // HandleMCPProbe is the dry-run discovery endpoint for MCP server
-// configs. POST /v1/mcp/probe accepts a single MCPServerConfig-shaped
+// configs. POST /hecate/v1/mcp/probe accepts a single MCPServerConfig-shaped
 // body, brings the server up exactly the way an agent_loop run would
 // (same secret resolution, same uncached spawn path), calls
 // tools/list, and tears it down. Returns the upstream's tool catalog
 // so operators can confirm a config before committing it to a task.
 //
-// Auth matches POST /v1/tasks (requireAny): if a principal can create
+// Auth matches POST /hecate/v1/tasks (requireAny): if a principal can create
 // a task with mcp_servers configured, it can probe with the same
 // config. Both paths exec the same arbitrary command; probe just
 // returns earlier.

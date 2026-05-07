@@ -840,7 +840,7 @@ type RuntimeStatsResponseItem struct {
 	AgentAdapterApprovalMode string `json:"agent_adapter_approval_mode,omitempty"`
 }
 
-// MCPProbeRequest is the wire shape for POST /v1/mcp/probe — a
+// MCPProbeRequest is the wire shape for POST /hecate/v1/mcp/probe — a
 // dry-run that brings an MCP server up exactly the way an
 // agent_loop run would (same secret resolution, same uncached
 // spawn path), calls tools/list, and tears it down. Lets operators
@@ -885,7 +885,7 @@ type MCPProbeToolDescriptor struct {
 	InputSchema json.RawMessage `json:"input_schema,omitempty"`
 }
 
-// MCPCacheStatsResponse is the wire shape for GET /admin/mcp/cache.
+// MCPCacheStatsResponse is the wire shape for GET /hecate/v1/system/mcp/cache.
 // Surfaces the SharedClientCache snapshot — entries / in-use / idle —
 // so operators can answer "is the cache doing useful work?" without
 // scraping OTLP. Configured indicates whether a cache is wired at all
@@ -1157,16 +1157,7 @@ type ControlPlaneProviderUpsertRequest struct {
 
 type ControlPlanePolicyRuleUpsertRequest = ControlPlanePolicyRuleRecord
 
-type ControlPlanePolicyRuleLifecycleRequest struct {
-	ID string `json:"id"`
-}
-
 type ControlPlanePricebookUpsertRequest = ControlPlanePricebookRecord
-
-type ControlPlanePricebookLifecycleRequest struct {
-	Provider string `json:"provider"`
-	Model    string `json:"model"`
-}
 
 type ControlPlaneTenantLifecycleRequest struct {
 	ID      string `json:"id"`

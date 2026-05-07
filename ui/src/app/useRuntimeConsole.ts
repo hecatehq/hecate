@@ -529,7 +529,7 @@ export function useRuntimeConsole() {
     }
   }
 
-  // refreshProviders re-fetches /admin/providers (runtime health) and
+  // refreshProviders re-fetches /hecate/v1/providers/status (runtime health) and
   // /v1/models (model catalog) for the ProvidersView auto-poll so local
   // provider model lists converge within ~30 s of starting Ollama / LM
   // Studio. Skipped when no providers are configured — the providers

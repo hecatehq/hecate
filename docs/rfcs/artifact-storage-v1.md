@@ -35,7 +35,7 @@ First-class artifacts flip that:
 
 - **Diffs are queryable.** "Show me every patch this run produced" is `WHERE kind='patch' AND run_id=X`. No filesystem walk.
 - **Apply/revert/replay are real operations.** A patch in `proposed` status can be reviewed, then transitioned to `applied` (gateway writes it) or `rejected`. A revert produces an inverse patch as a new artifact, leaving the original's audit trail intact.
-- **Multi-frontend rendering is trivial.** The CLI, web UI, and ACP server all call `GET /v1/artifacts/{id}` for the body — there's no second source of truth they have to reconcile.
+- **Multi-frontend rendering is trivial.** The CLI, web UI, and ACP server all call `GET /hecate/v1/artifacts/{id}` for the body — there's no second source of truth they have to reconcile.
 - **Audit becomes a database query.** Compliance: "what shell commands did agent X run, and what did they output?" is one SQL select.
 - **Replay against a fresh worktree.** A run's checkpoint plus its applied patches reconstruct the workspace exactly. Useful for debugging and CI integration.
 
@@ -52,7 +52,7 @@ the split.
 ```
 +---------------------- gateway process -----------------------+
 |                                                              |
-|  POST /v1/artifacts ─────► artifact service                  |
+|  POST /hecate/v1/artifacts ─────► artifact service                  |
 |                                  │                            |
 |                                  ▼                            |
 |                          +---------------+                    |
@@ -307,7 +307,7 @@ Only `patch` artifacts have non-trivial transitions:
 
 All other kinds are `created` and stay there. The `status` column is still present for uniformity (frontends filter on it without checking kind).
 
-Transitions are persisted as `artifact.updated` events (see event protocol). The HTTP API to drive them is `PATCH /v1/artifacts/{id}` (runtime-internal — see [API](#api-surface)).
+Transitions are persisted as `artifact.updated` events (see event protocol). The HTTP API to drive them is `PATCH /hecate/v1/artifacts/{id}` (runtime-internal — see [API](#api-surface)).
 
 ## Size limits and capping
 
@@ -334,12 +334,12 @@ The artifact service maintains a small allowlist of mime types that compress; bi
 
 ## API surface
 
-All endpoints are served by the gateway and covered by the same browser same-origin checks as the rest of `/v1/*`. Documented under `/v1/artifacts`.
+All endpoints are served by the gateway and covered by the same browser same-origin checks as the rest of `/hecate/v1/*`. Documented under `/hecate/v1/artifacts`.
 
 ### Create
 
 ```
-POST /v1/artifacts
+POST /hecate/v1/artifacts
 Idempotency-Key: <tool_call_id or arbitrary nonce>
 Content-Type: multipart/form-data; boundary=...
 
@@ -384,7 +384,7 @@ JSON-only body for small artifacts: an alternate form with `Content-Type: applic
 ### Fetch metadata
 
 ```
-GET /v1/artifacts/{id}
+GET /hecate/v1/artifacts/{id}
 ```
 
 → `200 OK`
@@ -416,7 +416,7 @@ Note: no body. Use `/raw` to fetch bytes.
 ### Fetch body
 
 ```
-GET /v1/artifacts/{id}/raw
+GET /hecate/v1/artifacts/{id}/raw
 Accept-Encoding: gzip       # optional
 Range: bytes=0-1023         # optional, range support for large blobs
 ```
@@ -439,7 +439,7 @@ ETag: "sha256:8a4f2c..."
 ### Update status (runtime-internal)
 
 ```
-PATCH /v1/artifacts/{id}
+PATCH /hecate/v1/artifacts/{id}
 Content-Type: application/json
 
 { "status": "applied" }
@@ -455,13 +455,13 @@ approval resolution; those endpoints perform workspace checks and then update
 the artifact internally.
 
 The exact higher-level patch-review endpoints are still out of scope for this
-RFC, but direct UI-driven `PATCH /v1/artifacts/{id}` is not part of the
+RFC, but direct UI-driven `PATCH /hecate/v1/artifacts/{id}` is not part of the
 candidate contract.
 
 ### Pin / unpin
 
 ```
-PATCH /v1/artifacts/{id}
+PATCH /hecate/v1/artifacts/{id}
 { "pinned": true }
 ```
 
@@ -470,7 +470,7 @@ PATCH /v1/artifacts/{id}
 ### Delete
 
 ```
-DELETE /v1/artifacts/{id}
+DELETE /hecate/v1/artifacts/{id}
 ```
 
 Allowed only for `pinned=false` artifacts. Soft-delete: marks `deleted_at`, retention worker frees bytes on next pass. `404` if the artifact is already deleted; `409` if pinned.
@@ -478,12 +478,12 @@ Allowed only for `pinned=false` artifacts. Soft-delete: marks `deleted_at`, rete
 ### List
 
 ```
-GET /v1/tasks/{task_id}/runs/{run_id}/artifacts
-GET /v1/tasks/{task_id}/artifacts
-GET /v1/artifacts?kind=patch&status=proposed&limit=100
+GET /hecate/v1/tasks/{task_id}/runs/{run_id}/artifacts
+GET /hecate/v1/tasks/{task_id}/artifacts
+GET /hecate/v1/artifacts?kind=patch&status=proposed&limit=100
 ```
 
-The shorter `/v1/runs/{run_id}/artifacts` alias is a possible future
+The shorter `/hecate/v1/runs/{run_id}/artifacts` alias is a possible future
 convenience, but it is not part of the candidate contract until implemented.
 
 Returns paginated artifact metadata (no bodies). Filterable by `kind`, `status`, `task_id`, `session_id`, `pinned`, `created_after`, `created_before`. Sortable by `created_at` (default desc).
@@ -546,7 +546,7 @@ produced them.
 
 Candidate rules:
 
-- `/v1/artifacts/*` is local-operator API surface, like `/v1/tasks/*`.
+- `/hecate/v1/artifacts/*` is local-operator API surface, like `/hecate/v1/tasks/*`.
 - Same-origin middleware still applies for browser callers.
 - Artifact bodies are never exposed through unauthenticated static-file serving.
 - If a deployment binds Hecate beyond loopback, the operator is responsible for
@@ -611,7 +611,7 @@ gates don't drift.
    and response shapes.
    - Status: open
 
-6. **Streaming POST.** Large artifacts (multi-megabyte command outputs) currently require buffering the full body before POST. Should the API support a streaming form — `POST /v1/artifacts` with `Transfer-Encoding: chunked`, then a subsequent `PATCH` to mark complete? Probably yes, but adds non-trivial complexity. Defer until a real consumer needs it.
+6. **Streaming POST.** Large artifacts (multi-megabyte command outputs) currently require buffering the full body before POST. Should the API support a streaming form — `POST /hecate/v1/artifacts` with `Transfer-Encoding: chunked`, then a subsequent `PATCH` to mark complete? Probably yes, but adds non-trivial complexity. Defer until a real consumer needs it.
    - Status: open
 
 7. **Garbage in inline blobs.** sqlite VACUUM is required to actually reclaim space from deleted inline blobs. Should the retention worker run `VACUUM INCREMENTAL` after large prune passes? Pro: bounded disk. Con: blocking writes during VACUUM. Probably yes with a backoff policy.

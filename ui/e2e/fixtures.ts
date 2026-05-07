@@ -67,7 +67,7 @@ export const MOCK_AGENT_ADAPTERS = [
 ];
 
 // New model: providers are explicit. The list starts empty and stays empty
-// until the operator adds at least one via POST /admin/control-plane/providers.
+// until the operator adds at least one via POST /hecate/v1/settings/providers.
 // Tests that need an existing provider opt into MOCK_ADMIN_CONFIG_WITH_PROVIDERS.
 export const MOCK_ADMIN_CONFIG = {
   providers: [] as Array<{
@@ -128,7 +128,7 @@ function slugify(name: string): string {
 type AdminConfig = typeof MOCK_ADMIN_CONFIG_WITH_PROVIDERS;
 
 export type GatewayMockOptions = {
-  // Seed the admin-config /admin/control-plane response. Defaults to the
+  // Seed the admin-config /hecate/v1/settings response. Defaults to the
   // empty list — tests that need a populated table pass
   // MOCK_ADMIN_CONFIG_WITH_PROVIDERS (or any custom shape).
   adminConfig?: AdminConfig;
@@ -150,7 +150,7 @@ export async function mockGatewayAPIs(page: Page, opts: GatewayMockOptions = {})
   // Loopback handshake: stub a 403 by default so TokenGate-driven tests
   // see the manual-paste flow. Tests that specifically exercise the
   // auto-skip path can override this route with a 200 of their own.
-  await page.route("/v1/whoami", r =>
+  await page.route("/hecate/v1/whoami", r =>
     r.fulfill(ok({
       object: "session",
       data: { role: "operator" },
@@ -161,19 +161,19 @@ export async function mockGatewayAPIs(page: Page, opts: GatewayMockOptions = {})
     r.fulfill(ok({ object: "list", data: MOCK_MODELS })),
   );
 
-  await page.route("/admin/providers*", r =>
+  await page.route("/hecate/v1/providers/status*", r =>
     r.fulfill(ok({ object: "list", data: MOCK_PROVIDERS })),
   );
 
-  await page.route("/v1/provider-presets*", r =>
+  await page.route("/hecate/v1/providers/presets*", r =>
     r.fulfill(ok({ object: "list", data: MOCK_FULL_PRESETS })),
   );
 
-  await page.route("/v1/agent-adapters*", r =>
+  await page.route("/hecate/v1/agent-adapters*", r =>
     r.fulfill(ok({ object: "agent_adapters", data: MOCK_AGENT_ADAPTERS })),
   );
 
-  await page.route("/v1/agent-chat/sessions*", async route => {
+  await page.route("/hecate/v1/agent-chat/sessions*", async route => {
     if (route.request().method() === "GET") {
       await route.fulfill(ok({ object: "agent_chat_sessions", data: [] }));
       return;
@@ -185,11 +185,11 @@ export async function mockGatewayAPIs(page: Page, opts: GatewayMockOptions = {})
     });
   });
 
-  await page.route("/v1/agent-chat/sessions/*/approvals*", async route => {
+  await page.route("/hecate/v1/agent-chat/sessions/*/approvals*", async route => {
     await route.fulfill(ok({ object: "agent_chat_approvals", data: [] }));
   });
 
-  await page.route("/admin/budget*", r =>
+  await page.route("/hecate/v1/costs/budget*", r =>
     r.fulfill(ok({
       object: "budget_status",
       data: {
@@ -204,34 +204,34 @@ export async function mockGatewayAPIs(page: Page, opts: GatewayMockOptions = {})
     })),
   );
 
-  await page.route("/admin/accounts/summary*", r =>
+  await page.route("/hecate/v1/costs/summary*", r =>
     r.fulfill(ok({ object: "account_summary", data: null })),
   );
 
-  await page.route("/v1/chat/sessions*", r =>
+  await page.route("/hecate/v1/chat/sessions*", r =>
     r.fulfill(ok({ object: "list", data: [], has_more: false })),
   );
 
-  await page.route("/admin/requests*", r =>
+  await page.route("/hecate/v1/observability/requests*", r =>
     r.fulfill(ok({ object: "list", data: [] })),
   );
 
-  // Bare /admin/control-plane (status) — register FIRST so the more-specific
-  // /admin/control-plane/providers routes registered below win. Playwright
+  // Bare /hecate/v1/settings (status) — register FIRST so the more-specific
+  // /hecate/v1/settings/providers routes registered below win. Playwright
   // matches routes in REVERSE registration order (most recent first), so
   // specifics-last is the right ordering.
-  await page.route("/admin/control-plane*", async route => {
+  await page.route("/hecate/v1/settings*", async route => {
     await route.fulfill({ status: 200, contentType: "application/json",
       body: JSON.stringify({ object: "configured_state", data: state }) });
   });
 
-  // POST /admin/control-plane/providers → create. Slugifies the name to id,
+  // POST /hecate/v1/settings/providers → create. Slugifies the name to id,
   // appends to the in-memory list, and returns 201. Stateful so the next
-  // GET /admin/control-plane reflects the new row.
-  // DELETE /admin/control-plane/providers/{id} → drops the row.
-  // PATCH /admin/control-plane/providers/{id} → applies name/base_url.
-  // PUT  /admin/control-plane/providers/{id}/api-key → flips credential_configured.
-  await page.route("/admin/control-plane/providers", async route => {
+  // GET /hecate/v1/settings reflects the new row.
+  // DELETE /hecate/v1/settings/providers/{id} → drops the row.
+  // PATCH /hecate/v1/settings/providers/{id} → applies name/base_url.
+  // PUT  /hecate/v1/settings/providers/{id}/api-key → flips credential_configured.
+  await page.route("/hecate/v1/settings/providers", async route => {
     if (route.request().method() === "POST") {
       const body = JSON.parse(route.request().postData() ?? "{}") as {
         name?: string;
@@ -282,10 +282,10 @@ export async function mockGatewayAPIs(page: Page, opts: GatewayMockOptions = {})
     await route.continue();
   });
 
-  await page.route("/admin/control-plane/providers/*", async route => {
+  await page.route("/hecate/v1/settings/providers/*", async route => {
     const url = route.request().url();
     const method = route.request().method();
-    const tail = url.split("/admin/control-plane/providers/")[1] ?? "";
+    const tail = url.split("/hecate/v1/settings/providers/")[1] ?? "";
     const [rawID, sub] = tail.split("?")[0].split("/");
     const id = decodeURIComponent(rawID);
 
@@ -331,7 +331,7 @@ export async function mockGatewayAPIs(page: Page, opts: GatewayMockOptions = {})
 
   // Register after the provider wildcard above: Playwright resolves routes in
   // reverse order, and /providers/* would otherwise shadow this exact probe.
-  await page.route("/admin/control-plane/providers/local-discovery", async route => {
+  await page.route("/hecate/v1/settings/providers/local-discovery", async route => {
     await route.fulfill(ok({
       object: "local_provider_discovery",
       data: [
@@ -375,7 +375,7 @@ export async function mockGatewayAPIs(page: Page, opts: GatewayMockOptions = {})
     failed: [],
   };
 
-  await page.route("/admin/control-plane/pricebook/import/preview", async route => {
+  await page.route("/hecate/v1/settings/pricebook/import/preview", async route => {
     if (route.request().method() !== "POST") {
       await route.continue();
       return;
@@ -386,7 +386,7 @@ export async function mockGatewayAPIs(page: Page, opts: GatewayMockOptions = {})
     }));
   });
 
-  await page.route("/admin/control-plane/pricebook/import/apply", async route => {
+  await page.route("/hecate/v1/settings/pricebook/import/apply", async route => {
     if (route.request().method() !== "POST") {
       await route.continue();
       return;
@@ -397,22 +397,22 @@ export async function mockGatewayAPIs(page: Page, opts: GatewayMockOptions = {})
     }));
   });
 
-  await page.route("/admin/retention/runs*", r =>
+  await page.route("/hecate/v1/system/retention/runs*", r =>
     r.fulfill(ok({ object: "list", data: [] })),
   );
 
-  await page.route("/admin/runtime/stats*", r =>
+  await page.route("/hecate/v1/system/stats*", r =>
     r.fulfill(ok({ object: "runtime_stats", data: {} })),
   );
 
-  await page.route("/admin/mcp/cache*", r =>
+  await page.route("/hecate/v1/system/mcp/cache*", r =>
     r.fulfill(ok({
       object: "mcp_cache_stats",
       data: { entries: 0, in_use: 0, idle: 0, max_entries: 0 },
     })),
   );
 
-  await page.route("/admin/traces*", r =>
+  await page.route("/hecate/v1/traces*", r =>
     r.fulfill(ok({ object: "list", data: [] })),
   );
 }

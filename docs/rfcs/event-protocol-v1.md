@@ -110,18 +110,18 @@ Every event on the wire is a single JSON object:
 
 ### Wire transport
 
-- **SSE.** `GET /v1/tasks/{task_id}/runs/{run_id}/events?after_sequence=N` returns `text/event-stream`. Each `data:` chunk is one envelope. `id:` mirrors `sequence` so the browser's `EventSource` reconnects with `Last-Event-ID` for free.
-- **Bulk fetch.** `GET /v1/tasks/{task_id}/runs/{run_id}/events?after_sequence=N&limit=500` returns `{"object":"list","data":[<envelope>,…]}` for non-streaming consumers (CLI replay, audit export).
-- **Cross-run feed.** `GET /v1/events/stream?…` is unchanged; envelopes are the same shape, just from many runs.
+- **SSE.** `GET /hecate/v1/tasks/{task_id}/runs/{run_id}/events?after_sequence=N` returns `text/event-stream`. Each `data:` chunk is one envelope. `id:` mirrors `sequence` so the browser's `EventSource` reconnects with `Last-Event-ID` for free.
+- **Bulk fetch.** `GET /hecate/v1/tasks/{task_id}/runs/{run_id}/events?after_sequence=N&limit=500` returns `{"object":"list","data":[<envelope>,…]}` for non-streaming consumers (CLI replay, audit export).
+- **Cross-run feed.** `GET /hecate/v1/events/stream?…` is unchanged; envelopes are the same shape, just from many runs.
 
-The shorter `/v1/runs/{run_id}/events` alias is a possible future convenience,
+The shorter `/hecate/v1/runs/{run_id}/events` alias is a possible future convenience,
 but it is not part of the candidate contract until implemented.
 
 ### Ordering and replay invariants
 
 1. **Per-run monotonic.** Within a single `run_id`, `sequence` is gap-free and strictly increasing. A consumer that has seen `sequence=N` is guaranteed never to receive an earlier event for that run.
 2. **No across-run ordering.** Across runs, only `event_id` (ULID time prefix) approximates ordering, and only at second resolution. Don't rely on it.
-3. **Replay-stable.** Re-fetching `/v1/tasks/{task_id}/runs/{run_id}/events?after_sequence=0` returns the same envelopes byte-for-byte. Hashes stay stable.
+3. **Replay-stable.** Re-fetching `/hecate/v1/tasks/{task_id}/runs/{run_id}/events?after_sequence=0` returns the same envelopes byte-for-byte. Hashes stay stable.
 4. **At-least-once on streams.** SSE consumers should dedupe by `event_id`. Bulk fetch is exactly-once.
 5. **Backfill window.** Events older than the retention window may be pruned; a `gap.events_pruned` event marks where. New consumers must handle a starting sequence > 0.
 
@@ -697,7 +697,7 @@ This is the single most important architectural call in the protocol. Without it
 ### Patch artifact (the important one)
 
 ```json
-GET /v1/artifacts/art_01JXMZH...
+GET /hecate/v1/artifacts/art_01JXMZH...
 {
   "object": "artifact",
   "data": {

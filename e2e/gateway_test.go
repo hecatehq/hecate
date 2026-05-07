@@ -840,20 +840,20 @@ func TestGatewayModelsEndpoint(t *testing.T) {
 	}
 }
 
-// TestGatewayWhoAmI verifies that GET /v1/whoami returns the operator
+// TestGatewayWhoAmI verifies that GET /hecate/v1/whoami returns the operator
 // session envelope. There's no auth in single-user mode; the endpoint
 // just confirms the role on the other end.
 func TestGatewayWhoAmI(t *testing.T) {
 	t.Parallel()
 	base := gatewayServer(t)
 
-	req, err := http.NewRequestWithContext(t.Context(), http.MethodGet, base+"/v1/whoami", nil)
+	req, err := http.NewRequestWithContext(t.Context(), http.MethodGet, base+"/hecate/v1/whoami", nil)
 	if err != nil {
 		t.Fatalf("new request: %v", err)
 	}
 	resp, err := http.DefaultClient.Do(req)
 	if err != nil {
-		t.Fatalf("GET /v1/whoami: %v", err)
+		t.Fatalf("GET /hecate/v1/whoami: %v", err)
 	}
 	defer resp.Body.Close()
 
@@ -876,19 +876,19 @@ func TestGatewayWhoAmI(t *testing.T) {
 	}
 }
 
-// TestGatewayAdminProviderStatus verifies that GET /admin/providers returns
+// TestGatewayProviderStatus verifies that GET /hecate/v1/providers/status returns
 // the provider-status envelope shape.
-func TestGatewayAdminProviderStatus(t *testing.T) {
+func TestGatewayProviderStatus(t *testing.T) {
 	t.Parallel()
 	base := gatewayServer(t)
 
-	req, err := http.NewRequestWithContext(t.Context(), http.MethodGet, base+"/admin/providers", nil)
+	req, err := http.NewRequestWithContext(t.Context(), http.MethodGet, base+"/hecate/v1/providers/status", nil)
 	if err != nil {
 		t.Fatalf("new request: %v", err)
 	}
 	resp, err := http.DefaultClient.Do(req)
 	if err != nil {
-		t.Fatalf("GET /admin/providers: %v", err)
+		t.Fatalf("GET /hecate/v1/providers/status: %v", err)
 	}
 	defer resp.Body.Close()
 
@@ -903,23 +903,23 @@ func TestGatewayAdminProviderStatus(t *testing.T) {
 		t.Fatalf("expected object=provider_status, got %v", result["object"])
 	}
 	if _, ok := result["data"]; !ok {
-		t.Fatal("expected 'data' key in /admin/providers response")
+		t.Fatal("expected 'data' key in /hecate/v1/providers/status response")
 	}
 }
 
-// TestGatewayAdminRuntimeStats verifies that GET /admin/runtime/stats returns
+// TestGatewayRuntimeStats verifies that GET /hecate/v1/system/stats returns
 // the runtime-stats envelope shape.
-func TestGatewayAdminRuntimeStats(t *testing.T) {
+func TestGatewayRuntimeStats(t *testing.T) {
 	t.Parallel()
 	base := gatewayServer(t)
 
-	req, err := http.NewRequestWithContext(t.Context(), http.MethodGet, base+"/admin/runtime/stats", nil)
+	req, err := http.NewRequestWithContext(t.Context(), http.MethodGet, base+"/hecate/v1/system/stats", nil)
 	if err != nil {
 		t.Fatalf("new request: %v", err)
 	}
 	resp, err := http.DefaultClient.Do(req)
 	if err != nil {
-		t.Fatalf("GET /admin/runtime/stats: %v", err)
+		t.Fatalf("GET /hecate/v1/system/stats: %v", err)
 	}
 	defer resp.Body.Close()
 
@@ -934,23 +934,23 @@ func TestGatewayAdminRuntimeStats(t *testing.T) {
 		t.Fatalf("expected object=runtime_stats, got %v", result["object"])
 	}
 	if _, ok := result["data"]; !ok {
-		t.Fatal("expected 'data' key in /admin/runtime/stats response")
+		t.Fatal("expected 'data' key in /hecate/v1/system/stats response")
 	}
 }
 
-// TestGatewayProviderPresets verifies that GET /v1/provider-presets returns a
+// TestGatewayProviderPresets verifies that GET /hecate/v1/providers/presets returns a
 // non-empty list of built-in provider presets.
 func TestGatewayProviderPresets(t *testing.T) {
 	t.Parallel()
 	base := gatewayServer(t)
 
-	req, err := http.NewRequestWithContext(t.Context(), http.MethodGet, base+"/v1/provider-presets", nil)
+	req, err := http.NewRequestWithContext(t.Context(), http.MethodGet, base+"/hecate/v1/providers/presets", nil)
 	if err != nil {
 		t.Fatalf("new request: %v", err)
 	}
 	resp, err := http.DefaultClient.Do(req)
 	if err != nil {
-		t.Fatalf("GET /v1/provider-presets: %v", err)
+		t.Fatalf("GET /hecate/v1/providers/presets: %v", err)
 	}
 	defer resp.Body.Close()
 
@@ -966,7 +966,7 @@ func TestGatewayProviderPresets(t *testing.T) {
 	}
 	data, _ := result["data"].([]interface{})
 	if len(data) == 0 {
-		t.Fatal("expected at least one provider preset in /v1/provider-presets response")
+		t.Fatal("expected at least one provider preset in /hecate/v1/providers/presets response")
 	}
 }
 

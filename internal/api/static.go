@@ -34,6 +34,11 @@ func staticUIHandlerFromFS(uiFS fs.FS) http.Handler {
 	hasUI := uiFS != nil && indexExists(uiFS)
 
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if isAPIPath(r.URL.Path) {
+			http.NotFound(w, r)
+			return
+		}
+
 		if !hasUI {
 			writeUIFallback(w, http.StatusOK)
 			return
@@ -88,9 +93,22 @@ func staticUIHandlerFromFS(uiFS fs.FS) http.Handler {
 	})
 }
 
+func isAPIPath(requestPath string) bool {
+	switch {
+	case requestPath == "/v1" || strings.HasPrefix(requestPath, "/v1/"):
+		return true
+	case requestPath == "/hecate/v1" || strings.HasPrefix(requestPath, "/hecate/v1/"):
+		return true
+	case requestPath == "/admin" || strings.HasPrefix(requestPath, "/admin/"):
+		return true
+	default:
+		return false
+	}
+}
+
 // openOrIndex opens the requested path, falling back to index.html when the
 // path doesn't exist. The fallback is what makes SPA routing work — client
-// routes like /admin or /providers don't correspond to embedded files but
+// routes like /settings or /providers don't correspond to embedded files but
 // still need to load the React shell.
 func openOrIndex(uiFS fs.FS, urlPath string) (fs.File, error) {
 	file, err := uiFS.Open(urlPath)

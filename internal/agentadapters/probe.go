@@ -17,7 +17,7 @@ import (
 
 // Probe statuses. The "ready" / "not_installed" / "auth_required" /
 // "error" enumeration is the operator-facing classification surfaced
-// on /v1/agent-adapters/{id}/health and rendered in the UI's adapter
+// on /hecate/v1/agent-adapters/{id}/health and rendered in the UI's adapter
 // status panel + picker diagnostic chip. Stable strings — once
 // exported on the wire they're part of the frontend contract.
 const (

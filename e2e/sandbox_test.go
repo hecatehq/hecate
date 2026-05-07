@@ -100,10 +100,10 @@ func sbCreateShellTask(t *testing.T, baseURL, command, workDir string) string {
 
 func sbPostTask(t *testing.T, baseURL, body string) string {
 	t.Helper()
-	resp := postJSON(t, baseURL+"/v1/tasks", body, nil)
+	resp := postJSON(t, baseURL+"/hecate/v1/tasks", body, nil)
 	defer resp.Body.Close()
 	if resp.StatusCode != http.StatusOK && resp.StatusCode != http.StatusCreated {
-		t.Fatalf("POST /v1/tasks status = %d, body = %s", resp.StatusCode, readBody(t, resp))
+		t.Fatalf("POST /hecate/v1/tasks status = %d, body = %s", resp.StatusCode, readBody(t, resp))
 	}
 	var result struct {
 		Data struct {
@@ -121,11 +121,11 @@ func sbPostTask(t *testing.T, baseURL, body string) string {
 
 func sbStartTask(t *testing.T, baseURL, taskID string) {
 	t.Helper()
-	resp := postJSON(t, baseURL+"/v1/tasks/"+taskID+"/start", `{}`, nil)
+	resp := postJSON(t, baseURL+"/hecate/v1/tasks/"+taskID+"/start", `{}`, nil)
 	body := readBody(t, resp)
 	resp.Body.Close()
 	if resp.StatusCode != http.StatusOK {
-		t.Fatalf("POST /v1/tasks/%s/start status = %d, body = %s", taskID, resp.StatusCode, body)
+		t.Fatalf("POST /hecate/v1/tasks/%s/start status = %d, body = %s", taskID, resp.StatusCode, body)
 	}
 }
 
@@ -134,7 +134,7 @@ func sbWaitTerminal(t *testing.T, baseURL, taskID string, timeout time.Duration)
 	deadline := time.Now().Add(timeout)
 	client := &http.Client{Timeout: 3 * time.Second}
 	for time.Now().Before(deadline) {
-		req, _ := http.NewRequest("GET", baseURL+"/v1/tasks/"+taskID+"/runs", nil)
+		req, _ := http.NewRequest("GET", baseURL+"/hecate/v1/tasks/"+taskID+"/runs", nil)
 		resp, err := client.Do(req)
 		if err != nil {
 			time.Sleep(250 * time.Millisecond)
@@ -163,7 +163,7 @@ func sbWaitTerminal(t *testing.T, baseURL, taskID string, timeout time.Duration)
 func sbStdout(t *testing.T, baseURL, taskID, runID string) string {
 	t.Helper()
 	client := &http.Client{Timeout: 5 * time.Second}
-	req, _ := http.NewRequest("GET", baseURL+"/v1/tasks/"+taskID+"/runs/"+runID+"/artifacts", nil)
+	req, _ := http.NewRequest("GET", baseURL+"/hecate/v1/tasks/"+taskID+"/runs/"+runID+"/artifacts", nil)
 	resp, err := client.Do(req)
 	if err != nil {
 		t.Fatalf("GET artifacts: %v", err)

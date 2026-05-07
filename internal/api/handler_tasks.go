@@ -32,7 +32,7 @@ import (
 // defeats per-key auditing.
 //
 // Downstream surfaces that act on a task ID (run / approve / cancel /
-// retry) reuse the same gate; /v1/mcp/probe inherits it because probing
+// retry) reuse the same gate; /hecate/v1/mcp/probe inherits it because probing
 // runs the same arbitrary command a task would.
 func (h *Handler) HandleCreateTask(w http.ResponseWriter, r *http.Request) {
 	ctx := r.Context()
@@ -1398,7 +1398,7 @@ func (h *Handler) buildTaskRunStreamState(ctx context.Context, taskID, runID str
 	// current run because the streamed state is run-scoped. A failure
 	// here is non-fatal — emit the snapshot without approvals rather
 	// than dropping the whole stream, so the run/steps view still
-	// updates. The UI's separate /v1/tasks/{id}/approvals fetch acts
+	// updates. The UI's separate /hecate/v1/tasks/{id}/approvals fetch acts
 	// as a fallback for that edge case.
 	taskApprovals, err := h.taskStore.ListApprovals(ctx, taskID)
 	if err != nil {
@@ -2018,7 +2018,7 @@ func (h *Handler) decodeTaskRunEventData(event types.TaskRunEvent) (TaskRunStrea
 	// don't have enough state to fabricate a full snapshot here — the
 	// caller falls through to buildTaskRunStreamState — but we DO want
 	// to attach the per-turn breakdown so the UI can render a live
-	// cost-per-turn ledger without subscribing to /v1/events.
+	// cost-per-turn ledger without subscribing to /hecate/v1/events.
 	if event.EventType == "turn.completed" {
 		turn := decodeTurnCostFromEventData(event.Data)
 		return TaskRunStreamEventData{Turn: turn}, false, nil
