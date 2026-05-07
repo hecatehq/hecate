@@ -765,6 +765,7 @@ func (s *Service) ProviderStatus(ctx context.Context) (*ProviderStatusResult, er
 			ServerErrors:        entry.ServerErrors,
 			RateLimits:          entry.RateLimits,
 			Error:               entry.Error,
+			ReadinessChecks:     providerReadinessChecks(entry),
 		}
 		if entry.RefreshedAt != "" {
 			if ts, err := time.Parse(time.RFC3339, entry.RefreshedAt); err == nil {
@@ -883,6 +884,118 @@ func providerRoutingBlockedReason(entry catalog.Entry) string {
 		return "no_models"
 	}
 	return ""
+}
+
+func providerReadinessChecks(entry catalog.Entry) []types.ProviderReadinessCheck {
+	return []types.ProviderReadinessCheck{
+		providerCredentialCheck(entry),
+		providerModelDiscoveryCheck(entry),
+		providerHealthCheck(entry),
+		providerRoutingCheck(entry),
+	}
+}
+
+func providerCredentialCheck(entry catalog.Entry) types.ProviderReadinessCheck {
+	switch entry.CredentialState {
+	case "configured":
+		return providerReadinessCheck("credentials", "ok", "configured", "Credentials are configured.")
+	case "not_required":
+		return providerReadinessCheck("credentials", "ok", "not_required", "No credentials are required for this provider.")
+	case "missing":
+		return providerReadinessCheck("credentials", "blocked", "credential_missing", "Add credentials before Hecate can route requests to this provider.")
+	case "", "unknown":
+		return providerReadinessCheck("credentials", "unknown", "unknown", "Hecate could not determine credential state yet.")
+	default:
+		if providerCredentialReady(entry.CredentialState) {
+			return providerReadinessCheck("credentials", "unknown", entry.CredentialState, "Hecate does not recognize this credential state.")
+		}
+		return providerReadinessCheck("credentials", "blocked", entry.CredentialState, "Credential state blocks routing.")
+	}
+}
+
+func providerModelDiscoveryCheck(entry catalog.Entry) types.ProviderReadinessCheck {
+	count := len(entry.Models)
+	switch {
+	case count > 0:
+		return providerReadinessCheck("models", "ok", "models_discovered", fmt.Sprintf("%d model%s discovered.", count, pluralS(count)))
+	case entry.DefaultModel != "":
+		return providerReadinessCheck("models", "warning", "default_model_only", fmt.Sprintf("No models were discovered; Hecate can still try the configured default model %q.", entry.DefaultModel))
+	default:
+		return providerReadinessCheck("models", "blocked", "no_models", "No models were discovered and no default model is configured.")
+	}
+}
+
+func providerHealthCheck(entry catalog.Entry) types.ProviderReadinessCheck {
+	switch entry.Status {
+	case "healthy":
+		if entry.Healthy {
+			return providerReadinessCheck("health", "ok", "healthy", "Provider health checks are passing.")
+		}
+		return providerReadinessCheck("health", "unknown", firstNonEmpty(entry.HealthReason, "health_pending"), "Provider health is still settling.")
+	case "degraded":
+		if entry.HealthReason == "rate_limit" {
+			return providerReadinessCheck("health", "blocked", "provider_rate_limited", "Provider is cooling down after an upstream rate limit.")
+		}
+		return providerReadinessCheck("health", "blocked", "provider_unhealthy", "Provider is degraded after recent failures.")
+	case "half_open":
+		return providerReadinessCheck("health", "warning", "recovery_probe", "Circuit is half-open; Hecate is testing recovery.")
+	case "open":
+		if entry.HealthReason == "rate_limit" {
+			return providerReadinessCheck("health", "blocked", "provider_rate_limited", "Provider is cooling down after an upstream rate limit.")
+		}
+		return providerReadinessCheck("health", "blocked", "circuit_open", "Provider circuit is open after recent failures.")
+	case "unhealthy":
+		return providerReadinessCheck("health", "blocked", firstNonEmpty(entry.HealthReason, "provider_unhealthy"), "Provider health checks are failing.")
+	case "disabled":
+		return providerReadinessCheck("health", "blocked", "provider_disabled", "Provider is disabled.")
+	default:
+		if !entry.Healthy {
+			return providerReadinessCheck("health", "unknown", firstNonEmpty(entry.HealthReason, "unknown"), "Provider health has not been established yet.")
+		}
+		return providerReadinessCheck("health", "unknown", firstNonEmpty(entry.Status, "unknown"), "Provider health has not been checked yet.")
+	}
+}
+
+func providerRoutingCheck(entry catalog.Entry) types.ProviderReadinessCheck {
+	if reason := providerRoutingBlockedReason(entry); reason != "" {
+		return providerReadinessCheck("routing", "blocked", reason, providerRoutingBlockedMessage(reason))
+	}
+	return providerReadinessCheck("routing", "ok", "routable", "Provider is eligible for routing.")
+}
+
+func providerRoutingBlockedMessage(reason string) string {
+	switch reason {
+	case "credential_missing":
+		return "Routing is blocked until credentials are configured."
+	case "provider_disabled":
+		return "Routing is blocked because this provider is disabled."
+	case "provider_rate_limited":
+		return "Routing is blocked while the provider cools down after a rate limit."
+	case "circuit_open":
+		return "Routing is blocked while the provider circuit is open."
+	case "provider_unhealthy":
+		return "Routing is blocked because provider health checks are failing."
+	case "no_models":
+		return "Routing is blocked because no models are available."
+	default:
+		return "Routing is blocked."
+	}
+}
+
+func providerReadinessCheck(name, status, reason, message string) types.ProviderReadinessCheck {
+	return types.ProviderReadinessCheck{
+		Name:    name,
+		Status:  status,
+		Reason:  reason,
+		Message: message,
+	}
+}
+
+func pluralS(count int) string {
+	if count == 1 {
+		return ""
+	}
+	return "s"
 }
 
 func (s *Service) BudgetStatus(ctx context.Context, key string) (*BudgetStatusResult, error) {

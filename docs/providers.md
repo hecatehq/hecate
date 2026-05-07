@@ -191,6 +191,7 @@ returns:
 - `credential_ready` — whether credentials are configured or not required
 - `routing_ready` — whether the router can currently send traffic to it
 - `routing_blocked_reason` — stable reason when routing is blocked, such as `credential_missing`, `provider_disabled`, `provider_rate_limited`, `circuit_open`, `provider_unhealthy`, or `no_models`
+- `readiness_checks` — a normalized checklist for `credentials`, `models`, `health`, and `routing`. Each check has `status` (`ok`, `warning`, `blocked`, or `unknown`), `reason`, and an operator-facing `message`.
 - `model_count`, `discovery_source`, `last_checked_at`, and `last_error` for model-discovery freshness and failure context
 - `last_error_class`, `open_until`, `last_latency_ms`, `consecutive_failures`, `timeouts`, `server_errors`, `rate_limits`, `total_successes`, and `total_failures` for richer health debugging
 

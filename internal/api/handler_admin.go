@@ -58,6 +58,7 @@ func (h *Handler) HandleProviderStatus(w http.ResponseWriter, r *http.Request) {
 			Timeouts:            provider.Timeouts,
 			ServerErrors:        provider.ServerErrors,
 			RateLimits:          provider.RateLimits,
+			ReadinessChecks:     renderProviderReadinessChecks(provider.ReadinessChecks),
 		}
 		if !provider.RefreshedAt.IsZero() {
 			item.RefreshedAt = provider.RefreshedAt.UTC().Format(time.RFC3339)
@@ -75,6 +76,22 @@ func (h *Handler) HandleProviderStatus(w http.ResponseWriter, r *http.Request) {
 		Object: "provider_status",
 		Data:   data,
 	})
+}
+
+func renderProviderReadinessChecks(checks []types.ProviderReadinessCheck) []ProviderReadinessCheckResponseItem {
+	if len(checks) == 0 {
+		return nil
+	}
+	out := make([]ProviderReadinessCheckResponseItem, 0, len(checks))
+	for _, check := range checks {
+		out = append(out, ProviderReadinessCheckResponseItem{
+			Name:    check.Name,
+			Status:  check.Status,
+			Reason:  check.Reason,
+			Message: check.Message,
+		})
+	}
+	return out
 }
 
 func (h *Handler) HandleProviderHealthHistory(w http.ResponseWriter, r *http.Request) {

@@ -170,6 +170,14 @@ export type ProviderRecord = {
   timeouts?: number;
   server_errors?: number;
   rate_limits?: number;
+  readiness_checks?: ProviderReadinessCheckRecord[];
+};
+
+export type ProviderReadinessCheckRecord = {
+  name: string;
+  status: "ok" | "warning" | "blocked" | "unknown" | string;
+  reason?: string;
+  message?: string;
 };
 
 export type ProviderStatusResponse = {

@@ -5,6 +5,7 @@ import { discoverLocalProviders } from "../../lib/api";
 import { describeGatewayError, formatErrorCode } from "../../lib/error-diagnostics";
 import { describeRoutingBlockedReason } from "../../lib/runtime-utils";
 import type { AgentAdapterRecord, AgentChatActivityRecord, AgentChatSegmentRecord, AgentChatSessionRecord, AgentChatTimingRecord, AgentChatUsageRecord, LocalProviderDiscoveryRecord, ProviderPresetRecord } from "../../types/runtime";
+import { CompactProviderReadinessChecks } from "../shared/ProviderReadiness";
 import { AgentAdapterPicker, CodeBlock, Icon, Icons, InlineError, ModelPicker, ProviderPicker } from "../shared/ui";
 import { TranscriptMessageRow } from "../transcript/TranscriptMessageRow";
 import { AgentApprovalAutoModeBanner, AgentApprovalsBanner } from "./AgentApprovalBanner";
@@ -2091,6 +2092,7 @@ function ModelRouteTroubleshooting({
         <InfoChip label="Models" value={modelCount > 0 ? String(modelCount) : "none discovered"} />
         <InfoChip label="Health" value={runtimeProvider?.status || "pending probe"} />
       </div>
+      <CompactProviderReadinessChecks checks={runtimeProvider?.readiness_checks ?? []} />
       {(blockedReason || lastError) && (
         <div style={{ marginTop: 10, fontSize: 11, color: "var(--amber)", lineHeight: 1.45 }}>
           {blockedReason || lastError}

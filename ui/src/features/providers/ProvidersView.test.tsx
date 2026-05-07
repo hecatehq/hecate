@@ -667,6 +667,12 @@ describe("ProvidersView table renders", () => {
           credential_state: "not_required",
           routing_ready: false,
           routing_blocked_reason: "provider_rate_limited",
+          readiness_checks: [
+            { name: "credentials", status: "ok", reason: "not_required", message: "No credentials are required for this provider." },
+            { name: "models", status: "ok", reason: "models_discovered", message: "1 model discovered." },
+            { name: "health", status: "blocked", reason: "provider_rate_limited", message: "Provider is cooling down after an upstream rate limit." },
+            { name: "routing", status: "blocked", reason: "provider_rate_limited", message: "Routing is blocked while the provider cools down after a rate limit." },
+          ],
           discovery_source: "live",
           last_checked_at: "2026-04-29T10:00:00Z",
           open_until: "2026-04-29T10:01:00Z",
@@ -687,6 +693,12 @@ describe("ProvidersView table renders", () => {
     await user.click(screen.getByText("Ollama"));
 
     expect(screen.getByText(/Circuit open/)).toBeTruthy();
+    expect(screen.getByText("Readiness")).toBeTruthy();
+    expect(screen.getAllByText("Credentials").length).toBeGreaterThan(0);
+    expect(screen.getAllByText("Models").length).toBeGreaterThan(0);
+    expect(screen.getAllByText("Health").length).toBeGreaterThan(0);
+    expect(screen.getByText("Routing")).toBeTruthy();
+    expect(screen.getByText("Routing is blocked while the provider cools down after a rate limit.")).toBeTruthy();
     expect(screen.getByText("Diagnostics")).toBeTruthy();
     expect(screen.getByText("connect: connection refused")).toBeTruthy();
     expect(screen.getAllByText("Not required").length).toBeGreaterThan(0);

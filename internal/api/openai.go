@@ -493,31 +493,39 @@ type TraceEventRecord struct {
 }
 
 type ProviderStatusResponseItem struct {
-	Name                string   `json:"name"`
-	Kind                string   `json:"kind"`
-	BaseURL             string   `json:"base_url,omitempty"`
-	CredentialState     string   `json:"credential_state,omitempty"`
-	CredentialReady     bool     `json:"credential_ready"`
-	Healthy             bool     `json:"healthy"`
-	Status              string   `json:"status"`
-	RoutingReady        bool     `json:"routing_ready"`
-	RoutingBlocked      string   `json:"routing_blocked_reason,omitempty"`
-	DefaultModel        string   `json:"default_model,omitempty"`
-	Models              []string `json:"models,omitempty"`
-	ModelCount          int      `json:"model_count"`
-	DiscoverySource     string   `json:"discovery_source,omitempty"`
-	RefreshedAt         string   `json:"refreshed_at,omitempty"`
-	LastCheckedAt       string   `json:"last_checked_at,omitempty"`
-	LastError           string   `json:"last_error,omitempty"`
-	LastErrorClass      string   `json:"last_error_class,omitempty"`
-	OpenUntil           string   `json:"open_until,omitempty"`
-	LastLatencyMS       int64    `json:"last_latency_ms,omitempty"`
-	ConsecutiveFailures int      `json:"consecutive_failures,omitempty"`
-	TotalSuccesses      int64    `json:"total_successes,omitempty"`
-	TotalFailures       int64    `json:"total_failures,omitempty"`
-	Timeouts            int64    `json:"timeouts,omitempty"`
-	ServerErrors        int64    `json:"server_errors,omitempty"`
-	RateLimits          int64    `json:"rate_limits,omitempty"`
+	Name                string                               `json:"name"`
+	Kind                string                               `json:"kind"`
+	BaseURL             string                               `json:"base_url,omitempty"`
+	CredentialState     string                               `json:"credential_state,omitempty"`
+	CredentialReady     bool                                 `json:"credential_ready"`
+	Healthy             bool                                 `json:"healthy"`
+	Status              string                               `json:"status"`
+	RoutingReady        bool                                 `json:"routing_ready"`
+	RoutingBlocked      string                               `json:"routing_blocked_reason,omitempty"`
+	DefaultModel        string                               `json:"default_model,omitempty"`
+	Models              []string                             `json:"models,omitempty"`
+	ModelCount          int                                  `json:"model_count"`
+	DiscoverySource     string                               `json:"discovery_source,omitempty"`
+	RefreshedAt         string                               `json:"refreshed_at,omitempty"`
+	LastCheckedAt       string                               `json:"last_checked_at,omitempty"`
+	LastError           string                               `json:"last_error,omitempty"`
+	LastErrorClass      string                               `json:"last_error_class,omitempty"`
+	OpenUntil           string                               `json:"open_until,omitempty"`
+	LastLatencyMS       int64                                `json:"last_latency_ms,omitempty"`
+	ConsecutiveFailures int                                  `json:"consecutive_failures,omitempty"`
+	TotalSuccesses      int64                                `json:"total_successes,omitempty"`
+	TotalFailures       int64                                `json:"total_failures,omitempty"`
+	Timeouts            int64                                `json:"timeouts,omitempty"`
+	ServerErrors        int64                                `json:"server_errors,omitempty"`
+	RateLimits          int64                                `json:"rate_limits,omitempty"`
+	ReadinessChecks     []ProviderReadinessCheckResponseItem `json:"readiness_checks,omitempty"`
+}
+
+type ProviderReadinessCheckResponseItem struct {
+	Name    string `json:"name"`
+	Status  string `json:"status"`
+	Reason  string `json:"reason,omitempty"`
+	Message string `json:"message,omitempty"`
 }
 
 type ProviderHealthHistoryResponseItem struct {

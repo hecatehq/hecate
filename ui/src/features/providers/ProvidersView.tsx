@@ -2,6 +2,7 @@ import { useEffect, useState, type CSSProperties } from "react";
 import type { RuntimeConsoleViewModel } from "../../app/useRuntimeConsole";
 import { providerIconColor, resolvedBaseURL } from "../../lib/provider-utils";
 import { describeHealthErrorClass, describeRoutingBlockedReason } from "../../lib/runtime-utils";
+import { ProviderReadinessChecklist } from "../shared/ProviderReadiness";
 import { Badge, ConfirmModal, Icon, Icons, Modal } from "../shared/ui";
 import { AddProviderModal } from "./AddProviderModal";
 
@@ -455,6 +456,8 @@ export function ProvidersView({ state, actions }: Props) {
                 </div>
               ))}
             </div>
+
+            <ProviderReadinessChecklist checks={selectedStatus?.readiness_checks ?? []} />
 
             {/* Editable Name — only for custom providers (no preset_id);
                 preset providers keep the catalog name and reach for the

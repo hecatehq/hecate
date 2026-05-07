@@ -195,7 +195,7 @@ Stability stages:
 | Area | State | Notes |
 |---|---|---|
 | Model gateway | Alpha-ready | OpenAI-compatible Chat Completions, Anthropic-shaped Messages, streaming, vision, model discovery, failover, budgets, rate limits, pricebook, and custom endpoints. |
-| Providers | Alpha-ready | Cloud presets plus Ollama, LM Studio, LocalAI, llama.cpp-compatible servers, local discovery, health, credentials, and routing readiness. |
+| Providers | Alpha-ready | Cloud presets plus Ollama, LM Studio, LocalAI, llama.cpp-compatible servers, local discovery, health, credentials, and checklist-style routing readiness diagnostics. |
 | Hecate Chat | Alpha-ready | Direct model turns and tools-on task-backed `agent_loop` segments in one transcript, streamed assistant text, task/trace links, local busy-prompt queueing, and inline task approvals. Workspace modes and agent profiles are still future work. |
 | External Agent | Alpha-ready | Codex, Claude Code, and Cursor Agent discovery, long-lived ACP sessions, prompt-first approvals, grants, health/version checks, cancel, guardrails, raw diagnostics, and Git diff inspect/revert. Runs as trusted subprocesses. |
 | Task runtime | Alpha-ready | Queue/lease execution, approvals, resumable `agent_loop`, MCP integration, streamed output, artifacts, and stale-run recovery. Broader lifecycle hardening is still ongoing. |
