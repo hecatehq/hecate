@@ -906,10 +906,7 @@ func providerCredentialCheck(entry catalog.Entry) types.ProviderReadinessCheck {
 	case "", "unknown":
 		return providerReadinessCheck("credentials", "unknown", "unknown", "Hecate could not determine credential state yet.")
 	default:
-		if providerCredentialReady(entry.CredentialState) {
-			return providerReadinessCheck("credentials", "unknown", entry.CredentialState, "Hecate does not recognize this credential state.")
-		}
-		return providerReadinessCheck("credentials", "blocked", entry.CredentialState, "Credential state blocks routing.")
+		return providerReadinessCheck("credentials", "blocked", "credential_missing", fmt.Sprintf("Credential state %q blocks routing.", entry.CredentialState))
 	}
 }
 

@@ -173,9 +173,11 @@ export type ProviderRecord = {
   readiness_checks?: ProviderReadinessCheckRecord[];
 };
 
+export type ProviderReadinessStatus = "ok" | "warning" | "blocked" | "unknown";
+
 export type ProviderReadinessCheckRecord = {
   name: string;
-  status: "ok" | "warning" | "blocked" | "unknown" | string;
+  status: ProviderReadinessStatus;
   reason?: string;
   message?: string;
 };
