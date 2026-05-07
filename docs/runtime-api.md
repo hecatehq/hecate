@@ -441,8 +441,10 @@ matching `routing_blocked_reason` and the `reason` on the
 route diagnostics: `credential_missing`, `provider_disabled`,
 `provider_rate_limited`, `circuit_open`, `provider_unhealthy`, and `no_models`.
 Other checks use reason values scoped to that check, such as
-`default_model_only` for model-discovery fallback or `not_required` for local
-providers that do not need credentials.
+`default_model_only` for model-discovery fallback, `discovery_failed` when the
+provider could not return a model list, `self_referential` when a provider URL
+points back to Hecate, `provider_slow` when a latency-degraded provider remains
+routable, or `not_required` for local providers that do not need credentials.
 
 ### `GET /hecate/v1/settings/providers/local-discovery`
 

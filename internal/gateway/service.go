@@ -911,12 +911,21 @@ func providerCredentialCheck(entry catalog.Entry) types.ProviderReadinessCheck {
 }
 
 func providerModelDiscoveryCheck(entry catalog.Entry) types.ProviderReadinessCheck {
+	switch {
+	case entry.Status == "disabled":
+		return providerReadinessCheck("models", "blocked", "provider_disabled", "Model discovery is skipped while this provider is disabled.")
+	case entry.DiscoverySource == "self_referential":
+		return providerReadinessCheck("models", "blocked", "self_referential", "Model discovery is skipped because this provider points back to Hecate.")
+	}
+
 	count := entry.DiscoveredModelCount
 	switch {
 	case count > 0:
 		return providerReadinessCheck("models", "ok", "models_discovered", fmt.Sprintf("%d model%s discovered.", count, pluralS(count)))
 	case entry.DefaultModel != "":
 		return providerReadinessCheck("models", "warning", "default_model_only", fmt.Sprintf("No models were discovered; Hecate can still try the configured default model %q.", entry.DefaultModel))
+	case entry.LastError != "" || entry.Error != "":
+		return providerReadinessCheck("models", "unknown", "discovery_failed", fmt.Sprintf("Model discovery failed before returning a model list: %s", firstNonEmpty(entry.LastError, entry.Error)))
 	default:
 		return providerReadinessCheck("models", "blocked", "no_models", "No models were discovered and no default model is configured.")
 	}
@@ -930,6 +939,9 @@ func providerHealthCheck(entry catalog.Entry) types.ProviderReadinessCheck {
 		}
 		return providerReadinessCheck("health", "unknown", providerReadinessHealthReason(entry.HealthReason), providerHealthPendingMessage(entry.HealthReason))
 	case "degraded":
+		if entry.Healthy {
+			return providerReadinessCheck("health", "warning", providerReadinessHealthReason(entry.HealthReason), providerHealthDegradedMessage(entry.HealthReason))
+		}
 		if entry.HealthReason == "rate_limit" {
 			return providerReadinessCheck("health", "blocked", "provider_rate_limited", "Provider is cooling down after an upstream rate limit.")
 		}
@@ -978,6 +990,17 @@ func providerHealthFailureMessage(reason string) string {
 		return "Provider health checks are failing."
 	default:
 		return fmt.Sprintf("Provider health checks are failing with error class %q.", reason)
+	}
+}
+
+func providerHealthDegradedMessage(reason string) string {
+	switch reason {
+	case "latency":
+		return "Provider is routable but slower than the configured degraded-latency threshold."
+	case "":
+		return "Provider is routable but currently degraded."
+	default:
+		return fmt.Sprintf("Provider is routable but degraded after error class %q.", reason)
 	}
 }
 
