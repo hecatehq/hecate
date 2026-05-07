@@ -26,7 +26,7 @@ Both font files are licensed under the SIL Open Font License, Version
 ## LiteLLM model pricing data
 
 Hecate's pricebook import feature
-(`/admin/control-plane/pricebook/import/preview` and `.../apply`,
+(`/hecate/v1/settings/pricebook/import/preview` and `.../apply`,
 implemented in `internal/billing/litellm/`) fetches the
 `model_prices_and_context_window.json` file maintained by the LiteLLM
 project at <https://github.com/BerriAI/litellm>. The file is fetched at
