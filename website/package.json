@@ -1,0 +1,26 @@
+{
+  "name": "hecate-website",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "packageManager": "bun@1.3.13",
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/hecatehq/hecate.git",
+    "directory": "website"
+  },
+  "scripts": {
+    "dev": "ASTRO_TELEMETRY_DISABLED=1 astro dev",
+    "build": "bun run check && ASTRO_TELEMETRY_DISABLED=1 astro build",
+    "check": "ASTRO_TELEMETRY_DISABLED=1 astro check && tsgo --noEmit",
+    "preview": "ASTRO_TELEMETRY_DISABLED=1 astro preview"
+  },
+  "dependencies": {
+    "astro": "^6.3.0"
+  },
+  "devDependencies": {
+    "@astrojs/check": "^0.9.9",
+    "@typescript/native-preview": "beta",
+    "typescript": "6.0.0-beta"
+  }
+}

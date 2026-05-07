@@ -1,0 +1,27 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 1024 1024" width="1024" height="1024">
+  <title>Hecate — macOS app icon</title>
+  <defs>
+    <linearGradient id="bg" x1="0" y1="0" x2="0" y2="1">
+      <stop offset="0" stop-color="#1a1322"></stop>
+      <stop offset="1" stop-color="#0a0710"></stop>
+    </linearGradient>
+    <radialGradient id="glow" cx="0.5" cy="0.55" r="0.55">
+      <stop offset="0" stop-color="#7c5cff" stop-opacity="0.35"></stop>
+      <stop offset="1" stop-color="#7c5cff" stop-opacity="0"></stop>
+    </radialGradient>
+    <clipPath id="squircle">
+      <path d="M512 0 C 850 0 1024 174 1024 512 C 1024 850 850 1024 512 1024 C 174 1024 0 850 0 512 C 0 174 174 0 512 0 Z"></path>
+    </clipPath>
+  </defs>
+  <g clip-path="url(#squircle)">
+    <rect width="1024" height="1024" fill="url(#bg)"></rect>
+    <rect width="1024" height="1024" fill="url(#glow)"></rect>
+    <g transform="translate(512 540)" stroke="#f4eeff" stroke-width="48" stroke-linecap="round" stroke-linejoin="round" fill="none">
+      <path d="M0 -260 L0 0"></path>
+      <path d="M-225 195 L0 0"></path>
+      <path d="M225 195 L0 0"></path>
+    </g>
+    <circle cx="512" cy="540" r="38" fill="#f4eeff"></circle>
+    <rect width="1024" height="1024" fill="none" stroke="#ffffff" stroke-opacity="0.06" stroke-width="2"></rect>
+  </g>
+</svg>

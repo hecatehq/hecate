@@ -23,6 +23,16 @@ updates:
     labels:
       - dependencies
 
+  - package-ecosystem: npm
+    directory: "/website"
+    schedule:
+      interval: weekly
+    open-pull-requests-limit: 5
+    commit-message:
+      prefix: "deps(website)"
+    labels:
+      - dependencies
+
   - package-ecosystem: github-actions
     directory: "/"
     schedule:

@@ -1,0 +1,9 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 256 256" width="256" height="256">
+  <title>Hecate — Trivium mark</title>
+  <g fill="none" stroke="currentColor" stroke-width="14" stroke-linecap="round" stroke-linejoin="round">
+    <path d="M128 36 L128 128"></path>
+    <path d="M40 196 L128 128"></path>
+    <path d="M216 196 L128 128"></path>
+  </g>
+  <circle cx="128" cy="128" r="13" fill="currentColor"></circle>
+</svg>

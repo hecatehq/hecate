@@ -35,6 +35,11 @@ ui/test-results/
 ui/playwright-report/
 ui/coverage/
 coverage.out
+
+# Astro website build artifacts.
+website/node_modules/
+website/dist/
+website/.astro/
 # Goreleaser output. Snapshot and release runs both write into ./dist
 # at repo root and `--clean` deletes anything in there — so nothing
 # under dist/ should ever be tracked, otherwise goreleaser hits "git
