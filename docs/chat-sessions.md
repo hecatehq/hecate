@@ -48,7 +48,7 @@ but they can also store direct model segments:
   session such as Codex, Claude Code, or Cursor Agent.
 
 The Agent Chat API shape used by the operator UI is in
-[`runtime-api.md`](runtime-api.md#get-v1agent-chatsessions), and external
+[`runtime-api.md`](runtime-api.md#get-hecatev1agent-chatsessions), and external
 adapter behavior is in [`external-agent-adapters.md`](external-agent-adapters.md).
 
 ## Activity rendering
