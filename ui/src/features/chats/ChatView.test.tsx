@@ -175,11 +175,65 @@ describe("ChatView input", () => {
 
     expect(screen.getAllByText("Selected model is not available from this provider").length).toBeGreaterThan(0);
     expect(screen.getAllByText(/Ollama is configured, but it does not currently report "llama3.1:8b"/).length).toBeGreaterThan(0);
-    expect(screen.getByText("Selected model")).toBeTruthy();
+    expect(screen.getAllByText("Selected model").length).toBeGreaterThan(0);
     expect(screen.getAllByText("llama3.1:8b").length).toBeGreaterThan(0);
-    expect(screen.getByText("Discovered models")).toBeTruthy();
+    expect(screen.getAllByText("Discovered models").length).toBeGreaterThan(0);
     expect(screen.queryByRole("textbox", { name: "Message" })).toBeNull();
     expect(screen.queryByRole("button", { name: "Send message" })).toBeNull();
+  });
+
+  it("shows stale selected-model readiness on existing transcripts", async () => {
+    const onNavigate = vi.fn();
+    const { state, actions } = setup({
+      chatTarget: "model",
+      providerFilter: "ollama",
+      model: "llama3.1:8b",
+      message: "hello",
+      activeAgentChatSessionID: "chat_1",
+      activeAgentChatSession: {
+        id: "chat_1",
+        title: "Existing chat",
+        runtime_kind: "model",
+        status: "completed",
+        provider: "ollama",
+        model: "llama3.1:8b",
+        messages: [
+          { id: "m1", role: "user", content: "hi", runtime_kind: "model", created_at: "2026-04-20T00:00:00Z" },
+        ],
+      },
+      settingsConfig: {
+        backend: "memory",
+        providers: [
+          { id: "ollama", name: "Ollama", preset_id: "ollama", kind: "local", protocol: "openai", base_url: "http://127.0.0.1:11434/v1", credential_configured: false },
+        ],
+        policy_rules: [],
+        pricebook: [],
+        events: [],
+      },
+      providers: [
+        {
+          name: "ollama",
+          kind: "local",
+          healthy: true,
+          status: "healthy",
+          base_url: "http://127.0.0.1:11434/v1",
+          models: ["qwen2.5:7b"],
+          model_count: 1,
+        },
+      ],
+      providerScopedModels: [
+        { id: "qwen2.5:7b", owned_by: "ollama", metadata: { provider: "ollama", provider_kind: "local" } },
+      ],
+    });
+    render(<ChatView state={state} actions={actions} onNavigate={onNavigate} />);
+
+    expect(screen.getByText("Selected model is not available from this provider")).toBeTruthy();
+    expect(screen.getByRole("button", { name: "Open Providers" })).toBeTruthy();
+    expect(screen.queryByRole("textbox", { name: "Message" })).toBeNull();
+
+    const user = userEvent.setup();
+    await user.click(screen.getByRole("button", { name: "Open Providers" }));
+    expect(onNavigate).toHaveBeenCalledWith("providers");
   });
 
   it("opens the shared Add provider modal from the model empty state", async () => {

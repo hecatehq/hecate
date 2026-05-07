@@ -1071,7 +1071,7 @@ export function ChatView({ state, actions, onNavigate, onOpenTask, onOpenTrace }
         )}
         </div>
 
-        {(composerVisible || state.chatError) && (
+        {(composerVisible || state.chatError || selectedModelIssue) && (
         <form ref={formRef} onSubmit={handleSubmit} style={{ borderTop: "1px solid var(--border)", padding: "10px 12px", background: "var(--bg1)", flexShrink: 0 }}>
           {state.chatError && (
             <div style={{ marginBottom: 8 }}>
