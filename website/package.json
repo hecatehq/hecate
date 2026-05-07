@@ -21,6 +21,6 @@
   "devDependencies": {
     "@astrojs/check": "^0.9.9",
     "@typescript/native-preview": "beta",
-    "typescript": "6.0.0-beta"
+    "typescript": "6.0.3"
   }
 }
