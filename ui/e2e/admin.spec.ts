@@ -38,7 +38,7 @@ test("retention tab shows known subsystem chips", async ({ page }) => {
 
 test("retention 'Run now' fires POST request", async ({ page }) => {
   let posted = false;
-  await page.route("/admin/retention/run*", async route => {
+  await page.route("/hecate/v1/system/retention/run*", async route => {
     if (route.request().method() === "POST") {
       posted = true;
       await route.fulfill({ status: 200, contentType: "application/json", body: '{"object":"retention_run","data":{}}' });
@@ -60,7 +60,7 @@ test("Costs workspace shows the empty ledger state", async ({ page }) => {
 });
 
 test("Costs workspace shows the admin-required hint when budget is missing", async ({ page }) => {
-  await page.route("/admin/budget*", r => r.fulfill({ status: 404, body: "" }));
+  await page.route("/hecate/v1/costs/budget*", r => r.fulfill({ status: 404, body: "" }));
   await page.goto("/");
   await page.waitForSelector(".hecate-activitybar");
   await page.keyboard.press("5"); // Costs
@@ -84,7 +84,7 @@ test("pricebook import all triggers preview + apply round-trip", async ({ page }
   // and the row will appear as "unpriced" in the table — letting the
   // consent dialog include it.
   let previewHits = 0;
-  await page.route("/admin/control-plane/pricebook/import/preview", async route => {
+  await page.route("/hecate/v1/settings/pricebook/import/preview", async route => {
     if (route.request().method() !== "POST") return route.continue();
     previewHits++;
     await route.fulfill({
@@ -116,7 +116,7 @@ test("pricebook import all triggers preview + apply round-trip", async ({ page }
 
   let applyURL = "";
   let applyBody = "";
-  await page.route("/admin/control-plane/pricebook/import/apply", async route => {
+  await page.route("/hecate/v1/settings/pricebook/import/apply", async route => {
     if (route.request().method() !== "POST") return route.continue();
     applyURL = route.request().url();
     applyBody = route.request().postData() ?? "";
@@ -173,7 +173,7 @@ test("pricebook import all triggers preview + apply round-trip", async ({ page }
   await expect(applyBtn).toBeEnabled();
   await applyBtn.click();
 
-  await expect.poll(() => applyURL).toContain("/admin/control-plane/pricebook/import/apply");
+  await expect.poll(() => applyURL).toContain("/hecate/v1/settings/pricebook/import/apply");
   // The body MUST carry the explicit key list — a regression that drops
   // `keys` and applies blanket changes would silently overwrite manual
   // rows the operator never consented to.

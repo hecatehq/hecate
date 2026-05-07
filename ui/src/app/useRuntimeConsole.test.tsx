@@ -5,35 +5,35 @@ import { useRuntimeConsole } from "./useRuntimeConsole";
 
 // Single-user mode: every endpoint is unauthenticated and the gateway
 // surfaces a stub `Anonymous` session for all callers. The tests below
-// stub /healthz + /v1/whoami + the dashboard fan-out and exercise the
+// stub /healthz + /hecate/v1/whoami + the dashboard fan-out and exercise the
 // hook's user-visible behavior on top of that.
 
 function defaultBackendMock(routes: Record<string, () => Response | Promise<Response>> = {}) {
   return async (input: RequestInfo | URL, init?: RequestInit): Promise<Response> => {
     const url = String(input);
     // Per-test overrides take precedence over the defaults below so a
-    // test can stub `/v1/chat/sessions?limit=20` to return seeded data.
+    // test can stub `/hecate/v1/chat/sessions?limit=20` to return seeded data.
     const handler = routes[url];
     if (handler) return handler();
     if (url === "/healthz") return jsonResponse({ status: "ok", time: "2026-04-20T00:00:00Z" });
-    if (url === "/v1/whoami") {
+    if (url === "/hecate/v1/whoami") {
       return jsonResponse({
         object: "session",
         data: { authenticated: true, invalid_token: false, role: "admin", source: "anonymous" },
       });
     }
     if (url === "/v1/models") return jsonResponse({ object: "list", data: [] });
-    if (url === "/v1/provider-presets") return jsonResponse({ object: "provider_presets", data: [] });
-    if (url === "/admin/providers") return jsonResponse({ object: "provider_status", data: [] });
-    if (url === "/admin/control-plane") return jsonResponse({ object: "control_plane", data: { backend: "memory", providers: [], pricebook: [], policy_rules: [], events: [] } });
-    if (url.startsWith("/admin/budget")) return jsonResponse({ object: "budget_status", data: null });
-    if (url.startsWith("/admin/accounts/summary")) return jsonResponse({ object: "account_summary", data: null });
-    if (url === "/v1/agent-chat/sessions") return jsonResponse({ object: "agent_chat_sessions", data: [] });
-    if (url.startsWith("/v1/agent-chat/sessions/") && url.endsWith("/approvals?status=pending")) return jsonResponse({ object: "list", data: [] });
-    if (url.startsWith("/v1/chat/sessions")) return jsonResponse({ object: "chat_sessions", data: [], has_more: false });
-    if (url.startsWith("/admin/retention/runs")) return jsonResponse({ object: "retention_runs", data: [] });
-    if (url.startsWith("/admin/requests")) return jsonResponse({ object: "requests", data: [] });
-    if (url.startsWith("/admin/runtime/stats")) return jsonResponse({
+    if (url === "/hecate/v1/providers/presets") return jsonResponse({ object: "provider_presets", data: [] });
+    if (url === "/hecate/v1/providers/status") return jsonResponse({ object: "provider_status", data: [] });
+    if (url === "/hecate/v1/settings") return jsonResponse({ object: "control_plane", data: { backend: "memory", providers: [], pricebook: [], policy_rules: [], events: [] } });
+    if (url.startsWith("/hecate/v1/costs/budget")) return jsonResponse({ object: "budget_status", data: null });
+    if (url.startsWith("/hecate/v1/costs/summary")) return jsonResponse({ object: "account_summary", data: null });
+    if (url === "/hecate/v1/agent-chat/sessions") return jsonResponse({ object: "agent_chat_sessions", data: [] });
+    if (url.startsWith("/hecate/v1/agent-chat/sessions/") && url.endsWith("/approvals?status=pending")) return jsonResponse({ object: "list", data: [] });
+    if (url.startsWith("/hecate/v1/chat/sessions")) return jsonResponse({ object: "chat_sessions", data: [], has_more: false });
+    if (url.startsWith("/hecate/v1/system/retention/runs")) return jsonResponse({ object: "retention_runs", data: [] });
+    if (url.startsWith("/hecate/v1/observability/requests")) return jsonResponse({ object: "requests", data: [] });
+    if (url.startsWith("/hecate/v1/system/stats")) return jsonResponse({
       object: "runtime_stats",
       data: {
         checked_at: "2026-04-21T10:00:00Z",
@@ -88,11 +88,11 @@ describe("useRuntimeConsole", () => {
   it("keeps the active agent chat selection when session refresh fails transiently", async () => {
     window.localStorage.setItem("hecate.agentChatSessionID", "a1");
     fetchMock.mockImplementation(defaultBackendMock({
-      "/v1/agent-chat/sessions": () => jsonResponse({
+      "/hecate/v1/agent-chat/sessions": () => jsonResponse({
         object: "agent_chat_sessions",
         data: [{ id: "a1", title: "Still exists", adapter_id: "codex", status: "running", message_count: 2 }],
       }),
-      "/v1/agent-chat/sessions/a1": () => jsonResponse({ error: { type: "gateway_error", message: "temporary failure" } }, 500),
+      "/hecate/v1/agent-chat/sessions/a1": () => jsonResponse({ error: { type: "gateway_error", message: "temporary failure" } }, 500),
     }));
 
     const { result } = renderHook(() => useRuntimeConsole());
@@ -118,21 +118,21 @@ describe("useRuntimeConsole", () => {
         object: "list",
         data: [{ id: "gpt-4o-mini", owned_by: "openai", metadata: { provider: "openai", provider_kind: "cloud", default: true } }],
       }),
-      "/v1/provider-presets": () => jsonResponse({
+      "/hecate/v1/providers/presets": () => jsonResponse({
         object: "provider_presets",
         data: [
           { id: "openai", name: "OpenAI", kind: "cloud", protocol: "openai", base_url: "https://api.openai.com" },
           { id: "ollama", name: "Ollama", kind: "local", protocol: "openai", base_url: "http://127.0.0.1:11434/v1" },
         ],
       }),
-      "/admin/providers": () => jsonResponse({
+      "/hecate/v1/providers/status": () => jsonResponse({
         object: "provider_status",
         data: [
           { name: "openai", kind: "cloud", default_model: "gpt-4o-mini", models: ["gpt-4o-mini"], healthy: true },
           { name: "ollama", kind: "local", default_model: "", models: [], healthy: false },
         ],
       }),
-      "/admin/control-plane": () => jsonResponse({
+      "/hecate/v1/settings": () => jsonResponse({
         object: "configured_state",
         data: {
           providers: [
@@ -166,7 +166,7 @@ describe("useRuntimeConsole", () => {
   describe("applyPricebookImport notice variants", () => {
     function mockApplyResponse(data: Record<string, unknown>) {
       fetchMock.mockImplementation(defaultBackendMock({
-        "/admin/control-plane/pricebook/import/apply": () => jsonResponse({ object: "control_plane_pricebook_import_diff", data }),
+        "/hecate/v1/settings/pricebook/import/apply": () => jsonResponse({ object: "control_plane_pricebook_import_diff", data }),
       }));
     }
 
@@ -238,7 +238,7 @@ describe("useRuntimeConsole", () => {
       let putBody = "";
       fetchMock.mockImplementation(async (input, init) => {
         const url = String(input);
-        if (url === "/admin/control-plane/providers/anthropic/api-key" && init?.method === "PUT") {
+        if (url === "/hecate/v1/settings/providers/anthropic/api-key" && init?.method === "PUT") {
           putCalls++;
           putBody = String(init.body ?? "");
           return jsonResponse({ object: "control_plane_provider_api_key", data: { id: "anthropic" } });
@@ -263,7 +263,7 @@ describe("useRuntimeConsole", () => {
       let putBody = "";
       fetchMock.mockImplementation(async (input, init) => {
         const url = String(input);
-        if (url === "/admin/control-plane/providers/openai/api-key" && init?.method === "PUT") {
+        if (url === "/hecate/v1/settings/providers/openai/api-key" && init?.method === "PUT") {
           putBody = String(init.body ?? "");
           return jsonResponse({ object: "control_plane_provider_api_key", data: { id: "openai", status: "cleared" } });
         }
@@ -283,7 +283,7 @@ describe("useRuntimeConsole", () => {
     it("setProviderAPIKey failure surfaces both controlPlaneError and an error notice", async () => {
       fetchMock.mockImplementation(async (input, init) => {
         const url = String(input);
-        if (url === "/admin/control-plane/providers/anthropic/api-key" && init?.method === "PUT") {
+        if (url === "/hecate/v1/settings/providers/anthropic/api-key" && init?.method === "PUT") {
           return new Response(
             JSON.stringify({ error: { message: "secret store is read-only" } }),
             { status: 400, headers: { "Content-Type": "application/json" } },
@@ -307,7 +307,7 @@ describe("useRuntimeConsole", () => {
       let postBody = "";
       fetchMock.mockImplementation(async (input, init) => {
         const url = String(input);
-        if (url === "/admin/control-plane/policy-rules" && init?.method === "POST") {
+        if (url === "/hecate/v1/settings/policy-rules" && init?.method === "POST") {
           postBody = String(init.body ?? "");
           return jsonResponse({});
         }
@@ -326,12 +326,12 @@ describe("useRuntimeConsole", () => {
       expect(JSON.parse(postBody).id).toBe("deny-cloud");
     });
 
-    it("deletePolicyRule POSTs to the delete endpoint with the id", async () => {
-      let deleteBody = "";
+    it("deletePolicyRule calls the REST delete endpoint", async () => {
+      let deleteCalled = false;
       fetchMock.mockImplementation(async (input, init) => {
         const url = String(input);
-        if (url === "/admin/control-plane/policy-rules/delete" && init?.method === "POST") {
-          deleteBody = String(init.body ?? "");
+        if (url === "/hecate/v1/settings/policy-rules/deny-cloud" && init?.method === "DELETE") {
+          deleteCalled = true;
           return jsonResponse({});
         }
         return defaultBackendMock()(input, init);
@@ -344,7 +344,7 @@ describe("useRuntimeConsole", () => {
         await result.current.actions.deletePolicyRule("deny-cloud");
       });
       await waitFor(() => expect(result.current.state.notice?.message).toBe("Policy rule deleted."));
-      expect(JSON.parse(deleteBody)).toEqual({ id: "deny-cloud" });
+      expect(deleteCalled).toBe(true);
     });
 
     it("deleteProvider optimistically removes the provider before the dashboard refresh completes", async () => {
@@ -353,7 +353,7 @@ describe("useRuntimeConsole", () => {
       let deleteCalls = 0;
       fetchMock.mockImplementation(async (input, init) => {
         const url = String(input);
-        if (url === "/admin/control-plane/providers/ollama" && init?.method === "DELETE") {
+        if (url === "/hecate/v1/settings/providers/ollama" && init?.method === "DELETE") {
           deleteCalls++;
           return new Promise<Response>(resolve => {
             resolveDelete = response => {
@@ -362,7 +362,7 @@ describe("useRuntimeConsole", () => {
             };
           });
         }
-        if (url === "/admin/control-plane") {
+        if (url === "/hecate/v1/settings") {
           return jsonResponse({
             object: "control_plane",
             data: {
@@ -375,7 +375,7 @@ describe("useRuntimeConsole", () => {
             },
           });
         }
-        if (url === "/admin/providers") {
+        if (url === "/hecate/v1/providers/status") {
           return jsonResponse({
             object: "provider_status",
             data: [
@@ -411,13 +411,13 @@ describe("useRuntimeConsole", () => {
     it("deleteProvider rolls back the optimistic removal when the request fails", async () => {
       fetchMock.mockImplementation(async (input, init) => {
         const url = String(input);
-        if (url === "/admin/control-plane/providers/ollama" && init?.method === "DELETE") {
+        if (url === "/hecate/v1/settings/providers/ollama" && init?.method === "DELETE") {
           return new Response(
             JSON.stringify({ error: { message: "provider is still referenced by a policy rule" } }),
             { status: 409, headers: { "Content-Type": "application/json" } },
           );
         }
-        if (url === "/admin/control-plane") {
+        if (url === "/hecate/v1/settings") {
           return jsonResponse({
             object: "control_plane",
             data: {
@@ -431,7 +431,7 @@ describe("useRuntimeConsole", () => {
             },
           });
         }
-        if (url === "/admin/providers") {
+        if (url === "/hecate/v1/providers/status") {
           return jsonResponse({
             object: "provider_status",
             data: [
@@ -472,7 +472,7 @@ describe("useRuntimeConsole", () => {
 
     function withSessions(sessions: Array<{ id: string; title: string }>, routes: Record<string, () => Response> = {}) {
       return defaultBackendMock({
-        "/v1/agent-chat/sessions": () => {
+        "/hecate/v1/agent-chat/sessions": () => {
           const data = sessions.map(s => ({
             ...s,
             runtime_kind: "model",
@@ -489,7 +489,7 @@ describe("useRuntimeConsole", () => {
 
     it("selectChatSession populates activeAgentChatSession on success", async () => {
       fetchMock.mockImplementation(withSessions([{ id: "sess_42", title: "Existing" }], {
-        "/v1/agent-chat/sessions/sess_42": () => jsonResponse({
+        "/hecate/v1/agent-chat/sessions/sess_42": () => jsonResponse({
           object: "agent_chat_session",
           data: {
             id: "sess_42",
@@ -529,22 +529,22 @@ describe("useRuntimeConsole", () => {
       let messagePostCount = 0;
       fetchMock.mockImplementation(async (input, init) => {
         const url = String(input);
-        if (url === "/v1/agent-chat/sessions") {
+        if (url === "/hecate/v1/agent-chat/sessions") {
           return jsonResponse({
             object: "agent_chat_sessions",
             data: [{ id: "a1", title: "Agent", runtime_kind: "agent", status: sessionStatus, workspace: "/workspace", message_count: 0 }],
           });
         }
-        if (url === "/v1/agent-chat/sessions/a1") {
+        if (url === "/hecate/v1/agent-chat/sessions/a1") {
           return jsonResponse({
             object: "agent_chat_session",
             data: { id: "a1", title: "Agent", runtime_kind: "agent", status: sessionStatus, workspace: "/workspace", messages: [], created_at: "2026-04-20T00:00:00Z", updated_at: new Date().toISOString() },
           });
         }
-        if (url === "/v1/agent-chat/sessions/a1/stream") {
+        if (url === "/hecate/v1/agent-chat/sessions/a1/stream") {
           return emptyStreamResponse();
         }
-        if (url === "/v1/agent-chat/sessions/a1/messages") {
+        if (url === "/hecate/v1/agent-chat/sessions/a1/messages") {
           messagePostCount += 1;
           void init;
           return jsonResponse({
@@ -611,8 +611,8 @@ describe("useRuntimeConsole", () => {
         { id: "chat_a", title: "A" },
         { id: "chat_b", title: "B" },
       ], {
-        "/v1/agent-chat/sessions/chat_a": () => jsonResponse(hecateSession("chat_a")),
-        "/v1/agent-chat/sessions/chat_b": () => jsonResponse(hecateSession("chat_b")),
+        "/hecate/v1/agent-chat/sessions/chat_a": () => jsonResponse(hecateSession("chat_a")),
+        "/hecate/v1/agent-chat/sessions/chat_b": () => jsonResponse(hecateSession("chat_b")),
       }));
 
       const { result } = renderHook(() => useRuntimeConsole());
@@ -651,7 +651,7 @@ describe("useRuntimeConsole", () => {
             { id: "qwen2.5-coder", owned_by: "ollama", metadata: { provider: "ollama", provider_kind: "local" } },
           ],
         }),
-        "/v1/agent-chat/sessions/mixed_chat": () => jsonResponse({
+        "/hecate/v1/agent-chat/sessions/mixed_chat": () => jsonResponse({
           object: "agent_chat_session",
           data: {
             id: "mixed_chat",
@@ -686,7 +686,7 @@ describe("useRuntimeConsole", () => {
 
     it("selectChatSession 404 clears the active agent-chat selection and surfaces an error", async () => {
       fetchMock.mockImplementation(withSessions([{ id: "sess_gone", title: "Gone" }], {
-        "/v1/agent-chat/sessions/sess_gone": () => new Response(
+        "/hecate/v1/agent-chat/sessions/sess_gone": () => new Response(
           JSON.stringify({ error: { message: "session not found" } }),
           { status: 404, headers: { "Content-Type": "application/json" } },
         ),
@@ -707,7 +707,7 @@ describe("useRuntimeConsole", () => {
       let deleteCalls = 0;
       fetchMock.mockImplementation(async (input, init) => {
         const url = String(input);
-        if (url === "/v1/agent-chat/sessions/sess_b" && init?.method === "DELETE") {
+        if (url === "/hecate/v1/agent-chat/sessions/sess_b" && init?.method === "DELETE") {
           deleteCalls++;
           return new Response(null, { status: 204 });
         }
@@ -732,7 +732,7 @@ describe("useRuntimeConsole", () => {
     it("renameChatSession patches the title in the sidebar", async () => {
       fetchMock.mockImplementation(async (input, init) => {
         const url = String(input);
-        if (url === "/v1/chat/sessions/sess_a" && init?.method === "PATCH") {
+        if (url === "/hecate/v1/chat/sessions/sess_a" && init?.method === "PATCH") {
           return jsonResponse({
             object: "chat_session",
             data: {
@@ -742,7 +742,7 @@ describe("useRuntimeConsole", () => {
           });
         }
         return defaultBackendMock({
-          "/v1/chat/sessions?limit=20": () => jsonResponse({
+          "/hecate/v1/chat/sessions?limit=20": () => jsonResponse({
             object: "chat_sessions",
             data: [{ id: "sess_a", title: "Old title", turns: [], created_at: "2026-04-20T00:00:00Z", updated_at: "2026-04-20T00:00:00Z" }],
             has_more: false,
@@ -764,7 +764,7 @@ describe("useRuntimeConsole", () => {
   // ─── Agent-chat approvals state ───────────────────────────────────────────
   //
   // On session select we fire a catch-up refetch against
-  // /v1/agent-chat/sessions/{id}/approvals?status=pending. The
+  // /hecate/v1/agent-chat/sessions/{id}/approvals?status=pending. The
   // returned rows are projected to banner-essentials and stored in
   // `pendingApprovalsBySessionID`. SSE events later upsert/remove on
   // top of the same map. The Map instance is always replaced — never
@@ -796,15 +796,15 @@ describe("useRuntimeConsole", () => {
     it("populates the pending map from the catch-up refetch when a session is selected", async () => {
       window.localStorage.setItem("hecate.agentChatSessionID", "a1");
       fetchMock.mockImplementation(defaultBackendMock({
-        "/v1/agent-chat/sessions": () => jsonResponse({
+        "/hecate/v1/agent-chat/sessions": () => jsonResponse({
           object: "agent_chat_sessions",
           data: [{ id: "a1", title: "S1", adapter_id: "codex", status: "running", message_count: 0 }],
         }),
-        "/v1/agent-chat/sessions/a1": () => jsonResponse({
+        "/hecate/v1/agent-chat/sessions/a1": () => jsonResponse({
           object: "agent_chat_session",
           data: { id: "a1", title: "S1", adapter_id: "codex", workspace: "/tmp", status: "running" },
         }),
-        "/v1/agent-chat/sessions/a1/approvals?status=pending": () => jsonResponse({
+        "/hecate/v1/agent-chat/sessions/a1/approvals?status=pending": () => jsonResponse({
           object: "list",
           data: [approvalRow()],
         }),
@@ -834,20 +834,20 @@ describe("useRuntimeConsole", () => {
       // never see an `approval.resolved` event for the missed transition.
       let approvalsForA: unknown[] = [approvalRow({ id: "ap-1", session_id: "a1" })];
       fetchMock.mockImplementation(defaultBackendMock({
-        "/v1/agent-chat/sessions": () => jsonResponse({ object: "agent_chat_sessions", data: [] }),
-        "/v1/agent-chat/sessions/a1": () => jsonResponse({
+        "/hecate/v1/agent-chat/sessions": () => jsonResponse({ object: "agent_chat_sessions", data: [] }),
+        "/hecate/v1/agent-chat/sessions/a1": () => jsonResponse({
           object: "agent_chat_session",
           data: { id: "a1", title: "A", adapter_id: "codex", workspace: "/tmp", status: "running" },
         }),
-        "/v1/agent-chat/sessions/b1": () => jsonResponse({
+        "/hecate/v1/agent-chat/sessions/b1": () => jsonResponse({
           object: "agent_chat_session",
           data: { id: "b1", title: "B", adapter_id: "codex", workspace: "/tmp", status: "running" },
         }),
-        "/v1/agent-chat/sessions/a1/approvals?status=pending": () => jsonResponse({
+        "/hecate/v1/agent-chat/sessions/a1/approvals?status=pending": () => jsonResponse({
           object: "list",
           data: approvalsForA,
         }),
-        "/v1/agent-chat/sessions/b1/approvals?status=pending": () => jsonResponse({
+        "/hecate/v1/agent-chat/sessions/b1/approvals?status=pending": () => jsonResponse({
           object: "list",
           data: [],
         }),
@@ -887,16 +887,16 @@ describe("useRuntimeConsole", () => {
       let delayARefetch = false;
       let releaseARefetch: (() => void) | undefined;
       fetchMock.mockImplementation(defaultBackendMock({
-        "/v1/agent-chat/sessions": () => jsonResponse({ object: "agent_chat_sessions", data: [] }),
-        "/v1/agent-chat/sessions/a1": () => jsonResponse({
+        "/hecate/v1/agent-chat/sessions": () => jsonResponse({ object: "agent_chat_sessions", data: [] }),
+        "/hecate/v1/agent-chat/sessions/a1": () => jsonResponse({
           object: "agent_chat_session",
           data: { id: "a1", title: "A", adapter_id: "codex", workspace: "/tmp", status: "running" },
         }),
-        "/v1/agent-chat/sessions/b1": () => jsonResponse({
+        "/hecate/v1/agent-chat/sessions/b1": () => jsonResponse({
           object: "agent_chat_session",
           data: { id: "b1", title: "B", adapter_id: "codex", workspace: "/tmp", status: "running" },
         }),
-        "/v1/agent-chat/sessions/a1/approvals?status=pending": () => {
+        "/hecate/v1/agent-chat/sessions/a1/approvals?status=pending": () => {
           if (!delayARefetch) {
             return jsonResponse({ object: "list", data: [approvalRow()] });
           }
@@ -904,11 +904,11 @@ describe("useRuntimeConsole", () => {
             releaseARefetch = () => resolve(jsonResponse({ object: "list", data: [approvalRow()] }));
           });
         },
-        "/v1/agent-chat/sessions/b1/approvals?status=pending": () => jsonResponse({
+        "/hecate/v1/agent-chat/sessions/b1/approvals?status=pending": () => jsonResponse({
           object: "list",
           data: [],
         }),
-        "/v1/agent-chat/sessions/a1/approvals/ap-1/resolve": () => jsonResponse({
+        "/hecate/v1/agent-chat/sessions/a1/approvals/ap-1/resolve": () => jsonResponse({
           object: "agent_chat_approval",
           data: approvalRow({ status: "approved", decision: "approve", scope: "once", path: "operator" }),
         }),
@@ -954,16 +954,16 @@ describe("useRuntimeConsole", () => {
     it("removes a pending approval when the operator resolves it (optimistic update)", async () => {
       window.localStorage.setItem("hecate.agentChatSessionID", "a1");
       fetchMock.mockImplementation(defaultBackendMock({
-        "/v1/agent-chat/sessions": () => jsonResponse({ object: "agent_chat_sessions", data: [] }),
-        "/v1/agent-chat/sessions/a1": () => jsonResponse({
+        "/hecate/v1/agent-chat/sessions": () => jsonResponse({ object: "agent_chat_sessions", data: [] }),
+        "/hecate/v1/agent-chat/sessions/a1": () => jsonResponse({
           object: "agent_chat_session",
           data: { id: "a1", title: "S1", adapter_id: "codex", workspace: "/tmp", status: "running" },
         }),
-        "/v1/agent-chat/sessions/a1/approvals?status=pending": () => jsonResponse({
+        "/hecate/v1/agent-chat/sessions/a1/approvals?status=pending": () => jsonResponse({
           object: "list",
           data: [approvalRow()],
         }),
-        "/v1/agent-chat/sessions/a1/approvals/ap-1/resolve": () => jsonResponse({
+        "/hecate/v1/agent-chat/sessions/a1/approvals/ap-1/resolve": () => jsonResponse({
           object: "agent_chat_approval",
           data: approvalRow({ status: "resolved", decision: "approve", scope: "once", path: "operator" }),
         }),
@@ -991,14 +991,14 @@ describe("useRuntimeConsole", () => {
 
     it("loads grants and removes them on revoke", async () => {
       fetchMock.mockImplementation(defaultBackendMock({
-        "/v1/agent-chat/grants": () => jsonResponse({
+        "/hecate/v1/agent-chat/grants": () => jsonResponse({
           object: "list",
           data: [
             { id: "g1", scope: "session", adapter_id: "codex", tool_kind: "fs", decision: "approve", granted_by: "operator", granted_at: "2026-04-21T10:00:00Z" },
             { id: "g2", scope: "workspace_tool", adapter_id: "codex", tool_kind: "exec", decision: "approve", granted_by: "operator", granted_at: "2026-04-21T10:01:00Z" },
           ],
         }),
-        "/v1/agent-chat/grants/g1": () => new Response(null, { status: 204 }),
+        "/hecate/v1/agent-chat/grants/g1": () => new Response(null, { status: 204 }),
       }));
 
       const { result } = renderHook(() => useRuntimeConsole());

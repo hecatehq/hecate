@@ -36,7 +36,7 @@ func TestModelCapabilityOverrideAffectsModelsResponse(t *testing.T) {
 	handler := newModelCapabilityTestHandler(t)
 	client := newTaskTestClient(t, handler)
 
-	updated := mustRequestJSON[ModelCapabilityResponse](client, http.MethodPut, "/v1/model-capabilities/overrides",
+	updated := mustRequestJSON[ModelCapabilityResponse](client, http.MethodPut, "/hecate/v1/model-capabilities/overrides",
 		`{"provider":"ollama","model":"llama3.1:8b","tool_calling":"basic","max_context_tokens":128000,"note":"operator verified tools"}`)
 	if updated.Data.ToolCalling != modelcaps.ToolCallingBasic || updated.Data.Source != modelcaps.SourceOperatorOverride {
 		t.Fatalf("override response = %+v", updated.Data)
@@ -61,7 +61,7 @@ func TestModelCapabilityProbeIsRecorded(t *testing.T) {
 	handler := newModelCapabilityTestHandler(t)
 	client := newTaskTestClient(t, handler)
 
-	updated := mustRequestJSON[ModelCapabilityResponse](client, http.MethodPost, "/v1/model-capabilities/probes",
+	updated := mustRequestJSON[ModelCapabilityResponse](client, http.MethodPost, "/hecate/v1/model-capabilities/probes",
 		`{"provider":"ollama","model":"llama3.1:8b","tool_calling":"parallel","note":"manual probe passed"}`)
 	if updated.Data.ToolCalling != modelcaps.ToolCallingParallel || updated.Data.Source != modelcaps.SourceProbe {
 		t.Fatalf("probe response = %+v", updated.Data)

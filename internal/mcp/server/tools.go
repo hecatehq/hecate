@@ -189,7 +189,7 @@ func listTasksHandler(client *GatewayClient) ToolHandler {
 		q.Set("limit", fmt.Sprintf("%d", args.Limit))
 
 		var resp listTasksResponse
-		if err := client.Get(ctx, "/v1/tasks", q, &resp); err != nil {
+		if err := client.Get(ctx, "/hecate/v1/tasks", q, &resp); err != nil {
 			return mcp.CallToolResult{}, err
 		}
 		if len(resp.Data) == 0 {
@@ -246,7 +246,7 @@ func getTaskStatusHandler(client *GatewayClient) ToolHandler {
 			return mcp.CallToolResult{}, fmt.Errorf("task_id is required")
 		}
 		var resp getTaskStatusResponse
-		if err := client.Get(ctx, "/v1/tasks/"+url.PathEscape(args.TaskID), nil, &resp); err != nil {
+		if err := client.Get(ctx, "/hecate/v1/tasks/"+url.PathEscape(args.TaskID), nil, &resp); err != nil {
 			return mcp.CallToolResult{}, err
 		}
 		t := resp.Data
@@ -317,7 +317,7 @@ func listChatSessionsHandler(client *GatewayClient) ToolHandler {
 		q.Set("tenant", args.Tenant)
 
 		var resp listChatSessionsResponse
-		if err := client.Get(ctx, "/v1/chat/sessions", q, &resp); err != nil {
+		if err := client.Get(ctx, "/hecate/v1/chat/sessions", q, &resp); err != nil {
 			return mcp.CallToolResult{}, err
 		}
 		if len(resp.Data) == 0 {
@@ -377,7 +377,7 @@ func summarizeRecentTrafficHandler(client *GatewayClient) ToolHandler {
 		q.Set("limit", fmt.Sprintf("%d", args.Limit))
 
 		var resp traceListResponse
-		if err := client.Get(ctx, "/v1/traces", q, &resp); err != nil {
+		if err := client.Get(ctx, "/hecate/v1/traces", q, &resp); err != nil {
 			return mcp.CallToolResult{}, err
 		}
 		if len(resp.Data) == 0 {
@@ -510,7 +510,7 @@ func createTaskHandler(client *GatewayClient) ToolHandler {
 			BudgetMicrosUSD:   args.BudgetMicrosUSD,
 		}
 		var resp createTaskWireResponse
-		if err := client.Post(ctx, "/v1/tasks", body, &resp); err != nil {
+		if err := client.Post(ctx, "/hecate/v1/tasks", body, &resp); err != nil {
 			return mcp.CallToolResult{}, err
 		}
 		var b strings.Builder
@@ -565,7 +565,7 @@ func resolveApprovalHandler(client *GatewayClient) ToolHandler {
 			return mcp.CallToolResult{}, fmt.Errorf("decision must be \"approve\" or \"reject\" (got %q)", args.Decision)
 		}
 		body := resolveApprovalWireRequest{Decision: args.Decision, Note: args.Note}
-		path := fmt.Sprintf("/v1/tasks/%s/approvals/%s/resolve",
+		path := fmt.Sprintf("/hecate/v1/tasks/%s/approvals/%s/resolve",
 			url.PathEscape(args.TaskID), url.PathEscape(args.ApprovalID))
 		var resp resolveApprovalWireResponse
 		if err := client.Post(ctx, path, body, &resp); err != nil {
@@ -608,7 +608,7 @@ func cancelRunHandler(client *GatewayClient) ToolHandler {
 		if strings.TrimSpace(args.RunID) == "" {
 			return mcp.CallToolResult{}, fmt.Errorf("run_id is required")
 		}
-		path := fmt.Sprintf("/v1/tasks/%s/runs/%s/cancel",
+		path := fmt.Sprintf("/hecate/v1/tasks/%s/runs/%s/cancel",
 			url.PathEscape(args.TaskID), url.PathEscape(args.RunID))
 		body := struct {
 			Reason string `json:"reason,omitempty"`

@@ -40,16 +40,16 @@ Hecate produces three independent observability surfaces. They overlap in vocabu
 |---|---|---|---|
 | **OTel traces / metrics / logs** | Your tracing backend (via OTLP/HTTP export) | Long-term observability across many requests | This doc |
 | **Persisted run events** | The gateway's `task_state_run_events` table | Subscribe-able timeline of one task or many; powers operator UI + dashboards | [`events.md`](events.md) |
-| **Response headers + `/v1/traces`** | Per-request, in-memory | Fast local debugging without a collector | This doc |
+| **Response headers + `/hecate/v1/traces`** | Per-request, in-memory | Fast local debugging without a collector | This doc |
 
-The `events.md` catalog is the canonical reference for what `/v1/events` and the per-run SSE feed will hand you. This doc focuses on OTel spans, metrics, and the local debug surfaces.
+The `events.md` catalog is the canonical reference for what `/hecate/v1/events` and the per-run SSE feed will hand you. This doc focuses on OTel spans, metrics, and the local debug surfaces.
 
 ## What You Can Inspect Today
 
 Telemetry currently shows up in three places:
 
 - response headers
-- `GET /v1/traces?request_id=...`
+- `GET /hecate/v1/traces?request_id=...`
 - OTLP HTTP export when enabled
 
 For request responses, the most useful headers are:
@@ -71,7 +71,7 @@ The runtime metadata headers are most relevant on `/v1/chat/completions` and `/v
 
 Task and run lifecycle endpoints also return `X-Trace-Id` and `X-Span-Id` on key execution actions such as run start and approval resolution.
 
-For coding-runtime operations, `GET /admin/runtime/stats` is the primary live health snapshot. It includes queue depth/capacity, worker count, in-flight jobs, backend type (`queue_backend` / `store_backend`), and run-state counters.
+For coding-runtime operations, `GET /hecate/v1/system/stats` is the primary live health snapshot. It includes queue depth/capacity, worker count, in-flight jobs, backend type (`queue_backend` / `store_backend`), and run-state counters.
 
 The trace endpoint returns:
 
@@ -110,7 +110,8 @@ Shared OTLP defaults:
 - `GATEWAY_OTEL_TRANSPORT` — `http` (default) or `grpc`
 
 When `GATEWAY_OTEL_ENDPOINT` is set with `http` transport, Hecate derives
-signal endpoints by appending `/v1/traces`, `/v1/metrics`, and `/v1/logs`.
+standard OTLP/HTTP signal endpoints by appending `/v1/traces`, `/v1/metrics`,
+and `/v1/logs`.
 With `grpc` transport, the same host:port endpoint is used for every enabled
 signal. Per-signal variables below override the shared defaults.
 
@@ -355,14 +356,14 @@ attributes, to avoid accidental high-cardinality trace dimensions. Runs carry
 `hecate.run.duration_ms`. Queue claim events carry `hecate.queue.wait_ms` —
 the time the run spent in the queue between enqueue and claim.
 
-`agent_loop` runs *also* emit one `turn.completed` per LLM round-trip on the **persisted run-event log** — not the OTel trace. That stream is documented in [`events.md`](events.md#turncompleted) and powers the per-run UI cost ledger and `/v1/events` subscriptions. The OTel side carries duration on the spans above; the cost breakdown lives on the run event.
+`agent_loop` runs *also* emit one `turn.completed` per LLM round-trip on the **persisted run-event log** — not the OTel trace. That stream is documented in [`events.md`](events.md#turncompleted) and powers the per-run UI cost ledger and `/hecate/v1/events` subscriptions. The OTel side carries duration on the spans above; the cost breakdown lives on the run event.
 
 ### Agent Chat Spans
 
 External coding-agent chats emit OTel-shaped trace data as well. `POST
-/v1/agent-chat/sessions/{id}/messages` returns `X-Trace-Id` and `X-Span-Id`;
+/hecate/v1/agent-chat/sessions/{id}/messages` returns `X-Trace-Id` and `X-Span-Id`;
 the assistant message stores `request_id`, `trace_id`, and `span_id` so the
-Chats UI can point operators back to `/v1/traces?request_id=...`.
+Chats UI can point operators back to `/hecate/v1/traces?request_id=...`.
 
 | Span name | Events |
 |---|---|
@@ -412,14 +413,14 @@ Retention manager runs emit events under the `retention.run` span:
 | `retention.history.persisted` | Run record written to history store |
 | `retention.history.failed` | History write failed |
 
-The retention worker handles the following subsystems. The **subsystem name** is what the runtime exposes (in retention history rows, in `POST /admin/retention/run`'s `subsystems` array, and in `retention.subsystem.*` events); the **env-var prefix** is the config knob — they don't always match verbatim.
+The retention worker handles the following subsystems. The **subsystem name** is what the runtime exposes (in retention history rows, in `POST /hecate/v1/system/retention/run`'s `subsystems` array, and in `retention.subsystem.*` events); the **env-var prefix** is the config knob — they don't always match verbatim.
 
 | Subsystem (runtime) | Env-var prefix | What it prunes |
 |---|---|---|
 | `trace_snapshots` | `GATEWAY_RETENTION_TRACES_` | Per-request profiler trace snapshots |
 | `budget_events` | `GATEWAY_RETENTION_BUDGET_EVENTS_` | Governor budget ledger entries |
-| `audit_events` | `GATEWAY_RETENTION_AUDIT_EVENTS_` | Control-plane audit log |
-| `provider_history` | `GATEWAY_RETENTION_PROVIDER_HISTORY_` | Persisted provider health and failover history rows exposed by `GET /admin/providers/history` |
+| `audit_events` | `GATEWAY_RETENTION_AUDIT_EVENTS_` | Settings audit log |
+| `provider_history` | `GATEWAY_RETENTION_PROVIDER_HISTORY_` | Persisted provider health and failover history rows exposed by `GET /hecate/v1/providers/history` |
 | `turn_events` | `GATEWAY_RETENTION_TURN_EVENTS_` | `turn.completed` rows in the run-events table — high-cardinality bulk telemetry from agent_loop runs. Other event types (`run.started`, `run.finished`, `approval.*`) are never touched |
 
 Each prefix has a `_MAX_AGE` and `_MAX_COUNT` suffix (e.g. `GATEWAY_RETENTION_TRACES_MAX_AGE=24h`). See `.env.example` for the defaults.
@@ -511,12 +512,12 @@ For request-level debugging:
 
 1. Send a request through `/v1/chat/completions`.
 2. Capture `X-Request-Id` and `X-Trace-Id` from the response.
-3. Call `GET /v1/traces?request_id=<request-id>`.
+3. Call `GET /hecate/v1/traces?request_id=<request-id>`.
 4. Inspect route candidates, failovers, cache decisions, provider latency, final route reason, and span attributes.
 
 That local HTTP path is usually faster than jumping straight into an OTLP backend while developing.
 
-For task/run debugging, use `GET /v1/tasks/{task_id}/runs/{run_id}` to retrieve the run record with its `trace_id`, then look up the trace with `GET /v1/traces?request_id=<request_id>`. The queue wait and step durations are recorded as span attributes on the relevant spans.
+For task/run debugging, use `GET /hecate/v1/tasks/{task_id}/runs/{run_id}` to retrieve the run record with its `trace_id`, then look up the trace with `GET /hecate/v1/traces?request_id=<request_id>`. The queue wait and step durations are recorded as span attributes on the relevant spans.
 
 ## Known-Good OTLP Recipes
 
@@ -600,10 +601,10 @@ This keeps Hecate vendor-neutral and lets you change backends without touching r
 ### No traces visible in backend
 
 1. Verify `GATEWAY_OTEL_TRACES_ENABLED=true`.
-2. Check `GET /admin/runtime/stats` for telemetry signal error counters/messages.
-3. Confirm collector receiver endpoint and path (`/v1/traces`).
+2. Check `GET /hecate/v1/system/stats` for telemetry signal error counters/messages.
+3. Confirm collector receiver endpoint and path (`/v1/traces` for OTLP/HTTP).
 4. Send a request and confirm `X-Trace-Id` is returned.
-5. Query `GET /v1/traces?request_id=...` locally; if local trace exists but backend does not, the issue is exporter/collector path.
+5. Query `GET /hecate/v1/traces?request_id=...` locally; if local trace exists but backend does not, the issue is exporter/collector path.
 
 ### High-cardinality warnings in backend
 
@@ -622,7 +623,7 @@ This keeps Hecate vendor-neutral and lets you change backends without touching r
 ## Release Validation Checklist
 
 - traces, metrics, and logs can all be exported through a generic OTLP collector
-- `GET /admin/runtime/stats` returns runtime + telemetry signal health
+- `GET /hecate/v1/system/stats` returns runtime + telemetry signal health
 - runs UI shows telemetry health panel and SLO cards without errors
 - run timeline links resolve to trace payloads for recent task runs
 - docs recipes and troubleshooting steps were exercised in a smoke environment

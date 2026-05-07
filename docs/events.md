@@ -2,10 +2,10 @@
 
 Reference for every event Hecate emits to its persisted run-event log, surfaced via:
 
-- `GET /v1/tasks/{id}/runs/{run_id}/events` — per-run JSON list
-- `GET /v1/tasks/{id}/runs/{run_id}/stream` — per-run SSE feed
-- `GET /v1/events` — paginated cross-run list with cursor pagination
-- `GET /v1/events/stream` — long-lived cross-run SSE feed
+- `GET /hecate/v1/tasks/{id}/runs/{run_id}/events` — per-run JSON list
+- `GET /hecate/v1/tasks/{id}/runs/{run_id}/stream` — per-run SSE feed
+- `GET /hecate/v1/events` — paginated cross-run list with cursor pagination
+- `GET /hecate/v1/events/stream` — long-lived cross-run SSE feed
 
 > Contributing here? Start at [`AGENTS.md`](../AGENTS.md) for the codebase map and runtime invariants; conventions, workflow, and verification ladders live under [`docs-ai/`](../docs-ai/README.md).
 
@@ -59,7 +59,7 @@ These are **persisted events** (rows in the `task_state_run_events` table). They
 | `policy.tool_blocked` | Policy | A tool call was blocked before execution |
 | `task.updated` | Housekeeping | Task metadata changed (e.g. cancellation flushed) |
 | `snapshot` | Housekeeping | Internal per-run state-sync frame |
-| `external.event` | Caller-driven | Default type for events posted via `POST /v1/tasks/{id}/runs/{run_id}/events` |
+| `external.event` | Caller-driven | Default type for events posted via `POST /hecate/v1/tasks/{id}/runs/{run_id}/events` |
 
 ## Wire envelope
 
@@ -76,7 +76,7 @@ envelope:
 | `type` | One of the event strings in this catalog |
 | `data` | Event-specific JSON object |
 
-Per-run state SSE (`/v1/tasks/{id}/runs/{run_id}/stream`) emits
+Per-run state SSE (`/hecate/v1/tasks/{id}/runs/{run_id}/stream`) emits
 `TaskRunStreamEventData` snapshots optimized for the operator UI. Its
 `event_type` field mirrors the persisted event that produced the snapshot.
 
@@ -95,7 +95,7 @@ snapshots without a separate fetch. Public event-list and cross-run-feed
 responses intentionally strip these runtime snapshot keys and return compact,
 protocol-shaped `data` payloads instead.
 
-Caller-driven events (`POST /v1/tasks/.../events`) instead serialize the rebuilt stream state under a `snapshot` key. The decoder in the per-run SSE handler honors both shapes; public event envelopes strip `snapshot` for the same reason they strip `run` / `steps` / `artifacts`.
+Caller-driven events (`POST /hecate/v1/tasks/.../events`) instead serialize the rebuilt stream state under a `snapshot` key. The decoder in the per-run SSE handler honors both shapes; public event envelopes strip `snapshot` for the same reason they strip `run` / `steps` / `artifacts`.
 
 The internal persisted row is compact and is mapped to the public envelope on
 read:
@@ -209,7 +209,7 @@ Both shapes share these fields.
 
 ### `approval.resolved`
 
-The operator (or admin) resolved the gate. After approve, the run re-queues; after reject, the run terminates `failed`.
+The operator resolved the gate. After approve, the run re-queues; after reject, the run terminates `failed`.
 
 | Extra key | Type | Notes |
 |---|---|---|
@@ -470,7 +470,7 @@ The per-run SSE handler writes one of these every time it detects a state change
 
 ### `external.event`
 
-The default event type when a caller posts to `POST /v1/tasks/{id}/runs/{run_id}/events` without specifying `type`. Use this to integrate human-in-the-loop signals or external systems into the run timeline without inventing new event-type strings.
+The default event type when a caller posts to `POST /hecate/v1/tasks/{id}/runs/{run_id}/events` without specifying `type`. Use this to integrate human-in-the-loop signals or external systems into the run timeline without inventing new event-type strings.
 
 | Extra key | Type | Notes |
 |---|---|---|

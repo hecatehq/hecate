@@ -342,11 +342,12 @@ func (h *Handler) HandleControlPlaneDeletePolicyRule(w http.ResponseWriter, r *h
 		return
 	}
 
-	var req ControlPlanePolicyRuleLifecycleRequest
-	if !decodeJSON(w, r, &req) {
+	id := strings.TrimSpace(r.PathValue("id"))
+	if id == "" {
+		WriteError(w, http.StatusBadRequest, errCodeInvalidRequest, "policy rule id is required")
 		return
 	}
-	if err := h.controlPlane.DeletePolicyRule(controlplane.WithActor(r.Context(), controlPlaneActor(r)), req.ID); err != nil {
+	if err := h.controlPlane.DeletePolicyRule(controlplane.WithActor(r.Context(), controlPlaneActor(r)), id); err != nil {
 		WriteError(w, http.StatusBadRequest, errCodeInvalidRequest, err.Error())
 		return
 	}
@@ -354,7 +355,7 @@ func (h *Handler) HandleControlPlaneDeletePolicyRule(w http.ResponseWriter, r *h
 	WriteJSON(w, http.StatusOK, map[string]any{
 		"object": "control_plane_policy_rule_deleted",
 		"data": map[string]string{
-			"id": req.ID,
+			"id": id,
 		},
 	})
 }
@@ -393,11 +394,13 @@ func (h *Handler) HandleControlPlaneDeletePricebookEntry(w http.ResponseWriter, 
 		return
 	}
 
-	var req ControlPlanePricebookLifecycleRequest
-	if !decodeJSON(w, r, &req) {
+	provider := strings.TrimSpace(r.PathValue("provider"))
+	model := strings.TrimSpace(r.PathValue("model"))
+	if provider == "" || model == "" {
+		WriteError(w, http.StatusBadRequest, errCodeInvalidRequest, "provider and model are required")
 		return
 	}
-	if err := h.controlPlane.DeletePricebookEntry(controlplane.WithActor(r.Context(), controlPlaneActor(r)), req.Provider, req.Model); err != nil {
+	if err := h.controlPlane.DeletePricebookEntry(controlplane.WithActor(r.Context(), controlPlaneActor(r)), provider, model); err != nil {
 		WriteError(w, http.StatusBadRequest, errCodeInvalidRequest, err.Error())
 		return
 	}
@@ -405,8 +408,8 @@ func (h *Handler) HandleControlPlaneDeletePricebookEntry(w http.ResponseWriter, 
 	WriteJSON(w, http.StatusOK, map[string]any{
 		"object": "control_plane_pricebook_entry_deleted",
 		"data": map[string]string{
-			"provider": req.Provider,
-			"model":    req.Model,
+			"provider": provider,
+			"model":    model,
 		},
 	})
 }
@@ -453,10 +456,10 @@ func renderControlPlaneAuditEvent(event controlplane.AuditEvent) ControlPlaneAud
 
 // buildControlPlaneProviderList returns one record per provider in the
 // control-plane store. Providers are explicit: the operator adds them via
-// POST /admin/control-plane/providers, picking from the preset catalog or
+// POST /hecate/v1/settings/providers, picking from the preset catalog or
 // supplying a custom OpenAI-compatible endpoint. The list starts empty and
 // stays empty until the operator adds at least one. The preset catalog is
-// served separately at GET /v1/provider-presets.
+// served separately at GET /hecate/v1/providers/presets.
 func buildControlPlaneProviderList(cfg config.Config, state controlplane.State) []ControlPlaneProviderRecord {
 	envKeyByID := make(map[string]bool)
 	for _, pc := range cfg.Providers.OpenAICompatible {

@@ -30,19 +30,22 @@ afterEach(() => {
   fetchMock.mockReset();
 });
 
-// Build a fetch handler that routes /admin/traces to a populated list and
-// optionally a /v1/traces detail. Everything else falls through to the
+// Build a fetch handler that routes /hecate/v1/traces to a populated list and
+// optionally a /hecate/v1/traces detail. Everything else falls through to the
 // default empty-list mock.
 function tracesFetchHandler(traces: unknown[], detail?: unknown) {
   return async (input: RequestInfo | URL) => {
     const url = typeof input === "string" ? input : input.toString();
-    if (url.startsWith("/admin/traces")) {
-      return new Response(JSON.stringify({ object: "trace_list", data: traces }), {
-        status: 200, headers: { "Content-Type": "application/json" },
-      });
+    if (detail && url.startsWith("/hecate/v1/traces")) {
+      const parsed = new URL(url, "http://hecate.test");
+      if (parsed.searchParams.has("request_id")) {
+        return new Response(JSON.stringify({ object: "trace", data: detail }), {
+          status: 200, headers: { "Content-Type": "application/json" },
+        });
+      }
     }
-    if (detail && url.startsWith("/v1/traces")) {
-      return new Response(JSON.stringify({ object: "trace", data: detail }), {
+    if (url.startsWith("/hecate/v1/traces")) {
+      return new Response(JSON.stringify({ object: "trace_list", data: traces }), {
         status: 200, headers: { "Content-Type": "application/json" },
       });
     }
@@ -66,22 +69,22 @@ describe("ObservabilityView", () => {
     expect(container.textContent).toMatch(/Live|Paused/);
   });
 
-  it("calls /admin/runtime/stats and /admin/traces on mount", async () => {
+  it("calls /hecate/v1/system/stats and /hecate/v1/traces on mount", async () => {
     const state = createRuntimeConsoleFixture({ session: localSession });
     await act(async () => {
       render(<ObservabilityView state={state} actions={createRuntimeConsoleActions()} />);
     });
     await waitFor(() => {
       const urls = fetchMock.mock.calls.map(([u]) => String(u));
-      expect(urls.some(u => u.startsWith("/admin/runtime/stats"))).toBe(true);
-      expect(urls.some(u => u.startsWith("/admin/traces"))).toBe(true);
+      expect(urls.some(u => u.startsWith("/hecate/v1/system/stats"))).toBe(true);
+      expect(urls.some(u => u.startsWith("/hecate/v1/traces"))).toBe(true);
     });
   });
 
   it("renders MCP cache panel when configured", async () => {
     fetchMock.mockImplementation(async (input: RequestInfo | URL) => {
       const url = typeof input === "string" ? input : input.toString();
-      if (url.startsWith("/admin/mcp/cache")) {
+      if (url.startsWith("/hecate/v1/system/mcp/cache")) {
         return new Response(JSON.stringify({
           object: "mcp_cache_stats",
           data: { checked_at: new Date().toISOString(), configured: true, entries: 4, in_use: 1, idle: 3 },
@@ -105,7 +108,7 @@ describe("ObservabilityView", () => {
   it("renders 'No MCP cache wired' fallback when configured=false", async () => {
     fetchMock.mockImplementation(async (input: RequestInfo | URL) => {
       const url = typeof input === "string" ? input : input.toString();
-      if (url.startsWith("/admin/mcp/cache")) {
+      if (url.startsWith("/hecate/v1/system/mcp/cache")) {
         return new Response(JSON.stringify({
           object: "mcp_cache_stats",
           data: { checked_at: new Date().toISOString(), configured: false, entries: 0, in_use: 0, idle: 0 },
@@ -278,7 +281,7 @@ describe("ObservabilityView", () => {
 
     await waitFor(() => {
       const urls = fetchMock.mock.calls.map(([u]) => String(u));
-      expect(urls.some(u => u === "/v1/traces?request_id=req-focus-from-chat")).toBe(true);
+      expect(urls.some(u => u === "/hecate/v1/traces?request_id=req-focus-from-chat")).toBe(true);
       const dialog = document.querySelector('[role="dialog"]');
       expect(dialog?.getAttribute("aria-label")).toMatch(/req-focu/);
       expect(dialog?.getAttribute("aria-label")).toMatch(/ollama\/ministral-3:latest/);

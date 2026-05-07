@@ -159,8 +159,8 @@ Two options are plausible.
 
 | Option | Shape | Pros | Cons |
 |---|---|---|---|
-| Add agent mode to chat sessions | Extend `/v1/chat/sessions` with `target_type=model|agent` | One user-facing Chats surface; easier history | Risks mixing model-provider and agent-runtime semantics too early |
-| Add explicit agent-chat API | `/v1/agent-chat/sessions/*` | Clean boundary; easy to change during alpha | UI has to bridge two chat APIs |
+| Add agent mode to chat sessions | Extend `/hecate/v1/chat/sessions` with `target_type=model|agent` | One user-facing Chats surface; easier history | Risks mixing model-provider and agent-runtime semantics too early |
+| Add explicit agent-chat API | `/hecate/v1/agent-chat/sessions/*` | Clean boundary; easy to change during alpha | UI has to bridge two chat APIs |
 
 Recommendation for alpha: **explicit agent-chat API** first. Once behavior is
 stable, Chats UI can render both model-chat and agent-chat sessions behind one
@@ -169,26 +169,26 @@ experience.
 Implemented MVP endpoints:
 
 ```text
-GET  /v1/agent-adapters
-POST /v1/agent-adapters/{id}/probe
-GET  /v1/agent-adapters/{id}/health
-POST /v1/agent-adapters/{id}/refresh-launcher
-GET  /v1/agent-chat/sessions
-POST /v1/agent-chat/sessions
-GET  /v1/agent-chat/sessions/{id}
-GET  /v1/agent-chat/sessions/{id}/stream
-POST /v1/agent-chat/sessions/{id}/messages
-GET  /v1/agent-chat/sessions/{id}/messages/{message_id}/files
-GET  /v1/agent-chat/sessions/{id}/messages/{message_id}/files/{path}
-POST /v1/agent-chat/sessions/{id}/messages/{message_id}/revert
-POST /v1/agent-chat/sessions/{id}/cancel
-DELETE /v1/agent-chat/sessions/{id}
-GET  /v1/agent-chat/sessions/{id}/approvals
-GET  /v1/agent-chat/sessions/{id}/approvals/{approval_id}
-POST /v1/agent-chat/sessions/{id}/approvals/{approval_id}/resolve
-POST /v1/agent-chat/sessions/{id}/approvals/{approval_id}/cancel
-GET  /v1/agent-chat/grants
-DELETE /v1/agent-chat/grants/{grant_id}
+GET  /hecate/v1/agent-adapters
+POST /hecate/v1/agent-adapters/{id}/probe
+GET  /hecate/v1/agent-adapters/{id}/health
+POST /hecate/v1/agent-adapters/{id}/refresh-launcher
+GET  /hecate/v1/agent-chat/sessions
+POST /hecate/v1/agent-chat/sessions
+GET  /hecate/v1/agent-chat/sessions/{id}
+GET  /hecate/v1/agent-chat/sessions/{id}/stream
+POST /hecate/v1/agent-chat/sessions/{id}/messages
+GET  /hecate/v1/agent-chat/sessions/{id}/messages/{message_id}/files
+GET  /hecate/v1/agent-chat/sessions/{id}/messages/{message_id}/files/{path}
+POST /hecate/v1/agent-chat/sessions/{id}/messages/{message_id}/revert
+POST /hecate/v1/agent-chat/sessions/{id}/cancel
+DELETE /hecate/v1/agent-chat/sessions/{id}
+GET  /hecate/v1/agent-chat/sessions/{id}/approvals
+GET  /hecate/v1/agent-chat/sessions/{id}/approvals/{approval_id}
+POST /hecate/v1/agent-chat/sessions/{id}/approvals/{approval_id}/resolve
+POST /hecate/v1/agent-chat/sessions/{id}/approvals/{approval_id}/cancel
+GET  /hecate/v1/agent-chat/grants
+DELETE /hecate/v1/agent-chat/grants/{grant_id}
 ```
 
 Message creation is still a blocking POST for the submitted prompt, but clients
@@ -300,7 +300,7 @@ not a drop-in fit.
 
 ## Acceptance Criteria For First Implementation
 
-- [x] `GET /v1/agent-adapters` reports built-in adapter definitions and availability.
+- [x] `GET /hecate/v1/agent-adapters` reports built-in adapter definitions and availability.
 - [x] Hecate can run Codex, Claude Code, or Cursor Agent prompts through a supervised ACP session.
 - [x] Output is captured and displayed in the UI.
 - [x] Raw ACP diagnostics are retained when normalized text hides adapter quirks.

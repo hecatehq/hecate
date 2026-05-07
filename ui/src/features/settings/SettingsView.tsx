@@ -553,7 +553,7 @@ function ExternalAgentsTab({ state, actions }: Props) {
 //
 // The section is read-only otherwise: adapter discovery and
 // availability are still owned by the dashboard fan-out's
-// /v1/agent-adapters response. We just surface the additional
+// /hecate/v1/agent-adapters response. We just surface the additional
 // per-adapter "can I actually use this?" check here.
 function AdapterStatusSection({ state, actions }: Props) {
   const adapters = state.agentAdapters;
@@ -596,7 +596,7 @@ function AdapterStatusRow({
   loading: boolean;
   onTest: () => void;
 }) {
-  // Two status sources: the dashboard's /v1/agent-adapters availability
+  // Two status sources: the dashboard's /hecate/v1/agent-adapters availability
   // (binary discovery only) and the on-demand probe (full handshake).
   // Probe wins when present — it's a strictly more informative signal.
   const dashboardChip = adapter.available ? null : { tone: "amber" as const, label: "missing" };

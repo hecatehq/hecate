@@ -59,7 +59,7 @@ describe("api client", () => {
     await getBudget("?scope=provider&provider=ollama");
 
     expect(fetchMock).toHaveBeenCalledWith(
-      "/admin/budget?scope=provider&provider=ollama",
+      "/hecate/v1/costs/budget?scope=provider&provider=ollama",
       expect.objectContaining({ method: "GET" }),
     );
   });
@@ -80,7 +80,7 @@ describe("api client", () => {
     const result = await getSession();
 
     expect(fetchMock).toHaveBeenCalledWith(
-      "/v1/whoami",
+      "/hecate/v1/whoami",
       expect.objectContaining({ method: "GET" }),
     );
     expect(result.data.role).toBe("admin");
@@ -172,7 +172,7 @@ describe("api client", () => {
     const result = await getTrace("req-123");
 
     expect(fetchMock).toHaveBeenCalledWith(
-      "/v1/traces?request_id=req-123",
+      "/hecate/v1/traces?request_id=req-123",
       expect.objectContaining({ method: "GET" }),
     );
     expect(result.data.request_id).toBe("req-123");
@@ -187,7 +187,7 @@ describe("api client", () => {
       await setProviderBaseURL("ollama", "http://192.168.1.10:11434/v1");
 
       expect(fetchMock).toHaveBeenCalledWith(
-        "/admin/control-plane/providers/ollama",
+        "/hecate/v1/settings/providers/ollama",
         expect.objectContaining({
           method: "PATCH",
           body: JSON.stringify({ base_url: "http://192.168.1.10:11434/v1" }),
@@ -201,7 +201,7 @@ describe("api client", () => {
       await setProviderBaseURL("my provider", "http://localhost:11434/v1");
 
       expect(fetchMock).toHaveBeenCalledWith(
-        "/admin/control-plane/providers/my%20provider",
+        "/hecate/v1/settings/providers/my%20provider",
         expect.anything(),
       );
     });
@@ -212,7 +212,7 @@ describe("api client", () => {
       await setProviderAPIKey("anthropic", "sk-new-key");
 
       expect(fetchMock).toHaveBeenCalledWith(
-        "/admin/control-plane/providers/anthropic/api-key",
+        "/hecate/v1/settings/providers/anthropic/api-key",
         expect.objectContaining({
           method: "PUT",
           body: JSON.stringify({ key: "sk-new-key" }),
@@ -226,7 +226,7 @@ describe("api client", () => {
       await setProviderAPIKey("anthropic", "");
 
       expect(fetchMock).toHaveBeenCalledWith(
-        "/admin/control-plane/providers/anthropic/api-key",
+        "/hecate/v1/settings/providers/anthropic/api-key",
         expect.objectContaining({
           method: "PUT",
           body: JSON.stringify({ key: "" }),
@@ -234,13 +234,13 @@ describe("api client", () => {
       );
     });
 
-    it("GET /admin/control-plane/providers/local-discovery discovers local presets", async () => {
+    it("GET /hecate/v1/settings/providers/local-discovery discovers local presets", async () => {
       fetchMock.mockResolvedValue(jsonResponse({ object: "local_provider_discovery", data: [] }));
 
       await discoverLocalProviders();
 
       expect(fetchMock).toHaveBeenCalledWith(
-        "/admin/control-plane/providers/local-discovery",
+        "/hecate/v1/settings/providers/local-discovery",
         expect.objectContaining({ method: "GET" }),
       );
     });
@@ -259,7 +259,7 @@ describe("api client", () => {
       });
 
       expect(fetchMock).toHaveBeenCalledWith(
-        "/v1/model-capabilities/overrides",
+        "/hecate/v1/model-capabilities/overrides",
         expect.objectContaining({
           method: "PUT",
           body: JSON.stringify({
@@ -284,12 +284,12 @@ describe("api client", () => {
 
       expect(fetchMock).toHaveBeenNthCalledWith(
         1,
-        "/v1/model-capabilities/probes",
+        "/hecate/v1/model-capabilities/probes",
         expect.objectContaining({ method: "POST" }),
       );
       expect(fetchMock).toHaveBeenNthCalledWith(
         2,
-        "/v1/model-capabilities/overrides?provider=ollama&model=qwen",
+        "/hecate/v1/model-capabilities/overrides?provider=ollama&model=qwen",
         expect.objectContaining({ method: "DELETE" }),
       );
     });
@@ -307,7 +307,7 @@ describe("api client", () => {
       });
 
       expect(fetchMock).toHaveBeenCalledWith(
-        "/admin/control-plane/policy-rules",
+        "/hecate/v1/settings/policy-rules",
         expect.objectContaining({
           method: "POST",
           body: JSON.stringify({
@@ -336,16 +336,15 @@ describe("api client", () => {
       expect(body.rewrite_model_to).toBe("gpt-4o-mini");
     });
 
-    it("POST /policy-rules/delete sends only the id", async () => {
+    it("DELETE /policy-rules/{id} sends the id in the path", async () => {
       fetchMock.mockResolvedValue(jsonResponse({}));
 
       await deletePolicyRule("deny-cloud");
 
       expect(fetchMock).toHaveBeenCalledWith(
-        "/admin/control-plane/policy-rules/delete",
+        "/hecate/v1/settings/policy-rules/deny-cloud",
         expect.objectContaining({
-          method: "POST",
-          body: JSON.stringify({ id: "deny-cloud" }),
+          method: "DELETE",
         }),
       );
     });
@@ -413,7 +412,7 @@ describe("api client", () => {
 
     it("preserves non-network error messages with the request URL prepended", async () => {
       fetchMock.mockRejectedValue(new Error("AbortError: aborted"));
-      await expect(getBudget("?scope=global")).rejects.toThrow(/\/admin\/budget.*AbortError: aborted/);
+      await expect(getBudget("?scope=global")).rejects.toThrow(/\/hecate\/v1\/costs\/budget.*AbortError: aborted/);
     });
   });
 
@@ -426,7 +425,7 @@ describe("api client", () => {
       await listAgentChatApprovals("sess-1", "pending");
 
       expect(fetchMock).toHaveBeenCalledWith(
-        "/v1/agent-chat/sessions/sess-1/approvals?status=pending",
+        "/hecate/v1/agent-chat/sessions/sess-1/approvals?status=pending",
         expect.objectContaining({ method: "GET" }),
       );
     });
@@ -437,7 +436,7 @@ describe("api client", () => {
       await listAgentChatApprovals("sess-1");
 
       expect(fetchMock).toHaveBeenCalledWith(
-        "/v1/agent-chat/sessions/sess-1/approvals",
+        "/hecate/v1/agent-chat/sessions/sess-1/approvals",
         expect.objectContaining({ method: "GET" }),
       );
     });
@@ -450,7 +449,7 @@ describe("api client", () => {
       await getAgentChatApproval("s 1", "ap/1");
 
       expect(fetchMock).toHaveBeenCalledWith(
-        "/v1/agent-chat/sessions/s%201/approvals/ap%2F1",
+        "/hecate/v1/agent-chat/sessions/s%201/approvals/ap%2F1",
         expect.objectContaining({ method: "GET" }),
       );
     });
@@ -468,7 +467,7 @@ describe("api client", () => {
       });
 
       const [url, options] = fetchMock.mock.lastCall ?? [];
-      expect(url).toBe("/v1/agent-chat/sessions/sess-1/approvals/ap-1/resolve");
+      expect(url).toBe("/hecate/v1/agent-chat/sessions/sess-1/approvals/ap-1/resolve");
       expect(options?.method).toBe("POST");
       const body = options?.body;
       expect(typeof body === "string" ? JSON.parse(body) : body).toEqual({
@@ -487,7 +486,7 @@ describe("api client", () => {
       await cancelAgentChatApproval("sess-1", "ap-1");
 
       expect(fetchMock).toHaveBeenCalledWith(
-        "/v1/agent-chat/sessions/sess-1/approvals/ap-1/cancel",
+        "/hecate/v1/agent-chat/sessions/sess-1/approvals/ap-1/cancel",
         expect.objectContaining({ method: "POST" }),
       );
     });
@@ -500,7 +499,7 @@ describe("api client", () => {
       const [url] = fetchMock.mock.lastCall ?? [];
       // URLSearchParams ordering is insertion-order; both forms are
       // acceptable so long as the query string contains both pairs.
-      expect(url).toContain("/v1/agent-chat/grants?");
+      expect(url).toContain("/hecate/v1/agent-chat/grants?");
       expect(url).toContain("adapter_id=codex");
       expect(url).toContain("scope=session");
     });
@@ -511,7 +510,7 @@ describe("api client", () => {
       await deleteAgentChatGrant("grant-1");
 
       expect(fetchMock).toHaveBeenCalledWith(
-        "/v1/agent-chat/grants/grant-1",
+        "/hecate/v1/agent-chat/grants/grant-1",
         expect.objectContaining({ method: "DELETE" }),
       );
     });
@@ -540,7 +539,7 @@ describe("api client", () => {
       const result = await probeAgentAdapter("codex");
 
       expect(fetchMock).toHaveBeenCalledWith(
-        "/v1/agent-adapters/codex/probe",
+        "/hecate/v1/agent-adapters/codex/probe",
         expect.objectContaining({ method: "POST" }),
       );
       expect(result.data.health.status).toBe("ready");
@@ -561,7 +560,7 @@ describe("api client", () => {
       await probeAgentAdapter("weird id");
 
       const [url] = fetchMock.mock.lastCall ?? [];
-      expect(url).toBe("/v1/agent-adapters/weird%20id/probe");
+      expect(url).toBe("/hecate/v1/agent-adapters/weird%20id/probe");
     });
   });
 
@@ -587,7 +586,7 @@ describe("api client", () => {
       const result = await refreshAgentAdapterLauncher("codex");
 
       expect(fetchMock).toHaveBeenCalledWith(
-        "/v1/agent-adapters/codex/refresh-launcher",
+        "/hecate/v1/agent-adapters/codex/refresh-launcher",
         expect.objectContaining({ method: "POST" }),
       );
       expect(result.data[0]?.id).toBe("codex");
@@ -599,7 +598,7 @@ describe("api client", () => {
       await refreshAgentAdapterLauncher("weird id");
 
       const [url] = fetchMock.mock.lastCall ?? [];
-      expect(url).toBe("/v1/agent-adapters/weird%20id/refresh-launcher");
+      expect(url).toBe("/hecate/v1/agent-adapters/weird%20id/refresh-launcher");
     });
   });
 
@@ -615,7 +614,7 @@ describe("api client", () => {
       const result = await listAgentChatMessageFiles("s 1", "m/1");
 
       expect(fetchMock).toHaveBeenCalledWith(
-        "/v1/agent-chat/sessions/s%201/messages/m%2F1/files",
+        "/hecate/v1/agent-chat/sessions/s%201/messages/m%2F1/files",
         expect.anything(),
       );
       expect(result.data[0]?.path).toBe("src/app.go");
@@ -632,7 +631,7 @@ describe("api client", () => {
       const result = await getAgentChatMessageFileDiff("s1", "m1", "src/app.go");
 
       expect(fetchMock).toHaveBeenCalledWith(
-        "/v1/agent-chat/sessions/s1/messages/m1/files/src%2Fapp.go",
+        "/hecate/v1/agent-chat/sessions/s1/messages/m1/files/src%2Fapp.go",
         expect.anything(),
       );
       expect(result.data.diff).toContain("src/app.go");
@@ -654,7 +653,7 @@ describe("api client", () => {
       const result = await revertAgentChatMessageFiles("s1", "m1", ["src/app.go"]);
 
       expect(fetchMock).toHaveBeenCalledWith(
-        "/v1/agent-chat/sessions/s1/messages/m1/revert",
+        "/hecate/v1/agent-chat/sessions/s1/messages/m1/revert",
         expect.objectContaining({
           method: "POST",
           body: JSON.stringify({ paths: ["src/app.go"] }),

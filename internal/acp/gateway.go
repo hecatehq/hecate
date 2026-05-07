@@ -23,7 +23,7 @@ type GatewayClient interface {
 	// agent_loop conversation and starts the next run for that task.
 	ContinueAgentLoopTask(ctx context.Context, taskID, runID, prompt string) (string, error)
 
-	// CancelRun calls POST /v1/tasks/{taskID}/runs/{runID}/cancel.
+	// CancelRun calls POST /hecate/v1/tasks/{taskID}/runs/{runID}/cancel.
 	CancelRun(ctx context.Context, taskID, runID, reason string) error
 
 	// ResolveApproval posts an approval decision.

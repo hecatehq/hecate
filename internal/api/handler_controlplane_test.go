@@ -199,7 +199,7 @@ func TestControlPlaneUpdateProviderRequires400WhenRuntimeNotConfigured(t *testin
 	// gracefully rather than 500-ing.
 	admin, _ := newProviderRuntimeTestHandler(t, nil)
 
-	rec := admin.mustRequestStatus(http.StatusBadRequest, http.MethodPatch, "/admin/control-plane/providers/anthropic", `{"base_url":"https://example.com/v1"}`)
+	rec := admin.mustRequestStatus(http.StatusBadRequest, http.MethodPatch, "/hecate/v1/settings/providers/anthropic", `{"base_url":"https://example.com/v1"}`)
 	if !contains([]string{"invalid_request"}, decodeErrorType(t, rec.Body.Bytes())) {
 		t.Errorf("error type = %q, want invalid_request", decodeErrorType(t, rec.Body.Bytes()))
 	}
@@ -210,7 +210,7 @@ func TestControlPlaneSetProviderAPIKeyRotatesWhenKeyPresent(t *testing.T) {
 	rt := &fakeProviderRuntime{provider: controlplane.Provider{ID: "anthropic", Name: "Anthropic"}}
 	admin, _ := newProviderRuntimeTestHandler(t, rt)
 
-	rec := admin.mustRequest(http.MethodPut, "/admin/control-plane/providers/anthropic/api-key", `{"key":"sk-ant-new"}`)
+	rec := admin.mustRequest(http.MethodPut, "/hecate/v1/settings/providers/anthropic/api-key", `{"key":"sk-ant-new"}`)
 	var resp struct {
 		Object string                     `json:"object"`
 		Data   ControlPlaneProviderRecord `json:"data"`
@@ -244,7 +244,7 @@ func TestControlPlaneSetProviderAPIKeyClearsWhenKeyEmpty(t *testing.T) {
 	rt := &fakeProviderRuntime{}
 	admin, _ := newProviderRuntimeTestHandler(t, rt)
 
-	rec := admin.mustRequest(http.MethodPut, "/admin/control-plane/providers/anthropic/api-key", `{"key":""}`)
+	rec := admin.mustRequest(http.MethodPut, "/hecate/v1/settings/providers/anthropic/api-key", `{"key":""}`)
 	var resp struct {
 		Object string            `json:"object"`
 		Data   map[string]string `json:"data"`
@@ -274,7 +274,7 @@ func TestControlPlaneSetProviderAPIKeySurfacesRuntimeError(t *testing.T) {
 	rt := &fakeProviderRuntime{rotateErr: errors.New("secret store is read-only")}
 	admin, _ := newProviderRuntimeTestHandler(t, rt)
 
-	rec := admin.mustRequestStatus(http.StatusBadRequest, http.MethodPut, "/admin/control-plane/providers/anthropic/api-key", `{"key":"sk-ant"}`)
+	rec := admin.mustRequestStatus(http.StatusBadRequest, http.MethodPut, "/hecate/v1/settings/providers/anthropic/api-key", `{"key":"sk-ant"}`)
 	if msg := decodeErrorMessage(t, rec.Body.Bytes()); msg != "secret store is read-only" {
 		t.Errorf("error.message = %q, want runtime error verbatim", msg)
 	}
@@ -284,7 +284,7 @@ func TestControlPlaneSetProviderAPIKeyRequires400WhenRuntimeNotConfigured(t *tes
 	t.Parallel()
 	admin, _ := newProviderRuntimeTestHandler(t, nil)
 
-	admin.mustRequestStatus(http.StatusBadRequest, http.MethodPut, "/admin/control-plane/providers/anthropic/api-key", `{"key":"sk-ant"}`)
+	admin.mustRequestStatus(http.StatusBadRequest, http.MethodPut, "/hecate/v1/settings/providers/anthropic/api-key", `{"key":"sk-ant"}`)
 }
 
 // TestControlPlaneSetProviderAPIKeyRejectsAnonymous proves the auth
@@ -299,7 +299,7 @@ func TestControlPlaneCreateProvider_Cloud_Success(t *testing.T) {
 	admin, store := newProviderRuntimeTestHandler(t, rt)
 
 	body := `{"name":"Anthropic","kind":"cloud","protocol":"openai","api_key":"sk-ant-test"}`
-	rec := admin.mustRequestStatus(http.StatusCreated, http.MethodPost, "/admin/control-plane/providers", body)
+	rec := admin.mustRequestStatus(http.StatusCreated, http.MethodPost, "/hecate/v1/settings/providers", body)
 	var resp struct {
 		Object string                     `json:"object"`
 		Data   ControlPlaneProviderRecord `json:"data"`
@@ -322,7 +322,7 @@ func TestControlPlaneCreateProvider_Local_Success(t *testing.T) {
 	admin, store := newProviderRuntimeTestHandler(t, rt)
 
 	body := `{"name":"Ollama","kind":"local","protocol":"openai","base_url":"http://127.0.0.1:11434/v1"}`
-	admin.mustRequestStatus(http.StatusCreated, http.MethodPost, "/admin/control-plane/providers", body)
+	admin.mustRequestStatus(http.StatusCreated, http.MethodPost, "/hecate/v1/settings/providers", body)
 	state, _ := store.Snapshot(context.Background())
 	if len(state.Providers) != 1 || state.Providers[0].Kind != "local" {
 		t.Fatalf("store providers = %+v, want 1 local record", state.Providers)
@@ -334,7 +334,7 @@ func TestControlPlaneCreateProvider_NameRequired(t *testing.T) {
 	rt := &fakeProviderRuntime{}
 	admin, _ := newProviderRuntimeTestHandler(t, rt)
 
-	rec := admin.mustRequestStatus(http.StatusBadRequest, http.MethodPost, "/admin/control-plane/providers", `{"name":"","kind":"cloud","api_key":"sk"}`)
+	rec := admin.mustRequestStatus(http.StatusBadRequest, http.MethodPost, "/hecate/v1/settings/providers", `{"name":"","kind":"cloud","api_key":"sk"}`)
 	if msg := decodeErrorMessage(t, rec.Body.Bytes()); msg != "provider name is required" {
 		t.Errorf("error.message = %q, want 'provider name is required'", msg)
 	}
@@ -346,8 +346,8 @@ func TestControlPlaneCreateProvider_DuplicateID(t *testing.T) {
 	admin, _ := newProviderRuntimeTestHandler(t, rt)
 
 	body := `{"name":"Anthropic","kind":"cloud","protocol":"openai","api_key":"sk-1"}`
-	admin.mustRequestStatus(http.StatusCreated, http.MethodPost, "/admin/control-plane/providers", body)
-	rec := admin.mustRequestStatus(http.StatusConflict, http.MethodPost, "/admin/control-plane/providers", body)
+	admin.mustRequestStatus(http.StatusCreated, http.MethodPost, "/hecate/v1/settings/providers", body)
+	rec := admin.mustRequestStatus(http.StatusConflict, http.MethodPost, "/hecate/v1/settings/providers", body)
 	if msg := decodeErrorMessage(t, rec.Body.Bytes()); !strings.Contains(msg, "already exists") {
 		t.Errorf("error.message = %q, want substring 'already exists'", msg)
 	}
@@ -359,9 +359,9 @@ func TestControlPlaneCreateProvider_BaseURLConflict(t *testing.T) {
 	admin, _ := newProviderRuntimeTestHandler(t, rt)
 
 	first := `{"name":"Primary","kind":"local","protocol":"openai","base_url":"http://127.0.0.1:11434/v1"}`
-	admin.mustRequestStatus(http.StatusCreated, http.MethodPost, "/admin/control-plane/providers", first)
+	admin.mustRequestStatus(http.StatusCreated, http.MethodPost, "/hecate/v1/settings/providers", first)
 	second := `{"name":"Secondary","kind":"local","protocol":"openai","base_url":"http://127.0.0.1:11434/v1"}`
-	rec := admin.mustRequestStatus(http.StatusConflict, http.MethodPost, "/admin/control-plane/providers", second)
+	rec := admin.mustRequestStatus(http.StatusConflict, http.MethodPost, "/hecate/v1/settings/providers", second)
 	msg := decodeErrorMessage(t, rec.Body.Bytes())
 	if !strings.Contains(msg, "Primary") {
 		t.Errorf("error.message = %q, want substring 'Primary' (existing provider name)", msg)
@@ -373,7 +373,7 @@ func TestControlPlaneCreateProvider_CloudWithoutKey(t *testing.T) {
 	rt := &fakeProviderRuntime{}
 	admin, _ := newProviderRuntimeTestHandler(t, rt)
 
-	rec := admin.mustRequestStatus(http.StatusBadRequest, http.MethodPost, "/admin/control-plane/providers", `{"name":"OpenAI","kind":"cloud","protocol":"openai"}`)
+	rec := admin.mustRequestStatus(http.StatusBadRequest, http.MethodPost, "/hecate/v1/settings/providers", `{"name":"OpenAI","kind":"cloud","protocol":"openai"}`)
 	if msg := decodeErrorMessage(t, rec.Body.Bytes()); !strings.Contains(msg, "api key") {
 		t.Errorf("error.message = %q, want substring 'api key'", msg)
 	}
@@ -385,7 +385,7 @@ func TestControlPlaneCreateProvider_SlugifiesName(t *testing.T) {
 	admin, _ := newProviderRuntimeTestHandler(t, rt)
 
 	body := `{"name":"My Custom Provider","kind":"local","protocol":"openai","base_url":"http://127.0.0.1:9999/v1"}`
-	rec := admin.mustRequestStatus(http.StatusCreated, http.MethodPost, "/admin/control-plane/providers", body)
+	rec := admin.mustRequestStatus(http.StatusCreated, http.MethodPost, "/hecate/v1/settings/providers", body)
 	var resp struct {
 		Data ControlPlaneProviderRecord `json:"data"`
 	}
@@ -403,8 +403,8 @@ func TestControlPlaneDeleteProvider_Success(t *testing.T) {
 	admin, store := newProviderRuntimeTestHandler(t, rt)
 
 	body := `{"name":"Ollama","kind":"local","protocol":"openai","base_url":"http://127.0.0.1:11434/v1"}`
-	admin.mustRequestStatus(http.StatusCreated, http.MethodPost, "/admin/control-plane/providers", body)
-	admin.mustRequest(http.MethodDelete, "/admin/control-plane/providers/ollama", "")
+	admin.mustRequestStatus(http.StatusCreated, http.MethodPost, "/hecate/v1/settings/providers", body)
+	admin.mustRequest(http.MethodDelete, "/hecate/v1/settings/providers/ollama", "")
 	state, _ := store.Snapshot(context.Background())
 	if len(state.Providers) != 0 {
 		t.Fatalf("store providers = %+v, want empty after delete", state.Providers)
@@ -416,7 +416,7 @@ func TestControlPlaneDeleteProvider_Unknown(t *testing.T) {
 	rt := &fakeProviderRuntime{}
 	admin, _ := newProviderRuntimeTestHandler(t, rt)
 
-	admin.mustRequestStatus(http.StatusBadRequest, http.MethodDelete, "/admin/control-plane/providers/nonexistent", "")
+	admin.mustRequestStatus(http.StatusBadRequest, http.MethodDelete, "/hecate/v1/settings/providers/nonexistent", "")
 }
 
 func TestControlPlaneUpdateProvider_BaseURL(t *testing.T) {
@@ -425,9 +425,9 @@ func TestControlPlaneUpdateProvider_BaseURL(t *testing.T) {
 	admin, store := newProviderRuntimeTestHandler(t, rt)
 
 	create := `{"name":"Ollama","kind":"local","protocol":"openai","base_url":"http://127.0.0.1:11434/v1"}`
-	admin.mustRequestStatus(http.StatusCreated, http.MethodPost, "/admin/control-plane/providers", create)
+	admin.mustRequestStatus(http.StatusCreated, http.MethodPost, "/hecate/v1/settings/providers", create)
 	patch := `{"base_url":"http://192.168.1.10:11434/v1"}`
-	admin.mustRequest(http.MethodPatch, "/admin/control-plane/providers/ollama", patch)
+	admin.mustRequest(http.MethodPatch, "/hecate/v1/settings/providers/ollama", patch)
 	state, _ := store.Snapshot(context.Background())
 	if len(state.Providers) != 1 || state.Providers[0].BaseURL != "http://192.168.1.10:11434/v1" {
 		t.Fatalf("provider base_url = %q, want updated value", state.Providers[0].BaseURL)
@@ -444,9 +444,9 @@ func TestControlPlaneUpdateProvider_RenameCustom(t *testing.T) {
 	admin, store := newProviderRuntimeTestHandler(t, rt)
 
 	create := `{"name":"My Local","kind":"local","protocol":"openai","base_url":"http://127.0.0.1:9000/v1"}`
-	admin.mustRequestStatus(http.StatusCreated, http.MethodPost, "/admin/control-plane/providers", create)
+	admin.mustRequestStatus(http.StatusCreated, http.MethodPost, "/hecate/v1/settings/providers", create)
 	patch := `{"name":"Workstation"}`
-	admin.mustRequest(http.MethodPatch, "/admin/control-plane/providers/my-local", patch)
+	admin.mustRequest(http.MethodPatch, "/hecate/v1/settings/providers/my-local", patch)
 	state, _ := store.Snapshot(context.Background())
 	if len(state.Providers) != 1 || state.Providers[0].Name != "Workstation" {
 		t.Fatalf("provider name = %q, want 'Workstation'", state.Providers[0].Name)
@@ -469,8 +469,8 @@ func TestControlPlaneUpdateProvider_RenamePresetRejected(t *testing.T) {
 	admin, _ := newProviderRuntimeTestHandler(t, rt)
 
 	create := `{"name":"Anthropic","preset_id":"anthropic","kind":"cloud","protocol":"openai","api_key":"sk"}`
-	admin.mustRequestStatus(http.StatusCreated, http.MethodPost, "/admin/control-plane/providers", create)
-	rec := admin.mustRequestStatus(http.StatusBadRequest, http.MethodPatch, "/admin/control-plane/providers/anthropic", `{"name":"Frank"}`)
+	admin.mustRequestStatus(http.StatusCreated, http.MethodPost, "/hecate/v1/settings/providers", create)
+	rec := admin.mustRequestStatus(http.StatusBadRequest, http.MethodPatch, "/hecate/v1/settings/providers/anthropic", `{"name":"Frank"}`)
 	if msg := decodeErrorMessage(t, rec.Body.Bytes()); !strings.Contains(msg, "fixed name") {
 		t.Errorf("error.message = %q, want substring 'fixed name'", msg)
 	}
@@ -485,8 +485,8 @@ func TestControlPlaneUpdateProvider_SetCustomName(t *testing.T) {
 	admin, store := newProviderRuntimeTestHandler(t, rt)
 
 	create := `{"name":"Anthropic","preset_id":"anthropic","kind":"cloud","protocol":"openai","api_key":"sk"}`
-	admin.mustRequestStatus(http.StatusCreated, http.MethodPost, "/admin/control-plane/providers", create)
-	admin.mustRequest(http.MethodPatch, "/admin/control-plane/providers/anthropic", `{"custom_name":"Prod"}`)
+	admin.mustRequestStatus(http.StatusCreated, http.MethodPost, "/hecate/v1/settings/providers", create)
+	admin.mustRequest(http.MethodPatch, "/hecate/v1/settings/providers/anthropic", `{"custom_name":"Prod"}`)
 
 	state, _ := store.Snapshot(context.Background())
 	if len(state.Providers) != 1 {
@@ -510,9 +510,9 @@ func TestControlPlaneCreateProvider_TwoPresetInstances(t *testing.T) {
 	admin, store := newProviderRuntimeTestHandler(t, rt)
 
 	first := `{"name":"Anthropic","preset_id":"anthropic","kind":"cloud","protocol":"openai","api_key":"sk-1"}`
-	admin.mustRequestStatus(http.StatusCreated, http.MethodPost, "/admin/control-plane/providers", first)
+	admin.mustRequestStatus(http.StatusCreated, http.MethodPost, "/hecate/v1/settings/providers", first)
 	second := `{"name":"Anthropic","preset_id":"anthropic","custom_name":"Prod","kind":"cloud","protocol":"openai","api_key":"sk-2"}`
-	admin.mustRequestStatus(http.StatusCreated, http.MethodPost, "/admin/control-plane/providers", second)
+	admin.mustRequestStatus(http.StatusCreated, http.MethodPost, "/hecate/v1/settings/providers", second)
 
 	state, _ := store.Snapshot(context.Background())
 	if len(state.Providers) != 2 {
@@ -534,8 +534,8 @@ func TestControlPlaneUpdateProvider_NoFields(t *testing.T) {
 	admin, _ := newProviderRuntimeTestHandler(t, rt)
 
 	create := `{"name":"Ollama","kind":"local","protocol":"openai","base_url":"http://127.0.0.1:11434/v1"}`
-	admin.mustRequestStatus(http.StatusCreated, http.MethodPost, "/admin/control-plane/providers", create)
-	rec := admin.mustRequestStatus(http.StatusBadRequest, http.MethodPatch, "/admin/control-plane/providers/ollama", `{}`)
+	admin.mustRequestStatus(http.StatusCreated, http.MethodPost, "/hecate/v1/settings/providers", create)
+	rec := admin.mustRequestStatus(http.StatusBadRequest, http.MethodPatch, "/hecate/v1/settings/providers/ollama", `{}`)
 	if msg := decodeErrorMessage(t, rec.Body.Bytes()); !strings.Contains(msg, "no fields to update") {
 		t.Errorf("error.message = %q, want substring 'no fields to update'", msg)
 	}
@@ -551,9 +551,9 @@ func TestControlPlaneUpdateProvider_BaseURL_PropagatesToRuntime(t *testing.T) {
 	admin, _ := newProviderRuntimeTestHandler(t, rt)
 
 	create := `{"name":"Ollama","kind":"local","protocol":"openai","base_url":"http://127.0.0.1:11434/v1"}`
-	admin.mustRequestStatus(http.StatusCreated, http.MethodPost, "/admin/control-plane/providers", create)
+	admin.mustRequestStatus(http.StatusCreated, http.MethodPost, "/hecate/v1/settings/providers", create)
 	patch := `{"base_url":"http://192.168.1.10:11434/v1"}`
-	admin.mustRequest(http.MethodPatch, "/admin/control-plane/providers/ollama", patch)
+	admin.mustRequest(http.MethodPatch, "/hecate/v1/settings/providers/ollama", patch)
 
 	rt.mu.Lock()
 	defer rt.mu.Unlock()
@@ -575,7 +575,7 @@ func TestBuildControlPlaneProviderList_EmptyStore(t *testing.T) {
 	rt := &fakeProviderRuntime{}
 	admin, _ := newProviderRuntimeTestHandler(t, rt)
 
-	rec := admin.mustRequest(http.MethodGet, "/admin/control-plane", "")
+	rec := admin.mustRequest(http.MethodGet, "/hecate/v1/settings", "")
 	var resp struct {
 		Data struct {
 			Providers []ControlPlaneProviderRecord `json:"providers"`
@@ -600,9 +600,9 @@ func TestBuildControlPlaneProviderList_PresetMetadataJoin(t *testing.T) {
 	admin, _ := newProviderRuntimeTestHandler(t, rt)
 
 	body := `{"name":"Anthropic","preset_id":"anthropic","kind":"cloud","protocol":"openai","api_key":"sk-ant-test"}`
-	admin.mustRequestStatus(http.StatusCreated, http.MethodPost, "/admin/control-plane/providers", body)
+	admin.mustRequestStatus(http.StatusCreated, http.MethodPost, "/hecate/v1/settings/providers", body)
 
-	rec := admin.mustRequest(http.MethodGet, "/admin/control-plane", "")
+	rec := admin.mustRequest(http.MethodGet, "/hecate/v1/settings", "")
 	var resp struct {
 		Data struct {
 			Providers []ControlPlaneProviderRecord `json:"providers"`
@@ -626,6 +626,78 @@ func TestBuildControlPlaneProviderList_PresetMetadataJoin(t *testing.T) {
 	}
 	if !got.CredentialConfigured {
 		t.Errorf("credential_configured = false, want true after a key was supplied at create time")
+	}
+}
+
+func TestControlPlaneDeletePolicyRule_UsesPathID(t *testing.T) {
+	t.Parallel()
+	admin, _ := newProviderRuntimeTestHandler(t, nil)
+
+	admin.mustRequest(http.MethodPost, "/hecate/v1/settings/policy-rules", `{"id":"deny-cloud","action":"deny","reason":"local only"}`)
+
+	rec := admin.mustRequest(http.MethodDelete, "/hecate/v1/settings/policy-rules/deny-cloud", "")
+	var deleted struct {
+		Data struct {
+			ID string `json:"id"`
+		} `json:"data"`
+	}
+	if err := json.NewDecoder(rec.Body).Decode(&deleted); err != nil {
+		t.Fatalf("decode delete policy response: %v", err)
+	}
+	if deleted.Data.ID != "deny-cloud" {
+		t.Fatalf("deleted id = %q, want deny-cloud", deleted.Data.ID)
+	}
+
+	status := admin.mustRequest(http.MethodGet, "/hecate/v1/settings", "")
+	var snapshot struct {
+		Data struct {
+			PolicyRules []ControlPlanePolicyRuleRecord `json:"policy_rules"`
+		} `json:"data"`
+	}
+	if err := json.NewDecoder(status.Body).Decode(&snapshot); err != nil {
+		t.Fatalf("decode settings response: %v", err)
+	}
+	if len(snapshot.Data.PolicyRules) != 0 {
+		t.Fatalf("policy_rules = %+v, want empty after delete", snapshot.Data.PolicyRules)
+	}
+}
+
+func TestControlPlaneDeletePricebookEntry_UsesPathProviderAndModel(t *testing.T) {
+	t.Parallel()
+	admin, _ := newProviderRuntimeTestHandler(t, nil)
+
+	admin.mustRequest(http.MethodPost, "/hecate/v1/settings/pricebook", `{
+		"provider":"mistral",
+		"model":"ministral-3:latest",
+		"input_micros_usd_per_million_tokens":100,
+		"output_micros_usd_per_million_tokens":200
+	}`)
+
+	rec := admin.mustRequest(http.MethodDelete, "/hecate/v1/settings/pricebook/mistral/ministral-3:latest", "")
+	var deleted struct {
+		Data struct {
+			Provider string `json:"provider"`
+			Model    string `json:"model"`
+		} `json:"data"`
+	}
+	if err := json.NewDecoder(rec.Body).Decode(&deleted); err != nil {
+		t.Fatalf("decode delete pricebook response: %v", err)
+	}
+	if deleted.Data.Provider != "mistral" || deleted.Data.Model != "ministral-3:latest" {
+		t.Fatalf("deleted = %+v, want mistral/ministral-3:latest", deleted.Data)
+	}
+
+	status := admin.mustRequest(http.MethodGet, "/hecate/v1/settings", "")
+	var snapshot struct {
+		Data struct {
+			Pricebook []ControlPlanePricebookRecord `json:"pricebook"`
+		} `json:"data"`
+	}
+	if err := json.NewDecoder(status.Body).Decode(&snapshot); err != nil {
+		t.Fatalf("decode settings response: %v", err)
+	}
+	if len(snapshot.Data.Pricebook) != 0 {
+		t.Fatalf("pricebook = %+v, want empty after delete", snapshot.Data.Pricebook)
 	}
 }
 

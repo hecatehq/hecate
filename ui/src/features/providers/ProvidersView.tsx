@@ -69,7 +69,7 @@ export function ProvidersView({ state, actions }: Props) {
   // Auto-poll model discovery only when there's something to discover for —
   // either at least one configured provider, or the Add modal is open
   // (so a freshly-added provider's models surface immediately). Otherwise
-  // /admin/providers + /v1/models are no-op network calls; skip them.
+  // /hecate/v1/providers/status + /v1/models are no-op network calls; skip them.
   const hasProviders = (state.controlPlaneConfig?.providers?.length ?? 0) > 0;
   const shouldPoll = hasProviders || addProviderOpen;
   useEffect(() => {

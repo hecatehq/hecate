@@ -72,7 +72,7 @@ func TestHandleEvents_ReturnsAllEvents(t *testing.T) {
 		{RunID: "run-B", EventType: "run.created"},
 	})
 
-	code, resp := callEvents(t, h, "/v1/events")
+	code, resp := callEvents(t, h, "/hecate/v1/events")
 	if code != http.StatusOK {
 		t.Fatalf("status = %d, want 200", code)
 	}
@@ -90,7 +90,7 @@ func TestHandleEvents_EventTypeFilter(t *testing.T) {
 		{RunID: "run-A", EventType: "run.finished"},
 	})
 
-	code, resp := callEvents(t, h, "/v1/events?event_type=turn.completed")
+	code, resp := callEvents(t, h, "/hecate/v1/events?event_type=turn.completed")
 	if code != http.StatusOK {
 		t.Fatalf("status = %d, want 200", code)
 	}
@@ -112,7 +112,7 @@ func TestHandleEvents_AfterSequenceCursor(t *testing.T) {
 		{RunID: "run-A", EventType: "run.finished"},
 	})
 
-	code, page1 := callEvents(t, h, "/v1/events?limit=1")
+	code, page1 := callEvents(t, h, "/hecate/v1/events?limit=1")
 	if code != http.StatusOK {
 		t.Fatalf("status = %d, want 200", code)
 	}
@@ -123,7 +123,7 @@ func TestHandleEvents_AfterSequenceCursor(t *testing.T) {
 		t.Errorf("NextAfterSequence missing on non-empty response")
 	}
 
-	resumePath := "/v1/events?after_sequence=" + strconv.FormatInt(page1.NextAfterSequence, 10) + "&limit=10"
+	resumePath := "/hecate/v1/events?after_sequence=" + strconv.FormatInt(page1.NextAfterSequence, 10) + "&limit=10"
 	code2, page2 := callEvents(t, h, resumePath)
 	if code2 != http.StatusOK {
 		t.Fatalf("page2 status = %d, want 200", code2)
@@ -140,7 +140,7 @@ func TestHandleEvents_AfterSequenceCursor(t *testing.T) {
 
 func TestHandleEvents_RejectsBadAfterSequence(t *testing.T) {
 	h, _ := newEventsTestHandler(t)
-	req := httptest.NewRequest(http.MethodGet, "/v1/events?after_sequence=not-a-number", nil)
+	req := httptest.NewRequest(http.MethodGet, "/hecate/v1/events?after_sequence=not-a-number", nil)
 	rec := httptest.NewRecorder()
 	h.HandleEvents(rec, req)
 	if rec.Code != http.StatusBadRequest {

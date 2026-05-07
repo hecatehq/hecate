@@ -205,9 +205,9 @@ The approval banner stays in sync with the run state because approvals ride alon
 
 Per-turn LLM cost is captured at three granularities:
 
-- **`turn.completed` events** — one per LLM round-trip on the persisted run-event log. Each event carries the per-turn spend, the run-cumulative figure (this run only), and the task-cumulative figure (entire resume chain via `PriorCostMicrosUSD`). Subscribe via `/v1/events?event_type=turn.completed`; the wire shape is in [`events.md`](events.md#turncompleted). These rows are the only run events the retention worker prunes — see the `turn_events` subsystem in [`telemetry.md`](telemetry.md#retention-spans) and `GATEWAY_RETENTION_TURN_EVENTS_*` in `.env.example`.
+- **`turn.completed` events** — one per LLM round-trip on the persisted run-event log. Each event carries the per-turn spend, the run-cumulative figure (this run only), and the task-cumulative figure (entire resume chain via `PriorCostMicrosUSD`). Subscribe via `/hecate/v1/events?event_type=turn.completed`; the wire shape is in [`events.md`](events.md#turncompleted). These rows are the only run events the retention worker prunes — see the `turn_events` subsystem in [`telemetry.md`](telemetry.md#retention-spans) and `GATEWAY_RETENTION_TURN_EVENTS_*` in `.env.example`.
 - **`tool.file.patch` events** — emitted whenever `file_write` or `file_edit` changes or proposes a file change. Each event points at a `patch` artifact containing the unified diff, giving operator UIs and future ACP/CLI consumers an inspectable edit record without re-deriving state from the workspace.
-- **Patch review API** — `GET /v1/tasks/{id}/runs/{run_id}/patches` lists patch artifacts. Applied patches can be reverted; proposed patches from `file_edit` with `propose=true` can be applied if the target file still matches the captured before-content.
+- **Patch review API** — `GET /hecate/v1/tasks/{id}/runs/{run_id}/patches` lists patch artifacts. Applied patches can be reverted; proposed patches from `file_edit` with `propose=true` can be applied if the target file still matches the captured before-content.
 - **`git_summary` artifacts** — when the run workspace is a git repository and has changes at run completion, Hecate records a `git-changes.json` artifact with porcelain status entries and a diff stat for quick changed-file review.
 - **Model-step `OutputSummary`** — each thinking step's `OutputSummary.cost_micros_usd` carries the same per-turn figure, so the run-replay UI surfaces it next to "turn N" without a separate event subscription.
 - **`TaskRun.TotalCostMicrosUSD` + `PriorCostMicrosUSD`** — finalized totals on the run record. Cumulative across the resume chain = `Prior + Total`.
@@ -220,10 +220,10 @@ Same-run mid-approval resumes seed `costSpent` from the run's pre-pause `TotalCo
 
 Three operations land an agent_loop run back on the queue with prior context:
 
-- **Retry** — `POST /v1/tasks/{id}/runs/{run_id}/retry`. Creates a new run with the same task config but no conversation history. The cheapest "do it again from scratch" button.
-- **Resume** — `POST /v1/tasks/{id}/runs/{run_id}/resume`. Creates a new run that hydrates the source run's conversation and continues from where it left off. Used after a `failed` or `cancelled` run.
-- **Continue** — `POST /v1/tasks/{id}/runs/{run_id}/continue` with `{ "prompt": "..." }`. Creates the next run in the same agent conversation, hydrates the source conversation, then appends the new user prompt. This is the ACP/editor-session path.
-- **Retry from turn N** — `POST /v1/tasks/{id}/runs/{run_id}/retry-from-turn` with `{ "turn": N, "reason": "..." }`. Creates a new run whose conversation is truncated to right before the Nth assistant message. Lets operators explore an alternate path from a known prior state. Turn must be in `[1, count(assistant messages)]`. The new run's step indices restart at 1; cumulative cost picks up from `source.PriorCost + source.Total`.
+- **Retry** — `POST /hecate/v1/tasks/{id}/runs/{run_id}/retry`. Creates a new run with the same task config but no conversation history. The cheapest "do it again from scratch" button.
+- **Resume** — `POST /hecate/v1/tasks/{id}/runs/{run_id}/resume`. Creates a new run that hydrates the source run's conversation and continues from where it left off. Used after a `failed` or `cancelled` run.
+- **Continue** — `POST /hecate/v1/tasks/{id}/runs/{run_id}/continue` with `{ "prompt": "..." }`. Creates the next run in the same agent conversation, hydrates the source conversation, then appends the new user prompt. This is the ACP/editor-session path.
+- **Retry from turn N** — `POST /hecate/v1/tasks/{id}/runs/{run_id}/retry-from-turn` with `{ "turn": N, "reason": "..." }`. Creates a new run whose conversation is truncated to right before the Nth assistant message. Lets operators explore an alternate path from a known prior state. Turn must be in `[1, count(assistant messages)]`. The new run's step indices restart at 1; cumulative cost picks up from `source.PriorCost + source.Total`.
 
 The conversation viewer in the run-replay UI shows a `↻ retry from here` button on each assistant turn (terminal runs only).
 
@@ -244,7 +244,7 @@ Env vars that affect agent_loop runs:
 
 For `GATEWAY_TASK_APPROVAL_POLICIES` (which gates mid-loop tool calls and the matching pre-execution task gates; valid values: `shell_exec`, `git_exec`, `file_write`, `network_egress`, `read_file`, `all_tools`) see [`runtime-api.md#approval-policy-configuration`](runtime-api.md#approval-policy-configuration). `file_write` gates both full-file writes and exact-match `file_edit` calls. For per-task `mcp_servers` knobs (max-servers cap, client-cache sizing, ping intervals) see [`runtime-api.md#runtime-backend-and-queue-configuration`](runtime-api.md#runtime-backend-and-queue-configuration) and [`mcp.md#resource-limits`](mcp.md#resource-limits).
 
-Per-task fields on `POST /v1/tasks` that affect agent_loop:
+Per-task fields on `POST /hecate/v1/tasks` that affect agent_loop:
 
 - `execution_kind: "agent_loop"` — picks this runtime
 - `prompt` — the user message; required
@@ -257,7 +257,7 @@ Per-task fields on `POST /v1/tasks` that affect agent_loop:
 
 ## Common failure modes
 
-- **HTTP 422 `model_not_configured`** — `POST /v1/tasks/{id}/start` was called for an `agent_loop` task with no model resolvable (neither `task.RequestedModel` nor the gateway's `GATEWAY_DEFAULT_MODEL` is set). No run is created. Fix: set `requested_model` on the task or configure a default model.
+- **HTTP 422 `model_not_configured`** — `POST /hecate/v1/tasks/{id}/start` was called for an `agent_loop` task with no model resolvable (neither `task.RequestedModel` nor the gateway's `GATEWAY_DEFAULT_MODEL` is set). No run is created. Fix: set `requested_model` on the task or configure a default model.
 - **`escapes allowed root`** — the LLM picked a path outside the workspace. The env system message normally prevents this; if you see it, check that `task.WorkingDirectory` matches what the model is using, or switch to `workspace_mode=in_place` to align them.
 - **`api key is required for cloud provider X`** — the operator pinned provider X but no credentials are configured, OR the request fell through to the default provider. The router uses `Scope.ProviderHint` from `run.Provider` (mirrored from `task.RequestedProvider`); empty hint falls back to the default model's provider.
 - **`model "X" does not support tool-calling`** — the chosen model rejects the `tools` field. Tiny / chat-only models (e.g. `smollm2:135m`) hit this. Pick a tool-capable model: `gpt-4o-mini`, `claude-sonnet-4-6`, or `qwen2.5-coder` for Ollama.

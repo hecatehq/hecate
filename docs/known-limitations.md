@@ -133,7 +133,7 @@ operators should not assume yet.
   Chats for model and external-agent sessions, request inspection, budgets,
   task approvals, and task-run debugging.
 - Some bulk-management flows and deeper side-by-side artifact review are still
-  lighter than a mature control-plane product.
+  lighter than a mature settings/governance product.
 
 ## Desktop App
 

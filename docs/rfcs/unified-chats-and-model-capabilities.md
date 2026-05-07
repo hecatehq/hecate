@@ -110,9 +110,9 @@ Capability sources merge with this precedence:
 
 Manual controls are explicit:
 
-- `PUT /v1/model-capabilities/overrides`
-- `DELETE /v1/model-capabilities/overrides?provider=...&model=...`
-- `POST /v1/model-capabilities/probes`
+- `PUT /hecate/v1/model-capabilities/overrides`
+- `DELETE /hecate/v1/model-capabilities/overrides?provider=...&model=...`
+- `POST /hecate/v1/model-capabilities/probes`
 
 `GET /v1/models` includes the effective capability snapshot in
 `metadata.capabilities` so the UI can render badges and disable Hecate Agent

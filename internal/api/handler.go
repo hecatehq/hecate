@@ -646,7 +646,7 @@ func buildApprovalCoordinatorHooks(
 // approvalResolvedEventFromRow projects the coordinator's full
 // Approval shape down to the SSE payload. Frontends that need more
 // detail (acp_options, full payload) follow up with
-// GET /v1/agent-chat/sessions/{id}/approvals/{id}.
+// GET /hecate/v1/agent-chat/sessions/{id}/approvals/{id}.
 func approvalResolvedEventFromRow(a agentadapters.Approval) AgentChatApprovalResolvedEvent {
 	out := AgentChatApprovalResolvedEvent{
 		ApprovalID:     a.ID,

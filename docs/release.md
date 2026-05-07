@@ -224,4 +224,4 @@ SLA. Keep these expectations visible:
 - The sandbox is a per-call subprocess with env sanitisation, output cap, wall-clock timeout, and an auto-detected `bwrap` / `sandbox-exec` wrapper where available. It is not hardened OS isolation or container-level isolation.
 - Multi-node deployments are not the primary tested path yet.
 - Provider lifecycle covers preset and OpenAI-compatible custom-endpoint adds, plus
-  persisted control-plane edits; broader provider workflows are still evolving.
+  persisted settings edits; broader provider workflows are still evolving.

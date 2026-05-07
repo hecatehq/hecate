@@ -148,7 +148,7 @@ test("workspace selection persists across reload", async ({ page }) => {
 // API key. Open the Providers tab and add one." before reaching the DOM.
 test("chat error renders inline with the humanized message", async ({ page }) => {
   await switchToModel(page);
-  await page.route("/v1/agent-chat/sessions", async route => {
+  await page.route("/hecate/v1/agent-chat/sessions", async route => {
     if (route.request().method() !== "POST") {
       await route.continue();
       return;
@@ -172,10 +172,10 @@ test("chat error renders inline with the humanized message", async ({ page }) =>
       }),
     });
   });
-  await page.route("/v1/agent-chat/sessions/chat_err_e2e/stream", route =>
+  await page.route("/hecate/v1/agent-chat/sessions/chat_err_e2e/stream", route =>
     route.fulfill({ status: 200, contentType: "text/event-stream", body: "" }),
   );
-  await page.route("/v1/agent-chat/sessions/chat_err_e2e/messages", route =>
+  await page.route("/hecate/v1/agent-chat/sessions/chat_err_e2e/messages", route =>
     route.fulfill({
       status: 400,
       contentType: "application/json",
@@ -199,7 +199,7 @@ test("empty model chat can add all detected local providers in one click", async
   await page.unrouteAll({ behavior: "ignoreErrors" });
   await mockGatewayAPIs(page);
   const created: Array<Record<string, unknown>> = [];
-  await page.route("/admin/control-plane/providers", async route => {
+  await page.route("/hecate/v1/settings/providers", async route => {
     if (route.request().method() === "POST") {
       created.push(JSON.parse(route.request().postData() ?? "{}"));
     }
@@ -228,7 +228,7 @@ test("empty Hecate Agent chat can add all detected local providers in one click"
   await page.unrouteAll({ behavior: "ignoreErrors" });
   await mockGatewayAPIs(page);
   const created: Array<Record<string, unknown>> = [];
-  await page.route("/admin/control-plane/providers", async route => {
+  await page.route("/hecate/v1/settings/providers", async route => {
     if (route.request().method() === "POST") {
       created.push(JSON.parse(route.request().postData() ?? "{}"));
     }
@@ -275,7 +275,7 @@ test("Hecate Agent local-provider onboarding renders the real final answer and u
   }));
 
   const sessions: any[] = [];
-  await page.route("/v1/agent-chat/sessions", async route => {
+  await page.route("/hecate/v1/agent-chat/sessions", async route => {
     if (route.request().method() === "GET") {
       await route.fulfill({
         status: 200,
@@ -309,14 +309,14 @@ test("Hecate Agent local-provider onboarding renders the real final answer and u
     await route.fulfill({ status: 405, body: "" });
   });
 
-  await page.route("/v1/agent-chat/sessions/chat-hecate-e2e/stream", route => route.fulfill({
+  await page.route("/hecate/v1/agent-chat/sessions/chat-hecate-e2e/stream", route => route.fulfill({
     status: 200,
     contentType: "text/event-stream",
     body: "",
   }));
 
   let messagePayload: Record<string, unknown> | null = null;
-  await page.route("/v1/agent-chat/sessions/chat-hecate-e2e/messages", async route => {
+  await page.route("/hecate/v1/agent-chat/sessions/chat-hecate-e2e/messages", async route => {
     messagePayload = await route.request().postDataJSON();
     const completed = {
       ...sessions[0],
@@ -445,7 +445,7 @@ test("Hecate Chat can move tools on, tools off, then tools on again in one trans
     };
   }
 
-  await page.route("/v1/agent-chat/sessions", async route => {
+  await page.route("/hecate/v1/agent-chat/sessions", async route => {
     if (route.request().method() === "GET") {
       await route.fulfill({
         status: 200,
@@ -479,25 +479,25 @@ test("Hecate Chat can move tools on, tools off, then tools on again in one trans
     await route.fulfill({ status: 405, body: "" });
   });
 
-  await page.route("/v1/agent-chat/sessions/chat-tools-switch-e2e/stream", route => route.fulfill({
+  await page.route("/hecate/v1/agent-chat/sessions/chat-tools-switch-e2e/stream", route => route.fulfill({
     status: 200,
     contentType: "text/event-stream",
     body: "",
   }));
 
-  await page.route("/v1/agent-chat/sessions/chat-tools-switch-e2e/approvals*", route => route.fulfill({
+  await page.route("/hecate/v1/agent-chat/sessions/chat-tools-switch-e2e/approvals*", route => route.fulfill({
     status: 200,
     contentType: "application/json",
     body: JSON.stringify({ object: "agent_chat_approvals", data: [] }),
   }));
 
-  await page.route("/v1/agent-chat/sessions/chat-tools-switch-e2e", route => route.fulfill({
+  await page.route("/hecate/v1/agent-chat/sessions/chat-tools-switch-e2e", route => route.fulfill({
     status: 200,
     contentType: "application/json",
     body: JSON.stringify({ object: "agent_chat_session", data: session }),
   }));
 
-  await page.route("/v1/tasks/task-tools-1/approvals/appr-tools-1/resolve", async route => {
+  await page.route("/hecate/v1/tasks/task-tools-1/approvals/appr-tools-1/resolve", async route => {
     completeFirstTaskApproval();
     await route.fulfill({
       status: 200,
@@ -506,7 +506,7 @@ test("Hecate Chat can move tools on, tools off, then tools on again in one trans
     });
   });
 
-  await page.route("/v1/agent-chat/sessions/chat-tools-switch-e2e/messages", async route => {
+  await page.route("/hecate/v1/agent-chat/sessions/chat-tools-switch-e2e/messages", async route => {
     const body = await route.request().postDataJSON();
     submittedTurns.push(body);
     const turn = submittedTurns.length;
@@ -685,27 +685,27 @@ test("Hecate Chat rehydrates an active task and blocks direct sends after refres
       }],
     }),
   }));
-  await page.route("/v1/agent-chat/sessions", route => route.fulfill({
+  await page.route("/hecate/v1/agent-chat/sessions", route => route.fulfill({
     status: 200,
     contentType: "application/json",
     body: JSON.stringify({ object: "agent_chat_sessions", data: [session] }),
   }));
-  await page.route("/v1/agent-chat/sessions/chat-busy-e2e", route => route.fulfill({
+  await page.route("/hecate/v1/agent-chat/sessions/chat-busy-e2e", route => route.fulfill({
     status: 200,
     contentType: "application/json",
     body: JSON.stringify({ object: "agent_chat_session", data: session }),
   }));
-  await page.route("/v1/agent-chat/sessions/chat-busy-e2e/stream", route => route.fulfill({
+  await page.route("/hecate/v1/agent-chat/sessions/chat-busy-e2e/stream", route => route.fulfill({
     status: 200,
     contentType: "text/event-stream",
     body: "",
   }));
-  await page.route("/v1/agent-chat/sessions/chat-busy-e2e/approvals*", route => route.fulfill({
+  await page.route("/hecate/v1/agent-chat/sessions/chat-busy-e2e/approvals*", route => route.fulfill({
     status: 200,
     contentType: "application/json",
     body: JSON.stringify({ object: "agent_chat_approvals", data: [] }),
   }));
-  await page.route("/v1/agent-chat/sessions/chat-busy-e2e/messages", route => {
+  await page.route("/hecate/v1/agent-chat/sessions/chat-busy-e2e/messages", route => {
     messagePosts += 1;
     return route.fulfill({ status: 500, body: "send should be blocked by the UI" });
   });
@@ -816,27 +816,27 @@ test("Hecate Chat rehydrates an awaiting-approval task and resolves it after ref
       }],
     }),
   }));
-  await page.route("/v1/agent-chat/sessions", route => route.fulfill({
+  await page.route("/hecate/v1/agent-chat/sessions", route => route.fulfill({
     status: 200,
     contentType: "application/json",
     body: JSON.stringify({ object: "agent_chat_sessions", data: [currentSession()] }),
   }));
-  await page.route("/v1/agent-chat/sessions/chat-approval-refresh-e2e", route => route.fulfill({
+  await page.route("/hecate/v1/agent-chat/sessions/chat-approval-refresh-e2e", route => route.fulfill({
     status: 200,
     contentType: "application/json",
     body: JSON.stringify({ object: "agent_chat_session", data: currentSession() }),
   }));
-  await page.route("/v1/agent-chat/sessions/chat-approval-refresh-e2e/stream", route => route.fulfill({
+  await page.route("/hecate/v1/agent-chat/sessions/chat-approval-refresh-e2e/stream", route => route.fulfill({
     status: 200,
     contentType: "text/event-stream",
     body: "",
   }));
-  await page.route("/v1/agent-chat/sessions/chat-approval-refresh-e2e/approvals*", route => route.fulfill({
+  await page.route("/hecate/v1/agent-chat/sessions/chat-approval-refresh-e2e/approvals*", route => route.fulfill({
     status: 200,
     contentType: "application/json",
     body: JSON.stringify({ object: "agent_chat_approvals", data: [] }),
   }));
-  await page.route("/v1/tasks/task-approval-refresh-e2e/approvals/appr-refresh-e2e/resolve", async route => {
+  await page.route("/hecate/v1/tasks/task-approval-refresh-e2e/approvals/appr-refresh-e2e/resolve", async route => {
     approvalResolved = true;
     await route.fulfill({
       status: 200,
@@ -876,7 +876,7 @@ test("configured provider with no models shows troubleshooting, not detected-pro
     contentType: "application/json",
     body: JSON.stringify({ object: "list", data: [] }),
   }));
-  await page.route("/admin/providers*", route => route.fulfill({
+  await page.route("/hecate/v1/providers/status*", route => route.fulfill({
     status: 200,
     contentType: "application/json",
     body: JSON.stringify({
@@ -916,10 +916,10 @@ test("agent approval banner: review, allow, banner clears", async ({ page }) => 
     window.localStorage.setItem("hecate.chatTarget", "external_agent");
   });
 
-  // The dashboard fan-out asks for /v1/agent-chat/sessions on mount
+  // The dashboard fan-out asks for /hecate/v1/agent-chat/sessions on mount
   // and prunes any stored activeSessionID that isn't in the list. So
   // a-e2e-1 must appear here for the catch-up refetch to fire.
-  await page.route("/v1/agent-chat/sessions", (route) => {
+  await page.route("/hecate/v1/agent-chat/sessions", (route) => {
     if (route.request().method() !== "GET") {
       void route.fulfill({ status: 405, body: "" });
       return;
@@ -947,7 +947,7 @@ test("agent approval banner: review, allow, banner clears", async ({ page }) => 
   // the call count) and stays stable under React 19 strict-mode
   // double-fires of the catch-up effect.
   let approvalResolved = false;
-  await page.route("/v1/agent-chat/sessions/a-e2e-1/approvals*", (route) => {
+  await page.route("/hecate/v1/agent-chat/sessions/a-e2e-1/approvals*", (route) => {
     if (approvalResolved) {
       void route.fulfill({
         status: 200,
@@ -979,7 +979,7 @@ test("agent approval banner: review, allow, banner clears", async ({ page }) => 
     });
   });
 
-  await page.route("/v1/agent-chat/sessions/a-e2e-1/approvals/ap-e2e-1", (route) => {
+  await page.route("/hecate/v1/agent-chat/sessions/a-e2e-1/approvals/ap-e2e-1", (route) => {
     void route.fulfill({
       status: 200,
       contentType: "application/json",
@@ -1004,7 +1004,7 @@ test("agent approval banner: review, allow, banner clears", async ({ page }) => 
   });
 
   let resolveCalls = 0;
-  await page.route("/v1/agent-chat/sessions/a-e2e-1/approvals/ap-e2e-1/resolve", (route) => {
+  await page.route("/hecate/v1/agent-chat/sessions/a-e2e-1/approvals/ap-e2e-1/resolve", (route) => {
     resolveCalls += 1;
     approvalResolved = true;
     void route.fulfill({
@@ -1033,7 +1033,7 @@ test("agent approval banner: review, allow, banner clears", async ({ page }) => 
   // Override the default agent-chat route so the active session
   // resolves to a real record (the default mock returns 404 for any
   // POST/PATCH/etc.; GET-by-id is unstubbed and we want a 200 here).
-  await page.route("/v1/agent-chat/sessions/a-e2e-1", (route) => {
+  await page.route("/hecate/v1/agent-chat/sessions/a-e2e-1", (route) => {
     void route.fulfill({
       status: 200,
       contentType: "application/json",
@@ -1081,7 +1081,7 @@ test("agent changed-files review inspects and reverts a captured file", async ({
     window.localStorage.setItem("hecate.chatTarget", "external_agent");
   });
 
-  await page.route("/v1/agent-chat/sessions", (route) => {
+  await page.route("/hecate/v1/agent-chat/sessions", (route) => {
     if (route.request().method() !== "GET") {
       void route.fulfill({ status: 405, body: "" });
       return;
@@ -1129,7 +1129,7 @@ test("agent changed-files review inspects and reverts a captured file", async ({
     },
   };
 
-  await page.route("/v1/agent-chat/sessions/a-diff-1", (route) => {
+  await page.route("/hecate/v1/agent-chat/sessions/a-diff-1", (route) => {
     void route.fulfill({
       status: 200,
       contentType: "application/json",
@@ -1137,7 +1137,7 @@ test("agent changed-files review inspects and reverts a captured file", async ({
     });
   });
 
-  await page.route("/v1/agent-chat/sessions/a-diff-1/approvals*", (route) => {
+  await page.route("/hecate/v1/agent-chat/sessions/a-diff-1/approvals*", (route) => {
     void route.fulfill({
       status: 200,
       contentType: "application/json",
@@ -1145,7 +1145,7 @@ test("agent changed-files review inspects and reverts a captured file", async ({
     });
   });
 
-  await page.route("/v1/agent-chat/sessions/a-diff-1/messages/m-agent/files", (route) => {
+  await page.route("/hecate/v1/agent-chat/sessions/a-diff-1/messages/m-agent/files", (route) => {
     void route.fulfill({
       status: 200,
       contentType: "application/json",
@@ -1159,7 +1159,7 @@ test("agent changed-files review inspects and reverts a captured file", async ({
     });
   });
 
-  await page.route("/v1/agent-chat/sessions/a-diff-1/messages/m-agent/files/README.md", (route) => {
+  await page.route("/hecate/v1/agent-chat/sessions/a-diff-1/messages/m-agent/files/README.md", (route) => {
     void route.fulfill({
       status: 200,
       contentType: "application/json",
@@ -1177,7 +1177,7 @@ test("agent changed-files review inspects and reverts a captured file", async ({
   });
 
   let revertedPaths: string[] | null = null;
-  await page.route("/v1/agent-chat/sessions/a-diff-1/messages/m-agent/revert", async (route) => {
+  await page.route("/hecate/v1/agent-chat/sessions/a-diff-1/messages/m-agent/revert", async (route) => {
     revertedPaths = (await route.request().postDataJSON()).paths;
     void route.fulfill({
       status: 200,

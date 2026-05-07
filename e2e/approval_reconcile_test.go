@@ -215,7 +215,7 @@ type apiGrant struct {
 func mustCreateAgentChatSession(t *testing.T, baseURL string) string {
 	t.Helper()
 	body := strings.NewReader(`{"title":"reconcile smoke","adapter_id":"codex","workspace":"/tmp"}`)
-	resp, err := http.Post(baseURL+"/v1/agent-chat/sessions", "application/json", body)
+	resp, err := http.Post(baseURL+"/hecate/v1/agent-chat/sessions", "application/json", body)
 	if err != nil {
 		t.Fatalf("create session: %v", err)
 	}
@@ -240,7 +240,7 @@ func mustCreateAgentChatSession(t *testing.T, baseURL string) string {
 
 func mustResolveApproval(t *testing.T, baseURL, sessionID, approvalID, body string) {
 	t.Helper()
-	url := fmt.Sprintf("%s/v1/agent-chat/sessions/%s/approvals/%s/resolve", baseURL, sessionID, approvalID)
+	url := fmt.Sprintf("%s/hecate/v1/agent-chat/sessions/%s/approvals/%s/resolve", baseURL, sessionID, approvalID)
 	resp, err := http.Post(url, "application/json", strings.NewReader(body))
 	if err != nil {
 		t.Fatalf("resolve approval: %v", err)
@@ -254,7 +254,7 @@ func mustResolveApproval(t *testing.T, baseURL, sessionID, approvalID, body stri
 
 func mustListGrants(t *testing.T, baseURL string) []apiGrant {
 	t.Helper()
-	resp, err := http.Get(baseURL + "/v1/agent-chat/grants")
+	resp, err := http.Get(baseURL + "/hecate/v1/agent-chat/grants")
 	if err != nil {
 		t.Fatalf("list grants: %v", err)
 	}
@@ -274,7 +274,7 @@ func mustListGrants(t *testing.T, baseURL string) []apiGrant {
 
 func mustGetApproval(t *testing.T, baseURL, sessionID, approvalID string) apiApproval {
 	t.Helper()
-	url := fmt.Sprintf("%s/v1/agent-chat/sessions/%s/approvals/%s", baseURL, sessionID, approvalID)
+	url := fmt.Sprintf("%s/hecate/v1/agent-chat/sessions/%s/approvals/%s", baseURL, sessionID, approvalID)
 	resp, err := http.Get(url)
 	if err != nil {
 		t.Fatalf("GET approval: %v", err)

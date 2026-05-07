@@ -84,7 +84,7 @@ func TestAgentAdapterHealthSurfacesProbeResult(t *testing.T) {
 			server := NewServer(logger, apiHandler)
 			client := newAPITestClient(t, server)
 
-			resp := mustRequestJSON[AgentAdapterHealthResponse](client, http.MethodGet, "/v1/agent-adapters/codex/health", "")
+			resp := mustRequestJSON[AgentAdapterHealthResponse](client, http.MethodGet, "/hecate/v1/agent-adapters/codex/health", "")
 			if calls != 1 {
 				t.Fatalf("probe call count = %d, want 1", calls)
 			}
@@ -119,7 +119,7 @@ func TestAgentAdapterHealth404OnUnknownAdapter(t *testing.T) {
 	server := NewServer(logger, apiHandler)
 	client := newAPITestClient(t, server)
 
-	recorder := client.mustRequestStatus(http.StatusNotFound, http.MethodGet, "/v1/agent-adapters/no-such-adapter/health", "")
+	recorder := client.mustRequestStatus(http.StatusNotFound, http.MethodGet, "/hecate/v1/agent-adapters/no-such-adapter/health", "")
 	if probeCalls != 0 {
 		t.Fatalf("probe call count = %d, want 0 (404 must short-circuit)", probeCalls)
 	}
@@ -157,7 +157,7 @@ func TestAgentAdapterProbeEndpointReturnsFreshAdapterAndHealth(t *testing.T) {
 	server := NewServer(logger, apiHandler)
 	client := newAPITestClient(t, server)
 
-	resp := mustRequestJSON[AgentAdapterProbeResponse](client, http.MethodPost, "/v1/agent-adapters/codex/probe", "")
+	resp := mustRequestJSON[AgentAdapterProbeResponse](client, http.MethodPost, "/hecate/v1/agent-adapters/codex/probe", "")
 	if resp.Object != "agent_adapter_probe" {
 		t.Fatalf("object = %q, want agent_adapter_probe", resp.Object)
 	}

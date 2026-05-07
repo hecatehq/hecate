@@ -123,9 +123,9 @@ bare binaries read the shell environment.
 Managed launchers are small wrapper scripts around a local package runner such
 as `npx`; Hecate garbage-collects stale launcher names at startup. If you move
 Node/npm managers, restart Hecate and use `POST
-/v1/agent-adapters/{id}/refresh-launcher` to recreate the affected wrapper.
+/hecate/v1/agent-adapters/{id}/refresh-launcher` to recreate the affected wrapper.
 The Settings → External agents **Test** action calls `POST
-/v1/agent-adapters/{id}/probe`, which re-runs discovery and performs the ACP
+/hecate/v1/agent-adapters/{id}/probe`, which re-runs discovery and performs the ACP
 handshake so login/billing problems are visible before a chat fails.
 
 ## Resetting state

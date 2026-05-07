@@ -105,8 +105,8 @@ type McpServerFormEntry = {
 type Props = {
   open: boolean;
   models: ModelRecord[];
-  // Provider catalog from /admin/providers (status + health) plus the
-  // /v1/provider-presets list (display names). Both optional; when
+  // Provider catalog from /hecate/v1/providers/status (status + health) plus the
+  // /hecate/v1/providers/presets list (display names). Both optional; when
   // unset the provider picker isn't rendered and the model picker
   // shows raw provider ids in its per-row suffix.
   providers?: ProviderRecord[];
@@ -167,7 +167,7 @@ export function NewTaskSlideOver({
           name: preset?.name || p.name,
           healthy: p.healthy,
           kind: preset?.kind ?? p.kind,
-          // Status from /admin/providers carries the credential state
+          // Status from /hecate/v1/providers/status carries the credential state
           // implicitly: healthy + available means configured.
           configured: undefined,
         };

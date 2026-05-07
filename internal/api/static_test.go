@@ -73,7 +73,7 @@ func TestStaticHandlerServesAssets(t *testing.T) {
 // must serve index.html so React Router can take over.
 func TestStaticHandlerSPAFallback(t *testing.T) {
 	rec := httptest.NewRecorder()
-	req := httptest.NewRequest(http.MethodGet, "/admin/providers", nil)
+	req := httptest.NewRequest(http.MethodGet, "/settings", nil)
 	staticUIHandlerFromFS(fakeUIFS()).ServeHTTP(rec, req)
 
 	if rec.Code != http.StatusOK {
@@ -82,6 +82,24 @@ func TestStaticHandlerSPAFallback(t *testing.T) {
 	body, _ := io.ReadAll(rec.Body)
 	if !strings.Contains(string(body), "real ui") {
 		t.Errorf("SPA fallback didn't serve index.html: %s", body)
+	}
+}
+
+func TestStaticHandlerDoesNotFallbackForUnknownAPIPath(t *testing.T) {
+	for _, requestPath := range []string{
+		"/v1/tasks",
+		"/hecate/v1/unknown",
+		"/admin/control-plane",
+	} {
+		t.Run(requestPath, func(t *testing.T) {
+			rec := httptest.NewRecorder()
+			req := httptest.NewRequest(http.MethodGet, requestPath, nil)
+			staticUIHandlerFromFS(fakeUIFS()).ServeHTTP(rec, req)
+
+			if rec.Code != http.StatusNotFound {
+				t.Fatalf("status = %d, want 404", rec.Code)
+			}
+		})
 	}
 }
 

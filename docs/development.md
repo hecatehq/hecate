@@ -94,7 +94,7 @@ Default addresses:
 - gateway + bundled UI (production): `http://127.0.0.1:8765`
 - Vite dev server (UI hot reload): `http://127.0.0.1:5173`
 
-The Vite dev server proxies every `/v1/*`, `/admin/*`, and `/healthz` request to `:8765`, so the UI runs hot while the gateway runs as-is.
+The Vite dev server proxies every `/hecate/*`, `/v1/*`, and `/healthz` request to `:8765`, so the UI runs hot while the gateway runs as-is.
 
 ## Reset state
 
@@ -158,7 +158,7 @@ Internal packages (each `internal/<name>/` is a single Go package):
 acp                     # ACP protocol types + dispatcher used by cmd/hecate-acp
 agentadapters           # external coding-agent adapter framework (Codex, Claude Code, Cursor Agent)
 agentchat               # agent chat session storage and replay
-api                     # HTTP handlers — chat, messages, tasks, admin, control-plane, telemetry
+api                     # HTTP handlers — chat, messages, tasks, settings, telemetry
 billing                 # pricebook + cost calculation
 bootstrap               # first-run secret-key generation and persistence
 catalog                 # provider/model discovery and registration

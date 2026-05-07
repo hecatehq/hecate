@@ -53,7 +53,7 @@ Tasks are durable: a run survives process restarts, can be resumed from a termin
 
 ```mermaid
 flowchart TD
-    Caller["POST /v1/tasks/{id}/start"] --> TasksApi["Tasks API"]
+    Caller["POST /hecate/v1/tasks/{id}/start"] --> TasksApi["Tasks API"]
     TasksApi --> Runner["Orchestrator runner"]
     Runner -->|"agent_loop, no model configured"| ErrModel["422 model_not_configured<br/>(no run created)"]
     Runner --> Workspace["Workspace manager<br/>(clone source to temp dir,<br/>or use source in_place)"]
@@ -93,9 +93,9 @@ flowchart TD
     State --> Snapshot["Run state payload<br/>(includes approvals)"]
     RunEvents --> Snapshot
     Snapshot --> Stream["GET /runs/{id}/stream<br/>(SSE, resumable via<br/>after_sequence / Last-Event-ID)"]
-    RunEvents --> PublicEvents["GET /v1/events<br/>GET /v1/events/stream<br/>(cross-run feed)"]
+    RunEvents --> PublicEvents["GET /hecate/v1/events<br/>GET /hecate/v1/events/stream<br/>(cross-run feed)"]
 
-    Queue --> Stats["GET /admin/runtime/stats<br/>(queue depth, worker count, backend)"]
+    Queue --> Stats["GET /hecate/v1/system/stats<br/>(queue depth, worker count, backend)"]
     State --> Stats
 ```
 
