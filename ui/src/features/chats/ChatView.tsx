@@ -263,8 +263,7 @@ export function ChatView({ state, actions, onNavigate, onOpenTask, onOpenTrace }
     || (!agentBusy && streaming)
     || (!isAgentChat && modelRouteUnavailable)
     || (!agentBusy && isExternalAgentChat && (!state.agentWorkspace.trim() || !selectedAgent?.available))
-    || (!agentBusy && isHecateAgentChat && (!state.agentWorkspace.trim() || !hecateChatModelReady || hecateAgentToolsDisabledForModel))
-    || (!isAgentChat && Boolean(selectedModelIssue));
+    || (!agentBusy && isHecateAgentChat && (!state.agentWorkspace.trim() || !hecateChatModelReady || hecateAgentToolsDisabledForModel));
 
   async function enableToolsForSelectedModel() {
     if (!selectedCapabilityProvider || !selectedCapabilityModel || capabilitySaving) {

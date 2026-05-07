@@ -57,7 +57,7 @@ export function buildSelectedModelIssue({
   }
 
   const providerLabel = providerFilter === "auto"
-    ? "All configured providers"
+    ? "All providers"
     : configuredProvider?.name || runtimeProvider?.name || providerFilter;
   const isLocal = configuredProvider?.kind === "local" || runtimeProvider?.kind === "local";
   const modelCount = runtimeProvider?.model_count ?? runtimeProvider?.models?.length ?? selectableModels.length;
