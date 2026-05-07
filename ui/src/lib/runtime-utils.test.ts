@@ -322,6 +322,8 @@ describe("runtime-utils", () => {
   it("explainRouteCandidate turns route outcomes into operator-readable reasons", () => {
     expect(explainRouteCandidate({ outcome: "selected", reason: "pinned_provider_model" } as any))
       .toBe("Chosen because pinned provider and model.");
+    expect(explainRouteCandidate({ outcome: "selected" } as any))
+      .toBe("Chosen by the router.");
     expect(explainRouteCandidate({ outcome: "skipped", skip_reason: "provider_rate_limited" } as any))
       .toBe("Skipped because cooling down after upstream 429.");
     expect(explainRouteCandidate({ outcome: "failed", detail: "upstream returned 503" } as any))

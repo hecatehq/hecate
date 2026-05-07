@@ -81,7 +81,7 @@ export function describeRouteCandidateOutcome(candidate: TraceRouteCandidate): s
 
 export function explainRouteCandidate(candidate: TraceRouteCandidate): string {
   if (candidate.outcome === "selected" || candidate.outcome === "completed") {
-    const reason = describeRouteReason(candidate.reason);
+    const reason = candidate.reason ? describeRouteReason(candidate.reason) : "";
     return reason ? `Chosen because ${reason.toLowerCase()}.` : "Chosen by the router.";
   }
   if (candidate.skip_reason) {
