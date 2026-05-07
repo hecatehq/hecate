@@ -56,7 +56,7 @@ function setupAllResolved(overrides: Record<string, unknown> = {}) {
   vi.mocked(api.getAgentChatSessions).mockResolvedValue({ object: "list", data: [] });
   vi.mocked(api.getRequestLedger).mockResolvedValue({ object: "list", data: [] });
   vi.mocked(api.getSettingsConfig).mockResolvedValue({
-    object: "configured_state",
+    object: "settings",
     data: { backend: "memory", providers: [], policy_rules: [], pricebook: [], events: [] },
   });
   vi.mocked(api.getRetentionRuns).mockResolvedValue({ object: "list", data: [] });
@@ -221,7 +221,7 @@ describe("resolveDashboardSnapshot", () => {
 
   it("skips the providers fetch when no providers are configured in the settings", async () => {
     vi.mocked(api.getSettingsConfig).mockResolvedValue({
-      object: "configured_state",
+      object: "settings",
       data: { backend: "memory", providers: [], policy_rules: [], pricebook: [], events: [] },
     });
     await resolveDashboardSnapshot({
@@ -234,7 +234,7 @@ describe("resolveDashboardSnapshot", () => {
 
   it("calls the providers fetch when settings has at least one configured provider", async () => {
     vi.mocked(api.getSettingsConfig).mockResolvedValue({
-      object: "configured_state",
+      object: "settings",
       data: {
         backend: "memory",
         providers: [{ name: "openai" } as never],

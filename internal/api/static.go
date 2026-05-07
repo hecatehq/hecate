@@ -11,6 +11,8 @@ import (
 	hecate "github.com/hecate/agent-runtime"
 )
 
+var apiPathPrefixes = []string{"/admin", "/v1", "/hecate/v1"}
+
 // staticUIHandler returns a handler backed by the package-default embedded UI
 // (the bundle baked in at build time via //go:embed). Production code uses
 // this; tests should use staticUIHandlerFromFS to inject a controlled FS.
@@ -94,16 +96,12 @@ func staticUIHandlerFromFS(uiFS fs.FS) http.Handler {
 }
 
 func isAPIPath(requestPath string) bool {
-	switch {
-	case requestPath == "/v1" || strings.HasPrefix(requestPath, "/v1/"):
-		return true
-	case requestPath == "/hecate/v1" || strings.HasPrefix(requestPath, "/hecate/v1/"):
-		return true
-	case requestPath == "/admin" || strings.HasPrefix(requestPath, "/admin/"):
-		return true
-	default:
-		return false
+	for _, prefix := range apiPathPrefixes {
+		if requestPath == prefix || strings.HasPrefix(requestPath, prefix+"/") {
+			return true
+		}
 	}
+	return false
 }
 
 // openOrIndex opens the requested path, falling back to index.html when the

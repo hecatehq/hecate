@@ -222,7 +222,7 @@ export async function mockGatewayAPIs(page: Page, opts: GatewayMockOptions = {})
   // specifics-last is the right ordering.
   await page.route("/hecate/v1/settings*", async route => {
     await route.fulfill({ status: 200, contentType: "application/json",
-      body: JSON.stringify({ object: "configured_state", data: state }) });
+      body: JSON.stringify({ object: "settings", data: state }) });
   });
 
   // POST /hecate/v1/settings/providers → create. Slugifies the name to id,
