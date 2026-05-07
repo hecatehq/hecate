@@ -66,7 +66,7 @@ func TestApprovalReconcilePersistsAndFlipsAcrossRestart(t *testing.T) {
 	if err := cmd1.Start(); err != nil {
 		t.Fatalf("first start: %v", err)
 	}
-	waitHealthy(t, "http://"+addr1, 10*time.Second)
+	waitHealthy(t, "http://"+addr1, gatewayStartupTimeout)
 
 	// Create an agent-chat session via the API so the row we insert
 	// below references a valid session_id (the API list endpoint
@@ -96,7 +96,7 @@ func TestApprovalReconcilePersistsAndFlipsAcrossRestart(t *testing.T) {
 		t.Fatalf("second start: %v", err)
 	}
 	t.Cleanup(func() { _ = cmd2.Process.Kill(); _ = cmd2.Wait() })
-	waitHealthy(t, "http://"+addr2, 10*time.Second)
+	waitHealthy(t, "http://"+addr2, gatewayStartupTimeout)
 
 	// Fetch the row through the public API. It must be terminal, with
 	// the path label that distinguishes reconciled rows from regular
@@ -151,7 +151,7 @@ func TestApprovalGrantPersistsAcrossRestart(t *testing.T) {
 	if err := cmd1.Start(); err != nil {
 		t.Fatalf("first start: %v", err)
 	}
-	waitHealthy(t, "http://"+addr1, 10*time.Second)
+	waitHealthy(t, "http://"+addr1, gatewayStartupTimeout)
 
 	base1 := "http://" + addr1
 	sessionID := mustCreateAgentChatSession(t, base1)
@@ -181,7 +181,7 @@ func TestApprovalGrantPersistsAcrossRestart(t *testing.T) {
 		t.Fatalf("second start: %v", err)
 	}
 	t.Cleanup(func() { _ = cmd2.Process.Kill(); _ = cmd2.Wait() })
-	waitHealthy(t, "http://"+addr2, 10*time.Second)
+	waitHealthy(t, "http://"+addr2, gatewayStartupTimeout)
 
 	grants = mustListGrants(t, "http://"+addr2)
 	if len(grants) != 1 {
