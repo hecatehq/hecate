@@ -520,6 +520,10 @@ func TestProviderStatusReturnsHealthAndDiscoveryFreshness(t *testing.T) {
 			if !item.RoutingReady {
 				t.Fatalf("openai routing_ready = false, reason = %q", item.RoutingBlocked)
 			}
+			assertProviderReadinessCheck(t, item, "credentials", "ok", "configured")
+			assertProviderReadinessCheck(t, item, "models", "ok", "models_discovered")
+			assertProviderReadinessCheck(t, item, "health", "ok", "healthy")
+			assertProviderReadinessCheck(t, item, "routing", "ok", "routable")
 			foundHealthy = true
 		}
 		if item.Name == "ollama" && !item.Healthy && item.Status == "degraded" && item.LastError != "" {
@@ -532,6 +536,9 @@ func TestProviderStatusReturnsHealthAndDiscoveryFreshness(t *testing.T) {
 			if item.RoutingBlocked != "provider_unhealthy" {
 				t.Fatalf("ollama routing_blocked_reason = %q, want provider_unhealthy", item.RoutingBlocked)
 			}
+			assertProviderReadinessCheck(t, item, "credentials", "ok", "not_required")
+			assertProviderReadinessCheck(t, item, "health", "blocked", "provider_unhealthy")
+			assertProviderReadinessCheck(t, item, "routing", "blocked", "provider_unhealthy")
 			foundDegraded = true
 		}
 		if item.Name == "anthropic" {
@@ -544,6 +551,8 @@ func TestProviderStatusReturnsHealthAndDiscoveryFreshness(t *testing.T) {
 			if item.RoutingBlocked != "credential_missing" {
 				t.Fatalf("anthropic routing_blocked_reason = %q, want credential_missing", item.RoutingBlocked)
 			}
+			assertProviderReadinessCheck(t, item, "credentials", "blocked", "credential_missing")
+			assertProviderReadinessCheck(t, item, "routing", "blocked", "credential_missing")
 			foundCredentialBlocked = true
 		}
 	}
@@ -556,6 +565,26 @@ func TestProviderStatusReturnsHealthAndDiscoveryFreshness(t *testing.T) {
 	if !foundCredentialBlocked {
 		t.Fatalf("missing credential-blocked provider entry: %#v", response.Data)
 	}
+}
+
+func assertProviderReadinessCheck(t *testing.T, item ProviderStatusResponseItem, name, status, reason string) {
+	t.Helper()
+	for _, check := range item.ReadinessChecks {
+		if check.Name != name {
+			continue
+		}
+		if check.Status != status {
+			t.Fatalf("%s readiness check %q status = %q, want %q", item.Name, name, check.Status, status)
+		}
+		if check.Reason != reason {
+			t.Fatalf("%s readiness check %q reason = %q, want %q", item.Name, name, check.Reason, reason)
+		}
+		if check.Message == "" {
+			t.Fatalf("%s readiness check %q message is empty", item.Name, name)
+		}
+		return
+	}
+	t.Fatalf("%s missing readiness check %q in %#v", item.Name, name, item.ReadinessChecks)
 }
 
 func TestProviderStatusReturnsRateLimitedRoutingBlockReason(t *testing.T) {

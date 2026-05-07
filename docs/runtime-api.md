@@ -375,6 +375,72 @@ GET /hecate/v1/providers/presets
 
 The list is built from `config.BuiltInProviders()` — see [`docs/providers.md`](providers.md) for the full catalog and OpenAI-compatible custom-endpoint flow.
 
+### `GET /hecate/v1/providers/status`
+
+Runtime provider readiness snapshot. The UI uses this endpoint to explain
+whether a configured provider can receive traffic right now and why it may be
+skipped by routing.
+
+```json
+GET /hecate/v1/providers/status
+→ 200
+{
+  "object": "provider_status",
+  "data": [
+    {
+      "name": "ollama",
+      "kind": "local",
+      "status": "healthy",
+      "healthy": true,
+      "base_url": "http://127.0.0.1:11434/v1",
+      "models": ["llama3.1:8b"],
+      "model_count": 1,
+      "credential_state": "not_required",
+      "credential_ready": true,
+      "routing_ready": true,
+      "readiness_checks": [
+        {
+          "name": "credentials",
+          "status": "ok",
+          "reason": "not_required",
+          "message": "No credentials are required for this provider."
+        },
+        {
+          "name": "models",
+          "status": "ok",
+          "reason": "models_discovered",
+          "message": "1 model discovered."
+        },
+        {
+          "name": "health",
+          "status": "ok",
+          "reason": "healthy",
+          "message": "Provider health checks are passing."
+        },
+        {
+          "name": "routing",
+          "status": "ok",
+          "reason": "routable",
+          "message": "Provider is eligible for routing."
+        }
+      ]
+    }
+  ]
+}
+```
+
+`readiness_checks` is the canonical operator-facing checklist. It prevents
+clients from guessing readiness by combining unrelated raw fields. Check names
+are currently `credentials`, `models`, `health`, and `routing`; statuses are
+`ok`, `warning`, `blocked`, or `unknown`. `reason` is stable enough for UI
+branching, while `message` is safe to show directly to the operator.
+
+`routing_ready=false` means the router currently skips the provider. The
+matching `routing_blocked_reason` and `readiness_checks[].reason` values use the
+same vocabulary as route diagnostics: `credential_missing`,
+`provider_disabled`, `provider_rate_limited`, `circuit_open`,
+`provider_unhealthy`, and `no_models`.
+
 ### `GET /hecate/v1/settings/providers/local-discovery`
 
 Advisory discovery for the Providers tab's **Add provider → Local** catalog.

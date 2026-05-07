@@ -251,6 +251,14 @@ type ProviderStatus struct {
 	ServerErrors        int64
 	RateLimits          int64
 	Error               string
+	ReadinessChecks     []ProviderReadinessCheck
+}
+
+type ProviderReadinessCheck struct {
+	Name    string
+	Status  string
+	Reason  string
+	Message string
 }
 
 type ProviderHealthHistoryEntry struct {

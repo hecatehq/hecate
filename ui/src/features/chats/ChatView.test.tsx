@@ -172,7 +172,20 @@ describe("ChatView input", () => {
         events: [],
       },
       providers: [
-        { name: "ollama", kind: "local", healthy: true, status: "healthy", base_url: "http://127.0.0.1:11434/v1", models: [], model_count: 0 },
+        {
+          name: "ollama",
+          kind: "local",
+          healthy: true,
+          status: "healthy",
+          base_url: "http://127.0.0.1:11434/v1",
+          models: [],
+          model_count: 0,
+          readiness_checks: [
+            { name: "credentials", status: "ok", reason: "not_required", message: "No credentials are required for this provider." },
+            { name: "models", status: "blocked", reason: "no_models", message: "No models were discovered and no default model is configured." },
+            { name: "routing", status: "blocked", reason: "no_models", message: "Routing is blocked because no models are available." },
+          ],
+        },
       ],
       providerScopedModels: [],
       agentAdapters: [
@@ -184,6 +197,9 @@ describe("ChatView input", () => {
     expect(screen.getByText("Provider is configured")).toBeTruthy();
     expect(screen.getAllByText("Ollama").length).toBeGreaterThan(0);
     expect(screen.getByText("none discovered")).toBeTruthy();
+    expect(screen.getByText("Credentials")).toBeTruthy();
+    expect(screen.getAllByText("Models").length).toBeGreaterThan(0);
+    expect(screen.getByText("Routing is blocked because no models are available.")).toBeTruthy();
     expect(screen.getByText(/Start the local provider app/)).toBeTruthy();
     expect(screen.queryByText("Detected locally")).toBeNull();
     expect(screen.queryByRole("button", { name: /Add detected provider/i })).toBeNull();
