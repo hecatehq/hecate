@@ -436,10 +436,13 @@ are currently `credentials`, `models`, `health`, and `routing`; statuses are
 branching, while `message` is safe to show directly to the operator.
 
 `routing_ready=false` means the router currently skips the provider. The
-matching `routing_blocked_reason` and `readiness_checks[].reason` values use the
-same vocabulary as route diagnostics: `credential_missing`,
-`provider_disabled`, `provider_rate_limited`, `circuit_open`,
-`provider_unhealthy`, and `no_models`.
+matching `routing_blocked_reason` and the `reason` on the
+`readiness_checks[]` item whose `name` is `routing` use the same vocabulary as
+route diagnostics: `credential_missing`, `provider_disabled`,
+`provider_rate_limited`, `circuit_open`, `provider_unhealthy`, and `no_models`.
+Other checks use reason values scoped to that check, such as
+`default_model_only` for model-discovery fallback or `not_required` for local
+providers that do not need credentials.
 
 ### `GET /hecate/v1/settings/providers/local-discovery`
 

@@ -7,29 +7,30 @@ import (
 )
 
 type Entry struct {
-	Provider            providers.Provider
-	Name                string
-	Kind                providers.Kind
-	BaseURL             string
-	CredentialState     string
-	DefaultModel        string
-	Models              []string
-	DiscoverySource     string
-	RefreshedAt         string
-	LastCheckedAt       string
-	LastError           string
-	HealthReason        string
-	OpenUntil           string
-	LastLatencyMS       int64
-	ConsecutiveFailures int
-	TotalSuccesses      int64
-	TotalFailures       int64
-	Timeouts            int64
-	ServerErrors        int64
-	RateLimits          int64
-	Healthy             bool
-	Status              string
-	Error               string
+	Provider             providers.Provider
+	Name                 string
+	Kind                 providers.Kind
+	BaseURL              string
+	CredentialState      string
+	DefaultModel         string
+	Models               []string
+	DiscoveredModelCount int
+	DiscoverySource      string
+	RefreshedAt          string
+	LastCheckedAt        string
+	LastError            string
+	HealthReason         string
+	OpenUntil            string
+	LastLatencyMS        int64
+	ConsecutiveFailures  int
+	TotalSuccesses       int64
+	TotalFailures        int64
+	Timeouts             int64
+	ServerErrors         int64
+	RateLimits           int64
+	Healthy              bool
+	Status               string
+	Error                string
 }
 
 type Catalog interface {

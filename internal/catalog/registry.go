@@ -89,6 +89,7 @@ func (c *RegistryCatalog) entryForProvider(ctx context.Context, provider provide
 	}
 
 	models := append([]string(nil), caps.Models...)
+	discoveredModelCount := len(models)
 	if len(models) == 0 && defaultModel != "" {
 		models = []string{defaultModel}
 	}
@@ -99,17 +100,18 @@ func (c *RegistryCatalog) entryForProvider(ctx context.Context, provider provide
 	}
 
 	entry := Entry{
-		Provider:        provider,
-		Name:            provider.Name(),
-		Kind:            provider.Kind(),
-		BaseURL:         baseURL,
-		CredentialState: credentialState,
-		DefaultModel:    defaultModel,
-		Models:          models,
-		DiscoverySource: discoverySource,
-		Healthy:         err == nil,
-		Status:          "healthy",
-		LastError:       caps.LastError,
+		Provider:             provider,
+		Name:                 provider.Name(),
+		Kind:                 provider.Kind(),
+		BaseURL:              baseURL,
+		CredentialState:      credentialState,
+		DefaultModel:         defaultModel,
+		Models:               models,
+		DiscoveredModelCount: discoveredModelCount,
+		DiscoverySource:      discoverySource,
+		Healthy:              err == nil,
+		Status:               "healthy",
+		LastError:            caps.LastError,
 	}
 	if !caps.RefreshedAt.IsZero() {
 		refreshedAt := caps.RefreshedAt.UTC().Format(time.RFC3339)
