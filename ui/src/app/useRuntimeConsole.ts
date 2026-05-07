@@ -932,6 +932,9 @@ export function useRuntimeConsole() {
     if (!activeAgentChatSessionID) {
       return;
     }
+    if (activeAgentChatSession?.id !== activeAgentChatSessionID) {
+      return;
+    }
     const next = queuedChatMessages.find((item) => item.session_id === activeAgentChatSessionID);
     if (!next) {
       return;
@@ -942,6 +945,7 @@ export function useRuntimeConsole() {
   // reads the queued snapshot passed above, not the live composer state.
   // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [
+    activeAgentChatSession?.id,
     activeAgentChatSession?.latest_run_id,
     activeAgentChatSession?.status,
     activeAgentChatSession?.updated_at,

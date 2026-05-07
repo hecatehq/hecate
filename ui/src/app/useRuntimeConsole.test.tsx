@@ -597,6 +597,10 @@ describe("useRuntimeConsole", () => {
       window.localStorage.setItem("hecate.agentChatSessionID", "a1");
       window.localStorage.setItem("hecate.agentWorkspace", "/workspace");
       let messagePostCount = 0;
+      let resolveA2: (() => void) | undefined;
+      const a2Gate = new Promise<void>((resolve) => {
+        resolveA2 = resolve;
+      });
       fetchMock.mockImplementation(async (input, init) => {
         const url = String(input);
         if (url === "/hecate/v1/agent-chat/sessions") {
@@ -615,6 +619,7 @@ describe("useRuntimeConsole", () => {
           });
         }
         if (url === "/hecate/v1/agent-chat/sessions/a2") {
+          await a2Gate;
           return jsonResponse({
             object: "agent_chat_session",
             data: { id: "a2", title: "Idle chat", runtime_kind: "agent", status: "completed", workspace: "/workspace", messages: [], created_at: "2026-04-20T00:00:00Z", updated_at: "2026-04-20T00:00:00Z" },
@@ -640,14 +645,119 @@ describe("useRuntimeConsole", () => {
       });
 
       expect(result.current.state.queuedChatMessages).toHaveLength(1);
-      await act(async () => {
-        await result.current.actions.selectChatSession("a2");
+      let selectPromise!: Promise<void>;
+      act(() => {
+        selectPromise = result.current.actions.selectChatSession("a2");
       });
 
       await waitFor(() => expect(result.current.state.activeAgentChatSessionID).toBe("a2"));
+      expect(result.current.state.activeAgentChatSession?.id).toBe("a1");
       expect(result.current.state.queuedChatMessages).toHaveLength(1);
       expect(result.current.state.queuedChatMessages[0].session_id).toBe("a1");
       expect(messagePostCount).toBe(0);
+      resolveA2?.();
+      await act(async () => {
+        await selectPromise;
+      });
+      await waitFor(() => expect(result.current.state.activeAgentChatSession?.id).toBe("a2"));
+      expect(messagePostCount).toBe(0);
+    });
+
+    it("waits for the selected chat record before draining a queued prompt", async () => {
+      window.localStorage.setItem("hecate.chatTarget", "agent");
+      window.localStorage.setItem("hecate.agentChatSessionID", "a2");
+      window.localStorage.setItem("hecate.agentWorkspace", "/workspace");
+
+      let messagePostCount = 0;
+      let a2FetchCount = 0;
+      let resolveA2Refresh: (() => void) | undefined;
+      const a2RefreshGate = new Promise<void>((resolve) => {
+        resolveA2Refresh = resolve;
+      });
+      const session = (id: string, status: string) => ({
+        object: "agent_chat_session",
+        data: {
+          id,
+          title: id,
+          runtime_kind: "agent",
+          status,
+          workspace: "/workspace",
+          messages: [],
+          created_at: "2026-04-20T00:00:00Z",
+          updated_at: "2026-04-20T00:00:00Z",
+        },
+      });
+
+      fetchMock.mockImplementation(async (input, init) => {
+        const url = String(input);
+        if (url === "/hecate/v1/agent-chat/sessions") {
+          return jsonResponse({
+            object: "agent_chat_sessions",
+            data: [
+              { id: "a1", title: "Idle chat", runtime_kind: "agent", status: "completed", workspace: "/workspace", message_count: 0 },
+              { id: "a2", title: "Busy chat", runtime_kind: "agent", status: "running", workspace: "/workspace", message_count: 0 },
+            ],
+          });
+        }
+        if (url === "/hecate/v1/agent-chat/sessions/a1") {
+          return jsonResponse(session("a1", "completed"));
+        }
+        if (url === "/hecate/v1/agent-chat/sessions/a2") {
+          a2FetchCount += 1;
+          if (a2FetchCount > 1) {
+            await a2RefreshGate;
+            return jsonResponse(session("a2", "completed"));
+          }
+          return jsonResponse(session("a2", "running"));
+        }
+        if (url === "/hecate/v1/agent-chat/sessions/a2/messages") {
+          messagePostCount += 1;
+          void init;
+          return jsonResponse(session("a2", "completed"));
+        }
+        if (url.endsWith("/messages")) {
+          throw new Error(`unexpected message post: ${url}`);
+        }
+        return defaultBackendMock()(input, init);
+      });
+
+      const { result } = renderHook(() => useRuntimeConsole());
+      await waitFor(() => expect(result.current.state.loading).toBe(false));
+      await waitFor(() => expect(result.current.state.activeAgentChatSession?.id).toBe("a2"));
+      await waitFor(() => expect(result.current.state.activeAgentChatSession?.status).toBe("running"));
+
+      act(() => {
+        result.current.actions.setMessage("drain only after a2 loads");
+      });
+      await act(async () => {
+        await result.current.actions.submitChat({ preventDefault: vi.fn() } as any);
+      });
+
+      expect(result.current.state.queuedChatMessages).toHaveLength(1);
+
+      await act(async () => {
+        await result.current.actions.selectChatSession("a1");
+      });
+      await waitFor(() => expect(result.current.state.activeAgentChatSession?.id).toBe("a1"));
+
+      let selectA2Promise!: Promise<void>;
+      act(() => {
+        selectA2Promise = result.current.actions.selectChatSession("a2");
+      });
+
+      await waitFor(() => expect(result.current.state.activeAgentChatSessionID).toBe("a2"));
+      expect(result.current.state.activeAgentChatSession?.id).toBe("a1");
+      expect(result.current.state.queuedChatMessages).toHaveLength(1);
+      expect(messagePostCount).toBe(0);
+
+      resolveA2Refresh?.();
+      await act(async () => {
+        await selectA2Promise;
+      });
+
+      await waitFor(() => expect(result.current.state.activeAgentChatSession?.id).toBe("a2"));
+      await waitFor(() => expect(messagePostCount).toBe(1));
+      await waitFor(() => expect(result.current.state.queuedChatMessages).toHaveLength(0));
     });
 
     it("keeps the tools toggle scoped to the selected Hecate chat", async () => {
