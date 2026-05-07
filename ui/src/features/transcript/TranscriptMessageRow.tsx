@@ -176,7 +176,7 @@ function renderAgentActivityAdvanced(
 
 function OutputArtifactPreview({ artifact }: { artifact: AgentChatActivityRecord }) {
   const isStderr = outputArtifactStream(artifact) === "stderr";
-  const preview = artifact.artifact_preview?.trim();
+  const preview = artifact.artifact_preview?.replace(/[\r\n]+$/, "");
   return (
     <div style={{
       border: `1px solid ${isStderr ? "rgba(239, 95, 95, 0.28)" : "var(--border)"}`,

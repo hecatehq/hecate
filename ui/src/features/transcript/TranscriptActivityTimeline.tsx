@@ -246,7 +246,7 @@ function compactAgentActivities(activities: AgentChatActivityRecord[]): AgentCha
   for (const [index, activity] of activities.entries()) {
     if (hiddenTypes.has(activity.type)) continue;
     if (activity.type === "completed" && activity.title.toLowerCase() === "final answer") continue;
-    if (isTerminalRunSummary(activity, activities.length)) continue;
+    if (isTerminalRunSummary(activity)) continue;
     if (terminal && (activity.type === "started" || activity.type === "running")) continue;
     if (activity.type === "running" && activities.some(item => item.type === "output")) continue;
     if (isTaskRunActivity(activity) && index !== lastTaskRunIndex) continue;
@@ -303,10 +303,9 @@ function isTaskRunActivity(activity: AgentChatActivityRecord): boolean {
   return activity.type === "task_run" || (activity.type.startsWith("task_") && activity.title.startsWith("Task run"));
 }
 
-function isTerminalRunSummary(activity: AgentChatActivityRecord, totalActivities: number): boolean {
+function isTerminalRunSummary(activity: AgentChatActivityRecord): boolean {
   const terminalTypes = new Set(["run_result", "completed", "failed", "cancelled"]);
   if (!terminalTypes.has(activity.type)) return false;
-  void totalActivities;
   return /^run\s+(completed|failed|cancelled)$/i.test(activity.title.trim());
 }
 

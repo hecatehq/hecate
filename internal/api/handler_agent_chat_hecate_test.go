@@ -567,7 +567,7 @@ func TestAgentChatActivityFromTaskActivityCarriesArtifactMetadata(t *testing.T) 
 		Kind:       "stderr",
 		Summary: map[string]any{
 			"size_bytes":      float64(42),
-			"content_preview": "fatal: not a git repository",
+			"content_preview": "  fatal: not a git repository\n",
 		},
 		OccurredAt: "2026-05-03T10:00:00Z",
 	}
@@ -580,7 +580,7 @@ func TestAgentChatActivityFromTaskActivityCarriesArtifactMetadata(t *testing.T) 
 	if rendered[0].ArtifactID != "art_stderr" || rendered[0].ArtifactSizeBytes != 42 {
 		t.Fatalf("artifact metadata = id %q size %d, want art_stderr/42", rendered[0].ArtifactID, rendered[0].ArtifactSizeBytes)
 	}
-	if rendered[0].ArtifactPreview != "fatal: not a git repository" {
+	if rendered[0].ArtifactPreview != "  fatal: not a git repository" {
 		t.Fatalf("artifact preview = %q", rendered[0].ArtifactPreview)
 	}
 }

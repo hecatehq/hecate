@@ -347,6 +347,25 @@ describe("TaskDetail runtime activity and patches", () => {
     expect(screen.queryByText("— stderr —")).toBeNull();
   });
 
+  it("marks object-backed stderr artifacts as available when they have bytes", () => {
+    const { render } = setup({
+      artifacts: [
+        {
+          id: "art-stderr",
+          task_id: "task-1",
+          run_id: "run-1",
+          kind: "stderr",
+          name: "git-stderr.txt",
+          content_text: "",
+          object_ref: "artifact://stderr",
+          size_bytes: 512,
+        } as any,
+      ],
+    });
+    render();
+    expect(screen.getByText("stderr available")).toBeTruthy();
+  });
+
   it("calls onApplyPatch for proposed patch artifacts", async () => {
     const onApplyPatch = vi.fn();
     const { render, user } = setup({ artifacts: [makePatchArtifact()], onApplyPatch });

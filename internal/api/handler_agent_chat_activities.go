@@ -113,7 +113,7 @@ func agentChatTaskArtifactPreview(item TaskActivityItem) string {
 		return ""
 	}
 	value, _ := item.Summary["content_preview"].(string)
-	return strings.TrimSpace(value)
+	return strings.TrimRight(value, "\r\n")
 }
 
 func agentChatTaskActivityDetail(item TaskActivityItem) string {
