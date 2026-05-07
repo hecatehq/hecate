@@ -350,6 +350,8 @@ export type AgentChatActivityRecord = {
   title: string;
   detail?: string;
   created_at?: string;
+  artifact_id?: string;
+  artifact_size_bytes?: number;
   approval_id?: string;
   needs_action?: boolean;
   terminal?: boolean;

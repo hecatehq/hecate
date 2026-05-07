@@ -75,10 +75,15 @@ export function TranscriptActivityTimeline({
 
   const plan = primary.filter(activity => activity.type === "plan");
   const tools = primary.filter(activity => activity.type === "tool_call");
+  const failedTools = tools.filter(activity => activity.status === "failed").length;
   const summary = [
     terminal ? terminalStatusLabel(terminal.status) : hasRunning ? "working" : "details",
     plan.length > 0 ? `${plan.filter(item => item.status === "completed").length}/${plan.length} plan` : "",
-    tools.length > 0 ? `${tools.length} tool${tools.length === 1 ? "" : "s"}` : "",
+    tools.length > 0
+      ? failedTools > 0
+        ? `${failedTools} failed tool${failedTools === 1 ? "" : "s"}`
+        : `${tools.length} tool${tools.length === 1 ? "" : "s"}`
+      : "",
     diffStat ? "files changed" : "",
   ].filter(Boolean).join(" · ");
 
@@ -241,7 +246,7 @@ function compactAgentActivities(activities: AgentChatActivityRecord[]): AgentCha
   for (const [index, activity] of activities.entries()) {
     if (hiddenTypes.has(activity.type)) continue;
     if (activity.type === "completed" && activity.title.toLowerCase() === "final answer") continue;
-    if (isTerminalRunSummary(activity)) continue;
+    if (isTerminalRunSummary(activity, activities.length)) continue;
     if (terminal && (activity.type === "started" || activity.type === "running")) continue;
     if (activity.type === "running" && activities.some(item => item.type === "output")) continue;
     if (isTaskRunActivity(activity) && index !== lastTaskRunIndex) continue;
@@ -262,9 +267,10 @@ function compactDetailActivities(activities: AgentChatActivityRecord[], hasDiffS
 
 function orderVisibleActivities(activities: AgentChatActivityRecord[]): AgentChatActivityRecord[] {
   return activities
-    .map((activity, index) => ({ activity, index, time: activitySortTime(activity.created_at) }))
+    .map((activity, index) => ({ activity, index, time: activitySortTime(activity.created_at), phase: activitySortPhase(activity) }))
     .sort((a, b) => {
       if (a.time !== b.time) return a.time - b.time;
+      if (a.phase !== b.phase) return a.phase - b.phase;
       return a.index - b.index;
     })
     .map(({ activity }) => activity);
@@ -297,8 +303,10 @@ function isTaskRunActivity(activity: AgentChatActivityRecord): boolean {
   return activity.type === "task_run" || (activity.type.startsWith("task_") && activity.title.startsWith("Task run"));
 }
 
-function isTerminalRunSummary(activity: AgentChatActivityRecord): boolean {
-  if (activity.type !== "run_result" && activity.type !== "completed") return false;
+function isTerminalRunSummary(activity: AgentChatActivityRecord, totalActivities: number): boolean {
+  const terminalTypes = new Set(["run_result", "completed", "failed", "cancelled"]);
+  if (!terminalTypes.has(activity.type)) return false;
+  if (totalActivities > 1 && (activity.type === "failed" || activity.type === "cancelled")) return true;
   return /^run\s+(completed|failed|cancelled)$/i.test(activity.title.trim());
 }
 
@@ -392,7 +400,7 @@ function activityLinePrefix(activity: AgentChatActivityRecord): string | undefin
 }
 
 function toolActivityTitle(activity: AgentChatActivityRecord): string {
-  const raw = (activity.title || activity.kind || "tool").trim();
+  const raw = stripStatusSuffix(activity.title || activity.kind || "tool").trim();
   const normalized = raw.toLowerCase();
 
   switch (normalized) {
@@ -440,17 +448,26 @@ function cleanApprovalDetail(detail?: string): string | undefined {
 function cleanActivityDetail(activity: AgentChatActivityRecord): string | undefined {
   const detail = activity.detail?.trim();
   if (!detail) return undefined;
+  if (detail.startsWith("builtin.agent_loop_")) return undefined;
 
   const title = activity.title.trim();
+  const baseTitle = stripStatusSuffix(title);
   const status = activity.status?.trim();
   const duplicateForms = [
     title,
+    baseTitle,
     status,
     status ? `${title} - ${status}` : "",
     status ? `${title} · ${status}` : "",
+    status ? `${baseTitle} - ${status}` : "",
+    status ? `${baseTitle} · ${status}` : "",
   ].filter((value): value is string => Boolean(value)).map(value => value.toLowerCase());
 
   return duplicateForms.includes(detail.toLowerCase()) ? undefined : detail;
+}
+
+function stripStatusSuffix(value: string): string {
+  return value.replace(/\s+\((running|completed|failed|cancelled|awaiting_approval|pending|approved|rejected|denied|timed_out)\)$/i, "");
 }
 
 function cleanTaskRunDetail(existingDetail: string, humanStatus: string): string {
@@ -504,6 +521,19 @@ function terminalStatusLabel(status?: string): string {
     default:
       return status || "details";
   }
+}
+
+function activitySortPhase(activity: AgentChatActivityRecord): number {
+  if (activity.type === "started") return 0;
+  if (activity.type === "running") return 1;
+  if (isTaskRunActivity(activity)) return 2;
+  if (activity.type === "plan") return 3;
+  if (activity.type === "thinking" || activity.type === "model_turns") return 4;
+  if (activity.type === "approval") return 5;
+  if (activity.type === "tool_call") return 6;
+  if (activity.type === "files_changed") return 7;
+  if (activity.type === "failed" || activity.type === "cancelled" || activity.type === "completed" || activity.type === "run_result") return 9;
+  return 8;
 }
 
 function activityStatusColor(status?: string) {

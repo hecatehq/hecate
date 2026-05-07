@@ -154,6 +154,54 @@ describe("TranscriptMessageRow", () => {
     expect(screen.getByText(/2 turns · 1 tool/)).toBeInTheDocument();
   });
 
+  it("links failed tools to related stdout and stderr artifacts", async () => {
+    const onOpenTask = vi.fn();
+    const user = userEvent.setup();
+    const activities: AgentChatActivityRecord[] = [
+      { type: "tool_call", title: "git_exec (failed)", status: "failed", kind: "git", detail: "git_exec - failed" },
+      { type: "artifact", title: "git-stdout.txt", status: "ready", artifact_id: "artifact_stdout", artifact_size_bytes: 42 },
+      { type: "artifact", title: "git-stderr.txt", status: "ready", artifact_id: "artifact_stderr", artifact_size_bytes: 19 },
+      { type: "failed", title: "Run failed", status: "failed", terminal: true },
+    ];
+
+    render(
+      <TranscriptMessageRow
+        {...baseProps}
+        activities={activities}
+        taskLink={{ label: "Task task_123", onClick: onOpenTask }}
+      />,
+    );
+
+    await user.click(screen.getByText(/1 failed tool/));
+    await user.click(screen.getByText("Advanced"));
+    expect(screen.getByText(/Inspect the related run output/)).toBeInTheDocument();
+    await user.click(screen.getByRole("button", { name: "git-stderr.txt" }));
+    expect(onOpenTask).toHaveBeenCalledTimes(1);
+    expect(screen.getByRole("button", { name: "git-stdout.txt" })).toBeInTheDocument();
+  });
+
+  it("does not link empty stderr artifacts from failed tools", async () => {
+    const user = userEvent.setup();
+    const activities: AgentChatActivityRecord[] = [
+      { type: "tool_call", title: "git_exec (failed)", status: "failed", kind: "git", detail: "git_exec - failed" },
+      { type: "artifact", title: "git-stdout.txt", status: "ready", artifact_id: "artifact_stdout", artifact_size_bytes: 42 },
+      { type: "artifact", title: "git-stderr.txt", status: "ready", artifact_id: "artifact_stderr", artifact_size_bytes: 0 },
+    ];
+
+    render(
+      <TranscriptMessageRow
+        {...baseProps}
+        activities={activities}
+        taskLink={{ label: "Task task_123", onClick: vi.fn() }}
+      />,
+    );
+
+    await user.click(screen.getByText(/1 failed tool/));
+    await user.click(screen.getByText("Advanced"));
+    expect(screen.getByRole("button", { name: "git-stdout.txt" })).toBeInTheDocument();
+    expect(screen.queryByRole("button", { name: "git-stderr.txt" })).toBeNull();
+  });
+
   it("renders the diff review section when diff metadata is present", () => {
     const onListFiles: (sid: string, mid: string) => Promise<AgentChatChangedFileRecord[]> = vi.fn(async () => []);
     const onGetFileDiff: (sid: string, mid: string, p: string) => Promise<AgentChatChangedFileDiffRecord | null> = vi.fn(async () => null);

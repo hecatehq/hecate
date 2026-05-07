@@ -105,6 +105,14 @@ describe("parseMarkdownBlocks", () => {
     expect(blocks[1]).toEqual({ type: "code", text: "code", lang: "ts" });
   });
 
+  it("stops paragraph accumulation at an indented code fence", () => {
+    const blocks = parseMarkdownBlocks("intro\n  ```sh\ngit status\n  ```");
+    expect(blocks).toEqual([
+      { type: "p", text: "intro" },
+      { type: "code", text: "git status", lang: "sh" },
+    ]);
+  });
+
   it("stops paragraph accumulation at a task list and table", () => {
     const blocks = parseMarkdownBlocks("intro\n- [ ] todo\n\n| A | B |\n| --- | --- |\n| one | two |");
     expect(blocks).toHaveLength(3);

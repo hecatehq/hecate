@@ -770,15 +770,17 @@ type AgentChatRevertResponse struct {
 }
 
 type AgentChatActivityItem struct {
-	ID          string `json:"id,omitempty"`
-	Type        string `json:"type"`
-	Status      string `json:"status,omitempty"`
-	Kind        string `json:"kind,omitempty"`
-	Title       string `json:"title"`
-	Detail      string `json:"detail,omitempty"`
-	CreatedAt   string `json:"created_at,omitempty"`
-	ApprovalID  string `json:"approval_id,omitempty"`
-	NeedsAction bool   `json:"needs_action,omitempty"`
+	ID                string `json:"id,omitempty"`
+	Type              string `json:"type"`
+	Status            string `json:"status,omitempty"`
+	Kind              string `json:"kind,omitempty"`
+	Title             string `json:"title"`
+	Detail            string `json:"detail,omitempty"`
+	CreatedAt         string `json:"created_at,omitempty"`
+	ArtifactID        string `json:"artifact_id,omitempty"`
+	ArtifactSizeBytes int64  `json:"artifact_size_bytes,omitempty"`
+	ApprovalID        string `json:"approval_id,omitempty"`
+	NeedsAction       bool   `json:"needs_action,omitempty"`
 }
 
 type AgentChatUsageItem struct {

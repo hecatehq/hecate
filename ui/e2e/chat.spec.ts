@@ -195,6 +195,77 @@ test("chat error renders inline with the humanized message", async ({ page }) =>
   await expect(page.getByText(/has no API key/i).first()).toBeVisible();
 });
 
+test("agent chat renders indented fenced code blocks as code", async ({ page }) => {
+  await page.addInitScript(() => {
+    window.localStorage.setItem("hecate.chatTarget", "agent");
+    window.localStorage.setItem("hecate.agentChatSessionID", "markdown-fence-e2e");
+  });
+
+  const session = {
+    id: "markdown-fence-e2e",
+    title: "Markdown fence",
+    runtime_kind: "agent",
+    provider: "ollama",
+    model: "qwen2.5-coder",
+    workspace: "/tmp/e2e",
+    status: "completed",
+    message_count: 2,
+    messages: [
+      { id: "m-user", role: "user", content: "show commands", created_at: "2026-04-21T10:00:00Z" },
+      {
+        id: "m-agent",
+        role: "assistant",
+        content: [
+          "Next steps:",
+          "",
+          "1. Review local changes:",
+          "  ```sh",
+          "git status",
+          "git diff -- README.md",
+          "  ```",
+        ].join("\n"),
+        provider: "ollama",
+        model: "qwen2.5-coder",
+        status: "completed",
+        created_at: "2026-04-21T10:00:01Z",
+      },
+    ],
+  };
+
+  await page.route("/hecate/v1/agent-chat/sessions", (route) => {
+    if (route.request().method() !== "GET") {
+      void route.fallback();
+      return;
+    }
+    void route.fulfill({
+      status: 200,
+      contentType: "application/json",
+      body: JSON.stringify({
+        object: "agent_chat_sessions",
+        data: [{ ...session, messages: undefined }],
+      }),
+    });
+  });
+  await page.route("/hecate/v1/agent-chat/sessions/markdown-fence-e2e", route =>
+    route.fulfill({
+      status: 200,
+      contentType: "application/json",
+      body: JSON.stringify({ object: "agent_chat_session", data: session }),
+    }),
+  );
+  await page.route("/hecate/v1/agent-chat/sessions/markdown-fence-e2e/approvals*", route =>
+    route.fulfill({ status: 200, contentType: "application/json", body: JSON.stringify({ object: "list", data: [] }) }),
+  );
+
+  await page.reload();
+  await page.waitForSelector(".hecate-activitybar");
+
+  const codeBlock = page.locator("pre").filter({ hasText: "git status" });
+  await expect(codeBlock).toBeVisible();
+  await expect(codeBlock).toContainText("git diff -- README.md");
+  await expect(page.locator("code").filter({ hasText: "sh" })).toHaveCount(0);
+});
+
 test("empty model chat can add all detected local providers in one click", async ({ page }) => {
   await page.unrouteAll({ behavior: "ignoreErrors" });
   await mockGatewayAPIs(page);
