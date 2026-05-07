@@ -2,6 +2,8 @@ import { useEffect, useState, type ReactNode } from "react";
 
 import type { AgentChatActivityRecord } from "../../types/runtime";
 
+const terminalRunSummaryTypes = new Set(["run_result", "completed", "failed", "cancelled"]);
+
 export function DiffStatList({ diffStat }: { diffStat: string }) {
   const rows = parseDiffStatRows(diffStat);
   const summary = formatDiffStatSummary(diffStat);
@@ -304,8 +306,7 @@ function isTaskRunActivity(activity: AgentChatActivityRecord): boolean {
 }
 
 function isTerminalRunSummary(activity: AgentChatActivityRecord): boolean {
-  const terminalTypes = new Set(["run_result", "completed", "failed", "cancelled"]);
-  if (!terminalTypes.has(activity.type)) return false;
+  if (!terminalRunSummaryTypes.has(activity.type)) return false;
   return /^run\s+(completed|failed|cancelled)$/i.test(activity.title.trim());
 }
 
