@@ -7,7 +7,7 @@ Debug deliberately. Blind edits convert a known problem into an unknown one.
 A bug you can't reproduce is a bug you can't fix. Pin the conditions before changing code:
 
 - Provider and model.
-- Caller surface (`/v1/...`, `/admin/...`, native app, or ACP bridge).
+- Caller surface (provider-compatible `/v1/...`, Hecate-native `/hecate/v1/...`, native app, or ACP bridge).
 - Request shape (headers, body, streaming or not).
 - Environment (env vars that route the gateway differently).
 - OS / runtime (especially for sandbox or subprocess issues).
@@ -37,7 +37,7 @@ A fix isn't done until:
 ## Hecate-specific debug surfaces
 
 - **`X-Trace-Id`** header on every response. Search OTel by trace ID to see exactly what the gateway decided and why.
-- **`/v1/traces`** and **`/v1/events`** for replay. The run-event log is append-only; the SSE stream replays from `after_sequence`.
+- **`/hecate/v1/traces`** and **`/hecate/v1/events`** for replay. The run-event log is append-only; the SSE stream replays from `after_sequence`.
 - **Run state** — runs in `awaiting_approval` are blocked until resolved; check the approval lifecycle if a run is "stuck".
 - **Pricebook preflight** — cloud-kind providers in tests trigger a pricebook lookup. `PROVIDER_FAKE_KIND=local` bypasses it for synthetic models in e2e.
 - **Capability cache** — provider tests that don't seed `cachedCaps` will panic when discovery hits the test transport. See [`../skills/providers/SKILL.md`](../skills/providers/SKILL.md) for the seeding snippet.

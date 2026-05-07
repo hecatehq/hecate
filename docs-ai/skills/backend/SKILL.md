@@ -166,7 +166,7 @@ For errors that should surface before a run is created (bad config, missing requ
 - **modernc/sqlite TIME-as-text format** — the driver writes `time.Time` using Go's default `time.Time.String()` format (`2026-04-28 02:37:38.4524 +0000 UTC`), which doesn't lex-compare with RFC3339Nano cutoffs and breaks the retention sweep silently. Always write timestamps as `t.UTC().Format(time.RFC3339Nano)` explicitly when the column is TEXT (see `internal/taskstate/sqlite.go` `AppendRunEvent`).
 - **Capability cache seeding** for provider tests — see [`../providers/SKILL.md`](../providers/SKILL.md) for the snippet. Without it the discovery path panics on a nil request body.
 - **Pricebook preflight** — cloud-kind providers in tests trigger a pricebook lookup. `PROVIDER_FAKE_KIND=local` bypasses it for synthetic models in e2e.
-- **Env-PRECONFIGURED gate for e2e providers** — env-supplied provider credentials (`PROVIDER_<NAME>_API_KEY` / `_BASE_URL`) only auto-import into the CP store when `PROVIDER_<NAME>_PRECONFIGURED=1` is also set. Both e2e spawn helpers funnel through `autoPreconfiguredEnv` so tests don't have to repeat it. New e2e helpers that bypass `hecateServer` / `startHecateProcess` need the same call; otherwise routed requests 400 with `no provider supports model …`.
+- **Env-PRECONFIGURED gate for e2e providers** — env-supplied provider credentials (`PROVIDER_<NAME>_API_KEY` / `_BASE_URL`) only auto-import into the settings store when `PROVIDER_<NAME>_PRECONFIGURED=1` is also set. Both e2e spawn helpers funnel through `autoPreconfiguredEnv` so tests don't have to repeat it. New e2e helpers that bypass `hecateServer` / `startHecateProcess` need the same call; otherwise routed requests 400 with `no provider supports model …`.
 
 ## Done criteria
 

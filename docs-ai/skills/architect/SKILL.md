@@ -13,7 +13,7 @@ Any change that triggers a planning event in [`../../core/workflow.md`](../../co
 
 - Cross-package wire-field changes (the seven-step chain — see [`../providers/SKILL.md`](../providers/SKILL.md)).
 - New persisted things — must mirror memory + sqlite tiers.
-- New HTTP endpoints (public `/v1/...` or admin `/admin/...`).
+- New HTTP endpoints (provider-compatible `/v1/...` or Hecate-native `/hecate/v1/...`).
 - New approval policies or sandbox capabilities.
 - New persistent UI surfaces (inspector, side rail, dashboard block, summary panel).
 - Substantive refactors that cross ring boundaries or touch the api↔providers seam.

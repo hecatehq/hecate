@@ -25,6 +25,8 @@ import { resolve } from "node:path";
 import { spawnSync } from "node:child_process";
 
 const BASE_URL = process.env.HECATE_URL ?? "http://127.0.0.1:8765";
+const HECATE_API = `${BASE_URL}/hecate/v1`;
+const COMPAT_API = `${BASE_URL}/v1`;
 const OUT_DIR = resolve(import.meta.dirname, "..", "docs", "screenshots");
 mkdirSync(OUT_DIR, { recursive: true });
 
@@ -435,10 +437,10 @@ async function routeAgentDocsFixtures(page: Page) {
       body: JSON.stringify(data),
     });
 
-  await page.route(`${BASE_URL}/v1/agent-adapters`, (route) => {
+  await page.route(`${HECATE_API}/agent-adapters`, (route) => {
     fulfillJSON(route, { object: "agent_adapters", data: docsAgentAdapters });
   });
-  await page.route(`${BASE_URL}/v1/agent-chat/sessions`, (route) => {
+  await page.route(`${HECATE_API}/agent-chat/sessions`, (route) => {
     const session = docsAgentSession();
     fulfillJSON(route, {
       object: "agent_chat_sessions",
@@ -458,16 +460,16 @@ async function routeAgentDocsFixtures(page: Page) {
       }],
     });
   });
-  await page.route(`${BASE_URL}/v1/agent-chat/sessions/${docsAgentChatSessionID}`, (route) => {
+  await page.route(`${HECATE_API}/agent-chat/sessions/${docsAgentChatSessionID}`, (route) => {
     fulfillJSON(route, { object: "agent_chat_session", data: docsAgentSession() });
   });
-  await page.route(`${BASE_URL}/v1/agent-chat/sessions/${docsAgentChatSessionID}/approvals?status=pending`, (route) => {
+  await page.route(`${HECATE_API}/agent-chat/sessions/${docsAgentChatSessionID}/approvals?status=pending`, (route) => {
     fulfillJSON(route, { object: "agent_chat_approvals", data: [docsAgentApproval()] });
   });
-  await page.route(`${BASE_URL}/v1/agent-chat/sessions/${docsAgentChatSessionID}/approvals/${docsApprovalID}`, (route) => {
+  await page.route(`${HECATE_API}/agent-chat/sessions/${docsAgentChatSessionID}/approvals/${docsApprovalID}`, (route) => {
     fulfillJSON(route, { object: "agent_chat_approval", data: docsAgentApproval() });
   });
-  await page.route(`${BASE_URL}/v1/agent-chat/grants`, (route) => {
+  await page.route(`${HECATE_API}/agent-chat/grants`, (route) => {
     fulfillJSON(route, {
       object: "agent_chat_grants",
       data: [
@@ -493,7 +495,7 @@ async function routeAgentDocsFixtures(page: Page) {
       ],
     });
   });
-  await page.route(`${BASE_URL}/admin/runtime/stats`, (route) => {
+  await page.route(`${HECATE_API}/system/stats`, (route) => {
     fulfillJSON(route, {
       object: "runtime_stats",
       data: {
@@ -515,7 +517,7 @@ async function routeHecateChatDocsFixture(page: Page) {
     });
 
   const session = docsHecateChatSession();
-  await page.route(`${BASE_URL}/v1/models`, (route) => {
+  await page.route(`${COMPAT_API}/models`, (route) => {
     fulfillJSON(route, {
       object: "list",
       data: [
@@ -548,9 +550,9 @@ async function routeHecateChatDocsFixture(page: Page) {
       ],
     });
   });
-  await page.route(`${BASE_URL}/admin/control-plane`, (route) => {
+  await page.route(`${HECATE_API}/settings`, (route) => {
     fulfillJSON(route, {
-      object: "control_plane",
+      object: "settings",
       data: {
         backend: "memory",
         providers: [
@@ -571,7 +573,7 @@ async function routeHecateChatDocsFixture(page: Page) {
       },
     });
   });
-  await page.route(`${BASE_URL}/admin/providers`, (route) => {
+  await page.route(`${HECATE_API}/providers/status`, (route) => {
     fulfillJSON(route, {
       object: "providers",
       data: [
@@ -592,7 +594,7 @@ async function routeHecateChatDocsFixture(page: Page) {
       ],
     });
   });
-  await page.route(`${BASE_URL}/v1/agent-chat/sessions`, (route) => {
+  await page.route(`${HECATE_API}/agent-chat/sessions`, (route) => {
     fulfillJSON(route, {
       object: "agent_chat_sessions",
       data: [{
@@ -613,25 +615,25 @@ async function routeHecateChatDocsFixture(page: Page) {
       }],
     });
   });
-  await page.route(`${BASE_URL}/v1/agent-chat/sessions/${docsHecateChatSessionID}`, (route) => {
+  await page.route(`${HECATE_API}/agent-chat/sessions/${docsHecateChatSessionID}`, (route) => {
     fulfillJSON(route, { object: "agent_chat_session", data: session });
   });
-  await page.route(`${BASE_URL}/v1/agent-chat/sessions/${docsHecateChatSessionID}/approvals?status=pending`, (route) => {
+  await page.route(`${HECATE_API}/agent-chat/sessions/${docsHecateChatSessionID}/approvals?status=pending`, (route) => {
     fulfillJSON(route, { object: "agent_chat_approvals", data: [] });
   });
 }
 
 async function unrouteHecateChatDocsFixture(page: Page) {
-  await page.unroute(`${BASE_URL}/v1/models`);
-  await page.unroute(`${BASE_URL}/admin/control-plane`);
-  await page.unroute(`${BASE_URL}/admin/providers`);
-  await page.unroute(`${BASE_URL}/v1/agent-chat/sessions`);
-  await page.unroute(`${BASE_URL}/v1/agent-chat/sessions/${docsHecateChatSessionID}`);
-  await page.unroute(`${BASE_URL}/v1/agent-chat/sessions/${docsHecateChatSessionID}/approvals?status=pending`);
+  await page.unroute(`${COMPAT_API}/models`);
+  await page.unroute(`${HECATE_API}/settings`);
+  await page.unroute(`${HECATE_API}/providers/status`);
+  await page.unroute(`${HECATE_API}/agent-chat/sessions`);
+  await page.unroute(`${HECATE_API}/agent-chat/sessions/${docsHecateChatSessionID}`);
+  await page.unroute(`${HECATE_API}/agent-chat/sessions/${docsHecateChatSessionID}/approvals?status=pending`);
 }
 
 async function routeLocalProviderDiscoveryDocsFixture(page: Page) {
-  await page.route(`${BASE_URL}/admin/control-plane/providers/local-discovery`, route => route.fulfill({
+  await page.route(`${HECATE_API}/settings/providers/local-discovery`, route => route.fulfill({
     status: 200,
     contentType: "application/json",
     body: JSON.stringify({
@@ -671,7 +673,7 @@ async function routeLocalProviderDiscoveryDocsFixture(page: Page) {
 
 // addProvider creates a provider via the same POST endpoint the UI's
 // add modal calls. Mirrors the new explicit-add lifecycle: each
-// provider is materialized in the CP store, no auto-discovery.
+// provider is materialized in the settings store, no auto-discovery.
 async function addProvider(params: {
   name: string;
   preset_id?: string;
@@ -688,7 +690,7 @@ async function addProvider(params: {
     base_url: params.base_url,
     api_key: params.api_key,
   };
-  const res = await fetch(`${BASE_URL}/admin/control-plane/providers`, {
+  const res = await fetch(`${HECATE_API}/settings/providers`, {
     method: "POST",
     headers: jsonHeaders,
     body: JSON.stringify(body),
@@ -717,7 +719,7 @@ async function seedChatSessions() {
   ];
   const ids: string[] = [];
   for (const title of titles) {
-    const res = await fetch(`${BASE_URL}/v1/chat/sessions`, {
+    const res = await fetch(`${HECATE_API}/chat/sessions`, {
       method: "POST",
       headers: jsonHeaders,
       body: JSON.stringify({ title }),
@@ -735,7 +737,7 @@ async function seedChatSessions() {
   console.log(`  routing one chat through ollama/llama3.1:8b for ${firstID}…`);
   const start = Date.now();
   try {
-    const chatRes = await fetch(`${BASE_URL}/v1/chat/completions`, {
+    const chatRes = await fetch(`${COMPAT_API}/chat/completions`, {
       method: "POST",
       headers: jsonHeaders,
       body: JSON.stringify({
@@ -772,7 +774,7 @@ async function main() {
   // external-agent availability and local-provider discovery: it should show
   // the one-click local setup path, not the capture machine's real state.
   console.log("→ chat-empty (first-run one-click local setup)");
-  const missingAgentAdapters = `${BASE_URL}/v1/agent-adapters`;
+  const missingAgentAdapters = `${HECATE_API}/agent-adapters`;
   await page.route(missingAgentAdapters, route => route.fulfill({
     status: 200,
     contentType: "application/json",
@@ -824,7 +826,7 @@ async function main() {
   await page.waitForSelector("text=Add detected providers", { timeout: 5_000 });
   await snap(page, "chat-empty");
   await page.unroute(missingAgentAdapters);
-  await page.unroute(`${BASE_URL}/admin/control-plane/providers/local-discovery`);
+  await page.unroute(`${HECATE_API}/settings/providers/local-discovery`);
 
   // ── 2. Empty providers list ─────────────────────────────────────────────────
   // The UI loads directly — no auth gate. Land on the Providers tab
@@ -843,7 +845,7 @@ async function main() {
   await page.waitForTimeout(300);
   await snap(page, "providers-presets");
   await page.keyboard.press("Escape");
-  await page.unroute(`${BASE_URL}/admin/control-plane/providers/local-discovery`);
+  await page.unroute(`${HECATE_API}/settings/providers/local-discovery`);
   await page.waitForTimeout(300);
 
   // ── 4. Seed three providers via the API ─────────────────────────────────────
@@ -984,7 +986,7 @@ async function main() {
 // until the operator approves it manually. Either renders a usable
 // shot of the tasks workspace.
 async function seedTask() {
-  const res = await fetch(`${BASE_URL}/v1/tasks`, {
+  const res = await fetch(`${HECATE_API}/tasks`, {
     method: "POST",
     headers: jsonHeaders,
     body: JSON.stringify({
@@ -1001,18 +1003,18 @@ async function seedTask() {
   console.log(`  seeded task ${taskID} (do echo 42)`);
 
   try {
-    await fetch(`${BASE_URL}/v1/tasks/${taskID}/start`, { method: "POST", headers: jsonHeaders });
+    await fetch(`${HECATE_API}/tasks/${taskID}/start`, { method: "POST", headers: jsonHeaders });
   } catch (err) {
     console.warn(`  task start skipped: ${(err as Error).message}`);
     return;
   }
   await new Promise(r => setTimeout(r, 600));
   try {
-    const approvalsRes = await fetch(`${BASE_URL}/v1/tasks/${taskID}/approvals`, { headers: jsonHeaders });
+    const approvalsRes = await fetch(`${HECATE_API}/tasks/${taskID}/approvals`, { headers: jsonHeaders });
     if (approvalsRes.ok) {
       const approvals = (await approvalsRes.json()) as { data?: Array<{ id: string }> };
       for (const a of approvals.data ?? []) {
-        await fetch(`${BASE_URL}/v1/tasks/${taskID}/approvals/${a.id}/resolve`, {
+        await fetch(`${HECATE_API}/tasks/${taskID}/approvals/${a.id}/resolve`, {
           method: "POST",
           headers: jsonHeaders,
           body: JSON.stringify({ decision: "approved" }),
