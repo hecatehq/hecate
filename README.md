@@ -95,18 +95,18 @@ After a provider is saved, Hecate discovers models and the Chats model picker be
 
 ### Talk to it
 
-Chats is the primary day-to-day surface. It explains missing setup before you send a request, then gives you two clear targets:
+Chats is the primary day-to-day surface. It explains missing setup before you send a request, then keeps the common flows in one place:
 
-- **Hecate Chat** — select a provider/model. Keep **tools on** for Hecate-owned task execution, approvals, artifacts, per-call sandboxing, and OpenTelemetry. Turn **tools off** for direct model chat through the gateway.
+- **Hecate Chat** — choose a provider/model and use the per-chat **tools on/off** switch. Tools off is direct model chat through the gateway; tools on uses Hecate's task runtime with approvals, artifacts, per-call sandboxing, and OpenTelemetry.
 - **External Agent** — select Codex, Claude Code, or Cursor Agent, choose a workspace, and run a supervised local ACP session.
 
-![Hecate Chat transcript showing tools-off direct model chat, tools-on task-backed run links, trace links, and activity details](docs/screenshots/chat.png)
+![Hecate Chat transcript with tools-off direct turns, tools-on task-backed turns, Task / Trace / Run links, and collapsible activity details](docs/screenshots/chat.png)
 
 ![Chats workspace with an external-agent file-write approval waiting for operator review](docs/screenshots/chat-agent-approval.png)
 
 ![Agent approval modal with ACP options, scope choices, and audit note](docs/screenshots/chat-agent-approval-modal.png)
 
-Hecate Chat preserves runtime boundaries inside the transcript: tools-off turns keep route/cost/cache metadata, tools-on turns link to their backing Task/run, and every assistant turn can link to its trace. If a task-backed run is busy, the composer queues the next prompt locally and sends it when the run settles. The Tasks workspace remains canonical for full run history, artifacts, retry/resume, and patch review. See [Chat sessions](docs/chat-sessions.md), [Agent runtime](docs/agent-runtime.md), and [External agent adapters](docs/external-agent-adapters.md) for the deeper contracts.
+Hecate Chat preserves runtime boundaries inside the transcript: tools-off turns keep route/cost/cache metadata, tools-on turns link to their backing Task/run, and every assistant turn can link to its trace. If a task-backed run is busy, the composer queues the next prompt locally and sends it when the run settles. The Tasks workspace remains canonical for full run history, advanced activity details, artifacts, retry/resume, and patch review. See [Chat sessions](docs/chat-sessions.md), [Agent runtime](docs/agent-runtime.md), and [External agent adapters](docs/external-agent-adapters.md) for the deeper contracts.
 
 ## Architecture
 
@@ -151,7 +151,7 @@ The embedded UI is a runtime console for the operator.
 
 | Workspace | Job |
 |---|---|
-| **Chats** | Model chat, task-backed Hecate Chat, External Agent sessions, trace/task links, timing, raw output, and captured diffs. |
+| **Chats** | Hecate Chat with per-chat tools on/off, External Agent sessions, queued prompts, task/trace/run links, timing, usage, and captured diffs. |
 | **Providers** | Credentials, local/cloud presets, model discovery, base URLs, health, and routing readiness. |
 | **Tasks** | Native `agent_loop` runs, approvals, retries, resumes, streamed output, artifacts, and full run history. |
 | **Observability** | Request ledger, route candidates, skip reasons, failover, cost, traces, metrics, logs, and local trace events. |
@@ -169,7 +169,7 @@ The embedded UI is a runtime console for the operator.
 
 ![Providers workspace — configured cloud and local providers with health, endpoint, credentials, and models](docs/screenshots/providers.png)
 
-![Tasks workspace — task list with run state and approval queue](docs/screenshots/tasks.png)
+![Tasks workspace — task run timeline, activity details, stdout, and artifacts](docs/screenshots/tasks.png)
 
 ![Costs workspace — balance card and usage table](docs/screenshots/costs.png)
 
