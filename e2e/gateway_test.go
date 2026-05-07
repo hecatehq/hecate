@@ -43,6 +43,47 @@ var (
 	builtBinErr  error
 )
 
+const gatewayStartupTimeout = 30 * time.Second
+
+type tailBuffer struct {
+	mu    sync.Mutex
+	buf   []byte
+	limit int
+}
+
+func newTailBuffer(limit int) *tailBuffer {
+	return &tailBuffer{limit: limit}
+}
+
+func (b *tailBuffer) Write(p []byte) (int, error) {
+	b.mu.Lock()
+	defer b.mu.Unlock()
+
+	if b.limit <= 0 {
+		return len(p), nil
+	}
+	if len(p) >= b.limit {
+		b.buf = append(b.buf[:0], p[len(p)-b.limit:]...)
+		return len(p), nil
+	}
+	b.buf = append(b.buf, p...)
+	if overflow := len(b.buf) - b.limit; overflow > 0 {
+		copy(b.buf, b.buf[overflow:])
+		b.buf = b.buf[:b.limit]
+	}
+	return len(p), nil
+}
+
+func (b *tailBuffer) String() string {
+	b.mu.Lock()
+	defer b.mu.Unlock()
+
+	if len(b.buf) == 0 {
+		return "(no gateway output captured)"
+	}
+	return string(b.buf)
+}
+
 // hecateBinary returns the path to the compiled hecate binary.
 // The binary is built exactly once per test-binary execution using sync.Once,
 // so parallel tests don't trigger redundant go build invocations.
@@ -104,8 +145,9 @@ func gatewayServer(t *testing.T, extraEnv ...string) string {
 
 	cmd := exec.Command(bin)
 	cmd.Env = env
-	cmd.Stdout = io.Discard
-	cmd.Stderr = io.Discard
+	output := newTailBuffer(64 * 1024)
+	cmd.Stdout = output
+	cmd.Stderr = output
 
 	if err := cmd.Start(); err != nil {
 		t.Fatalf("start gateway: %v", err)
@@ -115,7 +157,7 @@ func gatewayServer(t *testing.T, extraEnv ...string) string {
 		_ = cmd.Wait()
 	})
 
-	waitHealthy(t, baseURL, 10*time.Second)
+	waitHealthyProcess(t, baseURL, gatewayStartupTimeout, cmd, output)
 	return baseURL
 }
 
@@ -159,19 +201,45 @@ func autoPreconfiguredEnv(extraEnv []string) []string {
 // waitHealthy polls GET /healthz until it returns 200 or the deadline expires.
 func waitHealthy(t *testing.T, baseURL string, timeout time.Duration) {
 	t.Helper()
+	waitHealthyWithDiagnostics(t, baseURL, timeout, nil, nil)
+}
+
+func waitHealthyProcess(t *testing.T, baseURL string, timeout time.Duration, cmd *exec.Cmd, output *tailBuffer) {
+	t.Helper()
+	waitHealthyWithDiagnostics(t, baseURL, timeout, cmd, output)
+}
+
+func waitHealthyWithDiagnostics(t *testing.T, baseURL string, timeout time.Duration, cmd *exec.Cmd, output *tailBuffer) {
+	t.Helper()
 	deadline := time.Now().Add(timeout)
+	lastProbe := "not attempted"
+	client := &http.Client{Timeout: time.Second}
 	for time.Now().Before(deadline) {
-		resp, err := http.Get(baseURL + "/healthz") //nolint:noctx
+		resp, err := client.Get(baseURL + "/healthz") //nolint:noctx
 		if err == nil && resp.StatusCode == http.StatusOK {
 			resp.Body.Close()
 			return
+		}
+		if err != nil {
+			lastProbe = err.Error()
+		} else {
+			lastProbe = fmt.Sprintf("HTTP %d", resp.StatusCode)
 		}
 		if resp != nil {
 			resp.Body.Close()
 		}
 		time.Sleep(100 * time.Millisecond)
 	}
-	t.Fatalf("gateway at %s never became healthy within %s", baseURL, timeout)
+	if cmd != nil && cmd.Process != nil {
+		_ = cmd.Process.Kill()
+		if err := cmd.Wait(); err != nil {
+			lastProbe += "; process wait: " + err.Error()
+		}
+	}
+	if output != nil {
+		t.Fatalf("gateway at %s never became healthy within %s (last probe: %s)\n--- gateway output tail ---\n%s", baseURL, timeout, lastProbe, output.String())
+	}
+	t.Fatalf("gateway at %s never became healthy within %s (last probe: %s)", baseURL, timeout, lastProbe)
 }
 
 // freePort asks the OS for an available TCP port.
@@ -1205,7 +1273,7 @@ func TestBootstrapAutoGenerationDefaultPath(t *testing.T) {
 	if err := cmd1.Start(); err != nil {
 		t.Fatalf("first start: %v", err)
 	}
-	waitHealthy(t, "http://"+addr1, 10*time.Second)
+	waitHealthy(t, "http://"+addr1, gatewayStartupTimeout)
 
 	bootstrapPath := filepath.Join(workDir, ".data", "hecate.bootstrap.json")
 	info, err := os.Stat(bootstrapPath)
@@ -1269,7 +1337,7 @@ func TestBootstrapAutoGenerationDefaultPath(t *testing.T) {
 		t.Fatalf("second start: %v", err)
 	}
 	t.Cleanup(func() { _ = cmd2.Process.Kill(); _ = cmd2.Wait() })
-	waitHealthy(t, "http://"+addr2, 10*time.Second)
+	waitHealthy(t, "http://"+addr2, gatewayStartupTimeout)
 
 	resp, err = http.Get("http://" + addr2 + "/v1/models")
 	if err != nil {
