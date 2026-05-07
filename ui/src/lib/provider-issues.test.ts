@@ -96,7 +96,7 @@ describe("buildSelectedModelIssue", () => {
 
     expect(issue).toEqual(expect.objectContaining({
       title: "Selected model is not routable",
-      providerLabel: "All configured providers",
+      providerLabel: "All providers",
     }));
     expect(issue?.message).toContain("No configured provider currently reports");
   });
