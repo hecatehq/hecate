@@ -469,8 +469,17 @@ func TestProviderStatusReturnsHealthAndDiscoveryFreshness(t *testing.T) {
 			DiscoverySource: "config_unconfigured",
 		},
 	}
+	defaultOnlyProvider := &fakeProvider{
+		name: "openrouter",
+		capabilities: providers.Capabilities{
+			Name:            "openrouter",
+			Kind:            providers.KindCloud,
+			DefaultModel:    "openrouter-default",
+			DiscoverySource: "provider_default",
+		},
+	}
 
-	registry := providers.NewRegistry(healthyProvider, degradedProvider, missingCredentialProvider)
+	registry := providers.NewRegistry(healthyProvider, degradedProvider, missingCredentialProvider, defaultOnlyProvider)
 	providerCatalog := catalog.NewRegistryCatalog(registry, nil)
 	budgetStore := governor.NewMemoryBudgetStore()
 	service := gateway.NewService(gateway.Dependencies{
@@ -493,13 +502,14 @@ func TestProviderStatusReturnsHealthAndDiscoveryFreshness(t *testing.T) {
 	if response.Object != "provider_status" {
 		t.Fatalf("object = %q, want provider_status", response.Object)
 	}
-	if len(response.Data) != 3 {
-		t.Fatalf("provider count = %d, want 3", len(response.Data))
+	if len(response.Data) != 4 {
+		t.Fatalf("provider count = %d, want 4", len(response.Data))
 	}
 
 	foundHealthy := false
 	foundDegraded := false
 	foundCredentialBlocked := false
+	foundDefaultOnly := false
 	for _, item := range response.Data {
 		if item.Name == "openai" && item.Healthy && item.RefreshedAt != "" {
 			if item.BaseURL == "" {
@@ -555,6 +565,17 @@ func TestProviderStatusReturnsHealthAndDiscoveryFreshness(t *testing.T) {
 			assertProviderReadinessCheck(t, item, "routing", "blocked", "credential_missing")
 			foundCredentialBlocked = true
 		}
+		if item.Name == "openrouter" {
+			if item.ModelCount != 1 {
+				t.Fatalf("openrouter model_count = %d, want 1 default-model fallback", item.ModelCount)
+			}
+			if !item.RoutingReady {
+				t.Fatalf("openrouter routing_ready = false, reason = %q", item.RoutingBlocked)
+			}
+			assertProviderReadinessCheck(t, item, "models", "warning", "default_model_only")
+			assertProviderReadinessCheck(t, item, "routing", "ok", "routable")
+			foundDefaultOnly = true
+		}
 	}
 	if !foundHealthy {
 		t.Fatalf("missing healthy provider entry: %#v", response.Data)
@@ -564,6 +585,9 @@ func TestProviderStatusReturnsHealthAndDiscoveryFreshness(t *testing.T) {
 	}
 	if !foundCredentialBlocked {
 		t.Fatalf("missing credential-blocked provider entry: %#v", response.Data)
+	}
+	if !foundDefaultOnly {
+		t.Fatalf("missing default-only provider entry: %#v", response.Data)
 	}
 }
 
@@ -634,6 +658,8 @@ func TestProviderStatusReturnsRateLimitedRoutingBlockReason(t *testing.T) {
 	if item.RoutingBlocked != "provider_rate_limited" {
 		t.Fatalf("routing_blocked_reason = %q, want provider_rate_limited", item.RoutingBlocked)
 	}
+	assertProviderReadinessCheck(t, item, "health", "blocked", "provider_rate_limited")
+	assertProviderReadinessCheck(t, item, "routing", "blocked", "provider_rate_limited")
 	if item.LastErrorClass != "rate_limit" {
 		t.Fatalf("last_error_class = %q, want rate_limit", item.LastErrorClass)
 	}

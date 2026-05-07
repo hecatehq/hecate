@@ -911,7 +911,7 @@ func providerCredentialCheck(entry catalog.Entry) types.ProviderReadinessCheck {
 }
 
 func providerModelDiscoveryCheck(entry catalog.Entry) types.ProviderReadinessCheck {
-	count := len(entry.Models)
+	count := entry.DiscoveredModelCount
 	switch {
 	case count > 0:
 		return providerReadinessCheck("models", "ok", "models_discovered", fmt.Sprintf("%d model%s discovered.", count, pluralS(count)))
