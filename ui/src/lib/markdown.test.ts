@@ -143,9 +143,9 @@ describe("parseInlineNodes", () => {
   });
 
   it("parses markdown links", () => {
-    expect(parseInlineNodes("open [Hecate](https://github.com/chicoxyzzy/hecate)")).toEqual([
+    expect(parseInlineNodes("open [Hecate](https://github.com/hecatehq/hecate)")).toEqual([
       { t: "text", v: "open " },
-      { t: "link", v: "Hecate", href: "https://github.com/chicoxyzzy/hecate" },
+      { t: "link", v: "Hecate", href: "https://github.com/hecatehq/hecate" },
     ]);
   });
 

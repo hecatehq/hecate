@@ -29,7 +29,7 @@ services:
     build:
       context: .
       dockerfile: Dockerfile
-    image: ghcr.io/chicoxyzzy/hecate:latest
+    image: ghcr.io/hecatehq/hecate:latest
     ports:
       - "8765:8765"
     # extra_hosts injects host.docker.internal on Linux (macOS/Windows Docker

@@ -2,11 +2,11 @@
   <img src="docs/assets/brand/hecate-lockup-horizontal-dark-2x.png" alt="Hecate — AI Gateway · Agent Runtime" width="720">
 </h1>
 
-[![Latest release](https://img.shields.io/github/v/release/chicoxyzzy/hecate?include_prereleases)](https://github.com/chicoxyzzy/hecate/releases/latest)
-[![Container](https://img.shields.io/badge/Container-ghcr.io-2496ED?logo=docker&logoColor=white)](https://github.com/chicoxyzzy/hecate/pkgs/container/hecate)
-[![Test](https://github.com/chicoxyzzy/hecate/actions/workflows/test.yml/badge.svg)](https://github.com/chicoxyzzy/hecate/actions/workflows/test.yml)
-[![Go Report Card](https://goreportcard.com/badge/github.com/chicoxyzzy/hecate)](https://goreportcard.com/report/github.com/chicoxyzzy/hecate)
-[![Go version](https://img.shields.io/github/go-mod/go-version/chicoxyzzy/hecate)](go.mod)
+[![Latest release](https://img.shields.io/github/v/release/hecatehq/hecate?include_prereleases)](https://github.com/hecatehq/hecate/releases/latest)
+[![Container](https://img.shields.io/badge/Container-ghcr.io-2496ED?logo=docker&logoColor=white)](https://github.com/hecatehq/hecate/pkgs/container/hecate)
+[![Test](https://github.com/hecatehq/hecate/actions/workflows/test.yml/badge.svg)](https://github.com/hecatehq/hecate/actions/workflows/test.yml)
+[![Go Report Card](https://goreportcard.com/badge/github.com/hecatehq/hecate)](https://goreportcard.com/report/github.com/hecatehq/hecate)
+[![Go version](https://img.shields.io/github/go-mod/go-version/hecatehq/hecate)](go.mod)
 [![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](LICENSE)
 [![OpenTelemetry](https://img.shields.io/badge/OpenTelemetry-enabled-f5a800?logo=opentelemetry&logoColor=white)](https://opentelemetry.io/)
 
@@ -50,14 +50,14 @@ Hecate sits at that crossroads: one local runtime layer between clients, model p
 
 ### Desktop app
 
-Download from the [latest release](https://github.com/chicoxyzzy/hecate/releases/latest):
+Download from the [latest release](https://github.com/hecatehq/hecate/releases/latest):
 
 <!-- desktop-release-links:start -->
 | Platform | Bundle |
 |---|---|
-| macOS (Apple Silicon) | [Hecate_0.1.0-alpha.18_aarch64.dmg](https://github.com/chicoxyzzy/hecate/releases/download/v0.1.0-alpha.18/Hecate_0.1.0-alpha.18_aarch64.dmg) |
-| Linux x86_64 | [Hecate_0.1.0-alpha.18_amd64.deb](https://github.com/chicoxyzzy/hecate/releases/download/v0.1.0-alpha.18/Hecate_0.1.0-alpha.18_amd64.deb) or [Hecate_0.1.0-alpha.18_amd64.AppImage](https://github.com/chicoxyzzy/hecate/releases/download/v0.1.0-alpha.18/Hecate_0.1.0-alpha.18_amd64.AppImage) |
-| Windows x86_64 | [Hecate_0.1.0-alpha.18_x64_en-US.msi](https://github.com/chicoxyzzy/hecate/releases/download/v0.1.0-alpha.18/Hecate_0.1.0-alpha.18_x64_en-US.msi) |
+| macOS (Apple Silicon) | [Hecate_0.1.0-alpha.18_aarch64.dmg](https://github.com/hecatehq/hecate/releases/download/v0.1.0-alpha.18/Hecate_0.1.0-alpha.18_aarch64.dmg) |
+| Linux x86_64 | [Hecate_0.1.0-alpha.18_amd64.deb](https://github.com/hecatehq/hecate/releases/download/v0.1.0-alpha.18/Hecate_0.1.0-alpha.18_amd64.deb) or [Hecate_0.1.0-alpha.18_amd64.AppImage](https://github.com/hecatehq/hecate/releases/download/v0.1.0-alpha.18/Hecate_0.1.0-alpha.18_amd64.AppImage) |
+| Windows x86_64 | [Hecate_0.1.0-alpha.18_x64_en-US.msi](https://github.com/hecatehq/hecate/releases/download/v0.1.0-alpha.18/Hecate_0.1.0-alpha.18_x64_en-US.msi) |
 <!-- desktop-release-links:end -->
 
 Open the bundle and launch Hecate. The app starts the gateway sidecar, waits for it to become healthy, and opens the embedded operator UI automatically. State lives in the platform data dir (`~/Library/Application Support/io.github.chicoxyzzy.hecate/` on macOS, `%APPDATA%\io.github.chicoxyzzy.hecate\` on Windows, `~/.local/share/io.github.chicoxyzzy.hecate/` on Linux).
@@ -70,7 +70,7 @@ Skip to [Add a provider](#add-a-provider) once it's running.
 
 ```bash
 docker run --rm -p 127.0.0.1:8765:8765 -v hecate-data:/data \
-  ghcr.io/chicoxyzzy/hecate:0.1.0-alpha.18
+  ghcr.io/hecatehq/hecate:0.1.0-alpha.18
 ```
 
 Open `http://127.0.0.1:8765`. The UI loads with no further setup.

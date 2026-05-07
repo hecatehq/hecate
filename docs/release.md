@@ -23,7 +23,7 @@ Every `v*` tag fires `.github/workflows/release.yml`, which runs three jobs:
 1. **`goreleaser`** (~5–10 min) — multi-arch Go binary tarballs for
    `linux+darwin × amd64+arm64`; each tarball includes `hecate` and
    `hecate-acp`. It also publishes multi-arch Docker images on
-   `ghcr.io/chicoxyzzy/hecate`, source tarball, checksums, GitHub Release
+   `ghcr.io/hecatehq/hecate`, source tarball, checksums, GitHub Release
    entry.
 2. **`tauri`** (matrix, ~10–15 min, runs after goreleaser) — three legs
    building native desktop bundles and uploading them to the same Release
@@ -45,11 +45,11 @@ Acceptance after the run:
   to see what failed.
 - README Desktop app table and pinned install examples point at the release
   tag. The workflow commits this docs-only refresh to `master` with `[skip ci]`.
-- `docker pull ghcr.io/chicoxyzzy/hecate:X.Y.Z` succeeds (no `v` prefix —
+- `docker pull ghcr.io/hecatehq/hecate:X.Y.Z` succeeds (no `v` prefix —
   goreleaser uses bare semver as the docker tag). The image contains both
   `/usr/local/bin/hecate` and `/usr/local/bin/hecate-acp`; the entrypoint is
   `/usr/local/bin/hecate`.
-- `docker run --rm -p 8765:8765 ghcr.io/chicoxyzzy/hecate:X.Y.Z` then
+- `docker run --rm -p 8765:8765 ghcr.io/hecatehq/hecate:X.Y.Z` then
   `curl :8765/healthz` returns `version: "X.Y.Z"`.
 
 ## Alpha gate

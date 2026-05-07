@@ -197,9 +197,9 @@ execFileSync("git", ["push", "origin", version], { cwd: root, stdio: "inherit" }
 
 sep("Done");
 console.log("CI is building the release. Track it at:");
-console.log("  https://github.com/chicoxyzzy/hecate/actions");
+console.log("  https://github.com/hecatehq/hecate/actions");
 console.log(`\nWhen CI completes (~5-10 min), verify the published image:`);
-console.log(`  docker pull ghcr.io/chicoxyzzy/hecate:${semver}`);
-console.log(`  docker run --rm -p 8765:8765 ghcr.io/chicoxyzzy/hecate:${semver}`);
+console.log(`  docker pull ghcr.io/hecatehq/hecate:${semver}`);
+console.log(`  docker run --rm -p 8765:8765 ghcr.io/hecatehq/hecate:${semver}`);
 console.log(`\nTo recover if CI fails:`);
 console.log(`  git push --delete origin ${version} && git tag -d ${version}`);

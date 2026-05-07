@@ -78,7 +78,7 @@ dockers_v2:
       - hecate
       - hecate-acp
     images:
-      - "ghcr.io/chicoxyzzy/hecate"
+      - "ghcr.io/hecatehq/hecate"
     tags:
       - "{{ .Version }}"
       - latest
@@ -86,7 +86,7 @@ dockers_v2:
       - linux/amd64
       - linux/arm64
     labels:
-      "org.opencontainers.image.source": "https://github.com/chicoxyzzy/hecate"
+      "org.opencontainers.image.source": "https://github.com/hecatehq/hecate"
       "org.opencontainers.image.version": "{{ .Version }}"
       "org.opencontainers.image.created": "{{ .Date }}"
       "org.opencontainers.image.revision": "{{ .FullCommit }}"
@@ -96,7 +96,7 @@ checksum:
 
 release:
   github:
-    owner: chicoxyzzy
+    owner: hecatehq
     name: hecate
   draft: false
   prerelease: auto

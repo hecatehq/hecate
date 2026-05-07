@@ -16,13 +16,13 @@ Hecate defaults to `127.0.0.1:8765` and enforces same-origin for browser request
 
 ## Image pinning
 
-`docker-compose.yml` references `ghcr.io/chicoxyzzy/hecate:latest`, a multi-arch (`linux/amd64`, `linux/arm64`) image published from this repo on every `v*` tag. A fresh host can `docker compose pull` and start without a build step.
+`docker-compose.yml` references `ghcr.io/hecatehq/hecate:latest`, a multi-arch (`linux/amd64`, `linux/arm64`) image published from this repo on every `v*` tag. A fresh host can `docker compose pull` and start without a build step.
 
 To pin to a specific release, replace `:latest` with the published tag (no `v` prefix — goreleaser uses the bare semver as the docker tag). Example for the current alpha:
 
 ```yaml
 # docker-compose.yml
-image: ghcr.io/chicoxyzzy/hecate:0.1.0-alpha.18
+image: ghcr.io/hecatehq/hecate:0.1.0-alpha.18
 ```
 
 Pinning is recommended for any deployment beyond local experimentation — `:latest` floats over alpha increments that may include schema or config changes.
@@ -43,7 +43,7 @@ The release workflow publishes static, single-file binaries for `linux+darwin ×
 
 ```bash
 # pick the right tarball for your OS / arch
-curl -LO https://github.com/chicoxyzzy/hecate/releases/download/v0.1.0-alpha.18/hecate_0.1.0-alpha.18_linux_amd64.tar.gz
+curl -LO https://github.com/hecatehq/hecate/releases/download/v0.1.0-alpha.18/hecate_0.1.0-alpha.18_linux_amd64.tar.gz
 tar -xzf hecate_0.1.0-alpha.18_linux_amd64.tar.gz
 ./hecate
 ```

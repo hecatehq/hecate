@@ -13,7 +13,7 @@ import { resolve } from "path";
 const root = resolve(import.meta.dir, "..");
 const tag = process.argv.slice(2).find((arg) => !arg.startsWith("--")) ?? "";
 const semver = tag.replace(/^v/, "");
-const repo = process.env.GITHUB_REPOSITORY || "chicoxyzzy/hecate";
+const repo = process.env.GITHUB_REPOSITORY || "hecatehq/hecate";
 const token = process.env.GITHUB_TOKEN || "";
 
 const startMarker = "<!-- desktop-release-links:start -->";
@@ -163,8 +163,8 @@ function relativeDocName(path: string): string {
 function updatePinnedReleaseReferences(value: string): string {
   return value
     .replace(
-      new RegExp(`ghcr\\.io/chicoxyzzy/hecate:${pinnedVersionPattern}`, "g"),
-      `ghcr.io/chicoxyzzy/hecate:${semver}`,
+      new RegExp(`ghcr\\.io/hecatehq/hecate:${pinnedVersionPattern}`, "g"),
+      `ghcr.io/hecatehq/hecate:${semver}`,
     )
     .replace(
       new RegExp(`/releases/download/v${pinnedVersionPattern}/`, "g"),
@@ -186,7 +186,7 @@ function updateDeploymentReferences(value: string): string {
 
   if (linuxAMD64Tarball) {
     next = next.replace(
-      /curl -LO https:\/\/github\.com\/chicoxyzzy\/hecate\/releases\/download\/v[^\s]+\/hecate_[^\s]+\.tar\.gz/,
+      /curl -LO https:\/\/github\.com\/hecatehq\/hecate\/releases\/download\/v[^\s]+\/hecate_[^\s]+\.tar\.gz/,
       `curl -LO ${linuxAMD64Tarball.browser_download_url}`,
     );
     next = next.replace(
