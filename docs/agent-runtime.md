@@ -158,6 +158,13 @@ artifacts and `tool.shell.output_chunk` events; the event payload includes
 `stream: "stdout" | "stderr"` so tooling can reconstruct or filter either
 stream.
 
+Task Detail still records whether each stream artifact exists. The run output
+header shows stdout size when available, `stderr available` when stderr has
+content, and `stderr empty` when the stderr artifact was created but no bytes
+were captured. Hecate Chat keeps failed-tool diagnostics compact: it links only
+non-empty stdout/stderr artifacts from the chat activity row and leaves the
+empty-stream confirmation to Task Detail.
+
 ### Workspace environment system message
 
 Every fresh `agent_loop` run prepends a machine-generated system message that tells the model where its workspace lives:
