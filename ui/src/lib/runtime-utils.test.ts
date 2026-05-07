@@ -7,9 +7,11 @@ import {
   countRouteHealthStatuses,
   describeBudgetScope,
   describeHealthStatus,
+  describeRouteCandidateOutcome,
   describeRouteReason,
   describeRouteRecovery,
   describeRouteSkipReason,
+  explainRouteCandidate,
   filterModelsByKind,
   filterModelsByProvider,
   findModelInTrace,
@@ -306,6 +308,28 @@ describe("runtime-utils", () => {
     // Empty / missing route → all-zero summary.
     expect(countRouteHealthStatuses(undefined)).toEqual({ healthy: 0, warning: 0, danger: 0 });
     expect(countRouteHealthStatuses(null)).toEqual({ healthy: 0, warning: 0, danger: 0 });
+  });
+
+  it("describeRouteCandidateOutcome labels router candidate states", () => {
+    expect(describeRouteCandidateOutcome({ outcome: "selected" } as any)).toBe("Selected route");
+    expect(describeRouteCandidateOutcome({ outcome: "completed" } as any)).toBe("Completed route");
+    expect(describeRouteCandidateOutcome({ outcome: "failed" } as any)).toBe("Failed attempt");
+    expect(describeRouteCandidateOutcome({ outcome: "skipped" } as any)).toBe("Skipped");
+    expect(describeRouteCandidateOutcome({ outcome: "half_open_probe" } as any)).toBe("Half Open Probe");
+    expect(describeRouteCandidateOutcome({} as any)).toBe("Candidate");
+  });
+
+  it("explainRouteCandidate turns route outcomes into operator-readable reasons", () => {
+    expect(explainRouteCandidate({ outcome: "selected", reason: "pinned_provider_model" } as any))
+      .toBe("Chosen because pinned provider and model.");
+    expect(explainRouteCandidate({ outcome: "skipped", skip_reason: "provider_rate_limited" } as any))
+      .toBe("Skipped because cooling down after upstream 429.");
+    expect(explainRouteCandidate({ outcome: "failed", detail: "upstream returned 503" } as any))
+      .toBe("upstream returned 503");
+    expect(explainRouteCandidate({ outcome: "denied", policy_reason: "cloud providers are blocked" } as any))
+      .toBe("cloud providers are blocked");
+    expect(explainRouteCandidate({ outcome: "candidate" } as any))
+      .toBe("Considered by the router.");
   });
 
   // ── provider helpers ─────────────────────────────────────────────────

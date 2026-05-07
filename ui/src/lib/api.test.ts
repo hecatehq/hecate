@@ -385,6 +385,62 @@ describe("api client", () => {
       } satisfies Partial<ApiError>);
     });
 
+    it("preserves stable operator-facing error metadata from the gateway envelope", async () => {
+      fetchMock.mockResolvedValue(
+        new Response(
+          JSON.stringify({
+            error: {
+              type: "route_impossible",
+              message: "route request: no provider available",
+              user_message: "No configured provider can serve this request.",
+              operator_action: "Open Providers to inspect readiness checks.",
+              request_id: "req-body",
+              trace_id: "trace-body",
+            },
+          }),
+          {
+            status: 503,
+            headers: {
+              "Content-Type": "application/json",
+              "X-Request-Id": "req-header",
+              "X-Trace-Id": "trace-header",
+            },
+          },
+        ),
+      );
+
+      await expect(getBudget("?scope=global")).rejects.toMatchObject({
+        message: "No configured provider can serve this request.",
+        status: 503,
+        code: "route_impossible",
+        userMessage: "No configured provider can serve this request.",
+        operatorAction: "Open Providers to inspect readiness checks.",
+        requestId: "req-body",
+        traceId: "trace-body",
+      } satisfies Partial<ApiError>);
+    });
+
+    it("falls back to request and trace headers when the error body omits correlation IDs", async () => {
+      fetchMock.mockResolvedValue(
+        new Response(
+          JSON.stringify({ error: { type: "provider_unavailable", message: "provider unavailable" } }),
+          {
+            status: 502,
+            headers: {
+              "Content-Type": "application/json",
+              "X-Request-Id": "req-header",
+              "X-Trace-Id": "trace-header",
+            },
+          },
+        ),
+      );
+
+      await expect(getBudget("?scope=global")).rejects.toMatchObject({
+        requestId: "req-header",
+        traceId: "trace-header",
+      } satisfies Partial<ApiError>);
+    });
+
     it("falls back to the static label when the error body is not valid JSON", async () => {
       fetchMock.mockResolvedValue(
         new Response("<html>500</html>", {

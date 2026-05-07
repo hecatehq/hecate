@@ -4,8 +4,10 @@ import {
   buildSpanWaterfall,
   buildTraceTimeline,
   describeHealthStatus,
+  describeRouteCandidateOutcome,
   describeRouteReason,
   describeRouteSkipReason,
+  explainRouteCandidate,
   formatRelativeTime,
   formatTraceAttributeKey,
   formatTraceAttributeValue,
@@ -1100,9 +1102,24 @@ function RouteCandidates({
   type Candidate = NonNullable<NonNullable<TraceListItem["route"]>["candidates"]>[number];
   const candidates: Candidate[] = traceDetail?.route?.candidates ?? selectedTrace?.route?.candidates ?? [];
   if (candidates.length === 0) return null;
+  const selected = candidates.find((c) => c.outcome === "selected" || c.outcome === "completed");
+  const skipped = candidates.filter((c) => c.outcome === "skipped").length;
+  const failed = candidates.filter((c) => c.outcome === "failed").length;
   return (
     <div style={{ padding: "10px 12px", border: "1px solid var(--border)", borderRadius: "var(--radius-sm)" }}>
-      <div className="kicker" style={{ marginBottom: 6 }}>Route candidates</div>
+      <div className="kicker" style={{ marginBottom: 6 }}>Route decision</div>
+      <div style={{ marginBottom: 8, display: "flex", flexWrap: "wrap", gap: 8, alignItems: "center" }}>
+        <span style={{ fontSize: 12, color: "var(--t1)" }}>
+          {selected?.provider
+            ? `Selected ${selected.provider}/${selected.model || "provider default"}`
+            : "No provider selected"}
+        </span>
+        {skipped > 0 && <Badge status="warn" label={`${skipped} skipped`} />}
+        {failed > 0 && <Badge status="error" label={`${failed} failed`} />}
+        <span style={{ fontFamily: "var(--font-mono)", fontSize: 10, color: "var(--t3)" }}>
+          {candidates.length} candidate{candidates.length === 1 ? "" : "s"}
+        </span>
+      </div>
       {candidates.map((c, i) => {
         const outcomeTone = routeOutcomeTone(c.outcome);
         const outcomeStatus =
@@ -1117,12 +1134,15 @@ function RouteCandidates({
           healthTone === "warning" ? "warn" :
           "disabled";
         return (
-          <div key={i} style={{ padding: "8px 0", borderBottom: i === candidates.length - 1 ? undefined : "1px solid var(--border)" }}>
+          <div key={`${c.provider || "provider"}-${c.model || "model"}-${c.outcome || "candidate"}-${c.index ?? i}`} style={{ padding: "8px 0", borderBottom: i === candidates.length - 1 ? undefined : "1px solid var(--border)" }}>
             <div style={{ display: "flex", alignItems: "center", gap: 8, marginBottom: 6 }}>
               <span style={{ fontFamily: "var(--font-mono)", fontSize: 11, color: "var(--t0)", flex: 1, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>
                 {c.provider}/{c.model || "no model"}
               </span>
-              <Badge status={outcomeStatus} label={c.outcome || "unknown"} />
+              <Badge status={outcomeStatus} label={describeRouteCandidateOutcome(c)} />
+            </div>
+            <div style={{ marginBottom: 6, fontSize: 11, color: "var(--t2)", lineHeight: 1.45 }}>
+              {explainRouteCandidate(c)}
             </div>
             <div style={{ display: "flex", flexWrap: "wrap", gap: 6 }}>
               {c.skip_reason && <Badge status="warn" label={describeRouteSkipReason(c.skip_reason)} />}

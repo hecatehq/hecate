@@ -536,8 +536,12 @@ func TestMessagesReturns402OnBudgetExceeded(t *testing.T) {
 	var payload struct {
 		Type  string `json:"type"`
 		Error struct {
-			Type    string `json:"type"`
-			Message string `json:"message"`
+			Type           string `json:"type"`
+			Message        string `json:"message"`
+			UserMessage    string `json:"user_message"`
+			OperatorAction string `json:"operator_action"`
+			RequestID      string `json:"request_id"`
+			TraceID        string `json:"trace_id"`
 		} `json:"error"`
 	}
 	if err := json.NewDecoder(rec.Body).Decode(&payload); err != nil {
@@ -617,8 +621,12 @@ func TestMessagesMapsUpstreamErrorWithAnthropicEnvelope(t *testing.T) {
 	var payload struct {
 		Type  string `json:"type"`
 		Error struct {
-			Type    string `json:"type"`
-			Message string `json:"message"`
+			Type           string `json:"type"`
+			Message        string `json:"message"`
+			UserMessage    string `json:"user_message"`
+			OperatorAction string `json:"operator_action"`
+			RequestID      string `json:"request_id"`
+			TraceID        string `json:"trace_id"`
 		} `json:"error"`
 	}
 	if err := json.NewDecoder(rec.Body).Decode(&payload); err != nil {
@@ -632,6 +640,18 @@ func TestMessagesMapsUpstreamErrorWithAnthropicEnvelope(t *testing.T) {
 	}
 	if payload.Error.Message != "upstream rate limit exceeded" {
 		t.Errorf("error.message = %q, want upstream message verbatim", payload.Error.Message)
+	}
+	if payload.Error.UserMessage == "" {
+		t.Fatal("error.user_message = empty, want operator-facing summary")
+	}
+	if payload.Error.OperatorAction == "" {
+		t.Fatal("error.operator_action = empty, want next-step guidance")
+	}
+	if payload.Error.RequestID == "" || payload.Error.RequestID != rec.Header().Get("X-Request-Id") {
+		t.Fatalf("error.request_id = %q, header = %q", payload.Error.RequestID, rec.Header().Get("X-Request-Id"))
+	}
+	if payload.Error.TraceID == "" || payload.Error.TraceID != rec.Header().Get("X-Trace-Id") {
+		t.Fatalf("error.trace_id = %q, header = %q", payload.Error.TraceID, rec.Header().Get("X-Trace-Id"))
 	}
 }
 

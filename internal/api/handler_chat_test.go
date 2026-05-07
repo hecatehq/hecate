@@ -30,8 +30,12 @@ func TestChatCompletionsRejectsMalformedJSON(t *testing.T) {
 	}
 	var payload struct {
 		Error struct {
-			Type    string `json:"type"`
-			Message string `json:"message"`
+			Type           string `json:"type"`
+			Message        string `json:"message"`
+			UserMessage    string `json:"user_message"`
+			OperatorAction string `json:"operator_action"`
+			RequestID      string `json:"request_id"`
+			TraceID        string `json:"trace_id"`
 		} `json:"error"`
 	}
 	if err := json.NewDecoder(rec.Body).Decode(&payload); err != nil {
@@ -63,8 +67,12 @@ func TestChatCompletionsDeniedReturns403WithUserFacingMessage(t *testing.T) {
 	}
 	var payload struct {
 		Error struct {
-			Type    string `json:"type"`
-			Message string `json:"message"`
+			Type           string `json:"type"`
+			Message        string `json:"message"`
+			UserMessage    string `json:"user_message"`
+			OperatorAction string `json:"operator_action"`
+			RequestID      string `json:"request_id"`
+			TraceID        string `json:"trace_id"`
 		} `json:"error"`
 	}
 	if err := json.NewDecoder(rec.Body).Decode(&payload); err != nil {
@@ -148,8 +156,12 @@ func TestChatCompletionsReturnsStablePriceMissingWhenNoFallbackIsUsable(t *testi
 	}
 	var payload struct {
 		Error struct {
-			Type    string `json:"type"`
-			Message string `json:"message"`
+			Type           string `json:"type"`
+			Message        string `json:"message"`
+			UserMessage    string `json:"user_message"`
+			OperatorAction string `json:"operator_action"`
+			RequestID      string `json:"request_id"`
+			TraceID        string `json:"trace_id"`
 		} `json:"error"`
 	}
 	if err := json.NewDecoder(rec.Body).Decode(&payload); err != nil {
@@ -177,8 +189,12 @@ func TestChatCompletionsReturnsRouteImpossibleWhenNoProviderAvailable(t *testing
 	}
 	var payload struct {
 		Error struct {
-			Type    string `json:"type"`
-			Message string `json:"message"`
+			Type           string `json:"type"`
+			Message        string `json:"message"`
+			UserMessage    string `json:"user_message"`
+			OperatorAction string `json:"operator_action"`
+			RequestID      string `json:"request_id"`
+			TraceID        string `json:"trace_id"`
 		} `json:"error"`
 	}
 	if err := json.NewDecoder(rec.Body).Decode(&payload); err != nil {
@@ -186,6 +202,18 @@ func TestChatCompletionsReturnsRouteImpossibleWhenNoProviderAvailable(t *testing
 	}
 	if payload.Error.Type != errCodeRouteImpossible {
 		t.Fatalf("error.type = %q, want %s", payload.Error.Type, errCodeRouteImpossible)
+	}
+	if payload.Error.UserMessage == "" {
+		t.Fatal("error.user_message = empty, want operator-facing summary")
+	}
+	if payload.Error.OperatorAction == "" {
+		t.Fatal("error.operator_action = empty, want next-step guidance")
+	}
+	if payload.Error.RequestID == "" || payload.Error.RequestID != rec.Header().Get("X-Request-Id") {
+		t.Fatalf("error.request_id = %q, header = %q", payload.Error.RequestID, rec.Header().Get("X-Request-Id"))
+	}
+	if payload.Error.TraceID == "" || payload.Error.TraceID != rec.Header().Get("X-Trace-Id") {
+		t.Fatalf("error.trace_id = %q, header = %q", payload.Error.TraceID, rec.Header().Get("X-Trace-Id"))
 	}
 }
 

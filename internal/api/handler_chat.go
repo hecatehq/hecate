@@ -53,7 +53,7 @@ func (h *Handler) HandleChatCompletions(w http.ResponseWriter, r *http.Request) 
 			slog.Any("error", err),
 		)
 
-		writeOpenAIGatewayError(w, classifyGatewayError(err))
+		writeOpenAIGatewayError(w, classifyGatewayError(err), h.gatewayErrorDetails(ctx, internalReq.RequestID))
 		return
 	}
 
@@ -102,7 +102,7 @@ func (h *Handler) handleChatCompletionsStream(w http.ResponseWriter, r *http.Req
 			slog.String(telemetry.AttrGenAIRequestModel, req.Model),
 			slog.Any("error", err),
 		)
-		writeOpenAIGatewayError(w, classifyGatewayError(err))
+		writeOpenAIGatewayError(w, classifyGatewayError(err), h.gatewayErrorDetails(ctx, req.RequestID))
 		return
 	}
 

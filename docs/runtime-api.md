@@ -25,9 +25,42 @@ Legacy Hecate-native `/v1/*` and `/admin/*` paths are intentionally not kept as
 compatibility shims in this alpha branch. Unknown API-shaped paths return 404
 rather than falling through to the embedded UI shell.
 
+## Error envelope
+
+Hecate-native JSON errors use one stable envelope:
+
+```json
+{
+  "error": {
+    "type": "route_impossible",
+    "message": "route request: no provider available",
+    "user_message": "No configured provider can serve this request.",
+    "operator_action": "Open Providers to inspect readiness checks, discover models, or enable a routable provider.",
+    "request_id": "req_...",
+    "trace_id": "..."
+  }
+}
+```
+
+- `type` is the stable machine code. Operator UI and automation should branch
+  on this field, not raw text.
+- `message` is the detailed gateway/runtime message. It may include provider or
+  router wording.
+- `user_message` is the short operator-facing summary.
+- `operator_action` is the recommended next step.
+- `request_id` and `trace_id` are included when the runtime has already created
+  trace state. They mirror `X-Request-Id` / `X-Trace-Id` and let clients open
+  `GET /hecate/v1/traces?request_id=...` directly from an error surface.
+
+OpenAI-compatible and Anthropic-compatible ingress paths keep their protocol
+shape, but gateway-classified failures also include the same
+`user_message` / `operator_action` / correlation fields inside their `error`
+object when available.
+
 ## Contents
 
 - [API namespaces](#api-namespaces)
+- [Error envelope](#error-envelope)
 - [Core resources](#core-resources)
   - [Task fields](#task-fields)
   - [Run fields](#run-fields)
@@ -434,6 +467,10 @@ clients from guessing readiness by combining unrelated raw fields. Check names
 are currently `credentials`, `models`, `health`, and `routing`; statuses are
 `ok`, `warning`, `blocked`, or `unknown`. `reason` is stable enough for UI
 branching, while `message` is safe to show directly to the operator.
+Clients can layer concise next-step copy on top of `reason` without parsing
+`message`; for example `credential_missing` means "add or rotate credentials",
+`no_models` means "start the provider and load at least one model", and
+`provider_rate_limited` means "wait for cooldown or route elsewhere".
 
 `routing_ready=false` means the router currently skips the provider. The
 matching `routing_blocked_reason` and the `reason` on the
@@ -445,6 +482,14 @@ Other checks use reason values scoped to that check, such as
 provider could not return a model list, `self_referential` when a provider URL
 points back to Hecate, `provider_slow` when a latency-degraded provider remains
 routable, or `not_required` for local providers that do not need credentials.
+
+The trace inspector reuses the same vocabulary in route candidates. A selected
+candidate is paired with the route reason (`requested_model`, `pinned_provider`,
+`global_default_model`, etc.); skipped candidates carry `skip_reason` values
+such as `policy_denied`, `budget_denied`, `provider_rate_limited`,
+`provider_less_stable`, or `preflight_price_missing`. This keeps the operator
+debugging path consistent: Providers explains whether a route is possible now,
+and Observability explains how a specific request moved through the candidates.
 
 ### `GET /hecate/v1/settings/providers/local-discovery`
 

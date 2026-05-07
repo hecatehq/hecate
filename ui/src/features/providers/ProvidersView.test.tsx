@@ -699,6 +699,7 @@ describe("ProvidersView table renders", () => {
     expect(screen.getAllByText("Health").length).toBeGreaterThan(0);
     expect(screen.getByText("Routing")).toBeTruthy();
     expect(screen.getByText("Routing is blocked while the provider cools down after a rate limit.")).toBeTruthy();
+    expect(screen.getAllByText(/Next: wait for cooldown or temporarily route to another provider/).length).toBeGreaterThan(0);
     expect(screen.getByText("Diagnostics")).toBeTruthy();
     expect(screen.getByText("connect: connection refused")).toBeTruthy();
     expect(screen.getAllByText("Not required").length).toBeGreaterThan(0);
