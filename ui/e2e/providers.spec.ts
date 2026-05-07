@@ -97,7 +97,7 @@ test("duplicate preset prompts for custom name but still blocks duplicate endpoi
       return;
     }
     await route.fulfill({ status: 200, contentType: "application/json",
-      body: JSON.stringify({ object: "configured_state", data: { providers: created, tenants: [], api_keys: [], policy_rules: [] } }) });
+      body: JSON.stringify({ object: "settings", data: { providers: created, tenants: [], api_keys: [], policy_rules: [] } }) });
   });
 
   await page.route("/hecate/v1/settings/providers", async route => {

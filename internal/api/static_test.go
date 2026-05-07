@@ -87,8 +87,11 @@ func TestStaticHandlerSPAFallback(t *testing.T) {
 
 func TestStaticHandlerDoesNotFallbackForUnknownAPIPath(t *testing.T) {
 	for _, requestPath := range []string{
+		"/v1",
 		"/v1/tasks",
+		"/hecate/v1",
 		"/hecate/v1/unknown",
+		"/admin",
 		"/admin/control-plane",
 	} {
 		t.Run(requestPath, func(t *testing.T) {
@@ -162,6 +165,16 @@ func TestServerMountsStaticHandler(t *testing.T) {
 	body, _ := io.ReadAll(rec.Body)
 	if strings.Contains(string(body), "UI bundle wasn't embedded") {
 		t.Error("/v1/models incorrectly served by static fallback")
+	}
+
+	for _, requestPath := range []string{"/v1", "/hecate/v1", "/admin"} {
+		t.Run(requestPath, func(t *testing.T) {
+			rec := httptest.NewRecorder()
+			srv.ServeHTTP(rec, httptest.NewRequest(http.MethodGet, requestPath, nil))
+			if rec.Code != http.StatusNotFound {
+				t.Fatalf("status = %d, want 404", rec.Code)
+			}
+		})
 	}
 
 	// An unknown root path → must reach the static handler. Whether it

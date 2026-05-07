@@ -189,9 +189,9 @@ func registerAPINotFound(mux *http.ServeMux) {
 		http.MethodDelete,
 		http.MethodOptions,
 	} {
-		mux.HandleFunc(method+" /admin", apiNotFound)
-		mux.HandleFunc(method+" /admin/{path...}", apiNotFound)
-		mux.HandleFunc(method+" /v1/{path...}", apiNotFound)
-		mux.HandleFunc(method+" /hecate/v1/{path...}", apiNotFound)
+		for _, prefix := range apiPathPrefixes {
+			mux.HandleFunc(method+" "+prefix, apiNotFound)
+			mux.HandleFunc(method+" "+prefix+"/{path...}", apiNotFound)
+		}
 	}
 }

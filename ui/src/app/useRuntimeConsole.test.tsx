@@ -133,7 +133,7 @@ describe("useRuntimeConsole", () => {
         ],
       }),
       "/hecate/v1/settings": () => jsonResponse({
-        object: "configured_state",
+        object: "settings",
         data: {
           providers: [
             { id: "openai", name: "OpenAI", preset_id: "openai", kind: "cloud", protocol: "openai", base_url: "https://api.openai.com", enabled: true, credential_configured: true },
