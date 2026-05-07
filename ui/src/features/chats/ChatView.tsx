@@ -3,7 +3,9 @@ import type { SyntheticEvent } from "react";
 import type { RuntimeConsoleViewModel } from "../../app/useRuntimeConsole";
 import { discoverLocalProviders } from "../../lib/api";
 import { describeGatewayError, formatErrorCode } from "../../lib/error-diagnostics";
+import { buildSelectedModelIssue } from "../../lib/provider-issues";
 import { describeCredentialState, describeHealthErrorClass, describeRoutingBlockedReason } from "../../lib/runtime-utils";
+import type { SelectedModelIssue } from "../../lib/provider-issues";
 import type { AgentAdapterRecord, AgentChatActivityRecord, AgentChatSegmentRecord, AgentChatSessionRecord, AgentChatTimingRecord, AgentChatUsageRecord, LocalProviderDiscoveryRecord, ProviderPresetRecord } from "../../types/runtime";
 import { CompactProviderReadinessChecks } from "../shared/ProviderReadiness";
 import { AgentAdapterPicker, CodeBlock, Icon, Icons, InlineError, ModelPicker, ProviderPicker } from "../shared/ui";
@@ -234,6 +236,15 @@ export function ChatView({ state, actions, onNavigate, onOpenTask, onOpenTrace }
   const selectedHecateModelRecord = hecateAgentModelLocked
     ? undefined
     : selectableModels.find((entry) => entry.id === state.model && (!state.providerFilter || state.providerFilter === "auto" || entry.metadata?.provider === state.providerFilter));
+  const selectedModelIssue = !hecateAgentModelLocked && providerConfigLoaded && state.model && selectableModels.length > 0
+    ? buildSelectedModelIssue({
+        model: state.model,
+        providerFilter: state.providerFilter,
+        selectableModels,
+        configuredProvider: selectedConfiguredProvider,
+        runtimeProvider: selectedRuntimeProvider,
+      })
+    : null;
   const selectedModelCapabilities = hecateAgentModelLocked
     ? state.activeAgentChatSession?.capabilities
     : selectedHecateModelRecord?.metadata?.capabilities;
@@ -244,7 +255,7 @@ export function ChatView({ state, actions, onNavigate, onOpenTask, onOpenTrace }
   const selectedCapabilityModel = hecateAgentModelLocked ? "" : state.model;
   const hecateChatModelReady = isHecateAgentChat && hecateAgentModelLocked
     ? Boolean(hecateChatModelValue)
-    : Boolean(state.model) && !modelRouteUnavailable;
+    : Boolean(state.model) && !modelRouteUnavailable && !selectedModelIssue;
   const composerVisible = isExternalAgentChat || (isHecateChat && hecateChatModelReady);
   const agentBusy = isAgentChat && (streaming || hecateAgentBusy);
   const queueingMessage = agentBusy && Boolean(state.message.trim());
@@ -252,7 +263,8 @@ export function ChatView({ state, actions, onNavigate, onOpenTask, onOpenTrace }
     || (!agentBusy && streaming)
     || (!isAgentChat && modelRouteUnavailable)
     || (!agentBusy && isExternalAgentChat && (!state.agentWorkspace.trim() || !selectedAgent?.available))
-    || (!agentBusy && isHecateAgentChat && (!state.agentWorkspace.trim() || !hecateChatModelReady || hecateAgentToolsDisabledForModel));
+    || (!agentBusy && isHecateAgentChat && (!state.agentWorkspace.trim() || !hecateChatModelReady || hecateAgentToolsDisabledForModel))
+    || (!isAgentChat && Boolean(selectedModelIssue));
 
   async function enableToolsForSelectedModel() {
     if (!selectedCapabilityProvider || !selectedCapabilityModel || capabilitySaving) {
@@ -1021,6 +1033,7 @@ export function ChatView({ state, actions, onNavigate, onOpenTask, onOpenTrace }
               isHecateChat={isHecateChat}
               isExternalAgentChat={isExternalAgentChat}
               modelRouteUnavailable={modelRouteUnavailable}
+              selectedModelIssue={selectedModelIssue}
               agentRouteUnavailable={isExternalAgentChat && agentRouteUnavailable}
               nothingRunnable={nothingRunnable}
               agentAdapters={state.agentAdapters}
@@ -1073,6 +1086,11 @@ export function ChatView({ state, actions, onNavigate, onOpenTask, onOpenTrace }
                 onOpenTrace={onOpenTrace}
                 diagnostic={chatDiagnostic}
               />
+            </div>
+          )}
+          {isHecateChat && selectedModelIssue && (
+            <div style={{ marginBottom: composerVisible ? 8 : 0 }}>
+              <SelectedModelReadinessNotice issue={selectedModelIssue} onOpenProviders={() => onNavigate?.("providers")} />
             </div>
           )}
           {composerVisible && (
@@ -1967,6 +1985,7 @@ function ChatEmptyState({
   isHecateChat,
   isExternalAgentChat,
   modelRouteUnavailable,
+  selectedModelIssue,
   agentRouteUnavailable,
   nothingRunnable,
   agentAdapters,
@@ -1990,6 +2009,7 @@ function ChatEmptyState({
   isHecateChat: boolean;
   isExternalAgentChat: boolean;
   modelRouteUnavailable: boolean;
+  selectedModelIssue: SelectedModelIssue | null;
   agentRouteUnavailable: boolean;
   nothingRunnable: boolean;
   agentAdapters: AgentAdapterRecord[];
@@ -2009,13 +2029,15 @@ function ChatEmptyState({
   onRefreshQuickLocalProviders: () => void;
   onSwitchTarget: (target: "model" | "agent" | "external_agent") => void;
 }) {
-  const hecateModelUnavailable = isHecateChat && modelRouteUnavailable;
+  const hecateModelUnavailable = isHecateChat && (modelRouteUnavailable || Boolean(selectedModelIssue));
   const title = isAgentChat && selectedAgentUnavailable
       ? `${selectedAgent?.name || "Selected agent"} is unavailable`
       : isExternalAgentChat && agentRouteUnavailable
       ? "No available coding agent"
       : nothingRunnable
         ? "Nothing runnable yet"
+        : selectedModelIssue
+          ? selectedModelIssue.title
         : hecateModelUnavailable
           ? "No routable model"
         : "Start a chat";
@@ -2025,6 +2047,8 @@ function ChatEmptyState({
       ? "Hecate did not find any supported coding-agent CLI or local adapter runner in the known operator locations."
       : nothingRunnable
         ? "Add a model provider or install a supported coding-agent CLI before sending a message."
+        : selectedModelIssue
+          ? selectedModelIssue.message
         : hecateModelUnavailable
           ? "Add a provider with discovered models before sending through Hecate."
         : "Send a message to start this chat.";
@@ -2043,9 +2067,12 @@ function ChatEmptyState({
           runtimeProvider={selectedRuntimeProvider}
         />
       )}
-      {(modelRouteUnavailable || agentRouteUnavailable) && (
+      {isHecateChat && selectedModelIssue && (
+        <SelectedModelReadinessNotice issue={selectedModelIssue} compact />
+      )}
+      {(modelRouteUnavailable || selectedModelIssue || agentRouteUnavailable) && (
         <div style={{ display: "flex", justifyContent: "center", gap: 8, marginTop: 14, flexWrap: "wrap" }}>
-          {modelRouteUnavailable && isHecateChat && (
+          {(modelRouteUnavailable || selectedModelIssue) && isHecateChat && (
             <button
               className="btn btn-primary btn-sm"
               onClick={onAddProvider}
@@ -2181,6 +2208,56 @@ function ModelRouteTroubleshooting({
       <ul style={{ margin: "10px 0 0", paddingLeft: 18, color: "var(--t3)", fontSize: 11, lineHeight: 1.55 }}>
         {guidance.map(item => <li key={item}>{item}</li>)}
       </ul>
+    </div>
+  );
+}
+
+function SelectedModelReadinessNotice({
+  issue,
+  compact = false,
+  onOpenProviders,
+}: {
+  issue: SelectedModelIssue;
+  compact?: boolean;
+  onOpenProviders?: () => void;
+}) {
+  return (
+    <div style={{
+      margin: compact ? "14px auto 0" : "0 auto",
+      maxWidth: compact ? 560 : 820,
+      border: "1px solid rgba(245, 191, 79, 0.32)",
+      borderRadius: "var(--radius)",
+      background: "rgba(245, 191, 79, 0.06)",
+      padding: 12,
+      textAlign: "left",
+    }}>
+      {!compact && (
+        <div style={{ display: "flex", alignItems: "flex-start", justifyContent: "space-between", gap: 12 }}>
+          <div style={{ minWidth: 0 }}>
+            <div style={{ fontSize: 12, fontWeight: 700, color: "var(--amber)", marginBottom: 4 }}>
+              {issue.title}
+            </div>
+            <div style={{ fontSize: 12, color: "var(--t2)", lineHeight: 1.5 }}>
+              {issue.message}
+            </div>
+          </div>
+          {onOpenProviders && (
+            <button className="btn btn-ghost btn-sm" type="button" onClick={onOpenProviders} style={{ flexShrink: 0 }}>
+              Open Providers
+            </button>
+          )}
+        </div>
+      )}
+      <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(150px, 1fr))", gap: 8, marginTop: 10 }}>
+        {issue.details.slice(0, compact ? 3 : issue.details.length).map((detail) => (
+          <InfoChip key={detail.label} label={detail.label} value={detail.value} />
+        ))}
+      </div>
+      {!compact && (
+        <ul style={{ margin: "10px 0 0", paddingLeft: 18, color: "var(--t3)", fontSize: 11, lineHeight: 1.55 }}>
+          {issue.steps.map((step) => <li key={step}>{step}</li>)}
+        </ul>
+      )}
     </div>
   );
 }

@@ -13,6 +13,14 @@ The Chats workspace has two top-level targets: **Hecate Chat** and
 Hecate-owned agent execution: the tools toggle decides whether a prompt stays
 as a direct provider/model turn or enters the native agent task runtime.
 
+Hecate Chat treats model/provider readiness as part of composition, not a
+send-time surprise. If no configured provider has routable models, the empty
+state points at provider setup or local runtime discovery. If models exist but
+the currently selected model is no longer reported by the selected provider
+(for example after changing Ollama models), the composer is blocked with the
+selected model, provider route, discovered-model count, health, and next steps
+before any request is sent.
+
 The operator UI's **Hecate Chat** target now uses **Agent Chat** sessions under
 `/hecate/v1/agent-chat/sessions` for both tools-off direct model turns and tools-on
 Hecate Agent turns. Those records can point at a runtime when tools are enabled,

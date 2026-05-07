@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 
-import { buildLocalProviderIssue } from "./provider-issues";
+import { buildLocalProviderIssue, buildSelectedModelIssue } from "./provider-issues";
 
 describe("buildLocalProviderIssue", () => {
   it("returns an ollama pull hint when the default local model is missing", () => {
@@ -33,5 +33,71 @@ describe("buildLocalProviderIssue", () => {
     });
 
     expect(issue).toBeNull();
+  });
+});
+
+describe("buildSelectedModelIssue", () => {
+  it("returns null when the selected model is discovered", () => {
+    const issue = buildSelectedModelIssue({
+      model: "llama3.1:8b",
+      providerFilter: "ollama",
+      selectableModels: [{ id: "llama3.1:8b", owned_by: "ollama", metadata: { provider: "ollama" } }],
+      configuredProvider: {
+        id: "ollama",
+        name: "Ollama",
+        kind: "local",
+        protocol: "openai",
+        base_url: "http://127.0.0.1:11434/v1",
+        credential_configured: false,
+      },
+    });
+
+    expect(issue).toBeNull();
+  });
+
+  it("explains a stale local model selection", () => {
+    const issue = buildSelectedModelIssue({
+      model: "llama3.1:8b",
+      providerFilter: "ollama",
+      selectableModels: [{ id: "qwen2.5:7b", owned_by: "ollama", metadata: { provider: "ollama" } }],
+      configuredProvider: {
+        id: "ollama",
+        name: "Ollama",
+        kind: "local",
+        protocol: "openai",
+        base_url: "http://127.0.0.1:11434/v1",
+        credential_configured: false,
+      },
+      runtimeProvider: {
+        name: "ollama",
+        kind: "local",
+        healthy: true,
+        status: "healthy",
+        models: ["qwen2.5:7b"],
+        model_count: 1,
+      },
+    });
+
+    expect(issue).toEqual(expect.objectContaining({
+      title: "Selected model is not available from this provider",
+      model: "llama3.1:8b",
+      providerLabel: "Ollama",
+    }));
+    expect(issue?.message).toContain("does not currently report");
+    expect(issue?.steps.join(" ")).toContain("Pull or load llama3.1:8b");
+  });
+
+  it("explains a stale auto-route model selection", () => {
+    const issue = buildSelectedModelIssue({
+      model: "gpt-4o-mini",
+      providerFilter: "auto",
+      selectableModels: [{ id: "claude-sonnet-4-6", owned_by: "anthropic", metadata: { provider: "anthropic" } }],
+    });
+
+    expect(issue).toEqual(expect.objectContaining({
+      title: "Selected model is not routable",
+      providerLabel: "All configured providers",
+    }));
+    expect(issue?.message).toContain("No configured provider currently reports");
   });
 });
