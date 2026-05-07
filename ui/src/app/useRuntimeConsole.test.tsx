@@ -788,6 +788,55 @@ describe("useRuntimeConsole", () => {
       expect(result.current.state.notice?.message).toBe("Agent chat deleted.");
     });
 
+    it("deleteChatSession removes queued prompts for the deleted session", async () => {
+      window.localStorage.setItem("hecate.chatTarget", "agent");
+      window.localStorage.setItem("hecate.agentChatSessionID", "sess_b");
+      window.localStorage.setItem("hecate.agentWorkspace", "/workspace");
+      let deleteCalls = 0;
+      fetchMock.mockImplementation(async (input, init) => {
+        const url = String(input);
+        if (url === "/hecate/v1/agent-chat/sessions") {
+          return jsonResponse({
+            object: "agent_chat_sessions",
+            data: [
+              { id: "sess_a", title: "Keep", runtime_kind: "agent", status: "completed", workspace: "/workspace", message_count: 0 },
+              { id: "sess_b", title: "Delete me", runtime_kind: "agent", status: "running", workspace: "/workspace", message_count: 0 },
+            ],
+          });
+        }
+        if (url === "/hecate/v1/agent-chat/sessions/sess_b" && init?.method === "DELETE") {
+          deleteCalls += 1;
+          return new Response(null, { status: 204 });
+        }
+        if (url === "/hecate/v1/agent-chat/sessions/sess_b") {
+          return jsonResponse({
+            object: "agent_chat_session",
+            data: { id: "sess_b", title: "Delete me", runtime_kind: "agent", status: "running", workspace: "/workspace", messages: [], created_at: "2026-04-20T00:00:00Z", updated_at: "2026-04-20T00:00:00Z" },
+          });
+        }
+        return defaultBackendMock()(input, init);
+      });
+
+      const { result } = renderHook(() => useRuntimeConsole());
+      await waitFor(() => expect(result.current.state.activeAgentChatSession?.id).toBe("sess_b"));
+
+      act(() => {
+        result.current.actions.setMessage("do this later");
+      });
+      await act(async () => {
+        await result.current.actions.submitChat({ preventDefault: vi.fn() } as any);
+      });
+      expect(result.current.state.queuedChatMessages).toHaveLength(1);
+
+      await act(async () => {
+        await result.current.actions.deleteChatSession("sess_b");
+      });
+
+      expect(deleteCalls).toBe(1);
+      expect(result.current.state.queuedChatMessages).toHaveLength(0);
+      expect(result.current.state.activeAgentChatSessionID).toBe("");
+    });
+
     it("renameChatSession patches the title in the sidebar", async () => {
       fetchMock.mockImplementation(async (input, init) => {
         const url = String(input);
