@@ -73,5 +73,6 @@ yet.
 ## External Entry Points
 
 - [`.env.example`](../.env.example) — minimal first-run environment knobs.
+- [`SECURITY.md`](../SECURITY.md) — supported versions and vulnerability reporting.
 - [`AGENTS.md`](../AGENTS.md) — contributor and AI-agent orientation.
 - [`CONTRIBUTING.md`](../CONTRIBUTING.md) — contribution workflow.

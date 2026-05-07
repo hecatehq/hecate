@@ -85,4 +85,7 @@ Hecate uses GitHub Dependabot and CodeQL to catch dependency and code-scanning i
 
 ## Reporting vulnerabilities
 
-If GitHub private vulnerability reporting is enabled for the repository, use it. Otherwise, open a minimal public issue that asks for a private security contact and avoid posting exploit details publicly.
+Use the repository-level [security policy](../SECURITY.md) for supported
+versions, reporting steps, and response expectations. If private vulnerability
+reporting is unavailable, open a minimal public issue asking for a private
+security contact and avoid posting exploit details publicly.
