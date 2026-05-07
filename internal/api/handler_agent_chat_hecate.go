@@ -32,7 +32,7 @@ func (h *Handler) handleCreateHecateAgentChatMessage(w http.ResponseWriter, r *h
 		session.WorkspaceBranch = workspaceGitBranch(resolved)
 	}
 	if strings.TrimSpace(session.Workspace) == "" {
-		WriteError(w, http.StatusBadRequest, errCodeInvalidRequest, "workspace is required for Hecate Agent chat")
+		writeAgentChatWorkspaceRequired(w, "agent")
 		return
 	}
 	if provider := strings.TrimSpace(req.Provider); provider != "" {
@@ -46,7 +46,7 @@ func (h *Handler) handleCreateHecateAgentChatMessage(w http.ResponseWriter, r *h
 	if !modelcaps.ToolCapable(caps) {
 		resolved, err := h.resolveModelCapabilities(r.Context(), session.Provider, session.Model)
 		if err != nil {
-			WriteError(w, http.StatusUnprocessableEntity, errCodeModelCapability, err.Error())
+			writeAgentChatModelResolutionError(w, err)
 			return
 		}
 		caps = resolved
@@ -54,11 +54,13 @@ func (h *Handler) handleCreateHecateAgentChatMessage(w http.ResponseWriter, r *h
 	if !modelcaps.ToolCapable(caps) {
 		WriteJSON(w, http.StatusUnprocessableEntity, map[string]any{
 			"error": map[string]any{
-				"type":         errCodeModelCapability,
-				"message":      "Tools are disabled for this model. Turn tools off for direct model chat or enable tools in Settings.",
-				"provider":     session.Provider,
-				"model":        session.Model,
-				"capabilities": caps,
+				"type":            errCodeModelCapability,
+				"message":         "Tools are disabled for this model. Turn tools off for direct model chat or enable tools in Settings.",
+				"user_message":    "This model is not marked as tool-capable.",
+				"operator_action": "Turn tools off for direct model chat, test the model, or enable tool support in Settings.",
+				"provider":        session.Provider,
+				"model":           session.Model,
+				"capabilities":    caps,
 			},
 		})
 		return
@@ -80,7 +82,10 @@ func (h *Handler) handleCreateHecateAgentChatMessage(w http.ResponseWriter, r *h
 	runCtx, cancel := context.WithTimeout(traceCtx, agentChatTimeout)
 	if !h.agentChatLive.registerRun(session.ID, cancel) {
 		cancel()
-		WriteError(w, http.StatusConflict, errCodeAgentSessionBusy, "agent chat session is already running")
+		WriteErrorDetails(w, http.StatusConflict, errCodeAgentSessionBusy, "agent chat session is already running", ErrorDetails{
+			UserMessage:    "This chat is already running.",
+			OperatorAction: "Wait for the active run to finish or stop it before sending another message.",
+		})
 		return
 	}
 	defer h.agentChatLive.clearRun(session.ID)
@@ -345,18 +350,6 @@ func (h *Handler) hecateAgentSessionBusy(ctx context.Context, session agentchat.
 		return false, ""
 	}
 	return !types.IsTerminalTaskRunStatus(run.Status), run.Status
-}
-
-func writeHecateAgentBusy(w http.ResponseWriter, session agentchat.Session, runStatus string) {
-	WriteJSON(w, http.StatusConflict, map[string]any{
-		"error": map[string]any{
-			"type":          errCodeAgentSessionBusy,
-			"message":       "Hecate Chat is still working on the current task. Wait for it to finish, resolve the approval, or stop it before sending another message.",
-			"task_id":       session.TaskID,
-			"latest_run_id": session.LatestRunID,
-			"run_status":    runStatus,
-		},
-	})
 }
 
 func shouldStartNewHecateAgentSegment(session agentchat.Session, provider, model string) bool {

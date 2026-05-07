@@ -880,20 +880,24 @@ func TestHecateAgentChatRejectsBusyBackingRun(t *testing.T) {
 		`{"content":"new turn"}`)
 	var payload struct {
 		Error struct {
-			Type        string `json:"type"`
-			Message     string `json:"message"`
-			TaskID      string `json:"task_id"`
-			LatestRunID string `json:"latest_run_id"`
-			RunStatus   string `json:"run_status"`
+			Type           string `json:"type"`
+			Message        string `json:"message"`
+			UserMessage    string `json:"user_message"`
+			OperatorAction string `json:"operator_action"`
+			TaskID         string `json:"task_id"`
+			LatestRunID    string `json:"latest_run_id"`
+			RunStatus      string `json:"run_status"`
 		} `json:"error"`
 	}
 	payload = decodeRecorder[struct {
 		Error struct {
-			Type        string `json:"type"`
-			Message     string `json:"message"`
-			TaskID      string `json:"task_id"`
-			LatestRunID string `json:"latest_run_id"`
-			RunStatus   string `json:"run_status"`
+			Type           string `json:"type"`
+			Message        string `json:"message"`
+			UserMessage    string `json:"user_message"`
+			OperatorAction string `json:"operator_action"`
+			TaskID         string `json:"task_id"`
+			LatestRunID    string `json:"latest_run_id"`
+			RunStatus      string `json:"run_status"`
 		} `json:"error"`
 	}](t, recorder)
 	if payload.Error.Type != errCodeAgentSessionBusy {
@@ -901,6 +905,9 @@ func TestHecateAgentChatRejectsBusyBackingRun(t *testing.T) {
 	}
 	if !strings.Contains(payload.Error.Message, "still working on the current task") {
 		t.Fatalf("message = %q", payload.Error.Message)
+	}
+	if payload.Error.UserMessage == "" || payload.Error.OperatorAction == "" {
+		t.Fatalf("operator metadata missing from busy payload: %+v", payload.Error)
 	}
 	if payload.Error.TaskID != task.ID || payload.Error.LatestRunID != run.ID || payload.Error.RunStatus != "running" {
 		t.Fatalf("busy payload = %+v", payload.Error)

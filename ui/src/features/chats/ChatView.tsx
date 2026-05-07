@@ -3,7 +3,7 @@ import type { SyntheticEvent } from "react";
 import type { RuntimeConsoleViewModel } from "../../app/useRuntimeConsole";
 import { discoverLocalProviders } from "../../lib/api";
 import { describeGatewayError, formatErrorCode } from "../../lib/error-diagnostics";
-import { describeRoutingBlockedReason } from "../../lib/runtime-utils";
+import { describeCredentialState, describeHealthErrorClass, describeRoutingBlockedReason } from "../../lib/runtime-utils";
 import type { AgentAdapterRecord, AgentChatActivityRecord, AgentChatSegmentRecord, AgentChatSessionRecord, AgentChatTimingRecord, AgentChatUsageRecord, LocalProviderDiscoveryRecord, ProviderPresetRecord } from "../../types/runtime";
 import { CompactProviderReadinessChecks } from "../shared/ProviderReadiness";
 import { AgentAdapterPicker, CodeBlock, Icon, Icons, InlineError, ModelPicker, ProviderPicker } from "../shared/ui";
@@ -2103,6 +2103,22 @@ function ModelRouteTroubleshooting({
   const modelCount = runtimeProvider?.model_count ?? runtimeProvider?.models?.length ?? 0;
   const blockedReason = runtimeProvider?.routing_blocked_reason ? describeRoutingBlockedReason(runtimeProvider.routing_blocked_reason) : "";
   const lastError = runtimeProvider?.last_error || "";
+  const lastErrorClass = runtimeProvider?.last_error_class ? describeHealthErrorClass(runtimeProvider.last_error_class) : "";
+  const discoverySource = runtimeProvider?.discovery_source || "";
+  const rawCredentialState = runtimeProvider?.credential_state
+    ?? (configuredProvider?.kind === "local"
+      ? "not_required"
+      : configuredProvider?.credential_configured
+        ? "configured"
+        : configuredProvider
+          ? "missing"
+          : undefined);
+  const credentialState = describeCredentialState(rawCredentialState);
+  const routingState = runtimeProvider?.routing_ready === false
+    ? (blockedReason || "Blocked")
+    : runtimeProvider?.routing_ready === true
+      ? "Ready"
+      : "Unknown";
 
   const guidance = isLocal
     ? [
@@ -2139,13 +2155,27 @@ function ModelRouteTroubleshooting({
       </div>
       <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(160px, 1fr))", gap: 8, marginTop: 10 }}>
         <InfoChip label="Endpoint" value={endpoint || "not reported"} />
+        <InfoChip label="Credentials" value={credentialState} />
         <InfoChip label="Models" value={modelCount > 0 ? String(modelCount) : "none discovered"} />
+        <InfoChip label="Routing" value={routingState} />
         <InfoChip label="Health" value={runtimeProvider?.status || "pending probe"} />
+        <InfoChip label="Discovery" value={discoverySource || "pending"} />
       </div>
       <CompactProviderReadinessChecks checks={runtimeProvider?.readiness_checks ?? []} />
-      {(blockedReason || lastError) && (
-        <div style={{ marginTop: 10, fontSize: 11, color: "var(--amber)", lineHeight: 1.45 }}>
-          {blockedReason || lastError}
+      {(blockedReason || lastError || lastErrorClass) && (
+        <div style={{
+          marginTop: 10,
+          border: "1px solid var(--amber-border)",
+          borderRadius: "var(--radius-sm)",
+          background: "var(--amber-bg)",
+          padding: "8px 9px",
+          fontSize: 11,
+          color: "var(--amber)",
+          lineHeight: 1.45,
+        }}>
+          {blockedReason && <div>Route: {blockedReason}</div>}
+          {lastErrorClass && <div>Error class: {lastErrorClass}</div>}
+          {lastError && <div style={{ color: "var(--t2)", marginTop: 3, overflowWrap: "anywhere" }}>{lastError}</div>}
         </div>
       )}
       <ul style={{ margin: "10px 0 0", paddingLeft: 18, color: "var(--t3)", fontSize: 11, lineHeight: 1.55 }}>
