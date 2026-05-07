@@ -25,7 +25,7 @@ function defaultBackendMock(routes: Record<string, () => Response | Promise<Resp
     if (url === "/v1/models") return jsonResponse({ object: "list", data: [] });
     if (url === "/hecate/v1/providers/presets") return jsonResponse({ object: "provider_presets", data: [] });
     if (url === "/hecate/v1/providers/status") return jsonResponse({ object: "provider_status", data: [] });
-    if (url === "/hecate/v1/settings") return jsonResponse({ object: "control_plane", data: { backend: "memory", providers: [], pricebook: [], policy_rules: [], events: [] } });
+    if (url === "/hecate/v1/settings") return jsonResponse({ object: "settings", data: { backend: "memory", providers: [], pricebook: [], policy_rules: [], events: [] } });
     if (url.startsWith("/hecate/v1/costs/budget")) return jsonResponse({ object: "budget_status", data: null });
     if (url.startsWith("/hecate/v1/costs/summary")) return jsonResponse({ object: "account_summary", data: null });
     if (url === "/hecate/v1/agent-chat/sessions") return jsonResponse({ object: "agent_chat_sessions", data: [] });
@@ -166,7 +166,7 @@ describe("useRuntimeConsole", () => {
   describe("applyPricebookImport notice variants", () => {
     function mockApplyResponse(data: Record<string, unknown>) {
       fetchMock.mockImplementation(defaultBackendMock({
-        "/hecate/v1/settings/pricebook/import/apply": () => jsonResponse({ object: "control_plane_pricebook_import_diff", data }),
+        "/hecate/v1/settings/pricebook/import/apply": () => jsonResponse({ object: "settings_pricebook_import_diff", data }),
       }));
     }
 
@@ -231,8 +231,8 @@ describe("useRuntimeConsole", () => {
     });
   });
 
-  // ─── control-plane mutations: surviving ones go through runControlPlaneMutation ──
-  describe("control-plane mutations", () => {
+  // ─── settings mutations: surviving ones go through runSettingsMutation ──
+  describe("settings mutations", () => {
     it("setProviderAPIKey rotate sends PUT, fires loadDashboard, surfaces success notice", async () => {
       let putCalls = 0;
       let putBody = "";
@@ -241,7 +241,7 @@ describe("useRuntimeConsole", () => {
         if (url === "/hecate/v1/settings/providers/anthropic/api-key" && init?.method === "PUT") {
           putCalls++;
           putBody = String(init.body ?? "");
-          return jsonResponse({ object: "control_plane_provider_api_key", data: { id: "anthropic" } });
+          return jsonResponse({ object: "settings_provider_api_key", data: { id: "anthropic" } });
         }
         return defaultBackendMock()(input, init);
       });
@@ -256,7 +256,7 @@ describe("useRuntimeConsole", () => {
       expect(putCalls).toBe(1);
       expect(JSON.parse(putBody)).toEqual({ key: "sk-new" });
       expect(result.current.state.notice?.kind).toBe("success");
-      expect(result.current.state.controlPlaneError).toBe("");
+      expect(result.current.state.settingsError).toBe("");
     });
 
     it("setProviderAPIKey clear (empty key) sends PUT and reads 'API key cleared.'", async () => {
@@ -265,7 +265,7 @@ describe("useRuntimeConsole", () => {
         const url = String(input);
         if (url === "/hecate/v1/settings/providers/openai/api-key" && init?.method === "PUT") {
           putBody = String(init.body ?? "");
-          return jsonResponse({ object: "control_plane_provider_api_key", data: { id: "openai", status: "cleared" } });
+          return jsonResponse({ object: "settings_provider_api_key", data: { id: "openai", status: "cleared" } });
         }
         return defaultBackendMock()(input, init);
       });
@@ -280,7 +280,7 @@ describe("useRuntimeConsole", () => {
       expect(JSON.parse(putBody)).toEqual({ key: "" });
     });
 
-    it("setProviderAPIKey failure surfaces both controlPlaneError and an error notice", async () => {
+    it("setProviderAPIKey failure surfaces both settingsError and an error notice", async () => {
       fetchMock.mockImplementation(async (input, init) => {
         const url = String(input);
         if (url === "/hecate/v1/settings/providers/anthropic/api-key" && init?.method === "PUT") {
@@ -300,7 +300,7 @@ describe("useRuntimeConsole", () => {
       });
       await waitFor(() => expect(result.current.state.notice?.kind).toBe("error"));
       expect(result.current.state.notice?.message).toBe("Failed to save API key.");
-      expect(result.current.state.controlPlaneError).toContain("secret store is read-only");
+      expect(result.current.state.settingsError).toContain("secret store is read-only");
     });
 
     it("upsertPolicyRule POSTs the payload + fires success notice", async () => {
@@ -364,7 +364,7 @@ describe("useRuntimeConsole", () => {
         }
         if (url === "/hecate/v1/settings") {
           return jsonResponse({
-            object: "control_plane",
+            object: "settings",
             data: {
               backend: "memory",
               providers: [
@@ -388,7 +388,7 @@ describe("useRuntimeConsole", () => {
       });
 
       const { result } = renderHook(() => useRuntimeConsole());
-      await waitFor(() => expect(result.current.state.controlPlaneConfig?.providers.map(p => p.id)).toEqual(["openai", "ollama"]));
+      await waitFor(() => expect(result.current.state.settingsConfig?.providers.map(p => p.id)).toEqual(["openai", "ollama"]));
 
       let pendingDelete: Promise<void> | undefined;
       await act(async () => {
@@ -396,7 +396,7 @@ describe("useRuntimeConsole", () => {
       });
 
       expect(deleteCalls).toBe(1);
-      expect(result.current.state.controlPlaneConfig?.providers.map(p => p.id)).toEqual(["openai"]);
+      expect(result.current.state.settingsConfig?.providers.map(p => p.id)).toEqual(["openai"]);
       expect(result.current.state.providers.map(p => p.name)).toEqual(["openai"]);
 
       resolveDelete?.(new Response(null, { status: 204 }));
@@ -404,7 +404,7 @@ describe("useRuntimeConsole", () => {
         await pendingDelete;
       });
 
-      await waitFor(() => expect(result.current.state.controlPlaneConfig?.providers.map(p => p.id)).toEqual(["openai"]));
+      await waitFor(() => expect(result.current.state.settingsConfig?.providers.map(p => p.id)).toEqual(["openai"]));
       expect(result.current.state.notice).toEqual({ kind: "success", message: "Provider removed." });
     });
 
@@ -419,7 +419,7 @@ describe("useRuntimeConsole", () => {
         }
         if (url === "/hecate/v1/settings") {
           return jsonResponse({
-            object: "control_plane",
+            object: "settings",
             data: {
               backend: "memory",
               providers: [
@@ -445,7 +445,7 @@ describe("useRuntimeConsole", () => {
       });
 
       const { result } = renderHook(() => useRuntimeConsole());
-      await waitFor(() => expect(result.current.state.controlPlaneConfig?.providers.map(p => p.id)).toEqual(["openai", "ollama", "anthropic"]));
+      await waitFor(() => expect(result.current.state.settingsConfig?.providers.map(p => p.id)).toEqual(["openai", "ollama", "anthropic"]));
       await act(async () => {
         result.current.actions.setProviderFilter("ollama");
         result.current.actions.setModel("llama3.1:8b");
@@ -455,12 +455,12 @@ describe("useRuntimeConsole", () => {
         await result.current.actions.deleteProvider("ollama");
       });
 
-      expect(result.current.state.controlPlaneConfig?.providers.map(p => p.id)).toEqual(["openai", "ollama", "anthropic"]);
+      expect(result.current.state.settingsConfig?.providers.map(p => p.id)).toEqual(["openai", "ollama", "anthropic"]);
       expect(result.current.state.providers.map(p => p.name)).toEqual(["openai", "ollama", "anthropic"]);
       expect(result.current.state.providerFilter).toBe("ollama");
       expect(result.current.state.model).toBe("llama3.1:8b");
       expect(result.current.state.notice).toEqual({ kind: "error", message: "Failed to remove provider." });
-      expect(result.current.state.controlPlaneError).toContain("provider is still referenced");
+      expect(result.current.state.settingsError).toContain("provider is still referenced");
     });
   });
 

@@ -29,7 +29,7 @@ test("status bar shows configured provider count and model count", async ({ page
 });
 
 test("keyboard shortcut 1 activates the Chats workspace", async ({ page }) => {
-  await page.keyboard.press("2"); // navigate away first (Providers in admin lineup)
+  await page.keyboard.press("2"); // navigate away first (Providers in activity bar)
   await page.keyboard.press("1");
   await expect(page.locator(".hecate-activitybar [aria-current='page']")).toHaveAttribute(
     "aria-label",

@@ -162,18 +162,18 @@ func registerHecateSettingsRoutes(mux *http.ServeMux, handler *Handler) {
 	// Operator settings: configured providers, local discovery, policy rules,
 	// and pricebook management. These replace the old /admin/control-plane
 	// action routes before the API becomes stable.
-	mux.HandleFunc("GET /hecate/v1/settings", handler.HandleControlPlaneStatus)
+	mux.HandleFunc("GET /hecate/v1/settings", handler.HandleSettingsStatus)
 	mux.HandleFunc("GET /hecate/v1/settings/providers/local-discovery", handler.HandleLocalProviderDiscovery)
-	mux.HandleFunc("POST /hecate/v1/settings/providers", handler.HandleControlPlaneCreateProvider)
-	mux.HandleFunc("PATCH /hecate/v1/settings/providers/{id}", handler.HandleControlPlaneUpdateProvider)
-	mux.HandleFunc("DELETE /hecate/v1/settings/providers/{id}", handler.HandleControlPlaneDeleteProvider)
-	mux.HandleFunc("PUT /hecate/v1/settings/providers/{id}/api-key", handler.HandleControlPlaneSetProviderAPIKey)
-	mux.HandleFunc("POST /hecate/v1/settings/policy-rules", handler.HandleControlPlaneUpsertPolicyRule)
-	mux.HandleFunc("DELETE /hecate/v1/settings/policy-rules/{id}", handler.HandleControlPlaneDeletePolicyRule)
-	mux.HandleFunc("POST /hecate/v1/settings/pricebook", handler.HandleControlPlaneUpsertPricebookEntry)
-	mux.HandleFunc("DELETE /hecate/v1/settings/pricebook/{provider}/{model}", handler.HandleControlPlaneDeletePricebookEntry)
-	mux.HandleFunc("POST /hecate/v1/settings/pricebook/import/preview", handler.HandleControlPlanePricebookImportPreview)
-	mux.HandleFunc("POST /hecate/v1/settings/pricebook/import/apply", handler.HandleControlPlanePricebookImportApply)
+	mux.HandleFunc("POST /hecate/v1/settings/providers", handler.HandleSettingsCreateProvider)
+	mux.HandleFunc("PATCH /hecate/v1/settings/providers/{id}", handler.HandleSettingsUpdateProvider)
+	mux.HandleFunc("DELETE /hecate/v1/settings/providers/{id}", handler.HandleSettingsDeleteProvider)
+	mux.HandleFunc("PUT /hecate/v1/settings/providers/{id}/api-key", handler.HandleSettingsSetProviderAPIKey)
+	mux.HandleFunc("POST /hecate/v1/settings/policy-rules", handler.HandleSettingsUpsertPolicyRule)
+	mux.HandleFunc("DELETE /hecate/v1/settings/policy-rules/{id}", handler.HandleSettingsDeletePolicyRule)
+	mux.HandleFunc("POST /hecate/v1/settings/pricebook", handler.HandleSettingsUpsertPricebookEntry)
+	mux.HandleFunc("DELETE /hecate/v1/settings/pricebook/{provider}/{model}", handler.HandleSettingsDeletePricebookEntry)
+	mux.HandleFunc("POST /hecate/v1/settings/pricebook/import/preview", handler.HandleSettingsPricebookImportPreview)
+	mux.HandleFunc("POST /hecate/v1/settings/pricebook/import/apply", handler.HandleSettingsPricebookImportApply)
 }
 
 func apiNotFound(w http.ResponseWriter, r *http.Request) {

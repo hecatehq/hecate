@@ -1,4 +1,4 @@
-import { expect, test, mockGatewayAPIs, MOCK_ADMIN_CONFIG_WITH_PROVIDERS } from "./fixtures";
+import { expect, test, mockGatewayAPIs, MOCK_SETTINGS_CONFIG_WITH_PROVIDERS } from "./fixtures";
 import type { Page } from "@playwright/test";
 
 // Most specs use the default empty-providers fixture and exercise the
@@ -124,7 +124,7 @@ test("duplicate preset prompts for custom name but still blocks duplicate endpoi
     };
     created.push(record);
     await route.fulfill({ status: 201, contentType: "application/json",
-      body: JSON.stringify({ object: "control_plane_provider", data: record }) });
+      body: JSON.stringify({ object: "settings_provider", data: record }) });
   });
 
   // First instance — preset Name is locked and no custom name is needed.
@@ -179,7 +179,7 @@ test("deleting a provider removes its row after confirmation", async ({ context 
   // Use a fresh page with the populated config — the default fixture starts
   // empty and we want to skip the create-flow setup.
   const populated = await context.newPage();
-  await mockGatewayAPIs(populated, { adminConfig: MOCK_ADMIN_CONFIG_WITH_PROVIDERS });
+  await mockGatewayAPIs(populated, { settingsConfig: MOCK_SETTINGS_CONFIG_WITH_PROVIDERS });
   await populated.goto("/");
   await populated.waitForSelector(".hecate-activitybar");
   await populated.keyboard.press("2");
@@ -210,7 +210,7 @@ test("editing the custom name PATCHes /providers/{id} with the new custom_name",
   // editing the Custom name field on a preset row produces a
   // PATCH with { custom_name }.
   const populated = await context.newPage();
-  await mockGatewayAPIs(populated, { adminConfig: MOCK_ADMIN_CONFIG_WITH_PROVIDERS });
+  await mockGatewayAPIs(populated, { settingsConfig: MOCK_SETTINGS_CONFIG_WITH_PROVIDERS });
   await populated.goto("/");
   await populated.waitForSelector(".hecate-activitybar");
   await populated.keyboard.press("2");
@@ -238,7 +238,7 @@ test("editing the custom name PATCHes /providers/{id} with the new custom_name",
 
 test("editing a local endpoint URL PATCHes /providers/{id} with the new base_url", async ({ context }) => {
   const populated = await context.newPage();
-  await mockGatewayAPIs(populated, { adminConfig: MOCK_ADMIN_CONFIG_WITH_PROVIDERS });
+  await mockGatewayAPIs(populated, { settingsConfig: MOCK_SETTINGS_CONFIG_WITH_PROVIDERS });
   await populated.goto("/");
   await populated.waitForSelector(".hecate-activitybar");
   await populated.keyboard.press("2");

@@ -257,7 +257,7 @@ export function useRuntimeConsole() {
   const [budget, setBudget] = useState<BudgetStatusResponse["data"] | null>(null);
   const [accountSummary, setAccountSummary] = useState<AccountSummaryResponse["data"] | null>(null);
   const [requestLedger, setRequestLedger] = useState<RequestLedgerResponse["data"]>([]);
-  const [controlPlaneConfig, setControlPlaneConfig] = useState<ConfiguredStateResponse["data"] | null>(null);
+  const [settingsConfig, setSettingsConfig] = useState<ConfiguredStateResponse["data"] | null>(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState("");
 
@@ -291,7 +291,7 @@ export function useRuntimeConsole() {
   const [budgetActionError, setBudgetActionError] = useState("");
 
   const [sessionInfo, setSessionInfo] = useState<SessionResponse["data"] | null>(null);
-  const [controlPlaneError, setControlPlaneError] = useState("");
+  const [settingsError, setSettingsError] = useState("");
   const [notice, setNotice] = useState<NoticeState | null>(null);
 
   const chatTarget = activeAgentChatSessionID && activeAgentChatSession
@@ -535,7 +535,7 @@ export function useRuntimeConsole() {
   // Studio. Skipped when no providers are configured — the providers
   // tab renders its empty state, there's nothing to converge.
   async function refreshProviders() {
-    if ((controlPlaneConfig?.providers?.length ?? 0) === 0) return;
+    if ((settingsConfig?.providers?.length ?? 0) === 0) return;
     try {
       const [pResult, mResult] = await Promise.allSettled([
         getProviders(),
@@ -561,7 +561,7 @@ export function useRuntimeConsole() {
   async function loadDashboard() {
     setLoading(true);
     setError("");
-    setControlPlaneError("");
+    setSettingsError("");
 
     try {
       const snapshot = await resolveDashboardSnapshot({
@@ -577,7 +577,7 @@ export function useRuntimeConsole() {
           agentChatSessions,
           activeAgentChatSession,
           requestLedger,
-          controlPlaneConfig,
+          settingsConfig,
           retentionRuns,
           retentionLastRun,
         },
@@ -599,7 +599,7 @@ export function useRuntimeConsole() {
       setActiveAgentChatSessionID(snapshot.activeAgentChatSessionID);
       setActiveAgentChatSession(snapshot.activeAgentChatSession);
       setRequestLedger(snapshot.requestLedger);
-      setControlPlaneConfig(snapshot.controlPlaneConfig);
+      setSettingsConfig(snapshot.settingsConfig);
       setRetentionRuns(snapshot.retentionRuns);
       setRetentionLastRun(snapshot.retentionLastRun);
       setAgentAdapterApprovalMode(snapshot.agentAdapterApprovalMode);
@@ -1109,24 +1109,24 @@ export function useRuntimeConsole() {
     return error instanceof Error ? error.message : fallback;
   }
 
-  function resetControlPlaneFeedback() {
-    setControlPlaneError("");
+  function resetSettingsFeedback() {
+    setSettingsError("");
     setNotice(null);
   }
 
-  async function runControlPlaneMutation(options: {
+  async function runSettingsMutation(options: {
     action: () => Promise<void>;
     successMessage: string;
     errorMessage: string;
     failureDetail: string;
   }) {
-    resetControlPlaneFeedback();
+    resetSettingsFeedback();
     try {
       await options.action();
       await loadDashboard();
       setNoticeMessage("success", options.successMessage);
     } catch (error) {
-      setControlPlaneError(describeError(error, options.failureDetail));
+      setSettingsError(describeError(error, options.failureDetail));
       setNoticeMessage("error", options.errorMessage);
     }
   }
@@ -1134,7 +1134,7 @@ export function useRuntimeConsole() {
   // setProviderAPIKey is the single operation for managing a provider's API key.
   // An empty `key` clears the existing credential; non-empty sets/replaces it.
   async function setProviderAPIKey(id: string, key: string) {
-    await runControlPlaneMutation({
+    await runSettingsMutation({
       successMessage: key === "" ? "API key cleared." : "API key saved.",
       errorMessage: key === "" ? "Failed to clear API key." : "Failed to save API key.",
       failureDetail: key === "" ? "failed to clear provider api key" : "failed to save provider api key",
@@ -1155,11 +1155,11 @@ export function useRuntimeConsole() {
   }
 
   async function deleteProvider(id: string): Promise<void> {
-    resetControlPlaneFeedback();
-    const removedConfiguredProviderIndex = controlPlaneConfig?.providers.findIndex(provider => provider.id === id) ?? -1;
+    resetSettingsFeedback();
+    const removedConfiguredProviderIndex = settingsConfig?.providers.findIndex(provider => provider.id === id) ?? -1;
     const removedProviderStatusIndex = providers.findIndex(provider => provider.name === id);
     const removedConfiguredProvider = removedConfiguredProviderIndex >= 0
-      ? controlPlaneConfig?.providers[removedConfiguredProviderIndex]
+      ? settingsConfig?.providers[removedConfiguredProviderIndex]
       : undefined;
     const removedProviderStatus = removedProviderStatusIndex >= 0
       ? providers[removedProviderStatusIndex]
@@ -1167,7 +1167,7 @@ export function useRuntimeConsole() {
     const previousProviderFilter = providerFilter;
     const previousModel = model;
 
-    setControlPlaneConfig(current => current
+    setSettingsConfig(current => current
       ? { ...current, providers: current.providers.filter(provider => provider.id !== id) }
       : current);
     setProviders(current => current.filter(provider => provider.name !== id));
@@ -1181,7 +1181,7 @@ export function useRuntimeConsole() {
       setNoticeMessage("success", "Provider removed.");
       void loadDashboard();
     } catch (error) {
-      setControlPlaneConfig(current => {
+      setSettingsConfig(current => {
         if (!removedConfiguredProvider) return current;
         if (!current) return current;
         if (current.providers.some(provider => provider.id === id)) return current;
@@ -1196,7 +1196,7 @@ export function useRuntimeConsole() {
       });
       setProviderFilter(previousProviderFilter);
       setModel(previousModel);
-      setControlPlaneError(describeError(error, "failed to delete provider"));
+      setSettingsError(describeError(error, "failed to delete provider"));
       setNoticeMessage("error", "Failed to remove provider.");
       void refreshProviders();
     }
@@ -1204,7 +1204,7 @@ export function useRuntimeConsole() {
 
   async function setProviderBaseURL(id: string, baseURL: string): Promise<void> {
     await setProviderBaseURLRequest(id, baseURL);
-    // loadDashboard refreshes controlPlaneConfig (the source of truth for base_url
+    // loadDashboard refreshes settingsConfig (the source of truth for base_url
     // shown in the table), then refreshProviders re-runs model discovery
     // against the new endpoint so the model list updates immediately.
     await loadDashboard();
@@ -1213,7 +1213,7 @@ export function useRuntimeConsole() {
 
   async function setProviderName(id: string, name: string): Promise<void> {
     await setProviderNameRequest(id, name);
-    // The label change only affects controlPlaneConfig (table column) — no need
+    // The label change only affects settingsConfig (table column) — no need
     // to rerun model discovery, so skip refreshProviders.
     await loadDashboard();
   }
@@ -1259,13 +1259,13 @@ export function useRuntimeConsole() {
     }
   }
 
-  // Policy rule mutations follow the same runControlPlaneMutation contract
+  // Policy rule mutations follow the same runSettingsMutation contract
   // as the tenant / API key flows: success populates the toast notice
-  // + clears controlPlaneError; failure populates BOTH inline banner
+  // + clears settingsError; failure populates BOTH inline banner
   // and toast so an operator can't miss the error regardless of
   // viewport focus.
   async function upsertPolicyRule(payload: PolicyRuleUpsertPayload) {
-    await runControlPlaneMutation({
+    await runSettingsMutation({
       successMessage: "Policy rule saved.",
       errorMessage: "Failed to save policy rule.",
       failureDetail: "failed to save policy rule",
@@ -1276,7 +1276,7 @@ export function useRuntimeConsole() {
   }
 
   async function deletePolicyRule(id: string) {
-    await runControlPlaneMutation({
+    await runSettingsMutation({
       successMessage: "Policy rule deleted.",
       errorMessage: "Failed to delete policy rule.",
       failureDetail: "failed to delete policy rule",
@@ -1287,7 +1287,7 @@ export function useRuntimeConsole() {
   }
 
   async function upsertPricebookEntry(entry: PricebookEntryUpsertPayload) {
-    await runControlPlaneMutation({
+    await runSettingsMutation({
       successMessage: "Pricebook entry saved.",
       errorMessage: "Failed to save pricebook entry.",
       failureDetail: "failed to save pricebook entry",
@@ -1301,8 +1301,8 @@ export function useRuntimeConsole() {
     // Confirmation is the caller's concern now (PricebookTab routes
     // this through a styled ConfirmModal). The action itself just
     // performs the deletion.
-    resetControlPlaneFeedback();
-    await runControlPlaneMutation({
+    resetSettingsFeedback();
+    await runSettingsMutation({
       successMessage: "Price cleared.",
       errorMessage: "Failed to clear price.",
       failureDetail: "failed to clear pricebook entry",
@@ -1312,7 +1312,7 @@ export function useRuntimeConsole() {
     });
   }
 
-  // previewPricebookImport intentionally does NOT call runControlPlaneMutation —
+  // previewPricebookImport intentionally does NOT call runSettingsMutation —
   // it doesn't mutate anything. It just fetches the diff and lets the
   // caller (the import modal) render it.
   async function previewPricebookImport(): Promise<PricebookImportDiff> {
@@ -1701,8 +1701,8 @@ export function useRuntimeConsole() {
       chatSessions,
       cloudModels,
       cloudProviders,
-      controlPlaneConfig,
-      controlPlaneError,
+      settingsConfig,
+      settingsError,
       copiedCommand,
       error,
       health,

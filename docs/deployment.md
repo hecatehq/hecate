@@ -144,7 +144,7 @@ Hecate keeps the storage model intentionally boring: each subsystem chooses a ba
 
 | Subsystem | Env var | memory | sqlite |
 |---|---|---:|---:|
-| Control plane | `GATEWAY_CONTROL_PLANE_BACKEND` | local default | Docker default |
+| Settings store | `GATEWAY_CONTROL_PLANE_BACKEND` | local default | Docker default |
 | Provider credentials | `GATEWAY_PROVIDER_STORE_BACKEND` | local default | Docker default |
 | Pricebook | `GATEWAY_PRICEBOOK_BACKEND` | local default | Docker default |
 | Budget / balances | `GATEWAY_BUDGET_BACKEND` | local default | Docker default |

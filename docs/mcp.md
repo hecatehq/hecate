@@ -188,10 +188,10 @@ Values in `env` (stdio) and `headers` (HTTP) are stored in one of three forms. S
 
 Behavior of the API layer:
 
-- **On create**: any value that is NOT a `$VAR_NAME` reference and NOT already `enc:<base64>` gets auto-encrypted to `enc:...` if a control-plane key is configured, or stored bare if not.
+- **On create**: any value that is NOT a `$VAR_NAME` reference and NOT already `enc:<base64>` gets auto-encrypted to `enc:...` if a settings encryption key is configured, or stored bare if not.
 - **On render** (`GET /hecate/v1/tasks/...`): `$VAR_NAME` values come back verbatim; everything else (encrypted ciphertext, bare literals) is replaced with `[redacted]`. Stored secrets cannot leak through the task API.
 
-If a value arrives as `enc:...` and no control-plane key is configured, the run fails fast at spawn time with a clear error rather than forwarding ciphertext to the subprocess.
+If a value arrives as `enc:...` and no settings encryption key is configured, the run fails fast at spawn time with a clear error rather than forwarding ciphertext to the subprocess.
 
 ### Approval policy
 

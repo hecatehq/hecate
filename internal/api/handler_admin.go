@@ -382,7 +382,7 @@ func (h *Handler) HandleRetentionRun(w http.ResponseWriter, r *http.Request) {
 	result, err := h.service.RunRetention(ctx, retention.RunRequest{
 		Trigger:    "manual",
 		Subsystems: req.Subsystems,
-		Actor:      controlPlaneActor(r),
+		Actor:      settingsActor(r),
 		RequestID:  strings.TrimSpace(RequestIDFromContext(r.Context())),
 	})
 	if err != nil {
@@ -400,7 +400,7 @@ func (h *Handler) HandleRetentionRun(w http.ResponseWriter, r *http.Request) {
 			result.Run.StartedAt.UTC().Format(time.RFC3339Nano),
 			result.Run.FinishedAt.UTC().Format(time.RFC3339Nano),
 			result.Run.Trigger,
-			controlPlaneActor(r),
+			settingsActor(r),
 			strings.TrimSpace(RequestIDFromContext(r.Context())),
 			result.Run.Results,
 		),

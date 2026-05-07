@@ -18,7 +18,7 @@ var pricebookImportFetcher = func(ctx context.Context) ([]config.ModelPriceConfi
 	return litellm.Fetch(ctx, http.DefaultClient)
 }
 
-// HandleControlPlanePricebookImportPreview fetches the upstream LiteLLM
+// HandleSettingsPricebookImportPreview fetches the upstream LiteLLM
 // pricing data, diffs it against the current pricebook, and returns the
 // proposed changes without applying anything.
 //
@@ -30,8 +30,8 @@ var pricebookImportFetcher = func(ctx context.Context) ([]config.ModelPriceConfi
 //
 // Imported rows that exactly match the current pricebook are silently
 // counted in Unchanged.
-func (h *Handler) HandleControlPlanePricebookImportPreview(w http.ResponseWriter, r *http.Request) {
-	if !h.requireControlPlane(w, r) {
+func (h *Handler) HandleSettingsPricebookImportPreview(w http.ResponseWriter, r *http.Request) {
+	if !h.requireSettings(w, r) {
 		return
 	}
 
@@ -43,19 +43,19 @@ func (h *Handler) HandleControlPlanePricebookImportPreview(w http.ResponseWriter
 	}
 
 	WriteJSON(w, http.StatusOK, map[string]any{
-		"object": "control_plane_pricebook_import_diff",
+		"object": "settings_pricebook_import_diff",
 		"data":   pricebookImportDiffFromSummary(summary),
 	})
 }
 
-// HandleControlPlanePricebookImportApply runs the same fetch+diff as the
+// HandleSettingsPricebookImportApply runs the same fetch+diff as the
 // preview handler and then persists the rows it would add or update via
-// `controlPlane.UpsertPricebookEntry`. The optional `keys` field in the
+// the internal settings store. The optional `keys` field in the
 // request body restricts the apply to a subset (e.g. just the rows the
 // operator checked in the modal). Empty/missing keys means "apply
 // everything".
-func (h *Handler) HandleControlPlanePricebookImportApply(w http.ResponseWriter, r *http.Request) {
-	if !h.requireControlPlane(w, r) {
+func (h *Handler) HandleSettingsPricebookImportApply(w http.ResponseWriter, r *http.Request) {
+	if !h.requireSettings(w, r) {
 		return
 	}
 
@@ -68,7 +68,7 @@ func (h *Handler) HandleControlPlanePricebookImportApply(w http.ResponseWriter, 
 		}
 	}
 
-	ctx := controlplane.WithActor(r.Context(), controlPlaneActor(r))
+	ctx := controlplane.WithActor(r.Context(), settingsActor(r))
 	importer := h.newPricebookImporter()
 	summary, err := importer.Run(ctx, billing.PricebookImportOptions{Apply: true, Keys: req.Keys})
 	if err != nil {
@@ -77,13 +77,13 @@ func (h *Handler) HandleControlPlanePricebookImportApply(w http.ResponseWriter, 
 	}
 
 	WriteJSON(w, http.StatusOK, map[string]any{
-		"object": "control_plane_pricebook_import_diff",
+		"object": "settings_pricebook_import_diff",
 		"data":   pricebookImportDiffFromSummary(summary),
 	})
 }
 
 // newPricebookImporter constructs a billing.PricebookImporter wired to
-// the handler's control-plane store and the (test-overridable) fetcher.
+// the handler's settings store and the (test-overridable) fetcher.
 // The fetcher var keeps the existing test seam working — handler tests
 // reassign pricebookImportFetcher to inject fixture data.
 func (h *Handler) newPricebookImporter() *billing.PricebookImporter {
@@ -100,26 +100,26 @@ func pricebookImportDiffFromSummary(s billing.PricebookImportSummary) PricebookI
 		Unchanged: s.Unchanged,
 	}
 	for _, e := range s.Added {
-		out.Added = append(out.Added, renderControlPlanePricebookEntry(e))
+		out.Added = append(out.Added, renderSettingsPricebookEntry(e))
 	}
 	for _, u := range s.Updated {
 		out.Updated = append(out.Updated, PricebookImportUpdateRecord{
-			Entry:    renderControlPlanePricebookEntry(u.Entry),
-			Previous: renderControlPlanePricebookEntry(u.Previous),
+			Entry:    renderSettingsPricebookEntry(u.Entry),
+			Previous: renderSettingsPricebookEntry(u.Previous),
 		})
 	}
 	for _, sk := range s.Skipped {
 		out.Skipped = append(out.Skipped, PricebookImportUpdateRecord{
-			Entry:    renderControlPlanePricebookEntry(sk.Entry),
-			Previous: renderControlPlanePricebookEntry(sk.Previous),
+			Entry:    renderSettingsPricebookEntry(sk.Entry),
+			Previous: renderSettingsPricebookEntry(sk.Previous),
 		})
 	}
 	for _, a := range s.Applied {
-		out.Applied = append(out.Applied, renderControlPlanePricebookEntry(a))
+		out.Applied = append(out.Applied, renderSettingsPricebookEntry(a))
 	}
 	for _, f := range s.Failed {
 		out.Failed = append(out.Failed, PricebookImportFailureRecord{
-			Entry: renderControlPlanePricebookEntry(f.Entry),
+			Entry: renderSettingsPricebookEntry(f.Entry),
 			Error: f.Error,
 		})
 	}

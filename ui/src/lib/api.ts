@@ -105,7 +105,7 @@ export type ChatCompletionPayload = {
 };
 
 // PolicyRuleUpsertPayload mirrors the gateway's
-// ControlPlanePolicyRuleRecord wire shape exactly. Empty arrays /
+// SettingsPolicyRuleRecord wire shape exactly. Empty arrays /
 // zero-valued thresholds match anything; the action field gates
 // whether `rewrite_model_to` and `reason` are meaningful (rewrite vs
 // deny). The handler accepts arrays / numbers / strings as-is — no
@@ -549,7 +549,7 @@ export async function setBudgetLimit(payload: Record<string, unknown>): Promise<
   return fetchJSON<BudgetStatusResponse>(`${HECATE_API}/costs/budget/limit`, { method: "POST", body: payload });
 }
 
-export async function getControlPlaneConfig(): Promise<ConfiguredStateResponse> {
+export async function getSettingsConfig(): Promise<ConfiguredStateResponse> {
   return fetchJSON<ConfiguredStateResponse>(`${HECATE_API}/settings`);
 }
 

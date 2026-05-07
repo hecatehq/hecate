@@ -34,7 +34,7 @@ func newApprovalsHTTPFixture(t *testing.T) *approvalsHTTPFixture {
 	logger := slog.New(slog.NewJSONHandler(io.Discard, nil))
 
 	provider := &fakeProvider{name: "openai"}
-	apiHandler := newTestAPIHandlerWithControlPlane(logger, []providers.Provider{provider}, config.Config{}, nil)
+	apiHandler := newTestAPIHandlerWithSettings(logger, []providers.Provider{provider}, config.Config{}, nil)
 
 	// Replace the auto-wired coordinator with one tied to our local
 	// store so tests can seed/inspect rows directly. Reuse the

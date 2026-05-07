@@ -1030,20 +1030,20 @@ type BudgetBalanceRequest struct {
 	BalanceMicrosUSD int64  `json:"balance_micros_usd"`
 }
 
-type ControlPlaneResponse struct {
-	Object string                   `json:"object"`
-	Data   ControlPlaneResponseItem `json:"data"`
+type SettingsResponse struct {
+	Object string               `json:"object"`
+	Data   SettingsResponseItem `json:"data"`
 }
 
-type ControlPlaneResponseItem struct {
-	Backend     string                         `json:"backend"`
-	Providers   []ControlPlaneProviderRecord   `json:"providers"`
-	PolicyRules []ControlPlanePolicyRuleRecord `json:"policy_rules"`
-	Pricebook   []ControlPlanePricebookRecord  `json:"pricebook"`
-	Events      []ControlPlaneAuditEventRecord `json:"events"`
+type SettingsResponseItem struct {
+	Backend     string                     `json:"backend"`
+	Providers   []SettingsProviderRecord   `json:"providers"`
+	PolicyRules []SettingsPolicyRuleRecord `json:"policy_rules"`
+	Pricebook   []SettingsPricebookRecord  `json:"pricebook"`
+	Events      []SettingsAuditEventRecord `json:"events"`
 }
 
-type ControlPlaneProviderRecord struct {
+type SettingsProviderRecord struct {
 	ID                   string   `json:"id"`
 	Name                 string   `json:"name"`
 	PresetID             string   `json:"preset_id,omitempty"`
@@ -1059,7 +1059,7 @@ type ControlPlaneProviderRecord struct {
 	CredentialSource     string   `json:"credential_source,omitempty"`
 }
 
-type ControlPlanePolicyRuleRecord struct {
+type SettingsPolicyRuleRecord struct {
 	ID                     string   `json:"id"`
 	Action                 string   `json:"action"`
 	Reason                 string   `json:"reason,omitempty"`
@@ -1072,7 +1072,7 @@ type ControlPlanePolicyRuleRecord struct {
 	RewriteModelTo         string   `json:"rewrite_model_to,omitempty"`
 }
 
-type ControlPlanePricebookRecord struct {
+type SettingsPricebookRecord struct {
 	Provider                             string `json:"provider"`
 	Model                                string `json:"model"`
 	InputMicrosUSDPerMillionTokens       int64  `json:"input_micros_usd_per_million_tokens"`
@@ -1087,8 +1087,8 @@ type ControlPlanePricebookRecord struct {
 // current row it would overwrite, so the UI can show a side-by-side diff
 // before the operator confirms apply.
 type PricebookImportUpdateRecord struct {
-	Entry    ControlPlanePricebookRecord `json:"entry"`
-	Previous ControlPlanePricebookRecord `json:"previous"`
+	Entry    SettingsPricebookRecord `json:"entry"`
+	Previous SettingsPricebookRecord `json:"previous"`
 }
 
 // PricebookImportFailureRecord pairs an entry the apply endpoint tried
@@ -1096,11 +1096,11 @@ type PricebookImportUpdateRecord struct {
 // effort: a failure on one row doesn't stop the others, so a single
 // 4xx with no per-row reporting would leave the operator unable to
 // tell what landed and what didn't. Each failure carries the
-// ControlPlanePricebookRecord we attempted to write plus the raw error
+// SettingsPricebookRecord we attempted to write plus the raw error
 // message — the UI can show them as a follow-up in the consent dialog.
 type PricebookImportFailureRecord struct {
-	Entry ControlPlanePricebookRecord `json:"entry"`
-	Error string                      `json:"error"`
+	Entry SettingsPricebookRecord `json:"entry"`
+	Error string                  `json:"error"`
 }
 
 // PricebookImportDiff is the response payload for both the preview and apply
@@ -1117,9 +1117,9 @@ type PricebookImportFailureRecord struct {
 // `Updated`, so the UI can render a price diff identically.
 type PricebookImportDiff struct {
 	FetchedAt string                         `json:"fetched_at"`
-	Added     []ControlPlanePricebookRecord  `json:"added,omitempty"`
+	Added     []SettingsPricebookRecord      `json:"added,omitempty"`
 	Updated   []PricebookImportUpdateRecord  `json:"updated,omitempty"`
-	Applied   []ControlPlanePricebookRecord  `json:"applied,omitempty"`
+	Applied   []SettingsPricebookRecord      `json:"applied,omitempty"`
 	Failed    []PricebookImportFailureRecord `json:"failed,omitempty"`
 	Unchanged int                            `json:"unchanged"`
 	Skipped   []PricebookImportUpdateRecord  `json:"skipped,omitempty"`
@@ -1133,7 +1133,7 @@ type PricebookImportApplyRequest struct {
 	Keys []string `json:"keys,omitempty"`
 }
 
-type ControlPlaneAuditEventRecord struct {
+type SettingsAuditEventRecord struct {
 	Timestamp  string `json:"timestamp"`
 	Actor      string `json:"actor"`
 	Action     string `json:"action"`
@@ -1142,7 +1142,7 @@ type ControlPlaneAuditEventRecord struct {
 	Detail     string `json:"detail,omitempty"`
 }
 
-type ControlPlaneProviderUpsertRequest struct {
+type SettingsProviderUpsertRequest struct {
 	ID           string  `json:"id"`
 	Name         string  `json:"name"`
 	PresetID     string  `json:"preset_id"`
@@ -1155,16 +1155,16 @@ type ControlPlaneProviderUpsertRequest struct {
 	Key          string  `json:"key"`
 }
 
-type ControlPlanePolicyRuleUpsertRequest = ControlPlanePolicyRuleRecord
+type SettingsPolicyRuleUpsertRequest = SettingsPolicyRuleRecord
 
-type ControlPlanePricebookUpsertRequest = ControlPlanePricebookRecord
+type SettingsPricebookUpsertRequest = SettingsPricebookRecord
 
-type ControlPlaneTenantLifecycleRequest struct {
+type SettingsTenantLifecycleRequest struct {
 	ID      string `json:"id"`
 	Enabled bool   `json:"enabled"`
 }
 
-type ControlPlaneAPIKeyLifecycleRequest struct {
+type SettingsAPIKeyLifecycleRequest struct {
 	ID      string `json:"id"`
 	Enabled bool   `json:"enabled"`
 	Key     string `json:"key"`

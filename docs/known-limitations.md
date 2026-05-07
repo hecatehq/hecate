@@ -18,7 +18,7 @@ operators should not assume yet.
 - Operators add providers explicitly from the built-in preset catalog (or an
   OpenAI-compatible custom endpoint flow); none are auto-added.
 - Credentials, base URLs, defaults, and pricebook entries are managed through
-  the persisted control plane. Taking a provider out of rotation is done by
+  the persisted settings store. Taking a provider out of rotation is done by
   deleting it — there is no enable/disable toggle.
 - Custom clients are supported separately: external callers can use Hecate's
   OpenAI-compatible or Anthropic-compatible endpoints without requiring a custom

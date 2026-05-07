@@ -129,7 +129,7 @@ describe("ChatView input", () => {
     const { state, actions } = setup({
       chatTarget: "model",
       message: "hello",
-      controlPlaneConfig: { backend: "memory", providers: [], policy_rules: [], pricebook: [], events: [] },
+      settingsConfig: { backend: "memory", providers: [], policy_rules: [], pricebook: [], events: [] },
       agentAdapters: [
         { id: "codex", name: "Codex", kind: "acp", command: "codex-acp", available: true, status: "available", cost_mode: "external" },
       ],
@@ -144,7 +144,7 @@ describe("ChatView input", () => {
   it("opens the shared Add provider modal from the model empty state", async () => {
     const { state, actions } = setup({
       chatTarget: "model",
-      controlPlaneConfig: { backend: "memory", providers: [], policy_rules: [], pricebook: [], events: [] },
+      settingsConfig: { backend: "memory", providers: [], policy_rules: [], pricebook: [], events: [] },
       agentAdapters: [
         { id: "codex", name: "Codex", kind: "acp", command: "codex-acp", available: true, status: "available", cost_mode: "external" },
       ],
@@ -162,7 +162,7 @@ describe("ChatView input", () => {
     const { state, actions } = setup({
       chatTarget: "model",
       providerFilter: "ollama",
-      controlPlaneConfig: {
+      settingsConfig: {
         backend: "memory",
         providers: [
           { id: "ollama", name: "Ollama", preset_id: "ollama", kind: "local", protocol: "openai", base_url: "http://127.0.0.1:11434/v1", credential_configured: false },
@@ -225,7 +225,7 @@ describe("ChatView input", () => {
     const loadDashboard = vi.fn(async () => undefined);
     const { state, actions } = setup({
       chatTarget: "model",
-      controlPlaneConfig: { backend: "memory", providers: [], policy_rules: [], pricebook: [], events: [] },
+      settingsConfig: { backend: "memory", providers: [], policy_rules: [], pricebook: [], events: [] },
       providerPresets: [
         { id: "ollama", name: "Ollama", kind: "local", protocol: "openai", base_url: "http://127.0.0.1:11434/v1", description: "" },
         { id: "lmstudio", name: "LM Studio", kind: "local", protocol: "openai", base_url: "http://127.0.0.1:1234/v1", description: "" },
@@ -284,7 +284,7 @@ describe("ChatView input", () => {
     const { state, actions } = setup({
       chatTarget: "agent",
       agentWorkspace: "/tmp/hecate",
-      controlPlaneConfig: { backend: "memory", providers: [], policy_rules: [], pricebook: [], events: [] },
+      settingsConfig: { backend: "memory", providers: [], policy_rules: [], pricebook: [], events: [] },
       providerPresets: [
         { id: "ollama", name: "Ollama", kind: "local", protocol: "openai", base_url: "http://127.0.0.1:11434/v1", description: "" },
       ],
@@ -345,7 +345,7 @@ describe("ChatView input", () => {
     const loadDashboard = vi.fn(async () => undefined);
     const { state, actions } = setup({
       chatTarget: "model",
-      controlPlaneConfig: { backend: "memory", providers: [], policy_rules: [], pricebook: [], events: [] },
+      settingsConfig: { backend: "memory", providers: [], policy_rules: [], pricebook: [], events: [] },
       providerPresets: [
         { id: "llamacpp", name: "llama.cpp", kind: "local", protocol: "openai", base_url: "http://127.0.0.1:8080/v1", description: "" },
         { id: "localai", name: "LocalAI", kind: "local", protocol: "openai", base_url: "http://127.0.0.1:8080/v1", description: "" },
@@ -409,7 +409,7 @@ describe("ChatView input", () => {
     const loadDashboard = vi.fn(async () => undefined);
     const { state, actions } = setup({
       chatTarget: "model",
-      controlPlaneConfig: { backend: "memory", providers: [], policy_rules: [], pricebook: [], events: [] },
+      settingsConfig: { backend: "memory", providers: [], policy_rules: [], pricebook: [], events: [] },
       providerPresets: [
         { id: "ollama", name: "Ollama", kind: "local", protocol: "openai", base_url: "http://127.0.0.1:11434/v1", description: "" },
         { id: "lmstudio", name: "LM Studio", kind: "local", protocol: "openai", base_url: "http://127.0.0.1:1234/v1", description: "" },
@@ -433,7 +433,7 @@ describe("ChatView input", () => {
     const { state, actions } = setup({
       chatTarget: "model",
       message: "hello",
-      controlPlaneConfig: { backend: "memory", providers: [], policy_rules: [], pricebook: [], events: [] },
+      settingsConfig: { backend: "memory", providers: [], policy_rules: [], pricebook: [], events: [] },
       agentAdapters: [
         { id: "codex", name: "Codex", kind: "acp", command: "codex-acp", available: false, status: "missing", cost_mode: "external" },
       ],
@@ -451,7 +451,7 @@ describe("ChatView input", () => {
       chatTarget: "agent",
       message: "inspect this repo",
       agentWorkspace: "/tmp/hecate",
-      controlPlaneConfig: {
+      settingsConfig: {
         backend: "memory",
         providers: [{ id: "ollama", name: "Ollama", kind: "local", credential_configured: true }],
         policy_rules: [],
@@ -487,7 +487,7 @@ describe("ChatView input", () => {
       agentWorkspace: "/tmp/hecate",
       providerFilter: "ollama",
       model: "smollm2:135m",
-      controlPlaneConfig: {
+      settingsConfig: {
         backend: "memory",
         providers: [{ id: "ollama", name: "Ollama", kind: "local", credential_configured: true }],
         policy_rules: [],
@@ -546,7 +546,7 @@ describe("ChatView input", () => {
       agentWorkspace: "/tmp/hecate",
       providerFilter: "ollama",
       model: "smollm2:135m",
-      controlPlaneConfig: {
+      settingsConfig: {
         backend: "memory",
         providers: [{ id: "ollama", name: "Ollama", kind: "local", credential_configured: true }],
         policy_rules: [],
@@ -610,7 +610,7 @@ describe("ChatView input", () => {
       agentWorkspace: "/tmp/hecate",
       providerFilter: "ollama",
       model: "smollm2:135m",
-      controlPlaneConfig: {
+      settingsConfig: {
         backend: "memory",
         providers: [{ id: "ollama", name: "Ollama", kind: "local", credential_configured: true }],
         policy_rules: [],
@@ -711,7 +711,7 @@ describe("ChatView input", () => {
       chatTarget: "agent",
       message: "inspect this repo",
       agentWorkspace: "/tmp/hecate",
-      controlPlaneConfig: {
+      settingsConfig: {
         backend: "memory",
         providers: [{ id: "ollama", name: "Ollama", kind: "local", credential_configured: true }],
         policy_rules: [],
@@ -1166,7 +1166,7 @@ describe("ChatView external-agent target", () => {
     const { state, actions } = setup({
       chatTarget: "external_agent",
       message: "run codex",
-      controlPlaneConfig: { backend: "memory", providers: [], policy_rules: [], pricebook: [], events: [] },
+      settingsConfig: { backend: "memory", providers: [], policy_rules: [], pricebook: [], events: [] },
       agentAdapterID: "codex",
       agentAdapters: [
         { id: "codex", name: "Codex", kind: "acp", command: "codex-acp", managed: true, managed_package: "@zed-industries/codex-acp", available: false, status: "missing", error: "no local package runner found for @zed-industries/codex-acp", cost_mode: "external" },
@@ -1790,7 +1790,7 @@ describe("ChatView model target", () => {
         messages: [],
         provider_calls: [],
       } as any,
-      controlPlaneConfig: {
+      settingsConfig: {
         providers: [
           { id: "anthropic", name: "Anthropic", kind: "cloud", credential_configured: true },
           { id: "openai", name: "OpenAI", kind: "cloud", credential_configured: true },
