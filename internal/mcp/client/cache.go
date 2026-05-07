@@ -534,7 +534,7 @@ func (c *SharedClientCache) Close() error {
 }
 
 // CacheStats is a snapshot of cache occupancy. Used by tests and the
-// /hecate/v1/system/stats endpoint to confirm the cache is doing useful work.
+// /hecate/v1/system/mcp/cache endpoint to confirm the cache is doing useful work.
 //
 //   - Entries is the number of distinct cached upstreams.
 //   - InUse is the SUM of refcounts across all entries — i.e. the
