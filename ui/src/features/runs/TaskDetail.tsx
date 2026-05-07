@@ -842,7 +842,7 @@ function StepRowTitle({ step }: { step: TaskStepRecord }) {
 
 function RuntimeActivity({ activity }: { activity: TaskActivityRecord[] }) {
   const activityByID = new Map(activity.map(item => [item.id, item]));
-  const rows = activity.slice(-12).map(taskActivityToTranscriptActivity);
+  const rows = activity.map(taskActivityToTranscriptActivity);
   return (
     <div style={{ padding: "12px 16px", borderBottom: "1px solid var(--border)" }}>
       <div className="kicker" style={{ marginBottom: 8 }}>Runtime activity</div>
@@ -937,16 +937,59 @@ function taskActivityToTranscriptActivity(item: TaskActivityRecord): AgentChatAc
 }
 
 function taskActivityTitle(item: TaskActivityRecord): string {
-  return item.title || item.tool_name || item.path || item.type.replaceAll("_", " ");
+  switch (item.type) {
+    case "approval":
+      if (item.needs_action || item.status === "pending" || item.status === "awaiting_approval") return "Waiting for approval";
+      if (item.status === "approved") return "Approval granted";
+      if (item.status === "rejected" || item.status === "denied") return "Approval rejected";
+      return "Approval";
+    case "artifact":
+      return "Artifact";
+    case "changed_files":
+      return "Changed files";
+    case "final_answer":
+      return "Final answer artifact";
+    case "patch":
+      return "Patch";
+    case "tool_call":
+      return item.tool_name || item.title || item.path || "tool";
+    default:
+      return item.title || item.tool_name || item.path || item.type.replaceAll("_", " ");
+  }
 }
 
 function taskActivitySubtitle(item: TaskActivityRecord): string | undefined {
-  const parts = [
-    item.path,
-    item.kind,
-    item.status,
-  ].filter(Boolean);
+  const status = item.status || "";
+  const reason = summaryString(item, "reason");
+  const command = summaryString(item, "command");
+  const filename = item.path || item.title || "";
+  const parts = (() => {
+    switch (item.type) {
+      case "approval":
+        return [reason, nonInternalKind(item.kind)];
+      case "tool_call":
+        return [item.path, command];
+      case "artifact":
+      case "changed_files":
+      case "final_answer":
+        return [filename, status && status !== "ready" ? status : ""];
+      case "patch":
+        return [filename, status && status !== "ready" ? status : ""];
+      default:
+        return [item.path, nonInternalKind(item.kind), status];
+    }
+  })().filter(Boolean);
   return parts.join(" · ") || undefined;
+}
+
+function summaryString(item: TaskActivityRecord, key: string): string {
+  const value = item.summary?.[key];
+  return typeof value === "string" ? value.trim() : "";
+}
+
+function nonInternalKind(kind?: string): string {
+  const value = kind?.trim() || "";
+  return value.startsWith("builtin.agent_loop_") ? "" : value;
 }
 
 function StepDetail({ step }: { step: TaskStepRecord }) {

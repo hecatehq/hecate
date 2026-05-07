@@ -242,7 +242,8 @@ describe("TaskDetail runtime activity and patches", () => {
     const { render } = setup({ activity: [makeActivity({ type: "patch", status: "proposed", title: "main.go.patch" })] });
     render();
     expect(screen.getByText(/Runtime activity/i)).toBeTruthy();
-    expect(screen.getByText("main.go.patch")).toBeTruthy();
+    expect(screen.getByText("Patch")).toBeTruthy();
+    expect(screen.getByText("main.go · proposed")).toBeTruthy();
   });
 
   it("uses the shared transcript activity labels and Details grouping", async () => {
@@ -255,6 +256,7 @@ describe("TaskDetail runtime activity and patches", () => {
           step_id: "step-git",
           tool_name: "git_exec",
           kind: "git",
+          path: undefined,
           status: "completed",
           summary: { command: "git status" },
         }),
@@ -273,7 +275,46 @@ describe("TaskDetail runtime activity and patches", () => {
 
     await user.click(screen.getAllByText("Advanced")[0]);
     expect(screen.getByText("step-git")).toBeTruthy();
-    expect(screen.getByText(/git status/)).toBeTruthy();
+    expect(screen.getAllByText(/git status/).length).toBeGreaterThan(0);
+  });
+
+  it("keeps early useful activity rows instead of pre-slicing before compaction", () => {
+    const activity = Array.from({ length: 13 }, (_, index) => makeActivity({
+      id: `activity-${index}`,
+      type: "tool_call",
+      title: "read_file",
+      tool_name: "read_file",
+      path: `file-${index}.ts`,
+      status: "completed",
+    }));
+    const { render } = setup({ activity });
+    render();
+
+    expect(screen.getAllByText("file-0.ts").length).toBeGreaterThan(0);
+    expect(screen.getAllByText("file-12.ts").length).toBeGreaterThan(0);
+  });
+
+  it("renders task approval rows without leaking internal agent-loop markers", () => {
+    const { render } = setup({
+      activity: [
+        makeActivity({
+          id: "activity-approval",
+          type: "approval",
+          status: "approved",
+          title: "builtin.agent_loop_approval",
+          kind: "builtin.agent_loop_approval",
+          approval_id: "approval-1",
+          summary: { reason: "shell_exec" },
+        }),
+      ],
+    });
+    render();
+
+    expect(screen.getByText("Approval granted")).toBeTruthy();
+    expect(screen.getByText("shell_exec")).toBeTruthy();
+    // The raw internal kind is still available in closed Advanced details,
+    // but it should not leak into the primary activity row.
+    expect(screen.getByText(/builtin\.agent_loop/)).not.toBeVisible();
   });
 
   it("calls onApplyPatch for proposed patch artifacts", async () => {
