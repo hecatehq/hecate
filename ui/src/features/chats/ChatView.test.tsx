@@ -197,8 +197,10 @@ describe("ChatView input", () => {
     expect(screen.getByText("Provider is configured")).toBeTruthy();
     expect(screen.getAllByText("Ollama").length).toBeGreaterThan(0);
     expect(screen.getByText("none discovered")).toBeTruthy();
-    expect(screen.getByText("Credentials")).toBeTruthy();
+    expect(screen.getAllByText("Credentials").length).toBeGreaterThan(0);
     expect(screen.getAllByText("Models").length).toBeGreaterThan(0);
+    expect(screen.getAllByText("Routing").length).toBeGreaterThan(0);
+    expect(screen.getByText("Discovery")).toBeTruthy();
     expect(screen.getByText("Routing is blocked because no models are available.")).toBeTruthy();
     expect(screen.getByText(/Start the local provider app/)).toBeTruthy();
     expect(screen.queryByText("Detected locally")).toBeNull();

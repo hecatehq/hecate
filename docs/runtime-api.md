@@ -1169,7 +1169,15 @@ Hecate Agent-specific errors:
 
 | Status | `error.type` | Meaning |
 |---|---|---|
+| `400` | `agent_chat.workspace_required` | Hecate Agent and External Agent sessions need a selected workspace path before the first turn. |
+| `400` | `agent_chat.model_required` | Hecate Chat needs an explicit selected model before direct model or Hecate Agent turns. |
+| `400` | `agent_chat.runtime_kind_invalid` | The requested chat runtime is not one of `model`, `agent`, or `external_agent`. |
+| `400` | `agent_chat.runtime_mismatch` | The request tried to run a turn through a runtime that does not match the existing session type. |
+| `400` | `agent_chat.adapter_not_found` | The selected external-agent adapter is not registered. |
 | `409` | `agent_chat.agent_session_busy` | The backing task run is queued, running, or awaiting approval. Resolve/cancel the active run before sending another prompt, even for direct model turns in the same Hecate Chat session. |
+| `409` | `agent_chat.session_stopping` | The session is still cancelling or closing; retry after it settles. |
+| `409` | `agent_chat.session_not_running` | A stop request was issued when no run was active. |
+| `422` | `model_not_configured` | The selected model is not currently reported by the selected provider. Choose a discovered model or refresh/fix provider discovery. |
 | `422` | `agent_chat.model_capability_required` | Tools are explicitly disabled for the selected model. Turn tools off for direct model chat or enable tools in Settings. |
 
 Client note: browser/operator clients may queue a prompt locally when they

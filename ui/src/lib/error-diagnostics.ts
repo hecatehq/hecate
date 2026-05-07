@@ -50,6 +50,56 @@ const diagnostics: Record<string, GatewayErrorDiagnostic> = {
     action: "Review tenant key scope, provider/model allowlists, and policy rules.",
     tone: "warning",
   },
+  "agent_chat.workspace_required": {
+    title: "Workspace required",
+    action: "Choose a workspace before using Hecate Agent or External Agent.",
+    tone: "warning",
+  },
+  "agent_chat.model_required": {
+    title: "Model required",
+    action: "Choose a model from the chat header, or add a provider that reports models.",
+    tone: "warning",
+  },
+  model_not_configured: {
+    title: "Selected model is unavailable",
+    action: "Choose a discovered model, refresh provider status, or open Providers to fix model discovery.",
+    tone: "warning",
+  },
+  "agent_chat.model_capability_required": {
+    title: "Tools unavailable for this model",
+    action: "Turn tools off for direct model chat, test the model, or enable tool support in Settings.",
+    tone: "warning",
+  },
+  "agent_chat.agent_session_busy": {
+    title: "Chat is still working",
+    action: "Open the backing task, resolve the approval, or stop the run before sending another message.",
+    tone: "warning",
+  },
+  "agent_chat.runtime_mismatch": {
+    title: "Wrong chat runtime",
+    action: "Start a new chat or switch back to the runtime that created this session.",
+    tone: "warning",
+  },
+  "agent_chat.runtime_kind_invalid": {
+    title: "Unsupported chat runtime",
+    action: "Use one of the supported chat modes: model, agent, or external_agent.",
+    tone: "warning",
+  },
+  "agent_chat.adapter_not_found": {
+    title: "External agent is unavailable",
+    action: "Open Settings and test the external agent adapter, or choose another agent.",
+    tone: "warning",
+  },
+  "agent_chat.session_stopping": {
+    title: "Chat is stopping",
+    action: "Wait a moment, then retry the action.",
+    tone: "warning",
+  },
+  "agent_chat.session_not_running": {
+    title: "No active run",
+    action: "Send a new message if you want to start another run.",
+    tone: "warning",
+  },
 };
 
 export function describeGatewayError(code?: string, status?: number): GatewayErrorDiagnostic | null {

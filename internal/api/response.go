@@ -18,6 +18,14 @@ const (
 	errCodeSessionIdleTimeout   = "agent_chat.session_idle_timeout"
 	errCodeAgentSessionBusy     = "agent_chat.agent_session_busy"
 	errCodeModelCapability      = "agent_chat.model_capability_required"
+	errCodeModelNotConfigured   = "model_not_configured"
+	errCodeWorkspaceRequired    = "agent_chat.workspace_required"
+	errCodeModelRequired        = "agent_chat.model_required"
+	errCodeRuntimeKindInvalid   = "agent_chat.runtime_kind_invalid"
+	errCodeRuntimeMismatch      = "agent_chat.runtime_mismatch"
+	errCodeAgentAdapterNotFound = "agent_chat.adapter_not_found"
+	errCodeSessionStopping      = "agent_chat.session_stopping"
+	errCodeSessionNotRunning    = "agent_chat.session_not_running"
 )
 
 func WriteJSON(w http.ResponseWriter, status int, payload any) {

@@ -1638,6 +1638,70 @@ func TestAgentChatCreateRejectsInvalidWorkspace(t *testing.T) {
 	}
 }
 
+func TestAgentChatCreateUsesStableErrorContracts(t *testing.T) {
+	logger := slog.New(slog.NewJSONHandler(io.Discard, nil))
+	handler := NewServer(logger, NewHandler(config.Config{}, logger, nil, nil, nil, nil))
+	client := newAPITestClient(t, handler)
+
+	tests := []struct {
+		name       string
+		body       string
+		statusCode int
+		wantType   string
+	}{
+		{
+			name:       "workspace required for external agent",
+			body:       `{"runtime_kind":"external_agent","adapter_id":"codex"}`,
+			statusCode: http.StatusBadRequest,
+			wantType:   errCodeWorkspaceRequired,
+		},
+		{
+			name:       "model required for model chat",
+			body:       `{"runtime_kind":"model"}`,
+			statusCode: http.StatusBadRequest,
+			wantType:   errCodeModelRequired,
+		},
+		{
+			name:       "adapter not found",
+			body:       fmt.Sprintf(`{"runtime_kind":"external_agent","adapter_id":"missing","workspace":%q}`, t.TempDir()),
+			statusCode: http.StatusBadRequest,
+			wantType:   errCodeAgentAdapterNotFound,
+		},
+		{
+			name:       "runtime kind invalid",
+			body:       `{"runtime_kind":"bogus"}`,
+			statusCode: http.StatusBadRequest,
+			wantType:   errCodeRuntimeKindInvalid,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			rec := client.mustRequestStatus(tt.statusCode, http.MethodPost, "/hecate/v1/agent-chat/sessions", tt.body)
+			var payload struct {
+				Error struct {
+					Type           string `json:"type"`
+					UserMessage    string `json:"user_message"`
+					OperatorAction string `json:"operator_action"`
+				} `json:"error"`
+			}
+			payload = decodeRecorder[struct {
+				Error struct {
+					Type           string `json:"type"`
+					UserMessage    string `json:"user_message"`
+					OperatorAction string `json:"operator_action"`
+				} `json:"error"`
+			}](t, rec)
+			if payload.Error.Type != tt.wantType {
+				t.Fatalf("error.type = %q, want %q", payload.Error.Type, tt.wantType)
+			}
+			if payload.Error.UserMessage == "" || payload.Error.OperatorAction == "" {
+				t.Fatalf("error missing operator metadata: %+v", payload.Error)
+			}
+		})
+	}
+}
+
 func TestAgentChatStoreAttachReconcilesInterruptedRun(t *testing.T) {
 	store := agentchat.NewMemoryStore()
 	ctx := context.Background()
