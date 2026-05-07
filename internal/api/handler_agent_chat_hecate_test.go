@@ -10,6 +10,7 @@ import (
 	"strings"
 	"testing"
 	"time"
+	"unicode/utf8"
 
 	"github.com/hecate/agent-runtime/internal/agentchat"
 	"github.com/hecate/agent-runtime/internal/config"
@@ -663,6 +664,27 @@ func TestTaskActivityItemsIncludeOutputArtifactPreview(t *testing.T) {
 	preview, _ := item.Summary["content_preview"].(string)
 	if !strings.Contains(preview, "+hello") {
 		t.Fatalf("content_preview = %q, want stdout preview", preview)
+	}
+}
+
+func TestTaskActivityArtifactPreviewPreservesLeadingWhitespaceAndCapsBytes(t *testing.T) {
+	content := "  indented output\n" + strings.Repeat("λ", taskActivityArtifactPreviewMaxBytes)
+	preview := taskActivityArtifactContentPreview(TaskArtifactItem{
+		Kind:        "stderr",
+		ContentText: content,
+	})
+
+	if !strings.HasPrefix(preview, "  indented output") {
+		t.Fatalf("preview = %q, want leading whitespace preserved", preview[:min(len(preview), 40)])
+	}
+	if !strings.HasSuffix(preview, taskActivityArtifactPreviewTruncatedSuffix) {
+		t.Fatalf("preview missing truncation suffix")
+	}
+	if len(preview) > taskActivityArtifactPreviewMaxBytes {
+		t.Fatalf("preview length = %d, want <= %d", len(preview), taskActivityArtifactPreviewMaxBytes)
+	}
+	if !utf8.ValidString(preview) {
+		t.Fatalf("preview is not valid UTF-8")
 	}
 }
 

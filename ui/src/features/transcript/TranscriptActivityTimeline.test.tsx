@@ -231,10 +231,21 @@ describe("TranscriptActivityTimeline", () => {
     ];
     render(<TranscriptActivityTimeline activities={activities} />);
 
-    const labels = screen.getAllByText(/Backing task|Thinking|Ran git/)
+    const labels = screen.getAllByText(/Backing task|Thinking|Ran git|LLM call failed on turn 2/)
       .map(node => node.textContent);
-    expect(labels).toEqual(["Backing task", "Thinking", "Ran git"]);
-    expect(screen.queryByText(/LLM call failed on turn 2/)).toBeNull();
+    expect(labels).toEqual(["Backing task", "Thinking", "Ran git", "LLM call failed on turn 2: timeout"]);
+  });
+
+  it("hides generic terminal summaries but keeps diagnostic failed rows", () => {
+    const activities: AgentChatActivityRecord[] = [
+      { type: "tool_call", title: "git_exec", status: "failed", kind: "git" },
+      { type: "failed", title: "Run failed", status: "failed", terminal: true },
+      { type: "run_result", title: "LLM call failed on turn 2: timeout", status: "failed", terminal: true },
+    ];
+    render(<TranscriptActivityTimeline activities={activities} />);
+
+    expect(screen.queryByText("Run failed")).toBeNull();
+    expect(screen.getByText("LLM call failed on turn 2: timeout")).toBeInTheDocument();
   });
 
   it("keeps external-agent activity rows chronological too", () => {

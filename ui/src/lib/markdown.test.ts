@@ -13,6 +13,11 @@ describe("parseMarkdownBlocks", () => {
     expect(blocks).toEqual([{ type: "code", text: "const x = 1;", lang: "ts" }]);
   });
 
+  it("parses fenced code blocks with extra info string metadata", () => {
+    const blocks = parseMarkdownBlocks("```sh hl_lines=1\ngit status\n```");
+    expect(blocks).toEqual([{ type: "code", text: "git status", lang: "sh" }]);
+  });
+
   it("parses indented fenced code blocks", () => {
     const blocks = parseMarkdownBlocks("  ```sh\ngit status\n  ```");
     expect(blocks).toEqual([{ type: "code", text: "git status", lang: "sh" }]);
@@ -111,6 +116,11 @@ describe("parseMarkdownBlocks", () => {
       { type: "p", text: "intro" },
       { type: "code", text: "git status", lang: "sh" },
     ]);
+  });
+
+  it("consumes an unmatched fence-looking line instead of looping forever", () => {
+    const blocks = parseMarkdownBlocks("```bad`info");
+    expect(blocks).toEqual([{ type: "p", text: "```bad`info" }]);
   });
 
   it("stops paragraph accumulation at a task list and table", () => {

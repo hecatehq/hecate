@@ -23,7 +23,7 @@ export function parseMarkdownBlocks(content: string): Block[] {
   while (i < lines.length) {
     const line = lines[i];
 
-    const fenceMatch = /^\s*```([^\s`]*)\s*$/.exec(line);
+    const fenceMatch = /^\s*```([^\s`]*)(?:\s+.*)?$/.exec(line);
     if (fenceMatch) {
       const lang = fenceMatch[1];
       const codeLines: string[] = [];
@@ -111,6 +111,10 @@ export function parseMarkdownBlocks(content: string): Block[] {
       !/^\d+\. /.test(lines[i])
     ) {
       paraLines.push(lines[i]);
+      i++;
+    }
+    if (paraLines.length === 0) {
+      paraLines.push(line);
       i++;
     }
     blocks.push({ type: "p", text: paraLines.join("\n") });

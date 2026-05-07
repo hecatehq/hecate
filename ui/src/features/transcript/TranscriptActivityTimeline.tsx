@@ -306,7 +306,7 @@ function isTaskRunActivity(activity: AgentChatActivityRecord): boolean {
 function isTerminalRunSummary(activity: AgentChatActivityRecord, totalActivities: number): boolean {
   const terminalTypes = new Set(["run_result", "completed", "failed", "cancelled"]);
   if (!terminalTypes.has(activity.type)) return false;
-  if (totalActivities > 1 && (activity.type === "failed" || activity.type === "cancelled")) return true;
+  void totalActivities;
   return /^run\s+(completed|failed|cancelled)$/i.test(activity.title.trim());
 }
 

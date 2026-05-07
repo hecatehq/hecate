@@ -1547,29 +1547,40 @@ func buildTaskActivityItems(steps []TaskStepItem, artifacts []TaskArtifactItem, 
 }
 
 const taskActivityArtifactPreviewMaxBytes = 2000
+const taskActivityArtifactPreviewTruncatedSuffix = "\n...[truncated]"
 
 func taskActivityArtifactContentPreview(artifact TaskArtifactItem) string {
 	if artifact.Kind != "stdout" && artifact.Kind != "stderr" {
 		return ""
 	}
-	content := strings.TrimSpace(artifact.ContentText)
+	maxBytes := taskActivityArtifactPreviewMaxBytes
+	content := strings.TrimRight(artifact.ContentText, "\r\n")
 	if content == "" {
 		return ""
 	}
-	if len(content) <= taskActivityArtifactPreviewMaxBytes {
+	if len(content) <= maxBytes {
 		return content
+	}
+	budget := maxBytes - len(taskActivityArtifactPreviewTruncatedSuffix)
+	if budget <= 0 {
+		return taskActivityArtifactPreviewTruncatedSuffix[:maxBytes]
+	}
+	end := truncateStringByteIndex(content, budget)
+	return content[:end] + taskActivityArtifactPreviewTruncatedSuffix
+}
+
+func truncateStringByteIndex(content string, maxBytes int) int {
+	if len(content) <= maxBytes {
+		return len(content)
 	}
 	end := 0
 	for index := range content {
-		if index > taskActivityArtifactPreviewMaxBytes {
+		if index > maxBytes {
 			break
 		}
 		end = index
 	}
-	if end <= 0 {
-		end = taskActivityArtifactPreviewMaxBytes
-	}
-	return content[:end] + "\n...[truncated]"
+	return end
 }
 
 func sortTaskActivityItems(items []TaskActivityItem) {
