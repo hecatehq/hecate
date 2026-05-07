@@ -233,7 +233,7 @@ Full index lives at [`docs/README.md`](docs/README.md), organized by reader role
 - [Telemetry](docs/telemetry.md) — OTLP traces / metrics / logs, response headers, local trace view.
 - [Security](docs/security.md) — local-first threat model, workspace safety, approvals, secrets, and advisory handling.
 - [Architecture](docs/architecture.md) — gateway request flow, task-runtime queue / lease / sandbox boundary.
-- [Development](docs/development.md) — source-build toolchain, local dev, the test ladder, screenshot tooling.
+- [Development](docs/development.md) — source-build toolchain, local dev, website work, the test ladder, screenshot tooling.
 - [Release](docs/release.md) — cutting a tag, verification gate, recovery if CI fails.
 
 First-run environment knobs live in [`.env.example`](.env.example).

@@ -1,7 +1,7 @@
 name: Links
 
 # Catches broken relative links in agent-guidance files (AGENTS.md, CLAUDE.md,
-# ai/**, .cursor/rules/**, nested AGENTS.md / SKILL.md) and the long-form
+# docs-ai/**, .cursor/rules/**, nested AGENTS.md / SKILL.md) and the long-form
 # product docs in docs/. The Test workflow path-ignores **/*.md, so without
 # this dedicated workflow markdown drift would land unchecked. Also runs
 # weekly on a schedule to surface external link rot.
@@ -65,6 +65,7 @@ jobs:
             --scheme file
             --exclude-path .gomodcache
             --exclude-path ui/node_modules
+            --exclude-path website/node_modules
             --exclude-path .claude/skills
             './**/*.md'
             './**/*.mdc'
@@ -91,6 +92,7 @@ jobs:
             --scheme http
             --exclude-path .gomodcache
             --exclude-path ui/node_modules
+            --exclude-path website/node_modules
             --exclude-path .claude/skills
             './**/*.md'
             './**/*.mdc'

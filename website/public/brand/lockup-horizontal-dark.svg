@@ -1,0 +1,15 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 1280 320" width="1280" height="320">
+  <title>Hecate — horizontal lockup, dark</title>
+  <defs>
+
+  </defs>
+  <rect width="1280" height="320" fill="#0a0710"></rect>
+  <g transform="translate(120 80) scale(0.625)" stroke="#faf8ff" stroke-width="14" stroke-linecap="round" stroke-linejoin="round" fill="none">
+    <path d="M128 36 L128 128"></path>
+    <path d="M40 196 L128 128"></path>
+    <path d="M216 196 L128 128"></path>
+  </g>
+  <circle cx="200" cy="160" r="8" fill="#faf8ff"></circle>
+  <text x="300" y="190" class="wm">hecate</text>
+  <text x="305" y="232" class="sub">ai gateway · agent runtime</text>
+</svg>

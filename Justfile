@@ -2,6 +2,7 @@ set shell := ["sh", "-cu"]
 
 gocache := ".gocache"
 ui_canary := "ui/node_modules/@vitejs/plugin-react"
+website_canary := "website/node_modules/astro"
 
 # List available recipes.
 default:
@@ -12,6 +13,9 @@ _go-cache:
 
 _ui-deps:
 	test -d {{ui_canary}} || (echo "UI dependencies are out of date. Run 'just ui-install' first." && exit 1)
+
+_website-deps:
+	test -d {{website_canary}} || (echo "Website dependencies are out of date. Run 'just website-install' first." && exit 1)
 
 # Build a single self-contained `hecate` binary with the UI bundle embedded.
 # The UI is built first so //go:embed picks up the real assets; without this
@@ -133,6 +137,26 @@ ui-test: _ui-deps
 ui-test-e2e: _ui-deps
 	cd ui && bun run test:e2e
 
+# Install website dependencies.
+website-install:
+	cd website && bun install
+
+# Start the Astro website dev server.
+website-dev: _website-deps
+	cd website && bun --bun run dev
+
+# Typecheck the Astro website.
+website-check: _website-deps
+	cd website && bun --bun run check
+
+# Build the Astro website.
+website-build: _website-deps
+	cd website && bun --bun run build
+
+# Preview the built Astro website.
+website-preview: _website-deps
+	cd website && bun --bun run preview
+
 # Smoke-test the ACP bridge.
 test-acp-smoke: _go-cache
 	GOCACHE="$PWD/{{gocache}}" bun e2e/acp-smoke.ts
@@ -167,6 +191,7 @@ check-links:
 	lychee --no-progress --include-fragments \
 	  --exclude-path .gomodcache \
 	  --exclude-path ui/node_modules \
+	  --exclude-path website/node_modules \
 	  --exclude-path .claude/skills \
 	  './**/*.md' './**/*.mdc'
 

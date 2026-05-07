@@ -1,12 +1,18 @@
 # Development
 
-This guide covers the source-build toolchain, local-build path, UI hot reload, the test surface, and the screenshot tooling. For the simplest get-it-running flow, see [Quick Start](../README.md#quick-start) — the desktop app is the recommended on-ramp for personal use; Docker for server use. The Tauri desktop app's local build (`just tauri-dev`) lives in [`docs-ai/skills/tauri/SKILL.md`](../docs-ai/skills/tauri/SKILL.md).
+This guide covers the source-build toolchain, local-build path, UI hot reload,
+website development, the test surface, and the screenshot tooling. For the
+simplest get-it-running flow, see [Quick Start](../README.md#quick-start) — the
+desktop app is the recommended on-ramp for personal use; Docker for server use.
+The Tauri desktop app's local build (`just tauri-dev`) lives in
+[`docs-ai/skills/tauri/SKILL.md`](../docs-ai/skills/tauri/SKILL.md).
 
 ## Contents
 
 - [Toolchain](#toolchain)
 - [Local build](#local-build)
 - [UI hot reload](#ui-hot-reload)
+- [Website](#website)
 - [Reset state](#reset-state)
 - [Testing](#testing)
 - [Project layout](#project-layout)
@@ -17,7 +23,9 @@ This guide covers the source-build toolchain, local-build path, UI hot reload, t
 Required for the gateway + embedded UI:
 
 - **Go** — pinned via `go.mod`; `just build` runs `go build`.
-- **Bun** — pinned via `ui/package.json` (`packageManager: "bun@..."`); used for UI installs, scripts, tests, screenshots, and CI.
+- **Bun** — pinned via `ui/package.json` and `website/package.json`
+  (`packageManager: "bun@..."`); used for UI/website installs, scripts, tests,
+  screenshots, and CI.
 - **just** — task runner for local build/test/dev recipes; replaces Make.
 
 Required only for the native desktop app:
@@ -53,8 +61,9 @@ with `rustup` first, then retry. On macOS, `brew install just` is usually the
 fastest path because it does not require compiling `just` locally.
 
 Do not use npm, pnpm, yarn, Corepack, Volta, or Node-specific workflow setup
-for the UI. The committed lockfile is `ui/bun.lock`, the install command is
-`bun install`, and all UI scripts run through `bun run ...`.
+for the UI or website. The committed lockfiles are `ui/bun.lock` and
+`website/bun.lock`, the install command is `bun install`, and all scripts run
+through `bun run ...`.
 
 The `hecate` binary embeds the React UI via `//go:embed ui/dist`. There's no separate UI deployment.
 
@@ -96,6 +105,23 @@ Default addresses:
 
 The Vite dev server proxies every `/hecate/*`, `/v1/*`, and `/healthz` request to `:8765`, so the UI runs hot while the gateway runs as-is.
 
+## Website
+
+The public homepage lives in `website/` and builds with Astro. It is separate
+from the embedded operator UI: `website/` publishes [hecate.sh](https://hecate.sh),
+while `ui/` is bundled into the `hecate` binary.
+
+```bash
+just website-install
+just website-dev       # Astro dev server
+just website-check     # astro check + TypeScript
+just website-build     # production build
+```
+
+Website-only pull requests run the dedicated Website workflow (`astro check` +
+production build) and do not wake the main Hecate Go/Rust/UI test workflow.
+Pushes to `master` deploy `website/dist` to GitHub Pages.
+
 ## Reset state
 
 ```bash
@@ -114,6 +140,7 @@ just test-race         # go test -race ./...
 just coverage          # go test -coverprofile + writes coverage.html
 just ui-test           # UI unit tests (vitest)
 just ui-test-e2e       # UI end-to-end tests (Playwright)
+just website-build     # Astro website check + production build
 just test-acp-smoke    # ACP stdio bridge smoke against fake local upstream
 just ui-coverage       # UI coverage report (vitest --coverage)
 just test-docker-smoke # boots the production image and probes /healthz, /v1/models
@@ -145,6 +172,7 @@ Top-level entry points:
 cmd/hecate/            # hecate entry point (gateway, embedded UI, `mcp-server` subcommand)
 cmd/hecate-acp/         # ACP stdio bridge for editor agent panels
 ui/                     # React app (Vite + Bun); src/ is the source, dist/ is the embed target
+website/                # Astro homepage for hecate.sh
 tauri/                  # native desktop app (Tauri 2.x); wraps `hecate` as a sidecar
 e2e/                    # Go end-to-end tests (build tag: e2e; sub-tags: ollama, docker)
 scripts/                # release tooling (release.ts, stamp-version.ts) + documentation tooling (capture-screenshots)

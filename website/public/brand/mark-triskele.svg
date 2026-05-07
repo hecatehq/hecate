@@ -1,0 +1,9 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 256 256" width="256" height="256">
+  <title>Hecate — Triskele (three-armed)</title>
+  <g fill="none" stroke="currentColor" stroke-width="14" stroke-linecap="round" stroke-linejoin="round">
+    <path d="M128 128 L128 40 A36 36 0 0 1 196 70"></path>
+    <path d="M128 128 L52 172 A36 36 0 0 1 52 92"></path>
+    <path d="M128 128 L204 172 A36 36 0 0 0 128 216"></path>
+  </g>
+  <circle cx="128" cy="128" r="10" fill="currentColor"></circle>
+</svg>

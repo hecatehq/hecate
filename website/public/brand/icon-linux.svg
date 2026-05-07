@@ -1,0 +1,16 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 512 512" width="512" height="512">
+  <title>Hecate — Linux app icon</title>
+  <defs>
+    <linearGradient id="bgl" x1="0" y1="0" x2="0" y2="1">
+      <stop offset="0" stop-color="#1a1322"></stop>
+      <stop offset="1" stop-color="#0a0710"></stop>
+    </linearGradient>
+  </defs>
+  <rect x="32" y="32" width="448" height="448" rx="96" ry="96" fill="url(#bgl)"></rect>
+  <g transform="translate(256 268)" stroke="#f4eeff" stroke-width="26" stroke-linecap="round" stroke-linejoin="round" fill="none">
+    <path d="M0 -130 L0 0"></path>
+    <path d="M-112 98 L0 0"></path>
+    <path d="M112 98 L0 0"></path>
+  </g>
+  <circle cx="256" cy="268" r="20" fill="#f4eeff"></circle>
+</svg>

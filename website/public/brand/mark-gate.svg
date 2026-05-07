@@ -1,0 +1,9 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 256 256" width="256" height="256">
+  <title>Hecate — Gate (three-path with crescent)</title>
+  <g fill="none" stroke="currentColor" stroke-width="13" stroke-linecap="round" stroke-linejoin="round">
+    <path d="M128 60 L128 132"></path>
+    <path d="M52 200 L128 132"></path>
+    <path d="M204 200 L128 132"></path>
+  </g>
+  <path d="M88 64 A44 44 0 1 0 168 64 A34 34 0 1 1 88 64 Z" fill="currentColor"></path>
+</svg>

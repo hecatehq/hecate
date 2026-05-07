@@ -5,10 +5,14 @@ on:
     branches: [master]
     paths-ignore:
       - '**/*.md'
+      - 'website/**'
+      - '.github/workflows/website.yml'
   pull_request:
     branches: [master]
     paths-ignore:
       - '**/*.md'
+      - 'website/**'
+      - '.github/workflows/website.yml'
   # merge_group fires for PRs in a GitHub merge queue. Listing it here is a
   # no-op until queues are enabled, but adding it now means turning queues on
   # later is a one-line setting flip rather than a workflow edit.

@@ -1,0 +1,16 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 256 256" width="256" height="256">
+  <title>Hecate — Windows app icon</title>
+  <defs>
+    <linearGradient id="bgw" x1="0" y1="0" x2="0" y2="1">
+      <stop offset="0" stop-color="#1a1322"></stop>
+      <stop offset="1" stop-color="#0a0710"></stop>
+    </linearGradient>
+  </defs>
+  <rect width="256" height="256" fill="url(#bgw)"></rect>
+  <g transform="translate(128 134)" stroke="#f4eeff" stroke-width="13" stroke-linecap="round" stroke-linejoin="round" fill="none">
+    <path d="M0 -64 L0 0"></path>
+    <path d="M-56 48 L0 0"></path>
+    <path d="M56 48 L0 0"></path>
+  </g>
+  <circle cx="128" cy="134" r="10" fill="#f4eeff"></circle>
+</svg>
