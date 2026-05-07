@@ -3,7 +3,7 @@
 </h1>
 
 [![Latest release](https://img.shields.io/github/v/release/hecatehq/hecate?include_prereleases)](https://github.com/hecatehq/hecate/releases/latest)
-[![Container](https://img.shields.io/badge/Container-ghcr.io-2496ED?logo=docker&logoColor=white)](https://github.com/hecatehq/hecate/pkgs/container/hecate)
+[![Container](https://img.shields.io/badge/Container-ghcr.io-2496ED?logo=docker&logoColor=white)](docs/deployment.md#image-pinning)
 [![Test](https://github.com/hecatehq/hecate/actions/workflows/test.yml/badge.svg)](https://github.com/hecatehq/hecate/actions/workflows/test.yml)
 [![Go Report Card](https://goreportcard.com/badge/github.com/hecatehq/hecate)](https://goreportcard.com/report/github.com/hecatehq/hecate)
 [![Go version](https://img.shields.io/github/go-mod/go-version/hecatehq/hecate)](go.mod)
