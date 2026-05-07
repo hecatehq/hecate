@@ -1,4 +1,4 @@
-import { expect, test as baseTest, mockGatewayAPIs, MOCK_MODELS, MOCK_PROVIDERS, MOCK_ADMIN_CONFIG_WITH_PROVIDERS } from "./fixtures";
+import { expect, test as baseTest, mockGatewayAPIs, MOCK_MODELS, MOCK_PROVIDERS, MOCK_SETTINGS_CONFIG_WITH_PROVIDERS } from "./fixtures";
 import type { Page } from "@playwright/test";
 
 // Chat tests need a populated provider list — without one, AppShell hides
@@ -7,7 +7,7 @@ import type { Page } from "@playwright/test";
 const test = baseTest.extend<{ page: Page }>({
   page: async ({ page }, use) => {
     await page.unrouteAll({ behavior: "ignoreErrors" });
-    await mockGatewayAPIs(page, { adminConfig: MOCK_ADMIN_CONFIG_WITH_PROVIDERS });
+    await mockGatewayAPIs(page, { settingsConfig: MOCK_SETTINGS_CONFIG_WITH_PROVIDERS });
     await use(page);
   },
 });
@@ -393,7 +393,7 @@ test("Hecate Chat can move tools on, tools off, then tools on again in one trans
     window.localStorage.setItem("hecate.agentWorkspace", "/tmp/hecate-e2e-workspace");
   });
   await mockGatewayAPIs(page, {
-    adminConfig: {
+    settingsConfig: {
       providers: [
         { id: "lmstudio", name: "LM Studio", preset_id: "lmstudio", kind: "local", protocol: "openai", base_url: "http://127.0.0.1:1234/v1", enabled: true, credential_configured: false },
       ],
@@ -626,7 +626,7 @@ test("Hecate Chat rehydrates an active task and blocks direct sends after refres
     window.localStorage.setItem("hecate.agentWorkspace", "/tmp/hecate-e2e-workspace");
   });
   await mockGatewayAPIs(page, {
-    adminConfig: {
+    settingsConfig: {
       providers: [
         { id: "lmstudio", name: "LM Studio", preset_id: "lmstudio", kind: "local", protocol: "openai", base_url: "http://127.0.0.1:1234/v1", enabled: true, credential_configured: false },
       ],
@@ -736,7 +736,7 @@ test("Hecate Chat rehydrates an awaiting-approval task and resolves it after ref
     window.localStorage.setItem("hecate.agentWorkspace", "/tmp/hecate-e2e-workspace");
   });
   await mockGatewayAPIs(page, {
-    adminConfig: {
+    settingsConfig: {
       providers: [
         { id: "lmstudio", name: "LM Studio", preset_id: "lmstudio", kind: "local", protocol: "openai", base_url: "http://127.0.0.1:1234/v1", enabled: true, credential_configured: false },
       ],
@@ -862,7 +862,7 @@ test("Hecate Chat rehydrates an awaiting-approval task and resolves it after ref
 test("configured provider with no models shows troubleshooting, not detected-provider setup", async ({ page }) => {
   await page.unrouteAll({ behavior: "ignoreErrors" });
   await mockGatewayAPIs(page, {
-    adminConfig: {
+    settingsConfig: {
       providers: [
         { id: "ollama", name: "Ollama", preset_id: "ollama", kind: "local", protocol: "openai", base_url: "http://127.0.0.1:11434/v1", enabled: true, credential_configured: false },
       ],

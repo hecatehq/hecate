@@ -158,7 +158,7 @@ func (f *fakeProviderRuntime) DeleteCredential(_ context.Context, id string) err
 // Compile-time assertion: the fake satisfies the ProviderRuntime interface.
 var _ ProviderRuntime = (*fakeProviderRuntime)(nil)
 
-// newProviderRuntimeTestHandler wires a Handler with a real control-plane
+// newProviderRuntimeTestHandler wires a Handler with a real settings
 // store + the fake provider runtime, then returns an admin-authenticated
 // client and the fake so tests can assert on what the handler dispatched.
 func newProviderRuntimeTestHandler(t *testing.T, runtime ProviderRuntime) (apiTestClient, controlplane.Store) {
@@ -191,7 +191,7 @@ func newProviderRuntimeTestHandler(t *testing.T, runtime ProviderRuntime) (apiTe
 	return newAPITestClient(t, server).withBearerToken("admin-secret"), store
 }
 
-func TestControlPlaneUpdateProviderRequires400WhenRuntimeNotConfigured(t *testing.T) {
+func TestSettingsUpdateProviderRequires400WhenRuntimeNotConfigured(t *testing.T) {
 	t.Parallel()
 	// Pass nil runtime so the handler falls into the
 	// `dynamic provider runtime is not configured` branch — this is
@@ -205,21 +205,21 @@ func TestControlPlaneUpdateProviderRequires400WhenRuntimeNotConfigured(t *testin
 	}
 }
 
-func TestControlPlaneSetProviderAPIKeyRotatesWhenKeyPresent(t *testing.T) {
+func TestSettingsSetProviderAPIKeyRotatesWhenKeyPresent(t *testing.T) {
 	t.Parallel()
 	rt := &fakeProviderRuntime{provider: controlplane.Provider{ID: "anthropic", Name: "Anthropic"}}
 	admin, _ := newProviderRuntimeTestHandler(t, rt)
 
 	rec := admin.mustRequest(http.MethodPut, "/hecate/v1/settings/providers/anthropic/api-key", `{"key":"sk-ant-new"}`)
 	var resp struct {
-		Object string                     `json:"object"`
-		Data   ControlPlaneProviderRecord `json:"data"`
+		Object string                 `json:"object"`
+		Data   SettingsProviderRecord `json:"data"`
 	}
 	if err := json.NewDecoder(rec.Body).Decode(&resp); err != nil {
 		t.Fatalf("decode body: %v", err)
 	}
-	if resp.Object != "control_plane_provider_api_key" {
-		t.Errorf("object = %q, want control_plane_provider_api_key", resp.Object)
+	if resp.Object != "settings_provider_api_key" {
+		t.Errorf("object = %q, want settings_provider_api_key", resp.Object)
 	}
 
 	rt.mu.Lock()
@@ -235,7 +235,7 @@ func TestControlPlaneSetProviderAPIKeyRotatesWhenKeyPresent(t *testing.T) {
 	}
 }
 
-func TestControlPlaneSetProviderAPIKeyClearsWhenKeyEmpty(t *testing.T) {
+func TestSettingsSetProviderAPIKeyClearsWhenKeyEmpty(t *testing.T) {
 	t.Parallel()
 	// Empty key → DeleteCredential branch. The response contains a
 	// {"id": ..., "status": "cleared"} stub rather than a full
@@ -269,7 +269,7 @@ func TestControlPlaneSetProviderAPIKeyClearsWhenKeyEmpty(t *testing.T) {
 	}
 }
 
-func TestControlPlaneSetProviderAPIKeySurfacesRuntimeError(t *testing.T) {
+func TestSettingsSetProviderAPIKeySurfacesRuntimeError(t *testing.T) {
 	t.Parallel()
 	rt := &fakeProviderRuntime{rotateErr: errors.New("secret store is read-only")}
 	admin, _ := newProviderRuntimeTestHandler(t, rt)
@@ -280,20 +280,20 @@ func TestControlPlaneSetProviderAPIKeySurfacesRuntimeError(t *testing.T) {
 	}
 }
 
-func TestControlPlaneSetProviderAPIKeyRequires400WhenRuntimeNotConfigured(t *testing.T) {
+func TestSettingsSetProviderAPIKeyRequires400WhenRuntimeNotConfigured(t *testing.T) {
 	t.Parallel()
 	admin, _ := newProviderRuntimeTestHandler(t, nil)
 
 	admin.mustRequestStatus(http.StatusBadRequest, http.MethodPut, "/hecate/v1/settings/providers/anthropic/api-key", `{"key":"sk-ant"}`)
 }
 
-// TestControlPlaneSetProviderAPIKeyRejectsAnonymous proves the auth
+// TestSettingsSetProviderAPIKeyRejectsAnonymous proves the auth
 // gate fires before any handler-specific logic: a request with no
 // bearer must 401, never invoke the runtime. Without this, a
-// regression that drops `requireControlPlane` would open the
+// regression that drops `requireSettings` would open the
 // dynamic-runtime endpoints to anyone.
 
-func TestControlPlaneCreateProvider_Cloud_Success(t *testing.T) {
+func TestSettingsCreateProvider_Cloud_Success(t *testing.T) {
 	t.Parallel()
 	rt := &fakeProviderRuntime{}
 	admin, store := newProviderRuntimeTestHandler(t, rt)
@@ -301,8 +301,8 @@ func TestControlPlaneCreateProvider_Cloud_Success(t *testing.T) {
 	body := `{"name":"Anthropic","kind":"cloud","protocol":"openai","api_key":"sk-ant-test"}`
 	rec := admin.mustRequestStatus(http.StatusCreated, http.MethodPost, "/hecate/v1/settings/providers", body)
 	var resp struct {
-		Object string                     `json:"object"`
-		Data   ControlPlaneProviderRecord `json:"data"`
+		Object string                 `json:"object"`
+		Data   SettingsProviderRecord `json:"data"`
 	}
 	if err := json.NewDecoder(rec.Body).Decode(&resp); err != nil {
 		t.Fatalf("decode body: %v", err)
@@ -316,7 +316,7 @@ func TestControlPlaneCreateProvider_Cloud_Success(t *testing.T) {
 	}
 }
 
-func TestControlPlaneCreateProvider_Local_Success(t *testing.T) {
+func TestSettingsCreateProvider_Local_Success(t *testing.T) {
 	t.Parallel()
 	rt := &fakeProviderRuntime{}
 	admin, store := newProviderRuntimeTestHandler(t, rt)
@@ -329,7 +329,7 @@ func TestControlPlaneCreateProvider_Local_Success(t *testing.T) {
 	}
 }
 
-func TestControlPlaneCreateProvider_NameRequired(t *testing.T) {
+func TestSettingsCreateProvider_NameRequired(t *testing.T) {
 	t.Parallel()
 	rt := &fakeProviderRuntime{}
 	admin, _ := newProviderRuntimeTestHandler(t, rt)
@@ -340,7 +340,7 @@ func TestControlPlaneCreateProvider_NameRequired(t *testing.T) {
 	}
 }
 
-func TestControlPlaneCreateProvider_DuplicateID(t *testing.T) {
+func TestSettingsCreateProvider_DuplicateID(t *testing.T) {
 	t.Parallel()
 	rt := &fakeProviderRuntime{}
 	admin, _ := newProviderRuntimeTestHandler(t, rt)
@@ -353,7 +353,7 @@ func TestControlPlaneCreateProvider_DuplicateID(t *testing.T) {
 	}
 }
 
-func TestControlPlaneCreateProvider_BaseURLConflict(t *testing.T) {
+func TestSettingsCreateProvider_BaseURLConflict(t *testing.T) {
 	t.Parallel()
 	rt := &fakeProviderRuntime{}
 	admin, _ := newProviderRuntimeTestHandler(t, rt)
@@ -368,7 +368,7 @@ func TestControlPlaneCreateProvider_BaseURLConflict(t *testing.T) {
 	}
 }
 
-func TestControlPlaneCreateProvider_CloudWithoutKey(t *testing.T) {
+func TestSettingsCreateProvider_CloudWithoutKey(t *testing.T) {
 	t.Parallel()
 	rt := &fakeProviderRuntime{}
 	admin, _ := newProviderRuntimeTestHandler(t, rt)
@@ -379,7 +379,7 @@ func TestControlPlaneCreateProvider_CloudWithoutKey(t *testing.T) {
 	}
 }
 
-func TestControlPlaneCreateProvider_SlugifiesName(t *testing.T) {
+func TestSettingsCreateProvider_SlugifiesName(t *testing.T) {
 	t.Parallel()
 	rt := &fakeProviderRuntime{}
 	admin, _ := newProviderRuntimeTestHandler(t, rt)
@@ -387,7 +387,7 @@ func TestControlPlaneCreateProvider_SlugifiesName(t *testing.T) {
 	body := `{"name":"My Custom Provider","kind":"local","protocol":"openai","base_url":"http://127.0.0.1:9999/v1"}`
 	rec := admin.mustRequestStatus(http.StatusCreated, http.MethodPost, "/hecate/v1/settings/providers", body)
 	var resp struct {
-		Data ControlPlaneProviderRecord `json:"data"`
+		Data SettingsProviderRecord `json:"data"`
 	}
 	if err := json.NewDecoder(rec.Body).Decode(&resp); err != nil {
 		t.Fatalf("decode body: %v", err)
@@ -397,7 +397,7 @@ func TestControlPlaneCreateProvider_SlugifiesName(t *testing.T) {
 	}
 }
 
-func TestControlPlaneDeleteProvider_Success(t *testing.T) {
+func TestSettingsDeleteProvider_Success(t *testing.T) {
 	t.Parallel()
 	rt := &fakeProviderRuntime{}
 	admin, store := newProviderRuntimeTestHandler(t, rt)
@@ -411,7 +411,7 @@ func TestControlPlaneDeleteProvider_Success(t *testing.T) {
 	}
 }
 
-func TestControlPlaneDeleteProvider_Unknown(t *testing.T) {
+func TestSettingsDeleteProvider_Unknown(t *testing.T) {
 	t.Parallel()
 	rt := &fakeProviderRuntime{}
 	admin, _ := newProviderRuntimeTestHandler(t, rt)
@@ -419,7 +419,7 @@ func TestControlPlaneDeleteProvider_Unknown(t *testing.T) {
 	admin.mustRequestStatus(http.StatusBadRequest, http.MethodDelete, "/hecate/v1/settings/providers/nonexistent", "")
 }
 
-func TestControlPlaneUpdateProvider_BaseURL(t *testing.T) {
+func TestSettingsUpdateProvider_BaseURL(t *testing.T) {
 	t.Parallel()
 	rt := &fakeProviderRuntime{}
 	admin, store := newProviderRuntimeTestHandler(t, rt)
@@ -434,11 +434,11 @@ func TestControlPlaneUpdateProvider_BaseURL(t *testing.T) {
 	}
 }
 
-// TestControlPlaneUpdateProvider_RenameCustom pins that a custom provider
+// TestSettingsUpdateProvider_RenameCustom pins that a custom provider
 // (preset_id == "") can be renamed via PATCH. Custom providers are the
 // only ones with a free-form name; presets keep their catalog name as
 // the join key, so renaming them is rejected.
-func TestControlPlaneUpdateProvider_RenameCustom(t *testing.T) {
+func TestSettingsUpdateProvider_RenameCustom(t *testing.T) {
 	t.Parallel()
 	rt := &fakeProviderRuntime{}
 	admin, store := newProviderRuntimeTestHandler(t, rt)
@@ -459,11 +459,11 @@ func TestControlPlaneUpdateProvider_RenameCustom(t *testing.T) {
 	}
 }
 
-// TestControlPlaneUpdateProvider_RenamePresetRejected pins that a
+// TestSettingsUpdateProvider_RenamePresetRejected pins that a
 // preset-based provider's Name is fixed — it's the catalog join key
 // (brand color, default base URL, docs link). Operators reach for
 // custom_name instead when they need to disambiguate.
-func TestControlPlaneUpdateProvider_RenamePresetRejected(t *testing.T) {
+func TestSettingsUpdateProvider_RenamePresetRejected(t *testing.T) {
 	t.Parallel()
 	rt := &fakeProviderRuntime{}
 	admin, _ := newProviderRuntimeTestHandler(t, rt)
@@ -476,10 +476,10 @@ func TestControlPlaneUpdateProvider_RenamePresetRejected(t *testing.T) {
 	}
 }
 
-// TestControlPlaneUpdateProvider_SetCustomName pins the disambiguator
+// TestSettingsUpdateProvider_SetCustomName pins the disambiguator
 // path: a preset provider can carry an operator-supplied label that
 // the table renders alongside Name to tell instances apart.
-func TestControlPlaneUpdateProvider_SetCustomName(t *testing.T) {
+func TestSettingsUpdateProvider_SetCustomName(t *testing.T) {
 	t.Parallel()
 	rt := &fakeProviderRuntime{}
 	admin, store := newProviderRuntimeTestHandler(t, rt)
@@ -501,10 +501,10 @@ func TestControlPlaneUpdateProvider_SetCustomName(t *testing.T) {
 	}
 }
 
-// TestControlPlaneCreateProvider_TwoPresetInstances pins that two
+// TestSettingsCreateProvider_TwoPresetInstances pins that two
 // instances of the same preset can coexist when the second supplies a
 // custom_name — the slug includes both, producing distinct ids.
-func TestControlPlaneCreateProvider_TwoPresetInstances(t *testing.T) {
+func TestSettingsCreateProvider_TwoPresetInstances(t *testing.T) {
 	t.Parallel()
 	rt := &fakeProviderRuntime{}
 	admin, store := newProviderRuntimeTestHandler(t, rt)
@@ -524,11 +524,11 @@ func TestControlPlaneCreateProvider_TwoPresetInstances(t *testing.T) {
 	}
 }
 
-// TestControlPlaneUpdateProvider_NoFields rejects an empty PATCH body —
+// TestSettingsUpdateProvider_NoFields rejects an empty PATCH body —
 // the handler used to read base_url as a required string but now both
 // fields are optional pointers, and "neither supplied" must still be a
 // 400 instead of silently no-op'ing through Upsert.
-func TestControlPlaneUpdateProvider_NoFields(t *testing.T) {
+func TestSettingsUpdateProvider_NoFields(t *testing.T) {
 	t.Parallel()
 	rt := &fakeProviderRuntime{}
 	admin, _ := newProviderRuntimeTestHandler(t, rt)
@@ -541,11 +541,11 @@ func TestControlPlaneUpdateProvider_NoFields(t *testing.T) {
 	}
 }
 
-// TestControlPlaneUpdateProvider_BaseURL_PropagatesToRuntime pins that a
+// TestSettingsUpdateProvider_BaseURL_PropagatesToRuntime pins that a
 // PATCH base_url update goes through Upsert (which calls Reload), so the
 // runtime registry actually swaps to the new endpoint instead of the
 // store and the runtime drifting apart.
-func TestControlPlaneUpdateProvider_BaseURL_PropagatesToRuntime(t *testing.T) {
+func TestSettingsUpdateProvider_BaseURL_PropagatesToRuntime(t *testing.T) {
 	t.Parallel()
 	rt := &fakeProviderRuntime{}
 	admin, _ := newProviderRuntimeTestHandler(t, rt)
@@ -566,11 +566,11 @@ func TestControlPlaneUpdateProvider_BaseURL_PropagatesToRuntime(t *testing.T) {
 	}
 }
 
-// TestBuildControlPlaneProviderList_EmptyStore confirms the list endpoint
+// TestBuildSettingsProviderList_EmptyStore confirms the list endpoint
 // returns no records when no provider has been added — the new "explicit
 // add" model. Before the redesign, this returned one record per built-in
 // preset; that behavior is gone and shouldn't regress.
-func TestBuildControlPlaneProviderList_EmptyStore(t *testing.T) {
+func TestBuildSettingsProviderList_EmptyStore(t *testing.T) {
 	t.Parallel()
 	rt := &fakeProviderRuntime{}
 	admin, _ := newProviderRuntimeTestHandler(t, rt)
@@ -578,7 +578,7 @@ func TestBuildControlPlaneProviderList_EmptyStore(t *testing.T) {
 	rec := admin.mustRequest(http.MethodGet, "/hecate/v1/settings", "")
 	var resp struct {
 		Data struct {
-			Providers []ControlPlaneProviderRecord `json:"providers"`
+			Providers []SettingsProviderRecord `json:"providers"`
 		} `json:"data"`
 	}
 	if err := json.NewDecoder(rec.Body).Decode(&resp); err != nil {
@@ -589,12 +589,12 @@ func TestBuildControlPlaneProviderList_EmptyStore(t *testing.T) {
 	}
 }
 
-// TestBuildControlPlaneProviderList_PresetMetadataJoin pins that a record
+// TestBuildSettingsProviderList_PresetMetadataJoin pins that a record
 // created via a preset_id has its kind / base_url / protocol filled in
 // from the preset catalog when the operator didn't override them. The UI
 // renders these fields directly so a regression here would mean rows
 // missing brand color, protocol label, or endpoint text.
-func TestBuildControlPlaneProviderList_PresetMetadataJoin(t *testing.T) {
+func TestBuildSettingsProviderList_PresetMetadataJoin(t *testing.T) {
 	t.Parallel()
 	rt := &fakeProviderRuntime{}
 	admin, _ := newProviderRuntimeTestHandler(t, rt)
@@ -605,7 +605,7 @@ func TestBuildControlPlaneProviderList_PresetMetadataJoin(t *testing.T) {
 	rec := admin.mustRequest(http.MethodGet, "/hecate/v1/settings", "")
 	var resp struct {
 		Data struct {
-			Providers []ControlPlaneProviderRecord `json:"providers"`
+			Providers []SettingsProviderRecord `json:"providers"`
 		} `json:"data"`
 	}
 	if err := json.NewDecoder(rec.Body).Decode(&resp); err != nil {
@@ -629,7 +629,7 @@ func TestBuildControlPlaneProviderList_PresetMetadataJoin(t *testing.T) {
 	}
 }
 
-func TestControlPlaneDeletePolicyRule_UsesPathID(t *testing.T) {
+func TestSettingsDeletePolicyRule_UsesPathID(t *testing.T) {
 	t.Parallel()
 	admin, _ := newProviderRuntimeTestHandler(t, nil)
 
@@ -651,7 +651,7 @@ func TestControlPlaneDeletePolicyRule_UsesPathID(t *testing.T) {
 	status := admin.mustRequest(http.MethodGet, "/hecate/v1/settings", "")
 	var snapshot struct {
 		Data struct {
-			PolicyRules []ControlPlanePolicyRuleRecord `json:"policy_rules"`
+			PolicyRules []SettingsPolicyRuleRecord `json:"policy_rules"`
 		} `json:"data"`
 	}
 	if err := json.NewDecoder(status.Body).Decode(&snapshot); err != nil {
@@ -662,7 +662,7 @@ func TestControlPlaneDeletePolicyRule_UsesPathID(t *testing.T) {
 	}
 }
 
-func TestControlPlaneDeletePricebookEntry_UsesPathProviderAndModel(t *testing.T) {
+func TestSettingsDeletePricebookEntry_UsesPathProviderAndModel(t *testing.T) {
 	t.Parallel()
 	admin, _ := newProviderRuntimeTestHandler(t, nil)
 
@@ -690,7 +690,7 @@ func TestControlPlaneDeletePricebookEntry_UsesPathProviderAndModel(t *testing.T)
 	status := admin.mustRequest(http.MethodGet, "/hecate/v1/settings", "")
 	var snapshot struct {
 		Data struct {
-			Pricebook []ControlPlanePricebookRecord `json:"pricebook"`
+			Pricebook []SettingsPricebookRecord `json:"pricebook"`
 		} `json:"data"`
 	}
 	if err := json.NewDecoder(status.Body).Decode(&snapshot); err != nil {

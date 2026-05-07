@@ -20,7 +20,7 @@ vi.mock("../lib/api", async () => {
     getAgentChatSessions: vi.fn(),
     getAgentChatSession: vi.fn(),
     getRequestLedger: vi.fn(),
-    getControlPlaneConfig: vi.fn(),
+    getSettingsConfig: vi.fn(),
     getRetentionRuns: vi.fn(),
     getRuntimeStats: vi.fn(),
   };
@@ -38,7 +38,7 @@ const emptyPrev = {
   agentChatSessions: [],
   activeAgentChatSession: null,
   requestLedger: [],
-  controlPlaneConfig: null,
+  settingsConfig: null,
   retentionRuns: [],
   retentionLastRun: null,
 };
@@ -55,7 +55,7 @@ function setupAllResolved(overrides: Record<string, unknown> = {}) {
   vi.mocked(api.getChatSessions).mockResolvedValue({ object: "list", data: [], has_more: false });
   vi.mocked(api.getAgentChatSessions).mockResolvedValue({ object: "list", data: [] });
   vi.mocked(api.getRequestLedger).mockResolvedValue({ object: "list", data: [] });
-  vi.mocked(api.getControlPlaneConfig).mockResolvedValue({
+  vi.mocked(api.getSettingsConfig).mockResolvedValue({
     object: "configured_state",
     data: { backend: "memory", providers: [], policy_rules: [], pricebook: [], events: [] },
   });
@@ -219,8 +219,8 @@ describe("resolveDashboardSnapshot", () => {
     expect(snapshot.activeAgentChatSession?.title).toBe("stale");
   });
 
-  it("skips the providers fetch when no providers are configured in the control plane", async () => {
-    vi.mocked(api.getControlPlaneConfig).mockResolvedValue({
+  it("skips the providers fetch when no providers are configured in the settings", async () => {
+    vi.mocked(api.getSettingsConfig).mockResolvedValue({
       object: "configured_state",
       data: { backend: "memory", providers: [], policy_rules: [], pricebook: [], events: [] },
     });
@@ -232,8 +232,8 @@ describe("resolveDashboardSnapshot", () => {
     expect(api.getProviders).not.toHaveBeenCalled();
   });
 
-  it("calls the providers fetch when control plane has at least one configured provider", async () => {
-    vi.mocked(api.getControlPlaneConfig).mockResolvedValue({
+  it("calls the providers fetch when settings has at least one configured provider", async () => {
+    vi.mocked(api.getSettingsConfig).mockResolvedValue({
       object: "configured_state",
       data: {
         backend: "memory",

@@ -218,11 +218,11 @@ function AuthenticatedShell({
             "models" is intersected with the configured set so the count
             reflects models the operator can actually route to from the
             chat picker — env-only models would inflate the number
-            without being selectable. Tenant sessions (no controlPlaneConfig)
+            without being selectable. Tenant sessions (no settingsConfig)
             see the unfiltered model list since the runtime is their
             only source of truth. */}
         {(() => {
-          const configured = state.controlPlaneConfig?.providers ?? null;
+          const configured = state.settingsConfig?.providers ?? null;
           const configuredCount = configured?.length ?? 0;
           const modelCount = configured
             ? state.models.filter(m => {

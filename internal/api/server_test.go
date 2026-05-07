@@ -1034,7 +1034,7 @@ func TestAgentChatRunsExternalAdapter(t *testing.T) {
 	}
 
 	logger := slog.New(slog.NewJSONHandler(io.Discard, nil))
-	apiHandler := newTestAPIHandlerWithControlPlane(logger, []providers.Provider{&fakeProvider{}}, config.Config{}, nil)
+	apiHandler := newTestAPIHandlerWithSettings(logger, []providers.Provider{&fakeProvider{}}, config.Config{}, nil)
 	apiHandler.SetAgentChatRunner(&fakeAgentChatRunner{
 		output:          "agent saw: hello from hecate\n",
 		diffStat:        "README.md | 1 +",
@@ -1181,7 +1181,7 @@ func TestAgentChatRunsExternalAdapter(t *testing.T) {
 func TestAgentChatOmitsStartedActivityWhenNativeSessionReused(t *testing.T) {
 	dir := t.TempDir()
 	logger := slog.New(slog.NewJSONHandler(io.Discard, nil))
-	apiHandler := newTestAPIHandlerWithControlPlane(logger, []providers.Provider{&fakeProvider{}}, config.Config{}, nil)
+	apiHandler := newTestAPIHandlerWithSettings(logger, []providers.Provider{&fakeProvider{}}, config.Config{}, nil)
 	apiHandler.SetAgentChatRunner(&fakeAgentChatRunner{
 		output:          "agent saw: reused session\n",
 		nativeSessionID: "native_codex_1",
@@ -1200,7 +1200,7 @@ func TestAgentChatOmitsStartedActivityWhenNativeSessionReused(t *testing.T) {
 func TestAgentChatMergesAdapterActivityUpdates(t *testing.T) {
 	dir := t.TempDir()
 	logger := slog.New(slog.NewJSONHandler(io.Discard, nil))
-	apiHandler := newTestAPIHandlerWithControlPlane(logger, []providers.Provider{&fakeProvider{}}, config.Config{}, nil)
+	apiHandler := newTestAPIHandlerWithSettings(logger, []providers.Provider{&fakeProvider{}}, config.Config{}, nil)
 	apiHandler.SetAgentChatRunner(&fakeAgentChatRunner{
 		output: "done",
 		activities: []agentadapters.Activity{
@@ -1239,7 +1239,7 @@ func TestAgentChatMergesAdapterActivityUpdates(t *testing.T) {
 func TestAgentChatFinalOutputReplacesStreamedNarration(t *testing.T) {
 	dir := t.TempDir()
 	logger := slog.New(slog.NewJSONHandler(io.Discard, nil))
-	apiHandler := newTestAPIHandlerWithControlPlane(logger, []providers.Provider{&fakeProvider{}}, config.Config{}, nil)
+	apiHandler := newTestAPIHandlerWithSettings(logger, []providers.Provider{&fakeProvider{}}, config.Config{}, nil)
 	apiHandler.SetAgentChatRunner(&fakeAgentChatRunner{
 		chunks:      []string{"I will inspect the diff first."},
 		finalOutput: "There is no current diff.",
@@ -1264,7 +1264,7 @@ func TestAgentChatPassesPersistedNativeSessionForResume(t *testing.T) {
 		nativeSessionID: "native_persisted_1",
 		sessionStarted:  true,
 	}
-	firstHandler := newTestAPIHandlerWithControlPlane(logger, []providers.Provider{&fakeProvider{}}, config.Config{}, nil)
+	firstHandler := newTestAPIHandlerWithSettings(logger, []providers.Provider{&fakeProvider{}}, config.Config{}, nil)
 	firstHandler.SetAgentChatStore(store)
 	firstHandler.SetAgentChatRunner(firstRunner)
 	firstClient := newAPITestClient(t, NewServer(logger, firstHandler))
@@ -1277,7 +1277,7 @@ func TestAgentChatPassesPersistedNativeSessionForResume(t *testing.T) {
 		sessionStarted:  true,
 		sessionResumed:  true,
 	}
-	secondHandler := newTestAPIHandlerWithControlPlane(logger, []providers.Provider{&fakeProvider{}}, config.Config{}, nil)
+	secondHandler := newTestAPIHandlerWithSettings(logger, []providers.Provider{&fakeProvider{}}, config.Config{}, nil)
 	secondHandler.SetAgentChatStore(store)
 	secondHandler.SetAgentChatRunner(secondRunner)
 	secondClient := newAPITestClient(t, NewServer(logger, secondHandler))
@@ -1299,7 +1299,7 @@ func TestAgentChatShowsFreshSessionRecoveryActivity(t *testing.T) {
 	store := agentchat.NewMemoryStore()
 	logger := slog.New(slog.NewJSONHandler(io.Discard, nil))
 
-	apiHandler := newTestAPIHandlerWithControlPlane(logger, []providers.Provider{&fakeProvider{}}, config.Config{}, nil)
+	apiHandler := newTestAPIHandlerWithSettings(logger, []providers.Provider{&fakeProvider{}}, config.Config{}, nil)
 	apiHandler.SetAgentChatStore(store)
 	apiHandler.SetAgentChatRunner(&fakeAgentChatRunner{
 		output:          "recovered",
@@ -1328,7 +1328,7 @@ func TestAgentChatShowsFreshSessionRecoveryActivity(t *testing.T) {
 func TestAgentChatHumanizesAdapterJSONRPCBillingError(t *testing.T) {
 	dir := t.TempDir()
 	logger := slog.New(slog.NewJSONHandler(io.Discard, nil))
-	apiHandler := newTestAPIHandlerWithControlPlane(logger, []providers.Provider{&fakeProvider{}}, config.Config{}, nil)
+	apiHandler := newTestAPIHandlerWithSettings(logger, []providers.Provider{&fakeProvider{}}, config.Config{}, nil)
 	rawErr := `{"code":-32603,"message":"Internal error: Credit balance is too low","data":{"errorKind":"billing_error"}}`
 	apiHandler.SetAgentChatRunner(&fakeAgentChatRunner{
 		err: errors.New(rawErr),
@@ -1629,7 +1629,7 @@ func TestAgentChatTurnLimitReturns422(t *testing.T) {
 	dir := t.TempDir()
 	logger := slog.New(slog.NewJSONHandler(io.Discard, nil))
 	cfg := config.Config{Server: config.ServerConfig{AgentChatMaxTurnsPerSession: 2}}
-	apiHandler := newTestAPIHandlerWithControlPlane(logger, []providers.Provider{&fakeProvider{}}, cfg, nil)
+	apiHandler := newTestAPIHandlerWithSettings(logger, []providers.Provider{&fakeProvider{}}, cfg, nil)
 	apiHandler.SetAgentChatRunner(&fakeAgentChatRunner{output: "done"})
 	handler := NewServer(logger, apiHandler)
 	client := newAPITestClient(t, handler)
@@ -1668,7 +1668,7 @@ func TestAgentChatTurnsUsedIncrementsAndIsReturned(t *testing.T) {
 	dir := t.TempDir()
 	logger := slog.New(slog.NewJSONHandler(io.Discard, nil))
 	cfg := config.Config{Server: config.ServerConfig{AgentChatMaxTurnsPerSession: 5}}
-	apiHandler := newTestAPIHandlerWithControlPlane(logger, []providers.Provider{&fakeProvider{}}, cfg, nil)
+	apiHandler := newTestAPIHandlerWithSettings(logger, []providers.Provider{&fakeProvider{}}, cfg, nil)
 	apiHandler.SetAgentChatRunner(&fakeAgentChatRunner{output: "ok"})
 	handler := NewServer(logger, apiHandler)
 	client := newAPITestClient(t, handler)
@@ -1689,7 +1689,7 @@ func TestAgentChatNoLimitWhenMaxTurnsIsZero(t *testing.T) {
 	dir := t.TempDir()
 	logger := slog.New(slog.NewJSONHandler(io.Discard, nil))
 	// Default config: AgentChatMaxTurnsPerSession = 0 (unlimited).
-	apiHandler := newTestAPIHandlerWithControlPlane(logger, []providers.Provider{&fakeProvider{}}, config.Config{}, nil)
+	apiHandler := newTestAPIHandlerWithSettings(logger, []providers.Provider{&fakeProvider{}}, config.Config{}, nil)
 	apiHandler.SetAgentChatRunner(&fakeAgentChatRunner{output: "ok"})
 	handler := NewServer(logger, apiHandler)
 	client := newAPITestClient(t, handler)
@@ -1712,7 +1712,7 @@ func TestAgentChatDurationLimitReturns422(t *testing.T) {
 	dir := t.TempDir()
 	logger := slog.New(slog.NewJSONHandler(io.Discard, nil))
 	cfg := config.Config{Server: config.ServerConfig{AgentChatMaxSessionDuration: time.Hour}}
-	apiHandler := newTestAPIHandlerWithControlPlane(logger, []providers.Provider{&fakeProvider{}}, cfg, nil)
+	apiHandler := newTestAPIHandlerWithSettings(logger, []providers.Provider{&fakeProvider{}}, cfg, nil)
 	apiHandler.SetAgentChatRunner(&fakeAgentChatRunner{output: "ok"})
 	handler := NewServer(logger, apiHandler)
 	client := newAPITestClient(t, handler)
@@ -1751,7 +1751,7 @@ func TestAgentChatSnapshotIncludesDurationAndIdleLimits(t *testing.T) {
 		AgentChatMaxSessionDuration: 2 * time.Hour,
 		AgentChatIdleTimeout:        30 * time.Minute,
 	}}
-	apiHandler := newTestAPIHandlerWithControlPlane(logger, []providers.Provider{&fakeProvider{}}, cfg, nil)
+	apiHandler := newTestAPIHandlerWithSettings(logger, []providers.Provider{&fakeProvider{}}, cfg, nil)
 	client := newAPITestClient(t, NewServer(logger, apiHandler))
 
 	created := mustRequestJSON[AgentChatSessionResponse](client, http.MethodPost, "/hecate/v1/agent-chat/sessions", fmt.Sprintf(`{"adapter_id":"codex","workspace":%q}`, dir))
@@ -1788,7 +1788,7 @@ func TestAgentChatIdleLimitReturns422(t *testing.T) {
 
 	logger := slog.New(slog.NewJSONHandler(io.Discard, nil))
 	cfg := config.Config{Server: config.ServerConfig{AgentChatIdleTimeout: time.Hour}}
-	apiHandler := newTestAPIHandlerWithControlPlane(logger, []providers.Provider{&fakeProvider{}}, cfg, nil)
+	apiHandler := newTestAPIHandlerWithSettings(logger, []providers.Provider{&fakeProvider{}}, cfg, nil)
 	apiHandler.SetAgentChatStore(store)
 	apiHandler.SetAgentChatRunner(&fakeAgentChatRunner{output: "ok"})
 	client := newAPITestClient(t, NewServer(logger, apiHandler))
@@ -1838,7 +1838,7 @@ func TestAgentChatIdleSweepCancelsStaleSession(t *testing.T) {
 
 	logger := slog.New(slog.NewJSONHandler(io.Discard, nil))
 	runner := &fakeAgentChatRunner{}
-	apiHandler := newTestAPIHandlerWithControlPlane(logger, []providers.Provider{&fakeProvider{}}, config.Config{}, nil)
+	apiHandler := newTestAPIHandlerWithSettings(logger, []providers.Provider{&fakeProvider{}}, config.Config{}, nil)
 	apiHandler.SetAgentChatStore(store)
 	apiHandler.SetAgentChatRunner(runner)
 	client := newAPITestClient(t, NewServer(logger, apiHandler))
@@ -1967,7 +1967,7 @@ func TestAgentChatStreamsExternalAdapterOutput(t *testing.T) {
 	dir := t.TempDir()
 
 	logger := slog.New(slog.NewJSONHandler(io.Discard, nil))
-	apiHandler := newTestAPIHandlerWithControlPlane(logger, []providers.Provider{&fakeProvider{}}, config.Config{}, nil)
+	apiHandler := newTestAPIHandlerWithSettings(logger, []providers.Provider{&fakeProvider{}}, config.Config{}, nil)
 	apiHandler.SetAgentChatRunner(&fakeAgentChatRunner{
 		chunks: []string{"first chunk\n", "second chunk\n"},
 		delay:  100 * time.Millisecond,
@@ -2041,7 +2041,7 @@ func TestAgentChatCancelsExternalAdapter(t *testing.T) {
 	dir := t.TempDir()
 
 	logger := slog.New(slog.NewJSONHandler(io.Discard, nil))
-	apiHandler := newTestAPIHandlerWithControlPlane(logger, []providers.Provider{&fakeProvider{}}, config.Config{}, nil)
+	apiHandler := newTestAPIHandlerWithSettings(logger, []providers.Provider{&fakeProvider{}}, config.Config{}, nil)
 	apiHandler.SetAgentChatRunner(&fakeAgentChatRunner{waitForCancel: true})
 	handler := NewServer(logger, apiHandler)
 	server := httptest.NewServer(handler)
@@ -2079,7 +2079,7 @@ func TestAgentChatDeleteCancelsRunBeforeDeletingSession(t *testing.T) {
 	dir := t.TempDir()
 
 	logger := slog.New(slog.NewJSONHandler(io.Discard, nil))
-	apiHandler := newTestAPIHandlerWithControlPlane(logger, []providers.Provider{&fakeProvider{}}, config.Config{}, nil)
+	apiHandler := newTestAPIHandlerWithSettings(logger, []providers.Provider{&fakeProvider{}}, config.Config{}, nil)
 	runner := &fakeAgentChatRunner{waitForCancel: true}
 	apiHandler.SetAgentChatRunner(runner)
 	handler := NewServer(logger, apiHandler)
@@ -2131,7 +2131,7 @@ func TestAgentChatCloseKeepsHistoryAndClosesNativeSession(t *testing.T) {
 	dir := t.TempDir()
 
 	logger := slog.New(slog.NewJSONHandler(io.Discard, nil))
-	apiHandler := newTestAPIHandlerWithControlPlane(logger, []providers.Provider{&fakeProvider{}}, config.Config{}, nil)
+	apiHandler := newTestAPIHandlerWithSettings(logger, []providers.Provider{&fakeProvider{}}, config.Config{}, nil)
 	runner := &fakeAgentChatRunner{output: "done", nativeSessionID: "native_close_1", sessionStarted: true}
 	apiHandler.SetAgentChatRunner(runner)
 	client := newAPITestClient(t, NewServer(logger, apiHandler))
@@ -4812,14 +4812,14 @@ func newTestHTTPHandlerWithConfig(logger *slog.Logger, provider providers.Provid
 }
 
 func newTestHTTPHandlerForProviders(logger *slog.Logger, items []providers.Provider, cfg config.Config) http.Handler {
-	return newTestHTTPHandlerWithControlPlane(logger, items, cfg, nil)
+	return newTestHTTPHandlerWithSettings(logger, items, cfg, nil)
 }
 
-func newTestHTTPHandlerWithControlPlane(logger *slog.Logger, items []providers.Provider, cfg config.Config, cpStore controlplane.Store) http.Handler {
-	return NewServer(logger, newTestAPIHandlerWithControlPlane(logger, items, cfg, cpStore))
+func newTestHTTPHandlerWithSettings(logger *slog.Logger, items []providers.Provider, cfg config.Config, cpStore controlplane.Store) http.Handler {
+	return NewServer(logger, newTestAPIHandlerWithSettings(logger, items, cfg, cpStore))
 }
 
-func newTestAPIHandlerWithControlPlane(logger *slog.Logger, items []providers.Provider, cfg config.Config, cpStore controlplane.Store) *Handler {
+func newTestAPIHandlerWithSettings(logger *slog.Logger, items []providers.Provider, cfg config.Config, cpStore controlplane.Store) *Handler {
 	registry := providers.NewRegistry(items...)
 	providerHistoryStore := providers.NewMemoryHealthHistoryStore()
 	healthTracker := providers.NewMemoryHealthTrackerWithHistory(

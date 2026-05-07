@@ -14,7 +14,7 @@ func (h *Handler) resolveModelCapabilities(ctx context.Context, provider, model 
 	if model == "" {
 		return types.ModelCapabilities{}, fmt.Errorf("model is required")
 	}
-	state, err := h.controlPlaneState(ctx)
+	state, err := h.settingsState(ctx)
 	if err != nil {
 		return types.ModelCapabilities{}, err
 	}

@@ -83,7 +83,7 @@ afterEach(() => {
   window.requestAnimationFrame = originalRequestAnimationFrame;
 });
 
-function emptyControlPlaneConfig() {
+function emptySettingsConfig() {
   return {
     backend: "memory",
     providers: [] as ConfiguredProviderRecord[],
@@ -98,7 +98,7 @@ describe("ProvidersView empty state", () => {
     const state = createRuntimeConsoleFixture({
       session: localSession,
       providerPresets: presets,
-      controlPlaneConfig: emptyControlPlaneConfig(),
+      settingsConfig: emptySettingsConfig(),
       providers: [],
     });
 
@@ -120,8 +120,8 @@ describe("ProvidersView delete", () => {
     const state = createRuntimeConsoleFixture({
       session: localSession,
       providerPresets: presets,
-      controlPlaneConfig: {
-        ...emptyControlPlaneConfig(),
+      settingsConfig: {
+        ...emptySettingsConfig(),
         providers: [makeConfigured("ollama")],
       },
       providers: [makeStatus("ollama")],
@@ -148,7 +148,7 @@ describe("ProvidersView add provider modal", () => {
     const state = createRuntimeConsoleFixture({
       session: localSession,
       providerPresets: presets,
-      controlPlaneConfig: emptyControlPlaneConfig(),
+      settingsConfig: emptySettingsConfig(),
       providers: [],
     });
     const actions = createRuntimeConsoleActions();
@@ -209,7 +209,7 @@ describe("ProvidersView add provider modal", () => {
     const state = createRuntimeConsoleFixture({
       session: localSession,
       providerPresets: presets,
-      controlPlaneConfig: emptyControlPlaneConfig(),
+      settingsConfig: emptySettingsConfig(),
       providers: [],
     });
     const actions = { ...createRuntimeConsoleActions(), createProvider };
@@ -255,7 +255,7 @@ describe("ProvidersView add provider modal", () => {
     const state = createRuntimeConsoleFixture({
       session: localSession,
       providerPresets: presets,
-      controlPlaneConfig: emptyControlPlaneConfig(),
+      settingsConfig: emptySettingsConfig(),
       providers: [],
     });
     const actions = { ...createRuntimeConsoleActions(), createProvider };
@@ -280,8 +280,8 @@ describe("ProvidersView edit modal", () => {
     const state = createRuntimeConsoleFixture({
       session: localSession,
       providerPresets: presets,
-      controlPlaneConfig: {
-        ...emptyControlPlaneConfig(),
+      settingsConfig: {
+        ...emptySettingsConfig(),
         providers: [makeConfigured("anthropic", { kind: "cloud", credential_configured: true })],
       },
       providers: [makeStatus("anthropic", { kind: "cloud", healthy: true, status: "healthy" })],
@@ -300,8 +300,8 @@ describe("ProvidersView edit modal", () => {
     const state = createRuntimeConsoleFixture({
       session: localSession,
       providerPresets: presets,
-      controlPlaneConfig: {
-        ...emptyControlPlaneConfig(),
+      settingsConfig: {
+        ...emptySettingsConfig(),
         providers: [makeConfigured("anthropic", { kind: "cloud", credential_configured: true })],
       },
       providers: [makeStatus("anthropic", { kind: "cloud", healthy: true, status: "healthy" })],
@@ -325,8 +325,8 @@ describe("ProvidersView edit modal", () => {
     const state = createRuntimeConsoleFixture({
       session: localSession,
       providerPresets: presets,
-      controlPlaneConfig: {
-        ...emptyControlPlaneConfig(),
+      settingsConfig: {
+        ...emptySettingsConfig(),
         providers: [makeConfigured("ollama", { kind: "local", base_url: "http://127.0.0.1:11434/v1" })],
       },
       providers: [makeStatus("ollama", { kind: "local", healthy: true, status: "healthy" })],
@@ -350,8 +350,8 @@ describe("ProvidersView edit modal", () => {
     const state = createRuntimeConsoleFixture({
       session: localSession,
       providerPresets: presets,
-      controlPlaneConfig: {
-        ...emptyControlPlaneConfig(),
+      settingsConfig: {
+        ...emptySettingsConfig(),
         providers: [makeConfigured("ollama", { kind: "local", base_url: "http://127.0.0.1:11434/v1" })],
       },
       providers: [makeStatus("ollama", { kind: "local", healthy: true, status: "healthy" })],
@@ -368,8 +368,8 @@ describe("ProvidersView edit modal", () => {
     const state = createRuntimeConsoleFixture({
       session: localSession,
       providerPresets: presets,
-      controlPlaneConfig: {
-        ...emptyControlPlaneConfig(),
+      settingsConfig: {
+        ...emptySettingsConfig(),
         providers: [makeConfigured("ollama", { kind: "local", default_model: "m1" })],
       },
       providers: [makeStatus("ollama", { kind: "local", healthy: true, status: "healthy", models: ["m1", "m2"], model_count: 2 })],
@@ -390,8 +390,8 @@ describe("ProvidersView table renders", () => {
     const state = createRuntimeConsoleFixture({
       session: localSession,
       providerPresets: presets,
-      controlPlaneConfig: {
-        ...emptyControlPlaneConfig(),
+      settingsConfig: {
+        ...emptySettingsConfig(),
         providers: [
           makeConfigured("anthropic", { kind: "cloud", credential_configured: true }),
           makeConfigured("ollama", { kind: "local" }),
@@ -423,8 +423,8 @@ describe("ProvidersView table renders", () => {
     const state = createRuntimeConsoleFixture({
       session: localSession,
       providerPresets: presets,
-      controlPlaneConfig: {
-        ...emptyControlPlaneConfig(),
+      settingsConfig: {
+        ...emptySettingsConfig(),
         providers: [makeConfigured("ollama", { base_url: "http://127.0.0.1:11434/v1" })],
       },
       providers: [makeStatus("ollama")],
@@ -463,8 +463,8 @@ describe("ProvidersView table renders", () => {
     const state = createRuntimeConsoleFixture({
       session: localSession,
       providerPresets: presets,
-      controlPlaneConfig: {
-        ...emptyControlPlaneConfig(),
+      settingsConfig: {
+        ...emptySettingsConfig(),
         providers: [makeConfigured("llama-cpp", { name: "llama.cpp", base_url: "http://127.0.0.1:9090/v1" })],
       },
       providers: [makeStatus("llama-cpp")],
@@ -492,8 +492,8 @@ describe("ProvidersView table renders", () => {
     const state = createRuntimeConsoleFixture({
       session: localSession,
       providerPresets: presets,
-      controlPlaneConfig: {
-        ...emptyControlPlaneConfig(),
+      settingsConfig: {
+        ...emptySettingsConfig(),
         providers: [
           makeConfigured("anthropic-dev", {
             name: "Anthropic",
@@ -548,7 +548,7 @@ describe("ProvidersView table renders", () => {
     const state = createRuntimeConsoleFixture({
       session: localSession,
       providerPresets: presets,
-      controlPlaneConfig: emptyControlPlaneConfig(),
+      settingsConfig: emptySettingsConfig(),
     });
     const actions = createRuntimeConsoleActions();
 
@@ -575,7 +575,7 @@ describe("ProvidersView table renders", () => {
     const state = createRuntimeConsoleFixture({
       session: localSession,
       providerPresets: presets,
-      controlPlaneConfig: emptyControlPlaneConfig(),
+      settingsConfig: emptySettingsConfig(),
     });
     const actions = createRuntimeConsoleActions();
     const initialDiscoveryCalls = vi.mocked(discoverLocalProviders).mock.calls.length;
@@ -632,7 +632,7 @@ describe("ProvidersView table renders", () => {
     const state = createRuntimeConsoleFixture({
       session: localSession,
       providerPresets: presets,
-      controlPlaneConfig: emptyControlPlaneConfig(),
+      settingsConfig: emptySettingsConfig(),
       providers: [],
     });
 
@@ -653,8 +653,8 @@ describe("ProvidersView table renders", () => {
     const state = createRuntimeConsoleFixture({
       session: localSession,
       providerPresets: presets,
-      controlPlaneConfig: {
-        ...emptyControlPlaneConfig(),
+      settingsConfig: {
+        ...emptySettingsConfig(),
         providers: [makeConfigured("ollama")],
       },
       providers: [

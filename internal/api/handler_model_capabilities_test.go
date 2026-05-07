@@ -90,7 +90,7 @@ func newModelCapabilityTestHandler(t *testing.T) http.Handler {
 			Models:       []string{"llama3.1:8b"},
 		},
 	}
-	return newTestHTTPHandlerWithControlPlane(logger, []providers.Provider{provider}, config.Config{}, cpStore)
+	return newTestHTTPHandlerWithSettings(logger, []providers.Provider{provider}, config.Config{}, cpStore)
 }
 
 func modelCapabilitiesFromModels(t *testing.T, models OpenAIModelsResponse, modelID string) map[string]any {

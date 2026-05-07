@@ -70,7 +70,7 @@ export function ProvidersView({ state, actions }: Props) {
   // either at least one configured provider, or the Add modal is open
   // (so a freshly-added provider's models surface immediately). Otherwise
   // /hecate/v1/providers/status + /v1/models are no-op network calls; skip them.
-  const hasProviders = (state.controlPlaneConfig?.providers?.length ?? 0) > 0;
+  const hasProviders = (state.settingsConfig?.providers?.length ?? 0) > 0;
   const shouldPoll = hasProviders || addProviderOpen;
   useEffect(() => {
     if (!shouldPoll) return;
@@ -102,12 +102,12 @@ export function ProvidersView({ state, actions }: Props) {
   // Dedupe by id at the source. The backend rejects duplicate IDs at
   // create time, so this should already be unique — but a stale fetch
   // overlapping a create can briefly surface the same id twice in
-  // controlPlaneConfig.providers, and React's "same key" warning fires before
+  // settingsConfig.providers, and React's "same key" warning fires before
   // the next render reconciles. First write wins.
   const configuredProviders = (() => {
     const seen = new Set<string>();
-    const out: NonNullable<typeof state.controlPlaneConfig>["providers"] = [];
-    for (const p of state.controlPlaneConfig?.providers ?? []) {
+    const out: NonNullable<typeof state.settingsConfig>["providers"] = [];
+    for (const p of state.settingsConfig?.providers ?? []) {
       if (seen.has(p.id)) continue;
       seen.add(p.id);
       out.push(p);

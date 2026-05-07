@@ -72,7 +72,7 @@ export function AddProviderModal({ open, state, actions, onClose }: Props) {
 
   const localPresets = state.providerPresets.filter(p => p.kind === "local");
   const cloudPresets = state.providerPresets.filter(p => p.kind === "cloud");
-  const configuredProviders = state.controlPlaneConfig?.providers ?? [];
+  const configuredProviders = state.settingsConfig?.providers ?? [];
 
   function close() {
     onClose();

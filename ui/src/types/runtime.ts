@@ -859,7 +859,7 @@ export type PricebookImportDiffResponse = {
   data: PricebookImportDiff;
 };
 
-// PricebookEntryUpsertPayload mirrors the backend ControlPlanePricebookRecord
+// PricebookEntryUpsertPayload mirrors the backend SettingsPricebookRecord
 // type alias used as the upsert request body.
 export type PricebookEntryUpsertPayload = {
   provider: string;

@@ -69,7 +69,7 @@ export function TasksView({
   // Provider catalog feeds the new-task slideover's provider picker
   // and the model picker's per-row "(provider name)" suffix. Loaded
   // once on mount alongside models — the catalog rarely changes
-  // mid-session, so the simple one-shot fetch is enough; control-plane
+  // mid-session, so the simple one-shot fetch is enough; settings
   // changes (enabling/disabling a provider) take effect after the
   // operator opens a new tab or refreshes.
   const [availableProviders, setAvailableProviders] = useState<ProviderRecord[]>([]);

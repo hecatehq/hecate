@@ -10,7 +10,7 @@ import (
 )
 
 func (h *Handler) HandleUpsertModelCapabilityOverride(w http.ResponseWriter, r *http.Request) {
-	if !h.requireControlPlane(w, r) {
+	if !h.requireSettings(w, r) {
 		return
 	}
 	req, ok := decodeModelCapabilityRequest(w, r)
@@ -31,7 +31,7 @@ func (h *Handler) HandleUpsertModelCapabilityOverride(w http.ResponseWriter, r *
 }
 
 func (h *Handler) HandleDeleteModelCapabilityOverride(w http.ResponseWriter, r *http.Request) {
-	if !h.requireControlPlane(w, r) {
+	if !h.requireSettings(w, r) {
 		return
 	}
 	provider := strings.TrimSpace(r.URL.Query().Get("provider"))
@@ -48,7 +48,7 @@ func (h *Handler) HandleDeleteModelCapabilityOverride(w http.ResponseWriter, r *
 }
 
 func (h *Handler) HandleRecordModelCapabilityProbe(w http.ResponseWriter, r *http.Request) {
-	if !h.requireControlPlane(w, r) {
+	if !h.requireSettings(w, r) {
 		return
 	}
 	req, ok := decodeModelCapabilityRequest(w, r)

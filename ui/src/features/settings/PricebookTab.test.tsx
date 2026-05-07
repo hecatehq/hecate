@@ -49,7 +49,7 @@ const presets = [
 const emptyDiff: PricebookImportDiff = { fetched_at: "2026", added: [], updated: [], skipped: [], unchanged: 0 };
 
 function setup(overrides: Record<string, unknown> = {}, actionOverrides: Record<string, unknown> = {}) {
-  const controlPlaneConfig = {
+  const settingsConfig = {
     backend: "memory",
             providers: [],
     policy_rules: [],
@@ -58,7 +58,7 @@ function setup(overrides: Record<string, unknown> = {}, actionOverrides: Record<
   };
   const state = createRuntimeConsoleFixture({
     session: localSession,
-    controlPlaneConfig: controlPlaneConfig as unknown as ReturnType<typeof createRuntimeConsoleFixture>["controlPlaneConfig"],
+    settingsConfig: settingsConfig as unknown as ReturnType<typeof createRuntimeConsoleFixture>["settingsConfig"],
     providerPresets: presets as unknown as ReturnType<typeof createRuntimeConsoleFixture>["providerPresets"],
     ...overrides,
   });
@@ -220,11 +220,11 @@ describe("PricebookTab unified rows", () => {
     ];
     const { state, actions } = setup({
       models,
-      controlPlaneConfig: {
+      settingsConfig: {
         backend: "memory",
         providers: [], policy_rules: [], events: [],
         pricebook: [],
-      } as unknown as ReturnType<typeof createRuntimeConsoleFixture>["controlPlaneConfig"],
+      } as unknown as ReturnType<typeof createRuntimeConsoleFixture>["settingsConfig"],
     });
     render(<PricebookTab state={state} actions={actions} />);
     expect(screen.getByText("gpt-4o")).toBeTruthy();
@@ -254,11 +254,11 @@ describe("PricebookTab unified rows", () => {
     ];
     const { state, actions } = setup({
       models,
-      controlPlaneConfig: {
+      settingsConfig: {
         backend: "memory",
         providers: [], policy_rules: [], events: [],
         pricebook: [],
-      } as unknown as ReturnType<typeof createRuntimeConsoleFixture>["controlPlaneConfig"],
+      } as unknown as ReturnType<typeof createRuntimeConsoleFixture>["settingsConfig"],
     });
     render(<PricebookTab state={state} actions={actions} />);
 
@@ -290,7 +290,7 @@ describe("PricebookTab unified rows", () => {
       { id: "gpt-4o-mini", owned_by: "openai", metadata: { provider: "openai", provider_kind: "cloud", default: true } },
       { id: "llama-3.1-8b", owned_by: "ollama", metadata: { provider: "ollama", provider_kind: "local", default: false } },
     ];
-    const controlPlaneConfig = {
+    const settingsConfig = {
       backend: "memory",
       providers: [], policy_rules: [], events: [],
       pricebook: [
@@ -307,7 +307,7 @@ describe("PricebookTab unified rows", () => {
     };
     const { state, actions } = setup({
       models,
-      controlPlaneConfig: controlPlaneConfig as unknown as ReturnType<typeof createRuntimeConsoleFixture>["controlPlaneConfig"],
+      settingsConfig: settingsConfig as unknown as ReturnType<typeof createRuntimeConsoleFixture>["settingsConfig"],
     });
     render(<PricebookTab state={state} actions={actions} />);
     expect(screen.queryByText("llama-3.1-8b")).toBeNull();
@@ -319,11 +319,11 @@ describe("PricebookTab unified rows", () => {
   it("shows the 'no models' empty state when both catalog and pricebook are empty", () => {
     const { state, actions } = setup({
       models: [],
-      controlPlaneConfig: {
+      settingsConfig: {
         backend: "memory",
         providers: [], policy_rules: [], events: [],
         pricebook: [],
-      } as unknown as ReturnType<typeof createRuntimeConsoleFixture>["controlPlaneConfig"],
+      } as unknown as ReturnType<typeof createRuntimeConsoleFixture>["settingsConfig"],
     });
     render(<PricebookTab state={state} actions={actions} />);
     expect(screen.getByText(/No models known to the gateway/i)).toBeTruthy();
@@ -340,7 +340,7 @@ describe("PricebookTab filters", () => {
       { id: "claude-sonnet-4-6", owned_by: "anthropic", metadata: { provider: "anthropic", provider_kind: "cloud", default: false } },
       { id: "gemini-3.0-pro", owned_by: "gemini", metadata: { provider: "gemini", provider_kind: "cloud", default: false } },
     ];
-    const controlPlaneConfig = {
+    const settingsConfig = {
       backend: "memory",
       providers: [], policy_rules: [], events: [],
       pricebook: [
@@ -356,7 +356,7 @@ describe("PricebookTab filters", () => {
     };
     return setup({
       models,
-      controlPlaneConfig: controlPlaneConfig as unknown as ReturnType<typeof createRuntimeConsoleFixture>["controlPlaneConfig"],
+      settingsConfig: settingsConfig as unknown as ReturnType<typeof createRuntimeConsoleFixture>["settingsConfig"],
     });
   }
 
@@ -472,11 +472,11 @@ describe("PricebookTab inline actions", () => {
     const { state, actions, user } = setup(
       {
         models,
-        controlPlaneConfig: {
+        settingsConfig: {
           backend: "memory",
           providers: [], policy_rules: [], events: [],
           pricebook: [],
-        } as unknown as ReturnType<typeof createRuntimeConsoleFixture>["controlPlaneConfig"],
+        } as unknown as ReturnType<typeof createRuntimeConsoleFixture>["settingsConfig"],
       },
       { upsertPricebookEntry },
     );
@@ -527,7 +527,7 @@ describe("PricebookTab inline actions", () => {
       skipped: [{ entry: litellmProposal, previous: manualRow }],
       unchanged: 0,
     } as PricebookImportDiff));
-    const controlPlaneConfig = {
+    const settingsConfig = {
       backend: "memory",
       providers: [], policy_rules: [], events: [],
       pricebook: [manualRow],
@@ -536,7 +536,7 @@ describe("PricebookTab inline actions", () => {
       { id: "gpt-4o-mini", owned_by: "openai", metadata: { provider: "openai", provider_kind: "cloud", default: true } },
     ];
     const { state, actions, user } = setup(
-      { models, controlPlaneConfig: controlPlaneConfig as unknown as ReturnType<typeof createRuntimeConsoleFixture>["controlPlaneConfig"] },
+      { models, settingsConfig: settingsConfig as unknown as ReturnType<typeof createRuntimeConsoleFixture>["settingsConfig"] },
       { applyPricebookImport, previewPricebookImport },
     );
     render(<PricebookTab state={state} actions={actions} />);
@@ -568,11 +568,11 @@ describe("PricebookTab inline actions", () => {
     const { state, actions, user } = setup(
       {
         models,
-        controlPlaneConfig: {
+        settingsConfig: {
           backend: "memory",
           providers: [], policy_rules: [], events: [],
           pricebook: [],
-        } as unknown as ReturnType<typeof createRuntimeConsoleFixture>["controlPlaneConfig"],
+        } as unknown as ReturnType<typeof createRuntimeConsoleFixture>["settingsConfig"],
       },
       { applyPricebookImport, previewPricebookImport },
     );
@@ -621,7 +621,7 @@ function setupForConsent(opts: {
   applyPricebookImport?: (keys: string[]) => Promise<PricebookImportDiff>;
 }) {
   const { models = [], currentPricebook = [], diff, applyPricebookImport } = opts;
-  const controlPlaneConfig = {
+  const settingsConfig = {
     backend: "memory",
     policy_rules: [], events: [],
     providers: [],
@@ -629,7 +629,7 @@ function setupForConsent(opts: {
   };
   const previewPricebookImport = vi.fn(async () => diff);
   return setup(
-    { models, controlPlaneConfig: controlPlaneConfig as unknown as ReturnType<typeof createRuntimeConsoleFixture>["controlPlaneConfig"] },
+    { models, settingsConfig: settingsConfig as unknown as ReturnType<typeof createRuntimeConsoleFixture>["settingsConfig"] },
     {
       previewPricebookImport,
       ...(applyPricebookImport ? { applyPricebookImport: vi.fn(applyPricebookImport) } : {}),

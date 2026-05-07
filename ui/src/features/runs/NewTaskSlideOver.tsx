@@ -629,7 +629,7 @@ export function NewTaskSlideOver({
                         <textarea
                           className="input"
                           aria-label={`MCP server ${i + 1} environment`}
-                          placeholder="env (KEY=VALUE per line — encrypted at rest when a control-plane key is configured; $VAR_NAME refers to gateway env)"
+                          placeholder="env (KEY=VALUE per line — encrypted at rest when a settings key is configured; $VAR_NAME refers to gateway env)"
                           rows={2}
                           style={{ resize: "vertical" }}
                           value={entry.envRaw}

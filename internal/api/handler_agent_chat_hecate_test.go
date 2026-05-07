@@ -36,7 +36,7 @@ func TestHecateAgentChatCreatesVisibleTaskAndContinuesSameTask(t *testing.T) {
 			Usage: types.Usage{PromptTokens: 10, CompletionTokens: 4, TotalTokens: 14},
 		},
 	}
-	apiHandler := newTestAPIHandlerWithControlPlane(logger, []providers.Provider{provider}, config.Config{}, controlplane.NewMemoryStore())
+	apiHandler := newTestAPIHandlerWithSettings(logger, []providers.Provider{provider}, config.Config{}, controlplane.NewMemoryStore())
 	handler := NewServer(logger, apiHandler)
 	client := newTaskTestClient(t, handler)
 	workspace := t.TempDir()
@@ -337,7 +337,7 @@ func TestHecateChatCanSwitchBetweenModelAndToolsSegments(t *testing.T) {
 			Usage: types.Usage{PromptTokens: 8, CompletionTokens: 3, TotalTokens: 11},
 		},
 	}
-	apiHandler := newTestAPIHandlerWithControlPlane(logger, []providers.Provider{provider}, config.Config{}, controlplane.NewMemoryStore())
+	apiHandler := newTestAPIHandlerWithSettings(logger, []providers.Provider{provider}, config.Config{}, controlplane.NewMemoryStore())
 	handler := NewServer(logger, apiHandler)
 	client := newTaskTestClient(t, handler)
 	workspace := t.TempDir()
@@ -446,7 +446,7 @@ func TestHecateAgentNewSegmentLivePlaceholderDoesNotBorrowPreviousTask(t *testin
 			Usage: types.Usage{PromptTokens: 8, CompletionTokens: 3, TotalTokens: 11},
 		},
 	}
-	apiHandler := newTestAPIHandlerWithControlPlane(logger, []providers.Provider{provider}, config.Config{}, controlplane.NewMemoryStore())
+	apiHandler := newTestAPIHandlerWithSettings(logger, []providers.Provider{provider}, config.Config{}, controlplane.NewMemoryStore())
 	handler := NewServer(logger, apiHandler)
 	client := newTaskTestClient(t, handler)
 	workspace := t.TempDir()
@@ -724,7 +724,7 @@ func TestHecateAgentChatRejectsDisabledToolCapability(t *testing.T) {
 			Models:       []string{"llama3.1:8b"},
 		},
 	}
-	handler := newTestHTTPHandlerWithControlPlane(logger, []providers.Provider{provider}, config.Config{}, cpStore)
+	handler := newTestHTTPHandlerWithSettings(logger, []providers.Provider{provider}, config.Config{}, cpStore)
 	client := newTaskTestClient(t, handler)
 	workspace := t.TempDir()
 

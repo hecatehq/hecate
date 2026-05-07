@@ -68,8 +68,8 @@ export const MOCK_AGENT_ADAPTERS = [
 
 // New model: providers are explicit. The list starts empty and stays empty
 // until the operator adds at least one via POST /hecate/v1/settings/providers.
-// Tests that need an existing provider opt into MOCK_ADMIN_CONFIG_WITH_PROVIDERS.
-export const MOCK_ADMIN_CONFIG = {
+// Tests that need an existing provider opt into MOCK_SETTINGS_CONFIG_WITH_PROVIDERS.
+export const MOCK_SETTINGS_CONFIG = {
   providers: [] as Array<{
     id: string;
     name: string;
@@ -87,13 +87,13 @@ export const MOCK_ADMIN_CONFIG = {
   policy_rules: [],
 };
 
-// MOCK_ADMIN_CONFIG_WITH_PROVIDERS — opt-in fixture for tests that need a
+// MOCK_SETTINGS_CONFIG_WITH_PROVIDERS — opt-in fixture for tests that need a
 // pre-populated provider table (chat surfaces, lifecycle integration). Two
 // cloud providers (one with a configured credential, one without) and one
 // local provider. Each carries its preset_id so the edit modal hides the
 // Name field (preset names are fixed) and the operator reaches for
 // custom_name to disambiguate.
-export const MOCK_ADMIN_CONFIG_WITH_PROVIDERS = {
+export const MOCK_SETTINGS_CONFIG_WITH_PROVIDERS = {
   providers: [
     { id: "anthropic", name: "Anthropic", preset_id: "anthropic", kind: "cloud", protocol: "anthropic", base_url: "https://api.anthropic.com/v1", enabled: true, credential_configured: true,  credential_source: "vault" },
     { id: "openai",    name: "OpenAI",    preset_id: "openai",    kind: "cloud", protocol: "openai",    base_url: "https://api.openai.com/v1",    enabled: true, credential_configured: true,  credential_source: "vault" },
@@ -116,7 +116,7 @@ export const MOCK_FULL_PRESETS = [
   { id: "localai",   name: "LocalAI",   kind: "local", protocol: "openai", base_url: "http://127.0.0.1:8080/v1",      description: "Local inference via LocalAI." },
 ];
 
-// slugify mirrors the backend's slugify in handler_controlplane.go: lowercase,
+// slugify mirrors the backend's slugify in handler_settings.go: lowercase,
 // non-alphanumeric → "-", strip leading/trailing "-". Used to derive provider
 // IDs at fixture-mock time so the in-memory list mirrors real backend state.
 function slugify(name: string): string {
@@ -125,13 +125,13 @@ function slugify(name: string): string {
 
 // ── Route mocking ─────────────────────────────────────────────────────────────
 
-type AdminConfig = typeof MOCK_ADMIN_CONFIG_WITH_PROVIDERS;
+type SettingsConfig = typeof MOCK_SETTINGS_CONFIG_WITH_PROVIDERS;
 
 export type GatewayMockOptions = {
-  // Seed the admin-config /hecate/v1/settings response. Defaults to the
+  // Seed the /hecate/v1/settings response. Defaults to the
   // empty list — tests that need a populated table pass
-  // MOCK_ADMIN_CONFIG_WITH_PROVIDERS (or any custom shape).
-  adminConfig?: AdminConfig;
+  // MOCK_SETTINGS_CONFIG_WITH_PROVIDERS (or any custom shape).
+  settingsConfig?: SettingsConfig;
 };
 
 export async function mockGatewayAPIs(page: Page, opts: GatewayMockOptions = {}) {
@@ -143,7 +143,7 @@ export async function mockGatewayAPIs(page: Page, opts: GatewayMockOptions = {})
 
   // Stateful clone — POST/DELETE/PATCH mutate this in place so a single
   // test can add → list → delete in one flow without re-mocking.
-  const state: AdminConfig = JSON.parse(JSON.stringify(opts.adminConfig ?? MOCK_ADMIN_CONFIG));
+  const state: SettingsConfig = JSON.parse(JSON.stringify(opts.settingsConfig ?? MOCK_SETTINGS_CONFIG));
 
   await page.route("/healthz", r => r.fulfill(ok({ status: "ok", time: "2026-04-25T00:00:00Z" })));
 
@@ -276,7 +276,7 @@ export async function mockGatewayAPIs(page: Page, opts: GatewayMockOptions = {})
       };
       state.providers.push(record);
       await route.fulfill({ status: 201, contentType: "application/json",
-        body: JSON.stringify({ object: "control_plane_provider", data: record }) });
+        body: JSON.stringify({ object: "settings_provider", data: record }) });
       return;
     }
     await route.continue();
@@ -302,7 +302,7 @@ export async function mockGatewayAPIs(page: Page, opts: GatewayMockOptions = {})
         }
       }
       await route.fulfill({ status: 200, contentType: "application/json",
-        body: JSON.stringify({ object: "control_plane_provider_api_key", data: { id, status: body.key ? "set" : "cleared" } }) });
+        body: JSON.stringify({ object: "settings_provider_api_key", data: { id, status: body.key ? "set" : "cleared" } }) });
       return;
     }
 
@@ -310,7 +310,7 @@ export async function mockGatewayAPIs(page: Page, opts: GatewayMockOptions = {})
       const idx = state.providers.findIndex(p => p.id === id);
       if (idx >= 0) state.providers.splice(idx, 1);
       await route.fulfill({ status: 200, contentType: "application/json",
-        body: JSON.stringify({ object: "control_plane_provider", id, deleted: true }) });
+        body: JSON.stringify({ object: "settings_provider", id, deleted: true }) });
       return;
     }
 
@@ -322,7 +322,7 @@ export async function mockGatewayAPIs(page: Page, opts: GatewayMockOptions = {})
         if (typeof body.base_url === "string" && body.base_url.trim() !== "") target.base_url = body.base_url.trim();
       }
       await route.fulfill({ status: 200, contentType: "application/json",
-        body: JSON.stringify({ object: "control_plane_provider", data: target ?? null }) });
+        body: JSON.stringify({ object: "settings_provider", data: target ?? null }) });
       return;
     }
 
@@ -381,7 +381,7 @@ export async function mockGatewayAPIs(page: Page, opts: GatewayMockOptions = {})
       return;
     }
     await route.fulfill(ok({
-      object: "control_plane_pricebook_import_diff",
+      object: "settings_pricebook_import_diff",
       data: emptyPricebookImportDiff,
     }));
   });
@@ -392,7 +392,7 @@ export async function mockGatewayAPIs(page: Page, opts: GatewayMockOptions = {})
       return;
     }
     await route.fulfill(ok({
-      object: "control_plane_pricebook_import_diff",
+      object: "settings_pricebook_import_diff",
       data: emptyPricebookImportDiff,
     }));
   });

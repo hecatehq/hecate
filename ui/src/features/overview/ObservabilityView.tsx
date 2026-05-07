@@ -285,7 +285,7 @@ export function ObservabilityView({ state, onNavigate, focusRequest }: Props) {
   const traceTimeline = traceDetail?.spans?.length ? buildTraceTimeline(traceDetail.spans, traceDetail.started_at) : [];
 
   const providerOptions = useMemo(() => {
-    const configured = state.controlPlaneConfig?.providers ?? [];
+    const configured = state.settingsConfig?.providers ?? [];
     if (configured.length > 0) {
       return configured.map(c => ({
         id: c.id,
@@ -298,7 +298,7 @@ export function ObservabilityView({ state, onNavigate, focusRequest }: Props) {
       name: state.providerPresets.find(pr => pr.id === p.name)?.name || p.name,
       kind: p.kind,
     }));
-  }, [state.controlPlaneConfig, state.providers, state.providerPresets]);
+  }, [state.settingsConfig, state.providers, state.providerPresets]);
 
   const drawerTitle = selectedTrace
     ? `${(selectedTrace.request_id || "").slice(0, 8)}… · ${selectedTrace.route?.final_provider || "—"}/${selectedTrace.route?.final_model || "—"}`

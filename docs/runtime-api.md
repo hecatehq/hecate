@@ -6,8 +6,28 @@ For the high-level execution flow (lease semantics, sandbox boundary, event sequ
 
 > Contributing here? Start at [`AGENTS.md`](../AGENTS.md) for the codebase map and runtime invariants; conventions, workflow, and verification ladders live under [`docs-ai/`](../docs-ai/README.md).
 
+## API namespaces
+
+Hecate serves three intentionally separate HTTP surfaces:
+
+| Namespace | Purpose |
+|---|---|
+| `/v1/*` | Provider-compatible protocol ingress. These paths stay OpenAI- or Anthropic-shaped so existing SDKs can point at Hecate without learning Hecate-specific URLs. Today that means `GET /v1/models`, `POST /v1/chat/completions`, and `POST /v1/messages`. |
+| `/hecate/v1/*` | Hecate-native product API: tasks, Hecate Chat sessions, external-agent adapters, settings, costs, traces, events, and system operations. Operator UI, MCP tools, ACP bridge, and Hecate-aware clients should use this namespace. |
+| `/healthz` | Unversioned process liveness for local scripts, desktop sidecars, and load balancers. It is intentionally tiny and not wrapped in the normal `{object,data}` API envelope. |
+
+OTLP collector/export endpoints keep their standard protocol paths
+(`/v1/traces`, `/v1/metrics`, `/v1/logs`) when Hecate is configured to export to
+an OpenTelemetry collector. Those are not Hecate product resources. Hecate's
+local trace lookup for the operator UI is `GET /hecate/v1/traces`.
+
+Legacy Hecate-native `/v1/*` and `/admin/*` paths are intentionally not kept as
+compatibility shims in this alpha branch. Unknown API-shaped paths return 404
+rather than falling through to the embedded UI shell.
+
 ## Contents
 
+- [API namespaces](#api-namespaces)
 - [Core resources](#core-resources)
   - [Task fields](#task-fields)
   - [Run fields](#run-fields)

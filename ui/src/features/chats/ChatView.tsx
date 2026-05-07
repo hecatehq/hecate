@@ -189,13 +189,13 @@ export function ChatView({ state, actions, onNavigate, onOpenTask, onOpenTrace }
   const activeAgentAdapterID = state.activeAgentChatSession?.adapter_id || state.agentAdapterID;
   const selectedAgent = state.agentAdapters.find((adapter) => adapter.id === activeAgentAdapterID);
   const availableAgents = state.agentAdapters.filter((adapter) => adapter.available);
-  const configuredProviders = state.controlPlaneConfig?.providers ?? [];
-  const providerConfigLoaded = state.controlPlaneConfig !== null;
+  const configuredProviders = state.settingsConfig?.providers ?? [];
+  const providerConfigLoaded = state.settingsConfig !== null;
   const selectableModels = (() => {
     // Scope the model list to providers the operator has explicitly
     // configured. The /v1/models endpoint may return models from
     // env-driven providers too, but those aren't routable from Chats
-    // unless the control-plane store knows about them.
+    // unless the settings store knows about them.
     if (!providerConfigLoaded) return state.providerScopedModels;
     if (configuredProviders.length === 0) return [];
     const ids = new Set(configuredProviders.map(c => c.id));
@@ -719,7 +719,7 @@ export function ChatView({ state, actions, onNavigate, onOpenTask, onOpenTrace }
                       // (the CP store), not the runtime status list. Health is not
                       // a filter — a temporarily-down provider is still a valid
                       // selection.
-                      const configured = state.controlPlaneConfig?.providers ?? [];
+                      const configured = state.settingsConfig?.providers ?? [];
                       const source = configured.length > 0
                         ? configured.map(c => ({ id: c.id, name: c.name, kind: c.kind }))
                         : state.providers
@@ -728,7 +728,7 @@ export function ChatView({ state, actions, onNavigate, onOpenTask, onOpenTrace }
 
                       return source
                         .map(p => {
-                          const cfg = state.controlPlaneConfig?.providers.find(c => c.id === p.id);
+                          const cfg = state.settingsConfig?.providers.find(c => c.id === p.id);
                           // Cloud-with-no-credentials is the only "disabled"
                           // reason left now that the toggle is gone — we
                           // surface it as a tooltip + key icon rather than
@@ -753,7 +753,7 @@ export function ChatView({ state, actions, onNavigate, onOpenTask, onOpenTrace }
                     // Scope the model list to providers the operator has explicitly
                     // configured. The /v1/models endpoint may return models from
                     // env-driven providers too (e.g. Docker's PROVIDER_*_BASE_URL
-                    // pre-filled vars), but those aren't in controlPlaneConfig.providers
+                    // pre-filled vars), but those aren't in settingsConfig.providers
                     // and shouldn't be selectable from the chat picker.
                     models={selectableModels}
                     presets={state.providerPresets}
@@ -769,7 +769,7 @@ export function ChatView({ state, actions, onNavigate, onOpenTask, onOpenTrace }
                     // only "disabled" reason now that the toggle is gone.
                     disabledProviders={(() => {
                       const out = new Map<string, string>();
-                      for (const cfg of state.controlPlaneConfig?.providers ?? []) {
+                      for (const cfg of state.settingsConfig?.providers ?? []) {
                         if (cfg.kind === "cloud" && !cfg.credential_configured) {
                           out.set(cfg.id, `Add an API key for ${cfg.name || cfg.id} on the Providers tab`);
                         }
@@ -1705,7 +1705,7 @@ function providerLabelForHecateChat(state: RuntimeConsoleViewModel["state"], pro
   if (!providerID || providerID === "auto") {
     return "All providers";
   }
-  return state.controlPlaneConfig?.providers.find(provider => provider.id === providerID)?.name
+  return state.settingsConfig?.providers.find(provider => provider.id === providerID)?.name
     || state.providerPresets.find(preset => preset.id === providerID)?.name
     || state.providers.find(provider => provider.name === providerID)?.name
     || providerID;
@@ -1946,7 +1946,7 @@ function ChatEmptyState({
   selectedAgentUnavailable: boolean;
   hasConfiguredProviders: boolean;
   providerFilter: string;
-  selectedConfiguredProvider?: NonNullable<RuntimeConsoleViewModel["state"]["controlPlaneConfig"]>["providers"][number];
+  selectedConfiguredProvider?: NonNullable<RuntimeConsoleViewModel["state"]["settingsConfig"]>["providers"][number];
   selectedRuntimeProvider?: RuntimeConsoleViewModel["state"]["providers"][number];
   providerPresets: ProviderPresetRecord[];
   quickLocalProviders: LocalProviderDiscoveryRecord[];
@@ -2041,7 +2041,7 @@ function ModelRouteTroubleshooting({
   runtimeProvider,
 }: {
   providerFilter: string;
-  configuredProvider?: NonNullable<RuntimeConsoleViewModel["state"]["controlPlaneConfig"]>["providers"][number];
+  configuredProvider?: NonNullable<RuntimeConsoleViewModel["state"]["settingsConfig"]>["providers"][number];
   runtimeProvider?: RuntimeConsoleViewModel["state"]["providers"][number];
 }) {
   const providerName = providerFilter === "auto"

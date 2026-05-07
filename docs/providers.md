@@ -138,7 +138,7 @@ Every UI action maps to a Hecate-native settings endpoint:
 - `PATCH /hecate/v1/settings/providers/{id}` — partial update; accepts `base_url`, `name`, and `custom_name`.
 - `PUT /hecate/v1/settings/providers/{id}/api-key` — set the API key (empty `key` clears it).
 
-The full surface lives in [`runtime-api.md`](runtime-api.md) and is implemented in [`internal/api/handler_controlplane.go`](../internal/api/handler_controlplane.go). Useful for terraforming a fleet of gateways from a single config source of truth.
+The full surface lives in [`runtime-api.md`](runtime-api.md) and is implemented in [`internal/api/handler_settings.go`](../internal/api/handler_settings.go). Useful for terraforming a fleet of gateways from a single config source of truth.
 
 ## Health and circuit breaking
 

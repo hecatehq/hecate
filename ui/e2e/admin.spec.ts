@@ -53,13 +53,13 @@ test("retention 'Run now' fires POST request", async ({ page }) => {
 });
 
 test("Costs workspace shows the empty ledger state", async ({ page }) => {
-  // Costs sits at shortcut 5 in the admin lineup. Default fixture has
+  // Costs sits at shortcut 5 in the activity bar. Default fixture has
   // no request-ledger entries so the empty state should render.
   await page.keyboard.press("5");
   await expect(page.locator("text=No usage events recorded yet")).toBeVisible();
 });
 
-test("Costs workspace shows the admin-required hint when budget is missing", async ({ page }) => {
+test("Costs workspace shows the settings-required hint when budget is missing", async ({ page }) => {
   await page.route("/hecate/v1/costs/budget*", r => r.fulfill({ status: 404, body: "" }));
   await page.goto("/");
   await page.waitForSelector(".hecate-activitybar");
@@ -91,7 +91,7 @@ test("pricebook import all triggers preview + apply round-trip", async ({ page }
       status: 200,
       contentType: "application/json",
       body: JSON.stringify({
-        object: "control_plane_pricebook_import_diff",
+        object: "settings_pricebook_import_diff",
         data: {
           added: [
             {
@@ -124,7 +124,7 @@ test("pricebook import all triggers preview + apply round-trip", async ({ page }
       status: 200,
       contentType: "application/json",
       body: JSON.stringify({
-        object: "control_plane_pricebook_import_diff",
+        object: "settings_pricebook_import_diff",
         data: {
           added: [],
           updated: [],

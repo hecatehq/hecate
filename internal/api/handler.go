@@ -44,7 +44,7 @@ type Handler struct {
 	rateLimiter              *ratelimit.Store
 	// secretCipher encrypts literal MCP server env values at task-creation
 	// time and wires the matching decrypting factory into the runner. nil
-	// when no control-plane key is configured — values are stored as-is
+	// when no settings key is configured — values are stored as-is
 	// and $VAR_NAME references are the only safe option in that case.
 	secretCipher secrets.Cipher
 	// mcpClientCache amortizes MCP subprocess spawn cost across runs.
@@ -363,7 +363,7 @@ func (h *Handler) reconcileAgentChatStore(ctx context.Context) {
 	}
 }
 
-// SetSecretCipher wires the control-plane AES-GCM cipher into the
+// SetSecretCipher wires the settings AES-GCM cipher into the
 // handler and its underlying runner. The handler uses it to encrypt
 // MCP server env values at task-creation time; the runner passes it
 // to NewDefaultMCPHostFactory so the same key decrypts them at spawn.
@@ -473,7 +473,7 @@ func (h *Handler) HandleModels(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	cpState, err := h.controlPlaneState(ctx)
+	cpState, err := h.settingsState(ctx)
 	if err != nil {
 		WriteError(w, http.StatusInternalServerError, "gateway_error", err.Error())
 		return
@@ -504,26 +504,26 @@ func (h *Handler) HandleModels(w http.ResponseWriter, r *http.Request) {
 	})
 }
 
-// requireControlPlane verifies the control plane is configured and writes a
+// requireSettings verifies the settings backend is configured and writes a
 // 400 on failure. Single-user mode has no auth gate, so the only check left
-// is whether the operator wired up a control-plane store at boot.
-func (h *Handler) requireControlPlane(w http.ResponseWriter, r *http.Request) bool {
+// is whether the operator wired up the internal settings store at boot.
+func (h *Handler) requireSettings(w http.ResponseWriter, r *http.Request) bool {
 	if h.controlPlane == nil {
-		WriteError(w, http.StatusBadRequest, errCodeInvalidRequest, "control plane backend is not configured")
+		WriteError(w, http.StatusBadRequest, errCodeInvalidRequest, "settings backend is not configured")
 		return false
 	}
 	return true
 }
 
-func (h *Handler) controlPlaneState(ctx context.Context) (controlplane.State, error) {
+func (h *Handler) settingsState(ctx context.Context) (controlplane.State, error) {
 	if h.controlPlane == nil {
 		return controlplane.State{}, nil
 	}
 	return h.controlPlane.Snapshot(ctx)
 }
 
-// controlPlaneActor builds an actor string for audit log entries.
-func controlPlaneActor(r *http.Request) string {
+// settingsActor builds an actor string for audit log entries.
+func settingsActor(r *http.Request) string {
 	actor := "operator"
 	requestID := strings.TrimSpace(RequestIDFromContext(r.Context()))
 	if requestID == "" {
