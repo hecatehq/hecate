@@ -103,6 +103,7 @@ type ChatTarget = "model" | "agent" | "external_agent";
 type HecateChatTarget = "model" | "agent";
 type QueuedChatMessage = {
   id: string;
+  session_id: string;
   content: string;
   runtime_kind: ChatTarget;
   provider_filter: ProviderFilter;
@@ -653,9 +654,10 @@ export function useRuntimeConsole() {
     setQueuedChatMessages((current) => current.filter((item) => item.id !== id));
   }
 
-  function buildQueuedChatMessage(content: string, runtimeKind: ChatTarget): QueuedChatMessage {
+  function buildQueuedChatMessage(content: string, runtimeKind: ChatTarget, sessionID: string): QueuedChatMessage {
     return {
       id: `queued-chat-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`,
+      session_id: sessionID,
       content,
       runtime_kind: runtimeKind,
       provider_filter: providerFilter,
@@ -667,8 +669,8 @@ export function useRuntimeConsole() {
     };
   }
 
-  function queueChatMessage(content: string, runtimeKind: ChatTarget) {
-    setQueuedChatMessages((current) => [...current, buildQueuedChatMessage(content, runtimeKind)]);
+  function queueChatMessage(content: string, runtimeKind: ChatTarget, sessionID: string) {
+    setQueuedChatMessages((current) => [...current, buildQueuedChatMessage(content, runtimeKind, sessionID)]);
     setMessage("");
   }
 
@@ -787,7 +789,7 @@ export function useRuntimeConsole() {
 
     const turnRuntimeKind = queued?.runtime_kind ?? (chatTarget === "external_agent" ? "external_agent" : chatTarget === "agent" ? "agent" : "model");
     if (!queued && activeAgentChatSessionID && agentChatSessionIsBusy(activeAgentChatSession)) {
-      queueChatMessage(content, turnRuntimeKind);
+      queueChatMessage(content, turnRuntimeKind, activeAgentChatSessionID);
       return;
     }
 
@@ -811,7 +813,7 @@ export function useRuntimeConsole() {
         return;
       }
 
-      let sessionID = activeAgentChatSessionID;
+      let sessionID = queued?.session_id ?? activeAgentChatSessionID;
       if (sessionID && !activeAgentChatSession) {
         // The server owns chat persistence. If localStorage points at a
         // deleted or unavailable session, start clean instead of making the
@@ -921,7 +923,13 @@ export function useRuntimeConsole() {
     if (agentChatSessionIsBusy(activeAgentChatSession)) {
       return;
     }
-    const next = queuedChatMessages[0];
+    if (!activeAgentChatSessionID) {
+      return;
+    }
+    const next = queuedChatMessages.find((item) => item.session_id === activeAgentChatSessionID);
+    if (!next) {
+      return;
+    }
     setQueuedChatMessages((current) => current.filter((item) => item.id !== next.id));
     void submitAgentChat(next);
   // submitAgentChat deliberately stays out of the dependency list: it
@@ -931,6 +939,7 @@ export function useRuntimeConsole() {
     activeAgentChatSession?.latest_run_id,
     activeAgentChatSession?.status,
     activeAgentChatSession?.updated_at,
+    activeAgentChatSessionID,
     agentChatCancelling,
     chatLoading,
     queuedChatMessages,

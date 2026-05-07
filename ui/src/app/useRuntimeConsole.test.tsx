@@ -580,6 +580,7 @@ describe("useRuntimeConsole", () => {
       expect(messagePostCount).toBe(0);
       expect(result.current.state.message).toBe("");
       expect(result.current.state.queuedChatMessages).toHaveLength(1);
+      expect(result.current.state.queuedChatMessages[0].session_id).toBe("a1");
       expect(result.current.state.queuedChatMessages[0].content).toBe("after this");
 
       sessionStatus = "completed";
@@ -589,6 +590,64 @@ describe("useRuntimeConsole", () => {
 
       await waitFor(() => expect(messagePostCount).toBe(1));
       await waitFor(() => expect(result.current.state.queuedChatMessages).toHaveLength(0));
+    });
+
+    it("does not drain a queued prompt into a different selected chat", async () => {
+      window.localStorage.setItem("hecate.chatTarget", "agent");
+      window.localStorage.setItem("hecate.agentChatSessionID", "a1");
+      window.localStorage.setItem("hecate.agentWorkspace", "/workspace");
+      let messagePostCount = 0;
+      fetchMock.mockImplementation(async (input, init) => {
+        const url = String(input);
+        if (url === "/hecate/v1/agent-chat/sessions") {
+          return jsonResponse({
+            object: "agent_chat_sessions",
+            data: [
+              { id: "a1", title: "Busy chat", runtime_kind: "agent", status: "running", workspace: "/workspace", message_count: 0 },
+              { id: "a2", title: "Idle chat", runtime_kind: "agent", status: "completed", workspace: "/workspace", message_count: 0 },
+            ],
+          });
+        }
+        if (url === "/hecate/v1/agent-chat/sessions/a1") {
+          return jsonResponse({
+            object: "agent_chat_session",
+            data: { id: "a1", title: "Busy chat", runtime_kind: "agent", status: "running", workspace: "/workspace", messages: [], created_at: "2026-04-20T00:00:00Z", updated_at: "2026-04-20T00:00:00Z" },
+          });
+        }
+        if (url === "/hecate/v1/agent-chat/sessions/a2") {
+          return jsonResponse({
+            object: "agent_chat_session",
+            data: { id: "a2", title: "Idle chat", runtime_kind: "agent", status: "completed", workspace: "/workspace", messages: [], created_at: "2026-04-20T00:00:00Z", updated_at: "2026-04-20T00:00:00Z" },
+          });
+        }
+        if (url.endsWith("/messages")) {
+          messagePostCount += 1;
+          void init;
+          return jsonResponse({ object: "agent_chat_session", data: {} });
+        }
+        return defaultBackendMock()(input, init);
+      });
+
+      const { result } = renderHook(() => useRuntimeConsole());
+      await waitFor(() => expect(result.current.state.loading).toBe(false));
+      await waitFor(() => expect(result.current.state.activeAgentChatSession?.id).toBe("a1"));
+
+      act(() => {
+        result.current.actions.setMessage("keep this with a1");
+      });
+      await act(async () => {
+        await result.current.actions.submitChat({ preventDefault: vi.fn() } as any);
+      });
+
+      expect(result.current.state.queuedChatMessages).toHaveLength(1);
+      await act(async () => {
+        await result.current.actions.selectChatSession("a2");
+      });
+
+      await waitFor(() => expect(result.current.state.activeAgentChatSessionID).toBe("a2"));
+      expect(result.current.state.queuedChatMessages).toHaveLength(1);
+      expect(result.current.state.queuedChatMessages[0].session_id).toBe("a1");
+      expect(messagePostCount).toBe(0);
     });
 
     it("keeps the tools toggle scoped to the selected Hecate chat", async () => {

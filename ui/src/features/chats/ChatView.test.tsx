@@ -674,9 +674,11 @@ describe("ChatView input", () => {
     const removeQueuedChatMessage = vi.fn();
     const user = userEvent.setup();
     const { state, actions } = setup({
+      activeAgentChatSessionID: "agent_chat_1",
       queuedChatMessages: [
         {
           id: "queued_1",
+          session_id: "agent_chat_1",
           content: "run tests after this",
           runtime_kind: "agent",
           provider_filter: "ollama",
@@ -695,6 +697,44 @@ describe("ChatView input", () => {
     expect(screen.getByText("run tests after this")).toBeTruthy();
     await user.click(screen.getByRole("button", { name: "Remove queued message 1" }));
     expect(removeQueuedChatMessage).toHaveBeenCalledWith("queued_1");
+  });
+
+  it("only renders queued messages for the active agent chat", () => {
+    const { state, actions } = setup({
+      activeAgentChatSessionID: "agent_chat_active",
+      queuedChatMessages: [
+        {
+          id: "queued_active",
+          session_id: "agent_chat_active",
+          content: "send this here",
+          runtime_kind: "agent",
+          provider_filter: "ollama",
+          model: "qwen2.5-coder",
+          workspace: "/workspace",
+          system_prompt: "",
+          adapter_id: "codex",
+          created_at: "2026-04-20T00:00:00Z",
+        },
+        {
+          id: "queued_other",
+          session_id: "agent_chat_other",
+          content: "not in this chat",
+          runtime_kind: "agent",
+          provider_filter: "ollama",
+          model: "qwen2.5-coder",
+          workspace: "/workspace",
+          system_prompt: "",
+          adapter_id: "codex",
+          created_at: "2026-04-20T00:00:00Z",
+        },
+      ],
+    });
+
+    render(<ChatView state={state} actions={actions} />);
+
+    expect(screen.getByLabelText("Queued messages")).toBeTruthy();
+    expect(screen.getByText("send this here")).toBeTruthy();
+    expect(screen.queryByText("not in this chat")).toBeNull();
   });
 
   it("shows the Hecate Agent sandbox reminder only when tools are enabled", () => {

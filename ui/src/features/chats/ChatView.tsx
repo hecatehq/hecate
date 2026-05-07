@@ -125,6 +125,9 @@ export function ChatView({ state, actions, onNavigate, onOpenTask, onOpenTrace }
   const filteredSessions = filterSidebarSessions(sessions, sidebarQuery);
   const groupedSessions = groupSidebarSessions(filteredSessions);
   const activeSessionID = isAgentChat ? state.activeAgentChatSessionID : state.activeChatSessionID;
+  const activeQueuedChatMessages = isAgentChat && activeSessionID
+    ? state.queuedChatMessages.filter((queued) => queued.session_id === activeSessionID)
+    : [];
   const activeTitle = isAgentChat
     ? state.activeAgentChatSession?.title
     : state.activeChatSession?.title;
@@ -1126,7 +1129,7 @@ export function ChatView({ state, actions, onNavigate, onOpenTask, onOpenTrace }
               </button>
             </div>
           )}
-          {state.queuedChatMessages.length > 0 && (
+          {activeQueuedChatMessages.length > 0 && (
             <div
               aria-label="Queued messages"
               style={{
@@ -1148,7 +1151,7 @@ export function ChatView({ state, actions, onNavigate, onOpenTask, onOpenTrace }
                   will send when the active run finishes
                 </span>
               </div>
-              {state.queuedChatMessages.map((queued, index) => (
+              {activeQueuedChatMessages.map((queued, index) => (
                 <div
                   key={queued.id}
                   style={{
