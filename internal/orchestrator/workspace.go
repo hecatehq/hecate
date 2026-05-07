@@ -21,6 +21,10 @@ func NewWorkspaceManager(root string) *WorkspaceManager {
 	if strings.TrimSpace(root) == "" {
 		root = filepath.Join(os.TempDir(), "hecate-workspaces")
 	}
+	root = filepath.Clean(root)
+	if abs, err := filepath.Abs(root); err == nil {
+		root = abs
+	}
 	return &WorkspaceManager{root: root}
 }
 
@@ -43,11 +47,30 @@ func (m *WorkspaceManager) Provision(ctx context.Context, task types.Task, run t
 		}
 		return source.path, nil
 	}
-	workspacePath := filepath.Join(m.root, task.ID, run.ID)
+	workspacePath, err := m.workspacePath(task.ID, run.ID)
+	if err != nil {
+		return "", err
+	}
 	if err := provisionWorkspaceSource(ctx, workspacePath, source); err != nil {
 		return "", err
 	}
 	return workspacePath, nil
+}
+
+func (m *WorkspaceManager) workspacePath(taskID, runID string) (string, error) {
+	root, err := canonicalWorkspaceRoot(m.root)
+	if err != nil {
+		return "", err
+	}
+	taskSegment, err := workspacePathSegment("task id", taskID)
+	if err != nil {
+		return "", err
+	}
+	runSegment, err := workspacePathSegment("run id", runID)
+	if err != nil {
+		return "", err
+	}
+	return safeJoinWithinRoot(root, filepath.Join(taskSegment, runSegment))
 }
 
 type workspaceSourceSpec struct {
@@ -57,12 +80,8 @@ type workspaceSourceSpec struct {
 
 func workspaceSource(task types.Task) workspaceSourceSpec {
 	for _, candidate := range []string{task.WorkingDirectory, task.Repo} {
-		candidate = strings.TrimSpace(candidate)
-		if candidate == "" || !filepath.IsAbs(candidate) {
-			continue
-		}
-		info, err := os.Stat(candidate)
-		if err != nil || !info.IsDir() {
+		candidate, ok := canonicalWorkspaceDir(candidate)
+		if !ok {
 			continue
 		}
 		if isGitRepository(candidate) {
@@ -88,7 +107,7 @@ func provisionGitWorkspace(ctx context.Context, sourcePath, workspacePath string
 	if err := ensureWorkspaceParent(workspacePath); err != nil {
 		return err
 	}
-	if output, err := exec.CommandContext(ctx, "git", "clone", "--quiet", "--no-hardlinks", sourcePath, workspacePath).CombinedOutput(); err != nil {
+	if output, err := exec.CommandContext(ctx, "git", "clone", "--quiet", "--no-hardlinks", "--", sourcePath, workspacePath).CombinedOutput(); err != nil {
 		return fmt.Errorf("clone workspace: %w: %s", err, string(output))
 	}
 	return nil
@@ -110,7 +129,11 @@ func ensureWorkspaceRoot(workspacePath string) error {
 }
 
 func isGitRepository(path string) bool {
-	info, err := os.Stat(filepath.Join(path, ".git"))
+	gitDir, err := safeJoinWithinRoot(path, ".git")
+	if err != nil {
+		return false
+	}
+	info, err := os.Stat(gitDir)
 	return err == nil && info.IsDir()
 }
 
@@ -127,7 +150,10 @@ func copyDirectory(sourcePath, destinationPath string) error {
 		if err != nil {
 			return err
 		}
-		targetPath := filepath.Join(destinationPath, relativePath)
+		targetPath, err := safeJoinWithinRoot(destinationPath, relativePath)
+		if err != nil {
+			return err
+		}
 
 		info, err := entry.Info()
 		if err != nil {
@@ -149,6 +175,109 @@ func copyDirectory(sourcePath, destinationPath string) error {
 		}
 		return copyFile(path, targetPath, info.Mode())
 	})
+}
+
+func canonicalWorkspaceDir(candidate string) (string, bool) {
+	candidate = strings.TrimSpace(candidate)
+	if candidate == "" || !filepath.IsAbs(candidate) {
+		return "", false
+	}
+	resolved, err := filepath.EvalSymlinks(filepath.Clean(candidate))
+	if err != nil {
+		return "", false
+	}
+	root, err := os.OpenRoot(resolved)
+	if err != nil {
+		return "", false
+	}
+	defer root.Close()
+	info, err := root.Stat(".")
+	if err != nil || !info.IsDir() {
+		return "", false
+	}
+	return resolved, true
+}
+
+func canonicalWorkspaceRoot(root string) (string, error) {
+	root = filepath.Clean(root)
+	if abs, err := filepath.Abs(root); err == nil {
+		root = abs
+	}
+	if err := os.MkdirAll(root, 0o755); err != nil {
+		return "", err
+	}
+	resolved, err := filepath.EvalSymlinks(root)
+	if err != nil {
+		return "", err
+	}
+	info, err := os.Lstat(resolved)
+	if err != nil {
+		return "", err
+	}
+	if info.Mode()&os.ModeSymlink != 0 {
+		return "", fmt.Errorf("workspace root %q resolves to a symlink", root)
+	}
+	if !info.IsDir() {
+		return "", fmt.Errorf("workspace root %q is not a directory", root)
+	}
+	return resolved, nil
+}
+
+func workspacePathSegment(field, value string) (string, error) {
+	value = strings.TrimSpace(value)
+	if value == "" {
+		return "", fmt.Errorf("invalid workspace %s: empty path segment", field)
+	}
+	if value == "." || value == ".." || strings.ContainsAny(value, `/\`) || value != filepath.Base(value) || !filepath.IsLocal(value) {
+		return "", fmt.Errorf("invalid workspace %s %q: must be a single local path segment", field, value)
+	}
+	return value, nil
+}
+
+func safeJoinWithinRoot(root, relativePath string) (string, error) {
+	if !filepath.IsLocal(relativePath) {
+		return "", fmt.Errorf("unsafe relative workspace path %q", relativePath)
+	}
+	root = filepath.Clean(root)
+	target := filepath.Clean(filepath.Join(root, relativePath))
+	rel, err := filepath.Rel(root, target)
+	if err != nil {
+		return "", err
+	}
+	if rel == ".." || strings.HasPrefix(rel, ".."+string(os.PathSeparator)) {
+		return "", fmt.Errorf("workspace path escapes root: %q", relativePath)
+	}
+	if err := rejectExistingSymlinkComponents(root, rel); err != nil {
+		return "", err
+	}
+	return target, nil
+}
+
+func rejectExistingSymlinkComponents(root, relativePath string) error {
+	rootDir, err := os.OpenRoot(root)
+	if err != nil {
+		return err
+	}
+	defer rootDir.Close()
+
+	current := "."
+	for _, segment := range strings.Split(relativePath, string(os.PathSeparator)) {
+		if segment == "" || segment == "." {
+			continue
+		}
+		current = filepath.Join(current, segment)
+		info, err := rootDir.Lstat(current)
+		if os.IsNotExist(err) {
+			return nil
+		}
+		if err != nil {
+			return err
+		}
+		if info.Mode()&os.ModeSymlink != 0 {
+			return fmt.Errorf("workspace path uses symlink component %q", filepath.Join(root, current))
+		}
+	}
+	return nil
 }
 
 func copyFile(sourcePath, destinationPath string, mode fs.FileMode) error {

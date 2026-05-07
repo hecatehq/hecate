@@ -4,8 +4,9 @@ Open-source AI gateway and agent-task runtime. The gateway mediates
 OpenAI- and Anthropic-shaped client traffic to upstream providers, runs
 queued `agent_loop` tasks behind policy and approval gates, and emits
 OpenTelemetry traces. Gateway-local, deny-by-default, storage-tiered
-(memory / sqlite). Binds to 127.0.0.1 by default; no built-in auth
-layer. The React operator UI is embedded via `//go:embed ui/dist`.
+(memory / sqlite). Binds to 127.0.0.1 by default and is intended to run as
+a local operator console. The React operator UI is embedded via
+`//go:embed ui/dist`.
 
 This file is the orientation entry — the codebase map, the runtime
 invariants, and the gotchas that bite often. It is what an agent
@@ -67,7 +68,7 @@ internal/
   retention/            retention worker (subsystems: traces, budget, audit, provider_history, turn_events)
   mcp/                  stdio MCP server (read tools + write tools)
   controlplane/         providers, pricing, settings (admin surface state)
-  auth/                 local operator principal / no-auth request context
+  auth/                 local operator principal request context
   ratelimit/            per-key request limits
   requestscope/         per-request principal + tracing context
   config/, bootstrap/   env-driven config + startup wiring
@@ -96,7 +97,7 @@ When adding a new persisted thing, mirror both.
 Non-negotiable rules of the system. Read them before writing code that
 touches request handling, persistence, or tool execution.
 
-- **No auth layer.** Every request is processed as the operator. The gateway binds to `127.0.0.1` by default; bind elsewhere only behind a reverse proxy or firewall.
+- **Local operator boundary.** Every request is processed as the operator. The gateway binds to `127.0.0.1` by default; bind elsewhere only behind a reverse proxy, firewall, or equivalent access control.
 - **Sandbox is per-call subprocess, applied inline.** Shell, file, and git tool calls spawn a fresh `sh` from inside the gateway after policy validation + env sanitisation + output cap + wall-clock timeout. On Linux with `bwrap` installed and on macOS, the call is additionally wrapped by `bwrap` / `sandbox-exec` for filesystem and network confinement (auto-detected at startup). No separate sandbox daemon, no per-call rlimits (those would shrink the long-running gateway). New tools follow the same pattern.
 - **Approvals are blocking.** Pre-execution and mid-loop approvals halt the run; the run record persists in `awaiting_approval` until resolved. New gates use the `TaskApproval` shape.
 - **Events are appended, not mutated.** Every state transition writes a `run_event` with a monotonic sequence. The SSE stream replays from `after_sequence`. New event types must follow the event-protocol v1 taxonomy (`run.*`, `turn.*`, `tool.*`, `policy.*`, `gap.*`, `error.*`) and be documented in `docs/events.md`.
@@ -159,6 +160,7 @@ Full ladder: [`docs-ai/core/verification.md`](docs-ai/core/verification.md).
 | [`docs/runtime-api.md`](docs/runtime-api.md) | Task / run / step / approval endpoints, queue + lease |
 | [`docs/events.md`](docs/events.md) | Every event type at `/v1/events` with payload shapes |
 | [`docs/telemetry.md`](docs/telemetry.md) | OTel spans + metrics, OTLP wiring, status & gaps |
+| [`docs/security.md`](docs/security.md) | Local-first threat model, workspace safety, approvals, secrets, advisories |
 | [`docs/providers.md`](docs/providers.md) | Provider catalog, configuration |
 | [`docs/mcp.md`](docs/mcp.md) | MCP server: tools, transport, configure |
 | [`docs/external-agent-adapters.md`](docs/external-agent-adapters.md) | Hecate as an ACP client/operator: Chats runs Codex, Claude Code, and Cursor Agent |

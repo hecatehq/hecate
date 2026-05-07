@@ -199,8 +199,9 @@ the action." The adapter is free to retry the action on the next prompt.
 ## API surface
 
 All endpoints are served by the gateway and covered by Hecate's existing access
-model: loopback by default, same-origin checks for browser requests, and no
-built-in auth boundary if the operator binds the gateway elsewhere.
+model: loopback by default and same-origin checks for browser requests. If the
+operator binds the gateway elsewhere, they must provide the network access
+controls around it.
 
 ### Pending list
 

@@ -8,9 +8,10 @@ operators should not assume yet.
 - Public APIs are designed to be stable, but pre-1.0 changes are still possible.
 - Persisted SQLite schemas are young. Back up data before upgrading.
 - There is not yet a dedicated migration CLI or rollback workflow.
-- The gateway defaults to `127.0.0.1:8765`, enforces same-origin browser
-  requests, and has no built-in auth layer. If you bind it beyond the local
-  machine, bring your own auth, firewall, or reverse proxy.
+- The gateway defaults to `127.0.0.1:8765` and enforces same-origin browser
+  requests, but same-origin is not a network security boundary. If you bind it
+  beyond the local machine, bring your own access controls, firewall, or reverse
+  proxy. The practical threat model lives in [Security](security.md).
 
 ## Provider Lifecycle
 

@@ -75,7 +75,7 @@ docker run --rm -p 127.0.0.1:8765:8765 -v hecate-data:/data \
 
 Open `http://127.0.0.1:8765`. The UI loads with no further setup.
 
-> The container intentionally publishes only on `127.0.0.1`. Hecate has no built-in auth layer; same-origin checks protect browser traffic, but they are not a network security boundary. Do not expose it to the network without your own auth, firewall, or reverse proxy in front.
+> The container intentionally publishes only on `127.0.0.1`. Hecate is designed as a local-first operator console, not as a directly exposed network service. If you bind it beyond loopback, put your own access controls, firewall, or reverse proxy in front. See [Security](docs/security.md) for the current threat model.
 
 Pinned image tags, binary tarballs (linux/darwin × amd64/arm64), checksums, compose examples, and storage notes live in [`docs/deployment.md`](docs/deployment.md). Local development setup lives in [`docs/development.md`](docs/development.md).
 
@@ -231,6 +231,7 @@ Full index lives at [`docs/README.md`](docs/README.md), organized by reader role
 **Observability and internals**
 
 - [Telemetry](docs/telemetry.md) — OTLP traces / metrics / logs, response headers, local trace view.
+- [Security](docs/security.md) — local-first threat model, workspace safety, approvals, secrets, and advisory handling.
 - [Architecture](docs/architecture.md) — gateway request flow, task-runtime queue / lease / sandbox boundary.
 - [Development](docs/development.md) — source-build toolchain, local dev, the test ladder, screenshot tooling.
 - [Release](docs/release.md) — cutting a tag, verification gate, recovery if CI fails.
