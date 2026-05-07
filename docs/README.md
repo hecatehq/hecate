@@ -10,7 +10,7 @@ Pick the path closest to what you are doing.
 
 | You are... | Read in this order |
 |---|---|
-| Running Hecate locally | [Desktop app](desktop-app.md), [Deployment](deployment.md), [Providers](providers.md), [Chat sessions](chat-sessions.md), [Known limitations](known-limitations.md) |
+| Running Hecate locally | [Desktop app](desktop-app.md), [Deployment](deployment.md), [Security](security.md), [Providers](providers.md), [Chat sessions](chat-sessions.md), [Known limitations](known-limitations.md) |
 | Calling Hecate from a client | [Runtime API](runtime-api.md), [Chat sessions](chat-sessions.md), [Agent runtime](agent-runtime.md), [Events](events.md) |
 | Building or using coding-agent integrations | [External agent adapters](external-agent-adapters.md), [ACP bridge](acp.md), [Runtime API](runtime-api.md), [Events](events.md), [MCP integration](mcp.md) |
 | Changing the codebase | [Architecture](architecture.md), [Development](development.md), [`docs-ai/`](../docs-ai/README.md), [Release](release.md) |
@@ -22,6 +22,7 @@ Pick the path closest to what you are doing.
 |---|---|
 | [Deployment](deployment.md) | Docker, binary install, image pinning, storage backends, rate limits, lost-token recovery. |
 | [Desktop app](desktop-app.md) | Native bundles, first-launch warnings, platform data dirs, sidecar lifecycle, roadmap. |
+| [Security](security.md) | Local-first threat model, runtime boundaries, workspace safety, approvals, secrets, and advisory handling. |
 | [Providers](providers.md) | Built-in provider presets, OpenAI-compatible custom endpoints, credentials, model discovery, health, circuit breaking. |
 | [Chat sessions](chat-sessions.md) | Hecate Chat transcript segments, tools on/off behavior, task-backed turns, queued prompts, approvals in Chats, and shared activity rendering. |
 | [Known limitations](known-limitations.md) | The honest alpha boundary: API/schema stability, sandbox limits, desktop gaps, deployment scope. |

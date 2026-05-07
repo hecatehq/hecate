@@ -183,6 +183,8 @@ environment passed to the ACP adapter process, applies timeout/cancel behavior,
 captures ACP updates with an output cap, and records Git diff / diff stat after
 each turn. External agent adapters are still trusted subprocesses in the
 selected workspace; this is not equivalent to the task runtime sandbox.
+Read [Security](security.md) for the full runtime-boundary and workspace-safety
+model.
 
 On Hecate shutdown, active Agent Chat turns are cancelled first. Hecate waits
 briefly for the ACP turn to drain, asks the native ACP session to close, and

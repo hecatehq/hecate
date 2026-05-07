@@ -42,7 +42,7 @@ flowchart TD
 
 Key invariants:
 
-- **No built-in auth.** Hecate defaults to `127.0.0.1:8765` and rejects cross-origin browser requests. That same-origin check is browser protection, not a network security boundary. If you bind the gateway beyond the local machine, put your own auth, firewall, or reverse proxy in front.
+- **Local operator boundary.** Hecate defaults to `127.0.0.1:8765` and rejects cross-origin browser requests. That same-origin check is browser protection, not a network security boundary. If you bind the gateway beyond the local machine, put your own access controls, firewall, or reverse proxy in front.
 - **Policy/budget can deny without an upstream call.** A budget-exceeded request returns `402` with the gateway's own body — no provider tokens are spent.
 - **Cost calculation is deterministic.** Pricebook is read after the provider returns usage; the same `(provider, model, usage)` tuple always produces the same cost in micros USD.
 - **CheckRoute is read-not-reservation.** Two concurrent requests can both pass when balance covers each individually but not their sum — the budget can briefly go negative under contention. Pinned in [tests](../internal/governor/governor_test.go) so a "fix" doesn't silently introduce write contention.
