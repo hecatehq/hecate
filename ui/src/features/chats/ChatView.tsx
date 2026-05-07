@@ -2248,7 +2248,7 @@ function SelectedModelReadinessNotice({
         </div>
       )}
       <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(150px, 1fr))", gap: 8, marginTop: 10 }}>
-        {issue.details.slice(0, compact ? 3 : issue.details.length).map((detail) => (
+        {selectedModelNoticeDetails(issue.details, compact).map((detail) => (
           <InfoChip key={detail.label} label={detail.label} value={detail.value} />
         ))}
       </div>
@@ -2259,6 +2259,18 @@ function SelectedModelReadinessNotice({
       )}
     </div>
   );
+}
+
+function selectedModelNoticeDetails(
+  details: SelectedModelIssue["details"],
+  compact: boolean,
+): SelectedModelIssue["details"] {
+  if (!compact) {
+    return details;
+  }
+  const priorityLabels = new Set(["Selected model", "Provider route", "Health", "Blocked by", "Last error"]);
+  const selected = details.filter((detail) => priorityLabels.has(detail.label));
+  return selected.length > 0 ? selected : details;
 }
 
 function InfoChip({ label, value }: { label: string; value: string }) {

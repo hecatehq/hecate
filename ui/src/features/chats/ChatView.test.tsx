@@ -161,10 +161,12 @@ describe("ChatView input", () => {
           name: "ollama",
           kind: "local",
           healthy: true,
-          status: "healthy",
+          status: "degraded",
           base_url: "http://127.0.0.1:11434/v1",
           models: ["qwen2.5:7b"],
           model_count: 1,
+          routing_blocked_reason: "no discovered route",
+          last_error: "model discovery returned no llama3.1:8b",
         },
       ],
       providerScopedModels: [
@@ -177,7 +179,12 @@ describe("ChatView input", () => {
     expect(screen.getAllByText(/Ollama is configured, but it does not currently report "llama3.1:8b"/).length).toBeGreaterThan(0);
     expect(screen.getAllByText("Selected model").length).toBeGreaterThan(0);
     expect(screen.getAllByText("llama3.1:8b").length).toBeGreaterThan(0);
-    expect(screen.getAllByText("Discovered models").length).toBeGreaterThan(0);
+    expect(screen.getAllByText("Health").length).toBeGreaterThan(0);
+    expect(screen.getAllByText("degraded").length).toBeGreaterThan(0);
+    expect(screen.getAllByText("Blocked by").length).toBeGreaterThan(0);
+    expect(screen.getAllByText("no discovered route").length).toBeGreaterThan(0);
+    expect(screen.getAllByText("Last error").length).toBeGreaterThan(0);
+    expect(screen.getAllByText("model discovery returned no llama3.1:8b").length).toBeGreaterThan(0);
     expect(screen.queryByRole("textbox", { name: "Message" })).toBeNull();
     expect(screen.queryByRole("button", { name: "Send message" })).toBeNull();
   });

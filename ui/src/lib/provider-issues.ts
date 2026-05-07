@@ -82,7 +82,13 @@ export function buildSelectedModelIssue({
   const message = providerFilter === "auto"
     ? `No configured provider currently reports "${model}". Pick a discovered model or add a provider that serves it.`
     : `${providerLabel} is configured, but it does not currently report "${model}" in model discovery.`;
-  const steps = isLocal
+  const steps = providerFilter === "auto"
+    ? [
+        "Pick a model that appears in the model picker.",
+        "Open Providers to inspect discovery, health, routing readiness, and credential state.",
+        "If the model should be served locally, start the local provider and refresh Providers.",
+      ]
+    : isLocal
     ? [
         "Start the local provider app or server.",
         `Pull or load ${model} in that provider, or pick one of its discovered models.`,

@@ -100,4 +100,17 @@ describe("buildSelectedModelIssue", () => {
     }));
     expect(issue?.message).toContain("No configured provider currently reports");
   });
+
+  it("uses provider-agnostic repair steps for stale auto-route selections", () => {
+    const issue = buildSelectedModelIssue({
+      model: "llama3.1:8b",
+      providerFilter: "auto",
+      selectableModels: [{ id: "qwen2.5:7b", owned_by: "ollama", metadata: { provider: "ollama", provider_kind: "local" } }],
+    });
+
+    expect(issue?.steps.join(" ")).toContain("Pick a model that appears in the model picker");
+    expect(issue?.steps.join(" ")).toContain("discovery, health, routing readiness, and credential state");
+    expect(issue?.steps.join(" ")).toContain("If the model should be served locally");
+    expect(issue?.steps.join(" ")).not.toContain("Check provider credentials and account model access");
+  });
 });
