@@ -204,3 +204,11 @@ diagnostic fields remain available in the provider details disclosure.
 
 Route reports in the trace inspector reuse the same readiness vocabulary when
 they explain why a provider/model candidate was skipped.
+
+The Chats workspace consumes the same readiness model at composition time. A
+provider can be configured and healthy while the selected model is still not
+routable, usually because discovery reports a different local model set or a
+cloud account does not expose that model. In that case Chats blocks the
+composer before sending, shows the selected model, provider route, discovered
+model count, health, and next steps, and links the operator back to Providers
+for the full checklist.

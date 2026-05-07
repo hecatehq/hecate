@@ -141,6 +141,47 @@ describe("ChatView input", () => {
     expect(screen.queryByRole("button", { name: "Send message" })).toBeNull();
   });
 
+  it("blocks sending when the selected model is not discovered by the selected provider", () => {
+    const { state, actions } = setup({
+      chatTarget: "model",
+      providerFilter: "ollama",
+      model: "llama3.1:8b",
+      message: "hello",
+      settingsConfig: {
+        backend: "memory",
+        providers: [
+          { id: "ollama", name: "Ollama", preset_id: "ollama", kind: "local", protocol: "openai", base_url: "http://127.0.0.1:11434/v1", credential_configured: false },
+        ],
+        policy_rules: [],
+        pricebook: [],
+        events: [],
+      },
+      providers: [
+        {
+          name: "ollama",
+          kind: "local",
+          healthy: true,
+          status: "healthy",
+          base_url: "http://127.0.0.1:11434/v1",
+          models: ["qwen2.5:7b"],
+          model_count: 1,
+        },
+      ],
+      providerScopedModels: [
+        { id: "qwen2.5:7b", owned_by: "ollama", metadata: { provider: "ollama", provider_kind: "local" } },
+      ],
+    });
+    render(<ChatView state={state} actions={actions} />);
+
+    expect(screen.getAllByText("Selected model is not available from this provider").length).toBeGreaterThan(0);
+    expect(screen.getAllByText(/Ollama is configured, but it does not currently report "llama3.1:8b"/).length).toBeGreaterThan(0);
+    expect(screen.getByText("Selected model")).toBeTruthy();
+    expect(screen.getAllByText("llama3.1:8b").length).toBeGreaterThan(0);
+    expect(screen.getByText("Discovered models")).toBeTruthy();
+    expect(screen.queryByRole("textbox", { name: "Message" })).toBeNull();
+    expect(screen.queryByRole("button", { name: "Send message" })).toBeNull();
+  });
+
   it("opens the shared Add provider modal from the model empty state", async () => {
     const { state, actions } = setup({
       chatTarget: "model",
