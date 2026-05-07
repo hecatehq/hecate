@@ -161,6 +161,20 @@ describe("TranscriptActivityTimeline", () => {
     expect(screen.getByText("agent-final-answer.txt")).toBeInTheDocument();
   });
 
+  it("hides internal agent-loop approval markers from operator-facing rows", () => {
+    const activities: AgentChatActivityRecord[] = [
+      {
+        type: "approval",
+        title: "builtin.agent_loop_approval",
+        status: "approved",
+        detail: "builtin.agent_loop_approval - approved",
+      },
+    ];
+    render(<TranscriptActivityTimeline activities={activities} />);
+    expect(screen.getByText("Approval granted")).toBeInTheDocument();
+    expect(screen.queryByText(/builtin\.agent_loop/)).toBeNull();
+  });
+
   it("summarizes Hecate Agent task internals without duplicate terminal rows", () => {
     const activities: AgentChatActivityRecord[] = [
       { type: "tool_call", title: "git_exec", status: "completed", kind: "git", detail: "git_exec - completed" },

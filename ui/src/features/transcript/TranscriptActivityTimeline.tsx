@@ -433,6 +433,7 @@ function cleanApprovalDetail(detail?: string): string | undefined {
     ?.replace(/^Agent requested tools that require approval:\s*/i, "")
     .replace(/\s+-\s+(awaiting_approval|pending|approved|rejected|denied|cancelled|timed_out)$/i, "")
     .trim();
+  if (!cleaned || cleaned.startsWith("builtin.agent_loop_")) return undefined;
   return cleaned || undefined;
 }
 
