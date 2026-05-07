@@ -37,11 +37,11 @@ jobs:
         working-directory: website
 
       - name: Check
-        run: bun run check
+        run: bun --bun run check
         working-directory: website
 
       - name: Build
-        run: bun run build
+        run: bun --bun run build
         working-directory: website
 
       - uses: actions/configure-pages@v6

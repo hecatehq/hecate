@@ -143,19 +143,19 @@ website-install:
 
 # Start the Astro website dev server.
 website-dev: _website-deps
-	cd website && bun run dev
+	cd website && bun --bun run dev
 
 # Typecheck the Astro website.
 website-check: _website-deps
-	cd website && bun run check
+	cd website && bun --bun run check
 
 # Build the Astro website.
 website-build: _website-deps
-	cd website && bun run build
+	cd website && bun --bun run build
 
 # Preview the built Astro website.
 website-preview: _website-deps
-	cd website && bun run preview
+	cd website && bun --bun run preview
 
 # Smoke-test the ACP bridge.
 test-acp-smoke: _go-cache
