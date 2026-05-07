@@ -928,7 +928,7 @@ func providerHealthCheck(entry catalog.Entry) types.ProviderReadinessCheck {
 		if entry.Healthy {
 			return providerReadinessCheck("health", "ok", "healthy", "Provider health checks are passing.")
 		}
-		return providerReadinessCheck("health", "unknown", firstNonEmpty(entry.HealthReason, "health_pending"), "Provider health is still settling.")
+		return providerReadinessCheck("health", "unknown", providerReadinessHealthReason(entry.HealthReason), providerHealthPendingMessage(entry.HealthReason))
 	case "degraded":
 		if entry.HealthReason == "rate_limit" {
 			return providerReadinessCheck("health", "blocked", "provider_rate_limited", "Provider is cooling down after an upstream rate limit.")
@@ -942,15 +942,50 @@ func providerHealthCheck(entry catalog.Entry) types.ProviderReadinessCheck {
 		}
 		return providerReadinessCheck("health", "blocked", "circuit_open", "Provider circuit is open after recent failures.")
 	case "unhealthy":
-		return providerReadinessCheck("health", "blocked", firstNonEmpty(entry.HealthReason, "provider_unhealthy"), "Provider health checks are failing.")
+		return providerReadinessCheck("health", "blocked", providerReadinessHealthReason(entry.HealthReason), providerHealthFailureMessage(entry.HealthReason))
 	case "disabled":
 		return providerReadinessCheck("health", "blocked", "provider_disabled", "Provider is disabled.")
 	default:
 		if !entry.Healthy {
-			return providerReadinessCheck("health", "unknown", firstNonEmpty(entry.HealthReason, "unknown"), "Provider health has not been established yet.")
+			return providerReadinessCheck("health", "unknown", providerReadinessHealthReason(entry.HealthReason), providerHealthPendingMessage(entry.HealthReason))
 		}
 		return providerReadinessCheck("health", "unknown", firstNonEmpty(entry.Status, "unknown"), "Provider health has not been checked yet.")
 	}
+}
+
+func providerReadinessHealthReason(reason string) string {
+	switch reason {
+	case "rate_limit":
+		return "provider_rate_limited"
+	case "latency":
+		return "provider_slow"
+	case "timeout", "server_error", "other":
+		return "provider_unhealthy"
+	case "":
+		return "health_pending"
+	default:
+		return "provider_unhealthy"
+	}
+}
+
+func providerHealthFailureMessage(reason string) string {
+	switch reason {
+	case "rate_limit":
+		return "Provider is cooling down after an upstream rate limit."
+	case "latency":
+		return "Provider is slower than the configured degraded-latency threshold."
+	case "":
+		return "Provider health checks are failing."
+	default:
+		return fmt.Sprintf("Provider health checks are failing with error class %q.", reason)
+	}
+}
+
+func providerHealthPendingMessage(reason string) string {
+	if reason == "" {
+		return "Provider health is still settling."
+	}
+	return fmt.Sprintf("Provider health is still settling after error class %q.", reason)
 }
 
 func providerRoutingCheck(entry catalog.Entry) types.ProviderReadinessCheck {

@@ -20,7 +20,7 @@ export function ProviderReadinessChecklist({ checks }: { checks: ProviderReadine
       <div style={{ display: "flex", flexDirection: "column" }}>
         {checks.map((check, index) => (
           <div
-            key={`${check.name}-${index}`}
+            key={check.name}
             style={{
               display: "grid",
               gridTemplateColumns: "120px minmax(0, 1fr)",
@@ -85,7 +85,7 @@ export function CompactProviderReadinessChecks({ checks }: { checks: ProviderRea
     <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(180px, 1fr))", gap: 8, marginTop: 10 }}>
       {checks.map(check => (
         <div
-          key={`${check.name}-${check.reason ?? check.status}`}
+          key={check.name}
           title={check.message}
           style={{
             border: "1px solid var(--border)",
