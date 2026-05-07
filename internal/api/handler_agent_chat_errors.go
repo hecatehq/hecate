@@ -27,7 +27,11 @@ func writeAgentChatModelResolutionError(w http.ResponseWriter, err error) {
 		return
 	}
 	message := err.Error()
-	if strings.Contains(message, "not available") || strings.Contains(message, "not configured") || strings.Contains(message, "model is required") {
+	if strings.Contains(message, "model is required") {
+		writeAgentChatModelRequired(w, "model")
+		return
+	}
+	if strings.Contains(message, "not available") || strings.Contains(message, "not configured") {
 		WriteErrorDetails(w, http.StatusUnprocessableEntity, errCodeModelNotConfigured, message, ErrorDetails{
 			UserMessage:    "The selected model is not available from the selected provider.",
 			OperatorAction: "Choose a discovered model, refresh provider status, or open Providers to fix model discovery.",
