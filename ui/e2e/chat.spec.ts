@@ -266,6 +266,106 @@ test("agent chat renders indented fenced code blocks as code", async ({ page }) 
   await expect(page.locator("code").filter({ hasText: "sh" })).toHaveCount(0);
 });
 
+test("agent chat previews failed tool stdout and stderr in Advanced details", async ({ page }) => {
+  await page.addInitScript(() => {
+    window.localStorage.setItem("hecate.chatTarget", "agent");
+    window.localStorage.setItem("hecate.agentChatSessionID", "failed-tool-output-e2e");
+  });
+
+  const session = {
+    id: "failed-tool-output-e2e",
+    title: "Failed tool",
+    runtime_kind: "agent",
+    provider: "ollama",
+    model: "qwen2.5-coder",
+    workspace: "/tmp/e2e",
+    status: "completed",
+    message_count: 2,
+    messages: [
+      { id: "m-user", role: "user", content: "why did git fail?", created_at: "2026-04-21T10:00:00Z" },
+      {
+        id: "m-agent",
+        role: "assistant",
+        runtime_kind: "agent",
+        content: "The command failed while inspecting git state.",
+        provider: "ollama",
+        model: "qwen2.5-coder",
+        status: "failed",
+        task_id: "task_failed",
+        run_id: "run_failed",
+        created_at: "2026-04-21T10:00:01Z",
+        activities: [
+          { id: "tool_git", type: "tool_call", title: "git_exec (failed)", status: "failed", kind: "git", detail: "git_exec - failed" },
+          {
+            id: "stdout",
+            type: "artifact",
+            title: "git-stdout.txt",
+            status: "ready",
+            artifact_id: "art_stdout",
+            artifact_size_bytes: 41,
+            artifact_preview: "On branch feature/chat-message-queue",
+          },
+          {
+            id: "stderr",
+            type: "artifact",
+            title: "git-stderr.txt",
+            status: "ready",
+            artifact_id: "art_stderr",
+            artifact_size_bytes: 57,
+            artifact_preview: "fatal: not a git repository",
+          },
+          {
+            id: "empty-stderr",
+            type: "artifact",
+            title: "shell-stderr.txt",
+            status: "ready",
+            artifact_id: "art_empty_stderr",
+            artifact_size_bytes: 0,
+          },
+          { id: "terminal", type: "failed", title: "Run failed", status: "failed", terminal: true },
+        ],
+      },
+    ],
+  };
+
+  await page.route("/hecate/v1/agent-chat/sessions", (route) => {
+    if (route.request().method() !== "GET") {
+      void route.fallback();
+      return;
+    }
+    void route.fulfill({
+      status: 200,
+      contentType: "application/json",
+      body: JSON.stringify({
+        object: "agent_chat_sessions",
+        data: [{ ...session, messages: undefined }],
+      }),
+    });
+  });
+  await page.route("/hecate/v1/agent-chat/sessions/failed-tool-output-e2e", route =>
+    route.fulfill({
+      status: 200,
+      contentType: "application/json",
+      body: JSON.stringify({ object: "agent_chat_session", data: session }),
+    }),
+  );
+  await page.route("/hecate/v1/agent-chat/sessions/failed-tool-output-e2e/approvals*", route =>
+    route.fulfill({ status: 200, contentType: "application/json", body: JSON.stringify({ object: "list", data: [] }) }),
+  );
+
+  await page.reload();
+  await page.waitForSelector(".hecate-activitybar");
+
+  await page.getByText(/1 (failed )?tool/).click();
+  await page.getByText("Advanced").first().click();
+
+  await expect(page.getByText(/Preview the related run output/)).toBeVisible();
+  await expect(page.getByText("On branch feature/chat-message-queue")).toBeVisible();
+  await expect(page.getByText("fatal: not a git repository")).toBeVisible();
+  await expect(page.getByText("Open task output")).toBeVisible();
+  await expect(page.getByText("Preview unavailable in this snapshot.")).toHaveCount(0);
+});
+
 test("empty model chat can add all detected local providers in one click", async ({ page }) => {
   await page.unrouteAll({ behavior: "ignoreErrors" });
   await mockGatewayAPIs(page);

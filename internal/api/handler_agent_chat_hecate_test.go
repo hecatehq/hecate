@@ -565,7 +565,8 @@ func TestAgentChatActivityFromTaskActivityCarriesArtifactMetadata(t *testing.T) 
 		ArtifactID: "art_stderr",
 		Kind:       "stderr",
 		Summary: map[string]any{
-			"size_bytes": float64(42),
+			"size_bytes":      float64(42),
+			"content_preview": "fatal: not a git repository",
 		},
 		OccurredAt: "2026-05-03T10:00:00Z",
 	}
@@ -577,6 +578,9 @@ func TestAgentChatActivityFromTaskActivityCarriesArtifactMetadata(t *testing.T) 
 	}
 	if rendered[0].ArtifactID != "art_stderr" || rendered[0].ArtifactSizeBytes != 42 {
 		t.Fatalf("artifact metadata = id %q size %d, want art_stderr/42", rendered[0].ArtifactID, rendered[0].ArtifactSizeBytes)
+	}
+	if rendered[0].ArtifactPreview != "fatal: not a git repository" {
+		t.Fatalf("artifact preview = %q", rendered[0].ArtifactPreview)
 	}
 }
 
@@ -641,6 +645,24 @@ func TestTaskActivityItemsUseResolvedApprovalStatusForStep(t *testing.T) {
 	item := taskActivityByID(items, "step:step_1")
 	if item.Status != "approved" || item.NeedsAction {
 		t.Fatalf("approval activity = status %q needs_action %v, want approved/false", item.Status, item.NeedsAction)
+	}
+}
+
+func TestTaskActivityItemsIncludeOutputArtifactPreview(t *testing.T) {
+	items := buildTaskActivityItems(nil, []TaskArtifactItem{{
+		ID:          "art_stdout",
+		Kind:        "stdout",
+		Name:        "git-stdout.txt",
+		ContentText: "diff --git a/README.md b/README.md\n+hello\n",
+		SizeBytes:   42,
+		Status:      "ready",
+		CreatedAt:   "2026-05-03T10:00:00Z",
+	}}, nil, types.TaskRun{Status: "failed"})
+
+	item := taskActivityByID(items, "artifact:art_stdout")
+	preview, _ := item.Summary["content_preview"].(string)
+	if !strings.Contains(preview, "+hello") {
+		t.Fatalf("content_preview = %q, want stdout preview", preview)
 	}
 }
 

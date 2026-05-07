@@ -1497,6 +1497,13 @@ func buildTaskActivityItems(steps []TaskStepItem, artifacts []TaskArtifactItem, 
 		case "summary":
 			itemType = "final_answer"
 		}
+		summary := map[string]any{
+			"size_bytes": artifact.SizeBytes,
+			"mime_type":  artifact.MimeType,
+		}
+		if preview := taskActivityArtifactContentPreview(artifact); preview != "" {
+			summary["content_preview"] = preview
+		}
 		items = append(items, TaskActivityItem{
 			ID:         "artifact:" + artifact.ID,
 			Type:       itemType,
@@ -1506,10 +1513,7 @@ func buildTaskActivityItems(steps []TaskStepItem, artifacts []TaskArtifactItem, 
 			ArtifactID: artifact.ID,
 			Kind:       artifact.Kind,
 			Path:       artifact.Path,
-			Summary: map[string]any{
-				"size_bytes": artifact.SizeBytes,
-				"mime_type":  artifact.MimeType,
-			},
+			Summary:    summary,
 			OccurredAt: artifact.CreatedAt,
 			Terminal:   artifact.Status == "ready" || artifact.Status == "applied" || artifact.Status == "reverted",
 		})
@@ -1540,6 +1544,32 @@ func buildTaskActivityItems(steps []TaskStepItem, artifacts []TaskArtifactItem, 
 	}
 	sortTaskActivityItems(items)
 	return items
+}
+
+const taskActivityArtifactPreviewMaxBytes = 2000
+
+func taskActivityArtifactContentPreview(artifact TaskArtifactItem) string {
+	if artifact.Kind != "stdout" && artifact.Kind != "stderr" {
+		return ""
+	}
+	content := strings.TrimSpace(artifact.ContentText)
+	if content == "" {
+		return ""
+	}
+	if len(content) <= taskActivityArtifactPreviewMaxBytes {
+		return content
+	}
+	end := 0
+	for index := range content {
+		if index > taskActivityArtifactPreviewMaxBytes {
+			break
+		}
+		end = index
+	}
+	if end <= 0 {
+		end = taskActivityArtifactPreviewMaxBytes
+	}
+	return content[:end] + "\n...[truncated]"
 }
 
 func sortTaskActivityItems(items []TaskActivityItem) {

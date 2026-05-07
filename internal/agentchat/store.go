@@ -83,9 +83,13 @@ type Activity struct {
 	// ArtifactSizeBytes is populated for task artifact activities.
 	// It lets chat diagnostics hide empty stdout/stderr captures while
 	// still linking useful non-empty run output.
-	ArtifactSizeBytes int64  `json:"artifact_size_bytes,omitempty"`
-	ApprovalID        string `json:"approval_id,omitempty"`
-	NeedsAction       bool   `json:"needs_action,omitempty"`
+	ArtifactSizeBytes int64 `json:"artifact_size_bytes,omitempty"`
+	// ArtifactPreview carries a capped text preview for stdout/stderr-like
+	// artifacts so chat diagnostics can explain a failed tool without forcing
+	// the operator to leave the transcript.
+	ArtifactPreview string `json:"artifact_preview,omitempty"`
+	ApprovalID      string `json:"approval_id,omitempty"`
+	NeedsAction     bool   `json:"needs_action,omitempty"`
 }
 
 type Usage struct {

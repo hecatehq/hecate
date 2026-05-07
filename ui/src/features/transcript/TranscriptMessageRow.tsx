@@ -147,29 +147,80 @@ function renderAgentActivityAdvanced(
   return (
     <div style={{ display: "grid", gap: 7 }}>
       <div style={{ color: "var(--t2)", fontSize: 11, lineHeight: 1.5 }}>
-        This tool failed. Inspect the related run output for details.
+        This tool failed. Preview the related run output here, or open the backing task for the full capture.
       </div>
-      <div style={{ display: "flex", flexWrap: "wrap", gap: 6 }}>
+      <div style={{ display: "grid", gap: 7 }}>
         {outputArtifacts.map(artifact => (
-          <button
+          <OutputArtifactPreview
             key={artifact.artifact_id || artifact.title}
-            type="button"
-            className="btn btn-ghost btn-sm"
-            onClick={taskLink?.onClick}
-            disabled={!taskLink}
-            title={taskLink ? `Open ${taskLink.label} output` : "Open the backing task to inspect this output"}
-            style={{
-              borderColor: artifact.title.toLowerCase().includes("stderr") ? "rgba(239, 95, 95, 0.35)" : "var(--border)",
-              color: artifact.title.toLowerCase().includes("stderr") ? "var(--red)" : "var(--t1)",
-              fontFamily: "var(--font-mono)",
-              fontSize: 10,
-              padding: "2px 7px",
-            }}
-          >
-            {artifact.title}
-          </button>
+            artifact={artifact}
+          />
         ))}
       </div>
+      {taskLink && (
+        <div>
+          <button
+            type="button"
+            className="btn btn-ghost btn-sm"
+            onClick={taskLink.onClick}
+            title={`Open ${taskLink.label} output`}
+            style={{ fontSize: 10, padding: "2px 7px" }}
+          >
+            Open task output
+          </button>
+        </div>
+      )}
+    </div>
+  );
+}
+
+function OutputArtifactPreview({ artifact }: { artifact: AgentChatActivityRecord }) {
+  const isStderr = outputArtifactStream(artifact) === "stderr";
+  const preview = artifact.artifact_preview?.trim();
+  return (
+    <div style={{
+      border: `1px solid ${isStderr ? "rgba(239, 95, 95, 0.28)" : "var(--border)"}`,
+      borderRadius: "var(--radius-sm)",
+      background: "var(--bg0)",
+      overflow: "hidden",
+    }}>
+      <div style={{
+        alignItems: "center",
+        borderBottom: "1px solid var(--border)",
+        display: "flex",
+        gap: 8,
+        padding: "4px 7px",
+      }}>
+        <span style={{
+          color: isStderr ? "var(--red)" : "var(--t1)",
+          fontFamily: "var(--font-mono)",
+          fontSize: 10,
+        }}>
+          {artifact.title}
+        </span>
+        {artifact.artifact_size_bytes ? (
+          <span style={{ color: "var(--t3)", fontFamily: "var(--font-mono)", fontSize: 10 }}>
+            {artifact.artifact_size_bytes}b
+          </span>
+        ) : null}
+      </div>
+      {preview ? (
+        <pre style={{
+          color: isStderr ? "var(--red)" : "var(--t1)",
+          fontFamily: "var(--font-mono)",
+          fontSize: 10,
+          lineHeight: 1.55,
+          margin: 0,
+          maxHeight: 130,
+          overflow: "auto",
+          padding: "7px",
+          whiteSpace: "pre-wrap",
+        }}>{preview}</pre>
+      ) : (
+        <div style={{ color: "var(--t3)", fontSize: 11, padding: "7px" }}>
+          Preview unavailable in this snapshot.
+        </div>
+      )}
     </div>
   );
 }
@@ -188,6 +239,11 @@ function relatedOutputArtifacts(activities: AgentChatActivityRecord[]): AgentCha
     out.push(activity);
   }
   return out;
+}
+
+function outputArtifactStream(activity: AgentChatActivityRecord): "stdout" | "stderr" {
+  const label = `${activity.title} ${activity.detail ?? ""} ${activity.kind ?? ""}`.toLowerCase();
+  return label.includes("stderr") ? "stderr" : "stdout";
 }
 
 function HeaderMetaButton({

@@ -26,6 +26,7 @@ func renderAgentChatActivities(items []agentchat.Activity) []AgentChatActivityIt
 			CreatedAt:         formatOptionalTime(item.CreatedAt),
 			ArtifactID:        item.ArtifactID,
 			ArtifactSizeBytes: item.ArtifactSizeBytes,
+			ArtifactPreview:   item.ArtifactPreview,
 			ApprovalID:        item.ApprovalID,
 			NeedsAction:       item.NeedsAction,
 		})
@@ -82,6 +83,7 @@ func agentChatActivityFromTaskActivity(item TaskActivityItem) agentchat.Activity
 		CreatedAt:         parseAgentChatActivityTime(item.OccurredAt),
 		ArtifactID:        strings.TrimSpace(item.ArtifactID),
 		ArtifactSizeBytes: agentChatTaskArtifactSize(item),
+		ArtifactPreview:   agentChatTaskArtifactPreview(item),
 		ApprovalID:        strings.TrimSpace(item.ApprovalID),
 		NeedsAction:       item.NeedsAction,
 	}
@@ -104,6 +106,14 @@ func agentChatTaskArtifactSize(item TaskActivityItem) int64 {
 	default:
 		return 0
 	}
+}
+
+func agentChatTaskArtifactPreview(item TaskActivityItem) string {
+	if item.Summary == nil {
+		return ""
+	}
+	value, _ := item.Summary["content_preview"].(string)
+	return strings.TrimSpace(value)
 }
 
 func agentChatTaskActivityDetail(item TaskActivityItem) string {
@@ -168,6 +178,15 @@ func mergeAgentChatActivity(items []agentchat.Activity, next agentchat.Activity)
 				}
 				if next.ApprovalID != "" {
 					items[i].ApprovalID = next.ApprovalID
+				}
+				if next.ArtifactID != "" {
+					items[i].ArtifactID = next.ArtifactID
+				}
+				if next.ArtifactSizeBytes != 0 {
+					items[i].ArtifactSizeBytes = next.ArtifactSizeBytes
+				}
+				if next.ArtifactPreview != "" {
+					items[i].ArtifactPreview = next.ArtifactPreview
 				}
 				items[i].NeedsAction = next.NeedsAction
 				items[i].CreatedAt = next.CreatedAt
