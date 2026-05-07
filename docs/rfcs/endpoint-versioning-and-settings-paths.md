@@ -118,7 +118,7 @@ before stable.
 | `POST /admin/control-plane/policy-rules` | `POST /hecate/v1/settings/policy-rules` | Upsert policy rule. |
 | `POST /admin/control-plane/policy-rules/delete` | `DELETE /hecate/v1/settings/policy-rules/{id}` | Prefer an explicit delete route over action-body delete. |
 | `POST /admin/control-plane/pricebook` | `POST /hecate/v1/settings/pricebook` | Upsert pricebook entry. |
-| `POST /admin/control-plane/pricebook/delete` | `DELETE /hecate/v1/settings/pricebook/{provider}/{model}` | Cleaner delete route; implementation must URL-encode both path components. |
+| `POST /admin/control-plane/pricebook/delete` | `DELETE /hecate/v1/settings/pricebook/{provider}/{model...}` | Cleaner delete route; clients URL-encode both values; the model wildcard preserves slash-containing model IDs. |
 | `POST /admin/control-plane/pricebook/import/preview` | `POST /hecate/v1/settings/pricebook/import/preview` | Keep action path. |
 | `POST /admin/control-plane/pricebook/import/apply` | `POST /hecate/v1/settings/pricebook/import/apply` | Keep action path. |
 

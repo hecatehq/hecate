@@ -171,7 +171,7 @@ func registerHecateSettingsRoutes(mux *http.ServeMux, handler *Handler) {
 	mux.HandleFunc("POST /hecate/v1/settings/policy-rules", handler.HandleSettingsUpsertPolicyRule)
 	mux.HandleFunc("DELETE /hecate/v1/settings/policy-rules/{id}", handler.HandleSettingsDeletePolicyRule)
 	mux.HandleFunc("POST /hecate/v1/settings/pricebook", handler.HandleSettingsUpsertPricebookEntry)
-	mux.HandleFunc("DELETE /hecate/v1/settings/pricebook/{provider}/{model}", handler.HandleSettingsDeletePricebookEntry)
+	mux.HandleFunc("DELETE /hecate/v1/settings/pricebook/{provider}/{model...}", handler.HandleSettingsDeletePricebookEntry)
 	mux.HandleFunc("POST /hecate/v1/settings/pricebook/import/preview", handler.HandleSettingsPricebookImportPreview)
 	mux.HandleFunc("POST /hecate/v1/settings/pricebook/import/apply", handler.HandleSettingsPricebookImportApply)
 }

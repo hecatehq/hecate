@@ -7,6 +7,7 @@ import (
 	"io"
 	"log/slog"
 	"net/http"
+	"net/url"
 	"strings"
 	"sync"
 	"testing"
@@ -698,6 +699,49 @@ func TestSettingsDeletePricebookEntry_UsesPathProviderAndModel(t *testing.T) {
 	}
 	if len(snapshot.Data.Pricebook) != 0 {
 		t.Fatalf("pricebook = %+v, want empty after delete", snapshot.Data.Pricebook)
+	}
+}
+
+func TestSettingsDeletePricebookEntry_ModelMayContainSlash(t *testing.T) {
+	t.Parallel()
+	admin, _ := newProviderRuntimeTestHandler(t, nil)
+
+	admin.mustRequest(http.MethodPost, "/hecate/v1/settings/pricebook", `{
+		"provider":"together_ai",
+		"model":"vendor/model-name",
+		"input_micros_usd_per_million_tokens":100,
+		"output_micros_usd_per_million_tokens":200
+	}`)
+
+	rec := admin.mustRequest(
+		http.MethodDelete,
+		"/hecate/v1/settings/pricebook/together_ai/"+url.PathEscape("vendor/model-name"),
+		"",
+	)
+	var deleted struct {
+		Data struct {
+			Provider string `json:"provider"`
+			Model    string `json:"model"`
+		} `json:"data"`
+	}
+	if err := json.NewDecoder(rec.Body).Decode(&deleted); err != nil {
+		t.Fatalf("decode delete pricebook response: %v", err)
+	}
+	if deleted.Data.Provider != "together_ai" || deleted.Data.Model != "vendor/model-name" {
+		t.Fatalf("deleted = %+v, want together_ai/vendor/model-name", deleted.Data)
+	}
+
+	status := admin.mustRequest(http.MethodGet, "/hecate/v1/settings", "")
+	var snapshot struct {
+		Data struct {
+			Pricebook []SettingsPricebookRecord `json:"pricebook"`
+		} `json:"data"`
+	}
+	if err := json.NewDecoder(status.Body).Decode(&snapshot); err != nil {
+		t.Fatalf("decode settings response: %v", err)
+	}
+	if len(snapshot.Data.Pricebook) != 0 {
+		t.Fatalf("pricebook = %+v, want empty after slash-containing model delete", snapshot.Data.Pricebook)
 	}
 }
 
