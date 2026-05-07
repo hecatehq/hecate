@@ -1037,7 +1037,10 @@ task to finish, resolve the pending approval, or cancel/stop the active run
 before sending another prompt. The operator UI layers a local composer queue on
 top of that API contract: prompts submitted while a run is busy are held in a
 client-side FIFO and posted only after the active task reaches a terminal
-state. That queue is intentionally not durable until each prompt is submitted.
+state. Queue entries are scoped to the chat session that created them so a
+prompt cannot drain into a different transcript after the operator switches
+sessions. That queue is intentionally not durable until each prompt is
+submitted.
 
 The response returns after the backing turn finishes, times out, is cancelled,
 or fails. For live output while the turn is running, subscribe to the session

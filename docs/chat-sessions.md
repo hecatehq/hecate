@@ -33,8 +33,10 @@ but they can also store direct model segments:
   If the operator submits another prompt while the active run is still busy,
   the UI keeps it in a local **Queued next** FIFO and submits it automatically
   after the run or approval reaches a terminal state. Queued prompts preserve
-  the selected runtime/model/workspace snapshot from the moment they were
-  queued, but they are not persisted until submitted.
+  the originating chat session plus the selected runtime/model/workspace
+  snapshot from the moment they were queued, so switching to another chat cannot
+  drain a prompt into the wrong transcript. They are not persisted until
+  submitted.
   Chats projects the backing run activity into the transcript, links each
   assistant turn back to its backing Task/run, and can approve/reject pending
   task approvals inline. Low-level artifacts stay under transcript **Details**,
