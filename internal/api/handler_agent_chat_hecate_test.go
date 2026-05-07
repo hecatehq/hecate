@@ -556,6 +556,30 @@ func TestAgentChatActivityFromTaskActivityCarriesApprovalMetadata(t *testing.T) 
 	}
 }
 
+func TestAgentChatActivityFromTaskActivityCarriesArtifactMetadata(t *testing.T) {
+	item := TaskActivityItem{
+		ID:         "artifact:art_stderr",
+		Type:       "artifact",
+		Status:     "ready",
+		Title:      "git-stderr.txt",
+		ArtifactID: "art_stderr",
+		Kind:       "stderr",
+		Summary: map[string]any{
+			"size_bytes": float64(42),
+		},
+		OccurredAt: "2026-05-03T10:00:00Z",
+	}
+
+	activity := agentChatActivityFromTaskActivity(item)
+	rendered := renderAgentChatActivities([]agentchat.Activity{activity})
+	if len(rendered) != 1 {
+		t.Fatalf("rendered activities = %d, want 1", len(rendered))
+	}
+	if rendered[0].ArtifactID != "art_stderr" || rendered[0].ArtifactSizeBytes != 42 {
+		t.Fatalf("artifact metadata = id %q size %d, want art_stderr/42", rendered[0].ArtifactID, rendered[0].ArtifactSizeBytes)
+	}
+}
+
 func TestMergeAgentChatActivityClearsApprovalNeedsAction(t *testing.T) {
 	items := []agentchat.Activity{{
 		ID:          "task:approval:appr_123",

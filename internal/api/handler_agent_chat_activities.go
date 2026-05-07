@@ -17,15 +17,17 @@ func renderAgentChatActivities(items []agentchat.Activity) []AgentChatActivityIt
 	out := make([]AgentChatActivityItem, 0, len(items))
 	for _, item := range items {
 		out = append(out, AgentChatActivityItem{
-			ID:          item.ID,
-			Type:        item.Type,
-			Status:      item.Status,
-			Kind:        item.Kind,
-			Title:       item.Title,
-			Detail:      item.Detail,
-			CreatedAt:   formatOptionalTime(item.CreatedAt),
-			ApprovalID:  item.ApprovalID,
-			NeedsAction: item.NeedsAction,
+			ID:                item.ID,
+			Type:              item.Type,
+			Status:            item.Status,
+			Kind:              item.Kind,
+			Title:             item.Title,
+			Detail:            item.Detail,
+			CreatedAt:         formatOptionalTime(item.CreatedAt),
+			ArtifactID:        item.ArtifactID,
+			ArtifactSizeBytes: item.ArtifactSizeBytes,
+			ApprovalID:        item.ApprovalID,
+			NeedsAction:       item.NeedsAction,
 		})
 	}
 	return out
@@ -71,15 +73,36 @@ func agentChatActivitiesFromTaskActivity(items []TaskActivityItem) []agentchat.A
 func agentChatActivityFromTaskActivity(item TaskActivityItem) agentchat.Activity {
 	title := strings.TrimSpace(firstNonEmpty(item.Title, item.ToolName, item.Path, item.Kind, item.Type))
 	return agentchat.Activity{
-		ID:          strings.TrimSpace("task:" + item.ID),
-		Type:        strings.TrimSpace(item.Type),
-		Status:      strings.TrimSpace(item.Status),
-		Kind:        strings.TrimSpace(firstNonEmpty(item.Kind, item.ToolName)),
-		Title:       title,
-		Detail:      agentChatTaskActivityDetail(item),
-		CreatedAt:   parseAgentChatActivityTime(item.OccurredAt),
-		ApprovalID:  strings.TrimSpace(item.ApprovalID),
-		NeedsAction: item.NeedsAction,
+		ID:                strings.TrimSpace("task:" + item.ID),
+		Type:              strings.TrimSpace(item.Type),
+		Status:            strings.TrimSpace(item.Status),
+		Kind:              strings.TrimSpace(firstNonEmpty(item.Kind, item.ToolName)),
+		Title:             title,
+		Detail:            agentChatTaskActivityDetail(item),
+		CreatedAt:         parseAgentChatActivityTime(item.OccurredAt),
+		ArtifactID:        strings.TrimSpace(item.ArtifactID),
+		ArtifactSizeBytes: agentChatTaskArtifactSize(item),
+		ApprovalID:        strings.TrimSpace(item.ApprovalID),
+		NeedsAction:       item.NeedsAction,
+	}
+}
+
+func agentChatTaskArtifactSize(item TaskActivityItem) int64 {
+	if item.Summary == nil {
+		return 0
+	}
+	switch value := item.Summary["size_bytes"].(type) {
+	case int:
+		return int64(value)
+	case int64:
+		return value
+	case float64:
+		return int64(value)
+	case json.Number:
+		n, _ := value.Int64()
+		return n
+	default:
+		return 0
 	}
 }
 

@@ -102,7 +102,7 @@ export function parseMarkdownBlocks(content: string): Block[] {
     while (
       i < lines.length &&
       lines[i].trim() !== "" &&
-      !/^```/.test(lines[i]) &&
+      !/^\s*```/.test(lines[i]) &&
       !/^#{1,3} /.test(lines[i]) &&
       !/^(-{3,}|\*{3,}|_{3,})$/.test(lines[i].trim()) &&
       !isTableStart(lines, i) &&

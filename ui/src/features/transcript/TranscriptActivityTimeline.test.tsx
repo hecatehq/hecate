@@ -124,6 +124,17 @@ describe("TranscriptActivityTimeline", () => {
     expect(screen.queryByText("git_exec - completed")).toBeNull();
   });
 
+  it("humanizes failed tool titles with status suffixes and marks the summary", () => {
+    const activities: AgentChatActivityRecord[] = [
+      { type: "tool_call", title: "git_exec (failed)", status: "failed", kind: "git", detail: "git_exec - failed" },
+      { type: "completed", title: "Run completed", status: "completed" },
+    ];
+    render(<TranscriptActivityTimeline activities={activities} />);
+    expect(screen.getByText(/completed · 1 failed tool/)).toBeInTheDocument();
+    expect(screen.getByText("Ran git")).toBeInTheDocument();
+    expect(screen.queryByText("git_exec - failed")).toBeNull();
+  });
+
   it("includes changed files in the summary and expanded activity list when diffStat is supplied", () => {
     const activities: AgentChatActivityRecord[] = [
       { type: "tool_call", title: "read_file", status: "completed" },
@@ -208,6 +219,22 @@ describe("TranscriptActivityTimeline", () => {
     const labels = screen.getAllByText(/Starting agent|Backing task|Thinking|Ran shell/)
       .map(node => node.textContent);
     expect(labels).toEqual(["Starting agent", "Backing task", "Thinking", "Ran shell"]);
+  });
+
+  it("uses operator-facing order for Hecate task rows with identical timestamps", () => {
+    const at = "2026-05-07T20:00:00Z";
+    const activities: AgentChatActivityRecord[] = [
+      { type: "tool_call", title: "git_exec (failed)", status: "failed", kind: "git", detail: "git_exec - failed", created_at: at },
+      { type: "thinking", title: "Agent turn 1", status: "completed", detail: "builtin.agent_loop_llm - completed", created_at: at },
+      { type: "task_run", title: "Backing task", status: "failed", detail: "failed", created_at: at },
+      { type: "failed", title: "LLM call failed on turn 2: timeout", status: "failed", terminal: true, created_at: at },
+    ];
+    render(<TranscriptActivityTimeline activities={activities} />);
+
+    const labels = screen.getAllByText(/Backing task|Thinking|Ran git/)
+      .map(node => node.textContent);
+    expect(labels).toEqual(["Backing task", "Thinking", "Ran git"]);
+    expect(screen.queryByText(/LLM call failed on turn 2/)).toBeNull();
   });
 
   it("keeps external-agent activity rows chronological too", () => {

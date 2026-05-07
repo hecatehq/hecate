@@ -32,6 +32,9 @@ export function TranscriptMessageRow({ id, role, model, content, time, promptTok
     && content.trim() !== ""
     && isLikelyTransientAgentNarration(content)
     && !(activities ?? []).some(activity => activity.type === "tool_call");
+  const renderActivityAdvanced = isAssistant && activities?.length
+    ? (activity: AgentChatActivityRecord) => renderAgentActivityAdvanced(activity, activities, taskLink)
+    : undefined;
 
   return (
     <div onMouseEnter={() => setHovered(true)} onMouseLeave={() => setHovered(false)}
@@ -92,7 +95,11 @@ export function TranscriptMessageRow({ id, role, model, content, time, promptTok
             <TranscriptMarkdown content={content} />
           )}
           {isAssistant && activities && activities.length > 0 && (
-            <TranscriptActivityTimeline activities={activities} diffStat={diffStat} />
+            <TranscriptActivityTimeline
+              activities={activities}
+              diffStat={diffStat}
+              renderAdvancedActivity={renderActivityAdvanced}
+            />
           )}
           {isAssistant && agentTiming && !agentTimingEmpty(agentTiming) && (
             <AgentTiming timing={agentTiming} />
@@ -125,6 +132,62 @@ export function TranscriptMessageRow({ id, role, model, content, time, promptTok
       </div>
     </div>
   );
+}
+
+function renderAgentActivityAdvanced(
+  activity: AgentChatActivityRecord,
+  activities: AgentChatActivityRecord[],
+  taskLink?: { label: string; title?: string; onClick: () => void },
+) {
+  if (activity.type !== "tool_call" || activity.status !== "failed") return null;
+
+  const outputArtifacts = relatedOutputArtifacts(activities);
+  if (outputArtifacts.length === 0) return null;
+
+  return (
+    <div style={{ display: "grid", gap: 7 }}>
+      <div style={{ color: "var(--t2)", fontSize: 11, lineHeight: 1.5 }}>
+        This tool failed. Inspect the related run output for details.
+      </div>
+      <div style={{ display: "flex", flexWrap: "wrap", gap: 6 }}>
+        {outputArtifacts.map(artifact => (
+          <button
+            key={artifact.artifact_id || artifact.title}
+            type="button"
+            className="btn btn-ghost btn-sm"
+            onClick={taskLink?.onClick}
+            disabled={!taskLink}
+            title={taskLink ? `Open ${taskLink.label} output` : "Open the backing task to inspect this output"}
+            style={{
+              borderColor: artifact.title.toLowerCase().includes("stderr") ? "rgba(239, 95, 95, 0.35)" : "var(--border)",
+              color: artifact.title.toLowerCase().includes("stderr") ? "var(--red)" : "var(--t1)",
+              fontFamily: "var(--font-mono)",
+              fontSize: 10,
+              padding: "2px 7px",
+            }}
+          >
+            {artifact.title}
+          </button>
+        ))}
+      </div>
+    </div>
+  );
+}
+
+function relatedOutputArtifacts(activities: AgentChatActivityRecord[]): AgentChatActivityRecord[] {
+  const seen = new Set<string>();
+  const out: AgentChatActivityRecord[] = [];
+  for (const activity of activities) {
+    if (activity.type !== "artifact") continue;
+    if ((activity.artifact_size_bytes ?? 0) <= 0) continue;
+    const label = `${activity.title} ${activity.detail ?? ""} ${activity.kind ?? ""}`.toLowerCase();
+    if (!/\b(std(out|err)|git-std(out|err))\b/.test(label)) continue;
+    const key = activity.artifact_id || activity.title;
+    if (seen.has(key)) continue;
+    seen.add(key);
+    out.push(activity);
+  }
+  return out;
 }
 
 function HeaderMetaButton({

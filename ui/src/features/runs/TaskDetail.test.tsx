@@ -317,6 +317,36 @@ describe("TaskDetail runtime activity and patches", () => {
     expect(screen.getByText(/builtin\.agent_loop/)).not.toBeVisible();
   });
 
+  it("shows when stderr exists but is empty", () => {
+    const { render } = setup({
+      artifacts: [
+        {
+          id: "art-stdout",
+          task_id: "task-1",
+          run_id: "run-1",
+          kind: "stdout",
+          name: "git-stdout.txt",
+          content_text: "diff output",
+          size_bytes: 11,
+        } as any,
+        {
+          id: "art-stderr",
+          task_id: "task-1",
+          run_id: "run-1",
+          kind: "stderr",
+          name: "git-stderr.txt",
+          content_text: "",
+          size_bytes: 0,
+        } as any,
+      ],
+    });
+    render();
+    expect(screen.getByText("run output")).toBeTruthy();
+    expect(screen.getByText("stdout 11b")).toBeTruthy();
+    expect(screen.getByText("stderr empty")).toBeTruthy();
+    expect(screen.queryByText("— stderr —")).toBeNull();
+  });
+
   it("calls onApplyPatch for proposed patch artifacts", async () => {
     const onApplyPatch = vi.fn();
     const { render, user } = setup({ artifacts: [makePatchArtifact()], onApplyPatch });

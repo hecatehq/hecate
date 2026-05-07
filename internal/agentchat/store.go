@@ -72,15 +72,20 @@ type Message struct {
 }
 
 type Activity struct {
-	ID          string    `json:"id,omitempty"`
-	Type        string    `json:"type"`
-	Status      string    `json:"status,omitempty"`
-	Kind        string    `json:"kind,omitempty"`
-	Title       string    `json:"title"`
-	Detail      string    `json:"detail,omitempty"`
-	CreatedAt   time.Time `json:"created_at,omitempty"`
-	ApprovalID  string    `json:"approval_id,omitempty"`
-	NeedsAction bool      `json:"needs_action,omitempty"`
+	ID         string    `json:"id,omitempty"`
+	Type       string    `json:"type"`
+	Status     string    `json:"status,omitempty"`
+	Kind       string    `json:"kind,omitempty"`
+	Title      string    `json:"title"`
+	Detail     string    `json:"detail,omitempty"`
+	CreatedAt  time.Time `json:"created_at,omitempty"`
+	ArtifactID string    `json:"artifact_id,omitempty"`
+	// ArtifactSizeBytes is populated for task artifact activities.
+	// It lets chat diagnostics hide empty stdout/stderr captures while
+	// still linking useful non-empty run output.
+	ArtifactSizeBytes int64  `json:"artifact_size_bytes,omitempty"`
+	ApprovalID        string `json:"approval_id,omitempty"`
+	NeedsAction       bool   `json:"needs_action,omitempty"`
 }
 
 type Usage struct {

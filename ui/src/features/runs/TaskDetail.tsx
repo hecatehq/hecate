@@ -678,11 +678,23 @@ export function TaskDetail({
         <div style={{ flex: 1, display: "flex", flexDirection: "column", minHeight: 180 }}>
           <div style={{ padding: "8px 16px", borderBottom: "1px solid var(--border)", display: "flex", alignItems: "center", gap: 8, background: "var(--bg1)" }}>
             <Icon d={Icons.terminal} size={13} />
-            <span style={{ fontSize: 11, color: "var(--t2)", fontFamily: "var(--font-mono)" }}>stdout</span>
+            <span style={{ fontSize: 11, color: "var(--t2)", fontFamily: "var(--font-mono)" }}>run output</span>
+            {stdoutArtifact && (
+              <span style={{ fontSize: 10, color: "var(--t3)", fontFamily: "var(--font-mono)" }}>
+                stdout{stdoutArtifact.size_bytes ? ` ${stdoutArtifact.size_bytes}b` : ""}
+              </span>
+            )}
             {streamState === "live" && <Dot color="green" pulse />}
             {streamState === "connecting" && <Dot color="amber" pulse />}
-            {stderrArtifact?.content_text && (
-              <span style={{ fontSize: 10, color: "var(--red)", fontFamily: "var(--font-mono)", marginLeft: "auto" }}>stderr available</span>
+            {stderrArtifact && (
+              <span style={{
+                fontSize: 10,
+                color: stderrArtifact.content_text ? "var(--red)" : "var(--t3)",
+                fontFamily: "var(--font-mono)",
+                marginLeft: "auto",
+              }}>
+                stderr {stderrArtifact.content_text ? "available" : "empty"}
+              </span>
             )}
           </div>
           <div ref={termRef} style={{ flex: 1, overflowY: "auto", padding: "10px 16px", background: "var(--bg0)", fontFamily: "var(--font-mono)", fontSize: 12, lineHeight: 1.8 }}>
@@ -930,10 +942,17 @@ function taskActivityToTranscriptActivity(item: TaskActivityRecord): AgentChatAc
     kind: item.kind,
     detail: taskActivitySubtitle(item),
     created_at: item.occurred_at,
+    artifact_id: item.artifact_id,
+    artifact_size_bytes: taskActivityArtifactSize(item),
     approval_id: item.approval_id,
     needs_action: item.needs_action,
     terminal: item.terminal,
   };
+}
+
+function taskActivityArtifactSize(item: TaskActivityRecord): number | undefined {
+  const value = item.summary?.size_bytes;
+  return typeof value === "number" ? value : undefined;
 }
 
 function taskActivityTitle(item: TaskActivityRecord): string {
