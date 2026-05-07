@@ -1702,6 +1702,34 @@ func TestAgentChatCreateUsesStableErrorContracts(t *testing.T) {
 	}
 }
 
+func TestAgentChatModelResolutionRequiredErrorUsesValidationContract(t *testing.T) {
+	rec := httptest.NewRecorder()
+	writeAgentChatModelResolutionError(rec, errors.New("model is required"))
+	if rec.Code != http.StatusBadRequest {
+		t.Fatalf("status = %d, want %d, body=%s", rec.Code, http.StatusBadRequest, rec.Body.String())
+	}
+	var payload struct {
+		Error struct {
+			Type           string `json:"type"`
+			UserMessage    string `json:"user_message"`
+			OperatorAction string `json:"operator_action"`
+		} `json:"error"`
+	}
+	payload = decodeRecorder[struct {
+		Error struct {
+			Type           string `json:"type"`
+			UserMessage    string `json:"user_message"`
+			OperatorAction string `json:"operator_action"`
+		} `json:"error"`
+	}](t, rec)
+	if payload.Error.Type != errCodeModelRequired {
+		t.Fatalf("error.type = %q, want %q", payload.Error.Type, errCodeModelRequired)
+	}
+	if payload.Error.UserMessage == "" || payload.Error.OperatorAction == "" {
+		t.Fatalf("error missing operator metadata: %+v", payload.Error)
+	}
+}
+
 func TestAgentChatStoreAttachReconcilesInterruptedRun(t *testing.T) {
 	store := agentchat.NewMemoryStore()
 	ctx := context.Background()
