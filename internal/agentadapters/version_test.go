@@ -77,6 +77,23 @@ func TestDetectVersionParsesStderr(t *testing.T) {
 	}
 }
 
+func TestDetectVersionParsesOutputFromNonZeroExit(t *testing.T) {
+	t.Parallel()
+	if runtime.GOOS == "windows" {
+		t.Skip("skip shell script test on Windows")
+	}
+	dir := t.TempDir()
+	path := filepath.Join(dir, "nonzero-adapter")
+	content := "#!/bin/sh\necho adapter 3.4.5\nexit 1\n"
+	if err := os.WriteFile(path, []byte(content), 0o755); err != nil {
+		t.Fatalf("write nonzero script: %v", err)
+	}
+	got := DetectVersion(context.Background(), path)
+	if got != "3.4.5" {
+		t.Fatalf("DetectVersion = %q, want 3.4.5 from non-zero output", got)
+	}
+}
+
 func TestDetectVersionMissingBinaryReturnsEmpty(t *testing.T) {
 	t.Parallel()
 	got := DetectVersion(context.Background(), "/does/not/exist/fake-adapter")
