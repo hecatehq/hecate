@@ -445,6 +445,19 @@ func (h *Handler) HandleResolveTaskApproval(w http.ResponseWriter, r *http.Reque
 		WriteError(w, http.StatusConflict, errCodeInvalidRequest, "task approval is not pending")
 		return
 	}
+	run, found, err := h.taskStore.GetRun(ctx, task.ID, approval.RunID)
+	if err != nil {
+		WriteError(w, http.StatusInternalServerError, errCodeGatewayError, err.Error())
+		return
+	}
+	if !found {
+		WriteError(w, http.StatusNotFound, errCodeNotFound, "task run not found")
+		return
+	}
+	if run.Status != "awaiting_approval" {
+		WriteError(w, http.StatusConflict, errCodeInvalidRequest, fmt.Sprintf("task approval is no longer actionable because run is %s", run.Status))
+		return
+	}
 
 	var req ResolveTaskApprovalRequest
 	if !decodeJSON(w, r, &req) {

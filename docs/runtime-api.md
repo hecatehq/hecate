@@ -221,7 +221,7 @@ The `kind` field on a `task_approval` is one of:
 - `network_egress` — pre-execution gate when `sandbox_network=true`
 - `agent_loop_tool_call` — mid-loop gate when an `agent_loop` run calls a gated tool (`shell_exec`, `http_request`, etc.). The reason text lists the tools the agent wants to use. See [`agent-runtime.md`](agent-runtime.md#approval-gating) for the full flow.
 
-Resolve payload: `{"decision": "approve" | "reject", "note": "..."}`. Approving an `agent_loop_tool_call` requeues the same run; the loop dispatches the approved tool calls without re-calling the LLM.
+Resolve payload: `{"decision": "approve" | "reject", "note": "..."}`. Approving an `agent_loop_tool_call` requeues the same run; the loop dispatches the approved tool calls without re-calling the LLM. Cancelling an `awaiting_approval` run marks the pending approval `cancelled`; resolving it afterward returns a conflict instead of mutating stale state.
 
 ### Approval policy configuration
 

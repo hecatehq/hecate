@@ -209,13 +209,15 @@ Both shapes share these fields.
 
 ### `approval.resolved`
 
-The operator resolved the gate. After approve, the run re-queues; after reject, the run terminates `failed`.
+The gate reached a terminal decision. After approve, the run re-queues; after
+reject, the run terminates `failed`; after cancellation, the run terminates
+`cancelled` and the approval record is no longer actionable.
 
 | Extra key | Type | Notes |
 |---|---|---|
 | `approval_id` | `string` | Resolved approval id |
-| `decision` | `string` | `approved` or `rejected` |
-| `by` | `string` | Principal that resolved the approval |
+| `decision` | `string` | `approved`, `rejected`, or `cancelled` |
+| `by` | `string` | Principal or subsystem that resolved the approval |
 | `comment` | `string` | Operator-supplied resolution note |
 | `scope` | `string` | Currently `once`; persistent always-allow is separate policy work |
 | `kind` | `string` | Approval type |

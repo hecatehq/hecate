@@ -3709,6 +3709,112 @@ func TestTaskRunCancellation(t *testing.T) {
 	}
 }
 
+func TestTaskRunCancellationCancelsPendingApproval(t *testing.T) {
+	t.Parallel()
+
+	logger := slog.New(slog.NewJSONHandler(io.Discard, nil))
+	cfg := config.Config{Server: config.ServerConfig{TaskApprovalPolicies: []string{"shell_exec"}}}
+	handler := newTestHTTPHandlerForProviders(logger, nil, cfg)
+	tasks := newTaskTestClient(t, handler)
+
+	created := mustTaskRequestJSON[TaskResponse](tasks, http.MethodPost, "/hecate/v1/tasks", `{"title":"Cancel approval","prompt":"Cancel before approval.","execution_kind":"shell","shell_command":"printf 'should-not-run\n'","working_directory":".","timeout_ms":1000}`)
+	started := mustTaskRequestJSON[TaskRunResponse](tasks, http.MethodPost, "/hecate/v1/tasks/"+created.Data.ID+"/start", "")
+	if started.Data.Status != "awaiting_approval" {
+		t.Fatalf("run status = %q, want awaiting_approval", started.Data.Status)
+	}
+	approvals := mustTaskRequestJSON[TaskApprovalsResponse](tasks, http.MethodGet, "/hecate/v1/tasks/"+created.Data.ID+"/approvals", "")
+	if len(approvals.Data) != 1 {
+		t.Fatalf("approvals = %d, want 1", len(approvals.Data))
+	}
+
+	cancelled := mustTaskRequestJSON[TaskRunResponse](tasks, http.MethodPost, "/hecate/v1/tasks/"+created.Data.ID+"/runs/"+started.Data.ID+"/cancel", `{"reason":"operator stop"}`)
+	if cancelled.Data.Status != "cancelled" {
+		t.Fatalf("cancelled run status = %q, want cancelled", cancelled.Data.Status)
+	}
+
+	afterCancel := mustTaskRequestJSON[TaskApprovalsResponse](tasks, http.MethodGet, "/hecate/v1/tasks/"+created.Data.ID+"/approvals", "")
+	if len(afterCancel.Data) != 1 {
+		t.Fatalf("approvals after cancel = %d, want 1", len(afterCancel.Data))
+	}
+	if afterCancel.Data[0].Status != "cancelled" {
+		t.Fatalf("approval status after cancel = %q, want cancelled", afterCancel.Data[0].Status)
+	}
+	if afterCancel.Data[0].ResolvedBy != "system" {
+		t.Fatalf("approval resolved_by = %q, want system", afterCancel.Data[0].ResolvedBy)
+	}
+	if !strings.Contains(afterCancel.Data[0].ResolutionNote, "operator stop") {
+		t.Fatalf("approval resolution_note = %q, want operator stop", afterCancel.Data[0].ResolutionNote)
+	}
+
+	staleResolve := tasks.mustRequestStatus(http.StatusConflict, http.MethodPost, "/hecate/v1/tasks/"+created.Data.ID+"/approvals/"+approvals.Data[0].ID+"/resolve", `{"decision":"approve"}`)
+	if !strings.Contains(staleResolve.Body.String(), "not pending") {
+		t.Fatalf("stale resolve body = %s, want mention of not pending", staleResolve.Body.String())
+	}
+
+	events := mustTaskRequestJSON[TaskRunEventsResponse](tasks, http.MethodGet, "/hecate/v1/tasks/"+created.Data.ID+"/runs/"+started.Data.ID+"/events", "")
+	assertApprovalResolvedEventBy(t, events.Data, approvals.Data[0].ID, "cancelled", "run cancelled: operator stop", "system")
+	task := mustTaskRequestJSON[TaskResponse](tasks, http.MethodGet, "/hecate/v1/tasks/"+created.Data.ID, "")
+	if task.Data.PendingApprovalCount != 0 {
+		t.Fatalf("pending approval count = %d, want 0", task.Data.PendingApprovalCount)
+	}
+}
+
+func TestTaskApprovalResolveReturnsConflictWhenRunNoLongerAwaiting(t *testing.T) {
+	t.Parallel()
+
+	logger := slog.New(slog.NewJSONHandler(io.Discard, nil))
+	apiHandler := newTestAPIHandlerWithSettings(logger, nil, config.Config{}, nil)
+	handler := NewServer(logger, apiHandler)
+	tasks := newTaskTestClient(t, handler)
+	now := time.Now().UTC()
+	task := types.Task{
+		ID:        "task_stale_approval",
+		Title:     "Stale approval",
+		Prompt:    "Approval should not resolve after run exits.",
+		Status:    "cancelled",
+		CreatedAt: now,
+		UpdatedAt: now,
+	}
+	run := types.TaskRun{
+		ID:         "run_stale_approval",
+		TaskID:     task.ID,
+		Number:     1,
+		Status:     "cancelled",
+		StartedAt:  now,
+		FinishedAt: now,
+	}
+	approval := types.TaskApproval{
+		ID:        "approval_stale",
+		TaskID:    task.ID,
+		RunID:     run.ID,
+		Kind:      "shell_exec",
+		Status:    "pending",
+		Reason:    "legacy pending row",
+		CreatedAt: now,
+	}
+	if _, err := apiHandler.taskStore.CreateTask(context.Background(), task); err != nil {
+		t.Fatalf("CreateTask: %v", err)
+	}
+	if _, err := apiHandler.taskStore.CreateRun(context.Background(), run); err != nil {
+		t.Fatalf("CreateRun: %v", err)
+	}
+	if _, err := apiHandler.taskStore.CreateApproval(context.Background(), approval); err != nil {
+		t.Fatalf("CreateApproval: %v", err)
+	}
+
+	rec := tasks.mustRequestStatus(http.StatusConflict, http.MethodPost, "/hecate/v1/tasks/"+task.ID+"/approvals/"+approval.ID+"/resolve", `{"decision":"approve"}`)
+	if !strings.Contains(rec.Body.String(), "no longer actionable") {
+		t.Fatalf("conflict body = %s, want no longer actionable", rec.Body.String())
+	}
+	got, found, err := apiHandler.taskStore.GetApproval(context.Background(), task.ID, approval.ID)
+	if err != nil || !found {
+		t.Fatalf("GetApproval: found=%t err=%v", found, err)
+	}
+	if got.Status != "pending" {
+		t.Fatalf("stale approval status = %q, want pending (handler must not mutate)", got.Status)
+	}
+}
+
 func TestTaskRunStreamSSE(t *testing.T) {
 	t.Parallel()
 
@@ -4876,6 +4982,11 @@ func countTaskRunEvents(events []eventprotocol.Envelope, eventType string) int {
 
 func assertApprovalResolvedEvent(t *testing.T, events []eventprotocol.Envelope, approvalID, decision, comment string) {
 	t.Helper()
+	assertApprovalResolvedEventBy(t, events, approvalID, decision, comment, "operator")
+}
+
+func assertApprovalResolvedEventBy(t *testing.T, events []eventprotocol.Envelope, approvalID, decision, comment, by string) {
+	t.Helper()
 	for _, event := range events {
 		if event.Type == "approval.approved" || event.Type == "approval.rejected" {
 			t.Fatalf("legacy approval event %q emitted", event.Type)
@@ -4895,8 +5006,8 @@ func assertApprovalResolvedEvent(t *testing.T, events []eventprotocol.Envelope, 
 		if event.Data["scope"] != "once" {
 			t.Fatalf("approval.resolved scope = %v, want once", event.Data["scope"])
 		}
-		if event.Data["by"] != "operator" {
-			t.Fatalf("approval.resolved by = %v, want operator", event.Data["by"])
+		if event.Data["by"] != by {
+			t.Fatalf("approval.resolved by = %v, want %s", event.Data["by"], by)
 		}
 		return
 	}
