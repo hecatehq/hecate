@@ -142,6 +142,7 @@ func TestProviderModelDiscoveryCheckDistinguishesSkippedDiscovery(t *testing.T) 
 	}
 
 	for _, tt := range tests {
+		tt := tt
 		t.Run(tt.name, func(t *testing.T) {
 			t.Parallel()
 
@@ -193,6 +194,7 @@ func TestProviderHealthCheckTreatsRoutableDegradedProvidersAsWarnings(t *testing
 	}
 
 	for _, tt := range tests {
+		tt := tt
 		t.Run(tt.name, func(t *testing.T) {
 			t.Parallel()
 
@@ -311,6 +313,7 @@ func TestProviderModelReadiness(t *testing.T) {
 	}
 
 	for _, tt := range tests {
+		tt := tt
 		t.Run(tt.name, func(t *testing.T) {
 			t.Parallel()
 
