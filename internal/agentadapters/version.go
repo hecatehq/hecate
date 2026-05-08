@@ -22,10 +22,16 @@ func DetectVersion(ctx context.Context, path string) string {
 
 	cmd := exec.CommandContext(ctx, path, "--version")
 	out, err := cmd.CombinedOutput()
+	// Some CLI adapters print version text before exiting non-zero, so prefer
+	// any captured semver token before treating the command as unusable.
+	version := semverRe.FindString(strings.TrimSpace(string(out)))
+	if version != "" {
+		return version
+	}
 	if err != nil {
 		return ""
 	}
-	return semverRe.FindString(strings.TrimSpace(string(out)))
+	return ""
 }
 
 // satisfiesRange reports whether version v satisfies a simple constraint of
