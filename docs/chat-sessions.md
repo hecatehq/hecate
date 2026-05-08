@@ -89,9 +89,11 @@ conversation stays readable; Task Detail opens the activity section by default
 because that view is already a run-inspection surface. Task Detail can also
 show a per-row **Advanced** disclosure with raw activity metadata such as
 step/artifact/approval ids, tool kind, path, timestamp, and summary payload.
-For failed tool rows, Task Detail also previews related stdout/stderr artifacts
-inside that disclosure, including an explicit empty-stream note when stderr was
-captured but contained no bytes.
+For failed tool rows, Task Detail also previews stdout/stderr artifacts captured
+for the same tool step, including an explicit empty-stream note when stderr was
+captured but contained no bytes. Artifacts from other steps are intentionally
+not linked into that row, so a failed command cannot appear to have output from
+an unrelated tool call.
 When a tool row fails, Chats may show its own **Advanced** disclosure with
 capped previews of the backing Task's non-empty stdout/stderr artifacts plus an
 **Open task output** escape hatch for the full capture. Empty streams stay

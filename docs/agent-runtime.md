@@ -164,11 +164,11 @@ Task Detail still records whether each stream artifact exists. The run output
 header shows stdout size when available, `stderr available` when stderr has
 content, and `stderr empty` when the stderr artifact was created but no bytes
 were captured. Failed tool rows in Task Detail's **Advanced** disclosure preview
-stdout/stderr artifacts and keep empty stderr discoverable as "No bytes captured
-for this stream." Hecate Chat keeps failed-tool diagnostics compact: it links
-only non-empty stdout/stderr artifacts from the chat activity row, shows capped
-inline previews for those streams, and leaves the empty-stream confirmation to
-Task Detail.
+stdout/stderr artifacts from the same step and keep empty stderr discoverable as
+"No bytes captured for this stream." Hecate Chat keeps failed-tool diagnostics
+compact: it links only non-empty stdout/stderr artifacts from the chat activity
+row, shows capped inline previews for those streams, and leaves the empty-stream
+confirmation to Task Detail.
 
 ### Workspace environment system message
 

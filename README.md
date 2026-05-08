@@ -169,7 +169,7 @@ The embedded UI is a runtime console for the operator.
 
 ![Providers workspace — configured cloud and local providers with health, endpoint, credentials, and models](docs/screenshots/providers.png)
 
-![Tasks workspace — task run timeline, activity details, stdout, and artifacts](docs/screenshots/tasks.png)
+![Tasks workspace — run timeline with failed-tool diagnostics, stdout/stderr previews, and artifacts](docs/screenshots/tasks.png)
 
 ![Costs workspace — balance card and usage table](docs/screenshots/costs.png)
 

@@ -125,6 +125,8 @@ const jsonHeaders = { "Content-Type": "application/json" } as const;
 const docsAgentChatSessionID = "agent-docs-session";
 const docsApprovalID = "appr_docs_file_write";
 const docsHecateChatSessionID = "chat-docs-hecate";
+const docsTaskID = "task_docs_git_status";
+const docsRunID = "run_docs_git_status";
 
 function docsTimestamp(offsetMinutes = 0): string {
   return new Date(Date.now() + offsetMinutes * 60_000).toISOString();
@@ -632,6 +634,225 @@ async function unrouteHecateChatDocsFixture(page: Page) {
   await page.unroute(`${HECATE_API}/agent-chat/sessions/${docsHecateChatSessionID}/approvals?status=pending`);
 }
 
+async function routeTaskDiagnosticsDocsFixture(page: Page) {
+  const task = {
+    id: docsTaskID,
+    title: "Inspect Git status",
+    prompt: "show current git status",
+    execution_kind: "agent_loop",
+    execution_profile: "chat_hecate_agent",
+    origin_kind: "agent_chat",
+    origin_id: docsHecateChatSessionID,
+    requested_provider: "ollama",
+    requested_model: "ministral-3:latest",
+    latest_provider: "ollama",
+    latest_model: "ministral-3:latest",
+    latest_run_id: docsRunID,
+    status: "failed",
+    step_count: 3,
+    artifact_count: 3,
+    last_error: "git_exec failed: not a git repository",
+    created_at: docsTimestamp(-12),
+    updated_at: docsTimestamp(-3),
+    started_at: docsTimestamp(-12),
+    finished_at: docsTimestamp(-3),
+    latest_trace_id: "23a16de3c9014ad29c9f",
+    latest_request_id: "req_docs_git_status",
+  };
+  const run = {
+    id: docsRunID,
+    task_id: docsTaskID,
+    number: 1,
+    status: "failed",
+    orchestrator: "agent_loop",
+    provider: "ollama",
+    provider_kind: "local",
+    model: "ministral-3:latest",
+    step_count: 3,
+    approval_count: 0,
+    artifact_count: 3,
+    total_cost_micros_usd: 0,
+    last_error: "git_exec failed: not a git repository",
+    started_at: docsTimestamp(-12),
+    finished_at: docsTimestamp(-3),
+    request_id: "req_docs_git_status",
+    trace_id: "23a16de3c9014ad29c9f",
+  };
+  const steps = [
+    {
+      id: "step_docs_model",
+      task_id: docsTaskID,
+      run_id: docsRunID,
+      index: 1,
+      kind: "builtin.agent_loop_llm",
+      title: "Agent turn 1",
+      status: "completed",
+      started_at: docsTimestamp(-12),
+      finished_at: docsTimestamp(-11),
+    },
+    {
+      id: "step_docs_git",
+      task_id: docsTaskID,
+      run_id: docsRunID,
+      index: 2,
+      kind: "git_exec",
+      title: "git status --short",
+      status: "failed",
+      tool_name: "git_exec",
+      exit_code: 128,
+      error: "fatal: not a git repository",
+      output_summary: { command: "git status --short", exit_code: 128, stdout_bytes: 0, stderr_bytes: 27 },
+      started_at: docsTimestamp(-10),
+      finished_at: docsTimestamp(-10),
+    },
+    {
+      id: "step_docs_failed",
+      task_id: docsTaskID,
+      run_id: docsRunID,
+      index: 3,
+      kind: "builtin.agent_loop",
+      title: "Agent loop failed",
+      status: "failed",
+      error: "git_exec failed: not a git repository",
+      started_at: docsTimestamp(-10),
+      finished_at: docsTimestamp(-3),
+    },
+  ];
+  const artifacts = [
+    {
+      id: "art_docs_conversation",
+      task_id: docsTaskID,
+      run_id: docsRunID,
+      kind: "agent_conversation",
+      name: "agent-conversation.json",
+      status: "ready",
+      size_bytes: 1_204,
+      created_at: docsTimestamp(-3),
+    },
+    {
+      id: "art_docs_stdout",
+      task_id: docsTaskID,
+      run_id: docsRunID,
+      step_id: "step_docs_git",
+      kind: "stdout",
+      name: "git-stdout.txt",
+      status: "ready",
+      size_bytes: 0,
+      content_text: "",
+      created_at: docsTimestamp(-10),
+    },
+    {
+      id: "art_docs_stderr",
+      task_id: docsTaskID,
+      run_id: docsRunID,
+      step_id: "step_docs_git",
+      kind: "stderr",
+      name: "git-stderr.txt",
+      status: "ready",
+      size_bytes: 27,
+      content_text: "fatal: not a git repository\n",
+      created_at: docsTimestamp(-10),
+    },
+  ];
+  const activity = [
+    {
+      id: "activity_docs_model",
+      type: "model_turn",
+      status: "completed",
+      title: "Thinking",
+      step_id: "step_docs_model",
+      kind: "builtin.agent_loop_llm",
+      summary: { turns: 1 },
+      occurred_at: docsTimestamp(-11),
+    },
+    {
+      id: "activity_docs_tool",
+      type: "tool_call",
+      status: "failed",
+      title: "git_exec",
+      step_id: "step_docs_git",
+      tool_name: "git_exec",
+      kind: "git_exec",
+      summary: { command: "git status --short", exit_code: 128, stdout_bytes: 0, stderr_bytes: 27 },
+      occurred_at: docsTimestamp(-10),
+    },
+    {
+      id: "activity_docs_stderr",
+      type: "artifact",
+      status: "ready",
+      title: "git-stderr.txt",
+      step_id: "step_docs_git",
+      artifact_id: "art_docs_stderr",
+      kind: "stderr",
+      summary: { size_bytes: 27, content_preview: "fatal: not a git repository\n" },
+      occurred_at: docsTimestamp(-10),
+    },
+    {
+      id: "activity_docs_stdout",
+      type: "artifact",
+      status: "ready",
+      title: "git-stdout.txt",
+      step_id: "step_docs_git",
+      artifact_id: "art_docs_stdout",
+      kind: "stdout",
+      summary: { size_bytes: 0, content_preview: "" },
+      occurred_at: docsTimestamp(-10),
+    },
+    {
+      id: "activity_docs_failed",
+      type: "run_state",
+      status: "failed",
+      title: "Failed",
+      terminal: true,
+      summary: { error: "git_exec failed: not a git repository" },
+      occurred_at: docsTimestamp(-3),
+    },
+  ];
+  const events = [
+    { schema_version: "1", event_id: "evt_docs_1", task_id: docsTaskID, run_id: docsRunID, sequence: 1, occurred_at: docsTimestamp(-12), type: "run.created", data: {} },
+    { schema_version: "1", event_id: "evt_docs_2", task_id: docsTaskID, run_id: docsRunID, sequence: 2, occurred_at: docsTimestamp(-12), type: "run.started", data: {} },
+    { schema_version: "1", event_id: "evt_docs_3", task_id: docsTaskID, run_id: docsRunID, sequence: 3, occurred_at: docsTimestamp(-10), type: "tool.failed", data: { tool: "git_exec" } },
+    { schema_version: "1", event_id: "evt_docs_4", task_id: docsTaskID, run_id: docsRunID, sequence: 4, occurred_at: docsTimestamp(-3), type: "run.failed", data: { error: "git_exec failed: not a git repository" } },
+  ];
+  const snapshot = {
+    object: "task_run_event",
+    data: {
+      sequence: 4,
+      terminal: true,
+      event_type: "snapshot",
+      run,
+      steps,
+      approvals: [],
+      artifacts,
+      activity,
+    },
+  };
+  const fulfillJSON = (route: Route, data: unknown) =>
+    route.fulfill({ status: 200, contentType: "application/json", body: JSON.stringify(data) });
+
+  await page.route(`${HECATE_API}/tasks?limit=30`, route => fulfillJSON(route, { object: "tasks", data: [task] }));
+  await page.route(`${HECATE_API}/tasks/${docsTaskID}/runs`, route => fulfillJSON(route, { object: "task_runs", data: [run] }));
+  await page.route(`${HECATE_API}/tasks/${docsTaskID}/approvals`, route => fulfillJSON(route, { object: "task_approvals", data: [] }));
+  await page.route(`${HECATE_API}/tasks/${docsTaskID}/runs/${docsRunID}/steps`, route => fulfillJSON(route, { object: "task_steps", data: steps }));
+  await page.route(`${HECATE_API}/tasks/${docsTaskID}/runs/${docsRunID}/artifacts`, route => fulfillJSON(route, { object: "task_artifacts", data: artifacts }));
+  await page.route(`${HECATE_API}/tasks/${docsTaskID}/runs/${docsRunID}/events?after_sequence=0`, route => fulfillJSON(route, { object: "task_run_events", data: events }));
+  await page.route(`${HECATE_API}/tasks/${docsTaskID}/runs/${docsRunID}/stream?after_sequence=0`, route => route.fulfill({
+    status: 200,
+    contentType: "text/event-stream",
+    body: `event: snapshot\ndata: ${JSON.stringify(snapshot)}\n\n`,
+  }));
+}
+
+async function unrouteTaskDiagnosticsDocsFixture(page: Page) {
+  await page.unroute(`${HECATE_API}/tasks?limit=30`);
+  await page.unroute(`${HECATE_API}/tasks/${docsTaskID}/runs`);
+  await page.unroute(`${HECATE_API}/tasks/${docsTaskID}/approvals`);
+  await page.unroute(`${HECATE_API}/tasks/${docsTaskID}/runs/${docsRunID}/steps`);
+  await page.unroute(`${HECATE_API}/tasks/${docsTaskID}/runs/${docsRunID}/artifacts`);
+  await page.unroute(`${HECATE_API}/tasks/${docsTaskID}/runs/${docsRunID}/events?after_sequence=0`);
+  await page.unroute(`${HECATE_API}/tasks/${docsTaskID}/runs/${docsRunID}/stream?after_sequence=0`);
+}
+
 async function routeLocalProviderDiscoveryDocsFixture(page: Page) {
   await page.route(`${HECATE_API}/settings/providers/local-discovery`, route => route.fulfill({
     status: 200,
@@ -886,6 +1107,8 @@ async function main() {
     window.localStorage.setItem("hecate.model", "ministral-3:latest");
     window.localStorage.setItem("hecate.agentWorkspace", "/Users/alice/dev/hecate");
   }, docsHecateChatSessionID);
+  await page.reload();
+  await page.waitForSelector(".hecate-activitybar", { timeout: 10_000 });
   await openWorkspace(page, "chats");
   await page.waitForSelector("text=Here are the last 3 commits", { timeout: 5_000 });
   await page.waitForSelector("text=Tools on", { timeout: 5_000 });
@@ -894,13 +1117,22 @@ async function main() {
   await unrouteHecateChatDocsFixture(page);
 
   // ── 7. Tasks ────────────────────────────────────────────────────────────────
-  console.log("→ tasks (do echo 42 + approval seeded)");
-  await seedTask();
+  console.log("→ tasks (failed tool diagnostics fixture)");
+  await routeTaskDiagnosticsDocsFixture(page);
   await page.reload();
   await page.waitForSelector(".hecate-activitybar", { timeout: 5_000 });
   await openWorkspace(page, "runs");
-  await page.waitForTimeout(2_000);
+  await page.waitForSelector("text=git_exec", { timeout: 5_000 });
+  await page.locator("details").evaluateAll(nodes => {
+    for (const node of nodes) {
+      const text = node.parentElement?.textContent ?? "";
+      (node as HTMLDetailsElement).open = text.includes("Ran git") || text.includes("git_exec");
+    }
+  });
+  await page.locator("pre", { hasText: "fatal: not a git repository" }).last().waitFor({ state: "visible", timeout: 5_000 });
+  await page.waitForTimeout(700);
   await snap(page, "tasks");
+  await unrouteTaskDiagnosticsDocsFixture(page);
 
   // ── 8. Observability — pick a trace first ───────────────────────────────────
   console.log("→ observe (trace selected)");
@@ -978,53 +1210,6 @@ async function main() {
   await browser.close();
   await optimize();
   console.log("done.");
-}
-
-// seedTask creates a "do echo 42" task so the runs table has at least
-// one row. If the task runtime auto-resolves the implicit approval the
-// row will land in a completed state; otherwise it sits in the queue
-// until the operator approves it manually. Either renders a usable
-// shot of the tasks workspace.
-async function seedTask() {
-  const res = await fetch(`${HECATE_API}/tasks`, {
-    method: "POST",
-    headers: jsonHeaders,
-    body: JSON.stringify({
-      title: "echo 42",
-      prompt: "do echo 42",
-    }),
-  });
-  if (!res.ok) {
-    console.warn(`  task seed failed: ${res.status}`);
-    return;
-  }
-  const json = (await res.json()) as { data: { id: string } };
-  const taskID = json.data.id;
-  console.log(`  seeded task ${taskID} (do echo 42)`);
-
-  try {
-    await fetch(`${HECATE_API}/tasks/${taskID}/start`, { method: "POST", headers: jsonHeaders });
-  } catch (err) {
-    console.warn(`  task start skipped: ${(err as Error).message}`);
-    return;
-  }
-  await new Promise(r => setTimeout(r, 600));
-  try {
-    const approvalsRes = await fetch(`${HECATE_API}/tasks/${taskID}/approvals`, { headers: jsonHeaders });
-    if (approvalsRes.ok) {
-      const approvals = (await approvalsRes.json()) as { data?: Array<{ id: string }> };
-      for (const a of approvals.data ?? []) {
-        await fetch(`${HECATE_API}/tasks/${taskID}/approvals/${a.id}/resolve`, {
-          method: "POST",
-          headers: jsonHeaders,
-          body: JSON.stringify({ decision: "approved" }),
-        });
-        console.log(`  approved task approval ${a.id}`);
-      }
-    }
-  } catch (err) {
-    console.warn(`  task approve skipped: ${(err as Error).message}`);
-  }
 }
 
 main().catch((err) => {
