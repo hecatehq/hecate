@@ -1084,9 +1084,10 @@ function buildOutputActivityIndex(activity: TaskActivityRecord[]): OutputActivit
 function failedToolOutputArtifacts(activity: TaskActivityRecord, outputArtifacts: OutputActivityIndex): TaskActivityRecord[] {
   if (activity.type !== "tool_call" || activity.status !== "failed") return [];
   const matchingStep = activity.step_id || "";
-  return matchingStep && outputArtifacts.byStepID.has(matchingStep)
-    ? outputArtifacts.byStepID.get(matchingStep) ?? []
-    : outputArtifacts.all;
+  if (matchingStep) {
+    return outputArtifacts.byStepID.get(matchingStep) ?? [];
+  }
+  return outputArtifacts.all;
 }
 
 function isOutputArtifactActivity(activity: TaskActivityRecord): boolean {
