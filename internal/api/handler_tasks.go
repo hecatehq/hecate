@@ -474,13 +474,13 @@ func (h *Handler) HandleResolveTaskApproval(w http.ResponseWriter, r *http.Reque
 	approval.ResolutionNote = strings.TrimSpace(req.Note)
 	approval.ResolvedBy = "operator"
 	approval.ResolvedAt = now
-	approval, updated, err := h.taskStore.UpdatePendingApproval(ctx, approval)
+	approval, updated, err := h.taskStore.UpdatePendingApprovalForAwaitingRun(ctx, approval)
 	if err != nil {
 		WriteError(w, http.StatusInternalServerError, errCodeGatewayError, err.Error())
 		return
 	}
 	if !updated {
-		WriteError(w, http.StatusConflict, errCodeInvalidRequest, "task approval is not pending")
+		WriteError(w, http.StatusConflict, errCodeInvalidRequest, "task approval is not pending or run is no longer awaiting approval")
 		return
 	}
 	_, _ = h.taskStore.AppendRunEvent(ctx, types.TaskRunEvent{
