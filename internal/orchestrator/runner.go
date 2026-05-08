@@ -11,6 +11,7 @@ import (
 	"strconv"
 	"strings"
 	"sync"
+	"sync/atomic"
 	"time"
 
 	"github.com/hecate/agent-runtime/internal/profiler"
@@ -25,6 +26,8 @@ import (
 // the run is created. Callers should surface this as a client error
 // (HTTP 422) rather than a gateway error (500).
 var ErrAgentLoopMisconfigured = errors.New("agent_loop misconfigured")
+
+var resourceIDCounter atomic.Uint64
 
 var stepTelemetryAttrKeys = []string{
 	telemetry.AttrHecateSandboxWrapperKind,
@@ -2075,7 +2078,9 @@ func defaultResourceID(prefix string) string {
 	if prefix == "" {
 		prefix = "id"
 	}
-	return prefix + "_" + strconv.FormatInt(time.Now().UTC().UnixNano(), 36)
+	now := strconv.FormatInt(time.Now().UTC().UnixNano(), 36)
+	seq := strconv.FormatUint(resourceIDCounter.Add(1), 36)
+	return prefix + "_" + now + "_" + seq
 }
 
 func firstNonEmpty(values ...string) string {

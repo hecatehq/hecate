@@ -9,6 +9,7 @@ import (
 	"reflect"
 	"sort"
 	"strings"
+	"sync"
 	"testing"
 	"time"
 
@@ -47,6 +48,39 @@ func TestMaxIntFallsBackOnNonPositive(t *testing.T) {
 		if got := maxInt(tc.value, tc.fallback); got != tc.want {
 			t.Errorf("maxInt(%d, %d) = %d, want %d", tc.value, tc.fallback, got, tc.want)
 		}
+	}
+}
+
+func TestDefaultResourceIDIsUniqueUnderConcurrency(t *testing.T) {
+	const workers = 32
+	const perWorker = 512
+
+	ids := make(chan string, workers*perWorker)
+	var wg sync.WaitGroup
+	for i := 0; i < workers; i++ {
+		wg.Add(1)
+		go func() {
+			defer wg.Done()
+			for j := 0; j < perWorker; j++ {
+				ids <- defaultResourceID("artifact")
+			}
+		}()
+	}
+	wg.Wait()
+	close(ids)
+
+	seen := make(map[string]struct{}, workers*perWorker)
+	for id := range ids {
+		if !strings.HasPrefix(id, "artifact_") {
+			t.Fatalf("id = %q, want artifact_ prefix", id)
+		}
+		if _, ok := seen[id]; ok {
+			t.Fatalf("duplicate id generated: %s", id)
+		}
+		seen[id] = struct{}{}
+	}
+	if got, want := len(seen), workers*perWorker; got != want {
+		t.Fatalf("ids = %d, want %d", got, want)
 	}
 }
 
