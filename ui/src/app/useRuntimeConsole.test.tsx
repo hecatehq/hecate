@@ -592,6 +592,92 @@ describe("useRuntimeConsole", () => {
       await waitFor(() => expect(result.current.state.queuedChatMessages).toHaveLength(0));
     });
 
+    it("restores queued prompts from local storage and persists edits", async () => {
+      window.localStorage.setItem("hecate.chatTarget", "agent");
+      window.localStorage.setItem("hecate.agentChatSessionID", "a1");
+      window.localStorage.setItem("hecate.agentWorkspace", "/workspace");
+      window.localStorage.setItem("hecate.queuedChatMessages", JSON.stringify([
+        {
+          id: "queued_restore",
+          session_id: "a1",
+          content: "keep this after refresh",
+          runtime_kind: "agent",
+          provider_filter: "auto",
+          model: "ministral-3:latest",
+          workspace: "/workspace",
+          system_prompt: "",
+          adapter_id: "codex",
+          created_at: "2026-04-20T00:00:01Z",
+        },
+      ]));
+      fetchMock.mockImplementation(defaultBackendMock({
+        "/hecate/v1/agent-chat/sessions": () => jsonResponse({
+          object: "agent_chat_sessions",
+          data: [{ id: "a1", title: "Agent", runtime_kind: "agent", status: "running", workspace: "/workspace", message_count: 0 }],
+        }),
+        "/hecate/v1/agent-chat/sessions/a1": () => jsonResponse({
+          object: "agent_chat_session",
+          data: { id: "a1", title: "Agent", runtime_kind: "agent", status: "running", workspace: "/workspace", messages: [], created_at: "2026-04-20T00:00:00Z", updated_at: "2026-04-20T00:00:00Z" },
+        }),
+      }));
+
+      const { result } = renderHook(() => useRuntimeConsole());
+      await waitFor(() => expect(result.current.state.loading).toBe(false));
+      expect(result.current.state.queuedChatMessages).toHaveLength(1);
+      expect(result.current.state.queuedChatMessages[0].content).toBe("keep this after refresh");
+
+      act(() => {
+        result.current.actions.updateQueuedChatMessage("queued_restore", "edited after refresh");
+      });
+
+      await waitFor(() => {
+        const stored = JSON.parse(window.localStorage.getItem("hecate.queuedChatMessages") ?? "[]");
+        expect(stored[0].content).toBe("edited after refresh");
+      });
+    });
+
+    it("prunes stored queued prompts for sessions that no longer exist", async () => {
+      window.localStorage.setItem("hecate.queuedChatMessages", JSON.stringify([
+        {
+          id: "queued_keep",
+          session_id: "a1",
+          content: "keep",
+          runtime_kind: "agent",
+          provider_filter: "auto",
+          model: "ministral-3:latest",
+          workspace: "/workspace",
+          system_prompt: "",
+          adapter_id: "codex",
+          created_at: "2026-04-20T00:00:01Z",
+        },
+        {
+          id: "queued_drop",
+          session_id: "missing",
+          content: "drop",
+          runtime_kind: "agent",
+          provider_filter: "auto",
+          model: "ministral-3:latest",
+          workspace: "/workspace",
+          system_prompt: "",
+          adapter_id: "codex",
+          created_at: "2026-04-20T00:00:02Z",
+        },
+      ]));
+      fetchMock.mockImplementation(defaultBackendMock({
+        "/hecate/v1/agent-chat/sessions": () => jsonResponse({
+          object: "agent_chat_sessions",
+          data: [{ id: "a1", title: "Agent", runtime_kind: "agent", status: "running", workspace: "/workspace", message_count: 0 }],
+        }),
+      }));
+
+      const { result } = renderHook(() => useRuntimeConsole());
+      await waitFor(() => expect(result.current.state.loading).toBe(false));
+
+      await waitFor(() => expect(result.current.state.queuedChatMessages.map((item) => item.id)).toEqual(["queued_keep"]));
+      const stored = JSON.parse(window.localStorage.getItem("hecate.queuedChatMessages") ?? "[]");
+      expect(stored.map((item: { id: string }) => item.id)).toEqual(["queued_keep"]);
+    });
+
     it("does not drain a queued prompt into a different selected chat", async () => {
       window.localStorage.setItem("hecate.chatTarget", "agent");
       window.localStorage.setItem("hecate.agentChatSessionID", "a1");

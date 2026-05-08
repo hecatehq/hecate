@@ -114,6 +114,8 @@ type QueuedChatMessage = {
   created_at: string;
 };
 
+const queuedChatMessagesStorageKey = "hecate.queuedChatMessages";
+
 function normalizeStoredChatTarget(value: string): ChatTarget {
   switch (value) {
     case "model":
@@ -132,6 +134,39 @@ function normalizeStoredHecateChatTarget(value: string): HecateChatTarget | "" {
       return value;
     default:
       return "";
+  }
+}
+
+function readStoredQueuedChatMessages(): QueuedChatMessage[] {
+  if (typeof window === "undefined") {
+    return [];
+  }
+  try {
+    const raw = window.localStorage.getItem(queuedChatMessagesStorageKey);
+    if (!raw) return [];
+    const parsed = JSON.parse(raw);
+    if (!Array.isArray(parsed)) return [];
+    return parsed.flatMap((item): QueuedChatMessage[] => {
+      if (!item || typeof item !== "object") return [];
+      const id = typeof item.id === "string" ? item.id : "";
+      const sessionID = typeof item.session_id === "string" ? item.session_id : "";
+      const content = typeof item.content === "string" ? item.content : "";
+      if (!id || !sessionID || !content.trim()) return [];
+      return [{
+        id,
+        session_id: sessionID,
+        content,
+        runtime_kind: normalizeStoredChatTarget(typeof item.runtime_kind === "string" ? item.runtime_kind : ""),
+        provider_filter: typeof item.provider_filter === "string" ? item.provider_filter as ProviderFilter : "auto",
+        model: typeof item.model === "string" ? item.model : "",
+        workspace: typeof item.workspace === "string" ? item.workspace : "",
+        system_prompt: typeof item.system_prompt === "string" ? item.system_prompt : "",
+        adapter_id: typeof item.adapter_id === "string" ? item.adapter_id : "",
+        created_at: typeof item.created_at === "string" ? item.created_at : new Date().toISOString(),
+      }];
+    });
+  } catch {
+    return [];
   }
 }
 
@@ -264,7 +299,7 @@ export function useRuntimeConsole() {
 
   const [model, setModel] = useState("");
   const [message, setMessage] = useState("");
-  const [queuedChatMessages, setQueuedChatMessages] = useState<QueuedChatMessage[]>([]);
+  const [queuedChatMessages, setQueuedChatMessages] = useState<QueuedChatMessage[]>(() => readStoredQueuedChatMessages());
   const [systemPrompt, setSystemPrompt] = useState("");
   const [chatLoading, setChatLoading] = useState(false);
   const [agentChatCancelling, setAgentChatCancelling] = useState(false);
@@ -432,6 +467,14 @@ export function useRuntimeConsole() {
     }
     window.localStorage.removeItem("hecate.agentChatSessionID");
   }, [activeAgentChatSessionID]);
+
+  useEffect(() => {
+    if (queuedChatMessages.length === 0) {
+      window.localStorage.removeItem(queuedChatMessagesStorageKey);
+      return;
+    }
+    window.localStorage.setItem(queuedChatMessagesStorageKey, JSON.stringify(queuedChatMessages));
+  }, [queuedChatMessages]);
 
   useEffect(() => {
     if (!notice) {

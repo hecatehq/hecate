@@ -50,7 +50,8 @@ but they can also store direct model segments:
   the originating chat session plus the selected runtime/model/workspace
   snapshot from the moment they were queued, so switching to another chat cannot
   drain a prompt into the wrong transcript. They can be edited or removed while
-  waiting, and they are not persisted until submitted.
+  waiting. They are persisted in browser-local operator storage until submitted,
+  removed, or pruned because the backing chat session was deleted.
   Chats projects the backing run activity into the transcript, links each
   assistant turn back to its backing Task/run, and can approve/reject pending
   task approvals inline. Low-level artifacts stay under transcript **Details**,
