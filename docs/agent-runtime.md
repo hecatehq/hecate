@@ -141,7 +141,9 @@ by default because it is a run-inspection view. Chats keeps it quieter so the
 conversation remains the primary surface. Task Detail may additionally expose a
 per-row **Advanced** disclosure with raw activity metadata for debugging:
 activity id/type/status, step/artifact/approval ids, tool kind, path, timestamp,
-and summary payload.
+and summary payload. Failed tool rows additionally preview related stdout/stderr
+artifacts there, so the common "why did this command fail?" path is answerable
+without leaving the activity row.
 
 ## Output and stderr in the UI
 
@@ -161,8 +163,10 @@ stream.
 Task Detail still records whether each stream artifact exists. The run output
 header shows stdout size when available, `stderr available` when stderr has
 content, and `stderr empty` when the stderr artifact was created but no bytes
-were captured. Hecate Chat keeps failed-tool diagnostics compact: it links only
-non-empty stdout/stderr artifacts from the chat activity row, shows capped
+were captured. Failed tool rows in Task Detail's **Advanced** disclosure preview
+stdout/stderr artifacts and keep empty stderr discoverable as "No bytes captured
+for this stream." Hecate Chat keeps failed-tool diagnostics compact: it links
+only non-empty stdout/stderr artifacts from the chat activity row, shows capped
 inline previews for those streams, and leaves the empty-stream confirmation to
 Task Detail.
 

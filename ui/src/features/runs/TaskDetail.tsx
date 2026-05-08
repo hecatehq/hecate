@@ -862,46 +862,159 @@ function RuntimeActivity({ activity }: { activity: TaskActivityRecord[] }) {
         activities={rows}
         defaultOpen
         renderAdvancedActivity={(item) => item.id
-          ? <TaskActivityAdvancedDetails activity={activityByID.get(item.id)} />
+          ? <TaskActivityAdvancedDetails activity={activityByID.get(item.id)} allActivity={activity} />
           : null}
       />
     </div>
   );
 }
 
-function TaskActivityAdvancedDetails({ activity }: { activity?: TaskActivityRecord }) {
+function TaskActivityAdvancedDetails({ activity, allActivity }: { activity?: TaskActivityRecord; allActivity: TaskActivityRecord[] }) {
   if (!activity) return null;
   const rows = taskActivityAdvancedRows(activity);
-  if (rows.length === 0) return null;
+  const diagnostics = failedToolOutputArtifacts(activity, allActivity);
+  if (rows.length === 0 && diagnostics.length === 0) return null;
 
   return (
     <div style={{ display: "grid", gap: 5 }}>
-      {rows.map(row => (
-        <div
-          key={row.label}
-          style={{
-            display: "grid",
-            gridTemplateColumns: "92px minmax(0, 1fr)",
-            gap: 8,
-            alignItems: "baseline",
-          }}
-        >
-          <span style={{ color: "var(--t3)", fontFamily: "var(--font-mono)", fontSize: 10 }}>
-            {row.label}
-          </span>
-          <span style={{
-            color: "var(--t1)",
-            fontFamily: "var(--font-mono)",
-            fontSize: 10,
-            overflowWrap: "anywhere",
-            whiteSpace: row.multiline ? "pre-wrap" : "normal",
-          }}>
-            {row.value}
-          </span>
-        </div>
-      ))}
+      {diagnostics.length > 0 && (
+        <TaskActivityOutputDiagnostics artifacts={diagnostics} />
+      )}
+      {rows.length > 0 && (
+        <details open={diagnostics.length === 0}>
+          <summary style={{ cursor: "pointer", fontFamily: "var(--font-mono)", fontSize: 10, color: "var(--t3)" }}>
+            Raw metadata
+          </summary>
+          <div style={{ display: "grid", gap: 5, marginTop: 6 }}>
+            {rows.map(row => (
+              <div
+                key={row.label}
+                style={{
+                  display: "grid",
+                  gridTemplateColumns: "92px minmax(0, 1fr)",
+                  gap: 8,
+                  alignItems: "baseline",
+                }}
+              >
+                <span style={{ color: "var(--t3)", fontFamily: "var(--font-mono)", fontSize: 10 }}>
+                  {row.label}
+                </span>
+                <span style={{
+                  color: "var(--t1)",
+                  fontFamily: "var(--font-mono)",
+                  fontSize: 10,
+                  overflowWrap: "anywhere",
+                  whiteSpace: row.multiline ? "pre-wrap" : "normal",
+                }}>
+                  {row.value}
+                </span>
+              </div>
+            ))}
+          </div>
+        </details>
+      )}
     </div>
   );
+}
+
+function TaskActivityOutputDiagnostics({ artifacts }: { artifacts: TaskActivityRecord[] }) {
+  return (
+    <div style={{ display: "grid", gap: 7 }}>
+      <div style={{ color: "var(--t2)", fontSize: 11, lineHeight: 1.5 }}>
+        This tool failed. Related run output is previewed here; the full stdout/stderr capture remains in run output.
+      </div>
+      <div style={{ display: "grid", gap: 7 }}>
+        {artifacts.map(artifact => (
+          <TaskActivityOutputPreview
+            key={artifact.artifact_id || artifact.id}
+            artifact={artifact}
+          />
+        ))}
+      </div>
+    </div>
+  );
+}
+
+function TaskActivityOutputPreview({ artifact }: { artifact: TaskActivityRecord }) {
+  const stream = outputActivityStream(artifact);
+  const isStderr = stream === "stderr";
+  const preview = taskActivityArtifactPreview(artifact);
+  const size = taskActivityArtifactSize(artifact);
+  return (
+    <div style={{
+      border: `1px solid ${isStderr ? "rgba(239, 95, 95, 0.28)" : "var(--border)"}`,
+      borderRadius: "var(--radius-sm)",
+      background: "var(--bg0)",
+      overflow: "hidden",
+    }}>
+      <div style={{
+        alignItems: "center",
+        borderBottom: "1px solid var(--border)",
+        display: "flex",
+        gap: 8,
+        padding: "4px 7px",
+      }}>
+        <span style={{
+          color: isStderr ? "var(--red)" : "var(--t1)",
+          fontFamily: "var(--font-mono)",
+          fontSize: 10,
+        }}>
+          {artifact.title || stream}
+        </span>
+        <span style={{ color: "var(--t3)", fontFamily: "var(--font-mono)", fontSize: 10 }}>
+          {size ? `${size}b` : "empty"}
+        </span>
+      </div>
+      {preview ? (
+        <pre style={{
+          color: isStderr ? "var(--red)" : "var(--t1)",
+          fontFamily: "var(--font-mono)",
+          fontSize: 10,
+          lineHeight: 1.55,
+          margin: 0,
+          maxHeight: 130,
+          overflow: "auto",
+          padding: "7px",
+          whiteSpace: "pre-wrap",
+        }}>{preview}</pre>
+      ) : (
+        <div style={{ color: "var(--t3)", fontSize: 11, padding: "7px" }}>
+          {size ? "Preview unavailable in this snapshot." : "No bytes captured for this stream."}
+        </div>
+      )}
+    </div>
+  );
+}
+
+function failedToolOutputArtifacts(activity: TaskActivityRecord, allActivity: TaskActivityRecord[]): TaskActivityRecord[] {
+  if (activity.type !== "tool_call" || activity.status !== "failed") return [];
+  const seen = new Set<string>();
+  const matchingStep = activity.step_id || "";
+  const related = allActivity.filter(item => {
+    if (item.type !== "artifact" || !isOutputArtifactActivity(item)) return false;
+    if (matchingStep && item.step_id && item.step_id !== matchingStep) return false;
+    return true;
+  });
+  const scoped = matchingStep && related.some(item => item.step_id === matchingStep)
+    ? related.filter(item => item.step_id === matchingStep)
+    : related;
+  return scoped.filter(item => {
+    const key = item.artifact_id || item.id;
+    if (seen.has(key)) return false;
+    seen.add(key);
+    return true;
+  });
+}
+
+function isOutputArtifactActivity(activity: TaskActivityRecord): boolean {
+  return outputActivityStream(activity) !== "";
+}
+
+function outputActivityStream(activity: TaskActivityRecord): "stdout" | "stderr" | "" {
+  const label = `${activity.kind ?? ""} ${activity.title ?? ""} ${activity.path ?? ""}`.toLowerCase();
+  if (label.includes("stderr")) return "stderr";
+  if (label.includes("stdout")) return "stdout";
+  return "";
 }
 
 function taskActivityAdvancedRows(activity: TaskActivityRecord): Array<{ label: string; value: string; multiline?: boolean }> {
