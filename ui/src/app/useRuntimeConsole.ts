@@ -170,6 +170,17 @@ function readStoredQueuedChatMessages(): QueuedChatMessage[] {
   }
 }
 
+function writeStoredQueuedChatMessages(items: QueuedChatMessage[]) {
+  if (typeof window === "undefined") {
+    return;
+  }
+  if (items.length === 0) {
+    window.localStorage.removeItem(queuedChatMessagesStorageKey);
+    return;
+  }
+  window.localStorage.setItem(queuedChatMessagesStorageKey, JSON.stringify(items));
+}
+
 function readStoredChatTargetsBySessionID(): Map<string, HecateChatTarget> {
   if (typeof window === "undefined") {
     return new Map();
@@ -300,6 +311,7 @@ export function useRuntimeConsole() {
   const [model, setModel] = useState("");
   const [message, setMessage] = useState("");
   const [queuedChatMessages, setQueuedChatMessages] = useState<QueuedChatMessage[]>(() => readStoredQueuedChatMessages());
+  const queuedChatMessagesRef = useRef(queuedChatMessages);
   const [systemPrompt, setSystemPrompt] = useState("");
   const [chatLoading, setChatLoading] = useState(false);
   const [agentChatCancelling, setAgentChatCancelling] = useState(false);
@@ -469,12 +481,21 @@ export function useRuntimeConsole() {
   }, [activeAgentChatSessionID]);
 
   useEffect(() => {
-    if (queuedChatMessages.length === 0) {
-      window.localStorage.removeItem(queuedChatMessagesStorageKey);
-      return;
-    }
-    window.localStorage.setItem(queuedChatMessagesStorageKey, JSON.stringify(queuedChatMessages));
+    queuedChatMessagesRef.current = queuedChatMessages;
+    const timeout = window.setTimeout(() => {
+      writeStoredQueuedChatMessages(queuedChatMessages);
+    }, 200);
+    return () => window.clearTimeout(timeout);
   }, [queuedChatMessages]);
+
+  useEffect(() => {
+    const flushQueuedMessages = () => writeStoredQueuedChatMessages(queuedChatMessagesRef.current);
+    window.addEventListener("pagehide", flushQueuedMessages);
+    return () => {
+      window.removeEventListener("pagehide", flushQueuedMessages);
+      flushQueuedMessages();
+    };
+  }, []);
 
   useEffect(() => {
     if (!notice) {

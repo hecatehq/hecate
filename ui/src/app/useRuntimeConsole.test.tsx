@@ -674,8 +674,10 @@ describe("useRuntimeConsole", () => {
       await waitFor(() => expect(result.current.state.loading).toBe(false));
 
       await waitFor(() => expect(result.current.state.queuedChatMessages.map((item) => item.id)).toEqual(["queued_keep"]));
-      const stored = JSON.parse(window.localStorage.getItem("hecate.queuedChatMessages") ?? "[]");
-      expect(stored.map((item: { id: string }) => item.id)).toEqual(["queued_keep"]);
+      await waitFor(() => {
+        const stored = JSON.parse(window.localStorage.getItem("hecate.queuedChatMessages") ?? "[]");
+        expect(stored.map((item: { id: string }) => item.id)).toEqual(["queued_keep"]);
+      });
     });
 
     it("does not drain a queued prompt into a different selected chat", async () => {
