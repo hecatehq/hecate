@@ -4,6 +4,7 @@ import (
 	"context"
 	"fmt"
 	"sort"
+	"strings"
 	"sync"
 	"time"
 
@@ -305,6 +306,12 @@ func (s *MemoryStore) UpdateApproval(_ context.Context, approval types.TaskAppro
 }
 
 func (s *MemoryStore) UpdatePendingApproval(_ context.Context, approval types.TaskApproval) (types.TaskApproval, bool, error) {
+	if strings.TrimSpace(approval.ID) == "" {
+		return types.TaskApproval{}, false, fmt.Errorf("approval id is required")
+	}
+	if strings.TrimSpace(approval.TaskID) == "" {
+		return types.TaskApproval{}, false, fmt.Errorf("approval task id is required")
+	}
 	s.mu.Lock()
 	defer s.mu.Unlock()
 	current, ok := s.approvals[approval.ID]

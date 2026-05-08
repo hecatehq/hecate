@@ -1007,10 +1007,8 @@ func (r *Runner) cancelRunWithMessage(ctx context.Context, task types.Task, run 
 		} else {
 			trace = r.tracer.Start(requestID)
 			defer trace.Finalize()
-			if traceID == "" {
-				traceID = trace.TraceID
-				ctx = telemetry.WithTraceIDs(ctx, trace.TraceID, trace.RootSpanID())
-			}
+			traceID = trace.TraceID
+			ctx = telemetry.WithTraceIDs(ctx, trace.TraceID, trace.RootSpanID())
 		}
 	}
 
