@@ -1,5 +1,5 @@
 // Package version exposes the gateway's build version as a single
-// package-level variable so both cmd/gateway and internal/api can read
+// package-level variable so both cmd/hecate and internal/api can read
 // it without an import cycle.
 //
 // Defaults to "dev" for local builds. goreleaser overrides it via
