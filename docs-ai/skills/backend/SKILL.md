@@ -114,21 +114,27 @@ When changing this path:
 1. Keep `docs/rfcs/unified-chats-and-model-capabilities.md` and
    `docs/runtime-api.md` aligned when changing Hecate Agent or capability
    behavior.
-2. Keep `docs/external-agent-adapters.md` aligned for operator-visible
+2. Keep provider/model readiness contracts aligned across
+   `docs/providers.md`, `docs/chat-sessions.md`, and `docs/runtime-api.md`.
+   A stale selected model should fail with the stable API contract
+   (`model_not_configured`) if it reaches the server, but UI clients are
+   expected to preflight against `/v1/models` plus
+   `/hecate/v1/providers/status` and block send with actionable diagnostics.
+3. Keep `docs/external-agent-adapters.md` aligned for operator-visible
    behavior such as launchers, env sanitisation, persistence, raw diagnostics,
    guardrails, auth/readiness probes, and troubleshooting.
-3. Keep `docs/acp.md` aligned only when changing the separate `hecate-acp`
+4. Keep `docs/acp.md` aligned only when changing the separate `hecate-acp`
    editor bridge.
-4. Add focused tests in `internal/agentadapters/*_test.go` for ACP/process
+5. Add focused tests in `internal/agentadapters/*_test.go` for ACP/process
    protocol behavior and `internal/api/server_test.go` for HTTP/session
    persistence behavior. Guardrail changes should cover both the HTTP 422
    envelope and the session snapshot fields the UI consumes.
-5. If the change touches model-capability precedence, add or update tests in
+6. If the change touches model-capability precedence, add or update tests in
    `internal/modelcaps` and the `/v1/models` API tests.
-6. If the change touches approval/grant durability, startup reconcile, or
+7. If the change touches approval/grant durability, startup reconcile, or
    cmd/hecate store wiring, add or run the binary e2e approval smokes:
    `go test -tags e2e -run 'TestApproval' ./e2e`.
-7. Run the race suite. Long-lived adapter sessions are runtime code, not just
+8. Run the race suite. Long-lived adapter sessions are runtime code, not just
    a UI convenience.
 
 ### Add a persisted run-event type

@@ -1,58 +1,78 @@
+# Local machine and secrets
+.DS_Store
 .env
-# .claude/ holds Claude Code config + session state. Keep most of it
-# user-local (per-machine session history, local overrides), but
-# track shared team artifacts: slash commands under commands/, the
-# baseline permission allowlist in settings.json, and the skill
-# discovery symlinks under skills/ that point Claude at canonical
-# SKILL.md files in ai/skills/.
+
+# Claude Code local state
 #
-# Pattern note: ignore immediate children of .claude/ via `*` rather
-# than the directory itself, so the negations can re-include
-# specific subpaths. `.claude/` would have ignored the whole tree
-# and made `!.claude/commands/` unreachable per gitignore semantics.
+# .claude/ holds Claude Code config + session state. Keep most of it
+# user-local (per-machine session history, local overrides), but track shared
+# team artifacts: slash commands, settings.json, and the skill discovery
+# symlinks that point Claude at canonical SKILL.md files under docs-ai/.
+#
+# Pattern note: ignore immediate children via `*`, not the directory itself, so
+# negations can re-include specific subpaths. Ignoring `.claude/` would make
+# `!.claude/commands/` unreachable under gitignore semantics.
 .claude/*
 !.claude/commands/
 !.claude/skills/
 !.claude/settings.json
-# Default GATEWAY_DATA_DIR for local dev. Holds the auto-generated
-# bootstrap file (AES-GCM control-plane key, mode 0600). Never commit it.
+
+# Runtime state and local Go caches
+#
+# .data/ is the default GATEWAY_DATA_DIR for local dev. It may contain the
+# generated bootstrap/control-plane key and sqlite databases, so it must stay
+# local. The Go cache dirs are opt-in repo-local caches used by local scripts.
 .data/
 .gocache/
 .gomodcache/
 .gopath/
-# Built binary produced by `make build`. Anchored to the repo root so a
-# package or test happening to be named "hecate" elsewhere isn't ignored.
+
+# Built Go binaries
+#
+# Anchored to the repo root so a package or test fixture named "hecate"
+# elsewhere is not ignored.
 /hecate
-/gateway
 /hecate-acp
+
+# Root release output
+#
+# Goreleaser snapshot and release runs write to ./dist and `--clean` deletes it.
+# Keep this anchored so it does not shadow ui/dist/ or website/dist/.
+/dist/
+
+# JavaScript dependencies and reports
 node_modules/
+coverage.out
+
+# React operator UI
 ui/node_modules/
-e2e/local-ollama-*.log
 ui/dist/*
 !ui/dist/.gitkeep
 ui/*.tsbuildinfo
 ui/test-results/
 ui/playwright-report/
 ui/coverage/
-coverage.out
 
-# Astro website build artifacts.
+# Astro website
 website/node_modules/
 website/dist/
 website/.astro/
-# Goreleaser output. Snapshot and release runs both write into ./dist
-# at repo root and `--clean` deletes anything in there — so nothing
-# under dist/ should ever be tracked, otherwise goreleaser hits "git
-# is in a dirty state" the next time it cleans. Anchored with leading
-# / so the rule doesn't shadow ui/dist/ (which has its own block above).
-/dist/
+website/.vercel/
+website/.netlify/
 
-# Tauri desktop app build artifacts.
+# Tauri desktop app
 tauri/node_modules/
-# Rust build output (target/) is large and fully reproducible.
+
+# Rust build output is large and fully reproducible.
 tauri/src-tauri/target/
-# The sidecar binary is copied into binaries/ by make tauri-sidecar;
-# it is platform-specific and built on demand — not tracked.
+
+# Sidecar binaries are copied into binaries/ by `just tauri-sidecar`; they are
+# platform-specific and built on demand.
 tauri/src-tauri/binaries/hecate*
+# Ignore stale pre-rename sidecars left by older local builds.
 tauri/src-tauri/binaries/gateway*
+tauri/src-tauri/binaries/hecate-acp*
 !tauri/src-tauri/binaries/.gitkeep
+
+# Local e2e logs
+e2e/local-ollama-*.log

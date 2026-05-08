@@ -24,7 +24,7 @@ ACP appears in Hecate in two directions:
 
 | Direction | What Hecate does | Where to read |
 |---|---|---|
-| **Hecate as an ACP client/operator** | Launches and supervises external ACP adapters from **Chats → Agent**. This is the flow documented here. | This page |
+| **Hecate as an ACP client/operator** | Launches and supervises external ACP adapters from **Chats → External Agent**. This is the flow documented here. | This page |
 | **Hecate as an ACP agent** | Exposes Hecate's task runtime to external editor ACP hosts through `hecate-acp`. | [ACP bridge](acp.md) |
 
 The two flows share the ACP protocol vocabulary, but they do not share a
@@ -38,6 +38,27 @@ own the `hecate-acp` bridge process.
 | Codex | Hecate-managed launcher for `@zed-industries/codex-acp` via local `npx`; direct `codex-acp` also works | Codex CLI / adapter login or config |
 | Claude Code | Hecate-managed launcher for `@agentclientprotocol/claude-agent-acp` via local `npx`; direct `claude-agent-acp` also works | Claude agent / adapter login or config |
 | Cursor Agent | `cursor-agent acp` | `cursor-agent login` or `CURSOR_API_KEY` |
+
+## Quick start from the operator UI
+
+1. Start Hecate and open **Chats**.
+2. Switch from **Hecate Chat** to **External Agent**.
+3. Pick **Codex**, **Claude Code**, or **Cursor Agent**.
+4. Choose the workspace directory the external agent is allowed to work in.
+5. If the adapter row is amber/red, open **Settings → External agents** and
+   click **Test**. The probe performs a real spawn + ACP handshake + temporary
+   no-op session, so it catches missing auth, billing/subscription issues,
+   unsupported versions, and broken managed launchers before a prompt fails.
+6. Send a small smoke prompt:
+
+   ```text
+   Show me git status and summarize what changed.
+   ```
+
+External Agent chats are intentionally separate from Hecate Chat. They do not
+use Hecate model providers or Hecate's task sandbox. The selected adapter owns
+its model/runtime/subscription; Hecate supervises the process, approvals,
+transcript, diagnostics, traces, guardrails, and Git diff review.
 
 Check discovery:
 
@@ -79,9 +100,21 @@ curl -X POST http://127.0.0.1:8765/hecate/v1/agent-adapters/codex/refresh-launch
 
 ## Setup checks
 
-Agent Chat does not use Hecate model providers. It needs the selected
+External Agent chat does not use Hecate model providers. It needs the selected
 coding-agent to be authenticated, and either a direct ACP command or a managed
 package runner to be visible to Hecate.
+
+Use this order when troubleshooting:
+
+1. **Discovery** — `GET /hecate/v1/agent-adapters` tells you whether Hecate can
+   find a direct command or managed launcher and whether the installed version
+   is inside Hecate's tested range.
+2. **Probe** — `POST /hecate/v1/agent-adapters/{id}/probe` actually starts the
+   adapter and opens a temporary ACP session. This is the best "will it run?"
+   check.
+3. **Chat run** — send a real prompt only after discovery/probe are green. If
+   the adapter still fails, open the message's raw diagnostics disclosure; the
+   normalized transcript is for reading, raw ACP output is for debugging.
 
 ### Codex ACP
 
@@ -148,7 +181,8 @@ environment that starts Hecate.
    just dev
    ```
 
-2. Open **Chats** and switch the target from **Model** to **Agent**.
+2. Open **Chats** and switch the target from **Hecate Chat** to
+   **External Agent**.
 
 3. Choose an available adapter.
 
@@ -297,8 +331,12 @@ the sweeper has closed the stale session, the request returns HTTP 422 with
 | Symptom | What to check |
 |---|---|
 | Codex or Claude adapter is missing | Hecate could not find the direct ACP command or a local `npx` runner. Install Node/npm, or make sure Volta/mise/asdf/Homebrew is visible to the process that starts Hecate. |
+| Codex or Claude managed launcher is stale | Click **Reinstall** in Settings → External agents, or call `POST /hecate/v1/agent-adapters/{id}/refresh-launcher`. |
 | Cursor adapter is missing | `cursor-agent` is not visible to Hecate. Install Cursor Agent and restart Hecate after changing shell/runtime managers such as Volta. |
 | Cursor says authentication is required | Run `cursor-agent login` or set `CURSOR_API_KEY` in the environment that starts Hecate. |
+| Claude reports low credit balance while `/status` shows a subscription | Confirm the same environment/account starts Hecate and Claude. Hecate strips provider `ANTHROPIC_*` env vars so Claude Code should use its own login; raw diagnostics show which error the adapter returned. |
+| The chat says the adapter version is outside the tested range | The adapter may still work, but Hecate has not verified that ACP wire shape. Update/downgrade the adapter package or use the managed launcher path. |
+| Approval is waiting | Review it in the Chats banner/modal or Settings approval surfaces. In `prompt` mode, unreviewed requests time out with ACP `Cancelled`. |
 | Output looks strange | Open the message's raw output disclosure. The visible transcript is normalized from ACP updates, but raw update JSON is retained for adapter debugging. |
 | Run hangs | Use the Stop button. Hecate sends ACP cancellation and marks the run `cancelled`. |
 | Diff is empty | The workspace may not be a Git repo, or the adapter did not change files. |

@@ -97,7 +97,7 @@ After a provider is saved, Hecate discovers models and the Chats model picker be
 
 Chats is the primary day-to-day surface. It explains missing setup before you send a request, then keeps the common flows in one place:
 
-- **Hecate Chat** — choose a provider/model and use the per-chat **tools on/off** switch. Tools off is direct model chat through the gateway; tools on uses Hecate's task runtime with approvals, artifacts, per-call sandboxing, and OpenTelemetry.
+- **Hecate Chat** — choose a provider/model and use the per-chat **tools on/off** switch. Tools off is direct model chat through the gateway; tools on uses Hecate's task runtime with approvals, artifacts, per-call sandboxing, and OpenTelemetry. If a selected model becomes stale because provider discovery changed, Chats blocks send and shows the provider route, discovered-model count, health, and repair steps before the request leaves your machine.
 - **External Agent** — select Codex, Claude Code, or Cursor Agent, choose a workspace, and run a supervised local ACP session.
 
 ![Hecate Chat transcript with tools-off direct turns, tools-on task-backed turns, Task / Trace / Run links, and collapsible activity details](docs/screenshots/chat.png)

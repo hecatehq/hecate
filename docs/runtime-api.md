@@ -1042,6 +1042,16 @@ prompt cannot drain into a different transcript after the operator switches
 sessions. That queue is intentionally not durable until each prompt is
 submitted.
 
+Clients should also treat model/provider readiness as a preflight concern.
+Before sending Hecate Chat turns, compare the selected model against
+`GET /v1/models` and the provider readiness snapshot from
+`GET /hecate/v1/providers/status`. If the selected model is stale or no longer
+reported by the selected provider route, block the composer and show the
+selected model, provider route, discovered-model count, health, blocked-by,
+last-error, and remediation steps. The server still returns
+`422 model_not_configured` as the authoritative contract when a stale selection
+slips through.
+
 The response returns after the backing turn finishes, times out, is cancelled,
 or fails. For live output while the turn is running, subscribe to the session
 stream before posting the message. Hecate Agent turns update the running

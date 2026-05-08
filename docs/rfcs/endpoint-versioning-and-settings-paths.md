@@ -1,31 +1,61 @@
-# Endpoint Versioning and Settings Paths — Candidate RFC
+# Endpoint Versioning and Settings Paths
 
-> **Status:** candidate for stable-core cleanup. This document proposes a
-> breaking alpha rename before Hecate starts treating endpoint paths as stable.
+> **Status:** accepted and implemented for alpha. This document records the
+> breaking namespace cleanup that moved Hecate-native endpoints under
+> `/hecate/v1/*` before Hecate starts treating endpoint paths as stable.
 > **Related:** [Runtime API](../runtime-api.md),
 > [Deployment](../deployment.md), [Telemetry](../telemetry.md).
 > **Owner:** see [`AGENTS.md`](../../AGENTS.md).
 
-Hecate currently mixes three different API stories in one path space:
+Before this migration, Hecate mixed three different API stories in one path
+space:
 
 - OpenAI-compatible endpoints under `/v1/*`.
 - Anthropic-compatible endpoints under `/v1/*`.
 - Hecate-native runtime, settings, task, chat, and observability endpoints under
   both `/v1/*` and legacy `/admin/*`.
 
-That was fine while the project was still moving quickly, but it creates a bad
-stable contract. A client looking at `/v1/tasks` and `/v1/chat/completions`
-should not have to guess which `/v1` means "OpenAI-shaped compatibility" and
-which `/v1` means "Hecate product API." The legacy `/admin/*` naming is also
-misleading in single-user, local-first Hecate: there is no role-separated admin
-API. The operator is the user.
+That was fine while the project was still moving quickly, but it created a bad
+stable contract. A client looking at old `/v1/tasks` and
+`/v1/chat/completions` should not have to guess which `/v1` means
+"OpenAI-shaped compatibility" and which `/v1` means "Hecate product API." The
+legacy `/admin/*` naming was also misleading in single-user, local-first Hecate:
+there is no role-separated admin API. The operator is the user.
 
-This RFC proposes a clean stable split:
+This RFC defines the stable split:
 
 - Keep provider-compatible ingress at the paths those clients expect:
   `/v1/chat/completions`, `/v1/messages`, and `/v1/models`.
 - Move every Hecate-native product endpoint under `/hecate/v1/*`.
 - Replace `/admin/control-plane/*` with `/hecate/v1/settings/*`.
+
+## Implementation Status
+
+Implemented in the alpha endpoint migration:
+
+- Hecate-native task, event, trace, chat, agent-chat, adapter, MCP, workspace,
+  settings, provider status, cost, system, retention, and observability routes
+  moved to `/hecate/v1/*`.
+- OpenAI-/Anthropic-compatible ingress stayed on `/v1/chat/completions`,
+  `/v1/messages`, and `/v1/models`.
+- `/healthz` stayed unversioned and intentionally cheap.
+- The operator UI, API client, docs, and release checks were updated to the new
+  paths without compatibility shims.
+- `server.go` groups provider-compatible, Hecate-native, and health/OTLP
+  routes separately so future additions land in the right namespace.
+
+Follow-up work before stable:
+
+- Keep this RFC as the naming source of truth when adding new endpoints. New
+  Hecate-native routes should default to `/hecate/v1/*`; provider-compatible
+  routes should stay in `/v1/*` only when they intentionally mimic an external
+  provider API.
+- Add or update focused route tests whenever a new route family is added, so
+  old `/admin/*` or Hecate-native `/v1/*` paths do not creep back in.
+- Keep screenshots, README snippets, ACP examples, MCP tools, and docs-ai
+  recipes aligned whenever endpoint examples change.
+- Revisit whether trace list and trace lookup should remain a single
+  `/hecate/v1/traces` resource before declaring the trace API stable.
 
 ## Goals
 
@@ -153,7 +183,7 @@ before stable.
 
 ### Should trace listing merge into `/hecate/v1/traces`?
 
-Current state has two trace endpoints:
+Before the endpoint migration, Hecate had two trace endpoints:
 
 - `GET /v1/traces?request_id=...` for lookup.
 - `GET /admin/traces` for list.
@@ -181,16 +211,18 @@ No, not before stable. Hecate is still alpha and not following semver-backed API
 compatibility yet. Keeping shims would double the route and docs surface and
 make the stable contract less clear.
 
-## Implementation Plan
+## Implementation Checklist
 
-1. Rename Go route registrations in `internal/api/server.go`.
-2. Rename UI API client paths in `ui/src/lib/api.ts`.
-3. Update UI tests and Playwright fixtures.
-4. Update docs: `runtime-api.md`, `providers.md`, `telemetry.md`,
-   `deployment.md`, `development.md`, README/docs index, and any RFC examples
-   that refer to the old paths.
-5. Run targeted Go handler tests plus UI typecheck/unit/e2e.
-6. Do not add compatibility shims.
+The migration followed this checklist:
+
+1. Renamed Go route registrations in `internal/api/server.go`.
+2. Renamed UI API client paths in `ui/src/lib/api.ts`.
+3. Updated UI tests and Playwright fixtures.
+4. Updated docs: `runtime-api.md`, `providers.md`, `telemetry.md`,
+   `deployment.md`, `development.md`, README/docs index, and RFC examples that
+   referred to old paths.
+5. Ran targeted Go handler tests plus UI typecheck/unit/e2e.
+6. Did not add compatibility shims.
 
 ## Migration Note
 

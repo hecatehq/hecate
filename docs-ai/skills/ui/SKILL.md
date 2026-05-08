@@ -120,6 +120,13 @@ Each section has exactly one job: orient, inspect, compare, edit, or confirm. If
   should offer an inline enable/override path; unknown local/custom models
   should explain how to record a manual probe result or operator override in
   Settings, not silently run as an agent.
+- Stale selected-model readiness is a composition blocker, not a post-send
+  error toast. If the selected model is not in the current model picker for the
+  selected route, hide/disable send and show the selected model, provider route,
+  discovered-model count, health, blocked-by, last-error, and repair steps.
+  The empty-state "compact" version may be shorter, but it must still include
+  discovered-model count and at least a short remediation list; don't reduce it
+  to a dead-end warning.
 - Agent Chat readiness belongs in Settings → External agents and in the picker
   diagnostics: distinguish missing binaries, auth/billing problems, unsupported
   versions, and managed-launcher issues without sending users to raw logs first.

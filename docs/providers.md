@@ -211,4 +211,7 @@ routable, usually because discovery reports a different local model set or a
 cloud account does not expose that model. In that case Chats blocks the
 composer before sending, shows the selected model, provider route, discovered
 model count, health, and next steps, and links the operator back to Providers
-for the full checklist.
+for the full checklist. The same contract applies in the empty-chat state:
+compact readiness copy must still show the discovered-model count plus the
+highest-signal health/block/error diagnostics and a short repair path, so
+operators are not forced to send a doomed prompt or inspect raw provider JSON.

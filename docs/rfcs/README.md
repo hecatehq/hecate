@@ -19,4 +19,4 @@ Implemented runtime behavior lives in the main docs:
 | [External agent adapters candidate](external-agent-adapters.md) | Candidate shape for chatting with Codex, Claude Code, Cursor Agent, and future coding-agent CLIs through Hecate. |
 | [External-adapter approval loop v1 candidate](external-adapter-approvals-v1.md) | Operator-controlled `RequestPermission` handling for external ACP adapters. Replaces the current auto-approve stub. |
 | [Hecate Chat and model capabilities](unified-chats-and-model-capabilities.md) | Accepted alpha direction for Hecate Chat tools on/off segments, Hecate-owned task execution, External Agent separation, and tool-capability metadata. |
-| [Endpoint versioning and settings paths candidate](endpoint-versioning-and-settings-paths.md) | Candidate stable-core route split: provider-compatible `/v1/*` ingress, Hecate-native `/hecate/v1/*`, and `/admin/*` removal. |
+| [Endpoint versioning and settings paths](endpoint-versioning-and-settings-paths.md) | Accepted and implemented alpha route split: provider-compatible `/v1/*` ingress, Hecate-native `/hecate/v1/*`, and `/admin/*` removal. |
