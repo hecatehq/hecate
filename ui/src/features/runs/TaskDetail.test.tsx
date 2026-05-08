@@ -451,6 +451,42 @@ describe("TaskDetail runtime activity and patches", () => {
     expect(screen.getByText("No stdout or stderr artifacts were captured for this tool.")).toBeTruthy();
   });
 
+  it("does not show output from another step when a failed tool has no matching artifacts", async () => {
+    const { render, user } = setup({
+      activity: [
+        makeActivity({
+          id: "activity-tool",
+          type: "tool_call",
+          title: "git_exec",
+          step_id: "step-git",
+          tool_name: "git_exec",
+          kind: "git",
+          status: "failed",
+          summary: { command: "git status", exit_code: 128 },
+        }),
+        makeActivity({
+          id: "activity-other-stdout",
+          type: "artifact",
+          title: "other-stdout.txt",
+          step_id: "step-other",
+          artifact_id: "art-other-stdout",
+          kind: "stdout",
+          status: "ready",
+          summary: {
+            size_bytes: 24,
+            content_preview: "unrelated output",
+          },
+        }),
+      ],
+    });
+    render();
+
+    await user.click(screen.getAllByText("Advanced")[0]);
+
+    expect(screen.getByText("No stdout or stderr artifacts were captured for this tool.")).toBeTruthy();
+    expect(screen.queryByText("unrelated output")).toBeNull();
+  });
+
   it("shows when a failed tool has stdout but no stderr artifact", async () => {
     const { render, user } = setup({
       activity: [
