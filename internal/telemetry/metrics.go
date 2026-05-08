@@ -715,7 +715,7 @@ type ApprovalMetricsRecord struct {
 	TaskID       string
 	RunID        string
 	ApprovalKind string
-	Decision     string // approved | rejected
+	Decision     string // approved | rejected | cancelled
 	WaitMS       int64
 }
 

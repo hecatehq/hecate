@@ -304,6 +304,17 @@ func (s *MemoryStore) UpdateApproval(_ context.Context, approval types.TaskAppro
 	return approval, nil
 }
 
+func (s *MemoryStore) UpdatePendingApproval(_ context.Context, approval types.TaskApproval) (types.TaskApproval, bool, error) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	current, ok := s.approvals[approval.ID]
+	if !ok || current.Status != "pending" || (approval.TaskID != "" && current.TaskID != approval.TaskID) {
+		return types.TaskApproval{}, false, nil
+	}
+	s.approvals[approval.ID] = approval
+	return approval, true, nil
+}
+
 func (s *MemoryStore) CreateArtifact(_ context.Context, artifact types.TaskArtifact) (types.TaskArtifact, error) {
 	s.mu.Lock()
 	defer s.mu.Unlock()

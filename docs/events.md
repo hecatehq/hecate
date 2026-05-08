@@ -42,7 +42,7 @@ These are **persisted events** (rows in the `task_state_run_events` table). They
 | `assistant.tool_call_proposed` | Agent loop | Assistant proposed a tool call before runtime dispatch |
 | `assistant.final_answer` | Agent loop | Assistant ended the loop without more tool calls |
 | `approval.requested` | Approvals | An approval gate was created (pre-execution or mid-loop) |
-| `approval.resolved` | Approvals | Operator resolved an approval gate |
+| `approval.resolved` | Approvals | Operator or system resolved an approval gate |
 | `turn.completed` | Agent loop | One LLM round-trip in an `agent_loop` run finished |
 | `tool.invoked` | Typed shell tool events | Shell executor accepted a tool call or direct shell task |
 | `tool.started` | Typed shell tool events | Shell execution is about to start |
@@ -218,7 +218,7 @@ reject, the run terminates `failed`; after cancellation, the run terminates
 | `approval_id` | `string` | Resolved approval id |
 | `decision` | `string` | `approved`, `rejected`, or `cancelled` |
 | `by` | `string` | Principal or subsystem that resolved the approval |
-| `comment` | `string` | Operator-supplied resolution note |
+| `comment` | `string` | Operator- or system-supplied resolution note |
 | `scope` | `string` | Currently `once`; persistent always-allow is separate policy work |
 | `kind` | `string` | Approval type |
 | `status` | `string` | Mirrors `decision` for compatibility with approval records |
