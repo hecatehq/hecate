@@ -2,6 +2,7 @@ package taskstate
 
 import (
 	"context"
+	"strings"
 	"testing"
 	"time"
 
@@ -79,6 +80,64 @@ func TestTaskStore_UpdatePendingApprovalOnlyTransitionsPending(t *testing.T) {
 			}
 			if got.Status != "approved" || got.ResolvedBy != "operator" {
 				t.Fatalf("resolved approval was clobbered: %+v", got)
+			}
+		})
+	}
+}
+
+func TestTaskStore_UpdatePendingApprovalValidatesIdentifiers(t *testing.T) {
+	t.Parallel()
+
+	tests := []struct {
+		name  string
+		store func(t *testing.T) Store
+	}{
+		{
+			name: "memory",
+			store: func(t *testing.T) Store {
+				t.Helper()
+				return NewMemoryStore()
+			},
+		},
+		{
+			name: "sqlite",
+			store: func(t *testing.T) Store {
+				t.Helper()
+				return newSQLiteTestStore(t)
+			},
+		},
+	}
+
+	for _, tt := range tests {
+		tt := tt
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+			ctx := context.Background()
+			store := tt.store(t)
+
+			cases := []struct {
+				name     string
+				approval types.TaskApproval
+				wantErr  string
+			}{
+				{
+					name:     "empty id",
+					approval: types.TaskApproval{TaskID: "task-ap", Status: "approved"},
+					wantErr:  "approval id is required",
+				},
+				{
+					name:     "empty task id",
+					approval: types.TaskApproval{ID: "approval-1", Status: "approved"},
+					wantErr:  "approval task id is required",
+				},
+			}
+
+			for _, tc := range cases {
+				if _, ok, err := store.UpdatePendingApproval(ctx, tc.approval); err == nil || ok {
+					t.Fatalf("%s: UpdatePendingApproval ok=%v err=%v, want validation error", tc.name, ok, err)
+				} else if !strings.Contains(err.Error(), tc.wantErr) {
+					t.Fatalf("%s: error = %q, want %q", tc.name, err.Error(), tc.wantErr)
+				}
 			}
 		})
 	}

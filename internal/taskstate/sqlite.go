@@ -400,6 +400,9 @@ func (s *SQLiteStore) UpdatePendingApproval(ctx context.Context, approval types.
 	if strings.TrimSpace(approval.ID) == "" {
 		return types.TaskApproval{}, false, fmt.Errorf("approval id is required")
 	}
+	if strings.TrimSpace(approval.TaskID) == "" {
+		return types.TaskApproval{}, false, fmt.Errorf("approval task id is required")
+	}
 	payload, err := json.Marshal(approval)
 	if err != nil {
 		return types.TaskApproval{}, false, err
