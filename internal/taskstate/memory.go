@@ -322,6 +322,30 @@ func (s *MemoryStore) UpdatePendingApproval(_ context.Context, approval types.Ta
 	return approval, true, nil
 }
 
+func (s *MemoryStore) UpdatePendingApprovalForAwaitingRun(_ context.Context, approval types.TaskApproval) (types.TaskApproval, bool, error) {
+	if strings.TrimSpace(approval.ID) == "" {
+		return types.TaskApproval{}, false, fmt.Errorf("approval id is required")
+	}
+	if strings.TrimSpace(approval.TaskID) == "" {
+		return types.TaskApproval{}, false, fmt.Errorf("approval task id is required")
+	}
+	if strings.TrimSpace(approval.RunID) == "" {
+		return types.TaskApproval{}, false, fmt.Errorf("approval run id is required")
+	}
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	current, ok := s.approvals[approval.ID]
+	if !ok || current.Status != "pending" || current.TaskID != approval.TaskID || current.RunID != approval.RunID {
+		return types.TaskApproval{}, false, nil
+	}
+	run, ok := s.runs[approval.RunID]
+	if !ok || run.TaskID != approval.TaskID || run.Status != "awaiting_approval" {
+		return types.TaskApproval{}, false, nil
+	}
+	s.approvals[approval.ID] = approval
+	return approval, true, nil
+}
+
 func (s *MemoryStore) CreateArtifact(_ context.Context, artifact types.TaskArtifact) (types.TaskArtifact, error) {
 	s.mu.Lock()
 	defer s.mu.Unlock()

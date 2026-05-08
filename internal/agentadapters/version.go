@@ -21,15 +21,12 @@ func DetectVersion(ctx context.Context, path string) string {
 	defer cancel()
 
 	cmd := exec.CommandContext(ctx, path, "--version")
-	out, err := cmd.CombinedOutput()
+	out, _ := cmd.CombinedOutput()
 	// Some CLI adapters print version text before exiting non-zero, so prefer
 	// any captured semver token before treating the command as unusable.
 	version := semverRe.FindString(strings.TrimSpace(string(out)))
 	if version != "" {
 		return version
-	}
-	if err != nil {
-		return ""
 	}
 	return ""
 }

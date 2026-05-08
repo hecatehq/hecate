@@ -425,6 +425,47 @@ func (s *SQLiteStore) UpdatePendingApproval(ctx context.Context, approval types.
 	return approval, true, nil
 }
 
+func (s *SQLiteStore) UpdatePendingApprovalForAwaitingRun(ctx context.Context, approval types.TaskApproval) (types.TaskApproval, bool, error) {
+	if strings.TrimSpace(approval.ID) == "" {
+		return types.TaskApproval{}, false, fmt.Errorf("approval id is required")
+	}
+	if strings.TrimSpace(approval.TaskID) == "" {
+		return types.TaskApproval{}, false, fmt.Errorf("approval task id is required")
+	}
+	if strings.TrimSpace(approval.RunID) == "" {
+		return types.TaskApproval{}, false, fmt.Errorf("approval run id is required")
+	}
+	payload, err := json.Marshal(approval)
+	if err != nil {
+		return types.TaskApproval{}, false, err
+	}
+	res, err := s.db.ExecContext(ctx, fmt.Sprintf(`
+		UPDATE %s
+		SET status = ?, payload = ?
+		WHERE id = ?
+		  AND task_id = ?
+		  AND status = 'pending'
+		  AND EXISTS (
+		    SELECT 1
+		    FROM %s
+		    WHERE id = ?
+		      AND task_id = ?
+		      AND status = 'awaiting_approval'
+		  )
+	`, s.approvalsTable, s.runsTable), approval.Status, string(payload), approval.ID, approval.TaskID, approval.RunID, approval.TaskID)
+	if err != nil {
+		return types.TaskApproval{}, false, err
+	}
+	n, err := res.RowsAffected()
+	if err != nil {
+		return types.TaskApproval{}, false, err
+	}
+	if n == 0 {
+		return types.TaskApproval{}, false, nil
+	}
+	return approval, true, nil
+}
+
 func (s *SQLiteStore) CreateArtifact(ctx context.Context, artifact types.TaskArtifact) (types.TaskArtifact, error) {
 	if strings.TrimSpace(artifact.ID) == "" {
 		return types.TaskArtifact{}, fmt.Errorf("artifact id is required")
