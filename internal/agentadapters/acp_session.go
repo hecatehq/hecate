@@ -417,10 +417,13 @@ func (s *acpSession) RunTurn(ctx context.Context, req RunRequest) (RunResult, er
 		close(activeDone)
 		s.clearActiveTurn(activeDone)
 	}()
-	_, runErr := s.conn.Prompt(promptCtx, acp.PromptRequest{
+	resp, runErr := s.conn.Prompt(promptCtx, acp.PromptRequest{
 		SessionId: acp.SessionId(s.nativeID),
 		Prompt:    []acp.ContentBlock{acp.TextBlock(req.Prompt)},
 	})
+	if runErr == nil && resp.StopReason == acp.StopReasonCancelled {
+		runErr = context.Canceled
+	}
 	completed := time.Now().UTC()
 	exitCode := 0
 	if runErr != nil {
