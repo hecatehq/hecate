@@ -13,7 +13,7 @@ Pick the path closest to what you are doing.
 | Running Hecate locally | [Desktop app](desktop-app.md), [Deployment](deployment.md), [Security](security.md), [Providers](providers.md), [Chat sessions](chat-sessions.md), [Known limitations](known-limitations.md) |
 | Calling Hecate from a client | [Runtime API](runtime-api.md), [Chat sessions](chat-sessions.md), [Agent runtime](agent-runtime.md), [Events](events.md) |
 | Building or using coding-agent integrations | [External agent adapters](external-agent-adapters.md), [ACP bridge](acp.md), [Runtime API](runtime-api.md), [Events](events.md), [MCP integration](mcp.md) |
-| Changing the codebase | [Architecture](architecture.md), [Development](development.md), [`docs-ai/`](../docs-ai/README.md), [Release](release.md) |
+| Changing the codebase | [Architecture](architecture.md), [Development](development.md), [Alpha-to-beta roadmap](beta-roadmap.md), [`docs-ai/`](../docs-ai/README.md), [Release](release.md) |
 | Working as an AI agent | [`AGENTS.md`](../AGENTS.md), [`docs-ai/README.md`](../docs-ai/README.md), then the relevant `docs-ai/skills/*/SKILL.md` |
 
 ## Operator Docs
@@ -53,6 +53,7 @@ Pick the path closest to what you are doing.
 | [Architecture](architecture.md) | Gateway flow, orchestrator responsibilities, task-runtime queue/lease model, agent turn cycle, storage tiers. |
 | [Development](development.md) | Go + Bun + just + Rust/Cargo setup, local dev, test ladder, screenshot tooling, package map. |
 | [Release](release.md) | Versioning, verification gate, release script, image build, recovery, release-note shape. |
+| [Alpha-to-beta roadmap](beta-roadmap.md) | Beta gate, core runtime work, view-by-view UX order, cleanup/refactoring, and branch/release workflow. |
 | [`docs-ai/`](../docs-ai/README.md) | Vendor-neutral agent guidance: workflow, verification, skills, task recipes. |
 
 ## Candidate Contracts

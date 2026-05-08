@@ -64,6 +64,12 @@ sneaks into a refactor, split. State the verification you ran in the
 description — see [`docs-ai/tasks/code-review.md`](docs-ai/tasks/code-review.md)
 for the rubric reviewers will apply.
 
+Beta-scope work starts from current `master` on a feature/refactor/docs branch
+and lands through a reviewed PR. Do not implement beta features directly on
+`master`; reserve direct `master` commits for release mechanics or urgent tiny
+corrections that a maintainer explicitly requests. The current beta gate lives
+in [`docs/beta-roadmap.md`](docs/beta-roadmap.md).
+
 ## Repo policy
 
 Shared agent guidance is repository-owned and committed. There is no

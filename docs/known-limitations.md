@@ -3,6 +3,10 @@
 Hecate is public-alpha software. This page is the plain-language list of what
 operators should not assume yet.
 
+The current quality gate for leaving alpha is tracked in the
+[alpha-to-beta roadmap](beta-roadmap.md). Until that gate closes, Hecate keeps
+shipping `v0.1.0-alpha.N` releases from reviewed PRs merged into `master`.
+
 ## API And Schema Stability
 
 - Public APIs are designed to be stable, but pre-1.0 changes are still possible.
