@@ -352,10 +352,8 @@ func (h *Handler) HandleCreateAgentChatMessage(w http.ResponseWriter, r *http.Re
 	limits := h.agentChatSnapshotConfig()
 	maxTurns := limits.MaxTurnsPerSession
 	if maxTurns > 0 && session.TurnsUsed >= maxTurns {
-		WriteJSON(w, http.StatusUnprocessableEntity, map[string]any{
-			"error": map[string]any{
-				"type":       errCodeSessionLimitExceeded,
-				"message":    fmt.Sprintf("session has reached the %d-turn limit; start a new session to continue", maxTurns),
+		WriteErrorDetails(w, http.StatusUnprocessableEntity, errCodeSessionLimitExceeded, fmt.Sprintf("session has reached the %d-turn limit; start a new session to continue", maxTurns), ErrorDetails{
+			Fields: map[string]any{
 				"limit":      maxTurns,
 				"turns_used": session.TurnsUsed,
 			},
@@ -363,10 +361,8 @@ func (h *Handler) HandleCreateAgentChatMessage(w http.ResponseWriter, r *http.Re
 		return
 	}
 	if limits.MaxSessionDuration > 0 && !session.CreatedAt.IsZero() && time.Since(session.CreatedAt) >= limits.MaxSessionDuration {
-		WriteJSON(w, http.StatusUnprocessableEntity, map[string]any{
-			"error": map[string]any{
-				"type":       errCodeSessionDurationLimit,
-				"message":    fmt.Sprintf("session has reached the %s wall-clock limit; start a new session to continue", limits.MaxSessionDuration),
+		WriteErrorDetails(w, http.StatusUnprocessableEntity, errCodeSessionDurationLimit, fmt.Sprintf("session has reached the %s wall-clock limit; start a new session to continue", limits.MaxSessionDuration), ErrorDetails{
+			Fields: map[string]any{
 				"limit_ms":   limits.MaxSessionDuration.Milliseconds(),
 				"started_at": formatOptionalTime(session.CreatedAt),
 				"turns_used": session.TurnsUsed,
@@ -375,10 +371,8 @@ func (h *Handler) HandleCreateAgentChatMessage(w http.ResponseWriter, r *http.Re
 		return
 	}
 	if limits.IdleTimeout > 0 && !session.UpdatedAt.IsZero() && time.Since(session.UpdatedAt) >= limits.IdleTimeout {
-		WriteJSON(w, http.StatusUnprocessableEntity, map[string]any{
-			"error": map[string]any{
-				"type":       errCodeSessionIdleTimeout,
-				"message":    fmt.Sprintf("session was idle for at least %s; start a new session to continue", limits.IdleTimeout),
+		WriteErrorDetails(w, http.StatusUnprocessableEntity, errCodeSessionIdleTimeout, fmt.Sprintf("session was idle for at least %s; start a new session to continue", limits.IdleTimeout), ErrorDetails{
+			Fields: map[string]any{
 				"limit_ms":   limits.IdleTimeout.Milliseconds(),
 				"updated_at": formatOptionalTime(session.UpdatedAt),
 				"turns_used": session.TurnsUsed,

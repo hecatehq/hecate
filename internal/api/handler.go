@@ -571,7 +571,7 @@ func (h *Handler) checkRateLimit(w http.ResponseWriter, keyID string) bool {
 	w.Header().Set("X-RateLimit-Remaining", strconv.FormatInt(remaining, 10))
 	w.Header().Set("X-RateLimit-Reset", strconv.FormatInt(resetAt.Unix(), 10))
 	if err != nil {
-		WriteError(w, http.StatusTooManyRequests, "rate_limit_exceeded", err.Error())
+		WriteError(w, http.StatusTooManyRequests, errCodeRateLimitExceeded, err.Error())
 		return false
 	}
 	return true

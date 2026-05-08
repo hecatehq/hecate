@@ -53,7 +53,7 @@ func classifyGatewayError(err error) gatewayHTTPError {
 	if gateway.IsRateLimitedError(err) {
 		return gatewayHTTPError{
 			Status:        http.StatusTooManyRequests,
-			OpenAIType:    "rate_limit_exceeded",
+			OpenAIType:    errCodeRateLimitExceeded,
 			AnthropicType: "rate_limit_error",
 			Message:       err.Error(),
 		}
@@ -226,7 +226,7 @@ func gatewayErrorUserMessage(code string) string {
 		return "No configured provider supports the requested model."
 	case errCodeForbidden:
 		return "The request was blocked by policy."
-	case "rate_limit_exceeded":
+	case errCodeRateLimitExceeded:
 		return "Hecate's local gateway rate limit was exceeded."
 	default:
 		return "Gateway request failed."
@@ -251,7 +251,7 @@ func gatewayErrorAction(code string) string {
 		return "Choose a discovered model for the selected provider, or switch provider routing back to Auto."
 	case errCodeForbidden:
 		return "Review policy rules, provider/model allowlists, and tenant budget settings."
-	case "rate_limit_exceeded":
+	case errCodeRateLimitExceeded:
 		return "Wait for the bucket to refill or adjust the local gateway rate limit."
 	default:
 		return "Open Observability for the request trace and inspect route/provider diagnostics."

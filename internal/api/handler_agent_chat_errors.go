@@ -77,15 +77,11 @@ func writeAgentChatSessionNotRunning(w http.ResponseWriter) {
 }
 
 func writeHecateAgentBusy(w http.ResponseWriter, session agentchat.Session, runStatus string) {
-	WriteJSON(w, http.StatusConflict, map[string]any{
-		"error": map[string]any{
-			"type":            errCodeAgentSessionBusy,
-			"message":         "Hecate Chat is still working on the current task. Wait for it to finish, resolve the approval, or stop it before sending another message.",
-			"user_message":    "Hecate Chat is still working on this task.",
-			"operator_action": "Open the backing task, resolve the pending approval, or stop the run before sending another message.",
-			"task_id":         session.TaskID,
-			"latest_run_id":   session.LatestRunID,
-			"run_status":      runStatus,
+	WriteErrorDetails(w, http.StatusConflict, errCodeAgentSessionBusy, "Hecate Chat is still working on the current task. Wait for it to finish, resolve the approval, or stop it before sending another message.", ErrorDetails{
+		Fields: map[string]any{
+			"task_id":       session.TaskID,
+			"latest_run_id": session.LatestRunID,
+			"run_status":    runStatus,
 		},
 	})
 }

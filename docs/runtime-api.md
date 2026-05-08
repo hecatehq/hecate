@@ -51,6 +51,27 @@ Hecate-native JSON errors use one stable envelope:
 - `request_id` and `trace_id` are included when the runtime has already created
   trace state. They mirror `X-Request-Id` / `X-Trace-Id` and let clients open
   `GET /hecate/v1/traces?request_id=...` directly from an error surface.
+- Runtime-specific fields may be attached when they help repair the failure.
+  Examples: `task_id`, `latest_run_id`, and `run_status` for a busy Hecate Chat
+  task; `provider`, `model`, and `capabilities` for tool-capability failures;
+  `limit_ms` / `turns_used` for session guardrails.
+
+Common Hecate-native error types:
+
+| Type | Status | Meaning |
+|---|---:|---|
+| `invalid_request` | 400 | Request JSON, query parameters, or required fields are invalid. |
+| `not_found` | 404 | The requested Hecate resource does not exist. |
+| `conflict` | 409 | The resource changed state or the requested transition is not valid now. |
+| `gateway_error` | 500 | Hecate failed before it could classify the failure more specifically. |
+| `rate_limit_exceeded` | 429 | The local gateway rate limiter rejected the request. |
+| `model_not_configured` | 422 | The selected model is stale or not currently reported by the selected provider. |
+| `agent_chat.agent_session_busy` | 409 | A Hecate Chat task-backed loop is queued, running, or awaiting approval. |
+| `agent_chat.model_capability_required` | 422 | Tools are on, but the model is not marked tool-capable. |
+| `agent_chat.workspace_required` | 400 | Hecate Agent or External Agent chat needs a workspace path. |
+| `agent_chat.session_limit_exceeded` | 422 | The chat turn limit was reached. |
+| `agent_chat.session_duration_limit_exceeded` | 422 | The chat wall-clock limit was reached. |
+| `agent_chat.session_idle_timeout` | 422 | The chat was idle beyond the configured timeout. |
 
 OpenAI-compatible and Anthropic-compatible ingress paths keep their protocol
 shape, but gateway-classified failures also include the same

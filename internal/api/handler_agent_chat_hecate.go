@@ -52,15 +52,11 @@ func (h *Handler) handleCreateHecateAgentChatMessage(w http.ResponseWriter, r *h
 		caps = resolved
 	}
 	if !modelcaps.ToolCapable(caps) {
-		WriteJSON(w, http.StatusUnprocessableEntity, map[string]any{
-			"error": map[string]any{
-				"type":            errCodeModelCapability,
-				"message":         "Tools are disabled for this model. Turn tools off for direct model chat or enable tools in Settings.",
-				"user_message":    "This model is not marked as tool-capable.",
-				"operator_action": "Turn tools off for direct model chat, test the model, or enable tool support in Settings.",
-				"provider":        session.Provider,
-				"model":           session.Model,
-				"capabilities":    caps,
+		WriteErrorDetails(w, http.StatusUnprocessableEntity, errCodeModelCapability, "Tools are disabled for this model. Turn tools off for direct model chat or enable tools in Settings.", ErrorDetails{
+			Fields: map[string]any{
+				"provider":     session.Provider,
+				"model":        session.Model,
+				"capabilities": caps,
 			},
 		})
 		return
