@@ -555,6 +555,9 @@ func (r *Runner) reconcileStaleRuns(ctx context.Context, staleThreshold time.Dur
 		if ctx.Err() != nil {
 			return nil
 		}
+		if r.hasInFlightJob(run.ID) {
+			continue
+		}
 		if run.StartedAt.IsZero() || run.StartedAt.After(cutoff) {
 			continue
 		}
@@ -1384,6 +1387,13 @@ func (r *Runner) unregisterJob(runID string) {
 	r.jobMu.Lock()
 	defer r.jobMu.Unlock()
 	delete(r.jobs, runID)
+}
+
+func (r *Runner) hasInFlightJob(runID string) bool {
+	r.jobMu.Lock()
+	defer r.jobMu.Unlock()
+	_, ok := r.jobs[runID]
+	return ok
 }
 
 func (r *Runner) executeRun(ctx context.Context, trace *profiler.Trace, task types.Task, run types.TaskRun, requestID string, resumeCheckpoint *ResumeCheckpoint) (*StartTaskResult, error) {
