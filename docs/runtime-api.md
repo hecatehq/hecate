@@ -488,10 +488,12 @@ clients from guessing readiness by combining unrelated raw fields. Check names
 are currently `credentials`, `models`, `health`, and `routing`; statuses are
 `ok`, `warning`, `blocked`, or `unknown`. `reason` is stable enough for UI
 branching, while `message` is safe to show directly to the operator.
-Clients can layer concise next-step copy on top of `reason` without parsing
-`message`; for example `credential_missing` means "add or rotate credentials",
-`no_models` means "start the provider and load at least one model", and
-`provider_rate_limited` means "wait for cooldown or route elsewhere".
+When a check needs operator action, `operator_action` carries the canonical
+repair step; clients should prefer it over deriving their own copy from
+`reason`. For example `credential_missing` includes "add or rotate
+credentials", `no_models` includes "start the provider and load at least one
+model", and `provider_rate_limited` includes "wait for cooldown or route
+elsewhere".
 
 `routing_ready=false` means the router currently skips the provider. The
 matching `routing_blocked_reason` and the `reason` on the
@@ -1063,15 +1065,11 @@ prompt cannot drain into a different transcript after the operator switches
 sessions. That queue is intentionally not durable until each prompt is
 submitted.
 
-Clients should also treat model/provider readiness as a preflight concern.
-Before sending Hecate Chat turns, compare the selected model against
-`GET /v1/models` and the provider readiness snapshot from
-`GET /hecate/v1/providers/status`. If the selected model is stale or no longer
-reported by the selected provider route, block the composer and show the
-selected model, provider route, discovered-model count, health, blocked-by,
-last-error, and remediation steps. The server still returns
-`422 model_not_configured` as the authoritative contract when a stale selection
-slips through.
+Clients can block obvious stale selections by combining `/v1/models` with
+`/hecate/v1/providers/status`, but the server remains authoritative. If a stale
+provider/model selection slips through, Hecate Chat returns
+`422 model_not_configured` with provider readiness fields, suggested replacement
+models, and an `operator_action` repair hint in the error details.
 
 The response returns after the backing turn finishes, times out, is cancelled,
 or fails. For live output while the turn is running, subscribe to the session

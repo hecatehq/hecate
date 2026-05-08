@@ -132,6 +132,8 @@ export function CompactProviderReadinessChecks({ checks }: { checks: ProviderRea
 }
 
 export function readinessRecommendation(check: ProviderReadinessCheckRecord): string {
+  if (check.operator_action) return check.operator_action;
+
   switch (check.reason) {
     case "credential_missing":
       return "add or rotate this provider's API key.";

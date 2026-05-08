@@ -255,10 +255,11 @@ type ProviderStatus struct {
 }
 
 type ProviderReadinessCheck struct {
-	Name    string
-	Status  string
-	Reason  string
-	Message string
+	Name           string
+	Status         string
+	Reason         string
+	Message        string
+	OperatorAction string
 }
 
 type ProviderHealthHistoryEntry struct {

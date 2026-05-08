@@ -4,6 +4,7 @@ import (
 	"context"
 	"io"
 	"log/slog"
+	"strings"
 	"testing"
 	"time"
 
@@ -198,6 +199,183 @@ func TestProviderHealthCheckTreatsRoutableDegradedProvidersAsWarnings(t *testing
 			got := providerHealthCheck(tt.entry)
 			assertReadinessCheck(t, got, "health", tt.wantStatus, tt.wantReason)
 		})
+	}
+}
+
+func TestProviderModelReadiness(t *testing.T) {
+	t.Parallel()
+
+	entries := []catalog.Entry{
+		{
+			Name:            "ollama",
+			Kind:            providers.KindLocal,
+			Status:          "healthy",
+			Healthy:         true,
+			CredentialState: "not_required",
+			Models:          []string{"llama3.1:8b", "mistral:latest"},
+		},
+		{
+			Name:            "anthropic",
+			Kind:            providers.KindCloud,
+			Status:          "healthy",
+			Healthy:         true,
+			CredentialState: "missing",
+			Models:          []string{"claude-sonnet-4-5"},
+		},
+	}
+
+	tests := []struct {
+		name                string
+		provider            string
+		model               string
+		wantReady           bool
+		wantProvider        string
+		wantReason          string
+		wantMatchedProvider string
+		wantBlockedReason   string
+		wantSuggestions     bool
+		rejectSuggestion    string
+	}{
+		{
+			name:                "explicit provider reports model",
+			provider:            "ollama",
+			model:               "llama3.1:8b",
+			wantReady:           true,
+			wantProvider:        "ollama",
+			wantReason:          "model_available",
+			wantMatchedProvider: "ollama",
+		},
+		{
+			name:                "explicit provider match returns canonical id",
+			provider:            "Ollama",
+			model:               "llama3.1:8b",
+			wantReady:           true,
+			wantProvider:        "ollama",
+			wantReason:          "model_available",
+			wantMatchedProvider: "ollama",
+		},
+		{
+			name:                "explicit provider missing selected model",
+			provider:            "ollama",
+			model:               "gpt-5.4-mini",
+			wantProvider:        "ollama",
+			wantReason:          "model_not_discovered",
+			wantMatchedProvider: "ollama",
+		},
+		{
+			name:                "explicit provider blocked before model use",
+			provider:            "anthropic",
+			model:               "claude-sonnet-4-5",
+			wantProvider:        "anthropic",
+			wantReason:          "provider_not_ready",
+			wantMatchedProvider: "anthropic",
+			wantBlockedReason:   "credential_missing",
+			wantSuggestions:     true,
+		},
+		{
+			name:         "missing provider",
+			provider:     "missing",
+			model:        "llama3.1:8b",
+			wantProvider: "missing",
+			wantReason:   "provider_missing",
+		},
+		{
+			name:                "auto finds routable provider",
+			model:               "mistral:latest",
+			wantReady:           true,
+			wantProvider:        "auto",
+			wantReason:          "auto_route_available",
+			wantMatchedProvider: "ollama",
+		},
+		{
+			name:            "auto cannot find selected model",
+			model:           "gpt-5.4-mini",
+			wantProvider:    "auto",
+			wantReason:      "model_not_discovered",
+			wantSuggestions: true,
+		},
+		{
+			name:             "explicit provider model required",
+			provider:         "ollama",
+			wantProvider:     "ollama",
+			wantReason:       "model_required",
+			wantSuggestions:  true,
+			rejectSuggestion: "claude-sonnet-4-5",
+		},
+		{
+			name:            "auto model required",
+			wantProvider:    "auto",
+			wantReason:      "model_required",
+			wantSuggestions: true,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+
+			got := providerModelReadiness(entries, tt.provider, tt.model)
+			if got.Ready != tt.wantReady {
+				t.Fatalf("ready = %v, want %v", got.Ready, tt.wantReady)
+			}
+			if got.Reason != tt.wantReason {
+				t.Fatalf("reason = %q, want %q", got.Reason, tt.wantReason)
+			}
+			if got.Provider != tt.wantProvider {
+				t.Fatalf("provider = %q, want %q", got.Provider, tt.wantProvider)
+			}
+			if got.MatchedProvider != tt.wantMatchedProvider {
+				t.Fatalf("matched_provider = %q, want %q", got.MatchedProvider, tt.wantMatchedProvider)
+			}
+			if got.ProviderBlockedReason != tt.wantBlockedReason {
+				t.Fatalf("provider_blocked_reason = %q, want %q", got.ProviderBlockedReason, tt.wantBlockedReason)
+			}
+			if !got.Ready && got.OperatorAction == "" {
+				t.Fatalf("operator_action is empty for blocked readiness: %#v", got)
+			}
+			if got.Ready && len(got.SuggestedModels) > 0 {
+				t.Fatalf("suggested_models = %#v for ready response, want none", got.SuggestedModels)
+			}
+			if tt.wantSuggestions && len(got.SuggestedModels) == 0 {
+				t.Fatalf("suggested_models is empty, want repair suggestions")
+			}
+			for _, suggestion := range got.SuggestedModels {
+				if strings.EqualFold(suggestion, tt.rejectSuggestion) {
+					t.Fatalf("suggested_models = %#v includes rejected suggestion %q", got.SuggestedModels, tt.rejectSuggestion)
+				}
+			}
+		})
+	}
+}
+
+func TestProviderModelReadinessAutoSelectionIsDeterministic(t *testing.T) {
+	t.Parallel()
+
+	entries := []catalog.Entry{
+		{
+			Name:            "zeta",
+			Kind:            providers.KindLocal,
+			Status:          "healthy",
+			Healthy:         true,
+			CredentialState: "not_required",
+			Models:          []string{"shared-model"},
+		},
+		{
+			Name:            "alpha",
+			Kind:            providers.KindLocal,
+			Status:          "healthy",
+			Healthy:         true,
+			CredentialState: "not_required",
+			Models:          []string{"shared-model"},
+		},
+	}
+
+	got := providerModelReadiness(entries, "", "shared-model")
+	if !got.Ready {
+		t.Fatalf("ready = false, want true: %#v", got)
+	}
+	if got.MatchedProvider != "alpha" {
+		t.Fatalf("matched_provider = %q, want alpha", got.MatchedProvider)
 	}
 }
 

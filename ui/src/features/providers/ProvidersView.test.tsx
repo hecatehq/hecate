@@ -670,7 +670,13 @@ describe("ProvidersView table renders", () => {
           readiness_checks: [
             { name: "credentials", status: "ok", reason: "not_required", message: "No credentials are required for this provider." },
             { name: "models", status: "ok", reason: "models_discovered", message: "1 model discovered." },
-            { name: "health", status: "blocked", reason: "provider_rate_limited", message: "Provider is cooling down after an upstream rate limit." },
+            {
+              name: "health",
+              status: "blocked",
+              reason: "provider_rate_limited",
+              message: "Provider is cooling down after an upstream rate limit.",
+              operator_action: "Use the backend-provided repair action.",
+            },
             { name: "routing", status: "blocked", reason: "provider_rate_limited", message: "Routing is blocked while the provider cools down after a rate limit." },
           ],
           discovery_source: "live",
@@ -699,6 +705,7 @@ describe("ProvidersView table renders", () => {
     expect(screen.getAllByText("Health").length).toBeGreaterThan(0);
     expect(screen.getByText("Routing")).toBeTruthy();
     expect(screen.getByText("Routing is blocked while the provider cools down after a rate limit.")).toBeTruthy();
+    expect(screen.getByText("Next: Use the backend-provided repair action.")).toBeTruthy();
     expect(screen.getAllByText(/Next: wait for cooldown or temporarily route to another provider/).length).toBeGreaterThan(0);
     expect(screen.getByText("Diagnostics")).toBeTruthy();
     expect(screen.getByText("connect: connection refused")).toBeTruthy();

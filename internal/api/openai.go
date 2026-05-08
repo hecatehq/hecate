@@ -522,10 +522,11 @@ type ProviderStatusResponseItem struct {
 }
 
 type ProviderReadinessCheckResponseItem struct {
-	Name    string `json:"name"`
-	Status  string `json:"status"`
-	Reason  string `json:"reason,omitempty"`
-	Message string `json:"message,omitempty"`
+	Name           string `json:"name"`
+	Status         string `json:"status"`
+	Reason         string `json:"reason,omitempty"`
+	Message        string `json:"message,omitempty"`
+	OperatorAction string `json:"operator_action,omitempty"`
 }
 
 type ProviderHealthHistoryResponseItem struct {

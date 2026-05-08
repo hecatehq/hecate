@@ -122,6 +122,7 @@ Full standards: [`docs-ai/core/engineering-standards.md`](docs-ai/core/engineeri
 Full ladder: [`docs-ai/core/verification.md`](docs-ai/core/verification.md).
 
 - **Race suite is the floor for runtime/backend changes**: `go test -race -timeout 10m ./...` (or `/race`). Race builds are large; if your default `$GOCACHE` is on a small volume, point it at the repo: `GOCACHE="$(pwd)/.gocache" go test -race ...`.
+- **Vet Go changes**: run `go vet` on touched packages during iteration; use `go vet ./...` for broad backend changes or release prep.
 - **Iteration**: `/test-affected` for narrow runs.
 - **E2E**: `go test -tags e2e ./e2e/...`. Build tag `e2e` always required; sub-tags `ollama`, `docker` opt in. `PROVIDER_FAKE_KIND=local` skips pricebook preflight on synthetic models.
 - **UI**: `cd ui && bun run typecheck` then `bun run test`. Never `bun test` (skips testing-library DOM setup).

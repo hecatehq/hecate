@@ -1,11 +1,13 @@
 package api
 
 import (
+	"errors"
 	"fmt"
 	"net/http"
 	"strings"
 
 	"github.com/hecate/agent-runtime/internal/agentchat"
+	"github.com/hecate/agent-runtime/internal/gateway"
 )
 
 func writeAgentChatWorkspaceRequired(w http.ResponseWriter, runtimeKind string) {
@@ -32,13 +34,53 @@ func writeAgentChatModelResolutionError(w http.ResponseWriter, err error) {
 		return
 	}
 	if strings.Contains(message, "not available") || strings.Contains(message, "not configured") {
-		WriteErrorDetails(w, http.StatusUnprocessableEntity, errCodeModelNotConfigured, message, ErrorDetails{
+		details := ErrorDetails{
 			UserMessage:    "The selected model is not available from the selected provider.",
 			OperatorAction: "Choose a discovered model, refresh provider status, or open Providers to fix model discovery.",
+		}
+		var readinessErr modelReadinessError
+		if asModelReadinessError(err, &readinessErr) {
+			details = modelReadinessErrorDetails(readinessErr.readiness)
+		}
+		WriteErrorDetails(w, http.StatusUnprocessableEntity, errCodeModelNotConfigured, message, ErrorDetails{
+			UserMessage:    details.UserMessage,
+			OperatorAction: details.OperatorAction,
+			Fields:         details.Fields,
 		})
 		return
 	}
 	WriteError(w, http.StatusInternalServerError, errCodeGatewayError, message)
+}
+
+func asModelReadinessError(err error, target *modelReadinessError) bool {
+	if err == nil {
+		return false
+	}
+	return errors.As(err, target)
+}
+
+func modelReadinessErrorDetails(readiness gateway.ProviderModelReadiness) ErrorDetails {
+	details := ErrorDetails{
+		UserMessage:    "The selected model is not ready for this chat.",
+		OperatorAction: readiness.OperatorAction,
+		Fields: map[string]any{
+			"provider":                readiness.Provider,
+			"matched_provider":        readiness.MatchedProvider,
+			"model":                   readiness.Model,
+			"reason":                  readiness.Reason,
+			"routing_ready":           readiness.RoutingReady,
+			"provider_status":         readiness.ProviderStatus,
+			"provider_blocked_reason": readiness.ProviderBlockedReason,
+			"suggested_models":        readiness.SuggestedModels,
+		},
+	}
+	if readiness.Message != "" {
+		details.UserMessage = readiness.Message
+	}
+	if details.OperatorAction == "" {
+		details.OperatorAction = "Choose a discovered model, refresh provider status, or open Providers to fix model discovery."
+	}
+	return details
 }
 
 func writeAgentChatRuntimeKindInvalid(w http.ResponseWriter) {

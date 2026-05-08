@@ -5,9 +5,26 @@ import (
 	"fmt"
 	"strings"
 
+	"github.com/hecate/agent-runtime/internal/gateway"
 	"github.com/hecate/agent-runtime/internal/modelcaps"
 	"github.com/hecate/agent-runtime/pkg/types"
 )
+
+type modelReadinessError struct {
+	err       error
+	readiness gateway.ProviderModelReadiness
+}
+
+func (e modelReadinessError) Error() string {
+	if e.err == nil {
+		return ""
+	}
+	return e.err.Error()
+}
+
+func (e modelReadinessError) Unwrap() error {
+	return e.err
+}
 
 func (h *Handler) resolveModelCapabilities(ctx context.Context, provider, model string) (types.ModelCapabilities, error) {
 	model = strings.TrimSpace(model)
@@ -35,7 +52,20 @@ func (h *Handler) resolveModelCapabilities(ctx context.Context, provider, model 
 		return modelcaps.Resolve(item.Provider, item.Kind, item.ID, item.DiscoverySource, state), nil
 	}
 	if provider == "" {
-		return types.ModelCapabilities{}, fmt.Errorf("model %q is not available from any configured provider", model)
+		err := fmt.Errorf("model %q is not available from any configured provider", model)
+		return types.ModelCapabilities{}, h.withModelReadiness(ctx, provider, model, err)
 	}
-	return types.ModelCapabilities{}, fmt.Errorf("model %q is not available from provider %q", model, provider)
+	err = fmt.Errorf("model %q is not available from provider %q", model, provider)
+	return types.ModelCapabilities{}, h.withModelReadiness(ctx, provider, model, err)
+}
+
+func (h *Handler) withModelReadiness(ctx context.Context, provider, model string, err error) error {
+	if err == nil || h.service == nil {
+		return err
+	}
+	result, readinessErr := h.service.ProviderModelReadiness(ctx, provider, model)
+	if readinessErr != nil {
+		return err
+	}
+	return modelReadinessError{err: err, readiness: result.Readiness}
 }
