@@ -107,7 +107,7 @@ func TestStaticHandlerDoesNotFallbackForUnknownAPIPath(t *testing.T) {
 }
 
 // TestStaticHandlerServesFallbackWhenUINotBuilt covers the common dev case
-// where the binary was built without first running `make ui-build` — the
+// where the binary was built without first running `just ui-build` — the
 // embedded ui/dist contains only the .gitkeep placeholder. The handler must
 // not 500 or 404; it returns a friendly HTML page that points at the fix.
 func TestStaticHandlerServesFallbackWhenUINotBuilt(t *testing.T) {
