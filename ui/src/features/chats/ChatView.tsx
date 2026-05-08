@@ -1183,16 +1183,18 @@ export function ChatView({ state, actions, onNavigate, onOpenTask, onOpenTrace }
                   <span style={{ color: "var(--teal)", fontFamily: "var(--font-mono)", fontSize: 10 }}>
                     #{index + 1}
                   </span>
-                  <input
+                  <textarea
                     aria-label={`Queued message ${index + 1}`}
                     value={queued.content}
                     onChange={(event) => actions.updateQueuedChatMessage(queued.id, event.target.value)}
                     onKeyDown={(event) => {
-                      if (event.key === "Enter") event.preventDefault();
+                      if (event.key === "Enter" && !event.shiftKey) event.preventDefault();
                     }}
+                    rows={Math.min(4, Math.max(1, queued.content.split("\n").length))}
                     style={{
                       minWidth: 0,
                       width: "100%",
+                      resize: "vertical",
                       border: "1px solid transparent",
                       borderRadius: "var(--radius-sm)",
                       background: "transparent",

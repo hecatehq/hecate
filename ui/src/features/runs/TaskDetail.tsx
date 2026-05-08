@@ -940,6 +940,12 @@ function TaskActivityOutputPreview({ artifact }: { artifact: TaskActivityRecord 
   const isStderr = stream === "stderr";
   const preview = taskActivityArtifactPreview(artifact);
   const size = taskActivityArtifactSize(artifact);
+  const sizeLabel = size === undefined ? "unknown size" : size === 0 ? "empty" : `${size}b`;
+  const emptyMessage = size === undefined
+    ? "Preview unavailable in this snapshot."
+    : size === 0
+      ? "No bytes captured for this stream."
+      : "Preview unavailable in this snapshot.";
   return (
     <div style={{
       border: `1px solid ${isStderr ? "rgba(239, 95, 95, 0.28)" : "var(--border)"}`,
@@ -962,7 +968,7 @@ function TaskActivityOutputPreview({ artifact }: { artifact: TaskActivityRecord 
           {artifact.title || stream}
         </span>
         <span style={{ color: "var(--t3)", fontFamily: "var(--font-mono)", fontSize: 10 }}>
-          {size ? `${size}b` : "empty"}
+          {sizeLabel}
         </span>
       </div>
       {preview ? (
@@ -979,7 +985,7 @@ function TaskActivityOutputPreview({ artifact }: { artifact: TaskActivityRecord 
         }}>{preview}</pre>
       ) : (
         <div style={{ color: "var(--t3)", fontSize: 11, padding: "7px" }}>
-          {size ? "Preview unavailable in this snapshot." : "No bytes captured for this stream."}
+          {emptyMessage}
         </div>
       )}
     </div>
