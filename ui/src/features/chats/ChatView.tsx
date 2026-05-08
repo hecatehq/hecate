@@ -2252,7 +2252,11 @@ function SelectedModelReadinessNotice({
           <InfoChip key={detail.label} label={detail.label} value={detail.value} />
         ))}
       </div>
-      {!compact && (
+      {compact ? (
+        <ul style={{ margin: "10px 0 0", paddingLeft: 18, color: "var(--t3)", fontSize: 11, lineHeight: 1.55 }}>
+          {issue.steps.slice(0, 2).map((step) => <li key={step}>{step}</li>)}
+        </ul>
+      ) : (
         <ul style={{ margin: "10px 0 0", paddingLeft: 18, color: "var(--t3)", fontSize: 11, lineHeight: 1.55 }}>
           {issue.steps.map((step) => <li key={step}>{step}</li>)}
         </ul>
@@ -2268,7 +2272,7 @@ function selectedModelNoticeDetails(
   if (!compact) {
     return details;
   }
-  const priorityLabels = new Set(["Selected model", "Provider route", "Health", "Blocked by", "Last error"]);
+  const priorityLabels = new Set(["Selected model", "Provider route", "Discovered models", "Health", "Blocked by", "Last error"]);
   const selected = details.filter((detail) => priorityLabels.has(detail.label));
   return selected.length > 0 ? selected : details;
 }
