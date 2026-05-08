@@ -149,6 +149,22 @@ func TestTaskStore_UpdatePendingApprovalForAwaitingRunRequiresAwaitingRun(t *tes
 				t.Fatalf("approval status after cancelled-run update = %q, want pending", got.Status)
 			}
 
+			if _, err := store.CreateRun(ctx, types.TaskRun{ID: "run-ap-other", TaskID: "task-ap-run", Status: "awaiting_approval"}); err != nil {
+				t.Fatalf("CreateRun other: %v", err)
+			}
+			mismatched := pending
+			mismatched.RunID = "run-ap-other"
+			if _, ok, err := store.UpdatePendingApprovalForAwaitingRun(ctx, mismatched); err != nil || ok {
+				t.Fatalf("UpdatePendingApprovalForAwaitingRun mismatched run id: ok=%v err=%v, want ok=false err=nil", ok, err)
+			}
+			got, found, err = store.GetApproval(ctx, "task-ap-run", "approval-run")
+			if err != nil || !found {
+				t.Fatalf("GetApproval after mismatch: found=%v err=%v", found, err)
+			}
+			if got.Status != "pending" || got.RunID != "run-ap-run" {
+				t.Fatalf("approval after mismatched run update = %+v, want original pending row", got)
+			}
+
 			run := types.TaskRun{ID: "run-ap-run", TaskID: "task-ap-run", Status: "awaiting_approval"}
 			if _, err := store.UpdateRun(ctx, run); err != nil {
 				t.Fatalf("UpdateRun: %v", err)

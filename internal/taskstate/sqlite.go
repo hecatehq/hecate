@@ -444,6 +444,7 @@ func (s *SQLiteStore) UpdatePendingApprovalForAwaitingRun(ctx context.Context, a
 		SET status = ?, payload = ?
 		WHERE id = ?
 		  AND task_id = ?
+		  AND run_id = ?
 		  AND status = 'pending'
 		  AND EXISTS (
 		    SELECT 1
@@ -452,7 +453,7 @@ func (s *SQLiteStore) UpdatePendingApprovalForAwaitingRun(ctx context.Context, a
 		      AND task_id = ?
 		      AND status = 'awaiting_approval'
 		  )
-	`, s.approvalsTable, s.runsTable), approval.Status, string(payload), approval.ID, approval.TaskID, approval.RunID, approval.TaskID)
+	`, s.approvalsTable, s.runsTable), approval.Status, string(payload), approval.ID, approval.TaskID, approval.RunID, approval.RunID, approval.TaskID)
 	if err != nil {
 		return types.TaskApproval{}, false, err
 	}
