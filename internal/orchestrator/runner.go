@@ -1063,10 +1063,11 @@ func (r *Runner) cancelRunWithMessage(ctx context.Context, task types.Task, run 
 		return types.TaskRun{}, err
 	}
 	_, _ = r.emitRunEvent(ctx, task.ID, run.ID, "run.cancelled", requestID, traceID, map[string]any{"reason": message})
+	r.cancelPendingApprovalsForRun(ctx, task, run, message, requestID, traceID, now)
 
 	steps, _ := r.store.ListSteps(ctx, run.ID)
 	for _, step := range steps {
-		if step.Status == "running" {
+		if step.Status == "running" || step.Status == "awaiting_approval" {
 			step.Status = "cancelled"
 			step.Result = telemetry.ResultError
 			step.Error = message
@@ -1103,6 +1104,35 @@ func (r *Runner) cancelRunWithMessage(ctx context.Context, task types.Task, run 
 	}
 	_, _ = r.emitRunEvent(ctx, task.ID, run.ID, "task.updated", requestID, traceID, nil)
 	return run, nil
+}
+
+func (r *Runner) cancelPendingApprovalsForRun(ctx context.Context, task types.Task, run types.TaskRun, message, requestID, traceID string, now time.Time) {
+	approvals, err := r.store.ListApprovals(ctx, task.ID)
+	if err != nil {
+		return
+	}
+	for _, approval := range approvals {
+		if approval.RunID != run.ID || approval.Status != "pending" {
+			continue
+		}
+		approval.Status = "cancelled"
+		approval.ResolutionNote = message
+		approval.ResolvedBy = "system"
+		approval.ResolvedAt = now
+		updated, err := r.store.UpdateApproval(ctx, approval)
+		if err != nil {
+			continue
+		}
+		_, _ = r.emitRunEvent(ctx, task.ID, run.ID, "approval.resolved", requestID, traceID, map[string]any{
+			"approval_id": updated.ID,
+			"decision":    updated.Status,
+			"by":          updated.ResolvedBy,
+			"comment":     updated.ResolutionNote,
+			"scope":       "once",
+			"kind":        updated.Kind,
+			"status":      updated.Status,
+		})
+	}
 }
 
 func (r *Runner) processQueue() {
