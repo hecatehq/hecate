@@ -1,4 +1,4 @@
-import { useEffect, useRef, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import type { AgentChatActivityRecord, TaskActivityRecord, TaskApprovalRecord, TaskArtifactRecord, TaskRecord, TaskRunEventRecord, TaskRunRecord, TaskStepRecord } from "../../types/runtime";
 import { Badge, Dot, Icon, Icons, Modal } from "../shared/ui";
 import { TranscriptActivityTimeline } from "../transcript/TranscriptActivityTimeline";
@@ -854,6 +854,7 @@ function StepRowTitle({ step }: { step: TaskStepRecord }) {
 
 function RuntimeActivity({ activity }: { activity: TaskActivityRecord[] }) {
   const activityByID = new Map(activity.map(item => [item.id, item]));
+  const outputArtifacts = useMemo(() => buildOutputActivityIndex(activity), [activity]);
   const rows = activity.map(taskActivityToTranscriptActivity);
   return (
     <div style={{ padding: "12px 16px", borderBottom: "1px solid var(--border)" }}>
@@ -862,17 +863,22 @@ function RuntimeActivity({ activity }: { activity: TaskActivityRecord[] }) {
         activities={rows}
         defaultOpen
         renderAdvancedActivity={(item) => item.id
-          ? <TaskActivityAdvancedDetails activity={activityByID.get(item.id)} allActivity={activity} />
+          ? <TaskActivityAdvancedDetails activity={activityByID.get(item.id)} outputArtifacts={outputArtifacts} />
           : null}
       />
     </div>
   );
 }
 
-function TaskActivityAdvancedDetails({ activity, allActivity }: { activity?: TaskActivityRecord; allActivity: TaskActivityRecord[] }) {
+type OutputActivityIndex = {
+  all: TaskActivityRecord[];
+  byStepID: Map<string, TaskActivityRecord[]>;
+};
+
+function TaskActivityAdvancedDetails({ activity, outputArtifacts }: { activity?: TaskActivityRecord; outputArtifacts: OutputActivityIndex }) {
   if (!activity) return null;
   const rows = taskActivityAdvancedRows(activity);
-  const diagnostics = failedToolOutputArtifacts(activity, allActivity);
+  const diagnostics = failedToolOutputArtifacts(activity, outputArtifacts);
   const isFailedTool = activity.type === "tool_call" && activity.status === "failed";
   if (rows.length === 0 && diagnostics.length === 0 && !isFailedTool) return null;
 
@@ -1056,24 +1062,31 @@ function TaskActivityOutputPreview({ artifact }: { artifact: TaskActivityRecord 
   );
 }
 
-function failedToolOutputArtifacts(activity: TaskActivityRecord, allActivity: TaskActivityRecord[]): TaskActivityRecord[] {
-  if (activity.type !== "tool_call" || activity.status !== "failed") return [];
+function buildOutputActivityIndex(activity: TaskActivityRecord[]): OutputActivityIndex {
+  const all: TaskActivityRecord[] = [];
+  const byStepID = new Map<string, TaskActivityRecord[]>();
   const seen = new Set<string>();
-  const matchingStep = activity.step_id || "";
-  const related = allActivity.filter(item => {
-    if (item.type !== "artifact" || !isOutputArtifactActivity(item)) return false;
-    if (matchingStep && item.step_id && item.step_id !== matchingStep) return false;
-    return true;
-  });
-  const scoped = matchingStep && related.some(item => item.step_id === matchingStep)
-    ? related.filter(item => item.step_id === matchingStep)
-    : related;
-  return scoped.filter(item => {
+  for (const item of activity) {
+    if (item.type !== "artifact" || !isOutputArtifactActivity(item)) continue;
     const key = item.artifact_id || item.id;
-    if (seen.has(key)) return false;
+    if (seen.has(key)) continue;
     seen.add(key);
-    return true;
-  });
+    all.push(item);
+    if (item.step_id) {
+      const scoped = byStepID.get(item.step_id) ?? [];
+      scoped.push(item);
+      byStepID.set(item.step_id, scoped);
+    }
+  }
+  return { all, byStepID };
+}
+
+function failedToolOutputArtifacts(activity: TaskActivityRecord, outputArtifacts: OutputActivityIndex): TaskActivityRecord[] {
+  if (activity.type !== "tool_call" || activity.status !== "failed") return [];
+  const matchingStep = activity.step_id || "";
+  return matchingStep && outputArtifacts.byStepID.has(matchingStep)
+    ? outputArtifacts.byStepID.get(matchingStep) ?? []
+    : outputArtifacts.all;
 }
 
 function isOutputArtifactActivity(activity: TaskActivityRecord): boolean {

@@ -177,6 +177,16 @@ button, input, select, textarea { font: inherit; }
 .input:focus-visible { box-shadow: 0 0 0 1px var(--teal-border); }
 .input::placeholder { color: var(--t3); }
 
+.queued-chat-message-input {
+  background: transparent;
+  border: 1px solid transparent;
+}
+.queued-chat-message-input:focus,
+.queued-chat-message-input:focus-visible {
+  background: var(--bg3);
+  border-color: var(--border);
+}
+
 .select {
   background: var(--bg3); border: 1px solid var(--border); border-radius: var(--radius-sm);
   color: var(--t0); font-family: var(--font-sans); font-size: 12px;

@@ -1185,6 +1185,7 @@ export function ChatView({ state, actions, onNavigate, onOpenTask, onOpenTrace }
                   </span>
                   <textarea
                     aria-label={`Queued message ${index + 1}`}
+                    className="queued-chat-message-input"
                     value={queued.content}
                     onChange={(event) => actions.updateQueuedChatMessage(queued.id, event.target.value)}
                     onKeyDown={(event) => {
@@ -1195,21 +1196,11 @@ export function ChatView({ state, actions, onNavigate, onOpenTask, onOpenTrace }
                       minWidth: 0,
                       width: "100%",
                       resize: "vertical",
-                      border: "1px solid transparent",
                       borderRadius: "var(--radius-sm)",
-                      background: "transparent",
                       color: "var(--t0)",
                       font: "inherit",
                       padding: "3px 6px",
                       outline: "none",
-                    }}
-                    onFocus={(event) => {
-                      event.currentTarget.style.borderColor = "var(--border)";
-                      event.currentTarget.style.background = "var(--bg3)";
-                    }}
-                    onBlur={(event) => {
-                      event.currentTarget.style.borderColor = "transparent";
-                      event.currentTarget.style.background = "transparent";
                     }}
                   />
                   <button
