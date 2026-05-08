@@ -118,7 +118,7 @@ type ProviderRuntime interface {
 }
 
 // NewHandler wires the api.Handler from already-constructed dependencies.
-// Storage backends (taskStore, taskQueue) are built by cmd/gateway/main.go
+// Storage backends (taskStore, taskQueue) are built by cmd/hecate/main.go
 // alongside every other backend the gateway uses, so all dispatch lives in
 // one place. taskQueue may be nil — the runner falls back to its default
 // in-process queue, which is what the test fixtures rely on.
@@ -412,7 +412,7 @@ func (h *Handler) rebuildMCPHostFactory() {
 }
 
 // Shutdown stops the underlying task runner and tears down the shared
-// MCP client cache. Bounded by ctx; called from cmd/gateway/main.go on
+// MCP client cache. Bounded by ctx; called from cmd/hecate/main.go on
 // SIGTERM so in-flight agent loops cancel cleanly and any spawned MCP
 // subprocesses don't orphan when the gateway exits.
 //

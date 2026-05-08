@@ -518,7 +518,7 @@ func TestLoadFromEnvBootstrapFileDefault(t *testing.T) {
 
 	cfg := LoadFromEnv()
 	if cfg.Server.BootstrapFile != "" {
-		t.Fatalf("BootstrapFile default = %q, want empty (cmd/gateway derives it from DataDir)", cfg.Server.BootstrapFile)
+		t.Fatalf("BootstrapFile default = %q, want empty (cmd/hecate derives it from DataDir)", cfg.Server.BootstrapFile)
 	}
 }
 

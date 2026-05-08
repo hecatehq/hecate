@@ -145,7 +145,7 @@ pre { background: #f3f4f6; padding: 1rem; border-radius: 0.5rem; overflow-x: aut
 build the UI before the gateway:</p>
 <pre>make ui-install
 make ui-build
-go build -o gateway ./cmd/gateway</pre>
+go build -o hecate ./cmd/hecate</pre>
 <p class="note">For UI-only iteration, run the dev server:
 <code>make ui-dev</code> opens the React app on
 <code>http://127.0.0.1:5173</code> with API calls proxied to this gateway.</p>
