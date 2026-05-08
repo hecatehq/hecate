@@ -96,6 +96,7 @@ export function createRuntimeConsoleActions(): RuntimeConsoleViewModel["actions"
     setChatTarget: () => undefined,
     setMessage: () => undefined,
     removeQueuedChatMessage: () => undefined,
+    updateQueuedChatMessage: () => undefined,
     setSystemPrompt: () => undefined,
     setModel: () => undefined,
     setModelFilter: () => undefined,

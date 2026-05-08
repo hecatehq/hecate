@@ -655,6 +655,12 @@ export function useRuntimeConsole() {
     setQueuedChatMessages((current) => current.filter((item) => item.id !== id));
   }
 
+  function updateQueuedChatMessage(id: string, content: string) {
+    setQueuedChatMessages((current) => current.map((item) => (
+      item.id === id ? { ...item, content } : item
+    )));
+  }
+
   function pruneQueuedChatMessagesForSessions(sessionIDs: Iterable<string>) {
     const valid = new Set(sessionIDs);
     setQueuedChatMessages((current) => current.filter((item) => valid.has(item.session_id)));
@@ -937,6 +943,10 @@ export function useRuntimeConsole() {
     }
     const next = queuedChatMessages.find((item) => item.session_id === activeAgentChatSessionID);
     if (!next) {
+      return;
+    }
+    if (!next.content.trim()) {
+      setQueuedChatMessages((current) => current.filter((item) => item.id !== next.id));
       return;
     }
     setQueuedChatMessages((current) => current.filter((item) => item.id !== next.id));
@@ -1794,6 +1804,7 @@ export function useRuntimeConsole() {
       setChatTarget,
       setMessage,
       removeQueuedChatMessage,
+      updateQueuedChatMessage,
       setSystemPrompt,
       setModel,
       setModelFilter,

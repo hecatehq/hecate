@@ -1183,9 +1183,33 @@ export function ChatView({ state, actions, onNavigate, onOpenTask, onOpenTrace }
                   <span style={{ color: "var(--teal)", fontFamily: "var(--font-mono)", fontSize: 10 }}>
                     #{index + 1}
                   </span>
-                  <span style={{ overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>
-                    {queued.content}
-                  </span>
+                  <input
+                    aria-label={`Queued message ${index + 1}`}
+                    value={queued.content}
+                    onChange={(event) => actions.updateQueuedChatMessage(queued.id, event.target.value)}
+                    onKeyDown={(event) => {
+                      if (event.key === "Enter") event.preventDefault();
+                    }}
+                    style={{
+                      minWidth: 0,
+                      width: "100%",
+                      border: "1px solid transparent",
+                      borderRadius: "var(--radius-sm)",
+                      background: "transparent",
+                      color: "var(--t0)",
+                      font: "inherit",
+                      padding: "3px 6px",
+                      outline: "none",
+                    }}
+                    onFocus={(event) => {
+                      event.currentTarget.style.borderColor = "var(--border)";
+                      event.currentTarget.style.background = "var(--bg3)";
+                    }}
+                    onBlur={(event) => {
+                      event.currentTarget.style.borderColor = "transparent";
+                      event.currentTarget.style.background = "transparent";
+                    }}
+                  />
                   <button
                     type="button"
                     className="btn btn-ghost btn-sm"

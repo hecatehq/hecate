@@ -1,4 +1,4 @@
-import { render, screen } from "@testing-library/react";
+import { fireEvent, render, screen } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { describe, expect, it, vi } from "vitest";
 
@@ -780,6 +780,7 @@ describe("ChatView input", () => {
 
   it("renders queued messages with a remove action", async () => {
     const removeQueuedChatMessage = vi.fn();
+    const updateQueuedChatMessage = vi.fn();
     const user = userEvent.setup();
     const { state, actions } = setup({
       activeAgentChatSessionID: "agent_chat_1",
@@ -797,12 +798,15 @@ describe("ChatView input", () => {
           created_at: "2026-04-20T00:00:00Z",
         },
       ],
-    }, { removeQueuedChatMessage });
+    }, { removeQueuedChatMessage, updateQueuedChatMessage });
 
     render(<ChatView state={state} actions={actions} />);
 
     expect(screen.getByLabelText("Queued messages")).toBeTruthy();
-    expect(screen.getByText("run tests after this")).toBeTruthy();
+    const queuedInput = screen.getByLabelText("Queued message 1");
+    expect(queuedInput).toHaveValue("run tests after this");
+    fireEvent.change(queuedInput, { target: { value: "run unit tests after this" } });
+    expect(updateQueuedChatMessage).toHaveBeenLastCalledWith("queued_1", "run unit tests after this");
     await user.click(screen.getByRole("button", { name: "Remove queued message 1" }));
     expect(removeQueuedChatMessage).toHaveBeenCalledWith("queued_1");
   });
@@ -841,8 +845,8 @@ describe("ChatView input", () => {
     render(<ChatView state={state} actions={actions} />);
 
     expect(screen.getByLabelText("Queued messages")).toBeTruthy();
-    expect(screen.getByText("send this here")).toBeTruthy();
-    expect(screen.queryByText("not in this chat")).toBeNull();
+    expect(screen.getByLabelText("Queued message 1")).toHaveValue("send this here");
+    expect(screen.queryByDisplayValue("not in this chat")).toBeNull();
   });
 
   it("shows the Hecate Agent sandbox reminder only when tools are enabled", () => {

@@ -317,6 +317,108 @@ describe("TaskDetail runtime activity and patches", () => {
     expect(screen.getByText(/builtin\.agent_loop/)).not.toBeVisible();
   });
 
+  it("previews related stdout and stderr on failed tool advanced details", async () => {
+    const { render, user } = setup({
+      activity: [
+        makeActivity({
+          id: "activity-tool",
+          type: "tool_call",
+          title: "git_exec",
+          step_id: "step-git",
+          tool_name: "git_exec",
+          kind: "git",
+          status: "failed",
+          summary: { command: "git status" },
+        }),
+        makeActivity({
+          id: "activity-stdout",
+          type: "artifact",
+          title: "git-stdout.txt",
+          step_id: "step-git",
+          artifact_id: "art-stdout",
+          kind: "stdout",
+          status: "ready",
+          summary: {
+            size_bytes: 41,
+            content_preview: "On branch feature/task-debug\nnothing to commit",
+          },
+        }),
+        makeActivity({
+          id: "activity-stderr",
+          type: "artifact",
+          title: "git-stderr.txt",
+          step_id: "step-git",
+          artifact_id: "art-stderr",
+          kind: "stderr",
+          status: "ready",
+          summary: {
+            size_bytes: 57,
+            content_preview: "fatal: not a git repository",
+          },
+        }),
+      ],
+    });
+    render();
+
+    expect(screen.getByText("Details · 2 items")).toBeTruthy();
+    await user.click(screen.getAllByText("Advanced")[0]);
+
+    expect(screen.getByText(/This tool failed/)).toBeTruthy();
+    expect(screen.getByText("git-stdout.txt")).toBeTruthy();
+    expect(screen.getAllByText(/On branch feature\/task-debug/)[0]).toBeVisible();
+    expect(screen.getAllByText(/nothing to commit/)[0]).toBeVisible();
+    expect(screen.getByText("git-stderr.txt")).toBeTruthy();
+    expect(screen.getByText("fatal: not a git repository")).toBeTruthy();
+  });
+
+  it("keeps empty stderr discoverable for failed tool diagnostics", async () => {
+    const { render, user } = setup({
+      activity: [
+        makeActivity({
+          id: "activity-tool",
+          type: "tool_call",
+          title: "shell_exec",
+          step_id: "step-shell",
+          tool_name: "shell_exec",
+          kind: "shell",
+          status: "failed",
+        }),
+        makeActivity({
+          id: "activity-stdout",
+          type: "artifact",
+          title: "shell-stdout.txt",
+          step_id: "step-shell",
+          artifact_id: "art-stdout",
+          kind: "stdout",
+          status: "ready",
+          summary: {
+            size_bytes: 12,
+            content_preview: "stdout notes",
+          },
+        }),
+        makeActivity({
+          id: "activity-stderr",
+          type: "artifact",
+          title: "shell-stderr.txt",
+          step_id: "step-shell",
+          artifact_id: "art-stderr",
+          kind: "stderr",
+          status: "ready",
+          summary: {
+            size_bytes: 0,
+          },
+        }),
+      ],
+    });
+    render();
+
+    await user.click(screen.getAllByText("Advanced")[0]);
+
+    expect(screen.getByText("stdout notes")).toBeTruthy();
+    expect(screen.getByText("shell-stderr.txt")).toBeTruthy();
+    expect(screen.getByText("No bytes captured for this stream.")).toBeTruthy();
+  });
+
   it("shows when stderr exists but is empty", () => {
     const { render } = setup({
       artifacts: [

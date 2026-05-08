@@ -49,8 +49,8 @@ but they can also store direct model segments:
   after the run or approval reaches a terminal state. Queued prompts preserve
   the originating chat session plus the selected runtime/model/workspace
   snapshot from the moment they were queued, so switching to another chat cannot
-  drain a prompt into the wrong transcript. They are not persisted until
-  submitted.
+  drain a prompt into the wrong transcript. They can be edited or removed while
+  waiting, and they are not persisted until submitted.
   Chats projects the backing run activity into the transcript, links each
   assistant turn back to its backing Task/run, and can approve/reject pending
   task approvals inline. Low-level artifacts stay under transcript **Details**,
@@ -88,6 +88,9 @@ conversation stays readable; Task Detail opens the activity section by default
 because that view is already a run-inspection surface. Task Detail can also
 show a per-row **Advanced** disclosure with raw activity metadata such as
 step/artifact/approval ids, tool kind, path, timestamp, and summary payload.
+For failed tool rows, Task Detail also previews related stdout/stderr artifacts
+inside that disclosure, including an explicit empty-stream note when stderr was
+captured but contained no bytes.
 When a tool row fails, Chats may show its own **Advanced** disclosure with
 capped previews of the backing Task's non-empty stdout/stderr artifacts plus an
 **Open task output** escape hatch for the full capture. Empty streams stay
