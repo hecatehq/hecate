@@ -85,10 +85,11 @@ func renderProviderReadinessChecks(checks []types.ProviderReadinessCheck) []Prov
 	out := make([]ProviderReadinessCheckResponseItem, 0, len(checks))
 	for _, check := range checks {
 		out = append(out, ProviderReadinessCheckResponseItem{
-			Name:    check.Name,
-			Status:  check.Status,
-			Reason:  check.Reason,
-			Message: check.Message,
+			Name:           check.Name,
+			Status:         check.Status,
+			Reason:         check.Reason,
+			Message:        check.Message,
+			OperatorAction: check.OperatorAction,
 		})
 	}
 	return out

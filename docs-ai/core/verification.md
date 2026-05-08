@@ -7,9 +7,15 @@ How "done" is determined. Treat the floors as floors, not nice-to-haves.
 | Step | Command | When |
 |---|---|---|
 | Build | `go build ./...` | Always, before claiming done |
+| Vet | `go vet ./...` or targeted packages | Go backend/runtime changes; use targeted vet during iteration |
 | Focused tests | `/test-affected` (or `go test -race -count=1 ./<package>/...`) | During iteration |
 | Race suite | `go test -race -timeout 10m ./...` (or `/race`) | **Floor** for runtime/backend changes |
 | E2E | `go test -tags e2e ./e2e/...` | When the change crosses the api → orchestrator → providers/sandbox/mcp chain |
+
+Run `go vet` for Go changes before claiming done. Targeted vet is fine while
+iterating, for example `go vet ./internal/api ./internal/gateway`; use
+`go vet ./...` for broad refactors, release prep, or changes that cross many
+packages.
 
 The race suite is the floor — not a nice-to-have — for any change that touches `internal/gateway`, `internal/router`, `internal/providers`, `internal/orchestrator`, `internal/sandbox`, retention/state wiring, or other request execution paths.
 
@@ -38,6 +44,7 @@ Full matrix in [`../skills/tester/SKILL.md`](../skills/tester/SKILL.md).
 ## Done criteria — backend
 
 - Build passes (`go build ./...`).
+- Vet passes for touched Go packages, or `go vet ./...` for broad changes.
 - Race suite passes for runtime/backend work.
 - Inbound and outbound wire shapes are tested independently.
 - New env knobs documented in `.env.example` AND the relevant `docs/<feature>.md`.

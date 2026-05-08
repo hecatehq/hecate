@@ -180,6 +180,7 @@ export type ProviderReadinessCheckRecord = {
   status: ProviderReadinessStatus;
   reason?: string;
   message?: string;
+  operator_action?: string;
 };
 
 export type ProviderStatusResponse = {

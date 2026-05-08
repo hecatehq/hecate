@@ -87,6 +87,10 @@ type ProviderStatusResult struct {
 	Providers []types.ProviderStatus
 }
 
+type ProviderModelReadinessResult struct {
+	Readiness ProviderModelReadiness
+}
+
 type ProviderHealthHistoryResult struct {
 	Entries []types.ProviderHealthHistoryEntry
 }
@@ -788,6 +792,16 @@ func (s *Service) ProviderStatus(ctx context.Context) (*ProviderStatusResult, er
 	return &ProviderStatusResult{Providers: statuses}, nil
 }
 
+func (s *Service) ProviderModelReadiness(ctx context.Context, provider, model string) (*ProviderModelReadinessResult, error) {
+	model = strings.TrimSpace(model)
+	provider = strings.TrimSpace(provider)
+	if strings.EqualFold(provider, "auto") {
+		provider = ""
+	}
+	readiness := providerModelReadiness(s.catalog.Snapshot(ctx), provider, model)
+	return &ProviderModelReadinessResult{Readiness: readiness}, nil
+}
+
 func (s *Service) ProviderHealthHistory(ctx context.Context, provider string, limit int) (*ProviderHealthHistoryResult, error) {
 	if s.providerHistory == nil {
 		return &ProviderHealthHistoryResult{}, nil
@@ -1039,10 +1053,50 @@ func providerRoutingBlockedMessage(reason string) string {
 
 func providerReadinessCheck(name, status, reason, message string) types.ProviderReadinessCheck {
 	return types.ProviderReadinessCheck{
-		Name:    name,
-		Status:  status,
-		Reason:  reason,
-		Message: message,
+		Name:           name,
+		Status:         status,
+		Reason:         reason,
+		Message:        message,
+		OperatorAction: providerReadinessOperatorAction(name, reason),
+	}
+}
+
+func providerReadinessOperatorAction(name, reason string) string {
+	switch reason {
+	case "configured", "not_required", "healthy", "routable", "models_discovered":
+		return ""
+	case "credential_missing":
+		return "Add or rotate this provider's API key, then refresh provider status."
+	case "provider_disabled":
+		if name == "models" {
+			return "Enable the provider before model discovery can run."
+		}
+		return "Enable the provider when you want Hecate to route to it."
+	case "self_referential":
+		return "Change the base URL so it points at the provider, not Hecate."
+	case "discovery_failed":
+		return "Check the endpoint and refresh provider status after the server is reachable."
+	case "default_model_only":
+		return "Send a test request or refresh discovery to confirm the default model is real."
+	case "no_models":
+		return "Start the provider and pull or load at least one model."
+	case "provider_slow":
+		return "Keep this provider enabled if the latency is acceptable, or route to a faster provider."
+	case "provider_rate_limited":
+		return "Wait for cooldown or temporarily route to another provider."
+	case "provider_unhealthy":
+		return "Inspect the latest health error and provider server logs, then refresh provider status."
+	case "circuit_open":
+		return "Wait for recovery or test the provider after fixing the upstream issue."
+	case "recovery_probe":
+		return "Retry once the half-open probe succeeds."
+	case "health_pending", "unknown":
+		return "Refresh provider status after configuration or startup settles."
+	default:
+		if name == "routing" {
+			return "Open Providers to inspect readiness checks and repair the blocked dependency."
+		}
+		return ""
 	}
 }
 

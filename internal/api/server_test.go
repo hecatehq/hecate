@@ -606,6 +606,9 @@ func assertProviderReadinessCheck(t *testing.T, item ProviderStatusResponseItem,
 		if check.Message == "" {
 			t.Fatalf("%s readiness check %q message is empty", item.Name, name)
 		}
+		if check.Status != "ok" && check.OperatorAction == "" {
+			t.Fatalf("%s readiness check %q operator_action is empty for status %q", item.Name, name, check.Status)
+		}
 		return
 	}
 	t.Fatalf("%s missing readiness check %q in %#v", item.Name, name, item.ReadinessChecks)
@@ -1727,6 +1730,58 @@ func TestAgentChatModelResolutionRequiredErrorUsesValidationContract(t *testing.
 	}
 	if payload.Error.UserMessage == "" || payload.Error.OperatorAction == "" {
 		t.Fatalf("error missing operator metadata: %+v", payload.Error)
+	}
+}
+
+func TestAgentChatModelResolutionErrorIncludesReadinessFields(t *testing.T) {
+	rec := httptest.NewRecorder()
+	writeAgentChatModelResolutionError(rec, fmt.Errorf("resolve model: %w", modelReadinessError{
+		err: errors.New("model \"gpt-5.4-mini\" is not available from provider \"ollama\""),
+		readiness: gateway.ProviderModelReadiness{
+			Provider:              "ollama",
+			MatchedProvider:       "ollama",
+			Model:                 "gpt-5.4-mini",
+			Reason:                "model_not_discovered",
+			Message:               "Provider \"ollama\" does not report model \"gpt-5.4-mini\".",
+			OperatorAction:        "Pull or load the model locally.",
+			RoutingReady:          true,
+			ProviderStatus:        "healthy",
+			ProviderBlockedReason: "",
+			SuggestedModels:       []string{"llama3.1:8b"},
+		},
+	}))
+	if rec.Code != http.StatusUnprocessableEntity {
+		t.Fatalf("status = %d, want %d, body=%s", rec.Code, http.StatusUnprocessableEntity, rec.Body.String())
+	}
+	var payload struct {
+		Error struct {
+			Type            string   `json:"type"`
+			UserMessage     string   `json:"user_message"`
+			OperatorAction  string   `json:"operator_action"`
+			Reason          string   `json:"reason"`
+			SuggestedModels []string `json:"suggested_models"`
+		} `json:"error"`
+	}
+	payload = decodeRecorder[struct {
+		Error struct {
+			Type            string   `json:"type"`
+			UserMessage     string   `json:"user_message"`
+			OperatorAction  string   `json:"operator_action"`
+			Reason          string   `json:"reason"`
+			SuggestedModels []string `json:"suggested_models"`
+		} `json:"error"`
+	}](t, rec)
+	if payload.Error.Type != errCodeModelNotConfigured {
+		t.Fatalf("error.type = %q, want %q", payload.Error.Type, errCodeModelNotConfigured)
+	}
+	if payload.Error.OperatorAction != "Pull or load the model locally." {
+		t.Fatalf("operator_action = %q", payload.Error.OperatorAction)
+	}
+	if payload.Error.Reason != "model_not_discovered" {
+		t.Fatalf("error.reason = %q, want model_not_discovered", payload.Error.Reason)
+	}
+	if len(payload.Error.SuggestedModels) != 1 || payload.Error.SuggestedModels[0] != "llama3.1:8b" {
+		t.Fatalf("error.suggested_models = %#v, want llama3.1:8b", payload.Error.SuggestedModels)
 	}
 }
 
