@@ -217,6 +217,7 @@ Full index lives at [`docs/README.md`](docs/README.md), organized by reader role
 - [Desktop app](docs/desktop-app.md) — native bundles, first-launch footguns, platform data dirs, roadmap.
 - [Providers](docs/providers.md) — preset catalog, OpenAI-compatible custom endpoints, credentials, health, circuit breaking.
 - [Known limitations](docs/known-limitations.md) — plain-language list of what's still alpha.
+- [Alpha-to-beta roadmap](docs/beta-roadmap.md) — core gates, UX polish order, cleanup/refactoring, and branch/release workflow.
 
 **Building against Hecate**
 
@@ -235,6 +236,7 @@ Full index lives at [`docs/README.md`](docs/README.md), organized by reader role
 - [Architecture](docs/architecture.md) — gateway request flow, task-runtime queue / lease / sandbox boundary.
 - [Development](docs/development.md) — source-build toolchain, local dev, website work, the test ladder, screenshot tooling.
 - [Release](docs/release.md) — cutting a tag, verification gate, recovery if CI fails.
+- [Alpha-to-beta roadmap](docs/beta-roadmap.md) — what must be true before the first beta tag.
 
 First-run environment knobs live in [`.env.example`](.env.example).
 

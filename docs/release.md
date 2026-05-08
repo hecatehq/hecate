@@ -14,6 +14,9 @@ what is alpha-grade versus production-shaped.
   `v0.1.0-alpha.2`, `v0.1.0-rc.1`. Goreleaser and tauri-action handle them
   the same as stable tags; consumers can opt out via semver tooling that
   recognizes pre-release tags.
+- Keep shipping `v0.1.0-alpha.N` while the
+  [alpha-to-beta roadmap](beta-roadmap.md) is open. The first beta tag is a
+  quality gate (`v0.1.0-beta.1`), not the next release by default.
 - Do not publish a release from a dirty worktree.
 
 ## What a release produces

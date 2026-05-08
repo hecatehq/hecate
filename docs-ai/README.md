@@ -60,3 +60,6 @@ commit question.
 - **No plan labels** (`Phase 1`, `P0`, `#15`, `Milestone N`) in commit messages or code comments.
 - **Probe before assuming paths.** `grep`, `ls`, `go build` before writing file paths from memory. Wrong paths compound.
 - **Build early, build often.** `go build ./...` before the first edit (confirm the tree is clean) and after each logical step.
+- **Beta-scope work gets a branch.** Start from current `master`, use a
+  feature/refactor/docs branch, and land through PR. Direct `master` commits are
+  for release mechanics or explicitly requested urgent corrections only.

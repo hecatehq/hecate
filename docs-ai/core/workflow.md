@@ -53,6 +53,13 @@ If a refactor is the right move, split it into its own change first and rebuild 
 - The verification scope balloons (e.g. needs both UI typecheck/test and backend race suite for behavior the operator will see in stages).
 - A behavior change is sneaking into a refactor.
 
+## Branch discipline
+
+Beta-scope work starts from current `master` on a feature/refactor/docs branch
+and lands through PR. Do not implement beta features directly on `master`.
+Reserve direct `master` commits for release mechanics or urgent tiny
+corrections that the operator explicitly requests.
+
 ## Commit etiquette
 
 **Don't auto-commit.** After every change, propose a Conventional Commits message in a fenced code block; the operator merges. This is a default behavior, not an opt-in.
