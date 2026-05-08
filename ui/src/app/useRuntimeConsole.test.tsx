@@ -636,6 +636,57 @@ describe("useRuntimeConsole", () => {
       });
     });
 
+    it("keeps queued prompt edits usable when browser storage writes fail", async () => {
+      window.localStorage.setItem("hecate.chatTarget", "agent");
+      window.localStorage.setItem("hecate.agentChatSessionID", "a1");
+      window.localStorage.setItem("hecate.agentWorkspace", "/workspace");
+      window.localStorage.setItem("hecate.queuedChatMessages", JSON.stringify([
+        {
+          id: "queued_restore",
+          session_id: "a1",
+          content: "keep this after refresh",
+          runtime_kind: "agent",
+          provider_filter: "auto",
+          model: "ministral-3:latest",
+          workspace: "/workspace",
+          system_prompt: "",
+          adapter_id: "codex",
+          created_at: "2026-04-20T00:00:01Z",
+        },
+      ]));
+      const originalSetItem = Storage.prototype.setItem;
+      const storageSpy = vi.spyOn(Storage.prototype, "setItem").mockImplementation(function (this: Storage, key, value) {
+        if (key === "hecate.queuedChatMessages") {
+          throw new DOMException("quota exceeded", "QuotaExceededError");
+        }
+        return originalSetItem.call(this, key, value);
+      });
+      fetchMock.mockImplementation(defaultBackendMock({
+        "/hecate/v1/agent-chat/sessions": () => jsonResponse({
+          object: "agent_chat_sessions",
+          data: [{ id: "a1", title: "Agent", runtime_kind: "agent", status: "running", workspace: "/workspace", message_count: 0 }],
+        }),
+        "/hecate/v1/agent-chat/sessions/a1": () => jsonResponse({
+          object: "agent_chat_session",
+          data: { id: "a1", title: "Agent", runtime_kind: "agent", status: "running", workspace: "/workspace", messages: [], created_at: "2026-04-20T00:00:00Z", updated_at: "2026-04-20T00:00:00Z" },
+        }),
+      }));
+
+      try {
+        const { result } = renderHook(() => useRuntimeConsole());
+        await waitFor(() => expect(result.current.state.loading).toBe(false));
+
+        act(() => {
+          result.current.actions.updateQueuedChatMessage("queued_restore", "edited in memory");
+        });
+
+        await waitFor(() => expect(storageSpy).toHaveBeenCalledWith("hecate.queuedChatMessages", expect.any(String)));
+        expect(result.current.state.queuedChatMessages[0].content).toBe("edited in memory");
+      } finally {
+        storageSpy.mockRestore();
+      }
+    });
+
     it("prunes stored queued prompts for sessions that no longer exist", async () => {
       window.localStorage.setItem("hecate.queuedChatMessages", JSON.stringify([
         {

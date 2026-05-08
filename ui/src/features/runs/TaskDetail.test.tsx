@@ -328,7 +328,7 @@ describe("TaskDetail runtime activity and patches", () => {
           tool_name: "git_exec",
           kind: "git",
           status: "failed",
-          summary: { command: "git status" },
+          summary: { command: "git status", exit_code: 128, stdout_bytes: 41, stderr_bytes: 57 },
         }),
         makeActivity({
           id: "activity-stdout",
@@ -364,6 +364,14 @@ describe("TaskDetail runtime activity and patches", () => {
     await user.click(screen.getAllByText("Advanced")[0]);
 
     expect(screen.getByText(/This tool failed/)).toBeTruthy();
+    expect(screen.getByText("command")).toBeTruthy();
+    expect(screen.getByText("git status")).toBeTruthy();
+    expect(screen.getByText("exit")).toBeTruthy();
+    expect(screen.getByText("128")).toBeTruthy();
+    expect(screen.getAllByText("stdout").length).toBeGreaterThan(0);
+    expect(screen.getAllByText("41b").length).toBeGreaterThan(0);
+    expect(screen.getAllByText("stderr").length).toBeGreaterThan(0);
+    expect(screen.getAllByText("57b").length).toBeGreaterThan(0);
     expect(screen.getByText("git-stdout.txt")).toBeTruthy();
     expect(screen.getAllByText(/On branch feature\/task-debug/)[0]).toBeVisible();
     expect(screen.getAllByText(/nothing to commit/)[0]).toBeVisible();
@@ -417,6 +425,66 @@ describe("TaskDetail runtime activity and patches", () => {
     expect(screen.getByText("stdout notes")).toBeTruthy();
     expect(screen.getByText("shell-stderr.txt")).toBeTruthy();
     expect(screen.getByText("No bytes captured for this stream.")).toBeTruthy();
+  });
+
+  it("shows missing output streams for failed tool diagnostics", async () => {
+    const { render, user } = setup({
+      activity: [
+        makeActivity({
+          id: "activity-tool",
+          type: "tool_call",
+          title: "git_exec",
+          step_id: "step-git",
+          tool_name: "git_exec",
+          kind: "git",
+          status: "failed",
+          summary: { command: "git status", exit_code: 128, stdout_bytes: 0, stderr_bytes: 0 },
+        }),
+      ],
+    });
+    render();
+
+    await user.click(screen.getAllByText("Advanced")[0]);
+
+    expect(screen.getByText("git status")).toBeTruthy();
+    expect(screen.getByText("128")).toBeTruthy();
+    expect(screen.getByText("No stdout or stderr artifacts were captured for this tool.")).toBeTruthy();
+  });
+
+  it("shows when a failed tool has stdout but no stderr artifact", async () => {
+    const { render, user } = setup({
+      activity: [
+        makeActivity({
+          id: "activity-tool",
+          type: "tool_call",
+          title: "git_exec",
+          step_id: "step-git",
+          tool_name: "git_exec",
+          kind: "git",
+          status: "failed",
+          summary: { command: "git status", exit_code: 128, stdout_bytes: 14 },
+        }),
+        makeActivity({
+          id: "activity-stdout",
+          type: "artifact",
+          title: "git-stdout.txt",
+          step_id: "step-git",
+          artifact_id: "art-stdout",
+          kind: "stdout",
+          status: "ready",
+          summary: {
+            size_bytes: 14,
+            content_preview: "stdout only",
+          },
+        }),
+      ],
+    });
+    render();
+
+    await user.click(screen.getAllByText("Advanced")[0]);
+
+    expect(screen.getByText("stdout only")).toBeTruthy();
+    expect(screen.getByText("stderr artifact was not captured for this tool.")).toBeTruthy();
   });
 
   it("shows when stderr exists but is empty", () => {
