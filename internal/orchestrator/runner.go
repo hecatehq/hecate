@@ -1004,6 +1004,8 @@ func (r *Runner) cancelRunWithMessage(ctx context.Context, task types.Task, run 
 	if requestID != "" && r.tracer != nil {
 		if existing, found := r.tracer.Get(requestID); found {
 			trace = existing
+			traceID = trace.TraceID
+			ctx = telemetry.WithTraceIDs(ctx, trace.TraceID, trace.RootSpanID())
 		} else {
 			trace = r.tracer.Start(requestID)
 			defer trace.Finalize()
