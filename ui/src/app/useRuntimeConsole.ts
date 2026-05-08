@@ -174,11 +174,16 @@ function writeStoredQueuedChatMessages(items: QueuedChatMessage[]) {
   if (typeof window === "undefined") {
     return;
   }
-  if (items.length === 0) {
-    window.localStorage.removeItem(queuedChatMessagesStorageKey);
-    return;
+  try {
+    if (items.length === 0) {
+      window.localStorage.removeItem(queuedChatMessagesStorageKey);
+      return;
+    }
+    window.localStorage.setItem(queuedChatMessagesStorageKey, JSON.stringify(items));
+  } catch {
+    // Browser storage can be disabled, private, or quota-limited. Queued
+    // prompts remain usable in memory even when draft persistence is unavailable.
   }
-  window.localStorage.setItem(queuedChatMessagesStorageKey, JSON.stringify(items));
 }
 
 function readStoredChatTargetsBySessionID(): Map<string, HecateChatTarget> {

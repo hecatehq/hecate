@@ -873,15 +873,16 @@ function TaskActivityAdvancedDetails({ activity, allActivity }: { activity?: Tas
   if (!activity) return null;
   const rows = taskActivityAdvancedRows(activity);
   const diagnostics = failedToolOutputArtifacts(activity, allActivity);
-  if (rows.length === 0 && diagnostics.length === 0) return null;
+  const isFailedTool = activity.type === "tool_call" && activity.status === "failed";
+  if (rows.length === 0 && diagnostics.length === 0 && !isFailedTool) return null;
 
   return (
     <div style={{ display: "grid", gap: 5 }}>
-      {diagnostics.length > 0 && (
-        <TaskActivityOutputDiagnostics artifacts={diagnostics} />
+      {isFailedTool && (
+        <TaskActivityFailureDiagnostics activity={activity} artifacts={diagnostics} />
       )}
       {rows.length > 0 && (
-        <details open={diagnostics.length === 0}>
+        <details open={!isFailedTool}>
           <summary style={{ cursor: "pointer", fontFamily: "var(--font-mono)", fontSize: 10, color: "var(--t3)" }}>
             Raw metadata
           </summary>
@@ -917,20 +918,83 @@ function TaskActivityAdvancedDetails({ activity, allActivity }: { activity?: Tas
   );
 }
 
-function TaskActivityOutputDiagnostics({ artifacts }: { artifacts: TaskActivityRecord[] }) {
+function TaskActivityFailureDiagnostics({ activity, artifacts }: { activity: TaskActivityRecord; artifacts: TaskActivityRecord[] }) {
+  const command = summaryString(activity, "command");
+  const exitCode = summaryNumber(activity, "exit_code");
+  const stdoutBytes = summaryNumber(activity, "stdout_bytes");
+  const stderrBytes = summaryNumber(activity, "stderr_bytes");
+  const hasStdout = artifacts.some(artifact => outputActivityStream(artifact) === "stdout");
+  const hasStderr = artifacts.some(artifact => outputActivityStream(artifact) === "stderr");
+  const facts = [
+    command ? { label: "command", value: command } : null,
+    exitCode !== undefined ? { label: "exit", value: String(exitCode) } : null,
+    stdoutBytes !== undefined ? { label: "stdout", value: `${stdoutBytes}b` } : null,
+    stderrBytes !== undefined ? { label: "stderr", value: `${stderrBytes}b` } : null,
+  ].filter((item): item is { label: string; value: string } => Boolean(item));
+
   return (
     <div style={{ display: "grid", gap: 7 }}>
       <div style={{ color: "var(--t2)", fontSize: 11, lineHeight: 1.5 }}>
-        This tool failed. Related run output is previewed here; the full stdout/stderr capture remains in run output.
+        This tool failed. The summary below shows what Hecate captured for the tool call; full streams remain in run output when artifacts exist.
       </div>
+      {facts.length > 0 && (
+        <div style={{
+          display: "flex",
+          flexWrap: "wrap",
+          gap: 6,
+        }}>
+          {facts.map(fact => (
+            <span
+              key={fact.label}
+              style={{
+                border: "1px solid var(--border)",
+                borderRadius: 999,
+                color: "var(--t2)",
+                fontFamily: "var(--font-mono)",
+                fontSize: 10,
+                padding: "3px 7px",
+              }}
+            >
+              <span style={{ color: "var(--t3)" }}>{fact.label}</span>{" "}
+              <span style={{ color: fact.label === "exit" && fact.value !== "0" ? "var(--red)" : "var(--t1)" }}>
+                {fact.value}
+              </span>
+            </span>
+          ))}
+        </div>
+      )}
       <div style={{ display: "grid", gap: 7 }}>
-        {artifacts.map(artifact => (
-          <TaskActivityOutputPreview
-            key={artifact.artifact_id || artifact.id}
-            artifact={artifact}
-          />
-        ))}
+        {artifacts.length > 0 ? (
+          artifacts.map(artifact => (
+            <TaskActivityOutputPreview
+              key={artifact.artifact_id || artifact.id}
+              artifact={artifact}
+            />
+          ))
+        ) : (
+          <TaskActivityMissingOutput message="No stdout or stderr artifacts were captured for this tool." />
+        )}
+        {!hasStdout && artifacts.length > 0 && (
+          <TaskActivityMissingOutput message="stdout artifact was not captured for this tool." />
+        )}
+        {!hasStderr && artifacts.length > 0 && (
+          <TaskActivityMissingOutput message="stderr artifact was not captured for this tool." />
+        )}
       </div>
+    </div>
+  );
+}
+
+function TaskActivityMissingOutput({ message }: { message: string }) {
+  return (
+    <div style={{
+      border: "1px dashed var(--border)",
+      borderRadius: "var(--radius-sm)",
+      color: "var(--t3)",
+      fontSize: 11,
+      padding: "7px",
+    }}>
+      {message}
     </div>
   );
 }
@@ -1134,6 +1198,11 @@ function taskActivitySubtitle(item: TaskActivityRecord): string | undefined {
 function summaryString(item: TaskActivityRecord, key: string): string {
   const value = item.summary?.[key];
   return typeof value === "string" ? value.trim() : "";
+}
+
+function summaryNumber(item: TaskActivityRecord, key: string): number | undefined {
+  const value = item.summary?.[key];
+  return typeof value === "number" && Number.isFinite(value) ? value : undefined;
 }
 
 function nonInternalKind(kind?: string): string {
