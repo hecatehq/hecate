@@ -396,6 +396,32 @@ func (s *SQLiteStore) UpdateApproval(ctx context.Context, approval types.TaskApp
 	return s.CreateApproval(ctx, approval)
 }
 
+func (s *SQLiteStore) UpdatePendingApproval(ctx context.Context, approval types.TaskApproval) (types.TaskApproval, bool, error) {
+	if strings.TrimSpace(approval.ID) == "" {
+		return types.TaskApproval{}, false, fmt.Errorf("approval id is required")
+	}
+	payload, err := json.Marshal(approval)
+	if err != nil {
+		return types.TaskApproval{}, false, err
+	}
+	res, err := s.db.ExecContext(ctx, fmt.Sprintf(`
+		UPDATE %s
+		SET status = ?, payload = ?
+		WHERE id = ? AND task_id = ? AND status = 'pending'
+	`, s.approvalsTable), approval.Status, string(payload), approval.ID, approval.TaskID)
+	if err != nil {
+		return types.TaskApproval{}, false, err
+	}
+	n, err := res.RowsAffected()
+	if err != nil {
+		return types.TaskApproval{}, false, err
+	}
+	if n == 0 {
+		return types.TaskApproval{}, false, nil
+	}
+	return approval, true, nil
+}
+
 func (s *SQLiteStore) CreateArtifact(ctx context.Context, artifact types.TaskArtifact) (types.TaskArtifact, error) {
 	if strings.TrimSpace(artifact.ID) == "" {
 		return types.TaskArtifact{}, fmt.Errorf("artifact id is required")

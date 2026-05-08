@@ -69,6 +69,7 @@ type Store interface {
 	GetApproval(ctx context.Context, taskID, approvalID string) (types.TaskApproval, bool, error)
 	ListApprovals(ctx context.Context, taskID string) ([]types.TaskApproval, error)
 	UpdateApproval(ctx context.Context, approval types.TaskApproval) (types.TaskApproval, error)
+	UpdatePendingApproval(ctx context.Context, approval types.TaskApproval) (types.TaskApproval, bool, error)
 
 	CreateArtifact(ctx context.Context, artifact types.TaskArtifact) (types.TaskArtifact, error)
 	GetArtifact(ctx context.Context, taskID, artifactID string) (types.TaskArtifact, bool, error)

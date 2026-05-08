@@ -58,8 +58,9 @@ var knownApprovalKinds = map[string]struct{}{
 }
 
 var knownApprovalDecisions = map[string]struct{}{
-	"approved": {},
-	"rejected": {},
+	"approved":  {},
+	"cancelled": {},
+	"rejected":  {},
 }
 
 var knownQueueBackends = map[string]struct{}{

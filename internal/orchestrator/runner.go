@@ -886,26 +886,7 @@ func (r *Runner) ResumeTaskAfterApproval(ctx context.Context, task types.Task, a
 		}
 		approvalWaitMS = resolvedAt.Sub(approval.CreatedAt).Milliseconds()
 	}
-	approvalAttrs := map[string]any{
-		telemetry.AttrHecatePhase:          "approval",
-		telemetry.AttrHecateResult:         telemetry.ResultSuccess,
-		telemetry.AttrHecateTaskID:         task.ID,
-		telemetry.AttrHecateRunID:          run.ID,
-		telemetry.AttrHecateApprovalID:     approval.ID,
-		telemetry.AttrHecateApprovalKind:   approval.Kind,
-		telemetry.AttrHecateApprovalStatus: approval.Status,
-	}
-	if approvalWaitMS > 0 {
-		approvalAttrs[telemetry.AttrHecateApprovalWaitMS] = approvalWaitMS
-	}
-	trace.Record(telemetry.EventOrchestratorApprovalResolved, approvalAttrs)
-	r.metrics.RecordApproval(ctx, telemetry.ApprovalMetricsRecord{
-		TaskID:       task.ID,
-		RunID:        run.ID,
-		ApprovalKind: approval.Kind,
-		Decision:     "approved",
-		WaitMS:       approvalWaitMS,
-	})
+	r.recordApprovalResolved(ctx, trace, task.ID, run.ID, approval, "approved", approvalWaitMS)
 
 	run.Status = "queued"
 	run.RequestID = requestID
@@ -979,26 +960,7 @@ func (r *Runner) RejectTaskAfterApproval(ctx context.Context, task types.Task, a
 		}
 		rejectWaitMS = resolvedAt.Sub(approval.CreatedAt).Milliseconds()
 	}
-	rejectApprovalAttrs := map[string]any{
-		telemetry.AttrHecatePhase:          "approval",
-		telemetry.AttrHecateResult:         telemetry.ResultSuccess,
-		telemetry.AttrHecateTaskID:         task.ID,
-		telemetry.AttrHecateRunID:          run.ID,
-		telemetry.AttrHecateApprovalID:     approval.ID,
-		telemetry.AttrHecateApprovalKind:   approval.Kind,
-		telemetry.AttrHecateApprovalStatus: approval.Status,
-	}
-	if rejectWaitMS > 0 {
-		rejectApprovalAttrs[telemetry.AttrHecateApprovalWaitMS] = rejectWaitMS
-	}
-	trace.Record(telemetry.EventOrchestratorApprovalResolved, rejectApprovalAttrs)
-	r.metrics.RecordApproval(ctx, telemetry.ApprovalMetricsRecord{
-		TaskID:       task.ID,
-		RunID:        run.ID,
-		ApprovalKind: approval.Kind,
-		Decision:     "rejected",
-		WaitMS:       rejectWaitMS,
-	})
+	r.recordApprovalResolved(ctx, trace, task.ID, run.ID, approval, "rejected", rejectWaitMS)
 
 	run, err = r.cancelRunWithMessage(ctx, task, run, "approval rejected", requestID, trace.TraceID)
 	if err != nil {
@@ -1038,6 +1000,20 @@ func (r *Runner) CancelRun(ctx context.Context, task types.Task, runID string, r
 }
 
 func (r *Runner) cancelRunWithMessage(ctx context.Context, task types.Task, run types.TaskRun, message, requestID, traceID string) (types.TaskRun, error) {
+	var trace *profiler.Trace
+	if requestID != "" && r.tracer != nil {
+		if existing, found := r.tracer.Get(requestID); found {
+			trace = existing
+		} else {
+			trace = r.tracer.Start(requestID)
+			defer trace.Finalize()
+			if traceID == "" {
+				traceID = trace.TraceID
+				ctx = telemetry.WithTraceIDs(ctx, trace.TraceID, trace.RootSpanID())
+			}
+		}
+	}
+
 	r.jobMu.Lock()
 	cancel, ok := r.jobs[run.ID]
 	r.jobMu.Unlock()
@@ -1063,7 +1039,7 @@ func (r *Runner) cancelRunWithMessage(ctx context.Context, task types.Task, run 
 		return types.TaskRun{}, err
 	}
 	_, _ = r.emitRunEvent(ctx, task.ID, run.ID, "run.cancelled", requestID, traceID, map[string]any{"reason": message})
-	r.cancelPendingApprovalsForRun(ctx, task, run, message, requestID, traceID, now)
+	r.cancelPendingApprovalsForRun(ctx, trace, task, run, message, requestID, traceID, now)
 
 	steps, _ := r.store.ListSteps(ctx, run.ID)
 	for _, step := range steps {
@@ -1106,7 +1082,7 @@ func (r *Runner) cancelRunWithMessage(ctx context.Context, task types.Task, run 
 	return run, nil
 }
 
-func (r *Runner) cancelPendingApprovalsForRun(ctx context.Context, task types.Task, run types.TaskRun, message, requestID, traceID string, now time.Time) {
+func (r *Runner) cancelPendingApprovalsForRun(ctx context.Context, trace *profiler.Trace, task types.Task, run types.TaskRun, message, requestID, traceID string, now time.Time) {
 	approvals, err := r.store.ListApprovals(ctx, task.ID)
 	if err != nil {
 		return
@@ -1119,10 +1095,18 @@ func (r *Runner) cancelPendingApprovalsForRun(ctx context.Context, task types.Ta
 		approval.ResolutionNote = message
 		approval.ResolvedBy = "system"
 		approval.ResolvedAt = now
-		updated, err := r.store.UpdateApproval(ctx, approval)
+		updated, ok, err := r.store.UpdatePendingApproval(ctx, approval)
 		if err != nil {
 			continue
 		}
+		if !ok {
+			continue
+		}
+		waitMS := int64(0)
+		if !updated.CreatedAt.IsZero() {
+			waitMS = updated.ResolvedAt.Sub(updated.CreatedAt).Milliseconds()
+		}
+		r.recordApprovalResolved(ctx, trace, task.ID, run.ID, updated, "cancelled", waitMS)
 		_, _ = r.emitRunEvent(ctx, task.ID, run.ID, "approval.resolved", requestID, traceID, map[string]any{
 			"approval_id": updated.ID,
 			"decision":    updated.Status,
@@ -1133,6 +1117,31 @@ func (r *Runner) cancelPendingApprovalsForRun(ctx context.Context, task types.Ta
 			"status":      updated.Status,
 		})
 	}
+}
+
+func (r *Runner) recordApprovalResolved(ctx context.Context, trace *profiler.Trace, taskID, runID string, approval types.TaskApproval, decision string, waitMS int64) {
+	attrs := map[string]any{
+		telemetry.AttrHecatePhase:          "approval",
+		telemetry.AttrHecateResult:         telemetry.ResultSuccess,
+		telemetry.AttrHecateTaskID:         taskID,
+		telemetry.AttrHecateRunID:          runID,
+		telemetry.AttrHecateApprovalID:     approval.ID,
+		telemetry.AttrHecateApprovalKind:   approval.Kind,
+		telemetry.AttrHecateApprovalStatus: approval.Status,
+	}
+	if waitMS > 0 {
+		attrs[telemetry.AttrHecateApprovalWaitMS] = waitMS
+	}
+	if trace != nil {
+		trace.Record(telemetry.EventOrchestratorApprovalResolved, attrs)
+	}
+	r.metrics.RecordApproval(ctx, telemetry.ApprovalMetricsRecord{
+		TaskID:       taskID,
+		RunID:        runID,
+		ApprovalKind: approval.Kind,
+		Decision:     decision,
+		WaitMS:       waitMS,
+	})
 }
 
 func (r *Runner) processQueue() {

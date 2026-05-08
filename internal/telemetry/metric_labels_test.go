@@ -38,6 +38,7 @@ func TestMetricClosedSetNormalizersCollapseUnknownValues(t *testing.T) {
 		{"step kind unknown", "browser", NormalizeStepKind, MetricLabelOther},
 		{"approval kind known", "network_egress", NormalizeApprovalKind, "network_egress"},
 		{"approval kind unknown", "danger", NormalizeApprovalKind, MetricLabelOther},
+		{"approval decision cancelled", "cancelled", NormalizeApprovalDecision, "cancelled"},
 		{"queue backend known", "sqlite", NormalizeQueueBackend, "sqlite"},
 		{"queue backend unknown", "postgres", NormalizeQueueBackend, MetricLabelOther},
 		{"driver kind known", "acp", NormalizeAgentDriverKind, "acp"},
