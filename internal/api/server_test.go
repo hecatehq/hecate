@@ -4370,6 +4370,42 @@ func TestTaskStartReturnsConflictWhileRunActive(t *testing.T) {
 	}
 }
 
+func TestTaskStartAndDeleteCheckLatestRunWhenTaskSummaryIsStale(t *testing.T) {
+	t.Parallel()
+
+	logger := slog.New(slog.NewJSONHandler(io.Discard, nil))
+	cfg := config.Config{Server: config.ServerConfig{TaskApprovalPolicies: []string{"shell_exec"}}}
+	apiHandler := newTestAPIHandlerWithSettings(logger, nil, cfg, nil)
+	handler := NewServer(logger, apiHandler)
+	tasks := newTaskTestClient(t, handler)
+
+	created := mustTaskRequestJSON[TaskResponse](tasks, http.MethodPost, "/hecate/v1/tasks", `{"title":"Stale summary","prompt":"Leave this run awaiting approval.","execution_kind":"shell","shell_command":"printf 'active\n'","working_directory":".","timeout_ms":1000}`)
+	started := mustTaskRequestJSON[TaskRunResponse](tasks, http.MethodPost, "/hecate/v1/tasks/"+created.Data.ID+"/start", "")
+	if started.Data.Status != "awaiting_approval" {
+		t.Fatalf("run status = %q, want awaiting_approval", started.Data.Status)
+	}
+
+	staleTask, found, err := apiHandler.taskStore.GetTask(context.Background(), created.Data.ID)
+	if err != nil || !found {
+		t.Fatalf("GetTask: found=%t err=%v", found, err)
+	}
+	staleTask.Status = "completed"
+	staleTask.FinishedAt = time.Now().UTC()
+	if _, err := apiHandler.taskStore.UpdateTask(context.Background(), staleTask); err != nil {
+		t.Fatalf("UpdateTask stale summary: %v", err)
+	}
+
+	startAgain := tasks.mustRequestStatus(http.StatusConflict, http.MethodPost, "/hecate/v1/tasks/"+created.Data.ID+"/start", "")
+	if !strings.Contains(startAgain.Body.String(), "active run") {
+		t.Fatalf("start error body = %s, want mention of active run", startAgain.Body.String())
+	}
+
+	deleteActive := tasks.mustRequestStatus(http.StatusConflict, http.MethodDelete, "/hecate/v1/tasks/"+created.Data.ID, "")
+	if !strings.Contains(deleteActive.Body.String(), "active run") {
+		t.Fatalf("delete error body = %s, want mention of active run", deleteActive.Body.String())
+	}
+}
+
 func TestTaskRunRetryReturnsConflictForActiveRun(t *testing.T) {
 	t.Parallel()
 
@@ -4411,6 +4447,87 @@ func TestTaskRunResumeReturnsConflictForActiveRun(t *testing.T) {
 	rec := tasks.mustRequestStatus(http.StatusConflict, http.MethodPost, "/hecate/v1/tasks/"+created.Data.ID+"/runs/"+started.Data.ID+"/resume", `{}`)
 	if !strings.Contains(rec.Body.String(), "not resumable") {
 		t.Fatalf("error body = %s, want mention of not resumable", rec.Body.String())
+	}
+}
+
+func TestTaskRunMutationsReturnConflictWhenAnotherLatestRunActive(t *testing.T) {
+	t.Parallel()
+
+	logger := slog.New(slog.NewJSONHandler(io.Discard, nil))
+	apiHandler := newTestAPIHandlerWithSettings(logger, nil, config.Config{}, nil)
+	handler := NewServer(logger, apiHandler)
+	tasks := newTaskTestClient(t, handler)
+	now := time.Now().UTC()
+
+	task := types.Task{
+		ID:            "task-other-active-run",
+		Title:         "other active run",
+		Prompt:        "old run should not fork while latest is active",
+		ExecutionKind: "agent_loop",
+		Status:        "completed", // Deliberately stale; latest run row is authoritative.
+		LatestRunID:   "run-active-latest",
+		CreatedAt:     now,
+		UpdatedAt:     now,
+	}
+	if _, err := apiHandler.taskStore.CreateTask(context.Background(), task); err != nil {
+		t.Fatalf("CreateTask: %v", err)
+	}
+	oldRun := types.TaskRun{
+		ID:         "run-old-terminal",
+		TaskID:     task.ID,
+		Number:     1,
+		Status:     "failed",
+		StartedAt:  now.Add(-2 * time.Minute),
+		FinishedAt: now.Add(-time.Minute),
+	}
+	if _, err := apiHandler.taskStore.CreateRun(context.Background(), oldRun); err != nil {
+		t.Fatalf("CreateRun(old): %v", err)
+	}
+	activeRun := types.TaskRun{
+		ID:        task.LatestRunID,
+		TaskID:    task.ID,
+		Number:    2,
+		Status:    "awaiting_approval",
+		StartedAt: now,
+	}
+	if _, err := apiHandler.taskStore.CreateRun(context.Background(), activeRun); err != nil {
+		t.Fatalf("CreateRun(active): %v", err)
+	}
+
+	cases := []struct {
+		name string
+		path string
+		body string
+	}{
+		{
+			name: "retry",
+			path: "/hecate/v1/tasks/" + task.ID + "/runs/" + oldRun.ID + "/retry",
+			body: `{}`,
+		},
+		{
+			name: "resume",
+			path: "/hecate/v1/tasks/" + task.ID + "/runs/" + oldRun.ID + "/resume",
+			body: `{}`,
+		},
+		{
+			name: "continue",
+			path: "/hecate/v1/tasks/" + task.ID + "/runs/" + oldRun.ID + "/continue",
+			body: `{"prompt":"continue anyway"}`,
+		},
+		{
+			name: "retry from turn",
+			path: "/hecate/v1/tasks/" + task.ID + "/runs/" + oldRun.ID + "/retry-from-turn",
+			body: `{"turn":1}`,
+		},
+	}
+	for _, tc := range cases {
+		tc := tc
+		t.Run(tc.name, func(t *testing.T) {
+			rec := tasks.mustRequestStatus(http.StatusConflict, http.MethodPost, tc.path, tc.body)
+			if !strings.Contains(rec.Body.String(), "another active run") {
+				t.Fatalf("error body = %s, want mention of another active run", rec.Body.String())
+			}
+		})
 	}
 }
 

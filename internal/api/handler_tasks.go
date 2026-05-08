@@ -272,8 +272,11 @@ func (h *Handler) HandleDeleteTask(w http.ResponseWriter, r *http.Request) {
 		WriteError(w, http.StatusNotFound, errCodeNotFound, "task not found")
 		return
 	}
-	if task.Status == "running" {
-		WriteError(w, http.StatusConflict, errCodeInvalidRequest, "cannot delete a running task; cancel it first")
+	if active, err := taskHasActiveRun(ctx, h.taskStore, task); err != nil {
+		WriteError(w, http.StatusInternalServerError, errCodeGatewayError, err.Error())
+		return
+	} else if active {
+		WriteError(w, http.StatusConflict, errCodeInvalidRequest, "cannot delete a task with an active run; cancel it first")
 		return
 	}
 
@@ -305,7 +308,10 @@ func (h *Handler) HandleStartTask(w http.ResponseWriter, r *http.Request) {
 	if !ok {
 		return
 	}
-	if taskHasActiveRun(task) {
+	if active, err := taskHasActiveRun(ctx, h.taskStore, task); err != nil {
+		WriteError(w, http.StatusInternalServerError, errCodeGatewayError, err.Error())
+		return
+	} else if active {
 		WriteError(w, http.StatusConflict, errCodeInvalidRequest, "task already has an active run")
 		return
 	}
@@ -334,11 +340,26 @@ func (h *Handler) HandleStartTask(w http.ResponseWriter, r *http.Request) {
 	})
 }
 
-func taskHasActiveRun(task types.Task) bool {
-	if strings.TrimSpace(task.LatestRunID) == "" {
-		return false
+func taskHasActiveRun(ctx context.Context, store taskstate.Store, task types.Task) (bool, error) {
+	latestRunID := strings.TrimSpace(task.LatestRunID)
+	if latestRunID != "" && store != nil {
+		run, found, err := store.GetRun(ctx, task.ID, latestRunID)
+		if err != nil {
+			return false, err
+		}
+		if found {
+			return !types.IsTerminalTaskRunStatus(run.Status), nil
+		}
 	}
-	return !types.IsTerminalTaskRunStatus(task.Status)
+	return latestRunID != "" && !types.IsTerminalTaskRunStatus(task.Status), nil
+}
+
+func taskHasOtherActiveRun(ctx context.Context, store taskstate.Store, task types.Task, currentRunID string) (bool, error) {
+	latestRunID := strings.TrimSpace(task.LatestRunID)
+	if latestRunID == "" || latestRunID == strings.TrimSpace(currentRunID) {
+		return false, nil
+	}
+	return taskHasActiveRun(ctx, store, task)
 }
 
 func (h *Handler) HandleTaskApprovals(w http.ResponseWriter, r *http.Request) {
@@ -1243,6 +1264,13 @@ func (h *Handler) HandleRetryTaskRun(w http.ResponseWriter, r *http.Request) {
 		WriteError(w, http.StatusConflict, errCodeInvalidRequest, "run is not retryable until it reaches a terminal state")
 		return
 	}
+	if active, err := taskHasOtherActiveRun(ctx, h.taskStore, task, run.ID); err != nil {
+		WriteError(w, http.StatusInternalServerError, errCodeGatewayError, err.Error())
+		return
+	} else if active {
+		WriteError(w, http.StatusConflict, errCodeInvalidRequest, "task already has another active run")
+		return
+	}
 	result, err := h.taskRunner.StartTask(ctx, task, newOpaqueTaskResourceID)
 	if err != nil {
 		WriteError(w, http.StatusInternalServerError, errCodeGatewayError, err.Error())
@@ -1267,6 +1295,13 @@ func (h *Handler) HandleResumeTaskRun(w http.ResponseWriter, r *http.Request) {
 	}
 	if run.Status != "failed" && run.Status != "cancelled" {
 		WriteError(w, http.StatusConflict, errCodeInvalidRequest, "run is not resumable")
+		return
+	}
+	if active, err := taskHasOtherActiveRun(ctx, h.taskStore, task, run.ID); err != nil {
+		WriteError(w, http.StatusInternalServerError, errCodeGatewayError, err.Error())
+		return
+	} else if active {
+		WriteError(w, http.StatusConflict, errCodeInvalidRequest, "task already has another active run")
 		return
 	}
 	// Optional ceiling raise — used by the "Raise ceiling and
@@ -1311,6 +1346,13 @@ func (h *Handler) HandleContinueTaskRun(w http.ResponseWriter, r *http.Request) 
 	}
 	var req ContinueTaskRunRequest
 	if !decodeJSON(w, r, &req) {
+		return
+	}
+	if active, err := taskHasOtherActiveRun(ctx, h.taskStore, task, run.ID); err != nil {
+		WriteError(w, http.StatusInternalServerError, errCodeGatewayError, err.Error())
+		return
+	} else if active {
+		WriteError(w, http.StatusConflict, errCodeInvalidRequest, "task already has another active run")
 		return
 	}
 	result, err := h.taskRunner.ContinueAgentTask(ctx, task, run, req.Prompt, newOpaqueTaskResourceID)
@@ -1360,6 +1402,13 @@ func (h *Handler) HandleRetryTaskRunFromTurn(w http.ResponseWriter, r *http.Requ
 	}
 	if req.Turn < 1 {
 		WriteError(w, http.StatusBadRequest, errCodeInvalidRequest, "turn must be >= 1")
+		return
+	}
+	if active, err := taskHasOtherActiveRun(ctx, h.taskStore, task, run.ID); err != nil {
+		WriteError(w, http.StatusInternalServerError, errCodeGatewayError, err.Error())
+		return
+	} else if active {
+		WriteError(w, http.StatusConflict, errCodeInvalidRequest, "task already has another active run")
 		return
 	}
 	result, err := h.taskRunner.RetryTaskFromTurn(ctx, task, run, req.Turn, strings.TrimSpace(req.Reason), newOpaqueTaskResourceID)

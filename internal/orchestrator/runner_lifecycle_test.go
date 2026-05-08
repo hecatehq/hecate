@@ -166,6 +166,76 @@ func TestStartReconcileLoop_SkipsFreshRunningRun(t *testing.T) {
 	}
 }
 
+// TestStartReconcileLoop_SkipsLocalInflightRun verifies that periodic
+// stale-run reconciliation does not duplicate work the current runner still
+// owns. A long-running task can legitimately outlive the conservative
+// StartedAt-based stale threshold; if it is registered in r.jobs, Shutdown and
+// explicit CancelRun can still reach it, so requeueing would create a second
+// worker for the same run.
+func TestStartReconcileLoop_SkipsLocalInflightRun(t *testing.T) {
+	t.Parallel()
+	ctx := context.Background()
+	store := taskstate.NewMemoryStore()
+	queue := &recordingQueue{}
+
+	runner := NewRunner(
+		slog.New(slog.NewJSONHandler(io.Discard, nil)),
+		store,
+		nil,
+		Config{
+			QueueWorkers:      0,
+			QueueLeaseSeconds: 1, // stale threshold = 3s
+			ReconcileInterval: 20 * time.Millisecond,
+		},
+	)
+	runner.SetQueue(queue)
+
+	task := types.Task{
+		ID:        "task-inflight",
+		Status:    "running",
+		CreatedAt: time.Now().UTC(),
+		UpdatedAt: time.Now().UTC(),
+	}
+	if _, err := store.CreateTask(ctx, task); err != nil {
+		t.Fatalf("CreateTask: %v", err)
+	}
+	run := types.TaskRun{
+		ID:        "run-inflight",
+		TaskID:    task.ID,
+		Number:    1,
+		Status:    "running",
+		StartedAt: time.Now().UTC().Add(-10 * time.Second),
+	}
+	if _, err := store.CreateRun(ctx, run); err != nil {
+		t.Fatalf("CreateRun: %v", err)
+	}
+
+	cancelled := false
+	runner.registerJob(run.ID, func() { cancelled = true })
+	defer runner.unregisterJob(run.ID)
+	runner.StartReconcileLoop()
+
+	time.Sleep(100 * time.Millisecond)
+
+	shutdownCtx, cancel := context.WithTimeout(ctx, 2*time.Second)
+	defer cancel()
+	_ = runner.Shutdown(shutdownCtx)
+
+	gotRun, found, err := store.GetRun(ctx, task.ID, run.ID)
+	if err != nil || !found {
+		t.Fatalf("GetRun: found=%t err=%v", found, err)
+	}
+	if gotRun.Status != "running" {
+		t.Fatalf("in-flight run status = %q, want running", gotRun.Status)
+	}
+	if len(queue.enqueued) != 0 {
+		t.Fatalf("in-flight run was unexpectedly requeued (%d jobs)", len(queue.enqueued))
+	}
+	if !cancelled {
+		t.Fatal("Shutdown did not cancel the registered in-flight job")
+	}
+}
+
 // TestStartReconcileLoop_StopsOnShutdown verifies that the reconcile goroutine
 // joins the worker wait-group and exits when Shutdown is called. If it leaked,
 // Shutdown would block until its context deadline.
