@@ -143,11 +143,11 @@ pre { background: #f3f4f6; padding: 1rem; border-radius: 0.5rem; overflow-x: aut
 <a href="/healthz"><code>GET /healthz</code></a> or
 <a href="/v1/models"><code>GET /v1/models</code></a>. To enable this dashboard,
 build the UI before the gateway:</p>
-<pre>make ui-install
-make ui-build
+<pre>just ui-install
+just ui-build
 go build -o hecate ./cmd/hecate</pre>
 <p class="note">For UI-only iteration, run the dev server:
-<code>make ui-dev</code> opens the React app on
+<code>just ui-dev</code> opens the React app on
 <code>http://127.0.0.1:5173</code> with API calls proxied to this gateway.</p>
 </body>
 </html>
