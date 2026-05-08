@@ -179,12 +179,16 @@ describe("ChatView input", () => {
     expect(screen.getAllByText(/Ollama is configured, but it does not currently report "llama3.1:8b"/).length).toBeGreaterThan(0);
     expect(screen.getAllByText("Selected model").length).toBeGreaterThan(0);
     expect(screen.getAllByText("llama3.1:8b").length).toBeGreaterThan(0);
+    expect(screen.getAllByText("Discovered models").length).toBeGreaterThan(0);
+    expect(screen.getAllByText("1").length).toBeGreaterThan(0);
     expect(screen.getAllByText("Health").length).toBeGreaterThan(0);
     expect(screen.getAllByText("degraded").length).toBeGreaterThan(0);
     expect(screen.getAllByText("Blocked by").length).toBeGreaterThan(0);
     expect(screen.getAllByText("no discovered route").length).toBeGreaterThan(0);
     expect(screen.getAllByText("Last error").length).toBeGreaterThan(0);
     expect(screen.getAllByText("model discovery returned no llama3.1:8b").length).toBeGreaterThan(0);
+    expect(screen.getAllByText("Start the local provider app or server.").length).toBeGreaterThan(0);
+    expect(screen.getAllByText("Pull or load llama3.1:8b in that provider, or pick one of its discovered models.").length).toBeGreaterThan(0);
     expect(screen.queryByRole("textbox", { name: "Message" })).toBeNull();
     expect(screen.queryByRole("button", { name: "Send message" })).toBeNull();
   });
