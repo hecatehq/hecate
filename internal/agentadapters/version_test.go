@@ -10,6 +10,27 @@ import (
 	"time"
 )
 
+// init runs once when the test binary loads, single-threaded, so
+// it's race-free relative to the t.Parallel() tests below. We
+// stretch the per-probe deadline well beyond production's 5 s so
+// CI subprocess-startup jitter doesn't flake the parsing-path
+// tests in this file. The single test that pins timeout behavior
+// (TestDetectVersionTimeoutReturnsEmpty) supplies its own short
+// (50 ms) context deadline via context.WithTimeout, which beats
+// this ceiling regardless of how high it's set.
+//
+// Production callers see the 5 s default in registry.go; only the
+// test binary lifts the cap. Without this, the parsing tests
+// occasionally flake on GitHub Actions runners under -race +
+// parallel-suite load — fork/exec of /bin/sh has multi-second
+// jitter under contention even though the script body is trivial
+// (echo + exit). The function under test only cares that the
+// regex sees the script's output before the context dies; a
+// longer cap removes that race entirely.
+func init() {
+	detectVersionTimeout = 60 * time.Second
+}
+
 // writeFakeBinary writes a tiny shell script (or .cmd on Windows) that echoes
 // its first arg as stdout. Returns the file path.
 func writeFakeBinary(t *testing.T, dir, name, output string) string {

@@ -12,21 +12,31 @@ import (
 // MAJOR.MINOR.PATCH with an optional pre-release / build suffix.
 var semverRe = regexp.MustCompile(`\d+\.\d+\.\d+(?:[-+][0-9A-Za-z._-]+)*`)
 
-// DetectVersion runs the adapter binary at path with --version and returns
-// the first semver-shaped token found in combined stdout/stderr output. Returns an empty string if
-// the binary is not reachable, does not respond in ~5 s, or prints no
-// recognisable version string.
+// detectVersionTimeout is the upper bound on a single DetectVersion
+// probe run. Production keeps the 5 s ceiling so a genuinely hung
+// adapter binary still surfaces quickly in the operator UI; the
+// test binary mutates this var in `version_test.go`'s init() to
+// stay independent of CI subprocess-startup jitter.
 //
-// The 5 s ceiling is generous on purpose. Probe runs are pre-flight: an
-// operator clicked "Test adapter" or opened the Settings tab; latency is
-// surfaced in the UI as "checking…" while the request is in flight, so a
-// few seconds of overhead is acceptable. The earlier 2 s cap flaked on
-// CI under -race + parallel-suite load — race-mode adds 2-20× CPU
-// overhead, and spawning a /bin/sh subprocess could occasionally exceed
-// 2 s, returning empty and failing the assertion. Genuinely hung
-// binaries still surface within the cap; healthy ones answer well below.
+// 5 s is generous on purpose. Probe runs are pre-flight — an
+// operator clicked "Test adapter" or opened the Settings tab;
+// latency is surfaced in the UI as "checking…" while the request
+// is in flight, so a few seconds of overhead is acceptable.
+// Earlier values (2 s, then 5 s) flaked on CI under -race +
+// parallel-suite load: race-mode adds 2-20× CPU overhead, and
+// spawning a /bin/sh subprocess can occasionally exceed several
+// seconds on a busy runner, returning empty output and failing
+// the assertion. Healthy production adapters answer in
+// milliseconds; the cap exists to bound the worst case.
+var detectVersionTimeout = 5 * time.Second
+
+// DetectVersion runs the adapter binary at path with --version and
+// returns the first semver-shaped token found in combined
+// stdout/stderr output. Returns an empty string if the binary is
+// not reachable, does not respond within detectVersionTimeout, or
+// prints no recognisable version string.
 func DetectVersion(ctx context.Context, path string) string {
-	ctx, cancel := context.WithTimeout(ctx, 5*time.Second)
+	ctx, cancel := context.WithTimeout(ctx, detectVersionTimeout)
 	defer cancel()
 
 	cmd := exec.CommandContext(ctx, path, "--version")
