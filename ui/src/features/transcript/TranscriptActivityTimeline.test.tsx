@@ -95,15 +95,17 @@ describe("TranscriptActivityTimeline", () => {
 
   it("dedupes earlier terminal rows when a later terminal row exists", () => {
     // The Hecate Chat run path emits two terminal-shaped rows on a
-    // successful completion: a synced `task_run` mirror that shows
-    // up as `run_result` with title "Run completed", and an
-    // explicit `Activity{Type: status, Title: finalAgentChatActivityTitle(status)}`
+    // successful completion: a synced `task_run` mirror surfacing
+    // as `run_result` (the fixture uses title "Run finished" so it
+    // bypasses isTerminalRunSummary's `/^run (completed|failed|cancelled)$/`
+    // filter, which strips the literal "run completed" titles), and
+    // an explicit `Activity{Type: status, Title: finalAgentChatActivityTitle(status)}`
     // appended by the agent-chat handler at turn end. Without
     // dedupe the operator sees two side-by-side terminal rows for
-    // one run; the timeline should keep only the latest. Earlier
-    // rows that match `isTerminalRunSummary` (title "run X") were
-    // already dropped, but type-only collisions (e.g. type=completed
-    // title="Completed") survived prior to the dedupe rule.
+    // one run; the timeline should keep only one. Earlier
+    // rows that match `isTerminalRunSummary` were already dropped,
+    // but type-only collisions (e.g. type=completed title="Done")
+    // survived prior to the dedupe rule.
     const activities: AgentChatActivityRecord[] = [
       { type: "tool_call", title: "read_file", status: "completed" },
       { type: "run_result", title: "Run finished", status: "completed" },
@@ -112,6 +114,34 @@ describe("TranscriptActivityTimeline", () => {
     render(<TranscriptActivityTimeline activities={activities} />);
     expect(screen.queryByText("Run finished")).toBeNull();
     expect(screen.getAllByText("Done")).toHaveLength(1);
+  });
+
+  it("prefers a terminal=true diagnostic row over a generic terminal row when both are present", () => {
+    // The synced `task_run` mirror carries `terminal: true` AND a
+    // detail like "LLM call failed on turn 3" — informative
+    // diagnostic the operator wants to see. The agent-chat
+    // handler also appends a generic `Activity{Type: "failed",
+    // Title: "Failed"}` at turn end. When both are on the timeline,
+    // the diagnostic row must win — naïvely keeping "the latest
+    // terminal row" would drop it in favour of the bare-bones
+    // generic row that surfaces no useful detail.
+    // Title chosen to avoid `isTerminalRunSummary`'s regex
+    // (`/^run (completed|failed|cancelled)$/i`), which would strip
+    // the row before the dedupe-pick step ran. Real diagnostic rows
+    // typically carry richer titles like "LLM call failed on turn 3"
+    // anyway.
+    const activities: AgentChatActivityRecord[] = [
+      { type: "tool_call", title: "shell_exec", status: "failed" },
+      { type: "run_result", title: "LLM call failed on turn 3", status: "failed", terminal: true, detail: "rate limit exceeded" },
+      { type: "failed", title: "Failed", status: "failed" },
+    ];
+    render(<TranscriptActivityTimeline activities={activities} />);
+    expect(screen.getByText("LLM call failed on turn 3")).toBeInTheDocument();
+    // The generic "Failed" row title must NOT appear as a timeline row
+    // (the word "failed" still surfaces inside the timeline summary
+    // status text, which is fine — that's not a row).
+    const failedAsRowTitle = screen.queryAllByText("Failed").filter(node => !node.closest("summary"));
+    expect(failedAsRowTitle).toHaveLength(0);
   });
 
   it("renders plan items with their plan-status indicators", () => {
