@@ -22,25 +22,28 @@ import (
 
 const DriverKindACP = "acp"
 
-// thoughtFallbackBlockID is the per-turn sentinel id used when
-// ACP omits messageId on an `agent_thought_chunk`. Fallback
-// activity rows come out as `thinking:__fallback`. The leading
-// double-underscore guarantees we never collide with a
-// spec-conformant ACP messageId — ACP requires messageIds to be
-// UUIDs (per the SDK comment on
-// SessionUpdateAgentThoughtChunk.MessageId), and UUIDs are
-// hex+dashes only, so an underscore-led prefix cannot appear in
-// any spec-conformant id.
+// thoughtFallbackBlockID is the per-turn sentinel prefix used
+// when ACP omits messageId on an `agent_thought_chunk`. Fallback
+// activity rows come out as `thinking:__fallback-<n>` where <n>
+// is a counter that increments once per boundary-triggered
+// fallback episode in the turn. The leading double-underscore
+// guarantees we never collide with a spec-conformant ACP
+// messageId — ACP requires messageIds to be UUIDs (per the SDK
+// comment on SessionUpdateAgentThoughtChunk.MessageId), and
+// UUIDs are hex+dashes only, so an underscore-led prefix cannot
+// appear in any spec-conformant id.
 //
-// Multiple fallback "episodes" inside one turn (e.g. an adapter
-// that mixes real-id blocks with no-id blocks) all share this
-// single id and consequently merge into one activity row. This
-// is intentional: without a messageId we have no boundary
-// signal, and inventing one — counter, timestamp, hash —
-// would just be guessing. Operators with a non-conforming
-// adapter that fragments thoughts across multiple no-id blocks
-// see one merged row of reasoning, which is the same outcome
-// the caller would get from any pure no-messageId adapter.
+// The counter exists because mergeAgentChatActivity dedupes by
+// Activity.ID and *replaces* Detail wholesale on merge: if two
+// distinct fallback episodes shared one id (e.g. an adapter
+// mixing messageId-bearing and no-id chunks like
+// fallback → real → empty), the second episode's Detail would
+// overwrite the first's, silently losing the earlier reasoning.
+// Counter-suffixed ids keep each episode on its own row.
+//
+// Within one fallback episode, all chunks reuse the same
+// counter value and merge naturally (continuation case in
+// appendAgentThoughtChunk).
 //
 // Boundary detection itself does NOT sniff this id: see
 // `agentThoughtFallback` for the source of truth that a buggy
@@ -739,14 +742,19 @@ type acpTurn struct {
 	// downstream.
 	agentThoughtID string
 	// agentThoughtFallback is the source of truth for whether the
-	// active block was opened with the Hecate-minted fallback id.
+	// active block was opened with a Hecate-minted fallback id.
 	// Boundary detection used to sniff the id's prefix, which a
 	// non-spec-conformant adapter could spoof by sending a real
 	// messageId that happened to look like the fallback shape;
 	// tracking the property explicitly removes that risk.
-	agentThoughtFallback  bool
-	agentThoughtText      strings.Builder
-	agentThoughtTruncated bool
+	agentThoughtFallback bool
+	// agentThoughtFallbackCount counts boundary-triggered fallback
+	// episodes within this turn so each gets a unique Activity.ID
+	// (`__fallback-1`, `__fallback-2`, …). See thoughtFallbackBlockID
+	// for why uniqueness is load-bearing on the merge path.
+	agentThoughtFallbackCount int
+	agentThoughtText          strings.Builder
+	agentThoughtTruncated     bool
 	// toolKindByCall caches the last-known ToolKind for each
 	// ToolCallId in this turn. ACP `SessionToolCallUpdate.Kind` is
 	// optional — adapters may emit a kind on the initial ToolCall
@@ -873,21 +881,19 @@ func (t *acpTurn) appendAgentThoughtChunk(update *acp.SessionUpdateAgentThoughtC
 	//
 	// Cases:
 	//   1. First chunk in the turn: adopt the real id when present;
-	//      otherwise open a fallback row keyed on the shared
-	//      `__fallback` id. See thoughtFallbackBlockID's docstring
-	//      for why all fallback episodes in a turn share that id.
+	//      otherwise mint a counter-suffixed fallback id.
 	//   2. Real id that differs from the active id: real-A → real-B
 	//      is an explicit ACP-level block boundary.
 	//   3. Empty id while a *real* id is active: real-A → ∅. Treat as
 	//      a new block (defensive — adapters that consistently send
 	//      messageIds shouldn't drop them mid-block, so an absence
 	//      after a real id is more plausibly a new block than a
-	//      continuation of the old one). Open a fallback row using
-	//      the shared `__fallback` id; if a prior fallback episode
-	//      already used it in this turn, mergeAgentChatActivity
-	//      collapses the two into one row downstream — see
-	//      thoughtFallbackBlockID's docstring for why we accept
-	//      that collapse rather than minting unique ids.
+	//      continuation of the old one). Mint the next fallback
+	//      counter so the new row never collides on Activity.ID
+	//      with a prior fallback episode in the same turn —
+	//      mergeAgentChatActivity replaces Detail wholesale on
+	//      collision, so reusing an id would silently lose the
+	//      earlier episode's reasoning.
 	//   4. Empty id while a *fallback* id is active, OR matching
 	//      real id, OR matching fallback id: continuation; same row.
 	blockChanged := false
@@ -898,7 +904,8 @@ func (t *acpTurn) appendAgentThoughtChunk(update *acp.SessionUpdateAgentThoughtC
 			t.agentThoughtID = nextID
 			t.agentThoughtFallback = false
 		} else {
-			t.agentThoughtID = thoughtFallbackBlockID
+			t.agentThoughtFallbackCount++
+			t.agentThoughtID = fmt.Sprintf("%s-%d", thoughtFallbackBlockID, t.agentThoughtFallbackCount)
 			t.agentThoughtFallback = true
 		}
 	case nextID != "" && nextID != t.agentThoughtID:
@@ -906,14 +913,9 @@ func (t *acpTurn) appendAgentThoughtChunk(update *acp.SessionUpdateAgentThoughtC
 		t.agentThoughtID = nextID
 		t.agentThoughtFallback = false
 	case nextID == "" && !t.agentThoughtFallback:
-		// Real → empty: open a new fallback block. Reuses the same
-		// `__fallback` id any prior fallback episode in this turn
-		// also used; mergeAgentChatActivity will collapse them
-		// into one activity row. See thoughtFallbackBlockID for
-		// why we accept this collapse rather than minting unique
-		// ids per episode.
 		blockChanged = true
-		t.agentThoughtID = thoughtFallbackBlockID
+		t.agentThoughtFallbackCount++
+		t.agentThoughtID = fmt.Sprintf("%s-%d", thoughtFallbackBlockID, t.agentThoughtFallbackCount)
 		t.agentThoughtFallback = true
 	}
 	if blockChanged {

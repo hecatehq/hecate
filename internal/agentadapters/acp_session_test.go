@@ -451,22 +451,37 @@ func TestACPTurnAgentThoughtChunkBlockBoundaries(t *testing.T) {
 			wantDetail: []string{"alpha", "gamma"},
 		},
 		{
-			name:       "no messageId in any chunk: all chunks merge under fallback row",
+			name:       "no messageId in any chunk: all chunks merge under one fallback row",
 			chunks:     []chunk{{"a", nil}, {"b", nil}, {"c", nil}},
-			wantIDs:    []string{"thinking:" + thoughtFallbackBlockID, "thinking:" + thoughtFallbackBlockID, "thinking:" + thoughtFallbackBlockID},
+			wantIDs:    []string{"thinking:" + thoughtFallbackBlockID + "-1", "thinking:" + thoughtFallbackBlockID + "-1", "thinking:" + thoughtFallbackBlockID + "-1"},
 			wantDetail: []string{"a", "ab", "abc"},
 		},
 		{
 			name:       "fallback → real: opens fresh row keyed on the real id",
 			chunks:     []chunk{{"x", nil}, {"y", withID(idA)}},
-			wantIDs:    []string{"thinking:" + thoughtFallbackBlockID, "thinking:" + idA},
+			wantIDs:    []string{"thinking:" + thoughtFallbackBlockID + "-1", "thinking:" + idA},
 			wantDetail: []string{"x", "y"},
 		},
 		{
 			name:       "real → empty: opens a fallback row with a clean buffer",
 			chunks:     []chunk{{"x", withID(idA)}, {"y", nil}},
-			wantIDs:    []string{"thinking:" + idA, "thinking:" + thoughtFallbackBlockID},
+			wantIDs:    []string{"thinking:" + idA, "thinking:" + thoughtFallbackBlockID + "-1"},
 			wantDetail: []string{"x", "y"},
+		},
+		{
+			// Regression: distinct fallback episodes within one turn
+			// MUST get distinct Activity.IDs. mergeAgentChatActivity
+			// dedupes by id and replaces Detail wholesale on collision,
+			// so a shared id would let episode 2's text overwrite
+			// episode 1's row in the persisted activities array.
+			name: "fallback → real → empty: each fallback episode gets a distinct counter id",
+			chunks: []chunk{
+				{"alpha", nil},
+				{"middle", withID(idA)},
+				{"omega", nil},
+			},
+			wantIDs:    []string{"thinking:" + thoughtFallbackBlockID + "-1", "thinking:" + idA, "thinking:" + thoughtFallbackBlockID + "-2"},
+			wantDetail: []string{"alpha", "middle", "omega"},
 		},
 	}
 
@@ -515,30 +530,28 @@ func TestACPTurnAgentThoughtChunkBlockBoundaries(t *testing.T) {
 	}
 }
 
-// TestACPTurnFallbackDetectionResistsAdapterSpoofingTheFallbackID
+// TestACPTurnFallbackDetectionResistsAdapterSpoofingTheFallbackPrefix
 // pins that boundary detection treats the fallback property as a
 // turn-local flag, not a string-prefix check on Activity.ID. A
 // non-spec adapter that ignores the ACP "messageId MUST be a UUID"
-// rule and sends a real messageId equal to the Hecate fallback id
-// (`__fallback`) must NOT flip boundary detection into "I am in a
-// fallback block" semantics — that would mis-route a subsequent
-// real → empty transition as a continuation, and the next thought
-// would silently glue onto the spoofed one.
+// rule and sends a real messageId shaped like the Hecate fallback
+// prefix (e.g. `__fallback-7`) must NOT flip boundary detection
+// into "I am in a fallback block" semantics — that would mis-route
+// a subsequent real → empty transition as a continuation, and the
+// next thought would silently glue onto the spoofed one.
 //
-// Both rows here resolve to the same Activity.ID
-// (`thinking:__fallback`) because the spoofed real id literally
-// equals the Hecate fallback id; mergeAgentChatActivity will
-// collapse them downstream, which is the behavior documented on
-// thoughtFallbackBlockID. The boundary contract is observable on
-// `Detail`: the second emission must reflect a fresh buffer, not
-// concatenated chunks.
-func TestACPTurnFallbackDetectionResistsAdapterSpoofingTheFallbackID(t *testing.T) {
+// With the boolean flag (and not prefix-sniffing) as the source of
+// truth, the spoofed real id is treated as a real id; the empty
+// id that follows trips a boundary and Hecate mints a
+// counter-suffixed fallback that does not collide with the
+// spoofed shape.
+func TestACPTurnFallbackDetectionResistsAdapterSpoofingTheFallbackPrefix(t *testing.T) {
 	t.Parallel()
 	turn := newACPTurn(64*1024, nil)
 	var activities []Activity
 	turn.setActivityCallback(func(a Activity) { activities = append(activities, a) })
 
-	spoofed := thoughtFallbackBlockID
+	spoofed := thoughtFallbackBlockID + "-7"
 	turn.recordUpdate(acp.SessionNotification{
 		SessionId: acp.SessionId("session_1"),
 		Update: acp.SessionUpdate{
@@ -560,11 +573,18 @@ func TestACPTurnFallbackDetectionResistsAdapterSpoofingTheFallbackID(t *testing.
 	if len(activities) != 2 {
 		t.Fatalf("activity count = %d, want 2", len(activities))
 	}
+	// The spoofed real id was adopted under flag=false. The next
+	// (empty) chunk hits the real → empty branch and mints a
+	// distinct counter-suffixed fallback id that does NOT match
+	// the spoofed shape — so the two rows survive merge.
+	if activities[0].ID == activities[1].ID {
+		t.Fatalf("real → empty transition was misclassified as a continuation because boundary detection trusted the spoofed id prefix; both rows share %q", activities[0].ID)
+	}
 	if activities[0].Detail != "first thought" {
 		t.Fatalf("first emission Detail = %q, want %q", activities[0].Detail, "first thought")
 	}
 	if activities[1].Detail != "second thought" {
-		t.Fatalf("second emission Detail = %q, want %q (the boolean flag must trip a boundary on real → empty even when the real id literally equals the fallback)", activities[1].Detail, "second thought")
+		t.Fatalf("second emission Detail = %q, want %q (the boolean flag must trip a boundary on real → empty even when the real id starts with the fallback prefix)", activities[1].Detail, "second thought")
 	}
 }
 
