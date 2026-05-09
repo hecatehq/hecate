@@ -86,29 +86,40 @@ In rough priority order:
 Per-conversation token tracking with per-call telemetry emission:
 
 ```
-       ┌──────────────────────────────────────────────────┐
-       │ Conversation prepare                             │
-       │                                                  │
-       │   estimate(messages + system + tools + memory)   │
-       │   running_tokens += this_call_estimate           │
-       │   model_limit = lookupModelContextLimit(model)   │
-       │                                                  │
-       │   if running_tokens > 0.95 * model_limit:        │
-       │       ┌──── if hard_cap enabled ────┐            │
-       │       │  refuse → 422 with details  │            │
-       │       └─────────────────────────────┘            │
-       │       ┌──── if truncation enabled ──┐            │
-       │       │  apply policy, re-estimate  │            │
-       │       └─────────────────────────────┘            │
-       │   if running_tokens > 0.80 * model_limit:        │
-       │       emit structured warning to trace + header  │
-       │                                                  │
-       │   set runtime header: X-Runtime-Context-Used:    │
-       │       N/M                                        │
-       │   set span attr: hecate.context.tokens_in        │
-       │   set span attr: hecate.context.fraction         │
-       └──────────────────────────────────────────────────┘
+       ┌────────────────────────────────────────────────────┐
+       │ Conversation prepare                               │
+       │                                                    │
+       │   estimate = tokens(messages + system +            │
+       │              tools + memory)                       │
+       │   projected = persisted_running_tokens + estimate  │
+       │   model_limit = lookupModelContextLimit(model)     │
+       │                                                    │
+       │   if projected > 0.95 * model_limit:               │
+       │       ┌──── if hard_cap enabled ────┐              │
+       │       │  refuse → 422 with details  │              │
+       │       └─────────────────────────────┘              │
+       │       ┌──── if truncation enabled ──┐              │
+       │       │  apply policy, re-estimate  │              │
+       │       └─────────────────────────────┘              │
+       │   if projected > 0.80 * model_limit:               │
+       │       emit structured warning to trace + header    │
+       │                                                    │
+       │   set runtime header: X-Runtime-Context-Used:      │
+       │       projected/model_limit                        │
+       │   set span attr: hecate.context.tokens_in          │
+       │   set span attr: hecate.context.fraction           │
+       │                                                    │
+       │   ──────── after upstream call succeeds ─────────  │
+       │   persisted_running_tokens = projected             │
+       └────────────────────────────────────────────────────┘
 ```
+
+Two values are deliberately distinct: `persisted_running_tokens`
+is the durable per-conversation total carried in the chat-session
+or task-run row; `projected` is `persisted + estimate`, computed
+fresh per call and used for both threshold checks and the runtime
+header. The persisted value updates only on a successful upstream
+response (see "Risks" — failed-and-retried calls must not double-count).
 
 Where the estimate runs:
 - **Hecate Chat / model chat**: in `internal/api/handler_chat.go`'s
@@ -230,6 +241,18 @@ Three levels:
 | **Soft warn** | 80% of model limit | Running total exceeds | Structured warning in trace + `X-Runtime-Context-Warning` header. Call proceeds. |
 | **Hard cap** | 95% of model limit | Running total + estimated next-call exceeds | Call refused. Returns 422 with structured body: `type=context.budget_exceeded`, includes `tokens_in`, `tokens_limit`, `model`. |
 | **Per-task budget** | unset (0) | Operator-configured `GATEWAY_TASK_AGENT_LOOP_MAX_CONTEXT_TOKENS`. When set, takes precedence over the model-limit-derived cap. | Same 422 shape. |
+
+The `context.*` prefix is intentional. Hecate's existing `error.type`
+values follow two conventions: plain snake_case for top-level
+gateway errors (`rate_limit_exceeded`, `gateway_error`,
+`invalid_request`) and `<subsystem>.<reason>` for subsystem-scoped
+errors that will plausibly grow siblings — `agent_chat.session_limit_exceeded`,
+`agent_chat.session_duration_limit_exceeded` are the precedent in
+`internal/api/response.go`. Context-window failures will plausibly
+add `context.truncation_failed`, `context.summarization_failed`,
+and similar variants as later phases ship, so the dot-prefixed
+form matches the subsystem-scoped convention rather than treating
+this single error in isolation.
 
 Both percentage thresholds are configurable via env knobs:
 
