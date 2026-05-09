@@ -9,6 +9,7 @@ import (
 	"sync"
 	"testing"
 	"time"
+	"unicode/utf8"
 
 	acp "github.com/coder/acp-go-sdk"
 )
@@ -412,6 +413,610 @@ func TestACPTurnIgnoresBookkeepingUpdatesInTranscript(t *testing.T) {
 	if usage.ContextSize != 0 || usage.ContextUsed != 0 {
 		t.Fatalf("usage = %+v, want empty bookkeeping usage", usage)
 	}
+}
+
+// TestACPTurnAgentThoughtChunkBlockBoundaries exercises the four
+// transition cases in appendAgentThoughtChunk's resolver: first
+// chunk in a turn, real → different real, real → empty, empty →
+// real, and within-block continuation. Each row's expected
+// Activity.ID and Detail make the boundary semantics observable.
+func TestACPTurnAgentThoughtChunkBlockBoundaries(t *testing.T) {
+	t.Parallel()
+
+	idA := "real-a"
+	idB := "real-b"
+	withID := func(s string) *string { return &s }
+
+	type chunk struct {
+		text      string
+		messageID *string // nil = ACP omitted messageId on this chunk
+	}
+
+	cases := []struct {
+		name       string
+		chunks     []chunk
+		wantIDs    []string
+		wantDetail []string
+	}{
+		{
+			name:       "single real-id block: chunks merge under one row",
+			chunks:     []chunk{{"alpha", withID(idA)}, {", beta", withID(idA)}},
+			wantIDs:    []string{"thinking:" + idA, "thinking:" + idA},
+			wantDetail: []string{"alpha", "alpha, beta"},
+		},
+		{
+			name:       "real-A → real-B: explicit ACP boundary, fresh row + buffer",
+			chunks:     []chunk{{"alpha", withID(idA)}, {"gamma", withID(idB)}},
+			wantIDs:    []string{"thinking:" + idA, "thinking:" + idB},
+			wantDetail: []string{"alpha", "gamma"},
+		},
+		{
+			name:       "no messageId in any chunk: all chunks merge under fallback row",
+			chunks:     []chunk{{"a", nil}, {"b", nil}, {"c", nil}},
+			wantIDs:    []string{"thinking:" + thoughtFallbackBlockID, "thinking:" + thoughtFallbackBlockID, "thinking:" + thoughtFallbackBlockID},
+			wantDetail: []string{"a", "ab", "abc"},
+		},
+		{
+			name:       "fallback → real: opens fresh row keyed on the real id",
+			chunks:     []chunk{{"x", nil}, {"y", withID(idA)}},
+			wantIDs:    []string{"thinking:" + thoughtFallbackBlockID, "thinking:" + idA},
+			wantDetail: []string{"x", "y"},
+		},
+		{
+			name:       "real → empty: opens a fallback row with a clean buffer",
+			chunks:     []chunk{{"x", withID(idA)}, {"y", nil}},
+			wantIDs:    []string{"thinking:" + idA, "thinking:" + thoughtFallbackBlockID},
+			wantDetail: []string{"x", "y"},
+		},
+	}
+
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			turn := newACPTurn(64*1024, nil)
+			var activities []Activity
+			turn.setActivityCallback(func(a Activity) { activities = append(activities, a) })
+
+			for _, c := range tc.chunks {
+				turn.recordUpdate(acp.SessionNotification{
+					SessionId: acp.SessionId("session_1"),
+					Update: acp.SessionUpdate{
+						AgentThoughtChunk: &acp.SessionUpdateAgentThoughtChunk{
+							Content:   acp.TextBlock(c.text),
+							MessageId: c.messageID,
+						},
+					},
+				})
+			}
+
+			if len(activities) != len(tc.wantIDs) {
+				t.Fatalf("emission count = %d, want %d", len(activities), len(tc.wantIDs))
+			}
+			for i, want := range tc.wantIDs {
+				if activities[i].ID != want {
+					t.Errorf("activity %d ID = %q, want %q", i, activities[i].ID, want)
+				}
+				if activities[i].Detail != tc.wantDetail[i] {
+					t.Errorf("activity %d Detail = %q, want %q", i, activities[i].Detail, tc.wantDetail[i])
+				}
+				if activities[i].Type != "thinking" {
+					t.Errorf("activity %d Type = %q, want thinking", i, activities[i].Type)
+				}
+				if activities[i].Title != "Thinking" {
+					t.Errorf("activity %d Title = %q, want Thinking", i, activities[i].Title)
+				}
+			}
+
+			// Output must stay empty — thoughts are not visible transcript text.
+			output, _, _ := turn.snapshot()
+			if output != "" {
+				t.Errorf("output = %q, want empty (thoughts must not leak into the transcript)", output)
+			}
+		})
+	}
+}
+
+// TestACPTurnFallbackDetectionResistsAdapterSpoofingTheFallbackID
+// pins that boundary detection treats the fallback property as a
+// turn-local flag, not a string-prefix check on Activity.ID. A
+// non-spec adapter that ignores the ACP "messageId MUST be a UUID"
+// rule and sends a real messageId equal to the Hecate fallback id
+// (`__fallback`) must NOT flip boundary detection into "I am in a
+// fallback block" semantics — that would mis-route a subsequent
+// real → empty transition as a continuation, and the next thought
+// would silently glue onto the spoofed one.
+//
+// Both rows here resolve to the same Activity.ID
+// (`thinking:__fallback`) because the spoofed real id literally
+// equals the Hecate fallback id; mergeAgentChatActivity will
+// collapse them downstream, which is the behavior documented on
+// thoughtFallbackBlockID. The boundary contract is observable on
+// `Detail`: the second emission must reflect a fresh buffer, not
+// concatenated chunks.
+func TestACPTurnFallbackDetectionResistsAdapterSpoofingTheFallbackID(t *testing.T) {
+	t.Parallel()
+	turn := newACPTurn(64*1024, nil)
+	var activities []Activity
+	turn.setActivityCallback(func(a Activity) { activities = append(activities, a) })
+
+	spoofed := thoughtFallbackBlockID
+	turn.recordUpdate(acp.SessionNotification{
+		SessionId: acp.SessionId("session_1"),
+		Update: acp.SessionUpdate{
+			AgentThoughtChunk: &acp.SessionUpdateAgentThoughtChunk{
+				Content:   acp.TextBlock("first thought"),
+				MessageId: &spoofed,
+			},
+		},
+	})
+	turn.recordUpdate(acp.SessionNotification{
+		SessionId: acp.SessionId("session_1"),
+		Update: acp.SessionUpdate{
+			AgentThoughtChunk: &acp.SessionUpdateAgentThoughtChunk{
+				Content: acp.TextBlock("second thought"),
+			},
+		},
+	})
+
+	if len(activities) != 2 {
+		t.Fatalf("activity count = %d, want 2", len(activities))
+	}
+	if activities[0].Detail != "first thought" {
+		t.Fatalf("first emission Detail = %q, want %q", activities[0].Detail, "first thought")
+	}
+	if activities[1].Detail != "second thought" {
+		t.Fatalf("second emission Detail = %q, want %q (the boolean flag must trip a boundary on real → empty even when the real id literally equals the fallback)", activities[1].Detail, "second thought")
+	}
+}
+
+// TestACPTurnCapsThinkingActivityDetailToProtectActivityRowSize
+// pins the per-block accumulator cap. Each chunk re-emits the
+// full accumulated Detail (mergeAgentChatActivity replaces the
+// row's Detail wholesale by Activity.ID), so an unbounded
+// accumulator would inflate the persisted activities JSON and
+// websocket payload with every chunk. The cap holds the
+// worst-case row to thoughtMaxBytesPerBlock plus the truncation
+// suffix; further chunks for the same block do NOT lengthen the
+// payload.
+func TestACPTurnCapsThinkingActivityDetailToProtectActivityRowSize(t *testing.T) {
+	turn := newACPTurn(64*1024, nil)
+	var activities []Activity
+	turn.setActivityCallback(func(a Activity) { activities = append(activities, a) })
+
+	sessionID := acp.SessionId("session_1")
+	messageID := "long-thought"
+
+	// One chunk that already exceeds the cap on its own. UTF-8 safe
+	// (single-byte ASCII) — a separate test covers the rune-boundary
+	// rollback.
+	bigChunk := strings.Repeat("a", thoughtMaxBytesPerBlock+1024)
+	turn.recordUpdate(acp.SessionNotification{
+		SessionId: sessionID,
+		Update: acp.SessionUpdate{
+			AgentThoughtChunk: &acp.SessionUpdateAgentThoughtChunk{
+				Content:   acp.TextBlock(bigChunk),
+				MessageId: &messageID,
+			},
+		},
+	})
+	// A second chunk for the same block — the row should NOT keep
+	// growing; the truncation marker is sticky once tripped.
+	turn.recordUpdate(acp.SessionNotification{
+		SessionId: sessionID,
+		Update: acp.SessionUpdate{
+			AgentThoughtChunk: &acp.SessionUpdateAgentThoughtChunk{
+				Content:   acp.TextBlock(strings.Repeat("b", 4096)),
+				MessageId: &messageID,
+			},
+		},
+	})
+
+	if len(activities) != 2 {
+		t.Fatalf("activity count = %d, want 2 (one per chunk)", len(activities))
+	}
+	for i, a := range activities {
+		if !strings.HasSuffix(a.Detail, thoughtTruncationSuffix) {
+			t.Fatalf("activity %d missing truncation suffix; Detail = %q", i, a.Detail[:min(len(a.Detail), 80)])
+		}
+		body := strings.TrimSuffix(a.Detail, thoughtTruncationSuffix)
+		if len(body) > thoughtMaxBytesPerBlock {
+			t.Fatalf("activity %d Detail body = %d bytes, want ≤ %d (cap exceeded)", i, len(body), thoughtMaxBytesPerBlock)
+		}
+		if strings.Contains(body, "b") {
+			t.Fatalf("activity %d Detail body contains text from the post-cap chunk; further bytes must be dropped, not appended", i)
+		}
+	}
+	if activities[0].Detail != activities[1].Detail {
+		t.Fatalf("Detail diverged between chunks after the cap; once truncated the row should be stable.\nfirst:  %d bytes\nsecond: %d bytes", len(activities[0].Detail), len(activities[1].Detail))
+	}
+}
+
+// TestACPTurnTruncatesThinkingDetailOnUTF8RuneBoundary protects
+// against slicing a multi-byte rune mid-sequence; the resulting
+// Activity.Detail is JSON-serialized into the agentchat row, and
+// stray UTF-8 continuation bytes would corrupt the payload (or be
+// replaced with U+FFFD by lenient decoders, losing data).
+func TestACPTurnTruncatesThinkingDetailOnUTF8RuneBoundary(t *testing.T) {
+	turn := newACPTurn(64*1024, nil)
+	var activities []Activity
+	turn.setActivityCallback(func(a Activity) { activities = append(activities, a) })
+
+	// Build a payload whose cut point falls inside a 3-byte rune. The
+	// Japanese "あ" is 3 bytes in UTF-8 (E3 81 82); pad with ASCII so
+	// the cap lands two bytes into one of the runes.
+	prefix := strings.Repeat("a", thoughtMaxBytesPerBlock-1)
+	payload := prefix + "あ" + "tail"
+	messageID := "rune-cut"
+	turn.recordUpdate(acp.SessionNotification{
+		SessionId: acp.SessionId("session_1"),
+		Update: acp.SessionUpdate{
+			AgentThoughtChunk: &acp.SessionUpdateAgentThoughtChunk{
+				Content:   acp.TextBlock(payload),
+				MessageId: &messageID,
+			},
+		},
+	})
+
+	if len(activities) != 1 {
+		t.Fatalf("activity count = %d, want 1", len(activities))
+	}
+	body := strings.TrimSuffix(activities[0].Detail, thoughtTruncationSuffix)
+	if !utf8.ValidString(body) {
+		t.Fatalf("Detail body is not valid UTF-8 — rune-boundary rollback failed.\nbody (last 8 bytes): % x", body[max(len(body)-8, 0):])
+	}
+	if strings.HasSuffix(body, "あ") {
+		t.Fatalf("Detail body unexpectedly retained the truncated rune; the cut should have rolled back PAST it")
+	}
+}
+
+// TestACPTurnResetsThinkingTruncationStateOnBlockBoundary ensures
+// the truncation flag is per-block, not per-turn. A long thought
+// hitting the cap must NOT leave the next block pre-marked
+// truncated when it has only emitted a few bytes.
+func TestACPTurnResetsThinkingTruncationStateOnBlockBoundary(t *testing.T) {
+	turn := newACPTurn(64*1024, nil)
+	var activities []Activity
+	turn.setActivityCallback(func(a Activity) { activities = append(activities, a) })
+
+	first := "block-1"
+	second := "block-2"
+	turn.recordUpdate(acp.SessionNotification{
+		SessionId: acp.SessionId("session_1"),
+		Update: acp.SessionUpdate{
+			AgentThoughtChunk: &acp.SessionUpdateAgentThoughtChunk{
+				Content:   acp.TextBlock(strings.Repeat("a", thoughtMaxBytesPerBlock+1)),
+				MessageId: &first,
+			},
+		},
+	})
+	turn.recordUpdate(acp.SessionNotification{
+		SessionId: acp.SessionId("session_1"),
+		Update: acp.SessionUpdate{
+			AgentThoughtChunk: &acp.SessionUpdateAgentThoughtChunk{
+				Content:   acp.TextBlock("short follow-up"),
+				MessageId: &second,
+			},
+		},
+	})
+
+	if len(activities) != 2 {
+		t.Fatalf("activity count = %d, want 2", len(activities))
+	}
+	if !strings.HasSuffix(activities[0].Detail, thoughtTruncationSuffix) {
+		t.Fatalf("first block should be marked truncated; Detail = %q", activities[0].Detail[:min(len(activities[0].Detail), 80)])
+	}
+	if strings.HasSuffix(activities[1].Detail, thoughtTruncationSuffix) {
+		t.Fatalf("second (short) block carries truncation suffix from prior block; truncation state must reset on block boundary.\nDetail = %q", activities[1].Detail)
+	}
+	if activities[1].Detail != "short follow-up" {
+		t.Fatalf("second block Detail = %q, want plain follow-up text", activities[1].Detail)
+	}
+}
+
+func TestACPTurnEmitsFileChangeActivitiesForMutatingToolCallsOnCompletion(t *testing.T) {
+	turn := newACPTurn(64*1024, nil)
+	var activities []Activity
+	turn.setActivityCallback(func(a Activity) { activities = append(activities, a) })
+
+	sessionID := acp.SessionId("session_1")
+	line := 42
+
+	// In-progress edit: tool_call activity emits, no file_change yet
+	// (the file isn't actually changed until the call completes).
+	turn.recordUpdate(acp.SessionNotification{
+		SessionId: sessionID,
+		Update: acp.SessionUpdate{
+			ToolCall: &acp.SessionUpdateToolCall{
+				ToolCallId: acp.ToolCallId("call_1"),
+				Title:      "edit",
+				Status:     acp.ToolCallStatusInProgress,
+				Kind:       acp.ToolKindEdit,
+				Locations: []acp.ToolCallLocation{
+					{Path: "internal/example.go", Line: &line},
+				},
+			},
+		},
+	})
+	// Same call, completed, with two locations: should emit two file_change activities.
+	completedStatus := acp.ToolCallStatusCompleted
+	completedTitle := "edit"
+	editKind := acp.ToolKindEdit
+	turn.recordUpdate(acp.SessionNotification{
+		SessionId: sessionID,
+		Update: acp.SessionUpdate{
+			ToolCallUpdate: &acp.SessionToolCallUpdate{
+				ToolCallId: acp.ToolCallId("call_1"),
+				Status:     &completedStatus,
+				Title:      &completedTitle,
+				Kind:       &editKind,
+				Locations: []acp.ToolCallLocation{
+					{Path: "internal/example.go", Line: &line},
+					{Path: "docs/example.md"},
+				},
+			},
+		},
+	})
+
+	// A read tool call must NOT emit file_change activities even on completion.
+	readKind := acp.ToolKindRead
+	turn.recordUpdate(acp.SessionNotification{
+		SessionId: sessionID,
+		Update: acp.SessionUpdate{
+			ToolCall: &acp.SessionUpdateToolCall{
+				ToolCallId: acp.ToolCallId("call_2"),
+				Title:      "read",
+				Status:     acp.ToolCallStatusCompleted,
+				Kind:       readKind,
+				Locations:  []acp.ToolCallLocation{{Path: "internal/other.go"}},
+			},
+		},
+	})
+
+	// Expected emissions, in order:
+	//   1. tool_call (call_1, in_progress)
+	//   2. tool_call (call_1, completed)
+	//   3. file_change (call_1, internal/example.go:42)
+	//   4. file_change (call_1, docs/example.md)
+	//   5. tool_call (call_2, completed; read kind, no file_change)
+	if len(activities) != 5 {
+		t.Fatalf("activity count = %d, want 5; got types %v", len(activities), activityTypes(activities))
+	}
+
+	fileChanges := filterActivities(activities, "file_change")
+	if len(fileChanges) != 2 {
+		t.Fatalf("file_change count = %d, want 2 (one per location on the completed edit); got %v", len(fileChanges), activityTitles(fileChanges))
+	}
+	if fileChanges[0].Title != "internal/example.go:42" {
+		t.Fatalf("first file_change title = %q, want path with line number", fileChanges[0].Title)
+	}
+	if fileChanges[1].Title != "docs/example.md" {
+		t.Fatalf("second file_change title = %q, want plain path", fileChanges[1].Title)
+	}
+	if fileChanges[0].ID == fileChanges[1].ID {
+		t.Fatalf("file_change activities for distinct paths share an ID %q; they must differ so the UI can render them separately", fileChanges[0].ID)
+	}
+	for _, fc := range fileChanges {
+		if fc.Status != "completed" {
+			t.Fatalf("file_change status = %q, want completed", fc.Status)
+		}
+		if fc.Kind != "edit" {
+			t.Fatalf("file_change kind = %q, want edit", fc.Kind)
+		}
+	}
+}
+
+// TestACPTurnAggregatesFileChangeLocationsBySharedPath pins the
+// dedupe-by-path behavior. ACP `Locations` may carry multiple
+// entries for the same file (e.g. several edited line ranges in
+// one call). Without aggregation, each entry would emit an activity
+// with the same `file_change:<toolCallID>:<path>` Activity.ID and
+// downstream mergeAgentChatActivity would let later emissions
+// overwrite earlier ones — the operator would see the last range
+// only, with the others silently lost. We collapse same-path
+// entries into one row, summarizing the line numbers in the title.
+func TestACPTurnAggregatesFileChangeLocationsBySharedPath(t *testing.T) {
+	turn := newACPTurn(64*1024, nil)
+	var activities []Activity
+	turn.setActivityCallback(func(a Activity) { activities = append(activities, a) })
+
+	line1, line2, line3, line4 := 42, 100, 200, 250
+	completed := acp.ToolCallStatusCompleted
+	editKind := acp.ToolKindEdit
+	title := "edit"
+
+	turn.recordUpdate(acp.SessionNotification{
+		SessionId: acp.SessionId("session_1"),
+		Update: acp.SessionUpdate{
+			ToolCallUpdate: &acp.SessionToolCallUpdate{
+				ToolCallId: acp.ToolCallId("call_1"),
+				Status:     &completed,
+				Title:      &title,
+				Kind:       &editKind,
+				Locations: []acp.ToolCallLocation{
+					{Path: "internal/example.go", Line: &line1},
+					{Path: "internal/example.go", Line: &line2},
+					{Path: "internal/example.go", Line: &line3},
+					{Path: "internal/example.go", Line: &line4},
+					{Path: "docs/example.md"}, // separate file, no line
+				},
+			},
+		},
+	})
+
+	// Expected emissions: 1 tool_call activity + 2 file_change rows
+	// (one per unique path), NOT 1+5.
+	fileChanges := filterActivities(activities, "file_change")
+	if len(fileChanges) != 2 {
+		t.Fatalf("file_change count = %d, want 2 (one row per unique path); got titles %v", len(fileChanges), activityTitles(fileChanges))
+	}
+	if fileChanges[0].Title != "internal/example.go (42, 100, 200, +1 more)" {
+		t.Fatalf("first row title = %q, want path with summarized lines and overflow tail", fileChanges[0].Title)
+	}
+	if fileChanges[1].Title != "docs/example.md" {
+		t.Fatalf("second row title = %q, want plain path (no line info on the source location)", fileChanges[1].Title)
+	}
+	// Activity.IDs must be unique per path so mergeAgentChatActivity
+	// keeps both rows; the per-path collapse must NOT extend across
+	// distinct files.
+	if fileChanges[0].ID == fileChanges[1].ID {
+		t.Fatalf("file_change IDs collide across distinct paths: %q", fileChanges[0].ID)
+	}
+}
+
+// TestACPTurnRetainsToolKindAcrossUpdatesThatOmitIt pins the
+// per-call kind cache. SessionToolCallUpdate.Kind is optional;
+// adapters routinely emit Kind on the initial ToolCall and drop
+// it on the matching completion update. Without the cache, the
+// completion update would compute kind == "" and skip
+// emitFileChangeActivities — silently losing every per-file row
+// for an edit that actually happened.
+func TestACPTurnRetainsToolKindAcrossUpdatesThatOmitIt(t *testing.T) {
+	turn := newACPTurn(64*1024, nil)
+	var activities []Activity
+	turn.setActivityCallback(func(a Activity) { activities = append(activities, a) })
+
+	// Initial ToolCall carries kind = edit.
+	turn.recordUpdate(acp.SessionNotification{
+		SessionId: acp.SessionId("session_1"),
+		Update: acp.SessionUpdate{
+			ToolCall: &acp.SessionUpdateToolCall{
+				ToolCallId: acp.ToolCallId("call_1"),
+				Title:      "edit",
+				Status:     acp.ToolCallStatusInProgress,
+				Kind:       acp.ToolKindEdit,
+			},
+		},
+	})
+	// Completion update OMITS Kind. Locations are present.
+	completed := acp.ToolCallStatusCompleted
+	completedTitle := "edit"
+	turn.recordUpdate(acp.SessionNotification{
+		SessionId: acp.SessionId("session_1"),
+		Update: acp.SessionUpdate{
+			ToolCallUpdate: &acp.SessionToolCallUpdate{
+				ToolCallId: acp.ToolCallId("call_1"),
+				Status:     &completed,
+				Title:      &completedTitle,
+				// Kind: nil — adapter omitted it on completion.
+				Locations: []acp.ToolCallLocation{
+					{Path: "internal/example.go"},
+				},
+			},
+		},
+	})
+
+	fileChanges := filterActivities(activities, "file_change")
+	if len(fileChanges) != 1 {
+		t.Fatalf("file_change count = %d, want 1 (the cached kind=edit must drive emission even though the completion update omitted Kind); got types %v", len(fileChanges), activityTypes(activities))
+	}
+	if fileChanges[0].Kind != "edit" {
+		t.Fatalf("file_change kind = %q, want edit (resolved from the per-call cache)", fileChanges[0].Kind)
+	}
+	if fileChanges[0].Title != "internal/example.go" {
+		t.Fatalf("file_change title = %q, want path", fileChanges[0].Title)
+	}
+
+	// The completion tool_call activity must also surface the
+	// resolved kind so the timeline doesn't render a blank kind
+	// label after the cache lookup.
+	toolCalls := filterActivities(activities, "tool_call")
+	if len(toolCalls) < 2 {
+		t.Fatalf("tool_call count = %d, want ≥ 2 (initial + completion)", len(toolCalls))
+	}
+	if toolCalls[len(toolCalls)-1].Kind != "edit" {
+		t.Fatalf("completion tool_call kind = %q, want edit (cache-resolved)", toolCalls[len(toolCalls)-1].Kind)
+	}
+}
+
+// TestACPTurnRecordToolCallUpdateDefaultsTitleToToolCallId pins the
+// fix for an mergeAgentChatActivity-drop edge case. ACP's
+// SessionToolCallUpdate.Title is optional. mergeAgentChatActivity
+// silently discards an emission whose Title is empty when there is
+// no prior row with a matching Activity.ID to merge into — and a
+// ToolCallUpdate without a preceding ToolCall is rare but legal
+// (e.g., adapter resumed mid-stream). recordToolCallUpdate
+// defaults Title to the ToolCallId so the activity always carries
+// something renderable and survives the merge path.
+func TestACPTurnRecordToolCallUpdateDefaultsTitleToToolCallId(t *testing.T) {
+	t.Parallel()
+	turn := newACPTurn(64*1024, nil)
+	var activities []Activity
+	turn.setActivityCallback(func(a Activity) { activities = append(activities, a) })
+
+	completed := acp.ToolCallStatusCompleted
+	turn.recordUpdate(acp.SessionNotification{
+		SessionId: acp.SessionId("session_1"),
+		Update: acp.SessionUpdate{
+			ToolCallUpdate: &acp.SessionToolCallUpdate{
+				ToolCallId: acp.ToolCallId("call_orphan"),
+				Status:     &completed,
+				// Title omitted — adapter sent only a status update.
+			},
+		},
+	})
+
+	toolCalls := filterActivities(activities, "tool_call")
+	if len(toolCalls) != 1 {
+		t.Fatalf("tool_call count = %d, want 1 (the activity must survive merge with no preceding ToolCall)", len(toolCalls))
+	}
+	if toolCalls[0].Title != "call_orphan" {
+		t.Fatalf("tool_call Title = %q, want %q (defaulted to ToolCallId so mergeAgentChatActivity does not drop the row)", toolCalls[0].Title, "call_orphan")
+	}
+}
+
+func TestACPTurnSkipsFileChangeForInProgressMutatingToolCalls(t *testing.T) {
+	turn := newACPTurn(64*1024, nil)
+	var activities []Activity
+	turn.setActivityCallback(func(a Activity) { activities = append(activities, a) })
+
+	turn.recordUpdate(acp.SessionNotification{
+		SessionId: acp.SessionId("session_1"),
+		Update: acp.SessionUpdate{
+			ToolCall: &acp.SessionUpdateToolCall{
+				ToolCallId: acp.ToolCallId("call_1"),
+				Title:      "delete",
+				Status:     acp.ToolCallStatusInProgress,
+				Kind:       acp.ToolKindDelete,
+				Locations:  []acp.ToolCallLocation{{Path: "doomed.txt"}},
+			},
+		},
+	})
+
+	// Only the tool_call activity should fire — no file_change yet:
+	// emitting one before the delete actually completes would tell the
+	// operator a file is gone when the adapter is still mid-call (and
+	// the call could fail).
+	if len(activities) != 1 {
+		t.Fatalf("activity count = %d, want 1 (no file_change before completion); got types %v", len(activities), activityTypes(activities))
+	}
+	if activities[0].Type != "tool_call" {
+		t.Fatalf("only emission should be tool_call, got %q", activities[0].Type)
+	}
+}
+
+func filterActivities(items []Activity, want string) []Activity {
+	out := make([]Activity, 0, len(items))
+	for _, a := range items {
+		if a.Type == want {
+			out = append(out, a)
+		}
+	}
+	return out
+}
+
+func activityTypes(items []Activity) []string {
+	out := make([]string, 0, len(items))
+	for _, a := range items {
+		out = append(out, a.Type)
+	}
+	return out
+}
+
+func activityTitles(items []Activity) []string {
+	out := make([]string, 0, len(items))
+	for _, a := range items {
+		out = append(out, a.Title)
+	}
+	return out
 }
 
 func TestACPTurnReplacesProgressNarrationWhenAgentMessageIDChanges(t *testing.T) {
