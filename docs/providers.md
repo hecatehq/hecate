@@ -14,6 +14,7 @@ Hecate uses a vendor-neutral provider layer at the runtime boundary. It treats O
 - [Env-configured providers](#env-configured-providers)
 - [Settings API](#settings-api)
 - [Health and circuit breaking](#health-and-circuit-breaking)
+- [Anthropic prompt caching](#anthropic-prompt-caching)
 
 ## Providers vs. clients
 
@@ -139,11 +140,14 @@ applied to:
   requires the block shape)
 - the last entry in `tools`
 
-Caller-supplied `cache_control` is preserved — operators or
-upstream orchestrators that set their own cache boundaries
-keep them, and the auto-attached marker on the last entry of
-each section coexists alongside (Anthropic accepts up to four
-cache breakpoints).
+Caller intent wins on the tail: when the last block of `system`
+or the last entry in `tools` already carries a caller-supplied
+`cache_control`, Hecate skips the auto-marker for that section
+and leaves the caller's boundary in place. Earlier caller-supplied
+markers elsewhere in the same section are always preserved
+unchanged, so an operator who has placed their own breakpoints
+keeps them either way (Anthropic accepts up to four cache
+breakpoints per request).
 
 Hits show up in the response as non-zero `cache_read_input_tokens`,
 which Hecate plumbs through as `Usage.CachedPromptTokens` and
