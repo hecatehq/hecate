@@ -19,8 +19,9 @@ import (
 // (50 ms) context deadline via context.WithTimeout, which beats
 // this ceiling regardless of how high it's set.
 //
-// Production callers see the 5 s default in registry.go; only the
-// test binary lifts the cap. Without this, the parsing tests
+// Production keeps the 5 s default defined in version.go
+// (`var detectVersionTimeout`); registry.go is the primary
+// caller. Only the test binary lifts the cap. Without this, the parsing tests
 // occasionally flake on GitHub Actions runners under -race +
 // parallel-suite load — fork/exec of /bin/sh has multi-second
 // jitter under contention even though the script body is trivial

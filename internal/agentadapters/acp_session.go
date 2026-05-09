@@ -873,7 +873,9 @@ func (t *acpTurn) appendAgentThoughtChunk(update *acp.SessionUpdateAgentThoughtC
 	//
 	// Cases:
 	//   1. First chunk in the turn: adopt the real id when present;
-	//      otherwise mint a counter-suffixed fallback id.
+	//      otherwise open a fallback row keyed on the shared
+	//      `__fallback` id. See thoughtFallbackBlockID's docstring
+	//      for why all fallback episodes in a turn share that id.
 	//   2. Real id that differs from the active id: real-A → real-B
 	//      is an explicit ACP-level block boundary.
 	//   3. Empty id while a *real* id is active: real-A → ∅. Treat as
