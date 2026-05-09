@@ -93,6 +93,27 @@ describe("TranscriptActivityTimeline", () => {
     expect(screen.getByText(/completed/).closest("details")?.open).toBe(true);
   });
 
+  it("dedupes earlier terminal rows when a later terminal row exists", () => {
+    // The Hecate Chat run path emits two terminal-shaped rows on a
+    // successful completion: a synced `task_run` mirror that shows
+    // up as `run_result` with title "Run completed", and an
+    // explicit `Activity{Type: status, Title: finalAgentChatActivityTitle(status)}`
+    // appended by the agent-chat handler at turn end. Without
+    // dedupe the operator sees two side-by-side terminal rows for
+    // one run; the timeline should keep only the latest. Earlier
+    // rows that match `isTerminalRunSummary` (title "run X") were
+    // already dropped, but type-only collisions (e.g. type=completed
+    // title="Completed") survived prior to the dedupe rule.
+    const activities: AgentChatActivityRecord[] = [
+      { type: "tool_call", title: "read_file", status: "completed" },
+      { type: "run_result", title: "Run finished", status: "completed" },
+      { type: "completed", title: "Done", status: "completed" },
+    ];
+    render(<TranscriptActivityTimeline activities={activities} />);
+    expect(screen.queryByText("Run finished")).toBeNull();
+    expect(screen.getAllByText("Done")).toHaveLength(1);
+  });
+
   it("renders plan items with their plan-status indicators", () => {
     const activities: AgentChatActivityRecord[] = [
       { type: "plan", title: "Step 1", status: "completed" },
