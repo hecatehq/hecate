@@ -4,10 +4,15 @@
 > for a cross-session, operator-authored memory primitive that
 > persists relevant context across chats with Hecate Agent and
 > across `agent_loop` task runs.
-> **Depends on:** the existing three-layer system-prompt composition
-> (global → workspace `CLAUDE.md`/`AGENTS.md` → per-task) in
-> `internal/orchestrator/`. This RFC adds a fourth layer between
-> "global" and "workspace": operator-authored memory entries.
+> **Depends on:** two existing system-prompt mechanisms — the
+> three-layer composition for `agent_loop` task runs
+> (global → workspace `CLAUDE.md`/`AGENTS.md` → per-task) built in
+> `internal/api/system_prompt.go` via `buildSystemPromptResolver` and
+> consumed through the `orchestrator.SystemPromptResolver` interface,
+> and the session-level prompt path for model chats handled by
+> `applySessionSystemPrompt` in `internal/api/handler_chat.go`. The
+> two surfaces inject memory differently; see "Injection mechanics"
+> below.
 
 Operators currently re-establish the same context every chat: their
 role, the codebase paths they care about, conventions they want the
@@ -171,21 +176,13 @@ envelope.
 
 ## Injection mechanics
 
-Memory entries are prepended to the system prompt for the current
-chat or task run, between the existing global system prompt and the
-workspace `CLAUDE.md`/`AGENTS.md` layer:
+Hecate has two different system-prompt paths today; memory hooks
+into both, but the surrounding layers differ. Stable order in both
+cases: matching entries sorted by `(created_at, id)` ascending —
+deterministic, operator-controllable via timestamps if reordering
+matters.
 
-```
-[GATEWAY_TASK_AGENT_SYSTEM_PROMPT]
-[matching memory entries, in stable order]
-[workspace CLAUDE.md / AGENTS.md]
-[per-task / per-chat system prompt]
-```
-
-Stable order: by `(created_at, id)` ascending — deterministic,
-operator-controllable via timestamps if reordering matters.
-
-Format inside the prompt:
+Format inside the prompt is consistent across both paths:
 
 ```
 # Memory: <title>
@@ -196,25 +193,60 @@ Plain markdown headers separate entries. Most providers respect
 markdown structure in system prompts; the rare ones that don't
 still receive readable context.
 
+### `agent_loop` task runs (three-layer composition)
+
+`internal/api/system_prompt.go`'s `buildSystemPromptResolver`
+builds the resolver that `agent_loop` runs through the
+`orchestrator.SystemPromptResolver` interface. Memory entries
+become a new layer between global and workspace:
+
+```
+[GATEWAY_TASK_AGENT_SYSTEM_PROMPT]                  ← global
+[matching memory entries, in stable order]         ← new
+[workspace CLAUDE.md / AGENTS.md]                  ← workspace
+[per-task system prompt from Task.SystemPrompt]    ← per-task
+```
+
+Existing layers are unchanged; memory enters as a fourth
+narrowest-but-broader-than-workspace tier. Hecate Chat segments
+that run tools-on (Hecate Agent) flow through the task runtime
+and pick this path automatically.
+
+### Hecate Chat model-chat segments (session-level prompt)
+
+Tools-off model chat (and any other consumer of `/v1/chat/completions`
+the gateway proxies for an operator session) goes through
+`applySessionSystemPrompt` in `internal/api/handler_chat.go`. That
+function prepends the persisted `ChatSessionRecord.SystemPrompt`
+as a single `system` message at the head of the request's
+`Messages`. There is no workspace layer and no per-task layer here.
+
+Memory injection on this path: the matching entries are concatenated
+(same `# Memory: <title>` headers) and prepended *before* the
+session system prompt, as a single additional `system` message:
+
+```
+system: [matching memory entries, in stable order]   ← new
+system: [ChatSessionRecord.SystemPrompt]             ← existing
+user/assistant/...                                   ← conversation
+```
+
+Two `system` messages back-to-back is well-supported by every
+provider Hecate routes to today; the alternative (concatenating
+into one `system` message) is also fine but loses the visual
+boundary in trace inspectors.
+
 ### Anthropic prompt caching
 
-When the request goes to Anthropic, the memory block is wrapped in
-a `cache_control` marker. Memory changes infrequently and is
-identical across runs that share the same scope, so cache hits are
-high. Pairs with the Anthropic caching piece in the
-[context window management](#) discussion (separate RFC, to be
-written).
+For both paths, when the request goes to Anthropic the memory
+block is wrapped in a `cache_control` marker. Memory changes
+infrequently and is identical across runs that share the same
+scope, so cache hits are high. Pairs with the planned
+context-window-management RFC (TODO: link once that file lands;
+the cache-marker mechanics live in that companion RFC).
 
 When the request goes elsewhere, no markers — the block is just
 text.
-
-### `agent_loop` task runs
-
-The same injection happens at task-run start in
-`internal/orchestrator/executor_agent_loop.go` (specifically in
-the system-prompt composition that already merges global + workspace
-+ per-task). Memory enters as a new layer; existing layers are
-unchanged.
 
 ## UI surface
 
