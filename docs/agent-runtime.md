@@ -23,16 +23,26 @@ Hecate Chat session can carry an arbitrary history of segments — alternating
 tools-on and tools-off — in one continuous transcript. Within that transcript
 **at most one task-backed loop is active at a time.** Each tools-on segment
 maps to exactly one backing task; while that task's latest run is non-terminal
-(`queued`, `running`, `awaiting_approval`), the chat is "busy" — the
-composer's send button flips into `Stop active task`, a yellow banner links
-the backing task and offers `Open task` / `Stop`, and operator-typed
-messages queue locally rather than POSTing. The backend returns
-`409 agent_chat.agent_session_busy` if a client bypasses the UI. Once the
-active run reaches a terminal state, the next tools-on prompt either
-continues the same task with a new run or — if tools have been toggled off
-and on in the meantime — starts a fresh task-backed segment. Historical
-segments persist for transcript context but never resume execution; the only
-loop the runtime drives forward is the active one.
+(`queued`, `running`, `awaiting_approval`), the chat is "busy" and the
+composer's submit control reflects three states:
+
+- **idle** — the regular `Send message` button (`aria-label="Send message"`).
+- **busy with empty composer** — a red icon button labelled
+  `Stop current run` that cancels the active run.
+- **busy with a typed prompt** — a `Queue message` button that buffers
+  the text locally and replays it automatically once the active run
+  finishes.
+
+A yellow banner under the composer surfaces a queueing notice plus an
+`Open task` link to the backing task in the Tasks workspace and a `Stop`
+button (`aria-label="Stop active task"`) that also cancels the run. The
+backend returns `409 agent_chat.agent_session_busy` if a client bypasses
+the UI. Once the active run reaches a terminal state, the next tools-on
+prompt either continues the same task with a new run or — if tools have
+been toggled off and on in the meantime — starts a fresh task-backed
+segment. Historical segments persist for transcript context but never
+resume execution; the only loop the runtime drives forward is the active
+one.
 
 The Tasks workspace in the operator UI is the human entry point — create a task, watch its run state, approve or retry, and inspect streamed output:
 
