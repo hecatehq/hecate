@@ -36,9 +36,10 @@ will need to settle.
 In rough priority order:
 
 1. **Visibility.** Pre-flight token estimate per call surfaced as a
-   trace attribute and a runtime header; per-conversation running
-   total tracked and surfaced too. No more silent context-overflow
-   failures.
+   trace attribute (`hecate.context.tokens_in`); the projected
+   running total vs. the model limit surfaced as a runtime header
+   (`X-Runtime-Context-Used: projected/model_limit`). No more silent
+   context-overflow failures.
 2. **Soft warning.** Structured warning when the conversation
    approaches the model's context limit (default 80%). Doesn't
    block the call; gives operators advance notice.
@@ -95,11 +96,14 @@ Per-conversation token tracking with per-call telemetry emission:
        │   model_limit = lookupModelContextLimit(model)     │
        │                                                    │
        │   if projected > 0.95 * model_limit:               │
-       │       ┌──── if hard_cap enabled ────┐              │
-       │       │  refuse → 422 with details  │              │
-       │       └─────────────────────────────┘              │
        │       ┌──── if truncation enabled ──┐              │
-       │       │  apply policy, re-estimate  │              │
+       │       │  apply policy → re-estimate │              │
+       │       │  → projected = persisted +  │              │
+       │       │    new_estimate             │              │
+       │       └─────────────────────────────┘              │
+       │       ┌──── if still > 0.95 ────────┐              │
+       │       │  if hard_cap enabled:       │              │
+       │       │      refuse → 422           │              │
        │       └─────────────────────────────┘              │
        │   if projected > 0.80 * model_limit:               │
        │       emit structured warning to trace + header    │
@@ -140,7 +144,7 @@ tokenizer updates (cl100k_base for older OpenAI, o200k_base for the
 GPT-4o family).
 
 For non-OpenAI providers (Anthropic, Gemini, DeepSeek, xAI,
-local), we use the same tiktoken-go encoder with cl100k. ±5–10%
+local), we use the same tiktoken-go encoder with cl100k_base. ±5–10%
 error vs. each vendor's actual tokenizer. That's fine for an 80%
 threshold — the warning still fires within the right ballpark, and
 the hard cap still catches real overflows. The cost of being exact
