@@ -108,9 +108,9 @@ The gateway ships with thirteen provider presets. None of them are auto-added â€
 
 ## Env-configured providers
 
-Setting `PROVIDER_<NAME>_API_KEY`, `PROVIDER_<NAME>_BASE_URL`, or `PROVIDER_<NAME>_DEFAULT_MODEL` in the environment seeds the runtime registry so the provider becomes reachable for routing. Env vars do **not** auto-add the provider to the Providers tab â€” operators who want it visible (and editable) must add it explicitly via the modal. This keeps the UI list a faithful record of operator intent rather than a mirror of every env var that happened to be set on first boot.
+Setting `PROVIDER_<NAME>_API_KEY`, `PROVIDER_<NAME>_BASE_URL`, or `PROVIDER_<NAME>_DEFAULT_MODEL` in the environment seeds the runtime registry so the provider becomes reachable for routing, and is also auto-imported into the persisted Providers tab so operators can see and manage it through the UI. On subsequent boots the auto-import skips any provider that already exists in the Providers tab, so operator edits made via the UI are never overwritten by environment values.
 
-Env vars are convenient for first-run bootstrapping in `.env` / Docker compose; the modal is the source of truth for ongoing changes.
+Env vars are convenient for first-run bootstrapping in `.env` / Docker compose; the Providers tab is the source of truth thereafter.
 
 ```bash
 PROVIDER_ANTHROPIC_API_KEY=sk-ant-...
