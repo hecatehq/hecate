@@ -1024,3 +1024,311 @@ func TestAnthropicProviderResponseFormatDroppedNotPropagated(t *testing.T) {
 		t.Errorf("response_format leaked onto Anthropic wire: %v", captured["response_format"])
 	}
 }
+
+// newAnthropicCacheTestProvider builds an Anthropic provider with the
+// given cache toggle and a transport that captures the outbound JSON
+// body so tests can assert on the wire shape. Mirrors
+// newAnthropicTestProvider's setup but threads AnthropicCacheDisabled
+// through and stamps a fake-but-valid Messages-API response so
+// provider.Chat returns cleanly.
+func newAnthropicCacheTestProvider(t *testing.T, cacheDisabled bool, captured *map[string]any) *AnthropicProvider {
+	t.Helper()
+	p := NewAnthropicProvider(config.OpenAICompatibleProviderConfig{
+		Name:                   "anthropic",
+		Kind:                   "cloud",
+		Protocol:               "anthropic",
+		BaseURL:                "https://api.anthropic.test",
+		APIKey:                 "secret",
+		APIVersion:             "2023-06-01",
+		Timeout:                5 * time.Second,
+		DefaultModel:           "claude-opus-4-5",
+		AnthropicCacheDisabled: cacheDisabled,
+	}, nil)
+	p.cachedCaps = Capabilities{
+		Name:         "anthropic",
+		Kind:         KindCloud,
+		DefaultModel: "claude-opus-4-5",
+		Models:       []string{"claude-opus-4-5"},
+	}
+	p.capsExpiry = time.Now().Add(time.Minute)
+	p.httpClient = &http.Client{
+		Transport: testRoundTripperFunc(func(r *http.Request) (*http.Response, error) {
+			_ = json.NewDecoder(r.Body).Decode(captured)
+			body, _ := json.Marshal(map[string]any{
+				"id":          "msg_cache_test",
+				"model":       "claude-opus-4-5",
+				"role":        "assistant",
+				"stop_reason": "end_turn",
+				"content":     []map[string]any{{"type": "text", "text": "ok"}},
+				"usage":       map[string]any{"input_tokens": 10, "output_tokens": 1},
+			})
+			return &http.Response{
+				StatusCode: http.StatusOK,
+				Header:     http.Header{"Content-Type": []string{"application/json"}},
+				Body:       io.NopCloser(strings.NewReader(string(body))),
+			}, nil
+		}),
+	}
+	return p
+}
+
+// chatRequestWithSystemAndTools is the canonical fixture for the
+// cache-marker tests: one plain-string system prompt + a two-tool
+// catalog. Cache markers should land on the system tail and the
+// LAST tool only.
+func chatRequestWithSystemAndTools() types.ChatRequest {
+	return types.ChatRequest{
+		Model: "claude-opus-4-5",
+		Messages: []types.Message{
+			{Role: "system", Content: "You are a careful operator-grade gateway."},
+			{Role: "user", Content: "ping"},
+		},
+		Tools: []types.Tool{
+			{Type: "function", Function: types.ToolFunction{
+				Name:        "get_weather",
+				Description: "Look up weather",
+				Parameters:  json.RawMessage(`{"type":"object"}`),
+			}},
+			{Type: "function", Function: types.ToolFunction{
+				Name:        "search_web",
+				Description: "Search the web",
+				Parameters:  json.RawMessage(`{"type":"object"}`),
+			}},
+		},
+	}
+}
+
+func TestAnthropicProviderEmitsCacheMarkerOnSystemTail(t *testing.T) {
+	t.Parallel()
+
+	captured := map[string]any{}
+	provider := newAnthropicCacheTestProvider(t, false, &captured)
+
+	if _, err := provider.Chat(context.Background(), chatRequestWithSystemAndTools()); err != nil {
+		t.Fatalf("Chat: %v", err)
+	}
+
+	systemRaw, ok := captured["system"]
+	if !ok {
+		t.Fatal("upstream body missing system field")
+	}
+	// String-form system must be lifted to a block list so the cache
+	// marker can attach. Anything else (or a missing marker) means
+	// the helper didn't run.
+	blocks, ok := systemRaw.([]any)
+	if !ok {
+		t.Fatalf("system not block-list, got %T: %v", systemRaw, systemRaw)
+	}
+	if len(blocks) == 0 {
+		t.Fatal("system block list is empty")
+	}
+	tail, ok := blocks[len(blocks)-1].(map[string]any)
+	if !ok {
+		t.Fatalf("system tail not an object, got %T", blocks[len(blocks)-1])
+	}
+	cc, ok := tail["cache_control"].(map[string]any)
+	if !ok {
+		t.Fatalf("system tail missing cache_control: %v", tail)
+	}
+	if cc["type"] != "ephemeral" {
+		t.Fatalf("cache_control.type = %v, want ephemeral", cc["type"])
+	}
+}
+
+func TestAnthropicProviderEmitsCacheMarkerOnToolsTail(t *testing.T) {
+	t.Parallel()
+
+	captured := map[string]any{}
+	provider := newAnthropicCacheTestProvider(t, false, &captured)
+
+	if _, err := provider.Chat(context.Background(), chatRequestWithSystemAndTools()); err != nil {
+		t.Fatalf("Chat: %v", err)
+	}
+
+	tools, ok := captured["tools"].([]any)
+	if !ok {
+		t.Fatalf("tools not a list, got %T: %v", captured["tools"], captured["tools"])
+	}
+	if len(tools) != 2 {
+		t.Fatalf("tools len = %d, want 2", len(tools))
+	}
+	// First tool must NOT have a marker — only the LAST entry of the
+	// cacheable section is marked. Multiple markers fragment the
+	// cache and are wasteful (and Anthropic caps the count anyway).
+	first, _ := tools[0].(map[string]any)
+	if _, present := first["cache_control"]; present {
+		t.Errorf("first tool unexpectedly has cache_control: %v", first)
+	}
+	last, ok := tools[len(tools)-1].(map[string]any)
+	if !ok {
+		t.Fatalf("last tool not an object, got %T", tools[len(tools)-1])
+	}
+	cc, ok := last["cache_control"].(map[string]any)
+	if !ok {
+		t.Fatalf("last tool missing cache_control: %v", last)
+	}
+	if cc["type"] != "ephemeral" {
+		t.Fatalf("cache_control.type = %v, want ephemeral", cc["type"])
+	}
+}
+
+func TestAnthropicProviderOmitsCacheMarkersWhenDisabled(t *testing.T) {
+	t.Parallel()
+
+	captured := map[string]any{}
+	provider := newAnthropicCacheTestProvider(t, true, &captured)
+
+	if _, err := provider.Chat(context.Background(), chatRequestWithSystemAndTools()); err != nil {
+		t.Fatalf("Chat: %v", err)
+	}
+
+	// system stays as a plain JSON string when caching is off — no
+	// block-list lift, no cache_control anywhere on the wire.
+	if s, ok := captured["system"].(string); !ok {
+		t.Fatalf("system should be a string when cache disabled, got %T: %v", captured["system"], captured["system"])
+	} else if s == "" {
+		t.Fatal("system string is empty")
+	}
+	tools, _ := captured["tools"].([]any)
+	for i, raw := range tools {
+		obj, _ := raw.(map[string]any)
+		if _, present := obj["cache_control"]; present {
+			t.Errorf("tool[%d] has cache_control with caching disabled: %v", i, obj)
+		}
+	}
+}
+
+func TestAnthropicProviderRespectsCallerSuppliedToolCacheControl(t *testing.T) {
+	t.Parallel()
+
+	// Caller already attached cache_control to the FIRST tool — an
+	// orchestrator's deliberate cache boundary. The auto-marker
+	// should still attach to the last tool (Anthropic caches up to
+	// 4 boundaries; both can coexist), but it must not overwrite
+	// the caller's marker.
+	captured := map[string]any{}
+	provider := newAnthropicCacheTestProvider(t, false, &captured)
+
+	req := chatRequestWithSystemAndTools()
+	caller := json.RawMessage(`{"type":"ephemeral","tag":"caller"}`)
+	req.Tools[0].CacheControl = caller
+
+	if _, err := provider.Chat(context.Background(), req); err != nil {
+		t.Fatalf("Chat: %v", err)
+	}
+
+	tools, _ := captured["tools"].([]any)
+	if len(tools) != 2 {
+		t.Fatalf("tools len = %d, want 2", len(tools))
+	}
+	first, _ := tools[0].(map[string]any)
+	cc, ok := first["cache_control"].(map[string]any)
+	if !ok {
+		t.Fatalf("caller marker dropped from first tool: %v", first)
+	}
+	if cc["tag"] != "caller" {
+		t.Fatalf("first tool marker overwritten: %v", cc)
+	}
+}
+
+func TestAnthropicProviderStreamEmitsCacheMarkers(t *testing.T) {
+	t.Parallel()
+
+	// Streaming path is a separate wireReq construction (see the
+	// seven-step chain — common bug #1: forget to plumb a field
+	// into both Chat and ChatStream). Pin that the cache helpers
+	// run on the stream side too.
+	var captured map[string]any
+	provider := NewAnthropicProvider(config.OpenAICompatibleProviderConfig{
+		Name:         "anthropic",
+		Kind:         "cloud",
+		Protocol:     "anthropic",
+		BaseURL:      "https://api.anthropic.test",
+		APIKey:       "secret",
+		APIVersion:   "2023-06-01",
+		Timeout:      5 * time.Second,
+		DefaultModel: "claude-opus-4-5",
+		// AnthropicCacheDisabled left zero-valued -> caching enabled.
+	}, nil)
+	provider.cachedCaps = Capabilities{
+		Name:         "anthropic",
+		Kind:         KindCloud,
+		DefaultModel: "claude-opus-4-5",
+		Models:       []string{"claude-opus-4-5"},
+	}
+	provider.capsExpiry = time.Now().Add(time.Minute)
+	provider.httpClient = &http.Client{
+		Transport: testRoundTripperFunc(func(r *http.Request) (*http.Response, error) {
+			_ = json.NewDecoder(r.Body).Decode(&captured)
+			// Minimal valid SSE: message_start + message_stop. The
+			// translator handles the empty stream and returns nil.
+			sse := "event: message_start\n" +
+				`data: {"type":"message_start","message":{"id":"m","model":"claude-opus-4-5","role":"assistant","content":[],"stop_reason":null,"usage":{"input_tokens":1,"output_tokens":0}}}` + "\n\n" +
+				"event: message_stop\n" +
+				`data: {"type":"message_stop"}` + "\n\n"
+			return &http.Response{
+				StatusCode: http.StatusOK,
+				Header:     http.Header{"Content-Type": []string{"text/event-stream"}},
+				Body:       io.NopCloser(strings.NewReader(sse)),
+			}, nil
+		}),
+	}
+
+	if err := provider.ChatStream(context.Background(), chatRequestWithSystemAndTools(), io.Discard); err != nil {
+		t.Fatalf("ChatStream: %v", err)
+	}
+
+	sysBlocks, ok := captured["system"].([]any)
+	if !ok || len(sysBlocks) == 0 {
+		t.Fatalf("stream system not block-list with marker: %T %v", captured["system"], captured["system"])
+	}
+	sysTail, _ := sysBlocks[len(sysBlocks)-1].(map[string]any)
+	if _, present := sysTail["cache_control"]; !present {
+		t.Errorf("stream system tail missing cache_control: %v", sysTail)
+	}
+	tools, _ := captured["tools"].([]any)
+	if len(tools) == 0 {
+		t.Fatal("stream tools missing")
+	}
+	toolsTail, _ := tools[len(tools)-1].(map[string]any)
+	if _, present := toolsTail["cache_control"]; !present {
+		t.Errorf("stream tools tail missing cache_control: %v", toolsTail)
+	}
+}
+
+// TestApplyAnthropicSystemCacheMarkerPreservesCallerMarker pins the
+// "caller intent wins" rule for the system helper directly — easier
+// to debug than going through the full Chat path.
+func TestApplyAnthropicSystemCacheMarkerPreservesCallerMarker(t *testing.T) {
+	t.Parallel()
+
+	in := json.RawMessage(`[{"type":"text","text":"sys","cache_control":{"type":"ephemeral","tag":"caller"}}]`)
+	out := applyAnthropicSystemCacheMarker(in)
+
+	var blocks []map[string]json.RawMessage
+	if err := json.Unmarshal(out, &blocks); err != nil {
+		t.Fatalf("unmarshal: %v", err)
+	}
+	if len(blocks) != 1 {
+		t.Fatalf("blocks len = %d, want 1", len(blocks))
+	}
+	cc := string(blocks[0]["cache_control"])
+	if !strings.Contains(cc, `"tag":"caller"`) {
+		t.Fatalf("caller marker overwritten, got: %s", cc)
+	}
+}
+
+// TestApplyAnthropicSystemCacheMarkerHandlesEmpty pins the empty-
+// input fast-path: no system content means nothing to mark, return
+// the input unchanged. Otherwise we'd emit a cache_control on a
+// non-existent block, which Anthropic would 400.
+func TestApplyAnthropicSystemCacheMarkerHandlesEmpty(t *testing.T) {
+	t.Parallel()
+
+	if got := applyAnthropicSystemCacheMarker(nil); got != nil {
+		t.Errorf("nil input: got %s, want nil", got)
+	}
+	if got := applyAnthropicSystemCacheMarker(json.RawMessage(`""`)); string(got) != `""` {
+		t.Errorf("empty-string input: got %s, want \"\"", got)
+	}
+}
