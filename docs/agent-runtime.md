@@ -18,6 +18,21 @@ streams assistant text into the conversation artifact during the model turn so
 Chats can show the answer before the task run reaches a terminal state.
 Providers without streaming fall back to the normal non-streaming chat call.
 
+**Invariant: one chat, many segments, one active task-backed loop.** A single
+Hecate Chat session can carry an arbitrary history of segments — alternating
+tools-on and tools-off — in one continuous transcript. Within that transcript
+**at most one task-backed loop is active at a time.** Each tools-on segment
+maps to exactly one backing task; while that task's latest run is non-terminal
+(`pending`, `running`, `awaiting_approval`), the chat is "busy" and the
+composer rejects further prompts (the composer itself blocks send and surfaces
+"Hecate Chat is still working on this task" with `Open task` / `Stop`; the
+backend returns `409 agent_chat.agent_session_busy` if a client bypasses the
+UI). Once the active run reaches a terminal state, the next tools-on prompt
+either continues the same task with a new run or — if tools have been toggled
+off and on in the meantime — starts a fresh task-backed segment. Historical
+segments persist for transcript context but never resume execution; the only
+loop the runtime drives forward is the active one.
+
 The Tasks workspace in the operator UI is the human entry point — create a task, watch its run state, approve or retry, and inspect streamed output:
 
 ![Tasks workspace — task list with run state and approval queue](screenshots/tasks.png)
