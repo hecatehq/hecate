@@ -242,6 +242,11 @@ function ActivityLine({ activity, prefix }: { activity: AgentChatActivityRecord;
 function compactAgentActivities(activities: AgentChatActivityRecord[]): AgentChatActivityRecord[] {
   const hiddenTypes = new Set(["artifact", "changed_files", "final_answer", "output"]);
   const terminal = terminalAgentActivity(activities);
+  // Index of the terminal row we want to keep — the latest one
+  // terminalAgentActivity selects. We use lastIndexOf instead of
+  // findIndex because the helper walks back-to-front; identifying
+  // it by index lets us drop earlier terminal rows by index.
+  const terminalIndex = terminal ? activities.lastIndexOf(terminal) : -1;
   const lastTaskRunIndex = lastIndexOfTaskRunActivity(activities);
   const lastApprovalIndexByID = lastIndexByApprovalID(activities);
   const out: AgentChatActivityRecord[] = [];
@@ -249,6 +254,13 @@ function compactAgentActivities(activities: AgentChatActivityRecord[]): AgentCha
     if (hiddenTypes.has(activity.type)) continue;
     if (activity.type === "completed" && activity.title.toLowerCase() === "final answer") continue;
     if (isTerminalRunSummary(activity)) continue;
+    // Drop earlier terminal-typed rows so the timeline never shows
+    // two side-by-side endings (e.g. type="completed" title="Final
+    // answer" emitted by handler_agent_chat alongside a synced
+    // task_run row with type="run_result"). terminalAgentActivity
+    // already picks the latest; everything else with a terminal
+    // shape is redundant for the operator.
+    if (terminalIndex !== -1 && index !== terminalIndex && isTerminalActivity(activity)) continue;
     if (terminal && (activity.type === "started" || activity.type === "running")) continue;
     if (activity.type === "running" && activities.some(item => item.type === "output")) continue;
     if (isTaskRunActivity(activity) && index !== lastTaskRunIndex) continue;
@@ -256,6 +268,10 @@ function compactAgentActivities(activities: AgentChatActivityRecord[]): AgentCha
     out.push(activity);
   }
   return collapseModelTurnActivities(out);
+}
+
+function isTerminalActivity(activity: AgentChatActivityRecord): boolean {
+  return activity.terminal === true || terminalRunSummaryTypes.has(activity.type);
 }
 
 function compactDetailActivities(activities: AgentChatActivityRecord[], hasDiffStat: boolean): AgentChatActivityRecord[] {
