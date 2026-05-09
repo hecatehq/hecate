@@ -241,12 +241,7 @@ function ActivityLine({ activity, prefix }: { activity: AgentChatActivityRecord;
 
 function compactAgentActivities(activities: AgentChatActivityRecord[]): AgentChatActivityRecord[] {
   const hiddenTypes = new Set(["artifact", "changed_files", "final_answer", "output"]);
-  const terminal = terminalAgentActivity(activities);
-  // Index of the terminal row we want to keep — the latest one
-  // terminalAgentActivity selects. We use lastIndexOf instead of
-  // findIndex because the helper walks back-to-front; identifying
-  // it by index lets us drop earlier terminal rows by index.
-  const terminalIndex = terminal ? activities.lastIndexOf(terminal) : -1;
+  const terminalIndex = pickTerminalActivityIndex(activities);
   const lastTaskRunIndex = lastIndexOfTaskRunActivity(activities);
   const lastApprovalIndexByID = lastIndexByApprovalID(activities);
   const out: AgentChatActivityRecord[] = [];
@@ -254,14 +249,13 @@ function compactAgentActivities(activities: AgentChatActivityRecord[]): AgentCha
     if (hiddenTypes.has(activity.type)) continue;
     if (activity.type === "completed" && activity.title.toLowerCase() === "final answer") continue;
     if (isTerminalRunSummary(activity)) continue;
-    // Drop earlier terminal-typed rows so the timeline never shows
-    // two side-by-side endings (e.g. type="completed" title="Final
-    // answer" emitted by handler_agent_chat alongside a synced
-    // task_run row with type="run_result"). terminalAgentActivity
-    // already picks the latest; everything else with a terminal
-    // shape is redundant for the operator.
+    // Drop terminal-shaped rows that aren't the chosen one. The
+    // chooser prefers a diagnostic `terminal: true` row over a
+    // generic agent-chat-handler row (see pickTerminalActivityIndex)
+    // so an informative "LLM call failed on turn 3" beats a
+    // bare-bones "Failed". When no row is chosen we keep them all.
     if (terminalIndex !== -1 && index !== terminalIndex && isTerminalActivity(activity)) continue;
-    if (terminal && (activity.type === "started" || activity.type === "running")) continue;
+    if (terminalIndex !== -1 && (activity.type === "started" || activity.type === "running")) continue;
     if (activity.type === "running" && activities.some(item => item.type === "output")) continue;
     if (isTaskRunActivity(activity) && index !== lastTaskRunIndex) continue;
     if (activity.type === "approval" && activity.approval_id && lastApprovalIndexByID.get(activity.approval_id) !== index) continue;
@@ -270,8 +264,43 @@ function compactAgentActivities(activities: AgentChatActivityRecord[]): AgentCha
   return collapseModelTurnActivities(out);
 }
 
+// isTerminalActivity is the canonical predicate for "this activity
+// represents a terminal status." Used both by the dedupe filter and
+// by pickTerminalActivityIndex so the two cannot disagree on what
+// counts as terminal — an earlier mismatch let `terminalAgentActivity`
+// (which only looked at completed/failed/cancelled+terminal) pick
+// the wrong row when a `run_result`-typed terminal arrived later.
 function isTerminalActivity(activity: AgentChatActivityRecord): boolean {
   return activity.terminal === true || terminalRunSummaryTypes.has(activity.type);
+}
+
+// pickTerminalActivityIndex selects the row that should win on the
+// timeline when several terminal-shaped rows exist for one run.
+// Preference order:
+//
+//   1. The latest row with `terminal: true`. These are explicit
+//      diagnostic rows from the runtime (the synced `task_run`
+//      mirror, kind=run_result with detail like "LLM call failed
+//      on turn 3"). They carry the most useful operator
+//      information; if one exists, it should win.
+//   2. Otherwise, the latest row whose type alone makes it
+//      terminal-shaped (completed/failed/cancelled/run_result
+//      without an explicit `terminal: true` flag). These are the
+//      generic agent-chat-handler rows with titles like "Final
+//      answer" / "Failed" / "Cancelled" — fine when nothing more
+//      informative is available.
+//   3. -1 when no terminal-shaped row exists; the dedupe filter
+//      becomes a no-op and the timeline stays as-is.
+function pickTerminalActivityIndex(activities: AgentChatActivityRecord[]): number {
+  let lastByFlag = -1;
+  let lastByShape = -1;
+  for (let index = 0; index < activities.length; index += 1) {
+    const activity = activities[index];
+    if (activity.terminal === true) lastByFlag = index;
+    if (isTerminalActivity(activity)) lastByShape = index;
+  }
+  if (lastByFlag !== -1) return lastByFlag;
+  return lastByShape;
 }
 
 function compactDetailActivities(activities: AgentChatActivityRecord[], hasDiffStat: boolean): AgentChatActivityRecord[] {
@@ -521,9 +550,18 @@ function approvalActivityTitle(activity: AgentChatActivityRecord): string {
   }
 }
 
+// terminalAgentActivity returns the row that should represent the
+// run's terminal status — the same row pickTerminalActivityIndex
+// selects for the dedupe filter, so the TIMELINE summary (uses
+// this) and the dedupe (uses pickTerminalActivityIndex) cannot
+// disagree about which terminal row to surface. Previously the
+// helper had a narrower set ({completed, failed, cancelled}) and
+// could miss a `run_result`-typed terminal that pickTerminalActivityIndex
+// would correctly pick — leading to the dedupe dropping the row
+// the timeline summary needed.
 function terminalAgentActivity(activities: AgentChatActivityRecord[]): AgentChatActivityRecord | undefined {
-  const terminalTypes = new Set(["completed", "failed", "cancelled"]);
-  return [...activities].reverse().find(activity => activity.terminal || terminalTypes.has(activity.type));
+  const index = pickTerminalActivityIndex(activities);
+  return index === -1 ? undefined : activities[index];
 }
 
 function terminalStatusLabel(status?: string): string {
