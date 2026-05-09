@@ -481,6 +481,16 @@ describe("ProvidersView table renders", () => {
     expect(screen.getByText(/Add a custom name/)).toBeTruthy();
     expect(screen.getAllByText("Add provider").pop()).toBeDisabled();
 
+    // The form's mount-time effect schedules `requestAnimationFrame(
+    // () => target?.focus())` to move focus to the URL input
+    // (AddProviderModal.tsx:58-69). Under full-suite parallel load
+    // that rAF can fire mid-`user.type` and redirect some keystrokes
+    // away from the custom-name field, leaving form.custom_name
+    // shorter than "Dev" — the duplicate check still matches and the
+    // warning persists. Awaiting one rAF tick proves the effect has
+    // already run, so the upcoming typing reaches the right input.
+    await new Promise<void>((resolve) => requestAnimationFrame(() => resolve()));
+
     await user.type(screen.getByPlaceholderText(/Prod, Dev, Staging/i), "Dev");
 
     expect(screen.queryByText(/llama\.cpp is already configured/)).toBeNull();
