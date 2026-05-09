@@ -14,10 +14,19 @@ var semverRe = regexp.MustCompile(`\d+\.\d+\.\d+(?:[-+][0-9A-Za-z._-]+)*`)
 
 // DetectVersion runs the adapter binary at path with --version and returns
 // the first semver-shaped token found in stdout. Returns an empty string if
-// the binary is not reachable, does not respond in ~2 s, or prints no
+// the binary is not reachable, does not respond in ~5 s, or prints no
 // recognisable version string.
+//
+// The 5 s ceiling is generous on purpose. Probe runs are pre-flight: an
+// operator clicked "Test adapter" or opened the Settings tab; latency is
+// surfaced in the UI as "checking…" while the request is in flight, so a
+// few seconds of overhead is acceptable. The earlier 2 s cap flaked on
+// CI under -race + parallel-suite load — race-mode adds 2-20× CPU
+// overhead, and spawning a /bin/sh subprocess could occasionally exceed
+// 2 s, returning empty and failing the assertion. Genuinely hung
+// binaries still surface within the cap; healthy ones answer well below.
 func DetectVersion(ctx context.Context, path string) string {
-	ctx, cancel := context.WithTimeout(ctx, 2*time.Second)
+	ctx, cancel := context.WithTimeout(ctx, 5*time.Second)
 	defer cancel()
 
 	cmd := exec.CommandContext(ctx, path, "--version")

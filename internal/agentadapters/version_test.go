@@ -109,13 +109,13 @@ func TestDetectVersionTimeoutReturnsEmpty(t *testing.T) {
 	}
 	dir := t.TempDir()
 	path := filepath.Join(dir, "slow-adapter")
-	// Script that sleeps longer than DetectVersion's 2s timeout.
+	// Script that sleeps longer than DetectVersion's internal timeout.
 	content := "#!/bin/sh\nsleep 10\necho 1.0.0\n"
 	if err := os.WriteFile(path, []byte(content), 0o755); err != nil {
 		t.Fatalf("write slow script: %v", err)
 	}
 	ctx, cancel := context.WithCancel(context.Background())
-	cancel() // pre-cancel so the 2 s internal timeout fires immediately
+	cancel() // pre-cancel so the test doesn't actually wait for the cap
 	got := DetectVersion(ctx, path)
 	if got != "" {
 		t.Fatalf("DetectVersion = %q, want empty for timed-out binary", got)
