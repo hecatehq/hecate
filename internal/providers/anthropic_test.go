@@ -1229,6 +1229,23 @@ func TestAnthropicProviderRespectsCallerSuppliedToolCacheControl(t *testing.T) {
 	if cc["tag"] != "caller" {
 		t.Fatalf("first tool marker overwritten: %v", cc)
 	}
+
+	// The auto-marker must still attach to the last tool — that's the
+	// "both can coexist" half of the contract this test exists to pin.
+	// Without this assertion the caller-marker-preservation passes
+	// even if the auto-marker were silently dropped, hiding a real
+	// regression.
+	last, _ := tools[len(tools)-1].(map[string]any)
+	autoCC, ok := last["cache_control"].(map[string]any)
+	if !ok {
+		t.Fatalf("auto-marker missing from last tool: %v", last)
+	}
+	if autoCC["type"] != "ephemeral" {
+		t.Fatalf("last tool marker = %v, want type=ephemeral", autoCC)
+	}
+	if _, hasTag := autoCC["tag"]; hasTag {
+		t.Fatalf("last tool marker carries caller-only tag: %v", autoCC)
+	}
 }
 
 func TestAnthropicProviderStreamEmitsCacheMarkers(t *testing.T) {

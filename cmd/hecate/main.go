@@ -156,6 +156,7 @@ func main() {
 	}
 
 	providerRuntime := providers.NewControlPlaneRuntimeManager(logger, cfg.Providers.OpenAICompatible, controlPlaneStore, secretCipher)
+	providerRuntime.SetGlobalAnthropicCacheDisabled(cfg.Providers.AnthropicCacheDisabled)
 	if err := providerRuntime.Reload(context.Background()); err != nil {
 		logger.Error("provider runtime reload failed", slog.Any("error", err))
 		os.Exit(1)
