@@ -131,9 +131,13 @@ normalized assistant text, model, and token usage are.
 
 Hecate automatically attaches `cache_control: {"type":"ephemeral"}`
 markers to outbound Anthropic Messages API requests so the static
-prefix (system prompt + tools catalog) is reused across turns and
-billed at Anthropic's discounted cache-read rate. Markers are
-applied to:
+prefix (system prompt + tools catalog) is reused across turns. The
+billing impact is asymmetric: the first turn writes the cache and
+Anthropic returns those tokens as `cache_creation_input_tokens`
+(charged at ~1.25× the base input rate); subsequent turns reuse
+the prefix and Anthropic returns them as `cache_read_input_tokens`
+(charged at ~0.1× the base rate). The win lands on turn 2 onwards.
+Markers are applied to:
 
 - the last block of the `system` field (lifted to a block list
   when the caller sends a string system prompt — `cache_control`
@@ -146,12 +150,25 @@ or the last entry in `tools` already carries a caller-supplied
 and leaves the caller's boundary in place. Earlier caller-supplied
 markers elsewhere in the same section are always preserved
 unchanged, so an operator who has placed their own breakpoints
-keeps them either way (Anthropic accepts up to four cache
-breakpoints per request).
+keeps them either way.
 
-Hits show up in the response as non-zero `cache_read_input_tokens`,
-which Hecate plumbs through as `Usage.CachedPromptTokens` and
-prices via the cache-read rate when the pricebook has one.
+Anthropic accepts up to four `cache_control` breakpoints per
+request, and Hecate does not currently count or enforce that
+limit — its auto-attach can contribute up to two markers (one
+on the `system` tail, one on the `tools` tail) on top of whatever
+the caller already set. Callers placing three or more of their
+own markers should either leave room for the auto-markers or
+place a `cache_control` on the `system` and `tools` tails to
+suppress Hecate's auto-attach for those sections.
+
+Reads show up in the response as non-zero
+`cache_read_input_tokens`, which Hecate plumbs through as
+`Usage.CachedPromptTokens` and prices via the cache-read rate
+when the pricebook has one. Cache writes
+(`cache_creation_input_tokens`) currently fold into
+`Usage.PromptTokens` at the fresh-input rate; the pricebook
+doesn't yet have a separate cache-write rate, so first-turn cost
+is undercounted by ~20% per cache-write token until that lands.
 
 The behavior is controlled by `GATEWAY_PROVIDER_ANTHROPIC_CACHE_ENABLED`
 (default `true`). The toggle is global — every Anthropic-protocol
