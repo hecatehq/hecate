@@ -13,11 +13,12 @@ import (
 )
 
 type ControlPlaneRuntimeManager struct {
-	logger      *slog.Logger
-	baseConfigs []config.OpenAICompatibleProviderConfig
-	store       controlplane.Store
-	cipher      secrets.Cipher
-	registry    *MutableRegistry
+	logger                 *slog.Logger
+	baseConfigs            []config.OpenAICompatibleProviderConfig
+	store                  controlplane.Store
+	cipher                 secrets.Cipher
+	registry               *MutableRegistry
+	anthropicCacheDisabled bool
 }
 
 func NewControlPlaneRuntimeManager(logger *slog.Logger, baseConfigs []config.OpenAICompatibleProviderConfig, store controlplane.Store, cipher secrets.Cipher) *ControlPlaneRuntimeManager {
@@ -29,6 +30,18 @@ func NewControlPlaneRuntimeManager(logger *slog.Logger, baseConfigs []config.Ope
 		cipher:      cipher,
 		registry:    NewMutableRegistry(items...),
 	}
+}
+
+// SetGlobalAnthropicCacheDisabled records the gateway-wide
+// GATEWAY_PROVIDER_ANTHROPIC_CACHE_ENABLED toggle (inverted). Once set,
+// every Anthropic-protocol provider that enters the registry through
+// Reload — whether it came from env, the control-plane UI, or any
+// future on-demand registration path — has its cache flag stamped to
+// match. Call once at gateway boot, after construction, before the
+// first Reload. Tests that don't care about the toggle can leave the
+// default (false → caching enabled) untouched.
+func (m *ControlPlaneRuntimeManager) SetGlobalAnthropicCacheDisabled(disabled bool) {
+	m.anthropicCacheDisabled = disabled
 }
 
 func (m *ControlPlaneRuntimeManager) Registry() Registry {
@@ -207,13 +220,17 @@ func (m *ControlPlaneRuntimeManager) resolvedConfigs(ctx context.Context) ([]con
 			Timeout:      30 * time.Second,
 			Enabled:      true,
 		}
-		// CP-stored records don't carry the global Anthropic cache
-		// toggle (set from GATEWAY_PROVIDER_ANTHROPIC_CACHE_ENABLED at
-		// env-load time and stamped onto every base-config entry).
-		// Inherit it from the matching base config when one exists so
-		// operator-set opt-outs survive a control-plane reload.
-		if base, ok := byName[cfg.Name]; ok {
-			cfg.AnthropicCacheDisabled = base.AnthropicCacheDisabled
+		// Apply the gateway-wide Anthropic cache toggle to any
+		// Anthropic-protocol provider, regardless of whether it has
+		// a matching env-derived base config. The flag is global by
+		// design (the AnthropicProvider's caching behavior is the
+		// same conceptual knob whether the operator added the
+		// provider via env or via the Providers tab); inheriting it
+		// only via name-match left CP-only Anthropic providers stuck
+		// at the default. SetGlobalAnthropicCacheDisabled is the
+		// single source of truth.
+		if strings.EqualFold(cfg.Protocol, "anthropic") {
+			cfg.AnthropicCacheDisabled = m.anthropicCacheDisabled
 		}
 		if builtIn, ok := builtInForControlPlaneProvider(item); ok {
 			cfg.KnownModels = append([]string(nil), builtIn.Models...)

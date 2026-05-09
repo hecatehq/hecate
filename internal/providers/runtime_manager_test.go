@@ -228,6 +228,75 @@ func TestControlPlaneRuntimeManagerNormalizesPresetNameCasing(t *testing.T) {
 	}
 }
 
+// TestControlPlaneRuntimeManagerAppliesAnthropicCacheToggleByProtocol pins
+// that the global GATEWAY_PROVIDER_ANTHROPIC_CACHE_ENABLED toggle reaches
+// every Anthropic-protocol provider regardless of how it ended up in the
+// registry. The earlier name-match-only fallback left CP-only Anthropic
+// providers stuck at the default; this test guards against a regression.
+func TestControlPlaneRuntimeManagerAppliesAnthropicCacheToggleByProtocol(t *testing.T) {
+	t.Parallel()
+
+	logger := slog.New(slog.NewTextHandler(testWriter{t}, nil))
+	store := controlplane.NewMemoryStore()
+	key := base64.StdEncoding.EncodeToString([]byte("0123456789abcdef0123456789abcdef"))
+	cipher, err := secrets.NewAESGCMCipher(key)
+	if err != nil {
+		t.Fatalf("NewAESGCMCipher() error = %v", err)
+	}
+
+	manager := NewControlPlaneRuntimeManager(logger, nil, store, cipher)
+	manager.SetGlobalAnthropicCacheDisabled(true)
+
+	// CP-only Anthropic provider, no env-derived base config — exactly
+	// the case the prior name-match fallback missed. PresetID="anthropic"
+	// causes hydrateControlPlaneProviderDefaults to clobber Name to
+	// "anthropic" (the canonical preset id), so the registry key is
+	// "anthropic".
+	if _, err := manager.Upsert(context.Background(), controlplane.Provider{
+		ID:       "anthropic",
+		Name:     "Anthropic",
+		PresetID: "anthropic",
+		Enabled:  true,
+	}, "anthropic-secret"); err != nil {
+		t.Fatalf("Upsert(anthropic) error = %v", err)
+	}
+	// CP-only OpenAI provider on the same manager — must NOT inherit the
+	// Anthropic-specific flag.
+	if _, err := manager.Upsert(context.Background(), controlplane.Provider{
+		ID:       "openai",
+		Name:     "OpenAI",
+		PresetID: "openai",
+		Enabled:  true,
+	}, "openai-secret"); err != nil {
+		t.Fatalf("Upsert(openai) error = %v", err)
+	}
+
+	registry := manager.Registry()
+	anth, ok := registry.Get("anthropic")
+	if !ok {
+		t.Fatal("expected Anthropic provider in registry")
+	}
+	anthropicProvider, ok := anth.(*AnthropicProvider)
+	if !ok {
+		t.Fatalf("provider type = %T, want *AnthropicProvider", anth)
+	}
+	if !anthropicProvider.config.AnthropicCacheDisabled {
+		t.Fatal("CP-only Anthropic provider missed the global cache toggle")
+	}
+
+	op, ok := registry.Get("openai")
+	if !ok {
+		t.Fatal("expected OpenAI provider in registry")
+	}
+	openaiProvider, ok := op.(*OpenAICompatibleProvider)
+	if !ok {
+		t.Fatalf("provider type = %T, want *OpenAICompatibleProvider", op)
+	}
+	if openaiProvider.config.AnthropicCacheDisabled {
+		t.Fatal("non-Anthropic provider should NOT inherit AnthropicCacheDisabled")
+	}
+}
+
 type testWriter struct {
 	t *testing.T
 }

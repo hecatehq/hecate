@@ -289,6 +289,16 @@ type SQLiteConfig struct {
 
 type ProvidersConfig struct {
 	OpenAICompatible []OpenAICompatibleProviderConfig
+	// AnthropicCacheDisabled is the gateway-wide value of
+	// GATEWAY_PROVIDER_ANTHROPIC_CACHE_ENABLED (inverted). It applies
+	// to every Anthropic-protocol provider regardless of how the
+	// provider was added (env, control-plane UI, programmatic) — the
+	// runtime manager stamps it onto resolved provider configs at
+	// reload time. The per-config field on
+	// OpenAICompatibleProviderConfig still exists as a propagation
+	// slot the AnthropicProvider reads, but its source of truth is
+	// this global value, not the per-config record.
+	AnthropicCacheDisabled bool
 }
 
 type PricebookConfig struct {
@@ -971,7 +981,10 @@ func loadProvidersFromEnv() ProvidersConfig {
 		items = append(items, cfg)
 	}
 	normalizeProviders(items)
-	return ProvidersConfig{OpenAICompatible: items}
+	return ProvidersConfig{
+		OpenAICompatible:       items,
+		AnthropicCacheDisabled: cacheDisabled,
+	}
 }
 
 func deriveProviderNamesFromEnv() []string {
