@@ -13,7 +13,7 @@ import (
 var semverRe = regexp.MustCompile(`\d+\.\d+\.\d+(?:[-+][0-9A-Za-z._-]+)*`)
 
 // DetectVersion runs the adapter binary at path with --version and returns
-// the first semver-shaped token found in stdout. Returns an empty string if
+// the first semver-shaped token found in combined stdout/stderr output. Returns an empty string if
 // the binary is not reachable, does not respond in ~5 s, or prints no
 // recognisable version string.
 //
