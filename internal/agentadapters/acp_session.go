@@ -22,6 +22,47 @@ import (
 
 const DriverKindACP = "acp"
 
+// thoughtFallbackBlockID is the per-turn sentinel id used when
+// ACP omits messageId on an `agent_thought_chunk`. Fallback
+// activity rows come out as `thinking:__fallback`. The leading
+// double-underscore guarantees we never collide with a
+// spec-conformant ACP messageId — ACP requires messageIds to be
+// UUIDs (per the SDK comment on
+// SessionUpdateAgentThoughtChunk.MessageId), and UUIDs are
+// hex+dashes only, so an underscore-led prefix cannot appear in
+// any spec-conformant id.
+//
+// Multiple fallback "episodes" inside one turn (e.g. an adapter
+// that mixes real-id blocks with no-id blocks) all share this
+// single id and consequently merge into one activity row. This
+// is intentional: without a messageId we have no boundary
+// signal, and inventing one — counter, timestamp, hash —
+// would just be guessing. Operators with a non-conforming
+// adapter that fragments thoughts across multiple no-id blocks
+// see one merged row of reasoning, which is the same outcome
+// the caller would get from any pure no-messageId adapter.
+//
+// Boundary detection itself does NOT sniff this id: see
+// `agentThoughtFallback` for the source of truth that a buggy
+// adapter cannot impersonate.
+const thoughtFallbackBlockID = "__fallback"
+
+// thoughtMaxBytesPerBlock caps the per-block thought accumulator.
+// Each chunk of an `agent_thought_chunk` stream re-emits the full
+// accumulated `Detail` (mergeAgentChatActivity replaces the row's
+// Detail wholesale by ID), so an unbounded accumulator would
+// inflate the persisted activities JSON and the websocket payload
+// with every chunk. 32 KiB is comfortably above any practical
+// thought size while keeping the worst-case row small. When the
+// cap is hit, `Detail` is suffixed with a truncation marker so
+// operators can see that they are looking at a partial reasoning
+// block, not the whole thing.
+const thoughtMaxBytesPerBlock = 32 * 1024
+
+// thoughtTruncationSuffix is appended to a thought activity's
+// Detail when its accumulator hits thoughtMaxBytesPerBlock.
+const thoughtTruncationSuffix = "\n… (thought truncated)"
+
 const (
 	acpShutdownCancelTimeout = 2 * time.Second
 	acpShutdownCloseTimeout  = 2 * time.Second
@@ -689,6 +730,31 @@ type acpTurn struct {
 	raw            limitedBuffer
 	usage          Usage
 	agentMessageID string
+	// agentThoughtID is the ACP messageId carrying the current
+	// `agent_thought_chunk` block. ACP emits thoughts as a chunk
+	// stream, sharing a messageId across chunks of the same thought
+	// and bumping it when a new thought block starts. We use it to
+	// keep one merged "thinking" activity per block instead of one
+	// per chunk; mergeAgentChatActivity dedupes by Activity.ID
+	// downstream.
+	agentThoughtID string
+	// agentThoughtFallback is the source of truth for whether the
+	// active block was opened with the Hecate-minted fallback id.
+	// Boundary detection used to sniff the id's prefix, which a
+	// non-spec-conformant adapter could spoof by sending a real
+	// messageId that happened to look like the fallback shape;
+	// tracking the property explicitly removes that risk.
+	agentThoughtFallback  bool
+	agentThoughtText      strings.Builder
+	agentThoughtTruncated bool
+	// toolKindByCall caches the last-known ToolKind for each
+	// ToolCallId in this turn. ACP `SessionToolCallUpdate.Kind` is
+	// optional — adapters may emit a kind on the initial ToolCall
+	// and omit it on the matching completion update. Without the
+	// cache, emitFileChangeActivities would compute kind == "" on
+	// the completion update and skip per-file emission for an edit
+	// that genuinely happened.
+	toolKindByCall map[string]acp.ToolKind
 	toolSeen       bool
 	postToolText   bool
 	onOutput       func(string)
@@ -722,6 +788,8 @@ func (t *acpTurn) recordUpdate(params acp.SessionNotification) {
 	switch {
 	case update.AgentMessageChunk != nil:
 		t.appendAgentMessageChunk(update.AgentMessageChunk)
+	case update.AgentThoughtChunk != nil:
+		t.appendAgentThoughtChunk(update.AgentThoughtChunk)
 	case update.ToolCall != nil:
 		t.recordToolCall(update.ToolCall)
 	case update.ToolCallUpdate != nil:
@@ -770,19 +838,152 @@ func (t *acpTurn) appendAgentMessageChunk(update *acp.SessionUpdateAgentMessageC
 	}
 }
 
+// appendAgentThoughtChunk routes ACP `agent_thought_chunk` updates
+// to the activity stream as `thinking` records. Thoughts are
+// internal reasoning, not visible transcript text — `output` stays
+// untouched. ACP streams a thought block as multiple chunks sharing
+// a `messageId`; we accumulate chunks per messageId and emit one
+// activity row per block, refreshing its `Detail` as new chunks
+// arrive (mergeAgentChatActivity dedupes by Activity.ID downstream).
+// Block boundaries are detected by the four-case transition table
+// inside the function (real → real, real → empty, empty → real,
+// continuation); the goal is that Activity.ID stays stable for the
+// lifetime of every emitted block.
+func (t *acpTurn) appendAgentThoughtChunk(update *acp.SessionUpdateAgentThoughtChunk) {
+	if update == nil {
+		return
+	}
+	text := contentBlockText(update.Content)
+	if text == "" {
+		return
+	}
+
+	t.mu.Lock()
+	nextID := ""
+	if update.MessageId != nil {
+		nextID = strings.TrimSpace(*update.MessageId)
+	}
+	// Resolve the active block id with explicit boundary detection.
+	// Each transition is decided by what we know now vs. what was
+	// active before — the goal is that Activity.ID is stable for the
+	// lifetime of every emitted block (mergeAgentChatActivity dedupes
+	// by id downstream, so a mid-block id flip would split one
+	// thought into two timeline rows or — worse — silently merge two
+	// thoughts into one row).
+	//
+	// Cases:
+	//   1. First chunk in the turn: adopt the real id when present;
+	//      otherwise mint a counter-suffixed fallback id.
+	//   2. Real id that differs from the active id: real-A → real-B
+	//      is an explicit ACP-level block boundary.
+	//   3. Empty id while a *real* id is active: real-A → ∅. Treat as
+	//      a new block (defensive — adapters that consistently send
+	//      messageIds shouldn't drop them mid-block, so an absence
+	//      after a real id is more plausibly a new block than a
+	//      continuation of the old one). Open a fallback row using
+	//      the shared `__fallback` id; if a prior fallback episode
+	//      already used it in this turn, mergeAgentChatActivity
+	//      collapses the two into one row downstream — see
+	//      thoughtFallbackBlockID's docstring for why we accept
+	//      that collapse rather than minting unique ids.
+	//   4. Empty id while a *fallback* id is active, OR matching
+	//      real id, OR matching fallback id: continuation; same row.
+	blockChanged := false
+	switch {
+	case t.agentThoughtID == "":
+		blockChanged = true
+		if nextID != "" {
+			t.agentThoughtID = nextID
+			t.agentThoughtFallback = false
+		} else {
+			t.agentThoughtID = thoughtFallbackBlockID
+			t.agentThoughtFallback = true
+		}
+	case nextID != "" && nextID != t.agentThoughtID:
+		blockChanged = true
+		t.agentThoughtID = nextID
+		t.agentThoughtFallback = false
+	case nextID == "" && !t.agentThoughtFallback:
+		// Real → empty: open a new fallback block. Reuses the same
+		// `__fallback` id any prior fallback episode in this turn
+		// also used; mergeAgentChatActivity will collapse them
+		// into one activity row. See thoughtFallbackBlockID for
+		// why we accept this collapse rather than minting unique
+		// ids per episode.
+		blockChanged = true
+		t.agentThoughtID = thoughtFallbackBlockID
+		t.agentThoughtFallback = true
+	}
+	if blockChanged {
+		t.agentThoughtText.Reset()
+		t.agentThoughtTruncated = false
+	}
+	t.appendBoundedThoughtText(text)
+	id := t.agentThoughtID
+	detail := t.agentThoughtText.String()
+	if t.agentThoughtTruncated {
+		detail += thoughtTruncationSuffix
+	}
+	t.mu.Unlock()
+
+	t.emitActivity(Activity{
+		ID:     "thinking:" + id,
+		Type:   "thinking",
+		Status: "completed",
+		Title:  "Thinking",
+		Detail: detail,
+	})
+}
+
+// appendBoundedThoughtText writes text into the thought
+// accumulator, stopping at thoughtMaxBytesPerBlock. The cut is
+// rolled back to the nearest UTF-8 rune boundary so the
+// JSON-serialized Activity.Detail stays valid (slicing mid-rune
+// would emit a stray continuation byte). Once the block is
+// truncated, further chunks for the same block are dropped on the
+// floor — the suffix in Detail tells the operator the row is
+// partial; appending more truncated bytes would not help.
+//
+// Caller MUST hold t.mu.
+func (t *acpTurn) appendBoundedThoughtText(text string) {
+	if t.agentThoughtTruncated {
+		return
+	}
+	remaining := thoughtMaxBytesPerBlock - t.agentThoughtText.Len()
+	if remaining <= 0 {
+		t.agentThoughtTruncated = true
+		return
+	}
+	if len(text) <= remaining {
+		t.agentThoughtText.WriteString(text)
+		return
+	}
+	cut := remaining
+	for cut > 0 && (text[cut]&0xC0) == 0x80 {
+		cut--
+	}
+	if cut > 0 {
+		t.agentThoughtText.WriteString(text[:cut])
+	}
+	t.agentThoughtTruncated = true
+}
+
 func (t *acpTurn) recordToolCall(update *acp.SessionUpdateToolCall) {
 	if update == nil {
 		return
 	}
 	t.markToolSeen()
+	status := acpToolStatus(string(update.Status))
+	t.rememberToolKind(string(update.ToolCallId), update.Kind)
 	t.emitActivity(Activity{
 		ID:     "tool:" + string(update.ToolCallId),
 		Type:   "tool_call",
-		Status: acpToolStatus(string(update.Status)),
+		Status: status,
 		Kind:   string(update.Kind),
 		Title:  firstNonEmpty(update.Title, string(update.ToolCallId)),
 		Detail: toolCallDetail(update.Kind, update.Locations, update.Content),
 	})
+	t.emitFileChangeActivities(string(update.ToolCallId), update.Kind, status, update.Locations)
 }
 
 func (t *acpTurn) recordToolCallUpdate(update *acp.SessionToolCallUpdate) {
@@ -794,22 +995,184 @@ func (t *acpTurn) recordToolCallUpdate(update *acp.SessionToolCallUpdate) {
 	if update.Title != nil {
 		title = *update.Title
 	}
+	// SessionToolCallUpdate.Title is optional. mergeAgentChatActivity
+	// drops an emission whose Title is empty when there is no prior
+	// row with the same Activity.ID to merge into — that loses tool-call
+	// state updates that arrive before (or instead of) a matching
+	// SessionUpdateToolCall (e.g. an adapter that sends the start
+	// event in a previous turn but a status update now). Default the
+	// Title to the ToolCallId — the same fallback recordToolCall uses
+	// at the start side — so the activity always carries something
+	// renderable and never gets silently dropped on the merge path.
+	if title == "" {
+		title = string(update.ToolCallId)
+	}
 	status := ""
 	if update.Status != nil {
 		status = string(*update.Status)
 	}
-	kind := ""
+	// SessionToolCallUpdate.Kind is optional. Adapters routinely
+	// emit kind on the initial ToolCall and drop it on the
+	// completion update. Without the per-turn cache, a completed
+	// edit whose update omits Kind would compute kind == "" and
+	// skip emitFileChangeActivities — silently losing the per-file
+	// rows for an edit that actually happened. Update the cache
+	// when Kind is present so a later in_progress → completed
+	// transition resolves correctly even if the adapter changes
+	// its mind about the tool's category.
+	var kind acp.ToolKind
 	if update.Kind != nil {
-		kind = string(*update.Kind)
+		kind = *update.Kind
+		t.rememberToolKind(string(update.ToolCallId), kind)
+	} else {
+		kind = t.lookupToolKind(string(update.ToolCallId))
 	}
+	normalizedStatus := acpToolStatus(status)
 	t.emitActivity(Activity{
 		ID:     "tool:" + string(update.ToolCallId),
 		Type:   "tool_call",
-		Status: acpToolStatus(status),
-		Kind:   kind,
+		Status: normalizedStatus,
+		Kind:   string(kind),
 		Title:  title,
-		Detail: toolCallDetail(acp.ToolKind(""), update.Locations, update.Content),
+		Detail: toolCallDetail(kind, update.Locations, update.Content),
 	})
+	t.emitFileChangeActivities(string(update.ToolCallId), kind, normalizedStatus, update.Locations)
+}
+
+// rememberToolKind caches the latest known kind for a tool call so
+// a later update that omits SessionToolCallUpdate.Kind can still
+// resolve the right category. Acquires t.mu internally — call
+// sites MUST NOT hold t.mu (sync.Mutex is non-reentrant; reentry
+// deadlocks). recordToolCall and recordToolCallUpdate match this
+// pattern: they extract fields from the ACP update without holding
+// t.mu and let each helper (markToolSeen, rememberToolKind,
+// lookupToolKind, emitActivity) lock-and-release internally.
+func (t *acpTurn) rememberToolKind(toolCallID string, kind acp.ToolKind) {
+	if toolCallID == "" || kind == "" {
+		return
+	}
+	t.mu.Lock()
+	defer t.mu.Unlock()
+	if t.toolKindByCall == nil {
+		t.toolKindByCall = make(map[string]acp.ToolKind)
+	}
+	t.toolKindByCall[toolCallID] = kind
+}
+
+// lookupToolKind returns the cached kind for a tool call, or the
+// zero value if no kind was ever cached. Acquires t.mu internally;
+// call sites MUST NOT hold t.mu (see rememberToolKind for the
+// rationale).
+func (t *acpTurn) lookupToolKind(toolCallID string) acp.ToolKind {
+	if toolCallID == "" {
+		return ""
+	}
+	t.mu.Lock()
+	defer t.mu.Unlock()
+	return t.toolKindByCall[toolCallID]
+}
+
+// emitFileChangeActivities surfaces per-file edits as their own
+// activity records when a mutating tool call (kind = edit / delete /
+// move) reaches the completed state. Today the UI synthesises a
+// single end-of-turn `files_changed` summary from the captured Git
+// diff stat (see handler_agent_chat.go); the activity-stream
+// counterparts let operators see *which* files were touched as the
+// agent works, not only after the turn settles. The diff-stat
+// aggregate keeps its role — it covers the case where the adapter
+// edits files outside an ACP-reported location.
+//
+// IDs are scoped per (tool_call, path) so duplicate updates from the
+// same tool reach the same activity row in mergeAgentChatActivity
+// instead of stacking. Read / search / execute / fetch / think /
+// other tool kinds are NOT promoted — they don't change files.
+func (t *acpTurn) emitFileChangeActivities(toolCallID string, kind acp.ToolKind, status string, locations []acp.ToolCallLocation) {
+	if status != "completed" {
+		return
+	}
+	if !isFileMutatingToolKind(kind) {
+		return
+	}
+	// Aggregate by path so that multiple ToolCallLocation entries for
+	// the same file (e.g. several edited line ranges in one call)
+	// collapse to a single activity row instead of colliding on a
+	// shared Activity.ID — mergeAgentChatActivity dedupes by ID
+	// downstream, so two emissions with the same id would overwrite
+	// each other's title and timestamp instead of stacking. We retain
+	// insertion order: the first time we see a path defines its row's
+	// position, and subsequent same-path entries fold their line
+	// numbers into the existing accumulator.
+	type pathAccum struct {
+		path  string
+		lines []int
+	}
+	seen := make(map[string]int, len(locations))
+	accums := make([]pathAccum, 0, len(locations))
+	for _, loc := range locations {
+		path := strings.TrimSpace(loc.Path)
+		if path == "" {
+			continue
+		}
+		idx, ok := seen[path]
+		if !ok {
+			seen[path] = len(accums)
+			idx = len(accums)
+			accums = append(accums, pathAccum{path: path})
+		}
+		if loc.Line != nil && *loc.Line > 0 {
+			accums[idx].lines = append(accums[idx].lines, *loc.Line)
+		}
+	}
+	for _, acc := range accums {
+		title := acc.path
+		switch len(acc.lines) {
+		case 0:
+			// No line info — title is just the path.
+		case 1:
+			title = fmt.Sprintf("%s:%d", acc.path, acc.lines[0])
+		default:
+			title = fmt.Sprintf("%s (%s)", acc.path, summarizeFileChangeLines(acc.lines))
+		}
+		t.emitActivity(Activity{
+			ID:     "file_change:" + toolCallID + ":" + acc.path,
+			Type:   "file_change",
+			Status: "completed",
+			Kind:   string(kind),
+			Title:  title,
+			Detail: string(kind),
+		})
+	}
+}
+
+// summarizeFileChangeLines renders a comma-separated list of the
+// first few line numbers, with a "+N more" tail when an edit touches
+// many ranges in the same file. Mirrors the bounded summary style
+// used by summarizeToolLocations so file_change titles read
+// consistently with the underlying tool_call detail.
+func summarizeFileChangeLines(lines []int) string {
+	const maxShown = 3
+	limit := len(lines)
+	if limit > maxShown {
+		limit = maxShown
+	}
+	parts := make([]string, 0, limit)
+	for i := 0; i < limit; i++ {
+		parts = append(parts, strconv.Itoa(lines[i]))
+	}
+	out := strings.Join(parts, ", ")
+	if len(lines) > maxShown {
+		out = fmt.Sprintf("%s, +%d more", out, len(lines)-maxShown)
+	}
+	return out
+}
+
+func isFileMutatingToolKind(kind acp.ToolKind) bool {
+	switch kind {
+	case acp.ToolKindEdit, acp.ToolKindDelete, acp.ToolKindMove:
+		return true
+	default:
+		return false
+	}
 }
 
 func (t *acpTurn) markToolSeen() {

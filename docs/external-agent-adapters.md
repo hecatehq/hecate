@@ -199,6 +199,8 @@ environment that starts Hecate.
 6. Confirm the assistant message shows:
    - structured activity markers such as starting, running, files changed, or failed
    - normalized transcript text
+   - per-block thinking entries when the adapter streams ACP `agent_thought_chunk` updates (chunks sharing a `messageId` collapse into one row; a new `messageId` starts a fresh row)
+   - per-file `file_change` rows for each completed mutating tool call (kind = edit / delete / move) in addition to the end-of-turn diff-stat aggregate
    - context usage in the shell status bar when the adapter reports it
    - captured workspace diff under the inline diff disclosure when files changed
    - raw ACP diagnostics under the inline diagnostic disclosure when they differ from the normalized transcript
