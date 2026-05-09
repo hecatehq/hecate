@@ -13,17 +13,19 @@
 > this RFC integrates with that work but does not re-design it.
 
 Today an operator running a long Hecate Chat or an `agent_loop` task
-with `MAX_TURNS=8` and a few `read_file` results will silently exceed
-the model's context window. The gateway hands the whole transcript
-upstream; the upstream errors with a provider-specific
-`context_length_exceeded` (or worse, a generic 4xx); the operator
-sees a mid-stream failure with no preceding warning. Nothing in
-Hecate counts tokens, sets a threshold, or warns ahead of time.
+with `GATEWAY_TASK_AGENT_LOOP_MAX_TURNS=8` (the default) and a few
+`read_file` results will silently exceed the model's context window.
+The gateway hands the whole transcript upstream; the upstream errors
+with a provider-specific `context_length_exceeded` (or worse, a
+generic 4xx); the operator sees a mid-stream failure with no
+preceding warning. Nothing in Hecate counts tokens, sets a threshold,
+or warns ahead of time.
 
-`MAX_TURNS` is a runaway-loop guard, not a context guard — it bounds
-*iterations*, not *tokens*. An agent doing 3 huge file reads can
-exceed 100K tokens in 4 turns; another doing 50 small command checks
-stays under 20K. They need orthogonal safety nets.
+`GATEWAY_TASK_AGENT_LOOP_MAX_TURNS` is a runaway-loop guard, not a
+context guard — it bounds *iterations*, not *tokens*. An agent doing
+3 huge file reads can exceed 100K tokens in 4 turns; another doing
+50 small command checks stays under 20K. They need orthogonal safety
+nets.
 
 This RFC scopes the smallest framework that closes the gap, the
 phased path to ship it, and the open design choices the implementer
@@ -101,7 +103,8 @@ Per-conversation token tracking with per-call telemetry emission:
        │   if running_tokens > 0.80 * model_limit:        │
        │       emit structured warning to trace + header  │
        │                                                  │
-       │   set runtime header: x-context-used: N/M        │
+       │   set runtime header: X-Runtime-Context-Used:    │
+       │       N/M                                        │
        │   set span attr: hecate.context.tokens_in        │
        │   set span attr: hecate.context.fraction         │
        └──────────────────────────────────────────────────┘
@@ -160,9 +163,10 @@ Every gateway call to a provider emits two telemetry signals:
 - **Span attribute** `hecate.context.tokens_in` (estimated, this
   call only) and `hecate.context.fraction` (running total /
   model_limit).
-- **Runtime header** `x-context-used: NNNN/MMMMM` on the response
-  so SDK consumers can render a context-usage meter without
-  re-estimating client-side.
+- **Runtime header** `X-Runtime-Context-Used: NNNN/MMMMM` on the
+  response so SDK consumers can render a context-usage meter without
+  re-estimating client-side. Matches the existing `X-Runtime-*`
+  convention (`X-Runtime-Provider`, `X-Runtime-Model`, etc.).
 
 The running total persists on the conversation:
 
@@ -201,9 +205,15 @@ var modelContextLimits = map[string]int{
 When the model isn't in the table, fall back to a structured
 warning ("`unknown_model_context_limit`") and use a conservative
 default (32K). Operators override the default per-model in the
-pricebook, which gains an optional `context_window_tokens` column
-mirroring how `context_window_tokens` already exists for some
-upstream catalogs.
+pricebook, which gains a NEW optional `context_window_tokens` column.
+This is a net-new addition to Hecate's pricebook schema —
+`internal/billing/litellm/import.go` today reads only the cost
+fields (`input_cost_per_token`, `output_cost_per_token`,
+`cache_read_input_token_cost`) and ignores LiteLLM's
+`max_input_tokens` / `max_output_tokens` entries in
+`model_prices_and_context_window.json`. Adding the column means
+extending both the pricebook schema and the LiteLLM import to
+populate it from `max_input_tokens`.
 
 Lookup precedence:
 
@@ -217,7 +227,7 @@ Three levels:
 
 | Level | Default | Trigger | Effect |
 |---|---|---|---|
-| **Soft warn** | 80% of model limit | Running total exceeds | Structured warning in trace + `x-context-warning` header. Call proceeds. |
+| **Soft warn** | 80% of model limit | Running total exceeds | Structured warning in trace + `X-Runtime-Context-Warning` header. Call proceeds. |
 | **Hard cap** | 95% of model limit | Running total + estimated next-call exceeds | Call refused. Returns 422 with structured body: `type=context.budget_exceeded`, includes `tokens_in`, `tokens_limit`, `model`. |
 | **Per-task budget** | unset (0) | Operator-configured `GATEWAY_TASK_AGENT_LOOP_MAX_CONTEXT_TOKENS`. When set, takes precedence over the model-limit-derived cap. | Same 422 shape. |
 
@@ -233,8 +243,8 @@ GATEWAY_CONTEXT_HARD_CAP_THRESHOLD=0.95
 Default OFF. Operators opt in via:
 
 ```
-GATEWAY_AGENT_LOOP_TRUNCATION=drop_oldest
-GATEWAY_AGENT_LOOP_TRUNCATION_KEEP_RECENT=4
+GATEWAY_TASK_AGENT_LOOP_TRUNCATION=drop_oldest
+GATEWAY_TASK_AGENT_LOOP_TRUNCATION_KEEP_RECENT=4
 ```
 
 Three policies in scope:
@@ -271,9 +281,9 @@ For cloud deployments, the operator picks a cheap "summarization
 model" (Haiku for Anthropic, gpt-4o-mini for OpenAI, etc.). Knobs:
 
 ```
-GATEWAY_AGENT_LOOP_SUMMARIZATION_MODEL=
-GATEWAY_AGENT_LOOP_SUMMARIZATION_KEEP_RECENT=4
-GATEWAY_AGENT_LOOP_SUMMARIZATION_TRIGGER_THRESHOLD=0.75
+GATEWAY_TASK_AGENT_LOOP_SUMMARIZATION_MODEL=
+GATEWAY_TASK_AGENT_LOOP_SUMMARIZATION_KEEP_RECENT=4
+GATEWAY_TASK_AGENT_LOOP_SUMMARIZATION_TRIGGER_THRESHOLD=0.75
 ```
 
 The summarized form replaces dropped older messages:
@@ -345,9 +355,9 @@ trade-offs.
 | PR | Scope | Size |
 |---|---|---|
 | 1 | `internal/contextbudget/` package: tokenizer (tiktoken-go), estimator, model-limit table. Unit-tested in isolation. No wiring. | ~400 |
-| 2 | Per-call telemetry: span attribute + `x-context-used` runtime header in `handler_chat.go` and `executor_agent_loop.go`. Visibility-only, no caps. | ~250 |
+| 2 | Per-call telemetry: span attribute + `X-Runtime-Context-Used` runtime header in `handler_chat.go` and `executor_agent_loop.go`. Visibility-only, no caps. | ~250 |
 | 3 | Per-conversation running-total persistence: additive migrations on `chat_sessions` and `task_runs`; running total updated per call. | ~300 |
-| 4 | Soft warn threshold (default 80%) — structured warning in trace, `x-context-warning` runtime header. Operator-configurable threshold. | ~200 |
+| 4 | Soft warn threshold (default 80%) — structured warning in trace, `X-Runtime-Context-Warning` runtime header. Operator-configurable threshold. | ~200 |
 | 5 | Hard cap (default 95% derived; per-task budget knob). Returns 422 with structured `context.budget_exceeded` body. | ~250 |
 | 6 | Truncation policy: `drop_oldest` and `drop_tool_intermediates`. Opt-in via env knob. `agent_loop` only. | ~400 |
 | 7 | Summarization policy. Side-call architecture. Configurable model. Local-model friction-free default for local-only operators. | ~600 |
@@ -398,7 +408,7 @@ incremental.
 2. **Hard cap false-positives.** Operator hits the cap mid-task,
    the run fails, they're confused. Mitigation: structured 422
    with `tokens_in`, `tokens_limit`, model name; runtime header
-   `x-context-used`; operator-tunable threshold; documented in
+   `X-Runtime-Context-Used`; operator-tunable threshold; documented in
    `docs/context-budget.md`.
 3. **Truncation breaks user expectations** on the use case the
    chosen policy mishandles. Mitigation: opt-in default; operators
@@ -427,13 +437,14 @@ When this RFC is implemented end-to-end:
 
 - A long Hecate Chat or `agent_loop` task run that approaches the
   model's context limit produces a structured warning in the trace
-  and an `x-context-warning` header *before* the upstream errors.
+  and an `X-Runtime-Context-Warning` header *before* the upstream
+  errors.
 - A run that would exceed the hard cap is refused with a structured
   422 (`context.budget_exceeded`) instead of a mid-stream upstream
   error.
 - An operator can see `hecate.context.tokens_in` and
-  `hecate.context.fraction` on every span and `x-context-used` on
-  every response.
+  `hecate.context.fraction` on every span and `X-Runtime-Context-Used`
+  on every response.
 - An operator can opt into truncation (`drop_oldest` or
   `drop_tool_intermediates`) per-deployment via env knob; default
   remains OFF.
