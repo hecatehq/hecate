@@ -7,7 +7,7 @@ provider credentials. Contributions land easier when they read like that.
 ## Where to start
 
 - **Working with an AI assistant** (Claude Code, Codex, Cursor, etc.): the orientation entry is [`AGENTS.md`](AGENTS.md). The canonical, vendor-neutral instruction layer is [`docs-ai/`](docs-ai/README.md). Tool-specific files ([`CLAUDE.md`](CLAUDE.md), [`.cursor/rules/`](.cursor/rules/)) are thin adapters that point there.
-- **Working without an AI assistant**: read [`AGENTS.md`](AGENTS.md) for the codebase map and runtime invariants, then [`docs/development.md`](docs/development.md) for local build / hot-reload / make targets.
+- **Working without an AI assistant**: read [`AGENTS.md`](AGENTS.md) for the codebase map and runtime invariants, then [`docs/development.md`](docs/development.md) for local build / hot-reload / just targets.
 
 The `docs-ai/` tree mirrors the operating loop:
 
