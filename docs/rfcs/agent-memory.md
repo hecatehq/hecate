@@ -241,9 +241,13 @@ boundary in trace inspectors.
 For both paths, when the request goes to Anthropic the memory
 block is wrapped in a `cache_control` marker. Memory changes
 infrequently and is identical across runs that share the same
-scope, so cache hits are high. Pairs with the planned
-context-window-management RFC (TODO: link once that file lands;
-the cache-marker mechanics live in that companion RFC).
+scope, so cache hits are high. The marker mechanics for the
+`system` prompt and `tools` catalog already shipped (PR #59) and
+are documented in [`docs/providers.md`](../providers.md#anthropic-prompt-caching);
+this RFC extends them by wrapping the memory block. The
+[LLM context window management RFC](llm-context-window-management.md)'s
+[Cache marker integration](llm-context-window-management.md#cache-marker-integration)
+section anticipates the same hookup.
 
 When the request goes elsewhere, no markers — the block is just
 text.
@@ -414,16 +418,21 @@ When this RFC is implemented:
 
 ## Cross-reference
 
-The companion RFC for **LLM context window management** (not yet
-written) handles token estimation, soft thresholds, hard caps,
-truncation, and Anthropic prompt caching. Memory entries inflate
-context, so:
+The companion RFC, [**LLM context window management**](llm-context-window-management.md),
+handles token estimation, soft thresholds, hard caps, and
+truncation. Anthropic prompt-cache markers for the `system`
+prompt and `tools` catalog shipped separately via PR #59 and
+are documented in [`docs/providers.md`](../providers.md#anthropic-prompt-caching).
+Memory entries inflate context, so:
 
 - The token estimator MUST count memory contributions in its
   pre-flight estimate.
-- The Anthropic cache-marker piece in the context-management RFC
-  SHOULD wrap the memory block when caching is on, since memory
-  changes infrequently relative to conversation turns.
+- The Anthropic adapter SHOULD wrap the memory block in the same
+  `cache_control: {"type":"ephemeral"}` marker when caching is on,
+  since memory changes infrequently relative to conversation turns.
+  The system-prompt and tools wrappers are already in place; the
+  memory-block wrapper lands with this RFC.
 
-These two features are designed to compose cleanly. Either can ship
-first; the other gains its hook on top.
+These features are designed to compose cleanly. The cache-marker
+plumbing already exists; the context-window RFC and this one each
+gain their hook on top.
