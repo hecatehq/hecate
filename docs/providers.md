@@ -126,6 +126,37 @@ provider-specific endpoint layout: Hecate sends chat traffic to
 fields such as `citations` and `search_results` are not forwarded yet; the
 normalized assistant text, model, and token usage are.
 
+## Anthropic prompt caching
+
+Hecate automatically attaches `cache_control: {"type":"ephemeral"}`
+markers to outbound Anthropic Messages API requests so the static
+prefix (system prompt + tools catalog) is reused across turns and
+billed at Anthropic's discounted cache-read rate. Markers are
+applied to:
+
+- the last block of the `system` field (lifted to a block list
+  when the caller sends a string system prompt — `cache_control`
+  requires the block shape)
+- the last entry in `tools`
+
+Caller-supplied `cache_control` is preserved — operators or
+upstream orchestrators that set their own cache boundaries
+keep them, and the auto-attached marker on the last entry of
+each section coexists alongside (Anthropic accepts up to four
+cache breakpoints).
+
+Hits show up in the response as non-zero `cache_read_input_tokens`,
+which Hecate plumbs through as `Usage.CachedPromptTokens` and
+prices via the cache-read rate when the pricebook has one.
+
+The behavior is controlled by `GATEWAY_PROVIDER_ANTHROPIC_CACHE_ENABLED`
+(default `true`). The toggle is global — every Anthropic-protocol
+provider, however it was added (env, Providers tab, programmatic),
+inherits the same value. Operators flip it to `false` for cost-tier
+comparisons or to debug a suspected cache-related issue. The
+Anthropic adapter is the only place this knob applies; non-Anthropic
+providers are unaffected.
+
 ## Settings API
 
 Every UI action maps to a Hecate-native settings endpoint:
