@@ -12,9 +12,9 @@ Hecate uses a vendor-neutral provider layer at the runtime boundary. It treats O
 - [Adding a provider](#adding-a-provider)
 - [Built-in presets](#built-in-presets)
 - [Env-configured providers](#env-configured-providers)
+- [Anthropic prompt caching](#anthropic-prompt-caching)
 - [Settings API](#settings-api)
 - [Health and circuit breaking](#health-and-circuit-breaking)
-- [Anthropic prompt caching](#anthropic-prompt-caching)
 
 ## Providers vs. clients
 
