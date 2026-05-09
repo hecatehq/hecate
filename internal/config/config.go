@@ -280,7 +280,7 @@ type RetentionPolicy struct {
 
 type SQLiteConfig struct {
 	// Path is the on-disk file. Defaults to .data/hecate.db so a fresh
-	// `make dev` plus `GATEWAY_*_BACKEND=sqlite` Just Works without
+	// `just dev` plus `GATEWAY_*_BACKEND=sqlite` Just Works without
 	// extra mkdir or env. Parent directories are auto-created.
 	Path        string
 	TablePrefix string
