@@ -207,6 +207,14 @@ func (m *ControlPlaneRuntimeManager) resolvedConfigs(ctx context.Context) ([]con
 			Timeout:      30 * time.Second,
 			Enabled:      true,
 		}
+		// CP-stored records don't carry the global Anthropic cache
+		// toggle (set from GATEWAY_PROVIDER_ANTHROPIC_CACHE_ENABLED at
+		// env-load time and stamped onto every base-config entry).
+		// Inherit it from the matching base config when one exists so
+		// operator-set opt-outs survive a control-plane reload.
+		if base, ok := byName[cfg.Name]; ok {
+			cfg.AnthropicCacheDisabled = base.AnthropicCacheDisabled
+		}
 		if builtIn, ok := builtInForControlPlaneProvider(item); ok {
 			cfg.KnownModels = append([]string(nil), builtIn.Models...)
 			cfg.ChatPath = builtIn.ChatPath

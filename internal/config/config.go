@@ -342,6 +342,23 @@ type OpenAICompatibleProviderConfig struct {
 	// KnownModels is the curated catalog from the built-in preset. It populates the
 	// static capabilities when no API key is set and live discovery is skipped.
 	KnownModels []string `json:"known_models,omitempty"`
+	// AnthropicCacheDisabled opts the Anthropic adapter out of
+	// auto-attaching `cache_control: {"type":"ephemeral"}` markers on
+	// the last `system` block and the last `tools` entry of outbound
+	// Messages-API requests. Auto-marking is on by default — cache
+	// hits cut input-token cost ~90% on the static prefix of long
+	// agent_loop / chat sessions with no latency penalty, so the
+	// safe default is to leave it on and let operators flip the
+	// global GATEWAY_PROVIDER_ANTHROPIC_CACHE_ENABLED=false toggle
+	// for cost-tier comparisons or debugging. The env loader
+	// inverts that toggle into this field so CP-stored provider
+	// records (zero-valued bool) and direct test constructions also
+	// default to caching-on without each call site remembering to
+	// opt in. Non-Anthropic adapters ignore the field — keeping it
+	// on the shared provider config (instead of a separate
+	// Anthropic-only struct) avoids reshaping the runtime-manager
+	// dispatch boundary for one bool.
+	AnthropicCacheDisabled bool `json:"anthropic_cache_disabled,omitempty"`
 }
 
 func LoadFromEnv() Config {
@@ -917,6 +934,20 @@ func defaultPricebookConfig() PricebookConfig {
 	}
 }
 
+// anthropicCacheDisabledFromEnv reads the global toggle that controls
+// whether the Anthropic adapter auto-attaches prompt-cache markers on
+// outbound system + tools sections. Default is enabled — caching is
+// the safe, cheaper option; operators flip
+// GATEWAY_PROVIDER_ANTHROPIC_CACHE_ENABLED=false only for cost-tier
+// comparisons or to debug a suspected cache-related issue. Returns
+// the inverted (`disabled`) form so the zero-value bool stamped on
+// every provider config means "caching on" — CP-stored records and
+// direct test constructions then inherit the safe default without
+// each call site remembering to opt in.
+func anthropicCacheDisabledFromEnv() bool {
+	return !getEnvBool("GATEWAY_PROVIDER_ANTHROPIC_CACHE_ENABLED", true)
+}
+
 func loadProvidersFromEnv() ProvidersConfig {
 	// Only register providers that have at least one explicit env var
 	// (PROVIDER_<NAME>_BASE_URL / _API_KEY / _DEFAULT_MODEL / etc.).
@@ -930,11 +961,13 @@ func loadProvidersFromEnv() ProvidersConfig {
 	// for the same record. No env var → no registration.
 	names := deriveProviderNamesFromEnv()
 	items := make([]OpenAICompatibleProviderConfig, 0, len(names))
+	cacheDisabled := anthropicCacheDisabledFromEnv()
 	for _, name := range names {
 		cfg, ok := providerConfigFromEnv(name)
 		if !ok {
 			continue
 		}
+		cfg.AnthropicCacheDisabled = cacheDisabled
 		items = append(items, cfg)
 	}
 	normalizeProviders(items)

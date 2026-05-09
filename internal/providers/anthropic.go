@@ -383,6 +383,10 @@ func (p *AnthropicProvider) chatUpstream(ctx context.Context, req types.ChatRequ
 		}
 		wireReq.ToolChoice = anthropicToolChoice(req.ToolChoice)
 	}
+	if !p.config.AnthropicCacheDisabled {
+		wireReq.System = applyAnthropicSystemCacheMarker(wireReq.System)
+		applyAnthropicToolsCacheMarker(wireReq.Tools)
+	}
 
 	payload, err := json.Marshal(wireReq)
 	if err != nil {
@@ -661,6 +665,113 @@ func buildAnthropicSystemRaw(msg types.Message) json.RawMessage {
 	}
 	b, _ := json.Marshal(blocks)
 	return b
+}
+
+// ephemeralCacheControl is the canonical Anthropic prompt-cache
+// marker. Anthropic's Messages API treats every block bearing this
+// tag as a cacheable boundary: subsequent requests that share the
+// same prefix up to (and including) the marker are served from the
+// cache for ~10% of the fresh-input rate. The "ephemeral" type is
+// the only one Anthropic currently exposes — `1h` durations and
+// other variants would change this constant if they ship.
+//
+// See: https://docs.anthropic.com/en/docs/build-with-claude/prompt-caching
+var ephemeralCacheControl = json.RawMessage(`{"type":"ephemeral"}`)
+
+// applyAnthropicSystemCacheMarker attaches the ephemeral cache_control
+// marker to the LAST entry of the system section so Anthropic caches
+// the static system prefix. It handles both wire forms:
+//
+//   - a JSON string: converted into a single-element block list with
+//     the marker attached. Cache_control requires the block-list
+//     shape; Anthropic accepts either form for system, but only
+//     blocks can carry the marker.
+//   - a JSON array of blocks: the marker is attached to the LAST
+//     entry. If the caller already supplied a cache_control on that
+//     entry we leave it alone — caller intent wins (e.g. an
+//     orchestrator that wants the marker earlier in the array to
+//     cache a different boundary).
+//
+// Returns the original input unchanged when systemRaw is empty or
+// when it already has a marker on its tail block. Errors during
+// re-marshal fall through to returning the original — the goal is
+// "best-effort cache hint", never to fail the request.
+//
+// TODO(memory): once the agent-memory RFC (docs/rfcs/agent-memory.md)
+// lands and memory blocks are injected into the system prompt as a
+// dedicated content block, the ideal cache boundary becomes the LAST
+// memory block rather than the LAST system block — the static
+// instructions sit before memory, and memory churns per-session. At
+// that point this helper should locate the memory boundary and
+// attach the marker there instead of (or in addition to) the system
+// tail.
+func applyAnthropicSystemCacheMarker(systemRaw json.RawMessage) json.RawMessage {
+	if len(systemRaw) == 0 {
+		return systemRaw
+	}
+	type sysBlock struct {
+		Type         string          `json:"type"`
+		Text         string          `json:"text"`
+		CacheControl json.RawMessage `json:"cache_control,omitempty"`
+	}
+	// String form: wrap into a single-block list with the marker.
+	if len(systemRaw) > 0 && systemRaw[0] == '"' {
+		var text string
+		if err := json.Unmarshal(systemRaw, &text); err != nil {
+			return systemRaw
+		}
+		if strings.TrimSpace(text) == "" {
+			return systemRaw
+		}
+		b, err := json.Marshal([]sysBlock{{
+			Type:         "text",
+			Text:         text,
+			CacheControl: ephemeralCacheControl,
+		}})
+		if err != nil {
+			return systemRaw
+		}
+		return b
+	}
+	// Array form: attach to the last entry only if it doesn't already
+	// have a cache_control. We round-trip via []sysBlock — buildAnthropicSystemRaw
+	// only emits text blocks today, so this is shape-preserving.
+	var blocks []sysBlock
+	if err := json.Unmarshal(systemRaw, &blocks); err != nil {
+		return systemRaw
+	}
+	if len(blocks) == 0 {
+		return systemRaw
+	}
+	if len(blocks[len(blocks)-1].CacheControl) > 0 {
+		return systemRaw
+	}
+	blocks[len(blocks)-1].CacheControl = ephemeralCacheControl
+	b, err := json.Marshal(blocks)
+	if err != nil {
+		return systemRaw
+	}
+	return b
+}
+
+// applyAnthropicToolsCacheMarker attaches the ephemeral cache_control
+// marker to the LAST tool entry so Anthropic caches the (typically
+// large and stable) tool catalog alongside the system prefix. The
+// marker is set in place; if the caller already supplied a
+// CacheControl on the tail tool we leave it untouched — same
+// "caller intent wins" rule as the system helper.
+//
+// Tools mutates in place. Callers that need to keep the original
+// slice should pass a copy.
+func applyAnthropicToolsCacheMarker(tools []anthropicTool) {
+	if len(tools) == 0 {
+		return
+	}
+	last := &tools[len(tools)-1]
+	if len(last.CacheControl) > 0 {
+		return
+	}
+	last.CacheControl = ephemeralCacheControl
 }
 
 // contentBlocksToAnthropicBlocks converts types.ContentBlock slice to the provider wire type.
@@ -1021,6 +1132,10 @@ func (p *AnthropicProvider) ChatStream(ctx context.Context, req types.ChatReques
 			})
 		}
 		wireReq.ToolChoice = anthropicToolChoice(req.ToolChoice)
+	}
+	if !p.config.AnthropicCacheDisabled {
+		wireReq.System = applyAnthropicSystemCacheMarker(wireReq.System)
+		applyAnthropicToolsCacheMarker(wireReq.Tools)
 	}
 
 	payload, err := json.Marshal(wireReq)
