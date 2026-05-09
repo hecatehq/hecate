@@ -70,6 +70,7 @@ import type {
   AgentAdapterHealthRecord,
   AgentAdapterRecord,
   AgentChatApprovalRecord,
+  AgentChatActivityRecord,
   AgentChatChangedFileDiffRecord,
   AgentChatChangedFileRecord,
   AgentChatGrantRecord,
@@ -1604,9 +1605,25 @@ export function useRuntimeConsole() {
     approvalID: string,
     decision: ResolveTaskApprovalPayload,
   ): Promise<boolean> {
-    try {
-      await resolveTaskApprovalRequest(taskID, approvalID, decision);
-      const status = decision.decision === "approve" ? "approved" : "rejected";
+    const status = decision.decision === "approve" ? "approved" : "rejected";
+    // Capture the pre-resolve session synchronously from closure so
+    // we can roll back if the API call fails. We can't capture inside
+    // the state updater function because React invokes it
+    // asynchronously (and may invoke it twice under StrictMode); by
+    // the time the catch branch runs, the closure variable would
+    // either still be null or hold the already-patched state. Same
+    // pattern as deleteProvider above.
+    //
+    // Optimistic-update-before-call means the banner row disappears
+    // the moment the operator clicks; before this, the row hung
+    // around for the full network round-trip (50–500 ms), which
+    // looked unresponsive on slow links and let an operator
+    // double-click a duplicate request through.
+    const snapshot: AgentChatSessionRecord | null =
+      activeAgentChatSession && activeAgentChatSession.task_id === taskID
+        ? activeAgentChatSession
+        : null;
+    if (snapshot) {
       setActiveAgentChatSession((current) => {
         if (!current || current.task_id !== taskID) return current;
         return {
@@ -1620,6 +1637,60 @@ export function useRuntimeConsole() {
           })),
         };
       });
+    }
+    // rollbackOptimisticApproval restores the specific approval
+    // activity from the pre-resolve snapshot, while leaving every
+    // other field of the active session untouched. Two concurrency
+    // hazards force this surgical shape rather than
+    // `setActiveAgentChatSession(snapshot)`:
+    //
+    //   1. The operator may have navigated to a different session
+    //      while the request was in flight. The functional updater
+    //      bails when the active session id has changed.
+    //   2. A stream `session_update` or a refresh may have applied
+    //      newer messages/activities on top of the optimistic
+    //      state. Restoring only the specific approval activity
+    //      preserves them.
+    //
+    // Reused by both the generic-failure path AND the
+    // not-pending+refresh-failed path so both cases produce the
+    // same operator-visible state ("we're not sure what the
+    // server thinks; show the row as still pending so the
+    // operator can retry") instead of leaving a possibly-wrong
+    // optimistic decision on screen.
+    const rollbackOptimisticApproval = () => {
+      if (!snapshot) return;
+      const snapshotForRollback = snapshot;
+      // Predicate matches the activity by approval_id (or the
+      // projected `task:approval:<id>` id). Using the SAME
+      // predicate on both sides matters because Activity.id is
+      // optional — matching by id alone could (a) fail to restore
+      // when the current row has no id and (b) wrongly match the
+      // first id-less row if both sides have undefined ids.
+      const matchesTargetApproval = (activity: AgentChatActivityRecord) =>
+        activity.approval_id === approvalID || activity.id === `task:approval:${approvalID}`;
+      setActiveAgentChatSession((current) => {
+        if (!current || current.id !== snapshotForRollback.id) return current;
+        return {
+          ...current,
+          messages: (current.messages ?? []).map((message) => {
+            const originalMessage = snapshotForRollback.messages?.find((m) => m.id === message.id);
+            if (!originalMessage) return message;
+            return {
+              ...message,
+              activities: message.activities?.map((activity) => {
+                if (!matchesTargetApproval(activity)) return activity;
+                const originalActivity = originalMessage.activities?.find(matchesTargetApproval);
+                return originalActivity ?? activity;
+              }),
+            };
+          }),
+        };
+      });
+    };
+
+    try {
+      await resolveTaskApprovalRequest(taskID, approvalID, decision);
       if (activeAgentChatSessionID) {
         try {
           await refreshAgentChatSession(activeAgentChatSessionID);
@@ -1632,16 +1703,30 @@ export function useRuntimeConsole() {
       return true;
     } catch (error) {
       if (error instanceof Error && /not pending/i.test(error.message)) {
+        // Server says the approval is already resolved. The
+        // resolution may NOT match the operator's chosen decision —
+        // another tab could have approved while this one tried to
+        // reject, the run might have timed out into auto-rejection,
+        // or the run could have been cancelled. Refresh to pull
+        // server-truth and let it overwrite our optimistic patch.
         if (activeAgentChatSessionID) {
           try {
             await refreshAgentChatSession(activeAgentChatSessionID);
+            return true;
           } catch {
-            // The original failure already means the row is stale; if a
-            // refresh also fails, avoid piling on a second noisy error.
+            // Refresh failed — we cannot trust our optimistic patch
+            // (it might claim a decision the server didn't make).
+            // Fall through to rollback so the row reflects "still
+            // pending" rather than a possibly-wrong final state.
           }
         }
-        return true;
+        rollbackOptimisticApproval();
+        setNoticeMessage("error", "Approval was already resolved upstream and the session refresh failed; reload to see the current state.");
+        return false;
       }
+      // Genuine failure — roll back so the row reappears and the
+      // operator can retry.
+      rollbackOptimisticApproval();
       setNoticeMessage("error", error instanceof Error ? error.message : "Failed to resolve task approval.");
       return false;
     }
