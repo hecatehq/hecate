@@ -142,10 +142,9 @@ pre { background: #f3f4f6; padding: 1rem; border-radius: 0.5rem; overflow-x: aut
 <p>The gateway API is fully functional — try
 <a href="/healthz"><code>GET /healthz</code></a> or
 <a href="/v1/models"><code>GET /v1/models</code></a>. To enable this dashboard,
-build the UI before the gateway:</p>
+build the UI bundle into the binary:</p>
 <pre>just ui-install
-just ui-build
-go build -o hecate ./cmd/hecate</pre>
+just build</pre>
 <p class="note">For UI-only iteration, run the dev server:
 <code>just ui-dev</code> opens the React app on
 <code>http://127.0.0.1:5173</code> with API calls proxied to this gateway.</p>
