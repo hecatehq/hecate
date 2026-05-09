@@ -1116,6 +1116,513 @@ describe("useRuntimeConsole", () => {
 
       await waitFor(() => expect(result.current.state.chatSessions[0].title).toBe("Renamed"));
     });
+
+    it("resolveTaskApproval optimistically marks the row resolved before the API call returns", async () => {
+      // Hecate-task approvals (distinct from the external-agent ACP
+      // approval map exercised below) live as activities on the
+      // active Hecate Chat session. The banner derivation in the
+      // chat surface (`pendingHecateTaskApprovals` in
+      // ChatView.tsx, which keys on `activity.status` /
+      // `needs_action`) collapses any row whose status flips off
+      // "awaiting_approval" — so flipping the activity to
+      // "approved" before the network round-trip returns is what
+      // makes the banner row disappear instantly on click. The
+      // prior version waited for the API to return, which
+      // surfaced as a 50–500 ms unresponsive UI on slow links
+      // and let an operator double-click a duplicate request.
+      window.localStorage.setItem("hecate.chatTarget", "agent");
+      window.localStorage.setItem("hecate.agentChatSessionID", "a1");
+
+      const seededSession = {
+        id: "a1",
+        title: "Repo work",
+        runtime_kind: "agent",
+        adapter_id: "hecate",
+        workspace: "/workspace",
+        task_id: "task_42",
+        latest_run_id: "run_99",
+        status: "awaiting_approval",
+        message_count: 1,
+        messages: [
+          {
+            id: "msg_assistant",
+            run_id: "run_99",
+            role: "assistant",
+            content: "",
+            status: "awaiting_approval",
+            created_at: "2026-04-20T00:00:01Z",
+            activities: [
+              {
+                id: "task:approval:appr_1",
+                type: "approval",
+                status: "awaiting_approval",
+                kind: "agent_loop_tool_call",
+                title: "Awaiting approval",
+                detail: "shell_exec",
+                approval_id: "appr_1",
+                needs_action: true,
+              },
+            ],
+          },
+        ],
+        created_at: "2026-04-20T00:00:00Z",
+        updated_at: "2026-04-20T00:00:01Z",
+      };
+      let resolveResolveCall: ((response: Response) => void) | undefined;
+      let resolveCalls = 0;
+      let refetchCalls = 0;
+      fetchMock.mockImplementation(async (input, init) => {
+        const url = String(input);
+        if (url === "/hecate/v1/agent-chat/sessions") {
+          return jsonResponse({ object: "agent_chat_sessions", data: [seededSession] });
+        }
+        if (url === "/hecate/v1/agent-chat/sessions/a1") {
+          refetchCalls += 1;
+          return jsonResponse({ object: "agent_chat_session", data: seededSession });
+        }
+        if (url === "/hecate/v1/agent-chat/sessions/a1/approvals?status=pending") {
+          return jsonResponse({ object: "list", data: [] });
+        }
+        if (url === "/hecate/v1/tasks/task_42/approvals/appr_1/resolve" && init?.method === "POST") {
+          resolveCalls += 1;
+          return new Promise<Response>((resolve) => {
+            resolveResolveCall = resolve;
+          });
+        }
+        return defaultBackendMock()(input, init);
+      });
+
+      const { result } = renderHook(() => useRuntimeConsole());
+      await waitFor(() => expect(result.current.state.loading).toBe(false));
+      await waitFor(() => expect(result.current.state.activeAgentChatSession?.task_id).toBe("task_42"));
+      const initialRefetches = refetchCalls;
+
+      let pendingResolve: Promise<boolean> | undefined;
+      await act(async () => {
+        pendingResolve = result.current.actions.resolveTaskApproval(
+          "task_42",
+          "appr_1",
+          { decision: "approve" },
+        );
+      });
+
+      // The API call is in flight; the optimistic patch must already
+      // be visible on the local session.
+      expect(resolveCalls).toBe(1);
+      const activity = result.current.state.activeAgentChatSession?.messages?.[0]?.activities?.[0];
+      expect(activity?.status).toBe("approved");
+      expect(activity?.needs_action).toBe(false);
+      // No refresh has fired yet — those are sequenced after the API
+      // returns. (initialRefetches accounts for the catch-up refetch
+      // when the session was hydrated.)
+      expect(refetchCalls).toBe(initialRefetches);
+
+      resolveResolveCall?.(new Response(null, { status: 204 }));
+      const ok = await act(async () => pendingResolve!);
+      expect(ok).toBe(true);
+      expect(refetchCalls).toBeGreaterThan(initialRefetches);
+    });
+
+    it("resolveTaskApproval rolls back the optimistic patch when the API rejects", async () => {
+      // Optimistic-before-call only works if a genuine failure
+      // restores the prior state — otherwise the operator sees the
+      // banner gone forever even though the run is still gated.
+      window.localStorage.setItem("hecate.chatTarget", "agent");
+      window.localStorage.setItem("hecate.agentChatSessionID", "a1");
+
+      const seededSession = {
+        id: "a1",
+        title: "Repo work",
+        runtime_kind: "agent",
+        adapter_id: "hecate",
+        workspace: "/workspace",
+        task_id: "task_42",
+        latest_run_id: "run_99",
+        status: "awaiting_approval",
+        message_count: 1,
+        messages: [
+          {
+            id: "msg_assistant",
+            run_id: "run_99",
+            role: "assistant",
+            content: "",
+            status: "awaiting_approval",
+            created_at: "2026-04-20T00:00:01Z",
+            activities: [
+              {
+                id: "task:approval:appr_1",
+                type: "approval",
+                status: "awaiting_approval",
+                kind: "agent_loop_tool_call",
+                title: "Awaiting approval",
+                detail: "shell_exec",
+                approval_id: "appr_1",
+                needs_action: true,
+              },
+            ],
+          },
+        ],
+        created_at: "2026-04-20T00:00:00Z",
+        updated_at: "2026-04-20T00:00:01Z",
+      };
+      fetchMock.mockImplementation(async (input, init) => {
+        const url = String(input);
+        if (url === "/hecate/v1/agent-chat/sessions") {
+          return jsonResponse({ object: "agent_chat_sessions", data: [seededSession] });
+        }
+        if (url === "/hecate/v1/agent-chat/sessions/a1") {
+          return jsonResponse({ object: "agent_chat_session", data: seededSession });
+        }
+        if (url === "/hecate/v1/agent-chat/sessions/a1/approvals?status=pending") {
+          return jsonResponse({ object: "list", data: [] });
+        }
+        if (url === "/hecate/v1/tasks/task_42/approvals/appr_1/resolve" && init?.method === "POST") {
+          return new Response(JSON.stringify({ error: { message: "upstream is unhappy" } }), {
+            status: 500,
+            headers: { "Content-Type": "application/json" },
+          });
+        }
+        return defaultBackendMock()(input, init);
+      });
+
+      const { result } = renderHook(() => useRuntimeConsole());
+      await waitFor(() => expect(result.current.state.loading).toBe(false));
+      await waitFor(() => expect(result.current.state.activeAgentChatSession?.task_id).toBe("task_42"));
+
+      let ok: boolean | undefined;
+      await act(async () => {
+        ok = await result.current.actions.resolveTaskApproval(
+          "task_42",
+          "appr_1",
+          { decision: "approve" },
+        );
+      });
+
+      expect(ok).toBe(false);
+      expect(result.current.state.notice?.kind).toBe("error");
+      // Rollback restored the original `awaiting_approval` status so
+      // the banner reappears and the operator can retry.
+      // NB: `refreshAgentChatSession` is NOT called on a generic
+      // failure (only on the "not pending" branch), so the only way
+      // the row returns to its prior state is via the rollback
+      // inside the catch.
+      const activity = result.current.state.activeAgentChatSession?.messages?.[0]?.activities?.[0];
+      expect(activity?.status).toBe("awaiting_approval");
+      expect(activity?.needs_action).toBe(true);
+    });
+
+    it("resolveTaskApproval rollback restores the right activity when activity.id is absent", async () => {
+      // AgentChatActivityRecord.id is optional. Earlier the rollback
+      // matched the snapshot row by `activity.id === activity.id`,
+      // which (a) fails to restore when the current row has no id
+      // and (b) would wrongly match the first id-less snapshot row
+      // if multiple activities lack ids. The fix: identify the
+      // target activity by `approval_id` (or the projected
+      // `task:approval:<id>` id), the same predicate the dedupe
+      // selection uses.
+      window.localStorage.setItem("hecate.chatTarget", "agent");
+      window.localStorage.setItem("hecate.agentChatSessionID", "a1");
+
+      const seededSession = {
+        id: "a1",
+        title: "Repo work",
+        runtime_kind: "agent",
+        adapter_id: "hecate",
+        workspace: "/workspace",
+        task_id: "task_42",
+        latest_run_id: "run_99",
+        status: "awaiting_approval",
+        message_count: 1,
+        messages: [
+          {
+            id: "msg_assistant",
+            run_id: "run_99",
+            role: "assistant",
+            content: "",
+            status: "awaiting_approval",
+            created_at: "2026-04-20T00:00:01Z",
+            activities: [
+              // Two id-less activities: one is the target approval,
+              // one is unrelated. A naïve `id === id` lookup in the
+              // snapshot would match the first id-less row instead
+              // of the right approval — proving why the predicate
+              // must key on approval_id.
+              {
+                type: "thinking",
+                title: "preparing",
+                detail: "warming up",
+              },
+              {
+                type: "approval",
+                status: "awaiting_approval",
+                kind: "agent_loop_tool_call",
+                title: "Awaiting approval",
+                detail: "shell_exec",
+                approval_id: "appr_1",
+                needs_action: true,
+              },
+            ],
+          },
+        ],
+        created_at: "2026-04-20T00:00:00Z",
+        updated_at: "2026-04-20T00:00:01Z",
+      };
+      fetchMock.mockImplementation(async (input, init) => {
+        const url = String(input);
+        if (url === "/hecate/v1/agent-chat/sessions") {
+          return jsonResponse({ object: "agent_chat_sessions", data: [seededSession] });
+        }
+        if (url === "/hecate/v1/agent-chat/sessions/a1") {
+          return jsonResponse({ object: "agent_chat_session", data: seededSession });
+        }
+        if (url === "/hecate/v1/agent-chat/sessions/a1/approvals?status=pending") {
+          return jsonResponse({ object: "list", data: [] });
+        }
+        if (url === "/hecate/v1/tasks/task_42/approvals/appr_1/resolve" && init?.method === "POST") {
+          return new Response(JSON.stringify({ error: { message: "upstream is unhappy" } }), {
+            status: 500,
+            headers: { "Content-Type": "application/json" },
+          });
+        }
+        return defaultBackendMock()(input, init);
+      });
+
+      const { result } = renderHook(() => useRuntimeConsole());
+      await waitFor(() => expect(result.current.state.loading).toBe(false));
+      await waitFor(() => expect(result.current.state.activeAgentChatSession?.task_id).toBe("task_42"));
+
+      let ok: boolean | undefined;
+      await act(async () => {
+        ok = await result.current.actions.resolveTaskApproval(
+          "task_42",
+          "appr_1",
+          { decision: "approve" },
+        );
+      });
+      expect(ok).toBe(false);
+
+      const activities = result.current.state.activeAgentChatSession?.messages?.[0]?.activities ?? [];
+      // The thinking row should be untouched.
+      const thinking = activities.find((a) => a.type === "thinking");
+      expect(thinking?.title).toBe("preparing");
+      // The approval row must be restored to its pre-resolve state
+      // — keyed by approval_id, not by the (absent) id field.
+      const approval = activities.find((a) => a.approval_id === "appr_1");
+      expect(approval?.status).toBe("awaiting_approval");
+      expect(approval?.needs_action).toBe(true);
+    });
+
+    it("resolveTaskApproval rolls back when the server says 'not pending' and the refresh also fails", async () => {
+      // The "already resolved upstream" race: another tab approved
+      // (or the run timed out) while this tab tried to reject. The
+      // server returns a "not pending" error. Optimistic patch
+      // currently shows OUR chosen decision ("rejected"), which may
+      // be wrong if the server actually approved. We try to refresh
+      // to pull server-truth; if THAT also fails (network blip,
+      // gateway transient), we cannot trust the optimistic patch
+      // and must roll back so the row reflects "still pending"
+      // rather than a possibly-wrong final state.
+      window.localStorage.setItem("hecate.chatTarget", "agent");
+      window.localStorage.setItem("hecate.agentChatSessionID", "a1");
+
+      const seededSession = {
+        id: "a1",
+        title: "Repo work",
+        runtime_kind: "agent",
+        adapter_id: "hecate",
+        workspace: "/workspace",
+        task_id: "task_42",
+        latest_run_id: "run_99",
+        status: "awaiting_approval",
+        message_count: 1,
+        messages: [
+          {
+            id: "msg_assistant",
+            run_id: "run_99",
+            role: "assistant",
+            content: "",
+            status: "awaiting_approval",
+            created_at: "2026-04-20T00:00:01Z",
+            activities: [
+              {
+                id: "task:approval:appr_1",
+                type: "approval",
+                status: "awaiting_approval",
+                kind: "agent_loop_tool_call",
+                title: "Awaiting approval",
+                detail: "shell_exec",
+                approval_id: "appr_1",
+                needs_action: true,
+              },
+            ],
+          },
+        ],
+        created_at: "2026-04-20T00:00:00Z",
+        updated_at: "2026-04-20T00:00:01Z",
+      };
+      let firstRefetchServed = false;
+      fetchMock.mockImplementation(async (input, init) => {
+        const url = String(input);
+        if (url === "/hecate/v1/agent-chat/sessions") {
+          return jsonResponse({ object: "agent_chat_sessions", data: [seededSession] });
+        }
+        if (url === "/hecate/v1/agent-chat/sessions/a1") {
+          // Serve the catch-up refetch on session select, then fail
+          // every subsequent refetch — including the one inside
+          // the not-pending branch.
+          if (!firstRefetchServed) {
+            firstRefetchServed = true;
+            return jsonResponse({ object: "agent_chat_session", data: seededSession });
+          }
+          return new Response(null, { status: 503 });
+        }
+        if (url === "/hecate/v1/agent-chat/sessions/a1/approvals?status=pending") {
+          return jsonResponse({ object: "list", data: [] });
+        }
+        if (url === "/hecate/v1/tasks/task_42/approvals/appr_1/resolve" && init?.method === "POST") {
+          return new Response(JSON.stringify({ error: { message: "approval is not pending" } }), {
+            status: 409,
+            headers: { "Content-Type": "application/json" },
+          });
+        }
+        return defaultBackendMock()(input, init);
+      });
+
+      const { result } = renderHook(() => useRuntimeConsole());
+      await waitFor(() => expect(result.current.state.loading).toBe(false));
+      await waitFor(() => expect(result.current.state.activeAgentChatSession?.task_id).toBe("task_42"));
+
+      let ok: boolean | undefined;
+      await act(async () => {
+        ok = await result.current.actions.resolveTaskApproval(
+          "task_42",
+          "appr_1",
+          { decision: "reject" },
+        );
+      });
+
+      // Both API and refresh failed — the function reports failure
+      // (rather than a misleading success) and rolls back.
+      expect(ok).toBe(false);
+      const activity = result.current.state.activeAgentChatSession?.messages?.[0]?.activities?.[0];
+      expect(activity?.status).toBe("awaiting_approval");
+      expect(activity?.needs_action).toBe(true);
+      expect(result.current.state.notice?.kind).toBe("error");
+    });
+
+    it("resolveTaskApproval rollback does not clobber a session the operator switched to mid-flight", async () => {
+      // Concurrency hazard: the operator clicks Approve on session
+      // a1, then navigates to a2 while the request is in flight.
+      // The API call rejects. A naïve rollback that does
+      // `setActiveAgentChatSession(snapshot)` would replace the
+      // active session (now a2) with a1's pre-resolve snapshot,
+      // dragging the operator back to a1. The functional updater
+      // must bail when current.id !== snapshot.id.
+      window.localStorage.setItem("hecate.chatTarget", "agent");
+      window.localStorage.setItem("hecate.agentChatSessionID", "a1");
+
+      const sessionA = {
+        id: "a1",
+        title: "A",
+        runtime_kind: "agent",
+        adapter_id: "hecate",
+        workspace: "/workspace",
+        task_id: "task_42",
+        latest_run_id: "run_99",
+        status: "awaiting_approval",
+        message_count: 1,
+        messages: [
+          {
+            id: "msg_a",
+            run_id: "run_99",
+            role: "assistant",
+            content: "",
+            status: "awaiting_approval",
+            created_at: "2026-04-20T00:00:01Z",
+            activities: [
+              {
+                id: "task:approval:appr_1",
+                type: "approval",
+                status: "awaiting_approval",
+                kind: "agent_loop_tool_call",
+                title: "Awaiting approval",
+                detail: "shell_exec",
+                approval_id: "appr_1",
+                needs_action: true,
+              },
+            ],
+          },
+        ],
+        created_at: "2026-04-20T00:00:00Z",
+        updated_at: "2026-04-20T00:00:01Z",
+      };
+      const sessionB = {
+        id: "a2",
+        title: "B",
+        runtime_kind: "agent",
+        adapter_id: "hecate",
+        workspace: "/workspace",
+        status: "completed",
+        message_count: 0,
+        messages: [],
+        created_at: "2026-04-20T00:00:02Z",
+        updated_at: "2026-04-20T00:00:02Z",
+      };
+      let resolveResolveCall: ((response: Response) => void) | undefined;
+      fetchMock.mockImplementation(async (input, init) => {
+        const url = String(input);
+        if (url === "/hecate/v1/agent-chat/sessions") {
+          return jsonResponse({ object: "agent_chat_sessions", data: [sessionA, sessionB] });
+        }
+        if (url === "/hecate/v1/agent-chat/sessions/a1") {
+          return jsonResponse({ object: "agent_chat_session", data: sessionA });
+        }
+        if (url === "/hecate/v1/agent-chat/sessions/a2") {
+          return jsonResponse({ object: "agent_chat_session", data: sessionB });
+        }
+        if (url.startsWith("/hecate/v1/agent-chat/sessions/") && url.includes("/approvals?status=pending")) {
+          return jsonResponse({ object: "list", data: [] });
+        }
+        if (url === "/hecate/v1/tasks/task_42/approvals/appr_1/resolve" && init?.method === "POST") {
+          return new Promise<Response>((resolve) => {
+            resolveResolveCall = (response) => resolve(response);
+          });
+        }
+        return defaultBackendMock()(input, init);
+      });
+
+      const { result } = renderHook(() => useRuntimeConsole());
+      await waitFor(() => expect(result.current.state.loading).toBe(false));
+      await waitFor(() => expect(result.current.state.activeAgentChatSession?.id).toBe("a1"));
+
+      // Operator clicks Approve on a1 (request hangs).
+      let pendingResolve: Promise<boolean> | undefined;
+      await act(async () => {
+        pendingResolve = result.current.actions.resolveTaskApproval(
+          "task_42",
+          "appr_1",
+          { decision: "approve" },
+        );
+      });
+      expect(result.current.state.activeAgentChatSession?.id).toBe("a1");
+
+      // Operator navigates to a2 while the resolve is still in
+      // flight.
+      await act(async () => {
+        await result.current.actions.selectChatSession("a2");
+      });
+      await waitFor(() => expect(result.current.state.activeAgentChatSession?.id).toBe("a2"));
+
+      // Now the API rejects. Rollback fires, but the active session
+      // is a2 — the rollback must NOT pull the operator back to a1.
+      resolveResolveCall?.(new Response(JSON.stringify({ error: { message: "upstream is unhappy" } }), {
+        status: 500,
+        headers: { "Content-Type": "application/json" },
+      }));
+      const ok = await act(async () => pendingResolve!);
+      expect(ok).toBe(false);
+      expect(result.current.state.activeAgentChatSession?.id).toBe("a2");
+    });
   });
 
   // ─── Agent-chat approvals state ───────────────────────────────────────────
