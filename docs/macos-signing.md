@@ -6,11 +6,15 @@
 > downloading a built `.dmg` don't need to read this — they just install
 > it like any other Mac app.
 
-A tag-pushed release `.dmg` is signed with a Developer ID Application
-certificate and notarized by Apple **when** the seven `APPLE_*` /
-`KEYCHAIN_PASSWORD` repo secrets are configured. Such bundles launch
-on a clean Mac with no Gatekeeper warning and drag-install to
-`/Applications` without `xattr`-fiddling.
+A `.dmg` produced by a release-workflow run is signed with a Developer
+ID Application certificate and notarized by Apple **when** the seven
+`APPLE_*` / `KEYCHAIN_PASSWORD` repo secrets are configured.
+"Release-workflow run" means any invocation of
+`.github/workflows/release.yml` — tag push (the common case) or
+manual `workflow_dispatch` (re-runs / hotfixes); both pass a
+non-empty `tagName` to the reusable workflow, satisfying the env
+gate. Such bundles launch on a clean Mac with no Gatekeeper warning
+and drag-install to `/Applications` without `xattr`-fiddling.
 
 Builds without the secrets — PR validation runs (intentionally; see
 `.github/workflows/tauri-build.yml` for why), fork PRs, releases cut
@@ -22,7 +26,7 @@ Gatekeeper on first launch.
 
 The CI workflow (`.github/workflows/_tauri-shared.yml`) reads the
 secrets via env. Setup steps below are what gets the secrets in
-place; once they land, the next tag-pushed release is signed.
+place; once they land, the next release-workflow run is signed.
 
 ## Prerequisites
 

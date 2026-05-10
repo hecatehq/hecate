@@ -47,8 +47,10 @@ What works:
 - Cross-platform CI matrix with PR validation, draft skipping, and run
   cancellation on push.
 - macOS bundles signed with a Developer ID Application certificate and
-  notarized by Apple on tag-pushed releases (when the `APPLE_*` /
-  `KEYCHAIN_PASSWORD` repo secrets are configured); see
+  notarized by Apple on release-workflow runs (any invocation of
+  `release.yml` — tag push or manual `workflow_dispatch` — sets
+  `inputs.tagName`, satisfying the env gate; the `APPLE_*` /
+  `KEYCHAIN_PASSWORD` repo secrets must also be configured); see
   [`macos-signing.md`](macos-signing.md) for the maintainer-side setup
   and rotation playbook. PR validation builds and Windows/Linux bundles
   remain unsigned by design.
@@ -148,10 +150,10 @@ approval/task behavior stays in `just test-acp-smoke`.
 Captured in detail at [`docs-ai/skills/tauri/SKILL.md`](../docs-ai/skills/tauri/SKILL.md);
 the ones likely to bite an operator:
 
-- **Gatekeeper / SmartScreen on first launch.** macOS bundles released
-  with the `APPLE_*` repo secrets configured (tag-pushed) are
-  signed+notarized — no first-launch warning. Pre-signing alpha bundles,
-  fork builds, or releases cut before the secrets landed need
+- **Gatekeeper / SmartScreen on first launch.** macOS bundles produced
+  by a release-workflow run with the `APPLE_*` repo secrets configured
+  are signed+notarized — no first-launch warning. Pre-signing alpha
+  bundles, fork builds, or releases cut before the secrets landed need
   right-click → Open the first time. Windows is unsigned regardless;
   click "More info" on the SmartScreen warning. Document in release
   notes when shipping an unsigned build.
