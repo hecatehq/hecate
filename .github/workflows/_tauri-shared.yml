@@ -194,6 +194,17 @@ jobs:
           APPLE_PASSWORD: ${{ matrix.os == 'macos-latest' && inputs.tagName != '' && secrets.APPLE_PASSWORD || '' }}
           APPLE_TEAM_ID: ${{ matrix.os == 'macos-latest' && inputs.tagName != '' && secrets.APPLE_TEAM_ID || '' }}
           KEYCHAIN_PASSWORD: ${{ matrix.os == 'macos-latest' && inputs.tagName != '' && secrets.KEYCHAIN_PASSWORD || '' }}
+          # Updater signing key. Same caller-side / called-side
+          # protection model as the Apple secrets above: scope to a
+          # release-workflow run with a non-empty tagName. When set,
+          # tauri-action signs the platform bundles and emits a
+          # latest.json manifest as a release asset that the in-app
+          # updater consumes. When empty (PR validation, missing
+          # secrets), unsigned bundles ship and the updater stays
+          # inert. See docs/desktop-updater-signing.md for the
+          # keypair custody checklist.
+          TAURI_SIGNING_PRIVATE_KEY: ${{ inputs.tagName != '' && secrets.TAURI_UPDATER_PRIVATE_KEY || '' }}
+          TAURI_SIGNING_PRIVATE_KEY_PASSWORD: ${{ inputs.tagName != '' && secrets.TAURI_UPDATER_PRIVATE_KEY_PASSWORD || '' }}
         with:
           projectPath: tauri
           tagName: ${{ inputs.tagName }}

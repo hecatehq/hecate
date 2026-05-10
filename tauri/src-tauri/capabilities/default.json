@@ -4,6 +4,7 @@
   "description": "Capability granted to the main application window",
   "windows": ["main"],
   "permissions": [
-    "core:default"
+    "core:default",
+    "updater:default"
   ]
 }

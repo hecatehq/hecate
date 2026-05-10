@@ -69,8 +69,14 @@ What doesn't yet:
 - No Homebrew formula or cask yet. A formula would help CLI installation, and
   a cask would help app distribution. macOS now signs+notarizes via
   `APPLE_*` repo secrets; a cask would still be additional polish.
-- No auto-update — plugin is wired but `active: false` until an update
-  endpoint is decided.
+- Auto-update is wired end-to-end (endpoint, capability, frontend
+  banner, signing in CI) but `active: false` until the operator
+  generates the updater keypair and pastes the pubkey into
+  `tauri.conf.json`. See [`desktop-updater-signing.md`](desktop-updater-signing.md)
+  for the keypair custody checklist. Once the pubkey lands and
+  `active: true`, every release cuts a `latest.json` manifest as
+  a release asset and existing installs surface a "Hecate X is
+  available — Install and Restart" banner on next launch.
 - No tray and no deep links.
 - Linux and Windows: build-only. Need an actual launch on each platform
   before claiming they work.
@@ -93,7 +99,6 @@ the bundle is polished enough to recommend.
 
 | Item | Cost / decision | Notes |
 |---|---|---|
-| **Auto-updater wiring** | Decide endpoint + generate keypair | `tauri-plugin-updater` is installed but `active: false`. Needs `bunx tauri signer generate -w ~/.tauri/hecate.key`, a static `latest.json` host (GitHub Release asset is fine), and the pubkey committed to `tauri.conf.json`. Probably wait until release cadence is established — auto-update on a weekly-bumping alpha is annoying. |
 | **Windows code signing** | EV cert (~$300+/yr) | Lower priority. Reputation builds over hundreds of installs anyway, so signing a low-volume alpha is mostly about removing the SmartScreen warning, not unlocking distribution. |
 
 ### Tier 3 — features

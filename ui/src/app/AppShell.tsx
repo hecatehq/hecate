@@ -2,6 +2,7 @@ import { Suspense, lazy, useEffect, useState } from "react";
 
 import type { RuntimeConsoleViewModel } from "./useRuntimeConsole";
 import type { AgentChatUsageRecord } from "../types/runtime";
+import { UpdateBanner } from "../features/shared/UpdateBanner";
 
 // Each workspace view is its own dynamic chunk so the initial
 // page load only ships the shell + active workspace, not all six.
@@ -237,6 +238,7 @@ function AuthenticatedShell({
 
         {/* Main content */}
         <main className="hecate-content">
+          <UpdateBanner />
           {state.error && <div className="page-banner page-banner--error">{state.error}</div>}
           <div className={`console-content${isBare ? " console-content--bare" : ""}`}>
             <Suspense fallback={<WorkspaceFallback />}>
