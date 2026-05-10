@@ -576,6 +576,9 @@ function AdapterStatusSection({ state, actions }: Props) {
             health={state.agentAdapterHealthByID.get(adapter.id) ?? null}
             loading={Boolean(state.agentAdapterHealthLoadingByID.get(adapter.id))}
             onTest={() => void actions.probeAgentAdapter(adapter.id)}
+            onSaveCredential={(value) => actions.setAgentAdapterCredential(adapter.id, value, "CLAUDE_CODE_OAUTH_TOKEN")}
+            onDeleteCredential={() => actions.deleteAgentAdapterCredential(adapter.id, "CLAUDE_CODE_OAUTH_TOKEN")}
+            onCopyCommand={() => void actions.copyCommand("claude setup-token")}
           />
         ))}
       </div>
@@ -589,12 +592,18 @@ function AdapterStatusRow({
   health,
   loading,
   onTest,
+  onSaveCredential,
+  onDeleteCredential,
+  onCopyCommand,
 }: {
   adapter: AgentAdapterRecord;
   divider: boolean;
   health: AgentAdapterHealthRecord | null;
   loading: boolean;
   onTest: () => void;
+  onSaveCredential: (value: string) => Promise<boolean>;
+  onDeleteCredential: () => Promise<boolean>;
+  onCopyCommand: () => void;
 }) {
   // Two status sources: the dashboard's /hecate/v1/agent-adapters availability
   // (binary discovery only) and the on-demand probe (full handshake).
@@ -696,6 +705,21 @@ function AdapterStatusRow({
             {adapter.auth_error}
           </div>
         )}
+        {adapter.id === "claude_code" && (
+          <ClaudeCredentialSetup
+            configured={Boolean(adapter.credential_configured)}
+            preview={adapter.credential_preview}
+            authNeedsAttention={Boolean(
+              health?.status === "auth_required" ||
+              adapter.auth_status === "unauthenticated" ||
+              adapter.auth_status === "unknown"
+            )}
+            onCopyCommand={onCopyCommand}
+            onSave={onSaveCredential}
+            onDelete={onDeleteCredential}
+            onTest={onTest}
+          />
+        )}
       </div>
       <button
         type="button"
@@ -707,6 +731,101 @@ function AdapterStatusRow({
       >
         <Icon d={Icons.refresh} size={13} /> {loading ? "Testing…" : "Test"}
       </button>
+    </div>
+  );
+}
+
+function ClaudeCredentialSetup({
+  configured,
+  preview,
+  authNeedsAttention,
+  onCopyCommand,
+  onSave,
+  onDelete,
+  onTest,
+}: {
+  configured: boolean;
+  preview?: string;
+  authNeedsAttention: boolean;
+  onCopyCommand: () => void;
+  onSave: (value: string) => Promise<boolean>;
+  onDelete: () => Promise<boolean>;
+  onTest: () => void;
+}) {
+  const [token, setToken] = useState("");
+  const [saving, setSaving] = useState(false);
+  const [removing, setRemoving] = useState(false);
+  if (!configured && !authNeedsAttention) {
+    return null;
+  }
+
+  async function save() {
+    const trimmed = token.trim();
+    if (!trimmed) return;
+    setSaving(true);
+    try {
+      if (await onSave(trimmed)) {
+        setToken("");
+        onTest();
+      }
+    } finally {
+      setSaving(false);
+    }
+  }
+
+  async function remove() {
+    setRemoving(true);
+    try {
+      await onDelete();
+    } finally {
+      setRemoving(false);
+    }
+  }
+
+  return (
+    <div
+      data-testid="claude-code-guided-setup"
+      style={{
+        marginTop: 10,
+        padding: 10,
+        border: "1px solid rgba(245, 158, 11, 0.28)",
+        borderRadius: 10,
+        background: "rgba(245, 158, 11, 0.06)",
+      }}
+    >
+      <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", gap: 10, marginBottom: 8 }}>
+        <div>
+          <div style={{ fontSize: 11, fontWeight: 600, color: "var(--amber)" }}>Claude Code guided setup</div>
+          <div style={{ fontSize: 11, color: "var(--t2)", lineHeight: 1.4 }}>
+            Run <code>claude setup-token</code>, paste the token here, then Hecate injects it only into Claude ACP.
+          </div>
+        </div>
+        <button type="button" className="btn btn-ghost btn-sm" onClick={onCopyCommand}>
+          Copy command
+        </button>
+      </div>
+      {configured && (
+        <div style={{ display: "flex", alignItems: "center", gap: 8, marginBottom: 8, fontSize: 11, color: "var(--t2)" }}>
+          <span>Stored token {preview ? <span style={{ fontFamily: "var(--font-mono)", color: "var(--t1)" }}>{preview}</span> : "configured"}</span>
+          <button type="button" className="btn btn-ghost btn-sm" onClick={() => void remove()} disabled={removing}>
+            {removing ? "Removing..." : "Remove"}
+          </button>
+        </div>
+      )}
+      <div style={{ display: "flex", gap: 8 }}>
+        <input
+          value={token}
+          onChange={(event) => setToken(event.target.value)}
+          placeholder="Paste CLAUDE_CODE_OAUTH_TOKEN"
+          type="password"
+          className="input"
+          style={{ flex: 1, minWidth: 180 }}
+          aria-label="Claude Code OAuth token"
+        />
+        <button type="button" className="btn btn-primary btn-sm" onClick={() => void save()} disabled={saving || token.trim() === ""}>
+          {saving ? "Saving..." : "Save + test"}
+        </button>
+      </div>
     </div>
   );
 }

@@ -16,10 +16,13 @@ func DetectAuthStatus(adapter Adapter) (string, string) {
 		}
 		return AuthStatusUnauthenticated, "Run codex login, or set OPENAI_API_KEY for the adapter environment."
 	case "claude_code":
-		if envAny("ANTHROPIC_API_KEY", "CLAUDE_CODE_OAUTH_TOKEN") || fileAny("${HOME}/.claude.json", "${HOME}/.claude/settings.json") {
+		if envAny("ANTHROPIC_API_KEY", "ANTHROPIC_AUTH_TOKEN", "CLAUDE_CODE_OAUTH_TOKEN") {
 			return AuthStatusOK, ""
 		}
-		return AuthStatusUnknown, "Run claude /status or claude login if the ACP probe reports auth or billing errors."
+		if fileAny("${HOME}/.claude.json", "${HOME}/.claude/settings.json", "${HOME}/.claude/.credentials.json") {
+			return AuthStatusUnknown, "Claude Code config is present, but the ACP adapter may still need adapter-visible auth. Use Test adapter; if it fails, " + claudeCodeACPAuthHint()
+		}
+		return AuthStatusUnknown, "Use Test adapter; if Claude Code reports auth errors, " + claudeCodeACPAuthHint()
 	case "cursor_agent":
 		if envAny("CURSOR_API_KEY") || fileAny("${HOME}/.cursor", "${HOME}/Library/Application Support/Cursor") {
 			return AuthStatusOK, ""
@@ -28,6 +31,10 @@ func DetectAuthStatus(adapter Adapter) (string, string) {
 	default:
 		return AuthStatusUnknown, "No auth heuristic is available for this adapter."
 	}
+}
+
+func claudeCodeACPAuthHint() string {
+	return "set CLAUDE_CODE_OAUTH_TOKEN from `claude setup-token`, ANTHROPIC_API_KEY, or ANTHROPIC_AUTH_TOKEN for the adapter environment."
 }
 
 func envAny(names ...string) bool {

@@ -395,6 +395,29 @@ func TestSanitizedEnvPreservesAgentAndRuntimeEssentials(t *testing.T) {
 	}
 }
 
+func TestMergeEnvOverridesSanitizedBase(t *testing.T) {
+	t.Parallel()
+
+	got := mergeEnv([]string{
+		"PATH=/bin",
+		"CLAUDE_CODE_OAUTH_TOKEN=old",
+		"HOME=/tmp/home",
+	}, []string{
+		"CLAUDE_CODE_OAUTH_TOKEN=new",
+		"BAD_ENTRY",
+		"CURSOR_API_KEY=cursor-token",
+	})
+	want := []string{
+		"PATH=/bin",
+		"HOME=/tmp/home",
+		"CLAUDE_CODE_OAUTH_TOKEN=new",
+		"CURSOR_API_KEY=cursor-token",
+	}
+	if strings.Join(got, "\n") != strings.Join(want, "\n") {
+		t.Fatalf("mergeEnv() = %#v, want %#v", got, want)
+	}
+}
+
 func TestNormalizeOutputPreservesPlainText(t *testing.T) {
 	t.Parallel()
 
@@ -438,5 +461,14 @@ func TestNormalizeErrorTagsClaudeBillingJSONRPC(t *testing.T) {
 	want := "Claude Code error (billing_error): Credit balance is too low"
 	if got != want {
 		t.Fatalf("NormalizeError = %q, want %q", got, want)
+	}
+}
+
+func TestNormalizeErrorExplainsClaudeAuthRequirement(t *testing.T) {
+	t.Parallel()
+
+	got := NormalizeError("Claude Code", errors.New(`{"code":-32603,"message":"Authentication required"}`))
+	if !strings.Contains(got, "adapter-visible authentication") || !strings.Contains(got, "ANTHROPIC_API_KEY") {
+		t.Fatalf("NormalizeError = %q, want Claude ACP auth guidance", got)
 	}
 }

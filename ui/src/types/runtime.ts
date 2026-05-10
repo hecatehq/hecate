@@ -247,6 +247,8 @@ export type AgentAdapterRecord = {
   version_outside_range?: boolean;
   auth_status?: "ok" | "unauthenticated" | "billing" | "unknown" | string;
   auth_error?: string;
+  credential_configured?: boolean;
+  credential_preview?: string;
 };
 
 export type AgentAdapterResponse = {
@@ -564,6 +566,16 @@ export type AgentAdapterProbeResponse = {
   data: {
     adapter: AgentAdapterRecord;
     health: AgentAdapterHealthRecord;
+  };
+};
+
+export type AgentAdapterCredentialResponse = {
+  object: string;
+  data: {
+    adapter_id: string;
+    name: string;
+    configured: boolean;
+    preview?: string;
   };
 };
 

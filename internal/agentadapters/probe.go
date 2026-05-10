@@ -91,6 +91,10 @@ func SetProbeMetrics(metrics *telemetry.AgentAdapterMetrics) {
 // will see no charge. The `cwd` passed to NewSession is a temporary
 // directory that's removed before Probe returns.
 func Probe(ctx context.Context, adapterID string) (res ProbeResult) {
+	return ProbeWithEnv(ctx, adapterID, nil)
+}
+
+func ProbeWithEnv(ctx context.Context, adapterID string, extraEnv []string) (res ProbeResult) {
 	defer func() {
 		// Fire the probe counter at the very end, after every return
 		// path has converged on res.Status. Inline-defer rather than
@@ -144,7 +148,7 @@ func Probe(ctx context.Context, adapterID string) (res ProbeResult) {
 	cmd := exec.CommandContext(context.Background(), path, args...)
 	configureCommandProcessGroup(cmd)
 	cmd.Dir = workspace
-	cmd.Env = sanitizedEnv(os.Environ())
+	cmd.Env = mergeEnv(sanitizedEnv(os.Environ()), extraEnv)
 
 	stdin, err := cmd.StdinPipe()
 	if err != nil {
@@ -199,6 +203,9 @@ func Probe(ctx context.Context, adapterID string) (res ProbeResult) {
 	if err != nil {
 		res.Stderr = strings.TrimSpace(stderr.String())
 		res.Status, res.Hint = classifyAdapterError(err.Error(), res.Stderr)
+		if adapterID == "claude_code" && claudeCodeErrorNeedsAdapterVisibleAuth(err.Error(), res.Stderr) {
+			res.Hint = "Claude Code ACP needs adapter-visible auth. " + claudeCodeACPAuthHint()
+		}
 		res.Error = err.Error()
 		res.DurationMS = elapsedMS(start)
 		return res
@@ -214,6 +221,9 @@ func Probe(ctx context.Context, adapterID string) (res ProbeResult) {
 	if err != nil {
 		res.Stderr = strings.TrimSpace(stderr.String())
 		res.Status, res.Hint = classifyAdapterError(err.Error(), res.Stderr)
+		if adapterID == "claude_code" && claudeCodeErrorNeedsAdapterVisibleAuth(err.Error(), res.Stderr) {
+			res.Hint = "Claude Code ACP needs adapter-visible auth. " + claudeCodeACPAuthHint()
+		}
 		res.Error = err.Error()
 		res.DurationMS = elapsedMS(start)
 		return res
@@ -224,6 +234,33 @@ func Probe(ctx context.Context, adapterID string) (res ProbeResult) {
 	res.Stderr = strings.TrimSpace(stderr.String())
 	res.DurationMS = elapsedMS(start)
 	return res
+}
+
+func claudeCodeErrorNeedsAdapterVisibleAuth(errText, stderr string) bool {
+	combined := strings.ToLower(errText + "\n" + stderr)
+	if matchesAny(combined, "credit balance", "payment required", "subscription required", "billing") {
+		return false
+	}
+	return matchesAny(combined,
+		"authentication required",
+		"unauthenticated",
+		"unauthorized",
+		"please log in",
+		"please login",
+		"please sign in",
+		"login required",
+		"sign in required",
+		"not logged in",
+		"api key",
+		"apikey",
+		"missing credentials",
+		"invalid credentials",
+		"credential",
+		"401 unauthorized",
+		" 401 ",
+		"403 forbidden",
+		" 403 ",
+	)
 }
 
 // classifyAdapterError sorts a (raw error, stderr) pair into either

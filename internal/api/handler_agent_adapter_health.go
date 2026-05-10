@@ -48,10 +48,12 @@ func (h *Handler) HandleAgentAdapterHealth(w http.ResponseWriter, r *http.Reques
 	}
 
 	probe := h.agentAdapterProbe
+	var result agentadapters.ProbeResult
 	if probe == nil {
-		probe = agentadapters.Probe
+		result = agentadapters.ProbeWithEnv(ctx, id, h.agentAdapterCredentialEnv(ctx, id))
+	} else {
+		result = probe(ctx, id)
 	}
-	result := probe(ctx, id)
 	WriteJSON(w, http.StatusOK, AgentAdapterHealthResponse{
 		Object: "agent_adapter_health",
 		Data:   result,

@@ -11,6 +11,7 @@ import (
 
 	"github.com/hecate/agent-runtime/internal/agentadapters"
 	"github.com/hecate/agent-runtime/internal/config"
+	"github.com/hecate/agent-runtime/internal/controlplane"
 )
 
 // TestAgentAdapterHealthSurfacesProbeResult covers the happy-path
@@ -169,5 +170,65 @@ func TestAgentAdapterProbeEndpointReturnsFreshAdapterAndHealth(t *testing.T) {
 	}
 	if resp.Data.Health.Status != agentadapters.ProbeStatusReady || resp.Data.Health.DurationMS != 42 {
 		t.Fatalf("health = %#v, want ready duration 42", resp.Data.Health)
+	}
+}
+
+func TestAgentAdapterCredentialEndpointsStoreAndDeleteCredential(t *testing.T) {
+	t.Parallel()
+
+	logger := slog.New(slog.NewJSONHandler(io.Discard, nil))
+	store := controlplane.NewMemoryStore()
+	apiHandler := NewHandler(config.Config{}, logger, nil, store, nil, nil)
+	apiHandler.SetSecretCipher(newTestCipherForAPI(t))
+	server := NewServer(logger, apiHandler)
+	client := newAPITestClient(t, server)
+
+	set := mustRequestJSON[AgentAdapterCredentialResponse](client, http.MethodPut, "/hecate/v1/agent-adapters/claude_code/credentials", `{"value":"token-secret"}`)
+	if set.Object != "agent_adapter_credential" {
+		t.Fatalf("object = %q, want agent_adapter_credential", set.Object)
+	}
+	if set.Data.AdapterID != "claude_code" || set.Data.Name != claudeCodeOAuthTokenName || !set.Data.Configured {
+		t.Fatalf("set response = %#v, want configured claude token", set.Data)
+	}
+	if strings.Contains(set.Data.Preview, "token-secret") {
+		t.Fatalf("preview leaked full token: %q", set.Data.Preview)
+	}
+
+	state, err := store.Snapshot(context.Background())
+	if err != nil {
+		t.Fatalf("Snapshot: %v", err)
+	}
+	if got := len(state.AgentAdapterCredentials); got != 1 {
+		t.Fatalf("credentials len = %d, want 1", got)
+	}
+	if state.AgentAdapterCredentials[0].ValueEncrypted == "token-secret" {
+		t.Fatal("credential was stored in plaintext")
+	}
+
+	env := apiHandler.agentAdapterCredentialEnv(context.Background(), "claude_code")
+	if got, want := strings.Join(env, "\n"), claudeCodeOAuthTokenName+"=token-secret"; got != want {
+		t.Fatalf("credential env = %q, want %q", got, want)
+	}
+
+	deleted := mustRequestJSON[AgentAdapterCredentialResponse](client, http.MethodDelete, "/hecate/v1/agent-adapters/claude_code/credentials/CLAUDE_CODE_OAUTH_TOKEN", "")
+	if deleted.Data.Configured {
+		t.Fatalf("delete response configured = true, want false")
+	}
+	if env := apiHandler.agentAdapterCredentialEnv(context.Background(), "claude_code"); len(env) != 0 {
+		t.Fatalf("credential env after delete = %#v, want empty", env)
+	}
+}
+
+func TestAgentAdapterCredentialEndpointRequiresSecretStorage(t *testing.T) {
+	t.Parallel()
+
+	logger := slog.New(slog.NewJSONHandler(io.Discard, nil))
+	apiHandler := NewHandler(config.Config{}, logger, nil, controlplane.NewMemoryStore(), nil, nil)
+	server := NewServer(logger, apiHandler)
+	client := newAPITestClient(t, server)
+
+	rec := client.mustRequestStatus(http.StatusBadRequest, http.MethodPut, "/hecate/v1/agent-adapters/claude_code/credentials", `{"value":"token"}`)
+	if !strings.Contains(rec.Body.String(), "secret storage") {
+		t.Fatalf("response = %s, want secret storage error", rec.Body.String())
 	}
 }

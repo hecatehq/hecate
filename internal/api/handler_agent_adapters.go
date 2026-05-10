@@ -1,6 +1,7 @@
 package api
 
 import (
+	"context"
 	"net/http"
 	"strings"
 
@@ -11,7 +12,7 @@ func (h *Handler) HandleAgentAdapters(w http.ResponseWriter, r *http.Request) {
 	items := agentadapters.List(r.Context())
 	data := make([]AgentAdapterResponseItem, 0, len(items))
 	for _, item := range items {
-		data = append(data, renderAgentAdapterItem(item))
+		data = append(data, h.renderAgentAdapterItem(r.Context(), item))
 	}
 
 	WriteJSON(w, http.StatusOK, AgentAdapterResponse{
@@ -33,11 +34,13 @@ func (h *Handler) HandleAgentAdapterProbe(w http.ResponseWriter, r *http.Request
 		return
 	}
 	probe := h.agentAdapterProbe
+	var result agentadapters.ProbeResult
 	if probe == nil {
-		probe = agentadapters.Probe
+		result = agentadapters.ProbeWithEnv(ctx, id, h.agentAdapterCredentialEnv(ctx, id))
+	} else {
+		result = probe(ctx, id)
 	}
-	result := probe(ctx, id)
-	item := renderAgentAdapterItem(status)
+	item := h.renderAgentAdapterItem(ctx, status)
 	item.AuthStatus, item.AuthError = authStatusFromProbe(result, item.AuthStatus, item.AuthError)
 	WriteJSON(w, http.StatusOK, AgentAdapterProbeResponse{
 		Object: "agent_adapter_probe",
@@ -65,7 +68,7 @@ func (h *Handler) HandleAgentAdapterRefreshLauncher(w http.ResponseWriter, r *ht
 	}
 	WriteJSON(w, http.StatusOK, AgentAdapterResponse{
 		Object: "agent_adapters",
-		Data:   []AgentAdapterResponseItem{renderAgentAdapterItem(status)},
+		Data:   []AgentAdapterResponseItem{h.renderAgentAdapterItem(r.Context(), status)},
 	})
 }
 
@@ -101,6 +104,25 @@ func renderAgentAdapterItem(item agentadapters.Status) AgentAdapterResponseItem 
 		AuthStatus:          item.AuthStatus,
 		AuthError:           item.AuthError,
 	}
+}
+
+func (h *Handler) renderAgentAdapterItem(ctx context.Context, item agentadapters.Status) AgentAdapterResponseItem {
+	rendered := renderAgentAdapterItem(item)
+	if h == nil || h.controlPlane == nil {
+		return rendered
+	}
+	state, err := h.controlPlane.Snapshot(ctx)
+	if err != nil {
+		return rendered
+	}
+	for _, credential := range state.AgentAdapterCredentials {
+		if credential.AdapterID == item.ID {
+			rendered.CredentialConfigured = true
+			rendered.CredentialPreview = credential.ValuePreview
+			break
+		}
+	}
+	return rendered
 }
 
 func authStatusFromProbe(result agentadapters.ProbeResult, fallbackStatus, fallbackError string) (string, string) {

@@ -598,6 +598,35 @@ func sanitizedEnv(env []string) []string {
 	return out
 }
 
+func mergeEnv(base []string, overrides []string) []string {
+	if len(overrides) == 0 {
+		return append([]string(nil), base...)
+	}
+	names := make(map[string]struct{}, len(overrides))
+	filteredOverrides := make([]string, 0, len(overrides))
+	for _, entry := range overrides {
+		name, value, ok := strings.Cut(entry, "=")
+		name = strings.TrimSpace(name)
+		if !ok || name == "" {
+			continue
+		}
+		names[name] = struct{}{}
+		filteredOverrides = append(filteredOverrides, name+"="+value)
+	}
+	out := make([]string, 0, len(base)+len(filteredOverrides))
+	for _, entry := range base {
+		name, _, ok := strings.Cut(entry, "=")
+		if ok {
+			if _, replace := names[name]; replace {
+				continue
+			}
+		}
+		out = append(out, entry)
+	}
+	out = append(out, filteredOverrides...)
+	return out
+}
+
 func captureGitDiff(ctx context.Context, workspace string, maxBytes int64) (string, string) {
 	diffCtx, cancel := context.WithTimeout(ctx, 5*time.Second)
 	defer cancel()

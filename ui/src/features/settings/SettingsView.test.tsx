@@ -382,5 +382,58 @@ describe("SettingsView external agents tab", () => {
       expect(button.disabled).toBe(true);
       expect(button.textContent).toMatch(/Testing/);
     });
+
+    it("shows Claude Code guided setup and saves the pasted token", async () => {
+      const setAgentAdapterCredential = vi.fn(async () => true);
+      const probeAgentAdapter = vi.fn(async () => null);
+      const { state, actions, user } = setup(withAdapter({
+        agentAdapters: [
+          {
+            id: "claude_code",
+            name: "Claude Code",
+            kind: "acp",
+            command: "claude-agent-acp",
+            available: true,
+            status: "available",
+            cost_mode: "external",
+            auth_status: "unknown",
+            auth_error: "Use Test adapter; if Claude Code reports auth errors, set CLAUDE_CODE_OAUTH_TOKEN.",
+          },
+        ],
+      }), { setAgentAdapterCredential, probeAgentAdapter });
+      render(<SettingsView state={state} actions={actions} />);
+      await user.click(screen.getByRole("button", { name: "External agents" }));
+
+      expect(await screen.findByTestId("claude-code-guided-setup")).toBeTruthy();
+      await user.type(screen.getByLabelText("Claude Code OAuth token"), "claude-token");
+      await user.click(screen.getByRole("button", { name: "Save + test" }));
+
+      expect(setAgentAdapterCredential).toHaveBeenCalledWith("claude_code", "claude-token", "CLAUDE_CODE_OAUTH_TOKEN");
+      expect(probeAgentAdapter).toHaveBeenCalledWith("claude_code");
+    });
+
+    it("can remove a stored Claude Code token", async () => {
+      const deleteAgentAdapterCredential = vi.fn(async () => true);
+      const { state, actions, user } = setup(withAdapter({
+        agentAdapters: [
+          {
+            id: "claude_code",
+            name: "Claude Code",
+            kind: "acp",
+            command: "claude-agent-acp",
+            available: true,
+            status: "available",
+            cost_mode: "external",
+            credential_configured: true,
+            credential_preview: "clau...oken",
+          },
+        ],
+      }), { deleteAgentAdapterCredential });
+      render(<SettingsView state={state} actions={actions} />);
+      await user.click(screen.getByRole("button", { name: "External agents" }));
+      await user.click(await screen.findByRole("button", { name: "Remove" }));
+
+      expect(deleteAgentAdapterCredential).toHaveBeenCalledWith("claude_code", "CLAUDE_CODE_OAUTH_TOKEN");
+    });
   });
 });

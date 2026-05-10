@@ -31,6 +31,9 @@ func NormalizeError(adapterName string, err error) string {
 	if raw == "" {
 		return ""
 	}
+	if adapterName == "Claude Code" && isAuthErrorText(raw) {
+		return "Claude Code needs adapter-visible authentication: " + claudeCodeACPAuthHint() + " Restart Hecate after changing environment credentials."
+	}
 	parsed, ok := parseJSONRPCError(raw)
 	if !ok {
 		return raw
@@ -45,10 +48,22 @@ func NormalizeError(adapterName string, err error) string {
 	if adapterName == "" {
 		adapterName = "Agent adapter"
 	}
+	if adapterName == "Claude Code" && isAuthErrorText(message) {
+		return "Claude Code needs adapter-visible authentication: " + claudeCodeACPAuthHint() + " Restart Hecate after changing environment credentials."
+	}
 	if kind := parsed.Data.ErrorKind; kind != "" {
 		return adapterName + " error (" + kind + "): " + message
 	}
 	return adapterName + " error: " + message
+}
+
+func isAuthErrorText(text string) bool {
+	lower := strings.ToLower(text)
+	return strings.Contains(lower, "authentication required") ||
+		strings.Contains(lower, "not logged in") ||
+		strings.Contains(lower, "please log in") ||
+		strings.Contains(lower, "please login") ||
+		strings.Contains(lower, "unauthenticated")
 }
 
 type jsonRPCErrorPayload struct {
