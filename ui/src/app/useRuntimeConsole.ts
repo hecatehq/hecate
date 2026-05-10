@@ -30,6 +30,8 @@ import {
   listAgentChatApprovals as listAgentChatApprovalsRequest,
   listAgentChatGrants as listAgentChatGrantsRequest,
   probeAgentAdapter as probeAgentAdapterRequest,
+  setAgentAdapterCredential as setAgentAdapterCredentialRequest,
+  deleteAgentAdapterCredential as deleteAgentAdapterCredentialRequest,
   revertAgentChatMessageFiles as revertAgentChatMessageFilesRequest,
   resolveTaskApproval as resolveTaskApprovalRequest,
   resolveAgentChatApproval as resolveAgentChatApprovalRequest,
@@ -1825,6 +1827,40 @@ export function useRuntimeConsole() {
     }
   }
 
+  async function setAgentAdapterCredential(adapterID: string, value: string, name?: string): Promise<boolean> {
+    try {
+      const payload = await setAgentAdapterCredentialRequest(adapterID, value, name);
+      setAgentAdapters((current) => current.map((item) => item.id === adapterID
+        ? { ...item, credential_configured: payload.data.configured, credential_preview: payload.data.preview }
+        : item));
+      setNoticeMessage("success", "Adapter credential saved.");
+      return true;
+    } catch (error) {
+      setNoticeMessage("error", error instanceof Error ? error.message : "Failed to save adapter credential.");
+      return false;
+    }
+  }
+
+  async function deleteAgentAdapterCredential(adapterID: string, name: string): Promise<boolean> {
+    try {
+      await deleteAgentAdapterCredentialRequest(adapterID, name);
+      setAgentAdapters((current) => current.map((item) => item.id === adapterID
+        ? { ...item, credential_configured: false, credential_preview: undefined }
+        : item));
+      setAgentAdapterHealthByID((current) => {
+        if (!current.has(adapterID)) return current;
+        const next = new Map(current);
+        next.delete(adapterID);
+        return next;
+      });
+      setNoticeMessage("success", "Adapter credential removed.");
+      return true;
+    } catch (error) {
+      setNoticeMessage("error", error instanceof Error ? error.message : "Failed to remove adapter credential.");
+      return false;
+    }
+  }
+
   async function renameChatSession(id: string, title: string) {
     try {
       const payload = await updateChatSessionRequest(id, title);
@@ -1998,6 +2034,8 @@ export function useRuntimeConsole() {
       listAgentChatGrants,
       deleteAgentChatGrant,
       probeAgentAdapter,
+      setAgentAdapterCredential,
+      deleteAgentAdapterCredential,
       dismissNotice: () => setNotice(null),
     },
   };

@@ -36,7 +36,7 @@ own the `hecate-acp` bridge process.
 | Adapter | How Hecate starts it | Auth expected by the underlying agent |
 |---|---|---|
 | Codex | Hecate-managed launcher for `@zed-industries/codex-acp` via local `npx`; direct `codex-acp` also works | Codex CLI / adapter login or config |
-| Claude Code | Hecate-managed launcher for `@agentclientprotocol/claude-agent-acp` via local `npx`; direct `claude-agent-acp` also works | Claude agent / adapter login or config |
+| Claude Code | Hecate-managed launcher for `@agentclientprotocol/claude-agent-acp` via local `npx`; direct `claude-agent-acp` also works | Adapter-visible Claude auth: `CLAUDE_CODE_OAUTH_TOKEN` from `claude setup-token`, `ANTHROPIC_API_KEY`, or `ANTHROPIC_AUTH_TOKEN` |
 | Cursor Agent | `cursor-agent acp` | `cursor-agent login` or `CURSOR_API_KEY` |
 
 ## Quick start from the operator UI
@@ -68,6 +68,17 @@ curl -s http://127.0.0.1:8765/hecate/v1/agent-adapters | jq
 
 Discovery reports command availability, tested version range, and lightweight
 auth hints (`auth_status`: `ok`, `unauthenticated`, `billing`, or `unknown`).
+
+Claude Code has one important wrinkle: a normal interactive `claude /login`
+or `~/.claude.json` config can make the standalone Claude Code CLI work while
+the ACP adapter still reports `Authentication required`. If **Test** fails and
+you want to use your Claude subscription instead of an API key, open
+Settings → External agents, run `claude setup-token`, paste the printed token
+into the Claude Code guided setup card, and click **Save + test**. Hecate
+stores the token in the local control-plane secret store and injects it only
+into `claude-agent-acp` as `CLAUDE_CODE_OAUTH_TOKEN`. `ANTHROPIC_API_KEY` and
+`ANTHROPIC_AUTH_TOKEN` also work when you want to supply Anthropic credentials
+directly.
 Use Settings → External agents → **Test**, or call the probe endpoint, for a
 full spawn + ACP handshake + no-op session check:
 

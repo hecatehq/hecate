@@ -83,6 +83,32 @@ func TestClassifyAdapterError(t *testing.T) {
 	}
 }
 
+func TestClaudeCodeErrorNeedsAdapterVisibleAuth(t *testing.T) {
+	t.Parallel()
+
+	authCases := []string{
+		"Authentication required",
+		"missing credentials",
+		"request returned 401 unauthorized",
+	}
+	for _, tc := range authCases {
+		if !claudeCodeErrorNeedsAdapterVisibleAuth(tc, "") {
+			t.Fatalf("claudeCodeErrorNeedsAdapterVisibleAuth(%q) = false, want true", tc)
+		}
+	}
+
+	billingCases := []string{
+		"Credit balance is too low",
+		"payment required",
+		"subscription required",
+	}
+	for _, tc := range billingCases {
+		if claudeCodeErrorNeedsAdapterVisibleAuth(tc, "") {
+			t.Fatalf("claudeCodeErrorNeedsAdapterVisibleAuth(%q) = true, want false", tc)
+		}
+	}
+}
+
 // TestProbeUnknownAdapter ensures we surface a clean error rather than
 // crashing or attempting to spawn a phantom binary.
 func TestProbeUnknownAdapter(t *testing.T) {

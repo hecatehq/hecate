@@ -14,6 +14,7 @@ import type {
   PricebookImportDiffResponse,
   ProviderPresetResponse,
   AgentAdapterProbeResponse,
+  AgentAdapterCredentialResponse,
   AgentAdapterResponse,
   AgentChatApprovalRequestedEvent,
   AgentChatApprovalResolvedEvent,
@@ -275,6 +276,20 @@ export async function refreshAgentAdapterLauncher(adapterID: string): Promise<Ag
   return fetchJSON<AgentAdapterResponse>(
     `${HECATE_API}/agent-adapters/${encodeURIComponent(adapterID)}/refresh-launcher`,
     { method: "POST" },
+  );
+}
+
+export async function setAgentAdapterCredential(adapterID: string, value: string, name?: string): Promise<AgentAdapterCredentialResponse> {
+  return fetchJSON<AgentAdapterCredentialResponse>(
+    `${HECATE_API}/agent-adapters/${encodeURIComponent(adapterID)}/credentials`,
+    { method: "PUT", body: { name, value } },
+  );
+}
+
+export async function deleteAgentAdapterCredential(adapterID: string, name: string): Promise<AgentAdapterCredentialResponse> {
+  return fetchJSON<AgentAdapterCredentialResponse>(
+    `${HECATE_API}/agent-adapters/${encodeURIComponent(adapterID)}/credentials/${encodeURIComponent(name)}`,
+    { method: "DELETE" },
   );
 }
 

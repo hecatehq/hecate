@@ -132,6 +132,38 @@ func (s *SQLiteStore) DeleteProvider(ctx context.Context, id string) error {
 	return s.writeState(ctx, state)
 }
 
+func (s *SQLiteStore) UpsertAgentAdapterCredential(ctx context.Context, credential AgentAdapterCredential) (AgentAdapterCredential, error) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+
+	state, err := s.readState(ctx)
+	if err != nil {
+		return AgentAdapterCredential{}, err
+	}
+	credential, err = applyUpsertAgentAdapterCredential(ctx, &state, credential)
+	if err != nil {
+		return AgentAdapterCredential{}, err
+	}
+	if err := s.writeState(ctx, state); err != nil {
+		return AgentAdapterCredential{}, err
+	}
+	return credential, nil
+}
+
+func (s *SQLiteStore) DeleteAgentAdapterCredential(ctx context.Context, adapterID, name string) error {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+
+	state, err := s.readState(ctx)
+	if err != nil {
+		return err
+	}
+	if err := applyDeleteAgentAdapterCredential(ctx, &state, adapterID, name); err != nil {
+		return err
+	}
+	return s.writeState(ctx, state)
+}
+
 func (s *SQLiteStore) UpsertPolicyRule(ctx context.Context, rule config.PolicyRuleConfig) (config.PolicyRuleConfig, error) {
 	rule, err := normalizePolicyRule(rule)
 	if err != nil {

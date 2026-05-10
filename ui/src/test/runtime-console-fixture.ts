@@ -136,6 +136,8 @@ export function createRuntimeConsoleActions(): RuntimeConsoleViewModel["actions"
     listAgentChatGrants: async () => undefined,
     deleteAgentChatGrant: async () => true,
     probeAgentAdapter: async () => null,
+    setAgentAdapterCredential: async () => true,
+    deleteAgentAdapterCredential: async () => true,
     dismissNotice: () => undefined,
   };
 }

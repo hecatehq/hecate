@@ -78,11 +78,12 @@ type Runner interface {
 }
 
 type SessionManager struct {
-	mu          sync.Mutex
-	sessions    map[string]*acpSession
-	starts      map[string]*sessionStart
-	logger      *slog.Logger
-	coordinator *ApprovalCoordinator
+	mu            sync.Mutex
+	sessions      map[string]*acpSession
+	starts        map[string]*sessionStart
+	logger        *slog.Logger
+	coordinator   *ApprovalCoordinator
+	credentialEnv CredentialEnvProvider
 	// metrics carries the AgentAdapterMetrics used by every
 	// acpChatClient created from this manager. Optional — nil is
 	// safe (every Record* method is nil-tolerant) and matches the
@@ -90,6 +91,8 @@ type SessionManager struct {
 	metrics *telemetry.AgentAdapterMetrics
 	closed  bool
 }
+
+type CredentialEnvProvider func(ctx context.Context, adapterID string) []string
 
 func NewSessionManager() *SessionManager {
 	return &SessionManager{
@@ -126,6 +129,12 @@ func (m *SessionManager) SetAdapterMetrics(metrics *telemetry.AgentAdapterMetric
 	m.mu.Lock()
 	defer m.mu.Unlock()
 	m.metrics = metrics
+}
+
+func (m *SessionManager) SetCredentialEnvProvider(provider CredentialEnvProvider) {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	m.credentialEnv = provider
 }
 
 // shutdownCancelHook is invoked once per adapter id torn down via
@@ -229,9 +238,14 @@ func (m *SessionManager) session(ctx context.Context, adapter Adapter, req RunRe
 		logger := m.logger
 		coordinator := m.coordinator
 		metrics := m.metrics
+		credentialEnv := m.credentialEnv
 		m.mu.Unlock()
 
-		started, resumed, recovery, err := startACPSession(startCtx, adapter, req.SessionID, req.Workspace, req.PreviousNativeSessionID, logger, coordinator, metrics)
+		var extraEnv []string
+		if credentialEnv != nil {
+			extraEnv = credentialEnv(startCtx, adapter.ID)
+		}
+		started, resumed, recovery, err := startACPSession(startCtx, adapter, req.SessionID, req.Workspace, req.PreviousNativeSessionID, logger, coordinator, metrics, extraEnv)
 		startCancel()
 
 		var previous *acpSession
@@ -340,7 +354,7 @@ type acpSession struct {
 	activeDone   chan struct{}
 }
 
-func startACPSession(ctx context.Context, adapter Adapter, sessionID, workspace, previousNativeSessionID string, logger *slog.Logger, coordinator *ApprovalCoordinator, metrics *telemetry.AgentAdapterMetrics) (*acpSession, bool, string, error) {
+func startACPSession(ctx context.Context, adapter Adapter, sessionID, workspace, previousNativeSessionID string, logger *slog.Logger, coordinator *ApprovalCoordinator, metrics *telemetry.AgentAdapterMetrics, extraEnv []string) (*acpSession, bool, string, error) {
 	command, err := resolveExecutable(adapter, exec.LookPath)
 	if err != nil {
 		return nil, false, "", err
@@ -349,7 +363,7 @@ func startACPSession(ctx context.Context, adapter Adapter, sessionID, workspace,
 	cmd := exec.CommandContext(context.Background(), command, args...)
 	configureCommandProcessGroup(cmd)
 	cmd.Dir = workspace
-	cmd.Env = sanitizedEnv(os.Environ())
+	cmd.Env = mergeEnv(sanitizedEnv(os.Environ()), extraEnv)
 
 	stdin, err := cmd.StdinPipe()
 	if err != nil {
