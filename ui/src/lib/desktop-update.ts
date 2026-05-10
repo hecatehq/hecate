@@ -7,7 +7,9 @@
 // mismatch) are swallowed — we treat "no update detected" the same
 // regardless of why. The banner only appears on a positive answer.
 
-import { useCallback, useEffect, useState } from "react";
+import { useCallback, useEffect, useRef, useState } from "react";
+
+import { isTauriRuntime } from "./tauri";
 
 const DISMISS_STORAGE_KEY = "hecate.update.dismissed";
 
@@ -50,7 +52,14 @@ export function useDesktopUpdate(): {
     downloadAndInstall: (onEvent?: (e: DownloadEvent) => void) => Promise<void>;
   } | null>(null);
 
+  // Guard against React StrictMode double-invoking the effect in
+  // dev. We don't want two parallel check() calls hitting the
+  // GitHub release endpoint per app start. The ref persists across
+  // the strict-mode remount so the second run becomes a no-op.
+  const checkedRef = useRef(false);
   useEffect(() => {
+    if (checkedRef.current) return;
+    checkedRef.current = true;
     if (!isTauriRuntime()) return;
     if (sessionStorage.getItem(DISMISS_STORAGE_KEY)) return;
     let cancelled = false;
@@ -101,10 +110,4 @@ export function useDesktopUpdate(): {
     : null;
 
   return { update: state.update, installing: state.installing, progress, dismiss, installAndRestart };
-}
-
-function isTauriRuntime(): boolean {
-  return typeof window !== "undefined"
-    && (Object.prototype.hasOwnProperty.call(window, "__TAURI_INTERNALS__")
-      || Object.prototype.hasOwnProperty.call(window, "__TAURI__"));
 }

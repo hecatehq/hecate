@@ -2,6 +2,7 @@ import { useEffect, useState } from "react";
 
 import { ConsoleShell, getAvailableWorkspaces, type WorkspaceID } from "./AppShell";
 import { useRuntimeConsole } from "./useRuntimeConsole";
+import { isTauriRuntime } from "../lib/tauri";
 
 const WORKSPACE_STORAGE_KEY = "hecate.workspace";
 
@@ -55,12 +56,6 @@ export function installTauriEditShortcutFallback(): () => void {
   };
   window.addEventListener("keydown", handler);
   return () => window.removeEventListener("keydown", handler);
-}
-
-function isTauriRuntime(): boolean {
-  return typeof window !== "undefined"
-    && (Object.prototype.hasOwnProperty.call(window, "__TAURI_INTERNALS__")
-      || Object.prototype.hasOwnProperty.call(window, "__TAURI__"));
 }
 
 function editableTarget(target: EventTarget | null): HTMLInputElement | HTMLTextAreaElement | null {
