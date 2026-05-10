@@ -37,7 +37,7 @@ describe("ConsoleShell loading state", () => {
 });
 
 describe("ConsoleShell navigation", () => {
-  it("keeps Chats available when no providers are configured", () => {
+  it("keeps Chats available when no providers are configured", async () => {
     const state = createRuntimeConsoleFixture({
       chatTarget: "model",
       settingsConfig: { backend: "memory", providers: [], pricebook: [], policy_rules: [], events: [] },
@@ -51,9 +51,14 @@ describe("ConsoleShell navigation", () => {
       />,
     );
 
+    // The Chats workspace is a `lazy()` chunk per AppShell.tsx;
+    // assert workspace content asynchronously so the assertion
+    // waits for the dynamic import to resolve. Shell chrome
+    // (workspace nav buttons, statusbar) is not lazy and can
+    // still be queried synchronously.
     expect(screen.getByRole("button", { name: /Chats \(1\)/ })).toBeEnabled();
+    expect(await screen.findByText(/Nothing runnable yet/i)).toBeInTheDocument();
     expect(screen.queryByText(/No providers configured/i)).toBeNull();
-    expect(screen.getByText(/Nothing runnable yet/i)).toBeInTheDocument();
     expect(screen.getByRole("button", { name: /Add provider/i })).toBeInTheDocument();
   });
 
