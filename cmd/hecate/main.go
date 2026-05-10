@@ -324,32 +324,19 @@ func main() {
 		defer removeGatewayRuntimeState(gatewayStatePath)
 	}
 
+	printStartupBanner(cfg, listener.Addr().String())
+	logFullStartupConfig(logger, cfg)
+
 	go func() {
+		// Operator-essential fields only — full config is at Debug level
+		// via logFullStartupConfig above. Tighter top-of-log line means
+		// the banner above is what an operator scans first.
 		logger.Info("gateway starting",
-			slog.String("addr", cfg.Server.Address),
 			slog.String("listen_addr", listener.Addr().String()),
-			slog.String("hecate.runtime.path", gatewayStatePath),
+			slog.String("data_dir", cfg.Server.DataDir),
 			slog.String("default_model", cfg.Router.DefaultModel),
-			slog.Int("provider_max_attempts", cfg.Provider.MaxAttempts),
-			slog.Bool("provider_failover_enabled", cfg.Provider.FailoverEnabled),
-			slog.Int("provider_health_failure_threshold", cfg.Provider.HealthThreshold),
-			slog.Duration("provider_health_cooldown", cfg.Provider.HealthCooldown),
-			slog.Duration("provider_health_latency_degraded_threshold", cfg.Provider.HealthLatencyDegradedThreshold),
-			slog.String("provider_history_backend", cfg.Provider.HistoryBackend),
-			slog.Int("provider_history_limit", cfg.Provider.HistoryLimit),
-			slog.Bool("retention_enabled", cfg.Retention.Enabled),
-			slog.Duration("retention_interval", cfg.Retention.Interval),
-			slog.Bool("otel_traces_enabled", cfg.OTel.Traces.Enabled),
-			slog.String("otel_traces_endpoint", cfg.OTel.Traces.Endpoint),
-			slog.String("otel_traces_transport", cfg.OTel.Traces.Transport),
-			slog.Bool("otel_metrics_enabled", cfg.OTel.Metrics.Enabled),
-			slog.String("otel_metrics_endpoint", cfg.OTel.Metrics.Endpoint),
-			slog.String("otel_metrics_transport", cfg.OTel.Metrics.Transport),
-			slog.String("otel_metrics_exemplar_filter", cfg.OTel.MetricsExemplarFilter),
-			slog.Bool("otel_logs_enabled", cfg.OTel.Logs.Enabled),
-			slog.String("otel_logs_endpoint", firstNonEmpty(cfg.OTel.Logs.Endpoint, cfg.OTel.Traces.Endpoint)),
-			slog.String("otel_logs_transport", firstNonEmpty(cfg.OTel.Logs.Transport, cfg.OTel.Transport)),
 			slog.Int("provider_count", len(cfg.Providers.OpenAICompatible)),
+			slog.String("version", version.Version),
 		)
 
 		if err := server.Serve(listener); err != nil && err != http.ErrServerClosed {
@@ -382,6 +369,133 @@ func main() {
 		logger.Error("shutdown failed", slog.Any("error", err))
 		os.Exit(1)
 	}
+}
+
+// printStartupBanner writes a short human-readable summary of the
+// gateway's startup state to stderr. Goes to stderr (not stdout) so
+// log scrapers reading stdout's structured JSON aren't disrupted; an
+// operator running `just dev` from a terminal sees both streams
+// interleaved and gets the human banner first. Always emitted —
+// runs the same in `just dev`, Docker logs, or systemd journal.
+func printStartupBanner(cfg config.Config, listenAddr string) {
+	url := operatorURL(cfg, listenAddr)
+	dataDir := cfg.Server.DataDir
+	if dataDir == "" {
+		dataDir = "(memory)"
+	}
+	providers := len(cfg.Providers.OpenAICompatible)
+	fmt.Fprintln(os.Stderr)
+	fmt.Fprintf(os.Stderr, "  hecate · %s\n", version.Version)
+	fmt.Fprintf(os.Stderr, "  → %s\n", url)
+	fmt.Fprintln(os.Stderr)
+	fmt.Fprintf(os.Stderr, "    data dir       %s\n", dataDir)
+	fmt.Fprintf(os.Stderr, "    storage        %s\n", storageSummary(cfg))
+	fmt.Fprintf(os.Stderr, "    default model  %s\n", cfg.Router.DefaultModel)
+	fmt.Fprintf(os.Stderr, "    providers      %d configured\n", providers)
+	if otel := otelSummary(cfg.OTel); otel != "" {
+		fmt.Fprintf(os.Stderr, "    otel           %s\n", otel)
+	}
+	if cfg.Retention.Enabled {
+		fmt.Fprintf(os.Stderr, "    retention      every %s\n", cfg.Retention.Interval)
+	}
+	fmt.Fprintln(os.Stderr)
+}
+
+// logFullStartupConfig captures the full startup configuration at
+// Debug level for diagnostics. The user-visible startup log line
+// stays small; this is what an operator running with -log-level=debug
+// sees when something's misbehaving and they need the whole config
+// snapshot.
+func logFullStartupConfig(logger *slog.Logger, cfg config.Config) {
+	logger.Debug("gateway config",
+		slog.String("addr", cfg.Server.Address),
+		slog.Int("provider_max_attempts", cfg.Provider.MaxAttempts),
+		slog.Bool("provider_failover_enabled", cfg.Provider.FailoverEnabled),
+		slog.Int("provider_health_failure_threshold", cfg.Provider.HealthThreshold),
+		slog.String("provider_health_cooldown", cfg.Provider.HealthCooldown.String()),
+		slog.String("provider_health_latency_degraded_threshold", cfg.Provider.HealthLatencyDegradedThreshold.String()),
+		slog.String("provider_history_backend", cfg.Provider.HistoryBackend),
+		slog.Int("provider_history_limit", cfg.Provider.HistoryLimit),
+		slog.Bool("retention_enabled", cfg.Retention.Enabled),
+		slog.String("retention_interval", cfg.Retention.Interval.String()),
+		slog.Bool("otel_traces_enabled", cfg.OTel.Traces.Enabled),
+		slog.String("otel_traces_endpoint", cfg.OTel.Traces.Endpoint),
+		slog.String("otel_traces_transport", cfg.OTel.Traces.Transport),
+		slog.Bool("otel_metrics_enabled", cfg.OTel.Metrics.Enabled),
+		slog.String("otel_metrics_endpoint", cfg.OTel.Metrics.Endpoint),
+		slog.String("otel_metrics_transport", cfg.OTel.Metrics.Transport),
+		slog.String("otel_metrics_exemplar_filter", cfg.OTel.MetricsExemplarFilter),
+		slog.Bool("otel_logs_enabled", cfg.OTel.Logs.Enabled),
+		slog.String("otel_logs_endpoint", firstNonEmpty(cfg.OTel.Logs.Endpoint, cfg.OTel.Traces.Endpoint)),
+		slog.String("otel_logs_transport", firstNonEmpty(cfg.OTel.Logs.Transport, cfg.OTel.Transport)),
+	)
+}
+
+// operatorURL derives a clickable URL from the gateway's
+// configuration. Prefers PublicURL when set (operator-supplied) and
+// falls back to a 127.0.0.1-rewritten form of the listen address.
+// `:8765` and `[::]:8765` are both ugly in a terminal; `127.0.0.1:8765`
+// renders as a clickable link in most modern terminals.
+func operatorURL(cfg config.Config, listenAddr string) string {
+	if u := strings.TrimSpace(cfg.Server.PublicURL); u != "" {
+		return u
+	}
+	host, port, err := net.SplitHostPort(listenAddr)
+	if err != nil {
+		return "http://" + listenAddr
+	}
+	// net.SplitHostPort strips the IPv6 brackets, so we match the
+	// unbracketed form "::" (the bracketed "[::]" branch never fires).
+	if host == "" || host == "0.0.0.0" || host == "::" {
+		host = "127.0.0.1"
+	}
+	return "http://" + net.JoinHostPort(host, port)
+}
+
+// otelSummary returns a short human-readable description of which
+// OTel signals are enabled, or "" when none are. Operators on alpha
+// usually have all three off; the banner omits the row entirely in
+// that case rather than printing "otel off".
+func otelSummary(o config.OTelConfig) string {
+	var parts []string
+	if o.Traces.Enabled {
+		parts = append(parts, "traces")
+	}
+	if o.Metrics.Enabled {
+		parts = append(parts, "metrics")
+	}
+	if o.Logs.Enabled {
+		parts = append(parts, "logs")
+	}
+	if len(parts) == 0 {
+		return ""
+	}
+	return strings.Join(parts, ", ")
+}
+
+// storageSummary collapses Hecate's per-subsystem backend choices into
+// one short hint. Hecate has ~12 independent storage subsystems (control
+// plane, tasks, sessions, etc.) — most deployments are uniformly memory
+// (local dev) or sqlite (Docker, native binary). The hint reflects the
+// control-plane backend by default — that's the "primary" backend an
+// operator identifies with — and appends "(mixed)" when a peer subsystem
+// disagrees, signaling to look at `docs/deployment.md`.
+func storageSummary(cfg config.Config) string {
+	primary := strings.TrimSpace(cfg.Server.ControlPlaneBackend)
+	if primary == "" {
+		primary = "memory"
+	}
+	peers := []string{
+		cfg.Server.TasksBackend,
+		cfg.Server.TaskQueueBackend,
+		cfg.Provider.HistoryBackend,
+	}
+	for _, peer := range peers {
+		if peer = strings.TrimSpace(peer); peer != "" && peer != primary {
+			return primary + " (mixed)"
+		}
+	}
+	return primary
 }
 
 func firstNonEmpty(values ...string) string {
