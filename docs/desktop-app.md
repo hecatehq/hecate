@@ -39,13 +39,19 @@ What works:
 - Same-origin loading of the embedded gateway UI from the sidecar port.
 - Native Hecate menu with actions to focus the window, open the gateway log,
   open the data directory, and quit.
-- Per-platform writable data dir (`~/Library/Application Support/io.github.chicoxyzzy.hecate/`,
-  `%APPDATA%\io.github.chicoxyzzy.hecate\`, `~/.local/share/io.github.chicoxyzzy.hecate/`).
+- Per-platform writable data dir (`~/Library/Application Support/sh.hecate.app/`,
+  `%APPDATA%\sh.hecate.app\`, `~/.local/share/sh.hecate.app/`).
 - Sidecar stderr piped to `<data_dir>/gateway.log` (truncated per launch);
   the startup splash shows failures with the log and data-directory paths.
 - Window size and position persistence across launches.
-- Cross-platform CI matrix with PR validation, draft skipping, run
-  cancellation on push, and signed nothing.
+- Cross-platform CI matrix with PR validation, draft skipping, and run
+  cancellation on push.
+- macOS bundles signed with a Developer ID Application certificate and
+  notarized by Apple on tag-pushed releases (when the `APPLE_*` /
+  `KEYCHAIN_PASSWORD` repo secrets are configured); see
+  [`macos-signing.md`](macos-signing.md) for the maintainer-side setup
+  and rotation playbook. PR validation builds and Windows/Linux bundles
+  remain unsigned by design.
 - macOS bundle launch-validated end-to-end: build `.app` + `.dmg`, launch
   the app, confirm the hecate sidecar listens on loopback and `/healthz`
   returns `ok`, then quit and confirm both app and hecate processes exit.
@@ -55,14 +61,14 @@ What works:
 
 What doesn't yet:
 
-- No code signing — macOS Gatekeeper and Windows SmartScreen warn on
-  every install. Real users need the right-click-Open / More-info-Run-anyway
-  escape, documented in release notes.
+- No Windows code signing — SmartScreen warns on every install. Real users
+  click "More info → Run anyway"; documented in release notes. Authenticode
+  + EV cert is roadmap.
 - No Homebrew formula or cask yet. A formula would help CLI installation, and
-  a cask would help app distribution, but neither replaces Apple Developer ID
-  signing/notarization for a smooth macOS desktop launch.
-- No auto-update — plugin is wired but `active: false` until a signing
-  keypair and update endpoint are decided.
+  a cask would help app distribution. macOS now signs+notarizes via
+  `APPLE_*` repo secrets; a cask would still be additional polish.
+- No auto-update — plugin is wired but `active: false` until an update
+  endpoint is decided.
 - No tray and no deep links.
 - Linux and Windows: build-only. Need an actual launch on each platform
   before claiming they work.
@@ -85,7 +91,6 @@ the bundle is polished enough to recommend.
 
 | Item | Cost / decision | Notes |
 |---|---|---|
-| **macOS code signing** | Apple Developer Program ($99/yr) | Biggest single user-friction reduction. Cert + password go into `APPLE_CERTIFICATE`/`APPLE_CERTIFICATE_PASSWORD` Actions secrets; `tauri-action` picks them up automatically. Notarization adds ~5 min to the macOS leg. |
 | **Auto-updater wiring** | Decide endpoint + generate keypair | `tauri-plugin-updater` is installed but `active: false`. Needs `bunx tauri signer generate -w ~/.tauri/hecate.key`, a static `latest.json` host (GitHub Release asset is fine), and the pubkey committed to `tauri.conf.json`. Probably wait until release cadence is established — auto-update on a weekly-bumping alpha is annoying. |
 | **Windows code signing** | EV cert (~$300+/yr) | Lower priority. Reputation builds over hundreds of installs anyway, so signing a low-volume alpha is mostly about removing the SmartScreen warning, not unlocking distribution. |
 
@@ -104,9 +109,6 @@ the bundle is polished enough to recommend.
   `gateway.log` capture covers most diagnostics.
 - **Mobile (iOS/Android).** Tauri 2 supports it; we deleted the icon CLI's
   mobile output. Off-roadmap.
-- **Desktop app data-dir migration.** The alpha bundle identifier changed from
-  `com.hecate.app` to `io.github.chicoxyzzy.hecate`; existing local app state
-  may reset, and we intentionally do not migrate it before semver stability.
 
 ## Sandbox executor
 
@@ -146,9 +148,13 @@ approval/task behavior stays in `just test-acp-smoke`.
 Captured in detail at [`docs-ai/skills/tauri/SKILL.md`](../docs-ai/skills/tauri/SKILL.md);
 the ones likely to bite an operator:
 
-- **Gatekeeper / SmartScreen on first launch.** Until signing lands, macOS
-  users right-click → Open the first time; Windows users click "More info"
-  on the SmartScreen warning. Document in release notes.
+- **Gatekeeper / SmartScreen on first launch.** macOS bundles released
+  with the `APPLE_*` repo secrets configured (tag-pushed) are
+  signed+notarized — no first-launch warning. Pre-signing alpha bundles,
+  fork builds, or releases cut before the secrets landed need
+  right-click → Open the first time. Windows is unsigned regardless;
+  click "More info" on the SmartScreen warning. Document in release
+  notes when shipping an unsigned build.
 - **Quitting via `cmd+Q` (macOS) — not the red close button.** The window
   close button hides the window on macOS; only quitting kills the gateway
   child. We'll fix this when a tray mode lands; until then, document.

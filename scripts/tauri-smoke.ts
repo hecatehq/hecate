@@ -20,7 +20,7 @@ const appPath = join(
 );
 const appDataDir = join(
   process.env.HOME ?? "",
-  "Library/Application Support/io.github.chicoxyzzy.hecate",
+  "Library/Application Support/sh.hecate.app",
 );
 const runtimeStatePath = join(appDataDir, "hecate.runtime.json");
 const acpSidecarPath = join(
