@@ -1,5 +1,8 @@
 import { Suspense, lazy, useEffect, useState } from "react";
 
+import type { RuntimeConsoleViewModel } from "./useRuntimeConsole";
+import type { AgentChatUsageRecord } from "../types/runtime";
+
 // Each workspace view is its own dynamic chunk so the initial
 // page load only ships the shell + active workspace, not all six.
 // Vite splits each `lazy(() => import(...))` into a separate
@@ -28,9 +31,6 @@ const ProvidersView = lazy(() =>
 const TasksView = lazy(() =>
   import("../features/runs/TasksView").then(m => ({ default: m.TasksView })),
 );
-
-import type { RuntimeConsoleViewModel } from "./useRuntimeConsole";
-import type { AgentChatUsageRecord } from "../types/runtime";
 
 export type WorkspaceID = "overview" | "runs" | "chats" | "providers" | "costs" | "settings";
 
