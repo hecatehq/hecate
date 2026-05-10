@@ -11,8 +11,17 @@ The Tauri updater plugin verifies that every update payload is
 signed by a private key that matches the public key embedded in
 the shipping bundle. The signing happens during the release-
 workflow build; the public key is committed to
-`tauri/src-tauri/tauri.conf.json`. Without a keypair, the updater
-stays inert and existing installs never see an update banner.
+`tauri/src-tauri/tauri.conf.json`. Two prerequisites for a
+working pipeline:
+
+1. **`bundle.createUpdaterArtifacts: "v1Compatible"`** in
+   `tauri/src-tauri/tauri.conf.json`. Without this, the bundler
+   produces no updater artifacts even when the signing key is
+   present, so `sign_updaters` has nothing to sign and the build
+   ships unsigned. The committed config already sets this.
+2. **`TAURI_UPDATER_PRIVATE_KEY` + `TAURI_UPDATER_PRIVATE_KEY_PASSWORD`**
+   in GitHub Secrets. Without the keypair, the updater stays
+   inert and existing installs never see an update banner.
 
 This doc walks through generating the keypair once, storing the
 secrets, and flipping `active: true`. Subsequent releases then
@@ -54,8 +63,13 @@ repository secret**. Add two:
 | `TAURI_UPDATER_PRIVATE_KEY_PASSWORD` | the password from step 1 | step 1 |
 
 The release workflow's tauri-action step picks these up and uses
-them to sign the platform bundles + emit `latest.json`. Both
-secrets are scoped to `inputs.tagName != ''` in
+them to sign the platform bundles (`.app.tar.gz`, `.AppImage`,
+`.msi` and their wrapped variants). The post-matrix
+`publish-updater-manifest` job in `_tauri-shared.yml` then
+stitches the per-platform `.sig` files into `latest.json` and
+uploads it to the release — tauri-action itself can't build the
+manifest in matrix mode because each leg only sees its own
+signature. Both secrets are scoped to `inputs.tagName != ''` in
 `.github/workflows/_tauri-shared.yml`, so PR-validation runs of
 `tauri-build.yml` never see them.
 
@@ -149,12 +163,20 @@ landed, or the keypair was rotated and the old client is on the
 wrong side of the rotation. Reinstalling from the GitHub Release
 page resolves it.
 
-**`latest.json` is missing from the release.** tauri-action
-didn't get the signing secrets. Confirm both
-`TAURI_UPDATER_PRIVATE_KEY` and `TAURI_UPDATER_PRIVATE_KEY_PASSWORD`
-are set, and that you're cutting a tag (not running PR
-validation, which intentionally skips signing — see
-`tauri-build.yml`).
+**`latest.json` is missing from the release.** Three failure
+modes, in rough order of likelihood:
+
+- `bundle.createUpdaterArtifacts` is missing or `false` in
+  `tauri.conf.json` — the bundler produced no updater payloads,
+  nothing got signed, and the `publish-updater-manifest` job
+  failed on its `missing updater signature(s)` check. Restore
+  the `"v1Compatible"` setting.
+- `TAURI_UPDATER_PRIVATE_KEY` and/or `TAURI_UPDATER_PRIVATE_KEY_PASSWORD`
+  are not set in repo secrets — the build proceeds unsigned and
+  the same missing-signature check trips. Confirm both secrets.
+- You're running PR validation (`tauri-build.yml`) instead of a
+  release tag. PR validation intentionally skips signing and
+  manifest publishing — that's working as designed.
 
 **Banner never appears even on a known-old install.** Possible
 causes, in rough order:
