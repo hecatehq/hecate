@@ -210,6 +210,52 @@ jobs:
           tagName: ${{ inputs.tagName }}
           args: --bundles ${{ matrix.bundles }}
 
+      # Upload updater payloads (.tar.gz / .zip + .sig) to the GitHub
+      # Release alongside the platform bundles. tauri-action's default
+      # release-upload step only handles the explicit platform bundles
+      # (.dmg/.deb/.AppImage/.msi); it doesn't upload `.sig` files or
+      # the macOS `.app.tar.gz` updater payload that tauri's bundler
+      # produces when an updater signing key is configured. Without
+      # this step:
+      #   - macOS: latest.json's `.app.tar.gz` URL would 404.
+      #   - Linux/Windows: the raw `.AppImage`/`.msi` are uploaded by
+      #     tauri-action, but their matching `.sig` files aren't —
+      #     latest.json's signature field would point at nothing.
+      # We over-upload (also grab wrapped `.AppImage.tar.gz` /
+      # `.msi.zip` and their `.deb`/`.rpm` siblings) because filtering
+      # to exactly the referenced files would be brittle across tauri
+      # bundler versions. The stitch job picks the canonical raw forms.
+      # Skipped on PR-validation runs (no tagName).
+      #
+      # The macOS Hecate.app.tar.gz has no version in its filename — each
+      # tag's release has its own copy, so versions don't clobber each
+      # other across releases. The --clobber flag below only matters for
+      # re-running this workflow on the same tag (rare; lets us re-upload
+      # a corrected build without manual cleanup).
+      #
+      # macOS-latest ships bash 3.2, which lacks `shopt -s globstar` and
+      # `mapfile`. We use `find` + positional-param accumulation to stay
+      # 3.2-compatible. Process substitution `< <(...)` IS in 3.2.
+      - name: Upload updater payloads to release
+        if: inputs.tagName != ''
+        env:
+          GITHUB_TOKEN: ${{ github.token }}
+        run: |
+          set -euo pipefail
+          cd tauri/src-tauri/target/release/bundle
+          set --
+          while IFS= read -r f; do
+            set -- "$@" "$f"
+          done < <(find . \( -name '*.tar.gz' -o -name '*.zip' -o -name '*.sig' \) -type f | sort)
+          if [ $# -eq 0 ]; then
+            echo "no updater payloads produced for ${{ matrix.target }} — skip upload"
+            exit 0
+          fi
+          printf '  - %s\n' "$@"
+          gh release upload "${{ inputs.tagName }}" "$@" \
+            --clobber \
+            --repo "${{ github.repository }}"
+
       # Persist as workflow artifact for PR runs so reviewers can download
       # and test-launch from the run page. Skipped on tagged releases —
       # those upload directly to the GitHub Release.
@@ -225,3 +271,131 @@ jobs:
             tauri/src-tauri/target/release/bundle/msi/*.msi
           if-no-files-found: error
           retention-days: 14
+
+  # After all matrix legs finish, stitch the per-platform updater
+  # signatures into a single latest.json manifest and upload it to
+  # the release. tauri-action's `includeUpdaterJson: true` mode runs
+  # per matrix leg and only sees the current platform's signature —
+  # so it skips the upload entirely when it can't build a complete
+  # manifest. This is the documented multi-platform workaround.
+  #
+  # `needs: build` means: only run if every matrix leg succeeded.
+  # If any platform failed, no manifest gets published — installs
+  # keep using the prior release's manifest until the next signed
+  # build covers all three platforms.
+  publish-updater-manifest:
+    name: publish updater manifest
+    if: inputs.tagName != ''
+    needs: build
+    runs-on: ubuntu-latest
+    steps:
+      - name: Download updater signatures from release
+        env:
+          GITHUB_TOKEN: ${{ github.token }}
+        run: |
+          set -euo pipefail
+          mkdir -p sigs
+          gh release download "${{ inputs.tagName }}" \
+            --pattern '*.sig' \
+            --dir sigs \
+            --repo "${{ github.repository }}"
+          ls -la sigs/
+
+      - name: Build latest.json
+        run: |
+          set -euo pipefail
+          # nullglob: when no .sig was downloaded, the loop body should
+          # skip rather than receiving the literal pattern as $sig (which
+          # would fail at `cat` with a less actionable error than our
+          # explicit missing-signature check below).
+          shopt -s nullglob
+          version="${TAG#v}"
+          pub_date=$(date -u +"%Y-%m-%dT%H:%M:%S.000Z")
+
+          darwin_sig=""; darwin_url=""
+          linux_sig="";  linux_url=""
+          windows_sig=""; windows_url=""
+
+          # Updater payload selection per Tauri 2 install paths
+          # (plugins/updater/src/updater.rs):
+          #
+          #   macOS  – install_inner() unconditionally does GzDecoder +
+          #            tar::Archive. Only `.app.tar.gz` works; raw `.app`
+          #            is not a supported updater payload.
+          #   Linux  – install_appimage() detects format by magic bytes
+          #            and accepts both raw `.AppImage` and wrapped
+          #            `.AppImage.tar.gz`. We point at the raw bundle
+          #            (canonical Tauri 2 form, already uploaded by
+          #            tauri-action as the platform bundle).
+          #   Windows – extract()/install_msi() accept raw `.msi` and
+          #             wrapped `.msi.zip` the same way. We point at the
+          #             raw bundle for the same reason.
+          #
+          # tauri-action uploads the raw `.AppImage` and `.msi` to the
+          # release as platform bundles; our per-leg step above uploads
+          # the matching `.sig` files (plus `Hecate.app.tar.gz` itself,
+          # since macOS has no separate raw bundle).
+          for sig in sigs/*.sig; do
+            fname=$(basename "$sig")
+            payload="${fname%.sig}"
+            url="https://github.com/${REPO}/releases/download/${TAG}/${payload}"
+            # Strip CR — sigs produced on Windows runners can have CRLF
+            # line endings; trailing CR would land inside the JSON
+            # `signature` string and break minisign verification on the
+            # client. Bash's $(...) strips trailing \n but not \r.
+            content=$(tr -d '\r' < "$sig")
+            case "$payload" in
+              *.app.tar.gz)                      darwin_sig="$content"; darwin_url="$url" ;;
+              *.AppImage)                        linux_sig="$content";  linux_url="$url" ;;
+              *.msi)                             windows_sig="$content"; windows_url="$url" ;;
+              # Wrapped duplicates, NSIS installer, and other non-updater
+              # bundle signatures — we don't reference these from
+              # latest.json, but tauri's bundler signs them anyway
+              # (*.exe / *.nsis.zip from "targets": "all" on Windows).
+              # Silent skip; not an error.
+              *.AppImage.tar.gz|*.msi.zip|*.deb|*.rpm|*.exe|*.nsis.zip) ;;
+              *) echo "unexpected updater payload (skipped): $payload" ;;
+            esac
+          done
+
+          # Sanity-check: every platform we ship must have a signature.
+          # An empty signature means the matrix leg succeeded but
+          # didn't produce an updater payload — shouldn't happen with
+          # the current bundle config, but a missing one would silently
+          # break that platform's auto-update.
+          missing=()
+          [ -z "$darwin_sig" ] && missing+=("darwin-aarch64")
+          [ -z "$linux_sig" ]  && missing+=("linux-x86_64")
+          [ -z "$windows_sig" ] && missing+=("windows-x86_64")
+          if [ ${#missing[@]} -gt 0 ]; then
+            echo "missing updater signature(s): ${missing[*]}"
+            exit 1
+          fi
+
+          jq -n \
+            --arg version "$version" \
+            --arg pub_date "$pub_date" \
+            --arg darwin_sig "$darwin_sig" --arg darwin_url "$darwin_url" \
+            --arg linux_sig "$linux_sig"   --arg linux_url "$linux_url" \
+            --arg windows_sig "$windows_sig" --arg windows_url "$windows_url" \
+            '{
+              version: $version,
+              pub_date: $pub_date,
+              platforms: {
+                "darwin-aarch64": { signature: $darwin_sig, url: $darwin_url },
+                "linux-x86_64":   { signature: $linux_sig,  url: $linux_url },
+                "windows-x86_64": { signature: $windows_sig, url: $windows_url }
+              }
+            }' > latest.json
+          cat latest.json
+        env:
+          TAG: ${{ inputs.tagName }}
+          REPO: ${{ github.repository }}
+
+      - name: Upload latest.json to release
+        env:
+          GITHUB_TOKEN: ${{ github.token }}
+        run: |
+          gh release upload "${{ inputs.tagName }}" latest.json \
+            --clobber \
+            --repo "${{ github.repository }}"
