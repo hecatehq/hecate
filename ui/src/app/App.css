@@ -141,6 +141,19 @@
   color: var(--red);
 }
 
+.page-banner--update {
+  border-color: var(--border);
+  background: var(--bg2);
+  color: var(--t1);
+  align-items: center;
+}
+
+.page-banner--update .page-banner__actions {
+  display: inline-flex;
+  gap: 8px;
+  align-items: center;
+}
+
 /* Toast notifications */
 .toast {
   position: fixed;

@@ -53,7 +53,9 @@
     "updater": {
       "active": false,
       "pubkey": "",
-      "endpoints": []
+      "endpoints": [
+        "https://github.com/hecatehq/hecate/releases/latest/download/latest.json"
+      ]
     }
   }
 }
