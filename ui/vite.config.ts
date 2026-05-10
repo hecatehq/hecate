@@ -2,6 +2,35 @@ import type { Plugin } from "vite";
 import { defineConfig } from "vite";
 import react from "@vitejs/plugin-react";
 
+// preserveDistGitkeep emits ui/dist/.gitkeep alongside the build
+// output. The file is the placeholder that lets
+// `//go:embed all:ui/dist` (embed.go in the module root) compile
+// against a fresh clone where `bun run build` hasn't run yet —
+// without a file inside ui/dist/, Go's embed directive fails with
+// "pattern all:ui/dist: no matching files found".
+//
+// Vite's default `emptyOutDir: true` wipes the directory before
+// writing, so a tracked `.gitkeep` would disappear on every build
+// and the worktree would show a phantom deletion. Emitting via
+// Rollup's `emitFile` API runs as part of the normal bundle output,
+// after empty-out-dir, so the file always lands in dist regardless
+// of who invoked the build (Justfile, `bun run build` directly,
+// CI without just, an IDE-triggered build). The Justfile used to
+// restore it as a post-step; that's no longer needed.
+function preserveDistGitkeep(): Plugin {
+  return {
+    name: "preserve-dist-gitkeep",
+    apply: "build",
+    generateBundle() {
+      this.emitFile({
+        type: "asset",
+        fileName: ".gitkeep",
+        source: "",
+      });
+    },
+  };
+}
+
 // preloadLikelyFirstWorkspace injects a `<link rel="modulepreload">`
 // for the chunk we expect the operator to need first, so the browser
 // fetches and parses it in parallel with the initial entry chunk
@@ -50,7 +79,7 @@ function preloadLikelyFirstWorkspace(): Plugin {
 }
 
 export default defineConfig({
-  plugins: [react(), preloadLikelyFirstWorkspace()],
+  plugins: [react(), preloadLikelyFirstWorkspace(), preserveDistGitkeep()],
   server: {
     port: 5173,
     proxy: {

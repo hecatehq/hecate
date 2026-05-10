@@ -121,13 +121,12 @@ ui-dev: _ui-deps
 	cd ui && bun run dev
 
 # Build the React UI bundle.
+# `.gitkeep` is preserved by the `preserve-dist-gitkeep` Vite
+# plugin (ui/vite.config.ts) — it's emitted as a build asset so
+# any caller (just, bare `bun run build`, IDE, CI without just)
+# leaves the worktree clean.
 ui-build: _ui-deps
 	cd ui && bun run build
-	# Vite empties ui/dist before building, which deletes the tracked
-	# .gitkeep placeholder. Restore it exactly as git has it so the next
-	# `git status` stays clean. Fall back to touch outside a git repo
-	# (CI build steps, fresh checkouts before the first commit).
-	git restore ui/dist/.gitkeep 2>/dev/null || touch ui/dist/.gitkeep
 
 # Run UI unit tests.
 ui-test: _ui-deps
