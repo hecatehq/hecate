@@ -60,6 +60,12 @@ What works:
 - Linux and Windows bundles build green in CI, including Tauri Rust tests and
   sidecar staging. They still need manual launch smoke on real hardware before
   we describe them as fully platform-tested.
+- Auto-update is active. Each release emits a signed `latest.json`
+  manifest as a release asset; existing installs check it on launch
+  and surface "Hecate X.Y.Z is available — Install and Restart"
+  with live download progress when a newer version is published.
+  Maintainer-side keypair custody and rotation playbook:
+  [`desktop-updater-signing.md`](desktop-updater-signing.md).
 
 What doesn't yet:
 
@@ -69,14 +75,6 @@ What doesn't yet:
 - No Homebrew formula or cask yet. A formula would help CLI installation, and
   a cask would help app distribution. macOS now signs+notarizes via
   `APPLE_*` repo secrets; a cask would still be additional polish.
-- Auto-update is wired end-to-end (endpoint, capability, frontend
-  banner, signing in CI) but `active: false` until the operator
-  generates the updater keypair and pastes the pubkey into
-  `tauri.conf.json`. See [`desktop-updater-signing.md`](desktop-updater-signing.md)
-  for the keypair custody checklist. Once the pubkey lands and
-  `active: true`, every release cuts a `latest.json` manifest as
-  a release asset and existing installs surface a "Hecate X is
-  available — Install and Restart" banner on next launch.
 - No tray and no deep links.
 - Linux and Windows: build-only. Need an actual launch on each platform
   before claiming they work.

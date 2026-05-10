@@ -73,7 +73,7 @@ Edit `tauri/src-tauri/tauri.conf.json`:
 }
 ```
 
-Open a one-line PR with that change. After it merges and the
+Open a PR with that change. After it merges and the
 next release tag is cut, the release workflow produces a signed
 `latest.json` and existing installs (built with the same pubkey
 in their bundle) detect and apply the update.

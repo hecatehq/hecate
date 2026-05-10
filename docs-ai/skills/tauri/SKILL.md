@@ -214,6 +214,19 @@ macOS bundles are signed with a Developer ID Application certificate and notariz
 
 Windows MSI signing (Authenticode + EV cert ~$300+/yr) is not yet wired. SmartScreen warns until it lands; document in release notes.
 
+### Auto-update
+
+End-to-end signed-update pipeline, active.
+
+- `tauri-plugin-updater` is loaded in `lib.rs` and granted via `updater:default` in `capabilities/default.json`.
+- `tauri.conf.json` has `updater.active: true` with the maintainer pubkey, and `updater.endpoints` pointing at `https://github.com/hecatehq/hecate/releases/latest/download/latest.json`.
+- The frontend has `useDesktopUpdate()` (in `ui/src/lib/desktop-update.ts`) — silently calls `check()` on app start in the Tauri runtime, returns the version + a download progress fraction. `<UpdateBanner>` (in `ui/src/features/shared/UpdateBanner.tsx`) shows "Hecate X.Y.Z is available — Install and Restart / Dismiss" with a live progress bar during install. Dismissed banners stay dismissed for the session via `sessionStorage`.
+- `_tauri-shared.yml` passes `TAURI_UPDATER_PRIVATE_KEY` + `TAURI_UPDATER_PRIVATE_KEY_PASSWORD` to tauri-action on release-workflow runs (gated on `inputs.tagName != ''` — same caller-side / called-side protection model as the Apple secrets). tauri-action signs each platform bundle and emits `latest.json` as a release asset. Existing installs verify the signature against the embedded pubkey before surfacing the banner.
+
+Maintainer-side keypair custody and rotation playbook: [`docs/desktop-updater-signing.md`](../../../docs/desktop-updater-signing.md).
+
+Outside the Tauri runtime (web build, Docker, bare-binary serving the embedded UI), the hook is inert — `isTauriRuntime()` from `ui/src/lib/tauri.ts` gates the dynamic import so the plugin code never enters non-desktop bundle paths.
+
 ## Done criteria
 
 - `cargo check` passes with no warnings.
