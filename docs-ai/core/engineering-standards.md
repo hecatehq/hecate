@@ -44,7 +44,7 @@ No emojis in code or copy unless the operator explicitly requests them. This app
 
 Reuse the existing primitives, design tokens, and layout patterns. Do not invent new styles or wrapper abstractions when the current ones cover the case. New style islands bloat review and obscure the pattern the rest of the codebase follows.
 
-UI specifically: design tokens are the source of truth — `var(--bg1)`, `var(--t0)`, `var(--accent)`, `var(--radius)`, `var(--font-mono)`, etc. Do not hard-code colors or radii. Reuse primitives from `ui/src/features/shared/ui.tsx` (`ProviderPicker`, `ModelPicker`, `useFloatingDropdownStyle`).
+UI specifically: design tokens are the source of truth — `var(--bg1)`, `var(--t0)`, `var(--accent)`, `var(--radius)`, `var(--font-mono)`, etc. Do not hard-code colors or radii. Reuse primitives from `ui/src/features/shared/` — `ProviderPicker`, `ModelPicker`, and the other visual atoms re-export through the `ui.tsx` barrel; `useFloatingDropdownStyle` is imported directly from its own file (it's a hook, not exported through the barrel). New code should prefer per-component imports for tighter tree-shaking.
 
 ## Anti-patterns
 

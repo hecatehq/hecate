@@ -144,11 +144,14 @@ shipping `v0.1.0-alpha.N` releases from reviewed PRs merged into `master`.
 
 ## Desktop App
 
-- Bundles are not code-signed. macOS Gatekeeper warns on first launch
-  ("Apple cannot check it for malicious software"); Windows SmartScreen
-  shows "Windows protected your PC." Both have user-facing escapes
-  (right-click → Open on macOS; "More info" → "Run anyway" on Windows)
-  but are not the smooth first-run that signed apps get. See
+- Windows bundles are not yet code-signed. SmartScreen shows
+  "Windows protected your PC." on first launch; the user-facing
+  escape is **More info → Run anyway**. macOS bundles cut by
+  `release.yml` with the `APPLE_*` secrets configured are signed
+  with Developer ID Application and notarized — first launch on
+  a clean Mac shows no Gatekeeper warning. Earlier alpha bundles
+  (pre-signing rollout) and any fork build without the secrets
+  remain unsigned; right-click → Open on first launch. See
   [desktop-app.md](desktop-app.md) for the full first-launch story.
 - Homebrew distribution is not published yet. When it exists, it will improve
   installation and upgrades, but it will not replace Apple Developer ID

@@ -17,6 +17,7 @@ ui/src/
     chats/                ChatView
     transcript/           reusable Chats transcript rendering pieces
     overview/             ConnectYourClient, ObservabilityView
+    costs/                CostsView
     settings/             SettingsView, PricebookTab
     providers/            ProvidersView
     shared/               primitives, pickers, overlays; ui.tsx is a compatibility barrel

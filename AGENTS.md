@@ -56,19 +56,21 @@ internal/
   governor/             policy + budget + rate-limit decisions; local cost ledger
   policy/               approval policy + provider/model allowlists
   catalog/, models/     provider catalog + model registry
+  modelcaps/            shared model capability table (streaming, tools, vision, …)
   billing/              pricebook + invoice/usage rollups (cost tables live here)
   orchestrator/         task runtime: queue, runner, agent_loop, sandbox boundary
   sandbox/              per-call sh subprocess: policy validation, env sanitisation,
                           output cap + timeout, auto-detected bwrap/sandbox-exec wrapper
   taskstate/            task / run / step / artifact / approval persistence
   agentadapters/        ACP/process adapters for Codex, Claude Code, Cursor
+  acp/                  Agent Client Protocol — JSON-RPC bridge for ACP-driving editors
+  eventprotocol/        agent-runtime event protocol v1 envelopes (API-facing shape)
   agentchat/            Agent Chat transcript persistence (memory / sqlite)
   chatstate/            chat-completion conversation persistence
   storage/              sqlite client wrappers
-  retention/            retention worker (subsystems: traces, budget, audit, provider_history, turn_events)
+  retention/            retention worker (subsystems: traces, budget, audit, provider_history, turn_events, agent_chat_approvals)
   mcp/                  stdio MCP server (read tools + write tools)
   controlplane/         providers, pricing, settings state
-  auth/                 local operator principal request context
   ratelimit/            per-key request limits
   requestscope/         per-request principal + tracing context
   config/, bootstrap/   env-driven config + startup wiring

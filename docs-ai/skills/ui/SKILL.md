@@ -231,7 +231,7 @@ When the Go side adds a required prop (e.g. `streamTurnCosts`), update the `setu
 
 ## UI gotchas
 
-- **`.dropdown-menu` has `left: 0`** baked into `styles.css:208`. When using `useFloatingDropdownStyle` with `align="right"`, the hook explicitly sets `left: "auto"` to override. Don't remove that — without it the dropdown stretches viewport-wide.
+- **`.dropdown-menu` has `left: 0`** baked into the `.dropdown-menu` rule in `styles.css`. When using `useFloatingDropdownStyle` with `align="right"`, the hook explicitly sets `left: "auto"` to override. Don't remove that — without it the dropdown stretches viewport-wide.
 - **Slideover overflow clipping** — dropdowns inside `<NewTaskSlideOver>` get clipped by the slideover's overflow. Always use `useFloatingDropdownStyle` (which uses `position: fixed` to escape) for any dropdown that might appear inside a panel. See `ProviderPicker` / `ModelPicker` in `shared/ui.tsx` for the pattern.
 - **404 on stale task IDs** — `localStorage` may hold a task ID from a prior gateway boot (memory backend resets on restart). `TasksView` drops the dead row from the list and re-loads. Don't propagate the 404 as an error toast.
 - **`render1()` + `render2()` in the same `it` block** — don't. React Testing Library cleanup runs between tests, not within. Split into two `it`s if you need fresh mounts.

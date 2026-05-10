@@ -69,12 +69,12 @@ The seven-step chain spans `pkg/types/` → `internal/api/` → `internal/provid
 
 ### Add an MCP tool
 
-`internal/mcp/tools.go`:
+`internal/mcp/server/tools.go`:
 
 1. Append a `s.RegisterTool(...)` call in `RegisterDefaultTools` with `Annotations` set (`ReadOnlyHint`, `DestructiveHint`, `IdempotentHint` as appropriate).
 2. Add a `<name>Handler` returning `ToolHandler` further down.
 3. Update the `docs/mcp.md` tool table.
-4. Tests in `internal/mcp/tools_test.go` using the `fakeGateway` helper.
+4. Tests in `internal/mcp/server/tools_test.go` using the `fakeGateway` helper.
 
 ### Change Agent Chat / ACP adapter behavior
 

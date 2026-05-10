@@ -41,7 +41,7 @@ Adding a passthrough wire field. This is the most-redone task in the providers p
 2. **`internal/api/openai.go`** — add the field to `OpenAIChatCompletionRequest` with `json:"x,omitempty"`.
 3. **`internal/api/handler_chat.go`** — copy the field through in `normalizeChatRequest`'s return value.
 4. **`internal/providers/openai.go`** — add the field to `openAIChatCompletionRequest` (this package's lowercase parallel struct).
-5. **Same file: plumb in BOTH `Chat` and `ChatStream` `wireReq` constructions.** Forgetting one is the most common bug — the streaming `wireReq` is around line ~500 and is not the same as the non-stream one. Non-stream tests pass; the field silently drops in production for any client using `stream: true`.
+5. **Same file: plumb in BOTH `Chat` and `ChatStream` `wireReq` constructions.** Forgetting one is the most common bug — `ChatStream` builds its own `wireReq` (grep for the second `wireReq :=` in `openai.go`) and is not the same as the non-stream one. Non-stream tests pass; the field silently drops in production for any client using `stream: true`.
 6. **`internal/providers/anthropic.go`** — add a case to `warnUnsupportedFieldsDropped` with a hint (the field name, its value, and the right Anthropic-side equivalent — or a note that there is none).
 7. **Tests at each layer.**
    - `openai_test.go` — passthrough + `omitempty` (table-driven; see `TestOpenAIProviderForwardsTier2Passthroughs` for the template).
@@ -102,7 +102,7 @@ When the pricebook gains a dedicated `cache_creation` rate, split `cache_creatio
 
 ## Common bugs to watch for
 
-- **Forgot to plumb a field into the streaming `wireReq`.** Request works in non-stream tests, drops the field in production for any client using `stream: true`. Step 5 of the seven-step chain — the streaming `wireReq` is around line ~500 of `openai.go` and is not the same as the non-stream one.
+- **Forgot to plumb a field into the streaming `wireReq`.** Request works in non-stream tests, drops the field in production for any client using `stream: true`. Step 5 of the seven-step chain — `ChatStream` in `openai.go` builds its own `wireReq` and is not the same as the non-stream one.
 - **Capital/lowercase struct mix-up.** Wrote a test against `openAIChatMessage` but built the request using `OpenAIChatMessage`. Compiles in their respective packages; doesn't catch the actual JSON-shape drift.
 - **Silently passing through unknown content blocks to Anthropic.** Sending `{"type":"image_url"}` to Anthropic 400s upstream because Anthropic only knows `image`. Always translate or drop, never pass through unknown types.
 - **CodeQL CWE-190.** `make([]T, 0, len(x)+N)` is flagged as integer-overflow risk. Use plain `len(x)` and let `append` grow.

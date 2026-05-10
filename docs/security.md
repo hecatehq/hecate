@@ -66,7 +66,7 @@ editor Agent Client Protocol (ACP) integrations.
 - The app launches `hecate` as a sidecar on a free loopback port.
 - The app bundle also ships `hecate-acp` so editors that drive Hecate
   through ACP can spawn it directly.
-- Bundles are not yet code-signed, so macOS Gatekeeper and Windows SmartScreen warnings are expected for now.
+- Windows bundles are not yet code-signed, so SmartScreen warnings are expected on first launch. macOS bundles cut by `release.yml` with the `APPLE_*` secrets configured are signed + notarized (Developer ID Application) and don't trip Gatekeeper.
 - Quitting the app should stop the sidecar; closing a window may not quit the app on every platform.
 
 ## Dependency and advisory handling

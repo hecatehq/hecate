@@ -16,13 +16,12 @@ Every change that adds or modifies behavior. Also:
 - Refactor with risky surface — pin behavior before reshaping.
 - SSE / streaming behavior — partial output, mid-stream cancel, reconnect.
 - Sandbox-boundary changes — subprocess lifecycle, network egress.
-- Tenant-scoping changes — assert isolation explicitly.
 
 ## Test layer choice matrix
 
 | Layer | Use for |
 |---|---|
-| **Unit** | Pure data transformation. Wire-shape passthrough. Error classification. Tenant scoping. Retry/failover decisions. Streaming wire shape (per-event SSE translation, usage accumulation). `agent_loop` tool dispatch. MCP tool registration. UI data-to-prop transformation. Conditional rendering of critical states. Form-input parsing and submit-payload shaping. |
+| **Unit** | Pure data transformation. Wire-shape passthrough. Error classification. Retry/failover decisions. Streaming wire shape (per-event SSE translation, usage accumulation). `agent_loop` tool dispatch. MCP tool registration. UI data-to-prop transformation. Conditional rendering of critical states. Form-input parsing and submit-payload shaping. |
 | **Integration** | Multi-package wiring within the gateway. Examples: governor + budget store; router + retention worker; orchestrator + taskstate. |
 | **E2E** | `e2e/` directory, build tag `e2e`. Required when behavior depends on the real binary running: api → orchestrator → providers chain end-to-end; subprocess lifecycle (sandbox, mcp stdio host); startup or config-loading semantics; durable sqlite behavior across restart; new SSE event sequences operators rely on; public HTTP contract changes that downstream SDKs see. UI e2e via Playwright when a journey spans multiple operator screens or depends on the real gateway responding. |
 
@@ -40,7 +39,6 @@ Verification ladders, race-suite floor, and the `bun run test` ≠ `bun test` wa
 
 - Empty input.
 - Concurrent input — race detector enabled (`-race`).
-- Tenant cross-leakage — assert isolation explicitly.
 - Provider failure paths — rate-limited, auth-failed, unavailable, partial.
 - Streaming partial output and mid-stream cancellation.
 - Approval pause and resume around tool calls.
