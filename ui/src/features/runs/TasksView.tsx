@@ -40,9 +40,11 @@ export function streamTurnCostKey(turnIndex: number | undefined): number | null 
 export function TasksView({
   focusRequest,
   onOpenAgentChat,
+  onOpenTrace,
 }: {
   focusRequest?: TaskFocusRequest | null;
   onOpenAgentChat?: (sessionID: string) => void;
+  onOpenTrace?: (requestID: string) => void;
 } = {}) {
   const [loading, setLoading] = useState(true);
   const [tasks, setTasks] = useState<TaskRecord[]>([]);
@@ -439,6 +441,7 @@ export function TasksView({
           onResumeRaisingCeiling={(budgetMicrosUSD) => void handleResumeRaisingCeiling(budgetMicrosUSD)}
           onApplyPatch={(artifactID) => void handleApplyPatch(artifactID)}
           onRevertPatch={(artifactID) => void handleRevertPatch(artifactID)}
+          onOpenTrace={onOpenTrace}
         />
       ) : (
         <div style={{ flex: 1, display: "flex", alignItems: "center", justifyContent: "center" }}>
