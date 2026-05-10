@@ -88,14 +88,14 @@ State lives in the platform data dir, not next to the binary:
 
 | Platform | Data dir |
 |---|---|
-| macOS | `~/Library/Application Support/io.github.chicoxyzzy.hecate/` |
-| Linux | `~/.local/share/io.github.chicoxyzzy.hecate/` |
-| Windows | `%APPDATA%\io.github.chicoxyzzy.hecate\` |
+| macOS | `~/Library/Application Support/sh.hecate.app/` |
+| Linux | `~/.local/share/sh.hecate.app/` |
+| Windows | `%APPDATA%\sh.hecate.app\` |
 
-Bundles are not yet code-signed:
+First-launch behavior depends on the platform and on how the bundle was built:
 
-- **macOS Gatekeeper** blocks the first launch with "Apple cannot check it for malicious software." Right-click `Hecate.app` → **Open**, confirm in the dialog. Subsequent launches work normally.
-- **Windows SmartScreen** shows a "Windows protected your PC" warning. Click **More info** → **Run anyway**. Reputation builds over hundreds of installs.
+- **macOS** is signed with a Developer ID Application certificate and notarized when the release was tag-pushed with the `APPLE_*` repo secrets configured (see [`macos-signing.md`](macos-signing.md)). Such bundles launch with no Gatekeeper warning and drag-install to `/Applications` cleanly. Earlier alpha bundles, plus any release built before the secrets landed (or any future fork build that doesn't have access to them), remain unsigned — Gatekeeper blocks the first launch with "Apple cannot check it for malicious software." Right-click `Hecate.app` → **Open**, confirm in the dialog. Subsequent launches work normally.
+- **Windows** bundles are not yet signed. SmartScreen shows a "Windows protected your PC" warning. Click **More info** → **Run anyway**. Reputation builds over hundreds of installs; full Authenticode signing is roadmap.
 - **Linux** has no Gatekeeper-equivalent. `.deb` installs as a normal package; `.AppImage` needs `chmod +x` before running.
 
 Desktop app distinct from `docker run` / bare binary:

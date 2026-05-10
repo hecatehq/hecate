@@ -45,7 +45,17 @@ jobs:
     # ready-for-review to trigger the matrix.
     if: github.event_name != 'pull_request' || github.event.pull_request.draft == false
     uses: ./.github/workflows/_tauri-shared.yml
-    secrets: inherit
+    # Do NOT inherit secrets. Same-repo PRs (collaborators, internal
+    # branches) inherit repo secrets when the caller opts in via
+    # `secrets: inherit`, which would let a malicious PR commit
+    # exfiltrate the Apple signing identity / notarization
+    # credentials regardless of any conditional gating in the called
+    # workflow. Withholding `secrets:` here means the called
+    # workflow's `secrets.APPLE_*` references resolve to empty
+    # unconditionally. PR builds always produce unsigned bundles.
+    # The shared workflow uses `${{ github.token }}` instead of
+    # `secrets.GITHUB_TOKEN` to keep working without any inherited
+    # secret access.
     permissions:
       contents: read
     with:

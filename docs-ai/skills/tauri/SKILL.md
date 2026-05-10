@@ -87,9 +87,9 @@ Three responsibilities:
 3. Release build: looks next to the running executable for `hecate-{TARGET}` (externalBin canonical name) then plain `hecate`
 
 **`resolve_data_dir(app)`** — resolves the platform data directory via Tauri's path API, creates it if absent, passes it to the gateway as `GATEWAY_DATA_DIR`:
-- macOS: `~/Library/Application Support/io.github.chicoxyzzy.hecate/`
-- Windows: `%APPDATA%\io.github.chicoxyzzy.hecate\`
-- Linux: `~/.local/share/io.github.chicoxyzzy.hecate/`
+- macOS: `~/Library/Application Support/sh.hecate.app/`
+- Windows: `%APPDATA%\sh.hecate.app\`
+- Linux: `~/.local/share/sh.hecate.app/`
 
 **`spawn_and_wait(app)`** — spawns the hecate binary (via `std::process::Command`, not tokio — see gotchas), polls `/healthz` every 250 ms, returns `GatewayHandle { base_url, port, child }` on success.
 
@@ -208,9 +208,11 @@ Three workflow files split responsibilities:
 - **`stamp-version.ts` `TAURI_VERSION` env var must not include the `v` prefix.** The script strips it, but only since the recent fix; CI passes the bare semver to be safe. The git-tag fallback path (`gitVersion()`) has always stripped `v`.
 - **Windows MSI rejects pre-release identifiers in the version.** WiX requires a four-part numeric `Major.Minor.Build.Revision` (each ≤ 65535). `0.1.0-alpha.8` fails with "optional pre-release identifier in app version must be numeric-only". `stamp-version.ts` writes a derived four-part version to `bundle.windows.wix.version` (e.g. `0.1.0-alpha.8` → `0.1.0.8`); MSI uses that override, every other bundler still sees the canonical semver. NSIS has no version-override field in Tauri's schema — the matrix is MSI-only on Windows for that reason. If NSIS is ever added, expect the same failure mode and find an upstream fix.
 
-### Code signing — not wired
+### Code signing — macOS conditional, Windows not yet wired
 
-macOS bundles trigger Gatekeeper on first launch; Windows MSI shows SmartScreen. tauri-action picks up `APPLE_CERTIFICATE`, `APPLE_CERTIFICATE_PASSWORD`, `APPLE_SIGNING_IDENTITY`, `APPLE_ID`, `APPLE_PASSWORD`, `APPLE_TEAM_ID`, `TAURI_SIGNING_PRIVATE_KEY`, and `TAURI_SIGNING_PRIVATE_KEY_PASSWORD` from env when secrets are added — no workflow rewrite needed. Document the warnings to users until then.
+macOS bundles are signed with a Developer ID Application certificate and notarized by Apple **on tag-pushed releases when the seven `APPLE_*` / `KEYCHAIN_PASSWORD` repo secrets are configured**. The CI workflow in `.github/workflows/_tauri-shared.yml` reads them via env, gated on two conditions in series: `matrix.os == 'macos-latest'` AND `inputs.tagName != ''`. PR-validation builds (called from `tauri-build.yml`, which deliberately doesn't `secrets: inherit`) always produce unsigned bundles by design — they're throwaway artifacts. Maintainer-side setup checklist for the secrets is in [`docs/macos-signing.md`](../../../docs/macos-signing.md), including a verification recipe and a rotation playbook. Operators downloading an unsigned build (PR validation, fork builds, releases cut before secrets landed) need right-click → Open on first launch.
+
+Windows MSI signing (Authenticode + EV cert ~$300+/yr) is not yet wired. SmartScreen warns until it lands; document in release notes.
 
 ## Done criteria
 

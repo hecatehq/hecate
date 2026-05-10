@@ -120,9 +120,9 @@ The runtime discovery file contains the active `base_url`, for example:
 
 For the native app, this file lives in the platform app data directory:
 
-- macOS: `~/Library/Application Support/io.github.chicoxyzzy.hecate/hecate.runtime.json`
-- Linux: `~/.local/share/io.github.chicoxyzzy.hecate/hecate.runtime.json`
-- Windows: `%APPDATA%\io.github.chicoxyzzy.hecate\hecate.runtime.json`
+- macOS: `~/Library/Application Support/sh.hecate.app/hecate.runtime.json`
+- Linux: `~/.local/share/sh.hecate.app/hecate.runtime.json`
+- Windows: `%APPDATA%\sh.hecate.app\hecate.runtime.json`
 
 For source, tarball, and Docker runs, it lives under `GATEWAY_DATA_DIR`
 (`.data/hecate.runtime.json` by default for local runs, `/data/hecate.runtime.json`

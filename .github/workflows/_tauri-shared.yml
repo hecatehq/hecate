@@ -150,14 +150,50 @@ jobs:
         run: bun scripts/stamp-version.ts
 
       # Single tauri-action call serves both modes:
-      #   - tagName empty  → build only
+      #   - tagName empty  → build only (PR validation via tauri-build.yml)
       #   - tagName set    → upload to the existing GitHub Release for that tag
-      # Code signing secrets (APPLE_CERTIFICATE, TAURI_SIGNING_PRIVATE_KEY,
-      # ...) plug in via env when added — no workflow rewrite needed.
+      #                      (release.yml after a `v*` tag push)
+      #
+      # macOS signing/notarization protections are documented in the
+      # env: block below.
       - name: Build Tauri bundles
         uses: tauri-apps/tauri-action@v0
         env:
-          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          # `github.token` is the per-job-run token, available in every
+          # workflow run without needing secrets-inherit at the caller.
+          # Using it (instead of `secrets.GITHUB_TOKEN`) lets
+          # tauri-build.yml call this workflow WITHOUT `secrets:
+          # inherit` — see that file's job-level comment for why
+          # withholding inherit is the load-bearing protection
+          # against PR-side secret exfiltration.
+          GITHUB_TOKEN: ${{ github.token }}
+          # Apple signing/notarization secrets. Two independent
+          # protections in series:
+          #
+          #   1. Caller-side (load-bearing): tauri-build.yml does NOT
+          #      `secrets: inherit`, so when called from PR validation
+          #      these `secrets.APPLE_*` references resolve to empty
+          #      unconditionally — the caller never made them available.
+          #      Even if a malicious PR rewrites this called workflow,
+          #      the secret values aren't in the calling job's context.
+          #
+          #   2. Called-side (defense in depth): the conditional
+          #      expressions below scope to the macOS leg of a
+          #      tag-pushed release. Belt-and-suspenders against future
+          #      misconfiguration where some other caller might
+          #      inherit secrets unintentionally.
+          #
+          # KEYCHAIN_PASSWORD is the transient password for the temp
+          # keychain tauri-action creates on the runner — its value
+          # never matters again. See docs/macos-signing.md for the
+          # operator-side setup checklist.
+          APPLE_CERTIFICATE: ${{ matrix.os == 'macos-latest' && inputs.tagName != '' && secrets.APPLE_CERTIFICATE || '' }}
+          APPLE_CERTIFICATE_PASSWORD: ${{ matrix.os == 'macos-latest' && inputs.tagName != '' && secrets.APPLE_CERTIFICATE_PASSWORD || '' }}
+          APPLE_SIGNING_IDENTITY: ${{ matrix.os == 'macos-latest' && inputs.tagName != '' && secrets.APPLE_SIGNING_IDENTITY || '' }}
+          APPLE_ID: ${{ matrix.os == 'macos-latest' && inputs.tagName != '' && secrets.APPLE_ID || '' }}
+          APPLE_PASSWORD: ${{ matrix.os == 'macos-latest' && inputs.tagName != '' && secrets.APPLE_PASSWORD || '' }}
+          APPLE_TEAM_ID: ${{ matrix.os == 'macos-latest' && inputs.tagName != '' && secrets.APPLE_TEAM_ID || '' }}
+          KEYCHAIN_PASSWORD: ${{ matrix.os == 'macos-latest' && inputs.tagName != '' && secrets.KEYCHAIN_PASSWORD || '' }}
         with:
           projectPath: tauri
           tagName: ${{ inputs.tagName }}

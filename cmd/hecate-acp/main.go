@@ -33,9 +33,15 @@ const (
 	defaultGatewayURL    = "http://127.0.0.1:8765"
 	defaultHTTPTimeout   = 10 * time.Second
 	discoveryHTTPTimeout = 500 * time.Millisecond
-	nativeAppID          = "io.github.chicoxyzzy.hecate"
-	hecateRuntimeFile    = "hecate.runtime.json"
-	maxMessageBytes      = 4 << 20
+	// nativeAppID is the bundle identifier of the Tauri desktop app.
+	// MUST match `tauri.conf.json`'s `identifier` field — Tauri's
+	// platform-paths API derives the data directory from this string,
+	// and hecate-acp reads `hecate.runtime.json` from that same
+	// directory to discover the running sidecar. A drift between the
+	// two breaks the ACP bridge silently (it falls back to defaultGatewayURL).
+	nativeAppID       = "sh.hecate.app"
+	hecateRuntimeFile = "hecate.runtime.json"
+	maxMessageBytes   = 4 << 20
 )
 
 type bridgeConfig struct {
