@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useRef, useState } from "react";
+import { useEffect, useMemo, useRef, useState, type ReactNode } from "react";
 import type { AgentChatActivityRecord, TaskActivityRecord, TaskApprovalRecord, TaskArtifactRecord, TaskRecord, TaskRunEventRecord, TaskRunRecord, TaskStepRecord } from "../../types/runtime";
 import { Badge, Dot, Icon, Icons, Modal } from "../shared/ui";
 import { TranscriptActivityTimeline } from "../transcript/TranscriptActivityTimeline";
@@ -383,13 +383,19 @@ type Props = {
   onResumeRaisingCeiling: (budgetMicrosUSD: number) => void;
   onApplyPatch: (artifactID: string) => void;
   onRevertPatch: (artifactID: string) => void;
+  // onOpenTrace opens the Observability drawer pre-targeted on the
+  // run's request_id. Surfaced as a clickable Request ID in the run
+  // metadata grid when both the callback and the run.request_id are
+  // present. Optional so unit tests can render TaskDetail in
+  // isolation without wiring AppShell.
+  onOpenTrace?: (requestID: string) => void;
 };
 
 export function TaskDetail({
   task, run, runs, selectedRunID, events, steps, artifacts, activity, approvals,
   streamTurnCosts, streamState, busyAction, notice,
   onSelectRun, onResolveApproval, onCancelRun, onRetryRun, onResumeRun, onRetryFromTurn,
-  onOpenAgentChat, onResumeRaisingCeiling, onApplyPatch, onRevertPatch,
+  onOpenAgentChat, onResumeRaisingCeiling, onApplyPatch, onRevertPatch, onOpenTrace,
 }: Props) {
   const termRef = useRef<HTMLDivElement>(null);
   const [runPickerOpen, setRunPickerOpen] = useState(false);
@@ -527,13 +533,29 @@ export function TaskDetail({
               {run.otel_status_message && run.status === "failed" && <Badge status="error" label={run.otel_status_message} />}
             </div>
             <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(160px, 1fr))", gap: "8px 14px" }}>
-              {[
+              {([
                 ["Model", run.model || "—"],
                 ["Duration", formatDuration(run.started_at, run.finished_at) || "—"],
-                ["Request ID", run.request_id || "—"],
+                // Request ID becomes a clickable trace link when both
+                // the run carries a request_id and the parent wired an
+                // onOpenTrace callback. Otherwise it's plain text — same
+                // shape as the other cells.
+                ["Request ID", run.request_id && onOpenTrace
+                  ? <button
+                      type="button"
+                      onClick={() => onOpenTrace(run.request_id!)}
+                      title={`Open trace for ${run.request_id}`}
+                      style={{
+                        background: "none", border: "none", padding: 0, cursor: "pointer",
+                        fontFamily: "var(--font-mono)", fontSize: 12, color: "var(--teal)",
+                        textAlign: "left", wordBreak: "break-word",
+                      }}>
+                      {run.request_id}
+                    </button>
+                  : (run.request_id || "—")],
                 ["Trace ID", run.trace_id || "—"],
                 ["Last error", run.last_error || "—"],
-              ].map(([label, value]) => (
+              ] as Array<[string, ReactNode]>).map(([label, value]) => (
                 <div key={label}>
                   <div className="kicker" style={{ marginBottom: 3 }}>{label}</div>
                   <div style={{ fontSize: 12, color: value === "—" ? "var(--t3)" : label === "Last error" && value !== "—" ? "var(--red)" : "var(--t1)", fontFamily: "var(--font-mono)", wordBreak: "break-word" }}>

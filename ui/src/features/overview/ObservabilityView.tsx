@@ -28,6 +28,7 @@ import type {
 import { Badge, Icon, Icons, Modal, ModelPicker, ProviderPicker, Toggle } from "../shared/ui";
 
 import { CopyableID } from "./observability/CopyableID";
+import { RecentActivityStrip } from "./observability/RecentActivityStrip";
 import { StatCard } from "./observability/StatCard";
 import { TraceDetail } from "./observability/TraceDetail";
 import {
@@ -356,6 +357,12 @@ export function ObservabilityView({ state, onNavigate, focusRequest }: Props) {
 
         {/* Recent requests label */}
         <div style={{ fontSize: 13, fontWeight: 500, color: "var(--t0)", marginBottom: 10 }}>Recent requests</div>
+
+        {/* Activity strip — status dots + p50/p95/errors over the
+            visible traces. Sits above the table so the operator
+            gets a "is this OK right now?" answer before parsing
+            individual rows. */}
+        <RecentActivityStrip traces={filteredTraces} />
 
         {/* Table */}
         {filteredTraces.length > 0 ? (

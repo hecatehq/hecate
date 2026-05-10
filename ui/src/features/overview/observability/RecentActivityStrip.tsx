@@ -1,0 +1,98 @@
+// RecentActivityStrip is a tiny "is the system OK right now?"
+// summary that sits above the recent-traces table. One row of
+// status dots — one per visible trace, color-coded — gives the
+// operator the visual rhythm of recent requests; a stat line
+// underneath gives p50/p95 latency and the error count.
+//
+// No bucketing, no time axis. The table below is the detail view;
+// this strip is just the rhythm. Derived entirely from the
+// already-loaded recent-traces feed — no new endpoint, no new
+// polling.
+
+import type { TraceListItem } from "../../../types/runtime";
+
+import { traceStatusBadge } from "../../../lib/runtime-utils";
+
+type Props = {
+  traces: TraceListItem[];
+};
+
+export function RecentActivityStrip({ traces }: Props) {
+  if (traces.length === 0) return null;
+
+  // Oldest → newest left to right matches "what just happened ←
+  // earlier" reading order. The trace feed comes back newest first
+  // so we reverse for the strip; the table below keeps newest first.
+  const ordered = traces.slice().reverse();
+  const durations = traces
+    .map((t) => t.duration_ms)
+    .filter((d): d is number => typeof d === "number" && d >= 0)
+    .sort((a, b) => a - b);
+  const p50 = percentile(durations, 0.5);
+  const p95 = percentile(durations, 0.95);
+  const errorCount = traces.filter((t) => t.status_code === "error").length;
+  const recoveredCount = traces.filter((t) => t.route?.fallback_from).length;
+
+  return (
+    <div
+      aria-label="Recent activity"
+      style={{
+        padding: "10px 12px",
+        border: "1px solid var(--border)",
+        borderRadius: "var(--radius-sm)",
+        marginBottom: 10,
+        display: "flex",
+        flexDirection: "column",
+        gap: 6,
+      }}>
+      <div style={{ display: "flex", flexWrap: "wrap", gap: 2, alignItems: "center" }}>
+        {ordered.map((t) => {
+          const tone = traceStatusBadge(t).status;
+          const color =
+            tone === "down" ? "var(--red)" :
+            tone === "degraded" ? "var(--amber)" :
+            tone === "healthy" ? "var(--green)" :
+            "var(--t3)";
+          return (
+            <span
+              key={t.request_id}
+              title={`${t.request_id.slice(0, 8)}… · ${t.route?.final_provider || "—"}/${t.route?.final_model || "—"}${t.duration_ms != null ? ` · ${t.duration_ms}ms` : ""}`}
+              style={{
+                display: "inline-block",
+                width: 6, height: 6, borderRadius: "50%",
+                background: color,
+              }}
+            />
+          );
+        })}
+      </div>
+      <div style={{
+        display: "flex", flexWrap: "wrap", gap: 12,
+        fontFamily: "var(--font-mono)", fontSize: 10, color: "var(--t2)",
+      }}>
+        <span><span style={{ color: "var(--t3)" }}>p50</span> {formatMs(p50)}</span>
+        <span><span style={{ color: "var(--t3)" }}>p95</span> {formatMs(p95)}</span>
+        <span><span style={{ color: "var(--t3)" }}>errors</span> <span style={{ color: errorCount > 0 ? "var(--red)" : "var(--t2)" }}>{errorCount}</span> / {traces.length}</span>
+        {recoveredCount > 0 && (
+          <span><span style={{ color: "var(--t3)" }}>recovered</span> <span style={{ color: "var(--amber)" }}>{recoveredCount}</span></span>
+        )}
+      </div>
+    </div>
+  );
+}
+
+// percentile picks the ceil-indexed value at q on a sorted ascending
+// array. Returns NaN for empty input so the formatter can render
+// "—" instead of "0ms" (zero is meaningfully different from "no
+// duration data" — operators read it as the system being instant).
+function percentile(sorted: number[], q: number): number {
+  if (sorted.length === 0) return NaN;
+  const idx = Math.min(sorted.length - 1, Math.ceil(q * sorted.length) - 1);
+  return sorted[Math.max(0, idx)];
+}
+
+function formatMs(v: number): string {
+  if (!Number.isFinite(v)) return "—";
+  if (v >= 1000) return `${(v / 1000).toFixed(1)}s`;
+  return `${Math.round(v)}ms`;
+}

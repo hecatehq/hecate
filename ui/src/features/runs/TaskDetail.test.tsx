@@ -1212,6 +1212,25 @@ describe("TaskDetail steps timeline — MCP tool distinction", () => {
     expect(screen.getByText(/full upstream result rendered in the agent conversation/i)).toBeTruthy();
   });
 
+  it("renders a clickable Request ID that calls onOpenTrace when wired", async () => {
+    const onOpenTrace = vi.fn();
+    const run = makeRun({ request_id: "req_abc_123" });
+    const { render, user } = setup({ run, runs: [run], selectedRunID: run.id, onOpenTrace });
+    render();
+    const button = screen.getByRole("button", { name: "req_abc_123" });
+    await user.click(button);
+    expect(onOpenTrace).toHaveBeenCalledWith("req_abc_123");
+  });
+
+  it("renders Request ID as plain text when onOpenTrace is not wired", () => {
+    const run = makeRun({ request_id: "req_xyz_789" });
+    const { render } = setup({ run, runs: [run], selectedRunID: run.id, onOpenTrace: undefined });
+    render();
+    // The id appears in text but should not be a clickable button.
+    expect(screen.getByText("req_xyz_789")).toBeTruthy();
+    expect(screen.queryByRole("button", { name: "req_xyz_789" })).toBeNull();
+  });
+
   it("handles a tool name with embedded double-underscores in the tool segment", () => {
     // Some upstream MCP servers use `__` inside their tool names
     // (e.g. `mcp__weird__double__under` parses as server=weird,

@@ -242,7 +242,7 @@ function AuthenticatedShell({
             <Suspense fallback={<WorkspaceFallback />}>
               {activeWorkspace === "overview"   && <ObservabilityView actions={actions} state={state} onNavigate={onSelectWorkspace} focusRequest={traceFocusRequest} />}
               {activeWorkspace === "chats" && <ChatView actions={actions} state={state} onNavigate={onSelectWorkspace} onOpenTask={openTaskFromChat} onOpenTrace={openTraceFromChat} />}
-              {activeWorkspace === "runs"          && <TasksView focusRequest={taskFocusRequest} onOpenAgentChat={openAgentChatFromTask} />}
+              {activeWorkspace === "runs"          && <TasksView focusRequest={taskFocusRequest} onOpenAgentChat={openAgentChatFromTask} onOpenTrace={openTraceFromChat} />}
               {activeWorkspace === "providers"     && <ProvidersView actions={actions} state={state} />}
               {activeWorkspace === "costs"         && <CostsView actions={actions} state={state} />}
               {activeWorkspace === "settings" && <SettingsView actions={actions} state={state} />}
