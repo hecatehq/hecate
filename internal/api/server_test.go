@@ -1383,7 +1383,7 @@ func TestAgentChatShowsFreshSessionRecoveryActivity(t *testing.T) {
 	}
 }
 
-func TestAgentChatHumanizesAdapterJSONRPCBillingError(t *testing.T) {
+func TestAgentChatTagsAdapterJSONRPCBillingError(t *testing.T) {
 	dir := t.TempDir()
 	logger := slog.New(slog.NewJSONHandler(io.Discard, nil))
 	apiHandler := newTestAPIHandlerWithSettings(logger, []providers.Provider{&fakeProvider{}}, config.Config{}, nil)
@@ -1399,8 +1399,8 @@ func TestAgentChatHumanizesAdapterJSONRPCBillingError(t *testing.T) {
 	if assistant.Status != "failed" {
 		t.Fatalf("assistant status = %q, want failed", assistant.Status)
 	}
-	if !strings.Contains(assistant.Content, "Claude Code usage limit: credit balance is too low") {
-		t.Fatalf("assistant content = %q, want humanized Claude usage-limit error", assistant.Content)
+	if !strings.Contains(assistant.Content, "Claude Code error (billing_error): Credit balance is too low") {
+		t.Fatalf("assistant content = %q, want errorKind-tagged adapter error", assistant.Content)
 	}
 	if strings.Contains(assistant.Content, `"code":-32603`) {
 		t.Fatalf("assistant content leaked raw JSON-RPC error: %q", assistant.Content)

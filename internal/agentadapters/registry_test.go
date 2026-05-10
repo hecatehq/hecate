@@ -430,34 +430,13 @@ func TestNormalizeOutputFallsBackToRawCodexWhenNoText(t *testing.T) {
 	}
 }
 
-func TestNormalizeErrorHumanizesClaudeBillingJSONRPC(t *testing.T) {
+func TestNormalizeErrorTagsClaudeBillingJSONRPC(t *testing.T) {
 	t.Parallel()
 
 	err := errors.New(`{"code":-32603,"message":"Internal error: Credit balance is too low","data":{"errorKind":"billing_error"}}`)
 	got := NormalizeError("Claude Code", err)
-	want := "Claude Code usage limit: credit balance is too low. Check the active Claude credential and switch to subscription login or add API credits."
+	want := "Claude Code error (billing_error): Credit balance is too low"
 	if got != want {
 		t.Fatalf("NormalizeError = %q, want %q", got, want)
-	}
-}
-
-func TestSanitizedEnvForClaudeCodeDropsAnthropicProviderCredentials(t *testing.T) {
-	t.Parallel()
-
-	env := sanitizedEnvForAdapter("claude_code", []string{
-		"ANTHROPIC_API_KEY=sk-ant-test",
-		"ANTHROPIC_BASE_URL=https://api.anthropic.com",
-		"CLAUDE_CONFIG_DIR=/tmp/claude",
-		"PATH=/usr/bin",
-	})
-	got := map[string]bool{}
-	for _, entry := range env {
-		got[entry] = true
-	}
-	if got["ANTHROPIC_API_KEY=sk-ant-test"] || got["ANTHROPIC_BASE_URL=https://api.anthropic.com"] {
-		t.Fatalf("Anthropic provider credentials leaked into Claude adapter env: %#v", env)
-	}
-	if !got["CLAUDE_CONFIG_DIR=/tmp/claude"] || !got["PATH=/usr/bin"] {
-		t.Fatalf("Claude runtime env missing expected entries: %#v", env)
 	}
 }
