@@ -1,11 +1,34 @@
-import { useEffect, useState } from "react";
+import { Suspense, lazy, useEffect, useState } from "react";
 
-import { SettingsView } from "../features/settings/SettingsView";
-import { CostsView } from "../features/costs/CostsView";
-import { ObservabilityView } from "../features/overview/ObservabilityView";
-import { ChatView } from "../features/chats/ChatView";
-import { ProvidersView } from "../features/providers/ProvidersView";
-import { TasksView } from "../features/runs/TasksView";
+// Each workspace view is its own dynamic chunk so the initial
+// page load only ships the shell + active workspace, not all six.
+// Vite splits each `lazy(() => import(...))` into a separate
+// chunk under `dist/assets/`. Runtime cost: a one-time fetch +
+// parse the first time the operator visits a workspace; on
+// localhost this is sub-100 ms and invisible. Build cost: each
+// `<Suspense>` boundary needs a fallback (handled by
+// `WorkspaceFallback` below). Test cost: tests that assert on
+// workspace content must use `findBy*` (async) instead of
+// `getBy*` (sync) to wait for the lazy chunk to resolve.
+const SettingsView = lazy(() =>
+  import("../features/settings/SettingsView").then(m => ({ default: m.SettingsView })),
+);
+const CostsView = lazy(() =>
+  import("../features/costs/CostsView").then(m => ({ default: m.CostsView })),
+);
+const ObservabilityView = lazy(() =>
+  import("../features/overview/ObservabilityView").then(m => ({ default: m.ObservabilityView })),
+);
+const ChatView = lazy(() =>
+  import("../features/chats/ChatView").then(m => ({ default: m.ChatView })),
+);
+const ProvidersView = lazy(() =>
+  import("../features/providers/ProvidersView").then(m => ({ default: m.ProvidersView })),
+);
+const TasksView = lazy(() =>
+  import("../features/runs/TasksView").then(m => ({ default: m.TasksView })),
+);
+
 import type { RuntimeConsoleViewModel } from "./useRuntimeConsole";
 import type { AgentChatUsageRecord } from "../types/runtime";
 
@@ -92,6 +115,30 @@ export function ConsoleShell({
       state={state}
       actions={actions}
     />
+  );
+}
+
+// WorkspaceFallback fills the content area for the brief moment a
+// lazily-loaded workspace chunk is being fetched. Uses the same
+// muted style as AuthLoadingShell so a workspace switch reads as
+// "still booting that surface" rather than as a separate loading
+// state. On localhost the fallback is rarely visible — the chunk
+// arrives in <50ms — but it prevents layout flash on slower links
+// or the cold cache after a deploy.
+function WorkspaceFallback() {
+  return (
+    <div
+      style={{
+        padding: 16,
+        fontSize: 11,
+        color: "var(--t3)",
+        fontFamily: "var(--font-mono)",
+        letterSpacing: "0.06em",
+        textTransform: "uppercase",
+      }}
+    >
+      Loading…
+    </div>
   );
 }
 
@@ -192,12 +239,14 @@ function AuthenticatedShell({
         <main className="hecate-content">
           {state.error && <div className="page-banner page-banner--error">{state.error}</div>}
           <div className={`console-content${isBare ? " console-content--bare" : ""}`}>
-            {activeWorkspace === "overview"   && <ObservabilityView actions={actions} state={state} onNavigate={onSelectWorkspace} focusRequest={traceFocusRequest} />}
-            {activeWorkspace === "chats" && <ChatView actions={actions} state={state} onNavigate={onSelectWorkspace} onOpenTask={openTaskFromChat} onOpenTrace={openTraceFromChat} />}
-            {activeWorkspace === "runs"          && <TasksView focusRequest={taskFocusRequest} onOpenAgentChat={openAgentChatFromTask} />}
-            {activeWorkspace === "providers"     && <ProvidersView actions={actions} state={state} />}
-            {activeWorkspace === "costs"         && <CostsView actions={actions} state={state} />}
-            {activeWorkspace === "settings" && <SettingsView actions={actions} state={state} />}
+            <Suspense fallback={<WorkspaceFallback />}>
+              {activeWorkspace === "overview"   && <ObservabilityView actions={actions} state={state} onNavigate={onSelectWorkspace} focusRequest={traceFocusRequest} />}
+              {activeWorkspace === "chats" && <ChatView actions={actions} state={state} onNavigate={onSelectWorkspace} onOpenTask={openTaskFromChat} onOpenTrace={openTraceFromChat} />}
+              {activeWorkspace === "runs"          && <TasksView focusRequest={taskFocusRequest} onOpenAgentChat={openAgentChatFromTask} />}
+              {activeWorkspace === "providers"     && <ProvidersView actions={actions} state={state} />}
+              {activeWorkspace === "costs"         && <CostsView actions={actions} state={state} />}
+              {activeWorkspace === "settings" && <SettingsView actions={actions} state={state} />}
+            </Suspense>
           </div>
         </main>
       </div>
