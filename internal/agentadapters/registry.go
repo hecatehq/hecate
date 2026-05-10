@@ -598,23 +598,6 @@ func sanitizedEnv(env []string) []string {
 	return out
 }
 
-func sanitizedEnvForAdapter(adapterID string, env []string) []string {
-	out := sanitizedEnv(env)
-	if adapterID != "claude_code" {
-		return out
-	}
-	filtered := out[:0]
-	for _, entry := range out {
-		// Claude Code subscription auth is file-backed. Forwarding Anthropic API
-		// variables makes the ACP runner prefer Console credits over /login.
-		if strings.HasPrefix(entry, "ANTHROPIC_") {
-			continue
-		}
-		filtered = append(filtered, entry)
-	}
-	return filtered
-}
-
 func captureGitDiff(ctx context.Context, workspace string, maxBytes int64) (string, string) {
 	diffCtx, cancel := context.WithTimeout(ctx, 5*time.Second)
 	defer cancel()

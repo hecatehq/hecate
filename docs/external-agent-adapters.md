@@ -143,17 +143,9 @@ cache the official `@agentclientprotocol/claude-agent-acp` package through
 `npx`.
 
 If Hecate reports that the managed launcher is unavailable, install Node/npm or
-start Hecate from an environment where `npx` is available.
-
-Hecate strips `ANTHROPIC_*` provider variables from the Claude Code adapter
-environment. Claude Code subscription login is file-backed, and forwarding
-provider API variables can make the ACP runner use Console credits instead of
-the `/login` managed key shown by `claude /status`.
-
-If Claude reports `Credit balance is too low`, run `claude /status` from the
-same workspace and confirm it is using the account you expect. Hecate preserves
-the raw adapter error in diagnostics, but shows a friendlier usage-limit message
-in Chats.
+start Hecate from an environment where `npx` is available. Hecate also checks
+common operator locations such as Volta, mise/asdf shims, Homebrew, and
+`/usr/bin`.
 
 ### Cursor Agent
 
@@ -327,21 +319,6 @@ clears the native ACP handle, and appends an `interrupted` activity to the last
 assistant message when one exists. If the operator sends a new prompt before
 the sweeper has closed the stale session, the request returns HTTP 422 with
 `agent_chat.session_idle_timeout`; start a new chat to continue.
-
-## Troubleshooting
-
-| Symptom | What to check |
-|---|---|
-| Codex or Claude adapter is missing | Hecate could not find the direct ACP command or a local `npx` runner. Install Node/npm, or make sure Volta/mise/asdf/Homebrew is visible to the process that starts Hecate. |
-| Codex or Claude managed launcher is stale | Click **Reinstall** in Settings → External agents, or call `POST /hecate/v1/agent-adapters/{id}/refresh-launcher`. |
-| Cursor adapter is missing | `cursor-agent` is not visible to Hecate. Install Cursor Agent and restart Hecate after changing shell/runtime managers such as Volta. |
-| Cursor says authentication is required | Run `cursor-agent login` or set `CURSOR_API_KEY` in the environment that starts Hecate. |
-| Claude reports low credit balance while `/status` shows a subscription | Confirm the same environment/account starts Hecate and Claude. Hecate strips provider `ANTHROPIC_*` env vars so Claude Code should use its own login; raw diagnostics show which error the adapter returned. |
-| The chat says the adapter version is outside the tested range | The adapter may still work, but Hecate has not verified that ACP wire shape. Update/downgrade the adapter package or use the managed launcher path. |
-| Approval is waiting | Review it in the Chats banner/modal or Settings approval surfaces. In `prompt` mode, unreviewed requests time out with ACP `Cancelled`. |
-| Output looks strange | Open the message's raw output disclosure. The visible transcript is normalized from ACP updates, but raw update JSON is retained for adapter debugging. |
-| Run hangs | Use the Stop button. Hecate sends ACP cancellation and marks the run `cancelled`. |
-| Diff is empty | The workspace may not be a Git repo, or the adapter did not change files. |
 
 ## Stable alpha scope
 

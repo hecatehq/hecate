@@ -45,14 +45,10 @@ func NormalizeError(adapterName string, err error) string {
 	if adapterName == "" {
 		adapterName = "Agent adapter"
 	}
-	switch parsed.Data.ErrorKind {
-	case "billing_error":
-		return adapterName + " usage limit: " + lowerFirst(message) + ". Check the active Claude credential and switch to subscription login or add API credits."
-	case "":
-		return adapterName + " error: " + message
-	default:
-		return adapterName + " error (" + parsed.Data.ErrorKind + "): " + message
+	if kind := parsed.Data.ErrorKind; kind != "" {
+		return adapterName + " error (" + kind + "): " + message
 	}
+	return adapterName + " error: " + message
 }
 
 type jsonRPCErrorPayload struct {
@@ -76,14 +72,6 @@ func parseJSONRPCError(raw string) (jsonRPCErrorPayload, bool) {
 		return payload, false
 	}
 	return payload, true
-}
-
-func lowerFirst(value string) string {
-	value = strings.TrimSpace(value)
-	if value == "" {
-		return ""
-	}
-	return strings.ToLower(value[:1]) + value[1:]
 }
 
 func normalizeJSONLines(raw string) string {
