@@ -11,8 +11,6 @@
 
 import type { TraceListItem } from "../../../types/runtime";
 
-import { traceStatusBadge } from "../../../lib/runtime-utils";
-
 type Props = {
   traces: TraceListItem[];
 };
@@ -31,10 +29,17 @@ export function RecentActivityStrip({ traces }: Props) {
   const p50 = percentile(durations, 0.5);
   const p95 = percentile(durations, 0.95);
   const errorCount = traces.filter((t) => t.status_code === "error").length;
-  const recoveredCount = traces.filter((t) => t.route?.fallback_from).length;
+  // Recovered = a fallback was used AND the final result wasn't an
+  // error. A trace with both status_code="error" and fallback_from
+  // means the fallback ALSO failed; that's not a recovery, it's a
+  // double-fault, and gets counted only as an error.
+  const recoveredCount = traces.filter(
+    (t) => t.route?.fallback_from && t.status_code !== "error",
+  ).length;
 
   return (
     <div
+      role="group"
       aria-label="Recent activity"
       style={{
         padding: "10px 12px",
@@ -47,12 +52,12 @@ export function RecentActivityStrip({ traces }: Props) {
       }}>
       <div style={{ display: "flex", flexWrap: "wrap", gap: 2, alignItems: "center" }}>
         {ordered.map((t) => {
-          const tone = traceStatusBadge(t).status;
-          const color =
-            tone === "down" ? "var(--red)" :
-            tone === "degraded" ? "var(--amber)" :
-            tone === "healthy" ? "var(--green)" :
-            "var(--t3)";
+          // Map dot color from raw fields rather than reusing
+          // traceStatusBadge — that helper paints missing status_code
+          // (in-flight traces) as "degraded"/amber, which would
+          // visually conflate them with recovered traces in this
+          // strip. Here, in-flight stays gray.
+          const color = dotColor(t);
           return (
             <span
               key={t.request_id}
@@ -79,6 +84,13 @@ export function RecentActivityStrip({ traces }: Props) {
       </div>
     </div>
   );
+}
+
+function dotColor(t: TraceListItem): string {
+  if (t.status_code === "error") return "var(--red)";
+  if (t.route?.fallback_from) return "var(--amber)";
+  if (t.status_code === "ok") return "var(--green)";
+  return "var(--t3)"; // in-flight or unknown
 }
 
 // percentile picks the ceil-indexed value at q on a sorted ascending

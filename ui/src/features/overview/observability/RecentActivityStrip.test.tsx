@@ -61,4 +61,21 @@ describe("RecentActivityStrip", () => {
     const { container } = render(<RecentActivityStrip traces={traces} />);
     expect(container.textContent).toMatch(/recovered.*1/);
   });
+
+  it("does not count error+fallback_from as recovered (the fallback also failed)", () => {
+    // A trace with both status_code="error" and fallback_from means
+    // the primary failed AND the fallback failed. That's a double-
+    // fault, not a recovery — the dot is red, the error count
+    // increments, the recovered count does not.
+    const traces = [
+      trace({ request_id: "a", duration_ms: 100, status_code: "error", route: { fallback_from: "openai" } }),
+      trace({ request_id: "b", duration_ms: 200, status_code: "ok", route: { fallback_from: "openai" } }),
+    ];
+    const { container } = render(<RecentActivityStrip traces={traces} />);
+    const text = container.textContent || "";
+    expect(text).toMatch(/errors.*1.*\/.*2/);
+    // Only the second trace recovered; the first double-faulted.
+    expect(text).toMatch(/recovered.*1/);
+    expect(text).not.toMatch(/recovered.*2/);
+  });
 });
