@@ -8,7 +8,7 @@
 > produced.
 > **Depends on:** the existing trace store (`GATEWAY_TRACE_STORE_BACKEND`,
 > retention via `GATEWAY_RETENTION_TRACES_*` — default 24h / 2000
-> records), `/hecate/v1/traces`, `/hecate/v1/system/runtime`,
+> records), `/hecate/v1/traces`, `/hecate/v1/system/stats`,
 > `/hecate/v1/system/mcp/cache`, and the agent-chat session model
 > (`internal/agentchat/store.go` already records `trace_id`).
 > **Prerequisite:** a Tier 1 cleanup PR that lands first — pure
@@ -238,11 +238,11 @@ auto-runs the lookup, opens the drawer.
 Almost zero. Two specific items:
 
 - **Latency / error timeline endpoint.** New
-  `GET /hecate/v1/system/runtime/timeline?window=1h&buckets=60`
+  `GET /hecate/v1/system/stats/timeline?window=1h&buckets=60`
   returns 1-minute (or 1/N-of-window) buckets with `count`,
   `error_count`, `p50_ms`, `p95_ms`, `p99_ms`. Computed from the
   same trace store the recent-traces feed reads from. Live tab
-  polls this every 10s alongside `runtime`. Without this endpoint
+  polls this every 10s alongside `stats`. Without this endpoint
   the Live timelines have to be approximated from the
   recent-traces list, which only carries 50 entries — not enough
   for a clean trend line.
@@ -273,7 +273,7 @@ Then this RFC's redesign:
 | 2 | Filter bar under Inspect: time range, errors-only, status, route reason, request-id substring. | Operator can answer "show me the last hour's errors" in one action. |
 | 3 | Cross-surface drill-down. `<TraceLink>` component; chat / agent-chat / task surfaces drop it in; Inspect reads `request_id` from the URL. | Click a chat → Observability opens with drawer pre-targeted. |
 | 4 | Phase rollup viz under Inspect. | Stacked phase bar appears under the trace table when filtered set ≥ 3. |
-| 5 | Live tab content. New `/system/runtime/timeline` endpoint. Error rate + latency timelines + recent-failures feed. | Live tab is the meaningful default. |
+| 5 | Live tab content. New `/system/stats/timeline` endpoint. Error rate + latency timelines + recent-failures feed. | Live tab is the meaningful default. |
 | 6 | Attribute key=value filter (visible-set autocomplete first; "scan deeper" via the optional endpoint follows). | Operator can filter by `gen_ai.request.model = X`. |
 
 Each phase is a real PR, reviewable independently. Phase 1–2 land
@@ -312,7 +312,7 @@ the IA shift. Phase 3 unlocks the cross-surface use case. Phases
   too dense for a sparkline. Either fix the bucket count
   ("60 buckets" regardless of window — bucket size scales) or fix
   the bucket size and accept the variable detail. Lean: fix bucket
-  count at 60. Same approach as DataDog's small-format charts.
+  count at 60. Same approach as Datadog's small-format charts.
 - **Attribute autocomplete scope.** Client-side over visible
   filtered set is fast but partial. Server-side over full
   retention window is complete but adds a roundtrip per
@@ -333,7 +333,7 @@ own PR and reverts cleanly. The Tier 1 cleanup is independent and
 stays merged on a Tier 2 rollback — operators get the bugfixes
 even if the redesign is reverted.
 
-The optional `/system/runtime/timeline` endpoint added in Phase 5
+The optional `/system/stats/timeline` endpoint added in Phase 5
 is additive: deleting the route returns the gateway to its
 pre-RFC state. The Live tab degrades to "no chart, just stats" if
 the endpoint returns 404 — handled as a soft fallback so a
