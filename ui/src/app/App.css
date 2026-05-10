@@ -154,6 +154,34 @@
   align-items: center;
 }
 
+.page-banner__progress-text {
+  color: var(--t2);
+  margin-left: 4px;
+}
+
+.page-banner__progress {
+  width: 120px;
+  height: 4px;
+  appearance: none;
+  border: none;
+  border-radius: 2px;
+  overflow: hidden;
+  background: var(--bg3);
+}
+
+.page-banner__progress::-webkit-progress-bar {
+  background: var(--bg3);
+}
+
+.page-banner__progress::-webkit-progress-value {
+  background: var(--teal);
+  transition: width 100ms linear;
+}
+
+.page-banner__progress::-moz-progress-bar {
+  background: var(--teal);
+}
+
 /* Toast notifications */
 .toast {
   position: fixed;
