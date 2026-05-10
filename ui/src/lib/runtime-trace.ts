@@ -35,7 +35,16 @@ export type TraceTimelineItem = {
 // WaterfallSpan annotates a span with the data the drawer renders:
 // startMs/durMs are normalized to the trace start; depth is computed
 // from the parent_span_id chain (purely UI-side); critical = on the
-// longest single child chain rooted at the trace root.
+// longest descent path from this span's root (DP over child chains,
+// summing own duration with the longest descent under any child).
+//
+// unknownTiming / negativeDuration mark spans whose timestamps were
+// missing/unparseable or whose end_time is before start_time (clock
+// skew or partial trace). The renderer must handle these explicitly:
+// `startMs` and `durMs` are NaN for unknownTiming, and `durMs` is
+// preserved as-is (possibly negative or zero) for negativeDuration so
+// the UI can render a "?" marker rather than silently showing a 1ms
+// dot indistinguishable from a real one.
 export type WaterfallSpan = {
   span: TraceSpanRecord;
   startMs: number;
@@ -44,6 +53,8 @@ export type WaterfallSpan = {
   phase: TraceTimelineItem["phase"];
   hasError: boolean;
   critical: boolean;
+  unknownTiming: boolean;
+  negativeDuration: boolean;
 };
 
 export type TraceWaterfall = {
@@ -162,23 +173,120 @@ export function tracePhaseFromSpan(name: string): TraceTimelineItem["phase"] {
 }
 
 // buildSpanWaterfall computes the data shape the drawer's waterfall
-// renders. Spans are ordered by start_offset_ms; depth comes from the
-// parent_span_id chain (root = depth 0). The critical-path is the
-// longest single child chain by duration starting at the root.
+// renders. Spans are emitted in pre-order DFS (parent immediately
+// followed by descendants, siblings sorted by start time) so the
+// nested visual hierarchy survives clock skew that would otherwise
+// place a child ahead of its parent under a (startMs, depth) sort.
+//
+// `critical` marks the longest-descent chain from each root, computed
+// via DP: descent(node) = ownDur + max(descent(child)). This handles
+// the case the previous "longest single child by duration" heuristic
+// got wrong — a shorter child whose subtree contains a longer chain.
+//
+// Spans with unparseable start_time or end_time are flagged
+// `unknownTiming: true` (NaN startMs/durMs) and excluded from t0 /
+// totalMs so a single bad timestamp can't blow the whole waterfall to
+// the right. Negative durations (clock skew across hosts/processes)
+// are preserved as-is and flagged `negativeDuration: true` so the
+// renderer can mark them rather than silently clamping to 1ms.
 export function buildSpanWaterfall(spans: TraceSpanRecord[]): TraceWaterfall {
   if (!spans || spans.length === 0) return { spans: [], totalMs: 0, phases: [] };
 
-  const parsed = spans.map((s) => {
-    const start = s.start_time ? Date.parse(s.start_time) : 0;
-    const end = s.end_time ? Date.parse(s.end_time) : start;
-    return { span: s, start: Number.isFinite(start) ? start : 0, end: Number.isFinite(end) ? end : 0 };
+  // Parse timestamps. Track start and end validity separately. Two
+  // failure modes get distinct flags downstream:
+  //   - either timestamp missing/unparseable → `unknownTiming: true`
+  //     (the renderer can't trust the position OR the width)
+  //   - both parsed but end < start → `negativeDuration: true`
+  //     (clock skew; position is OK, duration label is "?")
+  // The t0 computation can include start-valid-end-bad spans
+  // (their start contributes to the trace anchor) but those rows
+  // still get `unknownTiming: true` because we can't draw their bar.
+  type Parsed = {
+    span: TraceSpanRecord;
+    start: number;       // NaN if unparseable
+    end: number;         // NaN if unparseable
+    startValid: boolean;
+    endValid: boolean;
+    durMs: number;       // end - start, or NaN if either is bad
+  };
+  const parsed: Parsed[] = spans.map((s) => {
+    const startRaw = s.start_time ? Date.parse(s.start_time) : NaN;
+    const endRaw = s.end_time ? Date.parse(s.end_time) : NaN;
+    const startValid = Number.isFinite(startRaw);
+    const endValid = Number.isFinite(endRaw);
+    const start = startValid ? startRaw : NaN;
+    const end = endValid ? endRaw : NaN;
+    const durMs = startValid && endValid ? end - start : NaN;
+    return { span: s, start, end, startValid, endValid, durMs };
   });
-  const t0 = Math.min(...parsed.map((p) => p.start));
-  const totalMs = Math.max(...parsed.map((p) => p.end - t0), 1);
 
-  // depth via parent_span_id chain
+  // Cache parsed values by span_id so the sibling sort comparators and
+  // the descent DP don't re-parse ISO timestamps for every comparison.
+  // On a 200-span trace the previous code did O(span × log(siblings))
+  // Date.parse calls; this drops it to O(span).
+  const parsedByID = new Map<string, Parsed>();
+  for (const p of parsed) parsedByID.set(p.span.span_id, p);
+
+  // Compute t0/totalMs from spans with parseable starts. End-bad
+  // spans still contribute their start to t0; they just don't
+  // contribute to totalMs (their end is unknown). If every span is
+  // bad (rare but possible when the trace store mangles ISO
+  // timestamps), fall back to a 1ms total so percentages stay finite.
+  //
+  // Negative-duration spans (clock skew across hosts: end < start)
+  // get their *start* counted into totalMs as well — without that,
+  // a span starting at +200ms in a trace that otherwise ends at
+  // +150ms would render at leftPct=133%, off-scale to the right.
+  // Including the start keeps the renderable area covering every
+  // bar's position.
+  const startValidParsed = parsed.filter((p) => p.startValid);
+  const t0 = startValidParsed.length > 0 ? Math.min(...startValidParsed.map((p) => p.start)) : 0;
+  const endValidParsed = parsed.filter((p) => p.startValid && p.endValid);
+  const totalMs = startValidParsed.length > 0
+    ? Math.max(
+      ...endValidParsed.map((p) => p.end - t0),
+      ...startValidParsed.map((p) => p.start - t0),
+      1,
+    )
+    : 1;
+
   const byID = new Map<string, TraceSpanRecord>();
   for (const s of spans) byID.set(s.span_id, s);
+
+  // Children index keyed on parent span id. Spans whose parent is
+  // missing from the visible set are treated as roots so an orphan
+  // subtree (parent pruned by retention, partial trace) still
+  // renders rather than disappearing.
+  const children = new Map<string, TraceSpanRecord[]>();
+  const roots: TraceSpanRecord[] = [];
+  for (const s of spans) {
+    if (!s.parent_span_id || !byID.has(s.parent_span_id)) {
+      roots.push(s);
+    } else {
+      const arr = children.get(s.parent_span_id) ?? [];
+      arr.push(s);
+      children.set(s.parent_span_id, arr);
+    }
+  }
+  // Sort siblings by start time so DFS order matches wall-clock
+  // order within each subtree. Reads from the parsed cache rather
+  // than re-parsing ISO timestamps. Siblings with unparseable starts
+  // sort last (NaN comparisons fall through to 0, but we guard
+  // explicitly).
+  const sortByStart = (a: TraceSpanRecord, b: TraceSpanRecord): number => {
+    const sa = parsedByID.get(a.span_id)?.start ?? NaN;
+    const sb = parsedByID.get(b.span_id)?.start ?? NaN;
+    if (Number.isFinite(sa) && Number.isFinite(sb)) return sa - sb;
+    if (Number.isFinite(sa)) return -1;
+    if (Number.isFinite(sb)) return 1;
+    return 0;
+  };
+  for (const [, kids] of children) kids.sort(sortByStart);
+  roots.sort(sortByStart);
+
+  // depthOf walks parent_span_id; cycle guard via `seen` set returns
+  // 0 if a cycle is detected (corrupt data — shouldn't happen, but
+  // we'd rather render than throw).
   const depthCache = new Map<string, number>();
   function depthOf(id: string, seen: Set<string> = new Set()): number {
     if (depthCache.has(id)) return depthCache.get(id)!;
@@ -191,51 +299,103 @@ export function buildSpanWaterfall(spans: TraceSpanRecord[]): TraceWaterfall {
     return d;
   }
 
-  // children index for critical-path walk
-  const children = new Map<string, TraceSpanRecord[]>();
-  let root: TraceSpanRecord | null = null;
-  for (const s of spans) {
-    if (!s.parent_span_id || !byID.has(s.parent_span_id)) {
-      // First top-level span is the root for critical-path purposes.
-      if (!root) root = s;
-    } else {
-      const arr = children.get(s.parent_span_id) ?? [];
-      arr.push(s);
-      children.set(s.parent_span_id, arr);
+  // descent: longest chain (in ms, including own duration) from this
+  // span down. Reads its own duration from the parsed cache rather
+  // than re-parsing. Memoized; cycle-guarded via the visiting set.
+  const descentCache = new Map<string, number>();
+  const visiting = new Set<string>();
+  function descent(id: string): number {
+    const cached = descentCache.get(id);
+    if (cached !== undefined) return cached;
+    if (visiting.has(id)) return 0; // cycle: terminate at this node
+    visiting.add(id);
+    const ownDurRaw = parsedByID.get(id)?.durMs ?? 0;
+    // NaN or negative durations don't contribute to a chain length.
+    const ownDur = Number.isFinite(ownDurRaw) && ownDurRaw > 0 ? ownDurRaw : 0;
+    let maxChild = 0;
+    for (const k of children.get(id) ?? []) {
+      const d = descent(k.span_id);
+      if (d > maxChild) maxChild = d;
     }
+    visiting.delete(id);
+    const total = ownDur + maxChild;
+    descentCache.set(id, total);
+    return total;
   }
-  const criticalIDs = new Set<string>();
-  function walkCritical(node: TraceSpanRecord | null) {
-    if (!node) return;
-    criticalIDs.add(node.span_id);
-    const kids = children.get(node.span_id) ?? [];
-    if (kids.length === 0) return;
-    let longest: TraceSpanRecord | null = null;
-    let longestDur = -1;
-    for (const k of kids) {
-      const ks = k.start_time ? Date.parse(k.start_time) : 0;
-      const ke = k.end_time ? Date.parse(k.end_time) : ks;
-      const dur = Number.isFinite(ke) && Number.isFinite(ks) ? ke - ks : 0;
-      if (dur > longestDur) {
-        longestDur = dur;
-        longest = k;
-      }
-    }
-    walkCritical(longest);
-  }
-  walkCritical(root);
 
-  const out: WaterfallSpan[] = parsed
-    .map((p) => ({
+  // Walk longest-descent chain from every root. Multi-root traces
+  // (orphaned subtrees) get every root highlighted so we don't drop
+  // them silently.
+  const criticalIDs = new Set<string>();
+  for (const root of roots) {
+    let node: TraceSpanRecord | null = root;
+    const walkSeen = new Set<string>();
+    while (node && !walkSeen.has(node.span_id)) {
+      walkSeen.add(node.span_id);
+      criticalIDs.add(node.span_id);
+      const kids: TraceSpanRecord[] = children.get(node.span_id) ?? [];
+      if (kids.length === 0) break;
+      let best: TraceSpanRecord | null = null;
+      let bestD = -1;
+      for (const k of kids) {
+        const d: number = descent(k.span_id);
+        if (d > bestD) { bestD = d; best = k; }
+      }
+      node = best;
+    }
+  }
+
+  const waterfallByID = new Map<string, WaterfallSpan>();
+  for (const p of parsed) {
+    // unknownTiming covers any span we can't reliably draw a bar for —
+    // either start or end (or both) was missing/unparseable. The
+    // renderer treats these the same: render the row, mark the bar
+    // slot with "?", don't trust the position.
+    const unknownTiming = !p.startValid || !p.endValid;
+    // negativeDuration is the narrower clock-skew case — both
+    // timestamps parsed but end < start. Bar is positioned but the
+    // duration is "?" rather than a misleading "-50ms" tick.
+    const negativeDuration = !unknownTiming && p.durMs < 0;
+    waterfallByID.set(p.span.span_id, {
       span: p.span,
-      startMs: Math.max(0, p.start - t0),
-      durMs: Math.max(p.end - p.start, 1),
+      // Both startMs and durMs are NaN for unknownTiming rows — the
+      // doc contract is "no usable timing"; even start-OK / end-bad
+      // gets NaN startMs so callers don't accidentally render a bar
+      // at a known position with an unknown width.
+      startMs: unknownTiming ? NaN : Math.max(0, p.start - t0),
+      durMs: unknownTiming ? NaN : p.durMs,
       depth: depthOf(p.span.span_id),
       phase: tracePhaseFromSpan(p.span.name),
-      hasError: p.span.status_code === "error" || (p.span.attributes?.["error"] != null && p.span.attributes?.["error"] !== ""),
+      hasError: p.span.status_code === "error"
+        || (p.span.attributes?.["error"] != null && p.span.attributes?.["error"] !== ""),
       critical: criticalIDs.has(p.span.span_id),
-    }))
-    .sort((a, b) => a.startMs - b.startMs || a.depth - b.depth);
+      unknownTiming,
+      negativeDuration,
+    });
+  }
+
+  // Pre-order DFS emit: parent, then descendants. Cycle guard via
+  // `emitted` set so a corrupt parent_span_id loop doesn't infinite-
+  // recurse, and so a span reachable from multiple roots doesn't
+  // appear twice.
+  const out: WaterfallSpan[] = [];
+  const emitted = new Set<string>();
+  function emit(node: TraceSpanRecord) {
+    if (emitted.has(node.span_id)) return;
+    emitted.add(node.span_id);
+    const w = waterfallByID.get(node.span_id);
+    if (w) out.push(w);
+    for (const k of children.get(node.span_id) ?? []) emit(k);
+  }
+  for (const r of roots) emit(r);
+  // Sweep up any spans not reachable from a root (shouldn't happen
+  // given roots is built as "no valid parent", but defensive).
+  for (const p of parsed) {
+    if (!emitted.has(p.span.span_id)) {
+      const w = waterfallByID.get(p.span.span_id);
+      if (w) out.push(w);
+    }
+  }
 
   const phases: TraceTimelineItem["phase"][] = [];
   for (const s of out) if (!phases.includes(s.phase)) phases.push(s.phase);

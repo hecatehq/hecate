@@ -170,6 +170,22 @@ export function ObservabilityView({ state, onNavigate, focusRequest }: Props) {
   const [traceDetail, setTraceDetail] = useState<TraceResponse["data"] | null>(null);
   const [traceFetching, setTraceFetching] = useState(false);
   const traceRetryRef = useRef<ReturnType<typeof window.setInterval> | null>(null);
+  // Trace-detail polling fires every 2s while waiting for spans. We cap
+  // attempts so a trace that's been retention-pruned, dropped by the OTel
+  // buffer, or otherwise will-never-arrive doesn't poll forever — at one
+  // request per 2s it's not load-bearing for the gateway, but it produces
+  // a steady drip of 200-with-empty-spans responses an operator can't
+  // see and can't stop. We mirror traceDetail to a ref so the interval
+  // callback can read the latest value without smuggling side effects
+  // through a state updater (which StrictMode double-invokes for
+  // debugging — the previous shape over-counted attempts in dev).
+  const traceRetryAttemptsRef = useRef(0);
+  const traceDetailRef = useRef<TraceResponse["data"] | null>(null);
+  // Counts retries only — the initial fetch when the drawer opens
+  // is separate. Total network calls in the worst case: 1 initial
+  // + TRACE_RETRY_LIMIT retries. With TRACE_RETRY_LIMIT=5 that's 6
+  // fetches total, the last firing ~10s after the drawer opened.
+  const TRACE_RETRY_LIMIT = 5;
 
   // Pick the layout mode once on mount. A live resize listener would
   // make the layout reactive but it'd also rip the drawer out from
@@ -247,8 +263,14 @@ export function ObservabilityView({ state, onNavigate, focusRequest }: Props) {
   const fetchTraceDetail = useCallback((reqId: string) => {
     setTraceFetching(true);
     getTrace(reqId)
-      .then(res => setTraceDetail(res.data))
-      .catch(() => setTraceDetail(null))
+      .then(res => {
+        traceDetailRef.current = res.data;
+        setTraceDetail(res.data);
+      })
+      .catch(() => {
+        traceDetailRef.current = null;
+        setTraceDetail(null);
+      })
       .finally(() => setTraceFetching(false));
   }, []);
 
@@ -259,18 +281,36 @@ export function ObservabilityView({ state, onNavigate, focusRequest }: Props) {
       window.clearInterval(traceRetryRef.current);
       traceRetryRef.current = null;
     }
-    if (!drawerOpen || !selectedID) { setTraceDetail(null); return; }
+    if (!drawerOpen || !selectedID) {
+      traceDetailRef.current = null;
+      setTraceDetail(null);
+      return;
+    }
+    traceDetailRef.current = null;
     setTraceDetail(null);
+    traceRetryAttemptsRef.current = 0;
     fetchTraceDetail(selectedID);
     traceRetryRef.current = window.setInterval(() => {
-      setTraceDetail(prev => {
-        if (prev?.spans?.length) {
-          if (traceRetryRef.current) window.clearInterval(traceRetryRef.current);
-          return prev;
+      // Side effects live outside any state updater so StrictMode's
+      // double-invoke doesn't double-count attempts. Reads traceDetail
+      // via the ref so we don't depend on closing over stale state.
+      const current = traceDetailRef.current;
+      if (current?.spans?.length) {
+        if (traceRetryRef.current) {
+          window.clearInterval(traceRetryRef.current);
+          traceRetryRef.current = null;
         }
-        fetchTraceDetail(selectedID);
-        return prev;
-      });
+        return;
+      }
+      if (traceRetryAttemptsRef.current >= TRACE_RETRY_LIMIT) {
+        if (traceRetryRef.current) {
+          window.clearInterval(traceRetryRef.current);
+          traceRetryRef.current = null;
+        }
+        return;
+      }
+      traceRetryAttemptsRef.current += 1;
+      fetchTraceDetail(selectedID);
     }, 2000);
     return () => {
       if (traceRetryRef.current) window.clearInterval(traceRetryRef.current);
@@ -884,13 +924,28 @@ function SpanWaterfall({
         )}
       </div>
 
-      {/* Sticky ruler */}
+      {/* Sticky ruler. Three things needed for it to render reliably
+        on top of subsequent span rows:
+         - `bg2` (not `bg1`) so the ruler has visible contrast against
+           the surrounding card and so its background actually
+           occludes the row that scrolls under it. `bg1` is the same
+           color as the card it's sitting in.
+         - `isolation: isolate` creates a stacking context so the
+           absolute-positioned bar children inside SpanRow can't
+           paint above the sticky ruler. Without it, a high-z-index
+           descendant of a sibling could land on top.
+         - `marginBottom: 6` separates the ruler from the first span
+           row — without it, the row's amber critical-path border
+           visually merges with the ruler's own bottom border. */}
       <div style={{
-        position: "sticky", top: 0, zIndex: 1, background: "var(--bg1)",
+        position: "sticky", top: 0, zIndex: 5,
+        background: "var(--bg2)",
+        isolation: "isolate",
         display: "grid",
         gridTemplateColumns: "240px 1fr 60px",
         gap: 8,
-        padding: "4px 0",
+        padding: "6px 0",
+        marginBottom: 6,
         borderBottom: "1px solid var(--border)",
       }}>
         <div />
@@ -904,7 +959,7 @@ function SpanWaterfall({
                 transform: i === 0 ? "translateX(0)" : i === ticks.length - 1 ? "translateX(-100%)" : "translateX(-50%)",
                 fontFamily: "var(--font-mono)",
                 fontSize: 10,
-                color: "var(--t3)",
+                color: "var(--t2)",
               }}>{t}ms</span>
           ))}
         </div>
@@ -937,12 +992,25 @@ function SpanRow({
   isDimmed: boolean;
   onToggle: () => void;
 }) {
-  const leftPct = (ws.startMs / totalMs) * 100;
-  const widthPct = Math.max((ws.durMs / totalMs) * 100, 0.5);
+  // unknownTiming: span had missing/unparseable timestamps. We render
+  // a tiny 1%-wide indicator at left:0 (not a meaningful position —
+  // see the comment in runtime-trace.ts) plus a "?" duration label,
+  // so the row is visible without silently misleading the operator
+  // about position or width.
+  // negativeDuration: both timestamps parsed but end < start (clock
+  // skew or partial trace). The bar IS positioned at the span's
+  // real start but the duration label is "?" rather than a
+  // misleading "-50ms" or a silently-clamped 1ms tick.
+  const leftPct = ws.unknownTiming ? 0 : (ws.startMs / totalMs) * 100;
+  const widthPct = ws.unknownTiming || ws.negativeDuration
+    ? 1
+    : Math.max((ws.durMs / totalMs) * 100, 0.5);
   const color = phaseColor(ws.phase, ws.span);
   const opacity = isDimmed ? 0.3 : 1;
   // Duration label inside the bar when wide enough, otherwise to its right.
-  const labelInside = widthPct > 12;
+  const labelInside = widthPct > 12 && !ws.unknownTiming && !ws.negativeDuration;
+  const durLabel = ws.unknownTiming || ws.negativeDuration ? "?" : `${Math.max(ws.durMs, 0).toFixed(0)}ms`;
+  const barTone = ws.unknownTiming || ws.negativeDuration ? "var(--t3)" : (ws.hasError ? "var(--red)" : color);
 
   return (
     <div>
@@ -1004,7 +1072,7 @@ function SpanRow({
               width: `${widthPct}%`,
               minWidth: 2,
               height: "100%",
-              background: ws.hasError ? "var(--red)" : color,
+              background: barTone,
               borderRadius: 2,
               display: "flex",
               alignItems: "center",
@@ -1014,22 +1082,28 @@ function SpanRow({
             }}>
             {labelInside && (
               <span style={{ fontFamily: "var(--font-mono)", fontSize: 10, color: "var(--t0)" }}>
-                {ws.durMs}ms
+                {durLabel}
               </span>
             )}
           </div>
         </div>
 
         {/* Right-side label */}
-        <div style={{
-          fontFamily: "var(--font-mono)",
-          fontSize: 10,
-          color: "var(--t1)",
-          textAlign: "right",
-          whiteSpace: "nowrap",
-        }}>
-          {labelInside ? "" : `${ws.durMs}ms`}
-          {ws.hasError ? " · CRIT" : ""}
+        <div
+          title={ws.unknownTiming
+            ? "missing or unparseable timestamps"
+            : ws.negativeDuration
+              ? "end_time is before start_time (clock skew or partial trace)"
+              : undefined}
+          style={{
+            fontFamily: "var(--font-mono)",
+            fontSize: 10,
+            color: ws.unknownTiming || ws.negativeDuration ? "var(--amber)" : "var(--t1)",
+            textAlign: "right",
+            whiteSpace: "nowrap",
+          }}>
+          {labelInside ? "" : durLabel}
+          {ws.hasError ? " · ERR" : ""}
         </div>
       </div>
 
