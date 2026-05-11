@@ -123,17 +123,34 @@ export function ObservabilityView({ state, onNavigate, focusRequest }: Props) {
     return () => window.clearInterval(interval);
   }, [loadTraces]);
 
+  const ledgerByRequest = useMemo(() => {
+    const out = new Map<string, NonNullable<typeof state.requestLedger>[number]>();
+    for (const entry of state.requestLedger ?? []) {
+      if (entry.request_id) out.set(entry.request_id, entry);
+    }
+    return out;
+  }, [state.requestLedger]);
+
+  const traceProvider = useCallback(
+    (trace: TraceListItem) => trace.route?.final_provider || ledgerByRequest.get(trace.request_id)?.provider || "",
+    [ledgerByRequest],
+  );
+  const traceModel = useCallback(
+    (trace: TraceListItem) => trace.route?.final_model || ledgerByRequest.get(trace.request_id)?.model || "",
+    [ledgerByRequest],
+  );
+
   // Filter traces before deriving the live-mode auto-selection so the
   // highlight tracks what the operator is actually looking at.
   const filteredTraces = useMemo(() => {
     return traces.filter(t => {
-      if (providerFilter !== "auto" && t.route?.final_provider !== providerFilter) return false;
-      if (modelFilter && t.route?.final_model !== modelFilter) return false;
+      if (providerFilter !== "auto" && traceProvider(t) !== providerFilter) return false;
+      if (modelFilter && traceModel(t) !== modelFilter) return false;
       if (statusFilter === "healthy" && t.status_code === "error") return false;
       if (statusFilter === "error" && t.status_code !== "error") return false;
       return true;
     });
-  }, [traces, providerFilter, modelFilter, statusFilter]);
+  }, [traces, providerFilter, modelFilter, statusFilter, traceProvider, traceModel]);
 
   // One user-facing request can fan out into multiple internal traces
   // (route attempts, provider call, auxiliary calls — all sharing
@@ -155,7 +172,7 @@ export function ObservabilityView({ state, onNavigate, focusRequest }: Props) {
     // — otherwise the drawer header shows "request" or "—/—" even
     // though we know which provider handled the chat.
     const hasRoute = (t: typeof filteredTraces[number]) =>
-      !!(t.route?.final_provider || t.route?.final_model);
+      !!(traceProvider(t) || traceModel(t));
     const byID = new Map<string, { entry: typeof filteredTraces[number]; siblings: number }>();
     for (const t of filteredTraces) {
       const existing = byID.get(t.request_id);
@@ -185,15 +202,7 @@ export function ObservabilityView({ state, onNavigate, focusRequest }: Props) {
       const tb = b.entry.started_at ? Date.parse(b.entry.started_at) : 0;
       return tb - ta;
     });
-  }, [filteredTraces]);
-
-  const ledgerByRequest = useMemo(() => {
-    const out = new Map<string, NonNullable<typeof state.requestLedger>[number]>();
-    for (const entry of state.requestLedger ?? []) {
-      if (entry.request_id) out.set(entry.request_id, entry);
-    }
-    return out;
-  }, [state.requestLedger]);
+  }, [filteredTraces, traceProvider, traceModel]);
 
   // In live mode, auto-highlight the newest visible request. The drawer
   // does NOT auto-open — opens only on explicit click. Track by grouped
@@ -296,11 +305,10 @@ export function ObservabilityView({ state, onNavigate, focusRequest }: Props) {
   }, [state.settingsConfig, state.providers, state.providerPresets]);
 
   const drawerTitle = (() => {
-    if (!selectedTrace) return selectedID ? selectedID.slice(0, 8) + "…" : "";
-    const id = (selectedTrace.request_id || "").slice(0, 8);
-    const prov = selectedTrace.route?.final_provider;
-    const model = selectedTrace.route?.final_model;
-    if (prov || model) return `${id}… · ${prov || "—"}/${model || "—"}`;
+    if (!selectedTrace) return selectedID ?? "";
+    const prov = traceProvider(selectedTrace);
+    const model = traceModel(selectedTrace);
+    if (prov || model) return `${prov || "—"}/${model || "—"}`;
     // No provider was selected — show the rejected candidate (if any)
     // and label the trace as a route-only attempt so the dash-pair
     // header doesn't read as missing data. Detailed candidate
@@ -308,8 +316,8 @@ export function ObservabilityView({ state, onNavigate, focusRequest }: Props) {
     // `provider` is optional on the candidate type, so fall back to a
     // dash rather than letting "undefined" reach the rendered header.
     const rejected = selectedTrace.route?.candidates?.find(c => c.outcome === "skipped");
-    if (rejected) return `${id}… · no provider selected (tried ${rejected.provider || "—"})`;
-    return `${id}… · request`;
+    if (rejected) return `No provider selected (tried ${rejected.provider || "—"})`;
+    return "Request";
   })();
 
   const closeDrawer = () => {
@@ -485,8 +493,8 @@ export function ObservabilityView({ state, onNavigate, focusRequest }: Props) {
                       ? t.status_message
                       : "—";
                   const time = formatRelativeTime(t.started_at || "");
-                  const provider = t.route?.final_provider || "";
-                  const model = t.route?.final_model || "";
+                  const provider = traceProvider(t);
+                  const model = traceModel(t);
                   // When the router skipped every candidate, the
                   // provider/model cells would otherwise just read "—".
                   // Show the rejected candidate (muted) with a tooltip
@@ -552,7 +560,7 @@ export function ObservabilityView({ state, onNavigate, focusRequest }: Props) {
                       </td>
                       <td style={tdBase} onClick={e => e.stopPropagation()}>
                         <div style={{ display: "inline-flex", alignItems: "center", gap: 4 }}>
-                          <CopyableID text={t.request_id} />
+                          <CopyableID text={t.request_id} compact />
                           {group.siblings > 0 && (
                             <span
                               title={`This request produced ${group.siblings + 1} traces; showing the one with the most spans.`}
