@@ -113,7 +113,7 @@ describe("ObservabilityView", () => {
       container = result.container;
     });
     await waitFor(() => {
-      expect(container.querySelector('[aria-label="Storage and MCP cache"]')).toBeTruthy();
+      expect(container.querySelector('[aria-label="Runtime stats"]')).toBeTruthy();
       expect(container.textContent).toMatch(/MCP cache/);
       expect(container.textContent).toMatch(/4 entries/);
       expect(container.textContent).toMatch(/1 active · 3 idle/);
