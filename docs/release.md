@@ -50,42 +50,35 @@ Practical consequences:
 Historical context for the channel switch. `v0.1.0-alpha.27` was
 the last release built with the GitHub-native updater endpoint
 (`/releases/latest/download/latest.json`) baked into the bundle.
-`v0.1.0-alpha.28` is the one-time **bridge release**:
-
-- alpha.28 ships with the new `hecate.sh/releases/alpha/latest.json`
-  endpoint baked in (this PR's `tauri.conf.json` change).
-- alpha.28 is **manually** flipped to non-prerelease + latest
-  after CI: `gh release edit v0.1.0-alpha.28 --prerelease=false --latest`.
-- That flip is what lets installed alpha.21–27 clients discover
-  alpha.28. Their bundles have the OLD endpoint baked in;
-  `/releases/latest/download/latest.json` resolves only to a
-  non-prerelease release marked latest, which by step 2 is now
-  alpha.28's manifest.
-- Clients auto-upgrade to alpha.28, which has the new endpoint
-  baked in, and from there route exclusively through `hecate.sh`.
-- alpha.29+ ship as pre-releases by default and never need the
-  manual flip — the policy is self-enforcing from that point on.
-
-After alpha.28 has been out long enough that the alpha.21–27
-cohort has migrated, alpha.27 and alpha.28 can both be flipped
-back to pre-release for consistency. The flags no longer matter
-for routing once `hecate.sh` is the canonical channel for every
-shipped bundle.
+`v0.1.0-alpha.28` introduced the new
+`hecate.sh/releases/alpha/latest.json` endpoint and was briefly used
+to validate the bridge path. Because Hecate had no real installed
+alpha cohort to migrate, alpha.28 was flipped back to pre-release
+after validation and old alpha.21–27 installs are expected to
+reinstall manually from the current alpha. Alpha.29+ ship as
+pre-releases by default; auto-update routing no longer depends on
+GitHub's `latest` semantics once a bundle contains the `hecate.sh`
+channel endpoint.
 
 ## What a release produces
 
-Every `v*` tag fires `.github/workflows/release.yml`, which runs three jobs:
+Every `v*` tag fires `.github/workflows/release.yml`, which runs four jobs:
 
 1. **`goreleaser`** (~5–10 min) — multi-arch Go binary tarballs for
    `linux+darwin × amd64+arm64`; each tarball includes `hecate` and
    `hecate-acp`. It also publishes multi-arch Docker images on
    `ghcr.io/hecatehq/hecate`, source tarball, checksums, GitHub Release
    entry.
-2. **`tauri`** (matrix, ~10–15 min, runs after goreleaser) — three legs
-   building native desktop bundles and uploading them to the same Release
-   entry: `.dmg` (macOS arm64), `.deb` + `.AppImage` (Linux x86_64), `.msi`
-   (Windows x86_64). Wall-clock total ~15–25 min.
-3. **`update-release-docs`** — reads the actual uploaded Release assets and
+2. **`tauri / build`** (matrix, ~10–15 min, runs after goreleaser) —
+   three legs building native desktop bundles and uploading them to the same
+   Release entry: `.dmg` (macOS arm64), `.deb` + `.AppImage` (Linux x86_64),
+   `.msi` (Windows x86_64).
+3. **`tauri / publish updater manifest` + `publish updater manifest to website`**
+   — stitches signed updater payloads into `latest.json`, uploads the GitHub
+   Release copy, commits the same manifest to `website/public/releases/alpha/`,
+   dispatches the website deploy, and blocks until
+   `https://hecate.sh/releases/alpha/latest.json` serves the new version.
+4. **`update-release-docs`** — reads the actual uploaded Release assets and
    refreshes the README Desktop app table plus pinned Docker/tarball examples.
    This runs only after the Tauri matrix succeeds, so it never links to bundles
    that were not published.
@@ -101,6 +94,9 @@ Acceptance after the run:
   to see what failed.
 - README Desktop app table and pinned install examples point at the release
   tag. The workflow commits this docs-only refresh to `master` with `[skip ci]`.
+- `https://hecate.sh/releases/alpha/latest.json` serves the same version as
+  the release tag. This is the updater endpoint bundled into alpha.28+ desktop
+  apps; the GitHub Release `latest.json` asset is a backup/source artifact.
 - `docker pull ghcr.io/hecatehq/hecate:X.Y.Z` succeeds (no `v` prefix —
   goreleaser uses bare semver as the docker tag). The image contains both
   `/usr/local/bin/hecate` and `/usr/local/bin/hecate-acp`; the entrypoint is

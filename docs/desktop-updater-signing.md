@@ -5,7 +5,7 @@
 > manifests. End users downloading a built `.dmg` / `.deb` /
 > `.AppImage` / `.msi` don't need to read this — the in-app
 > updater verifies signatures transparently when it pulls
-> `latest.json` from the GitHub Release.
+> `latest.json` from `https://hecate.sh/releases/alpha/latest.json`.
 
 The Tauri updater plugin verifies that every update payload is
 signed by a private key that matches the public key embedded in
@@ -25,7 +25,8 @@ working pipeline:
 
 This doc walks through generating the keypair once, storing the
 secrets, and flipping `active: true`. Subsequent releases then
-auto-emit a signed `latest.json` manifest.
+auto-emit a signed `latest.json` manifest to both the GitHub Release
+and the website-backed alpha channel.
 
 ## Prerequisites
 
@@ -245,7 +246,8 @@ causes, in rough order:
 - The bundle was built with a stale `endpoints` URL (e.g. the
   old `/releases/latest/download/latest.json`) that no longer
   resolves now that the pre-release policy is in force. Bundles
-  from alpha.21–27 fall in this category; the alpha.28 bridge
-  release is the one-time migration to the `hecate.sh` channel.
+  from alpha.21–27 fall in this category; reinstall manually from
+  the current alpha to get a bundle with the `hecate.sh` updater
+  channel baked in.
 - Network / fetch error against `hecate.sh` (the hook silently
   swallows errors; check the webview console in dev builds).
