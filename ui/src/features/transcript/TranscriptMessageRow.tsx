@@ -7,7 +7,7 @@ import { TranscriptActivityTimeline } from "./TranscriptActivityTimeline";
 import { TranscriptDiffReview } from "./TranscriptDiffReview";
 import { TranscriptMarkdown } from "./TranscriptMarkdown";
 
-export function TranscriptMessageRow({ id, role, model, content, time, promptTokens, completionTokens, costUsd, badge, runtimeMeta, taskLink, traceLink, activities, diffStat, diff, agentSessionID, onListAgentFiles, onGetAgentFileDiff, onRevertAgentFiles, rawOutput, agentUsage, agentTiming, error, onCopy, copied }: {
+export function TranscriptMessageRow({ id, role, model, content, time, promptTokens, completionTokens, costUsd, badge, runtimeMeta, taskLink, traceLink, activities, diffStat, diff, agentSessionID, onListAgentFiles, onGetAgentFileDiff, onRevertAgentFiles, rawOutput, agentUsage, agentTiming, error, setupAction, onCopy, copied }: {
   id: string; role: "user" | "assistant"; model?: string; content: string;
   time: string; promptTokens?: number; completionTokens?: number; costUsd?: string;
   badge?: string; runtimeMeta?: string; agentSessionID?: string;
@@ -18,6 +18,13 @@ export function TranscriptMessageRow({ id, role, model, content, time, promptTok
   onGetAgentFileDiff?: (sessionID: string, messageID: string, path: string) => Promise<AgentChatChangedFileDiffRecord | null>;
   onRevertAgentFiles?: (sessionID: string, messageID: string, paths: string[]) => Promise<boolean>;
   rawOutput?: string; agentUsage?: AgentChatUsageRecord; agentTiming?: AgentChatTimingRecord; error?: string;
+  // setupAction is an inline button rendered inside the agent-run
+  // failure notice. The chat passes it when the failure has a
+  // known one-click recovery path — currently just the Claude Code
+  // auth error (where the button deep-links to the guided setup
+  // card in Settings → External agents). Optional in all other
+  // cases.
+  setupAction?: { label: string; title?: string; onClick: () => void };
   onCopy: (id: string, text: string) => void; copied: boolean;
 }) {
   const [hovered, setHovered] = useState(false);
@@ -83,7 +90,11 @@ export function TranscriptMessageRow({ id, role, model, content, time, promptTok
             </div>
           </div>
           {failed || cancelled ? (
-            <AgentRunNotice status={failed ? "failed" : "cancelled"} message={error || content} />
+            <AgentRunNotice
+              status={failed ? "failed" : "cancelled"}
+              message={error || content}
+              action={failed ? setupAction : undefined}
+            />
           ) : thinkingForAgent ? (
             <AgentLiveText content={content} />
           ) : waitingForAgentOutput ? (
@@ -300,8 +311,22 @@ function isActiveAgentActivity(activity: AgentChatActivityRecord): boolean {
   return activity.status === "running" || activity.status === "in_progress";
 }
 
-function AgentRunNotice({ status, message }: { status: "failed" | "cancelled"; message: string }) {
+function AgentRunNotice({
+  status,
+  message,
+  action,
+}: {
+  status: "failed" | "cancelled";
+  message: string;
+  action?: { label: string; title?: string; onClick: () => void };
+}) {
   const color = status === "failed" ? "var(--red)" : "var(--amber)";
+  // The trailing parenthetical marker (e.g. "(claude_code_auth_required)")
+  // is intentional in the server-side string — the chat uses it to
+  // decide whether to render the recovery action. Strip it from
+  // the visible copy so operators don't see the implementation
+  // detail.
+  const visible = message ? message.replace(/\s*\([a-z][a-z0-9_]+_required\)\s*$/i, "").trim() : "";
   return (
     <div style={{
       border: "1px solid var(--border)",
@@ -313,9 +338,22 @@ function AgentRunNotice({ status, message }: { status: "failed" | "cancelled"; m
       <div style={{ color, fontFamily: "var(--font-mono)", fontSize: 11, marginBottom: 4 }}>
         agent run {status}
       </div>
-      {message && (
+      {visible && (
         <div style={{ color: "var(--t0)", fontSize: 13, lineHeight: 1.6, whiteSpace: "pre-wrap" }}>
-          {message}
+          {visible}
+        </div>
+      )}
+      {action && (
+        <div style={{ marginTop: 8 }}>
+          <button
+            type="button"
+            className="btn btn-primary btn-sm"
+            onClick={action.onClick}
+            title={action.title}
+            style={{ fontSize: 12, padding: "5px 10px" }}
+          >
+            {action.label}
+          </button>
         </div>
       )}
     </div>

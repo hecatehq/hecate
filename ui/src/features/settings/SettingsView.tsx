@@ -489,6 +489,33 @@ function ExternalAgentsTab({ state, actions }: Props) {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
+  // One-shot scroll + highlight when the operator arrived here via
+  // the "Open Claude Code setup" button on a failed Claude run.
+  // The chat sets `hecate.settingsFocus` in sessionStorage before
+  // navigating; we read-and-clear it so subsequent visits to this
+  // tab don't re-trigger the scroll.
+  useEffect(() => {
+    let focusTarget: string | null = null;
+    try {
+      focusTarget = sessionStorage.getItem("hecate.settingsFocus");
+      if (focusTarget) sessionStorage.removeItem("hecate.settingsFocus");
+    } catch {
+      // sessionStorage unavailable — nothing to focus.
+    }
+    if (!focusTarget) return;
+    // Defer one frame so the card has rendered before we measure it.
+    const handle = window.setTimeout(() => {
+      const card = document.querySelector(`[data-testid="${focusTarget}"]`);
+      if (!card) return;
+      card.scrollIntoView({ behavior: "smooth", block: "center" });
+      // Brief highlight so the operator's eye lands on it. Class is
+      // toggled rather than inlined so the styling lives in CSS.
+      card.classList.add("settings-focus-flash");
+      window.setTimeout(() => card.classList.remove("settings-focus-flash"), 2200);
+    }, 0);
+    return () => window.clearTimeout(handle);
+  }, []);
+
   const grants = state.agentChatGrants;
   const loading = state.agentChatGrantsLoading;
   const error = state.agentChatGrantsError;

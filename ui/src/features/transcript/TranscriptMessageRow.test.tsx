@@ -1,4 +1,4 @@
-import { render, screen } from "@testing-library/react";
+import { fireEvent, render, screen } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { describe, expect, it, vi } from "vitest";
 
@@ -37,6 +37,39 @@ describe("TranscriptMessageRow", () => {
     render(<TranscriptMessageRow {...baseProps} badge="failed" error="adapter exited 1" />);
     expect(screen.getByText("agent run failed")).toBeInTheDocument();
     expect(screen.getByText("adapter exited 1")).toBeInTheDocument();
+  });
+
+  it("strips the recovery marker from the visible failure message", () => {
+    render(<TranscriptMessageRow
+      {...baseProps}
+      badge="failed"
+      error="Claude Code isn't signed in. Click the button below. (claude_code_auth_required)"
+    />);
+    expect(screen.getByText(/Claude Code isn't signed in/)).toBeInTheDocument();
+    expect(screen.queryByText(/claude_code_auth_required/)).toBeNull();
+  });
+
+  it("renders the setup-action button on a failed agent run", () => {
+    const onClick = vi.fn();
+    render(<TranscriptMessageRow
+      {...baseProps}
+      badge="failed"
+      error="Claude Code isn't signed in. (claude_code_auth_required)"
+      setupAction={{ label: "Open Claude Code setup", onClick }}
+    />);
+    const button = screen.getByRole("button", { name: "Open Claude Code setup" });
+    fireEvent.click(button);
+    expect(onClick).toHaveBeenCalledTimes(1);
+  });
+
+  it("does not render the setup-action button when the run is cancelled (only on failure)", () => {
+    render(<TranscriptMessageRow
+      {...baseProps}
+      badge="cancelled"
+      error="user pressed stop"
+      setupAction={{ label: "Open Claude Code setup", onClick: vi.fn() }}
+    />);
+    expect(screen.queryByRole("button", { name: "Open Claude Code setup" })).toBeNull();
   });
 
   it("renders an agent run cancelled notice when badge=cancelled", () => {
