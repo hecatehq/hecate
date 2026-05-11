@@ -1,3 +1,5 @@
+import { Fragment } from "react";
+
 // SpanWaterfall renders the trace drawer's centerpiece: the per-span
 // waterfall with a DevTools-style ruler, phase-legend filter chips,
 // depth indent, and an expandable attribute panel per row. The
@@ -86,59 +88,7 @@ export function SpanWaterfall({
           overflowX: "hidden",
           borderTop: "1px solid var(--border)",
         }}>
-        {/* Ruler sticks only inside the waterfall scroller. If it
-            sticks to the whole trace drawer, it floats at the top
-            after the waterfall itself has scrolled away. */}
-        <div style={{
-          position: "sticky", top: 0, zIndex: 5,
-          background: "var(--bg2)",
-          isolation: "isolate",
-          display: "grid",
-          gridTemplateColumns: WATERFALL_COLUMNS,
-          columnGap: WATERFALL_COLUMN_GAP,
-          padding: "6px 0",
-          marginBottom: 6,
-          borderBottom: "1px solid var(--border)",
-        }}>
-          <div />
-          <div style={{
-            position: "relative",
-            height: 18,
-            borderTop: "1px solid var(--border)",
-            borderBottom: "1px solid var(--border)",
-            background: "linear-gradient(180deg, color-mix(in srgb, var(--bg3) 65%, transparent), transparent)",
-          }}>
-            {ticks.map((t, i) => (
-              <div key={i}>
-                <span
-                  aria-hidden="true"
-                  style={{
-                    position: "absolute",
-                    left: `${t.pct}%`,
-                    top: 0,
-                    bottom: 0,
-                    width: 1,
-                    background: t.edge ? "var(--border)" : "color-mix(in srgb, var(--border) 55%, transparent)",
-                  }}
-                />
-                <span
-                  data-testid="span-waterfall-tick"
-                  style={{
-                    position: "absolute",
-                    left: `${t.pct}%`,
-                    top: -1,
-                    transform: t.pct === 0 ? "translateX(0)" : t.pct === 100 ? "translateX(-100%)" : "translateX(-50%)",
-                    fontFamily: "var(--font-mono)",
-                    fontSize: 10,
-                    color: "var(--t2)",
-                    lineHeight: "18px",
-                    whiteSpace: "nowrap",
-                  }}>{t.label}</span>
-              </div>
-            ))}
-          </div>
-          <div />
-        </div>
+        <WaterfallRuler ticks={ticks} />
 
         {/* Span rows */}
         <div style={{ display: "flex", flexDirection: "column" }}>
@@ -155,6 +105,64 @@ export function SpanWaterfall({
           ))}
         </div>
       </div>
+    </div>
+  );
+}
+
+function WaterfallRuler({ ticks }: { ticks: WaterfallTick[] }) {
+  return (
+    // Ruler sticks only inside the waterfall scroller. If it sticks
+    // to the whole trace drawer, it floats at the top after the
+    // waterfall itself has scrolled away.
+    <div style={{
+      position: "sticky", top: 0, zIndex: 5,
+      background: "var(--bg2)",
+      isolation: "isolate",
+      display: "grid",
+      gridTemplateColumns: WATERFALL_COLUMNS,
+      columnGap: WATERFALL_COLUMN_GAP,
+      padding: "6px 0",
+      marginBottom: 6,
+      borderBottom: "1px solid var(--border)",
+    }}>
+      <div />
+      <div style={{
+        position: "relative",
+        height: 18,
+        borderTop: "1px solid var(--border)",
+        borderBottom: "1px solid var(--border)",
+        background: "linear-gradient(180deg, color-mix(in srgb, var(--bg3) 65%, transparent), transparent)",
+      }}>
+        {ticks.map((t) => (
+          <Fragment key={t.pct}>
+            <span
+              aria-hidden="true"
+              style={{
+                position: "absolute",
+                left: `${t.pct}%`,
+                top: 0,
+                bottom: 0,
+                width: 1,
+                background: t.edge ? "var(--border)" : "color-mix(in srgb, var(--border) 55%, transparent)",
+              }}
+            />
+            <span
+              data-testid="span-waterfall-tick"
+              style={{
+                position: "absolute",
+                left: `${t.pct}%`,
+                top: -1,
+                transform: t.pct === 0 ? "translateX(0)" : t.pct === 100 ? "translateX(-100%)" : "translateX(-50%)",
+                fontFamily: "var(--font-mono)",
+                fontSize: 10,
+                color: "var(--t2)",
+                lineHeight: "18px",
+                whiteSpace: "nowrap",
+              }}>{t.label}</span>
+          </Fragment>
+        ))}
+      </div>
+      <div />
     </div>
   );
 }
