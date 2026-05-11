@@ -1,12 +1,15 @@
 // SpanWaterfall renders the trace drawer's centerpiece: the per-span
-// waterfall with sticky ruler, phase-legend filter chips, depth indent,
-// critical-path star, and an expandable attribute panel per row. The
+// waterfall with a DevTools-style ruler, phase-legend filter chips,
+// depth indent, and an expandable attribute panel per row. The
 // data model lives in `lib/runtime-trace.ts` (`buildSpanWaterfall`);
 // this file is the React surface only.
 
 import type { TraceTimelineItem, TraceWaterfall, WaterfallSpan } from "../../../lib/runtime-trace";
 
 import { ATTR_PRIORITY_KEYS, PHASE_LABEL, phaseColor } from "./styles";
+
+const WATERFALL_COLUMNS = "minmax(240px, 30%) minmax(360px, 1fr) 72px";
+const WATERFALL_COLUMN_GAP = 12;
 
 type SpanWaterfallProps = {
   waterfall: TraceWaterfall;
@@ -35,10 +38,7 @@ export function SpanWaterfall({
     );
   }
 
-  const ticks = [0, Math.round(totalMs / 3), Math.round((2 * totalMs) / 3), totalMs];
-  // Whether any span is on the critical path. Drives the legend chip
-  // — no point showing "★ critical path" when no row has the star.
-  const hasCriticalPath = spans.some(s => s.critical);
+  const ticks = waterfallTicks(totalMs);
 
   return (
     <div style={{ padding: "10px 12px", border: "1px solid var(--border)", borderRadius: "var(--radius-sm)" }}>
@@ -47,7 +47,7 @@ export function SpanWaterfall({
         <span className="kicker-lg" style={{ fontSize: 12, fontWeight: 500, color: "var(--t0)", letterSpacing: "0.04em", textTransform: "uppercase" }}>
           Spans ({spans.length}) · total {totalMs} ms
         </span>
-        {(phases.length > 1 || hasCriticalPath) && (
+        {phases.length > 1 && (
           <div role="group" aria-label="Phase legend" style={{ display: "flex", gap: 4, flexWrap: "wrap", marginLeft: "auto" }}>
             {phases.map(p => {
               const active = phaseFilter === p;
@@ -74,96 +74,97 @@ export function SpanWaterfall({
                 </button>
               );
             })}
-            {hasCriticalPath && (
-              <span
-                title="Spans on the critical path — the longest dependency chain through this trace."
-                style={{
-                  border: "1px solid var(--border)",
-                  borderRadius: "var(--radius-sm)",
-                  padding: "2px 6px",
-                  display: "inline-flex",
-                  alignItems: "center",
-                  gap: 4,
-                  fontFamily: "var(--font-mono)",
-                  fontSize: 10,
-                  color: "var(--t2)",
-                }}>
-                <span style={{ color: "var(--amber)" }}>★</span>
-                critical path
-              </span>
-            )}
           </div>
         )}
       </div>
 
-      {/* Sticky ruler. Three things needed for it to render reliably
-        on top of subsequent span rows:
-         - `bg2` (not `bg1`) so the ruler has visible contrast against
-           the surrounding card and so its background actually
-           occludes the row that scrolls under it. `bg1` is the same
-           color as the card it's sitting in.
-         - `isolation: isolate` creates a stacking context so the
-           absolute-positioned bar children inside SpanRow can't
-           paint above the sticky ruler. Without it, a high-z-index
-           descendant of a sibling could land on top.
-         - `marginBottom: 6` separates the ruler from the first span
-           row — without it, the row's amber critical-path border
-           visually merges with the ruler's own bottom border. */}
-      <div style={{
-        position: "sticky", top: 0, zIndex: 5,
-        background: "var(--bg2)",
-        isolation: "isolate",
-        display: "grid",
-        gridTemplateColumns: "240px 1fr 60px",
-        gap: 8,
-        // paddingRight matches the SpanRow grid below so the time-axis
-        // ticks line up with bar-column edges. Without this the
-        // ruler's "1fr" is 4px wider than each row's "1fr" and the
-        // rightmost tick label drifts past the bar ends.
-        padding: "6px 4px 6px 0",
-        marginBottom: 6,
-        borderBottom: "1px solid var(--border)",
-      }}>
-        <div />
-        <div style={{ position: "relative", height: 12 }}>
-          {ticks.map((t, i) => (
-            <span
-              key={i}
-              style={{
-                position: "absolute",
-                left: `${(t / totalMs) * 100}%`,
-                transform: i === 0 ? "translateX(0)" : i === ticks.length - 1 ? "translateX(-100%)" : "translateX(-50%)",
-                fontFamily: "var(--font-mono)",
-                fontSize: 10,
-                color: "var(--t2)",
-              }}>{t}ms</span>
+      <div
+        data-testid="span-waterfall-scroll"
+        style={{
+          maxHeight: "min(420px, 52vh)",
+          overflowY: "auto",
+          overflowX: "hidden",
+          borderTop: "1px solid var(--border)",
+        }}>
+        {/* Ruler sticks only inside the waterfall scroller. If it
+            sticks to the whole trace drawer, it floats at the top
+            after the waterfall itself has scrolled away. */}
+        <div style={{
+          position: "sticky", top: 0, zIndex: 5,
+          background: "var(--bg2)",
+          isolation: "isolate",
+          display: "grid",
+          gridTemplateColumns: WATERFALL_COLUMNS,
+          columnGap: WATERFALL_COLUMN_GAP,
+          padding: "6px 0",
+          marginBottom: 6,
+          borderBottom: "1px solid var(--border)",
+        }}>
+          <div />
+          <div style={{
+            position: "relative",
+            height: 18,
+            borderTop: "1px solid var(--border)",
+            borderBottom: "1px solid var(--border)",
+            background: "linear-gradient(180deg, color-mix(in srgb, var(--bg3) 65%, transparent), transparent)",
+          }}>
+            {ticks.map((t, i) => (
+              <div key={i}>
+                <span
+                  aria-hidden="true"
+                  style={{
+                    position: "absolute",
+                    left: `${t.pct}%`,
+                    top: 0,
+                    bottom: 0,
+                    width: 1,
+                    background: t.edge ? "var(--border)" : "color-mix(in srgb, var(--border) 55%, transparent)",
+                  }}
+                />
+                <span
+                  data-testid="span-waterfall-tick"
+                  style={{
+                    position: "absolute",
+                    left: `${t.pct}%`,
+                    top: -1,
+                    transform: t.pct === 0 ? "translateX(0)" : t.pct === 100 ? "translateX(-100%)" : "translateX(-50%)",
+                    fontFamily: "var(--font-mono)",
+                    fontSize: 10,
+                    color: "var(--t2)",
+                    lineHeight: "18px",
+                    whiteSpace: "nowrap",
+                  }}>{t.label}</span>
+              </div>
+            ))}
+          </div>
+          <div />
+        </div>
+
+        {/* Span rows */}
+        <div style={{ display: "flex", flexDirection: "column" }}>
+          {spans.map((ws) => (
+            <SpanRow
+              key={ws.span.span_id}
+              ws={ws}
+              totalMs={totalMs}
+              ticks={ticks}
+              isExpanded={expandedSpanID === ws.span.span_id}
+              isDimmed={phaseFilter !== null && ws.phase !== phaseFilter}
+              onToggle={() => setExpandedSpanID(expandedSpanID === ws.span.span_id ? null : ws.span.span_id)}
+            />
           ))}
         </div>
-        <div />
-      </div>
-
-      {/* Span rows */}
-      <div style={{ display: "flex", flexDirection: "column" }}>
-        {spans.map((ws) => (
-          <SpanRow
-            key={ws.span.span_id}
-            ws={ws}
-            totalMs={totalMs}
-            isExpanded={expandedSpanID === ws.span.span_id}
-            isDimmed={phaseFilter !== null && ws.phase !== phaseFilter}
-            onToggle={() => setExpandedSpanID(expandedSpanID === ws.span.span_id ? null : ws.span.span_id)}
-          />
-        ))}
       </div>
     </div>
   );
 }
 
 function SpanRow({
-  ws, totalMs, isExpanded, isDimmed, onToggle,
+  ws, totalMs, ticks, isExpanded, isDimmed, onToggle,
 }: {
   ws: WaterfallSpan;
   totalMs: number;
+  ticks: WaterfallTick[];
   isExpanded: boolean;
   isDimmed: boolean;
   onToggle: () => void;
@@ -184,11 +185,9 @@ function SpanRow({
   const color = phaseColor(ws.phase, ws.span);
   const opacity = isDimmed ? 0.3 : 1;
   // Duration label inside the bar when wide enough, otherwise to its
-  // right. Parent spans (hasChildren) render as a thin outlined
-  // bracket — no room for an inside label, so the duration falls back
-  // to the right column.
-  const labelInside = widthPct > 12 && !ws.unknownTiming && !ws.negativeDuration && !ws.hasChildren;
-  const durLabel = ws.unknownTiming || ws.negativeDuration ? "?" : `${Math.max(ws.durMs, 0).toFixed(0)}ms`;
+  // right.
+  const labelInside = widthPct > 12 && !ws.unknownTiming && !ws.negativeDuration;
+  const durLabel = ws.unknownTiming || ws.negativeDuration ? "?" : formatWaterfallMs(Math.max(ws.durMs, 0));
   const barTone = ws.unknownTiming || ws.negativeDuration ? "var(--t3)" : (ws.hasError ? "var(--red)" : color);
 
   return (
@@ -203,16 +202,14 @@ function SpanRow({
           if (e.key === "Enter" || e.key === " ") { e.preventDefault(); onToggle(); }
         }}
         style={{
-          height: 22,
+          minHeight: 24,
           display: "grid",
-          gridTemplateColumns: "240px 1fr 60px",
-          gap: 8,
+          gridTemplateColumns: WATERFALL_COLUMNS,
+          columnGap: WATERFALL_COLUMN_GAP,
           alignItems: "center",
           cursor: "pointer",
           background: isExpanded ? "var(--bg2)" : "transparent",
-          borderLeft: ws.critical ? "2px solid var(--amber)" : "2px solid transparent",
           opacity,
-          paddingRight: 4,
         }}>
         {/* Span name column with depth indent + status dot */}
         <div style={{ display: "flex", alignItems: "center", gap: 6, paddingLeft: 6 + ws.depth * 12, overflow: "hidden" }}>
@@ -237,29 +234,37 @@ function SpanRow({
             }}>
             {ws.span.name}
           </span>
-          {ws.critical && (
-            <span title="critical path" style={{ color: "var(--amber)", fontSize: 10, flexShrink: 0 }}>★</span>
-          )}
         </div>
 
-        {/* Bar column. Parent spans (hasChildren) render as a thin
-            outlined bracket so the child rows below show their real
-            offsets without competing with an always-fully-covering
-            parent bar — see hasChildren in runtime-trace.ts.
-            Unknown-timing and negative-duration spans always render
-            as filled markers regardless: the parent/child distinction
-            isn't meaningful when the timing is unusable. */}
-        <div style={{ position: "relative", height: 14 }}>
+        {/* Bar column. Every row uses the same filled-bar treatment,
+            which is closer to browser DevTools and avoids making
+            parent spans look like selected/outlined objects. */}
+        <div style={{ position: "relative", height: 18, overflow: "hidden" }}>
+          {ticks.map((t, i) => (
+            <span
+              key={i}
+              aria-hidden="true"
+              style={{
+                position: "absolute",
+                left: `${t.pct}%`,
+                top: 0,
+                bottom: 0,
+                width: 1,
+                background: t.edge ? "color-mix(in srgb, var(--border) 75%, transparent)" : "color-mix(in srgb, var(--border) 28%, transparent)",
+              }}
+            />
+          ))}
           <div
+            data-testid={`span-waterfall-bar-${ws.span.span_id}`}
             style={{
               position: "absolute",
               left: `${leftPct}%`,
               width: `${widthPct}%`,
               minWidth: 2,
-              height: ws.hasChildren && !ws.unknownTiming && !ws.negativeDuration ? 6 : "100%",
-              top: ws.hasChildren && !ws.unknownTiming && !ws.negativeDuration ? 4 : 0,
-              background: ws.hasChildren && !ws.unknownTiming && !ws.negativeDuration ? "transparent" : barTone,
-              border: ws.hasChildren && !ws.unknownTiming && !ws.negativeDuration ? `1px solid ${barTone}` : "none",
+              height: "100%",
+              top: 0,
+              background: barTone,
+              border: "none",
               borderRadius: 2,
               display: "flex",
               alignItems: "center",
@@ -297,6 +302,37 @@ function SpanRow({
       {isExpanded && <SpanAttributePanel ws={ws} />}
     </div>
   );
+}
+
+type WaterfallTick = {
+  pct: number;
+  label: string;
+  edge: boolean;
+};
+
+function waterfallTicks(totalMs: number): WaterfallTick[] {
+  const safeTotal = Number.isFinite(totalMs) && totalMs > 0 ? totalMs : 1;
+  return [0, 0.25, 0.5, 0.75, 1].map((ratio) => {
+    const value = safeTotal * ratio;
+    return {
+      pct: ratio * 100,
+      label: formatWaterfallMs(value),
+      edge: ratio === 0 || ratio === 1,
+    };
+  });
+}
+
+function formatWaterfallMs(value: number): string {
+  if (!Number.isFinite(value)) return "?";
+  const abs = Math.abs(value);
+  if (abs === 0) return "0ms";
+  if (abs < 1) return `${trimFixed(value, 2)}ms`;
+  if (abs < 10) return `${trimFixed(value, 1)}ms`;
+  return `${Math.round(value)}ms`;
+}
+
+function trimFixed(value: number, digits: number): string {
+  return value.toFixed(digits).replace(/\.?0+$/, "");
 }
 
 function SpanAttributePanel({ ws }: { ws: WaterfallSpan }) {

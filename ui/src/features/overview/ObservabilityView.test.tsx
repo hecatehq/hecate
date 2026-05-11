@@ -544,7 +544,7 @@ describe("ObservabilityView", () => {
     });
   });
 
-  it("renders the span waterfall with rows, expandable attributes, and a critical-path indicator", async () => {
+  it("renders the span waterfall with rows, expandable attributes, and bounded timelines", async () => {
     const traceID = "trace-abc";
     const t0 = new Date(Date.now() - 1000);
     const spans = [
@@ -557,7 +557,14 @@ describe("ObservabilityView", () => {
       { trace_id: traceID, span_id: "child-a", parent_span_id: "root", name: "provider.openai",
         start_time: new Date(t0.getTime() + 50).toISOString(),
         end_time: new Date(t0.getTime() + 300).toISOString(),
-        attributes: { "gen_ai.provider.name": "openai", model: "gpt-4o" } },
+        attributes: { "gen_ai.provider.name": "openai", model: "gpt-4o" },
+        events: [
+          {
+            name: "provider.request.started",
+            timestamp: new Date(t0.getTime() + 55).toISOString(),
+            attributes: { "gen_ai.provider.name": "openai" },
+          },
+        ] },
       // child B: 310–340ms (shorter)
       { trace_id: traceID, span_id: "child-b", parent_span_id: "root", name: "gateway.usage",
         start_time: new Date(t0.getTime() + 310).toISOString(),
@@ -593,10 +600,21 @@ describe("ObservabilityView", () => {
     expect(document.body.textContent).toMatch(/provider chain/);
     expect(document.body.textContent).toMatch(/provider\.openai/);
     expect(document.body.textContent).toMatch(/gateway\.usage/);
-
-    // Critical-path indicator (★) appears at least twice (root + longest child).
-    const stars = document.body.textContent?.match(/★/g) ?? [];
-    expect(stars.length).toBeGreaterThanOrEqual(2);
+    expect(Array.from(document.querySelectorAll('[data-testid="span-waterfall-tick"]')).map(el => el.textContent))
+      .toEqual(["0ms", "100ms", "200ms", "300ms", "400ms"]);
+    expect((document.querySelector('[data-testid="span-waterfall-bar-root"]') as HTMLElement).style.left).toBe("0%");
+    expect((document.querySelector('[data-testid="span-waterfall-bar-root"]') as HTMLElement).style.width).toBe("100%");
+    expect((document.querySelector('[data-testid="span-waterfall-bar-child-a"]') as HTMLElement).style.left).toBe("12.5%");
+    expect((document.querySelector('[data-testid="span-waterfall-bar-child-a"]') as HTMLElement).style.width).toBe("62.5%");
+    const waterfallScroller = document.querySelector('[data-testid="span-waterfall-scroll"]') as HTMLElement;
+    expect(waterfallScroller).toBeTruthy();
+    expect(waterfallScroller.style.maxHeight).toBe("min(420px, 52vh)");
+    expect(waterfallScroller.style.overflowY).toBe("auto");
+    const eventFlow = document.querySelector('[data-testid="trace-event-flow"]') as HTMLElement;
+    expect(eventFlow).toBeTruthy();
+    expect(eventFlow.style.maxHeight).toBe("min(320px, 42vh)");
+    expect(eventFlow.style.overflowY).toBe("auto");
+    expect(document.body.textContent).not.toMatch(/★/);
 
     // Click the longest child to expand its attributes inline.
     const childARow = Array.from(document.querySelectorAll('[role="button"]'))
