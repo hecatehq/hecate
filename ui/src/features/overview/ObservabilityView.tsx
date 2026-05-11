@@ -5,7 +5,7 @@
 // `./observability/`; this file is orchestration only — state, polling
 // effects, filter computation, and layout.
 
-import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState, type ReactNode } from "react";
 
 import type { RuntimeConsoleViewModel } from "../../app/useRuntimeConsole";
 import { getMCPCacheStats, getRecentTraces, getRuntimeStats, getTrace } from "../../lib/api";
@@ -294,7 +294,7 @@ export function ObservabilityView({ state, onNavigate, focusRequest }: Props) {
   // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [selectedID, drawerOpen]);
 
-  const stats = runtimeStats;
+  const stats = normalizeRuntimeStats(runtimeStats);
   // Resolve via groupedTraces so the drawer header/stats mirror the
   // representative entry the table actually chose for the row. Falling
   // back to the raw traces array would return the first match — usually
@@ -426,32 +426,82 @@ export function ObservabilityView({ state, onNavigate, focusRequest }: Props) {
           </div>
         </div>
 
-        {/* Stat strip */}
+        {/* Runtime health cards */}
         {(stats || mcpCacheStats) && (
-          <div style={{ display: "flex", gap: 8, flexWrap: "wrap", marginBottom: 20 }} aria-label="Runtime stats">
+          <div style={{ display: "grid", gap: 10, marginBottom: 20 }} aria-label="Runtime stats">
             {stats && (
-              <>
-                <StatCard label="queue depth" value={stats.queue_depth} sub={stats.queue_capacity ? `cap ${stats.queue_capacity}` : undefined} highlight={stats.queue_depth > 0} />
-                <StatCard label="workers" value={stats.worker_count} />
-                <StatCard label="in-flight" value={stats.in_flight_jobs} highlight={stats.in_flight_jobs > 0} />
-                <StatCard label="running" value={stats.running_runs} highlight={stats.running_runs > 0} />
-                {stats.queued_runs > 0 && <StatCard label="queued" value={stats.queued_runs} highlight />}
-                {stats.awaiting_approval_runs > 0 && <StatCard label="awaiting approval" value={stats.awaiting_approval_runs} highlight />}
-                {stats.store_backend && <StatCard label="store" value={stats.store_backend} />}
-              </>
+              <StatGroup title="Task runtime" summary={runtimeSummary(stats)}>
+                <StatCard
+                  label="Queue depth"
+                  value={stats.queue_depth > 0 ? stats.queue_depth : "Idle"}
+                  sub={stats.queue_capacity ? `capacity ${stats.queue_capacity}` : undefined}
+                  help="Tasks waiting to be claimed by a task runner."
+                  highlight={stats.queue_depth > 0}
+                  status={stats.queue_depth > 0 ? "active" : "idle"}
+                />
+                <StatCard
+                  label="Task runners"
+                  value={stats.worker_count}
+                  sub={stats.worker_count === 1 ? "slot available" : "slots available"}
+                  help="Configured runner slots that can claim queued tasks."
+                />
+                <StatCard
+                  label="Active jobs"
+                  value={stats.in_flight_jobs > 0 ? stats.in_flight_jobs : "Idle"}
+                  help="Task jobs currently claimed by runner slots."
+                  highlight={stats.in_flight_jobs > 0}
+                  status={stats.in_flight_jobs > 0 ? "active" : "idle"}
+                />
+                <StatCard
+                  label="Running task runs"
+                  value={stats.running_runs > 0 ? stats.running_runs : "Idle"}
+                  help="Task runs currently executing."
+                  highlight={stats.running_runs > 0}
+                  status={stats.running_runs > 0 ? "active" : "idle"}
+                />
+                <StatCard
+                  label="Queued runs"
+                  value={stats.queued_runs > 0 ? stats.queued_runs : "None"}
+                  help="Runs persisted as queued but not yet executing."
+                  highlight={stats.queued_runs > 0}
+                />
+                <StatCard
+                  label="Awaiting approval"
+                  value={stats.awaiting_approval_runs > 0 ? stats.awaiting_approval_runs : "None"}
+                  help="Runs paused on an operator approval gate."
+                  highlight={stats.awaiting_approval_runs > 0}
+                />
+              </StatGroup>
             )}
-            {mcpCacheStats && (
-              !mcpCacheStats.configured ? (
-                <div className="card" style={{ padding: "12px 14px", display: "flex", alignItems: "center", fontSize: 11, color: "var(--t3)", fontFamily: "var(--font-mono)" }}>
-                  No MCP cache wired
-                </div>
-              ) : (
-                <div style={{ display: "flex", gap: 8, flexWrap: "wrap" }} aria-label="MCP cache stats">
-                  <StatCard label="mcp entries" value={mcpCacheStats.entries} />
-                  <StatCard label="mcp in-use" value={mcpCacheStats.in_use} highlight={mcpCacheStats.in_use > 0} />
-                  <StatCard label="mcp idle" value={mcpCacheStats.idle} />
-                </div>
-              )
+            {(stats?.store_backend || mcpCacheStats) && (
+              <StatGroup title="Storage and MCP cache">
+                {stats?.store_backend && (
+                  <StatCard
+                    label="Runtime store"
+                    value={describeStoreBackend(stats.store_backend)}
+                    help="Persistence backend for runtime state."
+                  />
+                )}
+                {mcpCacheStats && (
+                  mcpCacheStats.configured ? (
+                    <>
+                      <StatCard
+                        label="MCP cache"
+                        value={`${mcpCacheStats.entries} entries`}
+                        sub={`${mcpCacheStats.in_use} active · ${mcpCacheStats.idle} idle`}
+                        help="Cached MCP clients available for reuse."
+                        highlight={mcpCacheStats.in_use > 0}
+                      />
+                    </>
+                  ) : (
+                    <StatCard
+                      label="MCP cache"
+                      value="Disabled"
+                      help="No MCP cache is configured for this gateway."
+                    />
+                  )
+                )}
+              </StatGroup>
             )}
           </div>
         )}
@@ -677,4 +727,63 @@ export function ObservabilityView({ state, onNavigate, focusRequest }: Props) {
       )}
     </div>
   );
+}
+
+function StatGroup({ title, summary, children }: { title: string; summary?: string; children: ReactNode }) {
+  return (
+    <section
+      className="card"
+      aria-label={title}
+      style={{
+        padding: 10,
+        display: "grid",
+        gap: 8,
+      }}>
+      <div style={{ display: "flex", justifyContent: "space-between", gap: 12, alignItems: "baseline" }}>
+        <div className="kicker" style={{ color: "var(--t2)" }}>{title}</div>
+        {summary && (
+          <div
+            style={{
+              fontSize: 11,
+              color: "var(--t3)",
+              fontFamily: "var(--font-mono)",
+              textAlign: "right",
+            }}>
+            {summary}
+          </div>
+        )}
+      </div>
+      <div style={{ display: "flex", gap: 8, flexWrap: "wrap" }}>
+        {children}
+      </div>
+    </section>
+  );
+}
+
+function normalizeRuntimeStats(stats: RuntimeStatsResponse["data"] | null): RuntimeStatsResponse["data"] | null {
+  if (!stats || typeof stats.queue_depth !== "number" || typeof stats.worker_count !== "number") {
+    return null;
+  }
+  return stats;
+}
+
+function runtimeSummary(stats: RuntimeStatsResponse["data"]): string {
+  if (stats.awaiting_approval_runs > 0) {
+    return `${stats.awaiting_approval_runs} ${plural(stats.awaiting_approval_runs, "run")} waiting for approval`;
+  }
+  if (stats.running_runs > 0 || stats.in_flight_jobs > 0) {
+    return `${stats.running_runs} ${plural(stats.running_runs, "run")} running, ${stats.in_flight_jobs} active ${plural(stats.in_flight_jobs, "job")}`;
+  }
+  if (stats.queue_depth > 0 || stats.queued_runs > 0) {
+    return `${stats.queue_depth || stats.queued_runs} queued, ${stats.worker_count} ${plural(stats.worker_count, "runner")} available`;
+  }
+  return `${stats.worker_count} ${plural(stats.worker_count, "task runner")} available, no queued work`;
+}
+
+function describeStoreBackend(backend: string): string {
+  return backend === "memory" ? "Memory store" : backend;
+}
+
+function plural(count: number, singular: string): string {
+  return count === 1 ? singular : `${singular}s`;
 }
