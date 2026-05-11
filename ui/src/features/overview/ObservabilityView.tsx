@@ -5,7 +5,7 @@
 // `./observability/`; this file is orchestration only — state, polling
 // effects, filter computation, and layout.
 
-import { useCallback, useEffect, useMemo, useRef, useState, type ReactNode } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState, type KeyboardEvent, type ReactNode } from "react";
 
 import type { RuntimeConsoleViewModel } from "../../app/useRuntimeConsole";
 import { getMCPCacheStats, getRecentTraces, getRuntimeStats, getTrace } from "../../lib/api";
@@ -23,11 +23,14 @@ import {
 } from "../../lib/runtime-utils";
 import type {
   MCPCacheStatsResponse,
+  ModelRecord,
   RuntimeStatsResponse,
   TraceListItem,
   TraceResponse,
 } from "../../types/runtime";
-import { Badge, Icon, Icons, Modal, ProviderPicker, Toggle } from "../shared/ui";
+import { focusDropdownItem, focusInitialDropdownItem } from "../shared/dropdownKeyboard";
+import { useFloatingDropdownStyle } from "../shared/useFloatingDropdownStyle";
+import { Badge, Icon, Icons, Modal, ModelPicker, ProviderPicker, Toggle } from "../shared/ui";
 
 import { CopyableID } from "./observability/CopyableID";
 import { RecentActivityStrip } from "./observability/RecentActivityStrip";
@@ -333,13 +336,17 @@ export function ObservabilityView({ state, onNavigate, focusRequest }: Props) {
     }));
   }, [state.settingsConfig, state.providers, state.providerPresets]);
 
-  const modelOptions = useMemo(() => {
-    const byID = new Map<string, { id: string; provider?: string }>();
+  const modelOptions = useMemo<ModelRecord[]>(() => {
+    const byID = new Map<string, ModelRecord>();
     const add = (id?: string, provider?: string) => {
       const trimmed = id?.trim();
       if (!trimmed) return;
       if (providerFilter !== "auto" && provider && provider !== providerFilter) return;
-      byID.set(trimmed, { id: trimmed, provider });
+      byID.set(trimmed, {
+        id: trimmed,
+        owned_by: provider || "observed",
+        metadata: provider ? { provider } : undefined,
+      });
     };
 
     for (const trace of traces) {
@@ -436,29 +443,16 @@ export function ObservabilityView({ state, onNavigate, focusRequest }: Props) {
               options={providerOptions}
               includeAuto
             />
-            <select
-              className="input"
-              aria-label="Model filter"
+            <ModelPicker
               value={modelFilter}
-              onChange={e => setModelFilter(e.target.value)}
-              style={{ fontSize: 11, padding: "4px 8px", height: 28, minWidth: 180 }}>
-              <option value="">All models</option>
-              {modelOptions.map((model) => (
-                <option key={`${model.provider ?? "any"}:${model.id}`} value={model.id}>
-                  {providerFilter === "auto" && model.provider ? `${model.id} · ${model.provider}` : model.id}
-                </option>
-              ))}
-            </select>
-            <select
-              className="input"
-              aria-label="Status filter"
-              value={statusFilter}
-              onChange={e => setStatusFilter(e.target.value as StatusFilter)}
-              style={{ fontSize: 11, padding: "4px 8px", height: 28 }}>
-              <option value="all">All</option>
-              <option value="healthy">Healthy</option>
-              <option value="error">Error</option>
-            </select>
+              onChange={setModelFilter}
+              models={modelOptions}
+              presets={state.providerPresets}
+              showProvider={providerFilter === "auto"}
+              includeAll
+              triggerWidth={220}
+            />
+            <StatusFilterPicker value={statusFilter} onChange={setStatusFilter} />
             <Toggle on={liveMode} onChange={setLiveMode} ariaLabel="Live mode" />
             <span style={{ fontSize: 11, color: liveMode ? "var(--teal)" : "var(--t3)", width: 42, display: "inline-block" }}>
               {liveMode ? "Live" : "Paused"}
@@ -799,6 +793,101 @@ function StatGroup({ title, summary, children }: { title: string; summary?: stri
         {children}
       </div>
     </section>
+  );
+}
+
+const STATUS_FILTER_OPTIONS: Array<{ value: StatusFilter; label: string }> = [
+  { value: "all", label: "All" },
+  { value: "healthy", label: "Healthy" },
+  { value: "error", label: "Error" },
+];
+
+function StatusFilterPicker({ value, onChange }: { value: StatusFilter; onChange: (value: StatusFilter) => void }) {
+  const [open, setOpen] = useState(false);
+  const ref = useRef<HTMLDivElement>(null);
+  const menuRef = useRef<HTMLDivElement>(null);
+  const triggerRef = useRef<HTMLButtonElement>(null);
+  const floatingStyle = useFloatingDropdownStyle(triggerRef, open, "right");
+  const label = STATUS_FILTER_OPTIONS.find((option) => option.value === value)?.label ?? "All";
+
+  useEffect(() => {
+    const handler = (event: MouseEvent) => {
+      const target = event.target as Node;
+      if (ref.current && ref.current.contains(target)) return;
+      if (target instanceof HTMLElement && target.closest(".dropdown-menu-floating")) return;
+      setOpen(false);
+    };
+    document.addEventListener("mousedown", handler);
+    return () => document.removeEventListener("mousedown", handler);
+  }, []);
+
+  useEffect(() => {
+    if (!open) return;
+    const frame = requestAnimationFrame(() => focusInitialDropdownItem(menuRef.current));
+    return () => cancelAnimationFrame(frame);
+  }, [open]);
+
+  function closeMenu() {
+    setOpen(false);
+    triggerRef.current?.focus();
+  }
+
+  function onMenuKeyDown(event: KeyboardEvent<HTMLDivElement>) {
+    if (event.key === "Escape") {
+      event.preventDefault();
+      closeMenu();
+      return;
+    }
+    if (event.key === "ArrowDown" || event.key === "ArrowUp" || event.key === "Home" || event.key === "End") {
+      event.preventDefault();
+      focusDropdownItem(menuRef.current, event.key);
+    }
+  }
+
+  return (
+    <div className="dropdown-wrap" ref={ref}>
+      <button
+        ref={triggerRef}
+        type="button"
+        aria-label={`Status filter: ${label}`}
+        aria-expanded={open}
+        aria-haspopup="listbox"
+        className="btn btn-ghost btn-sm"
+        onClick={() => setOpen((current) => !current)}
+        style={{ fontFamily: "var(--font-mono)", fontSize: 11, gap: 5, color: "var(--t1)", width: 110 }}>
+        <span style={{ flex: 1, minWidth: 0, whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis", textAlign: "left" }}>
+          {label}
+        </span>
+        <Icon d={Icons.chevD} size={11} />
+      </button>
+      {open && floatingStyle && (
+        <div
+          ref={menuRef}
+          role="listbox"
+          className="dropdown-menu dropdown-menu-floating"
+          onKeyDown={onMenuKeyDown}
+          style={{ ...floatingStyle, minWidth: 110 }}>
+          {STATUS_FILTER_OPTIONS.map((option) => (
+            <button
+              key={option.value}
+              type="button"
+              data-dropdown-item
+              data-selected={value === option.value ? "true" : undefined}
+              role="option"
+              aria-selected={value === option.value}
+              className={`dropdown-item ${value === option.value ? "selected" : ""}`}
+              onClick={() => {
+                onChange(option.value);
+                closeMenu();
+              }}>
+              <span style={{ flex: 1, fontFamily: "var(--font-mono)", fontSize: 12, textAlign: "left" }}>
+                {option.label}
+              </span>
+            </button>
+          ))}
+        </div>
+      )}
+    </div>
   );
 }
 
