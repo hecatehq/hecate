@@ -6,6 +6,33 @@ import (
 	"time"
 )
 
+func TestDefaultProviderTimeoutBranchesOnKind(t *testing.T) {
+	// Local LLM servers (LMStudio, Ollama) can spend 30–120s loading a
+	// model before the first token comes back. The previous 30s default
+	// tripped agent loops on cold local models with
+	// `context deadline exceeded`. Cloud providers stay on a tighter
+	// budget — p99 chat completions don't approach 60s.
+	cases := []struct {
+		kind string
+		want time.Duration
+	}{
+		{"local", 5 * time.Minute},
+		{"LOCAL", 5 * time.Minute},     // case-insensitive
+		{"  local  ", 5 * time.Minute}, // whitespace-tolerant
+		{"cloud", 60 * time.Second},
+		{"", 60 * time.Second},       // unset → cloud default
+		{"hosted", 60 * time.Second}, // unknown kind → cloud default (safer)
+	}
+	for _, tc := range cases {
+		t.Run(tc.kind, func(t *testing.T) {
+			got := DefaultProviderTimeout(tc.kind)
+			if got != tc.want {
+				t.Fatalf("DefaultProviderTimeout(%q) = %v, want %v", tc.kind, got, tc.want)
+			}
+		})
+	}
+}
+
 func TestLoadFromEnvUsesCurrentOpenAIDefaultModel(t *testing.T) {
 	t.Setenv("GATEWAY_DEFAULT_MODEL", "")
 

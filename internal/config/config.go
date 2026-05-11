@@ -1073,7 +1073,7 @@ func providerDefaults(name, globalDefaultModel string) OpenAICompatibleProviderC
 		Name:         strings.ToLower(strings.TrimSpace(name)),
 		Kind:         "cloud",
 		Protocol:     "openai",
-		Timeout:      30 * time.Second,
+		Timeout:      DefaultProviderTimeout("cloud"),
 		StubMode:     false,
 		StubResponse: "Stubbed response from the AI Agent Runtime MVP.",
 	}
@@ -1098,7 +1098,9 @@ func normalizeProviders(items []OpenAICompatibleProviderConfig) {
 			items[i].Protocol = "openai"
 		}
 		if items[i].Timeout == 0 {
-			items[i].Timeout = 30 * time.Second
+			// At this point Kind has been normalized above ("" → "cloud"),
+			// so DefaultProviderTimeout sees a non-empty kind.
+			items[i].Timeout = DefaultProviderTimeout(items[i].Kind)
 		}
 		if items[i].StubResponse == "" {
 			items[i].StubResponse = "Stubbed response from the AI Agent Runtime MVP."

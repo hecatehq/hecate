@@ -183,8 +183,11 @@ function SpanRow({
     : Math.max((ws.durMs / totalMs) * 100, 0.5);
   const color = phaseColor(ws.phase, ws.span);
   const opacity = isDimmed ? 0.3 : 1;
-  // Duration label inside the bar when wide enough, otherwise to its right.
-  const labelInside = widthPct > 12 && !ws.unknownTiming && !ws.negativeDuration;
+  // Duration label inside the bar when wide enough, otherwise to its
+  // right. Parent spans (hasChildren) render as a thin outlined
+  // bracket — no room for an inside label, so the duration falls back
+  // to the right column.
+  const labelInside = widthPct > 12 && !ws.unknownTiming && !ws.negativeDuration && !ws.hasChildren;
   const durLabel = ws.unknownTiming || ws.negativeDuration ? "?" : `${Math.max(ws.durMs, 0).toFixed(0)}ms`;
   const barTone = ws.unknownTiming || ws.negativeDuration ? "var(--t3)" : (ws.hasError ? "var(--red)" : color);
 
@@ -239,7 +242,13 @@ function SpanRow({
           )}
         </div>
 
-        {/* Bar column */}
+        {/* Bar column. Parent spans (hasChildren) render as a thin
+            outlined bracket so the child rows below show their real
+            offsets without competing with an always-fully-covering
+            parent bar — see hasChildren in runtime-trace.ts.
+            Unknown-timing and negative-duration spans always render
+            as filled markers regardless: the parent/child distinction
+            isn't meaningful when the timing is unusable. */}
         <div style={{ position: "relative", height: 14 }}>
           <div
             style={{
@@ -247,8 +256,10 @@ function SpanRow({
               left: `${leftPct}%`,
               width: `${widthPct}%`,
               minWidth: 2,
-              height: "100%",
-              background: barTone,
+              height: ws.hasChildren && !ws.unknownTiming && !ws.negativeDuration ? 6 : "100%",
+              top: ws.hasChildren && !ws.unknownTiming && !ws.negativeDuration ? 4 : 0,
+              background: ws.hasChildren && !ws.unknownTiming && !ws.negativeDuration ? "transparent" : barTone,
+              border: ws.hasChildren && !ws.unknownTiming && !ws.negativeDuration ? `1px solid ${barTone}` : "none",
               borderRadius: 2,
               display: "flex",
               alignItems: "center",

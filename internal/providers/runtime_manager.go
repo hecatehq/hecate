@@ -5,7 +5,6 @@ import (
 	"fmt"
 	"log/slog"
 	"strings"
-	"time"
 
 	"github.com/hecate/agent-runtime/internal/config"
 	"github.com/hecate/agent-runtime/internal/controlplane"
@@ -217,7 +216,7 @@ func (m *ControlPlaneRuntimeManager) resolvedConfigs(ctx context.Context) ([]con
 			APIKey:       apiKey,
 			APIVersion:   item.APIVersion,
 			DefaultModel: item.DefaultModel,
-			Timeout:      30 * time.Second,
+			Timeout:      config.DefaultProviderTimeout(item.Kind),
 			Enabled:      true,
 		}
 		// Apply the gateway-wide Anthropic cache toggle to any
@@ -252,7 +251,7 @@ func (m *ControlPlaneRuntimeManager) resolvedConfigs(ctx context.Context) ([]con
 		seen[name] = struct{}{}
 		cfg := byName[name]
 		if cfg.Timeout == 0 {
-			cfg.Timeout = 30 * time.Second
+			cfg.Timeout = config.DefaultProviderTimeout(cfg.Kind)
 		}
 		out = append(out, cfg)
 	}

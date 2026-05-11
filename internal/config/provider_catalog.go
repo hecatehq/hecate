@@ -252,6 +252,23 @@ func builtInProviderLookupKey(value string) string {
 	return builtInProviderLookupSanitizer.ReplaceAllString(value, "")
 }
 
+// DefaultProviderTimeout returns the HTTP client timeout used per
+// provider LLM call when the operator hasn't configured one
+// explicitly. Local providers (LMStudio, Ollama, etc.) get a much
+// larger budget than cloud providers because a cold local model can
+// take 30–120s just to produce its first token after a fresh load;
+// the previous unconditional 30s default tripped agent loops on
+// LMStudio with `context deadline exceeded`. Cloud providers get
+// 60s, which still fits well within p99 for chat completions but
+// leaves slack for slow upstreams. Operators who want a different
+// budget can set `Timeout` on the provider config directly.
+func DefaultProviderTimeout(kind string) time.Duration {
+	if strings.EqualFold(strings.TrimSpace(kind), "local") {
+		return 5 * time.Minute
+	}
+	return 60 * time.Second
+}
+
 func (p BuiltInProvider) RuntimeConfig(globalDefaultModel string) OpenAICompatibleProviderConfig {
 	defaultModel := p.DefaultModel
 	if p.ID == "openai" && strings.TrimSpace(globalDefaultModel) != "" {
@@ -265,7 +282,7 @@ func (p BuiltInProvider) RuntimeConfig(globalDefaultModel string) OpenAICompatib
 		APIVersion:   p.APIVersion,
 		ChatPath:     p.ChatPath,
 		ModelsPath:   p.ModelsPath,
-		Timeout:      30 * time.Second,
+		Timeout:      DefaultProviderTimeout(p.Kind),
 		StubMode:     false,
 		StubResponse: p.StubResponse,
 		DefaultModel: defaultModel,
