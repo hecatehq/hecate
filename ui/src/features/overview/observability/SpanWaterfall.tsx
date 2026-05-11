@@ -49,7 +49,7 @@ export function SpanWaterfall({
       {/* Header — count + total */}
       <div style={{ display: "flex", alignItems: "center", gap: 10, marginBottom: 8, flexWrap: "wrap" }}>
         <span className="kicker-lg" style={{ fontSize: 12, fontWeight: 500, color: "var(--t0)", letterSpacing: "0.04em", textTransform: "uppercase" }}>
-          Spans ({spans.length}) · total {totalMs} ms
+          Spans ({spans.length}) · total {formatWaterfallMs(totalMs)}
         </span>
         {phases.length > 1 && (
           <div role="group" aria-label="Phase legend" style={{ display: "flex", gap: 4, flexWrap: "wrap", marginLeft: "auto" }}>
