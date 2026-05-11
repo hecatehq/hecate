@@ -2,7 +2,7 @@
   <img src="docs/assets/brand/hecate-lockup-horizontal-dark-2x.png" alt="Hecate — AI Gateway · Agent Runtime" width="720">
 </h1>
 
-[![Latest release](https://img.shields.io/github/v/release/hecatehq/hecate?include_prereleases)](https://github.com/hecatehq/hecate/releases/latest)
+[![Latest release](https://img.shields.io/github/v/release/hecatehq/hecate?include_prereleases)](https://github.com/hecatehq/hecate/releases)
 [![Container](https://img.shields.io/badge/Container-ghcr.io-2496ED?logo=docker&logoColor=white)](docs/deployment.md#image-pinning)
 [![Test](https://github.com/hecatehq/hecate/actions/workflows/test.yml/badge.svg)](https://github.com/hecatehq/hecate/actions/workflows/test.yml)
 [![Go Report Card](https://goreportcard.com/badge/github.com/hecatehq/hecate)](https://goreportcard.com/report/github.com/hecatehq/hecate)
@@ -50,7 +50,8 @@ Hecate sits at that crossroads: one local runtime layer between clients, model p
 
 ### Desktop app
 
-Download from the [latest release](https://github.com/hecatehq/hecate/releases/latest):
+Download the current alpha from [hecate.sh](https://hecate.sh) or from the
+versioned GitHub Release assets below:
 
 <!-- desktop-release-links:start -->
 | Platform | Bundle |
@@ -64,7 +65,7 @@ Open the bundle and launch Hecate. The app starts the gateway sidecar, waits for
 
 > macOS bundles released after the codesign+notarization rollout are signed with a Developer ID Application certificate and notarized — first launch needs no Gatekeeper bypass. Earlier alpha bundles, plus any future release built before the `APPLE_*` repo secrets are configured (e.g. fork builds, the brief window between this PR and the next tag), remain unsigned and need **right-click → Open** on first launch. Windows bundles are not yet signed; click **More info → Run anyway** on the SmartScreen warning. Subsequent launches work normally. Full footguns and roadmap in [docs/desktop-app.md](docs/desktop-app.md).
 >
-> Existing installs auto-update on next launch — when a newer release is published, Hecate surfaces a banner with the new version and an **Install and Restart** button. No manual download needed.
+> Existing installs from alpha.28 onward auto-update through the signed `https://hecate.sh/releases/alpha/latest.json` channel. Older alpha builds used GitHub's `/releases/latest/` endpoint and should be reinstalled manually from the current alpha.
 
 Skip to [Add a provider](#add-a-provider) once it's running.
 
@@ -203,7 +204,7 @@ Stability stages:
 | Task runtime | Alpha-ready | Queue/lease execution, approvals, resumable `agent_loop`, MCP integration, streamed output, artifacts, and stale-run recovery. Broader lifecycle hardening is still ongoing. |
 | Observability | Alpha-ready | OTLP traces/metrics/logs, response trace headers, local trace view, route reports, timing buckets, and runtime stats. |
 | Storage | Alpha-ready | Memory or SQLite per subsystem; SQLite persists chat/task/provider state. Pending approval reconciliation runs on startup. |
-| Desktop app | Early | Native `.dmg`, `.deb`, `.AppImage`, and `.msi` bundles run Hecate as a sidecar. Bundles are unsigned. |
+| Desktop app | Early | Native `.dmg`, `.deb`, `.AppImage`, and `.msi` bundles run Hecate as a sidecar. macOS release builds are signed/notarized and auto-update is active through the `hecate.sh` alpha channel; Windows signing and Linux/Windows launch smoke are still pending. |
 | ACP bridge | Early | `hecate-acp` supports session creation, prompts, cancellation, run-event forwarding, and approval round-trip. Registry/editor packaging is not done. |
 | Execution isolation | Early | Per-call subprocess + env sanitisation + output cap + timeout, with `bwrap` / `sandbox-exec` where available. Not container-level isolation. |
 

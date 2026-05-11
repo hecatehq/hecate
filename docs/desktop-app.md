@@ -61,10 +61,11 @@ What works:
   sidecar staging. They still need manual launch smoke on real hardware before
   we describe them as fully platform-tested.
 - Auto-update is active. Each release emits a signed `latest.json`
-  manifest as a release asset; existing installs check it on launch
-  and surface "Hecate X.Y.Z is available — Install and Restart"
-  with live download progress when a newer version is published.
-  Maintainer-side keypair custody and rotation playbook:
+  manifest as a GitHub Release asset and publishes the same manifest
+  to `https://hecate.sh/releases/alpha/latest.json`, which alpha.28+
+  desktop bundles read on launch. When a newer version is published,
+  Hecate surfaces "Hecate X.Y.Z is available — Install and Restart"
+  with live download progress. Maintainer-side keypair custody and rotation playbook:
   [`desktop-updater-signing.md`](desktop-updater-signing.md).
 
 What doesn't yet:
@@ -90,7 +91,7 @@ the bundle is polished enough to recommend.
 
 | Item | Scope | Notes |
 |---|---|---|
-| **Test the Linux + Windows bundles** | ~30 min per OS | Download from the latest release, install the `.deb` / `.AppImage` / `.msi`, configure a provider, send one chat, quit, relaunch, confirm config persists. macOS is done; these two are the remaining platform unknowns. |
+| **Test the Linux + Windows bundles** | ~30 min per OS | Download from the current alpha release, install the `.deb` / `.AppImage` / `.msi`, configure a provider, send one chat, quit, relaunch, confirm config persists. macOS is done; these two are the remaining platform unknowns. |
 | **Homebrew distribution** | Formula/cask decision | Useful for install ergonomics, especially the CLI. Does not remove the need for macOS signing/notarization for the desktop app; treat it as distribution, not trust. |
 
 ### Tier 2 — operational gates
