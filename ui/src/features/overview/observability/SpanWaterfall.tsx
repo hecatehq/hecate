@@ -10,7 +10,8 @@ import type { TraceTimelineItem, TraceWaterfall, WaterfallSpan } from "../../../
 
 import { ATTR_PRIORITY_KEYS, PHASE_LABEL, phaseColor } from "./styles";
 
-const WATERFALL_COLUMNS = "minmax(240px, 30%) minmax(360px, 1fr) 72px";
+const WATERFALL_MIN_LABEL_PX = 120;
+const WATERFALL_MAX_LABEL_PX = 280;
 const WATERFALL_COLUMN_GAP = 12;
 
 type SpanWaterfallProps = {
@@ -41,6 +42,7 @@ export function SpanWaterfall({
   }
 
   const ticks = waterfallTicks(totalMs);
+  const columns = waterfallColumns(spans);
 
   return (
     <div style={{ padding: "10px 12px", border: "1px solid var(--border)", borderRadius: "var(--radius-sm)" }}>
@@ -87,7 +89,7 @@ export function SpanWaterfall({
           overflowY: "auto",
           overflowX: "hidden",
         }}>
-        <WaterfallRuler ticks={ticks} />
+        <WaterfallRuler ticks={ticks} columns={columns} />
 
         {/* Span rows */}
         <div style={{ display: "flex", flexDirection: "column" }}>
@@ -97,6 +99,7 @@ export function SpanWaterfall({
               ws={ws}
               totalMs={totalMs}
               ticks={ticks}
+              columns={columns}
               isExpanded={expandedSpanID === ws.span.span_id}
               isDimmed={phaseFilter !== null && ws.phase !== phaseFilter}
               onToggle={() => setExpandedSpanID(expandedSpanID === ws.span.span_id ? null : ws.span.span_id)}
@@ -108,7 +111,7 @@ export function SpanWaterfall({
   );
 }
 
-function WaterfallRuler({ ticks }: { ticks: WaterfallTick[] }) {
+function WaterfallRuler({ ticks, columns }: { ticks: WaterfallTick[]; columns: string }) {
   return (
     // Ruler sticks only inside the waterfall scroller. If it sticks
     // to the whole trace drawer, it floats at the top after the
@@ -118,7 +121,7 @@ function WaterfallRuler({ ticks }: { ticks: WaterfallTick[] }) {
       background: "var(--bg2)",
       isolation: "isolate",
       display: "grid",
-      gridTemplateColumns: WATERFALL_COLUMNS,
+      gridTemplateColumns: columns,
       columnGap: WATERFALL_COLUMN_GAP,
       padding: "0 0 6px",
       marginBottom: 6,
@@ -165,11 +168,12 @@ function WaterfallRuler({ ticks }: { ticks: WaterfallTick[] }) {
 }
 
 function SpanRow({
-  ws, totalMs, ticks, isExpanded, isDimmed, onToggle,
+  ws, totalMs, ticks, columns, isExpanded, isDimmed, onToggle,
 }: {
   ws: WaterfallSpan;
   totalMs: number;
   ticks: WaterfallTick[];
+  columns: string;
   isExpanded: boolean;
   isDimmed: boolean;
   onToggle: () => void;
@@ -209,7 +213,7 @@ function SpanRow({
         style={{
           minHeight: 24,
           display: "grid",
-          gridTemplateColumns: WATERFALL_COLUMNS,
+          gridTemplateColumns: columns,
           columnGap: WATERFALL_COLUMN_GAP,
           alignItems: "center",
           cursor: "pointer",
@@ -314,6 +318,18 @@ type WaterfallTick = {
   label: string;
   edge: boolean;
 };
+
+function waterfallColumns(spans: WaterfallSpan[]): string {
+  const labelPx = spans.reduce((max, ws) => {
+    // Monospace span labels render near 7.5px per character at 12px.
+    // Add indentation and dot/gap chrome, then clamp so short names
+    // give the waterfall more room while long names cannot squeeze it.
+    const estimate = 28 + ws.depth * 12 + ws.span.name.length * 7.5;
+    return Math.max(max, estimate);
+  }, WATERFALL_MIN_LABEL_PX);
+  const clamped = Math.min(WATERFALL_MAX_LABEL_PX, Math.max(WATERFALL_MIN_LABEL_PX, Math.ceil(labelPx)));
+  return `${clamped}px minmax(360px, 1fr) 72px`;
+}
 
 function waterfallTicks(totalMs: number): WaterfallTick[] {
   const safeTotal = Number.isFinite(totalMs) && totalMs > 0 ? totalMs : 1;
