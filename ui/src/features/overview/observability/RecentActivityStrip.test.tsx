@@ -52,6 +52,22 @@ describe("RecentActivityStrip", () => {
     expect(text).toMatch(/errors.*1.*\/.*5/);
   });
 
+  it("uses request-level latency overrides for summary and dot tooltips", () => {
+    const traces = [
+      trace({ request_id: "a", duration_ms: 1, status_code: "ok" }),
+      trace({ request_id: "b", duration_ms: 2, status_code: "ok" }),
+    ];
+    const latencyByRequestID = new Map([
+      ["a", 100],
+      ["b", 300],
+    ]);
+    const { container } = render(<RecentActivityStrip traces={traces} latencyByRequestID={latencyByRequestID} />);
+    const text = container.textContent || "";
+    expect(text).toMatch(/p50.*100ms/);
+    expect(text).toMatch(/p95.*300ms/);
+    expect(container.querySelector('span[title*="a · —/— · 100ms"]')).toBeTruthy();
+  });
+
   it("shows recovered count when a trace has fallback_from", () => {
     const traces = [
       trace({ request_id: "a", duration_ms: 100, status_code: "ok", route: { fallback_from: "openai" } }),

@@ -257,7 +257,7 @@ export function ModelPicker({
                 {filtered.length > 0 && <div className="dropdown-divider" />}
               </>
             )}
-            {filtered.length === 0 && !includeAll && (
+            {filtered.length === 0 && (!includeAll || filter.trim()) && (
               <div style={{ padding: "10px 12px", fontSize: 12, color: "var(--t3)" }}>No models match</div>
             )}
             {filtered.map(m => {

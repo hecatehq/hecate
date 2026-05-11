@@ -14,9 +14,10 @@ import type { TraceListItem } from "../../../types/runtime";
 type Props = {
   traces: TraceListItem[];
   labelsByRequestID?: Map<string, { provider?: string; model?: string }>;
+  latencyByRequestID?: Map<string, number>;
 };
 
-export function RecentActivityStrip({ traces, labelsByRequestID }: Props) {
+export function RecentActivityStrip({ traces, labelsByRequestID, latencyByRequestID }: Props) {
   if (traces.length === 0) return null;
 
   // Oldest → newest left to right matches "what just happened ←
@@ -24,7 +25,7 @@ export function RecentActivityStrip({ traces, labelsByRequestID }: Props) {
   // so we reverse for the strip; the table below keeps newest first.
   const ordered = traces.slice().reverse();
   const durations = traces
-    .map((t) => t.duration_ms)
+    .map((t) => traceLatency(t, latencyByRequestID))
     .filter((d): d is number => typeof d === "number" && d >= 0)
     .sort((a, b) => a - b);
   const p50 = percentile(durations, 0.5);
@@ -62,10 +63,11 @@ export function RecentActivityStrip({ traces, labelsByRequestID }: Props) {
           const label = labelsByRequestID?.get(t.request_id);
           const provider = label?.provider || t.route?.final_provider || "—";
           const model = label?.model || t.route?.final_model || "—";
+          const latency = traceLatency(t, latencyByRequestID);
           return (
             <span
               key={t.request_id}
-              title={`${t.request_id} · ${provider}/${model}${t.duration_ms != null ? ` · ${t.duration_ms}ms` : ""}`}
+              title={`${t.request_id} · ${provider}/${model}${latency != null ? ` · ${latency}ms` : ""}`}
               style={{
                 display: "inline-block",
                 width: 6, height: 6, borderRadius: "50%",
@@ -88,6 +90,10 @@ export function RecentActivityStrip({ traces, labelsByRequestID }: Props) {
       </div>
     </div>
   );
+}
+
+function traceLatency(t: TraceListItem, latencyByRequestID?: Map<string, number>): number | undefined {
+  return latencyByRequestID?.get(t.request_id) ?? t.duration_ms;
 }
 
 function dotColor(t: TraceListItem): string {

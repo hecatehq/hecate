@@ -235,6 +235,15 @@ export function ObservabilityView({ state, onNavigate, focusRequest }: Props) {
     }
     return out;
   }, [groupedTraces, traceProvider, traceModel]);
+  const traceLatencyByRequestID = useMemo(() => {
+    const out = new Map<string, number>();
+    for (const group of groupedTraces) {
+      if (typeof group.latencyMs === "number") {
+        out.set(group.entry.request_id, group.latencyMs);
+      }
+    }
+    return out;
+  }, [groupedTraces]);
 
   // In live mode, auto-highlight the newest visible request. The drawer
   // does NOT auto-open — opens only on explicit click. Track by grouped
@@ -377,6 +386,7 @@ export function ObservabilityView({ state, onNavigate, focusRequest }: Props) {
     if (rejected) return `No provider selected (tried ${rejected.provider || "—"})`;
     return "Request";
   })();
+  const drawerDialogLabel = selectedID ? `${drawerTitle} · Request ${selectedID}` : drawerTitle;
 
   const closeDrawer = () => {
     setDrawerOpen(false);
@@ -551,7 +561,11 @@ export function ObservabilityView({ state, onNavigate, focusRequest }: Props) {
             visible traces. Sits above the table so the operator
             gets a "is this OK right now?" answer before parsing
             individual rows. */}
-        <RecentActivityStrip traces={groupedTraces.map(g => g.entry)} labelsByRequestID={traceLabelsByRequestID} />
+        <RecentActivityStrip
+          traces={groupedTraces.map(g => g.entry)}
+          labelsByRequestID={traceLabelsByRequestID}
+          latencyByRequestID={traceLatencyByRequestID}
+        />
 
         {/* Table */}
         {filteredTraces.length > 0 ? (
@@ -717,7 +731,7 @@ export function ObservabilityView({ state, onNavigate, focusRequest }: Props) {
       {drawerActive && (
         <div
           role="dialog"
-          aria-label={drawerTitle}
+          aria-label={drawerDialogLabel}
           style={{
             flex: "1 1 50%",
             minHeight: 0,
@@ -759,6 +773,7 @@ export function ObservabilityView({ state, onNavigate, focusRequest }: Props) {
       {!useDrawer && drawerOpen && selectedID && (
         <Modal
           title={drawerTitle}
+          ariaLabel={drawerDialogLabel}
           onClose={closeDrawer}
           footer={null}
           width={760}>
