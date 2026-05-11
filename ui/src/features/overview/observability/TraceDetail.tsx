@@ -118,9 +118,19 @@ export function TraceDetail({
 
       {/* Event flow */}
       {traceTimeline.length > 0 && (
-        <div style={{ padding: "10px 12px", border: "1px solid var(--border)", borderRadius: "var(--radius-sm)" }}>
+        <div style={{ padding: "10px 12px", border: "1px solid var(--border)", borderRadius: "var(--radius-sm)", overflow: "hidden" }}>
           <div className="kicker" style={{ marginBottom: 8 }}>Event flow</div>
-          <div style={{ display: "flex", flexDirection: "column", gap: 8 }}>
+          <div
+            data-testid="trace-event-flow"
+            aria-label="Trace event flow"
+            style={{
+              display: "flex",
+              flexDirection: "column",
+              gap: 8,
+              maxHeight: "min(320px, 42vh)",
+              overflowY: "auto",
+              paddingRight: 4,
+            }}>
             {traceTimeline.map((event, index) => (
               <div key={`${event.timestamp}-${event.name}-${index}`} style={{ display: "grid", gridTemplateColumns: "56px 92px 1fr", gap: 10, alignItems: "start" }}>
                 <div style={{ fontFamily: "var(--font-mono)", fontSize: 10, color: "var(--t3)" }}>{event.offsetLabel}</div>
