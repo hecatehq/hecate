@@ -73,7 +73,12 @@ jobs:
     uses: ./.github/workflows/_tauri-shared.yml
     secrets: inherit
     permissions:
-      contents: write   # tauri-action uploads bundles to the existing release
+      contents: write   # tauri-action uploads bundles to the existing release;
+                        # publish-updater-website also commits latest.json to master
+      actions: write    # publish-updater-website dispatches website.yml via
+                        # workflow_dispatch. Reusable-workflow permissions are
+                        # capped by the caller, so this MUST be granted here
+                        # too — adding it only on the called job is not enough.
     with:
       tagName: ${{ github.ref_name }}
 
