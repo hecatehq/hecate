@@ -17,10 +17,6 @@ type Router interface {
 	Fallbacks(ctx context.Context, req types.ChatRequest, current types.RouteDecision) []types.RouteDecision
 }
 
-type DiagnosticRouter interface {
-	RouteDiagnostics(ctx context.Context, req types.ChatRequest, selected types.RouteDecision) []types.RouteCandidateReport
-}
-
 type RuleRouter struct {
 	defaultModel string
 	catalog      catalog.Catalog
@@ -138,43 +134,6 @@ func (r *RuleRouter) Fallbacks(ctx context.Context, req types.ChatRequest, curre
 	return out
 }
 
-func (r *RuleRouter) RouteDiagnostics(ctx context.Context, req types.ChatRequest, selected types.RouteDecision) []types.RouteCandidateReport {
-	scope := requestscope.Normalize(req.Scope)
-	entries := orderedEntriesByName(r.catalog.Snapshot(ctx))
-	reports := make([]types.RouteCandidateReport, 0, len(entries))
-	globalModel := req.Model
-	if globalModel == "" {
-		globalModel = r.defaultModel
-	}
-	selectedCandidate, hasSelected := r.selectedDiagnosticCandidate(ctx, req, selected, globalModel)
-
-	for _, entry := range entries {
-		model, reason, skipReason := r.diagnoseEntry(req, scope.ProviderHint, globalModel, entry)
-		if entry.Name == selected.Provider && model == selected.Model {
-			continue
-		}
-		if skipReason == "" && hasSelected {
-			skipReason = comparativeSkipReason(newRouteCandidate(entry, model, reason), selectedCandidate)
-		}
-		skipReason = routeDiagnosticSkipReason(skipReason, entry)
-		if skipReason == "" {
-			continue
-		}
-		reports = append(reports, types.RouteCandidateReport{
-			Provider:     entry.Name,
-			ProviderKind: string(entry.Kind),
-			Model:        model,
-			Reason:       routeReasonForHealth(reason, entry.Status),
-			Outcome:      "skipped",
-			SkipReason:   skipReason,
-			HealthStatus: firstNonEmpty(entry.Status, string(providers.HealthStatusHealthy)),
-			LatencyMS:    entry.LastLatencyMS,
-		})
-	}
-
-	return reports
-}
-
 func (r *RuleRouter) routeExplicitProvider(ctx context.Context, req types.ChatRequest, explicitProvider, model string) (types.RouteDecision, error) {
 	entry, ok := r.catalog.Get(ctx, explicitProvider)
 	if !ok {
@@ -201,57 +160,6 @@ func (r *RuleRouter) routeExplicitProvider(ctx context.Context, req types.ChatRe
 		Model:        routedModel,
 		Reason:       routeReasonForHealth(reason, entry.Status),
 	}, nil
-}
-
-func (r *RuleRouter) diagnoseEntry(req types.ChatRequest, providerHint, globalModel string, entry catalog.Entry) (model, reason, skipReason string) {
-	if providerHint != "" && entry.Name != providerHint {
-		return globalModel, "explicit_provider", "provider_not_requested"
-	}
-	if providerHint != "" && entry.Name == providerHint {
-		if req.Model != "" {
-			if !supportsModel(entry, globalModel) {
-				return globalModel, "pinned_provider_model", "unsupported_model"
-			}
-			if !isRoutableProvider(entry) {
-				return globalModel, "pinned_provider_model", routeHealthSkipReason(entry)
-			}
-			return globalModel, "pinned_provider_model", ""
-		}
-		if entry.DefaultModel == "" {
-			return globalModel, "pinned_provider", "no_default_model"
-		}
-		if !isRoutableProvider(entry) {
-			return entry.DefaultModel, "pinned_provider", routeHealthSkipReason(entry)
-		}
-		return entry.DefaultModel, "pinned_provider", ""
-	}
-
-	if req.Model != "" {
-		if !supportsModel(entry, globalModel) {
-			return globalModel, "requested_model", "unsupported_model"
-		}
-		if !isRoutableProvider(entry) {
-			return globalModel, "requested_model", routeHealthSkipReason(entry)
-		}
-		return globalModel, "requested_model", ""
-	}
-
-	if entry.DefaultModel != "" {
-		if !isRoutableProvider(entry) {
-			return entry.DefaultModel, "provider_default_model", routeHealthSkipReason(entry)
-		}
-		return entry.DefaultModel, "provider_default_model", ""
-	}
-	if globalModel == "" {
-		return "", "global_default_model", "no_model"
-	}
-	if !supportsModel(entry, globalModel) {
-		return globalModel, "global_default_model", "unsupported_model"
-	}
-	if !isRoutableProvider(entry) {
-		return globalModel, "global_default_model", routeHealthSkipReason(entry)
-	}
-	return globalModel, "global_default_model", ""
 }
 
 func (r *RuleRouter) explicitModelCandidates(ctx context.Context, model string) []routeCandidate {
@@ -377,47 +285,6 @@ func isRoutableProvider(entry catalog.Entry) bool {
 	return status == string(providers.HealthStatusHalfOpen)
 }
 
-func routeHealthSkipReason(entry catalog.Entry) string {
-	status := strings.TrimSpace(entry.Status)
-	switch status {
-	case string(providers.HealthStatusOpen):
-		return routeSkipReasonForHealth("circuit_open", entry.HealthReason)
-	case string(providers.HealthStatusDegraded):
-		return routeSkipReasonForHealth("provider_degraded", entry.HealthReason)
-	case "":
-		return "provider_unhealthy"
-	default:
-		return routeSkipReasonForHealth("provider_"+status, entry.HealthReason)
-	}
-}
-
-func routeSkipReasonForHealth(skipReason, healthReason string) string {
-	if healthReason == "rate_limit" {
-		switch skipReason {
-		case "circuit_open", "provider_degraded", "provider_half_open", "provider_open", "provider_unhealthy":
-			return "provider_rate_limited"
-		}
-	}
-	return skipReason
-}
-
-func routeDiagnosticSkipReason(skipReason string, entry catalog.Entry) string {
-	if skipReason != "" {
-		return routeSkipReasonForHealth(skipReason, entry.HealthReason)
-	}
-	switch strings.TrimSpace(entry.Status) {
-	case string(providers.HealthStatusDegraded):
-		if entry.HealthReason == "latency" {
-			return "provider_slow"
-		}
-		return "provider_degraded"
-	case string(providers.HealthStatusHalfOpen):
-		return "provider_recovering"
-	default:
-		return ""
-	}
-}
-
 func routeReasonForHealth(baseReason, status string) string {
 	switch status {
 	case string(providers.HealthStatusHalfOpen):
@@ -472,72 +339,6 @@ func orderCandidates(candidates []routeCandidate) []routeCandidate {
 		return false
 	})
 	return candidates
-}
-
-func (r *RuleRouter) selectedDiagnosticCandidate(ctx context.Context, req types.ChatRequest, selected types.RouteDecision, globalModel string) (routeCandidate, bool) {
-	if selected.Provider == "" {
-		return routeCandidate{}, false
-	}
-	entry, ok := r.catalog.Get(ctx, selected.Provider)
-	if !ok {
-		return routeCandidate{}, false
-	}
-	model := selected.Model
-	if model == "" {
-		model = globalModel
-	}
-	if model == "" {
-		return routeCandidate{}, false
-	}
-	reason := selected.Reason
-	if reason == "" {
-		reason = inferredRouteReason(req, entry, model)
-	}
-	candidate := newRouteCandidate(entry, model, reason)
-	if selected.Reason != "" {
-		candidate.Reason = selected.Reason
-	}
-	return candidate, true
-}
-
-func inferredRouteReason(req types.ChatRequest, entry catalog.Entry, model string) string {
-	switch {
-	case requestscope.Normalize(req.Scope).ProviderHint != "":
-		if req.Model != "" {
-			return "pinned_provider_model"
-		}
-		return "pinned_provider"
-	case req.Model != "":
-		return "requested_model"
-	case entry.DefaultModel != "":
-		return "provider_default_model"
-	default:
-		return "global_default_model"
-	}
-}
-
-func comparativeSkipReason(candidate, selected routeCandidate) string {
-	if selected.Name == "" {
-		return ""
-	}
-	selectedRank := candidateRank(selected.Status)
-	candidateRankValue := candidateRank(candidate.Status)
-	if candidateRankValue > selectedRank {
-		if candidate.HealthReason == "latency" || candidate.Status == string(providers.HealthStatusDegraded) {
-			return "provider_slow"
-		}
-		if candidate.HealthReason == "rate_limit" {
-			return "provider_rate_limited"
-		}
-		return "provider_less_healthy"
-	}
-	if candidate.Stability > selected.Stability {
-		return "provider_less_stable"
-	}
-	if candidate.LastLatencyMS > 0 && selected.LastLatencyMS > 0 && candidate.LastLatencyMS > selected.LastLatencyMS {
-		return "provider_slow"
-	}
-	return "lower_priority_candidate"
 }
 
 func stabilityPenalty(entry catalog.Entry) int64 {

@@ -1,11 +1,9 @@
 package gateway
 
 import (
-	"context"
 	"testing"
 	"time"
 
-	"github.com/hecate/agent-runtime/internal/profiler"
 	"github.com/hecate/agent-runtime/internal/telemetry"
 	"github.com/hecate/agent-runtime/pkg/types"
 )
@@ -224,62 +222,4 @@ func TestBuildRouteDecisionReportInfersFinalRouteFromCompletedCandidate(t *testi
 	if len(report.Candidates) != 1 || report.Candidates[0].Outcome != "completed" {
 		t.Fatalf("candidate = %#v, want one completed candidate", report.Candidates)
 	}
-}
-
-func TestRecordRouteDiagnosticsAddsSkippedCandidatesToTrace(t *testing.T) {
-	t.Parallel()
-
-	trace := profiler.NewTrace("req_route_diag", nil)
-	router := diagnosticRouterStub{
-		reports: []types.RouteCandidateReport{
-			{
-				Provider:     "ollama",
-				ProviderKind: "local",
-				Model:        "gpt-4o-mini",
-				Reason:       "requested_model",
-				SkipReason:   "unsupported_model",
-				HealthStatus: "healthy",
-				LatencyMS:    640,
-			},
-		},
-	}
-
-	recordRouteDiagnostics(context.Background(), trace, router, types.ChatRequest{Model: "gpt-4o-mini"}, types.RouteDecision{
-		Provider: "openai",
-		Model:    "gpt-4o-mini",
-	})
-
-	report := buildRouteDecisionReport(trace.Spans())
-	if len(report.Candidates) != 1 {
-		t.Fatalf("candidate count = %d, want 1: %+v", len(report.Candidates), report.Candidates)
-	}
-	candidate := report.Candidates[0]
-	if candidate.Provider != "ollama" {
-		t.Fatalf("candidate provider = %q, want ollama", candidate.Provider)
-	}
-	if candidate.SkipReason != "unsupported_model" {
-		t.Fatalf("candidate skip reason = %q, want unsupported_model", candidate.SkipReason)
-	}
-	if candidate.Index != routeDiagnosticsIndexOffset {
-		t.Fatalf("candidate index = %d, want diagnostics offset", candidate.Index)
-	}
-	if candidate.LatencyMS != 640 {
-		t.Fatalf("candidate latency = %d, want 640", candidate.LatencyMS)
-	}
-}
-
-type diagnosticRouterStub struct {
-	reports []types.RouteCandidateReport
-}
-
-func (r diagnosticRouterStub) Route(context.Context, types.ChatRequest) (types.RouteDecision, error) {
-	return types.RouteDecision{}, nil
-}
-
-func (r diagnosticRouterStub) Fallbacks(context.Context, types.ChatRequest, types.RouteDecision) []types.RouteDecision {
-	return nil
-}
-
-func (r diagnosticRouterStub) RouteDiagnostics(context.Context, types.ChatRequest, types.RouteDecision) []types.RouteCandidateReport {
-	return append([]types.RouteCandidateReport(nil), r.reports...)
 }

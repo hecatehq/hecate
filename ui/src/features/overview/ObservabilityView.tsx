@@ -147,6 +147,15 @@ export function ObservabilityView({ state, onNavigate, focusRequest }: Props) {
   // sibling traces is a separate feature.
   const groupedTraces = useMemo(() => {
     const statusRank = (code?: string) => code === "error" ? 2 : code === "ok" ? 1 : 0;
+    // A trace whose `route.final_provider` is set carries the actual
+    // routing context (the provider that ran the call). A sibling
+    // with empty route info is usually a route-attempt sub-trace that
+    // didn't actually serve the request. When several traces share a
+    // request_id, prefer the route-carrying one as the representative
+    // — otherwise the drawer header shows "request" or "—/—" even
+    // though we know which provider handled the chat.
+    const hasRoute = (t: typeof filteredTraces[number]) =>
+      !!(t.route?.final_provider || t.route?.final_model);
     const byID = new Map<string, { entry: typeof filteredTraces[number]; siblings: number }>();
     for (const t of filteredTraces) {
       const existing = byID.get(t.request_id);
@@ -155,11 +164,18 @@ export function ObservabilityView({ state, onNavigate, focusRequest }: Props) {
         continue;
       }
       existing.siblings += 1;
+      // Decision order: route info > span count > status (errors win).
+      const incomingHasRoute = hasRoute(t);
+      const haveHasRoute = hasRoute(existing.entry);
+      if (incomingHasRoute && !haveHasRoute) {
+        existing.entry = t;
+        continue;
+      }
+      if (!incomingHasRoute && haveHasRoute) {
+        continue;
+      }
       const incoming = t.span_count ?? 0;
       const have = existing.entry.span_count ?? 0;
-      // Prefer the trace with more spans (typically the provider call
-      // vs. the route-only attempts). Tie-break by status_code to
-      // surface errors over ok over unset.
       if (incoming > have || (incoming === have && statusRank(t.status_code) > statusRank(existing.entry.status_code))) {
         existing.entry = t;
       }
