@@ -91,7 +91,7 @@ describe("ObservabilityView", () => {
     });
   });
 
-  it("renders MCP cache panel when configured", async () => {
+  it("renders MCP cache status when configured", async () => {
     fetchMock.mockImplementation(async (input: RequestInfo | URL) => {
       const url = typeof input === "string" ? input : input.toString();
       if (url.startsWith("/hecate/v1/system/mcp/cache")) {
@@ -111,11 +111,14 @@ describe("ObservabilityView", () => {
       container = result.container;
     });
     await waitFor(() => {
-      expect(container.querySelector('[aria-label="MCP cache stats"]')).toBeTruthy();
+      expect(container.querySelector('[aria-label="Storage and MCP cache"]')).toBeTruthy();
+      expect(container.textContent).toMatch(/MCP cache/);
+      expect(container.textContent).toMatch(/4 entries/);
+      expect(container.textContent).toMatch(/1 active · 3 idle/);
     });
   });
 
-  it("renders 'No MCP cache wired' fallback when configured=false", async () => {
+  it("renders disabled MCP cache status when configured=false", async () => {
     fetchMock.mockImplementation(async (input: RequestInfo | URL) => {
       const url = typeof input === "string" ? input : input.toString();
       if (url.startsWith("/hecate/v1/system/mcp/cache")) {
@@ -135,9 +138,10 @@ describe("ObservabilityView", () => {
       container = result.container;
     });
     await waitFor(() => {
-      expect(container.textContent).toMatch(/No MCP cache wired/i);
+      expect(container.textContent).toMatch(/MCP cache/);
+      expect(container.textContent).toMatch(/Disabled/);
     });
-    expect(container.querySelector('[aria-label="MCP cache stats"]')).toBeNull();
+    expect(container.textContent).not.toMatch(/No MCP cache wired/i);
   });
 
   it("renders empty state with Open Chats button when traces is empty", async () => {
