@@ -74,8 +74,8 @@ describe("ObservabilityView", () => {
       container = result.container;
     });
     expect(container.textContent).toMatch(/Observability/);
-    expect(container.querySelector('[aria-label="Status filter"]')).toBeTruthy();
-    expect(container.querySelector('[aria-label="Model filter"]')).toBeTruthy();
+    expect(container.querySelector('[aria-label^="Status filter"]')).toBeTruthy();
+    expect(container.querySelector('[aria-label^="Model picker"]')).toBeTruthy();
     expect(container.textContent).toMatch(/All models/);
     expect(container.querySelector('[aria-label="Live mode"]')).toBeTruthy();
     expect(container.textContent).toMatch(/Live|Paused/);
@@ -350,9 +350,13 @@ describe("ObservabilityView", () => {
     await waitFor(() => {
       expect(container.textContent).toMatch(/ok-1/);
     });
-    const select = container.querySelector('[aria-label="Status filter"]') as HTMLSelectElement;
+    const select = container.querySelector('[aria-label^="Status filter"]') as HTMLButtonElement;
     await act(async () => {
-      fireEvent.change(select, { target: { value: "error" } });
+      fireEvent.click(select);
+    });
+    const errorOption = Array.from(document.querySelectorAll("button")).find((button) => button.textContent === "Error")!;
+    await act(async () => {
+      fireEvent.click(errorOption);
     });
     await waitFor(() => {
       expect(container.textContent).not.toMatch(/ok-1/);
@@ -376,12 +380,15 @@ describe("ObservabilityView", () => {
       expect(container.textContent).toMatch(/m2-req/);
     });
 
-    const select = container.querySelector('[aria-label="Model filter"]') as HTMLSelectElement;
-    expect(select.value).toBe("");
-    expect(Array.from(select.options).map((option) => option.textContent)).toContain("All models");
+    const select = container.querySelector('[aria-label^="Model picker"]') as HTMLButtonElement;
+    expect(select.textContent).toContain("All models");
 
     await act(async () => {
-      fireEvent.change(select, { target: { value: "m2" } });
+      fireEvent.click(select);
+    });
+    const modelOption = Array.from(document.querySelectorAll("button")).find((button) => button.textContent?.includes("m2"))!;
+    await act(async () => {
+      fireEvent.click(modelOption);
     });
     await waitFor(() => {
       expect(container.textContent).not.toMatch(/m1-req/);

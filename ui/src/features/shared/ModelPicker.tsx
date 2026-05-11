@@ -27,6 +27,9 @@ export function ModelPicker({
   modelWarnings,
   showProvider = true,
   triggerWidth,
+  includeAll = false,
+  allValue = "",
+  allLabel = "All models",
 }: {
   value: string;
   onChange: (v: string) => void;
@@ -58,6 +61,12 @@ export function ModelPicker({
   // Defaults to the historical chat width of 220px; pass `undefined`
   // to let the button size to its content.
   triggerWidth?: number | undefined;
+  // Optional sentinel used by filter surfaces such as Observability.
+  // Chat/task creation leave this off because they require a concrete
+  // model selection; trace filters can start from "All models".
+  includeAll?: boolean;
+  allValue?: string;
+  allLabel?: string;
 }) {
   const [open, setOpen] = useState(false);
   const [filter, setFilter] = useState("");
@@ -117,8 +126,8 @@ export function ModelPicker({
   // outer caller already passes a provider-scoped `models` array, so this
   // check covers both "no providers configured" and "scoped provider has
   // no models" without extra plumbing.
-  const isEmpty = models.length === 0;
-  const label = isEmpty ? "no models available" : (value || models[0]?.id || "model");
+  const isEmpty = models.length === 0 && !includeAll;
+  const label = includeAll && value === allValue ? allLabel : isEmpty ? "no models available" : (value || models[0]?.id || "model");
   const buttonWidth = triggerWidth === undefined ? undefined : triggerWidth;
   const disabledTitle = isEmpty
     ? "No discovered models for this provider. Configure credentials or start the local runtime."
@@ -151,6 +160,13 @@ export function ModelPicker({
       return;
     }
     if (event.key === "Enter") {
+      if (includeAll && filter.trim() === "") {
+        event.preventDefault();
+        event.stopPropagation();
+        onChange(allValue);
+        closeMenu();
+        return;
+      }
       const firstEnabled = filtered.find((model) => {
         const provider = model.metadata?.provider;
         return !provider || !disabledProviders?.has(provider);
@@ -221,7 +237,27 @@ export function ModelPicker({
             />
           </div>
           <div role="listbox" style={{ maxHeight: 300, overflowY: "auto", overflowX: "hidden" }}>
-            {filtered.length === 0 && (
+            {includeAll && (
+              <>
+                <button
+                  type="button"
+                  data-dropdown-item
+                  data-selected={value === allValue ? "true" : undefined}
+                  className={`dropdown-item ${value === allValue ? "selected" : ""}`}
+                  aria-selected={value === allValue}
+                  role="option"
+                  onClick={() => {
+                    onChange(allValue);
+                    closeMenu();
+                  }}>
+                  <span style={{ flex: 1, fontFamily: "var(--font-mono)", fontSize: 12, textAlign: "left" }}>
+                    {allLabel}
+                  </span>
+                </button>
+                {filtered.length > 0 && <div className="dropdown-divider" />}
+              </>
+            )}
+            {filtered.length === 0 && !includeAll && (
               <div style={{ padding: "10px 12px", fontSize: 12, color: "var(--t3)" }}>No models match</div>
             )}
             {filtered.map(m => {
