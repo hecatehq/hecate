@@ -86,7 +86,6 @@ export function SpanWaterfall({
           maxHeight: "min(420px, 52vh)",
           overflowY: "auto",
           overflowX: "hidden",
-          borderTop: "1px solid var(--border)",
         }}>
         <WaterfallRuler ticks={ticks} />
 
@@ -121,12 +120,11 @@ function WaterfallRuler({ ticks }: { ticks: WaterfallTick[] }) {
       display: "grid",
       gridTemplateColumns: WATERFALL_COLUMNS,
       columnGap: WATERFALL_COLUMN_GAP,
-      padding: "6px 0",
+      padding: "0 0 6px",
       marginBottom: 6,
-      borderBottom: "1px solid var(--border)",
     }}>
-      <div />
       <div style={{
+        gridColumn: 2,
         position: "relative",
         height: 18,
         borderTop: "1px solid var(--border)",
@@ -162,7 +160,6 @@ function WaterfallRuler({ ticks }: { ticks: WaterfallTick[] }) {
           </Fragment>
         ))}
       </div>
-      <div />
     </div>
   );
 }
