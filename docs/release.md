@@ -47,14 +47,30 @@ Practical consequences:
   or kept as the canonical multi-channel surface; that's a v1
   decision.
 
-The one historical exception is `v0.1.0-alpha.27`, which was the
-last release using the GitHub-native updater endpoint. It carries
-the pre-release flag *off* so installed alpha.21–26 clients could
-auto-update to `v0.1.0-alpha.28`, the bridge release that switched
-the bundled endpoint to `hecate.sh`. After alpha.28 ships and
-clients have migrated, alpha.27 may be flipped back to pre-release
-for consistency; the flag no longer affects auto-update routing
-once alpha.28 is the new "latest."
+Historical context for the channel switch. `v0.1.0-alpha.27` was
+the last release built with the GitHub-native updater endpoint
+(`/releases/latest/download/latest.json`) baked into the bundle.
+`v0.1.0-alpha.28` is the one-time **bridge release**:
+
+- alpha.28 ships with the new `hecate.sh/releases/alpha/latest.json`
+  endpoint baked in (this PR's `tauri.conf.json` change).
+- alpha.28 is **manually** flipped to non-prerelease + latest
+  after CI: `gh release edit v0.1.0-alpha.28 --prerelease=false --latest`.
+- That flip is what lets installed alpha.21–27 clients discover
+  alpha.28. Their bundles have the OLD endpoint baked in;
+  `/releases/latest/download/latest.json` resolves only to a
+  non-prerelease release marked latest, which by step 2 is now
+  alpha.28's manifest.
+- Clients auto-upgrade to alpha.28, which has the new endpoint
+  baked in, and from there route exclusively through `hecate.sh`.
+- alpha.29+ ship as pre-releases by default and never need the
+  manual flip — the policy is self-enforcing from that point on.
+
+After alpha.28 has been out long enough that the alpha.21–27
+cohort has migrated, alpha.27 and alpha.28 can both be flipped
+back to pre-release for consistency. The flags no longer matter
+for routing once `hecate.sh` is the canonical channel for every
+shipped bundle.
 
 ## What a release produces
 

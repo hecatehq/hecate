@@ -407,15 +407,28 @@ jobs:
   # pre-releases — see docs/release.md's "Pre-release policy" and
   # docs/desktop-updater-signing.md).
   #
-  # Mechanism: drop latest.json into website/public/releases/alpha/
-  # and commit to master. The website.yml workflow's `paths:` filter
-  # (website/**) picks up the commit, rebuilds Astro, and deploys
-  # to Pages. Verification step below blocks until the new manifest
-  # is live on hecate.sh — typical wall time 2-5 min.
+  # Mechanism: drop latest.json into website/public/releases/alpha/,
+  # commit to master, then explicitly dispatch website.yml via
+  # workflow_dispatch. Why the explicit dispatch — GitHub's
+  # anti-loop guard means push events made with `github.token` do
+  # NOT trigger downstream workflows on push triggers, so
+  # website.yml's `on: push:` would silently never fire. The
+  # workflow_dispatch event IS allowed for github.token, which is
+  # the documented workaround.
+  #
+  # Verification step below blocks until the new manifest is live
+  # on hecate.sh — typical wall time 2-5 min, capped at 10 min.
   #
   # `needs: publish-updater-manifest` gates this on the GitHub
   # Release upload completing successfully; a website-publish
   # failure here doesn't take down the Release page itself.
+  #
+  # Permissions:
+  #   contents: write — commit latest.json to master.
+  #   actions: write  — dispatch website.yml via workflow_dispatch.
+  # Note: reusable-workflow permissions are capped by the caller's
+  # job-level permissions in release.yml, so `actions: write` must
+  # be granted on BOTH sides.
   publish-updater-website:
     name: publish updater manifest to website
     if: inputs.tagName != ''
@@ -423,6 +436,7 @@ jobs:
     runs-on: ubuntu-latest
     permissions:
       contents: write
+      actions: write
     steps:
       # Fetch the manifest from the release we just published.
       # Avoids depending on artifact passing between jobs and keeps
@@ -449,15 +463,18 @@ jobs:
       # when those channels graduate. The bundle's tauri.conf.json
       # endpoints array decides which channel it reads.
       #
-      # The `cmp -s` short-circuit makes re-runs of the same tag a
-      # no-op in git history (which also keeps website.yml from
-      # rebuilding for an unchanged manifest).
+      # Retry loop on non-fast-forward push: another PR may merge
+      # to master between our fetch and our push (the release
+      # workflow can take 15-25 min, plenty of window). On a
+      # rejected push we re-fetch origin/master, replay the
+      # single-file change on top, and try again. Up to 5 attempts
+      # with linear backoff before giving up.
       #
-      # Sets `changed` step output so the next step can decide
-      # whether to dispatch the website workflow — GitHub's
-      # auto-trigger doesn't fire on `github.token` pushes (loop
-      # guard), so we have to dispatch website.yml explicitly. A
-      # no-op commit (same content) skips the dispatch too.
+      # The `cmp -s` short-circuit makes re-runs of the same tag a
+      # no-op (same content → no commit needed). The verify and
+      # dispatch steps below still run on a no-op, so recovery
+      # from a stuck Pages deploy (manifest committed but never
+      # propagated) works by re-running this job.
       - name: Commit manifest to master
         id: commit
         env:
@@ -468,31 +485,46 @@ jobs:
           tmp=$(mktemp -d)
           git -C "$tmp" init -q
           git -C "$tmp" remote add origin "https://x-access-token:${GITHUB_TOKEN}@github.com/${{ github.repository }}.git"
-          git -C "$tmp" fetch --depth=1 origin master:master
-          git -C "$tmp" checkout master
-          target="$tmp/website/public/releases/alpha/latest.json"
-          if [ -f "$target" ] && cmp -s latest.json "$target"; then
-            echo "manifest at $target already up to date — no-op"
-            echo "changed=false" >> "$GITHUB_OUTPUT"
-            exit 0
-          fi
-          mkdir -p "$(dirname "$target")"
-          cp latest.json "$target"
           git -C "$tmp" config user.name "github-actions[bot]"
           git -C "$tmp" config user.email "41898282+github-actions[bot]@users.noreply.github.com"
-          git -C "$tmp" add website/public/releases/alpha/latest.json
-          git -C "$tmp" commit -m "publish updater manifest for $TAG"
-          git -C "$tmp" push origin master
-          echo "changed=true" >> "$GITHUB_OUTPUT"
+          attempts=5
+          for ((i=1; i<=attempts; i++)); do
+            git -C "$tmp" fetch --depth=1 origin master
+            git -C "$tmp" checkout -B master FETCH_HEAD
+            target="$tmp/website/public/releases/alpha/latest.json"
+            if [ -f "$target" ] && cmp -s latest.json "$target"; then
+              echo "manifest at $target already up to date — no commit needed"
+              echo "changed=false" >> "$GITHUB_OUTPUT"
+              exit 0
+            fi
+            mkdir -p "$(dirname "$target")"
+            cp latest.json "$target"
+            git -C "$tmp" add website/public/releases/alpha/latest.json
+            git -C "$tmp" commit -m "publish updater manifest for $TAG"
+            if git -C "$tmp" push origin master; then
+              echo "changed=true" >> "$GITHUB_OUTPUT"
+              exit 0
+            fi
+            echo "push rejected (likely non-fast-forward); refetch + retry (attempt $i/$attempts)"
+            sleep $((i * 2))
+          done
+          echo "::error::failed to push manifest after $attempts attempts (master kept moving)"
+          exit 1
 
       # Pushes made with `github.token` deliberately do NOT trigger
       # downstream workflows — GitHub's anti-loop guard. The
       # website.yml workflow's `push` trigger therefore doesn't
       # see our commit. We fire it explicitly via workflow_dispatch
       # (which IS allowed for github.token per GitHub's docs).
-      # Skipped when the prior step was a no-op.
+      #
+      # Runs unconditionally — even on a no-op commit. The recovery
+      # case matters: if a previous run committed the manifest but
+      # the Pages deploy failed or the CDN cache went stale, a
+      # re-run of this job needs to redispatch the website workflow
+      # to retry the deploy. Skipping on no-op would leave the
+      # operator with no recovery path short of editing master by
+      # hand.
       - name: Dispatch website workflow to rebuild + redeploy
-        if: steps.commit.outputs.changed == 'true'
         env:
           GITHUB_TOKEN: ${{ github.token }}
         run: |

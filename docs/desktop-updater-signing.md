@@ -73,14 +73,22 @@ them to sign the platform bundles (`.app.tar.gz`, `.AppImage`,
    matrix mode because each leg only sees its own signature; this
    job runs once after the matrix completes.
 2. **`publish-updater-website`** — drops the same `latest.json`
-   into `website/public/releases/alpha/latest.json` and commits to
-   master. The website workflow's path filter (`website/**`) picks
-   up the commit, rebuilds Astro, and deploys to GitHub Pages. The
-   manifest is then served at
+   into `website/public/releases/alpha/latest.json`, commits to
+   master, then explicitly dispatches `website.yml` via
+   `workflow_dispatch`. The explicit dispatch is required because
+   pushes made with the workflow's `github.token` deliberately do
+   NOT trigger downstream workflows (GitHub's anti-loop guard);
+   `workflow_dispatch` IS allowed for `github.token`, which is the
+   documented workaround. `website.yml` rebuilds Astro and deploys
+   to GitHub Pages, and the manifest is then served at
    `https://hecate.sh/releases/alpha/latest.json`, which is the URL
    the in-app updater is configured to read. A verification step
    blocks until the new manifest is live on `hecate.sh` (cap 10
-   min; CI fails loud if it overruns).
+   min; CI fails loud if it overruns). The commit step retries on
+   non-fast-forward errors (master may move between the workflow's
+   fetch and push); the dispatch runs unconditionally so a re-run
+   can recover from a stuck Pages deploy even when the manifest
+   commit itself is a no-op.
 
 Both secrets are scoped to `inputs.tagName != ''` in
 `.github/workflows/_tauri-shared.yml`, so PR-validation runs of
