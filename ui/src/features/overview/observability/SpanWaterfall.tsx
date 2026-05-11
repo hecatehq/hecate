@@ -36,6 +36,9 @@ export function SpanWaterfall({
   }
 
   const ticks = [0, Math.round(totalMs / 3), Math.round((2 * totalMs) / 3), totalMs];
+  // Whether any span is on the critical path. Drives the legend chip
+  // — no point showing "★ critical path" when no row has the star.
+  const hasCriticalPath = spans.some(s => s.critical);
 
   return (
     <div style={{ padding: "10px 12px", border: "1px solid var(--border)", borderRadius: "var(--radius-sm)" }}>
@@ -44,7 +47,7 @@ export function SpanWaterfall({
         <span className="kicker-lg" style={{ fontSize: 12, fontWeight: 500, color: "var(--t0)", letterSpacing: "0.04em", textTransform: "uppercase" }}>
           Spans ({spans.length}) · total {totalMs} ms
         </span>
-        {phases.length > 1 && (
+        {(phases.length > 1 || hasCriticalPath) && (
           <div role="group" aria-label="Phase legend" style={{ display: "flex", gap: 4, flexWrap: "wrap", marginLeft: "auto" }}>
             {phases.map(p => {
               const active = phaseFilter === p;
@@ -71,6 +74,24 @@ export function SpanWaterfall({
                 </button>
               );
             })}
+            {hasCriticalPath && (
+              <span
+                title="Spans on the critical path — the longest dependency chain through this trace."
+                style={{
+                  border: "1px solid var(--border)",
+                  borderRadius: "var(--radius-sm)",
+                  padding: "2px 6px",
+                  display: "inline-flex",
+                  alignItems: "center",
+                  gap: 4,
+                  fontFamily: "var(--font-mono)",
+                  fontSize: 10,
+                  color: "var(--t2)",
+                }}>
+                <span style={{ color: "var(--amber)" }}>★</span>
+                critical path
+              </span>
+            )}
           </div>
         )}
       </div>
@@ -95,7 +116,11 @@ export function SpanWaterfall({
         display: "grid",
         gridTemplateColumns: "240px 1fr 60px",
         gap: 8,
-        padding: "6px 0",
+        // paddingRight matches the SpanRow grid below so the time-axis
+        // ticks line up with bar-column edges. Without this the
+        // ruler's "1fr" is 4px wider than each row's "1fr" and the
+        // rightmost tick label drifts past the bar ends.
+        padding: "6px 4px 6px 0",
         marginBottom: 6,
         borderBottom: "1px solid var(--border)",
       }}>

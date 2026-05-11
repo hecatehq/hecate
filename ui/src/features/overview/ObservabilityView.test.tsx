@@ -186,6 +186,37 @@ describe("ObservabilityView", () => {
     expect(container.textContent).toMatch(/anthropic/);
   });
 
+  it("collapses traces sharing one request_id into one row with a sibling badge", async () => {
+    // Five traces sharing one request_id, only the third has a meaningful
+    // span_count and duration — that's the one the table should pick to
+    // represent the row. The other four become siblings, surfaced as
+    // "+4" next to the request ID.
+    const reqID = "req-shared-id";
+    const startedAt = new Date().toISOString();
+    fetchMock.mockImplementation(tracesFetchHandler([
+      { request_id: reqID, trace_id: "t1", started_at: startedAt, span_count: 4, duration_ms: 1, status_code: "ok", route: { candidates: [{ provider: "lmstudio", model: "x", outcome: "skipped", skip_reason: "unsupported_model" }] } },
+      { request_id: reqID, trace_id: "t2", started_at: startedAt, span_count: 4, status_code: "ok", route: {} },
+      { request_id: reqID, trace_id: "t3", started_at: startedAt, span_count: 6, duration_ms: 17382, status_code: "ok", route: {} },
+      { request_id: reqID, trace_id: "t4", started_at: startedAt, span_count: 4, status_code: "unset", route: {} },
+      { request_id: reqID, trace_id: "t5", started_at: startedAt, span_count: 2, duration_ms: 17502, status_code: "ok", route: {} },
+    ]));
+    const state = createRuntimeConsoleFixture({ session: localSession });
+    let container = null as unknown as HTMLElement;
+    await act(async () => {
+      const result = render(<ObservabilityView state={state} actions={createRuntimeConsoleActions()} />);
+      container = result.container;
+    });
+    await waitFor(() => {
+      expect(container.textContent).toMatch(/req-shar/);
+    });
+    // Exactly one body row, not five.
+    expect(container.querySelectorAll("tbody tr")).toHaveLength(1);
+    // The chosen entry is the trace with span_count: 6 / 17382ms.
+    expect(container.textContent).toMatch(/17382ms/);
+    // Sibling count badge surfaces the four collapsed siblings.
+    expect(container.textContent).toMatch(/\+4/);
+  });
+
   it("status filter narrows the table to error rows only", async () => {
     fetchMock.mockImplementation(tracesFetchHandler([
       { request_id: "ok-1", started_at: new Date().toISOString(), span_count: 1, duration_ms: 1, status_code: "ok", route: { final_provider: "openai", final_model: "m1" } },

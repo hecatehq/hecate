@@ -135,6 +135,42 @@ export function ObservabilityView({ state, onNavigate, focusRequest }: Props) {
     });
   }, [traces, providerFilter, modelFilter, statusFilter]);
 
+  // One user-facing request can fan out into multiple internal traces
+  // (route attempts, provider call, auxiliary calls — all sharing
+  // request_id but with distinct trace_id). Showing each trace as its
+  // own row gives the operator five visually-identical rows for one
+  // chat send. Collapse to one row per request_id, keeping the most
+  // span-rich entry as the representative (usually the provider
+  // call), and surface the sibling count as a "+N" badge so the
+  // operator can tell when a request had multiple traces. The detail
+  // panel still operates on the representative trace — drill-down to
+  // sibling traces is a separate feature.
+  const groupedTraces = useMemo(() => {
+    const statusRank = (code?: string) => code === "error" ? 2 : code === "ok" ? 1 : 0;
+    const byID = new Map<string, { entry: typeof filteredTraces[number]; siblings: number }>();
+    for (const t of filteredTraces) {
+      const existing = byID.get(t.request_id);
+      if (!existing) {
+        byID.set(t.request_id, { entry: t, siblings: 0 });
+        continue;
+      }
+      existing.siblings += 1;
+      const incoming = t.span_count ?? 0;
+      const have = existing.entry.span_count ?? 0;
+      // Prefer the trace with more spans (typically the provider call
+      // vs. the route-only attempts). Tie-break by status_code to
+      // surface errors over ok over unset.
+      if (incoming > have || (incoming === have && statusRank(t.status_code) > statusRank(existing.entry.status_code))) {
+        existing.entry = t;
+      }
+    }
+    return Array.from(byID.values()).sort((a, b) => {
+      const ta = a.entry.started_at ? Date.parse(a.entry.started_at) : 0;
+      const tb = b.entry.started_at ? Date.parse(b.entry.started_at) : 0;
+      return tb - ta;
+    });
+  }, [filteredTraces]);
+
   const ledgerByRequest = useMemo(() => {
     const out = new Map<string, NonNullable<typeof state.requestLedger>[number]>();
     for (const entry of state.requestLedger ?? []) {
@@ -144,14 +180,16 @@ export function ObservabilityView({ state, onNavigate, focusRequest }: Props) {
   }, [state.requestLedger]);
 
   // In live mode, auto-highlight the newest visible request. The drawer
-  // does NOT auto-open — opens only on explicit click.
+  // does NOT auto-open — opens only on explicit click. Track by grouped
+  // request_id so the highlight matches what's actually visible in the
+  // table after dedup.
   useEffect(() => {
-    if (!liveMode || filteredTraces.length === 0) return;
-    const newest = filteredTraces[0];
+    if (!liveMode || groupedTraces.length === 0) return;
+    const newest = groupedTraces[0]?.entry;
     if (newest?.request_id) {
       setSelectedID(id => id === newest.request_id ? id : newest.request_id);
     }
-  }, [liveMode, filteredTraces]);
+  }, [liveMode, groupedTraces]);
 
   const fetchTraceDetail = useCallback((reqId: string) => {
     setTraceFetching(true);
@@ -212,7 +250,13 @@ export function ObservabilityView({ state, onNavigate, focusRequest }: Props) {
   }, [selectedID, drawerOpen]);
 
   const stats = runtimeStats;
-  const selectedTrace = traces.find(t => t.request_id === selectedID);
+  // Resolve via groupedTraces so the drawer header/stats mirror the
+  // representative entry the table actually chose for the row. Falling
+  // back to the raw traces array would return the first match — usually
+  // a different sibling than the one shown in the row, so the table
+  // row and the drawer header would disagree on latency/status.
+  const selectedTrace = groupedTraces.find(g => g.entry.request_id === selectedID)?.entry
+    ?? traces.find(t => t.request_id === selectedID);
   const waterfall = useMemo(
     () => buildSpanWaterfall(traceDetail?.spans ?? []),
     [traceDetail?.spans],
@@ -235,9 +279,20 @@ export function ObservabilityView({ state, onNavigate, focusRequest }: Props) {
     }));
   }, [state.settingsConfig, state.providers, state.providerPresets]);
 
-  const drawerTitle = selectedTrace
-    ? `${(selectedTrace.request_id || "").slice(0, 8)}… · ${selectedTrace.route?.final_provider || "—"}/${selectedTrace.route?.final_model || "—"}`
-    : selectedID ? selectedID.slice(0, 8) + "…" : "";
+  const drawerTitle = (() => {
+    if (!selectedTrace) return selectedID ? selectedID.slice(0, 8) + "…" : "";
+    const id = (selectedTrace.request_id || "").slice(0, 8);
+    const prov = selectedTrace.route?.final_provider;
+    const model = selectedTrace.route?.final_model;
+    if (prov || model) return `${id}… · ${prov || "—"}/${model || "—"}`;
+    // No provider was selected — show the rejected candidate (if any)
+    // and label the trace as a route-only attempt so the dash-pair
+    // header doesn't read as missing data. Detailed candidate
+    // breakdown still lives in the Route Summary section below.
+    const rejected = selectedTrace.route?.candidates?.find(c => c.outcome === "skipped");
+    if (rejected) return `${id}… · no provider selected (tried ${rejected.provider})`;
+    return `${id}… · request`;
+  })();
 
   const closeDrawer = () => {
     setDrawerOpen(false);
@@ -395,9 +450,10 @@ export function ObservabilityView({ state, onNavigate, focusRequest }: Props) {
                 </tr>
               </thead>
               <tbody>
-                {filteredTraces.map((t, i) => {
+                {groupedTraces.map((group, i) => {
+                  const t = group.entry;
                   const isSel = selectedID === t.request_id;
-                  const isLast = i === filteredTraces.length - 1;
+                  const isLast = i === groupedTraces.length - 1;
                   const status = traceStatusBadge(t);
                   const ledger = ledgerByRequest.get(t.request_id);
                   const cost = ledger?.amount_usd
@@ -412,6 +468,16 @@ export function ObservabilityView({ state, onNavigate, focusRequest }: Props) {
                       : "—";
                   const time = formatRelativeTime(t.started_at || "");
                   const provider = t.route?.final_provider || "";
+                  const model = t.route?.final_model || "";
+                  // When the router skipped every candidate, the
+                  // provider/model cells would otherwise just read "—".
+                  // Show the rejected candidate (muted) with a tooltip
+                  // so the operator can tell at-a-glance that the
+                  // request DID attempt routing — the request didn't
+                  // simply have no provider/model context.
+                  const rejected = !provider && !model
+                    ? t.route?.candidates?.find(c => c.outcome === "skipped")
+                    : undefined;
                   return (
                     <tr
                       key={t.request_id}
@@ -438,10 +504,22 @@ export function ObservabilityView({ state, onNavigate, focusRequest }: Props) {
                               </span>
                               <span style={{ fontSize: 12, color: "var(--t1)", overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{provider}</span>
                             </>
+                          ) : rejected ? (
+                            <span
+                              style={{ fontSize: 12, color: "var(--t3)", fontStyle: "italic", overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}
+                              title={`No candidate accepted. Tried: ${rejected.provider}${rejected.skip_reason ? ` — ${rejected.skip_reason.replace(/_/g, " ")}` : ""}`}>
+                              {rejected.provider}
+                            </span>
                           ) : <span style={{ color: "var(--t3)" }}>—</span>}
                         </div>
                       </td>
-                      <td style={{ ...tdBase, color: "var(--t0)" }}>{t.route?.final_model || "—"}</td>
+                      <td style={{ ...tdBase, color: "var(--t0)" }}>
+                        {model
+                          ? model
+                          : rejected
+                            ? <span style={{ color: "var(--t3)", fontStyle: "italic" }} title="route skipped — see Provider tooltip">{rejected.model}</span>
+                            : "—"}
+                      </td>
                       <td style={{ ...tdBase, color: "var(--t1)", textAlign: "right" }}>
                         {t.duration_ms != null ? `${t.duration_ms}ms` : "—"}
                       </td>
@@ -451,7 +529,22 @@ export function ObservabilityView({ state, onNavigate, focusRequest }: Props) {
                         {t.route?.fallback_from ? `↳ ${t.route.fallback_from}` : "—"}
                       </td>
                       <td style={tdBase} onClick={e => e.stopPropagation()}>
-                        <CopyableID text={t.request_id} />
+                        <div style={{ display: "inline-flex", alignItems: "center", gap: 4 }}>
+                          <CopyableID text={t.request_id} />
+                          {group.siblings > 0 && (
+                            <span
+                              title={`This request produced ${group.siblings + 1} traces; showing the one with the most spans.`}
+                              style={{
+                                fontFamily: "var(--font-mono)", fontSize: 10,
+                                color: "var(--t3)",
+                                background: "var(--bg3)",
+                                border: "1px solid var(--border)",
+                                borderRadius: "var(--radius-sm)",
+                                padding: "0 4px",
+                                lineHeight: 1.4,
+                              }}>+{group.siblings}</span>
+                          )}
+                        </div>
                       </td>
                       <td style={tdBase}></td>
                     </tr>
