@@ -70,17 +70,17 @@ export type TraceWaterfall = {
 export function buildTraceTimeline(spans: TraceSpanRecord[], traceStartedAt?: string): TraceTimelineItem[] {
   const flattened: TraceTimelineItem[] = [];
   const startSource = traceStartedAt || spans[0]?.start_time || "";
-  const startMs = Date.parse(startSource);
+  const startMs = parseISOWithSubMs(startSource);
 
   for (const span of spans) {
     for (const event of span.events ?? []) {
-      const currentMs = Date.parse(event.timestamp);
+      const currentMs = parseISOWithSubMs(event.timestamp);
       const offsetMs = Number.isFinite(startMs) && Number.isFinite(currentMs) ? Math.max(0, currentMs - startMs) : 0;
       flattened.push({
         name: event.name,
         timestamp: event.timestamp,
         offsetMs,
-        offsetLabel: `${offsetMs} ms`,
+        offsetLabel: formatTraceOffsetMs(offsetMs),
         spanName: span.name,
         spanKind: span.kind || "internal",
         phase: tracePhaseFromEvent(event.name),
@@ -91,6 +91,18 @@ export function buildTraceTimeline(spans: TraceSpanRecord[], traceStartedAt?: st
 
   flattened.sort((left, right) => Date.parse(left.timestamp) - Date.parse(right.timestamp));
   return flattened;
+}
+
+function formatTraceOffsetMs(ms: number): string {
+  if (!Number.isFinite(ms) || ms <= 0) return "0 ms";
+  if (ms < 1) return `${trimFixed(ms, 3)} ms`;
+  if (ms < 10) return `${trimFixed(ms, 2)} ms`;
+  if (ms < 100) return `${trimFixed(ms, 1)} ms`;
+  return `${Math.round(ms)} ms`;
+}
+
+function trimFixed(value: number, digits: number): string {
+  return value.toFixed(digits).replace(/\.?0+$/, "");
 }
 
 export function findModelInTrace(spans: TraceSpanRecord[], provider?: string): string {
