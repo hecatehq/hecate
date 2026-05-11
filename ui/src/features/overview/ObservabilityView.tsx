@@ -27,7 +27,7 @@ import type {
   TraceListItem,
   TraceResponse,
 } from "../../types/runtime";
-import { Badge, Icon, Icons, Modal, ModelPicker, ProviderPicker, Toggle } from "../shared/ui";
+import { Badge, Icon, Icons, Modal, ProviderPicker, Toggle } from "../shared/ui";
 
 import { CopyableID } from "./observability/CopyableID";
 import { RecentActivityStrip } from "./observability/RecentActivityStrip";
@@ -333,6 +333,28 @@ export function ObservabilityView({ state, onNavigate, focusRequest }: Props) {
     }));
   }, [state.settingsConfig, state.providers, state.providerPresets]);
 
+  const modelOptions = useMemo(() => {
+    const byID = new Map<string, { id: string; provider?: string }>();
+    const add = (id?: string, provider?: string) => {
+      const trimmed = id?.trim();
+      if (!trimmed) return;
+      if (providerFilter !== "auto" && provider && provider !== providerFilter) return;
+      byID.set(trimmed, { id: trimmed, provider });
+    };
+
+    for (const trace of traces) {
+      add(traceModel(trace), traceProvider(trace));
+    }
+    for (const entry of state.requestLedger ?? []) {
+      add(entry.model, entry.provider);
+    }
+    for (const model of state.providerScopedModels) {
+      add(model.id, model.metadata?.provider);
+    }
+
+    return Array.from(byID.values()).sort((a, b) => a.id.localeCompare(b.id));
+  }, [providerFilter, state.providerScopedModels, state.requestLedger, traceModel, traceProvider, traces]);
+
   const drawerTitle = (() => {
     if (!selectedTrace) return selectedID ?? "";
     const prov = traceProvider(selectedTrace);
@@ -407,17 +429,26 @@ export function ObservabilityView({ state, onNavigate, focusRequest }: Props) {
           <div style={{ marginLeft: "auto", display: "flex", alignItems: "center", gap: 8 }}>
             <ProviderPicker
               value={providerFilter}
-              onChange={setProviderFilter}
+              onChange={(value) => {
+                setProviderFilter(value);
+                setModelFilter("");
+              }}
               options={providerOptions}
               includeAuto
             />
-            <ModelPicker
+            <select
+              className="input"
+              aria-label="Model filter"
               value={modelFilter}
-              onChange={setModelFilter}
-              models={state.providerScopedModels}
-              presets={state.providerPresets}
-              showProvider={providerFilter === "auto"}
-            />
+              onChange={e => setModelFilter(e.target.value)}
+              style={{ fontSize: 11, padding: "4px 8px", height: 28, minWidth: 180 }}>
+              <option value="">All models</option>
+              {modelOptions.map((model) => (
+                <option key={`${model.provider ?? "any"}:${model.id}`} value={model.id}>
+                  {providerFilter === "auto" && model.provider ? `${model.id} · ${model.provider}` : model.id}
+                </option>
+              ))}
+            </select>
             <select
               className="input"
               aria-label="Status filter"
@@ -429,7 +460,7 @@ export function ObservabilityView({ state, onNavigate, focusRequest }: Props) {
               <option value="error">Error</option>
             </select>
             <Toggle on={liveMode} onChange={setLiveMode} ariaLabel="Live mode" />
-            <span style={{ fontSize: 11, color: liveMode ? "var(--teal)" : "var(--t3)" }}>
+            <span style={{ fontSize: 11, color: liveMode ? "var(--teal)" : "var(--t3)", width: 42, display: "inline-block" }}>
               {liveMode ? "Live" : "Paused"}
             </span>
           </div>

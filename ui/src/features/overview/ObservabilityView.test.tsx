@@ -75,6 +75,8 @@ describe("ObservabilityView", () => {
     });
     expect(container.textContent).toMatch(/Observability/);
     expect(container.querySelector('[aria-label="Status filter"]')).toBeTruthy();
+    expect(container.querySelector('[aria-label="Model filter"]')).toBeTruthy();
+    expect(container.textContent).toMatch(/All models/);
     expect(container.querySelector('[aria-label="Live mode"]')).toBeTruthy();
     expect(container.textContent).toMatch(/Live|Paused/);
   });
@@ -324,6 +326,35 @@ describe("ObservabilityView", () => {
     await waitFor(() => {
       expect(container.textContent).not.toMatch(/ok-1/);
       expect(container.textContent).toMatch(/err-1/);
+    });
+  });
+
+  it("model filter starts at all models and narrows by observed traffic", async () => {
+    fetchMock.mockImplementation(tracesFetchHandler([
+      { request_id: "m1-req", started_at: new Date().toISOString(), span_count: 1, duration_ms: 1, status_code: "ok", route: { final_provider: "openai", final_model: "m1" } },
+      { request_id: "m2-req", started_at: new Date().toISOString(), span_count: 1, duration_ms: 1, status_code: "ok", route: { final_provider: "ollama", final_model: "m2" } },
+    ]));
+    const state = createRuntimeConsoleFixture({ session: localSession });
+    let container = null as unknown as HTMLElement;
+    await act(async () => {
+      const result = render(<ObservabilityView state={state} actions={createRuntimeConsoleActions()} />);
+      container = result.container;
+    });
+    await waitFor(() => {
+      expect(container.textContent).toMatch(/m1-req/);
+      expect(container.textContent).toMatch(/m2-req/);
+    });
+
+    const select = container.querySelector('[aria-label="Model filter"]') as HTMLSelectElement;
+    expect(select.value).toBe("");
+    expect(Array.from(select.options).map((option) => option.textContent)).toContain("All models");
+
+    await act(async () => {
+      fireEvent.change(select, { target: { value: "m2" } });
+    });
+    await waitFor(() => {
+      expect(container.textContent).not.toMatch(/m1-req/);
+      expect(container.textContent).toMatch(/m2-req/);
     });
   });
 
