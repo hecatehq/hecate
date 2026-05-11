@@ -164,7 +164,7 @@ export function ObservabilityView({ state, onNavigate, focusRequest }: Props) {
   const filteredTraces = useMemo(() => {
     return traces.filter(t => {
       if (providerFilter !== "auto" && traceProvider(t) !== providerFilter) return false;
-      if (modelFilter && traceModel(t) !== modelFilter) return false;
+      if (modelFilter && !modelMatchesFilter(traceModel(t), modelFilter)) return false;
       if (statusFilter === "healthy" && t.status_code === "error") return false;
       if (statusFilter === "error" && t.status_code !== "error") return false;
       return true;
@@ -434,25 +434,6 @@ export function ObservabilityView({ state, onNavigate, focusRequest }: Props) {
           <span style={{ fontSize: 14, fontWeight: 500, color: "var(--t0)" }}>Observability</span>
 
           <div style={{ marginLeft: "auto", display: "flex", alignItems: "center", gap: 8 }}>
-            <ProviderPicker
-              value={providerFilter}
-              onChange={(value) => {
-                setProviderFilter(value);
-                setModelFilter("");
-              }}
-              options={providerOptions}
-              includeAuto
-            />
-            <ModelPicker
-              value={modelFilter}
-              onChange={setModelFilter}
-              models={modelOptions}
-              presets={state.providerPresets}
-              showProvider={providerFilter === "auto"}
-              includeAll
-              triggerWidth={220}
-            />
-            <StatusFilterPicker value={statusFilter} onChange={setStatusFilter} />
             <Toggle on={liveMode} onChange={setLiveMode} ariaLabel="Live mode" />
             <span style={{ fontSize: 11, color: liveMode ? "var(--teal)" : "var(--t3)", width: 42, display: "inline-block" }}>
               {liveMode ? "Live" : "Paused"}
@@ -534,8 +515,37 @@ export function ObservabilityView({ state, onNavigate, focusRequest }: Props) {
           </div>
         )}
 
-        {/* Recent requests label */}
-        <div style={{ fontSize: 13, fontWeight: 500, color: "var(--t0)", marginBottom: 10 }}>Recent requests</div>
+        {/* Recent requests filters */}
+        <div style={{
+          display: "flex",
+          alignItems: "center",
+          gap: 10,
+          justifyContent: "space-between",
+          marginBottom: 10,
+        }}>
+          <div style={{ fontSize: 13, fontWeight: 500, color: "var(--t0)" }}>Recent requests</div>
+          <div style={{ display: "flex", alignItems: "center", gap: 8, flexWrap: "wrap", justifyContent: "flex-end" }}>
+            <ProviderPicker
+              value={providerFilter}
+              onChange={(value) => {
+                setProviderFilter(value);
+                setModelFilter("");
+              }}
+              options={providerOptions}
+              includeAuto
+            />
+            <ModelPicker
+              value={modelFilter}
+              onChange={setModelFilter}
+              models={modelOptions}
+              presets={state.providerPresets}
+              showProvider={providerFilter === "auto"}
+              includeAll
+              triggerWidth={220}
+            />
+            <StatusFilterPicker value={statusFilter} onChange={setStatusFilter} />
+          </div>
+        </div>
 
         {/* Activity strip — status dots + p50/p95/errors over the
             visible traces. Sits above the table so the operator
@@ -900,6 +910,29 @@ function routeSummaryLabel(trace: TraceListItem): { label: string; title: string
     return { label: trace.status_message, title: trace.status_message, tone: "default" };
   }
   return { label: "No route", title: "No route summary was recorded for this request.", tone: "empty" };
+}
+
+function modelMatchesFilter(model: string, filter: string): boolean {
+  const normalizedModel = normalizeModelFilterValue(model);
+  const normalizedFilter = normalizeModelFilterValue(filter);
+  if (!normalizedModel || !normalizedFilter) return false;
+  if (normalizedModel === normalizedFilter) return true;
+
+  // Some inventories carry provider-qualified IDs while traces usually
+  // record the served model name. Keep filtering forgiving so choosing
+  // "ollama/ministral-3:latest" still matches a trace whose final_model
+  // is "ministral-3:latest".
+  const suffixes = [
+    `/${normalizedModel}`,
+    `::${normalizedModel}`,
+    `:${normalizedModel}`,
+    ` ${normalizedModel}`,
+  ];
+  return suffixes.some((suffix) => normalizedFilter.endsWith(suffix));
+}
+
+function normalizeModelFilterValue(value: string): string {
+  return value.trim().toLowerCase();
 }
 
 function describeStoreBackend(backend: string): string {
