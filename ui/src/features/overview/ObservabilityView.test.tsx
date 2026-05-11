@@ -217,6 +217,45 @@ describe("ObservabilityView", () => {
     expect(container.textContent).toMatch(/\+4/);
   });
 
+  it("never renders 'undefined' when route candidates are partially populated", async () => {
+    // Defensive against route.candidates entries with missing provider
+    // or model fields — both are optional on the runtime type. A
+    // half-populated candidate must NOT reach the rendered output as
+    // literal "undefined" in the table cells or drawer header.
+    fetchMock.mockImplementation(tracesFetchHandler(
+      [{
+        request_id: "req-partial-cand",
+        started_at: new Date().toISOString(),
+        span_count: 1,
+        status_code: "ok",
+        route: { candidates: [{ outcome: "skipped", skip_reason: "unsupported_model" }] },
+      }],
+      {
+        request_id: "req-partial-cand",
+        started_at: new Date().toISOString(),
+        spans: [],
+        route: { candidates: [{ outcome: "skipped", skip_reason: "unsupported_model" }] },
+      },
+    ));
+    const state = createRuntimeConsoleFixture({ session: localSession });
+    let container = null as unknown as HTMLElement;
+    await act(async () => {
+      const result = render(<ObservabilityView state={state} actions={createRuntimeConsoleActions()} />);
+      container = result.container;
+    });
+    await waitFor(() => {
+      expect(container.textContent).toMatch(/req-part/);
+    });
+    expect(container.textContent).not.toMatch(/undefined/);
+    // Open the drawer and re-check the header path that interpolates
+    // candidate.provider.
+    const row = container.querySelector("tbody tr") as HTMLElement;
+    await act(async () => {
+      fireEvent.click(row);
+    });
+    expect(container.textContent).not.toMatch(/undefined/);
+  });
+
   it("status filter narrows the table to error rows only", async () => {
     fetchMock.mockImplementation(tracesFetchHandler([
       { request_id: "ok-1", started_at: new Date().toISOString(), span_count: 1, duration_ms: 1, status_code: "ok", route: { final_provider: "openai", final_model: "m1" } },
