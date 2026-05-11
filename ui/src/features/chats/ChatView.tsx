@@ -17,7 +17,7 @@ import { AddProviderModal } from "../providers/AddProviderModal";
 type Props = {
   state: RuntimeConsoleViewModel["state"];
   actions: RuntimeConsoleViewModel["actions"];
-  onNavigate?: (workspace: "providers" | "runs" | "overview") => void;
+  onNavigate?: (workspace: "providers" | "runs" | "overview" | "settings") => void;
   onOpenTask?: (taskID: string, runID?: string) => void;
   onOpenTrace?: (requestID: string) => void;
 };
@@ -961,6 +961,39 @@ export function ChatView({ state, actions, onNavigate, onOpenTask, onOpenTrace }
                 agentUsage={isAgentChat && role === "assistant" ? m.usage : undefined}
                 agentTiming={isAgentChat && role === "assistant" ? m.timing : undefined}
                 error={isAgentChat && role === "assistant" ? m.error : undefined}
+                setupAction={
+                  // Render the "Open Claude Code setup" button only
+                  // when the server-side message carries the
+                  // claude_code_auth_required marker. Pattern-match
+                  // (not strict equality) is deliberate — the marker
+                  // is part of a paragraph that may be reworded over
+                  // time; the token itself is stable contract between
+                  // internal/agentadapters/auth_status.go and this UI
+                  // handler.
+                  isAgentChat && role === "assistant" && m.agent_adapter_id === "claude_code"
+                    && typeof m.error === "string" && m.error.includes("claude_code_auth_required")
+                    ? {
+                        label: "Open Claude Code setup",
+                        title: "Open Settings → External agents and scroll to the guided setup card",
+                        onClick: () => {
+                          // Pre-set the persisted Settings sub-tab so
+                          // SettingsView mounts directly on External
+                          // agents (rather than wherever the operator
+                          // last left it). The session flag drives a
+                          // one-shot scroll-into-view + highlight on
+                          // the guided setup card.
+                          try {
+                            localStorage.setItem("hecate.settingsTab", "external_agents");
+                            sessionStorage.setItem("hecate.settingsFocus", "claude-code-guided-setup");
+                          } catch {
+                            // localStorage / sessionStorage unavailable —
+                            // navigation still works, just no auto-scroll.
+                          }
+                          onNavigate?.("settings");
+                        },
+                      }
+                    : undefined
+                }
                 onCopy={copyMsg}
                 copied={copiedMsgId === m.id}
               />

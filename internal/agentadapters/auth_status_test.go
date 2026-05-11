@@ -50,8 +50,14 @@ func TestDetectAuthStatusClaudeUnknownWithoutMarker(t *testing.T) {
 	if status != AuthStatusUnknown {
 		t.Fatalf("status = %q, want %q", status, AuthStatusUnknown)
 	}
-	if !strings.Contains(hint, "CLAUDE_CODE_OAUTH_TOKEN") || !strings.Contains(hint, "ANTHROPIC_API_KEY") {
-		t.Fatalf("hint = %q, want adapter-visible subscription/API-key guidance", hint)
+	// The hint points at the in-app guided setup card rather than
+	// enumerating env vars. The card itself documents the env-var
+	// alternative for power users.
+	if !strings.Contains(hint, "guided setup card") {
+		t.Fatalf("hint = %q, want guided-setup card guidance", hint)
+	}
+	if !strings.Contains(hint, "claude setup-token") {
+		t.Fatalf("hint = %q, want the `claude setup-token` command callout", hint)
 	}
 }
 
@@ -66,8 +72,11 @@ func TestDetectAuthStatusClaudeConfigIsNotEnoughForACP(t *testing.T) {
 	if status != AuthStatusUnknown {
 		t.Fatalf("status = %q, want %q", status, AuthStatusUnknown)
 	}
-	if !strings.Contains(hint, "ACP adapter") || !strings.Contains(hint, "ANTHROPIC_API_KEY") {
-		t.Fatalf("hint = %q, want ACP-specific auth guidance", hint)
+	// Same in-app guidance — but mention the on-disk config so the
+	// operator understands why we still flag this as needing
+	// verification despite the file being present.
+	if !strings.Contains(hint, "ACP adapter") || !strings.Contains(hint, "guided setup card") {
+		t.Fatalf("hint = %q, want ACP-specific guided-setup guidance", hint)
 	}
 }
 

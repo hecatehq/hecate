@@ -231,5 +231,18 @@ button, input, select, textarea { font: inherit; }
 .dropdown-section-label { padding: 6px 12px 3px; font-size: 10px; font-weight: 500; color: var(--t3); letter-spacing: 0.08em; text-transform: uppercase; }
 .dropdown-divider { height: 1px; background: var(--border); margin: 4px 0; }
 
+/* ─── Settings-card focus highlight ───
+   Applied for ~2s by SettingsView.ExternalAgentsTab when an operator
+   arrives via a deep link (e.g. the "Open Claude Code setup" button
+   on a failed Claude run). Pulls the operator's eye to the right
+   card after the scrollIntoView. Class is toggled, not inlined, so
+   the animation lives next to the design tokens. */
+@keyframes settings-focus-flash {
+  0%   { box-shadow: 0 0 0 0 oklch(0.68 0.13 185 / 0); }
+  20%  { box-shadow: 0 0 0 3px oklch(0.68 0.13 185 / 0.55); }
+  100% { box-shadow: 0 0 0 0 oklch(0.68 0.13 185 / 0); }
+}
+.settings-focus-flash { animation: settings-focus-flash 2.2s ease-out; }
+
 /* ─── Scrollbar ─── */
 * { scrollbar-width: thin; scrollbar-color: var(--bg4) transparent; }

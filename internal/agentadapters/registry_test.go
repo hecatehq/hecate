@@ -468,7 +468,22 @@ func TestNormalizeErrorExplainsClaudeAuthRequirement(t *testing.T) {
 	t.Parallel()
 
 	got := NormalizeError("Claude Code", errors.New(`{"code":-32603,"message":"Authentication required"}`))
-	if !strings.Contains(got, "adapter-visible authentication") || !strings.Contains(got, "ANTHROPIC_API_KEY") {
-		t.Fatalf("NormalizeError = %q, want Claude ACP auth guidance", got)
+	// Three load-bearing markers in the rewritten copy:
+	//   - "Claude Code isn't signed in" — the friendly headline.
+	//   - "Providers tab" — explicit separation from the Anthropic
+	//     provider key (the original message conflated them, which
+	//     misled operators who had configured Anthropic in the UI).
+	//   - "claude_code_auth_required" — the stable token the chat
+	//     UI pattern-matches on to render the "Open Claude Code
+	//     setup" inline action. Don't change it without updating
+	//     the matching UI handler in TranscriptMessageRow.
+	if !strings.Contains(got, "isn't signed in") {
+		t.Fatalf("NormalizeError = %q, want friendly 'isn't signed in' headline", got)
+	}
+	if !strings.Contains(got, "Providers tab") {
+		t.Fatalf("NormalizeError = %q, want explicit separation from the Anthropic Providers-tab key", got)
+	}
+	if !strings.Contains(got, "claude_code_auth_required") {
+		t.Fatalf("NormalizeError = %q, want claude_code_auth_required token for UI pattern-match", got)
 	}
 }

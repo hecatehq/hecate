@@ -204,7 +204,7 @@ func ProbeWithEnv(ctx context.Context, adapterID string, extraEnv []string) (res
 		res.Stderr = strings.TrimSpace(stderr.String())
 		res.Status, res.Hint = classifyAdapterError(err.Error(), res.Stderr)
 		if adapterID == "claude_code" && claudeCodeErrorNeedsAdapterVisibleAuth(err.Error(), res.Stderr) {
-			res.Hint = "Claude Code ACP needs adapter-visible auth. " + claudeCodeACPAuthHint()
+			res.Hint = "Claude Code isn't signed in. Open the guided setup card in Settings → External agents and paste a token from `claude setup-token`. No restart needed."
 		}
 		res.Error = err.Error()
 		res.DurationMS = elapsedMS(start)
@@ -222,7 +222,7 @@ func ProbeWithEnv(ctx context.Context, adapterID string, extraEnv []string) (res
 		res.Stderr = strings.TrimSpace(stderr.String())
 		res.Status, res.Hint = classifyAdapterError(err.Error(), res.Stderr)
 		if adapterID == "claude_code" && claudeCodeErrorNeedsAdapterVisibleAuth(err.Error(), res.Stderr) {
-			res.Hint = "Claude Code ACP needs adapter-visible auth. " + claudeCodeACPAuthHint()
+			res.Hint = "Claude Code isn't signed in. Open the guided setup card in Settings → External agents and paste a token from `claude setup-token`. No restart needed."
 		}
 		res.Error = err.Error()
 		res.DurationMS = elapsedMS(start)
