@@ -289,8 +289,10 @@ export function ObservabilityView({ state, onNavigate, focusRequest }: Props) {
     // and label the trace as a route-only attempt so the dash-pair
     // header doesn't read as missing data. Detailed candidate
     // breakdown still lives in the Route Summary section below.
+    // `provider` is optional on the candidate type, so fall back to a
+    // dash rather than letting "undefined" reach the rendered header.
     const rejected = selectedTrace.route?.candidates?.find(c => c.outcome === "skipped");
-    if (rejected) return `${id}… · no provider selected (tried ${rejected.provider})`;
+    if (rejected) return `${id}… · no provider selected (tried ${rejected.provider || "—"})`;
     return `${id}… · request`;
   })();
 
@@ -417,7 +419,7 @@ export function ObservabilityView({ state, onNavigate, focusRequest }: Props) {
             visible traces. Sits above the table so the operator
             gets a "is this OK right now?" answer before parsing
             individual rows. */}
-        <RecentActivityStrip traces={filteredTraces} />
+        <RecentActivityStrip traces={groupedTraces.map(g => g.entry)} />
 
         {/* Table */}
         {filteredTraces.length > 0 ? (
@@ -474,9 +476,13 @@ export function ObservabilityView({ state, onNavigate, focusRequest }: Props) {
                   // Show the rejected candidate (muted) with a tooltip
                   // so the operator can tell at-a-glance that the
                   // request DID attempt routing — the request didn't
-                  // simply have no provider/model context.
+                  // simply have no provider/model context. Require at
+                  // least a provider name on the candidate: the runtime
+                  // type marks both provider and model as optional, so
+                  // a half-populated entry shouldn't render as "tried
+                  // (empty)".
                   const rejected = !provider && !model
-                    ? t.route?.candidates?.find(c => c.outcome === "skipped")
+                    ? t.route?.candidates?.find(c => c.outcome === "skipped" && !!c.provider)
                     : undefined;
                   return (
                     <tr
@@ -516,7 +522,7 @@ export function ObservabilityView({ state, onNavigate, focusRequest }: Props) {
                       <td style={{ ...tdBase, color: "var(--t0)" }}>
                         {model
                           ? model
-                          : rejected
+                          : rejected?.model
                             ? <span style={{ color: "var(--t3)", fontStyle: "italic" }} title="route skipped — see Provider tooltip">{rejected.model}</span>
                             : "—"}
                       </td>
