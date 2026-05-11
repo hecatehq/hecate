@@ -5,7 +5,7 @@
 // `./observability/`; this file is orchestration only — state, polling
 // effects, filter computation, and layout.
 
-import { useCallback, useEffect, useMemo, useRef, useState, type KeyboardEvent, type ReactNode } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState, type KeyboardEvent } from "react";
 
 import type { RuntimeConsoleViewModel } from "../../app/useRuntimeConsole";
 import { getMCPCacheStats, getRecentTraces, getRuntimeStats, getTrace } from "../../lib/api";
@@ -462,9 +462,9 @@ export function ObservabilityView({ state, onNavigate, focusRequest }: Props) {
 
         {/* Runtime health cards */}
         {(stats || mcpCacheStats) && (
-          <div style={{ display: "grid", gap: 10, marginBottom: 20 }} aria-label="Runtime stats">
+          <div style={{ display: "flex", gap: 8, flexWrap: "wrap", marginBottom: 20 }} aria-label="Runtime stats">
             {stats && (
-              <StatGroup title="Task runtime" summary={runtimeSummary(stats)}>
+              <>
                 <StatCard
                   label="Queue depth"
                   value={stats.queue_depth > 0 ? stats.queue_depth : "Idle"}
@@ -505,10 +505,6 @@ export function ObservabilityView({ state, onNavigate, focusRequest }: Props) {
                   help="Runs paused on an operator approval gate."
                   highlight={stats.awaiting_approval_runs > 0}
                 />
-              </StatGroup>
-            )}
-            {(stats?.store_backend || mcpCacheStats) && (
-              <StatGroup title="Storage and MCP cache">
                 {stats?.store_backend && (
                   <StatCard
                     label="Runtime store"
@@ -516,26 +512,24 @@ export function ObservabilityView({ state, onNavigate, focusRequest }: Props) {
                     help="Persistence backend for runtime state."
                   />
                 )}
-                {mcpCacheStats && (
-                  mcpCacheStats.configured ? (
-                    <>
-                      <StatCard
-                        label="MCP cache"
-                        value={`${mcpCacheStats.entries} entries`}
-                        sub={`${mcpCacheStats.in_use} active · ${mcpCacheStats.idle} idle`}
-                        help="Cached MCP clients available for reuse."
-                        highlight={mcpCacheStats.in_use > 0}
-                      />
-                    </>
-                  ) : (
-                    <StatCard
-                      label="MCP cache"
-                      value="Disabled"
-                      help="No MCP cache is configured for this gateway."
-                    />
-                  )
-                )}
-              </StatGroup>
+              </>
+            )}
+            {mcpCacheStats && (
+              mcpCacheStats.configured ? (
+                <StatCard
+                  label="MCP cache"
+                  value={`${mcpCacheStats.entries} entries`}
+                  sub={`${mcpCacheStats.in_use} active · ${mcpCacheStats.idle} idle`}
+                  help="Cached MCP clients available for reuse."
+                  highlight={mcpCacheStats.in_use > 0}
+                />
+              ) : (
+                <StatCard
+                  label="MCP cache"
+                  value="Disabled"
+                  help="No MCP cache is configured for this gateway."
+                />
+              )
             )}
           </div>
         )}
@@ -765,37 +759,6 @@ export function ObservabilityView({ state, onNavigate, focusRequest }: Props) {
   );
 }
 
-function StatGroup({ title, summary, children }: { title: string; summary?: string; children: ReactNode }) {
-  return (
-    <section
-      className="card"
-      aria-label={title}
-      style={{
-        padding: 10,
-        display: "grid",
-        gap: 8,
-      }}>
-      <div style={{ display: "flex", justifyContent: "space-between", gap: 12, alignItems: "baseline" }}>
-        <div className="kicker" style={{ color: "var(--t2)" }}>{title}</div>
-        {summary && (
-          <div
-            style={{
-              fontSize: 11,
-              color: "var(--t3)",
-              fontFamily: "var(--font-mono)",
-              textAlign: "right",
-            }}>
-            {summary}
-          </div>
-        )}
-      </div>
-      <div style={{ display: "flex", gap: 8, flexWrap: "wrap" }}>
-        {children}
-      </div>
-    </section>
-  );
-}
-
 const STATUS_FILTER_OPTIONS: Array<{ value: StatusFilter; label: string }> = [
   { value: "all", label: "All" },
   { value: "healthy", label: "Healthy" },
@@ -939,23 +902,6 @@ function routeSummaryLabel(trace: TraceListItem): { label: string; title: string
   return { label: "No route", title: "No route summary was recorded for this request.", tone: "empty" };
 }
 
-function runtimeSummary(stats: RuntimeStatsResponse["data"]): string {
-  if (stats.awaiting_approval_runs > 0) {
-    return `${stats.awaiting_approval_runs} ${plural(stats.awaiting_approval_runs, "run")} waiting for approval`;
-  }
-  if (stats.running_runs > 0 || stats.in_flight_jobs > 0) {
-    return `${stats.running_runs} ${plural(stats.running_runs, "run")} running, ${stats.in_flight_jobs} active ${plural(stats.in_flight_jobs, "job")}`;
-  }
-  if (stats.queue_depth > 0 || stats.queued_runs > 0) {
-    return `${stats.queue_depth || stats.queued_runs} queued, ${stats.worker_count} ${plural(stats.worker_count, "runner")} available`;
-  }
-  return `${stats.worker_count} ${plural(stats.worker_count, "task runner")} available, no queued work`;
-}
-
 function describeStoreBackend(backend: string): string {
   return backend === "memory" ? "Memory store" : backend;
-}
-
-function plural(count: number, singular: string): string {
-  return count === 1 ? singular : `${singular}s`;
 }
