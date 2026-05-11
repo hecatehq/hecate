@@ -96,6 +96,28 @@ describe("buildSpanWaterfall", () => {
       .toBe(Date.parse("2026-05-11T06:14:05.428Z"));
   });
 
+  it("scales valid sub-ms traces to their real latest end, not a 1ms floor", () => {
+    const spans: TraceSpanRecord[] = [
+      span({
+        span_id: "root",
+        name: "gateway.request",
+        start_time: "2026-05-11T06:14:05.428000Z",
+        end_time: "2026-05-11T06:14:05.428090Z",
+      }),
+      span({
+        span_id: "router",
+        name: "gateway.router",
+        parent_span_id: "root",
+        start_time: "2026-05-11T06:14:05.428050Z",
+        end_time: "2026-05-11T06:14:05.428090Z",
+      }),
+    ];
+    const wf = buildSpanWaterfall(spans);
+    expect(wf.totalMs).toBeCloseTo(0.09, 3);
+    const root = wf.spans.find((s) => s.span.span_id === "root")!;
+    expect(root.startMs + root.durMs).toBeCloseTo(wf.totalMs, 3);
+  });
+
   it("flags spans that have at least one child via hasChildren", () => {
     // Trace from the dev server: gateway.request is the root and the
     // other three are its direct children. Only the root should have
