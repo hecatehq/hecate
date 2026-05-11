@@ -25,14 +25,19 @@ type Manifest = {
 };
 
 // Fallbacks for a fresh checkout where the alpha manifest hasn't
-// been published yet — every link points at the releases index,
-// where the operator can find whatever's available.
-const fallback = "https://github.com/hecatehq/hecate/releases";
-let version = "0.1.0-alpha";
-let releaseUrl = fallback;
-let macos = fallback;
-let linux = fallback;
-let windows = fallback;
+// been published yet — every download link points at the releases
+// index so the operator can find whatever's available. The
+// version + release-notes footer is hidden in this case (see the
+// `manifestLoaded` gate in the markup below) — a fabricated
+// version string would mislead operators into thinking they're
+// downloading a specific build.
+const releasesIndex = "https://github.com/hecatehq/hecate/releases";
+let manifestLoaded = false;
+let version = "";
+let releaseUrl = releasesIndex;
+let macos = releasesIndex;
+let linux = releasesIndex;
+let windows = releasesIndex;
 
 try {
   const manifestPath = path.resolve(
@@ -52,8 +57,15 @@ try {
   macos = `https://github.com/hecatehq/hecate/releases/download/v${version}/Hecate_${version}_aarch64.dmg`;
   linux = manifest.platforms?.["linux-x86_64"]?.url ?? releaseUrl;
   windows = manifest.platforms?.["windows-x86_64"]?.url ?? releaseUrl;
-} catch {
-  // No manifest yet — keep the generic fallbacks above.
+  manifestLoaded = true;
+} catch (err) {
+  // ENOENT (fresh checkout, no release yet) is the only error we
+  // silence. Corrupt JSON, schema mismatches, permission issues,
+  // anything else — re-throw so the build fails loud rather than
+  // shipping a broken homepage with silently-wrong links.
+  if ((err as NodeJS.ErrnoException).code !== "ENOENT") {
+    throw err;
+  }
 }
 ---
 
@@ -93,10 +105,21 @@ try {
             <a class="button button--ghost" href={windows}>Windows .msi</a>
           </div>
 
+          {/* Version + release-notes link only render when the
+              manifest actually loaded — fabricating a version
+              string in the fresh-checkout case (no published
+              release yet) would mislead operators into thinking
+              they're downloading a specific build. The "all
+              releases" + "GitHub" links render either way. */}
           <p class="hero__release">
-            <span class="hero__release-tag">v{version}</span>
-            · <a href={releaseUrl}>release notes</a>
-            · <a href="https://github.com/hecatehq/hecate/releases">all releases</a>
+            {manifestLoaded && (
+              <Fragment>
+                <span class="hero__release-tag">v{version}</span>
+                · <a href={releaseUrl}>release notes</a>
+                ·
+              </Fragment>
+            )}
+            <a href="https://github.com/hecatehq/hecate/releases">all releases</a>
             · <a href="https://github.com/hecatehq/hecate">GitHub</a>
           </p>
         </div>
