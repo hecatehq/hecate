@@ -55,6 +55,12 @@ export type WaterfallSpan = {
   critical: boolean;
   unknownTiming: boolean;
   negativeDuration: boolean;
+  // True when at least one other span in the same trace lists this
+  // span as its parent. Drives the renderer's "outline vs filled" bar
+  // style — parent rows are subordinated visually so the leaf spans
+  // underneath show their real start offsets without competing with
+  // an always-fully-covering parent bar.
+  hasChildren: boolean;
 };
 
 export type TraceWaterfall = {
@@ -371,6 +377,13 @@ export function buildSpanWaterfall(spans: TraceSpanRecord[]): TraceWaterfall {
       critical: criticalIDs.has(p.span.span_id),
       unknownTiming,
       negativeDuration,
+      // `children` is indexed by parent_span_id, so a non-empty entry
+      // for this span's id means it has at least one rendered child.
+      // Note: this uses the same visibility filter as the tree
+      // ordering above — children whose parent span was pruned from
+      // the trace render as roots, so the count here matches what the
+      // viewer actually sees.
+      hasChildren: (children.get(p.span.span_id) ?? []).length > 0,
     });
   }
 

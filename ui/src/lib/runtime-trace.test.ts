@@ -53,6 +53,25 @@ describe("buildSpanWaterfall", () => {
     expect(wf.spans.map((s) => s.span.span_id)).toEqual(["root", "A", "A1", "B"]);
   });
 
+  it("flags spans that have at least one child via hasChildren", () => {
+    // Trace from the dev server: gateway.request is the root and the
+    // other three are its direct children. Only the root should have
+    // hasChildren=true; the leaves stay false. This drives the
+    // outline-vs-filled bar style in SpanWaterfall.
+    const spans: TraceSpanRecord[] = [
+      span({ span_id: "root", name: "gateway.request", start_time: at(0), end_time: at(912) }),
+      span({ span_id: "parse", name: "gateway.request.parse", parent_span_id: "root", start_time: at(43), end_time: at(43) }),
+      span({ span_id: "gov", name: "gateway.governor", parent_span_id: "root", start_time: at(126), end_time: at(912) }),
+      span({ span_id: "rtr", name: "gateway.router", parent_span_id: "root", start_time: at(442), end_time: at(481) }),
+    ];
+    const wf = buildSpanWaterfall(spans);
+    const byID = Object.fromEntries(wf.spans.map((s) => [s.span.span_id, s]));
+    expect(byID.root.hasChildren).toBe(true);
+    expect(byID.parse.hasChildren).toBe(false);
+    expect(byID.gov.hasChildren).toBe(false);
+    expect(byID.rtr.hasChildren).toBe(false);
+  });
+
   it("emits a child after its parent in DFS order even when clock skew puts the child's start earlier", () => {
     // Even though A's start (-50) is earlier than root's (0), A must
     // still render below root because of the parent→child relationship.
