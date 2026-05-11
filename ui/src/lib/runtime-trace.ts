@@ -195,6 +195,35 @@ export function tracePhaseFromSpan(name: string): TraceTimelineItem["phase"] {
 // the right. Negative durations (clock skew across hosts/processes)
 // are preserved as-is and flagged `negativeDuration: true` so the
 // renderer can mark them rather than silently clamping to 1ms.
+// parseISOWithSubMs parses an ISO 8601 timestamp preserving microsecond
+// and nanosecond precision as fractional milliseconds. The native
+// Date.parse only honors millisecond precision — sub-ms fractional
+// digits are silently truncated. For OTel spans recorded with μs/ns
+// precision (the gateway uses time.RFC3339Nano), that truncation
+// collapses spans separated by < 1ms onto the same parsed start time,
+// which made the waterfall render three child spans stacked at the
+// left edge instead of at their real offsets within the parent.
+//
+// Returns NaN on inputs Date.parse can't handle so callers' existing
+// validity checks (startValid/endValid in buildSpanWaterfall) still
+// work.
+export function parseISOWithSubMs(s: string): number {
+  // Match ISO 8601 with optional fractional seconds + a timezone
+  // suffix. We pull the fractional portion out so we can pad/truncate
+  // it to nanosecond precision (9 digits) and add it back as a
+  // floating-point millisecond offset.
+  const m = s.match(/^(\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2})(?:\.(\d+))?(Z|[+-]\d{2}:?\d{2})?$/);
+  if (!m) return Date.parse(s);
+  const [, body, frac, tz] = m;
+  const baseMs = Date.parse(`${body}${tz ?? "Z"}`);
+  if (!Number.isFinite(baseMs)) return NaN;
+  if (!frac) return baseMs;
+  // Pad/truncate the fractional portion to nanoseconds (9 digits),
+  // parse as integer, then convert to ms float.
+  const nanos = parseInt((frac + "000000000").slice(0, 9), 10);
+  return baseMs + nanos / 1_000_000;
+}
+
 export function buildSpanWaterfall(spans: TraceSpanRecord[]): TraceWaterfall {
   if (!spans || spans.length === 0) return { spans: [], totalMs: 0, phases: [] };
 
@@ -216,8 +245,8 @@ export function buildSpanWaterfall(spans: TraceSpanRecord[]): TraceWaterfall {
     durMs: number;       // end - start, or NaN if either is bad
   };
   const parsed: Parsed[] = spans.map((s) => {
-    const startRaw = s.start_time ? Date.parse(s.start_time) : NaN;
-    const endRaw = s.end_time ? Date.parse(s.end_time) : NaN;
+    const startRaw = s.start_time ? parseISOWithSubMs(s.start_time) : NaN;
+    const endRaw = s.end_time ? parseISOWithSubMs(s.end_time) : NaN;
     const startValid = Number.isFinite(startRaw);
     const endValid = Number.isFinite(endRaw);
     const start = startValid ? startRaw : NaN;

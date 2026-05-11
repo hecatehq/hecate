@@ -217,6 +217,37 @@ describe("ObservabilityView", () => {
     expect(container.textContent).toMatch(/\+4/);
   });
 
+  it("prefers the sibling trace that carries route.final_provider over a higher-span_count sibling without route info", async () => {
+    // Mirrors what the gateway emits today: the actual provider call
+    // sits in a 6-span trace whose `route` field is empty, while the
+    // 4-span route-attempt sibling carries the route summary. The
+    // dedup must surface the route-carrying entry so the drawer
+    // header reflects the provider that actually handled the chat
+    // rather than reading as "no provider selected".
+    const reqID = "req-route-tie-break";
+    const startedAt = new Date().toISOString();
+    fetchMock.mockImplementation(tracesFetchHandler([
+      { request_id: reqID, trace_id: "t-empty", started_at: startedAt, span_count: 6, duration_ms: 17382, status_code: "ok", route: {} },
+      { request_id: reqID, trace_id: "t-routed", started_at: startedAt, span_count: 4, duration_ms: 8, status_code: "ok", route: { final_provider: "ollama", final_model: "ministral-3:latest" } },
+    ]));
+    const state = createRuntimeConsoleFixture({ session: localSession });
+    let container = null as unknown as HTMLElement;
+    await act(async () => {
+      const result = render(<ObservabilityView state={state} actions={createRuntimeConsoleActions()} />);
+      container = result.container;
+    });
+    await waitFor(() => {
+      expect(container.textContent).toMatch(/req-rou/);
+    });
+    // Single row collapses both siblings; the row shown is the routed
+    // one (8ms / ollama), not the empty-route 17382ms one.
+    expect(container.querySelectorAll("tbody tr")).toHaveLength(1);
+    expect(container.textContent).toMatch(/ollama/);
+    expect(container.textContent).toMatch(/ministral-3:latest/);
+    expect(container.textContent).toMatch(/8ms/);
+    expect(container.textContent).toMatch(/\+1/);
+  });
+
   it("never renders 'undefined' when route candidates are partially populated", async () => {
     // Defensive against route.candidates entries with missing provider
     // or model fields — both are optional on the runtime type. A

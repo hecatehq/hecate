@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 
-import { buildSpanWaterfall } from "./runtime-trace";
+import { buildSpanWaterfall, parseISOWithSubMs } from "./runtime-trace";
 import type { TraceSpanRecord } from "../types/runtime";
 
 // Helpers for the synthetic-trace fixtures. `at(ms)` returns an ISO
@@ -51,6 +51,49 @@ describe("buildSpanWaterfall", () => {
     ];
     const wf = buildSpanWaterfall(spans);
     expect(wf.spans.map((s) => s.span.span_id)).toEqual(["root", "A", "A1", "B"]);
+  });
+
+  it("positions child spans at their real sub-ms offsets when timestamps have microsecond precision", () => {
+    // OTel exporters using time.RFC3339Nano write sub-ms precision.
+    // Date.parse truncates anything past 3 fractional digits, which
+    // made child spans separated by < 1ms all collapse to startMs=0
+    // — the waterfall rendered them stacked on the left edge instead
+    // of at their real offsets within the parent. The fix is
+    // parseISOWithSubMs.
+    //
+    // Trace spans 4.328ms total so the totalMs Math.max(..., 1) floor
+    // doesn't dominate the assertions; child offsets are 0.043 /
+    // 0.926 / 2.442 ms — all sub-1ms-truncation territory pre-fix.
+    const spans: TraceSpanRecord[] = [
+      span({ span_id: "root", name: "gateway.request", start_time: "2026-05-11T06:14:05.428427Z", end_time: "2026-05-11T06:14:05.432755Z" }),
+      span({ span_id: "parse", name: "gateway.request.parse", parent_span_id: "root", start_time: "2026-05-11T06:14:05.428470Z", end_time: "2026-05-11T06:14:05.428470Z" }),
+      span({ span_id: "gov", name: "gateway.governor", parent_span_id: "root", start_time: "2026-05-11T06:14:05.429353Z", end_time: "2026-05-11T06:14:05.432755Z" }),
+      span({ span_id: "rtr", name: "gateway.router", parent_span_id: "root", start_time: "2026-05-11T06:14:05.430869Z", end_time: "2026-05-11T06:14:05.430908Z" }),
+    ];
+    const wf = buildSpanWaterfall(spans);
+    const byID = Object.fromEntries(wf.spans.map((s) => [s.span.span_id, s]));
+    // Each child's startMs must be its own offset, NOT zero.
+    expect(byID.parse.startMs).toBeCloseTo(0.043, 2);
+    expect(byID.gov.startMs).toBeCloseTo(0.926, 2);
+    expect(byID.rtr.startMs).toBeCloseTo(2.442, 2);
+    // And the trace total spans the parent's real duration.
+    expect(wf.totalMs).toBeCloseTo(4.328, 2);
+  });
+
+  it("parseISOWithSubMs preserves microsecond precision", () => {
+    // Date.parse drops past 3 digits — both of these would return the
+    // same ms-precision base. parseISOWithSubMs must distinguish them.
+    const a = parseISOWithSubMs("2026-05-11T06:14:05.428427Z");
+    const b = parseISOWithSubMs("2026-05-11T06:14:05.429339Z");
+    expect(b - a).toBeCloseTo(0.912, 3);
+    // Same instant expressed with a non-Z timezone parses identically.
+    const offset = parseISOWithSubMs("2026-05-11T08:14:05.428427+02:00");
+    expect(offset).toBeCloseTo(a, 3);
+    // Unparseable input falls through to Date.parse's NaN.
+    expect(Number.isNaN(parseISOWithSubMs("not-a-timestamp"))).toBe(true);
+    // Plain ms-precision input still works, same as Date.parse.
+    expect(parseISOWithSubMs("2026-05-11T06:14:05.428Z"))
+      .toBe(Date.parse("2026-05-11T06:14:05.428Z"));
   });
 
   it("flags spans that have at least one child via hasChildren", () => {

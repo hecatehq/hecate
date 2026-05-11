@@ -319,7 +319,6 @@ func (s *Service) buildExecutionPlan(ctx context.Context, trace *profiler.Trace,
 		telemetry.AttrHecateRouteReason:  decision.Reason,
 		telemetry.AttrHecateProviderKind: decision.ProviderKind,
 	})
-	recordRouteDiagnostics(ctx, trace, s.router, rewrittenReq, decision)
 
 	preflight, err := s.preflight.Evaluate(ctx, rewrittenReq, decision)
 	if err != nil {

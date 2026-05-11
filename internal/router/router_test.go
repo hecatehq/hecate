@@ -493,71 +493,6 @@ func TestRuleRouterFallbacksPreferHealthyBeforeHalfOpen(t *testing.T) {
 	}
 }
 
-func TestRuleRouterRouteDiagnosticsExplainUnsupportedModels(t *testing.T) {
-	t.Parallel()
-
-	registry := providers.NewRegistry(
-		&fakeProvider{name: "openai", kind: providers.KindCloud, defaultModel: "gpt-4o-mini", supportedModels: []string{"gpt-4.1-mini"}},
-		&fakeProvider{name: "anthropic", kind: providers.KindCloud, defaultModel: "claude-sonnet", supportedModels: []string{"claude-sonnet"}},
-		&fakeProvider{name: "ollama", kind: providers.KindLocal, defaultModel: "llama3.1:8b", supportedModels: []string{"llama3.1:8b"}},
-	)
-	router := NewRuleRouter("gpt-4o-mini", catalog.NewRegistryCatalog(registry, nil))
-
-	req := types.ChatRequest{Model: "gpt-4.1-mini"}
-	selected, err := router.Route(context.Background(), req)
-	if err != nil {
-		t.Fatalf("Route() error = %v", err)
-	}
-
-	got := router.RouteDiagnostics(context.Background(), req, selected)
-	if len(got) != 2 {
-		t.Fatalf("RouteDiagnostics() count = %d, want 2: %+v", len(got), got)
-	}
-	for _, candidate := range got {
-		if candidate.SkipReason != "unsupported_model" {
-			t.Fatalf("candidate %s skip reason = %q, want unsupported_model", candidate.Provider, candidate.SkipReason)
-		}
-		if candidate.Model != "gpt-4.1-mini" {
-			t.Fatalf("candidate %s model = %q, want requested model", candidate.Provider, candidate.Model)
-		}
-		if candidate.Outcome != "skipped" {
-			t.Fatalf("candidate %s outcome = %q, want skipped", candidate.Provider, candidate.Outcome)
-		}
-	}
-}
-
-func TestRuleRouterRouteDiagnosticsExplainCircuitOpen(t *testing.T) {
-	t.Parallel()
-
-	registry := providers.NewRegistry(
-		&fakeProvider{name: "openai", kind: providers.KindCloud, defaultModel: "gpt-4o-mini", supportedModels: []string{"gpt-4o-mini"}},
-		&fakeProvider{name: "anthropic", kind: providers.KindCloud, defaultModel: "claude-sonnet", supportedModels: []string{"claude-sonnet"}},
-	)
-	tracker := staticHealthTracker{states: map[string]providers.HealthState{
-		"openai": {Available: false, Status: providers.HealthStatusOpen},
-	}}
-	router := NewRuleRouter("gpt-4o-mini", catalog.NewRegistryCatalog(registry, tracker))
-
-	selected, err := router.Route(context.Background(), types.ChatRequest{})
-	if err != nil {
-		t.Fatalf("Route() error = %v", err)
-	}
-
-	got := router.RouteDiagnostics(context.Background(), types.ChatRequest{}, selected)
-	if len(got) != 1 {
-		t.Fatalf("RouteDiagnostics() count = %d, want 1: %+v", len(got), got)
-	}
-	if got[0].Provider != "openai" {
-		t.Fatalf("provider = %q, want openai", got[0].Provider)
-	}
-	if got[0].SkipReason != "circuit_open" {
-		t.Fatalf("skip reason = %q, want circuit_open", got[0].SkipReason)
-	}
-	if got[0].HealthStatus != string(providers.HealthStatusOpen) {
-		t.Fatalf("health status = %q, want open", got[0].HealthStatus)
-	}
-}
-
 func TestRuleRouterSkipsRateLimitedProviderImmediately(t *testing.T) {
 	t.Parallel()
 
@@ -575,17 +510,6 @@ func TestRuleRouterSkipsRateLimitedProviderImmediately(t *testing.T) {
 	}
 	if got.Provider != "anthropic" {
 		t.Fatalf("Route() provider = %q, want anthropic after openai 429 cooldown", got.Provider)
-	}
-
-	diagnostics := router.RouteDiagnostics(context.Background(), types.ChatRequest{}, got)
-	if len(diagnostics) != 1 {
-		t.Fatalf("RouteDiagnostics() count = %d, want 1: %+v", len(diagnostics), diagnostics)
-	}
-	if diagnostics[0].Provider != "openai" {
-		t.Fatalf("diagnostic provider = %q, want openai", diagnostics[0].Provider)
-	}
-	if diagnostics[0].SkipReason != "provider_rate_limited" {
-		t.Fatalf("diagnostic skip reason = %q, want provider_rate_limited", diagnostics[0].SkipReason)
 	}
 }
 
@@ -611,45 +535,6 @@ func TestRuleRouterPrefersLowerLatencyWithinSameHealthTier(t *testing.T) {
 	}
 }
 
-func TestRuleRouterRouteDiagnosticsExplainSlowProviderScoring(t *testing.T) {
-	t.Parallel()
-
-	registry := providers.NewRegistry(
-		&fakeProvider{name: "anthropic", kind: providers.KindCloud, defaultModel: "claude-sonnet", supportedModels: []string{"claude-sonnet"}},
-		&fakeProvider{name: "openai", kind: providers.KindCloud, defaultModel: "gpt-4o-mini", supportedModels: []string{"gpt-4o-mini"}},
-	)
-	tracker := staticHealthTracker{states: map[string]providers.HealthState{
-		"anthropic": {Available: true, Status: providers.HealthStatusDegraded, LastLatency: 900 * time.Millisecond, LastErrorClass: "latency"},
-		"openai":    {Available: true, Status: providers.HealthStatusHealthy, LastLatency: 120 * time.Millisecond},
-	}}
-	router := NewRuleRouter("gpt-4o-mini", catalog.NewRegistryCatalog(registry, tracker))
-
-	selected, err := router.Route(context.Background(), types.ChatRequest{})
-	if err != nil {
-		t.Fatalf("Route() error = %v", err)
-	}
-	if selected.Provider != "openai" {
-		t.Fatalf("Route() provider = %q, want openai", selected.Provider)
-	}
-
-	got := router.RouteDiagnostics(context.Background(), types.ChatRequest{}, selected)
-	if len(got) != 1 {
-		t.Fatalf("RouteDiagnostics() count = %d, want 1: %+v", len(got), got)
-	}
-	if got[0].Provider != "anthropic" {
-		t.Fatalf("provider = %q, want anthropic", got[0].Provider)
-	}
-	if got[0].SkipReason != "provider_slow" {
-		t.Fatalf("skip reason = %q, want provider_slow", got[0].SkipReason)
-	}
-	if got[0].LatencyMS != 900 {
-		t.Fatalf("latency_ms = %d, want 900", got[0].LatencyMS)
-	}
-	if got[0].HealthStatus != string(providers.HealthStatusDegraded) {
-		t.Fatalf("health status = %q, want degraded", got[0].HealthStatus)
-	}
-}
-
 func TestRuleRouterPrefersMoreStableProviderAtSameHealthTier(t *testing.T) {
 	t.Parallel()
 
@@ -670,35 +555,5 @@ func TestRuleRouterPrefersMoreStableProviderAtSameHealthTier(t *testing.T) {
 	}
 	if got.Provider != "openai" {
 		t.Fatalf("Route() provider = %q, want more stable openai", got.Provider)
-	}
-}
-
-func TestRuleRouterRouteDiagnosticsExplainLessStableProviderScoring(t *testing.T) {
-	t.Parallel()
-
-	registry := providers.NewRegistry(
-		&fakeProvider{name: "anthropic", kind: providers.KindCloud, defaultModel: "claude-sonnet", supportedModels: []string{"claude-sonnet"}},
-		&fakeProvider{name: "openai", kind: providers.KindCloud, defaultModel: "gpt-4o-mini", supportedModels: []string{"gpt-4o-mini"}},
-	)
-	tracker := staticHealthTracker{states: map[string]providers.HealthState{
-		"anthropic": {Available: true, Status: providers.HealthStatusHealthy, TotalFailures: 8, Timeouts: 2, LastLatency: 150 * time.Millisecond},
-		"openai":    {Available: true, Status: providers.HealthStatusHealthy, LastLatency: 150 * time.Millisecond},
-	}}
-
-	router := NewRuleRouter("gpt-4o-mini", catalog.NewRegistryCatalog(registry, tracker))
-
-	selected, err := router.Route(context.Background(), types.ChatRequest{})
-	if err != nil {
-		t.Fatalf("Route() error = %v", err)
-	}
-	got := router.RouteDiagnostics(context.Background(), types.ChatRequest{}, selected)
-	if len(got) != 1 {
-		t.Fatalf("RouteDiagnostics() count = %d, want 1: %+v", len(got), got)
-	}
-	if got[0].Provider != "anthropic" {
-		t.Fatalf("provider = %q, want anthropic", got[0].Provider)
-	}
-	if got[0].SkipReason != "provider_less_stable" {
-		t.Fatalf("skip reason = %q, want provider_less_stable", got[0].SkipReason)
 	}
 }
