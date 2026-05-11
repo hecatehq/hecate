@@ -61,7 +61,7 @@ export function RecentActivityStrip({ traces }: Props) {
           return (
             <span
               key={t.request_id}
-              title={`${t.request_id.slice(0, 8)}… · ${t.route?.final_provider || "—"}/${t.route?.final_model || "—"}${t.duration_ms != null ? ` · ${t.duration_ms}ms` : ""}`}
+              title={`${t.request_id} · ${t.route?.final_provider || "—"}/${t.route?.final_model || "—"}${t.duration_ms != null ? ` · ${t.duration_ms}ms` : ""}`}
               style={{
                 display: "inline-block",
                 width: 6, height: 6, borderRadius: "50%",

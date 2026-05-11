@@ -343,12 +343,45 @@ describe("ObservabilityView", () => {
     await act(async () => {
       fireEvent.click(row);
     });
-    // Modal opens — title contains the truncated request id and provider/model
+    // Modal opens — title is provider/model; request id is available via the copy button.
     await waitFor(() => {
       const dialog = document.querySelector('[role="dialog"]');
       expect(dialog).toBeTruthy();
-      expect(dialog?.getAttribute("aria-label")).toMatch(/req-1234/);
-      expect(dialog?.getAttribute("aria-label")).toMatch(/openai\/gpt-4o/);
+      expect(dialog?.getAttribute("aria-label")).toBe("openai/gpt-4o");
+    });
+  });
+
+  it("uses ledger provider and model when trace route fields are missing", async () => {
+    fetchMock.mockImplementation(tracesFetchHandler([
+      { request_id: "ledger-route-fallback", started_at: new Date().toISOString(), span_count: 1, duration_ms: 1, status_code: "ok", route: {} },
+    ]));
+    const state = createRuntimeConsoleFixture({
+      session: localSession,
+      requestLedger: [{
+        type: "debit",
+        request_id: "ledger-route-fallback",
+        provider: "ollama",
+        model: "ministral-3:latest",
+        amount_micros_usd: 0,
+        amount_usd: "0",
+        balance_micros_usd: 0,
+        balance_usd: "0",
+        credited_micros_usd: 0,
+        credited_usd: "0",
+        debited_micros_usd: 0,
+        debited_usd: "0",
+      }],
+    });
+    let container = null as unknown as HTMLElement;
+    await act(async () => {
+      const result = render(<ObservabilityView state={state} actions={createRuntimeConsoleActions()} />);
+      container = result.container;
+    });
+    await waitFor(() => {
+      expect(container.textContent).toMatch(/ollama/);
+      expect(container.textContent).toMatch(/ministral-3:latest/);
+      expect(container.textContent).toMatch(/ledger-r/);
+      expect(container.textContent).not.toMatch(/ledger-route-fallback/);
     });
   });
 
@@ -384,7 +417,6 @@ describe("ObservabilityView", () => {
       const urls = fetchMock.mock.calls.map(([u]) => String(u));
       expect(urls.some(u => u === "/hecate/v1/traces?request_id=req-focus-from-chat")).toBe(true);
       const dialog = document.querySelector('[role="dialog"]');
-      expect(dialog?.getAttribute("aria-label")).toMatch(/req-focu/);
       expect(dialog?.getAttribute("aria-label")).toMatch(/ollama\/ministral-3:latest/);
     });
   });
