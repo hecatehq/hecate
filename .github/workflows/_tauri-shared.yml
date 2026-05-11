@@ -46,6 +46,8 @@ jobs:
             target: x86_64-pc-windows-msvc
             bundles: msi
     runs-on: ${{ matrix.os }}
+    env:
+      TAURI_VERSION: ${{ inputs.tagName }}
     # bash for every run: step. Resolves to Git Bash on Windows runners,
     # which is what the Justfile shell recipes and our cp/if blocks need.
     defaults:
@@ -109,28 +111,11 @@ jobs:
       - name: Install UI dependencies
         run: just ui-install
 
-      - name: Build hecate sidecars
-        run: just build
-      - name: Build hecate-acp sidecar
-        run: just build-acp
-
-      # Tauri's bundler looks for binaries/<name>-{triple}[.exe] at bundle
-      # time. Replicate `just tauri-sidecar` so the matrix triple is always
-      # used (not whatever rustc on the runner reports).
-      - name: Stage hecate sidecars
-        run: |
-          mkdir -p tauri/src-tauri/binaries
-          for name in hecate hecate-acp; do
-            if [[ "$RUNNER_OS" == "Windows" ]]; then
-              if [[ -f "${name}.exe" ]]; then src="${name}.exe"
-              elif [[ -f "$name" ]];     then src="$name"
-              else echo "no ${name} binary found after build"; ls -la; exit 1
-              fi
-              cp "$src" "tauri/src-tauri/binaries/${name}-${{ matrix.target }}.exe"
-            else
-              cp "$name" "tauri/src-tauri/binaries/${name}-${{ matrix.target }}"
-            fi
-          done
+      # Build once and stage with the matrix target. `tauri-sidecar`
+      # wraps `tauri-build-sidecars`, which injects the release tag
+      # into both Go binaries before copying them to externalBin names.
+      - name: Build and stage versioned Tauri sidecars
+        run: just tauri-sidecar "${{ matrix.target }}"
 
       # Runs Rust-side unit tests for deterministic native helpers. This keeps
       # sidecar path/port logic covered in CI without launching GUI windows.

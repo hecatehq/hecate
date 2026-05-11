@@ -19,35 +19,11 @@
 
 import { readFileSync, writeFileSync } from "fs";
 import { resolve } from "path";
-import { execSync } from "child_process";
-
-const root = resolve(import.meta.dir, "..");
-const tauri = resolve(root, "tauri");
+import { resolveTauriVersion, tauri } from "./resolve-tauri-version";
 
 // ── 1. Resolve the target version ────────────────────────────────────────────
 
-function gitVersion(): string | null {
-  try {
-    const tag = execSync("git describe --tags --abbrev=0", {
-      cwd: root,
-      encoding: "utf8",
-      stdio: ["pipe", "pipe", "pipe"],
-    }).trim();
-    return tag.replace(/^v/, "");
-  } catch {
-    return null;
-  }
-}
-
-function cargoVersion(): string {
-  const cargo = readFileSync(resolve(tauri, "src-tauri/Cargo.toml"), "utf8");
-  const m = cargo.match(/^\[package\][^[]*version\s*=\s*"([^"]+)"/ms);
-  if (!m) throw new Error("could not parse version from Cargo.toml");
-  return m[1];
-}
-
-const version =
-  process.env.TAURI_VERSION?.trim().replace(/^v/, "") || gitVersion() || cargoVersion();
+const version = resolveTauriVersion();
 
 console.log(`stamping version: ${version}`);
 

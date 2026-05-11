@@ -11,6 +11,7 @@ on:
     types: [opened, synchronize, reopened, ready_for_review]
     paths:
       - 'tauri/**'
+      - 'scripts/resolve-tauri-version.ts'
       - 'scripts/stamp-version.ts'
       - 'scripts/tauri-smoke.ts'
       - 'Justfile'
