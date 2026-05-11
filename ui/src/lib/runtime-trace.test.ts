@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 
-import { buildSpanWaterfall, findModelInTrace, findProviderInTrace, parseISOWithSubMs } from "./runtime-trace";
+import { buildSpanWaterfall, buildTraceTimeline, findModelInTrace, findProviderInTrace, parseISOWithSubMs } from "./runtime-trace";
 import type { TraceSpanRecord } from "../types/runtime";
 
 // Helpers for the synthetic-trace fixtures. `at(ms)` returns an ISO
@@ -348,5 +348,32 @@ describe("buildSpanWaterfall", () => {
     const short = wf.spans.find((s) => s.span.span_id === "short")!;
     expect(long.critical).toBe(true);
     expect(short.critical).toBe(false);
+  });
+});
+
+describe("buildTraceTimeline", () => {
+  it("uses sub-ms event offsets instead of collapsing them to 0 ms", () => {
+    const timeline = buildTraceTimeline([
+      span({
+        span_id: "root",
+        name: "gateway.request",
+        events: [
+          {
+            name: "request.received",
+            timestamp: "2026-05-11T06:14:05.428427Z",
+          },
+          {
+            name: "governor.allowed",
+            timestamp: "2026-05-11T06:14:05.428912Z",
+          },
+          {
+            name: "router.selected",
+            timestamp: "2026-05-11T06:14:05.430869Z",
+          },
+        ],
+      }),
+    ], "2026-05-11T06:14:05.428427Z");
+
+    expect(timeline.map((event) => event.offsetLabel)).toEqual(["0 ms", "0.485 ms", "2.44 ms"]);
   });
 });
