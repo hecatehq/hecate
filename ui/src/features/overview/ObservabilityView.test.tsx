@@ -225,8 +225,10 @@ describe("ObservabilityView", () => {
     });
     // Exactly one body row, not five.
     expect(container.querySelectorAll("tbody tr")).toHaveLength(1);
-    // The chosen entry is the trace with span_count: 6 / 17382ms.
-    expect(container.textContent).toMatch(/17382ms/);
+    // Latency is request-level across siblings, not the representative
+    // trace duration. The representative remains the 6-span trace, but
+    // the row shows the latest sibling end time for the whole request.
+    expect(container.textContent).toMatch(/17502ms/);
     // Sibling count badge surfaces the four collapsed siblings.
     expect(container.textContent).toMatch(/\+4/);
   });

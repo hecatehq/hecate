@@ -51,6 +51,14 @@ type Props = {
   focusRequest?: { requestID: string; nonce: number } | null;
 };
 
+type TraceGroup = {
+  entry: TraceListItem;
+  siblings: number;
+  earliestMs?: number;
+  latestMs?: number;
+  latencyMs?: number;
+};
+
 export function ObservabilityView({ state, onNavigate, focusRequest }: Props) {
   const [runtimeStats, setRuntimeStats] = useState<RuntimeStatsResponse["data"] | null>(null);
   const [mcpCacheStats, setMCPCacheStats] = useState<MCPCacheStatsResponse["data"] | null>(null);
@@ -181,14 +189,15 @@ export function ObservabilityView({ state, onNavigate, focusRequest }: Props) {
     // though we know which provider handled the chat.
     const hasRoute = (t: typeof filteredTraces[number]) =>
       !!(traceProvider(t) || traceModel(t));
-    const byID = new Map<string, { entry: typeof filteredTraces[number]; siblings: number }>();
+    const byID = new Map<string, TraceGroup>();
     for (const t of filteredTraces) {
       const existing = byID.get(t.request_id);
       if (!existing) {
-        byID.set(t.request_id, { entry: t, siblings: 0 });
+        byID.set(t.request_id, applyTraceWindow({ entry: t, siblings: 0 }, t));
         continue;
       }
       existing.siblings += 1;
+      applyTraceWindow(existing, t);
       // Decision order: route info > span count > status (errors win).
       const incomingHasRoute = hasRoute(t);
       const haveHasRoute = hasRoute(existing.entry);
@@ -565,6 +574,7 @@ export function ObservabilityView({ state, onNavigate, focusRequest }: Props) {
                   const time = formatRelativeTime(t.started_at || "");
                   const provider = traceProvider(t);
                   const model = traceModel(t);
+                  const latency = group.latencyMs ?? t.duration_ms;
                   // When the router skipped every candidate, the
                   // provider/model cells would otherwise just read "—".
                   // Show the rejected candidate (muted) with a tooltip
@@ -621,7 +631,7 @@ export function ObservabilityView({ state, onNavigate, focusRequest }: Props) {
                             : "—"}
                       </td>
                       <td style={{ ...tdBase, color: "var(--t1)", textAlign: "right" }}>
-                        {t.duration_ms != null ? `${t.duration_ms}ms` : "—"}
+                        {latency != null ? `${latency}ms` : "—"}
                       </td>
                       <td style={{ ...tdBase, color: "var(--t1)", textAlign: "right" }}>{cost}</td>
                       <td style={{ ...tdBase, color: "var(--t2)" }} title={reason}>{reason}</td>
@@ -765,6 +775,26 @@ function normalizeRuntimeStats(stats: RuntimeStatsResponse["data"] | null): Runt
     return null;
   }
   return stats;
+}
+
+function applyTraceWindow(
+  group: TraceGroup,
+  trace: TraceListItem,
+): TraceGroup {
+  if (typeof trace.duration_ms !== "number" || trace.duration_ms < 0) {
+    return group;
+  }
+  const startMs = trace.started_at ? Date.parse(trace.started_at) : NaN;
+  if (!Number.isFinite(startMs)) {
+    group.latencyMs ??= trace.duration_ms;
+    return group;
+  }
+
+  const endMs = startMs + trace.duration_ms;
+  group.earliestMs = group.earliestMs == null ? startMs : Math.min(group.earliestMs, startMs);
+  group.latestMs = group.latestMs == null ? endMs : Math.max(group.latestMs, endMs);
+  group.latencyMs = Math.max(0, Math.round(group.latestMs - group.earliestMs));
+  return group;
 }
 
 function runtimeSummary(stats: RuntimeStatsResponse["data"]): string {
