@@ -13,6 +13,16 @@ const localSession = { label: "Local" };
 
 const fetchMock = vi.fn<typeof fetch>();
 
+function expectHTMLElement(selector: string): HTMLElement {
+  const el = document.querySelector(selector);
+  expect(el).toBeTruthy();
+  return el as HTMLElement;
+}
+
+function normalizedInlineStyle(el: HTMLElement, prop: string): string {
+  return el.style.getPropertyValue(prop).replace(/\s+/g, "");
+}
+
 beforeEach(() => {
   // Default to wide-viewport drawer mode. Individual tests override.
   setViewportWidth(1280);
@@ -424,6 +434,7 @@ describe("ObservabilityView", () => {
       expect(container.textContent).toMatch(/detail-r/);
     });
     const row = container.querySelector("tbody tr") as HTMLElement;
+    expect(row).toBeTruthy();
     await act(async () => { fireEvent.click(row); });
     await waitFor(() => {
       expect(container.textContent).toMatch(/ollama/);
@@ -681,19 +692,19 @@ describe("ObservabilityView", () => {
     expect(document.body.textContent).toMatch(/gateway\.usage/);
     expect(Array.from(document.querySelectorAll('[data-testid="span-waterfall-tick"]')).map(el => el.textContent))
       .toEqual(["0ms", "100ms", "200ms", "300ms", "400ms"]);
-    expect((document.querySelector('[data-testid="span-waterfall-bar-root"]') as HTMLElement).style.left).toBe("0%");
-    expect((document.querySelector('[data-testid="span-waterfall-bar-root"]') as HTMLElement).style.width).toBe("100%");
-    expect((document.querySelector('[data-testid="span-waterfall-bar-child-a"]') as HTMLElement).style.left).toBe("12.5%");
-    expect((document.querySelector('[data-testid="span-waterfall-bar-child-a"]') as HTMLElement).style.width).toBe("62.5%");
-    const waterfallScroller = document.querySelector('[data-testid="span-waterfall-scroll"]') as HTMLElement;
-    expect(waterfallScroller).toBeTruthy();
-    const rootRow = document.querySelector('[aria-label="span provider chain"]') as HTMLElement;
+    const rootBar = expectHTMLElement('[data-testid="span-waterfall-bar-root"]');
+    expect(rootBar.style.left).toBe("0%");
+    expect(rootBar.style.width).toBe("100%");
+    const childABar = expectHTMLElement('[data-testid="span-waterfall-bar-child-a"]');
+    expect(childABar.style.left).toBe("12.5%");
+    expect(childABar.style.width).toBe("62.5%");
+    const waterfallScroller = expectHTMLElement('[data-testid="span-waterfall-scroll"]');
+    const rootRow = expectHTMLElement('[aria-label="span provider chain"]');
     expect(rootRow.style.gridTemplateColumns).toBe("153px minmax(360px, 1fr) 72px");
-    expect(waterfallScroller.style.maxHeight).toBe("min(420px, 52vh)");
+    expect(normalizedInlineStyle(waterfallScroller, "max-height")).toBe("min(420px,52vh)");
     expect(waterfallScroller.style.overflowY).toBe("auto");
-    const eventFlow = document.querySelector('[data-testid="trace-event-flow"]') as HTMLElement;
-    expect(eventFlow).toBeTruthy();
-    expect(eventFlow.style.maxHeight).toBe("min(320px, 42vh)");
+    const eventFlow = expectHTMLElement('[data-testid="trace-event-flow"]');
+    expect(normalizedInlineStyle(eventFlow, "max-height")).toBe("min(320px,42vh)");
     expect(eventFlow.style.overflowY).toBe("auto");
     expect(document.body.textContent).not.toMatch(/★/);
 
