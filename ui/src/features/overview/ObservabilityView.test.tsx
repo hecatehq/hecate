@@ -200,6 +200,37 @@ describe("ObservabilityView", () => {
     // Provider names appear
     expect(container.textContent).toMatch(/openai/);
     expect(container.textContent).toMatch(/anthropic/);
+    expect(container.textContent).toMatch(/Route/);
+    expect(container.textContent).not.toMatch(/Fallback/);
+    expect(container.textContent).toMatch(/Requested model/);
+  });
+
+  it("folds fallback source into the compact route column", async () => {
+    fetchMock.mockImplementation(tracesFetchHandler([
+      {
+        request_id: "req-fallback",
+        started_at: new Date(Date.now() - 5000).toISOString(),
+        span_count: 1,
+        duration_ms: 12,
+        status_code: "ok",
+        route: {
+          final_provider: "ollama",
+          final_model: "ministral-3:latest",
+          final_reason: "provider_default_model_failover",
+          fallback_from: "openai",
+        },
+      },
+    ]));
+    const state = createRuntimeConsoleFixture({ session: localSession });
+    let container = null as unknown as HTMLElement;
+    await act(async () => {
+      const result = render(<ObservabilityView state={state} actions={createRuntimeConsoleActions()} />);
+      container = result.container;
+    });
+    await waitFor(() => {
+      expect(container.textContent).toMatch(/req-fall/);
+    });
+    expect(container.textContent).toMatch(/Fallback from openai/);
   });
 
   it("collapses traces sharing one request_id into one row with a sibling badge", async () => {

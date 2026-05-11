@@ -566,8 +566,7 @@ export function ObservabilityView({ state, onNavigate, focusRequest }: Props) {
                 <col style={{ width: "16%" }} />
                 <col style={{ width: "7%" }} />
                 <col style={{ width: "8%" }} />
-                <col style={{ width: "17%" }} />
-                <col style={{ width: "9%" }} />
+                <col style={{ width: "20%" }} />
                 <col style={{ width: "9%" }} />
                 <col style={{ width: "4%" }} />
               </colgroup>
@@ -579,8 +578,7 @@ export function ObservabilityView({ state, onNavigate, focusRequest }: Props) {
                   <th style={thStyle}>Model</th>
                   <th style={{ ...thStyle, textAlign: "right" }}>Latency</th>
                   <th style={{ ...thStyle, textAlign: "right" }}>Cost</th>
-                  <th style={thStyle}>Reason</th>
-                  <th style={thStyle}>Fallback</th>
+                  <th style={thStyle}>Route</th>
                   <th style={thStyle}>Request ID</th>
                   <th style={thStyle}></th>
                 </tr>
@@ -597,11 +595,7 @@ export function ObservabilityView({ state, onNavigate, focusRequest }: Props) {
                     : ledger
                       ? "$0.00000"
                       : "—";
-                  const reason = t.route?.final_reason
-                    ? describeRouteReason(t.route.final_reason)
-                    : t.status_code === "error" && t.status_message
-                      ? t.status_message
-                      : "—";
+                  const routeLabel = routeSummaryLabel(t);
                   const time = formatRelativeTime(t.started_at || "");
                   const provider = traceProvider(t);
                   const model = traceModel(t);
@@ -665,9 +659,16 @@ export function ObservabilityView({ state, onNavigate, focusRequest }: Props) {
                         {latency != null ? `${latency}ms` : "—"}
                       </td>
                       <td style={{ ...tdBase, color: "var(--t1)", textAlign: "right" }}>{cost}</td>
-                      <td style={{ ...tdBase, color: "var(--t2)" }} title={reason}>{reason}</td>
-                      <td style={{ ...tdBase, color: t.route?.fallback_from ? "var(--amber)" : "var(--t3)" }}>
-                        {t.route?.fallback_from ? `↳ ${t.route.fallback_from}` : "—"}
+                      <td
+                        style={{
+                          ...tdBase,
+                          color: routeLabel.tone === "fallback" ? "var(--amber)" : routeLabel.tone === "empty" ? "var(--t3)" : "var(--t2)",
+                          overflow: "hidden",
+                          textOverflow: "ellipsis",
+                          whiteSpace: "nowrap",
+                        }}
+                        title={routeLabel.title}>
+                        {routeLabel.label}
                       </td>
                       <td style={tdBase} onClick={e => e.stopPropagation()}>
                         <div style={{ display: "inline-flex", alignItems: "center", gap: 4 }}>
@@ -826,6 +827,27 @@ function applyTraceWindow(
   group.latestMs = group.latestMs == null ? endMs : Math.max(group.latestMs, endMs);
   group.latencyMs = Math.max(0, Math.round(group.latestMs - group.earliestMs));
   return group;
+}
+
+function routeSummaryLabel(trace: TraceListItem): { label: string; title: string; tone: "default" | "fallback" | "empty" } {
+  if (trace.route?.fallback_from) {
+    const label = `Fallback from ${trace.route.fallback_from}`;
+    return {
+      label,
+      title: trace.route.final_reason
+        ? `${label}; ${describeRouteReason(trace.route.final_reason)}`
+        : label,
+      tone: "fallback",
+    };
+  }
+  if (trace.route?.final_reason) {
+    const label = describeRouteReason(trace.route.final_reason);
+    return { label, title: label, tone: "default" };
+  }
+  if (trace.status_code === "error" && trace.status_message) {
+    return { label: trace.status_message, title: trace.status_message, tone: "default" };
+  }
+  return { label: "No route", title: "No route summary was recorded for this request.", tone: "empty" };
 }
 
 function runtimeSummary(stats: RuntimeStatsResponse["data"]): string {
