@@ -28,7 +28,7 @@ PR validation: [`tauri-build.yml`](../.github/workflows/tauri-build.yml) runs
 the same matrix on PRs touching the desktop pipeline and persists bundles as
 14-day workflow artifacts so reviewers can test-launch before merge.
 
-## Current state — `v0.1.0-alpha.27`
+## Current state — `v0.1.0-alpha.28`
 
 What works:
 
