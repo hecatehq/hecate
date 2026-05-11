@@ -313,13 +313,13 @@ export function buildSpanWaterfall(spans: TraceSpanRecord[]): TraceWaterfall {
   const startValidParsed = parsed.filter((p) => p.startValid);
   const t0 = startValidParsed.length > 0 ? Math.min(...startValidParsed.map((p) => p.start)) : 0;
   const endValidParsed = parsed.filter((p) => p.startValid && p.endValid);
-  const totalMs = startValidParsed.length > 0
+  const rawTotalMs = startValidParsed.length > 0
     ? Math.max(
       ...endValidParsed.map((p) => p.end - t0),
       ...startValidParsed.map((p) => p.start - t0),
-      1,
     )
-    : 1;
+    : 0;
+  const totalMs = rawTotalMs > 0 ? rawTotalMs : 1;
 
   const byID = new Map<string, TraceSpanRecord>();
   for (const s of spans) byID.set(s.span_id, s);
