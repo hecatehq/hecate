@@ -62,7 +62,8 @@ channel endpoint.
 
 ## What a release produces
 
-Every `v*` tag fires `.github/workflows/release.yml`, which runs four jobs:
+Every `v*` tag fires `.github/workflows/release.yml`, which expands into
+five Actions jobs:
 
 1. **`goreleaser`** (~5–10 min) — multi-arch Go binary tarballs for
    `linux+darwin × amd64+arm64`; each tarball includes `hecate` and
@@ -73,19 +74,20 @@ Every `v*` tag fires `.github/workflows/release.yml`, which runs four jobs:
    three legs building native desktop bundles and uploading them to the same
    Release entry: `.dmg` (macOS arm64), `.deb` + `.AppImage` (Linux x86_64),
    `.msi` (Windows x86_64).
-3. **`tauri / publish updater manifest` + `publish updater manifest to website`**
-   — stitches signed updater payloads into `latest.json`, uploads the GitHub
-   Release copy, commits the same manifest to `website/public/releases/alpha/`,
-   dispatches the website deploy, and blocks until
-   `https://hecate.sh/releases/alpha/latest.json` serves the new version.
-4. **`update-release-docs`** — reads the actual uploaded Release assets and
+3. **`tauri / publish updater manifest`** — stitches signed updater payloads
+   into `latest.json` and uploads the GitHub Release copy.
+4. **`tauri / publish updater manifest to website`** — commits the same
+   manifest to `website/public/releases/alpha/`, dispatches the website
+   deploy, and blocks until `https://hecate.sh/releases/alpha/latest.json`
+   serves the new version.
+5. **`update-release-docs`** — reads the actual uploaded Release assets and
    refreshes the README Desktop app table plus pinned Docker/tarball examples.
    This runs only after the Tauri matrix succeeds, so it never links to bundles
    that were not published.
 
 Acceptance after the run:
 
-- Both jobs green.
+- All release jobs green.
 - Release entry marked **Pre-release** for `-alpha.N` tags.
 - Goreleaser-side artifacts attached: tarballs for each goos/goarch + checksums.
   Each tarball contains both `hecate` and `hecate-acp`.
