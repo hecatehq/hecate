@@ -285,13 +285,28 @@ tauri-install:
 tauri-version: tauri-install
 	bun scripts/stamp-version.ts
 
-# Build hecate + hecate-acp and stage them as Tauri sidecars. Called
-# automatically by tauri-dev and tauri-build, so you rarely need it directly.
-# On Windows `go build -o hecate` produces hecate.exe, and the bundler wants
-# hecate-{triple}.exe; handle both source and dest names.
+# Build hecate + hecate-acp with the same version Tauri will package. This
+# keeps the native app's embedded gateway from reporting "dev" in /healthz and
+# the shell status bar after a release build.
+# Build versioned gateway and ACP sidecars for Tauri.
+tauri-build-sidecars: ui-build _go-cache
+	version=$(bun scripts/resolve-tauri-version.ts); \
+	if [ -z "$version" ]; then \
+	  echo "could not resolve Tauri sidecar version" && exit 1; \
+	fi; \
+	ldflags="-X github.com/hecate/agent-runtime/internal/version.Version=$version"; \
+	echo "building Tauri sidecars at version $version"; \
+	GOCACHE="$PWD/{{gocache}}" go build -ldflags "$ldflags" -o hecate ./cmd/hecate; \
+	GOCACHE="$PWD/{{gocache}}" go build -ldflags "$ldflags" -o hecate-acp ./cmd/hecate-acp
+
+# Build hecate + hecate-acp and stage them as Tauri sidecars. Pass an explicit
+# target triple in CI matrix builds; local builds auto-detect the host triple.
 # Stage gateway and ACP sidecars for Tauri.
-tauri-sidecar: build build-acp
-	rust_target=$(rustc -vV 2>/dev/null | awk '/^host:/{print $2}'); \
+tauri-sidecar target="": tauri-build-sidecars
+	rust_target="{{target}}"; \
+	if [ -z "$rust_target" ]; then \
+	  rust_target=$(rustc -vV 2>/dev/null | awk '/^host:/{print $2}'); \
+	fi; \
 	if [ -z "$rust_target" ]; then \
 	  echo "rustc not found — cannot determine host triple" && exit 1; \
 	fi; \
