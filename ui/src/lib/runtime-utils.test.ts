@@ -15,6 +15,7 @@ import {
   filterModelsByKind,
   filterModelsByProvider,
   findModelInTrace,
+  findProviderInTrace,
   formatRelativeTime,
   formatTraceAttributeKey,
   formatTraceAttributeValue,
@@ -145,6 +146,7 @@ describe("runtime-utils", () => {
 
     expect(findModelInTrace(spans, "ollama")).toBe("llama3.1:8b");
     expect(findModelInTrace(spans, "openai")).toBe("");
+    expect(findProviderInTrace(spans)).toBe("ollama");
   });
 
   it("formats route and provider diagnostics", () => {
