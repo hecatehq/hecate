@@ -396,6 +396,41 @@ describe("ObservabilityView", () => {
     });
   });
 
+  it("model filter matches provider-qualified model inventory IDs to trace model names", async () => {
+    fetchMock.mockImplementation(tracesFetchHandler([
+      { request_id: "ministral-req", started_at: new Date().toISOString(), span_count: 1, duration_ms: 1, status_code: "ok", route: { final_provider: "ollama", final_model: "ministral-3:latest" } },
+      { request_id: "other-req", started_at: new Date().toISOString(), span_count: 1, duration_ms: 1, status_code: "ok", route: { final_provider: "openai", final_model: "gpt-4o" } },
+    ]));
+    const state = createRuntimeConsoleFixture({
+      session: localSession,
+      providerScopedModels: [
+        { id: "ollama/ministral-3:latest", owned_by: "ollama", metadata: { provider: "ollama" } },
+      ],
+    });
+    let container = null as unknown as HTMLElement;
+    await act(async () => {
+      const result = render(<ObservabilityView state={state} actions={createRuntimeConsoleActions()} />);
+      container = result.container;
+    });
+    await waitFor(() => {
+      expect(container.textContent).toMatch(/ministral-3:latest/);
+      expect(container.textContent).toMatch(/gpt-4o/);
+    });
+
+    const select = container.querySelector('[aria-label^="Model picker"]') as HTMLButtonElement;
+    await act(async () => {
+      fireEvent.click(select);
+    });
+    const modelOption = Array.from(document.querySelectorAll("button")).find((button) => button.textContent?.includes("ollama/ministral-3:latest"))!;
+    await act(async () => {
+      fireEvent.click(modelOption);
+    });
+    await waitFor(() => {
+      expect(container.textContent).toMatch(/ministral-3:latest/);
+      expect(container.textContent).not.toMatch(/gpt-4o/);
+    });
+  });
+
   it("row click opens the trace detail modal with the trace title", async () => {
     fetchMock.mockImplementation(tracesFetchHandler(
       [{
