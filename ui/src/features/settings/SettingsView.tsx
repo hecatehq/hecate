@@ -494,26 +494,45 @@ function ExternalAgentsTab({ state, actions }: Props) {
   // The chat sets `hecate.settingsFocus` in sessionStorage before
   // navigating; we read-and-clear it so subsequent visits to this
   // tab don't re-trigger the scroll.
+  //
+  // The focus target is validated against a small allowlist before
+  // it's interpolated into a DOM lookup — that avoids any selector-
+  // injection class from an unexpected sessionStorage value (which
+  // could happen via a stale entry, a third-party extension writing
+  // into the same key, or a forward-compat token a newer build set
+  // that this build doesn't know about). Add new targets to the
+  // KNOWN_FOCUS_TARGETS set when more callers wire one in.
   useEffect(() => {
+    const KNOWN_FOCUS_TARGETS = new Set(["claude-code-guided-setup"]);
     let focusTarget: string | null = null;
     try {
-      focusTarget = sessionStorage.getItem("hecate.settingsFocus");
-      if (focusTarget) sessionStorage.removeItem("hecate.settingsFocus");
+      const raw = sessionStorage.getItem("hecate.settingsFocus");
+      if (raw) sessionStorage.removeItem("hecate.settingsFocus");
+      if (raw && KNOWN_FOCUS_TARGETS.has(raw)) focusTarget = raw;
     } catch {
       // sessionStorage unavailable — nothing to focus.
     }
     if (!focusTarget) return;
-    // Defer one frame so the card has rendered before we measure it.
-    const handle = window.setTimeout(() => {
-      const card = document.querySelector(`[data-testid="${focusTarget}"]`);
+    const target = focusTarget; // narrow for the inner closure
+    // Defer one frame so the card has rendered before we measure
+    // it. Track both timers so an unmount mid-flash doesn't leak
+    // or run the class-removal against a detached node.
+    let removeHandle: number | null = null;
+    const startHandle = window.setTimeout(() => {
+      const card = document.querySelector(`[data-testid="${target}"]`);
       if (!card) return;
       card.scrollIntoView({ behavior: "smooth", block: "center" });
       // Brief highlight so the operator's eye lands on it. Class is
       // toggled rather than inlined so the styling lives in CSS.
       card.classList.add("settings-focus-flash");
-      window.setTimeout(() => card.classList.remove("settings-focus-flash"), 2200);
+      removeHandle = window.setTimeout(() => {
+        card.classList.remove("settings-focus-flash");
+      }, 2200);
     }, 0);
-    return () => window.clearTimeout(handle);
+    return () => {
+      window.clearTimeout(startHandle);
+      if (removeHandle !== null) window.clearTimeout(removeHandle);
+    };
   }, []);
 
   const grants = state.agentChatGrants;
