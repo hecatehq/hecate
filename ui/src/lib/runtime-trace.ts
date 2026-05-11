@@ -56,10 +56,8 @@ export type WaterfallSpan = {
   unknownTiming: boolean;
   negativeDuration: boolean;
   // True when at least one other span in the same trace lists this
-  // span as its parent. Drives the renderer's "outline vs filled" bar
-  // style — parent rows are subordinated visually so the leaf spans
-  // underneath show their real start offsets without competing with
-  // an always-fully-covering parent bar.
+  // span as its parent. The renderer uses this as hierarchy metadata;
+  // parent rows still render as normal bars.
   hasChildren: boolean;
 };
 
@@ -100,6 +98,15 @@ export function findModelInTrace(spans: TraceSpanRecord[], provider?: string): s
   const candidates: Array<{ priority: number; timestamp: number; model: string }> = [];
 
   for (const span of spans) {
+    const spanProvider = traceStringAttr(span.attributes ?? {}, "gen_ai.provider.name");
+    if (!normalizedProvider || !spanProvider || spanProvider === normalizedProvider) {
+      const spanModel = traceStringAttr(span.attributes ?? {}, "gen_ai.response.model")
+        || traceStringAttr(span.attributes ?? {}, "gen_ai.request.model");
+      if (spanModel) {
+        candidates.push({ priority: span.name === "gateway.router" ? 2 : 1, timestamp: Date.parse(span.start_time ?? ""), model: spanModel });
+      }
+    }
+
     for (const event of span.events ?? []) {
       const attrs = event.attributes ?? {};
       if (normalizedProvider) {
@@ -132,6 +139,35 @@ export function findModelInTrace(spans: TraceSpanRecord[], provider?: string): s
   });
 
   return candidates[0]?.model ?? "";
+}
+
+export function findProviderInTrace(spans: TraceSpanRecord[]): string {
+  const candidates: Array<{ priority: number; timestamp: number; provider: string }> = [];
+
+  for (const span of spans) {
+    const spanProvider = traceStringAttr(span.attributes ?? {}, "gen_ai.provider.name");
+    if (spanProvider) {
+      candidates.push({ priority: span.name === "gateway.router" || span.name.startsWith("provider.") ? 2 : 1, timestamp: Date.parse(span.start_time ?? ""), provider: spanProvider });
+    }
+
+    for (const event of span.events ?? []) {
+      const provider = traceStringAttr(event.attributes ?? {}, "gen_ai.provider.name");
+      if (!provider) continue;
+      const selected = event.name === "router.selected" || event.name === "router.candidate.selected" || event.name.startsWith("provider.call.");
+      candidates.push({ priority: selected ? 3 : 1, timestamp: Date.parse(event.timestamp), provider });
+    }
+  }
+
+  candidates.sort((left, right) => {
+    if (left.priority !== right.priority) {
+      return right.priority - left.priority;
+    }
+    const leftTime = Number.isFinite(left.timestamp) ? left.timestamp : 0;
+    const rightTime = Number.isFinite(right.timestamp) ? right.timestamp : 0;
+    return rightTime - leftTime;
+  });
+
+  return candidates[0]?.provider ?? "";
 }
 
 function traceStringAttr(attrs: Record<string, unknown>, key: string): string {

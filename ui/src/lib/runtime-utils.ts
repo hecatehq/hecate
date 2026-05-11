@@ -68,6 +68,7 @@ export type { TraceTimelineItem, WaterfallSpan, TraceWaterfall } from "./runtime
 export {
   buildTraceTimeline,
   findModelInTrace,
+  findProviderInTrace,
   formatTraceAttributeKey,
   formatTraceAttributeValue,
   tracePhaseFromSpan,

@@ -385,6 +385,53 @@ describe("ObservabilityView", () => {
     });
   });
 
+  it("uses selected trace detail spans when list route fields are missing", async () => {
+    const started = new Date().toISOString();
+    fetchMock.mockImplementation(tracesFetchHandler(
+      [{ request_id: "detail-route-fallback", started_at: started, span_count: 1, duration_ms: 1, status_code: "ok", route: {} }],
+      {
+        request_id: "detail-route-fallback",
+        started_at: started,
+        spans: [{
+          trace_id: "trace-detail",
+          span_id: "router",
+          name: "gateway.router",
+          start_time: started,
+          end_time: started,
+          attributes: {
+            "gen_ai.provider.name": "ollama",
+            "gen_ai.request.model": "ministral-3:latest",
+          },
+          events: [{
+            name: "router.selected",
+            timestamp: started,
+            attributes: {
+              "gen_ai.provider.name": "ollama",
+              "gen_ai.request.model": "ministral-3:latest",
+            },
+          }],
+        }],
+        route: { candidates: [] },
+      },
+    ));
+    const state = createRuntimeConsoleFixture({ session: localSession, requestLedger: [] });
+    let container = null as unknown as HTMLElement;
+    await act(async () => {
+      const result = render(<ObservabilityView state={state} actions={createRuntimeConsoleActions()} />);
+      container = result.container;
+    });
+    await waitFor(() => {
+      expect(container.textContent).toMatch(/detail-r/);
+    });
+    const row = container.querySelector("tbody tr") as HTMLElement;
+    await act(async () => { fireEvent.click(row); });
+    await waitFor(() => {
+      expect(container.textContent).toMatch(/ollama/);
+      expect(container.textContent).toMatch(/ministral-3:latest/);
+      expect(document.querySelector('[role="dialog"]')?.getAttribute("aria-label")).toBe("ollama/ministral-3:latest");
+    });
+  });
+
   it("opens a trace detail drawer when focused by request id", async () => {
     fetchMock.mockImplementation(tracesFetchHandler(
       [{

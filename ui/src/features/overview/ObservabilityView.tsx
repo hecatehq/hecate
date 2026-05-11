@@ -12,6 +12,8 @@ import { getMCPCacheStats, getRecentTraces, getRuntimeStats, getTrace } from "..
 import {
   buildSpanWaterfall,
   buildTraceTimeline,
+  findModelInTrace,
+  findProviderInTrace,
   type TraceTimelineItem,
 } from "../../lib/runtime-trace";
 import {
@@ -132,12 +134,18 @@ export function ObservabilityView({ state, onNavigate, focusRequest }: Props) {
   }, [state.requestLedger]);
 
   const traceProvider = useCallback(
-    (trace: TraceListItem) => trace.route?.final_provider || ledgerByRequest.get(trace.request_id)?.provider || "",
-    [ledgerByRequest],
+    (trace: TraceListItem) => trace.route?.final_provider
+      || (traceDetail?.request_id === trace.request_id ? findProviderInTrace(traceDetail.spans ?? []) : "")
+      || ledgerByRequest.get(trace.request_id)?.provider
+      || "",
+    [ledgerByRequest, traceDetail],
   );
   const traceModel = useCallback(
-    (trace: TraceListItem) => trace.route?.final_model || ledgerByRequest.get(trace.request_id)?.model || "",
-    [ledgerByRequest],
+    (trace: TraceListItem) => trace.route?.final_model
+      || (traceDetail?.request_id === trace.request_id ? findModelInTrace(traceDetail.spans ?? [], traceProvider(trace)) : "")
+      || ledgerByRequest.get(trace.request_id)?.model
+      || "",
+    [ledgerByRequest, traceDetail, traceProvider],
   );
 
   // Filter traces before deriving the live-mode auto-selection so the
