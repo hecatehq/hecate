@@ -15,12 +15,14 @@ import { Icon, Icons } from "./Icons";
 // system widget. Keyboard: Escape closes.
 function DialogChrome({
   title,
+  ariaLabel,
   children,
   footer,
   onClose,
   surface,
 }: {
   title: string;
+  ariaLabel?: string;
   children: React.ReactNode;
   footer: React.ReactNode;
   onClose: () => void;
@@ -61,7 +63,7 @@ function DialogChrome({
         ref={dialogRef}
         role="dialog"
         aria-modal="true"
-        aria-label={title}
+        aria-label={ariaLabel ?? title}
         tabIndex={-1}
         style={surface}
         onClick={e => e.stopPropagation()}>
@@ -158,8 +160,9 @@ export function SlideOver({ title, children, footer, onClose, width = 420 }: {
 // floats in the middle of the viewport — use for confirmations and
 // content that interrupts to ask a question (vs SlideOver which feels
 // like an inspector slot attached to the page).
-export function Modal({ title, children, footer, onClose, width = 560 }: {
+export function Modal({ title, ariaLabel, children, footer, onClose, width = 560 }: {
   title: string;
+  ariaLabel?: string;
   children: React.ReactNode;
   footer: React.ReactNode;
   onClose: () => void;
@@ -168,6 +171,7 @@ export function Modal({ title, children, footer, onClose, width = 560 }: {
   return (
     <DialogChrome
       title={title}
+      ariaLabel={ariaLabel}
       footer={footer}
       onClose={onClose}
       surface={{

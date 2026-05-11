@@ -288,12 +288,13 @@ describe("ObservabilityView", () => {
     await waitFor(() => {
       expect(container.textContent).toMatch(/req-rou/);
     });
-    // Single row collapses both siblings; the row shown is the routed
-    // one (8ms / ollama), not the empty-route 17382ms one.
+    // Single row collapses both siblings; the row uses routed
+    // provider/model context while latency reflects the whole
+    // request window across siblings.
     expect(container.querySelectorAll("tbody tr")).toHaveLength(1);
     expect(container.textContent).toMatch(/ollama/);
     expect(container.textContent).toMatch(/ministral-3:latest/);
-    expect(container.textContent).toMatch(/8ms/);
+    expect(container.textContent).toMatch(/17382ms/);
     expect(container.textContent).toMatch(/\+1/);
   });
 
@@ -463,11 +464,12 @@ describe("ObservabilityView", () => {
     await act(async () => {
       fireEvent.click(row);
     });
-    // Modal opens — title is provider/model; request id is available via the copy button.
+    // Modal opens — visible title is provider/model while the accessible
+    // label also includes the full request id.
     await waitFor(() => {
       const dialog = document.querySelector('[role="dialog"]');
       expect(dialog).toBeTruthy();
-      expect(dialog?.getAttribute("aria-label")).toBe("openai/gpt-4o");
+      expect(dialog?.getAttribute("aria-label")).toBe("openai/gpt-4o · Request req-12345678abcd");
     });
   });
 
@@ -549,7 +551,7 @@ describe("ObservabilityView", () => {
     await waitFor(() => {
       expect(container.textContent).toMatch(/ollama/);
       expect(container.textContent).toMatch(/ministral-3:latest/);
-      expect(document.querySelector('[role="dialog"]')?.getAttribute("aria-label")).toBe("ollama/ministral-3:latest");
+      expect(document.querySelector('[role="dialog"]')?.getAttribute("aria-label")).toBe("ollama/ministral-3:latest · Request detail-route-fallback");
     });
   });
 
@@ -705,6 +707,7 @@ describe("ObservabilityView", () => {
     await waitFor(() => {
       const dialog = document.querySelector('[role="dialog"]');
       expect(dialog).toBeTruthy();
+      expect(dialog?.getAttribute("aria-label")).toMatch(/openai\/gpt-4o · Request req-drawer/);
       // Drawer is inline — its parent is NOT a fixed-position scrim.
       const parent = dialog?.parentElement;
       expect(parent?.getAttribute("style") || "").not.toMatch(/position:\s*fixed/);

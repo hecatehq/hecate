@@ -376,6 +376,17 @@ describe("ModelPicker", () => {
     expect(within(menu as HTMLElement).queryByText("gpt-4o")).toBeNull();
   });
 
+  it("shows an empty-state message for no-match filters when the all-models sentinel is enabled", async () => {
+    const user = userEvent.setup();
+    render(<ModelPicker value="" onChange={() => {}} models={models} includeAll />);
+    await user.click(screen.getByRole("button"));
+    const input = screen.getByPlaceholderText(/Filter models/i);
+    await user.type(input, "not-a-model");
+    const menu = document.querySelector(".dropdown-menu")!;
+    expect(within(menu as HTMLElement).getByText("All models")).toBeTruthy();
+    expect(within(menu as HTMLElement).getByText("No models match")).toBeTruthy();
+  });
+
   it("greys out and blocks selection of disabled-provider rows", async () => {
     const onChange = vi.fn();
     const user = userEvent.setup();
