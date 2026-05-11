@@ -473,10 +473,13 @@ func TestNormalizeErrorExplainsClaudeAuthRequirement(t *testing.T) {
 	//   - "Providers tab" — explicit separation from the Anthropic
 	//     provider key (the original message conflated them, which
 	//     misled operators who had configured Anthropic in the UI).
-	//   - "claude_code_auth_required" — the stable token the chat
-	//     UI pattern-matches on to render the "Open Claude Code
-	//     setup" inline action. Don't change it without updating
-	//     the matching UI handler in TranscriptMessageRow.
+	//   - "claude_code_auth_required" — the stable token that
+	//     ui/src/features/chats/ChatView.tsx pattern-matches on
+	//     (via .includes()) when building the setupAction prop for
+	//     TranscriptMessageRow. TranscriptMessageRow itself only
+	//     strips the marker from the visible message text; the
+	//     match-and-render-button decision lives in ChatView. Don't
+	//     change this token without updating the ChatView handler.
 	if !strings.Contains(got, "isn't signed in") {
 		t.Fatalf("NormalizeError = %q, want friendly 'isn't signed in' headline", got)
 	}

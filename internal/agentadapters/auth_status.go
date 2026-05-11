@@ -37,11 +37,15 @@ func DetectAuthStatus(adapter Adapter) (string, string) {
 // the chat when a Claude Code agent run fails because the adapter
 // couldn't sign in. Two priorities behind the wording:
 //
-//  1. The chat UI pattern-matches `claude_code_auth_required` (the
-//     trailing token in the parenthetical below) to render an inline
+//  1. ui/src/features/chats/ChatView.tsx pattern-matches the
+//     `claude_code_auth_required` token in this string (via
+//     .includes()) to decide whether to render an inline
 //     "Open Claude Code setup" button that deep-links to the guided
-//     setup card in Settings → External agents. Keep that token in
+//     setup card in Settings → External agents. Keep the token in
 //     the string verbatim — the UI handler depends on it.
+//     (TranscriptMessageRow only strips the trailing parenthetical
+//     marker from the visible copy; the match-and-render-button
+//     decision lives in ChatView.)
 //  2. Distinguish this credential from the Anthropic key in the
 //     Providers tab. Operators who paste a key into Providers tab
 //     reasonably expect Claude Code to "just work" — it doesn't,
