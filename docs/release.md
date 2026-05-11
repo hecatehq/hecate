@@ -19,6 +19,43 @@ what is alpha-grade versus production-shaped.
   quality gate (`v0.1.0-beta.1`), not the next release by default.
 - Do not publish a release from a dirty worktree.
 
+## Pre-release policy
+
+Every release stays marked as a GitHub **pre-release** until `v1.0.0`
+stable. The semver suffix (`-alpha.N`, `-beta.N`, `-rc.N`) already
+signals pre-stability to humans; the GitHub pre-release flag makes
+that signal machine-readable for package managers, mirrors, and any
+downstream automation that respects it.
+
+Practical consequences:
+
+- `https://github.com/hecatehq/hecate/releases/latest/` will resolve
+  to **nothing** while every release is a pre-release — GitHub's
+  "latest" semantics explicitly skip pre-releases.
+- In-app auto-update therefore cannot rely on
+  `/releases/latest/download/latest.json`. The desktop app instead
+  reads `https://hecate.sh/releases/alpha/latest.json`, which CI
+  publishes after every successful release via the
+  `publish-updater-website` job in `_tauri-shared.yml`. See
+  [`desktop-updater-signing.md`](desktop-updater-signing.md) for the
+  pipeline and troubleshooting.
+- Once `v1.0.0` ships, that release lands without the pre-release
+  flag. The decision to drop the flag will be deliberate — the
+  release before it (`v1.0.0-rc.N` or equivalent) is the last
+  gate. The dedicated `hecate.sh/releases/alpha/latest.json`
+  channel can then be retired in favor of GitHub's native endpoint,
+  or kept as the canonical multi-channel surface; that's a v1
+  decision.
+
+The one historical exception is `v0.1.0-alpha.27`, which was the
+last release using the GitHub-native updater endpoint. It carries
+the pre-release flag *off* so installed alpha.21–26 clients could
+auto-update to `v0.1.0-alpha.28`, the bridge release that switched
+the bundled endpoint to `hecate.sh`. After alpha.28 ships and
+clients have migrated, alpha.27 may be flipped back to pre-release
+for consistency; the flag no longer affects auto-update routing
+once alpha.28 is the new "latest."
+
 ## What a release produces
 
 Every `v*` tag fires `.github/workflows/release.yml`, which runs three jobs:

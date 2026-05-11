@@ -55,7 +55,7 @@
       "active": true,
       "pubkey": "dW50cnVzdGVkIGNvbW1lbnQ6IG1pbmlzaWduIHB1YmxpYyBrZXk6IDQ2RTlFQTdDMTk1NzFCMzUKUldRMUcxY1pmT3JwUmpxcW5FRFdkaXRMY0Zsdi9aMHZ3SDh6eEtCSVl3WHNFTG84b3pHMFdBRmIK",
       "endpoints": [
-        "https://github.com/hecatehq/hecate/releases/latest/download/latest.json"
+        "https://hecate.sh/releases/alpha/latest.json"
       ]
     }
   }
