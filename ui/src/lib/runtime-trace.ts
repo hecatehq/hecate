@@ -103,7 +103,7 @@ export function findModelInTrace(spans: TraceSpanRecord[], provider?: string): s
       const spanModel = traceStringAttr(span.attributes ?? {}, "gen_ai.response.model")
         || traceStringAttr(span.attributes ?? {}, "gen_ai.request.model");
       if (spanModel) {
-        candidates.push({ priority: span.name === "gateway.router" ? 2 : 1, timestamp: Date.parse(span.start_time ?? ""), model: spanModel });
+        candidates.push({ priority: span.name === "gateway.router" ? 2 : 1, timestamp: parseISOWithSubMs(span.start_time ?? ""), model: spanModel });
       }
     }
 
@@ -118,13 +118,13 @@ export function findModelInTrace(spans: TraceSpanRecord[], provider?: string): s
 
       const responseModel = traceStringAttr(attrs, "gen_ai.response.model");
       if (responseModel) {
-        candidates.push({ priority: 3, timestamp: Date.parse(event.timestamp), model: responseModel });
+        candidates.push({ priority: 3, timestamp: parseISOWithSubMs(event.timestamp), model: responseModel });
       }
 
       const requestModel = traceStringAttr(attrs, "gen_ai.request.model");
       if (requestModel) {
         const priority = event.name === "provider.call.finished" || event.name === "router.candidate.selected" ? 2 : 1;
-        candidates.push({ priority, timestamp: Date.parse(event.timestamp), model: requestModel });
+        candidates.push({ priority, timestamp: parseISOWithSubMs(event.timestamp), model: requestModel });
       }
     }
   }
@@ -147,14 +147,14 @@ export function findProviderInTrace(spans: TraceSpanRecord[]): string {
   for (const span of spans) {
     const spanProvider = traceStringAttr(span.attributes ?? {}, "gen_ai.provider.name");
     if (spanProvider) {
-      candidates.push({ priority: span.name === "gateway.router" || span.name.startsWith("provider.") ? 2 : 1, timestamp: Date.parse(span.start_time ?? ""), provider: spanProvider });
+      candidates.push({ priority: span.name === "gateway.router" || span.name.startsWith("provider.") ? 2 : 1, timestamp: parseISOWithSubMs(span.start_time ?? ""), provider: spanProvider });
     }
 
     for (const event of span.events ?? []) {
       const provider = traceStringAttr(event.attributes ?? {}, "gen_ai.provider.name");
       if (!provider) continue;
       const selected = event.name === "router.selected" || event.name === "router.candidate.selected" || event.name.startsWith("provider.call.");
-      candidates.push({ priority: selected ? 3 : 1, timestamp: Date.parse(event.timestamp), provider });
+      candidates.push({ priority: selected ? 3 : 1, timestamp: parseISOWithSubMs(event.timestamp), provider });
     }
   }
 

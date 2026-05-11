@@ -13,9 +13,10 @@ import type { TraceListItem } from "../../../types/runtime";
 
 type Props = {
   traces: TraceListItem[];
+  labelsByRequestID?: Map<string, { provider?: string; model?: string }>;
 };
 
-export function RecentActivityStrip({ traces }: Props) {
+export function RecentActivityStrip({ traces, labelsByRequestID }: Props) {
   if (traces.length === 0) return null;
 
   // Oldest → newest left to right matches "what just happened ←
@@ -58,10 +59,13 @@ export function RecentActivityStrip({ traces }: Props) {
           // visually conflate them with recovered traces in this
           // strip. Here, in-flight stays gray.
           const color = dotColor(t);
+          const label = labelsByRequestID?.get(t.request_id);
+          const provider = label?.provider || t.route?.final_provider || "—";
+          const model = label?.model || t.route?.final_model || "—";
           return (
             <span
               key={t.request_id}
-              title={`${t.request_id} · ${t.route?.final_provider || "—"}/${t.route?.final_model || "—"}${t.duration_ms != null ? ` · ${t.duration_ms}ms` : ""}`}
+              title={`${t.request_id} · ${provider}/${model}${t.duration_ms != null ? ` · ${t.duration_ms}ms` : ""}`}
               style={{
                 display: "inline-block",
                 width: 6, height: 6, borderRadius: "50%",
