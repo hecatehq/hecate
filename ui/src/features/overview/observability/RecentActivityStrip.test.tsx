@@ -30,9 +30,8 @@ describe("RecentActivityStrip", () => {
       trace({ request_id: "c", duration_ms: 300, status_code: "ok" }),
     ];
     const { container } = render(<RecentActivityStrip traces={traces} />);
-    // The dots are the only `display: inline-block` spans inside the
-    // strip; everything else is text or flex/grid layout.
-    const dots = container.querySelectorAll('span[title*="…"]');
+    // The dots are the only spans whose title carries request metadata.
+    const dots = container.querySelectorAll('span[title*="/"]');
     expect(dots.length).toBe(3);
   });
 
@@ -60,6 +59,21 @@ describe("RecentActivityStrip", () => {
     ];
     const { container } = render(<RecentActivityStrip traces={traces} />);
     expect(container.textContent).toMatch(/recovered.*1/);
+  });
+
+  it("uses derived provider/model labels in dot tooltips when route fields are missing", () => {
+    const traces = [
+      trace({ request_id: "req-1", duration_ms: 25, status_code: "ok" }),
+    ];
+    const labelsByRequestID = new Map([
+      ["req-1", { provider: "ollama", model: "ministral-3:latest" }],
+    ]);
+
+    const { container } = render(
+      <RecentActivityStrip traces={traces} labelsByRequestID={labelsByRequestID} />,
+    );
+
+    expect(container.querySelector('span[title*="ollama/ministral-3:latest"]')).toBeTruthy();
   });
 
   it("does not count error+fallback_from as recovered (the fallback also failed)", () => {

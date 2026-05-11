@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 
-import { buildSpanWaterfall, parseISOWithSubMs } from "./runtime-trace";
+import { buildSpanWaterfall, findModelInTrace, findProviderInTrace, parseISOWithSubMs } from "./runtime-trace";
 import type { TraceSpanRecord } from "../types/runtime";
 
 // Helpers for the synthetic-trace fixtures. `at(ms)` returns an ISO
@@ -94,6 +94,36 @@ describe("buildSpanWaterfall", () => {
     // Plain ms-precision input still works, same as Date.parse.
     expect(parseISOWithSubMs("2026-05-11T06:14:05.428Z"))
       .toBe(Date.parse("2026-05-11T06:14:05.428Z"));
+  });
+
+  it("uses sub-ms event timestamps when choosing the latest inferred provider and model", () => {
+    const spans: TraceSpanRecord[] = [
+      span({
+        span_id: "root",
+        name: "gateway.provider",
+        events: [
+          {
+            name: "provider.call.finished",
+            timestamp: "2026-05-11T06:14:05.428427Z",
+            attributes: {
+              "gen_ai.provider.name": "ollama",
+              "gen_ai.response.model": "llama3.1:8b",
+            },
+          },
+          {
+            name: "provider.call.finished",
+            timestamp: "2026-05-11T06:14:05.428912Z",
+            attributes: {
+              "gen_ai.provider.name": "lmstudio",
+              "gen_ai.response.model": "ministral-3:latest",
+            },
+          },
+        ],
+      }),
+    ];
+
+    expect(findProviderInTrace(spans)).toBe("lmstudio");
+    expect(findModelInTrace(spans, "lmstudio")).toBe("ministral-3:latest");
   });
 
   it("scales valid sub-ms traces to their real latest end, not a 1ms floor", () => {

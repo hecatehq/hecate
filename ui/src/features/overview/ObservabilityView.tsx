@@ -212,6 +212,18 @@ export function ObservabilityView({ state, onNavigate, focusRequest }: Props) {
     });
   }, [filteredTraces, traceProvider, traceModel]);
 
+  const traceLabelsByRequestID = useMemo(() => {
+    const out = new Map<string, { provider?: string; model?: string }>();
+    for (const group of groupedTraces) {
+      const provider = traceProvider(group.entry);
+      const model = traceModel(group.entry);
+      if (provider || model) {
+        out.set(group.entry.request_id, { provider, model });
+      }
+    }
+    return out;
+  }, [groupedTraces, traceProvider, traceModel]);
+
   // In live mode, auto-highlight the newest visible request. The drawer
   // does NOT auto-open — opens only on explicit click. Track by grouped
   // request_id so the highlight matches what's actually visible in the
@@ -451,7 +463,7 @@ export function ObservabilityView({ state, onNavigate, focusRequest }: Props) {
             visible traces. Sits above the table so the operator
             gets a "is this OK right now?" answer before parsing
             individual rows. */}
-        <RecentActivityStrip traces={groupedTraces.map(g => g.entry)} />
+        <RecentActivityStrip traces={groupedTraces.map(g => g.entry)} labelsByRequestID={traceLabelsByRequestID} />
 
         {/* Table */}
         {filteredTraces.length > 0 ? (
