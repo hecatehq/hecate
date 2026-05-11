@@ -64,14 +64,35 @@ repository secret**. Add two:
 
 The release workflow's tauri-action step picks these up and uses
 them to sign the platform bundles (`.app.tar.gz`, `.AppImage`,
-`.msi` and their wrapped variants). The post-matrix
-`publish-updater-manifest` job in `_tauri-shared.yml` then
-stitches the per-platform `.sig` files into `latest.json` and
-uploads it to the release — tauri-action itself can't build the
-manifest in matrix mode because each leg only sees its own
-signature. Both secrets are scoped to `inputs.tagName != ''` in
+`.msi` and their wrapped variants). Then two follow-on jobs in
+`_tauri-shared.yml` ship the manifest:
+
+1. **`publish-updater-manifest`** — stitches the per-platform
+   `.sig` files into a single `latest.json` and uploads it to the
+   GitHub Release. tauri-action itself can't build the manifest in
+   matrix mode because each leg only sees its own signature; this
+   job runs once after the matrix completes.
+2. **`publish-updater-website`** — drops the same `latest.json`
+   into `website/public/releases/alpha/latest.json` and commits to
+   master. The website workflow's path filter (`website/**`) picks
+   up the commit, rebuilds Astro, and deploys to GitHub Pages. The
+   manifest is then served at
+   `https://hecate.sh/releases/alpha/latest.json`, which is the URL
+   the in-app updater is configured to read. A verification step
+   blocks until the new manifest is live on `hecate.sh` (cap 10
+   min; CI fails loud if it overruns).
+
+Both secrets are scoped to `inputs.tagName != ''` in
 `.github/workflows/_tauri-shared.yml`, so PR-validation runs of
 `tauri-build.yml` never see them.
+
+Why the dedicated `hecate.sh` channel instead of GitHub's
+`/releases/latest/` redirect: every release stays a GitHub
+pre-release until `v1.0.0` (see [release.md](release.md#pre-release-policy)),
+and GitHub refuses to resolve `/releases/latest/` to a pre-release.
+The dedicated channel sidesteps that constraint and gives us a
+natural place to add `releases/beta/latest.json` and
+`releases/stable/latest.json` later.
 
 ### 3. Commit the public key + flip `active`
 
@@ -82,7 +103,7 @@ Edit `tauri/src-tauri/tauri.conf.json`:
   "active": true,
   "pubkey": "<paste contents of ~/.tauri/hecate-updater.key.pub>",
   "endpoints": [
-    "https://github.com/hecatehq/hecate/releases/latest/download/latest.json"
+    "https://hecate.sh/releases/alpha/latest.json"
   ]
 }
 ```
@@ -113,11 +134,20 @@ After the next tagged release with both secrets configured and
 2. After `goreleaser` and `tauri` jobs finish, the GitHub Release
    page should have `latest.json` listed as an asset alongside
    the platform bundles.
-3. Inspect the manifest — should look roughly like:
+3. Watch the `publish-updater-website` job. Its final step polls
+   `https://hecate.sh/releases/alpha/latest.json` and only exits
+   green once the manifest at that URL matches the version being
+   released. If the job fails on that step, the website
+   redeploy didn't propagate within 10 minutes — see the
+   troubleshooting section below.
+4. Inspect the manifest at the canonical URL:
+   ```bash
+   curl -sL https://hecate.sh/releases/alpha/latest.json | jq .
+   ```
+   Should look roughly like:
    ```json
    {
-     "version": "0.1.0-alpha.24",
-     "notes": "...",
+     "version": "0.1.0-alpha.28",
      "pub_date": "...",
      "platforms": {
        "darwin-aarch64": { "signature": "...", "url": "..." },
@@ -126,7 +156,7 @@ After the next tagged release with both secrets configured and
      }
    }
    ```
-4. On a Mac with the previous version installed: launch the app,
+5. On a Mac with the previous version installed: launch the app,
    wait a few seconds, and the "Hecate X.Y.Z is available" banner
    should appear at the top of the workspace. Click **Install and
    Restart** — the new bundle downloads, replaces the running
@@ -178,11 +208,36 @@ modes, in rough order of likelihood:
   release tag. PR validation intentionally skips signing and
   manifest publishing — that's working as designed.
 
+**`publish-updater-website` failed at "Verify manifest is live at
+hecate.sh".** The release published, the GitHub Release has its
+`latest.json`, but the website didn't propagate the new content
+within 10 minutes. Walk down:
+
+- Check the website workflow run for the master commit
+  `publish updater manifest for vX.Y.Z`. If it failed, fix the
+  failure (Astro build error, Pages deploy permission issue,
+  etc.) and re-run.
+- If the website workflow succeeded but
+  `https://hecate.sh/releases/alpha/latest.json` still serves
+  stale content, the Fastly cache is stuck. Force a cache
+  invalidation via **Settings → Pages → Visit site** in the GitHub
+  UI (it triggers a CDN purge). Re-run `publish-updater-website`
+  in the release workflow to re-poll.
+- If both succeeded but the file content on `hecate.sh` doesn't
+  match the release tag, the master commit wasn't created or was
+  reverted. Inspect master's history; the commit should appear in
+  the release tag's wake.
+
 **Banner never appears even on a known-old install.** Possible
 causes, in rough order:
 
 - `active: false` in the bundle's `tauri.conf.json` — needs the
   one-line flip.
 - The bundle was shipped without the pubkey embedded.
-- Network / GitHub release fetch failed (the hook silently
+- The bundle was built with a stale `endpoints` URL (e.g. the
+  old `/releases/latest/download/latest.json`) that no longer
+  resolves now that the pre-release policy is in force. Bundles
+  from alpha.21–27 fall in this category; the alpha.28 bridge
+  release is the one-time migration to the `hecate.sh` channel.
+- Network / fetch error against `hecate.sh` (the hook silently
   swallows errors; check the webview console in dev builds).
