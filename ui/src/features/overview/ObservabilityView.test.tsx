@@ -640,6 +640,8 @@ describe("ObservabilityView", () => {
     expect((document.querySelector('[data-testid="span-waterfall-bar-child-a"]') as HTMLElement).style.width).toBe("62.5%");
     const waterfallScroller = document.querySelector('[data-testid="span-waterfall-scroll"]') as HTMLElement;
     expect(waterfallScroller).toBeTruthy();
+    const rootRow = document.querySelector('[aria-label="span provider chain"]') as HTMLElement;
+    expect(rootRow.style.gridTemplateColumns).toBe("153px minmax(360px, 1fr) 72px");
     expect(waterfallScroller.style.maxHeight).toBe("min(420px, 52vh)");
     expect(waterfallScroller.style.overflowY).toBe("auto");
     const eventFlow = document.querySelector('[data-testid="trace-event-flow"]') as HTMLElement;
