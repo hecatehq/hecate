@@ -1,5 +1,60 @@
 ---
+import fs from "node:fs";
+import path from "node:path";
 import "../styles/global.css";
+
+// Release-aware download buttons. The release workflow's
+// publish-updater-website job commits the alpha channel's
+// latest.json to public/releases/alpha/ on every successful
+// release and then dispatches website.yml to rebuild. Reading
+// the manifest here lets the homepage track the latest release
+// without any manual edit — when alpha.29 ships, this page
+// rebuilds with alpha.29's URLs.
+//
+// Path resolution: anchored on `process.cwd()` rather than
+// `import.meta.url`. At Astro build time `import.meta.url` is
+// the bundled chunk inside `dist/.prerender/`, not this source
+// file, so relative offsets would couple us to Astro's
+// internal output structure. Astro itself runs from the
+// project root (any wrapper changing cwd would also break
+// Astro's config + public/ resolution), so cwd is a stable
+// anchor here.
+type Manifest = {
+  version: string;
+  platforms?: Record<string, { url?: string }>;
+};
+
+// Fallbacks for a fresh checkout where the alpha manifest hasn't
+// been published yet — every link points at the releases index,
+// where the operator can find whatever's available.
+const fallback = "https://github.com/hecatehq/hecate/releases";
+let version = "0.1.0-alpha";
+let releaseUrl = fallback;
+let macos = fallback;
+let linux = fallback;
+let windows = fallback;
+
+try {
+  const manifestPath = path.resolve(
+    process.cwd(),
+    "public/releases/alpha/latest.json",
+  );
+  const manifest = JSON.parse(
+    fs.readFileSync(manifestPath, "utf8"),
+  ) as Manifest;
+  version = manifest.version;
+  // Point at the specific tag, not /releases/latest — the latter
+  // will keep resolving to alpha.28 (the auto-update bridge
+  // release) even after alpha.29+ ship as pre-releases.
+  releaseUrl = `https://github.com/hecatehq/hecate/releases/tag/v${version}`;
+  // Release matrix currently ships macOS Apple Silicon only;
+  // if/when we add x86_64 macOS, derive a second URL here.
+  macos = `https://github.com/hecatehq/hecate/releases/download/v${version}/Hecate_${version}_aarch64.dmg`;
+  linux = manifest.platforms?.["linux-x86_64"]?.url ?? releaseUrl;
+  windows = manifest.platforms?.["windows-x86_64"]?.url ?? releaseUrl;
+} catch {
+  // No manifest yet — keep the generic fallbacks above.
+}
 ---
 
 <!doctype html>
@@ -33,16 +88,17 @@ import "../styles/global.css";
           </p>
 
           <div class="hero__actions" aria-label="Primary actions">
-          <a
-            class="button button--primary"
-            href="https://github.com/hecatehq/hecate/releases"
-          >
-            Download
-          </a>
-            <a class="button button--ghost" href="https://github.com/hecatehq/hecate">
-              GitHub
-            </a>
+            <a class="button button--primary" href={macos}>Download for macOS</a>
+            <a class="button button--ghost" href={linux}>Linux .AppImage</a>
+            <a class="button button--ghost" href={windows}>Windows .msi</a>
           </div>
+
+          <p class="hero__release">
+            <span class="hero__release-tag">v{version}</span>
+            · <a href={releaseUrl}>release notes</a>
+            · <a href="https://github.com/hecatehq/hecate/releases">all releases</a>
+            · <a href="https://github.com/hecatehq/hecate">GitHub</a>
+          </p>
         </div>
 
         <div class="hero__symbol" aria-hidden="true">

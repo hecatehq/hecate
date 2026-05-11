@@ -184,6 +184,31 @@ h1 {
   background: rgba(250, 248, 255, 0.045);
 }
 
+.hero__release {
+  margin-top: 1.2rem;
+  color: var(--muted);
+  font-family: "JetBrains Mono", "SFMono-Regular", Consolas, monospace;
+  font-size: clamp(0.78rem, 1.1vw, 0.95rem);
+  letter-spacing: 0.04em;
+}
+
+.hero__release a {
+  color: var(--muted);
+  text-decoration: underline;
+  text-decoration-color: rgba(168, 163, 184, 0.4);
+  text-underline-offset: 0.18em;
+  transition: color 180ms ease, text-decoration-color 180ms ease;
+}
+
+.hero__release a:hover {
+  color: var(--ink);
+  text-decoration-color: var(--ink);
+}
+
+.hero__release-tag {
+  color: var(--ink);
+}
+
 .hero__symbol {
   position: relative;
   display: grid;
