@@ -65,7 +65,7 @@ Open the bundle and launch Hecate. The app starts the gateway sidecar, waits for
 
 > macOS bundles released after the codesign+notarization rollout are signed with a Developer ID Application certificate and notarized — first launch needs no Gatekeeper bypass. Earlier alpha bundles, plus any future release built before the `APPLE_*` repo secrets are configured (e.g. fork builds, the brief window between this PR and the next tag), remain unsigned and need **right-click → Open** on first launch. Windows bundles are not yet signed; click **More info → Run anyway** on the SmartScreen warning. Subsequent launches work normally. Full footguns and roadmap in [docs/desktop-app.md](docs/desktop-app.md).
 >
-> Existing installs from alpha.28 onward auto-update through the signed `https://hecate.sh/releases/alpha/latest.json` channel. Older alpha builds used GitHub's `/releases/latest/` endpoint and should be reinstalled manually from the current alpha.
+> Existing installs from alpha.28 onward auto-update through the signed `https://hecate.sh/releases/alpha/latest.json` channel. Older alpha builds used GitHub's `/releases/latest/download/latest.json` updater endpoint and should be reinstalled manually from the current alpha.
 
 Skip to [Add a provider](#add-a-provider) once it's running.
 
