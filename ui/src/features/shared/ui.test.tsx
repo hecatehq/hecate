@@ -123,6 +123,7 @@ describe("BrandAvatar", () => {
     const { container } = render(<BrandAvatar brand="claude_code" title="Claude Code" />);
     expect(screen.getByLabelText("Claude Code")).toBeTruthy();
     expect(container.querySelector("svg")).toBeTruthy();
+    expect(container.querySelector("svg")?.getAttribute("aria-hidden")).toBe("true");
   });
 
   it("falls back to a compact letter tile for unknown brands", () => {
@@ -133,6 +134,7 @@ describe("BrandAvatar", () => {
   it("renders the Hecate mark as a branded image", () => {
     const { container } = render(<BrandAvatar brand="hecate" fallback="Hecate" />);
     expect(container.querySelector("img")?.getAttribute("src")).toContain("hecate-mark");
+    expect(container.querySelector("img")?.getAttribute("aria-hidden")).toBe("true");
   });
 
   it("uses the Meta icon for llama.cpp providers", () => {

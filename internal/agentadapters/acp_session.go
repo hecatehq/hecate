@@ -23,6 +23,8 @@ import (
 
 const DriverKindACP = "acp"
 
+var ErrSessionNotActive = errors.New("agent chat session is not active")
+
 // thoughtFallbackBlockID is the per-turn sentinel prefix used
 // when ACP omits messageId on an `agent_thought_chunk`. Fallback
 // activity rows come out as `thinking:__fallback-<n>` where <n>
@@ -565,7 +567,7 @@ func (m *SessionManager) SetSessionConfigOption(ctx context.Context, req SetSess
 	session := m.sessions[req.SessionID]
 	m.mu.Unlock()
 	if session == nil {
-		return SetSessionConfigOptionResult{}, fmt.Errorf("agent chat session %q is not active", req.SessionID)
+		return SetSessionConfigOptionResult{}, fmt.Errorf("%w: %q", ErrSessionNotActive, req.SessionID)
 	}
 	return session.SetConfigOption(ctx, req)
 }
