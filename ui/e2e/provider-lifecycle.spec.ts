@@ -11,7 +11,7 @@ test("adding and deleting a provider keeps chat available", async ({ page }) => 
   // Default fixture starts empty. Chats should stay useful by showing the
   // provider onboarding surface instead of a disabled composer.
   await expect(page.getByText("Nothing runnable yet")).toBeVisible();
-  await expect(page.getByRole("button", { name: /Add provider/i })).toBeVisible();
+  await expect(page.getByRole("button", { name: /Go to Providers/i })).toBeVisible();
   await expect(page.getByText("Detected locally")).toBeVisible();
   await expect(page.locator("textarea")).toHaveCount(0);
 
@@ -45,6 +45,6 @@ test("adding and deleting a provider keeps chat available", async ({ page }) => 
   // returning to the same first-run setup surface.
   await page.keyboard.press("1");
   await expect(page.getByText("Nothing runnable yet")).toBeVisible();
-  await expect(page.getByRole("button", { name: /Add provider/i })).toBeVisible();
+  await expect(page.getByRole("button", { name: /Go to Providers/i })).toBeVisible();
   await expect(page.locator("textarea")).toHaveCount(0);
 });
