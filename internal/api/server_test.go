@@ -2231,6 +2231,7 @@ func TestAgentChatExternalConfigOptionsRoundTrip(t *testing.T) {
 	dir := t.TempDir()
 	logger := slog.New(slog.NewJSONHandler(io.Discard, nil))
 	apiHandler := newTestAPIHandlerWithSettings(logger, []providers.Provider{&fakeProvider{}}, config.Config{}, nil)
+	autoApprove := false
 	runner := &fakeAgentChatRunner{
 		output: "ok",
 		configOptions: []agentcontrols.ConfigOption{
@@ -2244,6 +2245,13 @@ func TestAgentChatExternalConfigOptionsRoundTrip(t *testing.T) {
 					{Value: "fast", Name: "Fast"},
 					{Value: "smart", Name: "Smart"},
 				},
+			},
+			{
+				ID:          "auto_approve",
+				Name:        "Auto approve",
+				Category:    "mode",
+				Type:        agentcontrols.ConfigOptionTypeBoolean,
+				CurrentBool: &autoApprove,
 			},
 		},
 	}
@@ -2268,17 +2276,22 @@ func TestAgentChatExternalConfigOptionsRoundTrip(t *testing.T) {
 	if got := runner.prepareRequests[0].AdapterID; got != "codex" {
 		t.Fatalf("prepare adapter = %q, want codex", got)
 	}
-	if got := created.Data.ConfigOptions; len(got) != 1 || got[0].CurrentValue != "fast" {
-		t.Fatalf("config options after create = %#v, want one fast option", got)
+	if got := created.Data.ConfigOptions; len(got) != 2 || got[0].CurrentValue != "fast" || got[1].CurrentBool == nil || *got[1].CurrentBool {
+		t.Fatalf("config options after create = %#v, want fast model and auto_approve false", got)
 	}
 	afterRun := decodeRecorder[AgentChatSessionResponse](t, performRequest(t, handler, http.MethodPost, "/hecate/v1/agent-chat/sessions/"+created.Data.ID+"/messages", `{"content":"hello"}`))
-	if got := afterRun.Data.ConfigOptions; len(got) != 1 || got[0].CurrentValue != "fast" {
-		t.Fatalf("config options after run = %#v, want one fast option", got)
+	if got := afterRun.Data.ConfigOptions; len(got) != 2 || got[0].CurrentValue != "fast" || got[1].CurrentBool == nil || *got[1].CurrentBool {
+		t.Fatalf("config options after run = %#v, want fast model and auto_approve false", got)
 	}
 
 	updated := decodeRecorder[AgentChatSessionResponse](t, performRequest(t, handler, http.MethodPost, "/hecate/v1/agent-chat/sessions/"+created.Data.ID+"/config-options/model", `{"value":"smart"}`))
-	if got := updated.Data.ConfigOptions; len(got) != 1 || got[0].CurrentValue != "smart" {
-		t.Fatalf("config options after set = %#v, want one smart option", got)
+	if got := updated.Data.ConfigOptions; len(got) != 2 || got[0].CurrentValue != "smart" {
+		t.Fatalf("config options after select set = %#v, want smart option", got)
+	}
+
+	updated = decodeRecorder[AgentChatSessionResponse](t, performRequest(t, handler, http.MethodPost, "/hecate/v1/agent-chat/sessions/"+created.Data.ID+"/config-options/auto_approve", `{"value":true}`))
+	if got := updated.Data.ConfigOptions; len(got) != 2 || got[1].CurrentBool == nil || !*got[1].CurrentBool {
+		t.Fatalf("config options after boolean set = %#v, want auto_approve true", got)
 	}
 }
 
