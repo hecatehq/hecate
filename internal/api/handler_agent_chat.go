@@ -20,8 +20,9 @@ import (
 )
 
 const (
-	agentChatTimeout        = 30 * time.Minute
-	agentChatMaxOutputBytes = 4 * 1024 * 1024
+	agentChatTimeout             = 30 * time.Minute
+	agentChatConfigOptionTimeout = 10 * time.Second
+	agentChatMaxOutputBytes      = 4 * 1024 * 1024
 )
 
 func (h *Handler) HandleAgentChatSessions(w http.ResponseWriter, r *http.Request) {
@@ -384,12 +385,11 @@ func (h *Handler) HandleSetAgentChatConfigOption(w http.ResponseWriter, r *http.
 		WriteError(w, http.StatusBadRequest, errCodeInvalidRequest, err.Error())
 		return
 	}
-	result, err := h.agentChatRunner.SetSessionConfigOption(r.Context(), setReq)
+	setCtx, cancel := context.WithTimeout(r.Context(), agentChatConfigOptionTimeout)
+	result, err := h.agentChatRunner.SetSessionConfigOption(setCtx, setReq)
+	cancel()
 	if err != nil {
-		WriteErrorDetails(w, http.StatusConflict, errCodeSessionNotRunning, err.Error(), ErrorDetails{
-			UserMessage:    "Start the external-agent session before changing adapter controls.",
-			OperatorAction: "Send the first message, then adjust the controls once the adapter reports them.",
-		})
+		writeAgentChatConfigOptionError(w, session, err)
 		return
 	}
 	updated, err := h.agentChat.UpdateSession(r.Context(), session.ID, func(item *agentchat.Session) {
@@ -401,6 +401,34 @@ func (h *Handler) HandleSetAgentChatConfigOption(w http.ResponseWriter, r *http.
 	}
 	h.agentChatLive.publishSession(updated)
 	WriteJSON(w, http.StatusOK, AgentChatSessionResponse{Object: "agent_chat_session", Data: renderAgentChatSession(updated, h.agentChatSnapshotConfig())})
+}
+
+func writeAgentChatConfigOptionError(w http.ResponseWriter, session agentchat.Session, err error) {
+	switch {
+	case errors.Is(err, agentadapters.ErrSessionNotActive):
+		WriteErrorDetails(w, http.StatusConflict, errCodeSessionNotRunning, err.Error(), ErrorDetails{
+			UserMessage:    "This external-agent session is not active anymore.",
+			OperatorAction: "Start a new external-agent chat before changing adapter controls.",
+		})
+	case errors.Is(err, context.DeadlineExceeded):
+		WriteErrorDetails(w, http.StatusGatewayTimeout, errCodeAgentAdapterUnavailable, err.Error(), ErrorDetails{
+			UserMessage:    "The external agent did not respond while changing that control.",
+			OperatorAction: "Try again, or restart the adapter if it stays stuck.",
+		})
+	default:
+		WriteErrorDetails(w, http.StatusBadGateway, errCodeAgentAdapterUnavailable, agentadapters.NormalizeError(agentChatAdapterName(session.AdapterID), err), ErrorDetails{
+			UserMessage:    "The external agent could not change that control.",
+			OperatorAction: "Check the adapter status, then retry the control change.",
+		})
+	}
+}
+
+func agentChatAdapterName(adapterID string) string {
+	adapter, ok := agentadapters.BuiltInByID(adapterID)
+	if !ok || adapter.Name == "" {
+		return "Agent adapter"
+	}
+	return adapter.Name
 }
 
 func agentChatConfigOptionSetRequest(sessionID, configID string, rawValue any) (agentadapters.SetSessionConfigOptionRequest, error) {
@@ -635,11 +663,8 @@ func (h *Handler) HandleCreateAgentChatMessage(w http.ResponseWriter, r *http.Re
 		completedAt = result.CompletedAt
 	}
 	errorText := ""
-	if runErr != nil {
+	if runErr != nil && status != "cancelled" {
 		errorText = displayErr
-	}
-	if status == "cancelled" {
-		errorText = "cancelled"
 	}
 	if result.DiffStat != "" {
 		trace.Record(telemetry.EventAgentChatFilesChanged, agentChatTraceAttrs(session, adapter, runID, assistantID, map[string]any{

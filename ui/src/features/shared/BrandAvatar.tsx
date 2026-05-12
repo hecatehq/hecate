@@ -76,8 +76,8 @@ export function BrandAvatar({
   const glyph = icon?.image
     ? (
       <img
-        alt={title ? accessibleTitle : ""}
-        aria-hidden={title ? undefined : true}
+        alt=""
+        aria-hidden="true"
         src={icon.image}
         style={{ display: "block", height: Math.max(14, Math.round(size * 0.6)), width: Math.max(14, Math.round(size * 0.6)) }}
       />
@@ -85,8 +85,7 @@ export function BrandAvatar({
     : IconComponent
     ? (
       <IconComponent
-        alt={title ? accessibleTitle : undefined}
-        aria-hidden={title ? undefined : true}
+        aria-hidden="true"
         size={Math.max(14, Math.round(size * 0.62))}
         style={{
           color: icon.monochrome ? MONOCHROME_ICON_COLOR : undefined,
@@ -96,10 +95,10 @@ export function BrandAvatar({
       />
     )
     : !assistant
-    ? <Icon d={Icons.user} size={Math.max(15, Math.round(size * 0.56))} strokeWidth={1.8} />
+    ? <span aria-hidden="true" style={{ display: "inline-flex" }}><Icon d={Icons.user} size={Math.max(15, Math.round(size * 0.56))} strokeWidth={1.8} /></span>
     : (
       <span
-        aria-hidden={title ? undefined : true}
+        aria-hidden="true"
         style={{ fontFamily: "var(--font-mono)", fontSize: Math.max(9, Math.round(size * 0.39)), fontWeight: 600, lineHeight: 1 }}
       >
         {label}

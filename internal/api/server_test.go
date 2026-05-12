@@ -2105,6 +2105,7 @@ type fakeAgentChatRunner struct {
 	diff            string
 	err             error
 	prepareErr      error
+	setConfigErr    error
 	prepareRequests []agentadapters.PrepareSessionRequest
 	closedSessions  []string
 	configOptions   []agentcontrols.ConfigOption
@@ -2206,6 +2207,9 @@ func (r *fakeAgentChatRunner) result(req agentadapters.RunRequest, output string
 }
 
 func (r *fakeAgentChatRunner) SetSessionConfigOption(_ context.Context, req agentadapters.SetSessionConfigOptionRequest) (agentadapters.SetSessionConfigOptionResult, error) {
+	if r.setConfigErr != nil {
+		return agentadapters.SetSessionConfigOptionResult{}, r.setConfigErr
+	}
 	options := append([]agentcontrols.ConfigOption(nil), r.configOptions...)
 	for i := range options {
 		if options[i].ID != req.ConfigID {
@@ -2293,6 +2297,56 @@ func TestAgentChatExternalConfigOptionsRoundTrip(t *testing.T) {
 	updated = decodeRecorder[AgentChatSessionResponse](t, performRequest(t, handler, http.MethodPost, "/hecate/v1/agent-chat/sessions/"+created.Data.ID+"/config-options/auto_approve", `{"value":true}`))
 	if got := updated.Data.ConfigOptions; len(got) != 2 || got[1].CurrentBool == nil || !*got[1].CurrentBool {
 		t.Fatalf("config options after boolean set = %#v, want auto_approve true", got)
+	}
+}
+
+func TestAgentChatExternalConfigOptionSessionNotActive(t *testing.T) {
+	dir := t.TempDir()
+	logger := slog.New(slog.NewJSONHandler(io.Discard, nil))
+	apiHandler := newTestAPIHandlerWithSettings(logger, []providers.Provider{&fakeProvider{}}, config.Config{}, nil)
+	apiHandler.SetAgentChatRunner(&fakeAgentChatRunner{setConfigErr: fmt.Errorf("%w: %q", agentadapters.ErrSessionNotActive, "agent_chat_1")})
+	handler := NewServer(logger, apiHandler)
+
+	created := decodeRecorder[AgentChatSessionResponse](t, performRequest(t, handler, http.MethodPost, "/hecate/v1/agent-chat/sessions", fmt.Sprintf(`{"adapter_id":"codex","workspace":%q}`, dir)))
+	recorder := performRequest(t, handler, http.MethodPost, "/hecate/v1/agent-chat/sessions/"+created.Data.ID+"/config-options/model", `{"value":"fast"}`)
+	if recorder.Code != http.StatusConflict {
+		t.Fatalf("status = %d, want 409; body: %s", recorder.Code, recorder.Body.String())
+	}
+	var payload struct {
+		Error struct {
+			Type string `json:"type"`
+		} `json:"error"`
+	}
+	if err := json.Unmarshal(recorder.Body.Bytes(), &payload); err != nil {
+		t.Fatalf("decode error response: %v", err)
+	}
+	if payload.Error.Type != errCodeSessionNotRunning {
+		t.Fatalf("error type = %q, want %q", payload.Error.Type, errCodeSessionNotRunning)
+	}
+}
+
+func TestAgentChatExternalConfigOptionAdapterFailure(t *testing.T) {
+	dir := t.TempDir()
+	logger := slog.New(slog.NewJSONHandler(io.Discard, nil))
+	apiHandler := newTestAPIHandlerWithSettings(logger, []providers.Provider{&fakeProvider{}}, config.Config{}, nil)
+	apiHandler.SetAgentChatRunner(&fakeAgentChatRunner{setConfigErr: errors.New("adapter rejected option")})
+	handler := NewServer(logger, apiHandler)
+
+	created := decodeRecorder[AgentChatSessionResponse](t, performRequest(t, handler, http.MethodPost, "/hecate/v1/agent-chat/sessions", fmt.Sprintf(`{"adapter_id":"codex","workspace":%q}`, dir)))
+	recorder := performRequest(t, handler, http.MethodPost, "/hecate/v1/agent-chat/sessions/"+created.Data.ID+"/config-options/model", `{"value":"fast"}`)
+	if recorder.Code != http.StatusBadGateway {
+		t.Fatalf("status = %d, want 502; body: %s", recorder.Code, recorder.Body.String())
+	}
+	var payload struct {
+		Error struct {
+			Type string `json:"type"`
+		} `json:"error"`
+	}
+	if err := json.Unmarshal(recorder.Body.Bytes(), &payload); err != nil {
+		t.Fatalf("decode error response: %v", err)
+	}
+	if payload.Error.Type != errCodeAgentAdapterUnavailable {
+		t.Fatalf("error type = %q, want %q", payload.Error.Type, errCodeAgentAdapterUnavailable)
 	}
 }
 
@@ -2438,6 +2492,9 @@ func TestAgentChatCancelsExternalAdapter(t *testing.T) {
 		}
 		if assistant.Content != "started" {
 			t.Fatalf("assistant content = %q, want streamed content preserved after cancellation", assistant.Content)
+		}
+		if assistant.Error != "" {
+			t.Fatalf("assistant error = %q, want empty cancellation detail", assistant.Error)
 		}
 	case <-time.After(3 * time.Second):
 		t.Fatalf("timed out waiting for cancelled message POST")
