@@ -39,6 +39,35 @@ func (h *Handler) HandleSetAgentAdapterCredential(w http.ResponseWriter, r *http
 		WriteError(w, http.StatusBadRequest, errCodeInvalidRequest, "credential value is required")
 		return
 	}
+	if adapterID == "claude_code" && name == claudeCodeOAuthTokenName {
+		if err := validateClaudeCodeOAuthToken(value); err != nil {
+			WriteErrorDetails(w, http.StatusBadRequest, errCodeInvalidRequest, err.Error(), ErrorDetails{
+				UserMessage:    "That does not look like a Claude Code setup token, so Hecate did not save it.",
+				OperatorAction: "Run claude setup-token again, copy the token printed in Terminal, paste it here, and retry.",
+				Fields: map[string]any{
+					"adapter_id": adapterID,
+					"name":       name,
+				},
+			})
+			return
+		}
+		result := h.probeAgentAdapter(r.Context(), adapterID, []string{name + "=" + value})
+		if result.Status != agentadapters.ProbeStatusReady {
+			message := firstNonEmptyString(result.Hint, result.Error, result.Stderr, "Claude Code rejected this token")
+			WriteErrorDetails(w, http.StatusConflict, errCodeConflict, message, ErrorDetails{
+				UserMessage:    "Claude Code could not connect with that token, so Hecate did not save it.",
+				OperatorAction: "Run claude setup-token again, copy the token printed in Terminal, paste it here, and retry.",
+				Fields: map[string]any{
+					"adapter_id": adapterID,
+					"status":     result.Status,
+					"stage":      result.Stage,
+					"hint":       result.Hint,
+					"error":      result.Error,
+				},
+			})
+			return
+		}
+	}
 	encrypted, err := h.secretCipher.Encrypt(value)
 	if err != nil {
 		WriteError(w, http.StatusInternalServerError, errCodeGatewayError, fmt.Sprintf("encrypt adapter credential: %v", err))
@@ -63,6 +92,14 @@ func (h *Handler) HandleSetAgentAdapterCredential(w http.ResponseWriter, r *http
 			Preview:    credential.ValuePreview,
 		},
 	})
+}
+
+func validateClaudeCodeOAuthToken(value string) error {
+	value = strings.TrimSpace(value)
+	if !strings.HasPrefix(value, "sk-") || len(value) < 20 || strings.ContainsAny(value, " \t\r\n") {
+		return fmt.Errorf("Claude Code setup tokens start with sk- and are printed by `claude setup-token`")
+	}
+	return nil
 }
 
 func (h *Handler) HandleDeleteAgentAdapterCredential(w http.ResponseWriter, r *http.Request) {

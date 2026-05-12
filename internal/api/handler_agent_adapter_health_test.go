@@ -173,6 +173,43 @@ func TestAgentAdapterProbeEndpointReturnsFreshAdapterAndHealth(t *testing.T) {
 	}
 }
 
+func TestAgentAdapterProbeDoesNotPromoteClaudeHandshakeToAuthOK(t *testing.T) {
+	t.Setenv("CLAUDE_CODE_OAUTH_TOKEN", "")
+	t.Setenv("ANTHROPIC_API_KEY", "")
+	t.Setenv("ANTHROPIC_AUTH_TOKEN", "")
+	t.Setenv("HOME", t.TempDir())
+	t.Setenv("PATH", t.TempDir())
+
+	logger := slog.New(slog.NewJSONHandler(io.Discard, nil))
+	apiHandler := NewHandler(config.Config{}, logger, nil, controlplane.NewMemoryStore(), nil, nil)
+	apiHandler.SetSecretCipher(newTestCipherForAPI(t))
+	apiHandler.SetAgentAdapterProbe(func(_ context.Context, id string) agentadapters.ProbeResult {
+		if id != "claude_code" {
+			t.Fatalf("probe called for %q, want claude_code", id)
+		}
+		return agentadapters.ProbeResult{
+			AdapterID:  "claude_code",
+			Status:     agentadapters.ProbeStatusReady,
+			Stage:      agentadapters.ProbeStageReady,
+			Path:       "/usr/local/bin/claude-agent-acp",
+			DurationMS: 42,
+		}
+	})
+	server := NewServer(logger, apiHandler)
+	client := newAPITestClient(t, server)
+
+	resp := mustRequestJSON[AgentAdapterProbeResponse](client, http.MethodPost, "/hecate/v1/agent-adapters/claude_code/probe", "")
+	if resp.Data.Health.Status != agentadapters.ProbeStatusReady {
+		t.Fatalf("health status = %q, want ready", resp.Data.Health.Status)
+	}
+	if resp.Data.Adapter.AuthStatus == agentadapters.AuthStatusOK {
+		t.Fatalf("adapter auth_status = ok after bare ready probe; want onboarding to remain visible")
+	}
+	if resp.Data.Adapter.CredentialConfigured {
+		t.Fatalf("credential_configured = true, want false")
+	}
+}
+
 func TestAgentAdapterCredentialEndpointsStoreAndDeleteCredential(t *testing.T) {
 	t.Parallel()
 
@@ -180,17 +217,35 @@ func TestAgentAdapterCredentialEndpointsStoreAndDeleteCredential(t *testing.T) {
 	store := controlplane.NewMemoryStore()
 	apiHandler := NewHandler(config.Config{}, logger, nil, store, nil, nil)
 	apiHandler.SetSecretCipher(newTestCipherForAPI(t))
+	probeCalls := 0
+	apiHandler.agentAdapterEnvProbe = func(_ context.Context, id string, env []string) agentadapters.ProbeResult {
+		probeCalls++
+		if id != "claude_code" {
+			t.Fatalf("probe id = %q, want claude_code", id)
+		}
+		if got, want := strings.Join(env, "\n"), claudeCodeOAuthTokenName+"=sk-valid-token-secret-1234567890"; got != want {
+			t.Fatalf("probe env = %q, want %q", got, want)
+		}
+		return agentadapters.ProbeResult{
+			AdapterID: "claude_code",
+			Status:    agentadapters.ProbeStatusReady,
+			Stage:     agentadapters.ProbeStageReady,
+		}
+	}
 	server := NewServer(logger, apiHandler)
 	client := newAPITestClient(t, server)
 
-	set := mustRequestJSON[AgentAdapterCredentialResponse](client, http.MethodPut, "/hecate/v1/agent-adapters/claude_code/credentials", `{"value":"token-secret"}`)
+	set := mustRequestJSON[AgentAdapterCredentialResponse](client, http.MethodPut, "/hecate/v1/agent-adapters/claude_code/credentials", `{"value":"sk-valid-token-secret-1234567890"}`)
+	if probeCalls != 1 {
+		t.Fatalf("probe calls = %d, want 1", probeCalls)
+	}
 	if set.Object != "agent_adapter_credential" {
 		t.Fatalf("object = %q, want agent_adapter_credential", set.Object)
 	}
 	if set.Data.AdapterID != "claude_code" || set.Data.Name != claudeCodeOAuthTokenName || !set.Data.Configured {
 		t.Fatalf("set response = %#v, want configured claude token", set.Data)
 	}
-	if strings.Contains(set.Data.Preview, "token-secret") {
+	if strings.Contains(set.Data.Preview, "sk-valid-token-secret-1234567890") {
 		t.Fatalf("preview leaked full token: %q", set.Data.Preview)
 	}
 
@@ -201,12 +256,12 @@ func TestAgentAdapterCredentialEndpointsStoreAndDeleteCredential(t *testing.T) {
 	if got := len(state.AgentAdapterCredentials); got != 1 {
 		t.Fatalf("credentials len = %d, want 1", got)
 	}
-	if state.AgentAdapterCredentials[0].ValueEncrypted == "token-secret" {
+	if state.AgentAdapterCredentials[0].ValueEncrypted == "sk-valid-token-secret-1234567890" {
 		t.Fatal("credential was stored in plaintext")
 	}
 
 	env := apiHandler.agentAdapterCredentialEnv(context.Background(), "claude_code")
-	if got, want := strings.Join(env, "\n"), claudeCodeOAuthTokenName+"=token-secret"; got != want {
+	if got, want := strings.Join(env, "\n"), claudeCodeOAuthTokenName+"=sk-valid-token-secret-1234567890"; got != want {
 		t.Fatalf("credential env = %q, want %q", got, want)
 	}
 
@@ -216,6 +271,74 @@ func TestAgentAdapterCredentialEndpointsStoreAndDeleteCredential(t *testing.T) {
 	}
 	if env := apiHandler.agentAdapterCredentialEnv(context.Background(), "claude_code"); len(env) != 0 {
 		t.Fatalf("credential env after delete = %#v, want empty", env)
+	}
+}
+
+func TestAgentAdapterCredentialEndpointRejectsMalformedClaudeTokenBeforeProbe(t *testing.T) {
+	t.Parallel()
+
+	logger := slog.New(slog.NewJSONHandler(io.Discard, nil))
+	store := controlplane.NewMemoryStore()
+	apiHandler := NewHandler(config.Config{}, logger, nil, store, nil, nil)
+	apiHandler.SetSecretCipher(newTestCipherForAPI(t))
+	probeCalls := 0
+	apiHandler.agentAdapterEnvProbe = func(context.Context, string, []string) agentadapters.ProbeResult {
+		probeCalls++
+		return agentadapters.ProbeResult{Status: agentadapters.ProbeStatusReady}
+	}
+	server := NewServer(logger, apiHandler)
+	client := newAPITestClient(t, server)
+
+	rec := client.mustRequestStatus(http.StatusBadRequest, http.MethodPut, "/hecate/v1/agent-adapters/claude_code/credentials", `{"value":"random text"}`)
+	if !strings.Contains(rec.Body.String(), "does not look like a Claude Code setup token") {
+		t.Fatalf("response = %s, want malformed-token guidance", rec.Body.String())
+	}
+	if probeCalls != 0 {
+		t.Fatalf("probe calls = %d, want 0 for malformed token", probeCalls)
+	}
+	state, err := store.Snapshot(context.Background())
+	if err != nil {
+		t.Fatalf("Snapshot: %v", err)
+	}
+	if got := len(state.AgentAdapterCredentials); got != 0 {
+		t.Fatalf("credentials len = %d, want 0", got)
+	}
+}
+
+func TestAgentAdapterCredentialEndpointDoesNotStoreInvalidClaudeToken(t *testing.T) {
+	t.Parallel()
+
+	logger := slog.New(slog.NewJSONHandler(io.Discard, nil))
+	store := controlplane.NewMemoryStore()
+	apiHandler := NewHandler(config.Config{}, logger, nil, store, nil, nil)
+	apiHandler.SetSecretCipher(newTestCipherForAPI(t))
+	apiHandler.agentAdapterEnvProbe = func(_ context.Context, id string, env []string) agentadapters.ProbeResult {
+		if id != "claude_code" {
+			t.Fatalf("probe id = %q, want claude_code", id)
+		}
+		if got, want := strings.Join(env, "\n"), claudeCodeOAuthTokenName+"=sk-invalid-token-1234567890"; got != want {
+			t.Fatalf("probe env = %q, want %q", got, want)
+		}
+		return agentadapters.ProbeResult{
+			AdapterID: "claude_code",
+			Status:    agentadapters.ProbeStatusAuthRequired,
+			Stage:     agentadapters.ProbeStageNewSession,
+			Hint:      "Claude Code rejected the token",
+		}
+	}
+	server := NewServer(logger, apiHandler)
+	client := newAPITestClient(t, server)
+
+	rec := client.mustRequestStatus(http.StatusConflict, http.MethodPut, "/hecate/v1/agent-adapters/claude_code/credentials", `{"value":"sk-invalid-token-1234567890"}`)
+	if !strings.Contains(rec.Body.String(), "did not save") {
+		t.Fatalf("response = %s, want did not save message", rec.Body.String())
+	}
+	state, err := store.Snapshot(context.Background())
+	if err != nil {
+		t.Fatalf("Snapshot: %v", err)
+	}
+	if got := len(state.AgentAdapterCredentials); got != 0 {
+		t.Fatalf("credentials len = %d, want 0", got)
 	}
 }
 

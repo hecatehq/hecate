@@ -214,6 +214,31 @@ telemetry               # OTel attribute keys, metrics, structured logging
 version                 # build-time version metadata
 ```
 
+## External-agent adapter smoke states
+
+External-agent onboarding depends on local tools (`codex-acp`,
+`claude-agent-acp`, `cursor-agent`) that may already be installed on your
+machine. For manual UI smoke tests and Playwright fixtures, you can force the
+discovery result without uninstalling anything:
+
+```bash
+just dev-no-agent-adapters
+```
+
+That starts the gateway with every external adapter reported as missing, which
+is useful for checking first-run onboarding copy.
+
+For finer control, pass a comma-separated override list:
+
+```bash
+just dev-agent-adapters 'claude_code=missing,codex=available,cursor_agent=missing'
+```
+
+The backing env var is `GATEWAY_AGENT_ADAPTER_DISCOVERY_OVERRIDES`. It accepts
+`all=missing` or per-adapter entries using `missing` / `available`. This is
+discovery-only: it changes Settings and Chats readiness UI, but it does not
+create fake adapter processes or make a chat send succeed.
+
 ## Capturing documentation screenshots
 
 ```bash

@@ -20,6 +20,8 @@ const (
 	StatusMissing   = "missing"
 )
 
+const adapterDiscoveryOverrideEnv = "GATEWAY_AGENT_ADAPTER_DISCOVERY_OVERRIDES"
+
 const (
 	AuthStatusOK              = "ok"
 	AuthStatusUnauthenticated = "unauthenticated"
@@ -62,6 +64,7 @@ type Status struct {
 	VersionOutsideRange bool
 	AuthStatus          string
 	AuthError           string
+	ClaudeCodeCLI       SetupCommandStatus
 }
 
 type LookupFunc func(file string) (string, error)
@@ -203,33 +206,7 @@ func ListWithLookup(ctx context.Context, lookup LookupFunc) []Status {
 	items := BuiltIns()
 	out := make([]Status, 0, len(items))
 	for _, item := range items {
-		status := Status{
-			Adapter:    item,
-			Status:     StatusMissing,
-			AuthStatus: AuthStatusUnknown,
-		}
-		if err := ctx.Err(); err != nil {
-			status.Error = err.Error()
-			out = append(out, status)
-			continue
-		}
-		path, err := resolveExecutableForStatus(item, lookup)
-		if err != nil {
-			status.Error = err.Error()
-			out = append(out, status)
-			continue
-		}
-		status.Available = true
-		status.Status = StatusAvailable
-		status.Path = path
-		if v := DetectVersion(ctx, path); v != "" {
-			status.Version = v
-			status.VersionOutsideRange = !satisfiesRange(v, item.SupportedRange)
-		}
-		authStatus, authError := DetectAuthStatus(item)
-		status.AuthStatus = authStatus
-		status.AuthError = authError
-		out = append(out, status)
+		out = append(out, statusForAdapter(ctx, item, lookup))
 	}
 	return out
 }
@@ -253,9 +230,15 @@ func statusForAdapter(ctx context.Context, item Adapter, lookup LookupFunc) Stat
 		Status:     StatusMissing,
 		AuthStatus: AuthStatusUnknown,
 	}
+	if item.ID == "claude_code" {
+		status.ClaudeCodeCLI = DetectClaudeCodeCLI(lookup)
+	}
 	if err := ctx.Err(); err != nil {
 		status.Error = err.Error()
 		return status
+	}
+	if override, ok := adapterDiscoveryOverride(item.ID); ok {
+		return applyAdapterDiscoveryOverride(status, override)
 	}
 	path, err := resolveExecutableForStatus(item, lookup)
 	if err != nil {
@@ -270,6 +253,52 @@ func statusForAdapter(ctx context.Context, item Adapter, lookup LookupFunc) Stat
 		status.VersionOutsideRange = !satisfiesRange(v, item.SupportedRange)
 	}
 	status.AuthStatus, status.AuthError = DetectAuthStatus(item)
+	return status
+}
+
+func adapterDiscoveryOverride(adapterID string) (string, bool) {
+	raw := strings.TrimSpace(os.Getenv(adapterDiscoveryOverrideEnv))
+	if raw == "" {
+		return "", false
+	}
+	for _, part := range strings.Split(raw, ",") {
+		key, value, ok := strings.Cut(part, "=")
+		if !ok {
+			continue
+		}
+		key = strings.TrimSpace(key)
+		value = strings.ToLower(strings.TrimSpace(value))
+		if key == "" || value == "" {
+			continue
+		}
+		if key == adapterID || key == "all" {
+			switch value {
+			case StatusAvailable, StatusMissing:
+				return value, true
+			}
+		}
+	}
+	return "", false
+}
+
+func applyAdapterDiscoveryOverride(status Status, override string) Status {
+	status.Version = ""
+	status.VersionOutsideRange = false
+	status.AuthStatus = AuthStatusUnknown
+	status.AuthError = ""
+	status.ClaudeCodeCLI = SetupCommandStatus{}
+	switch override {
+	case StatusAvailable:
+		status.Available = true
+		status.Status = StatusAvailable
+		status.Path = "dev-override://" + status.ID
+		status.Error = "forced available by " + adapterDiscoveryOverrideEnv
+	case StatusMissing:
+		status.Available = false
+		status.Status = StatusMissing
+		status.Path = ""
+		status.Error = "forced missing by " + adapterDiscoveryOverrideEnv
+	}
 	return status
 }
 

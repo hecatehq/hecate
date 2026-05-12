@@ -14,10 +14,19 @@ import (
 // real adapter binaries.
 type AgentAdapterProbe func(ctx context.Context, adapterID string) agentadapters.ProbeResult
 
+type AgentAdapterEnvProbe func(ctx context.Context, adapterID string, env []string) agentadapters.ProbeResult
+
 // SetAgentAdapterProbe overrides the probe used by HandleAgentAdapterHealth.
 // Pass nil to restore the default (agentadapters.Probe). Test-only.
 func (h *Handler) SetAgentAdapterProbe(p AgentAdapterProbe) {
 	h.agentAdapterProbe = p
+	if p == nil {
+		h.agentAdapterEnvProbe = nil
+		return
+	}
+	h.agentAdapterEnvProbe = func(ctx context.Context, adapterID string, _ []string) agentadapters.ProbeResult {
+		return p(ctx, adapterID)
+	}
 }
 
 // HandleAgentAdapterHealth probes a single adapter to confirm it can
@@ -47,17 +56,18 @@ func (h *Handler) HandleAgentAdapterHealth(w http.ResponseWriter, r *http.Reques
 		return
 	}
 
-	probe := h.agentAdapterProbe
-	var result agentadapters.ProbeResult
-	if probe == nil {
-		result = agentadapters.ProbeWithEnv(ctx, id, h.agentAdapterCredentialEnv(ctx, id))
-	} else {
-		result = probe(ctx, id)
-	}
+	result := h.probeAgentAdapter(ctx, id, h.agentAdapterCredentialEnv(ctx, id))
 	WriteJSON(w, http.StatusOK, AgentAdapterHealthResponse{
 		Object: "agent_adapter_health",
 		Data:   result,
 	})
+}
+
+func (h *Handler) probeAgentAdapter(ctx context.Context, id string, env []string) agentadapters.ProbeResult {
+	if h != nil && h.agentAdapterEnvProbe != nil {
+		return h.agentAdapterEnvProbe(ctx, id, env)
+	}
+	return agentadapters.ProbeWithEnv(ctx, id, env)
 }
 
 // AgentAdapterHealthResponse wraps the probe result. Object is the

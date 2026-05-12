@@ -1833,10 +1833,17 @@ export function useRuntimeConsole() {
       setAgentAdapters((current) => current.map((item) => item.id === adapterID
         ? { ...item, credential_configured: payload.data.configured, credential_preview: payload.data.preview }
         : item));
-      setNoticeMessage("success", "Adapter credential saved.");
+      if (adapterID === "claude_code" && payload.data.configured) {
+        setAgentAdapterHealthByID((current) => {
+          const next = new Map(current);
+          next.set(adapterID, { adapter_id: adapterID, status: "ready", stage: "ready", duration_ms: 0 });
+          return next;
+        });
+      }
+      setNoticeMessage("success", adapterID === "claude_code" ? "Claude Code verified." : "Adapter credential saved.");
       return true;
     } catch (error) {
-      setNoticeMessage("error", error instanceof Error ? error.message : "Failed to save adapter credential.");
+      setNoticeMessage("error", error instanceof Error ? error.message : "Failed to validate adapter credential.");
       return false;
     }
   }

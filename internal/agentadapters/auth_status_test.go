@@ -45,6 +45,7 @@ func TestDetectAuthStatusCursorUsesEnv(t *testing.T) {
 
 func TestDetectAuthStatusClaudeUnknownWithoutMarker(t *testing.T) {
 	isolatedAuthHome(t)
+	withClaudeAuthStatus(t, "", os.ErrNotExist)
 
 	status, hint := DetectAuthStatus(Adapter{ID: "claude_code"})
 	if status != AuthStatusUnknown {
@@ -63,6 +64,7 @@ func TestDetectAuthStatusClaudeUnknownWithoutMarker(t *testing.T) {
 
 func TestDetectAuthStatusClaudeConfigIsNotEnoughForACP(t *testing.T) {
 	home := isolatedAuthHome(t)
+	withClaudeAuthStatus(t, "", os.ErrNotExist)
 	configPath := filepath.Join(home, ".claude.json")
 	if err := os.WriteFile(configPath, []byte(`{"hasCompletedOnboarding":true}`), 0o600); err != nil {
 		t.Fatalf("write claude config: %v", err)
@@ -75,13 +77,37 @@ func TestDetectAuthStatusClaudeConfigIsNotEnoughForACP(t *testing.T) {
 	// Same in-app guidance — but mention the on-disk config so the
 	// operator understands why we still flag this as needing
 	// verification despite the file being present.
-	if !strings.Contains(hint, "ACP adapter") || !strings.Contains(hint, "guided setup card") {
-		t.Fatalf("hint = %q, want ACP-specific guided-setup guidance", hint)
+	if !strings.Contains(hint, "could not verify the CLI auth status") || !strings.Contains(hint, "guided setup card") {
+		t.Fatalf("hint = %q, want CLI-verification guided-setup guidance", hint)
+	}
+}
+
+func TestDetectAuthStatusClaudeUsesCLIAuthStatus(t *testing.T) {
+	isolatedAuthHome(t)
+	withClaudeAuthStatus(t, `{"loggedIn":true,"authMethod":"claude.ai"}`, nil)
+
+	status, hint := DetectAuthStatus(Adapter{ID: "claude_code"})
+	if status != AuthStatusOK || hint != "" {
+		t.Fatalf("status/hint = %q/%q, want ok/empty", status, hint)
+	}
+}
+
+func TestDetectAuthStatusClaudeReportsUnauthenticatedFromCLI(t *testing.T) {
+	isolatedAuthHome(t)
+	withClaudeAuthStatus(t, `{"loggedIn":false}`, nil)
+
+	status, hint := DetectAuthStatus(Adapter{ID: "claude_code"})
+	if status != AuthStatusUnauthenticated {
+		t.Fatalf("status = %q, want %q", status, AuthStatusUnauthenticated)
+	}
+	if !strings.Contains(hint, "claude auth login") {
+		t.Fatalf("hint = %q, want claude auth login guidance", hint)
 	}
 }
 
 func TestDetectAuthStatusClaudeUsesAdapterVisibleAuth(t *testing.T) {
 	isolatedAuthHome(t)
+	withClaudeAuthStatus(t, `{"loggedIn":false}`, nil)
 	t.Setenv("CLAUDE_CODE_OAUTH_TOKEN", "oauth-token")
 
 	status, hint := DetectAuthStatus(Adapter{ID: "claude_code"})
@@ -102,4 +128,11 @@ func isolatedAuthHome(t *testing.T) string {
 	t.Setenv("CLAUDE_CODE_OAUTH_TOKEN", "")
 	t.Setenv("CURSOR_API_KEY", "")
 	return home
+}
+
+func withClaudeAuthStatus(t *testing.T, output string, err error) {
+	t.Helper()
+	old := runClaudeAuthStatus
+	runClaudeAuthStatus = func() (string, error) { return output, err }
+	t.Cleanup(func() { runClaudeAuthStatus = old })
 }

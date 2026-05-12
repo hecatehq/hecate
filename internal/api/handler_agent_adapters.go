@@ -33,15 +33,17 @@ func (h *Handler) HandleAgentAdapterProbe(w http.ResponseWriter, r *http.Request
 		WriteError(w, http.StatusNotFound, errCodeNotFound, "adapter not found")
 		return
 	}
-	probe := h.agentAdapterProbe
-	var result agentadapters.ProbeResult
-	if probe == nil {
-		result = agentadapters.ProbeWithEnv(ctx, id, h.agentAdapterCredentialEnv(ctx, id))
-	} else {
-		result = probe(ctx, id)
-	}
+	result := h.probeAgentAdapter(ctx, id, h.agentAdapterCredentialEnv(ctx, id))
 	item := h.renderAgentAdapterItem(ctx, status)
-	item.AuthStatus, item.AuthError = authStatusFromProbe(result, item.AuthStatus, item.AuthError)
+	if id == "claude_code" && result.Status == agentadapters.ProbeStatusReady && !item.CredentialConfigured && status.AuthStatus != agentadapters.AuthStatusOK {
+		// Claude Code can complete the ACP handshake with a normal CLI login,
+		// but chat turns still require an adapter-visible credential in
+		// Hecate's environment. Do not let a bare ready probe erase the
+		// onboarding state.
+		item.AuthStatus, item.AuthError = status.AuthStatus, status.AuthError
+	} else {
+		item.AuthStatus, item.AuthError = authStatusFromProbe(result, item.AuthStatus, item.AuthError)
+	}
 	WriteJSON(w, http.StatusOK, AgentAdapterProbeResponse{
 		Object: "agent_adapter_probe",
 		Data: AgentAdapterProbeData{
@@ -83,7 +85,7 @@ type AgentAdapterProbeData struct {
 }
 
 func renderAgentAdapterItem(item agentadapters.Status) AgentAdapterResponseItem {
-	return AgentAdapterResponseItem{
+	rendered := AgentAdapterResponseItem{
 		ID:                  item.ID,
 		Name:                item.Name,
 		Kind:                item.Kind,
@@ -104,6 +106,13 @@ func renderAgentAdapterItem(item agentadapters.Status) AgentAdapterResponseItem 
 		AuthStatus:          item.AuthStatus,
 		AuthError:           item.AuthError,
 	}
+	if item.ID == "claude_code" {
+		rendered.ClaudeCodeCLI = &AgentAdapterSetupCommandStatusItem{
+			Available: item.ClaudeCodeCLI.Available,
+			Path:      item.ClaudeCodeCLI.Path,
+		}
+	}
+	return rendered
 }
 
 func (h *Handler) renderAgentAdapterItem(ctx context.Context, item agentadapters.Status) AgentAdapterResponseItem {
@@ -130,20 +139,11 @@ func authStatusFromProbe(result agentadapters.ProbeResult, fallbackStatus, fallb
 	case agentadapters.ProbeStatusReady:
 		return agentadapters.AuthStatusOK, ""
 	case agentadapters.ProbeStatusAuthRequired:
-		return agentadapters.AuthStatusUnauthenticated, firstNonEmptyAdapterProbe(result.Hint, result.Error, fallbackError)
+		return agentadapters.AuthStatusUnauthenticated, firstNonEmptyString(result.Hint, result.Error, fallbackError)
 	case agentadapters.ProbeStatusError:
 		if strings.Contains(strings.ToLower(result.Error+"\n"+result.Stderr), "credit balance") {
-			return agentadapters.AuthStatusBilling, firstNonEmptyAdapterProbe(result.Hint, result.Error, fallbackError)
+			return agentadapters.AuthStatusBilling, firstNonEmptyString(result.Hint, result.Error, fallbackError)
 		}
 	}
-	return firstNonEmptyAdapterProbe(fallbackStatus, agentadapters.AuthStatusUnknown), fallbackError
-}
-
-func firstNonEmptyAdapterProbe(items ...string) string {
-	for _, item := range items {
-		if strings.TrimSpace(item) != "" {
-			return item
-		}
-	}
-	return ""
+	return firstNonEmptyString(fallbackStatus, agentadapters.AuthStatusUnknown), fallbackError
 }

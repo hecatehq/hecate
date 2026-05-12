@@ -249,11 +249,17 @@ export type AgentAdapterRecord = {
   auth_error?: string;
   credential_configured?: boolean;
   credential_preview?: string;
+  claude_code_cli?: AgentAdapterSetupCommandStatus;
 };
 
 export type AgentAdapterResponse = {
   object: string;
   data: AgentAdapterRecord[];
+};
+
+export type AgentAdapterSetupCommandStatus = {
+  available: boolean;
+  path?: string;
 };
 
 export type AgentChatSessionSummaryRecord = {
