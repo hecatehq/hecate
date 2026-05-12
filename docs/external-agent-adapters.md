@@ -71,16 +71,16 @@ auth hints (`auth_status`: `ok`, `unauthenticated`, `billing`, or `unknown`).
 
 Claude Code has one important wrinkle: a normal interactive `claude /login`
 or `~/.claude.json` config can make the standalone Claude Code CLI work while
-the ACP adapter still reports `Authentication required`. If **Test** fails and
-you want to use your Claude subscription instead of an API key, open
+the ACP adapter still reports `Authentication required`. If adapter readiness
+reports an auth failure and you want to use your Claude subscription instead of an API key, open
 Settings → External agents, run `claude setup-token`, paste the printed token
-into the Claude Code guided setup card, and click **Save + test**. Hecate
+into the Claude Code guided setup card, and click **Save**. Hecate
 stores the token in the local control-plane secret store and injects it only
 into `claude-agent-acp` as `CLAUDE_CODE_OAUTH_TOKEN`. `ANTHROPIC_API_KEY` and
 `ANTHROPIC_AUTH_TOKEN` also work when you want to supply Anthropic credentials
 directly.
-Use Settings → External agents → **Test**, or call the probe endpoint, for a
-full spawn + ACP handshake + no-op session check:
+Settings → External agents refreshes adapter readiness when opened. You can also
+call the probe endpoint for a full spawn + ACP handshake + no-op session check:
 
 ![Settings → External agents — adapter readiness checks and durable approval grants](screenshots/settings-external-agents.png)
 
@@ -126,6 +126,19 @@ Use this order when troubleshooting:
 3. **Chat run** — send a real prompt only after discovery/probe are green. If
    the adapter still fails, open the message's raw diagnostics disclosure; the
    normalized transcript is for reading, raw ACP output is for debugging.
+
+For development and e2e smoke tests, force discovery states without changing
+your machine:
+
+```sh
+just dev-no-agent-adapters
+just dev-agent-adapters 'claude_code=missing,codex=available,cursor_agent=missing'
+```
+
+Those recipes set `GATEWAY_AGENT_ADAPTER_DISCOVERY_OVERRIDES`. The override is
+intentionally discovery-only: it lets Settings and Chats render missing /
+available states, but it does not create fake adapter processes or make a chat
+send succeed.
 
 ### Codex ACP
 

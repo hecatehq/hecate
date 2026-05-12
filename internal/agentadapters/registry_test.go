@@ -65,6 +65,58 @@ func TestListWithLookupReportsAvailability(t *testing.T) {
 	}
 }
 
+func TestListWithLookupHonorsDiscoveryOverrideAllMissing(t *testing.T) {
+	t.Setenv(adapterDiscoveryOverrideEnv, "all=missing")
+
+	response := ListWithLookup(context.Background(), func(file string) (string, error) {
+		return "/usr/local/bin/" + file, nil
+	})
+
+	if len(response) == 0 {
+		t.Fatalf("ListWithLookup returned no adapters")
+	}
+	for _, item := range response {
+		if item.Available || item.Status != StatusMissing || item.Path != "" {
+			t.Fatalf("%s status = %#v, want forced missing", item.ID, item)
+		}
+		if !strings.Contains(item.Error, adapterDiscoveryOverrideEnv) {
+			t.Fatalf("%s error = %q, want override marker", item.ID, item.Error)
+		}
+	}
+}
+
+func TestStatusForAdapterHonorsDiscoveryOverrideAvailable(t *testing.T) {
+	t.Setenv(adapterDiscoveryOverrideEnv, "codex=available")
+
+	status, ok := StatusForAdapter(context.Background(), "codex", func(file string) (string, error) {
+		return "", errors.New("not found on PATH")
+	})
+	if !ok {
+		t.Fatalf("StatusForAdapter(codex) ok = false")
+	}
+	if !status.Available || status.Status != StatusAvailable || status.Path != "dev-override://codex" {
+		t.Fatalf("status = %#v, want forced available", status)
+	}
+	if status.AuthStatus != AuthStatusUnknown {
+		t.Fatalf("auth status = %q, want unknown for discovery-only override", status.AuthStatus)
+	}
+}
+
+func TestStatusForAdapterIgnoresInvalidDiscoveryOverride(t *testing.T) {
+	t.Setenv(adapterDiscoveryOverrideEnv, "fake=broken")
+
+	status := statusForAdapter(context.Background(), Adapter{
+		ID:      "fake",
+		Name:    "Fake",
+		Command: "fake-adapter",
+	}, func(file string) (string, error) {
+		return "", errors.New("not found on PATH")
+	})
+	if status.Available || status.Status != StatusMissing || !strings.Contains(status.Error, "not found") {
+		t.Fatalf("status = %#v, want normal missing lookup", status)
+	}
+}
+
 func TestListWithLookupUsesCandidatePathFallback(t *testing.T) {
 	t.Parallel()
 

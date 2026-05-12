@@ -62,6 +62,9 @@ type ErrorPayload = {
     operator_action?: string;
     request_id?: string;
     trace_id?: string;
+    status?: string;
+    stage?: string;
+    hint?: string;
   };
 };
 

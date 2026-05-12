@@ -281,11 +281,72 @@ describe("SettingsView external agents tab", () => {
     expect(await screen.findByText(/list failed: 500/)).toBeTruthy();
   });
 
-  // Adapter status panel — surfaces the on-demand probe result. The
-  // section is hidden when no adapters are registered (no point
-  // showing an empty card); otherwise each row exposes a Test button
-  // that calls actions.probeAgentAdapter, plus inline diagnostic
-  // copy when a result exists.
+  it("keeps the Anthropic provider key card visible through transient settings refreshes", async () => {
+    const { state, actions, user } = setup({
+      settingsConfig: {
+        backend: "memory",
+        providers: [
+          {
+            id: "anthropic",
+            name: "Anthropic",
+            preset_id: "anthropic",
+            kind: "cloud",
+            protocol: "anthropic",
+            base_url: "https://api.anthropic.com",
+            credential_configured: true,
+          },
+        ],
+        policy_rules: [],
+        pricebook: [],
+        events: [],
+      },
+    });
+    const { rerender } = render(<SettingsView state={state} actions={actions} />);
+    await user.click(screen.getByRole("button", { name: "External agents" }));
+
+    expect(await screen.findByTestId("anthropic-provider-key-card")).toBeTruthy();
+
+    rerender(<SettingsView state={{ ...state, settingsConfig: { ...state.settingsConfig!, providers: [] } }} actions={actions} />);
+
+    expect(screen.getByTestId("anthropic-provider-key-card")).toBeTruthy();
+  });
+
+  it("saves and clears the Anthropic provider key from External agents settings", async () => {
+    const setProviderAPIKey = vi.fn(async () => undefined);
+    const { state, actions, user } = setup({
+      settingsConfig: {
+        backend: "memory",
+        providers: [
+          {
+            id: "anthropic",
+            name: "Anthropic",
+            preset_id: "anthropic",
+            kind: "cloud",
+            protocol: "anthropic",
+            base_url: "https://api.anthropic.com",
+            credential_configured: true,
+          },
+        ],
+        policy_rules: [],
+        pricebook: [],
+        events: [],
+      },
+    }, { setProviderAPIKey });
+    render(<SettingsView state={state} actions={actions} />);
+    await user.click(screen.getByRole("button", { name: "External agents" }));
+
+    await user.type(await screen.findByLabelText("Anthropic API key"), "sk-ant-new");
+    await user.click(screen.getByRole("button", { name: "Update key" }));
+    await user.click(screen.getByRole("button", { name: "Remove" }));
+
+    expect(setProviderAPIKey).toHaveBeenNthCalledWith(1, "anthropic", "sk-ant-new");
+    expect(setProviderAPIKey).toHaveBeenNthCalledWith(2, "anthropic", "");
+  });
+
+  // Adapter status panel — surfaces auto-probe results when the tab
+  // opens. The section is hidden when no adapters are registered (no
+  // point showing an empty card); otherwise each row renders inline
+  // diagnostic copy when a result exists.
   describe("adapter status panel", () => {
     function withAdapter(overrides: Record<string, unknown> = {}) {
       return {
@@ -311,21 +372,20 @@ describe("SettingsView external agents tab", () => {
       expect(screen.queryByTestId("external-agents-adapters")).toBeNull();
     });
 
-    it("renders one row per adapter with a Test button", async () => {
+    it("renders one row per adapter without a manual test button", async () => {
       const { state, actions, user } = setup(withAdapter());
       render(<SettingsView state={state} actions={actions} />);
       await user.click(screen.getByRole("button", { name: "External agents" }));
       expect(await screen.findByTestId("external-agents-adapters")).toBeTruthy();
       expect(screen.getByTestId("external-agents-adapter-codex")).toBeTruthy();
-      expect(screen.getByTestId("external-agents-test-codex")).toBeTruthy();
+      expect(screen.queryByTestId("external-agents-test-codex")).toBeNull();
     });
 
-    it("calls probeAgentAdapter with the row id when Test is clicked", async () => {
+    it("auto-runs adapter probes when the tab opens", async () => {
       const probeAgentAdapter = vi.fn(async () => null);
       const { state, actions, user } = setup(withAdapter(), { probeAgentAdapter });
       render(<SettingsView state={state} actions={actions} />);
       await user.click(screen.getByRole("button", { name: "External agents" }));
-      await user.click(await screen.findByTestId("external-agents-test-codex"));
       expect(probeAgentAdapter).toHaveBeenCalledWith("codex");
     });
 
@@ -372,15 +432,13 @@ describe("SettingsView external agents tab", () => {
       expect(screen.getByTestId("external-agents-adapter-cursor_agent-auth-detail")).toHaveTextContent("Run cursor-agent login");
     });
 
-    it("disables the Test button while a probe is in flight", async () => {
+    it("shows an inline checking status while a probe is in flight", async () => {
       const { state, actions, user } = setup(withAdapter({
         agentAdapterHealthLoadingByID: new Map([["codex", true]]),
       }));
       render(<SettingsView state={state} actions={actions} />);
       await user.click(screen.getByRole("button", { name: "External agents" }));
-      const button = await screen.findByTestId("external-agents-test-codex") as HTMLButtonElement;
-      expect(button.disabled).toBe(true);
-      expect(button.textContent).toMatch(/Testing/);
+      expect(await screen.findByTestId("external-agents-checking-codex")).toHaveTextContent(/checking/i);
     });
 
     it("shows Claude Code guided setup and saves the pasted token", async () => {
@@ -397,7 +455,7 @@ describe("SettingsView external agents tab", () => {
             status: "available",
             cost_mode: "external",
             auth_status: "unknown",
-            auth_error: "Use Test adapter; if Claude Code reports auth errors, set CLAUDE_CODE_OAUTH_TOKEN.",
+            auth_error: "Save a Claude Code token here; Hecate validates it before storing.",
           },
         ],
       }), { setAgentAdapterCredential, probeAgentAdapter });
@@ -406,10 +464,103 @@ describe("SettingsView external agents tab", () => {
 
       expect(await screen.findByTestId("claude-code-guided-setup")).toBeTruthy();
       await user.type(screen.getByLabelText("Claude Code OAuth token"), "claude-token");
-      await user.click(screen.getByRole("button", { name: "Save + test" }));
+      await user.click(screen.getByRole("button", { name: "Save" }));
 
       expect(setAgentAdapterCredential).toHaveBeenCalledWith("claude_code", "claude-token", "CLAUDE_CODE_OAUTH_TOKEN");
-      expect(probeAgentAdapter).toHaveBeenCalledWith("claude_code");
+    });
+
+
+
+    it("keeps Claude Code token editing visible when the adapter handshake is ready but no token is configured", async () => {
+      const { state, actions, user } = setup(withAdapter({
+        agentAdapters: [
+          {
+            id: "claude_code",
+            name: "Claude Code",
+            kind: "acp",
+            command: "claude-agent-acp",
+            available: true,
+            status: "available",
+            cost_mode: "external",
+            auth_status: "unknown",
+          },
+        ],
+        agentAdapterHealthByID: new Map([
+          ["claude_code", { adapter_id: "claude_code", status: "ready", stage: "ready", duration_ms: 629 }],
+        ]),
+      }));
+      render(<SettingsView state={state} actions={actions} />);
+      await user.click(screen.getByRole("button", { name: "External agents" }));
+
+      expect(await screen.findByText("Claude Code guided setup")).toBeTruthy();
+      expect(screen.queryByText("Claude Code token verified")).toBeNull();
+      expect(screen.getByText("adapter installed")).toBeTruthy();
+      expect(screen.getByText("token not saved")).toBeTruthy();
+      expect(screen.getByLabelText("Claude Code OAuth token")).toBeTruthy();
+      expect(screen.getByRole("button", { name: "Save" })).toBeTruthy();
+    });
+
+    it("shows CLI sign-in separately from Hecate's adapter token", async () => {
+      const { state, actions, user } = setup(withAdapter({
+        agentAdapters: [
+          {
+            id: "claude_code",
+            name: "Claude Code",
+            kind: "acp",
+            command: "claude-agent-acp",
+            available: true,
+            status: "available",
+            cost_mode: "external",
+            auth_status: "ok",
+          },
+        ],
+        agentAdapterHealthByID: new Map([
+          ["claude_code", { adapter_id: "claude_code", status: "ready", stage: "ready", duration_ms: 629 }],
+        ]),
+      }));
+      render(<SettingsView state={state} actions={actions} />);
+      await user.click(screen.getByRole("button", { name: "External agents" }));
+
+      expect(await screen.findByText("Claude Code guided setup")).toBeTruthy();
+      expect(screen.getByText("adapter installed")).toBeTruthy();
+      expect(screen.getByText("token not saved")).toBeTruthy();
+      expect(screen.getByText("CLI signed in")).toBeTruthy();
+      expect(screen.queryByText("Claude Code token verified")).toBeNull();
+      expect(screen.getByLabelText("Claude Code OAuth token")).toBeTruthy();
+    });
+
+    it("shows a token-verified result after Claude Code token validation passes", async () => {
+      const { state, actions, user } = setup(withAdapter({
+        agentAdapters: [
+          {
+            id: "claude_code",
+            name: "Claude Code",
+            kind: "acp",
+            command: "claude-agent-acp",
+            available: true,
+            status: "available",
+            cost_mode: "external",
+            auth_status: "unknown",
+            credential_configured: true,
+            credential_preview: "sk-a...SwAA",
+          },
+        ],
+        agentAdapterHealthByID: new Map([
+          ["claude_code", { adapter_id: "claude_code", status: "ready", stage: "ready", duration_ms: 629 }],
+        ]),
+      }));
+      render(<SettingsView state={state} actions={actions} />);
+      await user.click(screen.getByRole("button", { name: "External agents" }));
+
+      expect(await screen.findByText("Claude Code token verified")).toBeTruthy();
+      expect(screen.getByText(/Hecate has a validated adapter token/)).toBeTruthy();
+      expect(screen.getByText("adapter installed")).toBeTruthy();
+      expect(screen.getByText("token valid")).toBeTruthy();
+      expect(screen.getByText(/Stored token/)).toBeTruthy();
+      expect(screen.getByText("Token valid.")).toBeTruthy();
+      expect(screen.queryByTestId("external-agents-adapter-claude_code-auth-warning")).toBeNull();
+      expect(screen.getByLabelText("Claude Code OAuth token")).toBeTruthy();
+      expect(screen.getByPlaceholderText("Paste a replacement CLAUDE_CODE_OAUTH_TOKEN")).toBeTruthy();
     });
 
     it("can remove a stored Claude Code token", async () => {

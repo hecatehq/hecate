@@ -731,6 +731,12 @@ vars and login files without spawning the adapter. Use `POST
 that will be injected into that adapter process during probes and chat turns;
 the secret value is never returned, only the optional `credential_preview`.
 
+For development and e2e fixtures, `GATEWAY_AGENT_ADAPTER_DISCOVERY_OVERRIDES`
+can force discovery states such as `all=missing` or
+`claude_code=missing,codex=available`. This is discovery-only; it affects the
+catalog response and UI readiness surfaces but does not create runnable fake
+adapter processes.
+
 These are **agent adapters**, not model providers. They run ACP-compatible
 external coding agents under Hecate supervision; cost is reported as `external`
 until an adapter can supply structured usage.

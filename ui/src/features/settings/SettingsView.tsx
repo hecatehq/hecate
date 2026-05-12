@@ -1,6 +1,6 @@
 import { useEffect, useMemo, useState, type ReactNode } from "react";
 import type { RuntimeConsoleViewModel } from "../../app/useRuntimeConsole";
-import type { AgentAdapterHealthRecord, AgentAdapterRecord, AgentChatGrantRecord, ModelRecord } from "../../types/runtime";
+import type { AgentAdapterHealthRecord, AgentAdapterRecord, AgentChatGrantRecord, ConfiguredProviderRecord, ModelRecord } from "../../types/runtime";
 import { Badge, Icon, Icons, InlineError } from "../shared/ui";
 import { PricebookTab } from "./PricebookTab";
 
@@ -478,14 +478,27 @@ function RetentionTab({ state, actions }: Props) {
 // only ExpiresAt removes them automatically. Revoke is the only
 // operator-driven removal path.
 //
-// The grant list is lazy-loaded on tab mount — operators rarely visit
-// this surface, so we don't fetch on every dashboard load.
+// Grants and adapter health are lazy-loaded on tab mount — operators
+// rarely visit this surface, so we don't fetch on every dashboard
+// load. Adapter probes run automatically here because this tab is a
+// readiness panel; "Save" validates Claude Code auth before storing
+// the token, so no separate Test button is needed.
 function ExternalAgentsTab({ state, actions }: Props) {
+  const liveAnthropicProvider = findAnthropicProvider(state.settingsConfig?.providers ?? []);
+  const [rememberedAnthropicProvider, setRememberedAnthropicProvider] = useState<ConfiguredProviderRecord | null>(liveAnthropicProvider);
+
+  useEffect(() => {
+    if (liveAnthropicProvider) setRememberedAnthropicProvider(liveAnthropicProvider);
+  }, [liveAnthropicProvider]);
+
   useEffect(() => {
     void actions.listAgentChatGrants();
-    // listAgentChatGrants is stable across renders; no need to put it
-    // in the deps. We also intentionally fire only once on tab mount —
-    // operators can re-fetch via the explicit Refresh button below.
+    for (const adapter of state.agentAdapters) {
+      void actions.probeAgentAdapter(adapter.id);
+    }
+    // Actions and agentAdapters are stable enough for this one-shot tab
+    // mount refresh. Operators can re-fetch grants via Refresh; adapter
+    // health refreshes the next time the tab mounts.
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
@@ -541,6 +554,14 @@ function ExternalAgentsTab({ state, actions }: Props) {
 
   return (
     <>
+      {rememberedAnthropicProvider && (
+        <AnthropicProviderKeyCard
+          provider={rememberedAnthropicProvider}
+          onSave={(key) => actions.setProviderAPIKey(rememberedAnthropicProvider.id, key)}
+          onClear={() => actions.setProviderAPIKey(rememberedAnthropicProvider.id, "")}
+        />
+      )}
+
       <AdapterStatusSection state={state} actions={actions} />
 
       <SectionHeader
@@ -590,12 +611,107 @@ function ExternalAgentsTab({ state, actions }: Props) {
   );
 }
 
-// AdapterStatusSection lists the configured external-agent adapters
-// with a "Test" button per row. The button calls
-// actions.probeAgentAdapter, which spawns the adapter, completes the
-// ACP handshake, and returns a typed health classification. Probe
-// state is cached on the hook so leaving and returning to the tab
-// doesn't lose the last-known status.
+function findAnthropicProvider(providers: ConfiguredProviderRecord[]): ConfiguredProviderRecord | null {
+  return providers.find((provider) => (
+    provider.id === "anthropic" ||
+    provider.preset_id === "anthropic" ||
+    provider.protocol === "anthropic"
+  )) ?? null;
+}
+
+function AnthropicProviderKeyCard({
+  provider,
+  onSave,
+  onClear,
+}: {
+  provider: ConfiguredProviderRecord;
+  onSave: (key: string) => Promise<void>;
+  onClear: () => Promise<void>;
+}) {
+  const [key, setKey] = useState("");
+  const [saving, setSaving] = useState(false);
+  const configured = provider.credential_configured;
+
+  async function save() {
+    const trimmed = key.trim();
+    if (!trimmed) return;
+    setSaving(true);
+    try {
+      await onSave(trimmed);
+      setKey("");
+    } finally {
+      setSaving(false);
+    }
+  }
+
+  async function clear() {
+    setSaving(true);
+    try {
+      await onClear();
+      setKey("");
+    } finally {
+      setSaving(false);
+    }
+  }
+
+  return (
+    <div
+      className="card"
+      data-testid="anthropic-provider-key-card"
+      style={{
+        marginBottom: 24,
+        padding: "14px 16px",
+        borderColor: configured ? "rgba(0, 191, 179, 0.34)" : "var(--border)",
+        background: configured ? "rgba(0, 191, 179, 0.04)" : "var(--bg1)",
+      }}
+    >
+      <div style={{ display: "flex", alignItems: "baseline", gap: 8, marginBottom: 6 }}>
+        <span style={{ fontSize: 12, fontWeight: 600, color: "var(--t0)" }}>Anthropic provider key</span>
+        <span
+          style={{
+            fontFamily: "var(--font-mono)",
+            fontSize: 10,
+            color: configured ? "var(--teal)" : "var(--t3)",
+            textTransform: "uppercase",
+            letterSpacing: "0.04em",
+          }}
+        >
+          {configured ? "saved" : "missing"}
+        </span>
+      </div>
+      <div style={{ fontSize: 11, color: "var(--t3)", lineHeight: 1.45, marginBottom: 12 }}>
+        Used by Hecate Chat and direct Anthropic provider calls through {provider.name || "Anthropic"}. This is separate from the Claude Code adapter token below.
+      </div>
+      <div style={{ display: "flex", gap: 8 }}>
+        <input
+          value={key}
+          onChange={(event) => setKey(event.target.value)}
+          placeholder={configured ? "Paste a new Anthropic API key" : "Paste Anthropic API key"}
+          type="password"
+          className="input"
+          style={{ flex: 1, minWidth: 220 }}
+          aria-label="Anthropic API key"
+        />
+        <button type="button" className="btn btn-primary btn-sm" onClick={() => void save()} disabled={saving || key.trim() === ""}>
+          {saving ? "Saving..." : configured ? "Update key" : "Save key"}
+        </button>
+        {configured && (
+          <button type="button" className="btn btn-danger btn-sm" onClick={() => void clear()} disabled={saving}>
+            Remove
+          </button>
+        )}
+      </div>
+    </div>
+  );
+}
+
+// AdapterStatusSection lists the configured external-agent adapters.
+// The parent tab auto-runs actions.probeAgentAdapter on mount, which
+// spawns each adapter, completes the ACP handshake, and returns a
+// typed health classification. For Claude Code, that handshake is
+// also the auth check: auth failures surface as `auth_required`.
+// Probe state is cached on the hook so leaving and returning to the
+// tab doesn't lose the last-known status.
 //
 // The section is read-only otherwise: adapter discovery and
 // availability are still owned by the dashboard fan-out's
@@ -610,7 +726,7 @@ function AdapterStatusSection({ state, actions }: Props) {
     <div style={{ marginBottom: 24 }} data-testid="external-agents-adapters">
       <SectionHeader
         title="Adapters"
-        description="Test that an external coding-agent adapter can start, complete the ACP handshake, and create a session. Surfaces auth-required failures the chat workspace would otherwise hide behind a generic error."
+        description="Checks adapter readiness and auth by starting the adapter, completing the ACP handshake, and creating a session. Auth-required failures show here before a chat fails."
         meta={`${adapters.length} adapter${adapters.length === 1 ? "" : "s"}`}
       />
       <div className="card" style={{ overflow: "hidden" }}>
@@ -621,7 +737,6 @@ function AdapterStatusSection({ state, actions }: Props) {
             divider={i < adapters.length - 1}
             health={state.agentAdapterHealthByID.get(adapter.id) ?? null}
             loading={Boolean(state.agentAdapterHealthLoadingByID.get(adapter.id))}
-            onTest={() => void actions.probeAgentAdapter(adapter.id)}
             onSaveCredential={(value) => actions.setAgentAdapterCredential(adapter.id, value, "CLAUDE_CODE_OAUTH_TOKEN")}
             onDeleteCredential={() => actions.deleteAgentAdapterCredential(adapter.id, "CLAUDE_CODE_OAUTH_TOKEN")}
             onCopyCommand={() => void actions.copyCommand("claude setup-token")}
@@ -637,7 +752,6 @@ function AdapterStatusRow({
   divider,
   health,
   loading,
-  onTest,
   onSaveCredential,
   onDeleteCredential,
   onCopyCommand,
@@ -646,7 +760,6 @@ function AdapterStatusRow({
   divider: boolean;
   health: AgentAdapterHealthRecord | null;
   loading: boolean;
-  onTest: () => void;
   onSaveCredential: (value: string) => Promise<boolean>;
   onDeleteCredential: () => Promise<boolean>;
   onCopyCommand: () => void;
@@ -657,6 +770,11 @@ function AdapterStatusRow({
   const dashboardChip = adapter.available ? null : { tone: "amber" as const, label: "missing" };
   const probeChip = health ? probeStatusChip(health.status) : null;
   const chip = probeChip ?? dashboardChip;
+  const probeVerifiedAuth = health?.status === "ready";
+  const displayAuthStatus = probeVerifiedAuth ? "ok" : adapter.auth_status;
+  const displayAuthError = probeVerifiedAuth ? "" : adapter.auth_error;
+  const adapterInstalled = adapter.available && health?.status !== "not_installed";
+  const tokenVerified = Boolean(adapter.credential_configured) && probeVerifiedAuth;
 
   return (
     <div
@@ -701,26 +819,26 @@ function AdapterStatusRow({
               outside tested range
             </span>
           )}
-          {adapter.auth_status && adapter.auth_status !== "ok" && (
+          {displayAuthStatus && displayAuthStatus !== "ok" && (
             <span
               data-testid={`external-agents-adapter-${adapter.id}-auth-warning`}
               style={{
                 fontFamily: "var(--font-mono)",
                 fontSize: 10,
-                color: adapter.auth_status === "billing" ? chipColor("red") : chipColor("amber"),
+                color: displayAuthStatus === "billing" ? chipColor("red") : chipColor("amber"),
                 textTransform: "uppercase",
                 letterSpacing: "0.04em",
               }}
-              title={adapter.auth_error || undefined}
+              title={displayAuthError || undefined}
             >
-              {adapter.auth_status === "billing" ? "billing" : adapter.auth_status === "unauthenticated" ? "auth required" : "auth unknown"}
+              {displayAuthStatus === "billing" ? "billing" : displayAuthStatus === "unauthenticated" ? "auth required" : "auth unknown"}
             </span>
           )}
         </div>
         <div style={{ display: "flex", flexWrap: "wrap", gap: 8, fontFamily: "var(--font-mono)", fontSize: 10, color: "var(--t3)" }}>
           {adapter.command && <span>command <span style={{ color: "var(--t1)" }}>{adapter.command}</span></span>}
           {adapter.version && <span>version <span style={{ color: "var(--t1)" }}>{adapter.version}</span></span>}
-          {adapter.auth_status && <span>auth <span style={{ color: "var(--t1)" }}>{adapter.auth_status}</span></span>}
+          {displayAuthStatus && <span>auth <span style={{ color: "var(--t1)" }}>{displayAuthStatus}</span></span>}
           {health?.path && <span>path <span style={{ color: "var(--t1)" }}>{health.path}</span></span>}
           {health?.duration_ms !== undefined && <span>{health.duration_ms} ms</span>}
         </div>
@@ -743,40 +861,36 @@ function AdapterStatusRow({
             )}
           </div>
         )}
-        {!health && adapter.auth_error && (
+        {!health && displayAuthError && (
           <div
             data-testid={`external-agents-adapter-${adapter.id}-auth-detail`}
             style={{ marginTop: 6, fontSize: 11, color: "var(--t3)", lineHeight: 1.4 }}
           >
-            {adapter.auth_error}
+            {displayAuthError}
           </div>
         )}
         {adapter.id === "claude_code" && (
           <ClaudeCredentialSetup
             configured={Boolean(adapter.credential_configured)}
             preview={adapter.credential_preview}
-            authNeedsAttention={Boolean(
-              health?.status === "auth_required" ||
-              adapter.auth_status === "unauthenticated" ||
-              adapter.auth_status === "unknown"
-            )}
+            adapterReady={adapterInstalled}
+            tokenVerified={tokenVerified}
+            cliSignedIn={adapter.auth_status === "ok"}
+            health={health ?? undefined}
             onCopyCommand={onCopyCommand}
             onSave={onSaveCredential}
             onDelete={onDeleteCredential}
-            onTest={onTest}
           />
         )}
       </div>
-      <button
-        type="button"
-        className="btn btn-ghost btn-sm"
-        onClick={onTest}
-        disabled={loading}
-        data-testid={`external-agents-test-${adapter.id}`}
-        title={loading ? "Probing…" : "Spawn the adapter, complete the ACP handshake, and report status"}
-      >
-        <Icon d={Icons.refresh} size={13} /> {loading ? "Testing…" : "Test"}
-      </button>
+      {loading && (
+        <span
+          data-testid={`external-agents-checking-${adapter.id}`}
+          style={{ fontFamily: "var(--font-mono)", fontSize: 11, color: "var(--t3)", whiteSpace: "nowrap" }}
+        >
+          checking…
+        </span>
+      )}
     </div>
   );
 }
@@ -784,27 +898,39 @@ function AdapterStatusRow({
 function ClaudeCredentialSetup({
   configured,
   preview,
-  authNeedsAttention,
+  adapterReady,
+  tokenVerified,
+  cliSignedIn,
+  health,
   onCopyCommand,
   onSave,
   onDelete,
-  onTest,
 }: {
   configured: boolean;
   preview?: string;
-  authNeedsAttention: boolean;
+  adapterReady: boolean;
+  tokenVerified: boolean;
+  cliSignedIn: boolean;
+  health?: AgentAdapterHealthRecord;
   onCopyCommand: () => void;
   onSave: (value: string) => Promise<boolean>;
   onDelete: () => Promise<boolean>;
-  onTest: () => void;
 }) {
   const [token, setToken] = useState("");
   const [saving, setSaving] = useState(false);
   const [removing, setRemoving] = useState(false);
-  if (!configured && !authNeedsAttention) {
-    return null;
-  }
-
+  const tone = tokenVerified ? "green" : health?.status === "error" ? "red" : "amber";
+  const accent = chipColor(tone);
+  const border = tokenVerified
+    ? "rgba(0, 191, 179, 0.32)"
+    : tone === "red"
+      ? "rgba(239, 68, 68, 0.3)"
+      : "rgba(245, 158, 11, 0.28)";
+  const background = tokenVerified
+    ? "rgba(0, 191, 179, 0.07)"
+    : tone === "red"
+      ? "rgba(239, 68, 68, 0.07)"
+      : "rgba(245, 158, 11, 0.06)";
   async function save() {
     const trimmed = token.trim();
     if (!trimmed) return;
@@ -812,7 +938,6 @@ function ClaudeCredentialSetup({
     try {
       if (await onSave(trimmed)) {
         setToken("");
-        onTest();
       }
     } finally {
       setSaving(false);
@@ -834,25 +959,50 @@ function ClaudeCredentialSetup({
       style={{
         marginTop: 10,
         padding: 10,
-        border: "1px solid rgba(245, 158, 11, 0.28)",
+        border: `1px solid ${border}`,
         borderRadius: 10,
-        background: "rgba(245, 158, 11, 0.06)",
+        background,
       }}
     >
       <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", gap: 10, marginBottom: 8 }}>
         <div>
-          <div style={{ fontSize: 11, fontWeight: 600, color: "var(--amber)" }}>Claude Code guided setup</div>
+          <div style={{ display: "flex", alignItems: "center", gap: 7, fontSize: 11, fontWeight: 600, color: accent }}>
+            <Icon d={tokenVerified ? Icons.check : Icons.keys} size={12} />
+            {tokenVerified ? "Claude Code token verified" : configured ? "Claude Code token saved" : "Claude Code guided setup"}
+          </div>
           <div style={{ fontSize: 11, color: "var(--t2)", lineHeight: 1.4 }}>
-            Run <code>claude setup-token</code>, paste the token here, then Hecate injects it only into Claude ACP.
+            {tokenVerified
+              ? "Hecate has a validated adapter token and can inject it only into Claude ACP sessions. You can still paste a replacement token below."
+              : configured
+                ? "Hecate has a token saved, but Claude Code auth has not been verified yet."
+                : cliSignedIn
+                  ? "Claude Code is signed in for normal CLI use, but Hecate still needs its own adapter token. Run claude setup-token and paste the token here."
+                  : "Run claude setup-token, paste the token here, then Hecate injects it only into Claude ACP."}
+          </div>
+          <div style={{ marginTop: 5, display: "flex", flexWrap: "wrap", gap: 8, fontFamily: "var(--font-mono)", fontSize: 10 }}>
+            <span style={{ color: adapterReady ? "var(--teal)" : "var(--t3)" }}>
+              adapter {adapterReady ? "installed" : "not verified"}
+            </span>
+            <span style={{ color: tokenVerified ? "var(--teal)" : "var(--amber)" }}>
+              token {tokenVerified ? "valid" : configured ? "saved, needs check" : "not saved"}
+            </span>
+            {cliSignedIn && !tokenVerified && (
+              <span style={{ color: "var(--t3)" }}>CLI signed in</span>
+            )}
           </div>
         </div>
-        <button type="button" className="btn btn-ghost btn-sm" onClick={onCopyCommand}>
-          Copy command
-        </button>
+        {!tokenVerified && (
+          <button type="button" className="btn btn-ghost btn-sm" onClick={onCopyCommand}>
+            Copy command
+          </button>
+        )}
       </div>
       {configured && (
         <div style={{ display: "flex", alignItems: "center", gap: 8, marginBottom: 8, fontSize: 11, color: "var(--t2)" }}>
           <span>Stored token {preview ? <span style={{ fontFamily: "var(--font-mono)", color: "var(--t1)" }}>{preview}</span> : "configured"}</span>
+          {tokenVerified && <span style={{ color: "var(--teal)" }}>Token valid.</span>}
+          {!tokenVerified && health?.status === "auth_required" && <span style={{ color: "var(--amber)" }}>Token saved, but Claude still reports auth required.</span>}
+          {!tokenVerified && health?.status === "error" && <span style={{ color: "var(--red)" }}>Token saved, but the auth check failed.</span>}
           <button type="button" className="btn btn-ghost btn-sm" onClick={() => void remove()} disabled={removing}>
             {removing ? "Removing..." : "Remove"}
           </button>
@@ -862,14 +1012,14 @@ function ClaudeCredentialSetup({
         <input
           value={token}
           onChange={(event) => setToken(event.target.value)}
-          placeholder="Paste CLAUDE_CODE_OAUTH_TOKEN"
+          placeholder={configured ? "Paste a replacement CLAUDE_CODE_OAUTH_TOKEN" : "Paste CLAUDE_CODE_OAUTH_TOKEN"}
           type="password"
           className="input"
           style={{ flex: 1, minWidth: 180 }}
           aria-label="Claude Code OAuth token"
         />
         <button type="button" className="btn btn-primary btn-sm" onClick={() => void save()} disabled={saving || token.trim() === ""}>
-          {saving ? "Saving..." : "Save + test"}
+          {saving ? "Checking auth..." : "Save"}
         </button>
       </div>
     </div>

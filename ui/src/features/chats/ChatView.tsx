@@ -6,7 +6,7 @@ import { describeGatewayError, formatErrorCode } from "../../lib/error-diagnosti
 import { buildSelectedModelIssue } from "../../lib/provider-issues";
 import { describeCredentialState, describeHealthErrorClass, describeRoutingBlockedReason } from "../../lib/runtime-utils";
 import type { SelectedModelIssue } from "../../lib/provider-issues";
-import type { AgentAdapterRecord, AgentChatActivityRecord, AgentChatSegmentRecord, AgentChatSessionRecord, AgentChatTimingRecord, AgentChatUsageRecord, LocalProviderDiscoveryRecord, ProviderPresetRecord } from "../../types/runtime";
+import type { AgentAdapterHealthRecord, AgentAdapterRecord, AgentAdapterSetupCommandStatus, AgentChatActivityRecord, AgentChatSegmentRecord, AgentChatSessionRecord, AgentChatTimingRecord, AgentChatUsageRecord, LocalProviderDiscoveryRecord, ProviderPresetRecord } from "../../types/runtime";
 import { CompactProviderReadinessChecks } from "../shared/ProviderReadiness";
 import { AgentAdapterPicker, CodeBlock, Icon, Icons, InlineError, ModelPicker, ProviderPicker } from "../shared/ui";
 import { TranscriptMessageRow } from "../transcript/TranscriptMessageRow";
@@ -96,6 +96,8 @@ export function ChatView({ state, actions, onNavigate, onOpenTask, onOpenTrace }
   const [quickAddingProviders, setQuickAddingProviders] = useState(false);
   const [taskApprovalBusyID, setTaskApprovalBusyID] = useState("");
   const [capabilitySaving, setCapabilitySaving] = useState(false);
+  const [claudeTokenDraft, setClaudeTokenDraft] = useState("");
+  const [claudeTokenSaving, setClaudeTokenSaving] = useState(false);
   const isMac = typeof navigator !== "undefined" && /mac/i.test(navigator.platform);
   const modKey = isMac ? "⌘" : "Ctrl";
   const [modEnterMode, setModEnterMode] = useState(
@@ -194,6 +196,13 @@ export function ChatView({ state, actions, onNavigate, onOpenTask, onOpenTrace }
   const chatDiagnostic = describeGatewayError(state.chatErrorCode, state.chatErrorStatus ?? undefined);
   const activeAgentAdapterID = state.activeAgentChatSession?.adapter_id || state.agentAdapterID;
   const selectedAgent = state.agentAdapters.find((adapter) => adapter.id === activeAgentAdapterID);
+  const selectedAgentHealth = activeAgentAdapterID
+    ? state.agentAdapterHealthByID.get(activeAgentAdapterID) ?? null
+    : null;
+  const selectedAgentHealthLoading = activeAgentAdapterID
+    ? Boolean(state.agentAdapterHealthLoadingByID.get(activeAgentAdapterID))
+    : false;
+  const claudeCodePreflight = claudeCodePreflightState(selectedAgent, selectedAgentHealth);
   const availableAgents = state.agentAdapters.filter((adapter) => adapter.available);
   const configuredProviders = state.settingsConfig?.providers ?? [];
   const providerConfigLoaded = state.settingsConfig !== null;
@@ -256,13 +265,18 @@ export function ChatView({ state, actions, onNavigate, onOpenTask, onOpenTrace }
   const hecateChatModelReady = isHecateAgentChat && hecateAgentModelLocked
     ? Boolean(hecateChatModelValue)
     : Boolean(state.model) && !modelRouteUnavailable && !selectedModelIssue;
-  const composerVisible = isExternalAgentChat || (isHecateChat && hecateChatModelReady);
+  const showClaudeCodeEmptyPreflight = isExternalAgentChat
+    && !state.activeAgentChatSessionID
+    && visibleMessages.length === 0
+    && Boolean(claudeCodePreflight?.blockSend);
+  const composerVisible = (isExternalAgentChat || (isHecateChat && hecateChatModelReady)) && !showClaudeCodeEmptyPreflight;
   const agentBusy = isAgentChat && (streaming || hecateAgentBusy);
   const queueingMessage = agentBusy && Boolean(state.message.trim());
   const sendDisabled = !state.message.trim()
     || (!agentBusy && streaming)
     || (!isAgentChat && modelRouteUnavailable)
     || (!agentBusy && isExternalAgentChat && (!state.agentWorkspace.trim() || !selectedAgent?.available))
+    || (!agentBusy && isExternalAgentChat && Boolean(claudeCodePreflight?.blockSend))
     || (!agentBusy && isHecateAgentChat && (!state.agentWorkspace.trim() || !hecateChatModelReady || hecateAgentToolsDisabledForModel));
 
   async function enableToolsForSelectedModel() {
@@ -281,6 +295,32 @@ export function ChatView({ state, actions, onNavigate, onOpenTask, onOpenTrace }
       });
     } finally {
       setCapabilitySaving(false);
+    }
+  }
+
+  function openClaudeCodeSetup() {
+    try {
+      localStorage.setItem("hecate.settingsTab", "external_agents");
+      sessionStorage.setItem("hecate.settingsFocus", "claude-code-guided-setup");
+    } catch {
+      // localStorage / sessionStorage unavailable — navigation still
+      // works, just no auto-scroll to the guided setup card.
+    }
+    onNavigate?.("settings");
+  }
+
+  async function saveClaudeCodeToken() {
+    const token = claudeTokenDraft.trim();
+    if (!token || claudeTokenSaving) return;
+    setClaudeTokenSaving(true);
+    try {
+      const saved = await actions.setAgentAdapterCredential("claude_code", token, "CLAUDE_CODE_OAUTH_TOKEN");
+      if (saved) {
+        setClaudeTokenDraft("");
+        await actions.probeAgentAdapter("claude_code");
+      }
+    } finally {
+      setClaudeTokenSaving(false);
     }
   }
 
@@ -975,22 +1015,7 @@ export function ChatView({ state, actions, onNavigate, onOpenTask, onOpenTrace }
                     ? {
                         label: "Open Claude Code setup",
                         title: "Open Settings → External agents and scroll to the guided setup card",
-                        onClick: () => {
-                          // Pre-set the persisted Settings sub-tab so
-                          // SettingsView mounts directly on External
-                          // agents (rather than wherever the operator
-                          // last left it). The session flag drives a
-                          // one-shot scroll-into-view + highlight on
-                          // the guided setup card.
-                          try {
-                            localStorage.setItem("hecate.settingsTab", "external_agents");
-                            sessionStorage.setItem("hecate.settingsFocus", "claude-code-guided-setup");
-                          } catch {
-                            // localStorage / sessionStorage unavailable —
-                            // navigation still works, just no auto-scroll.
-                          }
-                          onNavigate?.("settings");
-                        },
+                        onClick: openClaudeCodeSetup,
                       }
                     : undefined
                 }
@@ -1064,6 +1089,8 @@ export function ChatView({ state, actions, onNavigate, onOpenTask, onOpenTrace }
               isAgentChat={isAgentChat}
               isHecateChat={isHecateChat}
               isExternalAgentChat={isExternalAgentChat}
+              claudeCodePreflight={showClaudeCodeEmptyPreflight ? claudeCodePreflight : null}
+              claudeCodePreflightLoading={selectedAgentHealthLoading}
               modelRouteUnavailable={modelRouteUnavailable}
               selectedModelIssue={selectedModelIssue}
               agentRouteUnavailable={isExternalAgentChat && agentRouteUnavailable}
@@ -1084,6 +1111,12 @@ export function ChatView({ state, actions, onNavigate, onOpenTask, onOpenTrace }
               onQuickAddLocalProviders={quickAddLocalProviders}
               onRefreshQuickLocalProviders={refreshQuickLocalProviders}
               onSwitchTarget={actions.setChatTarget}
+              claudeCodeCLI={selectedAgent?.claude_code_cli}
+              claudeTokenDraft={claudeTokenDraft}
+              claudeTokenSaving={claudeTokenSaving}
+              onClaudeTokenDraftChange={setClaudeTokenDraft}
+              onSaveClaudeCodeToken={() => void saveClaudeCodeToken()}
+              onTestClaudeCode={() => void actions.probeAgentAdapter("claude_code")}
             />
           )}
           <div ref={bottomRef} />
@@ -1127,6 +1160,16 @@ export function ChatView({ state, actions, onNavigate, onOpenTask, onOpenTrace }
           )}
           {composerVisible && (
           <>
+          {isExternalAgentChat && claudeCodePreflight && !showClaudeCodeEmptyPreflight && (
+            <ClaudeCodePreflightCard
+              state={claudeCodePreflight}
+              loading={selectedAgentHealthLoading}
+              onCopyInstall={() => void actions.copyCommand("npx -y @anthropic-ai/claude-code --version")}
+              onCopySetup={() => void actions.copyCommand(claudeCodeSetupTokenCommand(selectedAgent?.claude_code_cli))}
+              onOpenSetup={openClaudeCodeSetup}
+              onTest={() => void actions.probeAgentAdapter("claude_code")}
+            />
+          )}
           {isHecateAgentChat && hecateChatModelValue && hecateAgentToolsDisabledForModel && (
             <div style={{
               maxWidth: 820,
@@ -2033,6 +2076,8 @@ function ChatEmptyState({
   isAgentChat,
   isHecateChat,
   isExternalAgentChat,
+  claudeCodePreflight,
+  claudeCodePreflightLoading,
   modelRouteUnavailable,
   selectedModelIssue,
   agentRouteUnavailable,
@@ -2053,10 +2098,18 @@ function ChatEmptyState({
   onQuickAddLocalProviders,
   onRefreshQuickLocalProviders,
   onSwitchTarget,
+  claudeCodeCLI,
+  claudeTokenDraft,
+  claudeTokenSaving,
+  onClaudeTokenDraftChange,
+  onSaveClaudeCodeToken,
+  onTestClaudeCode,
 }: {
   isAgentChat: boolean;
   isHecateChat: boolean;
   isExternalAgentChat: boolean;
+  claudeCodePreflight: ClaudeCodePreflightState | null;
+  claudeCodePreflightLoading: boolean;
   modelRouteUnavailable: boolean;
   selectedModelIssue: SelectedModelIssue | null;
   agentRouteUnavailable: boolean;
@@ -2077,9 +2130,17 @@ function ChatEmptyState({
   onQuickAddLocalProviders: (providers: LocalProviderDiscoveryRecord[]) => void;
   onRefreshQuickLocalProviders: () => void;
   onSwitchTarget: (target: "model" | "agent" | "external_agent") => void;
+  claudeCodeCLI?: AgentAdapterSetupCommandStatus;
+  claudeTokenDraft: string;
+  claudeTokenSaving: boolean;
+  onClaudeTokenDraftChange: (value: string) => void;
+  onSaveClaudeCodeToken: () => void;
+  onTestClaudeCode: () => void;
 }) {
   const hecateModelUnavailable = isHecateChat && (modelRouteUnavailable || Boolean(selectedModelIssue));
-  const title = isAgentChat && selectedAgentUnavailable
+  const title = claudeCodePreflight
+      ? "Set up Claude Code"
+      : isAgentChat && selectedAgentUnavailable
       ? `${selectedAgent?.name || "Selected agent"} is unavailable`
       : isExternalAgentChat && agentRouteUnavailable
       ? "No available coding agent"
@@ -2090,7 +2151,9 @@ function ChatEmptyState({
         : hecateModelUnavailable
           ? "No routable model"
         : "Start a chat";
-  const detail = isAgentChat && selectedAgentUnavailable
+  const detail = claudeCodePreflight
+      ? "Claude Code needs its own adapter-visible credential before Hecate can start a session."
+      : isAgentChat && selectedAgentUnavailable
       ? `Hecate could not start ${selectedAgent?.name || "the selected agent"} because its CLI is not ready in this environment.`
       : isExternalAgentChat && agentRouteUnavailable
       ? "Hecate did not find any supported coding-agent CLI or local adapter runner in the known operator locations."
@@ -2106,6 +2169,18 @@ function ChatEmptyState({
     <div style={{ padding: "48px 16px", maxWidth: 820, margin: "0 auto", textAlign: "center" }}>
       <div style={{ fontSize: 13, fontWeight: 600, color: "var(--t1)", marginBottom: 5 }}>{title}</div>
       <div style={{ fontSize: 12, color: "var(--t3)", lineHeight: 1.5, maxWidth: 430, margin: "0 auto" }}>{detail}</div>
+      {claudeCodePreflight && (
+        <ClaudeCodeSetupEmptyPanel
+          state={claudeCodePreflight}
+          loading={claudeCodePreflightLoading}
+          cliStatus={claudeCodeCLI}
+          tokenDraft={claudeTokenDraft}
+          tokenSaving={claudeTokenSaving}
+          onTokenDraftChange={onClaudeTokenDraftChange}
+          onSaveToken={onSaveClaudeCodeToken}
+          onTest={onTestClaudeCode}
+        />
+      )}
       {isAgentChat && (agentRouteUnavailable || selectedAgentUnavailable) && (
         <AgentSetupHints adapters={agentAdapters} selectedID={selectedAgent?.id} />
       )}
@@ -2539,34 +2614,7 @@ function AgentSetupHints({ adapters, selectedID }: { adapters: AgentAdapterRecor
               alignItems: "start",
             }}
           >
-            <div style={{ minWidth: 0 }}>
-              <div style={{ display: "flex", alignItems: "center", gap: 6 }}>
-                <span style={{ color: adapter.available ? "var(--green)" : "var(--red)", display: "inline-flex", flexShrink: 0 }}>
-                  <Icon d={adapter.available ? Icons.check : Icons.x} size={11} />
-                </span>
-                <span style={{ fontSize: 12, fontWeight: 600, color: "var(--t1)", overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>
-                  {adapter.name}
-                </span>
-              </div>
-              <div style={{ marginTop: 3, fontFamily: "var(--font-mono)", fontSize: 10, color: "var(--t3)", overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>
-                {adapter.managed ? `managed ${adapter.managed_package || adapter.command}` : `checks ${adapter.command}`}
-              </div>
-            </div>
-            <div style={{ minWidth: 0, fontSize: 11, color: "var(--t2)", lineHeight: 1.45 }}>
-              <div style={{ color: adapter.available ? "var(--green)" : "var(--t1)" }}>
-                {adapter.available ? agentReadyLabel(adapter) : hint.action}
-              </div>
-              {!adapter.available && adapter.error && (
-                <div style={{ marginTop: 3, fontFamily: "var(--font-mono)", fontSize: 10, color: "var(--t3)", overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>
-                  {adapter.error}
-                </div>
-              )}
-              {adapter.docs_url && (
-                <a href={adapter.docs_url} target="_blank" rel="noreferrer" style={{ display: "inline-flex", marginTop: 5, color: "var(--teal)", textDecoration: "none" }}>
-                  setup docs
-                </a>
-              )}
-            </div>
+            <ExternalAgentSetupSummary adapter={adapter} hint={hint} />
           </div>
         );
       })}
@@ -2574,16 +2622,501 @@ function AgentSetupHints({ adapters, selectedID }: { adapters: AgentAdapterRecor
   );
 }
 
-function agentSetupHint(adapter: AgentAdapterRecord): { action: string } {
+function ExternalAgentSetupSummary({
+  adapter,
+  hint,
+}: {
+  adapter: AgentAdapterRecord;
+  hint: ReturnType<typeof agentSetupHint>;
+}) {
+  return (
+    <>
+      <div style={{ minWidth: 0 }}>
+        <div style={{ display: "flex", alignItems: "center", gap: 6 }}>
+          <span style={{ color: adapter.available ? "var(--green)" : "var(--red)", display: "inline-flex", flexShrink: 0 }}>
+            <Icon d={adapter.available ? Icons.check : Icons.x} size={11} />
+          </span>
+          <span style={{ fontSize: 12, fontWeight: 600, color: "var(--t1)", overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>
+            {adapter.name}
+          </span>
+        </div>
+        <div style={{ marginTop: 3, fontFamily: "var(--font-mono)", fontSize: 10, color: "var(--t3)", overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>
+          {hint.label}
+        </div>
+      </div>
+      <div style={{ minWidth: 0, fontSize: 11, color: "var(--t2)", lineHeight: 1.45 }}>
+        <div style={{ color: adapter.available ? "var(--green)" : "var(--t1)" }}>
+          {adapter.available ? agentReadyLabel(adapter) : hint.action}
+        </div>
+        {!adapter.available && hint.commands.length > 0 && (
+          <div style={{ display: "flex", flexWrap: "wrap", gap: 8, marginTop: 7 }}>
+            {hint.commands.map((command) => (
+              <CopyCommandLink key={command.command} command={command.command} label={command.label} />
+            ))}
+          </div>
+        )}
+        {!adapter.available && adapter.error && (
+          <div style={{ marginTop: 6, fontFamily: "var(--font-mono)", fontSize: 10, color: "var(--t3)", overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>
+            {adapter.error}
+          </div>
+        )}
+        {hint.note && (
+          <div style={{ marginTop: 5, color: "var(--t3)" }}>{hint.note}</div>
+        )}
+        {adapter.docs_url && (
+          <a href={adapter.docs_url} target="_blank" rel="noreferrer" style={{ display: "inline-flex", marginTop: 5, color: "var(--teal)", textDecoration: "none" }}>
+            setup docs
+          </a>
+        )}
+      </div>
+    </>
+  );
+}
+
+function CopyCommandLink({ command, label }: { command: string; label?: string }) {
+  async function copyCommand() {
+    try {
+      await navigator.clipboard?.writeText(command);
+    } catch {
+      // Clipboard access can be unavailable in tests or locked-down
+      // webviews. The command remains visible and selectable.
+    }
+  }
+  return (
+    <button
+      type="button"
+      onClick={() => void copyCommand()}
+      title={`Copy ${command}`}
+      style={{
+        display: "inline-flex",
+        alignItems: "center",
+        gap: 5,
+        border: 0,
+        background: "transparent",
+        color: "var(--teal)",
+        padding: 0,
+        cursor: "pointer",
+        fontFamily: "var(--font-mono)",
+        fontSize: 11,
+      }}
+    >
+      <span>{label || command}</span>
+      <Icon d={Icons.copy} size={11} />
+    </button>
+  );
+}
+
+type ClaudeCodePreflightState = {
+  title: string;
+  body: string;
+  detail?: string;
+  blockSend: boolean;
+  tone: "amber" | "red";
+  adapterInstalled: boolean;
+  tokenStatus: "not_saved" | "saved_needs_check" | "invalid";
+  cliSignedIn: boolean;
+};
+
+function claudeCodePreflightState(
+  adapter: AgentAdapterRecord | undefined,
+  health: AgentAdapterHealthRecord | null,
+): ClaudeCodePreflightState | null {
+  if (!adapter || adapter.id !== "claude_code") return null;
+  const hasSavedCredential = Boolean(adapter.credential_configured);
+  const cliSignedIn = adapter.auth_status === "ok";
+  const adapterInstalled = adapter.available && health?.status !== "not_installed";
+  const tokenVerified = hasSavedCredential && health?.status === "ready";
+  const tokenStatus: ClaudeCodePreflightState["tokenStatus"] = hasSavedCredential
+    ? (health?.status === "auth_required" || health?.status === "error" ? "invalid" : "saved_needs_check")
+    : "not_saved";
+  if (tokenVerified) {
+    return null;
+  }
+  const base = { adapterInstalled, tokenStatus, cliSignedIn };
+
+  if (!adapter.available || health?.status === "not_installed") {
+    return {
+      title: "Set up Claude Code before sending",
+      body: "Install Claude Code, then paste the one-time token printed in Terminal by `claude setup-token`.",
+      detail: health?.hint || adapter.error || "Hecate can manage the ACP launcher, but the Claude Code CLI still needs to be installed and signed in.",
+      blockSend: true,
+      tone: "amber",
+      ...base,
+    };
+  }
+
+  if (health?.status === "auth_required" || (adapter.auth_status === "unauthenticated" && hasSavedCredential)) {
+    return {
+      title: "Claude Code needs sign-in",
+      body: "Hecate has a Claude Code token saved, but the adapter still reports authentication required. Generate a fresh token and save it here.",
+      detail: health?.hint || adapter.auth_error,
+      blockSend: true,
+      tone: "amber",
+      ...base,
+    };
+  }
+
+  if (adapter.auth_status === "billing") {
+    return {
+      title: "Claude Code billing needs attention",
+      body: "Claude Code reported a billing or subscription problem. Test the adapter, then fix the Claude account before sending.",
+      detail: adapter.auth_error || health?.hint || health?.error,
+      blockSend: true,
+      tone: "red",
+      ...base,
+    };
+  }
+
+  if (!hasSavedCredential) {
+    return {
+      title: "Set up Claude Code token before sending",
+      body: cliSignedIn
+        ? "Claude Code is signed in for normal CLI use, but Hecate needs its own adapter token before it can start Claude ACP sessions."
+        : "Claude Code needs an adapter-visible token before Hecate can start Claude ACP sessions.",
+      detail: adapter.auth_error || health?.hint || health?.error,
+      blockSend: true,
+      tone: "amber",
+      ...base,
+    };
+  }
+
+  return {
+    title: "Check Claude Code setup before sending",
+    body: "Hecate has a Claude Code token saved, but it has not been verified by the adapter yet. Check auth or save a fresh token before sending.",
+    detail: adapter.auth_error || health?.hint || health?.error,
+    blockSend: true,
+    tone: "amber",
+    ...base,
+  };
+}
+
+function ClaudeCodeSetupFacts({ state }: { state: ClaudeCodePreflightState }) {
+  const tokenLabel = state.tokenStatus === "not_saved"
+    ? "token not saved"
+    : state.tokenStatus === "invalid"
+      ? "token invalid"
+      : "token saved, needs check";
+  const tokenColor = state.tokenStatus === "invalid" ? "var(--danger)" : "var(--amber)";
+  return (
+    <div style={{ display: "flex", flexWrap: "wrap", gap: 8, fontFamily: "var(--font-mono)", fontSize: 10, marginTop: 5 }}>
+      <span style={{ color: state.adapterInstalled ? "var(--teal)" : "var(--t3)" }}>
+        adapter {state.adapterInstalled ? "installed" : "not installed"}
+      </span>
+      <span style={{ color: tokenColor }}>{tokenLabel}</span>
+      {state.cliSignedIn && <span style={{ color: "var(--t3)" }}>CLI signed in</span>}
+    </div>
+  );
+}
+
+function claudeCodeSetupTokenCommand(status?: AgentAdapterSetupCommandStatus): string {
+  if (status?.path && status.path.includes("@anthropic-ai/claude-code")) {
+    return `${status.path} setup-token`;
+  }
+  if (!status?.available) {
+    return "npx -y @anthropic-ai/claude-code setup-token";
+  }
+  return "claude setup-token";
+}
+
+function ClaudeCodePreflightCard({
+  state,
+  loading,
+  onCopyInstall,
+  onCopySetup,
+  onOpenSetup,
+  onTest,
+}: {
+  state: ClaudeCodePreflightState;
+  loading: boolean;
+  onCopyInstall: () => void;
+  onCopySetup: () => void;
+  onOpenSetup: () => void;
+  onTest: () => void;
+}) {
+  const color = state.tone === "red" ? "var(--danger)" : "var(--amber)";
+  const border = state.tone === "red" ? "rgba(239, 68, 68, 0.32)" : "rgba(245, 191, 79, 0.35)";
+  const background = state.tone === "red" ? "rgba(239, 68, 68, 0.08)" : "rgba(245, 191, 79, 0.08)";
+
+  return (
+    <div
+      data-testid="claude-code-preflight"
+      style={{
+        maxWidth: 820,
+        margin: "0 auto 8px",
+        border: `1px solid ${border}`,
+        borderRadius: "var(--radius-sm)",
+        background,
+        padding: "9px 10px",
+        display: "grid",
+        gap: 8,
+      }}
+    >
+      <div style={{ display: "flex", alignItems: "flex-start", justifyContent: "space-between", gap: 12 }}>
+        <div style={{ minWidth: 0 }}>
+          <div style={{ color, fontWeight: 700, fontSize: 12 }}>
+            {state.title}
+          </div>
+          <div style={{ color: "var(--t1)", fontSize: 12, lineHeight: 1.45, marginTop: 3 }}>
+            {state.body}
+          </div>
+          {state.detail && (
+            <div style={{ color: "var(--t3)", fontSize: 11, lineHeight: 1.4, marginTop: 4 }}>
+              {state.detail}
+            </div>
+          )}
+          <ClaudeCodeSetupFacts state={state} />
+        </div>
+        <button type="button" className="btn btn-primary btn-sm" onClick={onOpenSetup} style={{ flexShrink: 0 }}>
+          Open setup
+        </button>
+      </div>
+      <div style={{ display: "flex", alignItems: "center", flexWrap: "wrap", gap: 6 }}>
+        <button type="button" className="btn btn-ghost btn-sm" onClick={onCopyInstall}>
+          Copy check command
+        </button>
+        <button type="button" className="btn btn-ghost btn-sm" onClick={onCopySetup}>
+          Copy setup command
+        </button>
+        <button type="button" className="btn btn-ghost btn-sm" onClick={onTest} disabled={loading}>
+          {loading ? "Checking auth..." : "Check auth"}
+        </button>
+      </div>
+    </div>
+  );
+}
+
+function ClaudeCodeSetupEmptyPanel(props: {
+  state: ClaudeCodePreflightState;
+  loading: boolean;
+  cliStatus?: AgentAdapterSetupCommandStatus;
+  tokenDraft: string;
+  tokenSaving: boolean;
+  onTokenDraftChange: (value: string) => void;
+  onSaveToken: () => void;
+  onTest: () => void;
+}) {
+  const commandStatus = props.cliStatus;
+  const claudeInstalled = Boolean(commandStatus?.available);
+  const tokenCommand = claudeCodeSetupTokenCommand(commandStatus);
+  const canSave = props.tokenDraft.trim().length > 0 && !props.tokenSaving;
+  return (
+    <div style={{
+      // Match the local-provider onboarding surface: the empty state
+      // is the setup flow, while the composer stays out of the way
+      // until the external agent can actually run.
+      margin: "18px auto 0",
+      maxWidth: 620,
+      textAlign: "left",
+      border: "1px solid var(--border)",
+      borderRadius: "var(--radius)",
+      background: "var(--bg2)",
+      overflow: "hidden",
+    }} data-testid="claude-code-preflight">
+      <ClaudeCodeSetupRow
+        label="Install"
+        title="Prepare Claude Code"
+        detail="Hecate can run Claude Code through npx; a global `claude` install also works."
+        command="npx -y @anthropic-ai/claude-code --version"
+        done={claudeInstalled}
+        statusText={claudeInstalled ? `Available${commandStatus?.path ? ` via ${commandStatus.path}` : ""}` : undefined}
+      />
+      <ClaudeCodeSetupRow
+        label="Auth"
+        title="Create an adapter token"
+        detail="Copy this command into Terminal. After you click Authorize in the browser, return to Terminal and copy the token printed there. It is shown only once."
+        command={tokenCommand}
+      />
+      <div style={{
+        padding: "10px 12px",
+        borderTop: "1px solid var(--border)",
+        display: "grid",
+        gridTemplateColumns: "minmax(120px, 0.7fr) minmax(0, 1.3fr)",
+        gap: 10,
+        alignItems: "start",
+      }}>
+        <div style={{ minWidth: 0 }}>
+          <div style={{ display: "flex", alignItems: "center", gap: 6 }}>
+            <span style={{ color: "var(--amber)", display: "inline-flex", flexShrink: 0 }}>
+              <Icon d={Icons.keys} size={11} />
+            </span>
+            <span style={{ fontSize: 12, fontWeight: 600, color: "var(--t1)" }}>
+              Save token
+            </span>
+          </div>
+          <div style={{ marginTop: 3, fontFamily: "var(--font-mono)", fontSize: 10, color: "var(--t3)" }}>
+            CLAUDE_CODE_OAUTH_TOKEN
+          </div>
+        </div>
+        <div style={{ minWidth: 0, fontSize: 11, color: "var(--t2)", lineHeight: 1.45 }}>
+          <div>Paste the token from Terminal here. If you closed Terminal or missed the token, run the token command again to generate a fresh one.</div>
+          <div style={{ marginTop: 4, color: "var(--t3)" }}>
+            Save validates the token with Claude Code before Hecate stores it.
+          </div>
+          {props.state.detail && (
+            <div style={{ marginTop: 4, color: "var(--t3)" }}>{props.state.detail}</div>
+          )}
+          <ClaudeCodeSetupFacts state={props.state} />
+          <input
+            aria-label="Claude Code OAuth token"
+            value={props.tokenDraft}
+            onChange={(event) => props.onTokenDraftChange(event.currentTarget.value)}
+            placeholder="Paste token from claude setup-token"
+            type="password"
+            spellCheck={false}
+            autoComplete="off"
+            style={{
+              width: "100%",
+              marginTop: 8,
+              border: "1px solid var(--border)",
+              borderRadius: "var(--radius-sm)",
+              background: "var(--bg1)",
+              color: "var(--t1)",
+              padding: "7px 8px",
+              fontFamily: "var(--font-mono)",
+              fontSize: 11,
+              outline: "none",
+            }}
+          />
+          <div style={{ display: "flex", gap: 6, flexWrap: "wrap", marginTop: 8 }}>
+            <button type="button" className="btn btn-primary btn-sm" onClick={props.onSaveToken} disabled={!canSave}>
+              {props.tokenSaving ? "Checking auth..." : "Save"}
+            </button>
+            <button type="button" className="btn btn-ghost btn-sm" onClick={props.onTest} disabled={props.loading}>
+              {props.loading ? "Checking auth..." : "Check auth"}
+            </button>
+          </div>
+        </div>
+      </div>
+    </div>
+  );
+}
+
+function ClaudeCodeSetupRow({
+  label,
+  title,
+  detail,
+  command,
+  done = false,
+  statusText,
+}: {
+  label: string;
+  title: string;
+  detail: string;
+  command: string;
+  done?: boolean;
+  statusText?: string;
+}) {
+  async function copyCommand() {
+    try {
+      await navigator.clipboard?.writeText(command);
+    } catch {
+      // Clipboard access can be unavailable in tests or locked-down
+      // webviews. The command is still visible and selectable.
+    }
+  }
+
+  return (
+    <div style={{
+      padding: "10px 12px",
+      borderTop: label === "Install" ? 0 : "1px solid var(--border)",
+      display: "grid",
+      gridTemplateColumns: "minmax(120px, 0.7fr) minmax(0, 1.3fr)",
+      gap: 10,
+      alignItems: "start",
+    }}>
+      <div style={{ minWidth: 0 }}>
+        <div style={{ display: "flex", alignItems: "center", gap: 6 }}>
+          <span style={{ color: done ? "var(--green)" : "var(--teal)", display: "inline-flex", flexShrink: 0 }}>
+            <Icon d={done ? Icons.check : Icons.terminal} size={11} />
+          </span>
+          <span style={{ fontSize: 12, fontWeight: 600, color: "var(--t1)" }}>
+            {title}
+          </span>
+        </div>
+        <div style={{ marginTop: 3, fontFamily: "var(--font-mono)", fontSize: 10, color: "var(--t3)" }}>
+          {label}
+        </div>
+      </div>
+      <div style={{ minWidth: 0, fontSize: 11, color: "var(--t2)", lineHeight: 1.45 }}>
+        <div>{detail}</div>
+        {done ? (
+          <div style={{ marginTop: 7 }}>
+            <code style={{ fontFamily: "var(--font-mono)", color: "var(--t2)" }}>{command}</code>
+            {statusText && <div style={{ marginTop: 4, color: "var(--green)" }}>{statusText}</div>}
+          </div>
+        ) : (
+          <button
+            type="button"
+            onClick={() => void copyCommand()}
+            style={{
+              display: "inline-flex",
+              alignItems: "center",
+              gap: 6,
+              marginTop: 8,
+              padding: 0,
+              border: 0,
+              background: "transparent",
+              color: "var(--teal)",
+              cursor: "pointer",
+              fontFamily: "var(--font-mono)",
+              fontSize: 11,
+              maxWidth: "100%",
+              overflow: "hidden",
+              textOverflow: "ellipsis",
+            }}
+            title={`Copy ${command}`}
+          >
+            <span style={{ overflow: "hidden", textOverflow: "ellipsis" }}>{command}</span>
+            <Icon d={Icons.copy} size={12} />
+          </button>
+        )}
+      </div>
+    </div>
+  );
+}
+
+function agentSetupHint(adapter: AgentAdapterRecord): {
+  label: string;
+  action: string;
+  commands: Array<{ command: string; label?: string }>;
+  note?: string;
+} {
   switch (adapter.id) {
     case "codex":
-      return { action: "Install Node/npm so Hecate can create its managed Codex ACP launcher, then authenticate the underlying Codex CLI." };
+      return {
+        label: adapter.managed ? `managed ${adapter.managed_package || adapter.command}` : `checks ${adapter.command}`,
+        action: "Install and sign in to Codex. Hecate manages the ACP launcher separately when Node/npm is available.",
+        commands: [
+          { command: "npm install -g @openai/codex", label: "npm install -g @openai/codex" },
+          { command: "codex login", label: "codex login" },
+        ],
+        note: "No Hecate token is needed; Codex uses its own CLI login or OpenAI API key.",
+      };
     case "claude_code":
-      return { action: "Install Node/npm so Hecate can create its managed Claude ACP launcher, then authenticate the underlying Claude agent." };
+      return {
+        label: adapter.managed ? `managed ${adapter.managed_package || adapter.command}` : `checks ${adapter.command}`,
+        action: "Prepare Claude Code through npx or a global install, create a one-time adapter token, then paste it in the guided setup above.",
+        commands: [
+          { command: "npx -y @anthropic-ai/claude-code --version", label: "check with npx" },
+          { command: "npx -y @anthropic-ai/claude-code setup-token", label: "create token with npx" },
+        ],
+        note: "Claude Code needs a Hecate-visible token even if the normal CLI is already signed in.",
+      };
     case "cursor_agent":
-      return { action: "Install Cursor Agent, make sure `cursor-agent` is on PATH, then run `cursor-agent login` or set `CURSOR_API_KEY`." };
+      return {
+        label: `checks ${adapter.command}`,
+        action: "Install Cursor Agent from Cursor, make sure `cursor-agent` is on PATH, then sign in.",
+        commands: [
+          { command: "cursor-agent login", label: "cursor-agent login" },
+        ],
+        note: "You can also set CURSOR_API_KEY for the adapter environment.",
+      };
     default:
-      return { action: `Install ${adapter.name}, make sure \`${adapter.command}\` is on PATH, then refresh this view.` };
+      return {
+        label: adapter.managed ? `managed ${adapter.managed_package || adapter.command}` : `checks ${adapter.command}`,
+        action: `Install ${adapter.name}, make sure \`${adapter.command}\` is on PATH, then refresh this view.`,
+        commands: [],
+      };
   }
 }
 

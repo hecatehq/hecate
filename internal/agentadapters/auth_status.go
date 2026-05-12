@@ -1,13 +1,18 @@
 package agentadapters
 
 import (
+	"bytes"
+	"context"
+	"encoding/json"
 	"os"
+	"os/exec"
 	"path/filepath"
 	"strings"
+	"time"
 )
 
 // DetectAuthStatus is a lightweight dashboard hint. It deliberately avoids
-// spawning the adapter; the Settings "Test" action runs the full ACP probe.
+// spawning the adapter; Settings refreshes the full ACP probe when opened.
 func DetectAuthStatus(adapter Adapter) (string, string) {
 	switch adapter.ID {
 	case "codex":
@@ -19,10 +24,15 @@ func DetectAuthStatus(adapter Adapter) (string, string) {
 		if envAny("ANTHROPIC_API_KEY", "ANTHROPIC_AUTH_TOKEN", "CLAUDE_CODE_OAUTH_TOKEN") {
 			return AuthStatusOK, ""
 		}
-		if fileAny("${HOME}/.claude.json", "${HOME}/.claude/settings.json", "${HOME}/.claude/.credentials.json") {
-			return AuthStatusUnknown, "Claude Code config is present on disk, but the ACP adapter may need its own token. Use Test adapter to check; if it fails, open the guided setup card below."
+		if ok, checked := detectClaudeCLIAuthStatus(); ok {
+			return AuthStatusOK, ""
+		} else if checked {
+			return AuthStatusUnauthenticated, "Run `claude auth login` or use the guided setup card below to paste a token from `claude setup-token`."
 		}
-		return AuthStatusUnknown, "Use Test adapter to check. If Claude Code reports a sign-in error, open the guided setup card below to paste a token from `claude setup-token`."
+		if fileAny("${HOME}/.claude.json", "${HOME}/.claude/settings.json", "${HOME}/.claude/.credentials.json") {
+			return AuthStatusUnknown, "Claude Code config is present on disk, but Hecate could not verify the CLI auth status. Open Settings to refresh adapter readiness; if it fails, use the guided setup card below."
+		}
+		return AuthStatusUnknown, "Open Settings to verify Claude Code. If it reports a sign-in error, use the guided setup card below to paste a token from `claude setup-token`."
 	case "cursor_agent":
 		if envAny("CURSOR_API_KEY") || fileAny("${HOME}/.cursor", "${HOME}/Library/Application Support/Cursor") {
 			return AuthStatusOK, ""
@@ -57,6 +67,37 @@ func DetectAuthStatus(adapter Adapter) (string, string) {
 // Code, with the setup card scrolled into view).
 func claudeCodeAuthErrorMessage() string {
 	return "Claude Code isn't signed in. This is a separate credential from the Anthropic key in the Providers tab — Claude Code runs as its own program. Click the button below to paste a token from `claude setup-token` into the guided setup card. No restart needed. (claude_code_auth_required)"
+}
+
+var runClaudeAuthStatus = defaultRunClaudeAuthStatus
+
+type claudeAuthStatusPayload struct {
+	LoggedIn bool `json:"loggedIn"`
+}
+
+func detectClaudeCLIAuthStatus() (ok bool, checked bool) {
+	out, err := runClaudeAuthStatus()
+	if err != nil || strings.TrimSpace(out) == "" {
+		return false, false
+	}
+	var payload claudeAuthStatusPayload
+	if err := json.Unmarshal([]byte(out), &payload); err != nil {
+		return false, false
+	}
+	return payload.LoggedIn, true
+}
+
+func defaultRunClaudeAuthStatus() (string, error) {
+	ctx, cancel := context.WithTimeout(context.Background(), 2*time.Second)
+	defer cancel()
+	cmd := exec.CommandContext(ctx, "claude", "auth", "status")
+	cmd.Env = sanitizedEnv(os.Environ())
+	var stdout bytes.Buffer
+	cmd.Stdout = &stdout
+	if err := cmd.Run(); err != nil {
+		return "", err
+	}
+	return stdout.String(), nil
 }
 
 func envAny(names ...string) bool {

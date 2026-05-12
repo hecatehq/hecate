@@ -1085,6 +1085,26 @@ func TestAgentAdaptersReturnsBuiltIns(t *testing.T) {
 	}
 }
 
+func TestAgentAdaptersHonorsDiscoveryOverride(t *testing.T) {
+	t.Setenv("GATEWAY_AGENT_ADAPTER_DISCOVERY_OVERRIDES", "all=missing")
+
+	logger := slog.New(slog.NewJSONHandler(io.Discard, nil))
+	handler := NewServer(logger, NewHandler(config.Config{}, logger, nil, nil, nil, nil))
+	client := newAPITestClient(t, handler)
+	response := mustRequestJSON[AgentAdapterResponse](client, http.MethodGet, "/hecate/v1/agent-adapters", "")
+	if len(response.Data) != 3 {
+		t.Fatalf("adapter count = %d, want 3", len(response.Data))
+	}
+	for _, item := range response.Data {
+		if item.Available || item.Status != agentadapters.StatusMissing || item.Path != "" {
+			t.Fatalf("adapter %q = %#v, want forced missing", item.ID, item)
+		}
+		if !strings.Contains(item.Error, "GATEWAY_AGENT_ADAPTER_DISCOVERY_OVERRIDES") {
+			t.Fatalf("adapter %q error = %q, want discovery override marker", item.ID, item.Error)
+		}
+	}
+}
+
 func TestAgentChatRunsExternalAdapter(t *testing.T) {
 	dir := t.TempDir()
 	if _, err := exec.LookPath("git"); err == nil {

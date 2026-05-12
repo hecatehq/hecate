@@ -595,27 +595,33 @@ type LocalProviderDiscoveryResponseItem struct {
 }
 
 type AgentAdapterResponseItem struct {
-	ID                   string   `json:"id"`
-	Name                 string   `json:"name"`
-	Kind                 string   `json:"kind"`
-	Command              string   `json:"command"`
-	Args                 []string `json:"args,omitempty"`
-	Managed              bool     `json:"managed,omitempty"`
-	ManagedPackage       string   `json:"managed_package,omitempty"`
-	Available            bool     `json:"available"`
-	Status               string   `json:"status"`
-	Path                 string   `json:"path,omitempty"`
-	Error                string   `json:"error,omitempty"`
-	Description          string   `json:"description,omitempty"`
-	CostMode             string   `json:"cost_mode,omitempty"`
-	DocsURL              string   `json:"docs_url,omitempty"`
-	Version              string   `json:"version,omitempty"`
-	SupportedRange       string   `json:"supported_range,omitempty"`
-	VersionOutsideRange  bool     `json:"version_outside_range,omitempty"`
-	AuthStatus           string   `json:"auth_status,omitempty"`
-	AuthError            string   `json:"auth_error,omitempty"`
-	CredentialConfigured bool     `json:"credential_configured,omitempty"`
-	CredentialPreview    string   `json:"credential_preview,omitempty"`
+	ID                   string                              `json:"id"`
+	Name                 string                              `json:"name"`
+	Kind                 string                              `json:"kind"`
+	Command              string                              `json:"command"`
+	Args                 []string                            `json:"args,omitempty"`
+	Managed              bool                                `json:"managed,omitempty"`
+	ManagedPackage       string                              `json:"managed_package,omitempty"`
+	Available            bool                                `json:"available"`
+	Status               string                              `json:"status"`
+	Path                 string                              `json:"path,omitempty"`
+	Error                string                              `json:"error,omitempty"`
+	Description          string                              `json:"description,omitempty"`
+	CostMode             string                              `json:"cost_mode,omitempty"`
+	DocsURL              string                              `json:"docs_url,omitempty"`
+	Version              string                              `json:"version,omitempty"`
+	SupportedRange       string                              `json:"supported_range,omitempty"`
+	VersionOutsideRange  bool                                `json:"version_outside_range,omitempty"`
+	AuthStatus           string                              `json:"auth_status,omitempty"`
+	AuthError            string                              `json:"auth_error,omitempty"`
+	CredentialConfigured bool                                `json:"credential_configured,omitempty"`
+	CredentialPreview    string                              `json:"credential_preview,omitempty"`
+	ClaudeCodeCLI        *AgentAdapterSetupCommandStatusItem `json:"claude_code_cli,omitempty"`
+}
+
+type AgentAdapterSetupCommandStatusItem struct {
+	Available bool   `json:"available"`
+	Path      string `json:"path,omitempty"`
 }
 
 type AgentAdapterCredentialSetRequest struct {

@@ -70,7 +70,8 @@ type Handler struct {
 	// through to agentadapters.Probe; tests install a fake via
 	// SetAgentAdapterProbe so they can exercise the handler without
 	// spawning real ACP binaries.
-	agentAdapterProbe AgentAdapterProbe
+	agentAdapterProbe    AgentAdapterProbe
+	agentAdapterEnvProbe AgentAdapterEnvProbe
 }
 
 // approvalConfig bundles everything the coordinator needs apart from
