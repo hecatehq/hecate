@@ -1975,6 +1975,7 @@ func TestAgentChatSnapshotIncludesDurationAndIdleLimits(t *testing.T) {
 		AgentChatIdleTimeout:        30 * time.Minute,
 	}}
 	apiHandler := newTestAPIHandlerWithSettings(logger, []providers.Provider{&fakeProvider{}}, cfg, nil)
+	apiHandler.SetAgentChatRunner(&fakeAgentChatRunner{output: "ok"})
 	client := newAPITestClient(t, NewServer(logger, apiHandler))
 
 	created := mustRequestJSON[AgentChatSessionResponse](client, http.MethodPost, "/hecate/v1/agent-chat/sessions", fmt.Sprintf(`{"adapter_id":"codex","workspace":%q}`, dir))

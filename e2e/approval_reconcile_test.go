@@ -68,10 +68,11 @@ func TestApprovalReconcilePersistsAndFlipsAcrossRestart(t *testing.T) {
 	}
 	waitHealthy(t, "http://"+addr1, gatewayStartupTimeout)
 
-	// Create an agent-chat session via the API so the row we insert
-	// below references a valid session_id (the API list endpoint
-	// gates on session existence).
-	sessionID := mustCreateAgentChatSession(t, "http://"+addr1)
+	// Create a persisted agent-chat session directly so the row we
+	// insert below references a valid session_id. The approval
+	// reconcile contract doesn't need a live ACP subprocess, and CI
+	// runners intentionally do not carry operator auth for Codex.
+	sessionID := injectAgentChatSession(t, dbPath)
 
 	if err := cmd1.Process.Kill(); err != nil {
 		t.Fatalf("kill first run: %v", err)
@@ -154,7 +155,7 @@ func TestApprovalGrantPersistsAcrossRestart(t *testing.T) {
 	waitHealthy(t, "http://"+addr1, gatewayStartupTimeout)
 
 	base1 := "http://" + addr1
-	sessionID := mustCreateAgentChatSession(t, base1)
+	sessionID := injectAgentChatSession(t, dbPath)
 	approvalID := injectPendingApproval(t, dbPath, sessionID)
 	mustResolveApproval(t, base1, sessionID, approvalID, `{"decision":"approve","scope":"session"}`)
 
@@ -212,30 +213,45 @@ type apiGrant struct {
 	Decision  string `json:"decision"`
 }
 
-func mustCreateAgentChatSession(t *testing.T, baseURL string) string {
+func injectAgentChatSession(t *testing.T, dbPath string) string {
 	t.Helper()
-	body := strings.NewReader(`{"title":"reconcile smoke","adapter_id":"codex","workspace":"/tmp"}`)
-	resp, err := http.Post(baseURL+"/hecate/v1/agent-chat/sessions", "application/json", body)
+
+	db, err := sql.Open("sqlite", dbPath)
 	if err != nil {
-		t.Fatalf("create session: %v", err)
+		t.Fatalf("open sqlite: %v", err)
 	}
-	defer resp.Body.Close()
-	if resp.StatusCode != http.StatusOK {
-		raw, _ := io.ReadAll(resp.Body)
-		t.Fatalf("create session status = %d; body=%s", resp.StatusCode, raw)
+	defer db.Close()
+
+	now := time.Now().UTC()
+	sessionID := "agent_chat_e2e_" + fmt.Sprintf("%d", now.UnixNano())
+	_, err = db.Exec(
+		`INSERT INTO hecate_agent_chat_sessions (
+			id, title, runtime_kind, adapter_id, driver_kind, native_session_id, workspace, workspace_branch,
+			status, task_id, latest_run_id, provider, model, capabilities, config_options, turns_used, created_at, updated_at
+		) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+		sessionID,
+		"reconcile smoke",
+		"external_agent",
+		"codex",
+		"acp",
+		"native_e2e",
+		"/tmp",
+		"",
+		"idle",
+		"",
+		"",
+		"",
+		"",
+		"{}",
+		"[]",
+		0,
+		now,
+		now,
+	)
+	if err != nil {
+		t.Fatalf("insert agent chat session: %v", err)
 	}
-	var env struct {
-		Data struct {
-			ID string `json:"id"`
-		} `json:"data"`
-	}
-	if err := json.NewDecoder(resp.Body).Decode(&env); err != nil {
-		t.Fatalf("decode session: %v", err)
-	}
-	if env.Data.ID == "" {
-		t.Fatal("session id missing")
-	}
-	return env.Data.ID
+	return sessionID
 }
 
 func mustResolveApproval(t *testing.T, baseURL, sessionID, approvalID, body string) {
