@@ -6,10 +6,10 @@ import (
 	"io"
 	"log/slog"
 	"strings"
-	"sync/atomic"
 	"testing"
 	"time"
 
+	"github.com/hecate/agent-runtime/internal/agentadapters"
 	"github.com/hecate/agent-runtime/internal/config"
 	"github.com/hecate/agent-runtime/internal/mcp"
 	mcpclient "github.com/hecate/agent-runtime/internal/mcp/client"
@@ -52,6 +52,22 @@ func (e *blockingShutdownExecutor) Execute(context.Context, orchestrator.Executi
 	close(e.started)
 	<-e.release
 	return &orchestrator.ExecutionResult{Status: "cancelled"}, nil
+}
+
+type failingShutdownAgentChatRunner struct {
+	err error
+}
+
+func (r failingShutdownAgentChatRunner) Run(context.Context, agentadapters.RunRequest) (agentadapters.RunResult, error) {
+	return agentadapters.RunResult{}, errors.New("unexpected Run call")
+}
+
+func (r failingShutdownAgentChatRunner) CloseSession(context.Context, string) error {
+	return nil
+}
+
+func (r failingShutdownAgentChatRunner) Shutdown(context.Context) error {
+	return r.err
 }
 
 // TestHandler_Shutdown_ClosesBothRunnerAndCache pins the headline
@@ -263,42 +279,33 @@ func TestHandler_Shutdown_RunnerErrorPropagated(t *testing.T) {
 	}
 }
 
-// TestHandler_Shutdown_BothErrorsCombined pins the both-errors
-// branch of Handler.Shutdown. We force the runner to fail (cancelled
-// ctx) and assert the resulting error mentions BOTH sources so
-// operators can diagnose either failure from the log line.
-func TestHandler_Shutdown_BothErrorsCombined(t *testing.T) {
+// TestHandler_Shutdown_AgentChatErrorPropagated pins that
+// Handler.Shutdown returns agent-chat shutdown failures with a useful
+// subsystem label while still closing the MCP cache.
+func TestHandler_Shutdown_AgentChatErrorPropagated(t *testing.T) {
 	t.Parallel()
 
-	runner := newShutdownTestRunner(t)
-	// Pre-close the cache so Handler.Shutdown's cache.Close becomes
-	// the second-error path. SharedClientCache.Close on an
-	// already-closed cache returns nil (idempotent), so we can't
-	// drive a non-nil error from Close alone. Instead we pre-close
-	// AND let the runner-error branch drive a single-error result —
-	// that's the realistic combined path on a bad shutdown.
+	sentinel := errors.New("agent chat manager failed")
 	cache := newShutdownTestCache()
-	_ = cache.Close() // proves Close is idempotent — Handler.Shutdown's second call returns nil
 
 	h := &Handler{
-		taskRunner:     runner,
-		mcpClientCache: cache,
+		mcpClientCache:  cache,
+		agentChatRunner: failingShutdownAgentChatRunner{err: sentinel},
 	}
 
-	// Already-cancelled ctx forces a runner error.
-	ctx, cancel := context.WithCancel(context.Background())
-	cancel()
-
-	err := h.Shutdown(ctx)
+	err := h.Shutdown(context.Background())
 	if err == nil {
-		t.Fatal("expected error from cancelled ctx")
+		t.Fatal("expected agent chat shutdown error")
 	}
-	// Cache.Close idempotent → returns nil → only runner error
-	// surfaces. The test's role here is to pin that the both-errors
-	// branch is reachable in code (we ran past it) without panicking;
-	// crafting a deterministic non-nil cache error would require a
-	// fake we don't have a hook for.
-	_ = atomic.LoadInt32(new(int32)) // keep the import set stable
+	if !errors.Is(err, sentinel) {
+		t.Fatalf("Shutdown err = %v, want wrapped sentinel", err)
+	}
+	if !strings.Contains(err.Error(), "agent chat shutdown") {
+		t.Fatalf("Shutdown err = %v, want subsystem label", err)
+	}
+	if got := cache.Stats().Entries; got != 0 {
+		t.Errorf("cache.Stats.Entries = %d after agent-chat shutdown error, want 0", got)
+	}
 }
 
 // TestHandler_Shutdown_CalledTwice pins idempotence at the Handler
