@@ -5,8 +5,9 @@ import (
 )
 
 type SetupCommandStatus struct {
-	Available bool   `json:"available"`
-	Path      string `json:"path,omitempty"`
+	Available      bool   `json:"available"`
+	Command        string `json:"command,omitempty"`
+	ExecutablePath string `json:"executable_path,omitempty"`
 }
 
 func DetectClaudeCodeCLI(lookup LookupFunc) SetupCommandStatus {
@@ -15,11 +16,11 @@ func DetectClaudeCodeCLI(lookup LookupFunc) SetupCommandStatus {
 	}
 	path, err := lookup("claude")
 	if err == nil {
-		return SetupCommandStatus{Available: true, Path: path}
+		return SetupCommandStatus{Available: true, Command: path, ExecutablePath: path}
 	}
 	npxPath, err := lookup("npx")
 	if err != nil {
 		return SetupCommandStatus{}
 	}
-	return SetupCommandStatus{Available: true, Path: npxPath + " -y @anthropic-ai/claude-code"}
+	return SetupCommandStatus{Available: true, Command: npxPath + " -y @anthropic-ai/claude-code", ExecutablePath: npxPath}
 }

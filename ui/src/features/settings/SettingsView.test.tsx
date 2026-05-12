@@ -389,6 +389,20 @@ describe("SettingsView external agents tab", () => {
       expect(probeAgentAdapter).toHaveBeenCalledWith("codex");
     });
 
+    it("auto-runs adapter probes when adapters arrive after the tab opens", async () => {
+      const probeAgentAdapter = vi.fn(async () => null);
+      const { state, actions, user } = setup({ agentAdapters: [] }, { probeAgentAdapter });
+      const { rerender } = render(<SettingsView state={state} actions={actions} />);
+      await user.click(screen.getByRole("button", { name: "External agents" }));
+      expect(probeAgentAdapter).not.toHaveBeenCalled();
+
+      const nextState = createRuntimeConsoleFixture(withAdapter());
+      rerender(<SettingsView state={nextState} actions={actions} />);
+      expect(probeAgentAdapter).toHaveBeenCalledWith("codex");
+      rerender(<SettingsView state={{ ...nextState }} actions={actions} />);
+      expect(probeAgentAdapter).toHaveBeenCalledTimes(1);
+    });
+
     it("renders the auth-required hint when the cached probe says auth is missing", async () => {
       const { state, actions, user } = setup(withAdapter({
         agentAdapterHealthByID: new Map([

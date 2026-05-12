@@ -108,8 +108,9 @@ func renderAgentAdapterItem(item agentadapters.Status) AgentAdapterResponseItem 
 	}
 	if item.ID == "claude_code" {
 		rendered.ClaudeCodeCLI = &AgentAdapterSetupCommandStatusItem{
-			Available: item.ClaudeCodeCLI.Available,
-			Path:      item.ClaudeCodeCLI.Path,
+			Available:      item.ClaudeCodeCLI.Available,
+			Command:        item.ClaudeCodeCLI.Command,
+			ExecutablePath: item.ClaudeCodeCLI.ExecutablePath,
 		}
 	}
 	return rendered

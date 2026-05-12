@@ -2809,8 +2809,8 @@ function ClaudeCodeSetupFacts({ state }: { state: ClaudeCodePreflightState }) {
 }
 
 function claudeCodeSetupTokenCommand(status?: AgentAdapterSetupCommandStatus): string {
-  if (status?.path && status.path.includes("@anthropic-ai/claude-code")) {
-    return `${status.path} setup-token`;
+  if (status?.command) {
+    return `${status.command} setup-token`;
   }
   if (!status?.available) {
     return "npx -y @anthropic-ai/claude-code setup-token";
@@ -2918,7 +2918,7 @@ function ClaudeCodeSetupEmptyPanel(props: {
         detail="Hecate can run Claude Code through npx; a global `claude` install also works."
         command="npx -y @anthropic-ai/claude-code --version"
         done={claudeInstalled}
-        statusText={claudeInstalled ? `Available${commandStatus?.path ? ` via ${commandStatus.path}` : ""}` : undefined}
+        statusText={claudeInstalled ? `Available${commandStatus?.command ? ` via ${commandStatus.command}` : ""}` : undefined}
       />
       <ClaudeCodeSetupRow
         label="Auth"

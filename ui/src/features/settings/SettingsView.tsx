@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useState, type ReactNode } from "react";
+import { useEffect, useMemo, useRef, useState, type ReactNode } from "react";
 import type { RuntimeConsoleViewModel } from "../../app/useRuntimeConsole";
 import type { AgentAdapterHealthRecord, AgentAdapterRecord, AgentChatGrantRecord, ConfiguredProviderRecord, ModelRecord } from "../../types/runtime";
 import { Badge, Icon, Icons, InlineError } from "../shared/ui";
@@ -486,19 +486,29 @@ function RetentionTab({ state, actions }: Props) {
 function ExternalAgentsTab({ state, actions }: Props) {
   const liveAnthropicProvider = findAnthropicProvider(state.settingsConfig?.providers ?? []);
   const [rememberedAnthropicProvider, setRememberedAnthropicProvider] = useState<ConfiguredProviderRecord | null>(liveAnthropicProvider);
+  const probedAdapterIDsRef = useRef<Set<string>>(new Set());
+  const adapterIDsKey = useMemo(() => state.agentAdapters.map((adapter) => adapter.id).sort().join(","), [state.agentAdapters]);
 
   useEffect(() => {
     if (liveAnthropicProvider) setRememberedAnthropicProvider(liveAnthropicProvider);
   }, [liveAnthropicProvider]);
 
   useEffect(() => {
-    void actions.listAgentChatGrants();
     for (const adapter of state.agentAdapters) {
+      if (probedAdapterIDsRef.current.has(adapter.id)) continue;
+      probedAdapterIDsRef.current.add(adapter.id);
       void actions.probeAgentAdapter(adapter.id);
     }
-    // Actions and agentAdapters are stable enough for this one-shot tab
-    // mount refresh. Operators can re-fetch grants via Refresh; adapter
-    // health refreshes the next time the tab mounts.
+    // `actions` is a view-model object and can be re-created by parent
+    // renders. Probe only when the adapter ID set changes; the ref prevents
+    // duplicate probes for IDs we've already checked in this tab instance.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [adapterIDsKey]);
+
+  useEffect(() => {
+    void actions.listAgentChatGrants();
+    // Grants are lazy-loaded once when the tab mounts; Refresh handles
+    // explicit re-fetches.
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
@@ -739,12 +749,18 @@ function AdapterStatusSection({ state, actions }: Props) {
             loading={Boolean(state.agentAdapterHealthLoadingByID.get(adapter.id))}
             onSaveCredential={(value) => actions.setAgentAdapterCredential(adapter.id, value, "CLAUDE_CODE_OAUTH_TOKEN")}
             onDeleteCredential={() => actions.deleteAgentAdapterCredential(adapter.id, "CLAUDE_CODE_OAUTH_TOKEN")}
-            onCopyCommand={() => void actions.copyCommand("claude setup-token")}
+            onCopyCommand={() => void actions.copyCommand(claudeCodeSettingsTokenCommand(adapter))}
           />
         ))}
       </div>
     </div>
   );
+}
+
+function claudeCodeSettingsTokenCommand(adapter: AgentAdapterRecord): string {
+  const command = adapter.claude_code_cli?.command;
+  if (command) return `${command} setup-token`;
+  return "npx -y @anthropic-ai/claude-code setup-token";
 }
 
 function AdapterStatusRow({

@@ -1565,7 +1565,7 @@ describe("ChatView external-agent target", () => {
           auth_status: "unknown",
           credential_configured: false,
           cost_mode: "external",
-          claude_code_cli: { available: true, path: "/opt/homebrew/bin/claude" },
+          claude_code_cli: { available: true, command: "/opt/homebrew/bin/claude", executable_path: "/opt/homebrew/bin/claude" },
         },
       ],
     });

@@ -12,7 +12,7 @@ func TestDetectClaudeCodeCLI(t *testing.T) {
 		}
 		return "/tmp/bin/claude", nil
 	})
-	if !status.Available || status.Path != "/tmp/bin/claude" {
+	if !status.Available || status.Command != "/tmp/bin/claude" || status.ExecutablePath != "/tmp/bin/claude" {
 		t.Fatalf("DetectClaudeCodeCLI() = %+v, want available path", status)
 	}
 
@@ -27,14 +27,14 @@ func TestDetectClaudeCodeCLI(t *testing.T) {
 			return "", errors.New("unexpected")
 		}
 	})
-	if !status.Available || status.Path != "/tmp/bin/npx -y @anthropic-ai/claude-code" {
+	if !status.Available || status.Command != "/tmp/bin/npx -y @anthropic-ai/claude-code" || status.ExecutablePath != "/tmp/bin/npx" {
 		t.Fatalf("DetectClaudeCodeCLI() = %+v, want npx-managed path", status)
 	}
 
 	status = DetectClaudeCodeCLI(func(string) (string, error) {
 		return "", errors.New("not found")
 	})
-	if status.Available || status.Path != "" {
+	if status.Available || status.Command != "" || status.ExecutablePath != "" {
 		t.Fatalf("DetectClaudeCodeCLI() = %+v, want unavailable", status)
 	}
 }
