@@ -23,6 +23,7 @@ import (
 
 	"github.com/hecate/agent-runtime/internal/agentadapters"
 	"github.com/hecate/agent-runtime/internal/agentchat"
+	"github.com/hecate/agent-runtime/internal/agentcontrols"
 	"github.com/hecate/agent-runtime/internal/billing"
 	"github.com/hecate/agent-runtime/internal/catalog"
 	"github.com/hecate/agent-runtime/internal/chatstate"
@@ -2102,7 +2103,31 @@ type fakeAgentChatRunner struct {
 	diffStat        string
 	diff            string
 	err             error
+	prepareErr      error
+	prepareRequests []agentadapters.PrepareSessionRequest
 	closedSessions  []string
+	configOptions   []agentcontrols.ConfigOption
+}
+
+func (r *fakeAgentChatRunner) PrepareSession(_ context.Context, req agentadapters.PrepareSessionRequest) (agentadapters.PrepareSessionResult, error) {
+	r.prepareRequests = append(r.prepareRequests, req)
+	if r.prepareErr != nil {
+		return agentadapters.PrepareSessionResult{}, r.prepareErr
+	}
+	nativeSessionID := r.nativeSessionID
+	if nativeSessionID == "" {
+		nativeSessionID = "native_" + req.SessionID
+	}
+	adapter, _ := agentadapters.BuiltInByID(req.AdapterID)
+	return agentadapters.PrepareSessionResult{
+		Adapter:         adapter,
+		DriverKind:      agentadapters.DriverKindACP,
+		NativeSessionID: nativeSessionID,
+		SessionStarted:  r.sessionStarted,
+		SessionResumed:  r.sessionResumed,
+		SessionRecovery: r.sessionRecovery,
+		ConfigOptions:   r.configOptions,
+	}, nil
 }
 
 func (r *fakeAgentChatRunner) Run(ctx context.Context, req agentadapters.RunRequest) (agentadapters.RunResult, error) {
@@ -2175,7 +2200,24 @@ func (r *fakeAgentChatRunner) result(req agentadapters.RunRequest, output string
 		DiffStat:        r.diffStat,
 		Diff:            r.diff,
 		Usage:           r.usage,
+		ConfigOptions:   r.configOptions,
 	}
+}
+
+func (r *fakeAgentChatRunner) SetSessionConfigOption(_ context.Context, req agentadapters.SetSessionConfigOptionRequest) (agentadapters.SetSessionConfigOptionResult, error) {
+	options := append([]agentcontrols.ConfigOption(nil), r.configOptions...)
+	for i := range options {
+		if options[i].ID != req.ConfigID {
+			continue
+		}
+		if req.BoolValue != nil {
+			options[i].CurrentBool = req.BoolValue
+		} else {
+			options[i].CurrentValue = req.Value
+		}
+	}
+	r.configOptions = options
+	return agentadapters.SetSessionConfigOptionResult{ConfigOptions: options}, nil
 }
 
 func (r *fakeAgentChatRunner) CloseSession(_ context.Context, sessionID string) error {
@@ -2184,6 +2226,94 @@ func (r *fakeAgentChatRunner) CloseSession(_ context.Context, sessionID string) 
 }
 
 func (r *fakeAgentChatRunner) Shutdown(context.Context) error { return nil }
+
+func TestAgentChatExternalConfigOptionsRoundTrip(t *testing.T) {
+	dir := t.TempDir()
+	logger := slog.New(slog.NewJSONHandler(io.Discard, nil))
+	apiHandler := newTestAPIHandlerWithSettings(logger, []providers.Provider{&fakeProvider{}}, config.Config{}, nil)
+	runner := &fakeAgentChatRunner{
+		output: "ok",
+		configOptions: []agentcontrols.ConfigOption{
+			{
+				ID:           "model",
+				Name:         "Model",
+				Category:     "model",
+				Type:         agentcontrols.ConfigOptionTypeSelect,
+				CurrentValue: "fast",
+				Options: []agentcontrols.ConfigSelectOption{
+					{Value: "fast", Name: "Fast"},
+					{Value: "smart", Name: "Smart"},
+				},
+			},
+		},
+	}
+	apiHandler.SetAgentChatRunner(runner)
+	handler := NewServer(logger, apiHandler)
+
+	created := decodeRecorder[AgentChatSessionResponse](t, performRequest(t, handler, http.MethodPost, "/hecate/v1/agent-chat/sessions", fmt.Sprintf(`{"adapter_id":"codex","workspace":%q}`, dir)))
+	if len(runner.prepareRequests) != 1 {
+		t.Fatalf("prepare requests = %d, want 1", len(runner.prepareRequests))
+	}
+	gotWorkspace, err := filepath.EvalSymlinks(runner.prepareRequests[0].Workspace)
+	if err != nil {
+		t.Fatalf("canonicalize prepare workspace: %v", err)
+	}
+	wantWorkspace, err := filepath.EvalSymlinks(dir)
+	if err != nil {
+		t.Fatalf("canonicalize temp workspace: %v", err)
+	}
+	if gotWorkspace != wantWorkspace {
+		t.Fatalf("prepare workspace = %q, want %q", runner.prepareRequests[0].Workspace, dir)
+	}
+	if got := runner.prepareRequests[0].AdapterID; got != "codex" {
+		t.Fatalf("prepare adapter = %q, want codex", got)
+	}
+	if got := created.Data.ConfigOptions; len(got) != 1 || got[0].CurrentValue != "fast" {
+		t.Fatalf("config options after create = %#v, want one fast option", got)
+	}
+	afterRun := decodeRecorder[AgentChatSessionResponse](t, performRequest(t, handler, http.MethodPost, "/hecate/v1/agent-chat/sessions/"+created.Data.ID+"/messages", `{"content":"hello"}`))
+	if got := afterRun.Data.ConfigOptions; len(got) != 1 || got[0].CurrentValue != "fast" {
+		t.Fatalf("config options after run = %#v, want one fast option", got)
+	}
+
+	updated := decodeRecorder[AgentChatSessionResponse](t, performRequest(t, handler, http.MethodPost, "/hecate/v1/agent-chat/sessions/"+created.Data.ID+"/config-options/model", `{"value":"smart"}`))
+	if got := updated.Data.ConfigOptions; len(got) != 1 || got[0].CurrentValue != "smart" {
+		t.Fatalf("config options after set = %#v, want one smart option", got)
+	}
+}
+
+func TestAgentChatExternalCreateCleansUpWhenPrepareFails(t *testing.T) {
+	dir := t.TempDir()
+	logger := slog.New(slog.NewJSONHandler(io.Discard, nil))
+	store := agentchat.NewMemoryStore()
+	apiHandler := newTestAPIHandlerWithSettings(logger, []providers.Provider{&fakeProvider{}}, config.Config{}, nil)
+	apiHandler.SetAgentChatStore(store)
+	apiHandler.SetAgentChatRunner(&fakeAgentChatRunner{prepareErr: errors.New("adapter handshake failed")})
+	handler := NewServer(logger, apiHandler)
+
+	recorder := performRequest(t, handler, http.MethodPost, "/hecate/v1/agent-chat/sessions", fmt.Sprintf(`{"adapter_id":"codex","workspace":%q}`, dir))
+	if recorder.Code != http.StatusBadGateway {
+		t.Fatalf("status = %d, want 502; body: %s", recorder.Code, recorder.Body.String())
+	}
+	var payload struct {
+		Error struct {
+			Type string `json:"type"`
+		} `json:"error"`
+	}
+	if err := json.Unmarshal(recorder.Body.Bytes(), &payload); err != nil {
+		t.Fatalf("decode error response: %v", err)
+	}
+	if payload.Error.Type != errCodeAgentAdapterUnavailable {
+		t.Fatalf("error type = %q, want %q", payload.Error.Type, errCodeAgentAdapterUnavailable)
+	}
+	list, err := store.List(context.Background())
+	if err != nil {
+		t.Fatalf("list sessions: %v", err)
+	}
+	if len(list) != 0 {
+		t.Fatalf("sessions after failed prepare = %#v, want none", list)
+	}
+}
 
 func TestAgentChatStreamsExternalAdapterOutput(t *testing.T) {
 	dir := t.TempDir()
@@ -2291,6 +2421,9 @@ func TestAgentChatCancelsExternalAdapter(t *testing.T) {
 		assistant := updated.Data.Messages[len(updated.Data.Messages)-1]
 		if assistant.Status != "cancelled" {
 			t.Fatalf("assistant status = %q, want cancelled", assistant.Status)
+		}
+		if assistant.Content != "started" {
+			t.Fatalf("assistant content = %q, want streamed content preserved after cancellation", assistant.Content)
 		}
 	case <-time.After(3 * time.Second):
 		t.Fatalf("timed out waiting for cancelled message POST")

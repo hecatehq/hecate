@@ -59,7 +59,7 @@ describe("ConsoleShell navigation", () => {
     expect(screen.getByRole("button", { name: /Chats \(1\)/ })).toBeEnabled();
     expect(await screen.findByText(/Nothing runnable yet/i)).toBeInTheDocument();
     expect(screen.queryByText(/No providers configured/i)).toBeNull();
-    expect(screen.getByRole("button", { name: /Add provider/i })).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: /Go to Providers/i })).toBeInTheDocument();
   });
 
   it("shows the selected agent workspace and git branch in the status bar", () => {

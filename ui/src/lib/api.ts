@@ -359,6 +359,13 @@ export async function createAgentChatMessage(id: string, payload: string | Creat
   return fetchJSON<AgentChatSessionResponse>(`${HECATE_API}/agent-chat/sessions/${encodeURIComponent(id)}/messages`, { method: "POST", body });
 }
 
+export async function setAgentChatConfigOption(id: string, configID: string, value: string | boolean): Promise<AgentChatSessionResponse> {
+  return fetchJSON<AgentChatSessionResponse>(
+    `${HECATE_API}/agent-chat/sessions/${encodeURIComponent(id)}/config-options/${encodeURIComponent(configID)}`,
+    { method: "POST", body: { value } },
+  );
+}
+
 export async function listAgentChatMessageFiles(sessionID: string, messageID: string): Promise<AgentChatChangedFilesResponse> {
   return fetchJSON<AgentChatChangedFilesResponse>(
     `${HECATE_API}/agent-chat/sessions/${encodeURIComponent(sessionID)}/messages/${encodeURIComponent(messageID)}/files`,

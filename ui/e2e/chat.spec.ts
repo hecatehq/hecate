@@ -23,8 +23,7 @@ async function switchToModel(page: Page) {
 }
 
 test("renders the message textarea and send button", async ({ page }) => {
-  await expect(page.getByRole("button", { name: "Hecate Chat", exact: true })).toBeVisible();
-  await expect(page.getByRole("button", { name: "External Agent", exact: true })).toBeVisible();
+  await expect(page.getByRole("button", { name: "Agent", exact: true })).toContainText("Hecate");
   await expect(page.getByRole("button", { name: "tools off", exact: true })).toBeVisible();
   await expect(page.locator("textarea")).toBeVisible();
   await expect(page.locator("button[type='submit']")).toBeVisible();
@@ -96,6 +95,84 @@ test("New chat button clears the active conversation", async ({ page }) => {
   // composer state is cleared.
   await expect(page.getByText("Send a message to start this chat.")).toBeVisible();
   await expect(page.locator("textarea")).toHaveValue("");
+});
+
+test("New chat creates an external-agent session with controls before the first prompt", async ({ page }) => {
+  let createBody: any = null;
+  await page.route("/hecate/v1/agent-adapters*", async route => {
+    if (route.request().method() !== "GET") return route.continue();
+    await route.fulfill({
+      status: 200,
+      contentType: "application/json",
+      body: JSON.stringify({
+        object: "agent_adapters",
+        data: [
+          { id: "codex", name: "Codex", kind: "acp", command: "codex-acp", available: true, status: "available", cost_mode: "external" },
+          { id: "claude_code", name: "Claude Code", kind: "acp", command: "claude-agent-acp", available: true, status: "available", cost_mode: "external" },
+          { id: "cursor_agent", name: "Cursor", kind: "acp", command: "cursor-agent", available: true, status: "available", cost_mode: "external" },
+        ],
+      }),
+    });
+  });
+  await page.route("/hecate/v1/agent-chat/sessions", async route => {
+    if (route.request().method() !== "POST") return route.fulfill({
+      status: 200,
+      contentType: "application/json",
+      body: JSON.stringify({ object: "agent_chat_sessions", data: [] }),
+    });
+    createBody = JSON.parse(route.request().postData() ?? "{}");
+    await route.fulfill({
+      status: 200,
+      contentType: "application/json",
+      body: JSON.stringify({
+        object: "agent_chat_session",
+        data: {
+          id: "agent-chat-codex-e2e",
+          title: "Codex chat",
+          runtime_kind: "external_agent",
+          adapter_id: "codex",
+          adapter_name: "Codex",
+          driver_kind: "acp",
+          native_session_id: "native-codex-e2e",
+          workspace: "/tmp/hecate-e2e",
+          status: "idle",
+          config_options: [
+            {
+              id: "model",
+              name: "Model",
+              category: "model",
+              type: "select",
+              current_value: "fast",
+              options: [
+                { value: "fast", name: "Fast" },
+                { value: "smart", name: "Smart" },
+              ],
+            },
+          ],
+          messages: [],
+        },
+      }),
+    });
+  });
+  await page.addInitScript(() => {
+    window.localStorage.setItem("hecate.chatTarget", "external_agent");
+    window.localStorage.setItem("hecate.agentAdapterID", "codex");
+    window.localStorage.setItem("hecate.agentWorkspace", "/tmp/hecate-e2e");
+  });
+  await page.goto("/");
+  await page.waitForSelector(".hecate-activitybar");
+
+  await expect(page.getByRole("button", { name: "Agent", exact: true })).toContainText("Codex");
+  await page.getByRole("button", { name: /new chat/i }).click();
+
+  await expect.poll(() => createBody).toMatchObject({
+    runtime_kind: "external_agent",
+    adapter_id: "codex",
+    workspace: "/tmp/hecate-e2e",
+  });
+  await expect(page.getByRole("button", { name: "Model" })).toContainText("Fast");
+  await page.getByRole("button", { name: "Agent", exact: true }).click();
+  await expect(page.getByRole("option", { name: /Claude Code/ })).toHaveAttribute("aria-disabled", "true");
 });
 
 test("system prompt editor opens and closes", async ({ page }) => {

@@ -17,6 +17,7 @@ import (
 
 	acp "github.com/coder/acp-go-sdk"
 
+	"github.com/hecate/agent-runtime/internal/agentcontrols"
 	"github.com/hecate/agent-runtime/internal/telemetry"
 )
 
@@ -72,7 +73,9 @@ const (
 )
 
 type Runner interface {
+	PrepareSession(context.Context, PrepareSessionRequest) (PrepareSessionResult, error)
 	Run(context.Context, RunRequest) (RunResult, error)
+	SetSessionConfigOption(context.Context, SetSessionConfigOptionRequest) (SetSessionConfigOptionResult, error)
 	CloseSession(context.Context, string) error
 	Shutdown(context.Context) error
 }
@@ -162,6 +165,43 @@ func (m *SessionManager) Coordinator() *ApprovalCoordinator {
 	m.mu.Lock()
 	defer m.mu.Unlock()
 	return m.coordinator
+}
+
+func (m *SessionManager) PrepareSession(ctx context.Context, req PrepareSessionRequest) (PrepareSessionResult, error) {
+	if m == nil {
+		return PrepareSessionResult{}, fmt.Errorf("agent session manager is required")
+	}
+	adapter, ok := BuiltInByID(req.AdapterID)
+	if !ok {
+		return PrepareSessionResult{}, fmt.Errorf("agent adapter %q not found", req.AdapterID)
+	}
+	req.AdapterID = adapter.ID
+	workspace, err := ValidateWorkspace(req.Workspace)
+	if err != nil {
+		return PrepareSessionResult{}, err
+	}
+	req.Workspace = workspace
+	if strings.TrimSpace(req.SessionID) == "" {
+		return PrepareSessionResult{}, fmt.Errorf("agent chat session id is required")
+	}
+	session, started, resumed, recovery, err := m.session(ctx, adapter, RunRequest{
+		SessionID:               req.SessionID,
+		AdapterID:               req.AdapterID,
+		Workspace:               req.Workspace,
+		PreviousNativeSessionID: req.PreviousNativeSessionID,
+	})
+	if err != nil {
+		return PrepareSessionResult{}, err
+	}
+	return PrepareSessionResult{
+		Adapter:         adapter,
+		DriverKind:      DriverKindACP,
+		NativeSessionID: session.nativeID,
+		SessionStarted:  started,
+		SessionResumed:  resumed,
+		SessionRecovery: recovery,
+		ConfigOptions:   session.configOptionsSnapshot(),
+	}, nil
 }
 
 func (m *SessionManager) Run(ctx context.Context, req RunRequest) (RunResult, error) {
@@ -347,6 +387,9 @@ type acpSession struct {
 	client    *acpChatClient
 	nativeID  string
 
+	configMu      sync.Mutex
+	configOptions []agentcontrols.ConfigOption
+
 	turnMu sync.Mutex
 
 	activeMu     sync.Mutex
@@ -416,20 +459,22 @@ func startACPSession(ctx context.Context, adapter Adapter, sessionID, workspace,
 	nativeID := ""
 	resumed := false
 	recovery := ""
+	var configOptions []agentcontrols.ConfigOption
 	previousNativeSessionID = strings.TrimSpace(previousNativeSessionID)
 	if previousNativeSessionID != "" && initResp.AgentCapabilities.LoadSession {
 		loadCtx, cancel := context.WithTimeout(ctx, 20*time.Second)
-		_, err = conn.LoadSession(loadCtx, acp.LoadSessionRequest{
+		loaded, loadErr := conn.LoadSession(loadCtx, acp.LoadSessionRequest{
 			SessionId:  acp.SessionId(previousNativeSessionID),
 			Cwd:        workspace,
 			McpServers: []acp.McpServer{},
 		})
 		cancel()
-		if err == nil {
+		if loadErr == nil {
 			nativeID = previousNativeSessionID
 			resumed = true
+			configOptions = agentcontrols.FromACPOptions(loaded.ConfigOptions)
 		} else {
-			recovery = fmt.Sprintf("could not restore ACP session %s: %v", previousNativeSessionID, err)
+			recovery = fmt.Sprintf("could not restore ACP session %s: %v", previousNativeSessionID, loadErr)
 		}
 	}
 	if nativeID == "" {
@@ -444,14 +489,16 @@ func startACPSession(ctx context.Context, adapter Adapter, sessionID, workspace,
 			return nil, false, "", fmt.Errorf("create ACP session for %q: %w%s", adapter.ID, err, stderrSuffix(stderr.String()))
 		}
 		nativeID = string(created.SessionId)
+		configOptions = agentcontrols.FromACPOptions(created.ConfigOptions)
 	}
 	return &acpSession{
-		adapter:   adapter,
-		workspace: workspace,
-		cmd:       cmd,
-		conn:      conn,
-		client:    client,
-		nativeID:  nativeID,
+		adapter:       adapter,
+		workspace:     workspace,
+		cmd:           cmd,
+		conn:          conn,
+		client:        client,
+		nativeID:      nativeID,
+		configOptions: configOptions,
 	}, resumed, recovery, nil
 }
 
@@ -500,7 +547,64 @@ func (s *acpSession) RunTurn(ctx context.Context, req RunRequest) (RunResult, er
 		}
 	}
 	output, raw, usage := turn.snapshot()
-	return captureACPTurnResult(ctx, s.adapter, req, s.nativeID, output, raw, usage, exitCode, started, completed, runErr)
+	result, err := captureACPTurnResult(ctx, s.adapter, req, s.nativeID, output, raw, usage, exitCode, started, completed, runErr)
+	result.ConfigOptions = s.configOptionsSnapshot()
+	return result, err
+}
+
+func (m *SessionManager) SetSessionConfigOption(ctx context.Context, req SetSessionConfigOptionRequest) (SetSessionConfigOptionResult, error) {
+	if m == nil {
+		return SetSessionConfigOptionResult{}, fmt.Errorf("agent session manager is required")
+	}
+	req.SessionID = strings.TrimSpace(req.SessionID)
+	req.ConfigID = strings.TrimSpace(req.ConfigID)
+	if req.SessionID == "" {
+		return SetSessionConfigOptionResult{}, fmt.Errorf("agent chat session id is required")
+	}
+	m.mu.Lock()
+	session := m.sessions[req.SessionID]
+	m.mu.Unlock()
+	if session == nil {
+		return SetSessionConfigOptionResult{}, fmt.Errorf("agent chat session %q is not active", req.SessionID)
+	}
+	return session.SetConfigOption(ctx, req)
+}
+
+func (s *acpSession) SetConfigOption(ctx context.Context, req SetSessionConfigOptionRequest) (SetSessionConfigOptionResult, error) {
+	acpReq, err := agentcontrols.BuildACPSetRequest(agentcontrols.SetConfigOptionRequest{
+		SessionID: s.nativeID,
+		ConfigID:  req.ConfigID,
+		Value:     req.Value,
+		BoolValue: req.BoolValue,
+	})
+	if err != nil {
+		return SetSessionConfigOptionResult{}, err
+	}
+	resp, err := s.conn.SetSessionConfigOption(ctx, acpReq)
+	if err != nil {
+		return SetSessionConfigOptionResult{}, err
+	}
+	options := agentcontrols.FromACPOptions(resp.ConfigOptions)
+	if resp.ConfigOptions != nil && options == nil {
+		options = []agentcontrols.ConfigOption{}
+	}
+	s.setConfigOptions(options)
+	return SetSessionConfigOptionResult{ConfigOptions: options}, nil
+}
+
+func (s *acpSession) setConfigOptions(options []agentcontrols.ConfigOption) {
+	s.configMu.Lock()
+	defer s.configMu.Unlock()
+	s.configOptions = append([]agentcontrols.ConfigOption(nil), options...)
+}
+
+func (s *acpSession) configOptionsSnapshot() []agentcontrols.ConfigOption {
+	s.configMu.Lock()
+	defer s.configMu.Unlock()
+	if len(s.configOptions) == 0 {
+		return nil
+	}
+	return append([]agentcontrols.ConfigOption(nil), s.configOptions...)
 }
 
 func (s *acpSession) Close(ctx context.Context) error {
@@ -999,7 +1103,7 @@ func (t *acpTurn) recordToolCall(update *acp.SessionUpdateToolCall) {
 		Status: status,
 		Kind:   string(update.Kind),
 		Title:  firstNonEmpty(update.Title, string(update.ToolCallId)),
-		Detail: toolCallDetail(update.Kind, update.Locations, update.Content),
+		Detail: toolCallDetail(update.Kind, update.Locations, update.Content, update.RawInput),
 	})
 	t.emitFileChangeActivities(string(update.ToolCallId), update.Kind, status, update.Locations)
 }
@@ -1052,7 +1156,7 @@ func (t *acpTurn) recordToolCallUpdate(update *acp.SessionToolCallUpdate) {
 		Status: normalizedStatus,
 		Kind:   string(kind),
 		Title:  title,
-		Detail: toolCallDetail(kind, update.Locations, update.Content),
+		Detail: toolCallDetail(kind, update.Locations, update.Content, update.RawInput),
 	})
 	t.emitFileChangeActivities(string(update.ToolCallId), kind, normalizedStatus, update.Locations)
 }
@@ -1280,10 +1384,13 @@ func acpToolStatus(status string) string {
 	}
 }
 
-func toolCallDetail(kind acp.ToolKind, locations []acp.ToolCallLocation, content []acp.ToolCallContent) string {
+func toolCallDetail(kind acp.ToolKind, locations []acp.ToolCallLocation, content []acp.ToolCallContent, rawInput any) string {
 	parts := make([]string, 0, 3)
 	if kind != "" {
 		parts = append(parts, string(kind))
+	}
+	if summary := summarizeToolRawInput(rawInput); summary != "" {
+		parts = append(parts, summary)
 	}
 	if len(locations) > 0 {
 		parts = append(parts, summarizeToolLocations(locations))
@@ -1294,6 +1401,73 @@ func toolCallDetail(kind acp.ToolKind, locations []acp.ToolCallLocation, content
 		}
 	}
 	return strings.Join(parts, " · ")
+}
+
+func summarizeToolRawInput(rawInput any) string {
+	if rawInput == nil {
+		return ""
+	}
+	flattened := flattenRawInput(rawInput)
+	for _, key := range []string{"command", "cmd", "shell_command", "script", "query", "path"} {
+		if value := firstRawInputValue(flattened, key); value != "" {
+			return trimToolSummary(value)
+		}
+	}
+	if value := firstRawInputString(rawInput); value != "" {
+		return trimToolSummary(value)
+	}
+	return ""
+}
+
+func flattenRawInput(value any) map[string]string {
+	out := map[string]string{}
+	var visit func(prefix string, current any)
+	visit = func(prefix string, current any) {
+		switch typed := current.(type) {
+		case map[string]any:
+			for key, child := range typed {
+				next := key
+				if prefix != "" {
+					next = prefix + "." + key
+				}
+				visit(next, child)
+			}
+		case map[string]string:
+			for key, child := range typed {
+				next := key
+				if prefix != "" {
+					next = prefix + "." + key
+				}
+				out[strings.ToLower(next)] = child
+			}
+		case string:
+			if prefix != "" {
+				out[strings.ToLower(prefix)] = typed
+			}
+		case fmt.Stringer:
+			if prefix != "" {
+				out[strings.ToLower(prefix)] = typed.String()
+			}
+		}
+	}
+	visit("", value)
+	return out
+}
+
+func firstRawInputValue(values map[string]string, suffix string) string {
+	for key, value := range values {
+		if key == suffix || strings.HasSuffix(key, "."+suffix) {
+			return strings.TrimSpace(value)
+		}
+	}
+	return ""
+}
+
+func firstRawInputString(value any) string {
+	if text, ok := value.(string); ok {
+		return strings.TrimSpace(text)
+	}
+	return ""
 }
 
 func summarizeToolLocations(locations []acp.ToolCallLocation) string {
@@ -1316,7 +1490,9 @@ func summarizeToolLocations(locations []acp.ToolCallLocation) string {
 }
 
 func summarizeToolContent(content []acp.ToolCallContent) string {
-	var diffs, terminals, text int
+	var diffs, terminals int
+	var textPreview string
+	var textCount int
 	for _, item := range content {
 		switch {
 		case item.Diff != nil:
@@ -1324,7 +1500,10 @@ func summarizeToolContent(content []acp.ToolCallContent) string {
 		case item.Terminal != nil:
 			terminals++
 		case item.Content != nil:
-			text++
+			textCount++
+			if textPreview == "" {
+				textPreview = contentBlockText(item.Content.Content)
+			}
 		}
 	}
 	parts := make([]string, 0, 3)
@@ -1334,10 +1513,24 @@ func summarizeToolContent(content []acp.ToolCallContent) string {
 	if terminals > 0 {
 		parts = append(parts, pluralize(terminals, "terminal"))
 	}
-	if text > 0 {
-		parts = append(parts, pluralize(text, "output"))
+	if textPreview != "" {
+		label := "output"
+		if textCount > 1 {
+			label = fmt.Sprintf("output 1/%d", textCount)
+		}
+		parts = append(parts, fmt.Sprintf("%s: %s", label, trimToolSummary(textPreview)))
+	} else if textCount > 0 {
+		parts = append(parts, pluralize(textCount, "output"))
 	}
 	return strings.Join(parts, ", ")
+}
+
+func trimToolSummary(value string) string {
+	value = strings.Join(strings.Fields(value), " ")
+	if len(value) <= 120 {
+		return value
+	}
+	return value[:117] + "..."
 }
 
 func pluralize(count int, singular string) string {

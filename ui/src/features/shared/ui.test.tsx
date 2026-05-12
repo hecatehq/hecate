@@ -6,6 +6,7 @@ import { describe, expect, it, vi } from "vitest";
 import {
   AgentAdapterPicker,
   Badge,
+  BrandAvatar,
   ChipInput,
   CodeBlock,
   ConfirmModal,
@@ -114,6 +115,31 @@ describe("Icon", () => {
   it("renders multiple paths when given an array", () => {
     const { container } = render(<Icon d={Icons.providers} />);
     expect(container.querySelectorAll("path").length).toBeGreaterThan(1);
+  });
+});
+
+describe("BrandAvatar", () => {
+  it("renders a known Devicons brand icon", () => {
+    const { container } = render(<BrandAvatar brand="claude_code" title="Claude Code" />);
+    expect(screen.getByLabelText("Claude Code")).toBeTruthy();
+    expect(container.querySelector("svg")).toBeTruthy();
+  });
+
+  it("falls back to a compact letter tile for unknown brands", () => {
+    render(<BrandAvatar brand="unknown-provider" fallback="Unknown provider" />);
+    expect(screen.getByText("U")).toBeTruthy();
+  });
+
+  it("renders the Hecate mark as a branded image", () => {
+    const { container } = render(<BrandAvatar brand="hecate" fallback="Hecate" />);
+    expect(container.querySelector("img")?.getAttribute("src")).toContain("hecate-mark");
+  });
+
+  it("uses the Meta icon for llama.cpp providers", () => {
+    const { container } = render(<BrandAvatar brand="llamacpp" title="llama.cpp" />);
+    expect(screen.getByLabelText("llama.cpp")).toBeTruthy();
+    expect(container.querySelector("svg")).toBeTruthy();
+    expect(screen.queryByText("L")).toBeNull();
   });
 });
 

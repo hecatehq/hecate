@@ -52,7 +52,7 @@ func TestHecateAgentChatCreatesVisibleTaskAndContinuesSameTask(t *testing.T) {
 	}
 
 	first := mustRequestJSON[AgentChatSessionResponse](client, http.MethodPost, "/hecate/v1/agent-chat/sessions/"+session.Data.ID+"/messages",
-		`{"content":"inspect the repo"}`)
+		`{"content":"inspect the repo","system_prompt":"Prefer small, reviewable diffs."}`)
 	if first.Data.TaskID == "" || first.Data.LatestRunID == "" {
 		t.Fatalf("first response missing task/run linkage: %+v", first.Data)
 	}
@@ -85,6 +85,9 @@ func TestHecateAgentChatCreatesVisibleTaskAndContinuesSameTask(t *testing.T) {
 	task := mustRequestJSON[TaskResponse](client, http.MethodGet, "/hecate/v1/tasks/"+first.Data.TaskID, "")
 	if task.Data.ExecutionKind != "agent_loop" || task.Data.ExecutionProfile != "chat_agent" {
 		t.Fatalf("task execution fields = kind %q profile %q", task.Data.ExecutionKind, task.Data.ExecutionProfile)
+	}
+	if task.Data.SystemPrompt != "Prefer small, reviewable diffs." {
+		t.Fatalf("task system_prompt = %q, want Hecate Chat instructions", task.Data.SystemPrompt)
 	}
 	if task.Data.OriginKind != "agent_chat" || task.Data.OriginID != session.Data.ID {
 		t.Fatalf("task origin = %q/%q, want agent_chat/%s", task.Data.OriginKind, task.Data.OriginID, session.Data.ID)

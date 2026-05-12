@@ -62,6 +62,14 @@ func (r failingShutdownAgentChatRunner) Run(context.Context, agentadapters.RunRe
 	return agentadapters.RunResult{}, errors.New("unexpected Run call")
 }
 
+func (r failingShutdownAgentChatRunner) SetSessionConfigOption(context.Context, agentadapters.SetSessionConfigOptionRequest) (agentadapters.SetSessionConfigOptionResult, error) {
+	return agentadapters.SetSessionConfigOptionResult{}, errors.New("unexpected SetSessionConfigOption call")
+}
+
+func (r failingShutdownAgentChatRunner) PrepareSession(context.Context, agentadapters.PrepareSessionRequest) (agentadapters.PrepareSessionResult, error) {
+	return agentadapters.PrepareSessionResult{}, errors.New("unexpected PrepareSession call")
+}
+
 func (r failingShutdownAgentChatRunner) CloseSession(context.Context, string) error {
 	return nil
 }

@@ -27,6 +27,15 @@ is intentionally not just a warning — it should be enough to choose a discover
 model, refresh local provider discovery, or jump to Providers for the full
 readiness checklist.
 
+Hecate Chat also has one per-chat **Instructions** field. With tools off, the
+instructions are sent as the direct model turn's `system_prompt`. With tools
+on, the same text becomes the per-task system prompt for the Hecate-owned
+`agent_loop` task, layered under the global, tenant, and workspace
+`AGENTS.md` / `CLAUDE.md` prompts. Once a chat has messages the field is locked
+so historical segments keep the instructions they were created with; start a
+new chat to change them. External Agent chats do not use this field because
+Codex, Claude Code, and Cursor own their own prompt/configuration surface.
+
 The operator UI's **Hecate Chat** target now uses **Agent Chat** sessions under
 `/hecate/v1/agent-chat/sessions` for both tools-off direct model turns and tools-on
 Hecate Agent turns. Those records can point at a runtime when tools are enabled,

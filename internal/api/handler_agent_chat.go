@@ -76,6 +76,7 @@ func (h *Handler) HandleCreateAgentChatSession(w http.ResponseWriter, r *http.Re
 		WorkspaceBranch: workspaceBranch,
 	}
 	var err error
+	var externalAdapter agentadapters.Adapter
 	switch runtimeKind {
 	case "model":
 		provider := strings.TrimSpace(req.Provider)
@@ -101,6 +102,7 @@ func (h *Handler) HandleCreateAgentChatSession(w http.ResponseWriter, r *http.Re
 			writeAgentChatAdapterNotFound(w, req.AdapterID)
 			return
 		}
+		externalAdapter = adapter
 		if session.Title == "" {
 			session.Title = adapter.Name + " chat"
 		}
@@ -132,6 +134,34 @@ func (h *Handler) HandleCreateAgentChatSession(w http.ResponseWriter, r *http.Re
 	if err != nil {
 		WriteError(w, http.StatusInternalServerError, "gateway_error", err.Error())
 		return
+	}
+	if runtimeKind == "external_agent" {
+		runner := h.agentChatRunner
+		if runner == nil {
+			runner = agentadapters.NewSessionManager()
+		}
+		prepareCtx, cancel := context.WithTimeout(r.Context(), agentChatTimeout)
+		result, prepareErr := runner.PrepareSession(prepareCtx, agentadapters.PrepareSessionRequest{
+			SessionID:               session.ID,
+			AdapterID:               session.AdapterID,
+			Workspace:               session.Workspace,
+			PreviousNativeSessionID: session.NativeSessionID,
+		})
+		cancel()
+		if prepareErr != nil {
+			_ = h.agentChat.Delete(context.Background(), session.ID)
+			WriteError(w, http.StatusBadGateway, errCodeAgentAdapterUnavailable, agentadapters.NormalizeError(externalAdapter.Name, prepareErr))
+			return
+		}
+		session, err = h.agentChat.UpdateSession(r.Context(), session.ID, func(item *agentchat.Session) {
+			item.DriverKind = result.DriverKind
+			item.NativeSessionID = result.NativeSessionID
+			item.ConfigOptions = result.ConfigOptions
+		})
+		if err != nil {
+			WriteError(w, http.StatusInternalServerError, "gateway_error", err.Error())
+			return
+		}
 	}
 	WriteJSON(w, http.StatusOK, AgentChatSessionResponse{Object: "agent_chat_session", Data: renderAgentChatSession(session, h.agentChatSnapshotConfig())})
 }
@@ -328,6 +358,72 @@ func (h *Handler) HandleCloseAgentChatSession(w http.ResponseWriter, r *http.Req
 	WriteJSON(w, http.StatusOK, AgentChatSessionResponse{Object: "agent_chat_session", Data: renderAgentChatSession(updated, h.agentChatSnapshotConfig())})
 }
 
+func (h *Handler) HandleSetAgentChatConfigOption(w http.ResponseWriter, r *http.Request) {
+	sessionID := strings.TrimSpace(r.PathValue("id"))
+	configID := strings.TrimSpace(r.PathValue("config_id"))
+	session, ok, err := h.agentChat.Get(r.Context(), sessionID)
+	if err != nil {
+		WriteError(w, http.StatusInternalServerError, errCodeGatewayError, err.Error())
+		return
+	}
+	if !ok {
+		WriteError(w, http.StatusNotFound, errCodeNotFound, "agent chat session not found")
+		return
+	}
+	if renderAgentChatRuntimeKind(session) != "external_agent" {
+		WriteError(w, http.StatusConflict, errCodeRuntimeMismatch, "agent chat config options are only available for external-agent sessions")
+		return
+	}
+	var req SetAgentChatConfigOptionRequest
+	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+		WriteError(w, http.StatusBadRequest, errCodeInvalidRequest, "invalid request body")
+		return
+	}
+	setReq, err := agentChatConfigOptionSetRequest(sessionID, configID, req.Value)
+	if err != nil {
+		WriteError(w, http.StatusBadRequest, errCodeInvalidRequest, err.Error())
+		return
+	}
+	result, err := h.agentChatRunner.SetSessionConfigOption(r.Context(), setReq)
+	if err != nil {
+		WriteErrorDetails(w, http.StatusConflict, errCodeSessionNotRunning, err.Error(), ErrorDetails{
+			UserMessage:    "Start the external-agent session before changing adapter controls.",
+			OperatorAction: "Send the first message, then adjust the controls once the adapter reports them.",
+		})
+		return
+	}
+	updated, err := h.agentChat.UpdateSession(r.Context(), session.ID, func(item *agentchat.Session) {
+		item.ConfigOptions = result.ConfigOptions
+	})
+	if err != nil {
+		WriteError(w, http.StatusInternalServerError, errCodeGatewayError, err.Error())
+		return
+	}
+	h.agentChatLive.publishSession(updated)
+	WriteJSON(w, http.StatusOK, AgentChatSessionResponse{Object: "agent_chat_session", Data: renderAgentChatSession(updated, h.agentChatSnapshotConfig())})
+}
+
+func agentChatConfigOptionSetRequest(sessionID, configID string, rawValue any) (agentadapters.SetSessionConfigOptionRequest, error) {
+	if sessionID == "" {
+		return agentadapters.SetSessionConfigOptionRequest{}, fmt.Errorf("agent chat session id is required")
+	}
+	if configID == "" {
+		return agentadapters.SetSessionConfigOptionRequest{}, fmt.Errorf("config option id is required")
+	}
+	switch value := rawValue.(type) {
+	case string:
+		value = strings.TrimSpace(value)
+		if value == "" {
+			return agentadapters.SetSessionConfigOptionRequest{}, fmt.Errorf("value is required")
+		}
+		return agentadapters.SetSessionConfigOptionRequest{SessionID: sessionID, ConfigID: configID, Value: value}, nil
+	case bool:
+		return agentadapters.SetSessionConfigOptionRequest{SessionID: sessionID, ConfigID: configID, BoolValue: &value}, nil
+	default:
+		return agentadapters.SetSessionConfigOptionRequest{}, fmt.Errorf("value must be a string or boolean")
+	}
+}
+
 func (h *Handler) HandleCreateAgentChatMessage(w http.ResponseWriter, r *http.Request) {
 	session, ok, err := h.agentChat.Get(r.Context(), r.PathValue("id"))
 	if err != nil {
@@ -521,16 +617,14 @@ func (h *Handler) HandleCreateAgentChatMessage(w http.ResponseWriter, r *http.Re
 	if runErr != nil {
 		displayErr = agentadapters.NormalizeError(adapter.Name, runErr)
 	}
-	if status == "cancelled" {
+	if status != "cancelled" && runErr != nil {
 		if output == "" {
-			output = "agent run cancelled"
+			output = displayErr
+		} else {
+			output = output + "\n\n" + displayErr
 		}
-	} else if output == "" && runErr != nil {
-		output = displayErr
-	} else if runErr != nil {
-		output = output + "\n\n" + displayErr
 	}
-	if output == "" {
+	if status != "cancelled" && output == "" {
 		output = "(agent completed without output)"
 	}
 	completedAt := time.Now().UTC()
@@ -638,13 +732,16 @@ func (h *Handler) HandleCreateAgentChatMessage(w http.ResponseWriter, r *http.Re
 		WriteError(w, http.StatusInternalServerError, "gateway_error", err.Error())
 		return
 	}
-	if result.DriverKind != "" || result.NativeSessionID != "" {
+	if result.DriverKind != "" || result.NativeSessionID != "" || result.ConfigOptions != nil {
 		updated, err = h.agentChat.UpdateSession(r.Context(), session.ID, func(item *agentchat.Session) {
 			if result.DriverKind != "" {
 				item.DriverKind = result.DriverKind
 			}
 			if result.NativeSessionID != "" {
 				item.NativeSessionID = result.NativeSessionID
+			}
+			if result.ConfigOptions != nil {
+				item.ConfigOptions = result.ConfigOptions
 			}
 		})
 		if err != nil {

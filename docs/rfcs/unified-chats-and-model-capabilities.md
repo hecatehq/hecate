@@ -328,6 +328,8 @@ Shows:
 
 - provider picker
 - model picker
+- per-chat instructions editor, sent as the task system prompt for tools-on
+  turns and locked after the first message
 - workspace selector
 - workspace mode selector
 - profile selector

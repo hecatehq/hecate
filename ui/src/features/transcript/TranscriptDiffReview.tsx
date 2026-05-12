@@ -1,4 +1,4 @@
-import { useState } from "react";
+import { useRef, useState } from "react";
 import type { SyntheticEvent } from "react";
 
 import type { AgentChatChangedFileDiffRecord, AgentChatChangedFileRecord } from "../../types/runtime";
@@ -31,6 +31,7 @@ export function TranscriptDiffReview({
   const [revertingPath, setRevertingPath] = useState("");
   const [confirmRevertPath, setConfirmRevertPath] = useState("");
   const [localError, setLocalError] = useState("");
+  const selectedDiffRef = useRef<HTMLDivElement | null>(null);
   const hasReviewAPI = Boolean(sessionID && onListFiles && onGetFileDiff && onRevertFiles);
 
   async function loadFiles() {
@@ -56,6 +57,9 @@ export function TranscriptDiffReview({
       const nextDiff = await onGetFileDiff(sessionID, messageID, file.path);
       if (nextDiff) {
         setSelectedDiff(nextDiff);
+        window.setTimeout(() => {
+          selectedDiffRef.current?.scrollIntoView({ behavior: "smooth", block: "start" });
+        }, 0);
       } else {
         setLocalError("Could not load that file diff.");
       }
@@ -134,7 +138,7 @@ export function TranscriptDiffReview({
                   display: "flex",
                   gap: 8,
                   justifyContent: "space-between",
-                  padding: "7px 9px",
+                  padding: "6px 8px",
                 }}>
                   <span style={{ color: "var(--t2)", fontFamily: "var(--font-mono)", fontSize: 11 }}>
                     {visibleFiles.length} changed file{visibleFiles.length === 1 ? "" : "s"}
@@ -170,48 +174,54 @@ export function TranscriptDiffReview({
                         alignItems: "center",
                         borderTop: "1px solid var(--border)",
                         display: "grid",
-                        gap: 8,
+                        gap: 6,
                         gridTemplateColumns: "minmax(0, 1fr) auto",
-                        padding: "7px 9px",
+                        padding: "5px 8px",
                       }}
                     >
                       <div style={{ minWidth: 0 }}>
-                        <div style={{ color: "var(--t1)", fontFamily: "var(--font-mono)", fontSize: 11, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>
+                        <div style={{ color: "var(--t1)", fontFamily: "var(--font-mono)", fontSize: 10.5, lineHeight: 1.3, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>
                           {file.path}
                         </div>
-                        <div style={{ color: "var(--t3)", fontFamily: "var(--font-mono)", fontSize: 10, marginTop: 2 }}>
+                        <div style={{ color: "var(--t3)", fontFamily: "var(--font-mono)", fontSize: 9.5, lineHeight: 1.25, marginTop: 1 }}>
                           {formatChangedFileMeta(file)}
                         </div>
                       </div>
                       {confirmRevertPath === file.path ? (
-                        <div style={{ display: "flex", gap: 6 }}>
+                        <div style={{ display: "flex", gap: 4 }}>
                           <button
                             className="btn btn-ghost btn-sm"
                             disabled={Boolean(revertingPath)}
+                            aria-label={`Confirm revert ${file.path}`}
                             onClick={() => void confirmRevert([file.path], file.path)}
+                            title={`Confirm revert ${file.path}`}
                             type="button"
                           >
-                            {revertingPath === file.path ? "Reverting..." : `Confirm revert ${file.path}`}
+                            {revertingPath === file.path ? "Reverting..." : "Confirm"}
                           </button>
                           <button className="btn btn-ghost btn-sm" onClick={() => setConfirmRevertPath("")} type="button">Cancel</button>
                         </div>
                       ) : (
-                        <div style={{ display: "flex", gap: 6 }}>
+                        <div style={{ display: "flex", gap: 4 }}>
                           <button
                             className="btn btn-ghost btn-sm"
                             disabled={loadingPath === file.path || Boolean(revertingPath)}
+                            aria-label={`Inspect ${file.path}`}
                             onClick={() => void inspectFile(file)}
+                            title={`Inspect ${file.path}`}
                             type="button"
                           >
-                            {loadingPath === file.path ? "Loading..." : `Inspect ${file.path}`}
+                            {loadingPath === file.path ? "Loading..." : "Inspect"}
                           </button>
                           <button
                             className="btn btn-ghost btn-sm"
                             disabled={Boolean(revertingPath)}
+                            aria-label={`Revert ${file.path}`}
                             onClick={() => setConfirmRevertPath(file.path)}
+                            title={`Revert ${file.path}`}
                             type="button"
                           >
-                            Revert {file.path}
+                            Revert
                           </button>
                         </div>
                       )}
@@ -222,7 +232,7 @@ export function TranscriptDiffReview({
             )}
             {localError && <InlineError message={localError} />}
             {selectedDiff && (
-              <div style={{ display: "grid", gap: 6 }}>
+              <div ref={selectedDiffRef} style={{ display: "grid", gap: 6, scrollMarginTop: 12 }}>
                 <div style={{ color: "var(--t2)", fontFamily: "var(--font-mono)", fontSize: 11 }}>
                   diff · {selectedDiff.path}
                 </div>

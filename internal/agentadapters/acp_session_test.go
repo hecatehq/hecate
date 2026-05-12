@@ -1238,6 +1238,67 @@ func TestACPTurnEmitsToolAndPlanActivities(t *testing.T) {
 	}
 }
 
+func TestACPTurnSurfacesToolRawInputCommand(t *testing.T) {
+	var activities []Activity
+	turn := newACPTurn(64*1024, nil)
+	turn.setActivityCallback(func(activity Activity) {
+		activities = append(activities, activity)
+	})
+	sessionID := acp.SessionId("session_1")
+	turn.recordUpdate(acp.SessionNotification{
+		SessionId: sessionID,
+		Update: acp.SessionUpdate{
+			ToolCall: &acp.SessionUpdateToolCall{
+				SessionUpdate: "tool_call",
+				ToolCallId:    acp.ToolCallId("call_shell"),
+				Title:         "call_shell",
+				Status:        acp.ToolCallStatusInProgress,
+				Kind:          acp.ToolKindExecute,
+				RawInput: map[string]any{
+					"command": "/bin/zsh -lc 'go test ./internal/agentadapters'",
+				},
+			},
+		},
+	})
+
+	if len(activities) != 1 {
+		t.Fatalf("activities = %#v, want 1", activities)
+	}
+	if got := activities[0].Detail; got != "execute · /bin/zsh -lc 'go test ./internal/agentadapters'" {
+		t.Fatalf("activity detail = %q", got)
+	}
+}
+
+func TestACPTurnSurfacesToolContentPreview(t *testing.T) {
+	var activities []Activity
+	turn := newACPTurn(64*1024, nil)
+	turn.setActivityCallback(func(activity Activity) {
+		activities = append(activities, activity)
+	})
+	sessionID := acp.SessionId("session_1")
+	status := acp.ToolCallStatusCompleted
+	turn.recordUpdate(acp.SessionNotification{
+		SessionId: sessionID,
+		Update: acp.SessionUpdate{
+			ToolCallUpdate: &acp.SessionToolCallUpdate{
+				ToolCallId: acp.ToolCallId("call_shell"),
+				Status:     &status,
+				Kind:       acp.Ptr(acp.ToolKindExecute),
+				Content: []acp.ToolCallContent{
+					acp.ToolContent(acp.TextBlock("ok\nPASS ./internal/agentadapters")),
+				},
+			},
+		},
+	})
+
+	if len(activities) != 1 {
+		t.Fatalf("activities = %#v, want 1", activities)
+	}
+	if got := activities[0].Detail; got != "execute · output: ok PASS ./internal/agentadapters" {
+		t.Fatalf("activity detail = %q", got)
+	}
+}
+
 func installFakeACPExecutable(t *testing.T, name string) {
 	t.Helper()
 	bin := filepath.Join(t.TempDir(), "bin")

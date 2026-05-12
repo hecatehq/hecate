@@ -13,6 +13,8 @@ import (
 	"strings"
 	"sync"
 	"time"
+
+	"github.com/hecate/agent-runtime/internal/agentcontrols"
 )
 
 const (
@@ -81,6 +83,34 @@ type RunRequest struct {
 	OnActivity              func(Activity)
 }
 
+type PrepareSessionRequest struct {
+	SessionID               string
+	AdapterID               string
+	Workspace               string
+	PreviousNativeSessionID string
+}
+
+type PrepareSessionResult struct {
+	Adapter         Adapter
+	DriverKind      string
+	NativeSessionID string
+	SessionStarted  bool
+	SessionResumed  bool
+	SessionRecovery string
+	ConfigOptions   []agentcontrols.ConfigOption
+}
+
+type SetSessionConfigOptionRequest struct {
+	SessionID string
+	ConfigID  string
+	Value     string
+	BoolValue *bool
+}
+
+type SetSessionConfigOptionResult struct {
+	ConfigOptions []agentcontrols.ConfigOption
+}
+
 type RunResult struct {
 	Adapter         Adapter
 	DriverKind      string
@@ -96,6 +126,7 @@ type RunResult struct {
 	DiffStat        string
 	Diff            string
 	Usage           Usage
+	ConfigOptions   []agentcontrols.ConfigOption
 }
 
 type Usage struct {
@@ -248,12 +279,35 @@ func statusForAdapter(ctx context.Context, item Adapter, lookup LookupFunc) Stat
 	status.Available = true
 	status.Status = StatusAvailable
 	status.Path = path
-	if v := DetectVersion(ctx, path); v != "" {
+	if shouldProbeVersionForStatus(item, path, lookup) {
+		v := DetectVersion(ctx, path)
 		status.Version = v
 		status.VersionOutsideRange = !satisfiesRange(v, item.SupportedRange)
 	}
 	status.AuthStatus, status.AuthError = DetectAuthStatus(item)
 	return status
+}
+
+func shouldProbeVersionForStatus(adapter Adapter, path string, lookup LookupFunc) bool {
+	if !shouldProbeVersion(path) {
+		return false
+	}
+	if adapter.Managed.Package == "" {
+		return true
+	}
+	planned, err := plannedManagedLauncher(adapter, lookup)
+	if err != nil {
+		return true
+	}
+	return filepath.Clean(planned) != filepath.Clean(path)
+}
+
+func shouldProbeVersion(path string) bool {
+	if strings.TrimSpace(path) == "" {
+		return false
+	}
+	info, err := os.Stat(filepath.Clean(path))
+	return err == nil && !info.IsDir()
 }
 
 func adapterDiscoveryOverride(adapterID string) (string, bool) {

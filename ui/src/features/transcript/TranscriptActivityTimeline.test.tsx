@@ -186,6 +186,47 @@ describe("TranscriptActivityTimeline", () => {
     expect(screen.queryByText("git_exec - failed")).toBeNull();
   });
 
+  it("humanizes opaque external-agent tool call ids", () => {
+    const activities: AgentChatActivityRecord[] = [
+      { type: "tool_call", title: "call_YLnXdDBfBhiiQnC46sCy8NzM", status: "completed", kind: "execute", detail: "execute" },
+      { type: "tool_call", title: "call_MGCYNWm0EHPZwWuQ4QmcNgU5", status: "completed", kind: "read", detail: "read" },
+      { type: "cancelled", title: "Cancelled", status: "cancelled" },
+    ];
+    render(<TranscriptActivityTimeline activities={activities} />);
+    expect(screen.getByText("Ran command")).toBeInTheDocument();
+    expect(screen.getByText("Read context")).toBeInTheDocument();
+    expect(screen.getByText("execute · tool YLnXdDBf")).toBeInTheDocument();
+    expect(screen.getByText("read · tool MGCYNWm0")).toBeInTheDocument();
+    expect(screen.queryByText(/call_YLnXd/)).toBeNull();
+    expect(screen.getByText("stopped before the run finished")).toBeInTheDocument();
+  });
+
+  it("prefers adapter-provided command details over opaque tool ids", () => {
+    const activities: AgentChatActivityRecord[] = [
+      {
+        type: "tool_call",
+        title: "call_ERrtqCoyxGRidDjwpaR9OZEX",
+        status: "failed",
+        kind: "execute",
+        detail: "execute · /bin/zsh -lc \"go test ./...\"",
+      },
+    ];
+    render(<TranscriptActivityTimeline activities={activities} />);
+    expect(screen.getByText("Ran command")).toBeInTheDocument();
+    expect(screen.getByText("execute · /bin/zsh -lc \"go test ./...\"")).toBeInTheDocument();
+    expect(screen.queryByText(/tool ERrtqCoy/)).toBeNull();
+  });
+
+  it("describes failed tools as interrupted when the run is cancelled", () => {
+    const activities: AgentChatActivityRecord[] = [
+      { type: "tool_call", title: "call_one", status: "failed", kind: "execute", detail: "execute" },
+      { type: "tool_call", title: "call_two", status: "failed", kind: "execute", detail: "execute" },
+      { type: "cancelled", title: "Cancelled", status: "cancelled" },
+    ];
+    render(<TranscriptActivityTimeline activities={activities} />);
+    expect(screen.getByText(/cancelled · 2 interrupted tools/)).toBeInTheDocument();
+  });
+
   it("includes changed files in the summary and expanded activity list when diffStat is supplied", () => {
     const activities: AgentChatActivityRecord[] = [
       { type: "tool_call", title: "read_file", status: "completed" },
@@ -216,7 +257,7 @@ describe("TranscriptActivityTimeline", () => {
     ];
     render(<TranscriptActivityTimeline activities={activities} />);
     expect(screen.getByText("Ran git")).toBeInTheDocument();
-    expect(screen.getByText("Details · 4 items")).toBeInTheDocument();
+    expect(screen.getByText("Output and artifacts · 4 items")).toBeInTheDocument();
     expect(screen.getByText("git-stdout.txt")).toBeInTheDocument();
     expect(screen.getByText("git-stderr.txt")).toBeInTheDocument();
     expect(screen.getByText("git-changes.json")).toBeInTheDocument();

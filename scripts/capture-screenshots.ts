@@ -8,7 +8,7 @@
 //   1. `just reset-dev && ./hecate &` — gateway running on
 //      127.0.0.1:8765 with fresh state.
 //   2. ollama running on :11434 with `ollama pull llama3.1:8b` (optional;
-//      used only to seed one realistic trace for the observability
+//      used only to seed one realistic trace row for the observability
 //      screenshot). Set HECATE_SKIP_OLLAMA=1 to skip.
 //
 // Optional optimize pass — the script auto-detects the best PNG
@@ -136,15 +136,15 @@ const docsAgentAdapters = [
   {
     id: "codex",
     name: "Codex",
-    kind: "process",
-    command: "codex",
+    kind: "acp",
+    command: "codex-acp",
     managed: true,
     managed_package: "@zed-industries/codex-acp",
     available: true,
     status: "available",
     path: "/Users/alice/.cache/hecate/agent-adapters/codex-acp",
     cost_mode: "external",
-    docs_url: "https://github.com/openai/codex",
+    docs_url: "https://github.com/zed-industries/codex-acp",
     version: "0.12.0",
     supported_range: ">=0.1.0",
     auth_status: "ok",
@@ -152,15 +152,15 @@ const docsAgentAdapters = [
   {
     id: "claude_code",
     name: "Claude Code",
-    kind: "process",
-    command: "claude",
+    kind: "acp",
+    command: "claude-agent-acp",
     managed: true,
-    managed_package: "@zed-industries/claude-code-acp",
+    managed_package: "@agentclientprotocol/claude-agent-acp",
     available: true,
     status: "available",
     path: "/Users/alice/.claude/local/claude",
     cost_mode: "external",
-    docs_url: "https://docs.anthropic.com/claude-code",
+    docs_url: "https://github.com/agentclientprotocol/claude-agent-acp",
     version: "2.1.119",
     supported_range: ">=0.1.0",
     auth_status: "ok",
@@ -168,7 +168,7 @@ const docsAgentAdapters = [
   {
     id: "cursor_agent",
     name: "Cursor Agent",
-    kind: "process",
+    kind: "acp",
     command: "cursor-agent",
     available: true,
     status: "available",
@@ -1005,8 +1005,8 @@ async function main() {
         {
           id: "codex",
           name: "Codex",
-          kind: "process",
-          command: "codex",
+          kind: "acp",
+          command: "codex-acp",
           available: false,
           status: "missing",
           error: "codex was not found on PATH",
@@ -1015,8 +1015,8 @@ async function main() {
         {
           id: "claude_code",
           name: "Claude Code",
-          kind: "process",
-          command: "claude",
+          kind: "acp",
+          command: "claude-agent-acp",
           available: false,
           status: "missing",
           error: "claude was not found on PATH",
@@ -1025,7 +1025,7 @@ async function main() {
         {
           id: "cursor_agent",
           name: "Cursor Agent",
-          kind: "process",
+          kind: "acp",
           command: "cursor-agent",
           available: false,
           status: "missing",
@@ -1044,7 +1044,7 @@ async function main() {
   await page.reload();
   await openWorkspace(page, "chats");
   await page.waitForSelector("text=Detected locally", { timeout: 5_000 });
-  await page.waitForSelector("text=Add detected providers", { timeout: 5_000 });
+  await page.waitForSelector("text=Add selected", { timeout: 5_000 });
   await snap(page, "chat-empty");
   await page.unroute(missingAgentAdapters);
   await page.unroute(`${HECATE_API}/settings/providers/local-discovery`);
@@ -1111,7 +1111,8 @@ async function main() {
   await page.waitForSelector(".hecate-activitybar", { timeout: 10_000 });
   await openWorkspace(page, "chats");
   await page.waitForSelector("text=Here are the last 3 commits", { timeout: 5_000 });
-  await page.waitForSelector("text=Tools on", { timeout: 5_000 });
+  await page.waitForSelector("text=tools:", { timeout: 5_000 });
+  await page.waitForSelector("text=on", { timeout: 5_000 });
   await page.waitForTimeout(700);
   await snap(page, "chat");
   await unrouteHecateChatDocsFixture(page);

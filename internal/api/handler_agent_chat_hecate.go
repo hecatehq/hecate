@@ -146,7 +146,7 @@ func (h *Handler) handleCreateHecateAgentChatMessage(w http.ResponseWriter, r *h
 	}
 	h.agentChatLive.publishSession(updated)
 
-	task, run, err := h.startOrContinueHecateAgentRun(runCtx, session, content, forceNewTask)
+	task, run, err := h.startOrContinueHecateAgentRun(runCtx, session, content, strings.TrimSpace(req.SystemPrompt), forceNewTask)
 	if err != nil {
 		completedAt := time.Now().UTC()
 		trace.Record(telemetry.EventAgentChatRunFailed, hecateAgentChatTraceAttrs(session, "", "", assistantID, map[string]any{
@@ -373,7 +373,7 @@ func shouldStartNewHecateAgentSegment(session agentchat.Session, provider, model
 	return false
 }
 
-func (h *Handler) startOrContinueHecateAgentRun(ctx context.Context, session agentchat.Session, prompt string, forceNewTask bool) (types.Task, types.TaskRun, error) {
+func (h *Handler) startOrContinueHecateAgentRun(ctx context.Context, session agentchat.Session, prompt, systemPrompt string, forceNewTask bool) (types.Task, types.TaskRun, error) {
 	if h.taskStore == nil || h.taskRunner == nil {
 		return types.Task{}, types.TaskRun{}, fmt.Errorf("task runtime is not configured")
 	}
@@ -387,6 +387,7 @@ func (h *Handler) startOrContinueHecateAgentRun(ctx context.Context, session age
 			ID:                 newTaskID(),
 			Title:              title,
 			Prompt:             prompt,
+			SystemPrompt:       strings.TrimSpace(systemPrompt),
 			ExecutionKind:      "agent_loop",
 			ExecutionProfile:   "chat_agent",
 			OriginKind:         "agent_chat",

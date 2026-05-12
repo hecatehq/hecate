@@ -250,9 +250,9 @@ reset-dev:
 # run the Bun capture script -> stop the gateway. Everything is reset on entry
 # and torn down on exit, so successive `just screenshots` calls are stable.
 #
-# Ollama on :11434 with `llama3.1:8b` pulled produces the realistic chat turn
-# shown in the README screenshots; HECATE_SKIP_OLLAMA=1 lets you run without it
-# (the model-chat example will stay empty).
+# Ollama on :11434 with `llama3.1:8b` pulled seeds one realistic trace row
+# for the Observability screenshot; HECATE_SKIP_OLLAMA=1 skips that optional
+# live request. The primary Chats screenshots are fixture-backed.
 # Capture documentation screenshots.
 screenshots: _ui-deps
 	test -d ui/node_modules/@playwright/test || (echo "Playwright dependencies missing. Run 'just ui-install' first." && exit 1)

@@ -42,9 +42,11 @@ own the `hecate-acp` bridge process.
 ## Quick start from the operator UI
 
 1. Start Hecate and open **Chats**.
-2. Switch from **Hecate Chat** to **External Agent**.
-3. Pick **Codex**, **Claude Code**, or **Cursor Agent**.
-4. Choose the workspace directory the external agent is allowed to work in.
+2. Pick **Codex**, **Claude Code**, or **Cursor Agent** from the agent picker.
+3. Choose the workspace directory the external agent is allowed to work in.
+4. Click **New chat**. Hecate starts the adapter session immediately so
+   adapter-owned controls such as model, reasoning, or mode can appear before
+   the first prompt.
 5. If the adapter row is amber/red, open **Settings → External agents** and
    click **Test**. The probe performs a real spawn + ACP handshake + temporary
    no-op session, so it catches missing auth, billing/subscription issues,
@@ -59,6 +61,15 @@ External Agent chats are intentionally separate from Hecate Chat. They do not
 use Hecate model providers or Hecate's task sandbox. The selected adapter owns
 its model/runtime/subscription; Hecate supervises the process, approvals,
 transcript, diagnostics, traces, guardrails, and Git diff review.
+
+When an adapter supports ACP session configuration, Hecate surfaces those
+controls in the chat header as soon as the External Agent chat is created. The
+controls are adapter-defined: Codex / Claude Code / Cursor decide which model,
+mode, or reasoning selectors exist and what the labels mean. The selected
+adapter is fixed for that chat; start another chat to use a different agent.
+Hecate stores the latest reported control state with the chat session and sends
+changes back with ACP `session/set_config_option`; it does not translate those
+controls into Hecate provider/model settings.
 
 Check discovery:
 

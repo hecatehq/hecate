@@ -1,6 +1,6 @@
 import { useEffect, useMemo, useRef, useState, type ReactNode } from "react";
 import type { AgentChatActivityRecord, TaskActivityRecord, TaskApprovalRecord, TaskArtifactRecord, TaskRecord, TaskRunEventRecord, TaskRunRecord, TaskStepRecord } from "../../types/runtime";
-import { Badge, Dot, Icon, Icons, Modal } from "../shared/ui";
+import { Badge, BrandAvatar, Dot, Icon, Icons, Modal } from "../shared/ui";
 import { TranscriptActivityTimeline } from "../transcript/TranscriptActivityTimeline";
 
 type StreamState = "idle" | "connecting" | "live" | "closed" | "error";
@@ -526,11 +526,23 @@ export function TaskDetail({
         {run && (
           <div style={{ padding: "12px 16px", borderBottom: "1px solid var(--border)", background: "var(--bg1)" }}>
             <div className="kicker" style={{ marginBottom: 8 }}>Run overview</div>
-            <div style={{ display: "flex", flexWrap: "wrap", gap: 8, marginBottom: 10 }}>
-              <Badge status={taskBadgeStatus(run.status)} />
-              {run.provider && <Badge status="ok" label={run.provider} />}
-              {run.provider_kind && <Badge status={run.provider_kind === "local" ? "healthy" : "disabled"} label={run.provider_kind} />}
-              {run.otel_status_message && run.status === "failed" && <Badge status="error" label={run.otel_status_message} />}
+            <div style={{ display: "flex", flexWrap: "wrap", gap: 10, alignItems: "center", marginBottom: 10 }}>
+              {(run.provider || run.model) && (
+                <div style={{ display: "inline-flex", alignItems: "center", gap: 7, minWidth: 0 }}>
+                  <BrandAvatar brand={run.provider || run.model} fallback={run.provider || run.model} size={22} />
+                  <span style={{ fontSize: 12, fontWeight: 500, color: "var(--t0)" }}>{run.provider || "provider auto"}</span>
+                  {run.model && (
+                    <span style={{ fontFamily: "var(--font-mono)", fontSize: 11, color: "var(--t2)", maxWidth: 260, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>
+                      {run.model}
+                    </span>
+                  )}
+                </div>
+              )}
+              <div style={{ display: "inline-flex", flexWrap: "wrap", gap: 8, alignItems: "center" }}>
+                <Badge status={taskBadgeStatus(run.status)} />
+                {run.provider_kind && <Badge status={run.provider_kind === "local" ? "healthy" : "disabled"} label={run.provider_kind} />}
+                {run.otel_status_message && run.status === "failed" && <Badge status="error" label={run.otel_status_message} />}
+              </div>
             </div>
             <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(160px, 1fr))", gap: "8px 14px" }}>
               {([

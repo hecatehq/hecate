@@ -30,7 +30,7 @@ import type {
 } from "../../types/runtime";
 import { focusDropdownItem, focusInitialDropdownItem } from "../shared/dropdownKeyboard";
 import { useFloatingDropdownStyle } from "../shared/useFloatingDropdownStyle";
-import { Badge, Icon, Icons, Modal, ModelPicker, ProviderPicker, Toggle } from "../shared/ui";
+import { Badge, BrandAvatar, Icon, Icons, Modal, ModelPicker, ProviderPicker, Toggle } from "../shared/ui";
 
 import { CopyableID } from "./observability/CopyableID";
 import { RecentActivityStrip } from "./observability/RecentActivityStrip";
@@ -38,7 +38,6 @@ import { StatCard } from "./observability/StatCard";
 import { TraceDetail } from "./observability/TraceDetail";
 import {
   DRAWER_BREAKPOINT_PX,
-  providerColor,
   type StatusFilter,
   tdBase,
   thStyle,
@@ -640,15 +639,7 @@ export function ObservabilityView({ state, onNavigate, focusRequest }: Props) {
                         <div style={{ display: "flex", alignItems: "center", gap: 6 }}>
                           {provider ? (
                             <>
-                              <span style={{
-                                width: 18, height: 18, borderRadius: "var(--radius-sm)",
-                                background: "var(--bg3)", border: "1px solid var(--border)",
-                                display: "inline-flex", alignItems: "center", justifyContent: "center",
-                                fontFamily: "var(--font-mono)", fontSize: 10, fontWeight: 600,
-                                color: providerColor(provider), flexShrink: 0,
-                              }}>
-                                {provider[0]?.toUpperCase()}
-                              </span>
+                              <BrandAvatar brand={provider} fallback={provider} size={18} />
                               <span style={{ fontSize: 12, color: "var(--t1)", overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{provider}</span>
                             </>
                           ) : rejected ? (

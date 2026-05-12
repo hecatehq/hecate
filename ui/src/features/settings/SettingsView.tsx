@@ -1,7 +1,7 @@
 import { useEffect, useMemo, useRef, useState, type ReactNode } from "react";
 import type { RuntimeConsoleViewModel } from "../../app/useRuntimeConsole";
 import type { AgentAdapterHealthRecord, AgentAdapterRecord, AgentChatGrantRecord, ConfiguredProviderRecord, ModelRecord } from "../../types/runtime";
-import { Badge, Icon, Icons, InlineError } from "../shared/ui";
+import { Badge, BrandAvatar, Icon, Icons, InlineError } from "../shared/ui";
 import { PricebookTab } from "./PricebookTab";
 
 type Props = {
@@ -803,6 +803,7 @@ function AdapterStatusRow({
         borderBottom: divider ? "1px solid var(--border)" : "none",
       }}
     >
+      <BrandAvatar brand={adapter.id} fallback={adapter.name} size={28} />
       <div style={{ minWidth: 0, flex: 1 }}>
         <div style={{ display: "flex", alignItems: "baseline", gap: 8, marginBottom: 2 }}>
           <span style={{ fontSize: 12, fontWeight: 500, color: "var(--t0)" }}>{adapter.name}</span>
@@ -1093,6 +1094,7 @@ function GrantRow({
         borderBottom: divider ? "1px solid var(--border)" : "none",
       }}
     >
+      <BrandAvatar brand={grant.adapter_id} fallback={grant.adapter_id} size={26} />
       <div style={{ minWidth: 0, flex: 1 }}>
         <div style={{ display: "flex", alignItems: "baseline", gap: 8, marginBottom: 2 }}>
           <span style={{ fontSize: 12, fontWeight: 500, color: "var(--t0)" }}>{grant.adapter_id}</span>
