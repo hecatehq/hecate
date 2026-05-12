@@ -261,6 +261,7 @@ func adapterDiscoveryOverride(adapterID string) (string, bool) {
 	if raw == "" {
 		return "", false
 	}
+	var allOverride string
 	for _, part := range strings.Split(raw, ",") {
 		key, value, ok := strings.Cut(part, "=")
 		if !ok {
@@ -271,12 +272,18 @@ func adapterDiscoveryOverride(adapterID string) (string, bool) {
 		if key == "" || value == "" {
 			continue
 		}
-		if key == adapterID || key == "all" {
-			switch value {
-			case StatusAvailable, StatusMissing:
+		switch value {
+		case StatusAvailable, StatusMissing:
+			if key == adapterID {
 				return value, true
 			}
+			if key == "all" {
+				allOverride = value
+			}
 		}
+	}
+	if allOverride != "" {
+		return allOverride, true
 	}
 	return "", false
 }

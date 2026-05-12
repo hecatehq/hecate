@@ -259,7 +259,8 @@ export type AgentAdapterResponse = {
 
 export type AgentAdapterSetupCommandStatus = {
   available: boolean;
-  path?: string;
+  command?: string;
+  executable_path?: string;
 };
 
 export type AgentChatSessionSummaryRecord = {

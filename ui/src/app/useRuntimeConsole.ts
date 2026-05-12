@@ -1843,7 +1843,8 @@ export function useRuntimeConsole() {
       setNoticeMessage("success", adapterID === "claude_code" ? "Claude Code verified." : "Adapter credential saved.");
       return true;
     } catch (error) {
-      setNoticeMessage("error", error instanceof Error ? error.message : "Failed to validate adapter credential.");
+      const fallback = adapterID === "claude_code" ? "Failed to validate adapter credential." : "Failed to save adapter credential.";
+      setNoticeMessage("error", error instanceof Error ? error.message : fallback);
       return false;
     }
   }

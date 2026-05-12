@@ -102,6 +102,30 @@ func TestStatusForAdapterHonorsDiscoveryOverrideAvailable(t *testing.T) {
 	}
 }
 
+func TestStatusForAdapterDiscoveryOverridePrefersExactMatch(t *testing.T) {
+	t.Setenv(adapterDiscoveryOverrideEnv, "all=missing,codex=available")
+
+	status, ok := StatusForAdapter(context.Background(), "codex", func(file string) (string, error) {
+		return "", errors.New("not found on PATH")
+	})
+	if !ok {
+		t.Fatalf("StatusForAdapter(codex) ok = false")
+	}
+	if !status.Available || status.Status != StatusAvailable {
+		t.Fatalf("codex status = %#v, want exact adapter override to win over all", status)
+	}
+
+	status, ok = StatusForAdapter(context.Background(), "claude_code", func(file string) (string, error) {
+		return "/usr/local/bin/" + file, nil
+	})
+	if !ok {
+		t.Fatalf("StatusForAdapter(claude_code) ok = false")
+	}
+	if status.Available || status.Status != StatusMissing {
+		t.Fatalf("claude_code status = %#v, want all override fallback", status)
+	}
+}
+
 func TestStatusForAdapterIgnoresInvalidDiscoveryOverride(t *testing.T) {
 	t.Setenv(adapterDiscoveryOverrideEnv, "fake=broken")
 

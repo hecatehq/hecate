@@ -620,8 +620,9 @@ type AgentAdapterResponseItem struct {
 }
 
 type AgentAdapterSetupCommandStatusItem struct {
-	Available bool   `json:"available"`
-	Path      string `json:"path,omitempty"`
+	Available      bool   `json:"available"`
+	Command        string `json:"command,omitempty"`
+	ExecutablePath string `json:"executable_path,omitempty"`
 }
 
 type AgentAdapterCredentialSetRequest struct {
