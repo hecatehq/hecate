@@ -249,7 +249,7 @@ That's the whole command. The target resets dev state, builds the binary if need
 
 Optional inputs:
 
-- **Ollama on `:11434`** with `ollama pull llama3.1:8b` — seeds a real chat turn so the README hero shows model output instead of an empty session. The capture continues without it; set `HECATE_SKIP_OLLAMA=1` to skip explicitly.
+- **Ollama on `:11434`** with `ollama pull llama3.1:8b` — optionally seeds one real trace row for the Observability screenshot. The primary Chats screenshots are fixture-backed and remain populated without Ollama. Set `HECATE_SKIP_OLLAMA=1` to skip the live request explicitly.
 - **A PNG optimizer on `PATH`** — the script auto-detects in preference order `pngquant` > `oxipng` > `magick`. Without one, captures are 3× larger. Recommended: `brew install pngquant` — lossy palette quantization with Floyd-Steinberg dithering, perceptually indistinguishable from the source on UI screenshots. `HECATE_SKIP_OPTIMIZE=1` skips the optimize pass entirely.
 
 Outputs land in `docs/screenshots/`.

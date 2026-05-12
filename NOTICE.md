@@ -62,3 +62,15 @@ SOFTWARE.
 
 The upstream license file lives at
 <https://github.com/BerriAI/litellm/blob/main/LICENSE>.
+
+## Devicons React package
+
+The operator UI uses selected SVG icon components from the
+`@dev.icons/react` package to identify providers and external-agent
+adapters in compact UI surfaces. Devicons is maintained at
+<https://devicons.io> and <https://github.com/vorillaz/devicons>.
+
+The `@dev.icons/react` package is published under the MIT License.
+Product names, logos, and brands remain the property of their
+respective owners; the icons are used for identification only and do
+not imply endorsement.

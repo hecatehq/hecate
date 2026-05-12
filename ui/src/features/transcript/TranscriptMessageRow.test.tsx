@@ -72,10 +72,11 @@ describe("TranscriptMessageRow", () => {
     expect(screen.queryByRole("button", { name: "Open Claude Code setup" })).toBeNull();
   });
 
-  it("renders an agent run cancelled notice when badge=cancelled", () => {
-    render(<TranscriptMessageRow {...baseProps} badge="cancelled" content="user pressed stop" />);
+  it("keeps cancelled run content and appends a cancellation notice", () => {
+    render(<TranscriptMessageRow {...baseProps} badge="cancelled" content="partial answer before stop" error="operator stopped the run" />);
     expect(screen.getByText("agent run cancelled")).toBeInTheDocument();
-    expect(screen.getByText("user pressed stop")).toBeInTheDocument();
+    expect(screen.getByText("partial answer before stop")).toBeInTheDocument();
+    expect(screen.getByText("operator stopped the run")).toBeInTheDocument();
   });
 
   it("shows the waiting-for-output indicator when assistant has no content but a running activity", () => {
@@ -94,10 +95,9 @@ describe("TranscriptMessageRow", () => {
     expect(screen.getByText(/Waiting for agent output/)).toBeInTheDocument();
   });
 
-  it("renders the user role label and U avatar for role=user", () => {
+  it("renders the user role label for role=user", () => {
     render(<TranscriptMessageRow {...baseProps} role="user" content="hi there" />);
     expect(screen.getByText("You")).toBeInTheDocument();
-    expect(screen.getByText("U")).toBeInTheDocument();
     expect(screen.getByText("hi there")).toBeInTheDocument();
   });
 

@@ -1,9 +1,9 @@
 import { useEffect, useState, type CSSProperties } from "react";
 import type { RuntimeConsoleViewModel } from "../../app/useRuntimeConsole";
-import { providerIconColor, resolvedBaseURL } from "../../lib/provider-utils";
+import { resolvedBaseURL } from "../../lib/provider-utils";
 import { describeHealthErrorClass, describeRoutingBlockedReason } from "../../lib/runtime-utils";
 import { ProviderReadinessChecklist } from "../shared/ProviderReadiness";
-import { Badge, ConfirmModal, Icon, Icons, Modal } from "../shared/ui";
+import { Badge, BrandAvatar, ConfirmModal, Icon, Icons, Modal } from "../shared/ui";
 import { AddProviderModal } from "./AddProviderModal";
 
 type Props = {
@@ -187,15 +187,7 @@ export function ProvidersView({ state, actions }: Props) {
         {/* Name */}
         <td style={{ padding: "8px 12px" }}>
           <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
-            <div style={{
-              width: 22, height: 22, borderRadius: "var(--radius-sm)",
-              background: "var(--bg3)", border: "1px solid var(--border)",
-              display: "flex", alignItems: "center", justifyContent: "center",
-              fontFamily: "var(--font-mono)", fontSize: 11, fontWeight: 600,
-              color: providerIconColor(id), flexShrink: 0,
-            }}>
-              {displayName[0].toUpperCase()}
-            </div>
+            <BrandAvatar brand={id} fallback={displayName} size={22} />
             <span style={{ fontSize: 13, fontWeight: 500, color: "var(--t0)" }}>
               {displayName}
             </span>
@@ -398,15 +390,7 @@ export function ProvidersView({ state, actions }: Props) {
 
             {/* Header strip: brand initial + base URL */}
             <div style={{ display: "flex", alignItems: "center", gap: 10 }}>
-              <div style={{
-                width: 32, height: 32, borderRadius: "var(--radius-sm)",
-                background: "var(--bg3)", border: "1px solid var(--border)",
-                display: "flex", alignItems: "center", justifyContent: "center",
-                fontFamily: "var(--font-mono)", fontSize: 14, fontWeight: 600,
-                color: providerIconColor(selectedID), flexShrink: 0,
-              }}>
-                {(selectedConfig.name || selectedID)[0].toUpperCase()}
-              </div>
+              <BrandAvatar brand={selectedID} fallback={selectedPreset?.name || selectedConfig.name || selectedID} size={32} />
               {selectedConfig.base_url && (
                 <span style={{
                   fontFamily: "var(--font-mono)", fontSize: 11, color: "var(--t3)",

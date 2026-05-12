@@ -232,6 +232,47 @@ func TestResolveExecutableForStatusReportsManagedLauncherWithoutWriting(t *testi
 	}
 }
 
+func TestShouldProbeVersionForStatusSkipsPlannedManagedLauncher(t *testing.T) {
+	dir := t.TempDir()
+	t.Setenv("HECATE_AGENT_ADAPTERS_DIR", dir)
+
+	adapter := Adapter{
+		ID:      "codex",
+		Command: "codex-acp",
+		Managed: ManagedLauncher{
+			Package: "@zed-industries/codex-acp",
+			Runners: []ManagedRunner{{Command: "npx", Args: []string{"-y", "@zed-industries/codex-acp"}}},
+		},
+	}
+	path := filepath.Join(dir, managedLauncherName("codex-acp"))
+	if err := os.WriteFile(path, []byte("#!/bin/sh\nsleep 60\n"), 0o755); err != nil {
+		t.Fatalf("write planned launcher: %v", err)
+	}
+
+	lookup := func(file string) (string, error) {
+		if file == "npx" {
+			return "/usr/local/bin/npx", nil
+		}
+		return "", errors.New("not found on PATH")
+	}
+	if shouldProbeVersionForStatus(adapter, path, lookup) {
+		t.Fatalf("shouldProbeVersionForStatus returned true for planned managed launcher")
+	}
+}
+
+func TestShouldProbeVersionForStatusAllowsDirectBinary(t *testing.T) {
+	exe := filepath.Join(t.TempDir(), "codex-acp")
+	if err := os.WriteFile(exe, []byte("#!/bin/sh\necho 1.2.3\n"), 0o755); err != nil {
+		t.Fatalf("write executable: %v", err)
+	}
+
+	if !shouldProbeVersionForStatus(Adapter{Command: "codex-acp"}, exe, func(file string) (string, error) {
+		return "", errors.New("not found on PATH")
+	}) {
+		t.Fatalf("shouldProbeVersionForStatus returned false for direct binary")
+	}
+}
+
 func TestResolveExecutableCreatesManagedLauncher(t *testing.T) {
 	dir := t.TempDir()
 	t.Setenv("HECATE_AGENT_ADAPTERS_DIR", dir)

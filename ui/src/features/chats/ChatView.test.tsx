@@ -60,12 +60,22 @@ function setup(stateOverrides = {}, actionOverrides = {}) {
 }
 
 describe("ChatView input", () => {
-  it("renders Hecate Chat as the first and active chat target by default", () => {
+  it("renders Hecate first in the unified agent picker", async () => {
     const { state, actions } = setup();
     render(<ChatView state={state} actions={actions} />);
-    const targetButtons = screen.getAllByRole("button", { name: /^(Hecate Chat|External Agent)$/ });
-    expect(targetButtons.map((button) => button.textContent)).toEqual(["Hecate Chat", "External Agent"]);
-    expect(targetButtons[0]).toHaveStyle({ color: "var(--teal)" });
+    const picker = screen.getByRole("button", { name: "Agent" });
+    expect(picker.textContent).toContain("Hecate");
+    expect(picker).toHaveStyle({ color: "var(--teal)" });
+
+    const user = userEvent.setup();
+    await user.click(picker);
+    const options = screen.getAllByRole("option");
+    expect(options.map((option) => option.textContent?.replace(/\s+/g, " ").trim())).toEqual([
+      "Hecate· local",
+      "Codex· setup",
+      "Claude Code· setup",
+      "Cursor· setup",
+    ]);
   });
 
   it("toggles Hecate Chat between direct model chat and tool-backed agent mode", async () => {
@@ -84,19 +94,66 @@ describe("ChatView input", () => {
         },
       ],
     }, { setChatTarget });
-    render(<ChatView state={state} actions={actions} />);
+    const { rerender } = render(<ChatView state={state} actions={actions} />);
 
     const toolsGroup = screen.getByRole("group", { name: "Hecate tools" });
     expect(toolsGroup).toHaveStyle({ height: "30px" });
-    expect(screen.getByRole("button", { name: /tools off/i })).toHaveStyle({ width: "76px" });
-    expect(screen.getByRole("button", { name: /tools on/i })).toHaveStyle({ width: "76px" });
+    expect(toolsGroup.textContent).toContain("tools:");
+    expect(screen.getByRole("button", { name: /tools on/i })).toHaveTextContent("on");
 
     const user = userEvent.setup();
-    await user.click(screen.getByRole("button", { name: /tools off/i }));
+    await user.click(screen.getByRole("button", { name: /tools on/i }));
     expect(setChatTarget).toHaveBeenCalledWith("model");
 
-    await user.click(screen.getByRole("button", { name: /tools on/i }));
+    const directState = setup({ ...state, chatTarget: "model" }, { setChatTarget }).state;
+    rerender(<ChatView state={directState} actions={actions} />);
+    expect(screen.getByRole("button", { name: /tools off/i })).toHaveTextContent("off");
+
+    await user.click(screen.getByRole("button", { name: /tools off/i }));
     expect(setChatTarget).toHaveBeenCalledWith("agent");
+  });
+
+  it("shows editable instructions for Hecate Agent before the first message", async () => {
+    const setSystemPrompt = vi.fn();
+    const { state, actions } = setup({
+      chatTarget: "agent",
+      systemPrompt: "Prefer small, reviewable diffs.",
+      providerScopedModels: [
+        {
+          id: "gpt-4o-mini",
+          owned_by: "openai",
+          metadata: {
+            provider: "openai",
+            provider_kind: "cloud",
+            capabilities: { tool_calling: "basic", streaming: true, source: "catalog" },
+          },
+        },
+      ],
+    }, { setSystemPrompt });
+    render(<ChatView state={state} actions={actions} />);
+
+    const user = userEvent.setup();
+    await user.click(screen.getByRole("button", { name: "Agent instructions" }));
+
+    expect(screen.getByText("AGENT INSTRUCTIONS")).toBeTruthy();
+    const editor = screen.getByRole("textbox", { name: "Agent instructions" });
+    expect(editor).toHaveValue("Prefer small, reviewable diffs.");
+    fireEvent.change(editor, { target: { value: "Use short patches." } });
+    expect(setSystemPrompt).toHaveBeenLastCalledWith("Use short patches.");
+  });
+
+  it("does not expose Hecate instructions for External Agent chats", () => {
+    const { state, actions } = setup({
+      chatTarget: "external_agent",
+      agentAdapterID: "codex",
+      agentAdapters: [
+        { id: "codex", name: "Codex", kind: "acp", command: "codex-acp", available: true, status: "available", cost_mode: "external" },
+      ],
+    });
+    render(<ChatView state={state} actions={actions} />);
+
+    expect(screen.queryByRole("button", { name: "Agent instructions" })).toBeNull();
+    expect(screen.queryByRole("button", { name: "Instructions" })).toBeNull();
   });
 
   it("disables the send button when message is empty", () => {
@@ -136,7 +193,7 @@ describe("ChatView input", () => {
     });
     render(<ChatView state={state} actions={actions} />);
     expect(screen.getByText("No routable model")).toBeTruthy();
-    expect(screen.getByRole("button", { name: /Add provider/i })).toBeTruthy();
+    expect(screen.getByRole("button", { name: /Go to Providers/i })).toBeTruthy();
     expect(screen.queryByRole("textbox", { name: "Message" })).toBeNull();
     expect(screen.queryByRole("button", { name: "Send message" })).toBeNull();
   });
@@ -247,7 +304,8 @@ describe("ChatView input", () => {
     expect(onNavigate).toHaveBeenCalledWith("providers");
   });
 
-  it("opens the shared Add provider modal from the model empty state", async () => {
+  it("opens Providers from the model empty state", async () => {
+    const onNavigate = vi.fn();
     const { state, actions } = setup({
       chatTarget: "model",
       settingsConfig: { backend: "memory", providers: [], policy_rules: [], pricebook: [], events: [] },
@@ -255,13 +313,12 @@ describe("ChatView input", () => {
         { id: "codex", name: "Codex", kind: "acp", command: "codex-acp", available: true, status: "available", cost_mode: "external" },
       ],
     });
-    render(<ChatView state={state} actions={actions} />);
+    render(<ChatView state={state} actions={actions} onNavigate={onNavigate} />);
 
     const user = userEvent.setup();
-    await user.click(screen.getByRole("button", { name: /Add provider/i }));
+    await user.click(screen.getByRole("button", { name: /Go to Providers/i }));
 
-    expect(screen.getByRole("dialog", { name: "Add provider" })).toBeTruthy();
-    expect(screen.getByRole("button", { name: "Local" })).toHaveStyle({ color: "var(--t0)" });
+    expect(onNavigate).toHaveBeenCalledWith("providers");
   });
 
   it("shows provider troubleshooting instead of detected-provider setup when a configured provider has no models", () => {
@@ -310,7 +367,7 @@ describe("ChatView input", () => {
     expect(screen.getByText("Routing is blocked because no models are available.")).toBeTruthy();
     expect(screen.getByText(/Start the local provider app/)).toBeTruthy();
     expect(screen.queryByText("Detected locally")).toBeNull();
-    expect(screen.queryByRole("button", { name: /Add detected provider/i })).toBeNull();
+    expect(screen.queryByRole("button", { name: /Add selected/i })).toBeNull();
   });
 
   it("quick-adds all installed local providers from the model empty state", async () => {
@@ -362,7 +419,7 @@ describe("ChatView input", () => {
     render(<ChatView state={state} actions={actions} />);
 
     const user = userEvent.setup();
-    const quickAdd = await screen.findByRole("button", { name: /Add detected providers/i });
+    const quickAdd = await screen.findByRole("button", { name: /Add selected/i });
     expect(screen.getByText("Ollama")).toBeTruthy();
     expect(screen.getByText("LM Studio")).toBeTruthy();
     await user.click(quickAdd);
@@ -380,6 +437,67 @@ describe("ChatView input", () => {
       base_url: "http://127.0.0.1:1234/v1",
       kind: "local",
       protocol: "openai",
+    }), { refresh: false });
+    expect(loadDashboard).toHaveBeenCalledTimes(1);
+  });
+
+  it("quick-adds only selected local providers", async () => {
+    vi.mocked(discoverLocalProviders).mockResolvedValueOnce({
+      object: "local_provider_discovery",
+      data: [
+        {
+          preset_id: "ollama",
+          name: "Ollama",
+          base_url: "http://127.0.0.1:11434/v1",
+          probe_url: "http://127.0.0.1:11434/api/tags",
+          status: "running",
+          command: "ollama",
+          command_available: true,
+          command_path: "/usr/local/bin/ollama",
+          http_available: true,
+          model_count: 1,
+          models: ["llama3.1:8b"],
+        },
+        {
+          preset_id: "lmstudio",
+          name: "LM Studio",
+          base_url: "http://127.0.0.1:1234/v1",
+          probe_url: "http://127.0.0.1:1234/v1/models",
+          status: "running",
+          command: "lms",
+          command_available: true,
+          command_path: "/Users/alice/.lmstudio/bin/lms",
+          http_available: true,
+          model_count: 1,
+          models: ["qwen2.5"],
+        },
+      ],
+    });
+    const createProvider = vi.fn(async () => undefined);
+    const loadDashboard = vi.fn(async () => undefined);
+    const { state, actions } = setup({
+      chatTarget: "model",
+      settingsConfig: { backend: "memory", providers: [], policy_rules: [], pricebook: [], events: [] },
+      providerPresets: [
+        { id: "ollama", name: "Ollama", kind: "local", protocol: "openai", base_url: "http://127.0.0.1:11434/v1", description: "" },
+        { id: "lmstudio", name: "LM Studio", kind: "local", protocol: "openai", base_url: "http://127.0.0.1:1234/v1", description: "" },
+      ],
+      providerScopedModels: [],
+      agentAdapters: [
+        { id: "codex", name: "Codex", kind: "acp", command: "codex-acp", available: true, status: "available", cost_mode: "external" },
+      ],
+    }, { createProvider, loadDashboard });
+    render(<ChatView state={state} actions={actions} />);
+
+    const user = userEvent.setup();
+    expect(await screen.findByRole("button", { name: "Deselect Ollama" })).toHaveAttribute("aria-pressed", "true");
+    await user.click(screen.getByRole("button", { name: "Deselect LM Studio" }));
+    await user.click(screen.getByRole("button", { name: /Add selected/i }));
+
+    expect(createProvider).toHaveBeenCalledTimes(1);
+    expect(createProvider).toHaveBeenCalledWith(expect.objectContaining({
+      name: "Ollama",
+      preset_id: "ollama",
     }), { refresh: false });
     expect(loadDashboard).toHaveBeenCalledTimes(1);
   });
@@ -423,7 +541,7 @@ describe("ChatView input", () => {
     expect(screen.getByText("Ollama")).toBeTruthy();
 
     const user = userEvent.setup();
-    await user.click(screen.getByRole("button", { name: /Add detected provider/i }));
+    await user.click(screen.getByRole("button", { name: /Add selected/i }));
 
     expect(createProvider).toHaveBeenCalledWith(expect.objectContaining({
       name: "Ollama",
@@ -482,7 +600,7 @@ describe("ChatView input", () => {
     render(<ChatView state={state} actions={actions} />);
 
     const user = userEvent.setup();
-    await user.click(await screen.findByRole("button", { name: /Add detected providers/i }));
+    await user.click(await screen.findByRole("button", { name: /Add selected/i }));
 
     expect(createProvider).toHaveBeenCalledTimes(1);
     expect(createProvider).toHaveBeenCalledWith(expect.objectContaining({
@@ -546,7 +664,7 @@ describe("ChatView input", () => {
     render(<ChatView state={state} actions={actions} />);
 
     const user = userEvent.setup();
-    await user.click(await screen.findByRole("button", { name: /Add detected providers/i }));
+    await user.click(await screen.findByRole("button", { name: /Add selected/i }));
 
     expect(createProvider).toHaveBeenCalledTimes(2);
     expect(loadDashboard).toHaveBeenCalledTimes(1);
@@ -564,8 +682,8 @@ describe("ChatView input", () => {
     });
     render(<ChatView state={state} actions={actions} />);
     expect(screen.getByText("Nothing runnable yet")).toBeTruthy();
-    expect(screen.getByRole("button", { name: /Add provider/i })).toBeTruthy();
-    expect(screen.getByRole("button", { name: /External Agent/i })).toBeTruthy();
+    expect(screen.getByRole("button", { name: /Go to Providers/i })).toBeTruthy();
+    expect(screen.getByRole("button", { name: "Agent" })).toHaveTextContent("Hecate");
     expect(screen.queryByRole("textbox", { name: "Message" })).toBeNull();
     expect(screen.queryByRole("button", { name: "Send message" })).toBeNull();
   });
@@ -1102,7 +1220,7 @@ describe("ChatView input", () => {
     expect(screen.getByText("Ran shell")).toBeTruthy();
     expect(screen.getByText("Backing task")).toBeTruthy();
     expect(screen.queryByText("Agent turn 1")).toBeNull();
-    expect(screen.queryByText("shell_exec")).toBeNull();
+    expect(screen.getByText("shell_exec")).toBeTruthy();
     expect(screen.queryByText("Task run running")).toBeNull();
     expect(screen.queryByText("Run completed")).toBeNull();
   });
@@ -1345,16 +1463,17 @@ describe("ChatView external-agent target", () => {
     expect(screen.getByText("Codex is unavailable")).toBeTruthy();
     expect(screen.getByText(/could not start Codex/)).toBeTruthy();
     expect(screen.getAllByText("Codex").length).toBeGreaterThan(0);
-    expect(screen.getByText(/Install and sign in to Codex/)).toBeTruthy();
-    expect(screen.getByRole("button", { name: /npm install -g @openai\/codex/ })).toBeTruthy();
-    expect(screen.getByRole("button", { name: /codex login/ })).toBeTruthy();
+    expect(screen.getByText(/Install Codex CLI, then sign in with Codex/)).toBeTruthy();
+    expect(screen.getByRole("button", { name: /Install/ })).toBeTruthy();
+    expect(screen.getByRole("button", { name: /Auth/ })).toBeTruthy();
     expect(screen.getByText(/no local package runner/)).toBeTruthy();
-    expect(screen.queryByRole("button", { name: /Add provider/i })).toBeNull();
+    expect(screen.queryByRole("button", { name: /Go to Providers/i })).toBeNull();
   });
 
-  it("renders external agent controls and locks the adapter for an active chat", async () => {
+  it("renders external agent controls and keeps agent choice scoped to new chats", async () => {
     const setChatTarget = vi.fn();
     const setAgentAdapterID = vi.fn();
+    const setNewChatAgent = vi.fn();
     const { state, actions } = setup({
       chatTarget: "external_agent",
       agentAdapterID: "codex",
@@ -1371,8 +1490,22 @@ describe("ChatView external-agent target", () => {
         id: "a1",
         title: "Codex work",
         adapter_id: "codex",
+        runtime_kind: "external_agent",
         workspace: "/tmp/hecate",
         status: "completed",
+        config_options: [
+          {
+            id: "model",
+            name: "Model",
+            category: "model",
+            type: "select",
+            current_value: "fast",
+            options: [
+              { value: "fast", name: "Fast" },
+              { value: "smart", name: "Smart" },
+            ],
+          },
+        ],
         messages: [
           { id: "m1", role: "user", content: "review this", created_at: "2026-05-03T10:00:00Z" },
           {
@@ -1402,13 +1535,18 @@ describe("ChatView external-agent target", () => {
           },
         ],
       } as any,
-    }, { setChatTarget, setAgentAdapterID });
+    }, { setChatTarget, setAgentAdapterID, setNewChatAgent, setAgentChatConfigOption: vi.fn(async () => true) });
     const onOpenTrace = vi.fn();
-    const { rerender } = render(<ChatView state={state} actions={actions} onOpenTrace={onOpenTrace} />);
+    render(<ChatView state={state} actions={actions} onOpenTrace={onOpenTrace} />);
 
     expect(screen.queryByDisplayValue("/tmp/hecate")).toBeNull();
     expect(screen.getByRole("button", { name: /workspace/i })).toBeTruthy();
     expect(screen.getAllByText("Codex work").length).toBeGreaterThan(0);
+    const modelPicker = screen.getByRole("button", { name: "Model" });
+    expect(modelPicker).toHaveTextContent("Fast");
+    await userEvent.click(modelPicker);
+    await userEvent.click(screen.getByRole("option", { name: /Smart/ }));
+    expect(actions.setAgentChatConfigOption).toHaveBeenCalledWith("a1", "model", "smart");
     expect(screen.getByText("Looks good.")).toBeTruthy();
     expect(screen.getAllByText(/ACP native_codex/).length).toBeGreaterThan(0);
     const traceButton = screen.getByRole("button", { name: /Open Trace req_code/i });
@@ -1417,7 +1555,7 @@ describe("ChatView external-agent target", () => {
     expect(screen.getByText("completed · 1/2 plan · 1 tool · files changed")).toBeTruthy();
     expect(screen.getByText("Inspect changes")).toBeTruthy();
     expect(screen.getByText("Summarize result")).toBeTruthy();
-    expect(screen.getByText("git diff --stat")).toBeTruthy();
+    expect(screen.getByText("Ran command")).toBeTruthy();
     expect(screen.getByText("README.md:12")).toBeTruthy();
     expect(screen.getByText("files changed · 2 files changed, 10 insertions(+), 4 deletions(-)")).toBeTruthy();
     expect(screen.getByText("README.md")).toBeTruthy();
@@ -1425,31 +1563,31 @@ describe("ChatView external-agent target", () => {
     expect(screen.getByText("ui/src/features/chats/ChatView.tsx")).toBeTruthy();
     expect(screen.getByText("12 +++++++---")).toBeTruthy();
     expect(screen.getByText("raw adapter output · 1 line")).toBeTruthy();
-    expect(screen.getByText("completed")).toBeTruthy();
+    expect(screen.getAllByText("completed").length).toBeGreaterThan(0);
     const user = userEvent.setup();
     await user.click(traceButton);
     expect(onOpenTrace).toHaveBeenCalledWith("req_codex_123456");
-    const adapterPicker = screen.getByRole("button", { name: "External agent adapter" }) as HTMLButtonElement;
-    expect(adapterPicker.disabled).toBe(true);
-    expect(adapterPicker.title).toContain("Start a new chat");
-    await user.click(adapterPicker);
-    expect(screen.queryByText("Claude Code")).toBeNull();
+    expect(screen.getAllByText("Codex").length).toBeGreaterThan(0);
+    const agentPicker = screen.getByRole("button", { name: "Agent" });
+    expect(agentPicker).toHaveTextContent("Hecate");
+    await user.click(agentPicker);
+    const claudeOption = screen.getByRole("option", { name: /Claude Code/ });
+    expect(claudeOption).toHaveAttribute("aria-disabled", "true");
+    await user.click(claudeOption);
     expect(setAgentAdapterID).not.toHaveBeenCalled();
 
-    await user.click(screen.getByRole("button", { name: "Hecate Chat" }));
-    expect(setChatTarget).toHaveBeenCalledWith("agent");
-    setChatTarget.mockClear();
-    // Once inside Hecate Chat, tools can be disabled to use the
-    // direct model-chat runtime.
-    rerender(<ChatView state={{ ...state, chatTarget: "agent" }} actions={actions} />);
-    await user.click(screen.getByRole("button", { name: /tools off/i }));
-    expect(setChatTarget).toHaveBeenCalledWith("model");
+    const hecateOption = screen.getByRole("option", { name: /Hecate/ });
+    expect(hecateOption).not.toHaveAttribute("aria-disabled", "true");
+    await user.click(hecateOption);
+    expect(setNewChatAgent).toHaveBeenCalledWith("hecate");
+    expect(setChatTarget).not.toHaveBeenCalled();
   });
 
   it("allows choosing an agent before an agent chat is created", async () => {
-    const setAgentAdapterID = vi.fn();
+    const setNewChatAgent = vi.fn();
     const { state, actions } = setup({
       chatTarget: "external_agent",
+      newChatAgentID: "codex",
       agentAdapterID: "codex",
       activeAgentChatSessionID: "",
       activeAgentChatSession: null,
@@ -1457,13 +1595,13 @@ describe("ChatView external-agent target", () => {
         { id: "codex", name: "Codex", kind: "acp", command: "codex-acp", available: true, status: "available", cost_mode: "external" },
         { id: "claude_code", name: "Claude Code", kind: "acp", command: "claude-agent-acp", available: true, status: "available", cost_mode: "external" },
       ],
-    }, { setAgentAdapterID });
+    }, { setNewChatAgent });
     render(<ChatView state={state} actions={actions} />);
 
     const user = userEvent.setup();
-    await user.click(screen.getByRole("button", { name: "External agent adapter" }));
+    await user.click(screen.getByRole("button", { name: "Agent" }));
     await user.click(screen.getByText("Claude Code"));
-    expect(setAgentAdapterID).toHaveBeenCalledWith("claude_code");
+    expect(setNewChatAgent).toHaveBeenCalledWith("claude_code");
   });
 
   it("shows Claude Code setup before the first send when auth is not configured", async () => {

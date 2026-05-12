@@ -82,7 +82,9 @@ export function TranscriptActivityTimeline({
     terminal ? terminalStatusLabel(terminal.status) : hasRunning ? "working" : "details",
     plan.length > 0 ? `${plan.filter(item => item.status === "completed").length}/${plan.length} plan` : "",
     tools.length > 0
-      ? failedTools > 0
+      ? terminal?.status === "cancelled" && failedTools > 0
+        ? `${failedTools} interrupted tool${failedTools === 1 ? "" : "s"}`
+        : failedTools > 0
         ? `${failedTools} failed tool${failedTools === 1 ? "" : "s"}`
         : `${tools.length} tool${tools.length === 1 ? "" : "s"}`
       : "",
@@ -117,7 +119,7 @@ export function TranscriptActivityTimeline({
         {details.length > 0 && (
           <details style={{ borderTop: primary.length > 0 ? "1px solid var(--border)" : "none", marginTop: primary.length > 0 ? 4 : 0, paddingTop: primary.length > 0 ? 6 : 0 }}>
             <summary style={{ cursor: "pointer", fontFamily: "var(--font-mono)", fontSize: 10, color: "var(--t3)" }}>
-              Details · {details.length} item{details.length === 1 ? "" : "s"}
+              {detailSummaryLabel(details)}
             </summary>
             <div style={{ display: "grid", gap: 5, marginTop: 6 }}>
               {details.map((activity, index) => (
@@ -394,7 +396,8 @@ function activityDisplay(activity: AgentChatActivityRecord): { title: string; de
     return { title, detail };
   }
   if (activity.type === "tool_call") {
-    return { title: toolActivityTitle(activity), detail: cleanActivityDetail(activity) };
+    const title = toolActivityTitle(activity);
+    return { title, detail: cleanActivityDetail(activity) || fallbackToolDetail(activity, title) };
   }
   if (activity.type === "thinking" && isModelTurnActivity(activity)) {
     return { title: "Thinking", detail: modelTurnDetail(activity) };
@@ -409,7 +412,7 @@ function activityDisplay(activity: AgentChatActivityRecord): { title: string; de
     return { title: "Artifact", detail: cleanActivityDetail(activity) || activity.title };
   }
   if (activity.type === "output") {
-    return { title: "Output", detail: cleanActivityDetail(activity) || activity.title };
+    return { title: "Output", detail: outputActivityDetail(activity) };
   }
   if (activity.type === "changed_files") {
     return { title: "Changed files", detail: cleanActivityDetail(activity) || activity.title };
@@ -419,6 +422,9 @@ function activityDisplay(activity: AgentChatActivityRecord): { title: string; de
   }
   if (activity.type === "started" && /^Starting Hecate Agent$/i.test(activity.title.trim())) {
     return { title: "Starting agent", detail: cleanActivityDetail(activity) };
+  }
+  if (activity.type === "cancelled") {
+    return { title: "Cancelled", detail: cleanActivityDetail(activity) || "stopped before the run finished" };
   }
   if (!isTaskRunActivity(activity)) {
     return { title: activity.title, detail: cleanActivityDetail(activity) };
@@ -447,6 +453,14 @@ function activityLinePrefix(activity: AgentChatActivityRecord): string | undefin
 function toolActivityTitle(activity: AgentChatActivityRecord): string {
   const raw = stripStatusSuffix(activity.title || activity.kind || "tool").trim();
   const normalized = raw.toLowerCase();
+  const kind = (activity.kind || activity.detail || "").trim().toLowerCase();
+
+  if (/^call_[a-z0-9_-]+$/i.test(raw)) {
+    if (kind.includes("execute") || kind.includes("command") || kind.includes("shell")) return "Ran command";
+    if (kind.includes("read")) return "Read context";
+    if (kind.includes("edit") || kind.includes("write")) return "Edited file";
+    return "Used tool";
+  }
 
   switch (normalized) {
     case "shell_exec":
@@ -472,6 +486,13 @@ function toolActivityTitle(activity: AgentChatActivityRecord): string {
     return `Ran ${execMatch[1].replaceAll("_", " ")}`;
   }
 
+  if (kind === "execute" || kind === "command") {
+    return "Ran command";
+  }
+  if (kind === "read") {
+    return "Read context";
+  }
+
   return raw;
 }
 
@@ -479,6 +500,49 @@ function modelTurnDetail(activity: AgentChatActivityRecord): string {
   const status = humanActivityStatus(activity.status);
   const turn = activity.title.match(/turn\s+(\d+)/i)?.[1];
   return turn ? `turn ${turn} ${status}` : status;
+}
+
+function fallbackToolDetail(activity: AgentChatActivityRecord, displayTitle: string): string | undefined {
+  const raw = stripStatusSuffix(activity.title || "").trim();
+  const opaqueID = opaqueToolCallID(raw);
+  if (opaqueID) {
+    const kind = activity.kind || activity.detail;
+    return [toolKindLabel(kind), shortToolCallID(opaqueID)].filter(Boolean).join(" · ") || undefined;
+  }
+  if (!raw) return undefined;
+  if (raw === displayTitle) return undefined;
+  return raw;
+}
+
+function opaqueToolCallID(value: string): string | undefined {
+  const match = value.match(/^call_([a-z0-9_-]+)$/i);
+  return match?.[1];
+}
+
+function shortToolCallID(id: string): string {
+  return `tool ${id.slice(0, 8)}`;
+}
+
+function toolKindLabel(kind?: string): string | undefined {
+  const normalized = kind?.trim().toLowerCase();
+  if (!normalized) return undefined;
+  if (normalized.includes("execute") || normalized.includes("command") || normalized.includes("shell")) return "execute";
+  if (normalized.includes("read")) return "read";
+  if (normalized.includes("edit") || normalized.includes("write")) return "edit";
+  return normalized.replaceAll("_", " ");
+}
+
+function outputActivityDetail(activity: AgentChatActivityRecord): string | undefined {
+  const detail = cleanActivityDetail(activity) || activity.title;
+  const size = formatBytes(activity.artifact_size_bytes);
+  return [detail, size].filter(Boolean).join(" · ") || undefined;
+}
+
+function formatBytes(bytes?: number): string | undefined {
+  if (!bytes || bytes < 0) return undefined;
+  if (bytes < 1024) return `${bytes}b`;
+  if (bytes < 1024 * 1024) return `${(bytes / 1024).toFixed(bytes < 10 * 1024 ? 1 : 0)}kb`;
+  return `${(bytes / (1024 * 1024)).toFixed(1)}mb`;
 }
 
 function cleanApprovalDetail(detail?: string): string | undefined {
@@ -492,10 +556,13 @@ function cleanApprovalDetail(detail?: string): string | undefined {
 
 function cleanActivityDetail(activity: AgentChatActivityRecord): string | undefined {
   const detail = activity.detail?.trim();
+  const title = activity.title.trim();
+  if (/^call_[a-z0-9_-]+$/i.test(title)) {
+    if (!detail || /^(execute|read|write|edit|command)$/i.test(detail)) return undefined;
+  }
   if (!detail) return undefined;
   if (detail.startsWith("builtin.agent_loop_")) return undefined;
 
-  const title = activity.title.trim();
   const baseTitle = stripStatusSuffix(title);
   const status = activity.status?.trim();
   const duplicateForms = [
@@ -575,6 +642,16 @@ function terminalStatusLabel(status?: string): string {
     default:
       return status || "details";
   }
+}
+
+function detailSummaryLabel(details: AgentChatActivityRecord[]): string {
+  const count = `${details.length} item${details.length === 1 ? "" : "s"}`;
+  const hasOutput = details.some(activity => activity.type === "output" || /\bstd(out|err)\b/i.test(`${activity.title} ${activity.detail ?? ""}`));
+  const hasArtifact = details.some(activity => activity.type === "artifact" || activity.type === "final_answer");
+  if (hasOutput && hasArtifact) return `Output and artifacts · ${count}`;
+  if (hasOutput) return `Output · ${count}`;
+  if (hasArtifact) return `Artifacts · ${count}`;
+  return `More details · ${count}`;
 }
 
 function activitySortPhase(activity: AgentChatActivityRecord): number {

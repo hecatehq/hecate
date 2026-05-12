@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"strings"
 
+	"github.com/hecate/agent-runtime/internal/agentcontrols"
 	"github.com/hecate/agent-runtime/pkg/types"
 )
 
@@ -660,6 +661,10 @@ type CreateAgentChatMessageRequest struct {
 	Workspace    string `json:"workspace,omitempty"`
 }
 
+type SetAgentChatConfigOptionRequest struct {
+	Value any `json:"value"`
+}
+
 type AgentChatSessionSummaryItem struct {
 	ID              string                  `json:"id"`
 	Title           string                  `json:"title"`
@@ -681,29 +686,30 @@ type AgentChatSessionSummaryItem struct {
 }
 
 type AgentChatSessionItem struct {
-	ID                   string                  `json:"id"`
-	Title                string                  `json:"title"`
-	RuntimeKind          string                  `json:"runtime_kind"`
-	AdapterID            string                  `json:"adapter_id,omitempty"`
-	DriverKind           string                  `json:"driver_kind,omitempty"`
-	NativeSessionID      string                  `json:"native_session_id,omitempty"`
-	TaskID               string                  `json:"task_id,omitempty"`
-	LatestRunID          string                  `json:"latest_run_id,omitempty"`
-	Provider             string                  `json:"provider,omitempty"`
-	Model                string                  `json:"model,omitempty"`
-	Capabilities         types.ModelCapabilities `json:"capabilities,omitempty"`
-	Workspace            string                  `json:"workspace"`
-	WorkspaceBranch      string                  `json:"workspace_branch,omitempty"`
-	Status               string                  `json:"status"`
-	TurnsUsed            int                     `json:"turns_used"`
-	MaxTurnsPerSession   int                     `json:"max_turns_per_session,omitempty"`
-	SessionStartedAt     string                  `json:"session_started_at,omitempty"`
-	MaxSessionDurationMS int64                   `json:"max_session_duration_ms,omitempty"`
-	IdleTimeoutMS        int64                   `json:"idle_timeout_ms,omitempty"`
-	CreatedAt            string                  `json:"created_at,omitempty"`
-	UpdatedAt            string                  `json:"updated_at,omitempty"`
-	Segments             []AgentChatSegmentItem  `json:"segments,omitempty"`
-	Messages             []AgentChatMessageItem  `json:"messages"`
+	ID                   string                       `json:"id"`
+	Title                string                       `json:"title"`
+	RuntimeKind          string                       `json:"runtime_kind"`
+	AdapterID            string                       `json:"adapter_id,omitempty"`
+	DriverKind           string                       `json:"driver_kind,omitempty"`
+	NativeSessionID      string                       `json:"native_session_id,omitempty"`
+	TaskID               string                       `json:"task_id,omitempty"`
+	LatestRunID          string                       `json:"latest_run_id,omitempty"`
+	Provider             string                       `json:"provider,omitempty"`
+	Model                string                       `json:"model,omitempty"`
+	Capabilities         types.ModelCapabilities      `json:"capabilities,omitempty"`
+	Workspace            string                       `json:"workspace"`
+	WorkspaceBranch      string                       `json:"workspace_branch,omitempty"`
+	Status               string                       `json:"status"`
+	TurnsUsed            int                          `json:"turns_used"`
+	MaxTurnsPerSession   int                          `json:"max_turns_per_session,omitempty"`
+	SessionStartedAt     string                       `json:"session_started_at,omitempty"`
+	MaxSessionDurationMS int64                        `json:"max_session_duration_ms,omitempty"`
+	IdleTimeoutMS        int64                        `json:"idle_timeout_ms,omitempty"`
+	ConfigOptions        []agentcontrols.ConfigOption `json:"config_options,omitempty"`
+	CreatedAt            string                       `json:"created_at,omitempty"`
+	UpdatedAt            string                       `json:"updated_at,omitempty"`
+	Segments             []AgentChatSegmentItem       `json:"segments,omitempty"`
+	Messages             []AgentChatMessageItem       `json:"messages"`
 }
 
 type AgentChatSegmentItem struct {

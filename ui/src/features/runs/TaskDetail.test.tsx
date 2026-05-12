@@ -267,7 +267,7 @@ describe("TaskDetail runtime activity and patches", () => {
     render();
 
     expect(screen.getByText("Ran git")).toBeTruthy();
-    expect(screen.getByText("Details · 2 items")).toBeTruthy();
+    expect(screen.getByText("Artifacts · 2 items")).toBeTruthy();
     expect(screen.getByText("Changed files")).toBeTruthy();
     expect(screen.getAllByText("git-changes.json").length).toBeGreaterThan(0);
     expect(screen.getByText("Final answer artifact")).toBeTruthy();
@@ -360,7 +360,7 @@ describe("TaskDetail runtime activity and patches", () => {
     });
     render();
 
-    expect(screen.getByText("Details · 2 items")).toBeTruthy();
+    expect(screen.getByText("Artifacts · 2 items")).toBeTruthy();
     await user.click(screen.getAllByText("Advanced")[0]);
 
     expect(screen.getByText(/This tool failed/)).toBeTruthy();

@@ -6,13 +6,18 @@ import { describeGatewayError, formatErrorCode } from "../../lib/error-diagnosti
 import { buildSelectedModelIssue } from "../../lib/provider-issues";
 import { describeCredentialState, describeHealthErrorClass, describeRoutingBlockedReason } from "../../lib/runtime-utils";
 import type { SelectedModelIssue } from "../../lib/provider-issues";
-import type { AgentAdapterHealthRecord, AgentAdapterRecord, AgentAdapterSetupCommandStatus, AgentChatActivityRecord, AgentChatSegmentRecord, AgentChatSessionRecord, AgentChatTimingRecord, AgentChatUsageRecord, LocalProviderDiscoveryRecord, ProviderPresetRecord } from "../../types/runtime";
+import type { AgentAdapterRecord, AgentAdapterSetupCommandStatus, AgentChatActivityRecord, AgentChatSegmentRecord, AgentChatSessionRecord, AgentChatTimingRecord, AgentChatUsageRecord, LocalProviderDiscoveryRecord, ProviderPresetRecord } from "../../types/runtime";
 import { CompactProviderReadinessChecks } from "../shared/ProviderReadiness";
-import { AgentAdapterPicker, CodeBlock, Icon, Icons, InlineError, ModelPicker, ProviderPicker } from "../shared/ui";
+import { BrandAvatar, CodeBlock, Icon, Icons, InlineError, ModelPicker, ProviderPicker } from "../shared/ui";
 import { TranscriptMessageRow } from "../transcript/TranscriptMessageRow";
 import { AgentApprovalAutoModeBanner, AgentApprovalsBanner } from "./AgentApprovalBanner";
 import { AgentApprovalModal } from "./AgentApprovalModal";
 import { AddProviderModal } from "../providers/AddProviderModal";
+import { ChatAgentPicker, ExternalAgentConfigControls, HecateToolsToggle, LockedHecateModelSnapshot, chatAgentOption, chatAgentOptionStatus } from "./ChatAgentControls";
+import type { ChatAgentOptionID } from "./ChatAgentControls";
+import { ChatInstructionsPanel } from "./ChatInstructionsPanel";
+import { AgentSetupHints, ClaudeCodePreflightCard, ClaudeCodeSetupEmptyPanel, claudeCodePreflightState, claudeCodeSetupTokenCommand } from "./ClaudeCodeSetup";
+import type { ClaudeCodePreflightState } from "./ClaudeCodeSetup";
 
 type Props = {
   state: RuntimeConsoleViewModel["state"];
@@ -62,6 +67,9 @@ type SidebarSession = {
   provider_call_count: number;
   last_provider?: string;
   last_model?: string;
+  agent_brand?: string;
+  agent_label?: string;
+  status_label?: string;
   created_at?: string;
   updated_at?: string;
 };
@@ -114,6 +122,11 @@ export function ChatView({ state, actions, onNavigate, onOpenTask, onOpenTrace }
   const isAgentChat = isHecateChat || state.chatTarget === "external_agent";
   const isHecateAgentChat = state.chatTarget === "agent";
   const isExternalAgentChat = state.chatTarget === "external_agent";
+  const instructionsAvailable = isHecateChat;
+  const instructionsLabel = isHecateAgentChat ? "Agent instructions" : "Instructions";
+  const instructionsTitle = isHecateAgentChat
+    ? "Instructions for Hecate Agent model behavior. Approvals and sandbox policy still come from Hecate."
+    : "Instructions for direct model chat.";
   const sessions: SidebarSession[] = isAgentChat
       ? (state.agentChatSessions ?? []).map((s) => ({
         id: s.id,
@@ -122,10 +135,17 @@ export function ChatView({ state, actions, onNavigate, onOpenTask, onOpenTrace }
         provider_call_count: 0,
         last_provider: s.runtime_kind === "external_agent" || s.adapter_id ? s.adapter_id : s.provider,
         last_model: s.runtime_kind === "external_agent" || s.adapter_id ? s.status : s.model,
+        agent_brand: sidebarSessionBrand(s),
+        agent_label: sidebarSessionAgentLabel(s, state.agentAdapters),
+        status_label: s.status,
         created_at: s.created_at,
         updated_at: s.updated_at,
       }))
-    : (state.chatSessions ?? []);
+    : (state.chatSessions ?? []).map((s) => ({
+      ...s,
+      agent_brand: s.last_provider,
+      agent_label: s.last_provider,
+    }));
   const filteredSessions = filterSidebarSessions(sessions, sidebarQuery);
   const groupedSessions = groupSidebarSessions(filteredSessions);
   const activeSessionID = isAgentChat ? state.activeAgentChatSessionID : state.activeChatSessionID;
@@ -229,8 +249,12 @@ export function ChatView({ state, actions, onNavigate, onOpenTask, onOpenTrace }
     : state.providers.find(provider => provider.name === state.providerFilter);
   const agentRouteUnavailable = availableAgents.length === 0;
   const selectedAgentUnavailable = isExternalAgentChat && Boolean(selectedAgent) && !selectedAgent?.available;
+  const newChatAgentID = state.newChatAgentID || "hecate";
+  const newChatAgentAdapter = newChatAgentID === "hecate" ? undefined : state.agentAdapters.find((adapter) => adapter.id === newChatAgentID);
+  const newChatAgentHealth = newChatAgentID === "hecate" ? undefined : state.agentAdapterHealthByID.get(newChatAgentID);
+  const newChatAgentStatus = chatAgentOptionStatus(newChatAgentID as ChatAgentOptionID, newChatAgentAdapter, newChatAgentHealth);
+  const newChatAgentReady = newChatAgentStatus.ready;
   const nothingRunnable = !state.loading && modelRouteUnavailable && agentRouteUnavailable;
-  const agentPickerLocked = isExternalAgentChat && Boolean(state.activeAgentChatSessionID);
   const activeHecateAgentSegment = activeTaskBackedHecateSegment(state.activeAgentChatSession);
   const hecateAgentBusy = isHecateChat && Boolean(activeHecateAgentSegment);
   const activeHecateTaskID = activeHecateAgentSegment?.task_id || "";
@@ -504,13 +528,17 @@ export function ChatView({ state, actions, onNavigate, onOpenTask, onOpenTrace }
       {/* Conversation sidebar */}
       {sidebarOpen && (
         <div style={{ width: 220, borderRight: "1px solid var(--border)", display: "flex", flexDirection: "column", flexShrink: 0, background: "var(--bg1)" }}>
-          <div style={{ padding: 8, borderBottom: "1px solid var(--border)", display: "flex", gap: 6 }}>
+          <div style={{ padding: 8, borderBottom: "1px solid var(--border)", display: "flex", flexDirection: "column", gap: 6 }}>
+            <div style={{ display: "flex", gap: 6 }}>
             <button
               className="btn btn-primary btn-sm"
               style={{ flex: 1, justifyContent: "center" }}
               type="button"
+              disabled={!newChatAgentReady}
+              title={newChatAgentReady ? `Start a new ${chatAgentOption(newChatAgentID, state.agentAdapters).label} chat` : newChatAgentStatus.title}
               onClick={() => {
-                actions.createChatSession();
+                if (!newChatAgentReady) return;
+                void actions.createChatSession();
                 textareaRef.current?.focus();
               }}
             >
@@ -519,6 +547,19 @@ export function ChatView({ state, actions, onNavigate, onOpenTask, onOpenTrace }
             <button className="btn btn-ghost btn-sm" onClick={() => setSidebarOpen(false)} title="Close" aria-label="Close chats sidebar" type="button">
               <Icon d={Icons.chevL} size={13} />
             </button>
+            </div>
+            <div style={{ display: "grid", gridTemplateColumns: "auto minmax(0, 1fr)", alignItems: "center", columnGap: 8 }}>
+              <span style={{ color: "var(--t3)", fontFamily: "var(--font-mono)", fontSize: 10, letterSpacing: "0.04em", textTransform: "uppercase" }}>
+                Agent:
+              </span>
+              <ChatAgentPicker
+                value={newChatAgentID}
+                adapters={state.agentAdapters}
+                healthByID={state.agentAdapterHealthByID}
+                disableUnavailable
+                onChange={(agentID) => actions.setNewChatAgent(agentID)}
+              />
+            </div>
           </div>
           <div style={{ padding: "8px 12px 4px", fontFamily: "var(--font-mono)", fontSize: 10, letterSpacing: "0.08em", textTransform: "uppercase", color: "var(--t3)" }}>
             Chats{sessions.length > 0 ? ` · ${filteredSessions.length}${filteredSessions.length === sessions.length ? "" : `/${sessions.length}`}` : ""}
@@ -550,7 +591,7 @@ export function ChatView({ state, actions, onNavigate, onOpenTask, onOpenTrace }
                     role="button"
                     tabIndex={renamingId === s.id ? -1 : 0}
                     aria-current={(activeSessionID === s.id) ? "true" : undefined}
-                    aria-label={`Chat ${s.title || "Untitled"}`}
+                    aria-label={`Chat ${s.title || "Untitled"}${s.agent_label ? `, ${s.agent_label}` : ""}`}
                     onClick={() => {
                       if (renamingId === s.id) return;
                       void actions.selectChatSession(s.id);
@@ -579,7 +620,7 @@ export function ChatView({ state, actions, onNavigate, onOpenTask, onOpenTrace }
                       borderLeft: activeSessionID === s.id ? "2px solid var(--teal)" : "2px solid transparent",
                       transition: "background 0.1s",
                     }}>
-                    <div style={{ display: "flex", alignItems: "center", gap: 2, height: 18 }}>
+                    <div style={{ display: "flex", alignItems: "center", gap: 7, minHeight: 22 }}>
                       {renamingId === s.id ? (
                         <input
                           autoFocus
@@ -625,10 +666,34 @@ export function ChatView({ state, actions, onNavigate, onOpenTask, onOpenTrace }
                         </>
                       )}
                     </div>
-                    <div style={{ fontSize: 10, color: "var(--t3)", marginTop: 1, fontFamily: "var(--font-mono)" }}>
+                    <div style={{ display: "flex", alignItems: "center", gap: 6, fontSize: 10, color: "var(--t3)", marginTop: 1, fontFamily: "var(--font-mono)" }}>
+                      <span>{s.message_count} msg</span>
+                      {isAgentChat && s.agent_brand && renamingId !== s.id && (
+                        <>
+                          <span style={{ color: "var(--t4)" }}>·</span>
+                          <BrandAvatar
+                            brand={s.agent_brand}
+                            fallback={s.agent_label || s.agent_brand}
+                            title={s.agent_label || s.agent_brand}
+                            boxed={false}
+                            size={13}
+                            style={{ flexShrink: 0 }}
+                          />
+                        </>
+                      )}
                       {isAgentChat
-                        ? `${s.message_count} msg${s.last_provider ? ` · ${s.last_provider}` : ""}${s.last_model ? ` · ${s.last_model}` : ""}`
-                        : `${s.message_count} msg · ${s.provider_call_count} call${s.provider_call_count === 1 ? "" : "s"}${s.last_provider ? ` · ${s.last_provider}` : ""}`}
+                        ? s.status_label && (
+                          <>
+                            <span style={{ color: "var(--t4)" }}>·</span>
+                            <span>{s.status_label}</span>
+                          </>
+                        )
+                        : (
+                          <>
+                            <span style={{ color: "var(--t4)" }}>·</span>
+                            <span>{s.provider_call_count} call{s.provider_call_count === 1 ? "" : "s"}</span>
+                          </>
+                        )}
                     </div>
                   </div>
                 ))}
@@ -657,35 +722,6 @@ export function ChatView({ state, actions, onNavigate, onOpenTask, onOpenTrace }
               <Icon d={Icons.chevR} size={13} />
             </button>
           )}
-          <div style={{ display: "flex", border: "1px solid var(--border)", borderRadius: "var(--radius-sm)", overflow: "hidden", flexShrink: 0 }}>
-            {([
-              ["hecate", "Hecate Chat", "Chat with a selected model; enable tools to use Hecate's task runtime"],
-              ["external_agent", "External Agent", "Chat with Codex, Claude Code, Cursor, or another external agent"],
-            ] as const).map(([target, label, title]) => (
-              <button
-                key={target}
-                className="btn btn-ghost btn-sm"
-                type="button"
-                aria-pressed={target === "hecate" ? isHecateChat : state.chatTarget === target}
-                onClick={() => {
-                  if (target === "hecate") {
-                    if (!isHecateChat) actions.setChatTarget("agent");
-                    return;
-                  }
-                  actions.setChatTarget(target);
-                }}
-                style={{
-                  borderRadius: 0,
-                  background: (target === "hecate" ? isHecateChat : state.chatTarget === target) ? "var(--teal-bg)" : "transparent",
-                  color: (target === "hecate" ? isHecateChat : state.chatTarget === target) ? "var(--teal)" : "var(--t2)",
-                  border: 0,
-                }}
-                title={title}
-              >
-                {label}
-              </button>
-            ))}
-          </div>
           {isHecateChat && (
             <HecateToolsToggle
               enabled={isHecateAgentChat}
@@ -706,13 +742,9 @@ export function ChatView({ state, actions, onNavigate, onOpenTask, onOpenTrace }
           )}
           {isExternalAgentChat ? (
             <>
-              <AgentAdapterPicker
-                value={activeAgentAdapterID}
-                onChange={actions.setAgentAdapterID}
-                adapters={state.agentAdapters}
-                healthByID={state.agentAdapterHealthByID}
-                disabled={agentPickerLocked}
-                disabledReason="Agent is fixed for this chat. Start a new chat to choose another agent."
+              <ExternalAgentConfigControls
+                session={state.activeAgentChatSession}
+                onChange={actions.setAgentChatConfigOption}
               />
               <button
                 className="btn btn-ghost btn-sm"
@@ -834,11 +866,13 @@ export function ChatView({ state, actions, onNavigate, onOpenTask, onOpenTrace }
                   />
                 </>
               )}
-              {!isHecateAgentChat && (
+              {instructionsAvailable && (
                 <button className="btn btn-ghost btn-sm" onClick={() => setSyspromptOpen(o => !o)}
-                  style={{ color: syspromptOpen ? "var(--teal)" : "var(--t2)" }} title="System prompt">
+                  aria-label={instructionsLabel}
+                  style={{ color: syspromptOpen ? "var(--teal)" : "var(--t2)" }}
+                  title={instructionsTitle}>
                   <Icon d={Icons.edit} size={13} />
-                  <span style={{ fontSize: 11 }}>system</span>
+                  <span style={{ fontSize: 11 }}>instructions</span>
                 </button>
               )}
             </>
@@ -891,20 +925,13 @@ export function ChatView({ state, actions, onNavigate, onOpenTask, onOpenTrace }
           </div>
         )}
 
-        {/* System prompt editor */}
-        {state.chatTarget === "model" && syspromptOpen && (
-          <div style={{ borderBottom: "1px solid var(--border)", padding: "10px 14px", background: "var(--bg2)" }}>
-            <div style={{ display: "flex", alignItems: "center", marginBottom: 5, gap: 8 }}>
-              <span style={{ fontSize: 11, color: "var(--t2)", fontFamily: "var(--font-mono)" }}>SYSTEM PROMPT</span>
-              {messages.length > 0 && <span style={{ fontSize: 10, color: "var(--t3)", fontFamily: "var(--font-mono)" }}>locked — start a new chat to change</span>}
-            </div>
-            <textarea
-              value={state.systemPrompt}
-              onChange={e => actions.setSystemPrompt(e.target.value)}
-              disabled={messages.length > 0}
-              style={{ width: "100%", background: "var(--bg3)", border: "1px solid var(--border)", borderRadius: "var(--radius-sm)", color: messages.length > 0 ? "var(--t2)" : "var(--t0)", fontFamily: "var(--font-mono)", fontSize: 12, padding: "8px 10px", resize: "vertical", minHeight: 72, outline: "none", lineHeight: 1.5, opacity: messages.length > 0 ? 0.6 : 1 }}
-            />
-          </div>
+        {instructionsAvailable && syspromptOpen && (
+          <ChatInstructionsPanel
+            isHecateAgentChat={isHecateAgentChat}
+            locked={messages.length > 0}
+            value={state.systemPrompt}
+            onChange={actions.setSystemPrompt}
+          />
         )}
 
         {/* External-agent approval surfaces. Both banners are agent-chat-only;
@@ -962,6 +989,7 @@ export function ChatView({ state, actions, onNavigate, onOpenTask, onOpenTrace }
                 id={m.id}
                 role={role}
                 model={isAgentChat ? agentModel : call?.model}
+                brand={messageBrand(m, call?.provider, isAgentChat, isHecateAgentChat)}
                 content={content}
                 time={time}
                 promptTokens={call?.prompt_tokens}
@@ -1029,9 +1057,12 @@ export function ChatView({ state, actions, onNavigate, onOpenTask, onOpenTrace }
           {!isAgentChat && streaming && state.streamingContent !== null && (
             <div style={{ padding: "4px 16px 16px", maxWidth: 820, margin: "0 auto", width: "100%" }}>
               <div style={{ display: "flex", gap: 10, alignItems: "flex-start" }}>
-                <div style={{ width: 28, height: 28, borderRadius: "var(--radius-sm)", background: "var(--teal-bg)", border: "1px solid var(--teal-border)", display: "flex", alignItems: "center", justifyContent: "center", flexShrink: 0, marginTop: 2 }}>
-                  <span style={{ fontFamily: "var(--font-mono)", fontSize: 11, color: "var(--teal)", fontWeight: 600 }}>{(state.model || "H")[0].toUpperCase()}</span>
-                </div>
+                <BrandAvatar
+                  brand={isAgentChat ? selectedAgent?.id : (selectedConfiguredProvider?.id || selectedRuntimeProvider?.name || hecateChatModelValue)}
+                  fallback={isAgentChat ? selectedAgent?.name : state.model}
+                  size={28}
+                  style={{ marginTop: 2 }}
+                />
                 <div style={{ flex: 1, minWidth: 0 }}>
                   <div style={{ display: "flex", alignItems: "center", gap: 8, marginBottom: 6 }}>
                     <span style={{ fontFamily: "var(--font-mono)", fontSize: 11, color: "var(--teal)" }}>
@@ -1107,7 +1138,13 @@ export function ChatView({ state, actions, onNavigate, onOpenTask, onOpenTrace }
               quickLocalLoading={quickLocalLoading}
               quickLocalError={quickLocalError}
               quickAddingProviders={quickAddingProviders}
-              onAddProvider={() => setAddProviderOpen(true)}
+              onOpenProviders={() => {
+                if (onNavigate) {
+                  onNavigate("providers");
+                } else {
+                  setAddProviderOpen(true);
+                }
+              }}
               onQuickAddLocalProviders={quickAddLocalProviders}
               onRefreshQuickLocalProviders={refreshQuickLocalProviders}
               onSwitchTarget={actions.setChatTarget}
@@ -1585,9 +1622,31 @@ function filterSidebarSessions(sessions: SidebarSession[], query: string): Sideb
       session.title,
       session.last_provider,
       session.last_model,
+      session.agent_label,
+      session.status_label,
     ].filter(Boolean).join(" ").toLowerCase();
     return searchable.includes(needle);
   });
+}
+
+function sidebarSessionBrand(session: AgentChatSessionRecord): string | undefined {
+  if (session.runtime_kind === "external_agent" || session.adapter_id) {
+    return session.adapter_id;
+  }
+  if (session.runtime_kind === "agent") {
+    return "hecate";
+  }
+  return session.provider || session.model;
+}
+
+function sidebarSessionAgentLabel(session: AgentChatSessionRecord, adapters: AgentAdapterRecord[]): string | undefined {
+  if (session.runtime_kind === "external_agent" || session.adapter_id) {
+    return chatAgentOption(session.adapter_id || "", adapters).label;
+  }
+  if (session.runtime_kind === "agent") {
+    return "Hecate";
+  }
+  return session.provider || session.model;
 }
 
 function pendingHecateTaskApprovals(session: AgentChatSessionRecord | null): HecateTaskApproval[] {
@@ -1699,124 +1758,17 @@ function formatTraceLinkTitle(requestID: string, traceID?: string): string {
   ].filter(Boolean).join(" · ");
 }
 
-function HecateToolsToggle({
-  enabled,
-  toolsDisabledForModel,
-  onChange,
-}: {
-  enabled: boolean;
-  toolsDisabledForModel: boolean;
-  onChange: (enabled: boolean) => void;
-}) {
-  const toolsOnTitle = toolsDisabledForModel
-    ? "Tools are disabled for this model in Settings. Enable them there or turn tools off for direct model chat."
-    : "Use Hecate's task runtime with tools, approvals, artifacts, and telemetry.";
-  return (
-    <div
-      role="group"
-      aria-label="Hecate tools"
-      style={{
-        display: "inline-flex",
-        alignItems: "center",
-        border: "1px solid var(--border)",
-        borderRadius: "999px",
-        overflow: "hidden",
-        flexShrink: 0,
-        background: "var(--bg0)",
-        height: 30,
-      }}
-    >
-      <button
-        type="button"
-        className="btn btn-ghost btn-sm"
-        aria-pressed={!enabled}
-        onClick={() => onChange(false)}
-        title="Chat directly with the selected model. No task run or tools."
-        style={{
-          border: 0,
-          borderRadius: 0,
-          width: 76,
-          padding: "4px 0",
-          fontFamily: "var(--font-mono)",
-          fontSize: 10,
-          background: !enabled ? "var(--bg3)" : "transparent",
-          color: !enabled ? "var(--t0)" : "var(--t3)",
-          justifyContent: "center",
-        }}
-      >
-        tools off
-      </button>
-      <button
-        type="button"
-        className="btn btn-ghost btn-sm"
-        aria-pressed={enabled}
-        onClick={() => onChange(true)}
-        title={toolsOnTitle}
-        style={{
-          border: 0,
-          borderLeft: "1px solid var(--border)",
-          borderRadius: 0,
-          width: 76,
-          padding: "4px 0",
-          fontFamily: "var(--font-mono)",
-          fontSize: 10,
-          background: enabled ? "var(--teal-bg)" : "transparent",
-          color: enabled ? (toolsDisabledForModel ? "var(--amber)" : "var(--teal)") : "var(--t3)",
-          justifyContent: "center",
-        }}
-      >
-        tools on
-      </button>
-    </div>
-  );
-}
-
-function LockedHecateModelSnapshot({
-  provider,
-  model,
-}: {
-  provider: string;
-  model: string;
-}) {
-  const title = "Provider and model are fixed for this Hecate Agent task. Turn tools off for direct model chat, or start a new chat to use a different tools-enabled model.";
-  const sharedStyle = {
-    fontFamily: "var(--font-mono)",
-    fontSize: 11,
-    gap: 5,
-    color: "var(--t2)",
-    opacity: 0.78,
-    cursor: "not-allowed",
-  } as const;
-  return (
-    <>
-      <button
-        type="button"
-        className="btn btn-ghost btn-sm"
-        disabled
-        aria-label={`Fixed provider: ${provider}`}
-        title={title}
-        style={{ ...sharedStyle, width: 220 }}
-      >
-        <Icon d={Icons.providers} size={13} />
-        <span style={{ flex: 1, minWidth: 0, whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis", textAlign: "left" }}>
-          {provider}
-        </span>
-      </button>
-      <button
-        type="button"
-        className="btn btn-ghost btn-sm"
-        disabled
-        aria-label={`Fixed model: ${model || "model"}`}
-        title={title}
-        style={{ ...sharedStyle, width: 220 }}
-      >
-        <Icon d={Icons.model} size={13} />
-        <span style={{ flex: 1, minWidth: 0, whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis", textAlign: "left" }}>
-          {model || "model"}
-        </span>
-      </button>
-    </>
-  );
+function messageBrand(
+  message: VisibleChatMessage,
+  provider: string | undefined,
+  isAgentChat: boolean,
+  isHecateAgentChat: boolean,
+): string | undefined {
+  if (!isAgentChat) return provider || message.model;
+  if (message.agent_adapter_id) return message.agent_adapter_id;
+  if (message.agent_adapter_name) return message.agent_adapter_name;
+  if (isHecateAgentChat) return provider || message.provider || message.model || "hecate";
+  return message.provider || message.model;
 }
 
 function providerLabelForHecateChat(state: RuntimeConsoleViewModel["state"], providerID: string): string {
@@ -2094,7 +2046,7 @@ function ChatEmptyState({
   quickLocalLoading,
   quickLocalError,
   quickAddingProviders,
-  onAddProvider,
+  onOpenProviders,
   onQuickAddLocalProviders,
   onRefreshQuickLocalProviders,
   onSwitchTarget,
@@ -2126,7 +2078,7 @@ function ChatEmptyState({
   quickLocalLoading: boolean;
   quickLocalError: string;
   quickAddingProviders: boolean;
-  onAddProvider: () => void;
+  onOpenProviders: () => void;
   onQuickAddLocalProviders: (providers: LocalProviderDiscoveryRecord[]) => void;
   onRefreshQuickLocalProviders: () => void;
   onSwitchTarget: (target: "model" | "agent" | "external_agent") => void;
@@ -2199,10 +2151,10 @@ function ChatEmptyState({
           {(modelRouteUnavailable || selectedModelIssue) && isHecateChat && (
             <button
               className="btn btn-primary btn-sm"
-              onClick={onAddProvider}
+              onClick={onOpenProviders}
               type="button"
               style={{ display: "flex", alignItems: "center", gap: 4 }}>
-              <Icon d={Icons.plus} size={13} /> Add provider
+              <Icon d={Icons.providers} size={13} /> Go to Providers
             </button>
           )}
           {agentRouteUnavailable && !isAgentChat && (
@@ -2433,6 +2385,13 @@ function QuickLocalProviderAdd({
   onRefresh: () => void;
 }) {
   const candidates = discoveries.filter(discovery => presets.some(preset => preset.id === discovery.preset_id));
+  const candidateKeys = candidates.map(localProviderDiscoveryKey).join("\u0000");
+  const [selectedKeys, setSelectedKeys] = useState<Set<string>>(() => new Set(candidates.map(localProviderDiscoveryKey)));
+  useEffect(() => {
+    setSelectedKeys(new Set(candidates.map(localProviderDiscoveryKey)));
+  }, [candidateKeys]);
+  const selectedCandidates = candidates.filter(discovery => selectedKeys.has(localProviderDiscoveryKey(discovery)));
+
   if (!loading && !error && candidates.length === 0) return null;
 
   return (
@@ -2465,39 +2424,45 @@ function QuickLocalProviderAdd({
           <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(220px, 1fr))", gap: 8 }}>
             {candidates.map(discovery => {
               const preset = presets.find(preset => preset.id === discovery.preset_id);
+              const key = localProviderDiscoveryKey(discovery);
+              const selected = selectedKeys.has(key);
               const status = localProviderReadiness(discovery);
               const modelCount = discovery.model_count ?? discovery.models?.length ?? 0;
               const detail = discovery.http_available
                 ? `${discovery.base_url} · ${modelCount} model${modelCount === 1 ? "" : "s"}`
                 : `${discovery.command || "Command"} found${discovery.command_path ? ` · ${discovery.command_path}` : ""}`;
               return (
-                <div key={discovery.preset_id} style={{
-                  minHeight: 60,
-                  display: "flex",
-                  alignItems: "center",
-                  gap: 10,
-                  border: "1px solid var(--border)",
-                  borderRadius: "var(--radius)",
-                  padding: "10px 12px",
-                  minWidth: 0,
-                }}>
-                  <div style={{
-                    width: 28,
-                    height: 28,
-                    borderRadius: "var(--radius-sm)",
-                    background: "var(--bg3)",
-                    border: "1px solid var(--border)",
+                <button key={key}
+                  type="button"
+                  aria-pressed={selected}
+                  aria-label={`${selected ? "Deselect" : "Select"} ${preset?.name || discovery.name}`}
+                  onClick={() => {
+                    setSelectedKeys((current) => {
+                      const next = new Set(current);
+                      if (next.has(key)) {
+                        next.delete(key);
+                      } else {
+                        next.add(key);
+                      }
+                      return next;
+                    });
+                  }}
+                  style={{
+                    appearance: "none",
+                    background: selected ? "var(--teal-bg)" : "transparent",
+                    color: "inherit",
+                    minHeight: 60,
                     display: "flex",
                     alignItems: "center",
-                    justifyContent: "center",
-                    fontFamily: "var(--font-mono)",
-                    fontSize: 12,
-                    fontWeight: 600,
-                    color: "var(--teal)",
-                    flexShrink: 0,
+                    gap: 10,
+                    border: `1px solid ${selected ? "var(--teal-border)" : "var(--border)"}`,
+                    borderRadius: "var(--radius)",
+                    cursor: "pointer",
+                    padding: "10px 12px",
+                    minWidth: 0,
+                    textAlign: "left",
                   }}>
-                    {(preset?.name || discovery.name)[0]?.toUpperCase()}
-                  </div>
+                  <BrandAvatar brand={discovery.preset_id || discovery.name} fallback={preset?.name || discovery.name} size={28} />
                   <div style={{ flex: 1, minWidth: 0 }}>
                     <div style={{ display: "flex", alignItems: "center", gap: 6, minWidth: 0 }}>
                       <div style={{ fontSize: 13, fontWeight: 500, color: "var(--t0)", overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>
@@ -2522,22 +2487,38 @@ function QuickLocalProviderAdd({
                       {detail}
                     </div>
                   </div>
-                </div>
+                  <span
+                    aria-hidden
+                    style={{
+                      alignItems: "center",
+                      border: `1px solid ${selected ? "var(--teal-border)" : "var(--border)"}`,
+                      borderRadius: 999,
+                      color: selected ? "var(--teal)" : "var(--t3)",
+                      display: "inline-flex",
+                      flexShrink: 0,
+                      height: 18,
+                      justifyContent: "center",
+                      width: 18,
+                    }}
+                  >
+                    {selected && <Icon d={Icons.check} size={11} strokeWidth={2} />}
+                  </span>
+                </button>
               );
             })}
           </div>
           <div style={{ display: "flex", flexDirection: "column", alignItems: "center", gap: 8 }}>
             <span style={{ fontSize: 11, color: "var(--t3)", lineHeight: 1.4, textAlign: "center" }}>
-              Adds {candidates.length} provider{candidates.length === 1 ? "" : "s"} with the detected/default endpoints. You can edit names and URLs later in Providers.
+              Selected {selectedCandidates.length} of {candidates.length}. You can edit names and URLs later in Providers.
             </span>
             <button
               className="btn btn-primary btn-sm"
-              disabled={adding}
-              onClick={() => onAdd(candidates)}
+              disabled={adding || selectedCandidates.length === 0}
+              onClick={() => onAdd(selectedCandidates)}
               type="button"
               style={{ display: "flex", alignItems: "center", gap: 4 }}>
               <Icon d={Icons.plus} size={13} />
-              {adding ? "Adding..." : `Add detected provider${candidates.length === 1 ? "" : "s"}`}
+              {adding ? "Adding..." : "Add selected"}
             </button>
           </div>
         </div>
@@ -2548,6 +2529,10 @@ function QuickLocalProviderAdd({
 
 function isQuickAddableLocalProvider(discovery: LocalProviderDiscoveryRecord): boolean {
   return discovery.http_available || discovery.command_available;
+}
+
+function localProviderDiscoveryKey(discovery: LocalProviderDiscoveryRecord): string {
+  return discovery.preset_id || discovery.base_url || discovery.name;
 }
 
 function normalizeProviderBaseURL(baseURL: string | undefined): string {
@@ -2578,553 +2563,6 @@ function localProviderReadiness(discovery: LocalProviderDiscoveryRecord): {
     background: "var(--amber-bg)",
     border: "var(--amber-border)",
   };
-}
-
-function AgentSetupHints({ adapters, selectedID }: { adapters: AgentAdapterRecord[]; selectedID?: string }) {
-  const ordered = adapters
-    .slice()
-    .sort((a, b) => {
-      if (a.id === selectedID) return -1;
-      if (b.id === selectedID) return 1;
-      if (a.available !== b.available) return a.available ? 1 : -1;
-      return a.name.localeCompare(b.name);
-    });
-
-  if (ordered.length === 0) {
-    return (
-      <div style={{ margin: "14px auto 0", maxWidth: 520, borderTop: "1px solid var(--border)", paddingTop: 12, fontSize: 12, color: "var(--t2)", lineHeight: 1.5 }}>
-        No agent adapters are registered by this Hecate build.
-      </div>
-    );
-  }
-
-  return (
-    <div style={{ margin: "16px auto 0", maxWidth: 620, textAlign: "left", border: "1px solid var(--border)", borderRadius: "var(--radius)", background: "var(--bg2)", overflow: "hidden" }}>
-      {ordered.map((adapter, index) => {
-        const hint = agentSetupHint(adapter);
-        return (
-          <div
-            key={adapter.id}
-            style={{
-              padding: "10px 12px",
-              borderTop: index === 0 ? 0 : "1px solid var(--border)",
-              display: "grid",
-              gridTemplateColumns: "minmax(120px, 0.7fr) minmax(0, 1.3fr)",
-              gap: 10,
-              alignItems: "start",
-            }}
-          >
-            <ExternalAgentSetupSummary adapter={adapter} hint={hint} />
-          </div>
-        );
-      })}
-    </div>
-  );
-}
-
-function ExternalAgentSetupSummary({
-  adapter,
-  hint,
-}: {
-  adapter: AgentAdapterRecord;
-  hint: ReturnType<typeof agentSetupHint>;
-}) {
-  return (
-    <>
-      <div style={{ minWidth: 0 }}>
-        <div style={{ display: "flex", alignItems: "center", gap: 6 }}>
-          <span style={{ color: adapter.available ? "var(--green)" : "var(--red)", display: "inline-flex", flexShrink: 0 }}>
-            <Icon d={adapter.available ? Icons.check : Icons.x} size={11} />
-          </span>
-          <span style={{ fontSize: 12, fontWeight: 600, color: "var(--t1)", overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>
-            {adapter.name}
-          </span>
-        </div>
-        <div style={{ marginTop: 3, fontFamily: "var(--font-mono)", fontSize: 10, color: "var(--t3)", overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>
-          {hint.label}
-        </div>
-      </div>
-      <div style={{ minWidth: 0, fontSize: 11, color: "var(--t2)", lineHeight: 1.45 }}>
-        <div style={{ color: adapter.available ? "var(--green)" : "var(--t1)" }}>
-          {adapter.available ? agentReadyLabel(adapter) : hint.action}
-        </div>
-        {!adapter.available && hint.commands.length > 0 && (
-          <div style={{ display: "flex", flexWrap: "wrap", gap: 8, marginTop: 7 }}>
-            {hint.commands.map((command) => (
-              <CopyCommandLink key={command.command} command={command.command} label={command.label} />
-            ))}
-          </div>
-        )}
-        {!adapter.available && adapter.error && (
-          <div style={{ marginTop: 6, fontFamily: "var(--font-mono)", fontSize: 10, color: "var(--t3)", overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>
-            {adapter.error}
-          </div>
-        )}
-        {hint.note && (
-          <div style={{ marginTop: 5, color: "var(--t3)" }}>{hint.note}</div>
-        )}
-        {adapter.docs_url && (
-          <a href={adapter.docs_url} target="_blank" rel="noreferrer" style={{ display: "inline-flex", marginTop: 5, color: "var(--teal)", textDecoration: "none" }}>
-            setup docs
-          </a>
-        )}
-      </div>
-    </>
-  );
-}
-
-function CopyCommandLink({ command, label }: { command: string; label?: string }) {
-  async function copyCommand() {
-    try {
-      await navigator.clipboard?.writeText(command);
-    } catch {
-      // Clipboard access can be unavailable in tests or locked-down
-      // webviews. The command remains visible and selectable.
-    }
-  }
-  return (
-    <button
-      type="button"
-      onClick={() => void copyCommand()}
-      title={`Copy ${command}`}
-      style={{
-        display: "inline-flex",
-        alignItems: "center",
-        gap: 5,
-        border: 0,
-        background: "transparent",
-        color: "var(--teal)",
-        padding: 0,
-        cursor: "pointer",
-        fontFamily: "var(--font-mono)",
-        fontSize: 11,
-      }}
-    >
-      <span>{label || command}</span>
-      <Icon d={Icons.copy} size={11} />
-    </button>
-  );
-}
-
-type ClaudeCodePreflightState = {
-  title: string;
-  body: string;
-  detail?: string;
-  blockSend: boolean;
-  tone: "amber" | "red";
-  adapterInstalled: boolean;
-  tokenStatus: "not_saved" | "saved_needs_check" | "invalid";
-  cliSignedIn: boolean;
-};
-
-function claudeCodePreflightState(
-  adapter: AgentAdapterRecord | undefined,
-  health: AgentAdapterHealthRecord | null,
-): ClaudeCodePreflightState | null {
-  if (!adapter || adapter.id !== "claude_code") return null;
-  const hasSavedCredential = Boolean(adapter.credential_configured);
-  const cliSignedIn = adapter.auth_status === "ok";
-  const adapterInstalled = adapter.available && health?.status !== "not_installed";
-  const tokenVerified = hasSavedCredential && health?.status === "ready";
-  const tokenStatus: ClaudeCodePreflightState["tokenStatus"] = hasSavedCredential
-    ? (health?.status === "auth_required" || health?.status === "error" ? "invalid" : "saved_needs_check")
-    : "not_saved";
-  if (tokenVerified) {
-    return null;
-  }
-  const base = { adapterInstalled, tokenStatus, cliSignedIn };
-
-  if (!adapter.available || health?.status === "not_installed") {
-    return {
-      title: "Set up Claude Code before sending",
-      body: "Install Claude Code, then paste the one-time token printed in Terminal by `claude setup-token`.",
-      detail: health?.hint || adapter.error || "Hecate can manage the ACP launcher, but the Claude Code CLI still needs to be installed and signed in.",
-      blockSend: true,
-      tone: "amber",
-      ...base,
-    };
-  }
-
-  if (health?.status === "auth_required" || (adapter.auth_status === "unauthenticated" && hasSavedCredential)) {
-    return {
-      title: "Claude Code needs sign-in",
-      body: "Hecate has a Claude Code token saved, but the adapter still reports authentication required. Generate a fresh token and save it here.",
-      detail: health?.hint || adapter.auth_error,
-      blockSend: true,
-      tone: "amber",
-      ...base,
-    };
-  }
-
-  if (adapter.auth_status === "billing") {
-    return {
-      title: "Claude Code billing needs attention",
-      body: "Claude Code reported a billing or subscription problem. Test the adapter, then fix the Claude account before sending.",
-      detail: adapter.auth_error || health?.hint || health?.error,
-      blockSend: true,
-      tone: "red",
-      ...base,
-    };
-  }
-
-  if (!hasSavedCredential) {
-    return {
-      title: "Set up Claude Code token before sending",
-      body: cliSignedIn
-        ? "Claude Code is signed in for normal CLI use, but Hecate needs its own adapter token before it can start Claude ACP sessions."
-        : "Claude Code needs an adapter-visible token before Hecate can start Claude ACP sessions.",
-      detail: adapter.auth_error || health?.hint || health?.error,
-      blockSend: true,
-      tone: "amber",
-      ...base,
-    };
-  }
-
-  return {
-    title: "Check Claude Code setup before sending",
-    body: "Hecate has a Claude Code token saved, but it has not been verified by the adapter yet. Check auth or save a fresh token before sending.",
-    detail: adapter.auth_error || health?.hint || health?.error,
-    blockSend: true,
-    tone: "amber",
-    ...base,
-  };
-}
-
-function ClaudeCodeSetupFacts({ state }: { state: ClaudeCodePreflightState }) {
-  const tokenLabel = state.tokenStatus === "not_saved"
-    ? "token not saved"
-    : state.tokenStatus === "invalid"
-      ? "token invalid"
-      : "token saved, needs check";
-  const tokenColor = state.tokenStatus === "invalid" ? "var(--danger)" : "var(--amber)";
-  return (
-    <div style={{ display: "flex", flexWrap: "wrap", gap: 8, fontFamily: "var(--font-mono)", fontSize: 10, marginTop: 5 }}>
-      <span style={{ color: state.adapterInstalled ? "var(--teal)" : "var(--t3)" }}>
-        adapter {state.adapterInstalled ? "installed" : "not installed"}
-      </span>
-      <span style={{ color: tokenColor }}>{tokenLabel}</span>
-      {state.cliSignedIn && <span style={{ color: "var(--t3)" }}>CLI signed in</span>}
-    </div>
-  );
-}
-
-function claudeCodeSetupTokenCommand(status?: AgentAdapterSetupCommandStatus): string {
-  if (status?.command) {
-    return `${status.command} setup-token`;
-  }
-  if (!status?.available) {
-    return "npx -y @anthropic-ai/claude-code setup-token";
-  }
-  return "claude setup-token";
-}
-
-function ClaudeCodePreflightCard({
-  state,
-  loading,
-  onCopyInstall,
-  onCopySetup,
-  onOpenSetup,
-  onTest,
-}: {
-  state: ClaudeCodePreflightState;
-  loading: boolean;
-  onCopyInstall: () => void;
-  onCopySetup: () => void;
-  onOpenSetup: () => void;
-  onTest: () => void;
-}) {
-  const color = state.tone === "red" ? "var(--danger)" : "var(--amber)";
-  const border = state.tone === "red" ? "rgba(239, 68, 68, 0.32)" : "rgba(245, 191, 79, 0.35)";
-  const background = state.tone === "red" ? "rgba(239, 68, 68, 0.08)" : "rgba(245, 191, 79, 0.08)";
-
-  return (
-    <div
-      data-testid="claude-code-preflight"
-      style={{
-        maxWidth: 820,
-        margin: "0 auto 8px",
-        border: `1px solid ${border}`,
-        borderRadius: "var(--radius-sm)",
-        background,
-        padding: "9px 10px",
-        display: "grid",
-        gap: 8,
-      }}
-    >
-      <div style={{ display: "flex", alignItems: "flex-start", justifyContent: "space-between", gap: 12 }}>
-        <div style={{ minWidth: 0 }}>
-          <div style={{ color, fontWeight: 700, fontSize: 12 }}>
-            {state.title}
-          </div>
-          <div style={{ color: "var(--t1)", fontSize: 12, lineHeight: 1.45, marginTop: 3 }}>
-            {state.body}
-          </div>
-          {state.detail && (
-            <div style={{ color: "var(--t3)", fontSize: 11, lineHeight: 1.4, marginTop: 4 }}>
-              {state.detail}
-            </div>
-          )}
-          <ClaudeCodeSetupFacts state={state} />
-        </div>
-        <button type="button" className="btn btn-primary btn-sm" onClick={onOpenSetup} style={{ flexShrink: 0 }}>
-          Open setup
-        </button>
-      </div>
-      <div style={{ display: "flex", alignItems: "center", flexWrap: "wrap", gap: 6 }}>
-        <button type="button" className="btn btn-ghost btn-sm" onClick={onCopyInstall}>
-          Copy check command
-        </button>
-        <button type="button" className="btn btn-ghost btn-sm" onClick={onCopySetup}>
-          Copy setup command
-        </button>
-        <button type="button" className="btn btn-ghost btn-sm" onClick={onTest} disabled={loading}>
-          {loading ? "Checking auth..." : "Check auth"}
-        </button>
-      </div>
-    </div>
-  );
-}
-
-function ClaudeCodeSetupEmptyPanel(props: {
-  state: ClaudeCodePreflightState;
-  loading: boolean;
-  cliStatus?: AgentAdapterSetupCommandStatus;
-  tokenDraft: string;
-  tokenSaving: boolean;
-  onTokenDraftChange: (value: string) => void;
-  onSaveToken: () => void;
-  onTest: () => void;
-}) {
-  const commandStatus = props.cliStatus;
-  const claudeInstalled = Boolean(commandStatus?.available);
-  const tokenCommand = claudeCodeSetupTokenCommand(commandStatus);
-  const canSave = props.tokenDraft.trim().length > 0 && !props.tokenSaving;
-  return (
-    <div style={{
-      // Match the local-provider onboarding surface: the empty state
-      // is the setup flow, while the composer stays out of the way
-      // until the external agent can actually run.
-      margin: "18px auto 0",
-      maxWidth: 620,
-      textAlign: "left",
-      border: "1px solid var(--border)",
-      borderRadius: "var(--radius)",
-      background: "var(--bg2)",
-      overflow: "hidden",
-    }} data-testid="claude-code-preflight">
-      <ClaudeCodeSetupRow
-        label="Install"
-        title="Prepare Claude Code"
-        detail="Hecate can run Claude Code through npx; a global `claude` install also works."
-        command="npx -y @anthropic-ai/claude-code --version"
-        done={claudeInstalled}
-        statusText={claudeInstalled ? `Available${commandStatus?.command ? ` via ${commandStatus.command}` : ""}` : undefined}
-      />
-      <ClaudeCodeSetupRow
-        label="Auth"
-        title="Create an adapter token"
-        detail="Copy this command into Terminal. After you click Authorize in the browser, return to Terminal and copy the token printed there. It is shown only once."
-        command={tokenCommand}
-      />
-      <div style={{
-        padding: "10px 12px",
-        borderTop: "1px solid var(--border)",
-        display: "grid",
-        gridTemplateColumns: "minmax(120px, 0.7fr) minmax(0, 1.3fr)",
-        gap: 10,
-        alignItems: "start",
-      }}>
-        <div style={{ minWidth: 0 }}>
-          <div style={{ display: "flex", alignItems: "center", gap: 6 }}>
-            <span style={{ color: "var(--amber)", display: "inline-flex", flexShrink: 0 }}>
-              <Icon d={Icons.keys} size={11} />
-            </span>
-            <span style={{ fontSize: 12, fontWeight: 600, color: "var(--t1)" }}>
-              Save token
-            </span>
-          </div>
-          <div style={{ marginTop: 3, fontFamily: "var(--font-mono)", fontSize: 10, color: "var(--t3)" }}>
-            CLAUDE_CODE_OAUTH_TOKEN
-          </div>
-        </div>
-        <div style={{ minWidth: 0, fontSize: 11, color: "var(--t2)", lineHeight: 1.45 }}>
-          <div>Paste the token from Terminal here. If you closed Terminal or missed the token, run the token command again to generate a fresh one.</div>
-          <div style={{ marginTop: 4, color: "var(--t3)" }}>
-            Save validates the token with Claude Code before Hecate stores it.
-          </div>
-          {props.state.detail && (
-            <div style={{ marginTop: 4, color: "var(--t3)" }}>{props.state.detail}</div>
-          )}
-          <ClaudeCodeSetupFacts state={props.state} />
-          <input
-            aria-label="Claude Code OAuth token"
-            value={props.tokenDraft}
-            onChange={(event) => props.onTokenDraftChange(event.currentTarget.value)}
-            placeholder="Paste token from claude setup-token"
-            type="password"
-            spellCheck={false}
-            autoComplete="off"
-            style={{
-              width: "100%",
-              marginTop: 8,
-              border: "1px solid var(--border)",
-              borderRadius: "var(--radius-sm)",
-              background: "var(--bg1)",
-              color: "var(--t1)",
-              padding: "7px 8px",
-              fontFamily: "var(--font-mono)",
-              fontSize: 11,
-              outline: "none",
-            }}
-          />
-          <div style={{ display: "flex", gap: 6, flexWrap: "wrap", marginTop: 8 }}>
-            <button type="button" className="btn btn-primary btn-sm" onClick={props.onSaveToken} disabled={!canSave}>
-              {props.tokenSaving ? "Checking auth..." : "Save"}
-            </button>
-            <button type="button" className="btn btn-ghost btn-sm" onClick={props.onTest} disabled={props.loading}>
-              {props.loading ? "Checking auth..." : "Check auth"}
-            </button>
-          </div>
-        </div>
-      </div>
-    </div>
-  );
-}
-
-function ClaudeCodeSetupRow({
-  label,
-  title,
-  detail,
-  command,
-  done = false,
-  statusText,
-}: {
-  label: string;
-  title: string;
-  detail: string;
-  command: string;
-  done?: boolean;
-  statusText?: string;
-}) {
-  async function copyCommand() {
-    try {
-      await navigator.clipboard?.writeText(command);
-    } catch {
-      // Clipboard access can be unavailable in tests or locked-down
-      // webviews. The command is still visible and selectable.
-    }
-  }
-
-  return (
-    <div style={{
-      padding: "10px 12px",
-      borderTop: label === "Install" ? 0 : "1px solid var(--border)",
-      display: "grid",
-      gridTemplateColumns: "minmax(120px, 0.7fr) minmax(0, 1.3fr)",
-      gap: 10,
-      alignItems: "start",
-    }}>
-      <div style={{ minWidth: 0 }}>
-        <div style={{ display: "flex", alignItems: "center", gap: 6 }}>
-          <span style={{ color: done ? "var(--green)" : "var(--teal)", display: "inline-flex", flexShrink: 0 }}>
-            <Icon d={done ? Icons.check : Icons.terminal} size={11} />
-          </span>
-          <span style={{ fontSize: 12, fontWeight: 600, color: "var(--t1)" }}>
-            {title}
-          </span>
-        </div>
-        <div style={{ marginTop: 3, fontFamily: "var(--font-mono)", fontSize: 10, color: "var(--t3)" }}>
-          {label}
-        </div>
-      </div>
-      <div style={{ minWidth: 0, fontSize: 11, color: "var(--t2)", lineHeight: 1.45 }}>
-        <div>{detail}</div>
-        {done ? (
-          <div style={{ marginTop: 7 }}>
-            <code style={{ fontFamily: "var(--font-mono)", color: "var(--t2)" }}>{command}</code>
-            {statusText && <div style={{ marginTop: 4, color: "var(--green)" }}>{statusText}</div>}
-          </div>
-        ) : (
-          <button
-            type="button"
-            onClick={() => void copyCommand()}
-            style={{
-              display: "inline-flex",
-              alignItems: "center",
-              gap: 6,
-              marginTop: 8,
-              padding: 0,
-              border: 0,
-              background: "transparent",
-              color: "var(--teal)",
-              cursor: "pointer",
-              fontFamily: "var(--font-mono)",
-              fontSize: 11,
-              maxWidth: "100%",
-              overflow: "hidden",
-              textOverflow: "ellipsis",
-            }}
-            title={`Copy ${command}`}
-          >
-            <span style={{ overflow: "hidden", textOverflow: "ellipsis" }}>{command}</span>
-            <Icon d={Icons.copy} size={12} />
-          </button>
-        )}
-      </div>
-    </div>
-  );
-}
-
-function agentSetupHint(adapter: AgentAdapterRecord): {
-  label: string;
-  action: string;
-  commands: Array<{ command: string; label?: string }>;
-  note?: string;
-} {
-  switch (adapter.id) {
-    case "codex":
-      return {
-        label: adapter.managed ? `managed ${adapter.managed_package || adapter.command}` : `checks ${adapter.command}`,
-        action: "Install and sign in to Codex. Hecate manages the ACP launcher separately when Node/npm is available.",
-        commands: [
-          { command: "npm install -g @openai/codex", label: "npm install -g @openai/codex" },
-          { command: "codex login", label: "codex login" },
-        ],
-        note: "No Hecate token is needed; Codex uses its own CLI login or OpenAI API key.",
-      };
-    case "claude_code":
-      return {
-        label: adapter.managed ? `managed ${adapter.managed_package || adapter.command}` : `checks ${adapter.command}`,
-        action: "Prepare Claude Code through npx or a global install, create a one-time adapter token, then paste it in the guided setup above.",
-        commands: [
-          { command: "npx -y @anthropic-ai/claude-code --version", label: "check with npx" },
-          { command: "npx -y @anthropic-ai/claude-code setup-token", label: "create token with npx" },
-        ],
-        note: "Claude Code needs a Hecate-visible token even if the normal CLI is already signed in.",
-      };
-    case "cursor_agent":
-      return {
-        label: `checks ${adapter.command}`,
-        action: "Install Cursor Agent from Cursor, make sure `cursor-agent` is on PATH, then sign in.",
-        commands: [
-          { command: "cursor-agent login", label: "cursor-agent login" },
-        ],
-        note: "You can also set CURSOR_API_KEY for the adapter environment.",
-      };
-    default:
-      return {
-        label: adapter.managed ? `managed ${adapter.managed_package || adapter.command}` : `checks ${adapter.command}`,
-        action: `Install ${adapter.name}, make sure \`${adapter.command}\` is on PATH, then refresh this view.`,
-        commands: [],
-      };
-  }
-}
-
-function agentReadyLabel(adapter: AgentAdapterRecord): string {
-  if (adapter.managed && adapter.managed_package) {
-    return `Ready through Hecate-managed ${adapter.managed_package}`;
-  }
-  return `Ready at ${adapter.path || adapter.command}`;
 }
 
 function formatAgentSessionLabel(session: AgentChatSessionRecord | null, adapter?: AgentAdapterRecord): string {

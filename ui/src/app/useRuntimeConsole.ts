@@ -48,6 +48,7 @@ import {
   deleteProvider as deleteProviderRequest,
   getAgentChatSession,
   recordModelCapabilityProbe as recordModelCapabilityProbeRequest,
+  setAgentChatConfigOption as setAgentChatConfigOptionRequest,
   streamAgentChatSession,
   setProviderBaseURL as setProviderBaseURLRequest,
   setProviderName as setProviderNameRequest,
@@ -718,6 +719,15 @@ export function useRuntimeConsole() {
     setDefaultChatTarget(nextTarget);
   }
 
+  function setNewChatAgent(nextAgentID: string) {
+    if (nextAgentID === "hecate") {
+      setDefaultChatTarget("agent");
+      return;
+    }
+    setAgentAdapterID(nextAgentID);
+    setDefaultChatTarget("external_agent");
+  }
+
   async function submitChat(event: SyntheticEvent<HTMLFormElement>) {
     event.preventDefault();
     await submitAgentChat();
@@ -986,7 +996,7 @@ export function useRuntimeConsole() {
         content: pendingContent,
         runtime_kind: turnRuntimeKind,
         ...(!isExternalAgent ? { provider: turnProviderFilter === "auto" ? "" : turnProviderFilter, model: turnModel } : {}),
-        ...(isModelTurn ? { system_prompt: turnSystemPrompt } : {}),
+        ...(!isExternalAgent ? { system_prompt: turnSystemPrompt } : {}),
         ...(turnRuntimeKind === "agent" ? { workspace: turnWorkspace } : {}),
       });
       applyAgentChatSession(updated.data);
@@ -1481,7 +1491,33 @@ export function useRuntimeConsole() {
     }
   }
 
-  function createChatSession() {
+  async function createChatSession() {
+    if (defaultChatTarget === "external_agent") {
+      const workspace = agentWorkspace.trim();
+      if (!workspace) {
+        startNewChat();
+        return;
+      }
+      setChatLoading(true);
+      clearChatErrorState();
+      try {
+        const adapter = agentAdapters.find((item) => item.id === agentAdapterID);
+        const created = await createAgentChatSessionRequest({
+          title: adapter ? `${adapter.name} chat` : "External agent chat",
+          runtime_kind: "external_agent",
+          adapter_id: agentAdapterID,
+          workspace,
+        });
+        setActiveAgentChatSessionID(created.data.id);
+        applyAgentChatSession(created.data);
+      } catch (error) {
+        setChatErrorState(error, "failed to create external agent chat");
+        setNoticeMessage("error", error instanceof Error ? error.message : "Failed to create external agent chat.");
+      } finally {
+        setChatLoading(false);
+      }
+      return;
+    }
     startNewChat();
   }
 
@@ -1529,7 +1565,6 @@ export function useRuntimeConsole() {
     setActiveAgentChatSessionID("");
     setActiveAgentChatSession(null);
     setAgentWorkspaceBranch("");
-    setDefaultChatTarget("agent");
     resetChatWorkspaceState();
   }
 
@@ -1770,6 +1805,17 @@ export function useRuntimeConsole() {
     }
   }
 
+  async function setAgentChatConfigOption(sessionID: string, configID: string, value: string | boolean): Promise<boolean> {
+    try {
+      const payload = await setAgentChatConfigOptionRequest(sessionID, configID, value);
+      applyAgentChatSession(payload.data);
+      return true;
+    } catch (error) {
+      setNoticeMessage("error", error instanceof Error ? error.message : "Failed to update adapter control.");
+      return false;
+    }
+  }
+
   async function getAgentChatMessageFileDiff(sessionID: string, messageID: string, path: string): Promise<AgentChatChangedFileDiffRecord | null> {
     try {
       const payload = await getAgentChatMessageFileDiffRequest(sessionID, messageID, path);
@@ -1922,6 +1968,7 @@ export function useRuntimeConsole() {
       agentAdapters,
       agentChatCancelling,
       agentChatSessions,
+      newChatAgentID: defaultChatTarget === "external_agent" ? agentAdapterID : "hecate",
       agentWorkspace,
       agentWorkspaceBranch,
       requestLedger,
@@ -1998,6 +2045,7 @@ export function useRuntimeConsole() {
       setBudgetAmountUsd,
       setBudgetLimitUsd,
       setAgentAdapterID,
+      setNewChatAgent,
       setAgentWorkspace: updateAgentWorkspace,
       setChatTarget,
       setMessage,
@@ -2041,6 +2089,7 @@ export function useRuntimeConsole() {
       cancelAgentChatApproval,
       listAgentChatGrants,
       deleteAgentChatGrant,
+      setAgentChatConfigOption,
       probeAgentAdapter,
       setAgentAdapterCredential,
       deleteAgentAdapterCredential,

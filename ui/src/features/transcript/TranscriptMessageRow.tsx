@@ -2,13 +2,14 @@ import { useState } from "react";
 
 import type { AgentChatActivityRecord, AgentChatChangedFileDiffRecord, AgentChatChangedFileRecord, AgentChatTimingRecord, AgentChatUsageRecord } from "../../types/runtime";
 import { CodeBlock } from "../shared/Atoms";
+import { BrandAvatar } from "../shared/BrandAvatar";
 import { Icon, Icons } from "../shared/Icons";
 import { TranscriptActivityTimeline } from "./TranscriptActivityTimeline";
 import { TranscriptDiffReview } from "./TranscriptDiffReview";
 import { TranscriptMarkdown } from "./TranscriptMarkdown";
 
-export function TranscriptMessageRow({ id, role, model, content, time, promptTokens, completionTokens, costUsd, badge, runtimeMeta, taskLink, traceLink, activities, diffStat, diff, agentSessionID, onListAgentFiles, onGetAgentFileDiff, onRevertAgentFiles, rawOutput, agentUsage, agentTiming, error, setupAction, onCopy, copied }: {
-  id: string; role: "user" | "assistant"; model?: string; content: string;
+export function TranscriptMessageRow({ id, role, model, brand, content, time, promptTokens, completionTokens, costUsd, badge, runtimeMeta, taskLink, traceLink, activities, diffStat, diff, agentSessionID, onListAgentFiles, onGetAgentFileDiff, onRevertAgentFiles, rawOutput, agentUsage, agentTiming, error, setupAction, onCopy, copied }: {
+  id: string; role: "user" | "assistant"; model?: string; brand?: string; content: string;
   time: string; promptTokens?: number; completionTokens?: number; costUsd?: string;
   badge?: string; runtimeMeta?: string; agentSessionID?: string;
   taskLink?: { label: string; title?: string; onClick: () => void };
@@ -47,16 +48,13 @@ export function TranscriptMessageRow({ id, role, model, content, time, promptTok
     <div onMouseEnter={() => setHovered(true)} onMouseLeave={() => setHovered(false)}
       style={{ padding: "4px 16px 12px", maxWidth: 820, margin: "0 auto", width: "100%" }}>
       <div style={{ display: "flex", gap: 10, alignItems: "flex-start" }}>
-        <div style={{
-          width: 28, height: 28, borderRadius: "var(--radius-sm)", flexShrink: 0, marginTop: 2,
-          background: isAssistant ? "var(--teal-bg)" : "var(--bg3)",
-          border: `1px solid ${isAssistant ? "var(--teal-border)" : "var(--border)"}`,
-          display: "flex", alignItems: "center", justifyContent: "center",
-        }}>
-          <span style={{ fontFamily: "var(--font-mono)", fontSize: 11, color: isAssistant ? "var(--teal)" : "var(--t1)", fontWeight: 600 }}>
-            {isAssistant ? (model || "H")[0].toUpperCase() : "U"}
-          </span>
-        </div>
+        <BrandAvatar
+          assistant={isAssistant}
+          brand={isAssistant ? (brand || model) : undefined}
+          fallback={isAssistant ? model : "U"}
+          size={28}
+          style={{ marginTop: 2 }}
+        />
         <div style={{ flex: 1, minWidth: 0 }}>
           <div style={{ display: "flex", alignItems: "center", flexWrap: "wrap", gap: "5px 8px", marginBottom: 5 }}>
             {isAssistant
@@ -89,12 +87,22 @@ export function TranscriptMessageRow({ id, role, model, content, time, promptTok
               </button>
             </div>
           </div>
-          {failed || cancelled ? (
+          {failed ? (
             <AgentRunNotice
-              status={failed ? "failed" : "cancelled"}
+              status="failed"
               message={error || content}
-              action={failed ? setupAction : undefined}
+              action={setupAction}
             />
+          ) : cancelled ? (
+            <>
+              {content.trim()
+                ? <TranscriptMarkdown content={content} />
+                : null}
+              <AgentRunNotice
+                status="cancelled"
+                message={error || "Stopped before the agent returned more output."}
+              />
+            </>
           ) : thinkingForAgent ? (
             <AgentLiveText content={content} />
           ) : waitingForAgentOutput ? (

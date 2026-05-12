@@ -32,10 +32,6 @@ export const PROVIDER_COLORS: Record<string, string> = {
   localai:     "var(--t2)",
 };
 
-export function providerColor(id: string): string {
-  return PROVIDER_COLORS[id.toLowerCase()] ?? "var(--teal)";
-}
-
 // phaseColor maps the phase classification to an existing token. The
 // provider phase additionally pulls the brand color from the span's
 // `gen_ai.provider.name` attribute when present so the bar visually

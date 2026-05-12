@@ -41,13 +41,16 @@ func chooseWorkspaceDirectory(ctx context.Context) (string, error) {
 			"osascript",
 			"-e",
 			`POSIX path of (choose folder with prompt "Choose a workspace for Hecate Agent Chat")`,
-		).Output()
+		).CombinedOutput()
+		if isWorkspaceDialogCancelled(err, string(out)) {
+			return "", nil
+		}
 		if err != nil {
 			return "", err
 		}
 		path := strings.TrimSpace(string(out))
 		if path == "" {
-			return "", errors.New("no workspace folder was selected")
+			return "", nil
 		}
 		return strings.TrimSuffix(path, "/"), nil
 	default:
@@ -62,3 +65,13 @@ func (workspaceDialogUnsupportedError) Error() string {
 }
 
 var errWorkspaceDialogUnsupported error = workspaceDialogUnsupportedError{}
+
+func isWorkspaceDialogCancelled(err error, output string) bool {
+	if err == nil {
+		return false
+	}
+	lower := strings.ToLower(output)
+	return strings.Contains(lower, "user canceled") ||
+		strings.Contains(lower, "user cancelled") ||
+		strings.Contains(lower, "(-128)")
+}

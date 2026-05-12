@@ -1044,6 +1044,12 @@ directory. Hecate validates and canonicalizes the path before a tool-backed or
 external-agent run starts, so later runs use the resolved directory instead of
 failing only after execution starts.
 
+For `runtime_kind="external_agent"`, session creation also starts or restores
+the native ACP session immediately. That lets clients render adapter-owned
+`config_options` before the first prompt. If the adapter binary is missing,
+unauthenticated, or fails its ACP handshake, session creation fails and Hecate
+removes the empty chat record.
+
 ```json
 POST /hecate/v1/agent-chat/sessions
 {
@@ -1094,6 +1100,33 @@ turns with the same `segment_id` so clients can show transcript boundaries such
 as "tools off with smollm2" → "tools on with qwen2.5-coder". Each segment
 contains its `runtime_kind`, provider/model snapshot, optional `task_id`,
 latest run id, status, message count, and first/last timestamps.
+
+External Agent sessions may also include `config_options`, a normalized
+projection of ACP session configuration options reported by the adapter during
+`session/new`, `session/load`, or `session/set_config_option`. Because Hecate
+starts the ACP session during chat creation, clients can usually show these
+controls before the first prompt. These controls are adapter-owned; common
+`category` values include `model`, `mode`, and `thought_level`, but clients
+must handle missing or custom categories.
+
+### `POST /hecate/v1/agent-chat/sessions/{id}/config-options/{config_id}`
+
+Updates one ACP session configuration option for an active External Agent
+session. Body:
+
+```json
+{
+  "value": "smart"
+}
+```
+
+`value` may be a string select value or a boolean. Hecate forwards the change to
+the active adapter with ACP `session/set_config_option`, persists the adapter's
+returned full `config_options` list on the chat session, publishes a session
+snapshot, and returns the updated session response. If the native ACP session
+has been closed or is not active, the endpoint returns
+`409 agent_chat.session_not_running`; create a new External Agent chat or retry
+after the session has been restored.
 
 ### `POST /hecate/v1/agent-chat/sessions/{id}/messages`
 

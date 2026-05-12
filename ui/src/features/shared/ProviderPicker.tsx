@@ -13,6 +13,7 @@
 import { useEffect, useRef, useState } from "react";
 import type { KeyboardEvent } from "react";
 
+import { BrandAvatar } from "./BrandAvatar";
 import { Icon, Icons } from "./Icons";
 import { focusDropdownItem, focusInitialDropdownItem } from "./dropdownKeyboard";
 import { useFloatingDropdownStyle } from "./useFloatingDropdownStyle";
@@ -135,7 +136,11 @@ export function ProviderPicker({
         className="btn btn-ghost btn-sm"
         onClick={() => setOpen(o => !o)}
         style={{ fontFamily: "var(--font-mono)", fontSize: 11, gap: 5, color: "var(--t1)", width: triggerWidth }}>
-        <Icon d={Icons.providers} size={13} />
+        {selected ? (
+          <BrandAvatar brand={selected.id} fallback={selected.name} boxed={false} size={16} />
+        ) : (
+          <Icon d={Icons.providers} size={13} />
+        )}
         {triggerWidth !== undefined ? (
           // Fixed-width mode: ellipsize within the available flex slot.
           <span style={{ flex: 1, minWidth: 0, whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis", textAlign: "left" }} title={label}>
@@ -205,6 +210,13 @@ export function ProviderPicker({
                 {/* Only the name dims when disabled — the key icon
                     keeps its red color, so the operator's eye lands
                     on it as the reason for the disabled state. */}
+                <BrandAvatar
+                  brand={o.id}
+                  fallback={o.name}
+                  boxed={false}
+                  size={16}
+                  style={{ opacity: disabled ? 0.5 : 1, flexShrink: 0 }}
+                />
                 <span
                   style={{
                     flex: 1,

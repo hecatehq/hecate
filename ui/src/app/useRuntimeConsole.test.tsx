@@ -8,13 +8,13 @@ import { useRuntimeConsole } from "./useRuntimeConsole";
 // stub /healthz + /hecate/v1/whoami + the dashboard fan-out and exercise the
 // hook's user-visible behavior on top of that.
 
-function defaultBackendMock(routes: Record<string, () => Response | Promise<Response>> = {}) {
+function defaultBackendMock(routes: Record<string, (init?: RequestInit) => Response | Promise<Response>> = {}) {
   return async (input: RequestInfo | URL, init?: RequestInit): Promise<Response> => {
     const url = String(input);
     // Per-test overrides take precedence over the defaults below so a
     // test can stub `/hecate/v1/chat/sessions?limit=20` to return seeded data.
     const handler = routes[url];
-    if (handler) return handler();
+    if (handler) return handler(init);
     if (url === "/healthz") return jsonResponse({ status: "ok", time: "2026-04-20T00:00:00Z" });
     if (url === "/hecate/v1/whoami") {
       return jsonResponse({
@@ -72,6 +72,29 @@ describe("useRuntimeConsole", () => {
     expect(result.current.state.message).toBe("");
   });
 
+  it("treats a cancelled workspace picker as a quiet no-op", async () => {
+    window.localStorage.setItem("hecate.agentWorkspace", "/workspace/current");
+    fetchMock.mockImplementation(defaultBackendMock({
+      "/hecate/v1/workspace-dialog": () => jsonResponse({
+        object: "workspace_dialog",
+        data: { path: "", branch: "" },
+      }),
+    }));
+
+    const { result } = renderHook(() => useRuntimeConsole());
+    await waitFor(() => expect(result.current.state.loading).toBe(false));
+
+    let selected = false;
+    await act(async () => {
+      selected = await result.current.actions.chooseAgentWorkspace();
+    });
+
+    expect(selected).toBe(true);
+    expect(result.current.state.agentWorkspace).toBe("/workspace/current");
+    expect(result.current.state.chatError).toBe("");
+    expect(result.current.state.notice).toBeNull();
+  });
+
   it("defaults to Agent chat when no chat target preference exists", async () => {
     const { result } = renderHook(() => useRuntimeConsole());
     await waitFor(() => expect(result.current.state.loading).toBe(false));
@@ -83,6 +106,124 @@ describe("useRuntimeConsole", () => {
     const { result } = renderHook(() => useRuntimeConsole());
     await waitFor(() => expect(result.current.state.loading).toBe(false));
     expect(result.current.state.chatTarget).toBe("model");
+  });
+
+  it("creates an external-agent session from the selected agent and workspace", async () => {
+    window.localStorage.setItem("hecate.chatTarget", "external_agent");
+    window.localStorage.setItem("hecate.agentAdapterID", "claude_code");
+    window.localStorage.setItem("hecate.agentWorkspace", "/tmp/hecate-project");
+    let createBody: any = null;
+    fetchMock.mockImplementation(defaultBackendMock({
+      "/hecate/v1/agent-adapters": () => jsonResponse({
+        object: "agent_adapters",
+        data: [{ id: "claude_code", name: "Claude Code", available: true }],
+      }),
+      "/hecate/v1/agent-chat/sessions": (init) => {
+        if (init?.method === "POST") {
+          createBody = JSON.parse(String(init.body ?? "{}"));
+          return jsonResponse({
+            object: "agent_chat_session",
+            data: {
+              id: "agent_chat_1",
+              title: "Claude Code chat",
+              runtime_kind: "external_agent",
+              adapter_id: "claude_code",
+              driver_kind: "acp",
+              native_session_id: "native_1",
+              workspace: "/tmp/hecate-project",
+              status: "idle",
+              config_options: [{ id: "model", name: "Model", type: "select", current_value: "sonnet" }],
+              messages: [],
+            },
+          });
+        }
+        return jsonResponse({ object: "agent_chat_sessions", data: [] });
+      },
+    }));
+
+    const { result } = renderHook(() => useRuntimeConsole());
+    await waitFor(() => expect(result.current.state.loading).toBe(false));
+
+    await act(async () => {
+      await result.current.actions.createChatSession();
+    });
+
+    expect(createBody).toMatchObject({
+      runtime_kind: "external_agent",
+      adapter_id: "claude_code",
+      workspace: "/tmp/hecate-project",
+    });
+    expect(result.current.state.activeAgentChatSessionID).toBe("agent_chat_1");
+    expect(result.current.state.activeAgentChatSession?.config_options?.[0]?.current_value).toBe("sonnet");
+  });
+
+  it("uses the new-chat agent selection instead of the active external session", async () => {
+    window.localStorage.setItem("hecate.agentChatSessionID", "a1");
+    let createCount = 0;
+    fetchMock.mockImplementation(defaultBackendMock({
+      "/hecate/v1/agent-chat/sessions": (init) => {
+        if (init?.method === "POST") {
+          createCount += 1;
+          return jsonResponse({ error: { type: "unexpected", message: "should not create external session" } }, 500);
+        }
+        return jsonResponse({
+          object: "agent_chat_sessions",
+          data: [{ id: "a1", title: "Codex chat", runtime_kind: "external_agent", adapter_id: "codex", workspace: "/tmp/hecate", status: "idle", message_count: 0 }],
+        });
+      },
+      "/hecate/v1/agent-chat/sessions/a1": () => jsonResponse({
+        object: "agent_chat_session",
+        data: { id: "a1", title: "Codex chat", runtime_kind: "external_agent", adapter_id: "codex", workspace: "/tmp/hecate", status: "idle", messages: [] },
+      }),
+    }));
+
+    const { result } = renderHook(() => useRuntimeConsole());
+    await waitFor(() => expect(result.current.state.loading).toBe(false));
+    await waitFor(() => expect(result.current.state.activeAgentChatSessionID).toBe("a1"));
+    expect(result.current.state.newChatAgentID).toBe("hecate");
+
+    await act(async () => {
+      await result.current.actions.createChatSession();
+    });
+
+    expect(createCount).toBe(0);
+    expect(result.current.state.activeAgentChatSessionID).toBe("");
+    expect(result.current.state.activeAgentChatSession).toBeNull();
+  });
+
+  it("keeps the draft chat unbound when eager external-agent prepare fails", async () => {
+    window.localStorage.setItem("hecate.chatTarget", "external_agent");
+    window.localStorage.setItem("hecate.agentAdapterID", "claude_code");
+    window.localStorage.setItem("hecate.agentWorkspace", "/tmp/hecate-project");
+    fetchMock.mockImplementation(defaultBackendMock({
+      "/hecate/v1/agent-adapters": () => jsonResponse({
+        object: "agent_adapters",
+        data: [{ id: "claude_code", name: "Claude Code", available: true }],
+      }),
+      "/hecate/v1/agent-chat/sessions": (init) => {
+        if (init?.method === "POST") {
+          return jsonResponse({
+            error: {
+              type: "agent_chat.adapter_unavailable",
+              message: "Claude Code could not start.",
+            },
+          }, 502);
+        }
+        return jsonResponse({ object: "agent_chat_sessions", data: [] });
+      },
+    }));
+
+    const { result } = renderHook(() => useRuntimeConsole());
+    await waitFor(() => expect(result.current.state.loading).toBe(false));
+
+    await act(async () => {
+      await result.current.actions.createChatSession();
+    });
+
+    expect(result.current.state.activeAgentChatSessionID).toBe("");
+    expect(result.current.state.activeAgentChatSession).toBeNull();
+    expect(result.current.state.notice).toEqual({ kind: "error", message: "Claude Code could not start." });
+    expect(result.current.state.chatError).toContain("Claude Code could not start.");
   });
 
   it("keeps the active agent chat selection when session refresh fails transiently", async () => {
@@ -519,6 +660,70 @@ describe("useRuntimeConsole", () => {
       expect(result.current.state.activeAgentChatSession?.model).toBe("gpt-4o-mini");
       expect(result.current.state.providerFilter).toBe("openai");
       expect(result.current.state.chatError).toBe("");
+    });
+
+    it("sends Hecate Chat instructions to task-backed turns", async () => {
+      window.localStorage.setItem("hecate.chatTarget", "agent");
+      window.localStorage.setItem("hecate.agentChatSessionID", "a1");
+      window.localStorage.setItem("hecate.agentWorkspace", "/workspace");
+      window.localStorage.setItem("hecate.systemPrompt", "Prefer small, reviewable diffs.");
+      let postedBody: any = null;
+      fetchMock.mockImplementation(async (input, init) => {
+        const url = String(input);
+        if (url === "/hecate/v1/agent-chat/sessions") {
+          return jsonResponse({
+            object: "agent_chat_sessions",
+            data: [{ id: "a1", title: "Agent", runtime_kind: "agent", status: "completed", workspace: "/workspace", message_count: 0 }],
+          });
+        }
+        if (url === "/hecate/v1/agent-chat/sessions/a1") {
+          return jsonResponse({
+            object: "agent_chat_session",
+            data: { id: "a1", title: "Agent", runtime_kind: "agent", status: "completed", workspace: "/workspace", messages: [], created_at: "2026-04-20T00:00:00Z", updated_at: "2026-04-20T00:00:00Z" },
+          });
+        }
+        if (url === "/hecate/v1/agent-chat/sessions/a1/stream") {
+          return emptyStreamResponse();
+        }
+        if (url === "/hecate/v1/agent-chat/sessions/a1/messages") {
+          postedBody = JSON.parse(String(init?.body ?? "{}"));
+          return jsonResponse({
+            object: "agent_chat_session",
+            data: {
+              id: "a1",
+              title: "Agent",
+              runtime_kind: "agent",
+              status: "completed",
+              workspace: "/workspace",
+              messages: [
+                { id: "u1", runtime_kind: "agent", role: "user", content: "inspect the repo", created_at: "2026-04-20T00:00:01Z" },
+                { id: "a1", runtime_kind: "agent", role: "assistant", content: "done", status: "completed", created_at: "2026-04-20T00:00:02Z" },
+              ],
+              created_at: "2026-04-20T00:00:00Z",
+              updated_at: "2026-04-20T00:00:02Z",
+            },
+          });
+        }
+        return defaultBackendMock()(input, init);
+      });
+
+      const { result } = renderHook(() => useRuntimeConsole());
+      await waitFor(() => expect(result.current.state.loading).toBe(false));
+      await waitFor(() => expect(result.current.state.systemPrompt).toBe("Prefer small, reviewable diffs."));
+
+      act(() => {
+        result.current.actions.setMessage("inspect the repo");
+      });
+      await act(async () => {
+        await result.current.actions.submitChat({ preventDefault: vi.fn() } as any);
+      });
+
+      expect(postedBody).toMatchObject({
+        content: "inspect the repo",
+        runtime_kind: "agent",
+        system_prompt: "Prefer small, reviewable diffs.",
+        workspace: "/workspace",
+      });
     });
 
     it("queues a prompt while the active agent run is busy and sends it after completion", async () => {

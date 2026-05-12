@@ -368,6 +368,25 @@ export type AgentChatActivityRecord = {
   terminal?: boolean;
 };
 
+export type AgentChatConfigSelectOptionRecord = {
+  value: string;
+  name: string;
+  description?: string;
+  group?: string;
+  group_name?: string;
+};
+
+export type AgentChatConfigOptionRecord = {
+  id: string;
+  name: string;
+  description?: string;
+  category?: string;
+  type: "select" | "boolean" | string;
+  current_value?: string;
+  current_bool?: boolean;
+  options?: AgentChatConfigSelectOptionRecord[];
+};
+
 export type AgentChatSessionRecord = {
   id: string;
   title: string;
@@ -390,6 +409,7 @@ export type AgentChatSessionRecord = {
   idle_timeout_ms?: number;
   created_at?: string;
   updated_at?: string;
+  config_options?: AgentChatConfigOptionRecord[];
   segments?: AgentChatSegmentRecord[];
   messages?: AgentChatMessageRecord[];
 };
