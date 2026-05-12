@@ -19,12 +19,12 @@ test.beforeEach(async ({ page }) => {
 });
 
 async function switchToModel(page: Page) {
-  await page.getByRole("button", { name: "tools off", exact: true }).click();
+  await page.getByRole("button", { name: "tools on", exact: true }).click();
 }
 
 test("renders the message textarea and send button", async ({ page }) => {
   await expect(page.getByRole("button", { name: "Agent", exact: true })).toContainText("Hecate");
-  await expect(page.getByRole("button", { name: "tools off", exact: true })).toBeVisible();
+  await expect(page.getByRole("button", { name: "tools on", exact: true })).toBeVisible();
   await expect(page.locator("textarea")).toBeVisible();
   await expect(page.locator("button[type='submit']")).toBeVisible();
 });
@@ -172,18 +172,19 @@ test("New chat creates an external-agent session with controls before the first 
   });
   await expect(page.getByRole("button", { name: "Model" })).toContainText("Fast");
   await page.getByRole("button", { name: "Agent", exact: true }).click();
-  await expect(page.getByRole("option", { name: /Claude Code/ })).toHaveAttribute("aria-disabled", "true");
+  await expect(page.getByRole("option", { name: /Codex/ })).toHaveAttribute("aria-selected", "true");
+  await expect(page.getByRole("option", { name: /Claude Code/ })).not.toHaveAttribute("aria-disabled", "true");
 });
 
 test("system prompt editor opens and closes", async ({ page }) => {
   await switchToModel(page);
-  const systemBtn = page.locator("button", { hasText: /system/i });
+  const systemBtn = page.getByRole("button", { name: /instructions/i });
   await systemBtn.click();
-  await expect(page.getByText("SYSTEM PROMPT")).toBeVisible();
+  await expect(page.getByText("INSTRUCTIONS", { exact: true })).toBeVisible();
   await expect(page.locator("textarea").nth(1)).toBeVisible();
 
   await systemBtn.click();
-  await expect(page.getByText("SYSTEM PROMPT")).not.toBeVisible();
+  await expect(page.getByText("INSTRUCTIONS", { exact: true })).not.toBeVisible();
 });
 
 test("Enter-switch toggle is visible in the input toolbar and clickable", async ({ page }) => {
@@ -464,12 +465,12 @@ test("empty model chat can add all detected local providers in one click", async
   await expect(page.getByText("Installed")).toBeVisible();
   await expect(page.getByText("Running")).toBeVisible();
 
-  await page.getByRole("button", { name: "Add detected providers" }).click();
+  await page.getByRole("button", { name: "Add selected" }).click();
 
   await expect.poll(() => created.map(body => body.preset_id).sort()).toEqual(["lmstudio", "ollama"]);
   await expect(page.getByText("Provider is configured")).toBeVisible();
   await expect(page.getByText("none discovered")).toBeVisible();
-  await expect(page.getByRole("button", { name: /Add detected provider/i })).toHaveCount(0);
+  await expect(page.getByRole("button", { name: /Add selected/i })).toHaveCount(0);
 });
 
 test("empty Hecate Agent chat can add all detected local providers in one click", async ({ page }) => {
@@ -490,11 +491,11 @@ test("empty Hecate Agent chat can add all detected local providers in one click"
   await expect(page.getByText("Ollama", { exact: true })).toBeVisible();
   await expect(page.getByText("LM Studio", { exact: true })).toBeVisible();
 
-  await page.getByRole("button", { name: "Add detected providers" }).click();
+  await page.getByRole("button", { name: "Add selected" }).click();
 
   await expect.poll(() => created.map(body => body.preset_id).sort()).toEqual(["lmstudio", "ollama"]);
   await expect(page.getByText("Provider is configured")).toBeVisible();
-  await expect(page.getByRole("button", { name: /Add detected provider/i })).toHaveCount(0);
+  await expect(page.getByRole("button", { name: /Add selected/i })).toHaveCount(0);
 });
 
 test("Hecate Agent local-provider onboarding renders the real final answer and unlocks model choice after completion", async ({ page }) => {
@@ -613,8 +614,8 @@ test("Hecate Agent local-provider onboarding renders the real final answer and u
   await page.goto("/");
   await page.waitForSelector(".hecate-activitybar");
 
-  await page.getByRole("button", { name: "Add detected providers" }).click();
-  await expect(page.getByRole("button", { name: /Add detected provider/i })).toHaveCount(0);
+  await page.getByRole("button", { name: "Add selected" }).click();
+  await expect(page.getByRole("button", { name: /Add selected/i })).toHaveCount(0);
   await expect(page.getByText("2 configured")).toBeVisible();
 
   await page.getByRole("button", { name: /model picker/i }).click();
@@ -835,7 +836,7 @@ test("Hecate Chat can move tools on, tools off, then tools on again in one trans
 
   await page.getByRole("button", { name: /model picker/i }).click();
   await page.locator(".dropdown-menu").locator("text=qwen2.5").first().click();
-  await page.getByRole("button", { name: "tools on", exact: true }).click();
+  await expect(page.getByRole("button", { name: "tools on", exact: true })).toBeVisible();
 
   await page.locator("textarea").fill("first with tools");
   await page.locator("button[type='submit']").click();
@@ -844,12 +845,12 @@ test("Hecate Chat can move tools on, tools off, then tools on again in one trans
   await expect(page.getByTestId("hecate-task-approval-banner")).toBeHidden();
   await expect(page.locator("body")).toContainText("Tools answer one from qwen2.5");
 
-  await page.getByRole("button", { name: "tools off", exact: true }).click();
+  await page.getByRole("button", { name: "tools on", exact: true }).click();
   await page.locator("textarea").fill("direct model turn");
   await page.locator("button[type='submit']").click();
   await expect(page.locator("body")).toContainText("Direct model answer from qwen2.5");
 
-  await page.getByRole("button", { name: "tools on", exact: true }).click();
+  await page.getByRole("button", { name: "tools off", exact: true }).click();
   await page.locator("textarea").fill("tools again");
   await page.locator("button[type='submit']").click();
   await expect(page.locator("body")).toContainText("Tools answer two from qwen2.5");
@@ -1149,7 +1150,7 @@ test("configured provider with no models shows troubleshooting, not detected-pro
   await expect(page.getByText("none discovered")).toBeVisible();
   await expect(page.getByText(/Start the local provider app/)).toBeVisible();
   await expect(page.getByText("Detected locally")).toHaveCount(0);
-  await expect(page.getByRole("button", { name: /Add detected provider/i })).toHaveCount(0);
+  await expect(page.getByRole("button", { name: /Add selected/i })).toHaveCount(0);
 });
 
 // External-agent approval happy path. Seeds an active session with one
