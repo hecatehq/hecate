@@ -1505,6 +1505,13 @@ describe("ChatView external-agent target", () => {
               { value: "smart", name: "Smart" },
             ],
           },
+          {
+            id: "auto_approve",
+            name: "Auto approve",
+            category: "mode",
+            type: "boolean",
+            current_bool: false,
+          },
         ],
         messages: [
           { id: "m1", role: "user", content: "review this", created_at: "2026-05-03T10:00:00Z" },
@@ -1547,6 +1554,9 @@ describe("ChatView external-agent target", () => {
     await userEvent.click(modelPicker);
     await userEvent.click(screen.getByRole("option", { name: /Smart/ }));
     expect(actions.setAgentChatConfigOption).toHaveBeenCalledWith("a1", "model", "smart");
+    const modeToggle = screen.getByRole("button", { name: /mode: off/i });
+    await userEvent.click(modeToggle);
+    expect(actions.setAgentChatConfigOption).toHaveBeenCalledWith("a1", "auto_approve", true);
     expect(screen.getByText("Looks good.")).toBeTruthy();
     expect(screen.getAllByText(/ACP native_codex/).length).toBeGreaterThan(0);
     const traceButton = screen.getByRole("button", { name: /Open Trace req_code/i });

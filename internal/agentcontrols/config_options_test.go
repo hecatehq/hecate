@@ -44,6 +44,43 @@ func TestFromACPOptions_NormalizesSelectAndBoolean(t *testing.T) {
 	}
 }
 
+func TestFromACPOptions_FlattensGroupedSelectOptions(t *testing.T) {
+	grouped := acp.SessionConfigSelectOptionsGrouped{
+		{
+			Group: acp.SessionConfigGroupId("opus"),
+			Name:  "Opus",
+			Options: []acp.SessionConfigSelectOption{
+				{Value: acp.SessionConfigValueId("opus-4.1"), Name: "Opus 4.1"},
+			},
+		},
+		{
+			Group: acp.SessionConfigGroupId("sonnet"),
+			Name:  "Sonnet",
+			Options: []acp.SessionConfigSelectOption{
+				{Value: acp.SessionConfigValueId("sonnet-4.5"), Name: "Sonnet 4.5"},
+			},
+		},
+	}
+
+	got := FromACPOptions([]acp.SessionConfigOption{
+		{Select: &acp.SessionConfigOptionSelect{
+			Id:      acp.SessionConfigId("model"),
+			Name:    "Model",
+			Options: acp.SessionConfigSelectOptions{Grouped: &grouped},
+		}},
+	})
+
+	if len(got) != 1 || len(got[0].Options) != 2 {
+		t.Fatalf("grouped options = %#v, want two flattened options", got)
+	}
+	if got[0].Options[0].Group != "opus" || got[0].Options[0].GroupName != "Opus" {
+		t.Fatalf("first grouped option = %#v, want Opus metadata", got[0].Options[0])
+	}
+	if got[0].Options[1].Group != "sonnet" || got[0].Options[1].GroupName != "Sonnet" {
+		t.Fatalf("second grouped option = %#v, want Sonnet metadata", got[0].Options[1])
+	}
+}
+
 func TestBuildACPSetRequest_SelectAndBoolean(t *testing.T) {
 	selectReq, err := BuildACPSetRequest(SetConfigOptionRequest{SessionID: "sess", ConfigID: "model", Value: "smart"})
 	if err != nil {
@@ -60,5 +97,33 @@ func TestBuildACPSetRequest_SelectAndBoolean(t *testing.T) {
 	}
 	if booleanReq.Boolean == nil || !booleanReq.Boolean.Value || booleanReq.Boolean.Type != ConfigOptionTypeBoolean {
 		t.Fatalf("boolean request = %#v", booleanReq)
+	}
+}
+
+func TestBuildACPSetRequest_Validation(t *testing.T) {
+	tests := []struct {
+		name string
+		req  SetConfigOptionRequest
+	}{
+		{
+			name: "missing session",
+			req:  SetConfigOptionRequest{ConfigID: "model", Value: "smart"},
+		},
+		{
+			name: "missing config id",
+			req:  SetConfigOptionRequest{SessionID: "sess", Value: "smart"},
+		},
+		{
+			name: "missing select value",
+			req:  SetConfigOptionRequest{SessionID: "sess", ConfigID: "model"},
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			if _, err := BuildACPSetRequest(tt.req); err == nil {
+				t.Fatal("BuildACPSetRequest() error = nil, want validation error")
+			}
+		})
 	}
 }

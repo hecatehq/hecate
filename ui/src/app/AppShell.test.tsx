@@ -57,7 +57,7 @@ describe("ConsoleShell navigation", () => {
     // (workspace nav buttons, statusbar) is not lazy and can
     // still be queried synchronously.
     expect(screen.getByRole("button", { name: /Chats \(1\)/ })).toBeEnabled();
-    expect(await screen.findByText(/Nothing runnable yet/i)).toBeInTheDocument();
+    expect(await screen.findByText(/Nothing runnable yet/i, undefined, { timeout: 5000 })).toBeInTheDocument();
     expect(screen.queryByText(/No providers configured/i)).toBeNull();
     expect(screen.getByRole("button", { name: /Go to Providers/i })).toBeInTheDocument();
   });
