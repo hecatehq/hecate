@@ -5,6 +5,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/hecate/agent-runtime/internal/agentcontrols"
 	"github.com/hecate/agent-runtime/pkg/types"
 )
 
@@ -21,6 +22,11 @@ func TestMemoryStoreReconcileInterruptedRuns(t *testing.T) {
 func TestMemoryStoreDoesNotHydrateTaskIDForAnonymousAgentSegment(t *testing.T) {
 	t.Parallel()
 	runStoreDoesNotHydrateTaskIDForAnonymousAgentSegment(t, NewMemoryStore())
+}
+
+func TestMemoryStoreDeepCopiesConfigOptions(t *testing.T) {
+	t.Parallel()
+	runStoreDeepCopiesConfigOptions(t, NewMemoryStore())
 }
 
 func runStoreLifecycle(t *testing.T, store Store) {
@@ -190,6 +196,63 @@ func runStoreLifecycle(t *testing.T, store Store) {
 	}
 	if ok {
 		t.Fatal("Get after delete: ok = true, want false")
+	}
+}
+
+func runStoreDeepCopiesConfigOptions(t *testing.T, store Store) {
+	t.Helper()
+	ctx := context.Background()
+	created, err := store.Create(ctx, Session{
+		ID:          "agent_chat_config_options",
+		RuntimeKind: "external_agent",
+		AdapterID:   "codex",
+		ConfigOptions: []agentcontrols.ConfigOption{
+			{
+				ID:           "model",
+				Name:         "Model",
+				Type:         agentcontrols.ConfigOptionTypeSelect,
+				CurrentValue: "fast",
+				Options: []agentcontrols.ConfigSelectOption{
+					{Value: "fast", Name: "Fast"},
+					{Value: "smart", Name: "Smart"},
+				},
+			},
+		},
+	})
+	if err != nil {
+		t.Fatalf("Create: %v", err)
+	}
+	created.ConfigOptions[0].CurrentValue = "mutated"
+	created.ConfigOptions[0].Options[0].Name = "Mutated"
+
+	got, ok, err := store.Get(ctx, "agent_chat_config_options")
+	if err != nil || !ok {
+		t.Fatalf("Get: ok=%v err=%v", ok, err)
+	}
+	if got.ConfigOptions[0].CurrentValue != "fast" || got.ConfigOptions[0].Options[0].Name != "Fast" {
+		t.Fatalf("stored options mutated through create snapshot: %#v", got.ConfigOptions)
+	}
+	got.ConfigOptions[0].CurrentValue = "again"
+	got.ConfigOptions[0].Options[1].Name = "Again"
+
+	got, ok, err = store.Get(ctx, "agent_chat_config_options")
+	if err != nil || !ok {
+		t.Fatalf("Get after mutation: ok=%v err=%v", ok, err)
+	}
+	if got.ConfigOptions[0].CurrentValue != "fast" || got.ConfigOptions[0].Options[1].Name != "Smart" {
+		t.Fatalf("stored options mutated through get snapshot: %#v", got.ConfigOptions)
+	}
+	list, err := store.List(ctx)
+	if err != nil {
+		t.Fatalf("List: %v", err)
+	}
+	list[0].ConfigOptions[0].Options[0].Name = "Listed"
+	got, ok, err = store.Get(ctx, "agent_chat_config_options")
+	if err != nil || !ok {
+		t.Fatalf("Get after list mutation: ok=%v err=%v", ok, err)
+	}
+	if got.ConfigOptions[0].Options[0].Name != "Fast" {
+		t.Fatalf("stored options mutated through list snapshot: %#v", got.ConfigOptions)
 	}
 }
 
