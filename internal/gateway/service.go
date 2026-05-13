@@ -920,14 +920,15 @@ func providerReadinessSummary(entry catalog.Entry, checks []types.ProviderReadin
 		}
 	}
 
-	var firstWarning, firstUnknown *types.ProviderReadinessCheck
+	var routingBlocked, firstBlocked, firstWarning, firstUnknown *types.ProviderReadinessCheck
 	for i := range checks {
 		check := &checks[i]
 		if check.Name == "routing" && check.Status == "blocked" {
-			return providerReadinessSummaryFromCheck("blocked", *check)
+			routingBlocked = check
+			continue
 		}
-		if check.Status == "blocked" {
-			return providerReadinessSummaryFromCheck("blocked", *check)
+		if check.Status == "blocked" && firstBlocked == nil {
+			firstBlocked = check
 		}
 		if check.Status == "warning" && firstWarning == nil {
 			firstWarning = check
@@ -935,6 +936,12 @@ func providerReadinessSummary(entry catalog.Entry, checks []types.ProviderReadin
 		if check.Status == "unknown" && firstUnknown == nil {
 			firstUnknown = check
 		}
+	}
+	if routingBlocked != nil {
+		return providerReadinessSummaryFromCheck("blocked", *routingBlocked)
+	}
+	if firstBlocked != nil {
+		return providerReadinessSummaryFromCheck("blocked", *firstBlocked)
 	}
 	if firstWarning != nil {
 		return providerReadinessSummaryFromCheck("warning", *firstWarning)

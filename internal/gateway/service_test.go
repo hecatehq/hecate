@@ -221,12 +221,12 @@ func TestProviderReadinessSummary(t *testing.T) {
 			wantReason: "unknown",
 		},
 		{
-			name: "routing block wins over earlier warning",
+			name: "routing block wins over earlier block",
 			entry: catalog.Entry{
 				Name: "anthropic",
 			},
 			checks: []types.ProviderReadinessCheck{
-				{Name: "models", Status: "warning", Reason: "default_model_only", Message: "Default model only."},
+				{Name: "credentials", Status: "blocked", Reason: "credential_missing", Message: "Credentials are missing.", OperatorAction: "Add an API key."},
 				{Name: "routing", Status: "blocked", Reason: "credential_missing", Message: "Credentials are missing.", OperatorAction: "Add an API key."},
 			},
 			wantStatus: "blocked",
