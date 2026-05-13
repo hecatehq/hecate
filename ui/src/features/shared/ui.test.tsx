@@ -131,6 +131,12 @@ describe("BrandAvatar", () => {
     expect(screen.getByText("U")).toBeTruthy();
   });
 
+  it("keeps unknown unboxed brand fallbacks aligned", () => {
+    render(<BrandAvatar brand="unknown-provider" fallback="Unknown provider" boxed={false} size={32} />);
+    const fallback = screen.getByText("U").parentElement;
+    expect(fallback).toHaveStyle({ height: "32px", width: "32px" });
+  });
+
   it("renders the Hecate mark as a branded image", () => {
     const { container } = render(<BrandAvatar brand="hecate" fallback="Hecate" />);
     expect(container.querySelector("img")?.getAttribute("src")).toContain("hecate-mark");

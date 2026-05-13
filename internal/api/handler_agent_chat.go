@@ -161,6 +161,10 @@ func (h *Handler) HandleCreateAgentChatSession(w http.ResponseWriter, r *http.Re
 			item.ConfigOptions = result.ConfigOptions
 		})
 		if err != nil {
+			cleanupCtx, cleanupCancel := context.WithTimeout(context.Background(), agentChatPrepareTimeout)
+			_ = h.agentChatRunner.CloseSession(cleanupCtx, session.ID)
+			cleanupCancel()
+			_ = h.agentChat.Delete(context.Background(), session.ID)
 			WriteError(w, http.StatusInternalServerError, "gateway_error", err.Error())
 			return
 		}

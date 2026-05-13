@@ -251,7 +251,7 @@ describe("TranscriptActivityTimeline", () => {
     const activities: AgentChatActivityRecord[] = [
       { type: "tool_call", title: "git_exec", status: "completed", kind: "git" },
       { type: "artifact", title: "git-stdout.txt", status: "ready" },
-      { type: "artifact", title: "git-stderr.txt", status: "ready" },
+      { type: "artifact", title: "git-stderr.txt", status: "ready", artifact_size_bytes: 0 },
       { type: "changed_files", title: "git-changes.json", status: "ready" },
       { type: "final_answer", title: "agent-final-answer.txt", status: "ready" },
     ];
@@ -262,6 +262,14 @@ describe("TranscriptActivityTimeline", () => {
     expect(screen.getByText("git-stderr.txt")).toBeInTheDocument();
     expect(screen.getByText("git-changes.json")).toBeInTheDocument();
     expect(screen.getByText("agent-final-answer.txt")).toBeInTheDocument();
+  });
+
+  it("renders zero-byte output sizes instead of hiding them", () => {
+    const activities: AgentChatActivityRecord[] = [
+      { type: "output", title: "stderr", status: "ready", artifact_size_bytes: 0 },
+    ];
+    render(<TranscriptActivityTimeline activities={activities} />);
+    expect(screen.getByText("stderr · 0b")).toBeInTheDocument();
   });
 
   it("hides internal agent-loop approval markers from operator-facing rows", () => {
