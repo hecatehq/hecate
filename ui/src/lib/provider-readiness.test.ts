@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 
-import { providerFleetRepairHint, providerReadinessMeaning, providerRepairHint, readinessRecommendation } from "./provider-readiness";
+import { providerFleetRepairHint, providerReadinessMeaning, providerRepairActionLabel, providerRepairHint, readinessRecommendation } from "./provider-readiness";
 
 describe("readinessRecommendation", () => {
   it("uses backend operator_action before local fallback copy", () => {
@@ -108,6 +108,21 @@ describe("providerRepairHint", () => {
     expect(hint.message).toContain("Missing credentials");
     expect(hint.message).not.toContain("credential_missing");
   });
+
+  it("does not expose runtime provider names as selectable configured-provider ids", () => {
+    const hint = providerRepairHint({
+      runtimeProvider: {
+        name: "runtime display name",
+        kind: "local",
+        healthy: true,
+        status: "healthy",
+        readiness_checks: [{ name: "credentials", status: "blocked", reason: "self_referential" }],
+      },
+    });
+
+    expect(hint.actionKind).toBe("refresh_providers");
+    expect(hint.providerID).toBeUndefined();
+  });
 });
 
 describe("providerFleetRepairHint", () => {
@@ -156,6 +171,14 @@ describe("providerReadinessMeaning", () => {
     }).message).toContain("Next: Add an API key.");
 
     expect(providerReadinessMeaning({
+      configuredCount: 2,
+      readyCount: 0,
+      blockedCount: 1,
+      modelCount: 1,
+      repair: null,
+    }).message).toContain("Providers exist");
+
+    expect(providerReadinessMeaning({
       configuredCount: 1,
       readyCount: 1,
       blockedCount: 0,
@@ -168,5 +191,14 @@ describe("providerReadinessMeaning", () => {
       blockedCount: 0,
       modelCount: 2,
     }).message).toContain("1 provider ready with 2 discovered models");
+  });
+});
+
+describe("providerRepairActionLabel", () => {
+  it("keeps repair action labels canonical", () => {
+    expect(providerRepairActionLabel("add_provider")).toBe("Add provider");
+    expect(providerRepairActionLabel("open_provider")).toBe("Open provider");
+    expect(providerRepairActionLabel("refresh_providers")).toBe("Refresh providers");
+    expect(providerRepairActionLabel("none")).toBeNull();
   });
 });

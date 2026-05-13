@@ -1,6 +1,6 @@
 import { useEffect, useMemo, useRef, useState, type ReactNode } from "react";
 import type { RuntimeConsoleViewModel } from "../../app/useRuntimeConsole";
-import { providerFleetRepairHint, providerReadinessMeaning } from "../../lib/provider-readiness";
+import { providerFleetRepairHint, providerReadinessMeaning, providerRepairActionLabel } from "../../lib/provider-readiness";
 import type { AgentAdapterHealthRecord, AgentAdapterRecord, AgentChatGrantRecord, ConfiguredProviderRecord, ProviderRecord } from "../../types/runtime";
 import { BrandAvatar, Icon, Icons, InlineError } from "../shared/ui";
 import { ModelCapabilitiesSection } from "./ModelCapabilitiesSection";
@@ -314,16 +314,7 @@ function ModelProviderConnectionsSection({
 
 function providerRepairButtonLabel(hint: ReturnType<typeof providerFleetRepairHint>): string | null {
   if (!hint || hint.tone === "muted") return null;
-  switch (hint.actionKind) {
-    case "add_provider":
-      return "Add provider";
-    case "open_provider":
-      return "Open provider";
-    case "refresh_providers":
-      return "Refresh providers";
-    case "none":
-      return null;
-  }
+  return providerRepairActionLabel(hint.actionKind);
 }
 
 function ConnectionStat({

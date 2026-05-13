@@ -308,7 +308,9 @@ export function ChatView({ state, actions, onNavigate, onOpenTask, onOpenTrace }
     claudeCodeSetupRequired: Boolean(claudeCodePreflight?.blockSend),
   });
   const composerVisible = (isExternalAgentChat || (isHecateChat && hecateChatModelReady)) && !showClaudeCodeEmptyPreflight;
-  const composerRepair = composerVisible ? composerVisibleRepair(chatSetupRepair) : null;
+  const composerRepair = composerVisible && !emptyStateAlreadyShowsRepair(chatSetupRepair, visibleMessages.length)
+    ? composerVisibleRepair(chatSetupRepair)
+    : null;
   const agentBusy = isAgentChat && (streaming || hecateAgentBusy);
   const queueingMessage = agentBusy && Boolean(state.message.trim());
   const sendDisabled = !state.message.trim()
@@ -2097,6 +2099,7 @@ function ChatEmptyState({
   onTestClaudeCode: () => void;
 }) {
   const hecateModelUnavailable = isHecateChat && (modelRouteUnavailable || Boolean(selectedModelIssue));
+  const setupRepairForEmpty = setupRepair?.action === "enable_tools" ? null : setupRepair;
   const title = claudeCodePreflight
       ? "Set up Claude Code"
       : isAgentChat && selectedAgentUnavailable
@@ -2107,8 +2110,8 @@ function ChatEmptyState({
         ? "Nothing runnable yet"
         : selectedModelIssue
           ? selectedModelIssue.title
-        : setupRepair
-          ? setupRepair.title
+        : setupRepairForEmpty
+          ? setupRepairForEmpty.title
         : hecateModelUnavailable
           ? "No routable model"
         : "Start a chat";
@@ -2122,13 +2125,13 @@ function ChatEmptyState({
         ? "Add a model provider or install a supported coding-agent CLI before sending a message."
         : selectedModelIssue
           ? selectedModelIssue.message
-        : setupRepair
-          ? setupRepair.message
+        : setupRepairForEmpty
+          ? setupRepairForEmpty.message
         : hecateModelUnavailable
           ? "Add a provider with discovered models before sending through Hecate."
         : "Send a message to start this chat.";
-  const emptyRepairAction = setupRepair && !claudeCodePreflight && setupRepair.action !== "enable_tools"
-    ? setupRepair
+  const emptyRepairAction = setupRepairForEmpty && !claudeCodePreflight
+    ? setupRepairForEmpty
     : null;
 
   function runEmptyRepairAction() {
@@ -2497,10 +2500,19 @@ function composerVisibleRepair(repair: ChatSetupRepairState | null): ChatSetupRe
     case "workspace_required":
     case "tools_disabled":
     case "external_agent_unavailable":
+    case "claude_code_setup":
       return repair;
     default:
       return null;
   }
+}
+
+function emptyStateAlreadyShowsRepair(repair: ChatSetupRepairState | null, visibleMessageCount: number): boolean {
+  if (!repair || visibleMessageCount > 0) return false;
+  // The tools-disabled repair needs the composer notice because that notice
+  // owns the capability-write busy/disabled state. Other empty-chat repairs
+  // already render the same copy and CTA in ChatEmptyState.
+  return repair.action !== "enable_tools";
 }
 
 function repairActionIcon(repair: ChatSetupRepairState) {

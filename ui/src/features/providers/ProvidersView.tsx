@@ -1,6 +1,6 @@
 import { useEffect, useState, type CSSProperties } from "react";
 import type { RuntimeConsoleViewModel } from "../../app/useRuntimeConsole";
-import { providerFleetRepairHint, providerReadinessMeaning } from "../../lib/provider-readiness";
+import { providerFleetRepairHint, providerReadinessMeaning, providerRepairActionLabel } from "../../lib/provider-readiness";
 import { resolvedBaseURL } from "../../lib/provider-utils";
 import { describeHealthErrorClass, describeRoutingBlockedReason } from "../../lib/runtime-utils";
 import { ProviderReadinessChecklist, ProviderReadinessSummary } from "../shared/ProviderReadiness";
@@ -865,16 +865,9 @@ function providerRepairButton(
   hint: ReturnType<typeof providerFleetRepairHint>,
 ): { label: string; tone: "primary" | "ghost" } | null {
   if (!hint || hint.tone === "muted") return null;
-  switch (hint.actionKind) {
-    case "add_provider":
-      return { label: "Add provider", tone: "primary" };
-    case "open_provider":
-      return { label: "Open provider", tone: "ghost" };
-    case "refresh_providers":
-      return { label: "Refresh providers", tone: "ghost" };
-    case "none":
-      return null;
-  }
+  const label = providerRepairActionLabel(hint.actionKind);
+  if (!label) return null;
+  return { label, tone: hint.actionKind === "add_provider" ? "primary" : "ghost" };
 }
 
 function formatProviderTime(value: string): string {
