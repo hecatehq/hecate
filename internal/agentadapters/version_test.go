@@ -3,6 +3,7 @@ package agentadapters
 import (
 	"context"
 	"os"
+	"os/exec"
 	"path/filepath"
 	"runtime"
 	"strings"
@@ -86,18 +87,38 @@ func TestDetectVersionGarbageOutputReturnsEmpty(t *testing.T) {
 func TestDetectVersionParsesStderr(t *testing.T) {
 	t.Parallel()
 	if runtime.GOOS == "windows" {
-		t.Skip("skip stderr shell script test on Windows")
+		t.Skip("skip stderr helper build on Windows")
 	}
 	dir := t.TempDir()
-	path := filepath.Join(dir, "stderr-adapter")
-	content := "#!/bin/sh\necho adapter 2.3.4 >&2\n"
-	if err := os.WriteFile(path, []byte(content), 0o755); err != nil {
-		t.Fatalf("write stderr script: %v", err)
-	}
+	path := writeGoHelperBinary(t, dir, "stderr-adapter", `package main
+
+import (
+	"fmt"
+	"os"
+)
+
+func main() {
+	fmt.Fprintln(os.Stderr, "adapter 2.3.4")
+}
+`)
 	got := DetectVersion(context.Background(), path)
 	if got != "2.3.4" {
 		t.Fatalf("DetectVersion = %q, want 2.3.4 from stderr", got)
 	}
+}
+
+func writeGoHelperBinary(t *testing.T, dir, name, source string) string {
+	t.Helper()
+	sourcePath := filepath.Join(dir, name+".go")
+	if err := os.WriteFile(sourcePath, []byte(source), 0o644); err != nil {
+		t.Fatalf("write helper source: %v", err)
+	}
+	binaryPath := filepath.Join(dir, name)
+	cmd := exec.Command("go", "build", "-o", binaryPath, sourcePath)
+	if out, err := cmd.CombinedOutput(); err != nil {
+		t.Fatalf("build helper binary: %v\n%s", err, out)
+	}
+	return binaryPath
 }
 
 func TestDetectVersionParsesOutputFromNonZeroExit(t *testing.T) {
