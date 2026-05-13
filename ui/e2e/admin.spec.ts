@@ -8,12 +8,12 @@ test.beforeEach(async ({ page }) => {
   await page.waitForSelector("text=Pricing");
 });
 
-test("renders the settings tabs (Model capabilities / Pricing / Retention)", async ({ page }) => {
-  for (const tab of ["Model capabilities", "Pricing", "Retention"]) {
+test("renders the settings tabs (Pricing / Retention)", async ({ page }) => {
+  for (const tab of ["Pricing", "Retention"]) {
     await expect(page.getByRole("button", { name: tab })).toBeVisible();
   }
-  // Removed tabs: Policy, MCP Cache, Tenants, Keys.
-  for (const removed of ["Policy", "MCP Cache", "Tenants", "Keys", "Balances", "Usage", "Clients"]) {
+  // Removed or relocated tabs: readiness lives in Connections; policy/cache/keys/costs live elsewhere.
+  for (const removed of ["Model capabilities", "Policy", "MCP Cache", "Tenants", "Keys", "Balances", "Usage", "Clients"]) {
     await expect(page.getByRole("button", { name: removed })).toHaveCount(0);
   }
 });
