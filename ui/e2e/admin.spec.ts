@@ -1,6 +1,6 @@
 import { expect, test } from "./fixtures";
 
-// Settings workspace. Tabs: Model capabilities / Pricing / Retention.
+// Settings workspace. Tabs: Pricing / Retention.
 test.beforeEach(async ({ page }) => {
   await page.goto("/");
   await page.waitForSelector(".hecate-activitybar");

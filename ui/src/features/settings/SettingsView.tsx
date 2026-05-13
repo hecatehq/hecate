@@ -6,7 +6,6 @@ import { PricebookTab } from "./PricebookTab";
 type Props = {
   state: RuntimeConsoleViewModel["state"];
   actions: RuntimeConsoleViewModel["actions"];
-  onNavigate?: (workspace: "providers" | "runs" | "overview" | "settings" | "chats" | "costs") => void;
 };
 
 // Visible settings sub-tabs. Connections is now a top-level workspace

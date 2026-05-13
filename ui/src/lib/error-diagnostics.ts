@@ -62,7 +62,7 @@ const diagnostics: Record<string, GatewayErrorDiagnostic> = {
   },
   model_not_configured: {
     title: "Selected model is unavailable",
-    action: "Choose a discovered model, refresh provider status, or open Providers to fix model discovery.",
+    action: "Choose a discovered model, refresh provider status, or open Connections to fix model discovery.",
     tone: "warning",
   },
   "agent_chat.model_capability_required": {

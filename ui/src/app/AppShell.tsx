@@ -230,7 +230,7 @@ function AuthenticatedShell({
               {activeWorkspace === "runs"          && <TasksView focusRequest={taskFocusRequest} onOpenAgentChat={openAgentChatFromTask} onOpenTrace={openTraceFromChat} />}
               {activeWorkspace === "providers"     && <ProvidersView actions={actions} state={state} />}
               {activeWorkspace === "costs"         && <CostsView actions={actions} state={state} />}
-              {activeWorkspace === "settings" && <SettingsView actions={actions} state={state} onNavigate={onSelectWorkspace} />}
+              {activeWorkspace === "settings" && <SettingsView actions={actions} state={state} />}
             </Suspense>
           </div>
         </main>
