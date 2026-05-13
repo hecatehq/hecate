@@ -1,6 +1,6 @@
 import { useEffect, useMemo, useRef, useState, type ReactNode } from "react";
 import type { RuntimeConsoleViewModel } from "../../app/useRuntimeConsole";
-import { providerFleetRepairHint } from "../../lib/provider-readiness";
+import { providerFleetRepairHint, providerReadinessMeaning } from "../../lib/provider-readiness";
 import type { AgentAdapterHealthRecord, AgentAdapterRecord, AgentChatGrantRecord, ConfiguredProviderRecord, ProviderRecord } from "../../types/runtime";
 import { BrandAvatar, Icon, Icons, InlineError } from "../shared/ui";
 import { ModelCapabilitiesSection } from "./ModelCapabilitiesSection";
@@ -217,6 +217,13 @@ function ModelProviderConnectionsSection({
   const statusByName = new Map(state.providers.map((provider) => [provider.name, provider]));
   const repair = providerFleetRepairHint(configuredProviders, statusByName);
   const repairLabel = repair?.tone === "muted" ? "Ready for chat" : "Next repair";
+  const readinessSummary = providerReadinessMeaning({
+    configuredCount: configuredProviders.length,
+    readyCount: readyProviders,
+    blockedCount: blockedProviders,
+    modelCount,
+    repair,
+  });
 
   return (
     <div className="card" style={{ padding: "14px 16px", marginBottom: 24 }} data-testid="connections-model-providers">
@@ -288,6 +295,17 @@ function ModelProviderConnectionsSection({
         <ConnectionStat label="Ready" value={String(readyProviders)} hint="routing-ready" tone={readyProviders > 0 ? "green" : "muted"} />
         <ConnectionStat label="Needs attention" value={String(blockedProviders)} hint="blocked providers" tone={blockedProviders > 0 ? "amber" : "muted"} />
         <ConnectionStat label="Models" value={String(modelCount)} hint="discovered" />
+      </div>
+      <div
+        data-testid="connections-provider-readiness-meaning"
+        style={{
+          marginTop: 10,
+          fontSize: 11,
+          color: readinessSummary.tone === "amber" ? "var(--amber)" : "var(--t3)",
+          lineHeight: 1.45,
+        }}
+      >
+        {readinessSummary.message}
       </div>
     </div>
   );

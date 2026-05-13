@@ -1,6 +1,6 @@
 import { useEffect, useState, type CSSProperties } from "react";
 import type { RuntimeConsoleViewModel } from "../../app/useRuntimeConsole";
-import { providerFleetRepairHint } from "../../lib/provider-readiness";
+import { providerFleetRepairHint, providerReadinessMeaning } from "../../lib/provider-readiness";
 import { resolvedBaseURL } from "../../lib/provider-utils";
 import { describeHealthErrorClass, describeRoutingBlockedReason } from "../../lib/runtime-utils";
 import { ProviderReadinessChecklist, ProviderReadinessSummary } from "../shared/ProviderReadiness";
@@ -135,7 +135,15 @@ export function ProvidersView({ state, actions }: Props) {
     const status = statusByName.get(provider.id);
     return sum + (status?.model_count ?? status?.models?.length ?? 0);
   }, 0);
-  const nextReadinessStep = resolveNextReadinessStep(configuredProviders, statusByName);
+  const fleetRepair = providerFleetRepairHint(configuredProviders, statusByName);
+  const nextReadinessStep = resolveNextReadinessStep(fleetRepair);
+  const readinessMeaning = providerReadinessMeaning({
+    configuredCount: configuredProviders.length,
+    readyCount: readyProviderCount,
+    blockedCount: blockedProviderCount,
+    modelCount: discoveredModelCount,
+    repair: fleetRepair,
+  });
 
   const selectedConfig = selectedID ? configuredByID.get(selectedID) ?? null : null;
   const selectedStatus = selectedID ? statusByName.get(selectedID) : null;
@@ -395,6 +403,17 @@ export function ProvidersView({ state, actions }: Props) {
               <ConnectionStat label="Ready" value={String(readyProviderCount)} hint="routing-ready" tone={readyProviderCount > 0 ? "green" : "muted"} />
               <ConnectionStat label="Needs attention" value={String(blockedProviderCount)} hint="blocked providers" tone={blockedProviderCount > 0 ? "amber" : "muted"} />
               <ConnectionStat label="Models" value={String(discoveredModelCount)} hint="discovered" tone={discoveredModelCount > 0 ? "green" : "muted"} />
+            </div>
+            <div
+              data-testid="connections-provider-readiness-meaning"
+              style={{
+                marginTop: 10,
+                fontSize: 11,
+                color: readinessMeaning.tone === "amber" ? "var(--amber)" : "var(--t3)",
+                lineHeight: 1.45,
+              }}
+            >
+              {readinessMeaning.message}
             </div>
           </div>
         )}
@@ -804,10 +823,8 @@ function isProviderNeedsAttention(
 }
 
 function resolveNextReadinessStep(
-  providers: NonNullable<RuntimeConsoleViewModel["state"]["settingsConfig"]>["providers"],
-  statusByName: Map<string, RuntimeConsoleViewModel["state"]["providers"][number]>,
+  hint: ReturnType<typeof providerFleetRepairHint>,
 ): { text: string; tone: ConnectionStatTone } | null {
-  const hint = providerFleetRepairHint(providers, statusByName);
   if (!hint) return null;
   return {
     tone: hint.tone === "amber" || hint.tone === "red" ? "amber" : "muted",

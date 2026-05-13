@@ -203,6 +203,12 @@ describe("ObservabilityView", () => {
     expect(container.textContent).toMatch(/Route/);
     expect(container.textContent).not.toMatch(/Fallback/);
     expect(container.textContent).toMatch(/Requested model/);
+    await act(async () => {
+      fireEvent.click(container.querySelector("tbody tr") as HTMLElement);
+    });
+    expect(container.textContent).toMatch(/Provider/);
+    expect(container.textContent).toMatch(/Model/);
+    expect(container.textContent).toMatch(/gpt-4o-mini/);
   });
 
   it("folds fallback source into the compact route column", async () => {
