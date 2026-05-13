@@ -121,6 +121,6 @@ describe("providerFleetRepairHint", () => {
 
     expect(providerFleetRepairHint([
       { id: "anthropic", name: "Anthropic", kind: "cloud", credential_configured: true },
-    ], statuses)?.message).toContain("current readiness signal");
+    ], statuses)?.message).toContain("No configured provider setup issue");
   });
 });

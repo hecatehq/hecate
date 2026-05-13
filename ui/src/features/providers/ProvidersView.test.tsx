@@ -410,7 +410,7 @@ describe("ProvidersView table renders", () => {
     const summary = screen.getByTestId("connections-readiness-summary");
     expect(within(summary).getByText("Model provider readiness")).toBeTruthy();
     expect(within(summary).getAllByText("2").length).toBeGreaterThanOrEqual(1);
-    expect(within(summary).getByText("All configured provider records have a current readiness signal.")).toBeTruthy();
+    expect(within(summary).getByText("No configured provider setup issue needs repair.")).toBeTruthy();
 
     // Health badges: both providers report healthy. Credentials are split
     // into a separate column so cloud (Configured) and local (Not required)
