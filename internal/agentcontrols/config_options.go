@@ -41,6 +41,10 @@ type SetConfigOptionRequest struct {
 	BoolValue *bool
 }
 
+// FromACPOptions converts ACP session config options to Hecate's stable
+// projection. Unknown option variants (neither Select nor Boolean) are
+// silently skipped so Hecate remains forward-compatible when the ACP SDK
+// adds new variant types: the known options still reach the UI unchanged.
 func FromACPOptions(options []acp.SessionConfigOption) []ConfigOption {
 	if len(options) == 0 {
 		return nil
@@ -52,17 +56,24 @@ func FromACPOptions(options []acp.SessionConfigOption) []ConfigOption {
 			out = append(out, fromACPSelect(*option.Select))
 		case option.Boolean != nil:
 			out = append(out, fromACPBoolean(*option.Boolean))
+		// Unknown variants are intentionally skipped (forward-compat).
 		}
 	}
 	return out
 }
 
+// BuildACPSetRequest converts a SetConfigOptionRequest to the ACP wire shape.
+// Exactly one of BoolValue (for boolean options) or Value (for select options)
+// must be set; supplying both is an error.
 func BuildACPSetRequest(req SetConfigOptionRequest) (acp.SetSessionConfigOptionRequest, error) {
 	if req.SessionID == "" {
 		return acp.SetSessionConfigOptionRequest{}, fmt.Errorf("session id is required")
 	}
 	if req.ConfigID == "" {
 		return acp.SetSessionConfigOptionRequest{}, fmt.Errorf("config id is required")
+	}
+	if req.BoolValue != nil && req.Value != "" {
+		return acp.SetSessionConfigOptionRequest{}, fmt.Errorf("provide either Value or BoolValue, not both")
 	}
 	if req.BoolValue != nil {
 		return acp.SetSessionConfigOptionRequest{

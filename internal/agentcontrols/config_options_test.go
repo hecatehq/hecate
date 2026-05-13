@@ -101,6 +101,7 @@ func TestBuildACPSetRequest_SelectAndBoolean(t *testing.T) {
 }
 
 func TestBuildACPSetRequest_Validation(t *testing.T) {
+	trueVal := true
 	tests := []struct {
 		name string
 		req  SetConfigOptionRequest
@@ -117,6 +118,10 @@ func TestBuildACPSetRequest_Validation(t *testing.T) {
 			name: "missing select value",
 			req:  SetConfigOptionRequest{SessionID: "sess", ConfigID: "model"},
 		},
+		{
+			name: "both bool and value supplied",
+			req:  SetConfigOptionRequest{SessionID: "sess", ConfigID: "auto", Value: "smart", BoolValue: &trueVal},
+		},
 	}
 
 	for _, tt := range tests {
@@ -125,5 +130,30 @@ func TestBuildACPSetRequest_Validation(t *testing.T) {
 				t.Fatal("BuildACPSetRequest() error = nil, want validation error")
 			}
 		})
+	}
+}
+
+// TestFromACPOptions_SkipsUnknownVariants verifies that an option where
+// neither Select nor Boolean is set is silently dropped from the output.
+// This documents the intentional forward-compat behaviour: if the ACP SDK
+// ever adds a new variant Hecate won't break — known options still flow
+// through, and this test will need updating as a visible signal.
+func TestFromACPOptions_SkipsUnknownVariants(t *testing.T) {
+	got := FromACPOptions([]acp.SessionConfigOption{
+		// Unknown variant: both Select and Boolean are nil.
+		{},
+		// A known variant that should still appear.
+		{Boolean: &acp.SessionConfigOptionBoolean{
+			Id:           acp.SessionConfigId("auto"),
+			Name:         "Auto",
+			CurrentValue: true,
+		}},
+	})
+
+	if len(got) != 1 {
+		t.Fatalf("FromACPOptions len = %d, want 1 (unknown variant must be skipped)", len(got))
+	}
+	if got[0].ID != "auto" {
+		t.Fatalf("got[0].ID = %q, want auto", got[0].ID)
 	}
 }
