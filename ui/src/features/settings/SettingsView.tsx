@@ -1,35 +1,36 @@
 import { useEffect, useMemo, useRef, useState, type ReactNode } from "react";
 import type { RuntimeConsoleViewModel } from "../../app/useRuntimeConsole";
-import type { AgentAdapterHealthRecord, AgentAdapterRecord, AgentChatGrantRecord, ConfiguredProviderRecord, ModelRecord } from "../../types/runtime";
+import type { AgentAdapterHealthRecord, AgentAdapterRecord, AgentChatGrantRecord, ConfiguredProviderRecord, ModelRecord, ProviderRecord } from "../../types/runtime";
 import { Badge, BrandAvatar, Icon, Icons, InlineError } from "../shared/ui";
 import { PricebookTab } from "./PricebookTab";
 
 type Props = {
   state: RuntimeConsoleViewModel["state"];
   actions: RuntimeConsoleViewModel["actions"];
+  onNavigate?: (workspace: "providers" | "runs" | "overview" | "settings" | "chats" | "costs") => void;
 };
 
-// Visible settings sub-tabs. Pricing covers per-model pricebook
-// entries; Retention triggers and reviews stored-data sweeps; External
-// agents lists durable approval grants ("always allow / always deny"
-// rules) that survive process restart. Balances and usage live in the
-// Costs workspace.
-const TABS = ["pricebook", "model_capabilities", "retention", "external_agents"] as const;
+// Visible settings sub-tabs. Connections gathers provider/agent setup
+// signals; Pricing covers per-model pricebook entries; Retention
+// triggers and reviews stored-data sweeps. Balances and usage live in
+// the Costs workspace.
+const TABS = ["connections", "model_capabilities", "pricebook", "retention"] as const;
 type Tab = (typeof TABS)[number];
 const TAB_LABELS: Record<Tab, string> = {
+  connections: "Connections",
   pricebook: "Pricing",
   model_capabilities: "Model capabilities",
   retention: "Retention",
-  external_agents: "External agents",
 };
 
 const TAB_STORAGE_KEY = "hecate.settingsTab";
 
-export function SettingsView({ state, actions }: Props) {
+export function SettingsView({ state, actions, onNavigate }: Props) {
   // Persist the settings sub-tab so refreshing while on (say) Pricebook
   // returns the operator to Pricebook.
   const [tab, setTabRaw] = useState<Tab>(() => {
     const saved = localStorage.getItem(TAB_STORAGE_KEY);
+    if (saved === "external_agents") return "connections";
     if (saved && (TABS as readonly string[]).includes(saved)) return saved as Tab;
     return TABS[0];
   });
@@ -65,10 +66,10 @@ export function SettingsView({ state, actions }: Props) {
 
       {/* Tab content */}
       <div style={{ flex: 1, overflowY: "auto", padding: 16 }}>
+        {tab === "connections"        && <ConnectionsTab state={state} actions={actions} onNavigate={onNavigate} />}
         {tab === "pricebook"           && <PricebookTab state={state} actions={actions} />}
         {tab === "model_capabilities" && <ModelCapabilitiesTab state={state} actions={actions} />}
         {tab === "retention"           && <RetentionTab state={state} actions={actions} />}
-        {tab === "external_agents"     && <ExternalAgentsTab state={state} actions={actions} />}
       </div>
     </div>
   );
@@ -470,20 +471,22 @@ function RetentionTab({ state, actions }: Props) {
 }
 
 
-// ─── External agents tab ──────────────────────────────────────────────────────
+// ─── Connections tab ──────────────────────────────────────────────────────────
 
-// ExternalAgentsTab lists durable approval grants ("always allow /
-// always deny" rules persisted by the approval coordinator) and lets
-// the operator revoke them. Grants survive normal retention pruning;
-// only ExpiresAt removes them automatically. Revoke is the only
-// operator-driven removal path.
+// ConnectionsTab gathers the two setup surfaces operators usually need
+// together: model providers (owned by the Providers workspace) and
+// external-agent adapters/grants (owned here because the controls are
+// mostly auth/readiness + durable approval cleanup). Provider CRUD stays
+// in the Providers workspace for now; this tab gives Settings a single
+// place to answer "what can Hecate connect to?" without duplicating the
+// full provider editor.
 //
 // Grants and adapter health are lazy-loaded on tab mount — operators
 // rarely visit this surface, so we don't fetch on every dashboard
 // load. Adapter probes run automatically here because this tab is a
 // readiness panel; "Save" validates Claude Code auth before storing
 // the token, so no separate Test button is needed.
-function ExternalAgentsTab({ state, actions }: Props) {
+function ConnectionsTab({ state, actions, onNavigate }: Props) {
   const liveAnthropicProvider = findAnthropicProvider(state.settingsConfig?.providers ?? []);
   const [rememberedAnthropicProvider, setRememberedAnthropicProvider] = useState<ConfiguredProviderRecord | null>(liveAnthropicProvider);
   const probedAdapterIDsRef = useRef<Set<string>>(new Set());
@@ -564,6 +567,8 @@ function ExternalAgentsTab({ state, actions }: Props) {
 
   return (
     <>
+      <ModelProviderConnectionsSection state={state} onNavigate={onNavigate} />
+
       {rememberedAnthropicProvider && (
         <AnthropicProviderKeyCard
           provider={rememberedAnthropicProvider}
@@ -619,6 +624,95 @@ function ExternalAgentsTab({ state, actions }: Props) {
       )}
     </>
   );
+}
+
+function ModelProviderConnectionsSection({
+  state,
+  onNavigate,
+}: {
+  state: RuntimeConsoleViewModel["state"];
+  onNavigate?: Props["onNavigate"];
+}) {
+  const configuredProviders = state.settingsConfig?.providers ?? [];
+  const configuredProviderIDs = new Set(configuredProviders.map((provider) => provider.id));
+  const knownStatuses = state.providers.filter((provider) => configuredProviderIDs.has(provider.name));
+  const readyProviders = knownStatuses.filter(isProviderReady).length;
+  const blockedProviders = knownStatuses.filter(isProviderBlocked).length;
+  const modelCount = state.models.length || knownStatuses.reduce((sum, provider) => sum + (provider.model_count ?? provider.models?.length ?? 0), 0);
+
+  return (
+    <div className="card" style={{ padding: "14px 16px", marginBottom: 24 }} data-testid="connections-model-providers">
+      <SectionHeader
+        title="Model providers"
+        description="Cloud and local model endpoints used by Hecate Chat, direct model chat, routing, pricebook, and cost controls."
+        meta={`${configuredProviders.length} configured`}
+        actions={
+          onNavigate ? (
+            <button type="button" className="btn btn-primary btn-sm" onClick={() => onNavigate("providers")}>
+              Open Providers
+            </button>
+          ) : undefined
+        }
+      />
+      <div
+        style={{
+          display: "grid",
+          gridTemplateColumns: "repeat(auto-fit, minmax(135px, 1fr))",
+          gap: 10,
+        }}
+      >
+        <ConnectionStat label="Configured" value={String(configuredProviders.length)} hint="provider records" />
+        <ConnectionStat label="Ready" value={String(readyProviders)} hint="routing-ready" tone={readyProviders > 0 ? "green" : "muted"} />
+        <ConnectionStat label="Needs attention" value={String(blockedProviders)} hint="blocked providers" tone={blockedProviders > 0 ? "amber" : "muted"} />
+        <ConnectionStat label="Models" value={String(modelCount)} hint="discovered" />
+      </div>
+    </div>
+  );
+}
+
+function ConnectionStat({
+  label,
+  value,
+  hint,
+  tone = "muted",
+}: {
+  label: string;
+  value: string;
+  hint: string;
+  tone?: ChipTone;
+}) {
+  return (
+    <div
+      style={{
+        border: "1px solid var(--border)",
+        borderRadius: 10,
+        padding: "10px 12px",
+        background: "rgba(255, 255, 255, 0.015)",
+      }}
+    >
+      <div style={{ fontFamily: "var(--font-mono)", fontSize: 10, color: "var(--t3)", textTransform: "uppercase", letterSpacing: "0.06em", marginBottom: 5 }}>
+        {label}
+      </div>
+      <div style={{ fontFamily: "var(--font-mono)", fontSize: 18, fontWeight: 700, color: chipColor(tone), lineHeight: 1 }}>
+        {value}
+      </div>
+      <div style={{ fontSize: 10, color: "var(--t3)", marginTop: 6 }}>{hint}</div>
+    </div>
+  );
+}
+
+function isProviderReady(provider: ProviderRecord): boolean {
+  if (provider.readiness?.status) {
+    return provider.readiness.status === "ok" || provider.readiness.status === "warning";
+  }
+  return Boolean(provider.routing_ready || provider.healthy);
+}
+
+function isProviderBlocked(provider: ProviderRecord): boolean {
+  if (provider.readiness?.status) {
+    return provider.readiness.status === "blocked";
+  }
+  return Boolean(provider.routing_blocked_reason || (!provider.healthy && provider.status !== "pending"));
 }
 
 function findAnthropicProvider(providers: ConfiguredProviderRecord[]): ConfiguredProviderRecord | null {

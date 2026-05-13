@@ -23,7 +23,7 @@ export function TranscriptMessageRow({ id, role, model, brand, content, time, pr
   // failure notice. The chat passes it when the failure has a
   // known one-click recovery path — currently just the Claude Code
   // auth error (where the button deep-links to the guided setup
-  // card in Settings → External agents). Optional in all other
+  // card in Settings → Connections). Optional in all other
   // cases.
   setupAction?: { label: string; title?: string; onClick: () => void };
   onCopy: (id: string, text: string) => void; copied: boolean;
