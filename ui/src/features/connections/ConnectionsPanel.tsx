@@ -216,6 +216,7 @@ function ModelProviderConnectionsSection({
   const modelCount = state.models.length || knownStatuses.reduce((sum, provider) => sum + (provider.model_count ?? provider.models?.length ?? 0), 0);
   const statusByName = new Map(state.providers.map((provider) => [provider.name, provider]));
   const repair = providerFleetRepairHint(configuredProviders, statusByName);
+  const repairLabel = repair?.tone === "muted" ? "Ready for chat" : "Next repair";
 
   return (
     <div className="card" style={{ padding: "14px 16px", marginBottom: 24 }} data-testid="connections-model-providers">
@@ -233,6 +234,7 @@ function ModelProviderConnectionsSection({
       />
       {repair && (
         <div
+          data-testid="connections-provider-repair"
           style={{
             marginBottom: 12,
             border: "1px solid var(--border)",
@@ -241,15 +243,38 @@ function ModelProviderConnectionsSection({
             padding: "9px 10px",
           }}
         >
-          <div style={{ display: "flex", gap: 8, alignItems: "baseline", marginBottom: 3 }}>
+          <div style={{ display: "flex", gap: 8, alignItems: "center", marginBottom: 3 }}>
+            <span style={{
+              fontFamily: "var(--font-mono)",
+              fontSize: 10,
+              letterSpacing: "0.04em",
+              textTransform: "uppercase",
+              color: repair.tone === "amber" ? "var(--amber)" : "var(--green)",
+              whiteSpace: "nowrap",
+            }}>
+              {repairLabel}
+            </span>
             <span style={{ fontSize: 11, fontWeight: 600, color: repair.tone === "amber" ? "var(--amber)" : "var(--t1)" }}>
               {repair.title}
             </span>
-            <span style={{ fontSize: 10, color: "var(--t3)", fontFamily: "var(--font-mono)" }}>
+            {repair.tone !== "muted" && onNavigate && (
+              <button
+                type="button"
+                className="btn btn-ghost btn-sm"
+                onClick={() => onNavigate("providers")}
+                style={{ marginLeft: "auto", padding: "2px 7px" }}
+              >
+                Open provider list
+              </button>
+            )}
+          </div>
+          <div style={{ fontSize: 11, color: "var(--t3)", lineHeight: 1.45 }}>{repair.message}</div>
+          <div style={{ marginTop: 5, fontSize: 10, color: repair.tone === "amber" ? "var(--amber)" : "var(--t3)", fontFamily: "var(--font-mono)" }}>
+            {repair.tone === "muted" ? "Status" : "Next"} ·{" "}
+            <span style={{ color: repair.tone === "muted" ? "var(--t3)" : "var(--amber)" }}>
               {repair.action}
             </span>
           </div>
-          <div style={{ fontSize: 11, color: "var(--t3)", lineHeight: 1.45 }}>{repair.message}</div>
         </div>
       )}
       <div

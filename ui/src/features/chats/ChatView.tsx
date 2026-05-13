@@ -2,6 +2,7 @@ import { useEffect, useRef, useState } from "react";
 import type { SyntheticEvent } from "react";
 import type { RuntimeConsoleViewModel } from "../../app/useRuntimeConsole";
 import { discoverLocalProviders } from "../../lib/api";
+import { resolveChatSetupRepairState, type ChatSetupRepairState } from "../../lib/chat-setup-readiness";
 import { describeGatewayError, formatErrorCode } from "../../lib/error-diagnostics";
 import { buildSelectedModelIssue } from "../../lib/provider-issues";
 import { providerRepairHint, type ProviderRepairHint } from "../../lib/provider-readiness";
@@ -294,7 +295,20 @@ export function ChatView({ state, actions, onNavigate, onOpenTask, onOpenTrace }
     && !state.activeAgentChatSessionID
     && visibleMessages.length === 0
     && Boolean(claudeCodePreflight?.blockSend);
+  const chatSetupRepair = resolveChatSetupRepairState({
+    target: state.chatTarget,
+    hasConfiguredProviders,
+    modelRouteUnavailable,
+    selectedModelIssue,
+    toolsDisabledForModel: hecateAgentToolsDisabledForModel,
+    workspace: state.agentWorkspace,
+    selectedAgentName: selectedAgent?.name,
+    selectedAgentAvailable: Boolean(selectedAgent?.available),
+    anyAgentAvailable: availableAgents.length > 0,
+    claudeCodeSetupRequired: Boolean(claudeCodePreflight?.blockSend),
+  });
   const composerVisible = (isExternalAgentChat || (isHecateChat && hecateChatModelReady)) && !showClaudeCodeEmptyPreflight;
+  const composerRepair = composerVisible ? composerVisibleRepair(chatSetupRepair) : null;
   const agentBusy = isAgentChat && (streaming || hecateAgentBusy);
   const queueingMessage = agentBusy && Boolean(state.message.trim());
   const sendDisabled = !state.message.trim()
@@ -1121,6 +1135,7 @@ export function ChatView({ state, actions, onNavigate, onOpenTask, onOpenTrace }
               isExternalAgentChat={isExternalAgentChat}
               claudeCodePreflight={showClaudeCodeEmptyPreflight ? claudeCodePreflight : null}
               claudeCodePreflightLoading={selectedAgentHealthLoading}
+              setupRepair={chatSetupRepair}
               modelRouteUnavailable={modelRouteUnavailable}
               selectedModelIssue={selectedModelIssue}
               agentRouteUnavailable={isExternalAgentChat && agentRouteUnavailable}
@@ -1149,6 +1164,8 @@ export function ChatView({ state, actions, onNavigate, onOpenTask, onOpenTrace }
                 actions.setProviderFilter("auto");
                 actions.setModel(model);
               }}
+              onChooseWorkspace={() => void chooseWorkspace()}
+              onOpenAgentSetup={openClaudeCodeSetup}
               onQuickAddLocalProviders={quickAddLocalProviders}
               onRefreshQuickLocalProviders={refreshQuickLocalProviders}
               onSwitchTarget={actions.setChatTarget}
@@ -1218,57 +1235,26 @@ export function ChatView({ state, actions, onNavigate, onOpenTask, onOpenTrace }
               onTest={() => void actions.probeAgentAdapter("claude_code")}
             />
           )}
-          {isHecateAgentChat && hecateChatModelValue && hecateAgentToolsDisabledForModel && (
-            <div style={{
-              maxWidth: 820,
-              margin: "0 auto 8px",
-              display: "flex",
-              alignItems: "center",
-              justifyContent: "space-between",
-              gap: 12,
-              fontSize: 12,
-              color: "var(--amber)",
-              lineHeight: 1.45,
-            }}>
-              <span>
-                Tools are disabled for this model in Connections. Turn tools off for direct chat, or enable tools in Connections → Model capabilities.
-              </span>
-              <button
-                type="button"
-                className="btn btn-ghost btn-sm"
-                onClick={() => void enableToolsForSelectedModel()}
-                disabled={!selectedCapabilityProvider || !selectedCapabilityModel || capabilitySaving}
-                title={selectedCapabilityProvider ? `Enable tools for ${selectedCapabilityProvider}/${selectedCapabilityModel}` : "Choose a concrete provider before enabling tools"}
-                style={{ flexShrink: 0, color: "var(--amber)", borderColor: "rgba(245, 191, 79, 0.35)" }}
-              >
-                {capabilitySaving ? "Saving..." : "Enable tools"}
-              </button>
-            </div>
-          )}
-          {isAgentChat && !state.agentWorkspace.trim() && (
-            <div style={{
-              maxWidth: 820,
-              margin: "0 auto 8px",
-              display: "flex",
-              alignItems: "center",
-              justifyContent: "space-between",
-              gap: 12,
-              fontSize: 12,
-              color: "var(--amber)",
-              lineHeight: 1.45,
-            }}>
-              <span>
-                Choose a workspace before sending. Hecate uses it as the working directory for this chat.
-              </span>
-              <button
-                type="button"
-                className="btn btn-ghost btn-sm"
-                onClick={chooseWorkspace}
-                style={{ flexShrink: 0, color: "var(--amber)", borderColor: "rgba(245, 191, 79, 0.35)" }}
-              >
-                Choose workspace
-              </button>
-            </div>
+          {composerRepair && (
+            <ChatSetupRepairNotice
+              repair={composerRepair}
+              actionBusy={composerRepair.action === "enable_tools" && capabilitySaving}
+              actionDisabled={composerRepair.action === "enable_tools" && (!selectedCapabilityProvider || !selectedCapabilityModel || capabilitySaving)}
+              actionTitle={composerRepair.action === "enable_tools" && selectedCapabilityProvider
+                ? `Enable tools for ${selectedCapabilityProvider}/${selectedCapabilityModel}`
+                : undefined}
+              onAction={(repair) => {
+                if (repair.action === "choose_workspace") {
+                  void chooseWorkspace();
+                } else if (repair.action === "enable_tools") {
+                  void enableToolsForSelectedModel();
+                } else if (repair.action === "open_agent_setup") {
+                  openClaudeCodeSetup();
+                } else if (repair.action === "open_connections") {
+                  onNavigate?.("providers");
+                }
+              }}
+            />
           )}
           {activeQueuedChatMessages.length > 0 && (
             <div
@@ -2041,6 +2027,7 @@ function ChatEmptyState({
   isExternalAgentChat,
   claudeCodePreflight,
   claudeCodePreflightLoading,
+  setupRepair,
   modelRouteUnavailable,
   selectedModelIssue,
   agentRouteUnavailable,
@@ -2060,6 +2047,8 @@ function ChatEmptyState({
   quickAddingProviders,
   onOpenProviders,
   onUseSuggestedModel,
+  onChooseWorkspace,
+  onOpenAgentSetup,
   onQuickAddLocalProviders,
   onRefreshQuickLocalProviders,
   onSwitchTarget,
@@ -2075,6 +2064,7 @@ function ChatEmptyState({
   isExternalAgentChat: boolean;
   claudeCodePreflight: ClaudeCodePreflightState | null;
   claudeCodePreflightLoading: boolean;
+  setupRepair: ChatSetupRepairState | null;
   modelRouteUnavailable: boolean;
   selectedModelIssue: SelectedModelIssue | null;
   agentRouteUnavailable: boolean;
@@ -2094,6 +2084,8 @@ function ChatEmptyState({
   quickAddingProviders: boolean;
   onOpenProviders: () => void;
   onUseSuggestedModel: (model: string) => void;
+  onChooseWorkspace: () => void;
+  onOpenAgentSetup: () => void;
   onQuickAddLocalProviders: (providers: LocalProviderDiscoveryRecord[]) => void;
   onRefreshQuickLocalProviders: () => void;
   onSwitchTarget: (target: "model" | "agent" | "external_agent") => void;
@@ -2115,6 +2107,8 @@ function ChatEmptyState({
         ? "Nothing runnable yet"
         : selectedModelIssue
           ? selectedModelIssue.title
+        : setupRepair
+          ? setupRepair.title
         : hecateModelUnavailable
           ? "No routable model"
         : "Start a chat";
@@ -2128,9 +2122,36 @@ function ChatEmptyState({
         ? "Add a model provider or install a supported coding-agent CLI before sending a message."
         : selectedModelIssue
           ? selectedModelIssue.message
+        : setupRepair
+          ? setupRepair.message
         : hecateModelUnavailable
           ? "Add a provider with discovered models before sending through Hecate."
         : "Send a message to start this chat.";
+  const emptyRepairAction = setupRepair && !claudeCodePreflight && setupRepair.action !== "enable_tools"
+    ? setupRepair
+    : null;
+
+  function runEmptyRepairAction() {
+    if (!emptyRepairAction) return;
+    switch (emptyRepairAction.action) {
+      case "open_connections":
+        onOpenProviders();
+        return;
+      case "use_suggested_model":
+        if (emptyRepairAction.suggestedModel) onUseSuggestedModel(emptyRepairAction.suggestedModel);
+        return;
+      case "choose_workspace":
+        onChooseWorkspace();
+        return;
+      case "open_agent_setup":
+        onOpenAgentSetup();
+        return;
+      case "enable_tools":
+        // Tools-enabled repair is handled by the composer notice, where we
+        // can disable the action while capability override writes are busy.
+        return;
+    }
+  }
 
   return (
     <div style={{ padding: "48px 16px", maxWidth: 820, margin: "0 auto", textAlign: "center" }}>
@@ -2162,9 +2183,18 @@ function ChatEmptyState({
       {isHecateChat && selectedModelIssue && (
         <SelectedModelReadinessNotice issue={selectedModelIssue} compact onUseSuggestedModel={onUseSuggestedModel} />
       )}
-      {(modelRouteUnavailable || selectedModelIssue || agentRouteUnavailable) && (
+      {(emptyRepairAction || modelRouteUnavailable || selectedModelIssue || agentRouteUnavailable) && (
         <div style={{ display: "flex", justifyContent: "center", gap: 8, marginTop: 14, flexWrap: "wrap" }}>
-          {(modelRouteUnavailable || selectedModelIssue) && isHecateChat && (
+          {emptyRepairAction && (
+            <button
+              className="btn btn-primary btn-sm"
+              onClick={runEmptyRepairAction}
+              type="button"
+              style={{ display: "flex", alignItems: "center", gap: 4 }}>
+              <Icon d={repairActionIcon(emptyRepairAction)} size={13} /> {emptyRepairAction.actionLabel}
+            </button>
+          )}
+          {!emptyRepairAction && (modelRouteUnavailable || selectedModelIssue) && isHecateChat && (
             <button
               className="btn btn-primary btn-sm"
               onClick={onOpenProviders}
@@ -2201,6 +2231,53 @@ function ChatEmptyState({
           onRefresh={onRefreshQuickLocalProviders}
         />
       )}
+    </div>
+  );
+}
+
+function ChatSetupRepairNotice({
+  repair,
+  actionBusy = false,
+  actionDisabled = false,
+  actionTitle,
+  onAction,
+}: {
+  repair: ChatSetupRepairState;
+  actionBusy?: boolean;
+  actionDisabled?: boolean;
+  actionTitle?: string;
+  onAction: (repair: ChatSetupRepairState) => void;
+}) {
+  return (
+    <div style={{
+      maxWidth: 820,
+      margin: "0 auto 8px",
+      border: "1px solid rgba(245, 191, 79, 0.28)",
+      borderRadius: "var(--radius-sm)",
+      background: "rgba(245, 191, 79, 0.055)",
+      padding: "8px 10px",
+      display: "flex",
+      alignItems: "center",
+      justifyContent: "space-between",
+      gap: 12,
+      fontSize: 12,
+      color: "var(--t2)",
+      lineHeight: 1.45,
+    }}>
+      <span style={{ minWidth: 0 }}>
+        <strong style={{ color: "var(--amber)", marginRight: 6 }}>{repair.title}.</strong>
+        {repair.message}
+      </span>
+      <button
+        type="button"
+        className="btn btn-ghost btn-sm"
+        onClick={() => onAction(repair)}
+        disabled={actionDisabled}
+        title={actionTitle}
+        style={{ flexShrink: 0, color: "var(--amber)", borderColor: "rgba(245, 191, 79, 0.35)" }}
+      >
+        {actionBusy ? "Saving..." : repair.actionLabel}
+      </button>
     </div>
   );
 }
@@ -2411,6 +2488,33 @@ function autoProviderRouteRepairHint(
       : "Open Connections to fix credentials, health, or model discovery, then refresh.",
     tone: "amber",
   };
+}
+
+function composerVisibleRepair(repair: ChatSetupRepairState | null): ChatSetupRepairState | null {
+  if (!repair) return null;
+  switch (repair.kind) {
+    case "workspace_required":
+    case "tools_disabled":
+    case "external_agent_unavailable":
+      return repair;
+    default:
+      return null;
+  }
+}
+
+function repairActionIcon(repair: ChatSetupRepairState) {
+  switch (repair.action) {
+    case "choose_workspace":
+      return Icons.folder;
+    case "open_agent_setup":
+      return Icons.terminal;
+    case "use_suggested_model":
+      return Icons.model;
+    case "open_connections":
+    case "enable_tools":
+      return Icons.providers;
+  }
+  return Icons.providers;
 }
 
 function selectedModelNoticeDetails(

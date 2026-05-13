@@ -164,6 +164,8 @@ describe("Connections external-agent panel", () => {
     expect(within(card).getByText("2 configured")).toBeTruthy();
     expect(within(card).getByText("Ready")).toBeTruthy();
     expect(within(card).getByText("Needs attention")).toBeTruthy();
+    expect(within(card).getByTestId("connections-provider-repair")).toHaveTextContent("Next repair");
+    expect(within(card).getByTestId("connections-provider-repair")).toHaveTextContent("Provider blocked");
 
     await user.click(within(card).getByRole("button", { name: "Open Connections" }));
     expect(onNavigate).toHaveBeenCalledWith("providers");

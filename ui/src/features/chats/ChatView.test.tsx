@@ -197,7 +197,7 @@ describe("ChatView input", () => {
       ],
     });
     render(<ChatView state={state} actions={actions} />);
-    expect(screen.getByText("No routable model")).toBeTruthy();
+    expect(screen.getByText("No provider configured")).toBeTruthy();
     expect(screen.getByRole("button", { name: /Go to Connections/i })).toBeTruthy();
     expect(screen.queryByRole("textbox", { name: "Message" })).toBeNull();
     expect(screen.queryByRole("button", { name: "Send message" })).toBeNull();
@@ -1073,7 +1073,7 @@ describe("ChatView input", () => {
     render(<ChatView state={state} actions={actions} />);
 
     expect(screen.getByRole("button", { name: "tools on" })).toBeTruthy();
-    expect(screen.getByText(/Tools are disabled for this model/)).toBeTruthy();
+    expect(screen.getAllByText(/Tools are disabled for this model/).length).toBeGreaterThan(0);
     const send = document.querySelector("button[type='submit']") as HTMLButtonElement;
     expect(send.disabled).toBe(true);
 
@@ -1744,7 +1744,7 @@ describe("ChatView external-agent target", () => {
     });
     render(<ChatView state={state} actions={actions} />);
 
-    expect(screen.getByText("Start a chat")).toBeTruthy();
+    expect(screen.getByText("Set up Claude Code")).toBeTruthy();
     expect(screen.getByTestId("claude-code-preflight")).toBeTruthy();
     expect(document.querySelector("button[type='submit']")).toBeTruthy();
   });
@@ -2289,7 +2289,8 @@ describe("ChatView external-agent target", () => {
     expect(send.disabled).toBe(true);
   });
 
-  it("explains why Hecate Chat cannot send with tools before workspace selection", () => {
+  it("explains why Hecate Chat cannot send with tools before workspace selection", async () => {
+    const chooseAgentWorkspace = vi.fn(async () => "/tmp/hecate");
     const { state, actions } = setup({
       chatTarget: "agent",
       message: "inspect repo",
@@ -2305,11 +2306,15 @@ describe("ChatView external-agent target", () => {
           },
         },
       ],
-    });
+    }, { chooseAgentWorkspace });
     render(<ChatView state={state} actions={actions} />);
 
-    expect(screen.getByText(/Choose a workspace before sending/)).toBeTruthy();
-    expect(screen.getByRole("button", { name: "Choose workspace" })).toBeTruthy();
+    expect(screen.getAllByText(/Hecate uses the workspace as the working directory/).length).toBeGreaterThan(0);
+    const user = userEvent.setup();
+    const workspaceButtons = screen.getAllByRole("button", { name: "Choose workspace" });
+    expect(workspaceButtons.length).toBeGreaterThan(0);
+    await user.click(workspaceButtons[0]);
+    expect(chooseAgentWorkspace).toHaveBeenCalled();
     const send = document.querySelector("button[type='submit']") as HTMLButtonElement;
     expect(send.disabled).toBe(true);
   });
