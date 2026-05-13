@@ -21,6 +21,7 @@ import (
 
 const (
 	agentChatTimeout             = 30 * time.Minute
+	agentChatPrepareTimeout      = 10 * time.Second
 	agentChatConfigOptionTimeout = 10 * time.Second
 	agentChatMaxOutputBytes      = 4 * 1024 * 1024
 )
@@ -103,6 +104,10 @@ func (h *Handler) HandleCreateAgentChatSession(w http.ResponseWriter, r *http.Re
 			writeAgentChatAdapterNotFound(w, req.AdapterID)
 			return
 		}
+		if h.agentChatRunner == nil {
+			WriteError(w, http.StatusInternalServerError, errCodeGatewayError, "agent chat runner is not configured")
+			return
+		}
 		externalAdapter = adapter
 		if session.Title == "" {
 			session.Title = adapter.Name + " chat"
@@ -137,12 +142,8 @@ func (h *Handler) HandleCreateAgentChatSession(w http.ResponseWriter, r *http.Re
 		return
 	}
 	if runtimeKind == "external_agent" {
-		runner := h.agentChatRunner
-		if runner == nil {
-			runner = agentadapters.NewSessionManager()
-		}
-		prepareCtx, cancel := context.WithTimeout(r.Context(), agentChatTimeout)
-		result, prepareErr := runner.PrepareSession(prepareCtx, agentadapters.PrepareSessionRequest{
+		prepareCtx, cancel := context.WithTimeout(r.Context(), agentChatPrepareTimeout)
+		result, prepareErr := h.agentChatRunner.PrepareSession(prepareCtx, agentadapters.PrepareSessionRequest{
 			SessionID:               session.ID,
 			AdapterID:               session.AdapterID,
 			Workspace:               session.Workspace,
@@ -151,7 +152,7 @@ func (h *Handler) HandleCreateAgentChatSession(w http.ResponseWriter, r *http.Re
 		cancel()
 		if prepareErr != nil {
 			_ = h.agentChat.Delete(context.Background(), session.ID)
-			WriteError(w, http.StatusBadGateway, errCodeAgentAdapterUnavailable, agentadapters.NormalizeError(externalAdapter.Name, prepareErr))
+			writeAgentChatPrepareError(w, externalAdapter.Name, prepareErr)
 			return
 		}
 		session, err = h.agentChat.UpdateSession(r.Context(), session.ID, func(item *agentchat.Session) {
@@ -405,6 +406,17 @@ func (h *Handler) HandleSetAgentChatConfigOption(w http.ResponseWriter, r *http.
 	}
 	h.agentChatLive.publishSession(updated)
 	WriteJSON(w, http.StatusOK, AgentChatSessionResponse{Object: "agent_chat_session", Data: renderAgentChatSession(updated, h.agentChatSnapshotConfig())})
+}
+
+func writeAgentChatPrepareError(w http.ResponseWriter, adapterName string, err error) {
+	if errors.Is(err, context.DeadlineExceeded) {
+		WriteErrorDetails(w, http.StatusGatewayTimeout, errCodeAgentAdapterUnavailable, err.Error(), ErrorDetails{
+			UserMessage:    "The external agent did not respond while starting the session.",
+			OperatorAction: "Try again, or test the adapter from Settings if it keeps hanging.",
+		})
+		return
+	}
+	WriteError(w, http.StatusBadGateway, errCodeAgentAdapterUnavailable, agentadapters.NormalizeError(adapterName, err))
 }
 
 func writeAgentChatConfigOptionError(w http.ResponseWriter, session agentchat.Session, err error) {
