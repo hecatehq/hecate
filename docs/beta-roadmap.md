@@ -29,7 +29,7 @@ is released in alpha tags only after it merges.
 | Providers | Provider setup is self-explanatory: readiness cards, discovered/running/installed states, credential repair, duplicate endpoint handling, route blocking reasons, model discovery failures, local provider discovery, and optimistic edits/deletes where safe. |
 | Tasks | Task Detail is the canonical deep-debug view: clear run timeline, grouped advanced activity, approval cards, stdout/stderr/artifacts, retry/resume/cancel explanations, patch review, and chat-origin links. |
 | Observability | The UI answers "what happened?" without JSON archaeology: request ledger, route report, trace viewer, skipped providers, policy/budget denial, cost calculation, cache path, provider failure, and final outcome. |
-| Settings | Settings stays focused on pricebook, retention, model capability overrides/probes, External Agent readiness/grants, and OTel/export knobs when needed. |
+| Settings | Settings stays focused on pricebook, retention, and OTel/export knobs when needed. Provider readiness, model capability overrides/probes, and External Agent grants live in Connections. |
 | Costs | Costs clearly separates enforced gateway cost from adapter-reported usage. External Agent usage remains labelled as reported by adapter and not enforced by Hecate. |
 | Desktop app | Before beta, decide whether unsigned desktop bundles are acceptable. If not, complete signing/notarization or clearly keep desktop labelled alpha while the rest of Hecate enters beta. |
 

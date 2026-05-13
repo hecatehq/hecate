@@ -240,13 +240,13 @@ func gatewayErrorAction(code string) string {
 	case errCodePriceMissing:
 		return "Import or add a pricebook entry before routing cloud traffic for this model."
 	case errCodeProviderAuthFailed:
-		return "Update the provider credentials, then use Providers to test readiness again."
+		return "Update the provider credentials, then use Connections to test readiness again."
 	case errCodeProviderRateLimited:
 		return "Wait for the provider cooldown, reduce concurrency, or choose another provider/model."
 	case errCodeProviderUnavailable:
 		return "Check provider health, endpoint URL, local server status, or fail over to another provider."
 	case errCodeRouteImpossible:
-		return "Open Providers to inspect readiness checks, discover models, or enable a routable provider."
+		return "Open Connections to inspect readiness checks, discover models, or enable a routable provider."
 	case errCodeUnsupportedModel:
 		return "Choose a discovered model for the selected provider, or switch provider routing back to Auto."
 	case errCodeForbidden:

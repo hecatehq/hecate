@@ -31,7 +31,7 @@ export function humanizeChatError(raw: string): string {
     return "Choose a workspace before using Hecate Chat tools or External Agent.";
   }
   if (/tool.?calling.*(unknown|none|unavailable|not supported)|model.*does not support.*tools?/i.test(raw)) {
-    return "This model is not marked as tool-capable. Turn tools off, test it, or enable tools in Settings → Model capabilities.";
+    return "This model is not marked as tool-capable. Turn tools off, test it, or enable tools in Connections → Model capabilities.";
   }
   const explicitModel = raw.match(/no provider supports explicit model ["“]?([^"”]+)["”]?/i);
   if (explicitModel) {

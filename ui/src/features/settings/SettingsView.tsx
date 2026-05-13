@@ -1,6 +1,5 @@
-import { useMemo, useState, type ReactNode } from "react";
+import { useState, type ReactNode } from "react";
 import type { RuntimeConsoleViewModel } from "../../app/useRuntimeConsole";
-import type { ModelRecord } from "../../types/runtime";
 import { Badge, Icon, Icons, InlineError } from "../shared/ui";
 import { PricebookTab } from "./PricebookTab";
 
@@ -10,15 +9,14 @@ type Props = {
   onNavigate?: (workspace: "providers" | "runs" | "overview" | "settings" | "chats" | "costs") => void;
 };
 
-// Visible settings sub-tabs. Connections is now a top-level workspace;
-// Settings stays focused on configuration that does not belong to a
-// runtime connection surface. Balances and usage live in the Costs
-// workspace.
-const TABS = ["model_capabilities", "pricebook", "retention"] as const;
+// Visible settings sub-tabs. Connections is now a top-level workspace
+// for provider credentials, model capabilities, and external-agent setup.
+// Settings stays focused on app configuration that does not belong to a
+// runtime connection surface. Balances and usage live in Costs.
+const TABS = ["pricebook", "retention"] as const;
 type Tab = (typeof TABS)[number];
 const TAB_LABELS: Record<Tab, string> = {
   pricebook: "Pricing",
-  model_capabilities: "Model capabilities",
   retention: "Retention",
 };
 
@@ -65,9 +63,8 @@ export function SettingsView({ state, actions }: Props) {
 
       {/* Tab content */}
       <div style={{ flex: 1, overflowY: "auto", padding: 16 }}>
-        {tab === "pricebook"           && <PricebookTab state={state} actions={actions} />}
-        {tab === "model_capabilities" && <ModelCapabilitiesTab state={state} actions={actions} />}
-        {tab === "retention"           && <RetentionTab state={state} actions={actions} />}
+        {tab === "pricebook" && <PricebookTab state={state} actions={actions} />}
+        {tab === "retention" && <RetentionTab state={state} actions={actions} />}
       </div>
     </div>
   );
@@ -100,214 +97,6 @@ function SectionHeader({
   );
 }
 
-
-// ─── Model capabilities tab ───────────────────────────────────────────────────
-
-function ModelCapabilitiesTab({ state, actions }: Props) {
-  const [query, setQuery] = useState("");
-  const rows = useMemo(() => {
-    const q = query.trim().toLowerCase();
-    return [...state.models]
-      .filter((model) => {
-        if (!q) return true;
-        const provider = model.metadata?.provider ?? "";
-        return model.id.toLowerCase().includes(q) || provider.toLowerCase().includes(q);
-      })
-      .sort((a, b) => {
-        const left = `${a.metadata?.provider ?? ""}/${a.id}`;
-        const right = `${b.metadata?.provider ?? ""}/${b.id}`;
-        return left.localeCompare(right);
-      });
-  }, [query, state.models]);
-
-  return (
-    <>
-      <SectionHeader
-        title="Model capabilities"
-        description="Control whether Hecate should try tools for each model. Tools are on by default unless a model is explicitly marked off; use the switch when a local/custom model fails tool calls or when you want direct model chat only."
-        meta={`${rows.length} model${rows.length === 1 ? "" : "s"}`}
-      />
-
-      <div className="card" style={{ padding: "12px 14px", marginBottom: 14 }}>
-        <label style={{ display: "block", fontSize: 11, color: "var(--t3)", marginBottom: 6 }} htmlFor="model-capability-search">
-          Filter by model or provider
-        </label>
-        <input
-          id="model-capability-search"
-          value={query}
-          onChange={(event) => setQuery(event.target.value)}
-          placeholder="ollama, qwen, gpt..."
-          style={{
-            width: "100%",
-            border: "1px solid var(--border)",
-            borderRadius: "var(--radius-sm)",
-            background: "var(--bg2)",
-            color: "var(--t0)",
-            fontSize: 12,
-            padding: "8px 10px",
-          }}
-        />
-      </div>
-
-      {rows.length === 0 ? (
-        <div className="card" style={{ padding: "24px", textAlign: "center", color: "var(--t3)", fontSize: 12 }}>
-          No models discovered yet. Add or start a provider, then refresh the dashboard.
-        </div>
-      ) : (
-        <div className="card" style={{ overflow: "hidden" }} data-testid="model-capabilities-list">
-          {rows.map((model, index) => (
-            <ModelCapabilityRow
-              key={`${model.metadata?.provider ?? "unknown"}:${model.id}`}
-              model={model}
-              divider={index < rows.length - 1}
-              onToolsChange={(enabled) => {
-                const provider = model.metadata?.provider ?? "";
-                if (!provider) return;
-                void actions.upsertModelCapabilityOverride({
-                  provider,
-                  model: model.id,
-                  tool_calling: enabled ? "basic" : "none",
-                  streaming: model.metadata?.capabilities?.streaming,
-                  max_context_tokens: model.metadata?.capabilities?.max_context_tokens,
-                  note: enabled ? "Tools enabled from Settings." : "Tools disabled from Settings.",
-                });
-              }}
-              onClear={() => {
-                const provider = model.metadata?.provider ?? "";
-                if (!provider) return;
-                void actions.deleteModelCapabilityOverride(provider, model.id);
-              }}
-            />
-          ))}
-        </div>
-      )}
-    </>
-  );
-}
-
-function ModelCapabilityRow({
-  model,
-  divider,
-  onToolsChange,
-  onClear,
-}: {
-  model: ModelRecord;
-  divider: boolean;
-  onToolsChange: (enabled: boolean) => void;
-  onClear: () => void;
-}) {
-  const capabilities = model.metadata?.capabilities;
-  const provider = model.metadata?.provider ?? "unknown";
-  const toolCalling = capabilities?.tool_calling ?? "unknown";
-  const source = capabilities?.source ?? "unknown";
-  const toolsEnabled = toolCalling !== "none";
-  const toolTone: ChipTone = toolsEnabled ? "green" : "red";
-  const clearDisabled = source !== "operator_override";
-
-  return (
-    <div
-      data-testid={`model-capability-row-${provider}-${model.id}`}
-      style={{
-        display: "flex",
-        alignItems: "center",
-        gap: 12,
-        padding: "12px 14px",
-        borderBottom: divider ? "1px solid var(--border)" : "none",
-      }}
-    >
-      <div style={{ minWidth: 0, flex: 1 }}>
-        <div style={{ display: "flex", alignItems: "baseline", gap: 8, marginBottom: 3 }}>
-          <span style={{ fontSize: 12, fontWeight: 500, color: "var(--t0)" }}>{model.id}</span>
-          <span style={{ fontFamily: "var(--font-mono)", fontSize: 11, color: "var(--t3)" }}>·</span>
-          <span style={{ fontFamily: "var(--font-mono)", fontSize: 11, color: "var(--t2)" }}>{provider}</span>
-          <span
-            style={{
-              fontFamily: "var(--font-mono)",
-              fontSize: 10,
-              color: chipColor(toolTone),
-              textTransform: "uppercase",
-              letterSpacing: "0.04em",
-            }}
-          >
-            tools {toolsEnabled ? "on" : "off"}
-          </span>
-        </div>
-        <div style={{ display: "flex", flexWrap: "wrap", gap: 8, fontFamily: "var(--font-mono)", fontSize: 10, color: "var(--t3)" }}>
-          <span>source <span style={{ color: "var(--t1)" }}>{source}</span></span>
-          {capabilities?.streaming !== undefined && <span>streaming <span style={{ color: "var(--t1)" }}>{capabilities.streaming ? "yes" : "no"}</span></span>}
-          {capabilities?.max_context_tokens !== undefined && <span>context <span style={{ color: "var(--t1)" }}>{capabilities.max_context_tokens.toLocaleString()}</span></span>}
-        </div>
-      </div>
-      <div style={{ display: "flex", flexWrap: "wrap", justifyContent: "flex-end", alignItems: "center", gap: 6 }}>
-        <div
-          role="group"
-          aria-label={`Tools for ${model.id}`}
-          style={{
-            display: "inline-flex",
-            alignItems: "center",
-            border: "1px solid var(--border)",
-            borderRadius: "999px",
-            overflow: "hidden",
-            background: "var(--bg0)",
-            height: 30,
-          }}
-        >
-          <button
-            type="button"
-            className="btn btn-ghost btn-sm"
-            aria-pressed={toolsEnabled}
-            onClick={() => onToolsChange(true)}
-            style={{
-              border: 0,
-              borderRadius: 0,
-              width: 70,
-              padding: "4px 0",
-              fontFamily: "var(--font-mono)",
-              fontSize: 10,
-              background: toolsEnabled ? "var(--teal-bg)" : "transparent",
-              color: toolsEnabled ? "var(--teal)" : "var(--t3)",
-              justifyContent: "center",
-            }}
-          >
-            tools on
-          </button>
-          <button
-            type="button"
-            className="btn btn-ghost btn-sm"
-            aria-pressed={!toolsEnabled}
-            onClick={() => onToolsChange(false)}
-            style={{
-              border: 0,
-              borderLeft: "1px solid var(--border)",
-              borderRadius: 0,
-              width: 70,
-              padding: "4px 0",
-              fontFamily: "var(--font-mono)",
-              fontSize: 10,
-              background: !toolsEnabled ? "var(--bg3)" : "transparent",
-              color: !toolsEnabled ? "var(--t0)" : "var(--t3)",
-              justifyContent: "center",
-            }}
-          >
-            tools off
-          </button>
-        </div>
-        <button type="button" className="btn btn-ghost btn-sm" onClick={onClear} disabled={clearDisabled}>
-          Clear override
-        </button>
-      </div>
-    </div>
-  );
-}
-
-type ChipTone = "green" | "amber" | "red" | "muted";
-
-function chipColor(tone: ChipTone): string {
-  if (tone === "green") return "var(--green)";
-  if (tone === "amber") return "var(--amber)";
-  if (tone === "red") return "var(--red)";
-  return "var(--t3)";
-}
 
 // ─── Retention tab ────────────────────────────────────────────────────────────
 

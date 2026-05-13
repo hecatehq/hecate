@@ -43,7 +43,7 @@ Approvals are safety gates, not a sandbox.
 
 - Native task approvals block the run until the operator approves or rejects.
 - External-agent approvals are prompt-first by default when the adapter asks for permission.
-- Durable external-agent grants can be reviewed and revoked from Settings.
+- Durable external-agent grants can be reviewed and revoked from Connections.
 - Auto-approval modes are dangerous for interactive use because they let tool requests proceed without operator review.
 
 Review broad grants carefully, especially workspace-wide or adapter-wide grants for file writes, shell commands, Git commands, and network access.

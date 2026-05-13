@@ -98,7 +98,7 @@ describe("humanizeChatError", () => {
     expect(humanizeChatError("workspace is required"))
       .toBe("Choose a workspace before using Hecate Chat tools or External Agent.");
     expect(humanizeChatError("model does not support tools"))
-      .toBe("This model is not marked as tool-capable. Turn tools off, test it, or enable tools in Settings → Model capabilities.");
+      .toBe("This model is not marked as tool-capable. Turn tools off, test it, or enable tools in Connections → Model capabilities.");
     expect(humanizeChatError('route request: no provider supports explicit model "gpt-5.4-mini"'))
       .toBe("No configured provider can route to gpt-5.4-mini. Choose another model or open Connections to repair provider readiness.");
     expect(humanizeChatError("no routable model for selected provider"))

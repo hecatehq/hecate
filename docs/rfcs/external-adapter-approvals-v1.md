@@ -391,7 +391,7 @@ These need resolution before this draft can become v1.0 stable.
    - Status: open
 
 3. **What happens to in-flight grants when an adapter is removed from
-   `BuiltIns`?** Probably orphan and surface in Settings as "stale grants
+   `BuiltIns`?** Probably orphan and surface in Connections as "stale grants
    for unknown adapter `legacy_codex`." Confirm and document.
    - Status: open
 

@@ -97,8 +97,8 @@ shipping `v0.1.0-alpha.N` releases from reviewed PRs merged into `master`.
   after the active run settles; queued prompts are not durable until submitted.
 - Tools-on Hecate Chat currently blocks only models explicitly marked
   `tool_calling="none"`. Unknown local/custom models are labelled as unknown
-  and can be marked manually in Settings; automatic capability probing is not
-  shipped yet.
+  and can be marked manually in Connections; automatic capability probing is
+  not shipped yet.
 - Workspace modes and named Hecate Agent profiles are still roadmap items.
   Tools-on chat uses the selected workspace with the current built-in profile.
 - Tasks remains canonical for full run history, retry/resume, artifacts, and

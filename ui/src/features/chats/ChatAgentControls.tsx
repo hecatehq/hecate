@@ -104,7 +104,7 @@ export function HecateToolsToggle({
   onChange: (enabled: boolean) => void;
 }) {
   const toolsOnTitle = toolsDisabledForModel
-    ? "Tools are disabled for this model in Settings. Enable them there or turn tools off for direct model chat."
+    ? "Tools are disabled for this model in Connections. Enable them there or turn tools off for direct model chat."
     : "Use Hecate's task runtime with tools, approvals, artifacts, and telemetry.";
   const title = enabled ? toolsOnTitle : "Chat directly with the selected model. No task run or tools.";
   return (
