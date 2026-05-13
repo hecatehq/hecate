@@ -9,6 +9,7 @@ import (
 const (
 	ConfigOptionTypeSelect  = "select"
 	ConfigOptionTypeBoolean = "boolean"
+	ConfigOptionTypeUnknown = "unknown"
 )
 
 // ConfigOption is Hecate's stable projection of ACP session config
@@ -42,9 +43,8 @@ type SetConfigOptionRequest struct {
 }
 
 // FromACPOptions converts ACP session config options to Hecate's stable
-// projection. Unknown option variants (neither Select nor Boolean) are
-// silently skipped so Hecate remains forward-compatible when the ACP SDK
-// adds new variant types: the known options still reach the UI unchanged.
+// projection. Unknown option variants are preserved as explicit placeholders
+// so new ACP union shapes stay visible instead of disappearing from the UI.
 func FromACPOptions(options []acp.SessionConfigOption) []ConfigOption {
 	if len(options) == 0 {
 		return nil
@@ -56,7 +56,8 @@ func FromACPOptions(options []acp.SessionConfigOption) []ConfigOption {
 			out = append(out, fromACPSelect(*option.Select))
 		case option.Boolean != nil:
 			out = append(out, fromACPBoolean(*option.Boolean))
-		// Unknown variants are intentionally skipped (forward-compat).
+		default:
+			out = append(out, unknownACPOption(len(out)))
 		}
 	}
 	return out
@@ -73,7 +74,7 @@ func BuildACPSetRequest(req SetConfigOptionRequest) (acp.SetSessionConfigOptionR
 		return acp.SetSessionConfigOptionRequest{}, fmt.Errorf("config id is required")
 	}
 	if req.BoolValue != nil && req.Value != "" {
-		return acp.SetSessionConfigOptionRequest{}, fmt.Errorf("provide either Value or BoolValue, not both")
+		return acp.SetSessionConfigOptionRequest{}, fmt.Errorf("provide either value or bool value, not both")
 	}
 	if req.BoolValue != nil {
 		return acp.SetSessionConfigOptionRequest{
@@ -95,6 +96,15 @@ func BuildACPSetRequest(req SetConfigOptionRequest) (acp.SetSessionConfigOptionR
 			Value:     acp.SessionConfigValueId(req.Value),
 		},
 	}, nil
+}
+
+func unknownACPOption(index int) ConfigOption {
+	return ConfigOption{
+		ID:          fmt.Sprintf("unknown_%d", index+1),
+		Name:        "Unsupported option",
+		Description: "This adapter returned a config option shape this Hecate version does not understand.",
+		Type:        ConfigOptionTypeUnknown,
+	}
 }
 
 func fromACPSelect(option acp.SessionConfigOptionSelect) ConfigOption {
