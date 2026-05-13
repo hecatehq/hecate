@@ -2089,30 +2089,33 @@ func TestAgentChatIdleSweepCancelsStaleSession(t *testing.T) {
 }
 
 type fakeAgentChatRunner struct {
-	output          string
-	finalOutput     string
-	chunks          []string
-	activities      []agentadapters.Activity
-	delay           time.Duration
-	waitForCancel   bool
-	nativeSessionID string
-	sessionStarted  bool
-	sessionResumed  bool
-	sessionRecovery string
-	seenPreviousID  string
-	usage           agentadapters.Usage
-	diffStat        string
-	diff            string
-	err             error
-	prepareErr      error
-	setConfigErr    error
-	prepareRequests []agentadapters.PrepareSessionRequest
-	closedSessions  []string
-	configOptions   []agentcontrols.ConfigOption
+	output             string
+	finalOutput        string
+	chunks             []string
+	activities         []agentadapters.Activity
+	delay              time.Duration
+	waitForCancel      bool
+	nativeSessionID    string
+	sessionStarted     bool
+	sessionResumed     bool
+	sessionRecovery    string
+	seenPreviousID     string
+	usage              agentadapters.Usage
+	diffStat           string
+	diff               string
+	err                error
+	prepareErr         error
+	setConfigErr       error
+	prepareRequests    []agentadapters.PrepareSessionRequest
+	prepareDeadline    time.Time
+	prepareHasDeadline bool
+	closedSessions     []string
+	configOptions      []agentcontrols.ConfigOption
 }
 
-func (r *fakeAgentChatRunner) PrepareSession(_ context.Context, req agentadapters.PrepareSessionRequest) (agentadapters.PrepareSessionResult, error) {
+func (r *fakeAgentChatRunner) PrepareSession(ctx context.Context, req agentadapters.PrepareSessionRequest) (agentadapters.PrepareSessionResult, error) {
 	r.prepareRequests = append(r.prepareRequests, req)
+	r.prepareDeadline, r.prepareHasDeadline = ctx.Deadline()
 	if r.prepareErr != nil {
 		return agentadapters.PrepareSessionResult{}, r.prepareErr
 	}
@@ -2423,6 +2426,76 @@ func TestAgentChatExternalCreateCleansUpWhenPrepareFails(t *testing.T) {
 	}
 	if len(list) != 0 {
 		t.Fatalf("sessions after failed prepare = %#v, want none", list)
+	}
+}
+
+func TestAgentChatExternalCreateMissingRunner(t *testing.T) {
+	dir := t.TempDir()
+	logger := slog.New(slog.NewJSONHandler(io.Discard, nil))
+	store := agentchat.NewMemoryStore()
+	apiHandler := newTestAPIHandlerWithSettings(logger, []providers.Provider{&fakeProvider{}}, config.Config{}, nil)
+	apiHandler.SetAgentChatStore(store)
+	apiHandler.agentChatRunner = nil
+	handler := NewServer(logger, apiHandler)
+
+	recorder := performRequest(t, handler, http.MethodPost, "/hecate/v1/agent-chat/sessions", fmt.Sprintf(`{"adapter_id":"codex","workspace":%q}`, dir))
+	if recorder.Code != http.StatusInternalServerError {
+		t.Fatalf("status = %d, want 500; body: %s", recorder.Code, recorder.Body.String())
+	}
+	var payload struct {
+		Error struct {
+			Type    string `json:"type"`
+			Message string `json:"message"`
+		} `json:"error"`
+	}
+	if err := json.Unmarshal(recorder.Body.Bytes(), &payload); err != nil {
+		t.Fatalf("decode error response: %v", err)
+	}
+	if payload.Error.Type != errCodeGatewayError {
+		t.Fatalf("error type = %q, want %q", payload.Error.Type, errCodeGatewayError)
+	}
+	if !strings.Contains(payload.Error.Message, "agent chat runner is not configured") {
+		t.Fatalf("error message = %q, want missing runner detail", payload.Error.Message)
+	}
+	list, err := store.List(context.Background())
+	if err != nil {
+		t.Fatalf("list sessions: %v", err)
+	}
+	if len(list) != 0 {
+		t.Fatalf("sessions after missing runner = %#v, want none", list)
+	}
+}
+
+func TestAgentChatExternalCreatePrepareTimeout(t *testing.T) {
+	dir := t.TempDir()
+	logger := slog.New(slog.NewJSONHandler(io.Discard, nil))
+	runner := &fakeAgentChatRunner{prepareErr: context.DeadlineExceeded}
+	apiHandler := newTestAPIHandlerWithSettings(logger, []providers.Provider{&fakeProvider{}}, config.Config{}, nil)
+	apiHandler.SetAgentChatRunner(runner)
+	handler := NewServer(logger, apiHandler)
+	started := time.Now()
+
+	recorder := performRequest(t, handler, http.MethodPost, "/hecate/v1/agent-chat/sessions", fmt.Sprintf(`{"adapter_id":"codex","workspace":%q}`, dir))
+	if recorder.Code != http.StatusGatewayTimeout {
+		t.Fatalf("status = %d, want 504; body: %s", recorder.Code, recorder.Body.String())
+	}
+	var payload struct {
+		Error struct {
+			Type string `json:"type"`
+		} `json:"error"`
+	}
+	if err := json.Unmarshal(recorder.Body.Bytes(), &payload); err != nil {
+		t.Fatalf("decode error response: %v", err)
+	}
+	if payload.Error.Type != errCodeAgentAdapterUnavailable {
+		t.Fatalf("error type = %q, want %q", payload.Error.Type, errCodeAgentAdapterUnavailable)
+	}
+	if !runner.prepareHasDeadline {
+		t.Fatal("prepare context did not have a deadline")
+	}
+	maxDeadline := started.Add(agentChatPrepareTimeout + time.Second)
+	if runner.prepareDeadline.After(maxDeadline) {
+		t.Fatalf("prepare deadline = %s, want at most %s", runner.prepareDeadline, maxDeadline)
 	}
 }
 
