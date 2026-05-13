@@ -324,7 +324,7 @@ export function ChatView({ state, actions, onNavigate, onOpenTask, onOpenTrace }
 
   function openClaudeCodeSetup() {
     try {
-      localStorage.setItem("hecate.settingsTab", "external_agents");
+      localStorage.setItem("hecate.settingsTab", "connections");
       sessionStorage.setItem("hecate.settingsFocus", "claude-code-guided-setup");
     } catch {
       // localStorage / sessionStorage unavailable — navigation still
@@ -1042,7 +1042,7 @@ export function ChatView({ state, actions, onNavigate, onOpenTask, onOpenTrace }
                     && typeof m.error === "string" && m.error.includes("claude_code_auth_required")
                     ? {
                         label: "Open Claude Code setup",
-                        title: "Open Settings → External agents and scroll to the guided setup card",
+                        title: "Open Settings → Connections and scroll to the guided setup card",
                         onClick: openClaudeCodeSetup,
                       }
                     : undefined

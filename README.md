@@ -180,7 +180,7 @@ The embedded UI is a runtime console for the operator.
 
 ![Settings → Retention — pruning windows and last-run history](docs/screenshots/settings-retention.png)
 
-![Settings → External agents — adapter readiness checks and durable approval grants](docs/screenshots/settings-external-agents.png)
+![Settings → Connections — adapter readiness checks and durable approval grants](docs/screenshots/settings-external-agents.png)
 
 </details>
 
