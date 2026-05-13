@@ -2486,6 +2486,7 @@ function autoProviderRouteRepairHint(
     action: allLocal
       ? "Start the local provider process, pull or load a model, then refresh Connections."
       : "Open Connections to fix credentials, health, or model discovery, then refresh.",
+    actionKind: "refresh_providers",
     tone: "amber",
   };
 }

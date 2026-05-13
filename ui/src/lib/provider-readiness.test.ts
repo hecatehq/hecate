@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 
-import { providerFleetRepairHint, providerRepairHint, readinessRecommendation } from "./provider-readiness";
+import { providerFleetRepairHint, providerReadinessMeaning, providerRepairHint, readinessRecommendation } from "./provider-readiness";
 
 describe("readinessRecommendation", () => {
   it("uses backend operator_action before local fallback copy", () => {
@@ -29,6 +29,8 @@ describe("providerRepairHint", () => {
 
     expect(hint.title).toBe("Credentials required");
     expect(hint.action).toContain("API key");
+    expect(hint.actionKind).toBe("open_provider");
+    expect(hint.providerID).toBe("anthropic");
     expect(hint.tone).toBe("amber");
   });
 
@@ -59,6 +61,7 @@ describe("providerRepairHint", () => {
 
     expect(hint.title).toBe("No models discovered");
     expect(hint.action).toContain("Pull or load");
+    expect(hint.actionKind).toBe("refresh_providers");
   });
 
   it("uses friendlier titles for blocked readiness checks", () => {
@@ -122,5 +125,48 @@ describe("providerFleetRepairHint", () => {
     expect(providerFleetRepairHint([
       { id: "anthropic", name: "Anthropic", kind: "cloud", credential_configured: true },
     ], statuses)?.message).toContain("No configured provider setup issue");
+  });
+
+  it("returns an add-provider action when the fleet is empty", () => {
+    const hint = providerFleetRepairHint([], new Map());
+
+    expect(hint).toMatchObject({
+      title: "No provider configured",
+      actionKind: "add_provider",
+      tone: "amber",
+    });
+  });
+});
+
+describe("providerReadinessMeaning", () => {
+  it("explains empty, blocked, no-model, and ready fleet states", () => {
+    expect(providerReadinessMeaning({
+      configuredCount: 0,
+      readyCount: 0,
+      blockedCount: 0,
+      modelCount: 0,
+    }).message).toContain("No model providers");
+
+    expect(providerReadinessMeaning({
+      configuredCount: 2,
+      readyCount: 1,
+      blockedCount: 1,
+      modelCount: 1,
+      repair: { title: "Credentials required", message: "", action: "Add an API key.", actionKind: "open_provider", tone: "amber" },
+    }).message).toContain("Next: Add an API key.");
+
+    expect(providerReadinessMeaning({
+      configuredCount: 1,
+      readyCount: 1,
+      blockedCount: 0,
+      modelCount: 0,
+    }).message).toContain("no models");
+
+    expect(providerReadinessMeaning({
+      configuredCount: 1,
+      readyCount: 1,
+      blockedCount: 0,
+      modelCount: 2,
+    }).message).toContain("1 provider ready with 2 discovered models");
   });
 });

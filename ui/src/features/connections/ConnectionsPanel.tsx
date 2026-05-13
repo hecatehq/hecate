@@ -217,6 +217,7 @@ function ModelProviderConnectionsSection({
   const statusByName = new Map(state.providers.map((provider) => [provider.name, provider]));
   const repair = providerFleetRepairHint(configuredProviders, statusByName);
   const repairLabel = repair?.tone === "muted" ? "Ready for chat" : "Next repair";
+  const repairButton = providerRepairButtonLabel(repair);
   const readinessSummary = providerReadinessMeaning({
     configuredCount: configuredProviders.length,
     readyCount: readyProviders,
@@ -264,14 +265,14 @@ function ModelProviderConnectionsSection({
             <span style={{ fontSize: 11, fontWeight: 600, color: repair.tone === "amber" ? "var(--amber)" : "var(--t1)" }}>
               {repair.title}
             </span>
-            {repair.tone !== "muted" && onNavigate && (
+            {repairButton && onNavigate && (
               <button
                 type="button"
                 className="btn btn-ghost btn-sm"
                 onClick={() => onNavigate("providers")}
                 style={{ marginLeft: "auto", padding: "2px 7px" }}
               >
-                Open provider list
+                {repairButton}
               </button>
             )}
           </div>
@@ -309,6 +310,20 @@ function ModelProviderConnectionsSection({
       </div>
     </div>
   );
+}
+
+function providerRepairButtonLabel(hint: ReturnType<typeof providerFleetRepairHint>): string | null {
+  if (!hint || hint.tone === "muted") return null;
+  switch (hint.actionKind) {
+    case "add_provider":
+      return "Add provider";
+    case "open_provider":
+      return "Open provider";
+    case "refresh_providers":
+      return "Refresh providers";
+    case "none":
+      return null;
+  }
 }
 
 function ConnectionStat({

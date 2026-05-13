@@ -424,6 +424,75 @@ describe("ProvidersView table renders", () => {
     expect(screen.queryByRole("switch")).toBeNull();
   });
 
+  it("surfaces readiness repair buttons from the summary card", async () => {
+    const state = createRuntimeConsoleFixture({
+      session: localSession,
+      providerPresets: presets,
+      settingsConfig: {
+        ...emptySettingsConfig(),
+        providers: [makeConfigured("anthropic", { kind: "cloud", credential_configured: false })],
+      },
+      providers: [
+        makeStatus("anthropic", {
+          kind: "cloud",
+          healthy: true,
+          status: "healthy",
+          routing_ready: false,
+          routing_blocked_reason: "credential_missing",
+          readiness: {
+            status: "blocked",
+            reason: "credential_missing",
+            message: "Anthropic needs an API key.",
+            operator_action: "Add or rotate the provider API key in Connections.",
+          },
+          readiness_checks: [
+            { name: "credentials", status: "blocked", reason: "credential_missing", message: "Missing key." },
+          ],
+        }),
+      ],
+    });
+    const user = userEvent.setup();
+
+    render(<ProvidersView state={state} actions={createRuntimeConsoleActions()} />);
+
+    expect(screen.getByText(/1 provider needs attention/)).toBeTruthy();
+    await user.click(screen.getByRole("button", { name: "Open provider" }));
+    expect(screen.getByText(/Anthropic · cloud/)).toBeTruthy();
+  });
+
+  it("lets the readiness summary refresh model discovery", async () => {
+    const refreshProviders = vi.fn(async () => undefined);
+    const state = createRuntimeConsoleFixture({
+      session: localSession,
+      providerPresets: presets,
+      settingsConfig: {
+        ...emptySettingsConfig(),
+        providers: [makeConfigured("ollama", { kind: "local" })],
+      },
+      providers: [
+        makeStatus("ollama", {
+          kind: "local",
+          healthy: true,
+          status: "healthy",
+          routing_ready: false,
+          routing_blocked_reason: "no_models",
+          models: [],
+          model_count: 0,
+          readiness_checks: [
+            { name: "models", status: "blocked", reason: "no_models", message: "No models were discovered." },
+          ],
+        }),
+      ],
+    });
+    const actions = { ...createRuntimeConsoleActions(), refreshProviders };
+    const user = userEvent.setup();
+
+    render(<ProvidersView state={state} actions={actions} />);
+    await user.click(screen.getByRole("button", { name: "Refresh providers" }));
+
+    expect(refreshProviders).toHaveBeenCalledTimes(1);
+  });
+
   it("renders external-agent readiness and grants in the Connections workspace", async () => {
     const listAgentChatGrants = vi.fn(async () => undefined);
     const probeAgentAdapter = vi.fn(async () => null);

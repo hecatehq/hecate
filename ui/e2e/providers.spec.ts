@@ -34,6 +34,60 @@ test("empty state shows the placeholder and an Add provider CTA", async ({ page 
   await expect(page.getByRole("button", { name: /add provider/i }).first()).toBeVisible();
 });
 
+test("readiness repair card opens a blocked provider from Connections", async ({ page }) => {
+  await page.unrouteAll({ behavior: "ignoreErrors" });
+  await mockGatewayAPIs(page, {
+    settingsConfig: {
+      providers: [
+        { id: "anthropic", name: "Anthropic", preset_id: "anthropic", kind: "cloud", protocol: "anthropic", base_url: "https://api.anthropic.com/v1", enabled: true, credential_configured: false },
+      ],
+      tenants: [],
+      api_keys: [],
+      policy_rules: [],
+    },
+  });
+  await page.route("/hecate/v1/providers/status*", route => route.fulfill({
+    status: 200,
+    contentType: "application/json",
+    body: JSON.stringify({
+      object: "provider_status",
+      data: [
+        {
+          name: "anthropic",
+          kind: "cloud",
+          healthy: true,
+          status: "healthy",
+          credential_ready: false,
+          credential_state: "missing",
+          routing_ready: false,
+          routing_blocked_reason: "credential_missing",
+          models: ["claude-sonnet-4-6"],
+          model_count: 1,
+          readiness: {
+            status: "blocked",
+            reason: "credential_missing",
+            message: "Anthropic needs an API key before Hecate can route requests.",
+            operator_action: "Add or rotate the provider API key in Connections.",
+          },
+          readiness_checks: [
+            { name: "credentials", status: "blocked", reason: "credential_missing", message: "Add credentials before Hecate can route requests to this provider." },
+            { name: "routing", status: "blocked", reason: "credential_missing", message: "Routing is blocked until credentials are configured." },
+          ],
+        },
+      ],
+    }),
+  }));
+
+  await page.goto("/");
+  await page.waitForSelector(".hecate-activitybar");
+  await page.locator(".hecate-activitybar [aria-label^='Connections']").click();
+
+  await expect(page.getByTestId("connections-provider-readiness-meaning")).toContainText("1 provider needs attention");
+  await expect(page.getByText("Next: Add or rotate the provider API key in Connections.")).toBeVisible();
+  await page.getByRole("button", { name: "Open provider" }).click();
+  await expect(page.getByRole("dialog")).toContainText("Anthropic · cloud");
+});
+
 test("Add provider modal opens on the Local tab by default", async ({ page }) => {
   await page.getByRole("button", { name: /add provider/i }).first().click();
   // Ollama is a Local preset — its visibility proves the Local tab is

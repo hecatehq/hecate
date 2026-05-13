@@ -266,12 +266,14 @@ Route reports in the trace inspector reuse the same readiness vocabulary when
 they explain why a provider/model candidate was skipped.
 
 Connections is the canonical repair surface for provider and model readiness.
-The top summary card should tell the operator whether the provider fleet is
-ready for chat or name the next repair, while the provider rows carry the full
-credential, discovery, health, routing, and model-count details. Chats should
-link back to Connections rather than duplicating provider-editing controls,
-except for safe one-click repairs such as accepting a backend-suggested model
-or enabling a model-capability override.
+The top summary card tells the operator whether the provider fleet is ready for
+chat or names the next repair, while the provider rows carry the full
+credential, discovery, health, routing, and model-count details. The summary can
+offer safe first-step actions such as **Add provider**, **Open provider**, or
+**Refresh providers**; deeper edits still happen in the provider detail panel.
+Chats link back to Connections rather than duplicating provider-editing
+controls, except for safe one-click repairs such as accepting a
+backend-suggested model or enabling a model-capability override.
 
 The Chats workspace consumes the same readiness model at composition time. A
 provider can be configured and healthy while the selected model is still not
