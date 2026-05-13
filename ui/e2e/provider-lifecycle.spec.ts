@@ -29,7 +29,7 @@ test("adding and deleting a provider keeps chat available", async ({ page }) => 
   // the first-run provider discovery once configuration exists but no models
   // are routable yet.
   await page.locator(".hecate-activitybar [aria-label^='Chats']").click();
-  await expect(page.getByText("Provider is configured")).toBeVisible();
+  await expect(page.getByText("No models discovered")).toBeVisible();
   await expect(page.getByText("none discovered")).toBeVisible();
   await expect(page.locator("textarea")).toHaveCount(0);
 

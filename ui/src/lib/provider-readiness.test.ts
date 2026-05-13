@@ -60,6 +60,32 @@ describe("providerRepairHint", () => {
     expect(hint.title).toBe("No models discovered");
     expect(hint.action).toContain("Pull or load");
   });
+
+  it("uses friendlier titles for blocked readiness checks", () => {
+    const hint = providerRepairHint({
+      configuredProvider: { id: "ollama", name: "Ollama", kind: "local", credential_configured: false },
+      runtimeProvider: {
+        name: "ollama",
+        kind: "local",
+        healthy: true,
+        status: "healthy",
+        models: [],
+        model_count: 0,
+        readiness_checks: [{ name: "models", status: "blocked", reason: "no_models", message: "No models were discovered." }],
+      },
+    });
+
+    expect(hint.title).toBe("No models discovered");
+  });
+
+  it("treats configured providers without runtime discovery as needing models", () => {
+    const hint = providerRepairHint({
+      configuredProvider: { id: "ollama", name: "Ollama", kind: "local", credential_configured: false },
+    });
+
+    expect(hint.title).toBe("No models discovered");
+    expect(hint.action).toContain("refresh Connections");
+  });
 });
 
 describe("providerFleetRepairHint", () => {

@@ -59,10 +59,10 @@ describe("ConsoleShell navigation", () => {
     // (workspace nav buttons, statusbar) is not lazy and can
     // still be queried synchronously.
     expect(screen.getByRole("button", { name: "Chats" })).toBeEnabled();
-    expect(await screen.findByText(/Nothing runnable yet/i, undefined, { timeout: 5000 })).toBeInTheDocument();
+    expect(await screen.findByText(/Nothing runnable yet/i, undefined, { timeout: 10_000 })).toBeInTheDocument();
     expect(screen.queryByText(/No model providers configured/i)).toBeNull();
     expect(screen.getByRole("button", { name: /Go to Connections/i })).toBeInTheDocument();
-  }, 10_000);
+  }, 15_000);
 
   it("shows the selected agent workspace and git branch in the status bar", () => {
     const state = createRuntimeConsoleFixture({

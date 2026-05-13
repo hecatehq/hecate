@@ -468,7 +468,8 @@ test("empty model chat can add all detected local providers in one click", async
   await page.getByRole("button", { name: "Add selected" }).click();
 
   await expect.poll(() => created.map(body => body.preset_id).sort()).toEqual(["lmstudio", "ollama"]);
-  await expect(page.getByText("Provider is configured")).toBeVisible();
+  await expect(page.getByText("No models discovered")).toBeVisible();
+  await expect(page.getByText(/Next: Start the local provider process, pull or load a model/)).toBeVisible();
   await expect(page.getByText("none discovered")).toBeVisible();
   await expect(page.getByRole("button", { name: /Add selected/i })).toHaveCount(0);
 });
@@ -494,7 +495,7 @@ test("empty Hecate Agent chat can add all detected local providers in one click"
   await page.getByRole("button", { name: "Add selected" }).click();
 
   await expect.poll(() => created.map(body => body.preset_id).sort()).toEqual(["lmstudio", "ollama"]);
-  await expect(page.getByText("Provider is configured")).toBeVisible();
+  await expect(page.getByText("No models discovered")).toBeVisible();
   await expect(page.getByRole("button", { name: /Add selected/i })).toHaveCount(0);
 });
 
@@ -1146,7 +1147,7 @@ test("configured provider with no models shows troubleshooting, not detected-pro
   await page.waitForSelector(".hecate-activitybar");
   await switchToModel(page);
 
-  await expect(page.getByText("Provider is configured")).toBeVisible();
+  await expect(page.getByText("No models discovered")).toBeVisible();
   await expect(page.getByText("none discovered")).toBeVisible();
   await expect(page.getByText(/Start the local provider app/)).toBeVisible();
   await expect(page.getByText("Detected locally")).toHaveCount(0);
