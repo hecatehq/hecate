@@ -4,7 +4,7 @@ import { resolvedBaseURL } from "../../lib/provider-utils";
 import { describeHealthErrorClass, describeRoutingBlockedReason } from "../../lib/runtime-utils";
 import { ProviderReadinessChecklist, ProviderReadinessSummary } from "../shared/ProviderReadiness";
 import { Badge, BrandAvatar, ConfirmModal, Icon, Icons, Modal } from "../shared/ui";
-import { ConnectionsTab } from "../settings/SettingsView";
+import { ConnectionsPanel } from "../connections/ConnectionsPanel";
 import { AddProviderModal } from "./AddProviderModal";
 
 type Props = {
@@ -432,7 +432,7 @@ export function ProvidersView({ state, actions }: Props) {
         )}
 
         <div style={{ marginTop: configuredProviders.length === 0 ? 28 : 8 }}>
-          <ConnectionsTab
+          <ConnectionsPanel
             state={state}
             actions={actions}
             showProviderSummary={false}

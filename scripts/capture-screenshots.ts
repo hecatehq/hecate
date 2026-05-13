@@ -1049,12 +1049,12 @@ async function main() {
   await page.unroute(missingAgentAdapters);
   await page.unroute(`${HECATE_API}/settings/providers/local-discovery`);
 
-  // ── 2. Empty providers list ─────────────────────────────────────────────────
-  // The UI loads directly — no auth gate. Land on the Providers tab
+  // ── 2. Empty Connections provider list ──────────────────────────────────────
+  // The UI loads directly — no auth gate. Land on the Connections workspace
   // before any providers exist.
   console.log("→ providers-empty");
   await openWorkspace(page, "providers");
-  await page.waitForSelector("text=No providers configured", { timeout: 5_000 });
+  await page.waitForSelector("text=No model providers configured", { timeout: 5_000 });
   await snap(page, "providers-empty");
 
   // ── 3. Local presets in the Add modal ───────────────────────────────────────
@@ -1175,11 +1175,10 @@ async function main() {
   // Mock these endpoints so the documentation shots stay deterministic:
   // screenshots should show the intended UI shape, not whatever agent CLIs
   // and auth state happen to exist on the capture machine.
-  console.log("→ settings / external agents");
+  console.log("→ connections / external agents");
   await routeAgentDocsFixtures(page);
   await clearAndNavigate(page);
-  await openWorkspace(page, "settings");
-  await page.getByRole("button", { name: /external agents/i }).click();
+  await openWorkspace(page, "providers");
   await page.waitForSelector("text=External agent grants", { timeout: 5_000 });
   await page.waitForTimeout(700);
   await snap(page, "settings-external-agents");

@@ -2,7 +2,8 @@ import { render, screen, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 
-import { ConnectionsTab, SettingsView } from "./SettingsView";
+import { ConnectionsPanel } from "../connections/ConnectionsPanel";
+import { SettingsView } from "./SettingsView";
 import { createRuntimeConsoleActions, createRuntimeConsoleFixture } from "../../test/runtime-console-fixture";
 
 function setup(stateOverrides = {}, actionOverrides = {}) {
@@ -217,7 +218,7 @@ describe("Connections external-agent panel", () => {
         { id: "claude-sonnet", owned_by: "anthropic" },
       ],
     });
-    render(<ConnectionsTab state={state} actions={actions} onNavigate={onNavigate} />);
+    render(<ConnectionsPanel state={state} actions={actions} onNavigate={onNavigate} />);
 
     const card = await screen.findByTestId("connections-model-providers");
     expect(within(card).getByText("Model providers")).toBeTruthy();
@@ -232,13 +233,13 @@ describe("Connections external-agent panel", () => {
   it("fires listAgentChatGrants when the tab opens", async () => {
     const listAgentChatGrants = vi.fn(async () => undefined);
     const { state, actions } = setup({}, { listAgentChatGrants });
-    render(<ConnectionsTab state={state} actions={actions} />);
+    render(<ConnectionsPanel state={state} actions={actions} />);
     expect(listAgentChatGrants).toHaveBeenCalled();
   });
 
   it("renders the empty-state copy when there are no grants", async () => {
     const { state, actions } = setup();
-    render(<ConnectionsTab state={state} actions={actions} />);
+    render(<ConnectionsPanel state={state} actions={actions} />);
     expect(await screen.findByTestId("external-agents-empty")).toBeTruthy();
   });
 
@@ -266,7 +267,7 @@ describe("Connections external-agent panel", () => {
         },
       ],
     });
-    render(<ConnectionsTab state={state} actions={actions} />);
+    render(<ConnectionsPanel state={state} actions={actions} />);
     expect(await screen.findByTestId("external-agents-list")).toBeTruthy();
     // Scope decision-tone assertions to row content so they don't
     // accidentally match the section description above.
@@ -293,7 +294,7 @@ describe("Connections external-agent panel", () => {
       },
       { deleteAgentChatGrant },
     );
-    render(<ConnectionsTab state={state} actions={actions} />);
+    render(<ConnectionsPanel state={state} actions={actions} />);
     await user.click(await screen.findByTestId("external-agents-revoke-g-7"));
     expect(deleteAgentChatGrant).not.toHaveBeenCalled();
     await user.click(await screen.findByTestId("external-agents-confirm-revoke-g-7"));
@@ -317,7 +318,7 @@ describe("Connections external-agent panel", () => {
       },
       { deleteAgentChatGrant },
     );
-    render(<ConnectionsTab state={state} actions={actions} />);
+    render(<ConnectionsPanel state={state} actions={actions} />);
     await user.click(await screen.findByTestId("external-agents-revoke-g-8"));
     expect(await screen.findByTestId("external-agents-confirm-revoke-g-8")).toBeTruthy();
     await user.click(await screen.findByTestId("external-agents-cancel-revoke-g-8"));
@@ -329,7 +330,7 @@ describe("Connections external-agent panel", () => {
     const { state, actions } = setup({
       agentChatGrantsError: "list failed: 500",
     });
-    render(<ConnectionsTab state={state} actions={actions} />);
+    render(<ConnectionsPanel state={state} actions={actions} />);
     expect(await screen.findByText(/list failed: 500/)).toBeTruthy();
   });
 
@@ -353,11 +354,11 @@ describe("Connections external-agent panel", () => {
         events: [],
       },
     });
-    const { rerender } = render(<ConnectionsTab state={state} actions={actions} />);
+    const { rerender } = render(<ConnectionsPanel state={state} actions={actions} />);
 
     expect(await screen.findByTestId("anthropic-provider-key-card")).toBeTruthy();
 
-    rerender(<ConnectionsTab state={{ ...state, settingsConfig: { ...state.settingsConfig!, providers: [] } }} actions={actions} />);
+    rerender(<ConnectionsPanel state={{ ...state, settingsConfig: { ...state.settingsConfig!, providers: [] } }} actions={actions} />);
 
     expect(screen.getByTestId("anthropic-provider-key-card")).toBeTruthy();
   });
@@ -383,7 +384,7 @@ describe("Connections external-agent panel", () => {
         events: [],
       },
     }, { setProviderAPIKey });
-    render(<ConnectionsTab state={state} actions={actions} />);
+    render(<ConnectionsPanel state={state} actions={actions} />);
 
     await user.type(await screen.findByLabelText("Anthropic API key"), "sk-ant-new");
     await user.click(screen.getByRole("button", { name: "Update key" }));
@@ -417,13 +418,13 @@ describe("Connections external-agent panel", () => {
 
     it("hides the panel when no adapters are registered", async () => {
       const { state, actions } = setup({ agentAdapters: [] });
-      render(<ConnectionsTab state={state} actions={actions} />);
+      render(<ConnectionsPanel state={state} actions={actions} />);
       expect(screen.queryByTestId("external-agents-adapters")).toBeNull();
     });
 
     it("renders one row per adapter without a manual test button", async () => {
       const { state, actions } = setup(withAdapter());
-      render(<ConnectionsTab state={state} actions={actions} />);
+      render(<ConnectionsPanel state={state} actions={actions} />);
       expect(await screen.findByTestId("external-agents-adapters")).toBeTruthy();
       expect(screen.getByTestId("external-agents-adapter-codex")).toBeTruthy();
       expect(screen.queryByTestId("external-agents-test-codex")).toBeNull();
@@ -432,20 +433,20 @@ describe("Connections external-agent panel", () => {
     it("auto-runs adapter probes when the tab opens", async () => {
       const probeAgentAdapter = vi.fn(async () => null);
       const { state, actions } = setup(withAdapter(), { probeAgentAdapter });
-      render(<ConnectionsTab state={state} actions={actions} />);
+      render(<ConnectionsPanel state={state} actions={actions} />);
       expect(probeAgentAdapter).toHaveBeenCalledWith("codex");
     });
 
     it("auto-runs adapter probes when adapters arrive after the tab opens", async () => {
       const probeAgentAdapter = vi.fn(async () => null);
       const { state, actions } = setup({ agentAdapters: [] }, { probeAgentAdapter });
-      const { rerender } = render(<ConnectionsTab state={state} actions={actions} />);
+      const { rerender } = render(<ConnectionsPanel state={state} actions={actions} />);
       expect(probeAgentAdapter).not.toHaveBeenCalled();
 
       const nextState = createRuntimeConsoleFixture(withAdapter());
-      rerender(<ConnectionsTab state={nextState} actions={actions} />);
+      rerender(<ConnectionsPanel state={nextState} actions={actions} />);
       expect(probeAgentAdapter).toHaveBeenCalledWith("codex");
-      rerender(<ConnectionsTab state={{ ...nextState }} actions={actions} />);
+      rerender(<ConnectionsPanel state={{ ...nextState }} actions={actions} />);
       expect(probeAgentAdapter).toHaveBeenCalledTimes(1);
     });
 
@@ -463,7 +464,7 @@ describe("Connections external-agent panel", () => {
           }],
         ]),
       }));
-      render(<ConnectionsTab state={state} actions={actions} />);
+      render(<ConnectionsPanel state={state} actions={actions} />);
       const detail = await screen.findByTestId("external-agents-adapter-codex-detail");
       expect(within(detail).getByText("Run codex login")).toBeTruthy();
       expect(within(detail).getByText(/Authentication required/)).toBeTruthy();
@@ -485,7 +486,7 @@ describe("Connections external-agent panel", () => {
           },
         ],
       }));
-      render(<ConnectionsTab state={state} actions={actions} />);
+      render(<ConnectionsPanel state={state} actions={actions} />);
       expect(await screen.findByTestId("external-agents-adapter-cursor_agent-auth-warning")).toHaveTextContent("auth required");
       expect(screen.getByTestId("external-agents-adapter-cursor_agent-auth-detail")).toHaveTextContent("Run cursor-agent login");
     });
@@ -494,7 +495,7 @@ describe("Connections external-agent panel", () => {
       const { state, actions } = setup(withAdapter({
         agentAdapterHealthLoadingByID: new Map([["codex", true]]),
       }));
-      render(<ConnectionsTab state={state} actions={actions} />);
+      render(<ConnectionsPanel state={state} actions={actions} />);
       expect(await screen.findByTestId("external-agents-checking-codex")).toHaveTextContent(/checking/i);
     });
 
@@ -516,7 +517,7 @@ describe("Connections external-agent panel", () => {
           },
         ],
       }), { setAgentAdapterCredential, probeAgentAdapter });
-      render(<ConnectionsTab state={state} actions={actions} />);
+      render(<ConnectionsPanel state={state} actions={actions} />);
 
       expect(await screen.findByTestId("claude-code-guided-setup")).toBeTruthy();
       await user.type(screen.getByLabelText("Claude Code OAuth token"), "claude-token");
@@ -545,7 +546,7 @@ describe("Connections external-agent panel", () => {
           ["claude_code", { adapter_id: "claude_code", status: "ready", stage: "ready", duration_ms: 629 }],
         ]),
       }));
-      render(<ConnectionsTab state={state} actions={actions} />);
+      render(<ConnectionsPanel state={state} actions={actions} />);
 
       expect(await screen.findByText("Claude Code guided setup")).toBeTruthy();
       expect(screen.queryByText("Claude Code token verified")).toBeNull();
@@ -573,7 +574,7 @@ describe("Connections external-agent panel", () => {
           ["claude_code", { adapter_id: "claude_code", status: "ready", stage: "ready", duration_ms: 629 }],
         ]),
       }));
-      render(<ConnectionsTab state={state} actions={actions} />);
+      render(<ConnectionsPanel state={state} actions={actions} />);
 
       expect(await screen.findByText("Claude Code guided setup")).toBeTruthy();
       expect(screen.getByText("adapter installed")).toBeTruthy();
@@ -603,7 +604,7 @@ describe("Connections external-agent panel", () => {
           ["claude_code", { adapter_id: "claude_code", status: "ready", stage: "ready", duration_ms: 629 }],
         ]),
       }));
-      render(<ConnectionsTab state={state} actions={actions} />);
+      render(<ConnectionsPanel state={state} actions={actions} />);
 
       expect(await screen.findByText("Claude Code token verified")).toBeTruthy();
       expect(screen.getByText(/Hecate has a validated adapter token/)).toBeTruthy();
@@ -633,7 +634,7 @@ describe("Connections external-agent panel", () => {
           },
         ],
       }), { deleteAgentAdapterCredential });
-      render(<ConnectionsTab state={state} actions={actions} />);
+      render(<ConnectionsPanel state={state} actions={actions} />);
       await user.click(await screen.findByRole("button", { name: "Remove" }));
 
       expect(deleteAgentAdapterCredential).toHaveBeenCalledWith("claude_code", "CLAUDE_CODE_OAUTH_TOKEN");
