@@ -8,6 +8,34 @@ export type ProviderRepairHint = {
   tone: "muted" | "green" | "amber" | "red";
 };
 
+export function providerReadinessMeaning({
+  configuredCount,
+  readyCount,
+  blockedCount,
+  modelCount,
+  repair,
+}: {
+  configuredCount: number;
+  readyCount: number;
+  blockedCount: number;
+  modelCount: number;
+  repair?: ProviderRepairHint | null;
+}): { message: string; tone: "muted" | "amber" } {
+  if (configuredCount === 0) {
+    return { message: "No model providers are configured yet. Add one provider before starting Hecate Chat.", tone: "amber" };
+  }
+  if (blockedCount > 0 && repair?.tone !== "muted") {
+    return { message: `${blockedCount} provider${blockedCount === 1 ? "" : "s"} need attention. Next: ${repair?.action || "open the provider list."}`, tone: "amber" };
+  }
+  if (readyCount === 0) {
+    return { message: "Providers exist, but none are ready to route chat requests yet.", tone: "amber" };
+  }
+  if (modelCount === 0) {
+    return { message: "Providers are reachable, but no models have been discovered yet.", tone: "amber" };
+  }
+  return { message: `${readyCount} provider${readyCount === 1 ? "" : "s"} ready with ${modelCount} discovered model${modelCount === 1 ? "" : "s"}.`, tone: "muted" };
+}
+
 export function readinessRecommendation(check: ProviderReadinessCheckRecord): string {
   if (check.operator_action) return check.operator_action;
 

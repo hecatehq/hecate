@@ -23,6 +23,8 @@ type LedgerEntry = NonNullable<RuntimeConsoleViewModel["state"]["requestLedger"]
 type TraceDetailProps = {
   selectedID: string;
   selectedTrace?: TraceListItem;
+  selectedProvider?: string;
+  selectedModel?: string;
   ledger?: LedgerEntry;
   traceDetail: TraceResponse["data"] | null;
   traceFetching: boolean;
@@ -35,7 +37,7 @@ type TraceDetailProps = {
 };
 
 export function TraceDetail({
-  selectedTrace, ledger, traceDetail, traceFetching,
+  selectedTrace, selectedProvider, selectedModel, ledger, traceDetail, traceFetching,
   waterfall, traceTimeline, expandedSpanID, setExpandedSpanID,
   phaseFilter, setPhaseFilter,
 }: TraceDetailProps) {
@@ -52,7 +54,7 @@ export function TraceDetail({
     <div style={{ display: "flex", flexDirection: "column", gap: 14 }}>
       {/* Live status grid */}
       <div style={{
-        display: "grid", gridTemplateColumns: "repeat(4, 1fr)", gap: 12,
+        display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(120px, 1fr))", gap: 12,
         padding: 12, border: "1px solid var(--border)", borderRadius: "var(--radius-sm)",
       }}>
         <div>
@@ -64,6 +66,18 @@ export function TraceDetail({
         <div>
           <div className="kicker" style={{ marginBottom: 4 }}>Latency</div>
           <div style={{ fontSize: 12, color: "var(--t0)", fontFamily: "var(--font-mono)" }}>{latency}</div>
+        </div>
+        <div>
+          <div className="kicker" style={{ marginBottom: 4 }}>Provider</div>
+          <div style={{ fontSize: 12, color: selectedProvider ? "var(--t0)" : "var(--t3)", fontFamily: "var(--font-mono)", overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>
+            {selectedProvider || "—"}
+          </div>
+        </div>
+        <div>
+          <div className="kicker" style={{ marginBottom: 4 }}>Model</div>
+          <div style={{ fontSize: 12, color: selectedModel ? "var(--t0)" : "var(--t3)", fontFamily: "var(--font-mono)", overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>
+            {selectedModel || "—"}
+          </div>
         </div>
         <div>
           <div className="kicker" style={{ marginBottom: 4 }}>Tokens</div>

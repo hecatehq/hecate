@@ -40,6 +40,18 @@ test("send button becomes enabled when message has content", async ({ page }) =>
   await expect(page.locator("button[type='submit']")).toBeEnabled();
 });
 
+test("empty Hecate Chat points operators to Connections before send", async ({ page }) => {
+  await page.unrouteAll({ behavior: "ignoreErrors" });
+  await mockGatewayAPIs(page);
+  await page.goto("/");
+  await page.waitForSelector(".hecate-activitybar");
+
+  await expect(page.getByText("Nothing runnable yet")).toBeVisible();
+  await expect(page.getByText("Add a model provider or install a supported coding-agent CLI before sending a message.")).toBeVisible();
+  await page.getByRole("button", { name: "Go to Connections" }).click();
+  await expect(page.locator(".hecate-activitybar [aria-current='page']")).toHaveAttribute("aria-label", /Connections/);
+});
+
 test("model picker opens and lists models from mock data", async ({ page }) => {
   await switchToModel(page);
   // Wait for models to load, then open the picker

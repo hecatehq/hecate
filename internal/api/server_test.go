@@ -534,6 +534,7 @@ func TestProviderStatusReturnsHealthAndDiscoveryFreshness(t *testing.T) {
 			if item.Readiness.Status != "ok" || item.Readiness.Reason != "ready" {
 				t.Fatalf("openai readiness = %#v, want ok/ready", item.Readiness)
 			}
+			assertReadinessSummary(t, item, "ok", "ready", false)
 			assertProviderReadinessCheck(t, item, "credentials", "ok", "configured")
 			assertProviderReadinessCheck(t, item, "models", "ok", "models_discovered")
 			assertProviderReadinessCheck(t, item, "health", "ok", "healthy")
@@ -553,6 +554,7 @@ func TestProviderStatusReturnsHealthAndDiscoveryFreshness(t *testing.T) {
 			if item.Readiness.Status != "blocked" || item.Readiness.Reason != "provider_unhealthy" {
 				t.Fatalf("ollama readiness = %#v, want blocked/provider_unhealthy", item.Readiness)
 			}
+			assertReadinessSummary(t, item, "blocked", "provider_unhealthy", true)
 			assertProviderReadinessCheck(t, item, "credentials", "ok", "not_required")
 			assertProviderReadinessCheck(t, item, "health", "blocked", "provider_unhealthy")
 			assertProviderReadinessCheck(t, item, "routing", "blocked", "provider_unhealthy")
@@ -571,6 +573,7 @@ func TestProviderStatusReturnsHealthAndDiscoveryFreshness(t *testing.T) {
 			if item.Readiness.Status != "blocked" || item.Readiness.Reason != "credential_missing" {
 				t.Fatalf("anthropic readiness = %#v, want blocked/credential_missing", item.Readiness)
 			}
+			assertReadinessSummary(t, item, "blocked", "credential_missing", true)
 			assertProviderReadinessCheck(t, item, "credentials", "blocked", "credential_missing")
 			assertProviderReadinessCheck(t, item, "routing", "blocked", "credential_missing")
 			foundCredentialBlocked = true
@@ -585,6 +588,7 @@ func TestProviderStatusReturnsHealthAndDiscoveryFreshness(t *testing.T) {
 			if item.Readiness.Status != "warning" || item.Readiness.Reason != "default_model_only" {
 				t.Fatalf("openrouter readiness = %#v, want warning/default_model_only", item.Readiness)
 			}
+			assertReadinessSummary(t, item, "warning", "default_model_only", true)
 			assertProviderReadinessCheck(t, item, "models", "warning", "default_model_only")
 			assertProviderReadinessCheck(t, item, "routing", "ok", "routable")
 			foundDefaultOnly = true
@@ -601,6 +605,25 @@ func TestProviderStatusReturnsHealthAndDiscoveryFreshness(t *testing.T) {
 	}
 	if !foundDefaultOnly {
 		t.Fatalf("missing default-only provider entry: %#v", response.Data)
+	}
+}
+
+func assertReadinessSummary(t *testing.T, item ProviderStatusResponseItem, status, reason string, wantAction bool) {
+	t.Helper()
+	if item.Readiness.Status != status {
+		t.Fatalf("%s readiness status = %q, want %q", item.Name, item.Readiness.Status, status)
+	}
+	if item.Readiness.Reason != reason {
+		t.Fatalf("%s readiness reason = %q, want %q", item.Name, item.Readiness.Reason, reason)
+	}
+	if item.Readiness.Message == "" {
+		t.Fatalf("%s readiness message is empty", item.Name)
+	}
+	if wantAction && item.Readiness.OperatorAction == "" {
+		t.Fatalf("%s readiness operator_action is empty for status %q", item.Name, status)
+	}
+	if !wantAction && item.Readiness.OperatorAction != "" {
+		t.Fatalf("%s readiness operator_action = %q, want empty", item.Name, item.Readiness.OperatorAction)
 	}
 }
 

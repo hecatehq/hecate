@@ -417,6 +417,8 @@ export function ObservabilityView({ state, onNavigate, focusRequest }: Props) {
     <TraceDetail
       selectedID={selectedID}
       selectedTrace={selectedTrace}
+      selectedProvider={selectedTrace ? traceProvider(selectedTrace) : ""}
+      selectedModel={selectedTrace ? traceModel(selectedTrace) : ""}
       ledger={ledgerByRequest.get(selectedID)}
       traceDetail={traceDetail}
       traceFetching={traceFetching}
