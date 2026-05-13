@@ -2350,6 +2350,49 @@ func TestAgentChatExternalConfigOptionAdapterFailure(t *testing.T) {
 	}
 }
 
+func TestAgentChatExternalConfigOptionMissingRunner(t *testing.T) {
+	dir := t.TempDir()
+	logger := slog.New(slog.NewJSONHandler(io.Discard, nil))
+	store := agentchat.NewMemoryStore()
+	now := time.Now().UTC()
+	session, err := store.Create(context.Background(), agentchat.Session{
+		ID:          "agent_chat_missing_runner",
+		RuntimeKind: "external_agent",
+		AdapterID:   "codex",
+		Workspace:   dir,
+		Status:      "idle",
+		CreatedAt:   now,
+		UpdatedAt:   now,
+	})
+	if err != nil {
+		t.Fatalf("create session: %v", err)
+	}
+	apiHandler := newTestAPIHandlerWithSettings(logger, []providers.Provider{&fakeProvider{}}, config.Config{}, nil)
+	apiHandler.SetAgentChatStore(store)
+	apiHandler.agentChatRunner = nil
+	handler := NewServer(logger, apiHandler)
+
+	recorder := performRequest(t, handler, http.MethodPost, "/hecate/v1/agent-chat/sessions/"+session.ID+"/config-options/model", `{"value":"fast"}`)
+	if recorder.Code != http.StatusInternalServerError {
+		t.Fatalf("status = %d, want 500; body: %s", recorder.Code, recorder.Body.String())
+	}
+	var payload struct {
+		Error struct {
+			Type    string `json:"type"`
+			Message string `json:"message"`
+		} `json:"error"`
+	}
+	if err := json.Unmarshal(recorder.Body.Bytes(), &payload); err != nil {
+		t.Fatalf("decode error response: %v", err)
+	}
+	if payload.Error.Type != errCodeGatewayError {
+		t.Fatalf("error type = %q, want %q", payload.Error.Type, errCodeGatewayError)
+	}
+	if !strings.Contains(payload.Error.Message, "agent chat runner is not configured") {
+		t.Fatalf("error message = %q, want missing runner detail", payload.Error.Message)
+	}
+}
+
 func TestAgentChatExternalCreateCleansUpWhenPrepareFails(t *testing.T) {
 	dir := t.TempDir()
 	logger := slog.New(slog.NewJSONHandler(io.Discard, nil))
