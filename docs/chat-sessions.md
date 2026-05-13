@@ -24,8 +24,11 @@ near the composer with an **Open Connections** action; empty chats show a compac
 version in the empty state that still includes the discovered-model count,
 health/blocking/error diagnostics, and short remediation steps. The compact card
 is intentionally not just a warning — it should be enough to choose a discovered
-model, refresh local provider discovery, or jump to Connections for the full
-readiness checklist.
+model, accept a backend-suggested replacement when one is available, refresh
+local provider discovery, or jump to Connections for the full readiness
+checklist. Suggested replacement models reset the provider route to **All
+providers** because the fallback can belong to a different provider than the
+stale selection.
 
 The backend owns the readiness wording. `/hecate/v1/providers/status` returns a
 provider-level `readiness` summary plus detailed `readiness_checks`, and

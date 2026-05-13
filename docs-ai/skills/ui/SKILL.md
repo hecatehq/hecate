@@ -126,7 +126,9 @@ Each section has exactly one job: orient, inspect, compare, edit, or confirm. If
   discovered-model count, health, blocked-by, last-error, and repair steps.
   The empty-state "compact" version may be shorter, but it must still include
   discovered-model count and at least a short remediation list; don't reduce it
-  to a dead-end warning.
+  to a dead-end warning. If the backend provides a suggested replacement model,
+  expose it as an action and reset the provider route to "All providers" before
+  selecting it, because the suggested model may belong to a different provider.
 - Agent Chat readiness belongs in Connections and in the picker
   diagnostics: distinguish missing binaries, auth/billing problems, unsupported
   versions, and managed-launcher issues without sending users to raw logs first.

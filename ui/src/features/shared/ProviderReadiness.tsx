@@ -1,4 +1,5 @@
 import type { ProviderReadinessCheckRecord, ProviderReadinessSummaryRecord } from "../../types/runtime";
+import { readinessRecommendation } from "../../lib/provider-readiness";
 
 export function ProviderReadinessSummary({ readiness }: { readiness?: ProviderReadinessSummaryRecord }) {
   if (!readiness || (!readiness.message && !readiness.operator_action && !readiness.reason)) return null;
@@ -185,39 +186,6 @@ export function CompactProviderReadinessChecks({ checks }: { checks: ProviderRea
       })}
     </div>
   );
-}
-
-export function readinessRecommendation(check: ProviderReadinessCheckRecord): string {
-  if (check.operator_action) return check.operator_action;
-
-  switch (check.reason) {
-    case "credential_missing":
-      return "add or rotate this provider's API key.";
-    case "provider_disabled":
-      return check.name === "models"
-        ? "enable the provider before model discovery can run."
-        : "enable the provider when you want Hecate to route to it.";
-    case "self_referential":
-      return "change the base URL so it points at the provider, not Hecate.";
-    case "discovery_failed":
-      return "check the endpoint and refresh provider status after the server is reachable.";
-    case "default_model_only":
-      return "send a test request or refresh discovery to confirm the default model is real.";
-    case "no_models":
-      return "start the provider and pull/load at least one model.";
-    case "provider_slow":
-      return "keep it enabled if acceptable, or route to a faster provider.";
-    case "provider_rate_limited":
-      return "wait for cooldown or temporarily route to another provider.";
-    case "provider_unhealthy":
-      return "inspect the latest health error and provider server logs.";
-    case "circuit_open":
-      return "wait for recovery or test the provider after fixing the upstream issue.";
-    case "recovery_probe":
-      return "retry once the half-open probe succeeds.";
-    default:
-      return "";
-  }
 }
 
 function readinessColor(status?: string): string {

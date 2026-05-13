@@ -97,6 +97,7 @@ describe("buildSelectedModelIssue", () => {
       { label: "Blocked by", value: "credential_missing" },
     ]));
     expect(issue?.steps.join(" ")).toContain("Add or rotate this provider's API key");
+    expect(issue?.suggestedModel).toBe("gpt-4o-mini");
   });
 
   it("explains a stale local model selection", () => {
