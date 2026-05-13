@@ -597,16 +597,23 @@ func (s *acpSession) SetConfigOption(ctx context.Context, req SetSessionConfigOp
 func (s *acpSession) setConfigOptions(options []agentcontrols.ConfigOption) {
 	s.configMu.Lock()
 	defer s.configMu.Unlock()
-	s.configOptions = append([]agentcontrols.ConfigOption(nil), options...)
+	if options == nil {
+		s.configOptions = nil
+		return
+	}
+	s.configOptions = make([]agentcontrols.ConfigOption, len(options))
+	copy(s.configOptions, options)
 }
 
 func (s *acpSession) configOptionsSnapshot() []agentcontrols.ConfigOption {
 	s.configMu.Lock()
 	defer s.configMu.Unlock()
-	if len(s.configOptions) == 0 {
+	if s.configOptions == nil {
 		return nil
 	}
-	return append([]agentcontrols.ConfigOption(nil), s.configOptions...)
+	options := make([]agentcontrols.ConfigOption, len(s.configOptions))
+	copy(options, s.configOptions)
+	return options
 }
 
 func (s *acpSession) Close(ctx context.Context) error {

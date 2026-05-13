@@ -12,6 +12,8 @@ import (
 	"unicode/utf8"
 
 	acp "github.com/coder/acp-go-sdk"
+
+	"github.com/hecate/agent-runtime/internal/agentcontrols"
 )
 
 func TestFakeACPAgentProcess(t *testing.T) {
@@ -73,6 +75,36 @@ func TestSessionManagerRunsTurnsThroughACP(t *testing.T) {
 	}
 	if second.Usage.ContextSize != 200_000 || second.Usage.ContextUsed != 20_000 {
 		t.Fatalf("second usage = %+v, want turn 2 context usage", second.Usage)
+	}
+}
+
+func TestACPSessionConfigOptionsSnapshotPreservesNilAndEmpty(t *testing.T) {
+	session := &acpSession{}
+	if got := session.configOptionsSnapshot(); got != nil {
+		t.Fatalf("initial snapshot = %#v, want nil", got)
+	}
+
+	session.setConfigOptions([]agentcontrols.ConfigOption{})
+	if got := session.configOptionsSnapshot(); got == nil {
+		t.Fatal("empty snapshot = nil, want non-nil empty slice")
+	} else if len(got) != 0 {
+		t.Fatalf("empty snapshot length = %d, want 0", len(got))
+	}
+
+	session.setConfigOptions([]agentcontrols.ConfigOption{{ID: "model", CurrentValue: "fast"}})
+	got := session.configOptionsSnapshot()
+	if len(got) != 1 || got[0].CurrentValue != "fast" {
+		t.Fatalf("snapshot = %#v, want copied option", got)
+	}
+	got[0].CurrentValue = "mutated"
+	got = session.configOptionsSnapshot()
+	if len(got) != 1 || got[0].CurrentValue != "fast" {
+		t.Fatalf("snapshot after caller mutation = %#v, want stored option unchanged", got)
+	}
+
+	session.setConfigOptions(nil)
+	if got := session.configOptionsSnapshot(); got != nil {
+		t.Fatalf("nil snapshot = %#v, want nil", got)
 	}
 }
 
