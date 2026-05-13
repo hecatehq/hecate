@@ -618,7 +618,7 @@ tools on or off for a provider/model pair.
 
 `metadata.readiness` is the backend-owned provider/model readiness snapshot for
 that discovered row. Chats should use it before sending instead of inferring
-routeability from model names alone: a model can appear in discovery while its
+routability from model names alone: a model can appear in discovery while its
 provider is credential-blocked, circuit-open, disabled, or otherwise not
 routable. When `ready=false`, show `message` and `operator_action` directly and
 use `reason`, `provider_status`, `provider_blocked_reason`, and
