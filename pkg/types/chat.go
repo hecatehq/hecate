@@ -213,6 +213,7 @@ type ModelInfo struct {
 	Default         bool
 	DiscoverySource string
 	Capabilities    ModelCapabilities
+	Readiness       ModelReadiness
 }
 
 // ModelCapabilities is the operator-facing capability snapshot Hecate uses
@@ -223,6 +224,33 @@ type ModelCapabilities struct {
 	Streaming        bool   `json:"streaming,omitempty"`
 	MaxContextTokens int    `json:"max_context_tokens,omitempty"`
 	Source           string `json:"source,omitempty"`
+}
+
+// ReadinessSummary is the compact operator-facing answer to "can Hecate use
+// this thing right now?" Detailed checks remain available for drill-down.
+type ReadinessSummary struct {
+	Status         string
+	Reason         string
+	Message        string
+	OperatorAction string
+}
+
+// ModelReadiness explains whether a discovered provider/model pair can be used
+// for routing. It mirrors the gateway readiness contract without exposing the
+// gateway package to API/UI projection code.
+type ModelReadiness struct {
+	Provider              string
+	MatchedProvider       string
+	Model                 string
+	Ready                 bool
+	Status                string
+	Reason                string
+	Message               string
+	OperatorAction        string
+	RoutingReady          bool
+	ProviderStatus        string
+	ProviderBlockedReason string
+	SuggestedModels       []string
 }
 
 type ProviderStatus struct {
@@ -251,6 +279,7 @@ type ProviderStatus struct {
 	ServerErrors        int64
 	RateLimits          int64
 	Error               string
+	Readiness           ReadinessSummary
 	ReadinessChecks     []ProviderReadinessCheck
 }
 

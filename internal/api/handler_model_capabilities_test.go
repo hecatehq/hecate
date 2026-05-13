@@ -18,6 +18,7 @@ func TestModelsExposeCapabilityPayloads(t *testing.T) {
 	handler := newModelCapabilityTestHandler(t)
 	models := mustRequestJSON[OpenAIModelsResponse](newTaskTestClient(t, handler), http.MethodGet, "/v1/models", "")
 	caps := modelCapabilitiesFromModels(t, models, "llama3.1:8b")
+	readiness := modelReadinessFromModels(t, models, "llama3.1:8b")
 
 	if caps["tool_calling"] != modelcaps.ToolCallingUnknown {
 		t.Fatalf("tool_calling = %#v, want unknown", caps["tool_calling"])
@@ -27,6 +28,9 @@ func TestModelsExposeCapabilityPayloads(t *testing.T) {
 	}
 	if caps["source"] != modelcaps.SourceProvider {
 		t.Fatalf("source = %#v, want provider", caps["source"])
+	}
+	if readiness["ready"] != true || readiness["status"] != "ok" || readiness["reason"] != "model_available" {
+		t.Fatalf("readiness = %#v, want ready model_available", readiness)
 	}
 }
 
@@ -102,6 +106,22 @@ func modelCapabilitiesFromModels(t *testing.T, models OpenAIModelsResponse, mode
 		raw, ok := item.Metadata["capabilities"].(map[string]any)
 		if !ok {
 			t.Fatalf("capabilities metadata for %s = %#v", modelID, item.Metadata["capabilities"])
+		}
+		return raw
+	}
+	t.Fatalf("model %q not found in %+v", modelID, models.Data)
+	return nil
+}
+
+func modelReadinessFromModels(t *testing.T, models OpenAIModelsResponse, modelID string) map[string]any {
+	t.Helper()
+	for _, item := range models.Data {
+		if item.ID != modelID {
+			continue
+		}
+		raw, ok := item.Metadata["readiness"].(map[string]any)
+		if !ok {
+			t.Fatalf("readiness metadata for %s = %#v", modelID, item.Metadata["readiness"])
 		}
 		return raw
 	}

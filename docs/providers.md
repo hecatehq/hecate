@@ -243,6 +243,7 @@ returns:
 - `credential_ready` — whether credentials are configured or not required
 - `routing_ready` — whether the router can currently send traffic to it
 - `routing_blocked_reason` — stable reason when routing is blocked, such as `credential_missing`, `provider_disabled`, `provider_rate_limited`, `circuit_open`, `provider_unhealthy`, or `no_models`
+- `readiness` — compact provider-level summary for cards/tables with `status`, `reason`, operator-facing `message`, and optional `operator_action`
 - `readiness_checks` — a normalized checklist for `credentials`, `models`, `health`, and `routing`. Each check has `status` (`ok`, `warning`, `blocked`, or `unknown`), `reason`, an operator-facing `message`, and an optional `operator_action` repair step. Non-routing checks can use scoped reasons such as `default_model_only`, `discovery_failed`, `self_referential`, or `provider_slow`.
 - `model_count`, `discovery_source`, `last_checked_at`, and `last_error` for model-discovery freshness and failure context
 - `last_error_class`, `open_until`, `last_latency_ms`, `consecutive_failures`, `timeouts`, `server_errors`, `rate_limits`, `total_successes`, and `total_failures` for richer health debugging
@@ -267,10 +268,12 @@ they explain why a provider/model candidate was skipped.
 The Chats workspace consumes the same readiness model at composition time. A
 provider can be configured and healthy while the selected model is still not
 routable, usually because discovery reports a different local model set or a
-cloud account does not expose that model. In that case Chats blocks the
-composer before sending, shows the selected model, provider route, discovered
-model count, health, and next steps, and links the operator back to Providers
-for the full checklist. The same contract applies in the empty-chat state:
+cloud account does not expose that model. `/v1/models` includes
+`metadata.readiness` on each discovered provider/model row so Chats can block
+before sending when a discovered model is still not usable because credentials,
+health, or routing are blocked. In that case Chats shows the selected model,
+provider route, backend readiness message, and next steps, and links the
+operator back to Providers for the full checklist. The same contract applies in the empty-chat state:
 compact readiness copy must still show the discovered-model count plus the
 highest-signal health/block/error diagnostics and a short repair path, so
 operators are not forced to send a doomed prompt or inspect raw provider JSON.

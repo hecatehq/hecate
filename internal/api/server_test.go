@@ -531,6 +531,9 @@ func TestProviderStatusReturnsHealthAndDiscoveryFreshness(t *testing.T) {
 			if !item.RoutingReady {
 				t.Fatalf("openai routing_ready = false, reason = %q", item.RoutingBlocked)
 			}
+			if item.Readiness.Status != "ok" || item.Readiness.Reason != "ready" {
+				t.Fatalf("openai readiness = %#v, want ok/ready", item.Readiness)
+			}
 			assertProviderReadinessCheck(t, item, "credentials", "ok", "configured")
 			assertProviderReadinessCheck(t, item, "models", "ok", "models_discovered")
 			assertProviderReadinessCheck(t, item, "health", "ok", "healthy")
@@ -547,6 +550,9 @@ func TestProviderStatusReturnsHealthAndDiscoveryFreshness(t *testing.T) {
 			if item.RoutingBlocked != "provider_unhealthy" {
 				t.Fatalf("ollama routing_blocked_reason = %q, want provider_unhealthy", item.RoutingBlocked)
 			}
+			if item.Readiness.Status != "blocked" || item.Readiness.Reason != "provider_unhealthy" {
+				t.Fatalf("ollama readiness = %#v, want blocked/provider_unhealthy", item.Readiness)
+			}
 			assertProviderReadinessCheck(t, item, "credentials", "ok", "not_required")
 			assertProviderReadinessCheck(t, item, "health", "blocked", "provider_unhealthy")
 			assertProviderReadinessCheck(t, item, "routing", "blocked", "provider_unhealthy")
@@ -562,6 +568,9 @@ func TestProviderStatusReturnsHealthAndDiscoveryFreshness(t *testing.T) {
 			if item.RoutingBlocked != "credential_missing" {
 				t.Fatalf("anthropic routing_blocked_reason = %q, want credential_missing", item.RoutingBlocked)
 			}
+			if item.Readiness.Status != "blocked" || item.Readiness.Reason != "credential_missing" {
+				t.Fatalf("anthropic readiness = %#v, want blocked/credential_missing", item.Readiness)
+			}
 			assertProviderReadinessCheck(t, item, "credentials", "blocked", "credential_missing")
 			assertProviderReadinessCheck(t, item, "routing", "blocked", "credential_missing")
 			foundCredentialBlocked = true
@@ -572,6 +581,9 @@ func TestProviderStatusReturnsHealthAndDiscoveryFreshness(t *testing.T) {
 			}
 			if !item.RoutingReady {
 				t.Fatalf("openrouter routing_ready = false, reason = %q", item.RoutingBlocked)
+			}
+			if item.Readiness.Status != "warning" || item.Readiness.Reason != "default_model_only" {
+				t.Fatalf("openrouter readiness = %#v, want warning/default_model_only", item.Readiness)
 			}
 			assertProviderReadinessCheck(t, item, "models", "warning", "default_model_only")
 			assertProviderReadinessCheck(t, item, "routing", "ok", "routable")

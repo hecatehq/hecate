@@ -55,6 +55,50 @@ describe("buildSelectedModelIssue", () => {
     expect(issue).toBeNull();
   });
 
+  it("uses backend readiness metadata when a discovered model is not routable", () => {
+    const issue = buildSelectedModelIssue({
+      model: "claude-sonnet-4-6",
+      providerFilter: "anthropic",
+      selectableModels: [{
+        id: "claude-sonnet-4-6",
+        owned_by: "anthropic",
+        metadata: {
+          provider: "anthropic",
+          readiness: {
+            ready: false,
+            status: "blocked",
+            reason: "credential_missing",
+            message: "Provider \"anthropic\" is not routable for model \"claude-sonnet-4-6\".",
+            operator_action: "Add or rotate this provider's API key, then retry this model.",
+            provider_status: "healthy",
+            provider_blocked_reason: "credential_missing",
+            suggested_models: ["gpt-4o-mini"],
+          },
+        },
+      }],
+      configuredProvider: {
+        id: "anthropic",
+        name: "Anthropic",
+        kind: "cloud",
+        protocol: "anthropic",
+        base_url: "",
+        credential_configured: false,
+      },
+    });
+
+    expect(issue).toEqual(expect.objectContaining({
+      title: "Selected model is not ready",
+      providerLabel: "Anthropic",
+      model: "claude-sonnet-4-6",
+    }));
+    expect(issue?.message).toContain("not routable");
+    expect(issue?.details).toEqual(expect.arrayContaining([
+      { label: "Reason", value: "credential_missing" },
+      { label: "Blocked by", value: "credential_missing" },
+    ]));
+    expect(issue?.steps.join(" ")).toContain("Add or rotate this provider's API key");
+  });
+
   it("explains a stale local model selection", () => {
     const issue = buildSelectedModelIssue({
       model: "llama3.1:8b",

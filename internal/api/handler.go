@@ -26,6 +26,7 @@ import (
 	"github.com/hecate/agent-runtime/internal/taskstate"
 	"github.com/hecate/agent-runtime/internal/telemetry"
 	"github.com/hecate/agent-runtime/internal/version"
+	"github.com/hecate/agent-runtime/pkg/types"
 )
 
 type Handler struct {
@@ -511,6 +512,7 @@ func (h *Handler) HandleModels(w http.ResponseWriter, r *http.Request) {
 				"default":          model.Default,
 				"discovery_source": model.DiscoverySource,
 				"capabilities":     caps,
+				"readiness":        renderModelReadiness(model.Readiness),
 			},
 		})
 	}
@@ -519,6 +521,23 @@ func (h *Handler) HandleModels(w http.ResponseWriter, r *http.Request) {
 		Object: "list",
 		Data:   data,
 	})
+}
+
+func renderModelReadiness(readiness types.ModelReadiness) ModelReadinessResponseItem {
+	return ModelReadinessResponseItem{
+		Provider:              readiness.Provider,
+		MatchedProvider:       readiness.MatchedProvider,
+		Model:                 readiness.Model,
+		Ready:                 readiness.Ready,
+		Status:                readiness.Status,
+		Reason:                readiness.Reason,
+		Message:               readiness.Message,
+		OperatorAction:        readiness.OperatorAction,
+		RoutingReady:          readiness.RoutingReady,
+		ProviderStatus:        readiness.ProviderStatus,
+		ProviderBlockedReason: readiness.ProviderBlockedReason,
+		SuggestedModels:       readiness.SuggestedModels,
+	}
 }
 
 // requireSettings verifies the settings backend is configured and writes a

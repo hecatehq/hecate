@@ -7,6 +7,7 @@ import (
 
 	"github.com/hecate/agent-runtime/internal/catalog"
 	"github.com/hecate/agent-runtime/internal/providers"
+	"github.com/hecate/agent-runtime/pkg/types"
 )
 
 type ProviderModelReadiness struct {
@@ -21,6 +22,33 @@ type ProviderModelReadiness struct {
 	ProviderStatus        string
 	ProviderBlockedReason string
 	SuggestedModels       []string
+}
+
+func (r ProviderModelReadiness) ToModelReadiness() types.ModelReadiness {
+	return types.ModelReadiness{
+		Provider:              r.Provider,
+		MatchedProvider:       r.MatchedProvider,
+		Model:                 r.Model,
+		Ready:                 r.Ready,
+		Status:                providerModelReadinessStatus(r),
+		Reason:                r.Reason,
+		Message:               r.Message,
+		OperatorAction:        r.OperatorAction,
+		RoutingReady:          r.RoutingReady,
+		ProviderStatus:        r.ProviderStatus,
+		ProviderBlockedReason: r.ProviderBlockedReason,
+		SuggestedModels:       append([]string(nil), r.SuggestedModels...),
+	}
+}
+
+func providerModelReadinessStatus(readiness ProviderModelReadiness) string {
+	if readiness.Ready {
+		return "ok"
+	}
+	if readiness.ProviderStatus == "" && readiness.Reason == "" {
+		return "unknown"
+	}
+	return "blocked"
 }
 
 func providerModelReadiness(entries []catalog.Entry, provider, model string) ProviderModelReadiness {

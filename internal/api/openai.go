@@ -519,7 +519,30 @@ type ProviderStatusResponseItem struct {
 	Timeouts            int64                                `json:"timeouts,omitempty"`
 	ServerErrors        int64                                `json:"server_errors,omitempty"`
 	RateLimits          int64                                `json:"rate_limits,omitempty"`
+	Readiness           ReadinessSummaryResponseItem         `json:"readiness,omitempty"`
 	ReadinessChecks     []ProviderReadinessCheckResponseItem `json:"readiness_checks,omitempty"`
+}
+
+type ReadinessSummaryResponseItem struct {
+	Status         string `json:"status,omitempty"`
+	Reason         string `json:"reason,omitempty"`
+	Message        string `json:"message,omitempty"`
+	OperatorAction string `json:"operator_action,omitempty"`
+}
+
+type ModelReadinessResponseItem struct {
+	Provider              string   `json:"provider,omitempty"`
+	MatchedProvider       string   `json:"matched_provider,omitempty"`
+	Model                 string   `json:"model,omitempty"`
+	Ready                 bool     `json:"ready"`
+	Status                string   `json:"status,omitempty"`
+	Reason                string   `json:"reason,omitempty"`
+	Message               string   `json:"message,omitempty"`
+	OperatorAction        string   `json:"operator_action,omitempty"`
+	RoutingReady          bool     `json:"routing_ready"`
+	ProviderStatus        string   `json:"provider_status,omitempty"`
+	ProviderBlockedReason string   `json:"provider_blocked_reason,omitempty"`
+	SuggestedModels       []string `json:"suggested_models,omitempty"`
 }
 
 type ProviderReadinessCheckResponseItem struct {

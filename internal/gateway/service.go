@@ -734,6 +734,7 @@ func (s *Service) ListModels(ctx context.Context) (*ModelsResult, error) {
 				OwnedBy:         entry.Name,
 				Default:         modelID == entry.DefaultModel,
 				DiscoverySource: entry.DiscoverySource,
+				Readiness:       providerModelReadinessForEntry(entry, entry.Name, modelID).ToModelReadiness(),
 			})
 		}
 	}
@@ -768,8 +769,9 @@ func (s *Service) ProviderStatus(ctx context.Context) (*ProviderStatusResult, er
 			ServerErrors:        entry.ServerErrors,
 			RateLimits:          entry.RateLimits,
 			Error:               entry.Error,
-			ReadinessChecks:     providerReadinessChecks(entry),
 		}
+		status.ReadinessChecks = providerReadinessChecks(entry)
+		status.Readiness = providerReadinessSummary(entry, status.ReadinessChecks)
 		if entry.RefreshedAt != "" {
 			if ts, err := time.Parse(time.RFC3339, entry.RefreshedAt); err == nil {
 				status.RefreshedAt = ts
@@ -905,6 +907,54 @@ func providerReadinessChecks(entry catalog.Entry) []types.ProviderReadinessCheck
 		providerModelDiscoveryCheck(entry),
 		providerHealthCheck(entry),
 		providerRoutingCheck(entry),
+	}
+}
+
+func providerReadinessSummary(entry catalog.Entry, checks []types.ProviderReadinessCheck) types.ReadinessSummary {
+	if len(checks) == 0 {
+		return types.ReadinessSummary{
+			Status:         "unknown",
+			Reason:         "unknown",
+			Message:        "Provider readiness has not been checked yet.",
+			OperatorAction: "Refresh provider status after configuration or startup settles.",
+		}
+	}
+
+	var firstWarning, firstUnknown *types.ProviderReadinessCheck
+	for i := range checks {
+		check := &checks[i]
+		if check.Name == "routing" && check.Status == "blocked" {
+			return providerReadinessSummaryFromCheck("blocked", *check)
+		}
+		if check.Status == "blocked" {
+			return providerReadinessSummaryFromCheck("blocked", *check)
+		}
+		if check.Status == "warning" && firstWarning == nil {
+			firstWarning = check
+		}
+		if check.Status == "unknown" && firstUnknown == nil {
+			firstUnknown = check
+		}
+	}
+	if firstWarning != nil {
+		return providerReadinessSummaryFromCheck("warning", *firstWarning)
+	}
+	if firstUnknown != nil {
+		return providerReadinessSummaryFromCheck("unknown", *firstUnknown)
+	}
+	return types.ReadinessSummary{
+		Status:  "ok",
+		Reason:  "ready",
+		Message: fmt.Sprintf("Provider %q is ready for routing.", entry.Name),
+	}
+}
+
+func providerReadinessSummaryFromCheck(status string, check types.ProviderReadinessCheck) types.ReadinessSummary {
+	return types.ReadinessSummary{
+		Status:         status,
+		Reason:         check.Reason,
+		Message:        check.Message,
+		OperatorAction: check.OperatorAction,
 	}
 }
 
