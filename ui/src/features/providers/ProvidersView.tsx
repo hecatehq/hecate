@@ -811,7 +811,7 @@ function resolveNextReadinessStep(
   if (!hint) return null;
   return {
     tone: hint.tone === "amber" || hint.tone === "red" ? "amber" : "muted",
-    text: hint.action === "No repair needed." ? hint.message : `${hint.message} ${hint.action}`,
+    text: hint.tone === "muted" ? hint.message : `${hint.message} ${hint.action}`,
   };
 }
 
