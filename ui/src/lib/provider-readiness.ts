@@ -1,4 +1,5 @@
 import type { ConfiguredProviderRecord, ProviderReadinessCheckRecord, ProviderRecord } from "../types/runtime";
+import { describeRoutingBlockedReason } from "./runtime-routing";
 
 export type ProviderRepairHint = {
   title: string;
@@ -89,9 +90,10 @@ export function providerRepairHint({
   }
 
   if (runtimeProvider?.routing_blocked_reason) {
+    const reason = describeRoutingBlockedReason(runtimeProvider.routing_blocked_reason);
     return {
       title: "Routing blocked",
-      message: `${name} is configured, but routing is blocked by ${runtimeProvider.routing_blocked_reason}.`,
+      message: `${name} is configured, but routing is blocked: ${reason}.`,
       action: "Open Connections and inspect routing, health, and discovery details.",
       tone: "amber",
     };

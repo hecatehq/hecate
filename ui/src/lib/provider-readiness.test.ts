@@ -86,6 +86,25 @@ describe("providerRepairHint", () => {
     expect(hint.title).toBe("No models discovered");
     expect(hint.action).toContain("refresh Connections");
   });
+
+  it("humanizes routing blocked reasons when readiness details are absent", () => {
+    const hint = providerRepairHint({
+      configuredProvider: { id: "anthropic", name: "Anthropic", kind: "cloud", credential_configured: true },
+      runtimeProvider: {
+        name: "anthropic",
+        kind: "cloud",
+        healthy: true,
+        status: "healthy",
+        models: ["claude"],
+        model_count: 1,
+        routing_blocked_reason: "credential_missing",
+      },
+    });
+
+    expect(hint.title).toBe("Routing blocked");
+    expect(hint.message).toContain("Missing credentials");
+    expect(hint.message).not.toContain("credential_missing");
+  });
 });
 
 describe("providerFleetRepairHint", () => {
