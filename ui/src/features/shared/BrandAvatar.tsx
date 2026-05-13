@@ -113,9 +113,9 @@ export function BrandAvatar({
           alignItems: "center",
           color: assistant ? "var(--teal)" : "var(--t1)",
           display: "inline-flex",
-          height: icon ? size : undefined,
+          height: size,
           justifyContent: "center",
-          width: icon ? size : undefined,
+          width: size,
           ...style,
         }}
       >

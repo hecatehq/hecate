@@ -539,7 +539,7 @@ function outputActivityDetail(activity: AgentChatActivityRecord): string | undef
 }
 
 function formatBytes(bytes?: number): string | undefined {
-  if (!bytes || bytes < 0) return undefined;
+  if (bytes === undefined || bytes < 0) return undefined;
   if (bytes < 1024) return `${bytes}b`;
   if (bytes < 1024 * 1024) return `${(bytes / 1024).toFixed(bytes < 10 * 1024 ? 1 : 0)}kb`;
   return `${(bytes / (1024 * 1024)).toFixed(1)}mb`;

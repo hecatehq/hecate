@@ -2088,6 +2088,48 @@ func TestAgentChatIdleSweepCancelsStaleSession(t *testing.T) {
 	}
 }
 
+func TestAgentChatCreateExternalSessionCleansUpPreparedSessionOnPersistFailure(t *testing.T) {
+	dir := t.TempDir()
+	baseStore := agentchat.NewMemoryStore()
+	store := &failingUpdateSessionStore{Store: baseStore, err: errors.New("update failed")}
+
+	logger := slog.New(slog.NewJSONHandler(io.Discard, nil))
+	runner := &fakeAgentChatRunner{nativeSessionID: "native_cleanup"}
+	apiHandler := newTestAPIHandlerWithSettings(logger, []providers.Provider{&fakeProvider{}}, config.Config{}, nil)
+	apiHandler.SetAgentChatStore(store)
+	apiHandler.SetAgentChatRunner(runner)
+	client := newAPITestClient(t, NewServer(logger, apiHandler))
+
+	rec := client.mustRequestStatus(http.StatusInternalServerError, http.MethodPost, "/hecate/v1/agent-chat/sessions", fmt.Sprintf(`{"adapter_id":"codex","workspace":%q}`, dir))
+	if !strings.Contains(rec.Body.String(), "update failed") {
+		t.Fatalf("response body = %s, want update error", rec.Body.String())
+	}
+	if len(runner.closedSessions) != 1 {
+		t.Fatalf("closed sessions = %#v, want one prepared session closed", runner.closedSessions)
+	}
+	if len(store.deletedIDs) != 1 || store.deletedIDs[0] != runner.closedSessions[0] {
+		t.Fatalf("deleted ids = %#v, closed = %#v, want persisted session deleted after close", store.deletedIDs, runner.closedSessions)
+	}
+	if _, ok, err := baseStore.Get(context.Background(), store.deletedIDs[0]); err != nil || ok {
+		t.Fatalf("base store Get after cleanup: ok=%v err=%v, want missing", ok, err)
+	}
+}
+
+type failingUpdateSessionStore struct {
+	agentchat.Store
+	err        error
+	deletedIDs []string
+}
+
+func (s *failingUpdateSessionStore) UpdateSession(context.Context, string, func(*agentchat.Session)) (agentchat.Session, error) {
+	return agentchat.Session{}, s.err
+}
+
+func (s *failingUpdateSessionStore) Delete(ctx context.Context, id string) error {
+	s.deletedIDs = append(s.deletedIDs, id)
+	return s.Store.Delete(ctx, id)
+}
+
 type fakeAgentChatRunner struct {
 	output             string
 	finalOutput        string

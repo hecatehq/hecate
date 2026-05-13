@@ -102,6 +102,28 @@ func TestACPSessionConfigOptionsSnapshotPreservesNilAndEmpty(t *testing.T) {
 		t.Fatalf("snapshot after caller mutation = %#v, want stored option unchanged", got)
 	}
 
+	input := []agentcontrols.ConfigOption{
+		{
+			ID:   "reasoning",
+			Type: agentcontrols.ConfigOptionTypeSelect,
+			Options: []agentcontrols.ConfigSelectOption{
+				{Value: "medium", Name: "Medium"},
+				{Value: "high", Name: "High"},
+			},
+		},
+	}
+	session.setConfigOptions(input)
+	input[0].Options[0].Name = "Mutated input"
+	got = session.configOptionsSnapshot()
+	if got[0].Options[0].Name != "Medium" {
+		t.Fatalf("snapshot after input mutation = %#v, want nested options copied", got)
+	}
+	got[0].Options[1].Name = "Mutated snapshot"
+	got = session.configOptionsSnapshot()
+	if got[0].Options[1].Name != "High" {
+		t.Fatalf("snapshot after nested caller mutation = %#v, want stored nested option unchanged", got)
+	}
+
 	session.setConfigOptions(nil)
 	if got := session.configOptionsSnapshot(); got != nil {
 		t.Fatalf("nil snapshot = %#v, want nil", got)

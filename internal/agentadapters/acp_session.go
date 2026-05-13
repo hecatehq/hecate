@@ -602,8 +602,7 @@ func (s *acpSession) setConfigOptions(options []agentcontrols.ConfigOption) {
 		s.configOptions = nil
 		return
 	}
-	s.configOptions = make([]agentcontrols.ConfigOption, len(options))
-	copy(s.configOptions, options)
+	s.configOptions = cloneConfigOptions(options)
 }
 
 func (s *acpSession) configOptionsSnapshot() []agentcontrols.ConfigOption {
@@ -612,9 +611,23 @@ func (s *acpSession) configOptionsSnapshot() []agentcontrols.ConfigOption {
 	if s.configOptions == nil {
 		return nil
 	}
-	options := make([]agentcontrols.ConfigOption, len(s.configOptions))
-	copy(options, s.configOptions)
-	return options
+	return cloneConfigOptions(s.configOptions)
+}
+
+func cloneConfigOptions(options []agentcontrols.ConfigOption) []agentcontrols.ConfigOption {
+	if options == nil {
+		return nil
+	}
+	out := make([]agentcontrols.ConfigOption, len(options))
+	copy(out, options)
+	for i := range out {
+		if options[i].Options == nil {
+			continue
+		}
+		out[i].Options = make([]agentcontrols.ConfigSelectOption, len(options[i].Options))
+		copy(out[i].Options, options[i].Options)
+	}
+	return out
 }
 
 func (s *acpSession) Close(ctx context.Context) error {
