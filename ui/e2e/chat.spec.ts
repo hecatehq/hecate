@@ -2,7 +2,7 @@ import { expect, test as baseTest, mockGatewayAPIs, MOCK_MODELS, MOCK_PROVIDERS,
 import type { Page } from "@playwright/test";
 
 // Chat tests need a populated provider list — without one, AppShell hides
-// the chat workspace behind a "No providers configured" placeholder. Override
+// the chat workspace behind a "No model providers configured" placeholder. Override
 // the default empty-list mock with the populated fixture for every chat test.
 const test = baseTest.extend<{ page: Page }>({
   page: async ({ page }, use) => {
@@ -211,19 +211,19 @@ test("Enter-switch preference persists across reload via localStorage", async ({
 });
 
 test("workspace selection persists across reload", async ({ page }) => {
-  await page.keyboard.press("2"); // Providers
-  await expect(page.locator(".hecate-activitybar [aria-current='page']")).toHaveAttribute("aria-label", /Providers/);
+  await page.locator(".hecate-activitybar [aria-label^='Connections']").click();
+  await expect(page.locator(".hecate-activitybar [aria-current='page']")).toHaveAttribute("aria-label", /Connections/);
 
   await page.reload();
   await page.waitForSelector(".hecate-activitybar");
-  await expect(page.locator(".hecate-activitybar [aria-current='page']")).toHaveAttribute("aria-label", /Providers/);
+  await expect(page.locator(".hecate-activitybar [aria-current='page']")).toHaveAttribute("aria-label", /Connections/);
 });
 
 // A failing /v1/chat/completions surfaces inline beneath the chat header.
 // Toast is gone for chat errors — the chat surface owns its own banner so a
 // single source of truth shows up next to the input. The "api key is
-// required for cloud provider X" wire message is humanized into "X has no
-// API key. Open the Providers tab and add one." before reaching the DOM.
+// required for cloud provider X" wire message is humanized into a
+// Connections repair action before reaching the DOM.
 test("chat error renders inline with the humanized message", async ({ page }) => {
   await switchToModel(page);
   await page.route("/hecate/v1/agent-chat/sessions", async route => {

@@ -193,7 +193,7 @@ describe("ChatView input", () => {
     });
     render(<ChatView state={state} actions={actions} />);
     expect(screen.getByText("No routable model")).toBeTruthy();
-    expect(screen.getByRole("button", { name: /Go to Providers/i })).toBeTruthy();
+    expect(screen.getByRole("button", { name: /Go to Connections/i })).toBeTruthy();
     expect(screen.queryByRole("textbox", { name: "Message" })).toBeNull();
     expect(screen.queryByRole("button", { name: "Send message" })).toBeNull();
   });
@@ -296,15 +296,15 @@ describe("ChatView input", () => {
     render(<ChatView state={state} actions={actions} onNavigate={onNavigate} />);
 
     expect(screen.getByText("Selected model is not available from this provider")).toBeTruthy();
-    expect(screen.getByRole("button", { name: "Open Providers" })).toBeTruthy();
+    expect(screen.getByRole("button", { name: "Open Connections" })).toBeTruthy();
     expect(screen.queryByRole("textbox", { name: "Message" })).toBeNull();
 
     const user = userEvent.setup();
-    await user.click(screen.getByRole("button", { name: "Open Providers" }));
+    await user.click(screen.getByRole("button", { name: "Open Connections" }));
     expect(onNavigate).toHaveBeenCalledWith("providers");
   });
 
-  it("opens Providers from the model empty state", async () => {
+  it("opens Connections from the model empty state", async () => {
     const onNavigate = vi.fn();
     const { state, actions } = setup({
       chatTarget: "model",
@@ -316,7 +316,7 @@ describe("ChatView input", () => {
     render(<ChatView state={state} actions={actions} onNavigate={onNavigate} />);
 
     const user = userEvent.setup();
-    await user.click(screen.getByRole("button", { name: /Go to Providers/i }));
+    await user.click(screen.getByRole("button", { name: /Go to Connections/i }));
 
     expect(onNavigate).toHaveBeenCalledWith("providers");
   });
@@ -682,7 +682,7 @@ describe("ChatView input", () => {
     });
     render(<ChatView state={state} actions={actions} />);
     expect(screen.getByText("Nothing runnable yet")).toBeTruthy();
-    expect(screen.getByRole("button", { name: /Go to Providers/i })).toBeTruthy();
+    expect(screen.getByRole("button", { name: /Go to Connections/i })).toBeTruthy();
     expect(screen.getByRole("button", { name: "Agent" })).toHaveTextContent("Hecate");
     expect(screen.queryByRole("textbox", { name: "Message" })).toBeNull();
     expect(screen.queryByRole("button", { name: "Send message" })).toBeNull();
@@ -1467,7 +1467,7 @@ describe("ChatView external-agent target", () => {
     expect(screen.getByRole("button", { name: /Install/ })).toBeTruthy();
     expect(screen.getByRole("button", { name: /Auth/ })).toBeTruthy();
     expect(screen.getByText(/no local package runner/)).toBeTruthy();
-    expect(screen.queryByRole("button", { name: /Go to Providers/i })).toBeNull();
+    expect(screen.queryByRole("button", { name: /Go to Connections/i })).toBeNull();
   });
 
   it("renders external agent controls and keeps agent choice scoped to new chats", async () => {
@@ -2397,8 +2397,7 @@ describe("ChatView session focus", () => {
     // button onClick and chat-row onClick. The activeChatSessionID
     // effect deliberately does NOT focus, because data-load (chats
     // arriving from the API) also drives that transition and stealing
-    // focus on load would block the dashboard's keyboard shortcuts
-    // (e2e regression — see shell.spec.ts shortcut tests).
+    // focus on load would hijack normal page navigation.
     const selectChatSession = vi.fn(async () => undefined);
     const { state, actions } = setup({
       chatTarget: "model",

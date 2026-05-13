@@ -88,7 +88,7 @@ On first boot, Chats is already available. If Hecate detects a local runtime suc
 
 ![Chats first-run state — detected local providers and one-click Add detected providers setup](docs/screenshots/chat-empty.png)
 
-You can still configure providers manually from **Providers → Add provider**:
+You can still configure providers manually from **Connections → Add provider**:
 
 - Cloud providers need an API key.
 - Local providers need a running local server URL, usually the preset default.
@@ -117,7 +117,7 @@ The gateway is one local Go process with the React operator UI embedded. `hecate
 
 ```mermaid
 flowchart LR
-    UI["Operator UI<br/>Chats · Providers · Tasks · Observability"]
+    UI["Operator UI<br/>Chats · Connections · Tasks · Observability"]
     Clients["OpenAI / Anthropic clients"]
     Editors["ACP editors"]
 
@@ -155,22 +155,22 @@ The embedded UI is a runtime console for the operator.
 | Workspace | Job |
 |---|---|
 | **Chats** | Hecate Chat with per-chat tools on/off, External Agent sessions, queued prompts, task/trace/run links, timing, usage, and captured diffs. |
-| **Providers** | Credentials, local/cloud presets, model discovery, base URLs, health, and routing readiness. |
+| **Connections** | Model-provider credentials, local/cloud presets, model discovery, routing readiness, external-agent readiness, and durable approval grants. |
 | **Tasks** | Native `agent_loop` runs, approvals, retries, resumes, streamed output, artifacts, and full run history. |
 | **Observability** | Request ledger, route candidates, skip reasons, failover, cost, traces, metrics, logs, and local trace events. |
 | **Costs** | Balance, top-up/reset, and usage table. |
-| **Settings** | Pricebook, model capability overrides, retention, external-agent readiness, and durable approval grants. |
+| **Settings** | Pricebook, model capability overrides, and retention. |
 
 <details>
 <summary>Various UI screenshots</summary>
 
 ![Observability view — request ledger and route-report drilldown](docs/screenshots/observe.png)
 
-![Empty Providers tab — Add provider CTA](docs/screenshots/providers-empty.png)
+![Empty Connections view — Add provider CTA](docs/screenshots/providers-empty.png)
 
 ![Add provider modal — local preset catalog with detected runtime status](docs/screenshots/providers-presets.png)
 
-![Providers workspace — configured cloud and local providers with health, endpoint, credentials, and models](docs/screenshots/providers.png)
+![Connections workspace — configured cloud and local providers with health, endpoint, credentials, and models](docs/screenshots/providers.png)
 
 ![Tasks workspace — run timeline with failed-tool diagnostics, stdout/stderr previews, and artifacts](docs/screenshots/tasks.png)
 
@@ -180,7 +180,7 @@ The embedded UI is a runtime console for the operator.
 
 ![Settings → Retention — pruning windows and last-run history](docs/screenshots/settings-retention.png)
 
-![Settings → Connections — adapter readiness checks and durable approval grants](docs/screenshots/settings-external-agents.png)
+![Connections workspace — adapter readiness checks and durable approval grants](docs/screenshots/settings-external-agents.png)
 
 </details>
 
@@ -198,7 +198,7 @@ Stability stages:
 | Area | State | Notes |
 |---|---|---|
 | Model gateway | Alpha-ready | OpenAI-compatible Chat Completions, Anthropic-shaped Messages, streaming, vision, model discovery, failover, budgets, rate limits, pricebook, and custom endpoints. |
-| Providers | Alpha-ready | Cloud presets plus Ollama, LM Studio, LocalAI, llama.cpp-compatible servers, local discovery, health, credentials, and checklist-style routing readiness diagnostics. |
+| Connections | Alpha-ready | Cloud presets plus Ollama, LM Studio, LocalAI, llama.cpp-compatible servers, local discovery, health, credentials, and checklist-style routing readiness diagnostics. |
 | Hecate Chat | Alpha-ready | Direct model turns and tools-on task-backed `agent_loop` segments in one transcript, streamed assistant text, task/trace links, local busy-prompt queueing, and inline task approvals. Workspace modes and agent profiles are still future work. |
 | External Agent | Alpha-ready | Codex, Claude Code, and Cursor Agent discovery, long-lived ACP sessions, prompt-first approvals, grants, health/version checks, cancel, guardrails, raw diagnostics, and Git diff inspect/revert. Runs as trusted subprocesses. |
 | Task runtime | Alpha-ready | Queue/lease execution, approvals, resumable `agent_loop`, MCP integration, streamed output, artifacts, and stale-run recovery. Broader lifecycle hardening is still ongoing. |

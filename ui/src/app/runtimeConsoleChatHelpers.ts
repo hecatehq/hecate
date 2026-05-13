@@ -22,7 +22,7 @@ export function humanizeChatError(raw: string): string {
   const apiKeyPattern = /api key is required for cloud provider (\S+)/i;
   const m = raw.match(apiKeyPattern);
   if (m) {
-    return `${m[1]} has no API key. Open the Providers tab and add one.`;
+    return `${m[1]} has no API key. Open Connections and add one.`;
   }
   if (/agent_session_busy|already running for this chat session/i.test(raw)) {
     return "Hecate Chat is still working on this task. Open the task, resolve approval, or stop it before sending another message.";
@@ -31,17 +31,17 @@ export function humanizeChatError(raw: string): string {
     return "Choose a workspace before using Hecate Chat tools or External Agent.";
   }
   if (/tool.?calling.*(unknown|none|unavailable|not supported)|model.*does not support.*tools?/i.test(raw)) {
-    return "This model is not marked as tool-capable. Turn tools off, test it, or enable tools in Settings.";
+    return "This model is not marked as tool-capable. Turn tools off, test it, or enable tools in Settings → Model capabilities.";
   }
   const explicitModel = raw.match(/no provider supports explicit model ["“]?([^"”]+)["”]?/i);
   if (explicitModel) {
-    return `No configured provider can route to ${explicitModel[1]}. Choose another model or add/configure a provider.`;
+    return `No configured provider can route to ${explicitModel[1]}. Choose another model or open Connections to repair provider readiness.`;
   }
   if (/no routable model|no route/i.test(raw)) {
-    return "No routable model is available. Choose another model, add a provider, or check provider health.";
+    return "No routable model is available. Choose another model or open Connections to add a provider, discover models, or check provider health.";
   }
   if (/authentication required|please (run .*login|log in)|not signed in|unauthenticated/i.test(raw)) {
-    return "The selected runtime is not signed in. Run its login command or use Settings to test readiness.";
+    return "The selected runtime is not signed in. Open Connections to repair or test readiness.";
   }
   if (/credit balance is too low|billing|payment required|insufficient credits/i.test(raw)) {
     return "The selected runtime reported a billing or credit problem. Check its account, subscription, or API key balance.";

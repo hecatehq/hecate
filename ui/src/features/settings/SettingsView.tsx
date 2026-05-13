@@ -10,14 +10,13 @@ type Props = {
   onNavigate?: (workspace: "providers" | "runs" | "overview" | "settings" | "chats" | "costs") => void;
 };
 
-// Visible settings sub-tabs. Connections gathers provider/agent setup
-// signals; Pricing covers per-model pricebook entries; Retention
-// triggers and reviews stored-data sweeps. Balances and usage live in
-// the Costs workspace.
-const TABS = ["connections", "model_capabilities", "pricebook", "retention"] as const;
+// Visible settings sub-tabs. Connections is now a top-level workspace;
+// Settings stays focused on configuration that does not belong to a
+// runtime connection surface. Balances and usage live in the Costs
+// workspace.
+const TABS = ["model_capabilities", "pricebook", "retention"] as const;
 type Tab = (typeof TABS)[number];
 const TAB_LABELS: Record<Tab, string> = {
-  connections: "Connections",
   pricebook: "Pricing",
   model_capabilities: "Model capabilities",
   retention: "Retention",
@@ -25,12 +24,12 @@ const TAB_LABELS: Record<Tab, string> = {
 
 const TAB_STORAGE_KEY = "hecate.settingsTab";
 
-export function SettingsView({ state, actions, onNavigate }: Props) {
+export function SettingsView({ state, actions }: Props) {
   // Persist the settings sub-tab so refreshing while on (say) Pricebook
   // returns the operator to Pricebook.
   const [tab, setTabRaw] = useState<Tab>(() => {
     const saved = localStorage.getItem(TAB_STORAGE_KEY);
-    if (saved === "external_agents") return "connections";
+    if (saved === "external_agents" || saved === "connections") return TABS[0];
     if (saved && (TABS as readonly string[]).includes(saved)) return saved as Tab;
     return TABS[0];
   });
@@ -66,7 +65,6 @@ export function SettingsView({ state, actions, onNavigate }: Props) {
 
       {/* Tab content */}
       <div style={{ flex: 1, overflowY: "auto", padding: 16 }}>
-        {tab === "connections"        && <ConnectionsTab state={state} actions={actions} onNavigate={onNavigate} />}
         {tab === "pricebook"           && <PricebookTab state={state} actions={actions} />}
         {tab === "model_capabilities" && <ModelCapabilitiesTab state={state} actions={actions} />}
         {tab === "retention"           && <RetentionTab state={state} actions={actions} />}
@@ -471,22 +469,24 @@ function RetentionTab({ state, actions }: Props) {
 }
 
 
-// ─── Connections tab ──────────────────────────────────────────────────────────
+// ─── Connections panel ────────────────────────────────────────────────────────
 
-// ConnectionsTab gathers the two setup surfaces operators usually need
-// together: model providers (owned by the Providers workspace) and
-// external-agent adapters/grants (owned here because the controls are
-// mostly auth/readiness + durable approval cleanup). Provider CRUD stays
-// in the Providers workspace for now; this tab gives Settings a single
-// place to answer "what can Hecate connect to?" without duplicating the
-// full provider editor.
+// ConnectionsTab gathers the external-agent setup surfaces that sit next
+// to model-provider CRUD in the Connections workspace. It intentionally
+// remains exported for reuse by ProvidersView while the settings-only tabs
+// above stay focused on model capabilities, pricing, and retention.
 //
-// Grants and adapter health are lazy-loaded on tab mount — operators
+// Grants and adapter health are lazy-loaded on panel mount — operators
 // rarely visit this surface, so we don't fetch on every dashboard
-// load. Adapter probes run automatically here because this tab is a
+// load. Adapter probes run automatically here because this panel is a
 // readiness panel; "Save" validates Claude Code auth before storing
 // the token, so no separate Test button is needed.
-function ConnectionsTab({ state, actions, onNavigate }: Props) {
+export function ConnectionsTab({
+  state,
+  actions,
+  onNavigate,
+  showProviderSummary = true,
+}: Props & { showProviderSummary?: boolean }) {
   const liveAnthropicProvider = findAnthropicProvider(state.settingsConfig?.providers ?? []);
   const [rememberedAnthropicProvider, setRememberedAnthropicProvider] = useState<ConfiguredProviderRecord | null>(liveAnthropicProvider);
   const probedAdapterIDsRef = useRef<Set<string>>(new Set());
@@ -517,9 +517,9 @@ function ConnectionsTab({ state, actions, onNavigate }: Props) {
 
   // One-shot scroll + highlight when the operator arrived here via
   // the "Open Claude Code setup" button on a failed Claude run.
-  // The chat sets `hecate.settingsFocus` in sessionStorage before
-  // navigating; we read-and-clear it so subsequent visits to this
-  // tab don't re-trigger the scroll.
+  // Chat sets `hecate.connectionsFocus` in sessionStorage before
+  // navigating; we read-and-clear it so subsequent visits don't
+  // re-trigger the scroll.
   //
   // The focus target is validated against a small allowlist before
   // it's interpolated into a DOM lookup — that avoids any selector-
@@ -532,8 +532,12 @@ function ConnectionsTab({ state, actions, onNavigate }: Props) {
     const KNOWN_FOCUS_TARGETS = new Set(["claude-code-guided-setup"]);
     let focusTarget: string | null = null;
     try {
-      const raw = sessionStorage.getItem("hecate.settingsFocus");
-      if (raw) sessionStorage.removeItem("hecate.settingsFocus");
+      const raw = sessionStorage.getItem("hecate.connectionsFocus")
+        || sessionStorage.getItem("hecate.settingsFocus");
+      if (raw) {
+        sessionStorage.removeItem("hecate.connectionsFocus");
+        sessionStorage.removeItem("hecate.settingsFocus");
+      }
       if (raw && KNOWN_FOCUS_TARGETS.has(raw)) focusTarget = raw;
     } catch {
       // sessionStorage unavailable — nothing to focus.
@@ -567,7 +571,7 @@ function ConnectionsTab({ state, actions, onNavigate }: Props) {
 
   return (
     <>
-      <ModelProviderConnectionsSection state={state} onNavigate={onNavigate} />
+      {showProviderSummary && <ModelProviderConnectionsSection state={state} onNavigate={onNavigate} />}
 
       {rememberedAnthropicProvider && (
         <AnthropicProviderKeyCard
@@ -649,7 +653,7 @@ function ModelProviderConnectionsSection({
         actions={
           onNavigate ? (
             <button type="button" className="btn btn-primary btn-sm" onClick={() => onNavigate("providers")}>
-              Open Providers
+              Open Connections
             </button>
           ) : undefined
         }

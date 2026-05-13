@@ -328,7 +328,7 @@ For one frontend concretely:
   - Optional note field
 - **Approve / Deny / Cancel** buttons; the chosen ACP option_id is the
   primary button text ("Allow once" or whatever the adapter named it)
-- **Grants management** in Settings → External Agents: list of every
+- **Grants management** in Connections: list of every
   `agent_chat_approval_grants` row with revoke buttons
 
 Frontends are free to render this differently. The wire contract is the

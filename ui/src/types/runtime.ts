@@ -595,7 +595,7 @@ export type PendingAgentApproval = AgentChatApprovalRequestedEvent;
 // by GET /hecate/v1/agent-adapters/{id}/health. The status string is one of
 // "ready" | "not_installed" | "auth_required" | "error"; the UI uses
 // it to colour status chips (green / amber / red / red) and to drive
-// the adapter status panel in Settings → Connections.
+// the adapter status panel in Connections.
 export type AgentAdapterHealthRecord = {
   adapter_id: string;
   status: string;

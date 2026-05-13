@@ -324,13 +324,12 @@ export function ChatView({ state, actions, onNavigate, onOpenTask, onOpenTrace }
 
   function openClaudeCodeSetup() {
     try {
-      localStorage.setItem("hecate.settingsTab", "connections");
-      sessionStorage.setItem("hecate.settingsFocus", "claude-code-guided-setup");
+      sessionStorage.setItem("hecate.connectionsFocus", "claude-code-guided-setup");
     } catch {
-      // localStorage / sessionStorage unavailable — navigation still
+      // sessionStorage unavailable — navigation still
       // works, just no auto-scroll to the guided setup card.
     }
-    onNavigate?.("settings");
+    onNavigate?.("providers");
   }
 
   async function saveClaudeCodeToken() {
@@ -358,10 +357,9 @@ export function ChatView({ state, actions, onNavigate, onOpenTask, onOpenTrace }
     // Reset scroll state on every session change. Focus is NOT applied
     // here on purpose: data-load (sessions arriving from the API) also
     // triggers an activeChatSessionID transition, and stealing focus on
-    // load would block page-level keyboard shortcuts (1/2/3/4/5) for
-    // the entire dashboard. Focus is instead applied at the explicit
-    // user-driven entry points: the New-session button and the session
-    // row onClick handlers.
+    // load would hijack normal page navigation and screen-reader flow.
+    // Focus is instead applied at the explicit user-driven entry points:
+    // the New-session button and the session row onClick handlers.
     userScrolledRef.current = false;
     setAtBottom(true);
     bottomRef.current?.scrollIntoView({ behavior: "instant" });
@@ -828,7 +826,7 @@ export function ChatView({ state, actions, onNavigate, onOpenTask, onOpenTrace }
                             healthy: true, // dot suppressed in the picker; field kept for type compatibility
                             kind: p.kind,
                             configured: cfg ? cfg.credential_configured : undefined,
-                            disabledReason: cloudUnconfigured ? `Add an API key for ${cfg!.name || cfg!.id} on the Providers tab` : undefined,
+                            disabledReason: cloudUnconfigured ? `Add an API key for ${cfg!.name || cfg!.id} in Connections` : undefined,
                           };
                         });
                     })()}
@@ -858,7 +856,7 @@ export function ChatView({ state, actions, onNavigate, onOpenTask, onOpenTrace }
                       const out = new Map<string, string>();
                       for (const cfg of state.settingsConfig?.providers ?? []) {
                         if (cfg.kind === "cloud" && !cfg.credential_configured) {
-                          out.set(cfg.id, `Add an API key for ${cfg.name || cfg.id} on the Providers tab`);
+                          out.set(cfg.id, `Add an API key for ${cfg.name || cfg.id} in Connections`);
                         }
                       }
                       return out;
@@ -1040,9 +1038,9 @@ export function ChatView({ state, actions, onNavigate, onOpenTask, onOpenTrace }
                   // handler.
                   isAgentChat && role === "assistant" && m.agent_adapter_id === "claude_code"
                     && typeof m.error === "string" && m.error.includes("claude_code_auth_required")
-                    ? {
+                      ? {
                         label: "Open Claude Code setup",
-                        title: "Open Settings → Connections and scroll to the guided setup card",
+                        title: "Open Connections and scroll to the guided setup card",
                         onClick: openClaudeCodeSetup,
                       }
                     : undefined
@@ -2154,7 +2152,7 @@ function ChatEmptyState({
               onClick={onOpenProviders}
               type="button"
               style={{ display: "flex", alignItems: "center", gap: 4 }}>
-              <Icon d={Icons.providers} size={13} /> Go to Providers
+              <Icon d={Icons.providers} size={13} /> Go to Connections
             </button>
           )}
           {agentRouteUnavailable && !isAgentChat && (
@@ -2227,12 +2225,12 @@ function ModelRouteTroubleshooting({
     ? [
         "Start the local provider app or server.",
         "Pull or load at least one model in that provider.",
-        "Click Providers to confirm the endpoint and discovered model list.",
+        "Open Connections to confirm the endpoint and discovered model list.",
       ]
     : [
         "Check that credentials are configured for this provider.",
         "Confirm the account has access to at least one model.",
-        "Click Providers to inspect the latest health and discovery error.",
+        "Open Connections to inspect the latest health and discovery error.",
       ];
 
   return (
@@ -2319,7 +2317,7 @@ function SelectedModelReadinessNotice({
           </div>
           {onOpenProviders && (
             <button className="btn btn-ghost btn-sm" type="button" onClick={onOpenProviders} style={{ flexShrink: 0 }}>
-              Open Providers
+              Open Connections
             </button>
           )}
         </div>
@@ -2509,7 +2507,7 @@ function QuickLocalProviderAdd({
           </div>
           <div style={{ display: "flex", flexDirection: "column", alignItems: "center", gap: 8 }}>
             <span style={{ fontSize: 11, color: "var(--t3)", lineHeight: 1.4, textAlign: "center" }}>
-              Selected {selectedCandidates.length} of {candidates.length}. You can edit names and URLs later in Providers.
+              Selected {selectedCandidates.length} of {candidates.length}. You can edit names and URLs later in Connections.
             </span>
             <button
               className="btn btn-primary btn-sm"

@@ -87,7 +87,7 @@ The Anthropic adapter auto-attaches `cache_control: {"type":"ephemeral"}` marker
 
 - The `system` field's last block and the last entry in `tools` each get a marker, but **only if the tail entry doesn't already carry caller-supplied `cache_control`**. Caller intent wins on the tail; earlier caller markers anywhere else in the same section are preserved unchanged.
 - Anthropic caps requests at four `cache_control` breakpoints. The adapter does not currently count or enforce that limit — auto-attach can contribute up to two markers on top of whatever the caller set. A caller already placing three or more markers can exceed the cap and be rejected upstream. If we add cross-provider request-shaping helpers later, this is where to put a breakpoint counter.
-- Globally toggleable via `GATEWAY_PROVIDER_ANTHROPIC_CACHE_ENABLED` (default `true`). Applied uniformly by `Protocol == "anthropic"` regardless of how the provider was added (env, Providers tab, programmatic). The runtime manager exposes `SetGlobalAnthropicCacheDisabled` for tests.
+- Globally toggleable via `GATEWAY_PROVIDER_ANTHROPIC_CACHE_ENABLED` (default `true`). Applied uniformly by `Protocol == "anthropic"` regardless of how the provider was added (env, Connections workspace, programmatic). The runtime manager exposes `SetGlobalAnthropicCacheDisabled` for tests.
 - Operator-facing doc: [`docs/providers.md`](../../../docs/providers.md#anthropic-prompt-caching). Keep it in sync if you change the helpers' contract.
 
 ### Response side — three-bucket usage

@@ -4,12 +4,14 @@ import { afterEach, describe, expect, it, vi } from "vitest";
 import { ConsoleShell, getAvailableWorkspaces } from "./AppShell";
 import { createRuntimeConsoleActions, createRuntimeConsoleFixture } from "../test/runtime-console-fixture";
 
-// Workspace lineup is fixed and positional.
+// Workspace lineup is fixed. Numeric keyboard workspace switching was
+// removed so text inputs, screen readers, and browser shortcuts own the
+// number keys without surprises.
 describe("getAvailableWorkspaces", () => {
-  it("returns chats / providers / runs / overview / costs / settings with positional shortcuts", () => {
+  it("returns chats / connections / runs / overview / costs / settings", () => {
     const ws = getAvailableWorkspaces();
     expect(ws.map(w => w.id)).toEqual(["chats", "providers", "runs", "overview", "costs", "settings"]);
-    expect(ws.map(w => w.shortcut)).toEqual(["1", "2", "3", "4", "5", "6"]);
+    expect(ws.map(w => w.label)).toEqual(["Chats", "Connections", "Tasks", "Observability", "Costs", "Settings"]);
   });
 
   it("labels the settings workspace 'Settings'", () => {
@@ -56,10 +58,10 @@ describe("ConsoleShell navigation", () => {
     // waits for the dynamic import to resolve. Shell chrome
     // (workspace nav buttons, statusbar) is not lazy and can
     // still be queried synchronously.
-    expect(screen.getByRole("button", { name: /Chats \(1\)/ })).toBeEnabled();
+    expect(screen.getByRole("button", { name: "Chats" })).toBeEnabled();
     expect(await screen.findByText(/Nothing runnable yet/i, undefined, { timeout: 5000 })).toBeInTheDocument();
-    expect(screen.queryByText(/No providers configured/i)).toBeNull();
-    expect(screen.getByRole("button", { name: /Go to Providers/i })).toBeInTheDocument();
+    expect(screen.queryByText(/No model providers configured/i)).toBeNull();
+    expect(screen.getByRole("button", { name: /Go to Connections/i })).toBeInTheDocument();
   });
 
   it("shows the selected agent workspace and git branch in the status bar", () => {

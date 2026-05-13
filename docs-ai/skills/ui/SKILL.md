@@ -127,7 +127,7 @@ Each section has exactly one job: orient, inspect, compare, edit, or confirm. If
   The empty-state "compact" version may be shorter, but it must still include
   discovered-model count and at least a short remediation list; don't reduce it
   to a dead-end warning.
-- Agent Chat readiness belongs in Settings → External agents and in the picker
+- Agent Chat readiness belongs in Connections and in the picker
   diagnostics: distinguish missing binaries, auth/billing problems, unsupported
   versions, and managed-launcher issues without sending users to raw logs first.
   To smoke-test missing/available adapter states without uninstalling local

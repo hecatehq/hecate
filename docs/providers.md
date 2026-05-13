@@ -4,7 +4,7 @@ Hecate uses a vendor-neutral provider layer at the runtime boundary. It treats O
 
 > Contributing here? Start at [`AGENTS.md`](../AGENTS.md) for the codebase map and runtime invariants; provider-package depth (the seven-step "add a wire field" chain, the api↔providers parallel-struct rule, capability cache seeding, streaming gotchas) lives in [`docs-ai/skills/providers/SKILL.md`](../docs-ai/skills/providers/SKILL.md).
 
-![Providers tab — populated table with health, endpoint, credentials, and models columns](screenshots/providers.png)
+![Connections view — populated table with health, endpoint, credentials, and models columns](screenshots/providers.png)
 
 ## Contents
 
@@ -19,13 +19,13 @@ Hecate uses a vendor-neutral provider layer at the runtime boundary. It treats O
 ## Providers vs. clients
 
 - **Clients** call Hecate. Codex, Claude Code, OpenAI SDKs, Anthropic SDKs, curl scripts, and internal tools are supported as long as they speak Hecate's OpenAI-compatible or Anthropic-compatible gateway endpoints.
-- **Providers** are upstream model backends Hecate calls. The gateway ships with a preset catalog of common cloud and local backends, and the operator adds them explicitly via the Providers tab.
+- **Connections** are upstream model backends Hecate calls. The gateway ships with a preset catalog of common cloud and local backends, and the operator adds them explicitly via the Connections view.
 
 ## Adding a provider
 
-The Providers tab starts empty:
+The Connections view starts empty:
 
-![Empty Providers tab — Add provider CTA](screenshots/providers-empty.png)
+![Empty Connections view — Add provider CTA](screenshots/providers-empty.png)
 
 Click **Add provider** to open the modal:
 
@@ -59,7 +59,7 @@ continues to come from the normal `/hecate/v1/providers/status` probes.
 
 A provider you add is immediately routable. There is no separate enable/disable toggle — to take a provider out of rotation, delete it.
 
-![Providers table populated with three providers — Health, Endpoint, Credentials, Models columns](screenshots/providers.png)
+![Connections view populated with three providers — Health, Endpoint, Credentials, Models columns](screenshots/providers.png)
 
 ### Multiple instances
 
@@ -109,9 +109,9 @@ The gateway ships with thirteen provider presets. None of them are auto-added �
 
 ## Env-configured providers
 
-Setting `PROVIDER_<NAME>_API_KEY`, `PROVIDER_<NAME>_BASE_URL`, or `PROVIDER_<NAME>_DEFAULT_MODEL` in the environment seeds the runtime registry so the provider becomes reachable for routing, and is also auto-imported into the persisted Providers tab so operators can see and manage it through the UI. On subsequent boots the auto-import skips any provider that already exists in the Providers tab, so operator edits made via the UI are never overwritten by environment values.
+Setting `PROVIDER_<NAME>_API_KEY`, `PROVIDER_<NAME>_BASE_URL`, or `PROVIDER_<NAME>_DEFAULT_MODEL` in the environment seeds the runtime registry so the provider becomes reachable for routing, and is also auto-imported into the persisted Connections view so operators can see and manage it through the UI. On subsequent boots the auto-import skips any provider that already exists in the Connections view, so operator edits made via the UI are never overwritten by environment values.
 
-Env vars are convenient for first-run bootstrapping in `.env` / Docker compose; the Providers tab is the source of truth thereafter.
+Env vars are convenient for first-run bootstrapping in `.env` / Docker compose; the Connections view is the source of truth thereafter.
 
 ```bash
 PROVIDER_ANTHROPIC_API_KEY=sk-ant-...
@@ -172,7 +172,7 @@ is undercounted by ~20% per cache-write token until that lands.
 
 The behavior is controlled by `GATEWAY_PROVIDER_ANTHROPIC_CACHE_ENABLED`
 (default `true`). The toggle is global — every Anthropic-protocol
-provider, however it was added (env, Providers tab, programmatic),
+provider, however it was added (env, Connections view, programmatic),
 inherits the same value. Operators flip it to `false` for cost-tier
 comparisons or to debug a suspected cache-related issue. The
 Anthropic adapter is the only place this knob applies; non-Anthropic
@@ -227,7 +227,7 @@ The history store is configurable with:
 - `GATEWAY_PROVIDER_HISTORY_BACKEND` — `memory` or `sqlite`
 - `GATEWAY_PROVIDER_HISTORY_LIMIT` — default page size for `/hecate/v1/providers/history`
 
-The Providers tab shows the current state on each card:
+The Connections view shows the current state on each card:
 
 - 🟢 **Healthy** — recent successful traffic
 - 🟡 **Degraded / half-open** — recent failures, probing for recovery
@@ -273,7 +273,7 @@ cloud account does not expose that model. `/v1/models` includes
 before sending when a discovered model is still not usable because credentials,
 health, or routing are blocked. In that case Chats shows the selected model,
 provider route, backend readiness message, and next steps, and links the
-operator back to Providers for the full checklist. The same contract applies in the empty-chat state:
+operator back to Connections for the full checklist. The same contract applies in the empty-chat state:
 compact readiness copy must still show the discovered-model count plus the
 highest-signal health/block/error diagnostics and a short repair path, so
 operators are not forced to send a doomed prompt or inspect raw provider JSON.

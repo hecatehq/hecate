@@ -47,8 +47,8 @@ own the `hecate-acp` bridge process.
 4. Click **New chat**. Hecate starts the adapter session immediately so
    adapter-owned controls such as model, reasoning, or mode can appear before
    the first prompt.
-5. If the adapter row is amber/red, open **Settings → Connections** and
-   click **Test**. The probe performs a real spawn + ACP handshake + temporary
+5. If the adapter row is amber/red, open **Connections**. The probe performs
+   a real spawn + ACP handshake + temporary
    no-op session, so it catches missing auth, billing/subscription issues,
    unsupported versions, and broken managed launchers before a prompt fails.
 6. Send a small smoke prompt:
@@ -84,16 +84,16 @@ Claude Code has one important wrinkle: a normal interactive `claude /login`
 or `~/.claude.json` config can make the standalone Claude Code CLI work while
 the ACP adapter still reports `Authentication required`. If adapter readiness
 reports an auth failure and you want to use your Claude subscription instead of an API key, open
-Settings → Connections, run `claude setup-token`, paste the printed token
+Connections, run `claude setup-token`, paste the printed token
 into the Claude Code guided setup card, and click **Save**. Hecate
 stores the token in the local control-plane secret store and injects it only
 into `claude-agent-acp` as `CLAUDE_CODE_OAUTH_TOKEN`. `ANTHROPIC_API_KEY` and
 `ANTHROPIC_AUTH_TOKEN` also work when you want to supply Anthropic credentials
 directly.
-Settings → Connections refreshes adapter readiness when opened. You can also
+Connections refreshes adapter readiness when opened. You can also
 call the probe endpoint for a full spawn + ACP handshake + no-op session check:
 
-![Settings → Connections — adapter readiness checks and durable approval grants](screenshots/settings-external-agents.png)
+![Connections — adapter readiness checks and durable approval grants](screenshots/settings-external-agents.png)
 
 ```sh
 curl -X POST http://127.0.0.1:8765/hecate/v1/agent-adapters/codex/probe | jq
@@ -271,7 +271,7 @@ path with `decision` and `scope` attributes.
 Durable approval grants are part of the Agent Chat SQLite bundle. When
 `GATEWAY_CHAT_SESSIONS_BACKEND=sqlite`, grants survive gateway restarts and are
 listed from `GET /hecate/v1/agent-chat/grants`; the operator can revoke them from
-Settings → Connections. Pending approvals from a dead process are not
+Connections. Pending approvals from a dead process are not
 replayed as actionable prompts — startup reconcile marks them `timed_out` with
 `path=startup_reconcile` before the gateway accepts traffic.
 

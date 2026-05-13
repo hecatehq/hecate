@@ -4,6 +4,7 @@ import { resolvedBaseURL } from "../../lib/provider-utils";
 import { describeHealthErrorClass, describeRoutingBlockedReason } from "../../lib/runtime-utils";
 import { ProviderReadinessChecklist, ProviderReadinessSummary } from "../shared/ProviderReadiness";
 import { Badge, BrandAvatar, ConfirmModal, Icon, Icons, Modal } from "../shared/ui";
+import { ConnectionsTab } from "../settings/SettingsView";
 import { AddProviderModal } from "./AddProviderModal";
 
 type Props = {
@@ -127,6 +128,13 @@ export function ProvidersView({ state, actions }: Props) {
 
   const cloudIDs = configuredProviders.filter(p => p.kind === "cloud").map(p => p.id).sort(stableSort);
   const localIDs = configuredProviders.filter(p => p.kind !== "cloud").map(p => p.id).sort(stableSort);
+  const readyProviderCount = configuredProviders.filter(provider => isProviderRoutingReady(provider, statusByName.get(provider.id))).length;
+  const blockedProviderCount = configuredProviders.filter(provider => isProviderNeedsAttention(provider, statusByName.get(provider.id))).length;
+  const discoveredModelCount = state.models.length || configuredProviders.reduce((sum, provider) => {
+    const status = statusByName.get(provider.id);
+    return sum + (status?.model_count ?? status?.models?.length ?? 0);
+  }, 0);
+  const nextReadinessStep = resolveNextReadinessStep(configuredProviders, statusByName);
 
   const selectedConfig = selectedID ? configuredByID.get(selectedID) ?? null : null;
   const selectedStatus = selectedID ? statusByName.get(selectedID) : null;
@@ -335,7 +343,7 @@ export function ProvidersView({ state, actions }: Props) {
 
         {/* Header row */}
         <div style={{ display: "flex", alignItems: "center", gap: 10, marginBottom: 20 }}>
-          <span style={{ fontSize: 14, fontWeight: 500, color: "var(--t0)" }}>Providers</span>
+          <span style={{ fontSize: 14, fontWeight: 500, color: "var(--t0)" }}>Connections</span>
           <button
             className="btn btn-primary btn-sm"
             style={{ display: "flex", alignItems: "center", gap: 4, marginLeft: "auto" }}
@@ -345,12 +353,57 @@ export function ProvidersView({ state, actions }: Props) {
           </button>
         </div>
 
+        {configuredProviders.length > 0 && (
+          <div
+            className="card"
+            data-testid="connections-readiness-summary"
+            style={{ padding: "14px 16px", marginBottom: 24 }}
+          >
+            <div style={{ display: "flex", alignItems: "flex-start", gap: 12, marginBottom: 12 }}>
+              <div style={{ minWidth: 0 }}>
+                <div style={{ fontSize: 13, fontWeight: 600, color: "var(--t0)", marginBottom: 4 }}>
+                  Model provider readiness
+                </div>
+                <div style={{ fontSize: 11, color: "var(--t3)", lineHeight: 1.45 }}>
+                  Checks credentials, discovery, health, routing, and selected-model repair paths before a chat fails.
+                </div>
+              </div>
+              {nextReadinessStep && (
+                <div
+                  style={{
+                    marginLeft: "auto",
+                    maxWidth: 420,
+                    fontSize: 11,
+                    color: nextReadinessStep.tone === "amber" ? "var(--amber)" : "var(--t2)",
+                    lineHeight: 1.45,
+                    textAlign: "right",
+                  }}
+                >
+                  {nextReadinessStep.text}
+                </div>
+              )}
+            </div>
+            <div
+              style={{
+                display: "grid",
+                gridTemplateColumns: "repeat(auto-fit, minmax(135px, 1fr))",
+                gap: 10,
+              }}
+            >
+              <ConnectionStat label="Configured" value={String(configuredProviders.length)} hint="provider records" />
+              <ConnectionStat label="Ready" value={String(readyProviderCount)} hint="routing-ready" tone={readyProviderCount > 0 ? "green" : "muted"} />
+              <ConnectionStat label="Needs attention" value={String(blockedProviderCount)} hint="blocked providers" tone={blockedProviderCount > 0 ? "amber" : "muted"} />
+              <ConnectionStat label="Models" value={String(discoveredModelCount)} hint="discovered" tone={discoveredModelCount > 0 ? "green" : "muted"} />
+            </div>
+          </div>
+        )}
+
         {configuredProviders.length === 0 ? (
           <div style={{
             display: "flex", flexDirection: "column", alignItems: "center",
-            justifyContent: "center", height: "calc(100% - 52px)", gap: 0,
+            justifyContent: "center", minHeight: 280, gap: 0,
           }}>
-            <div style={{ fontSize: 14, color: "var(--t1)", fontWeight: 500 }}>No providers configured</div>
+            <div style={{ fontSize: 14, color: "var(--t1)", fontWeight: 500 }}>No model providers configured</div>
             <div style={{ fontSize: 12, color: "var(--t3)", marginTop: 6 }}>
               Add a local or cloud provider to start routing requests
             </div>
@@ -377,6 +430,14 @@ export function ProvidersView({ state, actions }: Props) {
             )}
           </>
         )}
+
+        <div style={{ marginTop: configuredProviders.length === 0 ? 28 : 8 }}>
+          <ConnectionsTab
+            state={state}
+            actions={actions}
+            showProviderSummary={false}
+          />
+        </div>
       </div>
 
       {/* Edit provider modal — opens on row click */}
@@ -676,6 +737,95 @@ const thStyle: CSSProperties = {
   textTransform: "uppercase",
   whiteSpace: "nowrap",
 };
+
+type ConnectionStatTone = "green" | "amber" | "muted";
+
+function ConnectionStat({
+  label,
+  value,
+  hint,
+  tone = "muted",
+}: {
+  label: string;
+  value: string;
+  hint: string;
+  tone?: ConnectionStatTone;
+}) {
+  return (
+    <div
+      style={{
+        border: "1px solid var(--border)",
+        borderRadius: 10,
+        padding: "10px 12px",
+        background: "rgba(255, 255, 255, 0.015)",
+      }}
+    >
+      <div style={{ fontFamily: "var(--font-mono)", fontSize: 10, color: "var(--t3)", textTransform: "uppercase", letterSpacing: "0.06em", marginBottom: 5 }}>
+        {label}
+      </div>
+      <div style={{ fontFamily: "var(--font-mono)", fontSize: 18, fontWeight: 700, color: statColor(tone), lineHeight: 1 }}>
+        {value}
+      </div>
+      <div style={{ fontSize: 10, color: "var(--t3)", marginTop: 6 }}>{hint}</div>
+    </div>
+  );
+}
+
+function statColor(tone: ConnectionStatTone): string {
+  switch (tone) {
+    case "green": return "var(--teal)";
+    case "amber": return "var(--amber)";
+    case "muted": return "var(--t3)";
+  }
+}
+
+function isProviderRoutingReady(
+  provider: NonNullable<RuntimeConsoleViewModel["state"]["settingsConfig"]>["providers"][number],
+  status: RuntimeConsoleViewModel["state"]["providers"][number] | undefined,
+): boolean {
+  if (status?.readiness?.status) {
+    return status.readiness.status === "ok" || status.readiness.status === "warning";
+  }
+  if (status?.routing_ready != null) return status.routing_ready;
+  if (provider.kind === "local") return Boolean(status?.healthy);
+  return Boolean(provider.credential_configured && status?.healthy);
+}
+
+function isProviderNeedsAttention(
+  provider: NonNullable<RuntimeConsoleViewModel["state"]["settingsConfig"]>["providers"][number],
+  status: RuntimeConsoleViewModel["state"]["providers"][number] | undefined,
+): boolean {
+  if (status?.readiness?.status === "blocked") return true;
+  if (provider.kind !== "local" && !provider.credential_configured) return true;
+  if (status?.routing_blocked_reason) return true;
+  if (status?.status === "open" || status?.status === "unhealthy") return true;
+  return false;
+}
+
+function resolveNextReadinessStep(
+  providers: NonNullable<RuntimeConsoleViewModel["state"]["settingsConfig"]>["providers"],
+  statusByName: Map<string, RuntimeConsoleViewModel["state"]["providers"][number]>,
+): { text: string; tone: ConnectionStatTone } | null {
+  for (const provider of providers) {
+    const status = statusByName.get(provider.id);
+    if (provider.kind !== "local" && !provider.credential_configured) {
+      return { tone: "amber", text: `${provider.name || provider.id} needs an API key before it can route requests.` };
+    }
+    if (status?.routing_blocked_reason) {
+      return { tone: "amber", text: `${provider.name || provider.id}: ${describeRoutingBlockedReason(status.routing_blocked_reason)}.` };
+    }
+    if ((status?.model_count ?? status?.models?.length ?? 0) === 0 && status?.healthy) {
+      return { tone: "amber", text: `${provider.name || provider.id} is reachable but has no discovered models yet.` };
+    }
+    if (status?.status === "open" || status?.status === "unhealthy") {
+      return { tone: "amber", text: `${provider.name || provider.id} is down. Check its endpoint, credentials, or local process.` };
+    }
+  }
+  if (providers.length > 0) {
+    return { tone: "muted", text: "All configured provider records have a current readiness signal." };
+  }
+  return null;
+}
 
 function formatProviderTime(value: string): string {
   const parsed = Date.parse(value);
