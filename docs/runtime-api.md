@@ -35,7 +35,7 @@ Hecate-native JSON errors use one stable envelope:
     "type": "route_impossible",
     "message": "route request: no provider available",
     "user_message": "No configured provider can serve this request.",
-    "operator_action": "Open Providers to inspect readiness checks, discover models, or enable a routable provider.",
+    "operator_action": "Open Connections to inspect readiness checks, discover models, or enable a routable provider.",
     "request_id": "req_...",
     "trace_id": "..."
   }
@@ -526,7 +526,7 @@ and Observability explains how a specific request moved through the candidates.
 
 ### `GET /hecate/v1/settings/providers/local-discovery`
 
-Advisory discovery for the Providers tab's **Add provider → Local** catalog.
+Advisory discovery for the Connections view's **Add provider → Local** catalog.
 The gateway checks whether the expected provider command is on `PATH` and
 probes each unique default local endpoint once. Shared endpoints, such as the
 `llama.cpp` / `LocalAI` default `127.0.0.1:8080/v1`, are only called once and

@@ -20,11 +20,11 @@ the currently selected model is no longer reported by the selected provider
 (for example after changing Ollama models), the composer is blocked with the
 selected model, provider route, discovered-model count, health, and next steps
 before any request is sent. Existing transcripts show the full readiness card
-near the composer with an **Open Providers** action; empty chats show a compact
+near the composer with an **Open Connections** action; empty chats show a compact
 version in the empty state that still includes the discovered-model count,
 health/blocking/error diagnostics, and short remediation steps. The compact card
 is intentionally not just a warning — it should be enough to choose a discovered
-model, refresh local provider discovery, or jump to Providers for the full
+model, refresh local provider discovery, or jump to Connections for the full
 readiness checklist.
 
 The backend owns the readiness wording. `/hecate/v1/providers/status` returns a

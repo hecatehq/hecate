@@ -89,7 +89,7 @@ function provider(overrides: Partial<ProviderRecord> = {}): ProviderRecord {
 describe("humanizeChatError", () => {
   it("rewrites the missing-API-key gateway error into operator-actionable copy", () => {
     expect(humanizeChatError("api key is required for cloud provider openai when stub mode is disabled"))
-      .toBe("openai has no API key. Open the Providers tab and add one.");
+      .toBe("openai has no API key. Open Connections and add one.");
   });
 
   it("rewrites common chat runtime failures into operator-actionable copy", () => {
@@ -98,13 +98,13 @@ describe("humanizeChatError", () => {
     expect(humanizeChatError("workspace is required"))
       .toBe("Choose a workspace before using Hecate Chat tools or External Agent.");
     expect(humanizeChatError("model does not support tools"))
-      .toBe("This model is not marked as tool-capable. Turn tools off, test it, or enable tools in Settings.");
+      .toBe("This model is not marked as tool-capable. Turn tools off, test it, or enable tools in Settings → Model capabilities.");
     expect(humanizeChatError('route request: no provider supports explicit model "gpt-5.4-mini"'))
-      .toBe("No configured provider can route to gpt-5.4-mini. Choose another model or add/configure a provider.");
+      .toBe("No configured provider can route to gpt-5.4-mini. Choose another model or open Connections to repair provider readiness.");
     expect(humanizeChatError("no routable model for selected provider"))
-      .toBe("No routable model is available. Choose another model, add a provider, or check provider health.");
+      .toBe("No routable model is available. Choose another model or open Connections to add a provider, discover models, or check provider health.");
     expect(humanizeChatError("Authentication required. Please run 'agent login' first."))
-      .toBe("The selected runtime is not signed in. Run its login command or use Settings to test readiness.");
+      .toBe("The selected runtime is not signed in. Open Connections to repair or test readiness.");
     expect(humanizeChatError("Internal error: Credit balance is too low"))
       .toBe("The selected runtime reported a billing or credit problem. Check its account, subscription, or API key balance.");
     expect(humanizeChatError("connect: connection refused"))

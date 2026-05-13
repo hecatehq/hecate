@@ -288,8 +288,7 @@ export function useRuntimeConsole() {
   >(() => new Map());
   const pendingApprovalsVersionBySessionID = useRef<Map<string, number>>(new Map());
   // agentChatGrants holds the most recent listAgentChatGrants result
-  // for the Settings → External Agents tab. Lazy-loaded by the action,
-  // not on hook mount.
+  // for Connections. Lazy-loaded by the action, not on hook mount.
   const [agentChatGrants, setAgentChatGrants] = useState<AgentChatGrantRecord[]>([]);
   const [agentChatGrantsLoading, setAgentChatGrantsLoading] = useState(false);
   const [agentChatGrantsError, setAgentChatGrantsError] = useState("");
@@ -300,7 +299,7 @@ export function useRuntimeConsole() {
   const [agentAdapterApprovalMode, setAgentAdapterApprovalMode] = useState<string>("");
   // agentAdapterHealthByID stores the most recent probe result per
   // adapter, keyed by adapter id. Operators trigger a probe via the
-  // readiness probe in Settings → Connections and the result is
+  // readiness probe in Connections and the result is
   // cached here so the picker dropdown can show a status chip without
   // re-running the probe. Map instance is replaced on update — same
   // invariant as pendingApprovalsBySessionID.
@@ -1840,7 +1839,7 @@ export function useRuntimeConsole() {
 
   // probeAgentAdapter exercises the configured adapter and caches the
   // typed result keyed by adapter id. Operators trigger this via the
-  // readiness probe in Settings → Connections; the result drives
+  // readiness probe in Connections; the result drives
   // the status chip + the picker dropdown's inline diagnostic. The
   // loading map is keyed by id so two adapters can be probing
   // concurrently without confusing the UI.

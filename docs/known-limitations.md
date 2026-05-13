@@ -21,7 +21,7 @@ shipping `v0.1.0-alpha.N` releases from reviewed PRs merged into `master`.
 
 - Operators add providers from the built-in preset catalog or an
   OpenAI-compatible custom endpoint flow. `PROVIDER_<NAME>_*` env vars
-  also auto-import into the Providers tab on first boot; subsequent
+  also auto-import into the Connections view on first boot; subsequent
   boots leave operator UI edits untouched. See [providers.md](providers.md)
   for the full env-vs-UI lifecycle.
 - Credentials, base URLs, defaults, and pricebook entries are managed through

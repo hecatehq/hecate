@@ -85,7 +85,7 @@ export const ATTR_PRIORITY_KEYS = [
   "route.skip_reason", "route.fallback_from",
 ];
 
-// thStyle mirrors the Providers table header — uppercase 11px t2 with
+// thStyle mirrors the Connections table header — uppercase 11px t2 with
 // the same horizontal padding so the two views share visual chrome.
 export const thStyle: CSSProperties = {
   padding: "6px 12px",

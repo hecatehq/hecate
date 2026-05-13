@@ -40,7 +40,7 @@ export function ModelPicker({
   presets?: ProviderPresetRecord[];
   // Provider ids whose models render disabled (greyed, not clickable,
   // with a key indicator). Map value is the tooltip explaining why
-  // (e.g. "Add an API key for X on the Providers tab"). Pass an
+  // (e.g. "Add an API key for X in Connections"). Pass an
   // empty/omitted map to disable.
   disabledProviders?: Map<string, string>;
   // Per-model non-blocking warnings keyed by model id. The model

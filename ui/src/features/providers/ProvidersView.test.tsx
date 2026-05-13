@@ -104,7 +104,7 @@ describe("ProvidersView empty state", () => {
 
     render(<ProvidersView state={state} actions={createRuntimeConsoleActions()} />);
 
-    expect(screen.getByText("No providers configured")).toBeTruthy();
+    expect(screen.getByText("No model providers configured")).toBeTruthy();
     expect(screen.getByText("Add a local or cloud provider to start routing requests")).toBeTruthy();
     // Both the header button and empty state button should be present
     const addButtons = screen.getAllByText("Add provider");
@@ -399,7 +399,7 @@ describe("ProvidersView table renders", () => {
       },
       providers: [
         makeStatus("ollama", { kind: "local", healthy: true, status: "healthy", routing_ready: true, credential_state: "not_required", models: ["llama3"], model_count: 1 }),
-        makeStatus("anthropic", { kind: "cloud", healthy: true, status: "healthy", routing_ready: true, credential_state: "configured" }),
+        makeStatus("anthropic", { kind: "cloud", healthy: true, status: "healthy", routing_ready: true, credential_state: "configured", models: ["claude-sonnet"], model_count: 1 }),
       ],
     });
 
@@ -407,16 +407,68 @@ describe("ProvidersView table renders", () => {
 
     expect(screen.getByText("Anthropic")).toBeTruthy();
     expect(screen.getByText("Ollama")).toBeTruthy();
+    const summary = screen.getByTestId("connections-readiness-summary");
+    expect(within(summary).getByText("Model provider readiness")).toBeTruthy();
+    expect(within(summary).getAllByText("2").length).toBeGreaterThanOrEqual(1);
+    expect(within(summary).getByText("All configured provider records have a current readiness signal.")).toBeTruthy();
 
     // Health badges: both providers report healthy. Credentials are split
     // into a separate column so cloud (Configured) and local (Not required)
     // both render their own badge.
     expect(screen.getAllByText("Healthy").length).toBeGreaterThanOrEqual(2);
-    expect(screen.getByText("Configured")).toBeTruthy();
+    expect(screen.getAllByText("Configured").length).toBeGreaterThanOrEqual(1);
     expect(screen.getByText("Not required")).toBeTruthy();
 
     // No toggle/switch elements
     expect(screen.queryByRole("switch")).toBeNull();
+  });
+
+  it("renders external-agent readiness and grants in the Connections workspace", async () => {
+    const listAgentChatGrants = vi.fn(async () => undefined);
+    const probeAgentAdapter = vi.fn(async () => null);
+    const actions = {
+      ...createRuntimeConsoleActions(),
+      listAgentChatGrants,
+      probeAgentAdapter,
+    };
+    const state = createRuntimeConsoleFixture({
+      session: localSession,
+      providerPresets: presets,
+      settingsConfig: {
+        ...emptySettingsConfig(),
+        providers: [makeConfigured("ollama", { kind: "local" })],
+      },
+      providers: [makeStatus("ollama", { kind: "local", healthy: true, status: "healthy", routing_ready: true, models: ["llama3"], model_count: 1 })],
+      agentAdapters: [
+        {
+          id: "codex",
+          name: "Codex",
+          kind: "acp",
+          command: "codex-acp",
+          available: true,
+          status: "available",
+          cost_mode: "external",
+        },
+      ],
+      agentChatGrants: [
+        {
+          id: "grant-1",
+          scope: "session",
+          adapter_id: "codex",
+          tool_kind: "file_write",
+          decision: "approve",
+          granted_at: "2026-04-21T10:00:00Z",
+        },
+      ],
+    });
+
+    render(<ProvidersView state={state} actions={actions} />);
+
+    expect(await screen.findByTestId("external-agents-adapters")).toBeTruthy();
+    expect(screen.getByTestId("external-agents-adapter-codex")).toBeTruthy();
+    expect(screen.getByTestId("external-agents-row-grant-1")).toBeTruthy();
+    expect(listAgentChatGrants).toHaveBeenCalled();
+    expect(probeAgentAdapter).toHaveBeenCalledWith("codex");
   });
 
   it("blocks submit when the typed Endpoint URL is already taken", async () => {

@@ -55,17 +55,6 @@
   background: var(--teal-bg);
 }
 
-.hecate-activitybtn__key {
-  font-size: 9px;
-  font-family: var(--font-mono);
-  color: var(--t3);
-  line-height: 1;
-}
-
-.hecate-activitybtn--active .hecate-activitybtn__key {
-  color: var(--teal-lo);
-}
-
 /* Main content area */
 .hecate-content {
   display: flex;

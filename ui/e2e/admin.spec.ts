@@ -1,17 +1,15 @@
 import { expect, test } from "./fixtures";
 
-// Settings workspace. Tabs: Pricing / Retention.
+// Settings workspace. Tabs: Model capabilities / Pricing / Retention.
 test.beforeEach(async ({ page }) => {
   await page.goto("/");
   await page.waitForSelector(".hecate-activitybar");
-  // Press 6 → Settings. Workspace lineup is Chats / Providers / Tasks /
-  // Observability / Costs / Settings, so Settings sits at position 6.
-  await page.keyboard.press("6");
+  await page.locator(".hecate-activitybar [aria-label^='Settings']").click();
   await page.waitForSelector("text=Pricing");
 });
 
-test("renders the settings tabs (Pricing / Retention)", async ({ page }) => {
-  for (const tab of ["Pricing", "Retention"]) {
+test("renders the settings tabs (Model capabilities / Pricing / Retention)", async ({ page }) => {
+  for (const tab of ["Model capabilities", "Pricing", "Retention"]) {
     await expect(page.getByRole("button", { name: tab })).toBeVisible();
   }
   // Removed tabs: Policy, MCP Cache, Tenants, Keys.
@@ -53,9 +51,7 @@ test("retention 'Run now' fires POST request", async ({ page }) => {
 });
 
 test("Costs workspace shows the empty ledger state", async ({ page }) => {
-  // Costs sits at shortcut 5 in the activity bar. Default fixture has
-  // no request-ledger entries so the empty state should render.
-  await page.keyboard.press("5");
+  await page.locator(".hecate-activitybar [aria-label^='Costs']").click();
   await expect(page.locator("text=No usage events recorded yet")).toBeVisible();
 });
 
@@ -63,7 +59,7 @@ test("Costs workspace shows the settings-required hint when budget is missing", 
   await page.route("/hecate/v1/costs/budget*", r => r.fulfill({ status: 404, body: "" }));
   await page.goto("/");
   await page.waitForSelector(".hecate-activitybar");
-  await page.keyboard.press("5"); // Costs
+  await page.locator(".hecate-activitybar [aria-label^='Costs']").click();
   // Either shows the hint (no budget) or shows budget data — both are acceptable.
   const ok = await Promise.race([
     page.locator("text=Budget data unavailable").first().waitFor({ timeout: 1000 }).then(() => true).catch(() => false),

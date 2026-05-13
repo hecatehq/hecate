@@ -82,10 +82,10 @@ export function buildSelectedModelIssue({
         details.push({ label: "Try instead", value: readiness.suggested_models.slice(0, 3).join(", ") });
       }
       const steps = [
-        readiness.operator_action || "Open Providers to inspect readiness and repair the blocked dependency.",
+        readiness.operator_action || "Open Connections to inspect readiness and repair the blocked dependency.",
         readiness.suggested_models?.length
           ? `Try ${readiness.suggested_models[0]} from the model picker.`
-          : "Refresh Providers after changing credentials, health, or local model availability.",
+          : "Refresh Connections after changing credentials, health, or local model availability.",
       ].filter(Boolean);
       return {
         title: "Selected model is not ready",
@@ -130,19 +130,19 @@ export function buildSelectedModelIssue({
   const steps = providerFilter === "auto"
     ? [
         "Pick a model that appears in the model picker.",
-        "Open Providers to inspect discovery, health, routing readiness, and credential state.",
-        "If the model should be served locally, start the local provider and refresh Providers.",
+        "Open Connections to inspect discovery, health, routing readiness, and credential state.",
+        "If the model should be served locally, start the local provider and refresh Connections.",
       ]
     : isLocal
     ? [
         "Start the local provider app or server.",
         `Pull or load ${model} in that provider, or pick one of its discovered models.`,
-        "Refresh Providers to update the discovered model list.",
+        "Refresh Connections to update the discovered model list.",
       ]
     : [
         "Check provider credentials and account model access.",
         "Pick a model that appears in the model picker, or add a provider that serves this model.",
-        "Open Providers to inspect health, discovery, and routing readiness.",
+        "Open Connections to inspect health, discovery, and routing readiness.",
       ];
 
   return { title, message, providerLabel, model, details, steps };

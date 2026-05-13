@@ -395,7 +395,7 @@ describe("api client", () => {
               type: "route_impossible",
               message: "route request: no provider available",
               user_message: "No configured provider can serve this request.",
-              operator_action: "Open Providers to inspect readiness checks.",
+              operator_action: "Open Connections to inspect readiness checks.",
               request_id: "req-body",
               trace_id: "trace-body",
             },
@@ -416,7 +416,7 @@ describe("api client", () => {
         status: 503,
         code: "route_impossible",
         userMessage: "No configured provider can serve this request.",
-        operatorAction: "Open Providers to inspect readiness checks.",
+        operatorAction: "Open Connections to inspect readiness checks.",
         requestId: "req-body",
         traceId: "trace-body",
       } satisfies Partial<ApiError>);

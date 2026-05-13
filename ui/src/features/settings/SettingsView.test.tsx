@@ -2,7 +2,7 @@ import { render, screen, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 
-import { SettingsView } from "./SettingsView";
+import { ConnectionsTab, SettingsView } from "./SettingsView";
 import { createRuntimeConsoleActions, createRuntimeConsoleFixture } from "../../test/runtime-console-fixture";
 
 function setup(stateOverrides = {}, actionOverrides = {}) {
@@ -15,27 +15,28 @@ function setup(stateOverrides = {}, actionOverrides = {}) {
 beforeEach(() => {
   localStorage.removeItem("hecate.settingsTab");
   sessionStorage.removeItem("hecate.settingsFocus");
+  sessionStorage.removeItem("hecate.connectionsFocus");
 });
 
-// Tab gating: Connections gathers provider/external-agent setup;
-// model capabilities, pricing, and retention remain separate focused
-// settings surfaces. Policy and MCP Cache were removed (single-user
-// mode dropped tenant/role gating and the MCP cache was pure
-// informational stats). Balances and Usage live in the Costs
-// workspace.
+// Tab gating: Connections is now a top-level workspace; Settings keeps
+// configuration that does not belong to a runtime connection surface.
+// Policy and MCP Cache were removed (single-user mode dropped tenant/role
+// gating and the MCP cache was pure informational stats). Balances and
+// Usage live in the Costs workspace.
 describe("SettingsView tabs", () => {
-  it("renders Connections / Model capabilities / Pricing / Retention", () => {
+  it("renders Model capabilities / Pricing / Retention", () => {
     const { state, actions } = setup();
     render(<SettingsView state={state} actions={actions} />);
-    for (const tab of ["Connections", "Model capabilities", "Pricing", "Retention"]) {
+    for (const tab of ["Model capabilities", "Pricing", "Retention"]) {
       expect(screen.getByRole("button", { name: tab })).toBeTruthy();
     }
+    expect(screen.queryByRole("button", { name: "Connections" })).toBeNull();
   });
 
-  it("starts on the first visible tab (Connections)", () => {
+  it("starts on the first visible tab (Model capabilities)", () => {
     const { state, actions } = setup();
     render(<SettingsView state={state} actions={actions} />);
-    expect(document.querySelector("button[type='button']")).toBeTruthy();
+    expect(screen.getByText(/Control whether Hecate should try tools for each model/i)).toBeTruthy();
   });
 
   it("switches to retention tab on click", async () => {
@@ -177,8 +178,8 @@ describe("SettingsView retention tab", () => {
 // Usage / Balances tabs were lifted into CostsView — see
 // features/costs/CostsView.test.tsx for the equivalent rendering tests.
 
-describe("SettingsView connections tab", () => {
-  it("summarizes model provider connections and links to Providers", async () => {
+describe("Connections external-agent panel", () => {
+  it("summarizes model provider connections and links to Connections when requested", async () => {
     const onNavigate = vi.fn();
     const { state, actions, user } = setup({
       settingsConfig: {
@@ -216,7 +217,7 @@ describe("SettingsView connections tab", () => {
         { id: "claude-sonnet", owned_by: "anthropic" },
       ],
     });
-    render(<SettingsView state={state} actions={actions} onNavigate={onNavigate} />);
+    render(<ConnectionsTab state={state} actions={actions} onNavigate={onNavigate} />);
 
     const card = await screen.findByTestId("connections-model-providers");
     expect(within(card).getByText("Model providers")).toBeTruthy();
@@ -224,27 +225,25 @@ describe("SettingsView connections tab", () => {
     expect(within(card).getByText("Ready")).toBeTruthy();
     expect(within(card).getByText("Needs attention")).toBeTruthy();
 
-    await user.click(within(card).getByRole("button", { name: "Open Providers" }));
+    await user.click(within(card).getByRole("button", { name: "Open Connections" }));
     expect(onNavigate).toHaveBeenCalledWith("providers");
   });
 
   it("fires listAgentChatGrants when the tab opens", async () => {
     const listAgentChatGrants = vi.fn(async () => undefined);
-    const { state, actions, user } = setup({}, { listAgentChatGrants });
-    render(<SettingsView state={state} actions={actions} />);
-    await user.click(screen.getByRole("button", { name: "Connections" }));
+    const { state, actions } = setup({}, { listAgentChatGrants });
+    render(<ConnectionsTab state={state} actions={actions} />);
     expect(listAgentChatGrants).toHaveBeenCalled();
   });
 
   it("renders the empty-state copy when there are no grants", async () => {
-    const { state, actions, user } = setup();
-    render(<SettingsView state={state} actions={actions} />);
-    await user.click(screen.getByRole("button", { name: "Connections" }));
+    const { state, actions } = setup();
+    render(<ConnectionsTab state={state} actions={actions} />);
     expect(await screen.findByTestId("external-agents-empty")).toBeTruthy();
   });
 
   it("renders one row per grant with adapter / tool / decision metadata", async () => {
-    const { state, actions, user } = setup({
+    const { state, actions } = setup({
       agentChatGrants: [
         {
           id: "g-1",
@@ -267,8 +266,7 @@ describe("SettingsView connections tab", () => {
         },
       ],
     });
-    render(<SettingsView state={state} actions={actions} />);
-    await user.click(screen.getByRole("button", { name: "Connections" }));
+    render(<ConnectionsTab state={state} actions={actions} />);
     expect(await screen.findByTestId("external-agents-list")).toBeTruthy();
     // Scope decision-tone assertions to row content so they don't
     // accidentally match the section description above.
@@ -295,8 +293,7 @@ describe("SettingsView connections tab", () => {
       },
       { deleteAgentChatGrant },
     );
-    render(<SettingsView state={state} actions={actions} />);
-    await user.click(screen.getByRole("button", { name: "Connections" }));
+    render(<ConnectionsTab state={state} actions={actions} />);
     await user.click(await screen.findByTestId("external-agents-revoke-g-7"));
     expect(deleteAgentChatGrant).not.toHaveBeenCalled();
     await user.click(await screen.findByTestId("external-agents-confirm-revoke-g-7"));
@@ -320,8 +317,7 @@ describe("SettingsView connections tab", () => {
       },
       { deleteAgentChatGrant },
     );
-    render(<SettingsView state={state} actions={actions} />);
-    await user.click(screen.getByRole("button", { name: "Connections" }));
+    render(<ConnectionsTab state={state} actions={actions} />);
     await user.click(await screen.findByTestId("external-agents-revoke-g-8"));
     expect(await screen.findByTestId("external-agents-confirm-revoke-g-8")).toBeTruthy();
     await user.click(await screen.findByTestId("external-agents-cancel-revoke-g-8"));
@@ -330,16 +326,15 @@ describe("SettingsView connections tab", () => {
   });
 
   it("surfaces the listing error inline when the load fails", async () => {
-    const { state, actions, user } = setup({
+    const { state, actions } = setup({
       agentChatGrantsError: "list failed: 500",
     });
-    render(<SettingsView state={state} actions={actions} />);
-    await user.click(screen.getByRole("button", { name: "Connections" }));
+    render(<ConnectionsTab state={state} actions={actions} />);
     expect(await screen.findByText(/list failed: 500/)).toBeTruthy();
   });
 
   it("keeps the Anthropic provider key card visible through transient settings refreshes", async () => {
-    const { state, actions, user } = setup({
+    const { state, actions } = setup({
       settingsConfig: {
         backend: "memory",
         providers: [
@@ -358,12 +353,11 @@ describe("SettingsView connections tab", () => {
         events: [],
       },
     });
-    const { rerender } = render(<SettingsView state={state} actions={actions} />);
-    await user.click(screen.getByRole("button", { name: "Connections" }));
+    const { rerender } = render(<ConnectionsTab state={state} actions={actions} />);
 
     expect(await screen.findByTestId("anthropic-provider-key-card")).toBeTruthy();
 
-    rerender(<SettingsView state={{ ...state, settingsConfig: { ...state.settingsConfig!, providers: [] } }} actions={actions} />);
+    rerender(<ConnectionsTab state={{ ...state, settingsConfig: { ...state.settingsConfig!, providers: [] } }} actions={actions} />);
 
     expect(screen.getByTestId("anthropic-provider-key-card")).toBeTruthy();
   });
@@ -389,8 +383,7 @@ describe("SettingsView connections tab", () => {
         events: [],
       },
     }, { setProviderAPIKey });
-    render(<SettingsView state={state} actions={actions} />);
-    await user.click(screen.getByRole("button", { name: "Connections" }));
+    render(<ConnectionsTab state={state} actions={actions} />);
 
     await user.type(await screen.findByLabelText("Anthropic API key"), "sk-ant-new");
     await user.click(screen.getByRole("button", { name: "Update key" }));
@@ -423,16 +416,14 @@ describe("SettingsView connections tab", () => {
     }
 
     it("hides the panel when no adapters are registered", async () => {
-      const { state, actions, user } = setup({ agentAdapters: [] });
-      render(<SettingsView state={state} actions={actions} />);
-      await user.click(screen.getByRole("button", { name: "Connections" }));
+      const { state, actions } = setup({ agentAdapters: [] });
+      render(<ConnectionsTab state={state} actions={actions} />);
       expect(screen.queryByTestId("external-agents-adapters")).toBeNull();
     });
 
     it("renders one row per adapter without a manual test button", async () => {
-      const { state, actions, user } = setup(withAdapter());
-      render(<SettingsView state={state} actions={actions} />);
-      await user.click(screen.getByRole("button", { name: "Connections" }));
+      const { state, actions } = setup(withAdapter());
+      render(<ConnectionsTab state={state} actions={actions} />);
       expect(await screen.findByTestId("external-agents-adapters")).toBeTruthy();
       expect(screen.getByTestId("external-agents-adapter-codex")).toBeTruthy();
       expect(screen.queryByTestId("external-agents-test-codex")).toBeNull();
@@ -440,28 +431,26 @@ describe("SettingsView connections tab", () => {
 
     it("auto-runs adapter probes when the tab opens", async () => {
       const probeAgentAdapter = vi.fn(async () => null);
-      const { state, actions, user } = setup(withAdapter(), { probeAgentAdapter });
-      render(<SettingsView state={state} actions={actions} />);
-      await user.click(screen.getByRole("button", { name: "Connections" }));
+      const { state, actions } = setup(withAdapter(), { probeAgentAdapter });
+      render(<ConnectionsTab state={state} actions={actions} />);
       expect(probeAgentAdapter).toHaveBeenCalledWith("codex");
     });
 
     it("auto-runs adapter probes when adapters arrive after the tab opens", async () => {
       const probeAgentAdapter = vi.fn(async () => null);
-      const { state, actions, user } = setup({ agentAdapters: [] }, { probeAgentAdapter });
-      const { rerender } = render(<SettingsView state={state} actions={actions} />);
-      await user.click(screen.getByRole("button", { name: "Connections" }));
+      const { state, actions } = setup({ agentAdapters: [] }, { probeAgentAdapter });
+      const { rerender } = render(<ConnectionsTab state={state} actions={actions} />);
       expect(probeAgentAdapter).not.toHaveBeenCalled();
 
       const nextState = createRuntimeConsoleFixture(withAdapter());
-      rerender(<SettingsView state={nextState} actions={actions} />);
+      rerender(<ConnectionsTab state={nextState} actions={actions} />);
       expect(probeAgentAdapter).toHaveBeenCalledWith("codex");
-      rerender(<SettingsView state={{ ...nextState }} actions={actions} />);
+      rerender(<ConnectionsTab state={{ ...nextState }} actions={actions} />);
       expect(probeAgentAdapter).toHaveBeenCalledTimes(1);
     });
 
     it("renders the auth-required hint when the cached probe says auth is missing", async () => {
-      const { state, actions, user } = setup(withAdapter({
+      const { state, actions } = setup(withAdapter({
         agentAdapterHealthByID: new Map([
           ["codex", {
             adapter_id: "codex",
@@ -474,15 +463,14 @@ describe("SettingsView connections tab", () => {
           }],
         ]),
       }));
-      render(<SettingsView state={state} actions={actions} />);
-      await user.click(screen.getByRole("button", { name: "Connections" }));
+      render(<ConnectionsTab state={state} actions={actions} />);
       const detail = await screen.findByTestId("external-agents-adapter-codex-detail");
       expect(within(detail).getByText("Run codex login")).toBeTruthy();
       expect(within(detail).getByText(/Authentication required/)).toBeTruthy();
     });
 
     it("renders discovery auth warnings before a full probe has run", async () => {
-      const { state, actions, user } = setup(withAdapter({
+      const { state, actions } = setup(withAdapter({
         agentAdapters: [
           {
             id: "cursor_agent",
@@ -497,18 +485,16 @@ describe("SettingsView connections tab", () => {
           },
         ],
       }));
-      render(<SettingsView state={state} actions={actions} />);
-      await user.click(screen.getByRole("button", { name: "Connections" }));
+      render(<ConnectionsTab state={state} actions={actions} />);
       expect(await screen.findByTestId("external-agents-adapter-cursor_agent-auth-warning")).toHaveTextContent("auth required");
       expect(screen.getByTestId("external-agents-adapter-cursor_agent-auth-detail")).toHaveTextContent("Run cursor-agent login");
     });
 
     it("shows an inline checking status while a probe is in flight", async () => {
-      const { state, actions, user } = setup(withAdapter({
+      const { state, actions } = setup(withAdapter({
         agentAdapterHealthLoadingByID: new Map([["codex", true]]),
       }));
-      render(<SettingsView state={state} actions={actions} />);
-      await user.click(screen.getByRole("button", { name: "Connections" }));
+      render(<ConnectionsTab state={state} actions={actions} />);
       expect(await screen.findByTestId("external-agents-checking-codex")).toHaveTextContent(/checking/i);
     });
 
@@ -530,8 +516,7 @@ describe("SettingsView connections tab", () => {
           },
         ],
       }), { setAgentAdapterCredential, probeAgentAdapter });
-      render(<SettingsView state={state} actions={actions} />);
-      await user.click(screen.getByRole("button", { name: "Connections" }));
+      render(<ConnectionsTab state={state} actions={actions} />);
 
       expect(await screen.findByTestId("claude-code-guided-setup")).toBeTruthy();
       await user.type(screen.getByLabelText("Claude Code OAuth token"), "claude-token");
@@ -543,7 +528,7 @@ describe("SettingsView connections tab", () => {
 
 
     it("keeps Claude Code token editing visible when the adapter handshake is ready but no token is configured", async () => {
-      const { state, actions, user } = setup(withAdapter({
+      const { state, actions } = setup(withAdapter({
         agentAdapters: [
           {
             id: "claude_code",
@@ -560,8 +545,7 @@ describe("SettingsView connections tab", () => {
           ["claude_code", { adapter_id: "claude_code", status: "ready", stage: "ready", duration_ms: 629 }],
         ]),
       }));
-      render(<SettingsView state={state} actions={actions} />);
-      await user.click(screen.getByRole("button", { name: "Connections" }));
+      render(<ConnectionsTab state={state} actions={actions} />);
 
       expect(await screen.findByText("Claude Code guided setup")).toBeTruthy();
       expect(screen.queryByText("Claude Code token verified")).toBeNull();
@@ -572,7 +556,7 @@ describe("SettingsView connections tab", () => {
     });
 
     it("shows CLI sign-in separately from Hecate's adapter token", async () => {
-      const { state, actions, user } = setup(withAdapter({
+      const { state, actions } = setup(withAdapter({
         agentAdapters: [
           {
             id: "claude_code",
@@ -589,8 +573,7 @@ describe("SettingsView connections tab", () => {
           ["claude_code", { adapter_id: "claude_code", status: "ready", stage: "ready", duration_ms: 629 }],
         ]),
       }));
-      render(<SettingsView state={state} actions={actions} />);
-      await user.click(screen.getByRole("button", { name: "Connections" }));
+      render(<ConnectionsTab state={state} actions={actions} />);
 
       expect(await screen.findByText("Claude Code guided setup")).toBeTruthy();
       expect(screen.getByText("adapter installed")).toBeTruthy();
@@ -601,7 +584,7 @@ describe("SettingsView connections tab", () => {
     });
 
     it("shows a token-verified result after Claude Code token validation passes", async () => {
-      const { state, actions, user } = setup(withAdapter({
+      const { state, actions } = setup(withAdapter({
         agentAdapters: [
           {
             id: "claude_code",
@@ -620,8 +603,7 @@ describe("SettingsView connections tab", () => {
           ["claude_code", { adapter_id: "claude_code", status: "ready", stage: "ready", duration_ms: 629 }],
         ]),
       }));
-      render(<SettingsView state={state} actions={actions} />);
-      await user.click(screen.getByRole("button", { name: "Connections" }));
+      render(<ConnectionsTab state={state} actions={actions} />);
 
       expect(await screen.findByText("Claude Code token verified")).toBeTruthy();
       expect(screen.getByText(/Hecate has a validated adapter token/)).toBeTruthy();
@@ -651,8 +633,7 @@ describe("SettingsView connections tab", () => {
           },
         ],
       }), { deleteAgentAdapterCredential });
-      render(<SettingsView state={state} actions={actions} />);
-      await user.click(screen.getByRole("button", { name: "Connections" }));
+      render(<ConnectionsTab state={state} actions={actions} />);
       await user.click(await screen.findByRole("button", { name: "Remove" }));
 
       expect(deleteAgentAdapterCredential).toHaveBeenCalledWith("claude_code", "CLAUDE_CODE_OAUTH_TOKEN");

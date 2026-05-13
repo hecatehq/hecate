@@ -425,7 +425,7 @@ describe("ModelPicker", () => {
     const onChange = vi.fn();
     const user = userEvent.setup();
     const disabled = new Map<string, string>([
-      ["anthropic", "Add an API key for Anthropic on the Providers tab"],
+      ["anthropic", "Add an API key for Anthropic in Connections"],
     ]);
     render(
       <ModelPicker

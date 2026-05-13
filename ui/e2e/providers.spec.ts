@@ -9,8 +9,8 @@ import type { Page } from "@playwright/test";
 test.beforeEach(async ({ page }) => {
   await page.goto("/");
   await page.waitForSelector(".hecate-activitybar");
-  await page.keyboard.press("2");
-  await page.waitForSelector("text=Providers");
+  await page.locator(".hecate-activitybar [aria-label^='Connections']").click();
+  await page.waitForSelector("text=Connections");
 });
 
 // Locator helpers — the preset cards' accessible names include the brand
@@ -30,7 +30,7 @@ async function pickCloudPreset(page: Page, name: string) {
 }
 
 test("empty state shows the placeholder and an Add provider CTA", async ({ page }) => {
-  await expect(page.getByText("No providers configured")).toBeVisible();
+  await expect(page.getByText("No model providers configured")).toBeVisible();
   await expect(page.getByRole("button", { name: /add provider/i }).first()).toBeVisible();
 });
 
@@ -182,7 +182,7 @@ test("deleting a provider removes its row after confirmation", async ({ context 
   await mockGatewayAPIs(populated, { settingsConfig: MOCK_SETTINGS_CONFIG_WITH_PROVIDERS });
   await populated.goto("/");
   await populated.waitForSelector(".hecate-activitybar");
-  await populated.keyboard.press("2");
+  await populated.locator(".hecate-activitybar [aria-label^='Connections']").click();
   await populated.waitForSelector("text=Cloud providers");
 
   populated.on("dialog", d => void d.accept());
@@ -213,7 +213,7 @@ test("editing the custom name PATCHes /providers/{id} with the new custom_name",
   await mockGatewayAPIs(populated, { settingsConfig: MOCK_SETTINGS_CONFIG_WITH_PROVIDERS });
   await populated.goto("/");
   await populated.waitForSelector(".hecate-activitybar");
-  await populated.keyboard.press("2");
+  await populated.locator(".hecate-activitybar [aria-label^='Connections']").click();
   await populated.waitForSelector("text=Cloud providers");
 
   let patchBody = "";
@@ -241,7 +241,7 @@ test("editing a local endpoint URL PATCHes /providers/{id} with the new base_url
   await mockGatewayAPIs(populated, { settingsConfig: MOCK_SETTINGS_CONFIG_WITH_PROVIDERS });
   await populated.goto("/");
   await populated.waitForSelector(".hecate-activitybar");
-  await populated.keyboard.press("2");
+  await populated.locator(".hecate-activitybar [aria-label^='Connections']").click();
   await populated.waitForSelector("text=Local inference");
 
   let patchBody = "";
