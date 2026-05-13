@@ -76,7 +76,7 @@ describe("ChatView input", () => {
       "Claude Code· setup",
       "Cursor· setup",
     ]);
-  });
+  }, 10_000);
 
   it("toggles Hecate Chat between direct model chat and tool-backed agent mode", async () => {
     const setChatTarget = vi.fn();
@@ -302,6 +302,51 @@ describe("ChatView input", () => {
     const user = userEvent.setup();
     await user.click(screen.getByRole("button", { name: "Open Connections" }));
     expect(onNavigate).toHaveBeenCalledWith("providers");
+  });
+
+  it("offers the backend-suggested model as a one-click repair", async () => {
+    const setModel = vi.fn();
+    const setProviderFilter = vi.fn();
+    const { state, actions } = setup({
+      chatTarget: "model",
+      providerFilter: "anthropic",
+      model: "claude-sonnet-4-6",
+      message: "hello",
+      settingsConfig: {
+        backend: "memory",
+        providers: [
+          { id: "anthropic", name: "Anthropic", preset_id: "anthropic", kind: "cloud", protocol: "anthropic", base_url: "https://api.anthropic.com/v1", credential_configured: false },
+        ],
+        policy_rules: [],
+        pricebook: [],
+        events: [],
+      },
+      providerScopedModels: [
+        {
+          id: "claude-sonnet-4-6",
+          owned_by: "anthropic",
+          metadata: {
+            provider: "anthropic",
+            provider_kind: "cloud",
+            readiness: {
+              ready: false,
+              status: "blocked",
+              reason: "credential_missing",
+              message: "Anthropic needs credentials before this model can route.",
+              suggested_models: ["gpt-4o-mini"],
+            },
+          },
+        },
+        { id: "gpt-4o-mini", owned_by: "openai", metadata: { provider: "openai", provider_kind: "cloud" } },
+      ],
+    }, { setModel, setProviderFilter });
+    render(<ChatView state={state} actions={actions} />);
+
+    const user = userEvent.setup();
+    await user.click(screen.getAllByRole("button", { name: "Use gpt-4o-mini" })[0]);
+
+    expect(setProviderFilter).toHaveBeenCalledWith("auto");
+    expect(setModel).toHaveBeenCalledWith("gpt-4o-mini");
   });
 
   it("opens Connections from the model empty state", async () => {

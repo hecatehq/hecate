@@ -1,5 +1,6 @@
 import { useEffect, useMemo, useRef, useState, type ReactNode } from "react";
 import type { RuntimeConsoleViewModel } from "../../app/useRuntimeConsole";
+import { providerFleetRepairHint } from "../../lib/provider-readiness";
 import type { AgentAdapterHealthRecord, AgentAdapterRecord, AgentChatGrantRecord, ConfiguredProviderRecord, ProviderRecord } from "../../types/runtime";
 import { BrandAvatar, Icon, Icons, InlineError } from "../shared/ui";
 
@@ -210,6 +211,8 @@ function ModelProviderConnectionsSection({
   const readyProviders = knownStatuses.filter(isProviderReady).length;
   const blockedProviders = knownStatuses.filter(isProviderBlocked).length;
   const modelCount = state.models.length || knownStatuses.reduce((sum, provider) => sum + (provider.model_count ?? provider.models?.length ?? 0), 0);
+  const statusByName = new Map(state.providers.map((provider) => [provider.name, provider]));
+  const repair = providerFleetRepairHint(configuredProviders, statusByName);
 
   return (
     <div className="card" style={{ padding: "14px 16px", marginBottom: 24 }} data-testid="connections-model-providers">
@@ -225,6 +228,27 @@ function ModelProviderConnectionsSection({
           ) : undefined
         }
       />
+      {repair && (
+        <div
+          style={{
+            marginBottom: 12,
+            border: "1px solid var(--border)",
+            borderRadius: "var(--radius-sm)",
+            background: repair.tone === "amber" ? "var(--amber-bg)" : "var(--bg2)",
+            padding: "9px 10px",
+          }}
+        >
+          <div style={{ display: "flex", gap: 8, alignItems: "baseline", marginBottom: 3 }}>
+            <span style={{ fontSize: 11, fontWeight: 600, color: repair.tone === "amber" ? "var(--amber)" : "var(--t1)" }}>
+              {repair.title}
+            </span>
+            <span style={{ fontSize: 10, color: "var(--t3)", fontFamily: "var(--font-mono)" }}>
+              {repair.action}
+            </span>
+          </div>
+          <div style={{ fontSize: 11, color: "var(--t3)", lineHeight: 1.45 }}>{repair.message}</div>
+        </div>
+      )}
       <div
         style={{
           display: "grid",

@@ -12,6 +12,7 @@ export type SelectedModelIssue = {
   message: string;
   providerLabel: string;
   model: string;
+  suggestedModel?: string;
   details: Array<{ label: string; value: string }>;
   steps: string[];
 };
@@ -92,6 +93,7 @@ export function buildSelectedModelIssue({
         message: readiness.message || `The selected model "${model}" is not routable right now.`,
         providerLabel,
         model,
+        suggestedModel: readiness.suggested_models?.[0],
         details,
         steps,
       };

@@ -1153,6 +1153,91 @@ test("configured provider with no models shows troubleshooting, not detected-pro
   await expect(page.getByRole("button", { name: /Add selected/i })).toHaveCount(0);
 });
 
+test("selected-model readiness can switch to the backend-suggested fallback model", async ({ page }) => {
+  await page.unrouteAll({ behavior: "ignoreErrors" });
+  await mockGatewayAPIs(page, {
+    settingsConfig: {
+      providers: [
+        { id: "anthropic", name: "Anthropic", preset_id: "anthropic", kind: "cloud", protocol: "anthropic", base_url: "https://api.anthropic.com/v1", enabled: true, credential_configured: false },
+        { id: "openai", name: "OpenAI", preset_id: "openai", kind: "cloud", protocol: "openai", base_url: "https://api.openai.com/v1", enabled: true, credential_configured: true },
+      ],
+      tenants: [],
+      api_keys: [],
+      policy_rules: [],
+    },
+  });
+  await page.route("/v1/models*", route => route.fulfill({
+    status: 200,
+    contentType: "application/json",
+    body: JSON.stringify({
+      object: "list",
+      data: [
+        {
+          id: "claude-sonnet-4-6",
+          owned_by: "anthropic",
+          metadata: {
+            provider: "anthropic",
+            provider_kind: "cloud",
+            readiness: {
+              ready: false,
+              status: "blocked",
+              reason: "credential_missing",
+              message: "Anthropic needs credentials before this model can route.",
+              operator_action: "Add an Anthropic API key, or use a routable fallback.",
+              suggested_models: ["gpt-4o-mini"],
+            },
+          },
+        },
+        { id: "gpt-4o-mini", owned_by: "openai", metadata: { provider: "openai", provider_kind: "cloud" } },
+      ],
+    }),
+  }));
+  await page.route("/hecate/v1/providers/status*", route => route.fulfill({
+    status: 200,
+    contentType: "application/json",
+    body: JSON.stringify({
+      object: "provider_status",
+      data: [
+        {
+          name: "anthropic",
+          kind: "cloud",
+          healthy: true,
+          status: "healthy",
+          models: ["claude-sonnet-4-6"],
+          model_count: 1,
+          routing_ready: false,
+          routing_blocked_reason: "credential_missing",
+        },
+        {
+          name: "openai",
+          kind: "cloud",
+          healthy: true,
+          status: "healthy",
+          models: ["gpt-4o-mini"],
+          model_count: 1,
+          routing_ready: true,
+        },
+      ],
+    }),
+  }));
+  await page.addInitScript(() => {
+    window.localStorage.setItem("hecate.chatTarget", "model");
+    window.localStorage.setItem("hecate.providerFilter", "anthropic");
+    window.localStorage.setItem("hecate.model", "claude-sonnet-4-6");
+  });
+
+  await page.goto("/");
+  await page.waitForSelector(".hecate-activitybar");
+
+  await expect(page.getByText("Selected model is not ready").first()).toBeVisible();
+  await page.getByRole("button", { name: "Use gpt-4o-mini" }).first().click();
+
+  await expect(page.getByRole("button", { name: /All providers/i })).toBeVisible();
+  await expect(page.getByRole("button", { name: /gpt-4o-mini/i })).toBeVisible();
+  await page.locator("textarea").fill("hello");
+  await expect(page.locator("button[type='submit']")).toBeEnabled();
+});
+
 // External-agent approval happy path. Seeds an active session with one
 // pending approval, then exercises the operator path: catch-up refetch
 // populates the banner, Review opens the modal, Allow resolves, and the

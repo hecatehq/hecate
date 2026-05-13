@@ -1143,6 +1143,10 @@ export function ChatView({ state, actions, onNavigate, onOpenTask, onOpenTrace }
                   setAddProviderOpen(true);
                 }
               }}
+              onUseSuggestedModel={(model) => {
+                actions.setProviderFilter("auto");
+                actions.setModel(model);
+              }}
               onQuickAddLocalProviders={quickAddLocalProviders}
               onRefreshQuickLocalProviders={refreshQuickLocalProviders}
               onSwitchTarget={actions.setChatTarget}
@@ -1190,7 +1194,14 @@ export function ChatView({ state, actions, onNavigate, onOpenTask, onOpenTrace }
           )}
           {isHecateChat && selectedModelIssue && (
             <div style={{ marginBottom: composerVisible ? 8 : 0 }}>
-              <SelectedModelReadinessNotice issue={selectedModelIssue} onOpenProviders={() => onNavigate?.("providers")} />
+              <SelectedModelReadinessNotice
+                issue={selectedModelIssue}
+                onOpenProviders={() => onNavigate?.("providers")}
+                onUseSuggestedModel={(model) => {
+                  actions.setProviderFilter("auto");
+                  actions.setModel(model);
+                }}
+              />
             </div>
           )}
           {composerVisible && (
@@ -2045,6 +2056,7 @@ function ChatEmptyState({
   quickLocalError,
   quickAddingProviders,
   onOpenProviders,
+  onUseSuggestedModel,
   onQuickAddLocalProviders,
   onRefreshQuickLocalProviders,
   onSwitchTarget,
@@ -2077,6 +2089,7 @@ function ChatEmptyState({
   quickLocalError: string;
   quickAddingProviders: boolean;
   onOpenProviders: () => void;
+  onUseSuggestedModel: (model: string) => void;
   onQuickAddLocalProviders: (providers: LocalProviderDiscoveryRecord[]) => void;
   onRefreshQuickLocalProviders: () => void;
   onSwitchTarget: (target: "model" | "agent" | "external_agent") => void;
@@ -2142,7 +2155,7 @@ function ChatEmptyState({
         />
       )}
       {isHecateChat && selectedModelIssue && (
-        <SelectedModelReadinessNotice issue={selectedModelIssue} compact />
+        <SelectedModelReadinessNotice issue={selectedModelIssue} compact onUseSuggestedModel={onUseSuggestedModel} />
       )}
       {(modelRouteUnavailable || selectedModelIssue || agentRouteUnavailable) && (
         <div style={{ display: "flex", justifyContent: "center", gap: 8, marginTop: 14, flexWrap: "wrap" }}>
@@ -2290,10 +2303,12 @@ function SelectedModelReadinessNotice({
   issue,
   compact = false,
   onOpenProviders,
+  onUseSuggestedModel,
 }: {
   issue: SelectedModelIssue;
   compact?: boolean;
   onOpenProviders?: () => void;
+  onUseSuggestedModel?: (model: string) => void;
 }) {
   return (
     <div style={{
@@ -2320,6 +2335,16 @@ function SelectedModelReadinessNotice({
               Open Connections
             </button>
           )}
+          {issue.suggestedModel && onUseSuggestedModel && (
+            <button
+              className="btn btn-primary btn-sm"
+              type="button"
+              onClick={() => onUseSuggestedModel(issue.suggestedModel!)}
+              style={{ flexShrink: 0 }}
+            >
+              Use {issue.suggestedModel}
+            </button>
+          )}
         </div>
       )}
       <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(150px, 1fr))", gap: 8, marginTop: 10 }}>
@@ -2328,9 +2353,21 @@ function SelectedModelReadinessNotice({
         ))}
       </div>
       {compact ? (
-        <ul style={{ margin: "10px 0 0", paddingLeft: 18, color: "var(--t3)", fontSize: 11, lineHeight: 1.55 }}>
-          {issue.steps.slice(0, 2).map((step) => <li key={step}>{step}</li>)}
-        </ul>
+        <>
+          <ul style={{ margin: "10px 0 0", paddingLeft: 18, color: "var(--t3)", fontSize: 11, lineHeight: 1.55 }}>
+            {issue.steps.slice(0, 2).map((step) => <li key={step}>{step}</li>)}
+          </ul>
+          {issue.suggestedModel && onUseSuggestedModel && (
+            <button
+              className="btn btn-primary btn-sm"
+              type="button"
+              onClick={() => onUseSuggestedModel(issue.suggestedModel!)}
+              style={{ marginTop: 10 }}
+            >
+              Use {issue.suggestedModel}
+            </button>
+          )}
+        </>
       ) : (
         <ul style={{ margin: "10px 0 0", paddingLeft: 18, color: "var(--t3)", fontSize: 11, lineHeight: 1.55 }}>
           {issue.steps.map((step) => <li key={step}>{step}</li>)}

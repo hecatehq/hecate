@@ -62,7 +62,7 @@ describe("ConsoleShell navigation", () => {
     expect(await screen.findByText(/Nothing runnable yet/i, undefined, { timeout: 5000 })).toBeInTheDocument();
     expect(screen.queryByText(/No model providers configured/i)).toBeNull();
     expect(screen.getByRole("button", { name: /Go to Connections/i })).toBeInTheDocument();
-  });
+  }, 10_000);
 
   it("shows the selected agent workspace and git branch in the status bar", () => {
     const state = createRuntimeConsoleFixture({

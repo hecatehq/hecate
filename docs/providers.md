@@ -273,7 +273,11 @@ cloud account does not expose that model. `/v1/models` includes
 before sending when a discovered model is still not usable because credentials,
 health, or routing are blocked. In that case Chats shows the selected model,
 provider route, backend readiness message, and next steps, and links the
-operator back to Connections for the full checklist. The same contract applies in the empty-chat state:
-compact readiness copy must still show the discovered-model count plus the
-highest-signal health/block/error diagnostics and a short repair path, so
-operators are not forced to send a doomed prompt or inspect raw provider JSON.
+operator back to Connections for the full checklist. If the backend supplies a
+suggested replacement model, Chats can offer it as a one-click repair and
+switch the route back to **All providers** so cross-provider fallbacks are not
+accidentally pinned to the stale provider. The same contract applies in the
+empty-chat state: compact readiness copy must still show the discovered-model
+count plus the highest-signal health/block/error diagnostics and a short repair
+path, so operators are not forced to send a doomed prompt or inspect raw
+provider JSON.

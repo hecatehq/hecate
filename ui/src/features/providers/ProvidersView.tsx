@@ -1,5 +1,6 @@
 import { useEffect, useState, type CSSProperties } from "react";
 import type { RuntimeConsoleViewModel } from "../../app/useRuntimeConsole";
+import { providerFleetRepairHint } from "../../lib/provider-readiness";
 import { resolvedBaseURL } from "../../lib/provider-utils";
 import { describeHealthErrorClass, describeRoutingBlockedReason } from "../../lib/runtime-utils";
 import { ProviderReadinessChecklist, ProviderReadinessSummary } from "../shared/ProviderReadiness";
@@ -806,25 +807,12 @@ function resolveNextReadinessStep(
   providers: NonNullable<RuntimeConsoleViewModel["state"]["settingsConfig"]>["providers"],
   statusByName: Map<string, RuntimeConsoleViewModel["state"]["providers"][number]>,
 ): { text: string; tone: ConnectionStatTone } | null {
-  for (const provider of providers) {
-    const status = statusByName.get(provider.id);
-    if (provider.kind !== "local" && !provider.credential_configured) {
-      return { tone: "amber", text: `${provider.name || provider.id} needs an API key before it can route requests.` };
-    }
-    if (status?.routing_blocked_reason) {
-      return { tone: "amber", text: `${provider.name || provider.id}: ${describeRoutingBlockedReason(status.routing_blocked_reason)}.` };
-    }
-    if ((status?.model_count ?? status?.models?.length ?? 0) === 0 && status?.healthy) {
-      return { tone: "amber", text: `${provider.name || provider.id} is reachable but has no discovered models yet.` };
-    }
-    if (status?.status === "open" || status?.status === "unhealthy") {
-      return { tone: "amber", text: `${provider.name || provider.id} is down. Check its endpoint, credentials, or local process.` };
-    }
-  }
-  if (providers.length > 0) {
-    return { tone: "muted", text: "All configured provider records have a current readiness signal." };
-  }
-  return null;
+  const hint = providerFleetRepairHint(providers, statusByName);
+  if (!hint) return null;
+  return {
+    tone: hint.tone === "amber" || hint.tone === "red" ? "amber" : "muted",
+    text: hint.action === "No repair needed." ? hint.message : `${hint.message} ${hint.action}`,
+  };
 }
 
 function formatProviderTime(value: string): string {
