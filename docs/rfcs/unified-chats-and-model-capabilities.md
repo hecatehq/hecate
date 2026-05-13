@@ -134,7 +134,7 @@ Automatic probes should:
    load.
 5. Persist results as `source="probe"` with timestamp, provider, model, probe
    status, and any safe error summary.
-6. Surface probe state in Settings and the model picker: unknown, testing,
+6. Surface probe state in Connections and the model picker: unknown, testing,
    tools supported, no tools, failed.
 7. Let operators disable automatic probes globally or per provider/model.
 
@@ -201,7 +201,7 @@ For `runtime_kind="agent"` the first user message:
 
 1. Validates that tools are not explicitly disabled for the selected model
    (`tool_calling!="none"`). Unknown models are allowed by default for now;
-   Settings provides the operator-facing tools on/off switch.
+   Connections provides the operator-facing tools on/off switch.
 2. Applies the selected Hecate Agent profile.
 3. Creates a visible task with `execution_kind="agent_loop"`.
 4. Marks the task origin as `origin_kind="agent_chat"` and
@@ -236,7 +236,7 @@ If tools are explicitly disabled for the selected model, the message endpoint re
 The UI copy is:
 
 ```text
-Tools are disabled for this model. Turn tools off for direct model chat or enable tools in Settings.
+Tools are disabled for this model. Turn tools off for direct model chat or enable tools in Connections.
 ```
 
 ## Workspace Modes
@@ -320,7 +320,7 @@ Hecate Chat | External Agent
   / trace metadata and model-chat persistence.
 - **tools on** — Hecate Agent. This is the default. The selected
   provider/model enters Hecate's native task runtime unless the model is
-  explicitly marked "tools off" in Settings.
+  explicitly marked "tools off" in Connections.
 
 ### Hecate Agent
 
@@ -340,7 +340,7 @@ Shows:
 
 Send is disabled unless a workspace is selected. If the selected model has
 `tool_calling="none"`, the tools-on send path is disabled and the operator can
-either turn tools off for direct model chat or enable tools in Settings.
+either turn tools off for direct model chat or enable tools in Connections.
 
 When a Hecate Agent task-backed segment is running, provider/model controls are
 locked to that segment's snapshot and the chat composer treats the whole

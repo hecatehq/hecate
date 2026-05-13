@@ -1150,7 +1150,7 @@ func providerReadinessOperatorAction(name, reason string) string {
 		return "Refresh provider status after configuration or startup settles."
 	default:
 		if name == "routing" {
-			return "Open Providers to inspect readiness checks and repair the blocked dependency."
+			return "Open Connections to inspect readiness checks and repair the blocked dependency."
 		}
 		return ""
 	}

@@ -521,7 +521,7 @@ candidate is paired with the route reason (`requested_model`, `pinned_provider`,
 `global_default_model`, etc.); skipped candidates carry `skip_reason` values
 such as `policy_denied`, `budget_denied`, `provider_rate_limited`,
 `provider_less_stable`, or `preflight_price_missing`. This keeps the operator
-debugging path consistent: Providers explains whether a route is possible now,
+debugging path consistent: Connections explains whether a route is possible now,
 and Observability explains how a specific request moved through the candidates.
 
 ### `GET /hecate/v1/settings/providers/local-discovery`
@@ -613,7 +613,7 @@ GET /v1/models
 `capabilities.tool_calling` is one of `unknown`, `none`, `basic`, or
 `parallel`. Hecate Agent treats tools as on by default and only blocks a model
 when the effective value is `none`. Local/custom models often report
-`unknown`; operators can use Settings → Model capabilities to explicitly turn
+`unknown`; operators can use Connections → Model capabilities to explicitly turn
 tools on or off for a provider/model pair.
 
 `metadata.readiness` is the backend-owned provider/model readiness snapshot for
@@ -749,7 +749,7 @@ GET /hecate/v1/agent-adapters
 the first semver-shaped token from stdout; it is absent when the adapter is
 missing or when the binary does not print a recognisable version string.
 `version_outside_range` is `true` when both `version` and `supported_range`
-are present and the version does not satisfy the constraint — the Settings UI
+are present and the version does not satisfy the constraint — the Connections UI
 shows an amber "outside tested range" chip in that case.
 
 `auth_status` is a lightweight dashboard hint, not a full login check. Values:
@@ -774,7 +774,7 @@ until an adapter can supply structured usage.
 
 Re-runs discovery for one adapter, then performs the same end-to-end ACP probe
 as `/health`. The response includes the fresh catalog row plus the health
-result, so UIs can update a single Settings row after the operator logs in or
+result, so UIs can update a single Connections row after the operator logs in or
 installs a missing dependency.
 
 ```json
@@ -1339,7 +1339,7 @@ Hecate Agent-specific errors:
 | `409` | `agent_chat.session_stopping` | The session is still cancelling or closing; retry after it settles. |
 | `409` | `agent_chat.session_not_running` | A stop request was issued when no run was active. |
 | `422` | `model_not_configured` | The selected model is not currently reported by the selected provider. Choose a discovered model or refresh/fix provider discovery. |
-| `422` | `agent_chat.model_capability_required` | Tools are explicitly disabled for the selected model. Turn tools off for direct model chat or enable tools in Settings. |
+| `422` | `agent_chat.model_capability_required` | Tools are explicitly disabled for the selected model. Turn tools off for direct model chat or enable tools in Connections. |
 
 Client note: browser/operator clients may queue a prompt locally when they
 receive or predict `agent_chat.agent_session_busy`, but the server still

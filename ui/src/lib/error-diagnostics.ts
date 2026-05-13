@@ -67,7 +67,7 @@ const diagnostics: Record<string, GatewayErrorDiagnostic> = {
   },
   "agent_chat.model_capability_required": {
     title: "Tools unavailable for this model",
-    action: "Turn tools off for direct model chat, test the model, or enable tool support in Settings.",
+    action: "Turn tools off for direct model chat, test the model, or enable tool support in Connections.",
     tone: "warning",
   },
   "agent_chat.agent_session_busy": {
@@ -87,7 +87,7 @@ const diagnostics: Record<string, GatewayErrorDiagnostic> = {
   },
   "agent_chat.adapter_not_found": {
     title: "External agent is unavailable",
-    action: "Open Settings and test the external agent adapter, or choose another agent.",
+    action: "Open Connections and test the external agent adapter, or choose another agent.",
     tone: "warning",
   },
   "agent_chat.session_stopping": {

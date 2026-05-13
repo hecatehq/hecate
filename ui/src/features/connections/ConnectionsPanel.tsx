@@ -3,6 +3,7 @@ import type { RuntimeConsoleViewModel } from "../../app/useRuntimeConsole";
 import { providerFleetRepairHint } from "../../lib/provider-readiness";
 import type { AgentAdapterHealthRecord, AgentAdapterRecord, AgentChatGrantRecord, ConfiguredProviderRecord, ProviderRecord } from "../../types/runtime";
 import { BrandAvatar, Icon, Icons, InlineError } from "../shared/ui";
+import { ModelCapabilitiesSection } from "./ModelCapabilitiesSection";
 
 type Props = {
   state: RuntimeConsoleViewModel["state"];
@@ -41,8 +42,8 @@ function SectionHeader({
 
 // ConnectionsPanel gathers the external-agent setup surfaces that sit next
 // to model-provider CRUD in the Connections workspace. It intentionally
-// remains exported for reuse by ProvidersView while the settings-only tabs
-// above stay focused on model capabilities, pricing, and retention.
+// remains exported for reuse by ProvidersView while Settings stays focused
+// on pricing, retention, and other non-connection configuration.
 //
 // Grants and adapter health are lazy-loaded on panel mount — operators
 // rarely visit this surface, so we don't fetch on every dashboard
@@ -140,6 +141,8 @@ export function ConnectionsPanel({
   return (
     <>
       {showProviderSummary && <ModelProviderConnectionsSection state={state} onNavigate={onNavigate} />}
+
+      <ModelCapabilitiesSection state={state} actions={actions} />
 
       {rememberedAnthropicProvider && (
         <AnthropicProviderKeyCard
@@ -438,7 +441,7 @@ function AdapterStatusSection({ state, actions }: Props) {
             loading={Boolean(state.agentAdapterHealthLoadingByID.get(adapter.id))}
             onSaveCredential={(value) => actions.setAgentAdapterCredential(adapter.id, value, "CLAUDE_CODE_OAUTH_TOKEN")}
             onDeleteCredential={() => actions.deleteAgentAdapterCredential(adapter.id, "CLAUDE_CODE_OAUTH_TOKEN")}
-            onCopyCommand={() => void actions.copyCommand(claudeCodeSettingsTokenCommand(adapter))}
+            onCopyCommand={() => void actions.copyCommand(claudeCodeSetupTokenCommand(adapter))}
           />
         ))}
       </div>
@@ -446,7 +449,7 @@ function AdapterStatusSection({ state, actions }: Props) {
   );
 }
 
-function claudeCodeSettingsTokenCommand(adapter: AgentAdapterRecord): string {
+function claudeCodeSetupTokenCommand(adapter: AgentAdapterRecord): string {
   const command = adapter.claude_code_cli?.command;
   if (command) return `${command} setup-token`;
   return "npx -y @anthropic-ai/claude-code setup-token";

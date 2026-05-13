@@ -313,7 +313,7 @@ not a drop-in fit.
 - [x] Cancellation signals the ACP turn and marks the session/run cancelled.
 - [x] Session history is durable across gateway restarts when the chat-session backend is SQLite.
 - [x] Adapter readiness can distinguish missing binaries, auth/billing failures, and versions outside Hecate's tested range.
-- [x] Operator approvals are prompt-first by default and visible through REST, SSE, Settings grants, and Chats review UI.
+- [x] Operator approvals are prompt-first by default and visible through REST, SSE, Connections grants, and Chats review UI.
 - [x] Optional turn, wall-clock, and idle guardrails protect long-lived external-agent sessions.
 
 ## Future Enhancements

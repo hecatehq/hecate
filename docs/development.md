@@ -236,7 +236,7 @@ just dev-agent-adapters 'claude_code=missing,codex=available,cursor_agent=missin
 
 The backing env var is `GATEWAY_AGENT_ADAPTER_DISCOVERY_OVERRIDES`. It accepts
 `all=missing` or per-adapter entries using `missing` / `available`. This is
-discovery-only: it changes Settings and Chats readiness UI, but it does not
+discovery-only: it changes Connections and Chats readiness UI, but it does not
 create fake adapter processes or make a chat send succeed.
 
 ## Capturing documentation screenshots

@@ -185,8 +185,9 @@ src/
     chats/              ChatView — interactive chat against the gateway
     transcript/         reusable transcript pieces for Chats and Task Detail: markdown, message rows, activity timeline, file diff review
     overview/           ConnectYourClient, ObservabilityView — request ledger + trace drilldown + Codex/Claude Code setup
-    settings/           SettingsView, PricebookTab — settings, pricing, retention, external-agent grants
-    providers/          ProvidersView — provider catalog + health
+    connections/        ConnectionsPanel — provider readiness, model capabilities, external-agent setup/grants
+    settings/           SettingsView, PricebookTab — pricing, retention, non-connection configuration
+    providers/          ProvidersView — detailed provider catalog/editor
     shared/             primitives, pickers, overlays; ui.tsx is a compatibility barrel
   lib/
     api.ts              fetch wrappers + streamTaskRun (SSE consumer)

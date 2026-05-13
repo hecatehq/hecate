@@ -190,9 +190,9 @@ func defaultErrorAction(code string) string {
 	case errCodeAgentSessionBusy:
 		return "Open the backing task, resolve the pending approval, or stop the run before sending another message."
 	case errCodeModelCapability:
-		return "Turn tools off for direct model chat, test the model, or enable tool support in Settings."
+		return "Turn tools off for direct model chat, test the model, or enable tool support in Connections."
 	case errCodeModelNotConfigured:
-		return "Choose a discovered model, refresh provider status, or open Providers to fix model discovery."
+		return "Choose a discovered model, refresh provider status, or open Connections to fix model discovery."
 	case errCodeWorkspaceRequired:
 		return "Use the workspace picker in Chats. Hecate Agent and External Agent sessions need a real workspace path."
 	case errCodeModelRequired:
@@ -202,7 +202,7 @@ func defaultErrorAction(code string) string {
 	case errCodeRuntimeMismatch:
 		return "Start a new chat or switch back to the runtime that created this session."
 	case errCodeAgentAdapterNotFound:
-		return "Open Settings and test the external agent adapter, or choose another agent."
+		return "Open Connections and test the external agent adapter, or choose another agent."
 	case errCodeSessionStopping:
 		return "Wait a moment, then retry the action."
 	case errCodeSessionNotRunning:
