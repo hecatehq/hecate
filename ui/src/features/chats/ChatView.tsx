@@ -4,7 +4,7 @@ import type { RuntimeConsoleViewModel } from "../../app/useRuntimeConsole";
 import { discoverLocalProviders } from "../../lib/api";
 import { describeGatewayError, formatErrorCode } from "../../lib/error-diagnostics";
 import { buildSelectedModelIssue } from "../../lib/provider-issues";
-import { providerRepairHint } from "../../lib/provider-readiness";
+import { providerRepairHint, type ProviderRepairHint } from "../../lib/provider-readiness";
 import { describeCredentialState, describeHealthErrorClass, describeRoutingBlockedReason } from "../../lib/runtime-utils";
 import type { SelectedModelIssue } from "../../lib/provider-issues";
 import type { AgentAdapterRecord, AgentAdapterSetupCommandStatus, AgentChatActivityRecord, AgentChatSegmentRecord, AgentChatSessionRecord, AgentChatTimingRecord, AgentChatUsageRecord, LocalProviderDiscoveryRecord, ProviderPresetRecord } from "../../types/runtime";
@@ -2154,7 +2154,8 @@ function ChatEmptyState({
       {isHecateChat && modelRouteUnavailable && hasConfiguredProviders && (
         <ModelRouteTroubleshooting
           providerFilter={providerFilter}
-          configuredProvider={selectedConfiguredProvider ?? (providerFilter === "auto" ? configuredProviders[0] : undefined)}
+          configuredProvider={selectedConfiguredProvider}
+          configuredProviders={configuredProviders}
           runtimeProvider={selectedRuntimeProvider}
         />
       )}
@@ -2207,29 +2208,37 @@ function ChatEmptyState({
 function ModelRouteTroubleshooting({
   providerFilter,
   configuredProvider,
+  configuredProviders,
   runtimeProvider,
 }: {
   providerFilter: string;
   configuredProvider?: NonNullable<RuntimeConsoleViewModel["state"]["settingsConfig"]>["providers"][number];
+  configuredProviders: NonNullable<RuntimeConsoleViewModel["state"]["settingsConfig"]>["providers"];
   runtimeProvider?: RuntimeConsoleViewModel["state"]["providers"][number];
 }) {
+  const matchedConfiguredProvider = configuredProvider
+    ?? (providerFilter === "auto" && runtimeProvider
+      ? configuredProviders.find(provider => provider.id === runtimeProvider.name || provider.name === runtimeProvider.name)
+      : undefined);
+  const repair = providerFilter === "auto" && !runtimeProvider
+    ? autoProviderRouteRepairHint(configuredProviders)
+    : providerRepairHint({ configuredProvider: matchedConfiguredProvider, runtimeProvider });
   const providerName = providerFilter === "auto"
     ? "configured providers"
-    : configuredProvider?.name || runtimeProvider?.name || providerFilter;
-  const isLocal = configuredProvider?.kind === "local" || runtimeProvider?.kind === "local";
-  const endpoint = runtimeProvider?.base_url || configuredProvider?.base_url || "";
+    : matchedConfiguredProvider?.name || runtimeProvider?.name || providerFilter;
+  const isLocal = matchedConfiguredProvider?.kind === "local" || runtimeProvider?.kind === "local";
+  const endpoint = runtimeProvider?.base_url || matchedConfiguredProvider?.base_url || "";
   const modelCount = runtimeProvider?.model_count ?? runtimeProvider?.models?.length ?? 0;
   const blockedReason = runtimeProvider?.routing_blocked_reason ? describeRoutingBlockedReason(runtimeProvider.routing_blocked_reason) : "";
   const lastError = runtimeProvider?.last_error || "";
   const lastErrorClass = runtimeProvider?.last_error_class ? describeHealthErrorClass(runtimeProvider.last_error_class) : "";
   const discoverySource = runtimeProvider?.discovery_source || "";
-  const repair = providerRepairHint({ configuredProvider, runtimeProvider });
   const rawCredentialState = runtimeProvider?.credential_state
-    ?? (configuredProvider?.kind === "local"
+    ?? (matchedConfiguredProvider?.kind === "local"
       ? "not_required"
-      : configuredProvider?.credential_configured
+      : matchedConfiguredProvider?.credential_configured
         ? "configured"
-        : configuredProvider
+        : matchedConfiguredProvider
           ? "missing"
           : undefined);
   const credentialState = describeCredentialState(rawCredentialState);
@@ -2272,7 +2281,7 @@ function ModelRouteTroubleshooting({
       <div style={{ fontSize: 12, color: "var(--t2)", lineHeight: 1.55 }}>
         {repair.message}
       </div>
-      {repair.action !== "No repair needed." && (
+      {repair.tone !== "muted" && (
         <div style={{ marginTop: 6, fontSize: 11, color: "var(--amber)", lineHeight: 1.45 }}>
           Next: {repair.action}
         </div>
@@ -2388,6 +2397,20 @@ function SelectedModelReadinessNotice({
       )}
     </div>
   );
+}
+
+function autoProviderRouteRepairHint(
+  configuredProviders: NonNullable<RuntimeConsoleViewModel["state"]["settingsConfig"]>["providers"],
+): ProviderRepairHint {
+  const allLocal = configuredProviders.length > 0 && configuredProviders.every(provider => provider.kind === "local");
+  return {
+    title: "No models discovered",
+    message: "Configured providers do not have a routable model yet.",
+    action: allLocal
+      ? "Start the local provider process, pull or load a model, then refresh Connections."
+      : "Open Connections to fix credentials, health, or model discovery, then refresh.",
+    tone: "amber",
+  };
 }
 
 function selectedModelNoticeDetails(
