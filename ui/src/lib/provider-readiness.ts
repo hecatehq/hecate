@@ -60,6 +60,15 @@ export function providerRepairHint({
     };
   }
 
+  if (configuredProvider && !runtimeProvider) {
+    return {
+      title: "No models discovered",
+      message: `${name} is configured, but Hecate does not have a current model-discovery result for it yet.`,
+      action: isLocal ? "Start the local provider process, pull or load a model, then refresh Connections." : "Confirm the account has model access, then refresh Connections.",
+      tone: "amber",
+    };
+  }
+
   if (runtimeProvider?.readiness?.status === "blocked") {
     return {
       title: "Provider blocked",
@@ -72,7 +81,7 @@ export function providerRepairHint({
   const blockedCheck = firstBlockedReadinessCheck(runtimeProvider?.readiness_checks ?? []);
   if (blockedCheck) {
     return {
-      title: titleizeReadinessName(blockedCheck.name),
+      title: readinessTitle(blockedCheck),
       message: blockedCheck.message || `${name} has a blocked readiness check.`,
       action: readinessRecommendation(blockedCheck) || "Open Connections and inspect provider readiness.",
       tone: "amber",
@@ -164,4 +173,23 @@ function titleizeReadinessName(value: string): string {
     .filter(Boolean)
     .map(part => part.charAt(0).toUpperCase() + part.slice(1))
     .join(" ");
+}
+
+function readinessTitle(check: ProviderReadinessCheckRecord): string {
+  switch (check.reason) {
+    case "credential_missing":
+      return "Credentials required";
+    case "no_models":
+      return "No models discovered";
+    case "discovery_failed":
+      return "Discovery failed";
+    case "provider_unhealthy":
+      return "Provider unavailable";
+    case "provider_rate_limited":
+      return "Provider rate limited";
+    case "self_referential":
+      return "Invalid endpoint";
+    default:
+      return titleizeReadinessName(check.name);
+  }
 }

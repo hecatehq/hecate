@@ -4,6 +4,7 @@ import type { RuntimeConsoleViewModel } from "../../app/useRuntimeConsole";
 import { discoverLocalProviders } from "../../lib/api";
 import { describeGatewayError, formatErrorCode } from "../../lib/error-diagnostics";
 import { buildSelectedModelIssue } from "../../lib/provider-issues";
+import { providerRepairHint } from "../../lib/provider-readiness";
 import { describeCredentialState, describeHealthErrorClass, describeRoutingBlockedReason } from "../../lib/runtime-utils";
 import type { SelectedModelIssue } from "../../lib/provider-issues";
 import type { AgentAdapterRecord, AgentAdapterSetupCommandStatus, AgentChatActivityRecord, AgentChatSegmentRecord, AgentChatSessionRecord, AgentChatTimingRecord, AgentChatUsageRecord, LocalProviderDiscoveryRecord, ProviderPresetRecord } from "../../types/runtime";
@@ -1128,6 +1129,7 @@ export function ChatView({ state, actions, onNavigate, onOpenTask, onOpenTrace }
               selectedAgent={selectedAgent}
               selectedAgentUnavailable={selectedAgentUnavailable}
               hasConfiguredProviders={hasConfiguredProviders}
+              configuredProviders={configuredProviders}
               providerFilter={state.providerFilter}
               selectedConfiguredProvider={selectedConfiguredProvider}
               selectedRuntimeProvider={selectedRuntimeProvider}
@@ -2047,6 +2049,7 @@ function ChatEmptyState({
   selectedAgent,
   selectedAgentUnavailable,
   hasConfiguredProviders,
+  configuredProviders,
   providerFilter,
   selectedConfiguredProvider,
   selectedRuntimeProvider,
@@ -2080,6 +2083,7 @@ function ChatEmptyState({
   selectedAgent?: AgentAdapterRecord;
   selectedAgentUnavailable: boolean;
   hasConfiguredProviders: boolean;
+  configuredProviders: NonNullable<RuntimeConsoleViewModel["state"]["settingsConfig"]>["providers"];
   providerFilter: string;
   selectedConfiguredProvider?: NonNullable<RuntimeConsoleViewModel["state"]["settingsConfig"]>["providers"][number];
   selectedRuntimeProvider?: RuntimeConsoleViewModel["state"]["providers"][number];
@@ -2150,7 +2154,7 @@ function ChatEmptyState({
       {isHecateChat && modelRouteUnavailable && hasConfiguredProviders && (
         <ModelRouteTroubleshooting
           providerFilter={providerFilter}
-          configuredProvider={selectedConfiguredProvider}
+          configuredProvider={selectedConfiguredProvider ?? (providerFilter === "auto" ? configuredProviders[0] : undefined)}
           runtimeProvider={selectedRuntimeProvider}
         />
       )}
@@ -2219,6 +2223,7 @@ function ModelRouteTroubleshooting({
   const lastError = runtimeProvider?.last_error || "";
   const lastErrorClass = runtimeProvider?.last_error_class ? describeHealthErrorClass(runtimeProvider.last_error_class) : "";
   const discoverySource = runtimeProvider?.discovery_source || "";
+  const repair = providerRepairHint({ configuredProvider, runtimeProvider });
   const rawCredentialState = runtimeProvider?.credential_state
     ?? (configuredProvider?.kind === "local"
       ? "not_required"
@@ -2258,13 +2263,21 @@ function ModelRouteTroubleshooting({
     }}>
       <div style={{ display: "flex", alignItems: "center", gap: 8, marginBottom: 8 }}>
         <span style={{ fontSize: 11, color: "var(--t2)", fontFamily: "var(--font-mono)", textTransform: "uppercase", letterSpacing: "0.04em" }}>
-          Provider is configured
+          {repair.title}
         </span>
         <span style={{ fontSize: 11, color: "var(--t3)", overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>
           {providerName}
         </span>
       </div>
       <div style={{ fontSize: 12, color: "var(--t2)", lineHeight: 1.55 }}>
+        {repair.message}
+      </div>
+      {repair.action !== "No repair needed." && (
+        <div style={{ marginTop: 6, fontSize: 11, color: "var(--amber)", lineHeight: 1.45 }}>
+          Next: {repair.action}
+        </div>
+      )}
+      <div style={{ marginTop: 8, fontSize: 11, color: "var(--t3)", lineHeight: 1.45 }}>
         Hecate can see the provider configuration, but no routable models are available yet.
       </div>
       <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(160px, 1fr))", gap: 8, marginTop: 10 }}>

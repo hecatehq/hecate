@@ -1,6 +1,6 @@
 import { fireEvent, render, screen } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
-import { describe, expect, it, vi } from "vitest";
+import { afterEach, describe, expect, it, vi } from "vitest";
 
 import { ChatView } from "./ChatView";
 import { discoverLocalProviders } from "../../lib/api";
@@ -12,6 +12,11 @@ vi.mock("../../lib/api", async importOriginal => {
     ...actual,
     discoverLocalProviders: vi.fn(async () => ({ object: "local_provider_discovery", data: [] })),
   };
+});
+
+afterEach(() => {
+  vi.mocked(discoverLocalProviders).mockReset();
+  vi.mocked(discoverLocalProviders).mockResolvedValue({ object: "local_provider_discovery", data: [] });
 });
 
 function setup(stateOverrides = {}, actionOverrides = {}) {
@@ -402,7 +407,9 @@ describe("ChatView input", () => {
     });
     render(<ChatView state={state} actions={actions} />);
 
-    expect(screen.getByText("Provider is configured")).toBeTruthy();
+    expect(screen.getByText("No models discovered")).toBeTruthy();
+    expect(screen.getAllByText("No models were discovered and no default model is configured.").length).toBeGreaterThan(0);
+    expect(screen.getAllByText(/Next: Start the provider and pull or load at least one model/).length).toBeGreaterThan(0);
     expect(screen.getAllByText("Ollama").length).toBeGreaterThan(0);
     expect(screen.getByText("none discovered")).toBeTruthy();
     expect(screen.getAllByText("Credentials").length).toBeGreaterThan(0);
