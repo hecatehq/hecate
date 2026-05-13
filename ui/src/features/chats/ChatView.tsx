@@ -1231,7 +1231,7 @@ export function ChatView({ state, actions, onNavigate, onOpenTask, onOpenTrace }
               lineHeight: 1.45,
             }}>
               <span>
-                Tools are disabled for this model in Connections. Turn tools off for direct chat, or enable tools in Model capabilities.
+                Tools are disabled for this model in Connections. Turn tools off for direct chat, or enable tools in Connections → Model capabilities.
               </span>
               <button
                 type="button"

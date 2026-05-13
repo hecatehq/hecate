@@ -36,7 +36,7 @@ func writeAgentChatModelResolutionError(w http.ResponseWriter, err error) {
 	if strings.Contains(message, "not available") || strings.Contains(message, "not configured") {
 		details := ErrorDetails{
 			UserMessage:    "The selected model is not available from the selected provider.",
-			OperatorAction: "Choose a discovered model, refresh provider status, or open Providers to fix model discovery.",
+			OperatorAction: "Choose a discovered model, refresh provider status, or open Connections to fix model discovery.",
 		}
 		var readinessErr modelReadinessError
 		if asModelReadinessError(err, &readinessErr) {
@@ -78,7 +78,7 @@ func modelReadinessErrorDetails(readiness gateway.ProviderModelReadiness) ErrorD
 		details.UserMessage = readiness.Message
 	}
 	if details.OperatorAction == "" {
-		details.OperatorAction = "Choose a discovered model, refresh provider status, or open Providers to fix model discovery."
+		details.OperatorAction = "Choose a discovered model, refresh provider status, or open Connections to fix model discovery."
 	}
 	return details
 }

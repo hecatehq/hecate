@@ -104,7 +104,7 @@ describe("AgentApprovalModal", () => {
     const user = userEvent.setup();
 
     // Pick the broad scope.
-    await user.click(screen.getByTestId("agent-approval-modal-scope-adapter_tool"));
+    await user.click(await screen.findByTestId("agent-approval-modal-scope-adapter_tool"));
     expect(screen.getByTestId("agent-approval-modal-broad-warning")).toBeTruthy();
 
     // First submit click only arms — must not have called onResolve yet.

@@ -147,8 +147,8 @@ just dev-agent-adapters 'claude_code=missing,codex=available,cursor_agent=missin
 ```
 
 Those recipes set `GATEWAY_AGENT_ADAPTER_DISCOVERY_OVERRIDES`. The override is
-intentionally discovery-only: it lets Settings and Chats render missing /
-available states in Connections and Chats, but it does not create fake adapter processes or make a chat
+intentionally discovery-only: it lets Connections and Chats render missing /
+available states, but it does not create fake adapter processes or make a chat
 send succeed.
 
 ### Codex ACP
