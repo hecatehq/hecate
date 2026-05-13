@@ -108,6 +108,20 @@ func TestACPSessionConfigOptionsSnapshotPreservesNilAndEmpty(t *testing.T) {
 	}
 }
 
+func TestTrimToolSummaryPreservesUTF8(t *testing.T) {
+	input := strings.Repeat("界", 121)
+	got := trimToolSummary(input)
+	if !utf8.ValidString(got) {
+		t.Fatalf("trimmed summary is invalid UTF-8: %q", got)
+	}
+	if utf8.RuneCountInString(got) != 120 {
+		t.Fatalf("trimmed summary rune count = %d, want 120", utf8.RuneCountInString(got))
+	}
+	if !strings.HasSuffix(got, "...") {
+		t.Fatalf("trimmed summary = %q, want ellipsis suffix", got)
+	}
+}
+
 func TestSessionManagerSerializesConcurrentSessionStart(t *testing.T) {
 	t.Setenv("HECATE_FAKE_ACP_NEW_SESSION_DELAY", "100ms")
 	installFakeACPExecutable(t, "codex-acp")

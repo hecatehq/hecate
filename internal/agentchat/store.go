@@ -335,11 +335,28 @@ func (s *MemoryStore) UpdateMessage(_ context.Context, sessionID string, message
 }
 
 func cloneSession(session Session) Session {
+	session.ConfigOptions = cloneConfigOptions(session.ConfigOptions)
 	session.Messages = append([]Message(nil), session.Messages...)
 	for i := range session.Messages {
 		session.Messages[i].Activities = append([]Activity(nil), session.Messages[i].Activities...)
 	}
 	return session
+}
+
+func cloneConfigOptions(options []agentcontrols.ConfigOption) []agentcontrols.ConfigOption {
+	if options == nil {
+		return nil
+	}
+	out := make([]agentcontrols.ConfigOption, len(options))
+	copy(out, options)
+	for i := range out {
+		if options[i].Options == nil {
+			continue
+		}
+		out[i].Options = make([]agentcontrols.ConfigSelectOption, len(options[i].Options))
+		copy(out[i].Options, options[i].Options)
+	}
+	return out
 }
 
 func hydrateMessageRuntimeFromSession(message *Message, session Session) {

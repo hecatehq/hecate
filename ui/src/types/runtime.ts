@@ -381,7 +381,7 @@ export type AgentChatConfigOptionRecord = {
   name: string;
   description?: string;
   category?: string;
-  type: "select" | "boolean" | string;
+  type: "select" | "boolean" | (string & {});
   current_value?: string;
   current_bool?: boolean;
   options?: AgentChatConfigSelectOptionRecord[];

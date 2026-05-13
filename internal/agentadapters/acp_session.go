@@ -14,6 +14,7 @@ import (
 	"sync"
 	"sync/atomic"
 	"time"
+	"unicode/utf8"
 
 	acp "github.com/coder/acp-go-sdk"
 
@@ -1536,10 +1537,11 @@ func summarizeToolContent(content []acp.ToolCallContent) string {
 
 func trimToolSummary(value string) string {
 	value = strings.Join(strings.Fields(value), " ")
-	if len(value) <= 120 {
+	if utf8.RuneCountInString(value) <= 120 {
 		return value
 	}
-	return value[:117] + "..."
+	runes := []rune(value)
+	return string(runes[:117]) + "..."
 }
 
 func pluralize(count int, singular string) string {
