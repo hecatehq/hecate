@@ -81,6 +81,16 @@ func TestFromACPOptions_FlattensGroupedSelectOptions(t *testing.T) {
 	}
 }
 
+func TestFromACPOptions_PreservesUnknownVariants(t *testing.T) {
+	got := FromACPOptions([]acp.SessionConfigOption{{}})
+	if len(got) != 1 {
+		t.Fatalf("len = %d, want 1 unknown placeholder", len(got))
+	}
+	if got[0].Type != ConfigOptionTypeUnknown || got[0].ID != "unknown_1" || got[0].Name == "" {
+		t.Fatalf("unknown option = %#v", got[0])
+	}
+}
+
 func TestBuildACPSetRequest_SelectAndBoolean(t *testing.T) {
 	selectReq, err := BuildACPSetRequest(SetConfigOptionRequest{SessionID: "sess", ConfigID: "model", Value: "smart"})
 	if err != nil {
@@ -133,16 +143,9 @@ func TestBuildACPSetRequest_Validation(t *testing.T) {
 	}
 }
 
-// TestFromACPOptions_SkipsUnknownVariants verifies that an option where
-// neither Select nor Boolean is set is silently dropped from the output.
-// This documents the intentional forward-compat behaviour: if the ACP SDK
-// ever adds a new variant Hecate won't break — known options still flow
-// through, and this test will need updating as a visible signal.
-func TestFromACPOptions_SkipsUnknownVariants(t *testing.T) {
+func TestFromACPOptions_PreservesUnknownVariantsAlongsideKnownOptions(t *testing.T) {
 	got := FromACPOptions([]acp.SessionConfigOption{
-		// Unknown variant: both Select and Boolean are nil.
 		{},
-		// A known variant that should still appear.
 		{Boolean: &acp.SessionConfigOptionBoolean{
 			Id:           acp.SessionConfigId("auto"),
 			Name:         "Auto",
@@ -150,10 +153,13 @@ func TestFromACPOptions_SkipsUnknownVariants(t *testing.T) {
 		}},
 	})
 
-	if len(got) != 1 {
-		t.Fatalf("FromACPOptions len = %d, want 1 (unknown variant must be skipped)", len(got))
+	if len(got) != 2 {
+		t.Fatalf("FromACPOptions len = %d, want 2", len(got))
 	}
-	if got[0].ID != "auto" {
-		t.Fatalf("got[0].ID = %q, want auto", got[0].ID)
+	if got[0].Type != ConfigOptionTypeUnknown || got[0].ID != "unknown_1" {
+		t.Fatalf("unknown option = %#v", got[0])
+	}
+	if got[1].ID != "auto" {
+		t.Fatalf("got[1].ID = %q, want auto", got[1].ID)
 	}
 }
