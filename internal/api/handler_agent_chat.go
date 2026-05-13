@@ -385,6 +385,10 @@ func (h *Handler) HandleSetAgentChatConfigOption(w http.ResponseWriter, r *http.
 		WriteError(w, http.StatusBadRequest, errCodeInvalidRequest, err.Error())
 		return
 	}
+	if h.agentChatRunner == nil {
+		WriteError(w, http.StatusInternalServerError, errCodeGatewayError, "agent chat runner is not configured")
+		return
+	}
 	setCtx, cancel := context.WithTimeout(r.Context(), agentChatConfigOptionTimeout)
 	result, err := h.agentChatRunner.SetSessionConfigOption(setCtx, setReq)
 	cancel()
