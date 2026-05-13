@@ -144,6 +144,23 @@ export function ProvidersView({ state, actions }: Props) {
     modelCount: discoveredModelCount,
     repair: fleetRepair,
   });
+  const readinessAction = providerRepairButton(fleetRepair);
+  const runReadinessAction = () => {
+    if (!fleetRepair) return;
+    switch (fleetRepair.actionKind) {
+      case "add_provider":
+        setAddProviderOpen(true);
+        break;
+      case "open_provider":
+        if (fleetRepair.providerID) setSelectedID(fleetRepair.providerID);
+        break;
+      case "refresh_providers":
+        void actions.refreshProviders();
+        break;
+      case "none":
+        break;
+    }
+  };
 
   const selectedConfig = selectedID ? configuredByID.get(selectedID) ?? null : null;
   const selectedStatus = selectedID ? statusByName.get(selectedID) : null;
@@ -377,18 +394,30 @@ export function ProvidersView({ state, actions }: Props) {
                   Checks credentials, discovery, health, routing, and selected-model repair paths before a chat fails.
                 </div>
               </div>
-              {nextReadinessStep && (
-                <div
-                  style={{
-                    marginLeft: "auto",
-                    maxWidth: 420,
-                    fontSize: 11,
-                    color: nextReadinessStep.tone === "amber" ? "var(--amber)" : "var(--t2)",
-                    lineHeight: 1.45,
-                    textAlign: "right",
-                  }}
-                >
-                  {nextReadinessStep.text}
+              {(nextReadinessStep || readinessAction) && (
+                <div style={{ marginLeft: "auto", maxWidth: 460, display: "flex", gap: 10, alignItems: "center", justifyContent: "flex-end" }}>
+                  {nextReadinessStep && (
+                    <div
+                      style={{
+                        fontSize: 11,
+                        color: nextReadinessStep.tone === "amber" ? "var(--amber)" : "var(--t2)",
+                        lineHeight: 1.45,
+                        textAlign: "right",
+                      }}
+                    >
+                      {nextReadinessStep.text}
+                    </div>
+                  )}
+                  {readinessAction && (
+                    <button
+                      type="button"
+                      className={readinessAction.tone === "primary" ? "btn btn-primary btn-sm" : "btn btn-ghost btn-sm"}
+                      onClick={runReadinessAction}
+                      style={{ whiteSpace: "nowrap" }}
+                    >
+                      {readinessAction.label}
+                    </button>
+                  )}
                 </div>
               )}
             </div>
@@ -830,6 +859,22 @@ function resolveNextReadinessStep(
     tone: hint.tone === "amber" || hint.tone === "red" ? "amber" : "muted",
     text: hint.tone === "muted" ? hint.message : `${hint.message} ${hint.action}`,
   };
+}
+
+function providerRepairButton(
+  hint: ReturnType<typeof providerFleetRepairHint>,
+): { label: string; tone: "primary" | "ghost" } | null {
+  if (!hint || hint.tone === "muted") return null;
+  switch (hint.actionKind) {
+    case "add_provider":
+      return { label: "Add provider", tone: "primary" };
+    case "open_provider":
+      return { label: "Open provider", tone: "ghost" };
+    case "refresh_providers":
+      return { label: "Refresh providers", tone: "ghost" };
+    case "none":
+      return null;
+  }
 }
 
 function formatProviderTime(value: string): string {

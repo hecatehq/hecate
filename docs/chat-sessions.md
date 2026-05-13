@@ -45,6 +45,12 @@ coding-agent adapter. Avoid adding local one-off blockers in the Chat view; put
 new send blockers behind the shared readiness resolver so the same reason and
 CTA are visible before and after the transcript has messages.
 
+Connections owns the provider repair workflow that backs those chat actions.
+If the chat CTA sends an operator to Connections, the summary card should show
+the same root cause and a concrete first action: add a provider, open the
+blocked provider, or refresh provider/model discovery after the operator starts
+a local runtime or fixes an upstream account.
+
 Hecate Chat also has one per-chat **Instructions** field. With tools off, the
 instructions are sent as the direct model turn's `system_prompt`. With tools
 on, the same text becomes the per-task system prompt for the Hecate-owned

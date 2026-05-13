@@ -608,6 +608,86 @@ func TestProviderStatusReturnsHealthAndDiscoveryFreshness(t *testing.T) {
 	}
 }
 
+func TestProviderStatusReadinessContractCoversRepairReasons(t *testing.T) {
+	logger := slog.New(slog.NewJSONHandler(io.Discard, nil))
+	disabled := false
+	noModelsProvider := &fakeProvider{
+		name:      "emptylocal",
+		noDefault: true,
+		capabilities: providers.Capabilities{
+			Name:            "emptylocal",
+			Kind:            providers.KindLocal,
+			DiscoverySource: "upstream_v1_models",
+		},
+	}
+	selfReferentialProvider := &fakeProvider{
+		name:      "loopback",
+		noDefault: true,
+		baseURL:   "http://127.0.0.1:8765/v1",
+		capabilities: providers.Capabilities{
+			Name: "loopback",
+			Kind: providers.KindLocal,
+		},
+	}
+	disabledProvider := &fakeProvider{
+		name:      "disabled",
+		noDefault: true,
+		enabled:   &disabled,
+		capabilities: providers.Capabilities{
+			Name: "disabled",
+			Kind: providers.KindLocal,
+		},
+	}
+
+	registry := providers.NewRegistry(noModelsProvider, selfReferentialProvider, disabledProvider)
+	providerCatalog := catalog.NewRegistryCatalogWithSelfAddr(registry, nil, "127.0.0.1:8765")
+	budgetStore := governor.NewMemoryBudgetStore()
+	service := gateway.NewService(gateway.Dependencies{
+		Logger:    logger,
+		Router:    router.NewRuleRouter("", providerCatalog),
+		Catalog:   providerCatalog,
+		Governor:  governor.NewStaticGovernor(config.GovernorConfig{MaxPromptTokens: 64_000}, budgetStore, budgetStore),
+		Providers: registry,
+		Pricebook: billing.NewStaticPricebook(config.ProvidersConfig{
+			OpenAICompatible: []config.OpenAICompatibleProviderConfig{
+				{Name: "emptylocal", Kind: "local"},
+				{Name: "loopback", Kind: "local"},
+				{Name: "disabled", Kind: "local"},
+			},
+		}, defaultPricebookForTests()),
+		Tracer: profiler.NewInMemoryTracer(nil),
+	})
+	handler := NewServer(logger, NewHandler(config.Config{}, logger, service, nil, nil, nil))
+	client := newAPITestClient(t, handler)
+
+	response := mustRequestJSON[ProviderStatusResponse](client, http.MethodGet, "/hecate/v1/providers/status", "")
+	emptyLocal := findProviderStatusItem(t, response.Data, "emptylocal")
+	assertReadinessSummary(t, emptyLocal, "blocked", "no_models", true)
+	assertProviderReadinessCheck(t, emptyLocal, "models", "blocked", "no_models")
+	assertProviderReadinessCheck(t, emptyLocal, "routing", "blocked", "no_models")
+
+	loopback := findProviderStatusItem(t, response.Data, "loopback")
+	assertReadinessSummary(t, loopback, "blocked", "provider_unhealthy", true)
+	assertProviderReadinessCheck(t, loopback, "models", "blocked", "self_referential")
+	assertProviderReadinessCheck(t, loopback, "routing", "blocked", "provider_unhealthy")
+
+	disabledItem := findProviderStatusItem(t, response.Data, "disabled")
+	assertReadinessSummary(t, disabledItem, "blocked", "provider_disabled", true)
+	assertProviderReadinessCheck(t, disabledItem, "models", "blocked", "provider_disabled")
+	assertProviderReadinessCheck(t, disabledItem, "routing", "blocked", "provider_disabled")
+}
+
+func findProviderStatusItem(t *testing.T, items []ProviderStatusResponseItem, name string) ProviderStatusResponseItem {
+	t.Helper()
+	for _, item := range items {
+		if item.Name == name {
+			return item
+		}
+	}
+	t.Fatalf("missing provider status item %q in %#v", name, items)
+	return ProviderStatusResponseItem{}
+}
+
 func assertReadinessSummary(t *testing.T, item ProviderStatusResponseItem, status, reason string, wantAction bool) {
 	t.Helper()
 	if item.Readiness.Status != status {
@@ -5886,6 +5966,8 @@ type fakeProvider struct {
 	capsErr      error
 	baseURL      string
 	credential   providers.CredentialState
+	enabled      *bool
+	noDefault    bool
 }
 
 func (p *fakeProvider) Name() string {
@@ -5903,6 +5985,9 @@ func (p *fakeProvider) Kind() providers.Kind {
 }
 
 func (p *fakeProvider) DefaultModel() string {
+	if p.noDefault {
+		return ""
+	}
 	if p.defaultModel != "" {
 		return p.defaultModel
 	}
@@ -5910,6 +5995,13 @@ func (p *fakeProvider) DefaultModel() string {
 		return p.capabilities.DefaultModel
 	}
 	return "gpt-4o-mini"
+}
+
+func (p *fakeProvider) Enabled() bool {
+	if p.enabled != nil {
+		return *p.enabled
+	}
+	return true
 }
 
 func (p *fakeProvider) BaseURL() string {

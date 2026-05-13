@@ -5,6 +5,8 @@ export type ProviderRepairHint = {
   title: string;
   message: string;
   action: string;
+  actionKind: "add_provider" | "open_provider" | "refresh_providers" | "none";
+  providerID?: string;
   tone: "muted" | "green" | "amber" | "red";
 };
 
@@ -25,7 +27,7 @@ export function providerReadinessMeaning({
     return { message: "No model providers are configured yet. Add one provider before starting Hecate Chat.", tone: "amber" };
   }
   if (blockedCount > 0 && repair?.tone !== "muted") {
-    return { message: `${blockedCount} provider${blockedCount === 1 ? "" : "s"} need attention. Next: ${repair?.action || "open the provider list."}`, tone: "amber" };
+    return { message: `${blockedCount} provider${blockedCount === 1 ? " needs" : "s need"} attention. Next: ${repair?.action || "open the provider list."}`, tone: "amber" };
   }
   if (readyCount === 0) {
     return { message: "Providers exist, but none are ready to route chat requests yet.", tone: "amber" };
@@ -85,6 +87,8 @@ export function providerRepairHint({
       title: "Credentials required",
       message: `${name} is configured but cannot route requests until an API key is saved.`,
       action: "Add or rotate the provider API key in Connections.",
+      actionKind: "open_provider",
+      providerID: configuredProvider.id,
       tone: "amber",
     };
   }
@@ -94,15 +98,20 @@ export function providerRepairHint({
       title: "No models discovered",
       message: `${name} is configured, but Hecate does not have a current model-discovery result for it yet.`,
       action: isLocal ? "Start the local provider process, pull or load a model, then refresh Connections." : "Confirm the account has model access, then refresh Connections.",
+      actionKind: "refresh_providers",
+      providerID: configuredProvider.id,
       tone: "amber",
     };
   }
 
   if (runtimeProvider?.readiness?.status === "blocked") {
+    const blockedCheck = firstBlockedReadinessCheck(runtimeProvider.readiness_checks ?? []);
     return {
       title: "Provider blocked",
       message: runtimeProvider.readiness.message || `${name} is not routable right now.`,
       action: runtimeProvider.readiness.operator_action || firstReadinessAction(runtimeProvider.readiness_checks) || "Open Connections and inspect the blocked readiness check.",
+      actionKind: readinessActionKind(blockedCheck) ?? "open_provider",
+      providerID: configuredProvider?.id ?? runtimeProvider.name,
       tone: "amber",
     };
   }
@@ -113,6 +122,8 @@ export function providerRepairHint({
       title: readinessTitle(blockedCheck),
       message: blockedCheck.message || `${name} has a blocked readiness check.`,
       action: readinessRecommendation(blockedCheck) || "Open Connections and inspect provider readiness.",
+      actionKind: readinessActionKind(blockedCheck) ?? "open_provider",
+      providerID: configuredProvider?.id ?? runtimeProvider?.name,
       tone: "amber",
     };
   }
@@ -123,6 +134,8 @@ export function providerRepairHint({
       title: "Routing blocked",
       message: `${name} is configured, but routing is blocked: ${reason}.`,
       action: "Open Connections and inspect routing, health, and discovery details.",
+      actionKind: "open_provider",
+      providerID: configuredProvider?.id ?? runtimeProvider.name,
       tone: "amber",
     };
   }
@@ -132,6 +145,8 @@ export function providerRepairHint({
       title: "No models discovered",
       message: `${name} is reachable, but Hecate has not discovered any models from it yet.`,
       action: isLocal ? "Pull or load a model in the local provider, then refresh Connections." : "Confirm the account has model access, then refresh Connections.",
+      actionKind: "refresh_providers",
+      providerID: configuredProvider?.id ?? runtimeProvider.name,
       tone: "amber",
     };
   }
@@ -141,6 +156,8 @@ export function providerRepairHint({
       title: "Provider unavailable",
       message: `${name} is currently down or cooling down after failures.`,
       action: isLocal ? "Start the local provider process and refresh Connections." : "Check the upstream endpoint, credentials, and provider status.",
+      actionKind: "refresh_providers",
+      providerID: configuredProvider?.id ?? runtimeProvider.name,
       tone: "amber",
     };
   }
@@ -150,6 +167,8 @@ export function providerRepairHint({
       title: "Ready",
       message: `${name} has no provider setup issue that needs repair.`,
       action: "No repair needed.",
+      actionKind: "none",
+      providerID: configuredProvider?.id ?? runtimeProvider?.name,
       tone: "muted",
     };
   }
@@ -158,6 +177,7 @@ export function providerRepairHint({
     title: "No provider selected",
     message: "Choose or add a provider before sending model traffic.",
     action: "Add a provider in Connections.",
+    actionKind: "add_provider",
     tone: "amber",
   };
 }
@@ -178,10 +198,17 @@ export function providerFleetRepairHint(
       title: "Ready",
       message: "No configured provider setup issue needs repair.",
       action: "No repair needed.",
+      actionKind: "none",
       tone: "muted",
     };
   }
-  return null;
+  return {
+    title: "No provider configured",
+    message: "Add a model provider before starting Hecate Chat.",
+    action: "Add a provider in Connections.",
+    actionKind: "add_provider",
+    tone: "amber",
+  };
 }
 
 function firstBlockedReadinessCheck(checks: ProviderReadinessCheckRecord[]): ProviderReadinessCheckRecord | null {
@@ -195,6 +222,24 @@ function firstReadinessAction(checks?: ProviderReadinessCheckRecord[]): string {
     if (action) return action;
   }
   return "";
+}
+
+function readinessActionKind(check: ProviderReadinessCheckRecord | null): ProviderRepairHint["actionKind"] | null {
+  switch (check?.reason) {
+    case "credential_missing":
+    case "provider_disabled":
+    case "self_referential":
+      return "open_provider";
+    case "no_models":
+    case "discovery_failed":
+    case "provider_unhealthy":
+    case "provider_rate_limited":
+    case "circuit_open":
+    case "recovery_probe":
+      return "refresh_providers";
+    default:
+      return null;
+  }
 }
 
 function titleizeReadinessName(value: string): string {
