@@ -129,6 +129,10 @@ Each section has exactly one job: orient, inspect, compare, edit, or confirm. If
   to a dead-end warning. If the backend provides a suggested replacement model,
   expose it as an action and reset the provider route to "All providers" before
   selecting it, because the suggested model may belong to a different provider.
+- Chat send blockers should flow through `resolveChatSetupRepairState` in
+  `ui/src/lib/chat-setup-readiness.ts`. Keep the empty state, composer notice,
+  and disabled-send copy aligned there instead of adding one-off branches to
+  `ChatView`.
 - Agent Chat readiness belongs in Connections and in the picker
   diagnostics: distinguish missing binaries, auth/billing problems, unsupported
   versions, and managed-launcher issues without sending users to raw logs first.

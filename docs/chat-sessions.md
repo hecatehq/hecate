@@ -37,6 +37,14 @@ The UI should prefer those fields over local guesswork whenever they are
 present; client-side inference is only a fallback for stale sessions or older
 payloads.
 
+The chat setup surface has one repair contract shared by the empty state, the
+composer notice, and disabled-send copy. When a prompt cannot be sent, the UI
+should pick one primary operator action: **Go to Connections**, **Choose
+workspace**, **Enable tools**, **Use suggested model**, or **Open setup** for a
+coding-agent adapter. Avoid adding local one-off blockers in the Chat view; put
+new send blockers behind the shared readiness resolver so the same reason and
+CTA are visible before and after the transcript has messages.
+
 Hecate Chat also has one per-chat **Instructions** field. With tools off, the
 instructions are sent as the direct model turn's `system_prompt`. With tools
 on, the same text becomes the per-task system prompt for the Hecate-owned
