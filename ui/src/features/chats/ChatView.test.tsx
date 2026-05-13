@@ -1073,7 +1073,7 @@ describe("ChatView input", () => {
     render(<ChatView state={state} actions={actions} />);
 
     expect(screen.getByRole("button", { name: "tools on" })).toBeTruthy();
-    expect(screen.getAllByText(/Tools are disabled for this model/).length).toBeGreaterThan(0);
+    expect(screen.getByText(/Tools are disabled for this model/)).toBeTruthy();
     const send = document.querySelector("button[type='submit']") as HTMLButtonElement;
     expect(send.disabled).toBe(true);
 
@@ -2309,11 +2309,9 @@ describe("ChatView external-agent target", () => {
     }, { chooseAgentWorkspace });
     render(<ChatView state={state} actions={actions} />);
 
-    expect(screen.getAllByText(/Hecate uses the workspace as the working directory/).length).toBeGreaterThan(0);
+    expect(screen.getByText(/Hecate uses the workspace as the working directory/)).toBeTruthy();
     const user = userEvent.setup();
-    const workspaceButtons = screen.getAllByRole("button", { name: "Choose workspace" });
-    expect(workspaceButtons.length).toBeGreaterThan(0);
-    await user.click(workspaceButtons[0]);
+    await user.click(screen.getByRole("button", { name: "Choose workspace" }));
     expect(chooseAgentWorkspace).toHaveBeenCalled();
     const send = document.querySelector("button[type='submit']") as HTMLButtonElement;
     expect(send.disabled).toBe(true);

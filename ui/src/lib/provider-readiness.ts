@@ -26,7 +26,7 @@ export function providerReadinessMeaning({
   if (configuredCount === 0) {
     return { message: "No model providers are configured yet. Add one provider before starting Hecate Chat.", tone: "amber" };
   }
-  if (blockedCount > 0 && repair?.tone !== "muted") {
+  if (blockedCount > 0 && repair && repair.tone !== "muted") {
     return { message: `${blockedCount} provider${blockedCount === 1 ? " needs" : "s need"} attention. Next: ${repair?.action || "open the provider list."}`, tone: "amber" };
   }
   if (readyCount === 0) {
@@ -106,24 +106,26 @@ export function providerRepairHint({
 
   if (runtimeProvider?.readiness?.status === "blocked") {
     const blockedCheck = firstBlockedReadinessCheck(runtimeProvider.readiness_checks ?? []);
+    const actionKind = actionableProviderAction(readinessActionKind(blockedCheck), configuredProvider?.id);
     return {
       title: "Provider blocked",
       message: runtimeProvider.readiness.message || `${name} is not routable right now.`,
       action: runtimeProvider.readiness.operator_action || firstReadinessAction(runtimeProvider.readiness_checks) || "Open Connections and inspect the blocked readiness check.",
-      actionKind: readinessActionKind(blockedCheck) ?? "open_provider",
-      providerID: configuredProvider?.id ?? runtimeProvider.name,
+      actionKind,
+      providerID: configuredProvider?.id,
       tone: "amber",
     };
   }
 
   const blockedCheck = firstBlockedReadinessCheck(runtimeProvider?.readiness_checks ?? []);
   if (blockedCheck) {
+    const actionKind = actionableProviderAction(readinessActionKind(blockedCheck), configuredProvider?.id);
     return {
       title: readinessTitle(blockedCheck),
       message: blockedCheck.message || `${name} has a blocked readiness check.`,
       action: readinessRecommendation(blockedCheck) || "Open Connections and inspect provider readiness.",
-      actionKind: readinessActionKind(blockedCheck) ?? "open_provider",
-      providerID: configuredProvider?.id ?? runtimeProvider?.name,
+      actionKind,
+      providerID: configuredProvider?.id,
       tone: "amber",
     };
   }
@@ -134,8 +136,8 @@ export function providerRepairHint({
       title: "Routing blocked",
       message: `${name} is configured, but routing is blocked: ${reason}.`,
       action: "Open Connections and inspect routing, health, and discovery details.",
-      actionKind: "open_provider",
-      providerID: configuredProvider?.id ?? runtimeProvider.name,
+      actionKind: actionableProviderAction("open_provider", configuredProvider?.id),
+      providerID: configuredProvider?.id,
       tone: "amber",
     };
   }
@@ -146,7 +148,7 @@ export function providerRepairHint({
       message: `${name} is reachable, but Hecate has not discovered any models from it yet.`,
       action: isLocal ? "Pull or load a model in the local provider, then refresh Connections." : "Confirm the account has model access, then refresh Connections.",
       actionKind: "refresh_providers",
-      providerID: configuredProvider?.id ?? runtimeProvider.name,
+      providerID: configuredProvider?.id,
       tone: "amber",
     };
   }
@@ -157,7 +159,7 @@ export function providerRepairHint({
       message: `${name} is currently down or cooling down after failures.`,
       action: isLocal ? "Start the local provider process and refresh Connections." : "Check the upstream endpoint, credentials, and provider status.",
       actionKind: "refresh_providers",
-      providerID: configuredProvider?.id ?? runtimeProvider.name,
+      providerID: configuredProvider?.id,
       tone: "amber",
     };
   }
@@ -168,7 +170,7 @@ export function providerRepairHint({
       message: `${name} has no provider setup issue that needs repair.`,
       action: "No repair needed.",
       actionKind: "none",
-      providerID: configuredProvider?.id ?? runtimeProvider?.name,
+      providerID: configuredProvider?.id,
       tone: "muted",
     };
   }
@@ -209,6 +211,29 @@ export function providerFleetRepairHint(
     actionKind: "add_provider",
     tone: "amber",
   };
+}
+
+export function providerRepairActionLabel(actionKind: ProviderRepairHint["actionKind"]): string | null {
+  switch (actionKind) {
+    case "add_provider":
+      return "Add provider";
+    case "open_provider":
+      return "Open provider";
+    case "refresh_providers":
+      return "Refresh providers";
+    case "none":
+      return null;
+  }
+}
+
+function actionableProviderAction(
+  actionKind: ProviderRepairHint["actionKind"] | null,
+  configuredProviderID?: string,
+): ProviderRepairHint["actionKind"] {
+  if (actionKind === "open_provider" && !configuredProviderID) {
+    return "refresh_providers";
+  }
+  return actionKind ?? (configuredProviderID ? "open_provider" : "refresh_providers");
 }
 
 function firstBlockedReadinessCheck(checks: ProviderReadinessCheckRecord[]): ProviderReadinessCheckRecord | null {
