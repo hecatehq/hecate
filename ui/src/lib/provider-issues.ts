@@ -52,7 +52,52 @@ export function buildSelectedModelIssue({
   if (!model) {
     return null;
   }
-  if (selectableModels.some((entry) => entry.id === model)) {
+  const matchingModels = selectableModels.filter((entry) => entry.id === model);
+  const providerMatches = providerFilter === "auto"
+    ? matchingModels
+    : matchingModels.filter((entry) => entry.metadata?.provider === providerFilter);
+  const readinessCandidates = providerMatches.length > 0 ? providerMatches : matchingModels;
+  if (readinessCandidates.length > 0) {
+    const readyCandidate = readinessCandidates.find((entry) => entry.metadata?.readiness?.ready !== false);
+    if (readyCandidate) {
+      return null;
+    }
+    const readiness = readinessCandidates[0]?.metadata?.readiness;
+    if (readiness) {
+      const providerLabel = providerFilter === "auto"
+        ? readiness.matched_provider || readiness.provider || "All providers"
+        : configuredProvider?.name || runtimeProvider?.name || providerFilter;
+      const details = [
+        { label: "Selected model", value: model },
+        { label: "Provider route", value: providerLabel },
+        { label: "Reason", value: readiness.reason || "not ready" },
+      ];
+      if (readiness.provider_status) {
+        details.push({ label: "Health", value: readiness.provider_status });
+      }
+      if (readiness.provider_blocked_reason) {
+        details.push({ label: "Blocked by", value: readiness.provider_blocked_reason });
+      }
+      if (readiness.suggested_models?.length) {
+        details.push({ label: "Try instead", value: readiness.suggested_models.slice(0, 3).join(", ") });
+      }
+      const steps = [
+        readiness.operator_action || "Open Providers to inspect readiness and repair the blocked dependency.",
+        readiness.suggested_models?.length
+          ? `Try ${readiness.suggested_models[0]} from the model picker.`
+          : "Refresh Providers after changing credentials, health, or local model availability.",
+      ].filter(Boolean);
+      return {
+        title: "Selected model is not ready",
+        message: readiness.message || `The selected model "${model}" is not routable right now.`,
+        providerLabel,
+        model,
+        details,
+        steps,
+      };
+    }
+  }
+  if (matchingModels.length > 0 && providerFilter === "auto") {
     return null;
   }
 

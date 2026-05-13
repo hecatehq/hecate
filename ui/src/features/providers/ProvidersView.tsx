@@ -2,7 +2,7 @@ import { useEffect, useState, type CSSProperties } from "react";
 import type { RuntimeConsoleViewModel } from "../../app/useRuntimeConsole";
 import { resolvedBaseURL } from "../../lib/provider-utils";
 import { describeHealthErrorClass, describeRoutingBlockedReason } from "../../lib/runtime-utils";
-import { ProviderReadinessChecklist } from "../shared/ProviderReadiness";
+import { ProviderReadinessChecklist, ProviderReadinessSummary } from "../shared/ProviderReadiness";
 import { Badge, BrandAvatar, ConfirmModal, Icon, Icons, Modal } from "../shared/ui";
 import { AddProviderModal } from "./AddProviderModal";
 
@@ -440,6 +440,8 @@ export function ProvidersView({ state, actions }: Props) {
                 </div>
               ))}
             </div>
+
+            <ProviderReadinessSummary readiness={selectedStatus?.readiness} />
 
             <ProviderReadinessChecklist checks={selectedStatus?.readiness_checks ?? []} />
 

@@ -58,6 +58,7 @@ func (h *Handler) HandleProviderStatus(w http.ResponseWriter, r *http.Request) {
 			Timeouts:            provider.Timeouts,
 			ServerErrors:        provider.ServerErrors,
 			RateLimits:          provider.RateLimits,
+			Readiness:           renderReadinessSummary(provider.Readiness),
 			ReadinessChecks:     renderProviderReadinessChecks(provider.ReadinessChecks),
 		}
 		if !provider.RefreshedAt.IsZero() {
@@ -76,6 +77,15 @@ func (h *Handler) HandleProviderStatus(w http.ResponseWriter, r *http.Request) {
 		Object: "provider_status",
 		Data:   data,
 	})
+}
+
+func renderReadinessSummary(summary types.ReadinessSummary) ReadinessSummaryResponseItem {
+	return ReadinessSummaryResponseItem{
+		Status:         summary.Status,
+		Reason:         summary.Reason,
+		Message:        summary.Message,
+		OperatorAction: summary.OperatorAction,
+	}
 }
 
 func renderProviderReadinessChecks(checks []types.ProviderReadinessCheck) []ProviderReadinessCheckResponseItem {

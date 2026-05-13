@@ -204,6 +204,85 @@ func TestProviderHealthCheckTreatsRoutableDegradedProvidersAsWarnings(t *testing
 	}
 }
 
+func TestProviderReadinessSummary(t *testing.T) {
+	t.Parallel()
+
+	tests := []struct {
+		name       string
+		entry      catalog.Entry
+		checks     []types.ProviderReadinessCheck
+		wantStatus string
+		wantReason string
+	}{
+		{
+			name:       "unknown when no checks exist",
+			entry:      catalog.Entry{Name: "ollama"},
+			wantStatus: "unknown",
+			wantReason: "unknown",
+		},
+		{
+			name: "routing block wins over earlier warning",
+			entry: catalog.Entry{
+				Name: "anthropic",
+			},
+			checks: []types.ProviderReadinessCheck{
+				{Name: "models", Status: "warning", Reason: "default_model_only", Message: "Default model only."},
+				{Name: "routing", Status: "blocked", Reason: "credential_missing", Message: "Credentials are missing.", OperatorAction: "Add an API key."},
+			},
+			wantStatus: "blocked",
+			wantReason: "credential_missing",
+		},
+		{
+			name: "first warning is surfaced when routable",
+			entry: catalog.Entry{
+				Name: "openrouter",
+			},
+			checks: []types.ProviderReadinessCheck{
+				{Name: "credentials", Status: "ok", Reason: "configured", Message: "Credentials configured."},
+				{Name: "models", Status: "warning", Reason: "default_model_only", Message: "Default model only."},
+				{Name: "routing", Status: "ok", Reason: "routable", Message: "Provider is routable."},
+			},
+			wantStatus: "warning",
+			wantReason: "default_model_only",
+		},
+		{
+			name: "all ok is ready",
+			entry: catalog.Entry{
+				Name: "ollama",
+			},
+			checks: []types.ProviderReadinessCheck{
+				{Name: "credentials", Status: "ok", Reason: "not_required", Message: "No credentials required."},
+				{Name: "models", Status: "ok", Reason: "models_discovered", Message: "Models discovered."},
+				{Name: "health", Status: "ok", Reason: "healthy", Message: "Provider is healthy."},
+				{Name: "routing", Status: "ok", Reason: "routable", Message: "Provider is routable."},
+			},
+			wantStatus: "ok",
+			wantReason: "ready",
+		},
+	}
+
+	for _, tt := range tests {
+		tt := tt
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+
+			got := providerReadinessSummary(tt.entry, tt.checks)
+			if got.Status != tt.wantStatus {
+				t.Fatalf("status = %q, want %q", got.Status, tt.wantStatus)
+			}
+			if got.Reason != tt.wantReason {
+				t.Fatalf("reason = %q, want %q", got.Reason, tt.wantReason)
+			}
+			if got.Message == "" {
+				t.Fatal("message is empty")
+			}
+			if got.Status == "blocked" && got.OperatorAction == "" {
+				t.Fatalf("operator_action is empty for blocked summary: %#v", got)
+			}
+		})
+	}
+}
+
 func TestProviderModelReadiness(t *testing.T) {
 	t.Parallel()
 
@@ -235,6 +314,7 @@ func TestProviderModelReadiness(t *testing.T) {
 		wantReason          string
 		wantMatchedProvider string
 		wantBlockedReason   string
+		wantStatus          string
 		wantSuggestions     bool
 		rejectSuggestion    string
 	}{
@@ -246,6 +326,7 @@ func TestProviderModelReadiness(t *testing.T) {
 			wantProvider:        "ollama",
 			wantReason:          "model_available",
 			wantMatchedProvider: "ollama",
+			wantStatus:          "ok",
 		},
 		{
 			name:                "explicit provider match returns canonical id",
@@ -255,6 +336,7 @@ func TestProviderModelReadiness(t *testing.T) {
 			wantProvider:        "ollama",
 			wantReason:          "model_available",
 			wantMatchedProvider: "ollama",
+			wantStatus:          "ok",
 		},
 		{
 			name:                "explicit provider missing selected model",
@@ -263,6 +345,7 @@ func TestProviderModelReadiness(t *testing.T) {
 			wantProvider:        "ollama",
 			wantReason:          "model_not_discovered",
 			wantMatchedProvider: "ollama",
+			wantStatus:          "blocked",
 		},
 		{
 			name:                "explicit provider blocked before model use",
@@ -272,6 +355,7 @@ func TestProviderModelReadiness(t *testing.T) {
 			wantReason:          "provider_not_ready",
 			wantMatchedProvider: "anthropic",
 			wantBlockedReason:   "credential_missing",
+			wantStatus:          "blocked",
 			wantSuggestions:     true,
 		},
 		{
@@ -280,6 +364,7 @@ func TestProviderModelReadiness(t *testing.T) {
 			model:        "llama3.1:8b",
 			wantProvider: "missing",
 			wantReason:   "provider_missing",
+			wantStatus:   "blocked",
 		},
 		{
 			name:                "auto finds routable provider",
@@ -288,12 +373,14 @@ func TestProviderModelReadiness(t *testing.T) {
 			wantProvider:        "auto",
 			wantReason:          "auto_route_available",
 			wantMatchedProvider: "ollama",
+			wantStatus:          "ok",
 		},
 		{
 			name:            "auto cannot find selected model",
 			model:           "gpt-5.4-mini",
 			wantProvider:    "auto",
 			wantReason:      "model_not_discovered",
+			wantStatus:      "blocked",
 			wantSuggestions: true,
 		},
 		{
@@ -301,6 +388,7 @@ func TestProviderModelReadiness(t *testing.T) {
 			provider:         "ollama",
 			wantProvider:     "ollama",
 			wantReason:       "model_required",
+			wantStatus:       "blocked",
 			wantSuggestions:  true,
 			rejectSuggestion: "claude-sonnet-4-5",
 		},
@@ -308,6 +396,7 @@ func TestProviderModelReadiness(t *testing.T) {
 			name:            "auto model required",
 			wantProvider:    "auto",
 			wantReason:      "model_required",
+			wantStatus:      "blocked",
 			wantSuggestions: true,
 		},
 	}
@@ -332,6 +421,9 @@ func TestProviderModelReadiness(t *testing.T) {
 			}
 			if got.ProviderBlockedReason != tt.wantBlockedReason {
 				t.Fatalf("provider_blocked_reason = %q, want %q", got.ProviderBlockedReason, tt.wantBlockedReason)
+			}
+			if rendered := got.ToModelReadiness(); rendered.Status != tt.wantStatus {
+				t.Fatalf("rendered status = %q, want %q for %#v", rendered.Status, tt.wantStatus, rendered)
 			}
 			if !got.Ready && got.OperatorAction == "" {
 				t.Fatalf("operator_action is empty for blocked readiness: %#v", got)

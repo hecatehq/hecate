@@ -677,6 +677,12 @@ describe("ProvidersView table renders", () => {
           credential_state: "not_required",
           routing_ready: false,
           routing_blocked_reason: "provider_rate_limited",
+          readiness: {
+            status: "blocked",
+            reason: "provider_rate_limited",
+            message: "Ollama is temporarily unavailable because it is rate limited.",
+            operator_action: "Wait for cooldown or route to another local provider.",
+          },
           readiness_checks: [
             { name: "credentials", status: "ok", reason: "not_required", message: "No credentials are required for this provider." },
             { name: "models", status: "ok", reason: "models_discovered", message: "1 model discovered." },
@@ -710,6 +716,9 @@ describe("ProvidersView table renders", () => {
 
     expect(screen.getByText(/Circuit open/)).toBeTruthy();
     expect(screen.getByText("Readiness")).toBeTruthy();
+    expect(screen.getByText("Readiness summary")).toBeTruthy();
+    expect(screen.getByText("Ollama is temporarily unavailable because it is rate limited.")).toBeTruthy();
+    expect(screen.getByText("Next: Wait for cooldown or route to another local provider.")).toBeTruthy();
     expect(screen.getAllByText("Credentials").length).toBeGreaterThan(0);
     expect(screen.getAllByText("Models").length).toBeGreaterThan(0);
     expect(screen.getAllByText("Health").length).toBeGreaterThan(0);

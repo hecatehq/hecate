@@ -27,6 +27,13 @@ is intentionally not just a warning — it should be enough to choose a discover
 model, refresh local provider discovery, or jump to Providers for the full
 readiness checklist.
 
+The backend owns the readiness wording. `/hecate/v1/providers/status` returns a
+provider-level `readiness` summary plus detailed `readiness_checks`, and
+`/v1/models` adds `metadata.readiness` for every discovered provider/model row.
+The UI should prefer those fields over local guesswork whenever they are
+present; client-side inference is only a fallback for stale sessions or older
+payloads.
+
 Hecate Chat also has one per-chat **Instructions** field. With tools off, the
 instructions are sent as the direct model turn's `system_prompt`. With tools
 on, the same text becomes the per-task system prompt for the Hecate-owned

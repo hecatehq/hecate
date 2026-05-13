@@ -452,6 +452,11 @@ GET /hecate/v1/providers/status
       "credential_state": "not_required",
       "credential_ready": true,
       "routing_ready": true,
+      "readiness": {
+        "status": "ok",
+        "reason": "ready",
+        "message": "Provider \"ollama\" is ready for routing."
+      },
       "readiness_checks": [
         {
           "name": "credentials",
@@ -483,11 +488,16 @@ GET /hecate/v1/providers/status
 }
 ```
 
+`readiness` is the compact provider-level answer for cards and tables:
+`status` is `ok`, `warning`, `blocked`, or `unknown`; `reason` is stable enough
+for UI branching; `message` is safe to show directly to the operator; and
+`operator_action` appears when there is a repair step.
+
 `readiness_checks` is the canonical operator-facing checklist. It prevents
 clients from guessing readiness by combining unrelated raw fields. Check names
-are currently `credentials`, `models`, `health`, and `routing`; statuses are
-`ok`, `warning`, `blocked`, or `unknown`. `reason` is stable enough for UI
-branching, while `message` is safe to show directly to the operator.
+are currently `credentials`, `models`, `health`, and `routing`; statuses use the
+same `ok` / `warning` / `blocked` / `unknown` set. `reason` is stable enough for
+UI branching, while `message` is safe to show directly to the operator.
 When a check needs operator action, `operator_action` carries the canonical
 repair step; clients should prefer it over deriving their own copy from
 `reason`. For example `credential_missing` includes "add or rotate
@@ -582,6 +592,17 @@ GET /v1/models
           "streaming": true,
           "max_context_tokens": 32768,
           "source": "provider"
+        },
+        "readiness": {
+          "provider": "ollama",
+          "matched_provider": "ollama",
+          "model": "qwen2.5-coder",
+          "ready": true,
+          "status": "ok",
+          "reason": "model_available",
+          "message": "Provider \"ollama\" reports model \"qwen2.5-coder\".",
+          "routing_ready": true,
+          "provider_status": "healthy"
         }
       }
     }
@@ -594,6 +615,14 @@ GET /v1/models
 when the effective value is `none`. Local/custom models often report
 `unknown`; operators can use Settings → Model capabilities to explicitly turn
 tools on or off for a provider/model pair.
+
+`metadata.readiness` is the backend-owned provider/model readiness snapshot for
+that discovered row. Chats should use it before sending instead of inferring
+routeability from model names alone: a model can appear in discovery while its
+provider is credential-blocked, circuit-open, disabled, or otherwise not
+routable. When `ready=false`, show `message` and `operator_action` directly and
+use `reason`, `provider_status`, `provider_blocked_reason`, and
+`suggested_models` for compact diagnostics.
 
 ### `PUT /hecate/v1/model-capabilities/overrides`
 

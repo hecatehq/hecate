@@ -1,4 +1,60 @@
-import type { ProviderReadinessCheckRecord } from "../../types/runtime";
+import type { ProviderReadinessCheckRecord, ProviderReadinessSummaryRecord } from "../../types/runtime";
+
+export function ProviderReadinessSummary({ readiness }: { readiness?: ProviderReadinessSummaryRecord }) {
+  if (!readiness || (!readiness.message && !readiness.operator_action && !readiness.reason)) return null;
+
+  return (
+    <div style={{
+      border: "1px solid var(--border)",
+      borderRadius: "var(--radius-sm)",
+      background: readinessSummaryBackground(readiness.status),
+      padding: "10px 12px",
+    }}>
+      <div style={{ display: "flex", alignItems: "center", gap: 8, marginBottom: 5 }}>
+        <span style={{
+          width: 8,
+          height: 8,
+          borderRadius: 999,
+          background: readinessColor(readiness.status),
+          boxShadow: readiness.status === "ok" ? "0 0 10px rgba(96, 199, 112, 0.35)" : undefined,
+          flexShrink: 0,
+        }} />
+        <span style={{
+          fontSize: 10,
+          color: "var(--t3)",
+          fontFamily: "var(--font-mono)",
+          textTransform: "uppercase",
+          letterSpacing: "0.04em",
+        }}>
+          Readiness summary
+        </span>
+        {readiness.reason && (
+          <span style={{
+            fontSize: 10,
+            color: "var(--t3)",
+            fontFamily: "var(--font-mono)",
+            overflow: "hidden",
+            textOverflow: "ellipsis",
+            whiteSpace: "nowrap",
+            minWidth: 0,
+          }}>
+            {readiness.reason}
+          </span>
+        )}
+      </div>
+      {readiness.message && (
+        <div style={{ fontSize: 12, color: readinessTextColor(readiness.status), lineHeight: 1.45 }}>
+          {readiness.message}
+        </div>
+      )}
+      {readiness.operator_action && (
+        <div style={{ marginTop: 5, fontSize: 11, color: "var(--t2)", lineHeight: 1.45 }}>
+          Next: {readiness.operator_action}
+        </div>
+      )}
+    </div>
+  );
+}
 
 export function ProviderReadinessChecklist({ checks }: { checks: ProviderReadinessCheckRecord[] }) {
   if (checks.length === 0) return null;
@@ -185,6 +241,19 @@ function readinessTextColor(status?: string): string {
       return "var(--amber)";
     default:
       return "var(--t2)";
+  }
+}
+
+function readinessSummaryBackground(status?: string): string {
+  switch (status) {
+    case "blocked":
+      return "var(--red-bg)";
+    case "warning":
+      return "var(--amber-bg)";
+    case "ok":
+      return "var(--green-bg)";
+    default:
+      return "var(--bg2)";
   }
 }
 
