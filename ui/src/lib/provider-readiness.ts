@@ -120,7 +120,7 @@ export function providerRepairHint({
   if (configuredProvider || runtimeProvider) {
     return {
       title: "Ready",
-      message: `${name} has a current readiness signal.`,
+      message: `${name} has no provider setup issue that needs repair.`,
       action: "No repair needed.",
       tone: "muted",
     };
@@ -148,7 +148,7 @@ export function providerFleetRepairHint(
   if (providers.length > 0) {
     return {
       title: "Ready",
-      message: "All configured provider records have a current readiness signal.",
+      message: "No configured provider setup issue needs repair.",
       action: "No repair needed.",
       tone: "muted",
     };
