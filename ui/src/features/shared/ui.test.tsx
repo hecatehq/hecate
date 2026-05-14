@@ -149,6 +149,13 @@ describe("BrandAvatar", () => {
     expect(container.querySelector("svg")).toBeTruthy();
     expect(screen.queryByText("L")).toBeNull();
   });
+
+  it("renders monochrome devicons with theme-controlled color", () => {
+    const { container } = render(<BrandAvatar brand="openai" title="OpenAI" />);
+    expect(screen.getByLabelText("OpenAI")).toBeTruthy();
+    expect(container.querySelector("path")?.getAttribute("fill")).toBe("currentColor");
+    expect(container.querySelector("svg")).toHaveStyle({ color: "var(--mono-icon)" });
+  });
 });
 
 describe("CopyBtn", () => {
