@@ -28,7 +28,6 @@ func (h *Handler) HandleSettingsStatus(w http.ResponseWriter, r *http.Request) {
 			Backend:     "env",
 			Providers:   []SettingsProviderRecord{},
 			PolicyRules: []SettingsPolicyRuleRecord{},
-			Pricebook:   []SettingsPricebookRecord{},
 			Events:      []SettingsAuditEventRecord{},
 		},
 	}
@@ -50,9 +49,6 @@ func (h *Handler) HandleSettingsStatus(w http.ResponseWriter, r *http.Request) {
 	}
 	for _, rule := range state.PolicyRules {
 		payload.Data.PolicyRules = append(payload.Data.PolicyRules, renderSettingsPolicyRule(rule))
-	}
-	for _, entry := range state.Pricebook {
-		payload.Data.Pricebook = append(payload.Data.Pricebook, renderSettingsPricebookEntry(entry))
 	}
 	for _, event := range state.Events {
 		payload.Data.Events = append(payload.Data.Events, renderSettingsAuditEvent(event))
@@ -360,60 +356,6 @@ func (h *Handler) HandleSettingsDeletePolicyRule(w http.ResponseWriter, r *http.
 	})
 }
 
-func (h *Handler) HandleSettingsUpsertPricebookEntry(w http.ResponseWriter, r *http.Request) {
-	if !h.requireSettings(w, r) {
-		return
-	}
-
-	var req SettingsPricebookUpsertRequest
-	if !decodeJSON(w, r, &req) {
-		return
-	}
-
-	entry, err := h.controlPlane.UpsertPricebookEntry(controlplane.WithActor(r.Context(), settingsActor(r)), config.ModelPriceConfig{
-		Provider:                             req.Provider,
-		Model:                                req.Model,
-		InputMicrosUSDPerMillionTokens:       req.InputMicrosUSDPerMillionTokens,
-		OutputMicrosUSDPerMillionTokens:      req.OutputMicrosUSDPerMillionTokens,
-		CachedInputMicrosUSDPerMillionTokens: req.CachedInputMicrosUSDPerMillionTokens,
-		Source:                               req.Source,
-	})
-	if err != nil {
-		WriteError(w, http.StatusBadRequest, errCodeInvalidRequest, err.Error())
-		return
-	}
-
-	WriteJSON(w, http.StatusOK, map[string]any{
-		"object": "settings_pricebook_entry",
-		"data":   renderSettingsPricebookEntry(entry),
-	})
-}
-
-func (h *Handler) HandleSettingsDeletePricebookEntry(w http.ResponseWriter, r *http.Request) {
-	if !h.requireSettings(w, r) {
-		return
-	}
-
-	provider := strings.TrimSpace(r.PathValue("provider"))
-	model := strings.TrimSpace(r.PathValue("model"))
-	if provider == "" || model == "" {
-		WriteError(w, http.StatusBadRequest, errCodeInvalidRequest, "provider and model are required")
-		return
-	}
-	if err := h.controlPlane.DeletePricebookEntry(controlplane.WithActor(r.Context(), settingsActor(r)), provider, model); err != nil {
-		WriteError(w, http.StatusBadRequest, errCodeInvalidRequest, err.Error())
-		return
-	}
-
-	WriteJSON(w, http.StatusOK, map[string]any{
-		"object": "settings_pricebook_entry_deleted",
-		"data": map[string]string{
-			"provider": provider,
-			"model":    model,
-		},
-	})
-}
-
 func renderSettingsPolicyRule(rule config.PolicyRuleConfig) SettingsPolicyRuleRecord {
 	return SettingsPolicyRuleRecord{
 		ID:                     rule.ID,
@@ -426,17 +368,6 @@ func renderSettingsPolicyRule(rule config.PolicyRuleConfig) SettingsPolicyRuleRe
 		MinPromptTokens:        rule.MinPromptTokens,
 		MinEstimatedCostMicros: rule.MinEstimatedCostMicros,
 		RewriteModelTo:         rule.RewriteModelTo,
-	}
-}
-
-func renderSettingsPricebookEntry(entry config.ModelPriceConfig) SettingsPricebookRecord {
-	return SettingsPricebookRecord{
-		Provider:                             entry.Provider,
-		Model:                                entry.Model,
-		InputMicrosUSDPerMillionTokens:       entry.InputMicrosUSDPerMillionTokens,
-		OutputMicrosUSDPerMillionTokens:      entry.OutputMicrosUSDPerMillionTokens,
-		CachedInputMicrosUSDPerMillionTokens: entry.CachedInputMicrosUSDPerMillionTokens,
-		Source:                               entry.Source,
 	}
 }
 

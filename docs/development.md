@@ -187,15 +187,14 @@ acp                     # ACP protocol types + dispatcher used by cmd/hecate-acp
 agentadapters           # external coding-agent adapter framework (Codex, Claude Code, Cursor Agent)
 agentchat               # agent chat session storage and replay
 api                     # HTTP handlers — chat, messages, tasks, settings, telemetry
-billing                 # pricebook + cost calculation
 bootstrap               # first-run secret-key generation and persistence
 catalog                 # provider/model discovery and registration
 chatstate               # chat session storage (memory / sqlite)
 config                  # env-driven config loading
-controlplane            # persisted providers, pricebook CRUD
+controlplane            # persisted providers, secrets, policy, and capability overrides
 eventprotocol           # typed agent-event envelope + emitter (see docs/event-protocol-v1.md)
 gateway                 # request lifecycle: policy, router, retry/fallback
-governor                # budget enforcement, rate limiting, policy rules
+governor                # policy rules, route gates, and append-only usage events
 mcp                     # Hecate-as-MCP-server implementation (the `hecate mcp-server` subcommand)
 models                  # model identity + canonical-name resolution
 orchestrator            # task runtime: queue, runner, executors, sandbox boundary

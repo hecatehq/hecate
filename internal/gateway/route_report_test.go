@@ -36,8 +36,8 @@ func TestBuildRouteDecisionReport(t *testing.T) {
 						telemetry.AttrHecateProviderKind:           "local",
 						telemetry.AttrHecateRouteReason:            "provider_default_model",
 						telemetry.AttrHecateProviderIndex:          0,
-						telemetry.AttrHecateRouteSkipReason:        "budget_denied",
-						telemetry.AttrErrorMessage:                 "budget denied",
+						telemetry.AttrHecateRouteSkipReason:        "policy_denied",
+						telemetry.AttrErrorMessage:                 "usage limit denied",
 						telemetry.AttrHecatePolicyRuleID:           "deny-expensive-local",
 						telemetry.AttrHecatePolicyAction:           "deny",
 						telemetry.AttrHecatePolicyReason:           "local spillover blocked",
@@ -123,8 +123,8 @@ func TestBuildRouteDecisionReport(t *testing.T) {
 	if report.Candidates[0].Outcome != "denied" {
 		t.Fatalf("candidate[0].Outcome = %q, want denied", report.Candidates[0].Outcome)
 	}
-	if report.Candidates[0].SkipReason != "budget_denied" {
-		t.Fatalf("candidate[0].SkipReason = %q, want budget_denied", report.Candidates[0].SkipReason)
+	if report.Candidates[0].SkipReason != "policy_denied" {
+		t.Fatalf("candidate[0].SkipReason = %q, want policy_denied", report.Candidates[0].SkipReason)
 	}
 	if report.Candidates[0].PolicyRuleID != "deny-expensive-local" {
 		t.Fatalf("candidate[0].PolicyRuleID = %q, want deny-expensive-local", report.Candidates[0].PolicyRuleID)

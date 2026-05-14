@@ -207,50 +207,6 @@ func (s *SQLiteStore) DeletePolicyRule(ctx context.Context, id string) error {
 	return s.writeState(ctx, state)
 }
 
-func (s *SQLiteStore) UpsertPricebookEntry(ctx context.Context, entry config.ModelPriceConfig) (config.ModelPriceConfig, error) {
-	entry, err := normalizePricebookEntry(entry)
-	if err != nil {
-		return config.ModelPriceConfig{}, err
-	}
-
-	s.mu.Lock()
-	defer s.mu.Unlock()
-
-	state, err := s.readState(ctx)
-	if err != nil {
-		return config.ModelPriceConfig{}, err
-	}
-	action := upsertPricebookEntry(&state, entry)
-	appendAuditEvent(&state, newAuditEvent(ctx, action, "pricebook_entry", pricebookEntryID(entry.Provider, entry.Model), ""))
-	if err := s.writeState(ctx, state); err != nil {
-		return config.ModelPriceConfig{}, err
-	}
-	return entry, nil
-}
-
-func (s *SQLiteStore) DeletePricebookEntry(ctx context.Context, provider, model string) error {
-	provider = strings.TrimSpace(provider)
-	model = strings.TrimSpace(model)
-	if provider == "" || model == "" {
-		return fmt.Errorf("pricebook provider and model are required")
-	}
-
-	s.mu.Lock()
-	defer s.mu.Unlock()
-
-	state, err := s.readState(ctx)
-	if err != nil {
-		return err
-	}
-	index := pricebookEntryIndex(state.Pricebook, provider, model)
-	if index < 0 {
-		return fmt.Errorf("pricebook entry %q not found", pricebookEntryID(provider, model))
-	}
-	appendAuditEvent(&state, newAuditEvent(ctx, "pricebook_entry.deleted", "pricebook_entry", pricebookEntryID(provider, model), ""))
-	state.Pricebook = append(state.Pricebook[:index], state.Pricebook[index+1:]...)
-	return s.writeState(ctx, state)
-}
-
 func (s *SQLiteStore) UpsertModelCapabilityOverride(ctx context.Context, record ModelCapabilityRecord) (ModelCapabilityRecord, error) {
 	s.mu.Lock()
 	defer s.mu.Unlock()

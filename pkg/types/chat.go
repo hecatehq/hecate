@@ -322,45 +322,27 @@ type ProviderHealthHistoryEntry struct {
 	Timestamp           time.Time
 }
 
-type BudgetStatus struct {
-	Key                string
-	Scope              string
-	Provider           string
-	Backend            string
-	BalanceSource      string
-	DebitedMicrosUSD   int64
-	CreditedMicrosUSD  int64
-	BalanceMicrosUSD   int64
-	AvailableMicrosUSD int64
-	Enforced           bool
-	Warnings           []BudgetWarning
-	History            []BudgetHistoryEntry
+type UsageSummary struct {
+	Key           string
+	Scope         string
+	Provider      string
+	Backend       string
+	UsedMicrosUSD int64
 }
 
-type BudgetWarning struct {
-	ThresholdPercent   int
-	ThresholdMicrosUSD int64
-	BalanceMicrosUSD   int64
-	AvailableMicrosUSD int64
-	Triggered          bool
-}
-
-type BudgetHistoryEntry struct {
-	Type              string
-	Scope             string
-	Provider          string
-	Model             string
-	RequestID         string
-	Actor             string
-	Detail            string
-	AmountMicrosUSD   int64
-	BalanceMicrosUSD  int64
-	CreditedMicrosUSD int64
-	DebitedMicrosUSD  int64
-	PromptTokens      int
-	CompletionTokens  int
-	TotalTokens       int
-	Timestamp         time.Time
+type UsageEventEntry struct {
+	Type             string
+	Scope            string
+	Provider         string
+	Model            string
+	RequestID        string
+	Actor            string
+	Detail           string
+	AmountMicrosUSD  int64
+	PromptTokens     int
+	CompletionTokens int
+	TotalTokens      int
+	Timestamp        time.Time
 }
 
 // ChatSession is a stored conversation. The conversation itself lives
@@ -433,7 +415,7 @@ type ChatProviderCall struct {
 	CreatedAt         time.Time
 }
 
-type AccountModelEstimate struct {
+type UsageModelEstimate struct {
 	Provider                        string
 	ProviderKind                    string
 	Model                           string

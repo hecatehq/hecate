@@ -14,7 +14,6 @@ import (
 	"strings"
 	"time"
 
-	"github.com/hecate/agent-runtime/internal/billing"
 	"github.com/hecate/agent-runtime/internal/catalog"
 	"github.com/hecate/agent-runtime/internal/chatstate"
 	"github.com/hecate/agent-runtime/internal/governor"
@@ -39,7 +38,6 @@ type Dependencies struct {
 	Providers       providers.Registry
 	HealthTracker   providers.HealthTracker
 	ProviderHistory providers.HealthHistoryStore
-	Pricebook       billing.Pricebook
 	Tracer          profiler.Tracer
 	Metrics         *telemetry.Metrics
 	Retention       *retention.Manager
@@ -65,7 +63,6 @@ type Service struct {
 	tracer            profiler.Tracer
 	metrics           *telemetry.Metrics
 	retention         *retention.Manager
-	pricebook         billing.Pricebook
 	providerHistory   providers.HealthHistoryStore
 	chatSessions      chatstate.Store
 	providers         providers.Registry
@@ -95,17 +92,12 @@ type ProviderHealthHistoryResult struct {
 	Entries []types.ProviderHealthHistoryEntry
 }
 
-type BudgetStatusResult struct {
-	Status types.BudgetStatus
+type UsageSummaryResult struct {
+	Summary types.UsageSummary
 }
 
-type AccountSummaryResult struct {
-	Status    types.BudgetStatus
-	Estimates []types.AccountModelEstimate
-}
-
-type RequestLedgerResult struct {
-	Entries []types.BudgetHistoryEntry
+type UsageEventsResult struct {
+	Entries []types.UsageEventEntry
 }
 
 type TraceResult struct {
@@ -167,7 +159,7 @@ func NewService(deps Dependencies) *Service {
 
 	preflight := deps.Preflight
 	if preflight == nil {
-		preflight = NewDefaultRoutePreflight(deps.Governor, deps.Providers, deps.Pricebook)
+		preflight = NewDefaultRoutePreflight(deps.Governor, deps.Providers)
 	}
 
 	executor := deps.Executor
@@ -188,7 +180,6 @@ func NewService(deps Dependencies) *Service {
 		finalizer = NewDefaultResponseFinalizer(
 			deps.Logger,
 			deps.Governor,
-			deps.Pricebook,
 			deps.Metrics,
 		)
 	}
@@ -208,7 +199,6 @@ func NewService(deps Dependencies) *Service {
 		tracer:            deps.Tracer,
 		metrics:           deps.Metrics,
 		retention:         deps.Retention,
-		pricebook:         deps.Pricebook,
 		providerHistory:   deps.ProviderHistory,
 		chatSessions:      deps.ChatSessions,
 		providers:         deps.Providers,
@@ -279,10 +269,6 @@ func (s *Service) buildExecutionPlan(ctx context.Context, trace *profiler.Trace,
 		recordTraceError(trace, "governor.denied", "governor", errorKindRequestDenied, err, map[string]any{
 			telemetry.AttrHecateGovernorResult: telemetry.ResultDenied,
 		})
-		var budgetErr *governor.BudgetExceededError
-		if errors.As(err, &budgetErr) {
-			return nil, budgetErr
-		}
 		return nil, fmt.Errorf("%w: %v", errDenied, err)
 	}
 	recordTrace(trace, "governor.allowed", "governor", map[string]any{
@@ -324,17 +310,6 @@ func (s *Service) buildExecutionPlan(ctx context.Context, trace *profiler.Trace,
 	if err != nil {
 		if preflightErr, ok := AsRoutePreflightError(err); ok {
 			switch preflightErr.Kind {
-			case RoutePreflightCostEstimate:
-				recordTraceError(trace, "governor.budget_estimate_failed", "governor", errorKindBudgetEstimateFailed, preflightErr, map[string]any{
-					telemetry.AttrGenAIProviderName:  decision.Provider,
-					telemetry.AttrGenAIRequestModel:  decision.Model,
-					telemetry.AttrHecateProviderKind: firstNonEmpty(preflightErr.ProviderKind, decision.ProviderKind),
-				})
-				preflight = &RoutePreflightResult{
-					ProviderKind:   firstNonEmpty(preflightErr.ProviderKind, decision.ProviderKind),
-					EstimatedUsage: estimateUsage(withResolvedModel(rewrittenReq, decision.Model)),
-					EstimatedCost:  types.CostBreakdown{Currency: "USD"},
-				}
 			case RoutePreflightRouteDenied:
 				recordRouteDeniedCandidate(trace, decision, preflightErr, 0)
 				recordTraceError(trace, "governor.route_denied", "governor", errorKindRouteDenied, preflightErr, map[string]any{
@@ -343,10 +318,6 @@ func (s *Service) buildExecutionPlan(ctx context.Context, trace *profiler.Trace,
 					telemetry.AttrHecateCostEstimatedMicrosUSD: preflightErr.EstimatedCostMicros,
 					telemetry.AttrHecateGovernorRouteResult:    telemetry.ResultDenied,
 				})
-				var budgetErr *governor.BudgetExceededError
-				if errors.As(preflightErr.Err, &budgetErr) {
-					return nil, budgetErr
-				}
 				return nil, fmt.Errorf("%w: %v", errDenied, preflightErr.Err)
 			}
 		}
@@ -1163,96 +1134,20 @@ func pluralS(count int) string {
 	return "s"
 }
 
-func (s *Service) BudgetStatus(ctx context.Context, key string) (*BudgetStatusResult, error) {
-	status, err := s.governor.BudgetStatus(ctx, governor.BudgetFilter{Key: key})
+func (s *Service) UsageSummaryWithFilter(ctx context.Context, filter governor.UsageFilter) (*UsageSummaryResult, error) {
+	summary, err := s.governor.UsageSummary(ctx, filter)
 	if err != nil {
 		return nil, err
 	}
-	return &BudgetStatusResult{Status: status}, nil
+	return &UsageSummaryResult{Summary: summary}, nil
 }
 
-func (s *Service) ResetBudget(ctx context.Context, key string) (*BudgetStatusResult, error) {
-	if err := s.governor.ResetBudget(ctx, governor.BudgetFilter{Key: key}); err != nil {
-		return nil, err
-	}
-	return s.BudgetStatus(ctx, key)
-}
-
-func (s *Service) BudgetStatusWithFilter(ctx context.Context, filter governor.BudgetFilter) (*BudgetStatusResult, error) {
-	status, err := s.governor.BudgetStatus(ctx, filter)
+func (s *Service) UsageEvents(ctx context.Context, limit int) (*UsageEventsResult, error) {
+	entries, err := s.governor.RecentUsageEvents(ctx, limit)
 	if err != nil {
 		return nil, err
 	}
-	return &BudgetStatusResult{Status: status}, nil
-}
-
-func (s *Service) ResetBudgetWithFilter(ctx context.Context, filter governor.BudgetFilter) (*BudgetStatusResult, error) {
-	if err := s.governor.ResetBudget(ctx, filter); err != nil {
-		return nil, err
-	}
-	return s.BudgetStatusWithFilter(ctx, filter)
-}
-
-func (s *Service) TopUpBudgetWithFilter(ctx context.Context, filter governor.BudgetFilter, deltaMicros int64) (*BudgetStatusResult, error) {
-	if err := s.governor.TopUpBudget(ctx, filter, deltaMicros); err != nil {
-		return nil, err
-	}
-	return s.BudgetStatusWithFilter(ctx, filter)
-}
-
-func (s *Service) SetBudgetBalanceWithFilter(ctx context.Context, filter governor.BudgetFilter, balanceMicros int64) (*BudgetStatusResult, error) {
-	if err := s.governor.SetBudgetBalance(ctx, filter, balanceMicros); err != nil {
-		return nil, err
-	}
-	return s.BudgetStatusWithFilter(ctx, filter)
-}
-
-func (s *Service) AccountSummaryWithFilter(ctx context.Context, filter governor.BudgetFilter) (*AccountSummaryResult, error) {
-	status, err := s.governor.BudgetStatus(ctx, filter)
-	if err != nil {
-		return nil, err
-	}
-
-	entries := s.catalog.Snapshot(ctx)
-	estimates := make([]types.AccountModelEstimate, 0, 16)
-	for _, entry := range entries {
-		if filter.Provider != "" && entry.Name != filter.Provider {
-			continue
-		}
-		for _, model := range entry.Models {
-			price, ok := s.pricebook.Lookup(entry.Name, model)
-			estimate := types.AccountModelEstimate{
-				Provider:                        entry.Name,
-				ProviderKind:                    string(entry.Kind),
-				Model:                           model,
-				Default:                         model == entry.DefaultModel,
-				DiscoverySource:                 entry.DiscoverySource,
-				Priced:                          ok,
-				InputMicrosUSDPerMillionTokens:  price.InputMicrosUSDPerMillionTokens,
-				OutputMicrosUSDPerMillionTokens: price.OutputMicrosUSDPerMillionTokens,
-			}
-			if price.InputMicrosUSDPerMillionTokens > 0 && status.AvailableMicrosUSD > 0 {
-				estimate.EstimatedRemainingPromptTokens = status.AvailableMicrosUSD * 1_000_000 / price.InputMicrosUSDPerMillionTokens
-			}
-			if price.OutputMicrosUSDPerMillionTokens > 0 && status.AvailableMicrosUSD > 0 {
-				estimate.EstimatedRemainingOutputTokens = status.AvailableMicrosUSD * 1_000_000 / price.OutputMicrosUSDPerMillionTokens
-			}
-			estimates = append(estimates, estimate)
-		}
-	}
-
-	return &AccountSummaryResult{
-		Status:    status,
-		Estimates: estimates,
-	}, nil
-}
-
-func (s *Service) RequestLedger(ctx context.Context, limit int) (*RequestLedgerResult, error) {
-	entries, err := s.governor.RecentBudgetHistory(ctx, limit)
-	if err != nil {
-		return nil, err
-	}
-	return &RequestLedgerResult{Entries: entries}, nil
+	return &UsageEventsResult{Entries: entries}, nil
 }
 
 func (s *Service) CreateChatSession(ctx context.Context, session types.ChatSession) (*ChatSessionResult, error) {

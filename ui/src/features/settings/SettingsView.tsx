@@ -1,29 +1,25 @@
 import { useState, type ReactNode } from "react";
 import type { RuntimeConsoleViewModel } from "../../app/useRuntimeConsole";
 import { Badge, Icon, Icons, InlineError } from "../shared/ui";
-import { PricebookTab } from "./PricebookTab";
 
 type Props = {
   state: RuntimeConsoleViewModel["state"];
   actions: RuntimeConsoleViewModel["actions"];
 };
 
-// Visible settings sub-tabs. Connections is now a top-level workspace
-// for provider credentials, model capabilities, and external-agent setup.
-// Settings stays focused on app configuration that does not belong to a
-// runtime connection surface. Balances and usage live in Costs.
-const TABS = ["pricebook", "retention"] as const;
+// Connections owns provider credentials, model capabilities, and
+// external-agent setup. Settings stays focused on gateway maintenance.
+const TABS = ["retention"] as const;
 type Tab = (typeof TABS)[number];
 const TAB_LABELS: Record<Tab, string> = {
-  pricebook: "Pricing",
   retention: "Retention",
 };
 
 const TAB_STORAGE_KEY = "hecate.settingsTab";
 
 export function SettingsView({ state, actions }: Props) {
-  // Persist the settings sub-tab so refreshing while on (say) Pricebook
-  // returns the operator to Pricebook.
+  // Persist the settings sub-tab so refreshing returns the operator to
+  // the same maintenance surface.
   const [tab, setTabRaw] = useState<Tab>(() => {
     const saved = localStorage.getItem(TAB_STORAGE_KEY);
     if (saved === "external_agents" || saved === "connections") return TABS[0];
@@ -62,7 +58,6 @@ export function SettingsView({ state, actions }: Props) {
 
       {/* Tab content */}
       <div style={{ flex: 1, overflowY: "auto", padding: 16 }}>
-        {tab === "pricebook" && <PricebookTab state={state} actions={actions} />}
         {tab === "retention" && <RetentionTab state={state} actions={actions} />}
       </div>
     </div>
@@ -101,7 +96,7 @@ function SectionHeader({
 
 const KNOWN_SUBSYSTEMS = [
   "trace_snapshots",
-  "budget_events",
+  "usage_events",
   "audit_events",
   "provider_history",
   "turn_events",
@@ -146,7 +141,7 @@ function RetentionTab({ state, actions }: Props) {
     <>
       <SectionHeader
         title="Retention"
-        description="Prune stored traces, budgets, audit events, and cache data."
+        description="Prune stored traces, usage events, audit events, and cache data."
         meta={`${runs.length} run${runs.length === 1 ? "" : "s"}`}
       />
 

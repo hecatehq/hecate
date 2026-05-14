@@ -48,9 +48,7 @@ export function describeRouteSkipReason(reason?: string): string {
     return "";
   }
   const labels: Record<string, string> = {
-    budget_denied: "Budget denied",
     policy_denied: "Policy denied",
-    preflight_price_missing: "Missing price",
     provider_not_found: "Provider missing",
     route_denied: "Route denied",
     provider_retry_exhausted: "Retry exhausted",

@@ -43,7 +43,7 @@ function SectionHeader({
 // ConnectionsPanel gathers the external-agent setup surfaces that sit next
 // to model-provider CRUD in the Connections workspace. It intentionally
 // remains exported for reuse by ProvidersView while Settings stays focused
-// on pricing, retention, and other non-connection configuration.
+// on retention and other non-connection configuration.
 //
 // Grants and adapter health are lazy-loaded on panel mount — operators
 // rarely visit this surface, so we don't fetch on every dashboard
@@ -230,7 +230,7 @@ function ModelProviderConnectionsSection({
     <div className="card" style={{ padding: "14px 16px", marginBottom: 24 }} data-testid="connections-model-providers">
       <SectionHeader
         title="Model providers"
-        description="Cloud and local model endpoints used by Hecate Chat, direct model chat, routing, pricebook, and cost controls."
+        description="Cloud and local model endpoints used by Hecate Chat, direct model chat, routing, and usage reporting."
         meta={`${configuredProviders.length} configured`}
         actions={
           onNavigate ? (

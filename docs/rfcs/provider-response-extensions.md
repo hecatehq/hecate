@@ -285,10 +285,9 @@ When this RFC is implemented end-to-end, the following are true:
 - Streaming-extension interface shape. Probably a separate method
   on the same interface (`DecodeStream(chunk, *types.ChatStreamChunk)`)
   rather than a separate interface; design when streaming is in scope.
-- Whether `Usage.ReasoningTokens` should be priced at the same rate
-  as completion tokens (current behavior) or split into its own
-  pricebook dimension. Today the answer is "treat as completion";
-  a separate RFC governs pricebook dimensions.
+- Whether `Usage.ReasoningTokens` should be surfaced separately from
+  completion tokens. Today the answer is "treat as completion"; a
+  separate RFC would be needed for provider-specific cost reporting.
 - Whether to surface the `safety_ratings` Gemini returns. Useful for
   content moderation but no cross-provider equivalent. Park until a
   second safety-rating provider arrives.

@@ -18,14 +18,14 @@ import { Badge } from "../../shared/ui";
 import { RouteCandidates } from "./RouteCandidates";
 import { SpanWaterfall } from "./SpanWaterfall";
 
-type LedgerEntry = NonNullable<RuntimeConsoleViewModel["state"]["requestLedger"]>[number];
+type UsageEntry = NonNullable<RuntimeConsoleViewModel["state"]["usageEvents"]>[number];
 
 type TraceDetailProps = {
   selectedID: string;
   selectedTrace?: TraceListItem;
   selectedProvider?: string;
   selectedModel?: string;
-  ledger?: LedgerEntry;
+  usage?: UsageEntry;
   traceDetail: TraceResponse["data"] | null;
   traceFetching: boolean;
   waterfall: TraceWaterfall;
@@ -37,17 +37,17 @@ type TraceDetailProps = {
 };
 
 export function TraceDetail({
-  selectedTrace, selectedProvider, selectedModel, ledger, traceDetail, traceFetching,
+  selectedTrace, selectedProvider, selectedModel, usage, traceDetail, traceFetching,
   waterfall, traceTimeline, expandedSpanID, setExpandedSpanID,
   phaseFilter, setPhaseFilter,
 }: TraceDetailProps) {
   const status = selectedTrace ? traceStatusBadge(selectedTrace) : null;
-  const tokens = ledger
-    ? `${ledger.prompt_tokens ?? 0} / ${ledger.completion_tokens ?? 0}`
+  const tokens = usage
+    ? `${usage.prompt_tokens ?? 0} / ${usage.completion_tokens ?? 0}`
     : "—";
-  const cost = ledger?.amount_usd
-    ? `$${Number.parseFloat(ledger.amount_usd).toFixed(5)}`
-    : ledger ? "$0.00000" : "—";
+  const cost = usage?.amount_usd
+    ? `$${Number.parseFloat(usage.amount_usd).toFixed(5)}`
+    : usage ? "$0.00000" : "—";
   const latency = selectedTrace?.duration_ms != null ? `${selectedTrace.duration_ms}ms` : "—";
 
   return (

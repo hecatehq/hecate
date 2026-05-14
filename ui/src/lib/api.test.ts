@@ -11,7 +11,8 @@ import {
   dispatchAgentChatStreamEvent,
   getAgentChatMessageFileDiff,
   getAgentChatApproval,
-  getBudget,
+  getUsageEvents,
+  getUsageSummary,
   getSession,
   getTrace,
   listAgentChatApprovals,
@@ -55,13 +56,24 @@ describe("api client", () => {
     expect(options.body).toBe(JSON.stringify({ hello: "world" }));
   });
 
-  it("builds budget requests with query strings intact", async () => {
-    fetchMock.mockResolvedValue(jsonResponse({ object: "budget_status", data: { key: "global" } }));
+  it("builds usage summary requests with query strings intact", async () => {
+    fetchMock.mockResolvedValue(jsonResponse({ object: "usage_summary", data: { key: "global" } }));
 
-    await getBudget("?scope=provider&provider=ollama");
+    await getUsageSummary("?scope=provider&provider=ollama");
 
     expect(fetchMock).toHaveBeenCalledWith(
-      "/hecate/v1/costs/budget?scope=provider&provider=ollama",
+      "/hecate/v1/usage/summary?scope=provider&provider=ollama",
+      expect.objectContaining({ method: "GET" }),
+    );
+  });
+
+  it("builds usage event requests with encoded limits", async () => {
+    fetchMock.mockResolvedValue(jsonResponse({ object: "usage_events", data: [] }));
+
+    await getUsageEvents(7);
+
+    expect(fetchMock).toHaveBeenCalledWith(
+      "/hecate/v1/usage/events?limit=7",
       expect.objectContaining({ method: "GET" }),
     );
   });
@@ -380,7 +392,7 @@ describe("api client", () => {
           { status: 429, headers: { "Content-Type": "application/json" } },
         ),
       );
-      await expect(getBudget("?scope=global")).rejects.toMatchObject({
+      await expect(getUsageSummary("?scope=global")).rejects.toMatchObject({
         message: "slow down",
         status: 429,
         code: "rate_limit_exceeded",
@@ -411,7 +423,7 @@ describe("api client", () => {
         ),
       );
 
-      await expect(getBudget("?scope=global")).rejects.toMatchObject({
+      await expect(getUsageSummary("?scope=global")).rejects.toMatchObject({
         message: "No configured provider can serve this request.",
         status: 503,
         code: "route_impossible",
@@ -437,7 +449,7 @@ describe("api client", () => {
         ),
       );
 
-      await expect(getBudget("?scope=global")).rejects.toMatchObject({
+      await expect(getUsageSummary("?scope=global")).rejects.toMatchObject({
         requestId: "req-header",
         traceId: "trace-header",
       } satisfies Partial<ApiError>);
@@ -450,7 +462,7 @@ describe("api client", () => {
           headers: { "Content-Type": "text/html" },
         }),
       );
-      await expect(getBudget("?scope=global")).rejects.toThrow(/request failed/);
+      await expect(getUsageSummary("?scope=global")).rejects.toThrow(/request failed/);
     });
 
     it("returns undefined for a 204 No Content response", async () => {
@@ -460,17 +472,17 @@ describe("api client", () => {
 
     it("rewrites 'Failed to fetch' network errors into actionable gateway URLs", async () => {
       fetchMock.mockRejectedValue(new TypeError("Failed to fetch"));
-      await expect(getBudget("?scope=global")).rejects.toThrow(/Check that the gateway is running/);
+      await expect(getUsageSummary("?scope=global")).rejects.toThrow(/Check that the gateway is running/);
     });
 
     it("rewrites 'NetworkError' substring matches the same way", async () => {
       fetchMock.mockRejectedValue(new TypeError("NetworkError when attempting to fetch resource."));
-      await expect(getBudget("?scope=global")).rejects.toThrow(/Check that the gateway is running/);
+      await expect(getUsageSummary("?scope=global")).rejects.toThrow(/Check that the gateway is running/);
     });
 
     it("preserves non-network error messages with the request URL prepended", async () => {
       fetchMock.mockRejectedValue(new Error("AbortError: aborted"));
-      await expect(getBudget("?scope=global")).rejects.toThrow(/\/hecate\/v1\/costs\/budget.*AbortError: aborted/);
+      await expect(getUsageSummary("?scope=global")).rejects.toThrow(/\/hecate\/v1\/usage\/summary.*AbortError: aborted/);
     });
   });
 

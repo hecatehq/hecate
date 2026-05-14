@@ -1,19 +1,11 @@
 // runtime-utils.ts is the compatibility aggregator for the lib/runtime-* family.
-// Each domain (trace, routing, budget) lives in its own file
+// Each domain (trace, routing, usage) lives in its own file
 // now; this module re-exports them so existing call sites and the
 // runtime-utils.test.ts suite keep working without churn. Genuine
-// cross-domain helpers (USD/CSV parsing, model filters, relative time)
+// cross-domain helpers (CSV parsing, model filters, relative time)
 // remain here because they don't fit any of the more focused files.
 
 import type { ModelFilter, ModelRecord, ProviderFilter } from "../types/runtime";
-
-export function usdToMicros(value: string): number {
-  const parsed = Number.parseFloat(value);
-  if (!Number.isFinite(parsed) || parsed < 0) {
-    return Number.NaN;
-  }
-  return Math.round(parsed * 1_000_000);
-}
 
 export function parseCSV(value: string): string[] {
   return value
@@ -96,7 +88,5 @@ export {
 } from "./runtime-routing";
 
 export {
-  budgetConsumedPercent,
-  describeBudgetScope,
-  budgetWarningTone,
-} from "./runtime-budget";
+  describeUsageScope,
+} from "./runtime-usage";

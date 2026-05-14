@@ -19,7 +19,7 @@ packages.
 
 The race suite is the floor — not a nice-to-have — for any change that touches `internal/gateway`, `internal/router`, `internal/providers`, `internal/orchestrator`, `internal/sandbox`, retention/state wiring, or other request execution paths.
 
-E2E build tags: `//go:build e2e` is always required, plus optional `ollama` and `docker` sub-tags. Use `PROVIDER_FAKE_KIND=local` to skip pricebook preflight on synthetic models.
+E2E build tags: `//go:build e2e` is always required, plus optional `ollama` and `docker` sub-tags. Use `PROVIDER_FAKE_KIND=local` for synthetic local-model scenarios.
 
 ## UI verification ladder
 

@@ -53,7 +53,7 @@ func TestSQLiteStore_SnapshotEmptyOnFreshDatabase(t *testing.T) {
 	if err != nil {
 		t.Fatalf("Snapshot: %v", err)
 	}
-	if len(state.Providers) != 0 || len(state.PolicyRules) != 0 || len(state.Pricebook) != 0 {
+	if len(state.Providers) != 0 || len(state.PolicyRules) != 0 {
 		t.Fatalf("expected empty state, got %+v", state)
 	}
 }

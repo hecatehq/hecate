@@ -512,49 +512,6 @@ func TestTranslateOpenAIToAnthropicSSEWithThinking(t *testing.T) {
 // the OpenAI shape would surface to operators as "unexpected response from
 // Anthropic" without any actionable detail.
 // ---------------------------------------------------------------------------
-
-func TestMessagesReturns402OnBudgetExceeded(t *testing.T) {
-	t.Parallel()
-	logger := slog.New(slog.NewJSONHandler(io.Discard, nil))
-	provider := &fakeProvider{name: "openai", defaultModel: "gpt-4o-mini"}
-
-	// 1 µUSD budget — any real request estimate exceeds it immediately.
-	handler := newTestHTTPHandlerWithConfig(logger, provider, config.Config{
-		Governor: config.GovernorConfig{
-			MaxTotalBudgetMicros:    1,
-			MaxPromptTokens:         100_000,
-			BudgetWarningThresholds: []int{50, 80, 95},
-			BudgetHistoryLimit:      20,
-		},
-	})
-
-	body := `{"model":"gpt-4o-mini","max_tokens":1024,"messages":[{"role":"user","content":"hi"}]}`
-	rec := performRequest(t, handler, http.MethodPost, "/v1/messages", body)
-	if rec.Code != http.StatusPaymentRequired {
-		t.Fatalf("status = %d, want 402; body=%s", rec.Code, rec.Body.String())
-	}
-	var payload struct {
-		Type  string `json:"type"`
-		Error struct {
-			Type           string `json:"type"`
-			Message        string `json:"message"`
-			UserMessage    string `json:"user_message"`
-			OperatorAction string `json:"operator_action"`
-			RequestID      string `json:"request_id"`
-			TraceID        string `json:"trace_id"`
-		} `json:"error"`
-	}
-	if err := json.NewDecoder(rec.Body).Decode(&payload); err != nil {
-		t.Fatalf("decode body: %v", err)
-	}
-	if payload.Type != "error" {
-		t.Errorf("envelope type = %q, want error (Anthropic shape)", payload.Type)
-	}
-	if payload.Error.Type != "payment_required" {
-		t.Errorf("error.type = %q, want payment_required", payload.Error.Type)
-	}
-}
-
 func TestMessagesReturns429OnRateLimit(t *testing.T) {
 	t.Parallel()
 	logger := slog.New(slog.NewJSONHandler(io.Discard, nil))

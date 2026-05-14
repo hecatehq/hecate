@@ -29,7 +29,6 @@ import (
 	"testing"
 	"time"
 
-	"github.com/hecate/agent-runtime/internal/billing"
 	"github.com/hecate/agent-runtime/internal/catalog"
 	"github.com/hecate/agent-runtime/internal/chatstate"
 	"github.com/hecate/agent-runtime/internal/config"
@@ -955,35 +954,20 @@ func newGatewayServerWithRealProvider(t *testing.T, upstreamURL, providerName, d
 	registry := providers.NewRegistry(realProvider)
 	healthTracker := providers.NewMemoryHealthTracker(0, 0)
 	providerCatalog := catalog.NewRegistryCatalog(registry, healthTracker)
-	budgetStore := governor.NewMemoryBudgetStore()
+	usageStore := governor.NewMemoryUsageStore()
 
 	governorCfg := config.GovernorConfig{
 		MaxPromptTokens: 64_000,
-		BudgetBackend:   "memory",
-		BudgetKey:       "global",
-		BudgetScope:     "global",
+		UsageBackend:    "memory",
+		UsageKey:        "global",
+		UsageScope:      "global",
 	}
-	pricebook := billing.NewStaticPricebook(config.ProvidersConfig{
-		OpenAICompatible: []config.OpenAICompatibleProviderConfig{providerCfg},
-	}, config.PricebookConfig{
-		Entries: []config.ModelPriceConfig{
-			{
-				Provider:                             providerName,
-				Model:                                defaultModel,
-				InputMicrosUSDPerMillionTokens:       150_000,
-				OutputMicrosUSDPerMillionTokens:      600_000,
-				CachedInputMicrosUSDPerMillionTokens: 75_000,
-			},
-		},
-	})
-
 	svc := gateway.NewService(gateway.Dependencies{
 		Logger:       logger,
 		Router:       router.NewRuleRouter(defaultModel, providerCatalog),
 		Catalog:      providerCatalog,
-		Governor:     governor.NewStaticGovernor(governorCfg, budgetStore, budgetStore),
+		Governor:     governor.NewStaticGovernor(governorCfg, usageStore, usageStore),
 		Providers:    registry,
-		Pricebook:    pricebook,
 		Tracer:       profiler.NewInMemoryTracer(nil),
 		Metrics:      telemetry.NewMetrics(),
 		ChatSessions: chatstate.NewMemoryStore(),
@@ -1260,111 +1244,7 @@ func TestCodexClientUnsupportedModelContract(t *testing.T) {
 	if provider.CallCount() != 0 {
 		t.Fatalf("provider call count = %d, want 0 because router should reject unsupported model", provider.CallCount())
 	}
-}
-
-func TestCodexClientMissingPricePreflightContract(t *testing.T) {
-	t.Parallel()
-
-	provider := &fakeProvider{
-		name:         "openai",
-		defaultModel: "unpriced-alpha-model",
-		capabilities: providers.Capabilities{
-			Name:         "openai",
-			Kind:         providers.KindCloud,
-			DefaultModel: "unpriced-alpha-model",
-			Models:       []string{"unpriced-alpha-model"},
-		},
-		response: &types.ChatResponse{},
-	}
-	srv := newGatewayServer(t, provider, config.Config{
-		Router:    config.RouterConfig{DefaultModel: "unpriced-alpha-model"},
-		Pricebook: config.PricebookConfig{UnknownModelPolicy: "error"},
-		Provider: config.ProviderConfig{
-			MaxAttempts:     1,
-			FailoverEnabled: true,
-		},
-	})
-	defer srv.Close()
-
-	body := `{"model":"unpriced-alpha-model","max_tokens":64,"messages":[{"role":"user","content":"hi"}]}`
-	resp := gatewayPost(t, srv.URL+"/v1/chat/completions", body, nil)
-	raw := readBody(t, resp)
-
-	if resp.StatusCode != http.StatusFailedDependency {
-		t.Fatalf("status = %d, want 424, body=%s", resp.StatusCode, raw)
-	}
-	assertOpenAIErrorType(t, raw, errCodePriceMissing)
-	if provider.CallCount() != 0 {
-		t.Fatalf("provider call count = %d, want 0 because missing price should fail preflight", provider.CallCount())
-	}
-}
-
-// TestClaudeCodeClientBudgetExhausted verifies that POST /v1/messages returns
-// HTTP 402 with a payment_required error shape when the budget is exhausted.
-func TestClaudeCodeClientBudgetExhausted(t *testing.T) {
-	t.Parallel()
-
-	provider := &fakeProvider{
-		name: "anthropic",
-		capabilities: providers.Capabilities{
-			Name:         "anthropic",
-			Kind:         providers.KindCloud,
-			DefaultModel: "claude-sonnet-4-20250514",
-			Models:       []string{"claude-sonnet-4-20250514"},
-		},
-	}
-	srv := newGatewayServer(t, provider, config.Config{
-		Router: config.RouterConfig{DefaultModel: "claude-sonnet-4-20250514"},
-		Governor: config.GovernorConfig{
-			MaxPromptTokens:      100_000,
-			MaxTotalBudgetMicros: 1, // 1 µUSD — any real request exceeds this
-			BudgetBackend:        "memory",
-			BudgetKey:            "global",
-			BudgetScope:          "global",
-		},
-	})
-	defer srv.Close()
-
-	reqBody := `{
-		"model": "claude-sonnet-4-20250514",
-		"max_tokens": 64,
-		"messages": [{"role": "user", "content": "Hello."}]
-	}`
-	resp := gatewayPost(t, srv.URL+"/v1/messages", reqBody, map[string]string{
-		"x-api-key": "sk-ant-unused",
-	})
-	raw := readBody(t, resp)
-
-	if resp.StatusCode != http.StatusPaymentRequired {
-		t.Errorf("status = %d, want 402, body=%s", resp.StatusCode, raw)
-	}
-
-	var errResp struct {
-		Type  string `json:"type"`
-		Error struct {
-			Type string `json:"type"`
-		} `json:"error"`
-	}
-	if err := json.Unmarshal(raw, &errResp); err == nil {
-		if errResp.Error.Type != "payment_required" && errResp.Type != "payment_required" {
-			// Check OpenAI error shape too
-			var openaiErr struct {
-				Error struct {
-					Type string `json:"type"`
-					Code string `json:"code"`
-				} `json:"error"`
-			}
-			if jerr := json.Unmarshal(raw, &openaiErr); jerr == nil {
-				if openaiErr.Error.Code != "payment_required" && openaiErr.Error.Type != "payment_required" {
-					t.Errorf("error response type = %q / code = %q, want payment_required, body=%s",
-						openaiErr.Error.Type, openaiErr.Error.Code, raw)
-				}
-			}
-		}
-	}
-}
-
-// ===========================================================================
+} // ===========================================================================
 // Retry, failover, betas, and trace endpoint
 // ===========================================================================
 
@@ -1859,70 +1739,6 @@ func TestGatewayTraceEndpointShowsRewritePolicyMetadata(t *testing.T) {
 	}
 	if !foundRewrite {
 		t.Fatal("missing governor.model_rewrite event in trace")
-	}
-}
-
-func TestGatewayTraceEndpointShowsBudgetDeniedRouteCandidate(t *testing.T) {
-	t.Parallel()
-
-	provider := &fakeProvider{
-		name:         "openai",
-		defaultModel: "gpt-4o-mini",
-		capabilities: providers.Capabilities{
-			Name:         "openai",
-			Kind:         providers.KindCloud,
-			DefaultModel: "gpt-4o-mini",
-			Models:       []string{"gpt-4o-mini"},
-		},
-		response: &types.ChatResponse{},
-	}
-	srv := newGatewayServer(t, provider, config.Config{
-		Router: config.RouterConfig{DefaultModel: "gpt-4o-mini"},
-		Governor: config.GovernorConfig{
-			MaxPromptTokens:      100_000,
-			MaxTotalBudgetMicros: 1,
-			BudgetBackend:        "memory",
-			BudgetKey:            "global",
-			BudgetScope:          "global",
-		},
-	})
-	defer srv.Close()
-
-	body := `{"model":"gpt-4o-mini","max_tokens":64,"messages":[{"role":"user","content":"hi"}]}`
-	chatResp := gatewayPost(t, srv.URL+"/v1/chat/completions", body, nil)
-	requestID := chatResp.Header.Get("X-Request-Id")
-	raw := readBody(t, chatResp)
-	if chatResp.StatusCode != http.StatusPaymentRequired {
-		t.Fatalf("chat status = %d, want 402, body=%s", chatResp.StatusCode, raw)
-	}
-	if requestID == "" {
-		t.Fatal("X-Request-Id = empty, cannot query trace")
-	}
-
-	traceResp, err := http.Get(srv.URL + "/hecate/v1/traces?request_id=" + requestID)
-	if err != nil {
-		t.Fatalf("GET /hecate/v1/traces error = %v", err)
-	}
-	traceRaw := readBody(t, traceResp)
-	if traceResp.StatusCode != http.StatusOK {
-		t.Fatalf("trace status = %d, body=%s", traceResp.StatusCode, traceRaw)
-	}
-
-	var trace TraceResponse
-	if err := json.Unmarshal(traceRaw, &trace); err != nil {
-		t.Fatalf("Unmarshal() error = %v, body=%s", err, traceRaw)
-	}
-	foundDenied := false
-	for _, candidate := range trace.Data.Route.Candidates {
-		if candidate.Provider == "openai" && candidate.Outcome == "denied" && candidate.SkipReason == "budget_denied" {
-			foundDenied = true
-			if candidate.EstimatedMicrosUSD <= 0 {
-				t.Fatalf("candidate.estimated_micros_usd = %d, want >0", candidate.EstimatedMicrosUSD)
-			}
-		}
-	}
-	if !foundDenied {
-		t.Fatalf("missing denied openai budget_denied candidate: %+v", trace.Data.Route.Candidates)
 	}
 }
 

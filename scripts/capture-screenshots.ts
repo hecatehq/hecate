@@ -122,6 +122,14 @@ async function optimize() {
 
 const jsonHeaders = { "Content-Type": "application/json" } as const;
 
+function fulfillJSON(route: Route, data: unknown) {
+  return route.fulfill({
+    status: 200,
+    contentType: "application/json",
+    body: JSON.stringify(data),
+  });
+}
+
 const docsAgentChatSessionID = "agent-docs-session";
 const docsApprovalID = "appr_docs_file_write";
 const docsHecateChatSessionID = "chat-docs-hecate";
@@ -570,7 +578,6 @@ async function routeHecateChatDocsFixture(page: Page) {
           },
         ],
         policy_rules: [],
-        pricebook: [],
         events: [],
       },
     });
@@ -1152,22 +1159,58 @@ async function main() {
   }
   await snap(page, "observe");
 
-  // ── 9. Costs workspace ─────────────────────────────────────────────
-  console.log("→ costs");
+  // ── 9. Usage workspace ─────────────────────────────────────────────
+  console.log("→ usage");
+  await page.route(`${HECATE_API}/usage/summary`, route => fulfillJSON(route, {
+    object: "usage_summary",
+    data: {
+      key: "global",
+      scope: "global",
+      used_micros_usd: 1600,
+      used_usd: "$0.001600",
+    },
+  }));
+  await page.route(`${HECATE_API}/usage/events?limit=20`, route => fulfillJSON(route, {
+    object: "usage_events",
+    data: [
+      {
+        key: "global:provider:openai",
+        type: "usage",
+        scope: "provider",
+        provider: "openai",
+        model: "gpt-5.4-mini",
+        request_id: "req_docs_usage_1",
+        amount_micros_usd: 1600,
+        amount_usd: "$0.001600",
+        prompt_tokens: 920,
+        completion_tokens: 280,
+        total_tokens: 1200,
+        timestamp: docsTimestamp(-2),
+      },
+      {
+        key: "global:provider:ollama",
+        type: "usage",
+        scope: "provider",
+        provider: "ollama",
+        model: "ministral-3:latest",
+        request_id: "req_docs_usage_local",
+        amount_micros_usd: 0,
+        amount_usd: "$0.000000",
+        prompt_tokens: 400,
+        completion_tokens: 100,
+        total_tokens: 500,
+        timestamp: docsTimestamp(-1),
+      },
+    ],
+  }));
   await openWorkspace(page, "costs");
   await page.waitForTimeout(500);
   await snap(page, "costs");
 
-  // ── 10. Settings — Pricing + Retention ─────────────────────────────
-  console.log("→ settings / pricebook");
+  // ── 10. Settings — Retention ───────────────────────────────────────
+  console.log("→ settings / retention");
   await openWorkspace(page, "settings");
   await page.waitForTimeout(500);
-  await page.getByRole("button", { name: /pricing/i }).click();
-  await page.waitForTimeout(800);
-  await snap(page, "settings-pricebook");
-
-  console.log("→ settings / retention");
-  await page.getByRole("button", { name: /retention/i }).click();
   await page.waitForTimeout(500);
   await snap(page, "settings-retention");
 
@@ -1181,7 +1224,7 @@ async function main() {
   await openWorkspace(page, "providers");
   await page.waitForSelector("text=External agent grants", { timeout: 5_000 });
   await page.waitForTimeout(700);
-  await snap(page, "settings-external-agents");
+  await snap(page, "connections-external-agents");
 
   console.log("→ chat / pending agent approval");
   await page.evaluate((sessionID) => {

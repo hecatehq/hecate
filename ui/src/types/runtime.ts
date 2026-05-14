@@ -706,78 +706,39 @@ export type TraceResponse = {
   };
 };
 
-export type BudgetRecord = {
+export type UsageEventRecord = {
+  type: string;
+  scope?: string;
+  provider?: string;
+  model?: string;
+  request_id?: string;
+  actor?: string;
+  detail?: string;
+  amount_micros_usd: number;
+  amount_usd: string;
+  prompt_tokens?: number;
+  completion_tokens?: number;
+  total_tokens?: number;
+  timestamp?: string;
+};
+
+export type UsageSummaryRecord = {
   key: string;
   scope: string;
   provider?: string;
   backend: string;
-  balance_source: string;
-  debited_micros_usd: number;
-  debited_usd: string;
-  credited_micros_usd: number;
-  credited_usd: string;
-  balance_micros_usd: number;
-  balance_usd: string;
-  available_micros_usd: number;
-  available_usd: string;
-  enforced: boolean;
-  warnings?: Array<{
-    threshold_percent: number;
-    threshold_micros_usd: number;
-    balance_micros_usd: number;
-    available_micros_usd: number;
-    triggered: boolean;
-  }>;
-  history?: Array<{
-    type: string;
-    scope?: string;
-    provider?: string;
-    model?: string;
-    request_id?: string;
-    actor?: string;
-    detail?: string;
-    amount_micros_usd: number;
-    amount_usd: string;
-    balance_micros_usd: number;
-    balance_usd: string;
-    credited_micros_usd: number;
-    credited_usd: string;
-    debited_micros_usd: number;
-    debited_usd: string;
-    prompt_tokens?: number;
-    completion_tokens?: number;
-    total_tokens?: number;
-    timestamp?: string;
-  }>;
+  used_micros_usd: number;
+  used_usd: string;
 };
 
-export type BudgetStatusResponse = {
+export type UsageSummaryResponse = {
   object: string;
-  data: BudgetRecord;
+  data: UsageSummaryRecord;
 };
 
-export type AccountSummaryResponse = {
+export type UsageEventsResponse = {
   object: string;
-  data: {
-    account: BudgetRecord;
-    estimates: Array<{
-      provider: string;
-      provider_kind: string;
-      model: string;
-      default?: boolean;
-      discovery_source?: string;
-      priced: boolean;
-      input_micros_usd_per_million_tokens: number;
-      output_micros_usd_per_million_tokens: number;
-      estimated_remaining_prompt_tokens: number;
-      estimated_remaining_output_tokens: number;
-    }>;
-  };
-};
-
-export type RequestLedgerResponse = {
-  object: string;
-  data: NonNullable<BudgetRecord["history"]>;
+  data: UsageEventRecord[];
 };
 
 export type TraceListItem = {
@@ -882,71 +843,6 @@ export type ConfiguredPolicyRuleRecord = {
   rewrite_model_to?: string;
 };
 
-export type ConfiguredPricebookRecord = {
-  provider: string;
-  model: string;
-  input_micros_usd_per_million_tokens: number;
-  output_micros_usd_per_million_tokens: number;
-  cached_input_micros_usd_per_million_tokens: number;
-  // "manual" (operator-edited) or "imported" (LiteLLM bulk import).
-  // Empty/undefined for legacy responses; treat empty as manual.
-  source?: string;
-};
-
-// PricebookImportUpdateRecord pairs an inbound imported entry with the
-// row it would overwrite — the UI uses both halves to render a price diff.
-export type PricebookImportUpdateRecord = {
-  entry: ConfiguredPricebookRecord;
-  previous: ConfiguredPricebookRecord;
-};
-
-// PricebookImportFailureRecord pairs an entry the apply endpoint tried
-// to persist with the storage error message. Apply is best-effort: a
-// row's failure doesn't stop subsequent rows. The UI shows these in
-// the consent dialog so the operator can see exactly which rows
-// landed and which didn't.
-export type PricebookImportFailureRecord = {
-  entry: ConfiguredPricebookRecord;
-  error: string;
-};
-
-// PricebookImportDiff is the response payload from both the preview and
-// apply endpoints. Preview populates `added` + `updated` + `skipped`;
-// apply replaces added+updated with `applied` (rows persisted) and
-// surfaces any per-row failures in `failed`.
-//
-// `skipped` lists current manual rows where LiteLLM has a *different*
-// price. The UI uses these to surface a "Replace manual" affordance —
-// the operator can opt in to replacing one (per-row Import) or many
-// (consent dialog). Each entry pairs LiteLLM's proposal (`entry`) with
-// the current manual row (`previous`), the same shape as `updated`,
-// so the UI renders a price diff identically.
-export type PricebookImportDiff = {
-  fetched_at: string;
-  added?: ConfiguredPricebookRecord[];
-  updated?: PricebookImportUpdateRecord[];
-  applied?: ConfiguredPricebookRecord[];
-  failed?: PricebookImportFailureRecord[];
-  unchanged: number;
-  skipped?: PricebookImportUpdateRecord[];
-};
-
-export type PricebookImportDiffResponse = {
-  object: string;
-  data: PricebookImportDiff;
-};
-
-// PricebookEntryUpsertPayload mirrors the backend SettingsPricebookRecord
-// type alias used as the upsert request body.
-export type PricebookEntryUpsertPayload = {
-  provider: string;
-  model: string;
-  input_micros_usd_per_million_tokens: number;
-  output_micros_usd_per_million_tokens: number;
-  cached_input_micros_usd_per_million_tokens: number;
-  source?: string;
-};
-
 export type ConfiguredAuditEventRecord = {
   timestamp?: string;
   actor: string;
@@ -962,7 +858,6 @@ export type ConfiguredStateResponse = {
     backend: string;
     providers: ConfiguredProviderRecord[];
     policy_rules: ConfiguredPolicyRuleRecord[];
-    pricebook: ConfiguredPricebookRecord[];
     events: ConfiguredAuditEventRecord[];
   };
 };
@@ -1235,7 +1130,7 @@ export type TaskApprovalsResponse = {
 // TaskRunStreamTurnCost mirrors the backend `Turn` block on
 // TaskRunStreamEventData. Populated only on snapshots driven by an
 // `turn.completed` event, so the UI can render a live per-turn
-// cost ledger without subscribing to the public events stream.
+// cost/tokens summary without subscribing to the public events stream.
 export type TaskRunStreamTurnCost = {
   turn_index: number;
   step_id?: string;

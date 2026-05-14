@@ -26,7 +26,6 @@ type Config struct {
 	// pragmas applied per connection.
 	SQLite    SQLiteConfig
 	Providers ProvidersConfig
-	Pricebook PricebookConfig
 	LogLevel  string
 }
 
@@ -221,23 +220,20 @@ type OTelConfig struct {
 }
 
 type GovernorConfig struct {
-	DenyAll                 bool
-	MaxPromptTokens         int
-	MaxTotalBudgetMicros    int64
-	ModelRewriteTo          string
-	PolicyRules             []PolicyRuleConfig `json:"policy_rules"`
-	BudgetBackend           string
-	BudgetKey               string
-	BudgetScope             string
-	BudgetTenantFallback    string
-	RouteMode               string
-	AllowedProviders        []string
-	DeniedProviders         []string
-	AllowedModels           []string
-	DeniedModels            []string
-	AllowedProviderKinds    []string
-	BudgetWarningThresholds []int
-	BudgetHistoryLimit      int
+	DenyAll              bool
+	MaxPromptTokens      int
+	ModelRewriteTo       string
+	PolicyRules          []PolicyRuleConfig `json:"policy_rules"`
+	UsageBackend         string
+	UsageKey             string
+	UsageScope           string
+	RouteMode            string
+	AllowedProviders     []string
+	DeniedProviders      []string
+	AllowedModels        []string
+	DeniedModels         []string
+	AllowedProviderKinds []string
+	UsageHistoryLimit    int
 }
 
 type PolicyRuleConfig struct {
@@ -258,7 +254,7 @@ type RetentionConfig struct {
 	HistoryBackend  string
 	Interval        time.Duration
 	TraceSnapshots  RetentionPolicy
-	BudgetEvents    RetentionPolicy
+	UsageEvents     RetentionPolicy
 	AuditEvents     RetentionPolicy
 	ProviderHistory RetentionPolicy
 	// TurnEvents prunes `turn.completed` rows from the
@@ -300,40 +296,6 @@ type ProvidersConfig struct {
 	// this global value, not the per-config record.
 	AnthropicCacheDisabled bool
 }
-
-type PricebookConfig struct {
-	UnknownModelPolicy string             `json:"unknown_model_policy"`
-	Entries            []ModelPriceConfig `json:"entries"`
-	// AutoImportInterval ticks the LiteLLM bulk-import on a schedule.
-	// Zero or negative disables it (the default — operators opt in by
-	// setting GATEWAY_PRICEBOOK_AUTO_IMPORT_INTERVAL to e.g. 24h). The
-	// scheduler runs once on start, then on every interval. It applies
-	// blanket (no key filter), which means manual rows are always
-	// preserved per the operator-protection contract.
-	AutoImportInterval time.Duration `json:"auto_import_interval,omitempty"`
-}
-
-type ModelPriceConfig struct {
-	Provider                             string `json:"provider"`
-	Model                                string `json:"model"`
-	InputMicrosUSDPerMillionTokens       int64  `json:"input_micros_usd_per_million_tokens"`
-	OutputMicrosUSDPerMillionTokens      int64  `json:"output_micros_usd_per_million_tokens"`
-	CachedInputMicrosUSDPerMillionTokens int64  `json:"cached_input_micros_usd_per_million_tokens"`
-	// Source records who set this entry: "manual" if a human edited it
-	// through the admin UI / API, "imported" if it came from a LiteLLM
-	// pricing-data import. Manual entries are protected from being
-	// overwritten by subsequent imports. Empty == "manual" for backward
-	// compatibility (every pre-existing row was set by a human).
-	Source string `json:"source,omitempty"`
-}
-
-// Pricebook source constants. Free-form strings rather than a typed enum
-// because they round-trip through JSON to the UI; keeping the wire
-// format stable is more important than compile-time exhaustiveness.
-const (
-	PricebookSourceManual   = "manual"
-	PricebookSourceImported = "imported"
-)
 
 type OpenAICompatibleProviderConfig struct {
 	Name         string        `json:"name"`
@@ -444,29 +406,26 @@ func LoadFromEnv() Config {
 		},
 		OTel: loadOTelFromEnv(),
 		Governor: GovernorConfig{
-			DenyAll:                 getEnvBool("GATEWAY_DENY_ALL", false),
-			MaxPromptTokens:         getEnvInt("GATEWAY_MAX_PROMPT_TOKENS", 64_000),
-			MaxTotalBudgetMicros:    getEnvInt64("GATEWAY_MAX_BUDGET_MICROS_USD", 5_000_000),
-			ModelRewriteTo:          getEnv("GATEWAY_MODEL_REWRITE_TO", ""),
-			BudgetBackend:           getEnv("GATEWAY_BUDGET_BACKEND", "memory"),
-			BudgetKey:               getEnv("GATEWAY_BUDGET_KEY", "global"),
-			BudgetScope:             getEnv("GATEWAY_BUDGET_SCOPE", "global"),
-			BudgetTenantFallback:    getEnv("GATEWAY_BUDGET_TENANT_FALLBACK", "anonymous"),
-			RouteMode:               getEnv("GATEWAY_ROUTE_MODE", "any"),
-			AllowedProviders:        splitCSV(getEnv("GATEWAY_ALLOWED_PROVIDERS", "")),
-			DeniedProviders:         splitCSV(getEnv("GATEWAY_DENIED_PROVIDERS", "")),
-			AllowedModels:           splitCSV(getEnv("GATEWAY_ALLOWED_MODELS", "")),
-			DeniedModels:            splitCSV(getEnv("GATEWAY_DENIED_MODELS", "")),
-			AllowedProviderKinds:    splitCSV(getEnv("GATEWAY_ALLOWED_PROVIDER_KINDS", "")),
-			BudgetWarningThresholds: parseEnvCSVInts(getEnv("GATEWAY_BUDGET_WARNING_THRESHOLDS", "50,80,95")),
-			BudgetHistoryLimit:      getEnvInt("GATEWAY_BUDGET_HISTORY_LIMIT", 20),
+			DenyAll:              getEnvBool("GATEWAY_DENY_ALL", false),
+			MaxPromptTokens:      getEnvInt("GATEWAY_MAX_PROMPT_TOKENS", 64_000),
+			ModelRewriteTo:       getEnv("GATEWAY_MODEL_REWRITE_TO", ""),
+			UsageBackend:         getEnv("GATEWAY_USAGE_BACKEND", "memory"),
+			UsageKey:             getEnv("GATEWAY_USAGE_KEY", "global"),
+			UsageScope:           getEnv("GATEWAY_USAGE_SCOPE", "global"),
+			RouteMode:            getEnv("GATEWAY_ROUTE_MODE", "any"),
+			AllowedProviders:     splitCSV(getEnv("GATEWAY_ALLOWED_PROVIDERS", "")),
+			DeniedProviders:      splitCSV(getEnv("GATEWAY_DENIED_PROVIDERS", "")),
+			AllowedModels:        splitCSV(getEnv("GATEWAY_ALLOWED_MODELS", "")),
+			DeniedModels:         splitCSV(getEnv("GATEWAY_DENIED_MODELS", "")),
+			AllowedProviderKinds: splitCSV(getEnv("GATEWAY_ALLOWED_PROVIDER_KINDS", "")),
+			UsageHistoryLimit:    getEnvInt("GATEWAY_USAGE_HISTORY_LIMIT", 20),
 		},
 		Retention: RetentionConfig{
 			Enabled:         getEnvBool("GATEWAY_RETENTION_ENABLED", false),
 			HistoryBackend:  getEnv("GATEWAY_RETENTION_HISTORY_BACKEND", "memory"),
 			Interval:        getEnvDuration("GATEWAY_RETENTION_INTERVAL", 15*time.Minute),
 			TraceSnapshots:  loadRetentionPolicyFromEnv("GATEWAY_RETENTION_TRACES_", 24*time.Hour, 2000),
-			BudgetEvents:    loadRetentionPolicyFromEnv("GATEWAY_RETENTION_BUDGET_EVENTS_", 30*24*time.Hour, 200),
+			UsageEvents:     loadRetentionPolicyFromEnv("GATEWAY_RETENTION_USAGE_EVENTS_", 30*24*time.Hour, 200),
 			AuditEvents:     loadRetentionPolicyFromEnv("GATEWAY_RETENTION_AUDIT_EVENTS_", 30*24*time.Hour, 500),
 			ProviderHistory: loadRetentionPolicyFromEnv("GATEWAY_RETENTION_PROVIDER_HISTORY_", 7*24*time.Hour, 10_000),
 			// turn.completed events accumulate fast on long
@@ -484,7 +443,6 @@ func LoadFromEnv() Config {
 			BusyTimeout: getEnvDuration("GATEWAY_SQLITE_BUSY_TIMEOUT", 5*time.Second),
 		},
 		Providers: providersCfg,
-		Pricebook: loadPricebookFromEnv(),
 		LogLevel:  getEnv("LOG_LEVEL", "INFO"),
 	}
 }
@@ -510,7 +468,7 @@ func (c Config) Validate() error {
 	validateBackend("GATEWAY_TASKS_BACKEND", c.Server.TasksBackend, "memory", "sqlite")
 	validateBackend("GATEWAY_TASK_QUEUE_BACKEND", c.Server.TaskQueueBackend, "memory", "sqlite")
 	validateBackend("GATEWAY_CHAT_SESSIONS_BACKEND", c.Chat.SessionsBackend, "memory", "sqlite")
-	validateBackend("GATEWAY_BUDGET_BACKEND", c.Governor.BudgetBackend, "memory", "sqlite")
+	validateBackend("GATEWAY_USAGE_BACKEND", c.Governor.UsageBackend, "memory", "sqlite")
 	validateBackend("GATEWAY_RETENTION_HISTORY_BACKEND", c.Retention.HistoryBackend, "memory", "sqlite")
 	validateBackend("GATEWAY_PROVIDER_HISTORY_BACKEND", c.Provider.HistoryBackend, "memory", "sqlite")
 	if publicURL := strings.TrimSpace(c.Server.PublicURL); publicURL != "" {
@@ -539,7 +497,7 @@ func (c Config) Validate() error {
 	}
 	for label, policy := range map[string]RetentionPolicy{
 		"GATEWAY_RETENTION_TRACES":           c.Retention.TraceSnapshots,
-		"GATEWAY_RETENTION_BUDGET_EVENTS":    c.Retention.BudgetEvents,
+		"GATEWAY_RETENTION_USAGE_EVENTS":     c.Retention.UsageEvents,
 		"GATEWAY_RETENTION_AUDIT_EVENTS":     c.Retention.AuditEvents,
 		"GATEWAY_RETENTION_PROVIDER_HISTORY": c.Retention.ProviderHistory,
 		"GATEWAY_RETENTION_TURN_EVENTS":      c.Retention.TurnEvents,
@@ -630,14 +588,13 @@ func durationEnvKeys() []string {
 		"GATEWAY_OTEL_METRICS_INTERVAL",
 		"GATEWAY_RETENTION_INTERVAL",
 		"GATEWAY_RETENTION_TRACES_MAX_AGE",
-		"GATEWAY_RETENTION_BUDGET_EVENTS_MAX_AGE",
+		"GATEWAY_RETENTION_USAGE_EVENTS_MAX_AGE",
 		"GATEWAY_RETENTION_AUDIT_EVENTS_MAX_AGE",
 		"GATEWAY_RETENTION_PROVIDER_HISTORY_MAX_AGE",
 		"GATEWAY_RETENTION_TURN_EVENTS_MAX_AGE",
 		"GATEWAY_AGENT_CHAT_MAX_SESSION_DURATION",
 		"GATEWAY_AGENT_CHAT_IDLE_TIMEOUT",
 		"GATEWAY_SQLITE_BUSY_TIMEOUT",
-		"GATEWAY_PRICEBOOK_AUTO_IMPORT_INTERVAL",
 	}
 }
 
@@ -751,196 +708,6 @@ func loadRetentionPolicyFromEnv(prefix string, defaultAge time.Duration, default
 	return RetentionPolicy{
 		MaxAge:   getEnvDuration(prefix+"MAX_AGE", defaultAge),
 		MaxCount: getEnvInt(prefix+"MAX_COUNT", defaultCount),
-	}
-}
-
-func loadPricebookFromEnv() PricebookConfig {
-	cfg := defaultPricebookConfig()
-	cfg.AutoImportInterval = getEnvDuration("GATEWAY_PRICEBOOK_AUTO_IMPORT_INTERVAL", 0)
-	return cfg
-}
-
-func defaultPricebookConfig() PricebookConfig {
-	return PricebookConfig{
-		UnknownModelPolicy: "error",
-		Entries: []ModelPriceConfig{
-			// Seeded from OpenAI's published API pricing/model docs as of 2026-04-23.
-			// Keep this list small and explicit for sane defaults, but this is not a long-term
-			// source of truth. Hecate still needs a proper pricebook ingestion/update path.
-			// Source: https://developers.openai.com/api/docs/models
-			{
-				Provider:                             "openai",
-				Model:                                "gpt-5.4",
-				InputMicrosUSDPerMillionTokens:       2_500_000,
-				OutputMicrosUSDPerMillionTokens:      15_000_000,
-				CachedInputMicrosUSDPerMillionTokens: 250_000,
-			},
-			{
-				Provider:                             "openai",
-				Model:                                "gpt-5.4-mini",
-				InputMicrosUSDPerMillionTokens:       750_000,
-				OutputMicrosUSDPerMillionTokens:      4_500_000,
-				CachedInputMicrosUSDPerMillionTokens: 75_000,
-			},
-			{
-				Provider:                             "openai",
-				Model:                                "gpt-5.4-nano",
-				InputMicrosUSDPerMillionTokens:       200_000,
-				OutputMicrosUSDPerMillionTokens:      1_250_000,
-				CachedInputMicrosUSDPerMillionTokens: 20_000,
-			},
-			{
-				Provider:                             "openai",
-				Model:                                "gpt-4.1",
-				InputMicrosUSDPerMillionTokens:       2_000_000,
-				OutputMicrosUSDPerMillionTokens:      8_000_000,
-				CachedInputMicrosUSDPerMillionTokens: 500_000,
-			},
-			{
-				Provider:                             "openai",
-				Model:                                "gpt-4.1-mini",
-				InputMicrosUSDPerMillionTokens:       400_000,
-				OutputMicrosUSDPerMillionTokens:      1_600_000,
-				CachedInputMicrosUSDPerMillionTokens: 100_000,
-			},
-			{
-				Provider:                             "openai",
-				Model:                                "gpt-4.1-nano",
-				InputMicrosUSDPerMillionTokens:       100_000,
-				OutputMicrosUSDPerMillionTokens:      400_000,
-				CachedInputMicrosUSDPerMillionTokens: 25_000,
-			},
-			{
-				Provider:                             "openai",
-				Model:                                "gpt-4o",
-				InputMicrosUSDPerMillionTokens:       2_500_000,
-				OutputMicrosUSDPerMillionTokens:      10_000_000,
-				CachedInputMicrosUSDPerMillionTokens: 1_250_000,
-			},
-			{
-				Provider:                             "openai",
-				Model:                                "gpt-4o-mini",
-				InputMicrosUSDPerMillionTokens:       150_000,
-				OutputMicrosUSDPerMillionTokens:      600_000,
-				CachedInputMicrosUSDPerMillionTokens: 75_000,
-			},
-			{
-				Provider: "openai",
-				Model:    "omni-moderation",
-			},
-			{
-				Provider: "openai",
-				Model:    "omni-moderation-latest",
-			},
-			{
-				Provider: "openai",
-				Model:    "text-moderation-latest",
-			},
-			// Seeded from Anthropic's published pricing/docs as of 2026-04-23.
-			// Source: https://www.anthropic.com/claude/sonnet
-			// Claude Sonnet 4.6: $3 / MTok input, $15 / MTok output, $0.30 / MTok cache reads.
-			{
-				Provider:                             "anthropic",
-				Model:                                "claude-sonnet-4-6",
-				InputMicrosUSDPerMillionTokens:       3_000_000,
-				OutputMicrosUSDPerMillionTokens:      15_000_000,
-				CachedInputMicrosUSDPerMillionTokens: 300_000,
-			},
-			// Claude Sonnet 4: $3 / MTok input, $15 / MTok output, $0.30 / MTok cache reads.
-			{
-				Provider:                             "anthropic",
-				Model:                                "claude-sonnet-4-20250514",
-				InputMicrosUSDPerMillionTokens:       3_000_000,
-				OutputMicrosUSDPerMillionTokens:      15_000_000,
-				CachedInputMicrosUSDPerMillionTokens: 300_000,
-			},
-			// Claude Haiku 3.5: $0.80 / MTok input, $4 / MTok output, $0.08 / MTok cache reads.
-			{
-				Provider:                             "anthropic",
-				Model:                                "claude-haiku-3-5-20241022",
-				InputMicrosUSDPerMillionTokens:       800_000,
-				OutputMicrosUSDPerMillionTokens:      4_000_000,
-				CachedInputMicrosUSDPerMillionTokens: 80_000,
-			},
-			// Seeded from Groq's published model docs as of 2026-04-23.
-			// Source: https://console.groq.com/docs/models
-			{
-				Provider:                             "groq",
-				Model:                                "llama-3.3-70b-versatile",
-				InputMicrosUSDPerMillionTokens:       590_000,
-				OutputMicrosUSDPerMillionTokens:      790_000,
-				CachedInputMicrosUSDPerMillionTokens: 0,
-			},
-			{
-				Provider:                             "groq",
-				Model:                                "llama-3.1-8b-instant",
-				InputMicrosUSDPerMillionTokens:       50_000,
-				OutputMicrosUSDPerMillionTokens:      80_000,
-				CachedInputMicrosUSDPerMillionTokens: 0,
-			},
-			{
-				Provider:                             "groq",
-				Model:                                "openai/gpt-oss-120b",
-				InputMicrosUSDPerMillionTokens:       150_000,
-				OutputMicrosUSDPerMillionTokens:      600_000,
-				CachedInputMicrosUSDPerMillionTokens: 0,
-			},
-			{
-				Provider:                             "groq",
-				Model:                                "openai/gpt-oss-20b",
-				InputMicrosUSDPerMillionTokens:       75_000,
-				OutputMicrosUSDPerMillionTokens:      300_000,
-				CachedInputMicrosUSDPerMillionTokens: 0,
-			},
-			// Seeded from Google Gemini API pricing docs as of 2026-04-23.
-			// Source: https://ai.google.dev/gemini-api/docs/pricing
-			{
-				Provider:                             "gemini",
-				Model:                                "gemini-2.5-flash",
-				InputMicrosUSDPerMillionTokens:       300_000,
-				OutputMicrosUSDPerMillionTokens:      2_500_000,
-				CachedInputMicrosUSDPerMillionTokens: 30_000,
-			},
-			{
-				Provider:                             "gemini",
-				Model:                                "gemini-2.5-flash-lite",
-				InputMicrosUSDPerMillionTokens:       100_000,
-				OutputMicrosUSDPerMillionTokens:      400_000,
-				CachedInputMicrosUSDPerMillionTokens: 10_000,
-			},
-			// Seeded from Perplexity's published Sonar pricing/model docs as of 2026-05-03.
-			// Source: https://docs.perplexity.ai/docs/getting-started/pricing
-			// Current pricebook rows model token charges only; Perplexity also applies
-			// search-context/request charges that Hecate's pricebook cannot represent yet.
-			{
-				Provider:                             "perplexity",
-				Model:                                "sonar",
-				InputMicrosUSDPerMillionTokens:       1_000_000,
-				OutputMicrosUSDPerMillionTokens:      1_000_000,
-				CachedInputMicrosUSDPerMillionTokens: 0,
-			},
-			{
-				Provider:                             "perplexity",
-				Model:                                "sonar-pro",
-				InputMicrosUSDPerMillionTokens:       3_000_000,
-				OutputMicrosUSDPerMillionTokens:      15_000_000,
-				CachedInputMicrosUSDPerMillionTokens: 0,
-			},
-			{
-				Provider:                             "perplexity",
-				Model:                                "sonar-reasoning-pro",
-				InputMicrosUSDPerMillionTokens:       2_000_000,
-				OutputMicrosUSDPerMillionTokens:      8_000_000,
-				CachedInputMicrosUSDPerMillionTokens: 0,
-			},
-			{
-				Provider:                             "perplexity",
-				Model:                                "sonar-deep-research",
-				InputMicrosUSDPerMillionTokens:       2_000_000,
-				OutputMicrosUSDPerMillionTokens:      8_000_000,
-				CachedInputMicrosUSDPerMillionTokens: 0,
-			},
-		},
 	}
 }
 

@@ -126,7 +126,7 @@ func defaultErrorUserMessage(code string) string {
 		return "Authentication is required."
 	case errCodeGatewayError:
 		return gatewayErrorUserMessage(code)
-	case errCodeBudgetExceeded, errCodePriceMissing, errCodeProviderAuthFailed, errCodeProviderRateLimited,
+	case errCodeProviderAuthFailed, errCodeProviderRateLimited,
 		errCodeProviderUnavailable, errCodeRouteImpossible, errCodeUnsupportedModel, errCodeRateLimitExceeded:
 		return gatewayErrorUserMessage(code)
 	case errCodeNotFound:
@@ -174,7 +174,7 @@ func defaultErrorAction(code string) string {
 		return "Provide valid credentials and retry."
 	case errCodeGatewayError:
 		return gatewayErrorAction(code)
-	case errCodeBudgetExceeded, errCodePriceMissing, errCodeProviderAuthFailed, errCodeProviderRateLimited,
+	case errCodeProviderAuthFailed, errCodeProviderRateLimited,
 		errCodeProviderUnavailable, errCodeRouteImpossible, errCodeUnsupportedModel, errCodeRateLimitExceeded:
 		return gatewayErrorAction(code)
 	case errCodeNotFound:

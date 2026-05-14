@@ -14,8 +14,8 @@ is released in alpha tags only after it merges.
 | Area | Beta bar |
 |---|---|
 | Error contracts | Hecate-native errors across gateway, model chat, Hecate Chat, External Agent, Tasks, approvals, storage, retention, and provider readiness return stable `type` values, correct HTTP statuses, trace IDs when available, friendly operator messages, and raw details. |
-| Provider/model readiness | Provider readiness is the canonical setup contract: credential state, discovery state, discovered model count, selected-model validity, route blocking reason, tool capability, pricebook status, last probe/result, and repair action. |
-| Routing explainability | Route reports persist and expose selected route, skipped candidates, skip reasons, failover path, cache path, budget/policy decision, pricebook source, provider latency/error state, and final error. |
+| Provider/model readiness | Provider readiness is the canonical setup contract: credential state, discovery state, discovered model count, selected-model validity, route blocking reason, tool capability, last probe/result, and repair action. |
+| Routing explainability | Route reports persist and expose selected route, skipped candidates, skip reasons, failover path, cache path, policy decision, provider latency/error state, and final error. |
 | Task runtime hardening | Queue, lease, running, awaiting approval, approved/rejected, cancelled, failed, completed, retry, resume, stale worker recovery, and shutdown behavior are audited and tested. |
 | Storage and retention | Memory/SQLite parity is verified for providers, chats, tasks, approvals, grants, model capabilities, retention pruning, startup reconcile, and schema migration safety. |
 | OpenTelemetry | Route choice/skip, provider failure, cache hit/miss, task lifecycle, approval lifecycle, chat segment lifecycle, external adapter behavior, retention, rate limits, and readiness probes emit useful spans, metrics, or logs. |
@@ -28,9 +28,9 @@ is released in alpha tags only after it merges.
 | Chats | Hecate Chat, External Agent, and direct model chat have clear segment boundaries, queued prompts, busy state, task/trace/run links, approvals, markdown/code rendering, run activity grouping, changed-files review, model/tool capability state, stale-model repair, and refresh/resume accuracy. |
 | Providers | Provider setup is self-explanatory: readiness cards, discovered/running/installed states, credential repair, duplicate endpoint handling, route blocking reasons, model discovery failures, local provider discovery, and optimistic edits/deletes where safe. |
 | Tasks | Task Detail is the canonical deep-debug view: clear run timeline, grouped advanced activity, approval cards, stdout/stderr/artifacts, retry/resume/cancel explanations, patch review, and chat-origin links. |
-| Observability | The UI answers "what happened?" without JSON archaeology: request ledger, route report, trace viewer, skipped providers, policy/budget denial, cost calculation, cache path, provider failure, and final outcome. |
-| Settings | Settings stays focused on pricebook, retention, and OTel/export knobs when needed. Provider readiness, model capability overrides/probes, and External Agent grants live in Connections. |
-| Costs | Costs clearly separates enforced gateway cost from adapter-reported usage. External Agent usage remains labelled as reported by adapter and not enforced by Hecate. |
+| Observability | The UI answers "what happened?" without JSON archaeology: request history, route report, trace viewer, skipped providers, policy denial, usage, cache path, provider failure, and final outcome. |
+| Settings | Settings stays focused on retention and OTel/export knobs when needed. Provider readiness, model capability overrides/probes, and External Agent grants live in Connections. |
+| Usage | Usage clearly separates Hecate-measured cloud-provider tokens and known/reported cost from adapter-reported external-agent usage. There are no global spend controls. |
 | Desktop app | Before beta, decide whether unsigned desktop bundles are acceptable. If not, complete signing/notarization or clearly keep desktop labelled alpha while the rest of Hecate enters beta. |
 
 ## Cleanup And Refactoring

@@ -9,9 +9,9 @@ Hecate uses OpenTelemetry-style traces, metrics, and logs, but the important thi
 
 The runtime keeps standard OpenTelemetry keys where they already fit and uses `hecate.*` only for product-specific fields.
 
-The Observability view in the operator UI surfaces all of this without needing an external collector — request ledger, trace inspector with route-report drilldown, and OTel signal status are all visible immediately.
+The Observability view in the operator UI surfaces all of this without needing an external collector — request history, trace inspector with route-report drilldown, and OTel signal status are all visible immediately.
 
-![Observability view — request ledger and route diagnostics](screenshots/observe.png)
+![Observability view — request history and route diagnostics](screenshots/observe.png)
 
 For the full request lifecycle that produces these traces, see [`architecture.md`](architecture.md).
 
@@ -81,9 +81,9 @@ The trace endpoint returns:
 - failover history
 - the final provider, model, and route reason
 
-The Observability workspace in the operator UI surfaces traces, the request ledger, and run-state cards.
+The Observability workspace in the operator UI surfaces traces, request history, and run-state cards.
 
-![Observability workspace — request ledger, run-state cards, and span tree](screenshots/observe.png)
+![Observability workspace — request history, run-state cards, and span tree](screenshots/observe.png)
 
 ## OTLP Configuration
 
@@ -289,8 +289,7 @@ Gateway traces are centered around a small set of runtime stages. Each stage map
 | `gateway.governor` | Governor and policy decisions |
 | `gateway.router` | Route selection |
 | `gateway.provider` | Provider execution, retry, and failover |
-| `gateway.usage` | Usage normalization |
-| `gateway.cost` | Cost calculation |
+| `gateway.usage` | Usage normalization and recording |
 | `gateway.response` | Response return |
 | `gateway.runtime` | Catch-all for unknown or not-yet-classified events |
 
@@ -306,13 +305,13 @@ winner:
 | `router.selected` | The router picked the initial provider/model | `gen_ai.provider.name`, `gen_ai.request.model`, `hecate.provider.kind`, `hecate.route.reason` |
 | `router.candidate.skipped` | A provider/model was not selected before execution | `hecate.route.skip_reason`, `hecate.provider.health_status`, `hecate.provider.index` |
 | `router.candidate.considered` | The executor is about to preflight/call a runtime candidate | `hecate.route.outcome=considered`, `hecate.provider.index` |
-| `router.candidate.denied` | Policy, budget, or route preflight denied a candidate | `hecate.route.skip_reason`, `hecate.cost.estimated_micros_usd`, `hecate.policy.rule_id`, `hecate.policy.reason` |
+| `router.candidate.denied` | Policy or route preflight denied a candidate | `hecate.route.skip_reason`, `hecate.cost.estimated_micros_usd`, `hecate.policy.rule_id`, `hecate.policy.reason` |
 | `router.candidate.selected` | A candidate survived preflight and will be called | `hecate.route.outcome=selected`, `hecate.cost.estimated_micros_usd` |
 | `governor.model_rewrite` | The governor rewrote the requested model before routing | `gen_ai.request.model.original`, `gen_ai.request.model.rewritten`, `hecate.policy.rule_id`, `hecate.policy.action`, `hecate.policy.reason` |
 
 Common skip reasons include `unsupported_model`, `circuit_open`,
 `provider_not_requested`, `no_default_model`, `no_model`,
-`preflight_price_missing`, `budget_denied`, `policy_denied`, `provider_slow`,
+`policy_denied`, `provider_slow`,
 `provider_less_stable`, and `route_denied`. Policy-backed denials also carry the matched rule id/action/
 reason when the governor rejected the candidate via a persisted or configured
 policy rule. Rewrite events carry the same policy metadata when the governor
@@ -356,7 +355,7 @@ attributes, to avoid accidental high-cardinality trace dimensions. Runs carry
 `hecate.run.duration_ms`. Queue claim events carry `hecate.queue.wait_ms` —
 the time the run spent in the queue between enqueue and claim.
 
-`agent_loop` runs *also* emit one `turn.completed` per LLM round-trip on the **persisted run-event log** — not the OTel trace. That stream is documented in [`events.md`](events.md#turncompleted) and powers the per-run UI cost ledger and `/hecate/v1/events` subscriptions. The OTel side carries duration on the spans above; the cost breakdown lives on the run event.
+`agent_loop` runs *also* emit one `turn.completed` per LLM round-trip on the **persisted run-event log** — not the OTel trace. That stream is documented in [`events.md`](events.md#turncompleted) and powers the per-run UI cost/tokens summary and `/hecate/v1/events` subscriptions. The OTel side carries duration on the spans above; the task-local cost breakdown lives on the run event.
 
 ### Agent Chat Spans
 
@@ -418,7 +417,7 @@ The retention worker handles the following subsystems. The **subsystem name** is
 | Subsystem (runtime) | Env-var prefix | What it prunes |
 |---|---|---|
 | `trace_snapshots` | `GATEWAY_RETENTION_TRACES_` | Per-request profiler trace snapshots |
-| `budget_events` | `GATEWAY_RETENTION_BUDGET_EVENTS_` | Governor budget ledger entries |
+| `usage_events` | `GATEWAY_RETENTION_USAGE_EVENTS_` | Gateway usage event rows |
 | `audit_events` | `GATEWAY_RETENTION_AUDIT_EVENTS_` | Settings audit log |
 | `provider_history` | `GATEWAY_RETENTION_PROVIDER_HISTORY_` | Persisted provider health and failover history rows exposed by `GET /hecate/v1/providers/history` |
 | `turn_events` | `GATEWAY_RETENTION_TURN_EVENTS_` | `turn.completed` rows in the run-events table — high-cardinality bulk telemetry from agent_loop runs. Other event types (`run.started`, `run.finished`, `approval.*`) are never touched |
@@ -434,7 +433,7 @@ Each prefix has a `_MAX_AGE` and `_MAX_COUNT` suffix (e.g. `GATEWAY_RETENTION_TR
 | `hecate.gateway.requests` | Counter | `{request}` | Total gateway requests grouped by result |
 | `hecate.gateway.request.duration` | Histogram | `ms` | Gateway request duration |
 | `gen_ai.gateway.chat.requests` | Counter | `{request}` | Chat completion responses finalized |
-| `gen_ai.gateway.cost` | Counter | `1` | Accumulated estimated cost in micros USD |
+| `gen_ai.gateway.cost` | Counter | `1` | Known/reported cost in micros USD when available |
 | `gen_ai.client.tokens.input` | Counter | `{token}` | Accumulated prompt tokens |
 | `gen_ai.client.tokens.output` | Counter | `{token}` | Accumulated completion tokens |
 | `gen_ai.client.tokens.total` | Counter | `{token}` | Accumulated total tokens |
@@ -499,10 +498,9 @@ your backend does not support them yet.
 
 Two operational response classes are worth calling out:
 
-- budget exhaustion is returned as HTTP `402` with a `payment_required` error shape
 - rate limiting is returned as HTTP `429` with a `rate_limit_error` error shape
 
-When rate limiting is enabled, the token-bucket limiter also exposes reset and remaining-budget information through the `X-RateLimit-*` headers above.
+When rate limiting is enabled, the token-bucket limiter also exposes reset and remaining-quota information through the `X-RateLimit-*` headers above.
 
 The `hecate.error.kind` attribute on error events is clamped to a closed set of known values. Any value outside this set is normalized to `other` to prevent high-cardinality label explosions in metric exporters and trace backends.
 

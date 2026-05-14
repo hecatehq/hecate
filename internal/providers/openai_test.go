@@ -435,9 +435,7 @@ func strPtr(s string) *string { return &s }
 // TestOpenAIProviderCapturesCachedTokens verifies the prompt-cache
 // usage path: when the upstream returns prompt_tokens_details with
 // cached_tokens, the provider lifts that into Usage.CachedPromptTokens
-// so the gateway pricebook applies the cached-input rate. Without
-// this, OpenAI cache hits silently bill at the full input rate
-// (mirror of the Anthropic gap I closed earlier).
+// so cache hits stay visible in usage reporting.
 func TestOpenAIProviderCapturesCachedTokens(t *testing.T) {
 	t.Parallel()
 	transport := testRoundTripperFunc(func(r *http.Request) (*http.Response, error) {

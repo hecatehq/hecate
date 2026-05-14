@@ -15,7 +15,7 @@ Hecate splits cleanly into two concurrent surfaces: a **gateway** for OpenAI- an
 
 ## Gateway request flow
 
-Every chat / messages call goes through the same pipeline. Each gate can short-circuit the request — policy/budget failures never spend upstream tokens. Errors produce a fixed status code per gate so client SDKs can handle them deterministically.
+Every chat / messages call goes through the same pipeline. Each gate can short-circuit the request — policy, route, and rate-limit failures never spend upstream tokens. Errors produce a fixed status code per gate so client SDKs can handle them deterministically.
 
 ```mermaid
 flowchart TD
@@ -29,13 +29,12 @@ flowchart TD
     Rewrite --> RateLimit["Rate limit"]
     RateLimit -->|"exhausted"| ErrRateLimit["429 rate_limit_exceeded"]
     RateLimit --> Router["Router<br/>(provider/model selection)"]
-    Router --> Preflight["Route preflight<br/>(cost estimate vs budget)"]
-    Preflight -->|"budget exceeded"| ErrBudget["402 budget_exceeded"]
+    Router --> Preflight["Route preflight<br/>(policy + route gates)"]
+    Preflight -->|"denied"| ErrRoute["403 route_denied"]
     Preflight --> Provider["Provider call<br/>(OpenAI-compat or Anthropic)"]
     Provider -->|"upstream 4xx/5xx"| ErrUpstream["502/4xx upstream_error"]
     Provider --> Usage["Usage normalization"]
-    Usage --> Cost["Cost calculation<br/>(pricebook lookup)"]
-    Cost --> RecordUsage["Debit budget + append history"]
+    Usage --> RecordUsage["Append usage event"]
     RecordUsage --> Telemetry["X-Runtime-* headers<br/>+ traces/metrics/logs"]
     Telemetry --> Response["Response"]
 ```
@@ -43,9 +42,10 @@ flowchart TD
 Key invariants:
 
 - **Local operator boundary.** Hecate defaults to `127.0.0.1:8765` and rejects cross-origin browser requests. That same-origin check is browser protection, not a network security boundary. If you bind the gateway beyond the local machine, put your own access controls, firewall, or reverse proxy in front.
-- **Policy/budget can deny without an upstream call.** A budget-exceeded request returns `402` with the gateway's own body — no provider tokens are spent.
-- **Cost calculation is deterministic.** Pricebook is read after the provider returns usage; the same `(provider, model, usage)` tuple always produces the same cost in micros USD.
-- **CheckRoute is read-not-reservation.** Two concurrent requests can both pass when balance covers each individually but not their sum — the budget can briefly go negative under contention. Pinned in [tests](../internal/governor/governor_test.go) so a "fix" doesn't silently introduce write contention.
+- **Policy can deny without an upstream call.** Deny rules, provider/model
+  allowlists, route mode, and rate limits fail before provider tokens are spent.
+- **Usage events are append-only.** Hecate records tokens and known/reported
+  cost for operator visibility, but it does not enforce a global spend gate.
 
 ## Task runtime flow
 
@@ -192,4 +192,4 @@ The full per-subsystem matrix lives in [`docs/deployment.md`](deployment.md#stor
 
 ## Why two flows share one gateway
 
-The shared deployment is deliberate. An operator who only needs LLM-gateway features still gets the task runtime endpoints (returning empty lists) without configuring anything; an operator who runs agent tasks shares the same budgets and observability with the model traffic. There is no separate "task daemon" to deploy.
+The shared deployment is deliberate. An operator who only needs LLM-gateway features still gets the task runtime endpoints (returning empty lists) without configuring anything; an operator who runs agent tasks shares the same observability and usage-event stream with the model traffic. There is no separate "task daemon" to deploy.

@@ -11,9 +11,9 @@ import (
 	"github.com/hecate/agent-runtime/internal/profiler"
 )
 
-type fakeBudgetPruner struct{ deleted int }
+type fakeUsagePruner struct{ deleted int }
 
-func (f fakeBudgetPruner) PruneEvents(context.Context, time.Duration, int) (int, error) {
+func (f fakeUsagePruner) PruneEvents(context.Context, time.Duration, int) (int, error) {
 	return f.deleted, nil
 }
 
@@ -43,7 +43,7 @@ func TestManagerRunFiltersSubsystems(t *testing.T) {
 				MaxAge:   time.Hour,
 				MaxCount: 10,
 			},
-			BudgetEvents: config.RetentionPolicy{
+			UsageEvents: config.RetentionPolicy{
 				MaxAge:   time.Hour,
 				MaxCount: 5,
 			},
@@ -58,7 +58,7 @@ func TestManagerRunFiltersSubsystems(t *testing.T) {
 		},
 		tracer,
 		tracer,
-		fakeBudgetPruner{deleted: 2},
+		fakeUsagePruner{deleted: 2},
 		fakeAuditPruner{deleted: 3},
 		nil,
 		fakeTurnEventPruner{deleted: 6},
@@ -71,7 +71,7 @@ func TestManagerRunFiltersSubsystems(t *testing.T) {
 
 	result := manager.Run(context.Background(), RunRequest{
 		Trigger:    "manual",
-		Subsystems: []string{SubsystemBudgetEvents, SubsystemTurnEvents},
+		Subsystems: []string{SubsystemUsageEvents, SubsystemTurnEvents},
 	})
 	if result.Trigger != "manual" {
 		t.Fatalf("trigger = %q, want manual", result.Trigger)
@@ -80,8 +80,8 @@ func TestManagerRunFiltersSubsystems(t *testing.T) {
 		t.Fatalf("results = %d, want 6", len(result.Results))
 	}
 
-	if result.Results[1].Name != SubsystemBudgetEvents || result.Results[1].Deleted != 2 {
-		t.Fatalf("budget result = %#v, want budget deletion count 2", result.Results[1])
+	if result.Results[1].Name != SubsystemUsageEvents || result.Results[1].Deleted != 2 {
+		t.Fatalf("usage result = %#v, want usage deletion count 2", result.Results[1])
 	}
 	if result.Results[4].Name != SubsystemTurnEvents || result.Results[4].Deleted != 6 {
 		t.Fatalf("turn events result = %#v, want turn-event deletion count 6", result.Results[4])
@@ -103,13 +103,13 @@ func TestManagerRunPersistsHistory(t *testing.T) {
 			Enabled:        true,
 			Interval:       time.Minute,
 			TraceSnapshots: config.RetentionPolicy{MaxAge: time.Hour, MaxCount: 10},
-			BudgetEvents:   config.RetentionPolicy{MaxAge: time.Hour, MaxCount: 5},
+			UsageEvents:    config.RetentionPolicy{MaxAge: time.Hour, MaxCount: 5},
 			AuditEvents:    config.RetentionPolicy{MaxAge: time.Hour, MaxCount: 5},
 			TurnEvents:     config.RetentionPolicy{MaxAge: time.Hour, MaxCount: 100},
 		},
 		tracer,
 		tracer,
-		fakeBudgetPruner{deleted: 2},
+		fakeUsagePruner{deleted: 2},
 		fakeAuditPruner{deleted: 3},
 		nil,
 		fakeTurnEventPruner{deleted: 6},

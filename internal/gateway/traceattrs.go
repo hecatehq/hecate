@@ -13,15 +13,14 @@ import (
 // constants in the telemetry package. All recording sites in this package use
 // these aliases so that refactoring the constants requires one change here.
 const (
-	errorKindInvalidRequest       = telemetry.ErrorKindInvalidRequest
-	errorKindRequestDenied        = telemetry.ErrorKindRequestDenied
-	errorKindRouterFailed         = telemetry.ErrorKindRouterFailed
-	errorKindBudgetEstimateFailed = telemetry.ErrorKindBudgetEstimate
-	errorKindRouteDenied          = telemetry.ErrorKindRouteDenied
-	errorKindProviderCallFailed   = telemetry.ErrorKindProviderCallFailed
-	errorKindRetryBackoffFailed   = telemetry.ErrorKindRetryBackoff
-	errorKindProviderHealth       = telemetry.ErrorKindProviderHealth
-	errorKindUsageRecordFailed    = telemetry.ErrorKindUsageRecord
+	errorKindInvalidRequest     = telemetry.ErrorKindInvalidRequest
+	errorKindRequestDenied      = telemetry.ErrorKindRequestDenied
+	errorKindRouterFailed       = telemetry.ErrorKindRouterFailed
+	errorKindRouteDenied        = telemetry.ErrorKindRouteDenied
+	errorKindProviderCallFailed = telemetry.ErrorKindProviderCallFailed
+	errorKindRetryBackoffFailed = telemetry.ErrorKindRetryBackoff
+	errorKindProviderHealth     = telemetry.ErrorKindProviderHealth
+	errorKindUsageRecordFailed  = telemetry.ErrorKindUsageRecord
 )
 
 func tracePhaseAttrs(phase string, attrs map[string]any) map[string]any {

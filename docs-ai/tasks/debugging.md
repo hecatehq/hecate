@@ -39,5 +39,5 @@ A fix isn't done until:
 - **`X-Trace-Id`** header on every response. Search OTel by trace ID to see exactly what the gateway decided and why.
 - **`/hecate/v1/traces`** and **`/hecate/v1/events`** for replay. The run-event log is append-only; the SSE stream replays from `after_sequence`.
 - **Run state** — runs in `awaiting_approval` are blocked until resolved; check the approval lifecycle if a run is "stuck".
-- **Pricebook preflight** — cloud-kind providers in tests trigger a pricebook lookup. `PROVIDER_FAKE_KIND=local` bypasses it for synthetic models in e2e.
+- **Synthetic local providers** — use `PROVIDER_FAKE_KIND=local` for e2e scenarios that should not require a real cloud provider.
 - **Capability cache** — provider tests that don't seed `cachedCaps` will panic when discovery hits the test transport. See [`../skills/providers/SKILL.md`](../skills/providers/SKILL.md) for the seeding snippet.

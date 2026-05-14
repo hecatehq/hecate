@@ -1,6 +1,5 @@
 import type {
-  BudgetStatusResponse,
-  AccountSummaryResponse,
+  UsageSummaryResponse,
   ChatResponse,
   ChatSessionResponse,
   ChatSessionsResponse,
@@ -10,8 +9,6 @@ import type {
   ModelResponse,
   LocalProviderDiscoveryResponse,
   ModelCapabilityResponse,
-  PricebookEntryUpsertPayload,
-  PricebookImportDiffResponse,
   ProviderPresetResponse,
   AgentAdapterProbeResponse,
   AgentAdapterCredentialResponse,
@@ -30,7 +27,7 @@ import type {
   WorkspaceDialogResponse,
   ProviderStatusResponse,
   RuntimeStatsResponse,
-  RequestLedgerResponse,
+  UsageEventsResponse,
   RuntimeHeaders,
   SessionResponse,
   TaskApprovalsResponse,
@@ -304,12 +301,8 @@ export async function getRecentTraces(limit = 50): Promise<TraceListResponse> {
   return fetchJSON<TraceListResponse>(`${HECATE_API}/traces?limit=${encodeURIComponent(String(limit))}`);
 }
 
-export async function getBudget(query = ""): Promise<BudgetStatusResponse> {
-  return fetchJSON<BudgetStatusResponse>(`${HECATE_API}/costs/budget${query}`);
-}
-
-export async function getAccountSummary(query = ""): Promise<AccountSummaryResponse> {
-  return fetchJSON<AccountSummaryResponse>(`${HECATE_API}/costs/summary${query}`);
+export async function getUsageSummary(query = ""): Promise<UsageSummaryResponse> {
+  return fetchJSON<UsageSummaryResponse>(`${HECATE_API}/usage/summary${query}`);
 }
 
 export async function getChatSessions(limit = 20, offset = 0): Promise<ChatSessionsResponse> {
@@ -562,20 +555,8 @@ export async function chooseWorkspaceDirectory(): Promise<WorkspaceDialogRespons
   return fetchJSON<WorkspaceDialogResponse>(`${HECATE_API}/workspace-dialog`, { method: "POST", body: {} });
 }
 
-export async function getRequestLedger(limit = 20): Promise<RequestLedgerResponse> {
-  return fetchJSON<RequestLedgerResponse>(`${HECATE_API}/observability/requests?limit=${encodeURIComponent(String(limit))}`);
-}
-
-export async function resetBudget(payload: Record<string, unknown>): Promise<BudgetStatusResponse> {
-  return fetchJSON<BudgetStatusResponse>(`${HECATE_API}/costs/budget/reset`, { method: "POST", body: payload });
-}
-
-export async function topUpBudget(payload: Record<string, unknown>): Promise<BudgetStatusResponse> {
-  return fetchJSON<BudgetStatusResponse>(`${HECATE_API}/costs/budget/topup`, { method: "POST", body: payload });
-}
-
-export async function setBudgetLimit(payload: Record<string, unknown>): Promise<BudgetStatusResponse> {
-  return fetchJSON<BudgetStatusResponse>(`${HECATE_API}/costs/budget/limit`, { method: "POST", body: payload });
+export async function getUsageEvents(limit = 20): Promise<UsageEventsResponse> {
+  return fetchJSON<UsageEventsResponse>(`${HECATE_API}/usage/events?limit=${encodeURIComponent(String(limit))}`);
 }
 
 export async function getSettingsConfig(): Promise<ConfiguredStateResponse> {
@@ -601,25 +582,6 @@ export async function updateProvider(
   patch: { base_url?: string; name?: string; custom_name?: string }
 ): Promise<unknown> {
   return fetchJSON(`${HECATE_API}/settings/providers/${encodeURIComponent(id)}`, { method: "PATCH", body: patch });
-}
-
-export async function upsertPricebookEntry(entry: PricebookEntryUpsertPayload): Promise<unknown> {
-  return fetchJSON(`${HECATE_API}/settings/pricebook`, { method: "POST", body: entry });
-}
-
-export async function deletePricebookEntry(provider: string, model: string): Promise<unknown> {
-  return fetchJSON(
-    `${HECATE_API}/settings/pricebook/${encodeURIComponent(provider)}/${encodeURIComponent(model)}`,
-    { method: "DELETE" },
-  );
-}
-
-export async function previewPricebookImport(): Promise<PricebookImportDiffResponse> {
-  return fetchJSON<PricebookImportDiffResponse>(`${HECATE_API}/settings/pricebook/import/preview`, { method: "POST", body: {} });
-}
-
-export async function applyPricebookImport(keys: string[]): Promise<PricebookImportDiffResponse> {
-  return fetchJSON<PricebookImportDiffResponse>(`${HECATE_API}/settings/pricebook/import/apply`, { method: "POST", body: { keys } });
 }
 
 // setProviderAPIKey sets the provider's API key. An empty `key` clears it.

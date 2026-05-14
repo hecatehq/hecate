@@ -2,19 +2,13 @@ package api
 
 import (
 	"errors"
-	"fmt"
 	"net/http"
 	"testing"
 
-	"github.com/hecate/agent-runtime/internal/billing"
-	"github.com/hecate/agent-runtime/internal/config"
 	"github.com/hecate/agent-runtime/internal/providers"
-	"github.com/hecate/agent-runtime/pkg/types"
 )
 
 func TestClassifyGatewayError(t *testing.T) {
-	priceErr := missingPriceError(t)
-
 	tests := []struct {
 		name          string
 		err           error
@@ -22,13 +16,6 @@ func TestClassifyGatewayError(t *testing.T) {
 		openAIType    string
 		anthropicType string
 	}{
-		{
-			name:          "price missing",
-			err:           fmt.Errorf("estimate preflight cost: %w", priceErr),
-			status:        http.StatusFailedDependency,
-			openAIType:    errCodePriceMissing,
-			anthropicType: "api_error",
-		},
 		{
 			name: "provider auth failure",
 			err: &providers.UpstreamError{
@@ -106,23 +93,4 @@ func TestClassifyGatewayError(t *testing.T) {
 			}
 		})
 	}
-}
-
-func missingPriceError(t *testing.T) error {
-	t.Helper()
-
-	pricebook := billing.NewStaticPricebook(config.ProvidersConfig{
-		OpenAICompatible: []config.OpenAICompatibleProviderConfig{{
-			Name: "openai",
-			Kind: string(providers.KindCloud),
-		}},
-	}, config.PricebookConfig{})
-	_, err := pricebook.Estimate("openai", "unpriced-model", types.Usage{PromptTokens: 1})
-	if err == nil {
-		t.Fatal("Estimate() error = nil, want missing price")
-	}
-	if !billing.IsPriceNotFound(err) {
-		t.Fatalf("Estimate() error = %v, want price-not-found", err)
-	}
-	return err
 }

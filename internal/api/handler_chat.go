@@ -323,11 +323,9 @@ func renderChatCompletionResponse(resp *types.ChatResponse) OpenAIChatCompletion
 		TotalTokens:      resp.Usage.TotalTokens,
 	}
 	// Surface cache-read tokens in the OpenAI prompt_tokens_details
-	// shape so /v1/chat/completions clients see what the gateway
-	// actually billed for. Without this, an Anthropic upstream's
-	// cache hits showed up only in internal billing, never on the
-	// wire — making per-request cost reconciliation harder for
-	// operators reading raw response bodies.
+	// shape so /v1/chat/completions clients see the same usage buckets
+	// Hecate records internally. Without this, an Anthropic upstream's
+	// cache hits are invisible on the wire.
 	if resp.Usage.CachedPromptTokens > 0 {
 		usage.PromptTokensDetails = &OpenAIPromptTokensDetails{
 			CachedTokens: resp.Usage.CachedPromptTokens,

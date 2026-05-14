@@ -2,10 +2,9 @@ import { describe, expect, it } from "vitest";
 
 import {
   buildSpanWaterfall,
-  budgetConsumedPercent,
   buildTraceTimeline,
   countRouteHealthStatuses,
-  describeBudgetScope,
+  describeUsageScope,
   describeHealthStatus,
   describeRouteCandidateOutcome,
   describeRouteReason,
@@ -27,10 +26,9 @@ import {
   traceStatusBadge,
   tracePhaseFromEvent,
   tracePhaseFromSpan,
-  usdToMicros,
 } from "./runtime-utils";
 import type { TraceRouteRecord } from "./runtime-utils";
-import type { BudgetRecord, ModelRecord, ProviderRecord, RuntimeHeaders, TraceListItem, TraceSpanRecord } from "../types/runtime";
+import type { ModelRecord, ProviderRecord, RuntimeHeaders, TraceListItem, TraceSpanRecord, UsageSummaryRecord } from "../types/runtime";
 
 const models: ModelRecord[] = [
   { id: "gpt-4o-mini", owned_by: "openai", metadata: { provider: "openai", provider_kind: "cloud" } },
@@ -58,11 +56,6 @@ const runtimeHeaders: RuntimeHeaders = {
 };
 
 describe("runtime-utils", () => {
-  it("converts usd strings to micros", () => {
-    expect(usdToMicros("1.25")).toBe(1_250_000);
-    expect(Number.isNaN(usdToMicros("-1"))).toBe(true);
-  });
-
   it("parses csv into trimmed items", () => {
     expect(parseCSV(" openai, ollama , ,localai ")).toEqual(["openai", "ollama", "localai"]);
   });
@@ -159,26 +152,6 @@ describe("runtime-utils", () => {
     expect(formatTraceAttributeValue({ ok: true })).toBe('{"ok":true}');
   });
 
-  it("calculates budget consumption percent", () => {
-    expect(
-      budgetConsumedPercent({
-        key: "global",
-        scope: "global",
-        backend: "memory",
-        balance_source: "config",
-        debited_micros_usd: 500_000,
-        debited_usd: "0.500000",
-        credited_micros_usd: 1_000_000,
-        credited_usd: "1.000000",
-        balance_micros_usd: 500_000,
-        balance_usd: "0.500000",
-        available_micros_usd: 500_000,
-        available_usd: "0.500000",
-        enforced: true,
-      }),
-    ).toBe(50);
-  });
-
   // ── tone/label exhaustiveness ─────────────────────────────────────────
   // Switch-based helpers — drive every case (incl. the default fallback)
   // so a refactor that adds a new status without updating the mapping
@@ -242,7 +215,6 @@ describe("runtime-utils", () => {
     expect(tracePhaseFromEvent("provider.invoked")).toBe("provider");
     expect(tracePhaseFromEvent("governor.allowed")).toBe("governor");
     expect(tracePhaseFromEvent("usage.recorded")).toBe("usage");
-    expect(tracePhaseFromEvent("cost.calculated")).toBe("cost");
     expect(tracePhaseFromEvent("queue.claimed")).toBe("queue");
     expect(tracePhaseFromEvent("orchestrator.run.started")).toBe("orchestration");
     expect(tracePhaseFromEvent("orchestrator.step.completed")).toBe("tool");
@@ -261,7 +233,7 @@ describe("runtime-utils", () => {
     expect(tracePhaseFromSpan("gateway.request")).toBe("request");
     expect(tracePhaseFromSpan("gateway.router")).toBe("routing");
     expect(tracePhaseFromSpan("gateway.provider")).toBe("provider");
-    expect(tracePhaseFromSpan("gateway.cost")).toBe("cost");
+    expect(tracePhaseFromSpan("gateway.usage")).toBe("usage");
     expect(tracePhaseFromSpan("orchestrator.queue")).toBe("queue");
     expect(tracePhaseFromSpan("orchestrator.run")).toBe("orchestration");
     expect(tracePhaseFromSpan("orchestrator.step")).toBe("tool");
@@ -359,47 +331,23 @@ describe("runtime-utils", () => {
     expect(findProvider(list, "")).toBeNull();
   });
 
-  // ── budget helpers ──────────────────────────────────────────────────
+  // ── usage helpers ───────────────────────────────────────────────────
 
-  it("budgetConsumedPercent clamps to 0..100 and handles missing / zero credit", () => {
-    const baseBudget: BudgetRecord = {
-      key: "x", scope: "global", backend: "memory", balance_source: "config",
-      debited_micros_usd: 0, debited_usd: "0",
-      credited_micros_usd: 1_000_000, credited_usd: "1",
-      balance_micros_usd: 1_000_000, balance_usd: "1",
-      available_micros_usd: 1_000_000, available_usd: "1",
-      enforced: false,
-    };
-    expect(budgetConsumedPercent(undefined)).toBe(0);
-    expect(budgetConsumedPercent(null)).toBe(0);
-    // Zero credit budget: protect against /0.
-    expect(budgetConsumedPercent({ ...baseBudget, credited_micros_usd: 0 })).toBe(0);
-    // Over-debit (e.g. delayed reconciliation) clamps to 100.
-    expect(budgetConsumedPercent({ ...baseBudget, debited_micros_usd: 5_000_000 })).toBe(100);
-  });
+  it("describeUsageScope joins parts that are populated", () => {
+    expect(describeUsageScope(undefined)).toBe("No scope");
+    expect(describeUsageScope(null)).toBe("No scope");
 
-  it("describeBudgetScope joins parts that are populated", () => {
-    expect(describeBudgetScope(undefined)).toBe("No scope");
-    expect(describeBudgetScope(null)).toBe("No scope");
-
-    const base: BudgetRecord = {
-      key: "x", scope: "global", backend: "memory", balance_source: "config",
-      debited_micros_usd: 0, debited_usd: "0",
-      credited_micros_usd: 1, credited_usd: "0",
-      balance_micros_usd: 1, balance_usd: "0",
-      available_micros_usd: 1, available_usd: "0",
-      enforced: false,
+    const base: UsageSummaryRecord = {
+      key: "x", scope: "global", backend: "memory", used_micros_usd: 0, used_usd: "$0.000000",
     };
     // scope only → just the scope label.
-    expect(describeBudgetScope({ ...base })).toBe("global");
+    expect(describeUsageScope({ ...base })).toBe("global");
     // scope + provider.
-    expect(describeBudgetScope({ ...base, scope: "provider", provider: "openai" })).toBe("provider / provider openai");
+    expect(describeUsageScope({ ...base, scope: "provider", provider: "openai" })).toBe("provider / provider openai");
   });
 
   it("describeRouteSkipReason labels known and unknown skip reasons", () => {
-    expect(describeRouteSkipReason("budget_denied")).toBe("Budget denied");
     expect(describeRouteSkipReason("policy_denied")).toBe("Policy denied");
-    expect(describeRouteSkipReason("preflight_price_missing")).toBe("Missing price");
     expect(describeRouteSkipReason("provider_not_found")).toBe("Provider missing");
     expect(describeRouteSkipReason("route_denied")).toBe("Route denied");
     expect(describeRouteSkipReason("provider_retry_exhausted")).toBe("Retry exhausted");

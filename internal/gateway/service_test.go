@@ -8,7 +8,6 @@ import (
 	"testing"
 	"time"
 
-	"github.com/hecate/agent-runtime/internal/billing"
 	"github.com/hecate/agent-runtime/internal/catalog"
 	"github.com/hecate/agent-runtime/internal/config"
 	"github.com/hecate/agent-runtime/internal/governor"
@@ -18,12 +17,15 @@ import (
 	"github.com/hecate/agent-runtime/pkg/types"
 )
 
-func TestServiceHandleChatFallsBackWhenPrimaryPriceMissing(t *testing.T) {
+func TestServiceHandleChatFallsBackWhenPrimaryFails(t *testing.T) {
 	t.Parallel()
 
 	primary := &sequenceProvider{
 		name: "openai",
 		kind: providers.KindCloud,
+		responses: []providerResponse{
+			{err: &providers.UpstreamError{StatusCode: 503}},
+		},
 	}
 	fallback := &sequenceProvider{
 		name: "ollama",
@@ -42,7 +44,7 @@ func TestServiceHandleChatFallsBackWhenPrimaryPriceMissing(t *testing.T) {
 	}
 
 	registry := providers.NewRegistry(primary, fallback)
-	store := governor.NewMemoryBudgetStore()
+	store := governor.NewMemoryUsageStore()
 	router := staticFallbackRouter{
 		route: types.RouteDecision{Provider: "openai", Model: "model-x", Reason: "primary"},
 		fallbacks: []types.RouteDecision{
@@ -50,24 +52,10 @@ func TestServiceHandleChatFallsBackWhenPrimaryPriceMissing(t *testing.T) {
 		},
 	}
 	service := NewService(Dependencies{
-		Logger:    slog.New(slog.NewJSONHandler(io.Discard, nil)),
-		Router:    router,
-		Governor:  governor.NewStaticGovernor(config.GovernorConfig{MaxPromptTokens: 64_000}, store, store),
-		Providers: registry,
-		Pricebook: billing.NewStaticPricebook(config.ProvidersConfig{
-			OpenAICompatible: []config.OpenAICompatibleProviderConfig{
-				{
-					Name:         "openai",
-					Kind:         "cloud",
-					DefaultModel: "priced-model",
-				},
-				{
-					Name:         "ollama",
-					Kind:         "local",
-					DefaultModel: "model-b",
-				},
-			},
-		}, config.PricebookConfig{}),
+		Logger:     slog.New(slog.NewJSONHandler(io.Discard, nil)),
+		Router:     router,
+		Governor:   governor.NewStaticGovernor(config.GovernorConfig{MaxPromptTokens: 64_000}, store, store),
+		Providers:  registry,
 		Tracer:     profiler.NewInMemoryTracer(nil),
 		Metrics:    telemetry.NewMetrics(),
 		Resilience: ResilienceOptions{MaxAttempts: 1, RetryBackoff: time.Millisecond, FailoverEnabled: true},

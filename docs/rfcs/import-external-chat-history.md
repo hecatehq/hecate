@@ -84,8 +84,8 @@ In rough priority order:
   out of scope per [agent-memory](agent-memory.md)'s explicit
   non-goal #1.
 - **Cost/usage reconstruction.** Source transcripts may carry token
-  counts; pricebook lookup at import time would be lossy and
-  confusing. v1 leaves `Usage` empty for imported messages and
+  counts, but imported history does not have enough provider context
+  to reconstruct reliable costs. v1 leaves `Usage` empty for imported messages and
   surfaces "no cost data — imported" in the UI rather than
   guessing.
 - **Tool-call replay.** Imported `Activity` rows are descriptive,

@@ -4,7 +4,6 @@ import (
 	"errors"
 	"strings"
 
-	"github.com/hecate/agent-runtime/internal/governor"
 	"github.com/hecate/agent-runtime/internal/ratelimit"
 )
 
@@ -42,20 +41,6 @@ func UserFacingMessage(err error) string {
 		}
 	}
 	return msg
-}
-
-// IsBudgetExceededError returns true when err is (or wraps) a
-// governor.BudgetExceededError — callers should return HTTP 402.
-func IsBudgetExceededError(err error) bool {
-	var target *governor.BudgetExceededError
-	return errors.As(err, &target)
-}
-
-// AsBudgetExceededError extracts the BudgetExceededError from err if present.
-func AsBudgetExceededError(err error) (*governor.BudgetExceededError, bool) {
-	var target *governor.BudgetExceededError
-	ok := errors.As(err, &target)
-	return target, ok
 }
 
 // IsRateLimitedError returns true when err is a ratelimit.ExceededError —

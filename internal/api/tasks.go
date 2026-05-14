@@ -282,7 +282,7 @@ type TaskRunStreamEventData struct {
 	// Turn carries the per-turn cost breakdown when the snapshot was
 	// driven by a `turn.completed` event. It's populated only
 	// for that event type — every other snapshot leaves Turn nil.
-	// Lets the UI render a live per-turn cost ledger without having
+	// Lets the UI render a live per-turn cost/tokens summary without having
 	// to subscribe to the public events stream separately.
 	Turn      *TaskRunStreamTurnCost `json:"turn,omitempty"`
 	EventType string                 `json:"event_type,omitempty"`

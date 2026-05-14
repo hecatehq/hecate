@@ -353,9 +353,9 @@ func TestAnthropicChatUpstreamSendsCacheControlBlocks(t *testing.T) {
 
 // TestAnthropicProviderCapturesCacheReadTokens pins the prompt-cache
 // usage path: when the upstream returns cache_read_input_tokens, it
-// must land in Usage.CachedPromptTokens (so the pricebook applies
-// the cache rate). The prior adapter dropped the field entirely,
-// which made cache hits silently bill at the full input rate.
+// must land in Usage.CachedPromptTokens. The prior adapter dropped
+// the field entirely, which made cache hits invisible to usage
+// reporting.
 func TestAnthropicProviderCapturesCacheReadTokens(t *testing.T) {
 	t.Parallel()
 	provider := newAnthropicTestProvider(t, func(r *http.Request) (*http.Response, error) {
@@ -403,9 +403,7 @@ func TestAnthropicProviderCapturesCacheReadTokens(t *testing.T) {
 // TestAnthropicProviderFoldsCacheCreationIntoPromptTokens verifies
 // the second cache bucket — cache writes — gets counted (folded
 // into PromptTokens at the fresh rate). The prior adapter dropped
-// these too. The fold trade-off is documented on anthropicUsage:
-// when the pricebook gains a cache-write rate, this becomes a
-// dedicated Usage field.
+// these too. The fold trade-off is documented on anthropicUsage.
 func TestAnthropicProviderFoldsCacheCreationIntoPromptTokens(t *testing.T) {
 	t.Parallel()
 	provider := newAnthropicTestProvider(t, func(r *http.Request) (*http.Response, error) {

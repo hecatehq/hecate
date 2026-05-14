@@ -4,8 +4,8 @@
 > for token estimation, threshold visibility, hard caps, truncation
 > policy, and summarization that Hecate needs so chat and agent_loop
 > calls fail safely (and cheaply) as conversations grow.
-> **Depends on:** the existing Usage / Pricebook plumbing in
-> `internal/billing/`, the system-prompt composition in
+> **Depends on:** the existing usage-event plumbing in
+> `internal/governor/`, the system-prompt composition in
 > `internal/api/system_prompt.go`, and the not-yet-implemented
 > [agent-memory](agent-memory.md) primitive (memory entries inflate
 > context).
@@ -220,19 +220,13 @@ var modelContextLimits = map[string]int{
 When the model isn't in the table, fall back to a structured
 warning ("`unknown_model_context_limit`") and use a conservative
 default (32K). Operators override the default per-model in the
-pricebook, which gains a NEW optional `context_window_tokens` column.
-This is a net-new addition to Hecate's pricebook schema —
-`internal/billing/litellm/import.go` today reads only the cost
-fields (`input_cost_per_token`, `output_cost_per_token`,
-`cache_read_input_token_cost`) and ignores LiteLLM's
-`max_input_tokens` / `max_output_tokens` entries in
-`model_prices_and_context_window.json`. Adding the column means
-extending both the pricebook schema and the LiteLLM import to
-populate it from `max_input_tokens`.
+model capability registry, which gains an optional
+`context_window_tokens` field. The value can come from a static catalog,
+provider discovery, or an operator override.
 
 Lookup precedence:
 
-1. Operator pricebook override (per-model)
+1. Operator capability override (per-model)
 2. Hardcoded table
 3. Conservative fallback (32K) + structured warning
 
@@ -417,8 +411,8 @@ incremental.
   doesn't refine the estimate (the response side updates the
   running total once complete). Acceptable for v1; phase-2
   improvement.
-- **Pricebook column for context_window_tokens.** Schema change to
-  the pricebook table. Probably worth doing alongside PR 1 since
+- **Capability field for context_window_tokens.** Schema/API change to
+  the model capability store. Probably worth doing alongside PR 1 since
   the model-limit lookup is the new dependency.
 - **What to do when `model` isn't set on a call.** Some clients
   don't set model in the request when the gateway's default applies.
@@ -448,8 +442,8 @@ incremental.
    when possible (`drop_tool_intermediates` is the cleaner
    variant); summarization is opt-in; eval scaffolding before
    shipping.
-5. **Pricebook schema change** for `context_window_tokens` ripples
-   to the import flow. Mitigation: column is nullable; null
+5. **Capability schema change** for `context_window_tokens` ripples
+   to the model capability store. Mitigation: field is nullable; null
    means "use the hardcoded fallback"; existing rows don't need
    migration.
 6. **Per-conversation tracking is wrong on retried calls.** A

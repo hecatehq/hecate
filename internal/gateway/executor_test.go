@@ -7,7 +7,6 @@ import (
 	"testing"
 	"time"
 
-	"github.com/hecate/agent-runtime/internal/billing"
 	"github.com/hecate/agent-runtime/internal/config"
 	"github.com/hecate/agent-runtime/internal/governor"
 	"github.com/hecate/agent-runtime/internal/profiler"
@@ -83,23 +82,10 @@ func TestResilientExecutorRetriesRetryableError(t *testing.T) {
 		},
 	}
 	registry := providers.NewRegistry(provider)
-	store := governor.NewMemoryBudgetStore()
+	store := governor.NewMemoryUsageStore()
 	preflight := NewDefaultRoutePreflight(
 		governor.NewStaticGovernor(config.GovernorConfig{}, store, store),
 		registry,
-		billing.NewStaticPricebook(config.ProvidersConfig{
-			OpenAICompatible: []config.OpenAICompatibleProviderConfig{
-				{
-					Name:         "openai",
-					Kind:         "cloud",
-					DefaultModel: "model-a",
-				},
-			},
-		}, config.PricebookConfig{
-			Entries: []config.ModelPriceConfig{
-				{Provider: "openai", Model: "model-a", InputMicrosUSDPerMillionTokens: 100_000, OutputMicrosUSDPerMillionTokens: 200_000},
-			},
-		}),
 	)
 	executor := NewResilientExecutor(
 		staticFallbackRouter{},
@@ -153,28 +139,10 @@ func TestResilientExecutorFailsOverAfterRetryableFailure(t *testing.T) {
 		},
 	}
 	registry := providers.NewRegistry(primary, fallback)
-	store := governor.NewMemoryBudgetStore()
+	store := governor.NewMemoryUsageStore()
 	preflight := NewDefaultRoutePreflight(
 		governor.NewStaticGovernor(config.GovernorConfig{}, store, store),
 		registry,
-		billing.NewStaticPricebook(config.ProvidersConfig{
-			OpenAICompatible: []config.OpenAICompatibleProviderConfig{
-				{
-					Name:         "openai",
-					Kind:         "cloud",
-					DefaultModel: "model-a",
-				},
-				{
-					Name:         "ollama",
-					Kind:         "local",
-					DefaultModel: "model-b",
-				},
-			},
-		}, config.PricebookConfig{
-			Entries: []config.ModelPriceConfig{
-				{Provider: "openai", Model: "model-a", InputMicrosUSDPerMillionTokens: 100_000, OutputMicrosUSDPerMillionTokens: 200_000},
-			},
-		}),
 	)
 	executor := NewResilientExecutor(
 		staticFallbackRouter{
@@ -242,7 +210,6 @@ func TestClassifyRouteDenied(t *testing.T) {
 		err  error
 		want string
 	}{
-		{name: "budget", err: errors.New("estimated request cost 100 would exceed account balance 50"), want: "budget_denied"},
 		{name: "policy", err: errors.New("provider \"openai\" is not allowed by policy"), want: "policy_denied"},
 		{name: "generic", err: errors.New("route unavailable"), want: "route_denied"},
 	}
@@ -254,167 +221,5 @@ func TestClassifyRouteDenied(t *testing.T) {
 				t.Fatalf("classifyRouteDenied() = %q, want %q", got, tt.want)
 			}
 		})
-	}
-}
-
-func TestResilientExecutorSkipsUnpricedPrimaryAndFallsBack(t *testing.T) {
-	t.Parallel()
-
-	primary := &sequenceProvider{
-		name: "openai",
-		kind: providers.KindCloud,
-	}
-	fallback := &sequenceProvider{
-		name: "ollama",
-		kind: providers.KindLocal,
-		responses: []providerResponse{
-			{response: &types.ChatResponse{Model: "model-b"}},
-		},
-	}
-	registry := providers.NewRegistry(primary, fallback)
-	store := governor.NewMemoryBudgetStore()
-	preflight := NewDefaultRoutePreflight(
-		governor.NewStaticGovernor(config.GovernorConfig{MaxPromptTokens: 64_000}, store, store),
-		registry,
-		billing.NewStaticPricebook(config.ProvidersConfig{
-			OpenAICompatible: []config.OpenAICompatibleProviderConfig{
-				{
-					Name:         "openai",
-					Kind:         "cloud",
-					DefaultModel: "priced-model",
-				},
-				{
-					Name:         "ollama",
-					Kind:         "local",
-					DefaultModel: "model-b",
-				},
-			},
-		}, config.PricebookConfig{
-			Entries: []config.ModelPriceConfig{
-				{Provider: "openai", Model: "priced-model", InputMicrosUSDPerMillionTokens: 100_000, OutputMicrosUSDPerMillionTokens: 200_000},
-			},
-		}),
-	)
-	executor := NewResilientExecutor(
-		staticFallbackRouter{
-			fallbacks: []types.RouteDecision{
-				{Provider: "ollama", Model: "model-b", Reason: "test_failover"},
-			},
-		},
-		preflight,
-		registry,
-		nil,
-		nil,
-		nil,
-		ResilienceOptions{MaxAttempts: 1, RetryBackoff: time.Millisecond, FailoverEnabled: true},
-	)
-
-	trace := profiler.NewTrace("req-unpriced-failover", nil)
-	defer trace.Finalize()
-
-	result, err := executor.Execute(context.Background(), trace, types.ChatRequest{
-		Model: "model-x",
-		Messages: []types.Message{
-			{Role: "user", Content: "hello"},
-		},
-	}, types.RouteDecision{Provider: "openai", Model: "model-x", Reason: "test"})
-	if err != nil {
-		t.Fatalf("Execute() error = %v, want fallback success", err)
-	}
-	if result.Decision.Provider != "ollama" {
-		t.Fatalf("provider = %q, want ollama", result.Decision.Provider)
-	}
-	if primary.callCount != 0 {
-		t.Fatalf("primary call_count = %d, want 0 because unpriced candidate should be skipped before call", primary.callCount)
-	}
-	if fallback.callCount != 1 {
-		t.Fatalf("fallback call_count = %d, want 1", fallback.callCount)
-	}
-
-	report := buildRouteDecisionReport(trace.Spans())
-	if len(report.Candidates) < 2 {
-		t.Fatalf("candidate count = %d, want at least 2", len(report.Candidates))
-	}
-	if report.Candidates[0].Outcome != "skipped" {
-		t.Fatalf("primary outcome = %q, want skipped", report.Candidates[0].Outcome)
-	}
-	if report.Candidates[0].SkipReason != "preflight_price_missing" {
-		t.Fatalf("primary skip reason = %q, want preflight_price_missing", report.Candidates[0].SkipReason)
-	}
-	if report.Candidates[1].Outcome != "completed" {
-		t.Fatalf("fallback outcome = %q, want completed", report.Candidates[1].Outcome)
-	}
-	if report.FinalProvider != "ollama" {
-		t.Fatalf("final provider = %q, want ollama", report.FinalProvider)
-	}
-}
-
-func TestResilientExecutorReturnsPriceMissingWhenEveryCandidateIsUnpriced(t *testing.T) {
-	t.Parallel()
-
-	primary := &sequenceProvider{name: "openai", kind: providers.KindCloud}
-	fallback := &sequenceProvider{name: "anthropic", kind: providers.KindCloud}
-	registry := providers.NewRegistry(primary, fallback)
-	store := governor.NewMemoryBudgetStore()
-	preflight := NewDefaultRoutePreflight(
-		governor.NewStaticGovernor(config.GovernorConfig{MaxPromptTokens: 64_000}, store, store),
-		registry,
-		billing.NewStaticPricebook(config.ProvidersConfig{
-			OpenAICompatible: []config.OpenAICompatibleProviderConfig{
-				{Name: "openai", Kind: "cloud", DefaultModel: "model-a"},
-				{Name: "anthropic", Kind: "cloud", DefaultModel: "model-b"},
-			},
-		}, config.PricebookConfig{}),
-	)
-	executor := NewResilientExecutor(
-		staticFallbackRouter{
-			fallbacks: []types.RouteDecision{
-				{Provider: "anthropic", Model: "model-b", Reason: "test_failover"},
-			},
-		},
-		preflight,
-		registry,
-		nil,
-		nil,
-		nil,
-		ResilienceOptions{MaxAttempts: 1, RetryBackoff: time.Millisecond, FailoverEnabled: true},
-	)
-
-	trace := profiler.NewTrace("req-all-unpriced", nil)
-	defer trace.Finalize()
-
-	_, err := executor.Execute(context.Background(), trace, types.ChatRequest{
-		Model: "model-a",
-		Messages: []types.Message{
-			{Role: "user", Content: "hello"},
-		},
-	}, types.RouteDecision{Provider: "openai", Model: "model-a", Reason: "test"})
-	if err == nil {
-		t.Fatal("Execute() error = nil, want price missing")
-	}
-	if !billing.IsPriceNotFound(err) {
-		t.Fatalf("Execute() error = %v, want price not found", err)
-	}
-	if primary.callCount != 0 {
-		t.Fatalf("primary call_count = %d, want 0 because unpriced candidate should be skipped", primary.callCount)
-	}
-	if fallback.callCount != 0 {
-		t.Fatalf("fallback call_count = %d, want 0 because unpriced candidate should be skipped", fallback.callCount)
-	}
-
-	report := buildRouteDecisionReport(trace.Spans())
-	if len(report.Candidates) != 2 {
-		t.Fatalf("candidate count = %d, want 2", len(report.Candidates))
-	}
-	for i, candidate := range report.Candidates {
-		if candidate.Outcome != "skipped" {
-			t.Fatalf("candidate[%d] outcome = %q, want skipped", i, candidate.Outcome)
-		}
-		if candidate.SkipReason != "preflight_price_missing" {
-			t.Fatalf("candidate[%d] skip reason = %q, want preflight_price_missing", i, candidate.SkipReason)
-		}
-	}
-	if report.FinalProvider != "" {
-		t.Fatalf("final provider = %q, want empty", report.FinalProvider)
 	}
 }

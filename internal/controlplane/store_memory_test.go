@@ -28,25 +28,6 @@ func TestMemoryStore_PolicyRuleLifecycle(t *testing.T) {
 	}
 }
 
-func TestMemoryStore_PricebookLifecycle(t *testing.T) {
-	t.Parallel()
-	store := NewMemoryStore()
-	ctx := context.Background()
-
-	entry, err := store.UpsertPricebookEntry(ctx, config.ModelPriceConfig{
-		Provider:                        "openai",
-		Model:                           "gpt-4o-mini",
-		InputMicrosUSDPerMillionTokens:  150_000,
-		OutputMicrosUSDPerMillionTokens: 600_000,
-	})
-	if err != nil {
-		t.Fatalf("Upsert: %v", err)
-	}
-	if err := store.DeletePricebookEntry(ctx, entry.Provider, entry.Model); err != nil {
-		t.Fatalf("Delete: %v", err)
-	}
-}
-
 func TestMemoryStore_ProviderUpsertAndDelete(t *testing.T) {
 	t.Parallel()
 	store := NewMemoryStore()
@@ -88,7 +69,7 @@ func TestMemoryStore_PruneAuditEvents(t *testing.T) {
 	store := NewMemoryStore()
 	ctx := context.Background()
 
-	// Generate audit events via policy-rule + pricebook lifecycle.
+	// Generate audit events via policy-rule lifecycle.
 	for i := 0; i < 5; i++ {
 		_, _ = store.UpsertPolicyRule(ctx, config.PolicyRuleConfig{
 			ID:     "rule-" + string(rune('a'+i)),

@@ -126,58 +126,6 @@ func TestChatCompletionsRateLimitedReturns429(t *testing.T) {
 		t.Fatalf("provider call count = %d, want 1 because the second request was rate limited before routing", provider.CallCount())
 	}
 }
-
-func TestChatCompletionsReturnsStablePriceMissingWhenNoFallbackIsUsable(t *testing.T) {
-	t.Parallel()
-	logger := slog.New(slog.NewJSONHandler(io.Discard, nil))
-	provider := &fakeProvider{
-		name:         "openai",
-		defaultModel: "unpriced-model",
-		capabilities: providers.Capabilities{
-			Name:         "openai",
-			Kind:         providers.KindCloud,
-			DefaultModel: "unpriced-model",
-			Models:       []string{"unpriced-model"},
-		},
-		response: &types.ChatResponse{},
-	}
-	handler := newTestHTTPHandlerWithConfig(logger, provider, config.Config{
-		Pricebook: config.PricebookConfig{UnknownModelPolicy: "error"},
-		Router:    config.RouterConfig{DefaultModel: "unpriced-model"},
-		Provider: config.ProviderConfig{
-			MaxAttempts:     1,
-			FailoverEnabled: true,
-		},
-	})
-
-	rec := performJSONRequest(t, handler, `{"messages":[{"role":"user","content":"hi"}]}`)
-	if rec.Code != http.StatusFailedDependency {
-		t.Fatalf("status = %d, want 424; body=%s", rec.Code, rec.Body.String())
-	}
-	var payload struct {
-		Error struct {
-			Type           string `json:"type"`
-			Message        string `json:"message"`
-			UserMessage    string `json:"user_message"`
-			OperatorAction string `json:"operator_action"`
-			RequestID      string `json:"request_id"`
-			TraceID        string `json:"trace_id"`
-		} `json:"error"`
-	}
-	if err := json.NewDecoder(rec.Body).Decode(&payload); err != nil {
-		t.Fatalf("decode body: %v", err)
-	}
-	if payload.Error.Type != errCodePriceMissing {
-		t.Fatalf("error.type = %q, want %s", payload.Error.Type, errCodePriceMissing)
-	}
-	if !strings.Contains(payload.Error.Message, "price not found") {
-		t.Fatalf("error.message = %q, want price not found", payload.Error.Message)
-	}
-	if provider.CallCount() != 0 {
-		t.Fatalf("provider call count = %d, want 0 because missing price should fail before provider call", provider.CallCount())
-	}
-}
-
 func TestChatCompletionsReturnsRouteImpossibleWhenNoProviderAvailable(t *testing.T) {
 	t.Parallel()
 	logger := slog.New(slog.NewJSONHandler(io.Discard, nil))
@@ -271,44 +219,6 @@ func TestChatCompletionsUnsupportedModelReturnsStableCode(t *testing.T) {
 	}
 	if payload.Error.Type != errCodeUnsupportedModel {
 		t.Errorf("error.type = %q, want %s", payload.Error.Type, errCodeUnsupportedModel)
-	}
-}
-
-// TestChatCompletionsStreamRouteRejectsBudgetExceeded is the streaming
-// counterpart to TestHandleChatReturns402OnBudgetExceeded. RouteForStream
-// is a separate code path from non-stream HandleChat, with its own
-// error-classification block. Crucially: when budget is exceeded, the
-// handler must NOT commit to SSE — it returns a JSON 402 instead. A
-// regression that flips the order (writing SSE headers before the
-// budget check) would break the operator-facing error UX.
-func TestChatCompletionsStreamRouteRejectsBudgetExceeded(t *testing.T) {
-	t.Parallel()
-	logger := slog.New(slog.NewJSONHandler(io.Discard, nil))
-	provider := &sseStreamingProvider{fakeProvider: fakeProvider{
-		name: "openai", defaultModel: "gpt-4o-mini",
-		response: &types.ChatResponse{ID: "chatcmpl-stream", Model: "gpt-4o-mini",
-			Choices: []types.ChatChoice{{Message: types.Message{Role: "assistant", Content: "ok"}, FinishReason: "stop"}},
-		},
-	}}
-
-	handler := newTestHTTPHandlerWithConfig(logger, provider, config.Config{
-		Governor: config.GovernorConfig{
-			MaxTotalBudgetMicros:    1,
-			MaxPromptTokens:         100_000,
-			BudgetWarningThresholds: []int{50, 80, 95},
-			BudgetHistoryLimit:      20,
-		},
-	})
-
-	rec := performJSONRequest(t, handler, `{"model":"gpt-4o-mini","stream":true,"max_tokens":1024,"messages":[{"role":"user","content":"hi"}]}`)
-	if rec.Code != http.StatusPaymentRequired {
-		t.Fatalf("status = %d, want 402; body=%s", rec.Code, rec.Body.String())
-	}
-	if ct := rec.Header().Get("Content-Type"); !strings.HasPrefix(ct, "application/json") {
-		t.Errorf("Content-Type = %q, want application/json (route-time error must not commit to SSE)", ct)
-	}
-	if strings.Contains(rec.Body.String(), "data: ") {
-		t.Errorf("body contains SSE framing; want plain JSON. body=%s", rec.Body.String())
 	}
 }
 

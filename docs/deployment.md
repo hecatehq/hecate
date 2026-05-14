@@ -147,9 +147,7 @@ Hecate keeps the storage model intentionally boring: each subsystem chooses a ba
 |---|---|---:|---:|
 | Settings store | `GATEWAY_CONTROL_PLANE_BACKEND` | local default | Docker default |
 | Provider credentials | `GATEWAY_PROVIDER_STORE_BACKEND` | local default | Docker default |
-| Pricebook | `GATEWAY_PRICEBOOK_BACKEND` | local default | Docker default |
-| Budget / balances | `GATEWAY_BUDGET_BACKEND` | local default | Docker default |
-| Usage ledger | `GATEWAY_USAGE_BACKEND` | local default | Docker default |
+| Usage events | `GATEWAY_USAGE_BACKEND` | local default | Docker default |
 | Audit events | `GATEWAY_AUDIT_BACKEND` | local default | Docker default |
 | Trace snapshots | `GATEWAY_TRACE_STORE_BACKEND` | local default | Docker default |
 | Retention history | `GATEWAY_RETENTION_HISTORY_BACKEND` | local default | Docker default |
@@ -159,7 +157,7 @@ Hecate keeps the storage model intentionally boring: each subsystem chooses a ba
 
 Deployment-specific notes:
 
-- The docker image **defaults to `sqlite`** for every durable subsystem, persisting state at `GATEWAY_SQLITE_PATH` (default `/data/hecate.db` on the `hecate-data` volume). This is why `docker compose up` keeps pricebook, tasks, and chat sessions across restarts with no extra config.
+- The docker image **defaults to `sqlite`** for every durable subsystem, persisting state at `GATEWAY_SQLITE_PATH` (default `/data/hecate.db` on the `hecate-data` volume). This is why `docker compose up` keeps providers, usage events, tasks, and chat sessions across restarts with no extra config.
 - To make any subsystem ephemeral in docker, override its backend via `.env` or compose env: `GATEWAY_TASKS_BACKEND=memory`, etc.
 - `GATEWAY_CHAT_SESSIONS_BACKEND=sqlite` covers the full agent-chat state bundle: sessions, messages, external-adapter approvals, and operator-authored grants. On startup the gateway flips any pending approvals from a prior process to `status=timed_out`, `path=startup_reconcile` before serving requests, so an orphaned waiter never appears actionable in the operator UI. See [`runtime-api.md`](runtime-api.md) for the wire shape.
 
