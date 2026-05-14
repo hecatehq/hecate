@@ -111,6 +111,64 @@ fn resolve_binary() -> Result<PathBuf, String> {
     }
 }
 
+/// Find the bundled llama-server binary the gateway spawns when the
+/// operator starts a local model. Resolution mirrors resolve_binary()
+/// but for "llama-server":
+///
+///   1. `HECATE_LLAMA_SERVER_BIN` env var (explicit override).
+///   2. Debug build: alongside the hecate binary at the repo root —
+///      tauri/scripts/fetch-llama-server.sh stages it there.
+///   3. Release build: next to the running executable, triple-suffixed
+///      via Tauri's externalBin bundler.
+///
+/// Returns Ok(None) when the binary cannot be located. The gateway
+/// gates the feature on the env var being set, so a missing binary
+/// in dev is non-fatal — the local-models endpoints surface 503 and
+/// the UI renders "not available in this build". Tauri startup
+/// reports the resolved path in the splash diagnostics either way.
+pub fn resolve_llama_server_binary() -> Option<PathBuf> {
+    if let Ok(p) = std::env::var("HECATE_LLAMA_SERVER_BIN") {
+        let path = PathBuf::from(p);
+        if path.is_file() {
+            return Some(path);
+        }
+    }
+
+    #[cfg(debug_assertions)]
+    {
+        let manifest = PathBuf::from(env!("CARGO_MANIFEST_DIR"));
+        if let Some(repo_root) = manifest.parent().and_then(|p| p.parent()) {
+            for name in sidecar_binary_names("llama-server", None) {
+                let candidate = repo_root.join(&name);
+                if candidate.is_file() {
+                    return Some(candidate);
+                }
+            }
+        }
+        return None;
+    }
+
+    #[cfg(not(debug_assertions))]
+    {
+        let exe = match std::env::current_exe() {
+            Ok(p) => p,
+            Err(_) => return None,
+        };
+        let dir = match exe.parent() {
+            Some(d) => d,
+            None => return None,
+        };
+        let triple = env!("TARGET");
+        for name in sidecar_binary_names("llama-server", Some(triple)) {
+            let candidate = dir.join(&name);
+            if candidate.is_file() {
+                return Some(candidate);
+            }
+        }
+        None
+    }
+}
+
 fn sidecar_binary_names(base: &str, triple: Option<&str>) -> Vec<String> {
     let suffix = std::env::consts::EXE_SUFFIX;
     let mut names = Vec::new();
@@ -223,15 +281,27 @@ pub async fn spawn_and_wait(app: &AppHandle) -> Result<GatewayHandle, String> {
     // Use std::process::Command (not tokio) so the returned Child::kill()
     // is synchronous and can be called from the window-close event handler
     // without an async runtime.
-    let mut child = std::process::Command::new(&bin)
-        .env("GATEWAY_ADDRESS", &addr)
+    let mut cmd = std::process::Command::new(&bin);
+    cmd.env("GATEWAY_ADDRESS", &addr)
         .env("GATEWAY_PUBLIC_URL", &base_url)
         .env("GATEWAY_DATA_DIR", &paths.data_dir)
         // Suppress inherited terminal so the gateway doesn't fight the Tauri
         // process for stdin/stdout in dev mode.
         .stdin(std::process::Stdio::null())
         .stdout(std::process::Stdio::null())
-        .stderr(std::process::Stdio::from(stderr_log))
+        .stderr(std::process::Stdio::from(stderr_log));
+
+    // Local-models feature wiring. The gateway gates the feature on
+    // HECATE_LLAMA_SERVER_BIN — when set + executable, the local-models
+    // API routes mount and the auto-registered llamacpp provider gets
+    // created. Resolve the bundled binary now so the gateway doesn't
+    // have to know about Tauri's bundling layout.
+    if let Some(llama_bin) = resolve_llama_server_binary() {
+        cmd.env("HECATE_LLAMA_SERVER_BIN", &llama_bin)
+            .env("HECATE_LOCAL_MODELS", "on");
+    }
+
+    let mut child = cmd
         .spawn()
         .map_err(|e| format!("failed to spawn {bin:?}: {e}"))?;
 

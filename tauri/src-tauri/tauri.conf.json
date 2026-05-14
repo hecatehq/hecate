@@ -41,7 +41,8 @@
     ],
     "externalBin": [
       "binaries/hecate",
-      "binaries/hecate-acp"
+      "binaries/hecate-acp",
+      "binaries/llama-server"
     ],
     "resources": {},
     "windows": {
