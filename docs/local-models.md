@@ -132,6 +132,30 @@ Crashes are not auto-restarted in v1 — the operator clicks Start
 again. This keeps a misconfigured model from looping into the same
 failure on every page-load.
 
+## Gated HuggingFace repos
+
+Some HF repos require a logged-in user (Meta's official Llama
+checkpoints, Google's official Gemma, etc.). The installer accepts
+an HF access token per install:
+
+- **UI**: the Custom HuggingFace URL section in the SlideOver has a
+  second input for the access token. The token rides the install
+  request and is **not persisted** by Hecate — paste it on each
+  install, or set the env fallback instead.
+- **API**: `POST /hecate/v1/local-models/install` accepts an
+  optional `"hf_token"` field.
+- **Env fallback**: set `HUGGINGFACE_TOKEN=hf_xxx…` in the
+  gateway's environment. Useful for headless / CI runs that
+  install gated models on a schedule.
+
+The installer attaches `Authorization: Bearer <token>` only when
+the operator provides one. Public repos always work without a
+token.
+
+Persistent encrypted-at-rest storage of the token is reserved for
+a future PR — today's surface assumes the operator's session
+context (UI form, env var) is the right home for the secret.
+
 ## Catalog
 
 The catalog is a compiled-in list of pinned HuggingFace GGUF download

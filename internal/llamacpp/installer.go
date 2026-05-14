@@ -380,6 +380,7 @@ type installPlan struct {
 	expectedSizeBytes  int64
 	recommendedContext int
 	capabilities       Capabilities
+	hfToken            string // bearer token for gated HF repos
 	finalPath          string // absolute path to the .gguf
 	partPath           string // absolute path to the .part file
 }
@@ -387,6 +388,15 @@ type installPlan struct {
 func (i *Installer) resolveSpec(spec InstallSpec) (installPlan, error) {
 	if strings.TrimSpace(spec.CatalogID) != "" && strings.TrimSpace(spec.URL) != "" {
 		return installPlan{}, ErrInstallSpecAmbiguous
+	}
+
+	// HF token resolution. The InstallSpec's HFToken wins (operator
+	// pasted it into the request body); HUGGINGFACE_TOKEN env var
+	// is the headless / CI fallback. Empty means "anonymous fetch"
+	// — gated repos will surface a 401/403 → ErrorKindGated.
+	token := strings.TrimSpace(spec.HFToken)
+	if token == "" {
+		token = strings.TrimSpace(os.Getenv("HUGGINGFACE_TOKEN"))
 	}
 
 	if id := strings.TrimSpace(spec.CatalogID); id != "" {
@@ -407,6 +417,7 @@ func (i *Installer) resolveSpec(spec InstallSpec) (installPlan, error) {
 			expectedSizeBytes:  entry.SizeBytes,
 			recommendedContext: entry.RecommendedContext,
 			capabilities:       entry.Capabilities,
+			hfToken:            token,
 			finalPath:          finalPath,
 			partPath:           finalPath + ".part",
 		}, nil
@@ -428,6 +439,7 @@ func (i *Installer) resolveSpec(spec InstallSpec) (installPlan, error) {
 			// arbitrary community GGUF. Operators can override
 			// in modelcaps after install if they know better.
 			capabilities: Capabilities{Streaming: true, ToolCalling: "none"},
+			hfToken:      token,
 			finalPath:    finalPath,
 			partPath:     finalPath + ".part",
 		}, nil
@@ -579,6 +591,14 @@ func (i *Installer) download(ctx context.Context, run *runningInstall, plan inst
 	req, err := http.NewRequestWithContext(ctx, http.MethodGet, plan.url, nil)
 	if err != nil {
 		return "", 0, fmt.Errorf("build request: %w", err)
+	}
+	// Attach HuggingFace auth for gated repos. The token is the
+	// operator's HF Hub access token (hf_xxx…) and only carries
+	// when the InstallSpec or the HUGGINGFACE_TOKEN env var
+	// provided one. Empty tokens are not added; gated repos
+	// surface 401/403 → ErrorKindGated on the SSE failure event.
+	if plan.hfToken != "" {
+		req.Header.Set("Authorization", "Bearer "+plan.hfToken)
 	}
 	resp, err := i.opts.http.Do(req)
 	if err != nil {

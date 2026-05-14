@@ -544,7 +544,11 @@ the UI card without deleting any downloaded files.
 ## Out of scope (reserved for v2 / follow-ups)
 
 - HuggingFace browse / search panel.
-- Gated-repo support (HF token entry, model-card preview).
+- ~~Gated-repo support (HF token entry, model-card preview).~~
+  Token-entry landed in v2 — `InstallSpec.hf_token` (per-install,
+  not persisted) plus a `HUGGINGFACE_TOKEN` env fallback for
+  headless. The installer attaches `Authorization: Bearer <token>`.
+  Model-card preview is still TBD.
 - ~~Multi-model resident runtime with LRU keep-warm.~~
   Landed in v2 — `HECATE_LOCAL_MODELS_MAX_RESIDENT=N` keeps the N
   most-recently-used models loaded; the (N+1)th `EnsureLoaded`

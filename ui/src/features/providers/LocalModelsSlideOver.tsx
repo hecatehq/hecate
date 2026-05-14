@@ -54,6 +54,7 @@ export function LocalModelsSlideOver({ onClose }: { onClose: () => void }) {
   const [runtime, setRuntime] = useState<LocalModelRuntimeResponse | null>(null);
   const [error, setError] = useState("");
   const [pasteURL, setPasteURL] = useState("");
+  const [pasteToken, setPasteToken] = useState("");
   const [pasting, setPasting] = useState(false);
   const [active, setActive] = useState<ActiveInstall | null>(null);
   const [confirmRemove, setConfirmRemove] = useState<LocalModelInstalled | null>(null);
@@ -82,7 +83,7 @@ export function LocalModelsSlideOver({ onClose }: { onClose: () => void }) {
     };
   }, []);
 
-  async function handleInstall(spec: { catalog_id?: string; url?: string }) {
+  async function handleInstall(spec: { catalog_id?: string; url?: string; hf_token?: string }) {
     setError("");
     try {
       const resp = await installLocalModel(spec);
@@ -183,10 +184,19 @@ export function LocalModelsSlideOver({ onClose }: { onClose: () => void }) {
   async function handlePasteSubmit() {
     const trimmed = pasteURL.trim();
     if (!trimmed) return;
+    const tokenTrimmed = pasteToken.trim();
     setPasting(true);
     try {
-      await handleInstall({ url: trimmed });
+      await handleInstall({
+        url: trimmed,
+        // Token sent only when the operator provided one — empty
+        // string means anonymous fetch (public models). Server
+        // does not persist the token; it lives in this session
+        // only.
+        ...(tokenTrimmed ? { hf_token: tokenTrimmed } : {}),
+      });
       setPasteURL("");
+      setPasteToken("");
     } finally {
       setPasting(false);
     }
@@ -237,8 +247,10 @@ export function LocalModelsSlideOver({ onClose }: { onClose: () => void }) {
 
           <PasteURLSection
             value={pasteURL}
+            token={pasteToken}
             disabled={pasting || Boolean(active && active.state === "running")}
             onChange={setPasteURL}
+            onTokenChange={setPasteToken}
             onSubmit={handlePasteSubmit}
           />
         </div>
@@ -614,13 +626,17 @@ function CatalogList({
 
 function PasteURLSection({
   value,
+  token,
   disabled,
   onChange,
+  onTokenChange,
   onSubmit,
 }: {
   value: string;
+  token: string;
   disabled: boolean;
   onChange: (v: string) => void;
+  onTokenChange: (v: string) => void;
   onSubmit: () => void;
 }) {
   return (
@@ -628,23 +644,46 @@ function PasteURLSection({
       <SectionHeader label="Custom HuggingFace URL" />
       <p style={{ margin: "0 0 6px", color: "var(--t2)", fontSize: 11, lineHeight: 1.5 }}>
         Paste a direct <strong style={{ color: "var(--t0)" }}>.gguf</strong> download URL from HuggingFace.
-        Repo-page URLs aren't supported in v1 — open the repo on HF and copy the
-        file URL for the specific quant you want.
+        Repo-page URLs aren't supported — open the repo on HF and copy the
+        file URL for the specific quant you want. Gated repos (Meta's
+        official Llama, Google's official Gemma, etc.) also need an HF
+        access token below.
       </p>
-      <div style={{ display: "flex", gap: 6 }}>
+      <div style={{ display: "flex", flexDirection: "column", gap: 6 }}>
         <input
           className="input"
           type="text"
           placeholder="https://huggingface.co/<repo>/resolve/main/<file>.gguf"
           value={value}
           onChange={(e) => onChange(e.target.value)}
-          style={{ flex: 1, fontFamily: "var(--font-mono)" }}
+          style={{ fontFamily: "var(--font-mono)" }}
+          aria-label="HuggingFace GGUF URL"
+        />
+        <input
+          className="input"
+          type="password"
+          // Gated-repo token. Optional — public repos work without
+          // one. The token rides the install request and is not
+          // persisted; clear it after install completes.
+          name="hecate-local-models-hf-token"
+          autoComplete="new-password"
+          autoCorrect="off"
+          spellCheck={false}
+          data-1p-ignore="true"
+          data-lpignore="true"
+          data-form-type="other"
+          placeholder="HuggingFace access token (optional, for gated repos)"
+          value={token}
+          onChange={(e) => onTokenChange(e.target.value)}
+          style={{ fontFamily: "var(--font-mono)", letterSpacing: "0.08em" }}
+          aria-label="HuggingFace access token"
         />
         <button
           type="button"
           className="btn btn-primary btn-sm"
           disabled={disabled || !value.trim()}
           onClick={onSubmit}
+          style={{ alignSelf: "flex-end" }}
         >
           Install
         </button>

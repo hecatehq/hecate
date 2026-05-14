@@ -280,7 +280,7 @@ export async function getLocalModelsRuntime(): Promise<LocalModelRuntimeResponse
 }
 
 export async function installLocalModel(
-  spec: { catalog_id?: string; url?: string; sha256?: string },
+  spec: { catalog_id?: string; url?: string; sha256?: string; hf_token?: string },
 ): Promise<LocalModelInstallResponse> {
   return fetchJSON<LocalModelInstallResponse>(`${HECATE_API}/local-models/install`, {
     method: "POST",

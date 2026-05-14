@@ -52,6 +52,12 @@ type localModelsInstallRequest struct {
 	CatalogID string `json:"catalog_id,omitempty"`
 	URL       string `json:"url,omitempty"`
 	SHA256    string `json:"sha256,omitempty"`
+	// HFToken is the HuggingFace Hub access token for gated repos.
+	// Not persisted by the gateway — the token rides the request
+	// only. Operators with a gated download paste the token into
+	// the UI alongside the URL; CI / headless users prefer the
+	// HUGGINGFACE_TOKEN env var on the gateway host.
+	HFToken string `json:"hf_token,omitempty"`
 }
 
 type localModelsRuntimeStartRequest struct {
@@ -142,6 +148,7 @@ func (h *Handler) HandleLocalModelsInstall(w http.ResponseWriter, r *http.Reques
 		CatalogID: req.CatalogID,
 		URL:       req.URL,
 		SHA256:    req.SHA256,
+		HFToken:   req.HFToken,
 	})
 	if err != nil {
 		writeInstallError(w, err)

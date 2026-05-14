@@ -174,6 +174,19 @@ type InstallSpec struct {
 	// SHA256 lets a paste-URL install assert a known digest. Empty
 	// means "trust the download" — the installer logs a warning.
 	SHA256 string `json:"sha256,omitempty"`
+
+	// HFToken carries a HuggingFace Hub auth token for gated repos
+	// (Meta's official Llama checkpoints, Google's official Gemma,
+	// etc.). The installer attaches it as an Authorization: Bearer
+	// header on the download request. When unset, the installer
+	// falls back to the HUGGINGFACE_TOKEN env var if present.
+	//
+	// Not persisted: the token lives in the request and on the
+	// SSE stream only. v1 callers leave this empty and the gated
+	// repos surface a "not supported" error; v2 callers set it
+	// per install. A future PR can introduce encrypted at-rest
+	// storage when the cipher plumbing is sorted.
+	HFToken string `json:"hf_token,omitempty"`
 }
 
 // ProgressKind enumerates the SSE event types streamed from the
