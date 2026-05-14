@@ -110,6 +110,14 @@ type RuntimeOptions struct {
 	// StopTimeout is the grace period given to a child after the
 	// graceful kill before SIGKILL escalation. Defaults to 5s.
 	StopTimeout time.Duration
+	// MaxResident is the LRU keep-warm cap — the maximum number of
+	// llama-server children the Runtime keeps loaded at once.
+	// Defaults to 1 (preserves v1 single-child restart-on-switch
+	// behavior). Bump for hosts with enough RAM to keep multiple
+	// models warm; EnsureLoaded picks the right child or evicts
+	// the LRU when capacity is reached. The operator's gates on
+	// memory pressure — Hecate does not auto-tune this.
+	MaxResident int
 }
 
 // ModelLookup is the slim controlplane.Store surface the Runtime
@@ -120,16 +128,33 @@ type ModelLookup interface {
 	LookupInstalled(ctx context.Context, id string) (InstalledModel, error)
 }
 
-// Runtime supervises a single llama-server child process. v1 holds at
-// most one child at a time; switching models stops the active child
-// before starting the new one. Concurrent EnsureLoaded calls
-// serialize through the runtime's mutex.
+// Runtime supervises llama-server child processes. v1 capped at one
+// child; v2 supports an LRU keep-warm pool of N children
+// (MaxResident). With MaxResident=1 the behavior is identical to v1
+// — switching models stops the active child before starting the new
+// one. With MaxResident > 1, EnsureLoaded picks the right child or
+// evicts the LRU.
+//
+// Concurrent EnsureLoaded calls serialize through the runtime's
+// mutex. The mutex is released during slow operations (spawn +
+// health-poll) so Status reads don't block.
 type Runtime struct {
 	opts resolvedRuntimeOptions
 
-	mu     sync.Mutex
-	state  RuntimeState
-	active *runtimeSession
+	mu sync.Mutex
+	// state mirrors the "primary" session — the most recently
+	// loaded / interacted-with model. UI surfaces this single
+	// state for backwards compatibility; SessionsSnapshot returns
+	// the per-session detail when callers want the full picture.
+	state RuntimeState
+	// active is the primary session — i.e. sessions[primaryID].
+	// Held as a pointer alongside the map so existing v1 code
+	// paths (Status, Stop, watchChild) continue to reach for
+	// r.active. nil when no session is primary (idle).
+	active    *runtimeSession
+	sessions  map[string]*runtimeSession
+	lruOrder  []string
+	primaryID string
 	// lastError / lastErrorAt persist across the failed state so the
 	// UI can render them until the next start attempt clears them.
 	lastError   string
@@ -144,6 +169,7 @@ type resolvedRuntimeOptions struct {
 	clock         Clock
 	healthTimeout time.Duration
 	stopTimeout   time.Duration
+	maxResident   int
 }
 
 // runtimeSession is the per-running-child state. Lives in
@@ -188,6 +214,7 @@ func NewRuntime(opts RuntimeOptions) (*Runtime, error) {
 		clock:         opts.Clock,
 		healthTimeout: opts.HealthTimeout,
 		stopTimeout:   opts.StopTimeout,
+		maxResident:   opts.MaxResident,
 	}
 	if resolved.clock == nil {
 		resolved.clock = time.Now
@@ -198,9 +225,13 @@ func NewRuntime(opts RuntimeOptions) (*Runtime, error) {
 	if resolved.stopTimeout <= 0 {
 		resolved.stopTimeout = 5 * time.Second
 	}
+	if resolved.maxResident <= 0 {
+		resolved.maxResident = 1
+	}
 	return &Runtime{
-		opts:  resolved,
-		state: RuntimeIdle,
+		opts:     resolved,
+		state:    RuntimeIdle,
+		sessions: make(map[string]*runtimeSession),
 	}, nil
 }
 
@@ -209,6 +240,61 @@ func NewRuntime(opts RuntimeOptions) (*Runtime, error) {
 // when the feature is dormant.
 func (r *Runtime) Available() bool {
 	return strings.TrimSpace(r.opts.binaryPath) != ""
+}
+
+// ResidentSessionSummary describes one resident session. The order in
+// SessionsSnapshot's return matches LRU order, oldest first.
+type ResidentSessionSummary struct {
+	ModelID   string    `json:"model_id"`
+	State     string    `json:"state"`
+	Port      int       `json:"port,omitempty"`
+	PID       int       `json:"pid,omitempty"`
+	StartedAt time.Time `json:"started_at,omitempty"`
+	Primary   bool      `json:"primary,omitempty"`
+}
+
+// SessionsSnapshot returns a snapshot of every resident session,
+// LRU-ordered (oldest first). UI callers render this for the
+// multi-resident keep-warm view (MaxResident > 1). Single-resident
+// callers may keep using Status() — they'll see one entry here too.
+func (r *Runtime) SessionsSnapshot() []ResidentSessionSummary {
+	r.mu.Lock()
+	defer r.mu.Unlock()
+	out := make([]ResidentSessionSummary, 0, len(r.sessions))
+	for _, id := range r.lruOrder {
+		session, ok := r.sessions[id]
+		if !ok || session == nil {
+			continue
+		}
+		summary := ResidentSessionSummary{
+			ModelID:   id,
+			State:     residentSessionState(session),
+			StartedAt: session.startedAt,
+			Primary:   id == r.primaryID,
+		}
+		if session.handle != nil {
+			summary.Port = session.handle.Port()
+			summary.PID = session.handle.PID()
+		}
+		out = append(out, summary)
+	}
+	return out
+}
+
+// MaxResident returns the configured cap. Diagnostic surface for the
+// UI ("3 / 5 resident").
+func (r *Runtime) MaxResident() int {
+	return r.opts.maxResident
+}
+
+func residentSessionState(s *runtimeSession) string {
+	if s == nil {
+		return "idle"
+	}
+	if !s.startedAt.IsZero() {
+		return "running"
+	}
+	return "starting"
 }
 
 // Status snapshots the current state. Safe to call concurrently with
@@ -233,19 +319,65 @@ func (r *Runtime) Status() RuntimeStatus {
 }
 
 // ActiveBaseURL returns the URL the proxy should forward requests to
-// for the currently-running model. Returns ErrRuntimeNotRunning if no
-// child is running, ErrRuntimeWrongModel if the running model doesn't
-// match modelID. Both map to local_model_runtime_unavailable.
+// for the requested model. Looks up the model in the resident-set
+// map; ErrRuntimeNotRunning when no session is resident,
+// ErrRuntimeWrongModel when the requested model isn't loaded (an
+// empty modelID matches the primary session for v1-compat). Both
+// map to local_model_runtime_unavailable.
 func (r *Runtime) ActiveBaseURL(modelID string) (string, error) {
 	r.mu.Lock()
 	defer r.mu.Unlock()
-	if r.state != RuntimeRunning || r.active == nil || r.active.handle == nil {
+	// Empty modelID: legacy v1 callers that just want "the running
+	// model". Falls back to the primary session.
+	if modelID == "" {
+		if r.active == nil || r.active.handle == nil || r.state != RuntimeRunning {
+			return "", ErrRuntimeNotRunning
+		}
+		return fmt.Sprintf("http://%s:%d", r.active.handle.Host(), r.active.handle.Port()), nil
+	}
+	session, ok := r.sessions[modelID]
+	if !ok || session.handle == nil {
+		// Nothing loaded → not-running; loaded but with a different
+		// id → wrong-model. The runtime is one or the other from the
+		// caller's perspective.
+		if r.active != nil {
+			return "", fmt.Errorf("%w: resident %q, requested %q",
+				ErrRuntimeWrongModel, r.activeModelIDs(), modelID)
+		}
 		return "", ErrRuntimeNotRunning
 	}
-	if modelID != "" && r.active.modelID != modelID {
-		return "", fmt.Errorf("%w: running %q, requested %q", ErrRuntimeWrongModel, r.active.modelID, modelID)
+	// Mark this model as primary so subsequent Status reads reflect
+	// the most recently used. The LRU order is also bumped so the
+	// next eviction targets a colder model.
+	r.touchLRULocked(modelID)
+	r.primaryID = modelID
+	r.active = session
+	return fmt.Sprintf("http://%s:%d", session.handle.Host(), session.handle.Port()), nil
+}
+
+// activeModelIDs renders a short diagnostic for error messages.
+// Must be called with r.mu held.
+func (r *Runtime) activeModelIDs() string {
+	if len(r.lruOrder) == 0 {
+		return ""
 	}
-	return fmt.Sprintf("http://%s:%d", r.active.handle.Host(), r.active.handle.Port()), nil
+	out := r.lruOrder[0]
+	for _, id := range r.lruOrder[1:] {
+		out += "," + id
+	}
+	return out
+}
+
+// touchLRULocked moves modelID to the tail of the LRU order. Must
+// be called with r.mu held.
+func (r *Runtime) touchLRULocked(modelID string) {
+	for i, id := range r.lruOrder {
+		if id == modelID {
+			r.lruOrder = append(r.lruOrder[:i], r.lruOrder[i+1:]...)
+			break
+		}
+	}
+	r.lruOrder = append(r.lruOrder, modelID)
 }
 
 // EnsureLoaded transitions the runtime to "running with modelID".
@@ -273,21 +405,32 @@ func (r *Runtime) EnsureLoaded(ctx context.Context, modelID string) (string, err
 	r.mu.Lock()
 	defer r.mu.Unlock()
 
-	if r.state == RuntimeRunning && r.active != nil && r.active.modelID == modelID {
-		return fmt.Sprintf("http://%s:%d", r.active.handle.Host(), r.active.handle.Port()), nil
+	// Hot path: model already resident. Bump LRU + promote to
+	// primary; return its base URL without touching the child.
+	if existing, ok := r.sessions[modelID]; ok && existing.handle != nil {
+		r.touchLRULocked(modelID)
+		r.primaryID = modelID
+		r.active = existing
+		r.state = RuntimeRunning
+		return fmt.Sprintf("http://%s:%d", existing.handle.Host(), existing.handle.Port()), nil
 	}
 
-	// Anything else means we need to (maybe) stop and (definitely)
-	// start. The transition can take 30s for the cold-load — we
-	// release the mutex while waiting for health so Status reads
-	// don't block, then re-acquire to commit.
-	if r.active != nil {
-		if err := r.stopActiveLocked(ctx); err != nil {
-			// Best-effort: log the stop error in lastError but
-			// proceed to attempt the start anyway. A dead child is
-			// indistinguishable from a successful stop for our
-			// purposes; the new start will pick a fresh port.
-			r.lastError = fmt.Sprintf("stop previous: %v", err)
+	// Capacity check. Evict the LRU child(ren) until there's room
+	// for one more. When MaxResident=1 this evicts the previous
+	// (and only) session — same shape as v1's stop-then-start.
+	for len(r.sessions) >= r.opts.maxResident {
+		victimID := r.lruOrder[0]
+		victim := r.sessions[victimID]
+		if victim == nil {
+			// Defensive: stale entry in lruOrder. Drop and continue.
+			r.lruOrder = r.lruOrder[1:]
+			continue
+		}
+		if err := r.stopSessionLocked(ctx, victimID, victim); err != nil {
+			// Best-effort: log in lastError but continue with the
+			// new start. A dead child is indistinguishable from a
+			// successful stop for our purposes.
+			r.lastError = fmt.Sprintf("evict %s: %v", victimID, err)
 			r.lastErrorAt = r.opts.clock()
 		}
 	}
@@ -311,15 +454,19 @@ func (r *Runtime) EnsureLoaded(ctx context.Context, modelID string) (string, err
 	r.state = RuntimeStarting
 	// startRuntimeSpan attaches the canonical attributes (engine,
 	// model id, port, context_size). Span lives as long as the
-	// session — closed by stopActiveLocked / watchChild on
+	// session — closed by stopSessionLocked / watchChild on
 	// transition out.
 	_, span := startRuntimeSpan(ctx, modelID, port, contextSize)
-	r.active = &runtimeSession{
+	session := &runtimeSession{
 		modelID:     modelID,
 		spawnedAt:   r.opts.clock(),
 		span:        span,
 		watcherDone: make(chan struct{}),
 	}
+	r.sessions[modelID] = session
+	r.touchLRULocked(modelID)
+	r.primaryID = modelID
+	r.active = session
 	// Release while starting + health-polling so Status / Stop can be
 	// observed mid-transition.
 	r.mu.Unlock()
@@ -334,19 +481,24 @@ func (r *Runtime) EnsureLoaded(ctx context.Context, modelID string) (string, err
 
 	r.mu.Lock()
 	if startErr != nil {
+		// Remove the orphaned session from the pool, mark the
+		// failure, and surface it. The session never reached
+		// "running" so there's no watcher to coordinate with.
+		delete(r.sessions, modelID)
+		r.dropLRUEntryLocked(modelID)
 		r.transitionFailedLocked(fmt.Sprintf("start child: %v", startErr))
 		// Mutex must be locked when we return from the deferred
 		// Unlock above; the outer defer takes care of the final
 		// release.
 		return "", startErr
 	}
-	r.active.handle = handle
+	session.handle = handle
 
 	// Spawn crash listener while we still hold the mutex so the
-	// observation can never race a stopActiveLocked called from
-	// EnsureLoaded itself. The listener takes the mutex inside its
-	// body — see watchChild.
-	go r.watchChild(r.active)
+	// observation can never race a stop called from EnsureLoaded
+	// itself. The listener takes the mutex inside its body — see
+	// watchChild.
+	go r.watchChild(session)
 
 	// Release for the health wait.
 	r.mu.Unlock()
@@ -358,60 +510,100 @@ func (r *Runtime) EnsureLoaded(ctx context.Context, modelID string) (string, err
 	r.mu.Lock()
 	if healthErr != nil {
 		// Tear the child down so a half-loaded model isn't left
-		// running.
+		// running. The pool entry is the failing session — drop it
+		// from sessions/lru so capacity opens up for the next
+		// EnsureLoaded.
 		_ = handle.Stop(context.Background(), r.opts.stopTimeout)
-		// Drain the exited channel via the watcher; transitionFailed
-		// captures the error.
+		delete(r.sessions, modelID)
+		r.dropLRUEntryLocked(modelID)
 		r.transitionFailedLocked(fmt.Sprintf("wait for health: %v", healthErr))
 		return "", healthErr
 	}
 
 	r.state = RuntimeRunning
-	r.active.startedAt = r.opts.clock()
+	session.startedAt = r.opts.clock()
+	r.active = session
+	r.primaryID = modelID
 	r.lastError = ""
 	r.lastErrorAt = time.Time{}
 
 	// Time-to-first-healthy = (running transition - spawn start).
 	// Surfaces cold-load regressions across model sizes in traces
 	// without an extra metric instrument.
-	if r.active.span != nil {
-		ttfh := r.active.startedAt.Sub(r.active.spawnedAt)
+	if session.span != nil {
+		ttfh := session.startedAt.Sub(session.spawnedAt)
 		if ttfh < 0 {
 			ttfh = 0
 		}
-		recordRuntimeStarted(r.active.span, modelID, handle.PID(), ttfh.Milliseconds())
+		recordRuntimeStarted(session.span, modelID, handle.PID(), ttfh.Milliseconds())
 	}
 
 	return fmt.Sprintf("http://%s:%d", handle.Host(), handle.Port()), nil
 }
 
-// Stop kills the active child if any. Idempotent — returns nil when
-// already idle. Synchronous: blocks until the child has exited or
-// the stop timeout elapses.
+// dropLRUEntryLocked removes modelID from the LRU order. Must be
+// called with r.mu held.
+func (r *Runtime) dropLRUEntryLocked(modelID string) {
+	for i, id := range r.lruOrder {
+		if id == modelID {
+			r.lruOrder = append(r.lruOrder[:i], r.lruOrder[i+1:]...)
+			return
+		}
+	}
+}
+
+// Stop kills every resident child. Idempotent — returns nil when
+// already idle. Synchronous: blocks until each child has exited or
+// the stop timeout elapses. The first error encountered is
+// returned; subsequent stops still run so a partial-failure host
+// doesn't leak children.
 func (r *Runtime) Stop(ctx context.Context) error {
 	r.mu.Lock()
 	defer r.mu.Unlock()
-	if r.active == nil {
+	if len(r.sessions) == 0 {
 		// Already idle. Clear any failed marker so the next status
 		// read shows clean idle.
 		r.state = RuntimeIdle
+		r.active = nil
+		r.primaryID = ""
 		return nil
 	}
-	return r.stopActiveLocked(ctx)
+	var firstErr error
+	// Snapshot the ids so the iteration order is deterministic and
+	// the map mutation inside stopSessionLocked doesn't trip us.
+	ids := make([]string, 0, len(r.sessions))
+	for id := range r.sessions {
+		ids = append(ids, id)
+	}
+	for _, id := range ids {
+		session := r.sessions[id]
+		if session == nil {
+			continue
+		}
+		if err := r.stopSessionLocked(ctx, id, session); err != nil && firstErr == nil {
+			firstErr = err
+		}
+	}
+	r.state = RuntimeIdle
+	r.active = nil
+	r.primaryID = ""
+	return firstErr
 }
 
-// stopActiveLocked must be called with r.mu held. Transitions
-// stopping → idle. Releases the mutex while waiting for child exit
-// so Status calls don't stall.
-func (r *Runtime) stopActiveLocked(ctx context.Context) error {
-	if r.active == nil {
+// stopSessionLocked stops a single named session. Must be called
+// with r.mu held; releases the mutex while waiting for child exit
+// so Status reads from other goroutines don't stall. Removes the
+// session from the pool and the LRU order on return.
+func (r *Runtime) stopSessionLocked(ctx context.Context, modelID string, session *runtimeSession) error {
+	if session == nil {
+		delete(r.sessions, modelID)
+		r.dropLRUEntryLocked(modelID)
 		return nil
 	}
-	handle := r.active.handle
-	watcher := r.active.watcherDone
-	span := r.active.span
-	modelID := r.active.modelID
-	startedAt := r.active.startedAt
+	handle := session.handle
+	watcher := session.watcherDone
+	span := session.span
+	startedAt := session.startedAt
 	r.state = RuntimeStopping
 	r.mu.Unlock()
 
@@ -424,13 +616,11 @@ func (r *Runtime) stopActiveLocked(ctx context.Context) error {
 	}
 
 	r.mu.Lock()
-	// Emit the operator-stop event on the span before clearing it.
-	// The watcher may have already recorded a crashed event if the
-	// child died unexpectedly during stop — recordRuntimeStopped is
-	// safe to call after that because span events are append-only,
-	// and the runtime.reason attribute tells dashboards which path
-	// fired. SetStatus on stop is deliberate Ok — the operator
-	// drove this transition.
+	// Emit the operator-stop event on the span before ending it.
+	// The watcher may have recorded a crashed event if the child
+	// died during stop — recordRuntimeStopped layers on top of
+	// that, and the runtime.reason attribute tells dashboards
+	// which path fired.
 	if span != nil {
 		uptime := time.Duration(0)
 		if !startedAt.IsZero() {
@@ -439,9 +629,24 @@ func (r *Runtime) stopActiveLocked(ctx context.Context) error {
 		recordRuntimeStopped(span, modelID, "operator", uptime.Milliseconds())
 		span.End()
 	}
-	r.state = RuntimeIdle
-	r.active = nil
+	delete(r.sessions, modelID)
+	r.dropLRUEntryLocked(modelID)
+	if r.active == session {
+		r.active = nil
+		r.primaryID = ""
+	}
 	return stopErr
+}
+
+// stopActiveLocked is the legacy v1 entry point that stops the
+// primary session. Retained for backwards-compatible call sites
+// (none today, but tests may reach in via the unexported method
+// name). Delegates to stopSessionLocked.
+func (r *Runtime) stopActiveLocked(ctx context.Context) error {
+	if r.active == nil {
+		return nil
+	}
+	return r.stopSessionLocked(ctx, r.active.modelID, r.active)
 }
 
 // watchChild listens for the child's exit. If the child exits while
@@ -458,34 +663,52 @@ func (r *Runtime) watchChild(session *runtimeSession) {
 
 	r.mu.Lock()
 	defer r.mu.Unlock()
-	// If r.active has been replaced (e.g. by a fast restart), don't
-	// touch the new state.
-	if r.active != session {
+	// If this session has already been removed from the pool
+	// (operator stop / eviction), the exit is expected and we
+	// don't touch state.
+	current := r.sessions[session.modelID]
+	if current != session {
 		return
 	}
 	switch r.state {
 	case RuntimeStopping:
-		// Expected — Stop will transition us to idle once it sees
-		// the watcher channel close.
+		// Expected — stopSessionLocked is in progress; it'll
+		// transition state to idle once the watcher closes.
 	default:
 		// Unexpected exit. Classify as crash.
 		msg := fmt.Sprintf("child exited with code %d", info.ExitCode)
 		if info.Signal != "" {
 			msg = fmt.Sprintf("child terminated by %s", info.Signal)
 		}
-		// Span-record the crash before clearing active so the
-		// timeline shows the failure with its exit code. Set the
-		// span status to Error since the operator didn't drive
+		// Span-record the crash before clearing the pool entry so
+		// the timeline shows the failure with its exit code. Set
+		// the span status to Error since the operator didn't drive
 		// this transition.
 		if session.span != nil {
 			recordRuntimeCrashed(session.span, session.modelID, info.ExitCode, info.Signal)
 			session.span.SetStatus(codes.Error, msg)
 			session.span.End()
 		}
+		delete(r.sessions, session.modelID)
+		r.dropLRUEntryLocked(session.modelID)
 		r.lastError = msg
 		r.lastErrorAt = r.opts.clock()
-		r.state = RuntimeFailed
-		r.active = nil
+		if r.active == session {
+			r.active = nil
+			r.primaryID = ""
+		}
+		// If other sessions are still resident, drop back to
+		// running; otherwise mark failed.
+		if len(r.sessions) > 0 {
+			r.state = RuntimeRunning
+			// Promote the LRU tail as the new primary.
+			if len(r.lruOrder) > 0 {
+				r.primaryID = r.lruOrder[len(r.lruOrder)-1]
+				r.active = r.sessions[r.primaryID]
+			}
+		} else {
+			r.state = RuntimeFailed
+		}
 	}
 }
 

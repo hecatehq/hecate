@@ -10,6 +10,7 @@ import (
 	"os"
 	"os/signal"
 	"path/filepath"
+	"strconv"
 	"strings"
 	"syscall"
 	"time"
@@ -319,6 +320,9 @@ func main() {
 			BinaryPath: binaryPath,
 			DataDir:    cfg.Server.DataDir,
 			Store:      controlPlaneStore,
+			RuntimeOptions: llamacpp.RuntimeOptions{
+				MaxResident: parseMaxResident(os.Getenv("HECATE_LOCAL_MODELS_MAX_RESIDENT")),
+			},
 		})
 		if lmErr != nil {
 			logger.Warn("local models service init failed; feature disabled",
@@ -780,6 +784,22 @@ func buildApprovalStore(cfg config.Config, logger *slog.Logger, sqliteClient *st
 	default:
 		return agentadapters.NewMemoryApprovalStore()
 	}
+}
+
+// parseMaxResident reads the LRU keep-warm cap from env. Defaults to
+// 0 (which the Runtime collapses to 1 — v1 behavior). Negative or
+// non-numeric values fall back to default with no warning; the
+// gateway boot is the wrong place to be noisy about minor env typos
+// when the safe default is the v1 behavior.
+func parseMaxResident(raw string) int {
+	if raw == "" {
+		return 0
+	}
+	n, err := strconv.Atoi(strings.TrimSpace(raw))
+	if err != nil || n < 1 {
+		return 0
+	}
+	return n
 }
 
 // shouldInitLocalModels gates the local-models subsystem on operator

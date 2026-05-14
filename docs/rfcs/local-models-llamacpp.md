@@ -545,7 +545,10 @@ the UI card without deleting any downloaded files.
 
 - HuggingFace browse / search panel.
 - Gated-repo support (HF token entry, model-card preview).
-- Multi-model resident runtime with LRU keep-warm.
+- ~~Multi-model resident runtime with LRU keep-warm.~~
+  Landed in v2 — `HECATE_LOCAL_MODELS_MAX_RESIDENT=N` keeps the N
+  most-recently-used models loaded; the (N+1)th `EnsureLoaded`
+  evicts the coldest. Default 1 preserves v1 single-child behavior.
 - CUDA / Vulkan / ROCm acceleration on Linux / Windows desktop bundles.
 - Auto-update of the bundled `llama-server` binary independent of Hecate
   releases.
