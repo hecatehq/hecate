@@ -160,7 +160,9 @@ describe("ChatView input", () => {
         rtk_enabled: false,
         workspace: "/tmp/hecate",
         status: "completed",
-        messages: [],
+        messages: [
+          { id: "msg_user", role: "user", content: "show git status", created_at: "2026-05-01T10:00:00Z" },
+        ],
       } as any,
       hecateRTKEnabled: false,
       hecateRTKAvailable: true,
@@ -174,6 +176,16 @@ describe("ChatView input", () => {
 
     expect(screen.getByText("Chat settings")).toBeTruthy();
     expect(screen.getByText("Compact command output")).toBeTruthy();
+    expect(screen.getByText("Session context")).toBeTruthy();
+    expect(screen.getByText("Runtime debug")).toBeTruthy();
+    expect(screen.getByText("Provider")).toBeTruthy();
+    expect(screen.getAllByText("All providers").length).toBeGreaterThan(0);
+    expect(screen.getByText("Workspace")).toBeTruthy();
+    expect(screen.getByText("/tmp/hecate")).toBeTruthy();
+    expect(screen.getByText("Status")).toBeTruthy();
+    expect(screen.getByText("completed")).toBeTruthy();
+    expect(screen.getByText("Messages")).toBeTruthy();
+    expect(screen.getByText("1")).toBeTruthy();
     expect(screen.getAllByText(/rtk sh -lc/i).length).toBeGreaterThan(0);
     expect(screen.getByText(/usr\/local\/bin\/rtk/i)).toBeTruthy();
 

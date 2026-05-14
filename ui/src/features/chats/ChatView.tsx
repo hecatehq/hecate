@@ -1474,6 +1474,9 @@ export function ChatView({ state, actions, onNavigate, onOpenTask, onOpenTrace }
             taskID={state.activeAgentChatSession?.task_id}
             model={state.model}
             provider={selectedProviderName}
+            workspace={state.activeAgentChatSession?.workspace || state.agentWorkspace}
+            status={state.activeAgentChatSession?.status || ""}
+            messageCount={state.activeAgentChatSession?.messages?.length ?? 0}
             instructionsAvailable={instructionsAvailable}
             isHecateAgentChat={isHecateAgentChat}
             instructionsLocked={messages.length > 0}
@@ -2942,6 +2945,9 @@ function ChatSettingsPanel({
   taskID,
   model,
   provider,
+  workspace,
+  status,
+  messageCount,
   instructionsAvailable,
   isHecateAgentChat,
   instructionsLocked,
@@ -2959,6 +2965,9 @@ function ChatSettingsPanel({
   taskID?: string;
   model?: string;
   provider?: string;
+  workspace?: string;
+  status?: string;
+  messageCount: number;
   instructionsAvailable: boolean;
   isHecateAgentChat: boolean;
   instructionsLocked: boolean;
@@ -3040,11 +3049,18 @@ function ChatSettingsPanel({
             />
           </ChatSettingsSection>
         )}
-        <ChatSettingsSection title="Debug">
+        <ChatSettingsSection title="Session context">
           <div style={{ display: "grid", gap: 5, fontSize: 11, color: "var(--t3)", lineHeight: 1.45 }}>
             <ChatSettingsField label="Provider" value={provider || "All providers"} />
             <ChatSettingsField label="Model" value={model || "not selected"} mono />
+            <ChatSettingsField label="Workspace" value={workspace ? compactWorkspacePath(workspace) : "not selected"} mono title={workspace} />
+            <ChatSettingsField label="Status" value={status || "new chat"} />
+            <ChatSettingsField label="Messages" value={String(messageCount)} mono />
             {taskID && <ChatSettingsField label="Task" value={shortID(taskID)} mono />}
+          </div>
+        </ChatSettingsSection>
+        <ChatSettingsSection title="Runtime debug">
+          <div style={{ display: "grid", gap: 5, fontSize: 11, color: "var(--t3)", lineHeight: 1.45 }}>
             <ChatSettingsField
               label="Shell argv"
               value={rtkEnabled ? "rtk sh -lc <command>" : "sh -lc <command>"}
@@ -3066,11 +3082,11 @@ function ChatSettingsSection({ title, children }: { title: string; children: Rea
   );
 }
 
-function ChatSettingsField({ label, value, mono }: { label: string; value: string; mono?: boolean }) {
+function ChatSettingsField({ label, value, mono, title }: { label: string; value: string; mono?: boolean; title?: string }) {
   return (
     <div style={{ display: "flex", gap: 8, alignItems: "baseline" }}>
       <span style={{ color: "var(--t3)", fontSize: 11, minWidth: 78 }}>{label}</span>
-      <span style={{ color: "var(--t1)", fontSize: 11, fontFamily: mono ? "var(--font-mono)" : "inherit", wordBreak: "break-all" }}>
+      <span title={title} style={{ color: "var(--t1)", fontSize: 11, fontFamily: mono ? "var(--font-mono)" : "inherit", wordBreak: "break-all" }}>
         {value}
       </span>
     </div>
