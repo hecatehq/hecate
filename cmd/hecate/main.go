@@ -2,6 +2,7 @@ package main
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"log/slog"
 	"net"
@@ -26,6 +27,7 @@ import (
 	"github.com/hecate/agent-runtime/internal/controlplane"
 	"github.com/hecate/agent-runtime/internal/gateway"
 	"github.com/hecate/agent-runtime/internal/governor"
+	"github.com/hecate/agent-runtime/internal/llamacpp"
 	"github.com/hecate/agent-runtime/internal/orchestrator"
 	"github.com/hecate/agent-runtime/internal/profiler"
 	"github.com/hecate/agent-runtime/internal/providers"
@@ -287,6 +289,35 @@ func main() {
 		PingTimeout:  cfg.Server.TaskMCPClientCachePingTimeout,
 		Metrics:      handler.OrchestratorMetrics(),
 	}))
+
+	// Local-models subsystem (Hecate-managed llama.cpp). Dormant
+	// unless HECATE_LLAMA_SERVER_BIN points at an executable binary.
+	// Tauri sidecar startup sets this for desktop builds; the Go
+	// gateway alone leaves it unset and the feature reports
+	// "binary_not_found" to the UI without mounting the proxy. See
+	// docs/rfcs/local-models-llamacpp.md.
+	if binaryPath := os.Getenv("HECATE_LLAMA_SERVER_BIN"); binaryPath != "" || os.Getenv("HECATE_LOCAL_MODELS") == "on" {
+		localModelsSvc, lmErr := llamacpp.NewService(llamacpp.ServiceOptions{
+			BinaryPath: binaryPath,
+			DataDir:    cfg.Server.DataDir,
+			Store:      controlPlaneStore,
+		})
+		if lmErr != nil {
+			logger.Warn("local models service init failed; feature disabled",
+				slog.Any("error", lmErr))
+		} else {
+			handler.SetLocalModelsService(localModelsSvc)
+			if err := localModelsSvc.EnsureAutoRegisteredProvider(context.Background(), cfg.Server.PublicURL); err != nil {
+				if errors.Is(err, llamacpp.ErrAutoProviderOperatorOwned) {
+					logger.Info("llamacpp provider already exists; operator override retained",
+						slog.String("preset_id", "llamacpp"))
+				} else {
+					logger.Warn("local models auto-provider registration failed",
+						slog.Any("error", err))
+				}
+			}
+		}
+	}
 
 	server := &http.Server{
 		Addr:              cfg.Server.Address,

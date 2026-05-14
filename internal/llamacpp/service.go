@@ -241,6 +241,56 @@ func (s *Service) EnsureAutoRegisteredProvider(ctx context.Context, gatewayBaseU
 // the caller logs it as a structured warning.
 var ErrAutoProviderOperatorOwned = errors.New("llamacpp provider already exists; operator override takes precedence")
 
+// ErrInstalledModelNotFound is returned by Uninstall when the model
+// id doesn't match any registry row.
+var ErrInstalledModelNotFound = errors.New("installed model not found")
+
+// Uninstall removes a model: stops the runtime if it's running this
+// model, deletes the .gguf file from disk, removes the registry row.
+// Idempotent on the file (best-effort os.Remove); the registry
+// removal is the gate that turns "not installed" into a 404 for
+// subsequent calls.
+func (s *Service) Uninstall(ctx context.Context, modelID string) error {
+	modelID = strings.TrimSpace(modelID)
+	if modelID == "" {
+		return errors.New("model id is required")
+	}
+	state, err := s.store.Snapshot(ctx)
+	if err != nil {
+		return err
+	}
+	var target *InstalledModel
+	for i := range state.InstalledModels {
+		if state.InstalledModels[i].ID == modelID {
+			target = &state.InstalledModels[i]
+			break
+		}
+	}
+	if target == nil {
+		return ErrInstalledModelNotFound
+	}
+
+	// If the runtime is currently loaded with this model, stop it
+	// first so the file isn't held open during deletion.
+	if status := s.runtime.Status(); status.ActiveModelID == modelID {
+		if err := s.runtime.Stop(ctx); err != nil {
+			// Best-effort — proceed with file removal even if the
+			// stop returned an error. A subsequent EnsureLoaded
+			// will pick a new port; the leaked child (if any) is
+			// the operator's call to clean up via process tools.
+			_ = err
+		}
+	}
+
+	absPath := target.FilePath
+	if !filepath.IsAbs(absPath) {
+		absPath = filepath.Join(s.dataDir, absPath)
+	}
+	_ = os.Remove(absPath)
+
+	return s.store.DeleteInstalledModel(ctx, modelID)
+}
+
 // controlplaneModelLookup adapts controlplane.Store onto the slim
 // Runtime ModelLookup interface. Linear scan of the snapshot is fine
 // for v1 — the installed-models list is bounded by disk capacity, so

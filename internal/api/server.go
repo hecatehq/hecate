@@ -16,6 +16,7 @@ func NewServer(logger *slog.Logger, handler *Handler) http.Handler {
 	registerHecateChatRoutes(mux, handler)
 	registerHecateOperationsRoutes(mux, handler)
 	registerHecateSettingsRoutes(mux, handler)
+	registerLocalModelsRoutes(mux, handler)
 	registerAPINotFound(mux)
 
 	// Embedded UI catch-all. Go 1.22+ mux selects the most specific pattern
@@ -168,6 +169,32 @@ func registerHecateSettingsRoutes(mux *http.ServeMux, handler *Handler) {
 	mux.HandleFunc("PUT /hecate/v1/settings/providers/{id}/api-key", handler.HandleSettingsSetProviderAPIKey)
 	mux.HandleFunc("POST /hecate/v1/settings/policy-rules", handler.HandleSettingsUpsertPolicyRule)
 	mux.HandleFunc("DELETE /hecate/v1/settings/policy-rules/{id}", handler.HandleSettingsDeletePolicyRule)
+}
+
+// registerLocalModelsRoutes mounts the public local-models API and
+// the gateway-internal reverse-proxy. The proxy mount is only added
+// when the service is wired (i.e. the bundled binary resolved); the
+// public API is always mounted because the dormant-state handlers
+// surface a useful 503 / availability=false response that the UI
+// renders as "not available in this build". See
+// docs/rfcs/local-models-llamacpp.md.
+func registerLocalModelsRoutes(mux *http.ServeMux, handler *Handler) {
+	mux.HandleFunc("GET /hecate/v1/local-models/catalog", handler.HandleLocalModelsCatalog)
+	mux.HandleFunc("GET /hecate/v1/local-models/installed", handler.HandleLocalModelsInstalled)
+	mux.HandleFunc("POST /hecate/v1/local-models/install", handler.HandleLocalModelsInstall)
+	mux.HandleFunc("GET /hecate/v1/local-models/install/{install_id}/events", handler.HandleLocalModelsInstallEvents)
+	mux.HandleFunc("DELETE /hecate/v1/local-models/install/{install_id}", handler.HandleLocalModelsCancelInstall)
+	mux.HandleFunc("DELETE /hecate/v1/local-models/installed/{model_id}", handler.HandleLocalModelsUninstall)
+	mux.HandleFunc("GET /hecate/v1/local-models/runtime", handler.HandleLocalModelsRuntimeStatus)
+	mux.HandleFunc("POST /hecate/v1/local-models/runtime/start", handler.HandleLocalModelsRuntimeStart)
+	mux.HandleFunc("POST /hecate/v1/local-models/runtime/stop", handler.HandleLocalModelsRuntimeStop)
+
+	// Gateway-internal reverse-proxy. Only mounted when the
+	// service is wired — without it the proxy struct doesn't
+	// exist. Catch-all method match via the {path...} wildcard.
+	if svc := handler.LocalModelsService(); svc != nil {
+		mux.Handle("/hecate/internal/llamacpp/v1/{path...}", svc.Proxy())
+	}
 }
 
 func apiNotFound(w http.ResponseWriter, r *http.Request) {

@@ -63,6 +63,14 @@ type Installer struct {
 	mu      sync.Mutex
 	active  *runningInstall // nil when idle
 	counter uint64          // monotonic install_id source
+
+	// fanouts gives one ProgressEvent stream per active install_id.
+	// Populated by AttachInstall; readers drain via Subscribe. The
+	// fanout buffers up to fanoutBufferSize events so a slow
+	// subscriber can still catch up to the most recent terminal
+	// event after a tab reload.
+	fanoutMu sync.Mutex
+	fanouts  map[string]*installFanout
 }
 
 type resolvedInstallerOptions struct {
@@ -137,7 +145,137 @@ func NewInstaller(dataDir string, store InstallerStore, catalog *Catalog, opts I
 		store:   store,
 		catalog: catalog,
 		opts:    resolved,
+		fanouts: make(map[string]*installFanout),
 	}, nil
+}
+
+// installFanout buffers ProgressEvents emitted by a single install
+// so the SSE handler can subscribe after the install has already
+// started. The buffer retains every event the install produced
+// (downloads are short relative to ProgressIntervalBytes) so a late
+// subscriber sees the full history.
+type installFanout struct {
+	mu         sync.Mutex
+	events     []ProgressEvent
+	closed     bool
+	subscriber chan ProgressEvent
+}
+
+const fanoutBufferSize = 256
+
+// AttachInstall hooks an InstallHandle into the fanout map and
+// starts a goroutine that copies events into the fanout buffer.
+// Safe to call exactly once per handle; subsequent calls for the
+// same install_id replace the existing fanout (the previous one
+// closes its subscriber).
+//
+// Why a buffer-plus-subscriber design rather than just forwarding
+// the install's channel directly: the SSE handler attaches AFTER
+// the operator's POST /install round-trip completes, which means
+// the install has already emitted "started" by the time SSE
+// connects. The buffer lets the late subscriber replay the
+// preamble, then receive new events live.
+func (i *Installer) AttachInstall(handle *InstallHandle) {
+	if handle == nil {
+		return
+	}
+	fan := &installFanout{}
+	i.fanoutMu.Lock()
+	i.fanouts[handle.InstallID] = fan
+	i.fanoutMu.Unlock()
+	go func() {
+		for ev := range handle.Events {
+			fan.push(ev)
+		}
+		fan.close()
+		// Keep the fanout around for a short grace period so a UI
+		// reload mid-install can still read the terminal events.
+		// 60 s strikes a balance: long enough to outlive any
+		// realistic tab-switch lag, short enough that the map
+		// doesn't grow unboundedly under hammering. The
+		// background reaper drops the entry on schedule.
+		time.AfterFunc(60*time.Second, func() {
+			i.fanoutMu.Lock()
+			defer i.fanoutMu.Unlock()
+			if existing, ok := i.fanouts[handle.InstallID]; ok && existing == fan {
+				delete(i.fanouts, handle.InstallID)
+			}
+		})
+	}()
+}
+
+// Subscribe returns a channel that receives all buffered events plus
+// any future events emitted while the install is still active. The
+// second return value is false when no install with that id is
+// known. v1 supports a single subscriber per install_id (the UI);
+// a second subscriber displaces the first.
+func (i *Installer) Subscribe(installID string) (<-chan ProgressEvent, bool) {
+	i.fanoutMu.Lock()
+	fan, ok := i.fanouts[installID]
+	i.fanoutMu.Unlock()
+	if !ok {
+		return nil, false
+	}
+	ch := fan.attach()
+	return ch, true
+}
+
+func (f *installFanout) push(ev ProgressEvent) {
+	f.mu.Lock()
+	f.events = append(f.events, ev)
+	if len(f.events) > fanoutBufferSize {
+		// Drop the oldest. With fanoutBufferSize=256 and a 4 GB
+		// download at 256 KiB per progress event = 16k events, so
+		// retention is partial; the UI cares about the latest
+		// state anyway.
+		drop := len(f.events) - fanoutBufferSize
+		f.events = f.events[drop:]
+	}
+	sub := f.subscriber
+	f.mu.Unlock()
+	if sub != nil {
+		select {
+		case sub <- ev:
+		default:
+			// Slow subscriber — drop. The buffered history is
+			// the operator's recovery path (reconnect to replay).
+		}
+	}
+}
+
+func (f *installFanout) close() {
+	f.mu.Lock()
+	f.closed = true
+	sub := f.subscriber
+	f.subscriber = nil
+	f.mu.Unlock()
+	if sub != nil {
+		close(sub)
+	}
+}
+
+func (f *installFanout) attach() chan ProgressEvent {
+	ch := make(chan ProgressEvent, fanoutBufferSize+1)
+	f.mu.Lock()
+	// Displace any prior subscriber.
+	if f.subscriber != nil {
+		close(f.subscriber)
+	}
+	// Replay buffered history before going live.
+	for _, ev := range f.events {
+		select {
+		case ch <- ev:
+		default:
+		}
+	}
+	if f.closed {
+		close(ch)
+		f.mu.Unlock()
+		return ch
+	}
+	f.subscriber = ch
+	f.mu.Unlock()
+	return ch
 }
 
 // InstallHandle is what callers hold while a download runs. The
