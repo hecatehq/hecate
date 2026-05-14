@@ -507,7 +507,18 @@ func (i *Installer) run(ctx context.Context, run *runningInstall, plan installPl
 			switch {
 			case ghttp.code == http.StatusUnauthorized, ghttp.code == http.StatusForbidden:
 				event.ErrorKind = ErrorKindGated
-				event.Message = fmt.Sprintf("model is gated (HTTP %d); v1 does not support gated repos", ghttp.code)
+				// Gated-repo support landed in v2 — the message
+				// must point at the right recovery path rather
+				// than the v1 "not supported" stub.
+				if plan.hfToken == "" {
+					event.Message = fmt.Sprintf(
+						"model is gated (HTTP %d); provide a HuggingFace access token via the install spec's hf_token field or HUGGINGFACE_TOKEN env var",
+						ghttp.code)
+				} else {
+					event.Message = fmt.Sprintf(
+						"model is gated (HTTP %d); the HuggingFace token was rejected — verify it has access to this repo and hasn't expired",
+						ghttp.code)
+				}
 			default:
 				event.ErrorKind = ErrorKindNetwork
 				event.Message = fmt.Sprintf("download failed: HTTP %d", ghttp.code)

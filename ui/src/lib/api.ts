@@ -56,6 +56,7 @@ import type {
 type RequestOptions = {
   method?: "GET" | "POST" | "PATCH" | "PUT" | "DELETE";
   body?: unknown;
+  headers?: Record<string, string>;
 };
 
 type ErrorPayload = {
@@ -329,12 +330,15 @@ export async function searchHuggingFaceModels(
   if (options.limit && options.limit > 0) {
     params.set("limit", String(options.limit));
   }
-  if (options.token && options.token.trim()) {
-    params.set("token", options.token.trim());
-  }
   const qs = params.toString();
   const url = `${HECATE_API}/local-models/huggingface/search${qs ? `?${qs}` : ""}`;
-  return fetchJSON<HuggingFaceSearchResponse>(url);
+  // Token rides the Authorization header — never the URL — so it
+  // doesn't surface in browser history, dev-server logs, or proxy
+  // access logs. The gateway forwards it to HF on the operator's
+  // behalf.
+  return fetchJSON<HuggingFaceSearchResponse>(url, {
+    headers: huggingFaceAuthHeader(options.token),
+  });
 }
 
 export async function listHuggingFaceRepoFiles(
@@ -348,13 +352,15 @@ export async function listHuggingFaceRepoFiles(
   }
   const owner = encodeURIComponent(repo.slice(0, slash));
   const name = encodeURIComponent(repo.slice(slash + 1));
-  const params = new URLSearchParams();
-  if (options.token && options.token.trim()) {
-    params.set("token", options.token.trim());
-  }
-  const qs = params.toString();
-  const url = `${HECATE_API}/local-models/huggingface/repos/${owner}/${name}${qs ? `?${qs}` : ""}`;
-  return fetchJSON<HuggingFaceRepoFilesResponse>(url);
+  const url = `${HECATE_API}/local-models/huggingface/repos/${owner}/${name}`;
+  return fetchJSON<HuggingFaceRepoFilesResponse>(url, {
+    headers: huggingFaceAuthHeader(options.token),
+  });
+}
+
+function huggingFaceAuthHeader(token: string | undefined): Record<string, string> {
+  const trimmed = (token ?? "").trim();
+  return trimmed ? { Authorization: `Bearer ${trimmed}` } : {};
 }
 
 // subscribeLocalModelInstallEvents opens an EventSource against the
@@ -1074,6 +1080,11 @@ export function buildRequestOptions(options: RequestOptions): RequestInit {
   const headers = new Headers();
   if (options.body !== undefined) {
     headers.set("Content-Type", "application/json");
+  }
+  if (options.headers) {
+    for (const [k, v] of Object.entries(options.headers)) {
+      headers.set(k, v);
+    }
   }
 
   return {

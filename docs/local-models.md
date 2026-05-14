@@ -326,17 +326,27 @@ stale — refreshing `GET /hecate/v1/local-models/installed` triggers
 reconciliation and drops the orphaned row. After that the next
 `GET /v1/models` will be clean.
 
-## Out of scope (v1)
+## Status
 
-- Linux / Windows desktop bundles — v1 is macOS arm64 only.
-- CUDA / Vulkan / ROCm acceleration.
-- HuggingFace browse / search panel (curated + paste-URL covers v1).
-- Gated HuggingFace repos.
-- Multi-model resident runtime (LRU keep-warm).
+**v1** (this branch): curated catalog, paste-URL install, single-model
+runtime, Tauri sidecar bundle for macOS arm64.
+
+**v2** (this branch): HuggingFace browse + search, gated repos via HF
+token, multi-model LRU keep-warm runtime, headless lazy-download for
+the `llama-server` binary. All four are documented above and live
+behind the same env knobs.
+
+## Still out of scope
+
+- Linux / Windows desktop bundles. The Tauri sidecar staging only ships
+  the macOS arm64 binary today; CUDA / Vulkan / ROCm acceleration on
+  desktop bundles is part of the same parking lot.
 - Per-model fine-grained config (LoRA, draft model, speculative
   decoding, custom chat templates).
-- Headless gateway lazy-download — `<data_dir>/llamacpp/bin/` is
-  reserved for this in a future release.
+- Auto-update of the bundled `llama-server` independent of Hecate
+  releases.
+- Non-llama.cpp local runtimes (MLX, etc.). The
+  `/hecate/v1/local-models/*` namespace is engine-agnostic; a future
+  engine would join it.
 
-Each of these has a parking lot in
-[the RFC's "Out of scope" section](rfcs/local-models-llamacpp.md#out-of-scope-reserved-for-v2--follow-ups).
+Tracked in [the RFC's "Out of scope" section](rfcs/local-models-llamacpp.md#out-of-scope-reserved-for-v2--follow-ups).

@@ -206,13 +206,27 @@ func (s *Service) ListInstalled(ctx context.Context) ([]InstalledModel, error) {
 	return out, nil
 }
 
-// EnsureAutoRegisteredProvider creates the single managed `llamacpp`
-// provider row if it doesn't exist yet. Called once at gateway boot.
-// No-op when an operator-created provider with that id already
-// exists — the RFC commits to leaving operator overrides alone and
-// logging a warning instead. The caller threads a logger if it
-// wants the warning surfaced; this method returns it as a
-// well-known sentinel.
+// managedProviderID is the stable ID for the Hecate-managed llamacpp
+// provider row. Matching `/v1/models`' `owned_by` field exactly so
+// routing/UI lookups by provider ID resolve to the same row that the
+// auto-registration touches.
+const managedProviderID = "llamacpp"
+
+// EnsureAutoRegisteredProvider creates or refreshes the single managed
+// `llamacpp` provider row at gateway boot. Behavior:
+//
+//   - No managed row exists → create one with ID=managedProviderID.
+//   - A managed row exists (matched by ID==managedProviderID) → refresh
+//     its BaseURL so a desktop launch on a different port doesn't leave
+//     the row pointing at a stale internal-proxy URL.
+//   - A different row with PresetID="llamacpp" exists → operator
+//     override. Leave alone, return ErrAutoProviderOperatorOwned so the
+//     caller can log a structured warning.
+//
+// The ID distinction is what separates "row we own" from "row the
+// operator added through Add Provider" — the operator path generates
+// a slug-derived ID like `llamacpp-1`, while ours is the literal
+// `llamacpp`.
 func (s *Service) EnsureAutoRegisteredProvider(ctx context.Context, gatewayBaseURL string) error {
 	if strings.TrimSpace(s.binaryPath) == "" {
 		// Dormant feature: don't auto-register so the providers
@@ -224,19 +238,30 @@ func (s *Service) EnsureAutoRegisteredProvider(ctx context.Context, gatewayBaseU
 	if err != nil {
 		return err
 	}
-	for _, existing := range state.Providers {
-		// Match by PresetID: the operator path through Add Provider
-		// stamps PresetID="llamacpp" on the row, while the
-		// generated provider ID is a slug derived from Name +
-		// CustomName. PresetID is the stable signal.
-		if existing.PresetID != "llamacpp" {
-			continue
-		}
-		// Operator override path — leave it alone.
-		return ErrAutoProviderOperatorOwned
-	}
 	baseURL := strings.TrimRight(gatewayBaseURL, "/") + internalProxyPathPrefix
+	for _, existing := range state.Providers {
+		if existing.ID == managedProviderID {
+			// Our managed row from a previous boot. Re-upsert to
+			// refresh BaseURL — the desktop app picks a fresh port
+			// on each launch, so the stored URL can be stale.
+			_, err = s.store.UpsertProvider(ctx, controlplane.Provider{
+				ID:       managedProviderID,
+				Name:     "llama.cpp",
+				PresetID: "llamacpp",
+				Kind:     "local",
+				Protocol: "openai",
+				BaseURL:  baseURL,
+				Enabled:  existing.Enabled,
+			}, nil)
+			return err
+		}
+		if existing.PresetID == "llamacpp" {
+			// Operator-created override path — leave it alone.
+			return ErrAutoProviderOperatorOwned
+		}
+	}
 	_, err = s.store.UpsertProvider(ctx, controlplane.Provider{
+		ID:       managedProviderID,
 		Name:     "llama.cpp",
 		PresetID: "llamacpp",
 		Kind:     "local",

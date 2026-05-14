@@ -193,6 +193,41 @@ func TestService_EnsureAutoRegisteredProvider_OperatorOverride(t *testing.T) {
 	}
 }
 
+func TestService_EnsureAutoRegisteredProvider_RefreshesManagedRow(t *testing.T) {
+	t.Parallel()
+	store := controlplane.NewMemoryStore()
+	svc := makeServiceWithBinary(t, store, t.TempDir(), makeFakeBinary(t))
+	ctx := context.Background()
+
+	// First boot — register at port 7321.
+	if err := svc.EnsureAutoRegisteredProvider(ctx, "http://127.0.0.1:7321"); err != nil {
+		t.Fatalf("first call: %v", err)
+	}
+	// Second boot — same row should refresh to the new port. The
+	// reviewer flagged the v1 behavior here: the previous boot's
+	// own auto-managed row got treated as an operator override and
+	// left untouched, leaving the URL pointing at a stale port.
+	if err := svc.EnsureAutoRegisteredProvider(ctx, "http://127.0.0.1:9999"); err != nil {
+		t.Fatalf("second call: %v", err)
+	}
+
+	state, _ := store.Snapshot(ctx)
+	var hits int
+	for _, p := range state.Providers {
+		if p.ID != "llamacpp" {
+			continue
+		}
+		hits++
+		want := "http://127.0.0.1:9999" + InternalProxyPathPrefix()
+		if p.BaseURL != want {
+			t.Fatalf("BaseURL = %q; want refreshed %q", p.BaseURL, want)
+		}
+	}
+	if hits != 1 {
+		t.Fatalf("managed provider row count = %d; want exactly 1 (no duplicates on refresh)", hits)
+	}
+}
+
 func TestService_EnsureAutoRegisteredProvider_DormantSkips(t *testing.T) {
 	t.Parallel()
 	store := controlplane.NewMemoryStore()

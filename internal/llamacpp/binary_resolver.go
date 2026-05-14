@@ -66,6 +66,14 @@ type BinaryResolverOptions struct {
 	// HTTP is the client used for the download. Defaults to
 	// http.DefaultClient.
 	HTTP HTTPDoer
+
+	// AllowUnverifiedDownload is a test-only escape hatch that
+	// lets the download path run when Spec.AssetSHA256 is empty.
+	// Production never sets this — the gateway main fails closed
+	// on a missing pin, surfacing ErrBinarySHARequired so the
+	// operator learns that the binary needs an explicit
+	// HECATE_LLAMA_SERVER_BIN path instead.
+	AllowUnverifiedDownload bool
 }
 
 // BinarySpec pins the upstream release artifact. The default value
@@ -77,9 +85,10 @@ type BinarySpec struct {
 	// AssetURL is the full download URL for the per-platform
 	// archive. Empty means "derive from ReleaseTag + GOOS/GOARCH".
 	AssetURL string
-	// AssetSHA256 is the lowercase hex digest of the archive. When
-	// empty, sha verification is skipped (operator opts in via
-	// SkipSHAVerify on dev paths).
+	// AssetSHA256 is the lowercase hex digest of the archive.
+	// Required for production lazy-download — Resolve() fails with
+	// ErrBinarySHARequired when this is empty unless the
+	// AllowUnverifiedDownload option (test-only) is set.
 	AssetSHA256 string
 	// InnerPath is the path inside the archive where the
 	// llama-server binary lives. Differs per platform — macOS arm64
@@ -97,8 +106,12 @@ type BinarySpec struct {
 // so the desktop sidecar and headless lazy-download converge on the
 // same binary.
 //
-// SHA256 left empty during v1 bring-up — same as the Tauri fetch
-// script. Backfill before any stable release.
+// AssetSHA256 must be backfilled before the lazy-download path is
+// usable in production — Resolve() refuses to download without a
+// digest (ErrBinarySHARequired). Until then, operators set
+// HECATE_LLAMA_SERVER_BIN to point at a pre-vetted local copy.
+// Tauri builds bundle the binary directly and don't hit this code
+// path.
 func DefaultBinarySpec() BinarySpec {
 	const releaseTag = "b4404"
 	// Only macOS arm64 is shipped in v1; other platforms return an
@@ -161,6 +174,13 @@ func (r *BinaryResolver) Resolve(ctx context.Context) (string, error) {
 	if r.opts.Spec.AssetURL == "" {
 		return "", fmt.Errorf("%w: no upstream defined for %s/%s",
 			ErrBinaryNoUpstream, runtime.GOOS, runtime.GOARCH)
+	}
+	if strings.TrimSpace(r.opts.Spec.AssetSHA256) == "" && !r.opts.AllowUnverifiedDownload {
+		// Fail closed: we won't download + chmod + exec a binary
+		// from the internet without a pinned digest. Documented at
+		// docs/local-models.md.
+		return "", fmt.Errorf("%w: %s/%s asset for release %s lacks a pinned sha256",
+			ErrBinarySHARequired, runtime.GOOS, runtime.GOARCH, r.opts.Spec.ReleaseTag)
 	}
 	if err := r.downloadAndExtract(ctx); err != nil {
 		return "", err
@@ -327,4 +347,11 @@ var (
 	// (typically because upstream renamed the binary in a release
 	// past our pin). Treat as "bump the pin".
 	ErrBinaryInnerMissing = errors.New("llama-server binary not found at expected path inside archive")
+
+	// ErrBinarySHARequired is returned by Resolve when the
+	// download path would run without a pinned sha256. Production
+	// fails closed here — we won't execute an unverified binary
+	// pulled from the internet. The operator's recovery path is
+	// to set HECATE_LLAMA_SERVER_BIN to a pre-vetted local copy.
+	ErrBinarySHARequired = errors.New("llama-server lazy download requires a pinned AssetSHA256")
 )

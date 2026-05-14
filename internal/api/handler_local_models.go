@@ -67,8 +67,31 @@ type localModelsRuntimeStartRequest struct {
 }
 
 // localModelsService is the small contract the handlers reach for —
-// nil-checking once here keeps each handler's preamble tight.
+// the nil-check + feature-availability gate live here so each handler
+// stays tight. Returns 503 with `local_models_unavailable` when the
+// service is nil OR when the binary isn't usable (the documented
+// dormant invariant — see docs/local-models.md).
+//
+// The /runtime introspection handler bypasses this gate via
+// localModelsServiceForIntrospection so the UI can still render the
+// dormant state with its `availability.reason`.
 func (h *Handler) localModelsService(w http.ResponseWriter) (*llamacpp.Service, bool) {
+	svc, ok := h.localModelsServiceForIntrospection(w)
+	if !ok {
+		return nil, false
+	}
+	if !svc.FeatureAvailability().Available {
+		WriteError(w, http.StatusServiceUnavailable, errCodeLocalModelsUnavailable,
+			"local model runtime is not available in this build")
+		return nil, false
+	}
+	return svc, true
+}
+
+// localModelsServiceForIntrospection returns the service even when the
+// binary is unresolved, so the /runtime status handler can emit the
+// useful dormant body (state=idle, available=false, reason=...).
+func (h *Handler) localModelsServiceForIntrospection(w http.ResponseWriter) (*llamacpp.Service, bool) {
 	if h.localModels == nil {
 		WriteError(w, http.StatusServiceUnavailable, errCodeLocalModelsUnavailable,
 			"local model runtime is not available in this build")
@@ -302,20 +325,20 @@ func (h *Handler) HandleLocalModelsRuntimeStart(w http.ResponseWriter, r *http.R
 // HandleLocalModelsHFSearch — GET /hecate/v1/local-models/huggingface/search
 // Server-side proxy to HF's `/api/models` so the browser doesn't have
 // to deal with CORS and the operator's HF token never leaves the
-// gateway. Query string passthrough: q (search term), limit, token.
-// v2 keeps the filter pinned to "gguf" inside the client; operators
-// can't disable it.
+// gateway. v2 keeps the filter pinned to "gguf" inside the client;
+// operators can't disable it.
+//
+// Token is read from the `Authorization: Bearer <token>` header — never
+// from the URL — so it doesn't leak through request logs, browser
+// history, or proxy access logs. Falls back to HUGGINGFACE_TOKEN env
+// when the header is absent.
 func (h *Handler) HandleLocalModelsHFSearch(w http.ResponseWriter, r *http.Request) {
 	svc, ok := h.localModelsService(w)
 	if !ok {
 		return
 	}
 	q := strings.TrimSpace(r.URL.Query().Get("q"))
-	token := strings.TrimSpace(r.URL.Query().Get("token"))
-	if token == "" {
-		// Env fallback — same pattern the installer uses.
-		token = strings.TrimSpace(os.Getenv("HUGGINGFACE_TOKEN"))
-	}
+	token := huggingFaceTokenFromRequest(r)
 	limitStr := r.URL.Query().Get("limit")
 	limit := 20
 	if limitStr != "" {
@@ -338,6 +361,8 @@ func (h *Handler) HandleLocalModelsHFSearch(w http.ResponseWriter, r *http.Reque
 // Returns the GGUF files in the named HF repo with their LFS metadata
 // (sha256 + size). Each file carries a pre-computed DownloadURL the
 // install endpoint accepts as-is.
+//
+// Token: same Authorization-header policy as HFSearch.
 func (h *Handler) HandleLocalModelsHFRepoFiles(w http.ResponseWriter, r *http.Request) {
 	svc, ok := h.localModelsService(w)
 	if !ok {
@@ -349,10 +374,7 @@ func (h *Handler) HandleLocalModelsHFRepoFiles(w http.ResponseWriter, r *http.Re
 		WriteError(w, http.StatusBadRequest, errCodeInvalidRequest, "owner and name are required")
 		return
 	}
-	token := strings.TrimSpace(r.URL.Query().Get("token"))
-	if token == "" {
-		token = strings.TrimSpace(os.Getenv("HUGGINGFACE_TOKEN"))
-	}
+	token := huggingFaceTokenFromRequest(r)
 	files, err := svc.HuggingFace().ListRepoFiles(r.Context(), owner+"/"+name, token)
 	if err != nil {
 		writeHFError(w, err)
@@ -362,6 +384,22 @@ func (h *Handler) HandleLocalModelsHFRepoFiles(w http.ResponseWriter, r *http.Re
 		"object": "local_models.huggingface.files",
 		"data":   files,
 	})
+}
+
+// huggingFaceTokenFromRequest reads the HF access token from the
+// `Authorization: Bearer …` request header, falling back to the
+// HUGGINGFACE_TOKEN env var. The token is never sourced from the
+// URL — query-string secrets leak through access logs, dev-server
+// stdout, and proxy headers.
+func huggingFaceTokenFromRequest(r *http.Request) string {
+	auth := strings.TrimSpace(r.Header.Get("Authorization"))
+	const bearerPrefix = "Bearer "
+	if strings.HasPrefix(auth, bearerPrefix) {
+		if tok := strings.TrimSpace(auth[len(bearerPrefix):]); tok != "" {
+			return tok
+		}
+	}
+	return strings.TrimSpace(os.Getenv("HUGGINGFACE_TOKEN"))
 }
 
 func writeHFError(w http.ResponseWriter, err error) {

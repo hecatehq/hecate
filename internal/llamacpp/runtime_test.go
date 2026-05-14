@@ -340,6 +340,81 @@ func TestRuntime_ActiveBaseURLMatchesRunningModel(t *testing.T) {
 	}
 }
 
+// blockingStarter holds Start() until release() is called, simulating a
+// slow spawn so concurrent Stop() can hit the pre-watcher window. The
+// caller controls when the spawn completes so the race window is open
+// for the duration of the test, not microseconds.
+type blockingStarter struct {
+	release  chan struct{}
+	released chan struct{}
+}
+
+func (s *blockingStarter) Start(ctx context.Context, opts ProcessStartOptions) (ProcessHandle, error) {
+	close(s.released) // signal: "EnsureLoaded reached starter.Start"
+	select {
+	case <-s.release:
+	case <-ctx.Done():
+		return nil, ctx.Err()
+	}
+	return &fakeHandle{
+		pid:    999,
+		port:   opts.Port,
+		host:   opts.Host,
+		exited: make(chan ProcessExitInfo, 1),
+	}, nil
+}
+
+// TestRuntime_StopWhilePreWatcher reproduces the race the Copilot
+// reviewer flagged: a Stop arriving between session insertion and
+// watcher-goroutine spawn must not deadlock on watcherDone.
+func TestRuntime_StopWhilePreWatcher(t *testing.T) {
+	t.Parallel()
+	store := &fakeStore{models: map[string]InstalledModel{
+		"qwen": {ID: "qwen", FilePath: "qwen.gguf"},
+	}}
+	starter := &blockingStarter{
+		release:  make(chan struct{}),
+		released: make(chan struct{}),
+	}
+	rt := makeRuntime(t, store, starter)
+
+	loadErr := make(chan error, 1)
+	go func() {
+		_, err := rt.EnsureLoaded(context.Background(), "qwen")
+		loadErr <- err
+	}()
+
+	// Wait for EnsureLoaded to reach starter.Start — at this point
+	// the session is in r.sessions with watcherDone=nil. A
+	// concurrent Stop would have raced past the session insert and
+	// be poised on watcherDone receive.
+	select {
+	case <-starter.released:
+	case <-time.After(2 * time.Second):
+		t.Fatal("starter.Start never reached")
+	}
+
+	stopDone := make(chan error, 1)
+	go func() {
+		stopDone <- rt.Stop(context.Background())
+	}()
+
+	// Stop must not block on the pre-watcher channel — it should
+	// observe watcherDone=nil for this session and return quickly.
+	select {
+	case err := <-stopDone:
+		if err != nil {
+			t.Fatalf("Stop returned: %v", err)
+		}
+	case <-time.After(500 * time.Millisecond):
+		t.Fatal("Stop deadlocked on pre-watcher session")
+	}
+
+	// Unblock the in-flight spawn so its goroutine cleans up.
+	close(starter.release)
+	<-loadErr
+}
+
 func TestRuntime_FreeTCPPortHandsOutDistinctPorts(t *testing.T) {
 	t.Parallel()
 	// Sanity: two consecutive calls must hand out non-zero ports.

@@ -182,10 +182,10 @@ type InstallSpec struct {
 	// falls back to the HUGGINGFACE_TOKEN env var if present.
 	//
 	// Not persisted: the token lives in the request and on the
-	// SSE stream only. v1 callers leave this empty and the gated
-	// repos surface a "not supported" error; v2 callers set it
-	// per install. A future PR can introduce encrypted at-rest
-	// storage when the cipher plumbing is sorted.
+	// SSE stream only — encrypted at-rest storage is a future
+	// follow-up. Operators on gated repos pass the token per
+	// install; the headless gateway can also pick it up from
+	// HUGGINGFACE_TOKEN in the environment.
 	HFToken string `json:"hf_token,omitempty"`
 }
 

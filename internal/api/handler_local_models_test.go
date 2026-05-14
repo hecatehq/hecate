@@ -64,6 +64,58 @@ func TestHandleLocalModelsCatalog_Dormant503(t *testing.T) {
 	}
 }
 
+// TestHandleLocalModelsCatalog_DormantOnUnusableBinary covers the
+// reviewer-flagged case: HECATE_LOCAL_MODELS=on but no usable binary
+// resolves. The service is wired but FeatureAvailability().Available
+// is false. Non-runtime handlers must still 503 — otherwise the
+// dormant invariant promised in docs/local-models.md breaks.
+func TestHandleLocalModelsCatalog_DormantOnUnusableBinary(t *testing.T) {
+	t.Parallel()
+	store := controlplane.NewMemoryStore()
+	svc, err := llamacpp.NewService(llamacpp.ServiceOptions{
+		// BinaryPath empty — service wired but feature dormant.
+		DataDir: t.TempDir(),
+		Store:   store,
+	})
+	if err != nil {
+		t.Fatalf("NewService: %v", err)
+	}
+	h := makeHandlerWithLocalModels(t, svc)
+	rec := httptest.NewRecorder()
+	h.HandleLocalModelsCatalog(rec, httptest.NewRequest(http.MethodGet, "/hecate/v1/local-models/catalog", nil))
+	if rec.Code != http.StatusServiceUnavailable {
+		t.Fatalf("status = %d; want 503 (body=%q)", rec.Code, rec.Body.String())
+	}
+	if !strings.Contains(rec.Body.String(), errCodeLocalModelsUnavailable) {
+		t.Fatalf("body missing %q: %q", errCodeLocalModelsUnavailable, rec.Body.String())
+	}
+}
+
+// TestHandleLocalModelsRuntimeStatus_DormantOnUnusableBinary confirms
+// the introspection handler still returns 200 + availability=false
+// when the binary is unresolved — operators need this body to know
+// *why* the feature is dormant.
+func TestHandleLocalModelsRuntimeStatus_DormantOnUnusableBinary(t *testing.T) {
+	t.Parallel()
+	store := controlplane.NewMemoryStore()
+	svc, err := llamacpp.NewService(llamacpp.ServiceOptions{
+		DataDir: t.TempDir(),
+		Store:   store,
+	})
+	if err != nil {
+		t.Fatalf("NewService: %v", err)
+	}
+	h := makeHandlerWithLocalModels(t, svc)
+	rec := httptest.NewRecorder()
+	h.HandleLocalModelsRuntimeStatus(rec, httptest.NewRequest(http.MethodGet, "/hecate/v1/local-models/runtime", nil))
+	if rec.Code != http.StatusOK {
+		t.Fatalf("status = %d; want 200 (body=%q)", rec.Code, rec.Body.String())
+	}
+	if !strings.Contains(rec.Body.String(), `"available":false`) {
+		t.Fatalf("body missing dormant marker: %q", rec.Body.String())
+	}
+}
+
 func TestHandleLocalModelsCatalog_ReturnsCuratedList(t *testing.T) {
 	t.Parallel()
 	svc, _, _ := makeRealService(t)
@@ -421,7 +473,7 @@ func TestHandleLocalModelsHFRepoFiles_MapsNotFound(t *testing.T) {
 	}
 }
 
-func TestHandleLocalModelsHFSearch_ForwardsToken(t *testing.T) {
+func TestHandleLocalModelsHFSearch_ForwardsTokenFromHeader(t *testing.T) {
 	t.Parallel()
 	var capturedAuth string
 	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
@@ -433,12 +485,40 @@ func TestHandleLocalModelsHFSearch_ForwardsToken(t *testing.T) {
 	svc := makeServiceWithHF(t, srv.URL)
 	h := makeHandlerWithLocalModels(t, svc)
 	rec := httptest.NewRecorder()
-	req := httptest.NewRequest(http.MethodGet, "/hecate/v1/local-models/huggingface/search?token=secret-xyz", nil)
+	// Header path — the only supported transport for the HF token.
+	// Query-string tokens (?token=) are ignored on purpose so the
+	// secret can't leak through access logs.
+	req := httptest.NewRequest(http.MethodGet, "/hecate/v1/local-models/huggingface/search", nil)
+	req.Header.Set("Authorization", "Bearer secret-xyz")
 	h.HandleLocalModelsHFSearch(rec, req)
 	if rec.Code != http.StatusOK {
 		t.Fatalf("status = %d; want 200", rec.Code)
 	}
 	if capturedAuth != "Bearer secret-xyz" {
 		t.Fatalf("Authorization = %q; want Bearer secret-xyz", capturedAuth)
+	}
+}
+
+func TestHandleLocalModelsHFSearch_IgnoresQueryStringToken(t *testing.T) {
+	t.Parallel()
+	var capturedAuth string
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		capturedAuth = r.Header.Get("Authorization")
+		_, _ = w.Write([]byte(`[]`))
+	}))
+	defer srv.Close()
+
+	svc := makeServiceWithHF(t, srv.URL)
+	h := makeHandlerWithLocalModels(t, svc)
+	rec := httptest.NewRecorder()
+	// Old query-string transport is removed — a ?token= in the URL
+	// must not leak through to HF.
+	req := httptest.NewRequest(http.MethodGet, "/hecate/v1/local-models/huggingface/search?token=should-be-ignored", nil)
+	h.HandleLocalModelsHFSearch(rec, req)
+	if rec.Code != http.StatusOK {
+		t.Fatalf("status = %d; want 200", rec.Code)
+	}
+	if capturedAuth != "" {
+		t.Fatalf("Authorization = %q; want empty (query-string token must be ignored)", capturedAuth)
 	}
 }

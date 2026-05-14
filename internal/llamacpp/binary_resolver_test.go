@@ -291,6 +291,10 @@ func TestBinaryResolver_HTTPErrorPath(t *testing.T) {
 		DataDir:       t.TempDir(),
 		AllowDownload: true,
 		HTTP:          srv.Client(),
+		// AllowUnverifiedDownload because this test exercises the
+		// HTTP failure path before we'd compute a sha — pinning
+		// one would just be ceremony.
+		AllowUnverifiedDownload: true,
 		Spec: BinarySpec{
 			AssetURL:    srv.URL,
 			InnerPath:   "build/bin/llama-server",
@@ -303,6 +307,27 @@ func TestBinaryResolver_HTTPErrorPath(t *testing.T) {
 	}
 	if !contains(err.Error(), "404") {
 		t.Fatalf("error %q should mention 404", err)
+	}
+}
+
+func TestBinaryResolver_SHARequiredFailsClosed(t *testing.T) {
+	t.Parallel()
+	// AllowDownload=true + empty AssetSHA256 + AllowUnverifiedDownload=false
+	// must hard-fail with ErrBinarySHARequired. Defence-in-depth
+	// against the v1 behavior where the lazy-download path could
+	// download + chmod + exec an unverified upstream archive.
+	resolver, _ := NewBinaryResolver(BinaryResolverOptions{
+		DataDir:       t.TempDir(),
+		AllowDownload: true,
+		Spec: BinarySpec{
+			AssetURL:    "https://example.invalid/llama-server.zip",
+			InnerPath:   "build/bin/llama-server",
+			ArchiveType: "zip",
+		},
+	})
+	_, err := resolver.Resolve(context.Background())
+	if !errors.Is(err, ErrBinarySHARequired) {
+		t.Fatalf("expected ErrBinarySHARequired, got %v", err)
 	}
 }
 

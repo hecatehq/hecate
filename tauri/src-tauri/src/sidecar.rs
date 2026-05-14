@@ -137,6 +137,22 @@ pub fn resolve_llama_server_binary() -> Option<PathBuf> {
     #[cfg(debug_assertions)]
     {
         let manifest = PathBuf::from(env!("CARGO_MANIFEST_DIR"));
+        // The dev resolver checks two places, in order:
+        //   1. tauri/src-tauri/binaries/llama-server-<triple> — where
+        //      scripts/fetch-llama-server.ts stages the binary. This
+        //      is the documented dev path; missing it before meant
+        //      operators ran the fetch script and still got dormant.
+        //   2. <repo_root>/llama-server — historical fallback for
+        //      operators who built the binary themselves and dropped
+        //      it at the repo root.
+        let triple = env!("TARGET");
+        let staged_dir = manifest.join("binaries");
+        for name in sidecar_binary_names("llama-server", Some(triple)) {
+            let candidate = staged_dir.join(&name);
+            if candidate.is_file() {
+                return Some(candidate);
+            }
+        }
         if let Some(repo_root) = manifest.parent().and_then(|p| p.parent()) {
             for name in sidecar_binary_names("llama-server", None) {
                 let candidate = repo_root.join(&name);

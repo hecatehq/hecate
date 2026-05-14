@@ -13,9 +13,12 @@
 //   - The upstream release tag is pinned in LLAMA_CPP_RELEASE below.
 //     Bumping it is a deliberate one-line change; CI verifies the
 //     resulting bundle through the normal release flow.
-//   - Downloads are sha256-verified when EXPECTED_SHA256 is set;
-//     during v1 bring-up the sha is left empty so the script is
-//     usable before the first verified build, with a warning.
+//   - Downloads are sha256-verified against the per-target pin in
+//     TARGETS below. The script *fails closed* when the sha is
+//     empty — we don't ship an unverified binary in the desktop
+//     bundle, ever. Set HECATE_ALLOW_UNVERIFIED_LLAMA_SERVER=1 to
+//     opt into the unverified path during dev (e.g. when bumping
+//     the release tag and the new sha isn't yet recorded).
 //
 // Platforms covered in v1:
 //   - aarch64-apple-darwin  (macOS Apple Silicon, Metal-enabled)
@@ -47,9 +50,10 @@ type TargetSpec = {
   // Path inside the extracted archive at which `llama-server` lives.
   // macOS arm64 layout puts it under build/bin/.
   innerPath: string;
-  // SHA256 of the asset. Empty during v1 bring-up — fill before
-  // bumping LLAMA_CPP_RELEASE so the next operator sees the verified
-  // path.
+  // SHA256 of the asset (lowercase hex). Required — fetchTarget()
+  // refuses to stage a binary without one unless the
+  // HECATE_ALLOW_UNVERIFIED_LLAMA_SERVER escape hatch is set.
+  // Backfill before bumping LLAMA_CPP_RELEASE.
   sha256: string;
 };
 
@@ -158,8 +162,21 @@ async function fetchTarget(spec: TargetSpec, force: boolean) {
         );
       }
       console.log(`✓ sha256 verified (${got.slice(0, 12)}…)`);
+    } else if (process.env.HECATE_ALLOW_UNVERIFIED_LLAMA_SERVER === "1") {
+      const got = await sha256OfFile(archive);
+      console.warn(
+        `⚠ no pinned sha256 for ${spec.triple}; bypass active.\n` +
+          `  archive sha256: ${got}\n` +
+          `  set TARGETS[].sha256 to this value in scripts/fetch-llama-server.ts ` +
+          `before merging.`,
+      );
     } else {
-      console.warn(`⚠ no pinned sha256 for ${spec.triple}; download is not verified.`);
+      throw new Error(
+        `no pinned sha256 for ${spec.triple}. The desktop bundle won't ship an ` +
+          `unverified binary. Either fill TARGETS[].sha256 in this script, or — ` +
+          `during dev only — set HECATE_ALLOW_UNVERIFIED_LLAMA_SERVER=1 and the ` +
+          `script will print the observed digest so you can record it.`,
+      );
     }
 
     unzip(archive, work);

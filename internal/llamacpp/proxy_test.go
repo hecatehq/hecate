@@ -38,6 +38,18 @@ func (r *fakeProxyRuntime) EnsureLoaded(_ context.Context, modelID string) (stri
 	return r.baseURL, nil
 }
 
+func (r *fakeProxyRuntime) ActiveBaseURL(_ string) (string, error) {
+	r.mu.Lock()
+	defer r.mu.Unlock()
+	if r.ensureErr != nil {
+		return "", r.ensureErr
+	}
+	if r.baseURL == "" {
+		return "", ErrRuntimeNotRunning
+	}
+	return r.baseURL, nil
+}
+
 // proxyTestUpstream is the "llama-server" the proxy forwards to. It
 // records the inbound request and replays a canned response so tests
 // can assert both the forwarded path/body and that streaming works.
@@ -236,6 +248,80 @@ func TestProxy_EmptyModelReturns400(t *testing.T) {
 	}
 	if !strings.Contains(rec.Body.String(), "model field") {
 		t.Fatalf("body should mention missing model field: %q", rec.Body.String())
+	}
+}
+
+// TestProxy_GetModelsForwardsWithoutModelPeek covers the body-less
+// path: GET /v1/models has no JSON body, so it must skip the model
+// peek and forward to the active session. Previously this 400'd
+// because peekModel returned "" and the proxy rejected an empty
+// model field.
+func TestProxy_GetModelsForwardsWithoutModelPeek(t *testing.T) {
+	t.Parallel()
+	upstream := &proxyTestUpstream{
+		responseBody: `{"object":"list","data":[{"id":"qwen"}]}`,
+	}
+	upstreamSrv := httptest.NewServer(upstream.handler())
+	defer upstreamSrv.Close()
+
+	rt := &fakeProxyRuntime{available: true, baseURL: upstreamSrv.URL}
+	proxy := NewProxy(rt)
+
+	req := httptest.NewRequest(http.MethodGet, "/hecate/internal/llamacpp/v1/models", nil)
+	rec := httptest.NewRecorder()
+	proxy.ServeHTTP(rec, req)
+	if rec.Code != http.StatusOK {
+		t.Fatalf("status = %d; want 200; body=%q", rec.Code, rec.Body.String())
+	}
+	upstream.mu.Lock()
+	defer upstream.mu.Unlock()
+	if upstream.gotPath != "/v1/models" {
+		t.Fatalf("upstream path = %q; want /v1/models", upstream.gotPath)
+	}
+	if upstream.gotMethod != http.MethodGet {
+		t.Fatalf("upstream method = %q; want GET", upstream.gotMethod)
+	}
+	if rt.loadCalls != 0 {
+		t.Fatalf("body-less request should not auto-load; loadCalls=%d", rt.loadCalls)
+	}
+}
+
+func TestProxy_GetModelsReturns503WhenNothingLoaded(t *testing.T) {
+	t.Parallel()
+	// baseURL empty + ensureErr nil → ActiveBaseURL("") returns
+	// ErrRuntimeNotRunning, which the proxy maps to 503.
+	rt := &fakeProxyRuntime{available: true, baseURL: ""}
+	proxy := NewProxy(rt)
+	req := httptest.NewRequest(http.MethodGet, "/hecate/internal/llamacpp/v1/models", nil)
+	rec := httptest.NewRecorder()
+	proxy.ServeHTTP(rec, req)
+	if rec.Code != http.StatusServiceUnavailable {
+		t.Fatalf("status = %d; want 503", rec.Code)
+	}
+}
+
+// TestProxy_AcceptsLargeRequestBody guards against the 64 KiB cap
+// regression — real chat-completion payloads with conversation
+// history easily exceed that.
+func TestProxy_AcceptsLargeRequestBody(t *testing.T) {
+	t.Parallel()
+	upstream := &proxyTestUpstream{
+		responseBody: `{"id":"ok"}`,
+	}
+	upstreamSrv := httptest.NewServer(upstream.handler())
+	defer upstreamSrv.Close()
+	rt := &fakeProxyRuntime{available: true, baseURL: upstreamSrv.URL}
+	proxy := NewProxy(rt)
+
+	// 1 MiB of filler content in a JSON payload — comfortably above
+	// the old 64 KiB peek cap but well below the new 16 MiB limit.
+	filler := strings.Repeat("a", 1024*1024)
+	body := []byte(`{"model":"qwen","messages":[{"role":"user","content":"` + filler + `"}]}`)
+	req := httptest.NewRequest(http.MethodPost, "/hecate/internal/llamacpp/v1/chat/completions", bytes.NewReader(body))
+	rec := httptest.NewRecorder()
+	proxy.ServeHTTP(rec, req)
+	if rec.Code != http.StatusOK {
+		t.Fatalf("status = %d; want 200 (body=%q)", rec.Code, rec.Body.String())
 	}
 }
 

@@ -458,10 +458,15 @@ func (r *Runtime) EnsureLoaded(ctx context.Context, modelID string) (string, err
 	// transition out.
 	_, span := startRuntimeSpan(ctx, modelID, port, contextSize)
 	session := &runtimeSession{
-		modelID:     modelID,
-		spawnedAt:   r.opts.clock(),
-		span:        span,
-		watcherDone: make(chan struct{}),
+		modelID:   modelID,
+		spawnedAt: r.opts.clock(),
+		span:      span,
+		// watcherDone stays nil until the crash listener is
+		// actually spawned. A concurrent Stop seen between this
+		// point and `go r.watchChild(session)` below would
+		// otherwise block forever on a channel no goroutine will
+		// close — see stopSessionLocked's `if watcher != nil`
+		// guard.
 	}
 	r.sessions[modelID] = session
 	r.touchLRULocked(modelID)
@@ -493,6 +498,11 @@ func (r *Runtime) EnsureLoaded(ctx context.Context, modelID string) (string, err
 		return "", startErr
 	}
 	session.handle = handle
+	// watcherDone must be created *before* the goroutine is
+	// spawned so Stop's `<-watcher` receive can never observe
+	// "nil channel after spawn". The goroutine guarantees the
+	// close in its defer.
+	session.watcherDone = make(chan struct{})
 
 	// Spawn crash listener while we still hold the mutex so the
 	// observation can never race a stop called from EnsureLoaded
@@ -654,7 +664,14 @@ func (r *Runtime) stopActiveLocked(ctx context.Context) error {
 // and transitions to RuntimeFailed. Exits during RuntimeStopping are
 // expected — they're the result of Stop being called.
 func (r *Runtime) watchChild(session *runtimeSession) {
-	defer close(session.watcherDone)
+	defer func() {
+		// Channel may be nil if EnsureLoaded failed between
+		// session creation and watcher spawn — defensive only,
+		// the spawn happens with watcherDone already set.
+		if session.watcherDone != nil {
+			close(session.watcherDone)
+		}
+	}()
 
 	if session.handle == nil {
 		return
