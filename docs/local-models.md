@@ -192,7 +192,8 @@ Stable error codes:
 |---|---|---|
 | `HECATE_LLAMA_SERVER_BIN` | unset | Absolute path to the `llama-server` binary. Setting it activates the feature. Tauri sidecar startup sets it automatically when the bundled binary resolves. |
 | `HECATE_LOCAL_MODELS` | unset (off) | When `on`, the feature initializes even if `HECATE_LLAMA_SERVER_BIN` is empty — useful for letting the gateway boot without a usable binary so the dormant `/runtime` shape can be inspected. |
-| `GATEWAY_DATA_DIR` | `.data` (gateway default) / app-data dir (Tauri) | Root for `models/`. |
+| `HECATE_LOCAL_MODELS_LAZY_DOWNLOAD` | unset (off) | Headless / dev gateways opt into a one-time `llama-server` download from the pinned upstream llama.cpp release. The binary lands at `<data_dir>/llamacpp/bin/llama-server` (chmod +x, atomic rename) and is cached across runs. Tauri builds leave this OFF — they bundle the binary directly via externalBin. Downloads sha-verify when the pin carries a digest; a mismatch hard-fails. |
+| `GATEWAY_DATA_DIR` | `.data` (gateway default) / app-data dir (Tauri) | Root for `models/` and `llamacpp/bin/`. |
 
 The Tauri sidecar passes `HECATE_LLAMA_SERVER_BIN` and
 `HECATE_LOCAL_MODELS=on` to the gateway child whenever it resolves a

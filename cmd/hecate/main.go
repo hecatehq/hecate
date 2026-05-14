@@ -290,13 +290,31 @@ func main() {
 		Metrics:      handler.OrchestratorMetrics(),
 	}))
 
-	// Local-models subsystem (Hecate-managed llama.cpp). Dormant
-	// unless HECATE_LLAMA_SERVER_BIN points at an executable binary.
-	// Tauri sidecar startup sets this for desktop builds; the Go
-	// gateway alone leaves it unset and the feature reports
-	// "binary_not_found" to the UI without mounting the proxy. See
-	// docs/rfcs/local-models-llamacpp.md.
-	if binaryPath := os.Getenv("HECATE_LLAMA_SERVER_BIN"); binaryPath != "" || os.Getenv("HECATE_LOCAL_MODELS") == "on" {
+	// Local-models subsystem (Hecate-managed llama.cpp). v1 was
+	// dormant unless HECATE_LLAMA_SERVER_BIN was already set; v2
+	// adds an opt-in lazy-download path that resolves the binary
+	// from <data_dir>/llamacpp/bin/ or downloads + verifies the
+	// pinned upstream release on first call. Tauri sidecar startup
+	// keeps setting HECATE_LLAMA_SERVER_BIN directly; headless
+	// gateways flip HECATE_LOCAL_MODELS_LAZY_DOWNLOAD=on to opt in.
+	if shouldInitLocalModels() {
+		resolver, _ := llamacpp.NewBinaryResolver(llamacpp.BinaryResolverOptions{
+			DataDir:       cfg.Server.DataDir,
+			ExplicitPath:  os.Getenv("HECATE_LLAMA_SERVER_BIN"),
+			AllowDownload: os.Getenv("HECATE_LOCAL_MODELS_LAZY_DOWNLOAD") == "on",
+		})
+		binaryPath := ""
+		if resolver != nil {
+			ctx, cancel := context.WithTimeout(context.Background(), 60*time.Second)
+			resolved, resolveErr := resolver.Resolve(ctx)
+			cancel()
+			if resolveErr == nil {
+				binaryPath = resolved
+			} else if !errors.Is(resolveErr, llamacpp.ErrBinaryUnavailable) {
+				logger.Warn("local-models binary resolution failed; feature dormant",
+					slog.Any("error", resolveErr))
+			}
+		}
 		localModelsSvc, lmErr := llamacpp.NewService(llamacpp.ServiceOptions{
 			BinaryPath: binaryPath,
 			DataDir:    cfg.Server.DataDir,
@@ -762,6 +780,31 @@ func buildApprovalStore(cfg config.Config, logger *slog.Logger, sqliteClient *st
 	default:
 		return agentadapters.NewMemoryApprovalStore()
 	}
+}
+
+// shouldInitLocalModels gates the local-models subsystem on operator
+// opt-in. Any of these flags triggers init:
+//
+//   - HECATE_LLAMA_SERVER_BIN is set (Tauri sidecar path, or an
+//     operator pointing at their own binary).
+//   - HECATE_LOCAL_MODELS=on (force-on; pairs with cache hit or
+//     lazy download).
+//   - HECATE_LOCAL_MODELS_LAZY_DOWNLOAD=on (headless lazy-download
+//     opt-in; downloads + verifies upstream on first request).
+//
+// When none are set the gateway boots without mounting the
+// local-models endpoints — same dormant shape as v1.
+func shouldInitLocalModels() bool {
+	if strings.TrimSpace(os.Getenv("HECATE_LLAMA_SERVER_BIN")) != "" {
+		return true
+	}
+	if os.Getenv("HECATE_LOCAL_MODELS") == "on" {
+		return true
+	}
+	if os.Getenv("HECATE_LOCAL_MODELS_LAZY_DOWNLOAD") == "on" {
+		return true
+	}
+	return false
 }
 
 func retentionHistoryKey(key string) string {

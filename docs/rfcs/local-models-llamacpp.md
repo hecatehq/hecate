@@ -551,8 +551,12 @@ the UI card without deleting any downloaded files.
   releases.
 - Per-model fine-grained config (LoRA, draft model, speculative decoding,
   custom chat templates).
-- Headless / CLI lazy-download codepath (the dormant
-  `<data_dir>/llamacpp/bin/` directory is reserved for this).
+- ~~Headless / CLI lazy-download codepath (the dormant
+  `<data_dir>/llamacpp/bin/` directory is reserved for this).~~
+  Landed in v2 — `HECATE_LOCAL_MODELS_LAZY_DOWNLOAD=on` triggers an
+  on-demand fetch from the pinned upstream release; the binary
+  caches at `<data_dir>/llamacpp/bin/llama-server` across runs. See
+  `internal/llamacpp/binary_resolver.go`.
 - MLX or other non-llama.cpp local runtimes. The
   `/hecate/v1/local-models/*` URL prefix is engine-agnostic; a future MLX
   engine would join the same namespace.
