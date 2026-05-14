@@ -122,7 +122,10 @@ spawning the shell. Both are always-on; the cap is configurable.
   before process start. This is an output-shaping hook, not a policy
   bypass: the original command string is still what the sandbox
   validates, and the process still receives the sanitised environment,
-  timeout, output cap, and Layer 2 wrapper.
+  timeout, output cap, and Layer 2 wrapper. Step telemetry records both
+  the pre-wrapper command (`hecate.sandbox.rtk.command.before`) and the
+  wrapped command (`hecate.sandbox.rtk.command.after`) so operators can
+  audit what RTK changed.
 
 CPU / file-descriptor / address-space caps are *not* applied
 per-call. `RLIMIT_*` values set via `setrlimit` modify the calling

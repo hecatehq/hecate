@@ -1632,6 +1632,12 @@ func addShellDebugSummary(summary map[string]any, input map[string]any) {
 	if value, ok := input[telemetry.AttrHecateSandboxRTKEnabled]; ok {
 		summary[telemetry.AttrHecateSandboxRTKEnabled] = value
 	}
+	if value, ok := input[telemetry.AttrHecateSandboxRTKCommandBefore]; ok {
+		summary[telemetry.AttrHecateSandboxRTKCommandBefore] = value
+	}
+	if value, ok := input[telemetry.AttrHecateSandboxRTKCommandAfter]; ok {
+		summary[telemetry.AttrHecateSandboxRTKCommandAfter] = value
+	}
 	if value, ok := input["argv"]; ok {
 		summary["argv"] = value
 	}

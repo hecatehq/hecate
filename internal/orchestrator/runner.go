@@ -32,6 +32,8 @@ var resourceIDCounter atomic.Uint64
 var stepTelemetryAttrKeys = []string{
 	telemetry.AttrHecateSandboxWrapperKind,
 	telemetry.AttrHecateSandboxRTKEnabled,
+	telemetry.AttrHecateSandboxRTKCommandBefore,
+	telemetry.AttrHecateSandboxRTKCommandAfter,
 	telemetry.AttrHecateSandboxNetworkEnabled,
 	telemetry.AttrHecateSandboxReadOnly,
 	telemetry.AttrHecateSandboxOutputLimit,

@@ -70,7 +70,10 @@ When enabled, future shell/git tool calls in task-backed turns launch as
 sandbox, timeout, and output-limit checks; RTK only changes the command output
 shape the model sees. Task/run activity carries the resulting argv and
 `hecate.sandbox.rtk.enabled` flag so debugging can confirm whether a command
-actually used RTK.
+actually used RTK. When compact output is enabled, telemetry also carries
+`hecate.sandbox.rtk.command.before` and `hecate.sandbox.rtk.command.after` so
+operators can compare the command Hecate validated with the argv that RTK
+wrapped.
 
 The operator UI's **Hecate Chat** target now uses **Agent Chat** sessions under
 `/hecate/v1/agent-chat/sessions` for both tools-off direct model turns and tools-on

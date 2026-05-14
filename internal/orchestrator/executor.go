@@ -8,6 +8,7 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
+	"strconv"
 	"strings"
 	"time"
 
@@ -387,6 +388,7 @@ func executeStreamingCommand(ctx context.Context, exec sandbox.Executor, spec Ex
 		telemetry.AttrHecateToolTimeoutMS:        timeout,
 	}
 	mergeMap(stepInput, sandboxTelemetryAttrs(policy, wrapperKind, outputLimit, spec.RTKEnabled))
+	mergeMap(stepInput, rtkCommandTelemetryAttrs(commandSpec.command, spec.RTKEnabled))
 	step := newExecutionStep(spec, commandSpec.kind, commandSpec.title, commandSpec.toolName, stepInput)
 	toolCallID := firstNonEmpty(spec.ToolCallID, step.ID)
 	eventToolName := firstNonEmpty(spec.ToolName, commandSpec.toolName)
@@ -396,7 +398,7 @@ func executeStreamingCommand(ctx context.Context, exec sandbox.Executor, spec Ex
 		emitTypedShellRunEvent(spec, "tool.invoked", cloneMap(baseEvent))
 		emitTypedShellRunEvent(spec, "tool.started", cloneMap(baseEvent))
 		commandEvent := shellToolTelemetryAttrs(toolCallID, eventToolName, policy, wrapperKind, outputLimit, spec.RTKEnabled)
-		commandEvent["argv"] = sandbox.ShellArgv(sandbox.Command{Command: displayCommand, RTKEnabled: spec.RTKEnabled})
+		commandEvent["argv"] = sandbox.ShellArgv(sandbox.Command{Command: commandSpec.command, RTKEnabled: spec.RTKEnabled})
 		commandEvent["cwd"] = workingDirectory
 		commandEvent["env_keys"] = []string{"PATH", "HOME"}
 		commandEvent["sandbox_layer"] = wrapperKind
@@ -404,6 +406,7 @@ func executeStreamingCommand(ctx context.Context, exec sandbox.Executor, spec Ex
 		commandEvent[telemetry.AttrHecateToolWorkingDirectory] = workingDirectory
 		commandEvent[telemetry.AttrHecateToolTimeoutMS] = timeout
 		commandEvent["command_string"] = displayCommand
+		mergeMap(commandEvent, rtkCommandTelemetryAttrs(commandSpec.command, spec.RTKEnabled))
 		emitTypedShellRunEvent(spec, "tool.shell.command", commandEvent)
 	}
 	step.OutputSummary = map[string]any{
@@ -474,6 +477,7 @@ func executeStreamingCommand(ctx context.Context, exec sandbox.Executor, spec Ex
 	stepOutput["stderr_bytes"] = len(resultData.Stderr)
 	stepOutput["exit_code"] = resultData.ExitCode
 	mergeMap(stepOutput, sandboxTelemetryAttrs(policy, wrapperKind, outputLimit, spec.RTKEnabled))
+	mergeMap(stepOutput, rtkCommandTelemetryAttrs(commandSpec.command, spec.RTKEnabled))
 	finalizeExecutionStep(&step, finishedAt, status, result, lastError, commandErrorKind(err, commandSpec.timeoutErrorKind, commandSpec.defaultErrorKind), stepOutput)
 	step.ExitCode = resultData.ExitCode
 	if commandSpec.kind == "shell" && !sandbox.IsPolicyDenied(err) {
@@ -532,6 +536,28 @@ func executeStreamingCommand(ctx context.Context, exec sandbox.Executor, spec Ex
 	}
 
 	return newExecutionResult(status, []types.TaskStep{step}, []types.TaskArtifact{stdoutArtifact, stderrArtifact}, lastError, otelStatusCode, otelStatusMessage), nil
+}
+
+func rtkCommandTelemetryAttrs(command string, enabled bool) map[string]any {
+	if !enabled {
+		return nil
+	}
+	return map[string]any{
+		telemetry.AttrHecateSandboxRTKCommandBefore: formatCommandArgv(sandbox.ShellArgv(sandbox.Command{Command: command})),
+		telemetry.AttrHecateSandboxRTKCommandAfter:  formatCommandArgv(sandbox.ShellArgv(sandbox.Command{Command: command, RTKEnabled: true})),
+	}
+}
+
+func formatCommandArgv(argv []string) string {
+	parts := make([]string, 0, len(argv))
+	for _, arg := range argv {
+		if strings.ContainsAny(arg, " \t\r\n\"'\\$`") {
+			parts = append(parts, strconv.Quote(arg))
+			continue
+		}
+		parts = append(parts, arg)
+	}
+	return strings.Join(parts, " ")
 }
 
 func sandboxTelemetryAttrs(policy sandbox.Policy, wrapperKind string, outputLimit int64, rtkEnabled bool) map[string]any {
