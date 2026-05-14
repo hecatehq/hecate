@@ -63,6 +63,44 @@ func TestSQLiteStore_ModelCapabilityLifecycle(t *testing.T) {
 	runStoreModelCapabilityLifecycle(t, newSQLiteTestStore(t))
 }
 
+func TestSQLiteStore_InstalledModelLifecycle(t *testing.T) {
+	t.Parallel()
+	runStoreInstalledModelLifecycle(t, newSQLiteTestStore(t))
+}
+
+// Verifies the JSON round-trip preserves InstalledModel rows across
+// a Snapshot, matching the existing pattern used by
+// TestSQLiteStore_PolicyRuleRoundTrip.
+func TestSQLiteStore_InstalledModelRoundTrip(t *testing.T) {
+	t.Parallel()
+	store := newSQLiteTestStore(t)
+	ctx := context.Background()
+
+	written, err := store.UpsertInstalledModel(ctx, InstalledModel{
+		ID:       "round-trip",
+		FilePath: "models/round-trip.gguf",
+		SHA256:   "abc123",
+	})
+	if err != nil {
+		t.Fatalf("Upsert: %v", err)
+	}
+
+	state, err := store.Snapshot(ctx)
+	if err != nil {
+		t.Fatalf("Snapshot: %v", err)
+	}
+	if len(state.InstalledModels) != 1 {
+		t.Fatalf("InstalledModels round-trip count = %d, want 1", len(state.InstalledModels))
+	}
+	got := state.InstalledModels[0]
+	if got.ID != "round-trip" || got.SHA256 != "abc123" || got.FilePath != "models/round-trip.gguf" {
+		t.Fatalf("round-trip mismatch: %+v", got)
+	}
+	if got.InstalledAt.IsZero() || !got.InstalledAt.Equal(written.InstalledAt) {
+		t.Fatalf("InstalledAt round-trip mismatch: write=%v read=%v", written.InstalledAt, got.InstalledAt)
+	}
+}
+
 func TestSQLiteStore_PolicyRuleRoundTrip(t *testing.T) {
 	t.Parallel()
 	store := newSQLiteTestStore(t)

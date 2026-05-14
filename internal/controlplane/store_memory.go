@@ -114,6 +114,18 @@ func (s *MemoryStore) UpsertModelCapabilityProbe(ctx context.Context, record Mod
 	return applyModelCapabilityProbe(ctx, &s.data, record)
 }
 
+func (s *MemoryStore) UpsertInstalledModel(ctx context.Context, model InstalledModel) (InstalledModel, error) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	return applyUpsertInstalledModel(ctx, &s.data, model)
+}
+
+func (s *MemoryStore) DeleteInstalledModel(ctx context.Context, id string) error {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	return applyDeleteInstalledModel(ctx, &s.data, id)
+}
+
 func (s *MemoryStore) PruneAuditEvents(_ context.Context, maxAge time.Duration, maxCount int) (int, error) {
 	s.mu.Lock()
 	defer s.mu.Unlock()
