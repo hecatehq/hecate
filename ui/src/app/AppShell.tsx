@@ -1,4 +1,4 @@
-import { Suspense, lazy, useState } from "react";
+import { Suspense, lazy, useEffect, useState } from "react";
 
 import type { RuntimeConsoleViewModel } from "./useRuntimeConsole";
 import type { AgentChatUsageRecord } from "../types/runtime";
@@ -68,6 +68,71 @@ function SvgIcon({ d, size = 18 }: { d: string | string[]; size?: number }) {
     </svg>
   );
 }
+
+// Theme — follows the OS by default and persists only an explicit user
+// override. The bootstrap script in index.html sets data-theme before
+// paint; this hook keeps React state, DOM, localStorage, and live OS
+// color-scheme changes in sync afterward.
+type Theme = "dark" | "light";
+type ThemePreference = Theme | "system";
+const THEME_KEY = "hecate.theme";
+
+function readStoredThemePreference(): ThemePreference {
+  if (typeof localStorage === "undefined") return "system";
+  try {
+    const stored = localStorage.getItem(THEME_KEY);
+    return stored === "light" || stored === "dark" ? stored : "system";
+  } catch {
+    return "system";
+  }
+}
+
+function preferredSystemTheme(): Theme {
+  if (typeof window === "undefined" || !window.matchMedia) return "dark";
+  return window.matchMedia("(prefers-color-scheme: light)").matches ? "light" : "dark";
+}
+
+function applyTheme(theme: Theme) {
+  document.documentElement.setAttribute("data-theme", theme);
+}
+
+function useTheme(): [Theme, () => void] {
+  const [preference, setPreference] = useState<ThemePreference>(readStoredThemePreference);
+  const [systemTheme, setSystemTheme] = useState<Theme>(preferredSystemTheme);
+  const theme = preference === "system" ? systemTheme : preference;
+
+  useEffect(() => {
+    const query = window.matchMedia?.("(prefers-color-scheme: light)");
+    if (!query) return;
+    const update = () => setSystemTheme(query.matches ? "light" : "dark");
+    update();
+    query.addEventListener?.("change", update);
+    return () => query.removeEventListener?.("change", update);
+  }, []);
+
+  useEffect(() => {
+    applyTheme(theme);
+    try {
+      if (preference === "system") localStorage.removeItem(THEME_KEY);
+      else localStorage.setItem(THEME_KEY, preference);
+    } catch { /* private mode etc. */ }
+  }, [preference, theme]);
+
+  return [theme, () => setPreference(theme === "dark" ? "light" : "dark")];
+}
+
+// Sun / moon glyphs for the theme toggle. Match the stroke-only style
+// of the activity-bar icons so the toggle reads as part of the rail.
+const SunIcon = (
+  <SvgIcon d={[
+    "M12 3v2", "M12 19v2", "M4.22 4.22l1.42 1.42", "M18.36 18.36l1.42 1.42",
+    "M3 12h2", "M19 12h2", "M4.22 19.78l1.42-1.42", "M18.36 5.64l1.42-1.42",
+    "M12 8a4 4 0 100 8 4 4 0 000-8z",
+  ]} />
+);
+const MoonIcon = (
+  <SvgIcon d="M21 12.79A9 9 0 1111.21 3a7 7 0 009.79 9.79z" />
+);
 
 type WorkspaceLineupEntry = WorkspaceDefinition;
 const WS: Record<WorkspaceID, WorkspaceLineupEntry> = {
@@ -176,6 +241,7 @@ function AuthenticatedShell({
   const workspaces = getAvailableWorkspaces();
   const [taskFocusRequest, setTaskFocusRequest] = useState<TaskFocusRequest | null>(null);
   const [traceFocusRequest, setTraceFocusRequest] = useState<TraceFocusRequest | null>(null);
+  const [theme, toggleTheme] = useTheme();
 
   function openTaskFromChat(taskID: string, runID?: string) {
     setTaskFocusRequest({ taskID, runID, nonce: Date.now() });
@@ -215,6 +281,18 @@ function AuthenticatedShell({
               {ws.icon}
             </button>
           ))}
+          {/* Pin theme toggle to the bottom of the rail. The flex spacer
+              keeps it visually separated from workspace icons regardless
+              of how many workspaces are registered. */}
+          <span style={{ flex: 1 }} />
+          <button
+            aria-label={`Switch to ${theme === "dark" ? "light" : "dark"} theme`}
+            className="hecate-activitybtn"
+            onClick={toggleTheme}
+            title={`Theme: ${theme}`}
+            type="button">
+            {theme === "dark" ? SunIcon : MoonIcon}
+          </button>
         </nav>
 
         {/* Main content */}
