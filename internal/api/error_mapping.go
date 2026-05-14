@@ -5,14 +5,11 @@ import (
 	"net/http"
 	"strings"
 
-	"github.com/hecate/agent-runtime/internal/billing"
 	"github.com/hecate/agent-runtime/internal/gateway"
 	"github.com/hecate/agent-runtime/internal/providers"
 )
 
 const (
-	errCodeBudgetExceeded      = "budget_exceeded"
-	errCodePriceMissing        = "price_missing"
 	errCodeProviderAuthFailed  = "provider_auth_failed"
 	errCodeProviderRateLimited = "provider_rate_limited"
 	errCodeProviderUnavailable = "provider_unavailable"
@@ -42,14 +39,6 @@ func classifyGatewayError(err error) gatewayHTTPError {
 		return out
 	}
 
-	if gateway.IsBudgetExceededError(err) {
-		return gatewayHTTPError{
-			Status:        http.StatusPaymentRequired,
-			OpenAIType:    errCodeBudgetExceeded,
-			AnthropicType: "payment_required",
-			Message:       err.Error(),
-		}
-	}
 	if gateway.IsRateLimitedError(err) {
 		return gatewayHTTPError{
 			Status:        http.StatusTooManyRequests,
@@ -57,12 +46,6 @@ func classifyGatewayError(err error) gatewayHTTPError {
 			AnthropicType: "rate_limit_error",
 			Message:       err.Error(),
 		}
-	}
-	if billing.IsPriceNotFound(err) {
-		out.Status = http.StatusFailedDependency
-		out.OpenAIType = errCodePriceMissing
-		out.Message = message
-		return out
 	}
 
 	var upstreamErr *providers.UpstreamError
@@ -210,10 +193,6 @@ func enrichGatewayErrorDetails(classified gatewayHTTPError, details ErrorDetails
 
 func gatewayErrorUserMessage(code string) string {
 	switch code {
-	case errCodeBudgetExceeded:
-		return "Budget is exhausted for this request."
-	case errCodePriceMissing:
-		return "Pricebook data is missing for the selected model."
 	case errCodeProviderAuthFailed:
 		return "Provider credentials failed."
 	case errCodeProviderRateLimited:
@@ -235,10 +214,6 @@ func gatewayErrorUserMessage(code string) string {
 
 func gatewayErrorAction(code string) string {
 	switch code {
-	case errCodeBudgetExceeded:
-		return "Raise the budget, choose a cheaper/local model, or wait for the budget window to reset."
-	case errCodePriceMissing:
-		return "Import or add a pricebook entry before routing cloud traffic for this model."
 	case errCodeProviderAuthFailed:
 		return "Update the provider credentials, then use Connections to test readiness again."
 	case errCodeProviderRateLimited:
@@ -250,7 +225,7 @@ func gatewayErrorAction(code string) string {
 	case errCodeUnsupportedModel:
 		return "Choose a discovered model for the selected provider, or switch provider routing back to Auto."
 	case errCodeForbidden:
-		return "Review policy rules, provider/model allowlists, and tenant budget settings."
+		return "Review policy rules, provider/model allowlists, and routing settings."
 	case errCodeRateLimitExceeded:
 		return "Wait for the bucket to refill or adjust the local gateway rate limit."
 	default:

@@ -21,7 +21,7 @@ import (
 
 // AgentLLMClient is the seam the agent loop uses to talk to a model.
 // Production wires this to gateway.Service.HandleChat — that gives the
-// agent the same provider routing, caching, budget tracking, and audit
+// agent the same provider routing, caching, usage tracking, and audit
 // trail as any other client. Tests substitute a fake.
 //
 // The interface accepts a full ChatRequest (with Tools populated) and

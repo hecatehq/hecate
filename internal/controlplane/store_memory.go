@@ -96,35 +96,6 @@ func (s *MemoryStore) DeletePolicyRule(ctx context.Context, id string) error {
 	return nil
 }
 
-func (s *MemoryStore) UpsertPricebookEntry(ctx context.Context, entry config.ModelPriceConfig) (config.ModelPriceConfig, error) {
-	entry, err := normalizePricebookEntry(entry)
-	if err != nil {
-		return config.ModelPriceConfig{}, err
-	}
-	s.mu.Lock()
-	defer s.mu.Unlock()
-	action := upsertPricebookEntry(&s.data, entry)
-	appendAuditEvent(&s.data, newAuditEvent(ctx, action, "pricebook_entry", pricebookEntryID(entry.Provider, entry.Model), ""))
-	return entry, nil
-}
-
-func (s *MemoryStore) DeletePricebookEntry(ctx context.Context, provider, model string) error {
-	provider = strings.TrimSpace(provider)
-	model = strings.TrimSpace(model)
-	if provider == "" || model == "" {
-		return fmt.Errorf("pricebook provider and model are required")
-	}
-	s.mu.Lock()
-	defer s.mu.Unlock()
-	index := pricebookEntryIndex(s.data.Pricebook, provider, model)
-	if index < 0 {
-		return fmt.Errorf("pricebook entry %q not found", pricebookEntryID(provider, model))
-	}
-	appendAuditEvent(&s.data, newAuditEvent(ctx, "pricebook_entry.deleted", "pricebook_entry", pricebookEntryID(provider, model), ""))
-	s.data.Pricebook = append(s.data.Pricebook[:index], s.data.Pricebook[index+1:]...)
-	return nil
-}
-
 func (s *MemoryStore) UpsertModelCapabilityOverride(ctx context.Context, record ModelCapabilityRecord) (ModelCapabilityRecord, error) {
 	s.mu.Lock()
 	defer s.mu.Unlock()

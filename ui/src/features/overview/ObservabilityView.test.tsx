@@ -479,25 +479,19 @@ describe("ObservabilityView", () => {
     });
   });
 
-  it("uses ledger provider and model when trace route fields are missing", async () => {
+  it("uses usage provider and model when trace route fields are missing", async () => {
     fetchMock.mockImplementation(tracesFetchHandler([
-      { request_id: "ledger-route-fallback", started_at: new Date().toISOString(), span_count: 1, duration_ms: 1, status_code: "ok", route: {} },
+      { request_id: "usage-route-fallback", started_at: new Date().toISOString(), span_count: 1, duration_ms: 1, status_code: "ok", route: {} },
     ]));
     const state = createRuntimeConsoleFixture({
       session: localSession,
-      requestLedger: [{
-        type: "debit",
-        request_id: "ledger-route-fallback",
+      usageEvents: [{
+        type: "usage",
+        request_id: "usage-route-fallback",
         provider: "ollama",
         model: "ministral-3:latest",
         amount_micros_usd: 0,
         amount_usd: "0",
-        balance_micros_usd: 0,
-        balance_usd: "0",
-        credited_micros_usd: 0,
-        credited_usd: "0",
-        debited_micros_usd: 0,
-        debited_usd: "0",
       }],
     });
     let container = null as unknown as HTMLElement;
@@ -508,8 +502,8 @@ describe("ObservabilityView", () => {
     await waitFor(() => {
       expect(container.textContent).toMatch(/ollama/);
       expect(container.textContent).toMatch(/ministral-3:latest/);
-      expect(container.textContent).toMatch(/ledger-r/);
-      expect(container.textContent).not.toMatch(/ledger-route-fallback/);
+      expect(container.textContent).toMatch(/usage-r/);
+      expect(container.textContent).not.toMatch(/usage-route-fallback/);
     });
   });
 
@@ -542,7 +536,7 @@ describe("ObservabilityView", () => {
         route: { candidates: [] },
       },
     ));
-    const state = createRuntimeConsoleFixture({ session: localSession, requestLedger: [] });
+    const state = createRuntimeConsoleFixture({ session: localSession, usageEvents: [] });
     let container = null as unknown as HTMLElement;
     await act(async () => {
       const result = render(<ObservabilityView state={state} actions={createRuntimeConsoleActions()} />);
@@ -613,23 +607,17 @@ describe("ObservabilityView", () => {
     expect(document.querySelector('[role="dialog"]')).toBeNull();
   });
 
-  it("renders $0.00000 for zero-cost rows when ledger entry exists", async () => {
+  it("renders $0.00000 for zero-cost rows when a usage entry exists", async () => {
     fetchMock.mockImplementation(tracesFetchHandler([
       { request_id: "zero-cost", started_at: new Date().toISOString(), span_count: 1, duration_ms: 1, status_code: "ok", route: { final_provider: "openai", final_model: "m" } },
     ]));
     const state = createRuntimeConsoleFixture({
       session: localSession,
-      requestLedger: [{
-        type: "debit",
+      usageEvents: [{
+        type: "usage",
         request_id: "zero-cost",
         amount_micros_usd: 0,
         amount_usd: "0",
-        balance_micros_usd: 0,
-        balance_usd: "0",
-        credited_micros_usd: 0,
-        credited_usd: "0",
-        debited_micros_usd: 0,
-        debited_usd: "0",
         prompt_tokens: 5,
         completion_tokens: 10,
       }],
@@ -880,11 +868,11 @@ describe("ObservabilityView", () => {
     });
   });
 
-  it("renders em-dash for cost when ledger has no entry", async () => {
+  it("renders em-dash for cost when usage has no entry", async () => {
     fetchMock.mockImplementation(tracesFetchHandler([
-      { request_id: "missing-ledger", started_at: new Date().toISOString(), span_count: 1, duration_ms: 1, status_code: "ok", route: { final_provider: "openai", final_model: "m" } },
+      { request_id: "missing-usage", started_at: new Date().toISOString(), span_count: 1, duration_ms: 1, status_code: "ok", route: { final_provider: "openai", final_model: "m" } },
     ]));
-    const state = createRuntimeConsoleFixture({ session: localSession, requestLedger: [] });
+    const state = createRuntimeConsoleFixture({ session: localSession, usageEvents: [] });
     let container = null as unknown as HTMLElement;
     await act(async () => {
       const result = render(<ObservabilityView state={state} actions={createRuntimeConsoleActions()} />);

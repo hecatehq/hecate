@@ -5,7 +5,6 @@ import (
 	"errors"
 	"fmt"
 
-	"github.com/hecate/agent-runtime/internal/billing"
 	"github.com/hecate/agent-runtime/internal/governor"
 	"github.com/hecate/agent-runtime/internal/providers"
 	"github.com/hecate/agent-runtime/pkg/types"
@@ -25,7 +24,6 @@ type RoutePreflightErrorKind string
 
 const (
 	RoutePreflightProviderNotFound RoutePreflightErrorKind = "provider_not_found"
-	RoutePreflightCostEstimate     RoutePreflightErrorKind = "preflight_price_missing"
 	RoutePreflightRouteDenied      RoutePreflightErrorKind = "route_denied"
 )
 
@@ -63,14 +61,12 @@ func AsRoutePreflightError(err error) (*RoutePreflightError, bool) {
 type DefaultRoutePreflight struct {
 	governor  governor.Governor
 	providers providers.Registry
-	pricebook billing.Pricebook
 }
 
-func NewDefaultRoutePreflight(governor governor.Governor, providers providers.Registry, pricebook billing.Pricebook) *DefaultRoutePreflight {
+func NewDefaultRoutePreflight(governor governor.Governor, providers providers.Registry) *DefaultRoutePreflight {
 	return &DefaultRoutePreflight{
 		governor:  governor,
 		providers: providers,
-		pricebook: pricebook,
 	}
 }
 
@@ -86,31 +82,19 @@ func (p *DefaultRoutePreflight) Evaluate(ctx context.Context, req types.ChatRequ
 	}
 
 	estimatedUsage := estimateUsage(withResolvedModel(req, decision.Model))
-	estimatedCost, err := p.pricebook.Estimate(decision.Provider, decision.Model, estimatedUsage)
-	if err != nil {
+	if err := p.governor.CheckRoute(ctx, req, decision, string(provider.Kind()), 0); err != nil {
 		return nil, &RoutePreflightError{
-			Kind:         RoutePreflightCostEstimate,
+			Kind:         RoutePreflightRouteDenied,
 			Provider:     decision.Provider,
 			Model:        decision.Model,
 			ProviderKind: string(provider.Kind()),
-			Err:          fmt.Errorf("estimate preflight cost: %w", err),
-		}
-	}
-
-	if err := p.governor.CheckRoute(ctx, req, decision, string(provider.Kind()), estimatedCost.TotalMicrosUSD); err != nil {
-		return nil, &RoutePreflightError{
-			Kind:                RoutePreflightRouteDenied,
-			Provider:            decision.Provider,
-			Model:               decision.Model,
-			ProviderKind:        string(provider.Kind()),
-			EstimatedCostMicros: estimatedCost.TotalMicrosUSD,
-			Err:                 err,
+			Err:          err,
 		}
 	}
 
 	return &RoutePreflightResult{
 		ProviderKind:   string(provider.Kind()),
 		EstimatedUsage: estimatedUsage,
-		EstimatedCost:  estimatedCost,
+		EstimatedCost:  types.CostBreakdown{Currency: "USD"},
 	}, nil
 }

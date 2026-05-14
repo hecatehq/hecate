@@ -44,7 +44,6 @@ func TestSpanMappingForEventGroups(t *testing.T) {
 		{telemetry.EventGovernorAllowed, telemetry.SpanGatewayGovernor},
 		{telemetry.EventGovernorDenied, telemetry.SpanGatewayGovernor},
 		{telemetry.EventGovernorModelRewrite, telemetry.SpanGatewayGovernor},
-		{telemetry.EventGovernorBudgetEstimateFailed, telemetry.SpanGatewayGovernor},
 		{telemetry.EventGovernorRouteDenied, telemetry.SpanGatewayGovernor},
 		{telemetry.EventGovernorRouteAllowed, telemetry.SpanGatewayGovernor},
 		{telemetry.EventGovernorUsageRecordFailed, telemetry.SpanGatewayGovernor},
@@ -65,10 +64,9 @@ func TestSpanMappingForEventGroups(t *testing.T) {
 		{telemetry.EventProviderFailoverTriggered, telemetry.SpanGatewayProvider},
 		{telemetry.EventProviderFailoverSkipped, telemetry.SpanGatewayProvider},
 		{telemetry.EventProviderHealthDegraded, telemetry.SpanGatewayProvider},
-		// Usage / cost / response
+		// Usage / response
 		{telemetry.EventUsageNormalized, telemetry.SpanGatewayUsage},
-		{telemetry.EventCostCalculated, telemetry.SpanGatewayCost},
-		{telemetry.EventCostEstimateUnpriced, telemetry.SpanGatewayCost},
+		{telemetry.EventUsageRecorded, telemetry.SpanGatewayUsage},
 		{telemetry.EventResponseReturned, telemetry.SpanGatewayResponse},
 		// Body capture
 		{telemetry.EventRequestBodyCaptured, telemetry.SpanGatewayRequestParse},

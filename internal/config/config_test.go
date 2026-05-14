@@ -41,22 +41,6 @@ func TestLoadFromEnvUsesCurrentOpenAIDefaultModel(t *testing.T) {
 		t.Fatalf("default model = %q, want gpt-5.4-mini", cfg.Router.DefaultModel)
 	}
 }
-
-func TestLoadFromEnvPricebookSettings(t *testing.T) {
-	t.Setenv("GATEWAY_PRICEBOOK_AUTO_IMPORT_INTERVAL", "24h")
-
-	cfg := LoadFromEnv()
-	if cfg.Pricebook.UnknownModelPolicy != "error" {
-		t.Fatalf("unknown model policy = %q, want default error", cfg.Pricebook.UnknownModelPolicy)
-	}
-	if len(cfg.Pricebook.Entries) == 0 {
-		t.Fatal("default pricebook entries empty")
-	}
-	if cfg.Pricebook.AutoImportInterval != 24*time.Hour {
-		t.Fatalf("auto import interval = %s, want 24h", cfg.Pricebook.AutoImportInterval)
-	}
-}
-
 func TestLoadFromEnvOTelSharedDefaults(t *testing.T) {
 	t.Setenv("GATEWAY_OTEL_ENDPOINT", "http://collector:4318")
 	t.Setenv("GATEWAY_OTEL_HEADERS", "x-api-key=secret,tenant=local")
@@ -240,40 +224,6 @@ func TestValidateRejectsImpossibleRuntimeValues(t *testing.T) {
 		}
 	}
 }
-
-func TestDefaultPricebookIncludesCurrentProviderDefaults(t *testing.T) {
-	t.Parallel()
-
-	cfg := defaultPricebookConfig()
-
-	for _, tt := range []struct {
-		provider string
-		model    string
-	}{
-		{provider: "openai", model: "gpt-5.4-mini"},
-		{provider: "openai", model: "gpt-5.4"},
-		{provider: "anthropic", model: "claude-sonnet-4-6"},
-		{provider: "groq", model: "llama-3.3-70b-versatile"},
-		{provider: "gemini", model: "gemini-2.5-flash"},
-		{provider: "perplexity", model: "sonar"},
-	} {
-		tt := tt
-		t.Run(tt.provider+"/"+tt.model, func(t *testing.T) {
-			t.Parallel()
-
-			for _, entry := range cfg.Entries {
-				if entry.Provider == tt.provider && entry.Model == tt.model {
-					if entry.InputMicrosUSDPerMillionTokens <= 0 || entry.OutputMicrosUSDPerMillionTokens <= 0 {
-						t.Fatalf("pricebook entry for %s/%s has non-positive pricing: %#v", tt.provider, tt.model, entry)
-					}
-					return
-				}
-			}
-			t.Fatalf("pricebook entry for %s/%s not found", tt.provider, tt.model)
-		})
-	}
-}
-
 func TestSplitCSVTrimsAndDropsEmptyValues(t *testing.T) {
 	t.Parallel()
 

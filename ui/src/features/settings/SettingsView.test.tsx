@@ -22,23 +22,22 @@ beforeEach(() => {
 // Tab gating: Connections is now a top-level workspace; Settings keeps
 // configuration that does not belong to a runtime connection surface.
 // Policy and MCP Cache were removed (single-user mode dropped tenant/role
-// gating and the MCP cache was pure informational stats). Balances and
-// Usage live in the Costs workspace.
+// gating and the MCP cache was pure informational stats). Usage lives
+// in the Usage workspace.
 describe("SettingsView tabs", () => {
-  it("renders Pricing / Retention", () => {
+  it("renders Retention only", () => {
     const { state, actions } = setup();
     render(<SettingsView state={state} actions={actions} />);
-    for (const tab of ["Pricing", "Retention"]) {
-      expect(screen.getByRole("button", { name: tab })).toBeTruthy();
-    }
+    expect(screen.getByRole("button", { name: "Retention" })).toBeTruthy();
+    expect(screen.queryByRole("button", { name: "Pricing" })).toBeNull();
     expect(screen.queryByRole("button", { name: "Connections" })).toBeNull();
     expect(screen.queryByRole("button", { name: "Model capabilities" })).toBeNull();
   });
 
-  it("starts on the first visible tab (Pricing)", () => {
+  it("starts on the retention tab", () => {
     const { state, actions } = setup();
     render(<SettingsView state={state} actions={actions} />);
-    expect(screen.getByText(/Manage cloud-model pricebook entries/i)).toBeTruthy();
+    expect(screen.getByText(/Subsystems to prune/i)).toBeTruthy();
   });
 
   it("switches to retention tab on click", async () => {
@@ -54,7 +53,7 @@ describe("SettingsView retention tab", () => {
     const { state, actions, user } = setup();
     render(<SettingsView state={state} actions={actions} />);
     await user.click(screen.getByRole("button", { name: "Retention" }));
-    for (const sub of ["trace_snapshots", "budget_events", "audit_events"]) {
+    for (const sub of ["trace_snapshots", "usage_events", "audit_events"]) {
       expect(await screen.findByText(sub)).toBeTruthy();
     }
   });
@@ -92,8 +91,8 @@ describe("SettingsView retention tab", () => {
   });
 });
 
-// Usage / Balances tabs were lifted into CostsView — see
-// features/costs/CostsView.test.tsx for the equivalent rendering tests.
+// Usage rendering lives in CostsView for now; Settings intentionally stays
+// focused on retention.
 
 describe("Connections external-agent panel", () => {
   const modelCapabilityState = {
@@ -145,7 +144,6 @@ describe("Connections external-agent panel", () => {
           },
         ],
         policy_rules: [],
-        pricebook: [],
         events: [],
       },
       providers: [
@@ -351,7 +349,6 @@ describe("Connections external-agent panel", () => {
           },
         ],
         policy_rules: [],
-        pricebook: [],
         events: [],
       },
     });
@@ -381,7 +378,6 @@ describe("Connections external-agent panel", () => {
           },
         ],
         policy_rules: [],
-        pricebook: [],
         events: [],
       },
     }, { setProviderAPIKey });

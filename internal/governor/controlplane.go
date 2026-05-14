@@ -10,16 +10,16 @@ import (
 
 type ControlPlaneGovernor struct {
 	config  config.GovernorConfig
-	store   AccountStore
-	history BudgetHistoryStore
+	store   UsageStore
+	history UsageEventStore
 	cpStore controlplane.Store
 }
 
-func NewControlPlaneGovernor(cfg config.GovernorConfig, store AccountStore, historyStore BudgetHistoryStore, cpStore controlplane.Store) *ControlPlaneGovernor {
-	var history BudgetHistoryStore
+func NewControlPlaneGovernor(cfg config.GovernorConfig, store UsageStore, historyStore UsageEventStore, cpStore controlplane.Store) *ControlPlaneGovernor {
+	var history UsageEventStore
 	if historyStore != nil {
 		history = historyStore
-	} else if candidate, ok := store.(BudgetHistoryStore); ok {
+	} else if candidate, ok := store.(UsageEventStore); ok {
 		history = candidate
 	}
 	return &ControlPlaneGovernor{
@@ -42,24 +42,12 @@ func (g *ControlPlaneGovernor) RecordUsage(ctx context.Context, req types.ChatRe
 	return g.current(ctx).RecordUsage(ctx, req, decision, usage, costMicros)
 }
 
-func (g *ControlPlaneGovernor) BudgetStatus(ctx context.Context, filter BudgetFilter) (types.BudgetStatus, error) {
-	return g.current(ctx).BudgetStatus(ctx, filter)
+func (g *ControlPlaneGovernor) UsageSummary(ctx context.Context, filter UsageFilter) (types.UsageSummary, error) {
+	return g.current(ctx).UsageSummary(ctx, filter)
 }
 
-func (g *ControlPlaneGovernor) RecentBudgetHistory(ctx context.Context, limit int) ([]types.BudgetHistoryEntry, error) {
-	return g.current(ctx).RecentBudgetHistory(ctx, limit)
-}
-
-func (g *ControlPlaneGovernor) TopUpBudget(ctx context.Context, filter BudgetFilter, deltaMicros int64) error {
-	return g.current(ctx).TopUpBudget(ctx, filter, deltaMicros)
-}
-
-func (g *ControlPlaneGovernor) SetBudgetBalance(ctx context.Context, filter BudgetFilter, balanceMicros int64) error {
-	return g.current(ctx).SetBudgetBalance(ctx, filter, balanceMicros)
-}
-
-func (g *ControlPlaneGovernor) ResetBudget(ctx context.Context, filter BudgetFilter) error {
-	return g.current(ctx).ResetBudget(ctx, filter)
+func (g *ControlPlaneGovernor) RecentUsageEvents(ctx context.Context, limit int) ([]types.UsageEventEntry, error) {
+	return g.current(ctx).RecentUsageEvents(ctx, limit)
 }
 
 func (g *ControlPlaneGovernor) Rewrite(req types.ChatRequest) types.ChatRequest {

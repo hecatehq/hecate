@@ -24,7 +24,6 @@ import (
 	"github.com/hecate/agent-runtime/internal/agentadapters"
 	"github.com/hecate/agent-runtime/internal/agentchat"
 	"github.com/hecate/agent-runtime/internal/agentcontrols"
-	"github.com/hecate/agent-runtime/internal/billing"
 	"github.com/hecate/agent-runtime/internal/catalog"
 	"github.com/hecate/agent-runtime/internal/chatstate"
 	"github.com/hecate/agent-runtime/internal/config"
@@ -482,20 +481,14 @@ func TestProviderStatusReturnsHealthAndDiscoveryFreshness(t *testing.T) {
 
 	registry := providers.NewRegistry(healthyProvider, degradedProvider, missingCredentialProvider, defaultOnlyProvider)
 	providerCatalog := catalog.NewRegistryCatalog(registry, nil)
-	budgetStore := governor.NewMemoryBudgetStore()
+	usageStore := governor.NewMemoryUsageStore()
 	service := gateway.NewService(gateway.Dependencies{
 		Logger:    logger,
 		Router:    router.NewRuleRouter("gpt-4o-mini", providerCatalog),
 		Catalog:   providerCatalog,
-		Governor:  governor.NewStaticGovernor(config.GovernorConfig{MaxPromptTokens: 64_000}, budgetStore, budgetStore),
+		Governor:  governor.NewStaticGovernor(config.GovernorConfig{MaxPromptTokens: 64_000}, usageStore, usageStore),
 		Providers: registry,
-		Pricebook: billing.NewStaticPricebook(config.ProvidersConfig{
-			OpenAICompatible: []config.OpenAICompatibleProviderConfig{
-				{Name: "openai", Kind: "cloud"},
-				{Name: "ollama", Kind: "local"},
-			},
-		}, defaultPricebookForTests()),
-		Tracer: profiler.NewInMemoryTracer(nil),
+		Tracer:    profiler.NewInMemoryTracer(nil),
 	})
 	handler := NewServer(logger, NewHandler(config.Config{}, logger, service, nil, nil, nil))
 	client := newAPITestClient(t, handler)
@@ -641,21 +634,14 @@ func TestProviderStatusReadinessContractCoversRepairReasons(t *testing.T) {
 
 	registry := providers.NewRegistry(noModelsProvider, selfReferentialProvider, disabledProvider)
 	providerCatalog := catalog.NewRegistryCatalogWithSelfAddr(registry, nil, "127.0.0.1:8765")
-	budgetStore := governor.NewMemoryBudgetStore()
+	usageStore := governor.NewMemoryUsageStore()
 	service := gateway.NewService(gateway.Dependencies{
 		Logger:    logger,
 		Router:    router.NewRuleRouter("", providerCatalog),
 		Catalog:   providerCatalog,
-		Governor:  governor.NewStaticGovernor(config.GovernorConfig{MaxPromptTokens: 64_000}, budgetStore, budgetStore),
+		Governor:  governor.NewStaticGovernor(config.GovernorConfig{MaxPromptTokens: 64_000}, usageStore, usageStore),
 		Providers: registry,
-		Pricebook: billing.NewStaticPricebook(config.ProvidersConfig{
-			OpenAICompatible: []config.OpenAICompatibleProviderConfig{
-				{Name: "emptylocal", Kind: "local"},
-				{Name: "loopback", Kind: "local"},
-				{Name: "disabled", Kind: "local"},
-			},
-		}, defaultPricebookForTests()),
-		Tracer: profiler.NewInMemoryTracer(nil),
+		Tracer:    profiler.NewInMemoryTracer(nil),
 	})
 	handler := NewServer(logger, NewHandler(config.Config{}, logger, service, nil, nil, nil))
 	client := newAPITestClient(t, handler)
@@ -749,17 +735,14 @@ func TestProviderStatusReturnsRateLimitedRoutingBlockReason(t *testing.T) {
 	health := providers.NewMemoryHealthTracker(3, time.Minute)
 	health.RecordFailure("openai", &providers.UpstreamError{StatusCode: http.StatusTooManyRequests, Type: "rate_limit"})
 	providerCatalog := catalog.NewRegistryCatalog(registry, health)
-	budgetStore := governor.NewMemoryBudgetStore()
+	usageStore := governor.NewMemoryUsageStore()
 	service := gateway.NewService(gateway.Dependencies{
 		Logger:    logger,
 		Router:    router.NewRuleRouter("gpt-4o-mini", providerCatalog),
 		Catalog:   providerCatalog,
-		Governor:  governor.NewStaticGovernor(config.GovernorConfig{MaxPromptTokens: 64_000}, budgetStore, budgetStore),
+		Governor:  governor.NewStaticGovernor(config.GovernorConfig{MaxPromptTokens: 64_000}, usageStore, usageStore),
 		Providers: registry,
-		Pricebook: billing.NewStaticPricebook(config.ProvidersConfig{
-			OpenAICompatible: []config.OpenAICompatibleProviderConfig{{Name: "openai", Kind: "cloud"}},
-		}, defaultPricebookForTests()),
-		Tracer: profiler.NewInMemoryTracer(nil),
+		Tracer:    profiler.NewInMemoryTracer(nil),
 	})
 	handler := NewServer(logger, NewHandler(config.Config{}, logger, service, nil, nil, nil))
 	client := newAPITestClient(t, handler)
@@ -813,19 +796,16 @@ func TestProviderHealthHistoryReturnsRecentEvents(t *testing.T) {
 	health := providers.NewMemoryHealthTrackerWithHistory(3, time.Minute, 0, historyStore)
 	health.RecordFailure("openai", &providers.UpstreamError{StatusCode: http.StatusTooManyRequests, Type: "rate_limit", Message: "slow down"})
 	providerCatalog := catalog.NewRegistryCatalog(registry, health)
-	budgetStore := governor.NewMemoryBudgetStore()
+	usageStore := governor.NewMemoryUsageStore()
 	service := gateway.NewService(gateway.Dependencies{
 		Logger:          logger,
 		Router:          router.NewRuleRouter("gpt-4o-mini", providerCatalog),
 		Catalog:         providerCatalog,
-		Governor:        governor.NewStaticGovernor(config.GovernorConfig{MaxPromptTokens: 64_000}, budgetStore, budgetStore),
+		Governor:        governor.NewStaticGovernor(config.GovernorConfig{MaxPromptTokens: 64_000}, usageStore, usageStore),
 		Providers:       registry,
 		HealthTracker:   health,
 		ProviderHistory: historyStore,
-		Pricebook: billing.NewStaticPricebook(config.ProvidersConfig{
-			OpenAICompatible: []config.OpenAICompatibleProviderConfig{{Name: "openai", Kind: "cloud"}},
-		}, defaultPricebookForTests()),
-		Tracer: profiler.NewInMemoryTracer(nil),
+		Tracer:          profiler.NewInMemoryTracer(nil),
 	})
 	handler := NewServer(logger, NewHandler(config.Config{Provider: config.ProviderConfig{HistoryLimit: 10}}, logger, service, nil, nil, nil))
 	client := newAPITestClient(t, handler)
@@ -1006,107 +986,6 @@ func TestProviderHealthHistoryIncludesFailoverEvents(t *testing.T) {
 		t.Fatal("provider history missing failover_selected event")
 	}
 }
-
-func TestProviderHealthHistoryIncludesPreflightFailoverEvents(t *testing.T) {
-	t.Parallel()
-
-	logger := slog.New(slog.NewJSONHandler(io.Discard, nil))
-	primary := &fakeProvider{
-		defaultModel: "claude-unpriced",
-		name:         "anthropic",
-		capabilities: providers.Capabilities{
-			Name:            "anthropic",
-			Kind:            providers.KindCloud,
-			DefaultModel:    "claude-unpriced",
-			Models:          []string{"claude-unpriced"},
-			DiscoverySource: "upstream_v1_models",
-			RefreshedAt:     time.Unix(1_700_000_000, 0).UTC(),
-		},
-	}
-	fallback := &fakeProvider{
-		name:         "openai",
-		defaultModel: "gpt-4o-mini",
-		capabilities: providers.Capabilities{
-			Name:            "openai",
-			Kind:            providers.KindCloud,
-			DefaultModel:    "gpt-4o-mini",
-			Models:          []string{"gpt-4o-mini"},
-			DiscoverySource: "upstream_v1_models",
-			RefreshedAt:     time.Unix(1_700_000_000, 0).UTC(),
-		},
-		response: &types.ChatResponse{
-			ID:        "chatcmpl-preflight-fallback",
-			Model:     "gpt-4o-mini",
-			CreatedAt: time.Unix(1_700_000_100, 0).UTC(),
-			Choices: []types.ChatChoice{{
-				Index:        0,
-				Message:      types.Message{Role: "assistant", Content: "fallback ok"},
-				FinishReason: "stop",
-			}},
-			Usage: types.Usage{PromptTokens: 10, CompletionTokens: 2, TotalTokens: 12},
-		},
-	}
-	handler := newTestHTTPHandlerForProviders(logger, []providers.Provider{primary, fallback}, config.Config{
-		Router: config.RouterConfig{
-			DefaultModel: "claude-unpriced",
-		},
-		Provider: config.ProviderConfig{
-			MaxAttempts:     1,
-			RetryBackoff:    time.Millisecond,
-			FailoverEnabled: true,
-			HistoryLimit:    20,
-		},
-		Pricebook: config.PricebookConfig{
-			UnknownModelPolicy: "error",
-			Entries: []config.ModelPriceConfig{
-				{
-					Provider:                        "openai",
-					Model:                           "gpt-4o-mini",
-					InputMicrosUSDPerMillionTokens:  150_000,
-					OutputMicrosUSDPerMillionTokens: 600_000,
-				},
-			},
-		},
-	})
-	client := newAPITestClient(t, handler)
-
-	chat := decodeRecorder[OpenAIChatCompletionResponse](t, client.mustRequest(http.MethodPost, "/v1/chat/completions", `{
-		"messages": [
-			{"role":"user","content":"hello"}
-		]
-	}`))
-	if chat.Model != "gpt-4o-mini" {
-		t.Fatalf("response model = %q, want gpt-4o-mini fallback", chat.Model)
-	}
-
-	response := mustRequestJSON[ProviderHealthHistoryResponse](client, http.MethodGet, "/hecate/v1/providers/history?limit=20", "")
-	found := false
-	for _, item := range response.Data {
-		if item.Event != "failover_triggered" || item.Provider != "anthropic" {
-			continue
-		}
-		if item.Reason != "preflight_price_missing" {
-			continue
-		}
-		found = true
-		if item.RouteReason != "provider_default_model" {
-			t.Fatalf("route_reason = %q, want provider_default_model", item.RouteReason)
-		}
-		if item.PeerProvider != "openai" {
-			t.Fatalf("peer_provider = %q, want openai", item.PeerProvider)
-		}
-		if item.PeerRouteReason != "provider_default_model_failover" {
-			t.Fatalf("peer_route_reason = %q, want provider_default_model_failover", item.PeerRouteReason)
-		}
-		if item.EstimatedMicrosUSD != 0 {
-			t.Fatalf("estimated_micros_usd = %d, want 0 for price-missing preflight", item.EstimatedMicrosUSD)
-		}
-	}
-	if !found {
-		t.Fatalf("missing preflight_price_missing failover history row: %+v", response.Data)
-	}
-}
-
 func TestProviderPresetsReturnsCatalog(t *testing.T) {
 	t.Parallel()
 
@@ -3154,199 +3033,115 @@ func TestMCPCacheStatsConfiguredEmpty(t *testing.T) {
 	}
 }
 
-func TestBudgetStatusReturnsCurrentBalance(t *testing.T) {
+func TestUsageSummaryReturnsCurrentUsage(t *testing.T) {
 	t.Parallel()
 
 	logger := slog.New(slog.NewJSONHandler(io.Discard, nil))
-	budgetStore := governor.NewMemoryBudgetStore()
-	if _, err := budgetStore.Credit(context.Background(), "global", 5_000_000); err != nil {
-		t.Fatalf("Credit() error = %v", err)
-	}
-	if _, err := budgetStore.Debit(context.Background(), governor.UsageEvent{BudgetKey: "global", CostMicros: 3_000}); err != nil {
-		t.Fatalf("Debit() error = %v", err)
+	usageStore := governor.NewMemoryUsageStore()
+	if _, err := usageStore.RecordUsage(context.Background(), governor.UsageEvent{UsageKey: "global", CostMicros: 3_000}); err != nil {
+		t.Fatalf("RecordUsage() error = %v", err)
 	}
 
-	handler := newBudgetTestHandler(logger, config.GovernorConfig{
-		MaxPromptTokens:      64_000,
-		MaxTotalBudgetMicros: 5_000_000,
-		BudgetBackend:        "memory",
-		BudgetKey:            "global",
-		BudgetScope:          "global",
-	}, budgetStore)
+	handler := newUsageTestHandler(logger, config.GovernorConfig{
+		MaxPromptTokens: 64_000,
+		UsageBackend:    "memory",
+		UsageKey:        "global",
+		UsageScope:      "global",
+	}, usageStore)
 
 	client := newAPITestClient(t, handler)
-	response := mustRequestJSON[BudgetStatusResponse](client, http.MethodGet, "/hecate/v1/costs/budget", "")
-	if response.Object != "budget_status" {
-		t.Fatalf("object = %q, want budget_status", response.Object)
+	response := mustRequestJSON[UsageSummaryResponse](client, http.MethodGet, "/hecate/v1/usage/summary", "")
+	if response.Object != "usage_summary" {
+		t.Fatalf("object = %q, want usage_summary", response.Object)
 	}
 	if response.Data.Key != "global" {
 		t.Fatalf("key = %q, want global", response.Data.Key)
 	}
-	if response.Data.BalanceMicrosUSD != 4_997_000 {
-		t.Fatalf("balance_micros_usd = %d, want 4997000", response.Data.BalanceMicrosUSD)
-	}
-	if response.Data.DebitedMicrosUSD != 3_000 {
-		t.Fatalf("debited_micros_usd = %d, want 3000", response.Data.DebitedMicrosUSD)
-	}
-	if len(response.Data.Warnings) == 0 {
-		t.Fatal("warnings = empty, want configured default warnings")
+	if response.Data.UsedMicrosUSD != 3_000 {
+		t.Fatalf("used_micros_usd = %d, want 3000", response.Data.UsedMicrosUSD)
 	}
 }
 
-func TestBudgetResetSupportsExplicitKey(t *testing.T) {
+func TestUsageMutationEndpointsAreRemoved(t *testing.T) {
 	t.Parallel()
 
 	logger := slog.New(slog.NewJSONHandler(io.Discard, nil))
-	budgetStore := governor.NewMemoryBudgetStore()
-	if _, err := budgetStore.Credit(context.Background(), "team-a", 20_000); err != nil {
-		t.Fatalf("Credit() error = %v", err)
-	}
-	if _, err := budgetStore.Debit(context.Background(), governor.UsageEvent{BudgetKey: "team-a", CostMicros: 9_999}); err != nil {
-		t.Fatalf("Debit() error = %v", err)
-	}
-
-	handler := newBudgetTestHandler(logger, config.GovernorConfig{
-		MaxPromptTokens:      64_000,
-		MaxTotalBudgetMicros: 10_000_000,
-		BudgetBackend:        "memory",
-		BudgetKey:            "global",
-		BudgetScope:          "global",
-	}, budgetStore)
-
+	usageStore := governor.NewMemoryUsageStore()
+	handler := newUsageTestHandler(logger, config.GovernorConfig{
+		MaxPromptTokens: 64_000,
+		UsageBackend:    "memory",
+		UsageKey:        "global",
+		UsageScope:      "global",
+	}, usageStore)
 	client := newAPITestClient(t, handler)
-	response := mustRequestJSON[BudgetStatusResponse](client, http.MethodPost, "/hecate/v1/costs/budget/reset", `{"key":"team-a"}`)
-	if response.Data.Key != "team-a" {
-		t.Fatalf("key = %q, want team-a", response.Data.Key)
-	}
-	if response.Data.BalanceMicrosUSD != 0 {
-		t.Fatalf("balance_micros_usd = %d, want 0", response.Data.BalanceMicrosUSD)
+
+	for _, tc := range []struct {
+		method string
+		path   string
+		body   string
+	}{
+		{method: http.MethodGet, path: "/hecate/v1/costs/summary"},
+		{method: http.MethodGet, path: "/hecate/v1/costs/budget"},
+		{method: http.MethodPost, path: "/hecate/v1/costs/budget/topup", body: `{}`},
+		{method: http.MethodPost, path: "/hecate/v1/costs/budget/limit", body: `{}`},
+		{method: http.MethodPost, path: "/hecate/v1/costs/budget/reset", body: `{}`},
+		{method: http.MethodPost, path: "/hecate/v1/settings/pricebook", body: `{}`},
+		{method: http.MethodDelete, path: "/hecate/v1/settings/pricebook/openai/gpt-4o"},
+		{method: http.MethodPost, path: "/hecate/v1/settings/pricebook/import/preview", body: `{}`},
+		{method: http.MethodPost, path: "/hecate/v1/settings/pricebook/import/apply", body: `{}`},
+	} {
+		client.mustRequestStatus(http.StatusNotFound, tc.method, tc.path, tc.body)
 	}
 }
 
-func TestBudgetTopUpAndSetLimitEndpoints(t *testing.T) {
+func TestUsageEventsReturnsRecentUsageEvents(t *testing.T) {
 	t.Parallel()
 
 	logger := slog.New(slog.NewJSONHandler(io.Discard, nil))
-	budgetStore := governor.NewMemoryBudgetStore()
-
-	handler := newBudgetTestHandler(logger, config.GovernorConfig{
-		MaxPromptTokens:      64_000,
-		MaxTotalBudgetMicros: 5_000_000,
-		BudgetBackend:        "memory",
-		BudgetKey:            "global",
-		BudgetScope:          "tenant_provider",
-		BudgetTenantFallback: "anonymous",
-	}, budgetStore)
-
-	client := newAPITestClient(t, handler)
-	topUpResponse := mustRequestJSON[BudgetStatusResponse](client, http.MethodPost, "/hecate/v1/costs/budget/topup", `{"scope":"tenant_provider","tenant":"team-a","provider":"ollama","amount_micros_usd":2000000}`)
-	if topUpResponse.Data.BalanceMicrosUSD != 2_000_000 {
-		t.Fatalf("topup balance_micros_usd = %d, want 2000000", topUpResponse.Data.BalanceMicrosUSD)
-	}
-	if topUpResponse.Data.BalanceSource != "store" {
-		t.Fatalf("topup balance_source = %q, want store", topUpResponse.Data.BalanceSource)
-	}
-
-	limitResponse := mustRequestJSON[BudgetStatusResponse](client, http.MethodPost, "/hecate/v1/costs/budget/limit", `{"scope":"tenant_provider","tenant":"team-a","provider":"ollama","balance_micros_usd":500000}`)
-	if limitResponse.Data.BalanceMicrosUSD != 500_000 {
-		t.Fatalf("limit balance_micros_usd = %d, want 500000", limitResponse.Data.BalanceMicrosUSD)
-	}
-	if len(limitResponse.Data.History) != 2 {
-		t.Fatalf("limit history length = %d, want 2", len(limitResponse.Data.History))
-	}
-	if limitResponse.Data.History[0].Type != "set_balance" {
-		t.Fatalf("latest history type = %q, want set_balance", limitResponse.Data.History[0].Type)
-	}
-	if limitResponse.Data.History[1].Type != "top_up" {
-		t.Fatalf("older history type = %q, want top_up", limitResponse.Data.History[1].Type)
-	}
-}
-
-func TestAccountSummaryReturnsModelEstimates(t *testing.T) {
-	t.Parallel()
-
-	logger := slog.New(slog.NewJSONHandler(io.Discard, nil))
-	budgetStore := governor.NewMemoryBudgetStore()
-	if _, err := budgetStore.Credit(context.Background(), "global", 1_000_000); err != nil {
-		t.Fatalf("Credit() error = %v", err)
-	}
-
-	handler := newBudgetTestHandler(logger, config.GovernorConfig{
-		MaxPromptTokens:      64_000,
-		MaxTotalBudgetMicros: 1_000_000,
-		BudgetBackend:        "memory",
-		BudgetKey:            "global",
-		BudgetScope:          "global",
-	}, budgetStore)
-
-	client := newAPITestClient(t, handler)
-	response := mustRequestJSON[AccountSummaryResponse](client, http.MethodGet, "/hecate/v1/costs/summary", "")
-	if response.Object != "account_summary" {
-		t.Fatalf("object = %q, want account_summary", response.Object)
-	}
-	if response.Data.Account.BalanceMicrosUSD != 1_000_000 {
-		t.Fatalf("balance_micros_usd = %d, want 1000000", response.Data.Account.BalanceMicrosUSD)
-	}
-	if len(response.Data.Estimates) == 0 {
-		t.Fatal("estimates = empty, want model estimates")
-	}
-}
-
-func TestRequestLedgerReturnsRecentBudgetEvents(t *testing.T) {
-	t.Parallel()
-
-	logger := slog.New(slog.NewJSONHandler(io.Discard, nil))
-	budgetStore := governor.NewMemoryBudgetStore()
+	usageStore := governor.NewMemoryUsageStore()
 	now := time.Now().UTC()
-	if err := budgetStore.AppendEvent(context.Background(), governor.BudgetEvent{
-		Key:               "global:tenant:team-a:provider:openai",
-		Type:              "debit",
-		Scope:             "tenant_provider",
-		Provider:          "openai",
-		Model:             "gpt-4o-mini",
-		RequestID:         "req-newer",
-		AmountMicrosUSD:   3200,
-		BalanceMicrosUSD:  996800,
-		CreditedMicrosUSD: 1_000_000,
-		DebitedMicrosUSD:  3200,
-		PromptTokens:      12,
-		CompletionTokens:  4,
-		TotalTokens:       16,
-		OccurredAt:        now,
+	if err := usageStore.AppendEvent(context.Background(), governor.UsageHistoryEvent{
+		Key:              "global:tenant:team-a:provider:openai",
+		Type:             "usage",
+		Scope:            "tenant_provider",
+		Provider:         "openai",
+		Model:            "gpt-4o-mini",
+		RequestID:        "req-newer",
+		AmountMicrosUSD:  3200,
+		PromptTokens:     12,
+		CompletionTokens: 4,
+		TotalTokens:      16,
+		OccurredAt:       now,
 	}); err != nil {
 		t.Fatalf("AppendEvent() error = %v", err)
 	}
-	if err := budgetStore.AppendEvent(context.Background(), governor.BudgetEvent{
-		Key:               "global:tenant:team-b:provider:ollama",
-		Type:              "debit",
-		Scope:             "tenant_provider",
-		Provider:          "ollama",
-		Model:             "llama3.1:8b",
-		RequestID:         "req-older",
-		AmountMicrosUSD:   0,
-		BalanceMicrosUSD:  500_000,
-		CreditedMicrosUSD: 500_000,
-		DebitedMicrosUSD:  0,
-		PromptTokens:      20,
-		CompletionTokens:  5,
-		TotalTokens:       25,
-		OccurredAt:        now.Add(-time.Minute),
+	if err := usageStore.AppendEvent(context.Background(), governor.UsageHistoryEvent{
+		Key:              "global:tenant:team-b:provider:ollama",
+		Type:             "usage",
+		Scope:            "tenant_provider",
+		Provider:         "ollama",
+		Model:            "llama3.1:8b",
+		RequestID:        "req-older",
+		AmountMicrosUSD:  0,
+		PromptTokens:     20,
+		CompletionTokens: 5,
+		TotalTokens:      25,
+		OccurredAt:       now.Add(-time.Minute),
 	}); err != nil {
 		t.Fatalf("AppendEvent() error = %v", err)
 	}
 
-	handler := newBudgetTestHandler(logger, config.GovernorConfig{
-		MaxPromptTokens:      64_000,
-		MaxTotalBudgetMicros: 1_000_000,
-		BudgetBackend:        "memory",
-		BudgetKey:            "global",
-		BudgetScope:          "global",
-	}, budgetStore)
+	handler := newUsageTestHandler(logger, config.GovernorConfig{
+		MaxPromptTokens: 64_000,
+		UsageBackend:    "memory",
+		UsageKey:        "global",
+		UsageScope:      "global",
+	}, usageStore)
 
 	client := newAPITestClient(t, handler)
-	response := mustRequestJSON[RequestLedgerResponse](client, http.MethodGet, "/hecate/v1/observability/requests?limit=1", "")
-	if response.Object != "request_ledger" {
-		t.Fatalf("object = %q, want request_ledger", response.Object)
+	response := mustRequestJSON[UsageEventsResponse](client, http.MethodGet, "/hecate/v1/usage/events?limit=1", "")
+	if response.Object != "usage_events" {
+		t.Fatalf("object = %q, want usage_events", response.Object)
 	}
 	if len(response.Data) != 1 {
 		t.Fatalf("entries = %d, want 1", len(response.Data))
@@ -3356,6 +3151,32 @@ func TestRequestLedgerReturnsRecentBudgetEvents(t *testing.T) {
 	}
 	if response.Data[0].Model != "gpt-4o-mini" {
 		t.Fatalf("model = %q, want gpt-4o-mini", response.Data[0].Model)
+	}
+}
+
+func TestUsageEndpointsStayDocumented(t *testing.T) {
+	t.Parallel()
+
+	body, err := os.ReadFile(filepath.Join("..", "..", "docs", "runtime-api.md"))
+	if err != nil {
+		t.Fatalf("read runtime-api docs: %v", err)
+	}
+	text := string(body)
+	for _, want := range []string{
+		"GET /hecate/v1/usage/summary",
+		"GET /hecate/v1/usage/events",
+	} {
+		if !strings.Contains(text, want) {
+			t.Fatalf("runtime-api.md missing %q", want)
+		}
+	}
+	for _, legacy := range []string{
+		"POST /hecate/v1/costs/budget/topup",
+		"POST /hecate/v1/settings/pricebook",
+	} {
+		if strings.Contains(text, legacy) {
+			t.Fatalf("runtime-api.md still documents removed endpoint %q", legacy)
+		}
 	}
 }
 
@@ -5756,7 +5577,7 @@ func newTestAPIHandlerWithSettings(logger *slog.Logger, items []providers.Provid
 		providerHistoryStore,
 	)
 	providerCatalog := catalog.NewRegistryCatalog(registry, healthTracker)
-	budgetStore := governor.NewMemoryBudgetStore()
+	usageStore := governor.NewMemoryUsageStore()
 	governorCfg := mergeGovernorDefaults(cfg.Governor)
 	routerCfg := cfg.Router
 	if routerCfg.DefaultModel == "" && len(items) > 0 {
@@ -5767,8 +5588,8 @@ func newTestAPIHandlerWithSettings(logger *slog.Logger, items []providers.Provid
 	if retentionCfg.TraceSnapshots.MaxCount == 0 {
 		retentionCfg.TraceSnapshots = config.RetentionPolicy{MaxAge: time.Hour, MaxCount: 2000}
 	}
-	if retentionCfg.BudgetEvents.MaxCount == 0 {
-		retentionCfg.BudgetEvents = config.RetentionPolicy{MaxAge: 30 * 24 * time.Hour, MaxCount: 200}
+	if retentionCfg.UsageEvents.MaxCount == 0 {
+		retentionCfg.UsageEvents = config.RetentionPolicy{MaxAge: 30 * 24 * time.Hour, MaxCount: 200}
 	}
 	if retentionCfg.AuditEvents.MaxCount == 0 {
 		retentionCfg.AuditEvents = config.RetentionPolicy{MaxAge: 30 * 24 * time.Hour, MaxCount: 500}
@@ -5778,17 +5599,13 @@ func newTestAPIHandlerWithSettings(logger *slog.Logger, items []providers.Provid
 		retentionCfg,
 		profiler.NewInMemoryTracer(nil),
 		profiler.NewInMemoryTracer(nil),
-		budgetStore,
+		usageStore,
 		nil,
 		providerHistoryStore,
 		nil,
 		nil,
 		retention.NewMemoryHistoryStore(),
 	)
-	pricebookCfg := pricebookConfigForTests(items)
-	if cfg.Pricebook.UnknownModelPolicy != "" || len(cfg.Pricebook.Entries) > 0 {
-		pricebookCfg = cfg.Pricebook
-	}
 	service := gateway.NewService(gateway.Dependencies{
 		Logger: logger,
 		Resilience: gateway.ResilienceOptions{
@@ -5798,17 +5615,14 @@ func newTestAPIHandlerWithSettings(logger *slog.Logger, items []providers.Provid
 		},
 		Router:          routerEngine,
 		Catalog:         providerCatalog,
-		Governor:        governor.NewStaticGovernor(governorCfg, budgetStore, budgetStore),
+		Governor:        governor.NewStaticGovernor(governorCfg, usageStore, usageStore),
 		Providers:       registry,
 		HealthTracker:   healthTracker,
 		ProviderHistory: providerHistoryStore,
-		Pricebook: billing.NewStaticPricebook(config.ProvidersConfig{
-			OpenAICompatible: providerConfigsForTests(items),
-		}, pricebookCfg),
-		Tracer:       profiler.NewInMemoryTracer(nil),
-		Metrics:      telemetry.NewMetrics(),
-		Retention:    retentionManager,
-		ChatSessions: chatstate.NewMemoryStore(),
+		Tracer:          profiler.NewInMemoryTracer(nil),
+		Metrics:         telemetry.NewMetrics(),
+		Retention:       retentionManager,
+		ChatSessions:    chatstate.NewMemoryStore(),
 	})
 
 	cfg.Governor = governorCfg
@@ -5816,67 +5630,21 @@ func newTestAPIHandlerWithSettings(logger *slog.Logger, items []providers.Provid
 	return handler
 }
 
-func providerConfigsForTests(items []providers.Provider) []config.OpenAICompatibleProviderConfig {
-	configs := make([]config.OpenAICompatibleProviderConfig, 0, len(items))
-	for _, provider := range items {
-		configs = append(configs, config.OpenAICompatibleProviderConfig{
-			Name:         provider.Name(),
-			Kind:         string(provider.Kind()),
-			DefaultModel: provider.DefaultModel(),
-		})
-	}
-	return configs
+func newUsageTestHandler(logger *slog.Logger, governorCfg config.GovernorConfig, usageStore governor.UsageRepository) http.Handler {
+	return newUsageTestHandlerWithConfig(logger, config.Config{Governor: governorCfg}, usageStore, nil)
 }
 
-func pricebookConfigForTests(items []providers.Provider) config.PricebookConfig {
-	entries := make([]config.ModelPriceConfig, 0, len(items)+4)
-	for _, provider := range items {
-		if provider.Kind() != providers.KindCloud || provider.DefaultModel() == "" {
-			continue
-		}
-		entries = append(entries, config.ModelPriceConfig{
-			Provider:                             provider.Name(),
-			Model:                                provider.DefaultModel(),
-			InputMicrosUSDPerMillionTokens:       150_000,
-			OutputMicrosUSDPerMillionTokens:      600_000,
-			CachedInputMicrosUSDPerMillionTokens: 75_000,
-		})
-	}
-	entries = append(entries, defaultPricebookForTests().Entries...)
-	return config.PricebookConfig{Entries: entries}
-}
-
-func defaultPricebookForTests() config.PricebookConfig {
-	return config.PricebookConfig{
-		Entries: []config.ModelPriceConfig{
-			{Provider: "openai", Model: "gpt-4o-mini", InputMicrosUSDPerMillionTokens: 150_000, OutputMicrosUSDPerMillionTokens: 600_000, CachedInputMicrosUSDPerMillionTokens: 75_000},
-			{Provider: "openai", Model: "gpt-4.1-mini", InputMicrosUSDPerMillionTokens: 400_000, OutputMicrosUSDPerMillionTokens: 1_600_000, CachedInputMicrosUSDPerMillionTokens: 100_000},
-			{Provider: "openai", Model: "omni-moderation", InputMicrosUSDPerMillionTokens: 0, OutputMicrosUSDPerMillionTokens: 0, CachedInputMicrosUSDPerMillionTokens: 0},
-			{Provider: "openai", Model: "omni-moderation-latest", InputMicrosUSDPerMillionTokens: 0, OutputMicrosUSDPerMillionTokens: 0, CachedInputMicrosUSDPerMillionTokens: 0},
-		},
-	}
-}
-
-func newBudgetTestHandler(logger *slog.Logger, governorCfg config.GovernorConfig, budgetStore governor.BudgetStore) http.Handler {
-	return newBudgetTestHandlerWithConfig(logger, config.Config{Governor: governorCfg}, budgetStore, nil)
-}
-
-func newBudgetTestHandlerWithConfig(logger *slog.Logger, cfg config.Config, budgetStore governor.BudgetStore, cpStore controlplane.Store) http.Handler {
+func newUsageTestHandlerWithConfig(logger *slog.Logger, cfg config.Config, usageStore governor.UsageRepository, cpStore controlplane.Store) http.Handler {
 	provider := &fakeProvider{name: "openai"}
 	registry := providers.NewRegistry(provider)
 	providerCatalog := catalog.NewRegistryCatalog(registry, nil)
 	governorCfg := mergeGovernorDefaults(cfg.Governor)
 	service := gateway.NewService(gateway.Dependencies{
-		Logger:    logger,
-		Router:    router.NewRuleRouter("gpt-4o-mini", providerCatalog),
-		Catalog:   providerCatalog,
-		Governor:  governor.NewStaticGovernor(governorCfg, budgetStore, budgetStore),
-		Providers: registry,
-		Pricebook: billing.NewStaticPricebook(config.ProvidersConfig{
-			OpenAICompatible: []config.OpenAICompatibleProviderConfig{
-				{Name: provider.Name(), Kind: string(provider.Kind())},
-			},
-		}, pricebookConfigForTests([]providers.Provider{provider})),
+		Logger:       logger,
+		Router:       router.NewRuleRouter("gpt-4o-mini", providerCatalog),
+		Catalog:      providerCatalog,
+		Governor:     governor.NewStaticGovernor(governorCfg, usageStore, usageStore),
+		Providers:    registry,
 		Tracer:       profiler.NewInMemoryTracer(nil),
 		Metrics:      telemetry.NewMetrics(),
 		ChatSessions: chatstate.NewMemoryStore(),
@@ -5890,14 +5658,14 @@ func mergeGovernorDefaults(cfg config.GovernorConfig) config.GovernorConfig {
 	if cfg.MaxPromptTokens == 0 {
 		cfg.MaxPromptTokens = 64_000
 	}
-	if cfg.BudgetBackend == "" {
-		cfg.BudgetBackend = "memory"
+	if cfg.UsageBackend == "" {
+		cfg.UsageBackend = "memory"
 	}
-	if cfg.BudgetKey == "" {
-		cfg.BudgetKey = "global"
+	if cfg.UsageKey == "" {
+		cfg.UsageKey = "global"
 	}
-	if cfg.BudgetScope == "" {
-		cfg.BudgetScope = "global"
+	if cfg.UsageScope == "" {
+		cfg.UsageScope = "global"
 	}
 	return cfg
 }
@@ -6207,30 +5975,6 @@ func TestRateLimitDisabledByDefault(t *testing.T) {
 		}
 	}
 }
-
-func TestHandleChatReturns402OnBudgetExceeded(t *testing.T) {
-	t.Parallel()
-	logger := slog.New(slog.NewJSONHandler(io.Discard, nil))
-	provider := &fakeProvider{name: "openai", defaultModel: "gpt-4o-mini"}
-
-	// 1 µUSD budget — any real request estimate will exceed it immediately.
-	handler := newTestHTTPHandlerWithConfig(logger, provider, config.Config{
-		Governor: config.GovernorConfig{
-			MaxTotalBudgetMicros:    1,
-			MaxPromptTokens:         100_000,
-			BudgetWarningThresholds: []int{50, 80, 95},
-			BudgetHistoryLimit:      20,
-		},
-	})
-
-	// max_tokens drives the cost estimate; without it the estimate is ~0 µUSD and
-	// wouldn't exceed the 1 µUSD budget.
-	rec := performJSONRequest(t, handler, `{"model":"gpt-4o-mini","max_tokens":1024,"messages":[{"role":"user","content":"hello"}]}`)
-	if rec.Code != http.StatusPaymentRequired {
-		t.Errorf("status = %d, want 402\nbody: %s", rec.Code, rec.Body.String())
-	}
-}
-
 func TestCheckRateLimitSetsHeaders(t *testing.T) {
 	t.Parallel()
 	h := &Handler{

@@ -15,7 +15,7 @@ import (
 func TestStaticGovernorCheckRoutePolicy(t *testing.T) {
 	t.Parallel()
 
-	store := NewMemoryBudgetStore()
+	store := NewMemoryUsageStore()
 	gov := NewStaticGovernor(config.GovernorConfig{
 		RouteMode:        "local_only",
 		AllowedProviders: []string{"ollama"},
@@ -31,124 +31,49 @@ func TestStaticGovernorCheckRoutePolicy(t *testing.T) {
 	}
 }
 
-func TestStaticGovernorBudgetTracking(t *testing.T) {
+func TestStaticGovernorRecordsUsageEvents(t *testing.T) {
 	t.Parallel()
 
-	store := NewMemoryBudgetStore()
+	store := NewMemoryUsageStore()
 	gov := NewStaticGovernor(config.GovernorConfig{
-		MaxTotalBudgetMicros: 100,
-		BudgetKey:            "global",
+		UsageKey:          "global",
+		UsageHistoryLimit: 5,
 	}, store, store)
 
-	if err := gov.RecordUsage(context.Background(), types.ChatRequest{}, types.RouteDecision{Provider: "openai"}, types.Usage{TotalTokens: 10}, 60); err != nil {
-		t.Fatalf("RecordUsage() error = %v", err)
-	}
-
-	err := gov.CheckRoute(context.Background(), types.ChatRequest{}, types.RouteDecision{
-		Provider: "openai",
-		Model:    "gpt-4o-mini",
-	}, "cloud", 50)
-	if err == nil {
-		t.Fatal("CheckRoute() error = nil, want budget denial")
-	}
-}
-
-func TestStaticGovernorBudgetTopUpOverridesConfigLimit(t *testing.T) {
-	t.Parallel()
-
-	store := NewMemoryBudgetStore()
-	gov := NewStaticGovernor(config.GovernorConfig{
-		MaxTotalBudgetMicros: 100,
-		BudgetKey:            "global",
-	}, store, store)
-
-	if err := gov.TopUpBudget(context.Background(), BudgetFilter{Scope: "global"}, 200); err != nil {
-		t.Fatalf("TopUpBudget() error = %v", err)
-	}
-
-	if err := gov.RecordUsage(context.Background(), types.ChatRequest{}, types.RouteDecision{Provider: "openai"}, types.Usage{TotalTokens: 20}, 250); err != nil {
-		t.Fatalf("RecordUsage() error = %v", err)
-	}
-
-	if err := gov.CheckRoute(context.Background(), types.ChatRequest{}, types.RouteDecision{
-		Provider: "openai",
-		Model:    "gpt-4o-mini",
-	}, "cloud", 40); err == nil {
-		t.Fatal("CheckRoute() error = nil, want limit denial after top-up-adjusted budget")
-	}
-
-	status, err := gov.BudgetStatus(context.Background(), BudgetFilter{Scope: "global"})
-	if err != nil {
-		t.Fatalf("BudgetStatus() error = %v", err)
-	}
-	if status.CreditedMicrosUSD != 200 {
-		t.Fatalf("credited_micros_usd = %d, want 200", status.CreditedMicrosUSD)
-	}
-	if status.BalanceSource != "store" {
-		t.Fatalf("balance_source = %q, want store", status.BalanceSource)
-	}
-	if len(status.History) != 2 {
-		t.Fatalf("history length = %d, want 2", len(status.History))
-	}
-	if status.History[0].Type != "debit" {
-		t.Fatalf("latest history type = %q, want debit", status.History[0].Type)
-	}
-	if status.History[1].Type != "top_up" {
-		t.Fatalf("older history type = %q, want top_up", status.History[1].Type)
-	}
-}
-
-func TestStaticGovernorBudgetWarningsAndHistory(t *testing.T) {
-	t.Parallel()
-
-	store := NewMemoryBudgetStore()
-	gov := NewStaticGovernor(config.GovernorConfig{
-		MaxTotalBudgetMicros:    1_000,
-		BudgetKey:               "global",
-		BudgetWarningThresholds: []int{50, 90},
-		BudgetHistoryLimit:      5,
-	}, store, store)
-
-	req := types.ChatRequest{
-		RequestID: "req_123",
-		Scope:     types.RequestScope{},
-	}
+	req := types.ChatRequest{RequestID: "req_123"}
 	decision := types.RouteDecision{Provider: "openai", Model: "gpt-4o-mini"}
-
-	if err := gov.TopUpBudget(context.Background(), BudgetFilter{Scope: "global"}, 2_000); err != nil {
-		t.Fatalf("TopUpBudget() error = %v", err)
-	}
-	if err := gov.RecordUsage(context.Background(), req, decision, types.Usage{PromptTokens: 100, CompletionTokens: 25, TotalTokens: 125}, 1_850); err != nil {
+	if err := gov.RecordUsage(context.Background(), req, decision, types.Usage{PromptTokens: 7, CompletionTokens: 3, TotalTokens: 10}, 60); err != nil {
 		t.Fatalf("RecordUsage() error = %v", err)
 	}
 
-	status, err := gov.BudgetStatus(context.Background(), BudgetFilter{Scope: "global"})
+	status, err := gov.UsageSummary(context.Background(), UsageFilter{Scope: "global"})
 	if err != nil {
-		t.Fatalf("BudgetStatus() error = %v", err)
+		t.Fatalf("UsageSummary() error = %v", err)
 	}
-	if len(status.Warnings) != 2 {
-		t.Fatalf("warnings length = %d, want 2", len(status.Warnings))
+	if status.UsedMicrosUSD != 60 {
+		t.Fatalf("used micros = %d, want 60", status.UsedMicrosUSD)
 	}
-	if !status.Warnings[0].Triggered || !status.Warnings[1].Triggered {
-		t.Fatalf("warnings = %#v, want both thresholds triggered", status.Warnings)
+	events, err := gov.RecentUsageEvents(context.Background(), 5)
+	if err != nil {
+		t.Fatalf("RecentUsageEvents() error = %v", err)
 	}
-	if len(status.History) != 2 {
-		t.Fatalf("history length = %d, want 2", len(status.History))
+	if len(events) != 1 {
+		t.Fatalf("events length = %d, want 1", len(events))
 	}
-	if status.History[0].Type != "debit" {
-		t.Fatalf("latest history type = %q, want debit", status.History[0].Type)
+	if events[0].Type != "usage" {
+		t.Fatalf("latest event type = %q, want usage", events[0].Type)
 	}
-	if status.History[0].RequestID != "req_123" {
-		t.Fatalf("history request_id = %q, want req_123", status.History[0].RequestID)
+	if events[0].RequestID != "req_123" {
+		t.Fatalf("event request_id = %q, want req_123", events[0].RequestID)
 	}
-	if status.History[0].TotalTokens != 125 {
-		t.Fatalf("history total_tokens = %d, want 125", status.History[0].TotalTokens)
+	if events[0].TotalTokens != 10 {
+		t.Fatalf("event total_tokens = %d, want 10", events[0].TotalTokens)
 	}
-	if status.History[0].Timestamp.IsZero() {
-		t.Fatal("history timestamp is zero")
+	if events[0].Timestamp.IsZero() {
+		t.Fatal("event timestamp is zero")
 	}
-	if time.Since(status.History[0].Timestamp) > time.Minute {
-		t.Fatalf("history timestamp = %v, looks stale", status.History[0].Timestamp)
+	if time.Since(events[0].Timestamp) > time.Minute {
+		t.Fatalf("event timestamp = %v, looks stale", events[0].Timestamp)
 	}
 }
 
@@ -164,7 +89,7 @@ func TestStaticGovernorRequestPolicyRewrite(t *testing.T) {
 				RewriteModelTo: "gpt-4o-mini",
 			},
 		},
-	}, NewMemoryBudgetStore(), NewMemoryBudgetStore())
+	}, NewMemoryUsageStore(), NewMemoryUsageStore())
 
 	rewritten := gov.Rewrite(types.ChatRequest{
 		Model: "gpt-4o",
@@ -188,7 +113,7 @@ func TestStaticGovernorRewriteResultIncludesPolicyMetadata(t *testing.T) {
 				RewriteModelTo: "gpt-4o-mini",
 			},
 		},
-	}, NewMemoryBudgetStore(), NewMemoryBudgetStore())
+	}, NewMemoryUsageStore(), NewMemoryUsageStore())
 
 	result := gov.RewriteResult(types.ChatRequest{
 		Model: "gpt-4o",
@@ -216,7 +141,7 @@ func TestStaticGovernorRouteModeDenialReturnsPolicyError(t *testing.T) {
 
 	gov := NewStaticGovernor(config.GovernorConfig{
 		RouteMode: "cloud_only",
-	}, NewMemoryBudgetStore(), NewMemoryBudgetStore())
+	}, NewMemoryUsageStore(), NewMemoryUsageStore())
 
 	err := gov.CheckRoute(context.Background(), types.ChatRequest{}, types.RouteDecision{
 		Provider: "ollama",
@@ -250,7 +175,7 @@ func TestControlPlaneGovernorUsesPersistedPolicyRule(t *testing.T) {
 		t.Fatalf("UpsertPolicyRule() error = %v", err)
 	}
 
-	gov := NewControlPlaneGovernor(config.GovernorConfig{}, NewMemoryBudgetStore(), NewMemoryBudgetStore(), store)
+	gov := NewControlPlaneGovernor(config.GovernorConfig{}, NewMemoryUsageStore(), NewMemoryUsageStore(), store)
 	err := gov.CheckRoute(context.Background(), types.ChatRequest{}, types.RouteDecision{
 		Provider: "openai",
 		Model:    "gpt-4o-mini",
@@ -277,7 +202,7 @@ func TestControlPlaneGovernorReflectsLivePolicyUpdatesAndKeepsConfiguredRules(t 
 				RewriteModelTo: "gpt-4o-mini",
 			},
 		},
-	}, NewMemoryBudgetStore(), NewMemoryBudgetStore(), store)
+	}, NewMemoryUsageStore(), NewMemoryUsageStore(), store)
 
 	req := types.ChatRequest{
 		Model: "gpt-4o",
@@ -322,62 +247,45 @@ func TestControlPlaneGovernorReflectsLivePolicyUpdatesAndKeepsConfiguredRules(t 
 	}
 }
 
-// ─── Money-math defenses ─────────────────────────────────────────────────────
+// ─── Usage-recording defenses ────────────────────────────────────────────────
 //
-// Three invariants worth pinning so a refactor of the budget path can't
-// silently overcharge or fail-open:
+// Three invariants worth pinning so a refactor of the usage path can't silently
+// stop routing or lose usage:
 //
-//   1. CheckRoute returns nil when budget enforcement is disabled —
-//      neither MaxTotalBudgetMicros set NOR an explicit credit in the
-//      store. This is the "anonymous developer with no budget config"
-//      flow and must never block requests.
+//   1. CheckRoute does not enforce a global spend ceiling. Usage tracking is
+//      append-only observability, not a preflight account gate.
 //
-//   2. CheckRoute is read-not-reservation: two concurrent requests both
-//      observing a balance that covers each individually but not their
-//      sum will both pass. This is by design — the alternative
-//      (locking-then-reserving the estimated cost) blocks routing on a
-//      DB write per request and requires unwinding on partial failure.
-//      RecordUsage debits actual cost after the request completes, so
-//      the budget can briefly go negative under contention. Pin the
-//      design so a "fix" doesn't accidentally introduce a lock
-//      contention bottleneck.
+//   2. CheckRoute remains read-only. RecordUsage runs after the request
+//      completes so routing never blocks on a usage write.
 //
 //   3. Concurrent RecordUsage from multiple goroutines doesn't lose
 //      updates at the governor level. The store-level concurrency test
 //      proves the bucket is atomic; this proves the governor wraps it
 //      correctly (no read-modify-write outside the store's lock).
 
-func TestStaticGovernor_CheckRouteAllowsWhenBudgetDisabled(t *testing.T) {
+func TestStaticGovernor_CheckRouteDoesNotEnforceUsageLimit(t *testing.T) {
 	t.Parallel()
-	// No MaxTotalBudgetMicros, no SetBalance — enforcement fully off.
-	store := NewMemoryBudgetStore()
+	store := NewMemoryUsageStore()
 	gov := NewStaticGovernor(config.GovernorConfig{
-		BudgetKey: "global",
+		UsageKey: "global",
 	}, store, store)
 
-	// Even a wildly expensive estimate must not block when no budget is
-	// configured. A regression that defaults to "always enforce with
-	// max=0" would deny every request.
+	// Usage is now append-only reporting, not a budget gate. Even a wildly
+	// expensive estimate must not block routing.
 	err := gov.CheckRoute(context.Background(), types.ChatRequest{}, types.RouteDecision{
 		Provider: "openai",
 		Model:    "gpt-4o-mini",
 	}, "cloud", 1_000_000_000)
 	if err != nil {
-		t.Errorf("CheckRoute() error = %v, want nil (budget enforcement is off)", err)
+		t.Errorf("CheckRoute() error = %v, want nil", err)
 	}
 }
 
-func TestStaticGovernor_CheckRouteIsReadNotReservation(t *testing.T) {
+func TestStaticGovernor_CheckRouteIsPurePolicyCheck(t *testing.T) {
 	t.Parallel()
-	// Pin the design contract: CheckRoute does NOT reserve the estimated
-	// cost. Two concurrent CheckRoutes both pass when balance covers
-	// each individually, even if cost(A)+cost(B) > balance. RecordUsage
-	// debits the actual cost later, so budget can briefly go negative —
-	// that's intentional vs. blocking routing on a write.
-	store := NewMemoryBudgetStore()
+	store := NewMemoryUsageStore()
 	gov := NewStaticGovernor(config.GovernorConfig{
-		MaxTotalBudgetMicros: 100,
-		BudgetKey:            "global",
+		UsageKey: "global",
 	}, store, store)
 
 	decision := types.RouteDecision{Provider: "openai", Model: "gpt-4o-mini"}
@@ -385,26 +293,22 @@ func TestStaticGovernor_CheckRouteIsReadNotReservation(t *testing.T) {
 		t.Fatalf("first CheckRoute: %v", err)
 	}
 	if err := gov.CheckRoute(context.Background(), types.ChatRequest{}, decision, "cloud", 60); err != nil {
-		t.Errorf("second CheckRoute: %v, want nil (no reservation between Check and RecordUsage)", err)
+		t.Errorf("second CheckRoute: %v, want nil", err)
 	}
 }
 
 func TestStaticGovernor_RecordUsageNoLostUpdatesUnderConcurrency(t *testing.T) {
 	t.Parallel()
 	// Wraps the store's atomicity guarantee at the governor level.
-	// 50 concurrent debits of 1k from a 1M starting budget → 1M-50k=950k.
+	// 50 concurrent usage records of 1k from a 1M limit → 50k used.
 	// A regression that read-modify-writes outside the store's lock
-	// would lose updates and leave the operator with underbilling
+	// would lose updates and leave the operator with undercounted usage
 	// proportional to the concurrency level.
-	store := NewMemoryBudgetStore()
+	store := NewMemoryUsageStore()
 	gov := NewStaticGovernor(config.GovernorConfig{
-		BudgetKey: "global",
+		UsageKey: "global",
 	}, store, store)
 	ctx := context.Background()
-
-	if err := gov.TopUpBudget(ctx, BudgetFilter{Scope: "global"}, 1_000_000); err != nil {
-		t.Fatalf("TopUpBudget: %v", err)
-	}
 
 	const goroutines = 50
 	done := make(chan struct{}, goroutines)
@@ -420,20 +324,18 @@ func TestStaticGovernor_RecordUsageNoLostUpdatesUnderConcurrency(t *testing.T) {
 		<-done
 	}
 
-	status, err := gov.BudgetStatus(ctx, BudgetFilter{Scope: "global"})
+	status, err := gov.UsageSummary(ctx, UsageFilter{Scope: "global"})
 	if err != nil {
-		t.Fatalf("BudgetStatus: %v", err)
+		t.Fatalf("UsageSummary: %v", err)
 	}
-	const want = 1_000_000 - goroutines*1_000
-	if status.BalanceMicrosUSD != want {
-		t.Errorf("balance = %d, want %d (%d goroutines, no lost updates)",
-			status.BalanceMicrosUSD, want, goroutines)
+	const wantUsed = goroutines * 1_000
+	if status.UsedMicrosUSD != wantUsed {
+		t.Errorf("used = %d, want %d (%d goroutines, no lost updates)",
+			status.UsedMicrosUSD, wantUsed, goroutines)
 	}
 }
 
-// TestStaticGovernor_TenantImpersonationDebitsBoundTenant verifies the
-// budget filter resolution for a tenant-bound request: the resolved key
-// uses scope.Tenant (set by the handler from principal.Tenant), not the
-// wire `User` field. Defends against a regression that reads tenant from
-// the wire payload — letting a key bound to "team-a" silently debit
-// "team-b"'s budget by passing user="team-b" in the request.
+// TestStaticGovernor_TenantImpersonationDebitsBoundTenant verifies that usage
+// key resolution uses the server-side request scope, not user-controlled wire
+// fields. Defends against a regression that lets a caller attribute usage to a
+// different key by passing a crafted user field.

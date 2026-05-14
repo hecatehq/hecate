@@ -93,7 +93,7 @@ directly.
 Connections refreshes adapter readiness when opened. You can also
 call the probe endpoint for a full spawn + ACP handshake + no-op session check:
 
-![Connections — adapter readiness checks and durable approval grants](screenshots/settings-external-agents.png)
+![Connections — adapter readiness checks and durable approval grants](screenshots/connections-external-agents.png)
 
 ```sh
 curl -X POST http://127.0.0.1:8765/hecate/v1/agent-adapters/codex/probe | jq

@@ -435,68 +435,28 @@ func (h *Handler) HandleRetentionRun(w http.ResponseWriter, r *http.Request) {
 	})
 }
 
-func (h *Handler) HandleBudgetStatus(w http.ResponseWriter, r *http.Request) {
+func (h *Handler) HandleUsageSummary(w http.ResponseWriter, r *http.Request) {
 	ctx := r.Context()
 
-	result, err := h.service.BudgetStatusWithFilter(ctx, budgetFilterFromRequest(r))
+	result, err := h.service.UsageSummaryWithFilter(ctx, usageFilterFromRequest(r))
 	if err != nil {
-		telemetry.Error(h.logger, ctx, "gateway.budget.status.failed",
-			slog.String("event.name", "gateway.budget.status.failed"),
+		telemetry.Error(h.logger, ctx, "gateway.usage.summary.failed",
+			slog.String("event.name", "gateway.usage.summary.failed"),
 			slog.Any("error", err),
 		)
 		WriteError(w, http.StatusInternalServerError, errCodeGatewayError, err.Error())
 		return
 	}
 
-	WriteJSON(w, http.StatusOK, renderBudgetStatusResponse(result))
+	WriteJSON(w, http.StatusOK, renderUsageSummaryResponse(result))
 }
 
-func (h *Handler) HandleAccountSummary(w http.ResponseWriter, r *http.Request) {
+func (h *Handler) HandleUsageEvents(w http.ResponseWriter, r *http.Request) {
 	ctx := r.Context()
-
-	filter := budgetFilterFromRequest(r)
-	result, err := h.service.AccountSummaryWithFilter(ctx, filter)
-	if err != nil {
-		telemetry.Error(h.logger, ctx, "gateway.accounts.summary.failed",
-			slog.String("event.name", "gateway.accounts.summary.failed"),
-			slog.Any("error", err),
-		)
-		WriteError(w, http.StatusInternalServerError, errCodeGatewayError, err.Error())
-		return
-	}
-
-	estimates := make([]AccountModelEstimateRecord, 0, len(result.Estimates))
-	for _, estimate := range result.Estimates {
-		estimates = append(estimates, AccountModelEstimateRecord{
-			Provider:                        estimate.Provider,
-			ProviderKind:                    estimate.ProviderKind,
-			Model:                           estimate.Model,
-			Default:                         estimate.Default,
-			DiscoverySource:                 estimate.DiscoverySource,
-			Priced:                          estimate.Priced,
-			InputMicrosUSDPerMillionTokens:  estimate.InputMicrosUSDPerMillionTokens,
-			OutputMicrosUSDPerMillionTokens: estimate.OutputMicrosUSDPerMillionTokens,
-			EstimatedRemainingPromptTokens:  estimate.EstimatedRemainingPromptTokens,
-			EstimatedRemainingOutputTokens:  estimate.EstimatedRemainingOutputTokens,
-		})
-	}
-
-	WriteJSON(w, http.StatusOK, AccountSummaryResponse{
-		Object: "account_summary",
-		Data: AccountSummaryResponseItem{
-			Account:   renderBudgetStatusRecord(result.Status),
-			Estimates: estimates,
-		},
-	})
+	h.writeUsageEvents(w, r, ctx)
 }
 
-func (h *Handler) HandleRequestLedger(w http.ResponseWriter, r *http.Request) {
-	ctx := r.Context()
-	h.writeRequestLedger(w, r, ctx)
-}
-
-func (h *Handler) writeRequestLedger(w http.ResponseWriter, r *http.Request, ctx context.Context) {
-
+func (h *Handler) writeUsageEvents(w http.ResponseWriter, r *http.Request, ctx context.Context) {
 	limit := 20
 	if raw := strings.TrimSpace(r.URL.Query().Get("limit")); raw != "" {
 		value, err := strconv.Atoi(raw)
@@ -510,107 +470,20 @@ func (h *Handler) writeRequestLedger(w http.ResponseWriter, r *http.Request, ctx
 		limit = value
 	}
 
-	result, err := h.service.RequestLedger(ctx, limit)
+	result, err := h.service.UsageEvents(ctx, limit)
 	if err != nil {
-		telemetry.Error(h.logger, ctx, "gateway.requests.ledger.failed",
-			slog.String("event.name", "gateway.requests.ledger.failed"),
+		telemetry.Error(h.logger, ctx, "gateway.usage.events.failed",
+			slog.String("event.name", "gateway.usage.events.failed"),
 			slog.Any("error", err),
 		)
 		WriteError(w, http.StatusInternalServerError, errCodeGatewayError, err.Error())
 		return
 	}
 
-	WriteJSON(w, http.StatusOK, RequestLedgerResponse{
-		Object: "request_ledger",
-		Data:   renderBudgetHistoryRecords(result.Entries),
+	WriteJSON(w, http.StatusOK, UsageEventsResponse{
+		Object: "usage_events",
+		Data:   renderUsageEventRecords(result.Entries),
 	})
-}
-
-func (h *Handler) HandleBudgetReset(w http.ResponseWriter, r *http.Request) {
-	ctx := r.Context()
-
-	var resetReq BudgetResetRequest
-	if r.Body != nil && r.ContentLength != 0 {
-		if err := json.NewDecoder(r.Body).Decode(&resetReq); err != nil {
-			WriteError(w, http.StatusBadRequest, errCodeInvalidRequest, "request body must be valid JSON")
-			return
-		}
-	}
-
-	filter := budgetFilterFromRequest(r)
-	if resetReq.Key != "" {
-		filter.Key = resetReq.Key
-	}
-	if resetReq.Scope != "" {
-		filter.Scope = resetReq.Scope
-	}
-	if resetReq.Provider != "" {
-		filter.Provider = resetReq.Provider
-	}
-
-	result, err := h.service.ResetBudgetWithFilter(ctx, filter)
-	if err != nil {
-		telemetry.Error(h.logger, ctx, "gateway.budget.reset.failed",
-			slog.String("event.name", "gateway.budget.reset.failed"),
-			slog.Any("error", err),
-		)
-		WriteError(w, http.StatusInternalServerError, errCodeGatewayError, err.Error())
-		return
-	}
-
-	WriteJSON(w, http.StatusOK, renderBudgetStatusResponse(result))
-}
-
-func (h *Handler) HandleBudgetTopUp(w http.ResponseWriter, r *http.Request) {
-	ctx := r.Context()
-
-	var topUpReq BudgetTopUpRequest
-	if !decodeJSON(w, r, &topUpReq) {
-		return
-	}
-	if topUpReq.AmountMicrosUSD <= 0 {
-		WriteError(w, http.StatusBadRequest, errCodeInvalidRequest, "amount_micros_usd must be greater than zero")
-		return
-	}
-
-	filter := budgetFilterFromMutation(topUpReq.Key, topUpReq.Scope, topUpReq.Provider)
-	result, err := h.service.TopUpBudgetWithFilter(ctx, filter, topUpReq.AmountMicrosUSD)
-	if err != nil {
-		telemetry.Error(h.logger, ctx, "gateway.budget.top_up.failed",
-			slog.String("event.name", "gateway.budget.top_up.failed"),
-			slog.Any("error", err),
-		)
-		WriteError(w, http.StatusInternalServerError, errCodeGatewayError, err.Error())
-		return
-	}
-
-	WriteJSON(w, http.StatusOK, renderBudgetStatusResponse(result))
-}
-
-func (h *Handler) HandleBudgetSetLimit(w http.ResponseWriter, r *http.Request) {
-	ctx := r.Context()
-
-	var balanceReq BudgetBalanceRequest
-	if !decodeJSON(w, r, &balanceReq) {
-		return
-	}
-	if balanceReq.BalanceMicrosUSD < 0 {
-		WriteError(w, http.StatusBadRequest, errCodeInvalidRequest, "balance_micros_usd must be zero or greater")
-		return
-	}
-
-	filter := budgetFilterFromMutation(balanceReq.Key, balanceReq.Scope, balanceReq.Provider)
-	result, err := h.service.SetBudgetBalanceWithFilter(ctx, filter, balanceReq.BalanceMicrosUSD)
-	if err != nil {
-		telemetry.Error(h.logger, ctx, "gateway.budget.limit_set.failed",
-			slog.String("event.name", "gateway.budget.limit_set.failed"),
-			slog.Any("error", err),
-		)
-		WriteError(w, http.StatusInternalServerError, errCodeGatewayError, err.Error())
-		return
-	}
-
-	WriteJSON(w, http.StatusOK, renderBudgetStatusResponse(result))
 }
 
 func renderRetentionRunData(startedAt, finishedAt, trigger, actor, requestID string, results []retention.SubsystemResult) RetentionRunData {
@@ -638,67 +511,40 @@ func renderRetentionRunData(startedAt, finishedAt, trigger, actor, requestID str
 	}
 }
 
-func renderBudgetStatusResponse(result *gateway.BudgetStatusResult) BudgetStatusResponse {
-	return BudgetStatusResponse{
-		Object: "budget_status",
-		Data:   renderBudgetStatusRecord(result.Status),
+func renderUsageSummaryResponse(result *gateway.UsageSummaryResult) UsageSummaryResponse {
+	return UsageSummaryResponse{
+		Object: "usage_summary",
+		Data:   renderUsageSummaryRecord(result.Summary),
 	}
 }
 
-func renderBudgetStatusRecord(status types.BudgetStatus) BudgetStatusResponseItem {
-	warnings := make([]BudgetWarningRecord, 0, len(status.Warnings))
-	for _, warning := range status.Warnings {
-		warnings = append(warnings, BudgetWarningRecord{
-			ThresholdPercent:   warning.ThresholdPercent,
-			ThresholdMicrosUSD: warning.ThresholdMicrosUSD,
-			BalanceMicrosUSD:   warning.BalanceMicrosUSD,
-			AvailableMicrosUSD: warning.AvailableMicrosUSD,
-			Triggered:          warning.Triggered,
-		})
-	}
-
-	return BudgetStatusResponseItem{
-		Key:                status.Key,
-		Scope:              status.Scope,
-		Provider:           status.Provider,
-		Backend:            status.Backend,
-		BalanceSource:      status.BalanceSource,
-		DebitedMicrosUSD:   status.DebitedMicrosUSD,
-		DebitedUSD:         formatUSD(status.DebitedMicrosUSD),
-		CreditedMicrosUSD:  status.CreditedMicrosUSD,
-		CreditedUSD:        formatUSD(status.CreditedMicrosUSD),
-		BalanceMicrosUSD:   status.BalanceMicrosUSD,
-		BalanceUSD:         formatUSD(status.BalanceMicrosUSD),
-		AvailableMicrosUSD: status.AvailableMicrosUSD,
-		AvailableUSD:       formatUSD(status.AvailableMicrosUSD),
-		Enforced:           status.Enforced,
-		Warnings:           warnings,
-		History:            renderBudgetHistoryRecords(status.History),
+func renderUsageSummaryRecord(summary types.UsageSummary) UsageSummaryResponseItem {
+	return UsageSummaryResponseItem{
+		Key:           summary.Key,
+		Scope:         summary.Scope,
+		Provider:      summary.Provider,
+		Backend:       summary.Backend,
+		UsedMicrosUSD: summary.UsedMicrosUSD,
+		UsedUSD:       formatUSD(summary.UsedMicrosUSD),
 	}
 }
 
-func renderBudgetHistoryRecords(entries []types.BudgetHistoryEntry) []BudgetHistoryRecord {
-	history := make([]BudgetHistoryRecord, 0, len(entries))
+func renderUsageEventRecords(entries []types.UsageEventEntry) []UsageEventRecord {
+	history := make([]UsageEventRecord, 0, len(entries))
 	for _, entry := range entries {
-		item := BudgetHistoryRecord{
-			Type:              entry.Type,
-			Scope:             entry.Scope,
-			Provider:          entry.Provider,
-			Model:             entry.Model,
-			RequestID:         entry.RequestID,
-			Actor:             entry.Actor,
-			Detail:            entry.Detail,
-			AmountMicrosUSD:   entry.AmountMicrosUSD,
-			AmountUSD:         formatUSD(entry.AmountMicrosUSD),
-			BalanceMicrosUSD:  entry.BalanceMicrosUSD,
-			BalanceUSD:        formatUSD(entry.BalanceMicrosUSD),
-			CreditedMicrosUSD: entry.CreditedMicrosUSD,
-			CreditedUSD:       formatUSD(entry.CreditedMicrosUSD),
-			DebitedMicrosUSD:  entry.DebitedMicrosUSD,
-			DebitedUSD:        formatUSD(entry.DebitedMicrosUSD),
-			PromptTokens:      entry.PromptTokens,
-			CompletionTokens:  entry.CompletionTokens,
-			TotalTokens:       entry.TotalTokens,
+		item := UsageEventRecord{
+			Type:             entry.Type,
+			Scope:            entry.Scope,
+			Provider:         entry.Provider,
+			Model:            entry.Model,
+			RequestID:        entry.RequestID,
+			Actor:            entry.Actor,
+			Detail:           entry.Detail,
+			AmountMicrosUSD:  entry.AmountMicrosUSD,
+			AmountUSD:        formatUSD(entry.AmountMicrosUSD),
+			PromptTokens:     entry.PromptTokens,
+			CompletionTokens: entry.CompletionTokens,
+			TotalTokens:      entry.TotalTokens,
 		}
 		if !entry.Timestamp.IsZero() {
 			item.Timestamp = entry.Timestamp.UTC().Format(time.RFC3339Nano)
@@ -708,17 +554,9 @@ func renderBudgetHistoryRecords(entries []types.BudgetHistoryEntry) []BudgetHist
 	return history
 }
 
-func budgetFilterFromMutation(key, scope, provider string) governor.BudgetFilter {
-	return governor.BudgetFilter{
-		Key:      key,
-		Scope:    scope,
-		Provider: provider,
-	}
-}
-
-func budgetFilterFromRequest(r *http.Request) governor.BudgetFilter {
+func usageFilterFromRequest(r *http.Request) governor.UsageFilter {
 	query := r.URL.Query()
-	return governor.BudgetFilter{
+	return governor.UsageFilter{
 		Key:      query.Get("key"),
 		Scope:    query.Get("scope"),
 		Provider: query.Get("provider"),

@@ -1,103 +1,142 @@
 import { render, screen } from "@testing-library/react";
-import userEvent from "@testing-library/user-event";
-import { describe, expect, it, vi } from "vitest";
+import { describe, expect, it } from "vitest";
 
 import { CostsView } from "./CostsView";
 import { createRuntimeConsoleActions, createRuntimeConsoleFixture } from "../../test/runtime-console-fixture";
 
 const localSession = { label: "Local" };
 
-// Minimal budget fixture mirroring the wire shape that BudgetTab used to
-// consume. We only populate the fields CostsView actually reads.
-const sampleBudget = {
-  scope: "account",
-  enforced: true,
-  credited_micros_usd: 5_000_000,
-  debited_micros_usd: 1_250_000,
-  credited_usd: "$5.00",
-  debited_usd: "$1.25",
-  balance_usd: "$3.75",
-  available_usd: "$3.75",
-  warnings: [],
-} as any;
-
-function setup(stateOverrides: Record<string, unknown> = {}, actionOverrides: Record<string, unknown> = {}) {
+function setup(stateOverrides: Record<string, unknown> = {}) {
   const state = createRuntimeConsoleFixture({ session: localSession, ...stateOverrides });
-  const actions = { ...createRuntimeConsoleActions(), ...actionOverrides };
-  const user = userEvent.setup();
-  return { state, actions, user };
+  const actions = createRuntimeConsoleActions();
+  render(<CostsView state={state} actions={actions} />);
 }
 
-describe("CostsView balance card", () => {
-  it("renders current balance, debited, credited, and limit when budget is set", () => {
-    const { state, actions } = setup({ budget: sampleBudget });
-    render(<CostsView state={state} actions={actions} />);
-    expect(screen.getByText(/balance: \$3\.75/)).toBeTruthy();
-    expect(screen.getByText(/available: \$3\.75/)).toBeTruthy();
-    // Credited + spent appear together in the meter row.
-    expect(screen.getByText("$1.25")).toBeTruthy();
-    expect(screen.getByText(/spent of \$5\.00 credited/)).toBeTruthy();
+describe("CostsView", () => {
+  it("renders Usage as the primary surface", () => {
+    setup({ usageSummary: null, usageEvents: [] });
+
+    expect(screen.getByText("Usage")).toBeInTheDocument();
+    expect(screen.getByText(/Cloud-provider token usage measured by Hecate/i)).toBeInTheDocument();
+    expect(screen.getByText(/No cloud usage recorded yet/i)).toBeInTheDocument();
+    expect(screen.getByText(/Local models do not spend cloud-provider tokens/i)).toBeInTheDocument();
+    expect(screen.queryByText(/Budget guardrail/i)).toBeNull();
+    expect(screen.queryByText(/balance/i)).toBeNull();
+    expect(screen.queryByText(/top up/i)).toBeNull();
+    expect(screen.queryByText(/reset/i)).toBeNull();
+    expect(screen.queryByText(/External agent context/i)).toBeNull();
+    expect(screen.queryByText(/No adapter-reported usage/i)).toBeNull();
   });
 
-  it("shows the admin-required hint when budget is null", () => {
-    const { state, actions } = setup({ budget: null });
-    render(<CostsView state={state} actions={actions} />);
-    expect(screen.getByText(/Budget data unavailable/i)).toBeTruthy();
-  });
-
-  it("Reset balance + Top up buttons fire the matching actions", async () => {
-    const resetBudget = vi.fn(async () => undefined);
-    const topUpBudget = vi.fn(async () => undefined);
-    const { state, actions, user } = setup(
-      { budget: sampleBudget },
-      { resetBudget, topUpBudget },
-    );
-    render(<CostsView state={state} actions={actions} />);
-    await user.click(screen.getByRole("button", { name: /Reset balance/i }));
-    expect(resetBudget).toHaveBeenCalledTimes(1);
-    await user.click(screen.getByRole("button", { name: /Top up/i }));
-    expect(topUpBudget).toHaveBeenCalledTimes(1);
-  });
-
-  it("disables Reset + Top up when budget data is unavailable", () => {
-    const { state, actions } = setup({ budget: null });
-    render(<CostsView state={state} actions={actions} />);
-    expect((screen.getByRole("button", { name: /Reset balance/i }) as HTMLButtonElement).disabled).toBe(true);
-    expect((screen.getByRole("button", { name: /Top up/i }) as HTMLButtonElement).disabled).toBe(true);
-  });
-});
-
-describe("CostsView usage table", () => {
-  it("renders ledger rows when present", () => {
-    const { state, actions } = setup({
-      budget: sampleBudget,
-      requestLedger: [
+  it("aggregates cloud-provider tokens and hides local-provider usage rows", () => {
+    setup({
+      settingsConfig: {
+        backend: "memory",
+        policy_rules: [],
+        events: [],
+        providers: [
+          { id: "openai", name: "OpenAI", kind: "openai", enabled: true },
+          { id: "ollama", name: "Ollama", kind: "local", enabled: true },
+        ],
+      },
+      usageEvents: [
         {
-          request_id: "req-1",
+          type: "usage",
+          request_id: "cloud-request",
           timestamp: "2026-04-25T10:00:00Z",
-          model: "gpt-4o-mini",
-          total_tokens: 42,
-          amount_usd: "$0.001",
-        } as any,
+          provider: "openai",
+          model: "gpt-5.4-mini",
+          prompt_tokens: 80,
+          completion_tokens: 50,
+          total_tokens: 130,
+          amount_micros_usd: 123_000,
+          amount_usd: "$0.123",
+        },
+        {
+          type: "usage",
+          request_id: "local-request",
+          timestamp: "2026-04-25T10:01:00Z",
+          provider: "ollama",
+          model: "ministral-3:latest",
+          prompt_tokens: 999,
+          completion_tokens: 999,
+          total_tokens: 1_998,
+          amount_micros_usd: 0,
+          amount_usd: "$0.000",
+        },
       ],
     });
-    render(<CostsView state={state} actions={actions} />);
-    expect(screen.getByText("req-1")).toBeTruthy();
-    expect(screen.getByText("gpt-4o-mini")).toBeTruthy();
+
+    expect(screen.getByText("130")).toBeInTheDocument();
+    expect(screen.getByText("80 prompt · 50 output")).toBeInTheDocument();
+    expect(screen.getByText("Reported cloud cost")).toBeInTheDocument();
+    expect(screen.getByText("Recent cloud calls")).toBeInTheDocument();
+    expect(screen.getAllByText("$0.123").length).toBeGreaterThan(0);
+    expect(screen.getByText("cloud-request")).toBeInTheDocument();
+    expect(screen.queryByText("local-request")).toBeNull();
+    expect(screen.queryByText("ministral-3:latest")).toBeNull();
   });
 
-  it("falls back to an empty state when there is no ledger data", () => {
-    const { state, actions } = setup({ budget: sampleBudget, requestLedger: [] });
-    render(<CostsView state={state} actions={actions} />);
-    expect(screen.getByText(/No usage events recorded yet/i)).toBeTruthy();
+  it("keeps zero-cost cloud usage visible as token usage", () => {
+    setup({
+      settingsConfig: {
+        backend: "memory",
+        policy_rules: [],
+        events: [],
+        providers: [
+          { id: "anthropic", name: "Anthropic", kind: "anthropic", enabled: true },
+        ],
+      },
+      usageEvents: [
+        {
+          type: "usage",
+          request_id: "zero-cost-cloud-request",
+          timestamp: "2026-04-25T10:00:00Z",
+          provider: "anthropic",
+          model: "claude-sonnet-4.5",
+          prompt_tokens: 33,
+          completion_tokens: 11,
+          total_tokens: 44,
+          amount_micros_usd: 0,
+          amount_usd: "$0.000",
+        },
+      ],
+    });
+
+    expect(screen.getByText("44")).toBeInTheDocument();
+    expect(screen.getByText("33 prompt · 11 output")).toBeInTheDocument();
+    expect(screen.getByText("zero-cost-cloud-request")).toBeInTheDocument();
+    expect(screen.getAllByText("$0.000").length).toBeGreaterThan(0);
   });
 
-  it("does not crash when both budget and ledger are empty", () => {
-    const { state, actions } = setup({ budget: null, requestLedger: [] });
-    render(<CostsView state={state} actions={actions} />);
-    // Header still renders; both empty states render below.
-    expect(screen.getByText(/^Costs$/)).toBeTruthy();
-    expect(screen.getByText(/Budget data unavailable/i)).toBeTruthy();
-    expect(screen.getByText(/No usage events recorded yet/i)).toBeTruthy();
+  it("surfaces latest adapter-reported external-agent usage", () => {
+    setup({
+      activeAgentChatSession: {
+        id: "agent_chat_1",
+        title: "Codex work",
+        adapter_id: "codex",
+        workspace: "/tmp/project",
+        status: "completed",
+        messages: [
+          { id: "old", role: "assistant", content: "old", usage: { context_used: 100, context_size: 10_000 } },
+          {
+            id: "latest",
+            role: "assistant",
+            content: "latest",
+            usage: {
+              context_used: 12_345,
+              context_size: 258_400,
+              reported_cost_amount: "0.42",
+              reported_cost_currency: "USD",
+            },
+          },
+        ],
+      },
+    });
+
+    expect(screen.getAllByText("12,345 / 258,400").length).toBeGreaterThan(0);
+    expect(screen.getByText("0.42 USD")).toBeInTheDocument();
+    expect(screen.getByText("Active external-agent usage")).toBeInTheDocument();
+    expect(screen.getAllByText(/adapter-reported/i).length).toBeGreaterThan(0);
   });
 });

@@ -31,8 +31,8 @@ Nine SQLite-backed packages, each owning its own schema:
 | `internal/agentchat/sqlite.go` | External-agent chat sessions and messages |
 | `internal/agentadapters/approvals_sqlite.go` | Adapter approvals + grants |
 | `internal/chatstate/sqlite.go` | Hecate Chat sessions and provider-call rows |
-| `internal/controlplane/store_sqlite.go` | Configured providers, policy rules, pricebook, audit events |
-| `internal/governor/budget_sqlite.go` | Budgets and budget events |
+| `internal/controlplane/store_sqlite.go` | Configured providers, policy rules, secrets, audit events |
+| `internal/governor/usage_sqlite.go` | Usage totals and usage events |
 | `internal/orchestrator/queue_sqlite.go` | Task run queue |
 | `internal/providers/history_sqlite.go` | Provider health-state transitions |
 | `internal/retention/history_sqlite.go` | Retention sweep run records |

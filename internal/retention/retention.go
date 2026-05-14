@@ -14,7 +14,7 @@ import (
 
 const (
 	SubsystemTraces          = "trace_snapshots"
-	SubsystemBudgetEvents    = "budget_events"
+	SubsystemUsageEvents     = "usage_events"
 	SubsystemAuditEvents     = "audit_events"
 	SubsystemProviderHistory = "provider_history"
 	// SubsystemTurnEvents prunes the high-cardinality
@@ -31,8 +31,8 @@ type Pruner interface {
 	Prune(ctx context.Context, maxAge time.Duration, maxCount int) (int, error)
 }
 
-// BudgetEventPruner is implemented by budget stores that support event pruning.
-type BudgetEventPruner interface {
+// UsageEventPruner is implemented by usage stores that support event pruning.
+type UsageEventPruner interface {
 	PruneEvents(ctx context.Context, maxAge time.Duration, maxCount int) (int, error)
 }
 
@@ -57,9 +57,9 @@ type AgentChatApprovalPruner interface {
 	PruneExpiredGrants(ctx context.Context, now time.Time) (int64, error)
 }
 
-type budgetPrunerAdapter struct{ p BudgetEventPruner }
+type usagePrunerAdapter struct{ p UsageEventPruner }
 
-func (a budgetPrunerAdapter) Prune(ctx context.Context, maxAge time.Duration, maxCount int) (int, error) {
+func (a usagePrunerAdapter) Prune(ctx context.Context, maxAge time.Duration, maxCount int) (int, error) {
 	return a.p.PruneEvents(ctx, maxAge, maxCount)
 }
 
@@ -139,16 +139,16 @@ func NewManager(
 	cfg config.RetentionConfig,
 	tracer profiler.Tracer,
 	traces Pruner,
-	budgets BudgetEventPruner,
+	usage UsageEventPruner,
 	audit AuditEventPruner,
 	providerHistory Pruner,
 	turnEvents TurnEventPruner,
 	approvals AgentChatApprovalPruner,
 	history HistoryStore,
 ) *Manager {
-	var budgetsPruner Pruner
-	if budgets != nil {
-		budgetsPruner = budgetPrunerAdapter{budgets}
+	var usagePruner Pruner
+	if usage != nil {
+		usagePruner = usagePrunerAdapter{usage}
 	}
 	var auditPruner Pruner
 	if audit != nil {
@@ -168,7 +168,7 @@ func NewManager(
 		tracer: tracer,
 		subsystems: []subsystemEntry{
 			{SubsystemTraces, cfg.TraceSnapshots, traces},
-			{SubsystemBudgetEvents, cfg.BudgetEvents, budgetsPruner},
+			{SubsystemUsageEvents, cfg.UsageEvents, usagePruner},
 			{SubsystemAuditEvents, cfg.AuditEvents, auditPruner},
 			{SubsystemProviderHistory, cfg.ProviderHistory, providerHistory},
 			{SubsystemTurnEvents, cfg.TurnEvents, turnEventsPruner},

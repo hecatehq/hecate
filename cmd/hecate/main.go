@@ -19,7 +19,6 @@ import (
 	"github.com/hecate/agent-runtime/internal/agentadapters"
 	"github.com/hecate/agent-runtime/internal/agentchat"
 	"github.com/hecate/agent-runtime/internal/api"
-	"github.com/hecate/agent-runtime/internal/billing"
 	"github.com/hecate/agent-runtime/internal/bootstrap"
 	"github.com/hecate/agent-runtime/internal/catalog"
 	"github.com/hecate/agent-runtime/internal/chatstate"
@@ -173,8 +172,6 @@ func main() {
 		providerHistoryStore,
 	)
 
-	staticPricebook := billing.NewStaticPricebook(cfg.Providers, cfg.Pricebook)
-	pricebook := billing.NewRegistryAwarePricebook(billing.NewControlPlanePricebook(staticPricebook, controlPlaneStore), providerRegistry)
 	otelProvider, err := profiler.NewTracerProvider(context.Background(), profiler.TracerProviderOptions{
 		Enabled:   cfg.OTel.Traces.Enabled,
 		Endpoint:  cfg.OTel.Traces.Endpoint,
@@ -197,7 +194,7 @@ func main() {
 		}
 	}()
 	tracer := profiler.NewInMemoryTracer(profiler.NewOTelTracer(otelProvider))
-	budgetStore := buildBudgetStore(cfg, logger, sqliteClient)
+	usageStore := buildUsageStore(cfg, logger, sqliteClient)
 	chatSessionStore := buildChatSessionStore(cfg, logger, sqliteClient)
 	agentChatStore := buildAgentChatStore(cfg, logger, sqliteClient)
 	// Approval store shares the agent-chat backend selector
@@ -231,7 +228,7 @@ func main() {
 		cfg.Retention,
 		tracer,
 		tracer,
-		budgetStore,
+		usageStore,
 		controlPlaneStore,
 		pruneableProviderHistory(providerHistoryStore),
 		taskStore,
@@ -243,7 +240,7 @@ func main() {
 		cfg.Router.DefaultModel,
 		providerCatalog,
 	)
-	governorEngine := governor.NewControlPlaneGovernor(cfg.Governor, budgetStore, budgetStore, controlPlaneStore)
+	governorEngine := governor.NewControlPlaneGovernor(cfg.Governor, usageStore, usageStore, controlPlaneStore)
 
 	service := gateway.NewService(buildGatewayDependencies(
 		cfg,
@@ -254,7 +251,6 @@ func main() {
 		providerRegistry,
 		healthTracker,
 		providerHistoryStore,
-		pricebook,
 		tracer,
 		metrics,
 		retentionManager,
@@ -266,21 +262,6 @@ func main() {
 	go retentionManager.RunLoop(retentionCtx)
 
 	taskQueue := buildTaskQueue(cfg, logger, sqliteClient)
-
-	// Pricebook auto-import scheduler. Enabled when the operator sets
-	// GATEWAY_PRICEBOOK_AUTO_IMPORT_INTERVAL to a positive duration —
-	// otherwise this returns immediately and the goroutine exits clean.
-	// Runs once on start (so a fresh deploy isn't stuck on stale prices)
-	// and then on every interval. Manual rows are always preserved per
-	// the operator-protection contract; only Added/Updated land.
-	pricebookImportCtx, pricebookImportCancel := context.WithCancel(context.Background())
-	defer pricebookImportCancel()
-	go billing.RunPricebookAutoImport(
-		pricebookImportCtx,
-		billing.NewPricebookImporter(controlPlaneStore, http.DefaultClient),
-		billing.PricebookAutoImportConfig{Interval: cfg.Pricebook.AutoImportInterval},
-		logger,
-	)
 
 	handler := api.NewHandler(cfg, logger, service, controlPlaneStore, taskStore, taskQueue, providerRuntime)
 	handler.SetAgentChatStore(agentChatStore)
@@ -354,7 +335,6 @@ func main() {
 
 	logger.Info("gateway shutting down")
 	retentionCancel()
-	pricebookImportCancel()
 	// Stop the task runner before closing the HTTP server. The HTTP
 	// layer only enqueues jobs and is quick to drain; the long-poll
 	// is the agent loop running in queue workers, which may have
@@ -539,7 +519,6 @@ func buildGatewayDependencies(
 	providerRegistry providers.Registry,
 	healthTracker providers.HealthTracker,
 	providerHistoryStore providers.HealthHistoryStore,
-	pricebook billing.Pricebook,
 	tracer profiler.Tracer,
 	metrics *telemetry.Metrics,
 	retentionManager *retention.Manager,
@@ -558,7 +537,6 @@ func buildGatewayDependencies(
 		Providers:         providerRegistry,
 		HealthTracker:     healthTracker,
 		ProviderHistory:   providerHistoryStore,
-		Pricebook:         pricebook,
 		Tracer:            tracer,
 		Metrics:           metrics,
 		Retention:         retentionManager,
@@ -671,16 +649,16 @@ func buildTaskQueue(cfg config.Config, logger *slog.Logger, sqliteClient *storag
 	}
 }
 
-func buildBudgetStore(cfg config.Config, logger *slog.Logger, sqliteClient *storage.SQLiteClient) governor.BudgetStore {
-	if cfg.Governor.BudgetBackend == "sqlite" {
-		store, err := governor.NewSQLiteBudgetStore(context.Background(), sqliteClient)
+func buildUsageStore(cfg config.Config, logger *slog.Logger, sqliteClient *storage.SQLiteClient) governor.UsageRepository {
+	if cfg.Governor.UsageBackend == "sqlite" {
+		store, err := governor.NewSQLiteUsageStore(context.Background(), sqliteClient)
 		if err != nil {
-			logger.Error("budget store init failed", slog.Any("error", err))
+			logger.Error("usage store init failed", slog.Any("error", err))
 			os.Exit(1)
 		}
 		return store
 	}
-	return governor.NewMemoryBudgetStore()
+	return governor.NewMemoryUsageStore()
 }
 
 func buildSQLiteClient(cfg config.Config, logger *slog.Logger) *storage.SQLiteClient {
@@ -701,7 +679,7 @@ func buildSQLiteClient(cfg config.Config, logger *slog.Logger) *storage.SQLiteCl
 }
 
 func sqliteRequired(cfg config.Config) bool {
-	return cfg.Governor.BudgetBackend == "sqlite" ||
+	return cfg.Governor.UsageBackend == "sqlite" ||
 		cfg.Server.ControlPlaneBackend == "sqlite" ||
 		cfg.Chat.SessionsBackend == "sqlite" ||
 		cfg.Server.TasksBackend == "sqlite" ||

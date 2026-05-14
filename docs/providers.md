@@ -163,12 +163,10 @@ suppress Hecate's auto-attach for those sections.
 
 Reads show up in the response as non-zero
 `cache_read_input_tokens`, which Hecate plumbs through as
-`Usage.CachedPromptTokens` and prices via the cache-read rate
-when the pricebook has one. Cache writes
+`Usage.CachedPromptTokens` for observability. Cache writes
 (`cache_creation_input_tokens`) currently fold into
-`Usage.PromptTokens` at the fresh-input rate; the pricebook
-doesn't yet have a separate cache-write rate, so first-turn cost
-is undercounted by ~20% per cache-write token until that lands.
+`Usage.PromptTokens`; Hecate records the token counts but does not
+try to infer provider-specific cache pricing.
 
 The behavior is controlled by `GATEWAY_PROVIDER_ANTHROPIC_CACHE_ENABLED`
 (default `true`). The toggle is global — every Anthropic-protocol
@@ -214,13 +212,13 @@ Each row includes the resulting health status, error class, last observed latenc
 
 Failover rows now also capture:
 
-- `reason` — the failover cause or phase, such as `provider_retry_exhausted`, `preflight_price_missing`, `budget_denied`, `policy_denied`, or `candidate_selected`
+- `reason` — the failover cause or phase, such as `provider_retry_exhausted`, `policy_denied`, or `candidate_selected`
 - `route_reason` — why that provider/model candidate was in play
 - `peer_provider` / `peer_model` — the adjacent provider on the failover edge
 - `peer_route_reason` — why the next or previous candidate was in play
 - `health_status` / `peer_health_status` — the runtime health snapshot around the failover
 - `attempt_count` — retry attempts exhausted before failover when applicable
-- `estimated_micros_usd` — estimated preflight cost when the runtime had one
+- `estimated_micros_usd` — reserved for callers that provide their own preflight estimate; usually `0`
 
 The history store is configurable with:
 

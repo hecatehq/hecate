@@ -16,7 +16,7 @@ func TestShouldRunEmptySelectionMeansAll(t *testing.T) {
 }
 
 func TestShouldRunFiltersBySubsystemName(t *testing.T) {
-	selected := []string{SubsystemTraces, SubsystemBudgetEvents}
+	selected := []string{SubsystemTraces, SubsystemUsageEvents}
 	if !shouldRun(selected, SubsystemTraces) {
 		t.Error("traces should match")
 	}

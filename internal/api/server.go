@@ -142,7 +142,7 @@ func registerHecateOperationsRoutes(mux *http.ServeMux, handler *Handler) {
 	// Local bridge endpoint used by the desktop app / browser UI.
 	mux.HandleFunc("POST /hecate/v1/workspace-dialog", handler.HandleWorkspaceDialog)
 
-	// Observability and system operations: local traces, request ledger,
+	// Observability and system operations: local traces, request history,
 	// retention, runtime health, and MCP diagnostics.
 	mux.HandleFunc("GET /hecate/v1/traces", handler.HandleTracesOrTrace)
 	mux.HandleFunc("GET /hecate/v1/system/retention/runs", handler.HandleRetentionRuns)
@@ -150,21 +150,14 @@ func registerHecateOperationsRoutes(mux *http.ServeMux, handler *Handler) {
 	mux.HandleFunc("GET /hecate/v1/system/stats", handler.HandleRuntimeStats)
 	mux.HandleFunc("GET /hecate/v1/system/mcp/cache", handler.HandleMCPCacheStats)
 	mux.HandleFunc("POST /hecate/v1/mcp/probe", handler.HandleMCPProbe)
-	mux.HandleFunc("GET /hecate/v1/observability/requests", handler.HandleRequestLedger)
-
-	// Cost surfaces are operator accounting state, separated from settings so
-	// budget actions and usage summaries read naturally.
-	mux.HandleFunc("GET /hecate/v1/costs/budget", handler.HandleBudgetStatus)
-	mux.HandleFunc("GET /hecate/v1/costs/summary", handler.HandleAccountSummary)
-	mux.HandleFunc("POST /hecate/v1/costs/budget/topup", handler.HandleBudgetTopUp)
-	mux.HandleFunc("POST /hecate/v1/costs/budget/limit", handler.HandleBudgetSetLimit)
-	mux.HandleFunc("POST /hecate/v1/costs/budget/reset", handler.HandleBudgetReset)
+	mux.HandleFunc("GET /hecate/v1/usage/events", handler.HandleUsageEvents)
+	mux.HandleFunc("GET /hecate/v1/usage/summary", handler.HandleUsageSummary)
 }
 
 func registerHecateSettingsRoutes(mux *http.ServeMux, handler *Handler) {
-	// Operator settings: configured providers, local discovery, policy rules,
-	// and pricebook management. These replace the old /admin/control-plane
-	// action routes before the API becomes stable.
+	// Operator settings: configured providers, local discovery, and policy
+	// rules. These replace the old /admin/control-plane action routes before
+	// the API becomes stable.
 	mux.HandleFunc("GET /hecate/v1/settings", handler.HandleSettingsStatus)
 	mux.HandleFunc("GET /hecate/v1/settings/providers/local-discovery", handler.HandleLocalProviderDiscovery)
 	mux.HandleFunc("POST /hecate/v1/settings/providers", handler.HandleSettingsCreateProvider)
@@ -173,10 +166,6 @@ func registerHecateSettingsRoutes(mux *http.ServeMux, handler *Handler) {
 	mux.HandleFunc("PUT /hecate/v1/settings/providers/{id}/api-key", handler.HandleSettingsSetProviderAPIKey)
 	mux.HandleFunc("POST /hecate/v1/settings/policy-rules", handler.HandleSettingsUpsertPolicyRule)
 	mux.HandleFunc("DELETE /hecate/v1/settings/policy-rules/{id}", handler.HandleSettingsDeletePolicyRule)
-	mux.HandleFunc("POST /hecate/v1/settings/pricebook", handler.HandleSettingsUpsertPricebookEntry)
-	mux.HandleFunc("DELETE /hecate/v1/settings/pricebook/{provider}/{model...}", handler.HandleSettingsDeletePricebookEntry)
-	mux.HandleFunc("POST /hecate/v1/settings/pricebook/import/preview", handler.HandleSettingsPricebookImportPreview)
-	mux.HandleFunc("POST /hecate/v1/settings/pricebook/import/apply", handler.HandleSettingsPricebookImportApply)
 }
 
 func apiNotFound(w http.ResponseWriter, r *http.Request) {

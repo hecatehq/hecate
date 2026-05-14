@@ -6,7 +6,6 @@ import (
 	"log/slog"
 	"testing"
 
-	"github.com/hecate/agent-runtime/internal/billing"
 	"github.com/hecate/agent-runtime/internal/config"
 	"github.com/hecate/agent-runtime/internal/governor"
 	"github.com/hecate/agent-runtime/internal/profiler"
@@ -18,23 +17,10 @@ import (
 func TestDefaultResponseFinalizerFinalizeExecution(t *testing.T) {
 	t.Parallel()
 
-	store := governor.NewMemoryBudgetStore()
+	store := governor.NewMemoryUsageStore()
 	finalizer := NewDefaultResponseFinalizer(
 		slog.New(slog.NewJSONHandler(io.Discard, nil)),
-		governor.NewStaticGovernor(config.GovernorConfig{BudgetKey: "global", MaxTotalBudgetMicros: 1_000_000}, store, store),
-		billing.NewStaticPricebook(config.ProvidersConfig{
-			OpenAICompatible: []config.OpenAICompatibleProviderConfig{
-				{
-					Name:         "openai",
-					Kind:         "cloud",
-					DefaultModel: "gpt-4o-mini",
-				},
-			},
-		}, config.PricebookConfig{
-			Entries: []config.ModelPriceConfig{
-				{Provider: "openai", Model: "gpt-4o-mini", InputMicrosUSDPerMillionTokens: 150_000, OutputMicrosUSDPerMillionTokens: 600_000},
-			},
-		}),
+		governor.NewStaticGovernor(config.GovernorConfig{UsageKey: "global"}, store, store),
 		telemetry.NewMetrics(),
 	)
 
@@ -67,39 +53,29 @@ func TestDefaultResponseFinalizerFinalizeExecution(t *testing.T) {
 	if err != nil {
 		t.Fatalf("FinalizeExecution() error = %v", err)
 	}
-	if result.Metadata.CostMicrosUSD == 0 {
-		t.Fatal("cost_micros_usd = 0, want non-zero")
+	if result.Metadata.CostMicrosUSD != 0 {
+		t.Fatalf("cost_micros_usd = %d, want 0 without cost estimation", result.Metadata.CostMicrosUSD)
 	}
 
-	account, _, err := store.Snapshot(context.Background(), "global")
+	events, err := store.ListRecentEvents(context.Background(), 5)
 	if err != nil {
-		t.Fatalf("Snapshot() error = %v", err)
+		t.Fatalf("ListRecentEvents() error = %v", err)
 	}
-	if account.DebitedMicrosUSD == 0 {
-		t.Fatal("budget usage not recorded")
+	if len(events) != 1 {
+		t.Fatalf("usage events = %d, want 1", len(events))
+	}
+	if events[0].TotalTokens != 15 {
+		t.Fatalf("usage event total tokens = %d, want 15", events[0].TotalTokens)
 	}
 }
 
 func TestDefaultResponseFinalizerFinalizeExecutionAllowsUnpricedResolvedModel(t *testing.T) {
 	t.Parallel()
 
-	store := governor.NewMemoryBudgetStore()
+	store := governor.NewMemoryUsageStore()
 	finalizer := NewDefaultResponseFinalizer(
 		slog.New(slog.NewJSONHandler(io.Discard, nil)),
-		governor.NewStaticGovernor(config.GovernorConfig{BudgetKey: "global"}, store, store),
-		billing.NewStaticPricebook(config.ProvidersConfig{
-			OpenAICompatible: []config.OpenAICompatibleProviderConfig{
-				{
-					Name:         "openai",
-					Kind:         "cloud",
-					DefaultModel: "gpt-4o-mini",
-				},
-			},
-		}, config.PricebookConfig{
-			Entries: []config.ModelPriceConfig{
-				{Provider: "openai", Model: "gpt-4o-mini", InputMicrosUSDPerMillionTokens: 150_000, OutputMicrosUSDPerMillionTokens: 600_000},
-			},
-		}),
+		governor.NewStaticGovernor(config.GovernorConfig{UsageKey: "global"}, store, store),
 		telemetry.NewMetrics(),
 	)
 

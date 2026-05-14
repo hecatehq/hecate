@@ -13,7 +13,7 @@ Hecate serves three intentionally separate HTTP surfaces:
 | Namespace | Purpose |
 |---|---|
 | `/v1/*` | Provider-compatible protocol ingress. These paths stay OpenAI- or Anthropic-shaped so existing SDKs can point at Hecate without learning Hecate-specific URLs. Today that means `GET /v1/models`, `POST /v1/chat/completions`, and `POST /v1/messages`. |
-| `/hecate/v1/*` | Hecate-native product API: tasks, Hecate Chat sessions, external-agent adapters, settings, costs, traces, events, and system operations. Operator UI, MCP tools, ACP bridge, and Hecate-aware clients should use this namespace. |
+| `/hecate/v1/*` | Hecate-native product API: tasks, Hecate Chat sessions, external-agent adapters, settings, usage, traces, events, and system operations. Operator UI, MCP tools, ACP bridge, and Hecate-aware clients should use this namespace. |
 | `/healthz` | Unversioned process liveness for local scripts, desktop sidecars, and load balancers. It is intentionally tiny and not wrapped in the normal `{object,data}` API envelope. |
 
 OTLP collector/export endpoints keep their standard protocol paths
@@ -95,6 +95,7 @@ object when available.
 - [Event and stream endpoints](#event-and-stream-endpoints)
 - [Queue execution model](#queue-execution-model)
 - [Runtime backend and queue configuration](#runtime-backend-and-queue-configuration)
+- [Usage endpoints](#usage-endpoints)
 - [Health and discovery endpoints](#health-and-discovery-endpoints)
 - [Rate-limit headers on chat / messages](#rate-limit-headers-on-chat--messages)
 
@@ -285,7 +286,7 @@ The full catalog of event types — including payload shapes, when each fires, a
 - `run.*` lifecycle (`run.created` / `run.queued` / `run.started` / `run.finished` / `run.failed` / `run.cancelled`)
 - typed `tool.*` events for in-run tool lifecycle detail
 - `approval.requested` / `approval.resolved` for human-gating flows
-- `turn.completed` for per-LLM-turn cost ledgers in `agent_loop` runs
+- `turn.completed` for per-LLM-turn cost/tokens summaries in `agent_loop` runs
 - `run.resumed_from_event` for resume / retry-from-turn chains
 
 ## Queue execution model
@@ -381,6 +382,79 @@ POST /hecate/v1/mcp/probe
 ```
 
 Tool names come back un-namespaced — the operator wants to see what the upstream itself calls them, not the gateway's runtime alias. Bounded by a 10-second deadline; a stuck upstream surfaces as a 400 with the diagnostic rather than wedging the request.
+
+## Usage endpoints
+
+Hecate records usage for operator visibility, not global spend enforcement.
+Cloud-provider calls may include measured tokens and known or provider-reported
+cost. Local-provider rows are still recorded as usage events, but the Usage UI
+hides them from the cloud-spend table because they do not consume cloud-provider
+tokens. External-agent usage remains adapter-reported and is surfaced on chat
+messages when the adapter provides it.
+
+### `GET /hecate/v1/usage/summary`
+
+Returns the cumulative known/reported spend for a usage bucket. In the local
+single-operator shape, clients usually call this without query parameters and
+read the global bucket.
+
+Query parameters:
+
+| Name | Meaning |
+|---|---|
+| `scope` | `global` (default) or `provider`. Unknown values fall back to `global`. |
+| `provider` | Provider id when `scope=provider`. |
+| `key` | Explicit internal usage key. Intended for diagnostics, not normal UI use. |
+
+```json
+GET /hecate/v1/usage/summary
+→ 200
+{
+  "object": "usage_summary",
+  "data": {
+    "key": "global",
+    "scope": "global",
+    "backend": "sqlite",
+    "used_micros_usd": 1600,
+    "used_usd": "$0.001600"
+  }
+}
+```
+
+### `GET /hecate/v1/usage/events`
+
+Returns recent append-only usage rows, newest first. The UI uses these rows to
+show cloud-provider tokens and known/reported cost. The endpoint is intentionally
+read-only; old balance, top-up, reset, and pricebook endpoints were removed.
+
+Query parameters:
+
+| Name | Meaning |
+|---|---|
+| `limit` | Maximum rows to return. Defaults to the configured usage history limit. |
+
+```json
+GET /hecate/v1/usage/events?limit=20
+→ 200
+{
+  "object": "usage_events",
+  "data": [
+    {
+      "type": "usage",
+      "scope": "provider",
+      "provider": "openai",
+      "model": "gpt-5.4-mini",
+      "request_id": "req_...",
+      "amount_micros_usd": 1600,
+      "amount_usd": "$0.001600",
+      "prompt_tokens": 920,
+      "completion_tokens": 280,
+      "total_tokens": 1200,
+      "timestamp": "2026-05-14T10:00:00Z"
+    }
+  ]
+}
+```
 
 ## Health and discovery endpoints
 
@@ -519,8 +593,8 @@ routable, or `not_required` for local providers that do not need credentials.
 The trace inspector reuses the same vocabulary in route candidates. A selected
 candidate is paired with the route reason (`requested_model`, `pinned_provider`,
 `global_default_model`, etc.); skipped candidates carry `skip_reason` values
-such as `policy_denied`, `budget_denied`, `provider_rate_limited`,
-`provider_less_stable`, or `preflight_price_missing`. This keeps the operator
+such as `policy_denied`, `provider_rate_limited`,
+`provider_less_stable`, or `provider_unavailable`. This keeps the operator
 debugging path consistent: Connections explains whether a route is possible now,
 and Observability explains how a specific request moved through the candidates.
 

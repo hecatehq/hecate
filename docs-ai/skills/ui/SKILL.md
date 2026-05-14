@@ -81,8 +81,8 @@ Organize the UI around operator jobs, not components:
 - Inspect providers and models.
 - Run and compare requests.
 - Inspect trace and runtime metadata.
-- Manage providers, pricing, retention, and policy-adjacent state.
-- Inspect budget state and controls.
+- Manage providers, retention, and policy-adjacent state.
+- Inspect usage events and reported cost where available.
 
 Views are task-shaped, not component-shaped. If a page mixes too many concerns, split it.
 
@@ -162,7 +162,7 @@ Default app layout: top-level shell + primary navigation/mode switch + main work
 Cards only when the card itself is the interaction boundary:
 
 - A selectable provider target.
-- A provider credential or pricing record with contained actions.
+- A provider credential or readiness record with contained actions.
 - A focused result panel that benefits from separation.
 
 **Do not add a new persistent inspector, side rail, dashboard block, or summary panel without explicit user approval first.** Improve the existing workspace before expanding the surface area.
@@ -171,7 +171,7 @@ Cards only when the card itself is the interaction boundary:
 
 Product UI copy, not marketing copy.
 
-Good labels: Session, Chats, Provider Routing, Runtime Output, Trace, Budget State, Policy.
+Good labels: Session, Chats, Provider Routing, Runtime Output, Trace, Usage, Policy.
 
 Good supporting copy explains scope, freshness, operator impact, and the next action. Bad supporting copy is hype, mood statements, abstract claims, or a repeated explanation of what Hecate is.
 
@@ -188,9 +188,9 @@ src/
     runs/               TasksView, TaskDetail, NewTaskSlideOver, TaskList — agent task list + run replay (the headline UI)
     chats/              ChatView — interactive chat against the gateway
     transcript/         reusable transcript pieces for Chats and Task Detail: markdown, message rows, activity timeline, file diff review
-    overview/           ConnectYourClient, ObservabilityView — request ledger + trace drilldown + Codex/Claude Code setup
+    overview/           ConnectYourClient, ObservabilityView — request history + trace drilldown + Codex/Claude Code setup
     connections/        ConnectionsPanel — provider readiness, model capabilities, external-agent setup/grants
-    settings/           SettingsView, PricebookTab — pricing, retention, non-connection configuration
+    settings/           SettingsView — retention and non-connection configuration
     providers/          ProvidersView — detailed provider catalog/editor
     shared/             primitives, pickers, overlays; ui.tsx is a compatibility barrel
   lib/

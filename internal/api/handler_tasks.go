@@ -2125,7 +2125,7 @@ func (h *Handler) decodeTaskRunEventData(event types.TaskRunEvent) (TaskRunStrea
 	// don't have enough state to fabricate a full snapshot here — the
 	// caller falls through to buildTaskRunStreamState — but we DO want
 	// to attach the per-turn breakdown so the UI can render a live
-	// cost-per-turn ledger without subscribing to /hecate/v1/events.
+	// cost-per-turn summary without subscribing to /hecate/v1/events.
 	if event.EventType == "turn.completed" {
 		turn := decodeTurnCostFromEventData(event.Data)
 		return TaskRunStreamEventData{Turn: turn}, false, nil

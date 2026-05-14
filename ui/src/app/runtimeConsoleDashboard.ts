@@ -1,10 +1,8 @@
 import {
   ApiError,
-  getAccountSummary,
   getAgentAdapters,
   getAgentChatSession,
   getAgentChatSessions,
-  getBudget,
   getChatSession,
   getChatSessions,
   getSettingsConfig,
@@ -12,17 +10,16 @@ import {
   getModels,
   getProviderPresets,
   getProviders,
-  getRequestLedger,
   getRetentionRuns,
   getRuntimeStats,
   getSession,
+  getUsageEvents,
+  getUsageSummary,
 } from "../lib/api";
 import type {
-  AccountSummaryResponse,
   AgentAdapterRecord,
   AgentChatSessionRecord,
   AgentChatSessionsResponse,
-  BudgetStatusResponse,
   ChatSessionRecord,
   ChatSessionsResponse,
   ConfiguredStateResponse,
@@ -30,10 +27,11 @@ import type {
   ModelResponse,
   ProviderPresetRecord,
   ProviderStatusResponse,
-  RequestLedgerResponse,
   RetentionRunData,
   RuntimeStatsResponse,
   SessionResponse,
+  UsageSummaryResponse,
+  UsageEventsResponse,
 } from "../types/runtime";
 
 export type SessionState = {
@@ -43,13 +41,12 @@ export type SessionState = {
 export type DashboardPreviousState = {
   providers: ProviderStatusResponse["data"];
   agentAdapters: AgentAdapterRecord[];
-  budget: BudgetStatusResponse["data"] | null;
-  accountSummary: AccountSummaryResponse["data"] | null;
+  usageSummary: UsageSummaryResponse["data"] | null;
   chatSessions: ChatSessionsResponse["data"];
   activeChatSession: ChatSessionRecord | null;
   agentChatSessions: AgentChatSessionsResponse["data"];
   activeAgentChatSession: AgentChatSessionRecord | null;
-  requestLedger: RequestLedgerResponse["data"];
+  usageEvents: UsageEventsResponse["data"];
   settingsConfig: ConfiguredStateResponse["data"] | null;
   retentionRuns: RetentionRunData[];
   retentionLastRun: RetentionRunData | null;
@@ -62,8 +59,7 @@ export type DashboardSnapshot = {
   providers: ProviderStatusResponse["data"];
   providerPresets: ProviderPresetRecord[];
   agentAdapters: AgentAdapterRecord[];
-  budget: BudgetStatusResponse["data"] | null;
-  accountSummary: AccountSummaryResponse["data"] | null;
+  usageSummary: UsageSummaryResponse["data"] | null;
   chatSessions: ChatSessionsResponse["data"];
   chatSessionsHasMore: boolean;
   activeChatSessionID: string;
@@ -71,7 +67,7 @@ export type DashboardSnapshot = {
   agentChatSessions: AgentChatSessionsResponse["data"];
   activeAgentChatSessionID: string;
   activeAgentChatSession: AgentChatSessionRecord | null;
-  requestLedger: RequestLedgerResponse["data"];
+  usageEvents: UsageEventsResponse["data"];
   settingsConfig: ConfiguredStateResponse["data"] | null;
   retentionRuns: RetentionRunData[];
   retentionLastRun: RetentionRunData | null;
@@ -85,11 +81,10 @@ type DashboardResults = {
   providers: PromiseSettledResult<ProviderStatusResponse>;
   providerPresets: PromiseSettledResult<{ object: string; data: ProviderPresetRecord[] }>;
   agentAdapters: PromiseSettledResult<{ object: string; data: AgentAdapterRecord[] }>;
-  budget: PromiseSettledResult<BudgetStatusResponse>;
-  accountSummary: PromiseSettledResult<AccountSummaryResponse>;
+  usageSummary: PromiseSettledResult<UsageSummaryResponse>;
   chatSessions: PromiseSettledResult<ChatSessionsResponse>;
   agentChatSessions: PromiseSettledResult<AgentChatSessionsResponse>;
-  requestLedger: PromiseSettledResult<RequestLedgerResponse>;
+  usageEvents: PromiseSettledResult<UsageEventsResponse>;
   settingsConfig: PromiseSettledResult<ConfiguredStateResponse>;
   retentionRuns: PromiseSettledResult<{ object: string; data: RetentionRunData[] }>;
   runtimeStats: PromiseSettledResult<RuntimeStatsResponse>;
@@ -107,9 +102,8 @@ export async function resolveDashboardSnapshot(args: {
   const providers = resolveDashboardResult(results.providers, args.previous.providers);
   const providerPresets = results.providerPresets.status === "fulfilled" ? results.providerPresets.value.data : [];
   const agentAdapters = resolveDashboardResult(results.agentAdapters, args.previous.agentAdapters);
-  const budget = resolveDashboardResult(results.budget, args.previous.budget);
-  const accountSummary = resolveDashboardResult(results.accountSummary, args.previous.accountSummary);
-  const requestLedger = resolveDashboardResult(results.requestLedger, args.previous.requestLedger);
+  const usageSummary = resolveDashboardResult(results.usageSummary, args.previous.usageSummary);
+  const usageEvents = resolveDashboardResult(results.usageEvents, args.previous.usageEvents);
   const settingsConfig = resolveDashboardResult(results.settingsConfig, args.previous.settingsConfig);
   const retentionRuns = resolveDashboardResult(results.retentionRuns, args.previous.retentionRuns);
   const retentionLastRun = retentionRuns[0] ?? null;
@@ -136,8 +130,7 @@ export async function resolveDashboardSnapshot(args: {
     providers,
     providerPresets,
     agentAdapters,
-    budget,
-    accountSummary,
+    usageSummary,
     chatSessions: chatState.sessions,
     chatSessionsHasMore: chatState.hasMore,
     activeChatSessionID: chatState.activeChatSessionID,
@@ -145,7 +138,7 @@ export async function resolveDashboardSnapshot(args: {
     agentChatSessions: agentChatState.sessions,
     activeAgentChatSessionID: agentChatState.activeSessionID,
     activeAgentChatSession: agentChatState.activeSession,
-    requestLedger,
+    usageEvents,
     settingsConfig,
     retentionRuns,
     retentionLastRun,
@@ -168,11 +161,10 @@ async function loadDashboardResults(): Promise<DashboardResults> {
   let providers: PromiseSettledResult<ProviderStatusResponse> = initialReject();
   let providerPresets: PromiseSettledResult<{ object: string; data: ProviderPresetRecord[] }> = initialReject();
   let agentAdapters: PromiseSettledResult<{ object: string; data: AgentAdapterRecord[] }> = initialReject();
-  let budget: PromiseSettledResult<BudgetStatusResponse> = initialReject();
-  let accountSummary: PromiseSettledResult<AccountSummaryResponse> = initialReject();
+  let usageSummary: PromiseSettledResult<UsageSummaryResponse> = initialReject();
   let chatSessions: PromiseSettledResult<ChatSessionsResponse> = initialReject();
   let agentChatSessions: PromiseSettledResult<AgentChatSessionsResponse> = initialReject();
-  let requestLedger: PromiseSettledResult<RequestLedgerResponse> = initialReject();
+  let usageEvents: PromiseSettledResult<UsageEventsResponse> = initialReject();
   let settingsConfig: PromiseSettledResult<ConfiguredStateResponse> = initialReject();
   let retentionRuns: PromiseSettledResult<{ object: string; data: RetentionRunData[] }> = initialReject();
   let runtimeStats: PromiseSettledResult<RuntimeStatsResponse> = initialReject();
@@ -183,9 +175,8 @@ async function loadDashboardResults(): Promise<DashboardResults> {
     getChatSessions(20).then(r => { chatSessions = { status: "fulfilled", value: r }; }, e => { chatSessions = { status: "rejected", reason: e }; }),
     getAgentChatSessions().then(r => { agentChatSessions = { status: "fulfilled", value: r }; }, e => { agentChatSessions = { status: "rejected", reason: e }; }),
     getModels().then(r => { models = { status: "fulfilled", value: r }; }, e => { models = { status: "rejected", reason: e }; }),
-    getBudget("").then(r => { budget = { status: "fulfilled", value: r }; }, e => { budget = { status: "rejected", reason: e }; }),
-    getAccountSummary("").then(r => { accountSummary = { status: "fulfilled", value: r }; }, e => { accountSummary = { status: "rejected", reason: e }; }),
-    getRequestLedger(20).then(r => { requestLedger = { status: "fulfilled", value: r }; }, e => { requestLedger = { status: "rejected", reason: e }; }),
+    getUsageSummary("").then(r => { usageSummary = { status: "fulfilled", value: r }; }, e => { usageSummary = { status: "rejected", reason: e }; }),
+    getUsageEvents(20).then(r => { usageEvents = { status: "fulfilled", value: r }; }, e => { usageEvents = { status: "rejected", reason: e }; }),
     getSettingsConfig().then(r => { settingsConfig = { status: "fulfilled", value: r }; }, e => { settingsConfig = { status: "rejected", reason: e }; }),
     getRetentionRuns(10).then(r => { retentionRuns = { status: "fulfilled", value: r }; }, e => { retentionRuns = { status: "rejected", reason: e }; }),
     getRuntimeStats().then(r => { runtimeStats = { status: "fulfilled", value: r }; }, e => { runtimeStats = { status: "rejected", reason: e }; }),
@@ -208,11 +199,10 @@ async function loadDashboardResults(): Promise<DashboardResults> {
     providers,
     providerPresets,
     agentAdapters,
-    budget,
-    accountSummary,
+    usageSummary,
     chatSessions,
     agentChatSessions,
-    requestLedger,
+    usageEvents,
     settingsConfig,
     retentionRuns,
     runtimeStats,

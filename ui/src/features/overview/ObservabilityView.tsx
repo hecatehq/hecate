@@ -135,27 +135,27 @@ export function ObservabilityView({ state, onNavigate, focusRequest }: Props) {
     return () => window.clearInterval(interval);
   }, [loadTraces]);
 
-  const ledgerByRequest = useMemo(() => {
-    const out = new Map<string, NonNullable<typeof state.requestLedger>[number]>();
-    for (const entry of state.requestLedger ?? []) {
+  const usageByRequest = useMemo(() => {
+    const out = new Map<string, NonNullable<typeof state.usageEvents>[number]>();
+    for (const entry of state.usageEvents ?? []) {
       if (entry.request_id) out.set(entry.request_id, entry);
     }
     return out;
-  }, [state.requestLedger]);
+  }, [state.usageEvents]);
 
   const traceProvider = useCallback(
     (trace: TraceListItem) => trace.route?.final_provider
       || (traceDetail?.request_id === trace.request_id ? findProviderInTrace(traceDetail.spans ?? []) : "")
-      || ledgerByRequest.get(trace.request_id)?.provider
+      || usageByRequest.get(trace.request_id)?.provider
       || "",
-    [ledgerByRequest, traceDetail],
+    [usageByRequest, traceDetail],
   );
   const traceModel = useCallback(
     (trace: TraceListItem) => trace.route?.final_model
       || (traceDetail?.request_id === trace.request_id ? findModelInTrace(traceDetail.spans ?? [], traceProvider(trace)) : "")
-      || ledgerByRequest.get(trace.request_id)?.model
+      || usageByRequest.get(trace.request_id)?.model
       || "",
-    [ledgerByRequest, traceDetail, traceProvider],
+    [usageByRequest, traceDetail, traceProvider],
   );
 
   // Filter traces before deriving the live-mode auto-selection so the
@@ -360,7 +360,7 @@ export function ObservabilityView({ state, onNavigate, focusRequest }: Props) {
     for (const trace of traces) {
       add(traceModel(trace), traceProvider(trace));
     }
-    for (const entry of state.requestLedger ?? []) {
+    for (const entry of state.usageEvents ?? []) {
       add(entry.model, entry.provider);
     }
     for (const model of state.providerScopedModels) {
@@ -368,7 +368,7 @@ export function ObservabilityView({ state, onNavigate, focusRequest }: Props) {
     }
 
     return Array.from(byID.values()).sort((a, b) => a.id.localeCompare(b.id));
-  }, [providerFilter, state.providerScopedModels, state.requestLedger, traceModel, traceProvider, traces]);
+  }, [providerFilter, state.providerScopedModels, state.usageEvents, traceModel, traceProvider, traces]);
 
   const drawerTitle = (() => {
     if (!selectedTrace) return selectedID ?? "";
@@ -419,7 +419,7 @@ export function ObservabilityView({ state, onNavigate, focusRequest }: Props) {
       selectedTrace={selectedTrace}
       selectedProvider={selectedTrace ? traceProvider(selectedTrace) : ""}
       selectedModel={selectedTrace ? traceModel(selectedTrace) : ""}
-      ledger={ledgerByRequest.get(selectedID)}
+      usage={usageByRequest.get(selectedID)}
       traceDetail={traceDetail}
       traceFetching={traceFetching}
       waterfall={waterfall}
@@ -602,10 +602,10 @@ export function ObservabilityView({ state, onNavigate, focusRequest }: Props) {
                   const isSel = selectedID === t.request_id;
                   const isLast = i === groupedTraces.length - 1;
                   const status = traceStatusBadge(t);
-                  const ledger = ledgerByRequest.get(t.request_id);
-                  const cost = ledger?.amount_usd
-                    ? `$${Number.parseFloat(ledger.amount_usd).toFixed(5)}`
-                    : ledger
+                  const usage = usageByRequest.get(t.request_id);
+                  const cost = usage?.amount_usd
+                    ? `$${Number.parseFloat(usage.amount_usd).toFixed(5)}`
+                    : usage
                       ? "$0.00000"
                       : "—";
                   const routeLabel = routeSummaryLabel(t);

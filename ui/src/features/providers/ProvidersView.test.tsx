@@ -87,7 +87,6 @@ function emptySettingsConfig() {
   return {
     backend: "memory",
     providers: [] as ConfiguredProviderRecord[],
-    pricebook: [],
     policy_rules: [],
     events: [],
   };

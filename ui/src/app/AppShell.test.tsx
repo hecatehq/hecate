@@ -8,10 +8,10 @@ import { createRuntimeConsoleActions, createRuntimeConsoleFixture } from "../tes
 // removed so text inputs, screen readers, and browser shortcuts own the
 // number keys without surprises.
 describe("getAvailableWorkspaces", () => {
-  it("returns chats / connections / runs / overview / costs / settings", () => {
+  it("returns chats / connections / runs / overview / usage / settings", () => {
     const ws = getAvailableWorkspaces();
     expect(ws.map(w => w.id)).toEqual(["chats", "providers", "runs", "overview", "costs", "settings"]);
-    expect(ws.map(w => w.label)).toEqual(["Chats", "Connections", "Tasks", "Observability", "Costs", "Settings"]);
+    expect(ws.map(w => w.label)).toEqual(["Chats", "Connections", "Tasks", "Observability", "Usage", "Settings"]);
   });
 
   it("labels the settings workspace 'Settings'", () => {
@@ -42,7 +42,7 @@ describe("ConsoleShell navigation", () => {
   it("keeps Chats available when no providers are configured", async () => {
     const state = createRuntimeConsoleFixture({
       chatTarget: "model",
-      settingsConfig: { backend: "memory", providers: [], pricebook: [], policy_rules: [], events: [] },
+      settingsConfig: { backend: "memory", providers: [], policy_rules: [], events: [] },
     });
     render(
       <ConsoleShell

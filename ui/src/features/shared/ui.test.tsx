@@ -171,7 +171,7 @@ describe("CopyBtn", () => {
 // Shared dialog primitives. The chrome contract — Escape closes, the
 // Close button closes, backdrop click closes, in-content click does NOT
 // close — is the same across all three. A regression here breaks every
-// settings form, every confirm dialog, and the pricebook consent flow.
+// settings form and confirm dialog.
 
 describe("Modal", () => {
   function renderModal(onClose = vi.fn()) {

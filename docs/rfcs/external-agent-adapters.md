@@ -19,7 +19,7 @@ The core distinction:
 
 | Concept | Examples | What Hecate controls |
 |---|---|---|
-| Model provider | OpenAI, Anthropic, Ollama, LM Studio | Request routing, pricebook, provider health, model choice |
+| Model provider | OpenAI, Anthropic, Ollama, LM Studio | Request routing, usage reporting, provider health, model choice |
 | Agent adapter | Codex ACP, Claude ACP, Cursor Agent ACP, future ACP-capable coding agents | Process lifecycle, workspace, prompt/session flow, output capture, diff capture |
 | Protocol adapter | ACP, MCP, OpenAI-compatible HTTP, Anthropic Messages | How another system talks to or from Hecate |
 

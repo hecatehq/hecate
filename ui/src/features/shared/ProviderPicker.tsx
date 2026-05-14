@@ -1,7 +1,6 @@
-// ProviderPicker is the styled dropdown both the chat view (filter
-// requests by provider) and the pricebook (filter the table by
-// provider) use. Pass `includeAuto` to surface an "All providers"
-// sentinel row at the top.
+// ProviderPicker is the styled dropdown shared by chat and
+// observability surfaces. Pass `includeAuto` to surface an "All
+// providers" sentinel row at the top.
 //
 // The trigger is auto-sized to the longest possible option label so
 // switching selection doesn't shift the controls to its right. The
@@ -20,9 +19,8 @@ import { useFloatingDropdownStyle } from "./useFloatingDropdownStyle";
 
 // ProviderOption is the shape every caller of ProviderPicker hands in.
 // `name` is the display label shown in the dropdown; `id` is what
-// `onChange` emits (and what `value` matches against). `healthy` drives
-// the small green dot on cloud providers in the chat view; pricebook
-// callers leave it undefined.
+// `onChange` emits (and what `value` matches against). `healthy`
+// drives the small green dot on cloud providers in the chat view.
 //
 // `kind` + `configured` together drive the key-icon indicator: cloud
 // providers show a green key when configured, a red key when not.
@@ -61,7 +59,7 @@ export function ProviderPicker({
   emptyLabel?: string;
   // Pin the trigger button to a fixed pixel width — used in the
   // chat view to align with a sibling dropdown of the same width.
-  // When unset (pricebook etc.), the auto-sized inline-grid trigger
+  // When unset, the auto-sized inline-grid trigger
   // sizes to the widest option label.
   triggerWidth?: number;
 }) {

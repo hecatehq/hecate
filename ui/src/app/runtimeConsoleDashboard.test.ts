@@ -13,13 +13,12 @@ vi.mock("../lib/api", async () => {
     getProviders: vi.fn(),
     getProviderPresets: vi.fn(),
     getAgentAdapters: vi.fn(),
-    getBudget: vi.fn(),
-    getAccountSummary: vi.fn(),
+    getUsageSummary: vi.fn(),
+    getUsageEvents: vi.fn(),
     getChatSessions: vi.fn(),
     getChatSession: vi.fn(),
     getAgentChatSessions: vi.fn(),
     getAgentChatSession: vi.fn(),
-    getRequestLedger: vi.fn(),
     getSettingsConfig: vi.fn(),
     getRetentionRuns: vi.fn(),
     getRuntimeStats: vi.fn(),
@@ -31,13 +30,12 @@ import * as api from "../lib/api";
 const emptyPrev = {
   providers: [],
   agentAdapters: [],
-  budget: null,
-  accountSummary: null,
+  usageSummary: null,
+  usageEvents: [],
   chatSessions: [],
   activeChatSession: null,
   agentChatSessions: [],
   activeAgentChatSession: null,
-  requestLedger: [],
   settingsConfig: null,
   retentionRuns: [],
   retentionLastRun: null,
@@ -50,14 +48,16 @@ function setupAllResolved(overrides: Record<string, unknown> = {}) {
   vi.mocked(api.getProviders).mockResolvedValue({ object: "list", data: [] });
   vi.mocked(api.getProviderPresets).mockResolvedValue({ object: "list", data: [] });
   vi.mocked(api.getAgentAdapters).mockResolvedValue({ object: "list", data: [] });
-  vi.mocked(api.getBudget).mockResolvedValue({ object: "budget", data: null as never });
-  vi.mocked(api.getAccountSummary).mockResolvedValue({ object: "account_summary", data: null as never });
+  vi.mocked(api.getUsageSummary).mockResolvedValue({
+    object: "usage_summary",
+    data: { key: "global", scope: "global", backend: "memory", used_micros_usd: 0, used_usd: "$0.000000" },
+  });
+  vi.mocked(api.getUsageEvents).mockResolvedValue({ object: "usage_events", data: [] });
   vi.mocked(api.getChatSessions).mockResolvedValue({ object: "list", data: [], has_more: false });
   vi.mocked(api.getAgentChatSessions).mockResolvedValue({ object: "list", data: [] });
-  vi.mocked(api.getRequestLedger).mockResolvedValue({ object: "list", data: [] });
   vi.mocked(api.getSettingsConfig).mockResolvedValue({
     object: "settings",
-    data: { backend: "memory", providers: [], policy_rules: [], pricebook: [], events: [] },
+    data: { backend: "memory", providers: [], policy_rules: [], events: [] },
   });
   vi.mocked(api.getRetentionRuns).mockResolvedValue({ object: "list", data: [] });
   vi.mocked(api.getRuntimeStats).mockResolvedValue({
@@ -222,7 +222,7 @@ describe("resolveDashboardSnapshot", () => {
   it("skips the providers fetch when no providers are configured in the settings", async () => {
     vi.mocked(api.getSettingsConfig).mockResolvedValue({
       object: "settings",
-      data: { backend: "memory", providers: [], policy_rules: [], pricebook: [], events: [] },
+      data: { backend: "memory", providers: [], policy_rules: [], events: [] },
     });
     await resolveDashboardSnapshot({
       activeChatSessionID: "",
@@ -239,7 +239,6 @@ describe("resolveDashboardSnapshot", () => {
         backend: "memory",
         providers: [{ name: "openai" } as never],
         policy_rules: [],
-        pricebook: [],
         events: [],
       },
     });

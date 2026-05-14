@@ -176,8 +176,8 @@ type openAIUsage struct {
 	// PromptTokensDetails carries the cache-token breakdown OpenAI
 	// (and OpenAI-compat providers like Together / Groq) return
 	// when prompt caching is in play. We pull `cached_tokens` into
-	// internal Usage.CachedPromptTokens so the gateway pricebook
-	// applies the cached-input rate just like the Anthropic path.
+	// internal Usage.CachedPromptTokens so Hecate can report cached
+	// input separately from fresh prompt tokens.
 	PromptTokensDetails *openAIPromptTokensDetails `json:"prompt_tokens_details,omitempty"`
 }
 

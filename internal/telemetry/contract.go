@@ -12,13 +12,12 @@ const (
 
 // Governor
 const (
-	EventGovernorAllowed              = "governor.allowed"
-	EventGovernorDenied               = "governor.denied"
-	EventGovernorModelRewrite         = "governor.model_rewrite"
-	EventGovernorBudgetEstimateFailed = "governor.budget_estimate_failed"
-	EventGovernorRouteDenied          = "governor.route_denied"
-	EventGovernorRouteAllowed         = "governor.route_allowed"
-	EventGovernorUsageRecordFailed    = "governor.usage_record_failed"
+	EventGovernorAllowed           = "governor.allowed"
+	EventGovernorDenied            = "governor.denied"
+	EventGovernorModelRewrite      = "governor.model_rewrite"
+	EventGovernorRouteDenied       = "governor.route_denied"
+	EventGovernorRouteAllowed      = "governor.route_allowed"
+	EventGovernorUsageRecordFailed = "governor.usage_record_failed"
 )
 
 // Router
@@ -46,10 +45,9 @@ const (
 
 // Response pipeline
 const (
-	EventUsageNormalized      = "usage.normalized"
-	EventCostCalculated       = "cost.calculated"
-	EventCostEstimateUnpriced = "cost.estimate_unpriced"
-	EventResponseReturned     = "response.returned"
+	EventUsageNormalized  = "usage.normalized"
+	EventUsageRecorded    = "usage.recorded"
+	EventResponseReturned = "response.returned"
 )
 
 // Body capture (opt-in via GATEWAY_TRACE_BODIES)
@@ -142,7 +140,6 @@ var allEventNames = []string{
 	EventGovernorAllowed,
 	EventGovernorDenied,
 	EventGovernorModelRewrite,
-	EventGovernorBudgetEstimateFailed,
 	EventGovernorRouteDenied,
 	EventGovernorRouteAllowed,
 	EventGovernorUsageRecordFailed,
@@ -162,8 +159,7 @@ var allEventNames = []string{
 	EventProviderFailoverSkipped,
 	EventProviderHealthDegraded,
 	EventUsageNormalized,
-	EventCostCalculated,
-	EventCostEstimateUnpriced,
+	EventUsageRecorded,
 	EventResponseReturned,
 	EventRequestBodyCaptured,
 	EventResponseBodyCaptured,
@@ -220,7 +216,6 @@ const (
 	SpanGatewayRouter       = "gateway.router"
 	SpanGatewayProvider     = "gateway.provider"
 	SpanGatewayUsage        = "gateway.usage"
-	SpanGatewayCost         = "gateway.cost"
 	SpanGatewayResponse     = "gateway.response"
 	SpanGatewayRuntime      = "gateway.runtime"
 
@@ -325,7 +320,6 @@ const (
 	ErrorKindInvalidRequest     = "invalid_request"
 	ErrorKindRequestDenied      = "request_denied"
 	ErrorKindRouterFailed       = "router_failed"
-	ErrorKindBudgetEstimate     = "budget_estimate_failed"
 	ErrorKindRouteDenied        = "route_denied"
 	ErrorKindProviderCallFailed = "provider_call_failed"
 	ErrorKindRetryBackoff       = "retry_backoff_failed"
@@ -339,7 +333,6 @@ var knownErrorKinds = map[string]struct{}{
 	ErrorKindInvalidRequest:     {},
 	ErrorKindRequestDenied:      {},
 	ErrorKindRouterFailed:       {},
-	ErrorKindBudgetEstimate:     {},
 	ErrorKindRouteDenied:        {},
 	ErrorKindProviderCallFailed: {},
 	ErrorKindRetryBackoff:       {},
@@ -428,7 +421,7 @@ var requiredEventAttrs = map[string][]string{
 		AttrGenAIUsageOutputTokens,
 		AttrGenAIUsageTotalTokens,
 	},
-	EventCostCalculated: {
+	EventUsageRecorded: {
 		AttrHecateCostTotalMicrosUSD,
 	},
 	EventResponseReturned: {

@@ -2,10 +2,8 @@ package gateway
 
 import (
 	"context"
-	"fmt"
 	"log/slog"
 
-	"github.com/hecate/agent-runtime/internal/billing"
 	"github.com/hecate/agent-runtime/internal/governor"
 	"github.com/hecate/agent-runtime/internal/models"
 	"github.com/hecate/agent-runtime/internal/profiler"
@@ -21,23 +19,20 @@ type ResponseFinalizer interface {
 }
 
 type DefaultResponseFinalizer struct {
-	logger    *slog.Logger
-	governor  governor.Governor
-	pricebook billing.Pricebook
-	metrics   *telemetry.Metrics
+	logger   *slog.Logger
+	governor governor.Governor
+	metrics  *telemetry.Metrics
 }
 
 func NewDefaultResponseFinalizer(
 	logger *slog.Logger,
 	governor governor.Governor,
-	pricebook billing.Pricebook,
 	metrics *telemetry.Metrics,
 ) *DefaultResponseFinalizer {
 	return &DefaultResponseFinalizer{
-		logger:    logger,
-		governor:  governor,
-		pricebook: pricebook,
-		metrics:   metrics,
+		logger:   logger,
+		governor: governor,
+		metrics:  metrics,
 	}
 }
 
@@ -52,35 +47,15 @@ func (f *DefaultResponseFinalizer) FinalizeExecution(ctx context.Context, trace 
 		telemetry.AttrGenAIUsageTotalTokens:  resp.Usage.TotalTokens,
 	})
 
-	cost, err := f.pricebook.Estimate(decision.Provider, resp.Model, resp.Usage)
-	if err != nil {
-		if billing.IsPriceNotFound(err) {
-			telemetry.Warn(f.logger, ctx, "gateway.cost.estimate.unpriced",
-				slog.String("event.name", "gateway.cost.estimate.unpriced"),
-				slog.String(telemetry.AttrGenAIProviderName, decision.Provider),
-				slog.String(telemetry.AttrGenAIResponseModel, resp.Model),
-				slog.Any("error", err),
-			)
-			recordTraceError(trace, "cost.estimate_unpriced", "response", errorKindBudgetEstimateFailed, err, map[string]any{
-				telemetry.AttrGenAIProviderName:  decision.Provider,
-				telemetry.AttrGenAIResponseModel: resp.Model,
-			})
-			cost = types.CostBreakdown{Currency: "USD"}
-		} else {
-			return nil, fmt.Errorf("estimate cost: %w", err)
-		}
-	}
+	cost := types.CostBreakdown{Currency: "USD"}
 	resp.Cost = cost
-	recordTrace(trace, "cost.calculated", "response", map[string]any{
-		telemetry.AttrHecateCostTotalMicrosUSD:  cost.TotalMicrosUSD,
-		telemetry.AttrHecateCostInputMicrosUSD:  cost.InputMicrosUSD,
-		telemetry.AttrHecateCostOutputMicrosUSD: cost.OutputMicrosUSD,
-		telemetry.AttrHecateCostCachedMicrosUSD: cost.CachedInputMicrosUSD,
+	recordTrace(trace, "usage.recorded", "response", map[string]any{
+		telemetry.AttrHecateCostTotalMicrosUSD: cost.TotalMicrosUSD,
 	})
 
 	if err := f.governor.RecordUsage(ctx, plan.Request, decision, resp.Usage, cost.TotalMicrosUSD); err != nil {
-		telemetry.Warn(f.logger, ctx, "gateway.budget.usage_record.failed",
-			slog.String("event.name", "gateway.budget.usage_record.failed"),
+		telemetry.Warn(f.logger, ctx, "gateway.usage.record.failed",
+			slog.String("event.name", "gateway.usage.record.failed"),
 			slog.Any("error", err),
 		)
 		recordTraceError(trace, "governor.usage_record_failed", "governor", errorKindUsageRecordFailed, err, nil)

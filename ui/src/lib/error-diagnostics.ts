@@ -25,20 +25,10 @@ const diagnostics: Record<string, GatewayErrorDiagnostic> = {
     action: "Choose a model listed for the selected provider, or switch provider route back to Auto.",
     tone: "warning",
   },
-  price_missing: {
-    title: "Model price is missing",
-    action: "Import or add a pricebook entry before sending cloud traffic for this model.",
-    tone: "warning",
-  },
   route_impossible: {
     title: "No route could serve this request",
     action: "Enable a healthy provider, discover models, or choose a different provider route.",
     tone: "danger",
-  },
-  budget_exceeded: {
-    title: "Budget exhausted",
-    action: "Top up the account, raise the limit, or choose a cheaper/local model.",
-    tone: "warning",
   },
   rate_limit_exceeded: {
     title: "Gateway rate limit exceeded",

@@ -79,7 +79,6 @@ type State struct {
 	ProviderSecrets           []ProviderSecret          `json:"provider_secrets,omitempty"`
 	AgentAdapterCredentials   []AgentAdapterCredential  `json:"agent_adapter_credentials,omitempty"`
 	PolicyRules               []config.PolicyRuleConfig `json:"policy_rules,omitempty"`
-	Pricebook                 []config.ModelPriceConfig `json:"pricebook,omitempty"`
 	ModelCapabilityOverrides  []ModelCapabilityRecord   `json:"model_capability_overrides,omitempty"`
 	ModelCapabilityProbeState []ModelCapabilityRecord   `json:"model_capability_probe_state,omitempty"`
 	Events                    []AuditEvent              `json:"events,omitempty"`
@@ -96,8 +95,6 @@ type Store interface {
 	DeleteAgentAdapterCredential(ctx context.Context, adapterID, name string) error
 	UpsertPolicyRule(ctx context.Context, rule config.PolicyRuleConfig) (config.PolicyRuleConfig, error)
 	DeletePolicyRule(ctx context.Context, id string) error
-	UpsertPricebookEntry(ctx context.Context, entry config.ModelPriceConfig) (config.ModelPriceConfig, error)
-	DeletePricebookEntry(ctx context.Context, provider, model string) error
 	UpsertModelCapabilityOverride(ctx context.Context, record ModelCapabilityRecord) (ModelCapabilityRecord, error)
 	DeleteModelCapabilityOverride(ctx context.Context, provider, model string) error
 	UpsertModelCapabilityProbe(ctx context.Context, record ModelCapabilityRecord) (ModelCapabilityRecord, error)
@@ -122,7 +119,6 @@ func cloneState(state State) State {
 		ProviderSecrets:           make([]ProviderSecret, 0, len(state.ProviderSecrets)),
 		AgentAdapterCredentials:   make([]AgentAdapterCredential, 0, len(state.AgentAdapterCredentials)),
 		PolicyRules:               make([]config.PolicyRuleConfig, 0, len(state.PolicyRules)),
-		Pricebook:                 make([]config.ModelPriceConfig, 0, len(state.Pricebook)),
 		ModelCapabilityOverrides:  make([]ModelCapabilityRecord, 0, len(state.ModelCapabilityOverrides)),
 		ModelCapabilityProbeState: make([]ModelCapabilityRecord, 0, len(state.ModelCapabilityProbeState)),
 		Events:                    make([]AuditEvent, 0, len(state.Events)),
@@ -167,9 +163,6 @@ func cloneState(state State) State {
 	}
 	for _, rule := range state.PolicyRules {
 		out.PolicyRules = append(out.PolicyRules, clonePolicyRule(rule))
-	}
-	for _, entry := range state.Pricebook {
-		out.Pricebook = append(out.Pricebook, entry)
 	}
 	for _, record := range state.ModelCapabilityOverrides {
 		out.ModelCapabilityOverrides = append(out.ModelCapabilityOverrides, cloneModelCapabilityRecord(record))
@@ -299,29 +292,6 @@ func normalizePolicyRule(rule config.PolicyRuleConfig) (config.PolicyRuleConfig,
 	return rule, nil
 }
 
-func normalizePricebookEntry(entry config.ModelPriceConfig) (config.ModelPriceConfig, error) {
-	entry.Provider = strings.TrimSpace(entry.Provider)
-	entry.Model = strings.TrimSpace(entry.Model)
-	if entry.Provider == "" || entry.Model == "" {
-		return config.ModelPriceConfig{}, fmt.Errorf("pricebook provider and model are required")
-	}
-	if entry.InputMicrosUSDPerMillionTokens < 0 || entry.OutputMicrosUSDPerMillionTokens < 0 || entry.CachedInputMicrosUSDPerMillionTokens < 0 {
-		return config.ModelPriceConfig{}, fmt.Errorf("pricebook values must be zero or greater")
-	}
-	switch strings.TrimSpace(entry.Source) {
-	case "":
-		// Empty == manual for backward compatibility. Every pre-Source-field
-		// row was put there by a human, so default to that.
-		entry.Source = config.PricebookSourceManual
-	case config.PricebookSourceManual, config.PricebookSourceImported:
-		// ok
-	default:
-		return config.ModelPriceConfig{}, fmt.Errorf("pricebook source must be %q or %q (got %q)",
-			config.PricebookSourceManual, config.PricebookSourceImported, entry.Source)
-	}
-	return entry, nil
-}
-
 func upsertPolicyRule(state *State, rule config.PolicyRuleConfig) string {
 	index := policyRuleIndex(state.PolicyRules, rule.ID)
 	if index >= 0 {
@@ -332,16 +302,6 @@ func upsertPolicyRule(state *State, rule config.PolicyRuleConfig) string {
 	return "policy_rule.created"
 }
 
-func upsertPricebookEntry(state *State, entry config.ModelPriceConfig) string {
-	index := pricebookEntryIndex(state.Pricebook, entry.Provider, entry.Model)
-	if index >= 0 {
-		state.Pricebook[index] = entry
-		return "pricebook_entry.updated"
-	}
-	state.Pricebook = append(state.Pricebook, entry)
-	return "pricebook_entry.created"
-}
-
 func policyRuleIndex(items []config.PolicyRuleConfig, id string) int {
 	for i := range items {
 		if items[i].ID == id {
@@ -349,19 +309,6 @@ func policyRuleIndex(items []config.PolicyRuleConfig, id string) int {
 		}
 	}
 	return -1
-}
-
-func pricebookEntryIndex(items []config.ModelPriceConfig, provider, model string) int {
-	for i := range items {
-		if items[i].Provider == provider && items[i].Model == model {
-			return i
-		}
-	}
-	return -1
-}
-
-func pricebookEntryID(provider, model string) string {
-	return strings.TrimSpace(provider) + "/" + strings.TrimSpace(model)
 }
 
 func normalizeStringList(values []string) []string {

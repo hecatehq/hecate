@@ -865,19 +865,14 @@ type WorkspaceDialogResponseItem struct {
 	Branch string `json:"branch,omitempty"`
 }
 
-type BudgetStatusResponse struct {
+type UsageSummaryResponse struct {
 	Object string                   `json:"object"`
-	Data   BudgetStatusResponseItem `json:"data"`
+	Data   UsageSummaryResponseItem `json:"data"`
 }
 
-type AccountSummaryResponse struct {
-	Object string                     `json:"object"`
-	Data   AccountSummaryResponseItem `json:"data"`
-}
-
-type RequestLedgerResponse struct {
-	Object string                `json:"object"`
-	Data   []BudgetHistoryRecord `json:"data"`
+type UsageEventsResponse struct {
+	Object string             `json:"object"`
+	Data   []UsageEventRecord `json:"data"`
 }
 
 type RuntimeStatsResponse struct {
@@ -977,73 +972,29 @@ type MCPCacheStatsResponseItem struct {
 	Idle int `json:"idle"`
 }
 
-type AccountSummaryResponseItem struct {
-	Account   BudgetStatusResponseItem     `json:"account"`
-	Estimates []AccountModelEstimateRecord `json:"estimates"`
+type UsageSummaryResponseItem struct {
+	Key           string `json:"key"`
+	Scope         string `json:"scope"`
+	Provider      string `json:"provider,omitempty"`
+	Backend       string `json:"backend"`
+	UsedMicrosUSD int64  `json:"used_micros_usd"`
+	UsedUSD       string `json:"used_usd"`
 }
 
-type AccountModelEstimateRecord struct {
-	Provider                        string `json:"provider"`
-	ProviderKind                    string `json:"provider_kind"`
-	Model                           string `json:"model"`
-	Default                         bool   `json:"default,omitempty"`
-	DiscoverySource                 string `json:"discovery_source,omitempty"`
-	Priced                          bool   `json:"priced"`
-	InputMicrosUSDPerMillionTokens  int64  `json:"input_micros_usd_per_million_tokens"`
-	OutputMicrosUSDPerMillionTokens int64  `json:"output_micros_usd_per_million_tokens"`
-	EstimatedRemainingPromptTokens  int64  `json:"estimated_remaining_prompt_tokens"`
-	EstimatedRemainingOutputTokens  int64  `json:"estimated_remaining_output_tokens"`
-}
-
-type BudgetStatusResponseItem struct {
-	Key                string                `json:"key"`
-	Scope              string                `json:"scope"`
-	Provider           string                `json:"provider,omitempty"`
-	Tenant             string                `json:"tenant,omitempty"`
-	Backend            string                `json:"backend"`
-	BalanceSource      string                `json:"balance_source"`
-	DebitedMicrosUSD   int64                 `json:"debited_micros_usd"`
-	DebitedUSD         string                `json:"debited_usd"`
-	CreditedMicrosUSD  int64                 `json:"credited_micros_usd"`
-	CreditedUSD        string                `json:"credited_usd"`
-	BalanceMicrosUSD   int64                 `json:"balance_micros_usd"`
-	BalanceUSD         string                `json:"balance_usd"`
-	AvailableMicrosUSD int64                 `json:"available_micros_usd"`
-	AvailableUSD       string                `json:"available_usd"`
-	Enforced           bool                  `json:"enforced"`
-	Warnings           []BudgetWarningRecord `json:"warnings,omitempty"`
-	History            []BudgetHistoryRecord `json:"history,omitempty"`
-}
-
-type BudgetWarningRecord struct {
-	ThresholdPercent   int   `json:"threshold_percent"`
-	ThresholdMicrosUSD int64 `json:"threshold_micros_usd"`
-	BalanceMicrosUSD   int64 `json:"balance_micros_usd"`
-	AvailableMicrosUSD int64 `json:"available_micros_usd"`
-	Triggered          bool  `json:"triggered"`
-}
-
-type BudgetHistoryRecord struct {
-	Type              string `json:"type"`
-	Scope             string `json:"scope,omitempty"`
-	Provider          string `json:"provider,omitempty"`
-	Tenant            string `json:"tenant,omitempty"`
-	Model             string `json:"model,omitempty"`
-	RequestID         string `json:"request_id,omitempty"`
-	Actor             string `json:"actor,omitempty"`
-	Detail            string `json:"detail,omitempty"`
-	AmountMicrosUSD   int64  `json:"amount_micros_usd"`
-	AmountUSD         string `json:"amount_usd"`
-	BalanceMicrosUSD  int64  `json:"balance_micros_usd"`
-	BalanceUSD        string `json:"balance_usd"`
-	CreditedMicrosUSD int64  `json:"credited_micros_usd"`
-	CreditedUSD       string `json:"credited_usd"`
-	DebitedMicrosUSD  int64  `json:"debited_micros_usd"`
-	DebitedUSD        string `json:"debited_usd"`
-	PromptTokens      int    `json:"prompt_tokens,omitempty"`
-	CompletionTokens  int    `json:"completion_tokens,omitempty"`
-	TotalTokens       int    `json:"total_tokens,omitempty"`
-	Timestamp         string `json:"timestamp,omitempty"`
+type UsageEventRecord struct {
+	Type             string `json:"type"`
+	Scope            string `json:"scope,omitempty"`
+	Provider         string `json:"provider,omitempty"`
+	Model            string `json:"model,omitempty"`
+	RequestID        string `json:"request_id,omitempty"`
+	Actor            string `json:"actor,omitempty"`
+	Detail           string `json:"detail,omitempty"`
+	AmountMicrosUSD  int64  `json:"amount_micros_usd"`
+	AmountUSD        string `json:"amount_usd"`
+	PromptTokens     int    `json:"prompt_tokens,omitempty"`
+	CompletionTokens int    `json:"completion_tokens,omitempty"`
+	TotalTokens      int    `json:"total_tokens,omitempty"`
+	Timestamp        string `json:"timestamp,omitempty"`
 }
 
 type RetentionRunData struct {
@@ -1074,29 +1025,6 @@ type RetentionRunsResponse struct {
 	Data   []RetentionRunData `json:"data"`
 }
 
-type BudgetResetRequest struct {
-	Key      string `json:"key"`
-	Scope    string `json:"scope"`
-	Provider string `json:"provider"`
-	Tenant   string `json:"tenant"`
-}
-
-type BudgetTopUpRequest struct {
-	Key             string `json:"key"`
-	Scope           string `json:"scope"`
-	Provider        string `json:"provider"`
-	Tenant          string `json:"tenant"`
-	AmountMicrosUSD int64  `json:"amount_micros_usd"`
-}
-
-type BudgetBalanceRequest struct {
-	Key              string `json:"key"`
-	Scope            string `json:"scope"`
-	Provider         string `json:"provider"`
-	Tenant           string `json:"tenant"`
-	BalanceMicrosUSD int64  `json:"balance_micros_usd"`
-}
-
 type SettingsResponse struct {
 	Object string               `json:"object"`
 	Data   SettingsResponseItem `json:"data"`
@@ -1106,7 +1034,6 @@ type SettingsResponseItem struct {
 	Backend     string                     `json:"backend"`
 	Providers   []SettingsProviderRecord   `json:"providers"`
 	PolicyRules []SettingsPolicyRuleRecord `json:"policy_rules"`
-	Pricebook   []SettingsPricebookRecord  `json:"pricebook"`
 	Events      []SettingsAuditEventRecord `json:"events"`
 }
 
@@ -1139,67 +1066,6 @@ type SettingsPolicyRuleRecord struct {
 	RewriteModelTo         string   `json:"rewrite_model_to,omitempty"`
 }
 
-type SettingsPricebookRecord struct {
-	Provider                             string `json:"provider"`
-	Model                                string `json:"model"`
-	InputMicrosUSDPerMillionTokens       int64  `json:"input_micros_usd_per_million_tokens"`
-	OutputMicrosUSDPerMillionTokens      int64  `json:"output_micros_usd_per_million_tokens"`
-	CachedInputMicrosUSDPerMillionTokens int64  `json:"cached_input_micros_usd_per_million_tokens"`
-	// Source is "manual" (operator-edited) or "imported" (LiteLLM bulk
-	// import). Empty on legacy responses; the UI treats empty as manual.
-	Source string `json:"source,omitempty"`
-}
-
-// PricebookImportUpdateRecord pairs an incoming imported entry with the
-// current row it would overwrite, so the UI can show a side-by-side diff
-// before the operator confirms apply.
-type PricebookImportUpdateRecord struct {
-	Entry    SettingsPricebookRecord `json:"entry"`
-	Previous SettingsPricebookRecord `json:"previous"`
-}
-
-// PricebookImportFailureRecord pairs an entry the apply endpoint tried
-// to persist with the storage error it hit. The apply loop is best-
-// effort: a failure on one row doesn't stop the others, so a single
-// 4xx with no per-row reporting would leave the operator unable to
-// tell what landed and what didn't. Each failure carries the
-// SettingsPricebookRecord we attempted to write plus the raw error
-// message — the UI can show them as a follow-up in the consent dialog.
-type PricebookImportFailureRecord struct {
-	Entry SettingsPricebookRecord `json:"entry"`
-	Error string                  `json:"error"`
-}
-
-// PricebookImportDiff is the response payload for both the preview and apply
-// endpoints. On preview, `Added`, `Updated`, and `Skipped` are populated; on
-// apply, the rows that were persisted move into `Applied` and rows that hit
-// a storage error during the loop move into `Failed`.
-//
-// `Skipped` lists currently-manual rows where LiteLLM has a *different* price.
-// We never touch them in a blanket apply (manual is operator-protected), but
-// the UI can offer an explicit "replace this manual row with LiteLLM's price"
-// affordance — when the operator opts in by passing the row's key in the
-// apply request, the backend honors it. Each entry pairs LiteLLM's proposal
-// (`Entry`) with the current manual row (`Previous`), the same shape as
-// `Updated`, so the UI can render a price diff identically.
-type PricebookImportDiff struct {
-	FetchedAt string                         `json:"fetched_at"`
-	Added     []SettingsPricebookRecord      `json:"added,omitempty"`
-	Updated   []PricebookImportUpdateRecord  `json:"updated,omitempty"`
-	Applied   []SettingsPricebookRecord      `json:"applied,omitempty"`
-	Failed    []PricebookImportFailureRecord `json:"failed,omitempty"`
-	Unchanged int                            `json:"unchanged"`
-	Skipped   []PricebookImportUpdateRecord  `json:"skipped,omitempty"`
-}
-
-// PricebookImportApplyRequest narrows the apply call to a subset of rows.
-// Empty `keys` (or omitted) means "apply everything in Added+Updated".
-// Each key is "<provider>/<model>", matching the format the UI displays
-// in the import-modal checklist.
-type PricebookImportApplyRequest struct {
-	Keys []string `json:"keys,omitempty"`
-}
-
 type SettingsAuditEventRecord struct {
 	Timestamp  string `json:"timestamp"`
 	Actor      string `json:"actor"`
@@ -1223,8 +1089,6 @@ type SettingsProviderUpsertRequest struct {
 }
 
 type SettingsPolicyRuleUpsertRequest = SettingsPolicyRuleRecord
-
-type SettingsPricebookUpsertRequest = SettingsPricebookRecord
 
 type SettingsTenantLifecycleRequest struct {
 	ID      string `json:"id"`

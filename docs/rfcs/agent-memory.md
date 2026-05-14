@@ -254,10 +254,9 @@ text.
 
 ## UI surface
 
-### Settings tab — Memory
+### Settings / Connections surface — Memory
 
-New tab next to Pricebook / Retention. List of all memory entries
-with:
+List all memory entries with:
 
 - Title (inline-editable)
 - Body (multiline editor; markdown preview)
@@ -268,8 +267,7 @@ with:
 - Delete (with confirm)
 - New-entry form
 
-Tests against existing patterns for Settings-tab CRUD (Pricebook is
-the closest analog).
+Tests should follow the existing settings/connection CRUD patterns.
 
 ### Per-chat indicator
 

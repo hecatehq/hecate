@@ -39,7 +39,7 @@ Hecate sits at that crossroads: one local runtime layer between clients, model p
 | **Gateway for cloud + local models** | OpenAI, Anthropic, DeepSeek, Gemini, Groq, Mistral, Perplexity, Together AI, xAI, Ollama, LM Studio, LocalAI, llama.cpp-compatible servers, and custom OpenAI-compatible endpoints behind one local API. |
 | **Hecate Chat** | Use one transcript for direct model turns and tools-on task-backed agent turns with approvals, artifacts, streamed activity, and trace links. |
 | **External Agent console** | Run Codex, Claude Code, and Cursor Agent as supervised local ACP sessions with readiness checks, approvals, raw diagnostics, and Git diff inspect/revert. |
-| **Operator-grade control** | Cost accounting, pricebook, budgets, rate limits, routing reports, provider health, task approvals, and OpenTelemetry are on the hot path. |
+| **Operator-grade control** | Token usage, reported cost, rate limits, routing reports, provider health, task approvals, and OpenTelemetry are on the hot path. |
 
 ## Quick Start
 
@@ -157,14 +157,14 @@ The embedded UI is a runtime console for the operator.
 | **Chats** | Hecate Chat with per-chat tools on/off, External Agent sessions, queued prompts, task/trace/run links, timing, usage, and captured diffs. |
 | **Connections** | Model-provider credentials, local/cloud presets, model discovery, routing readiness, external-agent readiness, and durable approval grants. |
 | **Tasks** | Native `agent_loop` runs, approvals, retries, resumes, streamed output, artifacts, and full run history. |
-| **Observability** | Request ledger, route candidates, skip reasons, failover, cost, traces, metrics, logs, and local trace events. |
-| **Costs** | Balance, top-up/reset, and usage table. |
-| **Settings** | Pricebook, model capability overrides, and retention. |
+| **Observability** | Request history, route candidates, skip reasons, failover, usage, traces, metrics, logs, and local trace events. |
+| **Usage** | Cloud-provider tokens, known provider-reported cost, and adapter-reported external-agent usage. |
+| **Settings** | Retention. Provider credentials, model capabilities, and external-agent setup live in Connections. |
 
 <details>
 <summary>Various UI screenshots</summary>
 
-![Observability view — request ledger and route-report drilldown](docs/screenshots/observe.png)
+![Observability view — request history and route-report drilldown](docs/screenshots/observe.png)
 
 ![Empty Connections view — Add provider CTA](docs/screenshots/providers-empty.png)
 
@@ -174,13 +174,11 @@ The embedded UI is a runtime console for the operator.
 
 ![Tasks workspace — run timeline with failed-tool diagnostics, stdout/stderr previews, and artifacts](docs/screenshots/tasks.png)
 
-![Costs workspace — balance card and usage table](docs/screenshots/costs.png)
-
-![Settings → Pricing — model catalog with priced / unpriced / deprecated filters](docs/screenshots/settings-pricebook.png)
+![Usage workspace — cloud token usage and reported cost where available](docs/screenshots/costs.png)
 
 ![Settings → Retention — pruning windows and last-run history](docs/screenshots/settings-retention.png)
 
-![Connections workspace — adapter readiness checks and durable approval grants](docs/screenshots/settings-external-agents.png)
+![Connections workspace — adapter readiness checks and durable approval grants](docs/screenshots/connections-external-agents.png)
 
 </details>
 
@@ -197,7 +195,7 @@ Stability stages:
 
 | Area | State | Notes |
 |---|---|---|
-| Model gateway | Alpha-ready | OpenAI-compatible Chat Completions, Anthropic-shaped Messages, streaming, vision, model discovery, failover, budgets, rate limits, pricebook, and custom endpoints. |
+| Model gateway | Alpha-ready | OpenAI-compatible Chat Completions, Anthropic-shaped Messages, streaming, vision, model discovery, failover, rate limits, usage events, and custom endpoints. |
 | Connections | Alpha-ready | Cloud presets plus Ollama, LM Studio, LocalAI, llama.cpp-compatible servers, local discovery, health, credentials, and checklist-style routing readiness diagnostics. |
 | Hecate Chat | Alpha-ready | Direct model turns and tools-on task-backed `agent_loop` segments in one transcript, streamed assistant text, task/trace links, local busy-prompt queueing, and inline task approvals. Workspace modes and agent profiles are still future work. |
 | External Agent | Alpha-ready | Codex, Claude Code, and Cursor Agent discovery, long-lived ACP sessions, prompt-first approvals, grants, health/version checks, cancel, guardrails, raw diagnostics, and Git diff inspect/revert. Runs as trusted subprocesses. |
@@ -251,4 +249,4 @@ See [CONTRIBUTING.md](CONTRIBUTING.md). If you work with an AI assistant, start 
 
 MIT. See [LICENSE](LICENSE).
 
-Third-party notices live in [NOTICE.md](NOTICE.md), including LiteLLM pricing-data attribution and vendored splash-font licenses.
+Third-party notices live in [NOTICE.md](NOTICE.md), including vendored splash-font and icon licenses.

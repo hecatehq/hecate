@@ -22,7 +22,7 @@ internal/sandbox/          per-call sh subprocess: policy validation,
                              bwrap/sandbox-exec wrapper
 internal/taskstate/        task / run / step / artifact / approval persistence
 internal/storage/          sqlite client wrappers
-internal/retention/        retention worker (subsystems: traces, budget, audit,
+internal/retention/        retention worker (subsystems: traces, usage_events, audit,
                              provider_history, turn_events,
                              agent_chat_approvals)
 internal/mcp/              stdio MCP server (read tools + write tools)
@@ -79,8 +79,8 @@ These earn extra scrutiny; changes here are not drive-by territory.
 
 - **Sandbox boundary** (`internal/sandbox/`) — per-call `sh` subprocess spawned directly from the gateway after policy validation, env sanitisation, output cap, and a wall-clock timeout (Layer 1). On Linux with `bwrap` installed and on macOS, the call is additionally wrapped by `bwrap` / `sandbox-exec` for filesystem and network confinement (Layer 2 — auto-detected at startup via `internal/sandbox/wrapper.go`, no opt-in flag). No separate `sandboxd` daemon — the safety properties run inline. CPU / FD / address-space caps are *not* applied per-call (`setrlimit` would shrink the long-running gateway) — operators who need them run under systemd or in a container with `--cpus` / `--memory` flags. New tool kinds follow the same `internal/sandbox/` shape. See `docs/sandbox.md` for the layer model and `docs/agent-runtime.md` for the network-egress policy that sits on top.
 - **Approval lifecycle** (`internal/taskstate`, `awaiting_approval`) — pre-execution and mid-loop approvals halt the run. New gates use the same `TaskApproval` shape.
-- **Retention worker** (`internal/retention`) — high-cardinality history sweep. Subsystems: `trace_snapshots`, `budget_events`, `audit_events`, `provider_history`, `turn_events`, `agent_chat_approvals`. Persisted things must mirror.
-- **Cost ledger** — all money is `int64` micro-USD (`1_000_000` = `$1`). Never `float64`.
+- **Retention worker** (`internal/retention`) — high-cardinality history sweep. Subsystems: `trace_snapshots`, `usage_events`, `audit_events`, `provider_history`, `turn_events`, `agent_chat_approvals`. Persisted things must mirror.
+- **Usage/cost fields** — money fields are `int64` micro-USD (`1_000_000` = `$1`) when present. Never `float64`; Hecate records usage events for visibility, not spend enforcement.
 - **No auth layer.** Every request is processed as the operator. The gateway binds to `127.0.0.1` by default; bind elsewhere only behind a reverse proxy or firewall.
 
 ## Which doc answers which question

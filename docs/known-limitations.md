@@ -24,7 +24,7 @@ shipping `v0.1.0-alpha.N` releases from reviewed PRs merged into `master`.
   also auto-import into the Connections view on first boot; subsequent
   boots leave operator UI edits untouched. See [providers.md](providers.md)
   for the full env-vs-UI lifecycle.
-- Credentials, base URLs, defaults, and pricebook entries are managed through
+- Credentials, base URLs, defaults, and model-capability overrides are managed through
   the persisted settings store. Taking a provider out of rotation is done by
   deleting it — there is no enable/disable toggle.
 - Custom clients are supported separately: external callers can use Hecate's
@@ -37,19 +37,18 @@ shipping `v0.1.0-alpha.N` releases from reviewed PRs merged into `master`.
   by the upstream adapter but not forwarded through Hecate's normalized chat
   response.
 
-## Pricing And Budgets
+## Usage And Cost Reporting
 
-- Pricebook rows can be imported or edited, but billing-critical deployments
-  should verify pricing against provider invoices.
-- Unknown cloud-model prices fail closed by default so operators do not
-  silently run unpriced traffic.
-- Perplexity Sonar defaults include token-price rows, but Hecate's current
-  pricebook cannot yet represent search-context request fees, citation tokens,
-  search-query fees, or reasoning-token fees. Treat those estimates as lower
-  bounds until the pricebook grows per-request and provider-specific usage
-  dimensions.
-- Local models can be zero-cost or manually priced, but host/GPU cost is not
-  automatically measured.
+- Hecate records token usage events for gateway-controlled model calls, but it
+  does not enforce global spend controls.
+- Provider cost is shown only when it is known from provider-reported fields or
+  adapter-reported usage. Treat it as operator visibility, not billing
+  enforcement.
+- External Agent sessions often run through the adapter's own subscription or
+  account. Hecate labels those values as adapter-reported and does not enforce
+  external spend.
+- Local models report tokens when the runtime provides them; host, GPU, and
+  electricity cost are not measured.
 
 ## Task Runtime And Sandbox
 
@@ -137,7 +136,7 @@ shipping `v0.1.0-alpha.N` releases from reviewed PRs merged into `master`.
 ## Operator UI
 
 - The operator UI is usable for the main alpha workflows: provider setup,
-  Chats for model and external-agent sessions, request inspection, budgets,
+  Chats for model and external-agent sessions, request inspection, usage,
   task approvals, and task-run debugging.
 - Some bulk-management flows and deeper side-by-side artifact review are still
   lighter than a mature settings/governance product.

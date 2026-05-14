@@ -25,9 +25,12 @@ function defaultBackendMock(routes: Record<string, (init?: RequestInit) => Respo
     if (url === "/v1/models") return jsonResponse({ object: "list", data: [] });
     if (url === "/hecate/v1/providers/presets") return jsonResponse({ object: "provider_presets", data: [] });
     if (url === "/hecate/v1/providers/status") return jsonResponse({ object: "provider_status", data: [] });
-    if (url === "/hecate/v1/settings") return jsonResponse({ object: "settings", data: { backend: "memory", providers: [], pricebook: [], policy_rules: [], events: [] } });
-    if (url.startsWith("/hecate/v1/costs/budget")) return jsonResponse({ object: "budget_status", data: null });
-    if (url.startsWith("/hecate/v1/costs/summary")) return jsonResponse({ object: "account_summary", data: null });
+    if (url === "/hecate/v1/settings") return jsonResponse({ object: "settings", data: { backend: "memory", providers: [], policy_rules: [], events: [] } });
+    if (url.startsWith("/hecate/v1/usage/summary")) return jsonResponse({
+      object: "usage_summary",
+      data: { key: "global", scope: "global", backend: "memory", used_micros_usd: 0, used_usd: "$0.000000" },
+    });
+    if (url.startsWith("/hecate/v1/usage/events")) return jsonResponse({ object: "usage_events", data: [] });
     if (url === "/hecate/v1/agent-chat/sessions") return jsonResponse({ object: "agent_chat_sessions", data: [] });
     if (url.startsWith("/hecate/v1/agent-chat/sessions/") && url.endsWith("/approvals?status=pending")) return jsonResponse({ object: "list", data: [] });
     if (url.startsWith("/hecate/v1/chat/sessions")) return jsonResponse({ object: "chat_sessions", data: [], has_more: false });
@@ -280,7 +283,7 @@ describe("useRuntimeConsole", () => {
             { id: "openai", name: "OpenAI", preset_id: "openai", kind: "cloud", protocol: "openai", base_url: "https://api.openai.com", enabled: true, credential_configured: true },
             { id: "ollama", name: "Ollama", preset_id: "ollama", kind: "local", protocol: "openai", base_url: "http://127.0.0.1:11434/v1", enabled: true, credential_configured: false },
           ],
-          policy_rules: [], pricebook: [], events: [],
+          policy_rules: [], events: [],
         },
       }),
     }));
@@ -301,75 +304,6 @@ describe("useRuntimeConsole", () => {
       await new Promise(r => setTimeout(r, 10));
       expect(result.current.state.model).toBe("");
     }
-  });
-
-  // ─── applyPricebookImport: notice text per outcome ────────────────────────
-  describe("applyPricebookImport notice variants", () => {
-    function mockApplyResponse(data: Record<string, unknown>) {
-      fetchMock.mockImplementation(defaultBackendMock({
-        "/hecate/v1/settings/pricebook/import/apply": () => jsonResponse({ object: "settings_pricebook_import_diff", data }),
-      }));
-    }
-
-    it("success-only: notice reads 'Imported N rows.'", async () => {
-      mockApplyResponse({
-        fetched_at: "2026", unchanged: 0,
-        applied: [
-          { provider: "openai", model: "a", input_micros_usd_per_million_tokens: 1, output_micros_usd_per_million_tokens: 2, cached_input_micros_usd_per_million_tokens: 0, source: "imported" },
-          { provider: "openai", model: "b", input_micros_usd_per_million_tokens: 1, output_micros_usd_per_million_tokens: 2, cached_input_micros_usd_per_million_tokens: 0, source: "imported" },
-        ],
-      });
-      const { result } = renderHook(() => useRuntimeConsole());
-      await waitFor(() => expect(result.current.state.loading).toBe(false));
-
-      await act(async () => {
-        await result.current.actions.applyPricebookImport(["openai/a", "openai/b"]);
-      });
-      await waitFor(() => expect(result.current.state.notice).not.toBeNull());
-      expect(result.current.state.notice?.kind).toBe("success");
-      expect(result.current.state.notice?.message).toBe("Imported 2 rows.");
-    });
-
-    it("mixed: notice reads 'Imported N, M failed.' and is an error notice", async () => {
-      mockApplyResponse({
-        fetched_at: "2026", unchanged: 0,
-        applied: [
-          { provider: "openai", model: "good", input_micros_usd_per_million_tokens: 1, output_micros_usd_per_million_tokens: 2, cached_input_micros_usd_per_million_tokens: 0, source: "imported" },
-        ],
-        failed: [
-          { entry: { provider: "openai", model: "bad", input_micros_usd_per_million_tokens: 1, output_micros_usd_per_million_tokens: 2, cached_input_micros_usd_per_million_tokens: 0, source: "imported" }, error: "boom" },
-        ],
-      });
-      const { result } = renderHook(() => useRuntimeConsole());
-      await waitFor(() => expect(result.current.state.loading).toBe(false));
-
-      await act(async () => {
-        await result.current.actions.applyPricebookImport(["openai/good", "openai/bad"]);
-      });
-      await waitFor(() => expect(result.current.state.notice).not.toBeNull());
-      expect(result.current.state.notice?.kind).toBe("error");
-      expect(result.current.state.notice?.message).toBe("Imported 1, 1 failed.");
-    });
-
-    it("all-failed: notice reads 'Import failed for N rows.'", async () => {
-      mockApplyResponse({
-        fetched_at: "2026", unchanged: 0,
-        applied: [],
-        failed: [
-          { entry: { provider: "openai", model: "x", input_micros_usd_per_million_tokens: 1, output_micros_usd_per_million_tokens: 2, cached_input_micros_usd_per_million_tokens: 0, source: "imported" }, error: "e1" },
-          { entry: { provider: "openai", model: "y", input_micros_usd_per_million_tokens: 1, output_micros_usd_per_million_tokens: 2, cached_input_micros_usd_per_million_tokens: 0, source: "imported" }, error: "e2" },
-        ],
-      });
-      const { result } = renderHook(() => useRuntimeConsole());
-      await waitFor(() => expect(result.current.state.loading).toBe(false));
-
-      await act(async () => {
-        await result.current.actions.applyPricebookImport(["openai/x", "openai/y"]);
-      });
-      await waitFor(() => expect(result.current.state.notice).not.toBeNull());
-      expect(result.current.state.notice?.kind).toBe("error");
-      expect(result.current.state.notice?.message).toBe("Import failed for 2 rows.");
-    });
   });
 
   // ─── settings mutations: surviving ones go through runSettingsMutation ──
@@ -512,7 +446,7 @@ describe("useRuntimeConsole", () => {
                 { id: "openai", name: "OpenAI", preset_id: "openai", kind: "cloud", protocol: "openai", base_url: "https://api.openai.com/v1", credential_configured: true },
                 ...deleted ? [] : [{ id: "ollama", name: "Ollama", preset_id: "ollama", kind: "local", protocol: "openai", base_url: "http://127.0.0.1:11434/v1", credential_configured: false }],
               ],
-              pricebook: [], policy_rules: [], events: [],
+              policy_rules: [], events: [],
             },
           });
         }
@@ -568,7 +502,7 @@ describe("useRuntimeConsole", () => {
                 { id: "ollama", name: "Ollama", preset_id: "ollama", kind: "local", protocol: "openai", base_url: "http://127.0.0.1:11434/v1", credential_configured: false },
                 { id: "anthropic", name: "Anthropic", preset_id: "anthropic", kind: "cloud", protocol: "anthropic", base_url: "https://api.anthropic.com", credential_configured: true },
               ],
-              pricebook: [], policy_rules: [], events: [],
+              policy_rules: [], events: [],
             },
           });
         }

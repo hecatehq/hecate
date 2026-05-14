@@ -7,7 +7,6 @@ import (
 	"strings"
 	"time"
 
-	"github.com/hecate/agent-runtime/internal/governor"
 	"github.com/hecate/agent-runtime/internal/policy"
 	"github.com/hecate/agent-runtime/internal/profiler"
 	"github.com/hecate/agent-runtime/internal/providers"
@@ -123,14 +122,6 @@ func (e *ResilientExecutor) Execute(ctx context.Context, trace *profiler.Trace, 
 			lastErr = err
 			if preflightErr, ok := AsRoutePreflightError(err); ok {
 				reason := string(preflightErr.Kind)
-				if preflightErr.Kind == RoutePreflightCostEstimate {
-					recordTraceError(trace, "governor.budget_estimate_failed", "governor", errorKindBudgetEstimateFailed, preflightErr, map[string]any{
-						telemetry.AttrGenAIProviderName:   candidate.Provider,
-						telemetry.AttrGenAIRequestModel:   candidate.Model,
-						telemetry.AttrHecateProviderKind:  firstNonEmpty(preflightErr.ProviderKind, candidate.ProviderKind),
-						telemetry.AttrHecateProviderIndex: index,
-					})
-				}
 				if preflightErr.Kind == RoutePreflightRouteDenied {
 					reason = classifyRouteDenied(preflightErr.Err)
 					lastErr = fmt.Errorf("%w: %v", errDenied, preflightErr.Err)
@@ -394,18 +385,12 @@ func firstNonEmpty(values ...string) string {
 }
 
 func classifyRouteDenied(err error) string {
-	var budgetErr *governor.BudgetExceededError
-	if errors.As(err, &budgetErr) {
-		return "budget_denied"
-	}
 	var policyErr *policy.Error
 	if errors.As(err, &policyErr) {
 		return "policy_denied"
 	}
 	message := lowerError(err)
 	switch {
-	case strings.Contains(message, "balance") || strings.Contains(message, "budget") || strings.Contains(message, "cost"):
-		return "budget_denied"
 	case strings.Contains(message, "policy") || strings.Contains(message, "not allowed") || strings.Contains(message, "denied") || strings.Contains(message, "route mode"):
 		return "policy_denied"
 	default:

@@ -21,14 +21,6 @@ func TestMemoryStoreAuditEventsCaptureActorAndMutationTrail(t *testing.T) {
 	if err != nil {
 		t.Fatalf("UpsertPolicyRule() error = %v", err)
 	}
-	if _, err := store.UpsertPricebookEntry(ctx, config.ModelPriceConfig{
-		Provider:                        "openai",
-		Model:                           "gpt-4o-mini",
-		InputMicrosUSDPerMillionTokens:  150_000,
-		OutputMicrosUSDPerMillionTokens: 600_000,
-	}); err != nil {
-		t.Fatalf("UpsertPricebookEntry() error = %v", err)
-	}
 	if err := store.DeletePolicyRule(ctx, rule.ID); err != nil {
 		t.Fatalf("DeletePolicyRule() error = %v", err)
 	}
@@ -37,8 +29,8 @@ func TestMemoryStoreAuditEventsCaptureActorAndMutationTrail(t *testing.T) {
 	if err != nil {
 		t.Fatalf("Snapshot() error = %v", err)
 	}
-	if len(state.Events) != 3 {
-		t.Fatalf("event count = %d, want 3", len(state.Events))
+	if len(state.Events) != 2 {
+		t.Fatalf("event count = %d, want 2", len(state.Events))
 	}
 	if state.Events[0].Actor != "operator:req-123" {
 		t.Fatalf("event actor = %q, want operator:req-123", state.Events[0].Actor)
@@ -46,8 +38,8 @@ func TestMemoryStoreAuditEventsCaptureActorAndMutationTrail(t *testing.T) {
 	if state.Events[0].Action != "policy_rule.created" {
 		t.Fatalf("first event action = %q, want policy_rule.created", state.Events[0].Action)
 	}
-	if state.Events[2].Action != "policy_rule.deleted" {
-		t.Fatalf("third event action = %q, want policy_rule.deleted", state.Events[2].Action)
+	if state.Events[1].Action != "policy_rule.deleted" {
+		t.Fatalf("second event action = %q, want policy_rule.deleted", state.Events[1].Action)
 	}
 }
 

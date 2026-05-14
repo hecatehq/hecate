@@ -95,10 +95,10 @@ The Anthropic adapter auto-attaches `cache_control: {"type":"ephemeral"}` marker
 `anthropicUsage` captures three buckets:
 
 - `input_tokens` — fresh tokens.
-- `cache_read_input_tokens` → `Usage.CachedPromptTokens` (priced via `CachedInputMicrosUSDPerMillionTokens`).
-- `cache_creation_input_tokens` → folded into `Usage.PromptTokens` (priced at the fresh rate; under-charges by ~20% relative to Anthropic's actual 1.25× rate, but at least counts them — the prior adapter dropped them entirely).
+- `cache_read_input_tokens` → `Usage.CachedPromptTokens`.
+- `cache_creation_input_tokens` → folded into `Usage.PromptTokens`; this at least counts the tokens for usage reporting — the prior adapter dropped them entirely.
 
-When the pricebook gains a dedicated `cache_creation` rate, split `cache_creation_input_tokens` back into its own `Usage` field. The trade-off is documented in the comment on `anthropicUsage`.
+If Hecate later needs adapter-specific cache-cost reporting, split `cache_creation_input_tokens` back into its own `Usage` field. The trade-off is documented in the comment on `anthropicUsage`.
 
 ## Common bugs to watch for
 

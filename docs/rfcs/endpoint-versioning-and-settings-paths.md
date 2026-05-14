@@ -85,10 +85,10 @@ Follow-up work before stable:
 | `/v1/*` is reserved for provider-compatible ingress. | This lets OpenAI/Anthropic-shaped clients keep their expected paths without mixing them with Hecate-native resources. |
 | `/hecate/v1/*` is the only Hecate-native product API prefix. | Stable Hecate clients get an unambiguous namespace and version. |
 | `/healthz` stays unversioned. | Health checks are infrastructure conventions, not product API contracts. |
-| `/hecate/v1/settings/*` is for operator configuration. | Providers, policy rules, pricebook entries, and local provider onboarding are settings. |
+| `/hecate/v1/settings/*` is for operator configuration. | Providers, policy rules, retention, and local provider onboarding are settings. |
 | `/hecate/v1/system/*` is for runtime/system facts and maintenance. | Runtime stats, retention history, and MCP cache state are not settings. |
-| `/hecate/v1/costs/*` is for budget and usage summaries. | Budget/accounting is product state but not general settings. |
-| `/hecate/v1/observability/*` is for debug lists and ledgers. | Request ledgers and trace lists are operational views. |
+| `/hecate/v1/usage/*` is for usage summaries and events. | Usage history is product state but not general settings. |
+| `/hecate/v1/observability/*` is for debug lists and history. | Request history and trace lists are operational views. |
 
 ### Why `/hecate/v1`, not `/v1/hecate`?
 
@@ -139,7 +139,7 @@ before stable.
 
 | Current | Proposed | Notes |
 |---|---|---|
-| `GET /admin/control-plane` | `GET /hecate/v1/settings` | Snapshot of configured providers, policy, pricebook, and related settings. |
+| `GET /admin/control-plane` | `GET /hecate/v1/settings` | Snapshot of configured providers, policy, retention, and related settings. |
 | `GET /admin/control-plane/providers/local-discovery` | `GET /hecate/v1/settings/providers/local-discovery` | Onboarding/config discovery, not runtime status. |
 | `POST /admin/control-plane/providers` | `POST /hecate/v1/settings/providers` | Create configured provider. |
 | `PATCH /admin/control-plane/providers/{id}` | `PATCH /hecate/v1/settings/providers/{id}` | Update configured provider. |
@@ -147,20 +147,18 @@ before stable.
 | `PUT /admin/control-plane/providers/{id}/api-key` | `PUT /hecate/v1/settings/providers/{id}/api-key` | Store/update provider credential. |
 | `POST /admin/control-plane/policy-rules` | `POST /hecate/v1/settings/policy-rules` | Upsert policy rule. |
 | `POST /admin/control-plane/policy-rules/delete` | `DELETE /hecate/v1/settings/policy-rules/{id}` | Prefer an explicit delete route over action-body delete. |
-| `POST /admin/control-plane/pricebook` | `POST /hecate/v1/settings/pricebook` | Upsert pricebook entry. |
-| `POST /admin/control-plane/pricebook/delete` | `DELETE /hecate/v1/settings/pricebook/{provider}/{model...}` | Cleaner delete route; clients URL-encode both values; the model wildcard preserves slash-containing model IDs. |
-| `POST /admin/control-plane/pricebook/import/preview` | `POST /hecate/v1/settings/pricebook/import/preview` | Keep action path. |
-| `POST /admin/control-plane/pricebook/import/apply` | `POST /hecate/v1/settings/pricebook/import/apply` | Keep action path. |
 
-### Costs
+### Usage
 
 | Current | Proposed | Notes |
 |---|---|---|
-| `GET /admin/budget` | `GET /hecate/v1/costs/budget` | Current budget status. |
-| `POST /admin/budget/topup` | `POST /hecate/v1/costs/budget/topup` | Keep action path. |
-| `POST /admin/budget/limit` | `POST /hecate/v1/costs/budget/limit` | Keep action path. |
-| `POST /admin/budget/reset` | `POST /hecate/v1/costs/budget/reset` | Keep action path. |
-| `GET /admin/accounts/summary` | `GET /hecate/v1/costs/summary` | Avoid legacy multi-account naming in single-user mode. |
+| `GET /admin/budget` | Removed | Global budget/accounting was removed. |
+| `POST /admin/budget/topup` | Removed | Operator budget mutation was removed. |
+| `POST /admin/budget/limit` | Removed | Operator budget mutation was removed. |
+| `POST /admin/budget/reset` | Removed | Operator budget mutation was removed. |
+| `GET /admin/accounts/summary` | Removed | Avoid legacy multi-account naming in single-user mode. |
+| n/a | `GET /hecate/v1/usage/summary` | Current usage totals for the selected scope. |
+| n/a | `GET /hecate/v1/usage/events` | Append-only usage events, retention-managed. |
 
 ### System
 
@@ -175,7 +173,7 @@ before stable.
 
 | Current | Proposed | Notes |
 |---|---|---|
-| `GET /admin/requests` | `GET /hecate/v1/observability/requests` | Request ledger/debug list. |
+| `GET /admin/requests` | `GET /hecate/v1/observability/requests` | Request history/debug list. |
 | `GET /admin/traces` | `GET /hecate/v1/traces` | Prefer one trace resource for lookup and list. |
 | `GET /v1/traces?request_id=...` | `GET /hecate/v1/traces?request_id=...` | Move to Hecate namespace. |
 
@@ -202,7 +200,7 @@ This keeps trace data in one resource. If implementation gets awkward, use
 ### Should `settings` include runtime status?
 
 No. `settings` should be limited to configured state and onboarding helpers.
-Provider health, runtime stats, retention history, and request ledgers are facts
+Provider health, runtime stats, retention history, and request history are facts
 about a running process, not settings.
 
 ### Should old `/admin/*` paths remain as shims?

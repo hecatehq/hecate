@@ -2,25 +2,21 @@ import { useEffect, useMemo, useRef, useState, type SyntheticEvent } from "react
 
 import { buildLocalProviderIssue } from "../lib/provider-issues";
 import type { LocalProviderIssue } from "../lib/provider-issues";
-import { filterModelsByKind, filterModelsByProvider, parseCSV, usdToMicros } from "../lib/runtime-utils";
+import { filterModelsByKind, filterModelsByProvider, parseCSV } from "../lib/runtime-utils";
 import {
   ApiError,
   type ChatMessage,
-  chooseWorkspaceDirectory as chooseWorkspaceDirectoryRequest,
-  chatCompletionsStream,
-  updateChatSession as updateChatSessionRequest,
-  deletePolicyRule as deletePolicyRuleRequest,
-  getAccountSummary,
-  getChatSession,
-  getChatSessions,
-  getModels,
-  getProviders,
-  getRequestLedger,
-  setProviderAPIKey as setProviderAPIKeyRequest,
-  upsertPricebookEntry as upsertPricebookEntryRequest,
-  deletePricebookEntry as deletePricebookEntryRequest,
-  previewPricebookImport as previewPricebookImportRequest,
-  applyPricebookImport as applyPricebookImportRequest,
+	  chooseWorkspaceDirectory as chooseWorkspaceDirectoryRequest,
+	  chatCompletionsStream,
+	  updateChatSession as updateChatSessionRequest,
+	  deletePolicyRule as deletePolicyRuleRequest,
+	  getChatSession,
+	  getChatSessions,
+	  getModels,
+	  getProviders,
+	  getUsageEvents,
+	  getUsageSummary,
+	  setProviderAPIKey as setProviderAPIKeyRequest,
   cancelAgentChatApproval as cancelAgentChatApprovalRequest,
   cancelAgentChatSession as cancelAgentChatSessionRequest,
   deleteAgentChatGrant as deleteAgentChatGrantRequest,
@@ -36,9 +32,6 @@ import {
   resolveTaskApproval as resolveTaskApprovalRequest,
   resolveAgentChatApproval as resolveAgentChatApprovalRequest,
   runRetention as runRetentionRequest,
-  resetBudget as resetBudgetRequest,
-  setBudgetLimit as setBudgetLimitRequest,
-  topUpBudget as topUpBudgetRequest,
   upsertPolicyRule as upsertPolicyRuleRequest,
   createProvider as createProviderRequest,
   deleteModelCapabilityOverride as deleteModelCapabilityOverrideRequest,
@@ -68,8 +61,6 @@ import {
 } from "./runtimeConsoleChatHelpers";
 import { deriveSessionState, resolveDashboardSnapshot } from "./runtimeConsoleDashboard";
 import type {
-  BudgetStatusResponse,
-  AccountSummaryResponse,
   AgentAdapterHealthRecord,
   AgentAdapterRecord,
   AgentChatApprovalRecord,
@@ -87,15 +78,14 @@ import type {
   HealthResponse,
   ModelFilter,
   ModelResponse,
-  PricebookEntryUpsertPayload,
-  PricebookImportDiff,
   ProviderPresetRecord,
   ProviderFilter,
   ProviderStatusResponse,
-  RequestLedgerResponse,
   RuntimeHeaders,
   SessionResponse,
   RetentionRunData,
+  UsageEventsResponse,
+  UsageSummaryResponse,
 } from "../types/runtime";
 
 type NoticeState = {
@@ -309,9 +299,8 @@ export function useRuntimeConsole() {
   const [agentAdapterHealthLoadingByID, setAgentAdapterHealthLoadingByID] = useState<
     Map<string, true>
   >(() => new Map());
-  const [budget, setBudget] = useState<BudgetStatusResponse["data"] | null>(null);
-  const [accountSummary, setAccountSummary] = useState<AccountSummaryResponse["data"] | null>(null);
-  const [requestLedger, setRequestLedger] = useState<RequestLedgerResponse["data"]>([]);
+  const [usageSummary, setUsageSummary] = useState<UsageSummaryResponse["data"] | null>(null);
+  const [usageEvents, setUsageEvents] = useState<UsageEventsResponse["data"]>([]);
   const [settingsConfig, setSettingsConfig] = useState<ConfiguredStateResponse["data"] | null>(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState("");
@@ -344,10 +333,6 @@ export function useRuntimeConsole() {
   const [modelFilter, setModelFilter] = useState<ModelFilter>("all");
   const [providerFilter, setProviderFilter] = useState<ProviderFilter>("auto");
   const [copiedCommand, setCopiedCommand] = useState("");
-
-  const [budgetAmountUsd, setBudgetAmountUsd] = useState("1.00");
-  const [budgetLimitUsd, setBudgetLimitUsd] = useState("5.00");
-  const [budgetActionError, setBudgetActionError] = useState("");
 
   const [sessionInfo, setSessionInfo] = useState<SessionResponse["data"] | null>(null);
   const [settingsError, setSettingsError] = useState("");
@@ -590,14 +575,14 @@ export function useRuntimeConsole() {
 
   async function refreshRuntimeState() {
     try {
-      const accountSummaryResult = await getAccountSummary("");
-      setAccountSummary(accountSummaryResult.data);
+      const usageSummaryResult = await getUsageSummary("");
+      setUsageSummary(usageSummaryResult.data);
     } catch {
       // Keep chat responsive even if refresh paths fail.
     }
     try {
-      const requestLedgerResult = await getRequestLedger(20);
-      setRequestLedger(requestLedgerResult.data ?? []);
+      const usageEventsResult = await getUsageEvents(20);
+      setUsageEvents(usageEventsResult.data ?? []);
     } catch {
       // Best-effort.
     }
@@ -644,13 +629,12 @@ export function useRuntimeConsole() {
         previous: {
           providers,
           agentAdapters,
-          budget,
-          accountSummary,
+          usageSummary,
           chatSessions,
           activeChatSession,
           agentChatSessions,
           activeAgentChatSession,
-          requestLedger,
+          usageEvents,
           settingsConfig,
           retentionRuns,
           retentionLastRun,
@@ -663,8 +647,7 @@ export function useRuntimeConsole() {
       setProviders(snapshot.providers);
       setProviderPresets(snapshot.providerPresets);
       setAgentAdapters(snapshot.agentAdapters);
-      setBudget(snapshot.budget);
-      setAccountSummary(snapshot.accountSummary);
+      setUsageSummary(snapshot.usageSummary);
       setChatSessions(snapshot.chatSessions);
       setChatSessionsHasMore(snapshot.chatSessionsHasMore);
       setActiveChatSessionID(snapshot.activeChatSessionID);
@@ -673,7 +656,7 @@ export function useRuntimeConsole() {
       pruneQueuedChatMessagesForSessions(snapshot.agentChatSessions.map((session) => session.id));
       setActiveAgentChatSessionID(snapshot.activeAgentChatSessionID);
       setActiveAgentChatSession(snapshot.activeAgentChatSession);
-      setRequestLedger(snapshot.requestLedger);
+      setUsageEvents(snapshot.usageEvents);
       setSettingsConfig(snapshot.settingsConfig);
       setRetentionRuns(snapshot.retentionRuns);
       setRetentionLastRun(snapshot.retentionLastRun);
@@ -1131,94 +1114,6 @@ export function useRuntimeConsole() {
     };
   }
 
-  async function resetBudget() {
-    if (!budget) {
-      return;
-    }
-    setBudgetActionError("");
-    setNotice(null);
-
-    if (!window.confirm("Reset tracked budget usage for the current scope?")) {
-      return;
-    }
-
-    try {
-      await resetBudgetRequest(
-        {
-          scope: budget.scope,
-          provider: budget.provider,
-          key: budget.scope === "custom" ? budget.key : "",
-        },
-      );
-      await loadDashboard();
-      setNotice({ kind: "success", message: "Budget usage reset." });
-      return;
-    } catch {
-      setBudgetActionError("failed to reset budget usage");
-      setNotice({ kind: "error", message: "Failed to reset budget usage." });
-    }
-  }
-
-  async function topUpBudget() {
-    if (!budget) {
-      return;
-    }
-    setBudgetActionError("");
-
-    const amountMicrosUSD = usdToMicros(budgetAmountUsd);
-    if (!Number.isFinite(amountMicrosUSD) || amountMicrosUSD <= 0) {
-      setBudgetActionError("top-up amount must be greater than zero");
-      return;
-    }
-
-    try {
-      await topUpBudgetRequest(
-        {
-          scope: budget.scope,
-          provider: budget.provider,
-          key: budget.scope === "custom" ? budget.key : "",
-          amount_micros_usd: amountMicrosUSD,
-        },
-      );
-      await loadDashboard();
-      setNotice({ kind: "success", message: "Budget topped up." });
-      return;
-    } catch (error) {
-      setBudgetActionError(error instanceof Error ? error.message : "failed to top up budget");
-      setNotice({ kind: "error", message: "Failed to top up budget." });
-    }
-  }
-
-  async function setBudgetLimit() {
-    if (!budget) {
-      return;
-    }
-    setBudgetActionError("");
-
-    const limitMicrosUSD = usdToMicros(budgetLimitUsd);
-    if (!Number.isFinite(limitMicrosUSD) || limitMicrosUSD < 0) {
-      setBudgetActionError("limit must be zero or greater");
-      return;
-    }
-
-    try {
-      await setBudgetLimitRequest(
-        {
-          scope: budget.scope,
-          provider: budget.provider,
-          key: budget.scope === "custom" ? budget.key : "",
-          balance_micros_usd: limitMicrosUSD,
-        },
-      );
-      await loadDashboard();
-      setNotice({ kind: "success", message: "Budget limit updated." });
-      return;
-    } catch (error) {
-      setBudgetActionError(error instanceof Error ? error.message : "failed to set budget limit");
-      setNotice({ kind: "error", message: "Failed to update budget limit." });
-    }
-  }
-
   function setNoticeMessage(kind: NoticeState["kind"], message: string) {
     if (message) setNotice({ kind, message });
   }
@@ -1402,59 +1297,6 @@ export function useRuntimeConsole() {
         await deletePolicyRuleRequest(id);
       },
     });
-  }
-
-  async function upsertPricebookEntry(entry: PricebookEntryUpsertPayload) {
-    await runSettingsMutation({
-      successMessage: "Pricebook entry saved.",
-      errorMessage: "Failed to save pricebook entry.",
-      failureDetail: "failed to save pricebook entry",
-      action: async () => {
-        await upsertPricebookEntryRequest(entry);
-      },
-    });
-  }
-
-  async function deletePricebookEntry(provider: string, model: string) {
-    // Confirmation is the caller's concern now (PricebookTab routes
-    // this through a styled ConfirmModal). The action itself just
-    // performs the deletion.
-    resetSettingsFeedback();
-    await runSettingsMutation({
-      successMessage: "Price cleared.",
-      errorMessage: "Failed to clear price.",
-      failureDetail: "failed to clear pricebook entry",
-      action: async () => {
-        await deletePricebookEntryRequest(provider, model);
-      },
-    });
-  }
-
-  // previewPricebookImport intentionally does NOT call runSettingsMutation —
-  // it doesn't mutate anything. It just fetches the diff and lets the
-  // caller (the import modal) render it.
-  async function previewPricebookImport(): Promise<PricebookImportDiff> {
-    const response = await previewPricebookImportRequest();
-    return response.data;
-  }
-
-  async function applyPricebookImport(keys: string[]): Promise<PricebookImportDiff> {
-    const response = await applyPricebookImportRequest(keys);
-    await loadDashboard();
-    // Notice text varies with the partial-success outcome so the
-    // operator sees the exact tally — silent "import applied" was
-    // misleading when one or more rows actually failed.
-    const data = response.data;
-    const appliedCount = data.applied?.length ?? 0;
-    const failedCount = data.failed?.length ?? 0;
-    if (failedCount > 0 && appliedCount > 0) {
-      setNoticeMessage("error", `Imported ${appliedCount}, ${failedCount} failed.`);
-    } else if (failedCount > 0) {
-      setNoticeMessage("error", `Import failed for ${failedCount} ${failedCount === 1 ? "row" : "rows"}.`);
-    } else {
-      setNoticeMessage("success", `Imported ${appliedCount} ${appliedCount === 1 ? "row" : "rows"}.`);
-    }
-    return data;
   }
 
   async function copyCommand(command: string) {
@@ -1961,8 +1803,7 @@ export function useRuntimeConsole() {
     state: {
       activeAgentChatSession,
       activeAgentChatSessionID,
-      budget,
-      accountSummary,
+      usageSummary,
       agentAdapterID,
       agentAdapters,
       agentChatCancelling,
@@ -1970,10 +1811,7 @@ export function useRuntimeConsole() {
       newChatAgentID: defaultChatTarget === "external_agent" ? agentAdapterID : "hecate",
       agentWorkspace,
       agentWorkspaceBranch,
-      requestLedger,
-      budgetActionError,
-      budgetAmountUsd,
-      budgetLimitUsd,
+      usageEvents,
       chatError,
       chatErrorAction,
       chatErrorCode,
@@ -2040,9 +1878,6 @@ export function useRuntimeConsole() {
       deleteChatSession,
       renameChatSession,
       loadDashboard,
-      resetBudget,
-      setBudgetAmountUsd,
-      setBudgetLimitUsd,
       setAgentAdapterID,
       setNewChatAgent,
       setAgentWorkspace: updateAgentWorkspace,
@@ -2056,7 +1891,6 @@ export function useRuntimeConsole() {
       setProviderFilter: selectProviderRoute,
       refreshProviders,
       setRetentionSubsystems,
-      setBudgetLimit,
       runRetention,
       selectChatSession,
       startNewChat,
@@ -2064,7 +1898,6 @@ export function useRuntimeConsole() {
       loadMoreChatSessions,
       submitToolResults,
       updateToolResult,
-      topUpBudget,
       upsertPolicyRule,
       setProviderAPIKey,
       createProvider,
@@ -2075,10 +1908,6 @@ export function useRuntimeConsole() {
       upsertModelCapabilityOverride,
       recordModelCapabilityProbe,
       deleteModelCapabilityOverride,
-      upsertPricebookEntry,
-      deletePricebookEntry,
-      previewPricebookImport,
-      applyPricebookImport,
       getAgentChatApproval,
       listAgentChatMessageFiles,
       getAgentChatMessageFileDiff,

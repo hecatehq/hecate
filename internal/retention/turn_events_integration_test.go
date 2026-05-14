@@ -76,7 +76,7 @@ func TestManagerSweepsRealTurnEventsButSparesOtherTypes(t *testing.T) {
 		},
 		tracer,
 		nil, // traces
-		nil, // budget events
+		nil, // usage events
 		nil, // audit events
 		nil, // provider history
 		store,
