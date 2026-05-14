@@ -267,6 +267,25 @@ export function ChatView({ state, actions, onNavigate, onOpenTask, onOpenTrace }
   const hecateChatModelValue = hecateAgentModelLocked
     ? (activeHecateAgentSegment?.model || state.activeAgentChatSession?.model || "")
     : state.model;
+  const activeHeaderBrand = isAgentChat
+    ? (state.activeAgentChatSession ? sidebarSessionBrand(state.activeAgentChatSession) : newChatAgentID)
+    : selectedConfiguredProvider?.id || selectedRuntimeProvider?.name || state.providerFilter;
+  const activeHeaderFallback = isAgentChat
+    ? (state.activeAgentChatSession
+        ? sidebarSessionAgentLabel(state.activeAgentChatSession, state.agentAdapters)
+        : chatAgentOption(newChatAgentID, state.agentAdapters).label)
+    : selectedProviderName;
+  const activeHeaderSubline = buildActiveChatHeaderSubline({
+    isAgentChat,
+    isExternalAgentChat,
+    isHecateAgentChat,
+    activeSession: state.activeAgentChatSession,
+    selectedAgent,
+    newChatAgentID,
+    adapters: state.agentAdapters,
+    providerName: selectedProviderName,
+    model: hecateChatModelValue || state.model,
+  });
   const selectedHecateModelRecord = hecateAgentModelLocked
     ? undefined
     : selectableModels.find((entry) => entry.id === state.model && (!state.providerFilter || state.providerFilter === "auto" || entry.metadata?.provider === state.providerFilter));
@@ -654,6 +673,20 @@ export function ChatView({ state, actions, onNavigate, onOpenTask, onOpenTrace }
                           <div style={{ flex: 1, minWidth: 0, fontSize: 12, lineHeight: "18px", color: activeSessionID === s.id ? "var(--t0)" : "var(--t1)", fontWeight: activeSessionID === s.id ? 500 : 400, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>
                             {s.title || "Untitled"}
                           </div>
+                          {sidebarSessionTimeLabel(s.updated_at || s.created_at) && (
+                            <span
+                              title={s.updated_at || s.created_at}
+                              style={{
+                                color: "var(--t3)",
+                                flexShrink: 0,
+                                fontFamily: "var(--font-mono)",
+                                fontSize: 9,
+                                lineHeight: "18px",
+                              }}
+                            >
+                              {sidebarSessionTimeLabel(s.updated_at || s.created_at)}
+                            </span>
+                          )}
                           <div style={{ display: "flex", gap: 1, opacity: hoveredChatId === s.id ? 1 : 0, transition: "opacity 0.15s", flexShrink: 0 }}>
                             {!isAgentChat && (
                               <button
@@ -737,17 +770,35 @@ export function ChatView({ state, actions, onNavigate, onOpenTask, onOpenTrace }
               <Icon d={Icons.chevR} size={13} />
             </button>
           )}
-          <span style={{ fontSize: 13, fontWeight: 500, color: "var(--t0)", flex: 1, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>
-            {activeTitle || (sessions.length === 0 ? "New chat" : "Select a chat")}
-          </span>
-          {isExternalAgentChat && (
-            <span
-              title={formatAgentSessionTitle(state.activeAgentChatSession, selectedAgent)}
-              style={{ flexShrink: 0, fontFamily: "var(--font-mono)", fontSize: 10, color: "var(--t3)", maxWidth: 260, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}
-            >
-              {formatAgentSessionLabel(state.activeAgentChatSession, selectedAgent)}
-            </span>
-          )}
+          <BrandAvatar
+            brand={activeHeaderBrand}
+            fallback={activeHeaderFallback}
+            boxed={false}
+            size={24}
+            title={activeHeaderFallback}
+            style={{ flexShrink: 0 }}
+          />
+          <div style={{ flex: 1, minWidth: 0 }}>
+            <div style={{ fontSize: 13, fontWeight: 500, color: "var(--t0)", overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>
+              {activeTitle || (sessions.length === 0 ? "New chat" : "Select a chat")}
+            </div>
+            {activeHeaderSubline && (
+              <div
+                title={isExternalAgentChat ? formatAgentSessionTitle(state.activeAgentChatSession, selectedAgent) : activeHeaderSubline}
+                style={{
+                  color: "var(--t3)",
+                  fontFamily: "var(--font-mono)",
+                  fontSize: 10,
+                  lineHeight: 1.25,
+                  overflow: "hidden",
+                  textOverflow: "ellipsis",
+                  whiteSpace: "nowrap",
+                }}
+              >
+                {activeHeaderSubline}
+              </div>
+            )}
+          </div>
           {isExternalAgentChat ? (
             <>
               <ExternalAgentConfigControls
@@ -1637,6 +1688,63 @@ function sidebarSessionAgentLabel(session: AgentChatSessionRecord, adapters: Age
     return "Hecate";
   }
   return session.provider || session.model;
+}
+
+function buildActiveChatHeaderSubline({
+  isAgentChat,
+  isExternalAgentChat,
+  isHecateAgentChat,
+  activeSession,
+  selectedAgent,
+  newChatAgentID,
+  adapters,
+  providerName,
+  model,
+}: {
+  isAgentChat: boolean;
+  isExternalAgentChat: boolean;
+  isHecateAgentChat: boolean;
+  activeSession: AgentChatSessionRecord | null;
+  selectedAgent?: AgentAdapterRecord;
+  newChatAgentID: string;
+  adapters: AgentAdapterRecord[];
+  providerName: string;
+  model: string;
+}): string {
+  if (!isAgentChat) return "";
+  if (isExternalAgentChat) {
+    const base = activeSession
+      ? formatAgentSessionLabel(activeSession, selectedAgent)
+      : `${chatAgentOption(newChatAgentID, adapters).label} · new session`;
+    return [base, activeSession?.workspace ? compactWorkspacePath(activeSession.workspace) : ""]
+      .filter(Boolean)
+      .join(" · ");
+  }
+  return [
+    isHecateAgentChat ? "Tools on" : "Tools off",
+    providerName,
+    model || "select model",
+  ].filter(Boolean).join(" · ");
+}
+
+function compactWorkspacePath(path: string): string {
+  const parts = path.split("/").filter(Boolean);
+  if (parts.length <= 2) return path;
+  return `…/${parts.slice(-2).join("/")}`;
+}
+
+function sidebarSessionTimeLabel(value?: string): string {
+  if (!value) return "";
+  const d = new Date(value);
+  if (Number.isNaN(d.getTime())) return "";
+  const now = new Date();
+  if (d.toDateString() === now.toDateString()) {
+    return d.toLocaleTimeString(undefined, { hour: "numeric", minute: "2-digit" });
+  }
+  const yesterday = new Date(now);
+  yesterday.setDate(now.getDate() - 1);
+  if (d.toDateString() === yesterday.toDateString()) return "yesterday";
+  return d.toLocaleDateString(undefined, { month: "short", day: "numeric" });
 }
 
 function pendingHecateTaskApprovals(session: AgentChatSessionRecord | null): HecateTaskApproval[] {

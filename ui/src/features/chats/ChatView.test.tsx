@@ -2455,6 +2455,38 @@ describe("ChatView session title", () => {
     render(<ChatView state={state} actions={actions} />);
     expect(screen.getByText("Hello world")).toBeTruthy();
   });
+
+  it("shows the active chat runtime identity below the title", () => {
+    const { state, actions } = setup({
+      chatTarget: "agent",
+      providerFilter: "ollama",
+      model: "qwen2.5-coder",
+      settingsConfig: {
+        backend: "memory",
+        providers: [
+          { id: "ollama", name: "Ollama", preset_id: "ollama", kind: "local", protocol: "openai", base_url: "http://127.0.0.1:11434/v1", credential_configured: false },
+        ],
+        policy_rules: [],
+        events: [],
+      },
+      activeAgentChatSessionID: "agent_chat_1",
+      activeAgentChatSession: {
+        id: "agent_chat_1",
+        runtime_kind: "agent",
+        title: "Repo work",
+        provider: "ollama",
+        model: "qwen2.5-coder",
+        workspace: "/tmp/hecate",
+        status: "completed",
+        messages: [],
+      } as any,
+    });
+
+    render(<ChatView state={state} actions={actions} />);
+
+    expect(screen.getByText("Repo work")).toBeTruthy();
+    expect(screen.getByText("Tools on · Ollama · qwen2.5-coder")).toBeTruthy();
+  });
 });
 
 describe("ChatView New chat button", () => {

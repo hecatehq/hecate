@@ -634,6 +634,13 @@ export function ProvidersView({ state, actions }: Props) {
                 <input
                   className="input"
                   type="password"
+                  name="hecate-provider-api-key"
+                  autoComplete="new-password"
+                  autoCorrect="off"
+                  spellCheck={false}
+                  data-1p-ignore="true"
+                  data-lpignore="true"
+                  data-form-type="other"
                   placeholder={selectedConfig.credential_configured ? "••••••••" : "sk-…"}
                   value={pendingKey}
                   onChange={e => setPendingKey(e.target.value)}
