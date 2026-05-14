@@ -294,6 +294,13 @@ export function AddProviderModal({ open, state, actions, onClose }: Props) {
             <input
               className="input"
               type="password"
+              name="hecate-provider-api-key"
+              autoComplete="new-password"
+              autoCorrect="off"
+              spellCheck={false}
+              data-1p-ignore="true"
+              data-lpignore="true"
+              data-form-type="other"
               value={form.api_key}
               ref={apiKeyInputRef}
               onChange={e => setForm(f => ({ ...f, api_key: e.target.value }))}

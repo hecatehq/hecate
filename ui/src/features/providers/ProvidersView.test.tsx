@@ -238,6 +238,21 @@ describe("ProvidersView add provider modal", () => {
     });
   });
 
+  it("marks provider API keys as non-login fields for browser autofill", async () => {
+    openAddModal();
+    const user = userEvent.setup();
+    await user.click(screen.getAllByText("Add provider")[0]);
+    await user.click(screen.getByText("Cloud"));
+    await user.click(screen.getByText("Anthropic"));
+
+    const apiKeyInput = screen.getByPlaceholderText("sk-…") as HTMLInputElement;
+
+    expect(apiKeyInput.name).toBe("hecate-provider-api-key");
+    expect(apiKeyInput.autocomplete).toBe("new-password");
+    expect(apiKeyInput).toHaveAttribute("data-1p-ignore", "true");
+    expect(apiKeyInput).toHaveAttribute("data-lpignore", "true");
+  });
+
   it("custom flow leaves the Name input editable", async () => {
     openAddModal();
     const user = userEvent.setup();
@@ -311,6 +326,8 @@ describe("ProvidersView edit modal", () => {
     const user = userEvent.setup();
     await user.click(screen.getByText("Anthropic"));
     const keyInput = screen.getByPlaceholderText("••••••••") as HTMLInputElement;
+    expect(keyInput.autocomplete).toBe("new-password");
+    expect(keyInput).toHaveAttribute("data-form-type", "other");
     await user.type(keyInput, "sk-rotated");
     await user.click(screen.getByText("Update API key"));
 
