@@ -7,6 +7,11 @@ import type {
   HealthResponse,
   MCPCacheStatsResponse,
   ModelResponse,
+  LocalModelCatalogResponse,
+  LocalModelInstallResponse,
+  LocalModelInstalledResponse,
+  LocalModelProgressEvent,
+  LocalModelRuntimeResponse,
   LocalProviderDiscoveryResponse,
   ModelCapabilityResponse,
   ProviderPresetResponse,
@@ -257,6 +262,97 @@ export async function getProviderPresets(): Promise<ProviderPresetResponse> {
 
 export async function discoverLocalProviders(): Promise<LocalProviderDiscoveryResponse> {
   return fetchJSON<LocalProviderDiscoveryResponse>(`${HECATE_API}/settings/providers/local-discovery`);
+}
+
+// Local models — Hecate-managed llama.cpp runtime. See
+// docs/rfcs/local-models-llamacpp.md for the feature shape.
+
+export async function getLocalModelsCatalog(): Promise<LocalModelCatalogResponse> {
+  return fetchJSON<LocalModelCatalogResponse>(`${HECATE_API}/local-models/catalog`);
+}
+
+export async function getLocalModelsInstalled(): Promise<LocalModelInstalledResponse> {
+  return fetchJSON<LocalModelInstalledResponse>(`${HECATE_API}/local-models/installed`);
+}
+
+export async function getLocalModelsRuntime(): Promise<LocalModelRuntimeResponse> {
+  return fetchJSON<LocalModelRuntimeResponse>(`${HECATE_API}/local-models/runtime`);
+}
+
+export async function installLocalModel(
+  spec: { catalog_id?: string; url?: string; sha256?: string },
+): Promise<LocalModelInstallResponse> {
+  return fetchJSON<LocalModelInstallResponse>(`${HECATE_API}/local-models/install`, {
+    method: "POST",
+    body: spec,
+  });
+}
+
+export async function cancelLocalModelInstall(installID: string): Promise<void> {
+  await fetchJSON<unknown>(
+    `${HECATE_API}/local-models/install/${encodeURIComponent(installID)}`,
+    { method: "DELETE" },
+  );
+}
+
+export async function uninstallLocalModel(modelID: string): Promise<void> {
+  await fetchJSON<unknown>(
+    `${HECATE_API}/local-models/installed/${encodeURIComponent(modelID)}`,
+    { method: "DELETE" },
+  );
+}
+
+export async function startLocalModel(modelID: string): Promise<LocalModelRuntimeResponse> {
+  return fetchJSON<LocalModelRuntimeResponse>(`${HECATE_API}/local-models/runtime/start`, {
+    method: "POST",
+    body: { model_id: modelID },
+  });
+}
+
+export async function stopLocalModel(): Promise<LocalModelRuntimeResponse> {
+  return fetchJSON<LocalModelRuntimeResponse>(`${HECATE_API}/local-models/runtime/stop`, {
+    method: "POST",
+    body: {},
+  });
+}
+
+// subscribeLocalModelInstallEvents opens an EventSource against the
+// per-install SSE stream and returns an unsubscribe function. The
+// callback fires for every parsed ProgressEvent until the server
+// closes the stream (terminal event) or unsubscribe is called.
+//
+// Why a small wrapper instead of letting callers reach for
+// EventSource directly: the SSE event-name carries the kind
+// (started / progress / completed / failed / cancelled) but the
+// payload JSON lives in data:. The wrapper joins them into one
+// callable shape so the UI doesn't have to register five listeners.
+export function subscribeLocalModelInstallEvents(
+  installID: string,
+  onEvent: (event: LocalModelProgressEvent) => void,
+  onError?: (err: Event) => void,
+): () => void {
+  const url = `${HECATE_API}/local-models/install/${encodeURIComponent(installID)}/events`;
+  const es = new EventSource(url);
+  const handler = (kind: LocalModelProgressEvent["kind"]) => (msg: MessageEvent) => {
+    try {
+      const parsed = JSON.parse(msg.data) as LocalModelProgressEvent;
+      onEvent({ ...parsed, kind });
+    } catch {
+      // Ignore malformed events. The stream is server-emitted JSON;
+      // a parse failure is a wire-shape regression we want to know
+      // about in the console but not surface to the UI as a fake
+      // ProgressEvent.
+    }
+  };
+  es.addEventListener("started", handler("started"));
+  es.addEventListener("progress", handler("progress"));
+  es.addEventListener("completed", handler("completed"));
+  es.addEventListener("failed", handler("failed"));
+  es.addEventListener("cancelled", handler("cancelled"));
+  if (onError) {
+    es.addEventListener("error", onError);
+  }
+  return () => es.close();
 }
 
 export async function getAgentAdapters(): Promise<AgentAdapterResponse> {
