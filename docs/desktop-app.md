@@ -43,6 +43,8 @@ What works:
   `%APPDATA%\sh.hecate.app\`, `~/.local/share/sh.hecate.app/`).
 - Sidecar stderr piped to `<data_dir>/gateway.log` (truncated per launch);
   the startup splash shows failures with the log and data-directory paths.
+- Startup splash fonts are vendored for offline startup; their OFL license
+  texts live next to the font files under `tauri/splash/fonts/`.
 - Window size and position persistence across launches.
 - Cross-platform CI matrix with PR validation, draft skipping, and run
   cancellation on push.
