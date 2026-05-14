@@ -1,20 +1,22 @@
 import type { CSSProperties } from "react";
 import {
-  AnthropicIcon,
   ClaudeCode,
-  CursorIcon,
   Deepseek,
   GoogleGeminiIcon,
+  MistralAiIcon,
+  PerplexityIcon,
+  Together,
+} from "@dev.icons/react";
+import {
+  AnthropicIcon,
+  CursorIcon,
   Groq,
   LmStudioIcon,
   MetaIcon,
-  MistralAiIcon,
   OllamaIcon,
   OpenaiIcon,
-  PerplexityIcon,
-  Together,
   Xai,
-} from "@dev.icons/react";
+} from "@dev.icons/react/mono";
 import type { Icon as Devicon } from "@dev.icons/react";
 import hecateMarkURL from "../../assets/hecate-mark-white-64.png";
 import { Icon, Icons } from "./Icons";
