@@ -9,7 +9,7 @@ test("renders the activity bar with all workspace buttons", async ({ page }) => 
   const nav = page.locator(".hecate-activitybar");
   await expect(nav).toBeVisible();
 
-  for (const label of ["Chats", "Connections", "Tasks", "Observability", "Costs", "Settings"]) {
+  for (const label of ["Chats", "Connections", "Tasks", "Observability", "Usage", "Settings"]) {
     await expect(nav.locator(`[aria-label^="${label}"]`)).toBeVisible();
   }
 });
@@ -49,11 +49,11 @@ test("number keys do not switch workspaces while the app is focused", async ({ p
   );
 });
 
-test("Costs nav button activates the Costs workspace", async ({ page }) => {
-  await page.locator(".hecate-activitybar [aria-label^='Costs']").click();
+test("Usage nav button activates the Usage workspace", async ({ page }) => {
+  await page.locator(".hecate-activitybar [aria-label^='Usage']").click();
   await expect(page.locator(".hecate-activitybar [aria-current='page']")).toHaveAttribute(
     "aria-label",
-    /Costs/,
+    /Usage/,
   );
 });
 
