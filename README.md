@@ -248,5 +248,3 @@ See [CONTRIBUTING.md](CONTRIBUTING.md). If you work with an AI assistant, start 
 ## License
 
 MIT. See [LICENSE](LICENSE).
-
-Third-party notices live in [NOTICE.md](NOTICE.md), including vendored splash-font and icon licenses.
