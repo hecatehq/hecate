@@ -23,17 +23,11 @@ const CostsView = lazy(() =>
 const ObservabilityView = lazy(() =>
   import("../features/overview/ObservabilityView").then(m => ({ default: m.ObservabilityView })),
 );
-// feature/ux-2 prototype: Chats + Connections render the static
-// ChatViewPrototype / ProvidersViewPrototype components instead of the live
-// views. The prototypes are visual only — no API wiring, no real state.
-// To restore the working app, revert these two imports to:
-//   from "../features/chats/ChatView" → m.ChatView
-//   from "../features/providers/ProvidersView" → m.ProvidersView
 const ChatView = lazy(() =>
-  import("../features/chats/ChatViewPrototype").then(m => ({ default: m.ChatViewPrototype })),
+  import("../features/chats/ChatView").then(m => ({ default: m.ChatView })),
 );
 const ProvidersView = lazy(() =>
-  import("../features/providers/ProvidersViewPrototype").then(m => ({ default: m.ProvidersViewPrototype })),
+  import("../features/providers/ProvidersView").then(m => ({ default: m.ProvidersView })),
 );
 const TasksView = lazy(() =>
   import("../features/runs/TasksView").then(m => ({ default: m.TasksView })),
