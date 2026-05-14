@@ -1,19 +1,19 @@
 import { expect, test } from "./fixtures";
 
-// Settings workspace. Tabs: Pricing / Retention.
+// Settings workspace. Connections owns provider/model setup; Usage owns
+// cloud-token accounting. Settings is intentionally scoped to maintenance.
 test.beforeEach(async ({ page }) => {
   await page.goto("/");
   await page.waitForSelector(".hecate-activitybar");
   await page.locator(".hecate-activitybar [aria-label^='Settings']").click();
-  await page.waitForSelector("text=Pricing");
+  await page.waitForSelector("text=Retention");
 });
 
-test("renders the settings tabs (Pricing / Retention)", async ({ page }) => {
-  for (const tab of ["Pricing", "Retention"]) {
-    await expect(page.getByRole("button", { name: tab })).toBeVisible();
-  }
-  // Removed or relocated tabs: readiness lives in Connections; policy/cache/keys/costs live elsewhere.
-  for (const removed of ["Model capabilities", "Policy", "MCP Cache", "Tenants", "Keys", "Balances", "Usage", "Clients"]) {
+test("renders Settings as retention-only", async ({ page }) => {
+  await expect(page.getByRole("button", { name: "Retention" })).toBeVisible();
+  // Removed or relocated tabs: readiness lives in Connections, usage lives
+  // in the Usage workspace, and pricing/budgeting is no longer configured.
+  for (const removed of ["Pricing", "Model capabilities", "Policy", "MCP Cache", "Tenants", "Keys", "Balances", "Clients"]) {
     await expect(page.getByRole("button", { name: removed })).toHaveCount(0);
   }
 });
@@ -29,7 +29,7 @@ test("Settings nav button uses the 'Settings' label, not 'Admin'", async ({ page
 
 test("retention tab shows known subsystem chips", async ({ page }) => {
   await page.getByRole("button", { name: "Retention" }).click();
-  for (const sub of ["trace_snapshots", "budget_events", "audit_events"]) {
+  for (const sub of ["trace_snapshots", "usage_events", "audit_events"]) {
     await expect(page.locator(`text=${sub}`).first()).toBeVisible();
   }
 });
@@ -50,128 +50,7 @@ test("retention 'Run now' fires POST request", async ({ page }) => {
   await expect.poll(() => posted).toBe(true);
 });
 
-test("Costs workspace shows the empty ledger state", async ({ page }) => {
-  await page.locator(".hecate-activitybar [aria-label^='Costs']").click();
-  await expect(page.locator("text=No usage events recorded yet")).toBeVisible();
-});
-
-test("Costs workspace shows the settings-required hint when budget is missing", async ({ page }) => {
-  await page.route("/hecate/v1/costs/budget*", r => r.fulfill({ status: 404, body: "" }));
-  await page.goto("/");
-  await page.waitForSelector(".hecate-activitybar");
-  await page.locator(".hecate-activitybar [aria-label^='Costs']").click();
-  // Either shows the hint (no budget) or shows budget data — both are acceptable.
-  const ok = await Promise.race([
-    page.locator("text=Budget data unavailable").first().waitFor({ timeout: 1000 }).then(() => true).catch(() => false),
-    page.locator("text=No usage events recorded yet").first().waitFor({ timeout: 1000 }).then(() => true).catch(() => false),
-  ]);
-  expect(ok).toBe(true);
-});
-
-// Pricebook import: Open pricebook tab → preview is fetched on mount →
-// "Import all" opens the consent dialog → Apply triggers POST /apply.
-// This is the only end-to-end exercise of the import flow; the unit
-// test in useRuntimeConsole.test.tsx pins notice wording but never
-// renders the modal or clicks through.
-test("pricebook import all triggers preview + apply round-trip", async ({ page }) => {
-  // Mock the preview to propose adding a price for an existing
-  // catalog model. The MOCK_MODELS fixture has gpt-4o-mini in the
-  // catalog with no pricebook entry, so this will classify as `added`
-  // and the row will appear as "unpriced" in the table — letting the
-  // consent dialog include it.
-  let previewHits = 0;
-  await page.route("/hecate/v1/settings/pricebook/import/preview", async route => {
-    if (route.request().method() !== "POST") return route.continue();
-    previewHits++;
-    await route.fulfill({
-      status: 200,
-      contentType: "application/json",
-      body: JSON.stringify({
-        object: "settings_pricebook_import_diff",
-        data: {
-          added: [
-            {
-              provider: "openai",
-              model: "gpt-4o-mini",
-              input_micros_usd_per_million_tokens: 150_000,
-              output_micros_usd_per_million_tokens: 600_000,
-              cached_input_micros_usd_per_million_tokens: 75_000,
-              source: "imported",
-            },
-          ],
-          updated: [],
-          skipped: [],
-          unchanged: 0,
-          applied: [],
-          failed: [],
-          fetched_at: "2026-04-25T00:00:00Z",
-        },
-      }),
-    });
-  });
-
-  let applyURL = "";
-  let applyBody = "";
-  await page.route("/hecate/v1/settings/pricebook/import/apply", async route => {
-    if (route.request().method() !== "POST") return route.continue();
-    applyURL = route.request().url();
-    applyBody = route.request().postData() ?? "";
-    await route.fulfill({
-      status: 200,
-      contentType: "application/json",
-      body: JSON.stringify({
-        object: "settings_pricebook_import_diff",
-        data: {
-          added: [],
-          updated: [],
-          skipped: [],
-          unchanged: 0,
-          applied: [
-            {
-              provider: "openai",
-              model: "gpt-4o-mini",
-              input_micros_usd_per_million_tokens: 150_000,
-              output_micros_usd_per_million_tokens: 600_000,
-              cached_input_micros_usd_per_million_tokens: 75_000,
-              source: "imported",
-            },
-          ],
-          failed: [],
-          fetched_at: "2026-04-25T00:00:00Z",
-        },
-      }),
-    });
-  });
-
-  // Pricing is the first visible Settings tab, so it has already
-  // mounted once during beforeEach — before our route handler was
-  // registered. Toggle to Retention and back so the mount-time
-  // preview fetch fires under the test's mocked route.
-  await page.getByRole("button", { name: "Retention" }).click();
-  await page.getByRole("button", { name: "Pricing" }).click();
-  // Preview is fetched on mount of the tab; the "Import all" button
-  // becomes enabled once the diff arrives. Without this assertion, a
-  // future regression that drops the mount-time preview fetch would go
-  // unnoticed.
-  await expect.poll(() => previewHits, { timeout: 5_000 }).toBeGreaterThanOrEqual(1);
-
-  const importAll = page.getByRole("button", { name: /Import all/i });
-  await expect(importAll).toBeEnabled();
-  await importAll.click();
-
-  // Consent modal: assert it opened and contains the proposed change.
-  await expect(page.getByText("Update pricebook")).toBeVisible();
-  await expect(page.getByText("gpt-4o-mini").first()).toBeVisible();
-
-  // Apply with the pre-selected key. The button label includes the
-  // count, which doubles as a sanity check that selection state landed.
-  const applyBtn = page.getByRole("button", { name: /Apply 1 change/i });
-  await expect(applyBtn).toBeEnabled();
-  await applyBtn.click();
-
-  await expect.poll(() => applyURL).toContain("/hecate/v1/settings/pricebook/import/apply");
-  // The body MUST carry the explicit key list — a regression that drops
-  // `keys` and applies blanket changes would silently overwrite manual
-  // rows the operator never consented to.
-  expect(JSON.parse(applyBody)).toEqual({ keys: ["openai/gpt-4o-mini"] });
+test("Usage workspace shows the empty usage state", async ({ page }) => {
+  await page.locator(".hecate-activitybar [aria-label^='Usage']").click();
+  await expect(page.locator("text=No cloud usage recorded yet")).toBeVisible();
 });
