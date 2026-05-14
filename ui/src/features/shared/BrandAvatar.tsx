@@ -56,8 +56,7 @@ const BRAND_ICONS: Record<string, BrandIconSpec> = {
   xai: { component: Xai, monochrome: true },
 };
 
-const MONOCHROME_ICON_FILTER = "brightness(0) invert(1) opacity(0.88)";
-const MONOCHROME_ICON_COLOR = "rgba(255, 255, 255, 0.88)";
+const MONOCHROME_ICON_COLOR = "var(--mono-icon)";
 
 export function BrandAvatar({
   brand,
@@ -90,7 +89,6 @@ export function BrandAvatar({
         style={{
           color: icon.monochrome ? MONOCHROME_ICON_COLOR : undefined,
           display: "block",
-          filter: icon.monochrome ? MONOCHROME_ICON_FILTER : undefined,
         }}
       />
     )

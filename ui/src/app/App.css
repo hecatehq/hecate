@@ -84,7 +84,7 @@
 /* Status bar */
 .hecate-statusbar {
   background: var(--teal);
-  color: var(--bg0);
+  color: var(--accent-fg);
   display: flex;
   align-items: center;
   padding: 0 10px;

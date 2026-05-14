@@ -1,5 +1,5 @@
-import { render, screen } from "@testing-library/react";
-import { afterEach, describe, expect, it, vi } from "vitest";
+import { fireEvent, render, screen } from "@testing-library/react";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 import { ConsoleShell, getAvailableWorkspaces } from "./AppShell";
 import { createRuntimeConsoleActions, createRuntimeConsoleFixture } from "../test/runtime-console-fixture";
@@ -158,6 +158,77 @@ describe("ConsoleShell navigation", () => {
 
     expect(screen.queryByText("/Users/alice/dev/hecate")).toBeNull();
     expect(screen.queryByText("git:main")).toBeNull();
+  });
+});
+
+describe("ConsoleShell theme toggle", () => {
+  function stubColorScheme(matchesLight: boolean) {
+    const listeners = new Set<() => void>();
+    const query = {
+      matches: matchesLight,
+      media: "(prefers-color-scheme: light)",
+      onchange: null,
+      addEventListener: vi.fn((_event: string, listener: () => void) => {
+        listeners.add(listener);
+      }),
+      removeEventListener: vi.fn((_event: string, listener: () => void) => {
+        listeners.delete(listener);
+      }),
+      addListener: vi.fn(),
+      removeListener: vi.fn(),
+      dispatchEvent: vi.fn(),
+    } as unknown as MediaQueryList;
+    vi.stubGlobal("matchMedia", vi.fn(() => query));
+    return query;
+  }
+
+  beforeEach(() => {
+    localStorage.clear();
+    document.documentElement.removeAttribute("data-theme");
+  });
+
+  afterEach(() => {
+    localStorage.clear();
+    document.documentElement.removeAttribute("data-theme");
+    vi.unstubAllGlobals();
+  });
+
+  it("follows the OS theme when no preference is saved", () => {
+    stubColorScheme(true);
+    const state = createRuntimeConsoleFixture();
+
+    render(
+      <ConsoleShell
+        activeWorkspace="settings"
+        onSelectWorkspace={() => {}}
+        state={state}
+        actions={createRuntimeConsoleActions()}
+      />,
+    );
+
+    expect(document.documentElement.getAttribute("data-theme")).toBe("light");
+    expect(localStorage.getItem("hecate.theme")).toBeNull();
+  });
+
+  it("toggles the document theme and persists the choice", () => {
+    stubColorScheme(false);
+    document.documentElement.setAttribute("data-theme", "dark");
+    const state = createRuntimeConsoleFixture();
+
+    render(
+      <ConsoleShell
+        activeWorkspace="settings"
+        onSelectWorkspace={() => {}}
+        state={state}
+        actions={createRuntimeConsoleActions()}
+      />,
+    );
+
+    fireEvent.click(screen.getByRole("button", { name: /switch to light theme/i }));
+
+    expect(document.documentElement.getAttribute("data-theme")).toBe("light");
+    expect(localStorage.getItem("hecate.theme")).toBe("light");
+    expect(screen.getByRole("button", { name: /switch to dark theme/i })).toBeInTheDocument();
   });
 });
 

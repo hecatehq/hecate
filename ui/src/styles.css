@@ -4,39 +4,46 @@ body { margin: 0; }
 :root {
   color-scheme: dark;
 
-  --bg0: oklch(0.09 0.008 240);
-  --bg1: oklch(0.115 0.008 240);
-  --bg2: oklch(0.148 0.008 240);
-  --bg3: oklch(0.185 0.008 240);
-  --bg4: oklch(0.22 0.010 240);
+  --bg0: oklch(0.105 0.010 245);
+  --bg1: oklch(0.130 0.010 245);
+  --bg2: oklch(0.165 0.011 245);
+  --bg3: oklch(0.205 0.012 245);
+  --bg4: oklch(0.255 0.013 245);
 
-  --border: oklch(0.24 0.008 240);
-  --border2: oklch(0.30 0.008 240);
+  --border: oklch(0.31 0.010 245);
+  --border2: oklch(0.39 0.012 245);
 
-  --t0: oklch(0.93 0.004 240);
-  --t1: oklch(0.68 0.007 240);
-  --t2: oklch(0.46 0.007 240);
-  --t3: oklch(0.32 0.006 240);
+  --t0: oklch(0.95 0.004 245);
+  --t1: oklch(0.78 0.007 245);
+  --t2: oklch(0.62 0.007 245);
+  --t3: oklch(0.49 0.006 245);
+  --t4: oklch(0.38 0.006 245);
+  --mono-icon: oklch(0.95 0.004 245);
 
-  --teal: oklch(0.68 0.13 185);
-  --teal-lo: oklch(0.45 0.09 185);
-  --teal-bg: oklch(0.16 0.04 185);
-  --teal-border: oklch(0.28 0.07 185);
+  --teal: oklch(0.72 0.14 185);
+  --teal-lo: oklch(0.58 0.10 185);
+  --teal-bg: oklch(0.19 0.05 185);
+  --teal-border: oklch(0.36 0.08 185);
 
-  --amber: oklch(0.76 0.13 85);
-  --amber-lo: oklch(0.48 0.09 85);
-  --amber-bg: oklch(0.16 0.04 85);
-  --amber-border: oklch(0.28 0.07 85);
+  --amber: oklch(0.80 0.14 85);
+  --amber-lo: oklch(0.62 0.10 85);
+  --amber-bg: oklch(0.20 0.05 85);
+  --amber-border: oklch(0.38 0.08 85);
 
-  --red: oklch(0.62 0.17 25);
-  --red-lo: oklch(0.42 0.11 25);
-  --red-bg: oklch(0.16 0.05 25);
-  --red-border: oklch(0.28 0.08 25);
+  --red: oklch(0.68 0.18 25);
+  --red-lo: oklch(0.56 0.12 25);
+  --red-bg: oklch(0.19 0.06 25);
+  --red-border: oklch(0.38 0.09 25);
 
-  --green: oklch(0.70 0.14 145);
-  --green-lo: oklch(0.45 0.09 145);
-  --green-bg: oklch(0.16 0.04 145);
-  --green-border: oklch(0.28 0.07 145);
+  --green: oklch(0.74 0.14 145);
+  --green-lo: oklch(0.60 0.10 145);
+  --green-bg: oklch(0.19 0.05 145);
+  --green-border: oklch(0.36 0.08 145);
+
+  /* On-accent foreground. Sits on top of --teal (primary buttons,
+     status bar). Theme-aware so light mode swaps to a near-white
+     ink without the app having to special-case it. */
+  --accent-fg: oklch(0.12 0.02 185);
 
   /* Scrim — translucent overlay rendered behind modal/slide-over
      surfaces. One opacity for the whole app so backdrops feel
@@ -86,6 +93,65 @@ body { margin: 0; }
   --warning: var(--amber);
   --danger: var(--red);
   --shadow: 0 4px 12px oklch(0% 0 0 / 0.3);
+}
+
+/* ─── Light theme ─────────────────────────────────────────────────────────
+ * Activated by `data-theme="light"` on <html>. Inverts the lightness ramp
+ * of bg0…bg4 (paper-white → light grey) and t0…t3 (near-black → light
+ * grey), and dials each accent down so saturated chroma stays legible on
+ * a light surface. The tinted *-bg pairs become very pale washes so badge
+ * backgrounds read as a hint of color, not a saturated block.
+ *
+ * The brand-* hex tokens are intentionally not overridden: vendor logo
+ * colors look fine on either surface.
+ */
+html[data-theme="light"] {
+  color-scheme: light;
+
+  --bg0: oklch(0.985 0.004 245);
+  --bg1: oklch(0.965 0.005 245);
+  --bg2: oklch(0.940 0.006 245);
+  --bg3: oklch(0.905 0.008 245);
+  --bg4: oklch(0.865 0.010 245);
+
+  --border: oklch(0.825 0.010 245);
+  --border2: oklch(0.735 0.014 245);
+
+  --t0: oklch(0.205 0.016 245);
+  --t1: oklch(0.355 0.014 245);
+  --t2: oklch(0.500 0.012 245);
+  --t3: oklch(0.635 0.010 245);
+  --t4: oklch(0.760 0.008 245);
+  --mono-icon: oklch(0.18 0.014 245);
+
+  --teal: oklch(0.50 0.13 185);
+  --teal-lo: oklch(0.39 0.09 185);
+  --teal-bg: oklch(0.94 0.045 185);
+  --teal-border: oklch(0.75 0.08 185);
+
+  --amber: oklch(0.58 0.14 75);
+  --amber-lo: oklch(0.46 0.10 75);
+  --amber-bg: oklch(0.94 0.055 85);
+  --amber-border: oklch(0.77 0.09 85);
+
+  --red: oklch(0.50 0.18 25);
+  --red-lo: oklch(0.40 0.12 25);
+  --red-bg: oklch(0.94 0.045 25);
+  --red-border: oklch(0.76 0.09 25);
+
+  --green: oklch(0.48 0.14 145);
+  --green-lo: oklch(0.39 0.10 145);
+  --green-bg: oklch(0.94 0.045 145);
+  --green-border: oklch(0.75 0.08 145);
+
+  --accent-fg: oklch(0.99 0.002 240);
+
+  --scrim: oklch(0 0 0 / 0.32);
+
+  --shadow-popover:  0 2px 8px oklch(0 0 0 / 0.10);
+  --shadow-dropdown: 0 4px 12px oklch(0 0 0 / 0.08);
+  --shadow-modal:    0 12px 40px oklch(0 0 0 / 0.18);
+  --shadow:          0 4px 12px oklch(0 0 0 / 0.10);
 }
 
 html, body, #root { height: 100%; overflow: hidden; }
@@ -158,13 +224,13 @@ button, input, select, textarea { font: inherit; }
   transition: background 0.1s, border-color 0.1s, color 0.1s; white-space: nowrap;
 }
 .btn:hover { background: var(--bg4); border-color: var(--border2); }
-.btn:disabled { opacity: 0.5; cursor: default; pointer-events: none; }
-.btn-primary { background: var(--teal); border-color: var(--teal); color: var(--bg0); }
-.btn-primary:hover { background: oklch(0.72 0.13 185); border-color: oklch(0.72 0.13 185); }
+.btn:disabled { opacity: 0.68; cursor: default; pointer-events: none; }
+.btn-primary { background: var(--teal); border-color: var(--teal); color: var(--accent-fg); }
+.btn-primary:hover { background: oklch(0.76 0.14 185); border-color: oklch(0.76 0.14 185); }
 .btn-ghost { background: transparent; border-color: transparent; color: var(--t1); }
 .btn-ghost:hover { background: var(--bg3); color: var(--t0); border-color: transparent; }
 .btn-danger { background: var(--red-bg); border-color: var(--red-border); color: var(--red); }
-.btn-danger:hover { background: var(--red); color: var(--bg0); }
+.btn-danger:hover { background: var(--red); color: var(--accent-fg); }
 .btn-sm { padding: 4px 8px; font-size: 11px; }
 
 /* ─── Input / Select ─── */
