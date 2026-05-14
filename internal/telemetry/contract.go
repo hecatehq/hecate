@@ -260,6 +260,10 @@ const (
 	SpanRetentionRun = "retention.run"
 
 	SpanAgentChatRun = "agent_chat.run"
+
+	SpanLocalModelInstall = "local_model.install"
+	SpanLocalModelRuntime = "local_model.runtime"
+	SpanLocalModelProxy   = "local_model.proxy"
 )
 
 // ---------------------------------------------------------------------------

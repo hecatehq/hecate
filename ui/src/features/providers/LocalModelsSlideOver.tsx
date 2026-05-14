@@ -26,12 +26,16 @@ import {
   getLocalModelsInstalled,
   getLocalModelsRuntime,
   installLocalModel,
+  listHuggingFaceRepoFiles,
+  searchHuggingFaceModels,
   startLocalModel,
   stopLocalModel,
   subscribeLocalModelInstallEvents,
   uninstallLocalModel,
 } from "../../lib/api";
 import type {
+  HuggingFaceFile,
+  HuggingFaceModel,
   LocalModelCatalogEntry,
   LocalModelInstalled,
   LocalModelProgressEvent,
@@ -83,7 +87,7 @@ export function LocalModelsSlideOver({ onClose }: { onClose: () => void }) {
     };
   }, []);
 
-  async function handleInstall(spec: { catalog_id?: string; url?: string; hf_token?: string }) {
+  async function handleInstall(spec: { catalog_id?: string; url?: string; sha256?: string; hf_token?: string }) {
     setError("");
     try {
       const resp = await installLocalModel(spec);
@@ -202,6 +206,10 @@ export function LocalModelsSlideOver({ onClose }: { onClose: () => void }) {
     }
   }
 
+  const installedHFURLs = new Set(
+    installed.map((m) => m.source_url).filter((u): u is string => Boolean(u)),
+  );
+
   return (
     <>
       <SlideOver
@@ -243,6 +251,20 @@ export function LocalModelsSlideOver({ onClose }: { onClose: () => void }) {
             catalog={catalog}
             disabled={Boolean(active && active.state === "running")}
             onInstall={(id) => handleInstall({ catalog_id: id })}
+          />
+
+          <HFBrowseSection
+            disabled={Boolean(active && active.state === "running")}
+            installedURLs={installedHFURLs}
+            sharedToken={pasteToken}
+            onTokenChange={setPasteToken}
+            onInstallFile={(file, token) =>
+              handleInstall({
+                url: file.download_url,
+                sha256: file.sha256 || undefined,
+                hf_token: token || undefined,
+              })
+            }
           />
 
           <PasteURLSection
@@ -624,6 +646,263 @@ function CatalogList({
   );
 }
 
+function HFBrowseSection({
+  disabled,
+  installedURLs,
+  sharedToken,
+  onTokenChange,
+  onInstallFile,
+}: {
+  disabled: boolean;
+  installedURLs: Set<string>;
+  sharedToken: string;
+  onTokenChange: (v: string) => void;
+  onInstallFile: (file: HuggingFaceFile, token: string) => void;
+}) {
+  const [query, setQuery] = useState("");
+  const [results, setResults] = useState<HuggingFaceModel[]>([]);
+  const [searching, setSearching] = useState(false);
+  const [searchError, setSearchError] = useState("");
+  const [expanded, setExpanded] = useState<string | null>(null);
+  const [files, setFiles] = useState<Record<string, HuggingFaceFile[]>>({});
+  const [fileLoading, setFileLoading] = useState<string | null>(null);
+  const [fileError, setFileError] = useState<Record<string, string>>({});
+
+  async function handleSearch() {
+    setSearchError("");
+    setSearching(true);
+    try {
+      const resp = await searchHuggingFaceModels(query, { limit: 20, token: sharedToken });
+      setResults(resp.data ?? []);
+      if ((resp.data ?? []).length === 0) {
+        setSearchError("No GGUF repos found.");
+      }
+    } catch (e) {
+      setSearchError(e instanceof Error ? e.message : "search failed");
+    } finally {
+      setSearching(false);
+    }
+  }
+
+  async function toggleExpand(repoID: string) {
+    if (expanded === repoID) {
+      setExpanded(null);
+      return;
+    }
+    setExpanded(repoID);
+    if (files[repoID]) return;
+    setFileLoading(repoID);
+    setFileError((prev) => ({ ...prev, [repoID]: "" }));
+    try {
+      const resp = await listHuggingFaceRepoFiles(repoID, { token: sharedToken });
+      setFiles((prev) => ({ ...prev, [repoID]: resp.data ?? [] }));
+      if ((resp.data ?? []).length === 0) {
+        setFileError((prev) => ({ ...prev, [repoID]: "No .gguf files in this repo." }));
+      }
+    } catch (e) {
+      setFileError((prev) => ({
+        ...prev,
+        [repoID]: e instanceof Error ? e.message : "file list failed",
+      }));
+    } finally {
+      setFileLoading(null);
+    }
+  }
+
+  return (
+    <section>
+      <SectionHeader label="Browse HuggingFace" />
+      <p style={{ margin: "0 0 6px", color: "var(--t2)", fontSize: 11, lineHeight: 1.5 }}>
+        Search HuggingFace for GGUF quantizations. Results are filtered to
+        repos tagged <strong style={{ color: "var(--t0)" }}>gguf</strong> and
+        sorted by downloads. Gated repos need an access token.
+      </p>
+      <div style={{ display: "flex", flexDirection: "column", gap: 6 }}>
+        <div style={{ display: "flex", gap: 6 }}>
+          <input
+            className="input"
+            type="search"
+            placeholder="qwen, llama, gemma…"
+            value={query}
+            onChange={(e) => setQuery(e.target.value)}
+            onKeyDown={(e) => {
+              if (e.key === "Enter") {
+                e.preventDefault();
+                void handleSearch();
+              }
+            }}
+            aria-label="HuggingFace search query"
+            style={{ flex: 1 }}
+          />
+          <button
+            type="button"
+            className="btn btn-primary btn-sm"
+            disabled={searching}
+            onClick={() => void handleSearch()}
+          >
+            {searching ? "Searching…" : "Search"}
+          </button>
+        </div>
+        <input
+          className="input"
+          type="password"
+          name="hecate-local-models-hf-search-token"
+          autoComplete="new-password"
+          autoCorrect="off"
+          spellCheck={false}
+          data-1p-ignore="true"
+          data-lpignore="true"
+          data-form-type="other"
+          placeholder="HuggingFace access token (optional, for gated repos)"
+          value={sharedToken}
+          onChange={(e) => onTokenChange(e.target.value)}
+          style={{ fontFamily: "var(--font-mono)", letterSpacing: "0.08em" }}
+          aria-label="HuggingFace access token for search"
+        />
+        {searchError && <InlineError message={searchError} />}
+        {results.length > 0 && (
+          <div
+            style={{ display: "flex", flexDirection: "column", gap: 6, marginTop: 4 }}
+          >
+            {results.map((repo) => {
+              const isOpen = expanded === repo.id;
+              const repoFiles = files[repo.id] ?? [];
+              const fileErr = fileError[repo.id];
+              return (
+                <div
+                  key={repo.id}
+                  style={{
+                    padding: "8px 10px",
+                    background: "var(--bg2)",
+                    border: "1px solid var(--border)",
+                    borderRadius: "var(--radius-sm)",
+                  }}
+                >
+                  <div style={{ display: "flex", alignItems: "baseline", gap: 8 }}>
+                    <span
+                      style={{
+                        fontSize: 12,
+                        color: "var(--t0)",
+                        fontWeight: 500,
+                        flex: 1,
+                        wordBreak: "break-all",
+                      }}
+                    >
+                      {repo.id}
+                    </span>
+                    {repo.gated && (
+                      <span className="badge badge-amber" style={{ fontSize: 9 }}>
+                        gated
+                      </span>
+                    )}
+                  </div>
+                  <div
+                    style={{
+                      display: "flex",
+                      gap: 10,
+                      marginTop: 4,
+                      fontFamily: "var(--font-mono)",
+                      fontSize: 10,
+                      color: "var(--t3)",
+                    }}
+                  >
+                    {repo.downloads ? <span>↓ {formatCount(repo.downloads)}</span> : null}
+                    {repo.likes ? <span>♥ {formatCount(repo.likes)}</span> : null}
+                    {repo.pipeline_tag && <span>{repo.pipeline_tag}</span>}
+                  </div>
+                  <div style={{ display: "flex", gap: 6, marginTop: 8 }}>
+                    <button
+                      type="button"
+                      className="btn btn-sm"
+                      onClick={() => void toggleExpand(repo.id)}
+                      disabled={fileLoading === repo.id}
+                    >
+                      {isOpen ? "Hide files" : fileLoading === repo.id ? "Loading…" : "Show files"}
+                    </button>
+                    <a
+                      className="btn btn-sm"
+                      href={`https://huggingface.co/${repo.id}`}
+                      target="_blank"
+                      rel="noopener noreferrer"
+                    >
+                      Open on HF
+                    </a>
+                  </div>
+                  {isOpen && (
+                    <div
+                      style={{
+                        marginTop: 8,
+                        display: "flex",
+                        flexDirection: "column",
+                        gap: 4,
+                      }}
+                    >
+                      {fileErr && <InlineError message={fileErr} />}
+                      {repoFiles.map((file) => {
+                        const already = installedURLs.has(file.download_url);
+                        return (
+                          <div
+                            key={file.path}
+                            style={{
+                              display: "flex",
+                              alignItems: "center",
+                              gap: 8,
+                              padding: "6px 8px",
+                              background: "var(--bg1)",
+                              border: "1px solid var(--border)",
+                              borderRadius: "var(--radius-sm)",
+                            }}
+                          >
+                            <span
+                              style={{
+                                fontFamily: "var(--font-mono)",
+                                fontSize: 11,
+                                color: "var(--t1)",
+                                flex: 1,
+                                wordBreak: "break-all",
+                              }}
+                            >
+                              {file.path}
+                            </span>
+                            <span
+                              style={{
+                                fontFamily: "var(--font-mono)",
+                                fontSize: 10,
+                                color: "var(--t3)",
+                              }}
+                            >
+                              {formatBytes(file.size)}
+                            </span>
+                            {already ? (
+                              <span className="badge badge-teal" style={{ fontSize: 9 }}>
+                                installed
+                              </span>
+                            ) : (
+                              <button
+                                type="button"
+                                className="btn btn-primary btn-sm"
+                                disabled={disabled}
+                                onClick={() => onInstallFile(file, sharedToken)}
+                              >
+                                <Icon d={Icons.plus} size={11} />
+                                Install
+                              </button>
+                            )}
+                          </div>
+                        );
+                      })}
+                    </div>
+                  )}
+                </div>
+              );
+            })}
+          </div>
+        )}
+      </div>
+    </section>
+  );
+}
+
 function PasteURLSection({
   value,
   token,
@@ -701,6 +980,12 @@ function SectionHeader({ label }: { label: string }) {
       {label}
     </div>
   );
+}
+
+function formatCount(n: number): string {
+  if (n < 1000) return String(n);
+  if (n < 1_000_000) return `${(n / 1000).toFixed(1)}k`;
+  return `${(n / 1_000_000).toFixed(1)}M`;
 }
 
 function formatBytes(bytes: number): string {

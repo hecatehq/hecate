@@ -7,6 +7,8 @@ import type {
   HealthResponse,
   MCPCacheStatsResponse,
   ModelResponse,
+  HuggingFaceRepoFilesResponse,
+  HuggingFaceSearchResponse,
   LocalModelCatalogResponse,
   LocalModelInstallResponse,
   LocalModelInstalledResponse,
@@ -314,6 +316,45 @@ export async function stopLocalModel(): Promise<LocalModelRuntimeResponse> {
     method: "POST",
     body: {},
   });
+}
+
+export async function searchHuggingFaceModels(
+  query: string,
+  options: { limit?: number; token?: string } = {},
+): Promise<HuggingFaceSearchResponse> {
+  const params = new URLSearchParams();
+  if (query.trim()) {
+    params.set("q", query.trim());
+  }
+  if (options.limit && options.limit > 0) {
+    params.set("limit", String(options.limit));
+  }
+  if (options.token && options.token.trim()) {
+    params.set("token", options.token.trim());
+  }
+  const qs = params.toString();
+  const url = `${HECATE_API}/local-models/huggingface/search${qs ? `?${qs}` : ""}`;
+  return fetchJSON<HuggingFaceSearchResponse>(url);
+}
+
+export async function listHuggingFaceRepoFiles(
+  repo: string,
+  options: { token?: string } = {},
+): Promise<HuggingFaceRepoFilesResponse> {
+  // repo is "owner/name"; we keep the slash by encoding each half.
+  const slash = repo.indexOf("/");
+  if (slash <= 0) {
+    throw new Error(`invalid HF repo id: ${repo}`);
+  }
+  const owner = encodeURIComponent(repo.slice(0, slash));
+  const name = encodeURIComponent(repo.slice(slash + 1));
+  const params = new URLSearchParams();
+  if (options.token && options.token.trim()) {
+    params.set("token", options.token.trim());
+  }
+  const qs = params.toString();
+  const url = `${HECATE_API}/local-models/huggingface/repos/${owner}/${name}${qs ? `?${qs}` : ""}`;
+  return fetchJSON<HuggingFaceRepoFilesResponse>(url);
 }
 
 // subscribeLocalModelInstallEvents opens an EventSource against the

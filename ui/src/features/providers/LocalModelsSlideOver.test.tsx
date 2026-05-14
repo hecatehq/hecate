@@ -9,6 +9,8 @@ import {
   getLocalModelsInstalled,
   getLocalModelsRuntime,
   installLocalModel,
+  listHuggingFaceRepoFiles,
+  searchHuggingFaceModels,
   startLocalModel,
   stopLocalModel,
   subscribeLocalModelInstallEvents,
@@ -34,6 +36,8 @@ vi.mock("../../lib/api", async (importOriginal) => {
     startLocalModel: vi.fn(),
     stopLocalModel: vi.fn(),
     subscribeLocalModelInstallEvents: vi.fn(),
+    searchHuggingFaceModels: vi.fn(),
+    listHuggingFaceRepoFiles: vi.fn(),
   };
 });
 
@@ -47,6 +51,8 @@ const m = {
   start: vi.mocked(startLocalModel),
   stop: vi.mocked(stopLocalModel),
   subscribe: vi.mocked(subscribeLocalModelInstallEvents),
+  hfSearch: vi.mocked(searchHuggingFaceModels),
+  hfFiles: vi.mocked(listHuggingFaceRepoFiles),
 };
 
 function catalogEntry(overrides: Partial<LocalModelCatalogEntry> = {}): LocalModelCatalogEntry {
@@ -103,6 +109,8 @@ beforeEach(() => {
   m.cancel.mockResolvedValue();
   m.uninstall.mockResolvedValue();
   m.subscribe.mockReturnValue(() => undefined);
+  m.hfSearch.mockResolvedValue({ object: "local_models.huggingface.search", data: [] });
+  m.hfFiles.mockResolvedValue({ object: "local_models.huggingface.files", data: [] });
 });
 
 afterEach(() => {
@@ -381,5 +389,194 @@ describe("LocalModelsSlideOver", () => {
     // InlineError renders the message; assert it lands so a fetch
     // regression doesn't quietly hide the operator's feedback.
     await screen.findByText(/catalog 500/i);
+  });
+
+  it("renders the HuggingFace browse section with a search input", async () => {
+    render(<LocalModelsSlideOver onClose={() => undefined} />);
+    await screen.findByText(/Browse HuggingFace/i);
+    expect(screen.getByPlaceholderText(/qwen, llama, gemma/i)).toBeInTheDocument();
+    // The search input + token input + search button — search is
+    // not auto-fired on render, only on click/Enter.
+    expect(m.hfSearch).not.toHaveBeenCalled();
+  });
+
+  it("searches HuggingFace and shows result rows with download counts + gated badge", async () => {
+    const user = userEvent.setup();
+    m.hfSearch.mockResolvedValue({
+      object: "local_models.huggingface.search",
+      data: [
+        {
+          id: "bartowski/Qwen2.5-GGUF",
+          author: "bartowski",
+          downloads: 12345,
+          likes: 67,
+          tags: ["gguf"],
+          gated: false,
+        },
+        {
+          id: "meta-llama/Llama-3.2-Instruct-GGUF",
+          author: "meta-llama",
+          downloads: 999_999,
+          gated: true,
+        },
+      ],
+    });
+    render(<LocalModelsSlideOver onClose={() => undefined} />);
+    const searchInput = await screen.findByPlaceholderText(/qwen, llama, gemma/i);
+    await user.type(searchInput, "qwen");
+    const searchBtn = screen.getByRole("button", { name: /^Search$/i });
+    await user.click(searchBtn);
+
+    await waitFor(() =>
+      expect(m.hfSearch).toHaveBeenCalledWith("qwen", { limit: 20, token: "" }),
+    );
+    await screen.findByText("bartowski/Qwen2.5-GGUF");
+    await screen.findByText("meta-llama/Llama-3.2-Instruct-GGUF");
+    // The gated badge marks repos requiring an HF token.
+    expect(screen.getByText(/^gated$/i)).toBeInTheDocument();
+    // Download count formatting kicks in for >1000.
+    expect(screen.getByText(/↓ 12\.3k/)).toBeInTheDocument();
+  });
+
+  it("expands a repo and shows .gguf files with size + Install button", async () => {
+    const user = userEvent.setup();
+    m.hfSearch.mockResolvedValue({
+      object: "local_models.huggingface.search",
+      data: [
+        { id: "bartowski/Qwen-GGUF", author: "bartowski", downloads: 1000, gated: false },
+      ],
+    });
+    m.hfFiles.mockResolvedValue({
+      object: "local_models.huggingface.files",
+      data: [
+        {
+          path: "Qwen-Q4_K_M.gguf",
+          size: 4_000_000_000,
+          sha256: "deadbeef",
+          download_url: "https://huggingface.co/bartowski/Qwen-GGUF/resolve/main/Qwen-Q4_K_M.gguf",
+        },
+      ],
+    });
+
+    render(<LocalModelsSlideOver onClose={() => undefined} />);
+    const searchBtn = await screen.findByRole("button", { name: /^Search$/i });
+    await user.click(searchBtn);
+    await screen.findByText("bartowski/Qwen-GGUF");
+
+    const showFiles = screen.getByRole("button", { name: /Show files/i });
+    await user.click(showFiles);
+
+    await waitFor(() =>
+      expect(m.hfFiles).toHaveBeenCalledWith("bartowski/Qwen-GGUF", { token: "" }),
+    );
+    await screen.findByText("Qwen-Q4_K_M.gguf");
+    // Size formatted as GB.
+    expect(screen.getByText(/3\.7. GB/)).toBeInTheDocument();
+  });
+
+  it("installs the selected HF file via the URL+sha256 path", async () => {
+    const user = userEvent.setup();
+    m.hfSearch.mockResolvedValue({
+      object: "local_models.huggingface.search",
+      data: [{ id: "owner/repo", author: "owner", downloads: 1, gated: false }],
+    });
+    const fileURL = "https://huggingface.co/owner/repo/resolve/main/model.gguf";
+    m.hfFiles.mockResolvedValue({
+      object: "local_models.huggingface.files",
+      data: [
+        { path: "model.gguf", size: 1_000_000, sha256: "abc123", download_url: fileURL },
+      ],
+    });
+    m.subscribe.mockImplementation(() => () => undefined);
+
+    render(<LocalModelsSlideOver onClose={() => undefined} />);
+    await user.click(await screen.findByRole("button", { name: /^Search$/i }));
+    await screen.findByText("owner/repo");
+    await user.click(screen.getByRole("button", { name: /Show files/i }));
+    await screen.findByText("model.gguf");
+
+    // The file row's Install button — disambiguate from the
+    // paste-URL Install at the bottom.
+    const installButtons = screen.getAllByRole("button", { name: /^Install$/i });
+    // [0] file Install (catalog is empty in this test), [1] paste-URL.
+    await user.click(installButtons[0]);
+
+    await waitFor(() =>
+      expect(m.install).toHaveBeenCalledWith({
+        url: fileURL,
+        sha256: "abc123",
+      }),
+    );
+  });
+
+  it("marks already-installed HF files with an 'installed' badge instead of Install", async () => {
+    const user = userEvent.setup();
+    const fileURL = "https://huggingface.co/owner/repo/resolve/main/model.gguf";
+    m.installed.mockResolvedValue({
+      object: "local_models.installed",
+      data: [installedRow({ id: "owner-repo", source_url: fileURL })],
+    });
+    m.hfSearch.mockResolvedValue({
+      object: "local_models.huggingface.search",
+      data: [{ id: "owner/repo", author: "owner", downloads: 1, gated: false }],
+    });
+    m.hfFiles.mockResolvedValue({
+      object: "local_models.huggingface.files",
+      data: [
+        { path: "model.gguf", size: 1_000_000, sha256: "abc123", download_url: fileURL },
+      ],
+    });
+
+    render(<LocalModelsSlideOver onClose={() => undefined} />);
+    await user.click(await screen.findByRole("button", { name: /^Search$/i }));
+    await screen.findByText("owner/repo");
+    await user.click(screen.getByRole("button", { name: /Show files/i }));
+
+    await screen.findByText("model.gguf");
+    // The file row should show the "installed" badge instead of an
+    // Install button — confirm the badge is present and no Install
+    // button exists inside the file row.
+    expect(screen.getByText(/^installed$/i)).toBeInTheDocument();
+    // Only the paste-URL Install button should remain.
+    expect(screen.getAllByRole("button", { name: /^Install$/i })).toHaveLength(1);
+  });
+
+  it("surfaces InlineError when HF search fails", async () => {
+    const user = userEvent.setup();
+    m.hfSearch.mockRejectedValue(new Error("HTTP 502: upstream"));
+    render(<LocalModelsSlideOver onClose={() => undefined} />);
+    await user.click(await screen.findByRole("button", { name: /^Search$/i }));
+    await screen.findByText(/HTTP 502/);
+  });
+
+  it("forwards the HF token from the shared input on both search and file list", async () => {
+    const user = userEvent.setup();
+    m.hfSearch.mockResolvedValue({
+      object: "local_models.huggingface.search",
+      data: [{ id: "owner/gated", author: "owner", downloads: 1, gated: true }],
+    });
+    m.hfFiles.mockResolvedValue({
+      object: "local_models.huggingface.files",
+      data: [],
+    });
+
+    render(<LocalModelsSlideOver onClose={() => undefined} />);
+    // The slide-over has two HF-token inputs (one in the browse
+    // section, one in the paste-URL section). They share state so
+    // typing in either fills both. Grab the browse-section one by
+    // its aria-label.
+    const tokenInput = await screen.findByLabelText(/HuggingFace access token for search/i);
+    await user.type(tokenInput, "hf-token-xyz");
+
+    await user.click(screen.getByRole("button", { name: /^Search$/i }));
+    await waitFor(() =>
+      expect(m.hfSearch).toHaveBeenCalledWith("", { limit: 20, token: "hf-token-xyz" }),
+    );
+    await screen.findByText("owner/gated");
+
+    await user.click(screen.getByRole("button", { name: /Show files/i }));
+    await waitFor(() =>
+      expect(m.hfFiles).toHaveBeenCalledWith("owner/gated", { token: "hf-token-xyz" }),
+    );
   });
 });

@@ -183,7 +183,20 @@ repo-page URLs and tree URLs return a clear error pointing at the
 copy-the-file-URL workflow. Gated repos (HF auth required) surface a
 "not supported in v1" error.
 
-HuggingFace browse / search is reserved for v2.
+HuggingFace browse / search landed in v2 — the Manage slide-over
+carries a "Browse HuggingFace" section that wraps two endpoints:
+
+- `GET /hecate/v1/local-models/huggingface/search?q=…&token=…` proxies
+  HF's `/api/models` with the `gguf` tag filter pinned. Results sort
+  by downloads.
+- `GET /hecate/v1/local-models/huggingface/repos/{owner}/{name}?token=…`
+  fetches the file tree of a repo, returns only `.gguf` files with the
+  LFS sha256 + size + canonical resolve URL.
+
+The browse panel surfaces a `gated` badge so the operator knows up-front
+which repos need an HF token. Picking a file Install in the panel drops
+straight into the install flow with the LFS sha256 attached, so the
+integrity check carries over without manual entry.
 
 ## HTTP API
 
@@ -198,6 +211,8 @@ HuggingFace browse / search is reserved for v2.
 | `GET` | `/hecate/v1/local-models/runtime` | Availability + state snapshot |
 | `POST` | `/hecate/v1/local-models/runtime/start` | Body: `{model_id}`. Blocks until running or failed. |
 | `POST` | `/hecate/v1/local-models/runtime/stop` | Idempotent |
+| `GET` | `/hecate/v1/local-models/huggingface/search` | Query: `q`, `limit`, `token`. Server-side HF search proxy. |
+| `GET` | `/hecate/v1/local-models/huggingface/repos/{owner}/{name}` | Returns the GGUF file list (LFS sha256 + size) for a repo. |
 | `ANY` | `/hecate/internal/llamacpp/v1/{path...}` | Internal — gateway → llama-server reverse-proxy |
 
 Stable error codes:
@@ -209,6 +224,9 @@ Stable error codes:
 | `local_model_runtime_unavailable` | 503 | Runtime is not running or failed mid-request |
 | `local_model_install_already_running` | 409 | Another install is in flight; v1 serializes |
 | `local_model_install_not_found` | 404 | Cancel/events for an unknown install id |
+| `huggingface_gated` | 403 | HF returned 401/403 — gated repo, token missing or invalid |
+| `huggingface_not_found` | 404 | HF returned 404 — search term/repo doesn't exist |
+| `huggingface_upstream_error` | 502 | HF upstream non-2xx other than gated/not-found |
 
 ## Env knobs
 

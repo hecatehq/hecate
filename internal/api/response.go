@@ -37,6 +37,9 @@ const (
 	errCodeLocalModelRuntimeUnavailable = "local_model_runtime_unavailable"
 	errCodeLocalModelInstallInProgress  = "local_model_install_already_running"
 	errCodeLocalModelInstallNotFound    = "local_model_install_not_found"
+	errCodeHuggingFaceGated             = "huggingface_gated"
+	errCodeHuggingFaceNotFound          = "huggingface_not_found"
+	errCodeHuggingFaceUpstream          = "huggingface_upstream_error"
 )
 
 func WriteJSON(w http.ResponseWriter, status int, payload any) {

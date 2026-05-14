@@ -6,6 +6,8 @@ import (
 	"errors"
 	"fmt"
 	"net/http"
+	"os"
+	"strconv"
 	"strings"
 	"time"
 
@@ -295,6 +297,82 @@ func (h *Handler) HandleLocalModelsRuntimeStart(w http.ResponseWriter, r *http.R
 		Available:    true,
 		Availability: svc.FeatureAvailability(),
 	})
+}
+
+// HandleLocalModelsHFSearch — GET /hecate/v1/local-models/huggingface/search
+// Server-side proxy to HF's `/api/models` so the browser doesn't have
+// to deal with CORS and the operator's HF token never leaves the
+// gateway. Query string passthrough: q (search term), limit, token.
+// v2 keeps the filter pinned to "gguf" inside the client; operators
+// can't disable it.
+func (h *Handler) HandleLocalModelsHFSearch(w http.ResponseWriter, r *http.Request) {
+	svc, ok := h.localModelsService(w)
+	if !ok {
+		return
+	}
+	q := strings.TrimSpace(r.URL.Query().Get("q"))
+	token := strings.TrimSpace(r.URL.Query().Get("token"))
+	if token == "" {
+		// Env fallback — same pattern the installer uses.
+		token = strings.TrimSpace(os.Getenv("HUGGINGFACE_TOKEN"))
+	}
+	limitStr := r.URL.Query().Get("limit")
+	limit := 20
+	if limitStr != "" {
+		if v, err := strconv.Atoi(limitStr); err == nil && v > 0 {
+			limit = v
+		}
+	}
+	results, err := svc.HuggingFace().SearchModels(r.Context(), q, token, limit)
+	if err != nil {
+		writeHFError(w, err)
+		return
+	}
+	WriteJSON(w, http.StatusOK, map[string]any{
+		"object": "local_models.huggingface.search",
+		"data":   results,
+	})
+}
+
+// HandleLocalModelsHFRepoFiles — GET /hecate/v1/local-models/huggingface/repos/{owner}/{name}
+// Returns the GGUF files in the named HF repo with their LFS metadata
+// (sha256 + size). Each file carries a pre-computed DownloadURL the
+// install endpoint accepts as-is.
+func (h *Handler) HandleLocalModelsHFRepoFiles(w http.ResponseWriter, r *http.Request) {
+	svc, ok := h.localModelsService(w)
+	if !ok {
+		return
+	}
+	owner := r.PathValue("owner")
+	name := r.PathValue("name")
+	if strings.TrimSpace(owner) == "" || strings.TrimSpace(name) == "" {
+		WriteError(w, http.StatusBadRequest, errCodeInvalidRequest, "owner and name are required")
+		return
+	}
+	token := strings.TrimSpace(r.URL.Query().Get("token"))
+	if token == "" {
+		token = strings.TrimSpace(os.Getenv("HUGGINGFACE_TOKEN"))
+	}
+	files, err := svc.HuggingFace().ListRepoFiles(r.Context(), owner+"/"+name, token)
+	if err != nil {
+		writeHFError(w, err)
+		return
+	}
+	WriteJSON(w, http.StatusOK, map[string]any{
+		"object": "local_models.huggingface.files",
+		"data":   files,
+	})
+}
+
+func writeHFError(w http.ResponseWriter, err error) {
+	switch {
+	case errors.Is(err, llamacpp.ErrHuggingFaceGated):
+		WriteError(w, http.StatusForbidden, errCodeHuggingFaceGated, err.Error())
+	case errors.Is(err, llamacpp.ErrHuggingFaceNotFound):
+		WriteError(w, http.StatusNotFound, errCodeHuggingFaceNotFound, err.Error())
+	default:
+		WriteError(w, http.StatusBadGateway, errCodeHuggingFaceUpstream, err.Error())
+	}
 }
 
 // HandleLocalModelsRuntimeStop — POST /hecate/v1/local-models/runtime/stop

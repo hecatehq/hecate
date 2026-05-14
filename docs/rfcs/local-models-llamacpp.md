@@ -543,7 +543,13 @@ the UI card without deleting any downloaded files.
 
 ## Out of scope (reserved for v2 / follow-ups)
 
-- HuggingFace browse / search panel.
+- ~~HuggingFace browse / search panel.~~
+  Landed in v2 — `GET /hecate/v1/local-models/huggingface/search` and
+  `GET /hecate/v1/local-models/huggingface/repos/{owner}/{name}`
+  proxy HF's Hub API server-side (no CORS, no token in browser). The
+  Manage slide-over carries a Browse HuggingFace section with search +
+  per-repo file expander that drops into the install flow with the
+  LFS sha256 attached. See `internal/llamacpp/huggingface.go`.
 - ~~Gated-repo support (HF token entry, model-card preview).~~
   Token-entry landed in v2 — `InstallSpec.hf_token` (per-install,
   not persisted) plus a `HUGGINGFACE_TOKEN` env fallback for

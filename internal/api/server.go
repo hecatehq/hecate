@@ -188,6 +188,8 @@ func registerLocalModelsRoutes(mux *http.ServeMux, handler *Handler) {
 	mux.HandleFunc("GET /hecate/v1/local-models/runtime", handler.HandleLocalModelsRuntimeStatus)
 	mux.HandleFunc("POST /hecate/v1/local-models/runtime/start", handler.HandleLocalModelsRuntimeStart)
 	mux.HandleFunc("POST /hecate/v1/local-models/runtime/stop", handler.HandleLocalModelsRuntimeStop)
+	mux.HandleFunc("GET /hecate/v1/local-models/huggingface/search", handler.HandleLocalModelsHFSearch)
+	mux.HandleFunc("GET /hecate/v1/local-models/huggingface/repos/{owner}/{name}", handler.HandleLocalModelsHFRepoFiles)
 
 	// Gateway-internal reverse-proxy. Only mounted when the
 	// service is wired — without it the proxy struct doesn't

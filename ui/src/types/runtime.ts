@@ -1317,6 +1317,37 @@ export type LocalModelProgressEvent = {
   emitted_at: string;
 };
 
+// HuggingFaceModel is one row in the HF Hub search results.
+export type HuggingFaceModel = {
+  id: string;
+  author?: string;
+  downloads?: number;
+  likes?: number;
+  last_modified?: string;
+  tags?: string[];
+  pipeline_tag?: string;
+  gated?: boolean;
+};
+
+// HuggingFaceFile is one GGUF file in an HF repo's tree, with the
+// pre-computed download URL the install endpoint accepts as-is.
+export type HuggingFaceFile = {
+  path: string;
+  size: number;
+  sha256?: string;
+  download_url: string;
+};
+
+export type HuggingFaceSearchResponse = {
+  object: string;
+  data: HuggingFaceModel[];
+};
+
+export type HuggingFaceRepoFilesResponse = {
+  object: string;
+  data: HuggingFaceFile[];
+};
+
 // MCPCacheStatsResponse is the wire shape for GET /hecate/v1/system/mcp/cache.
 // `configured: false` means no cache is wired; the counters still
 // render as zeros so the UI can show a "no cache" cell instead of

@@ -281,3 +281,164 @@ func TestHandleLocalModelsRuntimeStart_ValidatesModelID(t *testing.T) {
 		t.Fatalf("status = %d; want 400", rec.Code)
 	}
 }
+
+// makeServiceWithHF wires a service whose HF client points at the
+// given httptest server so the handler can be exercised end-to-end
+// without hitting huggingface.co.
+func makeServiceWithHF(t *testing.T, hfBaseURL string) *llamacpp.Service {
+	t.Helper()
+	dir := t.TempDir()
+	bin := filepath.Join(t.TempDir(), "llama-server")
+	if err := os.WriteFile(bin, []byte("#!/bin/sh\n"), 0o755); err != nil {
+		t.Fatalf("write fake binary: %v", err)
+	}
+	store := controlplane.NewMemoryStore()
+	svc, err := llamacpp.NewService(llamacpp.ServiceOptions{
+		BinaryPath:         bin,
+		DataDir:            dir,
+		Store:              store,
+		HuggingFaceOptions: llamacpp.HuggingFaceOptions{BaseURL: hfBaseURL},
+	})
+	if err != nil {
+		t.Fatalf("NewService: %v", err)
+	}
+	return svc
+}
+
+func TestHandleLocalModelsHFSearch_ReturnsResults(t *testing.T) {
+	t.Parallel()
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if !strings.Contains(r.URL.RawQuery, "filter=gguf") {
+			t.Errorf("query missing filter=gguf: %q", r.URL.RawQuery)
+		}
+		if !strings.Contains(r.URL.RawQuery, "search=qwen") {
+			t.Errorf("query missing search=qwen: %q", r.URL.RawQuery)
+		}
+		_, _ = w.Write([]byte(`[
+			{"id":"bartowski/Qwen-GGUF","author":"bartowski","downloads":12,"tags":["gguf"]}
+		]`))
+	}))
+	defer srv.Close()
+
+	svc := makeServiceWithHF(t, srv.URL)
+	h := makeHandlerWithLocalModels(t, svc)
+	rec := httptest.NewRecorder()
+	req := httptest.NewRequest(http.MethodGet, "/hecate/v1/local-models/huggingface/search?q=qwen&limit=5", nil)
+	h.HandleLocalModelsHFSearch(rec, req)
+	if rec.Code != http.StatusOK {
+		t.Fatalf("status = %d; want 200 (body=%q)", rec.Code, rec.Body.String())
+	}
+	if !strings.Contains(rec.Body.String(), "bartowski/Qwen-GGUF") {
+		t.Fatalf("body missing result id: %q", rec.Body.String())
+	}
+	if !strings.Contains(rec.Body.String(), `"object":"local_models.huggingface.search"`) {
+		t.Fatalf("body missing object: %q", rec.Body.String())
+	}
+}
+
+func TestHandleLocalModelsHFSearch_MapsGatedToErrorCode(t *testing.T) {
+	t.Parallel()
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+		http.Error(w, "gated", http.StatusForbidden)
+	}))
+	defer srv.Close()
+
+	svc := makeServiceWithHF(t, srv.URL)
+	h := makeHandlerWithLocalModels(t, svc)
+	rec := httptest.NewRecorder()
+	req := httptest.NewRequest(http.MethodGet, "/hecate/v1/local-models/huggingface/search?q=anything", nil)
+	h.HandleLocalModelsHFSearch(rec, req)
+	if rec.Code != http.StatusForbidden {
+		t.Fatalf("status = %d; want 403", rec.Code)
+	}
+	if !strings.Contains(rec.Body.String(), errCodeHuggingFaceGated) {
+		t.Fatalf("body missing %q: %q", errCodeHuggingFaceGated, rec.Body.String())
+	}
+}
+
+func TestHandleLocalModelsHFSearch_Dormant503(t *testing.T) {
+	t.Parallel()
+	h := makeHandlerWithLocalModels(t, nil)
+	rec := httptest.NewRecorder()
+	h.HandleLocalModelsHFSearch(rec, httptest.NewRequest(http.MethodGet, "/hecate/v1/local-models/huggingface/search", nil))
+	if rec.Code != http.StatusServiceUnavailable {
+		t.Fatalf("status = %d; want 503", rec.Code)
+	}
+}
+
+func TestHandleLocalModelsHFRepoFiles_ReturnsGGUFFiles(t *testing.T) {
+	t.Parallel()
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if !strings.HasSuffix(r.URL.Path, "/api/models/bartowski/Qwen/tree/main") {
+			t.Errorf("unexpected path: %q", r.URL.Path)
+		}
+		_, _ = w.Write([]byte(`[
+			{"type":"file","path":"Qwen-Q4.gguf","size":100,"lfs":{"oid":"deadbeef","size":4000}},
+			{"type":"file","path":"README.md","size":200}
+		]`))
+	}))
+	defer srv.Close()
+
+	svc := makeServiceWithHF(t, srv.URL)
+	h := makeHandlerWithLocalModels(t, svc)
+	// Need PathValue wired — use the real mux registration.
+	mux := http.NewServeMux()
+	mux.HandleFunc("GET /hecate/v1/local-models/huggingface/repos/{owner}/{name}", h.HandleLocalModelsHFRepoFiles)
+	rec := httptest.NewRecorder()
+	mux.ServeHTTP(rec, httptest.NewRequest(http.MethodGet, "/hecate/v1/local-models/huggingface/repos/bartowski/Qwen", nil))
+	if rec.Code != http.StatusOK {
+		t.Fatalf("status = %d; want 200 (body=%q)", rec.Code, rec.Body.String())
+	}
+	if !strings.Contains(rec.Body.String(), "Qwen-Q4.gguf") {
+		t.Fatalf("body missing gguf file: %q", rec.Body.String())
+	}
+	if strings.Contains(rec.Body.String(), "README.md") {
+		t.Fatalf("body should not include non-gguf file: %q", rec.Body.String())
+	}
+	if !strings.Contains(rec.Body.String(), `"sha256":"deadbeef"`) {
+		t.Fatalf("body missing LFS sha: %q", rec.Body.String())
+	}
+}
+
+func TestHandleLocalModelsHFRepoFiles_MapsNotFound(t *testing.T) {
+	t.Parallel()
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+		http.Error(w, "no repo", http.StatusNotFound)
+	}))
+	defer srv.Close()
+
+	svc := makeServiceWithHF(t, srv.URL)
+	h := makeHandlerWithLocalModels(t, svc)
+	mux := http.NewServeMux()
+	mux.HandleFunc("GET /hecate/v1/local-models/huggingface/repos/{owner}/{name}", h.HandleLocalModelsHFRepoFiles)
+	rec := httptest.NewRecorder()
+	mux.ServeHTTP(rec, httptest.NewRequest(http.MethodGet, "/hecate/v1/local-models/huggingface/repos/owner/missing", nil))
+	if rec.Code != http.StatusNotFound {
+		t.Fatalf("status = %d; want 404 (body=%q)", rec.Code, rec.Body.String())
+	}
+	if !strings.Contains(rec.Body.String(), errCodeHuggingFaceNotFound) {
+		t.Fatalf("body missing %q: %q", errCodeHuggingFaceNotFound, rec.Body.String())
+	}
+}
+
+func TestHandleLocalModelsHFSearch_ForwardsToken(t *testing.T) {
+	t.Parallel()
+	var capturedAuth string
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		capturedAuth = r.Header.Get("Authorization")
+		_, _ = w.Write([]byte(`[]`))
+	}))
+	defer srv.Close()
+
+	svc := makeServiceWithHF(t, srv.URL)
+	h := makeHandlerWithLocalModels(t, svc)
+	rec := httptest.NewRecorder()
+	req := httptest.NewRequest(http.MethodGet, "/hecate/v1/local-models/huggingface/search?token=secret-xyz", nil)
+	h.HandleLocalModelsHFSearch(rec, req)
+	if rec.Code != http.StatusOK {
+		t.Fatalf("status = %d; want 200", rec.Code)
+	}
+	if capturedAuth != "Bearer secret-xyz" {
+		t.Fatalf("Authorization = %q; want Bearer secret-xyz", capturedAuth)
+	}
+}

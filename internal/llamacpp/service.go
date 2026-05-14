@@ -27,10 +27,11 @@ type Service struct {
 	dataDir    string
 	store      controlplane.Store
 
-	catalog   *Catalog
-	installer *Installer
-	runtime   *Runtime
-	proxy     *Proxy
+	catalog     *Catalog
+	installer   *Installer
+	runtime     *Runtime
+	proxy       *Proxy
+	huggingface *HuggingFaceClient
 }
 
 // ServiceOptions configures Service. Required: DataDir + Store. The
@@ -62,6 +63,10 @@ type ServiceOptions struct {
 	// Stderr is the writer the production starter pipes child
 	// stderr to. Ignored when Starter is non-nil.
 	Stderr *os.File
+	// HuggingFaceOptions overrides the HF client wiring. Tests
+	// inject a BaseURL pointing at an httptest.Server; production
+	// leaves this zero and gets the real huggingface.co endpoint.
+	HuggingFaceOptions HuggingFaceOptions
 }
 
 // NewService builds the service. Returns an error when DataDir or
@@ -101,15 +106,21 @@ func NewService(opts ServiceOptions) (*Service, error) {
 	}
 
 	return &Service{
-		binaryPath: opts.BinaryPath,
-		dataDir:    opts.DataDir,
-		store:      opts.Store,
-		catalog:    catalog,
-		installer:  installer,
-		runtime:    rt,
-		proxy:      NewProxy(rt),
+		binaryPath:  opts.BinaryPath,
+		dataDir:     opts.DataDir,
+		store:       opts.Store,
+		catalog:     catalog,
+		installer:   installer,
+		runtime:     rt,
+		proxy:       NewProxy(rt),
+		huggingface: NewHuggingFaceClient(opts.HuggingFaceOptions),
 	}, nil
 }
+
+// HuggingFace exposes the HF browse client. UI hits this through
+// GET /hecate/v1/local-models/huggingface/search and
+// GET /hecate/v1/local-models/huggingface/repos/...
+func (s *Service) HuggingFace() *HuggingFaceClient { return s.huggingface }
 
 // Catalog exposes the curated entries. Used by the
 // GET /hecate/v1/local-models/catalog handler.
