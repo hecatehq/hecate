@@ -80,9 +80,12 @@ Five pieces, each thin:
 1. **Bundled binary** — Tauri sidecar adds `llama-server`. Gateway looks for
    the binary via `HECATE_LLAMA_SERVER_BIN`; if unset, feature is dormant.
 2. **Storage** — installed model files live at `<data_dir>/models/<slug>.gguf`.
-   A new `installed_models` table holds enrichment (HuggingFace URL, sha256,
-   recommended params, last-loaded time). Mirrored across memory, sqlite,
-   postgres.
+   A new `installed_models` field on the persisted `controlplane.State`
+   holds enrichment (HuggingFace URL, sha256, recommended params,
+   last-loaded time). Persisted by every controlplane Store
+   implementation. The repo ships memory + sqlite today; the shared
+   apply helpers are written so a future postgres / remote store can
+   adopt the surface without touching the helpers.
 3. **Lifecycle** — single child process at a time, started on demand, killed
    on operator request or process crash. Operator-visible loading state for
    the cold-load duration.
@@ -162,12 +165,17 @@ type InstalledModel struct {
 ```go
 UpsertInstalledModel(ctx, m InstalledModel) (InstalledModel, error)
 DeleteInstalledModel(ctx, id string) error
-ListInstalledModels(ctx) ([]InstalledModel, error)
 ```
 
-Implemented in `store_memory.go`, `store_sqlite.go`, and the postgres store.
-One sqlite migration `0NNN_installed_models.sql` introduces the table; same
-schema in the postgres migration alongside it.
+(List is served via the existing `Snapshot()` — `State.InstalledModels`.)
+
+Implemented in `store_memory.go` and `store_sqlite.go`. The repo
+doesn't ship a postgres store today (the entire controlplane is
+memory + sqlite); when one lands, the shared
+`applyUpsertInstalledModel` / `applyDeleteInstalledModel` helpers
+plug in unchanged. The sqlite store keeps its existing
+JSON-blob-in-a-row shape — adding `InstalledModels []InstalledModel`
+to the `State` struct *is* the migration.
 
 ### Lifecycle — single child, restart on switch
 
@@ -501,7 +509,6 @@ the UI card without deleting any downloaded files.
 | Port collision picking a free port | Same `free_port()` pattern Tauri uses for the gateway port. Failure returns a structured error pointing at runtime status. |
 | HuggingFace down at install time | The install endpoint returns a network error; SSE `failed` event with `error_kind=network`. Operator retries. Curated catalog stays compiled-in so browse still works offline. |
 | Operator already has a `llamacpp` provider configured | Boot reconciliation: log a structured warning, leave the existing row alone, skip auto-registration. Document the override in `docs/local-models.md`. |
-| Postgres mirror tested but never exercised in production | New CI matrix entry runs the postgres store test suite against the new `InstalledModel` ops — same harness as existing controlplane store tests. |
 | Gated HF repos look broken to the operator | Clean error message that explicitly says "gated; not supported in v1" so the failure isn't mistaken for a Hecate bug. Documented escape hatch (manual download + paste a `file://` URL) deferred to v2. |
 | Bundle binary diverges from upstream llama.cpp's wire shape | Pinned release tag at build time; `llama-server --version` logged on each spawn for diagnostic correlation. |
 
@@ -511,9 +518,14 @@ the UI card without deleting any downloaded files.
   default off otherwise), `HECATE_LLAMA_SERVER_BIN` (set by Tauri sidecar
   to the resolved bundled path; operator may override to point at a
   self-managed `llama-server`). `.env.example` ships with both documented.
-- **Schema migration.** One new table `installed_models` in sqlite and
-  postgres. Memory store gains a corresponding slice + lock. Pre-feature
-  gateways read newer databases fine (extra table ignored). Post-feature
+- **Schema migration.** A new `InstalledModels` field on the
+  controlplane `State` struct. The sqlite store persists `State` as a
+  single JSON blob in a single row, so adding the field *is* the
+  migration — no new table, no DDL. Memory store gains a
+  corresponding slice + lock; the shared `applyUpsertInstalledModel` /
+  `applyDeleteInstalledModel` helpers serve both backends. Pre-feature
+  gateways read newer databases fine (extra field unmarshals as a nil
+  slice). Post-feature
   gateways read pre-feature databases fine (table auto-created on first
   start).
 - **Wire-shape compatibility.** No changes to provider-compatible `/v1/*`
@@ -550,8 +562,8 @@ the UI card without deleting any downloaded files.
 After this RFC is accepted, work parallelizes:
 
 - [`hecate-backend`](../../docs-ai/skills/backend/SKILL.md) — runtime
-  package, controlplane Store additions, sqlite + postgres migrations,
-  HTTP handlers, OTel events, error codes.
+  package, controlplane Store additions (memory + sqlite, postgres
+  when the repo grows it), HTTP handlers, OTel events, error codes.
 - [`hecate-tauri`](../../docs-ai/skills/tauri/SKILL.md) — sidecar
   bundling, build-time `llama-server` fetch + verify, env-var wiring.
 - [`hecate-ui`](../../docs-ai/skills/ui/SKILL.md) — Connections card,

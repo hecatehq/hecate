@@ -102,18 +102,38 @@ func TestCatalogLookup(t *testing.T) {
 	}
 }
 
-// TestCatalogSHA256Gaps is informational — it lists entries that ship
-// without a pinned sha so the backfill task stays visible without
-// breaking the build. Surface as a logged note rather than t.Error so
-// CI doesn't go red on a known WIP gap; flip to t.Errorf before the
-// first stable release.
+// TestCatalogSHA256Gaps enforces that every shipped catalog entry has
+// a pinned sha256. The installer hard-fails on mismatch when SHA256
+// is set; leaving it empty silently lets a tampered file through. To
+// add a new entry, fetch the digest from HuggingFace's LFS metadata
+// (https://huggingface.co/api/models/<repo>/tree/main → lfs.oid) and
+// pin both the sha and the exact size in catalog.go.
 func TestCatalogSHA256Gaps(t *testing.T) {
 	t.Parallel()
 	gaps := NewCatalog().CatalogSHA256Gaps()
-	if len(gaps) == 0 {
-		return
+	if len(gaps) != 0 {
+		t.Fatalf("catalog entries missing pinned sha256: %v\n"+
+			"backfill via https://huggingface.co/api/models/<repo>/tree/main "+
+			"and re-run before merging.", gaps)
 	}
-	t.Logf("catalog entries missing pinned sha256 (backfill before stable release): %v", gaps)
+}
+
+// TestCatalogSHA256Format also guards against typos in the pinned
+// values — lowercase hex, 64 chars (sha256).
+func TestCatalogSHA256Format(t *testing.T) {
+	t.Parallel()
+	for _, entry := range NewCatalog().Entries() {
+		if len(entry.SHA256) != 64 {
+			t.Errorf("entry %q sha256 is %d chars; want 64", entry.ID, len(entry.SHA256))
+			continue
+		}
+		for _, r := range entry.SHA256 {
+			if !((r >= '0' && r <= '9') || (r >= 'a' && r <= 'f')) {
+				t.Errorf("entry %q sha256 has non-lowercase-hex char %q", entry.ID, r)
+				break
+			}
+		}
+	}
 }
 
 // TestParsePasteURL covers the v1 paste-URL parser, including the two

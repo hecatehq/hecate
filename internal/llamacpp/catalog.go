@@ -36,21 +36,24 @@ import (
 // (POST /hecate/v1/local-models/install with {url}). Those installs
 // produce InstalledModel rows that aren't backed by a CatalogEntry.
 
-// catalogEntries is the v1 set. Pinned to bartowski / lmstudio-community
-// converter accounts — same accounts LM Studio defaults to. All Q4_K_M
+// catalogEntries is the v1 set. Pinned to bartowski's converter
+// account — the same converter LM Studio defaults to. All Q4_K_M
 // (the "good default" quant for general use).
 //
-// SHA256 values are TODO — they need to be filled in from the actual
-// HuggingFace files before any stable release. The installer accepts
-// empty shas with a logged warning so we can iterate the rest of the
-// surface without blocking on the backfill.
+// SHA256 values are pulled from HuggingFace's LFS metadata
+// (https://huggingface.co/api/models/<repo>/tree/main → lfs.oid) and
+// match the on-disk file at the upstream `resolve/main` path at the
+// time of pinning. Mismatches at install time are a hard fail. To
+// bump a model to a newer revision, copy the new sha + size from
+// HF's tree response and update both fields here.
 var catalogEntries = []CatalogEntry{
 	{
 		ID:                 "llama-3.2-1b-instruct-q4_k_m",
 		DisplayName:        "Llama 3.2 1B Instruct (Q4_K_M)",
 		Description:        "Smallest Llama 3.2 instruct variant. Good for low-RAM machines and fast iteration.",
 		HuggingFaceURL:     "https://huggingface.co/bartowski/Llama-3.2-1B-Instruct-GGUF/resolve/main/Llama-3.2-1B-Instruct-Q4_K_M.gguf",
-		SizeBytes:          808_000_000,
+		SHA256:             "6f85a640a97cf2bf5b8e764087b1e83da0fdb51d7c9fab7d0fece9385611df83",
+		SizeBytes:          807_694_464,
 		RecommendedContext: 4096,
 		Capabilities:       Capabilities{Streaming: true, ToolCalling: "none", MaxContextTokens: 131072},
 		License:            "llama-3.2",
@@ -60,7 +63,8 @@ var catalogEntries = []CatalogEntry{
 		DisplayName:        "Llama 3.2 3B Instruct (Q4_K_M)",
 		Description:        "Mid-size Llama 3.2 instruct. Solid general-purpose default for laptops with 8 GB+ free RAM.",
 		HuggingFaceURL:     "https://huggingface.co/bartowski/Llama-3.2-3B-Instruct-GGUF/resolve/main/Llama-3.2-3B-Instruct-Q4_K_M.gguf",
-		SizeBytes:          2_020_000_000,
+		SHA256:             "6c1a2b41161032677be168d354123594c0e6e67d2b9227c84f296ad037c728ff",
+		SizeBytes:          2_019_377_696,
 		RecommendedContext: 8192,
 		Capabilities:       Capabilities{Streaming: true, ToolCalling: "none", MaxContextTokens: 131072},
 		License:            "llama-3.2",
@@ -70,7 +74,8 @@ var catalogEntries = []CatalogEntry{
 		DisplayName:        "Qwen 2.5 0.5B Instruct (Q4_K_M)",
 		Description:        "Tiny Qwen 2.5 instruct. Useful for sanity-checking the local runtime — downloads in seconds.",
 		HuggingFaceURL:     "https://huggingface.co/bartowski/Qwen2.5-0.5B-Instruct-GGUF/resolve/main/Qwen2.5-0.5B-Instruct-Q4_K_M.gguf",
-		SizeBytes:          398_000_000,
+		SHA256:             "6eb923e7d26e9cea28811e1a8e852009b21242fb157b26149d3b188f3a8c8653",
+		SizeBytes:          397_808_192,
 		RecommendedContext: 8192,
 		Capabilities:       Capabilities{Streaming: true, ToolCalling: "none", MaxContextTokens: 32768},
 		License:            "apache-2.0",
@@ -80,7 +85,8 @@ var catalogEntries = []CatalogEntry{
 		DisplayName:        "Qwen 2.5 3B Instruct (Q4_K_M)",
 		Description:        "Mid-size Qwen 2.5 instruct. Strong reasoning for its size.",
 		HuggingFaceURL:     "https://huggingface.co/bartowski/Qwen2.5-3B-Instruct-GGUF/resolve/main/Qwen2.5-3B-Instruct-Q4_K_M.gguf",
-		SizeBytes:          1_930_000_000,
+		SHA256:             "9c9f56a391a3abbd5b89d0245bf6106081bcc3173119d4229235dd9d23253f94",
+		SizeBytes:          1_929_903_264,
 		RecommendedContext: 8192,
 		Capabilities:       Capabilities{Streaming: true, ToolCalling: "none", MaxContextTokens: 32768},
 		License:            "qwen-research",
@@ -90,7 +96,8 @@ var catalogEntries = []CatalogEntry{
 		DisplayName:        "Qwen 2.5 7B Instruct (Q4_K_M)",
 		Description:        "Larger Qwen 2.5 instruct. Best general-purpose model in this catalog for 16 GB+ machines.",
 		HuggingFaceURL:     "https://huggingface.co/bartowski/Qwen2.5-7B-Instruct-GGUF/resolve/main/Qwen2.5-7B-Instruct-Q4_K_M.gguf",
-		SizeBytes:          4_680_000_000,
+		SHA256:             "65b8fcd92af6b4fefa935c625d1ac27ea29dcb6ee14589c55a8f115ceaaa1423",
+		SizeBytes:          4_683_074_240,
 		RecommendedContext: 8192,
 		Capabilities:       Capabilities{Streaming: true, ToolCalling: "none", MaxContextTokens: 131072},
 		License:            "apache-2.0",
@@ -100,7 +107,8 @@ var catalogEntries = []CatalogEntry{
 		DisplayName:        "Mistral 7B Instruct v0.3 (Q4_K_M)",
 		Description:        "Mistral's open-weight instruct model. Function-calling capable upstream but Hecate keeps it on streaming-only for v1.",
 		HuggingFaceURL:     "https://huggingface.co/bartowski/Mistral-7B-Instruct-v0.3-GGUF/resolve/main/Mistral-7B-Instruct-v0.3-Q4_K_M.gguf",
-		SizeBytes:          4_370_000_000,
+		SHA256:             "1270d22c0fbb3d092fb725d4d96c457b7b687a5f5a715abe1e818da303e562b6",
+		SizeBytes:          4_372_812_000,
 		RecommendedContext: 8192,
 		Capabilities:       Capabilities{Streaming: true, ToolCalling: "none", MaxContextTokens: 32768},
 		License:            "apache-2.0",
@@ -110,7 +118,8 @@ var catalogEntries = []CatalogEntry{
 		DisplayName:        "Phi-3 Mini 4K Instruct (Q4_K_M)",
 		Description:        "Microsoft's small reasoning model. Strong at chain-of-thought relative to its size.",
 		HuggingFaceURL:     "https://huggingface.co/bartowski/Phi-3-mini-4k-instruct-GGUF/resolve/main/Phi-3-mini-4k-instruct-Q4_K_M.gguf",
-		SizeBytes:          2_390_000_000,
+		SHA256:             "28a89b4ddb5766355f24e362ae4078b4c35b9ca9568df5fc9e6d9aeee4dee834",
+		SizeBytes:          2_393_231_360,
 		RecommendedContext: 4096,
 		Capabilities:       Capabilities{Streaming: true, ToolCalling: "none", MaxContextTokens: 4096},
 		License:            "mit",
@@ -120,7 +129,8 @@ var catalogEntries = []CatalogEntry{
 		DisplayName:        "Gemma 2 2B IT (Q4_K_M)",
 		Description:        "Google's small instruction-tuned Gemma 2. Well-behaved for general chat.",
 		HuggingFaceURL:     "https://huggingface.co/bartowski/gemma-2-2b-it-GGUF/resolve/main/gemma-2-2b-it-Q4_K_M.gguf",
-		SizeBytes:          1_630_000_000,
+		SHA256:             "e0aee85060f168f0f2d8473d7ea41ce2f3230c1bc1374847505ea599288a7787",
+		SizeBytes:          1_708_582_752,
 		RecommendedContext: 8192,
 		Capabilities:       Capabilities{Streaming: true, ToolCalling: "none", MaxContextTokens: 8192},
 		License:            "gemma",

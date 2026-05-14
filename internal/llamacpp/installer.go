@@ -14,6 +14,9 @@ import (
 	"sync"
 	"sync/atomic"
 	"time"
+
+	"go.opentelemetry.io/otel/codes"
+	"go.opentelemetry.io/otel/trace"
 )
 
 // HTTPDoer is the slice of net/http.Client the installer needs. Pulled
@@ -103,6 +106,11 @@ type runningInstall struct {
 	// a slow consumer drops events on the floor rather than blocking
 	// the download.
 	events chan ProgressEvent
+	// span is the install lifecycle OTel span. Receives the
+	// install.started / progress / completed / failed / cancelled
+	// events as span events; ends when the run loop returns. nil
+	// when the OTel SDK is configured with the noop provider.
+	span trace.Span
 }
 
 // NewInstaller wires an installer. dataDir must already exist and be
@@ -303,7 +311,13 @@ func (i *Installer) Install(ctx context.Context, spec InstallSpec) (*InstallHand
 		return nil, fmt.Errorf("%w: %s", ErrInstallInProgress, i.active.modelID)
 	}
 	id := i.nextInstallID()
+	// Install span outlives the caller's request context — the
+	// install runs on a background goroutine. context.WithoutCancel
+	// detaches from the request lifetime while keeping any trace
+	// context attached for parent linkage. startInstallSpan adds
+	// the canonical attributes; events are emitted as they fire.
 	runCtx, cancel := context.WithCancel(context.WithoutCancel(ctx))
+	spanCtx, span := startInstallSpan(runCtx, plan.modelID, id, plan.url, plan.expectedSizeBytes)
 	events := make(chan ProgressEvent, 16)
 	run := &runningInstall{
 		installID: id,
@@ -311,11 +325,12 @@ func (i *Installer) Install(ctx context.Context, spec InstallSpec) (*InstallHand
 		cancel:    cancel,
 		done:      make(chan struct{}),
 		events:    events,
+		span:      span,
 	}
 	i.active = run
 	i.mu.Unlock()
 
-	go i.run(runCtx, run, plan)
+	go i.run(spanCtx, run, plan)
 
 	return &InstallHandle{
 		InstallID: id,
@@ -429,6 +444,9 @@ func (i *Installer) nextInstallID() string {
 func (i *Installer) run(ctx context.Context, run *runningInstall, plan installPlan) {
 	defer func() {
 		close(run.events)
+		if run.span != nil {
+			run.span.End()
+		}
 		i.mu.Lock()
 		if i.active == run {
 			i.active = nil
@@ -634,6 +652,19 @@ func (i *Installer) download(ctx context.Context, run *runningInstall, plan inst
 
 func (i *Installer) emit(run *runningInstall, event ProgressEvent) {
 	event.EmittedAt = i.opts.clock()
+	// Fan to the OTel span first — the span recording is in-process
+	// and doesn't depend on a subscriber being attached, so a dropped
+	// channel send still produces a useful trace timeline.
+	recordInstallEvent(run.span, event)
+	// On terminal failure, also stamp the span status so traces
+	// surface the failure without parsing event payloads.
+	if event.Kind == ProgressFailed && run.span != nil && run.span.IsRecording() {
+		msg := event.Message
+		if msg == "" {
+			msg = event.ErrorKind
+		}
+		run.span.SetStatus(codes.Error, msg)
+	}
 	select {
 	case run.events <- event:
 	default:

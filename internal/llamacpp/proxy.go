@@ -78,6 +78,10 @@ func (p *Proxy) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 		p.writeRuntimeError(w, err)
 		return
 	}
+	// Emit one proxy.routed event per inbound request so trace
+	// dashboards can correlate runtime spawns with the chat
+	// completion traffic that drove them.
+	recordProxyRouted(r.Context(), requestedModel)
 
 	target, err := url.Parse(baseURL)
 	if err != nil {

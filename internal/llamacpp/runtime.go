@@ -8,6 +8,9 @@ import (
 	"strings"
 	"sync"
 	"time"
+
+	"go.opentelemetry.io/otel/codes"
+	"go.opentelemetry.io/otel/trace"
 )
 
 // ProcessStarter is the dependency the Runtime injects to spawn a
@@ -149,7 +152,14 @@ type resolvedRuntimeOptions struct {
 type runtimeSession struct {
 	modelID   string
 	handle    ProcessHandle
-	startedAt time.Time
+	spawnedAt time.Time // when EnsureLoaded began spawning the child
+	startedAt time.Time // when /health first returned OK
+
+	// span is the runtime-lifecycle OTel span. Receives
+	// runtime.starting / .started / .stopped / .crashed events as
+	// the state machine transitions; ends on transition to idle or
+	// failed. nil under the noop tracer.
+	span trace.Span
 
 	// watcherDone closes when the crash-listener goroutine returns —
 	// used by Stop / EnsureLoaded to deterministically wait for
@@ -299,8 +309,15 @@ func (r *Runtime) EnsureLoaded(ctx context.Context, modelID string) (string, err
 	}
 
 	r.state = RuntimeStarting
+	// startRuntimeSpan attaches the canonical attributes (engine,
+	// model id, port, context_size). Span lives as long as the
+	// session — closed by stopActiveLocked / watchChild on
+	// transition out.
+	_, span := startRuntimeSpan(ctx, modelID, port, contextSize)
 	r.active = &runtimeSession{
 		modelID:     modelID,
+		spawnedAt:   r.opts.clock(),
+		span:        span,
 		watcherDone: make(chan struct{}),
 	}
 	// Release while starting + health-polling so Status / Stop can be
@@ -354,6 +371,17 @@ func (r *Runtime) EnsureLoaded(ctx context.Context, modelID string) (string, err
 	r.lastError = ""
 	r.lastErrorAt = time.Time{}
 
+	// Time-to-first-healthy = (running transition - spawn start).
+	// Surfaces cold-load regressions across model sizes in traces
+	// without an extra metric instrument.
+	if r.active.span != nil {
+		ttfh := r.active.startedAt.Sub(r.active.spawnedAt)
+		if ttfh < 0 {
+			ttfh = 0
+		}
+		recordRuntimeStarted(r.active.span, modelID, handle.PID(), ttfh.Milliseconds())
+	}
+
 	return fmt.Sprintf("http://%s:%d", handle.Host(), handle.Port()), nil
 }
 
@@ -381,6 +409,9 @@ func (r *Runtime) stopActiveLocked(ctx context.Context) error {
 	}
 	handle := r.active.handle
 	watcher := r.active.watcherDone
+	span := r.active.span
+	modelID := r.active.modelID
+	startedAt := r.active.startedAt
 	r.state = RuntimeStopping
 	r.mu.Unlock()
 
@@ -393,6 +424,21 @@ func (r *Runtime) stopActiveLocked(ctx context.Context) error {
 	}
 
 	r.mu.Lock()
+	// Emit the operator-stop event on the span before clearing it.
+	// The watcher may have already recorded a crashed event if the
+	// child died unexpectedly during stop — recordRuntimeStopped is
+	// safe to call after that because span events are append-only,
+	// and the runtime.reason attribute tells dashboards which path
+	// fired. SetStatus on stop is deliberate Ok — the operator
+	// drove this transition.
+	if span != nil {
+		uptime := time.Duration(0)
+		if !startedAt.IsZero() {
+			uptime = r.opts.clock().Sub(startedAt)
+		}
+		recordRuntimeStopped(span, modelID, "operator", uptime.Milliseconds())
+		span.End()
+	}
 	r.state = RuntimeIdle
 	r.active = nil
 	return stopErr
@@ -427,6 +473,15 @@ func (r *Runtime) watchChild(session *runtimeSession) {
 		if info.Signal != "" {
 			msg = fmt.Sprintf("child terminated by %s", info.Signal)
 		}
+		// Span-record the crash before clearing active so the
+		// timeline shows the failure with its exit code. Set the
+		// span status to Error since the operator didn't drive
+		// this transition.
+		if session.span != nil {
+			recordRuntimeCrashed(session.span, session.modelID, info.ExitCode, info.Signal)
+			session.span.SetStatus(codes.Error, msg)
+			session.span.End()
+		}
 		r.lastError = msg
 		r.lastErrorAt = r.opts.clock()
 		r.state = RuntimeFailed
@@ -438,6 +493,13 @@ func (r *Runtime) watchChild(session *runtimeSession) {
 // failure and clears active state. Used by EnsureLoaded for failures
 // it observes before installing the crash watcher.
 func (r *Runtime) transitionFailedLocked(msg string) {
+	// Close out the span on a failed transition so traces show the
+	// abort with its message. Health-failure and spawn-failure paths
+	// land here.
+	if r.active != nil && r.active.span != nil {
+		r.active.span.SetStatus(codes.Error, msg)
+		r.active.span.End()
+	}
 	r.state = RuntimeFailed
 	r.active = nil
 	r.lastError = msg

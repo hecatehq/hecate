@@ -435,6 +435,44 @@ The retention worker handles the following subsystems. The **subsystem name** is
 
 Each prefix has a `_MAX_AGE` and `_MAX_COUNT` suffix (e.g. `GATEWAY_RETENTION_TRACES_MAX_AGE=24h`). See `.env.example` for the defaults.
 
+### Local Models Spans
+
+The Hecate-managed llama.cpp runtime (see [`docs/local-models.md`](local-models.md))
+emits two long-lived spans plus per-request hops:
+
+- `local_model.install` — one span per install, started by `POST /hecate/v1/local-models/install`
+  and ended on terminal state. Events: `local_model.install.started`,
+  `.progress` (rate-limited by the SSE sampler), `.completed`, `.failed`,
+  `.cancelled`. Span status is `Error` on `failed`.
+- `local_model.runtime` — one span per `EnsureLoaded` → stop / crash
+  cycle. Events: `local_model.runtime.started` (carries
+  `runtime.ttfh_ms` for cold-load), `.stopped` (operator / switch
+  reason), `.crashed` (exit code + signal). Span status is `Error`
+  on crash.
+- `local_model.proxy` — per-request, recorded as a `local_model.proxy.routed`
+  event on the active parent span (or a short-lived span if none is
+  attached). Carries `local_model.id` so dashboards can correlate
+  inbound chat traffic with the runtime that served it.
+
+Canonical attributes are in `internal/telemetry/semconv.go`
+(`AttrHecateLocalModel*`). The full set:
+
+| Attribute | Where it appears |
+|---|---|
+| `hecate.local_model.id` | every event |
+| `hecate.local_model.engine` | "llamacpp"; reserved for future MLX engine |
+| `hecate.local_model.install.id` | install span / events |
+| `hecate.local_model.install.source_url` | install.started |
+| `hecate.local_model.install.bytes_downloaded` / `.bytes_total` | install.progress / .completed |
+| `hecate.local_model.install.error_kind` | install.failed (closed set: network / sha_mismatch / cancelled / disk / gated / invalid_url / unknown) |
+| `hecate.local_model.install.expected_sha256` / `.actual_sha256` | install.failed (sha mismatch only) |
+| `hecate.local_model.runtime.port` / `.pid` | runtime span / runtime.started |
+| `hecate.local_model.runtime.params.context_size` | runtime span |
+| `hecate.local_model.runtime.ttfh_ms` | runtime.started |
+| `hecate.local_model.runtime.reason` | runtime.stopped (operator / switch) |
+| `hecate.local_model.runtime.uptime_ms` | runtime.stopped |
+| `hecate.local_model.runtime.exit_code` | runtime.crashed |
+
 ## Metrics
 
 ### Gateway Metrics

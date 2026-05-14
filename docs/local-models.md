@@ -217,6 +217,24 @@ Hecate-managed path, remove the operator row through Connections; the
 next boot will create the auto-managed one with the gateway-internal
 proxy URL.
 
+## Telemetry
+
+Three OTel spans cover the runtime + install + proxy surface:
+
+- `local_model.install` — per install, started on POST /install, ended
+  on completed / failed / cancelled. Carries source URL, byte counts,
+  sha256 mismatch detail.
+- `local_model.runtime` — per running session, from EnsureLoaded to
+  stop / crash. Carries port, PID, context size, time-to-first-healthy,
+  uptime, and exit code on crash.
+- `local_model.proxy.routed` — per proxied chat completion request.
+
+Full attribute table and event names live in
+[`docs/telemetry.md` → Local Models Spans](telemetry.md#local-models-spans).
+Stable error codes are in
+[`internal/api/response.go`](../internal/api/response.go) and
+documented in [the API table](#http-api) above.
+
 ## Troubleshooting
 
 ### "Bundled model runtime — Not bundled"
