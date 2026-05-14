@@ -145,6 +145,7 @@ export type CreateAgentChatSessionPayload = {
   provider?: string;
   model?: string;
   workspace?: string;
+  rtk_enabled?: boolean;
 };
 
 export type CreateAgentChatMessagePayload = {
@@ -356,6 +357,13 @@ export async function setAgentChatConfigOption(id: string, configID: string, val
   return fetchJSON<AgentChatSessionResponse>(
     `${HECATE_API}/agent-chat/sessions/${encodeURIComponent(id)}/config-options/${encodeURIComponent(configID)}`,
     { method: "POST", body: { value } },
+  );
+}
+
+export async function setAgentChatSettings(id: string, settings: { rtk_enabled?: boolean }): Promise<AgentChatSessionResponse> {
+  return fetchJSON<AgentChatSessionResponse>(
+    `${HECATE_API}/agent-chat/sessions/${encodeURIComponent(id)}/settings`,
+    { method: "PATCH", body: settings },
   );
 }
 

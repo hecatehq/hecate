@@ -87,6 +87,23 @@ type Command struct {
 	Timeout          time.Duration
 	Policy           Policy
 	Limits           ResourceLimits
+	// RTKEnabled runs the command through RTK's shell wrapper after Hecate
+	// policy validation and before sandbox wrapping. This is a per-call
+	// choice so operators can enable compacted command output for one chat
+	// without changing every task subprocess on the gateway.
+	RTKEnabled bool
+}
+
+const rtkCommand = "rtk"
+
+// RTKAvailable reports whether the optional RTK command-output wrapper is
+// visible in the gateway process PATH.
+func RTKAvailable() (string, bool) {
+	path, err := exec.LookPath(rtkCommand)
+	if err != nil {
+		return "", false
+	}
+	return path, true
 }
 
 type FileRequest struct {
@@ -170,7 +187,7 @@ func (e *LocalExecutor) RunStreaming(ctx context.Context, command Command, onChu
 		defer timeoutCancel()
 	}
 
-	cmd := exec.CommandContext(runCtx, "sh", "-lc", command.Command)
+	cmd := commandExec(runCtx, command)
 	if workingDirectory != "" {
 		cmd.Dir = workingDirectory
 	}
@@ -256,6 +273,24 @@ func (e *LocalExecutor) RunStreaming(ctx context.Context, command Command, onChu
 	}
 	result.ExitCode = -1
 	return result, err
+}
+
+// ShellArgv returns the argv Hecate will launch for a sandboxed command.
+// Policy checks still inspect Command.Command before this wrapper is chosen.
+func ShellArgv(command Command) []string {
+	base := []string{"sh", "-lc", command.Command}
+	if !command.RTKEnabled {
+		return base
+	}
+	argv := make([]string, 0, 1+len(base))
+	argv = append(argv, rtkCommand)
+	argv = append(argv, base...)
+	return argv
+}
+
+func commandExec(ctx context.Context, command Command) *exec.Cmd {
+	args := ShellArgv(command)
+	return exec.CommandContext(ctx, args[0], args[1:]...)
 }
 
 func (e *LocalExecutor) WriteFile(_ context.Context, request FileRequest) (FileResult, error) {

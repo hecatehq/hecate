@@ -2,6 +2,7 @@ package sandbox
 
 import (
 	"context"
+	"fmt"
 	"os"
 	"path/filepath"
 	"strings"
@@ -28,6 +29,79 @@ func TestLocalExecutorSeparatesStdoutAndStderr(t *testing.T) {
 	}
 	if result.ExitCode != 0 {
 		t.Fatalf("exit_code = %d, want 0", result.ExitCode)
+	}
+}
+
+func TestLocalExecutorUsesRTKWhenEnabled(t *testing.T) {
+	dir := t.TempDir()
+	logPath := filepath.Join(dir, "rtk.log")
+	rtkPath := filepath.Join(dir, "rtk")
+	rtkScript := fmt.Sprintf("#!/bin/sh\nprintf '%%s\\n' \"$@\" > %q\nexec \"$@\"\n", logPath)
+	if err := os.WriteFile(rtkPath, []byte(rtkScript), 0o755); err != nil {
+		t.Fatalf("WriteFile(rtk) error = %v", err)
+	}
+	t.Setenv("PATH", dir+string(os.PathListSeparator)+os.Getenv("PATH"))
+
+	exec := NewLocalExecutor()
+	result, err := exec.Run(context.Background(), Command{
+		Command:    `printf 'compacted'`,
+		Timeout:    time.Second,
+		RTKEnabled: true,
+	})
+	if err != nil {
+		t.Fatalf("Run() error = %v", err)
+	}
+	if result.Stdout != "compacted" {
+		t.Fatalf("stdout = %q, want compacted", result.Stdout)
+	}
+	logged, err := os.ReadFile(logPath)
+	if err != nil {
+		t.Fatalf("ReadFile(rtk log) error = %v", err)
+	}
+	if got := string(logged); !strings.Contains(got, "sh\n-lc\nprintf 'compacted'\n") {
+		t.Fatalf("rtk argv log = %q, want sh -lc command", got)
+	}
+}
+
+func TestShellArgvUsesRTKOnlyWhenEnabled(t *testing.T) {
+	got := strings.Join(ShellArgv(Command{Command: "go test ./...", RTKEnabled: true}), "\x00")
+	want := strings.Join([]string{"rtk", "sh", "-lc", "go test ./..."}, "\x00")
+	if got != want {
+		t.Fatalf("argv = %q, want %q", got, want)
+	}
+	got = strings.Join(ShellArgv(Command{Command: "go test ./..."}), "\x00")
+	want = strings.Join([]string{"sh", "-lc", "go test ./..."}, "\x00")
+	if got != want {
+		t.Fatalf("plain argv = %q, want %q", got, want)
+	}
+}
+
+func TestRTKAvailableReportsPathPresence(t *testing.T) {
+	dir := t.TempDir()
+	rtkPath := filepath.Join(dir, "rtk")
+	if err := os.WriteFile(rtkPath, []byte("#!/bin/sh\nexit 0\n"), 0o755); err != nil {
+		t.Fatalf("WriteFile(rtk) error = %v", err)
+	}
+	t.Setenv("PATH", dir)
+
+	gotPath, ok := RTKAvailable()
+	if !ok {
+		t.Fatal("RTKAvailable() ok = false, want true")
+	}
+	if gotPath != rtkPath {
+		t.Fatalf("RTKAvailable() path = %q, want %q", gotPath, rtkPath)
+	}
+}
+
+func TestRTKAvailableReportsMissing(t *testing.T) {
+	t.Setenv("PATH", t.TempDir())
+
+	gotPath, ok := RTKAvailable()
+	if ok {
+		t.Fatal("RTKAvailable() ok = true, want false")
+	}
+	if gotPath != "" {
+		t.Fatalf("RTKAvailable() path = %q, want empty", gotPath)
 	}
 }
 

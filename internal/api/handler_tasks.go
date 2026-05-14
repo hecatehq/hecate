@@ -1538,6 +1538,8 @@ func buildTaskActivityItems(steps []TaskStepItem, artifacts []TaskArtifactItem, 
 			status = approvalStatus
 			needsAction = approvalStatus == "pending"
 		}
+		summary := cloneActivitySummary(step.OutputSummary)
+		addShellDebugSummary(summary, step.Input)
 		items = append(items, TaskActivityItem{
 			ID:          "step:" + step.ID,
 			Type:        itemType,
@@ -1547,7 +1549,7 @@ func buildTaskActivityItems(steps []TaskStepItem, artifacts []TaskArtifactItem, 
 			ApprovalID:  step.ApprovalID,
 			ToolName:    step.ToolName,
 			Kind:        step.Kind,
-			Summary:     step.OutputSummary,
+			Summary:     summary,
 			OccurredAt:  firstNonEmpty(step.StartedAt, step.FinishedAt),
 			NeedsAction: needsAction,
 			Terminal:    step.Status == "completed" || step.Status == "failed" || step.Status == "cancelled" || (step.ApprovalID != "" && !needsAction),
@@ -1610,6 +1612,29 @@ func buildTaskActivityItems(steps []TaskStepItem, artifacts []TaskArtifactItem, 
 	}
 	sortTaskActivityItems(items)
 	return items
+}
+
+func cloneActivitySummary(summary map[string]any) map[string]any {
+	if len(summary) == 0 {
+		return map[string]any{}
+	}
+	out := make(map[string]any, len(summary)+2)
+	for key, value := range summary {
+		out[key] = value
+	}
+	return out
+}
+
+func addShellDebugSummary(summary map[string]any, input map[string]any) {
+	if len(input) == 0 {
+		return
+	}
+	if value, ok := input[telemetry.AttrHecateSandboxRTKEnabled]; ok {
+		summary[telemetry.AttrHecateSandboxRTKEnabled] = value
+	}
+	if value, ok := input["argv"]; ok {
+		summary["argv"] = value
+	}
 }
 
 const taskActivityArtifactPreviewMaxBytes = 2000

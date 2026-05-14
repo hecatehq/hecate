@@ -673,6 +673,7 @@ type CreateAgentChatSessionRequest struct {
 	Provider    string `json:"provider,omitempty"`
 	Model       string `json:"model,omitempty"`
 	Workspace   string `json:"workspace"`
+	RTKEnabled  bool   `json:"rtk_enabled,omitempty"`
 }
 
 type CreateAgentChatMessageRequest struct {
@@ -688,6 +689,10 @@ type SetAgentChatConfigOptionRequest struct {
 	Value any `json:"value"`
 }
 
+type SetAgentChatSettingsRequest struct {
+	RTKEnabled *bool `json:"rtk_enabled,omitempty"`
+}
+
 type AgentChatSessionSummaryItem struct {
 	ID              string                  `json:"id"`
 	Title           string                  `json:"title"`
@@ -700,6 +705,7 @@ type AgentChatSessionSummaryItem struct {
 	Provider        string                  `json:"provider,omitempty"`
 	Model           string                  `json:"model,omitempty"`
 	Capabilities    types.ModelCapabilities `json:"capabilities,omitempty"`
+	RTKEnabled      bool                    `json:"rtk_enabled,omitempty"`
 	Workspace       string                  `json:"workspace"`
 	WorkspaceBranch string                  `json:"workspace_branch,omitempty"`
 	Status          string                  `json:"status"`
@@ -720,6 +726,7 @@ type AgentChatSessionItem struct {
 	Provider             string                       `json:"provider,omitempty"`
 	Model                string                       `json:"model,omitempty"`
 	Capabilities         types.ModelCapabilities      `json:"capabilities,omitempty"`
+	RTKEnabled           bool                         `json:"rtk_enabled,omitempty"`
 	Workspace            string                       `json:"workspace"`
 	WorkspaceBranch      string                       `json:"workspace_branch,omitempty"`
 	Status               string                       `json:"status"`
@@ -900,6 +907,11 @@ type RuntimeStatsResponseItem struct {
 	// Empty when the gateway was built without an approval coordinator
 	// (test fixtures, legacy configs).
 	AgentAdapterApprovalMode string `json:"agent_adapter_approval_mode,omitempty"`
+	// RTKAvailable reports whether the optional RTK command-output
+	// wrapper is installed in the gateway process PATH. The UI uses this
+	// to offer compact command-output setup without enabling it by default.
+	RTKAvailable bool   `json:"rtk_available"`
+	RTKPath      string `json:"rtk_path,omitempty"`
 }
 
 // MCPProbeRequest is the wire shape for POST /hecate/v1/mcp/probe — a

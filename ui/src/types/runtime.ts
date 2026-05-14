@@ -299,6 +299,7 @@ export type AgentChatSessionSummaryRecord = {
   provider?: string;
   model?: string;
   capabilities?: ModelCapabilitiesRecord;
+  rtk_enabled?: boolean;
   workspace: string;
   workspace_branch?: string;
   status: string;
@@ -423,6 +424,7 @@ export type AgentChatSessionRecord = {
   provider?: string;
   model?: string;
   capabilities?: ModelCapabilitiesRecord;
+  rtk_enabled?: boolean;
   workspace: string;
   workspace_branch?: string;
   status: string;
@@ -783,6 +785,10 @@ export type RuntimeStatsResponse = {
     // "deny". UI renders a danger banner when "auto". Empty when the
     // backend was built without an approval coordinator.
     agent_adapter_approval_mode?: string;
+    // Optional command-output compaction helper. Hecate never enables it
+    // automatically; the UI uses this only to show an opt-in setup hint.
+    rtk_available?: boolean;
+    rtk_path?: string;
     // Optional extension points.
     telemetry?: {
       checked_at?: string;

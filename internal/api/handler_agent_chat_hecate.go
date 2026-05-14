@@ -395,6 +395,7 @@ func (h *Handler) startOrContinueHecateAgentRun(ctx context.Context, session age
 			WorkspaceMode:      "in_place",
 			WorkingDirectory:   session.Workspace,
 			SandboxAllowedRoot: session.Workspace,
+			RTKEnabled:         session.RTKEnabled,
 			Status:             "queued",
 			Priority:           "normal",
 			RequestedProvider:  session.Provider,

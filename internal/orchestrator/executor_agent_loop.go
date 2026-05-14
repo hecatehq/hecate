@@ -1023,6 +1023,7 @@ func (e *AgentLoopExecutor) runSubExecutor(ctx context.Context, spec ExecutionSp
 		UpsertStep:     nil,
 		UpsertArtifact: nil,
 		EmitRunEvent:   spec.EmitRunEvent,
+		RTKEnabled:     spec.RTKEnabled,
 		ToolCallID:     toolCallID,
 		ToolName:       toolName,
 	}

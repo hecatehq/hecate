@@ -50,6 +50,10 @@ type ExecutionSpec struct {
 	// false (the master gate denies all network access first).
 	ShellNetworkAllowedHosts    []string
 	ShellNetworkAllowPrivateIPs bool
+	// RTKEnabled is the per-chat/per-task command-output compaction
+	// setting. Shell and git executors pass it through to the sandbox
+	// instead of consulting process-global environment.
+	RTKEnabled bool
 	// ToolCallID/ToolName identify the model tool call that delegated
 	// into this executor. Direct shell/git/file tasks leave these
 	// empty; the executor falls back to its own step id/name for
@@ -382,17 +386,17 @@ func executeStreamingCommand(ctx context.Context, exec sandbox.Executor, spec Ex
 		telemetry.AttrHecateToolWorkingDirectory: workingDirectory,
 		telemetry.AttrHecateToolTimeoutMS:        timeout,
 	}
-	mergeMap(stepInput, sandboxTelemetryAttrs(policy, wrapperKind, outputLimit))
+	mergeMap(stepInput, sandboxTelemetryAttrs(policy, wrapperKind, outputLimit, spec.RTKEnabled))
 	step := newExecutionStep(spec, commandSpec.kind, commandSpec.title, commandSpec.toolName, stepInput)
 	toolCallID := firstNonEmpty(spec.ToolCallID, step.ID)
 	eventToolName := firstNonEmpty(spec.ToolName, commandSpec.toolName)
 	if commandSpec.kind == "shell" {
-		baseEvent := shellToolTelemetryAttrs(toolCallID, eventToolName, policy, wrapperKind, outputLimit)
+		baseEvent := shellToolTelemetryAttrs(toolCallID, eventToolName, policy, wrapperKind, outputLimit, spec.RTKEnabled)
 		baseEvent["turn_index"] = 0
 		emitTypedShellRunEvent(spec, "tool.invoked", cloneMap(baseEvent))
 		emitTypedShellRunEvent(spec, "tool.started", cloneMap(baseEvent))
-		commandEvent := shellToolTelemetryAttrs(toolCallID, eventToolName, policy, wrapperKind, outputLimit)
-		commandEvent["argv"] = []string{"sh", "-lc", displayCommand}
+		commandEvent := shellToolTelemetryAttrs(toolCallID, eventToolName, policy, wrapperKind, outputLimit, spec.RTKEnabled)
+		commandEvent["argv"] = sandbox.ShellArgv(sandbox.Command{Command: displayCommand, RTKEnabled: spec.RTKEnabled})
 		commandEvent["cwd"] = workingDirectory
 		commandEvent["env_keys"] = []string{"PATH", "HOME"}
 		commandEvent["sandbox_layer"] = wrapperKind
@@ -428,6 +432,7 @@ func executeStreamingCommand(ctx context.Context, exec sandbox.Executor, spec Ex
 		Timeout:          time.Duration(timeout) * time.Millisecond,
 		Policy:           policy,
 		Limits:           sandbox.ResourceLimits{MaxOutputBytes: outputLimit},
+		RTKEnabled:       spec.RTKEnabled,
 	}, func(chunk sandbox.OutputChunk) {
 		switch chunk.Stream {
 		case "stdout":
@@ -468,7 +473,7 @@ func executeStreamingCommand(ctx context.Context, exec sandbox.Executor, spec Ex
 	stepOutput["stdout_bytes"] = len(resultData.Stdout)
 	stepOutput["stderr_bytes"] = len(resultData.Stderr)
 	stepOutput["exit_code"] = resultData.ExitCode
-	mergeMap(stepOutput, sandboxTelemetryAttrs(policy, wrapperKind, outputLimit))
+	mergeMap(stepOutput, sandboxTelemetryAttrs(policy, wrapperKind, outputLimit, spec.RTKEnabled))
 	finalizeExecutionStep(&step, finishedAt, status, result, lastError, commandErrorKind(err, commandSpec.timeoutErrorKind, commandSpec.defaultErrorKind), stepOutput)
 	step.ExitCode = resultData.ExitCode
 	if commandSpec.kind == "shell" && !sandbox.IsPolicyDenied(err) {
@@ -529,22 +534,26 @@ func executeStreamingCommand(ctx context.Context, exec sandbox.Executor, spec Ex
 	return newExecutionResult(status, []types.TaskStep{step}, []types.TaskArtifact{stdoutArtifact, stderrArtifact}, lastError, otelStatusCode, otelStatusMessage), nil
 }
 
-func sandboxTelemetryAttrs(policy sandbox.Policy, wrapperKind string, outputLimit int64) map[string]any {
-	return map[string]any{
+func sandboxTelemetryAttrs(policy sandbox.Policy, wrapperKind string, outputLimit int64, rtkEnabled bool) map[string]any {
+	attrs := map[string]any{
 		telemetry.AttrHecateSandboxWrapperKind:    wrapperKind,
 		telemetry.AttrHecateSandboxNetworkEnabled: policy.Network,
 		telemetry.AttrHecateSandboxReadOnly:       policy.ReadOnly,
 		telemetry.AttrHecateSandboxOutputLimit:    outputLimit,
 	}
+	if rtkEnabled {
+		attrs[telemetry.AttrHecateSandboxRTKEnabled] = true
+	}
+	return attrs
 }
 
-func shellToolTelemetryAttrs(toolCallID, toolName string, policy sandbox.Policy, wrapperKind string, outputLimit int64) map[string]any {
+func shellToolTelemetryAttrs(toolCallID, toolName string, policy sandbox.Policy, wrapperKind string, outputLimit int64, rtkEnabled bool) map[string]any {
 	attrs := map[string]any{
 		"tool_call_id": toolCallID,
 		"tool_name":    toolName,
 		"kind":         "shell",
 	}
-	mergeMap(attrs, sandboxTelemetryAttrs(policy, wrapperKind, outputLimit))
+	mergeMap(attrs, sandboxTelemetryAttrs(policy, wrapperKind, outputLimit, rtkEnabled))
 	return attrs
 }
 

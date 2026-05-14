@@ -42,6 +42,7 @@ import {
   getAgentChatSession,
   recordModelCapabilityProbe as recordModelCapabilityProbeRequest,
   setAgentChatConfigOption as setAgentChatConfigOptionRequest,
+  setAgentChatSettings as setAgentChatSettingsRequest,
   streamAgentChatSession,
   setProviderBaseURL as setProviderBaseURLRequest,
   setProviderName as setProviderNameRequest,
@@ -260,6 +261,9 @@ export function useRuntimeConsole() {
   const [agentAdapterID, setAgentAdapterID] = useState(() => readLocalStorage("hecate.agentAdapterID") || "codex");
   const [agentWorkspace, setAgentWorkspace] = useState(() => readLocalStorage("hecate.agentWorkspace"));
   const [agentWorkspaceBranch, setAgentWorkspaceBranch] = useState("");
+  const [hecateRTKEnabled, setHecateRTKEnabledState] = useState(false);
+  const [hecateRTKAvailable, setHecateRTKAvailable] = useState(false);
+  const [hecateRTKPath, setHecateRTKPath] = useState("");
   const [agentChatSessions, setAgentChatSessions] = useState<AgentChatSessionsResponse["data"]>([]);
   const [activeAgentChatSessionID, setActiveAgentChatSessionID] = useState(() => readLocalStorage("hecate.agentChatSessionID"));
   const [activeAgentChatSession, setActiveAgentChatSession] = useState<AgentChatSessionRecord | null>(null);
@@ -474,6 +478,13 @@ export function useRuntimeConsole() {
   }, [activeAgentChatSessionID]);
 
   useEffect(() => {
+    if (!activeAgentChatSession || agentChatSessionIsExternal(activeAgentChatSession)) {
+      return;
+    }
+    setHecateRTKEnabledState(Boolean(activeAgentChatSession.rtk_enabled));
+  }, [activeAgentChatSession?.id, activeAgentChatSession?.rtk_enabled]);
+
+  useEffect(() => {
     queuedChatMessagesRef.current = queuedChatMessages;
     const timeout = window.setTimeout(() => {
       writeStoredQueuedChatMessages(queuedChatMessages);
@@ -661,6 +672,8 @@ export function useRuntimeConsole() {
       setRetentionRuns(snapshot.retentionRuns);
       setRetentionLastRun(snapshot.retentionLastRun);
       setAgentAdapterApprovalMode(snapshot.agentAdapterApprovalMode);
+      setHecateRTKAvailable(snapshot.rtkAvailable);
+      setHecateRTKPath(snapshot.rtkPath);
     } catch (loadError) {
       setError(loadError instanceof Error ? loadError.message : "unknown load error");
     } finally {
@@ -913,6 +926,7 @@ export function useRuntimeConsole() {
             ? { adapter_id: turnAdapterID }
             : { provider: turnProviderFilter === "auto" ? "" : turnProviderFilter, model: turnModel }),
           ...(!isModelTurn ? { workspace: turnWorkspace } : {}),
+          ...(!isExternalAgent ? { rtk_enabled: hecateRTKEnabled } : {}),
         });
         sessionID = created.data.id;
         setActiveAgentChatSessionID(sessionID);
@@ -1343,11 +1357,11 @@ export function useRuntimeConsole() {
       clearChatErrorState();
       try {
         const adapter = agentAdapters.find((item) => item.id === agentAdapterID);
-        const created = await createAgentChatSessionRequest({
-          title: adapter ? `${adapter.name} chat` : "External agent chat",
-          runtime_kind: "external_agent",
-          adapter_id: agentAdapterID,
-          workspace,
+      const created = await createAgentChatSessionRequest({
+        title: adapter ? `${adapter.name} chat` : "External agent chat",
+        runtime_kind: "external_agent",
+        adapter_id: agentAdapterID,
+        workspace,
         });
         setActiveAgentChatSessionID(created.data.id);
         applyAgentChatSession(created.data);
@@ -1657,6 +1671,22 @@ export function useRuntimeConsole() {
     }
   }
 
+  async function setHecateRTKEnabled(enabled: boolean): Promise<boolean> {
+    setHecateRTKEnabledState(enabled);
+    if (!activeAgentChatSessionID || !activeAgentChatSession || agentChatSessionIsExternal(activeAgentChatSession)) {
+      return true;
+    }
+    try {
+      const payload = await setAgentChatSettingsRequest(activeAgentChatSessionID, { rtk_enabled: enabled });
+      applyAgentChatSession(payload.data);
+      return true;
+    } catch (error) {
+      setHecateRTKEnabledState(Boolean(activeAgentChatSession.rtk_enabled));
+      setNoticeMessage("error", error instanceof Error ? error.message : "Failed to update chat settings.");
+      return false;
+    }
+  }
+
   async function getAgentChatMessageFileDiff(sessionID: string, messageID: string, path: string): Promise<AgentChatChangedFileDiffRecord | null> {
     try {
       const payload = await getAgentChatMessageFileDiffRequest(sessionID, messageID, path);
@@ -1808,6 +1838,9 @@ export function useRuntimeConsole() {
       agentAdapters,
       agentChatCancelling,
       agentChatSessions,
+      hecateRTKEnabled,
+      hecateRTKAvailable,
+      hecateRTKPath,
       newChatAgentID: defaultChatTarget === "external_agent" ? agentAdapterID : "hecate",
       agentWorkspace,
       agentWorkspaceBranch,
@@ -1918,6 +1951,7 @@ export function useRuntimeConsole() {
       listAgentChatGrants,
       deleteAgentChatGrant,
       setAgentChatConfigOption,
+      setHecateRTKEnabled,
       probeAgentAdapter,
       setAgentAdapterCredential,
       deleteAgentAdapterCredential,

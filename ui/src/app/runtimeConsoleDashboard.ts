@@ -72,6 +72,8 @@ export type DashboardSnapshot = {
   retentionRuns: RetentionRunData[];
   retentionLastRun: RetentionRunData | null;
   agentAdapterApprovalMode: string;
+  rtkAvailable: boolean;
+  rtkPath: string;
 };
 
 type DashboardResults = {
@@ -110,6 +112,12 @@ export async function resolveDashboardSnapshot(args: {
   const agentAdapterApprovalMode = results.runtimeStats.status === "fulfilled"
     ? (results.runtimeStats.value.data.agent_adapter_approval_mode ?? "")
     : "";
+  const rtkAvailable = results.runtimeStats.status === "fulfilled"
+    ? Boolean(results.runtimeStats.value.data.rtk_available)
+    : false;
+  const rtkPath = results.runtimeStats.status === "fulfilled"
+    ? (results.runtimeStats.value.data.rtk_path ?? "")
+    : "";
   const chatState = await resolveChatDashboardState({
     activeChatSessionID: args.activeChatSessionID,
     previousSessions: args.previous.chatSessions,
@@ -143,6 +151,8 @@ export async function resolveDashboardSnapshot(args: {
     retentionRuns,
     retentionLastRun,
     agentAdapterApprovalMode,
+    rtkAvailable,
+    rtkPath,
   };
 }
 

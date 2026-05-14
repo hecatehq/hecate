@@ -94,7 +94,7 @@ describe("resolveDashboardSnapshot", () => {
     });
     vi.mocked(api.getRuntimeStats).mockResolvedValue({
       object: "runtime_stats",
-      data: { agent_adapter_approval_mode: "auto" } as never,
+      data: { agent_adapter_approval_mode: "auto", rtk_available: true, rtk_path: "/usr/local/bin/rtk" } as never,
     });
 
     const snapshot = await resolveDashboardSnapshot({
@@ -107,6 +107,8 @@ describe("resolveDashboardSnapshot", () => {
     expect(snapshot.models).toHaveLength(1);
     expect(snapshot.agentAdapters).toHaveLength(1);
     expect(snapshot.agentAdapterApprovalMode).toBe("auto");
+    expect(snapshot.rtkAvailable).toBe(true);
+    expect(snapshot.rtkPath).toBe("/usr/local/bin/rtk");
   });
 
   it("falls back to previous state when an endpoint rejects", async () => {

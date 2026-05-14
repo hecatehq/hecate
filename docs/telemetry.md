@@ -71,7 +71,9 @@ The runtime metadata headers are most relevant on `/v1/chat/completions` and `/v
 
 Task and run lifecycle endpoints also return `X-Trace-Id` and `X-Span-Id` on key execution actions such as run start and approval resolution.
 
-For coding-runtime operations, `GET /hecate/v1/system/stats` is the primary live health snapshot. It includes queue depth/capacity, worker count, in-flight jobs, backend type (`queue_backend` / `store_backend`), and run-state counters.
+For coding-runtime operations, `GET /hecate/v1/system/stats` is the primary live health snapshot. It includes queue depth/capacity, worker count, in-flight jobs, backend type (`queue_backend` / `store_backend`), run-state counters, and optional RTK availability (`rtk_available`, `rtk_path`) for Hecate Chat command-output compaction.
+
+Sandboxed shell/git spans and task activity include `hecate.sandbox.rtk.enabled` when a chat turn actually launched the command through RTK, so operators can distinguish “RTK installed” from “RTK used for this command.”
 
 The trace endpoint returns:
 

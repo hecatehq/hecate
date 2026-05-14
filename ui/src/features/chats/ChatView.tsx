@@ -1,5 +1,5 @@
 import { useEffect, useRef, useState } from "react";
-import type { SyntheticEvent } from "react";
+import type { ReactNode, SyntheticEvent } from "react";
 import type { RuntimeConsoleViewModel } from "../../app/useRuntimeConsole";
 import { discoverLocalProviders } from "../../lib/api";
 import { resolveChatSetupRepairState, type ChatSetupRepairState } from "../../lib/chat-setup-readiness";
@@ -15,7 +15,7 @@ import { TranscriptMessageRow } from "../transcript/TranscriptMessageRow";
 import { AgentApprovalAutoModeBanner, AgentApprovalsBanner } from "./AgentApprovalBanner";
 import { AgentApprovalModal } from "./AgentApprovalModal";
 import { AddProviderModal } from "../providers/AddProviderModal";
-import { ChatAgentPicker, ExternalAgentConfigControls, HecateToolsToggle, LockedHecateModelSnapshot, chatAgentOption, chatAgentOptionStatus } from "./ChatAgentControls";
+import { ChatAgentPicker, ExternalAgentConfigControls, LockedHecateModelSnapshot, chatAgentOption, chatAgentOptionStatus } from "./ChatAgentControls";
 import type { ChatAgentOptionID } from "./ChatAgentControls";
 import { ChatInstructionsPanel } from "./ChatInstructionsPanel";
 import { AgentSetupHints, ClaudeCodePreflightCard, ClaudeCodeSetupEmptyPanel, claudeCodePreflightState, claudeCodeSetupTokenCommand } from "./ClaudeCodeSetup";
@@ -86,7 +86,6 @@ type HecateTaskApproval = {
 
 export function ChatView({ state, actions, onNavigate, onOpenTask, onOpenTrace }: Props) {
   const [sidebarOpen, setSidebarOpen] = useState(true);
-  const [syspromptOpen, setSyspromptOpen] = useState(false);
   // approvalModalID is the per-banner-click open state for the
   // approval modal. The modal itself fetches the full row on mount;
   // we only carry the id here.
@@ -97,6 +96,7 @@ export function ChatView({ state, actions, onNavigate, onOpenTask, onOpenTrace }
   const [copiedMsgId, setCopiedMsgId] = useState<string | null>(null);
   const [atBottom, setAtBottom] = useState(true);
   const [workspaceEntryOpen, setWorkspaceEntryOpen] = useState(false);
+  const [chatSettingsOpen, setChatSettingsOpen] = useState(false);
   const [addProviderOpen, setAddProviderOpen] = useState(false);
   const [workspacePathValue, setWorkspacePathValue] = useState("");
   const [sidebarQuery, setSidebarQuery] = useState("");
@@ -125,10 +125,6 @@ export function ChatView({ state, actions, onNavigate, onOpenTask, onOpenTrace }
   const isHecateAgentChat = state.chatTarget === "agent";
   const isExternalAgentChat = state.chatTarget === "external_agent";
   const instructionsAvailable = isHecateChat;
-  const instructionsLabel = isHecateAgentChat ? "Agent instructions" : "Instructions";
-  const instructionsTitle = isHecateAgentChat
-    ? "Instructions for Hecate Agent model behavior. Approvals and sandbox policy still come from Hecate."
-    : "Instructions for direct model chat.";
   const sessions: SidebarSession[] = isAgentChat
       ? (state.agentChatSessions ?? []).map((s) => ({
         id: s.id,
@@ -249,6 +245,9 @@ export function ChatView({ state, actions, onNavigate, onOpenTask, onOpenTrace }
   const selectedRuntimeProvider = state.providerFilter === "auto"
     ? state.providers.length === 1 ? state.providers[0] : undefined
     : state.providers.find(provider => provider.name === state.providerFilter);
+  const selectedProviderName = state.providerFilter === "auto"
+    ? "All providers"
+    : selectedConfiguredProvider?.name || selectedRuntimeProvider?.name || state.providerFilter;
   const agentRouteUnavailable = availableAgents.length === 0;
   const selectedAgentUnavailable = isExternalAgentChat && Boolean(selectedAgent) && !selectedAgent?.available;
   const newChatAgentID = state.newChatAgentID || "hecate";
@@ -417,6 +416,7 @@ export function ChatView({ state, actions, onNavigate, onOpenTask, onOpenTrace }
   }
 
   async function chooseWorkspace() {
+    setWorkspacePathValue(state.agentWorkspace);
     const selected = await actions.chooseAgentWorkspace();
     if (!selected) {
       setWorkspaceEntryOpen(true);
@@ -737,13 +737,6 @@ export function ChatView({ state, actions, onNavigate, onOpenTask, onOpenTrace }
               <Icon d={Icons.chevR} size={13} />
             </button>
           )}
-          {isHecateChat && (
-            <HecateToolsToggle
-              enabled={isHecateAgentChat}
-              toolsDisabledForModel={hecateAgentToolsDisabledForModel}
-              onChange={(enabled) => actions.setChatTarget(enabled ? "agent" : "model")}
-            />
-          )}
           <span style={{ fontSize: 13, fontWeight: 500, color: "var(--t0)", flex: 1, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>
             {activeTitle || (sessions.length === 0 ? "New chat" : "Select a chat")}
           </span>
@@ -765,21 +758,11 @@ export function ChatView({ state, actions, onNavigate, onOpenTask, onOpenTrace }
                 className="btn btn-ghost btn-sm"
                 onClick={() => void chooseWorkspace()}
                 title={state.agentWorkspace ? `Workspace: ${state.agentWorkspace}` : "Choose workspace folder"}
+                aria-label={state.agentWorkspace ? `Workspace: ${state.agentWorkspace}` : "Choose workspace folder"}
                 type="button"
+                style={{ width: 30, padding: 0, justifyContent: "center" }}
               >
                 <Icon d={Icons.folder} size={13} />
-                <span style={{ fontSize: 11 }}>{state.agentWorkspace ? "workspace" : "choose workspace"}</span>
-              </button>
-              <button
-                className="btn btn-ghost btn-sm"
-                onClick={() => {
-                  setWorkspacePathValue(state.agentWorkspace);
-                  setWorkspaceEntryOpen(v => !v);
-                }}
-                title="Paste a workspace path"
-                type="button"
-              >
-                <span style={{ fontSize: 11 }}>paste path</span>
               </button>
               {(() => {
                 const sess = state.activeAgentChatSession;
@@ -881,40 +864,33 @@ export function ChatView({ state, actions, onNavigate, onOpenTask, onOpenTrace }
                   />
                 </>
               )}
-              {instructionsAvailable && (
-                <button className="btn btn-ghost btn-sm" onClick={() => setSyspromptOpen(o => !o)}
-                  aria-label={instructionsLabel}
-                  style={{ color: syspromptOpen ? "var(--teal)" : "var(--t2)" }}
-                  title={instructionsTitle}>
-                  <Icon d={Icons.edit} size={13} />
-                  <span style={{ fontSize: 11 }}>instructions</span>
-                </button>
-              )}
             </>
           )}
           {isHecateAgentChat && (
-            <>
-              <button
-                className="btn btn-ghost btn-sm"
-                onClick={() => void chooseWorkspace()}
-                title={state.agentWorkspace ? `Workspace: ${state.agentWorkspace}` : "Choose workspace folder"}
-                type="button"
-              >
-                <Icon d={Icons.folder} size={13} />
-                <span style={{ fontSize: 11 }}>{state.agentWorkspace ? "workspace" : "choose workspace"}</span>
-              </button>
-              <button
-                className="btn btn-ghost btn-sm"
-                onClick={() => {
-                  setWorkspacePathValue(state.agentWorkspace);
-                  setWorkspaceEntryOpen(v => !v);
-                }}
-                title="Paste a workspace path"
-                type="button"
-              >
-                <span style={{ fontSize: 11 }}>paste path</span>
-              </button>
-            </>
+            <button
+              className="btn btn-ghost btn-sm"
+              onClick={() => void chooseWorkspace()}
+              title={state.agentWorkspace ? `Workspace: ${state.agentWorkspace}` : "Choose workspace folder"}
+              aria-label={state.agentWorkspace ? `Workspace: ${state.agentWorkspace}` : "Choose workspace folder"}
+              type="button"
+              style={{ width: 30, padding: 0, justifyContent: "center" }}
+            >
+              <Icon d={Icons.folder} size={13} />
+            </button>
+          )}
+          {isHecateChat && (
+            <button
+              className="btn btn-ghost btn-sm"
+              type="button"
+              aria-expanded={chatSettingsOpen}
+              aria-label="Chat settings"
+              onClick={() => setChatSettingsOpen((open) => !open)}
+              title="Chat settings"
+              style={{ color: chatSettingsOpen ? "var(--teal)" : "var(--t2)" }}
+            >
+              <Icon d={Icons.settings} size={13} />
+              <span style={{ fontSize: 11 }}>settings</span>
+            </button>
           )}
         </div>
 
@@ -938,15 +914,6 @@ export function ChatView({ state, actions, onNavigate, onOpenTask, onOpenTrace }
               Use
             </button>
           </div>
-        )}
-
-        {instructionsAvailable && syspromptOpen && (
-          <ChatInstructionsPanel
-            isHecateAgentChat={isHecateAgentChat}
-            locked={messages.length > 0}
-            value={state.systemPrompt}
-            onChange={actions.setSystemPrompt}
-          />
         )}
 
         {/* External-agent approval surfaces. Both banners are agent-chat-only;
@@ -1177,6 +1144,10 @@ export function ChatView({ state, actions, onNavigate, onOpenTask, onOpenTrace }
               onClaudeTokenDraftChange={setClaudeTokenDraft}
               onSaveClaudeCodeToken={() => void saveClaudeCodeToken()}
               onTestClaudeCode={() => void actions.probeAgentAdapter("claude_code")}
+              rtkAvailable={state.hecateRTKAvailable}
+              rtkPath={state.hecateRTKPath}
+              rtkEnabled={state.hecateRTKEnabled}
+              onEnableRTK={() => void actions.setHecateRTKEnabled(true)}
             />
           )}
           <div ref={bottomRef} />
@@ -1441,6 +1412,26 @@ export function ChatView({ state, actions, onNavigate, onOpenTask, onOpenTrace }
           </>
           )}
         </form>
+        )}
+        {isHecateChat && chatSettingsOpen && (
+          <ChatSettingsPanel
+            toolsEnabled={isHecateAgentChat}
+            toolsDisabledForModel={hecateAgentToolsDisabledForModel}
+            rtkEnabled={Boolean(state.hecateRTKEnabled)}
+            rtkAvailable={Boolean(state.hecateRTKAvailable)}
+            rtkPath={state.hecateRTKPath}
+            taskID={state.activeAgentChatSession?.task_id}
+            model={state.model}
+            provider={selectedProviderName}
+            instructionsAvailable={instructionsAvailable}
+            isHecateAgentChat={isHecateAgentChat}
+            instructionsLocked={messages.length > 0}
+            systemPrompt={state.systemPrompt}
+            onToolsChange={(enabled) => actions.setChatTarget(enabled ? "agent" : "model")}
+            onRTKChange={(enabled) => void actions.setHecateRTKEnabled(enabled)}
+            onSystemPromptChange={actions.setSystemPrompt}
+            onClose={() => setChatSettingsOpen(false)}
+          />
         )}
       </div>
 
@@ -2060,6 +2051,10 @@ function ChatEmptyState({
   onClaudeTokenDraftChange,
   onSaveClaudeCodeToken,
   onTestClaudeCode,
+  rtkAvailable,
+  rtkPath,
+  rtkEnabled,
+  onEnableRTK,
 }: {
   isAgentChat: boolean;
   isHecateChat: boolean;
@@ -2097,6 +2092,10 @@ function ChatEmptyState({
   onClaudeTokenDraftChange: (value: string) => void;
   onSaveClaudeCodeToken: () => void;
   onTestClaudeCode: () => void;
+  rtkAvailable: boolean;
+  rtkPath: string;
+  rtkEnabled: boolean;
+  onEnableRTK: () => void;
 }) {
   const hecateModelUnavailable = isHecateChat && (modelRouteUnavailable || Boolean(selectedModelIssue));
   const setupRepairForEmpty = setupRepair?.action === "enable_tools" ? null : setupRepair;
@@ -2186,6 +2185,9 @@ function ChatEmptyState({
       {isHecateChat && selectedModelIssue && (
         <SelectedModelReadinessNotice issue={selectedModelIssue} compact onUseSuggestedModel={onUseSuggestedModel} />
       )}
+      {isHecateChat && rtkAvailable && !rtkEnabled && !hecateModelUnavailable && !setupRepairForEmpty && (
+        <RTKOnboardingHint path={rtkPath} onEnable={onEnableRTK} />
+      )}
       {(emptyRepairAction || modelRouteUnavailable || selectedModelIssue || agentRouteUnavailable) && (
         <div style={{ display: "flex", justifyContent: "center", gap: 8, marginTop: 14, flexWrap: "wrap" }}>
           {emptyRepairAction && (
@@ -2234,6 +2236,36 @@ function ChatEmptyState({
           onRefresh={onRefreshQuickLocalProviders}
         />
       )}
+    </div>
+  );
+}
+
+function RTKOnboardingHint({ path, onEnable }: { path: string; onEnable: () => void }) {
+  return (
+    <div
+      style={{
+        margin: "16px auto 0",
+        maxWidth: 520,
+        border: "1px solid var(--teal-border)",
+        borderRadius: "var(--radius)",
+        background: "var(--teal-bg)",
+        padding: "12px 14px",
+        display: "grid",
+        gap: 8,
+        textAlign: "left",
+      }}
+    >
+      <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", gap: 10 }}>
+        <div>
+          <div style={{ fontSize: 12, fontWeight: 650, color: "var(--teal)" }}>Compact command output is available</div>
+          <div style={{ marginTop: 3, fontSize: 11, color: "var(--t2)", lineHeight: 1.45 }}>
+            Hecate found RTK{path ? ` at ${path}` : ""}. Turn it on if you want shorter shell/git output in tool-backed turns.
+          </div>
+        </div>
+        <button className="btn btn-primary btn-sm" type="button" onClick={onEnable} style={{ flexShrink: 0 }}>
+          Turn on
+        </button>
+      </div>
     </div>
   );
 }
@@ -2791,6 +2823,267 @@ function formatAgentRuntimeMeta(runID?: string, durationMS?: number, nativeSessi
     parts.push(formatDuration(durationMS));
   }
   return parts.join(" · ");
+}
+
+function ChatSettingsPanel({
+  toolsEnabled,
+  toolsDisabledForModel,
+  rtkEnabled,
+  rtkAvailable,
+  rtkPath,
+  taskID,
+  model,
+  provider,
+  instructionsAvailable,
+  isHecateAgentChat,
+  instructionsLocked,
+  systemPrompt,
+  onToolsChange,
+  onRTKChange,
+  onSystemPromptChange,
+  onClose,
+}: {
+  toolsEnabled: boolean;
+  toolsDisabledForModel: boolean;
+  rtkEnabled: boolean;
+  rtkAvailable: boolean;
+  rtkPath: string;
+  taskID?: string;
+  model?: string;
+  provider?: string;
+  instructionsAvailable: boolean;
+  isHecateAgentChat: boolean;
+  instructionsLocked: boolean;
+  systemPrompt: string;
+  onToolsChange: (enabled: boolean) => void;
+  onRTKChange: (enabled: boolean) => void;
+  onSystemPromptChange: (value: string) => void;
+  onClose: () => void;
+}) {
+  return (
+    <aside
+      aria-label="Chat settings panel"
+      style={{
+        position: "absolute",
+        top: "var(--topbar-h)",
+        right: 0,
+        bottom: 0,
+        width: "min(360px, 100%)",
+        borderLeft: "1px solid var(--border)",
+        background: "var(--bg1)",
+        boxShadow: "var(--shadow-popover)",
+        zIndex: 30,
+        display: "flex",
+        flexDirection: "column",
+        minHeight: 0,
+      }}
+    >
+      <div
+        style={{
+          borderBottom: "1px solid var(--border)",
+          padding: "14px 14px 12px",
+          display: "flex",
+          alignItems: "flex-start",
+          justifyContent: "space-between",
+          gap: 12,
+        }}
+      >
+        <div>
+          <div style={{ fontSize: 12, fontWeight: 650, color: "var(--t0)" }}>Chat settings</div>
+          <div style={{ marginTop: 4, fontSize: 11, color: "var(--t3)", lineHeight: 1.45 }}>
+            Controls for future turns in this Hecate Chat. Running task turns keep the settings they started with.
+          </div>
+        </div>
+        <button
+          className="btn btn-ghost btn-sm"
+          type="button"
+          aria-label="Close chat settings"
+          title="Close"
+          onClick={onClose}
+          style={{ flexShrink: 0, padding: "4px 7px" }}
+        >
+          <Icon d={Icons.x} size={12} />
+        </button>
+      </div>
+      <div style={{ overflowY: "auto", padding: 14, display: "grid", gap: 14 }}>
+        <ChatSettingsSection title="Mode">
+          <ChatSettingsToolsRow
+            enabled={toolsEnabled}
+            disabled={toolsDisabledForModel}
+            onChange={onToolsChange}
+          />
+        </ChatSettingsSection>
+        <ChatSettingsSection title="Command output">
+          <ChatSettingsRTKRow
+            available={rtkAvailable}
+            path={rtkPath}
+            enabled={rtkEnabled}
+            onChange={onRTKChange}
+          />
+        </ChatSettingsSection>
+        {instructionsAvailable && (
+          <ChatSettingsSection title="System prompt">
+            <ChatInstructionsPanel
+              embedded
+              isHecateAgentChat={isHecateAgentChat}
+              locked={instructionsLocked}
+              value={systemPrompt}
+              onChange={onSystemPromptChange}
+            />
+          </ChatSettingsSection>
+        )}
+        <ChatSettingsSection title="Debug">
+          <div style={{ display: "grid", gap: 5, fontSize: 11, color: "var(--t3)", lineHeight: 1.45 }}>
+            <ChatSettingsField label="Provider" value={provider || "All providers"} />
+            <ChatSettingsField label="Model" value={model || "not selected"} mono />
+            {taskID && <ChatSettingsField label="Task" value={shortID(taskID)} mono />}
+            <ChatSettingsField
+              label="Shell argv"
+              value={rtkEnabled ? "rtk sh -lc <command>" : "sh -lc <command>"}
+              mono
+            />
+          </div>
+        </ChatSettingsSection>
+      </div>
+    </aside>
+  );
+}
+
+function ChatSettingsSection({ title, children }: { title: string; children: ReactNode }) {
+  return (
+    <section>
+      <div className="kicker" style={{ marginBottom: 7 }}>{title}</div>
+      {children}
+    </section>
+  );
+}
+
+function ChatSettingsField({ label, value, mono }: { label: string; value: string; mono?: boolean }) {
+  return (
+    <div style={{ display: "flex", gap: 8, alignItems: "baseline" }}>
+      <span style={{ color: "var(--t3)", fontSize: 11, minWidth: 78 }}>{label}</span>
+      <span style={{ color: "var(--t1)", fontSize: 11, fontFamily: mono ? "var(--font-mono)" : "inherit", wordBreak: "break-all" }}>
+        {value}
+      </span>
+    </div>
+  );
+}
+
+function ChatSettingsToolsRow({
+  enabled,
+  disabled,
+  onChange,
+}: {
+  enabled: boolean;
+  disabled: boolean;
+  onChange: (enabled: boolean) => void;
+}) {
+  return (
+    <div
+      style={{
+        border: "1px solid var(--border)",
+        borderRadius: 12,
+        background: "var(--bg1)",
+        padding: 12,
+        display: "flex",
+        alignItems: "center",
+        justifyContent: "space-between",
+        gap: 14,
+      }}
+    >
+      <div>
+        <div style={{ fontSize: 12, fontWeight: 650, color: "var(--t0)" }}>Tools</div>
+        <div style={{ marginTop: 3, fontSize: 11, color: "var(--t3)", lineHeight: 1.45 }}>
+          {enabled
+            ? "Use Hecate's task runtime, approvals, artifacts, and sandboxed tool calls."
+            : "Send the next turn directly to the selected provider/model without local tools."}
+        </div>
+        {disabled && (
+          <div style={{ marginTop: 4, fontSize: 11, color: "var(--amber)", lineHeight: 1.45 }}>
+            This model does not have known tool-calling support.
+          </div>
+        )}
+      </div>
+      <button
+        className="btn btn-ghost btn-sm"
+        type="button"
+        aria-label={`Tools ${enabled ? "on" : "off"}`}
+        aria-pressed={enabled}
+        disabled={disabled && !enabled}
+        onClick={() => onChange(!enabled)}
+        style={{
+          flexShrink: 0,
+          minWidth: 72,
+          justifyContent: "center",
+          color: enabled ? "var(--teal)" : "var(--t2)",
+          borderColor: enabled ? "var(--teal-border)" : "var(--border)",
+          background: enabled ? "var(--teal-bg)" : "transparent",
+        }}
+      >
+        {enabled ? "on" : "off"}
+      </button>
+    </div>
+  );
+}
+
+function ChatSettingsRTKRow({
+  available,
+  path,
+  enabled,
+  onChange,
+}: {
+  available: boolean;
+  path: string;
+  enabled: boolean;
+  onChange: (enabled: boolean) => void;
+}) {
+  return (
+    <div
+      style={{
+        border: "1px solid var(--border)",
+        borderRadius: 12,
+        background: "var(--bg1)",
+        padding: 12,
+        display: "flex",
+        alignItems: "center",
+        justifyContent: "space-between",
+        gap: 14,
+      }}
+    >
+      <div>
+        <div style={{ fontSize: 12, fontWeight: 650, color: "var(--t0)" }}>Compact command output</div>
+        <div style={{ marginTop: 3, fontSize: 11, color: "var(--t3)", lineHeight: 1.45 }}>
+          {available
+            ? <>RTK is installed{path ? <> at <code>{path}</code></> : ""}. Hecate can run shell and git tools as <code>rtk sh -lc &lt;command&gt;</code> for shorter output.</>
+            : <>RTK is not installed in the gateway PATH. Install it to enable compact shell/git output.</>}
+          {" "}Hecate still applies approvals, sandbox policy, limits, and timeouts.
+        </div>
+      </div>
+      <button
+        className="btn btn-ghost btn-sm"
+        type="button"
+        aria-label={`Compact command output ${enabled ? "on" : "off"}`}
+        aria-pressed={enabled}
+        disabled={!available && !enabled}
+        onClick={() => onChange(!enabled)}
+        style={{
+          flexShrink: 0,
+          minWidth: 72,
+          justifyContent: "center",
+          color: enabled ? "var(--teal)" : "var(--t2)",
+          borderColor: enabled ? "var(--teal-border)" : "var(--border)",
+          background: enabled ? "var(--teal-bg)" : "transparent",
+          opacity: !available && !enabled ? 0.55 : 1,
+        }}
+      >
+        {enabled ? "on" : "off"}
+      </button>
+    </div>
+  );
+}
+
+function shortID(id: string): string {
+  return compactID(id, ["task_", "run_", "agent_chat_"], 8);
 }
 
 function compactID(id: string, prefixes: string[], length: number): string {

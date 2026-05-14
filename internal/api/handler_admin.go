@@ -15,6 +15,7 @@ import (
 	mcpclient "github.com/hecate/agent-runtime/internal/mcp/client"
 	"github.com/hecate/agent-runtime/internal/orchestrator"
 	"github.com/hecate/agent-runtime/internal/retention"
+	"github.com/hecate/agent-runtime/internal/sandbox"
 	"github.com/hecate/agent-runtime/internal/secrets"
 	"github.com/hecate/agent-runtime/internal/telemetry"
 	"github.com/hecate/agent-runtime/pkg/types"
@@ -192,6 +193,8 @@ func (h *Handler) writeRuntimeStats(w http.ResponseWriter, ctx context.Context) 
 		return
 	}
 
+	rtkPath, rtkAvailable := sandbox.RTKAvailable()
+
 	WriteJSON(w, http.StatusOK, RuntimeStatsResponse{
 		Object: "runtime_stats",
 		Data: RuntimeStatsResponseItem{
@@ -213,6 +216,8 @@ func (h *Handler) writeRuntimeStats(w http.ResponseWriter, ctx context.Context) 
 			// review). Empty when the handler was built without an
 			// approval coordinator (test fixtures bypass NewHandler).
 			AgentAdapterApprovalMode: string(h.approvalConfig.mode),
+			RTKAvailable:             rtkAvailable,
+			RTKPath:                  rtkPath,
 		},
 	})
 }

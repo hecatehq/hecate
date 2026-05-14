@@ -317,12 +317,16 @@ func TestMergeStepTelemetryAttrsUsesAllowlist(t *testing.T) {
 	dst := map[string]any{"existing": "value"}
 	mergeStepTelemetryAttrs(dst, map[string]any{
 		telemetry.AttrHecateSandboxWrapperKind:   "sandbox-exec",
+		telemetry.AttrHecateSandboxRTKEnabled:    true,
 		telemetry.AttrHecateToolExitCode:         7,
 		telemetry.AttrHecateToolWorkingDirectory: "/tmp/work",
 		"arbitrary":                              "ignored",
 	})
 	if got := dst[telemetry.AttrHecateSandboxWrapperKind]; got != "sandbox-exec" {
 		t.Fatalf("wrapper kind = %v, want sandbox-exec", got)
+	}
+	if got := dst[telemetry.AttrHecateSandboxRTKEnabled]; got != true {
+		t.Fatalf("rtk enabled = %v, want true", got)
 	}
 	if got := dst[telemetry.AttrHecateToolExitCode]; got != 7 {
 		t.Fatalf("exit code = %v, want 7", got)
@@ -332,6 +336,17 @@ func TestMergeStepTelemetryAttrsUsesAllowlist(t *testing.T) {
 	}
 	if _, ok := dst["arbitrary"]; ok {
 		t.Fatal("arbitrary key should not be promoted to trace attrs")
+	}
+}
+
+func TestSandboxTelemetryAttrsIncludesRTKWhenEnabled(t *testing.T) {
+	attrs := sandboxTelemetryAttrs(sandbox.Policy{}, "none", 1024, true)
+	if got := attrs[telemetry.AttrHecateSandboxRTKEnabled]; got != true {
+		t.Fatalf("rtk enabled = %v, want true", got)
+	}
+	attrs = sandboxTelemetryAttrs(sandbox.Policy{}, "none", 1024, false)
+	if _, ok := attrs[telemetry.AttrHecateSandboxRTKEnabled]; ok {
+		t.Fatal("rtk enabled attr should be omitted when disabled")
 	}
 }
 
@@ -376,22 +391,55 @@ func TestShellExecutorEmitsTypedTimeoutEvent(t *testing.T) {
 	}
 }
 
+func TestShellExecutorPassesRTKSettingToSandbox(t *testing.T) {
+	exec := &fakeStreamingSandbox{
+		result: sandbox.Result{Stdout: "ok\n", ExitCode: 0},
+	}
+	shell := NewShellExecutor(exec)
+	result, err := shell.Execute(context.Background(), ExecutionSpec{
+		Task: types.Task{
+			ID:               "task-1",
+			ExecutionKind:    "shell",
+			ShellCommand:     "printf ok",
+			WorkingDirectory: ".",
+		},
+		Run:        types.TaskRun{ID: "run-1"},
+		StartedAt:  time.Now().UTC(),
+		NewID:      deterministicIDGenerator(),
+		RTKEnabled: true,
+	})
+	if err != nil {
+		t.Fatalf("Execute() error = %v", err)
+	}
+	if result.Status != "completed" {
+		t.Fatalf("status = %q, want completed", result.Status)
+	}
+	if !exec.command.RTKEnabled {
+		t.Fatal("sandbox command RTKEnabled = false, want true")
+	}
+	if got := result.Steps[0].Input[telemetry.AttrHecateSandboxRTKEnabled]; got != true {
+		t.Fatalf("step input rtk enabled = %v, want true", got)
+	}
+}
+
 type capturedRunEvent struct {
 	eventType string
 	data      map[string]any
 }
 
 type fakeStreamingSandbox struct {
-	result sandbox.Result
-	chunks []sandbox.OutputChunk
-	err    error
+	result  sandbox.Result
+	chunks  []sandbox.OutputChunk
+	err     error
+	command sandbox.Command
 }
 
 func (f *fakeStreamingSandbox) Run(ctx context.Context, command sandbox.Command) (sandbox.Result, error) {
 	return f.RunStreaming(ctx, command, nil)
 }
 
-func (f *fakeStreamingSandbox) RunStreaming(_ context.Context, _ sandbox.Command, onChunk func(sandbox.OutputChunk)) (sandbox.Result, error) {
+func (f *fakeStreamingSandbox) RunStreaming(_ context.Context, command sandbox.Command, onChunk func(sandbox.OutputChunk)) (sandbox.Result, error) {
+	f.command = command
 	for _, chunk := range f.chunks {
 		if onChunk != nil {
 			onChunk(chunk)

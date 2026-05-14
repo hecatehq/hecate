@@ -33,8 +33,11 @@ gateway:
    read-only mode, network gate, host allowlist, private-IP block.
    Best-effort static parsing of the command. Violations return a
    `PolicyError` and the command never runs.
-2. **Builds an `exec.Cmd`** for `sh -lc <command>` (or the bwrap /
-   sandbox-exec wrapped equivalent — see [Layer 2](#layer-2--os-level-isolation)).
+2. **Builds an `exec.Cmd`** for `sh -lc <command>` (or
+   `rtk sh -lc <command>` when that specific Hecate Chat has compact
+   command output enabled) and then applies the bwrap /
+   sandbox-exec wrapper when available — see
+   [Layer 2](#layer-2--os-level-isolation).
 3. **Sanitises the environment** — explicit allowlist of variables
    the shell command will see; gateway secrets stay out of scope.
 4. **Spawns the subprocess** under the task's wall-clock timeout and
@@ -111,6 +114,15 @@ spawning the shell. Both are always-on; the cap is configurable.
   bounds wall-clock. Both kill the subprocess on breach. Together they
   are the per-call budget — runaway commands can't exhaust gateway
   memory or hold a worker indefinitely.
+- **Optional RTK compaction** — Hecate Chat can enable compact command
+  output per chat. The setting is off by default. If `rtk` is installed
+  in the gateway process `PATH`, system stats report `rtk_available`
+  and the UI offers an opt-in onboarding hint. When enabled, shell/git
+  tools launch as `rtk sh -lc <command>` after policy validation and
+  before process start. This is an output-shaping hook, not a policy
+  bypass: the original command string is still what the sandbox
+  validates, and the process still receives the sanitised environment,
+  timeout, output cap, and Layer 2 wrapper.
 
 CPU / file-descriptor / address-space caps are *not* applied
 per-call. `RLIMIT_*` values set via `setrlimit` modify the calling

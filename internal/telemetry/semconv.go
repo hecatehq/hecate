@@ -111,6 +111,7 @@ const (
 
 	// Sandbox / tool execution
 	AttrHecateSandboxWrapperKind     = "hecate.sandbox.wrapper.kind"
+	AttrHecateSandboxRTKEnabled      = "hecate.sandbox.rtk.enabled"
 	AttrHecateSandboxNetworkEnabled  = "hecate.sandbox.network.enabled"
 	AttrHecateSandboxReadOnly        = "hecate.sandbox.read_only"
 	AttrHecateSandboxOutputLimit     = "hecate.sandbox.output_limit.bytes"
