@@ -127,7 +127,14 @@ func agentChatTaskActivityDetail(item TaskActivityItem) string {
 	if rtkEnabled, _ := item.Summary[telemetry.AttrHecateSandboxRTKEnabled].(bool); rtkEnabled {
 		parts = append(parts, "via RTK")
 	}
-	if argv := compactActivityArgv(item.Summary["argv"]); argv != "" {
+	rtkCommandDetail := false
+	if rtkBefore, _ := item.Summary[telemetry.AttrHecateSandboxRTKCommandBefore].(string); rtkBefore != "" {
+		if rtkAfter, _ := item.Summary[telemetry.AttrHecateSandboxRTKCommandAfter].(string); rtkAfter != "" {
+			parts = append(parts, "RTK: "+rtkBefore+" -> "+rtkAfter)
+			rtkCommandDetail = true
+		}
+	}
+	if argv := compactActivityArgv(item.Summary["argv"]); argv != "" && !rtkCommandDetail {
 		parts = append(parts, argv)
 	}
 	if reason, ok := item.Summary["reason"].(string); ok && strings.TrimSpace(reason) != "" {

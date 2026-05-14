@@ -73,7 +73,13 @@ Task and run lifecycle endpoints also return `X-Trace-Id` and `X-Span-Id` on key
 
 For coding-runtime operations, `GET /hecate/v1/system/stats` is the primary live health snapshot. It includes queue depth/capacity, worker count, in-flight jobs, backend type (`queue_backend` / `store_backend`), run-state counters, and optional RTK availability (`rtk_available`, `rtk_path`) for Hecate Chat command-output compaction.
 
-Sandboxed shell/git spans and task activity include `hecate.sandbox.rtk.enabled` when a chat turn actually launched the command through RTK, so operators can distinguish “RTK installed” from “RTK used for this command.”
+Sandboxed shell/git spans and task activity include `hecate.sandbox.rtk.enabled`
+when a chat turn actually launched the command through RTK, so operators can
+distinguish “RTK installed” from “RTK used for this command.” When RTK is used,
+the same step also records `hecate.sandbox.rtk.command.before` and
+`hecate.sandbox.rtk.command.after`, for example `sh -lc "git status"` →
+`rtk sh -lc "git status"`, so traces show exactly what Hecate validated and what
+argv it executed after the RTK wrapper was inserted.
 
 The trace endpoint returns:
 

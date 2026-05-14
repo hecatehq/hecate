@@ -289,7 +289,9 @@ reports `rtk_available=true` and the UI suggests enabling compact
 command output during new-chat onboarding. When enabled for that chat,
 shell/git tool subprocesses launch as `rtk sh -lc <command>` after
 policy validation; the same sandbox wrapper, environment sanitisation,
-output caps, and timeouts still apply.
+output caps, and timeouts still apply. Task telemetry records both the
+pre-wrapper and post-wrapper command strings so traces can show exactly
+what RTK changed.
 
 Per-task fields on `POST /hecate/v1/tasks` that affect agent_loop:
 

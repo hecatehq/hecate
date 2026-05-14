@@ -316,17 +316,25 @@ func TestShellExecutorEmitsTypedEventProtocolShellEvents(t *testing.T) {
 func TestMergeStepTelemetryAttrsUsesAllowlist(t *testing.T) {
 	dst := map[string]any{"existing": "value"}
 	mergeStepTelemetryAttrs(dst, map[string]any{
-		telemetry.AttrHecateSandboxWrapperKind:   "sandbox-exec",
-		telemetry.AttrHecateSandboxRTKEnabled:    true,
-		telemetry.AttrHecateToolExitCode:         7,
-		telemetry.AttrHecateToolWorkingDirectory: "/tmp/work",
-		"arbitrary":                              "ignored",
+		telemetry.AttrHecateSandboxWrapperKind:      "sandbox-exec",
+		telemetry.AttrHecateSandboxRTKEnabled:       true,
+		telemetry.AttrHecateSandboxRTKCommandBefore: `sh -lc "printf ok"`,
+		telemetry.AttrHecateSandboxRTKCommandAfter:  `rtk sh -lc "printf ok"`,
+		telemetry.AttrHecateToolExitCode:            7,
+		telemetry.AttrHecateToolWorkingDirectory:    "/tmp/work",
+		"arbitrary":                                 "ignored",
 	})
 	if got := dst[telemetry.AttrHecateSandboxWrapperKind]; got != "sandbox-exec" {
 		t.Fatalf("wrapper kind = %v, want sandbox-exec", got)
 	}
 	if got := dst[telemetry.AttrHecateSandboxRTKEnabled]; got != true {
 		t.Fatalf("rtk enabled = %v, want true", got)
+	}
+	if got := dst[telemetry.AttrHecateSandboxRTKCommandBefore]; got != `sh -lc "printf ok"` {
+		t.Fatalf("rtk command before = %v, want sh -lc \"printf ok\"", got)
+	}
+	if got := dst[telemetry.AttrHecateSandboxRTKCommandAfter]; got != `rtk sh -lc "printf ok"` {
+		t.Fatalf("rtk command after = %v, want rtk sh -lc \"printf ok\"", got)
 	}
 	if got := dst[telemetry.AttrHecateToolExitCode]; got != 7 {
 		t.Fatalf("exit code = %v, want 7", got)
@@ -395,6 +403,7 @@ func TestShellExecutorPassesRTKSettingToSandbox(t *testing.T) {
 	exec := &fakeStreamingSandbox{
 		result: sandbox.Result{Stdout: "ok\n", ExitCode: 0},
 	}
+	var events []capturedRunEvent
 	shell := NewShellExecutor(exec)
 	result, err := shell.Execute(context.Background(), ExecutionSpec{
 		Task: types.Task{
@@ -407,6 +416,9 @@ func TestShellExecutorPassesRTKSettingToSandbox(t *testing.T) {
 		StartedAt:  time.Now().UTC(),
 		NewID:      deterministicIDGenerator(),
 		RTKEnabled: true,
+		EmitRunEvent: func(eventType string, data map[string]any) {
+			events = append(events, capturedRunEvent{eventType: eventType, data: data})
+		},
 	})
 	if err != nil {
 		t.Fatalf("Execute() error = %v", err)
@@ -419,6 +431,34 @@ func TestShellExecutorPassesRTKSettingToSandbox(t *testing.T) {
 	}
 	if got := result.Steps[0].Input[telemetry.AttrHecateSandboxRTKEnabled]; got != true {
 		t.Fatalf("step input rtk enabled = %v, want true", got)
+	}
+	if got := result.Steps[0].Input[telemetry.AttrHecateSandboxRTKCommandBefore]; got != `sh -lc "printf ok"` {
+		t.Fatalf("step input rtk command before = %v, want sh -lc \"printf ok\"", got)
+	}
+	if got := result.Steps[0].Input[telemetry.AttrHecateSandboxRTKCommandAfter]; got != `rtk sh -lc "printf ok"` {
+		t.Fatalf("step input rtk command after = %v, want rtk sh -lc \"printf ok\"", got)
+	}
+	if got := result.Steps[0].OutputSummary[telemetry.AttrHecateSandboxRTKCommandBefore]; got != `sh -lc "printf ok"` {
+		t.Fatalf("step output rtk command before = %v, want sh -lc \"printf ok\"", got)
+	}
+	if got := result.Steps[0].OutputSummary[telemetry.AttrHecateSandboxRTKCommandAfter]; got != `rtk sh -lc "printf ok"` {
+		t.Fatalf("step output rtk command after = %v, want rtk sh -lc \"printf ok\"", got)
+	}
+	var commandEvent map[string]any
+	for _, event := range events {
+		if event.eventType == "tool.shell.command" {
+			commandEvent = event.data
+			break
+		}
+	}
+	if commandEvent == nil {
+		t.Fatalf("tool.shell.command event missing: %+v", events)
+	}
+	if got := commandEvent[telemetry.AttrHecateSandboxRTKCommandBefore]; got != `sh -lc "printf ok"` {
+		t.Fatalf("event rtk command before = %v, want sh -lc \"printf ok\"", got)
+	}
+	if got := commandEvent[telemetry.AttrHecateSandboxRTKCommandAfter]; got != `rtk sh -lc "printf ok"` {
+		t.Fatalf("event rtk command after = %v, want rtk sh -lc \"printf ok\"", got)
 	}
 }
 
