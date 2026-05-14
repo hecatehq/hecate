@@ -60,6 +60,18 @@ so historical segments keep the instructions they were created with; start a
 new chat to change them. External Agent chats do not use this field because
 Codex, Claude Code, and Cursor own their own prompt/configuration surface.
 
+Hecate Chat settings also own the **Tools** toggle and the optional **Compact
+command output** toggle. Tools decides whether future turns stay as direct
+model calls or enter the Hecate task runtime. Compact command output is
+per-chat RTK support. It is off by default; if `rtk` is installed in the
+gateway process `PATH`, Hecate suggests enabling it during new-chat onboarding.
+When enabled, future shell/git tool calls in task-backed turns launch as
+`rtk sh -lc <command>`. Hecate still performs its own approval, policy,
+sandbox, timeout, and output-limit checks; RTK only changes the command output
+shape the model sees. Task/run activity carries the resulting argv and
+`hecate.sandbox.rtk.enabled` flag so debugging can confirm whether a command
+actually used RTK.
+
 The operator UI's **Hecate Chat** target now uses **Agent Chat** sessions under
 `/hecate/v1/agent-chat/sessions` for both tools-off direct model turns and tools-on
 Hecate Agent turns. Those records can point at a runtime when tools are enabled,

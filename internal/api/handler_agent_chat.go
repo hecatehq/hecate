@@ -76,6 +76,7 @@ func (h *Handler) HandleCreateAgentChatSession(w http.ResponseWriter, r *http.Re
 		RuntimeKind:     runtimeKind,
 		Workspace:       workspace,
 		WorkspaceBranch: workspaceBranch,
+		RTKEnabled:      req.RTKEnabled,
 	}
 	var err error
 	var externalAdapter agentadapters.Adapter
@@ -403,6 +404,58 @@ func (h *Handler) HandleSetAgentChatConfigOption(w http.ResponseWriter, r *http.
 	}
 	updated, err := h.agentChat.UpdateSession(r.Context(), session.ID, func(item *agentchat.Session) {
 		item.ConfigOptions = result.ConfigOptions
+	})
+	if err != nil {
+		WriteError(w, http.StatusInternalServerError, errCodeGatewayError, err.Error())
+		return
+	}
+	h.agentChatLive.publishSession(updated)
+	WriteJSON(w, http.StatusOK, AgentChatSessionResponse{Object: "agent_chat_session", Data: renderAgentChatSession(updated, h.agentChatSnapshotConfig())})
+}
+
+func (h *Handler) HandleSetAgentChatSettings(w http.ResponseWriter, r *http.Request) {
+	sessionID := strings.TrimSpace(r.PathValue("id"))
+	session, ok, err := h.agentChat.Get(r.Context(), sessionID)
+	if err != nil {
+		WriteError(w, http.StatusInternalServerError, errCodeGatewayError, err.Error())
+		return
+	}
+	if !ok {
+		WriteError(w, http.StatusNotFound, errCodeNotFound, "agent chat session not found")
+		return
+	}
+	if renderAgentChatRuntimeKind(session) == "external_agent" {
+		WriteError(w, http.StatusConflict, errCodeRuntimeMismatch, "Hecate Chat settings are not available for external-agent sessions")
+		return
+	}
+	var req SetAgentChatSettingsRequest
+	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+		WriteError(w, http.StatusBadRequest, errCodeInvalidRequest, "invalid request body")
+		return
+	}
+	if req.RTKEnabled == nil {
+		WriteError(w, http.StatusBadRequest, errCodeInvalidRequest, "no settings provided")
+		return
+	}
+
+	rtkEnabled := *req.RTKEnabled
+	if session.TaskID != "" && h.taskStore != nil {
+		task, found, err := h.taskStore.GetTask(r.Context(), session.TaskID)
+		if err != nil {
+			WriteError(w, http.StatusInternalServerError, errCodeGatewayError, err.Error())
+			return
+		}
+		if found {
+			task.RTKEnabled = rtkEnabled
+			if _, err := h.taskStore.UpdateTask(r.Context(), task); err != nil {
+				WriteError(w, http.StatusInternalServerError, errCodeGatewayError, err.Error())
+				return
+			}
+		}
+	}
+
+	updated, err := h.agentChat.UpdateSession(r.Context(), session.ID, func(item *agentchat.Session) {
+		item.RTKEnabled = rtkEnabled
 	})
 	if err != nil {
 		WriteError(w, http.StatusInternalServerError, errCodeGatewayError, err.Error())

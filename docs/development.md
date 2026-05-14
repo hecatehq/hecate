@@ -36,6 +36,7 @@ Required only for the native desktop app:
 Optional:
 
 - **Docker** — only required for the docker-smoke test job and container workflows; not needed for the gateway itself.
+- **RTK** — optional local helper used by Hecate Chat's per-chat “compact command output” setting. It is off by default; when the `rtk` command is present in the gateway `PATH`, the UI offers an opt-in hint. Hecate still applies policy validation, env sanitisation, output caps, timeouts, and the OS sandbox wrapper.
 
 Install examples:
 

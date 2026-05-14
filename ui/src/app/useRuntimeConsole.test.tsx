@@ -229,6 +229,43 @@ describe("useRuntimeConsole", () => {
     expect(result.current.state.chatError).toContain("Claude Code could not start.");
   });
 
+  it("updates RTK through per-chat settings for an active Hecate chat", async () => {
+    window.localStorage.setItem("hecate.chatTarget", "agent");
+    window.localStorage.setItem("hecate.agentChatSessionID", "a1");
+    let settingsBody: any = null;
+    fetchMock.mockImplementation(defaultBackendMock({
+      "/hecate/v1/agent-chat/sessions": () => jsonResponse({
+        object: "agent_chat_sessions",
+        data: [{ id: "a1", title: "Hecate", runtime_kind: "agent", status: "completed", workspace: "/workspace", rtk_enabled: false, message_count: 0 }],
+      }),
+      "/hecate/v1/agent-chat/sessions/a1": () => jsonResponse({
+        object: "agent_chat_session",
+        data: { id: "a1", title: "Hecate", runtime_kind: "agent", status: "completed", workspace: "/workspace", rtk_enabled: false, messages: [], created_at: "2026-04-20T00:00:00Z", updated_at: "2026-04-20T00:00:00Z" },
+      }),
+      "/hecate/v1/agent-chat/sessions/a1/settings": (init) => {
+        settingsBody = JSON.parse(String(init?.body ?? "{}"));
+        return jsonResponse({
+          object: "agent_chat_session",
+          data: { id: "a1", title: "Hecate", runtime_kind: "agent", status: "completed", workspace: "/workspace", rtk_enabled: true, messages: [], created_at: "2026-04-20T00:00:00Z", updated_at: "2026-04-20T00:00:01Z" },
+        });
+      },
+    }));
+
+    const { result } = renderHook(() => useRuntimeConsole());
+    await waitFor(() => expect(result.current.state.loading).toBe(false));
+    await waitFor(() => expect(result.current.state.activeAgentChatSession?.id).toBe("a1"));
+
+    let ok = false;
+    await act(async () => {
+      ok = await result.current.actions.setHecateRTKEnabled(true);
+    });
+
+    expect(ok).toBe(true);
+    expect(settingsBody).toEqual({ rtk_enabled: true });
+    expect(result.current.state.hecateRTKEnabled).toBe(true);
+    expect(result.current.state.activeAgentChatSession?.rtk_enabled).toBe(true);
+  });
+
   it("keeps the active agent chat selection when session refresh fails transiently", async () => {
     window.localStorage.setItem("hecate.agentChatSessionID", "a1");
     fetchMock.mockImplementation(defaultBackendMock({

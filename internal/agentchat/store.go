@@ -30,6 +30,7 @@ type Session struct {
 	Model           string
 	Capabilities    types.ModelCapabilities
 	ConfigOptions   []agentcontrols.ConfigOption
+	RTKEnabled      bool
 	// TurnsUsed counts how many user→assistant round-trips have completed
 	// (successfully or with failure) in this session. Used to enforce the
 	// GATEWAY_AGENT_CHAT_MAX_TURNS_PER_SESSION ceiling.

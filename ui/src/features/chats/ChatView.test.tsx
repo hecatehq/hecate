@@ -101,24 +101,22 @@ describe("ChatView input", () => {
     }, { setChatTarget });
     const { rerender } = render(<ChatView state={state} actions={actions} />);
 
-    const toolsGroup = screen.getByRole("group", { name: "Hecate tools" });
-    expect(toolsGroup).toHaveStyle({ height: "30px" });
-    expect(toolsGroup.textContent).toContain("tools:");
-    expect(screen.getByRole("button", { name: /tools on/i })).toHaveTextContent("on");
-
     const user = userEvent.setup();
-    await user.click(screen.getByRole("button", { name: /tools on/i }));
+    await user.click(screen.getByRole("button", { name: /settings/i }));
+    expect(screen.getByText("Mode")).toBeTruthy();
+    expect(screen.getByText("Tools")).toBeTruthy();
+    await user.click(screen.getByRole("button", { name: "Tools on" }));
     expect(setChatTarget).toHaveBeenCalledWith("model");
 
     const directState = setup({ ...state, chatTarget: "model" }, { setChatTarget }).state;
     rerender(<ChatView state={directState} actions={actions} />);
-    expect(screen.getByRole("button", { name: /tools off/i })).toHaveTextContent("off");
+    expect(screen.getByRole("button", { name: "Tools off" })).toHaveTextContent("off");
 
-    await user.click(screen.getByRole("button", { name: /tools off/i }));
+    await user.click(screen.getByRole("button", { name: "Tools off" }));
     expect(setChatTarget).toHaveBeenCalledWith("agent");
   });
 
-  it("shows editable instructions for Hecate Agent before the first message", async () => {
+  it("shows editable system prompt instructions in chat settings before the first message", async () => {
     const setSystemPrompt = vi.fn();
     const { state, actions } = setup({
       chatTarget: "agent",
@@ -138,13 +136,50 @@ describe("ChatView input", () => {
     render(<ChatView state={state} actions={actions} />);
 
     const user = userEvent.setup();
-    await user.click(screen.getByRole("button", { name: "Agent instructions" }));
+    await user.click(screen.getByRole("button", { name: /settings/i }));
 
-    expect(screen.getByText("AGENT INSTRUCTIONS")).toBeTruthy();
-    const editor = screen.getByRole("textbox", { name: "Agent instructions" });
+    expect(screen.getByText("SYSTEM PROMPT / AGENT INSTRUCTIONS")).toBeTruthy();
+    const editor = screen.getByRole("textbox", { name: "System prompt / agent instructions" });
     expect(editor).toHaveValue("Prefer small, reviewable diffs.");
     fireEvent.change(editor, { target: { value: "Use short patches." } });
     expect(setSystemPrompt).toHaveBeenLastCalledWith("Use short patches.");
+  });
+
+  it("shows per-chat settings and toggles compact command output", async () => {
+    const setHecateRTKEnabled = vi.fn(async () => true);
+    const { state, actions } = setup({
+      chatTarget: "agent",
+      activeAgentChatSessionID: "agent_chat_1",
+      activeAgentChatSession: {
+        id: "agent_chat_1",
+        runtime_kind: "agent",
+        title: "Repo work",
+        task_id: "task_hecate_123456",
+        provider: "ollama",
+        model: "qwen2.5-coder",
+        rtk_enabled: false,
+        workspace: "/tmp/hecate",
+        status: "completed",
+        messages: [],
+      } as any,
+      hecateRTKEnabled: false,
+      hecateRTKAvailable: true,
+      hecateRTKPath: "/usr/local/bin/rtk",
+      model: "qwen2.5-coder",
+    }, { setHecateRTKEnabled });
+    render(<ChatView state={state} actions={actions} />);
+
+    const user = userEvent.setup();
+    await user.click(screen.getByRole("button", { name: /settings/i }));
+
+    expect(screen.getByText("Chat settings")).toBeTruthy();
+    expect(screen.getByText("Compact command output")).toBeTruthy();
+    expect(screen.getAllByText(/rtk sh -lc/i).length).toBeGreaterThan(0);
+    expect(screen.getByText(/usr\/local\/bin\/rtk/i)).toBeTruthy();
+
+    await user.click(screen.getByRole("button", { name: "Compact command output off" }));
+
+    expect(setHecateRTKEnabled).toHaveBeenCalledWith(true);
   });
 
   it("does not expose Hecate instructions for External Agent chats", () => {
@@ -157,8 +192,8 @@ describe("ChatView input", () => {
     });
     render(<ChatView state={state} actions={actions} />);
 
-    expect(screen.queryByRole("button", { name: "Agent instructions" })).toBeNull();
-    expect(screen.queryByRole("button", { name: "Instructions" })).toBeNull();
+    expect(screen.queryByText("SYSTEM PROMPT / AGENT INSTRUCTIONS")).toBeNull();
+    expect(screen.queryByText("SYSTEM PROMPT / INSTRUCTIONS")).toBeNull();
   });
 
   it("disables the send button when message is empty", () => {
@@ -736,7 +771,7 @@ describe("ChatView input", () => {
     expect(screen.queryByRole("button", { name: "Send message" })).toBeNull();
   });
 
-  it("enables Hecate Agent when tools are not explicitly disabled for the model", () => {
+  it("enables Hecate Agent when tools are not explicitly disabled for the model", async () => {
     const { state, actions } = setup({
       chatTarget: "agent",
       message: "inspect this repo",
@@ -763,8 +798,10 @@ describe("ChatView input", () => {
     });
     render(<ChatView state={state} actions={actions} />);
 
-    expect(screen.getByRole("button", { name: "tools on" })).toBeTruthy();
-    expect(screen.getByText(/task approvals and per-call sandboxing/)).toBeTruthy();
+    const user = userEvent.setup();
+    await user.click(screen.getByRole("button", { name: /settings/i }));
+    expect(screen.getByRole("button", { name: "Tools on" })).toBeTruthy();
+    expect(screen.getByText(/task runtime, approvals, artifacts, and sandboxed tool calls/)).toBeTruthy();
     const send = document.querySelector("button[type='submit']") as HTMLButtonElement;
     expect(send.disabled).toBe(false);
   });
@@ -1063,7 +1100,6 @@ describe("ChatView input", () => {
     }, { upsertModelCapabilityOverride });
     render(<ChatView state={state} actions={actions} />);
 
-    expect(screen.getByRole("button", { name: "tools on" })).toBeTruthy();
     expect(screen.getByText(/Tools are disabled for this model/)).toBeTruthy();
     const send = document.querySelector("button[type='submit']") as HTMLButtonElement;
     expect(send.disabled).toBe(true);

@@ -343,6 +343,8 @@ For `agent_loop`-specific knobs (max turns, system-prompt layers, HTTP policy fo
 
 The response also surfaces `agent_adapter_approval_mode` — the configured mode for the external-agent adapter approval coordinator: `"auto"`, `"prompt"`, or `"deny"`. Operators surface a danger banner in the UI when this is `"auto"` since every adapter `RequestPermission` is permitted without review. Empty when the gateway was built without an approval coordinator (legacy configs / test fixtures).
 
+The same payload includes `rtk_available` and optional `rtk_path` so the UI can offer the per-chat **Compact command output** toggle only when the optional `rtk` helper is installed in the gateway process `PATH`. Hecate never enables RTK automatically; new chats default to compact output off.
+
 `GET /hecate/v1/system/mcp/cache` returns a snapshot of the shared MCP client cache:
 
 ```json
@@ -1037,6 +1039,10 @@ Hecate Chat and External Agent sessions:
   `agent_loop` task with Hecate tools, task approvals, artifacts, and OTel.
   The chat transcript projects backing task-run activity and can resolve
   pending task approvals through the existing task approval endpoint.
+  Agent sessions may opt into RTK command-output compaction with
+  `rtk_enabled=true`; shell and git tool calls then launch as
+  `rtk sh -lc <command>` while keeping Hecate approvals, policy validation,
+  sandboxing, limits, and timeouts in place.
 - `runtime_kind="external_agent"` — Codex, Claude Code, Cursor Agent, or
   another adapter owns the native session while Hecate supervises lifecycle,
   transcript, diagnostics, and external-agent approvals.
@@ -1119,6 +1125,7 @@ GET /hecate/v1/agent-chat/sessions
         "source": "operator_override"
       },
       "status": "completed",
+      "rtk_enabled": true,
       "turns_used": 3,
       "max_turns_per_session": 50,
       "session_started_at": "2026-05-03T12:00:00Z",
@@ -1141,6 +1148,11 @@ Creates an Agent Chat session. `runtime_kind` chooses the execution target:
   because no local tools run.
 - `agent` requires `provider`, `model`, and `workspace`.
 - `external_agent` requires `adapter_id` and `workspace`.
+
+For Hecate Chat sessions (`runtime_kind="model"` or `"agent"`),
+`rtk_enabled` records the chat's command-output compaction preference. It is
+only applied when a future turn runs through the task-backed `agent` runtime;
+direct model turns never execute local commands.
 
 When `workspace` is provided, it must be an operator-controlled local
 directory. Hecate validates and canonicalizes the path before a tool-backed or
@@ -1177,6 +1189,7 @@ POST /hecate/v1/agent-chat/sessions
       "source": "operator_override"
     },
     "status": "idle",
+    "rtk_enabled": false,
     "turns_used": 0,
     "session_started_at": "2026-05-03T12:00:00Z",
     "messages": []
@@ -1230,6 +1243,35 @@ snapshot, and returns the updated session response. If the native ACP session
 has been closed or is not active, the endpoint returns
 `409 agent_chat.session_not_running`; create a new External Agent chat or retry
 after the session has been restored.
+
+### `PATCH /hecate/v1/agent-chat/sessions/{id}/settings`
+
+Updates Hecate-owned chat settings for future turns. This endpoint currently
+accepts `rtk_enabled` for `runtime_kind="model"` and `runtime_kind="agent"`
+sessions. External Agent sessions reject it with
+`agent_chat.runtime_mismatch` because Codex, Claude Code, Cursor, and other ACP
+adapters own their own command execution.
+
+When an existing Hecate Chat session already has a backing task, the task
+record is updated too so later continued runs inherit the same setting.
+Running turns are not mutated mid-flight.
+
+```json
+PATCH /hecate/v1/agent-chat/sessions/agent_chat_.../settings
+{
+  "rtk_enabled": true
+}
+
+→ 200
+{
+  "object": "agent_chat_session",
+  "data": {
+    "id": "agent_chat_...",
+    "runtime_kind": "agent",
+    "rtk_enabled": true
+  }
+}
+```
 
 ### `POST /hecate/v1/agent-chat/sessions/{id}/messages`
 

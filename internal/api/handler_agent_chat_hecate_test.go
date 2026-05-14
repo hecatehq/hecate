@@ -18,6 +18,7 @@ import (
 	"github.com/hecate/agent-runtime/internal/modelcaps"
 	"github.com/hecate/agent-runtime/internal/providers"
 	"github.com/hecate/agent-runtime/internal/taskstate"
+	"github.com/hecate/agent-runtime/internal/telemetry"
 	"github.com/hecate/agent-runtime/pkg/types"
 )
 
@@ -43,9 +44,12 @@ func TestHecateAgentChatCreatesVisibleTaskAndContinuesSameTask(t *testing.T) {
 	workspace := t.TempDir()
 
 	session := mustRequestJSON[AgentChatSessionResponse](client, http.MethodPost, "/hecate/v1/agent-chat/sessions",
-		fmt.Sprintf(`{"runtime_kind":"agent","title":"Refactor chat","workspace":%q,"provider":"openai","model":"gpt-4o-mini"}`, workspace))
+		fmt.Sprintf(`{"runtime_kind":"agent","title":"Refactor chat","workspace":%q,"provider":"openai","model":"gpt-4o-mini","rtk_enabled":true}`, workspace))
 	if session.Data.RuntimeKind != "agent" {
 		t.Fatalf("runtime_kind = %q, want agent", session.Data.RuntimeKind)
+	}
+	if !session.Data.RTKEnabled {
+		t.Fatal("rtk_enabled = false, want true")
 	}
 	if session.Data.Capabilities.ToolCalling != modelcaps.ToolCallingParallel {
 		t.Fatalf("capabilities = %+v, want parallel catalog capabilities", session.Data.Capabilities)
@@ -55,6 +59,13 @@ func TestHecateAgentChatCreatesVisibleTaskAndContinuesSameTask(t *testing.T) {
 		`{"content":"inspect the repo","system_prompt":"Prefer small, reviewable diffs."}`)
 	if first.Data.TaskID == "" || first.Data.LatestRunID == "" {
 		t.Fatalf("first response missing task/run linkage: %+v", first.Data)
+	}
+	backingTask, found, err := apiHandler.taskStore.GetTask(context.Background(), first.Data.TaskID)
+	if err != nil {
+		t.Fatalf("GetTask() error = %v", err)
+	}
+	if !found || !backingTask.RTKEnabled {
+		t.Fatalf("backing task RTKEnabled = %v, found %v; want true", backingTask.RTKEnabled, found)
 	}
 	if first.Data.Status != "completed" {
 		t.Fatalf("first status = %q, want completed", first.Data.Status)
@@ -82,15 +93,27 @@ func TestHecateAgentChatCreatesVisibleTaskAndContinuesSameTask(t *testing.T) {
 		t.Fatalf("assistant timing = %+v, want persisted Hecate Agent run timing", assistant.Timing)
 	}
 
-	task := mustRequestJSON[TaskResponse](client, http.MethodGet, "/hecate/v1/tasks/"+first.Data.TaskID, "")
-	if task.Data.ExecutionKind != "agent_loop" || task.Data.ExecutionProfile != "chat_agent" {
-		t.Fatalf("task execution fields = kind %q profile %q", task.Data.ExecutionKind, task.Data.ExecutionProfile)
+	taskResponse := mustRequestJSON[TaskResponse](client, http.MethodGet, "/hecate/v1/tasks/"+first.Data.TaskID, "")
+	if taskResponse.Data.ExecutionKind != "agent_loop" || taskResponse.Data.ExecutionProfile != "chat_agent" {
+		t.Fatalf("task execution fields = kind %q profile %q", taskResponse.Data.ExecutionKind, taskResponse.Data.ExecutionProfile)
 	}
-	if task.Data.SystemPrompt != "Prefer small, reviewable diffs." {
-		t.Fatalf("task system_prompt = %q, want Hecate Chat instructions", task.Data.SystemPrompt)
+	if taskResponse.Data.SystemPrompt != "Prefer small, reviewable diffs." {
+		t.Fatalf("task system_prompt = %q, want Hecate Chat instructions", taskResponse.Data.SystemPrompt)
 	}
-	if task.Data.OriginKind != "agent_chat" || task.Data.OriginID != session.Data.ID {
-		t.Fatalf("task origin = %q/%q, want agent_chat/%s", task.Data.OriginKind, task.Data.OriginID, session.Data.ID)
+	if taskResponse.Data.OriginKind != "agent_chat" || taskResponse.Data.OriginID != session.Data.ID {
+		t.Fatalf("task origin = %q/%q, want agent_chat/%s", taskResponse.Data.OriginKind, taskResponse.Data.OriginID, session.Data.ID)
+	}
+	settings := mustRequestJSON[AgentChatSessionResponse](client, http.MethodPatch, "/hecate/v1/agent-chat/sessions/"+session.Data.ID+"/settings",
+		`{"rtk_enabled":false}`)
+	if settings.Data.RTKEnabled {
+		t.Fatal("settings rtk_enabled = true, want false")
+	}
+	updatedBackingTask, found, err := apiHandler.taskStore.GetTask(context.Background(), first.Data.TaskID)
+	if err != nil {
+		t.Fatalf("GetTask(updated) error = %v", err)
+	}
+	if !found || updatedBackingTask.RTKEnabled {
+		t.Fatalf("updated backing task RTKEnabled = %v, found %v; want false", updatedBackingTask.RTKEnabled, found)
 	}
 
 	second := mustRequestJSON[AgentChatSessionResponse](client, http.MethodPost, "/hecate/v1/agent-chat/sessions/"+session.Data.ID+"/messages",
@@ -649,6 +672,29 @@ func TestTaskActivityItemsUseResolvedApprovalStatusForStep(t *testing.T) {
 	item := taskActivityByID(items, "step:step_1")
 	if item.Status != "approved" || item.NeedsAction {
 		t.Fatalf("approval activity = status %q needs_action %v, want approved/false", item.Status, item.NeedsAction)
+	}
+}
+
+func TestTaskActivityItemsExposeRTKDebugSummary(t *testing.T) {
+	items := buildTaskActivityItems([]TaskStepItem{{
+		ID:        "step_shell",
+		Kind:      "shell",
+		Status:    "completed",
+		Title:     "shell_exec",
+		StartedAt: "2026-05-03T10:00:00Z",
+		Input: map[string]any{
+			telemetry.AttrHecateSandboxRTKEnabled: true,
+			"argv":                                []any{"rtk", "sh", "-lc", "go test ./..."},
+		},
+	}}, nil, nil, types.TaskRun{Status: "running"})
+
+	item := taskActivityByID(items, "step:step_shell")
+	if item.Summary[telemetry.AttrHecateSandboxRTKEnabled] != true {
+		t.Fatalf("rtk summary = %#v, want true", item.Summary[telemetry.AttrHecateSandboxRTKEnabled])
+	}
+	activity := agentChatActivityFromTaskActivity(item)
+	if !strings.Contains(activity.Detail, "via RTK") || !strings.Contains(activity.Detail, "rtk sh -lc go test ./...") {
+		t.Fatalf("activity detail = %q, want RTK argv", activity.Detail)
 	}
 }
 

@@ -124,6 +124,12 @@ func agentChatTaskActivityDetail(item TaskActivityItem) string {
 	if item.ToolName != "" && item.ToolName != item.Title && item.ToolName != item.Kind {
 		parts = append(parts, item.ToolName)
 	}
+	if rtkEnabled, _ := item.Summary[telemetry.AttrHecateSandboxRTKEnabled].(bool); rtkEnabled {
+		parts = append(parts, "via RTK")
+	}
+	if argv := compactActivityArgv(item.Summary["argv"]); argv != "" {
+		parts = append(parts, argv)
+	}
 	if reason, ok := item.Summary["reason"].(string); ok && strings.TrimSpace(reason) != "" {
 		parts = append(parts, strings.TrimSpace(reason))
 	}
@@ -131,6 +137,25 @@ func agentChatTaskActivityDetail(item TaskActivityItem) string {
 		parts = append(parts, item.Status)
 	}
 	return strings.Join(parts, " - ")
+}
+
+func compactActivityArgv(value any) string {
+	switch argv := value.(type) {
+	case []string:
+		return strings.Join(argv, " ")
+	case []any:
+		parts := make([]string, 0, len(argv))
+		for _, part := range argv {
+			text, ok := part.(string)
+			if !ok {
+				return ""
+			}
+			parts = append(parts, text)
+		}
+		return strings.Join(parts, " ")
+	default:
+		return ""
+	}
 }
 
 func parseAgentChatActivityTime(value string) time.Time {

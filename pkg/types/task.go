@@ -27,21 +27,25 @@ type Task struct {
 	SandboxAllowedRoot string
 	SandboxReadOnly    bool
 	SandboxNetwork     bool
-	TimeoutMS          int
-	Status             string
-	Priority           string
-	RequestedModel     string
-	RequestedProvider  string
-	BudgetMicrosUSD    int64
-	LatestRunID        string
-	LastError          string
-	CreatedAt          time.Time
-	UpdatedAt          time.Time
-	StartedAt          time.Time
-	FinishedAt         time.Time
-	RootTraceID        string
-	LatestTraceID      string
-	LatestRequestID    string
+	// RTKEnabled runs shell/git tool subprocesses through RTK for compact
+	// command output. It is persisted on the task so Hecate Chat follow-up
+	// runs keep the chat's command-output setting.
+	RTKEnabled        bool
+	TimeoutMS         int
+	Status            string
+	Priority          string
+	RequestedModel    string
+	RequestedProvider string
+	BudgetMicrosUSD   int64
+	LatestRunID       string
+	LastError         string
+	CreatedAt         time.Time
+	UpdatedAt         time.Time
+	StartedAt         time.Time
+	FinishedAt        time.Time
+	RootTraceID       string
+	LatestTraceID     string
+	LatestRequestID   string
 	// MCPServers configures external MCP servers that an agent_loop run
 	// should bring up and expose to the LLM as additional tools. Each
 	// entry produces one stdio subprocess (`Command` + `Args`, env

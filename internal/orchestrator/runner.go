@@ -31,6 +31,7 @@ var resourceIDCounter atomic.Uint64
 
 var stepTelemetryAttrKeys = []string{
 	telemetry.AttrHecateSandboxWrapperKind,
+	telemetry.AttrHecateSandboxRTKEnabled,
 	telemetry.AttrHecateSandboxNetworkEnabled,
 	telemetry.AttrHecateSandboxReadOnly,
 	telemetry.AttrHecateSandboxOutputLimit,
@@ -1416,6 +1417,7 @@ func (r *Runner) executeRun(ctx context.Context, trace *profiler.Trace, task typ
 		EmitRunEvent: func(eventType string, data map[string]any) {
 			_, _ = r.emitRunEvent(ctx, task.ID, run.ID, eventType, requestID, trace.TraceID, data)
 		},
+		RTKEnabled:                  task.RTKEnabled,
 		SystemPrompt:                systemPrompt,
 		ShellNetworkAllowedHosts:    r.config.ShellNetwork.AllowedHosts,
 		ShellNetworkAllowPrivateIPs: r.config.ShellNetwork.AllowPrivateIPs,

@@ -213,9 +213,10 @@ environment that starts Hecate.
 
 3. Choose an available adapter.
 
-4. Choose a workspace directory from the folder button, or use **paste path**
-   when the native folder dialog is not available. Hecate stores the canonical
-   path and shows the full path plus Git branch in the shell status bar.
+4. Choose a workspace directory from the folder button. If the native folder
+   dialog is not available, Hecate falls back to a manual path entry. Hecate
+   stores the canonical path and shows the full path plus Git branch in the
+   shell status bar.
 
 5. Send a prompt, for example:
 

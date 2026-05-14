@@ -57,9 +57,9 @@ func (s *SQLiteStore) Create(ctx context.Context, session Session) (Session, err
 		fmt.Sprintf(
 			`INSERT INTO %s (
 				id, title, runtime_kind, adapter_id, driver_kind, native_session_id, workspace, workspace_branch,
-				status, task_id, latest_run_id, provider, model, capabilities, config_options, turns_used, created_at, updated_at
+				status, task_id, latest_run_id, provider, model, capabilities, config_options, rtk_enabled, turns_used, created_at, updated_at
 			 )
-			 VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+			 VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
 			 ON CONFLICT(id) DO UPDATE SET
 			   title = excluded.title,
 			   runtime_kind = excluded.runtime_kind,
@@ -75,6 +75,7 @@ func (s *SQLiteStore) Create(ctx context.Context, session Session) (Session, err
 			   model = excluded.model,
 			   capabilities = excluded.capabilities,
 			   config_options = excluded.config_options,
+			   rtk_enabled = excluded.rtk_enabled,
 			   updated_at = excluded.updated_at`,
 			s.sessionsTable,
 		),
@@ -93,6 +94,7 @@ func (s *SQLiteStore) Create(ctx context.Context, session Session) (Session, err
 		session.Model,
 		marshalModelCapabilities(session.Capabilities),
 		marshalConfigOptions(session.ConfigOptions),
+		session.RTKEnabled,
 		session.TurnsUsed,
 		session.CreatedAt.UTC(),
 		session.UpdatedAt.UTC(),
@@ -119,12 +121,12 @@ func (s *SQLiteStore) List(ctx context.Context) ([]Session, error) {
 		ctx,
 		fmt.Sprintf(
 			`SELECT s.id, s.title, s.runtime_kind, s.adapter_id, s.driver_kind, s.native_session_id, s.workspace, s.workspace_branch,
-			        s.status, s.task_id, s.latest_run_id, s.provider, s.model, s.capabilities, s.config_options, s.turns_used, s.created_at, s.updated_at,
+			        s.status, s.task_id, s.latest_run_id, s.provider, s.model, s.capabilities, s.config_options, s.rtk_enabled, s.turns_used, s.created_at, s.updated_at,
 			        COUNT(m.id) AS message_count
 			 FROM %s AS s
 			 LEFT JOIN %s AS m ON m.session_id = s.id
 			 GROUP BY s.id, s.title, s.runtime_kind, s.adapter_id, s.driver_kind, s.native_session_id, s.workspace, s.workspace_branch,
-			          s.status, s.task_id, s.latest_run_id, s.provider, s.model, s.capabilities, s.config_options, s.turns_used, s.created_at, s.updated_at
+			          s.status, s.task_id, s.latest_run_id, s.provider, s.model, s.capabilities, s.config_options, s.rtk_enabled, s.turns_used, s.created_at, s.updated_at
 			 ORDER BY s.updated_at DESC, s.created_at DESC`,
 			s.sessionsTable,
 			s.messagesTable,
@@ -157,6 +159,7 @@ func (s *SQLiteStore) List(ctx context.Context) ([]Session, error) {
 			&session.Model,
 			&capabilities,
 			&configOptions,
+			&session.RTKEnabled,
 			&session.TurnsUsed,
 			&session.CreatedAt,
 			&session.UpdatedAt,
@@ -205,7 +208,7 @@ func (s *SQLiteStore) UpdateSession(ctx context.Context, id string, update func(
 		fmt.Sprintf(
 			`UPDATE %s SET
 			   title = ?, runtime_kind = ?, adapter_id = ?, driver_kind = ?, native_session_id = ?, workspace = ?, workspace_branch = ?,
-			   status = ?, task_id = ?, latest_run_id = ?, provider = ?, model = ?, capabilities = ?, config_options = ?, turns_used = ?, updated_at = ?
+			   status = ?, task_id = ?, latest_run_id = ?, provider = ?, model = ?, capabilities = ?, config_options = ?, rtk_enabled = ?, turns_used = ?, updated_at = ?
 			 WHERE id = ?`,
 			s.sessionsTable,
 		),
@@ -223,6 +226,7 @@ func (s *SQLiteStore) UpdateSession(ctx context.Context, id string, update func(
 		session.Model,
 		marshalModelCapabilities(session.Capabilities),
 		marshalConfigOptions(session.ConfigOptions),
+		session.RTKEnabled,
 		session.TurnsUsed,
 		session.UpdatedAt.UTC(),
 		id,
@@ -405,6 +409,7 @@ func (s *SQLiteStore) migrate(ctx context.Context) error {
 				model TEXT NOT NULL DEFAULT '',
 				capabilities TEXT NOT NULL DEFAULT '{}',
 				config_options TEXT NOT NULL DEFAULT '[]',
+				rtk_enabled INTEGER NOT NULL DEFAULT 0,
 				turns_used INTEGER NOT NULL DEFAULT 0,
 				created_at TIMESTAMP NOT NULL,
 				updated_at TIMESTAMP NOT NULL
@@ -482,6 +487,7 @@ func (s *SQLiteStore) migrate(ctx context.Context) error {
 		{name: "model", definition: "TEXT NOT NULL DEFAULT ''"},
 		{name: "capabilities", definition: "TEXT NOT NULL DEFAULT '{}'"},
 		{name: "config_options", definition: "TEXT NOT NULL DEFAULT '[]'"},
+		{name: "rtk_enabled", definition: "INTEGER NOT NULL DEFAULT 0"},
 	} {
 		if err := s.ensureSessionColumn(ctx, column.name, column.definition); err != nil {
 			return err
@@ -541,7 +547,7 @@ func (s *SQLiteStore) loadSession(ctx context.Context, id string) (Session, erro
 		ctx,
 		fmt.Sprintf(
 			`SELECT id, title, runtime_kind, adapter_id, driver_kind, native_session_id, workspace, workspace_branch,
-			        status, task_id, latest_run_id, provider, model, capabilities, config_options, turns_used, created_at, updated_at
+			        status, task_id, latest_run_id, provider, model, capabilities, config_options, rtk_enabled, turns_used, created_at, updated_at
 			 FROM %s WHERE id = ?`,
 			s.sessionsTable,
 		),
@@ -562,6 +568,7 @@ func (s *SQLiteStore) loadSession(ctx context.Context, id string) (Session, erro
 		&session.Model,
 		&capabilities,
 		&configOptions,
+		&session.RTKEnabled,
 		&session.TurnsUsed,
 		&session.CreatedAt,
 		&session.UpdatedAt,

@@ -1,4 +1,5 @@
 type ChatInstructionsPanelProps = {
+  embedded?: boolean;
   isHecateAgentChat: boolean;
   locked: boolean;
   value: string;
@@ -6,17 +7,22 @@ type ChatInstructionsPanelProps = {
 };
 
 export function ChatInstructionsPanel({
+  embedded = false,
   isHecateAgentChat,
   locked,
   value,
   onChange,
 }: ChatInstructionsPanelProps) {
-  const label = isHecateAgentChat ? "Agent instructions" : "Instructions";
+  const label = isHecateAgentChat ? "System prompt / agent instructions" : "System prompt / instructions";
   return (
-    <div style={{ borderBottom: "1px solid var(--border)", padding: "10px 14px", background: "var(--bg2)" }}>
+    <div style={{
+      borderBottom: embedded ? "none" : "1px solid var(--border)",
+      padding: embedded ? 0 : "10px 14px",
+      background: embedded ? "transparent" : "var(--bg2)",
+    }}>
       <div style={{ display: "flex", alignItems: "center", marginBottom: 5, gap: 8 }}>
         <span style={{ fontSize: 11, color: "var(--t2)", fontFamily: "var(--font-mono)" }}>
-          {isHecateAgentChat ? "AGENT INSTRUCTIONS" : "INSTRUCTIONS"}
+          {isHecateAgentChat ? "SYSTEM PROMPT / AGENT INSTRUCTIONS" : "SYSTEM PROMPT / INSTRUCTIONS"}
         </span>
         {locked && (
           <span style={{ fontSize: 10, color: "var(--t3)", fontFamily: "var(--font-mono)" }}>
@@ -26,8 +32,8 @@ export function ChatInstructionsPanel({
       </div>
       <div style={{ color: "var(--t2)", fontSize: 12, marginBottom: 8, lineHeight: 1.45 }}>
         {isHecateAgentChat
-          ? "Steers the model inside Hecate's task runtime. It does not change approval policy, sandboxing, or external-agent settings."
-          : "Steers direct model replies for this Hecate Chat."}
+          ? "This is the system prompt for future Hecate Agent turns. It steers the model, but does not change approval policy, sandboxing, or external-agent settings."
+          : "This is the system prompt for future direct model turns in this Hecate Chat."}
       </div>
       <textarea
         aria-label={label}

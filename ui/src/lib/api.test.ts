@@ -23,6 +23,7 @@ import {
   revertAgentChatMessageFiles,
   resolveAgentChatApproval,
   recordModelCapabilityProbe,
+  setAgentChatSettings,
   setAgentAdapterCredential,
   deleteAgentAdapterCredential,
   setProviderAPIKey,
@@ -489,6 +490,22 @@ describe("api client", () => {
   // ─── Agent-chat approvals & grants ─────────────────────────────────────────
 
   describe("agent-chat approvals", () => {
+    it("PATCH /agent-chat/sessions/{id}/settings sends per-chat settings", async () => {
+      fetchMock.mockResolvedValue(
+        jsonResponse({ object: "agent_chat_session", data: { id: "s 1", rtk_enabled: true } }),
+      );
+
+      await setAgentChatSettings("s 1", { rtk_enabled: true });
+
+      expect(fetchMock).toHaveBeenCalledWith(
+        "/hecate/v1/agent-chat/sessions/s%201/settings",
+        expect.objectContaining({
+          method: "PATCH",
+          body: JSON.stringify({ rtk_enabled: true }),
+        }),
+      );
+    });
+
     it("lists approvals scoped to status=pending", async () => {
       fetchMock.mockResolvedValue(jsonResponse({ object: "list", data: [] }));
 

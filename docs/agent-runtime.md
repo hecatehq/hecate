@@ -282,6 +282,15 @@ Env vars that affect agent_loop runs:
 
 For `GATEWAY_TASK_APPROVAL_POLICIES` (which gates mid-loop tool calls and the matching pre-execution task gates; valid values: `shell_exec`, `git_exec`, `file_write`, `network_egress`, `read_file`, `all_tools`) see [`runtime-api.md#approval-policy-configuration`](runtime-api.md#approval-policy-configuration). `file_write` gates both full-file writes and exact-match `file_edit` calls. For per-task `mcp_servers` knobs (max-servers cap, client-cache sizing, ping intervals) see [`runtime-api.md#runtime-backend-and-queue-configuration`](runtime-api.md#runtime-backend-and-queue-configuration) and [`mcp.md#resource-limits`](mcp.md#resource-limits).
 
+Hecate Chat can opt a session into RTK command-output compaction from
+the chat settings panel. The setting is off by default. When `rtk` is
+visible in the gateway process `PATH`, `/hecate/v1/system/stats`
+reports `rtk_available=true` and the UI suggests enabling compact
+command output during new-chat onboarding. When enabled for that chat,
+shell/git tool subprocesses launch as `rtk sh -lc <command>` after
+policy validation; the same sandbox wrapper, environment sanitisation,
+output caps, and timeouts still apply.
+
 Per-task fields on `POST /hecate/v1/tasks` that affect agent_loop:
 
 - `execution_kind: "agent_loop"` — picks this runtime
