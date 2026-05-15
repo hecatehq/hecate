@@ -34,11 +34,15 @@ mkdirSync(OUT_DIR, { recursive: true });
 // the full sidebar + main pane with no horizontal scrolling, narrow
 // enough that GitHub's README column doesn't have to downscale much.
 const VIEWPORT = { width: 1280, height: 800 };
+const THEME_KEY = "hecate.theme";
 
 async function clearAndNavigate(page: Page, path = "/") {
   await page.context().clearCookies();
   await page.goto(BASE_URL);
-  await page.evaluate(() => window.localStorage.clear());
+  await page.evaluate((themeKey) => {
+    window.localStorage.clear();
+    window.localStorage.setItem(themeKey, "dark");
+  }, THEME_KEY);
   await page.goto(`${BASE_URL}${path}`);
   await page.waitForSelector(".hecate-activitybar", { timeout: 10_000 });
 }
@@ -1002,7 +1006,11 @@ async function seedChatSessions() {
 
 async function main() {
   const browser = await chromium.launch({ headless: true });
-  const context = await browser.newContext({ viewport: VIEWPORT, deviceScaleFactor: 1 });
+  const context = await browser.newContext({
+    viewport: VIEWPORT,
+    deviceScaleFactor: 1,
+    colorScheme: "dark",
+  });
   const page = await context.newPage();
 
   // ── 1. First-run Chats onboarding ──────────────────────────────────────────
