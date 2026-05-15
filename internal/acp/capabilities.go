@@ -8,15 +8,30 @@ type InitializeParams struct {
 }
 
 // ClientCapabilities advertises which optional ACP surfaces the editor
-// supports. v0 only requires the permissions capability.
+// supports. v0 only requires the permissions capability; fs and
+// terminal are consulted by the workspace-mode resolver to decide
+// whether `editor-owned` mode is actually viable.
 type ClientCapabilities struct {
 	FS          *FSCapability         `json:"fs,omitempty"`
 	Terminal    *TerminalCapability   `json:"terminal,omitempty"`
 	Permissions *PermissionCapability `json:"permissions,omitempty"`
 }
 
-type FSCapability struct{}
+// FSCapability mirrors the ACP spec's fs capability block. Both fields
+// are independently advertised by the editor; Hecate's editor-owned
+// mode requires both because reverse-RPC reads + writes are the whole
+// point of that mode.
+type FSCapability struct {
+	ReadTextFile  bool `json:"readTextFile,omitempty"`
+	WriteTextFile bool `json:"writeTextFile,omitempty"`
+}
+
+// TerminalCapability is present-or-absent in the ACP spec — the
+// editor either supports terminal/* or it doesn't.
 type TerminalCapability struct{}
+
+// PermissionCapability is present-or-absent in the ACP spec — the
+// editor either supports session/request_permission or it doesn't.
 type PermissionCapability struct{}
 
 // ClientInfo is human-readable metadata the editor sends for

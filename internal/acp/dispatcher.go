@@ -16,7 +16,8 @@ type Dispatcher struct {
 	cfg      Config
 	emit     func(*Request)
 
-	initialized bool
+	initialized   bool
+	workspaceMode string
 
 	mu                     sync.Mutex
 	nextPermissionSequence int64
@@ -51,7 +52,7 @@ func NewDispatcher(gateway GatewayClient, sessions *SessionStore, cfg Config) *D
 		cfg.AgentName = "Hecate"
 	}
 	if cfg.WorkspaceMode == "" {
-		cfg.WorkspaceMode = "hecate-owned"
+		cfg.WorkspaceMode = WorkspaceModeAuto
 	}
 	if cfg.ApprovalRoute == "" {
 		cfg.ApprovalRoute = "editor"
@@ -67,6 +68,17 @@ func NewDispatcher(gateway GatewayClient, sessions *SessionStore, cfg Config) *D
 
 func (d *Dispatcher) SetEmitter(emit func(*Request)) {
 	d.emit = emit
+}
+
+// WorkspaceMode returns the workspace ownership mode negotiated during
+// initialize, or the configured value if initialize has not run yet.
+// Useful for telemetry, logging, and (once reverse-RPC transport ships)
+// gateway-side workspace selection.
+func (d *Dispatcher) WorkspaceMode() string {
+	if d.workspaceMode != "" {
+		return d.workspaceMode
+	}
+	return d.cfg.WorkspaceMode
 }
 
 // Handle dispatches one incoming request.
@@ -148,6 +160,12 @@ func (d *Dispatcher) handleInitialize(ctx context.Context, req *Request) *Respon
 		return errorResponse(req.ID, ErrorInvalidRequest,
 			"editor must declare permissions capability — Hecate's approval gates require session/request_permission support", nil)
 	}
+
+	resolvedMode, err := ResolveWorkspaceMode(d.cfg.WorkspaceMode, params.ClientCaps)
+	if err != nil {
+		return errorResponse(req.ID, ErrorInvalidRequest, err.Error(), nil)
+	}
+	d.workspaceMode = resolvedMode
 
 	models, err := d.gateway.ListModels(ctx)
 	if err != nil {
