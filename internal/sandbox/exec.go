@@ -708,3 +708,20 @@ func envInt64(key string, fallback int64) int64 {
 	}
 	return v
 }
+
+// ResolveWorkingDirectory is the public wrapper around the existing
+// resolveWorkingDirectory helper. It exists so other packages
+// (specifically internal/workspace's LocalWorkspace.OpenTerminal) can
+// reuse the working-directory escape check without re-implementing
+// it. The implementation hasn't changed; only its visibility has.
+func ResolveWorkingDirectory(workingDirectory string, policy Policy) (string, error) {
+	return resolveWorkingDirectory(workingDirectory, policy)
+}
+
+// SanitizedEnv is the public wrapper around sanitisedEnv. Same shape
+// as the rationale for ResolveWorkingDirectory above: workspace-level
+// callers spawn processes too and need the same allowlisted env to
+// avoid leaking gateway secrets into child processes.
+func SanitizedEnv() []string {
+	return sanitisedEnv()
+}

@@ -39,14 +39,17 @@ type (
 )
 
 // Workspace is the boundary between the orchestrator and whatever owns
-// the agent's filesystem and processes. The four methods mirror the
-// current sandbox.Executor surface so the swap from
-// `sandbox.Executor` → `workspace.Workspace` at the orchestrator
-// layer is mechanical. ACP-shaped additions (OpenTerminal,
-// RequestPermission) land later in the refactor.
+// the agent's filesystem and processes. The four file/run methods
+// mirror the current sandbox.Executor surface. OpenTerminal adds the
+// long-lived terminal primitive that ACP editors expect for
+// interactive panes. The dynamic-permission gate
+// (PermissionRequest / PermissionDecision) lives on the optional
+// Permitter interface (see permission.go) so implementations that
+// rely solely on static Policy don't have to ship a stub method.
 type Workspace interface {
 	Run(ctx context.Context, command Command) (Result, error)
 	RunStreaming(ctx context.Context, command Command, onChunk func(OutputChunk)) (Result, error)
 	WriteFile(ctx context.Context, request FileRequest) (FileResult, error)
 	AppendFile(ctx context.Context, request FileRequest) (FileResult, error)
+	OpenTerminal(ctx context.Context, opts TerminalOptions) (Terminal, error)
 }
