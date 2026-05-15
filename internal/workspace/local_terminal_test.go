@@ -137,6 +137,44 @@ func TestLocalTerminal_CloseKillsRunningProcess(t *testing.T) {
 	}
 }
 
+// TestLocalTerminal_WaitForExitRetainsBoundedOutput confirms WaitForExit
+// returns captured stdout/stderr even when the caller never consumes
+// Output() — the documented bounded-retention contract. Mirrors the
+// behavior ACPWorkspace.acpTerminal already had, and the asymmetry
+// Copilot flagged on PR #107.
+func TestLocalTerminal_WaitForExitRetainsBoundedOutput(t *testing.T) {
+	if runtime.GOOS == "windows" {
+		t.Skip("unix shell semantics")
+	}
+	t.Parallel()
+
+	ws := NewLocalWorkspace()
+	dir := t.TempDir()
+	term, err := ws.OpenTerminal(context.Background(), TerminalOptions{
+		Command:          "sh",
+		Args:             []string{"-c", "printf out && printf err 1>&2"},
+		WorkingDirectory: dir,
+		Policy:           Policy{AllowedRoot: dir},
+	})
+	if err != nil {
+		t.Fatalf("OpenTerminal: %v", err)
+	}
+	t.Cleanup(func() { _ = term.Close(context.Background()) })
+
+	// Note: we intentionally do not consume Output() here — the
+	// retention path must work even when the channel buffer fills.
+	result, err := term.WaitForExit(context.Background())
+	if err != nil {
+		t.Fatalf("WaitForExit: %v", err)
+	}
+	if !strings.Contains(result.Stdout, "out") {
+		t.Fatalf("Result.Stdout = %q; want to contain %q", result.Stdout, "out")
+	}
+	if !strings.Contains(result.Stderr, "err") {
+		t.Fatalf("Result.Stderr = %q; want to contain %q", result.Stderr, "err")
+	}
+}
+
 func TestLocalTerminal_RejectsOutsideAllowedRoot(t *testing.T) {
 	t.Parallel()
 

@@ -58,18 +58,27 @@ type Terminal interface {
 
 	// Output is the merged stdout+stderr stream. Each chunk carries
 	// its origin in OutputChunk.Stream ("stdout" or "stderr"). The
-	// channel closes when the process exits and the readers drain.
+	// channel is bounded and publishes are non-blocking — a slow
+	// or absent consumer drops chunks rather than wedging the
+	// terminal. Callers who need the full transcript should
+	// consume Output() with a goroutine and / or rely on the
+	// bounded retention surfaced by WaitForExit.
 	Output() <-chan OutputChunk
 
-	// Write sends bytes to the process's stdin. Returns an error
-	// when stdin has been closed (process exited, or the caller
-	// explicitly closed the terminal).
+	// Write sends bytes to the process's stdin. Blocks until the
+	// write completes or stdin is closed (process exit, Kill, or
+	// Close). The ctx is reserved for future deadline support;
+	// today implementations do not honor it for the inner write.
 	Write(ctx context.Context, input string) error
 
-	// WaitForExit blocks until the process exits, returning its
-	// captured exit code and any retained stdout/stderr buffers.
-	// Safe to call concurrently with Output consumers; only the
-	// first call returns a real Result.
+	// WaitForExit blocks until the process exits and returns its
+	// exit code plus a bounded snapshot of the stdout / stderr the
+	// implementation retained. Retention is best-effort and capped
+	// per implementation (currently 256 KiB per stream on
+	// LocalWorkspace; ACPWorkspace mirrors the editor's
+	// terminal/output response). Callers who require the full
+	// transcript should consume Output() instead. Safe to call
+	// concurrently with Output() consumers.
 	WaitForExit(ctx context.Context) (Result, error)
 
 	// Kill sends SIGTERM (or the platform equivalent) and returns

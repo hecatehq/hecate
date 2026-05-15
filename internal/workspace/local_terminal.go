@@ -8,6 +8,7 @@ import (
 	"io"
 	"os/exec"
 	"runtime"
+	"strings"
 	"sync"
 	"sync/atomic"
 	"syscall"
@@ -29,13 +30,25 @@ type localTerminal struct {
 
 	output chan OutputChunk
 
-	exitOnce sync.Once
-	exit     chan struct{}
-	result   atomic.Pointer[Result]
-	waitErr  atomic.Pointer[error]
+	exit    chan struct{}
+	result  atomic.Pointer[Result]
+	waitErr atomic.Pointer[error]
+
+	// Retained stdout/stderr for WaitForExit. Bounded so a chatty
+	// child doesn't grow this without limit; once the cap is hit we
+	// stop retaining (but the Output() channel continues to receive
+	// chunks, subject to its own drop-on-full policy).
+	bufMu     sync.Mutex
+	stdoutBuf strings.Builder
+	stderrBuf strings.Builder
 
 	closeOnce sync.Once
 }
+
+// localTerminalBufLimit caps the retained stdout/stderr that
+// WaitForExit returns. Mirrors a sensible upper bound for "captured
+// command output" without letting a runaway child OOM the gateway.
+const localTerminalBufLimit = 256 * 1024
 
 // nextTerminalID is bumped per terminal for a workspace-unique handle.
 // Local-only counter; cross-process uniqueness isn't required.
@@ -122,25 +135,17 @@ func (t *localTerminal) ID() string { return t.id }
 
 func (t *localTerminal) Output() <-chan OutputChunk { return t.output }
 
-func (t *localTerminal) Write(ctx context.Context, input string) error {
+func (t *localTerminal) Write(_ context.Context, input string) error {
 	if t.stdin == nil {
 		return errors.New("stdin is closed")
 	}
-	// Honor context cancellation by writing in a goroutine and
-	// racing against ctx.Done — the writer holds a reference to
-	// the pipe so a cancelled write doesn't pile up zombie
-	// goroutines.
-	done := make(chan error, 1)
-	go func() {
-		_, err := t.stdin.Write([]byte(input))
-		done <- err
-	}()
-	select {
-	case err := <-done:
-		return err
-	case <-ctx.Done():
-		return ctx.Err()
-	}
+	// Synchronous write: an *os.File-backed pipe doesn't honor a
+	// deadline cleanly, and a goroutine-based ctx race would leak
+	// the inner write if the pipe blocks. Callers who need to
+	// unblock a stuck stdin should Kill or Close — those close the
+	// pipe and the write returns.
+	_, err := t.stdin.Write([]byte(input))
+	return err
 }
 
 func (t *localTerminal) WaitForExit(ctx context.Context) (Result, error) {
@@ -149,14 +154,21 @@ func (t *localTerminal) WaitForExit(ctx context.Context) (Result, error) {
 	case <-ctx.Done():
 		return Result{}, ctx.Err()
 	}
-	if r := t.result.Load(); r != nil {
-		out := *r
-		if e := t.waitErr.Load(); e != nil {
-			return out, *e
-		}
-		return out, nil
+	r := t.result.Load()
+	if r == nil {
+		return Result{}, errors.New("terminal exited without recording result")
 	}
-	return Result{}, errors.New("terminal exited without recording result")
+	t.bufMu.Lock()
+	out := Result{
+		Stdout:   t.stdoutBuf.String(),
+		Stderr:   t.stderrBuf.String(),
+		ExitCode: r.ExitCode,
+	}
+	t.bufMu.Unlock()
+	if e := t.waitErr.Load(); e != nil {
+		return out, *e
+	}
+	return out, nil
 }
 
 func (t *localTerminal) Kill(_ context.Context) error {
@@ -225,7 +237,26 @@ func (t *localTerminal) pump(wg *sync.WaitGroup, r io.ReadCloser, stream string)
 	// 64 KiB cap is too tight for compiler errors.
 	scanner.Buffer(make([]byte, 0, 16*1024), 1024*1024)
 	for scanner.Scan() {
-		t.output <- OutputChunk{Stream: stream, Text: scanner.Text() + "\n"}
+		text := scanner.Text() + "\n"
+		// Retain into the bounded WaitForExit buffer first so a
+		// slow Output() consumer doesn't lose the captured copy.
+		t.bufMu.Lock()
+		buf := &t.stdoutBuf
+		if stream == "stderr" {
+			buf = &t.stderrBuf
+		}
+		if buf.Len() < localTerminalBufLimit {
+			buf.WriteString(text)
+		}
+		t.bufMu.Unlock()
+		// Non-blocking publish: an absent or slow consumer of
+		// Output() drops chunks rather than wedging the pump and
+		// (through it) cmd.Wait — which would prevent t.exit
+		// closing and pin Close past its escalation deadline.
+		select {
+		case t.output <- OutputChunk{Stream: stream, Text: text}:
+		default:
+		}
 	}
 	// scanner.Err() is intentionally dropped — the most common
 	// "error" here is io.EOF wrapped by os/exec when the child

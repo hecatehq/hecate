@@ -165,7 +165,6 @@ func (d *Dispatcher) handleInitialize(ctx context.Context, req *Request) *Respon
 	if err != nil {
 		return errorResponse(req.ID, ErrorInvalidRequest, err.Error(), nil)
 	}
-	d.workspaceMode = resolvedMode
 
 	models, err := d.gateway.ListModels(ctx)
 	if err != nil {
@@ -192,6 +191,11 @@ func (d *Dispatcher) handleInitialize(ctx context.Context, req *Request) *Respon
 		},
 		AvailableModels: descriptions,
 	}
+	// Commit the negotiated mode only after the rest of initialize
+	// has succeeded — otherwise a downstream failure (gateway
+	// unreachable, etc.) leaves WorkspaceMode() reporting a value
+	// the handshake never actually confirmed.
+	d.workspaceMode = resolvedMode
 	d.initialized = true
 	return resultResponse(req.ID, result)
 }
