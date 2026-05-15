@@ -66,7 +66,7 @@ export function UpdateBanner() {
   if (lastCheckResult === "error") {
     return (
       <div className="page-banner page-banner--error" role="status" aria-live="polite">
-        <span>Couldn't check for updates — see console for details.</span>
+        <span>Couldn't check for updates — see Hecate menu → Open App Log for details.</span>
       </div>
     );
   }

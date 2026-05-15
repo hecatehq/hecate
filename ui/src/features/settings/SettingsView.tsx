@@ -1,4 +1,4 @@
-import { useEffect, type ReactNode } from "react";
+import { useEffect, useRef, type ReactNode } from "react";
 import type { RuntimeConsoleViewModel } from "../../app/useRuntimeConsole";
 import { Badge, Icon, Icons, InlineError } from "../shared/ui";
 
@@ -10,9 +10,16 @@ type Props = {
 export function SettingsView({ state, actions }: Props) {
   // Retention runs aren't in the boot-time dashboard snapshot —
   // fetch on first SettingsView mount so the user doesn't see a
-  // permanently empty list. Re-entrant: actions.loadRetentionRuns
-  // guards against parallel fetches.
+  // permanently empty list. `actions` (and the functions on it)
+  // are recreated each render of useRuntimeConsole, so a naive
+  // [actions] / [actions.loadRetentionRuns] dependency would
+  // re-fire after every completed fetch. Gate explicitly on
+  // first-mount; the in-flight guard inside the action covers
+  // parallel calls but not subsequent renders.
+  const didFetchRetentionRunsRef = useRef(false);
   useEffect(() => {
+    if (didFetchRetentionRunsRef.current) return;
+    didFetchRetentionRunsRef.current = true;
     void actions.loadRetentionRuns();
   }, [actions]);
 
