@@ -46,6 +46,7 @@ export function ProviderPicker({
   autoLabel = "All providers",
   emptyLabel = "select provider",
   triggerWidth,
+  variant = "header",
 }: {
   value: string;
   onChange: (v: string) => void;
@@ -62,12 +63,13 @@ export function ProviderPicker({
   // When unset, the auto-sized inline-grid trigger
   // sizes to the widest option label.
   triggerWidth?: number;
+  variant?: "header" | "composer";
 }) {
   const [open, setOpen] = useState(false);
   const ref = useRef<HTMLDivElement>(null);
   const menuRef = useRef<HTMLDivElement>(null);
   const triggerRef = useRef<HTMLButtonElement>(null);
-  const floatingStyle = useFloatingDropdownStyle(triggerRef, open, "left");
+  const floatingStyle = useFloatingDropdownStyle(triggerRef, open, "left", variant === "composer" ? "up" : "down");
 
   useEffect(() => {
     const handler = (e: MouseEvent) => {
@@ -133,11 +135,28 @@ export function ProviderPicker({
         aria-haspopup="listbox"
         className="btn btn-ghost btn-sm"
         onClick={() => setOpen(o => !o)}
-        style={{ fontFamily: "var(--font-mono)", fontSize: 11, gap: 5, color: "var(--t1)", width: triggerWidth }}>
-        {selected ? (
-          <BrandAvatar brand={selected.id} fallback={selected.name} boxed={false} size={16} />
-        ) : (
-          <Icon d={Icons.providers} size={13} />
+        style={{
+          fontFamily: "var(--font-mono)",
+          fontSize: 11,
+          gap: 5,
+          color: "var(--t1)",
+          width: triggerWidth,
+          ...(variant === "composer"
+            ? {
+              background: "var(--bg1)",
+              borderColor: "var(--border)",
+              borderRadius: "var(--radius-sm)",
+              minHeight: 34,
+              padding: "5px 10px",
+            }
+            : {}),
+        }}>
+        {variant !== "composer" && (
+          selected ? (
+            <BrandAvatar brand={selected.id} fallback={selected.name} boxed={false} size={16} />
+          ) : (
+            <Icon d={Icons.providers} size={13} />
+          )
         )}
         {triggerWidth !== undefined ? (
           // Fixed-width mode: ellipsize within the available flex slot.

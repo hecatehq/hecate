@@ -1,5 +1,6 @@
 import type { PendingAgentApproval } from "../../types/runtime";
 import { Icon, Icons } from "../shared/ui";
+import { ChatNoticeFrame, ChatNoticeHeader, ChatNoticeRow } from "./ChatNotice";
 
 // AgentApprovalAutoModeBanner is the persistent danger banner shown
 // at the top of the Chats workspace when GATEWAY_AGENT_ADAPTER_APPROVAL_MODE
@@ -10,21 +11,16 @@ import { Icon, Icons } from "../shared/ui";
 export function AgentApprovalAutoModeBanner({ mode }: { mode: string }) {
   if (mode !== "auto") return null;
   return (
-    <div
+    <ChatNoticeFrame
       role="alert"
-      data-testid="agent-approval-auto-banner"
+      testID="agent-approval-auto-banner"
+      tone="red"
       style={{
-        margin: "10px 16px 0",
         padding: "10px 14px",
-        border: "1px solid var(--red-border)",
-        borderRadius: "var(--radius)",
-        background: "var(--red-bg)",
-        color: "var(--red)",
         display: "flex",
         alignItems: "center",
         gap: 10,
         fontSize: 12,
-        flexShrink: 0,
       }}
     >
       <Icon d={Icons.warning} size={16} />
@@ -36,7 +32,7 @@ export function AgentApprovalAutoModeBanner({ mode }: { mode: string }) {
           GATEWAY_AGENT_ADAPTER_APPROVAL_MODE=auto — every adapter request is permitted without review.
         </span>
       </div>
-    </div>
+    </ChatNoticeFrame>
   );
 }
 
@@ -64,31 +60,15 @@ export function AgentApprovalsBanner({
   const nextOverflowID = sorted[2]?.approval_id;
 
   return (
-    <div
-      role="region"
+    <ChatNoticeFrame
       aria-label="Pending agent approvals"
-      data-testid="agent-approval-banner"
-      style={{
-        margin: "10px 16px 0",
-        border: "1px solid var(--amber-border)",
-        borderRadius: "var(--radius)",
-        background: "var(--amber-bg)",
-        overflow: "hidden",
-        flexShrink: 0,
-      }}
+      testID="agent-approval-banner"
+      tone="amber"
     >
-      <div style={{
-        padding: "8px 12px",
-        borderBottom: "1px solid var(--amber-border)",
-        display: "flex",
-        alignItems: "center",
-        gap: 8,
-      }}>
-        <Icon d={Icons.warning} size={14} />
-        <span style={{ fontWeight: 500, color: "var(--amber)", fontSize: 12 }}>
-          {pending.length === 1 ? "Approval required" : `${pending.length} approvals required`}
-        </span>
-      </div>
+      <ChatNoticeHeader
+        tone="amber"
+        title={pending.length === 1 ? "Approval required" : `${pending.length} approvals required`}
+      />
       {visible.map((row) => (
         <PendingApprovalRow key={row.approval_id} row={row} onSelect={onSelect} />
       ))}
@@ -114,7 +94,7 @@ export function AgentApprovalsBanner({
           + {overflow} more — review next
         </button>
       )}
-    </div>
+    </ChatNoticeFrame>
   );
 }
 
@@ -128,13 +108,12 @@ function PendingApprovalRow({
   const label = row.tool_name ? `${row.tool_kind} · ${row.tool_name}` : row.tool_kind;
   const expiresIn = formatExpiresIn(row.expires_at);
   return (
-    <div
+    <ChatNoticeRow
+      tone="amber"
       style={{
-        padding: "8px 12px",
         display: "flex",
         alignItems: "center",
         gap: 10,
-        borderTop: "1px solid var(--amber-border)",
       }}
     >
       <span
@@ -165,7 +144,7 @@ function PendingApprovalRow({
       >
         Review
       </button>
-    </div>
+    </ChatNoticeRow>
   );
 }
 

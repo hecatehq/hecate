@@ -144,6 +144,8 @@ export async function mockGatewayAPIs(page: Page, opts: GatewayMockOptions = {})
   // Stateful clone — POST/DELETE/PATCH mutate this in place so a single
   // test can add → list → delete in one flow without re-mocking.
   const state: SettingsConfig = JSON.parse(JSON.stringify(opts.settingsConfig ?? MOCK_SETTINGS_CONFIG));
+  const agentChatSessions: any[] = [];
+  let agentChatSequence = 1;
 
   await page.route("/healthz", r => r.fulfill(ok({ status: "ok", time: "2026-04-25T00:00:00Z" })));
 
@@ -174,14 +176,162 @@ export async function mockGatewayAPIs(page: Page, opts: GatewayMockOptions = {})
   );
 
   await page.route("/hecate/v1/agent-chat/sessions*", async route => {
-    if (route.request().method() === "GET") {
-      await route.fulfill(ok({ object: "agent_chat_sessions", data: [] }));
+    const request = route.request();
+    const method = request.method();
+    const url = new URL(request.url());
+    const suffix = url.pathname.replace("/hecate/v1/agent-chat/sessions", "").replace(/^\/+/, "");
+    const parts = suffix ? suffix.split("/").map(part => decodeURIComponent(part)) : [];
+    const id = parts[0];
+    const now = () => new Date("2026-05-14T12:00:00Z").toISOString();
+    const findSession = () => agentChatSessions.find(session => session.id === id);
+    const sessionSummary = (session: any) => {
+      const { messages: _messages, config_options: _configOptions, segments: _segments, ...summary } = session;
+      return summary;
+    };
+
+    if (!id) {
+      if (method === "GET") {
+        await route.fulfill(ok({ object: "agent_chat_sessions", data: agentChatSessions.map(sessionSummary) }));
+        return;
+      }
+      if (method === "POST") {
+        const body = JSON.parse(request.postData() || "{}");
+        const runtimeKind = body.runtime_kind || (body.adapter_id ? "external_agent" : "agent");
+        const adapter = MOCK_AGENT_ADAPTERS.find(item => item.id === body.adapter_id);
+        const isExternal = runtimeKind === "external_agent";
+        const session = {
+          id: `agent-chat-e2e-${agentChatSequence++}`,
+          title: body.title || (isExternal ? `${adapter?.name || "External agent"} chat` : "Hecate chat"),
+          runtime_kind: runtimeKind,
+          adapter_id: body.adapter_id || "",
+          adapter_name: adapter?.name || "",
+          driver_kind: isExternal ? "acp" : "",
+          native_session_id: isExternal ? `native-${agentChatSequence}` : "",
+          provider: body.provider || "auto",
+          model: body.model || MOCK_MODELS[0]?.id || "",
+          capabilities: { tool_calling: "basic", streaming: true, source: "operator_override" },
+          rtk_enabled: Boolean(body.rtk_enabled),
+          workspace: body.workspace || "/tmp/hecate-e2e",
+          workspace_branch: "",
+          status: "idle",
+          message_count: 0,
+          created_at: now(),
+          updated_at: now(),
+          config_options: isExternal ? [] : undefined,
+          segments: [],
+          messages: [],
+        };
+        agentChatSessions.unshift(session);
+        await route.fulfill(ok({ object: "agent_chat_session", data: session }));
+        return;
+      }
+    }
+
+    const session = findSession();
+    if (!session) {
+      if (parts[1] === "stream") {
+        await route.fulfill({ status: 200, contentType: "text/event-stream", body: "" });
+        return;
+      }
+      await route.fulfill({
+        status: 404,
+        contentType: "application/json",
+        body: JSON.stringify({ error: { type: "not_found", message: "agent chat session not found" } }),
+      });
       return;
     }
+
+    if (parts.length === 1) {
+      if (method === "GET") {
+        await route.fulfill(ok({ object: "agent_chat_session", data: session }));
+        return;
+      }
+      if (method === "PATCH") {
+        const body = JSON.parse(request.postData() || "{}");
+        if (typeof body.title === "string") {
+          session.title = body.title;
+          session.updated_at = now();
+        }
+        await route.fulfill(ok({ object: "agent_chat_session", data: session }));
+        return;
+      }
+      if (method === "DELETE") {
+        const idx = agentChatSessions.indexOf(session);
+        if (idx >= 0) agentChatSessions.splice(idx, 1);
+        await route.fulfill(ok({ object: "deleted", data: { id } }));
+        return;
+      }
+    }
+
+    if (parts[1] === "stream") {
+      await route.fulfill({ status: 200, contentType: "text/event-stream", body: "" });
+      return;
+    }
+
+    if (parts[1] === "settings" && method === "PATCH") {
+      const body = JSON.parse(request.postData() || "{}");
+      if (typeof body.rtk_enabled === "boolean") session.rtk_enabled = body.rtk_enabled;
+      session.updated_at = now();
+      await route.fulfill(ok({ object: "agent_chat_session", data: session }));
+      return;
+    }
+
+    if (parts[1] === "config-options" && method === "POST") {
+      const configID = parts[2];
+      const body = JSON.parse(request.postData() || "{}");
+      session.config_options = (session.config_options || []).map((option: any) => {
+        if (option.id !== configID) return option;
+        if (option.type === "boolean") return { ...option, current_bool: Boolean(body.value) };
+        return { ...option, current_value: String(body.value ?? "") };
+      });
+      session.updated_at = now();
+      await route.fulfill(ok({ object: "agent_chat_session", data: session }));
+      return;
+    }
+
+    if (parts[1] === "messages" && method === "POST" && parts.length === 2) {
+      const body = JSON.parse(request.postData() || "{}");
+      const content = String(body.content || "");
+      const runtimeKind = body.runtime_kind || session.runtime_kind || "agent";
+      session.messages.push(
+        {
+          id: `agent-msg-user-${agentChatSequence}`,
+          runtime_kind: runtimeKind,
+          role: "user",
+          content,
+          created_at: now(),
+        },
+        {
+          id: `agent-msg-assistant-${agentChatSequence}`,
+          runtime_kind: runtimeKind,
+          role: "assistant",
+          content: runtimeKind === "model" ? `Direct response to: ${content}` : `Agent response to: ${content}`,
+          status: "completed",
+          provider: body.provider || session.provider,
+          model: body.model || session.model,
+          workspace: session.workspace,
+          run_id: runtimeKind === "model" ? `model_run_${agentChatSequence}` : `run_${agentChatSequence}`,
+          request_id: `req_${agentChatSequence}`,
+          trace_id: `trace_${agentChatSequence}`,
+          cost_mode: runtimeKind === "external_agent" ? "external" : "hecate",
+          created_at: now(),
+        },
+      );
+      agentChatSequence += 1;
+      session.runtime_kind = runtimeKind;
+      session.provider = body.provider || session.provider;
+      session.model = body.model || session.model;
+      session.status = "completed";
+      session.message_count = session.messages.length;
+      session.updated_at = now();
+      await route.fulfill(ok({ object: "agent_chat_session", data: session }));
+      return;
+    }
+
     await route.fulfill({
       status: 404,
       contentType: "application/json",
-      body: JSON.stringify({ error: { type: "not_found", message: "agent chat session not found" } }),
+      body: JSON.stringify({ error: { type: "not_found", message: "agent chat session route not found" } }),
     });
   });
 

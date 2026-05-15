@@ -14,6 +14,9 @@
 // menu's right edge to the trigger's right edge (the model picker's
 // 300-wide menu would overflow off-screen if anchored left on a
 // narrow trigger).
+//
+// `placement` controls vertical anchoring. Header pickers open down;
+// composer pickers open up so menus don't cover the message input.
 
 import { useEffect, useState } from "react";
 import type React from "react";
@@ -22,6 +25,7 @@ export function useFloatingDropdownStyle(
   triggerRef: React.RefObject<HTMLElement | null>,
   open: boolean,
   align: "left" | "right" = "left",
+  placement: "down" | "up" = "down",
 ): React.CSSProperties | undefined {
   const [style, setStyle] = useState<React.CSSProperties | undefined>(undefined);
   useEffect(() => {
@@ -43,9 +47,18 @@ export function useFloatingDropdownStyle(
       // aligned model picker.
       const next: React.CSSProperties = {
         position: "fixed",
-        top: r.bottom + 4,
         zIndex: 200,
       };
+      if (placement === "up") {
+        next.bottom = window.innerHeight - r.top + 4;
+        next.top = "auto";
+        next.maxHeight = Math.max(120, r.top - 12);
+      } else {
+        next.top = r.bottom + 4;
+        next.bottom = "auto";
+        next.maxHeight = Math.max(120, window.innerHeight - r.bottom - 12);
+      }
+      next.overflowY = "auto";
       if (align === "right") {
         next.right = window.innerWidth - r.right;
         next.left = "auto";
@@ -64,6 +77,6 @@ export function useFloatingDropdownStyle(
       window.removeEventListener("scroll", compute, true);
       window.removeEventListener("resize", compute);
     };
-  }, [open, triggerRef, align]);
+  }, [open, triggerRef, align, placement]);
   return style;
 }

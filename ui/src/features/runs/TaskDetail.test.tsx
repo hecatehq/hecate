@@ -294,8 +294,8 @@ describe("TaskDetail runtime activity and patches", () => {
     expect(screen.getAllByText("file-12.ts").length).toBeGreaterThan(0);
   });
 
-  it("renders task approval rows without leaking internal agent-loop markers", () => {
-    const { render } = setup({
+  it("renders task approval rows without leaking internal agent-loop markers", async () => {
+    const { render, user } = setup({
       activity: [
         makeActivity({
           id: "activity-approval",
@@ -312,9 +312,12 @@ describe("TaskDetail runtime activity and patches", () => {
 
     expect(screen.getByText("Approval granted")).toBeTruthy();
     expect(screen.getByText("shell_exec")).toBeTruthy();
-    // The raw internal kind is still available in closed Advanced details,
-    // but it should not leak into the primary activity row.
-    expect(screen.getByText(/builtin\.agent_loop/)).not.toBeVisible();
+    expect(screen.queryByText(/builtin\.agent_loop/)).toBeNull();
+
+    // The raw internal kind is still available when the operator opens
+    // Advanced details, but it should not leak into the primary row.
+    await user.click(screen.getByText("Advanced"));
+    expect(screen.getByText(/builtin\.agent_loop/)).toBeVisible();
   });
 
   it("previews related stdout and stderr on failed tool advanced details", async () => {
@@ -377,6 +380,33 @@ describe("TaskDetail runtime activity and patches", () => {
     expect(screen.getAllByText(/nothing to commit/)[0]).toBeVisible();
     expect(screen.getByText("git-stderr.txt")).toBeTruthy();
     expect(screen.getByText("fatal: not a git repository")).toBeTruthy();
+  });
+
+  it("previews output artifacts from the shared activity details", async () => {
+    const { render, user } = setup({
+      activity: [
+        makeActivity({
+          id: "activity-stdout",
+          type: "artifact",
+          title: "git-stdout.txt",
+          artifact_id: "art-stdout",
+          kind: "stdout",
+          status: "ready",
+          summary: {
+            size_bytes: 41,
+            content_preview: "On branch feature/runtime\nnothing to commit",
+          },
+        }),
+      ],
+    });
+    render();
+
+    await user.click(screen.getByText("Artifacts · 1 item"));
+    await user.click(screen.getByText("Preview"));
+
+    expect(screen.getByText("git-stdout.txt")).toBeTruthy();
+    expect(screen.getByText(/On branch feature\/runtime/)).toBeTruthy();
+    expect(screen.getByText(/nothing to commit/)).toBeTruthy();
   });
 
   it("keeps empty stderr discoverable for failed tool diagnostics", async () => {

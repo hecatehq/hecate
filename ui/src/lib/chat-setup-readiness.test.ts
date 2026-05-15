@@ -24,9 +24,9 @@ describe("resolveChatSetupRepairState", () => {
 
     expect(repair).toMatchObject({
       kind: "no_provider",
-      title: "No provider configured",
+      title: "No model provider configured",
       action: "open_connections",
-      actionLabel: "Go to Connections",
+      actionLabel: "Open Connections",
     });
   });
 

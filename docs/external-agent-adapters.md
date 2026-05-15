@@ -239,6 +239,8 @@ Each Agent Chat session maps to one native ACP session. Hecate starts the
 selected adapter process the first time the chat sends a prompt, creates the ACP
 session, and reuses it for later prompts in the same Hecate chat. The adapter is
 fixed for the chat session; start a new Agent Chat to choose another adapter.
+The visible chat title can be renamed from the Chats sidebar without changing
+the ACP native session, workspace, or adapter selection.
 Model Chats are different: their provider/model selection is per request and
 can change inside one session.
 

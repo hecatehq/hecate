@@ -1,4 +1,4 @@
-import { fireEvent, render, screen } from "@testing-library/react";
+import { fireEvent, render, screen, waitFor, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { afterEach, describe, expect, it, vi } from "vitest";
 
@@ -68,9 +68,8 @@ describe("ChatView input", () => {
   it("renders Hecate first in the unified agent picker", async () => {
     const { state, actions } = setup();
     render(<ChatView state={state} actions={actions} />);
-    const picker = screen.getByRole("button", { name: "Agent" });
-    expect(picker.textContent).toContain("Hecate");
-    expect(picker).toHaveStyle({ color: "var(--teal)" });
+    expect(screen.getByRole("button", { name: "New Hecate chat" })).toBeTruthy();
+    const picker = screen.getByRole("button", { name: "Choose agent for new chat" });
 
     const user = userEvent.setup();
     await user.click(picker);
@@ -116,6 +115,32 @@ describe("ChatView input", () => {
     expect(setChatTarget).toHaveBeenCalledWith("agent");
   });
 
+  it("keeps tools off for an existing Hecate session when the next turn is direct model chat", async () => {
+    const setChatTarget = vi.fn();
+    const { state, actions } = setup({
+      chatTarget: "model",
+      activeAgentChatSessionID: "agent_chat_1",
+      activeAgentChatSession: {
+        id: "agent_chat_1",
+        runtime_kind: "agent",
+        title: "Repo work",
+        provider: "openai",
+        model: "gpt-4o-mini",
+        workspace: "/workspace",
+        status: "completed",
+        messages: [],
+      } as any,
+    }, { setChatTarget });
+    render(<ChatView state={state} actions={actions} />);
+
+    const user = userEvent.setup();
+    await user.click(screen.getByRole("button", { name: /settings/i }));
+
+    expect(screen.getByRole("button", { name: "Tools off" })).toHaveTextContent("off");
+    await user.click(screen.getByRole("button", { name: "Tools off" }));
+    expect(setChatTarget).toHaveBeenCalledWith("agent");
+  });
+
   it("shows editable system prompt instructions in chat settings before the first message", async () => {
     const setSystemPrompt = vi.fn();
     const { state, actions } = setup({
@@ -145,6 +170,33 @@ describe("ChatView input", () => {
     expect(setSystemPrompt).toHaveBeenLastCalledWith("Use short patches.");
   });
 
+  it("keeps Hecate system prompt visible when the active session is Hecate-backed", async () => {
+    const { state, actions } = setup({
+      chatTarget: "external_agent",
+      systemPrompt: "Keep explanations short.",
+      activeAgentChatSessionID: "agent_chat_hecate",
+      activeAgentChatSession: {
+        id: "agent_chat_hecate",
+        runtime_kind: "agent",
+        title: "Repo work",
+        task_id: "task_hecate_123456",
+        provider: "ollama",
+        model: "qwen2.5-coder",
+        workspace: "/Users/alice/dev/hecate",
+        status: "completed",
+        messages: [],
+      } as any,
+      model: "qwen2.5-coder",
+    });
+    render(<ChatView state={state} actions={actions} />);
+
+    const user = userEvent.setup();
+    await user.click(screen.getByRole("button", { name: "Chat settings" }));
+
+    expect(screen.getByText("System prompt")).toBeTruthy();
+    expect(screen.getByRole("textbox", { name: "System prompt / instructions" })).toHaveValue("Keep explanations short.");
+  });
+
   it("shows per-chat settings and toggles compact command output", async () => {
     const setHecateRTKEnabled = vi.fn(async () => true);
     const { state, actions } = setup({
@@ -158,7 +210,7 @@ describe("ChatView input", () => {
         provider: "ollama",
         model: "qwen2.5-coder",
         rtk_enabled: false,
-        workspace: "/tmp/hecate",
+        workspace: "/Users/alice/dev/hecate",
         status: "completed",
         messages: [
           { id: "msg_user", role: "user", content: "show git status", created_at: "2026-05-01T10:00:00Z" },
@@ -167,6 +219,7 @@ describe("ChatView input", () => {
       hecateRTKEnabled: false,
       hecateRTKAvailable: true,
       hecateRTKPath: "/usr/local/bin/rtk",
+      providerFilter: "ollama",
       model: "qwen2.5-coder",
     }, { setHecateRTKEnabled });
     render(<ChatView state={state} actions={actions} />);
@@ -177,11 +230,11 @@ describe("ChatView input", () => {
     expect(screen.getByText("Chat settings")).toBeTruthy();
     expect(screen.getByText("Compact command output")).toBeTruthy();
     expect(screen.getByText("Session context")).toBeTruthy();
-    expect(screen.getByText("Runtime debug")).toBeTruthy();
+    expect(screen.queryByText("Runtime debug")).toBeNull();
     expect(screen.getByText("Provider")).toBeTruthy();
-    expect(screen.getAllByText("All providers").length).toBeGreaterThan(0);
+    expect(screen.queryByText("All providers")).toBeNull();
     expect(screen.getByText("Workspace")).toBeTruthy();
-    expect(screen.getByText("/tmp/hecate")).toBeTruthy();
+    expect(screen.getByText("/Users/alice/dev/hecate")).toBeTruthy();
     expect(screen.getByText("Status")).toBeTruthy();
     expect(screen.getByText("completed")).toBeTruthy();
     expect(screen.getByText("Messages")).toBeTruthy();
@@ -192,6 +245,40 @@ describe("ChatView input", () => {
     await user.click(screen.getByRole("button", { name: "Compact command output off" }));
 
     expect(setHecateRTKEnabled).toHaveBeenCalledWith(true);
+  });
+
+  it("does not show the RTK onboarding hint after RTK is explicitly turned off in settings", async () => {
+    const setHecateRTKEnabled = vi.fn(async () => true);
+    const { state, actions } = setup({
+      chatTarget: "agent",
+      message: "",
+      hecateRTKEnabled: true,
+      hecateRTKAvailable: true,
+      hecateRTKPath: "/usr/local/bin/rtk",
+      providerScopedModels: [
+        {
+          id: "gpt-4o-mini",
+          owned_by: "openai",
+          metadata: {
+            provider: "openai",
+            provider_kind: "cloud",
+            capabilities: { tool_calling: "basic", streaming: true, source: "catalog" },
+          },
+        },
+      ],
+    }, { setHecateRTKEnabled });
+    const { rerender } = render(<ChatView state={state} actions={actions} />);
+
+    const user = userEvent.setup();
+    await user.click(screen.getByRole("button", { name: "New Hecate chat" }));
+    await user.click(screen.getByRole("button", { name: "Chat settings" }));
+    await user.click(screen.getByRole("button", { name: "Compact command output on" }));
+    expect(setHecateRTKEnabled).toHaveBeenCalledWith(false);
+
+    rerender(<ChatView state={{ ...state, hecateRTKEnabled: false }} actions={actions} />);
+    await user.click(screen.getByRole("button", { name: "Chat settings" }));
+
+    expect(screen.queryByText("Compact command output is available")).toBeNull();
   });
 
   it("does not expose Hecate instructions for External Agent chats", () => {
@@ -208,9 +295,56 @@ describe("ChatView input", () => {
     expect(screen.queryByText("SYSTEM PROMPT / INSTRUCTIONS")).toBeNull();
   });
 
+  it("surfaces adapter-exposed instructions in external-agent chat settings", async () => {
+    const setAgentChatConfigOption = vi.fn(async () => true);
+    const { state, actions } = setup({
+      chatTarget: "external_agent",
+      agentAdapterID: "codex",
+      activeAgentChatSessionID: "a1",
+      activeAgentChatSession: {
+        id: "a1",
+        runtime_kind: "external_agent",
+        title: "Codex work",
+        adapter_id: "codex",
+        workspace: "/Users/alice/dev/hecate",
+        status: "idle",
+        config_options: [
+          {
+            id: "system_prompt",
+            name: "System prompt",
+            description: "Instructions applied by the adapter.",
+            category: "instructions",
+            type: "text",
+            current_value: "Be concise.",
+          },
+        ],
+        messages: [],
+      } as any,
+      agentAdapters: [
+        { id: "codex", name: "Codex", kind: "acp", command: "codex-acp", available: true, status: "available", cost_mode: "external" },
+      ],
+    }, { setAgentChatConfigOption });
+    render(<ChatView state={state} actions={actions} />);
+
+    const user = userEvent.setup();
+    await user.click(screen.getByRole("button", { name: "Chat settings" }));
+
+    expect(screen.getByText("Adapter controls")).toBeTruthy();
+    expect(screen.getByText("Instructions applied by the adapter.")).toBeTruthy();
+    const editor = screen.getByRole("textbox", { name: "System prompt / instructions" });
+    expect(editor).toHaveValue("Be concise.");
+
+    await user.clear(editor);
+    await user.type(editor, "Prefer short answers.");
+    await user.click(screen.getByRole("button", { name: "Save" }));
+
+    expect(setAgentChatConfigOption).toHaveBeenCalledWith("a1", "system_prompt", "Prefer short answers.");
+  });
+
   it("disables the send button when message is empty", () => {
     const { state, actions } = setup({ message: "" });
     render(<ChatView state={state} actions={actions} />);
+    fireEvent.click(screen.getByRole("button", { name: /new .* chat/i }));
     const send = document.querySelector("button[type='submit']") as HTMLButtonElement;
     expect(send.disabled).toBe(true);
   });
@@ -244,8 +378,8 @@ describe("ChatView input", () => {
       ],
     });
     render(<ChatView state={state} actions={actions} />);
-    expect(screen.getByText("No provider configured")).toBeTruthy();
-    expect(screen.getByRole("button", { name: /Go to Connections/i })).toBeTruthy();
+    expect(screen.getByText("No model provider configured")).toBeTruthy();
+    expect(screen.getByRole("button", { name: /Open Connections/i })).toBeTruthy();
     expect(screen.queryByRole("textbox", { name: "Message" })).toBeNull();
     expect(screen.queryByRole("button", { name: "Send message" })).toBeNull();
   });
@@ -410,12 +544,12 @@ describe("ChatView input", () => {
     render(<ChatView state={state} actions={actions} onNavigate={onNavigate} />);
 
     const user = userEvent.setup();
-    await user.click(screen.getByRole("button", { name: /Go to Connections/i }));
+    await user.click(screen.getByRole("button", { name: /Open Connections/i }));
 
     expect(onNavigate).toHaveBeenCalledWith("providers");
   });
 
-  it("shows provider troubleshooting instead of detected-provider setup when a configured provider has no models", () => {
+  it("keeps configured-provider model discovery repair compact in the empty state", () => {
     const { state, actions } = setup({
       chatTarget: "model",
       providerFilter: "ollama",
@@ -450,17 +584,10 @@ describe("ChatView input", () => {
     });
     render(<ChatView state={state} actions={actions} />);
 
-    expect(screen.getByText("No models discovered")).toBeTruthy();
-    expect(screen.getAllByText("No models were discovered and no default model is configured.").length).toBeGreaterThan(0);
-    expect(screen.getAllByText(/Next: Start the provider and pull or load at least one model/).length).toBeGreaterThan(0);
-    expect(screen.getAllByText("Ollama").length).toBeGreaterThan(0);
-    expect(screen.getByText("none discovered")).toBeTruthy();
-    expect(screen.getAllByText("Credentials").length).toBeGreaterThan(0);
-    expect(screen.getAllByText("Models").length).toBeGreaterThan(0);
-    expect(screen.getAllByText("Routing").length).toBeGreaterThan(0);
-    expect(screen.getByText("Discovery")).toBeTruthy();
-    expect(screen.getByText("Routing is blocked because no models are available.")).toBeTruthy();
-    expect(screen.getByText(/Start the local provider app/)).toBeTruthy();
+    expect(screen.getByText("No routable model")).toBeTruthy();
+    expect(screen.getByRole("button", { name: /Open Connections/i })).toBeTruthy();
+    expect(screen.queryByText("No models discovered")).toBeNull();
+    expect(screen.queryByText("Routing is blocked because no models are available.")).toBeNull();
     expect(screen.queryByText("Detected locally")).toBeNull();
     expect(screen.queryByRole("button", { name: /Add selected/i })).toBeNull();
   });
@@ -777,8 +904,9 @@ describe("ChatView input", () => {
     });
     render(<ChatView state={state} actions={actions} />);
     expect(screen.getByText("Nothing runnable yet")).toBeTruthy();
-    expect(screen.getByRole("button", { name: /Go to Connections/i })).toBeTruthy();
-    expect(screen.getByRole("button", { name: "Agent" })).toHaveTextContent("Hecate");
+    expect(screen.getByRole("button", { name: /Open Connections/i })).toBeTruthy();
+    expect(screen.getByRole("button", { name: "New Hecate chat" })).toBeTruthy();
+    expect(screen.getByRole("button", { name: "Choose agent for new chat" })).toBeTruthy();
     expect(screen.queryByRole("textbox", { name: "Message" })).toBeNull();
     expect(screen.queryByRole("button", { name: "Send message" })).toBeNull();
   });
@@ -827,12 +955,16 @@ describe("ChatView input", () => {
       model: "smollm2:135m",
       settingsConfig: {
         backend: "memory",
-        providers: [{ id: "ollama", name: "Ollama", kind: "local", credential_configured: true }],
+        providers: [
+          { id: "ollama", name: "Ollama", kind: "local", protocol: "openai", base_url: "http://127.0.0.1:11434/v1", credential_configured: true },
+          { id: "openai", name: "OpenAI", kind: "cloud", protocol: "openai", base_url: "https://api.openai.com/v1", credential_configured: true },
+        ],
         policy_rules: [],
         events: [],
       },
       providerPresets: [
         { id: "ollama", name: "Ollama", kind: "local", protocol: "openai", base_url: "http://127.0.0.1:11434/v1", description: "" },
+        { id: "openai", name: "OpenAI", kind: "cloud", protocol: "openai", base_url: "https://api.openai.com/v1", description: "" },
       ],
       providerScopedModels: [
         {
@@ -873,7 +1005,88 @@ describe("ChatView input", () => {
 
     expect(screen.queryByRole("button", { name: "Fixed provider: Ollama" })).toBeNull();
     expect(screen.queryByRole("button", { name: "Fixed model: qwen2.5-coder" })).toBeNull();
+    expect(screen.getByLabelText("Hecate message controls")).toBeTruthy();
     expect(screen.getByRole("button", { name: "Model picker: smollm2:135m" })).toBeTruthy();
+  });
+
+  it("uses shared composer dropdown controls for editable Hecate provider and model selection", async () => {
+    const setProviderFilter = vi.fn();
+    const setModel = vi.fn();
+    const { state, actions } = setup({
+      chatTarget: "agent",
+      message: "continue",
+      agentWorkspace: "/tmp/hecate",
+      providerFilter: "ollama",
+      model: "smollm2:135m",
+      settingsConfig: {
+        backend: "memory",
+        providers: [
+          { id: "ollama", name: "Ollama", kind: "local", protocol: "openai", base_url: "http://127.0.0.1:11434/v1", credential_configured: true },
+          { id: "openai", name: "OpenAI", kind: "cloud", protocol: "openai", base_url: "https://api.openai.com/v1", credential_configured: true },
+        ],
+        policy_rules: [],
+        events: [],
+      },
+      providerPresets: [
+        { id: "ollama", name: "Ollama", kind: "local", protocol: "openai", base_url: "http://127.0.0.1:11434/v1", description: "" },
+        { id: "openai", name: "OpenAI", kind: "cloud", protocol: "openai", base_url: "https://api.openai.com/v1", description: "" },
+      ],
+      providerScopedModels: [
+        {
+          id: "qwen2.5-coder",
+          owned_by: "ollama",
+          metadata: {
+            provider: "ollama",
+            provider_kind: "local",
+            capabilities: { tool_calling: "basic", streaming: true, source: "operator_override" },
+          },
+        },
+        {
+          id: "smollm2:135m",
+          owned_by: "ollama",
+          metadata: {
+            provider: "ollama",
+            provider_kind: "local",
+            capabilities: { tool_calling: "unknown", streaming: true, source: "provider" },
+          },
+        },
+      ],
+      activeAgentChatSessionID: "agent_chat_1",
+      activeAgentChatSession: {
+        id: "agent_chat_1",
+        runtime_kind: "agent",
+        title: "Repo work",
+        task_id: "task_hecate_123456",
+        latest_run_id: "run_hecate_abcdef",
+        provider: "ollama",
+        model: "qwen2.5-coder",
+        capabilities: { tool_calling: "basic", streaming: true, source: "operator_override" },
+        workspace: "/tmp/hecate",
+        status: "completed",
+        messages: [],
+      } as any,
+    }, { setProviderFilter, setModel });
+    render(<ChatView state={state} actions={actions} />);
+
+    const controls = screen.getByLabelText("Hecate message controls");
+    const provider = within(controls).getByRole("button", { name: "Provider picker: Ollama" });
+    expect(provider).toHaveTextContent("provider");
+    expect(provider).toHaveTextContent("Ollama");
+    await userEvent.click(provider);
+    expect(screen.queryByRole("option", { name: /All providers/ })).toBeNull();
+    await userEvent.click(screen.getByRole("option", { name: /OpenAI/ }));
+    expect(setProviderFilter).toHaveBeenCalledWith("openai");
+
+    const model = within(controls).getByRole("button", { name: "Model picker: smollm2:135m" });
+    expect(model).toHaveTextContent("model");
+    expect(model).toHaveTextContent("smollm2:135m");
+    await userEvent.click(model);
+    const filter = screen.getByRole("textbox", { name: "Filter models..." });
+    await userEvent.type(filter, "qwen");
+    expect(screen.getByRole("option", { name: /qwen2.5-coder/ })).toBeTruthy();
+    expect(screen.queryByRole("option", { name: /smollm2:135m/ })).toBeNull();
+    await userEvent.click(screen.getByRole("option", { name: /qwen2.5-coder/ }));
+    expect(setModel).toHaveBeenCalledWith("qwen2.5-coder");
   });
 
   it("locks provider and model while a task-backed Hecate Agent segment is active", () => {
@@ -928,14 +1141,14 @@ describe("ChatView input", () => {
     expect(screen.queryByText(/Tools are disabled for this model/)).toBeNull();
     expect(screen.getByRole("button", { name: "Queue message" })).toBeTruthy();
     expect(screen.getByRole("button", { name: "Stop active task" })).toBeTruthy();
-    expect(screen.getByText(/Hecate Chat is working on this task/)).toBeTruthy();
+    expect(screen.getByText(/Hecate Chat is still working on this task/)).toBeTruthy();
 
     rerender(<ChatView state={{ ...state, chatTarget: "model" }} actions={actions} />);
     expect(document.querySelector('[aria-label="Fixed provider: Ollama"]')).toBeTruthy();
     expect(document.querySelector('[aria-label="Fixed model: qwen2.5-coder"]')).toBeTruthy();
     expect(document.querySelector('[aria-label="Model picker: smollm2:135m"]')).toBeNull();
     expect(screen.getByRole("button", { name: "Stop active task" })).toBeTruthy();
-    expect(screen.getByText(/Hecate Chat is working on this task/)).toBeTruthy();
+    expect(screen.getByText(/Hecate Chat is still working on this task/)).toBeTruthy();
   });
 
   it("locks controls to the active task segment even when the session root is direct chat", () => {
@@ -984,7 +1197,7 @@ describe("ChatView input", () => {
     expect(screen.getByRole("button", { name: "Fixed model: qwen2.5-coder" })).toBeTruthy();
     expect(screen.queryByText("smollm2:135m")).toBeNull();
     expect(screen.getByRole("button", { name: "Stop active task" })).toBeTruthy();
-    expect(screen.getByText(/New messages will queue until the active run finishes/)).toBeTruthy();
+    expect(screen.getByText(/New messages will queue until the active task finishes/)).toBeTruthy();
     screen.getByRole("button", { name: "Open task" }).click();
     expect(onOpenTask).toHaveBeenCalledWith("task_hecate_123456", "run_hecate_abcdef");
   });
@@ -1349,7 +1562,7 @@ describe("ChatView input", () => {
                 status: "awaiting_approval",
                 kind: "approval",
                 title: "Awaiting approval — turn 1",
-                detail: "builtin.agent_loop_approval - awaiting_approval",
+                detail: "Agent requested tools that require approval: shell_exec - awaiting_approval",
                 approval_id: "appr_123",
                 needs_action: true,
                 created_at: "2026-05-03T10:00:02Z",
@@ -1362,14 +1575,15 @@ describe("ChatView input", () => {
     render(<ChatView state={state} actions={actions} onOpenTask={onOpenTask} />);
 
     expect(screen.getByTestId("hecate-task-approval-banner")).toBeTruthy();
-    expect(screen.getByText("Task approval required")).toBeTruthy();
+    expect(screen.getByText("Approval required")).toBeTruthy();
+    expect(screen.getByText("Shell execution")).toBeTruthy();
     expect(screen.getAllByText("Waiting for approval").length).toBeGreaterThan(0);
 
     const user = userEvent.setup();
-    await user.click(screen.getByRole("button", { name: "Open Task" }));
+    await user.click(screen.getAllByRole("button", { name: "Open task" })[0]!);
     expect(onOpenTask).toHaveBeenCalledWith("task_hecate_123456", "run_hecate_abcdef");
 
-    await user.click(screen.getByRole("button", { name: /Approve approval/i }));
+    await user.click(screen.getByRole("button", { name: /Approve Shell execution/i }));
     expect(resolveTaskApproval).toHaveBeenCalledWith("task_hecate_123456", "appr_123", { decision: "approve" });
   });
 
@@ -1423,10 +1637,108 @@ describe("ChatView input", () => {
     // Start with empty message so the assertion sees only what we typed.
     const { state, actions } = setup({ chatTarget: "model", message: "" }, { setMessage });
     render(<ChatView state={state} actions={actions} />);
+    fireEvent.click(screen.getByRole("button", { name: /new .* chat/i }));
     const ta = screen.getByPlaceholderText(/Message/i) as HTMLTextAreaElement;
     const user = userEvent.setup();
     await user.type(ta, "h");
     expect(setMessage).toHaveBeenCalledWith("h");
+  });
+
+  it("browses previous user messages with ArrowUp and ArrowDown", () => {
+    const setMessage = vi.fn();
+    const { state, actions } = setup({
+      chatTarget: "model",
+      message: "",
+      activeChatSessionID: "chat_history",
+      activeChatSession: {
+        id: "chat_history",
+        title: "History",
+        messages: [
+          { id: "u1", role: "user", content: "first prompt", created_at: "2026-05-01T10:00:00Z" },
+          { id: "a1", role: "assistant", content: "first answer", created_at: "2026-05-01T10:00:01Z" },
+          { id: "u2", role: "user", content: "second prompt", created_at: "2026-05-01T10:00:02Z" },
+        ],
+        provider_calls: [],
+      },
+    }, { setMessage });
+    const { rerender } = render(<ChatView state={state} actions={actions} />);
+
+    let textarea = screen.getByRole("textbox", { name: "Message" }) as HTMLTextAreaElement;
+    textarea.setSelectionRange(0, 0);
+    fireEvent.keyDown(textarea, { key: "ArrowUp" });
+    expect(setMessage).toHaveBeenLastCalledWith("second prompt");
+
+    const latestState = { ...state, message: "second prompt" };
+    rerender(<ChatView state={latestState} actions={actions} />);
+    textarea = screen.getByRole("textbox", { name: "Message" }) as HTMLTextAreaElement;
+    textarea.setSelectionRange("second prompt".length, "second prompt".length);
+    fireEvent.keyDown(textarea, { key: "ArrowUp" });
+    expect(setMessage).toHaveBeenLastCalledWith("first prompt");
+
+    const oldestState = { ...state, message: "first prompt" };
+    rerender(<ChatView state={oldestState} actions={actions} />);
+    textarea = screen.getByRole("textbox", { name: "Message" }) as HTMLTextAreaElement;
+    textarea.setSelectionRange("first prompt".length, "first prompt".length);
+    fireEvent.keyDown(textarea, { key: "ArrowDown" });
+    expect(setMessage).toHaveBeenLastCalledWith("second prompt");
+
+    rerender(<ChatView state={latestState} actions={actions} />);
+    textarea = screen.getByRole("textbox", { name: "Message" }) as HTMLTextAreaElement;
+    textarea.setSelectionRange("second prompt".length, "second prompt".length);
+    fireEvent.keyDown(textarea, { key: "ArrowDown" });
+    expect(setMessage).toHaveBeenLastCalledWith("");
+  });
+
+  it("keeps normal ArrowUp navigation inside multiline drafts", () => {
+    const setMessage = vi.fn();
+    const { state, actions } = setup({
+      chatTarget: "model",
+      message: "line one\nline two",
+      activeChatSessionID: "chat_history",
+      activeChatSession: {
+        id: "chat_history",
+        title: "History",
+        messages: [
+          { id: "u1", role: "user", content: "previous prompt", created_at: "2026-05-01T10:00:00Z" },
+        ],
+        provider_calls: [],
+      },
+    }, { setMessage });
+    render(<ChatView state={state} actions={actions} />);
+
+    const textarea = screen.getByRole("textbox", { name: "Message" }) as HTMLTextAreaElement;
+    textarea.setSelectionRange(5, 5);
+    fireEvent.keyDown(textarea, { key: "ArrowUp" });
+    expect(setMessage).not.toHaveBeenCalled();
+  });
+
+  it("restores a single-line draft after browsing history", () => {
+    const setMessage = vi.fn();
+    const { state, actions } = setup({
+      chatTarget: "model",
+      message: "draft question",
+      activeChatSessionID: "chat_history",
+      activeChatSession: {
+        id: "chat_history",
+        title: "History",
+        messages: [
+          { id: "u1", role: "user", content: "previous prompt", created_at: "2026-05-01T10:00:00Z" },
+        ],
+        provider_calls: [],
+      },
+    }, { setMessage });
+    const { rerender } = render(<ChatView state={state} actions={actions} />);
+
+    let textarea = screen.getByRole("textbox", { name: "Message" }) as HTMLTextAreaElement;
+    textarea.setSelectionRange("draft question".length, "draft question".length);
+    fireEvent.keyDown(textarea, { key: "ArrowUp" });
+    expect(setMessage).toHaveBeenLastCalledWith("previous prompt");
+
+    rerender(<ChatView state={{ ...state, message: "previous prompt" }} actions={actions} />);
+    textarea = screen.getByRole("textbox", { name: "Message" }) as HTMLTextAreaElement;
+    textarea.setSelectionRange("previous prompt".length, "previous prompt".length);
+    fireEvent.keyDown(textarea, { key: "ArrowDown" });
+    expect(setMessage).toHaveBeenLastCalledWith("draft question");
   });
 });
 
@@ -1500,6 +1812,25 @@ describe("ChatView chats sidebar", () => {
     expect(screen.queryByText("Codex refactor")).toBeNull();
   });
 
+  it("allows renaming agent chats from the sidebar", async () => {
+    const renameChatSession = vi.fn(async () => undefined);
+    const { state, actions } = setup({
+      chatTarget: "external_agent",
+      agentChatSessions: [
+        { id: "a1", title: "Codex refactor", adapter_id: "codex", status: "completed", message_count: 4, updated_at: daysAgo(0) } as any,
+      ],
+    }, { renameChatSession });
+    render(<ChatView state={state} actions={actions} />);
+
+    const user = userEvent.setup();
+    await user.click(screen.getByRole("button", { name: "Rename chat Codex refactor" }));
+    const input = screen.getByDisplayValue("Codex refactor");
+    await user.clear(input);
+    await user.type(input, "Docs cleanup{Enter}");
+
+    expect(renameChatSession).toHaveBeenCalledWith("a1", "Docs cleanup");
+  });
+
   it("calls selectChatSession when clicking a chat row", async () => {
     const selectChatSession = vi.fn(async () => undefined);
     const { state, actions } = setup({
@@ -1558,7 +1889,8 @@ describe("ChatView external-agent target", () => {
     expect(screen.getByRole("button", { name: /Install/ })).toBeTruthy();
     expect(screen.getByRole("button", { name: /Auth/ })).toBeTruthy();
     expect(screen.getByText(/no local package runner/)).toBeTruthy();
-    expect(screen.queryByRole("button", { name: /Go to Connections/i })).toBeNull();
+    expect(screen.getByRole("button", { name: /Open Connections/i })).toBeTruthy();
+    expect(screen.queryByRole("button", { name: /Add selected/i })).toBeNull();
   });
 
   it("renders external agent controls and keeps agent choice scoped to new chats", async () => {
@@ -1640,6 +1972,8 @@ describe("ChatView external-agent target", () => {
     expect(screen.queryByDisplayValue("/tmp/hecate")).toBeNull();
     expect(screen.getByRole("button", { name: /workspace/i })).toBeTruthy();
     expect(screen.getAllByText("Codex work").length).toBeGreaterThan(0);
+    expect(screen.getByText("Codex session · Completed · /tmp/hecate")).toBeTruthy();
+    expect(screen.getByLabelText("External agent message controls")).toBeTruthy();
     const modelPicker = screen.getByRole("button", { name: "Model" });
     expect(modelPicker).toHaveTextContent("Fast");
     await userEvent.click(modelPicker);
@@ -1669,8 +2003,8 @@ describe("ChatView external-agent target", () => {
     await user.click(traceButton);
     expect(onOpenTrace).toHaveBeenCalledWith("req_codex_123456");
     expect(screen.getAllByText("Codex").length).toBeGreaterThan(0);
-    const agentPicker = screen.getByRole("button", { name: "Agent" });
-    expect(agentPicker).toHaveTextContent("Hecate");
+    const agentPicker = screen.getByRole("button", { name: "Choose agent for new chat" });
+    expect(screen.getByRole("button", { name: "New Hecate chat" })).toBeTruthy();
     await user.click(agentPicker);
     const claudeOption = screen.getByRole("option", { name: /Claude Code/ });
     expect(claudeOption).toHaveAttribute("aria-disabled", "true");
@@ -1700,7 +2034,7 @@ describe("ChatView external-agent target", () => {
     render(<ChatView state={state} actions={actions} />);
 
     const user = userEvent.setup();
-    await user.click(screen.getByRole("button", { name: "Agent" }));
+    await user.click(screen.getByRole("button", { name: "Choose agent for new chat" }));
     await user.click(screen.getByText("Claude Code"));
     expect(setNewChatAgent).toHaveBeenCalledWith("claude_code");
   });
@@ -1750,7 +2084,7 @@ describe("ChatView external-agent target", () => {
 
 
 
-  it("shows compact Claude Code setup for existing empty sessions", () => {
+  it("uses the centered Claude Code setup and hides the composer for existing empty sessions", () => {
     const { state, actions } = setup({
       chatTarget: "external_agent",
       agentAdapterID: "claude_code",
@@ -1784,8 +2118,9 @@ describe("ChatView external-agent target", () => {
     render(<ChatView state={state} actions={actions} />);
 
     expect(screen.getByText("Set up Claude Code")).toBeTruthy();
-    expect(screen.getByTestId("claude-code-preflight")).toBeTruthy();
-    expect(document.querySelector("button[type='submit']")).toBeTruthy();
+    expect(screen.getAllByTestId("claude-code-preflight")).toHaveLength(1);
+    expect(document.querySelector("button[type='submit']")).toBeNull();
+    expect(screen.queryByRole("textbox", { name: "Message" })).toBeNull();
   });
 
   it("shows Claude Code install as complete when the CLI is already present", () => {
@@ -1971,7 +2306,7 @@ describe("ChatView external-agent target", () => {
     expect(screen.queryByText("Waiting for agent output...")).toBeNull();
   });
 
-  it("renders adapter-reported usage below completed agent messages", () => {
+  it("renders adapter-reported usage below completed agent messages and in chat settings", async () => {
     const { state, actions } = setup({
       chatTarget: "external_agent",
       agentWorkspace: "/tmp/hecate",
@@ -2011,6 +2346,56 @@ describe("ChatView external-agent target", () => {
     expect(screen.getByText("0.1234 USD")).toBeTruthy();
     expect(screen.getByText("42000/200000 context")).toBeTruthy();
     expect(screen.getByText("reported by adapter · not enforced by Hecate")).toBeTruthy();
+
+    await userEvent.click(screen.getByRole("button", { name: "Chat settings" }));
+    expect(screen.getByText("Reported usage")).toBeTruthy();
+    expect(screen.getByText("42,000 / 200,000")).toBeTruthy();
+    expect(screen.getAllByText("0.1234 USD").length).toBeGreaterThan(1);
+    expect(screen.getByText(/Hecate does not enforce external-agent billing/i)).toBeTruthy();
+  });
+
+  it("renders Hecate-measured usage in chat settings", async () => {
+    const { state, actions } = setup({
+      chatTarget: "agent",
+      agentWorkspace: "/tmp/hecate",
+      activeAgentChatSessionID: "h1",
+      activeAgentChatSession: {
+        id: "h1",
+        runtime_kind: "agent",
+        title: "Hecate work",
+        provider: "ollama",
+        model: "qwen2.5-coder",
+        workspace: "/tmp/hecate",
+        status: "completed",
+        messages: [
+          { id: "m1", role: "user", content: "status", created_at: "2026-05-03T10:00:00Z" },
+          {
+            id: "m2",
+            role: "assistant",
+            content: "Done.",
+            status: "completed",
+            provider: "ollama",
+            model: "qwen2.5-coder",
+            created_at: "2026-05-03T10:00:01Z",
+            usage: {
+              context_size: 128000,
+              context_used: 16000,
+              reported_cost_amount: "0.002",
+              reported_cost_currency: "USD",
+            },
+          },
+        ],
+      } as any,
+      model: "qwen2.5-coder",
+    });
+    render(<ChatView state={state} actions={actions} />);
+
+    await userEvent.click(screen.getByRole("button", { name: "Chat settings" }));
+
+    expect(screen.getByText("Usage")).toBeTruthy();
+    expect(screen.getByText("16,000 / 128,000")).toBeTruthy();
+    expect(screen.getAllByText("0.002 USD").length).toBeGreaterThan(0);
+    expect(screen.getByText(/Measured by Hecate/i)).toBeTruthy();
   });
 
   it("loads changed files, inspects a file diff, and confirms per-file revert", async () => {
@@ -2453,10 +2838,20 @@ describe("ChatView error display", () => {
 });
 
 describe("ChatView session title", () => {
-  it("shows 'New chat' when no chats and no active chat", () => {
-    const { state, actions } = setup({ chatTarget: "model", chatSessions: [], activeChatSession: null });
+  it("hides the chat header and composer when no chat has been created", () => {
+    const { state, actions } = setup({
+      chatTarget: "model",
+      chatSessions: [],
+      activeChatSession: null,
+      activeChatSessionID: "",
+      activeAgentChatSession: null,
+      activeAgentChatSessionID: "",
+      message: "",
+    });
     render(<ChatView state={state} actions={actions} />);
-    expect(screen.getAllByText("New chat").length).toBeGreaterThan(0);
+    expect(screen.getAllByText("No chats yet").length).toBeGreaterThan(0);
+    expect(screen.queryByRole("textbox", { name: "Message" })).toBeNull();
+    expect(screen.queryByLabelText("Chat header actions")).toBeNull();
   });
 
   it("shows the active session's title", () => {
@@ -2488,7 +2883,7 @@ describe("ChatView session title", () => {
         title: "Repo work",
         provider: "ollama",
         model: "qwen2.5-coder",
-        workspace: "/tmp/hecate",
+        workspace: "/Users/alice/dev/hecate",
         status: "completed",
         messages: [],
       } as any,
@@ -2497,7 +2892,7 @@ describe("ChatView session title", () => {
     render(<ChatView state={state} actions={actions} />);
 
     expect(screen.getByText("Repo work")).toBeTruthy();
-    expect(screen.getByText("Tools on · Ollama · qwen2.5-coder")).toBeTruthy();
+    expect(screen.getByText("Tools on · /Users/alice/dev/hecate")).toBeTruthy();
   });
 });
 
@@ -2510,10 +2905,10 @@ describe("ChatView New chat button", () => {
     const { state, actions } = setup({}, { createChatSession });
     const user = userEvent.setup();
     render(<ChatView state={state} actions={actions} />);
-    await user.click(screen.getByRole("button", { name: /new chat/i }));
+    await user.click(screen.getByRole("button", { name: /new .* chat/i }));
     expect(createChatSession).toHaveBeenCalled();
     const textarea = screen.getByPlaceholderText(/^Message…/i);
-    expect(document.activeElement).toBe(textarea);
+    await waitFor(() => expect(document.activeElement).toBe(textarea));
   });
 });
 
@@ -2530,15 +2925,21 @@ describe("ChatView session focus", () => {
       chatSessions: [{ id: "s2", title: "Pick me", message_count: 0, provider_call_count: 0 } as any],
     }, { selectChatSession });
     const user = userEvent.setup();
-    render(<ChatView state={state} actions={actions} />);
+    const { rerender } = render(<ChatView state={state} actions={actions} />);
     // Move focus elsewhere to detect the jump.
-    const closeBtn = screen.getByTitle("Close");
-    closeBtn.focus();
-    expect(document.activeElement).toBe(closeBtn);
+    const searchInput = screen.getByRole("textbox", { name: "Search chats" });
+    searchInput.focus();
+    expect(document.activeElement).toBe(searchInput);
     // Click the chat row — the only user-driven chat switch.
     await user.click(screen.getByText("Pick me"));
+    const nextState = setup({
+      ...state,
+      activeChatSessionID: "s2",
+      activeChatSession: { id: "s2", title: "Pick me", messages: [], provider_calls: [] } as any,
+    }).state;
+    rerender(<ChatView state={nextState} actions={actions} />);
     const textarea = screen.getByPlaceholderText(/^Message…/i);
-    expect(document.activeElement).toBe(textarea);
+    await waitFor(() => expect(document.activeElement).toBe(textarea));
     expect(selectChatSession).toHaveBeenCalledWith("s2");
   });
 
@@ -2547,13 +2948,13 @@ describe("ChatView session focus", () => {
     // focus — page-level shortcuts depend on it. Asserts the negative.
     const { state, actions } = setup({ chatTarget: "model", activeChatSessionID: "" });
     const { rerender } = render(<ChatView state={state} actions={actions} />);
-    const closeBtn = screen.getByTitle("Close");
-    closeBtn.focus();
+    const searchInput = screen.getByRole("textbox", { name: "Search chats" });
+    searchInput.focus();
     const next = { ...state, activeChatSessionID: "s1" };
     rerender(<ChatView state={next} actions={actions} />);
-    // Focus must STAY on the close button — the effect should not have
+    // Focus must STAY on the search input — the effect should not have
     // jumped to the textarea on a programmatic ID transition.
-    expect(document.activeElement).toBe(closeBtn);
+    expect(document.activeElement).toBe(searchInput);
   });
 });
 

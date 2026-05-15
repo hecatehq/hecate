@@ -187,6 +187,11 @@ export function ProvidersView({ state, actions }: Props) {
     const displayName = preset?.name || cp?.name || id;
     const baseURL = rt?.base_url || resolvedBaseURL(id, cp ?? undefined, state.providerPresets);
     const modelCount = rt?.model_count ?? rt?.models?.length ?? 0;
+    const modelBadge = modelCount > 0
+      ? null
+      : cp && !rt
+        ? { status: "degraded", label: "Discovery pending" }
+        : { status: "degraded", label: "No models" };
     const protocol = cp?.protocol || preset?.protocol || "—";
     const isSelected = selectedID === id;
 
@@ -271,13 +276,19 @@ export function ProvidersView({ state, actions }: Props) {
         <td
           style={{ padding: "8px 12px", textAlign: "right", whiteSpace: "nowrap" }}
           title={modelCount === 0
-            ? cp?.kind === "local"
-              ? "No models discovered yet. Run `ollama pull <model>` (or your provider's equivalent) to populate this list."
+            ? cp && !rt
+              ? "Hecate has not received a current model-discovery result for this configured provider yet."
+              : cp?.kind === "local"
+                ? "No models discovered yet. Run `ollama pull <model>` (or your provider's equivalent) to populate this list."
               : "No models returned by /v1/models. Check the API key is correct and that the provider's account has model access."
             : undefined}>
-          <span style={{ fontFamily: "var(--font-mono)", fontSize: 12, color: modelCount > 0 ? "var(--t0)" : "var(--t3)" }}>
-            {modelCount > 0 ? modelCount : "—"}
-          </span>
+          {modelBadge ? (
+            <Badge status={modelBadge.status} label={modelBadge.label} />
+          ) : (
+            <span style={{ fontFamily: "var(--font-mono)", fontSize: 12, color: "var(--t0)" }}>
+              {modelCount}
+            </span>
+          )}
         </td>
 
         {/* Last checked */}
@@ -372,9 +383,8 @@ export function ProvidersView({ state, actions }: Props) {
           <span style={{ fontSize: 14, fontWeight: 500, color: "var(--t0)" }}>Connections</span>
           <button
             className="btn btn-primary btn-sm"
-            style={{ display: "flex", alignItems: "center", gap: 4, marginLeft: "auto" }}
+            style={{ marginLeft: "auto" }}
             onClick={() => setAddProviderOpen(true)}>
-            <Icon d={Icons.plus} size={13} />
             Add provider
           </button>
         </div>
@@ -458,9 +468,8 @@ export function ProvidersView({ state, actions }: Props) {
             </div>
             <button
               className="btn btn-primary btn-sm"
-              style={{ marginTop: 16, display: "flex", alignItems: "center", gap: 4 }}
+              style={{ marginTop: 16 }}
               onClick={() => setAddProviderOpen(true)}>
-              <Icon d={Icons.plus} size={13} />
               Add provider
             </button>
           </div>
@@ -851,6 +860,7 @@ function isProviderNeedsAttention(
   provider: NonNullable<RuntimeConsoleViewModel["state"]["settingsConfig"]>["providers"][number],
   status: RuntimeConsoleViewModel["state"]["providers"][number] | undefined,
 ): boolean {
+  if (!status) return true;
   if (status?.readiness?.status === "blocked") return true;
   if (provider.kind !== "local" && !provider.credential_configured) return true;
   if (status?.routing_blocked_reason) return true;
@@ -862,6 +872,7 @@ function resolveNextReadinessStep(
   hint: ReturnType<typeof providerFleetRepairHint>,
 ): { text: string; tone: ConnectionStatTone } | null {
   if (!hint) return null;
+  if (hint.providerID && hint.actionKind === "refresh_providers") return null;
   return {
     tone: hint.tone === "amber" || hint.tone === "red" ? "amber" : "muted",
     text: hint.tone === "muted" ? hint.message : `${hint.message} ${hint.action}`,

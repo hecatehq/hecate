@@ -34,9 +34,7 @@ export function filterModelsByProvider(models: ModelRecord[], provider: Provider
 
 // formatRelativeTime renders an ISO timestamp as a short relative
 // string ("2s ago", "5m ago", "3h ago"), falling back to the locale
-// short date when the timestamp is older than 24h. Returns the
-// original ISO alongside so callers can surface it as a title
-// tooltip without re-parsing.
+// short date when the timestamp is older than 24h.
 export function formatRelativeTime(iso: string): { label: string; iso: string } {
   if (!iso) return { label: "—", iso: "" };
   const parsed = Date.parse(iso);
@@ -52,6 +50,21 @@ export function formatRelativeTime(iso: string): { label: string; iso: string } 
   const hr = Math.floor(min / 60);
   if (hr < 24) return { label: `${hr}h ago`, iso };
   return { label: new Date(parsed).toLocaleDateString(), iso };
+}
+
+export function formatAbsoluteTime(value?: string): string {
+  if (!value) return "";
+  const parsed = Date.parse(value);
+  if (!Number.isFinite(parsed)) return value;
+  return new Intl.DateTimeFormat(undefined, {
+    year: "numeric",
+    month: "short",
+    day: "numeric",
+    hour: "numeric",
+    minute: "2-digit",
+    second: "2-digit",
+    timeZoneName: "short",
+  }).format(new Date(parsed));
 }
 
 // ─── Barrel re-exports ───────────────────────────────────────────────────────

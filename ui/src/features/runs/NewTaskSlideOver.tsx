@@ -683,7 +683,7 @@ export function NewTaskSlideOver({
                   onClick={addMcpServer}
                   type="button"
                 >
-                  <Icon d={Icons.plus} size={12} /> Add MCP server
+                  Add MCP server
                 </button>
               </div>
             </div>

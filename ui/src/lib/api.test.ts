@@ -31,6 +31,7 @@ import {
   streamAgentChatSession,
   upsertModelCapabilityOverride,
   upsertPolicyRule,
+  updateAgentChatSession,
   type ApiError,
 } from "./api";
 
@@ -490,6 +491,22 @@ describe("api client", () => {
   // ─── Agent-chat approvals & grants ─────────────────────────────────────────
 
   describe("agent-chat approvals", () => {
+    it("PATCH /agent-chat/sessions/{id} sends a renamed title", async () => {
+      fetchMock.mockResolvedValue(
+        jsonResponse({ object: "agent_chat_session", data: { id: "s 1", title: "Renamed chat" } }),
+      );
+
+      await updateAgentChatSession("s 1", "Renamed chat");
+
+      expect(fetchMock).toHaveBeenCalledWith(
+        "/hecate/v1/agent-chat/sessions/s%201",
+        expect.objectContaining({
+          method: "PATCH",
+          body: JSON.stringify({ title: "Renamed chat" }),
+        }),
+      );
+    });
+
     it("PATCH /agent-chat/sessions/{id}/settings sends per-chat settings", async () => {
       fetchMock.mockResolvedValue(
         jsonResponse({ object: "agent_chat_session", data: { id: "s 1", rtk_enabled: true } }),

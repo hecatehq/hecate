@@ -797,6 +797,24 @@ describe("ProvidersView table renders", () => {
     expect((screen.getByDisplayValue("http://127.0.0.1:11434/v1") as HTMLInputElement).value).toBe("http://127.0.0.1:11434/v1");
   });
 
+  it("shows a compact discovery-pending badge for configured providers without runtime model status", () => {
+    const state = createRuntimeConsoleFixture({
+      session: localSession,
+      providerPresets: presets,
+      settingsConfig: {
+        ...emptySettingsConfig(),
+        providers: [makeConfigured("lmstudio", { kind: "local", base_url: "http://127.0.0.1:1234/v1" })],
+      },
+      providers: [],
+    });
+
+    render(<ProvidersView state={state} actions={createRuntimeConsoleActions()} />);
+
+    expect(screen.getAllByText(/lmstudio/i).length).toBeGreaterThan(0);
+    expect(screen.getByText("Discovery pending")).toBeTruthy();
+    expect(screen.queryByText(/does not have a current model-discovery result/i)).toBeNull();
+  });
+
   it("shows provider health diagnostics and last errors", async () => {
     const state = createRuntimeConsoleFixture({
       session: localSession,

@@ -158,6 +158,10 @@ function renderAgentActivityAdvanced(
   activities: AgentChatActivityRecord[],
   taskLink?: { label: string; title?: string; onClick: () => void },
 ) {
+  if (activity.type === "output" || (activity.type === "artifact" && isOutputArtifactActivity(activity))) {
+    return <OutputArtifactPreview artifact={activity} />;
+  }
+
   if (activity.type !== "tool_call" || activity.status !== "failed") return null;
 
   const outputArtifacts = relatedOutputArtifacts(activities);
@@ -258,6 +262,11 @@ function relatedOutputArtifacts(activities: AgentChatActivityRecord[]): AgentCha
     out.push(activity);
   }
   return out;
+}
+
+function isOutputArtifactActivity(activity: AgentChatActivityRecord): boolean {
+  const label = `${activity.title} ${activity.detail ?? ""} ${activity.kind ?? ""}`.toLowerCase();
+  return /\b(std(out|err)|git-std(out|err))\b/.test(label);
 }
 
 function outputArtifactStream(activity: AgentChatActivityRecord): "stdout" | "stderr" {

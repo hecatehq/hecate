@@ -1,5 +1,8 @@
 import type { AgentAdapterRecord, AgentAdapterSetupCommandStatus, AgentAdapterHealthRecord } from "../../types/runtime";
+import { claudeCodeSetupTokenCommand } from "../../lib/claude-code-setup";
 import { Icon, Icons } from "../shared/ui";
+
+export { claudeCodeSetupTokenCommand } from "../../lib/claude-code-setup";
 
 export type ClaudeCodePreflightState = {
   title: string;
@@ -227,16 +230,6 @@ function ClaudeCodeSetupFacts({ state }: { state: ClaudeCodePreflightState }) {
       {state.cliSignedIn && <span style={{ color: "var(--t3)" }}>CLI signed in</span>}
     </div>
   );
-}
-
-export function claudeCodeSetupTokenCommand(status?: AgentAdapterSetupCommandStatus): string {
-  if (status?.command) {
-    return `${status.command} setup-token`;
-  }
-  if (!status?.available) {
-    return "npx -y @anthropic-ai/claude-code setup-token";
-  }
-  return "claude setup-token";
 }
 
 export function ClaudeCodePreflightCard({

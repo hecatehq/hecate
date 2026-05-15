@@ -30,8 +30,11 @@ export function DropdownPicker<Value extends string = string>({
   triggerMaxWidth,
   menuMinWidth = 220,
   align = "left",
+  placement = "down",
   disabled = false,
   disabledReason,
+  searchable = false,
+  searchPlaceholder = "Filter...",
   buttonStyle,
   renderTriggerLabel,
 }: {
@@ -47,18 +50,31 @@ export function DropdownPicker<Value extends string = string>({
   triggerMaxWidth?: number;
   menuMinWidth?: number;
   align?: "left" | "right";
+  placement?: "down" | "up";
   disabled?: boolean;
   disabledReason?: string;
+  searchable?: boolean;
+  searchPlaceholder?: string;
   buttonStyle?: CSSProperties;
   renderTriggerLabel?: (option: DropdownPickerOption<Value> | undefined) => ReactNode;
 }) {
   const [open, setOpen] = useState(false);
+  const [filter, setFilter] = useState("");
   const ref = useRef<HTMLDivElement>(null);
   const menuRef = useRef<HTMLDivElement>(null);
+  const inputRef = useRef<HTMLInputElement>(null);
   const triggerRef = useRef<HTMLButtonElement>(null);
-  const floatingStyle = useFloatingDropdownStyle(triggerRef, open, align);
+  const floatingStyle = useFloatingDropdownStyle(triggerRef, open, align, placement);
   const selected = options.find((option) => option.value === value);
   const locked = disabled || options.length === 0;
+  const filteredOptions = searchable && filter.trim()
+    ? options.filter((option) => {
+      const needle = filter.trim().toLowerCase();
+      return option.label.toLowerCase().includes(needle)
+        || option.detail?.toLowerCase().includes(needle)
+        || option.statusLabel?.toLowerCase().includes(needle);
+    })
+    : options;
 
   useEffect(() => {
     const handler = (event: MouseEvent) => {
@@ -66,6 +82,7 @@ export function DropdownPicker<Value extends string = string>({
       if (ref.current?.contains(target)) return;
       if (target instanceof HTMLElement && target.closest(".dropdown-menu-floating")) return;
       setOpen(false);
+      setFilter("");
     };
     document.addEventListener("mousedown", handler);
     return () => document.removeEventListener("mousedown", handler);
@@ -73,20 +90,52 @@ export function DropdownPicker<Value extends string = string>({
 
   useEffect(() => {
     if (!open) return;
-    const frame = requestAnimationFrame(() => focusInitialDropdownItem(menuRef.current));
+    const frame = requestAnimationFrame(() => {
+      if (searchable) inputRef.current?.focus();
+      else focusInitialDropdownItem(menuRef.current);
+    });
     return () => cancelAnimationFrame(frame);
-  }, [open]);
+  }, [open, searchable]);
+
+  function closeMenu() {
+    setOpen(false);
+    setFilter("");
+    triggerRef.current?.focus();
+  }
 
   function onMenuKeyDown(event: KeyboardEvent<HTMLDivElement>) {
     if (event.key === "Escape") {
       event.preventDefault();
-      setOpen(false);
-      triggerRef.current?.focus();
+      closeMenu();
       return;
     }
     if (event.key === "ArrowDown" || event.key === "ArrowUp" || event.key === "Home" || event.key === "End") {
       event.preventDefault();
       focusDropdownItem(menuRef.current, event.key);
+    }
+  }
+
+  function onInputKeyDown(event: KeyboardEvent<HTMLInputElement>) {
+    if (event.key === "Escape") {
+      event.preventDefault();
+      event.stopPropagation();
+      closeMenu();
+      return;
+    }
+    if (event.key === "ArrowDown") {
+      event.preventDefault();
+      event.stopPropagation();
+      focusInitialDropdownItem(menuRef.current);
+      return;
+    }
+    if (event.key === "Enter") {
+      const firstEnabled = filteredOptions.find((option) => !option.disabled);
+      if (!firstEnabled) return;
+      event.preventDefault();
+      event.stopPropagation();
+      onChange(firstEnabled.value);
+      setOpen(false);
+      setFilter("");
     }
   }
 
@@ -137,9 +186,29 @@ export function DropdownPicker<Value extends string = string>({
           role="listbox"
           className="dropdown-menu dropdown-menu-floating"
           onKeyDown={onMenuKeyDown}
-          style={{ ...floatingStyle, minWidth: menuMinWidth }}
+          style={{
+            ...floatingStyle,
+            maxWidth: `min(${Math.max(menuMinWidth, 320)}px, calc(100vw - 24px))`,
+            minWidth: menuMinWidth,
+            width: menuMinWidth,
+          }}
         >
-          {options.map((option) => {
+          {searchable && (
+            <div style={{ padding: "6px 8px", borderBottom: "1px solid var(--border)" }}>
+              <input
+                ref={inputRef}
+                className="input"
+                style={{ fontSize: 12, padding: "4px 8px", fontFamily: "var(--font-mono)" }}
+                placeholder={searchPlaceholder}
+                aria-label={searchPlaceholder}
+                value={filter}
+                onChange={(event) => setFilter(event.target.value)}
+                onClick={(event) => event.stopPropagation()}
+                onKeyDown={onInputKeyDown}
+              />
+            </div>
+          )}
+          {filteredOptions.map((option) => {
             const selected = option.value === value;
             const lockedOption = Boolean(option.disabled);
             return (
@@ -166,7 +235,17 @@ export function DropdownPicker<Value extends string = string>({
                     {option.label}
                   </span>
                   {option.detail && (
-                    <span style={{ color: "var(--t3)", fontFamily: "var(--font-mono)", fontSize: 10, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>
+                    <span style={{
+                      color: "var(--t3)",
+                      display: "-webkit-box",
+                      fontFamily: "var(--font-mono)",
+                      fontSize: 10,
+                      lineHeight: 1.35,
+                      overflow: "hidden",
+                      WebkitBoxOrient: "vertical",
+                      WebkitLineClamp: 2,
+                      whiteSpace: "normal",
+                    }}>
                       {option.detail}
                     </span>
                   )}

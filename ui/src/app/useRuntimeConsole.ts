@@ -6,17 +6,17 @@ import { filterModelsByKind, filterModelsByProvider, parseCSV } from "../lib/run
 import {
   ApiError,
   type ChatMessage,
-	  chooseWorkspaceDirectory as chooseWorkspaceDirectoryRequest,
-	  chatCompletionsStream,
-	  updateChatSession as updateChatSessionRequest,
-	  deletePolicyRule as deletePolicyRuleRequest,
-	  getChatSession,
-	  getChatSessions,
-	  getModels,
-	  getProviders,
-	  getUsageEvents,
-	  getUsageSummary,
-	  setProviderAPIKey as setProviderAPIKeyRequest,
+  chooseWorkspaceDirectory as chooseWorkspaceDirectoryRequest,
+  chatCompletionsStream,
+  updateChatSession as updateChatSessionRequest,
+  deletePolicyRule as deletePolicyRuleRequest,
+  getChatSession,
+  getChatSessions,
+  getModels,
+  getProviders,
+  getUsageEvents,
+  getUsageSummary,
+  setProviderAPIKey as setProviderAPIKeyRequest,
   cancelAgentChatApproval as cancelAgentChatApprovalRequest,
   cancelAgentChatSession as cancelAgentChatSessionRequest,
   deleteAgentChatGrant as deleteAgentChatGrantRequest,
@@ -40,6 +40,7 @@ import {
   deleteAgentChatSession as deleteAgentChatSessionRequest,
   deleteProvider as deleteProviderRequest,
   getAgentChatSession,
+  updateAgentChatSession as updateAgentChatSessionRequest,
   recordModelCapabilityProbe as recordModelCapabilityProbeRequest,
   setAgentChatConfigOption as setAgentChatConfigOptionRequest,
   setAgentChatSettings as setAgentChatSettingsRequest,
@@ -55,6 +56,7 @@ import {
   buildAssistantToolCallMessage,
   buildSyntheticChatResult,
   defaultModelForProvider,
+  defaultProviderForChat,
   deriveChatSessionTitle,
   humanizeChatError,
   isModelValidForProvider,
@@ -512,7 +514,28 @@ export function useRuntimeConsole() {
   }, [notice]);
 
   useEffect(() => {
+    if (providerFilter !== "auto") {
+      return;
+    }
+
+    const configuredProviders = settingsConfig?.providers ?? [];
+    const nextProvider = defaultProviderForChat(models, configuredProviders, providers);
+    if (nextProvider === providerFilter) {
+      return;
+    }
+    setProviderFilter(nextProvider);
+    setModel(defaultModelForProvider(nextProvider, models, providers, providerPresets));
+  }, [models, providerFilter, providerPresets, providers, settingsConfig]);
+
+  useEffect(() => {
     if (providerFilter === "auto") {
+      return;
+    }
+    const hasProviderEvidence =
+      models.some((entry) => entry.metadata?.provider === providerFilter) ||
+      providers.some((entry) => entry.name === providerFilter) ||
+      providerPresets.some((entry) => entry.id === providerFilter);
+    if (model && !hasProviderEvidence) {
       return;
     }
     const stillValid = isModelValidForProvider(model, providerFilter, models, providers, providerPresets);
@@ -667,6 +690,7 @@ export function useRuntimeConsole() {
       pruneQueuedChatMessagesForSessions(snapshot.agentChatSessions.map((session) => session.id));
       setActiveAgentChatSessionID(snapshot.activeAgentChatSessionID);
       setActiveAgentChatSession(snapshot.activeAgentChatSession);
+      syncHecateSelectionFromSession(snapshot.activeAgentChatSession);
       setUsageEvents(snapshot.usageEvents);
       setSettingsConfig(snapshot.settingsConfig);
       setRetentionRuns(snapshot.retentionRuns);
@@ -765,8 +789,19 @@ export function useRuntimeConsole() {
 
   function applyAgentChatSession(session: AgentChatSessionRecord) {
     setActiveAgentChatSession(session);
+    syncHecateSelectionFromSession(session);
     setAgentWorkspaceBranch(session.workspace_branch ?? "");
     setAgentChatSessions((current) => [renderAgentChatSessionSummary(session), ...current.filter((entry) => entry.id !== session.id)]);
+  }
+
+  function syncHecateSelectionFromSession(session: AgentChatSessionRecord | null) {
+    const selection = deriveHecateChatSelectionFromSession(session);
+    if (selection.provider) {
+      setProviderFilter(selection.provider as ProviderFilter);
+    }
+    if (selection.model) {
+      setModel(selection.model);
+    }
   }
 
   async function refreshAgentChatSession(sessionID: string): Promise<void> {
@@ -899,6 +934,10 @@ export function useRuntimeConsole() {
     try {
       if (!isModelTurn && !turnWorkspace) {
         setChatError("Choose a workspace path before starting an agent chat.");
+        return;
+      }
+      if (!isExternalAgent && !turnModel) {
+        setChatError("Choose a model before sending through Hecate.");
         return;
       }
 
@@ -1199,8 +1238,11 @@ export function useRuntimeConsole() {
       : current);
     setProviders(current => current.filter(provider => provider.name !== id));
     if (providerFilter === id) {
-      setProviderFilter("auto");
-      setModel(defaultModelForProvider("auto", models, providers.filter(provider => provider.name !== id), providerPresets));
+      const remainingProviders = providers.filter(provider => provider.name !== id);
+      const remainingConfigured = settingsConfig?.providers.filter(provider => provider.id !== id) ?? [];
+      const nextProvider = defaultProviderForChat(models, remainingConfigured, remainingProviders);
+      setProviderFilter(nextProvider);
+      setModel(defaultModelForProvider(nextProvider, models, remainingProviders, providerPresets));
     }
 
     try {
@@ -1357,11 +1399,11 @@ export function useRuntimeConsole() {
       clearChatErrorState();
       try {
         const adapter = agentAdapters.find((item) => item.id === agentAdapterID);
-      const created = await createAgentChatSessionRequest({
-        title: adapter ? `${adapter.name} chat` : "External agent chat",
-        runtime_kind: "external_agent",
-        adapter_id: agentAdapterID,
-        workspace,
+        const created = await createAgentChatSessionRequest({
+          title: adapter ? `${adapter.name} chat` : "External agent chat",
+          runtime_kind: "external_agent",
+          adapter_id: agentAdapterID,
+          workspace,
         });
         setActiveAgentChatSessionID(created.data.id);
         applyAgentChatSession(created.data);
@@ -1373,7 +1415,37 @@ export function useRuntimeConsole() {
       }
       return;
     }
-    startNewChat();
+
+    const runtimeKind = defaultChatTarget === "model" ? "model" : "agent";
+    const workspace = agentWorkspace.trim();
+    if (runtimeKind === "agent" && !workspace) {
+      startNewChat();
+      return;
+    }
+    if (!model) {
+      startNewChat();
+      return;
+    }
+    setChatLoading(true);
+    clearChatErrorState();
+    try {
+      const created = await createAgentChatSessionRequest({
+        runtime_kind: runtimeKind,
+        provider: providerFilter === "auto" ? "" : providerFilter,
+        model,
+        ...(runtimeKind === "agent" ? {
+          workspace,
+          rtk_enabled: hecateRTKEnabled,
+        } : {}),
+      });
+      setActiveAgentChatSessionID(created.data.id);
+      applyAgentChatSession(created.data);
+    } catch (error) {
+      setChatErrorState(error, "failed to create Hecate chat");
+      setNoticeMessage("error", error instanceof Error ? error.message : "Failed to create Hecate chat.");
+    } finally {
+      setChatLoading(false);
+    }
   }
 
   async function selectChatSession(id: string) {
@@ -1788,12 +1860,29 @@ export function useRuntimeConsole() {
 
   async function renameChatSession(id: string, title: string) {
     try {
-      const payload = await updateChatSessionRequest(id, title);
+      const nextTitle = title.trim();
+      if (!nextTitle) {
+        setNoticeMessage("error", "Chat title cannot be empty.");
+        return;
+      }
+      const isAgentSession = activeAgentChatSessionID === id || agentChatSessions.some((session) => session.id === id);
+      if (isAgentSession) {
+        const payload = await updateAgentChatSessionRequest(id, nextTitle);
+        setAgentChatSessions((current) =>
+          current.map((s) => (s.id === id ? { ...s, title: payload.data.title, updated_at: payload.data.updated_at ?? s.updated_at } : s)),
+        );
+        if (activeAgentChatSessionID === id) {
+          setActiveAgentChatSession((current) => (current ? { ...current, title: payload.data.title, updated_at: payload.data.updated_at ?? current.updated_at } : current));
+        }
+        return;
+      }
+
+      const payload = await updateChatSessionRequest(id, nextTitle);
       setChatSessions((current) =>
-        current.map((s) => (s.id === id ? { ...s, title: payload.data.title } : s)),
+        current.map((s) => (s.id === id ? { ...s, title: payload.data.title, updated_at: payload.data.updated_at ?? s.updated_at } : s)),
       );
       if (activeChatSessionID === id) {
-        setActiveChatSession((current) => (current ? { ...current, title: payload.data.title } : current));
+        setActiveChatSession((current) => (current ? { ...current, title: payload.data.title, updated_at: payload.data.updated_at ?? current.updated_at } : current));
       }
     } catch (error) {
       setNoticeMessage("error", error instanceof Error ? error.message : "Failed to rename chat.");

@@ -9,10 +9,10 @@ test("adding and deleting a provider keeps chat available", async ({ page }) => 
   await page.waitForSelector(".hecate-activitybar");
 
   // Default fixture starts empty. Chats should stay useful by showing the
-  // provider onboarding surface instead of a disabled composer.
-  await expect(page.getByText("Nothing runnable yet")).toBeVisible();
-  await expect(page.getByRole("button", { name: /Go to Connections/i })).toBeVisible();
-  await expect(page.getByText("Detected locally")).toBeVisible();
+  // provider onboarding surface after the operator starts a chat.
+  await page.getByRole("button", { name: "New Hecate chat", exact: true }).click();
+  await expect(page.getByText(/Nothing runnable yet|No model provider configured/)).toBeVisible();
+  await expect(page.getByRole("button", { name: /Open Connections/i })).toBeVisible();
   await expect(page.locator("textarea")).toHaveCount(0);
 
   // Move to Connections and add Ollama.
@@ -29,8 +29,8 @@ test("adding and deleting a provider keeps chat available", async ({ page }) => 
   // the first-run provider discovery once configuration exists but no models
   // are routable yet.
   await page.locator(".hecate-activitybar [aria-label^='Chats']").click();
-  await expect(page.getByText("No models discovered")).toBeVisible();
-  await expect(page.getByText("none discovered")).toBeVisible();
+  await page.getByRole("button", { name: "New Hecate chat", exact: true }).click();
+  await expect(page.getByText(/Nothing runnable yet|No routable model/)).toBeVisible();
   await expect(page.locator("textarea")).toHaveCount(0);
 
   // Back to Connections, delete the row.
@@ -44,7 +44,8 @@ test("adding and deleting a provider keeps chat available", async ({ page }) => 
   // Chats remains available after deleting the only configured provider by
   // returning to the same first-run setup surface.
   await page.locator(".hecate-activitybar [aria-label^='Chats']").click();
-  await expect(page.getByText("Nothing runnable yet")).toBeVisible();
-  await expect(page.getByRole("button", { name: /Go to Connections/i })).toBeVisible();
+  await page.getByRole("button", { name: "New Hecate chat", exact: true }).click();
+  await expect(page.getByText(/Nothing runnable yet|No model provider configured/)).toBeVisible();
+  await expect(page.getByRole("button", { name: /Open Connections/i })).toBeVisible();
   await expect(page.locator("textarea")).toHaveCount(0);
 });

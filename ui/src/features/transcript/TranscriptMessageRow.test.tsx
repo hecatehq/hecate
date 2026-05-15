@@ -237,6 +237,26 @@ describe("TranscriptMessageRow", () => {
     expect(screen.queryByText("Preview unavailable in this snapshot.")).toBeNull();
   });
 
+  it("lets output detail rows reveal captured previews", async () => {
+    const user = userEvent.setup();
+    const activities: AgentChatActivityRecord[] = [
+      {
+        type: "output",
+        title: "stdout",
+        status: "ready",
+        artifact_size_bytes: 18,
+        artifact_preview: "command output\n",
+      },
+    ];
+
+    render(<TranscriptMessageRow {...baseProps} activities={activities} />);
+
+    await user.click(screen.getByText("Output · 1 item"));
+    await user.click(screen.getByText("Preview"));
+
+    expect(screen.getByText("command output")).toBeInTheDocument();
+  });
+
   it("renders the diff review section when diff metadata is present", () => {
     const onListFiles: (sid: string, mid: string) => Promise<AgentChatChangedFileRecord[]> = vi.fn(async () => []);
     const onGetFileDiff: (sid: string, mid: string, p: string) => Promise<AgentChatChangedFileDiffRecord | null> = vi.fn(async () => null);

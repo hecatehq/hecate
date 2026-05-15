@@ -122,6 +122,12 @@ Hecate uses one compact activity vocabulary across Hecate Chat transcripts and
 Task Detail. This is deliberate: an operator should see the same story whether
 they stay in Chats or open the canonical Task/run view.
 
+Chat titles are operator metadata and can be renamed from the Chats sidebar.
+Renaming works the same way for Hecate Chat, direct model turns, and External
+Agent sessions: it only changes the visible session title, not the transcript,
+workspace, runtime segment, provider/model snapshot, or adapter-owned native
+session.
+
 The shared renderer keeps the high-signal path visible:
 
 - model turns / thinking
