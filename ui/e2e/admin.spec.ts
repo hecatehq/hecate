@@ -6,11 +6,13 @@ test.beforeEach(async ({ page }) => {
   await page.goto("/");
   await page.waitForSelector(".hecate-activitybar");
   await page.locator(".hecate-activitybar [aria-label^='Settings']").click();
-  await page.waitForSelector("text=Retention");
+  await page.waitForSelector("text=Maintenance");
 });
 
-test("renders Settings as retention-only", async ({ page }) => {
-  await expect(page.getByRole("button", { name: "Retention" })).toBeVisible();
+test("renders Settings as local maintenance", async ({ page }) => {
+  await expect(page.getByText("Maintenance")).toBeVisible();
+  await expect(page.getByText("Run cleanup")).toBeVisible();
+  await expect(page.getByRole("button", { name: "Retention" })).toHaveCount(0);
   // Removed or relocated tabs: readiness lives in Connections, usage lives
   // in the Usage workspace, and pricing/budgeting is no longer configured.
   for (const removed of ["Pricing", "Model capabilities", "Policy", "MCP Cache", "Tenants", "Keys", "Balances", "Clients"]) {
@@ -27,14 +29,13 @@ test("Settings nav button uses the 'Settings' label, not 'Admin'", async ({ page
   ).toHaveCount(0);
 });
 
-test("retention tab shows known subsystem chips", async ({ page }) => {
-  await page.getByRole("button", { name: "Retention" }).click();
-  for (const sub of ["trace_snapshots", "usage_events", "audit_events"]) {
-    await expect(page.locator(`text=${sub}`).first()).toBeVisible();
+test("maintenance view shows known cleanup targets", async ({ page }) => {
+  for (const sub of ["Trace snapshots", "Usage events", "Audit events"]) {
+    await expect(page.getByText(sub).first()).toBeVisible();
   }
 });
 
-test("retention 'Run now' fires POST request", async ({ page }) => {
+test("maintenance 'Clean up now' fires POST request", async ({ page }) => {
   let posted = false;
   await page.route("/hecate/v1/system/retention/run*", async route => {
     if (route.request().method() === "POST") {
@@ -45,8 +46,7 @@ test("retention 'Run now' fires POST request", async ({ page }) => {
     }
   });
 
-  await page.getByRole("button", { name: "Retention" }).click();
-  await page.getByRole("button", { name: /Run now/i }).click();
+  await page.getByRole("button", { name: /Clean up now/i }).click();
   await expect.poll(() => posted).toBe(true);
 });
 
