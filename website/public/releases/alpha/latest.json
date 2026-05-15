@@ -1,18 +1,18 @@
 {
-  "version": "0.1.0-alpha.29",
-  "pub_date": "2026-05-11T14:48:39.000Z",
+  "version": "0.1.0-alpha.30",
+  "pub_date": "2026-05-15T13:55:27.000Z",
   "platforms": {
     "darwin-aarch64": {
-      "signature": "dW50cnVzdGVkIGNvbW1lbnQ6IHNpZ25hdHVyZSBmcm9tIHRhdXJpIHNlY3JldCBrZXkKUlVRMUcxY1pmT3JwUm40aXYwOFp4aGpseGdNb0VTbEtoTlZGQis4NmJoamxSVFhDKzdRWXA3Z05BcjRKMFZwQ2RvNSsydzVlRDRYcmtEb0FyZVNtU3RJbmwwbGgrN09uSUFnPQp0cnVzdGVkIGNvbW1lbnQ6IHRpbWVzdGFtcDoxNzc4NTEwODI2CWZpbGU6SGVjYXRlLmFwcC50YXIuZ3oKTnJ4MmxQL1ovSEFZNWxrRTV3Kzc1V01GL2hCV2tUZ3lqQkZrMUtxV1J0YWprNjdzU2tVNUZLaUxOQlRUdUJXWlV4WUtGWXQ3NVVxdjB2QmpiMkx5QkE9PQo=",
-      "url": "https://github.com/hecatehq/hecate/releases/download/v0.1.0-alpha.29/Hecate_aarch64.app.tar.gz"
+      "signature": "dW50cnVzdGVkIGNvbW1lbnQ6IHNpZ25hdHVyZSBmcm9tIHRhdXJpIHNlY3JldCBrZXkKUlVRMUcxY1pmT3JwUm1MT212NW1pbXBzL080b24wZzZMcVpYeko1cHY2YWdrcFR3YmZ3UXpReDVoSi9hUkw3WDQzV0VOS2x6QUVId1VrMmVzK0luWDAvQkxNb1E3WGc4L0F3PQp0cnVzdGVkIGNvbW1lbnQ6IHRpbWVzdGFtcDoxNzc4ODUzMDc5CWZpbGU6SGVjYXRlLmFwcC50YXIuZ3oKRlErSVZ6SEVkU1hhL0paU09yTURlTStudFJVRTRNdW9WSzkrT29jbHEwVnFNYVhESkxpcjhyUTJLNDJMejliYjFnQ1dXYW1sRVBSMURZZFVyUnF1QkE9PQo=",
+      "url": "https://github.com/hecatehq/hecate/releases/download/v0.1.0-alpha.30/Hecate_aarch64.app.tar.gz"
     },
     "linux-x86_64": {
-      "signature": "dW50cnVzdGVkIGNvbW1lbnQ6IHNpZ25hdHVyZSBmcm9tIHRhdXJpIHNlY3JldCBrZXkKUlVRMUcxY1pmT3JwUm4xTkF3SG9uV3ZGYWRSckoySjNNR0hUcEhlWEg4MFZHemxHdlRnRm5IUGpmaW5oVEgwR2F1dUlWdkN0ZW9wSU5hdGlxYTlSMS9tNTdUalV5dTV2WVFNPQp0cnVzdGVkIGNvbW1lbnQ6IHRpbWVzdGFtcDoxNzc4NTA5OTgzCWZpbGU6SGVjYXRlXzAuMS4wLWFscGhhLjI5X2FtZDY0LkFwcEltYWdlCnVJOVFCblZjVVIra3A5OWtnUCtsc1hnajd0cDFST3JVdGhQeFpzUm8ybFJzNUNTSTdQdVpETE1DbVh0ZWVaelJiKzNDNUVUZHQ5Q0NSbDNLTGdmd0RnPT0K",
-      "url": "https://github.com/hecatehq/hecate/releases/download/v0.1.0-alpha.29/Hecate_0.1.0-alpha.29_amd64.AppImage"
+      "signature": "dW50cnVzdGVkIGNvbW1lbnQ6IHNpZ25hdHVyZSBmcm9tIHRhdXJpIHNlY3JldCBrZXkKUlVRMUcxY1pmT3JwUmhKbGhxZUR2U0xQSzZYTnJmQ0QvQWpIU2dMa2FhS0hLUElmaGc4STBGaVYxUHg2eHR4SmtjUk5PNk00U2FBM0RQam1iY0RwNkJyRE5zSTBnSHoxZ3dNPQp0cnVzdGVkIGNvbW1lbnQ6IHRpbWVzdGFtcDoxNzc4ODUzMTg3CWZpbGU6SGVjYXRlXzAuMS4wLWFscGhhLjMwX2FtZDY0LkFwcEltYWdlClA0bm83QUhwZnpBZGtOZjhQVjg4M0pLdTllZDBrUEtIem5wYitvMm5MeG1pOWVZcHVjWWNySzYvOEFhME5PUGJGZ3JsMUdmZTJFZU5HRGQ2MVFPMkF3PT0K",
+      "url": "https://github.com/hecatehq/hecate/releases/download/v0.1.0-alpha.30/Hecate_0.1.0-alpha.30_amd64.AppImage"
     },
     "windows-x86_64": {
-      "signature": "dW50cnVzdGVkIGNvbW1lbnQ6IHNpZ25hdHVyZSBmcm9tIHRhdXJpIHNlY3JldCBrZXkKUlVRMUcxY1pmT3JwUnJmNHUwTE5LR2dFb0VadlNEQU55NmR6Y1h5aW9LV3hOTTdaTjVlWGs0OU9hY2IvWjhuckkvZzZsY3c1MnV4UEpMNzR2U1dEeHlCbDlEZlF0djVDS2dRPQp0cnVzdGVkIGNvbW1lbnQ6IHRpbWVzdGFtcDoxNzc4NTEwMTU3CWZpbGU6SGVjYXRlXzAuMS4wLWFscGhhLjI5X3g2NF9lbi1VUy5tc2kKVFh1bWZ0Tk1COTBzcExZcWt6VG84MGlyamZqaUR5S0dnK1dXZUs2dlljdXV0RC9YWHJmOTVWYXVnWFVzOFFpRGVyczBjQ24wdUZYZFJBRktWWTdFREE9PQo=",
-      "url": "https://github.com/hecatehq/hecate/releases/download/v0.1.0-alpha.29/Hecate_0.1.0-alpha.29_x64_en-US.msi"
+      "signature": "dW50cnVzdGVkIGNvbW1lbnQ6IHNpZ25hdHVyZSBmcm9tIHRhdXJpIHNlY3JldCBrZXkKUlVRMUcxY1pmT3JwUmlXcGs5eVBuaXFaM2NTMEh0aDFvNHVFbnhaTDRhWG52MUFydmNRWXo5S0FDWmFpWGRYSUlxMS9XTVVLekEvQ2htaEJtME92OTRKMFhWNkZQOHpBMHdBPQp0cnVzdGVkIGNvbW1lbnQ6IHRpbWVzdGFtcDoxNzc4ODUzMjEwCWZpbGU6SGVjYXRlXzAuMS4wLWFscGhhLjMwX3g2NF9lbi1VUy5tc2kKYXZsVGROMTMvUkEzZy9YaDlkSyt5S2tVUUpYblRONDAzY3VtQkRONHJrN0t0N1liV1M3QURzOGlKWTFVL2JXdlpadTVKUU9LZkZ6cllMRVlSY1BhQ0E9PQo=",
+      "url": "https://github.com/hecatehq/hecate/releases/download/v0.1.0-alpha.30/Hecate_0.1.0-alpha.30_x64_en-US.msi"
     }
   }
 }
