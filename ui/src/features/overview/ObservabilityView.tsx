@@ -459,7 +459,15 @@ export function ObservabilityView({ state, onNavigate, focusRequest }: Props) {
 
         {/* Runtime health cards */}
         {(stats || mcpCacheStats) && (
-          <div style={{ display: "flex", gap: 8, flexWrap: "wrap", marginBottom: 20 }} aria-label="Runtime stats">
+          <div
+            style={{
+              display: "grid",
+              gap: 8,
+              gridTemplateColumns: "repeat(auto-fit, minmax(136px, 1fr))",
+              marginBottom: 20,
+            }}
+            aria-label="Runtime stats"
+            data-testid="runtime-stats-grid">
             {stats && (
               <>
                 <StatCard
@@ -484,7 +492,7 @@ export function ObservabilityView({ state, onNavigate, focusRequest }: Props) {
                   status={stats.in_flight_jobs > 0 ? "active" : "idle"}
                 />
                 <StatCard
-                  label="Running task runs"
+                  label="Running tasks"
                   value={stats.running_runs > 0 ? stats.running_runs : "Idle"}
                   help="Task runs currently executing."
                   highlight={stats.running_runs > 0}
@@ -502,21 +510,14 @@ export function ObservabilityView({ state, onNavigate, focusRequest }: Props) {
                   help="Runs paused on an operator approval gate."
                   highlight={stats.awaiting_approval_runs > 0}
                 />
-                {stats?.store_backend && (
-                  <StatCard
-                    label="Runtime store"
-                    value={describeStoreBackend(stats.store_backend)}
-                    help="Persistence backend for runtime state."
-                  />
-                )}
               </>
             )}
             {mcpCacheStats && (
               mcpCacheStats.configured ? (
                 <StatCard
                   label="MCP cache"
-                  value={`${mcpCacheStats.entries} entries`}
-                  sub={`${mcpCacheStats.in_use} active · ${mcpCacheStats.idle} idle`}
+                  value={mcpCacheStats.entries}
+                  sub={`entries · ${mcpCacheStats.in_use} active · ${mcpCacheStats.idle} idle`}
                   help="Cached MCP clients available for reuse."
                   highlight={mcpCacheStats.in_use > 0}
                 />
@@ -956,8 +957,4 @@ function modelMatchesFilter(model: string, filter: string): boolean {
 
 function normalizeModelFilterValue(value: string): string {
   return value.trim().toLowerCase();
-}
-
-function describeStoreBackend(backend: string): string {
-  return backend === "memory" ? "Memory store" : backend;
 }

@@ -115,7 +115,8 @@ describe("ObservabilityView", () => {
     await waitFor(() => {
       expect(container.querySelector('[aria-label="Runtime stats"]')).toBeTruthy();
       expect(container.textContent).toMatch(/MCP cache/);
-      expect(container.textContent).toMatch(/4 entries/);
+      expect(container.textContent).toMatch(/4/);
+      expect(container.textContent).toMatch(/entries/);
       expect(container.textContent).toMatch(/1 active · 3 idle/);
     });
   });
@@ -144,6 +145,53 @@ describe("ObservabilityView", () => {
       expect(container.textContent).toMatch(/Disabled/);
     });
     expect(container.textContent).not.toMatch(/No MCP cache wired/i);
+  });
+
+  it("lays runtime cards out as an auto-fitting grid", async () => {
+    fetchMock.mockImplementation(async (input: RequestInfo | URL) => {
+      const url = typeof input === "string" ? input : input.toString();
+      if (url.startsWith("/hecate/v1/system/stats")) {
+        return new Response(JSON.stringify({
+          object: "runtime_stats",
+          data: {
+            checked_at: new Date().toISOString(),
+            queue_depth: 0,
+            queue_capacity: 128,
+            worker_count: 1,
+            in_flight_jobs: 0,
+            queued_runs: 0,
+            running_runs: 0,
+            awaiting_approval_runs: 0,
+            oldest_queued_age_seconds: 0,
+            oldest_running_age_seconds: 0,
+            store_backend: "memory",
+          },
+        }), { status: 200, headers: { "Content-Type": "application/json" } });
+      }
+      if (url.startsWith("/hecate/v1/system/mcp/cache")) {
+        return new Response(JSON.stringify({
+          object: "mcp_cache_stats",
+          data: { checked_at: new Date().toISOString(), configured: false, entries: 0, in_use: 0, idle: 0 },
+        }), { status: 200, headers: { "Content-Type": "application/json" } });
+      }
+      return new Response(JSON.stringify({ object: "list", data: [] }), {
+        status: 200,
+        headers: { "Content-Type": "application/json" },
+      });
+    });
+
+    const state = createRuntimeConsoleFixture({ session: localSession });
+    let container = null as unknown as HTMLElement;
+    await act(async () => {
+      const result = render(<ObservabilityView state={state} actions={createRuntimeConsoleActions()} />);
+      container = result.container;
+    });
+
+    await waitFor(() => {
+      const grid = container.querySelector('[data-testid="runtime-stats-grid"]') as HTMLElement | null;
+      expect(grid).toBeTruthy();
+      expect(normalizedInlineStyle(grid!, "grid-template-columns")).toBe("repeat(auto-fit,minmax(136px,1fr))");
+    });
   });
 
   it("renders empty state with Open Chats button when traces is empty", async () => {
