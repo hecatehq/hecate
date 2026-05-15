@@ -32,6 +32,7 @@ import {
   resolveTaskApproval as resolveTaskApprovalRequest,
   resolveAgentChatApproval as resolveAgentChatApprovalRequest,
   runRetention as runRetentionRequest,
+  getRetentionRuns,
   upsertPolicyRule as upsertPolicyRuleRequest,
   createProvider as createProviderRequest,
   deleteModelCapabilityOverride as deleteModelCapabilityOverrideRequest,
@@ -63,6 +64,7 @@ import {
   renderAgentChatSessionSummary,
 } from "./runtimeConsoleChatHelpers";
 import { deriveSessionState, resolveDashboardSnapshot } from "./runtimeConsoleDashboard";
+import { warn as logWarn } from "../lib/log";
 import type {
   AgentAdapterHealthRecord,
   AgentAdapterRecord,
@@ -670,8 +672,6 @@ export function useRuntimeConsole() {
           activeAgentChatSession,
           usageEvents,
           settingsConfig,
-          retentionRuns,
-          retentionLastRun,
         },
         // Commit just enough state to drop the AuthLoadingShell as
         // soon as wave 1 resolves — the activity bar + status bar
@@ -705,8 +705,6 @@ export function useRuntimeConsole() {
       syncHecateSelectionFromSession(snapshot.activeAgentChatSession);
       setUsageEvents(snapshot.usageEvents);
       setSettingsConfig(snapshot.settingsConfig);
-      setRetentionRuns(snapshot.retentionRuns);
-      setRetentionLastRun(snapshot.retentionLastRun);
       setAgentAdapterApprovalMode(snapshot.agentAdapterApprovalMode);
       setHecateRTKAvailable(snapshot.rtkAvailable);
       setHecateRTKPath(snapshot.rtkPath);
@@ -1379,6 +1377,29 @@ export function useRuntimeConsole() {
     }
   }
 
+  // Settings view triggers this on mount — retention runs are
+  // out of the boot-time dashboard snapshot so we don't pay for
+  // the fetch on every cold launch when the user never opens
+  // Settings. Re-entrant: while a fetch is in flight a second
+  // call is a no-op (current code below sets state once).
+  const retentionRunsLoadingRef = useRef(false);
+  async function loadRetentionRuns() {
+    if (retentionRunsLoadingRef.current) return;
+    retentionRunsLoadingRef.current = true;
+    try {
+      const payload = await getRetentionRuns(10);
+      setRetentionRuns(payload.data ?? []);
+      setRetentionLastRun(payload.data?.[0] ?? null);
+    } catch (loadError) {
+      // Stay quiet — SettingsView shows an empty list rather
+      // than an error banner; surfacing this would compete
+      // with the rest of the settings UI for attention.
+      logWarn("loadRetentionRuns failed:", loadError);
+    } finally {
+      retentionRunsLoadingRef.current = false;
+    }
+  }
+
   async function runRetention() {
     setRetentionError("");
     setNotice(null);
@@ -2012,6 +2033,7 @@ export function useRuntimeConsole() {
       deleteChatSession,
       renameChatSession,
       loadDashboard,
+      loadRetentionRuns,
       setAgentAdapterID,
       setNewChatAgent,
       setAgentWorkspace: updateAgentWorkspace,

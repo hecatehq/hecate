@@ -14,6 +14,19 @@ import { useCallback, useEffect, useRef, useState } from "react";
 import { warn as logWarn } from "./log";
 import { isTauriRuntime } from "./tauri";
 
+// Surface or clear the dock / taskbar "update available" badge.
+// Tauri command `set_update_badge` is registered in lib.rs;
+// outside Tauri this is a no-op so the hook stays cheap.
+async function setUpdateBadge(visible: boolean): Promise<void> {
+  if (!isTauriRuntime()) return;
+  try {
+    const mod = await import("@tauri-apps/api/core");
+    await mod.invoke("set_update_badge", { visible });
+  } catch (err) {
+    logWarn("set_update_badge invoke failed:", err);
+  }
+}
+
 const DISMISS_STORAGE_KEY = "hecate.update.dismissed";
 
 // 1h between background re-checks. Long enough to be polite to the
@@ -198,6 +211,14 @@ export function useDesktopUpdate(): {
       unlisten?.();
     };
   }, [runCheck]);
+
+  // Sync dock / taskbar badge with the update-available state.
+  // The banner is the primary surface but the badge gives the
+  // user a passive notification even when the app is minimized.
+  const hasUpdate = state.update !== null;
+  useEffect(() => {
+    void setUpdateBadge(hasUpdate);
+  }, [hasUpdate]);
 
   // Auto-clear transient feedback (up-to-date, error) after a few
   // seconds. Active update state stays put — the banner is the

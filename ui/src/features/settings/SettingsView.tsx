@@ -1,4 +1,4 @@
-import type { ReactNode } from "react";
+import { useEffect, type ReactNode } from "react";
 import type { RuntimeConsoleViewModel } from "../../app/useRuntimeConsole";
 import { Badge, Icon, Icons, InlineError } from "../shared/ui";
 
@@ -8,6 +8,14 @@ type Props = {
 };
 
 export function SettingsView({ state, actions }: Props) {
+  // Retention runs aren't in the boot-time dashboard snapshot —
+  // fetch on first SettingsView mount so the user doesn't see a
+  // permanently empty list. Re-entrant: actions.loadRetentionRuns
+  // guards against parallel fetches.
+  useEffect(() => {
+    void actions.loadRetentionRuns();
+  }, [actions]);
+
   return (
     <div style={{ height: "100%", display: "flex", flexDirection: "column", overflow: "hidden" }}>
       <div style={{ flex: 1, overflowY: "auto", padding: 16 }}>

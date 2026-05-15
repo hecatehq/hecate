@@ -19,6 +19,7 @@ use std::sync::Mutex;
 use std::time::{Duration, Instant};
 use tauri::menu::{AboutMetadataBuilder, MenuBuilder, SubmenuBuilder};
 use tauri::{Emitter, Manager};
+use tauri_plugin_clipboard_manager::ClipboardExt;
 use tauri_plugin_log::{RotationStrategy, Target, TargetKind, TimezoneStrategy};
 
 /// File name (without extension) used by tauri-plugin-log under the
@@ -27,6 +28,26 @@ use tauri_plugin_log::{RotationStrategy, Target, TargetKind, TimezoneStrategy};
 /// menu handler that opens the file uses the same name the plugin
 /// writes to.
 const APP_LOG_FILE: &str = "app";
+
+/// JS-invocable command: surface or clear the dock / taskbar
+/// "update available" badge. useDesktopUpdate calls this when its
+/// state transitions in or out of "update detected." macOS gets a
+/// "•" label (matches the rest of the system's notification dot
+/// style); other platforms get a count of 1 since they don't
+/// support a custom label.
+#[tauri::command]
+fn set_update_badge(window: tauri::WebviewWindow, visible: bool) -> Result<(), String> {
+    #[cfg(target_os = "macos")]
+    {
+        let label = if visible { Some("•".to_string()) } else { None };
+        window.set_badge_label(label).map_err(|e| e.to_string())
+    }
+    #[cfg(not(target_os = "macos"))]
+    {
+        let count = if visible { Some(1i64) } else { None };
+        window.set_badge_count(count).map_err(|e| e.to_string())
+    }
+}
 
 const MIN_SPLASH_DURATION: Duration = Duration::from_secs(2);
 
@@ -39,6 +60,34 @@ struct GatewayDiagnostics {
     data_dir: PathBuf,
     log_path: PathBuf,
     state_path: PathBuf,
+}
+
+fn build_diagnostics_report(app: &tauri::AppHandle) -> String {
+    let app_log = app
+        .path()
+        .app_log_dir()
+        .map(|d| d.join(format!("{APP_LOG_FILE}.log")).display().to_string())
+        .unwrap_or_else(|_| "<unavailable>".to_string());
+    let (gateway_log, data_dir) = if let Some(paths) = app.try_state::<GatewayDiagnostics>() {
+        (
+            paths.log_path.display().to_string(),
+            paths.data_dir.display().to_string(),
+        )
+    } else {
+        ("<unavailable>".to_string(), "<unavailable>".to_string())
+    };
+    format!(
+        "Hecate diagnostics\n\
+         ------------------\n\
+         App version:   {version}\n\
+         OS / arch:     {os} / {arch}\n\
+         App log:       {app_log}\n\
+         Gateway log:   {gateway_log}\n\
+         Data dir:      {data_dir}\n",
+        version = env!("CARGO_PKG_VERSION"),
+        os = std::env::consts::OS,
+        arch = std::env::consts::ARCH,
+    )
 }
 
 fn open_path(path: &Path) -> Result<(), String> {
@@ -97,6 +146,7 @@ fn install_menu(app: &mut tauri::App) -> tauri::Result<()> {
         .text("open-app-log", "Open App Log")
         .text("open-gateway-log", "Open Gateway Log")
         .text("open-data-directory", "Open Data Directory")
+        .text("copy-diagnostics", "Copy Diagnostics")
         .separator()
         .quit()
         .build()?;
@@ -167,9 +217,11 @@ pub fn run() {
                 .timezone_strategy(TimezoneStrategy::UseLocal)
                 .build(),
         )
+        .plugin(tauri_plugin_clipboard_manager::init())
         .plugin(tauri_plugin_shell::init())
         .plugin(tauri_plugin_updater::Builder::new().build())
         .plugin(tauri_plugin_window_state::Builder::default().build())
+        .invoke_handler(tauri::generate_handler![set_update_badge])
         .on_menu_event(|app, event| match event.id().as_ref() {
             "check-for-updates" => {
                 // The actual check lives in the renderer (useDesktopUpdate
@@ -222,6 +274,19 @@ pub fn run() {
                     if let Err(e) = open_path(&paths.data_dir) {
                         log::warn!("open data dir failed: {e}");
                     }
+                }
+            }
+            "copy-diagnostics" => {
+                // Bundle app + gateway log paths, version, OS, and
+                // arch into one block so a bug report becomes a
+                // single Cmd+V. Doesn't read the log contents —
+                // that's intentional (logs can be huge, and the
+                // user often wants to inspect first before pasting).
+                let report = build_diagnostics_report(app);
+                if let Err(e) = app.clipboard().write_text(report) {
+                    log::warn!("copy diagnostics to clipboard failed: {e}");
+                } else {
+                    log::info!("diagnostics report copied to clipboard");
                 }
             }
             _ => {}
