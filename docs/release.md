@@ -130,9 +130,10 @@ If a check is intentionally skipped, call it out in the release notes with the
 reason and the risk. Docker smoke and UI e2e are allowed to be slow; they are
 not optional for a public alpha build.
 
-The gate does **not** exercise the Tauri matrix. PR validation
-(`tauri-build.yml`) covers that on every PR touching the desktop pipeline;
-post-tag, the release matrix is the next opportunity to catch regressions.
+The local gate does **not** exercise the Tauri desktop bundle matrix. PR
+validation covers that inside `test.yml` for changes that touch the desktop
+pipeline, after the cheaper CI checks pass or skip. Post-tag, the release
+matrix is the next opportunity to catch regressions.
 
 ## Cut the release
 

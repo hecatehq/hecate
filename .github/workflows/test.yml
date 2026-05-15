@@ -420,6 +420,9 @@ jobs:
 
   tauri-desktop:
     name: Tauri desktop bundles
+    # Keep this explicit list in sync with every cheap/required PR check. The
+    # desktop matrix is intentionally last so a failing unit/e2e/smoke check
+    # does not burn macOS/Windows/Linux packaging minutes.
     needs:
       - changes
       - test-tauri-rust

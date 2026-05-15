@@ -76,6 +76,8 @@ matrix runs before the tag — it's the only way to find out a Windows-only or
 Linux-only regression without burning a release. Use the manual
 `.github/workflows/tauri-build.yml` workflow from the Actions tab only for an
 explicit desktop rebuild/debug run.
+If a reviewer needs to test-launch a bundle before merge, dispatch
+`.github/workflows/tauri-build.yml` manually from the PR branch.
 
 ### Manual local build (rarely needed)
 
@@ -90,7 +92,7 @@ Outputs land in `tauri/src-tauri/target/release/bundle/`. Use this for iterating
 - **Don't build manually then expect CI artifacts to match.** The CI matrix produces bundles signed differently (or unsigned) from a local build. Local artifacts are for debugging, not distribution.
 - **`0.1.0-alpha.N` is valid semver for Tauri**, but macOS `CFBundleShortVersionString` strips the pre-release suffix in the About dialog. That's expected — Tauri handles it internally.
 - **macOS bundles are signed + notarized only on release-workflow runs; PR-validation builds are unsigned by design.** "Release-workflow run" = any invocation of `release.yml` (tag push OR `workflow_dispatch`), both of which pass a non-empty `tagName` to the reusable workflow. Two protections in series:
-  - **Caller-side (load-bearing):** `tauri-build.yml` does NOT use `secrets: inherit` when calling the reusable workflow. The called workflow's `secrets.APPLE_*` references therefore resolve to empty unconditionally during PR validation — the secret values are not in the calling job's context, so even a same-repo PR that rewrites the called workflow can't read them. `release.yml` does inherit (it needs the credentials to actually sign).
+  - **Caller-side (load-bearing):** PR validation in `test.yml` and manual `tauri-build.yml` runs do NOT use `secrets: inherit` when calling the reusable workflow. The called workflow's `secrets.APPLE_*` references therefore resolve to empty unconditionally during PR/manual validation — the secret values are not in the calling job's context, so even a same-repo PR that rewrites the called workflow can't read them. `release.yml` does inherit (it needs the credentials to actually sign).
   - **Called-side (defense in depth):** the env block in `_tauri-shared.yml` gates each Apple secret on `matrix.os == 'macos-latest' && inputs.tagName != ''`. Belt-and-suspenders against future misconfiguration where some new caller might inherit secrets unintentionally.
   - The shared workflow uses `${{ github.token }}` instead of `${{ secrets.GITHUB_TOKEN }}` so it works in both modes — `github.token` is the per-job-run token, available in every workflow run without needing secrets-inherit.
 

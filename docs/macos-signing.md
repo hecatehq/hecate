@@ -16,13 +16,12 @@ non-empty `tagName` to the reusable workflow, satisfying the env
 gate. Such bundles launch on a clean Mac with no Gatekeeper warning
 and drag-install to `/Applications` without `xattr`-fiddling.
 
-Builds without the secrets — PR validation runs (intentionally; see
-`.github/workflows/tauri-build.yml` for why), fork PRs, releases cut
-before the secrets landed — produce **unsigned** `.dmg`s. Those are
-not a pipeline failure; they're the documented fallback when the
-signing inputs aren't available. Operators downloading an unsigned
-build need to right-click `Hecate.app` → **Open** to bypass
-Gatekeeper on first launch.
+Builds without the secrets — PR validation in `test.yml`, manual
+`tauri-build.yml` rebuilds, fork PRs, or releases cut before the secrets landed
+— produce **unsigned** `.dmg`s. Those are not a pipeline failure; they're the
+documented fallback when the signing inputs aren't available. Operators
+downloading an unsigned build need to right-click `Hecate.app` → **Open** to
+bypass Gatekeeper on first launch.
 
 The CI workflow (`.github/workflows/_tauri-shared.yml`) reads the
 secrets via env. Setup steps below are what gets the secrets in

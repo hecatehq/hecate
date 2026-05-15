@@ -202,7 +202,8 @@ release packaging files, and `.github/workflows/*.yml`). The matrix waits for
 the cheaper Go, TypeScript, e2e, Docker smoke, and Tauri Rust jobs to pass (or
 skip by path filter) before it starts, and it does not upload unsigned bundles.
 `concurrency: cancel-in-progress: true` cancels older runs on the same ref.
-`tauri-build.yml` is manual-only for explicit desktop reruns/debugging.
+`tauri-build.yml` is manual-only for explicit desktop reruns/debugging; dispatch
+it from a PR branch when a reviewer needs a pre-merge bundle to test-launch.
 
 **Release-run behaviour:** `concurrency: cancel-in-progress: false` — a half-cancelled release is worse than waiting. The `tauri` job has `needs: goreleaser` so the GitHub Release entry exists before tauri-action's upload tries to attach to it.
 
@@ -218,7 +219,7 @@ skip by path filter) before it starts, and it does not upload unsigned bundles.
 
 ### Code signing — macOS conditional, Windows not yet wired
 
-macOS bundles are signed with a Developer ID Application certificate and notarized by Apple **on release-workflow runs when the seven `APPLE_*` / `KEYCHAIN_PASSWORD` repo secrets are configured**. "Release-workflow run" = any invocation of `release.yml` (tag push or `workflow_dispatch`); both pass a non-empty `tagName` to the reusable workflow. The CI workflow in `.github/workflows/_tauri-shared.yml` reads the secrets via env, gated on two conditions in series: `matrix.os == 'macos-latest'` AND `inputs.tagName != ''`. PR-validation builds (called from `tauri-build.yml`, which deliberately doesn't `secrets: inherit`) always produce unsigned bundles by design — they're throwaway artifacts. Maintainer-side setup checklist for the secrets is in [`docs/macos-signing.md`](../../../docs/macos-signing.md), including a verification recipe and a rotation playbook. Operators downloading an unsigned build (PR validation, fork builds, releases cut before secrets landed) need right-click → Open on first launch.
+macOS bundles are signed with a Developer ID Application certificate and notarized by Apple **on release-workflow runs when the seven `APPLE_*` / `KEYCHAIN_PASSWORD` repo secrets are configured**. "Release-workflow run" = any invocation of `release.yml` (tag push or `workflow_dispatch`); both pass a non-empty `tagName` to the reusable workflow. The CI workflow in `.github/workflows/_tauri-shared.yml` reads the secrets via env, gated on two conditions in series: `matrix.os == 'macos-latest'` AND `inputs.tagName != ''`. PR validation in `test.yml` and manual `tauri-build.yml` rebuilds deliberately do not use `secrets: inherit`, so they always produce unsigned bundles by design — they're throwaway artifacts. Maintainer-side setup checklist for the secrets is in [`docs/macos-signing.md`](../../../docs/macos-signing.md), including a verification recipe and a rotation playbook. Operators downloading an unsigned build (PR validation, fork builds, releases cut before secrets landed) need right-click → Open on first launch.
 
 Windows MSI signing (Authenticode + EV cert ~$300+/yr) is not yet wired. SmartScreen warns until it lands; document in release notes.
 
