@@ -195,7 +195,6 @@ jobs:
       - uses: oven-sh/setup-bun@v2
         with:
           bun-version-file: ui/package.json
-          cache: true
 
       - uses: actions/setup-go@v6
         with:
@@ -359,7 +358,6 @@ jobs:
           # Reads the version from package.json "packageManager" field so CI
           # always matches what's declared locally.
           bun-version-file: ui/package.json
-          cache: true
 
       - name: Install dependencies
         run: bun install --frozen-lockfile
@@ -393,7 +391,6 @@ jobs:
       - uses: oven-sh/setup-bun@v2
         with:
           bun-version-file: ui/package.json
-          cache: true
 
       - name: Install dependencies
         run: bun install --frozen-lockfile
