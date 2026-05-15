@@ -167,6 +167,75 @@ func TestInitialize_GatewayUnreachable(t *testing.T) {
 	}
 }
 
+func TestInitialize_EditorOwnedModeRequiresClientCaps(t *testing.T) {
+	gw := &fakeGateway{models: []string{"m"}}
+	d := NewDispatcher(gw, NewSessionStore(), Config{
+		ApprovalRoute: "editor",
+		WorkspaceMode: WorkspaceModeEditorOwned,
+	})
+	resp := d.Handle(context.Background(), &Request{
+		JSONRPC: JSONRPCVersion,
+		ID:      makeID(t, 1),
+		Method:  MethodInitialize,
+		Params:  initParams(t, true), // permissions only — no fs/terminal
+	})
+	if resp.Error == nil || resp.Error.Code != ErrorInvalidRequest {
+		t.Fatalf("expected ErrorInvalidRequest, got %v", resp.Error)
+	}
+	if !strings.Contains(resp.Error.Message, "editor-owned") {
+		t.Fatalf("message = %q; want to mention editor-owned", resp.Error.Message)
+	}
+	if d.WorkspaceMode() != WorkspaceModeEditorOwned {
+		t.Fatalf("WorkspaceMode() = %q after failed init; want the configured value to remain (%q)", d.WorkspaceMode(), WorkspaceModeEditorOwned)
+	}
+}
+
+func TestInitialize_AutoFallsBackToHecateOwnedWhenCapsMissing(t *testing.T) {
+	gw := &fakeGateway{models: []string{"m"}}
+	d := NewDispatcher(gw, NewSessionStore(), Config{ApprovalRoute: "editor"}) // WorkspaceMode empty → auto
+	resp := d.Handle(context.Background(), &Request{
+		JSONRPC: JSONRPCVersion,
+		ID:      makeID(t, 1),
+		Method:  MethodInitialize,
+		Params:  initParams(t, true),
+	})
+	if resp.Error != nil {
+		t.Fatalf("initialize error = %v", resp.Error)
+	}
+	if d.WorkspaceMode() != WorkspaceModeHecateOwned {
+		t.Fatalf("WorkspaceMode() = %q; want %q after auto with no fs/terminal caps", d.WorkspaceMode(), WorkspaceModeHecateOwned)
+	}
+}
+
+func TestInitialize_AutoChoosesEditorOwnedWhenCapsPresent(t *testing.T) {
+	gw := &fakeGateway{models: []string{"m"}}
+	d := NewDispatcher(gw, NewSessionStore(), Config{ApprovalRoute: "editor"})
+	params := InitializeParams{
+		ProtocolVersion: DeclaredProtocolVersion,
+		ClientCaps: ClientCapabilities{
+			Permissions: &PermissionCapability{},
+			FS:          &FSCapability{ReadTextFile: true, WriteTextFile: true},
+			Terminal:    &TerminalCapability{},
+		},
+	}
+	raw, err := json.Marshal(params)
+	if err != nil {
+		t.Fatal(err)
+	}
+	resp := d.Handle(context.Background(), &Request{
+		JSONRPC: JSONRPCVersion,
+		ID:      makeID(t, 1),
+		Method:  MethodInitialize,
+		Params:  raw,
+	})
+	if resp.Error != nil {
+		t.Fatalf("initialize error = %v", resp.Error)
+	}
+	if d.WorkspaceMode() != WorkspaceModeEditorOwned {
+		t.Fatalf("WorkspaceMode() = %q; want %q with full client caps", d.WorkspaceMode(), WorkspaceModeEditorOwned)
+	}
+}
+
 func TestInitialize_TwiceRejects(t *testing.T) {
 	gw := &fakeGateway{models: []string{}}
 	d := NewDispatcher(gw, NewSessionStore(), Config{ApprovalRoute: "editor"})

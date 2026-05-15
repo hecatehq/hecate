@@ -105,7 +105,7 @@ func configFromEnv() (bridgeConfig, error) {
 		GatewayURL:    firstNonEmpty(gatewayURL, defaultGatewayURL),
 		AgentName:     firstNonEmpty(os.Getenv("HECATE_AGENT_NAME"), "Hecate"),
 		AgentVersion:  version.Version,
-		WorkspaceMode: firstNonEmpty(os.Getenv("HECATE_WORKSPACE_MODE"), "hecate-owned"),
+		WorkspaceMode: firstNonEmpty(os.Getenv("HECATE_WORKSPACE_MODE"), acp.WorkspaceModeAuto),
 		ApprovalRoute: firstNonEmpty(os.Getenv("HECATE_APPROVAL_ROUTE"), "editor"),
 		OTel:          bridgeOTelFromEnv(),
 	}

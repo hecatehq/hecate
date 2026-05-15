@@ -53,11 +53,14 @@ Implemented:
 
 Not implemented yet:
 
-- Editor-owned workspace reverse-RPC calls. Hecate-owned mode is the current
-  implementation: work runs through the gateway task runtime. The future
-  editor-owned mode would let an ACP host such as Zed or JetBrains own file and
-  terminal operations through ACP reverse-RPC, including terminal lifecycle
-  calls like create, output, wait-for-exit, kill, and release.
+- End-to-end editor-owned workspace routing. The bridge negotiates the
+  `editor-owned` workspace mode with the client at `initialize` (see
+  [Configuration](#configuration)), and the workspace abstraction has both
+  `LocalWorkspace` and `ACPWorkspace` implementations — but the gateway-side
+  orchestrator still uses the local workspace in every mode. Wiring the
+  bridge↔gateway transport that routes `fs/*` and `terminal/*` reverse-RPC
+  through to the editor's filesystem and terminal panes lands in a follow-up
+  RFC.
 - Registry packaging for a specific editor.
 - Headless compatibility tests against a real Zed or JetBrains ACP host.
 - Durable editor-side session reattachment after bridge restart. The gateway
@@ -367,14 +370,26 @@ for that behavior.
 |---|---:|---|
 | `HECATE_GATEWAY_URL` | auto-discover, then `http://127.0.0.1:8765` | Gateway base URL the bridge talks to. Set explicitly to bypass runtime-state discovery. |
 | `HECATE_AGENT_NAME` | `Hecate` | Agent display name advertised during initialize. |
-| `HECATE_WORKSPACE_MODE` | `hecate-owned` | Future workspace ownership mode. |
+| `HECATE_WORKSPACE_MODE` | `auto` | Workspace ownership. `auto` (default) follows ACP capability negotiation. `hecate-owned` forces the gateway host to own file writes and terminal execution. `editor-owned` requires the editor to own them via reverse-RPC and fails the handshake when the editor cannot. |
 | `HECATE_APPROVAL_ROUTE` | `editor` | `editor` sends approval gates to ACP `session/request_permission`; other values leave approvals for the Hecate operator UI. |
 
-`HECATE_WORKSPACE_MODE=editor-owned` is not implemented yet. When it lands, it
-belongs to this editor-host bridge scope: the editor would own file writes and
-terminal execution through ACP reverse-RPC. It is separate from
-[External agent adapters](external-agent-adapters.md), where Hecate itself
-launches Codex / Claude / Cursor-style adapters from Chats.
+`HECATE_WORKSPACE_MODE` resolves at `initialize` time. In `auto` mode the bridge
+picks `editor-owned` when the editor declares `clientCapabilities.fs.readTextFile`,
+`clientCapabilities.fs.writeTextFile`, **and** `clientCapabilities.terminal`;
+otherwise it falls back to `hecate-owned`. Setting the variable to `editor-owned`
+explicitly is the same check, but the bridge fails `initialize` instead of
+silently falling back when those capabilities are missing — useful when an
+operator wants to guarantee writes flow through the editor's review UI.
+
+**Status:** capability negotiation is wired today, but the bridge↔gateway
+transport that would route reverse-RPC end-to-end is not yet implemented. In
+`editor-owned` mode the bridge negotiates the capability with the editor but
+the orchestrator still uses the local workspace. The transport piece lands in
+a follow-up RFC.
+
+This is separate from [External agent adapters](external-agent-adapters.md),
+where Hecate itself launches Codex / Claude / Cursor-style adapters from
+Chats.
 
 ### Bridge telemetry
 
