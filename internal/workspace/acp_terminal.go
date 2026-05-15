@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
+	"runtime"
 	"strings"
 	"sync"
 	"time"
@@ -32,13 +33,16 @@ func (w *ACPWorkspace) OpenTerminal(ctx context.Context, opts TerminalOptions) (
 	}
 
 	pollCtx, cancelPoll := context.WithCancel(context.Background())
+	waitCtx, cancelWait := context.WithCancel(context.Background())
 	term := &acpTerminal{
 		caller:     w.caller,
 		sessionID:  w.sessionID,
 		terminalID: terminalID,
 		output:     make(chan OutputChunk, 64),
 		exit:       make(chan struct{}),
+		pollDone:   make(chan struct{}),
 		cancelPoll: cancelPoll,
+		cancelWait: cancelWait,
 	}
 	// Polling goroutine drains terminal/output until the editor
 	// reports exit or the caller closes the terminal. Mirrors the
@@ -47,7 +51,10 @@ func (w *ACPWorkspace) OpenTerminal(ctx context.Context, opts TerminalOptions) (
 	go term.pollOutput(pollCtx)
 	// Wait goroutine resolves terminal/wait_for_exit so
 	// WaitForExit callers don't each have to issue their own RPC.
-	go term.awaitExit()
+	// waitCtx lets Close cancel a hung RPC if the editor never
+	// responds — without it, awaitExit would leak forever on
+	// transport loss.
+	go term.awaitExit(waitCtx)
 
 	return term, nil
 }
@@ -66,6 +73,21 @@ func terminalSpawnSpec(opts TerminalOptions) (string, []string) {
 	return opts.Command, opts.Args
 }
 
+// acpRunShellSpec wraps a freeform shell string for ACP terminal/create.
+// Run/RunStreaming receive Command.Command as a single shell line
+// ("git status", "cd repo && make test"), so the editor needs a shell
+// to parse and execute it. We pick based on the gateway's GOOS —
+// which today equals the editor host's GOOS (the bridge always runs
+// loopback per cmd/hecate-acp/main.go). Cross-host editors are a
+// future RFC; when they land they'll negotiate shell flavor through
+// ACP capabilities.
+func acpRunShellSpec(command string) (string, []string) {
+	if runtime.GOOS == "windows" {
+		return "cmd.exe", []string{"/C", command}
+	}
+	return "sh", []string{"-lc", command}
+}
+
 // acpTerminal is the editor-owned Terminal handle returned by
 // ACPWorkspace.OpenTerminal. Each handle owns one terminal id, one
 // polling goroutine, and one wait goroutine. Close serializes
@@ -76,8 +98,9 @@ type acpTerminal struct {
 	sessionID  string
 	terminalID string
 
-	output chan OutputChunk
-	exit   chan struct{}
+	output   chan OutputChunk
+	exit     chan struct{}
+	pollDone chan struct{} // closed by pollOutput when it returns
 
 	// stdout/stderr seen-so-far buffers track what we've already
 	// streamed via Output() — same shape as ACPWorkspace.drainOnce
@@ -90,6 +113,7 @@ type acpTerminal struct {
 	exitErr    error
 
 	cancelPoll func()
+	cancelWait func()
 
 	closeOnce sync.Once
 }
@@ -112,15 +136,20 @@ func (t *acpTerminal) WaitForExit(ctx context.Context) (Result, error) {
 	case <-ctx.Done():
 		return Result{}, ctx.Err()
 	}
+	// pollOutput may still be running concurrently — even though
+	// exit closed, the poller doesn't bail until Close cancels it.
+	// Take bufMu while snapshotting so we don't race a concurrent
+	// WriteString on the builders.
+	t.bufMu.Lock()
+	stdout := t.stdoutBuf.String()
+	stderr := t.stderrBuf.String()
+	t.bufMu.Unlock()
 	if t.exitErr != nil {
-		return Result{
-			Stdout: t.stdoutBuf.String(),
-			Stderr: t.stderrBuf.String(),
-		}, t.exitErr
+		return Result{Stdout: stdout, Stderr: stderr}, t.exitErr
 	}
 	return Result{
-		Stdout:   t.stdoutBuf.String(),
-		Stderr:   t.stderrBuf.String(),
+		Stdout:   stdout,
+		Stderr:   stderr,
 		ExitCode: t.exitResult.ExitCode,
 	}, nil
 }
@@ -141,14 +170,23 @@ func (t *acpTerminal) Close(ctx context.Context) error {
 		// Stop the polling goroutine before releasing the handle
 		// so terminal/output calls don't race terminal/release.
 		t.cancelPoll()
+		// Wait for the poller to actually return before closing
+		// t.output — otherwise a late publishChunk could panic on
+		// send-to-closed-channel.
+		<-t.pollDone
 		// Wait for the editor-side process to actually exit. The
 		// wait goroutine closes t.exit when terminal/wait_for_exit
 		// returns; bound the wait so a wedged editor doesn't pin
-		// Close forever.
+		// Close forever. If we time out or ctx cancels, cancel the
+		// wait RPC explicitly so its goroutine doesn't leak.
 		select {
 		case <-t.exit:
 		case <-time.After(5 * time.Second):
+			t.cancelWait()
+			<-t.exit
 		case <-ctx.Done():
+			t.cancelWait()
+			<-t.exit
 		}
 		_, releaseErr = t.caller.Call(ctx, "terminal/release", acpTerminalIDParams{
 			SessionID:  t.sessionID,
@@ -162,41 +200,52 @@ func (t *acpTerminal) Close(ctx context.Context) error {
 // pollOutput is the streaming side of the terminal handle. Same
 // cadence and same delta-by-prefix logic as ACPWorkspace.drainOnce
 // uses for one-shot Run; differences are (a) we keep going until
-// cancelPoll fires (Close was called), and (b) we deliver chunks
-// through the channel rather than calling onChunk.
+// cancelPoll fires (Close was called) or the wait goroutine observes
+// exit, and (b) we deliver chunks through the channel rather than
+// calling onChunk.
 func (t *acpTerminal) pollOutput(ctx context.Context) {
+	defer close(t.pollDone)
 	ticker := time.NewTicker(100 * time.Millisecond)
 	defer ticker.Stop()
 	for {
 		select {
 		case <-ctx.Done():
 			return
+		case <-t.exit:
+			// One last drain so WaitForExit sees any trailing
+			// output buffered between the previous tick and exit.
+			t.drainOnce(ctx)
+			return
 		case <-ticker.C:
 		}
-		raw, err := t.caller.Call(ctx, "terminal/output", acpTerminalIDParams{
-			SessionID:  t.sessionID,
-			TerminalID: t.terminalID,
-		})
-		if err != nil {
-			// Best-effort polling — the editor may have already
-			// released the terminal; the wait goroutine will
-			// observe the exit shortly and we'll bail out.
-			continue
-		}
-		var out acpTerminalOutputResult
-		if jerr := json.Unmarshal(raw, &out); jerr != nil {
-			continue
-		}
-		t.bufMu.Lock()
-		if delta := stringSuffixAfter(&t.stdoutBuf, out.Stdout); delta != "" {
-			t.stdoutBuf.WriteString(delta)
-			t.publishChunk(OutputChunk{Stream: "stdout", Text: delta})
-		}
-		if delta := stringSuffixAfter(&t.stderrBuf, out.Stderr); delta != "" {
-			t.stderrBuf.WriteString(delta)
-			t.publishChunk(OutputChunk{Stream: "stderr", Text: delta})
-		}
-		t.bufMu.Unlock()
+		t.drainOnce(ctx)
+	}
+}
+
+func (t *acpTerminal) drainOnce(ctx context.Context) {
+	raw, err := t.caller.Call(ctx, "terminal/output", acpTerminalIDParams{
+		SessionID:  t.sessionID,
+		TerminalID: t.terminalID,
+	})
+	if err != nil {
+		// Best-effort polling — the editor may have already
+		// released the terminal; the wait goroutine will
+		// observe the exit shortly and we'll bail out.
+		return
+	}
+	var out acpTerminalOutputResult
+	if jerr := json.Unmarshal(raw, &out); jerr != nil {
+		return
+	}
+	t.bufMu.Lock()
+	defer t.bufMu.Unlock()
+	if delta := stringSuffixAfter(&t.stdoutBuf, out.Stdout); delta != "" {
+		t.stdoutBuf.WriteString(delta)
+		t.publishChunk(OutputChunk{Stream: "stdout", Text: delta})
+	}
+	if delta := stringSuffixAfter(&t.stderrBuf, out.Stderr); delta != "" {
+		t.stderrBuf.WriteString(delta)
+		t.publishChunk(OutputChunk{Stream: "stderr", Text: delta})
 	}
 }
 
@@ -211,8 +260,8 @@ func (t *acpTerminal) publishChunk(chunk OutputChunk) {
 	}
 }
 
-func (t *acpTerminal) awaitExit() {
-	raw, err := t.caller.Call(context.Background(), "terminal/wait_for_exit", acpTerminalIDParams{
+func (t *acpTerminal) awaitExit(ctx context.Context) {
+	raw, err := t.caller.Call(ctx, "terminal/wait_for_exit", acpTerminalIDParams{
 		SessionID:  t.sessionID,
 		TerminalID: t.terminalID,
 	})

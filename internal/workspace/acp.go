@@ -194,16 +194,25 @@ func (w *ACPWorkspace) RunStreaming(ctx context.Context, command Command, onChun
 	if err := w.ensureWired(); err != nil {
 		return Result{}, err
 	}
+	shellCommand, shellArgs := acpRunShellSpec(command.Command)
 	terminalID, err := w.createTerminal(ctx, acpTerminalCreateParams{
 		SessionID: w.sessionID,
-		Command:   "sh",
-		Args:      []string{"-lc", command.Command},
+		Command:   shellCommand,
+		Args:      shellArgs,
 		Cwd:       command.WorkingDirectory,
 	})
 	if err != nil {
 		return Result{}, err
 	}
-	defer w.releaseTerminal(context.Background(), terminalID) // best-effort release on every exit path
+	defer func() {
+		// Bounded best-effort release. Using a fresh context (not
+		// the caller's, which may already be cancelled) lets the
+		// release run on every exit path; the timeout protects
+		// against a wedged editor pinning Run/RunStreaming forever.
+		releaseCtx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+		defer cancel()
+		w.releaseTerminal(releaseCtx, terminalID)
+	}()
 
 	var stdoutBuf, stderrBuf strings.Builder
 	waitDone := make(chan acpTerminalWaitResult, 1)

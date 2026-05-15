@@ -190,6 +190,27 @@ func TestInitialize_EditorOwnedModeRequiresClientCaps(t *testing.T) {
 	}
 }
 
+func TestInitialize_DoesNotCommitWorkspaceModeWhenGatewayUnreachable(t *testing.T) {
+	// ResolveWorkspaceMode would succeed (auto + permissions-only caps
+	// → hecate-owned), but ListModels fails. WorkspaceMode() must
+	// still report the configured value, not the value that was almost
+	// negotiated — initialize did not succeed.
+	gw := &fakeGateway{modelsErr: errors.New("connection refused")}
+	d := NewDispatcher(gw, NewSessionStore(), Config{ApprovalRoute: "editor", WorkspaceMode: WorkspaceModeHecateOwned})
+	resp := d.Handle(context.Background(), &Request{
+		JSONRPC: JSONRPCVersion,
+		ID:      makeID(t, 1),
+		Method:  MethodInitialize,
+		Params:  initParams(t, true),
+	})
+	if resp.Error == nil || resp.Error.Code != ErrorGatewayUnreachable {
+		t.Fatalf("expected ErrorGatewayUnreachable, got %v", resp.Error)
+	}
+	if d.WorkspaceMode() != WorkspaceModeHecateOwned {
+		t.Fatalf("WorkspaceMode() = %q; want configured value %q after failed init", d.WorkspaceMode(), WorkspaceModeHecateOwned)
+	}
+}
+
 func TestInitialize_AutoFallsBackToHecateOwnedWhenCapsMissing(t *testing.T) {
 	gw := &fakeGateway{models: []string{"m"}}
 	d := NewDispatcher(gw, NewSessionStore(), Config{ApprovalRoute: "editor"}) // WorkspaceMode empty → auto
