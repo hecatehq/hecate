@@ -38,6 +38,7 @@ jobs:
       go: ${{ steps.filter.outputs.go }}
       typescript: ${{ steps.filter.outputs.typescript }}
       tauri: ${{ steps.filter.outputs.tauri }}
+      desktop: ${{ steps.filter.outputs.desktop }}
       workflow: ${{ steps.filter.outputs.workflow }}
       docker: ${{ steps.filter.outputs.docker }}
     steps:
@@ -52,7 +53,7 @@ jobs:
           # silently drifts when one filter is updated without the other.
           filters: |
             workflow:
-              - '.github/workflows/test.yml'
+              - '.github/workflows/*.yml'
               - 'Justfile'
             docker:
               - 'Dockerfile'
@@ -78,6 +79,23 @@ jobs:
               - 'tauri/src-tauri/Cargo.toml'
               - 'tauri/src-tauri/Cargo.lock'
               - 'tauri/src-tauri/tauri.conf.json'
+            desktop:
+              - 'tauri/**'
+              - 'scripts/resolve-tauri-version.ts'
+              - 'scripts/stamp-version.ts'
+              - 'scripts/tauri-smoke.ts'
+              - 'Justfile'
+              - 'go.mod'
+              - 'go.sum'
+              - 'cmd/hecate/**'
+              - 'cmd/hecate-acp/**'
+              - 'ui/**'
+              - 'embed.go'
+              - '.goreleaser.yaml'
+              - 'Dockerfile.release'
+              - '.github/workflows/_tauri-shared.yml'
+              - '.github/workflows/tauri-build.yml'
+              - '.github/workflows/release.yml'
 
   test-tauri-rust:
     name: Tauri Rust tests
@@ -140,7 +158,9 @@ jobs:
           git diff --exit-code go.mod go.sum
 
       - name: Check formatting
-        run: test -z "$(gofmt -s -l $(git ls-files '*.go'))"
+        run: |
+          mapfile -t files < <(git ls-files '*.go')
+          test -z "$(gofmt -s -l "${files[@]}")"
 
       - name: Vet
         run: go vet ./...
@@ -400,3 +420,43 @@ jobs:
 
       - name: E2E tests
         run: bun run test:e2e
+
+  tauri-desktop:
+    name: Tauri desktop bundles
+    needs:
+      - changes
+      - test-tauri-rust
+      - lint-go
+      - test-go
+      - build-hecate
+      - e2e
+      - e2e-ollama
+      - docker-smoke
+      - typescript
+      - typescript-e2e
+    if: |
+      always() &&
+      github.event_name == 'pull_request' &&
+      github.event.pull_request.draft == false &&
+      (
+        needs.changes.outputs.desktop == 'true' ||
+        needs.changes.outputs.workflow == 'true'
+      ) &&
+      contains(fromJSON('["success","skipped"]'), needs.test-tauri-rust.result) &&
+      contains(fromJSON('["success","skipped"]'), needs.lint-go.result) &&
+      contains(fromJSON('["success","skipped"]'), needs.test-go.result) &&
+      contains(fromJSON('["success","skipped"]'), needs.build-hecate.result) &&
+      contains(fromJSON('["success","skipped"]'), needs.e2e.result) &&
+      contains(fromJSON('["success","skipped"]'), needs.e2e-ollama.result) &&
+      contains(fromJSON('["success","skipped"]'), needs.docker-smoke.result) &&
+      contains(fromJSON('["success","skipped"]'), needs.typescript.result) &&
+      contains(fromJSON('["success","skipped"]'), needs.typescript-e2e.result)
+    uses: ./.github/workflows/_tauri-shared.yml
+    permissions:
+      contents: write
+      actions: write
+    with:
+      # Desktop PR validation runs after the cheaper test matrix so failing
+      # unit/e2e checks don't burn macOS/Windows/Linux packaging minutes.
+      # Tagged release builds still upload signed bundles via release.yml.
+      uploadArtifacts: false

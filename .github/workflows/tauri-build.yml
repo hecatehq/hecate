@@ -1,36 +1,13 @@
 name: tauri-build
 
-# PR-triggered Tauri matrix build. All build steps live in
-# _tauri-shared.yml — this file is just the trigger + caller.
-#
-# Path filter scopes the run to changes that could plausibly break the
-# Tauri pipeline; anything else skips the matrix entirely.
+# Manual Tauri matrix build. PR validation is gated behind the main
+# Test workflow so macOS/Windows/Linux packaging starts only after the
+# cheaper tests pass. Keep this workflow for explicit reruns/debugging
+# from the Actions tab.
 
 on:
-  pull_request:
-    types: [opened, synchronize, reopened, ready_for_review]
-    paths:
-      - 'tauri/**'
-      - 'scripts/resolve-tauri-version.ts'
-      - 'scripts/stamp-version.ts'
-      - 'scripts/tauri-smoke.ts'
-      - 'Justfile'
-      - 'go.mod'
-      - 'go.sum'
-      - 'cmd/hecate/**'
-      - 'cmd/hecate-acp/**'
-      - 'ui/**'
-      - 'embed.go'              # //go:embed all:ui/dist — UI bundle into binary
-      - '.goreleaser.yaml'      # release config; tag-time goreleaser pipeline
-      - 'Dockerfile.release'    # GHCR image baseline; not Tauri but same release flow
-      - '.github/workflows/_tauri-shared.yml'
-      - '.github/workflows/tauri-build.yml'
-      - '.github/workflows/release.yml'
   workflow_dispatch:
 
-# Cancel queued/running PR runs when a new commit lands on the same ref.
-# A 30-minute matrix on every push during active dev burns minutes
-# fast otherwise.
 concurrency:
   group: tauri-build-${{ github.ref }}
   cancel-in-progress: true
