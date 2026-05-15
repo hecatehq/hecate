@@ -43,7 +43,7 @@ describe("SettingsView", () => {
   });
 });
 
-describe("SettingsView retention tab", () => {
+describe("SettingsView maintenance cleanup", () => {
   it("shows known subsystems as toggle chips", async () => {
     const { state, actions } = setup();
     render(<SettingsView state={state} actions={actions} />);
@@ -60,7 +60,7 @@ describe("SettingsView retention tab", () => {
     expect(setRetentionSubsystems).toHaveBeenCalledWith("audit_events");
   });
 
-  it("'Run now' button triggers runRetention action", async () => {
+  it("'Clean up now' button triggers runRetention action", async () => {
     const runRetention = vi.fn(async () => undefined);
     const { state, actions, user } = setup({}, { runRetention });
     render(<SettingsView state={state} actions={actions} />);
