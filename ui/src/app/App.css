@@ -27,6 +27,17 @@
   flex-shrink: 0;
 }
 
+/* macOS traffic-light safe area. The Tauri window uses
+   titleBarStyle:"Overlay" so the window controls overlay the
+   top-left of the activity bar; push the first icon button down
+   enough to clear them. 38px = 12px stoplight inset + 16px button
+   radius + 10px breathing room. The activity bar itself remains
+   the drag region (data-tauri-drag-region on the <nav>), so this
+   empty strip is also where the user grabs the window. */
+[data-tauri-platform="macos"] .hecate-activitybar {
+  padding-top: 38px;
+}
+
 .hecate-activitybtn {
   position: relative;
   width: 40px;

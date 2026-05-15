@@ -2,7 +2,7 @@ import { useEffect, useState } from "react";
 
 import { ConsoleShell, getAvailableWorkspaces, type WorkspaceID } from "./AppShell";
 import { useRuntimeConsole } from "./useRuntimeConsole";
-import { isTauriRuntime } from "../lib/tauri";
+import { detectTauriPlatform, isTauriRuntime } from "../lib/tauri";
 
 const WORKSPACE_STORAGE_KEY = "hecate.workspace.v2";
 
@@ -24,6 +24,19 @@ export default function App() {
 
   useEffect(() => {
     return installTauriEditShortcutFallback();
+  }, []);
+
+  // Stamp the host platform on <html> when running inside Tauri so
+  // platform-conditional CSS (e.g. the macOS traffic-light safe
+  // area on the activity bar) can target it. Cleared on unmount so
+  // tests can drop the marker by tearing down the host.
+  useEffect(() => {
+    const platform = detectTauriPlatform();
+    if (!platform) return;
+    document.documentElement.dataset.tauriPlatform = platform;
+    return () => {
+      delete document.documentElement.dataset.tauriPlatform;
+    };
   }, []);
 
   return <ConsoleShell actions={actions} activeWorkspace={activeWorkspace} onSelectWorkspace={handleSelectWorkspace} state={state} />;

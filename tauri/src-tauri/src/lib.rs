@@ -17,7 +17,7 @@ mod sidecar;
 use std::path::{Path, PathBuf};
 use std::sync::Mutex;
 use std::time::{Duration, Instant};
-use tauri::menu::{MenuBuilder, SubmenuBuilder};
+use tauri::menu::{AboutMetadataBuilder, MenuBuilder, SubmenuBuilder};
 use tauri::{Emitter, Manager};
 
 const MIN_SPLASH_DURATION: Duration = Duration::from_secs(2);
@@ -62,14 +62,34 @@ fn open_path(path: &Path) -> Result<(), String> {
 }
 
 fn install_menu(app: &mut tauri::App) -> tauri::Result<()> {
+    // Standard macOS application menu structure:
+    //   App / Edit / View / Window
+    // Predefined items carry their canonical keyboard shortcuts
+    // (⌘H, ⌥⌘H, ⌘Q, ⌘W, ⌘M, ⌃⌘F, Cut/Copy/Paste, …) and route to
+    // native handlers, so we only need on_menu_event for the
+    // custom items below ("check-for-updates", "open-gateway-log",
+    // "open-data-directory").
+    let about_metadata = AboutMetadataBuilder::new()
+        .name(Some("Hecate"))
+        .version(Some(env!("CARGO_PKG_VERSION")))
+        .website(Some("https://hecate.sh"))
+        .website_label(Some("hecate.sh"))
+        .build();
     let app_menu = SubmenuBuilder::new(app, "Hecate")
-        .text("open-hecate", "Open Hecate")
+        .about(Some(about_metadata))
+        .separator()
         .text("check-for-updates", "Check for Updates\u{2026}")
+        .separator()
+        .services()
+        .separator()
+        .hide()
+        .hide_others()
+        .show_all()
         .separator()
         .text("open-gateway-log", "Open Gateway Log")
         .text("open-data-directory", "Open Data Directory")
         .separator()
-        .text("quit-hecate", "Quit Hecate")
+        .quit()
         .build()?;
     let edit = SubmenuBuilder::new(app, "Edit")
         .undo()
@@ -80,7 +100,20 @@ fn install_menu(app: &mut tauri::App) -> tauri::Result<()> {
         .paste()
         .select_all()
         .build()?;
-    let menu = MenuBuilder::new(app).item(&app_menu).item(&edit).build()?;
+    let view = SubmenuBuilder::new(app, "View").fullscreen().build()?;
+    let window = SubmenuBuilder::new(app, "Window")
+        .minimize()
+        .maximize()
+        .separator()
+        .close_window()
+        .bring_all_to_front()
+        .build()?;
+    let menu = MenuBuilder::new(app)
+        .item(&app_menu)
+        .item(&edit)
+        .item(&view)
+        .item(&window)
+        .build()?;
     app.set_menu(menu).map(|_| ())
 }
 
@@ -98,12 +131,6 @@ pub fn run() {
         .plugin(tauri_plugin_updater::Builder::new().build())
         .plugin(tauri_plugin_window_state::Builder::default().build())
         .on_menu_event(|app, event| match event.id().as_ref() {
-            "open-hecate" => {
-                if let Some(win) = app.get_webview_window("main") {
-                    let _ = win.show();
-                    let _ = win.set_focus();
-                }
-            }
             "check-for-updates" => {
                 // The actual check lives in the renderer (useDesktopUpdate
                 // owns the @tauri-apps/plugin-updater client and the
@@ -135,7 +162,6 @@ pub fn run() {
                     }
                 }
             }
-            "quit-hecate" => app.exit(0),
             _ => {}
         })
         .setup(|app| {

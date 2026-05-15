@@ -56,6 +56,20 @@
         pointer-events: none;
       }
 
+      /* macOS frameless-titlebar setup: the Tauri window uses
+         titleBarStyle: "Overlay", so the splash's full surface sits
+         under the traffic lights. This invisible strip is the
+         draggable region during gateway boot — without it the user
+         can't move the window from the splash. */
+      .titlebar-drag {
+        position: fixed;
+        top: 0;
+        left: 0;
+        right: 0;
+        height: 32px;
+        z-index: 10;
+      }
+
       .screen-overlay {
         position: fixed;
         inset: 0;
@@ -255,6 +269,7 @@
     </style>
   </head>
   <body>
+    <div class="titlebar-drag" data-tauri-drag-region aria-hidden="true"></div>
     <canvas class="glitch-field" id="glitch-field" aria-hidden="true"></canvas>
     <div class="screen-overlay" aria-hidden="true"></div>
     <main class="splash" aria-label="Hecate is starting">
