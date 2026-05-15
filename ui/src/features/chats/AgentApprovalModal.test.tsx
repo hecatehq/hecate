@@ -175,7 +175,11 @@ describe("AgentApprovalModal", () => {
     );
     await waitFor(() => expect(fetchApproval).toHaveBeenCalled());
     const user = userEvent.setup();
-    await user.click(screen.getByTestId("agent-approval-modal-decision-deny"));
+    // findByTestId: the deny radio only renders after the row
+    // resolves, and the loading skeleton can still be on screen
+    // when fetchApproval's call is observed but its promise
+    // microtask hasn't flushed yet (CI flake).
+    await user.click(await screen.findByTestId("agent-approval-modal-decision-deny"));
     expect(screen.getByTestId("agent-approval-modal-option-approve_once").querySelector("input")).toBeDisabled();
     await user.click(screen.getByTestId("agent-approval-modal-submit"));
     await waitFor(() =>
