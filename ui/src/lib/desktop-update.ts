@@ -3,7 +3,7 @@
 // Outside the Tauri runtime (browser, Docker, bare binary) the hook
 // is inert — there's no app to update.
 //
-// Failures surface as console.warn so a developer with devtools open
+// Failures surface as logWarn so a developer with devtools open
 // can diagnose them; the banner only ever appears on a positive
 // answer. Earlier versions swallowed errors silently, which made
 // "no update banner appeared" indistinguishable from "manifest
@@ -11,6 +11,7 @@
 
 import { useCallback, useEffect, useRef, useState } from "react";
 
+import { warn as logWarn } from "./log";
 import { isTauriRuntime } from "./tauri";
 
 const DISMISS_STORAGE_KEY = "hecate.update.dismissed";
@@ -137,7 +138,7 @@ export function useDesktopUpdate(): {
         // banner off so a transient hiccup doesn't pester the
         // user. Manual triggers get the "error" state so the
         // UI can give feedback that something went wrong.
-        console.warn("[hecate] desktop updater check failed:", err);
+        logWarn("[hecate] desktop updater check failed:", err);
         setState((prev) => ({
           ...prev,
           lastCheckResult: opts.manual ? "error" : null,
@@ -189,7 +190,7 @@ export function useDesktopUpdate(): {
           unlisten = undefined;
         }
       } catch (err) {
-        console.warn("[hecate] desktop updater event listener failed:", err);
+        logWarn("[hecate] desktop updater event listener failed:", err);
       }
     })();
     return () => {
@@ -233,7 +234,7 @@ export function useDesktopUpdate(): {
         // install + relaunch immediately, terminating the renderer.
       });
     } catch (err) {
-      console.warn("[hecate] desktop updater install failed:", err);
+      logWarn("[hecate] desktop updater install failed:", err);
       setState((prev) => ({ ...prev, installing: false, downloaded: 0, total: 0 }));
     }
   }, [pluginUpdate]);

@@ -14,6 +14,16 @@ vi.mock("@tauri-apps/plugin-updater", () => ({
   check: () => checkMock(),
 }));
 
+// The log helper used by the hook routes through plugin-log inside
+// Tauri. We spy on warn() to assert it's invoked on failures
+// without spinning up the real plugin.
+const logWarnMock = vi.fn();
+vi.mock("./log", () => ({
+  info: vi.fn(),
+  warn: (message: string, ...args: unknown[]) => logWarnMock(message, ...args),
+  error: vi.fn(),
+}));
+
 function enterTauriRuntime() {
   // Stamp the marker isTauriRuntime() looks for. cleanup in afterEach.
   (globalThis as { __TAURI_INTERNALS__?: unknown }).__TAURI_INTERNALS__ = {};
@@ -25,6 +35,7 @@ function exitTauriRuntime() {
 
 beforeEach(() => {
   checkMock.mockReset();
+  logWarnMock.mockReset();
   sessionStorage.clear();
   exitTauriRuntime();
 });
@@ -65,17 +76,15 @@ describe("useDesktopUpdate", () => {
     expect(result.current.lastCheckResult).toBeNull();
   });
 
-  it("logs check() failures via console.warn and stays inert", async () => {
+  it("logs check() failures via plugin-log warn() and stays inert", async () => {
     enterTauriRuntime();
     checkMock.mockRejectedValue(new Error("network down"));
-    const warnSpy = vi.spyOn(console, "warn").mockImplementation(() => {});
     const { result } = renderHook(() => useDesktopUpdate());
     await waitFor(() => expect(checkMock).toHaveBeenCalled());
-    await waitFor(() => expect(warnSpy).toHaveBeenCalled());
+    await waitFor(() => expect(logWarnMock).toHaveBeenCalled());
     expect(result.current.update).toBeNull();
     expect(result.current.installing).toBe(false);
-    expect(warnSpy.mock.calls[0]?.[0]).toContain("desktop updater check failed");
-    warnSpy.mockRestore();
+    expect(logWarnMock.mock.calls[0]?.[0]).toContain("desktop updater check failed");
   });
 
   it("dismiss() hides the update for the session and writes sessionStorage", async () => {
@@ -221,7 +230,6 @@ describe("useDesktopUpdate", () => {
     vi.useFakeTimers();
     enterTauriRuntime();
     checkMock.mockRejectedValue(new Error("timeout"));
-    const warnSpy = vi.spyOn(console, "warn").mockImplementation(() => {});
     const { result } = renderHook(() => useDesktopUpdate());
     await vi.waitFor(() => expect(checkMock).toHaveBeenCalled());
 
@@ -229,7 +237,6 @@ describe("useDesktopUpdate", () => {
       await result.current.checkNow();
     });
     expect(result.current.lastCheckResult).toBe("error");
-    expect(warnSpy).toHaveBeenCalled();
-    warnSpy.mockRestore();
+    expect(logWarnMock).toHaveBeenCalled();
   });
 });
