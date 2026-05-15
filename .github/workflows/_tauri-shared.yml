@@ -134,14 +134,13 @@ jobs:
       - name: Stamp Tauri version
         run: bun scripts/stamp-version.ts
 
-      # Single tauri-action call serves both modes:
-      #   - tagName empty  → build only (PR validation via tauri-build.yml)
-      #   - tagName set    → upload to the existing GitHub Release for that tag
-      #                      (release.yml after a `v*` tag push)
-      #
-      # macOS signing/notarization protections are documented in the
-      # env: block below.
-      - name: Build Tauri bundles
+      # Keep PR builds and release builds as separate steps. Setting signing
+      # variables to an empty string is not the same as omitting them: Tauri's
+      # bundler still treats some present-but-empty vars as "signing requested"
+      # and fails while decoding/importing them. PR validation must pass no
+      # signing/notarization env at all.
+      - name: Build Tauri bundles (unsigned PR)
+        if: inputs.tagName == ''
         uses: tauri-apps/tauri-action@v0
         env:
           # `github.token` is the per-job-run token, available in every
@@ -151,6 +150,17 @@ jobs:
           # inherit` — see that file's job-level comment for why
           # withholding inherit is the load-bearing protection
           # against PR-side secret exfiltration.
+          GITHUB_TOKEN: ${{ github.token }}
+        with:
+          projectPath: tauri
+          args: --bundles ${{ matrix.bundles }}
+
+      # Tagged release build. Uploads bundles to the existing GitHub Release and
+      # signs/notarizes when the corresponding secrets are configured.
+      - name: Build Tauri bundles (signed release)
+        if: inputs.tagName != ''
+        uses: tauri-apps/tauri-action@v0
+        env:
           GITHUB_TOKEN: ${{ github.token }}
           # Apple signing/notarization secrets. Two independent
           # protections in series:
@@ -172,13 +182,13 @@ jobs:
           # keychain tauri-action creates on the runner — its value
           # never matters again. See docs/macos-signing.md for the
           # operator-side setup checklist.
-          APPLE_CERTIFICATE: ${{ matrix.os == 'macos-latest' && inputs.tagName != '' && secrets.APPLE_CERTIFICATE || '' }}
-          APPLE_CERTIFICATE_PASSWORD: ${{ matrix.os == 'macos-latest' && inputs.tagName != '' && secrets.APPLE_CERTIFICATE_PASSWORD || '' }}
-          APPLE_SIGNING_IDENTITY: ${{ matrix.os == 'macos-latest' && inputs.tagName != '' && secrets.APPLE_SIGNING_IDENTITY || '' }}
-          APPLE_ID: ${{ matrix.os == 'macos-latest' && inputs.tagName != '' && secrets.APPLE_ID || '' }}
-          APPLE_PASSWORD: ${{ matrix.os == 'macos-latest' && inputs.tagName != '' && secrets.APPLE_PASSWORD || '' }}
-          APPLE_TEAM_ID: ${{ matrix.os == 'macos-latest' && inputs.tagName != '' && secrets.APPLE_TEAM_ID || '' }}
-          KEYCHAIN_PASSWORD: ${{ matrix.os == 'macos-latest' && inputs.tagName != '' && secrets.KEYCHAIN_PASSWORD || '' }}
+          APPLE_CERTIFICATE: ${{ matrix.os == 'macos-latest' && secrets.APPLE_CERTIFICATE || '' }}
+          APPLE_CERTIFICATE_PASSWORD: ${{ matrix.os == 'macos-latest' && secrets.APPLE_CERTIFICATE_PASSWORD || '' }}
+          APPLE_SIGNING_IDENTITY: ${{ matrix.os == 'macos-latest' && secrets.APPLE_SIGNING_IDENTITY || '' }}
+          APPLE_ID: ${{ matrix.os == 'macos-latest' && secrets.APPLE_ID || '' }}
+          APPLE_PASSWORD: ${{ matrix.os == 'macos-latest' && secrets.APPLE_PASSWORD || '' }}
+          APPLE_TEAM_ID: ${{ matrix.os == 'macos-latest' && secrets.APPLE_TEAM_ID || '' }}
+          KEYCHAIN_PASSWORD: ${{ matrix.os == 'macos-latest' && secrets.KEYCHAIN_PASSWORD || '' }}
           # Updater signing key. Same caller-side / called-side
           # protection model as the Apple secrets above: scope to a
           # release-workflow run with a non-empty tagName. When set,
@@ -188,8 +198,8 @@ jobs:
           # secrets), unsigned bundles ship and the updater stays
           # inert. See docs/desktop-updater-signing.md for the
           # keypair custody checklist.
-          TAURI_SIGNING_PRIVATE_KEY: ${{ inputs.tagName != '' && secrets.TAURI_UPDATER_PRIVATE_KEY || '' }}
-          TAURI_SIGNING_PRIVATE_KEY_PASSWORD: ${{ inputs.tagName != '' && secrets.TAURI_UPDATER_PRIVATE_KEY_PASSWORD || '' }}
+          TAURI_SIGNING_PRIVATE_KEY: ${{ secrets.TAURI_UPDATER_PRIVATE_KEY }}
+          TAURI_SIGNING_PRIVATE_KEY_PASSWORD: ${{ secrets.TAURI_UPDATER_PRIVATE_KEY_PASSWORD }}
         with:
           projectPath: tauri
           tagName: ${{ inputs.tagName }}

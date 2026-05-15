@@ -317,13 +317,14 @@ tauri-version: tauri-install
 # Build versioned gateway and ACP sidecars for Tauri.
 tauri-build-sidecars: ui-build _go-cache
 	version=$(bun scripts/resolve-tauri-version.ts); \
+	goexe=$(go env GOEXE); \
 	if [ -z "$version" ]; then \
 	  echo "could not resolve Tauri sidecar version" && exit 1; \
 	fi; \
 	ldflags="-X github.com/hecate/agent-runtime/internal/version.Version=$version"; \
 	echo "building Tauri sidecars at version $version"; \
-	GOCACHE="$PWD/{{gocache}}" go build -ldflags "$ldflags" -o hecate ./cmd/hecate; \
-	GOCACHE="$PWD/{{gocache}}" go build -ldflags "$ldflags" -o hecate-acp ./cmd/hecate-acp
+	GOCACHE="$PWD/{{gocache}}" go build -ldflags "$ldflags" -o "hecate$goexe" ./cmd/hecate; \
+	GOCACHE="$PWD/{{gocache}}" go build -ldflags "$ldflags" -o "hecate-acp$goexe" ./cmd/hecate-acp
 
 # Build hecate + hecate-acp and stage them as Tauri sidecars. Pass an explicit
 # target triple in CI matrix builds; local builds auto-detect the host triple.
