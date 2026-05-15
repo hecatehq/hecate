@@ -8,6 +8,7 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
+	"regexp"
 	"strconv"
 	"strings"
 	"time"
@@ -20,6 +21,8 @@ import (
 type Executor interface {
 	Execute(ctx context.Context, spec ExecutionSpec) (*ExecutionResult, error)
 }
+
+var sensitiveCommandAssignmentRE = regexp.MustCompile(`(?i)\b([A-Z0-9_]*(?:API_?KEY|TOKEN|SECRET|PASSWORD|PASS|PRIVATE_?KEY|CREDENTIAL)[A-Z0-9_]*\s*=\s*)(?:"(?:\\.|[^"\\])*"|'[^']*'|[^\s;&|]+)`)
 
 type ExecutionSpec struct {
 	Task             types.Task
@@ -543,9 +546,13 @@ func rtkCommandTelemetryAttrs(command string, enabled bool) map[string]any {
 		return nil
 	}
 	return map[string]any{
-		telemetry.AttrHecateSandboxRTKCommandBefore: formatCommandArgv(sandbox.ShellArgv(sandbox.Command{Command: command})),
-		telemetry.AttrHecateSandboxRTKCommandAfter:  formatCommandArgv(sandbox.ShellArgv(sandbox.Command{Command: command, RTKEnabled: true})),
+		telemetry.AttrHecateSandboxRTKCommandBefore: formatCommandArgvForTelemetry(sandbox.ShellArgv(sandbox.Command{Command: command})),
+		telemetry.AttrHecateSandboxRTKCommandAfter:  formatCommandArgvForTelemetry(sandbox.ShellArgv(sandbox.Command{Command: command, RTKEnabled: true})),
 	}
+}
+
+func formatCommandArgvForTelemetry(argv []string) string {
+	return redactCommandTelemetryValue(formatCommandArgv(argv))
 }
 
 func formatCommandArgv(argv []string) string {
@@ -558,6 +565,10 @@ func formatCommandArgv(argv []string) string {
 		parts = append(parts, arg)
 	}
 	return strings.Join(parts, " ")
+}
+
+func redactCommandTelemetryValue(value string) string {
+	return sensitiveCommandAssignmentRE.ReplaceAllString(value, `${1}<redacted>`)
 }
 
 func sandboxTelemetryAttrs(policy sandbox.Policy, wrapperKind string, outputLimit int64, rtkEnabled bool) map[string]any {

@@ -1643,7 +1643,7 @@ export function ChatView({ state, actions, onNavigate, onOpenTask, onOpenTrace }
         }
       `}</style>
 
-      {approvalModalID && state.activeAgentChatSessionID && (
+      {approvalModalID && isExternalAgentChat && state.activeAgentChatSessionID && (
         <AgentApprovalModal
           sessionID={state.activeAgentChatSessionID}
           approvalID={approvalModalID}

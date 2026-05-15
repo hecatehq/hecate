@@ -108,4 +108,3 @@ Use one repair pattern for all blocked send states:
   missing states, and refresh/reconnect during active runs.
 - Docs update for the final model: one chat shell, runtime-specific execution,
   shared settings, and where to debug task vs adapter internals.
-

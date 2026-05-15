@@ -79,7 +79,10 @@ distinguish “RTK installed” from “RTK used for this command.” When RTK i
 the same step also records `hecate.sandbox.rtk.command.before` and
 `hecate.sandbox.rtk.command.after`, for example `sh -lc "git status"` →
 `rtk sh -lc "git status"`, so traces show exactly what Hecate validated and what
-argv it executed after the RTK wrapper was inserted.
+argv it executed after the RTK wrapper was inserted. Secret-looking shell
+assignments such as `*_TOKEN=...`, `*_API_KEY=...`, and `*_SECRET=...` are
+redacted before these command strings are attached to spans or persisted task
+activity.
 
 The trace endpoint returns:
 

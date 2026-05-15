@@ -476,6 +476,13 @@ func (h *Handler) HandleSetAgentChatSettings(w http.ResponseWriter, r *http.Requ
 	}
 
 	rtkEnabled := *req.RTKEnabled
+	// Update the task row first, then the session row. The two writes
+	// are NOT atomic — Hecate's controlplane has no cross-table
+	// transactions today and this handler matches that pattern. The
+	// task-first order is deliberate: task.RTKEnabled drives the
+	// executor's sandbox-arg construction for existing continuations.
+	// The reverse order — session first, task fails — would leave the
+	// UI reporting RTK on while the backing task still runs without it.
 	if session.TaskID != "" && h.taskStore != nil {
 		task, found, err := h.taskStore.GetTask(r.Context(), session.TaskID)
 		if err != nil {

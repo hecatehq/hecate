@@ -59,6 +59,9 @@ on, the same text becomes the per-task system prompt for the Hecate-owned
 so historical segments keep the instructions they were created with; start a
 new chat to change them. External Agent chats do not use this field because
 Codex, Claude Code, and Cursor own their own prompt/configuration surface.
+External-agent context and reported cost are intentionally shown in the active
+chat, not the Usage workspace, because those values are adapter-reported and
+only meaningful alongside the session that produced them.
 
 Hecate Chat settings also own the **Tools** toggle and the optional **Compact
 command output** toggle. Tools decides whether future turns stay as direct
