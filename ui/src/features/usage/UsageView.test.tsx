@@ -1,7 +1,7 @@
 import { render, screen } from "@testing-library/react";
 import { describe, expect, it } from "vitest";
 
-import { CostsView } from "./CostsView";
+import { UsageView } from "./UsageView";
 import { createRuntimeConsoleActions, createRuntimeConsoleFixture } from "../../test/runtime-console-fixture";
 
 const localSession = { label: "Local" };
@@ -9,10 +9,10 @@ const localSession = { label: "Local" };
 function setup(stateOverrides: Record<string, unknown> = {}) {
   const state = createRuntimeConsoleFixture({ session: localSession, ...stateOverrides });
   const actions = createRuntimeConsoleActions();
-  render(<CostsView state={state} actions={actions} />);
+  render(<UsageView state={state} actions={actions} />);
 }
 
-describe("CostsView", () => {
+describe("UsageView", () => {
   it("renders Usage as the primary surface", () => {
     setup({ usageSummary: null, usageEvents: [] });
 

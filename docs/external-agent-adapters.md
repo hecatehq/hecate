@@ -24,7 +24,7 @@ ACP appears in Hecate in two directions:
 
 | Direction | What Hecate does | Where to read |
 |---|---|---|
-| **Hecate as an ACP client/operator** | Launches and supervises external ACP adapters from **Chats → External Agent**. This is the flow documented here. | This page |
+| **Hecate as an ACP client/operator** | Launches and supervises external ACP adapters from the **Chats** agent picker. This is the flow documented here. | This page |
 | **Hecate as an ACP agent** | Exposes Hecate's task runtime to external editor ACP hosts through `hecate-acp`. | [ACP bridge](acp.md) |
 
 The two flows share the ACP protocol vocabulary, but they do not share a
@@ -208,8 +208,8 @@ environment that starts Hecate.
    just dev
    ```
 
-2. Open **Chats** and switch the target from **Hecate Chat** to
-   **External Agent**.
+2. Open **Chats** and choose Codex, Claude Code, or Cursor from the
+   agent picker.
 
 3. Choose an available adapter.
 

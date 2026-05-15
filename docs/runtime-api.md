@@ -427,7 +427,7 @@ GET /hecate/v1/usage/summary
 
 Returns recent append-only usage rows, newest first. The UI uses these rows to
 show cloud-provider tokens and known/reported cost. The endpoint is intentionally
-read-only; old balance, top-up, reset, and pricebook endpoints were removed.
+read-only.
 
 Query parameters:
 

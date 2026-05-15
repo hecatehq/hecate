@@ -4,7 +4,7 @@ Hecate uses a vendor-neutral provider layer at the runtime boundary. It treats O
 
 > Contributing here? Start at [`AGENTS.md`](../AGENTS.md) for the codebase map and runtime invariants; provider-package depth (the seven-step "add a wire field" chain, the api↔providers parallel-struct rule, capability cache seeding, streaming gotchas) lives in [`docs-ai/skills/providers/SKILL.md`](../docs-ai/skills/providers/SKILL.md).
 
-![Connections view — populated table with health, endpoint, credentials, and models columns](screenshots/providers.png)
+![Connections view — populated table with health, endpoint, credentials, and models columns](screenshots/connections.png)
 
 ## Contents
 
@@ -25,11 +25,11 @@ Hecate uses a vendor-neutral provider layer at the runtime boundary. It treats O
 
 The Connections view starts empty:
 
-![Empty Connections view — Add provider CTA](screenshots/providers-empty.png)
+![Empty Connections view — Add provider CTA](screenshots/connections-empty.png)
 
 Click **Add provider** to open the modal:
 
-![Add provider modal — Local preset catalog with detected runtime status](screenshots/providers-presets.png)
+![Add provider modal — Local preset catalog with detected runtime status](screenshots/connections-add-provider.png)
 
 
 1. Pick **Cloud** or **Local** at the top.
@@ -59,7 +59,7 @@ continues to come from the normal `/hecate/v1/providers/status` probes.
 
 A provider you add is immediately routable. There is no separate enable/disable toggle — to take a provider out of rotation, delete it.
 
-![Connections view populated with three providers — Health, Endpoint, Credentials, Models columns](screenshots/providers.png)
+![Connections view populated with three providers — Health, Endpoint, Credentials, Models columns](screenshots/connections.png)
 
 ### Multiple instances
 
@@ -283,9 +283,9 @@ health, or routing are blocked. In that case Chats shows the selected model,
 provider route, backend readiness message, and next steps, and links the
 operator back to Connections for the full checklist. If the backend supplies a
 suggested replacement model, Chats can offer it as a one-click repair and
-switch the route back to **All providers** so cross-provider fallbacks are not
-accidentally pinned to the stale provider. The same contract applies in the
-empty-chat state: compact readiness copy must still show the discovered-model
-count plus the highest-signal health/block/error diagnostics and a short repair
-path, so operators are not forced to send a doomed prompt or inspect raw
-provider JSON.
+switch to the suggested provider/model pair explicitly. It should not silently
+widen a stale route to a hidden provider fallback. The same contract applies in
+the empty-chat state: compact readiness copy must still show the
+discovered-model count plus the highest-signal health/block/error diagnostics
+and a short repair path, so operators are not forced to send a doomed prompt or
+inspect raw provider JSON.

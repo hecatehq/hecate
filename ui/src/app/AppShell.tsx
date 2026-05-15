@@ -17,8 +17,8 @@ import { UpdateBanner } from "../features/shared/UpdateBanner";
 const SettingsView = lazy(() =>
   import("../features/settings/SettingsView").then(m => ({ default: m.SettingsView })),
 );
-const CostsView = lazy(() =>
-  import("../features/costs/CostsView").then(m => ({ default: m.CostsView })),
+const UsageView = lazy(() =>
+  import("../features/usage/UsageView").then(m => ({ default: m.UsageView })),
 );
 const ObservabilityView = lazy(() =>
   import("../features/overview/ObservabilityView").then(m => ({ default: m.ObservabilityView })),
@@ -33,7 +33,7 @@ const TasksView = lazy(() =>
   import("../features/runs/TasksView").then(m => ({ default: m.TasksView })),
 );
 
-export type WorkspaceID = "overview" | "runs" | "chats" | "providers" | "costs" | "settings";
+export type WorkspaceID = "overview" | "runs" | "chats" | "connections" | "usage" | "settings";
 
 type WorkspaceDefinition = {
   id: WorkspaceID;
@@ -55,9 +55,7 @@ const IC = {
   // Settings — gear/cog. Distinct from any tab/inline icon so the
   // activity bar's terminal entry reads as configuration at a glance.
   settings: ["M10.325 4.317c.426-1.756 2.924-1.756 3.35 0a1.724 1.724 0 002.573 1.066c1.543-.94 3.31.826 2.37 2.37a1.724 1.724 0 001.065 2.572c1.756.426 1.756 2.924 0 3.35a1.724 1.724 0 00-1.066 2.573c.94 1.543-.826 3.31-2.37 2.37a1.724 1.724 0 00-2.572 1.065c-.426 1.756-2.924 1.756-3.35 0a1.724 1.724 0 00-2.573-1.066c-1.543.94-3.31-.826-2.37-2.37a1.724 1.724 0 00-1.065-2.572c-1.756-.426-1.756-2.924 0-3.35a1.724 1.724 0 001.066-2.573c-.94-1.543.826-3.31 2.37-2.37.996.608 2.296.07 2.572-1.065z", "M15 12a3 3 0 11-6 0 3 3 0 016 0z"],
-  // Receipt outline. The internal workspace id remains "costs" for
-  // compatibility, but the visible workspace is Usage records.
-  costs:   ["M6 3h12a1 1 0 011 1v17l-3-2-2 2-2-2-2 2-2-2-3 2V4a1 1 0 011-1z", "M8 7h8", "M8 11h8", "M8 15h5"],
+  usage:   ["M6 3h12a1 1 0 011 1v17l-3-2-2 2-2-2-2 2-2-2-3 2V4a1 1 0 011-1z", "M8 7h8", "M8 11h8", "M8 15h5"],
 };
 
 function SvgIcon({ d, size = 18 }: { d: string | string[]; size?: number }) {
@@ -137,17 +135,17 @@ const MoonIcon = (
 type WorkspaceLineupEntry = WorkspaceDefinition;
 const WS: Record<WorkspaceID, WorkspaceLineupEntry> = {
   chats:     { id: "chats",     label: "Chats",         icon: <SvgIcon d={IC.chat} /> },
-  providers: { id: "providers", label: "Connections",   icon: <SvgIcon d={IC.connections} /> },
+  connections: { id: "connections", label: "Connections",   icon: <SvgIcon d={IC.connections} /> },
   runs:      { id: "runs",      label: "Tasks",         icon: <SvgIcon d={IC.tasks} /> },
   overview:  { id: "overview",  label: "Observability", icon: <SvgIcon d={IC.observe} /> },
-  costs:     { id: "costs",     label: "Usage",         icon: <SvgIcon d={IC.costs} /> },
+  usage:     { id: "usage",     label: "Usage",         icon: <SvgIcon d={IC.usage} /> },
   settings:  { id: "settings",  label: "Settings",      icon: <SvgIcon d={IC.settings} /> },
 };
 
 const BARE_WORKSPACES: WorkspaceID[] = ["chats", "runs"];
 
 export function getAvailableWorkspaces(): WorkspaceDefinition[] {
-  return [WS.chats, WS.providers, WS.runs, WS.overview, WS.costs, WS.settings];
+  return [WS.chats, WS.connections, WS.runs, WS.overview, WS.usage, WS.settings];
 }
 
 export function ConsoleShell({
@@ -304,8 +302,8 @@ function AuthenticatedShell({
               {activeWorkspace === "overview"   && <ObservabilityView actions={actions} state={state} onNavigate={onSelectWorkspace} focusRequest={traceFocusRequest} />}
               {activeWorkspace === "chats" && <ChatView actions={actions} state={state} onNavigate={onSelectWorkspace} onOpenTask={openTaskFromChat} onOpenTrace={openTraceFromChat} />}
               {activeWorkspace === "runs"          && <TasksView focusRequest={taskFocusRequest} onOpenAgentChat={openAgentChatFromTask} onOpenTrace={openTraceFromChat} />}
-              {activeWorkspace === "providers"     && <ProvidersView actions={actions} state={state} />}
-              {activeWorkspace === "costs"         && <CostsView actions={actions} state={state} />}
+              {activeWorkspace === "connections"     && <ProvidersView actions={actions} state={state} />}
+              {activeWorkspace === "usage"         && <UsageView actions={actions} state={state} />}
               {activeWorkspace === "settings" && <SettingsView actions={actions} state={state} />}
             </Suspense>
           </div>

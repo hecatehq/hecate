@@ -46,7 +46,7 @@ func TestCloneHistoryRecordsIsolatesNestedSlices(t *testing.T) {
 	originals := []HistoryRecord{
 		{
 			Trigger: "manual",
-			Results: []SubsystemResult{{Name: "traces", Deleted: 5}, {Name: "budget", Deleted: 2}},
+			Results: []SubsystemResult{{Name: "traces", Deleted: 5}, {Name: "usage_events", Deleted: 2}},
 		},
 	}
 	clones := cloneHistoryRecords(originals)

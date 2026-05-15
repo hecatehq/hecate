@@ -52,9 +52,9 @@ async function snap(page: Page, name: string) {
   console.log(`  saved ${path}`);
 }
 
-async function openWorkspace(page: Page, id: "overview" | "runs" | "chats" | "providers" | "costs" | "settings") {
+async function openWorkspace(page: Page, id: "overview" | "runs" | "chats" | "connections" | "usage" | "settings") {
   await page.evaluate((workspace) => {
-    window.localStorage.setItem("hecate.workspace", workspace);
+    window.localStorage.setItem("hecate.workspace.v2", workspace);
   }, id);
   await page.reload();
   await page.waitForSelector(".hecate-activitybar", { timeout: 5_000 });
@@ -1053,11 +1053,12 @@ async function main() {
   await routeLocalProviderDiscoveryDocsFixture(page);
   await clearAndNavigate(page);
   await page.evaluate(() => {
-    window.localStorage.setItem("hecate.workspace", "chats");
+    window.localStorage.setItem("hecate.workspace.v2", "chats");
     window.localStorage.setItem("hecate.chatTarget", "model");
   });
   await page.reload();
   await openWorkspace(page, "chats");
+  await page.getByRole("button", { name: /New Hecate chat/i }).click();
   await page.waitForSelector("text=Detected locally", { timeout: 5_000 });
   await page.waitForSelector("text=Add selected", { timeout: 5_000 });
   await snap(page, "chat-empty");
@@ -1067,19 +1068,19 @@ async function main() {
   // ── 2. Empty Connections provider list ──────────────────────────────────────
   // The UI loads directly — no auth gate. Land on the Connections workspace
   // before any providers exist.
-  console.log("→ providers-empty");
-  await openWorkspace(page, "providers");
+  console.log("→ connections-empty");
+  await openWorkspace(page, "connections");
   await page.waitForSelector("text=No model providers configured", { timeout: 5_000 });
-  await snap(page, "providers-empty");
+  await snap(page, "connections-empty");
 
   // ── 3. Local presets in the Add modal ───────────────────────────────────────
-  console.log("→ providers-presets (Add modal, Local tab)");
+  console.log("→ connections-add-provider (Add modal, Local tab)");
   await routeLocalProviderDiscoveryDocsFixture(page);
   await page.getByRole("button", { name: "Add provider" }).first().click();
   await page.waitForSelector("text=Ollama", { timeout: 5_000 });
   await page.waitForSelector("text=Running", { timeout: 5_000 });
   await page.waitForTimeout(300);
-  await snap(page, "providers-presets");
+  await snap(page, "connections-add-provider");
   await page.keyboard.press("Escape");
   await page.unroute(`${HECATE_API}/settings/providers/local-discovery`);
   await page.waitForTimeout(300);
@@ -1095,12 +1096,12 @@ async function main() {
   await addProvider({ name: "OpenAI",   preset_id: "openai",   kind: "cloud",
     api_key: "sk-live-redacted-for-screenshots" });
 
-  // ── 5. Populated providers table ────────────────────────────────────────────
-  console.log("→ providers (populated table)");
+  // ── 5. Populated Connections table ──────────────────────────────────────────
+  console.log("→ connections (populated table)");
   await page.reload();
   await page.waitForSelector("text=Cloud providers", { timeout: 5_000 });
   await page.waitForTimeout(2_000);
-  await snap(page, "providers");
+  await snap(page, "connections");
 
   // ── 6. Hecate Chat transcript ──────────────────────────────────────────────
   // The README's primary chat screenshot should document the current
@@ -1114,7 +1115,7 @@ async function main() {
   await routeHecateChatDocsFixture(page);
   await clearAndNavigate(page);
   await page.evaluate((sessionID) => {
-    window.localStorage.setItem("hecate.workspace", "chats");
+    window.localStorage.setItem("hecate.workspace.v2", "chats");
     window.localStorage.setItem("hecate.chatTarget", "agent");
     window.localStorage.setItem("hecate.chatTargetBySessionID", JSON.stringify({ [sessionID]: "agent" }));
     window.localStorage.setItem("hecate.agentChatSessionID", sessionID);
@@ -1126,8 +1127,7 @@ async function main() {
   await page.waitForSelector(".hecate-activitybar", { timeout: 10_000 });
   await openWorkspace(page, "chats");
   await page.waitForSelector("text=Here are the last 3 commits", { timeout: 5_000 });
-  await page.waitForSelector("text=tools:", { timeout: 5_000 });
-  await page.waitForSelector("text=on", { timeout: 5_000 });
+  await page.waitForSelector("text=Tools on", { timeout: 5_000 });
   await page.waitForTimeout(700);
   await snap(page, "chat");
   await unrouteHecateChatDocsFixture(page);
@@ -1211,16 +1211,16 @@ async function main() {
       },
     ],
   }));
-  await openWorkspace(page, "costs");
+  await openWorkspace(page, "usage");
   await page.waitForTimeout(500);
-  await snap(page, "costs");
+  await snap(page, "usage");
 
   // ── 10. Settings — Retention ───────────────────────────────────────
   console.log("→ settings / retention");
   await openWorkspace(page, "settings");
   await page.waitForTimeout(500);
   await page.waitForTimeout(500);
-  await snap(page, "settings-retention");
+  await snap(page, "settings");
 
   // ── 11. New external-agent surfaces ────────────────────────────────────────
   // Mock these endpoints so the documentation shots stay deterministic:
@@ -1229,14 +1229,14 @@ async function main() {
   console.log("→ connections / external agents");
   await routeAgentDocsFixtures(page);
   await clearAndNavigate(page);
-  await openWorkspace(page, "providers");
+  await openWorkspace(page, "connections");
   await page.waitForSelector("text=External agent grants", { timeout: 5_000 });
   await page.waitForTimeout(700);
   await snap(page, "connections-external-agents");
 
   console.log("→ chat / pending agent approval");
   await page.evaluate((sessionID) => {
-    window.localStorage.setItem("hecate.workspace", "chats");
+    window.localStorage.setItem("hecate.workspace.v2", "chats");
     window.localStorage.setItem("hecate.chatTarget", "external_agent");
     window.localStorage.setItem("hecate.chatTargetBySessionID", JSON.stringify({ [sessionID]: "external_agent" }));
     window.localStorage.setItem("hecate.agentAdapterID", "codex");

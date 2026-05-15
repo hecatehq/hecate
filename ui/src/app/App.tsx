@@ -4,7 +4,7 @@ import { ConsoleShell, getAvailableWorkspaces, type WorkspaceID } from "./AppShe
 import { useRuntimeConsole } from "./useRuntimeConsole";
 import { isTauriRuntime } from "../lib/tauri";
 
-const WORKSPACE_STORAGE_KEY = "hecate.workspace";
+const WORKSPACE_STORAGE_KEY = "hecate.workspace.v2";
 
 export default function App() {
   const { state, actions } = useRuntimeConsole();

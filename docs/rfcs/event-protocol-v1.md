@@ -305,7 +305,7 @@ Streaming model output. Frontends render these incrementally.
   "data": {
     "turn_index": 3,
     "block_index": 0,
-    "delta": "I'll start by reading the budget package."
+    "delta": "I'll start by reading the usage store."
   }
 }
 ```
@@ -318,7 +318,7 @@ Streaming model output. Frontends render these incrementally.
   "data": {
     "turn_index": 3,
     "block_index": 0,
-    "text": "I'll start by reading the budget package."
+    "text": "I'll start by reading the usage store."
   }
 }
 ```
@@ -339,9 +339,9 @@ these events must gate them behind config and keep them hidden by default.
     "tool_call_id": "call_01JXMZ...",
     "tool_name": "edit_file",
     "input": {
-      "path": "internal/budget/governor.go",
-      "old_text": "func budgetKeyForRequest(scope types.RequestScope) string {",
-      "new_text": "func budgetKeyForRequest(scope types.RequestScope, key string) string {"
+      "path": "internal/governor/usage.go",
+      "old_text": "func usageKeyForRequest(scope types.RequestScope) string {",
+      "new_text": "func usageKeyForRequest(scope types.RequestScope, key string) string {"
     }
   }
 }
@@ -354,7 +354,7 @@ these events must gate them behind config and keep them hidden by default.
   "type": "assistant.final_answer",
   "data": {
     "turn_index": 7,
-    "summary": "Refactored budget keying to include the API key. 3 files changed, tests pass."
+    "summary": "Refactored usage keying to include the request scope. 3 files changed, tests pass."
   }
 }
 ```
@@ -368,7 +368,7 @@ these events must gate them behind config and keep them hidden by default.
   "type": "user.message",
   "data": {
     "turn_index": 0,
-    "text": "Refactor the budget package to use generics."
+    "text": "Refactor the usage store to share key helpers."
   }
 }
 ```
@@ -444,7 +444,7 @@ Subprocess execution. Streams stdout/stderr; exits with a code.
 ```json
 { "type": "tool.shell.command", "data": {
     "tool_call_id": "call_01JXMZ...",
-    "argv": ["go", "test", "./internal/budget/..."],
+    "argv": ["go", "test", "./internal/governor/..."],
     "cwd": "/tmp/hecate-workspaces/.../run_abc",
     "env_keys": ["PATH", "HOME"],
     "sandbox_layer": "bwrap"
@@ -453,7 +453,7 @@ Subprocess execution. Streams stdout/stderr; exits with a code.
 { "type": "tool.shell.output_chunk", "data": {
     "tool_call_id": "call_01JXMZ...",
     "stream": "stdout",
-    "data": "ok  \tgithub.com/hecate/agent-runtime/internal/budget\t0.231s\n",
+    "data": "ok  \tgithub.com/hecate/agent-runtime/internal/governor\t0.231s\n",
     "byte_offset": 0
 }}
 
@@ -481,7 +481,7 @@ describe the lifecycle and the actual diff content lives in the artifact.
 ```json
 { "type": "tool.edit.proposed", "data": {
     "tool_call_id": "call_01JXMZ...",
-    "path": "internal/budget/governor.go",
+    "path": "internal/governor/usage.go",
     "patch_artifact_id": "art_01JXMZ...",
     "summary": "1 hunk, +1/-1 line",
     "auto_apply": true
@@ -510,17 +510,17 @@ Pure read tools — completion-only, no streaming.
 { "type": "tool.glob.completed", "data": {
     "tool_call_id": "call_01JXMZ...",
     "pattern": "internal/**/*_test.go",
-    "matches": ["internal/budget/governor_test.go", "..."],
+    "matches": ["internal/governor/usage_test.go", "..."],
     "match_count": 47,
     "truncated": false
 }}
 
 { "type": "tool.grep.completed", "data": {
     "tool_call_id": "call_01JXMZ...",
-    "pattern": "budgetKeyForRequest",
+    "pattern": "usageKeyForRequest",
     "files_searched": 312,
     "matches": [
-      { "path": "internal/budget/governor.go", "line": 84, "text": "func budgetKeyForRequest(scope ..."}
+      { "path": "internal/governor/usage.go", "line": 84, "text": "func usageKeyForRequest(scope ..."}
     ],
     "match_count": 3,
     "truncated": false
@@ -532,7 +532,7 @@ Pure read tools — completion-only, no streaming.
 ```json
 { "type": "tool.file_read.completed", "data": {
     "tool_call_id": "call_01JXMZ...",
-    "path": "internal/budget/governor.go",
+    "path": "internal/governor/usage.go",
     "size_bytes": 8_124,
     "lines": 312,
     "snippet_artifact_id": "art_01JXMZ..."
@@ -540,7 +540,7 @@ Pure read tools — completion-only, no streaming.
 
 { "type": "tool.file_write.proposed", "data": {
     "tool_call_id": "call_01JXMZ...",
-    "path": "internal/budget/generics.go",
+    "path": "internal/governor/usage_keys.go",
     "patch_artifact_id": "art_01JXMZ...",
     "summary": "new file, 42 lines",
     "auto_apply": false
@@ -557,7 +557,7 @@ The conversation's sticky todo list. Overwrites the prior list in full.
 { "type": "tool.todo_write.updated", "data": {
     "tool_call_id": "call_01JXMZ...",
     "todos": [
-      { "content": "Read budget package",       "status": "completed" },
+      { "content": "Read usage store",       "status": "completed" },
       { "content": "Add generic key type",      "status": "in_progress" },
       { "content": "Update governor_test.go",   "status": "pending" }
     ]
@@ -660,7 +660,7 @@ This is the single most important architectural call in the protocol. Without it
     "artifact_id": "art_01JXMZ...",
     "kind": "patch",
     "size_bytes": 412,
-    "summary": "internal/budget/governor.go: 1 hunk, +1/-1",
+    "summary": "internal/governor/usage.go: 1 hunk, +1/-1",
     "created_by_event_id": "evt_01JXMZ..."
 }}
 ```
@@ -704,9 +704,9 @@ GET /hecate/v1/artifacts/art_01JXMZH...
     "id": "art_01JXMZH...",
     "kind": "patch",
     "status": "applied",
-    "target_path": "internal/budget/governor.go",
+    "target_path": "internal/governor/usage.go",
     "base_revision": "sha256:8a4f...",
-    "diff": "--- a/internal/budget/governor.go\n+++ b/internal/budget/governor.go\n@@ -84,7 +84,7 @@\n-func budgetKeyForRequest(scope types.RequestScope) string {\n+func budgetKeyForRequest(scope types.RequestScope, key string) string {\n",
+    "diff": "--- a/internal/governor/usage.go\n+++ b/internal/governor/usage.go\n@@ -84,7 +84,7 @@\n-func usageKeyForRequest(scope types.RequestScope) string {\n+func usageKeyForRequest(scope types.RequestScope, key string) string {\n",
     "stats": { "additions": 1, "deletions": 1, "hunks": 1 },
     "created_at": "2026-05-03T10:23:45.500Z",
     "applied_at": "2026-05-03T10:23:46.001Z",

@@ -168,17 +168,17 @@ The embedded UI is a runtime console for the operator.
 
 ![Observability view — request history and route-report drilldown](docs/screenshots/observe.png)
 
-![Empty Connections view — Add provider CTA](docs/screenshots/providers-empty.png)
+![Empty Connections view — Add provider CTA](docs/screenshots/connections-empty.png)
 
-![Add provider modal — local preset catalog with detected runtime status](docs/screenshots/providers-presets.png)
+![Add provider modal — local preset catalog with detected runtime status](docs/screenshots/connections-add-provider.png)
 
-![Connections workspace — configured cloud and local providers with health, endpoint, credentials, and models](docs/screenshots/providers.png)
+![Connections workspace — configured cloud and local providers with health, endpoint, credentials, and models](docs/screenshots/connections.png)
 
 ![Tasks workspace — run timeline with failed-tool diagnostics, stdout/stderr previews, and artifacts](docs/screenshots/tasks.png)
 
-![Usage workspace — cloud token usage and reported cost where available](docs/screenshots/costs.png)
+![Usage workspace — cloud token usage and reported cost where available](docs/screenshots/usage.png)
 
-![Settings → Retention — pruning windows and last-run history](docs/screenshots/settings-retention.png)
+![Settings — retention windows and last-run history](docs/screenshots/settings.png)
 
 ![Connections workspace — adapter readiness checks and durable approval grants](docs/screenshots/connections-external-agents.png)
 

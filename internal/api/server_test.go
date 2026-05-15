@@ -3094,38 +3094,6 @@ func TestUsageSummaryReturnsCurrentUsage(t *testing.T) {
 	}
 }
 
-func TestUsageMutationEndpointsAreRemoved(t *testing.T) {
-	t.Parallel()
-
-	logger := slog.New(slog.NewJSONHandler(io.Discard, nil))
-	usageStore := governor.NewMemoryUsageStore()
-	handler := newUsageTestHandler(logger, config.GovernorConfig{
-		MaxPromptTokens: 64_000,
-		UsageBackend:    "memory",
-		UsageKey:        "global",
-		UsageScope:      "global",
-	}, usageStore)
-	client := newAPITestClient(t, handler)
-
-	for _, tc := range []struct {
-		method string
-		path   string
-		body   string
-	}{
-		{method: http.MethodGet, path: "/hecate/v1/costs/summary"},
-		{method: http.MethodGet, path: "/hecate/v1/costs/budget"},
-		{method: http.MethodPost, path: "/hecate/v1/costs/budget/topup", body: `{}`},
-		{method: http.MethodPost, path: "/hecate/v1/costs/budget/limit", body: `{}`},
-		{method: http.MethodPost, path: "/hecate/v1/costs/budget/reset", body: `{}`},
-		{method: http.MethodPost, path: "/hecate/v1/settings/pricebook", body: `{}`},
-		{method: http.MethodDelete, path: "/hecate/v1/settings/pricebook/openai/gpt-4o"},
-		{method: http.MethodPost, path: "/hecate/v1/settings/pricebook/import/preview", body: `{}`},
-		{method: http.MethodPost, path: "/hecate/v1/settings/pricebook/import/apply", body: `{}`},
-	} {
-		client.mustRequestStatus(http.StatusNotFound, tc.method, tc.path, tc.body)
-	}
-}
-
 func TestUsageEventsReturnsRecentUsageEvents(t *testing.T) {
 	t.Parallel()
 
@@ -3200,14 +3168,6 @@ func TestUsageEndpointsStayDocumented(t *testing.T) {
 	} {
 		if !strings.Contains(text, want) {
 			t.Fatalf("runtime-api.md missing %q", want)
-		}
-	}
-	for _, legacy := range []string{
-		"POST /hecate/v1/costs/budget/topup",
-		"POST /hecate/v1/settings/pricebook",
-	} {
-		if strings.Contains(text, legacy) {
-			t.Fatalf("runtime-api.md still documents removed endpoint %q", legacy)
 		}
 	}
 }

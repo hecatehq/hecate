@@ -2,8 +2,9 @@
 
 > **Status:** accepted; the baseline chat-to-task bridge has landed, including
 > chat-visible run activity, task approval resolution, and streamed assistant
-> text for task-backed turns. Hecate Chat now uses a two-target UI
-> (`Hecate Chat | External Agent`) with tools on/off inside Hecate Chat.
+> text for task-backed turns. Chats now uses one shell with an agent picker:
+> **Hecate** for Hecate Chat, plus Codex / Claude Code / Cursor entries for
+> External Agent sessions. The Hecate choice has tools on/off inside the chat.
 > Stable Hecate Agent still requires workspace modes, profiles, automatic
 > probing, and broader product hardening.
 > **Related:** [Chat sessions](../chat-sessions.md),
@@ -13,14 +14,14 @@
 
 ## Summary
 
-Chats exposes two top-level targets, with Hecate-owned agent execution nested
-inside Hecate Chat as a tools-enabled mode:
+Chats exposes one agent picker. Hecate-owned execution is nested inside the
+Hecate Chat choice as a tools-enabled mode:
 
 | UI surface | Runtime mode | Who owns execution |
 |---|---|---|
-| Hecate Chat, tools off | Model | A selected provider/model answers directly through the gateway. |
-| Hecate Chat, tools on | Hecate Agent | Hecate creates and continues a visible `agent_loop` task with Hecate tools, approvals, artifacts, and telemetry. |
-| External Agent | External Agent | Codex, Claude Code, Cursor Agent, or another adapter owns the native session; Hecate supervises it. |
+| Hecate, tools off | Model | A selected provider/model answers directly through the gateway. |
+| Hecate, tools on | Hecate Agent | Hecate creates and continues a visible `agent_loop` task with Hecate tools, approvals, artifacts, and telemetry. |
+| Codex / Claude Code / Cursor | External Agent | The adapter owns the native session; Hecate supervises it. |
 
 Use **Hecate Agent** as the product name. "Model + tools" is only an
 internal shorthand for the implementation idea; it should not appear in the UI
@@ -308,13 +309,13 @@ task runtime.
 
 ## UI Contract
 
-The Chats target picker is:
+The Chats agent picker is:
 
 ```text
-Hecate Chat | External Agent
+Hecate | Codex | Claude Code | Cursor
 ```
 
-`Hecate Chat` contains a tools toggle:
+`Hecate` contains a tools toggle:
 
 - **tools off** — direct provider/model chat. It keeps today's route/cost/cache
   / trace metadata and model-chat persistence.
@@ -421,8 +422,8 @@ Minimum coverage:
 
 Done in the core bridge:
 
-- target picker exposes Hecate Chat and External Agent, with a tools toggle
-  inside Hecate Chat for direct model chat vs. Hecate Agent execution
+- agent picker exposes Hecate plus built-in external adapters, with a tools
+  toggle inside Hecate for direct model chat vs. Hecate Agent execution
 - Hecate Agent creates and continues visible `agent_loop` tasks
 - model capability snapshots gate only explicitly disabled tools
 - manual probe records and operator overrides persist

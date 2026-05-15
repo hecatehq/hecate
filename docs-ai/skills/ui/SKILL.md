@@ -95,10 +95,11 @@ Each section has exactly one job: orient, inspect, compare, edit, or confirm. If
 - Do not add auth, tenant, or account-management UI unless the product model
   changes again.
 - Provider and model selection exposes local and cloud distinctions clearly.
-- In Chats, keep the two top-level targets distinct: **Hecate Chat** and
-  **External Agent**. Hecate Chat owns provider/model selection; its tools
-  toggle switches between direct Model chat and Hecate Agent task execution.
-  Adapter/workspace/native session diagnostics belong to External Agent.
+- In Chats, use the shared agent-picker shell. **Hecate** is the built-in
+  choice and owns provider/model selection; its tools toggle switches between
+  direct model chat and Hecate-owned task execution. Codex, Claude Code, and
+  Cursor choices create External Agent sessions where adapter/workspace/native
+  session diagnostics belong.
 - Hecate Agent sessions store a workspace plus backing `task_id` /
   `latest_run_id`. New UI affordances should show per-turn task links in the
   transcript. Chats may resolve pending task approvals inline; Tasks remains
@@ -119,7 +120,7 @@ Each section has exactly one job: orient, inspect, compare, edit, or confirm. If
 - Model capability badges gate Hecate Agent sends. Explicitly tools-off models
   should offer an inline enable/override path; unknown local/custom models
   should explain how to record a manual probe result or operator override in
-  Settings, not silently run as an agent.
+  Connections, not silently run as an agent.
 - Stale selected-model readiness is a composition blocker, not a post-send
   error toast. If the selected model is not in the current model picker for the
   selected route, hide/disable send and show the selected model, provider route,
@@ -127,8 +128,8 @@ Each section has exactly one job: orient, inspect, compare, edit, or confirm. If
   The empty-state "compact" version may be shorter, but it must still include
   discovered-model count and at least a short remediation list; don't reduce it
   to a dead-end warning. If the backend provides a suggested replacement model,
-  expose it as an action and reset the provider route to "All providers" before
-  selecting it, because the suggested model may belong to a different provider.
+  expose it as an action that switches to the suggested provider/model pair
+  explicitly; don't silently widen a stale route back to a hidden fallback.
 - Chat send blockers should flow through `resolveChatSetupRepairState` in
   `ui/src/lib/chat-setup-readiness.ts`. Keep the empty state, composer notice,
   and disabled-send copy aligned there instead of adding one-off branches to
