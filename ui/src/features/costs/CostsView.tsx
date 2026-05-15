@@ -1,6 +1,6 @@
 import type { ReactNode } from "react";
 import type { RuntimeConsoleViewModel } from "../../app/useRuntimeConsole";
-import type { AgentChatUsageRecord, UsageEventRecord } from "../../types/runtime";
+import type { UsageEventRecord } from "../../types/runtime";
 import { CopyBtn } from "../shared/ui";
 
 type Props = {
@@ -18,16 +18,14 @@ type UsageTotals = {
 
 // CostsView keeps the internal workspace id for compatibility, but the
 // product surface is "Usage": tokens first, reported cost second.
-// Hecate-controlled provider calls are authoritative; external-agent usage is
-// adapter-reported and explicitly labelled as such.
+// Only cross-chat Hecate-controlled provider calls belong here; active-chat
+// adapter usage lives in ChatView where the reported values have context.
 export function CostsView({ state }: Props) {
   const usageEvents = state.usageEvents ?? [];
   const providerKindByID = new Map((state.settingsConfig?.providers ?? []).map(provider => [provider.id, provider.kind]));
   const cloudEvents = usageEvents.filter(entry => usageEventIsCloud(entry, providerKindByID));
   const cloudTotals = sumUsageEvents(cloudEvents);
-  const latestAgentUsage = findLatestAgentUsage(state.activeAgentChatSession);
   const hasCloudUsage = cloudEvents.length > 0;
-  const hasAgentUsage = Boolean(latestAgentUsage);
 
   return (
     <div style={{ height: "100%", overflow: "hidden" }}>
@@ -36,12 +34,12 @@ export function CostsView({ state }: Props) {
           <div>
             <div style={{ fontSize: 14, fontWeight: 500, color: "var(--t0)", marginBottom: 3 }}>Usage</div>
             <div style={{ fontSize: 11, color: "var(--t3)", lineHeight: 1.45 }}>
-              Cloud-provider token usage measured by Hecate. Local providers are hidden. External-agent usage appears only when the active chat reports it.
+              Cloud-provider token usage measured by Hecate. Local providers are hidden. External-agent reported usage appears in the active chat.
             </div>
           </div>
         </div>
 
-        {!hasCloudUsage && !hasAgentUsage && (
+        {!hasCloudUsage && (
           <EmptyUsageState />
         )}
 
@@ -116,23 +114,6 @@ export function CostsView({ state }: Props) {
           </>
         )}
 
-        {latestAgentUsage && (
-          <>
-            <SubHeader
-              title="Active external-agent usage"
-              description="Codex, Claude Code, and Cursor can use their own subscriptions. These values are adapter-reported and not enforced by Hecate."
-            />
-            <div className="card" style={{ padding: "14px 16px" }}>
-              <div style={{ display: "grid", gap: 8 }}>
-                <UsageLine label="Context used" value={formatAgentContext(latestAgentUsage)} />
-                <UsageLine label="Reported cost" value={formatAgentCost(latestAgentUsage) || "Not reported"} />
-                <div style={{ fontSize: 11, color: "var(--t3)", lineHeight: 1.45 }}>
-                  These values come from the active external-agent chat message. They are useful for orientation, not billing enforcement.
-                </div>
-              </div>
-            </div>
-          </>
-        )}
       </div>
     </div>
   );
@@ -146,7 +127,7 @@ function EmptyUsageState() {
       </div>
       <div style={{ fontSize: 12, color: "var(--t3)", lineHeight: 1.55, maxWidth: 620, margin: "0 auto" }}>
         Send a Hecate-controlled request through a cloud provider to see token usage here.
-        Local models do not spend cloud-provider tokens, and external agents only appear when they report usage for the active chat.
+        Local models do not spend cloud-provider tokens, and external-agent usage is shown in the chat where it was reported.
       </div>
     </div>
   );
@@ -164,15 +145,6 @@ function MetricCard({ label, value, detail }: { label: string; value: string; de
       <div style={{ fontSize: 11, color: "var(--t3)", lineHeight: 1.4 }}>
         {detail}
       </div>
-    </div>
-  );
-}
-
-function UsageLine({ label, value }: { label: string; value: string }) {
-  return (
-    <div style={{ display: "flex", justifyContent: "space-between", gap: 12 }}>
-      <span style={{ fontSize: 11, color: "var(--t3)" }}>{label}</span>
-      <span style={{ fontSize: 11, color: "var(--t1)", fontFamily: "var(--font-mono)" }}>{value}</span>
     </div>
   );
 }
@@ -206,33 +178,6 @@ function sumUsageEvents(entries: UsageEntry[]): UsageTotals {
     acc.costMicrosUSD += entry.amount_micros_usd ?? 0;
     return acc;
   }, { promptTokens: 0, completionTokens: 0, totalTokens: 0, costMicrosUSD: 0 });
-}
-
-function findLatestAgentUsage(session: RuntimeConsoleViewModel["state"]["activeAgentChatSession"]): AgentChatUsageRecord | null {
-  const messages = session?.messages ?? [];
-  for (let index = messages.length - 1; index >= 0; index -= 1) {
-    const usage = messages[index]?.usage;
-    if (usage && !agentUsageEmpty(usage)) return usage;
-  }
-  return null;
-}
-
-function agentUsageEmpty(usage: AgentChatUsageRecord): boolean {
-  return !usage.reported_cost_amount && !usage.reported_cost_currency && !(usage.context_size ?? 0) && !(usage.context_used ?? 0);
-}
-
-function formatAgentContext(usage: AgentChatUsageRecord): string {
-  const used = usage.context_used ?? 0;
-  const size = usage.context_size ?? 0;
-  if (size > 0) return `${formatInteger(used)} / ${formatInteger(size)}`;
-  if (used > 0) return formatInteger(used);
-  return "—";
-}
-
-function formatAgentCost(usage: AgentChatUsageRecord): string {
-  if (!usage.reported_cost_amount && !usage.reported_cost_currency) return "";
-  const currency = usage.reported_cost_currency ? ` ${usage.reported_cost_currency}` : "";
-  return `${usage.reported_cost_amount || "0"}${currency}`;
 }
 
 function formatTime(value?: string): string {

@@ -171,28 +171,40 @@ function TimelineActivityLine({
   const line = activity.type === "plan"
     ? <PlanActivityLine activity={activity} />
     : <ActivityLine activity={activity} prefix={activityLinePrefix(activity)} />;
-  const advanced = renderAdvancedActivity?.(activity);
-  if (!advanced) return line;
+  const hasAdvanced = Boolean(renderAdvancedActivity?.(activity));
+  const [advancedOpen, setAdvancedOpen] = useState(false);
+  if (!hasAdvanced) return line;
 
   return (
     <div style={{ display: "grid", gap: 4, minWidth: 0 }}>
       {line}
-      <details style={{ marginLeft: 15 }}>
+      <details
+        onToggle={(event) => setAdvancedOpen(event.currentTarget.open)}
+        style={{ marginLeft: 15 }}
+      >
         <summary style={{ cursor: "pointer", fontFamily: "var(--font-mono)", fontSize: 10, color: "var(--t3)" }}>
-          Advanced
+          {advancedSummaryLabel(activity)}
         </summary>
-        <div style={{
-          marginTop: 6,
-          padding: "7px 9px",
-          border: "1px solid var(--border)",
-          borderRadius: "var(--radius-sm)",
-          background: "var(--bg1)",
-        }}>
-          {advanced}
-        </div>
+        {advancedOpen && (
+          <div style={{
+            marginTop: 6,
+            padding: "7px 9px",
+            border: "1px solid var(--border)",
+            borderRadius: "var(--radius-sm)",
+            background: "var(--bg1)",
+          }}>
+            {renderAdvancedActivity?.(activity)}
+          </div>
+        )}
       </details>
     </div>
   );
+}
+
+function advancedSummaryLabel(activity: AgentChatActivityRecord): string {
+  if (activity.type === "output") return "Preview";
+  if (activity.type === "artifact" && isOutputArtifactActivity(activity)) return "Preview";
+  return "Advanced";
 }
 
 function PlanActivityLine({ activity }: { activity: AgentChatActivityRecord }) {
@@ -517,6 +529,11 @@ function fallbackToolDetail(activity: AgentChatActivityRecord, displayTitle: str
 function opaqueToolCallID(value: string): string | undefined {
   const match = value.match(/^call_([a-z0-9_-]+)$/i);
   return match?.[1];
+}
+
+function isOutputArtifactActivity(activity: AgentChatActivityRecord): boolean {
+  const label = `${activity.title} ${activity.detail ?? ""} ${activity.kind ?? ""}`.toLowerCase();
+  return /\b(std(out|err)|git-std(out|err))\b/.test(label);
 }
 
 function shortToolCallID(id: string): string {

@@ -30,6 +30,7 @@ export function ModelPicker({
   includeAll = false,
   allValue = "",
   allLabel = "All models",
+  variant = "header",
 }: {
   value: string;
   onChange: (v: string) => void;
@@ -67,6 +68,7 @@ export function ModelPicker({
   includeAll?: boolean;
   allValue?: string;
   allLabel?: string;
+  variant?: "header" | "composer";
 }) {
   const [open, setOpen] = useState(false);
   const [filter, setFilter] = useState("");
@@ -77,7 +79,7 @@ export function ModelPicker({
   // Right-anchored: the menu is 300px wide and the trigger is at the
   // right side of its row in the chat header, so left-anchoring would
   // push it off-screen on narrow viewports.
-  const floatingStyle = useFloatingDropdownStyle(triggerRef, open, "right");
+  const floatingStyle = useFloatingDropdownStyle(triggerRef, open, "right", variant === "composer" ? "up" : "down");
 
   useEffect(() => {
     const handler = (e: MouseEvent) => {
@@ -209,8 +211,17 @@ export function ModelPicker({
           width: buttonWidth,
           cursor: isEmpty ? "not-allowed" : undefined,
           opacity: isEmpty ? 0.6 : undefined,
+          ...(variant === "composer"
+            ? {
+              background: "var(--bg1)",
+              borderColor: "var(--border)",
+              borderRadius: "var(--radius-sm)",
+              minHeight: 34,
+              padding: "5px 10px",
+            }
+            : {}),
         }}>
-        <Icon d={Icons.model} size={13} />
+        {variant !== "composer" && <Icon d={Icons.model} size={13} />}
         <span style={{ flex: 1, minWidth: 0, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap", textAlign: "left" }}>
           {label}
         </span>

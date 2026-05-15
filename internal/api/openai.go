@@ -685,6 +685,10 @@ type CreateAgentChatMessageRequest struct {
 	Workspace    string `json:"workspace,omitempty"`
 }
 
+type UpdateAgentChatSessionRequest struct {
+	Title *string `json:"title,omitempty"`
+}
+
 type SetAgentChatConfigOptionRequest struct {
 	Value any `json:"value"`
 }

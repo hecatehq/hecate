@@ -446,12 +446,12 @@ async function routeAgentDocsFixtures(page: Page) {
       contentType: "application/json",
       body: JSON.stringify(data),
     });
+  let session = docsAgentSession();
 
   await page.route(`${HECATE_API}/agent-adapters`, (route) => {
     fulfillJSON(route, { object: "agent_adapters", data: docsAgentAdapters });
   });
   await page.route(`${HECATE_API}/agent-chat/sessions`, (route) => {
-    const session = docsAgentSession();
     fulfillJSON(route, {
       object: "agent_chat_sessions",
       data: [{
@@ -470,8 +470,12 @@ async function routeAgentDocsFixtures(page: Page) {
       }],
     });
   });
-  await page.route(`${HECATE_API}/agent-chat/sessions/${docsAgentChatSessionID}`, (route) => {
-    fulfillJSON(route, { object: "agent_chat_session", data: docsAgentSession() });
+  await page.route(`${HECATE_API}/agent-chat/sessions/${docsAgentChatSessionID}`, async (route) => {
+    if (route.request().method() === "PATCH") {
+      const body = JSON.parse(route.request().postData() || "{}") as { title?: string };
+      session = { ...session, title: body.title || session.title, updated_at: docsTimestamp() };
+    }
+    fulfillJSON(route, { object: "agent_chat_session", data: session });
   });
   await page.route(`${HECATE_API}/agent-chat/sessions/${docsAgentChatSessionID}/approvals?status=pending`, (route) => {
     fulfillJSON(route, { object: "agent_chat_approvals", data: [docsAgentApproval()] });
@@ -526,7 +530,7 @@ async function routeHecateChatDocsFixture(page: Page) {
       body: JSON.stringify(data),
     });
 
-  const session = docsHecateChatSession();
+  let session = docsHecateChatSession();
   await page.route(`${COMPAT_API}/models`, (route) => {
     fulfillJSON(route, {
       object: "list",
@@ -624,7 +628,11 @@ async function routeHecateChatDocsFixture(page: Page) {
       }],
     });
   });
-  await page.route(`${HECATE_API}/agent-chat/sessions/${docsHecateChatSessionID}`, (route) => {
+  await page.route(`${HECATE_API}/agent-chat/sessions/${docsHecateChatSessionID}`, async (route) => {
+    if (route.request().method() === "PATCH") {
+      const body = JSON.parse(route.request().postData() || "{}") as { title?: string };
+      session = { ...session, title: body.title || session.title, updated_at: docsTimestamp() };
+    }
     fulfillJSON(route, { object: "agent_chat_session", data: session });
   });
   await page.route(`${HECATE_API}/agent-chat/sessions/${docsHecateChatSessionID}/approvals?status=pending`, (route) => {

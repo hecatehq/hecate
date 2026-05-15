@@ -15,6 +15,7 @@ import {
   filterModelsByProvider,
   findModelInTrace,
   findProviderInTrace,
+  formatAbsoluteTime,
   formatRelativeTime,
   formatTraceAttributeKey,
   formatTraceAttributeValue,
@@ -389,5 +390,15 @@ describe("runtime-utils", () => {
     // 1-23h -> hours
     const twoHr = new Date(now - 2 * 60 * 60_000).toISOString();
     expect(formatRelativeTime(twoHr).label).toBe("2h ago");
+  });
+
+  it("formatAbsoluteTime renders readable local timestamps for tooltips", () => {
+    expect(formatAbsoluteTime("")).toBe("");
+    expect(formatAbsoluteTime("not-a-date")).toBe("not-a-date");
+
+    const label = formatAbsoluteTime("2026-05-14T21:50:35.33722Z");
+    expect(label).toContain("2026");
+    expect(label).toContain("35");
+    expect(label).not.toContain("T21:50:35.33722Z");
   });
 });

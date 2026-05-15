@@ -109,7 +109,7 @@ describe("CostsView", () => {
     expect(screen.getAllByText("$0.000").length).toBeGreaterThan(0);
   });
 
-  it("surfaces latest adapter-reported external-agent usage", () => {
+  it("keeps active external-agent usage out of the global usage page", () => {
     setup({
       activeAgentChatSession: {
         id: "agent_chat_1",
@@ -134,9 +134,9 @@ describe("CostsView", () => {
       },
     });
 
-    expect(screen.getAllByText("12,345 / 258,400").length).toBeGreaterThan(0);
-    expect(screen.getByText("0.42 USD")).toBeInTheDocument();
-    expect(screen.getByText("Active external-agent usage")).toBeInTheDocument();
-    expect(screen.getAllByText(/adapter-reported/i).length).toBeGreaterThan(0);
+    expect(screen.queryByText("12,345 / 258,400")).toBeNull();
+    expect(screen.queryByText("0.42 USD")).toBeNull();
+    expect(screen.queryByText("Active external-agent usage")).toBeNull();
+    expect(screen.getByText(/external-agent usage is shown in the chat/i)).toBeInTheDocument();
   });
 });

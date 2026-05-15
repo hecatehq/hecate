@@ -18,6 +18,7 @@ import {
 } from "../../lib/runtime-trace";
 import {
   describeRouteReason,
+  formatAbsoluteTime,
   formatRelativeTime,
   traceStatusBadge,
 } from "../../lib/runtime-utils";
@@ -65,6 +66,7 @@ export function ObservabilityView({ state, onNavigate, focusRequest }: Props) {
   const [runtimeStats, setRuntimeStats] = useState<RuntimeStatsResponse["data"] | null>(null);
   const [mcpCacheStats, setMCPCacheStats] = useState<MCPCacheStatsResponse["data"] | null>(null);
   const [traces, setTraces] = useState<TraceListItem[]>([]);
+  const [tracesLoaded, setTracesLoaded] = useState(false);
   const [liveMode, setLiveMode] = useState(true);
   const [selectedID, setSelectedID] = useState<string | null>(null);
   // drawerOpen is intentionally decoupled from selectedID so live mode
@@ -121,6 +123,9 @@ export function ObservabilityView({ state, onNavigate, focusRequest }: Props) {
       const res = await getRecentTraces(50);
       setTraces(res.data ?? []);
     } catch { /* silently ignore */ }
+    finally {
+      setTracesLoaded(true);
+    }
   }, []);
 
   useEffect(() => {
@@ -635,7 +640,7 @@ export function ObservabilityView({ state, onNavigate, focusRequest }: Props) {
                         background: isSel ? "var(--teal-bg)" : "transparent",
                         borderBottom: isLast ? undefined : "1px solid var(--border)",
                       }}>
-                      <td style={{ ...tdBase, color: "var(--t3)" }} title={time.iso}>{time.label}</td>
+                      <td style={{ ...tdBase, color: "var(--t3)" }} title={formatAbsoluteTime(time.iso)}>{time.label}</td>
                       <td style={tdBase}><Badge status={status.status} label={status.label} /></td>
                       <td style={tdBase}>
                         <div style={{ display: "flex", alignItems: "center", gap: 6 }}>
@@ -700,7 +705,7 @@ export function ObservabilityView({ state, onNavigate, focusRequest }: Props) {
               </tbody>
             </table>
           </div>
-        ) : (
+        ) : tracesLoaded ? (
           <div style={{
             display: "flex", flexDirection: "column", alignItems: "center",
             justifyContent: "center", padding: "48px 16px", textAlign: "center",
@@ -715,6 +720,16 @@ export function ObservabilityView({ state, onNavigate, focusRequest }: Props) {
               onClick={() => onNavigate?.("chats")}>
               <Icon d={Icons.chat} size={13} /> Open Chats
             </button>
+          </div>
+        ) : (
+          <div style={{
+            display: "flex", flexDirection: "column", alignItems: "center",
+            justifyContent: "center", padding: "48px 16px", textAlign: "center",
+          }}>
+            <div style={{ fontSize: 14, color: "var(--t2)", fontWeight: 500 }}>Loading traces…</div>
+            <div style={{ fontSize: 12, color: "var(--t3)", marginTop: 6 }}>
+              Checking recent gateway activity
+            </div>
           </div>
         )}
 

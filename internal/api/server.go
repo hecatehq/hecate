@@ -77,6 +77,7 @@ func registerHecateAgentRoutes(mux *http.ServeMux, handler *Handler) {
 	mux.HandleFunc("GET /hecate/v1/agent-chat/sessions", handler.HandleAgentChatSessions)
 	mux.HandleFunc("POST /hecate/v1/agent-chat/sessions", handler.HandleCreateAgentChatSession)
 	mux.HandleFunc("GET /hecate/v1/agent-chat/sessions/{id}", handler.HandleAgentChatSession)
+	mux.HandleFunc("PATCH /hecate/v1/agent-chat/sessions/{id}", handler.HandleUpdateAgentChatSession)
 	mux.HandleFunc("DELETE /hecate/v1/agent-chat/sessions/{id}", handler.HandleDeleteAgentChatSession)
 	mux.HandleFunc("GET /hecate/v1/agent-chat/sessions/{id}/stream", handler.HandleAgentChatSessionStream)
 	mux.HandleFunc("POST /hecate/v1/agent-chat/sessions/{id}/cancel", handler.HandleCancelAgentChatSession)

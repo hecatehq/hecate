@@ -1251,6 +1251,37 @@ func TestAgentChatRunsExternalAdapter(t *testing.T) {
 	}
 }
 
+func TestUpdateAgentChatSessionRenamesSession(t *testing.T) {
+	t.Parallel()
+
+	dir := t.TempDir()
+	logger := slog.New(slog.NewJSONHandler(io.Discard, nil))
+	apiHandler := newTestAPIHandlerWithSettings(logger, []providers.Provider{&fakeProvider{}}, config.Config{}, nil)
+	handler := NewServer(logger, apiHandler)
+	client := newAPITestClient(t, handler)
+
+	created := mustRequestJSON[AgentChatSessionResponse](client, http.MethodPost, "/hecate/v1/agent-chat/sessions", fmt.Sprintf(`{"adapter_id":"codex","workspace":%q,"title":"Original"}`, dir))
+	updated := mustRequestJSON[AgentChatSessionResponse](client, http.MethodPatch, "/hecate/v1/agent-chat/sessions/"+created.Data.ID, `{"title":"Renamed chat"}`)
+	if updated.Data.Title != "Renamed chat" {
+		t.Fatalf("title = %q, want Renamed chat", updated.Data.Title)
+	}
+	list := mustRequestJSON[AgentChatSessionsResponse](client, http.MethodGet, "/hecate/v1/agent-chat/sessions", "")
+	if len(list.Data) != 1 || list.Data[0].Title != "Renamed chat" {
+		t.Fatalf("list title = %#v, want renamed session", list.Data)
+	}
+}
+
+func TestUpdateAgentChatSessionRejectsEmptyTitle(t *testing.T) {
+	t.Parallel()
+
+	logger := slog.New(slog.NewJSONHandler(io.Discard, nil))
+	apiHandler := newTestAPIHandlerWithSettings(logger, []providers.Provider{&fakeProvider{}}, config.Config{}, nil)
+	handler := NewServer(logger, apiHandler)
+	client := newAPITestClient(t, handler)
+
+	client.mustRequestStatus(http.StatusBadRequest, http.MethodPatch, "/hecate/v1/agent-chat/sessions/missing", `{"title":"   "}`)
+}
+
 func TestAgentChatOmitsStartedActivityWhenNativeSessionReused(t *testing.T) {
 	dir := t.TempDir()
 	logger := slog.New(slog.NewJSONHandler(io.Discard, nil))

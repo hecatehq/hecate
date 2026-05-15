@@ -17,6 +17,7 @@ import {
   buildMessagesForSubmission,
   buildSyntheticChatResult,
   defaultModelForProvider,
+  defaultProviderForChat,
   deriveChatSessionTitle,
   humanizeChatError,
   isModelValidForProvider,
@@ -220,6 +221,42 @@ describe("defaultModelForProvider", () => {
       { id: "anthropic", name: "Anthropic", kind: "anthropic", protocol: "anthropic", base_url: "", default_model: "claude-3-5-sonnet" },
     ];
     expect(defaultModelForProvider("anthropic", [], [], presets)).toBe("claude-3-5-sonnet");
+  });
+});
+
+describe("defaultProviderForChat", () => {
+  it("prefers a configured provider with a discovered default model", () => {
+    const models: ModelRecord[] = [
+      model({ id: "smollm2", owned_by: "ollama", metadata: { provider: "ollama" } }),
+      model({ id: "gpt-4o-mini", owned_by: "openai", metadata: { provider: "openai", default: true } }),
+    ];
+    const configured = [
+      { id: "ollama", name: "Ollama", kind: "local", protocol: "openai", base_url: "", credential_configured: true },
+      { id: "openai", name: "OpenAI", kind: "cloud", protocol: "openai", base_url: "", credential_configured: true },
+    ];
+
+    expect(defaultProviderForChat(models, configured, [])).toBe("openai");
+  });
+
+  it("ignores cloud providers without credentials when picking a default", () => {
+    const models: ModelRecord[] = [
+      model({ id: "gpt-4o-mini", owned_by: "openai", metadata: { provider: "openai", default: true } }),
+      model({ id: "llama3", owned_by: "ollama", metadata: { provider: "ollama" } }),
+    ];
+    const configured = [
+      { id: "openai", name: "OpenAI", kind: "cloud", protocol: "openai", base_url: "", credential_configured: false },
+      { id: "ollama", name: "Ollama", kind: "local", protocol: "openai", base_url: "", credential_configured: true },
+    ];
+
+    expect(defaultProviderForChat(models, configured, [])).toBe("ollama");
+  });
+
+  it("falls back to the configured provider when no model has been discovered yet", () => {
+    const configured = [
+      { id: "lmstudio", name: "LM Studio", kind: "local", protocol: "openai", base_url: "", credential_configured: true },
+    ];
+
+    expect(defaultProviderForChat([], configured, [])).toBe("lmstudio");
   });
 });
 

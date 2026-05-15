@@ -111,6 +111,8 @@ Chats is the primary day-to-day surface. It explains missing setup before you se
 
 Hecate Chat preserves runtime boundaries inside the transcript: tools-off turns keep route/cost/cache metadata, tools-on turns link to their backing Task/run, and every assistant turn can link to its trace. If a task-backed run is busy, the composer queues the next prompt locally for that chat and sends it when the run settles. The Tasks workspace remains canonical for full run history, advanced activity details, artifacts, retry/resume, and patch review. See [Chat sessions](docs/chat-sessions.md), [Agent runtime](docs/agent-runtime.md), and [External agent adapters](docs/external-agent-adapters.md) for the deeper contracts.
 
+Chats can be renamed from the sidebar. The title is just operator-facing metadata, so renaming never changes the workspace, selected runtime, provider/model snapshots, or external-agent native session.
+
 ## Architecture
 
 The gateway is one local Go process with the React operator UI embedded. `hecate-acp` is a separate stdio bridge for editor ACP hosts.

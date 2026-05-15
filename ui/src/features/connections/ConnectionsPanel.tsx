@@ -1,5 +1,6 @@
 import { useEffect, useMemo, useRef, useState, type ReactNode } from "react";
 import type { RuntimeConsoleViewModel } from "../../app/useRuntimeConsole";
+import { claudeCodeSetupTokenCommand } from "../../lib/claude-code-setup";
 import { providerFleetRepairHint, providerReadinessMeaning, providerRepairActionLabel } from "../../lib/provider-readiness";
 import type { AgentAdapterHealthRecord, AgentAdapterRecord, AgentChatGrantRecord, ConfiguredProviderRecord, ProviderRecord } from "../../types/runtime";
 import { BrandAvatar, Icon, Icons, InlineError } from "../shared/ui";
@@ -490,18 +491,12 @@ function AdapterStatusSection({ state, actions }: Props) {
             loading={Boolean(state.agentAdapterHealthLoadingByID.get(adapter.id))}
             onSaveCredential={(value) => actions.setAgentAdapterCredential(adapter.id, value, "CLAUDE_CODE_OAUTH_TOKEN")}
             onDeleteCredential={() => actions.deleteAgentAdapterCredential(adapter.id, "CLAUDE_CODE_OAUTH_TOKEN")}
-            onCopyCommand={() => void actions.copyCommand(claudeCodeSetupTokenCommand(adapter))}
+            onCopyCommand={() => void actions.copyCommand(claudeCodeSetupTokenCommand(adapter.claude_code_cli))}
           />
         ))}
       </div>
     </div>
   );
-}
-
-function claudeCodeSetupTokenCommand(adapter: AgentAdapterRecord): string {
-  const command = adapter.claude_code_cli?.command;
-  if (command) return `${command} setup-token`;
-  return "npx -y @anthropic-ai/claude-code setup-token";
 }
 
 function AdapterStatusRow({

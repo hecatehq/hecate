@@ -165,6 +165,41 @@ describe("ObservabilityView", () => {
     expect(onNavigate).toHaveBeenCalledWith("chats");
   });
 
+  it("does not flash the empty traces state before the initial trace request settles", async () => {
+    let resolveTraces!: (response: Response) => void;
+    const tracesPromise = new Promise<Response>((resolve) => {
+      resolveTraces = resolve;
+    });
+    fetchMock.mockImplementation((input: RequestInfo | URL) => {
+      const url = typeof input === "string" ? input : input.toString();
+      if (url.startsWith("/hecate/v1/traces")) {
+        return tracesPromise;
+      }
+      return Promise.resolve(new Response(JSON.stringify({ object: "list", data: [] }), {
+        status: 200,
+        headers: { "Content-Type": "application/json" },
+      }));
+    });
+
+    const state = createRuntimeConsoleFixture({ session: localSession });
+    const { container } = render(<ObservabilityView state={state} actions={createRuntimeConsoleActions()} />);
+
+    expect(container.textContent).toMatch(/Loading traces/);
+    expect(container.textContent).not.toMatch(/No traces yet/);
+
+    await act(async () => {
+      resolveTraces(new Response(JSON.stringify({ object: "trace_list", data: [] }), {
+        status: 200,
+        headers: { "Content-Type": "application/json" },
+      }));
+      await tracesPromise;
+    });
+
+    await waitFor(() => {
+      expect(container.textContent).toMatch(/No traces yet/);
+    });
+  });
+
   it("renders the table with status badges and provider/model cells", async () => {
     fetchMock.mockImplementation(tracesFetchHandler([
       {

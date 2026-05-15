@@ -415,7 +415,7 @@ function CustomButton({ onClick }: { onClick: () => void }) {
       style={{ minHeight: 60, height: "100%", display: "flex", alignItems: "center", gap: 10, textAlign: "left", padding: "10px 12px", border: "1px dashed var(--border)", borderRadius: "var(--radius)" }}
       onClick={onClick}>
       <div style={{ width: 28, height: 28, borderRadius: "var(--radius-sm)", background: "var(--bg3)", border: "1px solid var(--border)", display: "flex", alignItems: "center", justifyContent: "center", fontSize: 18, color: "var(--t3)", flexShrink: 0 }}>
-        +
+        <Icon d={Icons.edit} size={13} />
       </div>
       <div style={{ flex: 1, minWidth: 0 }}>
         <div style={{ fontSize: 13, fontWeight: 500, color: "var(--t0)" }}>Custom</div>

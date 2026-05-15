@@ -1225,6 +1225,32 @@ controls before the first prompt. These controls are adapter-owned; common
 `category` values include `model`, `mode`, and `thought_level`, but clients
 must handle missing or custom categories.
 
+### `PATCH /hecate/v1/agent-chat/sessions/{id}`
+
+Renames an Agent Chat session. This is shared by Hecate Chat
+(`runtime_kind="model"` / `"agent"`) and External Agent sessions. The title is
+metadata only; it does not change the prompt history, workspace, provider/model,
+or ACP native session.
+
+```json
+PATCH /hecate/v1/agent-chat/sessions/agent_chat_...
+{
+  "title": "Review release notes"
+}
+
+→ 200
+{
+  "object": "agent_chat_session",
+  "data": {
+    "id": "agent_chat_...",
+    "title": "Review release notes",
+    "runtime_kind": "agent",
+    "status": "completed",
+    "messages": []
+  }
+}
+```
+
 ### `POST /hecate/v1/agent-chat/sessions/{id}/config-options/{config_id}`
 
 Updates one ACP session configuration option for an active External Agent

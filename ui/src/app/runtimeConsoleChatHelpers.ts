@@ -6,6 +6,7 @@ import type {
   ChatResponse,
   ChatSessionRecord,
   ChatSessionsResponse,
+  ConfiguredStateResponse,
   ModelResponse,
   PendingAgentApproval,
   ProviderFilter,
@@ -126,6 +127,35 @@ export function defaultModelForProvider(provider: ProviderFilter, models: ModelR
   }
 
   return scopedModels.find((entry) => entry.metadata?.default)?.id ?? scopedModels[0]?.id ?? preset?.default_model ?? "";
+}
+
+export function defaultProviderForChat(
+  models: ModelResponse["data"],
+  configuredProviders: ConfiguredStateResponse["data"]["providers"],
+  providers: ProviderStatusResponse["data"],
+): ProviderFilter {
+  const configuredUsable = configuredProviders.filter((provider) => provider.kind !== "cloud" || provider.credential_configured);
+  const configuredSource = configuredUsable.length > 0 ? configuredUsable : configuredProviders;
+  const configuredIDs = new Set(configuredSource.map((provider) => provider.id));
+
+  const preferredModelProvider = models.find((entry) => {
+    const provider = entry.metadata?.provider;
+    return Boolean(provider && configuredIDs.has(provider) && entry.metadata?.default);
+  })?.metadata?.provider;
+  if (preferredModelProvider) return preferredModelProvider;
+
+  const firstModelProvider = models.find((entry) => {
+    const provider = entry.metadata?.provider;
+    return Boolean(provider && (configuredIDs.size === 0 || configuredIDs.has(provider)));
+  })?.metadata?.provider;
+  if (firstModelProvider) return firstModelProvider;
+
+  const providerWithReportedModels = providers.find((provider) =>
+    (configuredIDs.size === 0 || configuredIDs.has(provider.name)) && (provider.models?.length ?? 0) > 0
+  )?.name;
+  if (providerWithReportedModels) return providerWithReportedModels;
+
+  return configuredSource[0]?.id ?? providers[0]?.name ?? "auto";
 }
 
 export function isModelValidForProvider(model: string, provider: ProviderFilter, models: ModelResponse["data"], providers: ProviderStatusResponse["data"], presets: ProviderPresetRecord[]): boolean {

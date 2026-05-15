@@ -340,6 +340,10 @@ export async function getAgentChatSession(id: string): Promise<AgentChatSessionR
   return fetchJSON<AgentChatSessionResponse>(`${HECATE_API}/agent-chat/sessions/${encodeURIComponent(id)}`);
 }
 
+export async function updateAgentChatSession(id: string, title: string): Promise<AgentChatSessionResponse> {
+  return fetchJSON<AgentChatSessionResponse>(`${HECATE_API}/agent-chat/sessions/${encodeURIComponent(id)}`, { method: "PATCH", body: { title } });
+}
+
 export async function deleteAgentChatSession(id: string): Promise<void> {
   await fetchJSON<unknown>(`${HECATE_API}/agent-chat/sessions/${encodeURIComponent(id)}`, { method: "DELETE" });
 }

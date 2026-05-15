@@ -914,14 +914,18 @@ function TaskActivityAdvancedDetails({ activity, outputArtifacts }: { activity?:
   const rows = taskActivityAdvancedRows(activity);
   const diagnostics = failedToolOutputArtifacts(activity, outputArtifacts);
   const isFailedTool = activity.type === "tool_call" && activity.status === "failed";
-  if (rows.length === 0 && diagnostics.length === 0 && !isFailedTool) return null;
+  const isOutputArtifact = activity.type === "artifact" && isOutputArtifactActivity(activity);
+  if (rows.length === 0 && diagnostics.length === 0 && !isFailedTool && !isOutputArtifact) return null;
 
   return (
     <div style={{ display: "grid", gap: 5 }}>
+      {isOutputArtifact && (
+        <TaskActivityOutputPreview artifact={activity} />
+      )}
       {isFailedTool && (
         <TaskActivityFailureDiagnostics activity={activity} artifacts={diagnostics} />
       )}
-      {rows.length > 0 && (
+      {rows.length > 0 && !isOutputArtifact && (
         <details open={!isFailedTool}>
           <summary style={{ cursor: "pointer", fontFamily: "var(--font-mono)", fontSize: 10, color: "var(--t3)" }}>
             Raw metadata

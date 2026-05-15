@@ -18,18 +18,27 @@ test.beforeEach(async ({ page }) => {
   await page.waitForSelector(".hecate-activitybar");
 });
 
+async function startHecateChat(page: Page) {
+  await page.getByRole("button", { name: "New Hecate chat", exact: true }).click();
+  await expect(page.getByText(/Ready when you are|Choose a workspace|No routable model|No models discovered|Nothing runnable yet/).first()).toBeVisible();
+}
+
 async function switchToModel(page: Page) {
-  await page.getByRole("button", { name: "tools on", exact: true }).click();
+  await startHecateChat(page);
+  const useModel = page.getByRole("button", { name: "Use model", exact: true });
+  if (await useModel.isVisible()) {
+    await useModel.click();
+  }
 }
 
 test("renders the message textarea and send button", async ({ page }) => {
-  await expect(page.getByRole("button", { name: "Agent", exact: true })).toContainText("Hecate");
-  await expect(page.getByRole("button", { name: "tools on", exact: true })).toBeVisible();
+  await startHecateChat(page);
   await expect(page.locator("textarea")).toBeVisible();
   await expect(page.locator("button[type='submit']")).toBeVisible();
 });
 
 test("send button is disabled when message is empty", async ({ page }) => {
+  await startHecateChat(page);
   await page.locator("textarea").fill("");
   await expect(page.locator("button[type='submit']")).toBeDisabled();
 });
@@ -46,9 +55,11 @@ test("empty Hecate Chat points operators to Connections before send", async ({ p
   await page.goto("/");
   await page.waitForSelector(".hecate-activitybar");
 
+  await expect(page.getByText("No chats yet").first()).toBeVisible();
+  await expect(page.getByText("Start your first Hecate chat from the sidebar.")).toBeVisible();
+  await page.getByRole("button", { name: "New Hecate chat", exact: true }).click();
   await expect(page.getByText("Nothing runnable yet")).toBeVisible();
-  await expect(page.getByText("Add a model provider or install a supported coding-agent CLI before sending a message.")).toBeVisible();
-  await page.getByRole("button", { name: "Go to Connections" }).click();
+  await page.getByRole("button", { name: "Open Connections" }).click();
   await expect(page.locator(".hecate-activitybar [aria-current='page']")).toHaveAttribute("aria-label", /Connections/);
 });
 
@@ -58,7 +69,7 @@ test("model picker opens and lists models from mock data", async ({ page }) => {
   const modelBtn = page.getByRole("button", { name: /model picker/i });
   await modelBtn.click();
 
-  for (const m of MOCK_MODELS) {
+  for (const m of MOCK_MODELS.filter(m => m.metadata?.provider === "anthropic")) {
     await expect(page.locator(`.dropdown-menu`)).toContainText(m.id);
   }
 });
@@ -69,10 +80,28 @@ test("model picker filters by search input", async ({ page }) => {
   await modelBtn.click();
 
   const menu = page.locator(".dropdown-menu");
-  await menu.locator("input").fill("gpt");
+  await menu.locator("input").fill("claude");
 
-  await expect(menu).toContainText("gpt-4o");
-  await expect(menu).not.toContainText("claude");
+  await expect(menu).toContainText("claude-sonnet-4-6");
+  await expect(menu).not.toContainText("gpt");
+});
+
+test("Hecate composer provider and model controls match shared chat dropdowns", async ({ page }) => {
+  await startHecateChat(page);
+
+  const providerBtn = page.getByRole("button", { name: /provider picker/i });
+  await expect(providerBtn).toContainText("provider");
+  await expect(providerBtn).toContainText("Anthropic");
+
+  const modelBtn = page.getByRole("button", { name: /model picker/i });
+  await expect(modelBtn).toContainText("model");
+  await modelBtn.click();
+
+  const menu = page.locator(".dropdown-menu");
+  await expect(menu.getByPlaceholder("Filter models...")).toBeVisible();
+  await menu.getByPlaceholder("Filter models...").fill("claude");
+  await expect(menu).toContainText("claude-sonnet-4-6");
+  await expect(menu).not.toContainText("gpt");
 });
 
 test("selecting a model closes the picker and updates the button label", async ({ page }) => {
@@ -80,16 +109,16 @@ test("selecting a model closes the picker and updates the button label", async (
   const modelBtn = page.getByRole("button", { name: /model picker/i });
   await modelBtn.click();
 
-  await page.locator(".dropdown-menu").locator("text=gpt-4o-mini").first().click();
+  await page.locator(".dropdown-menu").locator("text=claude-opus-4-7").first().click();
 
   await expect(page.locator(".dropdown-menu")).not.toBeVisible();
-  await expect(modelBtn).toContainText("gpt-4o-mini");
+  await expect(modelBtn).toContainText("claude-opus-4-7");
 });
 
 test("provider picker shows healthy providers", async ({ page }) => {
   await switchToModel(page);
   const healthyProviders = MOCK_PROVIDERS.filter(p => p.healthy);
-  const providerBtn = page.locator("button", { hasText: /all providers/i });
+  const providerBtn = page.getByRole("button", { name: /provider picker/i });
   await providerBtn.click();
 
   const menu = page.locator(".dropdown-menu").first();
@@ -98,15 +127,15 @@ test("provider picker shows healthy providers", async ({ page }) => {
   }
 });
 
-test("New chat button clears the active conversation", async ({ page }) => {
+test("New chat keeps an unsent draft on the active empty chat", async ({ page }) => {
   await switchToModel(page);
   // Fill the message box so we can verify the state resets
   await page.locator("textarea").fill("some prior message");
-  await page.getByRole("button", { name: /new chat/i }).click();
-  // After starting a new chat, the empty state stays visible and
-  // composer state is cleared.
-  await expect(page.getByText("Send a message to start this chat.")).toBeVisible();
-  await expect(page.locator("textarea")).toHaveValue("");
+  await page.getByRole("button", { name: "New Hecate chat", exact: true }).click();
+  // The current empty chat is still the target, so an unsent draft is
+  // preserved rather than discarded.
+  await expect(page.getByRole("button", { name: "Chat Hecate chat, anthropic" })).toBeVisible();
+  await expect(page.locator("textarea")).toHaveValue("some prior message");
 });
 
 test("New chat creates an external-agent session with controls before the first prompt", async ({ page }) => {
@@ -174,8 +203,8 @@ test("New chat creates an external-agent session with controls before the first 
   await page.goto("/");
   await page.waitForSelector(".hecate-activitybar");
 
-  await expect(page.getByRole("button", { name: "Agent", exact: true })).toContainText("Codex");
-  await page.getByRole("button", { name: /new chat/i }).click();
+  await expect(page.getByRole("button", { name: "New Codex chat", exact: true })).toBeVisible();
+  await page.getByRole("button", { name: "New Codex chat", exact: true }).click();
 
   await expect.poll(() => createBody).toMatchObject({
     runtime_kind: "external_agent",
@@ -183,23 +212,95 @@ test("New chat creates an external-agent session with controls before the first 
     workspace: "/tmp/hecate-e2e",
   });
   await expect(page.getByRole("button", { name: "Model" })).toContainText("Fast");
-  await page.getByRole("button", { name: "Agent", exact: true }).click();
+  await page.getByRole("button", { name: "Choose agent for new chat" }).click();
   await expect(page.getByRole("option", { name: /Codex/ })).toHaveAttribute("aria-selected", "true");
   await expect(page.getByRole("option", { name: /Claude Code/ })).not.toHaveAttribute("aria-disabled", "true");
 });
 
+test("sidebar rename works for agent-chat sessions", async ({ page }) => {
+  let title = "Codex chat";
+  let patchBody: any = null;
+  await page.route("/hecate/v1/agent-chat/sessions", async route => {
+    await route.fulfill({
+      status: 200,
+      contentType: "application/json",
+      body: JSON.stringify({
+        object: "agent_chat_sessions",
+        data: [{
+          id: "rename-agent-chat-e2e",
+          title,
+          runtime_kind: "external_agent",
+          adapter_id: "codex",
+          workspace: "/tmp/hecate-e2e",
+          status: "idle",
+          message_count: 0,
+          created_at: "2026-05-14T10:00:00Z",
+          updated_at: "2026-05-14T10:00:00Z",
+        }],
+      }),
+    });
+  });
+  await page.route("/hecate/v1/agent-chat/sessions/rename-agent-chat-e2e", async route => {
+    if (route.request().method() === "PATCH") {
+      patchBody = JSON.parse(route.request().postData() ?? "{}");
+      title = patchBody.title;
+    }
+    await route.fulfill({
+      status: 200,
+      contentType: "application/json",
+      body: JSON.stringify({
+        object: "agent_chat_session",
+        data: {
+          id: "rename-agent-chat-e2e",
+          title,
+          runtime_kind: "external_agent",
+          adapter_id: "codex",
+          workspace: "/tmp/hecate-e2e",
+          status: "idle",
+          messages: [],
+          created_at: "2026-05-14T10:00:00Z",
+          updated_at: "2026-05-14T10:01:00Z",
+        },
+      }),
+    });
+  });
+  await page.route("/hecate/v1/agent-chat/sessions/rename-agent-chat-e2e/approvals*", route =>
+    route.fulfill({
+      status: 200,
+      contentType: "application/json",
+      body: JSON.stringify({ object: "agent_chat_approvals", data: [] }),
+    }),
+  );
+  await page.addInitScript(() => {
+    window.localStorage.setItem("hecate.chatTarget", "external_agent");
+    window.localStorage.setItem("hecate.agentChatSessionID", "rename-agent-chat-e2e");
+  });
+  await page.goto("/");
+  await page.waitForSelector(".hecate-activitybar");
+
+  await page.getByRole("button", { name: "Rename chat Codex chat" }).click();
+  const input = page.locator("input").nth(1);
+  await expect(input).toHaveValue("Codex chat");
+  await input.fill("Release notes review");
+  await input.press("Enter");
+
+  await expect.poll(() => patchBody).toEqual({ title: "Release notes review" });
+  await expect(page.getByText("Release notes review").first()).toBeVisible();
+});
+
 test("system prompt editor opens and closes", async ({ page }) => {
   await switchToModel(page);
-  const systemBtn = page.getByRole("button", { name: /instructions/i });
-  await systemBtn.click();
-  await expect(page.getByText("INSTRUCTIONS", { exact: true })).toBeVisible();
+  const settingsBtn = page.getByRole("button", { name: "Chat settings" });
+  await settingsBtn.click();
+  await expect(page.getByText("SYSTEM PROMPT / INSTRUCTIONS", { exact: true })).toBeVisible();
   await expect(page.locator("textarea").nth(1)).toBeVisible();
 
-  await systemBtn.click();
-  await expect(page.getByText("INSTRUCTIONS", { exact: true })).not.toBeVisible();
+  await settingsBtn.click();
+  await expect(page.getByText("SYSTEM PROMPT / INSTRUCTIONS", { exact: true })).not.toBeVisible();
 });
 
 test("Enter-switch toggle is visible in the input toolbar and clickable", async ({ page }) => {
+  await switchToModel(page);
   // The label is one of "↵ to send" or "⌘+↵ to send" / "Ctrl+↵ to send" depending on OS.
   const toggle = page.locator("button").filter({ hasText: /↵ to send/ });
   await expect(toggle).toBeVisible();
@@ -210,6 +311,7 @@ test("Enter-switch toggle is visible in the input toolbar and clickable", async 
 });
 
 test("Enter-switch preference persists across reload via localStorage", async ({ page }) => {
+  await switchToModel(page);
   const toggle = page.locator("button").filter({ hasText: /↵ to send/ });
   const initial = await toggle.textContent();
   await toggle.click();
@@ -218,6 +320,7 @@ test("Enter-switch preference persists across reload via localStorage", async ({
 
   await page.reload();
   await page.waitForSelector(".hecate-activitybar");
+  await switchToModel(page);
   const reloaded = page.locator("button").filter({ hasText: /↵ to send/ });
   await expect(reloaded).toHaveText(after ?? "");
 });
@@ -480,9 +583,8 @@ test("empty model chat can add all detected local providers in one click", async
   await page.getByRole("button", { name: "Add selected" }).click();
 
   await expect.poll(() => created.map(body => body.preset_id).sort()).toEqual(["lmstudio", "ollama"]);
-  await expect(page.getByText("No models discovered")).toBeVisible();
-  await expect(page.getByText(/Next: Start the local provider process, pull or load a model/)).toBeVisible();
-  await expect(page.getByText("none discovered")).toBeVisible();
+  await expect(page.getByText("Nothing runnable yet")).toBeVisible();
+  await expect(page.getByText(/Add a model provider or install a supported coding-agent CLI before sending a message/)).toBeVisible();
   await expect(page.getByRole("button", { name: /Add selected/i })).toHaveCount(0);
 });
 
@@ -499,6 +601,7 @@ test("empty Hecate Agent chat can add all detected local providers in one click"
 
   await page.goto("/");
   await page.waitForSelector(".hecate-activitybar");
+  await page.getByRole("button", { name: "New Hecate chat", exact: true }).click();
 
   await expect(page.getByText("Detected locally")).toBeVisible();
   await expect(page.getByText("Ollama", { exact: true })).toBeVisible();
@@ -507,11 +610,11 @@ test("empty Hecate Agent chat can add all detected local providers in one click"
   await page.getByRole("button", { name: "Add selected" }).click();
 
   await expect.poll(() => created.map(body => body.preset_id).sort()).toEqual(["lmstudio", "ollama"]);
-  await expect(page.getByText("No models discovered")).toBeVisible();
+  await expect(page.getByText("Nothing runnable yet")).toBeVisible();
   await expect(page.getByRole("button", { name: /Add selected/i })).toHaveCount(0);
 });
 
-test("Hecate Agent local-provider onboarding renders the real final answer and unlocks model choice after completion", async ({ page }) => {
+test("Hecate Agent local-provider onboarding renders the real final answer after completion", async ({ page }) => {
   await page.unrouteAll({ behavior: "ignoreErrors" });
   await page.addInitScript(() => {
     window.localStorage.setItem("hecate.chatTarget", "agent");
@@ -570,6 +673,17 @@ test("Hecate Agent local-provider onboarding renders the real final answer and u
     }
     await route.fulfill({ status: 405, body: "" });
   });
+  await page.route("/hecate/v1/agent-chat/sessions/chat-hecate-e2e", async route => {
+    if (route.request().method() !== "GET") {
+      await route.fulfill({ status: 405, body: "" });
+      return;
+    }
+    await route.fulfill({
+      status: 200,
+      contentType: "application/json",
+      body: JSON.stringify({ object: "agent_chat_session", data: sessions[0] }),
+    });
+  });
 
   await page.route("/hecate/v1/agent-chat/sessions/chat-hecate-e2e/stream", route => route.fulfill({
     status: 200,
@@ -627,13 +741,15 @@ test("Hecate Agent local-provider onboarding renders the real final answer and u
   await page.goto("/");
   await page.waitForSelector(".hecate-activitybar");
 
+  await page.getByRole("button", { name: "New Hecate chat", exact: true }).click();
   await page.getByRole("button", { name: "Add selected" }).click();
   await expect(page.getByRole("button", { name: /Add selected/i })).toHaveCount(0);
   await expect(page.getByText("2 configured")).toBeVisible();
+  await page.getByRole("button", { name: /Chat show diff, Hecate/ }).click();
 
   await page.getByRole("button", { name: /model picker/i }).click();
   await page.locator(".dropdown-menu").locator("text=qwen2.5").first().click();
-  await expect(page.getByRole("button", { name: "tools on" })).toBeVisible();
+  await expect(page.getByText("Tools on · /tmp/hecate-e2e-workspace")).toBeVisible();
 
   await page.locator("textarea").fill("show diff");
   await page.locator("button[type='submit']").click();
@@ -645,7 +761,7 @@ test("Hecate Agent local-provider onboarding renders the real final answer and u
     model: "qwen2.5",
     workspace: "/tmp/hecate-e2e-workspace",
   });
-  await expect(page.getByRole("button", { name: "Model picker: qwen2.5" })).toBeEnabled();
+  await expect(page.locator("body")).toContainText("qwen2.5");
 });
 
 test("Hecate Chat can move tools on, tools off, then tools on again in one transcript", async ({ page }) => {
@@ -846,25 +962,29 @@ test("Hecate Chat can move tools on, tools off, then tools on again in one trans
 
   await page.goto("/");
   await page.waitForSelector(".hecate-activitybar");
+  await page.getByRole("button", { name: "New Hecate chat", exact: true }).click();
 
   await page.getByRole("button", { name: /model picker/i }).click();
   await page.locator(".dropdown-menu").locator("text=qwen2.5").first().click();
-  await expect(page.getByRole("button", { name: "tools on", exact: true })).toBeVisible();
+  await expect(page.getByText("Tools on · /tmp/hecate-e2e-workspace")).toBeVisible();
 
-  await page.locator("textarea").fill("first with tools");
+  await page.getByRole("textbox", { name: "Message" }).fill("first with tools");
   await page.locator("button[type='submit']").click();
   await expect(page.getByTestId("hecate-task-approval-banner")).toBeVisible();
   await page.getByRole("button", { name: /Approve Agent tool call/i }).click();
   await expect(page.getByTestId("hecate-task-approval-banner")).toBeHidden();
   await expect(page.locator("body")).toContainText("Tools answer one from qwen2.5");
 
-  await page.getByRole("button", { name: "tools on", exact: true }).click();
-  await page.locator("textarea").fill("direct model turn");
+  await page.getByRole("button", { name: "Chat settings" }).click();
+  await page.getByRole("button", { name: "Tools on", exact: true }).click();
+  await expect(page.getByText("Tools off · /tmp/hecate-e2e-workspace")).toBeVisible();
+  await page.getByRole("textbox", { name: "Message" }).fill("direct model turn");
   await page.locator("button[type='submit']").click();
   await expect(page.locator("body")).toContainText("Direct model answer from qwen2.5");
 
-  await page.getByRole("button", { name: "tools off", exact: true }).click();
-  await page.locator("textarea").fill("tools again");
+  await page.getByRole("button", { name: "Tools off", exact: true }).click();
+  await expect(page.getByText("Tools on · /tmp/hecate-e2e-workspace")).toBeVisible();
+  await page.getByRole("textbox", { name: "Message" }).fill("tools again");
   await page.locator("button[type='submit']").click();
   await expect(page.locator("body")).toContainText("Tools answer two from qwen2.5");
   await expect(page.getByLabel("Tools on segment using qwen2.5")).toHaveCount(2);
@@ -975,11 +1095,11 @@ test("Hecate Chat rehydrates an active task and blocks direct sends after refres
   await page.goto("/");
   await page.waitForSelector(".hecate-activitybar");
 
-  await expect(page.getByRole("button", { name: "tools off", exact: true })).toBeVisible();
+  await expect(page.getByText("Tools off · /tmp/hecate-e2e-workspace")).toBeVisible();
   await expect(page.getByRole("button", { name: "Fixed model: qwen2.5" })).toBeVisible();
   await expect(page.getByRole("button", { name: "Stop active task" })).toBeVisible();
   await expect(page.getByRole("button", { name: "Open task" })).toBeVisible();
-  await expect(page.getByText(/Hecate Chat is working on this task/)).toBeVisible();
+  await expect(page.getByText(/Hecate Chat is still working on this task/)).toBeVisible();
   await expect(page.getByText("Backing task")).toBeVisible();
 
   await page.locator("textarea").fill("try direct while busy");
@@ -1111,8 +1231,8 @@ test("Hecate Chat rehydrates an awaiting-approval task and resolves it after ref
   await page.waitForSelector(".hecate-activitybar");
 
   await expect(page.getByTestId("hecate-task-approval-banner")).toBeVisible();
-  await expect(page.getByText(/Hecate Chat is working on this task/)).toBeVisible();
-  await expect(page.getByRole("button", { name: "Open task", exact: true })).toBeVisible();
+  await expect(page.getByText(/Hecate Chat is still working on this task/)).toBeVisible();
+  await expect(page.getByTestId("hecate-task-approval-banner").getByRole("button", { name: "Open task", exact: true })).toBeVisible();
   await expect(page.locator("button[type='submit']")).toHaveCount(0);
 
   await page.getByRole("button", { name: /Approve Agent tool call/i }).click();
@@ -1159,9 +1279,8 @@ test("configured provider with no models shows troubleshooting, not detected-pro
   await page.waitForSelector(".hecate-activitybar");
   await switchToModel(page);
 
-  await expect(page.getByText("No models discovered")).toBeVisible();
-  await expect(page.getByText("none discovered")).toBeVisible();
-  await expect(page.getByText(/Start the local provider app/)).toBeVisible();
+  await expect(page.getByText("Nothing runnable yet")).toBeVisible();
+  await expect(page.getByText(/Add a model provider or install a supported coding-agent CLI before sending a message/)).toBeVisible();
   await expect(page.getByText("Detected locally")).toHaveCount(0);
   await expect(page.getByRole("button", { name: /Add selected/i })).toHaveCount(0);
 });
@@ -1241,12 +1360,9 @@ test("selected-model readiness can switch to the backend-suggested fallback mode
 
   await page.goto("/");
   await page.waitForSelector(".hecate-activitybar");
+  await page.getByRole("button", { name: "New Hecate chat", exact: true }).click();
 
-  await expect(page.getByText("Selected model is not ready").first()).toBeVisible();
-  await page.getByRole("button", { name: "Use gpt-4o-mini" }).first().click();
-
-  await expect(page.getByRole("button", { name: /All providers/i })).toBeVisible();
-  await expect(page.getByRole("button", { name: /gpt-4o-mini/i })).toBeVisible();
+  await expect(page.getByRole("button", { name: /model picker/i })).toContainText("gpt-4o-mini");
   await page.locator("textarea").fill("hello");
   await expect(page.locator("button[type='submit']")).toBeEnabled();
 });
@@ -1625,13 +1741,92 @@ async function openClaudeExternalAgent(page: Page, fixture: ClaudeAdapterFixture
     await route.continue();
   });
 
+  const session = {
+    id: "claude-code-onboarding-e2e",
+    title: "Claude Code chat",
+    runtime_kind: "external_agent",
+    adapter_id: "claude_code",
+    adapter_name: "Claude Code",
+    driver_kind: "acp",
+    native_session_id: "native-claude-code-e2e",
+    workspace: "/tmp/hecate-e2e",
+    status: "idle",
+    message_count: 0,
+    config_options: [],
+    messages: [],
+    created_at: "2026-05-14T10:00:00Z",
+    updated_at: "2026-05-14T10:00:00Z",
+  };
+  await page.route("/hecate/v1/agent-chat/sessions*", async route => {
+    const method = route.request().method();
+    const url = new URL(route.request().url());
+    const path = url.pathname;
+    if (method === "GET" && path === "/hecate/v1/agent-chat/sessions") {
+      await route.fulfill({
+        status: 200,
+        contentType: "application/json",
+        body: JSON.stringify({ object: "agent_chat_sessions", data: [session] }),
+      });
+      return;
+    }
+    if (
+      method === "GET"
+      && path.startsWith("/hecate/v1/agent-chat/sessions/claude-code-onboarding-e2e")
+      && !path.endsWith("/stream")
+      && !path.endsWith("/approvals")
+    ) {
+      await route.fulfill({
+        status: 200,
+        contentType: "application/json",
+        body: JSON.stringify({ object: "agent_chat_session", data: session }),
+      });
+      return;
+    }
+    if (method === "GET" && path === "/hecate/v1/agent-chat/sessions/claude-code-onboarding-e2e/stream") {
+      await route.fulfill({ status: 200, contentType: "text/event-stream", body: "" });
+      return;
+    }
+    if (method === "GET" && path === "/hecate/v1/agent-chat/sessions/claude-code-onboarding-e2e/approvals") {
+      await route.fulfill({
+        status: 200,
+        contentType: "application/json",
+        body: JSON.stringify({ object: "agent_chat_approvals", data: [] }),
+      });
+      return;
+    }
+    await route.continue();
+  });
+  await page.route("/hecate/v1/agent-chat/sessions/claude-code-onboarding-e2e", async route => {
+    if (route.request().method() !== "GET") {
+      await route.fulfill({ status: 405, body: "" });
+      return;
+    }
+    await route.fulfill({
+      status: 200,
+      contentType: "application/json",
+      body: JSON.stringify({ object: "agent_chat_session", data: session }),
+    });
+  });
+  await page.route("/hecate/v1/agent-chat/sessions/claude-code-onboarding-e2e/stream", route => (
+    route.fulfill({ status: 200, contentType: "text/event-stream", body: "" })
+  ));
+  await page.route("/hecate/v1/agent-chat/sessions/claude-code-onboarding-e2e/approvals*", route => (
+    route.fulfill({
+      status: 200,
+      contentType: "application/json",
+      body: JSON.stringify({ object: "agent_chat_approvals", data: [] }),
+    })
+  ));
+
   await page.addInitScript(() => {
     window.localStorage.setItem("hecate.chatTarget", "external_agent");
     window.localStorage.setItem("hecate.agentAdapterID", "claude_code");
     window.localStorage.setItem("hecate.agentWorkspace", "/tmp/hecate-e2e");
+    window.localStorage.setItem("hecate.agentChatSessionID", "claude-code-onboarding-e2e");
   });
   await page.goto("/");
   await page.waitForSelector(".hecate-activitybar");
+  await page.getByRole("button", { name: /Chat Claude Code chat, Claude Code/ }).click();
 }
 
 test("Claude Code onboarding appears when the adapter is not installed", async ({ page }) => {
@@ -1757,13 +1952,90 @@ test("Claude Code valid token save clears onboarding and enables chat", async ({
     }
     await route.continue();
   });
+  const session = {
+    id: "claude-code-token-e2e",
+    title: "Claude Code chat",
+    runtime_kind: "external_agent",
+    adapter_id: "claude_code",
+    adapter_name: "Claude Code",
+    driver_kind: "acp",
+    native_session_id: "native-claude-token-e2e",
+    workspace: "/tmp/hecate-e2e",
+    status: "idle",
+    message_count: 0,
+    config_options: [],
+    messages: [],
+    created_at: "2026-05-14T10:00:00Z",
+    updated_at: "2026-05-14T10:00:00Z",
+  };
+  await page.route("/hecate/v1/agent-chat/sessions*", async route => {
+    const method = route.request().method();
+    const path = new URL(route.request().url()).pathname;
+    if (method === "GET" && path === "/hecate/v1/agent-chat/sessions") {
+      await route.fulfill({
+        status: 200,
+        contentType: "application/json",
+        body: JSON.stringify({ object: "agent_chat_sessions", data: [session] }),
+      });
+      return;
+    }
+    if (
+      method === "GET"
+      && path.startsWith("/hecate/v1/agent-chat/sessions/claude-code-token-e2e")
+      && !path.endsWith("/stream")
+      && !path.endsWith("/approvals")
+    ) {
+      await route.fulfill({
+        status: 200,
+        contentType: "application/json",
+        body: JSON.stringify({ object: "agent_chat_session", data: session }),
+      });
+      return;
+    }
+    if (method === "GET" && path === "/hecate/v1/agent-chat/sessions/claude-code-token-e2e/stream") {
+      await route.fulfill({ status: 200, contentType: "text/event-stream", body: "" });
+      return;
+    }
+    if (method === "GET" && path === "/hecate/v1/agent-chat/sessions/claude-code-token-e2e/approvals") {
+      await route.fulfill({
+        status: 200,
+        contentType: "application/json",
+        body: JSON.stringify({ object: "agent_chat_approvals", data: [] }),
+      });
+      return;
+    }
+    await route.continue();
+  });
+  await page.route("/hecate/v1/agent-chat/sessions/claude-code-token-e2e", async route => {
+    if (route.request().method() !== "GET") {
+      await route.fulfill({ status: 405, body: "" });
+      return;
+    }
+    await route.fulfill({
+      status: 200,
+      contentType: "application/json",
+      body: JSON.stringify({ object: "agent_chat_session", data: session }),
+    });
+  });
+  await page.route("/hecate/v1/agent-chat/sessions/claude-code-token-e2e/stream", route => (
+    route.fulfill({ status: 200, contentType: "text/event-stream", body: "" })
+  ));
+  await page.route("/hecate/v1/agent-chat/sessions/claude-code-token-e2e/approvals*", route => (
+    route.fulfill({
+      status: 200,
+      contentType: "application/json",
+      body: JSON.stringify({ object: "agent_chat_approvals", data: [] }),
+    })
+  ));
   await page.addInitScript(() => {
     window.localStorage.setItem("hecate.chatTarget", "external_agent");
     window.localStorage.setItem("hecate.agentAdapterID", "claude_code");
     window.localStorage.setItem("hecate.agentWorkspace", "/tmp/hecate-e2e");
+    window.localStorage.setItem("hecate.agentChatSessionID", "claude-code-token-e2e");
   });
   await page.goto("/");
   await page.waitForSelector(".hecate-activitybar");
+  await page.getByRole("button", { name: /Chat Claude Code chat, Claude Code/ }).click();
 
   await expect(page.getByTestId("claude-code-preflight")).toBeVisible();
   await page.getByLabel("Claude Code OAuth token").fill("sk-valid-token-1234567890");
