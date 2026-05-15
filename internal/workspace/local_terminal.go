@@ -239,6 +239,12 @@ func (t *localTerminal) Close(ctx context.Context) error {
 
 func (t *localTerminal) pump(wg *sync.WaitGroup, r io.ReadCloser, stream string) {
 	defer wg.Done()
+	// We use cmd.Process.Wait (not cmd.Wait) in OpenTerminal so the
+	// pumps own the reads without racing the Cmd.Wait pipe-close.
+	// That means the read end of this pipe is never closed by
+	// os/exec — close it ourselves once the scanner sees EOF, or
+	// the file descriptor leaks for the lifetime of the process.
+	defer r.Close()
 	scanner := bufio.NewScanner(r)
 	// Allow long lines (build output, stack traces); the default
 	// 64 KiB cap is too tight for compiler errors.
