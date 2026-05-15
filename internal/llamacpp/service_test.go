@@ -79,6 +79,30 @@ func TestService_FeatureAvailability(t *testing.T) {
 			t.Fatalf("reason = %q; want binary_not_executable", fa.Reason)
 		}
 	})
+
+	// Regression guard for the second PR review: the Justfile and CI
+	// stage an executable shell stub for non-arm64-darwin targets so
+	// Tauri externalBin resolution succeeds at build time. The stub
+	// carries a sentinel comment. The gateway must refuse to treat it
+	// as a real llama-server, or the UI advertises local-models as
+	// available with installs failing only when the operator clicks
+	// Start.
+	t.Run("binary is sentinel placeholder → binary_is_placeholder", func(t *testing.T) {
+		dir := t.TempDir()
+		bin := filepath.Join(dir, "llama-server")
+		stub := "#!/bin/sh\n# hecate-llama-server-placeholder\nexit 0\n"
+		if err := os.WriteFile(bin, []byte(stub), 0o755); err != nil {
+			t.Fatalf("write: %v", err)
+		}
+		svc := makeServiceWithBinary(t, store, dataDir, bin)
+		fa := svc.FeatureAvailability()
+		if fa.Available {
+			t.Fatalf("placeholder stub must not report Available; got %+v", fa)
+		}
+		if fa.Reason != "binary_is_placeholder" {
+			t.Fatalf("reason = %q; want binary_is_placeholder", fa.Reason)
+		}
+	})
 }
 
 func TestService_ListInstalledReconcilesMissingFiles(t *testing.T) {

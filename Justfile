@@ -371,7 +371,7 @@ tauri-llama-sidecar target="":
 	  bun scripts/fetch-llama-server.ts --target "$rust_target"; \
 	else \
 	  echo "staging llama-server placeholder: $dest"; \
-	  printf '#!/bin/sh\nexit 0\n' > "$dest"; \
+	  printf '#!/bin/sh\n# hecate-llama-server-placeholder\n# This file exists to satisfy Tauri externalBin resolution\n# at build time. It is NOT a real llama-server. The Tauri\n# sidecar resolver and the gateway both detect this sentinel\n# and refuse to set HECATE_LLAMA_SERVER_BIN to point at it.\nexit 0\n' > "$dest"; \
 	  chmod +x "$dest"; \
 	fi
 

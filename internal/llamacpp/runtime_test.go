@@ -66,6 +66,7 @@ type fakeHandle struct {
 	healthDelay time.Duration
 	exited      chan ProcessExitInfo
 	stopOnce    sync.Once
+	stopCount   atomic.Int32 // 0 or 1 after the stopOnce gate
 }
 
 func (h *fakeHandle) PID() int                       { return h.pid }
@@ -89,6 +90,7 @@ func (h *fakeHandle) WaitForHealth(ctx context.Context) error {
 
 func (h *fakeHandle) Stop(_ context.Context, _ time.Duration) error {
 	h.stopOnce.Do(func() {
+		h.stopCount.Add(1)
 		h.exited <- ProcessExitInfo{ExitCode: 0, At: time.Now()}
 		close(h.exited)
 	})
@@ -347,6 +349,9 @@ func TestRuntime_ActiveBaseURLMatchesRunningModel(t *testing.T) {
 type blockingStarter struct {
 	release  chan struct{}
 	released chan struct{}
+
+	mu     sync.Mutex
+	handle *fakeHandle // captured for tests that need to assert on Stop being called
 }
 
 func (s *blockingStarter) Start(ctx context.Context, opts ProcessStartOptions) (ProcessHandle, error) {
@@ -356,16 +361,26 @@ func (s *blockingStarter) Start(ctx context.Context, opts ProcessStartOptions) (
 	case <-ctx.Done():
 		return nil, ctx.Err()
 	}
-	return &fakeHandle{
+	h := &fakeHandle{
 		pid:    999,
 		port:   opts.Port,
 		host:   opts.Host,
 		exited: make(chan ProcessExitInfo, 1),
-	}, nil
+	}
+	s.mu.Lock()
+	s.handle = h
+	s.mu.Unlock()
+	return h, nil
 }
 
-// TestRuntime_StopWhilePreWatcher reproduces the race the Copilot
-// reviewer flagged: a Stop arriving between session insertion and
+func (s *blockingStarter) lastHandle() *fakeHandle {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	return s.handle
+}
+
+// TestRuntime_StopWhilePreWatcher reproduces the race the first review
+// flagged: a Stop arriving between session insertion and
 // watcher-goroutine spawn must not deadlock on watcherDone.
 func TestRuntime_StopWhilePreWatcher(t *testing.T) {
 	t.Parallel()
@@ -413,6 +428,89 @@ func TestRuntime_StopWhilePreWatcher(t *testing.T) {
 	// Unblock the in-flight spawn so its goroutine cleans up.
 	close(starter.release)
 	<-loadErr
+}
+
+// TestRuntime_StopDuringSpawnKillsOrphanedChild reproduces a second,
+// more dangerous shape of the same race the second review flagged:
+// if Stop() removes the session while starter.Start is still in
+// flight, the returned handle becomes an orphan. The runtime must
+// detect the missing session post-Start and tear the handle down —
+// otherwise the child stays alive and a later Stop() iterating the
+// (empty) session pool never finds it.
+func TestRuntime_StopDuringSpawnKillsOrphanedChild(t *testing.T) {
+	t.Parallel()
+	store := &fakeStore{models: map[string]InstalledModel{
+		"qwen": {ID: "qwen", FilePath: "qwen.gguf"},
+	}}
+	starter := &blockingStarter{
+		release:  make(chan struct{}),
+		released: make(chan struct{}),
+	}
+	rt := makeRuntime(t, store, starter)
+
+	loadErr := make(chan error, 1)
+	go func() {
+		_, err := rt.EnsureLoaded(context.Background(), "qwen")
+		loadErr <- err
+	}()
+
+	// Wait for EnsureLoaded to reach starter.Start (mutex released
+	// during the spawn — the window where Stop wins the race).
+	select {
+	case <-starter.released:
+	case <-time.After(2 * time.Second):
+		t.Fatal("starter.Start never reached")
+	}
+
+	// Stop runs first and removes the session. Then we let the
+	// spawn complete — its returned handle is now an orphan that
+	// EnsureLoaded must clean up.
+	stopDone := make(chan error, 1)
+	go func() {
+		stopDone <- rt.Stop(context.Background())
+	}()
+	select {
+	case err := <-stopDone:
+		if err != nil {
+			t.Fatalf("Stop returned: %v", err)
+		}
+	case <-time.After(500 * time.Millisecond):
+		t.Fatal("Stop did not return; pre-watcher deadlock regression")
+	}
+
+	close(starter.release)
+	// EnsureLoaded should return an error (the session it was
+	// promoting was removed under it). The exact error string is
+	// less important than the child cleanup below.
+	select {
+	case err := <-loadErr:
+		if err == nil {
+			t.Fatal("EnsureLoaded returned nil error after Stop dropped its session")
+		}
+	case <-time.After(2 * time.Second):
+		t.Fatal("EnsureLoaded never returned after race")
+	}
+
+	// The handle the starter produced must have been Stop'd by
+	// EnsureLoaded's orphan-cleanup branch. Without that, the
+	// child stays alive even though the runtime reports idle.
+	handle := starter.lastHandle()
+	if handle == nil {
+		t.Fatal("starter never produced a handle")
+	}
+	if got := handle.stopCount.Load(); got != 1 {
+		t.Fatalf("orphan handle stopCount = %d; want 1 (EnsureLoaded must kill the child Stop didn't see)", got)
+	}
+
+	// Runtime ends in idle with an empty pool — neither side leaked
+	// state.
+	status := rt.Status()
+	if status.State != RuntimeIdle {
+		t.Fatalf("final state = %v; want idle", status.State)
+	}
+	if n := len(rt.SessionsSnapshot()); n != 0 {
+		t.Fatalf("sessions remaining = %d; want 0", n)
+	}
 }
 
 func TestRuntime_FreeTCPPortHandsOutDistinctPorts(t *testing.T) {

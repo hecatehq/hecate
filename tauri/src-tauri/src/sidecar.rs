@@ -20,7 +20,7 @@
 //      for calling child.kill() when the app exits.
 
 use std::net::TcpListener;
-use std::path::PathBuf;
+use std::path::{Path, PathBuf};
 use std::time::{Duration, Instant};
 
 use tauri::{AppHandle, Manager};
@@ -129,7 +129,7 @@ fn resolve_binary() -> Result<PathBuf, String> {
 pub fn resolve_llama_server_binary() -> Option<PathBuf> {
     if let Ok(p) = std::env::var("HECATE_LLAMA_SERVER_BIN") {
         let path = PathBuf::from(p);
-        if path.is_file() {
+        if path.is_file() && !is_llama_server_placeholder(&path) {
             return Some(path);
         }
     }
@@ -149,14 +149,14 @@ pub fn resolve_llama_server_binary() -> Option<PathBuf> {
         let staged_dir = manifest.join("binaries");
         for name in sidecar_binary_names("llama-server", Some(triple)) {
             let candidate = staged_dir.join(&name);
-            if candidate.is_file() {
+            if candidate.is_file() && !is_llama_server_placeholder(&candidate) {
                 return Some(candidate);
             }
         }
         if let Some(repo_root) = manifest.parent().and_then(|p| p.parent()) {
             for name in sidecar_binary_names("llama-server", None) {
                 let candidate = repo_root.join(&name);
-                if candidate.is_file() {
+                if candidate.is_file() && !is_llama_server_placeholder(&candidate) {
                     return Some(candidate);
                 }
             }
@@ -177,12 +177,46 @@ pub fn resolve_llama_server_binary() -> Option<PathBuf> {
         let triple = env!("TARGET");
         for name in sidecar_binary_names("llama-server", Some(triple)) {
             let candidate = dir.join(&name);
-            if candidate.is_file() {
+            if candidate.is_file() && !is_llama_server_placeholder(&candidate) {
                 return Some(candidate);
             }
         }
         None
     }
+}
+
+/// The Justfile and CI workflow stage an executable shell stub for
+/// targets that are not aarch64-apple-darwin so Tauri's externalBin
+/// resolution succeeds at build time. That stub MUST NOT be passed to
+/// the gateway as if it were a real llama-server — doing so makes the
+/// UI advertise local-models as available and the auto-registered
+/// provider live, with calls failing only when the operator picks a
+/// model. Detect the sentinel comment in the stub's first 512 bytes
+/// and treat the file as missing for runtime purposes.
+fn is_llama_server_placeholder(path: &Path) -> bool {
+    use std::io::Read;
+    let mut file = match std::fs::File::open(path) {
+        Ok(f) => f,
+        Err(_) => return false, // Can't read → leave the is_file() check to decide.
+    };
+    let mut buf = [0u8; 512];
+    let n = match file.read(&mut buf) {
+        Ok(n) => n,
+        Err(_) => return false,
+    };
+    let head = &buf[..n];
+    // Real llama-server is a native Mach-O / ELF / PE binary; the
+    // shell-script sentinel is plain text and starts with "#!/".
+    // Reject only files that contain the sentinel — preserves
+    // operator-provided non-elf binaries (unlikely but cheap).
+    twoway_search(head, b"hecate-llama-server-placeholder")
+}
+
+fn twoway_search(haystack: &[u8], needle: &[u8]) -> bool {
+    if needle.is_empty() || haystack.len() < needle.len() {
+        return false;
+    }
+    haystack.windows(needle.len()).any(|w| w == needle)
 }
 
 fn sidecar_binary_names(base: &str, triple: Option<&str>) -> Vec<String> {

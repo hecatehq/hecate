@@ -1,6 +1,7 @@
 package llamacpp
 
 import (
+	"bytes"
 	"context"
 	"errors"
 	"fmt"
@@ -158,7 +159,35 @@ func (s *Service) FeatureAvailability() FeatureAvailability {
 	if mode := info.Mode(); mode.IsRegular() && mode&0o111 == 0 {
 		return FeatureAvailability{Available: false, Reason: "binary_not_executable"}
 	}
+	// Defense in depth: reject the shell-script placeholder that
+	// `just tauri-llama-sidecar` writes for non-arm64-darwin
+	// targets. The placeholder is executable so the os.Stat check
+	// above passes, but it's NOT a real llama-server. The Tauri
+	// sidecar resolver detects this on its side too — this branch
+	// handles the headless / dev gateway path where an operator
+	// might point HECATE_LLAMA_SERVER_BIN directly at the stub.
+	if isLlamaServerPlaceholder(s.binaryPath) {
+		return FeatureAvailability{Available: false, Reason: "binary_is_placeholder"}
+	}
 	return FeatureAvailability{Available: true, BinaryPath: s.binaryPath}
+}
+
+// isLlamaServerPlaceholder returns true if the named file is the
+// build-time stub written by `just tauri-llama-sidecar` for
+// non-supported targets. Matches the sentinel string in the script
+// body within the first 512 bytes.
+func isLlamaServerPlaceholder(path string) bool {
+	f, err := os.Open(path)
+	if err != nil {
+		return false
+	}
+	defer f.Close()
+	buf := make([]byte, 512)
+	n, err := f.Read(buf)
+	if err != nil && n == 0 {
+		return false
+	}
+	return bytes.Contains(buf[:n], []byte("hecate-llama-server-placeholder"))
 }
 
 // ListInstalled returns the installed-model rows from the

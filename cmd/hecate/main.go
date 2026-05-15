@@ -329,15 +329,9 @@ func main() {
 				slog.Any("error", lmErr))
 		} else {
 			handler.SetLocalModelsService(localModelsSvc)
-			if err := localModelsSvc.EnsureAutoRegisteredProvider(context.Background(), cfg.Server.PublicURL); err != nil {
-				if errors.Is(err, llamacpp.ErrAutoProviderOperatorOwned) {
-					logger.Info("llamacpp provider already exists; operator override retained",
-						slog.String("preset_id", "llamacpp"))
-				} else {
-					logger.Warn("local models auto-provider registration failed",
-						slog.Any("error", err))
-				}
-			}
+			// EnsureAutoRegisteredProvider runs below, after the
+			// listener binds — we need the bound address as a
+			// fallback when cfg.Server.PublicURL is empty.
 		}
 	}
 
@@ -350,6 +344,29 @@ func main() {
 	if err != nil {
 		logger.Error("gateway listen failed", slog.String("addr", cfg.Server.Address), slog.Any("error", err))
 		os.Exit(1)
+	}
+
+	// Auto-register the llamacpp provider AFTER the listener binds so
+	// we can fall back to the bound loopback address when
+	// HECATE_PUBLIC_URL / cfg.Server.PublicURL is empty. Without that
+	// fallback, the stored provider BaseURL would be a relative path
+	// (just `/hecate/internal/llamacpp/v1`) and any downstream that
+	// resolves the URL fails. Tauri sets PublicURL explicitly; headless
+	// / dev gateways frequently leave it empty.
+	if svc := handler.LocalModelsService(); svc != nil {
+		gatewayURL := strings.TrimSpace(cfg.Server.PublicURL)
+		if gatewayURL == "" {
+			gatewayURL = "http://" + listener.Addr().String()
+		}
+		if err := svc.EnsureAutoRegisteredProvider(context.Background(), gatewayURL); err != nil {
+			if errors.Is(err, llamacpp.ErrAutoProviderOperatorOwned) {
+				logger.Info("llamacpp provider already exists; operator override retained",
+					slog.String("preset_id", "llamacpp"))
+			} else {
+				logger.Warn("local models auto-provider registration failed",
+					slog.Any("error", err))
+			}
+		}
 	}
 	gatewayStatePath, err := writeGatewayRuntimeState(cfg.Server.DataDir, listener.Addr().String(), cfg.Server.PublicURL)
 	if err != nil {

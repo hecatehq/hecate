@@ -489,6 +489,7 @@ func (r *Runtime) EnsureLoaded(ctx context.Context, modelID string) (string, err
 		// Remove the orphaned session from the pool, mark the
 		// failure, and surface it. The session never reached
 		// "running" so there's no watcher to coordinate with.
+		// `delete` is a no-op if Stop already removed it.
 		delete(r.sessions, modelID)
 		r.dropLRUEntryLocked(modelID)
 		r.transitionFailedLocked(fmt.Sprintf("start child: %v", startErr))
@@ -496,6 +497,23 @@ func (r *Runtime) EnsureLoaded(ctx context.Context, modelID string) (string, err
 		// Unlock above; the outer defer takes care of the final
 		// release.
 		return "", startErr
+	}
+	// Stop / eviction could have run during starter.Start while
+	// the mutex was released. If so, the session is no longer in
+	// the pool and Stop saw `session.handle == nil` (we hadn't
+	// assigned it yet), so the child it just spawned is now an
+	// orphan. Kill it and bail — promoting a session Stop
+	// already removed would leave the runtime reporting Running
+	// against a pool that doesn't contain the active child, and
+	// subsequent Stop() iterates the pool, so the child would
+	// leak. Release the mutex during handle.Stop (potentially
+	// slow under stopTimeout) so it doesn't pin the runtime; the
+	// outer defer re-locks-and-unlocks cleanly on return.
+	if r.sessions[modelID] != session {
+		r.mu.Unlock()
+		_ = handle.Stop(context.Background(), r.opts.stopTimeout)
+		r.mu.Lock()
+		return "", ErrRuntimeNotRunning
 	}
 	session.handle = handle
 	// watcherDone must be created *before* the goroutine is
@@ -522,12 +540,27 @@ func (r *Runtime) EnsureLoaded(ctx context.Context, modelID string) (string, err
 		// Tear the child down so a half-loaded model isn't left
 		// running. The pool entry is the failing session — drop it
 		// from sessions/lru so capacity opens up for the next
-		// EnsureLoaded.
+		// EnsureLoaded. Both deletes are no-ops if Stop already
+		// removed the session during the health wait.
 		_ = handle.Stop(context.Background(), r.opts.stopTimeout)
 		delete(r.sessions, modelID)
 		r.dropLRUEntryLocked(modelID)
 		r.transitionFailedLocked(fmt.Sprintf("wait for health: %v", healthErr))
 		return "", healthErr
+	}
+	// Same Stop-during-mutex-release check as after starter.Start.
+	// At this point the watcher goroutine has been spawned, so
+	// Stop's handle-stop will have driven handle.Exited and the
+	// health wait above will have returned an error — meaning
+	// this branch normally won't fire when Stop ran. The check is
+	// kept as defense in depth in case a future starter
+	// implementation reports health independent of the handle's
+	// liveness.
+	if r.sessions[modelID] != session {
+		r.mu.Unlock()
+		_ = handle.Stop(context.Background(), r.opts.stopTimeout)
+		r.mu.Lock()
+		return "", ErrRuntimeNotRunning
 	}
 
 	r.state = RuntimeRunning

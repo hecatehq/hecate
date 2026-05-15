@@ -135,11 +135,17 @@ jobs:
           # compiles the Rust crate. We never ship the Linux build of
           # llama-server in v2 (Tauri bundle stays macOS-only) but the
           # placeholder is required to satisfy Tauri's bundle-resource
-          # resolution during `cargo test`.
-          for name in hecate hecate-acp llama-server; do
+          # resolution during `cargo test`. The llama-server stub
+          # carries a sentinel comment that the Tauri sidecar
+          # resolver and gateway detect at runtime so the dev/Linux
+          # build doesn't accidentally advertise local-models as
+          # available.
+          for name in hecate hecate-acp; do
             printf '#!/bin/sh\nexit 0\n' > "tauri/src-tauri/binaries/${name}-x86_64-unknown-linux-gnu"
             chmod +x "tauri/src-tauri/binaries/${name}-x86_64-unknown-linux-gnu"
           done
+          printf '#!/bin/sh\n# hecate-llama-server-placeholder\n# This file exists to satisfy Tauri externalBin resolution\n# at build time. It is NOT a real llama-server.\nexit 0\n' > "tauri/src-tauri/binaries/llama-server-x86_64-unknown-linux-gnu"
+          chmod +x "tauri/src-tauri/binaries/llama-server-x86_64-unknown-linux-gnu"
 
       - name: Test
         run: cargo test
