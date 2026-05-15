@@ -2,6 +2,7 @@ package workspace
 
 import (
 	"context"
+	"fmt"
 	"runtime"
 	"strings"
 	"testing"
@@ -150,9 +151,10 @@ func TestLocalTerminal_WaitForExitRetainsBoundedOutput(t *testing.T) {
 
 	ws := NewLocalWorkspace()
 	dir := t.TempDir()
+	script := "for i in $(seq 1 128); do printf 'out-%03d\\n' \"$i\"; printf 'err-%03d\\n' \"$i\" 1>&2; done"
 	term, err := ws.OpenTerminal(context.Background(), TerminalOptions{
 		Command:          "sh",
-		Args:             []string{"-c", "printf out && printf err 1>&2"},
+		Args:             []string{"-c", script},
 		WorkingDirectory: dir,
 		Policy:           Policy{AllowedRoot: dir},
 	})
@@ -167,12 +169,24 @@ func TestLocalTerminal_WaitForExitRetainsBoundedOutput(t *testing.T) {
 	if err != nil {
 		t.Fatalf("WaitForExit: %v", err)
 	}
-	if !strings.Contains(result.Stdout, "out") {
-		t.Fatalf("Result.Stdout = %q; want to contain %q", result.Stdout, "out")
+	for _, want := range []string{"out-001", "out-064", "out-128"} {
+		if !strings.Contains(result.Stdout, want) {
+			t.Fatalf("Result.Stdout missing %q; got %s", want, compactForTest(result.Stdout))
+		}
 	}
-	if !strings.Contains(result.Stderr, "err") {
-		t.Fatalf("Result.Stderr = %q; want to contain %q", result.Stderr, "err")
+	for _, want := range []string{"err-001", "err-064", "err-128"} {
+		if !strings.Contains(result.Stderr, want) {
+			t.Fatalf("Result.Stderr missing %q; got %s", want, compactForTest(result.Stderr))
+		}
 	}
+}
+
+func compactForTest(s string) string {
+	const max = 180
+	if len(s) <= max {
+		return fmt.Sprintf("%q", s)
+	}
+	return fmt.Sprintf("%q...%q (%d bytes)", s[:90], s[len(s)-90:], len(s))
 }
 
 func TestLocalTerminal_RejectsOutsideAllowedRoot(t *testing.T) {
