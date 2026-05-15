@@ -252,6 +252,49 @@ describe("resolveDashboardSnapshot", () => {
     expect(api.getProviders).toHaveBeenCalled();
   });
 
+  it("falls back to previous providers when getSettingsConfig rejects", async () => {
+    // A transient settings-config fetch failure must not cascade
+    // into dropping previously known providers. The loader should
+    // consult the previous snapshot to decide whether to refresh
+    // providers, and the outer resolveDashboardResult should keep
+    // previous.providers when the fresh providers fetch is left
+    // un-attempted.
+    vi.mocked(api.getSettingsConfig).mockRejectedValue(new Error("boom"));
+    const previous = {
+      ...emptyPrev,
+      providers: [{ name: "openai" } as never],
+      settingsConfig: { backend: "memory", providers: [{ name: "openai" } as never], policy_rules: [], events: [] } as never,
+    };
+    vi.mocked(api.getProviders).mockResolvedValue({
+      object: "list",
+      data: [{ name: "openai", state: "ready" } as never],
+    });
+    const snapshot = await resolveDashboardSnapshot({
+      activeChatSessionID: "",
+      activeAgentChatSessionID: "",
+      previous,
+    });
+    expect(api.getProviders).toHaveBeenCalled();
+    expect(snapshot.providers).toEqual([{ name: "openai", state: "ready" }]);
+  });
+
+  it("preserves previous providers when getSettingsConfig rejects and previous had none configured", async () => {
+    // No previous settings-config and no previous providers; the
+    // fresh settings-config failed. providers should stay at the
+    // previous value (empty) without firing getProviders or
+    // overwriting with a synthesized empty list (which would
+    // displace a hypothetical concurrent update via
+    // resolveDashboardResult on the outer call).
+    vi.mocked(api.getSettingsConfig).mockRejectedValue(new Error("boom"));
+    const snapshot = await resolveDashboardSnapshot({
+      activeChatSessionID: "",
+      activeAgentChatSessionID: "",
+      previous: emptyPrev,
+    });
+    expect(api.getProviders).not.toHaveBeenCalled();
+    expect(snapshot.providers).toEqual([]);
+  });
+
   it("throws when the health probe rejects (the dashboard cannot proceed without it)", async () => {
     vi.mocked(api.getHealth).mockRejectedValue(new Error("backend down"));
     await expect(

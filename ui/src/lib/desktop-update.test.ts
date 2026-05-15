@@ -148,8 +148,9 @@ describe("useDesktopUpdate", () => {
     checkMock.mockResolvedValue(null);
     renderHook(() => useDesktopUpdate(), { wrapper: StrictMode });
     await waitFor(() => expect(checkMock).toHaveBeenCalled());
-    // StrictMode would invoke the effect twice without the
-    // checkedRef guard. The guard is what keeps this at 1.
+    // StrictMode invokes the setup effect twice; inflightRef
+    // inside runCheck dedupes the second call by returning the
+    // first run's promise, so check() resolves to a single hit.
     expect(checkMock).toHaveBeenCalledTimes(1);
   });
 

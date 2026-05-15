@@ -226,7 +226,12 @@ async function loadDashboardResults(opts: {
   let usageEvents: PromiseSettledResult<UsageEventsResponse> = initialReject();
   let runtimeStats: PromiseSettledResult<RuntimeStatsResponse> = initialReject();
 
-  const configured = settingsConfig.status === "fulfilled" ? (settingsConfig.value.data?.providers ?? []) : [];
+  // Resolve settings-config the same way we publish it via onEssentials:
+  // fall back to the previous snapshot when this wave's fetch rejected
+  // so a transient failure doesn't make us drop providers (the secondary
+  // wave below decides whether to refresh getProviders() based on this).
+  const resolvedSettingsConfig = resolveDashboardResult(settingsConfig, opts.previousSettingsConfig);
+  const configured = resolvedSettingsConfig?.providers ?? [];
   const secondary: Promise<unknown>[] = [
     getProviderPresets().then(r => { providerPresets = { status: "fulfilled", value: r }; }, e => { providerPresets = { status: "rejected", reason: e }; }),
     getAgentAdapters().then(r => { agentAdapters = { status: "fulfilled", value: r }; }, e => { agentAdapters = { status: "rejected", reason: e }; }),
@@ -241,7 +246,11 @@ async function loadDashboardResults(opts: {
       r => { providers = { status: "fulfilled", value: r }; },
       e => { providers = { status: "rejected", reason: e }; },
     ));
-  } else {
+  } else if (settingsConfig.status === "fulfilled") {
+    // We confirmed zero configured providers from a fresh fetch —
+    // publish an empty list. On settingsConfig failure, leave
+    // providers as initialReject() so resolveDashboardResult in
+    // resolveDashboardSnapshot keeps previous.providers.
     providers = { status: "fulfilled", value: { object: "list", data: [] } as ProviderStatusResponse };
   }
   await Promise.all(secondary);
