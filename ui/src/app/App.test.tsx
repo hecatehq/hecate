@@ -1,6 +1,30 @@
 import { afterEach, describe, expect, it, vi } from "vitest";
 
-import { installTauriEditShortcutFallback } from "./App";
+import { installTauriDocumentMarkers, installTauriEditShortcutFallback } from "./App";
+
+describe("installTauriDocumentMarkers", () => {
+  afterEach(() => {
+    Reflect.deleteProperty(window, "__TAURI_INTERNALS__");
+    delete document.documentElement.dataset.tauri;
+  });
+
+  it("marks the document only inside Tauri", () => {
+    const cleanup = installTauriDocumentMarkers();
+
+    expect(document.documentElement.dataset.tauri).toBeUndefined();
+    cleanup();
+  });
+
+  it("cleans up the desktop marker", () => {
+    Reflect.set(window, "__TAURI_INTERNALS__", {});
+
+    const cleanup = installTauriDocumentMarkers();
+
+    expect(document.documentElement.dataset.tauri).toBe("true");
+    cleanup();
+    expect(document.documentElement.dataset.tauri).toBeUndefined();
+  });
+});
 
 describe("installTauriEditShortcutFallback", () => {
   afterEach(() => {

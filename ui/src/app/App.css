@@ -1,10 +1,29 @@
 /* VSCode-style shell */
 
 .hecate-shell {
+  position: relative;
   display: grid;
   grid-template-rows: 1fr 24px;
   height: 100vh;
   overflow: hidden;
+  background: var(--bg0);
+}
+
+.hecate-titlebar-drag-region {
+  display: none;
+}
+
+html[data-tauri="true"] .hecate-shell {
+  padding-top: 28px;
+}
+
+html[data-tauri="true"] .hecate-titlebar-drag-region {
+  -webkit-app-region: drag;
+  display: block;
+  position: absolute;
+  inset: 0 0 auto 0;
+  height: 28px;
+  z-index: 1000;
 }
 
 .hecate-workarea {

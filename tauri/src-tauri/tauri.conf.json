@@ -18,7 +18,10 @@
         "minHeight": 600,
         "fullscreen": false,
         "resizable": true,
-        "center": true
+        "center": true,
+        "decorations": true,
+        "hiddenTitle": true,
+        "titleBarStyle": "Overlay"
       }
     ],
     "security": {
