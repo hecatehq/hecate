@@ -83,6 +83,10 @@ const RETENTION_LABELS = Object.fromEntries(
   RETENTION_SUBSYSTEMS.map(s => [s.id, s.label]),
 ) as Record<RetentionSubsystemID, string>;
 
+function isRetentionSubsystemID(name: string): name is RetentionSubsystemID {
+  return name in RETENTION_LABELS;
+}
+
 function relativeTime(iso: string): string {
   const diff = Date.now() - new Date(iso).getTime();
   const s = Math.floor(diff / 1000);
@@ -200,7 +204,7 @@ function RetentionSettings({ state, actions }: Props) {
             {lastRunResults.map(r => (
               <div key={r.name} style={{ display: "flex", alignItems: "center", gap: 8 }}>
                 <span style={{ fontSize: 11, color: r.skipped ? "var(--t3)" : "var(--t1)", width: 160, flexShrink: 0 }}>
-                  {RETENTION_LABELS[r.name] ?? r.name}
+                  {isRetentionSubsystemID(r.name) ? RETENTION_LABELS[r.name] : r.name}
                 </span>
                 {r.skipped ? (
                   <span style={{ fontFamily: "var(--font-mono)", fontSize: 10, color: "var(--t3)", fontStyle: "italic" }}>skipped</span>
