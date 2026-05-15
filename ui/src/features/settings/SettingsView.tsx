@@ -1,4 +1,4 @@
-import { useState, type ReactNode } from "react";
+import type { ReactNode } from "react";
 import type { RuntimeConsoleViewModel } from "../../app/useRuntimeConsole";
 import { Badge, Icon, Icons, InlineError } from "../shared/ui";
 
@@ -7,58 +7,11 @@ type Props = {
   actions: RuntimeConsoleViewModel["actions"];
 };
 
-// Connections owns provider credentials, model capabilities, and
-// external-agent setup. Settings stays focused on gateway maintenance.
-const TABS = ["retention"] as const;
-type Tab = (typeof TABS)[number];
-const TAB_LABELS: Record<Tab, string> = {
-  retention: "Retention",
-};
-
-const TAB_STORAGE_KEY = "hecate.settingsTab";
-
 export function SettingsView({ state, actions }: Props) {
-  // Persist the settings sub-tab so refreshing returns the operator to
-  // the same maintenance surface.
-  const [tab, setTabRaw] = useState<Tab>(() => {
-    const saved = localStorage.getItem(TAB_STORAGE_KEY);
-    if (saved === "external_agents" || saved === "connections") return TABS[0];
-    if (saved && (TABS as readonly string[]).includes(saved)) return saved as Tab;
-    return TABS[0];
-  });
-  const setTab = (next: Tab) => {
-    localStorage.setItem(TAB_STORAGE_KEY, next);
-    setTabRaw(next);
-  };
-
   return (
     <div style={{ height: "100%", display: "flex", flexDirection: "column", overflow: "hidden" }}>
-      {/* Tab bar */}
-      <div style={{ display: "flex", gap: 2, padding: "0 16px", borderBottom: "1px solid var(--border)", flexShrink: 0 }}>
-        {TABS.map(t => (
-          <button key={t} type="button"
-            onClick={() => setTab(t)}
-            style={{
-              padding: "7px 12px",
-              fontSize: 12,
-              fontFamily: "var(--font-mono)",
-              background: "none",
-              border: "none",
-              borderBottom: tab === t ? "2px solid var(--teal)" : "2px solid transparent",
-              color: tab === t ? "var(--teal)" : "var(--t2)",
-              cursor: "pointer",
-              marginBottom: -1,
-              textTransform: "uppercase",
-              letterSpacing: "0.04em",
-            }}>
-            {TAB_LABELS[t]}
-          </button>
-        ))}
-      </div>
-
-      {/* Tab content */}
       <div style={{ flex: 1, overflowY: "auto", padding: 16 }}>
-        {tab === "retention" && <RetentionTab state={state} actions={actions} />}
+        <RetentionSettings state={state} actions={actions} />
       </div>
     </div>
   );
@@ -91,17 +44,42 @@ function SectionHeader({
   );
 }
 
-
-// ─── Retention tab ────────────────────────────────────────────────────────────
-
-const KNOWN_SUBSYSTEMS = [
-  "trace_snapshots",
-  "usage_events",
-  "audit_events",
-  "provider_history",
-  "turn_events",
-  "agent_chat_approvals",
+const RETENTION_SUBSYSTEMS = [
+  {
+    id: "trace_snapshots",
+    label: "Trace snapshots",
+    description: "Old request trace payloads and captured bodies.",
+  },
+  {
+    id: "usage_events",
+    label: "Usage events",
+    description: "Append-only cloud token and reported-cost rows.",
+  },
+  {
+    id: "audit_events",
+    label: "Audit events",
+    description: "Operator-facing audit trail entries.",
+  },
+  {
+    id: "provider_history",
+    label: "Provider history",
+    description: "Provider health and readiness history.",
+  },
+  {
+    id: "turn_events",
+    label: "Task turn events",
+    description: "Verbose per-turn task-runtime events.",
+  },
+  {
+    id: "agent_chat_approvals",
+    label: "External-agent approvals",
+    description: "Resolved approval prompts. Durable grants are kept.",
+  },
 ] as const;
+
+const RETENTION_LABELS = Object.fromEntries(
+  RETENTION_SUBSYSTEMS.map(s => [s.id, s.label]),
+) as Record<string, string>;
 
 function relativeTime(iso: string): string {
   const diff = Date.now() - new Date(iso).getTime();
@@ -114,7 +92,7 @@ function relativeTime(iso: string): string {
   return `${Math.floor(h / 24)}d ago`;
 }
 
-function RetentionTab({ state, actions }: Props) {
+function RetentionSettings({ state, actions }: Props) {
   const runs = state.retentionRuns ?? [];
   const lastRun = state.retentionLastRun;
   const lastRunResults = lastRun?.results ?? [];
@@ -124,7 +102,7 @@ function RetentionTab({ state, actions }: Props) {
     state.retentionSubsystems
       .split(",")
       .map(s => s.trim())
-      .filter(s => KNOWN_SUBSYSTEMS.includes(s as typeof KNOWN_SUBSYSTEMS[number]))
+      .filter(s => RETENTION_SUBSYSTEMS.some(sub => sub.id === s))
   );
 
   function toggleSubsystem(name: string) {
@@ -140,47 +118,63 @@ function RetentionTab({ state, actions }: Props) {
   return (
     <>
       <SectionHeader
-        title="Retention"
-        description="Prune stored traces, usage events, audit events, and cache data."
+        title="Maintenance"
+        description="Clean up old local runtime data. Hecate keeps durable configuration, provider credentials, and external-agent grants unless you remove them from Connections."
         meta={`${runs.length} run${runs.length === 1 ? "" : "s"}`}
       />
 
       {/* Controls */}
       <div className="card" style={{ padding: "14px 16px", marginBottom: 16 }}>
         <div style={{ display: "flex", alignItems: "center", gap: 10, marginBottom: 12 }}>
-          <span style={{ fontSize: 13, fontWeight: 500, color: "var(--t0)" }}>Subsystems to prune</span>
-          <span style={{ fontSize: 11, color: "var(--t3)", fontFamily: "var(--font-mono)" }}>
-            {selectedSet.size === 0 ? "all" : `${selectedSet.size} selected`}
+          <div style={{ minWidth: 0 }}>
+            <div style={{ fontSize: 13, fontWeight: 500, color: "var(--t0)", marginBottom: 3 }}>Run cleanup</div>
+            <div style={{ fontSize: 11, color: "var(--t3)", lineHeight: 1.45 }}>
+              Choose what to sweep now. Leave everything off to run the normal full cleanup.
+            </div>
+          </div>
+          <span style={{ fontSize: 11, color: "var(--t3)", fontFamily: "var(--font-mono)", marginLeft: "auto" }}>
+            {selectedSet.size === 0 ? "full cleanup" : `${selectedSet.size} selected`}
           </span>
-          <button className="btn btn-primary btn-sm" style={{ marginLeft: "auto" }}
+          <button className="btn btn-primary btn-sm"
             disabled={state.retentionLoading}
             onClick={() => void actions.runRetention()}>
-            <Icon d={Icons.refresh} size={13} /> {state.retentionLoading ? "Running…" : "Run now"}
+            <Icon d={Icons.refresh} size={13} /> {state.retentionLoading ? "Cleaning…" : "Clean up now"}
           </button>
         </div>
-        <div style={{ display: "flex", flexWrap: "wrap", gap: 6 }}>
-          {KNOWN_SUBSYSTEMS.map(name => {
-            const active = selectedSet.has(name);
+        <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(220px, 1fr))", gap: 8 }}>
+          {RETENTION_SUBSYSTEMS.map(subsystem => {
+            const active = selectedSet.has(subsystem.id);
             return (
-              <button key={name} type="button" onClick={() => toggleSubsystem(name)}
+              <button key={subsystem.id} type="button" onClick={() => toggleSubsystem(subsystem.id)}
                 style={{
-                  padding: "4px 10px",
-                  fontFamily: "var(--font-mono)",
-                  fontSize: 11,
+                  padding: "10px 11px",
                   borderRadius: "var(--radius-sm)",
                   border: `1px solid ${active ? "var(--teal-border)" : "var(--border)"}`,
                   background: active ? "var(--teal-bg)" : "var(--bg3)",
-                  color: active ? "var(--teal)" : "var(--t2)",
+                  color: active ? "var(--t0)" : "var(--t2)",
                   cursor: "pointer",
+                  textAlign: "left",
                   transition: "background 0.1s, color 0.1s, border-color 0.1s",
                 }}>
-                {name}
+                <div style={{ display: "flex", alignItems: "center", gap: 8, marginBottom: 4 }}>
+                  <span style={{
+                    width: 8,
+                    height: 8,
+                    borderRadius: "50%",
+                    background: active ? "var(--teal)" : "var(--border-strong)",
+                    flexShrink: 0,
+                  }} />
+                  <span style={{ fontSize: 12, fontWeight: 500 }}>{subsystem.label}</span>
+                </div>
+                <div style={{ fontSize: 10, color: active ? "var(--t2)" : "var(--t3)", lineHeight: 1.35 }}>
+                  {subsystem.description}
+                </div>
               </button>
             );
           })}
         </div>
-        <div style={{ fontSize: 10, color: "var(--t3)", marginTop: 8 }}>
-          No selection = prune all subsystems
+        <div style={{ fontSize: 10, color: "var(--t3)", marginTop: 10, lineHeight: 1.45 }}>
+          Cleanup follows the retention windows configured in the gateway environment. It never deletes provider setup, saved secrets, workspaces, or durable external-agent grants.
         </div>
         {state.retentionError && <div style={{ marginTop: 8 }}><InlineError message={state.retentionError} /></div>}
       </div>
@@ -197,14 +191,14 @@ function RetentionTab({ state, actions }: Props) {
             <span style={{ fontFamily: "var(--font-mono)", fontSize: 11, color: "var(--t2)" }}>{lastRun.trigger}</span>
             <span style={{ fontFamily: "var(--font-mono)", fontSize: 11, color: "var(--t3)" }}>·</span>
             <span style={{ fontFamily: "var(--font-mono)", fontSize: 11, color: totalDeleted > 0 ? "var(--teal)" : "var(--t3)" }}>
-              {totalDeleted} deleted
+              {totalDeleted} removed
             </span>
           </div>
           <div style={{ display: "flex", flexDirection: "column", gap: 6 }}>
             {lastRunResults.map(r => (
               <div key={r.name} style={{ display: "flex", alignItems: "center", gap: 8 }}>
-                <span style={{ fontFamily: "var(--font-mono)", fontSize: 11, color: r.skipped ? "var(--t3)" : "var(--t1)", width: 140, flexShrink: 0 }}>
-                  {r.name}
+                <span style={{ fontSize: 11, color: r.skipped ? "var(--t3)" : "var(--t1)", width: 160, flexShrink: 0 }}>
+                  {RETENTION_LABELS[r.name] ?? r.name}
                 </span>
                 {r.skipped ? (
                   <span style={{ fontFamily: "var(--font-mono)", fontSize: 10, color: "var(--t3)", fontStyle: "italic" }}>skipped</span>
@@ -221,7 +215,7 @@ function RetentionTab({ state, actions }: Props) {
                       }} />
                     </div>
                     <span style={{ fontFamily: "var(--font-mono)", fontSize: 11, color: r.deleted > 0 ? "var(--teal)" : "var(--t3)", width: 48, textAlign: "right", flexShrink: 0 }}>
-                      {r.deleted} del
+                      {r.deleted} removed
                     </span>
                   </>
                 )}
@@ -240,10 +234,10 @@ function RetentionTab({ state, actions }: Props) {
             const errored = r.results?.some(s => s.error);
             return (
               <div key={i} style={{ display: "flex", alignItems: "center", gap: 10, padding: "8px 14px", borderBottom: i < Math.min(runs.length, 20) - 1 ? "1px solid var(--border)" : "none" }}>
-                <span style={{ fontFamily: "var(--font-mono)", fontSize: 11, color: "var(--t2)", width: 70, flexShrink: 0 }}>{r.trigger}</span>
+                <span style={{ fontSize: 11, color: "var(--t2)", width: 70, flexShrink: 0, textTransform: "capitalize" }}>{r.trigger}</span>
                 <span style={{ fontFamily: "var(--font-mono)", fontSize: 11, color: "var(--t3)" }}>{relativeTime(r.finished_at)}</span>
                 <span style={{ fontFamily: "var(--font-mono)", fontSize: 11, color: del > 0 ? "var(--teal)" : "var(--t3)", marginLeft: "auto" }}>
-                  {del} deleted
+                  {del} removed
                 </span>
                 {errored && <Badge status="down" label="error" />}
               </div>

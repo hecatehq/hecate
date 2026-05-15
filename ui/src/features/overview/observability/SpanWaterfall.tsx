@@ -187,10 +187,15 @@ function SpanRow({
   // skew or partial trace). The bar IS positioned at the span's
   // real start but the duration label is "?" rather than a
   // misleading "-50ms" or a silently-clamped 1ms tick.
-  const leftPct = ws.unknownTiming ? 0 : (ws.startMs / totalMs) * 100;
+  const rawLeftPct = ws.unknownTiming ? 0 : (ws.startMs / totalMs) * 100;
   const widthPct = ws.unknownTiming || ws.negativeDuration
     ? 1
     : Math.max((ws.durMs / totalMs) * 100, 0.5);
+  // Sub-ms finalization spans often start at ~100% of the trace and
+  // rely on the minimum visual width below. Clamp the rendered bar
+  // back inside the viewport so end-of-request phases like usage and
+  // response remain visible instead of being clipped off the right edge.
+  const leftPct = Math.min(rawLeftPct, Math.max(0, 100 - widthPct));
   const color = phaseColor(ws.phase, ws.span);
   const opacity = isDimmed ? 0.3 : 1;
   // Duration label inside the bar when wide enough, otherwise to its

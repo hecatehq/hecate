@@ -14,46 +14,40 @@ function setup(stateOverrides = {}, actionOverrides = {}) {
 }
 
 beforeEach(() => {
-  localStorage.removeItem("hecate.settingsTab");
   sessionStorage.removeItem("hecate.settingsFocus");
   sessionStorage.removeItem("hecate.connectionsFocus");
 });
 
-// Tab gating: Connections is now a top-level workspace; Settings keeps
+// Connections is now a top-level workspace; Settings keeps
 // configuration that does not belong to a runtime connection surface.
 // Policy and MCP Cache were removed (single-user mode dropped tenant/role
 // gating and the MCP cache was pure informational stats). Usage lives
 // in the Usage workspace.
-describe("SettingsView tabs", () => {
-  it("renders Retention only", () => {
+describe("SettingsView", () => {
+  it("renders maintenance cleanup without legacy tabs", () => {
     const { state, actions } = setup();
     render(<SettingsView state={state} actions={actions} />);
-    expect(screen.getByRole("button", { name: "Retention" })).toBeTruthy();
+    expect(screen.getByText("Maintenance")).toBeTruthy();
+    expect(screen.getByText(/Clean up old local runtime data/i)).toBeTruthy();
+    expect(screen.queryByRole("button", { name: "Retention" })).toBeNull();
     expect(screen.queryByRole("button", { name: "Pricing" })).toBeNull();
     expect(screen.queryByRole("button", { name: "Connections" })).toBeNull();
     expect(screen.queryByRole("button", { name: "Model capabilities" })).toBeNull();
   });
 
-  it("starts on the retention tab", () => {
+  it("starts on the cleanup controls", () => {
     const { state, actions } = setup();
     render(<SettingsView state={state} actions={actions} />);
-    expect(screen.getByText(/Subsystems to prune/i)).toBeTruthy();
-  });
-
-  it("switches to retention tab on click", async () => {
-    const { state, actions, user } = setup();
-    render(<SettingsView state={state} actions={actions} />);
-    await user.click(screen.getByRole("button", { name: "Retention" }));
-    expect(await screen.findByText(/Subsystems to prune/i)).toBeTruthy();
+    expect(screen.getByText(/Run cleanup/i)).toBeTruthy();
+    expect(screen.getByRole("button", { name: /Clean up now/i })).toBeTruthy();
   });
 });
 
 describe("SettingsView retention tab", () => {
   it("shows known subsystems as toggle chips", async () => {
-    const { state, actions, user } = setup();
+    const { state, actions } = setup();
     render(<SettingsView state={state} actions={actions} />);
-    await user.click(screen.getByRole("button", { name: "Retention" }));
-    for (const sub of ["trace_snapshots", "usage_events", "audit_events"]) {
+    for (const sub of ["Trace snapshots", "Usage events", "Audit events"]) {
       expect(await screen.findByText(sub)).toBeTruthy();
     }
   });
@@ -62,8 +56,7 @@ describe("SettingsView retention tab", () => {
     const setRetentionSubsystems = vi.fn();
     const { state, actions, user } = setup({}, { setRetentionSubsystems });
     render(<SettingsView state={state} actions={actions} />);
-    await user.click(screen.getByRole("button", { name: "Retention" }));
-    await user.click(await screen.findByText("audit_events"));
+    await user.click(await screen.findByText("Audit events"));
     expect(setRetentionSubsystems).toHaveBeenCalledWith("audit_events");
   });
 
@@ -71,23 +64,21 @@ describe("SettingsView retention tab", () => {
     const runRetention = vi.fn(async () => undefined);
     const { state, actions, user } = setup({}, { runRetention });
     render(<SettingsView state={state} actions={actions} />);
-    await user.click(screen.getByRole("button", { name: "Retention" }));
-    await user.click(await screen.findByRole("button", { name: /Run now/i }));
+    await user.click(await screen.findByRole("button", { name: /Clean up now/i }));
     expect(runRetention).toHaveBeenCalled();
   });
 
   it("handles partial retention run payloads without results", async () => {
-    const { state, actions, user } = setup({
+    const { state, actions } = setup({
       retentionLastRun: {
         finished_at: new Date().toISOString(),
         trigger: "manual",
       },
     });
     render(<SettingsView state={state} actions={actions} />);
-    await user.click(screen.getByRole("button", { name: "Retention" }));
 
     expect(await screen.findByText(/Last run/i)).toBeTruthy();
-    expect(screen.getByText("0 deleted")).toBeTruthy();
+    expect(screen.getByText("0 removed")).toBeTruthy();
   });
 });
 
