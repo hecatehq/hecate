@@ -262,4 +262,57 @@ describe("resolveDashboardSnapshot", () => {
       }),
     ).rejects.toThrow(/runtime console/);
   });
+
+  it("fires onEssentials before the secondary wave starts", async () => {
+    // Hold the secondary wave (getChatSessions is on it) until we
+    // signal completion. The essentials wave should resolve and
+    // fire its callback while this promise is still pending — that
+    // is the whole point of the early-commit hook.
+    let releaseSecondary: (() => void) | null = null;
+    vi.mocked(api.getChatSessions).mockImplementation(
+      () => new Promise((resolve) => {
+        releaseSecondary = () => resolve({ object: "list", data: [], has_more: false });
+      }),
+    );
+
+    const onEssentials = vi.fn();
+    const snapshotPromise = resolveDashboardSnapshot({
+      activeChatSessionID: "",
+      activeAgentChatSessionID: "",
+      previous: emptyPrev,
+      onEssentials,
+    });
+
+    // Microtasks drain so the essentials wave can settle.
+    await Promise.resolve();
+    await Promise.resolve();
+    await Promise.resolve();
+
+    expect(onEssentials).toHaveBeenCalledTimes(1);
+    const essentials = onEssentials.mock.calls[0][0];
+    expect(essentials.health.status).toBe("ok");
+    expect(essentials.sessionInfo).toEqual({ role: "operator" });
+    expect(essentials.models).toEqual([]);
+    expect(essentials.settingsConfig?.providers).toEqual([]);
+
+    // Secondary is still pending — finish it so the outer promise
+    // resolves and the test cleans up.
+    releaseSecondary?.();
+    await snapshotPromise;
+  });
+
+  it("surfaces a synthetic down health to onEssentials when getHealth rejects", async () => {
+    // The shell should still render with an error banner instead
+    // of hanging on the loading state when health fails.
+    vi.mocked(api.getHealth).mockRejectedValue(new Error("backend down"));
+    const onEssentials = vi.fn();
+    await resolveDashboardSnapshot({
+      activeChatSessionID: "",
+      activeAgentChatSessionID: "",
+      previous: emptyPrev,
+      onEssentials,
+    }).catch(() => undefined); // outer promise still rejects; that's fine
+    expect(onEssentials).toHaveBeenCalled();
+    expect(onEssentials.mock.calls[0][0].health.status).toBe("down");
+  });
 });

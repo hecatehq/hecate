@@ -673,6 +673,18 @@ export function useRuntimeConsole() {
           retentionRuns,
           retentionLastRun,
         },
+        // Commit just enough state to drop the AuthLoadingShell as
+        // soon as wave 1 resolves — the activity bar + status bar
+        // can render with what's here while the secondary wave
+        // (chats, providers, usage, retention, …) finishes in the
+        // background. The big batch update below then idempotently
+        // re-applies these slots alongside the secondary results.
+        onEssentials: (essentials) => {
+          setHealth(essentials.health);
+          setSessionInfo(essentials.sessionInfo);
+          setModels(essentials.models);
+          setSettingsConfig(essentials.settingsConfig);
+        },
       });
 
       setHealth(snapshot.health);
