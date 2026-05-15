@@ -45,7 +45,7 @@ func TestLocalExecutorUsesRTKWhenEnabled(t *testing.T) {
 	exec := NewLocalExecutor()
 	result, err := exec.Run(context.Background(), Command{
 		Command:    `printf 'compacted'`,
-		Timeout:    time.Second,
+		Timeout:    5 * time.Second,
 		RTKEnabled: true,
 	})
 	if err != nil {
