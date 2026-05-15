@@ -238,6 +238,36 @@ describe("useDesktopUpdate", () => {
     expect(result.current.lastCheckResult).toBeNull();
   });
 
+  it("manual check landing on an in-flight automatic check still surfaces feedback", async () => {
+    // Regression for #109 round-4: the automatic mount check
+    // started with manual=false. If the user fires checkNow()
+    // before that promise resolves, runCheck dedupes by returning
+    // the same in-flight promise. Without manualRequestedRef the
+    // resolution wouldn't update lastCheckResult, so the user's
+    // explicit "Check for Updates…" click would complete silently.
+    enterTauriRuntime();
+    let resolveCheck: (v: null) => void = () => {};
+    const pending = new Promise<null>((resolve) => {
+      resolveCheck = resolve;
+    });
+    checkMock.mockReturnValue(pending);
+    const { result } = renderHook(() => useDesktopUpdate());
+    await waitFor(() => expect(checkMock).toHaveBeenCalled());
+
+    // Manual trigger while the automatic check is still pending.
+    act(() => { void result.current.checkNow(); });
+    // Auto check should still be the only network call.
+    expect(checkMock).toHaveBeenCalledTimes(1);
+
+    // Resolve the in-flight check — manualRequestedRef was set by
+    // the checkNow() above, so the banner should appear.
+    await act(async () => {
+      resolveCheck(null);
+      await pending;
+    });
+    await waitFor(() => expect(result.current.lastCheckResult).toBe("up-to-date"));
+  });
+
   it("invokes set_update_badge(true) when an update is detected and clears on dismiss", async () => {
     enterTauriRuntime();
     checkMock.mockResolvedValue({

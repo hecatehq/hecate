@@ -106,6 +106,13 @@ export function useDesktopUpdate(): {
   // + manual) don't stack network calls. The promise is reused so
   // every caller awaits the same resolution.
   const inflightRef = useRef<Promise<void> | null>(null);
+  // Set when any caller during the current in-flight window asked
+  // for a manual check. We use this (not the original opts.manual
+  // of the first caller) to decide whether to surface transient
+  // banner feedback when the check resolves — otherwise a manual
+  // trigger that landed on top of an in-flight automatic check
+  // would complete invisibly. Reset in finally after publishing.
+  const manualRequestedRef = useRef(false);
   const installingRef = useRef(false);
   installingRef.current = state.installing;
 
@@ -116,6 +123,7 @@ export function useDesktopUpdate(): {
       // Manual triggers (menu item, programmatic checkNow) bypass
       // and clear the dismissed flag — the user is explicitly
       // asking, so the next auto-check should fire too.
+      manualRequestedRef.current = true;
       sessionStorage.removeItem(DISMISS_STORAGE_KEY);
     } else if (sessionStorage.getItem(DISMISS_STORAGE_KEY)) {
       return;
@@ -139,9 +147,10 @@ export function useDesktopUpdate(): {
           // "up-to-date" state for manual checks — automatic
           // checks shouldn't put up a banner that disappears
           // four seconds later for no reason the user can see.
+          const manual = manualRequestedRef.current;
           setState((prev) => ({
             ...prev,
-            lastCheckResult: opts.manual ? "up-to-date" : null,
+            lastCheckResult: manual ? "up-to-date" : null,
           }));
         }
       } catch (err) {
@@ -152,12 +161,14 @@ export function useDesktopUpdate(): {
         // user. Manual triggers get the "error" state so the
         // UI can give feedback that something went wrong.
         logWarn("[hecate] desktop updater check failed:", err);
+        const manual = manualRequestedRef.current;
         setState((prev) => ({
           ...prev,
-          lastCheckResult: opts.manual ? "error" : null,
+          lastCheckResult: manual ? "error" : null,
         }));
       } finally {
         inflightRef.current = null;
+        manualRequestedRef.current = false;
       }
     })();
     inflightRef.current = run;
