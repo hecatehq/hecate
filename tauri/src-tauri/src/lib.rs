@@ -18,7 +18,7 @@ use std::path::{Path, PathBuf};
 use std::sync::Mutex;
 use std::time::{Duration, Instant};
 use tauri::menu::{MenuBuilder, SubmenuBuilder};
-use tauri::Manager;
+use tauri::{Emitter, Manager};
 
 const MIN_SPLASH_DURATION: Duration = Duration::from_secs(2);
 
@@ -64,6 +64,7 @@ fn open_path(path: &Path) -> Result<(), String> {
 fn install_menu(app: &mut tauri::App) -> tauri::Result<()> {
     let app_menu = SubmenuBuilder::new(app, "Hecate")
         .text("open-hecate", "Open Hecate")
+        .text("check-for-updates", "Check for Updates\u{2026}")
         .separator()
         .text("open-gateway-log", "Open Gateway Log")
         .text("open-data-directory", "Open Data Directory")
@@ -102,6 +103,17 @@ pub fn run() {
                     let _ = win.show();
                     let _ = win.set_focus();
                 }
+            }
+            "check-for-updates" => {
+                // The actual check lives in the renderer (useDesktopUpdate
+                // owns the @tauri-apps/plugin-updater client and the
+                // banner state machine). Emit an event the webview can
+                // hook into; the React side handles the rest.
+                if let Some(win) = app.get_webview_window("main") {
+                    let _ = win.show();
+                    let _ = win.set_focus();
+                }
+                let _ = app.emit("hecate:check-for-updates", ());
             }
             "open-gateway-log" => {
                 if let Some(paths) = app.try_state::<GatewayDiagnostics>() {
