@@ -1,4 +1,4 @@
-import { useEffect, useState } from "react";
+import { useEffect, useLayoutEffect, useState } from "react";
 
 import { ConsoleShell, getAvailableWorkspaces, type WorkspaceID } from "./AppShell";
 import { useRuntimeConsole } from "./useRuntimeConsole";
@@ -26,7 +26,14 @@ export default function App() {
     return installTauriEditShortcutFallback();
   }, []);
 
-  useEffect(() => {
+  // useLayoutEffect (not useEffect): the marker toggles padding-top
+  // and the drag-region's display in App.css via html[data-tauri].
+  // Running this after first paint would leave one frame where the
+  // shell renders without the 28-px titlebar inset, then jumps. A
+  // layout effect runs synchronously after DOM mutations but before
+  // the browser paints, so the very first frame already accounts
+  // for the overlay titlebar.
+  useLayoutEffect(() => {
     return installTauriDocumentMarkers();
   }, []);
 
