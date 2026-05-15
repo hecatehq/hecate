@@ -88,6 +88,8 @@ On first boot, Chats is already available. If Hecate detects a local runtime suc
 
 ![Chats first-run state — detected local providers and one-click Add detected providers setup](docs/screenshots/chat-empty.png)
 
+Chats starts with a setup-first empty state: detected local runtimes can be added in one click, while Connections remains available for manual provider setup.
+
 You can still configure providers manually from **Connections → Add provider**:
 
 - Cloud providers need an API key.
@@ -105,9 +107,15 @@ Chats is the primary day-to-day surface. It explains missing setup before you se
 
 ![Hecate Chat transcript with tools-off direct turns, tools-on task-backed turns, Task / Trace / Run links, and collapsible activity details](docs/screenshots/chat.png)
 
+Hecate Chat keeps direct model turns and tools-on task-backed turns in one transcript, with task, run, trace, timing, usage, and activity details close to the answer.
+
 ![Chats workspace with an external-agent file-write approval waiting for operator review](docs/screenshots/chat-agent-approval.png)
 
+External Agent approvals surface in Chats as actionable operator prompts before Codex, Claude Code, or Cursor can apply gated actions.
+
 ![Agent approval modal with ACP options, scope choices, and audit note](docs/screenshots/chat-agent-approval-modal.png)
+
+The approval modal shows the adapter-provided action, available ACP choices, grant scope, and an optional audit note before the decision is persisted.
 
 Hecate Chat preserves runtime boundaries inside the transcript: tools-off turns keep route/cost/cache metadata, tools-on turns link to their backing Task/run, and every assistant turn can link to its trace. If a task-backed run is busy, the composer queues the next prompt locally for that chat and sends it when the run settles. The Tasks workspace remains canonical for full run history, advanced activity details, artifacts, retry/resume, and patch review. See [Chat sessions](docs/chat-sessions.md), [Agent runtime](docs/agent-runtime.md), and [External agent adapters](docs/external-agent-adapters.md) for the deeper contracts.
 
@@ -168,19 +176,35 @@ The embedded UI is a runtime console for the operator.
 
 ![Observability view — request history and route-report drilldown](docs/screenshots/observe.png)
 
+Observability answers “what happened?” with recent requests, route status, trace timing, event flow, and the selected request’s runtime details.
+
 ![Empty Connections view — Add provider CTA](docs/screenshots/connections-empty.png)
+
+Connections owns setup: when no providers exist, the empty state points directly to the provider catalog instead of leaving Chats to fail later.
 
 ![Add provider modal — local preset catalog with detected runtime status](docs/screenshots/connections-add-provider.png)
 
+The Add provider flow groups cloud and local presets, showing detected local runtimes and the defaults Hecate will use.
+
 ![Connections workspace — configured cloud and local providers with health, endpoint, credentials, and models](docs/screenshots/connections.png)
+
+Configured providers show health, endpoint, credential state, model discovery, routing readiness, and repair actions in one place.
 
 ![Tasks workspace — run timeline with failed-tool diagnostics, stdout/stderr previews, and artifacts](docs/screenshots/tasks.png)
 
+Tasks remains the deep-debug view for native `agent_loop` runs: timelines, failed tools, stdout/stderr, artifacts, approvals, retry, and resume.
+
 ![Usage workspace — cloud token usage and reported cost where available](docs/screenshots/usage.png)
+
+Usage is intentionally narrow: cloud-provider tokens and known provider-reported cost where Hecate controls or observes the provider call.
 
 ![Settings — retention windows and last-run history](docs/screenshots/settings.png)
 
+Settings stays small; retention controls are separated from provider, adapter, and model-capability setup, which live in Connections.
+
 ![Connections workspace — adapter readiness checks and durable approval grants](docs/screenshots/connections-external-agents.png)
+
+External-agent readiness, Claude/Codex/Cursor setup state, and durable approval grants are managed from the same Connections surface.
 
 </details>
 
