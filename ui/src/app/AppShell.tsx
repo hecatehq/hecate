@@ -266,16 +266,8 @@ function AuthenticatedShell({
   return (
     <div className="hecate-shell">
       <div className="hecate-workarea">
-        {/* Activity bar. Doubles as the macOS titlebar drag region:
-            in the Tauri build the window uses titleBarStyle:"Overlay"
-            so the traffic lights overlay the top-left of this rail;
-            the data-tauri-drag-region attribute (harmless outside
-            Tauri) makes the empty top portion of the rail draggable.
-            CSS adds the matching top padding on [data-tauri-platform="macos"]. */}
-        <nav
-          className="hecate-activitybar"
-          aria-label="Workspace navigation"
-          data-tauri-drag-region>
+        {/* Activity bar */}
+        <nav className="hecate-activitybar" aria-label="Workspace navigation">
           {workspaces.map(ws => (
             <button key={ws.id}
               aria-label={ws.label}

@@ -10,7 +10,6 @@ import {
   getModels,
   getProviderPresets,
   getProviders,
-  getRetentionRuns,
   getRuntimeStats,
   getSession,
   getUsageEvents,
@@ -27,7 +26,6 @@ import type {
   ModelResponse,
   ProviderPresetRecord,
   ProviderStatusResponse,
-  RetentionRunData,
   RuntimeStatsResponse,
   SessionResponse,
   UsageSummaryResponse,
@@ -48,8 +46,6 @@ export type DashboardPreviousState = {
   activeAgentChatSession: AgentChatSessionRecord | null;
   usageEvents: UsageEventsResponse["data"];
   settingsConfig: ConfiguredStateResponse["data"] | null;
-  retentionRuns: RetentionRunData[];
-  retentionLastRun: RetentionRunData | null;
 };
 
 // DashboardEssentials is the minimal slice of dashboard state the
@@ -57,8 +53,10 @@ export type DashboardPreviousState = {
 // (gateway version + status), session label, model count, and
 // configured-provider count. Emitting these early lets the
 // AuthLoadingShell gate clear ~50–150 ms sooner on cold launches —
-// the rest of the snapshot (chat sessions, usage, retention, …)
-// continues to load in the background and lands when ready.
+// the rest of the snapshot (chat sessions, usage, …) continues to
+// load in the background and lands when ready. Retention runs are
+// view-deferred: the SettingsView mounts and calls a dedicated
+// action when it needs them; they're not in this snapshot at all.
 export type DashboardEssentials = {
   health: HealthResponse;
   sessionInfo: SessionResponse["data"] | null;
@@ -83,8 +81,6 @@ export type DashboardSnapshot = {
   activeAgentChatSession: AgentChatSessionRecord | null;
   usageEvents: UsageEventsResponse["data"];
   settingsConfig: ConfiguredStateResponse["data"] | null;
-  retentionRuns: RetentionRunData[];
-  retentionLastRun: RetentionRunData | null;
   agentAdapterApprovalMode: string;
   rtkAvailable: boolean;
   rtkPath: string;
@@ -102,7 +98,6 @@ type DashboardResults = {
   agentChatSessions: PromiseSettledResult<AgentChatSessionsResponse>;
   usageEvents: PromiseSettledResult<UsageEventsResponse>;
   settingsConfig: PromiseSettledResult<ConfiguredStateResponse>;
-  retentionRuns: PromiseSettledResult<{ object: string; data: RetentionRunData[] }>;
   runtimeStats: PromiseSettledResult<RuntimeStatsResponse>;
 };
 
@@ -134,8 +129,6 @@ export async function resolveDashboardSnapshot(args: {
   const usageSummary = resolveDashboardResult(results.usageSummary, args.previous.usageSummary);
   const usageEvents = resolveDashboardResult(results.usageEvents, args.previous.usageEvents);
   const settingsConfig = resolveDashboardResult(results.settingsConfig, args.previous.settingsConfig);
-  const retentionRuns = resolveDashboardResult(results.retentionRuns, args.previous.retentionRuns);
-  const retentionLastRun = retentionRuns[0] ?? null;
   const agentAdapterApprovalMode = results.runtimeStats.status === "fulfilled"
     ? (results.runtimeStats.value.data.agent_adapter_approval_mode ?? "")
     : "";
@@ -175,8 +168,6 @@ export async function resolveDashboardSnapshot(args: {
     activeAgentChatSession: agentChatState.activeSession,
     usageEvents,
     settingsConfig,
-    retentionRuns,
-    retentionLastRun,
     agentAdapterApprovalMode,
     rtkAvailable,
     rtkPath,
@@ -233,7 +224,6 @@ async function loadDashboardResults(opts: {
   let chatSessions: PromiseSettledResult<ChatSessionsResponse> = initialReject();
   let agentChatSessions: PromiseSettledResult<AgentChatSessionsResponse> = initialReject();
   let usageEvents: PromiseSettledResult<UsageEventsResponse> = initialReject();
-  let retentionRuns: PromiseSettledResult<{ object: string; data: RetentionRunData[] }> = initialReject();
   let runtimeStats: PromiseSettledResult<RuntimeStatsResponse> = initialReject();
 
   const configured = settingsConfig.status === "fulfilled" ? (settingsConfig.value.data?.providers ?? []) : [];
@@ -244,7 +234,6 @@ async function loadDashboardResults(opts: {
     getAgentChatSessions().then(r => { agentChatSessions = { status: "fulfilled", value: r }; }, e => { agentChatSessions = { status: "rejected", reason: e }; }),
     getUsageSummary("").then(r => { usageSummary = { status: "fulfilled", value: r }; }, e => { usageSummary = { status: "rejected", reason: e }; }),
     getUsageEvents(20).then(r => { usageEvents = { status: "fulfilled", value: r }; }, e => { usageEvents = { status: "rejected", reason: e }; }),
-    getRetentionRuns(10).then(r => { retentionRuns = { status: "fulfilled", value: r }; }, e => { retentionRuns = { status: "rejected", reason: e }; }),
     getRuntimeStats().then(r => { runtimeStats = { status: "fulfilled", value: r }; }, e => { runtimeStats = { status: "rejected", reason: e }; }),
   ];
   if (configured.length > 0) {
@@ -269,7 +258,6 @@ async function loadDashboardResults(opts: {
     agentChatSessions,
     usageEvents,
     settingsConfig,
-    retentionRuns,
     runtimeStats,
   };
 }

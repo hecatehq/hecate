@@ -41,6 +41,16 @@ describe("SettingsView", () => {
     expect(screen.getByText(/Run cleanup/i)).toBeTruthy();
     expect(screen.getByRole("button", { name: /Clean up now/i })).toBeTruthy();
   });
+
+  it("triggers a retention-runs fetch on mount", () => {
+    // Retention runs are no longer in the boot-time dashboard
+    // snapshot — the view is responsible for asking once it's on
+    // screen. Without this effect the list stays empty forever.
+    const loadRetentionRuns = vi.fn().mockResolvedValue(undefined);
+    const { state, actions } = setup({}, { loadRetentionRuns });
+    render(<SettingsView state={state} actions={actions} />);
+    expect(loadRetentionRuns).toHaveBeenCalledTimes(1);
+  });
 });
 
 describe("SettingsView maintenance cleanup", () => {

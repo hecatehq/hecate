@@ -268,12 +268,11 @@ describe("resolveDashboardSnapshot", () => {
     // signal completion. The essentials wave should resolve and
     // fire its callback while this promise is still pending — that
     // is the whole point of the early-commit hook.
-    let releaseSecondary: (() => void) | null = null;
-    vi.mocked(api.getChatSessions).mockImplementation(
-      () => new Promise((resolve) => {
-        releaseSecondary = () => resolve({ object: "list", data: [], has_more: false });
-      }),
-    );
+    let releaseSecondary = () => {};
+    const pending = new Promise<{ object: string; data: never[]; has_more: boolean }>((resolve) => {
+      releaseSecondary = () => resolve({ object: "list", data: [], has_more: false });
+    });
+    vi.mocked(api.getChatSessions).mockImplementation(() => pending);
 
     const onEssentials = vi.fn();
     const snapshotPromise = resolveDashboardSnapshot({
@@ -297,7 +296,7 @@ describe("resolveDashboardSnapshot", () => {
 
     // Secondary is still pending — finish it so the outer promise
     // resolves and the test cleans up.
-    releaseSecondary?.();
+    releaseSecondary();
     await snapshotPromise;
   });
 

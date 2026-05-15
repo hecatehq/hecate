@@ -2,7 +2,7 @@ import { useEffect, useState } from "react";
 
 import { ConsoleShell, getAvailableWorkspaces, type WorkspaceID } from "./AppShell";
 import { useRuntimeConsole } from "./useRuntimeConsole";
-import { detectTauriPlatform, isTauriRuntime } from "../lib/tauri";
+import { isTauriRuntime } from "../lib/tauri";
 
 const WORKSPACE_STORAGE_KEY = "hecate.workspace.v2";
 
@@ -26,29 +26,24 @@ export default function App() {
     return installTauriEditShortcutFallback();
   }, []);
 
-  // Stamp the host platform on <html> when running inside Tauri so
-  // platform-conditional CSS (e.g. the macOS traffic-light safe
-  // area on the activity bar) can target it. Cleared on unmount so
-  // tests can drop the marker by tearing down the host.
-  useEffect(() => {
-    const platform = detectTauriPlatform();
-    if (!platform) return;
-    document.documentElement.dataset.tauriPlatform = platform;
-    return () => {
-      delete document.documentElement.dataset.tauriPlatform;
-    };
-  }, []);
-
   return <ConsoleShell actions={actions} activeWorkspace={activeWorkspace} onSelectWorkspace={handleSelectWorkspace} state={state} />;
 }
 
 export function installTauriEditShortcutFallback(): () => void {
   if (!isTauriRuntime()) return () => undefined;
+  // Skip on macOS — the native Edit submenu (lib.rs) installs the
+  // standard Cut/Copy/Paste/SelectAll items, and the OS routes
+  // their canonical shortcuts to the first responder text field
+  // natively. Intercepting Cmd+V ourselves used to be necessary on
+  // older webviews, but now it just routes through
+  // navigator.clipboard.readText() — which on macOS Sequoia
+  // triggers the system "Paste" privacy prompt every time the
+  // user pastes. Letting the OS handle it skips the prompt.
+  if (/mac/i.test(navigator.platform)) return () => undefined;
   const handler = (event: KeyboardEvent) => {
     const editable = editableTarget(event.target);
     if (!editable) return;
-    const isMac = /mac/i.test(navigator.platform);
-    const modPressed = isMac ? event.metaKey : event.ctrlKey;
+    const modPressed = event.ctrlKey;
     if (!modPressed || event.altKey) return;
 
     const key = event.key.toLowerCase();

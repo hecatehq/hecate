@@ -87,6 +87,7 @@ export function createRuntimeConsoleActions(): RuntimeConsoleViewModel["actions"
     deleteChatSession: async () => undefined,
     deletePolicyRule: async () => undefined,
     loadDashboard: async () => undefined,
+    loadRetentionRuns: async () => undefined,
     renameChatSession: async () => undefined,
     setAgentAdapterID: () => undefined,
     setNewChatAgent: () => undefined,

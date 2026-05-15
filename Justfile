@@ -359,7 +359,7 @@ tauri-dev: tauri-sidecar tauri-install
 #   TAURI_TARGET=universal-apple-darwin just tauri-build
 # Build native app bundles.
 tauri-build: tauri-sidecar tauri-version
-	if [ -n "$TAURI_TARGET" ]; then \
+	if [ -n "${TAURI_TARGET:-}" ]; then \
 	  cd tauri && bunx tauri build --target "$TAURI_TARGET"; \
 	else \
 	  cd tauri && bunx tauri build; \
@@ -371,7 +371,7 @@ tauri-build: tauri-sidecar tauri-version
 # the slower and flakier installer packaging cost.
 # Build only the native app bundle.
 tauri-build-app: tauri-sidecar tauri-version
-	if [ -n "$TAURI_TARGET" ]; then \
+	if [ -n "${TAURI_TARGET:-}" ]; then \
 	  cd tauri && bunx tauri build --target "$TAURI_TARGET" --bundles app; \
 	else \
 	  cd tauri && bunx tauri build --bundles app; \

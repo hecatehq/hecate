@@ -24,6 +24,15 @@ vi.mock("./log", () => ({
   error: vi.fn(),
 }));
 
+// The hook calls invoke("set_update_badge", ...) on every
+// transition into / out of the "update available" state. We mock
+// the core module so tests don't hit a real Tauri bridge that
+// isn't there.
+const invokeMock = vi.fn().mockResolvedValue(undefined);
+vi.mock("@tauri-apps/api/core", () => ({
+  invoke: (cmd: string, args?: unknown) => invokeMock(cmd, args),
+}));
+
 function enterTauriRuntime() {
   // Stamp the marker isTauriRuntime() looks for. cleanup in afterEach.
   (globalThis as { __TAURI_INTERNALS__?: unknown }).__TAURI_INTERNALS__ = {};
@@ -36,6 +45,8 @@ function exitTauriRuntime() {
 beforeEach(() => {
   checkMock.mockReset();
   logWarnMock.mockReset();
+  invokeMock.mockReset();
+  invokeMock.mockResolvedValue(undefined);
   sessionStorage.clear();
   exitTauriRuntime();
 });
@@ -224,6 +235,35 @@ describe("useDesktopUpdate", () => {
       await vi.advanceTimersByTimeAsync(10_000);
     });
     expect(result.current.lastCheckResult).toBeNull();
+  });
+
+  it("invokes set_update_badge(true) when an update is detected and clears on dismiss", async () => {
+    enterTauriRuntime();
+    checkMock.mockResolvedValue({
+      version: "0.1.0-alpha.31",
+      downloadAndInstall: vi.fn(),
+    });
+    const { result } = renderHook(() => useDesktopUpdate());
+    await waitFor(() => expect(result.current.update).not.toBeNull());
+    // Effect fires the badge invocation after the update lands.
+    await waitFor(() =>
+      expect(invokeMock).toHaveBeenCalledWith("set_update_badge", { visible: true }),
+    );
+    invokeMock.mockClear();
+    act(() => result.current.dismiss());
+    await waitFor(() =>
+      expect(invokeMock).toHaveBeenCalledWith("set_update_badge", { visible: false }),
+    );
+  });
+
+  it("does not invoke set_update_badge outside the Tauri runtime", async () => {
+    checkMock.mockResolvedValue({
+      version: "0.1.0-alpha.31",
+      downloadAndInstall: vi.fn(),
+    });
+    renderHook(() => useDesktopUpdate());
+    await new Promise((r) => setTimeout(r, 10));
+    expect(invokeMock).not.toHaveBeenCalled();
   });
 
   it("checkNow() with a failing check surfaces transient error feedback and logs", async () => {
