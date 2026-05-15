@@ -15,7 +15,7 @@ import (
 	"testing"
 	"time"
 
-	"github.com/hecate/agent-runtime/internal/sandbox"
+	"github.com/hecate/agent-runtime/internal/workspace"
 	"github.com/hecate/agent-runtime/pkg/types"
 )
 
@@ -1167,7 +1167,7 @@ func TestAgentLoop_FileEditToolUsesExactReplacementAndPatchArtifact(t *testing.T
 			makeChatResp(makeAssistantMsg("Updated main.go.")),
 		},
 	}
-	loop := NewAgentLoopExecutor(llm, &stubExecutor{}, NewFileExecutor(sandbox.NewLocalExecutor()), &stubExecutor{}, 8, nil, HTTPRequestPolicy{})
+	loop := NewAgentLoopExecutor(llm, &stubExecutor{}, NewFileExecutor(workspace.NewLocalWorkspace()), &stubExecutor{}, 8, nil, HTTPRequestPolicy{})
 	spec := newAgentLoopSpec(t)
 	spec.Task.WorkingDirectory = dir
 	spec.Task.SandboxAllowedRoot = dir
@@ -1285,7 +1285,7 @@ func TestAgentLoop_FileEditCanProposePatchWithoutApplying(t *testing.T) {
 			makeChatResp(makeAssistantMsg("Patch proposed.")),
 		},
 	}
-	loop := NewAgentLoopExecutor(llm, &stubExecutor{}, NewFileExecutor(sandbox.NewLocalExecutor()), &stubExecutor{}, 8, nil, HTTPRequestPolicy{})
+	loop := NewAgentLoopExecutor(llm, &stubExecutor{}, NewFileExecutor(workspace.NewLocalWorkspace()), &stubExecutor{}, 8, nil, HTTPRequestPolicy{})
 	spec := newAgentLoopSpec(t)
 	spec.Task.WorkingDirectory = dir
 	spec.Task.SandboxAllowedRoot = dir

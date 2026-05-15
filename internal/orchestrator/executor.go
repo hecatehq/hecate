@@ -15,6 +15,7 @@ import (
 
 	"github.com/hecate/agent-runtime/internal/sandbox"
 	"github.com/hecate/agent-runtime/internal/telemetry"
+	"github.com/hecate/agent-runtime/internal/workspace"
 	"github.com/hecate/agent-runtime/pkg/types"
 )
 
@@ -227,11 +228,11 @@ func (e *StubExecutor) Execute(_ context.Context, spec ExecutionSpec) (*Executio
 }
 
 type ShellExecutor struct {
-	sandbox sandbox.Executor
+	workspace workspace.Workspace
 }
 
-func NewShellExecutor(exec sandbox.Executor) *ShellExecutor {
-	return &ShellExecutor{sandbox: ensureSandboxExecutor(exec)}
+func NewShellExecutor(ws workspace.Workspace) *ShellExecutor {
+	return &ShellExecutor{workspace: ensureWorkspace(ws)}
 }
 
 func (e *ShellExecutor) Execute(ctx context.Context, spec ExecutionSpec) (*ExecutionResult, error) {
@@ -242,7 +243,7 @@ func (e *ShellExecutor) Execute(ctx context.Context, spec ExecutionSpec) (*Execu
 	if command == "" {
 		return nil, fmt.Errorf("shell command is required")
 	}
-	return executeStreamingCommand(ctx, e.sandbox, spec, streamingCommandSpec{
+	return executeStreamingCommand(ctx, e.workspace, spec, streamingCommandSpec{
 		command:           command,
 		kind:              "shell",
 		title:             "Shell command",
@@ -261,11 +262,11 @@ func shellErrorKind(err error) string {
 }
 
 type FileExecutor struct {
-	sandbox sandbox.Executor
+	workspace workspace.Workspace
 }
 
-func NewFileExecutor(exec sandbox.Executor) *FileExecutor {
-	return &FileExecutor{sandbox: ensureSandboxExecutor(exec)}
+func NewFileExecutor(ws workspace.Workspace) *FileExecutor {
+	return &FileExecutor{workspace: ensureWorkspace(ws)}
 }
 
 func (e *FileExecutor) Execute(ctx context.Context, spec ExecutionSpec) (*ExecutionResult, error) {
@@ -295,9 +296,9 @@ func (e *FileExecutor) Execute(ctx context.Context, spec ExecutionSpec) (*Execut
 	)
 	switch operation {
 	case "write":
-		fileResult, err = e.sandbox.WriteFile(ctx, request)
+		fileResult, err = e.workspace.WriteFile(ctx, request)
 	case "append":
-		fileResult, err = e.sandbox.AppendFile(ctx, request)
+		fileResult, err = e.workspace.AppendFile(ctx, request)
 	default:
 		return fileFailure(spec, operation, spec.Task.FilePath, fmt.Sprintf("unsupported file operation %q", operation), "file_operation_unsupported"), nil
 	}
@@ -324,11 +325,11 @@ func (e *FileExecutor) Execute(ctx context.Context, spec ExecutionSpec) (*Execut
 }
 
 type GitExecutor struct {
-	sandbox sandbox.Executor
+	workspace workspace.Workspace
 }
 
-func NewGitExecutor(exec sandbox.Executor) *GitExecutor {
-	return &GitExecutor{sandbox: ensureSandboxExecutor(exec)}
+func NewGitExecutor(ws workspace.Workspace) *GitExecutor {
+	return &GitExecutor{workspace: ensureWorkspace(ws)}
 }
 
 func (e *GitExecutor) Execute(ctx context.Context, spec ExecutionSpec) (*ExecutionResult, error) {
@@ -339,7 +340,7 @@ func (e *GitExecutor) Execute(ctx context.Context, spec ExecutionSpec) (*Executi
 	if command == "" {
 		return nil, fmt.Errorf("git command is required")
 	}
-	return executeStreamingCommand(ctx, e.sandbox, spec, streamingCommandSpec{
+	return executeStreamingCommand(ctx, e.workspace, spec, streamingCommandSpec{
 		command:           "git " + command,
 		displayCommand:    command,
 		kind:              "git",
@@ -372,7 +373,7 @@ type streamingCommandSpec struct {
 	defaultErrorKind  string
 }
 
-func executeStreamingCommand(ctx context.Context, exec sandbox.Executor, spec ExecutionSpec, commandSpec streamingCommandSpec) (*ExecutionResult, error) {
+func executeStreamingCommand(ctx context.Context, ws workspace.Workspace, spec ExecutionSpec, commandSpec streamingCommandSpec) (*ExecutionResult, error) {
 	timeout := commandTimeout(spec.Task)
 	workingDirectory := commandWorkingDirectory(spec.Task)
 	policy := taskPolicy(spec)
@@ -432,7 +433,7 @@ func executeStreamingCommand(ctx context.Context, exec sandbox.Executor, spec Ex
 
 	var stdoutOffset int
 	var stderrOffset int
-	resultData, err := exec.RunStreaming(ctx, sandbox.Command{
+	resultData, err := ws.RunStreaming(ctx, sandbox.Command{
 		Command:          commandSpec.command,
 		WorkingDirectory: workingDirectory,
 		Timeout:          time.Duration(timeout) * time.Millisecond,
@@ -635,11 +636,16 @@ func shellEventSummary(status string, exitCode int, lastError string) string {
 	}
 }
 
-func ensureSandboxExecutor(exec sandbox.Executor) sandbox.Executor {
-	if exec == nil {
-		return sandbox.NewLocalExecutor()
+// ensureWorkspace returns a usable Workspace, defaulting to a fresh
+// LocalWorkspace when the caller didn't supply one. The orchestrator
+// historically tolerated a nil sandbox.Executor by falling back to
+// the local impl; preserve that for callers wiring the orchestrator
+// from tests and small one-shot scripts.
+func ensureWorkspace(ws workspace.Workspace) workspace.Workspace {
+	if ws == nil {
+		return workspace.NewLocalWorkspace()
 	}
-	return exec
+	return ws
 }
 
 func commandTimeout(task types.Task) int {

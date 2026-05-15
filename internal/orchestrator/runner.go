@@ -15,9 +15,9 @@ import (
 	"time"
 
 	"github.com/hecate/agent-runtime/internal/profiler"
-	"github.com/hecate/agent-runtime/internal/sandbox"
 	"github.com/hecate/agent-runtime/internal/taskstate"
 	"github.com/hecate/agent-runtime/internal/telemetry"
+	"github.com/hecate/agent-runtime/internal/workspace"
 	"github.com/hecate/agent-runtime/pkg/types"
 )
 
@@ -204,7 +204,7 @@ func NewRunner(logger *slog.Logger, store taskstate.Store, tracer profiler.Trace
 	if tracer == nil {
 		tracer = profiler.NewInMemoryTracer(nil)
 	}
-	worker := sandbox.NewLocalExecutor()
+	worker := workspace.NewLocalWorkspace()
 	queueBuffer := cfg.QueueBuffer
 	if queueBuffer <= 0 {
 		queueBuffer = 128

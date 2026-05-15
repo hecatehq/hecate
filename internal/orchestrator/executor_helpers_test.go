@@ -12,6 +12,7 @@ import (
 
 	"github.com/hecate/agent-runtime/internal/sandbox"
 	"github.com/hecate/agent-runtime/internal/telemetry"
+	"github.com/hecate/agent-runtime/internal/workspace"
 	"github.com/hecate/agent-runtime/pkg/types"
 )
 
@@ -122,7 +123,7 @@ func TestFileExecutorCreatesPatchArtifactAndEvent(t *testing.T) {
 		t.Fatal(err)
 	}
 	var events []capturedRunEvent
-	exec := NewFileExecutor(sandbox.NewLocalExecutor())
+	exec := NewFileExecutor(workspace.NewLocalWorkspace())
 	result, err := exec.Execute(context.Background(), ExecutionSpec{
 		Task: types.Task{
 			ID:                 "task-1",
