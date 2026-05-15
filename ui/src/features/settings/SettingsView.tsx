@@ -77,9 +77,11 @@ const RETENTION_SUBSYSTEMS = [
   },
 ] as const;
 
+type RetentionSubsystemID = (typeof RETENTION_SUBSYSTEMS)[number]["id"];
+
 const RETENTION_LABELS = Object.fromEntries(
   RETENTION_SUBSYSTEMS.map(s => [s.id, s.label]),
-) as Record<string, string>;
+) as Record<RetentionSubsystemID, string>;
 
 function relativeTime(iso: string): string {
   const diff = Date.now() - new Date(iso).getTime();

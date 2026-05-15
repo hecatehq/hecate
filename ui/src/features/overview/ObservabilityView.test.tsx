@@ -1,4 +1,4 @@
-import { act, fireEvent, render, waitFor } from "@testing-library/react";
+import { act, fireEvent, render, waitFor, within } from "@testing-library/react";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 import { ObservabilityView } from "./ObservabilityView";
@@ -113,11 +113,14 @@ describe("ObservabilityView", () => {
       container = result.container;
     });
     await waitFor(() => {
-      expect(container.querySelector('[aria-label="Runtime stats"]')).toBeTruthy();
-      expect(container.textContent).toMatch(/MCP cache/);
-      expect(container.textContent).toMatch(/4/);
-      expect(container.textContent).toMatch(/entries/);
-      expect(container.textContent).toMatch(/1 active · 3 idle/);
+      const runtimeStats = container.querySelector('[aria-label="Runtime stats"]');
+      expect(runtimeStats).toBeTruthy();
+      const mcpCacheCard = within(runtimeStats as HTMLElement)
+        .getByText("MCP cache")
+        .closest(".card") as HTMLElement;
+      expect(mcpCacheCard).toBeTruthy();
+      expect(within(mcpCacheCard).getByText("4")).toBeTruthy();
+      expect(within(mcpCacheCard).getByText("entries · 1 active · 3 idle")).toBeTruthy();
     });
   });
 
