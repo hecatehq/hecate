@@ -462,6 +462,20 @@ func TestShellExecutorPassesRTKSettingToSandbox(t *testing.T) {
 	}
 }
 
+func TestRTKCommandTelemetryRedactsSecretAssignments(t *testing.T) {
+	attrs := rtkCommandTelemetryAttrs(`ANTHROPIC_API_KEY=sk-secret TOKEN='bearer-secret' echo ok`, true)
+	before, _ := attrs[telemetry.AttrHecateSandboxRTKCommandBefore].(string)
+	after, _ := attrs[telemetry.AttrHecateSandboxRTKCommandAfter].(string)
+	for name, value := range map[string]string{"before": before, "after": after} {
+		if strings.Contains(value, "sk-secret") || strings.Contains(value, "bearer-secret") {
+			t.Fatalf("%s command leaked secret assignment: %q", name, value)
+		}
+		if !strings.Contains(value, "ANTHROPIC_API_KEY=<redacted>") || !strings.Contains(value, "TOKEN=<redacted>") {
+			t.Fatalf("%s command = %q, want redacted secret assignments", name, value)
+		}
+	}
+}
+
 type capturedRunEvent struct {
 	eventType string
 	data      map[string]any

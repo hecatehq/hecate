@@ -3068,4 +3068,48 @@ describe("ChatView agent approvals", () => {
     // The modal mounts and asks for the full row.
     expect(getAgentChatApproval).toHaveBeenCalledWith(sessionID, "ap-1");
   });
+
+  it("does not carry an external approval modal into Hecate Chat", async () => {
+    const sessionID = "external-approval-session";
+    const pending = new Map<string, any>([
+      [sessionID, [{
+        approval_id: "ap-external",
+        session_id: sessionID,
+        adapter_id: "codex",
+        tool_kind: "fs",
+        tool_name: "write_file",
+        created_at: "2026-04-21T10:00:00Z",
+        expires_at: "2026-04-21T10:05:00Z",
+      }]],
+    ]);
+    const getAgentChatApproval = vi.fn(async () => null);
+    const { state: externalState, actions } = setup(
+      {
+        chatTarget: "external_agent",
+        activeAgentChatSessionID: sessionID,
+        activeAgentChatSession: { id: sessionID, title: "Codex", adapter_id: "codex", workspace: "/tmp", status: "running" } as any,
+        pendingApprovalsBySessionID: pending,
+        agentChatSessions: [{ id: sessionID, title: "Codex", adapter_id: "codex", status: "running", message_count: 0 } as any],
+      },
+      { getAgentChatApproval },
+    );
+    const view = render(<ChatView state={externalState} actions={actions} />);
+
+    const user = userEvent.setup();
+    await user.click(screen.getByTestId("agent-approval-banner-review"));
+    await waitFor(() => expect(getAgentChatApproval).toHaveBeenCalledWith(sessionID, "ap-external"));
+
+    const { state: hecateState } = setup(
+      {
+        chatTarget: "agent",
+        activeAgentChatSessionID: "hecate-session",
+        activeAgentChatSession: { id: "hecate-session", title: "Hecate", runtime_kind: "agent", workspace: "/tmp", status: "completed" } as any,
+        pendingApprovalsBySessionID: pending,
+      },
+      { getAgentChatApproval },
+    );
+    view.rerender(<ChatView state={hecateState} actions={actions} />);
+
+    expect(getAgentChatApproval).toHaveBeenCalledTimes(1);
+  });
 });
