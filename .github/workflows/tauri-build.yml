@@ -64,4 +64,7 @@ jobs:
       contents: write
       actions: write
     with:
-      uploadArtifacts: true
+      # PR validation only needs to prove every desktop bundle can be built.
+      # Uploading the large unsigned bundles as workflow artifacts has proved
+      # flaky on GitHub's artifact service and does not affect release assets.
+      uploadArtifacts: false
