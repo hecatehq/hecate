@@ -124,8 +124,8 @@ fn install_menu(app: &mut tauri::App) -> tauri::Result<()> {
     // Predefined items carry their canonical keyboard shortcuts
     // (⌘H, ⌥⌘H, ⌘Q, ⌘W, ⌘M, ⌃⌘F, Cut/Copy/Paste, …) and route to
     // native handlers, so we only need on_menu_event for the
-    // custom items below ("check-for-updates", "open-gateway-log",
-    // "open-data-directory").
+    // custom items below ("check-for-updates", "open-app-log",
+    // "open-gateway-log", "open-data-directory", "copy-diagnostics").
     let about_metadata = AboutMetadataBuilder::new()
         .name(Some("Hecate"))
         .version(Some(env!("CARGO_PKG_VERSION")))

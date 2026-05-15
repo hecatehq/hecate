@@ -56,11 +56,13 @@
         pointer-events: none;
       }
 
-      /* macOS frameless-titlebar setup: the Tauri window uses
-         titleBarStyle: "Overlay", so the splash's full surface sits
-         under the traffic lights. This invisible strip is the
-         draggable region during gateway boot — without it the user
-         can't move the window from the splash. */
+      /* macOS overlay titlebar setup: tauri.conf.json sets
+         titleBarStyle: "Overlay" with hiddenTitle, so the splash
+         webview extends edge-to-edge under the traffic-light
+         controls. This invisible strip restores a draggable region
+         in the top 32px — without it the user can't move the
+         window during gateway boot, since the splash has no
+         normal title bar. */
       .titlebar-drag {
         position: fixed;
         top: 0;
