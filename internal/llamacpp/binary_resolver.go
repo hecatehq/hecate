@@ -102,25 +102,24 @@ type BinarySpec struct {
 }
 
 // DefaultBinarySpec returns the production spec for the current
-// platform. The pinned values match scripts/fetch-llama-server.ts
-// so the desktop sidecar and headless lazy-download converge on the
+// platform. The pinned values match scripts/fetch-llama-server.ts so
+// the desktop sidecar and headless lazy-download converge on the
 // same binary.
 //
-// AssetSHA256 must be backfilled before the lazy-download path is
-// usable in production — Resolve() refuses to download without a
-// digest (ErrBinarySHARequired). Until then, operators set
-// HECATE_LLAMA_SERVER_BIN to point at a pre-vetted local copy.
-// Tauri builds bundle the binary directly and don't hit this code
-// path.
+// Bumping the release tag is a two-line change: update releaseTag
+// here AND record the new sha256 in both this file and
+// scripts/fetch-llama-server.ts's TARGETS entry. Resolve() fails
+// closed with ErrBinarySHARequired when AssetSHA256 is empty.
 func DefaultBinarySpec() BinarySpec {
 	const releaseTag = "b4404"
-	// Only macOS arm64 is shipped in v1; other platforms return an
+	// Only macOS arm64 is shipped today; other platforms return an
 	// empty AssetURL and the resolver surfaces ErrBinaryNoUpstream.
 	switch runtime.GOOS + "/" + runtime.GOARCH {
 	case "darwin/arm64":
 		return BinarySpec{
 			ReleaseTag:  releaseTag,
 			AssetURL:    fmt.Sprintf("https://github.com/ggml-org/llama.cpp/releases/download/%s/llama-%s-bin-macos-arm64.zip", releaseTag, releaseTag),
+			AssetSHA256: "48bf9261b859386db34e23f6447638282e1144c63fdb8bf8ab8380d63d4ff485",
 			InnerPath:   "build/bin/llama-server",
 			ArchiveType: "zip",
 		}

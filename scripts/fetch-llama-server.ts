@@ -62,7 +62,11 @@ const TARGETS: TargetSpec[] = [
     triple: "aarch64-apple-darwin",
     asset: `llama-${LLAMA_CPP_RELEASE}-bin-macos-arm64.zip`,
     innerPath: "build/bin/llama-server",
-    sha256: "",
+    // Backfilled from the upstream b4404 release archive
+    // (60.2 MB; build/bin/llama-server is 5.4 MB).
+    // Stays in sync with internal/llamacpp/binary_resolver.go's
+    // DefaultBinarySpec — both must roll forward together.
+    sha256: "48bf9261b859386db34e23f6447638282e1144c63fdb8bf8ab8380d63d4ff485",
   },
 ];
 
