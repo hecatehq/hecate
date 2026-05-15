@@ -164,14 +164,14 @@ export function useDesktopUpdate(): {
     return run;
   }, []);
 
-  // Initial check + periodic re-check. The checkedRef guard prevents
-  // React StrictMode's intentional double-mount from issuing two
-  // simultaneous check() calls; the interval picks up the slack and
-  // keeps a long-running app fresh.
-  const checkedRef = useRef(false);
+  // Initial check + periodic re-check. inflightRef inside runCheck
+  // dedupes concurrent calls, so StrictMode's intentional double-
+  // mount doesn't issue two simultaneous check()s — the second
+  // setup run finds the in-flight promise and awaits it instead.
+  // We deliberately don't add an outer "did mount" guard: that
+  // pattern leaves the interval cleared after StrictMode's first
+  // cleanup, with no replacement scheduled on the second setup.
   useEffect(() => {
-    if (checkedRef.current) return;
-    checkedRef.current = true;
     if (!isTauriRuntime()) return;
     void runCheck({ manual: false });
     const intervalID = setInterval(() => {
