@@ -50,7 +50,7 @@ type Props = {
   // Optional escape hatch the empty-state "Open Chats" button uses.
   // AppShell wires it to onSelectWorkspace; in tests it's omitted and
   // the button no-ops.
-  onNavigate?: (workspace: "chats" | "providers" | "runs" | "overview" | "costs" | "settings") => void;
+  onNavigate?: (workspace: "chats" | "connections" | "runs" | "overview" | "usage" | "settings") => void;
   focusRequest?: { requestID: string; nonce: number } | null;
 };
 

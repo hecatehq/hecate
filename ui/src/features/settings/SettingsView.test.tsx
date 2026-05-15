@@ -91,7 +91,7 @@ describe("SettingsView retention tab", () => {
   });
 });
 
-// Usage rendering lives in CostsView for now; Settings intentionally stays
+// Usage rendering lives in the Usage workspace; Settings intentionally stays
 // focused on retention.
 
 describe("Connections external-agent panel", () => {
@@ -166,7 +166,7 @@ describe("Connections external-agent panel", () => {
     expect(within(card).getByTestId("connections-provider-repair")).toHaveTextContent("Provider blocked");
 
     await user.click(within(card).getByRole("button", { name: "Open Connections" }));
-    expect(onNavigate).toHaveBeenCalledWith("providers");
+    expect(onNavigate).toHaveBeenCalledWith("connections");
   });
 
   it("renders model capabilities inside Connections", async () => {

@@ -123,9 +123,9 @@ In rough priority order:
   emits a `governor.UsageEvent` with `Usage{PromptTokens,
   TotalTokens, CompletionTokens=0}` and `CostMicros` pre-computed
   by the adapter (same shape chat uses today). No new
-  config-level pricebook surface — pricing tables for embeddings
-  live alongside chat tables inside each adapter's existing
-  pricing helper. See "Usage and cost recording" below.
+  operator-editable pricing surface — embedding cost metadata lives
+  alongside chat cost metadata inside each adapter. See "Usage and
+  cost recording" below.
 
 ## API surface
 
@@ -376,12 +376,9 @@ Operators run two children if they need both.
 
 ## Usage and cost recording
 
-Hecate's pricebook/budget surface was removed
-(`TestUsageMutationEndpointsAreRemoved` enforces 404 on
-`/hecate/v1/settings/pricebook` and `/hecate/v1/costs/budget`).
-Cost numbers are now computed by each provider adapter inline
-and attached to the response as `CostMicrosUSD`; the operator
-UI's Usage view reads them per-event from
+Current builds keep append-only usage events only. Cost numbers are computed
+by each provider adapter inline and attached to the response as
+`CostMicrosUSD`; the operator UI's Usage view reads them per-event from
 `governor.UsageEvent` rows.
 
 For embeddings, the same shape applies:

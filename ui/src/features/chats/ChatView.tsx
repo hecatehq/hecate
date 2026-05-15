@@ -23,7 +23,7 @@ import type { ClaudeCodePreflightState } from "./ClaudeCodeSetup";
 type Props = {
   state: RuntimeConsoleViewModel["state"];
   actions: RuntimeConsoleViewModel["actions"];
-  onNavigate?: (workspace: "providers" | "runs" | "overview" | "settings") => void;
+  onNavigate?: (workspace: "connections" | "runs" | "overview" | "settings") => void;
   onOpenTask?: (taskID: string, runID?: string) => void;
   onOpenTrace?: (requestID: string) => void;
 };
@@ -431,7 +431,7 @@ export function ChatView({ state, actions, onNavigate, onOpenTask, onOpenTrace }
       // sessionStorage unavailable — navigation still
       // works, just no auto-scroll to the guided setup card.
     }
-    onNavigate?.("providers");
+    onNavigate?.("connections");
   }
 
   async function saveClaudeCodeToken() {
@@ -1266,7 +1266,7 @@ export function ChatView({ state, actions, onNavigate, onOpenTask, onOpenTrace }
               quickAddingProviders={quickAddingProviders}
               onOpenProviders={() => {
                 if (onNavigate) {
-                  onNavigate("providers");
+                  onNavigate("connections");
                 } else {
                   setAddProviderOpen(true);
                 }
@@ -1331,7 +1331,7 @@ export function ChatView({ state, actions, onNavigate, onOpenTask, onOpenTrace }
             <div style={{ marginBottom: composerVisible ? 8 : 0 }}>
               <SelectedModelReadinessNotice
                 issue={selectedModelIssue}
-                onOpenProviders={() => onNavigate?.("providers")}
+                onOpenProviders={() => onNavigate?.("connections")}
                 onUseSuggestedModel={(model) => {
                   actions.setProviderFilter("auto");
                   actions.setModel(model);
@@ -1367,7 +1367,7 @@ export function ChatView({ state, actions, onNavigate, onOpenTask, onOpenTrace }
                 } else if (repair.action === "open_agent_setup") {
                   openClaudeCodeSetup();
                 } else if (repair.action === "open_connections") {
-                  onNavigate?.("providers");
+                  onNavigate?.("connections");
                 }
               }}
             />

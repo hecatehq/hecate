@@ -8,10 +8,11 @@ uses the word "turn" for a different concept). SDK clients hitting
 `/v1/chat/completions` with a `session_id` use this store; the MCP
 `list_chat_sessions` tool surfaces it.
 
-The Chats workspace has two top-level targets: **Hecate Chat** and
-**External Agent**. Hecate Chat covers both direct model chat and
-Hecate-owned agent execution: the tools toggle decides whether a prompt stays
-as a direct provider/model turn or enters the native agent task runtime.
+The Chats workspace has one shell and an agent picker. **Hecate** is always
+first and covers both direct model chat and Hecate-owned agent execution: the
+tools toggle decides whether a prompt stays as a direct provider/model turn or
+enters the native agent task runtime. Codex, Claude Code, and Cursor entries in
+the same picker create **External Agent** sessions.
 
 Hecate Chat treats model/provider readiness as part of composition, not a
 send-time surprise. If no configured provider has routable models, the empty
@@ -26,9 +27,10 @@ health/blocking/error diagnostics, and short remediation steps. The compact card
 is intentionally not just a warning — it should be enough to choose a discovered
 model, accept a backend-suggested replacement when one is available, refresh
 local provider discovery, or jump to Connections for the full readiness
-checklist. Suggested replacement models reset the provider route to **All
-providers** because the fallback can belong to a different provider than the
-stale selection.
+checklist. Suggested replacement models should be offered as explicit repairs:
+switch to the backend-suggested provider/model pair, or keep the current route
+and choose another model from the picker. Do not silently widen a stale route
+back to a hidden provider fallback.
 
 The backend owns the readiness wording. `/hecate/v1/providers/status` returns a
 provider-level `readiness` summary plus detailed `readiness_checks`, and
@@ -78,7 +80,7 @@ actually used RTK. When compact output is enabled, telemetry also carries
 operators can compare the command Hecate validated with the argv that RTK
 wrapped.
 
-The operator UI's **Hecate Chat** target now uses **Agent Chat** sessions under
+The operator UI's **Hecate** agent choice uses **Agent Chat** sessions under
 `/hecate/v1/agent-chat/sessions` for both tools-off direct model turns and tools-on
 Hecate Agent turns. Those records can point at a runtime when tools are enabled,
 but they can also store direct model segments:

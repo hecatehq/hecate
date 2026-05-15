@@ -16,11 +16,9 @@ type UsageTotals = {
   costMicrosUSD: number;
 };
 
-// CostsView keeps the internal workspace id for compatibility, but the
-// product surface is "Usage": tokens first, reported cost second.
 // Only cross-chat Hecate-controlled provider calls belong here; active-chat
 // adapter usage lives in ChatView where the reported values have context.
-export function CostsView({ state }: Props) {
+export function UsageView({ state }: Props) {
   const usageEvents = state.usageEvents ?? [];
   const providerKindByID = new Map((state.settingsConfig?.providers ?? []).map(provider => [provider.id, provider.kind]));
   const cloudEvents = usageEvents.filter(entry => usageEventIsCloud(entry, providerKindByID));

@@ -485,7 +485,7 @@ describe("ChatView input", () => {
 
     const user = userEvent.setup();
     await user.click(screen.getByRole("button", { name: "Open Connections" }));
-    expect(onNavigate).toHaveBeenCalledWith("providers");
+    expect(onNavigate).toHaveBeenCalledWith("connections");
   });
 
   it("offers the backend-suggested model as a one-click repair", async () => {
@@ -546,7 +546,7 @@ describe("ChatView input", () => {
     const user = userEvent.setup();
     await user.click(screen.getByRole("button", { name: /Open Connections/i }));
 
-    expect(onNavigate).toHaveBeenCalledWith("providers");
+    expect(onNavigate).toHaveBeenCalledWith("connections");
   });
 
   it("keeps configured-provider model discovery repair compact in the empty state", () => {

@@ -334,8 +334,3 @@ func TestStaticGovernor_RecordUsageNoLostUpdatesUnderConcurrency(t *testing.T) {
 			status.UsedMicrosUSD, wantUsed, goroutines)
 	}
 }
-
-// TestStaticGovernor_TenantImpersonationDebitsBoundTenant verifies that usage
-// key resolution uses the server-side request scope, not user-controlled wire
-// fields. Defends against a regression that lets a caller attribute usage to a
-// different key by passing a crafted user field.

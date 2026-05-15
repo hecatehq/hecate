@@ -9,7 +9,7 @@ import { ModelCapabilitiesSection } from "./ModelCapabilitiesSection";
 type Props = {
   state: RuntimeConsoleViewModel["state"];
   actions: RuntimeConsoleViewModel["actions"];
-  onNavigate?: (workspace: "providers" | "runs" | "overview" | "settings" | "chats" | "costs") => void;
+  onNavigate?: (workspace: "connections" | "runs" | "overview" | "settings" | "chats" | "usage") => void;
 };
 
 function SectionHeader({
@@ -235,7 +235,7 @@ function ModelProviderConnectionsSection({
         meta={`${configuredProviders.length} configured`}
         actions={
           onNavigate ? (
-            <button type="button" className="btn btn-primary btn-sm" onClick={() => onNavigate("providers")}>
+            <button type="button" className="btn btn-primary btn-sm" onClick={() => onNavigate("connections")}>
               Open Connections
             </button>
           ) : undefined
@@ -270,7 +270,7 @@ function ModelProviderConnectionsSection({
               <button
                 type="button"
                 className="btn btn-ghost btn-sm"
-                onClick={() => onNavigate("providers")}
+                onClick={() => onNavigate("connections")}
                 style={{ marginLeft: "auto", padding: "2px 7px" }}
               >
                 {repairButton}

@@ -92,20 +92,13 @@ session.
 
 ## UI Model
 
-Chats exposes External Agent as a top-level target next to Hecate Chat:
+Chats exposes one agent picker. `Hecate` is the first option and keeps the
+provider/model controls plus the tools toggle for direct model chat vs Hecate
+Agent task execution. External adapters are separate agent choices in the same
+picker:
 
 ```text
-Target: Hecate Chat | External Agent
-```
-
-When `Hecate Chat` is selected, the provider/model controls remain and the
-tools toggle decides whether the prompt is direct model chat or Hecate Agent
-task execution.
-
-When `External Agent` is selected, the primary controls become:
-
-```text
-Agent: Codex | Claude Code | Cursor Agent
+Agent: Hecate | Codex | Claude Code | Cursor Agent
 Workspace: /path/to/repo
 Prompt: message
 ```

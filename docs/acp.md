@@ -18,7 +18,7 @@ ACP appears in Hecate in two different places:
 | Direction | What Hecate does | User-facing surface | Doc |
 |---|---|---|---|
 | **Hecate as an ACP agent** | `hecate-acp` is launched by an editor ACP host and translates editor sessions into Hecate task-runtime work. | Zed, JetBrains, VS Code/Cursor extensions, other ACP hosts. | This page |
-| **Hecate as an ACP client/operator** | The Chats view launches ACP-compatible coding-agent adapters such as Codex and Claude Code, then supervises their local process/session. | Hecate **Chats → External Agent** target. | [External agent adapters](external-agent-adapters.md) |
+| **Hecate as an ACP client/operator** | The Chats view launches ACP-compatible coding-agent adapters such as Codex and Claude Code, then supervises their local process/session. | Hecate **Chats** agent picker. | [External agent adapters](external-agent-adapters.md) |
 
 This is similar to the MCP documentation split by direction, but ACP currently
 uses two separate pages because the operator jobs are different: editor setup vs

@@ -10,7 +10,7 @@ import { createRuntimeConsoleActions, createRuntimeConsoleFixture } from "../tes
 describe("getAvailableWorkspaces", () => {
   it("returns chats / connections / runs / overview / usage / settings", () => {
     const ws = getAvailableWorkspaces();
-    expect(ws.map(w => w.id)).toEqual(["chats", "providers", "runs", "overview", "costs", "settings"]);
+    expect(ws.map(w => w.id)).toEqual(["chats", "connections", "runs", "overview", "usage", "settings"]);
     expect(ws.map(w => w.label)).toEqual(["Chats", "Connections", "Tasks", "Observability", "Usage", "Settings"]);
   });
 

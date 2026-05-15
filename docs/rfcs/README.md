@@ -8,6 +8,10 @@ Implemented runtime behavior lives in the main docs:
 - [Events](../events.md) — event names and payloads emitted today.
 - [Runtime API](../runtime-api.md) — current task/run/approval endpoints.
 - [ACP bridge](../acp.md) — implemented-but-experimental editor bridge status.
+- [Chat sessions](../chat-sessions.md) — current Hecate Chat and External
+  Agent session behavior.
+- [External agent adapters](../external-agent-adapters.md) — current Codex,
+  Claude Code, and Cursor operator flow.
 
 ## Current RFCs
 
@@ -15,10 +19,10 @@ Implemented runtime behavior lives in the main docs:
 |---|---|
 | [Agent event protocol v1 candidate](event-protocol-v1.md) | Candidate envelope exists; payload schemas and stability guarantees are still in progress. |
 | [Agent event protocol experimental extensions](event-protocol-experimental.md) | Parking lot for future event groups such as thinking blocks, sub-agents, multimodal output, and branching. |
-| [Artifact storage v1 candidate](artifact-storage-v1.md) | Candidate shape for persisted command output, patches, fetched resources, and artifact retention. |
-| [External agent adapters candidate](external-agent-adapters.md) | Candidate shape for chatting with Codex, Claude Code, Cursor Agent, and future coding-agent CLIs through Hecate. |
-| [External-adapter approval loop v1 candidate](external-adapter-approvals-v1.md) | Operator-controlled `RequestPermission` handling for external ACP adapters. Replaces the current auto-approve stub. |
-| [Hecate Chat and model capabilities](unified-chats-and-model-capabilities.md) | Accepted alpha direction for Hecate Chat tools on/off segments, Hecate-owned task execution, External Agent separation, and tool-capability metadata. |
+| [Artifact storage v1 candidate](artifact-storage-v1.md) | Candidate shape for persisted command output, patches, fetched resources, and artifact retention. Task artifacts and chat diff inspect/revert exist today; the RFC remains broader than the shipped alpha surface. |
+| [External agent adapters candidate](external-agent-adapters.md) | Partially implemented alpha baseline for Codex, Claude Code, Cursor Agent, readiness, guardrails, approvals, diagnostics, and diff inspect/revert. The RFC remains useful for convergence and future adapter depth. |
+| [External-adapter approval loop v1 candidate](external-adapter-approvals-v1.md) | Implemented alpha baseline: prompt-first approval mode, REST/SSE events, durable grants, startup reconcile, retention, UI review, and telemetry. Stable status still depends on real-adapter soak and convergence decisions. |
+| [Hecate Chat and model capabilities](unified-chats-and-model-capabilities.md) | Accepted and partially implemented alpha direction for Hecate Chat tools on/off segments, Hecate-owned task execution, External Agent separation, and tool-capability metadata. Profiles, workspace modes, and automatic probes remain future work. |
 | [Endpoint versioning and settings paths](endpoint-versioning-and-settings-paths.md) | Accepted and implemented alpha route split: provider-compatible `/v1/*` ingress, Hecate-native `/hecate/v1/*`, and `/admin/*` removal. |
 | [Provider response extensions](provider-response-extensions.md) | Design notes for preserving vendor-specific response fields (Perplexity citations, DeepSeek/xAI reasoning content, Gemini citation metadata) end-to-end through api/persistence/UI. Not implemented. |
 | [Migration CLI](migration-cli.md) | Design notes for `hecate migrate {status,apply,snapshot,restore,verify}` — operator tooling for backup, rollback, and schema visibility. Closes the "no migration CLI or rollback workflow" known limitation. Not implemented. |
@@ -26,4 +30,4 @@ Implemented runtime behavior lives in the main docs:
 | [LLM context window management](llm-context-window-management.md) | Design notes for token estimation, soft warn / hard cap thresholds, optional truncation and summarization, and per-conversation budget tracking. Closes the silent-context-overflow gap; Hecate-controlled surfaces only (external adapters out of scope). Not implemented. |
 | [Import external chat history](import-external-chat-history.md) | Design notes for one-shot ingest of Claude Code (`~/.claude/projects/*/*.jsonl`) and Codex CLI (`~/.codex/sessions/**/rollout-*.jsonl`) transcripts into the existing agent-chat store as read-only, searchable, attributable sessions. Idempotent via `(source_tool, native_session_id)`; no resume, no edit, no live mirror in v1. Not implemented. |
 | [Embeddings](embeddings.md) | Design notes for `POST /v1/embeddings` end-to-end: optional `Embedder` interface on provider adapters, a separate `routeEmbedding` with pinned routing and no failover, OpenAI / Voyage / Gemini / Azure coverage, llama-server `--embeddings` per-model toggle, per-event `governor.UsageEvent` recording, new `ModelCapabilities.Kind` field for catalog discrimination. Anthropic / DeepSeek / Groq / Perplexity stay opt-out. v1.0 ships `float` encoding only — `base64` deferred to v1.1. No failover, no caching, no reranking, no multimodal. Not implemented. |
-| [Chat runtime UX consistency](chat-runtime-ux-consistency.md) | Working plan for making Hecate Chat and External Agent chat share one shell, settings model, activity timeline, approval UX, and repair/onboarding pattern while preserving runtime-specific behavior. |
+| [Chat runtime UX consistency](chat-runtime-ux-consistency.md) | Working plan. The shared shell/settings/activity baseline has landed; use this RFC for the remaining parity work around repair/onboarding, approval polish, and runtime-specific edge cases. |

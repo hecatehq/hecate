@@ -64,7 +64,7 @@ Follow-up work before stable:
   model listing.
 - Use `/hecate/v1/*` as the single Hecate-native product API prefix.
 - Use `settings` for operator-configured state.
-- Use `system`, `costs`, and `observability` for runtime facts instead of
+- Use `system`, `usage`, and `observability` for runtime facts instead of
   overloading `settings`.
 - Keep OpenAI/Anthropic-compatible gateway endpoints unchanged.
 - Avoid compatibility shims during alpha. This is intentionally breaking.
@@ -152,10 +152,6 @@ before stable.
 
 | Current | Proposed | Notes |
 |---|---|---|
-| `GET /admin/budget` | Removed | Global budget/accounting was removed. |
-| `POST /admin/budget/topup` | Removed | Operator budget mutation was removed. |
-| `POST /admin/budget/limit` | Removed | Operator budget mutation was removed. |
-| `POST /admin/budget/reset` | Removed | Operator budget mutation was removed. |
 | `GET /admin/accounts/summary` | Removed | Avoid legacy multi-account naming in single-user mode. |
 | n/a | `GET /hecate/v1/usage/summary` | Current usage totals for the selected scope. |
 | n/a | `GET /hecate/v1/usage/events` | Append-only usage events, retention-managed. |

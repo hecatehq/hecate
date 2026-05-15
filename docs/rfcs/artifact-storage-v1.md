@@ -154,7 +154,7 @@ A unified diff against a single file path.
   "kind": "patch",
   "mime_type": "text/x-diff",
   "metadata_json": {
-    "target_path": "internal/budget/governor.go",
+    "target_path": "internal/governor/usage.go",
     "base_revision": "sha256:8a4f2c...",
     "stats": { "additions": 1, "deletions": 1, "hunks": 1 },
     "produced_by_tool_call_id": "call_01JXMZ..."
@@ -223,7 +223,7 @@ A point-in-time copy of a file's contents. Used by `tool.file_read.*` for large 
   "kind": "file_snapshot",
   "mime_type": "<inferred>",
   "metadata_json": {
-    "path": "internal/budget/governor.go",
+    "path": "internal/governor/usage.go",
     "revision": "sha256:8a4f2c...",
     "lines": 312,
     "snapshot_reason": "tool_read | checkpoint"
