@@ -35,10 +35,13 @@ concurrency:
   group: tauri-build-${{ github.ref }}
   cancel-in-progress: true
 
-# PR validation only — no release upload. Restricts the GITHUB_TOKEN
-# below the contents: write that _tauri-shared.yml declares as its max.
+# Caller permissions must cover the maximum requested by the shared workflow.
+# GitHub validates reusable-workflow permissions at startup, before `if:` gates
+# can skip release-only jobs. PR builds still do not inherit repository secrets,
+# and fork PRs receive a read-only token regardless of this declaration.
 permissions:
-  contents: read
+  contents: write
+  actions: write
 
 jobs:
   tauri:
@@ -58,6 +61,7 @@ jobs:
     # `secrets.GITHUB_TOKEN` to keep working without any inherited
     # secret access.
     permissions:
-      contents: read
+      contents: write
+      actions: write
     with:
       uploadArtifacts: true
