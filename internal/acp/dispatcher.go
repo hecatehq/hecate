@@ -22,6 +22,13 @@ type Dispatcher struct {
 	nextPermissionSequence int64
 	pendingPermissions     map[string]pendingPermission
 	requestedApprovalIDs   map[string]string
+
+	// nextCallSequence + pendingCalls back the generic reverse-RPC
+	// path used by Dispatcher.Call (see dispatcher_call.go).
+	// Separate from the permission-flow state so the two response
+	// dispatches stay decoupled.
+	nextCallSequence int64
+	pendingCalls     map[string]chan *Response
 }
 
 type pendingPermission struct {
@@ -88,6 +95,14 @@ func (d *Dispatcher) Handle(ctx context.Context, req *Request) *Response {
 func (d *Dispatcher) HandleResponse(ctx context.Context, resp *Response) {
 	id := responseIDKey(resp.ID)
 	if id == "" {
+		return
+	}
+	// Generic reverse-RPC responses (fs/*, terminal/*, …) route to
+	// the per-call channel registered by Dispatcher.Call. The
+	// permission flow's takePendingPermission below remains the
+	// fallback so existing behavior is unchanged.
+	if ch := d.deliverPendingCall(id); ch != nil {
+		ch <- resp
 		return
 	}
 	pending, ok := d.takePendingPermission(id)
