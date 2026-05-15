@@ -153,7 +153,9 @@ jobs:
           GITHUB_TOKEN: ${{ github.token }}
         with:
           projectPath: tauri
-          args: --bundles ${{ matrix.bundles }}
+          args: >-
+            --bundles ${{ matrix.bundles }}
+            --config '{"bundle":{"createUpdaterArtifacts":false}}'
 
       # Tagged release build. Uploads bundles to the existing GitHub Release and
       # signs/notarizes when the corresponding secrets are configured.
