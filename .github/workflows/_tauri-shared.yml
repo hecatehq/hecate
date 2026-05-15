@@ -2,7 +2,7 @@ name: tauri-shared
 
 # Reusable Tauri matrix build. Called by:
 #   - release.yml      (tagged release: tagName set → tauri-action uploads to GitHub Release)
-#   - tauri-build.yml  (PR validation: uploadArtifacts true → preserved as workflow artifact)
+#   - tauri-build.yml  (PR validation: build only; no release upload)
 #
 # When you change anything in this file, both callers pick it up
 # automatically. Keep their path filters wide enough to trigger on
