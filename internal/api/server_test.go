@@ -1257,6 +1257,7 @@ func TestUpdateAgentChatSessionRenamesSession(t *testing.T) {
 	dir := t.TempDir()
 	logger := slog.New(slog.NewJSONHandler(io.Discard, nil))
 	apiHandler := newTestAPIHandlerWithSettings(logger, []providers.Provider{&fakeProvider{}}, config.Config{}, nil)
+	apiHandler.SetAgentChatRunner(&fakeAgentChatRunner{nativeSessionID: "native_codex_rename"})
 	handler := NewServer(logger, apiHandler)
 	client := newAPITestClient(t, handler)
 
