@@ -107,12 +107,19 @@ func (w *LocalWorkspace) OpenTerminal(ctx context.Context, opts TerminalOptions)
 
 	// Wait goroutine captures exit status; everyone observing the
 	// terminal goes through atomic.Pointer reads to see the result
-	// once it's published.
+	// once it's published. Use Process.Wait instead of Cmd.Wait:
+	// Cmd.StdoutPipe/Cmd.StderrPipe docs require callers to finish
+	// reading before Cmd.Wait because Cmd.Wait closes the pipes. The
+	// pumps below own those reads, so we wait for process exit, then
+	// wait for both pumps to drain before publishing the terminal
+	// result.
 	go func() {
-		err := cmd.Wait()
+		state, err := cmd.Process.Wait()
+		pumpDone.Wait()
 		var result Result
-		if cmd.ProcessState != nil {
-			result.ExitCode = cmd.ProcessState.ExitCode()
+		if state != nil {
+			cmd.ProcessState = state
+			result.ExitCode = state.ExitCode()
 		}
 		t.result.Store(&result)
 		if err != nil {
