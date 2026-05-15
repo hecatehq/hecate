@@ -15,6 +15,7 @@ The Tauri desktop app's local build (`just tauri-dev`) lives in
 - [Website](#website)
 - [Reset state](#reset-state)
 - [Testing](#testing)
+- [CI workflow](#ci-workflow)
 - [Project layout](#project-layout)
 - [Capturing documentation screenshots](#capturing-documentation-screenshots)
 
@@ -153,6 +154,35 @@ just release vX.Y.Z    # verify, then run the release script
 The race detector is the strongest correctness check (and the slowest); CI runs it on every push. `test-acp-smoke` starts a fake OpenAI-compatible upstream, the real `hecate` gateway, and the real `cmd/hecate-acp` stdio bridge, then verifies model discovery, same-task continuation, SSE updates, and editor approval round-trip behavior. The Go e2e suite also includes binary-level Agent Chat approval smokes for SQLite startup reconcile and durable grant persistence; run them with `go test -tags e2e -run 'TestApproval' ./e2e` when touching approval storage or cmd/hecate startup wiring. `test-docker-smoke` requires Docker but doesn't need any other infrastructure — it spins up its own compose project to avoid colliding with a developer's running stack. `test-tauri-smoke` builds only the packaged macOS `.app`, waits for the sidecar gateway to answer `/healthz`, quits Hecate, and confirms the sidecar exits; `test-tauri-acp-smoke` additionally runs the bundled `hecate-acp` without `HECATE_GATEWAY_URL` and verifies native runtime discovery through `hecate.runtime.json`. Both native smokes are opt-in because they open a real GUI window.
 
 Before cutting a public tag, run `just verify` and follow the checklist in [Release](release.md).
+
+## CI workflow
+
+GitHub Actions is split by surface so small changes do not wake the whole
+project:
+
+| Workflow | Trigger | Purpose |
+|---|---|---|
+| `test.yml` | PRs and pushes to `master` except markdown-only and website-only changes | Main quality gate: Go, UI, e2e, Docker smoke, Tauri Rust tests, and gated desktop bundle validation. |
+| `website.yml` | Website changes and release-manifest updates | Astro check/build and GitHub Pages deploy for [hecate.sh](https://hecate.sh). |
+| `links.yml` | PRs and pushes | Markdown link and Mermaid validation. |
+| `release.yml` | `v*` tags and manual dispatch | Goreleaser artifacts, Docker images, signed desktop bundles, updater manifest, website manifest publish. |
+| `tauri-build.yml` | Manual dispatch only | Explicit desktop bundle rebuild/debug run from the Actions tab. |
+
+The main `Test` workflow starts with a path filter. Go, TypeScript, Docker,
+and Tauri Rust jobs run only when their inputs changed, while workflow edits
+force the full matrix so CI changes test themselves.
+
+Desktop packaging is intentionally gated inside `test.yml`: the
+`Tauri desktop bundles` matrix waits for the cheaper Go, TypeScript, e2e,
+Docker smoke, and Tauri Rust jobs to pass (or skip by path filter) before
+building macOS, Linux, and Windows bundles. PR bundle validation does **not**
+upload unsigned artifacts; it only proves the bundles build. Release tags still
+upload signed/notarized artifacts through `release.yml`.
+
+This shape keeps PR feedback fast for normal code changes and avoids burning
+desktop runner minutes when a cheaper test has already failed. If a desktop
+packaging issue needs an explicit rerun, use the manual `tauri-build` workflow
+from the Actions tab.
 
 ### Skipping CI for inert changes
 

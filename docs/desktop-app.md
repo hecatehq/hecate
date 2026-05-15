@@ -11,7 +11,7 @@ launch `hecate-acp` themselves over stdio, but the gateway writes
 `hecate.runtime.json` into the app data directory so the bridge can discover the
 current dynamic gateway URL when `HECATE_GATEWAY_URL` is not set.
 
-Code: [`tauri/`](../tauri/) · agent guide: [`docs-ai/skills/tauri/SKILL.md`](../docs-ai/skills/tauri/SKILL.md) · CI: [`.github/workflows/release.yml`](../.github/workflows/release.yml), [`.github/workflows/tauri-build.yml`](../.github/workflows/tauri-build.yml).
+Code: [`tauri/`](../tauri/) · agent guide: [`docs-ai/skills/tauri/SKILL.md`](../docs-ai/skills/tauri/SKILL.md) · CI: [`.github/workflows/test.yml`](../.github/workflows/test.yml), [`.github/workflows/release.yml`](../.github/workflows/release.yml), [`.github/workflows/tauri-build.yml`](../.github/workflows/tauri-build.yml).
 
 ## Distribution
 
@@ -24,9 +24,12 @@ matrix legs in parallel and attaches bundles to the GitHub Release entry:
 | Linux x86_64 | `Hecate_X.Y.Z_amd64.deb`, `Hecate_X.Y.Z_amd64.AppImage` |
 | Windows x86_64 | `Hecate_X.Y.Z_x64_en-US.msi` |
 
-PR validation: [`tauri-build.yml`](../.github/workflows/tauri-build.yml) runs
-the same matrix on PRs touching the desktop pipeline and persists bundles as
-14-day workflow artifacts so reviewers can test-launch before merge.
+PR validation: [`test.yml`](../.github/workflows/test.yml) runs the desktop
+bundle matrix only after the cheaper Go, TypeScript, e2e, Docker smoke, and
+Tauri Rust checks pass or skip by path filter. PR validation proves that the
+macOS, Linux, and Windows bundles build, but does not upload unsigned bundles
+as workflow artifacts. [`tauri-build.yml`](../.github/workflows/tauri-build.yml)
+is manual-only for explicit desktop rebuild/debug runs from the Actions tab.
 
 ## Current state — `v0.1.0-alpha.29`
 

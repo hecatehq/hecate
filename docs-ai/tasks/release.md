@@ -62,9 +62,20 @@ The Tauri matrix doesn't need any local action — pushing the tag fires the wor
 
 ### Pre-tag validation
 
-`.github/workflows/tauri-build.yml` runs the same matrix on PRs (path-filtered to changes that could break it: `tauri/**`, `cmd/hecate/**`, `ui/**`, `Justfile`, `scripts/stamp-version.ts`, the workflows themselves). Bundles persist as workflow artifacts (14-day retention) so reviewers can download and test-launch from the run page.
+The main `.github/workflows/test.yml` workflow owns PR-time desktop validation.
+It path-filters desktop-impacting changes (`tauri/**`, `cmd/hecate/**`,
+`cmd/hecate-acp/**`, `ui/**`, `Justfile`, Tauri version scripts, release
+packaging files, and the workflows themselves), then starts the
+`Tauri desktop bundles` matrix only after the cheaper Go, TypeScript, e2e,
+Docker smoke, and Tauri Rust jobs pass or skip. The PR matrix proves the
+macOS, Linux, and Windows bundles build, but does not upload unsigned bundle
+artifacts.
 
-If the change set touches the desktop pipeline, prefer landing it via PR so the matrix runs before the tag — it's the only way to find out a Windows-only or Linux-only regression without burning a release.
+If the change set touches the desktop pipeline, prefer landing it via PR so the
+matrix runs before the tag — it's the only way to find out a Windows-only or
+Linux-only regression without burning a release. Use the manual
+`.github/workflows/tauri-build.yml` workflow from the Actions tab only for an
+explicit desktop rebuild/debug run.
 
 ### Manual local build (rarely needed)
 
