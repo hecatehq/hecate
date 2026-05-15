@@ -182,7 +182,8 @@ Three workflow files split responsibilities:
 |---|---|---|
 | `.github/workflows/_tauri-shared.yml` | `workflow_call` only | Reusable matrix build. Single source of truth for Tauri build steps. |
 | `.github/workflows/release.yml` | tag push (`v*`) | Goreleaser job, then calls `_tauri-shared.yml` with `tagName` set → bundles upload to the GitHub Release. |
-| `.github/workflows/tauri-build.yml` | PR to master | Calls `_tauri-shared.yml` with `uploadArtifacts: true` → bundles persist as workflow artifacts (14-day retention) for reviewer test-launch. |
+| `.github/workflows/test.yml` | PR / `master` push | Main test gate. Its `Tauri desktop bundles` job calls `_tauri-shared.yml` after cheaper checks pass or skip. |
+| `.github/workflows/tauri-build.yml` | manual dispatch | Explicit desktop rebuild/debug run from the Actions tab. |
 
 **Matrix** (same for both callers):
 
@@ -194,7 +195,14 @@ Three workflow files split responsibilities:
 
 **Steps per matrix leg** (in `_tauri-shared.yml`): Rust + Go + Bun setup → Linux Tauri 2 prereqs (webkit2gtk-4.1, libxdo, patchelf, …) → `just ui-install` → `just tauri-sidecar <matrix-target>` (builds `hecate` / `hecate-acp` with the tag injected, then stages them as `binaries/<name>-{triple}[.exe]`) → `cd tauri && bun install --frozen-lockfile` → `bun scripts/stamp-version.ts` → `tauri-apps/tauri-action@v0` (build, conditionally upload).
 
-**PR-run behaviour:** `concurrency: cancel-in-progress: true` cancels older runs on the same ref. `if: pull_request.draft == false` skips drafts. Trigger types: `[opened, synchronize, reopened, ready_for_review]` — no fire on title-only edits. Path filter scopes to changes that could plausibly break a Tauri build (`tauri/**`, `cmd/hecate/**`, `cmd/hecate-acp/**`, `ui/**`, `Justfile`, `scripts/resolve-tauri-version.ts`, `scripts/stamp-version.ts`, `.github/workflows/*.yml`).
+**PR-run behaviour:** `test.yml` owns PR validation. Its path filter scopes the
+desktop matrix to changes that could plausibly break a Tauri build (`tauri/**`,
+`cmd/hecate/**`, `cmd/hecate-acp/**`, `ui/**`, `Justfile`, version scripts,
+release packaging files, and `.github/workflows/*.yml`). The matrix waits for
+the cheaper Go, TypeScript, e2e, Docker smoke, and Tauri Rust jobs to pass (or
+skip by path filter) before it starts, and it does not upload unsigned bundles.
+`concurrency: cancel-in-progress: true` cancels older runs on the same ref.
+`tauri-build.yml` is manual-only for explicit desktop reruns/debugging.
 
 **Release-run behaviour:** `concurrency: cancel-in-progress: false` — a half-cancelled release is worse than waiting. The `tauri` job has `needs: goreleaser` so the GitHub Release entry exists before tauri-action's upload tries to attach to it.
 
