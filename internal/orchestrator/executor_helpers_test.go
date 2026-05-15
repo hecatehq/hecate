@@ -511,6 +511,15 @@ func (f *fakeStreamingSandbox) AppendFile(_ context.Context, _ sandbox.FileReque
 	return sandbox.FileResult{}, nil
 }
 
+// OpenTerminal isn't exercised by the shell / file / git executor
+// paths under test today, but the workspace.Workspace interface
+// requires it. Return a not-implemented error so any future test
+// that hits this fake by accident sees a clear failure instead of
+// a panic.
+func (f *fakeStreamingSandbox) OpenTerminal(_ context.Context, _ workspace.TerminalOptions) (workspace.Terminal, error) {
+	return nil, errors.New("fakeStreamingSandbox: OpenTerminal not implemented for this test")
+}
+
 func deterministicIDGenerator() func(string) string {
 	counters := make(map[string]int)
 	return func(prefix string) string {
