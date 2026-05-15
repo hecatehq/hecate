@@ -213,9 +213,10 @@ modes, in rough order of likelihood:
 - `TAURI_UPDATER_PRIVATE_KEY` and/or `TAURI_UPDATER_PRIVATE_KEY_PASSWORD`
   are not set in repo secrets — the build proceeds unsigned and
   the same missing-signature check trips. Confirm both secrets.
-- You're running PR validation (`tauri-build.yml`) instead of a
-  release tag. PR validation intentionally skips signing and
-  manifest publishing — that's working as designed.
+- You're running PR validation (`test.yml`'s desktop bundle gate) or a manual
+  `tauri-build.yml` rebuild instead of a release tag. Validation builds
+  intentionally skip signing and manifest publishing — that's working as
+  designed.
 
 **`publish-updater-website` failed at "Verify manifest is live at
 hecate.sh".** The release published, the GitHub Release has its

@@ -2,9 +2,10 @@ name: tauri-shared
 
 # Reusable Tauri matrix build. Called by:
 #   - release.yml      (tagged release: tagName set → tauri-action uploads to GitHub Release)
-#   - tauri-build.yml  (PR validation: build only; no release upload)
+#   - test.yml         (PR validation: build only; no release upload)
+#   - tauri-build.yml  (manual desktop rebuild/debug run from the Actions tab)
 #
-# When you change anything in this file, both callers pick it up
+# When you change anything in this file, all callers pick it up
 # automatically. Keep their path filters wide enough to trigger on
 # changes to this workflow itself.
 
@@ -17,7 +18,7 @@ on:
         required: false
         default: ''
       uploadArtifacts:
-        description: 'Upload built bundles as workflow artifacts (for PR runs).'
+        description: 'Upload built bundles as workflow artifacts for manual/debug callers.'
         type: boolean
         required: false
         default: false
@@ -25,8 +26,8 @@ on:
 # Maximum permissions any caller needs:
 #   - contents: write   tauri-action uploads bundles to a GitHub Release
 #                       (when called from release.yml with tagName set)
-# Callers that don't upload (PR validation via tauri-build.yml) restrict
-# this back down to contents: read at their own workflow-level block.
+# Release callers grant contents/actions write. Non-release callers do not pass
+# secrets and set uploadArtifacts=false, so the matrix only proves bundles build.
 permissions:
   contents: write
 

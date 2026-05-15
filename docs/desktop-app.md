@@ -29,7 +29,9 @@ bundle matrix only after the cheaper Go, TypeScript, e2e, Docker smoke, and
 Tauri Rust checks pass or skip by path filter. PR validation proves that the
 macOS, Linux, and Windows bundles build, but does not upload unsigned bundles
 as workflow artifacts. [`tauri-build.yml`](../.github/workflows/tauri-build.yml)
-is manual-only for explicit desktop rebuild/debug runs from the Actions tab.
+is manual-only for explicit desktop rebuild/debug runs from the Actions tab. To
+test-launch a bundle before merge, dispatch `tauri-build.yml` manually from the
+PR branch.
 
 ## Current state — `v0.1.0-alpha.29`
 

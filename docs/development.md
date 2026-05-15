@@ -182,7 +182,8 @@ upload signed/notarized artifacts through `release.yml`.
 This shape keeps PR feedback fast for normal code changes and avoids burning
 desktop runner minutes when a cheaper test has already failed. If a desktop
 packaging issue needs an explicit rerun, use the manual `tauri-build` workflow
-from the Actions tab.
+from the Actions tab. If a reviewer needs a pre-merge bundle to test-launch,
+dispatch `tauri-build.yml` manually from the PR branch.
 
 ### Skipping CI for inert changes
 
