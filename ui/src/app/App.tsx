@@ -26,7 +26,19 @@ export default function App() {
     return installTauriEditShortcutFallback();
   }, []);
 
+  useEffect(() => {
+    return installTauriDocumentMarkers();
+  }, []);
+
   return <ConsoleShell actions={actions} activeWorkspace={activeWorkspace} onSelectWorkspace={handleSelectWorkspace} state={state} />;
+}
+
+export function installTauriDocumentMarkers(): () => void {
+  if (!isTauriRuntime()) return () => undefined;
+  document.documentElement.dataset.tauri = "true";
+  return () => {
+    delete document.documentElement.dataset.tauri;
+  };
 }
 
 export function installTauriEditShortcutFallback(): () => void {

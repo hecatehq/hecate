@@ -265,6 +265,7 @@ function AuthenticatedShell({
 
   return (
     <div className="hecate-shell">
+      <div className="hecate-titlebar-drag-region" data-tauri-drag-region />
       <div className="hecate-workarea">
         {/* Activity bar */}
         <nav className="hecate-activitybar" aria-label="Workspace navigation">
