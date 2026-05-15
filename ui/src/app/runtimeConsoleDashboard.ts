@@ -52,6 +52,20 @@ export type DashboardPreviousState = {
   retentionLastRun: RetentionRunData | null;
 };
 
+// DashboardEssentials is the minimal slice of dashboard state the
+// app shell needs to render its activity bar + status bar: health
+// (gateway version + status), session label, model count, and
+// configured-provider count. Emitting these early lets the
+// AuthLoadingShell gate clear ~50–150 ms sooner on cold launches —
+// the rest of the snapshot (chat sessions, usage, retention, …)
+// continues to load in the background and lands when ready.
+export type DashboardEssentials = {
+  health: HealthResponse;
+  sessionInfo: SessionResponse["data"] | null;
+  models: ModelResponse["data"];
+  settingsConfig: ConfiguredStateResponse["data"] | null;
+};
+
 export type DashboardSnapshot = {
   health: HealthResponse;
   sessionInfo: SessionResponse["data"] | null;
@@ -96,8 +110,21 @@ export async function resolveDashboardSnapshot(args: {
   activeChatSessionID: string;
   activeAgentChatSessionID: string;
   previous: DashboardPreviousState;
+  /**
+   * Fires once the essentials wave (health + session + models +
+   * settingsConfig) resolves, before the secondary wave starts.
+   * The hook uses this to commit just enough state to clear the
+   * Connecting gate so the rest of the dashboard can load behind a
+   * rendered shell rather than a blocking spinner.
+   */
+  onEssentials?: (essentials: DashboardEssentials) => void;
 }): Promise<DashboardSnapshot> {
-  const results = await loadDashboardResults();
+  const results = await loadDashboardResults({
+    onEssentials: args.onEssentials
+      ? (essentials) => args.onEssentials!(essentials)
+      : undefined,
+    previousSettingsConfig: args.previous.settingsConfig,
+  });
   const health = requireFulfilledDashboardResult(results.health);
   const sessionInfo = results.session.status === "fulfilled" ? results.session.value.data : null;
   const models = resolveModelsResult(results.models);
@@ -160,14 +187,45 @@ export function deriveSessionState(_sessionInfo: SessionResponse["data"] | null)
   return { label: "Local" };
 }
 
-async function loadDashboardResults(): Promise<DashboardResults> {
-  const [health, session] = await Promise.allSettled([
+async function loadDashboardResults(opts: {
+  onEssentials?: (essentials: DashboardEssentials) => void;
+  previousSettingsConfig: ConfiguredStateResponse["data"] | null;
+}): Promise<DashboardResults> {
+  // Wave 1 — essentials. Four parallel calls drive everything the
+  // app shell needs to clear the Connecting gate: gateway health
+  // (version + status), session label, model count for the status
+  // bar, and configured-provider count. Folding models +
+  // settingsConfig in here (vs. the prior 2-call wave that only
+  // covered health + session) means the shell can render before
+  // the much chattier secondary wave finishes.
+  const [health, session, models, settingsConfig] = await Promise.allSettled([
     getHealth(),
     getSession(),
+    getModels(),
+    getSettingsConfig(),
   ]);
 
+  if (opts.onEssentials) {
+    opts.onEssentials({
+      health: health.status === "fulfilled"
+        ? health.value
+        // Surface a synthetic "down" health so the gate can still
+        // render the shell with an error banner instead of hanging
+        // on the loading state.
+        : { status: "down", time: new Date().toISOString() } as HealthResponse,
+      sessionInfo: session.status === "fulfilled" ? session.value.data : null,
+      models: resolveModelsResult(models),
+      settingsConfig: resolveDashboardResult(settingsConfig, opts.previousSettingsConfig),
+    });
+  }
+
+  // Wave 2 — secondary. Everything else fires in parallel; the
+  // shell is already on screen, so individual workspaces fill in
+  // with their data as it arrives. Providers is conditional on
+  // settingsConfig having at least one configured provider, which
+  // we already know after wave 1 — no need for the prior third
+  // sequential wave.
   const initialReject = <T,>(): PromiseSettledResult<T> => ({ status: "rejected", reason: new Error("uninitialized") });
-  let models: PromiseSettledResult<ModelResponse> = initialReject();
   let providers: PromiseSettledResult<ProviderStatusResponse> = initialReject();
   let providerPresets: PromiseSettledResult<{ object: string; data: ProviderPresetRecord[] }> = initialReject();
   let agentAdapters: PromiseSettledResult<{ object: string; data: AgentAdapterRecord[] }> = initialReject();
@@ -175,32 +233,29 @@ async function loadDashboardResults(): Promise<DashboardResults> {
   let chatSessions: PromiseSettledResult<ChatSessionsResponse> = initialReject();
   let agentChatSessions: PromiseSettledResult<AgentChatSessionsResponse> = initialReject();
   let usageEvents: PromiseSettledResult<UsageEventsResponse> = initialReject();
-  let settingsConfig: PromiseSettledResult<ConfiguredStateResponse> = initialReject();
   let retentionRuns: PromiseSettledResult<{ object: string; data: RetentionRunData[] }> = initialReject();
   let runtimeStats: PromiseSettledResult<RuntimeStatsResponse> = initialReject();
 
-  await Promise.all([
+  const configured = settingsConfig.status === "fulfilled" ? (settingsConfig.value.data?.providers ?? []) : [];
+  const secondary: Promise<unknown>[] = [
     getProviderPresets().then(r => { providerPresets = { status: "fulfilled", value: r }; }, e => { providerPresets = { status: "rejected", reason: e }; }),
     getAgentAdapters().then(r => { agentAdapters = { status: "fulfilled", value: r }; }, e => { agentAdapters = { status: "rejected", reason: e }; }),
     getChatSessions(20).then(r => { chatSessions = { status: "fulfilled", value: r }; }, e => { chatSessions = { status: "rejected", reason: e }; }),
     getAgentChatSessions().then(r => { agentChatSessions = { status: "fulfilled", value: r }; }, e => { agentChatSessions = { status: "rejected", reason: e }; }),
-    getModels().then(r => { models = { status: "fulfilled", value: r }; }, e => { models = { status: "rejected", reason: e }; }),
     getUsageSummary("").then(r => { usageSummary = { status: "fulfilled", value: r }; }, e => { usageSummary = { status: "rejected", reason: e }; }),
     getUsageEvents(20).then(r => { usageEvents = { status: "fulfilled", value: r }; }, e => { usageEvents = { status: "rejected", reason: e }; }),
-    getSettingsConfig().then(r => { settingsConfig = { status: "fulfilled", value: r }; }, e => { settingsConfig = { status: "rejected", reason: e }; }),
     getRetentionRuns(10).then(r => { retentionRuns = { status: "fulfilled", value: r }; }, e => { retentionRuns = { status: "rejected", reason: e }; }),
     getRuntimeStats().then(r => { runtimeStats = { status: "fulfilled", value: r }; }, e => { runtimeStats = { status: "rejected", reason: e }; }),
-  ]);
-
-  const configured = settingsConfig.status === "fulfilled" ? (settingsConfig.value.data?.providers ?? []) : [];
+  ];
   if (configured.length > 0) {
-    await getProviders().then(
+    secondary.push(getProviders().then(
       r => { providers = { status: "fulfilled", value: r }; },
       e => { providers = { status: "rejected", reason: e }; },
-    );
+    ));
   } else {
     providers = { status: "fulfilled", value: { object: "list", data: [] } as ProviderStatusResponse };
   }
+  await Promise.all(secondary);
 
   return {
     health,
