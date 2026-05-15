@@ -19,6 +19,14 @@ use std::sync::Mutex;
 use std::time::{Duration, Instant};
 use tauri::menu::{AboutMetadataBuilder, MenuBuilder, SubmenuBuilder};
 use tauri::{Emitter, Manager};
+use tauri_plugin_log::{RotationStrategy, Target, TargetKind, TimezoneStrategy};
+
+/// File name (without extension) used by tauri-plugin-log under the
+/// platform log directory. The resolved path is
+/// `<app_log_dir>/<APP_LOG_FILE>.log`. Kept as a constant so the
+/// menu handler that opens the file uses the same name the plugin
+/// writes to.
+const APP_LOG_FILE: &str = "app";
 
 const MIN_SPLASH_DURATION: Duration = Duration::from_secs(2);
 
@@ -86,6 +94,7 @@ fn install_menu(app: &mut tauri::App) -> tauri::Result<()> {
         .hide_others()
         .show_all()
         .separator()
+        .text("open-app-log", "Open App Log")
         .text("open-gateway-log", "Open Gateway Log")
         .text("open-data-directory", "Open Data Directory")
         .separator()
@@ -127,6 +136,37 @@ fn remaining_splash_delay(elapsed: Duration) -> Option<Duration> {
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
 pub fn run() {
     tauri::Builder::default()
+        // tauri-plugin-log must be registered first so subsequent
+        // plugin initialization can produce log lines via the
+        // `log` facade. Targets:
+        //  - Stderr: keeps existing dev-mode visibility (Tauri's
+        //    own console output now flows through the same sink
+        //    instead of bare eprintln!).
+        //  - LogDir: rotating file at
+        //    <app_log_dir>/app.log (macOS:
+        //    ~/Library/Logs/sh.hecate.app/, Windows:
+        //    %LOCALAPPDATA%\sh.hecate.app\logs\, Linux:
+        //    $XDG_DATA_HOME/sh.hecate.app/logs). 5 MB cap, keep
+        //    five rotated files — enough to survive a crash loop
+        //    without bloating disk.
+        //  - Webview: routes webview console.* calls and JS
+        //    `@tauri-apps/plugin-log` calls into the same sink so
+        //    the file captures both layers.
+        .plugin(
+            tauri_plugin_log::Builder::new()
+                .level(log::LevelFilter::Info)
+                .targets([
+                    Target::new(TargetKind::Stderr),
+                    Target::new(TargetKind::LogDir {
+                        file_name: Some(APP_LOG_FILE.into()),
+                    }),
+                    Target::new(TargetKind::Webview),
+                ])
+                .max_file_size(5 * 1024 * 1024)
+                .rotation_strategy(RotationStrategy::KeepSome(5))
+                .timezone_strategy(TimezoneStrategy::UseLocal)
+                .build(),
+        )
         .plugin(tauri_plugin_shell::init())
         .plugin(tauri_plugin_updater::Builder::new().build())
         .plugin(tauri_plugin_window_state::Builder::default().build())
@@ -142,6 +182,28 @@ pub fn run() {
                 }
                 let _ = app.emit("hecate:check-for-updates", ());
             }
+            "open-app-log" => {
+                // tauri-plugin-log writes to
+                // <app_log_dir>/<APP_LOG_FILE>.log; resolve the
+                // same path so the menu item points at the file
+                // the plugin is actually rotating.
+                match app.path().app_log_dir() {
+                    Ok(dir) => {
+                        let log_path = dir.join(format!("{APP_LOG_FILE}.log"));
+                        if !log_path.exists() {
+                            let _ = std::fs::create_dir_all(&dir);
+                            let _ = std::fs::write(
+                                &log_path,
+                                "App log has not accumulated any entries yet.\n",
+                            );
+                        }
+                        if let Err(e) = open_path(&log_path) {
+                            log::warn!("open app log failed: {e}");
+                        }
+                    }
+                    Err(e) => log::warn!("resolve app log dir failed: {e}"),
+                }
+            }
             "open-gateway-log" => {
                 if let Some(paths) = app.try_state::<GatewayDiagnostics>() {
                     if !paths.log_path.exists() {
@@ -151,14 +213,14 @@ pub fn run() {
                         );
                     }
                     if let Err(e) = open_path(&paths.log_path) {
-                        eprintln!("{e}");
+                        log::warn!("open gateway log failed: {e}");
                     }
                 }
             }
             "open-data-directory" => {
                 if let Some(paths) = app.try_state::<GatewayDiagnostics>() {
                     if let Err(e) = open_path(&paths.data_dir) {
-                        eprintln!("{e}");
+                        log::warn!("open data dir failed: {e}");
                     }
                 }
             }
@@ -205,12 +267,13 @@ pub fn run() {
                         // Navigate to the gateway UI.
                         let url = tauri::Url::parse(&handle.base_url)
                             .expect("gateway base_url is always valid");
+                        log::info!("navigating to gateway {}", handle.base_url);
                         if let Err(e) = win.navigate(url) {
-                            eprintln!("navigate to gateway failed: {e}");
+                            log::error!("navigate to gateway failed: {e}");
                         }
                     }
                     Err(e) => {
-                        eprintln!("hecate gateway startup failed: {e}");
+                        log::error!("hecate gateway startup failed: {e}");
                         let payload = serde_json::json!({
                             "message": e,
                             "logPath": diagnostics.log_path.display().to_string(),

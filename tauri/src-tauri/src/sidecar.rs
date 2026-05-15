@@ -187,7 +187,7 @@ pub fn remove_gateway_state(path: &std::path::Path) {
     match std::fs::remove_file(path) {
         Ok(()) => {}
         Err(err) if err.kind() == std::io::ErrorKind::NotFound => {}
-        Err(err) => eprintln!(
+        Err(err) => log::warn!(
             "failed to remove hecate runtime state {}: {err}",
             path.display()
         ),
