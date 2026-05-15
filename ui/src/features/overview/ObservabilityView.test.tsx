@@ -850,12 +850,18 @@ describe("ObservabilityView", () => {
         start_time: new Date(t0.getTime() + 310).toISOString(),
         end_time: new Date(t0.getTime() + 340).toISOString(),
         attributes: { "usage.input_tokens": 100 } },
+      // A zero-duration finalization span at the trace end should stay visible
+      // instead of being clipped past the right edge by the minimum bar width.
+      { trace_id: traceID, span_id: "response", parent_span_id: "root", name: "gateway.response",
+        start_time: new Date(t0.getTime() + 400).toISOString(),
+        end_time: new Date(t0.getTime() + 400).toISOString(),
+        attributes: { "hecate.phase": "response" } },
     ];
     fetchMock.mockImplementation(tracesFetchHandler(
       [{
         request_id: "req-spans",
         started_at: t0.toISOString(),
-        span_count: 3,
+        span_count: 4,
         duration_ms: 400,
         status_code: "ok",
         route: { final_provider: "openai", final_model: "gpt-4o" },
@@ -874,7 +880,7 @@ describe("ObservabilityView", () => {
     const row = container.querySelector("tbody tr") as HTMLElement;
     await act(async () => { fireEvent.click(row); });
     await waitFor(() => {
-      expect(document.body.textContent).toMatch(/Spans \(3\)/);
+      expect(document.body.textContent).toMatch(/Spans \(4\)/);
     });
     // Three span rows by name.
     expect(document.body.textContent).toMatch(/provider chain/);
@@ -888,9 +894,12 @@ describe("ObservabilityView", () => {
     const childABar = expectHTMLElement('[data-testid="span-waterfall-bar-child-a"]');
     expect(childABar.style.left).toBe("12.5%");
     expect(childABar.style.width).toBe("62.5%");
+    const responseBar = expectHTMLElement('[data-testid="span-waterfall-bar-response"]');
+    expect(responseBar.style.left).toBe("99.5%");
+    expect(responseBar.style.width).toBe("0.5%");
     const waterfallScroller = expectHTMLElement('[data-testid="span-waterfall-scroll"]');
     const rootRow = expectHTMLElement('[aria-label="span provider chain"]');
-    expect(rootRow.style.gridTemplateColumns).toBe("153px minmax(360px, 1fr) 72px");
+    expect(rootRow.style.gridTemplateColumns).toBe("160px minmax(360px, 1fr) 72px");
     expect(normalizedInlineStyle(waterfallScroller, "max-height")).toBe("min(420px,52vh)");
     expect(waterfallScroller.style.overflowY).toBe("auto");
     const eventFlow = expectHTMLElement('[data-testid="trace-event-flow"]');

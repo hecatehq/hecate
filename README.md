@@ -169,14 +169,10 @@ The embedded UI is a runtime console for the operator.
 | **Tasks** | Native `agent_loop` runs, approvals, retries, resumes, streamed output, artifacts, and full run history. |
 | **Observability** | Request history, route candidates, skip reasons, failover, usage, traces, metrics, logs, and local trace events. |
 | **Usage** | Cloud-provider tokens, known provider-reported cost, and adapter-reported external-agent usage. |
-| **Settings** | Retention. Provider credentials, model capabilities, and external-agent setup live in Connections. |
+| **Settings** | Local data cleanup. Provider credentials, model capabilities, and external-agent setup live in Connections. |
 
 <details>
 <summary>Various UI screenshots</summary>
-
-![Observability view — request history and route-report drilldown](docs/screenshots/observe.png)
-
-Observability answers “what happened?” with recent requests, route status, trace timing, event flow, and the selected request’s runtime details.
 
 ![Empty Connections view — Add provider CTA](docs/screenshots/connections-empty.png)
 
@@ -190,21 +186,41 @@ The Add provider flow groups cloud and local presets, showing detected local run
 
 Configured providers show health, endpoint, credential state, model discovery, routing readiness, and repair actions in one place.
 
+![Connections workspace — adapter readiness checks and durable approval grants](docs/screenshots/connections-external-agents.png)
+
+External-agent readiness, Claude/Codex/Cursor setup state, and durable approval grants are managed from the same Connections surface.
+
+![Chats first-run state — detected local providers and one-click Add detected providers setup](docs/screenshots/chat-empty.png)
+
+Chats starts from setup-aware onboarding: local runtimes can be added quickly, or you can jump back to Connections for manual provider setup.
+
+![Hecate Chat transcript with tools-off direct turns, tools-on task-backed turns, Task / Trace / Run links, and collapsible activity details](docs/screenshots/chat.png)
+
+Hecate Chat keeps direct model turns and tools-on task-backed turns in one transcript, with task, run, trace, timing, usage, and activity details close to the answer.
+
+![Chats workspace with an external-agent file-write approval waiting for operator review](docs/screenshots/chat-agent-approval.png)
+
+External Agent approvals surface in Chats as actionable operator prompts before Codex, Claude Code, or Cursor can apply gated actions.
+
+![Agent approval modal with ACP options, scope choices, and audit note](docs/screenshots/chat-agent-approval-modal.png)
+
+The approval modal shows the adapter-provided action, available ACP choices, grant scope, and an optional audit note before the decision is persisted.
+
 ![Tasks workspace — run timeline with failed-tool diagnostics, stdout/stderr previews, and artifacts](docs/screenshots/tasks.png)
 
 Tasks remains the deep-debug view for native `agent_loop` runs: timelines, failed tools, stdout/stderr, artifacts, approvals, retry, and resume.
+
+![Observability view — request history and route-report drilldown](docs/screenshots/observe.png)
+
+Observability answers “what happened?” with recent requests, route status, trace timing, event flow, and the selected request’s runtime details.
 
 ![Usage workspace — cloud token usage and reported cost where available](docs/screenshots/usage.png)
 
 Usage is intentionally narrow: cloud-provider tokens and known provider-reported cost where Hecate controls or observes the provider call.
 
-![Settings — retention windows and last-run history](docs/screenshots/settings.png)
+![Settings — cleanup controls and last-run history](docs/screenshots/settings.png)
 
-Settings stays small; retention controls are separated from provider, adapter, and model-capability setup, which live in Connections.
-
-![Connections workspace — adapter readiness checks and durable approval grants](docs/screenshots/connections-external-agents.png)
-
-External-agent readiness, Claude/Codex/Cursor setup state, and durable approval grants are managed from the same Connections surface.
+Settings stays small; cleanup controls are separated from provider, adapter, and model-capability setup, which live in Connections.
 
 </details>
 
