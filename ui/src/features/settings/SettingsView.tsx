@@ -84,7 +84,7 @@ const RETENTION_LABELS = Object.fromEntries(
 ) as Record<RetentionSubsystemID, string>;
 
 function isRetentionSubsystemID(name: string): name is RetentionSubsystemID {
-  return name in RETENTION_LABELS;
+  return Object.hasOwn(RETENTION_LABELS, name);
 }
 
 function relativeTime(iso: string): string {
