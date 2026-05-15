@@ -2,7 +2,7 @@ import { StrictMode } from "react";
 import { act, renderHook, waitFor } from "@testing-library/react";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
-import { useDesktopUpdate } from "./desktop-update";
+import { DESKTOP_UPDATE_POLL_INTERVAL_MS, useDesktopUpdate } from "./desktop-update";
 
 // The hook dynamically imports @tauri-apps/plugin-updater inside
 // the Tauri runtime check. We mock the module so the tests don't
@@ -31,6 +31,7 @@ beforeEach(() => {
 
 afterEach(() => {
   exitTauriRuntime();
+  vi.useRealTimers();
 });
 
 describe("useDesktopUpdate", () => {
@@ -51,6 +52,7 @@ describe("useDesktopUpdate", () => {
     await waitFor(() => expect(result.current.update).not.toBeNull());
     expect(result.current.update).toEqual({ version: "0.1.0-alpha.24" });
     expect(result.current.installing).toBe(false);
+    expect(result.current.lastCheckResult).toBe("update");
   });
 
   it("returns null when check() resolves with no update", async () => {
@@ -59,15 +61,21 @@ describe("useDesktopUpdate", () => {
     const { result } = renderHook(() => useDesktopUpdate());
     await waitFor(() => expect(checkMock).toHaveBeenCalled());
     expect(result.current.update).toBeNull();
+    // Automatic check + no update: no transient banner.
+    expect(result.current.lastCheckResult).toBeNull();
   });
 
-  it("swallows check() failures and stays inert", async () => {
+  it("logs check() failures via console.warn and stays inert", async () => {
     enterTauriRuntime();
     checkMock.mockRejectedValue(new Error("network down"));
+    const warnSpy = vi.spyOn(console, "warn").mockImplementation(() => {});
     const { result } = renderHook(() => useDesktopUpdate());
     await waitFor(() => expect(checkMock).toHaveBeenCalled());
+    await waitFor(() => expect(warnSpy).toHaveBeenCalled());
     expect(result.current.update).toBeNull();
     expect(result.current.installing).toBe(false);
+    expect(warnSpy.mock.calls[0]?.[0]).toContain("desktop updater check failed");
+    warnSpy.mockRestore();
   });
 
   it("dismiss() hides the update for the session and writes sessionStorage", async () => {
@@ -83,7 +91,7 @@ describe("useDesktopUpdate", () => {
     expect(sessionStorage.getItem("hecate.update.dismissed")).toBe("1");
   });
 
-  it("skips the check entirely when sessionStorage marks the update dismissed", async () => {
+  it("skips the automatic check entirely when sessionStorage marks the update dismissed", async () => {
     enterTauriRuntime();
     sessionStorage.setItem("hecate.update.dismissed", "1");
     const { result } = renderHook(() => useDesktopUpdate());
@@ -147,5 +155,81 @@ describe("useDesktopUpdate", () => {
     await waitFor(() => expect(result.current.progress).toBe(0.25));
     act(() => { onEventCb?.({ event: "Progress", data: { chunkLength: 500 } }); });
     await waitFor(() => expect(result.current.progress).toBe(0.75));
+  });
+
+  it("re-runs check() on the steady-state interval", async () => {
+    vi.useFakeTimers();
+    enterTauriRuntime();
+    checkMock.mockResolvedValue(null);
+    renderHook(() => useDesktopUpdate());
+    await vi.waitFor(() => expect(checkMock).toHaveBeenCalledTimes(1));
+
+    await act(async () => {
+      await vi.advanceTimersByTimeAsync(DESKTOP_UPDATE_POLL_INTERVAL_MS);
+    });
+    expect(checkMock).toHaveBeenCalledTimes(2);
+
+    await act(async () => {
+      await vi.advanceTimersByTimeAsync(DESKTOP_UPDATE_POLL_INTERVAL_MS);
+    });
+    expect(checkMock).toHaveBeenCalledTimes(3);
+  });
+
+  it("checkNow() bypasses sessionStorage dismiss and reruns the check", async () => {
+    enterTauriRuntime();
+    sessionStorage.setItem("hecate.update.dismissed", "1");
+    checkMock.mockResolvedValue({
+      version: "0.1.0-alpha.25",
+      downloadAndInstall: vi.fn(),
+    });
+    const { result } = renderHook(() => useDesktopUpdate());
+    // Initial automatic check is skipped by the dismiss flag.
+    await new Promise((r) => setTimeout(r, 10));
+    expect(checkMock).not.toHaveBeenCalled();
+
+    await act(async () => {
+      await result.current.checkNow();
+    });
+    expect(checkMock).toHaveBeenCalledTimes(1);
+    expect(result.current.update).toEqual({ version: "0.1.0-alpha.25" });
+    // checkNow also clears the dismiss marker so subsequent auto
+    // checks fire again — the user explicitly asked to look again.
+    expect(sessionStorage.getItem("hecate.update.dismissed")).toBeNull();
+  });
+
+  it("checkNow() with no update surfaces transient up-to-date feedback", async () => {
+    vi.useFakeTimers();
+    enterTauriRuntime();
+    checkMock.mockResolvedValue(null);
+    const { result } = renderHook(() => useDesktopUpdate());
+    await vi.waitFor(() => expect(checkMock).toHaveBeenCalled());
+    expect(result.current.lastCheckResult).toBeNull();
+
+    await act(async () => {
+      await result.current.checkNow();
+    });
+    expect(result.current.lastCheckResult).toBe("up-to-date");
+
+    // Transient feedback clears after the timeout.
+    await act(async () => {
+      await vi.advanceTimersByTimeAsync(10_000);
+    });
+    expect(result.current.lastCheckResult).toBeNull();
+  });
+
+  it("checkNow() with a failing check surfaces transient error feedback and logs", async () => {
+    vi.useFakeTimers();
+    enterTauriRuntime();
+    checkMock.mockRejectedValue(new Error("timeout"));
+    const warnSpy = vi.spyOn(console, "warn").mockImplementation(() => {});
+    const { result } = renderHook(() => useDesktopUpdate());
+    await vi.waitFor(() => expect(checkMock).toHaveBeenCalled());
+
+    await act(async () => {
+      await result.current.checkNow();
+    });
+    expect(result.current.lastCheckResult).toBe("error");
+    expect(warnSpy).toHaveBeenCalled();
+    warnSpy.mockRestore();
   });
 });
