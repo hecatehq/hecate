@@ -12,7 +12,7 @@
 // disabled-provider rendering or the provider suffix get the same
 // look as the old simple picker minus the section headers.
 
-import { useCallback, useEffect, useRef, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import type { KeyboardEvent } from "react";
 
 import type { ModelRecord, ProviderPresetRecord } from "../../types/runtime";
@@ -73,9 +73,11 @@ export function ModelPicker({
 }) {
   const [filter, setFilter] = useState("");
   const inputRef = useRef<HTMLInputElement>(null);
-  const handleClose = useCallback(() => setFilter(""), []);
   const { open, setOpen, toggle, wrapRef: ref, triggerRef, menuRef } = useFloatingMenu<HTMLDivElement, HTMLButtonElement>({
-    onClose: handleClose,
+    // onCloseRef inside useFloatingMenu absorbs closure-identity
+    // churn, so passing a fresh () => setFilter("") each render
+    // doesn't re-bind the document listener — no useCallback needed.
+    onClose: () => setFilter(""),
   });
   // Right-anchored: the menu is 300px wide and the trigger is at the
   // right side of its row in the chat header, so left-anchoring would

@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useRef, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import type { CSSProperties, KeyboardEvent, ReactNode } from "react";
 
 import { Icon, Icons } from "./Icons";
@@ -61,9 +61,11 @@ export function DropdownPicker<Value extends string = string>({
 }) {
   const [filter, setFilter] = useState("");
   const inputRef = useRef<HTMLInputElement>(null);
-  const handleClose = useCallback(() => setFilter(""), []);
   const { open, setOpen, toggle, wrapRef: ref, triggerRef, menuRef } = useFloatingMenu<HTMLDivElement, HTMLButtonElement>({
-    onClose: handleClose,
+    // onCloseRef inside useFloatingMenu absorbs closure-identity
+    // churn, so passing a fresh () => setFilter("") each render
+    // doesn't re-bind the document listener — no useCallback needed.
+    onClose: () => setFilter(""),
   });
   const floatingStyle = useFloatingDropdownStyle(triggerRef, open, align, placement);
   const selected = options.find((option) => option.value === value);

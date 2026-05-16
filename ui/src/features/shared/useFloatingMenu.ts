@@ -66,9 +66,13 @@ export function useFloatingMenu<
   const closeOn = options.closeOn ?? "mousedown";
   // Mirror onClose to a ref so the outside-click effect doesn't
   // re-bind on every render when the consumer passes a fresh
-  // closure each time.
+  // closure each time. Synced in a commit-phase effect (not during
+  // render) so concurrent re-renders that don't commit can't
+  // strand a stale callback in the ref.
   const onCloseRef = useRef(options.onClose);
-  onCloseRef.current = options.onClose;
+  useEffect(() => {
+    onCloseRef.current = options.onClose;
+  });
 
   const [open, setOpenState] = useState(false);
   const wrapRef = useRef<WrapEl | null>(null);
@@ -102,6 +106,12 @@ export function useFloatingMenu<
       if (!target) return;
       if (wrapRef.current && wrapRef.current.contains(target)) return;
       if (portalSelector && target instanceof HTMLElement && target.closest(portalSelector)) return;
+      // setOpenState(false) is unconditional — when the menu is
+      // already closed, React's identical-state bail-out keeps the
+      // commit-phase onClose effect from firing. Adding an `open`
+      // guard here would either require it in the effect deps (re-
+      // binding the listener on every open/close transition) or a
+      // ref shadow; the bail-out is the cheaper read.
       setOpenState(false);
     };
     document.addEventListener(closeOn, handler);
