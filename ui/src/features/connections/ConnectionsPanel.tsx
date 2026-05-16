@@ -1,6 +1,7 @@
 import { useEffect, useMemo, useRef, useState, type ReactNode } from "react";
 import type { RuntimeConsoleViewModel } from "../../app/useRuntimeConsole";
 import { claudeCodeSetupTokenCommand } from "../../lib/claude-code-setup";
+import { formatLocaleDateTime } from "../../lib/format";
 import { providerFleetRepairHint, providerReadinessMeaning, providerRepairActionLabel } from "../../lib/provider-readiness";
 import type { AgentAdapterHealthRecord, AgentAdapterRecord, AgentChatGrantRecord, ConfiguredProviderRecord, ProviderRecord } from "../../types/runtime";
 import { BrandAvatar, Icon, Icons, InlineError } from "../shared/ui";
@@ -816,7 +817,7 @@ function GrantRow({
       ? { color: "var(--red)", label: "always deny" }
       : { color: "var(--t2)", label: grant.decision };
   const expiresLabel = grant.expires_at
-    ? `expires ${new Date(grant.expires_at).toLocaleString()}`
+    ? `expires ${formatLocaleDateTime(grant.expires_at)}`
     : "no expiry";
 
   return (
@@ -845,7 +846,7 @@ function GrantRow({
           {grant.workspace && <span>workspace <span style={{ color: "var(--t1)" }}>{grant.workspace}</span></span>}
           {grant.session_id && <span>session <span style={{ color: "var(--t1)" }}>{grant.session_id}</span></span>}
           {grant.granted_by && <span>by <span style={{ color: "var(--t1)" }}>{grant.granted_by}</span></span>}
-          <span>{new Date(grant.granted_at).toLocaleString()}</span>
+          <span>{formatLocaleDateTime(grant.granted_at)}</span>
           <span>{expiresLabel}</span>
         </div>
       </div>

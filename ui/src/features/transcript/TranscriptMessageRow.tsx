@@ -1,6 +1,7 @@
 import { useState } from "react";
 
 import type { AgentChatActivityRecord, AgentChatChangedFileDiffRecord, AgentChatChangedFileRecord, AgentChatTimingRecord, AgentChatUsageRecord } from "../../types/runtime";
+import { formatDurationMs } from "../../lib/format";
 import { CodeBlock } from "../shared/Atoms";
 import { BrandAvatar } from "../shared/BrandAvatar";
 import { Icon, Icons } from "../shared/Icons";
@@ -415,7 +416,7 @@ function AgentUsage({ usage }: { usage: AgentChatUsageRecord }) {
 
 function AgentTiming({ timing }: { timing: AgentChatTimingRecord }) {
   const bottleneck = timing.bottleneck && timing.bottleneck_ms
-    ? `${humanTimingLabel(timing.bottleneck)} ${formatDurationMS(timing.bottleneck_ms)}`
+    ? `${humanTimingLabel(timing.bottleneck)} ${formatDurationMs(timing.bottleneck_ms)}`
     : "";
   const items = [
     ["total", timing.total_ms],
@@ -449,7 +450,7 @@ function AgentTiming({ timing }: { timing: AgentChatTimingRecord }) {
     >
       {bottleneck && <span style={{ color: "var(--teal)" }}>bottleneck · {bottleneck}</span>}
       {items.map(([label, value]) => (
-        <span key={label}>{label} {formatDurationMS(value)}</span>
+        <span key={label}>{label} {formatDurationMs(value)}</span>
       ))}
       {counts && <span>{counts}</span>}
     </div>
@@ -474,15 +475,6 @@ function agentUsageEmpty(usage: AgentChatUsageRecord): boolean {
 
 function humanTimingLabel(label: string): string {
   return label === "tools" ? "tools" : label;
-}
-
-function formatDurationMS(value: number): string {
-  if (!Number.isFinite(value) || value <= 0) return "0ms";
-  if (value < 1000) return `${Math.round(value)}ms`;
-  if (value < 60_000) return `${(value / 1000).toFixed(value < 10_000 ? 1 : 0)}s`;
-  const minutes = Math.floor(value / 60_000);
-  const seconds = Math.round((value - minutes * 60_000) / 1000);
-  return `${minutes}m ${seconds}s`;
 }
 
 function formatAgentReportedCost(usage: AgentChatUsageRecord): string {

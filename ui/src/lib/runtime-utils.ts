@@ -52,20 +52,10 @@ export function formatRelativeTime(iso: string): { label: string; iso: string } 
   return { label: new Date(parsed).toLocaleDateString(), iso };
 }
 
-export function formatAbsoluteTime(value?: string): string {
-  if (!value) return "";
-  const parsed = Date.parse(value);
-  if (!Number.isFinite(parsed)) return value;
-  return new Intl.DateTimeFormat(undefined, {
-    year: "numeric",
-    month: "short",
-    day: "numeric",
-    hour: "numeric",
-    minute: "2-digit",
-    second: "2-digit",
-    timeZoneName: "short",
-  }).format(new Date(parsed));
-}
+// formatAbsoluteTime moved to ./format alongside the other UI
+// formatters. Re-exported here so existing import sites keep
+// working; new sites should import from ./format directly.
+export { formatAbsoluteTime } from "./format";
 
 // ─── Barrel re-exports ───────────────────────────────────────────────────────
 

@@ -1,5 +1,6 @@
 import { useEffect, useMemo, useRef, useState, type ReactNode } from "react";
 import type { AgentChatActivityRecord, TaskActivityRecord, TaskApprovalRecord, TaskArtifactRecord, TaskRecord, TaskRunEventRecord, TaskRunRecord, TaskStepRecord } from "../../types/runtime";
+import { formatDurationRange, formatLocaleDateTime, formatMicrosUSD } from "../../lib/format";
 import { Badge, BrandAvatar, Dot, Icon, Icons, Modal } from "../shared/ui";
 import { TranscriptActivityTimeline } from "../transcript/TranscriptActivityTimeline";
 
@@ -50,16 +51,6 @@ function taskBadgeStatus(status: string): string {
   if (status === "completed") return "done";
   if (status === "awaiting_approval") return "awaiting";
   return status;
-}
-
-// formatMicrosUSD renders a µUSD amount as a $-prefixed number.
-// Hecate stores LLM cost in millionths of a dollar (µUSD) for
-// integer math precision; the UI swaps to fractional dollars for
-// display. Three decimal places lets sub-cent amounts (common for a
-// few-token call) render meaningfully without exploding to scientific
-// notation.
-function formatMicrosUSD(micros: number): string {
-  return `$${(micros / 1_000_000).toFixed(3)}`;
 }
 
 // RunCostBadge shows this run's cost — and, when prior runs exist
@@ -268,16 +259,6 @@ function approvalCommandPreview(task: TaskRecord): string {
   if (task.shell_command) return task.shell_command;
   if (task.file_path) return `${task.file_operation || "write"} ${task.file_path}`;
   return "";
-}
-
-function formatDuration(start?: string, end?: string): string {
-  if (!start) return "";
-  const startMs = new Date(start).getTime();
-  const endMs = end ? new Date(end).getTime() : Date.now();
-  const seconds = Math.max(0, (endMs - startMs) / 1000);
-  if (seconds < 1) return `${Math.round(seconds * 1000)}ms`;
-  if (seconds < 60) return `${seconds.toFixed(1)}s`;
-  return `${Math.floor(seconds / 60)}m ${Math.round(seconds % 60)}s`;
 }
 
 function describeRunEvent(eventType: string): { label: string; tone: "queued" | "running" | "awaiting" | "done" | "failed" } {
@@ -547,7 +528,7 @@ export function TaskDetail({
             <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(160px, 1fr))", gap: "8px 14px" }}>
               {([
                 ["Model", run.model || "—"],
-                ["Duration", formatDuration(run.started_at, run.finished_at) || "—"],
+                ["Duration", formatDurationRange(run.started_at, run.finished_at) || "—"],
                 // Request ID becomes a clickable trace link when both
                 // the run carries a request_id and the parent wired an
                 // onOpenTrace callback. Otherwise it's plain text — same
@@ -1263,7 +1244,7 @@ function nonInternalKind(kind?: string): string {
 }
 
 function StepDetail({ step }: { step: TaskStepRecord }) {
-  const duration = formatDuration(step.started_at, step.finished_at);
+  const duration = formatDurationRange(step.started_at, step.finished_at);
   const mcp = splitNamespacedToolName(step.tool_name);
   return (
     <div
@@ -1296,7 +1277,7 @@ function StepDetail({ step }: { step: TaskStepRecord }) {
         {step.error_kind && <span>error kind: <span style={{ color: "var(--t1)" }}>{step.error_kind}</span></span>}
         {step.exit_code !== undefined && <span>exit: <span style={{ color: step.exit_code === 0 ? "var(--green)" : "var(--red)" }}>{step.exit_code}</span></span>}
         {duration && <span>took: <span style={{ color: "var(--t1)" }}>{duration}</span></span>}
-        {step.started_at && <span>started: <span style={{ color: "var(--t1)" }}>{new Date(step.started_at).toLocaleString()}</span></span>}
+        {step.started_at && <span>started: <span style={{ color: "var(--t1)" }}>{formatLocaleDateTime(step.started_at)}</span></span>}
         {step.trace_id && <span>trace: <span style={{ color: "var(--t1)" }}>{step.trace_id}</span></span>}
       </div>
       {/* Hint pointing operators to the conversation viewer where

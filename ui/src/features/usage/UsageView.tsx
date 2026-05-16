@@ -1,5 +1,6 @@
 import type { ReactNode } from "react";
 import type { RuntimeConsoleViewModel } from "../../app/useRuntimeConsole";
+import { formatInteger, formatLocaleTime, formatMicrosUSD } from "../../lib/format";
 import type { UsageEventRecord } from "../../types/runtime";
 import { CopyBtn } from "../shared/ui";
 
@@ -96,7 +97,7 @@ export function UsageView({ state }: Props) {
                 <tbody>
                   {cloudEvents.slice(0, 100).map((entry, index) => (
                     <tr key={entry.request_id || `${entry.timestamp}-${index}`}>
-                      <td className="mono" style={{ color: "var(--t3)" }}>{formatTime(entry.timestamp)}</td>
+                      <td className="mono" style={{ color: "var(--t3)" }}>{formatLocaleTime(entry.timestamp)}</td>
                       <td className="mono" style={{ color: "var(--t1)", overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{entry.provider || "—"}</td>
                       <td className="mono" style={{ color: "var(--t1)", overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{entry.model || "—"}</td>
                       <td className="mono">{formatInteger(entry.prompt_tokens ?? 0)}</td>
@@ -178,18 +179,3 @@ function sumUsageEvents(entries: UsageEntry[]): UsageTotals {
   }, { promptTokens: 0, completionTokens: 0, totalTokens: 0, costMicrosUSD: 0 });
 }
 
-function formatTime(value?: string): string {
-  if (!value) return "—";
-  const parsed = Date.parse(value);
-  if (!Number.isFinite(parsed)) return "—";
-  return new Date(parsed).toLocaleTimeString();
-}
-
-function formatInteger(value: number): string {
-  return Number.isFinite(value) ? value.toLocaleString() : "—";
-}
-
-function formatMicrosUSD(value: number): string {
-  if (!Number.isFinite(value) || value <= 0) return "$0.000";
-  return `$${(value / 1_000_000).toFixed(3)}`;
-}
