@@ -1,6 +1,7 @@
 import { useEffect, useLayoutEffect } from "react";
 
 import { ConsoleShell, getAvailableWorkspaces, WORKSPACE_IDS, type WorkspaceID } from "./AppShell";
+import { RetentionProvider } from "./state/retention";
 import { useRuntimeConsole } from "./useRuntimeConsole";
 import { usePersistedState } from "../lib/persistedState";
 import { isTauriRuntime } from "../lib/tauri";
@@ -13,7 +14,21 @@ const VALID_WORKSPACE_IDS = new Set<WorkspaceID>(WORKSPACE_IDS);
 const parseWorkspaceID = (raw: string): WorkspaceID | null =>
   VALID_WORKSPACE_IDS.has(raw as WorkspaceID) ? (raw as WorkspaceID) : null;
 
+// The slice providers wrap the console body so useRuntimeConsole's
+// internal slice consumers (`useRetention`, …) see their context.
+// As more slices are added the wrapper chain grows here; once
+// prop-drill is retired and consumers read context directly, a
+// single `<RuntimeConsoleProviders>` composer will collapse this
+// chain.
 export default function App() {
+  return (
+    <RetentionProvider>
+      <AppConsole />
+    </RetentionProvider>
+  );
+}
+
+function AppConsole() {
   const { state, actions } = useRuntimeConsole();
   const [preferredWorkspace, setPreferredWorkspace] = usePersistedState<WorkspaceID>(
     WORKSPACE_STORAGE_KEY,
