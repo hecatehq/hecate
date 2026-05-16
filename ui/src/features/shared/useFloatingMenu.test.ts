@@ -187,7 +187,7 @@ describe("useFloatingMenu", () => {
   // re-bind so the new event type / selector takes effect — verified
   // here so a future "depend on `open` too" change can't silently
   // wedge the closeOn path.
-  it("re-binds the document listener when closeOn or portalSelector changes", () => {
+  it("re-binds the document listener when closeOn changes", () => {
     const add = vi.spyOn(document, "addEventListener");
     const remove = vi.spyOn(document, "removeEventListener");
     const { rerender } = renderHook(
@@ -199,5 +199,46 @@ describe("useFloatingMenu", () => {
     expect(remove).toHaveBeenCalledWith("mousedown", expect.any(Function));
     expect(add.mock.calls.filter(([type]) => type === "click").length).toBeGreaterThanOrEqual(1);
     expect(add.mock.calls.filter(([type]) => type === "mousedown").length).toBe(initialAdds);
+  });
+
+  it("re-binds the document listener when portalSelector changes", () => {
+    // The effect deps are [closeOn, portalSelector]. Flipping closeOn
+    // is covered above; this test exercises the other half so a future
+    // change that drops portalSelector from the deps array can't
+    // silently break the portal-exemption check.
+    const portalA = document.createElement("div");
+    portalA.className = "portal-a";
+    const portalB = document.createElement("div");
+    portalB.className = "portal-b";
+    const itemA = document.createElement("button");
+    const itemB = document.createElement("button");
+    portalA.appendChild(itemA);
+    portalB.appendChild(itemB);
+    document.body.append(portalA, portalB);
+
+    const wrap = document.createElement("div");
+    document.body.appendChild(wrap);
+
+    const { result, rerender } = renderHook(
+      ({ portalSelector }: { portalSelector: string }) => useFloatingMenu({ portalSelector }),
+      { initialProps: { portalSelector: ".portal-a" } },
+    );
+    result.current.wrapRef.current = wrap as HTMLDivElement;
+
+    // While portalSelector is .portal-a, clicks in portal-a are "inside"
+    // (don't close); clicks in portal-b are "outside" (do close).
+    act(() => result.current.setOpen(true));
+    act(() => itemA.dispatchEvent(new MouseEvent("mousedown", { bubbles: true })));
+    expect(result.current.open).toBe(true);
+    act(() => itemB.dispatchEvent(new MouseEvent("mousedown", { bubbles: true })));
+    expect(result.current.open).toBe(false);
+
+    // Flip the selector — the relationship inverts.
+    rerender({ portalSelector: ".portal-b" });
+    act(() => result.current.setOpen(true));
+    act(() => itemB.dispatchEvent(new MouseEvent("mousedown", { bubbles: true })));
+    expect(result.current.open).toBe(true);
+    act(() => itemA.dispatchEvent(new MouseEvent("mousedown", { bubbles: true })));
+    expect(result.current.open).toBe(false);
   });
 });
