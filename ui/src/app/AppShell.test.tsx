@@ -38,6 +38,30 @@ describe("ConsoleShell loading state", () => {
   });
 });
 
+// The overlay-titlebar strip wraps the UpdateBanner and serves as the
+// macOS drag handle. Its data-tauri-drag-region="deep" value is
+// load-bearing — bare/`"true"` would only drag on direct clicks on the
+// strip itself, breaking drag once the banner gains children. Tauri's
+// drag.js auto-detects clickable elements (buttons) and skips drag for
+// them, so we can rely on the deep value without `-webkit-app-region:
+// no-drag` opt-outs.
+describe("ConsoleShell titlebar", () => {
+  it("renders the titlebar strip with data-tauri-drag-region=\"deep\"", () => {
+    const state = createRuntimeConsoleFixture();
+    const { container } = render(
+      <ConsoleShell
+        activeWorkspace="overview"
+        onSelectWorkspace={() => {}}
+        state={state}
+        actions={createRuntimeConsoleActions()}
+      />,
+    );
+    const titlebar = container.querySelector(".hecate-titlebar");
+    expect(titlebar).not.toBeNull();
+    expect(titlebar?.getAttribute("data-tauri-drag-region")).toBe("deep");
+  });
+});
+
 describe("ConsoleShell navigation", () => {
   it("keeps Chats available when no providers are configured", async () => {
     const state = createRuntimeConsoleFixture({

@@ -3,8 +3,13 @@
   "identifier": "default",
   "description": "Capability granted to the main application window",
   "windows": ["main"],
+  "remote": {
+    "urls": ["http://127.0.0.1:*/*"]
+  },
   "permissions": [
     "core:default",
+    "core:window:allow-start-dragging",
+    "allow-set-update-badge",
     "log:default",
     "updater:default"
   ]

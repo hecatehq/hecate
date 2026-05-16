@@ -9,7 +9,7 @@
   background: var(--bg0);
 }
 
-.hecate-titlebar-drag-region {
+.hecate-titlebar {
   display: none;
 }
 
@@ -17,13 +17,51 @@ html[data-tauri="true"] .hecate-shell {
   padding-top: 28px;
 }
 
-html[data-tauri="true"] .hecate-titlebar-drag-region {
-  -webkit-app-region: drag;
-  display: block;
+html[data-tauri="true"] .hecate-titlebar {
+  display: flex;
+  align-items: center;
   position: absolute;
   inset: 0 0 auto 0;
   height: 28px;
   z-index: 1000;
+  padding: 0 12px;
+  /* Native titlebars don't select-on-drag; matching that prevents
+     the cursor from leaving a highlight smear while dragging the
+     window from over text content. */
+  user-select: none;
+  -webkit-user-select: none;
+  cursor: default;
+}
+
+/* macOS overlay titlebar reserves the leftmost 76px for the native
+   traffic-light controls. Skip the padding elsewhere — Linux/Windows
+   keep the native titlebar outside the webview. */
+html[data-tauri-os="macos"] .hecate-titlebar {
+  padding-left: 76px;
+}
+
+/* Compact the update banner so it lives in the 28-px overlay
+   titlebar instead of stealing a row below it. The base .page-banner
+   styling assumes a full-width below-titlebar slot; here we strip
+   the border/background and shrink to fit. */
+.hecate-titlebar .page-banner {
+  flex: 1;
+  height: 100%;
+  padding: 0;
+  border: 0;
+  background: transparent;
+  font-size: 11px;
+  font-family: var(--font-sans);
+}
+
+.hecate-titlebar .page-banner--update {
+  color: var(--t1);
+}
+
+.hecate-titlebar .page-banner .btn {
+  padding: 2px 8px;
+  font-size: 11px;
+  line-height: 1.2;
 }
 
 .hecate-workarea {

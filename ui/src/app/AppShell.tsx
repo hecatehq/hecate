@@ -265,7 +265,14 @@ function AuthenticatedShell({
 
   return (
     <div className="hecate-shell">
-      <div className="hecate-titlebar-drag-region" data-tauri-drag-region />
+      {/* Overlay-titlebar surface. data-tauri-drag-region="deep" lets
+          clicks anywhere in the subtree start a window drag, except on
+          buttons / inputs (Tauri's drag.js auto-detects clickable
+          elements). When there's no update the bar is empty and the
+          whole strip drags. */}
+      <div className="hecate-titlebar" data-tauri-drag-region="deep">
+        <UpdateBanner />
+      </div>
       <div className="hecate-workarea">
         {/* Activity bar */}
         <nav className="hecate-activitybar" aria-label="Workspace navigation">
@@ -296,7 +303,6 @@ function AuthenticatedShell({
 
         {/* Main content */}
         <main className="hecate-content">
-          <UpdateBanner />
           {state.error && <div className="page-banner page-banner--error">{state.error}</div>}
           <div className={`console-content${isBare ? " console-content--bare" : ""}`}>
             <Suspense fallback={<WorkspaceFallback />}>
