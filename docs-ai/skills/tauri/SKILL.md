@@ -263,11 +263,17 @@ it from a PR branch when a reviewer needs a pre-merge bundle to test-launch.
 Author override: putting `[skip desktop]` anywhere in the PR title skips the
 3-OS desktop bundle matrix for that PR. The marker name mirrors the `desktop`
 path filter — same vocabulary on both sides of the gate. The cheap Linux-only
-Tauri Rust tests still run, so a Rust-side regression can't slip through. Use
-only when you're sure the change can't affect the desktop build (most pure-UI
-refactors that still touch `ui/**` and would otherwise trip the `desktop` path
-filter). The gate lives next to the `if:` block in `test.yml`'s `tauri-desktop`
-job.
+Tauri Rust tests still run, so a Rust-side regression can't slip through.
+
+The marker is only honoured when the desktop-relevant change is `ui/**`-only.
+The workflow defines a tighter `desktop_force` filter — `tauri/**`, build
+scripts (`scripts/{resolve-tauri-version,stamp-version,tauri-smoke}.ts`,
+`Justfile`), gateway binaries (`cmd/hecate{,-acp}/**`, `go.{mod,sum}`,
+`embed.go`), and packaging files (`.goreleaser.yaml`, `Dockerfile.release`,
+the three desktop workflow files). When any of those change the matrix runs
+regardless of the marker, so a `[skip desktop]` on a PR that also bumps, say,
+`tauri.conf.json` doesn't slip through. The gate lives next to the `if:`
+block in `test.yml`'s `tauri-desktop` job.
 
 **Release-run behaviour:** `concurrency: cancel-in-progress: false` — a half-cancelled release is worse than waiting. The `tauri` job has `needs: goreleaser` so the GitHub Release entry exists before tauri-action's upload tries to attach to it.
 
