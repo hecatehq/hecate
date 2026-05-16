@@ -20,46 +20,57 @@ afterEach(() => {
   vi.mocked(discoverLocalProviders).mockResolvedValue({ object: "local_provider_discovery", data: [] });
 });
 
-function setup(stateOverrides = {}, actionOverrides = {}) {
+function setup(stateOverrides: Record<string, any> = {}, actionOverrides = {}) {
+  // The state slice no longer carries the standalone model-chat
+  // fields (chatSessions / activeChatSession / activeChatSessionID
+  // were the legacy /v1/chat/sessions data path). Tests that still
+  // pass those keys get back-filled into the agent-chat surface
+  // with `runtime_kind: "model"` so they exercise the same
+  // tools-off path. The Tools-off mode itself stays alive; only
+  // the standalone storage slice was retired.
+  const {
+    chatSessions: legacyChatSessions,
+    activeChatSession: legacyActiveChatSession,
+    activeChatSessionID: legacyActiveChatSessionID,
+    ...cleanOverrides
+  } = stateOverrides;
   const state = createRuntimeConsoleFixture({
     providerScopedModels: [
       { id: "gpt-4o-mini", owned_by: "openai", metadata: { provider: "openai", provider_kind: "cloud" } },
     ],
-    ...stateOverrides,
+    ...cleanOverrides,
   });
-  if (state.chatTarget === "model") {
-    if ((state.agentChatSessions ?? []).length === 0 && (state.chatSessions ?? []).length > 0) {
-      state.agentChatSessions = state.chatSessions.map((session: any) => ({
-        id: session.id,
-        title: session.title,
-        runtime_kind: "model" as const,
-        workspace: "",
-        provider: session.last_provider,
-        model: session.last_model,
-        status: "completed",
-        message_count: session.message_count,
-        created_at: session.created_at,
-        updated_at: session.updated_at,
-      }));
-    }
-    if (!state.activeAgentChatSession && state.activeChatSession) {
-      state.activeAgentChatSession = {
-        id: state.activeChatSession.id,
-        title: state.activeChatSession.title,
+  if (legacyChatSessions && (state.agentChatSessions ?? []).length === 0) {
+    state.agentChatSessions = legacyChatSessions.map((session: any) => ({
+      id: session.id,
+      title: session.title,
+      runtime_kind: "model" as const,
+      workspace: "",
+      provider: session.last_provider,
+      model: session.last_model,
+      status: "completed",
+      message_count: session.message_count,
+      created_at: session.created_at,
+      updated_at: session.updated_at,
+    }));
+  }
+  if (legacyActiveChatSession && !state.activeAgentChatSession) {
+    state.activeAgentChatSession = {
+      id: legacyActiveChatSession.id,
+      title: legacyActiveChatSession.title,
+      runtime_kind: "model",
+      status: "completed",
+      messages: (legacyActiveChatSession.messages ?? []).map((message: any) => ({
+        id: message.id,
+        role: message.role,
+        content: message.content,
+        created_at: message.created_at,
         runtime_kind: "model",
-        status: "completed",
-        messages: (state.activeChatSession.messages ?? []).map((message: any) => ({
-          id: message.id,
-          role: message.role,
-          content: message.content,
-          created_at: message.created_at,
-          runtime_kind: "model",
-        })),
-      } as any;
-    }
-    if (!state.activeAgentChatSessionID && state.activeChatSessionID) {
-      state.activeAgentChatSessionID = state.activeChatSessionID;
-    }
+      })),
+    } as any;
+  }
+  if (legacyActiveChatSessionID && !state.activeAgentChatSessionID) {
+    state.activeAgentChatSessionID = legacyActiveChatSessionID;
   }
   const actions = { ...createRuntimeConsoleActions(), ...actionOverrides };
   return { state, actions };

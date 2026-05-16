@@ -1,4 +1,4 @@
-import { useRef, useState } from "react";
+import { useState } from "react";
 
 import { useRuntimeConsoleContext } from "../../app/RuntimeConsoleContext";
 import { formatAbsoluteTime } from "../../lib/format";
@@ -39,45 +39,29 @@ export function ChatSidebar({ isAgentChat, onSelectSession, onCreateChat }: Prop
   const [renamingId, setRenamingId] = useState<string | null>(null);
   const [renameValue, setRenameValue] = useState("");
   const [hoveredChatId, setHoveredChatId] = useState<string | null>(null);
-  const sidebarScrollRef = useRef<HTMLDivElement>(null);
 
-  const sessions: SidebarSession[] = isAgentChat
-    ? (state.agentChatSessions ?? []).map((s) => ({
-        id: s.id,
-        title: s.title,
-        message_count: s.message_count,
-        provider_call_count: 0,
-        last_provider: s.runtime_kind === "external_agent" || s.adapter_id ? s.adapter_id : s.provider,
-        last_model: s.runtime_kind === "external_agent" || s.adapter_id ? s.status : s.model,
-        agent_brand: sidebarSessionBrand(s),
-        agent_label: sidebarSessionAgentLabel(s, state.agentAdapters),
-        status_label: s.status,
-        created_at: s.created_at,
-        updated_at: s.updated_at,
-      }))
-    : (state.chatSessions ?? []).map((s) => ({
-      ...s,
-      agent_brand: s.last_provider,
-      agent_label: s.last_provider,
-    }));
+  const sessions: SidebarSession[] = (state.agentChatSessions ?? []).map((s) => ({
+    id: s.id,
+    title: s.title,
+    message_count: s.message_count,
+    provider_call_count: 0,
+    last_provider: s.runtime_kind === "external_agent" || s.adapter_id ? s.adapter_id : s.provider,
+    last_model: s.runtime_kind === "external_agent" || s.adapter_id ? s.status : s.model,
+    agent_brand: sidebarSessionBrand(s),
+    agent_label: sidebarSessionAgentLabel(s, state.agentAdapters),
+    status_label: s.status,
+    created_at: s.created_at,
+    updated_at: s.updated_at,
+  }));
   const filteredSessions = filterSidebarSessions(sessions, sidebarQuery);
   const groupedSessions = groupSidebarSessions(filteredSessions);
-  const activeSessionID = isAgentChat ? state.activeAgentChatSessionID : state.activeChatSessionID;
+  const activeSessionID = state.activeAgentChatSessionID;
 
   const newChatAgentID = state.newChatAgentID || "hecate";
   const newChatAgentAdapter = newChatAgentID === "hecate" ? undefined : state.agentAdapters.find((adapter) => adapter.id === newChatAgentID);
   const newChatAgentHealth = newChatAgentID === "hecate" ? undefined : state.agentAdapterHealthByID.get(newChatAgentID);
   const newChatAgentStatus = chatAgentOptionStatus(newChatAgentID as ChatAgentOptionID, newChatAgentAdapter, newChatAgentHealth);
   const newChatAgentReady = newChatAgentStatus.ready;
-
-  function handleSidebarScroll() {
-    const el = sidebarScrollRef.current;
-    if (isAgentChat || sidebarQuery.trim() || !el || !state.chatSessionsHasMore || state.chatSessionsLoadingMore) return;
-    const nearBottom = el.scrollHeight - el.scrollTop - el.clientHeight < 60;
-    if (nearBottom) {
-      void actions.loadMoreChatSessions();
-    }
-  }
 
   return (
     <div style={{ width: 220, borderRight: "1px solid var(--border)", display: "flex", flexDirection: "column", flexShrink: 0, background: "var(--bg1)" }}>
@@ -109,7 +93,7 @@ export function ChatSidebar({ isAgentChat, onSelectSession, onCreateChat }: Prop
           value={sidebarQuery}
         />
       </div>
-      <div ref={sidebarScrollRef} onScroll={handleSidebarScroll} style={{ flex: 1, overflowY: "auto", padding: "2px 0 6px" }}>
+      <div style={{ flex: 1, overflowY: "auto", padding: "2px 0 6px" }}>
         {sessions.length === 0 && (
           <div style={{ padding: "16px 12px", fontSize: 12, color: "var(--t3)", textAlign: "center" }}>No chats yet</div>
         )}
@@ -244,16 +228,6 @@ export function ChatSidebar({ isAgentChat, onSelectSession, onCreateChat }: Prop
             ))}
           </div>
         ))}
-        {!isAgentChat && state.chatSessionsLoadingMore && (
-          <div style={{ padding: "8px 12px", fontSize: 11, color: "var(--t3)", textAlign: "center" }}>Loading chats…</div>
-        )}
-        {!isAgentChat && state.chatSessionsHasMore && !state.chatSessionsLoadingMore && (
-          <div style={{ padding: "8px 12px" }}>
-            <button className="btn btn-ghost btn-sm" onClick={() => void actions.loadMoreChatSessions()} style={{ width: "100%", justifyContent: "center" }} type="button">
-              {sidebarQuery.trim() ? "Search earlier chats" : "Load earlier chats"}
-            </button>
-          </div>
-        )}
       </div>
     </div>
   );
