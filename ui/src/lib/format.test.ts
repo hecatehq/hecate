@@ -42,6 +42,12 @@ describe("formatDurationMs", () => {
     expect(formatDurationMs(Number.NaN)).toBe("0ms");
     expect(formatDurationMs(Number.POSITIVE_INFINITY)).toBe("0ms");
   });
+
+  it("rolls seconds past 60 over into minutes (no '1m 60s' artifact)", () => {
+    expect(formatDurationMs(119_999)).toBe("2m 0s");
+    expect(formatDurationMs(119_500)).toBe("2m 0s");
+    expect(formatDurationMs(60_500)).toBe("1m 1s");
+  });
 });
 
 describe("formatDurationRange", () => {
@@ -104,16 +110,27 @@ describe("formatAbsoluteTime", () => {
     expect(formatAbsoluteTime("not-a-date")).toBe("not-a-date");
   });
 
-  it("formats an ISO timestamp using Intl.DateTimeFormat", () => {
-    const out = formatAbsoluteTime("2026-05-15T17:31:41Z");
-    // Locale + timezone vary by runner; assert a stable substring
-    // shape rather than the full string. The constituent parts
-    // (year + a short month name + numeric hour:minute:second + a
-    // timezone abbreviation) must all be present.
-    expect(out).toMatch(/2026/);
-    expect(out).toMatch(/May/);
+  it("includes year + short-month + day + h:m:s + timezone parts", () => {
+    // Locale and timezone vary by runner, so we can't assert literal
+    // strings like "May" or `[A-Z]{2,5}`. Use `Intl.DateTimeFormat`'s
+    // own `formatToParts` with the same options to discover the
+    // expected pieces for *this* runner, then verify the formatter
+    // produced them all. The contract is "all six fields are
+    // present", not "the layout is English/uppercase/etc."
+    const isoInput = "2026-05-15T17:31:41Z";
+    const partsFor = (opts: Intl.DateTimeFormatOptions) =>
+      new Intl.DateTimeFormat(undefined, opts).formatToParts(new Date(isoInput));
+    const yearPart = partsFor({ year: "numeric" }).find((p) => p.type === "year")?.value ?? "";
+    const monthPart = partsFor({ month: "short" }).find((p) => p.type === "month")?.value ?? "";
+    const dayPart = partsFor({ day: "numeric" }).find((p) => p.type === "day")?.value ?? "";
+    const tzPart = partsFor({ timeZoneName: "short" }).find((p) => p.type === "timeZoneName")?.value ?? "";
+
+    const out = formatAbsoluteTime(isoInput);
+    expect(out).toContain(yearPart);
+    expect(out).toContain(monthPart);
+    expect(out).toContain(dayPart);
+    expect(out).toContain(tzPart);
     expect(out).toMatch(/\d{1,2}:\d{2}:\d{2}/);
-    expect(out).toMatch(/[A-Z]{2,5}|GMT|UTC/);
   });
 });
 
