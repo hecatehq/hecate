@@ -7,7 +7,7 @@
 
 import { useCallback, useEffect, useMemo, useRef, useState, type KeyboardEvent } from "react";
 
-import type { RuntimeConsoleViewModel } from "../../app/useRuntimeConsole";
+import { useRuntimeConsoleContext } from "../../app/RuntimeConsoleContext";
 import { getMCPCacheStats, getRecentTraces, getRuntimeStats, getTrace } from "../../lib/api";
 import {
   buildSpanWaterfall,
@@ -46,8 +46,6 @@ import {
 } from "./observability/styles";
 
 type Props = {
-  state: RuntimeConsoleViewModel["state"];
-  actions: RuntimeConsoleViewModel["actions"];
   // Optional escape hatch the empty-state "Open Chats" button uses.
   // AppShell wires it to onSelectWorkspace; in tests it's omitted and
   // the button no-ops.
@@ -63,7 +61,8 @@ type TraceGroup = {
   latencyMs?: number;
 };
 
-export function ObservabilityView({ state, onNavigate, focusRequest }: Props) {
+export function ObservabilityView({ onNavigate, focusRequest }: Props) {
+  const { state } = useRuntimeConsoleContext();
   const [runtimeStats, setRuntimeStats] = useState<RuntimeStatsResponse["data"] | null>(null);
   const [mcpCacheStats, setMCPCacheStats] = useState<MCPCacheStatsResponse["data"] | null>(null);
   const [traces, setTraces] = useState<TraceListItem[]>([]);

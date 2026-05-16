@@ -5,6 +5,7 @@ import { beforeEach, describe, expect, it, vi } from "vitest";
 import { ConnectionsPanel } from "../connections/ConnectionsPanel";
 import { SettingsView } from "./SettingsView";
 import { createRuntimeConsoleActions, createRuntimeConsoleFixture } from "../../test/runtime-console-fixture";
+import { withRuntimeConsole } from "../../test/runtime-console-render";
 
 function setup(stateOverrides = {}, actionOverrides = {}) {
   const state = createRuntimeConsoleFixture(stateOverrides);
@@ -26,7 +27,7 @@ beforeEach(() => {
 describe("SettingsView", () => {
   it("renders maintenance cleanup without legacy tabs", () => {
     const { state, actions } = setup();
-    render(<SettingsView state={state} actions={actions} />);
+    render(withRuntimeConsole(<SettingsView />, { state, actions }));
     expect(screen.getByText("Maintenance")).toBeTruthy();
     expect(screen.getByText(/Clean up old local runtime data/i)).toBeTruthy();
     expect(screen.queryByRole("button", { name: "Retention" })).toBeNull();
@@ -37,7 +38,7 @@ describe("SettingsView", () => {
 
   it("starts on the cleanup controls", () => {
     const { state, actions } = setup();
-    render(<SettingsView state={state} actions={actions} />);
+    render(withRuntimeConsole(<SettingsView />, { state, actions }));
     expect(screen.getByText(/Run cleanup/i)).toBeTruthy();
     expect(screen.getByRole("button", { name: /Clean up now/i })).toBeTruthy();
   });
@@ -48,7 +49,7 @@ describe("SettingsView", () => {
     // screen. Without this effect the list stays empty forever.
     const loadRetentionRuns = vi.fn().mockResolvedValue(undefined);
     const { state, actions } = setup({}, { loadRetentionRuns });
-    render(<SettingsView state={state} actions={actions} />);
+    render(withRuntimeConsole(<SettingsView />, { state, actions }));
     expect(loadRetentionRuns).toHaveBeenCalledTimes(1);
   });
 });
@@ -56,7 +57,7 @@ describe("SettingsView", () => {
 describe("SettingsView maintenance cleanup", () => {
   it("shows known subsystems as toggle chips", async () => {
     const { state, actions } = setup();
-    render(<SettingsView state={state} actions={actions} />);
+    render(withRuntimeConsole(<SettingsView />, { state, actions }));
     for (const sub of ["Trace snapshots", "Usage events", "Audit events"]) {
       expect(await screen.findByText(sub)).toBeTruthy();
     }
@@ -65,7 +66,7 @@ describe("SettingsView maintenance cleanup", () => {
   it("clicking a chip calls setRetentionSubsystems", async () => {
     const setRetentionSubsystems = vi.fn();
     const { state, actions, user } = setup({}, { setRetentionSubsystems });
-    render(<SettingsView state={state} actions={actions} />);
+    render(withRuntimeConsole(<SettingsView />, { state, actions }));
     await user.click(await screen.findByText("Audit events"));
     expect(setRetentionSubsystems).toHaveBeenCalledWith("audit_events");
   });
@@ -73,7 +74,7 @@ describe("SettingsView maintenance cleanup", () => {
   it("'Clean up now' button triggers runRetention action", async () => {
     const runRetention = vi.fn(async () => undefined);
     const { state, actions, user } = setup({}, { runRetention });
-    render(<SettingsView state={state} actions={actions} />);
+    render(withRuntimeConsole(<SettingsView />, { state, actions }));
     await user.click(await screen.findByRole("button", { name: /Clean up now/i }));
     expect(runRetention).toHaveBeenCalled();
   });
@@ -85,7 +86,7 @@ describe("SettingsView maintenance cleanup", () => {
         trigger: "manual",
       },
     });
-    render(<SettingsView state={state} actions={actions} />);
+    render(withRuntimeConsole(<SettingsView />, { state, actions }));
 
     expect(await screen.findByText(/Last run/i)).toBeTruthy();
     expect(screen.getByText("0 removed")).toBeTruthy();
@@ -156,7 +157,7 @@ describe("Connections external-agent panel", () => {
         { id: "claude-sonnet", owned_by: "anthropic" },
       ],
     });
-    render(<ConnectionsPanel state={state} actions={actions} onNavigate={onNavigate} />);
+    render(withRuntimeConsole(<ConnectionsPanel onNavigate={onNavigate} />, { state, actions }));
 
     const card = await screen.findByTestId("connections-model-providers");
     expect(within(card).getByText("Model providers")).toBeTruthy();
@@ -172,7 +173,7 @@ describe("Connections external-agent panel", () => {
 
   it("renders model capabilities inside Connections", async () => {
     const { state, actions } = setup(modelCapabilityState);
-    render(<ConnectionsPanel state={state} actions={actions} />);
+    render(withRuntimeConsole(<ConnectionsPanel />, { state, actions }));
 
     expect(await screen.findByTestId("connections-model-capabilities")).toBeTruthy();
     expect(await screen.findByTestId("model-capabilities-list")).toBeTruthy();
@@ -183,7 +184,7 @@ describe("Connections external-agent panel", () => {
   it("saves the model tools switch from Connections", async () => {
     const upsertModelCapabilityOverride = vi.fn(async () => true);
     const { state, actions, user } = setup(modelCapabilityState, { upsertModelCapabilityOverride });
-    render(<ConnectionsPanel state={state} actions={actions} />);
+    render(withRuntimeConsole(<ConnectionsPanel />, { state, actions }));
     const row = await screen.findByTestId("model-capability-row-ollama-qwen2.5-coder");
 
     await user.click(within(row).getByRole("button", { name: "tools on" }));
@@ -215,7 +216,7 @@ describe("Connections external-agent panel", () => {
       },
       { upsertModelCapabilityOverride, deleteModelCapabilityOverride },
     );
-    render(<ConnectionsPanel state={state} actions={actions} />);
+    render(withRuntimeConsole(<ConnectionsPanel />, { state, actions }));
     const row = await screen.findByTestId("model-capability-row-ollama-local-tools");
 
     await user.click(within(row).getByRole("button", { name: "tools off" }));
@@ -233,13 +234,13 @@ describe("Connections external-agent panel", () => {
   it("fires listAgentChatGrants when the tab opens", async () => {
     const listAgentChatGrants = vi.fn(async () => undefined);
     const { state, actions } = setup({}, { listAgentChatGrants });
-    render(<ConnectionsPanel state={state} actions={actions} />);
+    render(withRuntimeConsole(<ConnectionsPanel />, { state, actions }));
     expect(listAgentChatGrants).toHaveBeenCalled();
   });
 
   it("renders the empty-state copy when there are no grants", async () => {
     const { state, actions } = setup();
-    render(<ConnectionsPanel state={state} actions={actions} />);
+    render(withRuntimeConsole(<ConnectionsPanel />, { state, actions }));
     expect(await screen.findByTestId("external-agents-empty")).toBeTruthy();
   });
 
@@ -267,7 +268,7 @@ describe("Connections external-agent panel", () => {
         },
       ],
     });
-    render(<ConnectionsPanel state={state} actions={actions} />);
+    render(withRuntimeConsole(<ConnectionsPanel />, { state, actions }));
     expect(await screen.findByTestId("external-agents-list")).toBeTruthy();
     // Scope decision-tone assertions to row content so they don't
     // accidentally match the section description above.
@@ -294,7 +295,7 @@ describe("Connections external-agent panel", () => {
       },
       { deleteAgentChatGrant },
     );
-    render(<ConnectionsPanel state={state} actions={actions} />);
+    render(withRuntimeConsole(<ConnectionsPanel />, { state, actions }));
     await user.click(await screen.findByTestId("external-agents-revoke-g-7"));
     expect(deleteAgentChatGrant).not.toHaveBeenCalled();
     await user.click(await screen.findByTestId("external-agents-confirm-revoke-g-7"));
@@ -318,7 +319,7 @@ describe("Connections external-agent panel", () => {
       },
       { deleteAgentChatGrant },
     );
-    render(<ConnectionsPanel state={state} actions={actions} />);
+    render(withRuntimeConsole(<ConnectionsPanel />, { state, actions }));
     await user.click(await screen.findByTestId("external-agents-revoke-g-8"));
     expect(await screen.findByTestId("external-agents-confirm-revoke-g-8")).toBeTruthy();
     await user.click(await screen.findByTestId("external-agents-cancel-revoke-g-8"));
@@ -330,7 +331,7 @@ describe("Connections external-agent panel", () => {
     const { state, actions } = setup({
       agentChatGrantsError: "list failed: 500",
     });
-    render(<ConnectionsPanel state={state} actions={actions} />);
+    render(withRuntimeConsole(<ConnectionsPanel />, { state, actions }));
     expect(await screen.findByText(/list failed: 500/)).toBeTruthy();
   });
 
@@ -353,11 +354,11 @@ describe("Connections external-agent panel", () => {
         events: [],
       },
     });
-    const { rerender } = render(<ConnectionsPanel state={state} actions={actions} />);
+    const { rerender } = render(withRuntimeConsole(<ConnectionsPanel />, { state, actions }));
 
     expect(await screen.findByTestId("anthropic-provider-key-card")).toBeTruthy();
 
-    rerender(<ConnectionsPanel state={{ ...state, settingsConfig: { ...state.settingsConfig!, providers: [] } }} actions={actions} />);
+    rerender(withRuntimeConsole(<ConnectionsPanel />, { state: { ...state, settingsConfig: { ...state.settingsConfig!, providers: [] } }, actions }));
 
     expect(screen.getByTestId("anthropic-provider-key-card")).toBeTruthy();
   });
@@ -382,7 +383,7 @@ describe("Connections external-agent panel", () => {
         events: [],
       },
     }, { setProviderAPIKey });
-    render(<ConnectionsPanel state={state} actions={actions} />);
+    render(withRuntimeConsole(<ConnectionsPanel />, { state, actions }));
 
     await user.type(await screen.findByLabelText("Anthropic API key"), "sk-ant-new");
     await user.click(screen.getByRole("button", { name: "Update key" }));
@@ -416,13 +417,13 @@ describe("Connections external-agent panel", () => {
 
     it("hides the panel when no adapters are registered", async () => {
       const { state, actions } = setup({ agentAdapters: [] });
-      render(<ConnectionsPanel state={state} actions={actions} />);
+      render(withRuntimeConsole(<ConnectionsPanel />, { state, actions }));
       expect(screen.queryByTestId("external-agents-adapters")).toBeNull();
     });
 
     it("renders one row per adapter without a manual test button", async () => {
       const { state, actions } = setup(withAdapter());
-      render(<ConnectionsPanel state={state} actions={actions} />);
+      render(withRuntimeConsole(<ConnectionsPanel />, { state, actions }));
       expect(await screen.findByTestId("external-agents-adapters")).toBeTruthy();
       expect(screen.getByTestId("external-agents-adapter-codex")).toBeTruthy();
       expect(screen.queryByTestId("external-agents-test-codex")).toBeNull();
@@ -431,20 +432,20 @@ describe("Connections external-agent panel", () => {
     it("auto-runs adapter probes when the tab opens", async () => {
       const probeAgentAdapter = vi.fn(async () => null);
       const { state, actions } = setup(withAdapter(), { probeAgentAdapter });
-      render(<ConnectionsPanel state={state} actions={actions} />);
+      render(withRuntimeConsole(<ConnectionsPanel />, { state, actions }));
       expect(probeAgentAdapter).toHaveBeenCalledWith("codex");
     });
 
     it("auto-runs adapter probes when adapters arrive after the tab opens", async () => {
       const probeAgentAdapter = vi.fn(async () => null);
       const { state, actions } = setup({ agentAdapters: [] }, { probeAgentAdapter });
-      const { rerender } = render(<ConnectionsPanel state={state} actions={actions} />);
+      const { rerender } = render(withRuntimeConsole(<ConnectionsPanel />, { state, actions }));
       expect(probeAgentAdapter).not.toHaveBeenCalled();
 
       const nextState = createRuntimeConsoleFixture(withAdapter());
-      rerender(<ConnectionsPanel state={nextState} actions={actions} />);
+      rerender(withRuntimeConsole(<ConnectionsPanel />, { state: nextState, actions }));
       expect(probeAgentAdapter).toHaveBeenCalledWith("codex");
-      rerender(<ConnectionsPanel state={{ ...nextState }} actions={actions} />);
+      rerender(withRuntimeConsole(<ConnectionsPanel />, { state: { ...nextState }, actions }));
       expect(probeAgentAdapter).toHaveBeenCalledTimes(1);
     });
 
@@ -462,7 +463,7 @@ describe("Connections external-agent panel", () => {
           }],
         ]),
       }));
-      render(<ConnectionsPanel state={state} actions={actions} />);
+      render(withRuntimeConsole(<ConnectionsPanel />, { state, actions }));
       const detail = await screen.findByTestId("external-agents-adapter-codex-detail");
       expect(within(detail).getByText("Run codex login")).toBeTruthy();
       expect(within(detail).getByText(/Authentication required/)).toBeTruthy();
@@ -484,7 +485,7 @@ describe("Connections external-agent panel", () => {
           },
         ],
       }));
-      render(<ConnectionsPanel state={state} actions={actions} />);
+      render(withRuntimeConsole(<ConnectionsPanel />, { state, actions }));
       expect(await screen.findByTestId("external-agents-adapter-cursor_agent-auth-warning")).toHaveTextContent("auth required");
       expect(screen.getByTestId("external-agents-adapter-cursor_agent-auth-detail")).toHaveTextContent("Run cursor-agent login");
     });
@@ -493,7 +494,7 @@ describe("Connections external-agent panel", () => {
       const { state, actions } = setup(withAdapter({
         agentAdapterHealthLoadingByID: new Map([["codex", true]]),
       }));
-      render(<ConnectionsPanel state={state} actions={actions} />);
+      render(withRuntimeConsole(<ConnectionsPanel />, { state, actions }));
       expect(await screen.findByTestId("external-agents-checking-codex")).toHaveTextContent(/checking/i);
     });
 
@@ -515,7 +516,7 @@ describe("Connections external-agent panel", () => {
           },
         ],
       }), { setAgentAdapterCredential, probeAgentAdapter });
-      render(<ConnectionsPanel state={state} actions={actions} />);
+      render(withRuntimeConsole(<ConnectionsPanel />, { state, actions }));
 
       expect(await screen.findByTestId("claude-code-guided-setup")).toBeTruthy();
       await user.type(screen.getByLabelText("Claude Code OAuth token"), "claude-token");
@@ -544,7 +545,7 @@ describe("Connections external-agent panel", () => {
           ["claude_code", { adapter_id: "claude_code", status: "ready", stage: "ready", duration_ms: 629 }],
         ]),
       }));
-      render(<ConnectionsPanel state={state} actions={actions} />);
+      render(withRuntimeConsole(<ConnectionsPanel />, { state, actions }));
 
       expect(await screen.findByText("Claude Code guided setup")).toBeTruthy();
       expect(screen.queryByText("Claude Code token verified")).toBeNull();
@@ -572,7 +573,7 @@ describe("Connections external-agent panel", () => {
           ["claude_code", { adapter_id: "claude_code", status: "ready", stage: "ready", duration_ms: 629 }],
         ]),
       }));
-      render(<ConnectionsPanel state={state} actions={actions} />);
+      render(withRuntimeConsole(<ConnectionsPanel />, { state, actions }));
 
       expect(await screen.findByText("Claude Code guided setup")).toBeTruthy();
       expect(screen.getByText("adapter installed")).toBeTruthy();
@@ -602,7 +603,7 @@ describe("Connections external-agent panel", () => {
           ["claude_code", { adapter_id: "claude_code", status: "ready", stage: "ready", duration_ms: 629 }],
         ]),
       }));
-      render(<ConnectionsPanel state={state} actions={actions} />);
+      render(withRuntimeConsole(<ConnectionsPanel />, { state, actions }));
 
       expect(await screen.findByText("Claude Code token verified")).toBeTruthy();
       expect(screen.getByText(/Hecate has a validated adapter token/)).toBeTruthy();
@@ -632,7 +633,7 @@ describe("Connections external-agent panel", () => {
           },
         ],
       }), { deleteAgentAdapterCredential });
-      render(<ConnectionsPanel state={state} actions={actions} />);
+      render(withRuntimeConsole(<ConnectionsPanel />, { state, actions }));
       await user.click(await screen.findByRole("button", { name: "Remove" }));
 
       expect(deleteAgentAdapterCredential).toHaveBeenCalledWith("claude_code", "CLAUDE_CODE_OAUTH_TOKEN");

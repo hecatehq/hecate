@@ -3,6 +3,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 import { ObservabilityView } from "./ObservabilityView";
 import { createRuntimeConsoleActions, createRuntimeConsoleFixture } from "../../test/runtime-console-fixture";
+import { withRuntimeConsole } from "../../test/runtime-console-render";
 
 function setViewportWidth(px: number) {
   Object.defineProperty(window, "innerWidth", { value: px, configurable: true });
@@ -70,7 +71,7 @@ describe("ObservabilityView", () => {
     const state = createRuntimeConsoleFixture({ session: localSession });
     let container = null as unknown as HTMLElement;
     await act(async () => {
-      const result = render(<ObservabilityView state={state} actions={createRuntimeConsoleActions()} />);
+      const result = render(withRuntimeConsole(<ObservabilityView />, { state, actions: createRuntimeConsoleActions() }));
       container = result.container;
     });
     expect(container.textContent).toMatch(/Observability/);
@@ -84,7 +85,7 @@ describe("ObservabilityView", () => {
   it("calls /hecate/v1/system/stats and /hecate/v1/traces on mount", async () => {
     const state = createRuntimeConsoleFixture({ session: localSession });
     await act(async () => {
-      render(<ObservabilityView state={state} actions={createRuntimeConsoleActions()} />);
+      render(withRuntimeConsole(<ObservabilityView />, { state, actions: createRuntimeConsoleActions() }));
     });
     await waitFor(() => {
       const urls = fetchMock.mock.calls.map(([u]) => String(u));
@@ -109,7 +110,7 @@ describe("ObservabilityView", () => {
     const state = createRuntimeConsoleFixture({ session: localSession });
     let container = null as unknown as HTMLElement;
     await act(async () => {
-      const result = render(<ObservabilityView state={state} actions={createRuntimeConsoleActions()} />);
+      const result = render(withRuntimeConsole(<ObservabilityView />, { state, actions: createRuntimeConsoleActions() }));
       container = result.container;
     });
     await waitFor(() => {
@@ -140,7 +141,7 @@ describe("ObservabilityView", () => {
     const state = createRuntimeConsoleFixture({ session: localSession });
     let container = null as unknown as HTMLElement;
     await act(async () => {
-      const result = render(<ObservabilityView state={state} actions={createRuntimeConsoleActions()} />);
+      const result = render(withRuntimeConsole(<ObservabilityView />, { state, actions: createRuntimeConsoleActions() }));
       container = result.container;
     });
     await waitFor(() => {
@@ -186,7 +187,7 @@ describe("ObservabilityView", () => {
     const state = createRuntimeConsoleFixture({ session: localSession });
     let container = null as unknown as HTMLElement;
     await act(async () => {
-      const result = render(<ObservabilityView state={state} actions={createRuntimeConsoleActions()} />);
+      const result = render(withRuntimeConsole(<ObservabilityView />, { state, actions: createRuntimeConsoleActions() }));
       container = result.container;
     });
 
@@ -203,7 +204,10 @@ describe("ObservabilityView", () => {
     let container = null as unknown as HTMLElement;
     await act(async () => {
       const result = render(
-        <ObservabilityView state={state} actions={createRuntimeConsoleActions()} onNavigate={onNavigate} />,
+        withRuntimeConsole(
+          <ObservabilityView onNavigate={onNavigate} />,
+          { state, actions: createRuntimeConsoleActions() },
+        ),
       );
       container = result.container;
     });
@@ -233,7 +237,7 @@ describe("ObservabilityView", () => {
     });
 
     const state = createRuntimeConsoleFixture({ session: localSession });
-    const { container } = render(<ObservabilityView state={state} actions={createRuntimeConsoleActions()} />);
+    const { container } = render(withRuntimeConsole(<ObservabilityView />, { state, actions: createRuntimeConsoleActions() }));
 
     expect(container.textContent).toMatch(/Loading traces/);
     expect(container.textContent).not.toMatch(/No traces yet/);
@@ -274,7 +278,7 @@ describe("ObservabilityView", () => {
     const state = createRuntimeConsoleFixture({ session: localSession });
     let container = null as unknown as HTMLElement;
     await act(async () => {
-      const result = render(<ObservabilityView state={state} actions={createRuntimeConsoleActions()} />);
+      const result = render(withRuntimeConsole(<ObservabilityView />, { state, actions: createRuntimeConsoleActions() }));
       container = result.container;
     });
     await waitFor(() => {
@@ -316,7 +320,7 @@ describe("ObservabilityView", () => {
     const state = createRuntimeConsoleFixture({ session: localSession });
     let container = null as unknown as HTMLElement;
     await act(async () => {
-      const result = render(<ObservabilityView state={state} actions={createRuntimeConsoleActions()} />);
+      const result = render(withRuntimeConsole(<ObservabilityView />, { state, actions: createRuntimeConsoleActions() }));
       container = result.container;
     });
     await waitFor(() => {
@@ -342,7 +346,7 @@ describe("ObservabilityView", () => {
     const state = createRuntimeConsoleFixture({ session: localSession });
     let container = null as unknown as HTMLElement;
     await act(async () => {
-      const result = render(<ObservabilityView state={state} actions={createRuntimeConsoleActions()} />);
+      const result = render(withRuntimeConsole(<ObservabilityView />, { state, actions: createRuntimeConsoleActions() }));
       container = result.container;
     });
     await waitFor(() => {
@@ -374,7 +378,7 @@ describe("ObservabilityView", () => {
     const state = createRuntimeConsoleFixture({ session: localSession });
     let container = null as unknown as HTMLElement;
     await act(async () => {
-      const result = render(<ObservabilityView state={state} actions={createRuntimeConsoleActions()} />);
+      const result = render(withRuntimeConsole(<ObservabilityView />, { state, actions: createRuntimeConsoleActions() }));
       container = result.container;
     });
     await waitFor(() => {
@@ -413,7 +417,7 @@ describe("ObservabilityView", () => {
     const state = createRuntimeConsoleFixture({ session: localSession });
     let container = null as unknown as HTMLElement;
     await act(async () => {
-      const result = render(<ObservabilityView state={state} actions={createRuntimeConsoleActions()} />);
+      const result = render(withRuntimeConsole(<ObservabilityView />, { state, actions: createRuntimeConsoleActions() }));
       container = result.container;
     });
     await waitFor(() => {
@@ -437,7 +441,7 @@ describe("ObservabilityView", () => {
     const state = createRuntimeConsoleFixture({ session: localSession });
     let container = null as unknown as HTMLElement;
     await act(async () => {
-      const result = render(<ObservabilityView state={state} actions={createRuntimeConsoleActions()} />);
+      const result = render(withRuntimeConsole(<ObservabilityView />, { state, actions: createRuntimeConsoleActions() }));
       container = result.container;
     });
     await waitFor(() => {
@@ -465,7 +469,7 @@ describe("ObservabilityView", () => {
     const state = createRuntimeConsoleFixture({ session: localSession });
     let container = null as unknown as HTMLElement;
     await act(async () => {
-      const result = render(<ObservabilityView state={state} actions={createRuntimeConsoleActions()} />);
+      const result = render(withRuntimeConsole(<ObservabilityView />, { state, actions: createRuntimeConsoleActions() }));
       container = result.container;
     });
     await waitFor(() => {
@@ -502,7 +506,7 @@ describe("ObservabilityView", () => {
     });
     let container = null as unknown as HTMLElement;
     await act(async () => {
-      const result = render(<ObservabilityView state={state} actions={createRuntimeConsoleActions()} />);
+      const result = render(withRuntimeConsole(<ObservabilityView />, { state, actions: createRuntimeConsoleActions() }));
       container = result.container;
     });
     await waitFor(() => {
@@ -544,7 +548,7 @@ describe("ObservabilityView", () => {
     const state = createRuntimeConsoleFixture({ session: localSession });
     let container = null as unknown as HTMLElement;
     await act(async () => {
-      const result = render(<ObservabilityView state={state} actions={createRuntimeConsoleActions()} />);
+      const result = render(withRuntimeConsole(<ObservabilityView />, { state, actions: createRuntimeConsoleActions() }));
       container = result.container;
     });
     await waitFor(() => {
@@ -582,7 +586,7 @@ describe("ObservabilityView", () => {
     });
     let container = null as unknown as HTMLElement;
     await act(async () => {
-      const result = render(<ObservabilityView state={state} actions={createRuntimeConsoleActions()} />);
+      const result = render(withRuntimeConsole(<ObservabilityView />, { state, actions: createRuntimeConsoleActions() }));
       container = result.container;
     });
     await waitFor(() => {
@@ -625,7 +629,7 @@ describe("ObservabilityView", () => {
     const state = createRuntimeConsoleFixture({ session: localSession, usageEvents: [] });
     let container = null as unknown as HTMLElement;
     await act(async () => {
-      const result = render(<ObservabilityView state={state} actions={createRuntimeConsoleActions()} />);
+      const result = render(withRuntimeConsole(<ObservabilityView />, { state, actions: createRuntimeConsoleActions() }));
       container = result.container;
     });
     await waitFor(() => {
@@ -661,11 +665,10 @@ describe("ObservabilityView", () => {
     const state = createRuntimeConsoleFixture({ session: localSession });
     await act(async () => {
       render(
-        <ObservabilityView
-          state={state}
-          actions={createRuntimeConsoleActions()}
-          focusRequest={{ requestID: "req-focus-from-chat", nonce: 1 }}
-        />,
+        withRuntimeConsole(
+          <ObservabilityView focusRequest={{ requestID: "req-focus-from-chat", nonce: 1 }} />,
+          { state, actions: createRuntimeConsoleActions() },
+        ),
       );
     });
 
@@ -683,7 +686,7 @@ describe("ObservabilityView", () => {
     ]));
     const state = createRuntimeConsoleFixture({ session: localSession });
     await act(async () => {
-      render(<ObservabilityView state={state} actions={createRuntimeConsoleActions()} />);
+      render(withRuntimeConsole(<ObservabilityView />, { state, actions: createRuntimeConsoleActions() }));
     });
     await waitFor(() => {
       // The table truncates to 8 chars for display.
@@ -710,7 +713,7 @@ describe("ObservabilityView", () => {
     });
     let container = null as unknown as HTMLElement;
     await act(async () => {
-      const result = render(<ObservabilityView state={state} actions={createRuntimeConsoleActions()} />);
+      const result = render(withRuntimeConsole(<ObservabilityView />, { state, actions: createRuntimeConsoleActions() }));
       container = result.container;
     });
     await waitFor(() => {
@@ -740,7 +743,7 @@ describe("ObservabilityView", () => {
     const state = createRuntimeConsoleFixture({ session: localSession });
     let container = null as unknown as HTMLElement;
     await act(async () => {
-      const result = render(<ObservabilityView state={state} actions={createRuntimeConsoleActions()} />);
+      const result = render(withRuntimeConsole(<ObservabilityView />, { state, actions: createRuntimeConsoleActions() }));
       container = result.container;
     });
     await waitFor(() => {
@@ -776,7 +779,7 @@ describe("ObservabilityView", () => {
     const state = createRuntimeConsoleFixture({ session: localSession });
     let container = null as unknown as HTMLElement;
     await act(async () => {
-      const result = render(<ObservabilityView state={state} actions={createRuntimeConsoleActions()} />);
+      const result = render(withRuntimeConsole(<ObservabilityView />, { state, actions: createRuntimeConsoleActions() }));
       container = result.container;
     });
     await waitFor(() => {
@@ -810,7 +813,7 @@ describe("ObservabilityView", () => {
     const state = createRuntimeConsoleFixture({ session: localSession });
     let container = null as unknown as HTMLElement;
     await act(async () => {
-      const result = render(<ObservabilityView state={state} actions={createRuntimeConsoleActions()} />);
+      const result = render(withRuntimeConsole(<ObservabilityView />, { state, actions: createRuntimeConsoleActions() }));
       container = result.container;
     });
     await waitFor(() => {
@@ -874,7 +877,7 @@ describe("ObservabilityView", () => {
     const state = createRuntimeConsoleFixture({ session: localSession });
     let container = null as unknown as HTMLElement;
     await act(async () => {
-      const result = render(<ObservabilityView state={state} actions={createRuntimeConsoleActions()} />);
+      const result = render(withRuntimeConsole(<ObservabilityView />, { state, actions: createRuntimeConsoleActions() }));
       container = result.container;
     });
     await waitFor(() => {
@@ -947,7 +950,7 @@ describe("ObservabilityView", () => {
     const state = createRuntimeConsoleFixture({ session: localSession });
     let container = null as unknown as HTMLElement;
     await act(async () => {
-      const result = render(<ObservabilityView state={state} actions={createRuntimeConsoleActions()} />);
+      const result = render(withRuntimeConsole(<ObservabilityView />, { state, actions: createRuntimeConsoleActions() }));
       container = result.container;
     });
     await waitFor(() => {
@@ -970,7 +973,7 @@ describe("ObservabilityView", () => {
     const state = createRuntimeConsoleFixture({ session: localSession, usageEvents: [] });
     let container = null as unknown as HTMLElement;
     await act(async () => {
-      const result = render(<ObservabilityView state={state} actions={createRuntimeConsoleActions()} />);
+      const result = render(withRuntimeConsole(<ObservabilityView />, { state, actions: createRuntimeConsoleActions() }));
       container = result.container;
     });
     await waitFor(() => {

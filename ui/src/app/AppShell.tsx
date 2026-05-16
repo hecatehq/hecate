@@ -1,5 +1,6 @@
 import { Suspense, lazy, useEffect, useState } from "react";
 
+import { useRuntimeConsoleContext } from "./RuntimeConsoleContext";
 import type { RuntimeConsoleViewModel } from "./useRuntimeConsole";
 import type { AgentChatUsageRecord } from "../types/runtime";
 import { UpdateBanner } from "../features/shared/UpdateBanner";
@@ -49,7 +50,6 @@ type WorkspaceDefinition = {
 };
 
 type ConsoleState = RuntimeConsoleViewModel["state"];
-type ConsoleActions = RuntimeConsoleViewModel["actions"];
 type TaskFocusRequest = { taskID: string; runID?: string; nonce: number };
 type TraceFocusRequest = { requestID: string; nonce: number };
 
@@ -154,14 +154,11 @@ export function getAvailableWorkspaces(): WorkspaceDefinition[] {
 export function ConsoleShell({
   activeWorkspace,
   onSelectWorkspace,
-  state,
-  actions,
 }: {
   activeWorkspace: WorkspaceID;
   onSelectWorkspace: (workspace: WorkspaceID) => void;
-  state: ConsoleState;
-  actions: ConsoleActions;
 }) {
+  const { state } = useRuntimeConsoleContext();
   // No auth: render the full console immediately. The brief
   // first-load splash stays so the workspace doesn't flash with
   // stale state before /healthz returns.
@@ -172,8 +169,6 @@ export function ConsoleShell({
     <AuthenticatedShell
       activeWorkspace={activeWorkspace}
       onSelectWorkspace={onSelectWorkspace}
-      state={state}
-      actions={actions}
     />
   );
 }
@@ -231,14 +226,11 @@ function AuthLoadingShell() {
 function AuthenticatedShell({
   activeWorkspace,
   onSelectWorkspace,
-  state,
-  actions,
 }: {
   activeWorkspace: WorkspaceID;
   onSelectWorkspace: (workspace: WorkspaceID) => void;
-  state: ConsoleState;
-  actions: ConsoleActions;
 }) {
+  const { state, actions } = useRuntimeConsoleContext();
   const workspaces = getAvailableWorkspaces();
   const [taskFocusRequest, setTaskFocusRequest] = useState<TaskFocusRequest | null>(null);
   const [traceFocusRequest, setTraceFocusRequest] = useState<TraceFocusRequest | null>(null);
@@ -320,12 +312,12 @@ function AuthenticatedShell({
           {state.error && <div className="page-banner page-banner--error">{state.error}</div>}
           <div className={`console-content${isBare ? " console-content--bare" : ""}`}>
             <Suspense fallback={<WorkspaceFallback />}>
-              {activeWorkspace === "overview"   && <ObservabilityView actions={actions} state={state} onNavigate={onSelectWorkspace} focusRequest={traceFocusRequest} />}
-              {activeWorkspace === "chats" && <ChatView actions={actions} state={state} onNavigate={onSelectWorkspace} onOpenTask={openTaskFromChat} onOpenTrace={openTraceFromChat} />}
+              {activeWorkspace === "overview"   && <ObservabilityView onNavigate={onSelectWorkspace} focusRequest={traceFocusRequest} />}
+              {activeWorkspace === "chats" && <ChatView onNavigate={onSelectWorkspace} onOpenTask={openTaskFromChat} onOpenTrace={openTraceFromChat} />}
               {activeWorkspace === "runs"          && <TasksView focusRequest={taskFocusRequest} onOpenAgentChat={openAgentChatFromTask} onOpenTrace={openTraceFromChat} />}
-              {activeWorkspace === "connections"     && <ProvidersView actions={actions} state={state} />}
-              {activeWorkspace === "usage"         && <UsageView actions={actions} state={state} />}
-              {activeWorkspace === "settings" && <SettingsView actions={actions} state={state} />}
+              {activeWorkspace === "connections"     && <ProvidersView />}
+              {activeWorkspace === "usage"         && <UsageView />}
+              {activeWorkspace === "settings" && <SettingsView />}
             </Suspense>
           </div>
         </main>

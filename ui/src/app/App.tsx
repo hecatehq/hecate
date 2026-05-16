@@ -1,6 +1,7 @@
 import { useEffect, useLayoutEffect } from "react";
 
 import { ConsoleShell, getAvailableWorkspaces, WORKSPACE_IDS, type WorkspaceID } from "./AppShell";
+import { RuntimeConsoleContextProvider } from "./RuntimeConsoleContext";
 import { ApprovalsProvider } from "./state/approvals";
 import { ChatProvider } from "./state/chat";
 import { ModelChatProvider } from "./state/modelChat";
@@ -8,7 +9,6 @@ import { ProvidersAndModelsProvider } from "./state/providersAndModels";
 import { RetentionProvider } from "./state/retention";
 import { RuntimeProvider } from "./state/runtime";
 import { UsageProvider } from "./state/usage";
-import { useRuntimeConsole } from "./useRuntimeConsole";
 import { usePersistedState } from "../lib/persistedState";
 import { isTauriRuntime } from "../lib/tauri";
 
@@ -20,12 +20,10 @@ const VALID_WORKSPACE_IDS = new Set<WorkspaceID>(WORKSPACE_IDS);
 const parseWorkspaceID = (raw: string): WorkspaceID | null =>
   VALID_WORKSPACE_IDS.has(raw as WorkspaceID) ? (raw as WorkspaceID) : null;
 
-// The slice providers wrap the console body so useRuntimeConsole's
-// internal slice consumers (`useRetention`, …) see their context.
-// As more slices are added the wrapper chain grows here; once
-// prop-drill is retired and consumers read context directly, a
-// single `<RuntimeConsoleProviders>` composer will collapse this
-// chain.
+// Slice providers wrap RuntimeConsoleContextProvider so the shim
+// inside it can see slice contexts; the facade provider then
+// exposes the shim's `{state, actions}` shape to AppShell and
+// every workspace view through context — no prop-drilling.
 export default function App() {
   return (
     <RuntimeProvider>
@@ -35,7 +33,9 @@ export default function App() {
             <ChatProvider>
               <RetentionProvider>
                 <ApprovalsProvider>
-                  <AppConsole />
+                  <RuntimeConsoleContextProvider>
+                    <AppConsole />
+                  </RuntimeConsoleContextProvider>
                 </ApprovalsProvider>
               </RetentionProvider>
             </ChatProvider>
@@ -47,7 +47,6 @@ export default function App() {
 }
 
 function AppConsole() {
-  const { state, actions } = useRuntimeConsole();
   const [preferredWorkspace, setPreferredWorkspace] = usePersistedState<WorkspaceID>(
     WORKSPACE_STORAGE_KEY,
     parseWorkspaceID,
@@ -77,7 +76,7 @@ function AppConsole() {
     return installTauriDocumentMarkers();
   }, []);
 
-  return <ConsoleShell actions={actions} activeWorkspace={activeWorkspace} onSelectWorkspace={handleSelectWorkspace} state={state} />;
+  return <ConsoleShell activeWorkspace={activeWorkspace} onSelectWorkspace={handleSelectWorkspace} />;
 }
 
 export function installTauriDocumentMarkers(): () => void {

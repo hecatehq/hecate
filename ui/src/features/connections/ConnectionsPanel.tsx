@@ -1,4 +1,5 @@
 import { useEffect, useMemo, useRef, useState, type ReactNode } from "react";
+import { useRuntimeConsoleContext } from "../../app/RuntimeConsoleContext";
 import type { RuntimeConsoleViewModel } from "../../app/useRuntimeConsole";
 import { claudeCodeSetupTokenCommand } from "../../lib/claude-code-setup";
 import { formatLocaleDateTime } from "../../lib/format";
@@ -8,8 +9,6 @@ import { BrandAvatar, Icon, Icons, InlineError } from "../shared/ui";
 import { ModelCapabilitiesSection } from "./ModelCapabilitiesSection";
 
 type Props = {
-  state: RuntimeConsoleViewModel["state"];
-  actions: RuntimeConsoleViewModel["actions"];
   onNavigate?: (workspace: "connections" | "runs" | "overview" | "settings" | "chats" | "usage") => void;
 };
 
@@ -53,11 +52,10 @@ function SectionHeader({
 // readiness panel; "Save" validates Claude Code auth before storing
 // the token, so no separate Test button is needed.
 export function ConnectionsPanel({
-  state,
-  actions,
   onNavigate,
   showProviderSummary = true,
 }: Props & { showProviderSummary?: boolean }) {
+  const { state, actions } = useRuntimeConsoleContext();
   const liveAnthropicProvider = findAnthropicProvider(state.settingsConfig?.providers ?? []);
   const [rememberedAnthropicProvider, setRememberedAnthropicProvider] = useState<ConfiguredProviderRecord | null>(liveAnthropicProvider);
   const probedAdapterIDsRef = useRef<Set<string>>(new Set());
@@ -144,7 +142,7 @@ export function ConnectionsPanel({
     <>
       {showProviderSummary && <ModelProviderConnectionsSection state={state} onNavigate={onNavigate} />}
 
-      <ModelCapabilitiesSection state={state} actions={actions} />
+      <ModelCapabilitiesSection />
 
       {rememberedAnthropicProvider && (
         <AnthropicProviderKeyCard
@@ -470,7 +468,10 @@ function AnthropicProviderKeyCard({
 // availability are still owned by the dashboard fan-out's
 // /hecate/v1/agent-adapters response. We just surface the additional
 // per-adapter "can I actually use this?" check here.
-function AdapterStatusSection({ state, actions }: Props) {
+function AdapterStatusSection({ state, actions }: {
+  state: RuntimeConsoleViewModel["state"];
+  actions: RuntimeConsoleViewModel["actions"];
+}) {
   const adapters = state.agentAdapters;
   if (!adapters || adapters.length === 0) {
     return null;

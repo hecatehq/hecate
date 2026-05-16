@@ -1,12 +1,7 @@
 import { useMemo, useState, type ReactNode } from "react";
-import type { RuntimeConsoleViewModel } from "../../app/useRuntimeConsole";
+import { useRuntimeConsoleContext } from "../../app/RuntimeConsoleContext";
 import { formatInteger } from "../../lib/format";
 import type { ModelRecord } from "../../types/runtime";
-
-type Props = {
-  state: RuntimeConsoleViewModel["state"];
-  actions: RuntimeConsoleViewModel["actions"];
-};
 
 function SectionHeader({
   title,
@@ -35,7 +30,8 @@ function SectionHeader({
   );
 }
 
-export function ModelCapabilitiesSection({ state, actions }: Props) {
+export function ModelCapabilitiesSection() {
+  const { state, actions } = useRuntimeConsoleContext();
   const [query, setQuery] = useState("");
   const rows = useMemo(() => {
     const q = query.trim().toLowerCase();

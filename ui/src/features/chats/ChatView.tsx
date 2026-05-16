@@ -1,5 +1,6 @@
 import { useEffect, useRef, useState } from "react";
 import type { ReactNode, SyntheticEvent } from "react";
+import { useRuntimeConsoleContext } from "../../app/RuntimeConsoleContext";
 import type { RuntimeConsoleViewModel } from "../../app/useRuntimeConsole";
 import { discoverLocalProviders } from "../../lib/api";
 import { resolveChatSetupRepairState, type ChatSetupRepairState } from "../../lib/chat-setup-readiness";
@@ -22,8 +23,6 @@ import { AgentSetupHints, ClaudeCodePreflightCard, ClaudeCodeSetupEmptyPanel, cl
 import type { ClaudeCodePreflightState } from "./ClaudeCodeSetup";
 
 type Props = {
-  state: RuntimeConsoleViewModel["state"];
-  actions: RuntimeConsoleViewModel["actions"];
   onNavigate?: (workspace: "connections" | "runs" | "overview" | "settings") => void;
   onOpenTask?: (taskID: string, runID?: string) => void;
   onOpenTrace?: (requestID: string) => void;
@@ -84,7 +83,8 @@ type HecateTaskApproval = {
   createdAt?: string;
 };
 
-export function ChatView({ state, actions, onNavigate, onOpenTask, onOpenTrace }: Props) {
+export function ChatView({ onNavigate, onOpenTask, onOpenTrace }: Props) {
+  const { state, actions } = useRuntimeConsoleContext();
   const [sidebarOpen, setSidebarOpen] = useState(true);
   // approvalModalID is the per-banner-click open state for the
   // approval modal. The modal itself fetches the full row on mount;
@@ -1655,8 +1655,6 @@ export function ChatView({ state, actions, onNavigate, onOpenTask, onOpenTrace }
       )}
       <AddProviderModal
         open={addProviderOpen}
-        state={state}
-        actions={actions}
         onClose={() => setAddProviderOpen(false)}
       />
     </div>

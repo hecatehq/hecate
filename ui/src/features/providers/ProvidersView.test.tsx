@@ -6,6 +6,7 @@ import { ProvidersView } from "./ProvidersView";
 import { AddProviderModal } from "./AddProviderModal";
 import { discoverLocalProviders } from "../../lib/api";
 import { createRuntimeConsoleActions, createRuntimeConsoleFixture } from "../../test/runtime-console-fixture";
+import { withRuntimeConsole } from "../../test/runtime-console-render";
 import type { ConfiguredProviderRecord, ProviderPresetRecord, ProviderRecord } from "../../types/runtime";
 
 vi.mock("../../lib/api", async importOriginal => {
@@ -101,7 +102,7 @@ describe("ProvidersView empty state", () => {
       providers: [],
     });
 
-    render(<ProvidersView state={state} actions={createRuntimeConsoleActions()} />);
+    render(withRuntimeConsole(<ProvidersView />, { state, actions: createRuntimeConsoleActions() }));
 
     expect(screen.getByText("No model providers configured")).toBeTruthy();
     expect(screen.getByText("Add a local or cloud provider to start routing requests")).toBeTruthy();
@@ -126,7 +127,7 @@ describe("ProvidersView delete", () => {
       providers: [makeStatus("ollama")],
     });
 
-    render(<ProvidersView state={state} actions={actions} />);
+    render(withRuntimeConsole(<ProvidersView />, { state, actions }));
 
     const user = userEvent.setup();
     const trashBtn = screen.getByTitle("Remove Ollama");
@@ -151,7 +152,7 @@ describe("ProvidersView add provider modal", () => {
       providers: [],
     });
     const actions = createRuntimeConsoleActions();
-    render(<ProvidersView state={state} actions={actions} />);
+    render(withRuntimeConsole(<ProvidersView />, { state, actions }));
     return { actions };
   }
 
@@ -212,7 +213,7 @@ describe("ProvidersView add provider modal", () => {
       providers: [],
     });
     const actions = { ...createRuntimeConsoleActions(), createProvider };
-    render(<ProvidersView state={state} actions={actions} />);
+    render(withRuntimeConsole(<ProvidersView />, { state, actions }));
 
     const user = userEvent.setup();
     await user.click(screen.getAllByText("Add provider")[0]);
@@ -273,7 +274,7 @@ describe("ProvidersView add provider modal", () => {
       providers: [],
     });
     const actions = { ...createRuntimeConsoleActions(), createProvider };
-    render(<ProvidersView state={state} actions={actions} />);
+    render(withRuntimeConsole(<ProvidersView />, { state, actions }));
 
     const user = userEvent.setup();
     await user.click(screen.getAllByText("Add provider")[0]);
@@ -300,7 +301,7 @@ describe("ProvidersView edit modal", () => {
       },
       providers: [makeStatus("anthropic", { kind: "cloud", healthy: true, status: "healthy" })],
     });
-    render(<ProvidersView state={state} actions={createRuntimeConsoleActions()} />);
+    render(withRuntimeConsole(<ProvidersView />, { state, actions: createRuntimeConsoleActions() }));
 
     const user = userEvent.setup();
     await user.click(screen.getByText("Anthropic"));
@@ -321,7 +322,7 @@ describe("ProvidersView edit modal", () => {
       providers: [makeStatus("anthropic", { kind: "cloud", healthy: true, status: "healthy" })],
     });
     const actions = { ...createRuntimeConsoleActions(), setProviderAPIKey };
-    render(<ProvidersView state={state} actions={actions} />);
+    render(withRuntimeConsole(<ProvidersView />, { state, actions }));
 
     const user = userEvent.setup();
     await user.click(screen.getByText("Anthropic"));
@@ -348,7 +349,7 @@ describe("ProvidersView edit modal", () => {
       providers: [makeStatus("ollama", { kind: "local", healthy: true, status: "healthy" })],
     });
     const actions = { ...createRuntimeConsoleActions(), setProviderBaseURL };
-    render(<ProvidersView state={state} actions={actions} />);
+    render(withRuntimeConsole(<ProvidersView />, { state, actions }));
 
     const user = userEvent.setup();
     await user.click(screen.getByText("Ollama"));
@@ -372,7 +373,7 @@ describe("ProvidersView edit modal", () => {
       },
       providers: [makeStatus("ollama", { kind: "local", healthy: true, status: "healthy" })],
     });
-    render(<ProvidersView state={state} actions={createRuntimeConsoleActions()} />);
+    render(withRuntimeConsole(<ProvidersView />, { state, actions: createRuntimeConsoleActions() }));
 
     const user = userEvent.setup();
     await user.click(screen.getByText("Ollama"));
@@ -390,7 +391,7 @@ describe("ProvidersView edit modal", () => {
       },
       providers: [makeStatus("ollama", { kind: "local", healthy: true, status: "healthy", models: ["m1", "m2"], model_count: 2 })],
     });
-    render(<ProvidersView state={state} actions={createRuntimeConsoleActions()} />);
+    render(withRuntimeConsole(<ProvidersView />, { state, actions: createRuntimeConsoleActions() }));
 
     const user = userEvent.setup();
     await user.click(screen.getByText("Ollama"));
@@ -419,7 +420,7 @@ describe("ProvidersView table renders", () => {
       ],
     });
 
-    render(<ProvidersView state={state} actions={createRuntimeConsoleActions()} />);
+    render(withRuntimeConsole(<ProvidersView />, { state, actions: createRuntimeConsoleActions() }));
 
     expect(screen.getByText("Anthropic")).toBeTruthy();
     expect(screen.getByText("Ollama")).toBeTruthy();
@@ -469,7 +470,7 @@ describe("ProvidersView table renders", () => {
     });
     const user = userEvent.setup();
 
-    render(<ProvidersView state={state} actions={createRuntimeConsoleActions()} />);
+    render(withRuntimeConsole(<ProvidersView />, { state, actions: createRuntimeConsoleActions() }));
 
     expect(screen.getByText(/1 provider needs attention/)).toBeTruthy();
     await user.click(screen.getByRole("button", { name: "Open provider" }));
@@ -503,7 +504,7 @@ describe("ProvidersView table renders", () => {
     const actions = { ...createRuntimeConsoleActions(), refreshProviders };
     const user = userEvent.setup();
 
-    render(<ProvidersView state={state} actions={actions} />);
+    render(withRuntimeConsole(<ProvidersView />, { state, actions }));
     await user.click(screen.getByRole("button", { name: "Refresh providers" }));
 
     expect(refreshProviders).toHaveBeenCalledTimes(1);
@@ -548,7 +549,7 @@ describe("ProvidersView table renders", () => {
       ],
     });
 
-    render(<ProvidersView state={state} actions={actions} />);
+    render(withRuntimeConsole(<ProvidersView />, { state, actions }));
 
     expect(await screen.findByTestId("external-agents-adapters")).toBeTruthy();
     expect(screen.getByTestId("external-agents-adapter-codex")).toBeTruthy();
@@ -568,7 +569,7 @@ describe("ProvidersView table renders", () => {
       providers: [makeStatus("ollama")],
     });
 
-    render(<ProvidersView state={state} actions={createRuntimeConsoleActions()} />);
+    render(withRuntimeConsole(<ProvidersView />, { state, actions: createRuntimeConsoleActions() }));
 
     const user = userEvent.setup();
     // Open the Add modal, then pick "Custom" so the Endpoint URL field is editable.
@@ -609,7 +610,7 @@ describe("ProvidersView table renders", () => {
     });
     const actions = { ...createRuntimeConsoleActions(), createProvider };
 
-    render(<ProvidersView state={state} actions={actions} />);
+    render(withRuntimeConsole(<ProvidersView />, { state, actions }));
 
     const user = userEvent.setup();
     await user.click(screen.getAllByText("Add provider")[0]);
@@ -655,7 +656,7 @@ describe("ProvidersView table renders", () => {
     });
     const actions = { ...createRuntimeConsoleActions(), createProvider };
 
-    render(<AddProviderModal open state={state} actions={actions} onClose={() => {}} />);
+    render(withRuntimeConsole(<AddProviderModal open onClose={() => {}} />, { state, actions }));
 
     const user = userEvent.setup();
     await user.click(screen.getByRole("button", { name: "Cloud" }));
@@ -700,11 +701,11 @@ describe("ProvidersView table renders", () => {
     });
     const actions = createRuntimeConsoleActions();
 
-    const { rerender } = render(<AddProviderModal open state={state} actions={actions} onClose={() => {}} />);
+    const { rerender } = render(withRuntimeConsole(<AddProviderModal open onClose={() => {}} />, { state, actions }));
     expect(await screen.findByText("local probe failed")).toBeTruthy();
 
-    rerender(<AddProviderModal open={false} state={state} actions={actions} onClose={() => {}} />);
-    rerender(<AddProviderModal open state={state} actions={actions} onClose={() => {}} />);
+    rerender(withRuntimeConsole(<AddProviderModal open={false} onClose={() => {}} />, { state, actions }));
+    rerender(withRuntimeConsole(<AddProviderModal open onClose={() => {}} />, { state, actions }));
 
     await waitFor(() => expect(screen.queryByText("local probe failed")).toBeNull());
     expect(await screen.findByText("Running")).toBeTruthy();
@@ -728,10 +729,10 @@ describe("ProvidersView table renders", () => {
     const actions = createRuntimeConsoleActions();
     const initialDiscoveryCalls = vi.mocked(discoverLocalProviders).mock.calls.length;
 
-    const { rerender } = render(<AddProviderModal open state={state} actions={actions} onClose={() => {}} />);
+    const { rerender } = render(withRuntimeConsole(<AddProviderModal open onClose={() => {}} />, { state, actions }));
     await waitFor(() => expect(discoverLocalProviders).toHaveBeenCalledTimes(initialDiscoveryCalls + 1));
-    rerender(<AddProviderModal open={false} state={state} actions={actions} onClose={() => {}} />);
-    rerender(<AddProviderModal open state={state} actions={actions} onClose={() => {}} />);
+    rerender(withRuntimeConsole(<AddProviderModal open={false} onClose={() => {}} />, { state, actions }));
+    rerender(withRuntimeConsole(<AddProviderModal open onClose={() => {}} />, { state, actions }));
     await waitFor(() => expect(discoverLocalProviders).toHaveBeenCalledTimes(initialDiscoveryCalls + 2));
 
     resolveFast({
@@ -784,7 +785,7 @@ describe("ProvidersView table renders", () => {
       providers: [],
     });
 
-    render(<ProvidersView state={state} actions={createRuntimeConsoleActions()} />);
+    render(withRuntimeConsole(<ProvidersView />, { state, actions: createRuntimeConsoleActions() }));
 
     const user = userEvent.setup();
     await user.click(screen.getAllByText("Add provider")[0]);
@@ -808,7 +809,7 @@ describe("ProvidersView table renders", () => {
       providers: [],
     });
 
-    render(<ProvidersView state={state} actions={createRuntimeConsoleActions()} />);
+    render(withRuntimeConsole(<ProvidersView />, { state, actions: createRuntimeConsoleActions() }));
 
     expect(screen.getAllByText(/lmstudio/i).length).toBeGreaterThan(0);
     expect(screen.getByText("Discovery pending")).toBeTruthy();
@@ -862,7 +863,7 @@ describe("ProvidersView table renders", () => {
       ],
     });
 
-    render(<ProvidersView state={state} actions={createRuntimeConsoleActions()} />);
+    render(withRuntimeConsole(<ProvidersView />, { state, actions: createRuntimeConsoleActions() }));
 
     // Health column shows "Down" for circuit-open providers.
     expect(screen.getByText("Down")).toBeTruthy();
