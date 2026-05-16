@@ -12,13 +12,14 @@
 // disabled-provider rendering or the provider suffix get the same
 // look as the old simple picker minus the section headers.
 
-import { useEffect, useRef, useState } from "react";
+import { useCallback, useEffect, useRef, useState } from "react";
 import type { KeyboardEvent } from "react";
 
 import type { ModelRecord, ProviderPresetRecord } from "../../types/runtime";
 import { Icon, Icons } from "./Icons";
 import { focusDropdownItem, focusInitialDropdownItem } from "./dropdownKeyboard";
 import { useFloatingDropdownStyle } from "./useFloatingDropdownStyle";
+import { useFloatingMenu } from "./useFloatingMenu";
 
 export function ModelPicker({
   value, onChange, models,
@@ -70,36 +71,19 @@ export function ModelPicker({
   allLabel?: string;
   variant?: "header" | "composer";
 }) {
-  const [open, setOpen] = useState(false);
   const [filter, setFilter] = useState("");
-  const ref = useRef<HTMLDivElement>(null);
-  const menuRef = useRef<HTMLDivElement>(null);
-  const triggerRef = useRef<HTMLButtonElement>(null);
   const inputRef = useRef<HTMLInputElement>(null);
+  const handleClose = useCallback(() => setFilter(""), []);
+  const { open, setOpen, toggle, wrapRef: ref, triggerRef, menuRef } = useFloatingMenu<HTMLDivElement, HTMLButtonElement>({
+    onClose: handleClose,
+  });
   // Right-anchored: the menu is 300px wide and the trigger is at the
   // right side of its row in the chat header, so left-anchoring would
   // push it off-screen on narrow viewports.
   const floatingStyle = useFloatingDropdownStyle(triggerRef, open, "right", variant === "composer" ? "up" : "down");
 
   useEffect(() => {
-    const handler = (e: MouseEvent) => {
-      const target = e.target as Node;
-      // Click-outside detection has to consider BOTH the wrap (which
-      // contains the trigger) and the floating menu (which lives at
-      // a different DOM ancestor when rendered fixed-position). Without
-      // checking the menu, clicking inside the menu would close it.
-      if (ref.current && ref.current.contains(target)) return;
-      if (target instanceof HTMLElement && target.closest(".dropdown-menu-floating")) return;
-      setOpen(false);
-      setFilter("");
-    };
-    document.addEventListener("mousedown", handler);
-    return () => document.removeEventListener("mousedown", handler);
-  }, []);
-
-  useEffect(() => {
     if (open) setTimeout(() => inputRef.current?.focus(), 0);
-    else setFilter("");
   }, [open]);
 
   const providerName = (id: string) => presets?.find(p => p.id === id)?.name || id;
@@ -137,7 +121,6 @@ export function ModelPicker({
 
   function closeMenu() {
     setOpen(false);
-    setFilter("");
     triggerRef.current?.focus();
   }
 
@@ -200,7 +183,7 @@ export function ModelPicker({
         aria-expanded={open}
         aria-haspopup="listbox"
         className="btn btn-ghost btn-sm"
-        onClick={() => { if (!isEmpty) setOpen(o => !o); }}
+        onClick={() => { if (!isEmpty) toggle(); }}
         disabled={isEmpty}
         title={disabledTitle}
         style={{

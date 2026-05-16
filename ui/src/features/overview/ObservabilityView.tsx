@@ -31,6 +31,7 @@ import type {
 } from "../../types/runtime";
 import { focusDropdownItem, focusInitialDropdownItem } from "../shared/dropdownKeyboard";
 import { useFloatingDropdownStyle } from "../shared/useFloatingDropdownStyle";
+import { useFloatingMenu } from "../shared/useFloatingMenu";
 import { Badge, BrandAvatar, Icon, Icons, Modal, ModelPicker, ProviderPicker, Toggle } from "../shared/ui";
 
 import { CopyableID } from "./observability/CopyableID";
@@ -800,29 +801,15 @@ const STATUS_FILTER_OPTIONS: Array<{ value: StatusFilter; label: string }> = [
 ];
 
 function StatusFilterPicker({ value, onChange }: { value: StatusFilter; onChange: (value: StatusFilter) => void }) {
-  const [open, setOpen] = useState(false);
-  const ref = useRef<HTMLDivElement>(null);
-  const menuRef = useRef<HTMLDivElement>(null);
-  const triggerRef = useRef<HTMLButtonElement>(null);
+  const { open, setOpen, toggle, wrapRef: ref, triggerRef, menuRef } = useFloatingMenu<HTMLDivElement, HTMLButtonElement>();
   const floatingStyle = useFloatingDropdownStyle(triggerRef, open, "right");
   const label = STATUS_FILTER_OPTIONS.find((option) => option.value === value)?.label ?? "All";
-
-  useEffect(() => {
-    const handler = (event: MouseEvent) => {
-      const target = event.target as Node;
-      if (ref.current && ref.current.contains(target)) return;
-      if (target instanceof HTMLElement && target.closest(".dropdown-menu-floating")) return;
-      setOpen(false);
-    };
-    document.addEventListener("mousedown", handler);
-    return () => document.removeEventListener("mousedown", handler);
-  }, []);
 
   useEffect(() => {
     if (!open) return;
     const frame = requestAnimationFrame(() => focusInitialDropdownItem(menuRef.current));
     return () => cancelAnimationFrame(frame);
-  }, [open]);
+  }, [open, menuRef]);
 
   function closeMenu() {
     setOpen(false);
@@ -850,7 +837,7 @@ function StatusFilterPicker({ value, onChange }: { value: StatusFilter; onChange
         aria-expanded={open}
         aria-haspopup="listbox"
         className="btn btn-ghost btn-sm"
-        onClick={() => setOpen((current) => !current)}
+        onClick={() => toggle()}
         style={{ fontFamily: "var(--font-mono)", fontSize: 11, gap: 5, color: "var(--t1)", width: 110 }}>
         <span style={{ flex: 1, minWidth: 0, whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis", textAlign: "left" }}>
           {label}

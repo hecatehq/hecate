@@ -4,13 +4,14 @@
 // the on-demand probe result so operators can see at a glance which
 // adapter is actually usable on this machine.
 
-import { useEffect, useRef, useState } from "react";
+import { useEffect } from "react";
 import type { KeyboardEvent } from "react";
 
 import type { AgentAdapterHealthRecord, AgentAdapterRecord } from "../../types/runtime";
 import { Icon, Icons } from "./Icons";
 import { focusDropdownItem, focusInitialDropdownItem } from "./dropdownKeyboard";
 import { useFloatingDropdownStyle } from "./useFloatingDropdownStyle";
+import { useFloatingMenu } from "./useFloatingMenu";
 
 // adapterPickerDiagnostic combines the dashboard's "is the binary on
 // PATH?" flag with the on-demand probe result into one row diagnostic.
@@ -99,22 +100,8 @@ export function AgentAdapterPicker({
   disabledReason?: string;
   triggerWidth?: number;
 }) {
-  const [open, setOpen] = useState(false);
-  const ref = useRef<HTMLDivElement>(null);
-  const menuRef = useRef<HTMLDivElement>(null);
-  const triggerRef = useRef<HTMLButtonElement>(null);
+  const { open, setOpen, toggle, wrapRef: ref, triggerRef, menuRef } = useFloatingMenu<HTMLDivElement, HTMLButtonElement>();
   const floatingStyle = useFloatingDropdownStyle(triggerRef, open, "left");
-
-  useEffect(() => {
-    const handler = (e: MouseEvent) => {
-      const target = e.target as Node;
-      if (ref.current && ref.current.contains(target)) return;
-      if (target instanceof HTMLElement && target.closest(".dropdown-menu-floating")) return;
-      setOpen(false);
-    };
-    document.addEventListener("mousedown", handler);
-    return () => document.removeEventListener("mousedown", handler);
-  }, []);
 
   useEffect(() => {
     if (!open) return;
@@ -122,7 +109,7 @@ export function AgentAdapterPicker({
       focusInitialDropdownItem(menuRef.current);
     });
     return () => cancelAnimationFrame(frame);
-  }, [open]);
+  }, [open, menuRef]);
 
   function onMenuKeyDown(event: KeyboardEvent<HTMLDivElement>) {
     if (event.key === "Escape") {
@@ -151,7 +138,7 @@ export function AgentAdapterPicker({
         aria-haspopup="listbox"
         className="btn btn-ghost btn-sm"
         disabled={locked}
-        onClick={() => { if (!locked) setOpen((current) => !current); }}
+        onClick={() => { if (!locked) toggle(); }}
         style={{
           fontFamily: "var(--font-mono)",
           fontSize: 11,

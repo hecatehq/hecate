@@ -1,9 +1,10 @@
-import { useEffect, useRef, useState } from "react";
+import { useCallback, useEffect, useRef, useState } from "react";
 import type { CSSProperties, KeyboardEvent, ReactNode } from "react";
 
 import { Icon, Icons } from "./Icons";
 import { focusDropdownItem, focusInitialDropdownItem } from "./dropdownKeyboard";
 import { useFloatingDropdownStyle } from "./useFloatingDropdownStyle";
+import { useFloatingMenu } from "./useFloatingMenu";
 
 export type DropdownPickerOption<Value extends string = string> = {
   value: Value;
@@ -58,12 +59,12 @@ export function DropdownPicker<Value extends string = string>({
   buttonStyle?: CSSProperties;
   renderTriggerLabel?: (option: DropdownPickerOption<Value> | undefined) => ReactNode;
 }) {
-  const [open, setOpen] = useState(false);
   const [filter, setFilter] = useState("");
-  const ref = useRef<HTMLDivElement>(null);
-  const menuRef = useRef<HTMLDivElement>(null);
   const inputRef = useRef<HTMLInputElement>(null);
-  const triggerRef = useRef<HTMLButtonElement>(null);
+  const handleClose = useCallback(() => setFilter(""), []);
+  const { open, setOpen, toggle, wrapRef: ref, triggerRef, menuRef } = useFloatingMenu<HTMLDivElement, HTMLButtonElement>({
+    onClose: handleClose,
+  });
   const floatingStyle = useFloatingDropdownStyle(triggerRef, open, align, placement);
   const selected = options.find((option) => option.value === value);
   const locked = disabled || options.length === 0;
@@ -77,29 +78,16 @@ export function DropdownPicker<Value extends string = string>({
     : options;
 
   useEffect(() => {
-    const handler = (event: MouseEvent) => {
-      const target = event.target as Node;
-      if (ref.current?.contains(target)) return;
-      if (target instanceof HTMLElement && target.closest(".dropdown-menu-floating")) return;
-      setOpen(false);
-      setFilter("");
-    };
-    document.addEventListener("mousedown", handler);
-    return () => document.removeEventListener("mousedown", handler);
-  }, []);
-
-  useEffect(() => {
     if (!open) return;
     const frame = requestAnimationFrame(() => {
       if (searchable) inputRef.current?.focus();
       else focusInitialDropdownItem(menuRef.current);
     });
     return () => cancelAnimationFrame(frame);
-  }, [open, searchable]);
+  }, [open, searchable, menuRef]);
 
   function closeMenu() {
     setOpen(false);
-    setFilter("");
     triggerRef.current?.focus();
   }
 
@@ -135,7 +123,6 @@ export function DropdownPicker<Value extends string = string>({
       event.stopPropagation();
       onChange(firstEnabled.value);
       setOpen(false);
-      setFilter("");
     }
   }
 
@@ -149,7 +136,7 @@ export function DropdownPicker<Value extends string = string>({
         className="btn btn-ghost btn-sm"
         disabled={locked}
         onClick={() => {
-          if (!locked) setOpen((current) => !current);
+          if (!locked) toggle();
         }}
         title={locked ? disabledReason || "No options available" : selected?.title || selected?.label || placeholder}
         type="button"
