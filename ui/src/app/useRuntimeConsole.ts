@@ -24,17 +24,12 @@ import {
   deletePolicyRule as deletePolicyRuleRequest,
   getChatSession,
   getChatSessions,
-  getModels,
-  getProviders,
   getUsageEvents,
   getUsageSummary,
   setProviderAPIKey as setProviderAPIKeyRequest,
   cancelAgentChatSession as cancelAgentChatSessionRequest,
   getAgentChatMessageFileDiff as getAgentChatMessageFileDiffRequest,
   listAgentChatMessageFiles as listAgentChatMessageFilesRequest,
-  probeAgentAdapter as probeAgentAdapterRequest,
-  setAgentAdapterCredential as setAgentAdapterCredentialRequest,
-  deleteAgentAdapterCredential as deleteAgentAdapterCredentialRequest,
   revertAgentChatMessageFiles as revertAgentChatMessageFilesRequest,
   resolveTaskApproval as resolveTaskApprovalRequest,
   upsertPolicyRule as upsertPolicyRuleRequest,
@@ -68,12 +63,12 @@ import {
 } from "./runtimeConsoleChatHelpers";
 import { deriveSessionState, resolveDashboardSnapshot } from "./runtimeConsoleDashboard";
 import { useApprovals } from "./state/approvals";
+import { useProvidersAndModels } from "./state/providersAndModels";
 import { useRetention } from "./state/retention";
 import { useRuntime } from "./state/runtime";
 import { useUsage } from "./state/usage";
 import type {
   AgentAdapterHealthRecord,
-  AgentAdapterRecord,
   AgentChatApprovalRecord,
   AgentChatActivityRecord,
   AgentChatChangedFileDiffRecord,
@@ -85,10 +80,7 @@ import type {
   ChatSessionsResponse,
   ConfiguredStateResponse,
   ModelFilter,
-  ModelResponse,
-  ProviderPresetRecord,
   ProviderFilter,
-  ProviderStatusResponse,
   RuntimeHeaders,
 } from "../types/runtime";
 
@@ -183,10 +175,35 @@ export function useRuntimeConsole() {
   const setUsageSummary = usage.actions.setSummary;
   const setUsageEvents = usage.actions.setEvents;
 
-  const [models, setModels] = useState<ModelResponse["data"]>([]);
-  const [providers, setProviders] = useState<ProviderStatusResponse["data"]>([]);
-  const [providerPresets, setProviderPresets] = useState<ProviderPresetRecord[]>([]);
-  const [agentAdapters, setAgentAdapters] = useState<AgentAdapterRecord[]>([]);
+  // providersAndModels slice: provider status, provider presets, model
+  // catalog, agent adapters, adapter-health map + per-adapter loading
+  // flag, and the adapter approval-mode banner state. The slice owns
+  // refreshProviders, probeAgentAdapter, setAgentAdapterCredential,
+  // and deleteAgentAdapterCredential — each returns a Result that the
+  // shim coordinators below unwrap into the legacy `boolean` /
+  // `record | null` external shapes. The provider-CRUD coordinators
+  // (setProviderAPIKey / BaseURL / Name / CustomName, createProvider,
+  // deleteProvider, the three model-capability-override actions) stay
+  // in the shim because they coordinate across loadDashboard and
+  // other slices' state (settingsConfig, providerFilter, model).
+  const providersAndModels = useProvidersAndModels();
+  const {
+    providers,
+    providerPresets,
+    models,
+    agentAdapters,
+    agentAdapterApprovalMode,
+    agentAdapterHealthByID,
+    agentAdapterHealthLoadingByID,
+  } = providersAndModels.state;
+  const {
+    setProviders,
+    setProviderPresets,
+    setModels,
+    setAgentAdapters,
+    setAgentAdapterApprovalMode,
+  } = providersAndModels.actions;
+
   const [defaultChatTarget, setDefaultChatTarget] = usePersistedState<ChatTarget>(
     "hecate.chatTarget",
     parseStoredChatTarget,
@@ -225,23 +242,6 @@ export function useRuntimeConsole() {
   // agentChatGrants,agentChatGrantsLoading,agentChatGrantsError}`
   // keys and the actions under their legacy identifiers.
   const approvals = useApprovals();
-  // agentAdapterApprovalMode mirrors the runtime-stats field of the
-  // same name. Empty until the dashboard fan-out resolves. The Chats
-  // workspace surfaces a danger banner when this is "auto" — every
-  // adapter RequestPermission is permitted without operator review.
-  const [agentAdapterApprovalMode, setAgentAdapterApprovalMode] = useState<string>("");
-  // agentAdapterHealthByID stores the most recent probe result per
-  // adapter, keyed by adapter id. Operators trigger a probe via the
-  // readiness probe in Connections and the result is
-  // cached here so the picker dropdown can show a status chip without
-  // re-running the probe. Map instance is replaced on update — same
-  // invariant as pendingApprovalsBySessionID.
-  const [agentAdapterHealthByID, setAgentAdapterHealthByID] = useState<
-    Map<string, AgentAdapterHealthRecord>
-  >(() => new Map());
-  const [agentAdapterHealthLoadingByID, setAgentAdapterHealthLoadingByID] = useState<
-    Map<string, true>
-  >(() => new Map());
   const [settingsConfig, setSettingsConfig] = useState<ConfiguredStateResponse["data"] | null>(null);
 
   const [model, setModel] = usePersistedState(
@@ -522,17 +522,12 @@ export function useRuntimeConsole() {
   // Studio. Skipped when no providers are configured — the providers
   // tab renders its empty state, there's nothing to converge.
   async function refreshProviders() {
+    // Gate the fetch on settingsConfig so a zero-provider boot
+    // doesn't trip a 200-with-empty-list round trip on every chat-
+    // workspace mount. The slice's refreshProviders unconditionally
+    // fetches once called.
     if ((settingsConfig?.providers?.length ?? 0) === 0) return;
-    try {
-      const [pResult, mResult] = await Promise.allSettled([
-        getProviders(),
-        getModels(),
-      ]);
-      if (pResult.status === "fulfilled") setProviders(pResult.value.data ?? []);
-      if (mResult.status === "fulfilled") setModels(mResult.value.data ?? []);
-    } catch {
-      // Best-effort background refresh — ignore errors.
-    }
+    await providersAndModels.actions.refreshProviders();
   }
 
   function buildChatPayload(messages: ChatMessage[], sessionID?: string) {
@@ -1576,74 +1571,32 @@ export function useRuntimeConsole() {
   // loading map is keyed by id so two adapters can be probing
   // concurrently without confusing the UI.
   async function probeAgentAdapter(adapterID: string): Promise<AgentAdapterHealthRecord | null> {
-    if (!adapterID) return null;
-    setAgentAdapterHealthLoadingByID((current) => {
-      const next = new Map(current);
-      next.set(adapterID, true);
-      return next;
-    });
-    try {
-      const payload = await probeAgentAdapterRequest(adapterID);
-      setAgentAdapterHealthByID((current) => {
-        const next = new Map(current);
-        next.set(adapterID, payload.data.health);
-        return next;
-      });
-      setAgentAdapters((current) => current.map((item) => item.id === adapterID ? payload.data.adapter : item));
-      return payload.data.health;
-    } catch (error) {
-      setNoticeMessage("error", error instanceof Error ? error.message : "Failed to probe adapter.");
+    const result = await providersAndModels.actions.probeAgentAdapter(adapterID);
+    if (!result.ok) {
+      setNoticeMessage("error", result.error);
       return null;
-    } finally {
-      setAgentAdapterHealthLoadingByID((current) => {
-        if (!current.has(adapterID)) return current;
-        const next = new Map(current);
-        next.delete(adapterID);
-        return next;
-      });
     }
+    return result.health;
   }
 
   async function setAgentAdapterCredential(adapterID: string, value: string, name?: string): Promise<boolean> {
-    try {
-      const payload = await setAgentAdapterCredentialRequest(adapterID, value, name);
-      setAgentAdapters((current) => current.map((item) => item.id === adapterID
-        ? { ...item, credential_configured: payload.data.configured, credential_preview: payload.data.preview }
-        : item));
-      if (adapterID === "claude_code" && payload.data.configured) {
-        setAgentAdapterHealthByID((current) => {
-          const next = new Map(current);
-          next.set(adapterID, { adapter_id: adapterID, status: "ready", stage: "ready", duration_ms: 0 });
-          return next;
-        });
-      }
-      setNoticeMessage("success", adapterID === "claude_code" ? "Claude Code verified." : "Adapter credential saved.");
-      return true;
-    } catch (error) {
-      const fallback = adapterID === "claude_code" ? "Failed to validate adapter credential." : "Failed to save adapter credential.";
-      setNoticeMessage("error", error instanceof Error ? error.message : fallback);
+    const result = await providersAndModels.actions.setAgentAdapterCredential(adapterID, value, name);
+    if (!result.ok) {
+      setNoticeMessage("error", result.error);
       return false;
     }
+    setNoticeMessage("success", result.isClaudeCode ? "Claude Code verified." : "Adapter credential saved.");
+    return true;
   }
 
   async function deleteAgentAdapterCredential(adapterID: string, name: string): Promise<boolean> {
-    try {
-      await deleteAgentAdapterCredentialRequest(adapterID, name);
-      setAgentAdapters((current) => current.map((item) => item.id === adapterID
-        ? { ...item, credential_configured: false, credential_preview: undefined }
-        : item));
-      setAgentAdapterHealthByID((current) => {
-        if (!current.has(adapterID)) return current;
-        const next = new Map(current);
-        next.delete(adapterID);
-        return next;
-      });
-      setNoticeMessage("success", "Adapter credential removed.");
-      return true;
-    } catch (error) {
-      setNoticeMessage("error", error instanceof Error ? error.message : "Failed to remove adapter credential.");
+    const result = await providersAndModels.actions.deleteAgentAdapterCredential(adapterID, name);
+    if (!result.ok) {
+      setNoticeMessage("error", result.error);
       return false;
     }
+    setNoticeMessage("success", "Adapter credential removed.");
+    return true;
   }
 
   async function renameChatSession(id: string, title: string) {
