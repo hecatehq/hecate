@@ -1,5 +1,6 @@
 import { useEffect, useState, type CSSProperties } from "react";
 import type { RuntimeConsoleViewModel } from "../../app/useRuntimeConsole";
+import { formatLocaleTime } from "../../lib/format";
 import { providerFleetRepairHint, providerReadinessMeaning, providerRepairActionLabel } from "../../lib/provider-readiness";
 import { resolvedBaseURL } from "../../lib/provider-utils";
 import { describeHealthErrorClass, describeRoutingBlockedReason } from "../../lib/runtime-utils";
@@ -295,7 +296,7 @@ export function ProvidersView({ state, actions }: Props) {
         <td style={{ padding: "8px 12px", whiteSpace: "nowrap" }}>
           <span style={{ fontFamily: "var(--font-mono)", fontSize: 11, color: "var(--t3)" }}>
             {rt?.last_checked_at
-              ? formatProviderTime(rt.last_checked_at)
+              ? formatLocaleTime(rt.last_checked_at)
               : "—"}
           </span>
         </td>
@@ -528,7 +529,7 @@ export function ProvidersView({ state, actions }: Props) {
                 borderRadius: "var(--radius-sm)",
                 fontSize: 12, color: "var(--red)", lineHeight: 1.4,
               }}>
-                Circuit open — will probe at {formatProviderTime(selectedStatus.open_until)}
+                Circuit open — will probe at {formatLocaleTime(selectedStatus.open_until)}
               </div>
             )}
 
@@ -544,7 +545,7 @@ export function ProvidersView({ state, actions }: Props) {
                   : "Ready"],
                 ["Models",   selectedStatus?.model_count ?? selectedStatus?.models?.length ?? "—"],
                 ["Checked",  selectedStatus?.last_checked_at
-                  ? formatProviderTime(selectedStatus.last_checked_at)
+                  ? formatLocaleTime(selectedStatus.last_checked_at)
                   : "—"],
               ] as [string, string | number][]).map(([label, val]) => (
                 <div key={label}>
@@ -886,10 +887,4 @@ function providerRepairButton(
   const label = providerRepairActionLabel(hint.actionKind);
   if (!label) return null;
   return { label, tone: hint.actionKind === "add_provider" ? "primary" : "ghost" };
-}
-
-function formatProviderTime(value: string): string {
-  const parsed = Date.parse(value);
-  if (!Number.isFinite(parsed)) return value;
-  return new Date(parsed).toLocaleTimeString();
 }

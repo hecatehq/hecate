@@ -1,6 +1,6 @@
 import { useEffect, useMemo, useRef, useState, type ReactNode } from "react";
 import type { AgentChatActivityRecord, TaskActivityRecord, TaskApprovalRecord, TaskArtifactRecord, TaskRecord, TaskRunEventRecord, TaskRunRecord, TaskStepRecord } from "../../types/runtime";
-import { formatDurationRange, formatLocaleDateTime, formatMicrosUSD } from "../../lib/format";
+import { formatDurationRange, formatLocaleDateTime, formatLocaleTime, formatMicrosUSD } from "../../lib/format";
 import { Badge, BrandAvatar, Dot, Icon, Icons, Modal } from "../shared/ui";
 import { TranscriptActivityTimeline } from "../transcript/TranscriptActivityTimeline";
 
@@ -225,7 +225,7 @@ function TaskApprovalCallout({
               )}
               {approval.created_at && (
                 <span style={{ fontFamily: "var(--font-mono)", fontSize: 10, color: "var(--t3)" }}>
-                  {new Date(approval.created_at).toLocaleTimeString()}
+                  {formatLocaleTime(approval.created_at)}
                 </span>
               )}
             </div>
@@ -461,7 +461,7 @@ export function TaskDetail({
                       </span>
                       {r.started_at && (
                         <span style={{ fontFamily: "var(--font-mono)", fontSize: 10, color: "var(--t3)" }}>
-                          {new Date(r.started_at).toLocaleTimeString()}
+                          {formatLocaleTime(r.started_at)}
                         </span>
                       )}
                     </button>
@@ -576,7 +576,7 @@ export function TaskDetail({
                     </span>
                     <div style={{ minWidth: 0 }}>
                       <div style={{ fontFamily: "var(--font-mono)", fontSize: 11, color: "var(--t2)" }}>
-                        {event.occurred_at ? new Date(event.occurred_at).toLocaleTimeString() : "streamed"}
+                        {event.occurred_at ? formatLocaleTime(event.occurred_at) : "streamed"}
                       </div>
                       {(() => {
                         const note = describeRunEventNote(event);
@@ -644,7 +644,7 @@ export function TaskDetail({
                       )}
                       {step.started_at && step.status === "completed" && (
                         <span style={{ fontFamily: "var(--font-mono)", fontSize: 10, color: "var(--t3)" }}>
-                          {new Date(step.started_at).toLocaleTimeString()}
+                          {formatLocaleTime(step.started_at)}
                         </span>
                       )}
                       {step.status === "running" && <span className="badge badge-teal" style={{ fontSize: 10, animation: "pulse 1.5s infinite" }}>running</span>}

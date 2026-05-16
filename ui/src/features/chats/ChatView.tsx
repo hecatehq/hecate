@@ -4,7 +4,7 @@ import type { RuntimeConsoleViewModel } from "../../app/useRuntimeConsole";
 import { discoverLocalProviders } from "../../lib/api";
 import { resolveChatSetupRepairState, type ChatSetupRepairState } from "../../lib/chat-setup-readiness";
 import { describeGatewayError, formatErrorCode } from "../../lib/error-diagnostics";
-import { formatAbsoluteTime, formatDurationMs, formatInteger } from "../../lib/format";
+import { formatAbsoluteTime, formatDurationMs, formatInteger, formatLocaleTime } from "../../lib/format";
 import { buildSelectedModelIssue } from "../../lib/provider-issues";
 import type { SelectedModelIssue } from "../../lib/provider-issues";
 import type { AgentAdapterRecord, AgentAdapterSetupCommandStatus, AgentChatActivityRecord, AgentChatSegmentRecord, AgentChatSessionRecord, AgentChatTimingRecord, AgentChatUsageRecord, LocalProviderDiscoveryRecord, ProviderPresetRecord } from "../../types/runtime";
@@ -2120,7 +2120,7 @@ function HecateTaskApprovalsBanner({
                 </span>
                 {approval.createdAt && (
                   <span style={{ fontFamily: "var(--font-mono)", fontSize: 10, color: "var(--amber-lo)" }}>
-                    {new Date(approval.createdAt).toLocaleTimeString()}
+                    {formatLocaleTime(approval.createdAt)}
                   </span>
                 )}
               </div>
