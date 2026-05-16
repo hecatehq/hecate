@@ -184,14 +184,18 @@ describe("formatInteger", () => {
   });
 
   it("preserves the negative sign for negative integers", () => {
-    // toLocaleString uses HYPHEN-MINUS in en-US and MINUS SIGN (U+2212)
-    // in some others — both are longer than the unsigned form by one
-    // character. Asserting on the prefix character would be locale-
-    // brittle; asserting "is different + one longer" isn't.
+    // toLocaleString prefixes negatives with HYPHEN-MINUS in en-US,
+    // MINUS SIGN (U+2212) in some Europeans, and in Arabic / Persian
+    // adds an invisible bidi mark (U+061C) ahead of the digit/sign —
+    // so the length delta is locale-dependent (1 in most locales, 2
+    // in RTL formats). Asserting on the prefix character or the exact
+    // length delta would be brittle; asserting "different + at least
+    // one character longer" captures the contract without pinning a
+    // locale.
     const positive = formatInteger(1234);
     const negative = formatInteger(-1234);
     expect(negative).not.toBe(positive);
-    expect(negative.length).toBe(positive.length + 1);
+    expect(negative.length).toBeGreaterThan(positive.length);
   });
 
   it("returns em dash for non-finite input", () => {
