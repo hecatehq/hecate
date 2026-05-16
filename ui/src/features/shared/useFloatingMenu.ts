@@ -69,21 +69,26 @@ export function useFloatingMenu<
   const triggerRef = useRef<TriggerEl | null>(null);
   const menuRef = useRef<HTMLDivElement | null>(null);
 
+  // open is the single source of truth; an effect fires onClose
+  // exactly once per "true → false" commit. Calling onClose from
+  // inside a state updater would double-fire under React.StrictMode
+  // because updaters can be invoked twice. The effect commits, so
+  // it runs only after React has reconciled the new value.
+  const previousOpenRef = useRef(false);
+  useEffect(() => {
+    if (previousOpenRef.current && !open) {
+      onCloseRef.current?.();
+    }
+    previousOpenRef.current = open;
+  }, [open]);
+
   const setOpen = useCallback((next: boolean) => {
-    setOpenState((prev) => {
-      if (prev === next) return prev;
-      if (!next) onCloseRef.current?.();
-      return next;
-    });
+    setOpenState(next);
   }, []);
   const toggle = useCallback(() => {
-    setOpenState((prev) => {
-      const next = !prev;
-      if (!next) onCloseRef.current?.();
-      return next;
-    });
+    setOpenState((prev) => !prev);
   }, []);
-  const close = useCallback(() => setOpen(false), [setOpen]);
+  const close = useCallback(() => setOpenState(false), []);
 
   useEffect(() => {
     const handler = (event: MouseEvent) => {
@@ -91,11 +96,7 @@ export function useFloatingMenu<
       if (!target) return;
       if (wrapRef.current && wrapRef.current.contains(target)) return;
       if (portalSelector && target instanceof HTMLElement && target.closest(portalSelector)) return;
-      setOpenState((prev) => {
-        if (!prev) return prev;
-        onCloseRef.current?.();
-        return false;
-      });
+      setOpenState(false);
     };
     document.addEventListener(closeOn, handler);
     return () => document.removeEventListener(closeOn, handler);
