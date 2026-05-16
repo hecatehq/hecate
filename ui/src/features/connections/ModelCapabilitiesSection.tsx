@@ -1,5 +1,6 @@
 import { useMemo, useState, type ReactNode } from "react";
 import type { RuntimeConsoleViewModel } from "../../app/useRuntimeConsole";
+import { formatInteger } from "../../lib/format";
 import type { ModelRecord } from "../../types/runtime";
 
 type Props = {
@@ -166,7 +167,7 @@ function ModelCapabilityRow({
         <div style={{ display: "flex", flexWrap: "wrap", gap: 8, fontFamily: "var(--font-mono)", fontSize: 10, color: "var(--t3)" }}>
           <span>source <span style={{ color: "var(--t1)" }}>{source}</span></span>
           {capabilities?.streaming !== undefined && <span>streaming <span style={{ color: "var(--t1)" }}>{capabilities.streaming ? "yes" : "no"}</span></span>}
-          {capabilities?.max_context_tokens !== undefined && <span>context <span style={{ color: "var(--t1)" }}>{capabilities.max_context_tokens.toLocaleString()}</span></span>}
+          {capabilities?.max_context_tokens !== undefined && <span>context <span style={{ color: "var(--t1)" }}>{formatInteger(capabilities.max_context_tokens)}</span></span>}
         </div>
       </div>
       <div style={{ display: "flex", flexWrap: "wrap", justifyContent: "flex-end", alignItems: "center", gap: 6 }}>

@@ -4,8 +4,8 @@ import type { RuntimeConsoleViewModel } from "../../app/useRuntimeConsole";
 import { discoverLocalProviders } from "../../lib/api";
 import { resolveChatSetupRepairState, type ChatSetupRepairState } from "../../lib/chat-setup-readiness";
 import { describeGatewayError, formatErrorCode } from "../../lib/error-diagnostics";
+import { formatAbsoluteTime, formatDurationMs, formatInteger } from "../../lib/format";
 import { buildSelectedModelIssue } from "../../lib/provider-issues";
-import { formatAbsoluteTime } from "../../lib/runtime-utils";
 import type { SelectedModelIssue } from "../../lib/provider-issues";
 import type { AgentAdapterRecord, AgentAdapterSetupCommandStatus, AgentChatActivityRecord, AgentChatSegmentRecord, AgentChatSessionRecord, AgentChatTimingRecord, AgentChatUsageRecord, LocalProviderDiscoveryRecord, ProviderPresetRecord } from "../../types/runtime";
 import { BrandAvatar, CodeBlock, Icon, Icons, InlineError } from "../shared/ui";
@@ -2956,7 +2956,7 @@ function formatAgentRuntimeMeta(runID?: string, durationMS?: number, nativeSessi
     parts.push(`Run ${compactID(runID, ["run_"], 12)}`);
   }
   if (durationMS && durationMS > 0) {
-    parts.push(formatDuration(durationMS));
+    parts.push(formatDurationMs(durationMS));
   }
   return parts.join(" · ");
 }
@@ -2977,8 +2977,8 @@ function agentUsageEmpty(usage: AgentChatUsageRecord): boolean {
 function formatAgentContextUsage(usage: AgentChatUsageRecord): string {
   const used = usage.context_used ?? 0;
   const size = usage.context_size ?? 0;
-  if (size > 0) return `${used.toLocaleString()} / ${size.toLocaleString()}`;
-  if (used > 0) return used.toLocaleString();
+  if (size > 0) return `${formatInteger(used)} / ${formatInteger(size)}`;
+  if (used > 0) return formatInteger(used);
   return "—";
 }
 
@@ -3429,15 +3429,3 @@ function compactID(id: string, prefixes: string[], length: number): string {
   return withoutPrefix.slice(0, length);
 }
 
-function formatDuration(durationMS: number): string {
-  if (durationMS < 1000) {
-    return `${durationMS}ms`;
-  }
-  const seconds = durationMS / 1000;
-  if (seconds < 60) {
-    return `${seconds.toFixed(seconds < 10 ? 1 : 0)}s`;
-  }
-  const minutes = Math.floor(seconds / 60);
-  const rest = Math.round(seconds % 60);
-  return `${minutes}m ${rest}s`;
-}
