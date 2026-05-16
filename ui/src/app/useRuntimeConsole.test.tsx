@@ -3,6 +3,7 @@ import { type ReactNode } from "react";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 import { ApprovalsProvider } from "./state/approvals";
+import { ModelChatProvider } from "./state/modelChat";
 import { ProvidersAndModelsProvider } from "./state/providersAndModels";
 import { RetentionProvider } from "./state/retention";
 import { RuntimeProvider } from "./state/runtime";
@@ -10,18 +11,20 @@ import { UsageProvider } from "./state/usage";
 import { useRuntimeConsole } from "./useRuntimeConsole";
 
 // useRuntimeConsole consumes slice contexts (runtime, usage,
-// providersAndModels, retention, approvals, and more as slices
-// are added). Every renderHook call needs the matching providers
-// above it; this wrapper composes them so the test bodies don't
-// have to thread the chain through each call.
+// providersAndModels, modelChat, retention, approvals, and more
+// as slices are added). Every renderHook call needs the matching
+// providers above it; this wrapper composes them so the test
+// bodies don't have to thread the chain through each call.
 function SliceProviders({ children }: { children: ReactNode }) {
   return (
     <RuntimeProvider>
       <UsageProvider>
         <ProvidersAndModelsProvider>
-          <RetentionProvider>
-            <ApprovalsProvider>{children}</ApprovalsProvider>
-          </RetentionProvider>
+          <ModelChatProvider>
+            <RetentionProvider>
+              <ApprovalsProvider>{children}</ApprovalsProvider>
+            </RetentionProvider>
+          </ModelChatProvider>
         </ProvidersAndModelsProvider>
       </UsageProvider>
     </RuntimeProvider>

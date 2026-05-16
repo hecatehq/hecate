@@ -2,6 +2,7 @@ import { useEffect, useLayoutEffect } from "react";
 
 import { ConsoleShell, getAvailableWorkspaces, WORKSPACE_IDS, type WorkspaceID } from "./AppShell";
 import { ApprovalsProvider } from "./state/approvals";
+import { ModelChatProvider } from "./state/modelChat";
 import { ProvidersAndModelsProvider } from "./state/providersAndModels";
 import { RetentionProvider } from "./state/retention";
 import { RuntimeProvider } from "./state/runtime";
@@ -29,11 +30,13 @@ export default function App() {
     <RuntimeProvider>
       <UsageProvider>
         <ProvidersAndModelsProvider>
-          <RetentionProvider>
-            <ApprovalsProvider>
-              <AppConsole />
-            </ApprovalsProvider>
-          </RetentionProvider>
+          <ModelChatProvider>
+            <RetentionProvider>
+              <ApprovalsProvider>
+                <AppConsole />
+              </ApprovalsProvider>
+            </RetentionProvider>
+          </ModelChatProvider>
         </ProvidersAndModelsProvider>
       </UsageProvider>
     </RuntimeProvider>

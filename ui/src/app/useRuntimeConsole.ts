@@ -63,6 +63,7 @@ import {
 } from "./runtimeConsoleChatHelpers";
 import { deriveSessionState, resolveDashboardSnapshot } from "./runtimeConsoleDashboard";
 import { useApprovals } from "./state/approvals";
+import { useModelChat } from "./state/modelChat";
 import { useProvidersAndModels } from "./state/providersAndModels";
 import { useRetention } from "./state/retention";
 import { useRuntime } from "./state/runtime";
@@ -76,8 +77,6 @@ import type {
   AgentChatSessionRecord,
   AgentChatSessionsResponse,
   ChatResponse,
-  ChatSessionRecord,
-  ChatSessionsResponse,
   ConfiguredStateResponse,
   ModelFilter,
   ProviderFilter,
@@ -270,16 +269,23 @@ export function useRuntimeConsole() {
   const [pendingToolCalls, setPendingToolCalls] = useState<Array<{ id: string; name: string; arguments: string; result: string }>>([]);
   // Thread of messages that preceded the pending tool calls (history + user message + assistant tool_calls message).
   const [pendingThread, setPendingThread] = useState<import("../lib/api").ChatMessage[] | null>(null);
-  const [chatSessions, setChatSessions] = useState<ChatSessionsResponse["data"]>([]);
-  const [chatSessionsHasMore, setChatSessionsHasMore] = useState(false);
-  const [chatSessionsLoadingMore, setChatSessionsLoadingMore] = useState(false);
-  const [activeChatSessionID, setActiveChatSessionID] = usePersistedState(
-    "hecate.chatSessionID",
-    parseStoredString,
-    "",
-    { shouldRemove: (v) => v === "" },
-  );
-  const [activeChatSession, setActiveChatSession] = useState<ChatSessionRecord | null>(null);
+  // modelChat slice: the model-chat-only session list + active
+  // session + `loadMore` action. Marked for removal when the
+  // model-chat path retires; legacy aliases below keep the shim
+  // coordinators (selectChatSession, renameChatSession,
+  // deleteChatSession, createChatSession) reading the same as
+  // before the carve-out.
+  const modelChat = useModelChat();
+  const chatSessions = modelChat.state.sessions;
+  const chatSessionsHasMore = modelChat.state.hasMore;
+  const chatSessionsLoadingMore = modelChat.state.loadingMore;
+  const activeChatSessionID = modelChat.state.activeID;
+  const activeChatSession = modelChat.state.activeSession;
+  const setChatSessions = modelChat.actions.setSessions;
+  const setChatSessionsHasMore = modelChat.actions.setHasMore;
+  const setActiveChatSessionID = modelChat.actions.setActiveID;
+  const setActiveChatSession = modelChat.actions.setActiveSession;
+  const loadMoreChatSessions = modelChat.actions.loadMore;
   const [chatError, setChatError] = useState("");
   const [chatErrorCode, setChatErrorCode] = useState("");
   const [chatErrorStatus, setChatErrorStatus] = useState<number | null>(null);
@@ -1627,20 +1633,6 @@ export function useRuntimeConsole() {
       }
     } catch (error) {
       setNoticeMessage("error", error instanceof Error ? error.message : "Failed to rename chat.");
-    }
-  }
-
-  async function loadMoreChatSessions() {
-    if (chatSessionsLoadingMore || !chatSessionsHasMore) return;
-    setChatSessionsLoadingMore(true);
-    try {
-      const result = await getChatSessions(20, chatSessions.length);
-      setChatSessions((current) => [...current, ...(result.data ?? [])]);
-      setChatSessionsHasMore(result.has_more ?? false);
-    } catch {
-      // Keep sidebar responsive; silently skip failed page loads.
-    } finally {
-      setChatSessionsLoadingMore(false);
     }
   }
 
