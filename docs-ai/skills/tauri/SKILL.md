@@ -260,6 +260,15 @@ skip by path filter) before it starts, and it does not upload unsigned bundles.
 `tauri-build.yml` is manual-only for explicit desktop reruns/debugging; dispatch
 it from a PR branch when a reviewer needs a pre-merge bundle to test-launch.
 
+Author override: putting `[skip desktop]` anywhere in the PR title skips the
+3-OS desktop bundle matrix for that PR. The marker name mirrors the `desktop`
+path filter — same vocabulary on both sides of the gate. The cheap Linux-only
+Tauri Rust tests still run, so a Rust-side regression can't slip through. Use
+only when you're sure the change can't affect the desktop build (most pure-UI
+refactors that still touch `ui/**` and would otherwise trip the `desktop` path
+filter). The gate lives next to the `if:` block in `test.yml`'s `tauri-desktop`
+job.
+
 **Release-run behaviour:** `concurrency: cancel-in-progress: false` — a half-cancelled release is worse than waiting. The `tauri` job has `needs: goreleaser` so the GitHub Release entry exists before tauri-action's upload tries to attach to it.
 
 ### Pipeline footguns
