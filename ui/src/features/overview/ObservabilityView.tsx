@@ -16,9 +16,9 @@ import {
   findProviderInTrace,
   type TraceTimelineItem,
 } from "../../lib/runtime-trace";
+import { formatAbsoluteTime } from "../../lib/format";
 import {
   describeRouteReason,
-  formatAbsoluteTime,
   formatRelativeTime,
   traceStatusBadge,
 } from "../../lib/runtime-utils";

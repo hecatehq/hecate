@@ -52,11 +52,6 @@ export function formatRelativeTime(iso: string): { label: string; iso: string } 
   return { label: new Date(parsed).toLocaleDateString(), iso };
 }
 
-// formatAbsoluteTime moved to ./format alongside the other UI
-// formatters. Re-exported here so existing import sites keep
-// working; new sites should import from ./format directly.
-export { formatAbsoluteTime } from "./format";
-
 // ─── Barrel re-exports ───────────────────────────────────────────────────────
 
 export type { TraceTimelineItem, WaterfallSpan, TraceWaterfall } from "./runtime-trace";
