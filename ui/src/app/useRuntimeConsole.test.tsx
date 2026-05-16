@@ -4,7 +4,6 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 import { ApprovalsProvider } from "./state/approvals";
 import { ChatProvider } from "./state/chat";
-import { ModelChatProvider } from "./state/modelChat";
 import { ProvidersAndModelsProvider } from "./state/providersAndModels";
 import { RetentionProvider } from "./state/retention";
 import { RuntimeProvider } from "./state/runtime";
@@ -12,23 +11,20 @@ import { UsageProvider } from "./state/usage";
 import { useRuntimeConsole } from "./useRuntimeConsole";
 
 // useRuntimeConsole consumes slice contexts (runtime, usage,
-// providersAndModels, modelChat, chat, retention, approvals,
-// and more as slices are added). Every renderHook call needs
-// the matching providers above it; this wrapper composes them
-// so the test bodies don't have to thread the chain through
-// each call.
+// providersAndModels, chat, retention, approvals, and more as
+// slices are added). Every renderHook call needs the matching
+// providers above it; this wrapper composes them so the test
+// bodies don't have to thread the chain through each call.
 function SliceProviders({ children }: { children: ReactNode }) {
   return (
     <RuntimeProvider>
       <UsageProvider>
         <ProvidersAndModelsProvider>
-          <ModelChatProvider>
-            <ChatProvider>
-              <RetentionProvider>
-                <ApprovalsProvider>{children}</ApprovalsProvider>
-              </RetentionProvider>
-            </ChatProvider>
-          </ModelChatProvider>
+          <ChatProvider>
+            <RetentionProvider>
+              <ApprovalsProvider>{children}</ApprovalsProvider>
+            </RetentionProvider>
+          </ChatProvider>
         </ProvidersAndModelsProvider>
       </UsageProvider>
     </RuntimeProvider>
@@ -1389,37 +1385,6 @@ describe("useRuntimeConsole", () => {
       expect(deleteCalls).toBe(1);
       expect(result.current.state.queuedChatMessages).toHaveLength(0);
       expect(result.current.state.activeAgentChatSessionID).toBe("");
-    });
-
-    it("renameChatSession patches the title in the sidebar", async () => {
-      fetchMock.mockImplementation(async (input, init) => {
-        const url = String(input);
-        if (url === "/hecate/v1/chat/sessions/sess_a" && init?.method === "PATCH") {
-          return jsonResponse({
-            object: "chat_session",
-            data: {
-              id: "sess_a", title: "Renamed", turns: [],
-              created_at: "2026-04-20T00:00:00Z", updated_at: "2026-04-20T00:01:00Z",
-            },
-          });
-        }
-        return defaultBackendMock({
-          "/hecate/v1/chat/sessions?limit=20": () => jsonResponse({
-            object: "chat_sessions",
-            data: [{ id: "sess_a", title: "Old title", turns: [], created_at: "2026-04-20T00:00:00Z", updated_at: "2026-04-20T00:00:00Z" }],
-            has_more: false,
-          }),
-        })(input, init);
-      });
-
-      const { result } = renderRuntimeConsoleHook();
-      await waitFor(() => expect(result.current.state.chatSessions).toHaveLength(1));
-
-      await act(async () => {
-        await result.current.actions.renameChatSession("sess_a", "Renamed");
-      });
-
-      await waitFor(() => expect(result.current.state.chatSessions[0].title).toBe("Renamed"));
     });
 
     it("renameChatSession patches agent-chat session titles", async () => {

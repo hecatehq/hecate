@@ -4,7 +4,6 @@ import { ConsoleShell, getAvailableWorkspaces, WORKSPACE_IDS, type WorkspaceID }
 import { RuntimeConsoleContextProvider } from "./RuntimeConsoleContext";
 import { ApprovalsProvider } from "./state/approvals";
 import { ChatProvider } from "./state/chat";
-import { ModelChatProvider } from "./state/modelChat";
 import { ProvidersAndModelsProvider } from "./state/providersAndModels";
 import { RetentionProvider } from "./state/retention";
 import { RuntimeProvider } from "./state/runtime";
@@ -29,17 +28,15 @@ export default function App() {
     <RuntimeProvider>
       <UsageProvider>
         <ProvidersAndModelsProvider>
-          <ModelChatProvider>
-            <ChatProvider>
-              <RetentionProvider>
-                <ApprovalsProvider>
-                  <RuntimeConsoleContextProvider>
-                    <AppConsole />
-                  </RuntimeConsoleContextProvider>
-                </ApprovalsProvider>
-              </RetentionProvider>
-            </ChatProvider>
-          </ModelChatProvider>
+          <ChatProvider>
+            <RetentionProvider>
+              <ApprovalsProvider>
+                <RuntimeConsoleContextProvider>
+                  <AppConsole />
+                </RuntimeConsoleContextProvider>
+              </ApprovalsProvider>
+            </RetentionProvider>
+          </ChatProvider>
         </ProvidersAndModelsProvider>
       </UsageProvider>
     </RuntimeProvider>

@@ -6,7 +6,7 @@ import { resolveChatSetupRepairState, type ChatSetupRepairState } from "../../li
 import { describeGatewayError } from "../../lib/error-diagnostics";
 import { formatInteger, formatLocaleTime } from "../../lib/format";
 import { buildSelectedModelIssue } from "../../lib/provider-issues";
-import type { AgentAdapterRecord, AgentChatActivityRecord, AgentChatSegmentRecord, AgentChatSessionRecord, AgentChatUsageRecord, LocalProviderDiscoveryRecord, ProviderPresetRecord } from "../../types/runtime";
+import type { AgentAdapterRecord, AgentChatActivityRecord, AgentChatSegmentRecord, AgentChatSessionRecord, AgentChatUsageRecord, ChatProviderCallRecord, LocalProviderDiscoveryRecord, ProviderPresetRecord } from "../../types/runtime";
 import { Icon, Icons } from "../shared/ui";
 import { AgentApprovalAutoModeBanner, AgentApprovalsBanner } from "./AgentApprovalBanner";
 import { AgentApprovalModal } from "./AgentApprovalModal";
@@ -72,58 +72,45 @@ export function ChatView({ onNavigate, onOpenTask, onOpenTrace }: Props) {
   const isExternalAgentChat = activeSessionIsExternal || (!activeSessionIsHecate && state.chatTarget === "external_agent");
   const externalAgentHasConfigControls = Boolean(isExternalAgentChat && state.activeAgentChatSession?.config_options?.length);
   const instructionsAvailable = isHecateChat;
-  const activeSessionID = isAgentChat ? state.activeAgentChatSessionID : state.activeChatSessionID;
+  const activeSessionID = state.activeAgentChatSessionID;
   const chatCanvasActive = Boolean(activeSessionID || draftChatOpen);
-  const activeQueuedChatMessages = isAgentChat && activeSessionID
+  const activeQueuedChatMessages = activeSessionID
     ? state.queuedChatMessages.filter((queued) => queued.session_id === activeSessionID)
     : [];
-  const activeTitle = isAgentChat
-    ? state.activeAgentChatSession?.title
-    : state.activeChatSession?.title;
-  const messages: VisibleChatMessage[] = isAgentChat
-    ? (state.activeAgentChatSession?.messages ?? []).map((m, index) => ({
-        id: m.id || `agent-message-${index}`,
-        runtime_kind: m.runtime_kind,
-        segment_id: m.segment_id,
-        task_id: m.task_id,
-        run_id: m.run_id,
-        request_id: m.request_id,
-        trace_id: m.trace_id,
-        native_session_id: m.native_session_id,
-        role: m.role,
-        content: m.content,
-        created_at: m.created_at,
-        agent_adapter_id: m.adapter_id,
-        agent_adapter_name: m.adapter_name,
-        agent_status: m.status,
-        cost_mode: m.cost_mode,
-        provider: m.provider,
-        model: m.model,
-        diff_stat: m.diff_stat,
-        diff: m.diff,
-        raw_output: m.raw_output,
-        activities: m.activities,
-        usage: m.usage,
-        duration_ms: m.duration_ms,
-        error: m.error,
-      }))
-    : (state.activeChatSession?.messages ?? []).map((m) => ({
-        id: m.id,
-        role: m.role,
-        content: m.content,
-        created_at: m.created_at,
-        produced_by_call_id: m.produced_by_call_id,
-      }));
-  const providerCalls = isAgentChat ? [] : (state.activeChatSession?.provider_calls ?? []);
+  const activeTitle = state.activeAgentChatSession?.title;
+  const messages: VisibleChatMessage[] = (state.activeAgentChatSession?.messages ?? []).map((m, index) => ({
+    id: m.id || `agent-message-${index}`,
+    runtime_kind: m.runtime_kind,
+    segment_id: m.segment_id,
+    task_id: m.task_id,
+    run_id: m.run_id,
+    request_id: m.request_id,
+    trace_id: m.trace_id,
+    native_session_id: m.native_session_id,
+    role: m.role,
+    content: m.content,
+    created_at: m.created_at,
+    agent_adapter_id: m.adapter_id,
+    agent_adapter_name: m.adapter_name,
+    agent_status: m.status,
+    cost_mode: m.cost_mode,
+    provider: m.provider,
+    model: m.model,
+    diff_stat: m.diff_stat,
+    diff: m.diff,
+    raw_output: m.raw_output,
+    activities: m.activities,
+    usage: m.usage,
+    duration_ms: m.duration_ms,
+    error: m.error,
+  }));
   const pendingTaskApprovals = isHecateChat
     ? pendingHecateTaskApprovals(state.activeAgentChatSession)
     : [];
-  // Lookup map so the assistant rows can pull tokens/cost from the
-  // call that produced them. The relationship is many-messages → one
-  // call (server-driven tool loops fold many tool steps under a single
-  // call), but for now the chat surface only emits one assistant per
-  // call.
-  const callsByID = new Map(providerCalls.map((c) => [c.id, c]));
+  // Empty for now — agent-chat assistant rows don't carry the
+  // provider-call ID; the lookup map keeps the transcript-row prop
+  // surface unchanged for future use.
+  const callsByID = new Map<string, ChatProviderCallRecord>();
   // Hide system messages and any assistant placeholder that is still
   // waiting for content — the streaming-content block below renders
   // the live text instead.
@@ -517,7 +504,7 @@ export function ChatView({ onNavigate, onOpenTask, onOpenTrace }: Props) {
             onOpenSidebar={() => setSidebarOpen(true)}
             brand={activeHeaderBrand}
             fallback={activeHeaderFallback}
-            title={activeTitle || ((isAgentChat ? state.agentChatSessions : state.chatSessions).length === 0 ? "New chat" : "Select a chat")}
+            title={activeTitle || (state.agentChatSessions.length === 0 ? "New chat" : "Select a chat")}
             subline={activeHeaderSubline}
             sublineHoverTitle={isExternalAgentChat ? formatAgentSessionTitle(state.activeAgentChatSession, selectedAgent) : activeHeaderSubline}
             isAgentChat={isAgentChat}
@@ -536,7 +523,7 @@ export function ChatView({ onNavigate, onOpenTask, onOpenTrace }: Props) {
         {!chatCanvasActive ? (
           <NoActiveChatState
             agentLabel={chatAgentOption(newChatAgentID, state.agentAdapters).label}
-            hasSessions={(isAgentChat ? state.agentChatSessions : state.chatSessions).length > 0}
+            hasSessions={state.agentChatSessions.length > 0}
           />
         ) : (
           <>

@@ -13,10 +13,7 @@ import {
   type ChatMessage,
   chooseWorkspaceDirectory as chooseWorkspaceDirectoryRequest,
   chatCompletionsStream,
-  updateChatSession as updateChatSessionRequest,
   deletePolicyRule as deletePolicyRuleRequest,
-  getChatSession,
-  getChatSessions,
   getUsageEvents,
   getUsageSummary,
   setProviderAPIKey as setProviderAPIKeyRequest,
@@ -57,7 +54,6 @@ import {
 import { deriveSessionState, resolveDashboardSnapshot } from "./runtimeConsoleDashboard";
 import { useApprovals } from "./state/approvals";
 import { useChat } from "./state/chat";
-import { useModelChat } from "./state/modelChat";
 import { useProvidersAndModels } from "./state/providersAndModels";
 import { useRetention } from "./state/retention";
 import { useRuntime } from "./state/runtime";
@@ -267,24 +263,6 @@ export function useRuntimeConsole() {
   const approvals = useApprovals();
   const [settingsConfig, setSettingsConfig] = useState<ConfiguredStateResponse["data"] | null>(null);
 
-  // modelChat slice: the model-chat-only session list + active
-  // session + `loadMore` action. Marked for removal when the
-  // model-chat path retires; legacy aliases below keep the shim
-  // coordinators (selectChatSession, renameChatSession,
-  // deleteChatSession, createChatSession) reading the same as
-  // before the carve-out.
-  const modelChat = useModelChat();
-  const chatSessions = modelChat.state.sessions;
-  const chatSessionsHasMore = modelChat.state.hasMore;
-  const chatSessionsLoadingMore = modelChat.state.loadingMore;
-  const activeChatSessionID = modelChat.state.activeID;
-  const activeChatSession = modelChat.state.activeSession;
-  const setChatSessions = modelChat.actions.setSessions;
-  const setChatSessionsHasMore = modelChat.actions.setHasMore;
-  const setActiveChatSessionID = modelChat.actions.setActiveID;
-  const setActiveChatSession = modelChat.actions.setActiveSession;
-  const loadMoreChatSessions = modelChat.actions.loadMore;
-
   const [settingsError, setSettingsError] = useState("");
   const [notice, setNotice] = useState<NoticeState | null>(null);
 
@@ -446,22 +424,6 @@ export function useRuntimeConsole() {
     setSystemPrompt("");
   }
 
-  async function refreshChatSessionState(sessionID: string) {
-    if (!sessionID) {
-      return;
-    }
-    try {
-      const [sessionsResult, sessionResult] = await Promise.all([
-        getChatSessions(20),
-        getChatSession(sessionID),
-      ]);
-      setChatSessions(sessionsResult.data ?? []);
-      setActiveChatSession(sessionResult.data);
-    } catch {
-      // Keep the primary request flow resilient.
-    }
-  }
-
   async function refreshRuntimeState() {
     try {
       const usageSummaryResult = await getUsageSummary("");
@@ -508,14 +470,11 @@ export function useRuntimeConsole() {
 
     try {
       const snapshot = await resolveDashboardSnapshot({
-        activeChatSessionID,
         activeAgentChatSessionID,
         previous: {
           providers,
           agentAdapters,
           usageSummary,
-          chatSessions,
-          activeChatSession,
           agentChatSessions,
           activeAgentChatSession,
           usageEvents,
@@ -542,10 +501,6 @@ export function useRuntimeConsole() {
       setProviderPresets(snapshot.providerPresets);
       setAgentAdapters(snapshot.agentAdapters);
       setUsageSummary(snapshot.usageSummary);
-      setChatSessions(snapshot.chatSessions);
-      setChatSessionsHasMore(snapshot.chatSessionsHasMore);
-      setActiveChatSessionID(snapshot.activeChatSessionID);
-      setActiveChatSession(snapshot.activeChatSession);
       setAgentChatSessions(snapshot.agentChatSessions);
       pruneQueuedChatMessagesForSessions(snapshot.agentChatSessions.map((session) => session.id));
       setActiveAgentChatSessionID(snapshot.activeAgentChatSessionID);
@@ -867,14 +822,13 @@ export function useRuntimeConsole() {
     const messages: ChatMessage[] = [...pendingThread, ...toolMessages];
 
     try {
-      const chatExecution = await executeChatRequest(buildChatPayload(messages, activeChatSessionID || undefined), messages);
+      const chatExecution = await executeChatRequest(buildChatPayload(messages), messages);
       if (chatExecution.kind === "tool_calls") {
         return;
       }
 
       clearPendingToolState();
       setChatResult(chatExecution.chatResult);
-      await refreshChatSessionState(activeChatSessionID);
       setStreamingContent(null);
       await refreshRuntimeState();
     } catch (err) {
@@ -1533,24 +1487,12 @@ export function useRuntimeConsole() {
         setNoticeMessage("error", "Chat title cannot be empty.");
         return;
       }
-      const isAgentSession = activeAgentChatSessionID === id || agentChatSessions.some((session) => session.id === id);
-      if (isAgentSession) {
-        const payload = await updateAgentChatSessionRequest(id, nextTitle);
-        setAgentChatSessions((current) =>
-          current.map((s) => (s.id === id ? { ...s, title: payload.data.title, updated_at: payload.data.updated_at ?? s.updated_at } : s)),
-        );
-        if (activeAgentChatSessionID === id) {
-          setActiveAgentChatSession((current) => (current ? { ...current, title: payload.data.title, updated_at: payload.data.updated_at ?? current.updated_at } : current));
-        }
-        return;
-      }
-
-      const payload = await updateChatSessionRequest(id, nextTitle);
-      setChatSessions((current) =>
+      const payload = await updateAgentChatSessionRequest(id, nextTitle);
+      setAgentChatSessions((current) =>
         current.map((s) => (s.id === id ? { ...s, title: payload.data.title, updated_at: payload.data.updated_at ?? s.updated_at } : s)),
       );
-      if (activeChatSessionID === id) {
-        setActiveChatSession((current) => (current ? { ...current, title: payload.data.title, updated_at: payload.data.updated_at ?? current.updated_at } : current));
+      if (activeAgentChatSessionID === id) {
+        setActiveAgentChatSession((current) => (current ? { ...current, title: payload.data.title, updated_at: payload.data.updated_at ?? current.updated_at } : current));
       }
     } catch (error) {
       setNoticeMessage("error", error instanceof Error ? error.message : "Failed to rename chat.");
@@ -1600,7 +1542,6 @@ export function useRuntimeConsole() {
       chatTarget,
       pendingToolCalls,
       queuedChatMessages,
-      chatSessions,
       cloudModels,
       cloudProviders,
       settingsConfig,
@@ -1626,16 +1567,12 @@ export function useRuntimeConsole() {
       providerScopedModels,
       providers,
       providerPresets,
-      activeChatSession,
-      activeChatSessionID,
       retentionError: retention.state.error,
       retentionLastRun: retention.state.lastRun,
       retentionLoading: retention.state.loading,
       retentionRuns: retention.state.runs,
       retentionSubsystems: retention.state.subsystems,
       runtimeHeaders,
-      chatSessionsHasMore,
-      chatSessionsLoadingMore,
       visibleModels,
       pendingApprovalsBySessionID: approvals.state.pendingBySessionID,
       agentChatGrants: approvals.state.grants,
@@ -1672,7 +1609,6 @@ export function useRuntimeConsole() {
       selectChatSession,
       startNewChat,
       submitChat,
-      loadMoreChatSessions,
       submitToolResults,
       updateToolResult,
       upsertPolicyRule,
