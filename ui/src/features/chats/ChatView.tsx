@@ -5,6 +5,7 @@ import { discoverLocalProviders } from "../../lib/api";
 import { resolveChatSetupRepairState, type ChatSetupRepairState } from "../../lib/chat-setup-readiness";
 import { describeGatewayError, formatErrorCode } from "../../lib/error-diagnostics";
 import { formatAbsoluteTime, formatDurationMs, formatInteger, formatLocaleTime } from "../../lib/format";
+import { usePersistedState } from "../../lib/persistedState";
 import { buildSelectedModelIssue } from "../../lib/provider-issues";
 import type { SelectedModelIssue } from "../../lib/provider-issues";
 import type { AgentAdapterRecord, AgentAdapterSetupCommandStatus, AgentChatActivityRecord, AgentChatSegmentRecord, AgentChatSessionRecord, AgentChatTimingRecord, AgentChatUsageRecord, LocalProviderDiscoveryRecord, ProviderPresetRecord } from "../../types/runtime";
@@ -116,8 +117,11 @@ export function ChatView({ state, actions, onNavigate, onOpenTask, onOpenTrace }
   const [claudeTokenSaving, setClaudeTokenSaving] = useState(false);
   const isMac = typeof navigator !== "undefined" && /mac/i.test(navigator.platform);
   const modKey = isMac ? "⌘" : "Ctrl";
-  const [modEnterMode, setModEnterMode] = useState(
-    () => localStorage.getItem("hecate.shiftEnterMode") === "1"
+  const [modEnterMode, setModEnterMode] = usePersistedState<boolean>(
+    "hecate.shiftEnterMode",
+    (raw) => raw === "1" ? true : raw === "0" ? false : null,
+    false,
+    { serialize: (v) => v ? "1" : "0" },
   );
   const formRef = useRef<HTMLFormElement>(null);
   const textareaRef = useRef<HTMLTextAreaElement>(null);
@@ -541,11 +545,7 @@ export function ChatView({ state, actions, onNavigate, onOpenTask, onOpenTrace }
   }
 
   function toggleModEnterMode() {
-    setModEnterMode(v => {
-      const next = !v;
-      localStorage.setItem("hecate.shiftEnterMode", next ? "1" : "0");
-      return next;
-    });
+    setModEnterMode(v => !v);
   }
 
   async function refreshQuickLocalProviders() {
