@@ -20,8 +20,14 @@ export function formatDurationMs(value: number): string {
     const seconds = value / 1000;
     return `${seconds.toFixed(seconds < 10 ? 1 : 0)}s`;
   }
-  const minutes = Math.floor(value / 60_000);
-  const seconds = Math.round((value - minutes * 60_000) / 1000);
+  // Round once at the second granularity, then split. Computing
+  // minutes off the unrounded ms and seconds off the leftover lets a
+  // value like 119_999 land at "1m 60s" instead of "2m 0s" — the
+  // seconds component rolls past 60 because Math.round operates on
+  // the leftover, not on the total.
+  const totalSeconds = Math.round(value / 1000);
+  const minutes = Math.floor(totalSeconds / 60);
+  const seconds = totalSeconds - minutes * 60;
   return `${minutes}m ${seconds}s`;
 }
 
@@ -56,10 +62,14 @@ export function formatMicrosUSD(value: number): string {
 }
 
 /**
- * Format an ISO timestamp with an explicit, locale-aware layout
- * (Mon DD, YYYY · h:mm:ss A · TZ). Preferred for any timestamp the
- * user might paste into a bug report, where a stable shape across
- * locales matters more than the browser's default ordering.
+ * Format an ISO timestamp with year, short-month, day, hour, minute,
+ * second, and short timezone components. Uses the browser's default
+ * locale (`Intl.DateTimeFormat(undefined, …)`), so the *order*,
+ * *month language*, *separators*, and *AM/PM rendering* still vary
+ * across locales — what the explicit options pin is the *set of
+ * fields included*, not a stable visual layout. Preferred for any
+ * timestamp the user might paste into a bug report because all six
+ * fields are always present.
  *
  *   - Empty/missing input → "".
  *   - Unparseable input → the raw `value` (a partial string is more
