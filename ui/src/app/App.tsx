@@ -3,6 +3,8 @@ import { useEffect, useLayoutEffect } from "react";
 import { ConsoleShell, getAvailableWorkspaces, WORKSPACE_IDS, type WorkspaceID } from "./AppShell";
 import { ApprovalsProvider } from "./state/approvals";
 import { RetentionProvider } from "./state/retention";
+import { RuntimeProvider } from "./state/runtime";
+import { UsageProvider } from "./state/usage";
 import { useRuntimeConsole } from "./useRuntimeConsole";
 import { usePersistedState } from "../lib/persistedState";
 import { isTauriRuntime } from "../lib/tauri";
@@ -23,11 +25,15 @@ const parseWorkspaceID = (raw: string): WorkspaceID | null =>
 // chain.
 export default function App() {
   return (
-    <RetentionProvider>
-      <ApprovalsProvider>
-        <AppConsole />
-      </ApprovalsProvider>
-    </RetentionProvider>
+    <RuntimeProvider>
+      <UsageProvider>
+        <RetentionProvider>
+          <ApprovalsProvider>
+            <AppConsole />
+          </ApprovalsProvider>
+        </RetentionProvider>
+      </UsageProvider>
+    </RuntimeProvider>
   );
 }
 
