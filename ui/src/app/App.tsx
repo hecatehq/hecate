@@ -1,6 +1,7 @@
 import { useEffect, useLayoutEffect } from "react";
 
 import { ConsoleShell, getAvailableWorkspaces, WORKSPACE_IDS, type WorkspaceID } from "./AppShell";
+import { ApprovalsProvider } from "./state/approvals";
 import { RetentionProvider } from "./state/retention";
 import { useRuntimeConsole } from "./useRuntimeConsole";
 import { usePersistedState } from "../lib/persistedState";
@@ -23,7 +24,9 @@ const parseWorkspaceID = (raw: string): WorkspaceID | null =>
 export default function App() {
   return (
     <RetentionProvider>
-      <AppConsole />
+      <ApprovalsProvider>
+        <AppConsole />
+      </ApprovalsProvider>
     </RetentionProvider>
   );
 }
