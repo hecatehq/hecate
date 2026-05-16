@@ -1,24 +1,29 @@
-import { useEffect, useLayoutEffect, useState } from "react";
+import { useEffect, useLayoutEffect } from "react";
 
 import { ConsoleShell, getAvailableWorkspaces, type WorkspaceID } from "./AppShell";
 import { useRuntimeConsole } from "./useRuntimeConsole";
+import { usePersistedState } from "../lib/persistedState";
 import { isTauriRuntime } from "../lib/tauri";
 
 const WORKSPACE_STORAGE_KEY = "hecate.workspace.v2";
 
+const VALID_WORKSPACE_IDS = new Set<WorkspaceID>(["overview", "runs", "chats", "connections", "usage", "settings"]);
+const parseWorkspaceID = (raw: string): WorkspaceID | null =>
+  VALID_WORKSPACE_IDS.has(raw as WorkspaceID) ? (raw as WorkspaceID) : null;
+
 export default function App() {
   const { state, actions } = useRuntimeConsole();
-  const [preferredWorkspace, setPreferredWorkspace] = useState<WorkspaceID>(() => {
-    const saved = localStorage.getItem(WORKSPACE_STORAGE_KEY);
-    return (saved as WorkspaceID) ?? "chats";
-  });
+  const [preferredWorkspace, setPreferredWorkspace] = usePersistedState<WorkspaceID>(
+    WORKSPACE_STORAGE_KEY,
+    parseWorkspaceID,
+    "chats",
+  );
 
   const workspaces = getAvailableWorkspaces();
   const activeWorkspace: WorkspaceID =
     workspaces.some(w => w.id === preferredWorkspace) ? preferredWorkspace : "overview";
 
   function handleSelectWorkspace(id: WorkspaceID) {
-    localStorage.setItem(WORKSPACE_STORAGE_KEY, id);
     setPreferredWorkspace(id);
   }
 

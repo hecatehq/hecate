@@ -3,6 +3,7 @@ import { Suspense, lazy, useEffect, useState } from "react";
 import type { RuntimeConsoleViewModel } from "./useRuntimeConsole";
 import type { AgentChatUsageRecord } from "../types/runtime";
 import { UpdateBanner } from "../features/shared/UpdateBanner";
+import { usePersistedState } from "../lib/persistedState";
 import { isTauriOnMacOS } from "../lib/tauri";
 
 // Each workspace view is its own dynamic chunk so the initial
@@ -76,15 +77,8 @@ type Theme = "dark" | "light";
 type ThemePreference = Theme | "system";
 const THEME_KEY = "hecate.theme";
 
-function readStoredThemePreference(): ThemePreference {
-  if (typeof localStorage === "undefined") return "system";
-  try {
-    const stored = localStorage.getItem(THEME_KEY);
-    return stored === "light" || stored === "dark" ? stored : "system";
-  } catch {
-    return "system";
-  }
-}
+const parseThemePreference = (raw: string): ThemePreference | null =>
+  raw === "light" || raw === "dark" ? raw : null;
 
 function preferredSystemTheme(): Theme {
   if (typeof window === "undefined" || !window.matchMedia) return "dark";
@@ -96,7 +90,14 @@ function applyTheme(theme: Theme) {
 }
 
 function useTheme(): [Theme, () => void] {
-  const [preference, setPreference] = useState<ThemePreference>(readStoredThemePreference);
+  // shouldRemove keeps the "system" sentinel out of storage —
+  // its absence is what tells the next mount to use system pref.
+  const [preference, setPreference] = usePersistedState<ThemePreference>(
+    THEME_KEY,
+    parseThemePreference,
+    "system",
+    { shouldRemove: (v) => v === "system" },
+  );
   const [systemTheme, setSystemTheme] = useState<Theme>(preferredSystemTheme);
   const theme = preference === "system" ? systemTheme : preference;
 
@@ -111,11 +112,7 @@ function useTheme(): [Theme, () => void] {
 
   useEffect(() => {
     applyTheme(theme);
-    try {
-      if (preference === "system") localStorage.removeItem(THEME_KEY);
-      else localStorage.setItem(THEME_KEY, preference);
-    } catch { /* private mode etc. */ }
-  }, [preference, theme]);
+  }, [theme]);
 
   return [theme, () => setPreference(theme === "dark" ? "light" : "dark")];
 }

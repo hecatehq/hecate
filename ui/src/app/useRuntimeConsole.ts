@@ -1,5 +1,6 @@
 import { useEffect, useMemo, useRef, useState, type SyntheticEvent } from "react";
 
+import { parseStoredJSON, parseStoredString, usePersistedState } from "../lib/persistedState";
 import { buildLocalProviderIssue } from "../lib/provider-issues";
 import type { LocalProviderIssue } from "../lib/provider-issues";
 import { filterModelsByKind, filterModelsByProvider, parseCSV } from "../lib/runtime-utils";
@@ -136,70 +137,48 @@ function normalizeStoredHecateChatTarget(value: string): HecateChatTarget | "" {
   }
 }
 
-function readStoredQueuedChatMessages(): QueuedChatMessage[] {
-  if (typeof window === "undefined") {
-    return [];
-  }
-  try {
-    const raw = window.localStorage.getItem(queuedChatMessagesStorageKey);
-    if (!raw) return [];
-    const parsed = JSON.parse(raw);
-    if (!Array.isArray(parsed)) return [];
-    return parsed.flatMap((item): QueuedChatMessage[] => {
-      if (!item || typeof item !== "object") return [];
-      const id = typeof item.id === "string" ? item.id : "";
-      const sessionID = typeof item.session_id === "string" ? item.session_id : "";
-      const content = typeof item.content === "string" ? item.content : "";
-      if (!id || !sessionID || !content.trim()) return [];
-      return [{
-        id,
-        session_id: sessionID,
-        content,
-        runtime_kind: normalizeStoredChatTarget(typeof item.runtime_kind === "string" ? item.runtime_kind : ""),
-        provider_filter: typeof item.provider_filter === "string" ? item.provider_filter as ProviderFilter : "auto",
-        model: typeof item.model === "string" ? item.model : "",
-        workspace: typeof item.workspace === "string" ? item.workspace : "",
-        system_prompt: typeof item.system_prompt === "string" ? item.system_prompt : "",
-        adapter_id: typeof item.adapter_id === "string" ? item.adapter_id : "",
-        created_at: typeof item.created_at === "string" ? item.created_at : new Date().toISOString(),
-      }];
-    });
-  } catch {
-    return [];
-  }
+// Structural guard for the queued-chat-messages localStorage payload.
+// The previous read helper massaged each missing field into an empty
+// string and re-persisted the half-zeroed record; the new contract
+// drops malformed *items* (preserving the rest of the queue) and
+// rejects the *whole array* if it isn't an array — `usePersistedState`
+// then wipes the key on the array-shape failure. Per-item filtering
+// is preserved because losing the entire queue to one corrupt entry
+// is worse than losing the bad entry.
+function parseQueuedChatMessageList(parsed: unknown): QueuedChatMessage[] | null {
+  if (!Array.isArray(parsed)) return null;
+  return parsed.flatMap((item): QueuedChatMessage[] => {
+    if (!item || typeof item !== "object") return [];
+    const id = typeof item.id === "string" ? item.id : "";
+    const sessionID = typeof item.session_id === "string" ? item.session_id : "";
+    const content = typeof item.content === "string" ? item.content : "";
+    if (!id || !sessionID || !content.trim()) return [];
+    return [{
+      id,
+      session_id: sessionID,
+      content,
+      runtime_kind: normalizeStoredChatTarget(typeof item.runtime_kind === "string" ? item.runtime_kind : ""),
+      provider_filter: typeof item.provider_filter === "string" ? item.provider_filter as ProviderFilter : "auto",
+      model: typeof item.model === "string" ? item.model : "",
+      workspace: typeof item.workspace === "string" ? item.workspace : "",
+      system_prompt: typeof item.system_prompt === "string" ? item.system_prompt : "",
+      adapter_id: typeof item.adapter_id === "string" ? item.adapter_id : "",
+      created_at: typeof item.created_at === "string" ? item.created_at : new Date().toISOString(),
+    }];
+  });
 }
 
-function writeStoredQueuedChatMessages(items: QueuedChatMessage[]) {
-  if (typeof window === "undefined") {
-    return;
-  }
-  try {
-    if (items.length === 0) {
-      window.localStorage.removeItem(queuedChatMessagesStorageKey);
-      return;
-    }
-    window.localStorage.setItem(queuedChatMessagesStorageKey, JSON.stringify(items));
-  } catch {
-    // Browser storage can be disabled, private, or quota-limited. Queued
-    // prompts remain usable in memory even when draft persistence is unavailable.
-  }
-}
-
-function readStoredChatTargetsBySessionID(): Map<string, HecateChatTarget> {
-  if (typeof window === "undefined") {
-    return new Map();
-  }
-  try {
-    const raw = window.localStorage.getItem("hecate.chatTargetBySessionID");
-    if (!raw) return new Map();
-    const parsed = JSON.parse(raw) as Record<string, string>;
-    const entries = Object.entries(parsed)
-      .map(([sessionID, target]) => [sessionID, normalizeStoredHecateChatTarget(target)] as const)
-      .filter((entry): entry is readonly [string, HecateChatTarget] => Boolean(entry[0] && entry[1]));
-    return new Map(entries);
-  } catch {
-    return new Map();
-  }
+// Structural guard for the per-session HecateChatTarget map. Stored as
+// a JSON object {sessionID: target}; rebuilt into a Map so the consuming
+// code can use Map semantics (.get / .set / iteration order).
+function parseChatTargetsBySessionID(parsed: unknown): Map<string, HecateChatTarget> | null {
+  if (!parsed || typeof parsed !== "object" || Array.isArray(parsed)) return null;
+  const entries = Object.entries(parsed as Record<string, unknown>)
+    .map(([sessionID, target]) =>
+      [sessionID, typeof target === "string" ? normalizeStoredHecateChatTarget(target) : ""] as const,
+    )
+    .filter((entry): entry is readonly [string, HecateChatTarget] => Boolean(entry[0] && entry[1]));
+  return new Map(entries);
 }
 
 function serializeChatTargetsBySessionID(targets: Map<string, HecateChatTarget>): string {
@@ -245,13 +224,6 @@ function deriveHecateChatSelectionFromSession(session: AgentChatSessionRecord | 
   return { provider: session.provider ?? "", model: session.model ?? "" };
 }
 
-function readLocalStorage(key: string): string {
-  if (typeof window === "undefined") {
-    return "";
-  }
-  return window.localStorage.getItem(key) ?? "";
-}
-
 export { humanizeChatError };
 
 export function useRuntimeConsole() {
@@ -260,16 +232,38 @@ export function useRuntimeConsole() {
   const [providers, setProviders] = useState<ProviderStatusResponse["data"]>([]);
   const [providerPresets, setProviderPresets] = useState<ProviderPresetRecord[]>([]);
   const [agentAdapters, setAgentAdapters] = useState<AgentAdapterRecord[]>([]);
-  const [defaultChatTarget, setDefaultChatTarget] = useState<ChatTarget>(() => normalizeStoredChatTarget(readLocalStorage("hecate.chatTarget")));
-  const [chatTargetBySessionID, setChatTargetBySessionID] = useState<Map<string, HecateChatTarget>>(() => readStoredChatTargetsBySessionID());
-  const [agentAdapterID, setAgentAdapterID] = useState(() => readLocalStorage("hecate.agentAdapterID") || "codex");
-  const [agentWorkspace, setAgentWorkspace] = useState(() => readLocalStorage("hecate.agentWorkspace"));
+  const [defaultChatTarget, setDefaultChatTarget] = usePersistedState<ChatTarget>(
+    "hecate.chatTarget",
+    (raw) => normalizeStoredChatTarget(raw),
+    "agent",
+  );
+  const [chatTargetBySessionID, setChatTargetBySessionID] = usePersistedState<Map<string, HecateChatTarget>>(
+    "hecate.chatTargetBySessionID",
+    parseStoredJSON(parseChatTargetsBySessionID),
+    new Map(),
+    { serialize: serializeChatTargetsBySessionID },
+  );
+  const [agentAdapterID, setAgentAdapterID] = usePersistedState(
+    "hecate.agentAdapterID",
+    parseStoredString,
+    "codex",
+  );
+  const [agentWorkspace, setAgentWorkspace] = usePersistedState(
+    "hecate.agentWorkspace",
+    parseStoredString,
+    "",
+  );
   const [agentWorkspaceBranch, setAgentWorkspaceBranch] = useState("");
   const [hecateRTKEnabled, setHecateRTKEnabledState] = useState(false);
   const [hecateRTKAvailable, setHecateRTKAvailable] = useState(false);
   const [hecateRTKPath, setHecateRTKPath] = useState("");
   const [agentChatSessions, setAgentChatSessions] = useState<AgentChatSessionsResponse["data"]>([]);
-  const [activeAgentChatSessionID, setActiveAgentChatSessionID] = useState(() => readLocalStorage("hecate.agentChatSessionID"));
+  const [activeAgentChatSessionID, setActiveAgentChatSessionID] = usePersistedState(
+    "hecate.agentChatSessionID",
+    parseStoredString,
+    "",
+    { shouldRemove: (v) => v === "" },
+  );
   const [activeAgentChatSession, setActiveAgentChatSession] = useState<AgentChatSessionRecord | null>(null);
   // pendingApprovalsBySessionID stores the banner-essentials view of
   // pending approvals, keyed by session id. Values are projected to
@@ -313,11 +307,25 @@ export function useRuntimeConsole() {
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState("");
 
-  const [model, setModel] = useState("");
+  const [model, setModel] = usePersistedState(
+    "hecate.model",
+    parseStoredString,
+    "",
+    { shouldRemove: (v) => v === "" },
+  );
   const [message, setMessage] = useState("");
-  const [queuedChatMessages, setQueuedChatMessages] = useState<QueuedChatMessage[]>(() => readStoredQueuedChatMessages());
+  const [queuedChatMessages, setQueuedChatMessages] = usePersistedState<QueuedChatMessage[]>(
+    queuedChatMessagesStorageKey,
+    parseStoredJSON(parseQueuedChatMessageList),
+    [],
+    { shouldRemove: (v) => v.length === 0 },
+  );
   const queuedChatMessagesRef = useRef(queuedChatMessages);
-  const [systemPrompt, setSystemPrompt] = useState("");
+  const [systemPrompt, setSystemPrompt] = usePersistedState(
+    "hecate.systemPrompt",
+    parseStoredString,
+    "",
+  );
   const [chatLoading, setChatLoading] = useState(false);
   const [agentChatCancelling, setAgentChatCancelling] = useState(false);
   const [streamingContent, setStreamingContent] = useState<string | null>(null);
@@ -329,7 +337,12 @@ export function useRuntimeConsole() {
   const [chatSessions, setChatSessions] = useState<ChatSessionsResponse["data"]>([]);
   const [chatSessionsHasMore, setChatSessionsHasMore] = useState(false);
   const [chatSessionsLoadingMore, setChatSessionsLoadingMore] = useState(false);
-  const [activeChatSessionID, setActiveChatSessionID] = useState("");
+  const [activeChatSessionID, setActiveChatSessionID] = usePersistedState(
+    "hecate.chatSessionID",
+    parseStoredString,
+    "",
+    { shouldRemove: (v) => v === "" },
+  );
   const [activeChatSession, setActiveChatSession] = useState<ChatSessionRecord | null>(null);
   const [runtimeHeaders, setRuntimeHeaders] = useState<RuntimeHeaders | null>(null);
   const [chatError, setChatError] = useState("");
@@ -339,7 +352,11 @@ export function useRuntimeConsole() {
   const [chatErrorRequestID, setChatErrorRequestID] = useState("");
   const [chatErrorTraceID, setChatErrorTraceID] = useState("");
   const [modelFilter, setModelFilter] = useState<ModelFilter>("all");
-  const [providerFilter, setProviderFilter] = useState<ProviderFilter>("auto");
+  const [providerFilter, setProviderFilter] = usePersistedState<ProviderFilter>(
+    "hecate.providerFilter",
+    (raw) => raw as ProviderFilter,
+    "auto",
+  );
   const [copiedCommand, setCopiedCommand] = useState("");
 
   const [sessionInfo, setSessionInfo] = useState<SessionResponse["data"] | null>(null);
@@ -383,39 +400,6 @@ export function useRuntimeConsole() {
   }, [sessionInfo]);
 
   useEffect(() => {
-    const storedChatSessionID = window.localStorage.getItem("hecate.chatSessionID");
-    if (storedChatSessionID) {
-      setActiveChatSessionID(storedChatSessionID);
-    }
-    const storedModel = window.localStorage.getItem("hecate.model");
-    if (storedModel) {
-      setModel(storedModel);
-    }
-    const storedProvider = window.localStorage.getItem("hecate.providerFilter");
-    if (storedProvider) {
-      setProviderFilter(storedProvider as ProviderFilter);
-    }
-    const storedSystemPrompt = window.localStorage.getItem("hecate.systemPrompt");
-    if (storedSystemPrompt) {
-      setSystemPrompt(storedSystemPrompt);
-    }
-    const storedTarget = window.localStorage.getItem("hecate.chatTarget");
-    if (storedTarget) {
-      setDefaultChatTarget(normalizeStoredChatTarget(storedTarget));
-    }
-    const storedAgent = window.localStorage.getItem("hecate.agentAdapterID");
-    if (storedAgent) setAgentAdapterID(storedAgent);
-    const storedWorkspace = window.localStorage.getItem("hecate.agentWorkspace");
-    if (storedWorkspace) setAgentWorkspace(storedWorkspace);
-    const storedAgentSession = window.localStorage.getItem("hecate.agentChatSessionID");
-    if (storedAgentSession) setActiveAgentChatSessionID(storedAgentSession);
-  }, []);
-
-  useEffect(() => {
-    window.localStorage.setItem("hecate.systemPrompt", systemPrompt);
-  }, [systemPrompt]);
-
-  useEffect(() => {
     void loadDashboard();
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
@@ -440,70 +424,18 @@ export function useRuntimeConsole() {
   }, [activeAgentChatSessionID]);
 
   useEffect(() => {
-    if (model) {
-      window.localStorage.setItem("hecate.model", model);
-    }
-  }, [model]);
-
-  useEffect(() => {
-    window.localStorage.setItem("hecate.providerFilter", providerFilter);
-  }, [providerFilter]);
-
-  useEffect(() => {
-    window.localStorage.setItem("hecate.chatTarget", defaultChatTarget);
-  }, [defaultChatTarget]);
-
-  useEffect(() => {
-    window.localStorage.setItem("hecate.chatTargetBySessionID", serializeChatTargetsBySessionID(chatTargetBySessionID));
-  }, [chatTargetBySessionID]);
-
-  useEffect(() => {
-    window.localStorage.setItem("hecate.agentAdapterID", agentAdapterID);
-  }, [agentAdapterID]);
-
-  useEffect(() => {
-    window.localStorage.setItem("hecate.agentWorkspace", agentWorkspace);
-  }, [agentWorkspace]);
-
-  useEffect(() => {
-    if (activeChatSessionID) {
-      window.localStorage.setItem("hecate.chatSessionID", activeChatSessionID);
-      return;
-    }
-    window.localStorage.removeItem("hecate.chatSessionID");
-  }, [activeChatSessionID]);
-
-  useEffect(() => {
-    if (activeAgentChatSessionID) {
-      window.localStorage.setItem("hecate.agentChatSessionID", activeAgentChatSessionID);
-      return;
-    }
-    window.localStorage.removeItem("hecate.agentChatSessionID");
-  }, [activeAgentChatSessionID]);
-
-  useEffect(() => {
     if (!activeAgentChatSession || agentChatSessionIsExternal(activeAgentChatSession)) {
       return;
     }
     setHecateRTKEnabledState(Boolean(activeAgentChatSession.rtk_enabled));
   }, [activeAgentChatSession?.id, activeAgentChatSession?.rtk_enabled]);
 
+  // Mirror queuedChatMessages into a ref so non-React callers
+  // (background fetches that resolve after unmount) can read the
+  // latest snapshot without going through state.
   useEffect(() => {
     queuedChatMessagesRef.current = queuedChatMessages;
-    const timeout = window.setTimeout(() => {
-      writeStoredQueuedChatMessages(queuedChatMessages);
-    }, 200);
-    return () => window.clearTimeout(timeout);
   }, [queuedChatMessages]);
-
-  useEffect(() => {
-    const flushQueuedMessages = () => writeStoredQueuedChatMessages(queuedChatMessagesRef.current);
-    window.addEventListener("pagehide", flushQueuedMessages);
-    return () => {
-      window.removeEventListener("pagehide", flushQueuedMessages);
-      flushQueuedMessages();
-    };
-  }, []);
 
   useEffect(() => {
     if (!notice) {
