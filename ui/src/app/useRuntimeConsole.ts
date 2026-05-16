@@ -352,15 +352,23 @@ export function useRuntimeConsole() {
   const [chatErrorRequestID, setChatErrorRequestID] = useState("");
   const [chatErrorTraceID, setChatErrorTraceID] = useState("");
   const [modelFilter, setModelFilter] = useState<ModelFilter>("all");
-  // providerFilter intentionally stays on the legacy useState +
-  // mount-read + write-on-change pattern. Three e2e scenarios
-  // (chat.spec.ts lines 617, 767, 1288) depend on the original
-  // timing where providerFilter starts at the useState default
-  // "auto" for one render, then transitions when the read effect
-  // fires. Migrating providerFilter to usePersistedState (which
-  // seeds from localStorage in the lazy initializer) shifts that
-  // transition and breaks the auto-default cascade those tests
-  // rely on. The other ten keys do not have this entanglement.
+  // FIXME: providerFilter is the lone holdout from the
+  // usePersistedState migration. Three e2e scenarios (chat.spec.ts
+  // lines 617, 767, 1288) lean on the legacy timing — providerFilter
+  // starts at the useState default "auto" for one render, then
+  // transitions when the mount-read effect fires. The auto-default
+  // cascade (lines 450+) reads providerFilter through that
+  // first-render closure and only fires its setProviderFilter when
+  // it sees "auto" there; seeding the persisted value directly into
+  // the lazy initializer (which is what usePersistedState does)
+  // shifts the transition out from under that cascade.
+  //
+  // Restructuring the auto-default + scoped-validity effects to
+  // not depend on render-cycle timing is its own piece of work,
+  // load-bearing for the Phase 4 state slicing. Until that lands
+  // here, keep providerFilter on the original useState + mount-
+  // read + write-on-change pattern. Tracked alongside the other
+  // Phase 4 prep in the cleanup plan.
   const [providerFilter, setProviderFilter] = useState<ProviderFilter>("auto");
   useEffect(() => {
     const stored = window.localStorage.getItem("hecate.providerFilter");
