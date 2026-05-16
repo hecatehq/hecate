@@ -1,5 +1,5 @@
 import { useEffect, useRef, useState } from "react";
-import type { RuntimeConsoleViewModel } from "../../app/useRuntimeConsole";
+import { useRuntimeConsoleContext } from "../../app/RuntimeConsoleContext";
 import { discoverLocalProviders } from "../../lib/api";
 import { resolvedBaseURL } from "../../lib/provider-utils";
 import type { LocalProviderDiscoveryRecord, ProviderPresetRecord } from "../../types/runtime";
@@ -7,8 +7,6 @@ import { BrandAvatar, Icon, Icons, InlineError, Modal } from "../shared/ui";
 
 type Props = {
   open: boolean;
-  state: RuntimeConsoleViewModel["state"];
-  actions: RuntimeConsoleViewModel["actions"];
   onClose: () => void;
 };
 
@@ -21,7 +19,8 @@ type AddFormState = {
   protocol: string;
 };
 
-export function AddProviderModal({ open, state, actions, onClose }: Props) {
+export function AddProviderModal({ open, onClose }: Props) {
+  const { state, actions } = useRuntimeConsoleContext();
   const [step, setStep] = useState<"pick" | "form">("pick");
   const [pickTab, setPickTab] = useState<"cloud" | "local">("local");
   const [preset, setPreset] = useState<ProviderPresetRecord | null>(null);

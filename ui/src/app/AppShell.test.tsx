@@ -3,6 +3,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 import { ConsoleShell, getAvailableWorkspaces } from "./AppShell";
 import { createRuntimeConsoleActions, createRuntimeConsoleFixture } from "../test/runtime-console-fixture";
+import { withRuntimeConsole } from "../test/runtime-console-render";
 
 // Workspace lineup is fixed. Numeric keyboard workspace switching was
 // removed so text inputs, screen readers, and browser shortcuts own the
@@ -27,12 +28,10 @@ describe("ConsoleShell loading state", () => {
   it("renders the connecting splash while health is null and no error", () => {
     const state = createRuntimeConsoleFixture({ health: null, error: "" });
     render(
-      <ConsoleShell
-        activeWorkspace="overview"
-        onSelectWorkspace={() => {}}
-        state={state}
-        actions={createRuntimeConsoleActions()}
-      />,
+      withRuntimeConsole(
+        <ConsoleShell activeWorkspace="overview" onSelectWorkspace={() => {}} />,
+        { state, actions: createRuntimeConsoleActions() },
+      ),
     );
     expect(screen.getByText(/connecting/i)).toBeInTheDocument();
   });
@@ -62,12 +61,10 @@ describe("ConsoleShell titlebar", () => {
     Object.defineProperty(navigator, "platform", { configurable: true, value: "MacIntel" });
     const state = createRuntimeConsoleFixture();
     const { container } = render(
-      <ConsoleShell
-        activeWorkspace="overview"
-        onSelectWorkspace={() => {}}
-        state={state}
-        actions={createRuntimeConsoleActions()}
-      />,
+      withRuntimeConsole(
+        <ConsoleShell activeWorkspace="overview" onSelectWorkspace={() => {}} />,
+        { state, actions: createRuntimeConsoleActions() },
+      ),
     );
     const titlebar = container.querySelector(".hecate-titlebar");
     expect(titlebar).not.toBeNull();
@@ -79,12 +76,10 @@ describe("ConsoleShell titlebar", () => {
     Object.defineProperty(navigator, "platform", { configurable: true, value: "Linux x86_64" });
     const state = createRuntimeConsoleFixture();
     const { container } = render(
-      <ConsoleShell
-        activeWorkspace="overview"
-        onSelectWorkspace={() => {}}
-        state={state}
-        actions={createRuntimeConsoleActions()}
-      />,
+      withRuntimeConsole(
+        <ConsoleShell activeWorkspace="overview" onSelectWorkspace={() => {}} />,
+        { state, actions: createRuntimeConsoleActions() },
+      ),
     );
     expect(container.querySelector(".hecate-titlebar")).toBeNull();
   });
@@ -93,12 +88,10 @@ describe("ConsoleShell titlebar", () => {
     Object.defineProperty(navigator, "platform", { configurable: true, value: "MacIntel" });
     const state = createRuntimeConsoleFixture();
     const { container } = render(
-      <ConsoleShell
-        activeWorkspace="overview"
-        onSelectWorkspace={() => {}}
-        state={state}
-        actions={createRuntimeConsoleActions()}
-      />,
+      withRuntimeConsole(
+        <ConsoleShell activeWorkspace="overview" onSelectWorkspace={() => {}} />,
+        { state, actions: createRuntimeConsoleActions() },
+      ),
     );
     expect(container.querySelector(".hecate-titlebar")).toBeNull();
   });
@@ -111,12 +104,10 @@ describe("ConsoleShell navigation", () => {
       settingsConfig: { backend: "memory", providers: [], policy_rules: [], events: [] },
     });
     render(
-      <ConsoleShell
-        activeWorkspace="chats"
-        onSelectWorkspace={() => {}}
-        state={state}
-        actions={createRuntimeConsoleActions()}
-      />,
+      withRuntimeConsole(
+        <ConsoleShell activeWorkspace="chats" onSelectWorkspace={() => {}} />,
+        { state, actions: createRuntimeConsoleActions() },
+      ),
     );
 
     // The Chats workspace is a `lazy()` chunk per AppShell.tsx;
@@ -137,12 +128,10 @@ describe("ConsoleShell navigation", () => {
       agentWorkspaceBranch: "feature/agents",
     });
     render(
-      <ConsoleShell
-        activeWorkspace="chats"
-        onSelectWorkspace={() => {}}
-        state={state}
-        actions={createRuntimeConsoleActions()}
-      />,
+      withRuntimeConsole(
+        <ConsoleShell activeWorkspace="chats" onSelectWorkspace={() => {}} />,
+        { state, actions: createRuntimeConsoleActions() },
+      ),
     );
 
     expect(screen.getByText("/Users/alice/dev/hecate")).toBeInTheDocument();
@@ -165,12 +154,10 @@ describe("ConsoleShell navigation", () => {
       },
     });
     render(
-      <ConsoleShell
-        activeWorkspace="chats"
-        onSelectWorkspace={() => {}}
-        state={state}
-        actions={createRuntimeConsoleActions()}
-      />,
+      withRuntimeConsole(
+        <ConsoleShell activeWorkspace="chats" onSelectWorkspace={() => {}} />,
+        { state, actions: createRuntimeConsoleActions() },
+      ),
     );
 
     expect(screen.getByText("/Users/alice/dev/hecate")).toBeInTheDocument();
@@ -196,12 +183,10 @@ describe("ConsoleShell navigation", () => {
       },
     });
     render(
-      <ConsoleShell
-        activeWorkspace="chats"
-        onSelectWorkspace={() => {}}
-        state={state}
-        actions={createRuntimeConsoleActions()}
-      />,
+      withRuntimeConsole(
+        <ConsoleShell activeWorkspace="chats" onSelectWorkspace={() => {}} />,
+        { state, actions: createRuntimeConsoleActions() },
+      ),
     );
 
     expect(screen.getByText("context 79% left")).toBeInTheDocument();
@@ -214,12 +199,10 @@ describe("ConsoleShell navigation", () => {
       agentWorkspaceBranch: "main",
     });
     render(
-      <ConsoleShell
-        activeWorkspace="chats"
-        onSelectWorkspace={() => {}}
-        state={state}
-        actions={createRuntimeConsoleActions()}
-      />,
+      withRuntimeConsole(
+        <ConsoleShell activeWorkspace="chats" onSelectWorkspace={() => {}} />,
+        { state, actions: createRuntimeConsoleActions() },
+      ),
     );
 
     expect(screen.queryByText("/Users/alice/dev/hecate")).toBeNull();
@@ -264,12 +247,10 @@ describe("ConsoleShell theme toggle", () => {
     const state = createRuntimeConsoleFixture();
 
     render(
-      <ConsoleShell
-        activeWorkspace="settings"
-        onSelectWorkspace={() => {}}
-        state={state}
-        actions={createRuntimeConsoleActions()}
-      />,
+      withRuntimeConsole(
+        <ConsoleShell activeWorkspace="settings" onSelectWorkspace={() => {}} />,
+        { state, actions: createRuntimeConsoleActions() },
+      ),
     );
 
     expect(document.documentElement.getAttribute("data-theme")).toBe("light");
@@ -282,12 +263,10 @@ describe("ConsoleShell theme toggle", () => {
     const state = createRuntimeConsoleFixture();
 
     render(
-      <ConsoleShell
-        activeWorkspace="settings"
-        onSelectWorkspace={() => {}}
-        state={state}
-        actions={createRuntimeConsoleActions()}
-      />,
+      withRuntimeConsole(
+        <ConsoleShell activeWorkspace="settings" onSelectWorkspace={() => {}} />,
+        { state, actions: createRuntimeConsoleActions() },
+      ),
     );
 
     fireEvent.click(screen.getByRole("button", { name: /switch to light theme/i }));
@@ -321,12 +300,10 @@ describe("status bar version chip", () => {
       health: healthOverrides as never,
     });
     render(
-      <ConsoleShell
-        activeWorkspace="overview"
-        onSelectWorkspace={() => {}}
-        state={state}
-        actions={createRuntimeConsoleActions()}
-      />,
+      withRuntimeConsole(
+        <ConsoleShell activeWorkspace="overview" onSelectWorkspace={() => {}} />,
+        { state, actions: createRuntimeConsoleActions() },
+      ),
     );
   }
 

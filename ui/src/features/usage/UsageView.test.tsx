@@ -3,13 +3,14 @@ import { describe, expect, it } from "vitest";
 
 import { UsageView } from "./UsageView";
 import { createRuntimeConsoleActions, createRuntimeConsoleFixture } from "../../test/runtime-console-fixture";
+import { withRuntimeConsole } from "../../test/runtime-console-render";
 
 const localSession = { label: "Local" };
 
 function setup(stateOverrides: Record<string, unknown> = {}) {
   const state = createRuntimeConsoleFixture({ session: localSession, ...stateOverrides });
   const actions = createRuntimeConsoleActions();
-  render(<UsageView state={state} actions={actions} />);
+  render(withRuntimeConsole(<UsageView />, { state, actions }));
 }
 
 describe("UsageView", () => {

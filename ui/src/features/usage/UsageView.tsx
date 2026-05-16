@@ -1,13 +1,8 @@
 import type { ReactNode } from "react";
-import type { RuntimeConsoleViewModel } from "../../app/useRuntimeConsole";
+import { useRuntimeConsoleContext } from "../../app/RuntimeConsoleContext";
 import { formatInteger, formatLocaleTime, formatMicrosUSD } from "../../lib/format";
 import type { UsageEventRecord } from "../../types/runtime";
 import { CopyBtn } from "../shared/ui";
-
-type Props = {
-  state: RuntimeConsoleViewModel["state"];
-  actions: RuntimeConsoleViewModel["actions"];
-};
 
 type UsageEntry = UsageEventRecord;
 type UsageTotals = {
@@ -19,7 +14,8 @@ type UsageTotals = {
 
 // Only cross-chat Hecate-controlled provider calls belong here; active-chat
 // adapter usage lives in ChatView where the reported values have context.
-export function UsageView({ state }: Props) {
+export function UsageView() {
+  const { state } = useRuntimeConsoleContext();
   const usageEvents = state.usageEvents ?? [];
   const providerKindByID = new Map((state.settingsConfig?.providers ?? []).map(provider => [provider.id, provider.kind]));
   const cloudEvents = usageEvents.filter(entry => usageEventIsCloud(entry, providerKindByID));

@@ -1,4 +1,5 @@
 import { useEffect, useState, type CSSProperties } from "react";
+import { useRuntimeConsoleContext } from "../../app/RuntimeConsoleContext";
 import type { RuntimeConsoleViewModel } from "../../app/useRuntimeConsole";
 import { formatLocaleTime } from "../../lib/format";
 import { providerFleetRepairHint, providerReadinessMeaning, providerRepairActionLabel } from "../../lib/provider-readiness";
@@ -8,11 +9,6 @@ import { ProviderReadinessChecklist, ProviderReadinessSummary } from "../shared/
 import { Badge, BrandAvatar, ConfirmModal, Icon, Icons, Modal } from "../shared/ui";
 import { ConnectionsPanel } from "../connections/ConnectionsPanel";
 import { AddProviderModal } from "./AddProviderModal";
-
-type Props = {
-  state: RuntimeConsoleViewModel["state"];
-  actions: RuntimeConsoleViewModel["actions"];
-};
 
 const PROVIDER_POLL_INTERVAL_MS = 30_000;
 
@@ -61,7 +57,8 @@ function resolveCredentialBadge(
   return { status: "warn", label: "Missing" };
 }
 
-export function ProvidersView({ state, actions }: Props) {
+export function ProvidersView() {
+  const { state, actions } = useRuntimeConsoleContext();
   const [selectedID, setSelectedID] = useState<string | null>(null);
   const [pendingKey, setPendingKey] = useState("");
   const [pendingURL, setPendingURL] = useState("");
@@ -492,8 +489,6 @@ export function ProvidersView({ state, actions }: Props) {
 
         <div style={{ marginTop: configuredProviders.length === 0 ? 28 : 8 }}>
           <ConnectionsPanel
-            state={state}
-            actions={actions}
             showProviderSummary={false}
           />
         </div>
@@ -763,8 +758,6 @@ export function ProvidersView({ state, actions }: Props) {
 
       <AddProviderModal
         open={addProviderOpen}
-        state={state}
-        actions={actions}
         onClose={() => setAddProviderOpen(false)}
       />
 

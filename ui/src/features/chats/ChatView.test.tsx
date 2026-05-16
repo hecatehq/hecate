@@ -5,6 +5,7 @@ import { afterEach, describe, expect, it, vi } from "vitest";
 import { ChatView } from "./ChatView";
 import { discoverLocalProviders } from "../../lib/api";
 import { createRuntimeConsoleActions, createRuntimeConsoleFixture } from "../../test/runtime-console-fixture";
+import { withRuntimeConsole } from "../../test/runtime-console-render";
 
 vi.mock("../../lib/api", async importOriginal => {
   const actual = await importOriginal<typeof import("../../lib/api")>();
@@ -67,7 +68,7 @@ function setup(stateOverrides = {}, actionOverrides = {}) {
 describe("ChatView input", () => {
   it("renders Hecate first in the unified agent picker", async () => {
     const { state, actions } = setup();
-    render(<ChatView state={state} actions={actions} />);
+    render(withRuntimeConsole(<ChatView />, { state, actions }));
     expect(screen.getByRole("button", { name: "New Hecate chat" })).toBeTruthy();
     const picker = screen.getByRole("button", { name: "Choose agent for new chat" });
 
@@ -98,7 +99,7 @@ describe("ChatView input", () => {
         },
       ],
     }, { setChatTarget });
-    const { rerender } = render(<ChatView state={state} actions={actions} />);
+    const { rerender } = render(withRuntimeConsole(<ChatView />, { state, actions }));
 
     const user = userEvent.setup();
     await user.click(screen.getByRole("button", { name: /settings/i }));
@@ -108,7 +109,7 @@ describe("ChatView input", () => {
     expect(setChatTarget).toHaveBeenCalledWith("model");
 
     const directState = setup({ ...state, chatTarget: "model" }, { setChatTarget }).state;
-    rerender(<ChatView state={directState} actions={actions} />);
+    rerender(withRuntimeConsole(<ChatView />, { state: directState, actions }));
     expect(screen.getByRole("button", { name: "Tools off" })).toHaveTextContent("off");
 
     await user.click(screen.getByRole("button", { name: "Tools off" }));
@@ -131,7 +132,7 @@ describe("ChatView input", () => {
         messages: [],
       } as any,
     }, { setChatTarget });
-    render(<ChatView state={state} actions={actions} />);
+    render(withRuntimeConsole(<ChatView />, { state, actions }));
 
     const user = userEvent.setup();
     await user.click(screen.getByRole("button", { name: /settings/i }));
@@ -158,7 +159,7 @@ describe("ChatView input", () => {
         },
       ],
     }, { setSystemPrompt });
-    render(<ChatView state={state} actions={actions} />);
+    render(withRuntimeConsole(<ChatView />, { state, actions }));
 
     const user = userEvent.setup();
     await user.click(screen.getByRole("button", { name: /settings/i }));
@@ -188,7 +189,7 @@ describe("ChatView input", () => {
       } as any,
       model: "qwen2.5-coder",
     });
-    render(<ChatView state={state} actions={actions} />);
+    render(withRuntimeConsole(<ChatView />, { state, actions }));
 
     const user = userEvent.setup();
     await user.click(screen.getByRole("button", { name: "Chat settings" }));
@@ -222,7 +223,7 @@ describe("ChatView input", () => {
       providerFilter: "ollama",
       model: "qwen2.5-coder",
     }, { setHecateRTKEnabled });
-    render(<ChatView state={state} actions={actions} />);
+    render(withRuntimeConsole(<ChatView />, { state, actions }));
 
     const user = userEvent.setup();
     await user.click(screen.getByRole("button", { name: /settings/i }));
@@ -267,7 +268,7 @@ describe("ChatView input", () => {
         },
       ],
     }, { setHecateRTKEnabled });
-    const { rerender } = render(<ChatView state={state} actions={actions} />);
+    const { rerender } = render(withRuntimeConsole(<ChatView />, { state, actions }));
 
     const user = userEvent.setup();
     await user.click(screen.getByRole("button", { name: "New Hecate chat" }));
@@ -275,7 +276,7 @@ describe("ChatView input", () => {
     await user.click(screen.getByRole("button", { name: "Compact command output on" }));
     expect(setHecateRTKEnabled).toHaveBeenCalledWith(false);
 
-    rerender(<ChatView state={{ ...state, hecateRTKEnabled: false }} actions={actions} />);
+    rerender(withRuntimeConsole(<ChatView />, { state: { ...state, hecateRTKEnabled: false }, actions }));
     await user.click(screen.getByRole("button", { name: "Chat settings" }));
 
     expect(screen.queryByText("Compact command output is available")).toBeNull();
@@ -289,7 +290,7 @@ describe("ChatView input", () => {
         { id: "codex", name: "Codex", kind: "acp", command: "codex-acp", available: true, status: "available", cost_mode: "external" },
       ],
     });
-    render(<ChatView state={state} actions={actions} />);
+    render(withRuntimeConsole(<ChatView />, { state, actions }));
 
     expect(screen.queryByText("SYSTEM PROMPT / AGENT INSTRUCTIONS")).toBeNull();
     expect(screen.queryByText("SYSTEM PROMPT / INSTRUCTIONS")).toBeNull();
@@ -324,7 +325,7 @@ describe("ChatView input", () => {
         { id: "codex", name: "Codex", kind: "acp", command: "codex-acp", available: true, status: "available", cost_mode: "external" },
       ],
     }, { setAgentChatConfigOption });
-    render(<ChatView state={state} actions={actions} />);
+    render(withRuntimeConsole(<ChatView />, { state, actions }));
 
     const user = userEvent.setup();
     await user.click(screen.getByRole("button", { name: "Chat settings" }));
@@ -343,7 +344,7 @@ describe("ChatView input", () => {
 
   it("disables the send button when message is empty", () => {
     const { state, actions } = setup({ message: "" });
-    render(<ChatView state={state} actions={actions} />);
+    render(withRuntimeConsole(<ChatView />, { state, actions }));
     fireEvent.click(screen.getByRole("button", { name: /new .* chat/i }));
     const send = document.querySelector("button[type='submit']") as HTMLButtonElement;
     expect(send.disabled).toBe(true);
@@ -351,7 +352,7 @@ describe("ChatView input", () => {
 
   it("enables the send button when message has content", () => {
     const { state, actions } = setup({ chatTarget: "model", message: "hello" });
-    render(<ChatView state={state} actions={actions} />);
+    render(withRuntimeConsole(<ChatView />, { state, actions }));
     const send = document.querySelector("button[type='submit']") as HTMLButtonElement;
     expect(send.disabled).toBe(false);
   });
@@ -362,7 +363,7 @@ describe("ChatView input", () => {
       model: "",
       message: "hello",
     });
-    render(<ChatView state={state} actions={actions} />);
+    render(withRuntimeConsole(<ChatView />, { state, actions }));
 
     expect(screen.queryByRole("textbox", { name: "Message" })).toBeNull();
     expect(screen.queryByRole("button", { name: "Send message" })).toBeNull();
@@ -377,7 +378,7 @@ describe("ChatView input", () => {
         { id: "codex", name: "Codex", kind: "acp", command: "codex-acp", available: true, status: "available", cost_mode: "external" },
       ],
     });
-    render(<ChatView state={state} actions={actions} />);
+    render(withRuntimeConsole(<ChatView />, { state, actions }));
     expect(screen.getByText("No model provider configured")).toBeTruthy();
     expect(screen.getByRole("button", { name: /Open Connections/i })).toBeTruthy();
     expect(screen.queryByRole("textbox", { name: "Message" })).toBeNull();
@@ -415,7 +416,7 @@ describe("ChatView input", () => {
         { id: "qwen2.5:7b", owned_by: "ollama", metadata: { provider: "ollama", provider_kind: "local" } },
       ],
     });
-    render(<ChatView state={state} actions={actions} />);
+    render(withRuntimeConsole(<ChatView />, { state, actions }));
 
     expect(screen.getAllByText("Selected model is not available from this provider").length).toBeGreaterThan(0);
     expect(screen.getAllByText(/Ollama is configured, but it does not currently report "llama3.1:8b"/).length).toBeGreaterThan(0);
@@ -477,7 +478,7 @@ describe("ChatView input", () => {
         { id: "qwen2.5:7b", owned_by: "ollama", metadata: { provider: "ollama", provider_kind: "local" } },
       ],
     });
-    render(<ChatView state={state} actions={actions} onNavigate={onNavigate} />);
+    render(withRuntimeConsole(<ChatView onNavigate={onNavigate} />, { state, actions }));
 
     expect(screen.getByText("Selected model is not available from this provider")).toBeTruthy();
     expect(screen.getByRole("button", { name: "Open Connections" })).toBeTruthy();
@@ -523,7 +524,7 @@ describe("ChatView input", () => {
         { id: "gpt-4o-mini", owned_by: "openai", metadata: { provider: "openai", provider_kind: "cloud" } },
       ],
     }, { setModel, setProviderFilter });
-    render(<ChatView state={state} actions={actions} />);
+    render(withRuntimeConsole(<ChatView />, { state, actions }));
 
     const user = userEvent.setup();
     await user.click(screen.getAllByRole("button", { name: "Use gpt-4o-mini" })[0]);
@@ -541,7 +542,7 @@ describe("ChatView input", () => {
         { id: "codex", name: "Codex", kind: "acp", command: "codex-acp", available: true, status: "available", cost_mode: "external" },
       ],
     });
-    render(<ChatView state={state} actions={actions} onNavigate={onNavigate} />);
+    render(withRuntimeConsole(<ChatView onNavigate={onNavigate} />, { state, actions }));
 
     const user = userEvent.setup();
     await user.click(screen.getByRole("button", { name: /Open Connections/i }));
@@ -582,7 +583,7 @@ describe("ChatView input", () => {
         { id: "codex", name: "Codex", kind: "acp", command: "codex-acp", available: true, status: "available", cost_mode: "external" },
       ],
     });
-    render(<ChatView state={state} actions={actions} />);
+    render(withRuntimeConsole(<ChatView />, { state, actions }));
 
     expect(screen.getByText("No routable model")).toBeTruthy();
     expect(screen.getByRole("button", { name: /Open Connections/i })).toBeTruthy();
@@ -638,7 +639,7 @@ describe("ChatView input", () => {
         { id: "codex", name: "Codex", kind: "acp", command: "codex-acp", available: true, status: "available", cost_mode: "external" },
       ],
     }, { createProvider, loadDashboard });
-    render(<ChatView state={state} actions={actions} />);
+    render(withRuntimeConsole(<ChatView />, { state, actions }));
 
     const user = userEvent.setup();
     const quickAdd = await screen.findByRole("button", { name: /Add selected/i });
@@ -709,7 +710,7 @@ describe("ChatView input", () => {
         { id: "codex", name: "Codex", kind: "acp", command: "codex-acp", available: true, status: "available", cost_mode: "external" },
       ],
     }, { createProvider, loadDashboard });
-    render(<ChatView state={state} actions={actions} />);
+    render(withRuntimeConsole(<ChatView />, { state, actions }));
 
     const user = userEvent.setup();
     expect(await screen.findByRole("button", { name: "Deselect Ollama" })).toHaveAttribute("aria-pressed", "true");
@@ -757,7 +758,7 @@ describe("ChatView input", () => {
         { id: "codex", name: "Codex", kind: "acp", command: "codex-acp", available: true, status: "available", cost_mode: "external" },
       ],
     }, { createProvider, loadDashboard });
-    render(<ChatView state={state} actions={actions} />);
+    render(withRuntimeConsole(<ChatView />, { state, actions }));
 
     expect(await screen.findByText("Detected locally")).toBeTruthy();
     expect(screen.getByText("Ollama")).toBeTruthy();
@@ -819,7 +820,7 @@ describe("ChatView input", () => {
         { id: "codex", name: "Codex", kind: "acp", command: "codex-acp", available: true, status: "available", cost_mode: "external" },
       ],
     }, { createProvider, loadDashboard });
-    render(<ChatView state={state} actions={actions} />);
+    render(withRuntimeConsole(<ChatView />, { state, actions }));
 
     const user = userEvent.setup();
     await user.click(await screen.findByRole("button", { name: /Add selected/i }));
@@ -883,7 +884,7 @@ describe("ChatView input", () => {
         { id: "codex", name: "Codex", kind: "acp", command: "codex-acp", available: true, status: "available", cost_mode: "external" },
       ],
     }, { createProvider, loadDashboard });
-    render(<ChatView state={state} actions={actions} />);
+    render(withRuntimeConsole(<ChatView />, { state, actions }));
 
     const user = userEvent.setup();
     await user.click(await screen.findByRole("button", { name: /Add selected/i }));
@@ -902,7 +903,7 @@ describe("ChatView input", () => {
         { id: "codex", name: "Codex", kind: "acp", command: "codex-acp", available: false, status: "missing", cost_mode: "external" },
       ],
     });
-    render(<ChatView state={state} actions={actions} />);
+    render(withRuntimeConsole(<ChatView />, { state, actions }));
     expect(screen.getByText("Nothing runnable yet")).toBeTruthy();
     expect(screen.getByRole("button", { name: /Open Connections/i })).toBeTruthy();
     expect(screen.getByRole("button", { name: "New Hecate chat" })).toBeTruthy();
@@ -936,7 +937,7 @@ describe("ChatView input", () => {
         },
       ],
     });
-    render(<ChatView state={state} actions={actions} />);
+    render(withRuntimeConsole(<ChatView />, { state, actions }));
 
     const user = userEvent.setup();
     await user.click(screen.getByRole("button", { name: /settings/i }));
@@ -1001,7 +1002,7 @@ describe("ChatView input", () => {
         messages: [],
       } as any,
     });
-    render(<ChatView state={state} actions={actions} />);
+    render(withRuntimeConsole(<ChatView />, { state, actions }));
 
     expect(screen.queryByRole("button", { name: "Fixed provider: Ollama" })).toBeNull();
     expect(screen.queryByRole("button", { name: "Fixed model: qwen2.5-coder" })).toBeNull();
@@ -1066,7 +1067,7 @@ describe("ChatView input", () => {
         messages: [],
       } as any,
     }, { setProviderFilter, setModel });
-    render(<ChatView state={state} actions={actions} />);
+    render(withRuntimeConsole(<ChatView />, { state, actions }));
 
     const controls = screen.getByLabelText("Hecate message controls");
     const provider = within(controls).getByRole("button", { name: "Provider picker: Ollama" });
@@ -1131,7 +1132,7 @@ describe("ChatView input", () => {
         messages: [],
       } as any,
     });
-    const { rerender } = render(<ChatView state={state} actions={actions} />);
+    const { rerender } = render(withRuntimeConsole(<ChatView />, { state, actions }));
 
     const fixedProvider = screen.getByRole("button", { name: "Fixed provider: Ollama" }) as HTMLButtonElement;
     const fixedModel = screen.getByRole("button", { name: "Fixed model: qwen2.5-coder" }) as HTMLButtonElement;
@@ -1143,7 +1144,7 @@ describe("ChatView input", () => {
     expect(screen.getByRole("button", { name: "Stop active task" })).toBeTruthy();
     expect(screen.getByText(/Hecate Chat is still working on this task/)).toBeTruthy();
 
-    rerender(<ChatView state={{ ...state, chatTarget: "model" }} actions={actions} />);
+    rerender(withRuntimeConsole(<ChatView />, { state: { ...state, chatTarget: "model" }, actions }));
     expect(document.querySelector('[aria-label="Fixed provider: Ollama"]')).toBeTruthy();
     expect(document.querySelector('[aria-label="Fixed model: qwen2.5-coder"]')).toBeTruthy();
     expect(document.querySelector('[aria-label="Model picker: smollm2:135m"]')).toBeNull();
@@ -1191,7 +1192,7 @@ describe("ChatView input", () => {
         messages: [],
       } as any,
     });
-    render(<ChatView state={state} actions={actions} onOpenTask={onOpenTask} />);
+    render(withRuntimeConsole(<ChatView onOpenTask={onOpenTask} />, { state, actions }));
 
     expect(screen.getByRole("button", { name: "Fixed provider: Ollama" })).toBeTruthy();
     expect(screen.getByRole("button", { name: "Fixed model: qwen2.5-coder" })).toBeTruthy();
@@ -1224,7 +1225,7 @@ describe("ChatView input", () => {
       ],
     }, { removeQueuedChatMessage, updateQueuedChatMessage });
 
-    render(<ChatView state={state} actions={actions} />);
+    render(withRuntimeConsole(<ChatView />, { state, actions }));
 
     expect(screen.getByLabelText("Queued messages")).toBeTruthy();
     const queuedInput = screen.getByLabelText("Queued message 1");
@@ -1266,7 +1267,7 @@ describe("ChatView input", () => {
       ],
     });
 
-    render(<ChatView state={state} actions={actions} />);
+    render(withRuntimeConsole(<ChatView />, { state, actions }));
 
     expect(screen.getByLabelText("Queued messages")).toBeTruthy();
     expect(screen.getByLabelText("Queued message 1")).toHaveValue("send this here");
@@ -1289,11 +1290,11 @@ describe("ChatView input", () => {
       ],
       model: "qwen2.5-coder",
     });
-    const { rerender } = render(<ChatView state={state} actions={actions} />);
+    const { rerender } = render(withRuntimeConsole(<ChatView />, { state, actions }));
 
     expect(screen.getByText(/Hecate Agent runs through task approvals and per-call sandboxing/)).toBeTruthy();
 
-    rerender(<ChatView state={{ ...state, chatTarget: "model" }} actions={actions} />);
+    rerender(withRuntimeConsole(<ChatView />, { state: { ...state, chatTarget: "model" }, actions }));
     expect(screen.queryByText(/Hecate Agent runs through task approvals and per-call sandboxing/)).toBeNull();
   });
 
@@ -1323,7 +1324,7 @@ describe("ChatView input", () => {
         },
       ],
     }, { upsertModelCapabilityOverride });
-    render(<ChatView state={state} actions={actions} />);
+    render(withRuntimeConsole(<ChatView />, { state, actions }));
 
     expect(screen.getByText(/Tools are disabled for this model/)).toBeTruthy();
     const send = document.querySelector("button[type='submit']") as HTMLButtonElement;
@@ -1371,7 +1372,7 @@ describe("ChatView input", () => {
         ],
       } as any,
     });
-    render(<ChatView state={state} actions={actions} onOpenTask={onOpenTask} />);
+    render(withRuntimeConsole(<ChatView onOpenTask={onOpenTask} />, { state, actions }));
     const user = userEvent.setup();
     expect(screen.queryByRole("button", { name: /^Task task_hecate_/i })).toBeNull();
     expect(screen.getByText("Run hecate_abcde")).toBeTruthy();
@@ -1412,7 +1413,7 @@ describe("ChatView input", () => {
         ],
       } as any,
     });
-    render(<ChatView state={state} actions={actions} onOpenTask={onOpenTask} />);
+    render(withRuntimeConsole(<ChatView onOpenTask={onOpenTask} />, { state, actions }));
 
     expect(screen.getByText("Direct answer.")).toBeTruthy();
     expect(screen.queryByRole("button", { name: /Open Task latest/i })).toBeNull();
@@ -1471,7 +1472,7 @@ describe("ChatView input", () => {
         ],
       } as any,
     });
-    render(<ChatView state={state} actions={actions} />);
+    render(withRuntimeConsole(<ChatView />, { state, actions }));
 
     expect(screen.getAllByLabelText("Tools off segment using smollm2:135m")).toHaveLength(2);
     expect(screen.getByLabelText("Tools on segment using qwen2.5-coder")).toBeTruthy();
@@ -1517,7 +1518,7 @@ describe("ChatView input", () => {
         ],
       } as any,
     });
-    render(<ChatView state={state} actions={actions} />);
+    render(withRuntimeConsole(<ChatView />, { state, actions }));
 
     expect(screen.getByText("completed · 1 tool")).toBeTruthy();
     expect(screen.getByText("Thinking")).toBeTruthy();
@@ -1572,7 +1573,7 @@ describe("ChatView input", () => {
         ],
       } as any,
     }, { resolveTaskApproval });
-    render(<ChatView state={state} actions={actions} onOpenTask={onOpenTask} />);
+    render(withRuntimeConsole(<ChatView onOpenTask={onOpenTask} />, { state, actions }));
 
     expect(screen.getByTestId("hecate-task-approval-banner")).toBeTruthy();
     expect(screen.getByText("Approval required")).toBeTruthy();
@@ -1626,7 +1627,7 @@ describe("ChatView input", () => {
         ],
       } as any,
     });
-    render(<ChatView state={state} actions={actions} />);
+    render(withRuntimeConsole(<ChatView />, { state, actions }));
 
     expect(screen.queryByTestId("hecate-task-approval-banner")).toBeNull();
     expect(screen.queryByRole("button", { name: /Approve Agent tool call/i })).toBeNull();
@@ -1636,7 +1637,7 @@ describe("ChatView input", () => {
     const setMessage = vi.fn();
     // Start with empty message so the assertion sees only what we typed.
     const { state, actions } = setup({ chatTarget: "model", message: "" }, { setMessage });
-    render(<ChatView state={state} actions={actions} />);
+    render(withRuntimeConsole(<ChatView />, { state, actions }));
     fireEvent.click(screen.getByRole("button", { name: /new .* chat/i }));
     const ta = screen.getByPlaceholderText(/Message/i) as HTMLTextAreaElement;
     const user = userEvent.setup();
@@ -1661,7 +1662,7 @@ describe("ChatView input", () => {
         provider_calls: [],
       },
     }, { setMessage });
-    const { rerender } = render(<ChatView state={state} actions={actions} />);
+    const { rerender } = render(withRuntimeConsole(<ChatView />, { state, actions }));
 
     let textarea = screen.getByRole("textbox", { name: "Message" }) as HTMLTextAreaElement;
     textarea.setSelectionRange(0, 0);
@@ -1669,20 +1670,20 @@ describe("ChatView input", () => {
     expect(setMessage).toHaveBeenLastCalledWith("second prompt");
 
     const latestState = { ...state, message: "second prompt" };
-    rerender(<ChatView state={latestState} actions={actions} />);
+    rerender(withRuntimeConsole(<ChatView />, { state: latestState, actions }));
     textarea = screen.getByRole("textbox", { name: "Message" }) as HTMLTextAreaElement;
     textarea.setSelectionRange("second prompt".length, "second prompt".length);
     fireEvent.keyDown(textarea, { key: "ArrowUp" });
     expect(setMessage).toHaveBeenLastCalledWith("first prompt");
 
     const oldestState = { ...state, message: "first prompt" };
-    rerender(<ChatView state={oldestState} actions={actions} />);
+    rerender(withRuntimeConsole(<ChatView />, { state: oldestState, actions }));
     textarea = screen.getByRole("textbox", { name: "Message" }) as HTMLTextAreaElement;
     textarea.setSelectionRange("first prompt".length, "first prompt".length);
     fireEvent.keyDown(textarea, { key: "ArrowDown" });
     expect(setMessage).toHaveBeenLastCalledWith("second prompt");
 
-    rerender(<ChatView state={latestState} actions={actions} />);
+    rerender(withRuntimeConsole(<ChatView />, { state: latestState, actions }));
     textarea = screen.getByRole("textbox", { name: "Message" }) as HTMLTextAreaElement;
     textarea.setSelectionRange("second prompt".length, "second prompt".length);
     fireEvent.keyDown(textarea, { key: "ArrowDown" });
@@ -1704,7 +1705,7 @@ describe("ChatView input", () => {
         provider_calls: [],
       },
     }, { setMessage });
-    render(<ChatView state={state} actions={actions} />);
+    render(withRuntimeConsole(<ChatView />, { state, actions }));
 
     const textarea = screen.getByRole("textbox", { name: "Message" }) as HTMLTextAreaElement;
     textarea.setSelectionRange(5, 5);
@@ -1727,14 +1728,14 @@ describe("ChatView input", () => {
         provider_calls: [],
       },
     }, { setMessage });
-    const { rerender } = render(<ChatView state={state} actions={actions} />);
+    const { rerender } = render(withRuntimeConsole(<ChatView />, { state, actions }));
 
     let textarea = screen.getByRole("textbox", { name: "Message" }) as HTMLTextAreaElement;
     textarea.setSelectionRange("draft question".length, "draft question".length);
     fireEvent.keyDown(textarea, { key: "ArrowUp" });
     expect(setMessage).toHaveBeenLastCalledWith("previous prompt");
 
-    rerender(<ChatView state={{ ...state, message: "previous prompt" }} actions={actions} />);
+    rerender(withRuntimeConsole(<ChatView />, { state: { ...state, message: "previous prompt" }, actions }));
     textarea = screen.getByRole("textbox", { name: "Message" }) as HTMLTextAreaElement;
     textarea.setSelectionRange("previous prompt".length, "previous prompt".length);
     fireEvent.keyDown(textarea, { key: "ArrowDown" });
@@ -1745,7 +1746,7 @@ describe("ChatView input", () => {
 describe("ChatView Enter switch", () => {
   it("renders the segmented Enter/⌘+Enter or Ctrl+Enter switch", () => {
     const { state, actions } = setup();
-    render(<ChatView state={state} actions={actions} />);
+    render(withRuntimeConsole(<ChatView />, { state, actions }));
     // The switch is one of the toggle buttons in the input toolbar.
     const buttons = screen.getAllByRole("button");
     const labels = buttons.map(b => b.textContent?.trim()).filter(Boolean);
@@ -1763,7 +1764,7 @@ describe("ChatView chats sidebar", () => {
 
   it("shows 'No chats yet' when chatSessions is empty", () => {
     const { state, actions } = setup({ chatTarget: "model", chatSessions: [] });
-    render(<ChatView state={state} actions={actions} />);
+    render(withRuntimeConsole(<ChatView />, { state, actions }));
     expect(screen.getByText(/No chats yet/i)).toBeTruthy();
   });
 
@@ -1775,7 +1776,7 @@ describe("ChatView chats sidebar", () => {
         { id: "s2", title: "Second chat", message_count: 2, provider_call_count: 1, updated_at: daysAgo(10) } as any,
       ],
     });
-    render(<ChatView state={state} actions={actions} />);
+    render(withRuntimeConsole(<ChatView />, { state, actions }));
     expect(screen.getByText("Today")).toBeTruthy();
     expect(screen.getByText("Older")).toBeTruthy();
     expect(screen.getByText("First chat")).toBeTruthy();
@@ -1790,7 +1791,7 @@ describe("ChatView chats sidebar", () => {
         { id: "s2", title: "Draft release notes", message_count: 2, provider_call_count: 1, last_provider: "openai", updated_at: daysAgo(0) } as any,
       ],
     });
-    render(<ChatView state={state} actions={actions} />);
+    render(withRuntimeConsole(<ChatView />, { state, actions }));
     const user = userEvent.setup();
     await user.type(screen.getByLabelText("Search chats"), "anthropic");
     expect(screen.getByText("Budget check")).toBeTruthy();
@@ -1805,7 +1806,7 @@ describe("ChatView chats sidebar", () => {
         { id: "a2", title: "Cursor repro", adapter_id: "cursor_agent", status: "failed", message_count: 2, updated_at: daysAgo(0) } as any,
       ],
     });
-    render(<ChatView state={state} actions={actions} />);
+    render(withRuntimeConsole(<ChatView />, { state, actions }));
     const user = userEvent.setup();
     await user.type(screen.getByLabelText("Search chats"), "failed");
     expect(screen.getByText("Cursor repro")).toBeTruthy();
@@ -1820,7 +1821,7 @@ describe("ChatView chats sidebar", () => {
         { id: "a1", title: "Codex refactor", adapter_id: "codex", status: "completed", message_count: 4, updated_at: daysAgo(0) } as any,
       ],
     }, { renameChatSession });
-    render(<ChatView state={state} actions={actions} />);
+    render(withRuntimeConsole(<ChatView />, { state, actions }));
 
     const user = userEvent.setup();
     await user.click(screen.getByRole("button", { name: "Rename chat Codex refactor" }));
@@ -1837,7 +1838,7 @@ describe("ChatView chats sidebar", () => {
       chatTarget: "model",
       chatSessions: [{ id: "s1", title: "Pick me", message_count: 0, provider_call_count: 0 } as any],
     }, { selectChatSession });
-    render(<ChatView state={state} actions={actions} />);
+    render(withRuntimeConsole(<ChatView />, { state, actions }));
     const user = userEvent.setup();
     await user.click(screen.getByText("Pick me"));
     expect(selectChatSession).toHaveBeenCalledWith("s1");
@@ -1849,7 +1850,7 @@ describe("ChatView chats sidebar", () => {
       chatTarget: "model",
       chatSessions: [{ id: "s1", title: "Pick me", message_count: 0, provider_call_count: 0 } as any],
     }, { selectChatSession });
-    render(<ChatView state={state} actions={actions} />);
+    render(withRuntimeConsole(<ChatView />, { state, actions }));
     const user = userEvent.setup();
     const row = screen.getByRole("button", { name: /^Chat Pick me$/ });
     row.focus();
@@ -1863,10 +1864,10 @@ describe("ChatView chats sidebar", () => {
 describe("ChatView external-agent target", () => {
   it("shows the unsandboxed external-agent reminder in agent mode only", () => {
     const { state, actions } = setup({ chatTarget: "external_agent" });
-    const { rerender } = render(<ChatView state={state} actions={actions} />);
+    const { rerender } = render(withRuntimeConsole(<ChatView />, { state, actions }));
     expect(screen.getByText(/External agents run as your OS user/)).toBeTruthy();
 
-    rerender(<ChatView state={{ ...state, chatTarget: "model" }} actions={actions} />);
+    rerender(withRuntimeConsole(<ChatView />, { state: { ...state, chatTarget: "model" }, actions }));
     expect(screen.queryByText(/External agents run as your OS user/)).toBeNull();
   });
 
@@ -1880,7 +1881,7 @@ describe("ChatView external-agent target", () => {
         { id: "codex", name: "Codex", kind: "acp", command: "codex-acp", managed: true, managed_package: "@zed-industries/codex-acp", available: false, status: "missing", error: "no local package runner found for @zed-industries/codex-acp", cost_mode: "external" },
       ],
     });
-    render(<ChatView state={state} actions={actions} />);
+    render(withRuntimeConsole(<ChatView />, { state, actions }));
 
     expect(screen.getByText("Codex is unavailable")).toBeTruthy();
     expect(screen.getByText(/could not start Codex/)).toBeTruthy();
@@ -1967,7 +1968,7 @@ describe("ChatView external-agent target", () => {
       } as any,
     }, { setChatTarget, setAgentAdapterID, setNewChatAgent, setAgentChatConfigOption: vi.fn(async () => true) });
     const onOpenTrace = vi.fn();
-    render(<ChatView state={state} actions={actions} onOpenTrace={onOpenTrace} />);
+    render(withRuntimeConsole(<ChatView onOpenTrace={onOpenTrace} />, { state, actions }));
 
     expect(screen.queryByDisplayValue("/tmp/hecate")).toBeNull();
     expect(screen.getByRole("button", { name: /workspace/i })).toBeTruthy();
@@ -2031,7 +2032,7 @@ describe("ChatView external-agent target", () => {
         { id: "claude_code", name: "Claude Code", kind: "acp", command: "claude-agent-acp", available: true, status: "available", cost_mode: "external" },
       ],
     }, { setNewChatAgent });
-    render(<ChatView state={state} actions={actions} />);
+    render(withRuntimeConsole(<ChatView />, { state, actions }));
 
     const user = userEvent.setup();
     await user.click(screen.getByRole("button", { name: "Choose agent for new chat" }));
@@ -2062,7 +2063,7 @@ describe("ChatView external-agent target", () => {
         },
       ],
     }, { setAgentAdapterCredential, probeAgentAdapter });
-    render(<ChatView state={state} actions={actions} onNavigate={onNavigate} />);
+    render(withRuntimeConsole(<ChatView onNavigate={onNavigate} />, { state, actions }));
 
     expect(screen.getByTestId("claude-code-preflight")).toBeTruthy();
     expect(screen.getByText("Set up Claude Code")).toBeTruthy();
@@ -2115,7 +2116,7 @@ describe("ChatView external-agent target", () => {
         },
       ],
     });
-    render(<ChatView state={state} actions={actions} />);
+    render(withRuntimeConsole(<ChatView />, { state, actions }));
 
     expect(screen.getByText("Set up Claude Code")).toBeTruthy();
     expect(screen.getAllByTestId("claude-code-preflight")).toHaveLength(1);
@@ -2143,7 +2144,7 @@ describe("ChatView external-agent target", () => {
         },
       ],
     });
-    render(<ChatView state={state} actions={actions} />);
+    render(withRuntimeConsole(<ChatView />, { state, actions }));
 
     expect(screen.getByText("Available via /opt/homebrew/bin/claude")).toBeTruthy();
     expect(screen.queryByRole("button", { name: "npx -y @anthropic-ai/claude-code --version" })).toBeNull();
@@ -2167,7 +2168,7 @@ describe("ChatView external-agent target", () => {
         },
       ],
     });
-    render(<ChatView state={state} actions={actions} />);
+    render(withRuntimeConsole(<ChatView />, { state, actions }));
 
     expect(screen.getByTestId("claude-code-preflight")).toBeTruthy();
     expect(screen.getByText(/adapter-visible credential/i)).toBeTruthy();
@@ -2194,7 +2195,7 @@ describe("ChatView external-agent target", () => {
         ["claude_code", { adapter_id: "claude_code", status: "ready", stage: "ready", duration_ms: 120 }],
       ]),
     });
-    render(<ChatView state={state} actions={actions} />);
+    render(withRuntimeConsole(<ChatView />, { state, actions }));
 
     expect(screen.getByTestId("claude-code-preflight")).toBeTruthy();
     expect(screen.getByText("adapter installed")).toBeTruthy();
@@ -2224,7 +2225,7 @@ describe("ChatView external-agent target", () => {
         ["claude_code", { adapter_id: "claude_code", status: "ready", stage: "ready", duration_ms: 120 }],
       ]),
     });
-    render(<ChatView state={state} actions={actions} />);
+    render(withRuntimeConsole(<ChatView />, { state, actions }));
 
     expect(screen.queryByTestId("claude-code-preflight")).toBeNull();
   });
@@ -2261,7 +2262,7 @@ describe("ChatView external-agent target", () => {
         ],
       } as any,
     });
-    render(<ChatView state={state} actions={actions} />);
+    render(withRuntimeConsole(<ChatView />, { state, actions }));
 
     expect(screen.getByText("Waiting for agent output...")).toBeTruthy();
     expect(screen.getAllByText("running").length).toBeGreaterThan(0);
@@ -2299,7 +2300,7 @@ describe("ChatView external-agent target", () => {
         ],
       } as any,
     });
-    render(<ChatView state={state} actions={actions} />);
+    render(withRuntimeConsole(<ChatView />, { state, actions }));
 
     expect(screen.getByText("I’ll check the current worktree diff and summarize the changed files plus the important hunks.")).toBeTruthy();
     expect(screen.getByText("I’ll check the current worktree diff and summarize the changed files plus the important hunks.").parentElement?.querySelector("[aria-hidden='true']")).toBeTruthy();
@@ -2341,7 +2342,7 @@ describe("ChatView external-agent target", () => {
         ],
       } as any,
     });
-    render(<ChatView state={state} actions={actions} />);
+    render(withRuntimeConsole(<ChatView />, { state, actions }));
 
     expect(screen.getByText("0.1234 USD")).toBeTruthy();
     expect(screen.getByText("42000/200000 context")).toBeTruthy();
@@ -2388,7 +2389,7 @@ describe("ChatView external-agent target", () => {
       } as any,
       model: "qwen2.5-coder",
     });
-    render(<ChatView state={state} actions={actions} />);
+    render(withRuntimeConsole(<ChatView />, { state, actions }));
 
     await userEvent.click(screen.getByRole("button", { name: "Chat settings" }));
 
@@ -2437,7 +2438,7 @@ describe("ChatView external-agent target", () => {
         ],
       } as any,
     }, { listAgentChatMessageFiles, getAgentChatMessageFileDiff, revertAgentChatMessageFiles });
-    render(<ChatView state={state} actions={actions} />);
+    render(withRuntimeConsole(<ChatView />, { state, actions }));
 
     const user = userEvent.setup();
     await user.click(screen.getByText("files changed · 2 files changed, 6 insertions(+), 1 deletion(-)"));
@@ -2492,7 +2493,7 @@ describe("ChatView external-agent target", () => {
         ],
       } as any,
     }, { listAgentChatMessageFiles, getAgentChatMessageFileDiff, revertAgentChatMessageFiles });
-    render(<ChatView state={state} actions={actions} />);
+    render(withRuntimeConsole(<ChatView />, { state, actions }));
 
     const user = userEvent.setup();
     await user.click(screen.getByText("files changed · 1 file changed, 2 insertions(+), 1 deletion(-)"));
@@ -2541,7 +2542,7 @@ describe("ChatView external-agent target", () => {
       getAgentChatMessageFileDiff: vi.fn(async () => null),
       revertAgentChatMessageFiles: vi.fn(async () => false),
     });
-    render(<ChatView state={state} actions={actions} />);
+    render(withRuntimeConsole(<ChatView />, { state, actions }));
 
     const user = userEvent.setup();
     await user.click(screen.getByText("files changed · 1 file changed, 2 insertions(+), 1 deletion(-)"));
@@ -2580,7 +2581,7 @@ describe("ChatView external-agent target", () => {
         ],
       } as any,
     }, { listAgentChatMessageFiles, revertAgentChatMessageFiles });
-    render(<ChatView state={state} actions={actions} />);
+    render(withRuntimeConsole(<ChatView />, { state, actions }));
 
     const user = userEvent.setup();
     await user.click(screen.getByText("files changed · 1 file changed, 2 insertions(+), 1 deletion(-)"));
@@ -2612,7 +2613,7 @@ describe("ChatView external-agent target", () => {
         messages: [],
       } as any,
     });
-    render(<ChatView state={state} actions={actions} />);
+    render(withRuntimeConsole(<ChatView />, { state, actions }));
 
     const stop = screen.getByRole("button", { name: "Stop external agent" }) as HTMLButtonElement;
     expect(stop.disabled).toBe(true);
@@ -2654,7 +2655,7 @@ describe("ChatView external-agent target", () => {
         ],
       } as any,
     });
-    render(<ChatView state={state} actions={actions} />);
+    render(withRuntimeConsole(<ChatView />, { state, actions }));
 
     expect(screen.getByText("agent run failed")).toBeTruthy();
     expect(screen.getAllByText("Claude Code usage limit: credit balance is too low").length).toBeGreaterThan(0);
@@ -2671,7 +2672,7 @@ describe("ChatView external-agent target", () => {
         { id: "codex", name: "Codex", kind: "acp", command: "codex-acp", available: true, status: "available", cost_mode: "external" },
       ],
     }, { chooseAgentWorkspace });
-    render(<ChatView state={state} actions={actions} />);
+    render(withRuntimeConsole(<ChatView />, { state, actions }));
 
     const user = userEvent.setup();
     await user.click(screen.getByTitle("Choose workspace folder"));
@@ -2688,7 +2689,7 @@ describe("ChatView external-agent target", () => {
         { id: "codex", name: "Codex", kind: "acp", command: "codex-acp", available: true, status: "available", cost_mode: "external" },
       ],
     }, { chooseAgentWorkspace, setAgentWorkspace });
-    render(<ChatView state={state} actions={actions} />);
+    render(withRuntimeConsole(<ChatView />, { state, actions }));
 
     const user = userEvent.setup();
     await user.click(screen.getByTitle("Choose workspace folder"));
@@ -2707,7 +2708,7 @@ describe("ChatView external-agent target", () => {
         { id: "codex", name: "Codex", kind: "acp", command: "codex-acp", available: true, status: "available", cost_mode: "external" },
       ],
     });
-    render(<ChatView state={state} actions={actions} />);
+    render(withRuntimeConsole(<ChatView />, { state, actions }));
 
     const send = document.querySelector("button[type='submit']") as HTMLButtonElement;
     expect(send.disabled).toBe(true);
@@ -2731,7 +2732,7 @@ describe("ChatView external-agent target", () => {
         },
       ],
     }, { chooseAgentWorkspace });
-    render(<ChatView state={state} actions={actions} />);
+    render(withRuntimeConsole(<ChatView />, { state, actions }));
 
     expect(screen.getByText(/Hecate uses the workspace as the working directory/)).toBeTruthy();
     const user = userEvent.setup();
@@ -2756,7 +2757,7 @@ describe("ChatView model target", () => {
         provider_calls: [],
       } as any,
     });
-    render(<ChatView state={state} actions={actions} />);
+    render(withRuntimeConsole(<ChatView />, { state, actions }));
 
     expect(screen.getByRole("img", { name: "Completed task" })).toBeTruthy();
     expect(screen.getByRole("img", { name: "Incomplete task" })).toBeTruthy();
@@ -2792,7 +2793,7 @@ describe("ChatView model target", () => {
         { id: "gpt-4.1-mini", owned_by: "openai", metadata: { provider: "openai", provider_kind: "cloud" } },
       ],
     }, { setProviderFilter, setModel });
-    render(<ChatView state={state} actions={actions} />);
+    render(withRuntimeConsole(<ChatView />, { state, actions }));
 
     const user = userEvent.setup();
     const providerPicker = screen.getByRole("button", { name: /OpenAI/i }) as HTMLButtonElement;
@@ -2812,7 +2813,7 @@ describe("ChatView model target", () => {
 describe("ChatView error display", () => {
   it("renders chatError using InlineError styling", () => {
     const { state, actions } = setup({ chatError: "Provider returned 500" });
-    render(<ChatView state={state} actions={actions} />);
+    render(withRuntimeConsole(<ChatView />, { state, actions }));
     expect(screen.getByText(/Provider returned 500/)).toBeTruthy();
   });
 
@@ -2826,7 +2827,7 @@ describe("ChatView error display", () => {
       chatErrorStatus: 502,
       chatErrorTraceID: "trace_abcdef1234567890",
     });
-    render(<ChatView state={state} actions={actions} onOpenTrace={openTrace} />);
+    render(withRuntimeConsole(<ChatView onOpenTrace={openTrace} />, { state, actions }));
     expect(screen.getByText("Provider credentials failed")).toBeTruthy();
     expect(screen.getByText("502 · provider_auth_failed")).toBeTruthy();
     expect(screen.getByText(/Rotate the provider key in Connections/)).toBeTruthy();
@@ -2848,7 +2849,7 @@ describe("ChatView session title", () => {
       activeAgentChatSessionID: "",
       message: "",
     });
-    render(<ChatView state={state} actions={actions} />);
+    render(withRuntimeConsole(<ChatView />, { state, actions }));
     expect(screen.getAllByText("No chats yet").length).toBeGreaterThan(0);
     expect(screen.queryByRole("textbox", { name: "Message" })).toBeNull();
     expect(screen.queryByLabelText("Chat header actions")).toBeNull();
@@ -2859,7 +2860,7 @@ describe("ChatView session title", () => {
       chatTarget: "model",
       activeChatSession: { id: "s1", title: "Hello world", messages: [], provider_calls: [] } as any,
     });
-    render(<ChatView state={state} actions={actions} />);
+    render(withRuntimeConsole(<ChatView />, { state, actions }));
     expect(screen.getByText("Hello world")).toBeTruthy();
   });
 
@@ -2889,7 +2890,7 @@ describe("ChatView session title", () => {
       } as any,
     });
 
-    render(<ChatView state={state} actions={actions} />);
+    render(withRuntimeConsole(<ChatView />, { state, actions }));
 
     expect(screen.getByText("Repo work")).toBeTruthy();
     expect(screen.getByText("Tools on · /Users/alice/dev/hecate")).toBeTruthy();
@@ -2904,7 +2905,7 @@ describe("ChatView New chat button", () => {
     const createChatSession = vi.fn();
     const { state, actions } = setup({}, { createChatSession });
     const user = userEvent.setup();
-    render(<ChatView state={state} actions={actions} />);
+    render(withRuntimeConsole(<ChatView />, { state, actions }));
     await user.click(screen.getByRole("button", { name: /new .* chat/i }));
     expect(createChatSession).toHaveBeenCalled();
     const textarea = screen.getByPlaceholderText(/^Message…/i);
@@ -2925,7 +2926,7 @@ describe("ChatView session focus", () => {
       chatSessions: [{ id: "s2", title: "Pick me", message_count: 0, provider_call_count: 0 } as any],
     }, { selectChatSession });
     const user = userEvent.setup();
-    const { rerender } = render(<ChatView state={state} actions={actions} />);
+    const { rerender } = render(withRuntimeConsole(<ChatView />, { state, actions }));
     // Move focus elsewhere to detect the jump.
     const searchInput = screen.getByRole("textbox", { name: "Search chats" });
     searchInput.focus();
@@ -2937,7 +2938,7 @@ describe("ChatView session focus", () => {
       activeChatSessionID: "s2",
       activeChatSession: { id: "s2", title: "Pick me", messages: [], provider_calls: [] } as any,
     }).state;
-    rerender(<ChatView state={nextState} actions={actions} />);
+    rerender(withRuntimeConsole(<ChatView />, { state: nextState, actions }));
     const textarea = screen.getByPlaceholderText(/^Message…/i);
     await waitFor(() => expect(document.activeElement).toBe(textarea));
     expect(selectChatSession).toHaveBeenCalledWith("s2");
@@ -2947,11 +2948,11 @@ describe("ChatView session focus", () => {
     // Initial-load and API-driven session arrivals must not steal
     // focus — page-level shortcuts depend on it. Asserts the negative.
     const { state, actions } = setup({ chatTarget: "model", activeChatSessionID: "" });
-    const { rerender } = render(<ChatView state={state} actions={actions} />);
+    const { rerender } = render(withRuntimeConsole(<ChatView />, { state, actions }));
     const searchInput = screen.getByRole("textbox", { name: "Search chats" });
     searchInput.focus();
     const next = { ...state, activeChatSessionID: "s1" };
-    rerender(<ChatView state={next} actions={actions} />);
+    rerender(withRuntimeConsole(<ChatView />, { state: next, actions }));
     // Focus must STAY on the search input — the effect should not have
     // jumped to the textarea on a programmatic ID transition.
     expect(document.activeElement).toBe(searchInput);
@@ -2968,7 +2969,7 @@ describe("ChatView history pagination", () => {
         { id: "s1", title: "First page", message_count: 1, provider_call_count: 1 } as any,
       ],
     }, { loadMoreChatSessions });
-    render(<ChatView state={state} actions={actions} />);
+    render(withRuntimeConsole(<ChatView />, { state, actions }));
 
     expect(screen.queryByRole("button", { name: "Load earlier chats" })).toBeNull();
     expect(loadMoreChatSessions).not.toHaveBeenCalled();
@@ -2983,7 +2984,7 @@ describe("ChatView history pagination", () => {
         { id: "s1", title: "First page", message_count: 1, provider_call_count: 1 } as any,
       ],
     }, { loadMoreChatSessions });
-    render(<ChatView state={state} actions={actions} />);
+    render(withRuntimeConsole(<ChatView />, { state, actions }));
 
     const user = userEvent.setup();
     await user.type(screen.getByRole("textbox", { name: "Search chats" }), "older match");
@@ -3002,7 +3003,7 @@ describe("ChatView agent approvals", () => {
       chatTarget: "external_agent",
       agentAdapterApprovalMode: "auto",
     });
-    render(<ChatView state={state} actions={actions} />);
+    render(withRuntimeConsole(<ChatView />, { state, actions }));
     expect(screen.getByTestId("agent-approval-auto-banner")).toBeTruthy();
   });
 
@@ -3011,7 +3012,7 @@ describe("ChatView agent approvals", () => {
       chatTarget: "external_agent",
       agentAdapterApprovalMode: "prompt",
     });
-    render(<ChatView state={state} actions={actions} />);
+    render(withRuntimeConsole(<ChatView />, { state, actions }));
     expect(screen.queryByTestId("agent-approval-auto-banner")).toBeNull();
   });
 
@@ -3020,7 +3021,7 @@ describe("ChatView agent approvals", () => {
       chatTarget: "model",
       agentAdapterApprovalMode: "auto",
     });
-    render(<ChatView state={state} actions={actions} />);
+    render(withRuntimeConsole(<ChatView />, { state, actions }));
     expect(screen.queryByTestId("agent-approval-auto-banner")).toBeNull();
   });
 
@@ -3056,7 +3057,7 @@ describe("ChatView agent approvals", () => {
       },
       { getAgentChatApproval },
     );
-    render(<ChatView state={state} actions={actions} />);
+    render(withRuntimeConsole(<ChatView />, { state, actions }));
 
     // Only the active session's pending row is visible — banner must
     // not bleed approvals from other sessions.
@@ -3093,7 +3094,7 @@ describe("ChatView agent approvals", () => {
       },
       { getAgentChatApproval },
     );
-    const view = render(<ChatView state={externalState} actions={actions} />);
+    const view = render(withRuntimeConsole(<ChatView />, { state: externalState, actions }));
 
     const user = userEvent.setup();
     await user.click(screen.getByTestId("agent-approval-banner-review"));
@@ -3108,7 +3109,7 @@ describe("ChatView agent approvals", () => {
       },
       { getAgentChatApproval },
     );
-    view.rerender(<ChatView state={hecateState} actions={actions} />);
+    view.rerender(withRuntimeConsole(<ChatView />, { state: hecateState, actions }));
 
     expect(getAgentChatApproval).toHaveBeenCalledTimes(1);
   });

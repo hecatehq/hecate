@@ -1,13 +1,10 @@
 import { useEffect, useRef, type ReactNode } from "react";
+import { useRuntimeConsoleContext } from "../../app/RuntimeConsoleContext";
 import type { RuntimeConsoleViewModel } from "../../app/useRuntimeConsole";
 import { Badge, Icon, Icons, InlineError } from "../shared/ui";
 
-type Props = {
-  state: RuntimeConsoleViewModel["state"];
-  actions: RuntimeConsoleViewModel["actions"];
-};
-
-export function SettingsView({ state, actions }: Props) {
+export function SettingsView() {
+  const { state, actions } = useRuntimeConsoleContext();
   // Retention runs aren't in the boot-time dashboard snapshot —
   // fetch on first SettingsView mount so the user doesn't see a
   // permanently empty list. `actions` (and the functions on it)
@@ -113,7 +110,10 @@ function relativeTime(iso: string): string {
   return `${Math.floor(h / 24)}d ago`;
 }
 
-function RetentionSettings({ state, actions }: Props) {
+function RetentionSettings({ state, actions }: {
+  state: RuntimeConsoleViewModel["state"];
+  actions: RuntimeConsoleViewModel["actions"];
+}) {
   const runs = state.retentionRuns ?? [];
   const lastRun = state.retentionLastRun;
   const lastRunResults = lastRun?.results ?? [];
