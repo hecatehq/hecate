@@ -1,4 +1,4 @@
-// usePersistedState: localStorage-backed state hook with a narrow
+// usePersistedState: browser-storage-backed state hook with a narrow
 // shape guard. Replaces the ten inline `useEffect(() =>
 // localStorage.setItem(k, v), [v])` patterns in
 // app/useRuntimeConsole.ts and the bespoke read/write helpers for
@@ -17,9 +17,15 @@
 // regressions surface during development instead of compounding.
 //
 // On write, the hook serialises (default `JSON.stringify`) and
-// writes to localStorage. Pass `shouldRemove` to delete the key when
-// the value reaches a "cleared" state (empty string, empty array)
-// instead of persisting the empty representation.
+// writes to the chosen storage area. Pass `shouldRemove` to delete
+// the key when the value reaches a "cleared" state (empty string,
+// empty array) instead of persisting the empty representation.
+//
+// The `storage` option chooses between `localStorage` (default —
+// survives across browser sessions) and `sessionStorage` (cleared
+// when the tab closes — right for "dismissed for this session"-type
+// flags). Don't flip between the two for the same key mid-lifetime;
+// the previous area keeps its stale value.
 //
 // Browser storage failures (quota, private mode, blocked by policy)
 // are caught and logged but never thrown — the in-memory state
@@ -29,6 +35,8 @@ import { useEffect, useRef, useState } from "react";
 
 import { warn as logWarn } from "./log";
 
+export type StorageArea = "local" | "session";
+
 export type PersistedStateOptions<T> = {
   /** Serialise T → storage string. Defaults to `JSON.stringify`. */
   serialize?: (value: T) => string;
@@ -36,6 +44,11 @@ export type PersistedStateOptions<T> = {
    *  "" / [] / null sentinel values that previously cleared the
    *  key via removeItem in the per-field code. */
   shouldRemove?: (value: T) => boolean;
+  /** Which Web Storage area to back the value with. `"local"` (the
+   *  default) survives across browser sessions; `"session"` clears
+   *  when the tab closes — right for "dismissed for this session"-
+   *  type sentinels. */
+  storage?: StorageArea;
 };
 
 /** Pass-through parse for raw string storage (the most common case). */
@@ -59,11 +72,22 @@ export function parseStoredJSON<T>(guard: (parsed: unknown) => T | null): (raw: 
 
 const isBrowser = typeof window !== "undefined" && typeof window.localStorage !== "undefined";
 
-function readInitial<T>(key: string, parse: (raw: string) => T | null, fallback: T): T {
-  if (!isBrowser) return fallback;
+function resolveStorage(area: StorageArea | undefined): Storage | null {
+  if (!isBrowser) return null;
+  return area === "session" ? window.sessionStorage : window.localStorage;
+}
+
+function readInitial<T>(
+  key: string,
+  parse: (raw: string) => T | null,
+  fallback: T,
+  area: StorageArea | undefined,
+): T {
+  const storage = resolveStorage(area);
+  if (!storage) return fallback;
   let raw: string | null;
   try {
-    raw = window.localStorage.getItem(key);
+    raw = storage.getItem(key);
   } catch (err) {
     logWarn(`usePersistedState: read failed for ${key}:`, err);
     return fallback;
@@ -73,7 +97,7 @@ function readInitial<T>(key: string, parse: (raw: string) => T | null, fallback:
   if (value === null) {
     // Shape mismatch — wipe the key so the next render starts clean.
     try {
-      window.localStorage.removeItem(key);
+      storage.removeItem(key);
     } catch {
       // Best-effort.
     }
@@ -91,6 +115,7 @@ export function usePersistedState<T>(
 ): [T, React.Dispatch<React.SetStateAction<T>>] {
   const serialize = options.serialize ?? defaultSerialize;
   const shouldRemove = options.shouldRemove;
+  const storageArea = options.storage;
   // Mirror callbacks to refs so the write effect doesn't re-bind
   // each render when a caller passes a fresh closure.
   const serializeRef = useRef(serialize);
@@ -98,32 +123,33 @@ export function usePersistedState<T>(
   const shouldRemoveRef = useRef(shouldRemove);
   shouldRemoveRef.current = shouldRemove;
 
-  const [value, setValue] = useState<T>(() => readInitial(key, parse, fallback));
+  const [value, setValue] = useState<T>(() => readInitial(key, parse, fallback, storageArea));
 
   // Skip the very first effect run — `useState`'s init function
-  // already reflected what was in localStorage (or wiped + fell
-  // back). Writing on mount would re-persist the fallback after a
+  // already reflected what was in storage (or wiped + fell back).
+  // Writing on mount would re-persist the fallback after a
   // rejection, defeating the wipe. Only writes triggered by
   // setValue() should propagate to storage.
   const hasMountedRef = useRef(false);
   useEffect(() => {
-    if (!isBrowser) return;
+    const storage = resolveStorage(storageArea);
+    if (!storage) return;
     if (!hasMountedRef.current) {
       hasMountedRef.current = true;
       return;
     }
     try {
       if (shouldRemoveRef.current?.(value)) {
-        window.localStorage.removeItem(key);
+        storage.removeItem(key);
         return;
       }
-      window.localStorage.setItem(key, serializeRef.current(value));
+      storage.setItem(key, serializeRef.current(value));
     } catch (err) {
       // Quota, private mode, browser policy — keep state usable
       // even when persistence isn't.
       logWarn(`usePersistedState: write failed for ${key}:`, err);
     }
-  }, [key, value]);
+  }, [key, value, storageArea]);
 
   return [value, setValue];
 }

@@ -156,6 +156,56 @@ describe("usePersistedState (write failures)", () => {
   });
 });
 
+describe("usePersistedState (sessionStorage)", () => {
+  beforeEach(() => {
+    window.sessionStorage.clear();
+  });
+  afterEach(() => {
+    window.sessionStorage.clear();
+  });
+
+  it("reads and writes to sessionStorage instead of localStorage", () => {
+    window.sessionStorage.setItem("k", "stored");
+    const { result } = renderHook(() =>
+      usePersistedState("k", parseStoredString, "fallback", { storage: "session" }),
+    );
+    expect(result.current[0]).toBe("stored");
+    act(() => result.current[1]("next"));
+    expect(window.sessionStorage.getItem("k")).toBe("next");
+    expect(window.localStorage.getItem("k")).toBeNull();
+  });
+
+  it("falls back when sessionStorage is empty", () => {
+    const { result } = renderHook(() =>
+      usePersistedState("k", parseStoredString, "fallback", { storage: "session" }),
+    );
+    expect(result.current[0]).toBe("fallback");
+  });
+
+  it("honours shouldRemove against sessionStorage", () => {
+    const { result } = renderHook(() =>
+      usePersistedState("k", parseStoredString, "", {
+        storage: "session",
+        shouldRemove: (v) => v === "",
+      }),
+    );
+    act(() => result.current[1]("a"));
+    expect(window.sessionStorage.getItem("k")).toBe("a");
+    act(() => result.current[1](""));
+    expect(window.sessionStorage.getItem("k")).toBeNull();
+  });
+
+  it("wipes a malformed sessionStorage value the same way", () => {
+    window.sessionStorage.setItem("k", "garbage");
+    const parse = (raw: string): "valid" | null => (raw === "valid" ? raw : null);
+    const { result } = renderHook(() =>
+      usePersistedState("k", parse, "fallback" as const, { storage: "session" }),
+    );
+    expect(result.current[0]).toBe("fallback");
+    expect(window.sessionStorage.getItem("k")).toBeNull();
+  });
+});
+
 describe("usePersistedState (custom serialize)", () => {
   it("uses a caller-supplied serialize function", () => {
     const { result } = renderHook(() =>
