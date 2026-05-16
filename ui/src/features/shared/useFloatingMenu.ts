@@ -40,6 +40,12 @@ export type FloatingMenuOptions = {
 
 export type FloatingMenu<WrapEl extends HTMLElement, TriggerEl extends HTMLElement> = {
   open: boolean;
+  /** Deliberately narrower than `Dispatch<SetStateAction<boolean>>` —
+   *  takes a plain `boolean`, not a functional updater. Callers that
+   *  want "flip the current value" should use `toggle()` instead.
+   *  Hiding the functional form keeps the consumer surface small and
+   *  prevents the "I passed a function, why did it stringify?" foot-
+   *  gun in callers used to `useState`. */
   setOpen: (next: boolean) => void;
   toggle: () => void;
   close: () => void;
