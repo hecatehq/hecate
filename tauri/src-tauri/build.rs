@@ -7,5 +7,12 @@ fn main() {
         "cargo:rustc-env=TARGET={}",
         std::env::var("TARGET").expect("TARGET set by cargo for build scripts")
     );
-    tauri_build::build()
+    // Auto-generate ACL permissions (allow-/deny-) for each custom
+    // invoke_handler command. Without this, invoke("set_update_badge", …)
+    // is rejected with "not allowed. Plugin not found" on the gateway
+    // origin (http://127.0.0.1:*) — Tauri 2's ACL needs an explicit
+    // permission entry per command for any non-local URL.
+    let attributes = tauri_build::Attributes::new()
+        .app_manifest(tauri_build::AppManifest::new().commands(&["set_update_badge"]));
+    tauri_build::try_build(attributes).expect("tauri-build failed");
 }

@@ -43,8 +43,16 @@ export default function App() {
 export function installTauriDocumentMarkers(): () => void {
   if (!isTauriRuntime()) return () => undefined;
   document.documentElement.dataset.tauri = "true";
+  // Surface the platform so App.css can reserve room for the macOS
+  // overlay-titlebar traffic-light cluster (left 76px). On Linux /
+  // Windows the native titlebar lives outside the webview and no
+  // padding is needed.
+  if (/mac/i.test(navigator.platform)) {
+    document.documentElement.dataset.tauriOs = "macos";
+  }
   return () => {
     delete document.documentElement.dataset.tauri;
+    delete document.documentElement.dataset.tauriOs;
   };
 }
 

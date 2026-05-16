@@ -3,9 +3,12 @@ import { afterEach, describe, expect, it, vi } from "vitest";
 import { installTauriDocumentMarkers, installTauriEditShortcutFallback } from "./App";
 
 describe("installTauriDocumentMarkers", () => {
+  const originalPlatform = navigator.platform;
   afterEach(() => {
     Reflect.deleteProperty(window, "__TAURI_INTERNALS__");
     delete document.documentElement.dataset.tauri;
+    delete document.documentElement.dataset.tauriOs;
+    Object.defineProperty(navigator, "platform", { configurable: true, value: originalPlatform });
   });
 
   it("marks the document only inside Tauri", () => {
@@ -23,6 +26,28 @@ describe("installTauriDocumentMarkers", () => {
     expect(document.documentElement.dataset.tauri).toBe("true");
     cleanup();
     expect(document.documentElement.dataset.tauri).toBeUndefined();
+  });
+
+  it("surfaces the macOS platform so App.css can reserve traffic-light room", () => {
+    Reflect.set(window, "__TAURI_INTERNALS__", {});
+    Object.defineProperty(navigator, "platform", { configurable: true, value: "MacIntel" });
+
+    const cleanup = installTauriDocumentMarkers();
+
+    expect(document.documentElement.dataset.tauriOs).toBe("macos");
+    cleanup();
+    expect(document.documentElement.dataset.tauriOs).toBeUndefined();
+  });
+
+  it("omits the OS marker on Linux / Windows where the native titlebar sits outside the webview", () => {
+    Reflect.set(window, "__TAURI_INTERNALS__", {});
+    Object.defineProperty(navigator, "platform", { configurable: true, value: "Linux x86_64" });
+
+    const cleanup = installTauriDocumentMarkers();
+
+    expect(document.documentElement.dataset.tauri).toBe("true");
+    expect(document.documentElement.dataset.tauriOs).toBeUndefined();
+    cleanup();
   });
 });
 
