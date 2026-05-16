@@ -9,3 +9,12 @@ export function isTauriRuntime(): boolean {
     && (Object.prototype.hasOwnProperty.call(window, "__TAURI_INTERNALS__")
       || Object.prototype.hasOwnProperty.call(window, "__TAURI__"));
 }
+
+// True only when running inside the Tauri runtime AND the host is
+// macOS. Gates the overlay-titlebar layout (28-px strip with
+// traffic-light pad + draggable banner). On Linux/Windows Tauri
+// honors `decorations: true` with a native titlebar above the
+// webview, so we don't want a second titlebar-shaped strip below it.
+export function isTauriOnMacOS(): boolean {
+  return isTauriRuntime() && typeof navigator !== "undefined" && /mac/i.test(navigator.platform);
+}

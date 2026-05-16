@@ -3,6 +3,7 @@ import { Suspense, lazy, useEffect, useState } from "react";
 import type { RuntimeConsoleViewModel } from "./useRuntimeConsole";
 import type { AgentChatUsageRecord } from "../types/runtime";
 import { UpdateBanner } from "../features/shared/UpdateBanner";
+import { isTauriOnMacOS } from "../lib/tauri";
 
 // Each workspace view is its own dynamic chunk so the initial
 // page load only ships the shell + active workspace, not all six.
@@ -263,6 +264,14 @@ function AuthenticatedShell({
   const agentUsage = latestAgentUsage(state);
   const agentUsageLabel = formatAgentUsagePill(agentUsage);
 
+  // Only macOS gets the overlay-titlebar surface. titleBarStyle:
+  // "Overlay" is a macOS-only Tauri config; on Linux/Windows the OS
+  // draws its own decorations above the webview, so stacking a custom
+  // 28-px strip below them would be redundant chrome. On those
+  // platforms the UpdateBanner falls back to its old slot at the top
+  // of the workspace content (below).
+  const hasOverlayTitlebar = isTauriOnMacOS();
+
   return (
     <div className="hecate-shell">
       {/* Overlay-titlebar surface. data-tauri-drag-region="deep" lets
@@ -270,9 +279,11 @@ function AuthenticatedShell({
           buttons / inputs (Tauri's drag.js auto-detects clickable
           elements). When there's no update the bar is empty and the
           whole strip drags. */}
-      <div className="hecate-titlebar" data-tauri-drag-region="deep">
-        <UpdateBanner />
-      </div>
+      {hasOverlayTitlebar && (
+        <div className="hecate-titlebar" data-tauri-drag-region="deep">
+          <UpdateBanner />
+        </div>
+      )}
       <div className="hecate-workarea">
         {/* Activity bar */}
         <nav className="hecate-activitybar" aria-label="Workspace navigation">
@@ -303,6 +314,7 @@ function AuthenticatedShell({
 
         {/* Main content */}
         <main className="hecate-content">
+          {!hasOverlayTitlebar && <UpdateBanner />}
           {state.error && <div className="page-banner page-banner--error">{state.error}</div>}
           <div className={`console-content${isBare ? " console-content--bare" : ""}`}>
             <Suspense fallback={<WorkspaceFallback />}>

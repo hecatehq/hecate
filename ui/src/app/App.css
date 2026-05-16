@@ -9,35 +9,29 @@
   background: var(--bg0);
 }
 
-.hecate-titlebar {
-  display: none;
-}
-
-html[data-tauri="true"] .hecate-shell {
+/* The overlay-titlebar strip is macOS-only. Linux/Windows render
+   the UpdateBanner inside .hecate-content instead — see
+   AppShell.tsx's hasOverlayTitlebar gate — so we don't reserve the
+   28-px top inset on those platforms. */
+html[data-tauri-os="macos"] .hecate-shell {
   padding-top: 28px;
 }
 
-html[data-tauri="true"] .hecate-titlebar {
+.hecate-titlebar {
   display: flex;
   align-items: center;
   position: absolute;
   inset: 0 0 auto 0;
   height: 28px;
   z-index: 1000;
-  padding: 0 12px;
+  /* Leave room for the native traffic-light cluster on the left. */
+  padding: 0 12px 0 76px;
   /* Native titlebars don't select-on-drag; matching that prevents
      the cursor from leaving a highlight smear while dragging the
      window from over text content. */
   user-select: none;
   -webkit-user-select: none;
   cursor: default;
-}
-
-/* macOS overlay titlebar reserves the leftmost 76px for the native
-   traffic-light controls. Skip the padding elsewhere — Linux/Windows
-   keep the native titlebar outside the webview. */
-html[data-tauri-os="macos"] .hecate-titlebar {
-  padding-left: 76px;
 }
 
 /* Compact the update banner so it lives in the 28-px overlay
