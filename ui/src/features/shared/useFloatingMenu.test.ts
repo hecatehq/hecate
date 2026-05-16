@@ -1,4 +1,5 @@
 import { act, renderHook } from "@testing-library/react";
+import { StrictMode } from "react";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 import { useFloatingMenu } from "./useFloatingMenu";
@@ -46,6 +47,22 @@ describe("useFloatingMenu", () => {
     expect(onClose).not.toHaveBeenCalled();
     act(() => result.current.toggle());
     expect(onClose).toHaveBeenCalledTimes(1);
+  });
+
+  // The commit-phase effect (previousOpenRef + useEffect on [open])
+  // exists specifically to keep onClose at exactly-once per
+  // close transition under StrictMode. Calling onClose from inside
+  // a state updater would fire twice because React 19 invokes
+  // updaters twice in dev to surface impure setters.
+  it("fires onClose exactly once per close transition under StrictMode", () => {
+    const onClose = vi.fn();
+    const { result } = renderHook(() => useFloatingMenu({ onClose }), { wrapper: StrictMode });
+    act(() => result.current.setOpen(true));
+    act(() => result.current.setOpen(false));
+    expect(onClose).toHaveBeenCalledTimes(1);
+    act(() => result.current.toggle());
+    act(() => result.current.toggle());
+    expect(onClose).toHaveBeenCalledTimes(2);
   });
 
   describe("outside-click behaviour", () => {
@@ -163,5 +180,24 @@ describe("useFloatingMenu", () => {
     const { unmount } = renderHook(() => useFloatingMenu());
     unmount();
     expect(remove).toHaveBeenCalledWith("mousedown", expect.any(Function));
+  });
+
+  // The outside-click effect deps on `[closeOn, portalSelector]`.
+  // If a consumer flips either between renders the hook needs to
+  // re-bind so the new event type / selector takes effect — verified
+  // here so a future "depend on `open` too" change can't silently
+  // wedge the closeOn path.
+  it("re-binds the document listener when closeOn or portalSelector changes", () => {
+    const add = vi.spyOn(document, "addEventListener");
+    const remove = vi.spyOn(document, "removeEventListener");
+    const { rerender } = renderHook(
+      ({ closeOn }: { closeOn: "mousedown" | "click" }) => useFloatingMenu({ closeOn }),
+      { initialProps: { closeOn: "mousedown" } },
+    );
+    const initialAdds = add.mock.calls.filter(([type]) => type === "mousedown").length;
+    rerender({ closeOn: "click" });
+    expect(remove).toHaveBeenCalledWith("mousedown", expect.any(Function));
+    expect(add.mock.calls.filter(([type]) => type === "click").length).toBeGreaterThanOrEqual(1);
+    expect(add.mock.calls.filter(([type]) => type === "mousedown").length).toBe(initialAdds);
   });
 });
