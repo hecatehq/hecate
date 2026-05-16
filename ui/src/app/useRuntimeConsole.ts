@@ -352,11 +352,23 @@ export function useRuntimeConsole() {
   const [chatErrorRequestID, setChatErrorRequestID] = useState("");
   const [chatErrorTraceID, setChatErrorTraceID] = useState("");
   const [modelFilter, setModelFilter] = useState<ModelFilter>("all");
-  const [providerFilter, setProviderFilter] = usePersistedState<ProviderFilter>(
-    "hecate.providerFilter",
-    (raw) => raw as ProviderFilter,
-    "auto",
-  );
+  // providerFilter intentionally stays on the legacy useState +
+  // mount-read + write-on-change pattern. Three e2e scenarios
+  // (chat.spec.ts lines 617, 767, 1288) depend on the original
+  // timing where providerFilter starts at the useState default
+  // "auto" for one render, then transitions when the read effect
+  // fires. Migrating providerFilter to usePersistedState (which
+  // seeds from localStorage in the lazy initializer) shifts that
+  // transition and breaks the auto-default cascade those tests
+  // rely on. The other ten keys do not have this entanglement.
+  const [providerFilter, setProviderFilter] = useState<ProviderFilter>("auto");
+  useEffect(() => {
+    const stored = window.localStorage.getItem("hecate.providerFilter");
+    if (stored) setProviderFilter(stored as ProviderFilter);
+  }, []);
+  useEffect(() => {
+    window.localStorage.setItem("hecate.providerFilter", providerFilter);
+  }, [providerFilter]);
   const [copiedCommand, setCopiedCommand] = useState("");
 
   const [sessionInfo, setSessionInfo] = useState<SessionResponse["data"] | null>(null);
@@ -479,6 +491,7 @@ export function useRuntimeConsole() {
     const nextModel = defaultModelForProvider(providerFilter, models, providers, providerPresets);
     setModel(nextModel);
   }, [model, models, providerFilter, providers, providerPresets]);
+
 
   useEffect(() => {
     if (providerFilter === "auto" || model !== "" || models.length === 0) {
