@@ -1,22 +1,15 @@
-import { useEffect, useMemo, useRef, useState, type SyntheticEvent } from "react";
+import { useEffect, useMemo, useState, type SyntheticEvent } from "react";
 
-import { parseStoredJSON, parseStoredString, usePersistedState } from "../lib/persistedState";
 import {
   type ChatTarget,
   type HecateChatTarget,
   type QueuedChatMessage,
   normalizeStoredHecateChatTarget,
-  parseChatTargetsBySessionID,
-  parseQueuedChatMessageList,
-  parseStoredChatTarget,
-  queuedChatMessagesStorageKey,
-  serializeChatTargetsBySessionID,
 } from "./state/_shared";
 import { buildLocalProviderIssue } from "../lib/provider-issues";
 import type { LocalProviderIssue } from "../lib/provider-issues";
 import { filterModelsByKind, filterModelsByProvider } from "../lib/runtime-utils";
 import {
-  ApiError,
   type ChatMessage,
   chooseWorkspaceDirectory as chooseWorkspaceDirectoryRequest,
   chatCompletionsStream,
@@ -63,6 +56,7 @@ import {
 } from "./runtimeConsoleChatHelpers";
 import { deriveSessionState, resolveDashboardSnapshot } from "./runtimeConsoleDashboard";
 import { useApprovals } from "./state/approvals";
+import { useChat } from "./state/chat";
 import { useModelChat } from "./state/modelChat";
 import { useProvidersAndModels } from "./state/providersAndModels";
 import { useRetention } from "./state/retention";
@@ -75,10 +69,8 @@ import type {
   AgentChatChangedFileDiffRecord,
   AgentChatChangedFileRecord,
   AgentChatSessionRecord,
-  AgentChatSessionsResponse,
   ChatResponse,
   ConfiguredStateResponse,
-  ModelFilter,
   ProviderFilter,
   RuntimeHeaders,
 } from "../types/runtime";
@@ -203,36 +195,68 @@ export function useRuntimeConsole() {
     setAgentAdapterApprovalMode,
   } = providersAndModels.actions;
 
-  const [defaultChatTarget, setDefaultChatTarget] = usePersistedState<ChatTarget>(
-    "hecate.chatTarget",
-    parseStoredChatTarget,
-    "agent",
-  );
-  const [chatTargetBySessionID, setChatTargetBySessionID] = usePersistedState<Map<string, HecateChatTarget>>(
-    "hecate.chatTargetBySessionID",
-    parseStoredJSON(parseChatTargetsBySessionID),
-    new Map(),
-    { serialize: serializeChatTargetsBySessionID },
-  );
-  const [agentAdapterID, setAgentAdapterID] = usePersistedState(
-    "hecate.agentAdapterID",
-    parseStoredString,
-    "codex",
-  );
-  const [agentWorkspace, setAgentWorkspace] = usePersistedState(
-    "hecate.agentWorkspace",
-    parseStoredString,
-    "",
-  );
-  const [agentWorkspaceBranch, setAgentWorkspaceBranch] = useState("");
-  const [agentChatSessions, setAgentChatSessions] = useState<AgentChatSessionsResponse["data"]>([]);
-  const [activeAgentChatSessionID, setActiveAgentChatSessionID] = usePersistedState(
-    "hecate.agentChatSessionID",
-    parseStoredString,
-    "",
-    { shouldRemove: (v) => v === "" },
-  );
-  const [activeAgentChatSession, setActiveAgentChatSession] = useState<AgentChatSessionRecord | null>(null);
+  // chat slice: the canonical chat-domain state. Owns session
+  // lists, composer state, in-flight chat machinery, queued
+  // messages, target routing, workspace + adapter selection, and
+  // the chat-error cluster. Legacy aliases below keep the shim
+  // coordinators (submitChat, createChatSession,
+  // applyAgentChatSession, the SSE event handler, …) reading
+  // the same as before the carve-out.
+  const chat = useChat();
+  const {
+    defaultChatTarget,
+    chatTargetBySessionID,
+    agentAdapterID,
+    agentWorkspace,
+    agentWorkspaceBranch,
+    agentChatSessions,
+    activeAgentChatSessionID,
+    activeAgentChatSession,
+    queuedChatMessages,
+    model,
+    systemPrompt,
+    chatLoading,
+    agentChatCancelling,
+    streamingContent,
+    chatResult,
+    pendingToolCalls,
+    pendingThread,
+    chatError,
+    chatErrorCode,
+    chatErrorStatus,
+    chatErrorAction,
+    chatErrorRequestID,
+    chatErrorTraceID,
+    modelFilter,
+    providerFilter,
+  } = chat.state;
+  const {
+    setDefaultChatTarget,
+    setChatTargetBySessionID,
+    setAgentAdapterID,
+    setAgentWorkspace,
+    setAgentWorkspaceBranch,
+    setAgentChatSessions,
+    setActiveAgentChatSessionID,
+    setActiveAgentChatSession,
+    setQueuedChatMessages,
+    setModel,
+    setSystemPrompt,
+    setChatLoading,
+    setAgentChatCancelling,
+    setStreamingContent,
+    setChatResult,
+    setPendingToolCalls,
+    setPendingThread,
+    setModelFilter,
+    setProviderFilter,
+    setChatError,
+    removeQueuedChatMessage,
+    updateQueuedChatMessage,
+    pruneQueuedChatMessagesForSessions,
+    clearChatErrorState,
+    setChatErrorState,
+  } = chat.actions;
   // Approvals state + actions live in the slice (app/state/approvals.tsx).
   // The slice owns the pending-banner map, the per-session mutation
   // version that protects the catch-up GET against races, the grant
@@ -243,32 +267,6 @@ export function useRuntimeConsole() {
   const approvals = useApprovals();
   const [settingsConfig, setSettingsConfig] = useState<ConfiguredStateResponse["data"] | null>(null);
 
-  const [model, setModel] = usePersistedState(
-    "hecate.model",
-    parseStoredString,
-    "",
-    { shouldRemove: (v) => v === "" },
-  );
-  const [queuedChatMessages, setQueuedChatMessages] = usePersistedState<QueuedChatMessage[]>(
-    queuedChatMessagesStorageKey,
-    parseStoredJSON(parseQueuedChatMessageList),
-    [],
-    { shouldRemove: (v) => v.length === 0 },
-  );
-  const queuedChatMessagesRef = useRef(queuedChatMessages);
-  const [systemPrompt, setSystemPrompt] = usePersistedState(
-    "hecate.systemPrompt",
-    parseStoredString,
-    "",
-  );
-  const [chatLoading, setChatLoading] = useState(false);
-  const [agentChatCancelling, setAgentChatCancelling] = useState(false);
-  const [streamingContent, setStreamingContent] = useState<string | null>(null);
-  const [chatResult, setChatResult] = useState<ChatResponse | null>(null);
-  // pendingToolCalls: model responded with tool_calls; waiting for user to fill results.
-  const [pendingToolCalls, setPendingToolCalls] = useState<Array<{ id: string; name: string; arguments: string; result: string }>>([]);
-  // Thread of messages that preceded the pending tool calls (history + user message + assistant tool_calls message).
-  const [pendingThread, setPendingThread] = useState<import("../lib/api").ChatMessage[] | null>(null);
   // modelChat slice: the model-chat-only session list + active
   // session + `loadMore` action. Marked for removal when the
   // model-chat path retires; legacy aliases below keep the shim
@@ -286,42 +284,6 @@ export function useRuntimeConsole() {
   const setActiveChatSessionID = modelChat.actions.setActiveID;
   const setActiveChatSession = modelChat.actions.setActiveSession;
   const loadMoreChatSessions = modelChat.actions.loadMore;
-  const [chatError, setChatError] = useState("");
-  const [chatErrorCode, setChatErrorCode] = useState("");
-  const [chatErrorStatus, setChatErrorStatus] = useState<number | null>(null);
-  const [chatErrorAction, setChatErrorAction] = useState("");
-  const [chatErrorRequestID, setChatErrorRequestID] = useState("");
-  const [chatErrorTraceID, setChatErrorTraceID] = useState("");
-  const [modelFilter, setModelFilter] = useState<ModelFilter>("all");
-  // FIXME: providerFilter is the lone holdout from the
-  // usePersistedState migration. Three e2e scenarios broke when it
-  // was migrated — the `test("...")` blocks that begin at
-  // chat.spec.ts:617 ("Hecate Agent local-provider onboarding…"),
-  // :767 ("…tools on, tools off, then tools on again…"), and :1288
-  // ("selected-model readiness can switch to the backend-suggested
-  // fallback model"). None of those tests set
-  // `hecate.providerFilter` directly; they exercise the
-  // auto-default cascade (lines 450+) that reads providerFilter
-  // through a first-render closure and only fires its
-  // setProviderFilter when it sees "auto" there. With the legacy
-  // mount-read effect providerFilter is "auto" on render 1 and
-  // transitions on render 2, which is the window the cascade
-  // expects. Seeding the persisted value directly into the lazy
-  // initializer (what usePersistedState does) shifts the
-  // transition out from under that cascade.
-  //
-  // Restructuring the auto-default + scoped-validity effects so
-  // they do not depend on render-cycle timing is separate cleanup.
-  // Until that lands here, keep providerFilter on the original
-  // useState + mount-read + write-on-change pattern.
-  const [providerFilter, setProviderFilter] = useState<ProviderFilter>("auto");
-  useEffect(() => {
-    const stored = window.localStorage.getItem("hecate.providerFilter");
-    if (stored) setProviderFilter(stored as ProviderFilter);
-  }, []);
-  useEffect(() => {
-    window.localStorage.setItem("hecate.providerFilter", providerFilter);
-  }, [providerFilter]);
 
   const [settingsError, setSettingsError] = useState("");
   const [notice, setNotice] = useState<NoticeState | null>(null);
@@ -394,13 +356,6 @@ export function useRuntimeConsole() {
     }
     setHecateRTKEnabledState(Boolean(activeAgentChatSession.rtk_enabled));
   }, [activeAgentChatSession?.id, activeAgentChatSession?.rtk_enabled]);
-
-  // Mirror queuedChatMessages into a ref so non-React callers
-  // (background fetches that resolve after unmount) can read the
-  // latest snapshot without going through state.
-  useEffect(() => {
-    queuedChatMessagesRef.current = queuedChatMessages;
-  }, [queuedChatMessages]);
 
   useEffect(() => {
     if (!notice) {
@@ -655,21 +610,6 @@ export function useRuntimeConsole() {
     await submitAgentChat();
   }
 
-  function removeQueuedChatMessage(id: string) {
-    setQueuedChatMessages((current) => current.filter((item) => item.id !== id));
-  }
-
-  function updateQueuedChatMessage(id: string, content: string) {
-    setQueuedChatMessages((current) => current.map((item) => (
-      item.id === id ? { ...item, content } : item
-    )));
-  }
-
-  function pruneQueuedChatMessagesForSessions(sessionIDs: Iterable<string>) {
-    const valid = new Set(sessionIDs);
-    setQueuedChatMessages((current) => current.filter((item) => valid.has(item.session_id)));
-  }
-
   function buildQueuedChatMessage(content: string, runtimeKind: ChatTarget, sessionID: string): QueuedChatMessage {
     return {
       id: `queued-chat-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`,
@@ -719,25 +659,6 @@ export function useRuntimeConsole() {
   const upsertPendingApproval = approvals.actions.upsertPending;
   const removePendingApproval = approvals.actions.removePending;
   const refetchPendingApprovals = approvals.actions.refetchPending;
-
-  function clearChatErrorState() {
-    setChatError("");
-    setChatErrorCode("");
-    setChatErrorStatus(null);
-    setChatErrorAction("");
-    setChatErrorRequestID("");
-    setChatErrorTraceID("");
-  }
-
-  function setChatErrorState(error: unknown, fallback = "unknown request error") {
-    const raw = error instanceof Error ? error.message : fallback;
-    setChatError(humanizeChatError(raw));
-    setChatErrorCode(error instanceof ApiError ? error.code : "");
-    setChatErrorStatus(error instanceof ApiError ? error.status : null);
-    setChatErrorAction(error instanceof ApiError ? error.operatorAction : "");
-    setChatErrorRequestID(error instanceof ApiError ? error.requestId : "");
-    setChatErrorTraceID(error instanceof ApiError ? error.traceId : "");
-  }
 
   async function submitAgentChat(queued?: QueuedChatMessage) {
     const content = (queued?.content ?? message).trim();
