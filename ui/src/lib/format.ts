@@ -2,6 +2,17 @@
 // timestamp, or integer into a user-facing string goes here so
 // callers across features render consistently and we have one
 // place to adjust if locale, precision, or wording changes.
+//
+// Missing-input sentinel by helper — pick the one that matches the
+// surrounding layout so empty cells stay aligned:
+//   - `formatAbsoluteTime`     → `""` for empty, the raw `value` for
+//                                unparseable (tooltip context — a
+//                                partial string beats "Invalid Date").
+//   - `formatLocaleDateTime`   → `""` for both.
+//   - `formatLocaleTime`       → `"—"` for both (em dash; preserves
+//                                table-cell width).
+//   - `formatDurationRange`    → `""` for both.
+//   - `formatInteger`          → `"—"` for non-finite (table-aligned).
 
 /**
  * Format a duration in milliseconds as a compact human string.
@@ -99,8 +110,8 @@ export function formatAbsoluteTime(value?: string): string {
  *
  * Empty / unparseable input renders as "".
  *
- * TODO: migrate the three remaining call sites (ConnectionsPanel's
- * grant timestamps, TaskDetail's step.started_at) to
+ * TODO: migrate the remaining call sites in ConnectionsPanel (grant
+ * timestamps) and TaskDetail (`step.started_at`) to
  * `formatAbsoluteTime` once the design review for the more verbose
  * layout (with timezone) lands, and delete this helper.
  */

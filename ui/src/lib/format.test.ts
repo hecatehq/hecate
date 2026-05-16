@@ -13,6 +13,7 @@ import {
 describe("formatDurationMs", () => {
   it("renders sub-second values as Nms with integer rounding", () => {
     expect(formatDurationMs(0.4)).toBe("0ms");
+    expect(formatDurationMs(0.6)).toBe("1ms");
     expect(formatDurationMs(7)).toBe("7ms");
     expect(formatDurationMs(7.6)).toBe("8ms");
     expect(formatDurationMs(999)).toBe("999ms");
@@ -67,6 +68,12 @@ describe("formatDurationRange", () => {
     expect(
       formatDurationRange("2026-01-01T00:00:00.000Z", "2026-01-01T00:02:06.000Z"),
     ).toBe("2m 6s");
+  });
+
+  it("renders an equal-boundary range as 0ms", () => {
+    expect(
+      formatDurationRange("2026-01-01T00:00:00.000Z", "2026-01-01T00:00:00.000Z"),
+    ).toBe("0ms");
   });
 
   it("clamps a negative range to 0ms", () => {
@@ -141,9 +148,12 @@ describe("formatLocaleDateTime", () => {
     expect(formatLocaleDateTime("not-a-date")).toBe("");
   });
 
-  it("matches Date.toLocaleString() for the same instant", () => {
+  it("renders a locale string containing the year for a valid timestamp", () => {
+    // Asserting equality against `new Date(iso).toLocaleString()` would
+    // be tautological (the function is exactly that, plus the guard).
+    // Year is the cheapest locale-independent property to check.
     const iso = "2026-05-15T17:31:41Z";
-    expect(formatLocaleDateTime(iso)).toBe(new Date(iso).toLocaleString());
+    expect(formatLocaleDateTime(iso)).toContain("2026");
   });
 });
 
@@ -154,9 +164,11 @@ describe("formatLocaleTime", () => {
     expect(formatLocaleTime("not-a-date")).toBe("—");
   });
 
-  it("matches Date.toLocaleTimeString() for the same instant", () => {
+  it("renders a time-like h:m pattern for a valid timestamp", () => {
+    // toLocaleTimeString varies by locale (12h vs 24h, AM/PM,
+    // separators), but every locale produces at least one `H:MM` pair.
     const iso = "2026-05-15T17:31:41Z";
-    expect(formatLocaleTime(iso)).toBe(new Date(iso).toLocaleTimeString());
+    expect(formatLocaleTime(iso)).toMatch(/\d{1,2}:\d{2}/);
   });
 });
 
@@ -169,6 +181,17 @@ describe("formatInteger", () => {
 
   it("rounds non-integer input before formatting", () => {
     expect(formatInteger(1234.7)).toBe((1235).toLocaleString());
+  });
+
+  it("preserves the negative sign for negative integers", () => {
+    // toLocaleString uses HYPHEN-MINUS in en-US and MINUS SIGN (U+2212)
+    // in some others — both are longer than the unsigned form by one
+    // character. Asserting on the prefix character would be locale-
+    // brittle; asserting "is different + one longer" isn't.
+    const positive = formatInteger(1234);
+    const negative = formatInteger(-1234);
+    expect(negative).not.toBe(positive);
+    expect(negative.length).toBe(positive.length + 1);
   });
 
   it("returns em dash for non-finite input", () => {
