@@ -183,11 +183,13 @@ Skipping step 3 or 4 produces the "not allowed. Plugin not found" error from the
 
 The desktop window uses Tauri's macOS overlay titlebar — `tauri.conf.json` sets `decorations: true`, `hiddenTitle: true`, `titleBarStyle: "Overlay"`. The webview extends edge-to-edge under the invisible 28-px titlebar; the OS still owns drag/double-click but only for pixels the webview doesn't claim.
 
+`titleBarStyle: "Overlay"` is macOS-only — Linux/Windows ignore it and render their native titlebar above the webview as usual. The whole overlay-titlebar arrangement below is therefore gated on macOS. On other platforms the strip is skipped and the update banner falls back to its old slot at the top of the workspace content (no 28-px inset, no traffic-light pad).
+
 The relevant pieces live in `ui/src/app/`:
 
 - **`App.tsx` — `installTauriDocumentMarkers()`** sets `<html data-tauri="true">` on first paint (run via `useLayoutEffect` — `useEffect` causes a one-frame "no titlebar inset" flash) and `<html data-tauri-os="macos">` when the platform is macOS.
-- **`AppShell.tsx`** renders `<div className="hecate-titlebar" data-tauri-drag-region="deep">` as the first child of `.hecate-shell`. The update banner (`<UpdateBanner />`) lives inside this strip so the empty regions stay draggable while interactive controls remain clickable.
-- **`App.css`** reserves `padding-top: 28px` on the shell, positions the titlebar with `position: absolute; inset: 0 0 auto 0; height: 28px; z-index: 1000`, sets `user-select: none` so window drags don't smear a text selection, and adds `padding-left: 76px` under `html[data-tauri-os="macos"]` to clear the traffic-light cluster. Linux/Windows skip the pad because their native titlebar lives outside the webview.
+- **`AppShell.tsx`** uses `isTauriOnMacOS()` (from `lib/tauri.ts`) to decide where to render `<UpdateBanner />`. On macOS it goes inside `<div className="hecate-titlebar" data-tauri-drag-region="deep">` — the first child of `.hecate-shell`. On Linux/Windows the strip isn't rendered and the banner sits at the top of `.hecate-content`. Same component, one slot per layout — no double-rendering.
+- **`App.css`** reserves `padding-top: 28px` on the shell under `html[data-tauri-os="macos"]` (matched gating to the JSX), positions the titlebar with `position: absolute; inset: 0 0 auto 0; height: 28px; z-index: 1000; padding-left: 76px` to clear the traffic-light cluster, and sets `user-select: none` so window drags don't smear a text selection.
 
 ### Rules
 

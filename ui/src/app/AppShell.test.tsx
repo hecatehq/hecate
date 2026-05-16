@@ -38,15 +38,28 @@ describe("ConsoleShell loading state", () => {
   });
 });
 
-// The overlay-titlebar strip wraps the UpdateBanner and serves as the
-// macOS drag handle. Its data-tauri-drag-region="deep" value is
+// The overlay-titlebar strip is the macOS drag handle that wraps the
+// UpdateBanner. Its data-tauri-drag-region="deep" value is
 // load-bearing — bare/`"true"` would only drag on direct clicks on the
 // strip itself, breaking drag once the banner gains children. Tauri's
 // drag.js auto-detects clickable elements (buttons) and skips drag for
 // them, so we can rely on the deep value without `-webkit-app-region:
 // no-drag` opt-outs.
+//
+// Linux/Windows don't get the strip — titleBarStyle: "Overlay" is
+// macOS-only and on other OSes the native chrome already sits above
+// the webview. The banner falls back to its old slot in
+// .hecate-content.
 describe("ConsoleShell titlebar", () => {
-  it("renders the titlebar strip with data-tauri-drag-region=\"deep\"", () => {
+  const originalPlatform = navigator.platform;
+  afterEach(() => {
+    Reflect.deleteProperty(window, "__TAURI_INTERNALS__");
+    Object.defineProperty(navigator, "platform", { configurable: true, value: originalPlatform });
+  });
+
+  it("renders the titlebar strip with data-tauri-drag-region=\"deep\" inside Tauri macOS", () => {
+    Reflect.set(window, "__TAURI_INTERNALS__", {});
+    Object.defineProperty(navigator, "platform", { configurable: true, value: "MacIntel" });
     const state = createRuntimeConsoleFixture();
     const { container } = render(
       <ConsoleShell
@@ -59,6 +72,35 @@ describe("ConsoleShell titlebar", () => {
     const titlebar = container.querySelector(".hecate-titlebar");
     expect(titlebar).not.toBeNull();
     expect(titlebar?.getAttribute("data-tauri-drag-region")).toBe("deep");
+  });
+
+  it("omits the titlebar strip on Tauri Linux/Windows", () => {
+    Reflect.set(window, "__TAURI_INTERNALS__", {});
+    Object.defineProperty(navigator, "platform", { configurable: true, value: "Linux x86_64" });
+    const state = createRuntimeConsoleFixture();
+    const { container } = render(
+      <ConsoleShell
+        activeWorkspace="overview"
+        onSelectWorkspace={() => {}}
+        state={state}
+        actions={createRuntimeConsoleActions()}
+      />,
+    );
+    expect(container.querySelector(".hecate-titlebar")).toBeNull();
+  });
+
+  it("omits the titlebar strip outside Tauri", () => {
+    Object.defineProperty(navigator, "platform", { configurable: true, value: "MacIntel" });
+    const state = createRuntimeConsoleFixture();
+    const { container } = render(
+      <ConsoleShell
+        activeWorkspace="overview"
+        onSelectWorkspace={() => {}}
+        state={state}
+        actions={createRuntimeConsoleActions()}
+      />,
+    );
+    expect(container.querySelector(".hecate-titlebar")).toBeNull();
   });
 });
 
