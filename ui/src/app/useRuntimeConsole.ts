@@ -127,6 +127,19 @@ function normalizeStoredChatTarget(value: string): ChatTarget {
   }
 }
 
+// Strict guard for the `hecate.chatTarget` localStorage key.
+// usePersistedState's contract is "loud failure replaces silent
+// shape-drift fallback" — return null so a corrupt key gets wiped
+// and the hook falls back to the explicit "agent" default rather
+// than silently coercing the bad value and re-persisting it.
+// normalizeStoredChatTarget (above) keeps its coercive behaviour
+// for non-storage sources (e.g. the agent chat session's
+// `runtime_kind` field) where the wider type system has already
+// vouched for the input.
+function parseStoredChatTarget(raw: string): ChatTarget | null {
+  return raw === "model" || raw === "agent" || raw === "external_agent" ? raw : null;
+}
+
 function normalizeStoredHecateChatTarget(value: string): HecateChatTarget | "" {
   switch (value) {
     case "model":
@@ -234,7 +247,7 @@ export function useRuntimeConsole() {
   const [agentAdapters, setAgentAdapters] = useState<AgentAdapterRecord[]>([]);
   const [defaultChatTarget, setDefaultChatTarget] = usePersistedState<ChatTarget>(
     "hecate.chatTarget",
-    (raw) => normalizeStoredChatTarget(raw),
+    parseStoredChatTarget,
     "agent",
   );
   const [chatTargetBySessionID, setChatTargetBySessionID] = usePersistedState<Map<string, HecateChatTarget>>(
@@ -353,15 +366,21 @@ export function useRuntimeConsole() {
   const [chatErrorTraceID, setChatErrorTraceID] = useState("");
   const [modelFilter, setModelFilter] = useState<ModelFilter>("all");
   // FIXME: providerFilter is the lone holdout from the
-  // usePersistedState migration. Three e2e scenarios (chat.spec.ts
-  // lines 617, 767, 1288) lean on the legacy timing — providerFilter
-  // starts at the useState default "auto" for one render, then
-  // transitions when the mount-read effect fires. The auto-default
-  // cascade (lines 450+) reads providerFilter through that
-  // first-render closure and only fires its setProviderFilter when
-  // it sees "auto" there; seeding the persisted value directly into
-  // the lazy initializer (which is what usePersistedState does)
-  // shifts the transition out from under that cascade.
+  // usePersistedState migration. Three e2e scenarios broke when it
+  // was migrated — the `test("...")` blocks that begin at
+  // chat.spec.ts:617 ("Hecate Agent local-provider onboarding…"),
+  // :767 ("…tools on, tools off, then tools on again…"), and :1288
+  // ("selected-model readiness can switch to the backend-suggested
+  // fallback model"). None of those tests set
+  // `hecate.providerFilter` directly; they exercise the
+  // auto-default cascade (lines 450+) that reads providerFilter
+  // through a first-render closure and only fires its
+  // setProviderFilter when it sees "auto" there. With the legacy
+  // mount-read effect providerFilter is "auto" on render 1 and
+  // transitions on render 2, which is the window the cascade
+  // expects. Seeding the persisted value directly into the lazy
+  // initializer (what usePersistedState does) shifts the
+  // transition out from under that cascade.
   //
   // Restructuring the auto-default + scoped-validity effects to
   // not depend on render-cycle timing is its own piece of work,

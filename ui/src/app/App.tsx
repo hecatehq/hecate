@@ -1,13 +1,15 @@
 import { useEffect, useLayoutEffect } from "react";
 
-import { ConsoleShell, getAvailableWorkspaces, type WorkspaceID } from "./AppShell";
+import { ConsoleShell, getAvailableWorkspaces, WORKSPACE_IDS, type WorkspaceID } from "./AppShell";
 import { useRuntimeConsole } from "./useRuntimeConsole";
 import { usePersistedState } from "../lib/persistedState";
 import { isTauriRuntime } from "../lib/tauri";
 
 const WORKSPACE_STORAGE_KEY = "hecate.workspace.v2";
 
-const VALID_WORKSPACE_IDS = new Set<WorkspaceID>(["overview", "runs", "chats", "connections", "usage", "settings"]);
+// Derive the validity guard from the single AppShell tuple so a new
+// workspace doesn't silently fail the parse here.
+const VALID_WORKSPACE_IDS = new Set<WorkspaceID>(WORKSPACE_IDS);
 const parseWorkspaceID = (raw: string): WorkspaceID | null =>
   VALID_WORKSPACE_IDS.has(raw as WorkspaceID) ? (raw as WorkspaceID) : null;
 
