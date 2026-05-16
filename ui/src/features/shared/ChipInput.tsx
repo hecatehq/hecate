@@ -21,7 +21,9 @@
 //   - Click a chip's × to remove it
 //   - Esc to close the suggestion dropdown
 
-import { useEffect, useId, useRef, useState } from "react";
+import { useId, useRef, useState } from "react";
+
+import { useFloatingMenu } from "./useFloatingMenu";
 
 export type ChipOption = { id: string; label: string };
 
@@ -43,21 +45,16 @@ export function ChipInput({
   disabled?: boolean;
 }) {
   const [draft, setDraft] = useState("");
-  const [open, setOpen] = useState(false);
   const [highlight, setHighlight] = useState(0);
   const inputRef = useRef<HTMLInputElement>(null);
-  const wrapRef = useRef<HTMLDivElement>(null);
   const listboxID = useId();
-
-  // Click outside closes the dropdown — same pattern the existing
-  // ProviderPicker / ModelPicker use.
-  useEffect(() => {
-    const handler = (e: MouseEvent) => {
-      if (wrapRef.current && !wrapRef.current.contains(e.target as Node)) setOpen(false);
-    };
-    document.addEventListener("mousedown", handler);
-    return () => document.removeEventListener("mousedown", handler);
-  }, []);
+  // portalSelector: null because the suggestion list is rendered
+  // inline inside wrapRef rather than in a portal-style fixed-
+  // position container — the default ".dropdown-menu-floating"
+  // exemption would be a no-op here.
+  const { open, setOpen, wrapRef } = useFloatingMenu<HTMLDivElement>({
+    portalSelector: null,
+  });
 
   // Suggestions = options not already chipped, filtered by draft.
   const suggestions = (options ?? [])

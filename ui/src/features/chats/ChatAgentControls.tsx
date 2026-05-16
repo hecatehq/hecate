@@ -5,6 +5,7 @@ import { BrandAvatar, DropdownPicker, Icon, Icons } from "../shared/ui";
 import type { DropdownPickerOption, ProviderOption } from "../shared/ui";
 import { focusDropdownItem, focusInitialDropdownItem } from "../shared/dropdownKeyboard";
 import { useFloatingDropdownStyle } from "../shared/useFloatingDropdownStyle";
+import { useFloatingMenu } from "../shared/useFloatingMenu";
 
 const CHAT_AGENT_OPTIONS = [
   { id: "hecate", label: "Hecate" },
@@ -30,11 +31,12 @@ export function NewChatAgentButton({
   onChange: (value: ChatAgentOptionID) => void;
   onCreate: () => void;
 }) {
-  const [open, setOpen] = useState(false);
-  const wrapRef = useRef<HTMLDivElement>(null);
+  const { open, setOpen, toggle, wrapRef, triggerRef, menuRef } = useFloatingMenu<HTMLDivElement, HTMLButtonElement>();
+  // Anchor is the inline-block group around the trigger; the
+  // floating menu positions against it (not the trigger itself) so
+  // the menu width matches the visual button group, not just the
+  // narrow caret.
   const anchorRef = useRef<HTMLDivElement>(null);
-  const menuRef = useRef<HTMLDivElement>(null);
-  const triggerRef = useRef<HTMLButtonElement>(null);
   const floatingStyle = useFloatingDropdownStyle(anchorRef, open, "left");
   const selected = chatAgentOption(value, adapters);
   const selectedAdapter = selected.id === "hecate" ? undefined : adapters.find((item) => item.id === selected.id);
@@ -44,21 +46,10 @@ export function NewChatAgentButton({
   const selectedDisabled = disableUnavailable && !selectedStatus.ready;
 
   useEffect(() => {
-    const handler = (event: MouseEvent) => {
-      const target = event.target as Node;
-      if (wrapRef.current?.contains(target)) return;
-      if (target instanceof HTMLElement && target.closest(".dropdown-menu-floating")) return;
-      setOpen(false);
-    };
-    document.addEventListener("mousedown", handler);
-    return () => document.removeEventListener("mousedown", handler);
-  }, []);
-
-  useEffect(() => {
     if (!open) return;
     const frame = requestAnimationFrame(() => focusInitialDropdownItem(menuRef.current));
     return () => cancelAnimationFrame(frame);
-  }, [open]);
+  }, [open, menuRef]);
 
   function onMenuKeyDown(event: KeyboardEvent<HTMLDivElement>) {
     if (event.key === "Escape") {
@@ -116,7 +107,7 @@ export function NewChatAgentButton({
           aria-label="Choose agent for new chat"
           aria-expanded={open}
           aria-haspopup="listbox"
-          onClick={() => setOpen((current) => !current)}
+          onClick={() => toggle()}
           title="Choose agent"
           style={{
             border: 0,

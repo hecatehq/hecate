@@ -9,13 +9,14 @@
 // cell (1,1). The grid sizes to the wider child, the visible label
 // paints on top.
 
-import { useEffect, useRef, useState } from "react";
+import { useEffect } from "react";
 import type { KeyboardEvent } from "react";
 
 import { BrandAvatar } from "./BrandAvatar";
 import { Icon, Icons } from "./Icons";
 import { focusDropdownItem, focusInitialDropdownItem } from "./dropdownKeyboard";
 import { useFloatingDropdownStyle } from "./useFloatingDropdownStyle";
+import { useFloatingMenu } from "./useFloatingMenu";
 
 // ProviderOption is the shape every caller of ProviderPicker hands in.
 // `name` is the display label shown in the dropdown; `id` is what
@@ -65,24 +66,8 @@ export function ProviderPicker({
   triggerWidth?: number;
   variant?: "header" | "composer";
 }) {
-  const [open, setOpen] = useState(false);
-  const ref = useRef<HTMLDivElement>(null);
-  const menuRef = useRef<HTMLDivElement>(null);
-  const triggerRef = useRef<HTMLButtonElement>(null);
+  const { open, setOpen, toggle, wrapRef: ref, triggerRef, menuRef } = useFloatingMenu<HTMLDivElement, HTMLButtonElement>();
   const floatingStyle = useFloatingDropdownStyle(triggerRef, open, "left", variant === "composer" ? "up" : "down");
-
-  useEffect(() => {
-    const handler = (e: MouseEvent) => {
-      const target = e.target as Node;
-      if (ref.current && ref.current.contains(target)) return;
-      // The menu is now portal-style (position: fixed) and lives
-      // outside the wrap, so we have to also exempt its tree.
-      if (target instanceof HTMLElement && target.closest(".dropdown-menu-floating")) return;
-      setOpen(false);
-    };
-    document.addEventListener("mousedown", handler);
-    return () => document.removeEventListener("mousedown", handler);
-  }, []);
 
   useEffect(() => {
     if (!open) return;
@@ -90,7 +75,7 @@ export function ProviderPicker({
       focusInitialDropdownItem(menuRef.current);
     });
     return () => cancelAnimationFrame(frame);
-  }, [open]);
+  }, [open, menuRef]);
 
   const selected = options.find(o => o.id === value);
   // When the saved `value` doesn't resolve to any current option (the
@@ -134,7 +119,7 @@ export function ProviderPicker({
         aria-expanded={open}
         aria-haspopup="listbox"
         className="btn btn-ghost btn-sm"
-        onClick={() => setOpen(o => !o)}
+        onClick={() => toggle()}
         style={{
           fontFamily: "var(--font-mono)",
           fontSize: 11,
