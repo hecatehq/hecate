@@ -14,7 +14,7 @@ import {
 } from "./state/_shared";
 import { buildLocalProviderIssue } from "../lib/provider-issues";
 import type { LocalProviderIssue } from "../lib/provider-issues";
-import { filterModelsByKind, filterModelsByProvider, parseCSV } from "../lib/runtime-utils";
+import { filterModelsByKind, filterModelsByProvider } from "../lib/runtime-utils";
 import {
   ApiError,
   type ChatMessage,
@@ -43,8 +43,6 @@ import {
   revertAgentChatMessageFiles as revertAgentChatMessageFilesRequest,
   resolveTaskApproval as resolveTaskApprovalRequest,
   resolveAgentChatApproval as resolveAgentChatApprovalRequest,
-  runRetention as runRetentionRequest,
-  getRetentionRuns,
   upsertPolicyRule as upsertPolicyRuleRequest,
   createProvider as createProviderRequest,
   deleteModelCapabilityOverride as deleteModelCapabilityOverrideRequest,
@@ -76,7 +74,7 @@ import {
   renderAgentChatSessionSummary,
 } from "./runtimeConsoleChatHelpers";
 import { deriveSessionState, resolveDashboardSnapshot } from "./runtimeConsoleDashboard";
-import { warn as logWarn } from "../lib/log";
+import { useRetention } from "./state/retention";
 import type {
   AgentAdapterHealthRecord,
   AgentAdapterRecord,
@@ -100,7 +98,6 @@ import type {
   ProviderStatusResponse,
   RuntimeHeaders,
   SessionResponse,
-  RetentionRunData,
   UsageEventsResponse,
   UsageSummaryResponse,
 } from "../types/runtime";
@@ -318,11 +315,13 @@ export function useRuntimeConsole() {
         : (chatTargetBySessionID.get(activeAgentChatSessionID) ?? deriveHecateChatTargetFromSession(activeAgentChatSession)))
     : defaultChatTarget;
 
-  const [retentionSubsystems, setRetentionSubsystems] = useState("");
-  const [retentionLoading, setRetentionLoading] = useState(false);
-  const [retentionError, setRetentionError] = useState("");
-  const [retentionLastRun, setRetentionLastRun] = useState<RetentionRunData | null>(null);
-  const [retentionRuns, setRetentionRuns] = useState<RetentionRunData[]>([]);
+  // Retention state + actions live in the slice (app/state/retention.tsx).
+  // The shim below re-exports them under the legacy `state.retention*` /
+  // `actions.{loadRetentionRuns,setRetentionSubsystems,runRetention}`
+  // keys to keep the external surface stable for SettingsView; a later
+  // refactor will retire the pass-through once SettingsView reads the
+  // slice directly.
+  const retention = useRetention();
 
   const healthyProviders = providers.filter((provider) => provider.healthy).length;
   const localProviders = providers.filter((provider) => provider.kind === "local");
@@ -1259,48 +1258,19 @@ export function useRuntimeConsole() {
     }
   }
 
-  // Settings view triggers this on mount — retention runs are
-  // out of the boot-time dashboard snapshot so we don't pay for
-  // the fetch on every cold launch when the user never opens
-  // Settings. Re-entrant: while a fetch is in flight a second
-  // call is a no-op (current code below sets state once).
-  const retentionRunsLoadingRef = useRef(false);
-  async function loadRetentionRuns() {
-    if (retentionRunsLoadingRef.current) return;
-    retentionRunsLoadingRef.current = true;
-    try {
-      const payload = await getRetentionRuns(10);
-      setRetentionRuns(payload.data ?? []);
-      setRetentionLastRun(payload.data?.[0] ?? null);
-    } catch (loadError) {
-      // Stay quiet — SettingsView shows an empty list rather
-      // than an error banner; surfacing this would compete
-      // with the rest of the settings UI for attention.
-      logWarn("loadRetentionRuns failed:", loadError);
-    } finally {
-      retentionRunsLoadingRef.current = false;
-    }
-  }
+  const loadRetentionRuns = retention.actions.loadRuns;
 
+  // Coordinator: the slice owns the retention state machine; the
+  // cross-cutting `notice` banner is set here so the slice stays
+  // independent of unrelated global UI state. A later refactor will
+  // move this composition into a dedicated coordinator hook
+  // alongside other "slice + global side-effect" pairs.
   async function runRetention() {
-    setRetentionError("");
     setNotice(null);
-    setRetentionLoading(true);
-    try {
-      const payload = await runRetentionRequest(
-        {
-          subsystems: parseCSV(retentionSubsystems),
-        },
-      );
-      setRetentionLastRun(payload.data);
-      setRetentionRuns((current) => [payload.data, ...current.filter((run) => run.finished_at !== payload.data.finished_at)].slice(0, 10));
-      setNotice({ kind: "success", message: "Retention run completed." });
-    } catch (error) {
-      setRetentionError(error instanceof Error ? error.message : "failed to run retention");
-      setNotice({ kind: "error", message: "Failed to run retention." });
-    } finally {
-      setRetentionLoading(false);
-    }
+    const result = await retention.actions.runRetention();
+    setNotice(result.ok
+      ? { kind: "success", message: "Retention run completed." }
+      : { kind: "error", message: "Failed to run retention." });
   }
 
   async function createChatSession() {
@@ -1889,11 +1859,11 @@ export function useRuntimeConsole() {
       providerPresets,
       activeChatSession,
       activeChatSessionID,
-      retentionError,
-      retentionLastRun,
-      retentionLoading,
-      retentionRuns,
-      retentionSubsystems,
+      retentionError: retention.state.error,
+      retentionLastRun: retention.state.lastRun,
+      retentionLoading: retention.state.loading,
+      retentionRuns: retention.state.runs,
+      retentionSubsystems: retention.state.subsystems,
       runtimeHeaders,
       chatSessionsHasMore,
       chatSessionsLoadingMore,
@@ -1928,7 +1898,7 @@ export function useRuntimeConsole() {
       setModelFilter,
       setProviderFilter: selectProviderRoute,
       refreshProviders,
-      setRetentionSubsystems,
+      setRetentionSubsystems: retention.actions.setSubsystems,
       runRetention,
       selectChatSession,
       startNewChat,

@@ -1,7 +1,17 @@
-import { act, renderHook, waitFor } from "@testing-library/react";
+import { act, renderHook, waitFor, type RenderHookOptions } from "@testing-library/react";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
+import { RetentionProvider } from "./state/retention";
 import { useRuntimeConsole } from "./useRuntimeConsole";
+
+// useRuntimeConsole now consumes slice contexts (retention is the
+// first one to land). Every renderHook call needs the matching
+// providers above it; this helper composes them so the test bodies
+// don't have to thread a wrapper through each call. As more slices
+// are added the wrapper chain grows here.
+function renderRuntimeConsoleHook(options?: Omit<RenderHookOptions<unknown>, "wrapper">) {
+  return renderHook(() => useRuntimeConsole(), { ...options, wrapper: RetentionProvider });
+}
 
 // Single-user mode: every endpoint is unauthenticated and the gateway
 // surfaces a stub `Anonymous` session for all callers. The tests below
@@ -70,7 +80,7 @@ describe("useRuntimeConsole", () => {
   });
 
   it("starts chats with an empty composer", async () => {
-    const { result } = renderHook(() => useRuntimeConsole());
+    const { result } = renderRuntimeConsoleHook();
     await waitFor(() => expect(result.current.state.loading).toBe(false));
     expect(result.current.state.message).toBe("");
   });
@@ -84,7 +94,7 @@ describe("useRuntimeConsole", () => {
       }),
     }));
 
-    const { result } = renderHook(() => useRuntimeConsole());
+    const { result } = renderRuntimeConsoleHook();
     await waitFor(() => expect(result.current.state.loading).toBe(false));
 
     let selected = false;
@@ -99,14 +109,14 @@ describe("useRuntimeConsole", () => {
   });
 
   it("defaults to Agent chat when no chat target preference exists", async () => {
-    const { result } = renderHook(() => useRuntimeConsole());
+    const { result } = renderRuntimeConsoleHook();
     await waitFor(() => expect(result.current.state.loading).toBe(false));
     expect(result.current.state.chatTarget).toBe("agent");
   });
 
   it("preserves the saved chat target preference", async () => {
     window.localStorage.setItem("hecate.chatTarget", "model");
-    const { result } = renderHook(() => useRuntimeConsole());
+    const { result } = renderRuntimeConsoleHook();
     await waitFor(() => expect(result.current.state.loading).toBe(false));
     expect(result.current.state.chatTarget).toBe("model");
   });
@@ -144,7 +154,7 @@ describe("useRuntimeConsole", () => {
       },
     }));
 
-    const { result } = renderHook(() => useRuntimeConsole());
+    const { result } = renderRuntimeConsoleHook();
     await waitFor(() => expect(result.current.state.loading).toBe(false));
 
     await act(async () => {
@@ -194,7 +204,7 @@ describe("useRuntimeConsole", () => {
       }),
     }));
 
-    const { result } = renderHook(() => useRuntimeConsole());
+    const { result } = renderRuntimeConsoleHook();
     await waitFor(() => expect(result.current.state.loading).toBe(false));
     await waitFor(() => expect(result.current.state.activeAgentChatSessionID).toBe("a1"));
     expect(result.current.state.newChatAgentID).toBe("hecate");
@@ -226,7 +236,7 @@ describe("useRuntimeConsole", () => {
       },
     }));
 
-    const { result } = renderHook(() => useRuntimeConsole());
+    const { result } = renderRuntimeConsoleHook();
     await waitFor(() => expect(result.current.state.loading).toBe(false));
 
     await act(async () => {
@@ -260,7 +270,7 @@ describe("useRuntimeConsole", () => {
       },
     }));
 
-    const { result } = renderHook(() => useRuntimeConsole());
+    const { result } = renderRuntimeConsoleHook();
     await waitFor(() => expect(result.current.state.loading).toBe(false));
 
     await act(async () => {
@@ -295,7 +305,7 @@ describe("useRuntimeConsole", () => {
       },
     }));
 
-    const { result } = renderHook(() => useRuntimeConsole());
+    const { result } = renderRuntimeConsoleHook();
     await waitFor(() => expect(result.current.state.loading).toBe(false));
     await waitFor(() => expect(result.current.state.activeAgentChatSession?.id).toBe("a1"));
 
@@ -320,7 +330,7 @@ describe("useRuntimeConsole", () => {
       "/hecate/v1/agent-chat/sessions/a1": () => jsonResponse({ error: { type: "gateway_error", message: "temporary failure" } }, 500),
     }));
 
-    const { result } = renderHook(() => useRuntimeConsole());
+    const { result } = renderRuntimeConsoleHook();
     await waitFor(() => expect(result.current.state.loading).toBe(false));
 
     expect(result.current.state.activeAgentChatSessionID).toBe("a1");
@@ -328,7 +338,7 @@ describe("useRuntimeConsole", () => {
   });
 
   it("settles into a Local session after the dashboard loads", async () => {
-    const { result } = renderHook(() => useRuntimeConsole());
+    const { result } = renderRuntimeConsoleHook();
     await waitFor(() => expect(result.current.state.loading).toBe(false));
     expect(result.current.state.session.label).toBe("Local");
   });
@@ -369,7 +379,7 @@ describe("useRuntimeConsole", () => {
       }),
     }));
 
-    const { result } = renderHook(() => useRuntimeConsole());
+    const { result } = renderRuntimeConsoleHook();
     await waitFor(() => expect(result.current.state.loading).toBe(false));
     await waitFor(() => expect(result.current.state.model).toBe("gpt-4o-mini"));
 
@@ -402,7 +412,7 @@ describe("useRuntimeConsole", () => {
         return defaultBackendMock()(input, init);
       });
 
-      const { result } = renderHook(() => useRuntimeConsole());
+      const { result } = renderRuntimeConsoleHook();
       await waitFor(() => expect(result.current.state.loading).toBe(false));
 
       await act(async () => {
@@ -426,7 +436,7 @@ describe("useRuntimeConsole", () => {
         return defaultBackendMock()(input, init);
       });
 
-      const { result } = renderHook(() => useRuntimeConsole());
+      const { result } = renderRuntimeConsoleHook();
       await waitFor(() => expect(result.current.state.loading).toBe(false));
 
       await act(async () => {
@@ -448,7 +458,7 @@ describe("useRuntimeConsole", () => {
         return defaultBackendMock()(input, init);
       });
 
-      const { result } = renderHook(() => useRuntimeConsole());
+      const { result } = renderRuntimeConsoleHook();
       await waitFor(() => expect(result.current.state.loading).toBe(false));
 
       await act(async () => {
@@ -470,7 +480,7 @@ describe("useRuntimeConsole", () => {
         return defaultBackendMock()(input, init);
       });
 
-      const { result } = renderHook(() => useRuntimeConsole());
+      const { result } = renderRuntimeConsoleHook();
       await waitFor(() => expect(result.current.state.loading).toBe(false));
 
       await act(async () => {
@@ -493,7 +503,7 @@ describe("useRuntimeConsole", () => {
         return defaultBackendMock()(input, init);
       });
 
-      const { result } = renderHook(() => useRuntimeConsole());
+      const { result } = renderRuntimeConsoleHook();
       await waitFor(() => expect(result.current.state.loading).toBe(false));
 
       await act(async () => {
@@ -543,7 +553,7 @@ describe("useRuntimeConsole", () => {
         return defaultBackendMock()(input, init);
       });
 
-      const { result } = renderHook(() => useRuntimeConsole());
+      const { result } = renderRuntimeConsoleHook();
       await waitFor(() => expect(result.current.state.settingsConfig?.providers.map(p => p.id)).toEqual(["openai", "ollama"]));
 
       let pendingDelete: Promise<void> | undefined;
@@ -600,7 +610,7 @@ describe("useRuntimeConsole", () => {
         return defaultBackendMock()(input, init);
       });
 
-      const { result } = renderHook(() => useRuntimeConsole());
+      const { result } = renderRuntimeConsoleHook();
       await waitFor(() => expect(result.current.state.settingsConfig?.providers.map(p => p.id)).toEqual(["openai", "ollama", "anthropic"]));
       await act(async () => {
         result.current.actions.setProviderFilter("ollama");
@@ -663,7 +673,7 @@ describe("useRuntimeConsole", () => {
         }),
       }));
 
-      const { result } = renderHook(() => useRuntimeConsole());
+      const { result } = renderRuntimeConsoleHook();
       await waitFor(() => expect(result.current.state.loading).toBe(false));
 
       await act(async () => {
@@ -744,7 +754,7 @@ describe("useRuntimeConsole", () => {
         return defaultBackendMock()(input, init);
       });
 
-      const { result } = renderHook(() => useRuntimeConsole());
+      const { result } = renderRuntimeConsoleHook();
       await waitFor(() => expect(result.current.state.loading).toBe(false));
       await waitFor(() => expect(result.current.state.systemPrompt).toBe("Prefer small, reviewable diffs."));
       await waitFor(() => expect(result.current.state.model).toBe("gpt-4o-mini"));
@@ -831,7 +841,7 @@ describe("useRuntimeConsole", () => {
         return defaultBackendMock()(input, init);
       });
 
-      const { result } = renderHook(() => useRuntimeConsole());
+      const { result } = renderRuntimeConsoleHook();
       await waitFor(() => expect(result.current.state.loading).toBe(false));
       await waitFor(() => expect(result.current.state.activeAgentChatSession?.status).toBe("running"));
       await waitFor(() => expect(result.current.state.model).toBe("gpt-4o-mini"));
@@ -887,7 +897,7 @@ describe("useRuntimeConsole", () => {
         }),
       }));
 
-      const { result } = renderHook(() => useRuntimeConsole());
+      const { result } = renderRuntimeConsoleHook();
       await waitFor(() => expect(result.current.state.loading).toBe(false));
       expect(result.current.state.queuedChatMessages).toHaveLength(1);
       expect(result.current.state.queuedChatMessages[0].content).toBe("keep this after refresh");
@@ -939,7 +949,7 @@ describe("useRuntimeConsole", () => {
       }));
 
       try {
-        const { result } = renderHook(() => useRuntimeConsole());
+        const { result } = renderRuntimeConsoleHook();
         await waitFor(() => expect(result.current.state.loading).toBe(false));
 
         act(() => {
@@ -987,7 +997,7 @@ describe("useRuntimeConsole", () => {
         }),
       }));
 
-      const { result } = renderHook(() => useRuntimeConsole());
+      const { result } = renderRuntimeConsoleHook();
       await waitFor(() => expect(result.current.state.loading).toBe(false));
 
       await waitFor(() => expect(result.current.state.queuedChatMessages.map((item) => item.id)).toEqual(["queued_keep"]));
@@ -1038,7 +1048,7 @@ describe("useRuntimeConsole", () => {
         return defaultBackendMock()(input, init);
       });
 
-      const { result } = renderHook(() => useRuntimeConsole());
+      const { result } = renderRuntimeConsoleHook();
       await waitFor(() => expect(result.current.state.loading).toBe(false));
       await waitFor(() => expect(result.current.state.activeAgentChatSession?.id).toBe("a1"));
 
@@ -1128,7 +1138,7 @@ describe("useRuntimeConsole", () => {
         return defaultBackendMock()(input, init);
       });
 
-      const { result } = renderHook(() => useRuntimeConsole());
+      const { result } = renderRuntimeConsoleHook();
       await waitFor(() => expect(result.current.state.loading).toBe(false));
       await waitFor(() => expect(result.current.state.activeAgentChatSession?.id).toBe("a2"));
       await waitFor(() => expect(result.current.state.activeAgentChatSession?.status).toBe("running"));
@@ -1192,7 +1202,7 @@ describe("useRuntimeConsole", () => {
         "/hecate/v1/agent-chat/sessions/chat_b": () => jsonResponse(hecateSession("chat_b")),
       }));
 
-      const { result } = renderHook(() => useRuntimeConsole());
+      const { result } = renderRuntimeConsoleHook();
       await waitFor(() => expect(result.current.state.loading).toBe(false));
 
       await act(async () => {
@@ -1249,7 +1259,7 @@ describe("useRuntimeConsole", () => {
         }),
       }));
 
-      const { result } = renderHook(() => useRuntimeConsole());
+      const { result } = renderRuntimeConsoleHook();
       await waitFor(() => expect(result.current.state.loading).toBe(false));
 
       await act(async () => {
@@ -1269,7 +1279,7 @@ describe("useRuntimeConsole", () => {
         ),
       }));
 
-      const { result } = renderHook(() => useRuntimeConsole());
+      const { result } = renderRuntimeConsoleHook();
       await waitFor(() => expect(result.current.state.loading).toBe(false));
 
       await act(async () => {
@@ -1293,7 +1303,7 @@ describe("useRuntimeConsole", () => {
         )(input, init);
       });
 
-      const { result } = renderHook(() => useRuntimeConsole());
+      const { result } = renderRuntimeConsoleHook();
       await waitFor(() => expect(result.current.state.agentChatSessions).toHaveLength(2));
 
       await act(async () => {
@@ -1335,7 +1345,7 @@ describe("useRuntimeConsole", () => {
         return defaultBackendMock()(input, init);
       });
 
-      const { result } = renderHook(() => useRuntimeConsole());
+      const { result } = renderRuntimeConsoleHook();
       await waitFor(() => expect(result.current.state.activeAgentChatSession?.id).toBe("sess_b"));
 
       act(() => {
@@ -1376,7 +1386,7 @@ describe("useRuntimeConsole", () => {
         })(input, init);
       });
 
-      const { result } = renderHook(() => useRuntimeConsole());
+      const { result } = renderRuntimeConsoleHook();
       await waitFor(() => expect(result.current.state.chatSessions).toHaveLength(1));
 
       await act(async () => {
@@ -1439,7 +1449,7 @@ describe("useRuntimeConsole", () => {
         })(input, init);
       });
 
-      const { result } = renderHook(() => useRuntimeConsole());
+      const { result } = renderRuntimeConsoleHook();
       await waitFor(() => expect(result.current.state.agentChatSessions[0]?.title).toBe("Old agent title"));
 
       await act(async () => {
@@ -1525,7 +1535,7 @@ describe("useRuntimeConsole", () => {
         return defaultBackendMock()(input, init);
       });
 
-      const { result } = renderHook(() => useRuntimeConsole());
+      const { result } = renderRuntimeConsoleHook();
       await waitFor(() => expect(result.current.state.loading).toBe(false));
       await waitFor(() => expect(result.current.state.activeAgentChatSession?.task_id).toBe("task_42"));
       const initialRefetches = refetchCalls;
@@ -1618,7 +1628,7 @@ describe("useRuntimeConsole", () => {
         return defaultBackendMock()(input, init);
       });
 
-      const { result } = renderHook(() => useRuntimeConsole());
+      const { result } = renderRuntimeConsoleHook();
       await waitFor(() => expect(result.current.state.loading).toBe(false));
       await waitFor(() => expect(result.current.state.activeAgentChatSession?.task_id).toBe("task_42"));
 
@@ -1720,7 +1730,7 @@ describe("useRuntimeConsole", () => {
         return defaultBackendMock()(input, init);
       });
 
-      const { result } = renderHook(() => useRuntimeConsole());
+      const { result } = renderRuntimeConsoleHook();
       await waitFor(() => expect(result.current.state.loading).toBe(false));
       await waitFor(() => expect(result.current.state.activeAgentChatSession?.task_id).toBe("task_42"));
 
@@ -1821,7 +1831,7 @@ describe("useRuntimeConsole", () => {
         return defaultBackendMock()(input, init);
       });
 
-      const { result } = renderHook(() => useRuntimeConsole());
+      const { result } = renderRuntimeConsoleHook();
       await waitFor(() => expect(result.current.state.loading).toBe(false));
       await waitFor(() => expect(result.current.state.activeAgentChatSession?.task_id).toBe("task_42"));
 
@@ -1924,7 +1934,7 @@ describe("useRuntimeConsole", () => {
         return defaultBackendMock()(input, init);
       });
 
-      const { result } = renderHook(() => useRuntimeConsole());
+      const { result } = renderRuntimeConsoleHook();
       await waitFor(() => expect(result.current.state.loading).toBe(false));
       await waitFor(() => expect(result.current.state.activeAgentChatSession?.id).toBe("a1"));
 
@@ -1984,7 +1994,7 @@ describe("useRuntimeConsole", () => {
     }
 
     it("starts with an empty pending map and no grants", async () => {
-      const { result } = renderHook(() => useRuntimeConsole());
+      const { result } = renderRuntimeConsoleHook();
       await waitFor(() => expect(result.current.state.loading).toBe(false));
       expect(result.current.state.pendingApprovalsBySessionID.size).toBe(0);
       expect(result.current.state.agentChatGrants).toEqual([]);
@@ -2007,7 +2017,7 @@ describe("useRuntimeConsole", () => {
         }),
       }));
 
-      const { result } = renderHook(() => useRuntimeConsole());
+      const { result } = renderRuntimeConsoleHook();
       await waitFor(() => expect(result.current.state.loading).toBe(false));
       // Effect-driven refetch may need a tick after activeAgentChatSessionID
       // hydrates from localStorage.
@@ -2050,7 +2060,7 @@ describe("useRuntimeConsole", () => {
         }),
       }));
 
-      const { result } = renderHook(() => useRuntimeConsole());
+      const { result } = renderRuntimeConsoleHook();
       await waitFor(() => expect(result.current.state.loading).toBe(false));
 
       // Default chatTarget is "agent", so selectChatSession forwards
@@ -2111,7 +2121,7 @@ describe("useRuntimeConsole", () => {
         }),
       }));
 
-      const { result } = renderHook(() => useRuntimeConsole());
+      const { result } = renderRuntimeConsoleHook();
       await waitFor(() => expect(result.current.state.loading).toBe(false));
 
       await act(async () => {
@@ -2166,7 +2176,7 @@ describe("useRuntimeConsole", () => {
         }),
       }));
 
-      const { result } = renderHook(() => useRuntimeConsole());
+      const { result } = renderRuntimeConsoleHook();
       await waitFor(() => expect(result.current.state.loading).toBe(false));
       await waitFor(() =>
         expect(result.current.state.pendingApprovalsBySessionID.get("a1")).toHaveLength(1),
@@ -2198,7 +2208,7 @@ describe("useRuntimeConsole", () => {
         "/hecate/v1/agent-chat/grants/g1": () => new Response(null, { status: 204 }),
       }));
 
-      const { result } = renderHook(() => useRuntimeConsole());
+      const { result } = renderRuntimeConsoleHook();
       await waitFor(() => expect(result.current.state.loading).toBe(false));
 
       await act(async () => {
