@@ -69,6 +69,8 @@ import {
 import { deriveSessionState, resolveDashboardSnapshot } from "./runtimeConsoleDashboard";
 import { useApprovals } from "./state/approvals";
 import { useRetention } from "./state/retention";
+import { useRuntime } from "./state/runtime";
+import { useUsage } from "./state/usage";
 import type {
   AgentAdapterHealthRecord,
   AgentAdapterRecord,
@@ -82,16 +84,12 @@ import type {
   ChatSessionRecord,
   ChatSessionsResponse,
   ConfiguredStateResponse,
-  HealthResponse,
   ModelFilter,
   ModelResponse,
   ProviderPresetRecord,
   ProviderFilter,
   ProviderStatusResponse,
   RuntimeHeaders,
-  SessionResponse,
-  UsageEventsResponse,
-  UsageSummaryResponse,
 } from "../types/runtime";
 
 type NoticeState = {
@@ -141,7 +139,50 @@ function deriveHecateChatSelectionFromSession(session: AgentChatSessionRecord | 
 export { humanizeChatError };
 
 export function useRuntimeConsole() {
-  const [health, setHealth] = useState<HealthResponse | null>(null);
+  // Runtime slice: gateway health, session info, loading/error/
+  // message banners, runtime response headers, copy-to-clipboard
+  // transient, and the Hecate RTK availability bits. Aliased to
+  // legacy identifiers below so the rest of the hook body reads
+  // identically to its pre-slice form.
+  const runtime = useRuntime();
+  const {
+    health,
+    sessionInfo,
+    loading,
+    error,
+    message,
+    runtimeHeaders,
+    copiedCommand,
+    hecateRTKEnabled,
+    hecateRTKAvailable,
+    hecateRTKPath,
+  } = runtime.state;
+  const {
+    setHealth,
+    setSessionInfo,
+    setLoading,
+    setError,
+    setMessage,
+    setRuntimeHeaders,
+    setHecateRTKAvailable,
+    setHecateRTKPath,
+    copyCommand,
+  } = runtime.actions;
+  // Legacy alias: the previous code used `setHecateRTKEnabledState`
+  // for the raw state setter and reserved `setHecateRTKEnabled` for
+  // the coordinator below (PATCHes the session and rolls back on
+  // failure). Preserving the naming keeps the coordinator's body
+  // unchanged.
+  const setHecateRTKEnabledState = runtime.actions.setHecateRTKEnabled;
+
+  // Usage slice: cost summary + recent events. Aliased to legacy
+  // identifiers so the dashboard fan-out call sites read unchanged.
+  const usage = useUsage();
+  const usageSummary = usage.state.summary;
+  const usageEvents = usage.state.events;
+  const setUsageSummary = usage.actions.setSummary;
+  const setUsageEvents = usage.actions.setEvents;
+
   const [models, setModels] = useState<ModelResponse["data"]>([]);
   const [providers, setProviders] = useState<ProviderStatusResponse["data"]>([]);
   const [providerPresets, setProviderPresets] = useState<ProviderPresetRecord[]>([]);
@@ -168,9 +209,6 @@ export function useRuntimeConsole() {
     "",
   );
   const [agentWorkspaceBranch, setAgentWorkspaceBranch] = useState("");
-  const [hecateRTKEnabled, setHecateRTKEnabledState] = useState(false);
-  const [hecateRTKAvailable, setHecateRTKAvailable] = useState(false);
-  const [hecateRTKPath, setHecateRTKPath] = useState("");
   const [agentChatSessions, setAgentChatSessions] = useState<AgentChatSessionsResponse["data"]>([]);
   const [activeAgentChatSessionID, setActiveAgentChatSessionID] = usePersistedState(
     "hecate.agentChatSessionID",
@@ -204,11 +242,7 @@ export function useRuntimeConsole() {
   const [agentAdapterHealthLoadingByID, setAgentAdapterHealthLoadingByID] = useState<
     Map<string, true>
   >(() => new Map());
-  const [usageSummary, setUsageSummary] = useState<UsageSummaryResponse["data"] | null>(null);
-  const [usageEvents, setUsageEvents] = useState<UsageEventsResponse["data"]>([]);
   const [settingsConfig, setSettingsConfig] = useState<ConfiguredStateResponse["data"] | null>(null);
-  const [loading, setLoading] = useState(true);
-  const [error, setError] = useState("");
 
   const [model, setModel] = usePersistedState(
     "hecate.model",
@@ -216,7 +250,6 @@ export function useRuntimeConsole() {
     "",
     { shouldRemove: (v) => v === "" },
   );
-  const [message, setMessage] = useState("");
   const [queuedChatMessages, setQueuedChatMessages] = usePersistedState<QueuedChatMessage[]>(
     queuedChatMessagesStorageKey,
     parseStoredJSON(parseQueuedChatMessageList),
@@ -247,7 +280,6 @@ export function useRuntimeConsole() {
     { shouldRemove: (v) => v === "" },
   );
   const [activeChatSession, setActiveChatSession] = useState<ChatSessionRecord | null>(null);
-  const [runtimeHeaders, setRuntimeHeaders] = useState<RuntimeHeaders | null>(null);
   const [chatError, setChatError] = useState("");
   const [chatErrorCode, setChatErrorCode] = useState("");
   const [chatErrorStatus, setChatErrorStatus] = useState<number | null>(null);
@@ -284,9 +316,7 @@ export function useRuntimeConsole() {
   useEffect(() => {
     window.localStorage.setItem("hecate.providerFilter", providerFilter);
   }, [providerFilter]);
-  const [copiedCommand, setCopiedCommand] = useState("");
 
-  const [sessionInfo, setSessionInfo] = useState<SessionResponse["data"] | null>(null);
   const [settingsError, setSettingsError] = useState("");
   const [notice, setNotice] = useState<NoticeState | null>(null);
 
@@ -1154,18 +1184,6 @@ export function useRuntimeConsole() {
         await deletePolicyRuleRequest(id);
       },
     });
-  }
-
-  async function copyCommand(command: string) {
-    try {
-      await navigator.clipboard.writeText(command);
-      setCopiedCommand(command);
-      window.setTimeout(() => {
-        setCopiedCommand((current) => (current === command ? "" : current));
-      }, 1500);
-    } catch {
-      setCopiedCommand("");
-    }
   }
 
   const loadRetentionRuns = retention.actions.loadRuns;
