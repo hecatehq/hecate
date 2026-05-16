@@ -20,6 +20,15 @@ For non-trivial refactors:
 
 This makes every intermediate state shippable and every step independently revertible.
 
+## "Preserve existing behavior" comments need a tracker or a fix
+
+Comments like "preserves the existing layout", "kept on the legacy pattern", or "for backwards-compatibility" mark code as load-bearing debt — without a `TODO:` / `FIXME:` pointer, future readers can't tell intentional debt from accepted style, and the legacy state becomes invisible. Two options when you find yourself writing one:
+
+1. **Fix it in the same PR.** Migrate callers, delete the shim, drop the comment.
+2. **Tag it.** `TODO:` for a planned migration (with the condition that unblocks it — design sign-off, follow-up PR, dependency landing). `FIXME:` for a known bug whose proper fix is too large to bundle (with a pointer to the load-bearing change that retires it).
+
+A bare "preserves existing X" comment without one of the two is the worst of both worlds: the legacy is tolerated but invisible. Reviewer push-back: if the comment doesn't tell future-you when the legacy goes away, it doesn't belong yet.
+
 ## Verify no regressions
 
 Run the relevant verification ladder ([`../core/verification.md`](../core/verification.md)) **before** and **after** the refactor. Diff the results. For backend: race suite. For UI: typecheck plus test. The "passes before, passes after" claim is only as good as the evidence.
