@@ -382,12 +382,10 @@ export function useRuntimeConsole() {
   // initializer (what usePersistedState does) shifts the
   // transition out from under that cascade.
   //
-  // Restructuring the auto-default + scoped-validity effects to
-  // not depend on render-cycle timing is its own piece of work,
-  // load-bearing for the Phase 4 state slicing. Until that lands
-  // here, keep providerFilter on the original useState + mount-
-  // read + write-on-change pattern. Tracked alongside the other
-  // Phase 4 prep in the cleanup plan.
+  // Restructuring the auto-default + scoped-validity effects so
+  // they do not depend on render-cycle timing is separate cleanup.
+  // Until that lands here, keep providerFilter on the original
+  // useState + mount-read + write-on-change pattern.
   const [providerFilter, setProviderFilter] = useState<ProviderFilter>("auto");
   useEffect(() => {
     const stored = window.localStorage.getItem("hecate.providerFilter");
