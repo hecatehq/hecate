@@ -98,6 +98,11 @@ export function formatAbsoluteTime(value?: string): string {
  * `formatAbsoluteTime`.
  *
  * Empty / unparseable input renders as "".
+ *
+ * TODO: migrate the three remaining call sites (ConnectionsPanel's
+ * grant timestamps, TaskDetail's step.started_at) to
+ * `formatAbsoluteTime` once the design review for the more verbose
+ * layout (with timezone) lands, and delete this helper.
  */
 export function formatLocaleDateTime(value?: string): string {
   if (!value) return "";
