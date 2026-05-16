@@ -35,7 +35,12 @@ const TasksView = lazy(() =>
   import("../features/runs/TasksView").then(m => ({ default: m.TasksView })),
 );
 
-export type WorkspaceID = "overview" | "runs" | "chats" | "connections" | "usage" | "settings";
+// Single source of truth for the workspace ID set. Exported as a
+// readonly tuple so callers can iterate it (App.tsx's
+// parseWorkspaceID guard) and the union type below stays derived —
+// adding a workspace updates both surfaces in one place.
+export const WORKSPACE_IDS = ["overview", "runs", "chats", "connections", "usage", "settings"] as const;
+export type WorkspaceID = (typeof WORKSPACE_IDS)[number];
 
 type WorkspaceDefinition = {
   id: WorkspaceID;

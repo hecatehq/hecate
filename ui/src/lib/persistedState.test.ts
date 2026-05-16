@@ -54,6 +54,17 @@ describe("usePersistedState (string)", () => {
     act(() => result.current[1](""));
     expect(window.localStorage.getItem("k")).toBeNull();
   });
+
+  it("honours shouldRemove when the value is produced by the SetStateAction callback form", () => {
+    window.localStorage.setItem("k", "seed");
+    const { result } = renderHook(() =>
+      usePersistedState("k", parseStoredString, "", {
+        shouldRemove: (v) => v === "",
+      }),
+    );
+    act(() => result.current[1]((current) => (current === "seed" ? "" : "noop")));
+    expect(window.localStorage.getItem("k")).toBeNull();
+  });
 });
 
 describe("usePersistedState (parse rejection)", () => {
@@ -71,6 +82,31 @@ describe("usePersistedState (parse rejection)", () => {
       usePersistedState("k", () => null, "fallback"),
     );
     expect(logWarnMock).toHaveBeenCalledWith(expect.stringContaining("dropped malformed k"));
+  });
+
+  // hasMountedRef makes the first effect run a no-op; without it, the
+  // mount-time effect would re-persist the fallback under the same key
+  // we just wiped, defeating the loud-failure semantics.
+  it("does not re-persist the fallback after wiping a malformed value", () => {
+    window.localStorage.setItem("k", "garbage");
+    const parse = (raw: string): "valid" | null => (raw === "valid" ? raw : null);
+    renderHook(() => usePersistedState("k", parse, "fallback" as const));
+    expect(window.localStorage.getItem("k")).toBeNull();
+  });
+});
+
+describe("usePersistedState (read failures)", () => {
+  it("falls back and logs but does not throw when localStorage.getItem rejects", () => {
+    const getItemSpy = vi.spyOn(Storage.prototype, "getItem").mockImplementation(() => {
+      throw new Error("blocked by policy");
+    });
+    const { result } = renderHook(() => usePersistedState("k", parseStoredString, "fallback"));
+    expect(result.current[0]).toBe("fallback");
+    expect(logWarnMock).toHaveBeenCalledWith(
+      expect.stringContaining("read failed for k"),
+      expect.any(Error),
+    );
+    getItemSpy.mockRestore();
   });
 });
 
