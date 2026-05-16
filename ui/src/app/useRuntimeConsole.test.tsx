@@ -1,16 +1,25 @@
 import { act, renderHook, waitFor, type RenderHookOptions } from "@testing-library/react";
+import { type ReactNode } from "react";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
+import { ApprovalsProvider } from "./state/approvals";
 import { RetentionProvider } from "./state/retention";
 import { useRuntimeConsole } from "./useRuntimeConsole";
 
-// useRuntimeConsole now consumes slice contexts (retention is the
-// first one to land). Every renderHook call needs the matching
-// providers above it; this helper composes them so the test bodies
-// don't have to thread a wrapper through each call. As more slices
-// are added the wrapper chain grows here.
+// useRuntimeConsole consumes slice contexts (retention, approvals,
+// and more as slices are added). Every renderHook call needs the
+// matching providers above it; this wrapper composes them so the
+// test bodies don't have to thread the chain through each call.
+function SliceProviders({ children }: { children: ReactNode }) {
+  return (
+    <RetentionProvider>
+      <ApprovalsProvider>{children}</ApprovalsProvider>
+    </RetentionProvider>
+  );
+}
+
 function renderRuntimeConsoleHook(options?: Omit<RenderHookOptions<unknown>, "wrapper">) {
-  return renderHook(() => useRuntimeConsole(), { ...options, wrapper: RetentionProvider });
+  return renderHook(() => useRuntimeConsole(), { ...options, wrapper: SliceProviders });
 }
 
 // Single-user mode: every endpoint is unauthenticated and the gateway

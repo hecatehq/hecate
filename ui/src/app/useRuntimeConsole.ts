@@ -29,20 +29,14 @@ import {
   getUsageEvents,
   getUsageSummary,
   setProviderAPIKey as setProviderAPIKeyRequest,
-  cancelAgentChatApproval as cancelAgentChatApprovalRequest,
   cancelAgentChatSession as cancelAgentChatSessionRequest,
-  deleteAgentChatGrant as deleteAgentChatGrantRequest,
   getAgentChatMessageFileDiff as getAgentChatMessageFileDiffRequest,
-  getAgentChatApproval as getAgentChatApprovalRequest,
   listAgentChatMessageFiles as listAgentChatMessageFilesRequest,
-  listAgentChatApprovals as listAgentChatApprovalsRequest,
-  listAgentChatGrants as listAgentChatGrantsRequest,
   probeAgentAdapter as probeAgentAdapterRequest,
   setAgentAdapterCredential as setAgentAdapterCredentialRequest,
   deleteAgentAdapterCredential as deleteAgentAdapterCredentialRequest,
   revertAgentChatMessageFiles as revertAgentChatMessageFilesRequest,
   resolveTaskApproval as resolveTaskApprovalRequest,
-  resolveAgentChatApproval as resolveAgentChatApprovalRequest,
   upsertPolicyRule as upsertPolicyRuleRequest,
   createProvider as createProviderRequest,
   deleteModelCapabilityOverride as deleteModelCapabilityOverrideRequest,
@@ -61,9 +55,8 @@ import {
   setProviderCustomName as setProviderCustomNameRequest,
   upsertModelCapabilityOverride as upsertModelCapabilityOverrideRequest,
 } from "../lib/api";
-import type { PolicyRuleUpsertPayload, ResolveAgentChatApprovalPayload, ResolveTaskApprovalPayload, AgentChatGrantFilter, ModelCapabilityUpsertPayload } from "../lib/api";
+import type { PolicyRuleUpsertPayload, ResolveAgentChatApprovalPayload, ResolveTaskApprovalPayload, ModelCapabilityUpsertPayload } from "../lib/api";
 import {
-  approvalRecordToPending,
   buildAssistantToolCallMessage,
   buildSyntheticChatResult,
   defaultModelForProvider,
@@ -74,6 +67,7 @@ import {
   renderAgentChatSessionSummary,
 } from "./runtimeConsoleChatHelpers";
 import { deriveSessionState, resolveDashboardSnapshot } from "./runtimeConsoleDashboard";
+import { useApprovals } from "./state/approvals";
 import { useRetention } from "./state/retention";
 import type {
   AgentAdapterHealthRecord,
@@ -82,8 +76,6 @@ import type {
   AgentChatActivityRecord,
   AgentChatChangedFileDiffRecord,
   AgentChatChangedFileRecord,
-  AgentChatGrantRecord,
-  PendingAgentApproval,
   AgentChatSessionRecord,
   AgentChatSessionsResponse,
   ChatResponse,
@@ -187,25 +179,14 @@ export function useRuntimeConsole() {
     { shouldRemove: (v) => v === "" },
   );
   const [activeAgentChatSession, setActiveAgentChatSession] = useState<AgentChatSessionRecord | null>(null);
-  // pendingApprovalsBySessionID stores the banner-essentials view of
-  // pending approvals, keyed by session id. Values are projected to
-  // the same shape carried by the SSE `approval.requested` event so the
-  // banner doesn't need to know whether a row came from the initial
-  // GET-list refetch or from a streamed event. The full row (ACP
-  // options, scope choices, diff preview, …) is fetched on modal open
-  // — keeping the map lean.
-  //
-  // The Map instance is always replaced on update (never mutated in
-  // place); React reference equality is the re-render trigger.
-  const [pendingApprovalsBySessionID, setPendingApprovalsBySessionID] = useState<
-    Map<string, PendingAgentApproval[]>
-  >(() => new Map());
-  const pendingApprovalsVersionBySessionID = useRef<Map<string, number>>(new Map());
-  // agentChatGrants holds the most recent listAgentChatGrants result
-  // for Connections. Lazy-loaded by the action, not on hook mount.
-  const [agentChatGrants, setAgentChatGrants] = useState<AgentChatGrantRecord[]>([]);
-  const [agentChatGrantsLoading, setAgentChatGrantsLoading] = useState(false);
-  const [agentChatGrantsError, setAgentChatGrantsError] = useState("");
+  // Approvals state + actions live in the slice (app/state/approvals.tsx).
+  // The slice owns the pending-banner map, the per-session mutation
+  // version that protects the catch-up GET against races, the grant
+  // list, and the request actions. The shim below re-exports the
+  // state under the legacy `state.{pendingApprovalsBySessionID,
+  // agentChatGrants,agentChatGrantsLoading,agentChatGrantsError}`
+  // keys and the actions under their legacy identifiers.
+  const approvals = useApprovals();
   // agentAdapterApprovalMode mirrors the runtime-stats field of the
   // same name. Empty until the dashboard fan-out resolves. The Chats
   // workspace surfaces a danger banner when this is "auto" — every
@@ -700,84 +681,13 @@ export function useRuntimeConsole() {
     applyAgentChatSession(payload.data);
   }
 
-  // setPendingApprovalsForSession atomically replaces the pending list
-  // for a session. The catch-up path only calls this when no live SSE
-  // or optimistic local update landed while the request was in flight;
-  // otherwise the GET result may be stale relative to the stream.
-  function setPendingApprovalsForSession(
-    sessionID: string,
-    rows: PendingAgentApproval[],
-  ) {
-    setPendingApprovalsBySessionID((current) => {
-      const next = new Map(current);
-      if (rows.length === 0) {
-        next.delete(sessionID);
-      } else {
-        next.set(sessionID, rows);
-      }
-      return next;
-    });
-  }
-
-  function bumpPendingApprovalsVersion(sessionID: string) {
-    const current = pendingApprovalsVersionBySessionID.current.get(sessionID) ?? 0;
-    pendingApprovalsVersionBySessionID.current.set(sessionID, current + 1);
-  }
-
-  function upsertPendingApproval(event: PendingAgentApproval) {
-    bumpPendingApprovalsVersion(event.session_id);
-    setPendingApprovalsBySessionID((current) => {
-      const next = new Map(current);
-      const existing = next.get(event.session_id) ?? [];
-      const filtered = existing.filter((row) => row.approval_id !== event.approval_id);
-      filtered.push(event);
-      next.set(event.session_id, filtered);
-      return next;
-    });
-  }
-
-  function removePendingApproval(sessionID: string, approvalID: string) {
-    bumpPendingApprovalsVersion(sessionID);
-    setPendingApprovalsBySessionID((current) => {
-      const existing = current.get(sessionID);
-      if (!existing) return current;
-      const filtered = existing.filter((row) => row.approval_id !== approvalID);
-      if (filtered.length === existing.length) return current;
-      const next = new Map(current);
-      if (filtered.length === 0) {
-        next.delete(sessionID);
-      } else {
-        next.set(sessionID, filtered);
-      }
-      return next;
-    });
-  }
-
-  // refetchPendingApprovals is the catch-up path. Called when an
-  // operator selects a session: any approvals created or resolved while
-  // the SSE stream was disconnected (or before this session was
-  // active) are reconciled in one round trip. Subsequent SSE events
-  // mutate this same map.
-  async function refetchPendingApprovals(sessionID: string) {
-    if (!sessionID) return;
-    const startedAtVersion = pendingApprovalsVersionBySessionID.current.get(sessionID) ?? 0;
-    try {
-      const result = await listAgentChatApprovalsRequest(sessionID, "pending");
-      const currentVersion = pendingApprovalsVersionBySessionID.current.get(sessionID) ?? 0;
-      if (currentVersion !== startedAtVersion) {
-        // A live SSE update or optimistic local action landed while
-        // this catch-up request was in flight. Ignore the stale GET
-        // result rather than clearing a newer pending approval or
-        // re-adding one that was just resolved.
-        return;
-      }
-      const rows = (result.data ?? []).map(approvalRecordToPending);
-      setPendingApprovalsForSession(sessionID, rows);
-    } catch {
-      // Banner is best-effort; failure here just means the operator
-      // doesn't see the catch-up state until the next reconnect.
-    }
-  }
+  // Mutation API thin-aliases for the SSE stream handler + catch-up
+  // path below. The slice owns the state + version-ref machinery;
+  // these names stay stable so the call sites read the same way as
+  // before the carve-out.
+  const upsertPendingApproval = approvals.actions.upsertPending;
+  const removePendingApproval = approvals.actions.removePending;
+  const refetchPendingApprovals = approvals.actions.refetchPending;
 
   function clearChatErrorState() {
     setChatError("");
@@ -1406,18 +1316,20 @@ export function useRuntimeConsole() {
 
   // getAgentChatApproval is the modal-open path: fetches the full
   // approval row (ACP options, scope choices, decision_note, …).
-  // Returns null on failure so the caller can render an error state.
+  // Returns null on failure so the caller can render an error state;
+  // the slice's getApproval returns a discriminated Result that the
+  // shim unwraps into the legacy `record | null` shape and routes
+  // the error string to the global notice banner.
   async function getAgentChatApproval(
     sessionID: string,
     approvalID: string,
   ): Promise<AgentChatApprovalRecord | null> {
-    try {
-      const payload = await getAgentChatApprovalRequest(sessionID, approvalID);
-      return payload.data;
-    } catch (error) {
-      setNoticeMessage("error", error instanceof Error ? error.message : "Failed to load approval.");
+    const result = await approvals.actions.getApproval(sessionID, approvalID);
+    if (!result.ok) {
+      setNoticeMessage("error", result.error);
       return null;
     }
+    return result.record;
   }
 
   async function resolveAgentChatApproval(
@@ -1425,28 +1337,15 @@ export function useRuntimeConsole() {
     approvalID: string,
     decision: ResolveAgentChatApprovalPayload,
   ): Promise<boolean> {
-    try {
-      await resolveAgentChatApprovalRequest(sessionID, approvalID, decision);
-      // Optimistic removal: the SSE `approval.resolved` event will
-      // also fire and remove the row, but updating immediately keeps
-      // the banner snappy when the operator closes the modal.
-      removePendingApproval(sessionID, approvalID);
-      return true;
-    } catch (error) {
-      setNoticeMessage("error", error instanceof Error ? error.message : "Failed to resolve approval.");
-      return false;
-    }
+    const result = await approvals.actions.resolveApproval(sessionID, approvalID, decision);
+    if (!result.ok) setNoticeMessage("error", result.error);
+    return result.ok;
   }
 
   async function cancelAgentChatApproval(sessionID: string, approvalID: string): Promise<boolean> {
-    try {
-      await cancelAgentChatApprovalRequest(sessionID, approvalID);
-      removePendingApproval(sessionID, approvalID);
-      return true;
-    } catch (error) {
-      setNoticeMessage("error", error instanceof Error ? error.message : "Failed to cancel approval.");
-      return false;
-    }
+    const result = await approvals.actions.cancelApproval(sessionID, approvalID);
+    if (!result.ok) setNoticeMessage("error", result.error);
+    return result.ok;
   }
 
   async function resolveTaskApproval(
@@ -1581,30 +1480,16 @@ export function useRuntimeConsole() {
     }
   }
 
-  async function listAgentChatGrants(filter: AgentChatGrantFilter = {}): Promise<void> {
-    setAgentChatGrantsLoading(true);
-    setAgentChatGrantsError("");
-    try {
-      const payload = await listAgentChatGrantsRequest(filter);
-      setAgentChatGrants(payload.data ?? []);
-    } catch (error) {
-      const msg = error instanceof Error ? error.message : "failed to load grants";
-      setAgentChatGrantsError(msg);
-    } finally {
-      setAgentChatGrantsLoading(false);
-    }
-  }
+  const listAgentChatGrants = approvals.actions.loadGrants;
 
   async function deleteAgentChatGrant(grantID: string): Promise<boolean> {
-    try {
-      await deleteAgentChatGrantRequest(grantID);
-      setAgentChatGrants((current) => current.filter((g) => g.id !== grantID));
+    const result = await approvals.actions.deleteGrant(grantID);
+    if (result.ok) {
       setNoticeMessage("success", "Grant revoked.");
-      return true;
-    } catch (error) {
-      setNoticeMessage("error", error instanceof Error ? error.message : "Failed to revoke grant.");
-      return false;
+    } else {
+      setNoticeMessage("error", result.error);
     }
+    return result.ok;
   }
 
   async function listAgentChatMessageFiles(sessionID: string, messageID: string): Promise<AgentChatChangedFileRecord[]> {
@@ -1868,10 +1753,10 @@ export function useRuntimeConsole() {
       chatSessionsHasMore,
       chatSessionsLoadingMore,
       visibleModels,
-      pendingApprovalsBySessionID,
-      agentChatGrants,
-      agentChatGrantsLoading,
-      agentChatGrantsError,
+      pendingApprovalsBySessionID: approvals.state.pendingBySessionID,
+      agentChatGrants: approvals.state.grants,
+      agentChatGrantsLoading: approvals.state.grantsLoading,
+      agentChatGrantsError: approvals.state.grantsError,
       agentAdapterApprovalMode,
       agentAdapterHealthByID,
       agentAdapterHealthLoadingByID,
