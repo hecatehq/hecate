@@ -47,6 +47,11 @@ function usageInitialState(fixture: RuntimeConsoleFixtureState) {
   return {
     summary: fixture.usageSummary,
     events: fixture.usageEvents,
+    // Tests that mount UsageView via this wrapper pretend the slice
+    // is already hydrated — without this flag, useEnsureUsageLoaded
+    // would fire the (unmocked) fetch on every UsageView render and
+    // spam usage.ensureLoaded.failed warnings into the test output.
+    loaded: true,
   };
 }
 
@@ -54,6 +59,11 @@ function providersAndModelsInitialState(fixture: RuntimeConsoleFixtureState) {
   return {
     providers: fixture.providers,
     providerPresets: fixture.providerPresets,
+    // Same dedup reason as usageInitialState: presets are considered
+    // pre-loaded under the fixture so useEnsureProviderPresetsLoaded
+    // doesn't trigger a fetch on every AddProviderModal / TasksView
+    // mount inside a test render.
+    providerPresetsLoaded: true,
     // Same compat shim as the syncer: legacy tests fill
     // providerScopedModels but leave models empty.
     models: fixture.models.length > 0 ? fixture.models : fixture.providerScopedModels,
