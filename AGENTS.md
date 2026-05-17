@@ -30,7 +30,7 @@ When in doubt: read [`docs-ai/core/project-context.md`](docs-ai/core/project-con
 ## Codebase map
 
 ```
-cmd/hecate/            hecate binary entry: gateway, embedded UI, MCP subcommand
+cmd/hecate/            main runtime entry: gateway service, embedded UI, MCP subcommand
 cmd/hecate-acp/         ACP stdio bridge for editor agent panels
 
 pkg/types/              public types (ChatRequest, Message, ContentBlock, ...)

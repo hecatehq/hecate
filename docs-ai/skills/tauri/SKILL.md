@@ -18,14 +18,14 @@ Operator-facing companion: [`../../../docs/desktop-app.md`](../../../docs/deskto
 
 ## Architecture in one paragraph
 
-The Tauri app is a thin chrome-frame around the Hecate gateway. On launch the Rust layer allocates a free loopback port, spawns the `hecate` binary as a companion process (not a Tauri shell-plugin sidecar — see gotchas), polls `/healthz` until the gateway is healthy, then navigates the webview to `http://127.0.0.1:{port}/`. The gateway serves its own embedded React UI. No second frontend build, no API bridge, no Vite dev server required.
+The Tauri app is a thin chrome-frame around the main Hecate runtime running in gateway mode. On launch the Rust layer allocates a free loopback port, spawns the `hecate` binary as a companion process (not a Tauri shell-plugin sidecar — see gotchas), polls `/healthz` until the gateway is healthy, then navigates the webview to `http://127.0.0.1:{port}/`. The gateway serves its own embedded React UI. No second frontend build, no API bridge, no Vite dev server required.
 
 ### Why we keep `//go:embed` instead of `frontendDist`
 
 Most Tauri apps point `tauri.conf.json` → `frontendDist: "../ui/dist"` and let the webview load UI files directly from the bundled app. We don't, on purpose:
 
 - **Same-origin loopback surface.** The webview loads from `http://127.0.0.1:{port}/` and the API is at `http://127.0.0.1:{port}/v1/...`. Same origin means no CORS dance and no Tauri IPC bridge. Splitting UI (`tauri://localhost`) from API (`127.0.0.1:{port}`) breaks that property and requires a meaningful security refactor to restore.
-- **Hecate-sidecar property.** The same `hecate` binary ships through Docker, the goreleaser tarballs, *and* the Tauri sidecar. The embed makes that work without conditional builds or runtime path resolution. Reading `ui/dist` from disk inside a bundled `.app` would require a working-dir-independent resolver and a new "UI files missing" failure mode.
+- **Hecate-sidecar property.** The same `hecate` runtime binary ships through Docker, the goreleaser tarballs, *and* the Tauri sidecar. The embed makes that work without conditional builds or runtime path resolution. Reading `ui/dist` from disk inside a bundled `.app` would require a working-dir-independent resolver and a new "UI files missing" failure mode.
 - **Bundle-size cost is small.** Embedding adds ~13 MB to the binary, which means a `.dmg` of ~25 MB instead of ~12 MB. Desktop apps routinely ship at 100+ MB; this isn't a real constraint.
 
 If the gateway and UI ever decouple (gateway as pure API + separate static-server for UI), revisit this. Until then, keep the embed.
@@ -91,7 +91,7 @@ Three responsibilities:
 - Windows: `%APPDATA%\sh.hecate.app\`
 - Linux: `~/.local/share/sh.hecate.app/`
 
-**`spawn_and_wait(app)`** — spawns the hecate binary (via `std::process::Command`, not tokio — see gotchas), polls `/healthz` every 250 ms, returns `GatewayHandle { base_url, port, child }` on success.
+**`spawn_and_wait(app)`** — spawns the `hecate` runtime (via `std::process::Command`, not tokio — see gotchas), polls `/healthz` every 250 ms, returns `GatewayHandle { base_url, port, child }` on success.
 
 ### `lib.rs`
 
@@ -280,7 +280,7 @@ block in `test.yml`'s `tauri-desktop` job.
 ### Pipeline footguns
 
 - **`tauri-action`'s auto-install is unreliable with `projectPath` set.** It silently skips `bun install` in `tauri/`, leaving `node_modules/.bin/tauri` missing — `bun run tauri build` then fails with "tauri: command not found". Always run `cd tauri && bun install --frozen-lockfile` ourselves before the action.
-- **`build.rs` validates `externalBin` paths at build-script run time.** Any step that compiles the Rust crate (`cargo check`, `cargo build`, `tauri build`) needs the sidecar staged at `binaries/hecate-{triple}[.exe]` first. Run `just tauri-sidecar <target>` before any Rust compile; it builds and stages the versioned sidecars in one step. Plain `just build` leaves the gateway version as `dev`; release/native bundles need the versioned sidecar path so `/healthz` and the UI status bar match the Tauri app version.
+- **`build.rs` validates `externalBin` paths at build-script run time.** Any step that compiles the Rust crate (`cargo check`, `cargo build`, `tauri build`) needs the sidecar staged at `binaries/hecate-{triple}[.exe]` first. Run `just tauri-sidecar <target>` before any Rust compile; it builds and stages the versioned sidecars in one step. Plain `just build` leaves the runtime version as `dev`; release/native bundles need the versioned sidecar path so `/healthz` and the UI status bar match the Tauri app version.
 - **Just + Git Bash on Windows runners.** Set `defaults.run.shell: bash` job-wide. Default Windows shell is PowerShell; the Justfile shell recipes and our `cp`/`if` blocks only work in bash. On Windows runners, `bash` resolves to Git Bash.
 - **Go sidecar names differ by host and bundle target.** `just tauri-sidecar <target>` reads `go env GOEXE`, then stages `hecate$GOEXE` and `hecate-acp$GOEXE` to `binaries/<name>-<target>$GOEXE`. A missing source fails at `cp`, which usually means the versioned sidecar build failed earlier in the recipe.
 - **`just tauri-build-sidecars` runs `just ui-build` which checks for `ui/node_modules/@vitejs/plugin-react`.** That's the canary file. CI must run `just ui-install` before building Tauri sidecars. Goreleaser handles the normal gateway build via its `before:` hook (`bun install --cwd ui --frozen-lockfile`); the Tauri matrix does it explicitly.

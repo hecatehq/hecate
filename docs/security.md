@@ -59,9 +59,9 @@ Hecate stores local configuration and operational state on disk.
 
 ## Native app and sidecars
 
-The desktop app is a Tauri shell that bundles two Hecate binaries: the
-`hecate` gateway it runs as its primary sidecar, and `hecate-acp` for
-editor Agent Client Protocol (ACP) integrations.
+The desktop app is a Tauri shell that bundles two Hecate executables: the main
+`hecate` runtime, which it launches in gateway mode as its primary sidecar, and
+`hecate-acp` for editor Agent Client Protocol (ACP) integrations.
 
 - The app launches `hecate` as a sidecar on a free loopback port.
 - The app bundle also ships `hecate-acp` so editors that drive Hecate

@@ -123,7 +123,7 @@ Chats can be renamed from the sidebar. The title is just operator-facing metadat
 
 ## Architecture
 
-The gateway is one local Go process with the React operator UI embedded. `hecate-acp` is a separate stdio bridge for editor ACP hosts.
+The main `hecate` process runs the local gateway service and embeds the React operator UI. `hecate-acp` is a separate stdio bridge for editor ACP hosts.
 
 ```mermaid
 flowchart LR
