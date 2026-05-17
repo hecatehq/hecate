@@ -13,12 +13,9 @@ vi.mock("../lib/api", async () => {
     getProviders: vi.fn(),
     getProviderPresets: vi.fn(),
     getAgentAdapters: vi.fn(),
-    getUsageSummary: vi.fn(),
-    getUsageEvents: vi.fn(),
     getChatSessions: vi.fn(),
     getChatSession: vi.fn(),
     getSettingsConfig: vi.fn(),
-    getRetentionRuns: vi.fn(),
     getRuntimeStats: vi.fn(),
   };
 });
@@ -28,13 +25,9 @@ import * as api from "../lib/api";
 const emptyPrev = {
   providers: [],
   agentAdapters: [],
-  usageSummary: null,
-  usageEvents: [],
   chatSessions: [],
   activeChatSession: null,
   settingsConfig: null,
-  retentionRuns: [],
-  retentionLastRun: null,
 };
 
 function setupAllResolved(overrides: Record<string, unknown> = {}) {
@@ -44,17 +37,11 @@ function setupAllResolved(overrides: Record<string, unknown> = {}) {
   vi.mocked(api.getProviders).mockResolvedValue({ object: "list", data: [] });
   vi.mocked(api.getProviderPresets).mockResolvedValue({ object: "list", data: [] });
   vi.mocked(api.getAgentAdapters).mockResolvedValue({ object: "list", data: [] });
-  vi.mocked(api.getUsageSummary).mockResolvedValue({
-    object: "usage_summary",
-    data: { key: "global", scope: "global", backend: "memory", used_micros_usd: 0, used_usd: "$0.000000" },
-  });
-  vi.mocked(api.getUsageEvents).mockResolvedValue({ object: "usage_events", data: [] });
   vi.mocked(api.getChatSessions).mockResolvedValue({ object: "list", data: [] });
   vi.mocked(api.getSettingsConfig).mockResolvedValue({
     object: "settings",
     data: { backend: "memory", providers: [], policy_rules: [], events: [] },
   });
-  vi.mocked(api.getRetentionRuns).mockResolvedValue({ object: "list", data: [] });
   vi.mocked(api.getRuntimeStats).mockResolvedValue({
     object: "runtime_stats",
     data: { agent_adapter_approval_mode: "prompt" } as never,
