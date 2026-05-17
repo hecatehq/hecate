@@ -349,9 +349,21 @@ export function useProvidersAndModels(): ProvidersAndModelsContextValue {
 // useEnsureProviderPresetsLoaded fetches the provider preset
 // catalog on first call if the slice's providerPresetsLoaded flag
 // is false. Used by AddProviderModal and TasksView; the dashboard
-// loader no longer pulls presets at boot. Dedupes parallel callers
-// via an inflight ref; tolerates failures by leaving the loaded
-// flag false so a later mount can retry.
+// loader no longer pulls presets at boot.
+//
+// Dedup behavior:
+//   - The `inFlight` ref is per hook instance — it blocks the same
+//     hook from re-firing while its first fetch is pending.
+//   - Cross-surface dedup happens AFTER the first fetch resolves,
+//     when `providerPresetsLoaded` flips to true: subsequent calls
+//     (whether from a re-mount of the same surface or a different
+//     surface) early-return on the loaded check. If two surfaces
+//     mount the hook simultaneously before either flip lands, both
+//     fetches would fire — acceptable today (only AddProviderModal
+//     and TasksView call it, and they don't mount concurrently).
+//
+// Tolerates failures by leaving `providerPresetsLoaded` false so a
+// later mount retries.
 //
 // The optional `when` gate lets callers that always-mount the
 // component (e.g. <AddProviderModal open={…} /> in ChatView) skip
