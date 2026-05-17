@@ -1,9 +1,12 @@
 # External-Adapter Approval Loop — v1 Candidate (RFC)
 
-> **Status:** implemented for alpha. Wire shape, persistence, SSE, UI, grants management, telemetry, and migration docs have landed. Still not a v1-stable contract.
-> **Depends on:** [`external-agent-adapters.md`](external-agent-adapters.md) — the broader Agent Chat surface this approval loop plugs into.
-> **Related:** [Runtime API](../runtime-api.md) — task-runtime approvals, whose persistence shape this RFC reuses.
-> **Owner:** see [`AGENTS.md`](../../AGENTS.md).
+> **Status:** implemented record for alpha. Wire shape, persistence, SSE, UI,
+> grants management, telemetry, and migration docs have landed.
+> **Current source of truth:** [Runtime API](../runtime-api.md),
+> [External agent adapters](../external-agent-adapters.md), and
+> [Chat sessions](../chat-sessions.md).
+> **Next action:** keep as design history unless the approval contract changes
+> before beta.
 
 This RFC defines how Hecate handles the `RequestPermission` reverse-RPC that
 external ACP adapters (Codex, Claude Code, Cursor Agent, future ACP CLIs) emit

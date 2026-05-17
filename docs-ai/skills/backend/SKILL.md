@@ -111,7 +111,7 @@ chat-only event stream for Hecate-owned tools.
 
 When changing this path:
 
-1. Keep `docs/rfcs/unified-chats-and-model-capabilities.md` and
+1. Keep `docs/rfcs/hecate-chat-model-capabilities.md` and
    `docs/runtime-api.md` aligned when changing Hecate Agent or capability
    behavior.
 2. Keep provider/model readiness contracts aligned across

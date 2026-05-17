@@ -1,18 +1,10 @@
 # Agent Memory
 
-> **Status:** design notes. Not implemented. Captures the proposal
-> for a cross-session, operator-authored memory primitive that
-> persists relevant context across chats with Hecate Agent and
-> across `agent_loop` task runs.
-> **Depends on:** two existing system-prompt mechanisms — the
-> three-layer composition for `agent_loop` task runs
-> (global → workspace `CLAUDE.md`/`AGENTS.md` → per-task) built in
-> `internal/api/system_prompt.go` via `buildSystemPromptResolver` and
-> consumed through the `orchestrator.SystemPromptResolver` interface,
-> and the session-level prompt path for model chats handled by
-> `applySessionSystemPrompt` in `internal/api/handler_chat.go`. The
-> two surfaces inject memory differently; see "Injection mechanics"
-> below.
+> **Status:** proposed; not implemented.
+> **Current source of truth:** [Chat sessions](../chat-sessions.md) and
+> [Agent runtime](../agent-runtime.md) for today's system-prompt layers.
+> **Next action:** recheck product placement now that Connections and Chat
+> settings exist; do not assume a generic Settings view is the right home.
 
 Operators currently re-establish the same context every chat: their
 role, the codebase paths they care about, conventions they want the
@@ -38,7 +30,7 @@ In rough priority order:
    tasks), or some intersection. Not every entry should fire on
    every conversation.
 3. **Fully visible.** The operator can see every active memory
-   entry in a Settings tab and per-chat. No "the assistant
+   entry in Connections or Chat settings, and per-chat. No "the assistant
    remembered something but I can't see what" behavior.
 4. **Provider-agnostic.** Same memory entries work across OpenAI,
    Anthropic, Gemini, etc. No vendor lock-in.
@@ -254,7 +246,7 @@ text.
 
 ## UI surface
 
-### Settings / Connections surface — Memory
+### Connections / Chat settings surface — Memory
 
 List all memory entries with:
 
@@ -274,8 +266,8 @@ Tests should follow the existing settings/connection CRUD patterns.
 In Hecate Chat header (and external-agent chat header — see future
 work), small badge: **"3 memories active"**. Click expands to a
 panel listing the matching entries, each with title + scope. Each
-entry has a "View in Settings" link. No edit-from-chat in v1 (keeps
-the chat surface focused; Settings is the source of truth).
+entry has a "Manage memory" link. No edit-from-chat in v1 (keeps
+the chat surface focused; Connections or Chat settings is the source of truth).
 
 The indicator queries `GET /hecate/v1/memory/active` with the
 current workspace and agent kind so it always reflects what just
@@ -299,7 +291,7 @@ trace).
 | API handlers | `internal/api/handler_memory.go` + routes | ~250 |
 | Injection | wiring in handler_chat.go + executor_agent_loop.go's prompt composer | ~150 |
 | UI types | `ui/src/types/runtime.ts` | ~30 |
-| UI Settings tab | `ui/src/features/settings/MemoryTab.tsx` + tests | ~500 |
+| UI memory surface | Connections or Chat settings memory component + tests | ~500 |
 | UI per-chat indicator | small component in Hecate Chat header + tests | ~150 |
 | Task Detail provenance row | `ui/src/features/runs/TaskDetail.tsx` change | ~60 |
 | Tests at every layer | provider, storage, handler, injection, UI | ~600 |
@@ -370,7 +362,7 @@ feature.
    token estimate there must count memory contributions.
 2. **Operator forgets a memory entry is enabled** and gets
    surprising answers. Mitigation: per-chat indicator (always-on,
-   click to inspect), and Settings tab is the canonical source of
+   click to inspect), and the memory management surface is the canonical source of
    truth. Disable beats delete.
 3. **Memory drift across providers.** Different providers respect
    markdown structure in system prompts differently. Most major
@@ -393,7 +385,7 @@ feature.
 When this RFC is implemented:
 
 - An operator can create, edit, scope, enable, disable, and delete
-  memory entries from a Settings tab.
+  memory entries from the chosen memory management surface.
 - Memory entries scoped to "global" appear in every Hecate Chat
   conversation and every `agent_loop` task run.
 - Memory entries scoped to a workspace path appear only when the

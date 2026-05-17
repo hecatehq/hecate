@@ -1,16 +1,10 @@
 # Hecate Chat and Model Capabilities
 
-> **Status:** accepted; the baseline chat-to-task bridge has landed, including
-> chat-visible run activity, task approval resolution, and streamed assistant
-> text for task-backed turns. Chats now uses one shell with an agent picker:
-> **Hecate** for Hecate Chat, plus Codex / Claude Code / Cursor entries for
-> External Agent sessions. The Hecate choice has tools on/off inside the chat.
-> Stable Hecate Agent still requires workspace modes, profiles, automatic
-> probing, and broader product hardening.
-> **Related:** [Chat sessions](../chat-sessions.md),
-> [External agent adapters](external-agent-adapters.md),
-> [Agent runtime](../agent-runtime.md), [Runtime API](../runtime-api.md).
-> **Owner:** see [`AGENTS.md`](../../AGENTS.md).
+> **Status:** accepted; partially implemented alpha direction.
+> **Current source of truth:** [Chat sessions](../chat-sessions.md),
+> [Agent runtime](../agent-runtime.md), and [Runtime API](../runtime-api.md).
+> **Next action:** implement workspace modes, named agent profiles, automatic
+> capability probes, and broader e2e hardening.
 
 ## Summary
 
@@ -483,7 +477,8 @@ The missing stable-scope pieces should land in this order:
   `enum` / `required` reliability, and parallel-tool behavior. This should
   become both a capability dimension and a probe target after the first stable
   Hecate Agent path.
-- Convergence with endpoint-versioning (`/hecate/v1/...`) once that RFC lands.
+- Keep endpoint examples aligned with the implemented `/hecate/v1/...`
+  namespace.
 
 ## Decision Bias
 

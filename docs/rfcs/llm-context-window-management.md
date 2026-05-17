@@ -1,16 +1,10 @@
 # LLM Context Window Management
 
-> **Status:** design notes. Not implemented. Captures the framework
-> for token estimation, threshold visibility, hard caps, truncation
-> policy, and summarization that Hecate needs so chat and agent_loop
-> calls fail safely (and cheaply) as conversations grow.
-> **Depends on:** the existing usage-event plumbing in
-> `internal/governor/`, the system-prompt composition in
-> `internal/api/system_prompt.go`, and the not-yet-implemented
-> [agent-memory](agent-memory.md) primitive (memory entries inflate
-> context).
-> **Related:** Anthropic prompt cache markers ship separately in PR #59;
-> this RFC integrates with that work but does not re-design it.
+> **Status:** proposed; not implemented.
+> **Current source of truth:** [Chat sessions](../chat-sessions.md) and
+> [Agent runtime](../agent-runtime.md) for today's token/usage reporting.
+> **Next action:** refresh naming around context limits before implementation;
+> avoid confusing context-limit policy with removed global budget controls.
 
 Today an operator running a long Hecate Chat or an `agent_loop` task
 with `GATEWAY_TASK_AGENT_LOOP_MAX_TURNS=8` (the default) and a few

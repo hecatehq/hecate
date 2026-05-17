@@ -1,19 +1,10 @@
 # Embeddings
 
-> **Status:** design notes. Not implemented. Captures the proposal
-> for a provider-routed `/v1/embeddings` endpoint, the optional
-> `Embedder` interface on provider adapters, the model-catalog and
-> capability-filter changes required to admit embedding-class
-> models, and the local-runtime toggle needed to serve embeddings
-> from a bundled `llama-server` child.
-> **Depends on:** the existing OpenAI-compat router that lives at
-> `internal/api/handler.go` (the `HandleChatCompletions` /
-> `HandleModels` path) and the provider adapter interface in
-> `internal/providers/provider.go`. The embeddings surface
-> parallels the chat surface — same routing decisions, same
-> credential model, same usage-recording path — but with a
-> different request/response shape and a different per-provider
-> price.
+> **Status:** proposed; not implemented.
+> **Current source of truth:** [Providers](../providers.md) and
+> [Runtime API](../runtime-api.md) for today's chat-completion routing.
+> **Next action:** refresh provider/capability references before implementation.
+> This RFC predates the simplified Usage view and Connections model.
 
 Hecate today routes only chat-completion traffic. Operators who
 want to run a retrieval pipeline (Hecate Chat memory, RAG over
@@ -24,9 +15,10 @@ gateway and call OpenAI / Voyage / Gemini / a local
 - The operator's API keys travel outside Hecate. Hecate's
   encrypted-at-rest secret store stops being the source of truth
   the moment embeddings enter the picture.
-- Embedding usage never appears in the cost dashboard. Operators
-  can audit Hecate-routed chat spend and have no signal on the
-  parallel embedding spend that's often half their bill.
+- Embedding usage never appears in Hecate's Usage view. Operators
+  can audit Hecate-routed chat tokens and known/reported cost, but
+  have no signal on the parallel embedding spend that's often half
+  their bill.
 - Local-model bundling can't help — the llama-server child Hecate
   spawns has no `--embeddings` flag, so even a bundled GGUF won't
   serve embedding queries.
@@ -522,7 +514,6 @@ contract everyone downstream depends on.
 - gbrain integration note: once v1.3 lands, add
   `docs/integrations/gbrain.md` documenting how to point gbrain
   at Hecate via the OpenAI-compatible base URL (`OPENAI_BASE_URL`).
-- Local-models RFC: `docs/rfcs/local-models-llamacpp.md` — the
-  per-model `embeddings` capability bit is a forward-compatible
-  extension of the v2 catalog shape; documents the wire format
-  change.
+- Model capabilities: the per-model `embeddings` capability bit is a
+  forward-compatible extension of the current capability record; document the
+  wire-format change in this RFC or a focused follow-up before implementation.

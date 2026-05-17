@@ -1,11 +1,11 @@
 # Migration CLI
 
-> **Status:** design notes. Not implemented. Captures the operator
-> tooling Hecate needs around upgrades, backups, and rollback before
-> alpha can hold a `v0.1.0-beta.N` tag.
-> **Depends on:** the existing per-package SQLite migration pattern
-> in `internal/{agentchat,chatstate,taskstate,...}/sqlite.go`. This
-> RFC builds on it rather than replacing it.
+> **Status:** proposed; not implemented.
+> **Current source of truth:** [Deployment](../deployment.md) and
+> [Known limitations](../known-limitations.md) for today's backup/upgrade
+> guidance.
+> **Next action:** design `hecate migrate` around the current per-package SQLite
+> migration pattern.
 
 `docs/known-limitations.md` flags two related gaps under "API And
 Schema Stability":

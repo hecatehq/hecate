@@ -1,11 +1,11 @@
 # Provider Response Extensions
 
-> **Status:** design notes. Not implemented. Architecture and field
-> shapes captured here before commitment so a future implementer can
-> pick this up without re-deriving the trade-offs.
-> **Depends on:** nothing. The api↔providers parallel-struct
-> convention in [`docs-ai/skills/providers/SKILL.md`](../../docs-ai/skills/providers/SKILL.md)
-> is referenced throughout.
+> **Status:** proposed; not implemented.
+> **Current source of truth:** [Providers](../providers.md) and the
+> api/providers parallel-struct convention in
+> [`docs-ai/skills/providers/SKILL.md`](../../docs-ai/skills/providers/SKILL.md).
+> **Next action:** use when preserving provider-specific fields such as
+> citations, reasoning content, or citation metadata end-to-end.
 
 Several OpenAI-compatible providers Hecate routes to return fields
 beyond the OpenAI standard chat-completion shape. Today

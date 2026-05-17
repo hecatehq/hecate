@@ -97,7 +97,7 @@ code, not as a follow-up. Don't restate their content here — link and move on.
 | What OTel spans and metrics does the gateway emit? | [`docs/telemetry.md`](../../docs/telemetry.md) |
 | How do I configure a provider? What providers are supported? | [`docs/providers.md`](../../docs/providers.md) |
 | How do I configure MCP? What tools does the server expose? | [`docs/mcp.md`](../../docs/mcp.md) |
-| How do Hecate Chat segments and model capabilities work? | [`docs/chat-sessions.md`](../../docs/chat-sessions.md), [`docs/rfcs/unified-chats-and-model-capabilities.md`](../../docs/rfcs/unified-chats-and-model-capabilities.md) |
+| How do Hecate Chat segments and model capabilities work? | [`docs/chat-sessions.md`](../../docs/chat-sessions.md), [`docs/rfcs/hecate-chat-model-capabilities.md`](../../docs/rfcs/hecate-chat-model-capabilities.md) |
 | How do external Agent Chat adapters work? | [`docs/external-agent-adapters.md`](../../docs/external-agent-adapters.md) |
 | How does an editor ACP host connect to Hecate? | [`docs/acp.md`](../../docs/acp.md) |
 | How do I deploy? What are the Compose profiles? | [`docs/deployment.md`](../../docs/deployment.md) |

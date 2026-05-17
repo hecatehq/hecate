@@ -1,8 +1,11 @@
 # Artifact Storage — v1 Candidate (RFC)
 
-> **Status:** draft / RFC. Not implemented. Not stable. Not yet a frontend contract.
-> **Depends on:** [`event-protocol-v1.md`](event-protocol-v1.md) — artifacts are referenced by `artifact_id` from event payloads.
-> **Owner:** see [`AGENTS.md`](../../AGENTS.md).
+> **Status:** candidate; partially superseded by shipped task artifacts and chat
+> diff inspect/revert.
+> **Current source of truth:** [Agent runtime](../agent-runtime.md),
+> [Runtime API](../runtime-api.md), and [Chat sessions](../chat-sessions.md).
+> **Next action:** rewrite before exposing a standalone artifact API; this RFC is
+> broader than the current alpha implementation.
 
 This document proposes how the agent runtime stores, fetches, and prunes the
 persisted byte blobs the [event protocol](event-protocol-v1.md) calls

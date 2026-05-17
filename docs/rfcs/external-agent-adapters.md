@@ -1,15 +1,10 @@
 # External Agent Adapters — Candidate (RFC)
 
-> **Status:** accepted for alpha MVP. Adapter discovery, Agent Chat,
-> memory/SQLite persistence, long-lived ACP sessions, live streaming,
-> cancellation, raw diagnostics, workspace diff capture, approval prompts,
-> readiness probes, version warnings, and session guardrails are implemented.
-> Each prompt has stable run metadata on the assistant message, and each chat
-> records the native ACP session id reused across turns. API shape may still
-> change before a stable release.
-> **Related:** [ACP bridge](../acp.md), [Runtime API](../runtime-api.md),
-> [Agent runtime](../agent-runtime.md), [Agent event protocol](event-protocol-v1.md).
-> **Owner:** see [`AGENTS.md`](../../AGENTS.md).
+> **Status:** accepted; partially implemented alpha baseline.
+> **Current source of truth:** [External agent adapters](../external-agent-adapters.md),
+> [Chat sessions](../chat-sessions.md), and [Runtime API](../runtime-api.md).
+> **Next action:** keep improving adapter-specific structured mapping, patch
+> review UX, and convergence with task-runtime primitives.
 
 This RFC defines how Hecate should let an operator chat with external coding
 agents such as Codex CLI, Claude Code, Cursor Agent, and future agent CLIs

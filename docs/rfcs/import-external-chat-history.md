@@ -1,19 +1,10 @@
 # Import External Chat History
 
-> **Status:** design notes. Not implemented. Captures the proposal for
-> ingesting historical Claude Code and Codex CLI session transcripts
-> into Hecate's agent-chat store as read-only, searchable, attributable
-> records.
-> **Depends on:** the existing agent-chat store
-> (`internal/agentchat/store.go` — `Session`, `Message`, `Activity`,
-> `Usage`, `Timing`), the SQLite backend
-> (`GATEWAY_CHAT_SESSIONS_BACKEND=sqlite` —
-> `internal/agentchat/sqlite.go`), and the
-> [external-agent-adapters](external-agent-adapters.md) shape that
-> already separates Agent Chat from Model Chat.
-> **Related:** [agent-memory](agent-memory.md) (imported transcripts
-> are a candidate corpus for future auto-extracted memory entries —
-> explicitly out of scope here).
+> **Status:** proposed; not implemented.
+> **Current source of truth:** [Chat sessions](../chat-sessions.md) and
+> [External agent adapters](../external-agent-adapters.md) for today's session
+> store and transcript model.
+> **Next action:** keep as-is until import work starts.
 
 Operators run Claude Code and Codex CLI outside Hecate and accumulate
 weeks of transcripts that already contain the searchable substance:

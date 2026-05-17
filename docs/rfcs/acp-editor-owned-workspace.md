@@ -1,15 +1,11 @@
 # ACP editor-owned workspace transport
 
-> **Status:** design notes. Not implemented. Captures the architectural
-> choice for routing ACP reverse-RPC (`fs/read_text_file`,
-> `fs/write_text_file`, `terminal/*`, `session/request_permission`)
-> from the gateway-side orchestrator back to the editor when an ACP
-> session resolves to `editor-owned` workspace mode.
-> **Depends on:** the `workspace.Workspace` abstraction, `ACPWorkspace`
-> implementation, and `HECATE_WORKSPACE_MODE` negotiation that landed
-> in [PR #107](https://github.com/hecatehq/hecate/pull/107). The bridge
-> already negotiates the editor-owned wire today; this RFC is about how
-> the gateway-side orchestrator reaches the editor through it.
+> **Status:** proposed; not implemented.
+> **Current source of truth:** [ACP bridge](../acp.md) for today's bridge
+> behavior and `workspace.Workspace` / `ACPWorkspace` for the shipped
+> workspace abstraction.
+> **Next action:** revisit after terminal distribution and ACP bridge packaging
+> decisions settle.
 
 ## The problem
 

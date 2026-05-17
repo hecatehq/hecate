@@ -1,12 +1,11 @@
 # Terminal / CLI Distribution
 
-> **Status:** design notes. The release archives already ship the main `hecate`
-> runtime executable and the `hecate-acp` companion bridge together. A
-> first-class terminal operator experience and TUI are not implemented yet.
->
-> **Related:** [Deployment](../deployment.md), [ACP bridge](../acp.md),
-> [Desktop app](../desktop-app.md), [Chat sessions](../chat-sessions.md),
-> [External agent adapters](../external-agent-adapters.md).
+> **Status:** proposed; not implemented.
+> **Current source of truth:** [Deployment](../deployment.md),
+> [ACP bridge](../acp.md), and [Desktop app](../desktop-app.md) for today's
+> shipped binaries and launch modes.
+> **Next action:** decide the command surface and build the first attach-only TUI
+> slice.
 
 Hecate has several operator surfaces today:
 

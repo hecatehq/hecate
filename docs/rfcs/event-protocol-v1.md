@@ -1,10 +1,11 @@
 # Agent Event Protocol — v1 Candidate (RFC)
 
-> **Status:** draft / RFC. The v1 envelope is implemented for task run event
-> list and cross-run event endpoints. Payload schemas remain candidate-stage.
-> Not stable until Hecate starts publishing semver-backed API guarantees.
-> **Supersedes (when stable):** ad-hoc events documented in [`events.md`](../events.md).
-> **Owner:** see [`AGENTS.md`](../../AGENTS.md).
+> **Status:** candidate. The v1 envelope is implemented for task-run event list
+> and cross-run event endpoints; payload schemas are not stable yet.
+> **Current source of truth:** [Events](../events.md) for emitted event names and
+> payloads in current alpha builds.
+> **Next action:** align candidate payloads with current task/chat artifacts
+> before calling the protocol stable.
 
 This document proposes the typed event stream that the agent runtime will emit
 and that every frontend (CLI, web UI, ACP server, IDE plugin) can consume once
@@ -728,9 +729,11 @@ Once edits are artifacts:
 - **Replay is possible.** Re-apply a checkpoint's patches against a fresh worktree.
 - **CI integration.** A PR-bot can fetch all `applied` patches from a run and submit them upstream.
 
-## Cost
+## Usage And Task Cost Ceiling
 
-Cost events come on every turn boundary; budget events come when thresholds are crossed.
+Usage events come on every turn boundary. Task cost-ceiling events fire only
+when a task has an explicit per-task ceiling; Hecate does not enforce a global
+spend budget.
 
 ```json
 { "type": "cost.tick", "data": {
@@ -841,7 +844,7 @@ implement and test.
 Streamed tool input, reasoning/thinking blocks, sub-agent fan-out, multi-modal
 output, conversation branching, and approval write-side transport are outside
 the v1 candidate core. They live in
-[`event-protocol-experimental.md`](event-protocol-experimental.md) until they
+[`event-protocol-extensions.md`](event-protocol-extensions.md) until they
 earn a separate RFC or graduate into a later protocol version.
 
 ## Implementation status

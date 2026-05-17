@@ -1,7 +1,9 @@
 # Hecate RFCs
 
-Design contracts in this directory are candidate or experimental. They help us
-review protocol direction before it becomes a semver-backed API promise.
+Design contracts in this directory are product and architecture notes. Some are
+active proposals, some are accepted alpha direction, and some are implemented
+records kept for context. They are not semver-backed API promises unless the
+implemented runtime docs say so.
 
 Implemented runtime behavior lives in the main docs:
 
@@ -13,23 +15,51 @@ Implemented runtime behavior lives in the main docs:
 - [External agent adapters](../external-agent-adapters.md) — current Codex,
   Claude Code, and Cursor operator flow.
 
-## Current RFCs
+## Status Labels
 
-| RFC | Status |
+| Status | Meaning |
 |---|---|
-| [Agent event protocol v1 candidate](event-protocol-v1.md) | Candidate envelope exists; payload schemas and stability guarantees are still in progress. |
-| [Agent event protocol experimental extensions](event-protocol-experimental.md) | Parking lot for future event groups such as thinking blocks, sub-agents, multimodal output, and branching. |
-| [Artifact storage v1 candidate](artifact-storage-v1.md) | Candidate shape for persisted command output, patches, fetched resources, and artifact retention. Task artifacts and chat diff inspect/revert exist today; the RFC remains broader than the shipped alpha surface. |
-| [External agent adapters candidate](external-agent-adapters.md) | Partially implemented alpha baseline for Codex, Claude Code, Cursor Agent, readiness, guardrails, approvals, diagnostics, and diff inspect/revert. The RFC remains useful for convergence and future adapter depth. |
-| [External-adapter approval loop v1 candidate](external-adapter-approvals-v1.md) | Implemented alpha baseline: prompt-first approval mode, REST/SSE events, durable grants, startup reconcile, retention, UI review, and telemetry. Stable status still depends on real-adapter soak and convergence decisions. |
-| [Hecate Chat and model capabilities](unified-chats-and-model-capabilities.md) | Accepted and partially implemented alpha direction for Hecate Chat tools on/off segments, Hecate-owned task execution, External Agent separation, and tool-capability metadata. Profiles, workspace modes, and automatic probes remain future work. |
-| [Endpoint versioning and settings paths](endpoint-versioning-and-settings-paths.md) | Accepted and implemented alpha route split: provider-compatible `/v1/*` ingress, Hecate-native `/hecate/v1/*`, and `/admin/*` removal. |
-| [Provider response extensions](provider-response-extensions.md) | Design notes for preserving vendor-specific response fields (Perplexity citations, DeepSeek/xAI reasoning content, Gemini citation metadata) end-to-end through api/persistence/UI. Not implemented. |
-| [Migration CLI](migration-cli.md) | Design notes for `hecate migrate {status,apply,snapshot,restore,verify}` — operator tooling for backup, rollback, and schema visibility. Closes the "no migration CLI or rollback workflow" known limitation. Not implemented. |
-| [Terminal / CLI distribution](terminal-distribution.md) | Design notes for a terminal-first install with `hecate`, `hecate-acp`, and a future first-class TUI. Release archives already ship the binary pair; the TUI and terminal setup commands are not implemented. |
-| [Agent memory](agent-memory.md) | Design notes for cross-session, operator-authored memory entries that persist across Hecate Chat sessions and `agent_loop` task runs. Provider-neutral, scoped (global / workspace / agent kind), no auto-extraction in v1. Not implemented. |
-| [LLM context window management](llm-context-window-management.md) | Design notes for token estimation, soft warn / hard cap thresholds, optional truncation and summarization, and per-conversation budget tracking. Closes the silent-context-overflow gap; Hecate-controlled surfaces only (external adapters out of scope). Not implemented. |
-| [Import external chat history](import-external-chat-history.md) | Design notes for one-shot ingest of Claude Code (`~/.claude/projects/*/*.jsonl`) and Codex CLI (`~/.codex/sessions/**/rollout-*.jsonl`) transcripts into the existing agent-chat store as read-only, searchable, attributable sessions. Idempotent via `(source_tool, native_session_id)`; no resume, no edit, no live mirror in v1. Not implemented. |
-| [Embeddings](embeddings.md) | Design notes for `POST /v1/embeddings` end-to-end: optional `Embedder` interface on provider adapters, a separate `routeEmbedding` with pinned routing and no failover, OpenAI / Voyage / Gemini / Azure coverage, llama-server `--embeddings` per-model toggle, per-event `governor.UsageEvent` recording, new `ModelCapabilities.Kind` field for catalog discrimination. Anthropic / DeepSeek / Groq / Perplexity stay opt-out. v1.0 ships `float` encoding only — `base64` deferred to v1.1. No failover, no caching, no reranking, no multimodal. Not implemented. |
-| [Chat runtime UX consistency](chat-runtime-ux-consistency.md) | Working plan. The shared shell/settings/activity baseline has landed; use this RFC for the remaining parity work around repair/onboarding, approval polish, and runtime-specific edge cases. |
-| [ACP editor-owned workspace transport](acp-editor-owned-workspace.md) | Design notes for routing ACP reverse-RPC (`fs/*`, `terminal/*`, `session/request_permission`) from the gateway-side orchestrator back to the editor. Proposes moving the ACP dispatcher into the gateway and rewriting `hecate-acp` as a thin stdio↔WebSocket relay so `ACPWorkspace.Call` is an in-process function call. Phases: gateway-side listener, bridge-as-relay, then wire `ACPWorkspace`. The `workspace.Workspace` abstraction and capability negotiation it depends on landed in [PR #107](https://github.com/hecatehq/hecate/pull/107). Not implemented. |
+| Proposed | Direction is written down, but implementation has not started. |
+| Accepted | Direction is agreed for alpha, with implementation either partial or ongoing. |
+| Candidate | Some implementation exists, but the wire/payload shape is not stable. |
+| Implemented record | Work landed; the RFC remains as design history. Current behavior lives in the main docs. |
+| Parking lot | Future or experimental ideas that should not drive implementation by themselves. |
+
+## Accepted / In Progress
+
+| RFC | Status | Next action |
+|---|---|---|
+| [Hecate Chat and model capabilities](hecate-chat-model-capabilities.md) | Accepted. Tools on/off segments, task-backed Hecate Chat turns, queued prompts, model capability records, and shared transcript primitives exist. | Implement workspace modes, named agent profiles, automatic capability probes, and broader e2e hardening. |
+| [External agent adapters](external-agent-adapters.md) | Accepted. Codex, Claude Code, Cursor Agent, readiness, guardrails, approvals, diagnostics, ACP controls, streaming, cancellation, and diff inspect/revert have alpha coverage. | Keep improving adapter-specific mapping, patch review UX, and convergence with task-runtime primitives. |
+
+## Active Proposals
+
+| RFC | Status | Next action |
+|---|---|---|
+| [Terminal / CLI distribution](terminal-distribution.md) | Proposed. Release archives already ship `hecate` and `hecate-acp`; the first-class TUI and terminal setup commands do not exist yet. | Decide the command surface and build the first attach-only TUI slice. |
+| [Migration CLI](migration-cli.md) | Proposed. No dedicated migration/rollback CLI exists yet. | Design `hecate migrate` around the current SQLite migration packages. |
+| [Agent memory](agent-memory.md) | Proposed. No durable memory primitive exists yet. | Reconfirm product placement now that Connections and Chat settings exist. |
+| [LLM context window management](llm-context-window-management.md) | Proposed. Hecate still needs better token estimation, context limits, truncation policy, and summarization. | Refresh naming around context limits before implementation. |
+| [Import external chat history](import-external-chat-history.md) | Proposed. Import from Claude Code and Codex transcripts is not implemented. | Keep as-is until import work starts. |
+| [Embeddings](embeddings.md) | Proposed. OpenAI-compatible embeddings routing is not implemented. | Refresh provider/capability references before implementation. |
+| [Provider response extensions](provider-response-extensions.md) | Proposed. Vendor-specific response extras are still not preserved end-to-end. | Use when adding Perplexity citations, DeepSeek/xAI reasoning content, or Gemini citation metadata. |
+| [ACP editor-owned workspace transport](acp-editor-owned-workspace.md) | Proposed. The workspace abstraction exists, but reverse-RPC transport from gateway-side orchestration back to the editor is not implemented. | Revisit after terminal/ACP bridge packaging decisions settle. |
+
+## Candidate Contracts
+
+| RFC | Status | Next action |
+|---|---|---|
+| [Agent event protocol v1](event-protocol-v1.md) | Candidate. The envelope exists for task-run event APIs; payload schemas are not stable. | Align event names/payloads with current task/chat artifacts before calling v1 stable. |
+| [Artifact storage v1](artifact-storage-v1.md) | Candidate / partially superseded. Task artifacts and chat diff inspect/revert exist, but this RFC is broader than the shipped alpha surface. | Rewrite before exposing a standalone artifact API. |
+
+## Implemented Records
+
+| RFC | Status | Next action |
+|---|---|---|
+| [External Agent approval loop v1](external-agent-approval-loop-v1.md) | Implemented alpha baseline. Prompt-first approvals, REST/SSE events, durable grants, startup reconcile, UI review, and telemetry exist. | Keep as design history unless the approval contract changes before beta. |
+
+## Parking Lot
+
+| RFC | Status | Next action |
+|---|---|---|
+| [Agent event protocol extensions](event-protocol-extensions.md) | Parking lot. Future event groups such as thinking blocks, sub-agents, multimodal output, and branching. | Promote individual ideas into a proposed RFC only when implementation is near. |

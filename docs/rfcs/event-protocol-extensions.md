@@ -1,7 +1,10 @@
 # Agent Event Protocol — Experimental Extensions
 
-> **Status:** draft / design notes. Not implemented. Not stable. Do not build frontend contracts against this file.
-> **Depends on:** [`event-protocol-v1.md`](event-protocol-v1.md).
+> **Status:** parking lot; not implemented; not stable.
+> **Current source of truth:** [Events](../events.md) and
+> [Agent event protocol v1](event-protocol-v1.md).
+> **Next action:** promote individual ideas into a proposed RFC only when
+> implementation is near. Do not build frontend contracts against this file.
 
 This file holds event-protocol ideas that are probably useful, but not safe to
 lock into the v1 candidate core yet. Keeping them here lets the core protocol
