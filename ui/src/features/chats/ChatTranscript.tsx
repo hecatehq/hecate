@@ -2,7 +2,19 @@ import { useEffect, useRef, useState, type ReactNode } from "react";
 
 import { useRuntimeConsoleContext } from "../../app/RuntimeConsoleContext";
 import { formatDurationMs } from "../../lib/format";
-import type { AgentAdapterRecord, AgentChatActivityRecord, AgentChatSegmentRecord, AgentChatTimingRecord, AgentChatUsageRecord, ChatProviderCallRecord, ConfiguredProviderRecord, ProviderRecord } from "../../types/runtime";
+import type { AgentAdapterRecord, AgentChatActivityRecord, AgentChatSegmentRecord, AgentChatTimingRecord, AgentChatUsageRecord, ConfiguredProviderRecord, ProviderRecord } from "../../types/runtime";
+
+// Placeholder shape kept for the produced_by_call_id lookup in the transcript.
+// The legacy /chat/sessions data path used to populate this map with rich
+// per-call records; agent-chat messages don't, so callers pass an empty map.
+type LegacyProviderCallInfo = {
+  request_id?: string;
+  provider?: string;
+  model?: string;
+  prompt_tokens?: number;
+  completion_tokens?: number;
+  cost_usd?: string;
+};
 import { BrandAvatar, CodeBlock, Icon, Icons } from "../shared/ui";
 import { TranscriptMessageRow } from "../transcript/TranscriptMessageRow";
 
@@ -49,7 +61,7 @@ type Props = {
 
   // Transcript content + provider-call lookup.
   transcriptItems: TranscriptItem[];
-  callsByID: Map<string, ChatProviderCallRecord>;
+  callsByID: Map<string, LegacyProviderCallInfo>;
   visibleMessageCount: number;
   streaming: boolean;
 

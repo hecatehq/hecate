@@ -3,8 +3,6 @@ package gateway
 import (
 	"bytes"
 	"context"
-	cryptoRand "crypto/rand"
-	"encoding/hex"
 	"encoding/json"
 	"errors"
 	"fmt"
@@ -15,7 +13,6 @@ import (
 	"time"
 
 	"github.com/hecate/agent-runtime/internal/catalog"
-	"github.com/hecate/agent-runtime/internal/chatstate"
 	"github.com/hecate/agent-runtime/internal/governor"
 	"github.com/hecate/agent-runtime/internal/models"
 	"github.com/hecate/agent-runtime/internal/profiler"
@@ -41,7 +38,6 @@ type Dependencies struct {
 	Tracer          profiler.Tracer
 	Metrics         *telemetry.Metrics
 	Retention       *retention.Manager
-	ChatSessions    chatstate.Store
 	// TraceBodyCapture enables recording (redacted) message bodies in traces.
 	TraceBodyCapture  bool
 	TraceBodyMaxBytes int
@@ -64,7 +60,6 @@ type Service struct {
 	metrics           *telemetry.Metrics
 	retention         *retention.Manager
 	providerHistory   providers.HealthHistoryStore
-	chatSessions      chatstate.Store
 	providers         providers.Registry
 	traceBodyCapture  bool
 	traceBodyMaxBytes int
@@ -106,14 +101,6 @@ type TraceResult struct {
 	StartedAt time.Time
 	Spans     []types.TraceSpan
 	Route     types.RouteDecisionReport
-}
-
-type ChatSessionResult struct {
-	Session types.ChatSession
-}
-
-type ChatSessionListResult struct {
-	Sessions []types.ChatSession
 }
 
 type RetentionResult struct {
@@ -200,7 +187,6 @@ func NewService(deps Dependencies) *Service {
 		metrics:           deps.Metrics,
 		retention:         deps.Retention,
 		providerHistory:   deps.ProviderHistory,
-		chatSessions:      deps.ChatSessions,
 		providers:         deps.Providers,
 		traceBodyCapture:  deps.TraceBodyCapture,
 		traceBodyMaxBytes: traceBodyMaxBytes,
@@ -1148,190 +1134,6 @@ func (s *Service) UsageEvents(ctx context.Context, limit int) (*UsageEventsResul
 		return nil, err
 	}
 	return &UsageEventsResult{Entries: entries}, nil
-}
-
-func (s *Service) CreateChatSession(ctx context.Context, session types.ChatSession) (*ChatSessionResult, error) {
-	if s.chatSessions == nil {
-		return nil, fmt.Errorf("chat session store is not configured")
-	}
-	created, err := s.chatSessions.CreateSession(ctx, session)
-	if err != nil {
-		return nil, err
-	}
-	return &ChatSessionResult{Session: created}, nil
-}
-
-func (s *Service) GetChatSession(ctx context.Context, id string) (*ChatSessionResult, error) {
-	if s.chatSessions == nil {
-		return nil, fmt.Errorf("chat session store is not configured")
-	}
-	session, ok, err := s.chatSessions.GetSession(ctx, id)
-	if err != nil {
-		return nil, err
-	}
-	if !ok {
-		return nil, fmt.Errorf("chat session %q not found", id)
-	}
-	return &ChatSessionResult{Session: session}, nil
-}
-
-func (s *Service) ListChatSessions(ctx context.Context, filter chatstate.Filter) (*ChatSessionListResult, error) {
-	if s.chatSessions == nil {
-		return &ChatSessionListResult{Sessions: nil}, nil
-	}
-	sessions, err := s.chatSessions.ListSessions(ctx, filter)
-	if err != nil {
-		return nil, err
-	}
-	return &ChatSessionListResult{Sessions: sessions}, nil
-}
-
-func (s *Service) DeleteChatSession(ctx context.Context, id string) error {
-	if s.chatSessions == nil {
-		return fmt.Errorf("chat session store not configured")
-	}
-	return s.chatSessions.DeleteSession(ctx, id)
-}
-
-func (s *Service) UpdateChatSessionTitle(ctx context.Context, id string, title string) (*ChatSessionResult, error) {
-	if s.chatSessions == nil {
-		return nil, fmt.Errorf("chat session store not configured")
-	}
-	session, err := s.chatSessions.UpdateSession(ctx, id, title)
-	if err != nil {
-		return nil, err
-	}
-	return &ChatSessionResult{Session: session}, nil
-}
-
-func (s *Service) UpdateChatSessionSystemPrompt(ctx context.Context, id string, prompt string) (*ChatSessionResult, error) {
-	if s.chatSessions == nil {
-		return nil, fmt.Errorf("chat session store not configured")
-	}
-	session, err := s.chatSessions.UpdateSessionSystemPrompt(ctx, id, prompt)
-	if err != nil {
-		return nil, err
-	}
-	return &ChatSessionResult{Session: session}, nil
-}
-
-// RecordChatExchange persists one upstream chat-completion request as a
-// (messages, provider_call) pair on the chat session.
-//
-// "New" client-supplied messages are everything in req.Messages that
-// comes after a possible session-system-prompt prefix and after the
-// already-persisted message count. They are appended verbatim with no
-// ProducedByCallID — the operator/runtime supplied them. The assistant
-// response from result.Response.Choices[0] is appended after them with
-// ProducedByCallID pointing at the new ChatProviderCall.
-//
-// This handles three flows uniformly:
-//   - First turn: req.Messages = [user]; persist [user, assistant_response].
-//   - Multi-turn replay: req.Messages = [...history, new_user]; persist [new_user, assistant_response].
-//   - Tool loop continuation: req.Messages = [...history, tool_result, ...];
-//     persist [tool_result..., assistant_response]. Orphan tool_call_ids
-//     no longer occur on subsequent provider switches because the full
-//     intermediate sequence is preserved.
-func (s *Service) RecordChatExchange(ctx context.Context, sessionID string, req types.ChatRequest, result *ChatResult) (*ChatSessionResult, error) {
-	if s.chatSessions == nil || sessionID == "" || result == nil || result.Response == nil {
-		return nil, nil
-	}
-
-	// Read current state so we know how many messages are already
-	// persisted (and therefore which req.Messages tail is new).
-	existing, ok, err := s.chatSessions.GetSession(ctx, sessionID)
-	if err != nil {
-		return nil, err
-	}
-	if !ok {
-		return nil, fmt.Errorf("chat session %q not found", sessionID)
-	}
-
-	// applySessionSystemPrompt prepends a system message that isn't
-	// part of the persisted conversation. Skip it when computing the
-	// "new tail" if it matches the session's stored SystemPrompt.
-	skipPrefix := 0
-	if len(req.Messages) > 0 && strings.EqualFold(req.Messages[0].Role, "system") {
-		if existing.SystemPrompt != "" && req.Messages[0].Content == existing.SystemPrompt {
-			skipPrefix = 1
-		}
-	}
-
-	start := skipPrefix + len(existing.Messages)
-	if start > len(req.Messages) {
-		// Defensive: a request that omits some prior history would
-		// otherwise produce a negative slice. Clamp and let the
-		// assistant message land alone — better than panicking, and
-		// consistent with the assistant being the only thing the
-		// provider actually emitted this round.
-		start = len(req.Messages)
-	}
-	newInputs := req.Messages[start:]
-
-	callID := newProviderCallID()
-	call := types.ChatProviderCall{
-		ID:                callID,
-		RequestID:         req.RequestID,
-		RequestedProvider: req.Scope.ProviderHint,
-		Provider:          result.Metadata.Provider,
-		ProviderKind:      result.Metadata.ProviderKind,
-		RequestedModel:    req.Model,
-		Model:             result.Metadata.Model,
-		CostMicrosUSD:     result.Metadata.CostMicrosUSD,
-		PromptTokens:      result.Metadata.PromptTokens,
-		CompletionTokens:  result.Metadata.CompletionTokens,
-		TotalTokens:       result.Metadata.TotalTokens,
-		CreatedAt:         result.Response.CreatedAt,
-	}
-
-	messages := make([]types.ChatSessionMessage, 0, len(newInputs))
-	for _, m := range newInputs {
-		messages = append(messages, types.ChatSessionMessage{
-			ID:      newSessionMessageID(),
-			Message: m,
-			// ProducedByCallID empty: the operator/client supplied
-			// this. Tool-result messages the client hands back also
-			// land here without a producing call — they were emitted
-			// outside the gateway.
-		})
-	}
-
-	if len(result.Response.Choices) > 0 {
-		assistant := result.Response.Choices[0].Message
-		if assistant.Role == "" {
-			assistant.Role = "assistant"
-		}
-		messages = append(messages, types.ChatSessionMessage{
-			ID:               newSessionMessageID(),
-			ProducedByCallID: callID,
-			Message:          assistant,
-		})
-	}
-
-	session, err := s.chatSessions.AppendExchange(ctx, sessionID, messages, call)
-	if err != nil {
-		return nil, err
-	}
-	return &ChatSessionResult{Session: session}, nil
-}
-
-func newProviderCallID() string {
-	return "call_" + randomHex(12)
-}
-
-func newSessionMessageID() string {
-	return "msg_" + randomHex(12)
-}
-
-func randomHex(byteLen int) string {
-	buf := make([]byte, byteLen)
-	if _, err := cryptoRand.Read(buf); err != nil {
-		// Fall back to nanosecond timestamp; collision-resistant
-		// enough for an in-process fallback when /dev/urandom is
-		// unavailable, which is essentially never.
-		return time.Now().UTC().Format("20060102150405.000000000")
-	}
-	return hex.EncodeToString(buf)
 }
 
 type TraceListResult struct {

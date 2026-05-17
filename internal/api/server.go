@@ -13,7 +13,6 @@ func NewServer(logger *slog.Logger, handler *Handler) http.Handler {
 	registerHecateRuntimeRoutes(mux, handler)
 	registerHecateAgentRoutes(mux, handler)
 	registerHecateTaskRoutes(mux, handler)
-	registerHecateChatRoutes(mux, handler)
 	registerHecateOperationsRoutes(mux, handler)
 	registerHecateSettingsRoutes(mux, handler)
 	registerAPINotFound(mux)
@@ -128,16 +127,6 @@ func registerHecateTaskRoutes(mux *http.ServeMux, handler *Handler) {
 	mux.HandleFunc("GET /hecate/v1/tasks/{id}/artifacts", handler.HandleTaskArtifacts)
 	mux.HandleFunc("GET /hecate/v1/events", handler.HandleEvents)
 	mux.HandleFunc("GET /hecate/v1/events/stream", handler.HandleEventsStream)
-}
-
-func registerHecateChatRoutes(mux *http.ServeMux, handler *Handler) {
-	// Direct model-chat history is Hecate UI/runtime state. The actual model
-	// invocation protocol remains /v1/chat/completions.
-	mux.HandleFunc("GET /hecate/v1/chat/sessions", handler.HandleChatSessions)
-	mux.HandleFunc("POST /hecate/v1/chat/sessions", handler.HandleCreateChatSession)
-	mux.HandleFunc("GET /hecate/v1/chat/sessions/{id}", handler.HandleChatSession)
-	mux.HandleFunc("PATCH /hecate/v1/chat/sessions/{id}", handler.HandleUpdateChatSession)
-	mux.HandleFunc("DELETE /hecate/v1/chat/sessions/{id}", handler.HandleDeleteChatSession)
 }
 
 func registerHecateOperationsRoutes(mux *http.ServeMux, handler *Handler) {

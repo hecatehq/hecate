@@ -21,7 +21,6 @@ import (
 	"github.com/hecate/agent-runtime/internal/api"
 	"github.com/hecate/agent-runtime/internal/bootstrap"
 	"github.com/hecate/agent-runtime/internal/catalog"
-	"github.com/hecate/agent-runtime/internal/chatstate"
 	"github.com/hecate/agent-runtime/internal/config"
 	"github.com/hecate/agent-runtime/internal/controlplane"
 	"github.com/hecate/agent-runtime/internal/gateway"
@@ -195,7 +194,6 @@ func main() {
 	}()
 	tracer := profiler.NewInMemoryTracer(profiler.NewOTelTracer(otelProvider))
 	usageStore := buildUsageStore(cfg, logger, sqliteClient)
-	chatSessionStore := buildChatSessionStore(cfg, logger, sqliteClient)
 	agentChatStore := buildAgentChatStore(cfg, logger, sqliteClient)
 	// Approval store shares the agent-chat backend selector
 	// (GATEWAY_CHAT_SESSIONS_BACKEND) so all agent-chat state lives
@@ -254,7 +252,6 @@ func main() {
 		tracer,
 		metrics,
 		retentionManager,
-		chatSessionStore,
 	))
 
 	retentionCtx, retentionCancel := context.WithCancel(context.Background())
@@ -522,7 +519,6 @@ func buildGatewayDependencies(
 	tracer profiler.Tracer,
 	metrics *telemetry.Metrics,
 	retentionManager *retention.Manager,
-	chatSessionStore chatstate.Store,
 ) gateway.Dependencies {
 	return gateway.Dependencies{
 		Logger: logger,
@@ -540,7 +536,6 @@ func buildGatewayDependencies(
 		Tracer:            tracer,
 		Metrics:           metrics,
 		Retention:         retentionManager,
-		ChatSessions:      chatSessionStore,
 		TraceBodyCapture:  cfg.Server.TraceBodyCapture,
 		TraceBodyMaxBytes: cfg.Server.TraceBodyMaxBytes,
 	}
@@ -685,20 +680,6 @@ func sqliteRequired(cfg config.Config) bool {
 		cfg.Server.TasksBackend == "sqlite" ||
 		cfg.Server.TaskQueueBackend == "sqlite" ||
 		cfg.Retention.HistoryBackend == "sqlite"
-}
-
-func buildChatSessionStore(cfg config.Config, logger *slog.Logger, sqliteClient *storage.SQLiteClient) chatstate.Store {
-	switch cfg.Chat.SessionsBackend {
-	case "sqlite":
-		store, err := chatstate.NewSQLiteStore(context.Background(), sqliteClient)
-		if err != nil {
-			logger.Error("chat session store init failed", slog.Any("error", err))
-			os.Exit(1)
-		}
-		return store
-	default:
-		return chatstate.NewMemoryStore()
-	}
 }
 
 func buildAgentChatStore(cfg config.Config, logger *slog.Logger, sqliteClient *storage.SQLiteClient) agentchat.Store {

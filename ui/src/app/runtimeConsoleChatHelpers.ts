@@ -4,8 +4,6 @@ import type {
   AgentChatSessionRecord,
   AgentChatSessionsResponse,
   ChatResponse,
-  ChatSessionRecord,
-  ChatSessionsResponse,
   ConfiguredStateResponse,
   ModelResponse,
   PendingAgentApproval,
@@ -72,18 +70,6 @@ export function deriveChatSessionTitle(message: string): string {
     return normalized;
   }
   return `${normalized.slice(0, 45)}...`;
-}
-
-export function buildMessagesForSubmission(activeSession: ChatSessionRecord | null, message: string, systemPrompt = ""): ChatMessage[] {
-  // Replay is now a near-trivial transform: the persisted message
-  // stream is already in submission order. We carry content_blocks
-  // and tool_error through verbatim so Anthropic-aware history
-  // survives cross-provider resubmission.
-  const history: ChatMessage[] = (activeSession?.messages ?? [])
-    .filter((m) => m.id && !m.id.startsWith("pending-"))
-    .map((m) => persistedMessageToChatMessage(m));
-  const prefix: ChatMessage[] = systemPrompt.trim() ? [{ role: "system", content: systemPrompt.trim() }] : [];
-  return [...prefix, ...history, { role: "user", content: message }];
 }
 
 export function buildAssistantToolCallMessage(
@@ -179,24 +165,6 @@ export function isModelValidForProvider(model: string, provider: ProviderFilter,
   return preset?.default_model === model;
 }
 
-export function renderChatSessionSummary(session: ChatSessionRecord): ChatSessionsResponse["data"][number] {
-  const messages = session.messages ?? [];
-  const calls = session.provider_calls ?? [];
-  const lastCall = calls[calls.length - 1];
-  return {
-    id: session.id,
-    title: session.title,
-    message_count: messages.length,
-    provider_call_count: calls.length,
-    created_at: session.created_at,
-    updated_at: session.updated_at,
-    last_model: lastCall?.model,
-    last_provider: lastCall?.provider,
-    last_cost_usd: lastCall?.cost_usd,
-    last_request_id: lastCall?.request_id,
-  };
-}
-
 export function approvalRecordToPending(row: AgentChatApprovalRecord): PendingAgentApproval {
   return {
     approval_id: row.id,
@@ -232,30 +200,3 @@ export function renderAgentChatSessionSummary(session: AgentChatSessionRecord): 
   };
 }
 
-function persistedMessageToChatMessage(m: ChatSessionRecord["messages"] extends (infer U)[] | undefined ? U : never): ChatMessage {
-  const ext = {
-    ...(m.content_blocks ? { content_blocks: m.content_blocks } : {}),
-    ...(m.tool_error ? { tool_error: m.tool_error } : {}),
-  };
-  if (m.role === "assistant") {
-    return {
-      role: "assistant",
-      content: m.content,
-      ...(m.tool_calls && m.tool_calls.length > 0 ? { tool_calls: m.tool_calls } : {}),
-      ...ext,
-    } as ChatMessage;
-  }
-  if (m.role === "tool") {
-    return {
-      role: "tool",
-      content: m.content ?? "",
-      tool_call_id: m.tool_call_id ?? "",
-      ...ext,
-    } as ChatMessage;
-  }
-  return {
-    role: m.role === "system" ? "system" : "user",
-    content: m.content ?? "",
-    ...ext,
-  } as ChatMessage;
-}

@@ -30,7 +30,6 @@ import (
 	"time"
 
 	"github.com/hecate/agent-runtime/internal/catalog"
-	"github.com/hecate/agent-runtime/internal/chatstate"
 	"github.com/hecate/agent-runtime/internal/config"
 	"github.com/hecate/agent-runtime/internal/gateway"
 	"github.com/hecate/agent-runtime/internal/governor"
@@ -963,14 +962,13 @@ func newGatewayServerWithRealProvider(t *testing.T, upstreamURL, providerName, d
 		UsageScope:      "global",
 	}
 	svc := gateway.NewService(gateway.Dependencies{
-		Logger:       logger,
-		Router:       router.NewRuleRouter(defaultModel, providerCatalog),
-		Catalog:      providerCatalog,
-		Governor:     governor.NewStaticGovernor(governorCfg, usageStore, usageStore),
-		Providers:    registry,
-		Tracer:       profiler.NewInMemoryTracer(nil),
-		Metrics:      telemetry.NewMetrics(),
-		ChatSessions: chatstate.NewMemoryStore(),
+		Logger:    logger,
+		Router:    router.NewRuleRouter(defaultModel, providerCatalog),
+		Catalog:   providerCatalog,
+		Governor:  governor.NewStaticGovernor(governorCfg, usageStore, usageStore),
+		Providers: registry,
+		Tracer:    profiler.NewInMemoryTracer(nil),
+		Metrics:   telemetry.NewMetrics(),
 	})
 
 	cfg := config.Config{

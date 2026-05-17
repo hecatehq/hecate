@@ -116,32 +116,6 @@ func TestTool_GetTaskStatus_FormatsDetail(t *testing.T) {
 	}
 }
 
-func TestTool_ListChatSessions_TenantFilter(t *testing.T) {
-	srv := fakeGateway(t, map[string]http.HandlerFunc{
-		"/hecate/v1/chat/sessions": func(w http.ResponseWriter, r *http.Request) {
-			if got := r.URL.Query().Get("tenant"); got != "team-a" {
-				t.Errorf("tenant query = %q, want team-a", got)
-			}
-			if r.URL.Query().Get("limit") != "5" {
-				t.Errorf("limit query = %q, want 5", r.URL.Query().Get("limit"))
-			}
-			w.Header().Set("Content-Type", "application/json")
-			_, _ = w.Write([]byte(`{"data":[{"id":"sess-1","title":"Hello","tenant":"team-a","message_count":6,"provider_call_count":3,"updated_at":"2026-04-22T10:00:00Z"}]}`))
-		},
-	})
-	server := NewServer("t", "0")
-	RegisterDefaultTools(server, NewGatewayClient(srv.URL))
-	result, err := registeredToolFor(t, server, "list_chat_sessions")(context.Background(),
-		json.RawMessage(`{"limit":5,"tenant":"team-a"}`))
-	if err != nil {
-		t.Fatalf("err: %v", err)
-	}
-	body := result.Content[0].Text
-	if !strings.Contains(body, "Hello") || !strings.Contains(body, "team-a") || !strings.Contains(body, "(6 messages, 3 calls)") {
-		t.Errorf("body missing fields: %s", body)
-	}
-}
-
 func TestTool_SummarizeTraffic_AggregatesByProvider(t *testing.T) {
 	srv := fakeGateway(t, map[string]http.HandlerFunc{
 		"/hecate/v1/traces": func(w http.ResponseWriter, r *http.Request) {
@@ -375,7 +349,6 @@ func TestTool_WriteToolAnnotations(t *testing.T) {
 		// Reads — auto-approvable.
 		{"list_tasks", true, false, false, true, false, false},
 		{"get_task_status", true, false, false, true, false, false},
-		{"list_chat_sessions", true, false, false, true, false, false},
 		{"summarize_recent_traffic", true, false, false, true, false, false},
 		// Creates — not destructive (creates new state, doesn't
 		// destroy existing); no annotations declared.

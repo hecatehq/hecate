@@ -7,7 +7,7 @@ import { describeGatewayError } from "../../lib/error-diagnostics";
 import { formatInteger, formatLocaleTime } from "../../lib/format";
 import { buildSelectedModelIssue } from "../../lib/provider-issues";
 import { providerDisplayName } from "../../lib/provider-utils";
-import type { AgentAdapterRecord, AgentChatActivityRecord, AgentChatSegmentRecord, AgentChatSessionRecord, AgentChatUsageRecord, ChatProviderCallRecord, LocalProviderDiscoveryRecord, ProviderPresetRecord } from "../../types/runtime";
+import type { AgentAdapterRecord, AgentChatActivityRecord, AgentChatSegmentRecord, AgentChatSessionRecord, AgentChatUsageRecord, LocalProviderDiscoveryRecord, ProviderPresetRecord } from "../../types/runtime";
 import { Icon, Icons } from "../shared/ui";
 import { AgentApprovalAutoModeBanner, AgentApprovalsBanner } from "./AgentApprovalBanner";
 import { AgentApprovalModal } from "./AgentApprovalModal";
@@ -111,7 +111,7 @@ export function ChatView({ onNavigate, onOpenTask, onOpenTrace }: Props) {
   // Empty for now — agent-chat assistant rows don't carry the
   // provider-call ID; the lookup map keeps the transcript-row prop
   // surface unchanged for future use.
-  const callsByID = new Map<string, ChatProviderCallRecord>();
+  const callsByID = new Map<string, never>();
   // Hide system messages and any assistant placeholder that is still
   // waiting for content — the streaming-content block below renders
   // the live text instead.
