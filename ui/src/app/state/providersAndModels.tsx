@@ -26,16 +26,18 @@
 // state (settingsConfig, providerFilter, model, settingsError).
 // Moving them now would mean dragging those slices in too.
 
-import { createContext, useCallback, useContext, useMemo, useReducer, type ReactNode } from "react";
+import { createContext, useCallback, useContext, useEffect, useMemo, useReducer, useRef, type ReactNode } from "react";
 
 import { applyOverride, CoordinatorOverridesContext } from "./coordinators/overrides";
 import {
   getProviders,
   getModels,
+  getProviderPresets,
   probeAgentAdapter as probeAgentAdapterRequest,
   setAgentAdapterCredential as setAgentAdapterCredentialRequest,
   deleteAgentAdapterCredential as deleteAgentAdapterCredentialRequest,
 } from "../../lib/api";
+import { warn } from "../../lib/log";
 import type { AgentAdapterHealthRecord, AgentAdapterRecord } from "../../types/agent-adapter";
 import type { ModelResponse } from "../../types/model";
 import type { ProviderPresetRecord, ProviderStatusResponse } from "../../types/provider";
@@ -43,6 +45,13 @@ import type { ProviderPresetRecord, ProviderStatusResponse } from "../../types/p
 export type ProvidersAndModelsState = {
   providers: ProviderStatusResponse["data"];
   providerPresets: ProviderPresetRecord[];
+  /**
+   * True once getProviderPresets() has resolved. Used by
+   * useEnsureProviderPresetsLoaded to dedupe the lazy fetch.
+   * Presets aren't loaded at boot; they're fetched on first
+   * AddProviderModal mount + TasksView mount.
+   */
+  providerPresetsLoaded: boolean;
   models: ModelResponse["data"];
   agentAdapters: AgentAdapterRecord[];
   agentAdapterApprovalMode: string;
@@ -67,6 +76,7 @@ export type AdapterDeleteCredentialResult =
 export type ProvidersAndModelsActions = {
   setProviders: (next: SetStateAction<ProviderStatusResponse["data"]>) => void;
   setProviderPresets: (next: SetStateAction<ProviderPresetRecord[]>) => void;
+  markProviderPresetsLoaded: () => void;
   setModels: (next: SetStateAction<ModelResponse["data"]>) => void;
   setAgentAdapters: (next: SetStateAction<AgentAdapterRecord[]>) => void;
   setAgentAdapterApprovalMode: (value: string) => void;
@@ -94,6 +104,7 @@ type ProvidersAndModelsContextValue = {
 type Action =
   | { type: "providers/set"; next: SetStateAction<ProviderStatusResponse["data"]> }
   | { type: "providerPresets/set"; next: SetStateAction<ProviderPresetRecord[]> }
+  | { type: "providerPresetsLoaded/mark" }
   | { type: "models/set"; next: SetStateAction<ModelResponse["data"]> }
   | { type: "agentAdapters/set"; next: SetStateAction<AgentAdapterRecord[]> }
   | { type: "agentAdapterApprovalMode/set"; value: string }
@@ -104,6 +115,7 @@ type Action =
 const initialState: ProvidersAndModelsState = {
   providers: [],
   providerPresets: [],
+  providerPresetsLoaded: false,
   models: [],
   agentAdapters: [],
   agentAdapterApprovalMode: "",
@@ -121,6 +133,8 @@ function reducer(state: ProvidersAndModelsState, action: Action): ProvidersAndMo
       return { ...state, providers: resolve(state.providers, action.next) };
     case "providerPresets/set":
       return { ...state, providerPresets: resolve(state.providerPresets, action.next) };
+    case "providerPresetsLoaded/mark":
+      return state.providerPresetsLoaded ? state : { ...state, providerPresetsLoaded: true };
     case "models/set":
       return { ...state, models: resolve(state.models, action.next) };
     case "agentAdapters/set":
@@ -170,6 +184,10 @@ export function ProvidersAndModelsProvider({ children, initialState: seededState
   );
   const setProviderPresets = useCallback(
     (next: SetStateAction<ProviderPresetRecord[]>) => dispatch({ type: "providerPresets/set", next }),
+    [],
+  );
+  const markProviderPresetsLoaded = useCallback(
+    () => dispatch({ type: "providerPresetsLoaded/mark" }),
     [],
   );
   const setModels = useCallback(
@@ -287,6 +305,7 @@ export function ProvidersAndModelsProvider({ children, initialState: seededState
   const actions = useMemo<ProvidersAndModelsActions>(() => ({
     setProviders,
     setProviderPresets,
+    markProviderPresetsLoaded,
     setModels,
     setAgentAdapters,
     setAgentAdapterApprovalMode,
@@ -300,6 +319,7 @@ export function ProvidersAndModelsProvider({ children, initialState: seededState
   }), [
     setProviders,
     setProviderPresets,
+    markProviderPresetsLoaded,
     setModels,
     setAgentAdapters,
     setAgentAdapterApprovalMode,
@@ -324,4 +344,36 @@ export function useProvidersAndModels(): ProvidersAndModelsContextValue {
   }
   const overrides = useContext(CoordinatorOverridesContext);
   return { state: ctx.state, actions: applyOverride(ctx.actions, overrides?.providersAndModelsSlice) };
+}
+
+// useEnsureProviderPresetsLoaded fetches the provider preset
+// catalog on first call if the slice's providerPresetsLoaded flag
+// is false. Used by AddProviderModal and TasksView; the dashboard
+// loader no longer pulls presets at boot. Dedupes parallel callers
+// via an inflight ref; tolerates failures by leaving the loaded
+// flag false so a later mount can retry.
+//
+// The optional `when` gate lets callers that always-mount the
+// component (e.g. <AddProviderModal open={…} /> in ChatView) skip
+// the fetch until the modal actually opens — otherwise the
+// always-mounted modal would defeat the lazy-fetch contract.
+export function useEnsureProviderPresetsLoaded(when: boolean = true): void {
+  const { state, actions } = useProvidersAndModels();
+  const inFlight = useRef(false);
+
+  useEffect(() => {
+    if (!when || state.providerPresetsLoaded || inFlight.current) return;
+    inFlight.current = true;
+    void (async () => {
+      try {
+        const res = await getProviderPresets();
+        actions.setProviderPresets(res.data ?? []);
+        actions.markProviderPresetsLoaded();
+      } catch (err) {
+        warn("providerPresets.ensureLoaded.failed", { err: err instanceof Error ? err.message : String(err) });
+      } finally {
+        inFlight.current = false;
+      }
+    })();
+  }, [when, state.providerPresetsLoaded, actions]);
 }

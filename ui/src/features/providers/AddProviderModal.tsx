@@ -1,5 +1,5 @@
 import { useEffect, useRef, useState } from "react";
-import { useProvidersAndModels } from "../../app/state/providersAndModels";
+import { useEnsureProviderPresetsLoaded, useProvidersAndModels } from "../../app/state/providersAndModels";
 import { useSettings } from "../../app/state/settings";
 import { useWiredProviderActions } from "../../app/state/coordinators/wired";
 import { discoverLocalProviders } from "../../lib/api";
@@ -22,6 +22,7 @@ type AddFormState = {
 };
 
 export function AddProviderModal({ open, onClose }: Props) {
+  useEnsureProviderPresetsLoaded(open);
   const settings = useSettings();
   const providersAndModels = useProvidersAndModels();
   const providerActions = useWiredProviderActions();
