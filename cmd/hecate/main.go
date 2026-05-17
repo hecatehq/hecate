@@ -17,10 +17,10 @@ import (
 	"go.opentelemetry.io/otel/propagation"
 
 	"github.com/hecate/agent-runtime/internal/agentadapters"
-	"github.com/hecate/agent-runtime/internal/agentchat"
 	"github.com/hecate/agent-runtime/internal/api"
 	"github.com/hecate/agent-runtime/internal/bootstrap"
 	"github.com/hecate/agent-runtime/internal/catalog"
+	"github.com/hecate/agent-runtime/internal/chat"
 	"github.com/hecate/agent-runtime/internal/config"
 	"github.com/hecate/agent-runtime/internal/controlplane"
 	"github.com/hecate/agent-runtime/internal/gateway"
@@ -546,13 +546,13 @@ func pruneableProviderHistory(store providers.HealthHistoryStore) retention.Prun
 	return pruner
 }
 
-// approvalRetentionPruner exposes the AgentChatApprovalPruner surface
+// approvalRetentionPruner exposes the ChatApprovalPruner surface
 // when the configured approval store implements it. Memory and SQLite
 // both do; tests that swap in a stub may not — returning nil is
 // harmless because the retention worker skips subsystems with a nil
 // pruner.
-func approvalRetentionPruner(store agentadapters.ApprovalStore) retention.AgentChatApprovalPruner {
-	pruner, _ := store.(retention.AgentChatApprovalPruner)
+func approvalRetentionPruner(store agentadapters.ApprovalStore) retention.ChatApprovalPruner {
+	pruner, _ := store.(retention.ChatApprovalPruner)
 	return pruner
 }
 
@@ -682,17 +682,17 @@ func sqliteRequired(cfg config.Config) bool {
 		cfg.Retention.HistoryBackend == "sqlite"
 }
 
-func buildAgentChatStore(cfg config.Config, logger *slog.Logger, sqliteClient *storage.SQLiteClient) agentchat.Store {
+func buildAgentChatStore(cfg config.Config, logger *slog.Logger, sqliteClient *storage.SQLiteClient) chat.Store {
 	switch cfg.Chat.SessionsBackend {
 	case "sqlite":
-		store, err := agentchat.NewSQLiteStore(context.Background(), sqliteClient)
+		store, err := chat.NewSQLiteStore(context.Background(), sqliteClient)
 		if err != nil {
 			logger.Error("agent chat store init failed", slog.Any("error", err))
 			os.Exit(1)
 		}
 		return store
 	default:
-		return agentchat.NewMemoryStore()
+		return chat.NewMemoryStore()
 	}
 }
 

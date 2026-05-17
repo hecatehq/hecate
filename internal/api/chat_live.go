@@ -6,7 +6,7 @@ import (
 	"sync/atomic"
 
 	"github.com/hecate/agent-runtime/internal/agentadapters"
-	"github.com/hecate/agent-runtime/internal/agentchat"
+	"github.com/hecate/agent-runtime/internal/chat"
 )
 
 // AgentChatLiveEventType discriminates the payload union below. Stable
@@ -29,16 +29,16 @@ const (
 // on Type and tolerate unknown values).
 type AgentChatLiveEvent struct {
 	Type              AgentChatLiveEventType
-	SessionUpdate     *AgentChatSessionResponse
-	ApprovalRequested *AgentChatApprovalRequestedEvent
-	ApprovalResolved  *AgentChatApprovalResolvedEvent
+	SessionUpdate     *ChatSessionResponse
+	ApprovalRequested *ChatApprovalRequestedEvent
+	ApprovalResolved  *ChatApprovalResolvedEvent
 }
 
-// AgentChatApprovalRequestedEvent is the SSE payload published when
+// ChatApprovalRequestedEvent is the SSE payload published when
 // the coordinator records a new approval. Minimal by design — the
 // full ACP options + scope_choices are reachable via
-// GET /hecate/v1/agent-chat/sessions/{id}/approvals/{id}.
-type AgentChatApprovalRequestedEvent struct {
+// GET /hecate/v1/chat/sessions/{id}/approvals/{id}.
+type ChatApprovalRequestedEvent struct {
 	ApprovalID   string                        `json:"approval_id"`
 	SessionID    string                        `json:"session_id"`
 	AdapterID    string                        `json:"adapter_id"`
@@ -49,7 +49,7 @@ type AgentChatApprovalRequestedEvent struct {
 	ExpiresAt    string                        `json:"expires_at"`
 }
 
-// AgentChatApprovalResolvedEvent is the SSE payload published on every
+// ChatApprovalResolvedEvent is the SSE payload published on every
 // terminal transition: operator decision, timeout, ctx-cancel, grant
 // short-circuit, default-mode auto-resolve. Frontends switch on Path
 // to render the disposition correctly:
@@ -58,7 +58,7 @@ type AgentChatApprovalRequestedEvent struct {
 //   - "default_mode"       — auto/deny mode resolved without operator
 //   - "timeout"            — prompt-mode timeout fired
 //   - "request_cancelled"  — ctx died (session shutdown, adapter teardown, etc.)
-type AgentChatApprovalResolvedEvent struct {
+type ChatApprovalResolvedEvent struct {
 	ApprovalID     string `json:"approval_id"`
 	SessionID      string `json:"session_id"`
 	Status         string `json:"status"`
@@ -138,12 +138,12 @@ func (l *agentChatLive) subscribe(sessionID string) (<-chan AgentChatLiveEvent, 
 // The message replaces any pending session_update on a full buffer
 // (latest-write-wins) — operators care about current state, not the
 // chronology of every micro-update.
-func (l *agentChatLive) publishSession(session agentchat.Session) {
+func (l *agentChatLive) publishSession(session chat.Session) {
 	l.publish(session.ID, AgentChatLiveEvent{
 		Type: AgentChatLiveEventSessionUpdate,
-		SessionUpdate: &AgentChatSessionResponse{
-			Object: "agent_chat_session",
-			Data:   renderAgentChatSession(session, l.snapshot),
+		SessionUpdate: &ChatSessionResponse{
+			Object: "chat_session",
+			Data:   renderChatSession(session, l.snapshot),
 		},
 	}, true)
 }
@@ -153,7 +153,7 @@ func (l *agentChatLive) publishSession(session agentchat.Session) {
 // each a discrete observation; clobbering one with another would
 // silently lose the earlier event. Operators recover via the GET
 // list endpoint on reconnect.
-func (l *agentChatLive) publishApprovalRequested(payload AgentChatApprovalRequestedEvent) {
+func (l *agentChatLive) publishApprovalRequested(payload ChatApprovalRequestedEvent) {
 	l.publish(payload.SessionID, AgentChatLiveEvent{
 		Type:              AgentChatLiveEventApprovalRequested,
 		ApprovalRequested: &payload,
@@ -163,7 +163,7 @@ func (l *agentChatLive) publishApprovalRequested(payload AgentChatApprovalReques
 // publishApprovalResolved notifies subscribers that a pending approval
 // reached a terminal state. Same drop-on-full rule as
 // publishApprovalRequested.
-func (l *agentChatLive) publishApprovalResolved(payload AgentChatApprovalResolvedEvent) {
+func (l *agentChatLive) publishApprovalResolved(payload ChatApprovalResolvedEvent) {
 	l.publish(payload.SessionID, AgentChatLiveEvent{
 		Type:             AgentChatLiveEventApprovalResolved,
 		ApprovalResolved: &payload,

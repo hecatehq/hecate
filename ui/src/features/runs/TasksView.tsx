@@ -39,11 +39,11 @@ export function streamTurnCostKey(turnIndex: number | undefined): number | null 
 
 export function TasksView({
   focusRequest,
-  onOpenAgentChat,
+  onOpenChat,
   onOpenTrace,
 }: {
   focusRequest?: TaskFocusRequest | null;
-  onOpenAgentChat?: (sessionID: string) => void;
+  onOpenChat?: (sessionID: string) => void;
   onOpenTrace?: (requestID: string) => void;
 } = {}) {
   const [loading, setLoading] = useState(true);
@@ -432,7 +432,7 @@ export function TasksView({
           busyAction={busyAction}
           notice={notice}
           onSelectRun={(id) => void handleSelectRun(id)}
-          onOpenAgentChat={onOpenAgentChat}
+          onOpenChat={onOpenChat}
           onResolveApproval={(approval, decision) => void handleResolveApproval(approval, decision)}
           onCancelRun={() => void handleCancelRun()}
           onRetryRun={() => void handleRetryRun()}

@@ -4,9 +4,9 @@ import { describeGatewayError, formatErrorCode } from "./error-diagnostics";
 
 describe("describeGatewayError", () => {
   it("labels stable Hecate Chat error contracts", () => {
-    expect(describeGatewayError("agent_chat.agent_session_busy")?.title).toBe("Chat is still working");
-    expect(describeGatewayError("agent_chat.model_capability_required")?.title).toBe("Tools unavailable for this model");
-    expect(describeGatewayError("agent_chat.workspace_required")?.action).toContain("Choose a workspace");
+    expect(describeGatewayError("chat.agent_session_busy")?.title).toBe("Chat is still working");
+    expect(describeGatewayError("chat.model_capability_required")?.title).toBe("Tools unavailable for this model");
+    expect(describeGatewayError("chat.workspace_required")?.action).toContain("Choose a workspace");
     expect(describeGatewayError("model_not_configured")?.title).toBe("Selected model is unavailable");
   });
 
@@ -18,6 +18,6 @@ describe("describeGatewayError", () => {
 
 describe("formatErrorCode", () => {
   it("combines status and stable code", () => {
-    expect(formatErrorCode("agent_chat.agent_session_busy", 409)).toBe("409 · agent_chat.agent_session_busy");
+    expect(formatErrorCode("chat.agent_session_busy", 409)).toBe("409 · chat.agent_session_busy");
   });
 });

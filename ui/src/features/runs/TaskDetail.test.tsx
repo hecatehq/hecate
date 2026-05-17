@@ -160,14 +160,14 @@ describe("TaskDetail run picker", () => {
   });
 
   it("links chat-origin tasks back to their source chat", async () => {
-    const onOpenAgentChat = vi.fn();
+    const onOpenChat = vi.fn();
     const { render, user } = setup({
-      task: makeTask({ origin_kind: "agent_chat", origin_id: "agent_chat_123" }),
-      onOpenAgentChat,
+      task: makeTask({ origin_kind: "chat", origin_id: "chat_123" }),
+      onOpenChat,
     });
     render();
     await user.click(screen.getByRole("button", { name: /from chat/i }));
-    expect(onOpenAgentChat).toHaveBeenCalledWith("agent_chat_123");
+    expect(onOpenChat).toHaveBeenCalledWith("chat_123");
   });
 
   it("hides the picker when there are zero runs", () => {

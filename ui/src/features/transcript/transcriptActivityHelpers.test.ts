@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 
-import type { AgentChatActivityRecord } from "../../types/runtime";
+import type { ChatActivityRecord } from "../../types/runtime";
 
 import {
   activityDisplay,
@@ -21,11 +21,11 @@ import {
   terminalStatusLabel,
 } from "./transcriptActivityHelpers";
 
-function activity(overrides: Partial<AgentChatActivityRecord> & Pick<AgentChatActivityRecord, "type" | "title">): AgentChatActivityRecord {
+function activity(overrides: Partial<ChatActivityRecord> & Pick<ChatActivityRecord, "type" | "title">): ChatActivityRecord {
   return {
     status: "completed",
     ...overrides,
-  } as AgentChatActivityRecord;
+  } as ChatActivityRecord;
 }
 
 describe("formatDiffStatSummary", () => {

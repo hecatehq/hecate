@@ -72,7 +72,7 @@ func TestApprovalReconcilePersistsAndFlipsAcrossRestart(t *testing.T) {
 	// insert below references a valid session_id. The approval
 	// reconcile contract doesn't need a live ACP subprocess, and CI
 	// runners intentionally do not carry operator auth for Codex.
-	sessionID := injectAgentChatSession(t, dbPath)
+	sessionID := injectChatSession(t, dbPath)
 
 	if err := cmd1.Process.Kill(); err != nil {
 		t.Fatalf("kill first run: %v", err)
@@ -155,7 +155,7 @@ func TestApprovalGrantPersistsAcrossRestart(t *testing.T) {
 	waitHealthy(t, "http://"+addr1, gatewayStartupTimeout)
 
 	base1 := "http://" + addr1
-	sessionID := injectAgentChatSession(t, dbPath)
+	sessionID := injectChatSession(t, dbPath)
 	approvalID := injectPendingApproval(t, dbPath, sessionID)
 	mustResolveApproval(t, base1, sessionID, approvalID, `{"decision":"approve","scope":"session"}`)
 
@@ -213,7 +213,7 @@ type apiGrant struct {
 	Decision  string `json:"decision"`
 }
 
-func injectAgentChatSession(t *testing.T, dbPath string) string {
+func injectChatSession(t *testing.T, dbPath string) string {
 	t.Helper()
 
 	db, err := sql.Open("sqlite", dbPath)
@@ -223,9 +223,9 @@ func injectAgentChatSession(t *testing.T, dbPath string) string {
 	defer db.Close()
 
 	now := time.Now().UTC()
-	sessionID := "agent_chat_e2e_" + fmt.Sprintf("%d", now.UnixNano())
+	sessionID := "chat_e2e_" + fmt.Sprintf("%d", now.UnixNano())
 	_, err = db.Exec(
-		`INSERT INTO hecate_agent_chat_sessions (
+		`INSERT INTO hecate_chat_sessions (
 			id, title, runtime_kind, adapter_id, driver_kind, native_session_id, workspace, workspace_branch,
 			status, task_id, latest_run_id, provider, model, capabilities, config_options, turns_used, created_at, updated_at
 		) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
@@ -256,7 +256,7 @@ func injectAgentChatSession(t *testing.T, dbPath string) string {
 
 func mustResolveApproval(t *testing.T, baseURL, sessionID, approvalID, body string) {
 	t.Helper()
-	url := fmt.Sprintf("%s/hecate/v1/agent-chat/sessions/%s/approvals/%s/resolve", baseURL, sessionID, approvalID)
+	url := fmt.Sprintf("%s/hecate/v1/chat/sessions/%s/approvals/%s/resolve", baseURL, sessionID, approvalID)
 	resp, err := http.Post(url, "application/json", strings.NewReader(body))
 	if err != nil {
 		t.Fatalf("resolve approval: %v", err)
@@ -270,7 +270,7 @@ func mustResolveApproval(t *testing.T, baseURL, sessionID, approvalID, body stri
 
 func mustListGrants(t *testing.T, baseURL string) []apiGrant {
 	t.Helper()
-	resp, err := http.Get(baseURL + "/hecate/v1/agent-chat/grants")
+	resp, err := http.Get(baseURL + "/hecate/v1/chat/grants")
 	if err != nil {
 		t.Fatalf("list grants: %v", err)
 	}
@@ -290,7 +290,7 @@ func mustListGrants(t *testing.T, baseURL string) []apiGrant {
 
 func mustGetApproval(t *testing.T, baseURL, sessionID, approvalID string) apiApproval {
 	t.Helper()
-	url := fmt.Sprintf("%s/hecate/v1/agent-chat/sessions/%s/approvals/%s", baseURL, sessionID, approvalID)
+	url := fmt.Sprintf("%s/hecate/v1/chat/sessions/%s/approvals/%s", baseURL, sessionID, approvalID)
 	resp, err := http.Get(url)
 	if err != nil {
 		t.Fatalf("GET approval: %v", err)
@@ -330,9 +330,9 @@ func injectPendingApproval(t *testing.T, dbPath, sessionID string) string {
 	payload := `{"sessionId":"` + sessionID + `","options":[]}`
 
 	// Default GATEWAY_SQLITE_TABLE_PREFIX is "hecate"; combined with
-	// agent_chat_approvals → hecate_agent_chat_approvals.
+	// agent_chat_approvals → hecate_chat_approvals.
 	_, err = db.ExecContext(context.Background(),
-		`INSERT INTO hecate_agent_chat_approvals (
+		`INSERT INTO hecate_chat_approvals (
 			id, session_id, adapter_id, workspace, tool_kind, tool_name, status,
 			acp_payload, acp_options, scope_choices,
 			selected_option, scope, decision, path, decision_note,

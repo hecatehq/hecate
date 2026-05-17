@@ -10,7 +10,7 @@
 // individual fields at different times. The coordinator that
 // flips `hecateRTKEnabled` and PATCHes the session settings
 // stays in `useRuntimeConsole` for now — it couples runtime
-// state to the chats slice (`activeAgentChatSession`) which
+// state to the chats slice (`activeChatSession`) which
 // hasn't been carved out yet.
 //
 // `copyCommand` lives in the slice because the clipboard

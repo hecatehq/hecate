@@ -11,8 +11,8 @@
 // What's NOT here yet: session-derive helpers
 // (`deriveHecateChatTargetFromSession`,
 // `deriveHecateChatSelectionFromSession`,
-// `agentChatSession{IsExternal,IsBusy}`). Those are
-// agentChats-domain specific and move with the agentChats slice.
+// `chatSession{IsExternal,IsBusy}`). Those are
+// chats-domain specific and move with the chats slice.
 
 import type { ProviderFilter } from "../../types/runtime";
 
@@ -37,7 +37,7 @@ export const queuedChatMessagesStorageKey = "hecate.queuedChatMessages";
 // Coercive normalizer — drops unknown values onto the safe default
 // rather than rejecting them. Used by code paths where the wider
 // type system has already vouched for the input (e.g. an
-// `AgentChatSessionRecord.runtime_kind` field straight off the
+// `ChatSessionRecord.runtime_kind` field straight off the
 // wire). For localStorage reads use the strict
 // `parseStoredChatTarget` below so corrupt keys get wiped.
 export function normalizeStoredChatTarget(value: string): ChatTarget {

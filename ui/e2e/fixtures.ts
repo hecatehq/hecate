@@ -144,8 +144,8 @@ export async function mockGatewayAPIs(page: Page, opts: GatewayMockOptions = {})
   // Stateful clone — POST/DELETE/PATCH mutate this in place so a single
   // test can add → list → delete in one flow without re-mocking.
   const state: SettingsConfig = JSON.parse(JSON.stringify(opts.settingsConfig ?? MOCK_SETTINGS_CONFIG));
-  const agentChatSessions: any[] = [];
-  let agentChatSequence = 1;
+  const chatSessions: any[] = [];
+  let chatSequence = 1;
 
   await page.route("/healthz", r => r.fulfill(ok({ status: "ok", time: "2026-04-25T00:00:00Z" })));
 
@@ -175,15 +175,15 @@ export async function mockGatewayAPIs(page: Page, opts: GatewayMockOptions = {})
     r.fulfill(ok({ object: "agent_adapters", data: MOCK_AGENT_ADAPTERS })),
   );
 
-  await page.route("/hecate/v1/agent-chat/sessions*", async route => {
+  await page.route("/hecate/v1/chat/sessions*", async route => {
     const request = route.request();
     const method = request.method();
     const url = new URL(request.url());
-    const suffix = url.pathname.replace("/hecate/v1/agent-chat/sessions", "").replace(/^\/+/, "");
+    const suffix = url.pathname.replace("/hecate/v1/chat/sessions", "").replace(/^\/+/, "");
     const parts = suffix ? suffix.split("/").map(part => decodeURIComponent(part)) : [];
     const id = parts[0];
     const now = () => new Date("2026-05-14T12:00:00Z").toISOString();
-    const findSession = () => agentChatSessions.find(session => session.id === id);
+    const findSession = () => chatSessions.find(session => session.id === id);
     const sessionSummary = (session: any) => {
       const { messages: _messages, config_options: _configOptions, segments: _segments, ...summary } = session;
       return summary;
@@ -191,7 +191,7 @@ export async function mockGatewayAPIs(page: Page, opts: GatewayMockOptions = {})
 
     if (!id) {
       if (method === "GET") {
-        await route.fulfill(ok({ object: "agent_chat_sessions", data: agentChatSessions.map(sessionSummary) }));
+        await route.fulfill(ok({ object: "chat_sessions", data: chatSessions.map(sessionSummary) }));
         return;
       }
       if (method === "POST") {
@@ -200,13 +200,13 @@ export async function mockGatewayAPIs(page: Page, opts: GatewayMockOptions = {})
         const adapter = MOCK_AGENT_ADAPTERS.find(item => item.id === body.adapter_id);
         const isExternal = runtimeKind === "external_agent";
         const session = {
-          id: `agent-chat-e2e-${agentChatSequence++}`,
+          id: `chat-e2e-${chatSequence++}`,
           title: body.title || (isExternal ? `${adapter?.name || "External agent"} chat` : "Hecate chat"),
           runtime_kind: runtimeKind,
           adapter_id: body.adapter_id || "",
           adapter_name: adapter?.name || "",
           driver_kind: isExternal ? "acp" : "",
-          native_session_id: isExternal ? `native-${agentChatSequence}` : "",
+          native_session_id: isExternal ? `native-${chatSequence}` : "",
           provider: body.provider || "auto",
           model: body.model || MOCK_MODELS[0]?.id || "",
           capabilities: { tool_calling: "basic", streaming: true, source: "operator_override" },
@@ -221,8 +221,8 @@ export async function mockGatewayAPIs(page: Page, opts: GatewayMockOptions = {})
           segments: [],
           messages: [],
         };
-        agentChatSessions.unshift(session);
-        await route.fulfill(ok({ object: "agent_chat_session", data: session }));
+        chatSessions.unshift(session);
+        await route.fulfill(ok({ object: "chat_session", data: session }));
         return;
       }
     }
@@ -243,7 +243,7 @@ export async function mockGatewayAPIs(page: Page, opts: GatewayMockOptions = {})
 
     if (parts.length === 1) {
       if (method === "GET") {
-        await route.fulfill(ok({ object: "agent_chat_session", data: session }));
+        await route.fulfill(ok({ object: "chat_session", data: session }));
         return;
       }
       if (method === "PATCH") {
@@ -252,12 +252,12 @@ export async function mockGatewayAPIs(page: Page, opts: GatewayMockOptions = {})
           session.title = body.title;
           session.updated_at = now();
         }
-        await route.fulfill(ok({ object: "agent_chat_session", data: session }));
+        await route.fulfill(ok({ object: "chat_session", data: session }));
         return;
       }
       if (method === "DELETE") {
-        const idx = agentChatSessions.indexOf(session);
-        if (idx >= 0) agentChatSessions.splice(idx, 1);
+        const idx = chatSessions.indexOf(session);
+        if (idx >= 0) chatSessions.splice(idx, 1);
         await route.fulfill(ok({ object: "deleted", data: { id } }));
         return;
       }
@@ -272,7 +272,7 @@ export async function mockGatewayAPIs(page: Page, opts: GatewayMockOptions = {})
       const body = JSON.parse(request.postData() || "{}");
       if (typeof body.rtk_enabled === "boolean") session.rtk_enabled = body.rtk_enabled;
       session.updated_at = now();
-      await route.fulfill(ok({ object: "agent_chat_session", data: session }));
+      await route.fulfill(ok({ object: "chat_session", data: session }));
       return;
     }
 
@@ -285,7 +285,7 @@ export async function mockGatewayAPIs(page: Page, opts: GatewayMockOptions = {})
         return { ...option, current_value: String(body.value ?? "") };
       });
       session.updated_at = now();
-      await route.fulfill(ok({ object: "agent_chat_session", data: session }));
+      await route.fulfill(ok({ object: "chat_session", data: session }));
       return;
     }
 
@@ -295,14 +295,14 @@ export async function mockGatewayAPIs(page: Page, opts: GatewayMockOptions = {})
       const runtimeKind = body.runtime_kind || session.runtime_kind || "agent";
       session.messages.push(
         {
-          id: `agent-msg-user-${agentChatSequence}`,
+          id: `agent-msg-user-${chatSequence}`,
           runtime_kind: runtimeKind,
           role: "user",
           content,
           created_at: now(),
         },
         {
-          id: `agent-msg-assistant-${agentChatSequence}`,
+          id: `agent-msg-assistant-${chatSequence}`,
           runtime_kind: runtimeKind,
           role: "assistant",
           content: runtimeKind === "model" ? `Direct response to: ${content}` : `Agent response to: ${content}`,
@@ -310,21 +310,21 @@ export async function mockGatewayAPIs(page: Page, opts: GatewayMockOptions = {})
           provider: body.provider || session.provider,
           model: body.model || session.model,
           workspace: session.workspace,
-          run_id: runtimeKind === "model" ? `model_run_${agentChatSequence}` : `run_${agentChatSequence}`,
-          request_id: `req_${agentChatSequence}`,
-          trace_id: `trace_${agentChatSequence}`,
+          run_id: runtimeKind === "model" ? `model_run_${chatSequence}` : `run_${chatSequence}`,
+          request_id: `req_${chatSequence}`,
+          trace_id: `trace_${chatSequence}`,
           cost_mode: runtimeKind === "external_agent" ? "external" : "hecate",
           created_at: now(),
         },
       );
-      agentChatSequence += 1;
+      chatSequence += 1;
       session.runtime_kind = runtimeKind;
       session.provider = body.provider || session.provider;
       session.model = body.model || session.model;
       session.status = "completed";
       session.message_count = session.messages.length;
       session.updated_at = now();
-      await route.fulfill(ok({ object: "agent_chat_session", data: session }));
+      await route.fulfill(ok({ object: "chat_session", data: session }));
       return;
     }
 
@@ -335,13 +335,9 @@ export async function mockGatewayAPIs(page: Page, opts: GatewayMockOptions = {})
     });
   });
 
-  await page.route("/hecate/v1/agent-chat/sessions/*/approvals*", async route => {
-    await route.fulfill(ok({ object: "agent_chat_approvals", data: [] }));
+  await page.route("/hecate/v1/chat/sessions/*/approvals*", async route => {
+    await route.fulfill(ok({ object: "chat_approvals", data: [] }));
   });
-
-  await page.route("/hecate/v1/chat/sessions*", r =>
-    r.fulfill(ok({ object: "list", data: [], has_more: false })),
-  );
 
   await page.route("/hecate/v1/observability/requests*", r =>
     r.fulfill(ok({ object: "list", data: [] })),

@@ -267,7 +267,7 @@ func TestAgentChatMetricsRecordRunEmitsCounterAndHistogram(t *testing.T) {
 	}
 	gotBuckets := map[string]int64{}
 	for _, point := range timing.DataPoints {
-		gotBuckets[attrValue(point.Attributes, AttrHecateAgentChatTimingBucket)] = point.Sum
+		gotBuckets[attrValue(point.Attributes, AttrHecateChatTimingBucket)] = point.Sum
 	}
 	for bucket, want := range map[string]int64{"queue": 50, "model": 900, "tools": 120, "overhead": 180} {
 		if gotBuckets[bucket] != want {

@@ -538,7 +538,7 @@ func TestACPTurnAgentThoughtChunkBlockBoundaries(t *testing.T) {
 		},
 		{
 			// Regression: distinct fallback episodes within one turn
-			// MUST get distinct Activity.IDs. mergeAgentChatActivity
+			// MUST get distinct Activity.IDs. mergeChatActivity
 			// dedupes by id and replaces Detail wholesale on collision,
 			// so a shared id would let episode 2's text overwrite
 			// episode 1's row in the persisted activities array.
@@ -658,7 +658,7 @@ func TestACPTurnFallbackDetectionResistsAdapterSpoofingTheFallbackPrefix(t *test
 
 // TestACPTurnCapsThinkingActivityDetailToProtectActivityRowSize
 // pins the per-block accumulator cap. Each chunk re-emits the
-// full accumulated Detail (mergeAgentChatActivity replaces the
+// full accumulated Detail (mergeChatActivity replaces the
 // row's Detail wholesale by Activity.ID), so an unbounded
 // accumulator would inflate the persisted activities JSON and
 // websocket payload with every chunk. The cap holds the
@@ -720,7 +720,7 @@ func TestACPTurnCapsThinkingActivityDetailToProtectActivityRowSize(t *testing.T)
 
 // TestACPTurnTruncatesThinkingDetailOnUTF8RuneBoundary protects
 // against slicing a multi-byte rune mid-sequence; the resulting
-// Activity.Detail is JSON-serialized into the agentchat row, and
+// Activity.Detail is JSON-serialized into the chat row, and
 // stray UTF-8 continuation bytes would corrupt the payload (or be
 // replaced with U+FFFD by lenient decoders, losing data).
 func TestACPTurnTruncatesThinkingDetailOnUTF8RuneBoundary(t *testing.T) {
@@ -897,7 +897,7 @@ func TestACPTurnEmitsFileChangeActivitiesForMutatingToolCallsOnCompletion(t *tes
 // entries for the same file (e.g. several edited line ranges in
 // one call). Without aggregation, each entry would emit an activity
 // with the same `file_change:<toolCallID>:<path>` Activity.ID and
-// downstream mergeAgentChatActivity would let later emissions
+// downstream mergeChatActivity would let later emissions
 // overwrite earlier ones — the operator would see the last range
 // only, with the others silently lost. We collapse same-path
 // entries into one row, summarizing the line numbers in the title.
@@ -942,7 +942,7 @@ func TestACPTurnAggregatesFileChangeLocationsBySharedPath(t *testing.T) {
 	if fileChanges[1].Title != "docs/example.md" {
 		t.Fatalf("second row title = %q, want plain path (no line info on the source location)", fileChanges[1].Title)
 	}
-	// Activity.IDs must be unique per path so mergeAgentChatActivity
+	// Activity.IDs must be unique per path so mergeChatActivity
 	// keeps both rows; the per-path collapse must NOT extend across
 	// distinct files.
 	if fileChanges[0].ID == fileChanges[1].ID {
@@ -1016,8 +1016,8 @@ func TestACPTurnRetainsToolKindAcrossUpdatesThatOmitIt(t *testing.T) {
 }
 
 // TestACPTurnRecordToolCallUpdateDefaultsTitleToToolCallId pins the
-// fix for an mergeAgentChatActivity-drop edge case. ACP's
-// SessionToolCallUpdate.Title is optional. mergeAgentChatActivity
+// fix for an mergeChatActivity-drop edge case. ACP's
+// SessionToolCallUpdate.Title is optional. mergeChatActivity
 // silently discards an emission whose Title is empty when there is
 // no prior row with a matching Activity.ID to merge into — and a
 // ToolCallUpdate without a preceding ToolCall is rare but legal
@@ -1047,7 +1047,7 @@ func TestACPTurnRecordToolCallUpdateDefaultsTitleToToolCallId(t *testing.T) {
 		t.Fatalf("tool_call count = %d, want 1 (the activity must survive merge with no preceding ToolCall)", len(toolCalls))
 	}
 	if toolCalls[0].Title != "call_orphan" {
-		t.Fatalf("tool_call Title = %q, want %q (defaulted to ToolCallId so mergeAgentChatActivity does not drop the row)", toolCalls[0].Title, "call_orphan")
+		t.Fatalf("tool_call Title = %q, want %q (defaulted to ToolCallId so mergeChatActivity does not drop the row)", toolCalls[0].Title, "call_orphan")
 	}
 }
 

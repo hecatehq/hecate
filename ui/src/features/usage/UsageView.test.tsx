@@ -112,8 +112,8 @@ describe("UsageView", () => {
 
   it("keeps active external-agent usage out of the global usage page", () => {
     setup({
-      activeAgentChatSession: {
-        id: "agent_chat_1",
+      activeChatSession: {
+        id: "chat_1",
         title: "Codex work",
         adapter_id: "codex",
         workspace: "/tmp/project",

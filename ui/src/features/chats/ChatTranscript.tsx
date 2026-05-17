@@ -2,7 +2,7 @@ import { useEffect, useRef, useState, type ReactNode } from "react";
 
 import { useRuntimeConsoleContext } from "../../app/RuntimeConsoleContext";
 import { formatDurationMs } from "../../lib/format";
-import type { AgentAdapterRecord, AgentChatActivityRecord, AgentChatSegmentRecord, AgentChatTimingRecord, AgentChatUsageRecord, ConfiguredProviderRecord, ProviderRecord } from "../../types/runtime";
+import type { AgentAdapterRecord, ChatActivityRecord, ChatSegmentRecord, ChatTimingRecord, ChatUsageRecord, ConfiguredProviderRecord, ProviderRecord } from "../../types/runtime";
 
 // Placeholder shape kept for the produced_by_call_id lookup in the transcript.
 // The legacy /chat/sessions data path used to populate this map with rich
@@ -42,15 +42,15 @@ export type VisibleChatMessage = {
   diff_stat?: string;
   diff?: string;
   raw_output?: string;
-  activities?: AgentChatActivityRecord[];
-  usage?: AgentChatUsageRecord;
-  timing?: AgentChatTimingRecord;
+  activities?: ChatActivityRecord[];
+  usage?: ChatUsageRecord;
+  timing?: ChatTimingRecord;
   duration_ms?: number;
   error?: string;
 };
 
 export type TranscriptItem =
-  | { type: "segment"; key: string; segment: AgentChatSegmentRecord }
+  | { type: "segment"; key: string; segment: ChatSegmentRecord }
   | { type: "message"; key: string; message: VisibleChatMessage };
 
 type Props = {
@@ -161,7 +161,7 @@ export function ChatTranscript({
           const content = typeof m.content === "string" ? m.content : (m.content === null ? "" : JSON.stringify(m.content));
           const time = m.created_at ? new Date(m.created_at).toLocaleTimeString("en-US", { hour: "2-digit", minute: "2-digit" }) : "";
           const agentModel = isHecateAgentChat
-            ? (m.model || state.activeAgentChatSession?.model || "Hecate Agent")
+            ? (m.model || state.activeChatSession?.model || "Hecate Agent")
             : (m.agent_adapter_name || m.agent_adapter_id);
           const agentRuntime = isAgentChat && role === "assistant"
             ? formatAgentRuntimeMeta(m.run_id, m.duration_ms, m.native_session_id)
@@ -208,10 +208,10 @@ export function ChatTranscript({
               activities={isAgentChat && role === "assistant" ? m.activities : undefined}
               diffStat={isAgentChat && role === "assistant" ? m.diff_stat : undefined}
               diff={isAgentChat && role === "assistant" ? m.diff : undefined}
-              agentSessionID={isAgentChat ? state.activeAgentChatSessionID : ""}
-              onListAgentFiles={actions.listAgentChatMessageFiles}
-              onGetAgentFileDiff={actions.getAgentChatMessageFileDiff}
-              onRevertAgentFiles={actions.revertAgentChatMessageFiles}
+              agentSessionID={isAgentChat ? state.activeChatSessionID : ""}
+              onListAgentFiles={actions.listChatMessageFiles}
+              onGetAgentFileDiff={actions.getChatMessageFileDiff}
+              onRevertAgentFiles={actions.revertChatMessageFiles}
               rawOutput={isAgentChat && role === "assistant" ? m.raw_output : undefined}
               agentUsage={isAgentChat && role === "assistant" ? m.usage : undefined}
               agentTiming={isAgentChat && role === "assistant" ? m.timing : undefined}
@@ -324,7 +324,7 @@ export function ChatTranscript({
 
 export function buildTranscriptItems(
   messages: VisibleChatMessage[],
-  segments: AgentChatSegmentRecord[] | undefined,
+  segments: ChatSegmentRecord[] | undefined,
   showSegments: boolean,
 ): TranscriptItem[] {
   if (!showSegments) {
@@ -354,7 +354,7 @@ function fallbackSegmentID(message: VisibleChatMessage): string {
   return "";
 }
 
-function segmentFromMessage(message: VisibleChatMessage, segmentID: string): AgentChatSegmentRecord {
+function segmentFromMessage(message: VisibleChatMessage, segmentID: string): ChatSegmentRecord {
   return {
     id: segmentID,
     runtime_kind: message.runtime_kind || "model",
@@ -369,7 +369,7 @@ function segmentFromMessage(message: VisibleChatMessage, segmentID: string): Age
   };
 }
 
-function ChatSegmentDivider({ segment }: { segment: AgentChatSegmentRecord }) {
+function ChatSegmentDivider({ segment }: { segment: ChatSegmentRecord }) {
   const description = describeChatSegment(segment);
   return (
     <div
@@ -425,7 +425,7 @@ function ChatSegmentDivider({ segment }: { segment: AgentChatSegmentRecord }) {
   );
 }
 
-function describeChatSegment(segment: AgentChatSegmentRecord): { kicker: string; title: string; meta: string; label: string; tone: "on" | "off" | "external" } {
+function describeChatSegment(segment: ChatSegmentRecord): { kicker: string; title: string; meta: string; label: string; tone: "on" | "off" | "external" } {
   const model = segment.model || "selected model";
   const provider = segment.provider && segment.provider !== "auto" ? segment.provider : "";
   switch (segment.runtime_kind) {

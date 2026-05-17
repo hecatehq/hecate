@@ -12,7 +12,7 @@
 // field (providerFilter) keeps a legacy useState + mount-read
 // effect pattern — see the inline comment for the e2e timing
 // reason. The slice exposes raw setters; the shim coordinators
-// (submitChat, createChatSession, applyAgentChatSession, the SSE
+// (submitChat, createChatSession, applyChatSession, the SSE
 // event handler, …) compose these setters with cross-cut work
 // like dispatching notice banners and updating the approvals
 // slice.
@@ -27,8 +27,8 @@ import { createContext, useCallback, useContext, useEffect, useMemo, useRef, use
 import { ApiError, type ChatMessage } from "../../lib/api";
 import { parseStoredJSON, parseStoredString, usePersistedState } from "../../lib/persistedState";
 import type {
-  AgentChatSessionRecord,
-  AgentChatSessionsResponse,
+  ChatSessionRecord,
+  ChatSessionsResponse,
   ChatResponse,
   ModelFilter,
   ProviderFilter,
@@ -58,14 +58,14 @@ export type ChatState = {
   agentAdapterID: string;
   agentWorkspace: string;
   agentWorkspaceBranch: string;
-  agentChatSessions: AgentChatSessionsResponse["data"];
-  activeAgentChatSessionID: string;
-  activeAgentChatSession: AgentChatSessionRecord | null;
+  chatSessions: ChatSessionsResponse["data"];
+  activeChatSessionID: string;
+  activeChatSession: ChatSessionRecord | null;
   queuedChatMessages: QueuedChatMessage[];
   model: string;
   systemPrompt: string;
   chatLoading: boolean;
-  agentChatCancelling: boolean;
+  chatCancelling: boolean;
   streamingContent: string | null;
   chatResult: ChatResponse | null;
   pendingToolCalls: PendingToolCall[];
@@ -89,14 +89,14 @@ export type ChatActions = {
   setAgentAdapterID: Setter<string>;
   setAgentWorkspace: Setter<string>;
   setAgentWorkspaceBranch: Setter<string>;
-  setAgentChatSessions: Setter<AgentChatSessionsResponse["data"]>;
-  setActiveAgentChatSessionID: Setter<string>;
-  setActiveAgentChatSession: Setter<AgentChatSessionRecord | null>;
+  setChatSessions: Setter<ChatSessionsResponse["data"]>;
+  setActiveChatSessionID: Setter<string>;
+  setActiveChatSession: Setter<ChatSessionRecord | null>;
   setQueuedChatMessages: Setter<QueuedChatMessage[]>;
   setModel: Setter<string>;
   setSystemPrompt: Setter<string>;
   setChatLoading: Setter<boolean>;
-  setAgentChatCancelling: Setter<boolean>;
+  setChatCancelling: Setter<boolean>;
   setStreamingContent: Setter<string | null>;
   setChatResult: Setter<ChatResponse | null>;
   setPendingToolCalls: Setter<PendingToolCall[]>;
@@ -147,14 +147,14 @@ export function ChatProvider({ children }: { children: ReactNode }) {
     "",
   );
   const [agentWorkspaceBranch, setAgentWorkspaceBranch] = useState("");
-  const [agentChatSessions, setAgentChatSessions] = useState<AgentChatSessionsResponse["data"]>([]);
-  const [activeAgentChatSessionID, setActiveAgentChatSessionID] = usePersistedState(
-    "hecate.agentChatSessionID",
+  const [chatSessions, setChatSessions] = useState<ChatSessionsResponse["data"]>([]);
+  const [activeChatSessionID, setActiveChatSessionID] = usePersistedState(
+    "hecate.chatSessionID",
     parseStoredString,
     "",
     { shouldRemove: (v) => v === "" },
   );
-  const [activeAgentChatSession, setActiveAgentChatSession] = useState<AgentChatSessionRecord | null>(null);
+  const [activeChatSession, setActiveChatSession] = useState<ChatSessionRecord | null>(null);
   const [queuedChatMessages, setQueuedChatMessages] = usePersistedState<QueuedChatMessage[]>(
     queuedChatMessagesStorageKey,
     parseStoredJSON(parseQueuedChatMessageList),
@@ -173,7 +173,7 @@ export function ChatProvider({ children }: { children: ReactNode }) {
     "",
   );
   const [chatLoading, setChatLoading] = useState(false);
-  const [agentChatCancelling, setAgentChatCancelling] = useState(false);
+  const [chatCancelling, setChatCancelling] = useState(false);
   const [streamingContent, setStreamingContent] = useState<string | null>(null);
   const [chatResult, setChatResult] = useState<ChatResponse | null>(null);
   const [pendingToolCalls, setPendingToolCalls] = useState<PendingToolCall[]>([]);
@@ -259,14 +259,14 @@ export function ChatProvider({ children }: { children: ReactNode }) {
     agentAdapterID,
     agentWorkspace,
     agentWorkspaceBranch,
-    agentChatSessions,
-    activeAgentChatSessionID,
-    activeAgentChatSession,
+    chatSessions,
+    activeChatSessionID,
+    activeChatSession,
     queuedChatMessages,
     model,
     systemPrompt,
     chatLoading,
-    agentChatCancelling,
+    chatCancelling,
     streamingContent,
     chatResult,
     pendingToolCalls,
@@ -281,9 +281,9 @@ export function ChatProvider({ children }: { children: ReactNode }) {
     providerFilter,
   }), [
     defaultChatTarget, chatTargetBySessionID, agentAdapterID, agentWorkspace,
-    agentWorkspaceBranch, agentChatSessions, activeAgentChatSessionID,
-    activeAgentChatSession, queuedChatMessages, model, systemPrompt,
-    chatLoading, agentChatCancelling, streamingContent, chatResult,
+    agentWorkspaceBranch, chatSessions, activeChatSessionID,
+    activeChatSession, queuedChatMessages, model, systemPrompt,
+    chatLoading, chatCancelling, streamingContent, chatResult,
     pendingToolCalls, pendingThread, chatError, chatErrorCode,
     chatErrorStatus, chatErrorAction, chatErrorRequestID, chatErrorTraceID,
     modelFilter, providerFilter,
@@ -295,14 +295,14 @@ export function ChatProvider({ children }: { children: ReactNode }) {
     setAgentAdapterID,
     setAgentWorkspace,
     setAgentWorkspaceBranch,
-    setAgentChatSessions,
-    setActiveAgentChatSessionID,
-    setActiveAgentChatSession,
+    setChatSessions,
+    setActiveChatSessionID,
+    setActiveChatSession,
     setQueuedChatMessages,
     setModel,
     setSystemPrompt,
     setChatLoading,
-    setAgentChatCancelling,
+    setChatCancelling,
     setStreamingContent,
     setChatResult,
     setPendingToolCalls,
@@ -317,7 +317,7 @@ export function ChatProvider({ children }: { children: ReactNode }) {
     setChatErrorState,
   }), [
     setDefaultChatTarget, setChatTargetBySessionID, setAgentAdapterID,
-    setAgentWorkspace, setAgentChatSessions, setActiveAgentChatSessionID,
+    setAgentWorkspace, setChatSessions, setActiveChatSessionID,
     setQueuedChatMessages, setModel, setSystemPrompt,
     removeQueuedChatMessage, updateQueuedChatMessage,
     pruneQueuedChatMessagesForSessions, clearChatErrorState, setChatErrorState,

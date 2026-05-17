@@ -1,4 +1,4 @@
-package agentchat
+package chat
 
 import "testing"
 

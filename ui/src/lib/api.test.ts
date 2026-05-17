@@ -2,36 +2,36 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 import {
   buildRequestOptions,
-  cancelAgentChatApproval,
+  cancelChatApproval,
   chatCompletions,
-  deleteAgentChatGrant,
+  deleteChatGrant,
   deleteModelCapabilityOverride,
   deletePolicyRule,
   discoverLocalProviders,
-  dispatchAgentChatStreamEvent,
-  getAgentChatMessageFileDiff,
-  getAgentChatApproval,
+  dispatchChatStreamEvent,
+  getChatMessageFileDiff,
+  getChatApproval,
   getUsageEvents,
   getUsageSummary,
   getSession,
   getTrace,
-  listAgentChatApprovals,
-  listAgentChatGrants,
-  listAgentChatMessageFiles,
+  listChatApprovals,
+  listChatGrants,
+  listChatMessageFiles,
   probeAgentAdapter,
   refreshAgentAdapterLauncher,
-  revertAgentChatMessageFiles,
-  resolveAgentChatApproval,
+  revertChatMessageFiles,
+  resolveChatApproval,
   recordModelCapabilityProbe,
-  setAgentChatSettings,
+  setChatSettings,
   setAgentAdapterCredential,
   deleteAgentAdapterCredential,
   setProviderAPIKey,
   setProviderBaseURL,
-  streamAgentChatSession,
+  streamChatSession,
   upsertModelCapabilityOverride,
   upsertPolicyRule,
-  updateAgentChatSession,
+  updateChatSession,
   type ApiError,
 } from "./api";
 
@@ -490,16 +490,16 @@ describe("api client", () => {
 
   // ─── Agent-chat approvals & grants ─────────────────────────────────────────
 
-  describe("agent-chat approvals", () => {
-    it("PATCH /agent-chat/sessions/{id} sends a renamed title", async () => {
+  describe("chat approvals", () => {
+    it("PATCH /chat/sessions/{id} sends a renamed title", async () => {
       fetchMock.mockResolvedValue(
-        jsonResponse({ object: "agent_chat_session", data: { id: "s 1", title: "Renamed chat" } }),
+        jsonResponse({ object: "chat_session", data: { id: "s 1", title: "Renamed chat" } }),
       );
 
-      await updateAgentChatSession("s 1", "Renamed chat");
+      await updateChatSession("s 1", "Renamed chat");
 
       expect(fetchMock).toHaveBeenCalledWith(
-        "/hecate/v1/agent-chat/sessions/s%201",
+        "/hecate/v1/chat/sessions/s%201",
         expect.objectContaining({
           method: "PATCH",
           body: JSON.stringify({ title: "Renamed chat" }),
@@ -507,15 +507,15 @@ describe("api client", () => {
       );
     });
 
-    it("PATCH /agent-chat/sessions/{id}/settings sends per-chat settings", async () => {
+    it("PATCH /chat/sessions/{id}/settings sends per-chat settings", async () => {
       fetchMock.mockResolvedValue(
-        jsonResponse({ object: "agent_chat_session", data: { id: "s 1", rtk_enabled: true } }),
+        jsonResponse({ object: "chat_session", data: { id: "s 1", rtk_enabled: true } }),
       );
 
-      await setAgentChatSettings("s 1", { rtk_enabled: true });
+      await setChatSettings("s 1", { rtk_enabled: true });
 
       expect(fetchMock).toHaveBeenCalledWith(
-        "/hecate/v1/agent-chat/sessions/s%201/settings",
+        "/hecate/v1/chat/sessions/s%201/settings",
         expect.objectContaining({
           method: "PATCH",
           body: JSON.stringify({ rtk_enabled: true }),
@@ -526,10 +526,10 @@ describe("api client", () => {
     it("lists approvals scoped to status=pending", async () => {
       fetchMock.mockResolvedValue(jsonResponse({ object: "list", data: [] }));
 
-      await listAgentChatApprovals("sess-1", "pending");
+      await listChatApprovals("sess-1", "pending");
 
       expect(fetchMock).toHaveBeenCalledWith(
-        "/hecate/v1/agent-chat/sessions/sess-1/approvals?status=pending",
+        "/hecate/v1/chat/sessions/sess-1/approvals?status=pending",
         expect.objectContaining({ method: "GET" }),
       );
     });
@@ -537,33 +537,33 @@ describe("api client", () => {
     it("omits the status query string when no filter is passed", async () => {
       fetchMock.mockResolvedValue(jsonResponse({ object: "list", data: [] }));
 
-      await listAgentChatApprovals("sess-1");
+      await listChatApprovals("sess-1");
 
       expect(fetchMock).toHaveBeenCalledWith(
-        "/hecate/v1/agent-chat/sessions/sess-1/approvals",
+        "/hecate/v1/chat/sessions/sess-1/approvals",
         expect.objectContaining({ method: "GET" }),
       );
     });
 
     it("URL-encodes ids on get", async () => {
       fetchMock.mockResolvedValue(
-        jsonResponse({ object: "agent_chat_approval", data: { id: "ap/1", session_id: "s 1" } }),
+        jsonResponse({ object: "chat_approval", data: { id: "ap/1", session_id: "s 1" } }),
       );
 
-      await getAgentChatApproval("s 1", "ap/1");
+      await getChatApproval("s 1", "ap/1");
 
       expect(fetchMock).toHaveBeenCalledWith(
-        "/hecate/v1/agent-chat/sessions/s%201/approvals/ap%2F1",
+        "/hecate/v1/chat/sessions/s%201/approvals/ap%2F1",
         expect.objectContaining({ method: "GET" }),
       );
     });
 
     it("posts the resolve decision body", async () => {
       fetchMock.mockResolvedValue(
-        jsonResponse({ object: "agent_chat_approval", data: { id: "ap-1" } }),
+        jsonResponse({ object: "chat_approval", data: { id: "ap-1" } }),
       );
 
-      await resolveAgentChatApproval("sess-1", "ap-1", {
+      await resolveChatApproval("sess-1", "ap-1", {
         decision: "approve",
         scope: "once",
         selected_option: "opt-1",
@@ -571,7 +571,7 @@ describe("api client", () => {
       });
 
       const [url, options] = fetchMock.mock.lastCall ?? [];
-      expect(url).toBe("/hecate/v1/agent-chat/sessions/sess-1/approvals/ap-1/resolve");
+      expect(url).toBe("/hecate/v1/chat/sessions/sess-1/approvals/ap-1/resolve");
       expect(options?.method).toBe("POST");
       const body = options?.body;
       expect(typeof body === "string" ? JSON.parse(body) : body).toEqual({
@@ -584,13 +584,13 @@ describe("api client", () => {
 
     it("posts an empty body to cancel", async () => {
       fetchMock.mockResolvedValue(
-        jsonResponse({ object: "agent_chat_approval", data: { id: "ap-1" } }),
+        jsonResponse({ object: "chat_approval", data: { id: "ap-1" } }),
       );
 
-      await cancelAgentChatApproval("sess-1", "ap-1");
+      await cancelChatApproval("sess-1", "ap-1");
 
       expect(fetchMock).toHaveBeenCalledWith(
-        "/hecate/v1/agent-chat/sessions/sess-1/approvals/ap-1/cancel",
+        "/hecate/v1/chat/sessions/sess-1/approvals/ap-1/cancel",
         expect.objectContaining({ method: "POST" }),
       );
     });
@@ -598,12 +598,12 @@ describe("api client", () => {
     it("builds the grants list query string from non-empty filter fields only", async () => {
       fetchMock.mockResolvedValue(jsonResponse({ object: "list", data: [] }));
 
-      await listAgentChatGrants({ adapter_id: "codex", scope: "session" });
+      await listChatGrants({ adapter_id: "codex", scope: "session" });
 
       const [url] = fetchMock.mock.lastCall ?? [];
       // URLSearchParams ordering is insertion-order; both forms are
       // acceptable so long as the query string contains both pairs.
-      expect(url).toContain("/hecate/v1/agent-chat/grants?");
+      expect(url).toContain("/hecate/v1/chat/grants?");
       expect(url).toContain("adapter_id=codex");
       expect(url).toContain("scope=session");
     });
@@ -611,10 +611,10 @@ describe("api client", () => {
     it("sends DELETE on grant revocation", async () => {
       fetchMock.mockResolvedValue(new Response(null, { status: 204 }));
 
-      await deleteAgentChatGrant("grant-1");
+      await deleteChatGrant("grant-1");
 
       expect(fetchMock).toHaveBeenCalledWith(
-        "/hecate/v1/agent-chat/grants/grant-1",
+        "/hecate/v1/chat/grants/grant-1",
         expect.objectContaining({ method: "DELETE" }),
       );
     });
@@ -750,19 +750,19 @@ describe("api client", () => {
     });
   });
 
-  describe("agent chat changed-file endpoints", () => {
+  describe("chat changed-file endpoints", () => {
     it("lists changed files for an agent message", async () => {
       fetchMock.mockResolvedValue(
         jsonResponse({
-          object: "agent_chat_changed_files",
+          object: "chat_changed_files",
           data: [{ path: "src/app.go", additions: 2, deletions: 1, status: "modified" }],
         }),
       );
 
-      const result = await listAgentChatMessageFiles("s 1", "m/1");
+      const result = await listChatMessageFiles("s 1", "m/1");
 
       expect(fetchMock).toHaveBeenCalledWith(
-        "/hecate/v1/agent-chat/sessions/s%201/messages/m%2F1/files",
+        "/hecate/v1/chat/sessions/s%201/messages/m%2F1/files",
         expect.anything(),
       );
       expect(result.data[0]?.path).toBe("src/app.go");
@@ -771,15 +771,15 @@ describe("api client", () => {
     it("fetches a single changed-file diff", async () => {
       fetchMock.mockResolvedValue(
         jsonResponse({
-          object: "agent_chat_changed_file_diff",
+          object: "chat_changed_file_diff",
           data: { path: "src/app.go", additions: 2, deletions: 1, status: "modified", diff: "diff --git a/src/app.go b/src/app.go" },
         }),
       );
 
-      const result = await getAgentChatMessageFileDiff("s1", "m1", "src/app.go");
+      const result = await getChatMessageFileDiff("s1", "m1", "src/app.go");
 
       expect(fetchMock).toHaveBeenCalledWith(
-        "/hecate/v1/agent-chat/sessions/s1/messages/m1/files/src%2Fapp.go",
+        "/hecate/v1/chat/sessions/s1/messages/m1/files/src%2Fapp.go",
         expect.anything(),
       );
       expect(result.data.diff).toContain("src/app.go");
@@ -788,7 +788,7 @@ describe("api client", () => {
     it("reverts selected changed files", async () => {
       fetchMock.mockResolvedValue(
         jsonResponse({
-          object: "agent_chat_revert",
+          object: "chat_revert",
           data: {
             reverted: true,
             paths: ["src/app.go"],
@@ -798,10 +798,10 @@ describe("api client", () => {
         }),
       );
 
-      const result = await revertAgentChatMessageFiles("s1", "m1", ["src/app.go"]);
+      const result = await revertChatMessageFiles("s1", "m1", ["src/app.go"]);
 
       expect(fetchMock).toHaveBeenCalledWith(
-        "/hecate/v1/agent-chat/sessions/s1/messages/m1/revert",
+        "/hecate/v1/chat/sessions/s1/messages/m1/revert",
         expect.objectContaining({
           method: "POST",
           body: JSON.stringify({ paths: ["src/app.go"] }),
@@ -814,41 +814,41 @@ describe("api client", () => {
 
   // ─── Agent-chat SSE dispatch ───────────────────────────────────────────────
 
-  describe("dispatchAgentChatStreamEvent", () => {
+  describe("dispatchChatStreamEvent", () => {
     it("maps named session_update events onto the typed union", () => {
-      const out = dispatchAgentChatStreamEvent(
+      const out = dispatchChatStreamEvent(
         "session_update",
-        JSON.stringify({ object: "agent_chat_session", data: { id: "s" } }),
+        JSON.stringify({ object: "chat_session", data: { id: "s" } }),
       );
       expect(out).toEqual({
         type: "session_update",
-        payload: { object: "agent_chat_session", data: { id: "s" } },
+        payload: { object: "chat_session", data: { id: "s" } },
       });
     });
 
     it("treats the default `message` event as session_update for backward compat", () => {
-      const out = dispatchAgentChatStreamEvent(
+      const out = dispatchChatStreamEvent(
         "message",
-        JSON.stringify({ object: "agent_chat_session", data: { id: "s" } }),
+        JSON.stringify({ object: "chat_session", data: { id: "s" } }),
       );
       expect(out?.type).toBe("session_update");
     });
 
     it("maps existing backend snapshot/done events onto session_update", () => {
       for (const eventName of ["snapshot", "done"]) {
-        const out = dispatchAgentChatStreamEvent(
+        const out = dispatchChatStreamEvent(
           eventName,
-          JSON.stringify({ object: "agent_chat_session", data: { id: "s" } }),
+          JSON.stringify({ object: "chat_session", data: { id: "s" } }),
         );
         expect(out).toEqual({
           type: "session_update",
-          payload: { object: "agent_chat_session", data: { id: "s" } },
+          payload: { object: "chat_session", data: { id: "s" } },
         });
       }
     });
 
     it("maps approval.requested onto the requested-event payload", () => {
-      const out = dispatchAgentChatStreamEvent(
+      const out = dispatchChatStreamEvent(
         "approval.requested",
         JSON.stringify({ approval_id: "ap-1", session_id: "s", adapter_id: "codex", tool_kind: "fs", created_at: "t", expires_at: "t" }),
       );
@@ -866,7 +866,7 @@ describe("api client", () => {
     });
 
     it("maps approval.resolved onto the resolved-event payload", () => {
-      const out = dispatchAgentChatStreamEvent(
+      const out = dispatchChatStreamEvent(
         "approval.resolved",
         JSON.stringify({ approval_id: "ap-1", session_id: "s", status: "resolved", path: "operator" }),
       );
@@ -874,19 +874,19 @@ describe("api client", () => {
     });
 
     it("returns null for unknown event names (forward-compat)", () => {
-      const out = dispatchAgentChatStreamEvent("approval.future_kind", "{}");
+      const out = dispatchChatStreamEvent("approval.future_kind", "{}");
       expect(out).toBeNull();
     });
   });
 
-  describe("streamAgentChatSession", () => {
+  describe("streamChatSession", () => {
     it("dispatches mixed event types from one stream", async () => {
       const events = [
         "event: approval.requested",
         `data: ${JSON.stringify({ approval_id: "ap-1", session_id: "s", adapter_id: "codex", tool_kind: "fs", created_at: "t", expires_at: "t" })}`,
         "",
         "event: session_update",
-        `data: ${JSON.stringify({ object: "agent_chat_session", data: { id: "s" } })}`,
+        `data: ${JSON.stringify({ object: "chat_session", data: { id: "s" } })}`,
         "",
         "event: approval.resolved",
         `data: ${JSON.stringify({ approval_id: "ap-1", session_id: "s", status: "resolved", path: "operator" })}`,
@@ -908,7 +908,7 @@ describe("api client", () => {
       );
 
       const seen: string[] = [];
-      await streamAgentChatSession("s", (event) => {
+      await streamChatSession("s", (event) => {
         seen.push(event.type);
       });
       expect(seen).toEqual(["approval.requested", "session_update", "approval.resolved"]);
@@ -930,7 +930,7 @@ describe("api client", () => {
       );
 
       const seen: string[] = [];
-      await streamAgentChatSession("s", (event) => {
+      await streamChatSession("s", (event) => {
         seen.push(event.type);
       });
       expect(seen).toEqual([]);

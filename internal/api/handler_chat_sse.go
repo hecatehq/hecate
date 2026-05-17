@@ -7,7 +7,7 @@ import (
 	"net/http"
 
 	"github.com/hecate/agent-runtime/internal/agentadapters"
-	"github.com/hecate/agent-runtime/internal/agentchat"
+	"github.com/hecate/agent-runtime/internal/chat"
 	"github.com/hecate/agent-runtime/internal/profiler"
 	"github.com/hecate/agent-runtime/internal/telemetry"
 )
@@ -31,12 +31,12 @@ func (h *Handler) startAgentChatTrace(w http.ResponseWriter, r *http.Request) (*
 // agentChatTraceAttrs builds the OTel attribute bag attached to every
 // agent-chat trace event. Callers pass per-event attrs in the final
 // map and they overwrite any defaults.
-func agentChatTraceAttrs(session agentchat.Session, adapter agentadapters.Adapter, runID, messageID string, attrs map[string]any) map[string]any {
+func agentChatTraceAttrs(session chat.Session, adapter agentadapters.Adapter, runID, messageID string, attrs map[string]any) map[string]any {
 	out := map[string]any{
-		telemetry.AttrHecateAgentChatSessionID:  session.ID,
-		telemetry.AttrHecateAgentChatMessageID:  messageID,
+		telemetry.AttrHecateChatSessionID:       session.ID,
+		telemetry.AttrHecateChatMessageID:       messageID,
 		telemetry.AttrHecateRunID:               runID,
-		telemetry.AttrHecateExecutionKind:       "agent_chat",
+		telemetry.AttrHecateExecutionKind:       "chat",
 		telemetry.AttrHecateAgentAdapterID:      adapter.ID,
 		telemetry.AttrHecateAgentAdapterName:    adapter.Name,
 		telemetry.AttrHecateAgentAdapterCommand: adapter.Command,
@@ -57,20 +57,20 @@ func agentChatTraceAttrs(session agentchat.Session, adapter agentadapters.Adapte
 // agent_loop chats. The backing task/run trace carries the detailed queue,
 // model, tool, approval, and artifact timings; these attrs make the chat
 // wrapper itself visible in the same agent-chat dashboards.
-func hecateAgentChatTraceAttrs(session agentchat.Session, taskID, runID, messageID string, attrs map[string]any) map[string]any {
+func hecateAgentChatTraceAttrs(session chat.Session, taskID, runID, messageID string, attrs map[string]any) map[string]any {
 	out := map[string]any{
-		telemetry.AttrHecateAgentChatSessionID: session.ID,
-		telemetry.AttrHecateAgentChatMessageID: messageID,
-		telemetry.AttrHecateTaskID:             taskID,
-		telemetry.AttrHecateRunID:              runID,
-		telemetry.AttrHecateExecutionKind:      "agent_chat",
-		telemetry.AttrHecateAgentAdapterID:     "hecate",
-		telemetry.AttrHecateAgentAdapterName:   "Hecate Agent",
-		telemetry.AttrHecateAgentDriverKind:    "hecate",
-		telemetry.AttrHecateWorkspacePath:      session.Workspace,
-		telemetry.AttrGenAIProviderName:        session.Provider,
-		telemetry.AttrGenAIRequestModel:        session.Model,
-		telemetry.AttrHecateResult:             telemetry.ResultSuccess,
+		telemetry.AttrHecateChatSessionID:    session.ID,
+		telemetry.AttrHecateChatMessageID:    messageID,
+		telemetry.AttrHecateTaskID:           taskID,
+		telemetry.AttrHecateRunID:            runID,
+		telemetry.AttrHecateExecutionKind:    "chat",
+		telemetry.AttrHecateAgentAdapterID:   "hecate",
+		telemetry.AttrHecateAgentAdapterName: "Hecate Agent",
+		telemetry.AttrHecateAgentDriverKind:  "hecate",
+		telemetry.AttrHecateWorkspacePath:    session.Workspace,
+		telemetry.AttrGenAIProviderName:      session.Provider,
+		telemetry.AttrGenAIRequestModel:      session.Model,
+		telemetry.AttrHecateResult:           telemetry.ResultSuccess,
 	}
 	for key, value := range attrs {
 		out[key] = value
@@ -82,8 +82,8 @@ func hecateAgentChatTraceAttrs(session agentchat.Session, taskID, runID, message
 // is marshalled to JSON; on encode failure we emit an `event: error`
 // frame so subscribers see something rather than silently stalling.
 // Accepts any payload so the same writer can carry session updates
-// (AgentChatSessionResponse) and approval events
-// (AgentChatApprovalRequestedEvent / AgentChatApprovalResolvedEvent).
+// (ChatSessionResponse) and approval events
+// (ChatApprovalRequestedEvent / ChatApprovalResolvedEvent).
 func sendAgentChatSSE(w http.ResponseWriter, flusher http.Flusher, event string, payload any) {
 	data, err := json.Marshal(payload)
 	if err != nil {

@@ -141,7 +141,7 @@ overwrite an explicit operator override.
 Agent Chat sessions gain a `runtime_kind`:
 
 ```ts
-type AgentChatRuntimeKind = "model" | "agent" | "external_agent";
+type ChatRuntimeKind = "model" | "agent" | "external_agent";
 ```
 
 Hecate Chat sessions also store:
@@ -199,8 +199,8 @@ For `runtime_kind="agent"` the first user message:
    Connections provides the operator-facing tools on/off switch.
 2. Applies the selected Hecate Agent profile.
 3. Creates a visible task with `execution_kind="agent_loop"`.
-4. Marks the task origin as `origin_kind="agent_chat"` and
-   `origin_id=<agent_chat_session_id>`.
+4. Marks the task origin as `origin_kind="chat"` and
+   `origin_id=<chat_session_id>`.
 5. Uses an execution profile such as `chat_agent`.
 6. Starts the task run with the first user message as the prompt.
 7. Stores `task_id` and `latest_run_id` on the chat session.
@@ -214,7 +214,7 @@ If the latest backing run is `queued`, `running`, or `awaiting_approval`, the
 message endpoint returns:
 
 ```text
-409 agent_chat.agent_session_busy
+409 chat.agent_session_busy
 ```
 
 The UI should point the operator to the active task/run or approval.
@@ -225,7 +225,7 @@ are not persisted until the UI submits them after the active task settles.
 If tools are explicitly disabled for the selected model, the message endpoint returns:
 
 ```text
-422 agent_chat.model_capability_required
+422 chat.model_capability_required
 ```
 
 The UI copy is:
@@ -372,7 +372,7 @@ Memory and SQLite must persist:
 - Hecate Agent profiles
 - selected `agent_profile_id`
 - `runtime_kind`
-- Hecate Agent task/run linkage fields on agent-chat sessions
+- Hecate Agent task/run linkage fields on chat sessions
 - per-message `runtime_kind`, `segment_id`, provider/model, capability
   snapshot, and task/run linkage
 - derived API segment metadata from the persisted message snapshots
@@ -397,8 +397,8 @@ Minimum coverage:
 - Hecate Agent first message creates a visible task/run.
 - Hecate Agent follow-up continues the same task after the latest run is
   terminal.
-- Busy backing runs return `409 agent_chat.agent_session_busy`.
-- Explicitly disabled tools return `422 agent_chat.model_capability_required`.
+- Busy backing runs return `409 chat.agent_session_busy`.
+- Explicitly disabled tools return `422 chat.model_capability_required`.
 - Memory/SQLite parity for capability records and new session fields.
 - UI target picker, tools on/off switches, disabled Hecate Agent send state, and
   task/run links.

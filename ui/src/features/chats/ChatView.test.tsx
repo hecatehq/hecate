@@ -21,57 +21,12 @@ afterEach(() => {
 });
 
 function setup(stateOverrides: Record<string, any> = {}, actionOverrides = {}) {
-  // The state slice no longer carries the standalone model-chat
-  // fields (chatSessions / activeChatSession / activeChatSessionID
-  // were the legacy /v1/chat/sessions data path). Tests that still
-  // pass those keys get back-filled into the agent-chat surface
-  // with `runtime_kind: "model"` so they exercise the same
-  // tools-off path. The Tools-off mode itself stays alive; only
-  // the standalone storage slice was retired.
-  const {
-    chatSessions: legacyChatSessions,
-    activeChatSession: legacyActiveChatSession,
-    activeChatSessionID: legacyActiveChatSessionID,
-    ...cleanOverrides
-  } = stateOverrides;
   const state = createRuntimeConsoleFixture({
     providerScopedModels: [
       { id: "gpt-4o-mini", owned_by: "openai", metadata: { provider: "openai", provider_kind: "cloud" } },
     ],
-    ...cleanOverrides,
+    ...stateOverrides,
   });
-  if (legacyChatSessions && (state.agentChatSessions ?? []).length === 0) {
-    state.agentChatSessions = legacyChatSessions.map((session: any) => ({
-      id: session.id,
-      title: session.title,
-      runtime_kind: "model" as const,
-      workspace: "",
-      provider: session.last_provider,
-      model: session.last_model,
-      status: "completed",
-      message_count: session.message_count,
-      created_at: session.created_at,
-      updated_at: session.updated_at,
-    }));
-  }
-  if (legacyActiveChatSession && !state.activeAgentChatSession) {
-    state.activeAgentChatSession = {
-      id: legacyActiveChatSession.id,
-      title: legacyActiveChatSession.title,
-      runtime_kind: "model",
-      status: "completed",
-      messages: (legacyActiveChatSession.messages ?? []).map((message: any) => ({
-        id: message.id,
-        role: message.role,
-        content: message.content,
-        created_at: message.created_at,
-        runtime_kind: "model",
-      })),
-    } as any;
-  }
-  if (legacyActiveChatSessionID && !state.activeAgentChatSessionID) {
-    state.activeAgentChatSessionID = legacyActiveChatSessionID;
-  }
   const actions = { ...createRuntimeConsoleActions(), ...actionOverrides };
   return { state, actions };
 }
@@ -131,9 +86,9 @@ describe("ChatView input", () => {
     const setChatTarget = vi.fn();
     const { state, actions } = setup({
       chatTarget: "model",
-      activeAgentChatSessionID: "agent_chat_1",
-      activeAgentChatSession: {
-        id: "agent_chat_1",
+      activeChatSessionID: "chat_1",
+      activeChatSession: {
+        id: "chat_1",
         runtime_kind: "agent",
         title: "Repo work",
         provider: "openai",
@@ -186,9 +141,9 @@ describe("ChatView input", () => {
     const { state, actions } = setup({
       chatTarget: "external_agent",
       systemPrompt: "Keep explanations short.",
-      activeAgentChatSessionID: "agent_chat_hecate",
-      activeAgentChatSession: {
-        id: "agent_chat_hecate",
+      activeChatSessionID: "chat_hecate",
+      activeChatSession: {
+        id: "chat_hecate",
         runtime_kind: "agent",
         title: "Repo work",
         task_id: "task_hecate_123456",
@@ -213,9 +168,9 @@ describe("ChatView input", () => {
     const setHecateRTKEnabled = vi.fn(async () => true);
     const { state, actions } = setup({
       chatTarget: "agent",
-      activeAgentChatSessionID: "agent_chat_1",
-      activeAgentChatSession: {
-        id: "agent_chat_1",
+      activeChatSessionID: "chat_1",
+      activeChatSession: {
+        id: "chat_1",
         runtime_kind: "agent",
         title: "Repo work",
         task_id: "task_hecate_123456",
@@ -308,12 +263,12 @@ describe("ChatView input", () => {
   });
 
   it("surfaces adapter-exposed instructions in external-agent chat settings", async () => {
-    const setAgentChatConfigOption = vi.fn(async () => true);
+    const setChatConfigOption = vi.fn(async () => true);
     const { state, actions } = setup({
       chatTarget: "external_agent",
       agentAdapterID: "codex",
-      activeAgentChatSessionID: "a1",
-      activeAgentChatSession: {
+      activeChatSessionID: "a1",
+      activeChatSession: {
         id: "a1",
         runtime_kind: "external_agent",
         title: "Codex work",
@@ -335,7 +290,7 @@ describe("ChatView input", () => {
       agentAdapters: [
         { id: "codex", name: "Codex", kind: "acp", command: "codex-acp", available: true, status: "available", cost_mode: "external" },
       ],
-    }, { setAgentChatConfigOption });
+    }, { setChatConfigOption });
     render(withRuntimeConsole(<ChatView />, { state, actions }));
 
     const user = userEvent.setup();
@@ -350,7 +305,7 @@ describe("ChatView input", () => {
     await user.type(editor, "Prefer short answers.");
     await user.click(screen.getByRole("button", { name: "Save" }));
 
-    expect(setAgentChatConfigOption).toHaveBeenCalledWith("a1", "system_prompt", "Prefer short answers.");
+    expect(setChatConfigOption).toHaveBeenCalledWith("a1", "system_prompt", "Prefer short answers.");
   });
 
   it("disables the send button when message is empty", () => {
@@ -454,8 +409,8 @@ describe("ChatView input", () => {
       providerFilter: "ollama",
       model: "llama3.1:8b",
       message: "hello",
-      activeAgentChatSessionID: "chat_1",
-      activeAgentChatSession: {
+      activeChatSessionID: "chat_1",
+      activeChatSession: {
         id: "chat_1",
         title: "Existing chat",
         runtime_kind: "model",
@@ -998,9 +953,9 @@ describe("ChatView input", () => {
           },
         },
       ],
-      activeAgentChatSessionID: "agent_chat_1",
-      activeAgentChatSession: {
-        id: "agent_chat_1",
+      activeChatSessionID: "chat_1",
+      activeChatSession: {
+        id: "chat_1",
         runtime_kind: "agent",
         title: "Repo work",
         task_id: "task_hecate_123456",
@@ -1063,9 +1018,9 @@ describe("ChatView input", () => {
           },
         },
       ],
-      activeAgentChatSessionID: "agent_chat_1",
-      activeAgentChatSession: {
-        id: "agent_chat_1",
+      activeChatSessionID: "chat_1",
+      activeChatSession: {
+        id: "chat_1",
         runtime_kind: "agent",
         title: "Repo work",
         task_id: "task_hecate_123456",
@@ -1130,9 +1085,9 @@ describe("ChatView input", () => {
           },
         },
       ],
-      activeAgentChatSessionID: "agent_chat_1",
-      activeAgentChatSession: {
-        id: "agent_chat_1",
+      activeChatSessionID: "chat_1",
+      activeChatSession: {
+        id: "chat_1",
         runtime_kind: "agent",
         title: "Repo work",
         provider: "local-ollama",
@@ -1177,9 +1132,9 @@ describe("ChatView input", () => {
           },
         },
       ],
-      activeAgentChatSessionID: "agent_chat_1",
-      activeAgentChatSession: {
-        id: "agent_chat_1",
+      activeChatSessionID: "chat_1",
+      activeChatSession: {
+        id: "chat_1",
         runtime_kind: "agent",
         title: "Repo work",
         task_id: "task_hecate_123456",
@@ -1236,9 +1191,9 @@ describe("ChatView input", () => {
           metadata: { provider: "ollama", provider_kind: "local", capabilities: { tool_calling: "unknown", streaming: true, source: "provider" } },
         },
       ],
-      activeAgentChatSessionID: "agent_chat_1",
-      activeAgentChatSession: {
-        id: "agent_chat_1",
+      activeChatSessionID: "chat_1",
+      activeChatSession: {
+        id: "chat_1",
         runtime_kind: "model",
         title: "Mixed chat",
         provider: "ollama",
@@ -1268,11 +1223,11 @@ describe("ChatView input", () => {
     const updateQueuedChatMessage = vi.fn();
     const user = userEvent.setup();
     const { state, actions } = setup({
-      activeAgentChatSessionID: "agent_chat_1",
+      activeChatSessionID: "chat_1",
       queuedChatMessages: [
         {
           id: "queued_1",
-          session_id: "agent_chat_1",
+          session_id: "chat_1",
           content: "run tests after this",
           runtime_kind: "agent",
           provider_filter: "ollama",
@@ -1298,11 +1253,11 @@ describe("ChatView input", () => {
 
   it("only renders queued messages for the active agent chat", () => {
     const { state, actions } = setup({
-      activeAgentChatSessionID: "agent_chat_active",
+      activeChatSessionID: "chat_active",
       queuedChatMessages: [
         {
           id: "queued_active",
-          session_id: "agent_chat_active",
+          session_id: "chat_active",
           content: "send this here",
           runtime_kind: "agent",
           provider_filter: "ollama",
@@ -1314,7 +1269,7 @@ describe("ChatView input", () => {
         },
         {
           id: "queued_other",
-          session_id: "agent_chat_other",
+          session_id: "chat_other",
           content: "not in this chat",
           runtime_kind: "agent",
           provider_filter: "ollama",
@@ -1404,9 +1359,9 @@ describe("ChatView input", () => {
     const onOpenTask = vi.fn();
     const { state, actions } = setup({
       chatTarget: "agent",
-      activeAgentChatSessionID: "agent_chat_1",
-      activeAgentChatSession: {
-        id: "agent_chat_1",
+      activeChatSessionID: "chat_1",
+      activeChatSession: {
+        id: "chat_1",
         runtime_kind: "agent",
         title: "Repo work",
         task_id: "task_hecate_123456",
@@ -1445,9 +1400,9 @@ describe("ChatView input", () => {
     const onOpenTask = vi.fn();
     const { state, actions } = setup({
       chatTarget: "agent",
-      activeAgentChatSessionID: "agent_chat_1",
-      activeAgentChatSession: {
-        id: "agent_chat_1",
+      activeChatSessionID: "chat_1",
+      activeChatSession: {
+        id: "chat_1",
         runtime_kind: "model",
         title: "Mixed chat",
         task_id: "task_latest",
@@ -1483,9 +1438,9 @@ describe("ChatView input", () => {
   it("renders explicit Hecate Chat segment dividers when tools switch", () => {
     const { state, actions } = setup({
       chatTarget: "agent",
-      activeAgentChatSessionID: "agent_chat_1",
-      activeAgentChatSession: {
-        id: "agent_chat_1",
+      activeChatSessionID: "chat_1",
+      activeChatSession: {
+        id: "chat_1",
         runtime_kind: "agent",
         title: "Mixed chat",
         task_id: "task_second",
@@ -1545,9 +1500,9 @@ describe("ChatView input", () => {
   it("renders projected Hecate Agent task run activity in the transcript", () => {
     const { state, actions } = setup({
       chatTarget: "agent",
-      activeAgentChatSessionID: "agent_chat_1",
-      activeAgentChatSession: {
-        id: "agent_chat_1",
+      activeChatSessionID: "chat_1",
+      activeChatSession: {
+        id: "chat_1",
         runtime_kind: "agent",
         title: "Repo work",
         task_id: "task_hecate_123456",
@@ -1595,9 +1550,9 @@ describe("ChatView input", () => {
     const onOpenTask = vi.fn();
     const { state, actions } = setup({
       chatTarget: "agent",
-      activeAgentChatSessionID: "agent_chat_1",
-      activeAgentChatSession: {
-        id: "agent_chat_1",
+      activeChatSessionID: "chat_1",
+      activeChatSession: {
+        id: "chat_1",
         runtime_kind: "agent",
         title: "Repo work",
         task_id: "task_hecate_123456",
@@ -1651,9 +1606,9 @@ describe("ChatView input", () => {
   it("does not keep stale resolved Hecate Agent task approvals actionable", () => {
     const { state, actions } = setup({
       chatTarget: "agent",
-      activeAgentChatSessionID: "agent_chat_1",
-      activeAgentChatSession: {
-        id: "agent_chat_1",
+      activeChatSessionID: "chat_1",
+      activeChatSession: {
+        id: "chat_1",
         runtime_kind: "agent",
         title: "Repo work",
         task_id: "task_hecate_123456",
@@ -1847,8 +1802,8 @@ describe("ChatView chats sidebar", () => {
     const { state, actions } = setup({
       chatTarget: "model",
       chatSessions: [
-        { id: "s1", title: "Budget check", message_count: 4, provider_call_count: 2, last_provider: "anthropic", updated_at: daysAgo(0) } as any,
-        { id: "s2", title: "Draft release notes", message_count: 2, provider_call_count: 1, last_provider: "openai", updated_at: daysAgo(0) } as any,
+        { id: "s1", title: "Budget check", runtime_kind: "model", status: "completed", provider: "anthropic", message_count: 4, updated_at: daysAgo(0) } as any,
+        { id: "s2", title: "Draft release notes", runtime_kind: "model", status: "completed", provider: "openai", message_count: 2, updated_at: daysAgo(0) } as any,
       ],
     });
     render(withRuntimeConsole(<ChatView />, { state, actions }));
@@ -1861,7 +1816,7 @@ describe("ChatView chats sidebar", () => {
   it("filters agent history by adapter and status metadata", async () => {
     const { state, actions } = setup({
       chatTarget: "external_agent",
-      agentChatSessions: [
+      chatSessions: [
         { id: "a1", title: "Codex refactor", adapter_id: "codex", status: "completed", message_count: 4, updated_at: daysAgo(0) } as any,
         { id: "a2", title: "Cursor repro", adapter_id: "cursor_agent", status: "failed", message_count: 2, updated_at: daysAgo(0) } as any,
       ],
@@ -1877,7 +1832,7 @@ describe("ChatView chats sidebar", () => {
     const renameChatSession = vi.fn(async () => undefined);
     const { state, actions } = setup({
       chatTarget: "external_agent",
-      agentChatSessions: [
+      chatSessions: [
         { id: "a1", title: "Codex refactor", adapter_id: "codex", status: "completed", message_count: 4, updated_at: daysAgo(0) } as any,
       ],
     }, { renameChatSession });
@@ -1966,11 +1921,11 @@ describe("ChatView external-agent target", () => {
         { id: "codex", name: "Codex", kind: "acp", command: "codex-acp", available: true, status: "available", cost_mode: "external" },
         { id: "claude_code", name: "Claude Code", kind: "acp", command: "claude-agent-acp", available: false, status: "missing", cost_mode: "external" },
       ],
-      agentChatSessions: [
+      chatSessions: [
         { id: "a1", title: "Codex work", adapter_id: "codex", workspace: "/tmp/hecate", status: "completed", message_count: 2 } as any,
       ],
-      activeAgentChatSessionID: "a1",
-      activeAgentChatSession: {
+      activeChatSessionID: "a1",
+      activeChatSession: {
         id: "a1",
         title: "Codex work",
         adapter_id: "codex",
@@ -2026,7 +1981,7 @@ describe("ChatView external-agent target", () => {
           },
         ],
       } as any,
-    }, { setChatTarget, setAgentAdapterID, setNewChatAgent, setAgentChatConfigOption: vi.fn(async () => true) });
+    }, { setChatTarget, setAgentAdapterID, setNewChatAgent, setChatConfigOption: vi.fn(async () => true) });
     const onOpenTrace = vi.fn();
     render(withRuntimeConsole(<ChatView onOpenTrace={onOpenTrace} />, { state, actions }));
 
@@ -2039,10 +1994,10 @@ describe("ChatView external-agent target", () => {
     expect(modelPicker).toHaveTextContent("Fast");
     await userEvent.click(modelPicker);
     await userEvent.click(screen.getByRole("option", { name: /Smart/ }));
-    expect(actions.setAgentChatConfigOption).toHaveBeenCalledWith("a1", "model", "smart");
+    expect(actions.setChatConfigOption).toHaveBeenCalledWith("a1", "model", "smart");
     const modeToggle = screen.getByRole("button", { name: /mode: off/i });
     await userEvent.click(modeToggle);
-    expect(actions.setAgentChatConfigOption).toHaveBeenCalledWith("a1", "auto_approve", true);
+    expect(actions.setChatConfigOption).toHaveBeenCalledWith("a1", "auto_approve", true);
     expect(screen.getByText("Looks good.")).toBeTruthy();
     expect(screen.getAllByText(/ACP native_codex/).length).toBeGreaterThan(0);
     const traceButton = screen.getByRole("button", { name: /Open Trace req_code/i });
@@ -2085,8 +2040,8 @@ describe("ChatView external-agent target", () => {
       chatTarget: "external_agent",
       newChatAgentID: "codex",
       agentAdapterID: "codex",
-      activeAgentChatSessionID: "",
-      activeAgentChatSession: null,
+      activeChatSessionID: "",
+      activeChatSession: null,
       agentAdapters: [
         { id: "codex", name: "Codex", kind: "acp", command: "codex-acp", available: true, status: "available", cost_mode: "external" },
         { id: "claude_code", name: "Claude Code", kind: "acp", command: "claude-agent-acp", available: true, status: "available", cost_mode: "external" },
@@ -2150,8 +2105,8 @@ describe("ChatView external-agent target", () => {
       chatTarget: "external_agent",
       agentAdapterID: "claude_code",
       agentWorkspace: "/tmp/hecate",
-      activeAgentChatSessionID: "chat_1",
-      activeAgentChatSession: {
+      activeChatSessionID: "chat_1",
+      activeChatSession: {
         id: "chat_1",
         title: "Claude work",
         adapter_id: "claude_code",
@@ -2297,8 +2252,8 @@ describe("ChatView external-agent target", () => {
       agentAdapters: [
         { id: "codex", name: "Codex", kind: "acp", command: "codex-acp", available: true, status: "available", cost_mode: "external" },
       ],
-      activeAgentChatSessionID: "a1",
-      activeAgentChatSession: {
+      activeChatSessionID: "a1",
+      activeChatSession: {
         id: "a1",
         title: "Running work",
         adapter_id: "codex",
@@ -2335,8 +2290,8 @@ describe("ChatView external-agent target", () => {
       agentAdapters: [
         { id: "codex", name: "Codex", kind: "acp", command: "codex-acp", available: true, status: "available", cost_mode: "external" },
       ],
-      activeAgentChatSessionID: "a1",
-      activeAgentChatSession: {
+      activeChatSessionID: "a1",
+      activeChatSession: {
         id: "a1",
         title: "Inspect diff",
         adapter_id: "codex",
@@ -2374,8 +2329,8 @@ describe("ChatView external-agent target", () => {
       agentAdapters: [
         { id: "codex", name: "Codex", kind: "acp", command: "codex-acp", available: true, status: "available", cost_mode: "external" },
       ],
-      activeAgentChatSessionID: "a1",
-      activeAgentChatSession: {
+      activeChatSessionID: "a1",
+      activeChatSession: {
         id: "a1",
         title: "Usage check",
         adapter_id: "codex",
@@ -2419,8 +2374,8 @@ describe("ChatView external-agent target", () => {
     const { state, actions } = setup({
       chatTarget: "agent",
       agentWorkspace: "/tmp/hecate",
-      activeAgentChatSessionID: "h1",
-      activeAgentChatSession: {
+      activeChatSessionID: "h1",
+      activeChatSession: {
         id: "h1",
         runtime_kind: "agent",
         title: "Hecate work",
@@ -2460,23 +2415,23 @@ describe("ChatView external-agent target", () => {
   });
 
   it("loads changed files, inspects a file diff, and confirms per-file revert", async () => {
-    const listAgentChatMessageFiles = vi.fn(async () => [
+    const listChatMessageFiles = vi.fn(async () => [
       { path: "README.md", additions: 2, deletions: 1, status: "modified" },
       { path: "docs/runtime-api.md", additions: 4, deletions: 0, status: "added" },
     ]);
-    const getAgentChatMessageFileDiff = vi.fn(async () => ({
+    const getChatMessageFileDiff = vi.fn(async () => ({
       path: "README.md",
       additions: 2,
       deletions: 1,
       status: "modified",
       diff: "diff --git a/README.md b/README.md\n+new line",
     }));
-    const revertAgentChatMessageFiles = vi.fn(async () => true);
+    const revertChatMessageFiles = vi.fn(async () => true);
     const { state, actions } = setup({
       chatTarget: "external_agent",
       agentWorkspace: "/tmp/hecate",
-      activeAgentChatSessionID: "a1",
-      activeAgentChatSession: {
+      activeChatSessionID: "a1",
+      activeChatSession: {
         id: "a1",
         title: "Review files",
         adapter_id: "codex",
@@ -2497,41 +2452,41 @@ describe("ChatView external-agent target", () => {
           },
         ],
       } as any,
-    }, { listAgentChatMessageFiles, getAgentChatMessageFileDiff, revertAgentChatMessageFiles });
+    }, { listChatMessageFiles, getChatMessageFileDiff, revertChatMessageFiles });
     render(withRuntimeConsole(<ChatView />, { state, actions }));
 
     const user = userEvent.setup();
     await user.click(screen.getByText("files changed · 2 files changed, 6 insertions(+), 1 deletion(-)"));
 
     expect(await screen.findByText("2 changed files")).toBeTruthy();
-    expect(listAgentChatMessageFiles).toHaveBeenCalledWith("a1", "m2");
+    expect(listChatMessageFiles).toHaveBeenCalledWith("a1", "m2");
 
     await user.click(screen.getByRole("button", { name: "Inspect README.md" }));
-    expect(getAgentChatMessageFileDiff).toHaveBeenCalledWith("a1", "m2", "README.md");
+    expect(getChatMessageFileDiff).toHaveBeenCalledWith("a1", "m2", "README.md");
     expect(await screen.findByText("diff · README.md")).toBeTruthy();
     expect(document.body.textContent).toContain("+new line");
 
     await user.click(screen.getByRole("button", { name: "Revert README.md" }));
-    expect(revertAgentChatMessageFiles).not.toHaveBeenCalled();
+    expect(revertChatMessageFiles).not.toHaveBeenCalled();
     await user.click(screen.getByRole("button", { name: "Confirm revert README.md" }));
-    expect(revertAgentChatMessageFiles).toHaveBeenCalledWith("a1", "m2", ["README.md"]);
+    expect(revertChatMessageFiles).toHaveBeenCalledWith("a1", "m2", ["README.md"]);
   });
 
   it("surfaces diff-review API failures and clears loading states", async () => {
-    const listAgentChatMessageFiles = vi.fn(async () => [
+    const listChatMessageFiles = vi.fn(async () => [
       { path: "README.md", additions: 2, deletions: 1, status: "modified" },
     ]);
-    const getAgentChatMessageFileDiff = vi.fn(async () => {
+    const getChatMessageFileDiff = vi.fn(async () => {
       throw new Error("diff unavailable");
     });
-    const revertAgentChatMessageFiles = vi.fn(async () => {
+    const revertChatMessageFiles = vi.fn(async () => {
       throw new Error("git restore failed");
     });
     const { state, actions } = setup({
       chatTarget: "external_agent",
       agentWorkspace: "/tmp/hecate",
-      activeAgentChatSessionID: "a1",
-      activeAgentChatSession: {
+      activeChatSessionID: "a1",
+      activeChatSession: {
         id: "a1",
         title: "Review files",
         adapter_id: "codex",
@@ -2552,7 +2507,7 @@ describe("ChatView external-agent target", () => {
           },
         ],
       } as any,
-    }, { listAgentChatMessageFiles, getAgentChatMessageFileDiff, revertAgentChatMessageFiles });
+    }, { listChatMessageFiles, getChatMessageFileDiff, revertChatMessageFiles });
     render(withRuntimeConsole(<ChatView />, { state, actions }));
 
     const user = userEvent.setup();
@@ -2570,14 +2525,14 @@ describe("ChatView external-agent target", () => {
   });
 
   it("surfaces changed-file list failures", async () => {
-    const listAgentChatMessageFiles = vi.fn(async () => {
+    const listChatMessageFiles = vi.fn(async () => {
       throw new Error("files unavailable");
     });
     const { state, actions } = setup({
       chatTarget: "external_agent",
       agentWorkspace: "/tmp/hecate",
-      activeAgentChatSessionID: "a1",
-      activeAgentChatSession: {
+      activeChatSessionID: "a1",
+      activeChatSession: {
         id: "a1",
         title: "Review files",
         adapter_id: "codex",
@@ -2598,9 +2553,9 @@ describe("ChatView external-agent target", () => {
         ],
       } as any,
     }, {
-      listAgentChatMessageFiles,
-      getAgentChatMessageFileDiff: vi.fn(async () => null),
-      revertAgentChatMessageFiles: vi.fn(async () => false),
+      listChatMessageFiles,
+      getChatMessageFileDiff: vi.fn(async () => null),
+      revertChatMessageFiles: vi.fn(async () => false),
     });
     render(withRuntimeConsole(<ChatView />, { state, actions }));
 
@@ -2611,15 +2566,15 @@ describe("ChatView external-agent target", () => {
   });
 
   it("requires confirmation before reverting the full captured diff", async () => {
-    const listAgentChatMessageFiles = vi.fn(async () => [
+    const listChatMessageFiles = vi.fn(async () => [
       { path: "README.md", additions: 2, deletions: 1, status: "modified" },
     ]);
-    const revertAgentChatMessageFiles = vi.fn(async () => true);
+    const revertChatMessageFiles = vi.fn(async () => true);
     const { state, actions } = setup({
       chatTarget: "external_agent",
       agentWorkspace: "/tmp/hecate",
-      activeAgentChatSessionID: "a1",
-      activeAgentChatSession: {
+      activeChatSessionID: "a1",
+      activeChatSession: {
         id: "a1",
         title: "Review all",
         adapter_id: "codex",
@@ -2640,7 +2595,7 @@ describe("ChatView external-agent target", () => {
           },
         ],
       } as any,
-    }, { listAgentChatMessageFiles, revertAgentChatMessageFiles });
+    }, { listChatMessageFiles, revertChatMessageFiles });
     render(withRuntimeConsole(<ChatView />, { state, actions }));
 
     const user = userEvent.setup();
@@ -2648,22 +2603,22 @@ describe("ChatView external-agent target", () => {
     expect(await screen.findByText("1 changed file")).toBeTruthy();
 
     await user.click(screen.getByRole("button", { name: "Revert all" }));
-    expect(revertAgentChatMessageFiles).not.toHaveBeenCalled();
+    expect(revertChatMessageFiles).not.toHaveBeenCalled();
     await user.click(screen.getByRole("button", { name: "Confirm revert all" }));
-    expect(revertAgentChatMessageFiles).toHaveBeenCalledWith("a1", "m2", []);
+    expect(revertChatMessageFiles).toHaveBeenCalledWith("a1", "m2", []);
   });
 
   it("disables stop and shows cancelling feedback after stop is requested", () => {
     const { state, actions } = setup({
       chatTarget: "external_agent",
       chatLoading: true,
-      agentChatCancelling: true,
+      chatCancelling: true,
       agentWorkspace: "/tmp/hecate",
       agentAdapters: [
         { id: "codex", name: "Codex", kind: "acp", command: "codex-acp", available: true, status: "available", cost_mode: "external" },
       ],
-      activeAgentChatSessionID: "a1",
-      activeAgentChatSession: {
+      activeChatSessionID: "a1",
+      activeChatSession: {
         id: "a1",
         title: "Stopping work",
         adapter_id: "codex",
@@ -2688,8 +2643,8 @@ describe("ChatView external-agent target", () => {
       agentAdapters: [
         { id: "claude_code", name: "Claude Code", kind: "acp", command: "claude-agent-acp", available: true, status: "available", cost_mode: "external" },
       ],
-      activeAgentChatSessionID: "a1",
-      activeAgentChatSession: {
+      activeChatSessionID: "a1",
+      activeChatSession: {
         id: "a1",
         title: "Failed work",
         adapter_id: "claude_code",
@@ -2903,10 +2858,8 @@ describe("ChatView session title", () => {
     const { state, actions } = setup({
       chatTarget: "model",
       chatSessions: [],
-      activeChatSession: null,
       activeChatSessionID: "",
-      activeAgentChatSession: null,
-      activeAgentChatSessionID: "",
+      activeChatSession: null,
       message: "",
     });
     render(withRuntimeConsole(<ChatView />, { state, actions }));
@@ -2937,9 +2890,9 @@ describe("ChatView session title", () => {
         policy_rules: [],
         events: [],
       },
-      activeAgentChatSessionID: "agent_chat_1",
-      activeAgentChatSession: {
-        id: "agent_chat_1",
+      activeChatSessionID: "chat_1",
+      activeChatSession: {
+        id: "chat_1",
         runtime_kind: "agent",
         title: "Repo work",
         provider: "ollama",
@@ -3106,16 +3059,16 @@ describe("ChatView agent approvals", () => {
         expires_at: "2026-04-21T10:05:00Z",
       }]],
     ]);
-    const getAgentChatApproval = vi.fn(async () => null); // modal opens, fetch returns null → renders error
+    const getChatApproval = vi.fn(async () => null); // modal opens, fetch returns null → renders error
     const { state, actions } = setup(
       {
       chatTarget: "external_agent",
-        activeAgentChatSessionID: sessionID,
-        activeAgentChatSession: { id: sessionID, title: "S1", adapter_id: "codex", workspace: "/tmp", status: "running" } as any,
+        activeChatSessionID: sessionID,
+        activeChatSession: { id: sessionID, title: "S1", adapter_id: "codex", workspace: "/tmp", status: "running" } as any,
         pendingApprovalsBySessionID: pending,
-        agentChatSessions: [{ id: sessionID, title: "S1", adapter_id: "codex", status: "running", message_count: 0 } as any],
+        chatSessions: [{ id: sessionID, title: "S1", adapter_id: "codex", status: "running", message_count: 0 } as any],
       },
-      { getAgentChatApproval },
+      { getChatApproval },
     );
     render(withRuntimeConsole(<ChatView />, { state, actions }));
 
@@ -3127,7 +3080,7 @@ describe("ChatView agent approvals", () => {
     const user = userEvent.setup();
     await user.click(reviews[0]!);
     // The modal mounts and asks for the full row.
-    expect(getAgentChatApproval).toHaveBeenCalledWith(sessionID, "ap-1");
+    expect(getChatApproval).toHaveBeenCalledWith(sessionID, "ap-1");
   });
 
   it("does not carry an external approval modal into Hecate Chat", async () => {
@@ -3143,34 +3096,34 @@ describe("ChatView agent approvals", () => {
         expires_at: "2026-04-21T10:05:00Z",
       }]],
     ]);
-    const getAgentChatApproval = vi.fn(async () => null);
+    const getChatApproval = vi.fn(async () => null);
     const { state: externalState, actions } = setup(
       {
         chatTarget: "external_agent",
-        activeAgentChatSessionID: sessionID,
-        activeAgentChatSession: { id: sessionID, title: "Codex", adapter_id: "codex", workspace: "/tmp", status: "running" } as any,
+        activeChatSessionID: sessionID,
+        activeChatSession: { id: sessionID, title: "Codex", adapter_id: "codex", workspace: "/tmp", status: "running" } as any,
         pendingApprovalsBySessionID: pending,
-        agentChatSessions: [{ id: sessionID, title: "Codex", adapter_id: "codex", status: "running", message_count: 0 } as any],
+        chatSessions: [{ id: sessionID, title: "Codex", adapter_id: "codex", status: "running", message_count: 0 } as any],
       },
-      { getAgentChatApproval },
+      { getChatApproval },
     );
     const view = render(withRuntimeConsole(<ChatView />, { state: externalState, actions }));
 
     const user = userEvent.setup();
     await user.click(screen.getByTestId("agent-approval-banner-review"));
-    await waitFor(() => expect(getAgentChatApproval).toHaveBeenCalledWith(sessionID, "ap-external"));
+    await waitFor(() => expect(getChatApproval).toHaveBeenCalledWith(sessionID, "ap-external"));
 
     const { state: hecateState } = setup(
       {
         chatTarget: "agent",
-        activeAgentChatSessionID: "hecate-session",
-        activeAgentChatSession: { id: "hecate-session", title: "Hecate", runtime_kind: "agent", workspace: "/tmp", status: "completed" } as any,
+        activeChatSessionID: "hecate-session",
+        activeChatSession: { id: "hecate-session", title: "Hecate", runtime_kind: "agent", workspace: "/tmp", status: "completed" } as any,
         pendingApprovalsBySessionID: pending,
       },
-      { getAgentChatApproval },
+      { getChatApproval },
     );
     view.rerender(withRuntimeConsole(<ChatView />, { state: hecateState, actions }));
 
-    expect(getAgentChatApproval).toHaveBeenCalledTimes(1);
+    expect(getChatApproval).toHaveBeenCalledTimes(1);
   });
 });

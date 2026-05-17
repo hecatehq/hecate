@@ -223,7 +223,7 @@ describe("runtime-utils", () => {
     expect(tracePhaseFromEvent("policy.tool_blocked")).toBe("approval");
     expect(tracePhaseFromEvent("tool.completed")).toBe("tool");
     expect(tracePhaseFromEvent("retention.run.finished")).toBe("retention");
-    expect(tracePhaseFromEvent("agent_chat.run.finished")).toBe("agent_chat");
+    expect(tracePhaseFromEvent("chat.run.finished")).toBe("chat");
     expect(tracePhaseFromEvent("response.returned")).toBe("response");
     // Unknown prefix → "other" (default branch).
     expect(tracePhaseFromEvent("custom.event")).toBe("other");
@@ -240,7 +240,7 @@ describe("runtime-utils", () => {
     expect(tracePhaseFromSpan("orchestrator.approval")).toBe("approval");
     expect(tracePhaseFromSpan("orchestrator.artifact")).toBe("artifact");
     expect(tracePhaseFromSpan("retention.run")).toBe("retention");
-    expect(tracePhaseFromSpan("agent_chat.run")).toBe("agent_chat");
+    expect(tracePhaseFromSpan("chat.run")).toBe("chat");
     expect(tracePhaseFromSpan("gateway.runtime")).toBe("other");
   });
 

@@ -1,8 +1,8 @@
 import type { ChatMessage } from "../lib/api";
 import type {
-  AgentChatApprovalRecord,
-  AgentChatSessionRecord,
-  AgentChatSessionsResponse,
+  ChatApprovalRecord,
+  ChatSessionRecord,
+  ChatSessionsResponse,
   ChatResponse,
   ConfiguredStateResponse,
   ModelResponse,
@@ -165,7 +165,7 @@ export function isModelValidForProvider(model: string, provider: ProviderFilter,
   return preset?.default_model === model;
 }
 
-export function approvalRecordToPending(row: AgentChatApprovalRecord): PendingAgentApproval {
+export function approvalRecordToPending(row: ChatApprovalRecord): PendingAgentApproval {
   return {
     approval_id: row.id,
     session_id: row.session_id,
@@ -178,7 +178,7 @@ export function approvalRecordToPending(row: AgentChatApprovalRecord): PendingAg
   };
 }
 
-export function renderAgentChatSessionSummary(session: AgentChatSessionRecord): AgentChatSessionsResponse["data"][number] {
+export function renderChatSessionSummary(session: ChatSessionRecord): ChatSessionsResponse["data"][number] {
   return {
     id: session.id,
     title: session.title,

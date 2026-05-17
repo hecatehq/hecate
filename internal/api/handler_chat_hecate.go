@@ -10,7 +10,7 @@ import (
 	"time"
 
 	"github.com/hecate/agent-runtime/internal/agentadapters"
-	"github.com/hecate/agent-runtime/internal/agentchat"
+	"github.com/hecate/agent-runtime/internal/chat"
 	"github.com/hecate/agent-runtime/internal/modelcaps"
 	"github.com/hecate/agent-runtime/internal/taskstate"
 	"github.com/hecate/agent-runtime/internal/telemetry"
@@ -19,7 +19,7 @@ import (
 
 const hecateAgentPollInterval = 250 * time.Millisecond
 
-func (h *Handler) handleCreateHecateAgentChatMessage(w http.ResponseWriter, r *http.Request, session agentchat.Session, req CreateAgentChatMessageRequest) {
+func (h *Handler) handleCreateHecateChatMessage(w http.ResponseWriter, r *http.Request, session chat.Session, req CreateChatMessageRequest) {
 	content := strings.TrimSpace(req.Content)
 	session.RuntimeKind = "agent"
 	if workspace := strings.TrimSpace(req.Workspace); workspace != "" {
@@ -67,7 +67,7 @@ func (h *Handler) handleCreateHecateAgentChatMessage(w http.ResponseWriter, r *h
 		return
 	}
 
-	assistantID := newAgentChatID("msg")
+	assistantID := newChatID("msg")
 	startedAt := time.Now().UTC()
 	trace, traceCtx := h.startAgentChatTrace(w, r)
 	defer trace.Finalize()
@@ -87,7 +87,7 @@ func (h *Handler) handleCreateHecateAgentChatMessage(w http.ResponseWriter, r *h
 	defer h.agentChatLive.clearRun(session.ID)
 	defer cancel()
 
-	userID := newAgentChatID("msg")
+	userID := newChatID("msg")
 	forceNewTask := shouldStartNewHecateAgentSegment(session, session.Provider, session.Model)
 	segmentID := hecateAgentSegmentID(session)
 	messageSnapshotSession := session
@@ -95,12 +95,12 @@ func (h *Handler) handleCreateHecateAgentChatMessage(w http.ResponseWriter, r *h
 		// The live placeholder for a brand-new task segment must not borrow the
 		// session's previous task pointer. It will be rewritten to task:<id>
 		// immediately after the new backing task exists.
-		segmentID = newAgentChatID("segment")
+		segmentID = newChatID("segment")
 		messageSnapshotSession.TaskID = ""
 		messageSnapshotSession.LatestRunID = ""
 	}
 	messageSnapshot := hecateAgentMessageSnapshot(messageSnapshotSession, caps, segmentID)
-	updated, err := h.agentChat.AppendMessage(r.Context(), session.ID, agentchat.Message{
+	updated, err := h.agentChat.AppendMessage(r.Context(), session.ID, chat.Message{
 		ID:           userID,
 		RuntimeKind:  messageSnapshot.RuntimeKind,
 		SegmentID:    messageSnapshot.SegmentID,
@@ -118,7 +118,7 @@ func (h *Handler) handleCreateHecateAgentChatMessage(w http.ResponseWriter, r *h
 	}
 	h.agentChatLive.publishSession(updated)
 
-	updated, err = h.agentChat.AppendMessage(r.Context(), session.ID, agentchat.Message{
+	updated, err = h.agentChat.AppendMessage(r.Context(), session.ID, chat.Message{
 		ID:           assistantID,
 		RuntimeKind:  messageSnapshot.RuntimeKind,
 		SegmentID:    messageSnapshot.SegmentID,
@@ -136,8 +136,8 @@ func (h *Handler) handleCreateHecateAgentChatMessage(w http.ResponseWriter, r *h
 		Workspace:    session.Workspace,
 		CreatedAt:    startedAt,
 		StartedAt:    startedAt,
-		Activities: []agentchat.Activity{
-			newAgentChatActivity("started", "running", "Starting Hecate Agent", "Creating or continuing the backing task run"),
+		Activities: []chat.Activity{
+			newChatActivity("started", "running", "Starting Hecate Agent", "Creating or continuing the backing task run"),
 		},
 	})
 	if err != nil {
@@ -164,12 +164,12 @@ func (h *Handler) handleCreateHecateAgentChatMessage(w http.ResponseWriter, r *h
 			Result:     telemetry.ResultError,
 			DurationMS: completedAt.Sub(startedAt).Milliseconds(),
 		})
-		h.finishHecateAgentMessage(r.Context(), session.ID, assistantID, "failed", "", err.Error(), startedAt, completedAt, nil, agentchat.Timing{})
+		h.finishHecateAgentMessage(r.Context(), session.ID, assistantID, "failed", "", err.Error(), startedAt, completedAt, nil, chat.Timing{})
 		WriteError(w, http.StatusInternalServerError, errCodeGatewayError, err.Error())
 		return
 	}
 	segmentID = "task:" + task.ID
-	messageSnapshot = hecateAgentMessageSnapshot(agentchat.Session{
+	messageSnapshot = hecateAgentMessageSnapshot(chat.Session{
 		ID:           session.ID,
 		RuntimeKind:  session.RuntimeKind,
 		TaskID:       task.ID,
@@ -177,7 +177,7 @@ func (h *Handler) handleCreateHecateAgentChatMessage(w http.ResponseWriter, r *h
 		Model:        session.Model,
 		Capabilities: caps,
 	}, caps, segmentID)
-	if userUpdated, userUpdateErr := h.agentChat.UpdateMessage(r.Context(), session.ID, userID, func(message *agentchat.Message) {
+	if userUpdated, userUpdateErr := h.agentChat.UpdateMessage(r.Context(), session.ID, userID, func(message *chat.Message) {
 		message.RuntimeKind = messageSnapshot.RuntimeKind
 		message.SegmentID = messageSnapshot.SegmentID
 		message.TaskID = messageSnapshot.TaskID
@@ -187,7 +187,7 @@ func (h *Handler) handleCreateHecateAgentChatMessage(w http.ResponseWriter, r *h
 	}); userUpdateErr == nil {
 		h.agentChatLive.publishSession(userUpdated)
 	}
-	updated, err = h.agentChat.UpdateMessage(r.Context(), session.ID, assistantID, func(message *agentchat.Message) {
+	updated, err = h.agentChat.UpdateMessage(r.Context(), session.ID, assistantID, func(message *chat.Message) {
 		message.RuntimeKind = messageSnapshot.RuntimeKind
 		message.SegmentID = messageSnapshot.SegmentID
 		message.TaskID = messageSnapshot.TaskID
@@ -198,12 +198,12 @@ func (h *Handler) handleCreateHecateAgentChatMessage(w http.ResponseWriter, r *h
 		message.Provider = messageSnapshot.Provider
 		message.Model = messageSnapshot.Model
 		message.Capabilities = messageSnapshot.Capabilities
-		message.Activities = mergeAgentChatActivity(message.Activities, newHecateAgentRunActivity(task.ID, run.ID, run.Status))
+		message.Activities = mergeChatActivity(message.Activities, newHecateAgentRunActivity(task.ID, run.ID, run.Status))
 	})
 	if err == nil {
 		h.agentChatLive.publishSession(updated)
 	}
-	updated, err = h.agentChat.UpdateSession(r.Context(), session.ID, func(item *agentchat.Session) {
+	updated, err = h.agentChat.UpdateSession(r.Context(), session.ID, func(item *chat.Session) {
 		item.RuntimeKind = "agent"
 		item.TaskID = task.ID
 		item.LatestRunID = run.ID
@@ -302,32 +302,32 @@ func (h *Handler) handleCreateHecateAgentChatMessage(w http.ResponseWriter, r *h
 		WriteError(w, http.StatusInternalServerError, errCodeGatewayError, err.Error())
 		return
 	}
-	if inc, incErr := h.agentChat.UpdateSession(r.Context(), session.ID, func(item *agentchat.Session) {
+	if inc, incErr := h.agentChat.UpdateSession(r.Context(), session.ID, func(item *chat.Session) {
 		item.TurnsUsed++
 		item.TaskID = task.ID
 		item.LatestRunID = finalRun.ID
 	}); incErr == nil {
 		updated = inc
 	} else {
-		h.logger.WarnContext(r.Context(), "agent_chat.agent.turn_counter_increment_failed", "session_id", session.ID, "error", incErr)
+		h.logger.WarnContext(r.Context(), "chat.agent.turn_counter_increment_failed", "session_id", session.ID, "error", incErr)
 	}
 	h.agentChatLive.publishSession(updated)
-	WriteJSON(w, http.StatusOK, AgentChatSessionResponse{Object: "agent_chat_session", Data: renderAgentChatSession(updated, h.agentChatSnapshotConfig())})
+	WriteJSON(w, http.StatusOK, ChatSessionResponse{Object: "chat_session", Data: renderChatSession(updated, h.agentChatSnapshotConfig())})
 }
 
-func hecateAgentSegmentID(session agentchat.Session) string {
+func hecateAgentSegmentID(session chat.Session) string {
 	if strings.TrimSpace(session.TaskID) != "" {
 		return "task:" + strings.TrimSpace(session.TaskID)
 	}
-	return newAgentChatID("segment")
+	return newChatID("segment")
 }
 
-func hecateAgentMessageSnapshot(session agentchat.Session, caps types.ModelCapabilities, segmentID string) agentchat.Message {
+func hecateAgentMessageSnapshot(session chat.Session, caps types.ModelCapabilities, segmentID string) chat.Message {
 	runtimeKind := session.RuntimeKind
 	if runtimeKind == "" {
 		runtimeKind = "agent"
 	}
-	return agentchat.Message{
+	return chat.Message{
 		RuntimeKind:  runtimeKind,
 		SegmentID:    segmentID,
 		TaskID:       session.TaskID,
@@ -337,7 +337,7 @@ func hecateAgentMessageSnapshot(session agentchat.Session, caps types.ModelCapab
 	}
 }
 
-func (h *Handler) hecateAgentSessionBusy(ctx context.Context, session agentchat.Session) (bool, string) {
+func (h *Handler) hecateAgentSessionBusy(ctx context.Context, session chat.Session) (bool, string) {
 	if session.TaskID == "" || session.LatestRunID == "" || h.taskStore == nil {
 		return false, ""
 	}
@@ -348,7 +348,7 @@ func (h *Handler) hecateAgentSessionBusy(ctx context.Context, session agentchat.
 	return !types.IsTerminalTaskRunStatus(run.Status), run.Status
 }
 
-func shouldStartNewHecateAgentSegment(session agentchat.Session, provider, model string) bool {
+func shouldStartNewHecateAgentSegment(session chat.Session, provider, model string) bool {
 	if session.TaskID == "" {
 		return true
 	}
@@ -373,7 +373,7 @@ func shouldStartNewHecateAgentSegment(session agentchat.Session, provider, model
 	return false
 }
 
-func (h *Handler) startOrContinueHecateAgentRun(ctx context.Context, session agentchat.Session, prompt, systemPrompt string, forceNewTask bool) (types.Task, types.TaskRun, error) {
+func (h *Handler) startOrContinueHecateAgentRun(ctx context.Context, session chat.Session, prompt, systemPrompt string, forceNewTask bool) (types.Task, types.TaskRun, error) {
 	if h.taskStore == nil || h.taskRunner == nil {
 		return types.Task{}, types.TaskRun{}, fmt.Errorf("task runtime is not configured")
 	}
@@ -390,7 +390,7 @@ func (h *Handler) startOrContinueHecateAgentRun(ctx context.Context, session age
 			SystemPrompt:       strings.TrimSpace(systemPrompt),
 			ExecutionKind:      "agent_loop",
 			ExecutionProfile:   "chat_agent",
-			OriginKind:         "agent_chat",
+			OriginKind:         "chat",
 			OriginID:           session.ID,
 			WorkspaceMode:      "in_place",
 			WorkingDirectory:   session.Workspace,
@@ -449,7 +449,7 @@ func (h *Handler) waitForHecateAgentRun(ctx context.Context, taskID, runID, sess
 		if !found {
 			return types.TaskRun{}, fmt.Errorf("task run %q not found", runID)
 		}
-		taskActivities := []agentchat.Activity(nil)
+		taskActivities := []chat.Activity(nil)
 		activitySignature := ""
 		if state, stateErr := h.buildTaskRunStreamState(ctx, taskID, runID); stateErr == nil {
 			taskActivities = agentChatActivitiesFromTaskActivity(state.Activity)
@@ -465,7 +465,7 @@ func (h *Handler) waitForHecateAgentRun(ctx context.Context, taskID, runID, sess
 			if contentChanged {
 				lastContent = liveContent
 			}
-			updated, updateErr := h.agentChat.UpdateMessage(ctx, sessionID, messageID, func(message *agentchat.Message) {
+			updated, updateErr := h.agentChat.UpdateMessage(ctx, sessionID, messageID, func(message *chat.Message) {
 				message.RunID = run.ID
 				message.RequestID = firstNonEmpty(run.RequestID, message.RequestID)
 				message.TraceID = firstNonEmpty(run.TraceID, message.TraceID)
@@ -474,9 +474,9 @@ func (h *Handler) waitForHecateAgentRun(ctx context.Context, taskID, runID, sess
 				if liveContent != "" {
 					message.Content = liveContent
 				}
-				message.Activities = mergeAgentChatActivity(message.Activities, newHecateAgentRunActivity(taskID, run.ID, run.Status))
+				message.Activities = mergeChatActivity(message.Activities, newHecateAgentRunActivity(taskID, run.ID, run.Status))
 				for _, activity := range taskActivities {
-					message.Activities = mergeAgentChatActivity(message.Activities, activity)
+					message.Activities = mergeChatActivity(message.Activities, activity)
 				}
 			})
 			if updateErr == nil {
@@ -609,8 +609,8 @@ func fencedCommandOutput(label, content string) string {
 	return fmt.Sprintf("%s:\n\n```%s\n%s\n```", label, lang, content)
 }
 
-func (h *Handler) finishHecateAgentMessage(ctx context.Context, sessionID, messageID, status, output, errorText string, startedAt, completedAt time.Time, run *types.TaskRun, timing agentchat.Timing) (agentchat.Session, error) {
-	return h.agentChat.UpdateMessage(ctx, sessionID, messageID, func(message *agentchat.Message) {
+func (h *Handler) finishHecateAgentMessage(ctx context.Context, sessionID, messageID, status, output, errorText string, startedAt, completedAt time.Time, run *types.TaskRun, timing chat.Timing) (chat.Session, error) {
+	return h.agentChat.UpdateMessage(ctx, sessionID, messageID, func(message *chat.Message) {
 		message.Status = agentChatStatusFromTaskRun(status)
 		message.Content = output
 		message.Error = errorText
@@ -624,7 +624,7 @@ func (h *Handler) finishHecateAgentMessage(ctx context.Context, sessionID, messa
 			message.CostMode = "hecate"
 			message.Timing = timing
 		}
-		message.Activities = append(message.Activities, newAgentChatActivity(message.Status, message.Status, finalAgentChatActivityTitle(message.Status), errorText))
+		message.Activities = append(message.Activities, newChatActivity(message.Status, message.Status, finalChatActivityTitle(message.Status), errorText))
 	})
 }
 
@@ -639,8 +639,8 @@ func agentChatStatusFromTaskRun(status string) string {
 	}
 }
 
-func newHecateAgentRunActivity(taskID, runID, status string) agentchat.Activity {
-	activity := newAgentChatActivity("task_run", agentChatStatusFromTaskRun(status), "Backing task", humanHecateAgentRunStatus(status))
+func newHecateAgentRunActivity(taskID, runID, status string) chat.Activity {
+	activity := newChatActivity("task_run", agentChatStatusFromTaskRun(status), "Backing task", humanHecateAgentRunStatus(status))
 	activity.ID = "hecate_task_run:" + strings.TrimSpace(runID)
 	if strings.TrimSpace(runID) == "" {
 		activity.ID = "hecate_task_run"

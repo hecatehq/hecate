@@ -134,7 +134,7 @@ function fulfillJSON(route: Route, data: unknown) {
   });
 }
 
-const docsAgentChatSessionID = "agent-docs-session";
+const docsChatSessionID = "agent-docs-session";
 const docsApprovalID = "appr_docs_file_write";
 const docsHecateChatSessionID = "chat-docs-hecate";
 const docsTaskID = "task_docs_git_status";
@@ -197,7 +197,7 @@ function docsAgentApproval() {
   return {
     id: docsApprovalID,
     approval_id: docsApprovalID,
-    session_id: docsAgentChatSessionID,
+    session_id: docsChatSessionID,
     adapter_id: "codex",
     workspace: "/Users/alice/dev/hecate",
     tool_kind: "file_write",
@@ -216,7 +216,7 @@ function docsAgentApproval() {
 
 function docsAgentSession() {
   return {
-    id: docsAgentChatSessionID,
+    id: docsChatSessionID,
     title: "Review API docs update",
     runtime_kind: "external_agent",
     adapter_id: "codex",
@@ -254,7 +254,7 @@ function docsAgentSession() {
         trace_id: "7c5a7e1f8a6d4b31",
         duration_ms: 12_480,
         diff_stat: "docs/runtime-api.md | 18 +++++++++++++-----\n1 file changed, 13 insertions(+), 5 deletions(-)",
-        diff: "diff --git a/docs/runtime-api.md b/docs/runtime-api.md\nindex 1a2b3c4..5d6e7f8 100644\n--- a/docs/runtime-api.md\n+++ b/docs/runtime-api.md\n@@ -10,6 +10,9 @@\n+External-agent approvals are visible on the agent-chat stream.\n",
+        diff: "diff --git a/docs/runtime-api.md b/docs/runtime-api.md\nindex 1a2b3c4..5d6e7f8 100644\n--- a/docs/runtime-api.md\n+++ b/docs/runtime-api.md\n@@ -10,6 +10,9 @@\n+External-agent approvals are visible on the chat stream.\n",
         activities: [
           { id: "plan-1", type: "plan", status: "completed", title: "Inspect runtime API docs", created_at: docsTimestamp(-5) },
           { id: "tool-1", type: "tool_call", status: "completed", kind: "read_file", title: "Read docs/runtime-api.md", created_at: docsTimestamp(-4) },
@@ -455,9 +455,9 @@ async function routeAgentDocsFixtures(page: Page) {
   await page.route(`${HECATE_API}/agent-adapters`, (route) => {
     fulfillJSON(route, { object: "agent_adapters", data: docsAgentAdapters });
   });
-  await page.route(`${HECATE_API}/agent-chat/sessions`, (route) => {
+  await page.route(`${HECATE_API}/chat/sessions`, (route) => {
     fulfillJSON(route, {
-      object: "agent_chat_sessions",
+      object: "chat_sessions",
       data: [{
         id: session.id,
         title: session.title,
@@ -474,22 +474,22 @@ async function routeAgentDocsFixtures(page: Page) {
       }],
     });
   });
-  await page.route(`${HECATE_API}/agent-chat/sessions/${docsAgentChatSessionID}`, async (route) => {
+  await page.route(`${HECATE_API}/chat/sessions/${docsChatSessionID}`, async (route) => {
     if (route.request().method() === "PATCH") {
       const body = JSON.parse(route.request().postData() || "{}") as { title?: string };
       session = { ...session, title: body.title || session.title, updated_at: docsTimestamp() };
     }
-    fulfillJSON(route, { object: "agent_chat_session", data: session });
+    fulfillJSON(route, { object: "chat_session", data: session });
   });
-  await page.route(`${HECATE_API}/agent-chat/sessions/${docsAgentChatSessionID}/approvals?status=pending`, (route) => {
-    fulfillJSON(route, { object: "agent_chat_approvals", data: [docsAgentApproval()] });
+  await page.route(`${HECATE_API}/chat/sessions/${docsChatSessionID}/approvals?status=pending`, (route) => {
+    fulfillJSON(route, { object: "chat_approvals", data: [docsAgentApproval()] });
   });
-  await page.route(`${HECATE_API}/agent-chat/sessions/${docsAgentChatSessionID}/approvals/${docsApprovalID}`, (route) => {
-    fulfillJSON(route, { object: "agent_chat_approval", data: docsAgentApproval() });
+  await page.route(`${HECATE_API}/chat/sessions/${docsChatSessionID}/approvals/${docsApprovalID}`, (route) => {
+    fulfillJSON(route, { object: "chat_approval", data: docsAgentApproval() });
   });
-  await page.route(`${HECATE_API}/agent-chat/grants`, (route) => {
+  await page.route(`${HECATE_API}/chat/grants`, (route) => {
     fulfillJSON(route, {
-      object: "agent_chat_grants",
+      object: "chat_grants",
       data: [
         {
           id: "grant_docs_session",
@@ -611,9 +611,9 @@ async function routeHecateChatDocsFixture(page: Page) {
       ],
     });
   });
-  await page.route(`${HECATE_API}/agent-chat/sessions`, (route) => {
+  await page.route(`${HECATE_API}/chat/sessions`, (route) => {
     fulfillJSON(route, {
-      object: "agent_chat_sessions",
+      object: "chat_sessions",
       data: [{
         id: session.id,
         title: session.title,
@@ -632,15 +632,15 @@ async function routeHecateChatDocsFixture(page: Page) {
       }],
     });
   });
-  await page.route(`${HECATE_API}/agent-chat/sessions/${docsHecateChatSessionID}`, async (route) => {
+  await page.route(`${HECATE_API}/chat/sessions/${docsHecateChatSessionID}`, async (route) => {
     if (route.request().method() === "PATCH") {
       const body = JSON.parse(route.request().postData() || "{}") as { title?: string };
       session = { ...session, title: body.title || session.title, updated_at: docsTimestamp() };
     }
-    fulfillJSON(route, { object: "agent_chat_session", data: session });
+    fulfillJSON(route, { object: "chat_session", data: session });
   });
-  await page.route(`${HECATE_API}/agent-chat/sessions/${docsHecateChatSessionID}/approvals?status=pending`, (route) => {
-    fulfillJSON(route, { object: "agent_chat_approvals", data: [] });
+  await page.route(`${HECATE_API}/chat/sessions/${docsHecateChatSessionID}/approvals?status=pending`, (route) => {
+    fulfillJSON(route, { object: "chat_approvals", data: [] });
   });
 }
 
@@ -648,9 +648,9 @@ async function unrouteHecateChatDocsFixture(page: Page) {
   await page.unroute(`${COMPAT_API}/models`);
   await page.unroute(`${HECATE_API}/settings`);
   await page.unroute(`${HECATE_API}/providers/status`);
-  await page.unroute(`${HECATE_API}/agent-chat/sessions`);
-  await page.unroute(`${HECATE_API}/agent-chat/sessions/${docsHecateChatSessionID}`);
-  await page.unroute(`${HECATE_API}/agent-chat/sessions/${docsHecateChatSessionID}/approvals?status=pending`);
+  await page.unroute(`${HECATE_API}/chat/sessions`);
+  await page.unroute(`${HECATE_API}/chat/sessions/${docsHecateChatSessionID}`);
+  await page.unroute(`${HECATE_API}/chat/sessions/${docsHecateChatSessionID}/approvals?status=pending`);
 }
 
 async function routeTaskDiagnosticsDocsFixture(page: Page) {
@@ -660,7 +660,7 @@ async function routeTaskDiagnosticsDocsFixture(page: Page) {
     prompt: "show current git status",
     execution_kind: "agent_loop",
     execution_profile: "chat_hecate_agent",
-    origin_kind: "agent_chat",
+    origin_kind: "chat",
     origin_id: docsHecateChatSessionID,
     requested_provider: "ollama",
     requested_model: "ministral-3:latest",
@@ -1250,7 +1250,7 @@ async function main() {
     window.localStorage.setItem("hecate.agentAdapterID", "codex");
     window.localStorage.setItem("hecate.agentWorkspace", "/Users/alice/dev/hecate");
     window.localStorage.setItem("hecate.agentChatSessionID", sessionID);
-  }, docsAgentChatSessionID);
+  }, docsChatSessionID);
   await page.reload();
   await page.waitForSelector("[data-testid='agent-approval-banner']", { timeout: 5_000 });
   await page.waitForTimeout(700);

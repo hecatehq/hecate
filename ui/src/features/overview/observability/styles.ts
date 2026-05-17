@@ -57,7 +57,7 @@ export function phaseColor(phase: TraceTimelineItem["phase"], span?: TraceSpanRe
     case "approval": return "var(--brand-anthropic)";
     case "artifact": return "var(--green)";
     case "retention": return "var(--t3)";
-    case "agent_chat": return "var(--brand-openai)";
+    case "chat": return "var(--brand-openai)";
     case "response": return "var(--teal)";
     default:         return "var(--t3)";
   }
@@ -68,7 +68,7 @@ export const PHASE_LABEL: Record<TraceTimelineItem["phase"], string> = {
   provider: "provider", governor: "governor", usage: "usage",
   cost: "cost", response: "response", queue: "queue",
   orchestration: "orchestration", tool: "tool", approval: "approval",
-  artifact: "artifact", retention: "retention", agent_chat: "agent chat",
+  artifact: "artifact", retention: "retention", chat: "chat",
   other: "other",
 };
 

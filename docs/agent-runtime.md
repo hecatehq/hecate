@@ -6,7 +6,7 @@ For the high-level execution flow that wraps it (queue, lease, sandbox, events),
 
 `agent_loop` is also the runtime behind **Hecate Chat** when tools are on. In
 that mode Chats creates a visible task with `execution_profile=chat_agent` and
-`origin_kind=agent_chat`; the first tools-on user message starts the task, and
+`origin_kind=chat`; the first tools-on user message starts the task, and
 follow-up tools-on messages continue the latest terminal run instead of
 creating a new task per message. Turning tools off switches the same transcript
 back to direct model chat. Turning tools on again after a direct model segment
@@ -36,7 +36,7 @@ composer's submit control reflects three states:
 A yellow banner under the composer surfaces a queueing notice plus an
 `Open task` link to the backing task in the Tasks workspace and a `Stop`
 button (`aria-label="Stop active task"`) that also cancels the run. The
-backend returns `409 agent_chat.agent_session_busy` if a client bypasses
+backend returns `409 chat.agent_session_busy` if a client bypasses
 the UI. Once the active run reaches a terminal state, the next tools-on
 prompt either continues the same task with a new run or — if tools have
 been toggled off and on in the meantime — starts a fresh task-backed

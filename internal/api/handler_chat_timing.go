@@ -5,12 +5,12 @@ import (
 	"strings"
 	"time"
 
-	"github.com/hecate/agent-runtime/internal/agentchat"
+	"github.com/hecate/agent-runtime/internal/chat"
 	"github.com/hecate/agent-runtime/internal/telemetry"
 	"github.com/hecate/agent-runtime/pkg/types"
 )
 
-func (h *Handler) hecateAgentTiming(ctx context.Context, run types.TaskRun, chatStartedAt, chatCompletedAt time.Time) agentchat.Timing {
+func (h *Handler) hecateAgentTiming(ctx context.Context, run types.TaskRun, chatStartedAt, chatCompletedAt time.Time) chat.Timing {
 	if h == nil || h.taskStore == nil || run.ID == "" {
 		return hecateAgentTimingFromRunState(run, nil, nil, nil, chatStartedAt, chatCompletedAt)
 	}
@@ -20,7 +20,7 @@ func (h *Handler) hecateAgentTiming(ctx context.Context, run types.TaskRun, chat
 	return hecateAgentTimingFromRunState(run, steps, approvals, events, chatStartedAt, chatCompletedAt)
 }
 
-func hecateAgentTimingFromRunState(run types.TaskRun, steps []types.TaskStep, approvals []types.TaskApproval, events []types.TaskRunEvent, chatStartedAt, chatCompletedAt time.Time) agentchat.Timing {
+func hecateAgentTimingFromRunState(run types.TaskRun, steps []types.TaskStep, approvals []types.TaskApproval, events []types.TaskRunEvent, chatStartedAt, chatCompletedAt time.Time) chat.Timing {
 	total := durationBetween(chatStartedAt, chatCompletedAt)
 	if total == 0 {
 		total = durationBetween(run.StartedAt, run.FinishedAt)
@@ -60,7 +60,7 @@ func hecateAgentTimingFromRunState(run types.TaskRun, steps []types.TaskStep, ap
 	if overheadMS < 0 {
 		overheadMS = 0
 	}
-	timing := agentchat.Timing{
+	timing := chat.Timing{
 		TotalMS:        total,
 		QueueMS:        queue,
 		ModelMS:        modelMS,
@@ -125,7 +125,7 @@ func isToolTimingStep(step types.TaskStep) bool {
 	return step.Kind == "tool" || (step.ToolName != "" && !strings.HasPrefix(step.ToolName, "builtin.agent_loop_"))
 }
 
-func timingBottleneck(timing agentchat.Timing) (string, int64) {
+func timingBottleneck(timing chat.Timing) (string, int64) {
 	items := []struct {
 		label string
 		ms    int64
@@ -147,7 +147,7 @@ func timingBottleneck(timing agentchat.Timing) (string, int64) {
 	return label, value
 }
 
-func agentChatRunTimingMetrics(timing agentchat.Timing) telemetry.AgentChatRunTimingRecord {
+func agentChatRunTimingMetrics(timing chat.Timing) telemetry.AgentChatRunTimingRecord {
 	if timing.Empty() {
 		return telemetry.AgentChatRunTimingRecord{}
 	}
@@ -160,18 +160,18 @@ func agentChatRunTimingMetrics(timing agentchat.Timing) telemetry.AgentChatRunTi
 	}
 }
 
-func addHecateAgentTimingTraceAttrs(attrs map[string]any, timing agentchat.Timing) {
+func addHecateAgentTimingTraceAttrs(attrs map[string]any, timing chat.Timing) {
 	if attrs == nil || timing.Empty() {
 		return
 	}
-	attrs[telemetry.AttrHecateAgentChatTimingTotalMS] = timing.TotalMS
-	attrs[telemetry.AttrHecateAgentChatTimingQueueMS] = timing.QueueMS
-	attrs[telemetry.AttrHecateAgentChatTimingModelMS] = timing.ModelMS
-	attrs[telemetry.AttrHecateAgentChatTimingToolMS] = timing.ToolMS
-	attrs[telemetry.AttrHecateAgentChatTimingApprovalMS] = timing.ApprovalWaitMS
-	attrs[telemetry.AttrHecateAgentChatTimingOverheadMS] = timing.OverheadMS
+	attrs[telemetry.AttrHecateChatTimingTotalMS] = timing.TotalMS
+	attrs[telemetry.AttrHecateChatTimingQueueMS] = timing.QueueMS
+	attrs[telemetry.AttrHecateChatTimingModelMS] = timing.ModelMS
+	attrs[telemetry.AttrHecateChatTimingToolMS] = timing.ToolMS
+	attrs[telemetry.AttrHecateChatTimingApprovalMS] = timing.ApprovalWaitMS
+	attrs[telemetry.AttrHecateChatTimingOverheadMS] = timing.OverheadMS
 	if timing.Bottleneck != "" {
-		attrs[telemetry.AttrHecateAgentChatTimingBottleneck] = timing.Bottleneck
-		attrs[telemetry.AttrHecateAgentChatTimingBottleneckMS] = timing.BottleneckMS
+		attrs[telemetry.AttrHecateChatTimingBottleneck] = timing.Bottleneck
+		attrs[telemetry.AttrHecateChatTimingBottleneckMS] = timing.BottleneckMS
 	}
 }

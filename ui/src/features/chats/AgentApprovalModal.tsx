@@ -1,6 +1,6 @@
 import { useEffect, useState } from "react";
-import type { ResolveAgentChatApprovalPayload } from "../../lib/api";
-import type { AgentChatApprovalOption, AgentChatApprovalRecord } from "../../types/runtime";
+import type { ResolveChatApprovalPayload } from "../../lib/api";
+import type { ChatApprovalOption, ChatApprovalRecord } from "../../types/runtime";
 import { Icon, Icons, Modal } from "../shared/ui";
 
 // AgentApprovalModal renders the operator decision UI for a single
@@ -24,13 +24,13 @@ type Props = {
   sessionID: string;
   approvalID: string;
   onClose: () => void;
-  fetchApproval: (sessionID: string, approvalID: string) => Promise<AgentChatApprovalRecord | null>;
-  onResolve: (sessionID: string, approvalID: string, payload: ResolveAgentChatApprovalPayload) => Promise<boolean>;
+  fetchApproval: (sessionID: string, approvalID: string) => Promise<ChatApprovalRecord | null>;
+  onResolve: (sessionID: string, approvalID: string, payload: ResolveChatApprovalPayload) => Promise<boolean>;
   onCancel: (sessionID: string, approvalID: string) => Promise<boolean>;
 };
 
 export function AgentApprovalModal({ sessionID, approvalID, onClose, fetchApproval, onResolve, onCancel }: Props) {
-  const [row, setRow] = useState<AgentChatApprovalRecord | null>(null);
+  const [row, setRow] = useState<ChatApprovalRecord | null>(null);
   const [error, setError] = useState<string>("");
   const [decision, setDecision] = useState<"allow" | "deny">("allow");
   const [scope, setScope] = useState<string>("");
@@ -329,14 +329,14 @@ export function AgentApprovalModal({ sessionID, approvalID, onClose, fetchApprov
 }
 
 function defaultOptionForDecision(
-  options: AgentChatApprovalOption[],
+  options: ChatApprovalOption[],
   decision: "allow" | "deny",
 ): string {
   return options.find((opt) => optionMatchesDecision(opt, decision))?.option_id ?? "";
 }
 
 function optionMatchesDecision(
-  option: AgentChatApprovalOption,
+  option: ChatApprovalOption,
   decision: "allow" | "deny",
 ): boolean {
   const wanted = decision === "allow"

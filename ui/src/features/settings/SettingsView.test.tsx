@@ -231,11 +231,11 @@ describe("Connections external-agent panel", () => {
     expect(deleteModelCapabilityOverride).toHaveBeenCalledWith("ollama", "local-tools");
   });
 
-  it("fires listAgentChatGrants when the tab opens", async () => {
-    const listAgentChatGrants = vi.fn(async () => undefined);
-    const { state, actions } = setup({}, { listAgentChatGrants });
+  it("fires listChatGrants when the tab opens", async () => {
+    const listChatGrants = vi.fn(async () => undefined);
+    const { state, actions } = setup({}, { listChatGrants });
     render(withRuntimeConsole(<ConnectionsPanel />, { state, actions }));
-    expect(listAgentChatGrants).toHaveBeenCalled();
+    expect(listChatGrants).toHaveBeenCalled();
   });
 
   it("renders the empty-state copy when there are no grants", async () => {
@@ -246,7 +246,7 @@ describe("Connections external-agent panel", () => {
 
   it("renders one row per grant with adapter / tool / decision metadata", async () => {
     const { state, actions } = setup({
-      agentChatGrants: [
+      chatGrants: [
         {
           id: "g-1",
           scope: "session",
@@ -279,10 +279,10 @@ describe("Connections external-agent panel", () => {
   });
 
   it("revoke asks for inline confirmation before deleting the grant", async () => {
-    const deleteAgentChatGrant = vi.fn(async () => true);
+    const deleteChatGrant = vi.fn(async () => true);
     const { state, actions, user } = setup(
       {
-        agentChatGrants: [
+        chatGrants: [
           {
             id: "g-7",
             scope: "session",
@@ -293,20 +293,20 @@ describe("Connections external-agent panel", () => {
           },
         ],
       },
-      { deleteAgentChatGrant },
+      { deleteChatGrant },
     );
     render(withRuntimeConsole(<ConnectionsPanel />, { state, actions }));
     await user.click(await screen.findByTestId("external-agents-revoke-g-7"));
-    expect(deleteAgentChatGrant).not.toHaveBeenCalled();
+    expect(deleteChatGrant).not.toHaveBeenCalled();
     await user.click(await screen.findByTestId("external-agents-confirm-revoke-g-7"));
-    expect(deleteAgentChatGrant).toHaveBeenCalledWith("g-7");
+    expect(deleteChatGrant).toHaveBeenCalledWith("g-7");
   });
 
   it("revoke confirmation can be cancelled inline", async () => {
-    const deleteAgentChatGrant = vi.fn(async () => true);
+    const deleteChatGrant = vi.fn(async () => true);
     const { state, actions, user } = setup(
       {
-        agentChatGrants: [
+        chatGrants: [
           {
             id: "g-8",
             scope: "session",
@@ -317,19 +317,19 @@ describe("Connections external-agent panel", () => {
           },
         ],
       },
-      { deleteAgentChatGrant },
+      { deleteChatGrant },
     );
     render(withRuntimeConsole(<ConnectionsPanel />, { state, actions }));
     await user.click(await screen.findByTestId("external-agents-revoke-g-8"));
     expect(await screen.findByTestId("external-agents-confirm-revoke-g-8")).toBeTruthy();
     await user.click(await screen.findByTestId("external-agents-cancel-revoke-g-8"));
-    expect(deleteAgentChatGrant).not.toHaveBeenCalled();
+    expect(deleteChatGrant).not.toHaveBeenCalled();
     expect(screen.queryByTestId("external-agents-confirm-revoke-g-8")).toBeNull();
   });
 
   it("surfaces the listing error inline when the load fails", async () => {
     const { state, actions } = setup({
-      agentChatGrantsError: "list failed: 500",
+      chatGrantsError: "list failed: 500",
     });
     render(withRuntimeConsole(<ConnectionsPanel />, { state, actions }));
     expect(await screen.findByText(/list failed: 500/)).toBeTruthy();

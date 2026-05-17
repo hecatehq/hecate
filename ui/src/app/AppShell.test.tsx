@@ -143,8 +143,8 @@ describe("ConsoleShell navigation", () => {
       chatTarget: "external_agent",
       agentWorkspace: "/Users/alice/dev/draft",
       agentWorkspaceBranch: "draft",
-      activeAgentChatSession: {
-        id: "agent_chat_1",
+      activeChatSession: {
+        id: "chat_1",
         title: "Active Cursor work",
         adapter_id: "cursor_agent",
         workspace: "/Users/alice/dev/hecate",
@@ -169,8 +169,8 @@ describe("ConsoleShell navigation", () => {
   it("shows latest reported agent context usage in the status bar", () => {
     const state = createRuntimeConsoleFixture({
       chatTarget: "external_agent",
-      activeAgentChatSession: {
-        id: "agent_chat_1",
+      activeChatSession: {
+        id: "chat_1",
         title: "Codex work",
         adapter_id: "codex",
         workspace: "/Users/alice/dev/hecate",

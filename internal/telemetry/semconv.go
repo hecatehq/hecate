@@ -138,26 +138,26 @@ const (
 	AttrRetentionResults   = "retention.results"
 
 	// External agent chats
-	AttrHecateAgentChatSessionID          = "hecate.agent_chat.session.id"
-	AttrHecateAgentChatMessageID          = "hecate.agent_chat.message.id"
-	AttrHecateAgentChatTimingBucket       = "hecate.agent_chat.timing.bucket"
-	AttrHecateAgentChatTimingTotalMS      = "hecate.agent_chat.timing.total_ms"
-	AttrHecateAgentChatTimingQueueMS      = "hecate.agent_chat.timing.queue_ms"
-	AttrHecateAgentChatTimingModelMS      = "hecate.agent_chat.timing.model_ms"
-	AttrHecateAgentChatTimingToolMS       = "hecate.agent_chat.timing.tool_ms"
-	AttrHecateAgentChatTimingApprovalMS   = "hecate.agent_chat.timing.approval_wait_ms"
-	AttrHecateAgentChatTimingOverheadMS   = "hecate.agent_chat.timing.overhead_ms"
-	AttrHecateAgentChatTimingBottleneck   = "hecate.agent_chat.timing.bottleneck"
-	AttrHecateAgentChatTimingBottleneckMS = "hecate.agent_chat.timing.bottleneck_ms"
-	AttrHecateAgentAdapterID              = "hecate.agent_adapter.id"
-	AttrHecateAgentAdapterName            = "hecate.agent_adapter.name"
-	AttrHecateAgentAdapterCommand         = "hecate.agent_adapter.command"
-	AttrHecateAgentDriverKind             = "hecate.agent_adapter.driver.kind"
-	AttrHecateAgentNativeSessionID        = "hecate.agent_adapter.native_session.id"
-	AttrHecateAgentOutputBytes            = "hecate.agent_adapter.output.bytes"
-	AttrHecateAgentRawOutputBytes         = "hecate.agent_adapter.raw_output.bytes"
-	AttrHecateAgentDiffCaptured           = "hecate.agent_adapter.diff.captured"
-	AttrHecateWorkspacePath               = "hecate.workspace.path"
+	AttrHecateChatSessionID          = "hecate.chat.session.id"
+	AttrHecateChatMessageID          = "hecate.chat.message.id"
+	AttrHecateChatTimingBucket       = "hecate.chat.timing.bucket"
+	AttrHecateChatTimingTotalMS      = "hecate.chat.timing.total_ms"
+	AttrHecateChatTimingQueueMS      = "hecate.chat.timing.queue_ms"
+	AttrHecateChatTimingModelMS      = "hecate.chat.timing.model_ms"
+	AttrHecateChatTimingToolMS       = "hecate.chat.timing.tool_ms"
+	AttrHecateChatTimingApprovalMS   = "hecate.chat.timing.approval_wait_ms"
+	AttrHecateChatTimingOverheadMS   = "hecate.chat.timing.overhead_ms"
+	AttrHecateChatTimingBottleneck   = "hecate.chat.timing.bottleneck"
+	AttrHecateChatTimingBottleneckMS = "hecate.chat.timing.bottleneck_ms"
+	AttrHecateAgentAdapterID         = "hecate.agent_adapter.id"
+	AttrHecateAgentAdapterName       = "hecate.agent_adapter.name"
+	AttrHecateAgentAdapterCommand    = "hecate.agent_adapter.command"
+	AttrHecateAgentDriverKind        = "hecate.agent_adapter.driver.kind"
+	AttrHecateAgentNativeSessionID   = "hecate.agent_adapter.native_session.id"
+	AttrHecateAgentOutputBytes       = "hecate.agent_adapter.output.bytes"
+	AttrHecateAgentRawOutputBytes    = "hecate.agent_adapter.raw_output.bytes"
+	AttrHecateAgentDiffCaptured      = "hecate.agent_adapter.diff.captured"
+	AttrHecateWorkspacePath          = "hecate.workspace.path"
 
 	// External-adapter approval attributes — see docs/rfcs/external-adapter-approvals-v1.md.
 	// `decision` is approve|deny, `scope` is once|session|workspace_tool|adapter_tool,
@@ -177,7 +177,7 @@ const (
 	// (ready|not_installed|auth_required|error); `terminal.method`
 	// is one of create|kill|output|release|wait; `cancel.reason`
 	// is one of operator|request_cancelled|shutdown.
-	AttrHecateAgentProbeStatus      = "hecate.agent_adapter.probe.status"
-	AttrHecateAgentTerminalMethod   = "hecate.agent_adapter.terminal.method"
-	AttrHecateAgentChatCancelReason = "hecate.agent_chat.cancel.reason"
+	AttrHecateAgentProbeStatus    = "hecate.agent_adapter.probe.status"
+	AttrHecateAgentTerminalMethod = "hecate.agent_adapter.terminal.method"
+	AttrHecateChatCancelReason    = "hecate.chat.cancel.reason"
 )

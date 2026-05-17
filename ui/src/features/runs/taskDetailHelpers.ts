@@ -1,5 +1,5 @@
 import type {
-  AgentChatActivityRecord,
+  ChatActivityRecord,
   TaskActivityRecord,
   TaskArtifactRecord,
   TaskRecord,
@@ -199,7 +199,7 @@ export function taskActivityAdvancedRows(activity: TaskActivityRecord): Array<{ 
   return rows;
 }
 
-export function taskActivityToTranscriptActivity(item: TaskActivityRecord): AgentChatActivityRecord {
+export function taskActivityToTranscriptActivity(item: TaskActivityRecord): ChatActivityRecord {
   return {
     id: item.id,
     type: item.type,

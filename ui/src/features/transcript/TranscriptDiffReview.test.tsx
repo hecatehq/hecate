@@ -2,10 +2,10 @@ import { render, screen, waitFor } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { describe, expect, it, vi } from "vitest";
 
-import type { AgentChatChangedFileDiffRecord, AgentChatChangedFileRecord } from "../../types/runtime";
+import type { ChatChangedFileDiffRecord, ChatChangedFileRecord } from "../../types/runtime";
 import { TranscriptDiffReview } from "./TranscriptDiffReview";
 
-function file(overrides: Partial<AgentChatChangedFileRecord> = {}): AgentChatChangedFileRecord {
+function file(overrides: Partial<ChatChangedFileRecord> = {}): ChatChangedFileRecord {
   return {
     path: "src/foo.ts",
     status: "modified",
@@ -15,7 +15,7 @@ function file(overrides: Partial<AgentChatChangedFileRecord> = {}): AgentChatCha
   };
 }
 
-function fileDiff(overrides: Partial<AgentChatChangedFileDiffRecord> = {}): AgentChatChangedFileDiffRecord {
+function fileDiff(overrides: Partial<ChatChangedFileDiffRecord> = {}): ChatChangedFileDiffRecord {
   return {
     path: "src/foo.ts",
     additions: 1,

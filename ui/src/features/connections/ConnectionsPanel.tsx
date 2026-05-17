@@ -4,7 +4,7 @@ import type { RuntimeConsoleViewModel } from "../../app/useRuntimeConsole";
 import { claudeCodeSetupTokenCommand } from "../../lib/claude-code-setup";
 import { formatLocaleDateTime } from "../../lib/format";
 import { providerFleetRepairHint, providerReadinessMeaning, providerRepairActionLabel } from "../../lib/provider-readiness";
-import type { AgentAdapterHealthRecord, AgentAdapterRecord, AgentChatGrantRecord, ConfiguredProviderRecord, ProviderRecord } from "../../types/runtime";
+import type { AgentAdapterHealthRecord, AgentAdapterRecord, ChatGrantRecord, ConfiguredProviderRecord, ProviderRecord } from "../../types/runtime";
 import { BrandAvatar, Icon, Icons, InlineError } from "../shared/ui";
 import { ModelCapabilitiesSection } from "./ModelCapabilitiesSection";
 
@@ -78,7 +78,7 @@ export function ConnectionsPanel({
   }, [adapterIDsKey]);
 
   useEffect(() => {
-    void actions.listAgentChatGrants();
+    void actions.listChatGrants();
     // Grants are lazy-loaded once when the tab mounts; Refresh handles
     // explicit re-fetches.
     // eslint-disable-next-line react-hooks/exhaustive-deps
@@ -134,9 +134,9 @@ export function ConnectionsPanel({
     };
   }, []);
 
-  const grants = state.agentChatGrants;
-  const loading = state.agentChatGrantsLoading;
-  const error = state.agentChatGrantsError;
+  const grants = state.chatGrants;
+  const loading = state.chatGrantsLoading;
+  const error = state.chatGrantsError;
 
   return (
     <>
@@ -162,7 +162,7 @@ export function ConnectionsPanel({
           <button
             type="button"
             className="btn btn-ghost btn-sm"
-            onClick={() => void actions.listAgentChatGrants()}
+            onClick={() => void actions.listChatGrants()}
             disabled={loading}
             data-testid="external-agents-refresh"
           >
@@ -192,7 +192,7 @@ export function ConnectionsPanel({
               key={g.id}
               grant={g}
               divider={i < grants.length - 1}
-              onRevoke={() => void actions.deleteAgentChatGrant(g.id)}
+              onRevoke={() => void actions.deleteChatGrant(g.id)}
             />
           ))}
         </div>
@@ -807,7 +807,7 @@ function GrantRow({
   divider,
   onRevoke,
 }: {
-  grant: AgentChatGrantRecord;
+  grant: ChatGrantRecord;
   divider: boolean;
   onRevoke: () => void;
 }) {

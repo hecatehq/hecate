@@ -1,8 +1,8 @@
 import {
   ApiError,
   getAgentAdapters,
-  getAgentChatSession,
-  getAgentChatSessions,
+  getChatSession,
+  getChatSessions,
   getSettingsConfig,
   getHealth,
   getModels,
@@ -15,8 +15,8 @@ import {
 } from "../lib/api";
 import type {
   AgentAdapterRecord,
-  AgentChatSessionRecord,
-  AgentChatSessionsResponse,
+  ChatSessionRecord,
+  ChatSessionsResponse,
   ConfiguredStateResponse,
   HealthResponse,
   ModelResponse,
@@ -36,8 +36,8 @@ export type DashboardPreviousState = {
   providers: ProviderStatusResponse["data"];
   agentAdapters: AgentAdapterRecord[];
   usageSummary: UsageSummaryResponse["data"] | null;
-  agentChatSessions: AgentChatSessionsResponse["data"];
-  activeAgentChatSession: AgentChatSessionRecord | null;
+  chatSessions: ChatSessionsResponse["data"];
+  activeChatSession: ChatSessionRecord | null;
   usageEvents: UsageEventsResponse["data"];
   settingsConfig: ConfiguredStateResponse["data"] | null;
 };
@@ -66,9 +66,9 @@ export type DashboardSnapshot = {
   providerPresets: ProviderPresetRecord[];
   agentAdapters: AgentAdapterRecord[];
   usageSummary: UsageSummaryResponse["data"] | null;
-  agentChatSessions: AgentChatSessionsResponse["data"];
-  activeAgentChatSessionID: string;
-  activeAgentChatSession: AgentChatSessionRecord | null;
+  chatSessions: ChatSessionsResponse["data"];
+  activeChatSessionID: string;
+  activeChatSession: ChatSessionRecord | null;
   usageEvents: UsageEventsResponse["data"];
   settingsConfig: ConfiguredStateResponse["data"] | null;
   agentAdapterApprovalMode: string;
@@ -84,14 +84,14 @@ type DashboardResults = {
   providerPresets: PromiseSettledResult<{ object: string; data: ProviderPresetRecord[] }>;
   agentAdapters: PromiseSettledResult<{ object: string; data: AgentAdapterRecord[] }>;
   usageSummary: PromiseSettledResult<UsageSummaryResponse>;
-  agentChatSessions: PromiseSettledResult<AgentChatSessionsResponse>;
+  chatSessions: PromiseSettledResult<ChatSessionsResponse>;
   usageEvents: PromiseSettledResult<UsageEventsResponse>;
   settingsConfig: PromiseSettledResult<ConfiguredStateResponse>;
   runtimeStats: PromiseSettledResult<RuntimeStatsResponse>;
 };
 
 export async function resolveDashboardSnapshot(args: {
-  activeAgentChatSessionID: string;
+  activeChatSessionID: string;
   previous: DashboardPreviousState;
   /**
    * Fires once the essentials wave (health + session + models +
@@ -126,11 +126,11 @@ export async function resolveDashboardSnapshot(args: {
   const rtkPath = results.runtimeStats.status === "fulfilled"
     ? (results.runtimeStats.value.data.rtk_path ?? "")
     : "";
-  const agentChatState = await resolveAgentChatDashboardState({
-    activeSessionID: args.activeAgentChatSessionID,
-    previousSessions: args.previous.agentChatSessions,
-    previousActiveSession: args.previous.activeAgentChatSession,
-    result: results.agentChatSessions,
+  const chatState = await resolveChatDashboardState({
+    activeSessionID: args.activeChatSessionID,
+    previousSessions: args.previous.chatSessions,
+    previousActiveSession: args.previous.activeChatSession,
+    result: results.chatSessions,
   });
 
   return {
@@ -141,9 +141,9 @@ export async function resolveDashboardSnapshot(args: {
     providerPresets,
     agentAdapters,
     usageSummary,
-    agentChatSessions: agentChatState.sessions,
-    activeAgentChatSessionID: agentChatState.activeSessionID,
-    activeAgentChatSession: agentChatState.activeSession,
+    chatSessions: chatState.sessions,
+    activeChatSessionID: chatState.activeSessionID,
+    activeChatSession: chatState.activeSession,
     usageEvents,
     settingsConfig,
     agentAdapterApprovalMode,
@@ -199,7 +199,7 @@ async function loadDashboardResults(opts: {
   let providerPresets: PromiseSettledResult<{ object: string; data: ProviderPresetRecord[] }> = initialReject();
   let agentAdapters: PromiseSettledResult<{ object: string; data: AgentAdapterRecord[] }> = initialReject();
   let usageSummary: PromiseSettledResult<UsageSummaryResponse> = initialReject();
-  let agentChatSessions: PromiseSettledResult<AgentChatSessionsResponse> = initialReject();
+  let chatSessions: PromiseSettledResult<ChatSessionsResponse> = initialReject();
   let usageEvents: PromiseSettledResult<UsageEventsResponse> = initialReject();
   let runtimeStats: PromiseSettledResult<RuntimeStatsResponse> = initialReject();
 
@@ -212,7 +212,7 @@ async function loadDashboardResults(opts: {
   const secondary: Promise<unknown>[] = [
     getProviderPresets().then(r => { providerPresets = { status: "fulfilled", value: r }; }, e => { providerPresets = { status: "rejected", reason: e }; }),
     getAgentAdapters().then(r => { agentAdapters = { status: "fulfilled", value: r }; }, e => { agentAdapters = { status: "rejected", reason: e }; }),
-    getAgentChatSessions().then(r => { agentChatSessions = { status: "fulfilled", value: r }; }, e => { agentChatSessions = { status: "rejected", reason: e }; }),
+    getChatSessions().then(r => { chatSessions = { status: "fulfilled", value: r }; }, e => { chatSessions = { status: "rejected", reason: e }; }),
     getUsageSummary("").then(r => { usageSummary = { status: "fulfilled", value: r }; }, e => { usageSummary = { status: "rejected", reason: e }; }),
     getUsageEvents(20).then(r => { usageEvents = { status: "fulfilled", value: r }; }, e => { usageEvents = { status: "rejected", reason: e }; }),
     getRuntimeStats().then(r => { runtimeStats = { status: "fulfilled", value: r }; }, e => { runtimeStats = { status: "rejected", reason: e }; }),
@@ -239,7 +239,7 @@ async function loadDashboardResults(opts: {
     providerPresets,
     agentAdapters,
     usageSummary,
-    agentChatSessions,
+    chatSessions,
     usageEvents,
     settingsConfig,
     runtimeStats,
@@ -270,15 +270,15 @@ function resolveDashboardResult<T>(
   return previous;
 }
 
-async function resolveAgentChatDashboardState(args: {
+async function resolveChatDashboardState(args: {
   activeSessionID: string;
-  previousSessions: AgentChatSessionsResponse["data"];
-  previousActiveSession: AgentChatSessionRecord | null;
-  result: PromiseSettledResult<AgentChatSessionsResponse>;
+  previousSessions: ChatSessionsResponse["data"];
+  previousActiveSession: ChatSessionRecord | null;
+  result: PromiseSettledResult<ChatSessionsResponse>;
 }): Promise<{
-  sessions: AgentChatSessionsResponse["data"];
+  sessions: ChatSessionsResponse["data"];
   activeSessionID: string;
-  activeSession: AgentChatSessionRecord | null;
+  activeSession: ChatSessionRecord | null;
 }> {
   if (args.result.status !== "fulfilled") {
     return {
@@ -298,7 +298,7 @@ async function resolveAgentChatDashboardState(args: {
   }
 
   try {
-    const sessionResult = await getAgentChatSession(activeSessionID);
+    const sessionResult = await getChatSession(activeSessionID);
     return { sessions, activeSessionID, activeSession: sessionResult.data };
   } catch (error) {
     if (!(error instanceof ApiError) || error.status !== 404) {

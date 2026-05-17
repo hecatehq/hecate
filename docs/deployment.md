@@ -116,9 +116,9 @@ with these env vars inherited from the app process; Docker reads them from
 | Env var | Default | Applies to |
 |---|---|---|
 | `HECATE_AGENT_ADAPTERS_DIR` | platform user cache | Managed Codex / Claude ACP launcher scripts |
-| `GATEWAY_AGENT_CHAT_MAX_TURNS_PER_SESSION` | `0` | Per-session user→assistant turn ceiling |
-| `GATEWAY_AGENT_CHAT_MAX_SESSION_DURATION` | `0s` | Wall-clock age ceiling before new turns are rejected |
-| `GATEWAY_AGENT_CHAT_IDLE_TIMEOUT` | `0s` | Background idle auto-close sweeper |
+| `GATEWAY_CHAT_MAX_TURNS_PER_SESSION` | `0` | Per-session user→assistant turn ceiling |
+| `GATEWAY_CHAT_MAX_SESSION_DURATION` | `0s` | Wall-clock age ceiling before new turns are rejected |
+| `GATEWAY_CHAT_IDLE_TIMEOUT` | `0s` | Background idle auto-close sweeper |
 
 Managed launchers are small wrapper scripts around a local package runner such
 as `npx`; Hecate garbage-collects stale launcher names at startup. If you move
@@ -151,7 +151,7 @@ Hecate keeps the storage model intentionally boring: each subsystem chooses a ba
 | Audit events | `GATEWAY_AUDIT_BACKEND` | local default | Docker default |
 | Trace snapshots | `GATEWAY_TRACE_STORE_BACKEND` | local default | Docker default |
 | Retention history | `GATEWAY_RETENTION_HISTORY_BACKEND` | local default | Docker default |
-| Chat sessions + agent-chat approvals/grants | `GATEWAY_CHAT_SESSIONS_BACKEND` | local default | Docker default |
+| Chat sessions + chat approvals/grants | `GATEWAY_CHAT_SESSIONS_BACKEND` | local default | Docker default |
 | Tasks | `GATEWAY_TASKS_BACKEND` | local default | Docker default |
 | Task queue | `GATEWAY_TASK_QUEUE_BACKEND` | local default | Docker default |
 
@@ -159,7 +159,7 @@ Deployment-specific notes:
 
 - The docker image **defaults to `sqlite`** for every durable subsystem, persisting state at `GATEWAY_SQLITE_PATH` (default `/data/hecate.db` on the `hecate-data` volume). This is why `docker compose up` keeps providers, usage events, tasks, and chat sessions across restarts with no extra config.
 - To make any subsystem ephemeral in docker, override its backend via `.env` or compose env: `GATEWAY_TASKS_BACKEND=memory`, etc.
-- `GATEWAY_CHAT_SESSIONS_BACKEND=sqlite` covers the full agent-chat state bundle: sessions, messages, external-adapter approvals, and operator-authored grants. On startup the gateway flips any pending approvals from a prior process to `status=timed_out`, `path=startup_reconcile` before serving requests, so an orphaned waiter never appears actionable in the operator UI. See [`runtime-api.md`](runtime-api.md) for the wire shape.
+- `GATEWAY_CHAT_SESSIONS_BACKEND=sqlite` covers the full chat state bundle: sessions, messages, external-adapter approvals, and operator-authored grants. On startup the gateway flips any pending approvals from a prior process to `status=timed_out`, `path=startup_reconcile` before serving requests, so an orphaned waiter never appears actionable in the operator UI. See [`runtime-api.md`](runtime-api.md) for the wire shape.
 
 ## Rate limiting
 

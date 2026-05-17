@@ -1,8 +1,8 @@
 import { describe, expect, it } from "vitest";
 
 import type {
-  AgentChatApprovalRecord,
-  AgentChatSessionRecord,
+  ChatApprovalRecord,
+  ChatSessionRecord,
   ModelRecord,
   ProviderPresetRecord,
   ProviderRecord,
@@ -17,7 +17,7 @@ import {
   deriveChatSessionTitle,
   humanizeChatError,
   isModelValidForProvider,
-  renderAgentChatSessionSummary,
+  renderChatSessionSummary,
 } from "./runtimeConsoleChatHelpers";
 
 function emptyRuntimeHeaders(overrides: Partial<RuntimeHeaders> = {}): RuntimeHeaders {
@@ -224,9 +224,9 @@ describe("isModelValidForProvider", () => {
   });
 });
 
-describe("renderAgentChatSessionSummary", () => {
+describe("renderChatSessionSummary", () => {
   it("counts messages and forwards adapter/workspace metadata", () => {
-    const session: AgentChatSessionRecord = {
+    const session: ChatSessionRecord = {
       id: "ac1",
       title: "agent t",
       adapter_id: "codex",
@@ -240,7 +240,7 @@ describe("renderAgentChatSessionSummary", () => {
         { id: "m2", role: "assistant", content: "done" },
       ],
     };
-    const out = renderAgentChatSessionSummary(session);
+    const out = renderChatSessionSummary(session);
     expect(out.message_count).toBe(2);
     expect(out.adapter_id).toBe("codex");
     expect(out.workspace_branch).toBe("main");
@@ -250,7 +250,7 @@ describe("renderAgentChatSessionSummary", () => {
 
 describe("approvalRecordToPending", () => {
   it("projects an approval row into the pending banner shape", () => {
-    const approval: AgentChatApprovalRecord = {
+    const approval: ChatApprovalRecord = {
       id: "ap_1",
       session_id: "s1",
       adapter_id: "codex",

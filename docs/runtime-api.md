@@ -66,12 +66,12 @@ Common Hecate-native error types:
 | `gateway_error` | 500 | Hecate failed before it could classify the failure more specifically. |
 | `rate_limit_exceeded` | 429 | The local gateway rate limiter rejected the request. |
 | `model_not_configured` | 422 | The selected model is stale or not currently reported by the selected provider. |
-| `agent_chat.agent_session_busy` | 409 | A Hecate Chat task-backed loop is queued, running, or awaiting approval. |
-| `agent_chat.model_capability_required` | 422 | Tools are on, but the model is not marked tool-capable. |
-| `agent_chat.workspace_required` | 400 | Hecate Agent or External Agent chat needs a workspace path. |
-| `agent_chat.session_limit_exceeded` | 422 | The chat turn limit was reached. |
-| `agent_chat.session_duration_limit_exceeded` | 422 | The chat wall-clock limit was reached. |
-| `agent_chat.session_idle_timeout` | 422 | The chat was idle beyond the configured timeout. |
+| `chat.agent_session_busy` | 409 | A Hecate Chat task-backed loop is queued, running, or awaiting approval. |
+| `chat.model_capability_required` | 422 | Tools are on, but the model is not marked tool-capable. |
+| `chat.workspace_required` | 400 | Hecate Agent or External Agent chat needs a workspace path. |
+| `chat.session_limit_exceeded` | 422 | The chat turn limit was reached. |
+| `chat.session_duration_limit_exceeded` | 422 | The chat wall-clock limit was reached. |
+| `chat.session_idle_timeout` | 422 | The chat was idle beyond the configured timeout. |
 
 OpenAI-compatible and Anthropic-compatible ingress paths keep their protocol
 shape, but gateway-classified failures also include the same
@@ -1024,7 +1024,7 @@ Status codes:
 - `409 conflict` when the adapter is not managed or the launcher cannot be
   recreated.
 
-### `GET /hecate/v1/agent-chat/sessions`
+### `GET /hecate/v1/chat/sessions`
 
 Lists Agent Chat sessions. Agent Chat uses the same backend selection as model
 chat history: memory by default, SQLite when
@@ -1048,22 +1048,22 @@ Hecate Chat and External Agent sessions:
   transcript, diagnostics, and external-agent approvals.
 
 `GATEWAY_CHAT_SESSIONS_BACKEND=sqlite` is the single selector for the entire
-agent-chat state bundle: sessions, messages, **and** the operator-facing
+chat state bundle: sessions, messages, **and** the operator-facing
 approval rows + grants documented under
-`/hecate/v1/agent-chat/sessions/{id}/approvals` and `/hecate/v1/agent-chat/grants`. They all
-move together so agent-chat state can't go split-brain. On startup the gateway
+`/hecate/v1/chat/sessions/{id}/approvals` and `/hecate/v1/chat/grants`. They all
+move together so chat state can't go split-brain. On startup the gateway
 runs a reconcile pass that flips any approvals stuck in `pending` from a prior
 process to `status=timed_out` with `path=startup_reconcile` — process-local
 waiters can't be resurrected, so the operator UI never sees an actionable
 "pending" row that nothing is actually blocked on.
 
 Resolved approvals are pruned by the retention worker
-(`GATEWAY_RETENTION_AGENT_CHAT_APPROVALS_*`, default 30d / 10k). Operator-
+(`GATEWAY_RETENTION_CHAT_APPROVALS_*`, default 30d / 10k). Operator-
 authored grants are NOT subject to that retention — only their own
 `expires_at` drives deletion, so explicit operator intent outlives normal
 retention windows.
 
-The same per-session SSE stream (`GET /hecate/v1/agent-chat/sessions/{id}/stream`)
+The same per-session SSE stream (`GET /hecate/v1/chat/sessions/{id}/stream`)
 also carries approval lifecycle events so frontends don't have to poll. Two
 event types are emitted in addition to normal chat session updates:
 
@@ -1108,13 +1108,13 @@ slow operator UI catches up by re-fetching `/approvals?status=pending` on
 reconnect. Replay across restart is not supported in this slice.
 
 ```json
-GET /hecate/v1/agent-chat/sessions
+GET /hecate/v1/chat/sessions
 → 200
 {
-  "object": "agent_chat_sessions",
+  "object": "chat_sessions",
   "data": [
     {
-      "id": "agent_chat_...",
+      "id": "chat_...",
       "title": "Hecate Chat",
       "runtime_kind": "model",
       "provider": "ollama",
@@ -1139,7 +1139,7 @@ GET /hecate/v1/agent-chat/sessions
 }
 ```
 
-### `POST /hecate/v1/agent-chat/sessions`
+### `POST /hecate/v1/chat/sessions`
 
 Creates an Agent Chat session. `runtime_kind` chooses the execution target:
 
@@ -1166,7 +1166,7 @@ unauthenticated, or fails its ACP handshake, session creation fails and Hecate
 removes the empty chat record.
 
 ```json
-POST /hecate/v1/agent-chat/sessions
+POST /hecate/v1/chat/sessions
 {
   "runtime_kind": "model",
   "provider": "ollama",
@@ -1176,9 +1176,9 @@ POST /hecate/v1/agent-chat/sessions
 
 → 200
 {
-  "object": "agent_chat_session",
+  "object": "chat_session",
   "data": {
-    "id": "agent_chat_...",
+    "id": "chat_...",
     "title": "Hecate Chat",
     "runtime_kind": "model",
     "provider": "ollama",
@@ -1197,12 +1197,12 @@ POST /hecate/v1/agent-chat/sessions
 }
 ```
 
-### `GET /hecate/v1/agent-chat/sessions/{id}`
+### `GET /hecate/v1/chat/sessions/{id}`
 
 Returns the full session transcript, including user messages and assistant
 messages produced by the backing runtime. Hecate Agent sessions include
 `task_id`, `latest_run_id`, `provider`, `model`, and the capability snapshot
-used when the session was created. Individual agent-chat messages also carry a
+used when the session was created. Individual chat messages also carry a
 runtime snapshot: `runtime_kind`, `segment_id`, optional `task_id`, optional
 `run_id`, provider/model, and capabilities. Frontends should prefer those
 message-level fields when rendering historical turns because the session header
@@ -1225,7 +1225,7 @@ controls before the first prompt. These controls are adapter-owned; common
 `category` values include `model`, `mode`, and `thought_level`, but clients
 must handle missing or custom categories.
 
-### `PATCH /hecate/v1/agent-chat/sessions/{id}`
+### `PATCH /hecate/v1/chat/sessions/{id}`
 
 Renames an Agent Chat session. This is shared by Hecate Chat
 (`runtime_kind="model"` / `"agent"`) and External Agent sessions. The title is
@@ -1233,16 +1233,16 @@ metadata only; it does not change the prompt history, workspace, provider/model,
 or ACP native session.
 
 ```json
-PATCH /hecate/v1/agent-chat/sessions/agent_chat_...
+PATCH /hecate/v1/chat/sessions/chat_...
 {
   "title": "Review release notes"
 }
 
 → 200
 {
-  "object": "agent_chat_session",
+  "object": "chat_session",
   "data": {
-    "id": "agent_chat_...",
+    "id": "chat_...",
     "title": "Review release notes",
     "runtime_kind": "agent",
     "status": "completed",
@@ -1251,7 +1251,7 @@ PATCH /hecate/v1/agent-chat/sessions/agent_chat_...
 }
 ```
 
-### `POST /hecate/v1/agent-chat/sessions/{id}/config-options/{config_id}`
+### `POST /hecate/v1/chat/sessions/{id}/config-options/{config_id}`
 
 Updates one ACP session configuration option for an active External Agent
 session. Body:
@@ -1267,15 +1267,15 @@ the active adapter with ACP `session/set_config_option`, persists the adapter's
 returned full `config_options` list on the chat session, publishes a session
 snapshot, and returns the updated session response. If the native ACP session
 has been closed or is not active, the endpoint returns
-`409 agent_chat.session_not_running`; create a new External Agent chat or retry
+`409 chat.session_not_running`; create a new External Agent chat or retry
 after the session has been restored.
 
-### `PATCH /hecate/v1/agent-chat/sessions/{id}/settings`
+### `PATCH /hecate/v1/chat/sessions/{id}/settings`
 
 Updates Hecate-owned chat settings for future turns. This endpoint currently
 accepts `rtk_enabled` for `runtime_kind="model"` and `runtime_kind="agent"`
 sessions. External Agent sessions reject it with
-`agent_chat.runtime_mismatch` because Codex, Claude Code, Cursor, and other ACP
+`chat.runtime_mismatch` because Codex, Claude Code, Cursor, and other ACP
 adapters own their own command execution.
 
 When an existing Hecate Chat session already has a backing task, the task
@@ -1283,23 +1283,23 @@ record is updated too so later continued runs inherit the same setting.
 Running turns are not mutated mid-flight.
 
 ```json
-PATCH /hecate/v1/agent-chat/sessions/agent_chat_.../settings
+PATCH /hecate/v1/chat/sessions/chat_.../settings
 {
   "rtk_enabled": true
 }
 
 → 200
 {
-  "object": "agent_chat_session",
+  "object": "chat_session",
   "data": {
-    "id": "agent_chat_...",
+    "id": "chat_...",
     "runtime_kind": "agent",
     "rtk_enabled": true
   }
 }
 ```
 
-### `POST /hecate/v1/agent-chat/sessions/{id}/messages`
+### `POST /hecate/v1/chat/sessions/{id}/messages`
 
 Sends the submitted prompt to the session's backing runtime and appends both
 the user message and assistant output.
@@ -1328,7 +1328,7 @@ fresh task-backed segment in the same transcript.
 
 Only one task-backed segment can be active in a Hecate Chat session at a time.
 If the latest backing task is queued, running, or awaiting approval, **all** new
-turns on that chat are rejected with `409 agent_chat.agent_session_busy`,
+turns on that chat are rejected with `409 chat.agent_session_busy`,
 including direct `runtime_kind="model"` turns. Operators should wait for the
 task to finish, resolve the pending approval, or cancel/stop the active run
 before sending another prompt. The operator UI layers a local composer queue on
@@ -1353,26 +1353,26 @@ streaming; non-streaming providers still publish the final assistant content
 when the run finishes. External Agent turns continue to publish normalized
 adapter output as it arrives.
 
-Before starting the adapter, Hecate enforces optional agent-chat guardrails:
-`GATEWAY_AGENT_CHAT_MAX_TURNS_PER_SESSION`,
-`GATEWAY_AGENT_CHAT_MAX_SESSION_DURATION`, and
-`GATEWAY_AGENT_CHAT_IDLE_TIMEOUT`. Each returns HTTP 422 with a stable
+Before starting the adapter, Hecate enforces optional chat guardrails:
+`GATEWAY_CHAT_MAX_TURNS_PER_SESSION`,
+`GATEWAY_CHAT_MAX_SESSION_DURATION`, and
+`GATEWAY_CHAT_IDLE_TIMEOUT`. Each returns HTTP 422 with a stable
 `error.type` when exceeded:
-`agent_chat.session_limit_exceeded`,
-`agent_chat.session_duration_limit_exceeded`, or
-`agent_chat.session_idle_timeout`.
+`chat.session_limit_exceeded`,
+`chat.session_duration_limit_exceeded`, or
+`chat.session_idle_timeout`.
 
 ```json
-POST /hecate/v1/agent-chat/sessions/agent_chat_.../messages
+POST /hecate/v1/chat/sessions/chat_.../messages
 {
   "content": "Review the current diff and suggest fixes."
 }
 
 → 200
 {
-  "object": "agent_chat_session",
+  "object": "chat_session",
   "data": {
-    "id": "agent_chat_...",
+    "id": "chat_...",
     "status": "completed",
     "messages": [
       {
@@ -1433,7 +1433,7 @@ duration so clients can correlate streamed updates, final output, and future
 artifacts without treating the assistant message id as the runtime identity.
 It also stores `request_id`, `trace_id`, and `span_id`; use
 `GET /hecate/v1/traces?request_id=<request_id>` to inspect the OTel-shaped
-`agent_chat.run` span for that prompt.
+`chat.run` span for that prompt.
 Task-backed Hecate Agent messages also include a `timing` object derived from
 the backing run's task steps, approvals, and run events:
 
@@ -1472,32 +1472,32 @@ Hecate Agent-specific errors:
 
 | Status | `error.type` | Meaning |
 |---|---|---|
-| `400` | `agent_chat.workspace_required` | Hecate Agent and External Agent sessions need a selected workspace path before the first turn. |
-| `400` | `agent_chat.model_required` | Hecate Chat needs an explicit selected model before direct model or Hecate Agent turns. |
-| `400` | `agent_chat.runtime_kind_invalid` | The requested chat runtime is not one of `model`, `agent`, or `external_agent`. |
-| `400` | `agent_chat.runtime_mismatch` | The request tried to run a turn through a runtime that does not match the existing session type. |
-| `400` | `agent_chat.adapter_not_found` | The selected external-agent adapter is not registered. |
-| `409` | `agent_chat.agent_session_busy` | The backing task run is queued, running, or awaiting approval. Resolve/cancel the active run before sending another prompt, even for direct model turns in the same Hecate Chat session. |
-| `409` | `agent_chat.session_stopping` | The session is still cancelling or closing; retry after it settles. |
-| `409` | `agent_chat.session_not_running` | A stop request was issued when no run was active. |
+| `400` | `chat.workspace_required` | Hecate Agent and External Agent sessions need a selected workspace path before the first turn. |
+| `400` | `chat.model_required` | Hecate Chat needs an explicit selected model before direct model or Hecate Agent turns. |
+| `400` | `chat.runtime_kind_invalid` | The requested chat runtime is not one of `model`, `agent`, or `external_agent`. |
+| `400` | `chat.runtime_mismatch` | The request tried to run a turn through a runtime that does not match the existing session type. |
+| `400` | `chat.adapter_not_found` | The selected external-agent adapter is not registered. |
+| `409` | `chat.agent_session_busy` | The backing task run is queued, running, or awaiting approval. Resolve/cancel the active run before sending another prompt, even for direct model turns in the same Hecate Chat session. |
+| `409` | `chat.session_stopping` | The session is still cancelling or closing; retry after it settles. |
+| `409` | `chat.session_not_running` | A stop request was issued when no run was active. |
 | `422` | `model_not_configured` | The selected model is not currently reported by the selected provider. Choose a discovered model or refresh/fix provider discovery. |
-| `422` | `agent_chat.model_capability_required` | Tools are explicitly disabled for the selected model. Turn tools off for direct model chat or enable tools in Connections. |
+| `422` | `chat.model_capability_required` | Tools are explicitly disabled for the selected model. Turn tools off for direct model chat or enable tools in Connections. |
 
 Client note: browser/operator clients may queue a prompt locally when they
-receive or predict `agent_chat.agent_session_busy`, but the server still
+receive or predict `chat.agent_session_busy`, but the server still
 accepts only one active task-backed turn per Hecate Chat session.
 
-### `GET /hecate/v1/agent-chat/sessions/{id}/messages/{message_id}/files`
+### `GET /hecate/v1/chat/sessions/{id}/messages/{message_id}/files`
 
 Returns a structured file list for an Agent Chat assistant message that captured
 a workspace diff. The data is derived from the stored `diff` first, then falls
 back to `diff_stat` when only the stat text is available.
 
 ```json
-GET /hecate/v1/agent-chat/sessions/agent_chat_.../messages/msg_.../files
+GET /hecate/v1/chat/sessions/chat_.../messages/msg_.../files
 → 200
 {
-  "object": "agent_chat_changed_files",
+  "object": "chat_changed_files",
   "data": [
     {
       "path": "src/foo.go",
@@ -1512,16 +1512,16 @@ GET /hecate/v1/agent-chat/sessions/agent_chat_.../messages/msg_.../files
 `status` is best-effort: `modified`, `added`, `deleted`, `renamed`, or
 `binary`. Messages without a captured diff return an empty list.
 
-### `GET /hecate/v1/agent-chat/sessions/{id}/messages/{message_id}/files/{path}`
+### `GET /hecate/v1/chat/sessions/{id}/messages/{message_id}/files/{path}`
 
 Returns the stored unified diff block for one changed file. Encode the path as
 a URL path component (`encodeURIComponent(path)` in browser clients).
 
 ```json
-GET /hecate/v1/agent-chat/sessions/agent_chat_.../messages/msg_.../files/src%2Ffoo.go
+GET /hecate/v1/chat/sessions/chat_.../messages/msg_.../files/src%2Ffoo.go
 → 200
 {
-  "object": "agent_chat_changed_file_diff",
+  "object": "chat_changed_file_diff",
   "data": {
     "path": "src/foo.go",
     "additions": 12,
@@ -1536,7 +1536,7 @@ Status codes:
 - `200 OK` with the per-file diff.
 - `404 not_found` when the session, message, or file path is unknown.
 
-### `POST /hecate/v1/agent-chat/sessions/{id}/messages/{message_id}/revert`
+### `POST /hecate/v1/chat/sessions/{id}/messages/{message_id}/revert`
 
 Reverts workspace changes captured by an Agent Chat assistant message. This is
 only available for Git workspaces and only for paths present in the stored
@@ -1545,14 +1545,14 @@ array to revert selected files, or an empty array to revert every file in the
 captured diff.
 
 ```json
-POST /hecate/v1/agent-chat/sessions/agent_chat_.../messages/msg_.../revert
+POST /hecate/v1/chat/sessions/chat_.../messages/msg_.../revert
 {
   "paths": ["src/foo.go"]
 }
 
 → 200
 {
-  "object": "agent_chat_revert",
+  "object": "chat_revert",
   "data": {
     "reverted": true,
     "paths": ["src/foo.go"],
@@ -1574,7 +1574,7 @@ After a successful revert, Hecate refreshes the message's stored `diff` and
 activity, and publishes an updated Agent Chat session snapshot. Non-Git
 workspaces return `400 invalid_request` with a human-readable limitation.
 
-### `GET /hecate/v1/agent-chat/sessions/{id}/stream`
+### `GET /hecate/v1/chat/sessions/{id}/stream`
 
 Streams live Agent Chat session snapshots as Server-Sent Events. This is an
 in-process live feed, not the durable task-event log: session history remains in
@@ -1583,10 +1583,10 @@ currently running gateway process.
 
 ```text
 event: snapshot
-data: {"object":"agent_chat_session","data":{...}}
+data: {"object":"chat_session","data":{...}}
 
 event: done
-data: {"object":"agent_chat_session","data":{"status":"completed",...}}
+data: {"object":"chat_session","data":{"status":"completed",...}}
 ```
 
 Clients should subscribe before sending a message so they can receive live
@@ -1599,25 +1599,25 @@ and a low-level Details group. The stream stays open for an idle or previously
 completed session and closes after it observes a new running message reach a
 terminal status (`completed`, `failed`, or `cancelled`).
 
-### `POST /hecate/v1/agent-chat/sessions/{id}/cancel`
+### `POST /hecate/v1/chat/sessions/{id}/cancel`
 
 Cancels the currently running ACP turn for the session.
 
 ```json
-POST /hecate/v1/agent-chat/sessions/agent_chat_.../cancel
+POST /hecate/v1/chat/sessions/chat_.../cancel
 {}
 ```
 
 Returns `202` when a running turn was signalled. If the session is not
 currently running, the endpoint returns `409 invalid_request`.
 
-### `POST /hecate/v1/agent-chat/sessions/{id}/close`
+### `POST /hecate/v1/chat/sessions/{id}/close`
 
 Closes the native ACP adapter session while keeping the Hecate chat history.
 If a turn is currently running, Hecate cancels and waits briefly before closing
 the external session.
 
-### `DELETE /hecate/v1/agent-chat/sessions/{id}`
+### `DELETE /hecate/v1/chat/sessions/{id}`
 
 Deletes an Agent Chat session from the configured chat-session backend.
 If the session has an active native ACP adapter process, Hecate closes the

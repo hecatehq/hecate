@@ -2,10 +2,10 @@ import { render, screen, waitFor } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { describe, expect, it, vi } from "vitest";
 
-import type { AgentChatApprovalRecord } from "../../types/runtime";
+import type { ChatApprovalRecord } from "../../types/runtime";
 import { AgentApprovalModal } from "./AgentApprovalModal";
 
-function approvalRecord(overrides: Partial<AgentChatApprovalRecord> = {}): AgentChatApprovalRecord {
+function approvalRecord(overrides: Partial<ChatApprovalRecord> = {}): ChatApprovalRecord {
   return {
     id: "ap-1",
     session_id: "s",
@@ -25,7 +25,7 @@ function approvalRecord(overrides: Partial<AgentChatApprovalRecord> = {}): Agent
 }
 
 function setup(
-  fetchResult: AgentChatApprovalRecord | null = approvalRecord(),
+  fetchResult: ChatApprovalRecord | null = approvalRecord(),
   resolveResult = true,
   cancelResult = true,
 ) {
@@ -38,10 +38,10 @@ function setup(
 
 describe("AgentApprovalModal", () => {
   it("shows a loading state until the full row resolves, then renders adapter / tool identity", async () => {
-    let resolveFetch!: (row: AgentChatApprovalRecord | null) => void;
+    let resolveFetch!: (row: ChatApprovalRecord | null) => void;
     const fetchApproval = vi.fn(
       () =>
-        new Promise<AgentChatApprovalRecord | null>((resolve) => {
+        new Promise<ChatApprovalRecord | null>((resolve) => {
           resolveFetch = resolve;
         }),
     );

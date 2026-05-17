@@ -238,8 +238,8 @@ The `context.*` prefix is intentional. Hecate's existing `error.type`
 values follow two conventions: plain snake_case for top-level
 gateway errors (`rate_limit_exceeded`, `gateway_error`,
 `invalid_request`) and `<subsystem>.<reason>` for subsystem-scoped
-errors that will plausibly grow siblings — `agent_chat.session_limit_exceeded`,
-`agent_chat.session_duration_limit_exceeded` are the precedent in
+errors that will plausibly grow siblings — `chat.session_limit_exceeded`,
+`chat.session_duration_limit_exceeded` are the precedent in
 `internal/api/response.go`. Context-window failures will plausibly
 add `context.truncation_failed`, `context.summarization_failed`,
 and similar variants as later phases ship, so the dot-prefixed

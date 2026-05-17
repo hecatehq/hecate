@@ -31,7 +31,7 @@ Pick the path closest to what you are doing.
 
 | Doc | What it answers |
 |---|---|
-| [Runtime API](runtime-api.md) | `/hecate/v1/tasks/*`, `/hecate/v1/agent-chat/*`, approvals, run streaming, queue/lease semantics, health/discovery endpoints. |
+| [Runtime API](runtime-api.md) | `/hecate/v1/tasks/*`, `/hecate/v1/chat/*`, approvals, run streaming, queue/lease semantics, health/discovery endpoints. |
 | [Agent runtime](agent-runtime.md) | `agent_loop` configuration, built-in tools, stdout/stderr handling, system prompt layers, approvals, cost ceiling, retry-from-turn. |
 | [Events](events.md) | Implemented event names, payloads, stdout/stderr stream chunks, and when each is emitted. Use this for today's `/hecate/v1/events` consumers. |
 | [Chat sessions](chat-sessions.md) | Conversation persistence model behind the Chats UI, Hecate Chat segments, provider/model switching, queued prompts, and external-agent sessions. |

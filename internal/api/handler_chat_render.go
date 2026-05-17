@@ -4,7 +4,7 @@ import (
 	"time"
 
 	"github.com/hecate/agent-runtime/internal/agentadapters"
-	"github.com/hecate/agent-runtime/internal/agentchat"
+	"github.com/hecate/agent-runtime/internal/chat"
 	"github.com/hecate/agent-runtime/internal/config"
 )
 
@@ -20,9 +20,9 @@ type agentChatSnapshotConfig struct {
 
 func agentChatSnapshotConfigFromServer(cfg config.ServerConfig) agentChatSnapshotConfig {
 	return agentChatSnapshotConfig{
-		MaxTurnsPerSession: cfg.AgentChatMaxTurnsPerSession,
-		MaxSessionDuration: cfg.AgentChatMaxSessionDuration,
-		IdleTimeout:        cfg.AgentChatIdleTimeout,
+		MaxTurnsPerSession: cfg.ChatMaxTurnsPerSession,
+		MaxSessionDuration: cfg.ChatMaxSessionDuration,
+		IdleTimeout:        cfg.ChatIdleTimeout,
 	}
 }
 
@@ -30,8 +30,8 @@ func (h *Handler) agentChatSnapshotConfig() agentChatSnapshotConfig {
 	return agentChatSnapshotConfigFromServer(h.config.Server)
 }
 
-func renderAgentChatSessionSummary(session agentchat.Session) AgentChatSessionSummaryItem {
-	return AgentChatSessionSummaryItem{
+func renderChatSessionSummary(session chat.Session) ChatSessionSummaryItem {
+	return ChatSessionSummaryItem{
 		ID:              session.ID,
 		Title:           session.Title,
 		RuntimeKind:     renderAgentChatRuntimeKind(session),
@@ -53,10 +53,10 @@ func renderAgentChatSessionSummary(session agentchat.Session) AgentChatSessionSu
 	}
 }
 
-func renderAgentChatSession(session agentchat.Session, limits agentChatSnapshotConfig) AgentChatSessionItem {
-	messages := make([]AgentChatMessageItem, 0, len(session.Messages))
+func renderChatSession(session chat.Session, limits agentChatSnapshotConfig) ChatSessionItem {
+	messages := make([]ChatMessageItem, 0, len(session.Messages))
 	for _, message := range session.Messages {
-		messages = append(messages, AgentChatMessageItem{
+		messages = append(messages, ChatMessageItem{
 			ID:              message.ID,
 			RuntimeKind:     message.RuntimeKind,
 			SegmentID:       message.SegmentID,
@@ -87,11 +87,11 @@ func renderAgentChatSession(session agentchat.Session, limits agentChatSnapshotC
 			DurationMS:      durationMillis(message.StartedAt, message.CompletedAt),
 			Error:           message.Error,
 			Activities:      renderAgentChatActivities(message.Activities),
-			Usage:           renderAgentChatUsage(message.Usage),
-			Timing:          renderAgentChatTiming(message.Timing),
+			Usage:           renderChatUsage(message.Usage),
+			Timing:          renderChatTiming(message.Timing),
 		})
 	}
-	return AgentChatSessionItem{
+	return ChatSessionItem{
 		ID:                   session.ID,
 		Title:                session.Title,
 		RuntimeKind:          renderAgentChatRuntimeKind(session),
@@ -115,18 +115,18 @@ func renderAgentChatSession(session agentchat.Session, limits agentChatSnapshotC
 		ConfigOptions:        session.ConfigOptions,
 		CreatedAt:            formatOptionalTime(session.CreatedAt),
 		UpdatedAt:            formatOptionalTime(session.UpdatedAt),
-		Segments:             renderAgentChatSegments(session),
+		Segments:             renderChatSegments(session),
 		Messages:             messages,
 	}
 }
 
 type agentChatSegmentBuilder struct {
-	item      AgentChatSegmentItem
+	item      ChatSegmentItem
 	startedAt time.Time
 	updatedAt time.Time
 }
 
-func renderAgentChatSegments(session agentchat.Session) []AgentChatSegmentItem {
+func renderChatSegments(session chat.Session) []ChatSegmentItem {
 	if len(session.Messages) == 0 {
 		return nil
 	}
@@ -142,7 +142,7 @@ func renderAgentChatSegments(session agentchat.Session) []AgentChatSegmentItem {
 			idx = len(builders)
 			positions[segmentID] = idx
 			builders = append(builders, agentChatSegmentBuilder{
-				item: AgentChatSegmentItem{
+				item: ChatSegmentItem{
 					ID:          segmentID,
 					RuntimeKind: firstNonEmpty(message.RuntimeKind, renderAgentChatRuntimeKind(session)),
 					Provider:    firstNonEmpty(message.Provider, session.Provider),
@@ -184,7 +184,7 @@ func renderAgentChatSegments(session agentchat.Session) []AgentChatSegmentItem {
 			}
 		}
 	}
-	segments := make([]AgentChatSegmentItem, 0, len(builders))
+	segments := make([]ChatSegmentItem, 0, len(builders))
 	for _, builder := range builders {
 		item := builder.item
 		item.StartedAt = formatOptionalTime(builder.startedAt)
@@ -194,7 +194,7 @@ func renderAgentChatSegments(session agentchat.Session) []AgentChatSegmentItem {
 	return segments
 }
 
-func agentChatMessageSegmentID(session agentchat.Session, message agentchat.Message) string {
+func agentChatMessageSegmentID(session chat.Session, message chat.Message) string {
 	if message.SegmentID != "" {
 		return message.SegmentID
 	}
@@ -210,7 +210,7 @@ func agentChatMessageSegmentID(session agentchat.Session, message agentchat.Mess
 	return ""
 }
 
-func agentChatMessageSegmentTime(message agentchat.Message) time.Time {
+func agentChatMessageSegmentTime(message chat.Message) time.Time {
 	switch {
 	case !message.CreatedAt.IsZero():
 		return message.CreatedAt
@@ -223,7 +223,7 @@ func agentChatMessageSegmentTime(message agentchat.Message) time.Time {
 	}
 }
 
-func renderAgentChatRuntimeKind(session agentchat.Session) string {
+func renderAgentChatRuntimeKind(session chat.Session) string {
 	if session.RuntimeKind != "" {
 		return session.RuntimeKind
 	}
@@ -233,8 +233,8 @@ func renderAgentChatRuntimeKind(session agentchat.Session) string {
 	return "agent"
 }
 
-func agentChatUsageFromResult(usage agentadapters.Usage) agentchat.Usage {
-	return agentchat.Usage{
+func agentChatUsageFromResult(usage agentadapters.Usage) chat.Usage {
+	return chat.Usage{
 		ContextSize:          usage.ContextSize,
 		ContextUsed:          usage.ContextUsed,
 		ReportedCostAmount:   usage.ReportedCostAmount,
@@ -242,11 +242,11 @@ func agentChatUsageFromResult(usage agentadapters.Usage) agentchat.Usage {
 	}
 }
 
-func renderAgentChatUsage(usage agentchat.Usage) *AgentChatUsageItem {
+func renderChatUsage(usage chat.Usage) *ChatUsageItem {
 	if usage.Empty() {
 		return nil
 	}
-	return &AgentChatUsageItem{
+	return &ChatUsageItem{
 		ContextSize:          usage.ContextSize,
 		ContextUsed:          usage.ContextUsed,
 		ReportedCostAmount:   usage.ReportedCostAmount,
@@ -254,11 +254,11 @@ func renderAgentChatUsage(usage agentchat.Usage) *AgentChatUsageItem {
 	}
 }
 
-func renderAgentChatTiming(timing agentchat.Timing) *AgentChatTimingItem {
+func renderChatTiming(timing chat.Timing) *ChatTimingItem {
 	if timing.Empty() {
 		return nil
 	}
-	return &AgentChatTimingItem{
+	return &ChatTimingItem{
 		TotalMS:        timing.TotalMS,
 		QueueMS:        timing.QueueMS,
 		ModelMS:        timing.ModelMS,

@@ -1,4 +1,4 @@
-package agentchat
+package chat
 
 import (
 	"context"
@@ -38,7 +38,7 @@ func runStoreLifecycle(t *testing.T, store Store) {
 	}
 
 	created, err := store.Create(ctx, Session{
-		ID:              "agent_chat_1",
+		ID:              "chat_1",
 		Title:           "Review diff",
 		RuntimeKind:     "agent",
 		TaskID:          "task_chat_1",
@@ -203,7 +203,7 @@ func runStoreDeepCopiesConfigOptions(t *testing.T, store Store) {
 	t.Helper()
 	ctx := context.Background()
 	created, err := store.Create(ctx, Session{
-		ID:          "agent_chat_config_options",
+		ID:          "chat_config_options",
 		RuntimeKind: "external_agent",
 		AdapterID:   "codex",
 		ConfigOptions: []agentcontrols.ConfigOption{
@@ -225,7 +225,7 @@ func runStoreDeepCopiesConfigOptions(t *testing.T, store Store) {
 	created.ConfigOptions[0].CurrentValue = "mutated"
 	created.ConfigOptions[0].Options[0].Name = "Mutated"
 
-	got, ok, err := store.Get(ctx, "agent_chat_config_options")
+	got, ok, err := store.Get(ctx, "chat_config_options")
 	if err != nil || !ok {
 		t.Fatalf("Get: ok=%v err=%v", ok, err)
 	}
@@ -235,7 +235,7 @@ func runStoreDeepCopiesConfigOptions(t *testing.T, store Store) {
 	got.ConfigOptions[0].CurrentValue = "again"
 	got.ConfigOptions[0].Options[1].Name = "Again"
 
-	got, ok, err = store.Get(ctx, "agent_chat_config_options")
+	got, ok, err = store.Get(ctx, "chat_config_options")
 	if err != nil || !ok {
 		t.Fatalf("Get after mutation: ok=%v err=%v", ok, err)
 	}
@@ -247,7 +247,7 @@ func runStoreDeepCopiesConfigOptions(t *testing.T, store Store) {
 		t.Fatalf("List: %v", err)
 	}
 	list[0].ConfigOptions[0].Options[0].Name = "Listed"
-	got, ok, err = store.Get(ctx, "agent_chat_config_options")
+	got, ok, err = store.Get(ctx, "chat_config_options")
 	if err != nil || !ok {
 		t.Fatalf("Get after list mutation: ok=%v err=%v", ok, err)
 	}
@@ -260,7 +260,7 @@ func runStoreDoesNotHydrateTaskIDForAnonymousAgentSegment(t *testing.T, store St
 	t.Helper()
 	ctx := context.Background()
 	created, err := store.Create(ctx, Session{
-		ID:          "agent_chat_1",
+		ID:          "chat_1",
 		RuntimeKind: "agent",
 		TaskID:      "task_previous",
 		LatestRunID: "run_previous",
@@ -304,7 +304,7 @@ func runStoreReconcileInterruptedRuns(t *testing.T, store Store) {
 	t.Helper()
 	ctx := context.Background()
 	created, err := store.Create(ctx, Session{
-		ID:        "agent_chat_interrupted",
+		ID:        "chat_interrupted",
 		Title:     "Interrupted",
 		AdapterID: "codex",
 		Workspace: "/tmp/hecate",

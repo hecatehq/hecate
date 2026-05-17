@@ -27,7 +27,7 @@ export type TraceTimelineItem = {
     | "approval"
     | "artifact"
     | "retention"
-    | "agent_chat"
+    | "chat"
     | "other";
   attributes?: Record<string, unknown>;
 };
@@ -209,7 +209,7 @@ export function formatTraceAttributeValue(value: unknown): string {
 // of an event name — the legend in the waterfall reads off these.
 export function tracePhaseFromSpan(name: string): TraceTimelineItem["phase"] {
   const lower = name.toLowerCase();
-  if (lower.includes("agent_chat")) return "agent_chat";
+  if (lower.includes("chat")) return "chat";
   if (lower.includes("retention")) return "retention";
   if (lower.includes("queue")) return "queue";
   if (lower.includes("approval")) return "approval";
@@ -494,8 +494,8 @@ export function buildSpanWaterfall(spans: TraceSpanRecord[]): TraceWaterfall {
 }
 
 export function tracePhaseFromEvent(name: string): TraceTimelineItem["phase"] {
-  if (name.startsWith("agent_chat.")) {
-    return "agent_chat";
+  if (name.startsWith("chat.")) {
+    return "chat";
   }
   if (name.startsWith("retention.")) {
     return "retention";

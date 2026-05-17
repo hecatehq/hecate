@@ -312,7 +312,7 @@ func spanSpecForEvent(name string) spanSpec {
 		return spanSpec{name: telemetry.SpanOrchestratorQueue, kind: "internal"}
 	case hasPrefix(name, "retention."):
 		return spanSpec{name: telemetry.SpanRetentionRun, kind: "internal"}
-	case hasPrefix(name, "agent_chat."):
+	case hasPrefix(name, "chat."):
 		return spanSpec{name: telemetry.SpanAgentChatRun, kind: "internal"}
 	case hasPrefix(name, "governor."):
 		return spanSpec{name: telemetry.SpanGatewayGovernor, kind: "internal"}
@@ -366,8 +366,8 @@ func otelAttributesForEvent(name string, attrs map[string]any) map[string]any {
 		out[telemetry.AttrHecatePhase] = "approval"
 	case hasPrefix(name, "retention."):
 		out[telemetry.AttrHecatePhase] = "retention"
-	case hasPrefix(name, "agent_chat."):
-		out[telemetry.AttrHecatePhase] = "agent_chat"
+	case hasPrefix(name, "chat."):
+		out[telemetry.AttrHecatePhase] = "chat"
 	}
 
 	return out

@@ -17,30 +17,30 @@ import {
   getUsageEvents,
   getUsageSummary,
   setProviderAPIKey as setProviderAPIKeyRequest,
-  cancelAgentChatSession as cancelAgentChatSessionRequest,
-  getAgentChatMessageFileDiff as getAgentChatMessageFileDiffRequest,
-  listAgentChatMessageFiles as listAgentChatMessageFilesRequest,
-  revertAgentChatMessageFiles as revertAgentChatMessageFilesRequest,
+  cancelChatSession as cancelChatSessionRequest,
+  getChatMessageFileDiff as getChatMessageFileDiffRequest,
+  listChatMessageFiles as listChatMessageFilesRequest,
+  revertChatMessageFiles as revertChatMessageFilesRequest,
   resolveTaskApproval as resolveTaskApprovalRequest,
   upsertPolicyRule as upsertPolicyRuleRequest,
   createProvider as createProviderRequest,
   deleteModelCapabilityOverride as deleteModelCapabilityOverrideRequest,
-  createAgentChatMessage as createAgentChatMessageRequest,
-  createAgentChatSession as createAgentChatSessionRequest,
-  deleteAgentChatSession as deleteAgentChatSessionRequest,
+  createChatMessage as createChatMessageRequest,
+  createChatSession as createChatSessionRequest,
+  deleteChatSession as deleteChatSessionRequest,
   deleteProvider as deleteProviderRequest,
-  getAgentChatSession,
-  updateAgentChatSession as updateAgentChatSessionRequest,
+  getChatSession,
+  updateChatSession as updateChatSessionRequest,
   recordModelCapabilityProbe as recordModelCapabilityProbeRequest,
-  setAgentChatConfigOption as setAgentChatConfigOptionRequest,
-  setAgentChatSettings as setAgentChatSettingsRequest,
-  streamAgentChatSession,
+  setChatConfigOption as setChatConfigOptionRequest,
+  setChatSettings as setChatSettingsRequest,
+  streamChatSession,
   setProviderBaseURL as setProviderBaseURLRequest,
   setProviderName as setProviderNameRequest,
   setProviderCustomName as setProviderCustomNameRequest,
   upsertModelCapabilityOverride as upsertModelCapabilityOverrideRequest,
 } from "../lib/api";
-import type { PolicyRuleUpsertPayload, ResolveAgentChatApprovalPayload, ResolveTaskApprovalPayload, ModelCapabilityUpsertPayload } from "../lib/api";
+import type { PolicyRuleUpsertPayload, ResolveChatApprovalPayload, ResolveTaskApprovalPayload, ModelCapabilityUpsertPayload } from "../lib/api";
 import {
   buildAssistantToolCallMessage,
   buildSyntheticChatResult,
@@ -49,7 +49,7 @@ import {
   deriveChatSessionTitle,
   humanizeChatError,
   isModelValidForProvider,
-  renderAgentChatSessionSummary,
+  renderChatSessionSummary,
 } from "./runtimeConsoleChatHelpers";
 import { deriveSessionState, resolveDashboardSnapshot } from "./runtimeConsoleDashboard";
 import { useApprovals } from "./state/approvals";
@@ -60,11 +60,11 @@ import { useRuntime } from "./state/runtime";
 import { useUsage } from "./state/usage";
 import type {
   AgentAdapterHealthRecord,
-  AgentChatApprovalRecord,
-  AgentChatActivityRecord,
-  AgentChatChangedFileDiffRecord,
-  AgentChatChangedFileRecord,
-  AgentChatSessionRecord,
+  ChatApprovalRecord,
+  ChatActivityRecord,
+  ChatChangedFileDiffRecord,
+  ChatChangedFileRecord,
+  ChatSessionRecord,
   ChatResponse,
   ConfiguredStateResponse,
   ProviderFilter,
@@ -76,11 +76,11 @@ type NoticeState = {
   message: string;
 };
 
-function agentChatSessionIsExternal(session: AgentChatSessionRecord | null): boolean {
+function chatSessionIsExternal(session: ChatSessionRecord | null): boolean {
   return Boolean(session?.runtime_kind === "external_agent" || session?.adapter_id);
 }
 
-function agentChatSessionIsBusy(session: AgentChatSessionRecord | null): boolean {
+function chatSessionIsBusy(session: ChatSessionRecord | null): boolean {
   const busy = (status?: string) => status === "queued" || status === "running" || status === "awaiting_approval";
   if (!session) return false;
   if (busy(session.status)) return true;
@@ -88,7 +88,7 @@ function agentChatSessionIsBusy(session: AgentChatSessionRecord | null): boolean
   return (session.messages ?? []).some((message) => message.role === "assistant" && busy(message.status));
 }
 
-function deriveHecateChatTargetFromSession(session: AgentChatSessionRecord | null): HecateChatTarget {
+function deriveHecateChatTargetFromSession(session: ChatSessionRecord | null): HecateChatTarget {
   if (!session) return "agent";
   const messages = session.messages ?? [];
   for (let i = messages.length - 1; i >= 0; i--) {
@@ -98,8 +98,8 @@ function deriveHecateChatTargetFromSession(session: AgentChatSessionRecord | nul
   return normalizeStoredHecateChatTarget(session.runtime_kind ?? "") || "agent";
 }
 
-function deriveHecateChatSelectionFromSession(session: AgentChatSessionRecord | null): { provider: string; model: string } {
-  if (!session || agentChatSessionIsExternal(session)) {
+function deriveHecateChatSelectionFromSession(session: ChatSessionRecord | null): { provider: string; model: string } {
+  if (!session || chatSessionIsExternal(session)) {
     return { provider: "", model: "" };
   }
   const segments = [...(session.segments ?? [])].reverse();
@@ -196,7 +196,7 @@ export function useRuntimeConsole() {
   // messages, target routing, workspace + adapter selection, and
   // the chat-error cluster. Legacy aliases below keep the shim
   // coordinators (submitChat, createChatSession,
-  // applyAgentChatSession, the SSE event handler, …) reading
+  // applyChatSession, the SSE event handler, …) reading
   // the same as before the carve-out.
   const chat = useChat();
   const {
@@ -205,14 +205,14 @@ export function useRuntimeConsole() {
     agentAdapterID,
     agentWorkspace,
     agentWorkspaceBranch,
-    agentChatSessions,
-    activeAgentChatSessionID,
-    activeAgentChatSession,
+    chatSessions,
+    activeChatSessionID,
+    activeChatSession,
     queuedChatMessages,
     model,
     systemPrompt,
     chatLoading,
-    agentChatCancelling,
+    chatCancelling,
     streamingContent,
     chatResult,
     pendingToolCalls,
@@ -232,14 +232,14 @@ export function useRuntimeConsole() {
     setAgentAdapterID,
     setAgentWorkspace,
     setAgentWorkspaceBranch,
-    setAgentChatSessions,
-    setActiveAgentChatSessionID,
-    setActiveAgentChatSession,
+    setChatSessions,
+    setActiveChatSessionID,
+    setActiveChatSession,
     setQueuedChatMessages,
     setModel,
     setSystemPrompt,
     setChatLoading,
-    setAgentChatCancelling,
+    setChatCancelling,
     setStreamingContent,
     setChatResult,
     setPendingToolCalls,
@@ -258,7 +258,7 @@ export function useRuntimeConsole() {
   // version that protects the catch-up GET against races, the grant
   // list, and the request actions. The shim below re-exports the
   // state under the legacy `state.{pendingApprovalsBySessionID,
-  // agentChatGrants,agentChatGrantsLoading,agentChatGrantsError}`
+  // chatGrants,chatGrantsLoading,chatGrantsError}`
   // keys and the actions under their legacy identifiers.
   const approvals = useApprovals();
   const [settingsConfig, setSettingsConfig] = useState<ConfiguredStateResponse["data"] | null>(null);
@@ -266,10 +266,10 @@ export function useRuntimeConsole() {
   const [settingsError, setSettingsError] = useState("");
   const [notice, setNotice] = useState<NoticeState | null>(null);
 
-  const chatTarget = activeAgentChatSessionID && activeAgentChatSession
-    ? (agentChatSessionIsExternal(activeAgentChatSession)
+  const chatTarget = activeChatSessionID && activeChatSession
+    ? (chatSessionIsExternal(activeChatSession)
         ? "external_agent"
-        : (chatTargetBySessionID.get(activeAgentChatSessionID) ?? deriveHecateChatTargetFromSession(activeAgentChatSession)))
+        : (chatTargetBySessionID.get(activeChatSessionID) ?? deriveHecateChatTargetFromSession(activeChatSession)))
     : defaultChatTarget;
 
   // Retention state + actions live in the slice (app/state/retention.tsx).
@@ -311,7 +311,7 @@ export function useRuntimeConsole() {
 
   useEffect(() => {
     if (!chatLoading) {
-      setAgentChatCancelling(false);
+      setChatCancelling(false);
     }
   }, [chatLoading]);
 
@@ -321,19 +321,19 @@ export function useRuntimeConsole() {
   // anything created/resolved while we were disconnected is
   // reconciled. Subsequent SSE events mutate this same map.
   useEffect(() => {
-    if (!activeAgentChatSessionID) return;
-    void refetchPendingApprovals(activeAgentChatSessionID);
+    if (!activeChatSessionID) return;
+    void refetchPendingApprovals(activeChatSessionID);
     // refetchPendingApprovals is a stable closure declared in the
     // hook body; no need to include it in deps.
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [activeAgentChatSessionID]);
+  }, [activeChatSessionID]);
 
   useEffect(() => {
-    if (!activeAgentChatSession || agentChatSessionIsExternal(activeAgentChatSession)) {
+    if (!activeChatSession || chatSessionIsExternal(activeChatSession)) {
       return;
     }
-    setHecateRTKEnabledState(Boolean(activeAgentChatSession.rtk_enabled));
-  }, [activeAgentChatSession?.id, activeAgentChatSession?.rtk_enabled]);
+    setHecateRTKEnabledState(Boolean(activeChatSession.rtk_enabled));
+  }, [activeChatSession?.id, activeChatSession?.rtk_enabled]);
 
   useEffect(() => {
     if (!notice) {
@@ -470,13 +470,13 @@ export function useRuntimeConsole() {
 
     try {
       const snapshot = await resolveDashboardSnapshot({
-        activeAgentChatSessionID,
+        activeChatSessionID,
         previous: {
           providers,
           agentAdapters,
           usageSummary,
-          agentChatSessions,
-          activeAgentChatSession,
+          chatSessions,
+          activeChatSession,
           usageEvents,
           settingsConfig,
         },
@@ -501,11 +501,11 @@ export function useRuntimeConsole() {
       setProviderPresets(snapshot.providerPresets);
       setAgentAdapters(snapshot.agentAdapters);
       setUsageSummary(snapshot.usageSummary);
-      setAgentChatSessions(snapshot.agentChatSessions);
-      pruneQueuedChatMessagesForSessions(snapshot.agentChatSessions.map((session) => session.id));
-      setActiveAgentChatSessionID(snapshot.activeAgentChatSessionID);
-      setActiveAgentChatSession(snapshot.activeAgentChatSession);
-      syncHecateSelectionFromSession(snapshot.activeAgentChatSession);
+      setChatSessions(snapshot.chatSessions);
+      pruneQueuedChatMessagesForSessions(snapshot.chatSessions.map((session) => session.id));
+      setActiveChatSessionID(snapshot.activeChatSessionID);
+      setActiveChatSession(snapshot.activeChatSession);
+      syncHecateSelectionFromSession(snapshot.activeChatSession);
       setUsageEvents(snapshot.usageEvents);
       setSettingsConfig(snapshot.settingsConfig);
       setAgentAdapterApprovalMode(snapshot.agentAdapterApprovalMode);
@@ -529,12 +529,12 @@ export function useRuntimeConsole() {
   }
 
   function setChatTarget(nextTarget: ChatTarget) {
-    if (activeAgentChatSessionID && activeAgentChatSession) {
-      const currentExternal = agentChatSessionIsExternal(activeAgentChatSession);
+    if (activeChatSessionID && activeChatSession) {
+      const currentExternal = chatSessionIsExternal(activeChatSession);
       const nextExternal = nextTarget === "external_agent";
       if (currentExternal !== nextExternal) {
-        setActiveAgentChatSessionID("");
-        setActiveAgentChatSession(null);
+        setActiveChatSessionID("");
+        setActiveChatSession(null);
         setAgentWorkspaceBranch("");
         setDefaultChatTarget(nextTarget);
         return;
@@ -542,7 +542,7 @@ export function useRuntimeConsole() {
       if (!nextExternal) {
         setChatTargetBySessionID((current) => {
           const next = new Map(current);
-          next.set(activeAgentChatSessionID, nextTarget);
+          next.set(activeChatSessionID, nextTarget);
           return next;
         });
         return;
@@ -585,14 +585,14 @@ export function useRuntimeConsole() {
     setMessage("");
   }
 
-  function applyAgentChatSession(session: AgentChatSessionRecord) {
-    setActiveAgentChatSession(session);
+  function applyChatSession(session: ChatSessionRecord) {
+    setActiveChatSession(session);
     syncHecateSelectionFromSession(session);
     setAgentWorkspaceBranch(session.workspace_branch ?? "");
-    setAgentChatSessions((current) => [renderAgentChatSessionSummary(session), ...current.filter((entry) => entry.id !== session.id)]);
+    setChatSessions((current) => [renderChatSessionSummary(session), ...current.filter((entry) => entry.id !== session.id)]);
   }
 
-  function syncHecateSelectionFromSession(session: AgentChatSessionRecord | null) {
+  function syncHecateSelectionFromSession(session: ChatSessionRecord | null) {
     const selection = deriveHecateChatSelectionFromSession(session);
     if (selection.provider) {
       setProviderFilter(selection.provider as ProviderFilter);
@@ -602,9 +602,9 @@ export function useRuntimeConsole() {
     }
   }
 
-  async function refreshAgentChatSession(sessionID: string): Promise<void> {
-    const payload = await getAgentChatSession(sessionID);
-    applyAgentChatSession(payload.data);
+  async function refreshChatSession(sessionID: string): Promise<void> {
+    const payload = await getChatSession(sessionID);
+    applyChatSession(payload.data);
   }
 
   // Mutation API thin-aliases for the SSE stream handler + catch-up
@@ -620,8 +620,8 @@ export function useRuntimeConsole() {
     if (!content) return;
 
     const turnRuntimeKind = queued?.runtime_kind ?? (chatTarget === "external_agent" ? "external_agent" : chatTarget === "agent" ? "agent" : "model");
-    if (!queued && activeAgentChatSessionID && agentChatSessionIsBusy(activeAgentChatSession)) {
-      queueChatMessage(content, turnRuntimeKind, activeAgentChatSessionID);
+    if (!queued && activeChatSessionID && chatSessionIsBusy(activeChatSession)) {
+      queueChatMessage(content, turnRuntimeKind, activeChatSessionID);
       return;
     }
 
@@ -649,24 +649,24 @@ export function useRuntimeConsole() {
         return;
       }
 
-      let sessionID = queued?.session_id ?? activeAgentChatSessionID;
-      if (sessionID && !activeAgentChatSession) {
+      let sessionID = queued?.session_id ?? activeChatSessionID;
+      if (sessionID && !activeChatSession) {
         // The server owns chat persistence. If localStorage points at a
         // deleted or unavailable session, start clean instead of making the
         // next prompt fail with a stale 404.
         sessionID = "";
-        setActiveAgentChatSessionID("");
+        setActiveChatSessionID("");
       }
-      if (sessionID && activeAgentChatSession?.runtime_kind) {
-        const activeExternal = activeAgentChatSession.runtime_kind === "external_agent";
+      if (sessionID && activeChatSession?.runtime_kind) {
+        const activeExternal = activeChatSession.runtime_kind === "external_agent";
         if (activeExternal !== isExternalAgent) {
           sessionID = "";
-          setActiveAgentChatSessionID("");
-          setActiveAgentChatSession(null);
+          setActiveChatSessionID("");
+          setActiveChatSession(null);
         }
       }
       if (!sessionID) {
-        const created = await createAgentChatSessionRequest({
+        const created = await createChatSessionRequest({
           title: deriveChatSessionTitle(content),
           runtime_kind: turnRuntimeKind,
           ...(isExternalAgent
@@ -676,13 +676,13 @@ export function useRuntimeConsole() {
           ...(!isExternalAgent ? { rtk_enabled: hecateRTKEnabled } : {}),
         });
         sessionID = created.data.id;
-        setActiveAgentChatSessionID(sessionID);
-        applyAgentChatSession(created.data);
+        setActiveChatSessionID(sessionID);
+        applyChatSession(created.data);
       }
 
       const pendingContent = content;
       setMessage("");
-      setActiveAgentChatSession((prev) =>
+      setActiveChatSession((prev) =>
         prev
           ? {
               ...prev,
@@ -703,12 +703,12 @@ export function useRuntimeConsole() {
       );
 
       streamAbort = new AbortController();
-      streamPromise = streamAgentChatSession(
+      streamPromise = streamChatSession(
         sessionID,
         (event) => {
           switch (event.type) {
             case "session_update": {
-              applyAgentChatSession(event.payload.data);
+              applyChatSession(event.payload.data);
               const last = [...(event.payload.data.messages ?? [])]
                 .reverse()
                 .find((m) => m.role === "assistant");
@@ -735,14 +735,14 @@ export function useRuntimeConsole() {
         const msg = streamError instanceof Error ? streamError.message : "agent chat stream failed";
         setChatError((current) => current || msg);
       });
-      const updated = await createAgentChatMessageRequest(sessionID, {
+      const updated = await createChatMessageRequest(sessionID, {
         content: pendingContent,
         runtime_kind: turnRuntimeKind,
         ...(!isExternalAgent ? { provider: turnProviderFilter === "auto" ? "" : turnProviderFilter, model: turnModel } : {}),
         ...(!isExternalAgent ? { system_prompt: turnSystemPrompt } : {}),
         ...(turnRuntimeKind === "agent" ? { workspace: turnWorkspace } : {}),
       });
-      applyAgentChatSession(updated.data);
+      applyChatSession(updated.data);
     } catch (submitError) {
       setChatErrorState(submitError);
     } finally {
@@ -754,19 +754,19 @@ export function useRuntimeConsole() {
   }
 
   useEffect(() => {
-    if (queuedChatMessages.length === 0 || chatLoading || agentChatCancelling) {
+    if (queuedChatMessages.length === 0 || chatLoading || chatCancelling) {
       return;
     }
-    if (agentChatSessionIsBusy(activeAgentChatSession)) {
+    if (chatSessionIsBusy(activeChatSession)) {
       return;
     }
-    if (!activeAgentChatSessionID) {
+    if (!activeChatSessionID) {
       return;
     }
-    if (activeAgentChatSession?.id !== activeAgentChatSessionID) {
+    if (activeChatSession?.id !== activeChatSessionID) {
       return;
     }
-    const next = queuedChatMessages.find((item) => item.session_id === activeAgentChatSessionID);
+    const next = queuedChatMessages.find((item) => item.session_id === activeChatSessionID);
     if (!next) {
       return;
     }
@@ -780,26 +780,26 @@ export function useRuntimeConsole() {
   // reads the queued snapshot passed above, not the live composer state.
   // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [
-    activeAgentChatSession?.id,
-    activeAgentChatSession?.latest_run_id,
-    activeAgentChatSession?.status,
-    activeAgentChatSession?.updated_at,
-    activeAgentChatSessionID,
-    agentChatCancelling,
+    activeChatSession?.id,
+    activeChatSession?.latest_run_id,
+    activeChatSession?.status,
+    activeChatSession?.updated_at,
+    activeChatSessionID,
+    chatCancelling,
     chatLoading,
     queuedChatMessages,
   ]);
 
   async function cancelAgentChat() {
-    if (!activeAgentChatSessionID || agentChatCancelling) {
+    if (!activeChatSessionID || chatCancelling) {
       return;
     }
-    setAgentChatCancelling(true);
+    setChatCancelling(true);
     setStreamingContent("Stopping external agent...");
     try {
-      await cancelAgentChatSessionRequest(activeAgentChatSessionID);
+      await cancelChatSessionRequest(activeChatSessionID);
     } catch (error) {
-      setAgentChatCancelling(false);
+      setChatCancelling(false);
       setChatErrorState(error, "failed to cancel agent chat");
     }
   }
@@ -1088,14 +1088,14 @@ export function useRuntimeConsole() {
       clearChatErrorState();
       try {
         const adapter = agentAdapters.find((item) => item.id === agentAdapterID);
-        const created = await createAgentChatSessionRequest({
+        const created = await createChatSessionRequest({
           title: adapter ? `${adapter.name} chat` : "External agent chat",
           runtime_kind: "external_agent",
           adapter_id: agentAdapterID,
           workspace,
         });
-        setActiveAgentChatSessionID(created.data.id);
-        applyAgentChatSession(created.data);
+        setActiveChatSessionID(created.data.id);
+        applyChatSession(created.data);
       } catch (error) {
         setChatErrorState(error, "failed to create external agent chat");
         setNoticeMessage("error", error instanceof Error ? error.message : "Failed to create external agent chat.");
@@ -1118,7 +1118,7 @@ export function useRuntimeConsole() {
     setChatLoading(true);
     clearChatErrorState();
     try {
-      const created = await createAgentChatSessionRequest({
+      const created = await createChatSessionRequest({
         runtime_kind: runtimeKind,
         provider: providerFilter === "auto" ? "" : providerFilter,
         model,
@@ -1127,8 +1127,8 @@ export function useRuntimeConsole() {
           rtk_enabled: hecateRTKEnabled,
         } : {}),
       });
-      setActiveAgentChatSessionID(created.data.id);
-      applyAgentChatSession(created.data);
+      setActiveChatSessionID(created.data.id);
+      applyChatSession(created.data);
     } catch (error) {
       setChatErrorState(error, "failed to create Hecate chat");
       setNoticeMessage("error", error instanceof Error ? error.message : "Failed to create Hecate chat.");
@@ -1138,18 +1138,14 @@ export function useRuntimeConsole() {
   }
 
   async function selectChatSession(id: string) {
-    await selectAgentChatSession(id);
-  }
-
-  async function selectAgentChatSession(id: string) {
-    setActiveAgentChatSessionID(id);
+    setActiveChatSessionID(id);
     if (!id) {
-      setActiveAgentChatSession(null);
+      setActiveChatSession(null);
       return;
     }
     try {
-      const payload = await getAgentChatSession(id);
-      setActiveAgentChatSession(payload.data);
+      const payload = await getChatSession(id);
+      setActiveChatSession(payload.data);
       if (payload.data.adapter_id) {
         setAgentAdapterID(payload.data.adapter_id);
       }
@@ -1166,8 +1162,8 @@ export function useRuntimeConsole() {
       }
     } catch (error) {
       const msg = error instanceof Error ? error.message : "failed to load agent chat";
-      setActiveAgentChatSessionID("");
-      setActiveAgentChatSession(null);
+      setActiveChatSessionID("");
+      setActiveChatSession(null);
       setAgentWorkspaceBranch("");
       setChatErrorState(error, "failed to load agent chat");
       setNoticeMessage("error", msg);
@@ -1175,23 +1171,19 @@ export function useRuntimeConsole() {
   }
 
   function startNewChat() {
-    if (activeAgentChatSessionID) {
-      setQueuedChatMessages((current) => current.filter((item) => item.session_id !== activeAgentChatSessionID));
+    if (activeChatSessionID) {
+      setQueuedChatMessages((current) => current.filter((item) => item.session_id !== activeChatSessionID));
     }
-    setActiveAgentChatSessionID("");
-    setActiveAgentChatSession(null);
+    setActiveChatSessionID("");
+    setActiveChatSession(null);
     setAgentWorkspaceBranch("");
     resetChatWorkspaceState();
   }
 
   async function deleteChatSession(id: string) {
-    await deleteAgentChatSession(id);
-  }
-
-  async function deleteAgentChatSession(id: string) {
     try {
-      await deleteAgentChatSessionRequest(id);
-      setAgentChatSessions((current) => current.filter((s) => s.id !== id));
+      await deleteChatSessionRequest(id);
+      setChatSessions((current) => current.filter((s) => s.id !== id));
       setQueuedChatMessages((current) => current.filter((item) => item.session_id !== id));
       setChatTargetBySessionID((current) => {
         if (!current.has(id)) return current;
@@ -1199,7 +1191,7 @@ export function useRuntimeConsole() {
         next.delete(id);
         return next;
       });
-      if (activeAgentChatSessionID === id) {
+      if (activeChatSessionID === id) {
         startNewChat();
       }
       setNoticeMessage("success", "Agent chat deleted.");
@@ -1208,16 +1200,16 @@ export function useRuntimeConsole() {
     }
   }
 
-  // getAgentChatApproval is the modal-open path: fetches the full
+  // getChatApproval is the modal-open path: fetches the full
   // approval row (ACP options, scope choices, decision_note, …).
   // Returns null on failure so the caller can render an error state;
   // the slice's getApproval returns a discriminated Result that the
   // shim unwraps into the legacy `record | null` shape and routes
   // the error string to the global notice banner.
-  async function getAgentChatApproval(
+  async function getChatApproval(
     sessionID: string,
     approvalID: string,
-  ): Promise<AgentChatApprovalRecord | null> {
+  ): Promise<ChatApprovalRecord | null> {
     const result = await approvals.actions.getApproval(sessionID, approvalID);
     if (!result.ok) {
       setNoticeMessage("error", result.error);
@@ -1226,17 +1218,17 @@ export function useRuntimeConsole() {
     return result.record;
   }
 
-  async function resolveAgentChatApproval(
+  async function resolveChatApproval(
     sessionID: string,
     approvalID: string,
-    decision: ResolveAgentChatApprovalPayload,
+    decision: ResolveChatApprovalPayload,
   ): Promise<boolean> {
     const result = await approvals.actions.resolveApproval(sessionID, approvalID, decision);
     if (!result.ok) setNoticeMessage("error", result.error);
     return result.ok;
   }
 
-  async function cancelAgentChatApproval(sessionID: string, approvalID: string): Promise<boolean> {
+  async function cancelChatApproval(sessionID: string, approvalID: string): Promise<boolean> {
     const result = await approvals.actions.cancelApproval(sessionID, approvalID);
     if (!result.ok) setNoticeMessage("error", result.error);
     return result.ok;
@@ -1261,12 +1253,12 @@ export function useRuntimeConsole() {
     // around for the full network round-trip (50–500 ms), which
     // looked unresponsive on slow links and let an operator
     // double-click a duplicate request through.
-    const snapshot: AgentChatSessionRecord | null =
-      activeAgentChatSession && activeAgentChatSession.task_id === taskID
-        ? activeAgentChatSession
+    const snapshot: ChatSessionRecord | null =
+      activeChatSession && activeChatSession.task_id === taskID
+        ? activeChatSession
         : null;
     if (snapshot) {
-      setActiveAgentChatSession((current) => {
+      setActiveChatSession((current) => {
         if (!current || current.task_id !== taskID) return current;
         return {
           ...current,
@@ -1284,7 +1276,7 @@ export function useRuntimeConsole() {
     // activity from the pre-resolve snapshot, while leaving every
     // other field of the active session untouched. Two concurrency
     // hazards force this surgical shape rather than
-    // `setActiveAgentChatSession(snapshot)`:
+    // `setActiveChatSession(snapshot)`:
     //
     //   1. The operator may have navigated to a different session
     //      while the request was in flight. The functional updater
@@ -1309,9 +1301,9 @@ export function useRuntimeConsole() {
       // optional — matching by id alone could (a) fail to restore
       // when the current row has no id and (b) wrongly match the
       // first id-less row if both sides have undefined ids.
-      const matchesTargetApproval = (activity: AgentChatActivityRecord) =>
+      const matchesTargetApproval = (activity: ChatActivityRecord) =>
         activity.approval_id === approvalID || activity.id === `task:approval:${approvalID}`;
-      setActiveAgentChatSession((current) => {
+      setActiveChatSession((current) => {
         if (!current || current.id !== snapshotForRollback.id) return current;
         return {
           ...current,
@@ -1333,9 +1325,9 @@ export function useRuntimeConsole() {
 
     try {
       await resolveTaskApprovalRequest(taskID, approvalID, decision);
-      if (activeAgentChatSessionID) {
+      if (activeChatSessionID) {
         try {
-          await refreshAgentChatSession(activeAgentChatSessionID);
+          await refreshChatSession(activeChatSessionID);
         } catch {
           // The local approval state above already removes the action;
           // a follow-up session refresh is best-effort because the run
@@ -1351,9 +1343,9 @@ export function useRuntimeConsole() {
         // reject, the run might have timed out into auto-rejection,
         // or the run could have been cancelled. Refresh to pull
         // server-truth and let it overwrite our optimistic patch.
-        if (activeAgentChatSessionID) {
+        if (activeChatSessionID) {
           try {
-            await refreshAgentChatSession(activeAgentChatSessionID);
+            await refreshChatSession(activeChatSessionID);
             return true;
           } catch {
             // Refresh failed — we cannot trust our optimistic patch
@@ -1374,9 +1366,9 @@ export function useRuntimeConsole() {
     }
   }
 
-  const listAgentChatGrants = approvals.actions.loadGrants;
+  const listChatGrants = approvals.actions.loadGrants;
 
-  async function deleteAgentChatGrant(grantID: string): Promise<boolean> {
+  async function deleteChatGrant(grantID: string): Promise<boolean> {
     const result = await approvals.actions.deleteGrant(grantID);
     if (result.ok) {
       setNoticeMessage("success", "Grant revoked.");
@@ -1386,9 +1378,9 @@ export function useRuntimeConsole() {
     return result.ok;
   }
 
-  async function listAgentChatMessageFiles(sessionID: string, messageID: string): Promise<AgentChatChangedFileRecord[]> {
+  async function listChatMessageFiles(sessionID: string, messageID: string): Promise<ChatChangedFileRecord[]> {
     try {
-      const payload = await listAgentChatMessageFilesRequest(sessionID, messageID);
+      const payload = await listChatMessageFilesRequest(sessionID, messageID);
       return payload.data ?? [];
     } catch (error) {
       setNoticeMessage("error", error instanceof Error ? error.message : "Failed to load changed files.");
@@ -1396,10 +1388,10 @@ export function useRuntimeConsole() {
     }
   }
 
-  async function setAgentChatConfigOption(sessionID: string, configID: string, value: string | boolean): Promise<boolean> {
+  async function setChatConfigOption(sessionID: string, configID: string, value: string | boolean): Promise<boolean> {
     try {
-      const payload = await setAgentChatConfigOptionRequest(sessionID, configID, value);
-      applyAgentChatSession(payload.data);
+      const payload = await setChatConfigOptionRequest(sessionID, configID, value);
+      applyChatSession(payload.data);
       return true;
     } catch (error) {
       setNoticeMessage("error", error instanceof Error ? error.message : "Failed to update adapter control.");
@@ -1409,23 +1401,23 @@ export function useRuntimeConsole() {
 
   async function setHecateRTKEnabled(enabled: boolean): Promise<boolean> {
     setHecateRTKEnabledState(enabled);
-    if (!activeAgentChatSessionID || !activeAgentChatSession || agentChatSessionIsExternal(activeAgentChatSession)) {
+    if (!activeChatSessionID || !activeChatSession || chatSessionIsExternal(activeChatSession)) {
       return true;
     }
     try {
-      const payload = await setAgentChatSettingsRequest(activeAgentChatSessionID, { rtk_enabled: enabled });
-      applyAgentChatSession(payload.data);
+      const payload = await setChatSettingsRequest(activeChatSessionID, { rtk_enabled: enabled });
+      applyChatSession(payload.data);
       return true;
     } catch (error) {
-      setHecateRTKEnabledState(Boolean(activeAgentChatSession.rtk_enabled));
+      setHecateRTKEnabledState(Boolean(activeChatSession.rtk_enabled));
       setNoticeMessage("error", error instanceof Error ? error.message : "Failed to update chat settings.");
       return false;
     }
   }
 
-  async function getAgentChatMessageFileDiff(sessionID: string, messageID: string, path: string): Promise<AgentChatChangedFileDiffRecord | null> {
+  async function getChatMessageFileDiff(sessionID: string, messageID: string, path: string): Promise<ChatChangedFileDiffRecord | null> {
     try {
-      const payload = await getAgentChatMessageFileDiffRequest(sessionID, messageID, path);
+      const payload = await getChatMessageFileDiffRequest(sessionID, messageID, path);
       return payload.data;
     } catch (error) {
       setNoticeMessage("error", error instanceof Error ? error.message : "Failed to load file diff.");
@@ -1433,10 +1425,10 @@ export function useRuntimeConsole() {
     }
   }
 
-  async function revertAgentChatMessageFiles(sessionID: string, messageID: string, paths: string[]): Promise<boolean> {
+  async function revertChatMessageFiles(sessionID: string, messageID: string, paths: string[]): Promise<boolean> {
     try {
-      await revertAgentChatMessageFilesRequest(sessionID, messageID, paths);
-      await refreshAgentChatSession(sessionID);
+      await revertChatMessageFilesRequest(sessionID, messageID, paths);
+      await refreshChatSession(sessionID);
       setNoticeMessage("success", paths.length > 0 ? "Selected files reverted." : "Captured diff reverted.");
       return true;
     } catch (error) {
@@ -1487,12 +1479,12 @@ export function useRuntimeConsole() {
         setNoticeMessage("error", "Chat title cannot be empty.");
         return;
       }
-      const payload = await updateAgentChatSessionRequest(id, nextTitle);
-      setAgentChatSessions((current) =>
+      const payload = await updateChatSessionRequest(id, nextTitle);
+      setChatSessions((current) =>
         current.map((s) => (s.id === id ? { ...s, title: payload.data.title, updated_at: payload.data.updated_at ?? s.updated_at } : s)),
       );
-      if (activeAgentChatSessionID === id) {
-        setActiveAgentChatSession((current) => (current ? { ...current, title: payload.data.title, updated_at: payload.data.updated_at ?? current.updated_at } : current));
+      if (activeChatSessionID === id) {
+        setActiveChatSession((current) => (current ? { ...current, title: payload.data.title, updated_at: payload.data.updated_at ?? current.updated_at } : current));
       }
     } catch (error) {
       setNoticeMessage("error", error instanceof Error ? error.message : "Failed to rename chat.");
@@ -1516,13 +1508,13 @@ export function useRuntimeConsole() {
 
   return {
     state: {
-      activeAgentChatSession,
-      activeAgentChatSessionID,
+      activeChatSession,
+      activeChatSessionID,
       usageSummary,
       agentAdapterID,
       agentAdapters,
-      agentChatCancelling,
-      agentChatSessions,
+      chatCancelling,
+      chatSessions,
       hecateRTKEnabled,
       hecateRTKAvailable,
       hecateRTKPath,
@@ -1575,9 +1567,9 @@ export function useRuntimeConsole() {
       runtimeHeaders,
       visibleModels,
       pendingApprovalsBySessionID: approvals.state.pendingBySessionID,
-      agentChatGrants: approvals.state.grants,
-      agentChatGrantsLoading: approvals.state.grantsLoading,
-      agentChatGrantsError: approvals.state.grantsError,
+      chatGrants: approvals.state.grants,
+      chatGrantsLoading: approvals.state.grantsLoading,
+      chatGrantsError: approvals.state.grantsError,
       agentAdapterApprovalMode,
       agentAdapterHealthByID,
       agentAdapterHealthLoadingByID,
@@ -1621,16 +1613,16 @@ export function useRuntimeConsole() {
       upsertModelCapabilityOverride,
       recordModelCapabilityProbe,
       deleteModelCapabilityOverride,
-      getAgentChatApproval,
-      listAgentChatMessageFiles,
-      getAgentChatMessageFileDiff,
-      revertAgentChatMessageFiles,
+      getChatApproval,
+      listChatMessageFiles,
+      getChatMessageFileDiff,
+      revertChatMessageFiles,
       resolveTaskApproval,
-      resolveAgentChatApproval,
-      cancelAgentChatApproval,
-      listAgentChatGrants,
-      deleteAgentChatGrant,
-      setAgentChatConfigOption,
+      resolveChatApproval,
+      cancelChatApproval,
+      listChatGrants,
+      deleteChatGrant,
+      setChatConfigOption,
       setHecateRTKEnabled,
       probeAgentAdapter,
       setAgentAdapterCredential,

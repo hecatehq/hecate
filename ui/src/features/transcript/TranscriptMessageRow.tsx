@@ -1,6 +1,6 @@
 import { useState } from "react";
 
-import type { AgentChatActivityRecord, AgentChatChangedFileDiffRecord, AgentChatChangedFileRecord, AgentChatTimingRecord, AgentChatUsageRecord } from "../../types/runtime";
+import type { ChatActivityRecord, ChatChangedFileDiffRecord, ChatChangedFileRecord, ChatTimingRecord, ChatUsageRecord } from "../../types/runtime";
 import { formatDurationMs } from "../../lib/format";
 import { CodeBlock } from "../shared/Atoms";
 import { BrandAvatar } from "../shared/BrandAvatar";
@@ -15,11 +15,11 @@ export function TranscriptMessageRow({ id, role, model, brand, content, time, pr
   badge?: string; runtimeMeta?: string; agentSessionID?: string;
   taskLink?: { label: string; title?: string; onClick: () => void };
   traceLink?: { label: string; title?: string; onClick: () => void };
-  activities?: AgentChatActivityRecord[]; diffStat?: string; diff?: string;
-  onListAgentFiles?: (sessionID: string, messageID: string) => Promise<AgentChatChangedFileRecord[]>;
-  onGetAgentFileDiff?: (sessionID: string, messageID: string, path: string) => Promise<AgentChatChangedFileDiffRecord | null>;
+  activities?: ChatActivityRecord[]; diffStat?: string; diff?: string;
+  onListAgentFiles?: (sessionID: string, messageID: string) => Promise<ChatChangedFileRecord[]>;
+  onGetAgentFileDiff?: (sessionID: string, messageID: string, path: string) => Promise<ChatChangedFileDiffRecord | null>;
   onRevertAgentFiles?: (sessionID: string, messageID: string, paths: string[]) => Promise<boolean>;
-  rawOutput?: string; agentUsage?: AgentChatUsageRecord; agentTiming?: AgentChatTimingRecord; error?: string;
+  rawOutput?: string; agentUsage?: ChatUsageRecord; agentTiming?: ChatTimingRecord; error?: string;
   // setupAction is an inline button rendered inside the agent-run
   // failure notice. The chat passes it when the failure has a
   // known one-click recovery path — currently just the Claude Code
@@ -42,7 +42,7 @@ export function TranscriptMessageRow({ id, role, model, brand, content, time, pr
     && isLikelyTransientAgentNarration(content)
     && !(activities ?? []).some(activity => activity.type === "tool_call");
   const renderActivityAdvanced = isAssistant && activities?.length
-    ? (activity: AgentChatActivityRecord) => renderAgentActivityAdvanced(activity, activities, taskLink)
+    ? (activity: ChatActivityRecord) => renderAgentActivityAdvanced(activity, activities, taskLink)
     : undefined;
 
   return (
@@ -155,8 +155,8 @@ export function TranscriptMessageRow({ id, role, model, brand, content, time, pr
 }
 
 function renderAgentActivityAdvanced(
-  activity: AgentChatActivityRecord,
-  activities: AgentChatActivityRecord[],
+  activity: ChatActivityRecord,
+  activities: ChatActivityRecord[],
   taskLink?: { label: string; title?: string; onClick: () => void },
 ) {
   if (activity.type === "output" || (activity.type === "artifact" && isOutputArtifactActivity(activity))) {
@@ -198,7 +198,7 @@ function renderAgentActivityAdvanced(
   );
 }
 
-function OutputArtifactPreview({ artifact }: { artifact: AgentChatActivityRecord }) {
+function OutputArtifactPreview({ artifact }: { artifact: ChatActivityRecord }) {
   const isStderr = outputArtifactStream(artifact) === "stderr";
   const preview = artifact.artifact_preview?.replace(/[\r\n]+$/, "");
   return (
@@ -249,9 +249,9 @@ function OutputArtifactPreview({ artifact }: { artifact: AgentChatActivityRecord
   );
 }
 
-function relatedOutputArtifacts(activities: AgentChatActivityRecord[]): AgentChatActivityRecord[] {
+function relatedOutputArtifacts(activities: ChatActivityRecord[]): ChatActivityRecord[] {
   const seen = new Set<string>();
-  const out: AgentChatActivityRecord[] = [];
+  const out: ChatActivityRecord[] = [];
   for (const activity of activities) {
     if (activity.type !== "artifact") continue;
     if ((activity.artifact_size_bytes ?? 0) <= 0) continue;
@@ -265,12 +265,12 @@ function relatedOutputArtifacts(activities: AgentChatActivityRecord[]): AgentCha
   return out;
 }
 
-function isOutputArtifactActivity(activity: AgentChatActivityRecord): boolean {
+function isOutputArtifactActivity(activity: ChatActivityRecord): boolean {
   const label = `${activity.title} ${activity.detail ?? ""} ${activity.kind ?? ""}`.toLowerCase();
   return /\b(std(out|err)|git-std(out|err))\b/.test(label);
 }
 
-function outputArtifactStream(activity: AgentChatActivityRecord): "stdout" | "stderr" {
+function outputArtifactStream(activity: ChatActivityRecord): "stdout" | "stderr" {
   const label = `${activity.title} ${activity.detail ?? ""} ${activity.kind ?? ""}`.toLowerCase();
   return label.includes("stderr") ? "stderr" : "stdout";
 }
@@ -325,7 +325,7 @@ function isLikelyTransientAgentNarration(text: string): boolean {
   ].some(prefix => normalized.startsWith(prefix));
 }
 
-function isActiveAgentActivity(activity: AgentChatActivityRecord): boolean {
+function isActiveAgentActivity(activity: ChatActivityRecord): boolean {
   return activity.status === "running" || activity.status === "in_progress";
 }
 
@@ -402,7 +402,7 @@ function AgentLiveText({ content }: { content: string }) {
   );
 }
 
-function AgentUsage({ usage }: { usage: AgentChatUsageRecord }) {
+function AgentUsage({ usage }: { usage: ChatUsageRecord }) {
   const cost = formatAgentReportedCost(usage);
   const context = formatAgentContextUsage(usage);
   return (
@@ -414,7 +414,7 @@ function AgentUsage({ usage }: { usage: AgentChatUsageRecord }) {
   );
 }
 
-function AgentTiming({ timing }: { timing: AgentChatTimingRecord }) {
+function AgentTiming({ timing }: { timing: ChatTimingRecord }) {
   const bottleneck = timing.bottleneck && timing.bottleneck_ms
     ? `${humanTimingLabel(timing.bottleneck)} ${formatDurationMs(timing.bottleneck_ms)}`
     : "";
@@ -457,7 +457,7 @@ function AgentTiming({ timing }: { timing: AgentChatTimingRecord }) {
   );
 }
 
-function agentTimingEmpty(timing: AgentChatTimingRecord): boolean {
+function agentTimingEmpty(timing: ChatTimingRecord): boolean {
   return !timing.total_ms &&
     !timing.queue_ms &&
     !timing.model_ms &&
@@ -469,7 +469,7 @@ function agentTimingEmpty(timing: AgentChatTimingRecord): boolean {
     !timing.bottleneck;
 }
 
-function agentUsageEmpty(usage: AgentChatUsageRecord): boolean {
+function agentUsageEmpty(usage: ChatUsageRecord): boolean {
   return !usage.reported_cost_amount && !usage.reported_cost_currency && !(usage.context_size ?? 0) && !(usage.context_used ?? 0);
 }
 
@@ -477,13 +477,13 @@ function humanTimingLabel(label: string): string {
   return label === "tools" ? "tools" : label;
 }
 
-function formatAgentReportedCost(usage: AgentChatUsageRecord): string {
+function formatAgentReportedCost(usage: ChatUsageRecord): string {
   if (!usage.reported_cost_amount && !usage.reported_cost_currency) return "";
   const currency = usage.reported_cost_currency ? ` ${usage.reported_cost_currency}` : "";
   return `${usage.reported_cost_amount || "0"}${currency}`;
 }
 
-function formatAgentContextUsage(usage: AgentChatUsageRecord): string {
+function formatAgentContextUsage(usage: ChatUsageRecord): string {
   const used = usage.context_used ?? 0;
   const size = usage.context_size ?? 0;
   if (!used && !size) return "";
