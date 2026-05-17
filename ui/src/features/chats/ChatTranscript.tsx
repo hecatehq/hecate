@@ -1,6 +1,9 @@
 import { useEffect, useRef, useState, type ReactNode } from "react";
 
-import { useRuntimeConsoleContext } from "../../app/RuntimeConsoleContext";
+import { useChat } from "../../app/state/chat";
+import { useChatActions } from "../../app/state/coordinators/chat";
+import { useChatTarget } from "../../app/state/derived";
+import { useWiredSettingsActions } from "../../app/state/coordinators/wired";
 import { formatDurationMs } from "../../lib/format";
 import type { ChatActivityRecord, ChatSegmentRecord, ChatTimingRecord, ChatUsageRecord } from "../../types/chat";
 import { CodeBlock, Icon, Icons } from "../shared/ui";
@@ -76,7 +79,15 @@ export function ChatTranscript({
   onOpenTrace,
   openClaudeCodeSetup,
 }: Props) {
-  const { state, actions } = useRuntimeConsoleContext();
+  const chat = useChat();
+  const chatTarget = useChatTarget();
+  const { actions: settingsActions } = useWiredSettingsActions();
+  const chatActions = useChatActions({ chatTarget, setNoticeMessage: settingsActions.setNoticeMessage });
+  const streamingContent = chat.state.streamingContent;
+  const activeChatSession = chat.state.activeChatSession;
+  const pendingToolCalls = chat.state.pendingToolCalls;
+  const activeChatSessionID = chat.state.activeChatSessionID;
+  const chatLoading = chat.state.chatLoading;
   const scrollRef = useRef<HTMLDivElement>(null);
   const bottomRef = useRef<HTMLDivElement>(null);
   const userScrolledRef = useRef(false);
@@ -87,7 +98,7 @@ export function ChatTranscript({
     if (!userScrolledRef.current) {
       bottomRef.current?.scrollIntoView({ behavior: "instant" });
     }
-  }, [state.streamingContent, visibleMessageCount]);
+  }, [streamingContent, visibleMessageCount]);
 
   useEffect(() => {
     // Reset scroll state on every session change. Focus is NOT applied
@@ -134,7 +145,7 @@ export function ChatTranscript({
           const content = typeof m.content === "string" ? m.content : (m.content === null ? "" : JSON.stringify(m.content));
           const time = m.created_at ? new Date(m.created_at).toLocaleTimeString("en-US", { hour: "2-digit", minute: "2-digit" }) : "";
           const agentModel = isHecateAgentChat
-            ? (m.model || state.activeChatSession?.model || "Hecate Agent")
+            ? (m.model || activeChatSession?.model || "Hecate Agent")
             : (m.agent_adapter_name || m.agent_adapter_id);
           const agentRuntime = role === "assistant"
             ? formatAgentRuntimeMeta(m.run_id, m.duration_ms, m.native_session_id)
@@ -178,10 +189,10 @@ export function ChatTranscript({
               activities={role === "assistant" ? m.activities : undefined}
               diffStat={role === "assistant" ? m.diff_stat : undefined}
               diff={role === "assistant" ? m.diff : undefined}
-              agentSessionID={state.activeChatSessionID}
-              onListAgentFiles={actions.listChatMessageFiles}
-              onGetAgentFileDiff={actions.getChatMessageFileDiff}
-              onRevertAgentFiles={actions.revertChatMessageFiles}
+              agentSessionID={activeChatSessionID}
+              onListAgentFiles={chatActions.listChatMessageFiles}
+              onGetAgentFileDiff={chatActions.getChatMessageFileDiff}
+              onRevertAgentFiles={chatActions.revertChatMessageFiles}
               rawOutput={role === "assistant" ? m.raw_output : undefined}
               agentUsage={role === "assistant" ? m.usage : undefined}
               agentTiming={role === "assistant" ? m.timing : undefined}
@@ -212,12 +223,12 @@ export function ChatTranscript({
 
 
         {/* Pending tool calls */}
-        {state.pendingToolCalls.length > 0 && (
+        {pendingToolCalls.length > 0 && (
           <div style={{ padding: "4px 16px 16px", maxWidth: 820, margin: "0 auto", width: "100%" }}>
             <div style={{ fontSize: 11, color: "var(--t2)", marginBottom: 8 }}>
-              {state.pendingToolCalls.length} tool call{state.pendingToolCalls.length > 1 ? "s" : ""} pending
+              {pendingToolCalls.length} tool call{pendingToolCalls.length > 1 ? "s" : ""} pending
             </div>
-            {state.pendingToolCalls.map((tc, i) => (
+            {pendingToolCalls.map((tc, i) => (
               <div key={tc.id} style={{ border: "1px solid var(--border)", borderRadius: "var(--radius)", padding: "10px 12px", background: "var(--bg2)", marginBottom: 8 }}>
                 <div style={{ display: "flex", alignItems: "center", gap: 8, marginBottom: 6 }}>
                   <span style={{ fontFamily: "var(--font-mono)", fontSize: 12, fontWeight: 600, color: "var(--teal)" }}>{tc.name}</span>
@@ -228,7 +239,7 @@ export function ChatTranscript({
                   <label style={{ fontSize: 11, color: "var(--t2)", display: "block", marginBottom: 4 }}>Result</label>
                   <textarea
                     className="input"
-                    onChange={e => actions.updateToolResult(i, e.target.value)}
+                    onChange={e => chatActions.updateToolResult(i, e.target.value)}
                     placeholder="Enter the tool result"
                     rows={3}
                     style={{ resize: "vertical" }}
@@ -238,15 +249,15 @@ export function ChatTranscript({
               </div>
             ))}
             <button className="btn btn-primary btn-sm"
-              disabled={state.chatLoading || state.pendingToolCalls.some(tc => !tc.result.trim())}
-              onClick={() => void actions.submitToolResults()}
+              disabled={chatLoading || pendingToolCalls.some(tc => !tc.result.trim())}
+              onClick={() => void chatActions.submitToolResults()}
               type="button">
-              {state.chatLoading ? "Running…" : "Submit results"}
+              {chatLoading ? "Running…" : "Submit results"}
             </button>
           </div>
         )}
 
-        {visibleMessageCount === 0 && !streaming && state.pendingToolCalls.length === 0 && emptyState}
+        {visibleMessageCount === 0 && !streaming && pendingToolCalls.length === 0 && emptyState}
         <div ref={bottomRef} />
       </div>
 

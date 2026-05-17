@@ -1,11 +1,11 @@
 import { useEffect, useLayoutEffect } from "react";
 
 import { ConsoleShell, getAvailableWorkspaces, WORKSPACE_IDS, type WorkspaceID } from "./AppShell";
-import { RuntimeConsoleContextProvider } from "./RuntimeConsoleContext";
 import { ApprovalsProvider } from "./state/approvals";
 import { ChatProvider } from "./state/chat";
 import { ProvidersAndModelsProvider } from "./state/providersAndModels";
 import { RetentionProvider } from "./state/retention";
+import { RootEffects } from "./state/rootEffects";
 import { RuntimeProvider } from "./state/runtime";
 import { SettingsProvider } from "./state/settings";
 import { UsageProvider } from "./state/usage";
@@ -20,10 +20,13 @@ const VALID_WORKSPACE_IDS = new Set<WorkspaceID>(WORKSPACE_IDS);
 const parseWorkspaceID = (raw: string): WorkspaceID | null =>
   VALID_WORKSPACE_IDS.has(raw as WorkspaceID) ? (raw as WorkspaceID) : null;
 
-// Slice providers wrap RuntimeConsoleContextProvider so the shim
-// inside it can see slice contexts; the facade provider then
-// exposes the shim's `{state, actions}` shape to AppShell and
-// every workspace view through context — no prop-drilling.
+// Slice providers wrap RootEffects + AppConsole directly. The
+// retired useRuntimeConsole facade is gone: views read slice state
+// through useRuntime / useChat / etc. and dispatch coordinator
+// actions through useChatActions / useWiredProviderActions / …
+// RootEffects owns the cross-slice effects (dashboard load, notice
+// auto-dismiss, queued-message drain) that previously lived in the
+// facade's hook body.
 export default function App() {
   return (
     <RuntimeProvider>
@@ -33,9 +36,8 @@ export default function App() {
             <RetentionProvider>
               <ApprovalsProvider>
                 <SettingsProvider>
-                  <RuntimeConsoleContextProvider>
-                    <AppConsole />
-                  </RuntimeConsoleContextProvider>
+                  <RootEffects />
+                  <AppConsole />
                 </SettingsProvider>
               </ApprovalsProvider>
             </RetentionProvider>

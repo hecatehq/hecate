@@ -1,29 +1,36 @@
 import { useEffect, useRef, type ReactNode } from "react";
-import { useRuntimeConsoleContext } from "../../app/RuntimeConsoleContext";
-import type { RuntimeConsoleViewModel } from "../../app/useRuntimeConsole";
+import { useRetention, type RetentionState } from "../../app/state/retention";
+import { useRetentionActions } from "../../app/state/coordinators/retention";
+import { useSettings } from "../../app/state/settings";
 import { Badge, Icon, Icons, InlineError } from "../shared/ui";
 
 export function SettingsView() {
-  const { state, actions } = useRuntimeConsoleContext();
+  const retention = useRetention();
+  // useRetentionActions takes setNotice — the same setter the
+  // shim used to wire success/failure banner toggles through.
+  const settings = useSettings();
+  const { runRetention } = useRetentionActions({ setNotice: settings.actions.setNotice });
+  const loadRetentionRuns = retention.actions.loadRuns;
   // Retention runs aren't in the boot-time dashboard snapshot —
   // fetch on first SettingsView mount so the user doesn't see a
-  // permanently empty list. `actions` (and the functions on it)
-  // are recreated each render of useRuntimeConsole, so a naive
-  // [actions] / [actions.loadRetentionRuns] dependency would
-  // re-fire after every completed fetch. Gate explicitly on
-  // first-mount; the in-flight guard inside the action covers
-  // parallel calls but not subsequent renders.
+  // permanently empty list. `loadRuns` is a stable useCallback, so
+  // a naive dependency is safe, but the explicit first-mount guard
+  // documents the intent next to the action.
   const didFetchRetentionRunsRef = useRef(false);
   useEffect(() => {
     if (didFetchRetentionRunsRef.current) return;
     didFetchRetentionRunsRef.current = true;
-    void actions.loadRetentionRuns();
-  }, [actions]);
+    void loadRetentionRuns();
+  }, [loadRetentionRuns]);
 
   return (
     <div style={{ height: "100%", display: "flex", flexDirection: "column", overflow: "hidden" }}>
       <div style={{ flex: 1, overflowY: "auto", padding: 16 }}>
-        <RetentionSettings state={state} actions={actions} />
+        <RetentionSettings
+          state={retention.state}
+          setRetentionSubsystems={retention.actions.setSubsystems}
+          runRetention={runRetention}
+        />
       </div>
     </div>
   );
@@ -110,17 +117,18 @@ function relativeTime(iso: string): string {
   return `${Math.floor(h / 24)}d ago`;
 }
 
-function RetentionSettings({ state, actions }: {
-  state: RuntimeConsoleViewModel["state"];
-  actions: RuntimeConsoleViewModel["actions"];
+function RetentionSettings({ state, setRetentionSubsystems, runRetention }: {
+  state: RetentionState;
+  setRetentionSubsystems: (value: string) => void;
+  runRetention: () => Promise<void>;
 }) {
-  const runs = state.retentionRuns ?? [];
-  const lastRun = state.retentionLastRun;
+  const runs = state.runs ?? [];
+  const lastRun = state.lastRun;
   const lastRunResults = lastRun?.results ?? [];
 
   // Parse CSV state into a local Set for chip toggles
   const selectedSet = new Set(
-    state.retentionSubsystems
+    state.subsystems
       .split(",")
       .map(s => s.trim())
       .filter(s => RETENTION_SUBSYSTEMS.some(sub => sub.id === s))
@@ -130,7 +138,7 @@ function RetentionSettings({ state, actions }: {
     const next = new Set(selectedSet);
     if (next.has(name)) next.delete(name);
     else next.add(name);
-    actions.setRetentionSubsystems([...next].join(","));
+    setRetentionSubsystems([...next].join(","));
   }
 
   const totalDeleted = lastRunResults.filter(r => !r.skipped).reduce((n, r) => n + (r.deleted ?? 0), 0);
@@ -157,9 +165,9 @@ function RetentionSettings({ state, actions }: {
             {selectedSet.size === 0 ? "full cleanup" : `${selectedSet.size} selected`}
           </span>
           <button className="btn btn-primary btn-sm"
-            disabled={state.retentionLoading}
-            onClick={() => void actions.runRetention()}>
-            <Icon d={Icons.refresh} size={13} /> {state.retentionLoading ? "Cleaning…" : "Clean up now"}
+            disabled={state.loading}
+            onClick={() => void runRetention()}>
+            <Icon d={Icons.refresh} size={13} /> {state.loading ? "Cleaning…" : "Clean up now"}
           </button>
         </div>
         <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(220px, 1fr))", gap: 8 }}>
@@ -197,7 +205,7 @@ function RetentionSettings({ state, actions }: {
         <div style={{ fontSize: 10, color: "var(--t3)", marginTop: 10, lineHeight: 1.45 }}>
           Cleanup follows the retention windows configured in the gateway environment. It never deletes provider setup, saved secrets, workspaces, or durable external-agent grants.
         </div>
-        {state.retentionError && <div style={{ marginTop: 8 }}><InlineError message={state.retentionError} /></div>}
+        {state.error && <div style={{ marginTop: 8 }}><InlineError message={state.error} /></div>}
       </div>
 
       {/* Last run summary */}

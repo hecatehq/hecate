@@ -7,7 +7,10 @@
 
 import { useCallback, useEffect, useMemo, useRef, useState, type KeyboardEvent } from "react";
 
-import { useRuntimeConsoleContext } from "../../app/RuntimeConsoleContext";
+import { useProvidersAndModels } from "../../app/state/providersAndModels";
+import { useSettings } from "../../app/state/settings";
+import { useUsage } from "../../app/state/usage";
+import { useRuntimeDerivedState } from "../../app/state/derived";
 import { getMCPCacheStats, getRecentTraces, getRuntimeStats, getTrace } from "../../lib/api";
 import {
   buildSpanWaterfall,
@@ -58,7 +61,15 @@ type TraceGroup = {
 };
 
 export function ObservabilityView({ onNavigate, focusRequest }: Props) {
-  const { state } = useRuntimeConsoleContext();
+  const settings = useSettings();
+  const providersAndModels = useProvidersAndModels();
+  const usage = useUsage();
+  const derived = useRuntimeDerivedState();
+  const settingsConfig = settings.state.config;
+  const providers = providersAndModels.state.providers;
+  const providerPresets = providersAndModels.state.providerPresets;
+  const usageEvents = usage.state.events;
+  const providerScopedModels = derived.providerScopedModels;
   const [runtimeStats, setRuntimeStats] = useState<RuntimeStatsResponse["data"] | null>(null);
   const [mcpCacheStats, setMCPCacheStats] = useState<MCPCacheStatsResponse["data"] | null>(null);
   const [traces, setTraces] = useState<TraceListItem[]>([]);
@@ -137,12 +148,12 @@ export function ObservabilityView({ onNavigate, focusRequest }: Props) {
   }, [loadTraces]);
 
   const usageByRequest = useMemo(() => {
-    const out = new Map<string, NonNullable<typeof state.usageEvents>[number]>();
-    for (const entry of state.usageEvents ?? []) {
+    const out = new Map<string, NonNullable<typeof usageEvents>[number]>();
+    for (const entry of usageEvents ?? []) {
       if (entry.request_id) out.set(entry.request_id, entry);
     }
     return out;
-  }, [state.usageEvents]);
+  }, [usageEvents]);
 
   const traceProvider = useCallback(
     (trace: TraceListItem) => trace.route?.final_provider
@@ -330,20 +341,20 @@ export function ObservabilityView({ onNavigate, focusRequest }: Props) {
   const traceTimeline = traceDetail?.spans?.length ? buildTraceTimeline(traceDetail.spans, traceDetail.started_at) : [];
 
   const providerOptions = useMemo(() => {
-    const configured = state.settingsConfig?.providers ?? [];
+    const configured = settingsConfig?.providers ?? [];
     if (configured.length > 0) {
       return configured.map(c => ({
         id: c.id,
-        name: state.providerPresets.find(pr => pr.id === c.id)?.name || c.name || c.id,
+        name: providerPresets.find(pr => pr.id === c.id)?.name || c.name || c.id,
         kind: c.kind,
       }));
     }
-    return state.providers.filter(p => p.name).map(p => ({
+    return providers.filter(p => p.name).map(p => ({
       id: p.name,
-      name: state.providerPresets.find(pr => pr.id === p.name)?.name || p.name,
+      name: providerPresets.find(pr => pr.id === p.name)?.name || p.name,
       kind: p.kind,
     }));
-  }, [state.settingsConfig, state.providers, state.providerPresets]);
+  }, [settingsConfig, providers, providerPresets]);
 
   const modelOptions = useMemo<ModelRecord[]>(() => {
     const byID = new Map<string, ModelRecord>();
@@ -361,15 +372,15 @@ export function ObservabilityView({ onNavigate, focusRequest }: Props) {
     for (const trace of traces) {
       add(traceModel(trace), traceProvider(trace));
     }
-    for (const entry of state.usageEvents ?? []) {
+    for (const entry of usageEvents ?? []) {
       add(entry.model, entry.provider);
     }
-    for (const model of state.providerScopedModels) {
+    for (const model of providerScopedModels) {
       add(model.id, model.metadata?.provider);
     }
 
     return Array.from(byID.values()).sort((a, b) => a.id.localeCompare(b.id));
-  }, [providerFilter, state.providerScopedModels, state.usageEvents, traceModel, traceProvider, traces]);
+  }, [providerFilter, providerScopedModels, usageEvents, traceModel, traceProvider, traces]);
 
   const drawerTitle = (() => {
     if (!selectedTrace) return selectedID ?? "";
@@ -551,7 +562,7 @@ export function ObservabilityView({ onNavigate, focusRequest }: Props) {
               value={modelFilter}
               onChange={setModelFilter}
               models={modelOptions}
-              presets={state.providerPresets}
+              presets={providerPresets}
               showProvider={providerFilter === "auto"}
               includeAll
               triggerWidth={220}

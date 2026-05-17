@@ -6,6 +6,7 @@
 
 import { createContext, useCallback, useContext, useMemo, useReducer, type ReactNode } from "react";
 
+import { applyOverride, CoordinatorOverridesContext } from "./coordinators/overrides";
 import type { UsageEventsResponse, UsageSummaryResponse } from "../../types/usage";
 
 export type UsageState = {
@@ -43,8 +44,14 @@ function reducer(state: UsageState, action: Action): UsageState {
 
 const UsageContext = createContext<UsageContextValue | null>(null);
 
-export function UsageProvider({ children }: { children: ReactNode }) {
-  const [state, dispatch] = useReducer(reducer, initialState);
+export function UsageProvider({ children, initialState: seededState }: {
+  children: ReactNode;
+  initialState?: Partial<UsageState>;
+}) {
+  const [state, dispatch] = useReducer(
+    reducer,
+    seededState ? { ...initialState, ...seededState } : initialState,
+  );
 
   const setSummary = useCallback((summary: UsageSummaryResponse["data"] | null) => {
     dispatch({ type: "summary/set", summary });
@@ -65,5 +72,6 @@ export function useUsage(): UsageContextValue {
   if (!ctx) {
     throw new Error("useUsage must be used inside a <UsageProvider>");
   }
-  return ctx;
+  const overrides = useContext(CoordinatorOverridesContext);
+  return { state: ctx.state, actions: applyOverride(ctx.actions, overrides?.usageSlice) };
 }

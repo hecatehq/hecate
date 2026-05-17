@@ -1,6 +1,10 @@
 import { useState } from "react";
 
-import { useRuntimeConsoleContext } from "../../app/RuntimeConsoleContext";
+import { useChat } from "../../app/state/chat";
+import { useProvidersAndModels } from "../../app/state/providersAndModels";
+import { useChatActions } from "../../app/state/coordinators/chat";
+import { useNewChatAgentID, useChatTarget } from "../../app/state/derived";
+import { useWiredSettingsActions } from "../../app/state/coordinators/wired";
 import { formatAbsoluteTime } from "../../lib/format";
 import type { AgentAdapterRecord } from "../../types/agent-adapter";
 import type { ChatSessionRecord } from "../../types/chat";
@@ -35,13 +39,22 @@ type Props = {
 };
 
 export function ChatSidebar({ isAgentChat, onSelectSession, onCreateChat }: Props) {
-  const { state, actions } = useRuntimeConsoleContext();
+  const chat = useChat();
+  const providersAndModels = useProvidersAndModels();
+  const chatTarget = useChatTarget();
+  const { actions: settingsActions } = useWiredSettingsActions();
+  const chatActions = useChatActions({ chatTarget, setNoticeMessage: settingsActions.setNoticeMessage });
+  const newChatAgentID = useNewChatAgentID();
+  const chatSessions = chat.state.chatSessions;
+  const activeChatSessionID = chat.state.activeChatSessionID;
+  const agentAdapters = providersAndModels.state.agentAdapters;
+  const agentAdapterHealthByID = providersAndModels.state.agentAdapterHealthByID;
   const [sidebarQuery, setSidebarQuery] = useState("");
   const [renamingId, setRenamingId] = useState<string | null>(null);
   const [renameValue, setRenameValue] = useState("");
   const [hoveredChatId, setHoveredChatId] = useState<string | null>(null);
 
-  const sessions: SidebarSession[] = (state.chatSessions ?? []).map((s) => ({
+  const sessions: SidebarSession[] = (chatSessions ?? []).map((s) => ({
     id: s.id,
     title: s.title,
     message_count: s.message_count,
@@ -49,18 +62,17 @@ export function ChatSidebar({ isAgentChat, onSelectSession, onCreateChat }: Prop
     last_provider: s.runtime_kind === "external_agent" || s.adapter_id ? s.adapter_id : s.provider,
     last_model: s.runtime_kind === "external_agent" || s.adapter_id ? s.status : s.model,
     agent_brand: sidebarSessionBrand(s),
-    agent_label: sidebarSessionAgentLabel(s, state.agentAdapters),
+    agent_label: sidebarSessionAgentLabel(s, agentAdapters),
     status_label: s.status,
     created_at: s.created_at,
     updated_at: s.updated_at,
   }));
   const filteredSessions = filterSidebarSessions(sessions, sidebarQuery);
   const groupedSessions = groupSidebarSessions(filteredSessions);
-  const activeSessionID = state.activeChatSessionID;
+  const activeSessionID = activeChatSessionID;
 
-  const newChatAgentID = state.newChatAgentID || "hecate";
-  const newChatAgentAdapter = newChatAgentID === "hecate" ? undefined : state.agentAdapters.find((adapter) => adapter.id === newChatAgentID);
-  const newChatAgentHealth = newChatAgentID === "hecate" ? undefined : state.agentAdapterHealthByID.get(newChatAgentID);
+  const newChatAgentAdapter = newChatAgentID === "hecate" ? undefined : agentAdapters.find((adapter) => adapter.id === newChatAgentID);
+  const newChatAgentHealth = newChatAgentID === "hecate" ? undefined : agentAdapterHealthByID.get(newChatAgentID);
   const newChatAgentStatus = chatAgentOptionStatus(newChatAgentID as ChatAgentOptionID, newChatAgentAdapter, newChatAgentHealth);
   const newChatAgentReady = newChatAgentStatus.ready;
 
@@ -70,10 +82,10 @@ export function ChatSidebar({ isAgentChat, onSelectSession, onCreateChat }: Prop
         <div style={{ display: "flex", gap: 6, width: "100%" }}>
           <NewChatAgentButton
             value={newChatAgentID}
-            adapters={state.agentAdapters}
-            healthByID={state.agentAdapterHealthByID}
+            adapters={agentAdapters}
+            healthByID={agentAdapterHealthByID}
             disableUnavailable
-            onChange={(agentID) => actions.setNewChatAgent(agentID)}
+            onChange={(agentID) => chatActions.setNewChatAgent(agentID)}
             onCreate={() => {
               if (!newChatAgentReady) return;
               onCreateChat();
@@ -146,10 +158,10 @@ export function ChatSidebar({ isAgentChat, onSelectSession, onCreateChat }: Prop
                       onChange={e => setRenameValue(e.target.value)}
                       onClick={e => e.stopPropagation()}
                       onKeyDown={e => {
-                        if (e.key === "Enter") { void actions.renameChatSession(s.id, renameValue); setRenamingId(null); }
+                        if (e.key === "Enter") { void chatActions.renameChatSession(s.id, renameValue); setRenamingId(null); }
                         if (e.key === "Escape") setRenamingId(null);
                       }}
-                      onBlur={() => { void actions.renameChatSession(s.id, renameValue); setRenamingId(null); }}
+                      onBlur={() => { void chatActions.renameChatSession(s.id, renameValue); setRenamingId(null); }}
                       style={{ flex: 1, minWidth: 0, height: 18, boxSizing: "border-box", fontSize: 12, background: "var(--bg3)", border: "1px solid var(--teal)", borderRadius: "var(--radius-sm)", color: "var(--t0)", padding: "0 4px", outline: "none", fontFamily: "var(--font-sans)", lineHeight: "16px" }}
                     />
                   ) : (
@@ -186,7 +198,7 @@ export function ChatSidebar({ isAgentChat, onSelectSession, onCreateChat }: Prop
                           className="btn btn-ghost btn-sm"
                           aria-label={`Delete chat ${s.title || "Untitled"}`}
                           type="button"
-                          onClick={e => { e.stopPropagation(); void actions.deleteChatSession(s.id); }}
+                          onClick={e => { e.stopPropagation(); void chatActions.deleteChatSession(s.id); }}
                           style={{ padding: "1px 3px", color: "var(--red)" }}
                           title="Delete"
                         >

@@ -4,6 +4,9 @@
 // to the cross-cutting notice toast so the slice stays free of UI
 // banner concerns.
 
+import { useContext } from "react";
+
+import { applyOverride, CoordinatorOverridesContext } from "./overrides";
 import { useRetention } from "../retention";
 import type { NoticeState } from "../settings";
 
@@ -22,5 +25,6 @@ export function useRetentionActions(params: UseRetentionActionsParams) {
       : { kind: "error", message: "Failed to run retention." });
   }
 
-  return { runRetention };
+  const overrides = useContext(CoordinatorOverridesContext);
+  return applyOverride({ runRetention }, overrides?.retention);
 }

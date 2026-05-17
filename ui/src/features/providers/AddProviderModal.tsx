@@ -1,5 +1,7 @@
 import { useEffect, useRef, useState } from "react";
-import { useRuntimeConsoleContext } from "../../app/RuntimeConsoleContext";
+import { useProvidersAndModels } from "../../app/state/providersAndModels";
+import { useSettings } from "../../app/state/settings";
+import { useWiredProviderActions } from "../../app/state/coordinators/wired";
 import { discoverLocalProviders } from "../../lib/api";
 import { resolvedBaseURL } from "../../lib/provider-utils";
 import type { LocalProviderDiscoveryRecord, ProviderPresetRecord } from "../../types/provider";
@@ -20,7 +22,11 @@ type AddFormState = {
 };
 
 export function AddProviderModal({ open, onClose }: Props) {
-  const { state, actions } = useRuntimeConsoleContext();
+  const settings = useSettings();
+  const providersAndModels = useProvidersAndModels();
+  const providerActions = useWiredProviderActions();
+  const providerPresets = providersAndModels.state.providerPresets;
+  const settingsConfig = settings.state.config;
   const [step, setStep] = useState<"pick" | "form">("pick");
   const [pickTab, setPickTab] = useState<"cloud" | "local">("local");
   const [preset, setPreset] = useState<ProviderPresetRecord | null>(null);
@@ -69,9 +75,9 @@ export function AddProviderModal({ open, onClose }: Props) {
 
   if (!open) return null;
 
-  const localPresets = state.providerPresets.filter(p => p.kind === "local");
-  const cloudPresets = state.providerPresets.filter(p => p.kind === "cloud");
-  const configuredProviders = state.settingsConfig?.providers ?? [];
+  const localPresets = providerPresets.filter(p => p.kind === "local");
+  const cloudPresets = providerPresets.filter(p => p.kind === "cloud");
+  const configuredProviders = settingsConfig?.providers ?? [];
 
   function close() {
     onClose();
@@ -99,7 +105,7 @@ export function AddProviderModal({ open, onClose }: Props) {
     setLoading(true);
     setError("");
     try {
-      await actions.createProvider({
+      await providerActions.createProvider({
         name: form.name.trim(),
         preset_id: preset?.id,
         custom_name: form.custom_name.trim() || undefined,
@@ -194,12 +200,12 @@ export function AddProviderModal({ open, onClose }: Props) {
     const currentBaseURL = resolvedBaseURL(
       preset?.id ?? "",
       preset ? { id: preset.id, name: preset.name, kind: preset.kind, protocol: preset.protocol, base_url: preset.base_url, credential_configured: false } : undefined,
-      state.providerPresets,
+      providerPresets,
     );
     const effectiveBaseURL = (showURL ? form.base_url.trim() : currentBaseURL).trim();
     const baseURLTakenBy = effectiveBaseURL
       ? configuredProviders.find(p => {
-          const url = resolvedBaseURL(p.id, p, state.providerPresets);
+          const url = resolvedBaseURL(p.id, p, providerPresets);
           return url && url === effectiveBaseURL;
         })
       : undefined;

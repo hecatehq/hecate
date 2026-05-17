@@ -1,7 +1,14 @@
 import { useEffect, useRef, type RefObject, type SyntheticEvent } from "react";
 
-import { useRuntimeConsoleContext } from "../../app/RuntimeConsoleContext";
-import type { RuntimeConsoleViewModel } from "../../app/useRuntimeConsole";
+import { useChat } from "../../app/state/chat";
+import { useProvidersAndModels } from "../../app/state/providersAndModels";
+import { useRuntime } from "../../app/state/runtime";
+import { useSettings } from "../../app/state/settings";
+import { useChatActions } from "../../app/state/coordinators/chat";
+import { useAgentAdapterActions } from "../../app/state/coordinators/agentAdapters";
+import { useChatTarget } from "../../app/state/derived";
+import { useWiredSettingsActions } from "../../app/state/coordinators/wired";
+import type { QueuedChatMessage } from "../../app/state/_shared";
 import { type ChatSetupRepairState } from "../../lib/chat-setup-readiness";
 import { claudeCodeSetupTokenCommand } from "../../lib/claude-code-setup";
 import { describeGatewayError, formatErrorCode } from "../../lib/error-diagnostics";
@@ -10,6 +17,7 @@ import type { SelectedModelIssue } from "../../lib/provider-issues";
 import { providerDisplayName } from "../../lib/provider-utils";
 import type { AgentAdapterRecord } from "../../types/agent-adapter";
 import type { ModelRecord } from "../../types/model";
+import type { ConfiguredProviderRecord, ProviderPresetRecord, ProviderRecord } from "../../types/provider";
 import { Icon, Icons, InlineError } from "../shared/ui";
 
 import {
@@ -77,7 +85,7 @@ export type ChatComposerProps = {
   activeHecateTaskID: string;
   activeHecateRunID: string;
   // Filtered to the active session — ChatView already does the filter.
-  activeQueuedChatMessages: RuntimeConsoleViewModel["state"]["queuedChatMessages"];
+  activeQueuedChatMessages: QueuedChatMessage[];
 
   // User-message history feeds the arrow-key recall, derived in
   // ChatView from visibleMessages.
@@ -90,7 +98,30 @@ export type ChatComposerProps = {
 };
 
 export function ChatComposer(props: ChatComposerProps) {
-  const { state, actions } = useRuntimeConsoleContext();
+  const runtime = useRuntime();
+  const chat = useChat();
+  const providersAndModels = useProvidersAndModels();
+  const settings = useSettings();
+  const chatTarget = useChatTarget();
+  const { actions: settingsActions } = useWiredSettingsActions();
+  const chatActions = useChatActions({ chatTarget, setNoticeMessage: settingsActions.setNoticeMessage });
+  const agentAdapterActions = useAgentAdapterActions({ setNoticeMessage: settingsActions.setNoticeMessage });
+  // Pull the slice fields the composer reads. Destructured to keep the
+  // rest of the component readable.
+  const message = runtime.state.message;
+  const chatError = chat.state.chatError;
+  const chatErrorAction = chat.state.chatErrorAction;
+  const chatErrorCode = chat.state.chatErrorCode;
+  const chatErrorRequestID = chat.state.chatErrorRequestID;
+  const chatErrorStatus = chat.state.chatErrorStatus;
+  const chatErrorTraceID = chat.state.chatErrorTraceID;
+  const chatCancelling = chat.state.chatCancelling;
+  const providerFilter = chat.state.providerFilter;
+  const model = chat.state.model;
+  const activeChatSession = chat.state.activeChatSession;
+  const runtimeHeaders = runtime.state.runtimeHeaders;
+  const providerPresets = providersAndModels.state.providerPresets;
+  const providers = providersAndModels.state.providers;
   const {
     isAgentChat,
     isHecateChat,
@@ -151,7 +182,7 @@ export function ChatComposer(props: ChatComposerProps) {
   }, [activeSessionID]);
 
   function setComposerText(value: string, cursorAtEnd = false) {
-    actions.setMessage(value);
+    runtime.actions.setMessage(value);
     if (!cursorAtEnd) return;
     requestAnimationFrame(() => {
       const node = textareaRef.current;
@@ -164,7 +195,7 @@ export function ChatComposer(props: ChatComposerProps) {
   function handleMessageChange(value: string) {
     messageHistoryCursorRef.current = null;
     messageHistoryDraftRef.current = value;
-    actions.setMessage(value);
+    runtime.actions.setMessage(value);
   }
 
   function handleMessageHistoryKey(e: React.KeyboardEvent<HTMLTextAreaElement>) {
@@ -176,10 +207,10 @@ export function ChatComposer(props: ChatComposerProps) {
     const selectionEnd = node.selectionEnd ?? 0;
     const hasSelection = selectionStart !== selectionEnd;
     const browsing = messageHistoryCursorRef.current !== null;
-    const isEmpty = state.message.length === 0;
-    const singleLine = !state.message.includes("\n");
+    const isEmpty = message.length === 0;
+    const singleLine = !message.includes("\n");
     const atStart = selectionStart === 0 && selectionEnd === 0;
-    const atEnd = selectionStart === state.message.length && selectionEnd === state.message.length;
+    const atEnd = selectionStart === message.length && selectionEnd === message.length;
 
     if (hasSelection) return false;
 
@@ -189,7 +220,7 @@ export function ChatComposer(props: ChatComposerProps) {
       if (!singleLine && !isEmpty && !atStart && !browsing) return false;
       e.preventDefault();
       if (!browsing) {
-        messageHistoryDraftRef.current = state.message;
+        messageHistoryDraftRef.current = message;
       }
       const current = messageHistoryCursorRef.current;
       const next = current === null ? messageHistory.length - 1 : Math.max(0, current - 1);
@@ -229,7 +260,7 @@ export function ChatComposer(props: ChatComposerProps) {
   }
 
   function handleSubmit(e: SyntheticEvent<HTMLFormElement>) {
-    void actions.submitChat(e);
+    void chatActions.submitChat(e);
     if (textareaRef.current) {
       textareaRef.current.style.height = "auto";
     }
@@ -240,20 +271,20 @@ export function ChatComposer(props: ChatComposerProps) {
   }
 
   if (showClaudeCodeEmptyPreflight) return null;
-  if (!composerVisible && !messageControlsVisible && !state.chatError && !selectedModelIssue) return null;
+  if (!composerVisible && !messageControlsVisible && !chatError && !selectedModelIssue) return null;
 
   return (
     <form ref={formRef} onSubmit={handleSubmit} style={{ borderTop: "1px solid var(--border)", padding: "10px 12px", background: "var(--bg1)", flexShrink: 0 }}>
-      {state.chatError && (
+      {chatError && (
         <div style={{ marginBottom: 8 }}>
           <ChatErrorPanel
-            message={state.chatError}
-            provider={state.runtimeHeaders?.provider}
-            code={state.chatErrorCode}
-            action={state.chatErrorAction}
-            requestID={state.chatErrorRequestID}
-            status={state.chatErrorStatus ?? undefined}
-            traceID={state.chatErrorTraceID}
+            message={chatError}
+            provider={runtimeHeaders?.provider}
+            code={chatErrorCode}
+            action={chatErrorAction}
+            requestID={chatErrorRequestID}
+            status={chatErrorStatus ?? undefined}
+            traceID={chatErrorTraceID}
             onOpenTrace={onOpenTrace}
             diagnostic={chatDiagnostic}
           />
@@ -265,8 +296,8 @@ export function ChatComposer(props: ChatComposerProps) {
             issue={selectedModelIssue}
             onOpenProviders={() => onNavigate?.("connections")}
             onUseSuggestedModel={(model) => {
-              actions.setProviderFilter("auto");
-              actions.setModel(model);
+              chatActions.selectProviderRoute("auto");
+              chat.actions.setModel(model);
             }}
           />
         </div>
@@ -277,10 +308,10 @@ export function ChatComposer(props: ChatComposerProps) {
         <ClaudeCodePreflightCard
           state={claudeCodePreflight}
           loading={selectedAgentHealthLoading}
-          onCopyInstall={() => void actions.copyCommand("npx -y @anthropic-ai/claude-code --version")}
-          onCopySetup={() => void actions.copyCommand(claudeCodeSetupTokenCommand(selectedAgent?.claude_code_cli))}
+          onCopyInstall={() => void runtime.actions.copyCommand("npx -y @anthropic-ai/claude-code --version")}
+          onCopySetup={() => void runtime.actions.copyCommand(claudeCodeSetupTokenCommand(selectedAgent?.claude_code_cli))}
           onOpenSetup={openClaudeCodeSetup}
-          onTest={() => void actions.probeAgentAdapter("claude_code")}
+          onTest={() => void agentAdapterActions.probeAgentAdapter("claude_code")}
         />
       )}
       {composerRepair && (
@@ -345,7 +376,7 @@ export function ChatComposer(props: ChatComposerProps) {
                 aria-label={`Queued message ${index + 1}`}
                 className="queued-chat-message-input"
                 value={queued.content}
-                onChange={(event) => actions.updateQueuedChatMessage(queued.id, event.target.value)}
+                onChange={(event) => chat.actions.updateQueuedChatMessage(queued.id, event.target.value)}
                 onKeyDown={(event) => {
                   if (event.key === "Enter" && !event.shiftKey) event.preventDefault();
                 }}
@@ -365,7 +396,7 @@ export function ChatComposer(props: ChatComposerProps) {
                 type="button"
                 className="btn btn-ghost btn-sm"
                 aria-label={`Remove queued message ${index + 1}`}
-                onClick={() => actions.removeQueuedChatMessage(queued.id)}
+                onClick={() => chat.actions.removeQueuedChatMessage(queued.id)}
                 style={{ padding: "2px 6px", fontFamily: "var(--font-mono)", fontSize: 10 }}
               >
                 remove
@@ -388,27 +419,27 @@ export function ChatComposer(props: ChatComposerProps) {
         >
           {isExternalAgentChat ? (
             <ExternalAgentConfigControls
-              session={state.activeChatSession}
-              onChange={actions.setChatConfigOption}
+              session={activeChatSession}
+              onChange={chatActions.setChatConfigOption}
               placement="composer"
             />
           ) : hecateAgentModelLocked ? (
             <LockedHecateModelSnapshot
-              provider={providerLabelForHecateChat(state, hecateChatProviderValue)}
+              provider={providerLabelForHecateChat(hecateChatProviderValue, settings.state.config?.providers, providerPresets, providers)}
               model={hecateChatModelValue}
             />
           ) : (
             <>
               <HecateProviderConfigControl
-                value={state.providerFilter}
-                onChange={v => actions.setProviderFilter(v as typeof state.providerFilter)}
+                value={providerFilter}
+                onChange={v => chatActions.selectProviderRoute(v as typeof providerFilter)}
                 options={hecateProviderOptions}
               />
               <HecateModelConfigControl
-                value={state.model}
-                onChange={actions.setModel}
+                value={model}
+                onChange={chat.actions.setModel}
                 models={selectableModels}
-                presets={state.providerPresets}
+                presets={providerPresets}
                 showProvider={false}
                 disabledProviders={hecateDisabledProviderReasons}
               />
@@ -420,7 +451,7 @@ export function ChatComposer(props: ChatComposerProps) {
         <textarea
           ref={textareaRef}
           aria-label="Message"
-          value={state.message}
+          value={message}
           onChange={e => handleMessageChange(e.target.value)}
           onKeyDown={handleKeyDown}
           placeholder={modEnterMode ? `Message… (${modKey}+Enter to send)` : "Message… (Shift+Enter for newline)"}
@@ -443,9 +474,9 @@ export function ChatComposer(props: ChatComposerProps) {
           <button type="button"
             className="btn btn-danger"
             aria-label="Stop current run"
-            disabled={state.chatCancelling}
-            title={state.chatCancelling ? "Stopping..." : "Stop current run"}
-            onClick={actions.cancelAgentChat}
+            disabled={chatCancelling}
+            title={chatCancelling ? "Stopping..." : "Stop current run"}
+            onClick={chatActions.cancelAgentChat}
             style={{
               position: "absolute", right: 8, top: "50%", transform: "translateY(-50%)",
               width: 28, height: 28, borderRadius: "var(--radius-sm)",
@@ -494,9 +525,9 @@ export function ChatComposer(props: ChatComposerProps) {
               type="button"
               className="btn btn-ghost btn-sm"
               aria-label={isExternalAgentChat ? "Stop external agent" : "Stop active task"}
-              title={state.chatCancelling ? "Stopping..." : isExternalAgentChat ? "Stop external agent" : "Stop active task"}
-              onClick={actions.cancelAgentChat}
-              disabled={state.chatCancelling}
+              title={chatCancelling ? "Stopping..." : isExternalAgentChat ? "Stop external agent" : "Stop active task"}
+              onClick={chatActions.cancelAgentChat}
+              disabled={chatCancelling}
               style={{ fontFamily: "var(--font-mono)", fontSize: 10, padding: "2px 6px", color: "var(--danger)" }}
             >
               Stop
@@ -504,7 +535,7 @@ export function ChatComposer(props: ChatComposerProps) {
           </span>
         </div>
       )}
-      {isAgentChat && state.chatCancelling && (
+      {isAgentChat && chatCancelling && (
         <div style={{ maxWidth: 820, margin: "6px auto 0", color: "var(--t3)", fontFamily: "var(--font-mono)", fontSize: 11 }}>
           Stopping...
         </div>
@@ -750,11 +781,16 @@ function InfoChip({ label, value }: { label: string; value: string }) {
   );
 }
 
-function providerLabelForHecateChat(state: RuntimeConsoleViewModel["state"], providerID: string): string {
+function providerLabelForHecateChat(
+  providerID: string,
+  configuredProviders: ConfiguredProviderRecord[] | undefined,
+  providerPresets: ProviderPresetRecord[],
+  providers: ProviderRecord[],
+): string {
   if (!providerID || providerID === "auto") {
     return "Select provider";
   }
-  return providerDisplayName(providerID, state.settingsConfig?.providers, state.providerPresets, state.providers);
+  return providerDisplayName(providerID, configuredProviders, providerPresets, providers);
 }
 
 export function repairActionIcon(repair: ChatSetupRepairState) {

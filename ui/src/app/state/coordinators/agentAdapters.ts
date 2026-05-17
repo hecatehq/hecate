@@ -4,6 +4,9 @@
 // unwraps Result → boolean / record and routes errors through the
 // global notice banner.
 
+import { useContext } from "react";
+
+import { applyOverride, CoordinatorOverridesContext } from "./overrides";
 import { useProvidersAndModels } from "../providersAndModels";
 import type { AgentAdapterHealthRecord } from "../../../types/agent-adapter";
 import type { SettingsActions } from "./settings";
@@ -50,5 +53,9 @@ export function useAgentAdapterActions(params: UseAgentAdapterActionsParams) {
     return true;
   }
 
-  return { probeAgentAdapter, setAgentAdapterCredential, deleteAgentAdapterCredential };
+  const overrides = useContext(CoordinatorOverridesContext);
+  return applyOverride(
+    { probeAgentAdapter, setAgentAdapterCredential, deleteAgentAdapterCredential },
+    overrides?.agentAdapters,
+  );
 }

@@ -28,6 +28,7 @@
 
 import { createContext, useCallback, useContext, useMemo, useReducer, type ReactNode } from "react";
 
+import { applyOverride, CoordinatorOverridesContext } from "./coordinators/overrides";
 import {
   getProviders,
   getModels,
@@ -154,8 +155,14 @@ function reducer(state: ProvidersAndModelsState, action: Action): ProvidersAndMo
 
 const ProvidersAndModelsContext = createContext<ProvidersAndModelsContextValue | null>(null);
 
-export function ProvidersAndModelsProvider({ children }: { children: ReactNode }) {
-  const [state, dispatch] = useReducer(reducer, initialState);
+export function ProvidersAndModelsProvider({ children, initialState: seededState }: {
+  children: ReactNode;
+  initialState?: Partial<ProvidersAndModelsState>;
+}) {
+  const [state, dispatch] = useReducer(
+    reducer,
+    seededState ? { ...initialState, ...seededState } : initialState,
+  );
 
   const setProviders = useCallback(
     (next: SetStateAction<ProviderStatusResponse["data"]>) => dispatch({ type: "providers/set", next }),
@@ -315,5 +322,6 @@ export function useProvidersAndModels(): ProvidersAndModelsContextValue {
   if (!ctx) {
     throw new Error("useProvidersAndModels must be used inside a <ProvidersAndModelsProvider>");
   }
-  return ctx;
+  const overrides = useContext(CoordinatorOverridesContext);
+  return { state: ctx.state, actions: applyOverride(ctx.actions, overrides?.providersAndModelsSlice) };
 }

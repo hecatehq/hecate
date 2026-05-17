@@ -22,6 +22,7 @@
 
 import { createContext, useCallback, useContext, useMemo, useReducer, useRef, type ReactNode } from "react";
 
+import { applyOverride, CoordinatorOverridesContext } from "./coordinators/overrides";
 import {
   type ChatGrantFilter,
   cancelChatApproval as cancelChatApprovalRequest,
@@ -143,8 +144,14 @@ function reducer(state: ApprovalsState, action: Action): ApprovalsState {
 
 const ApprovalsContext = createContext<ApprovalsContextValue | null>(null);
 
-export function ApprovalsProvider({ children }: { children: ReactNode }) {
-  const [state, dispatch] = useReducer(reducer, initialState);
+export function ApprovalsProvider({ children, initialState: seededState }: {
+  children: ReactNode;
+  initialState?: Partial<ApprovalsState>;
+}) {
+  const [state, dispatch] = useReducer(
+    reducer,
+    seededState ? { ...initialState, ...seededState } : initialState,
+  );
   // Per-session mutation version. Lives outside the reducer
   // because every live mutation needs to bump it synchronously
   // before refetchPending captures the "before" snapshot; folding
@@ -290,5 +297,6 @@ export function useApprovals(): ApprovalsContextValue {
   if (!ctx) {
     throw new Error("useApprovals must be used inside an <ApprovalsProvider>");
   }
-  return ctx;
+  const overrides = useContext(CoordinatorOverridesContext);
+  return { state: ctx.state, actions: applyOverride(ctx.actions, overrides?.approvalsSlice) };
 }

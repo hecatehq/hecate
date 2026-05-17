@@ -10,6 +10,9 @@
 // state-merge logic) so dashboard and chat agree on session shape
 // without duplicating the renderChatSessionSummary chain.
 
+import { useContext } from "react";
+
+import { applyOverride, CoordinatorOverridesContext } from "./overrides";
 import { resolveDashboardSnapshot } from "../../runtimeConsoleDashboard";
 import { useChat } from "../chat";
 import { useProvidersAndModels } from "../providersAndModels";
@@ -132,9 +135,13 @@ export function useDashboardActions(params: UseDashboardActionsParams) {
     await providersAndModels.actions.refreshProviders();
   }
 
-  return {
-    loadDashboard,
-    refreshProviders,
-    refreshRuntimeState: params.refreshRuntimeState,
-  };
+  const overrides = useContext(CoordinatorOverridesContext);
+  return applyOverride(
+    {
+      loadDashboard,
+      refreshProviders,
+      refreshRuntimeState: params.refreshRuntimeState,
+    },
+    overrides?.dashboard,
+  );
 }

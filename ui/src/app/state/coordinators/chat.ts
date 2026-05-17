@@ -12,8 +12,9 @@
 // commit + the secondary refresh path). They live here because
 // chat is their primary home; the dashboard hook re-exposes them.
 
-import { type SyntheticEvent } from "react";
+import { useContext, type SyntheticEvent } from "react";
 
+import { applyOverride, CoordinatorOverridesContext } from "./overrides";
 import {
   type ChatMessage,
   cancelChatSession as cancelChatSessionRequest,
@@ -69,8 +70,6 @@ export type UseChatActionsParams = {
   setNoticeMessage: SettingsActions["setNoticeMessage"];
 };
 
-export type ChatActions = ReturnType<typeof useChatActions>;
-
 function chatSessionIsExternal(session: ChatSessionRecord | null): boolean {
   return Boolean(session?.runtime_kind === "external_agent" || session?.adapter_id);
 }
@@ -102,7 +101,42 @@ function deriveHecateChatSelectionFromSession(session: ChatSessionRecord | null)
 
 export { chatSessionIsExternal, chatSessionIsBusy };
 
-export function useChatActions(params: UseChatActionsParams) {
+type ChatActionsReturn = {
+  applyChatSession: (session: ChatSessionRecord) => void;
+  syncHecateSelectionFromSession: (session: ChatSessionRecord | null) => void;
+  refreshRuntimeState: () => Promise<void>;
+  refreshChatSession: (sessionID: string) => Promise<void>;
+  clearPendingToolState: () => void;
+  resetChatWorkspaceState: () => void;
+  submitAgentChat: (queued?: QueuedChatMessage) => Promise<void>;
+  submitChat: (event: SyntheticEvent<HTMLFormElement>) => Promise<void>;
+  cancelAgentChat: () => Promise<void>;
+  updateToolResult: (index: number, result: string) => void;
+  submitToolResults: () => Promise<void>;
+  createChatSession: () => Promise<void>;
+  selectChatSession: (id: string) => Promise<void>;
+  startNewChat: () => void;
+  deleteChatSession: (id: string) => Promise<void>;
+  renameChatSession: (id: string, title: string) => Promise<void>;
+  setChatTarget: (nextTarget: ChatTarget) => void;
+  setNewChatAgent: (nextAgentID: string) => void;
+  updateAgentWorkspace: (nextWorkspace: string) => void;
+  selectProviderRoute: (nextProvider: ProviderFilter) => void;
+  chooseAgentWorkspace: () => Promise<boolean>;
+  getChatApproval: (sessionID: string, approvalID: string) => Promise<ChatApprovalRecord | null>;
+  resolveChatApproval: (sessionID: string, approvalID: string, decision: ResolveChatApprovalPayload) => Promise<boolean>;
+  cancelChatApproval: (sessionID: string, approvalID: string) => Promise<boolean>;
+  resolveTaskApproval: (taskID: string, approvalID: string, decision: ResolveTaskApprovalPayload) => Promise<boolean>;
+  deleteChatGrant: (grantID: string) => Promise<boolean>;
+  listChatMessageFiles: (sessionID: string, messageID: string) => Promise<ChatChangedFileRecord[]>;
+  getChatMessageFileDiff: (sessionID: string, messageID: string, path: string) => Promise<ChatChangedFileDiffRecord | null>;
+  revertChatMessageFiles: (sessionID: string, messageID: string, paths: string[]) => Promise<boolean>;
+  setChatConfigOption: (sessionID: string, configID: string, value: string | boolean) => Promise<boolean>;
+  setHecateRTKEnabled: (enabled: boolean) => Promise<boolean>;
+};
+export type ChatActions = ChatActionsReturn;
+
+export function useChatActions(params: UseChatActionsParams): ChatActionsReturn {
   const runtime = useRuntime();
   const usage = useUsage();
   const providersAndModels = useProvidersAndModels();
@@ -898,7 +932,7 @@ export function useChatActions(params: UseChatActionsParams) {
     }
   }
 
-  return {
+  const real = {
     // helpers / internal state operations exposed for dashboard
     applyChatSession,
     syncHecateSelectionFromSession,
@@ -933,4 +967,6 @@ export function useChatActions(params: UseChatActionsParams) {
     setChatConfigOption,
     setHecateRTKEnabled,
   };
+  const overrides = useContext(CoordinatorOverridesContext);
+  return applyOverride(real, overrides?.chat);
 }

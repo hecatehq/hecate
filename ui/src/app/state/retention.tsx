@@ -18,6 +18,7 @@
 
 import { createContext, useCallback, useContext, useMemo, useReducer, useRef, type ReactNode } from "react";
 
+import { applyOverride, CoordinatorOverridesContext } from "./coordinators/overrides";
 import { getRetentionRuns, runRetention as runRetentionRequest } from "../../lib/api";
 import { warn as logWarn } from "../../lib/log";
 import { parseCSV } from "../../lib/runtime-utils";
@@ -92,8 +93,14 @@ function reducer(state: RetentionState, action: Action): RetentionState {
 
 const RetentionContext = createContext<RetentionContextValue | null>(null);
 
-export function RetentionProvider({ children }: { children: ReactNode }) {
-  const [state, dispatch] = useReducer(reducer, initialState);
+export function RetentionProvider({ children, initialState: seededState }: {
+  children: ReactNode;
+  initialState?: Partial<RetentionState>;
+}) {
+  const [state, dispatch] = useReducer(
+    reducer,
+    seededState ? { ...initialState, ...seededState } : initialState,
+  );
   // Re-entrancy guard outside the reducer because SettingsView mounts
   // can race and we don't want to dispatch a "started" action that
   // would otherwise be harmless but adds noise to the trace.
@@ -149,5 +156,6 @@ export function useRetention(): RetentionContextValue {
   if (!ctx) {
     throw new Error("useRetention must be used inside a <RetentionProvider>");
   }
-  return ctx;
+  const overrides = useContext(CoordinatorOverridesContext);
+  return { state: ctx.state, actions: applyOverride(ctx.actions, overrides?.retentionSlice) };
 }

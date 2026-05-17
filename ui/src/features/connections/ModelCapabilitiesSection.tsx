@@ -1,5 +1,6 @@
 import { useMemo, useState, type ReactNode } from "react";
-import { useRuntimeConsoleContext } from "../../app/RuntimeConsoleContext";
+import { useProvidersAndModels } from "../../app/state/providersAndModels";
+import { useWiredProviderActions } from "../../app/state/coordinators/wired";
 import { formatInteger } from "../../lib/format";
 import type { ModelRecord } from "../../types/model";
 
@@ -31,11 +32,13 @@ function SectionHeader({
 }
 
 export function ModelCapabilitiesSection() {
-  const { state, actions } = useRuntimeConsoleContext();
+  const providersAndModels = useProvidersAndModels();
+  const providerActions = useWiredProviderActions();
+  const models = providersAndModels.state.models;
   const [query, setQuery] = useState("");
   const rows = useMemo(() => {
     const q = query.trim().toLowerCase();
-    return [...state.models]
+    return [...models]
       .filter((model) => {
         if (!q) return true;
         const provider = model.metadata?.provider ?? "";
@@ -46,7 +49,7 @@ export function ModelCapabilitiesSection() {
         const right = `${b.metadata?.provider ?? ""}/${b.id}`;
         return left.localeCompare(right);
       });
-  }, [query, state.models]);
+  }, [query, models]);
 
   return (
     <div className="card" style={{ padding: "14px 16px", marginBottom: 24 }} data-testid="connections-model-capabilities">
@@ -91,7 +94,7 @@ export function ModelCapabilitiesSection() {
               onToolsChange={(enabled) => {
                 const provider = model.metadata?.provider ?? "";
                 if (!provider) return;
-                void actions.upsertModelCapabilityOverride({
+                void providerActions.upsertModelCapabilityOverride({
                   provider,
                   model: model.id,
                   tool_calling: enabled ? "basic" : "none",
@@ -103,7 +106,7 @@ export function ModelCapabilitiesSection() {
               onClear={() => {
                 const provider = model.metadata?.provider ?? "";
                 if (!provider) return;
-                void actions.deleteModelCapabilityOverride(provider, model.id);
+                void providerActions.deleteModelCapabilityOverride(provider, model.id);
               }}
             />
           ))}
