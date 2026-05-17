@@ -322,7 +322,7 @@ func (h *Handler) HandleStartTask(w http.ResponseWriter, r *http.Request) {
 			slog.Any("error", err),
 		)
 		if errors.Is(err, orchestrator.ErrAgentLoopMisconfigured) {
-			WriteError(w, http.StatusUnprocessableEntity, "model_not_configured", err.Error())
+			WriteError(w, http.StatusUnprocessableEntity, errCodeModelNotConfigured, err.Error())
 			return
 		}
 		WriteError(w, http.StatusInternalServerError, errCodeGatewayError, err.Error())

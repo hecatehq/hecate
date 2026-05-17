@@ -41,7 +41,7 @@ func (h *Handler) HandleDeleteModelCapabilityOverride(w http.ResponseWriter, r *
 		return
 	}
 	if err := h.controlPlane.DeleteModelCapabilityOverride(r.Context(), provider, model); err != nil {
-		WriteError(w, http.StatusNotFound, "not_found", err.Error())
+		WriteError(w, http.StatusNotFound, errCodeNotFound, err.Error())
 		return
 	}
 	w.WriteHeader(http.StatusNoContent)

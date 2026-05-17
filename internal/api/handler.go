@@ -487,13 +487,13 @@ func (h *Handler) HandleModels(w http.ResponseWriter, r *http.Request) {
 			slog.String("event.name", "gateway.models.list.failed"),
 			slog.Any("error", err),
 		)
-		WriteError(w, http.StatusInternalServerError, "gateway_error", err.Error())
+		WriteError(w, http.StatusInternalServerError, errCodeGatewayError, err.Error())
 		return
 	}
 
 	cpState, err := h.settingsState(ctx)
 	if err != nil {
-		WriteError(w, http.StatusInternalServerError, "gateway_error", err.Error())
+		WriteError(w, http.StatusInternalServerError, errCodeGatewayError, err.Error())
 		return
 	}
 	data := make([]OpenAIModelData, 0, len(result.Models))
@@ -571,7 +571,7 @@ func settingsActor(r *http.Request) string {
 // decodeJSON decodes the request body into v and writes a 400 on failure.
 func decodeJSON(w http.ResponseWriter, r *http.Request, v any) bool {
 	if err := json.NewDecoder(r.Body).Decode(v); err != nil {
-		WriteError(w, http.StatusBadRequest, "invalid_request", "request body must be valid JSON")
+		WriteError(w, http.StatusBadRequest, errCodeInvalidRequest, "request body must be valid JSON")
 		return false
 	}
 	return true
