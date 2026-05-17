@@ -1,74 +1,37 @@
-import { useEffect, useMemo, type SyntheticEvent } from "react";
+import { useEffect, useMemo, useRef } from "react";
 
 import {
   type ChatTarget,
   type HecateChatTarget,
-  type QueuedChatMessage,
   normalizeStoredHecateChatTarget,
 } from "./state/_shared";
 import { buildLocalProviderIssue } from "../lib/provider-issues";
 import type { LocalProviderIssue } from "../lib/provider-issues";
 import { filterModelsByKind, filterModelsByProvider } from "../lib/runtime-utils";
 import {
-  type ChatMessage,
-  chooseWorkspaceDirectory as chooseWorkspaceDirectoryRequest,
-  chatCompletionsStream,
-  deletePolicyRule as deletePolicyRuleRequest,
-  getUsageEvents,
-  getUsageSummary,
-  setProviderAPIKey as setProviderAPIKeyRequest,
-  cancelChatSession as cancelChatSessionRequest,
-  getChatMessageFileDiff as getChatMessageFileDiffRequest,
-  listChatMessageFiles as listChatMessageFilesRequest,
-  revertChatMessageFiles as revertChatMessageFilesRequest,
-  resolveTaskApproval as resolveTaskApprovalRequest,
-  upsertPolicyRule as upsertPolicyRuleRequest,
-  createProvider as createProviderRequest,
-  deleteModelCapabilityOverride as deleteModelCapabilityOverrideRequest,
-  createChatMessage as createChatMessageRequest,
-  createChatSession as createChatSessionRequest,
-  deleteChatSession as deleteChatSessionRequest,
-  deleteProvider as deleteProviderRequest,
-  getChatSession,
-  updateChatSession as updateChatSessionRequest,
-  recordModelCapabilityProbe as recordModelCapabilityProbeRequest,
-  setChatConfigOption as setChatConfigOptionRequest,
-  setChatSettings as setChatSettingsRequest,
-  streamChatSession,
-  setProviderBaseURL as setProviderBaseURLRequest,
-  setProviderName as setProviderNameRequest,
-  setProviderCustomName as setProviderCustomNameRequest,
-  upsertModelCapabilityOverride as upsertModelCapabilityOverrideRequest,
-} from "../lib/api";
-import type { PolicyRuleUpsertPayload, ResolveChatApprovalPayload, ResolveTaskApprovalPayload, ModelCapabilityUpsertPayload } from "../lib/api";
-import {
-  buildAssistantToolCallMessage,
-  buildSyntheticChatResult,
   defaultModelForProvider,
   defaultProviderForChat,
-  deriveChatSessionTitle,
   humanizeChatError,
   isModelValidForProvider,
-  renderChatSessionSummary,
 } from "./runtimeConsoleChatHelpers";
-import { deriveSessionState, resolveDashboardSnapshot } from "./runtimeConsoleDashboard";
+import { deriveSessionState } from "./runtimeConsoleDashboard";
 import { useApprovals } from "./state/approvals";
 import { useChat } from "./state/chat";
 import { useProvidersAndModels } from "./state/providersAndModels";
 import { useRetention } from "./state/retention";
 import { useRuntime } from "./state/runtime";
-import { useSettings, type NoticeState } from "./state/settings";
+import { useSettings } from "./state/settings";
 import { useUsage } from "./state/usage";
+import { useAgentAdapterActions } from "./state/coordinators/agentAdapters";
+import { useChatActions } from "./state/coordinators/chat";
+import { useDashboardActions } from "./state/coordinators/dashboard";
+import { usePolicyActions } from "./state/coordinators/policy";
+import { useProviderActions } from "./state/coordinators/providers";
+import { useRetentionActions } from "./state/coordinators/retention";
+import { useSettingsActions } from "./state/coordinators/settings";
 import type {
-  AgentAdapterHealthRecord,
-  ChatApprovalRecord,
-  ChatActivityRecord,
-  ChatChangedFileDiffRecord,
-  ChatChangedFileRecord,
   ChatSessionRecord,
-  ChatResponse,
-  ProviderFilter,
-  RuntimeHeaders,
+  ConfiguredStateResponse,
 } from "../types/runtime";
 
 function chatSessionIsExternal(session: ChatSessionRecord | null): boolean {
@@ -93,32 +56,22 @@ function deriveHecateChatTargetFromSession(session: ChatSessionRecord | null): H
   return normalizeStoredHecateChatTarget(session.runtime_kind ?? "") || "agent";
 }
 
-function deriveHecateChatSelectionFromSession(session: ChatSessionRecord | null): { provider: string; model: string } {
-  if (!session || chatSessionIsExternal(session)) {
-    return { provider: "", model: "" };
-  }
-  const segments = [...(session.segments ?? [])].reverse();
-  const segment = segments.find((item) => item.runtime_kind === "agent" || item.runtime_kind === "model");
-  if (segment?.provider || segment?.model) {
-    return { provider: segment.provider ?? "", model: segment.model ?? "" };
-  }
-  const messages = [...(session.messages ?? [])].reverse();
-  const message = messages.find((item) => item.runtime_kind === "agent" || item.runtime_kind === "model");
-  if (message?.provider || message?.model) {
-    return { provider: message.provider ?? "", model: message.model ?? "" };
-  }
-  return { provider: session.provider ?? "", model: session.model ?? "" };
-}
-
 export { humanizeChatError };
 
 export function useRuntimeConsole() {
-  // Runtime slice: gateway health, session info, loading/error/
-  // message banners, runtime response headers, copy-to-clipboard
-  // transient, and the Hecate RTK availability bits. Aliased to
-  // legacy identifiers below so the rest of the hook body reads
-  // identically to its pre-slice form.
+  // Slice hooks. These own the canonical state for each domain;
+  // coordinator hooks below compose them into the action surface
+  // that lands in the returned viewmodel.
   const runtime = useRuntime();
+  const usage = useUsage();
+  const providersAndModels = useProvidersAndModels();
+  const chat = useChat();
+  const approvals = useApprovals();
+  const retention = useRetention();
+
+  // Slice state aliases — preserve the legacy identifier-stable
+  // destructure so the rest of the hook body reads the same as
+  // the pre-extraction form.
   const {
     health,
     sessionInfo,
@@ -131,44 +84,11 @@ export function useRuntimeConsole() {
     hecateRTKAvailable,
     hecateRTKPath,
   } = runtime.state;
-  const {
-    setHealth,
-    setSessionInfo,
-    setLoading,
-    setError,
-    setMessage,
-    setRuntimeHeaders,
-    setHecateRTKAvailable,
-    setHecateRTKPath,
-    copyCommand,
-  } = runtime.actions;
-  // Legacy alias: the previous code used `setHecateRTKEnabledState`
-  // for the raw state setter and reserved `setHecateRTKEnabled` for
-  // the coordinator below (PATCHes the session and rolls back on
-  // failure). Preserving the naming keeps the coordinator's body
-  // unchanged.
-  const setHecateRTKEnabledState = runtime.actions.setHecateRTKEnabled;
+  const { setMessage, copyCommand } = runtime.actions;
 
-  // Usage slice: cost summary + recent events. Aliased to legacy
-  // identifiers so the dashboard fan-out call sites read unchanged.
-  const usage = useUsage();
   const usageSummary = usage.state.summary;
   const usageEvents = usage.state.events;
-  const setUsageSummary = usage.actions.setSummary;
-  const setUsageEvents = usage.actions.setEvents;
 
-  // providersAndModels slice: provider status, provider presets, model
-  // catalog, agent adapters, adapter-health map + per-adapter loading
-  // flag, and the adapter approval-mode banner state. The slice owns
-  // refreshProviders, probeAgentAdapter, setAgentAdapterCredential,
-  // and deleteAgentAdapterCredential — each returns a Result that the
-  // shim coordinators below unwrap into the legacy `boolean` /
-  // `record | null` external shapes. The provider-CRUD coordinators
-  // (setProviderAPIKey / BaseURL / Name / CustomName, createProvider,
-  // deleteProvider, the three model-capability-override actions) stay
-  // in the shim because they coordinate across loadDashboard and
-  // other slices' state (settingsConfig, providerFilter, model).
-  const providersAndModels = useProvidersAndModels();
   const {
     providers,
     providerPresets,
@@ -178,22 +98,7 @@ export function useRuntimeConsole() {
     agentAdapterHealthByID,
     agentAdapterHealthLoadingByID,
   } = providersAndModels.state;
-  const {
-    setProviders,
-    setProviderPresets,
-    setModels,
-    setAgentAdapters,
-    setAgentAdapterApprovalMode,
-  } = providersAndModels.actions;
 
-  // chat slice: the canonical chat-domain state. Owns session
-  // lists, composer state, in-flight chat machinery, queued
-  // messages, target routing, workspace + adapter selection, and
-  // the chat-error cluster. Legacy aliases below keep the shim
-  // coordinators (submitChat, createChatSession,
-  // applyChatSession, the SSE event handler, …) reading
-  // the same as before the carve-out.
-  const chat = useChat();
   const {
     defaultChatTarget,
     chatTargetBySessionID,
@@ -211,7 +116,6 @@ export function useRuntimeConsole() {
     streamingContent,
     chatResult,
     pendingToolCalls,
-    pendingThread,
     chatError,
     chatErrorCode,
     chatErrorStatus,
@@ -222,66 +126,132 @@ export function useRuntimeConsole() {
     providerFilter,
   } = chat.state;
   const {
-    setDefaultChatTarget,
-    setChatTargetBySessionID,
     setAgentAdapterID,
-    setAgentWorkspace,
-    setAgentWorkspaceBranch,
-    setChatSessions,
-    setActiveChatSessionID,
-    setActiveChatSession,
-    setQueuedChatMessages,
-    setModel,
-    setSystemPrompt,
-    setChatLoading,
     setChatCancelling,
-    setStreamingContent,
-    setChatResult,
-    setPendingToolCalls,
-    setPendingThread,
+    setModel,
     setModelFilter,
     setProviderFilter,
-    setChatError,
+    setSystemPrompt,
+    setQueuedChatMessages,
     removeQueuedChatMessage,
     updateQueuedChatMessage,
-    pruneQueuedChatMessagesForSessions,
-    clearChatErrorState,
-    setChatErrorState,
   } = chat.actions;
-  // Approvals state + actions live in the slice (app/state/approvals.tsx).
-  // The slice owns the pending-banner map, the per-session mutation
-  // version that protects the catch-up GET against races, the grant
-  // list, and the request actions. The shim below re-exports the
-  // state under the legacy `state.{pendingApprovalsBySessionID,
-  // chatGrants,chatGrantsLoading,chatGrantsError}`
-  // keys and the actions under their legacy identifiers.
-  const approvals = useApprovals();
+  const setHecateRTKEnabledState = runtime.actions.setHecateRTKEnabled;
 
-  // Settings slice: server config snapshot, settings-mutation error,
-  // transient notice banner. Legacy aliases below keep the rest of
-  // the hook body reading identically to its pre-slice form.
+  // Settings slice: server config snapshot, settings-mutation
+  // error, transient notice banner. Aliased below to the legacy
+  // identifiers so the coordinator-hook params can stay shaped
+  // around the React-setter signature without each hook needing
+  // to know about the slice.
   const settings = useSettings();
   const settingsConfig = settings.state.config;
   const settingsError = settings.state.error;
   const notice = settings.state.notice;
   const setSettingsError = settings.actions.setError;
   const setNotice = settings.actions.setNotice;
-  const dismissNotice = settings.actions.dismissNotice;
+  // setSettingsConfig keeps the React useState-setter polymorphism
+  // (value | updater) the coordinator hook params were designed
+  // around: dashboard.tsx replaces wholesale; providers.tsx uses
+  // the functional updater form for optimistic insert/rollback.
+  const setSettingsConfig = useMemo(
+    () =>
+      (next: ConfiguredStateResponse["data"] | null | ((current: ConfiguredStateResponse["data"] | null) => ConfiguredStateResponse["data"] | null)) => {
+        if (typeof next === "function") {
+          settings.actions.updateConfig(next as (current: ConfiguredStateResponse["data"] | null) => ConfiguredStateResponse["data"] | null);
+        } else {
+          settings.actions.setConfig(next);
+        }
+      },
+    [settings.actions],
+  );
 
-  const chatTarget = activeChatSessionID && activeChatSession
+  // chatTarget — read by several coordinators (submitAgentChat
+  // routes by it, setChatTarget mutates it) and the queued-chat
+  // useEffect below. Kept here so the coordinator hooks can read
+  // it as a stable parameter rather than each recomputing.
+  const chatTarget: ChatTarget = activeChatSessionID && activeChatSession
     ? (chatSessionIsExternal(activeChatSession)
         ? "external_agent"
         : (chatTargetBySessionID.get(activeChatSessionID) ?? deriveHecateChatTargetFromSession(activeChatSession)))
     : defaultChatTarget;
 
-  // Retention state + actions live in the slice (app/state/retention.tsx).
-  // The shim below re-exports them under the legacy `state.retention*` /
-  // `actions.{loadRetentionRuns,setRetentionSubsystems,runRetention}`
-  // keys to keep the external surface stable for SettingsView; a later
-  // refactor will retire the pass-through once SettingsView reads the
-  // slice directly.
-  const retention = useRetention();
+  // Forward-dependency ref. The cycle is dashboard.loadDashboard
+  // (settings → providers / policy use it) → chat (loadDashboard
+  // calls applyChatSession + syncHecateSelectionFromSession) →
+  // settings (chat uses setNoticeMessage). Resolved by letting
+  // useSettingsActions resolve loadDashboard lazily through this
+  // ref, populated after the dashboard coordinator is constructed.
+  const loadDashboardRef = useRef<() => Promise<void>>(() => Promise.resolve());
+  const loadDashboardLazy = useMemo(() => async () => {
+    await loadDashboardRef.current();
+  }, []);
 
+  // Settings coordinator: tiny bundle of helpers (notice, error,
+  // mutation template) all backed by the local state setters.
+  const settingsActions = useSettingsActions({
+    setSettingsError,
+    setNotice,
+    loadDashboard: loadDashboardLazy,
+  });
+  const { setNoticeMessage, runSettingsMutation } = settingsActions;
+
+  // Chat coordinator: the biggest bundle (submission, lifecycle,
+  // approvals, files, ...). Exposes a few internal helpers
+  // (applyChatSession, syncHecateSelectionFromSession,
+  // refreshRuntimeState, submitAgentChat) the dashboard
+  // coordinator and the queued-chat useEffect below consume.
+  const chatActions = useChatActions({
+    chatTarget,
+    setNoticeMessage,
+  });
+
+  // Dashboard coordinator: loadDashboard fans the resolved
+  // snapshot across the slices. refreshProviders + refreshRuntimeState
+  // are re-exposed for symmetry. Constructed after chatActions so it
+  // can compose them; the loadDashboardRef gets populated below.
+  const dashboardActions = useDashboardActions({
+    settingsConfig,
+    setSettingsConfig,
+    setSettingsError,
+    applyChatSession: chatActions.applyChatSession,
+    syncHecateSelectionFromSession: chatActions.syncHecateSelectionFromSession,
+    refreshRuntimeState: chatActions.refreshRuntimeState,
+  });
+
+  // Provider CRUD + model capability mutations. Composes settings
+  // (notice / mutation template) and reads chat + providersAndModels
+  // slice state internally for the optimistic-update + rollback
+  // paths.
+  const providerActions = useProviderActions({
+    settingsConfig,
+    setSettingsConfig,
+    setSettingsError,
+    loadDashboard: dashboardActions.loadDashboard,
+    refreshProviders: dashboardActions.refreshProviders,
+    setNoticeMessage: settingsActions.setNoticeMessage,
+    describeError: settingsActions.describeError,
+    resetSettingsFeedback: settingsActions.resetSettingsFeedback,
+    runSettingsMutation,
+  });
+
+  // Policy mutations follow the runSettingsMutation contract.
+  const policyActions = usePolicyActions({ runSettingsMutation });
+
+  // Adapter credential + probe operations. The slice returns
+  // Results; this coordinator routes failures to the notice banner.
+  const adapterActions = useAgentAdapterActions({ setNoticeMessage });
+
+  // Retention coordinator. Slice owns state; this coordinator
+  // wires success / failure to the notice banner.
+  const retentionActions = useRetentionActions({ setNotice });
+
+  // Populate the forward-dependency ref so runSettingsMutation
+  // resolves loadDashboard through the live dashboard coordinator
+  // by the time any coordinator-triggered settings mutation
+  // actually fires.
+  loadDashboardRef.current = dashboardActions.loadDashboard;
+
+  // Derived state - identical to pre-extraction.
   const healthyProviders = providers.filter((provider) => provider.healthy).length;
   const localProviders = providers.filter((provider) => provider.kind === "local");
   const cloudProviders = providers.filter((provider) => provider.kind === "cloud");
@@ -307,7 +277,7 @@ export function useRuntimeConsole() {
   }, [sessionInfo]);
 
   useEffect(() => {
-    void loadDashboard();
+    void dashboardActions.loadDashboard();
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
@@ -324,9 +294,9 @@ export function useRuntimeConsole() {
   // reconciled. Subsequent SSE events mutate this same map.
   useEffect(() => {
     if (!activeChatSessionID) return;
-    void refetchPendingApprovals(activeChatSessionID);
-    // refetchPendingApprovals is a stable closure declared in the
-    // hook body; no need to include it in deps.
+    void approvals.actions.refetchPending(activeChatSessionID);
+    // refetchPending is a stable callback from the slice; no need
+    // to include it in deps.
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [activeChatSessionID]);
 
@@ -411,350 +381,6 @@ export function useRuntimeConsole() {
     if (defaultM) setModel(defaultM);
   }, [model, models, providerFilter]);
 
-  function clearPendingToolState() {
-    setPendingToolCalls([]);
-    setPendingThread(null);
-  }
-
-  function resetChatWorkspaceState() {
-    setMessage("");
-    setChatResult(null);
-    setStreamingContent(null);
-    setRuntimeHeaders(null);
-    clearPendingToolState();
-    clearChatErrorState();
-    setSystemPrompt("");
-  }
-
-  async function refreshRuntimeState() {
-    try {
-      const usageSummaryResult = await getUsageSummary("");
-      setUsageSummary(usageSummaryResult.data);
-    } catch {
-      // Keep chat responsive even if refresh paths fail.
-    }
-    try {
-      const usageEventsResult = await getUsageEvents(20);
-      setUsageEvents(usageEventsResult.data ?? []);
-    } catch {
-      // Best-effort.
-    }
-  }
-
-  // refreshProviders re-fetches /hecate/v1/providers/status (runtime health) and
-  // /v1/models (model catalog) for the ProvidersView auto-poll so local
-  // provider model lists converge within ~30 s of starting Ollama / LM
-  // Studio. Skipped when no providers are configured — the providers
-  // tab renders its empty state, there's nothing to converge.
-  async function refreshProviders() {
-    // Gate the fetch on settingsConfig so a zero-provider boot
-    // doesn't trip a 200-with-empty-list round trip on every chat-
-    // workspace mount. The slice's refreshProviders unconditionally
-    // fetches once called.
-    if ((settingsConfig?.providers?.length ?? 0) === 0) return;
-    await providersAndModels.actions.refreshProviders();
-  }
-
-  function buildChatPayload(messages: ChatMessage[], sessionID?: string) {
-    return {
-      model,
-      provider: providerFilter === "auto" ? "" : providerFilter,
-      session_id: sessionID,
-      user: "",
-      messages,
-    };
-  }
-
-  async function loadDashboard() {
-    setLoading(true);
-    setError("");
-    setSettingsError("");
-
-    try {
-      const snapshot = await resolveDashboardSnapshot({
-        activeChatSessionID,
-        previous: {
-          providers,
-          agentAdapters,
-          usageSummary,
-          chatSessions,
-          activeChatSession,
-          usageEvents,
-          settingsConfig,
-        },
-        // Commit just enough state to drop the AuthLoadingShell as
-        // soon as wave 1 resolves — the activity bar + status bar
-        // can render with what's here while the secondary wave
-        // (chats, providers, usage, retention, …) finishes in the
-        // background. The big batch update below then idempotently
-        // re-applies these slots alongside the secondary results.
-        onEssentials: (essentials) => {
-          setHealth(essentials.health);
-          setSessionInfo(essentials.sessionInfo);
-          setModels(essentials.models);
-          settings.actions.setConfig(essentials.settingsConfig);
-        },
-      });
-
-      setHealth(snapshot.health);
-      setSessionInfo(snapshot.sessionInfo);
-      setModels(snapshot.models);
-      setProviders(snapshot.providers);
-      setProviderPresets(snapshot.providerPresets);
-      setAgentAdapters(snapshot.agentAdapters);
-      setUsageSummary(snapshot.usageSummary);
-      setChatSessions(snapshot.chatSessions);
-      pruneQueuedChatMessagesForSessions(snapshot.chatSessions.map((session) => session.id));
-      setActiveChatSessionID(snapshot.activeChatSessionID);
-      setActiveChatSession(snapshot.activeChatSession);
-      syncHecateSelectionFromSession(snapshot.activeChatSession);
-      setUsageEvents(snapshot.usageEvents);
-      settings.actions.setConfig(snapshot.settingsConfig);
-      setAgentAdapterApprovalMode(snapshot.agentAdapterApprovalMode);
-      setHecateRTKAvailable(snapshot.rtkAvailable);
-      setHecateRTKPath(snapshot.rtkPath);
-    } catch (loadError) {
-      setError(loadError instanceof Error ? loadError.message : "unknown load error");
-    } finally {
-      setLoading(false);
-    }
-  }
-
-  function selectProviderRoute(nextProvider: ProviderFilter) {
-    setProviderFilter(nextProvider);
-    setModel(defaultModelForProvider(nextProvider, models, providers, providerPresets));
-  }
-
-  function updateAgentWorkspace(nextWorkspace: string) {
-    setAgentWorkspace(nextWorkspace);
-    setAgentWorkspaceBranch("");
-  }
-
-  function setChatTarget(nextTarget: ChatTarget) {
-    if (activeChatSessionID && activeChatSession) {
-      const currentExternal = chatSessionIsExternal(activeChatSession);
-      const nextExternal = nextTarget === "external_agent";
-      if (currentExternal !== nextExternal) {
-        setActiveChatSessionID("");
-        setActiveChatSession(null);
-        setAgentWorkspaceBranch("");
-        setDefaultChatTarget(nextTarget);
-        return;
-      }
-      if (!nextExternal) {
-        setChatTargetBySessionID((current) => {
-          const next = new Map(current);
-          next.set(activeChatSessionID, nextTarget);
-          return next;
-        });
-        return;
-      }
-    }
-    setDefaultChatTarget(nextTarget);
-  }
-
-  function setNewChatAgent(nextAgentID: string) {
-    if (nextAgentID === "hecate") {
-      setDefaultChatTarget("agent");
-      return;
-    }
-    setAgentAdapterID(nextAgentID);
-    setDefaultChatTarget("external_agent");
-  }
-
-  async function submitChat(event: SyntheticEvent<HTMLFormElement>) {
-    event.preventDefault();
-    await submitAgentChat();
-  }
-
-  function buildQueuedChatMessage(content: string, runtimeKind: ChatTarget, sessionID: string): QueuedChatMessage {
-    return {
-      id: `queued-chat-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`,
-      session_id: sessionID,
-      content,
-      runtime_kind: runtimeKind,
-      provider_filter: providerFilter,
-      model,
-      workspace: agentWorkspace.trim(),
-      system_prompt: systemPrompt,
-      adapter_id: agentAdapterID,
-      created_at: new Date().toISOString(),
-    };
-  }
-
-  function queueChatMessage(content: string, runtimeKind: ChatTarget, sessionID: string) {
-    setQueuedChatMessages((current) => [...current, buildQueuedChatMessage(content, runtimeKind, sessionID)]);
-    setMessage("");
-  }
-
-  function applyChatSession(session: ChatSessionRecord) {
-    setActiveChatSession(session);
-    syncHecateSelectionFromSession(session);
-    setAgentWorkspaceBranch(session.workspace_branch ?? "");
-    setChatSessions((current) => [renderChatSessionSummary(session), ...current.filter((entry) => entry.id !== session.id)]);
-  }
-
-  function syncHecateSelectionFromSession(session: ChatSessionRecord | null) {
-    const selection = deriveHecateChatSelectionFromSession(session);
-    if (selection.provider) {
-      setProviderFilter(selection.provider as ProviderFilter);
-    }
-    if (selection.model) {
-      setModel(selection.model);
-    }
-  }
-
-  async function refreshChatSession(sessionID: string): Promise<void> {
-    const payload = await getChatSession(sessionID);
-    applyChatSession(payload.data);
-  }
-
-  // Mutation API thin-aliases for the SSE stream handler + catch-up
-  // path below. The slice owns the state + version-ref machinery;
-  // these names stay stable so the call sites read the same way as
-  // before the carve-out.
-  const upsertPendingApproval = approvals.actions.upsertPending;
-  const removePendingApproval = approvals.actions.removePending;
-  const refetchPendingApprovals = approvals.actions.refetchPending;
-
-  async function submitAgentChat(queued?: QueuedChatMessage) {
-    const content = (queued?.content ?? message).trim();
-    if (!content) return;
-
-    const turnRuntimeKind = queued?.runtime_kind ?? (chatTarget === "external_agent" ? "external_agent" : chatTarget === "agent" ? "agent" : "model");
-    if (!queued && activeChatSessionID && chatSessionIsBusy(activeChatSession)) {
-      queueChatMessage(content, turnRuntimeKind, activeChatSessionID);
-      return;
-    }
-
-    setChatLoading(true);
-    clearChatErrorState();
-    setRuntimeHeaders(null);
-    const isExternalAgent = turnRuntimeKind === "external_agent";
-    const isModelTurn = turnRuntimeKind === "model";
-    const turnProviderFilter = queued?.provider_filter ?? providerFilter;
-    const turnModel = queued?.model ?? model;
-    const turnWorkspace = queued?.workspace ?? agentWorkspace.trim();
-    const turnSystemPrompt = queued?.system_prompt ?? systemPrompt;
-    const turnAdapterID = queued?.adapter_id ?? agentAdapterID;
-    setStreamingContent(isExternalAgent ? "Starting external agent..." : isModelTurn ? "Waiting for model output..." : "Starting Hecate Agent...");
-    let streamAbort: AbortController | null = null;
-    let streamPromise: Promise<void> | null = null;
-
-    try {
-      if (!isModelTurn && !turnWorkspace) {
-        setChatError("Choose a workspace path before starting an agent chat.");
-        return;
-      }
-      if (!isExternalAgent && !turnModel) {
-        setChatError("Choose a model before sending through Hecate.");
-        return;
-      }
-
-      let sessionID = queued?.session_id ?? activeChatSessionID;
-      if (sessionID && !activeChatSession) {
-        // The server owns chat persistence. If localStorage points at a
-        // deleted or unavailable session, start clean instead of making the
-        // next prompt fail with a stale 404.
-        sessionID = "";
-        setActiveChatSessionID("");
-      }
-      if (sessionID && activeChatSession?.runtime_kind) {
-        const activeExternal = activeChatSession.runtime_kind === "external_agent";
-        if (activeExternal !== isExternalAgent) {
-          sessionID = "";
-          setActiveChatSessionID("");
-          setActiveChatSession(null);
-        }
-      }
-      if (!sessionID) {
-        const created = await createChatSessionRequest({
-          title: deriveChatSessionTitle(content),
-          runtime_kind: turnRuntimeKind,
-          ...(isExternalAgent
-            ? { adapter_id: turnAdapterID }
-            : { provider: turnProviderFilter === "auto" ? "" : turnProviderFilter, model: turnModel }),
-          ...(!isModelTurn ? { workspace: turnWorkspace } : {}),
-          ...(!isExternalAgent ? { rtk_enabled: hecateRTKEnabled } : {}),
-        });
-        sessionID = created.data.id;
-        setActiveChatSessionID(sessionID);
-        applyChatSession(created.data);
-      }
-
-      const pendingContent = content;
-      setMessage("");
-      setActiveChatSession((prev) =>
-        prev
-          ? {
-              ...prev,
-              messages: [
-                ...(prev.messages ?? []),
-                {
-                  id: `pending-agent-user-${Date.now()}`,
-                  runtime_kind: turnRuntimeKind,
-                  provider: !isExternalAgent ? (turnProviderFilter === "auto" ? "" : turnProviderFilter) : undefined,
-                  model: !isExternalAgent ? turnModel : undefined,
-                  role: "user",
-                  content: pendingContent,
-                  created_at: new Date().toISOString(),
-                },
-              ],
-            }
-          : prev,
-      );
-
-      streamAbort = new AbortController();
-      streamPromise = streamChatSession(
-        sessionID,
-        (event) => {
-          switch (event.type) {
-            case "session_update": {
-              applyChatSession(event.payload.data);
-              const last = [...(event.payload.data.messages ?? [])]
-                .reverse()
-                .find((m) => m.role === "assistant");
-              if (last?.status === "running") {
-                setStreamingContent(last.content || (isExternalAgent ? "External agent is running..." : isModelTurn ? "Model is responding..." : "Hecate Agent is running..."));
-              }
-              return;
-            }
-            case "approval.requested": {
-              upsertPendingApproval(event.payload);
-              return;
-            }
-            case "approval.resolved": {
-              removePendingApproval(event.payload.session_id, event.payload.approval_id);
-              return;
-            }
-          }
-        },
-        streamAbort.signal,
-      ).catch((streamError) => {
-        if (streamAbort?.signal.aborted) {
-          return;
-        }
-        const msg = streamError instanceof Error ? streamError.message : "agent chat stream failed";
-        setChatError((current) => current || msg);
-      });
-      const updated = await createChatMessageRequest(sessionID, {
-        content: pendingContent,
-        runtime_kind: turnRuntimeKind,
-        ...(!isExternalAgent ? { provider: turnProviderFilter === "auto" ? "" : turnProviderFilter, model: turnModel } : {}),
-        ...(!isExternalAgent ? { system_prompt: turnSystemPrompt } : {}),
-        ...(turnRuntimeKind === "agent" ? { workspace: turnWorkspace } : {}),
-      });
-      applyChatSession(updated.data);
-    } catch (submitError) {
-      setChatErrorState(submitError);
-    } finally {
-      streamAbort?.abort();
-      await streamPromise?.catch(() => undefined);
-      setStreamingContent(null);
-      setChatLoading(false);
-    }
-  }
-
   useEffect(() => {
     if (queuedChatMessages.length === 0 || chatLoading || chatCancelling) {
       return;
@@ -777,7 +403,7 @@ export function useRuntimeConsole() {
       return;
     }
     setQueuedChatMessages((current) => current.filter((item) => item.id !== next.id));
-    void submitAgentChat(next);
+    void chatActions.submitAgentChat(next);
   // submitAgentChat deliberately stays out of the dependency list: it
   // reads the queued snapshot passed above, not the live composer state.
   // eslint-disable-next-line react-hooks/exhaustive-deps
@@ -791,722 +417,6 @@ export function useRuntimeConsole() {
     chatLoading,
     queuedChatMessages,
   ]);
-
-  async function cancelAgentChat() {
-    if (!activeChatSessionID || chatCancelling) {
-      return;
-    }
-    setChatCancelling(true);
-    setStreamingContent("Stopping external agent...");
-    try {
-      await cancelChatSessionRequest(activeChatSessionID);
-    } catch (error) {
-      setChatCancelling(false);
-      setChatErrorState(error, "failed to cancel agent chat");
-    }
-  }
-
-  function updateToolResult(index: number, result: string) {
-    setPendingToolCalls((prev) => prev.map((tc, i) => (i === index ? { ...tc, result } : tc)));
-  }
-
-  async function submitToolResults() {
-    if (!pendingThread || pendingToolCalls.length === 0) return;
-    setChatLoading(true);
-    clearChatErrorState();
-
-    const toolMessages: ChatMessage[] = pendingToolCalls.map((tc) => ({
-      role: "tool" as const,
-      content: tc.result,
-      tool_call_id: tc.id,
-    }));
-
-    const messages: ChatMessage[] = [...pendingThread, ...toolMessages];
-
-    try {
-      const chatExecution = await executeChatRequest(buildChatPayload(messages), messages);
-      if (chatExecution.kind === "tool_calls") {
-        return;
-      }
-
-      clearPendingToolState();
-      setChatResult(chatExecution.chatResult);
-      setStreamingContent(null);
-      await refreshRuntimeState();
-    } catch (err) {
-      setChatErrorState(err, "unknown error");
-    } finally {
-      setChatLoading(false);
-    }
-  }
-
-  async function executeChatRequest(
-    chatPayload: {
-      model: string;
-      provider: string;
-      session_id?: string;
-      user: string;
-      messages: ChatMessage[];
-    },
-    toolCallBaseMessages: ChatMessage[],
-  ): Promise<
-    | { kind: "tool_calls" }
-    | { kind: "completed"; headers: RuntimeHeaders; chatResult: ChatResponse }
-  > {
-    let fullContent = "";
-    setStreamingContent("");
-    const response = await chatCompletionsStream(chatPayload, (delta) => {
-      fullContent += delta;
-      setStreamingContent(fullContent);
-    });
-    setRuntimeHeaders(response.headers);
-
-    if (response.finishReason === "tool_calls" && response.toolCalls.length > 0) {
-      setStreamingContent(null);
-      const assistantMsg = buildAssistantToolCallMessage(fullContent, response.toolCalls);
-      setPendingThread([...toolCallBaseMessages, assistantMsg]);
-      setPendingToolCalls(response.toolCalls.map((tc) => ({ ...tc, result: "" })));
-      return { kind: "tool_calls" };
-    }
-
-    return {
-      kind: "completed",
-      headers: response.headers,
-      chatResult: buildSyntheticChatResult(response.headers, model, fullContent),
-    };
-  }
-
-  function setNoticeMessage(kind: NoticeState["kind"], message: string) {
-    if (message) setNotice({ kind, message });
-  }
-
-  function describeError(error: unknown, fallback: string): string {
-    return error instanceof Error ? error.message : fallback;
-  }
-
-  function resetSettingsFeedback() {
-    setSettingsError("");
-    setNotice(null);
-  }
-
-  async function runSettingsMutation(options: {
-    action: () => Promise<void>;
-    successMessage: string;
-    errorMessage: string;
-    failureDetail: string;
-  }) {
-    resetSettingsFeedback();
-    try {
-      await options.action();
-      await loadDashboard();
-      setNoticeMessage("success", options.successMessage);
-    } catch (error) {
-      setSettingsError(describeError(error, options.failureDetail));
-      setNoticeMessage("error", options.errorMessage);
-    }
-  }
-
-  // setProviderAPIKey is the single operation for managing a provider's API key.
-  // An empty `key` clears the existing credential; non-empty sets/replaces it.
-  async function setProviderAPIKey(id: string, key: string) {
-    await runSettingsMutation({
-      successMessage: key === "" ? "API key cleared." : "API key saved.",
-      errorMessage: key === "" ? "Failed to clear API key." : "Failed to save API key.",
-      failureDetail: key === "" ? "failed to clear provider api key" : "failed to save provider api key",
-      action: async () => {
-        await setProviderAPIKeyRequest(id, key);
-      },
-    });
-  }
-
-  async function createProvider(
-    params: { name: string; preset_id?: string; custom_name?: string; base_url?: string; api_key?: string; kind: string; protocol: string },
-    options: { refresh?: boolean } = {},
-  ): Promise<void> {
-    await createProviderRequest(params);
-    if (options.refresh !== false) {
-      await loadDashboard();
-    }
-  }
-
-  async function deleteProvider(id: string): Promise<void> {
-    resetSettingsFeedback();
-    const removedConfiguredProviderIndex = settingsConfig?.providers.findIndex(provider => provider.id === id) ?? -1;
-    const removedProviderStatusIndex = providers.findIndex(provider => provider.name === id);
-    const removedConfiguredProvider = removedConfiguredProviderIndex >= 0
-      ? settingsConfig?.providers[removedConfiguredProviderIndex]
-      : undefined;
-    const removedProviderStatus = removedProviderStatusIndex >= 0
-      ? providers[removedProviderStatusIndex]
-      : undefined;
-    const previousProviderFilter = providerFilter;
-    const previousModel = model;
-
-    settings.actions.updateConfig(current => current
-      ? { ...current, providers: current.providers.filter(provider => provider.id !== id) }
-      : current);
-    setProviders(current => current.filter(provider => provider.name !== id));
-    if (providerFilter === id) {
-      const remainingProviders = providers.filter(provider => provider.name !== id);
-      const remainingConfigured = settingsConfig?.providers.filter(provider => provider.id !== id) ?? [];
-      const nextProvider = defaultProviderForChat(models, remainingConfigured, remainingProviders);
-      setProviderFilter(nextProvider);
-      setModel(defaultModelForProvider(nextProvider, models, remainingProviders, providerPresets));
-    }
-
-    try {
-      await deleteProviderRequest(id);
-      setNoticeMessage("success", "Provider removed.");
-      void loadDashboard();
-    } catch (error) {
-      settings.actions.updateConfig(current => {
-        if (!removedConfiguredProvider) return current;
-        if (!current) return current;
-        if (current.providers.some(provider => provider.id === id)) return current;
-        return {
-          ...current,
-          providers: insertAtIndex(current.providers, removedConfiguredProvider, removedConfiguredProviderIndex),
-        };
-      });
-      setProviders(current => {
-        if (!removedProviderStatus || current.some(provider => provider.name === id)) return current;
-        return insertAtIndex(current, removedProviderStatus, removedProviderStatusIndex);
-      });
-      setProviderFilter(previousProviderFilter);
-      setModel(previousModel);
-      setSettingsError(describeError(error, "failed to delete provider"));
-      setNoticeMessage("error", "Failed to remove provider.");
-      void refreshProviders();
-    }
-  }
-
-  async function setProviderBaseURL(id: string, baseURL: string): Promise<void> {
-    await setProviderBaseURLRequest(id, baseURL);
-    // loadDashboard refreshes settingsConfig (the source of truth for base_url
-    // shown in the table), then refreshProviders re-runs model discovery
-    // against the new endpoint so the model list updates immediately.
-    await loadDashboard();
-    await refreshProviders();
-  }
-
-  async function setProviderName(id: string, name: string): Promise<void> {
-    await setProviderNameRequest(id, name);
-    // The label change only affects settingsConfig (table column) — no need
-    // to rerun model discovery, so skip refreshProviders.
-    await loadDashboard();
-  }
-
-  async function setProviderCustomName(id: string, customName: string): Promise<void> {
-    await setProviderCustomNameRequest(id, customName);
-    await loadDashboard();
-  }
-
-  async function upsertModelCapabilityOverride(payload: ModelCapabilityUpsertPayload): Promise<boolean> {
-    try {
-      await upsertModelCapabilityOverrideRequest(payload);
-      await loadDashboard();
-      setNoticeMessage("success", "Model capability override saved.");
-      return true;
-    } catch (error) {
-      setNoticeMessage("error", error instanceof Error ? error.message : "Failed to save model capability override.");
-      return false;
-    }
-  }
-
-  async function recordModelCapabilityProbe(payload: ModelCapabilityUpsertPayload): Promise<boolean> {
-    try {
-      await recordModelCapabilityProbeRequest(payload);
-      await loadDashboard();
-      setNoticeMessage("success", "Manual capability result recorded.");
-      return true;
-    } catch (error) {
-      setNoticeMessage("error", error instanceof Error ? error.message : "Failed to record capability result.");
-      return false;
-    }
-  }
-
-  async function deleteModelCapabilityOverride(provider: string, modelName: string): Promise<boolean> {
-    try {
-      await deleteModelCapabilityOverrideRequest(provider, modelName);
-      await loadDashboard();
-      setNoticeMessage("success", "Model capability override cleared.");
-      return true;
-    } catch (error) {
-      setNoticeMessage("error", error instanceof Error ? error.message : "Failed to clear model capability override.");
-      return false;
-    }
-  }
-
-  // Policy rule mutations follow the same runSettingsMutation contract
-  // as the tenant / API key flows: success populates the toast notice
-  // + clears settingsError; failure populates BOTH inline banner
-  // and toast so an operator can't miss the error regardless of
-  // viewport focus.
-  async function upsertPolicyRule(payload: PolicyRuleUpsertPayload) {
-    await runSettingsMutation({
-      successMessage: "Policy rule saved.",
-      errorMessage: "Failed to save policy rule.",
-      failureDetail: "failed to save policy rule",
-      action: async () => {
-        await upsertPolicyRuleRequest(payload);
-      },
-    });
-  }
-
-  async function deletePolicyRule(id: string) {
-    await runSettingsMutation({
-      successMessage: "Policy rule deleted.",
-      errorMessage: "Failed to delete policy rule.",
-      failureDetail: "failed to delete policy rule",
-      action: async () => {
-        await deletePolicyRuleRequest(id);
-      },
-    });
-  }
-
-  const loadRetentionRuns = retention.actions.loadRuns;
-
-  // Coordinator: the slice owns the retention state machine; the
-  // cross-cutting `notice` banner is set here so the slice stays
-  // independent of unrelated global UI state. A later refactor will
-  // move this composition into a dedicated coordinator hook
-  // alongside other "slice + global side-effect" pairs.
-  async function runRetention() {
-    setNotice(null);
-    const result = await retention.actions.runRetention();
-    setNotice(result.ok
-      ? { kind: "success", message: "Retention run completed." }
-      : { kind: "error", message: "Failed to run retention." });
-  }
-
-  async function createChatSession() {
-    if (defaultChatTarget === "external_agent") {
-      const workspace = agentWorkspace.trim();
-      if (!workspace) {
-        startNewChat();
-        return;
-      }
-      setChatLoading(true);
-      clearChatErrorState();
-      try {
-        const adapter = agentAdapters.find((item) => item.id === agentAdapterID);
-        const created = await createChatSessionRequest({
-          title: adapter ? `${adapter.name} chat` : "External agent chat",
-          runtime_kind: "external_agent",
-          adapter_id: agentAdapterID,
-          workspace,
-        });
-        setActiveChatSessionID(created.data.id);
-        applyChatSession(created.data);
-      } catch (error) {
-        setChatErrorState(error, "failed to create external agent chat");
-        setNoticeMessage("error", error instanceof Error ? error.message : "Failed to create external agent chat.");
-      } finally {
-        setChatLoading(false);
-      }
-      return;
-    }
-
-    const runtimeKind = defaultChatTarget === "model" ? "model" : "agent";
-    const workspace = agentWorkspace.trim();
-    if (runtimeKind === "agent" && !workspace) {
-      startNewChat();
-      return;
-    }
-    if (!model) {
-      startNewChat();
-      return;
-    }
-    setChatLoading(true);
-    clearChatErrorState();
-    try {
-      const created = await createChatSessionRequest({
-        runtime_kind: runtimeKind,
-        provider: providerFilter === "auto" ? "" : providerFilter,
-        model,
-        ...(runtimeKind === "agent" ? {
-          workspace,
-          rtk_enabled: hecateRTKEnabled,
-        } : {}),
-      });
-      setActiveChatSessionID(created.data.id);
-      applyChatSession(created.data);
-    } catch (error) {
-      setChatErrorState(error, "failed to create Hecate chat");
-      setNoticeMessage("error", error instanceof Error ? error.message : "Failed to create Hecate chat.");
-    } finally {
-      setChatLoading(false);
-    }
-  }
-
-  async function selectChatSession(id: string) {
-    setActiveChatSessionID(id);
-    if (!id) {
-      setActiveChatSession(null);
-      return;
-    }
-    try {
-      const payload = await getChatSession(id);
-      setActiveChatSession(payload.data);
-      if (payload.data.adapter_id) {
-        setAgentAdapterID(payload.data.adapter_id);
-      }
-      const selection = deriveHecateChatSelectionFromSession(payload.data);
-      if (selection.provider) {
-        setProviderFilter(selection.provider as ProviderFilter);
-      }
-      if (selection.model) {
-        setModel(selection.model);
-      }
-      if (payload.data.workspace) {
-        setAgentWorkspace(payload.data.workspace);
-        setAgentWorkspaceBranch(payload.data.workspace_branch ?? "");
-      }
-    } catch (error) {
-      const msg = error instanceof Error ? error.message : "failed to load agent chat";
-      setActiveChatSessionID("");
-      setActiveChatSession(null);
-      setAgentWorkspaceBranch("");
-      setChatErrorState(error, "failed to load agent chat");
-      setNoticeMessage("error", msg);
-    }
-  }
-
-  function startNewChat() {
-    if (activeChatSessionID) {
-      setQueuedChatMessages((current) => current.filter((item) => item.session_id !== activeChatSessionID));
-    }
-    setActiveChatSessionID("");
-    setActiveChatSession(null);
-    setAgentWorkspaceBranch("");
-    resetChatWorkspaceState();
-  }
-
-  async function deleteChatSession(id: string) {
-    try {
-      await deleteChatSessionRequest(id);
-      setChatSessions((current) => current.filter((s) => s.id !== id));
-      setQueuedChatMessages((current) => current.filter((item) => item.session_id !== id));
-      setChatTargetBySessionID((current) => {
-        if (!current.has(id)) return current;
-        const next = new Map(current);
-        next.delete(id);
-        return next;
-      });
-      if (activeChatSessionID === id) {
-        startNewChat();
-      }
-      setNoticeMessage("success", "Agent chat deleted.");
-    } catch (error) {
-      setNoticeMessage("error", error instanceof Error ? error.message : "Failed to delete agent chat.");
-    }
-  }
-
-  // getChatApproval is the modal-open path: fetches the full
-  // approval row (ACP options, scope choices, decision_note, …).
-  // Returns null on failure so the caller can render an error state;
-  // the slice's getApproval returns a discriminated Result that the
-  // shim unwraps into the legacy `record | null` shape and routes
-  // the error string to the global notice banner.
-  async function getChatApproval(
-    sessionID: string,
-    approvalID: string,
-  ): Promise<ChatApprovalRecord | null> {
-    const result = await approvals.actions.getApproval(sessionID, approvalID);
-    if (!result.ok) {
-      setNoticeMessage("error", result.error);
-      return null;
-    }
-    return result.record;
-  }
-
-  async function resolveChatApproval(
-    sessionID: string,
-    approvalID: string,
-    decision: ResolveChatApprovalPayload,
-  ): Promise<boolean> {
-    const result = await approvals.actions.resolveApproval(sessionID, approvalID, decision);
-    if (!result.ok) setNoticeMessage("error", result.error);
-    return result.ok;
-  }
-
-  async function cancelChatApproval(sessionID: string, approvalID: string): Promise<boolean> {
-    const result = await approvals.actions.cancelApproval(sessionID, approvalID);
-    if (!result.ok) setNoticeMessage("error", result.error);
-    return result.ok;
-  }
-
-  async function resolveTaskApproval(
-    taskID: string,
-    approvalID: string,
-    decision: ResolveTaskApprovalPayload,
-  ): Promise<boolean> {
-    const status = decision.decision === "approve" ? "approved" : "rejected";
-    // Capture the pre-resolve session synchronously from closure so
-    // we can roll back if the API call fails. We can't capture inside
-    // the state updater function because React invokes it
-    // asynchronously (and may invoke it twice under StrictMode); by
-    // the time the catch branch runs, the closure variable would
-    // either still be null or hold the already-patched state. Same
-    // pattern as deleteProvider above.
-    //
-    // Optimistic-update-before-call means the banner row disappears
-    // the moment the operator clicks; before this, the row hung
-    // around for the full network round-trip (50–500 ms), which
-    // looked unresponsive on slow links and let an operator
-    // double-click a duplicate request through.
-    const snapshot: ChatSessionRecord | null =
-      activeChatSession && activeChatSession.task_id === taskID
-        ? activeChatSession
-        : null;
-    if (snapshot) {
-      setActiveChatSession((current) => {
-        if (!current || current.task_id !== taskID) return current;
-        return {
-          ...current,
-          messages: (current.messages ?? []).map((message) => ({
-            ...message,
-            activities: message.activities?.map((activity) => {
-              if (activity.approval_id !== approvalID && activity.id !== `task:approval:${approvalID}`) return activity;
-              return { ...activity, status, needs_action: false };
-            }),
-          })),
-        };
-      });
-    }
-    // rollbackOptimisticApproval restores the specific approval
-    // activity from the pre-resolve snapshot, while leaving every
-    // other field of the active session untouched. Two concurrency
-    // hazards force this surgical shape rather than
-    // `setActiveChatSession(snapshot)`:
-    //
-    //   1. The operator may have navigated to a different session
-    //      while the request was in flight. The functional updater
-    //      bails when the active session id has changed.
-    //   2. A stream `session_update` or a refresh may have applied
-    //      newer messages/activities on top of the optimistic
-    //      state. Restoring only the specific approval activity
-    //      preserves them.
-    //
-    // Reused by both the generic-failure path AND the
-    // not-pending+refresh-failed path so both cases produce the
-    // same operator-visible state ("we're not sure what the
-    // server thinks; show the row as still pending so the
-    // operator can retry") instead of leaving a possibly-wrong
-    // optimistic decision on screen.
-    const rollbackOptimisticApproval = () => {
-      if (!snapshot) return;
-      const snapshotForRollback = snapshot;
-      // Predicate matches the activity by approval_id (or the
-      // projected `task:approval:<id>` id). Using the SAME
-      // predicate on both sides matters because Activity.id is
-      // optional — matching by id alone could (a) fail to restore
-      // when the current row has no id and (b) wrongly match the
-      // first id-less row if both sides have undefined ids.
-      const matchesTargetApproval = (activity: ChatActivityRecord) =>
-        activity.approval_id === approvalID || activity.id === `task:approval:${approvalID}`;
-      setActiveChatSession((current) => {
-        if (!current || current.id !== snapshotForRollback.id) return current;
-        return {
-          ...current,
-          messages: (current.messages ?? []).map((message) => {
-            const originalMessage = snapshotForRollback.messages?.find((m) => m.id === message.id);
-            if (!originalMessage) return message;
-            return {
-              ...message,
-              activities: message.activities?.map((activity) => {
-                if (!matchesTargetApproval(activity)) return activity;
-                const originalActivity = originalMessage.activities?.find(matchesTargetApproval);
-                return originalActivity ?? activity;
-              }),
-            };
-          }),
-        };
-      });
-    };
-
-    try {
-      await resolveTaskApprovalRequest(taskID, approvalID, decision);
-      if (activeChatSessionID) {
-        try {
-          await refreshChatSession(activeChatSessionID);
-        } catch {
-          // The local approval state above already removes the action;
-          // a follow-up session refresh is best-effort because the run
-          // may still be transitioning after the operator decision.
-        }
-      }
-      return true;
-    } catch (error) {
-      if (error instanceof Error && /not pending/i.test(error.message)) {
-        // Server says the approval is already resolved. The
-        // resolution may NOT match the operator's chosen decision —
-        // another tab could have approved while this one tried to
-        // reject, the run might have timed out into auto-rejection,
-        // or the run could have been cancelled. Refresh to pull
-        // server-truth and let it overwrite our optimistic patch.
-        if (activeChatSessionID) {
-          try {
-            await refreshChatSession(activeChatSessionID);
-            return true;
-          } catch {
-            // Refresh failed — we cannot trust our optimistic patch
-            // (it might claim a decision the server didn't make).
-            // Fall through to rollback so the row reflects "still
-            // pending" rather than a possibly-wrong final state.
-          }
-        }
-        rollbackOptimisticApproval();
-        setNoticeMessage("error", "Approval was already resolved upstream and the session refresh failed; reload to see the current state.");
-        return false;
-      }
-      // Genuine failure — roll back so the row reappears and the
-      // operator can retry.
-      rollbackOptimisticApproval();
-      setNoticeMessage("error", error instanceof Error ? error.message : "Failed to resolve task approval.");
-      return false;
-    }
-  }
-
-  const listChatGrants = approvals.actions.loadGrants;
-
-  async function deleteChatGrant(grantID: string): Promise<boolean> {
-    const result = await approvals.actions.deleteGrant(grantID);
-    if (result.ok) {
-      setNoticeMessage("success", "Grant revoked.");
-    } else {
-      setNoticeMessage("error", result.error);
-    }
-    return result.ok;
-  }
-
-  async function listChatMessageFiles(sessionID: string, messageID: string): Promise<ChatChangedFileRecord[]> {
-    try {
-      const payload = await listChatMessageFilesRequest(sessionID, messageID);
-      return payload.data ?? [];
-    } catch (error) {
-      setNoticeMessage("error", error instanceof Error ? error.message : "Failed to load changed files.");
-      return [];
-    }
-  }
-
-  async function setChatConfigOption(sessionID: string, configID: string, value: string | boolean): Promise<boolean> {
-    try {
-      const payload = await setChatConfigOptionRequest(sessionID, configID, value);
-      applyChatSession(payload.data);
-      return true;
-    } catch (error) {
-      setNoticeMessage("error", error instanceof Error ? error.message : "Failed to update adapter control.");
-      return false;
-    }
-  }
-
-  async function setHecateRTKEnabled(enabled: boolean): Promise<boolean> {
-    setHecateRTKEnabledState(enabled);
-    if (!activeChatSessionID || !activeChatSession || chatSessionIsExternal(activeChatSession)) {
-      return true;
-    }
-    try {
-      const payload = await setChatSettingsRequest(activeChatSessionID, { rtk_enabled: enabled });
-      applyChatSession(payload.data);
-      return true;
-    } catch (error) {
-      setHecateRTKEnabledState(Boolean(activeChatSession.rtk_enabled));
-      setNoticeMessage("error", error instanceof Error ? error.message : "Failed to update chat settings.");
-      return false;
-    }
-  }
-
-  async function getChatMessageFileDiff(sessionID: string, messageID: string, path: string): Promise<ChatChangedFileDiffRecord | null> {
-    try {
-      const payload = await getChatMessageFileDiffRequest(sessionID, messageID, path);
-      return payload.data;
-    } catch (error) {
-      setNoticeMessage("error", error instanceof Error ? error.message : "Failed to load file diff.");
-      return null;
-    }
-  }
-
-  async function revertChatMessageFiles(sessionID: string, messageID: string, paths: string[]): Promise<boolean> {
-    try {
-      await revertChatMessageFilesRequest(sessionID, messageID, paths);
-      await refreshChatSession(sessionID);
-      setNoticeMessage("success", paths.length > 0 ? "Selected files reverted." : "Captured diff reverted.");
-      return true;
-    } catch (error) {
-      setNoticeMessage("error", error instanceof Error ? error.message : "Failed to revert changed files.");
-      return false;
-    }
-  }
-
-  // probeAgentAdapter exercises the configured adapter and caches the
-  // typed result keyed by adapter id. Operators trigger this via the
-  // readiness probe in Connections; the result drives
-  // the status chip + the picker dropdown's inline diagnostic. The
-  // loading map is keyed by id so two adapters can be probing
-  // concurrently without confusing the UI.
-  async function probeAgentAdapter(adapterID: string): Promise<AgentAdapterHealthRecord | null> {
-    const result = await providersAndModels.actions.probeAgentAdapter(adapterID);
-    if (!result.ok) {
-      setNoticeMessage("error", result.error);
-      return null;
-    }
-    return result.health;
-  }
-
-  async function setAgentAdapterCredential(adapterID: string, value: string, name?: string): Promise<boolean> {
-    const result = await providersAndModels.actions.setAgentAdapterCredential(adapterID, value, name);
-    if (!result.ok) {
-      setNoticeMessage("error", result.error);
-      return false;
-    }
-    setNoticeMessage("success", result.isClaudeCode ? "Claude Code verified." : "Adapter credential saved.");
-    return true;
-  }
-
-  async function deleteAgentAdapterCredential(adapterID: string, name: string): Promise<boolean> {
-    const result = await providersAndModels.actions.deleteAgentAdapterCredential(adapterID, name);
-    if (!result.ok) {
-      setNoticeMessage("error", result.error);
-      return false;
-    }
-    setNoticeMessage("success", "Adapter credential removed.");
-    return true;
-  }
-
-  async function renameChatSession(id: string, title: string) {
-    try {
-      const nextTitle = title.trim();
-      if (!nextTitle) {
-        setNoticeMessage("error", "Chat title cannot be empty.");
-        return;
-      }
-      const payload = await updateChatSessionRequest(id, nextTitle);
-      setChatSessions((current) =>
-        current.map((s) => (s.id === id ? { ...s, title: payload.data.title, updated_at: payload.data.updated_at ?? s.updated_at } : s)),
-      );
-      if (activeChatSessionID === id) {
-        setActiveChatSession((current) => (current ? { ...current, title: payload.data.title, updated_at: payload.data.updated_at ?? current.updated_at } : current));
-      }
-    } catch (error) {
-      setNoticeMessage("error", error instanceof Error ? error.message : "Failed to rename chat.");
-    }
-  }
-
-  async function chooseAgentWorkspace(): Promise<boolean> {
-    clearChatErrorState();
-    try {
-      const payload = await chooseWorkspaceDirectoryRequest();
-      if (payload.data.path) {
-        setAgentWorkspace(payload.data.path);
-        setAgentWorkspaceBranch(payload.data.branch ?? "");
-      }
-      return true;
-    } catch (error) {
-      setChatErrorState(error, "workspace folder dialog is unavailable");
-      return false;
-    }
-  }
 
   return {
     state: {
@@ -1578,67 +488,60 @@ export function useRuntimeConsole() {
     },
     actions: {
       copyCommand,
-      cancelAgentChat,
-      deletePolicyRule,
-      chooseAgentWorkspace,
-      createChatSession,
-      deleteChatSession,
-      renameChatSession,
-      loadDashboard,
-      loadRetentionRuns,
+      cancelAgentChat: chatActions.cancelAgentChat,
+      deletePolicyRule: policyActions.deletePolicyRule,
+      chooseAgentWorkspace: chatActions.chooseAgentWorkspace,
+      createChatSession: chatActions.createChatSession,
+      deleteChatSession: chatActions.deleteChatSession,
+      renameChatSession: chatActions.renameChatSession,
+      loadDashboard: dashboardActions.loadDashboard,
+      loadRetentionRuns: retention.actions.loadRuns,
       setAgentAdapterID,
-      setNewChatAgent,
-      setAgentWorkspace: updateAgentWorkspace,
-      setChatTarget,
+      setNewChatAgent: chatActions.setNewChatAgent,
+      setAgentWorkspace: chatActions.updateAgentWorkspace,
+      setChatTarget: chatActions.setChatTarget,
       setMessage,
       removeQueuedChatMessage,
       updateQueuedChatMessage,
       setSystemPrompt,
       setModel,
       setModelFilter,
-      setProviderFilter: selectProviderRoute,
-      refreshProviders,
+      setProviderFilter: chatActions.selectProviderRoute,
+      refreshProviders: dashboardActions.refreshProviders,
       setRetentionSubsystems: retention.actions.setSubsystems,
-      runRetention,
-      selectChatSession,
-      startNewChat,
-      submitChat,
-      submitToolResults,
-      updateToolResult,
-      upsertPolicyRule,
-      setProviderAPIKey,
-      createProvider,
-      deleteProvider,
-      setProviderBaseURL,
-      setProviderName,
-      setProviderCustomName,
-      upsertModelCapabilityOverride,
-      recordModelCapabilityProbe,
-      deleteModelCapabilityOverride,
-      getChatApproval,
-      listChatMessageFiles,
-      getChatMessageFileDiff,
-      revertChatMessageFiles,
-      resolveTaskApproval,
-      resolveChatApproval,
-      cancelChatApproval,
-      listChatGrants,
-      deleteChatGrant,
-      setChatConfigOption,
-      setHecateRTKEnabled,
-      probeAgentAdapter,
-      setAgentAdapterCredential,
-      deleteAgentAdapterCredential,
-      dismissNotice,
+      runRetention: retentionActions.runRetention,
+      selectChatSession: chatActions.selectChatSession,
+      startNewChat: chatActions.startNewChat,
+      submitChat: chatActions.submitChat,
+      submitToolResults: chatActions.submitToolResults,
+      updateToolResult: chatActions.updateToolResult,
+      upsertPolicyRule: policyActions.upsertPolicyRule,
+      setProviderAPIKey: providerActions.setProviderAPIKey,
+      createProvider: providerActions.createProvider,
+      deleteProvider: providerActions.deleteProvider,
+      setProviderBaseURL: providerActions.setProviderBaseURL,
+      setProviderName: providerActions.setProviderName,
+      setProviderCustomName: providerActions.setProviderCustomName,
+      upsertModelCapabilityOverride: providerActions.upsertModelCapabilityOverride,
+      recordModelCapabilityProbe: providerActions.recordModelCapabilityProbe,
+      deleteModelCapabilityOverride: providerActions.deleteModelCapabilityOverride,
+      getChatApproval: chatActions.getChatApproval,
+      listChatMessageFiles: chatActions.listChatMessageFiles,
+      getChatMessageFileDiff: chatActions.getChatMessageFileDiff,
+      revertChatMessageFiles: chatActions.revertChatMessageFiles,
+      resolveTaskApproval: chatActions.resolveTaskApproval,
+      resolveChatApproval: chatActions.resolveChatApproval,
+      cancelChatApproval: chatActions.cancelChatApproval,
+      listChatGrants: approvals.actions.loadGrants,
+      deleteChatGrant: chatActions.deleteChatGrant,
+      setChatConfigOption: chatActions.setChatConfigOption,
+      setHecateRTKEnabled: chatActions.setHecateRTKEnabled,
+      probeAgentAdapter: adapterActions.probeAgentAdapter,
+      setAgentAdapterCredential: adapterActions.setAgentAdapterCredential,
+      deleteAgentAdapterCredential: adapterActions.deleteAgentAdapterCredential,
+      dismissNotice: () => setNotice(null),
     },
   };
-}
-
-function insertAtIndex<T>(items: T[], item: T, index: number): T[] {
-  const next = items.slice();
-  const boundedIndex = Math.max(0, Math.min(index, next.length));
-  next.splice(boundedIndex, 0, item);
-  return next;
 }
 
 export type RuntimeConsoleViewModel = ReturnType<typeof useRuntimeConsole>;
