@@ -273,7 +273,6 @@ describe("resolveDashboardSnapshot", () => {
     const essentials = onEssentials.mock.calls[0][0];
     expect(essentials.health.status).toBe("ok");
     expect(essentials.sessionInfo).toEqual({ role: "operator" });
-    expect(essentials.models).toEqual([]);
     expect(essentials.settingsConfig?.providers).toEqual([]);
 
     // Secondary is still pending — finish it so the outer promise

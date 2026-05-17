@@ -17,7 +17,6 @@ import { resolveDashboardSnapshot } from "../../runtimeConsoleDashboard";
 import { useChat } from "../chat";
 import { useProvidersAndModels } from "../providersAndModels";
 import { useRuntime } from "../runtime";
-import { useUsage } from "../usage";
 import type { ChatSessionRecord } from "../../../types/chat";
 import type { ConfiguredStateResponse } from "../../../types/provider";
 import type { ChatActions } from "./chat";
@@ -35,7 +34,6 @@ export type UseDashboardActionsParams = {
 
 export function useDashboardActions(params: UseDashboardActionsParams) {
   const runtime = useRuntime();
-  const usage = useUsage();
   const providersAndModels = useProvidersAndModels();
   const chat = useChat();
 
@@ -47,7 +45,6 @@ export function useDashboardActions(params: UseDashboardActionsParams) {
     setHecateRTKAvailable,
     setHecateRTKPath,
   } = runtime.actions;
-  const { setSummary: setUsageSummary, setEvents: setUsageEvents } = usage.actions;
   const { providers, agentAdapters } = providersAndModels.state;
   const {
     setProviders,
@@ -63,8 +60,6 @@ export function useDashboardActions(params: UseDashboardActionsParams) {
     setActiveChatSession,
     pruneQueuedChatMessagesForSessions,
   } = chat.actions;
-  const usageSummary = usage.state.summary;
-  const usageEvents = usage.state.events;
 
   async function loadDashboard() {
     setLoading(true);
@@ -77,10 +72,8 @@ export function useDashboardActions(params: UseDashboardActionsParams) {
         previous: {
           providers,
           agentAdapters,
-          usageSummary,
           chatSessions,
           activeChatSession,
-          usageEvents,
           settingsConfig: params.settingsConfig,
         },
         // Commit just enough state to drop the AuthLoadingShell as
@@ -92,7 +85,6 @@ export function useDashboardActions(params: UseDashboardActionsParams) {
         onEssentials: (essentials) => {
           setHealth(essentials.health);
           setSessionInfo(essentials.sessionInfo);
-          setModels(essentials.models);
           params.setSettingsConfig(essentials.settingsConfig);
         },
       });
@@ -103,13 +95,11 @@ export function useDashboardActions(params: UseDashboardActionsParams) {
       setProviders(snapshot.providers);
       setProviderPresets(snapshot.providerPresets);
       setAgentAdapters(snapshot.agentAdapters);
-      setUsageSummary(snapshot.usageSummary);
       setChatSessions(snapshot.chatSessions);
       pruneQueuedChatMessagesForSessions(snapshot.chatSessions.map((session: ChatSessionRecord) => session.id));
       setActiveChatSessionID(snapshot.activeChatSessionID);
       setActiveChatSession(snapshot.activeChatSession);
       params.syncHecateSelectionFromSession(snapshot.activeChatSession);
-      setUsageEvents(snapshot.usageEvents);
       params.setSettingsConfig(snapshot.settingsConfig);
       setAgentAdapterApprovalMode(snapshot.agentAdapterApprovalMode);
       setHecateRTKAvailable(snapshot.rtkAvailable);

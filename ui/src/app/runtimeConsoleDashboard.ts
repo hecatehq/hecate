@@ -10,8 +10,6 @@ import {
   getProviders,
   getRuntimeStats,
   getSession,
-  getUsageEvents,
-  getUsageSummary,
 } from "../lib/api";
 import type { HealthResponse, RuntimeStatsResponse, SessionResponse } from "../types/runtime";
 import type { ModelResponse } from "../types/model";
@@ -22,7 +20,6 @@ import type {
 } from "../types/provider";
 import type { AgentAdapterRecord } from "../types/agent-adapter";
 import type { ChatSessionRecord, ChatSessionsResponse } from "../types/chat";
-import type { UsageEventsResponse, UsageSummaryResponse } from "../types/usage";
 
 export type SessionState = {
   label: string;
@@ -31,26 +28,26 @@ export type SessionState = {
 export type DashboardPreviousState = {
   providers: ProviderStatusResponse["data"];
   agentAdapters: AgentAdapterRecord[];
-  usageSummary: UsageSummaryResponse["data"] | null;
   chatSessions: ChatSessionsResponse["data"];
   activeChatSession: ChatSessionRecord | null;
-  usageEvents: UsageEventsResponse["data"];
   settingsConfig: ConfiguredStateResponse["data"] | null;
 };
 
 // DashboardEssentials is the minimal slice of dashboard state the
 // app shell needs to render its activity bar + status bar: health
-// (gateway version + status), session label, model count, and
+// (gateway version + status), session label, and
 // configured-provider count. Emitting these early lets the
 // AuthLoadingShell gate clear ~50–150 ms sooner on cold launches —
-// the rest of the snapshot (chat sessions, usage, …) continues to
-// load in the background and lands when ready. Retention runs are
-// view-deferred: the SettingsView mounts and calls a dedicated
-// action when it needs them; they're not in this snapshot at all.
+// the rest of the snapshot (models, chat sessions, …) continues to
+// load in the background and lands when ready. The status-bar model
+// count starts at 0 and updates once wave 2 lands; the brief flash
+// is an accepted trade-off for clearing the gate sooner. Retention
+// runs and Usage events/summary are view-deferred: SettingsView and
+// UsageView mount and call dedicated actions when they need them;
+// they're not in this snapshot at all.
 export type DashboardEssentials = {
   health: HealthResponse;
   sessionInfo: SessionResponse["data"] | null;
-  models: ModelResponse["data"];
   settingsConfig: ConfiguredStateResponse["data"] | null;
 };
 
@@ -61,11 +58,9 @@ export type DashboardSnapshot = {
   providers: ProviderStatusResponse["data"];
   providerPresets: ProviderPresetRecord[];
   agentAdapters: AgentAdapterRecord[];
-  usageSummary: UsageSummaryResponse["data"] | null;
   chatSessions: ChatSessionsResponse["data"];
   activeChatSessionID: string;
   activeChatSession: ChatSessionRecord | null;
-  usageEvents: UsageEventsResponse["data"];
   settingsConfig: ConfiguredStateResponse["data"] | null;
   agentAdapterApprovalMode: string;
   rtkAvailable: boolean;
@@ -79,9 +74,7 @@ type DashboardResults = {
   providers: PromiseSettledResult<ProviderStatusResponse>;
   providerPresets: PromiseSettledResult<{ object: string; data: ProviderPresetRecord[] }>;
   agentAdapters: PromiseSettledResult<{ object: string; data: AgentAdapterRecord[] }>;
-  usageSummary: PromiseSettledResult<UsageSummaryResponse>;
   chatSessions: PromiseSettledResult<ChatSessionsResponse>;
-  usageEvents: PromiseSettledResult<UsageEventsResponse>;
   settingsConfig: PromiseSettledResult<ConfiguredStateResponse>;
   runtimeStats: PromiseSettledResult<RuntimeStatsResponse>;
 };
@@ -110,8 +103,6 @@ export async function resolveDashboardSnapshot(args: {
   const providers = resolveDashboardResult(results.providers, args.previous.providers);
   const providerPresets = results.providerPresets.status === "fulfilled" ? results.providerPresets.value.data : [];
   const agentAdapters = resolveDashboardResult(results.agentAdapters, args.previous.agentAdapters);
-  const usageSummary = resolveDashboardResult(results.usageSummary, args.previous.usageSummary);
-  const usageEvents = resolveDashboardResult(results.usageEvents, args.previous.usageEvents);
   const settingsConfig = resolveDashboardResult(results.settingsConfig, args.previous.settingsConfig);
   const agentAdapterApprovalMode = results.runtimeStats.status === "fulfilled"
     ? (results.runtimeStats.value.data.agent_adapter_approval_mode ?? "")
@@ -136,11 +127,9 @@ export async function resolveDashboardSnapshot(args: {
     providers,
     providerPresets,
     agentAdapters,
-    usageSummary,
     chatSessions: chatState.sessions,
     activeChatSessionID: chatState.activeSessionID,
     activeChatSession: chatState.activeSession,
-    usageEvents,
     settingsConfig,
     agentAdapterApprovalMode,
     rtkAvailable,
@@ -156,17 +145,15 @@ async function loadDashboardResults(opts: {
   onEssentials?: (essentials: DashboardEssentials) => void;
   previousSettingsConfig: ConfiguredStateResponse["data"] | null;
 }): Promise<DashboardResults> {
-  // Wave 1 — essentials. Four parallel calls drive everything the
+  // Wave 1 — essentials. Three parallel calls drive everything the
   // app shell needs to clear the Connecting gate: gateway health
-  // (version + status), session label, model count for the status
-  // bar, and configured-provider count. Folding models +
-  // settingsConfig in here (vs. the prior 2-call wave that only
-  // covered health + session) means the shell can render before
-  // the much chattier secondary wave finishes.
-  const [health, session, models, settingsConfig] = await Promise.allSettled([
+  // (version + status), session label, and configured-provider
+  // count. Keeping models in the chattier secondary wave saves
+  // ~30-50 ms on cold cache; the status-bar model count starts at
+  // 0 and updates once wave 2 resolves.
+  const [health, session, settingsConfig] = await Promise.allSettled([
     getHealth(),
     getSession(),
-    getModels(),
     getSettingsConfig(),
   ]);
 
@@ -179,7 +166,6 @@ async function loadDashboardResults(opts: {
         // on the loading state.
         : { status: "down", time: new Date().toISOString() } as HealthResponse,
       sessionInfo: session.status === "fulfilled" ? session.value.data : null,
-      models: resolveModelsResult(models),
       settingsConfig: resolveDashboardResult(settingsConfig, opts.previousSettingsConfig),
     });
   }
@@ -191,12 +177,11 @@ async function loadDashboardResults(opts: {
   // we already know after wave 1 — no need for the prior third
   // sequential wave.
   const initialReject = <T,>(): PromiseSettledResult<T> => ({ status: "rejected", reason: new Error("uninitialized") });
+  let models: PromiseSettledResult<ModelResponse> = initialReject();
   let providers: PromiseSettledResult<ProviderStatusResponse> = initialReject();
   let providerPresets: PromiseSettledResult<{ object: string; data: ProviderPresetRecord[] }> = initialReject();
   let agentAdapters: PromiseSettledResult<{ object: string; data: AgentAdapterRecord[] }> = initialReject();
-  let usageSummary: PromiseSettledResult<UsageSummaryResponse> = initialReject();
   let chatSessions: PromiseSettledResult<ChatSessionsResponse> = initialReject();
-  let usageEvents: PromiseSettledResult<UsageEventsResponse> = initialReject();
   let runtimeStats: PromiseSettledResult<RuntimeStatsResponse> = initialReject();
 
   // Resolve settings-config the same way we publish it via onEssentials:
@@ -206,11 +191,10 @@ async function loadDashboardResults(opts: {
   const resolvedSettingsConfig = resolveDashboardResult(settingsConfig, opts.previousSettingsConfig);
   const configured = resolvedSettingsConfig?.providers ?? [];
   const secondary: Promise<unknown>[] = [
+    getModels().then(r => { models = { status: "fulfilled", value: r }; }, e => { models = { status: "rejected", reason: e }; }),
     getProviderPresets().then(r => { providerPresets = { status: "fulfilled", value: r }; }, e => { providerPresets = { status: "rejected", reason: e }; }),
     getAgentAdapters().then(r => { agentAdapters = { status: "fulfilled", value: r }; }, e => { agentAdapters = { status: "rejected", reason: e }; }),
     getChatSessions().then(r => { chatSessions = { status: "fulfilled", value: r }; }, e => { chatSessions = { status: "rejected", reason: e }; }),
-    getUsageSummary("").then(r => { usageSummary = { status: "fulfilled", value: r }; }, e => { usageSummary = { status: "rejected", reason: e }; }),
-    getUsageEvents(20).then(r => { usageEvents = { status: "fulfilled", value: r }; }, e => { usageEvents = { status: "rejected", reason: e }; }),
     getRuntimeStats().then(r => { runtimeStats = { status: "fulfilled", value: r }; }, e => { runtimeStats = { status: "rejected", reason: e }; }),
   ];
   if (configured.length > 0) {
@@ -234,9 +218,7 @@ async function loadDashboardResults(opts: {
     providers,
     providerPresets,
     agentAdapters,
-    usageSummary,
     chatSessions,
-    usageEvents,
     settingsConfig,
     runtimeStats,
   };
