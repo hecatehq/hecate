@@ -93,9 +93,20 @@ export function useUsage(): UsageContextValue {
 }
 
 // useEnsureUsageLoaded fetches the usage summary + recent events on
-// first call if the slice hasn't been hydrated yet. Dedupes parallel
-// callers via an inflight ref; tolerates failed fetches by leaving
-// `loaded` false so the next mount can retry. Used by UsageView.
+// first call if the slice's `loaded` flag is false. Used by
+// UsageView.
+//
+// Dedup behavior:
+//   - The `inFlight` ref is per hook instance — it blocks the same
+//     hook from re-firing while its first fetch pair is pending.
+//   - Cross-surface dedup happens AFTER the first fetch resolves,
+//     when `loaded` flips to true: subsequent calls early-return.
+//     If two surfaces mounted the hook concurrently before either
+//     flip lands, both fetch pairs would fire — acceptable today
+//     because UsageView is the only consumer.
+//
+// Tolerates failed fetches by leaving `loaded` false so the next
+// mount retries.
 export function useEnsureUsageLoaded(): void {
   const { state, actions } = useUsage();
   const inFlight = useRef(false);
