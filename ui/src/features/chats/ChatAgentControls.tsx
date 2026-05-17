@@ -1,6 +1,9 @@
 import { useEffect, useRef, useState } from "react";
 import type { KeyboardEvent } from "react";
-import type { AgentAdapterHealthRecord, AgentAdapterRecord, ChatConfigOptionRecord, ModelRecord, ProviderPresetRecord } from "../../types/runtime";
+import type { AgentAdapterHealthRecord, AgentAdapterRecord } from "../../types/agent-adapter";
+import type { ChatConfigOptionRecord } from "../../types/chat";
+import type { ModelRecord } from "../../types/model";
+import type { ProviderPresetRecord } from "../../types/provider";
 import { BrandAvatar, DropdownPicker, Icon, Icons } from "../shared/ui";
 import type { DropdownPickerOption, ProviderOption } from "../shared/ui";
 import { focusDropdownItem, focusInitialDropdownItem } from "../shared/dropdownKeyboard";

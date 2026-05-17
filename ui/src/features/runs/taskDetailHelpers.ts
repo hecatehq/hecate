@@ -1,10 +1,10 @@
+import type { ChatActivityRecord } from "../../types/chat";
 import type {
-  ChatActivityRecord,
   TaskActivityRecord,
   TaskArtifactRecord,
   TaskRecord,
   TaskRunEventRecord,
-} from "../../types/runtime";
+} from "../../types/task";
 
 export const STEP_STATUS_COLOR: Record<string, string> = {
   completed: "var(--green)",

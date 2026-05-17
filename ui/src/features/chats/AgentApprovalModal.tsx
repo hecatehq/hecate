@@ -1,6 +1,6 @@
 import { useEffect, useState } from "react";
 import type { ResolveChatApprovalPayload } from "../../lib/api";
-import type { ChatApprovalOption, ChatApprovalRecord } from "../../types/runtime";
+import type { ChatApprovalOption, ChatApprovalRecord } from "../../types/chat";
 import { Icon, Icons, Modal } from "../shared/ui";
 
 // AgentApprovalModal renders the operator decision UI for a single

@@ -1,4 +1,4 @@
-import type { AgentAdapterRecord, AgentAdapterSetupCommandStatus, AgentAdapterHealthRecord } from "../../types/runtime";
+import type { AgentAdapterHealthRecord, AgentAdapterRecord, AgentAdapterSetupCommandStatus } from "../../types/agent-adapter";
 import { claudeCodeSetupTokenCommand } from "../../lib/claude-code-setup";
 import { Icon, Icons } from "../shared/ui";
 

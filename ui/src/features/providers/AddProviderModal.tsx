@@ -2,7 +2,7 @@ import { useEffect, useRef, useState } from "react";
 import { useRuntimeConsoleContext } from "../../app/RuntimeConsoleContext";
 import { discoverLocalProviders } from "../../lib/api";
 import { resolvedBaseURL } from "../../lib/provider-utils";
-import type { LocalProviderDiscoveryRecord, ProviderPresetRecord } from "../../types/runtime";
+import type { LocalProviderDiscoveryRecord, ProviderPresetRecord } from "../../types/provider";
 import { BrandAvatar, Icon, Icons, InlineError, Modal } from "../shared/ui";
 
 type Props = {

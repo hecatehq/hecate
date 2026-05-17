@@ -1,4 +1,4 @@
-import type { ConfiguredProviderRecord, ProviderPresetRecord, ProviderRecord } from "../types/runtime";
+import type { ConfiguredProviderRecord, ProviderPresetRecord, ProviderRecord } from "../types/provider";
 
 const PROVIDER_ICON_COLORS: Record<string, string> = {
   anthropic: "var(--brand-anthropic)",

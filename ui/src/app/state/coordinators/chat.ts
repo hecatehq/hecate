@@ -52,6 +52,8 @@ import { useChat } from "../chat";
 import { useProvidersAndModels } from "../providersAndModels";
 import { useRuntime } from "../runtime";
 import { useUsage } from "../usage";
+import type { RuntimeHeaders } from "../../../types/runtime";
+import type { ProviderFilter } from "../../../types/provider";
 import type {
   ChatActivityRecord,
   ChatApprovalRecord,
@@ -59,9 +61,7 @@ import type {
   ChatChangedFileRecord,
   ChatResponse,
   ChatSessionRecord,
-  ProviderFilter,
-  RuntimeHeaders,
-} from "../../../types/runtime";
+} from "../../../types/chat";
 import type { SettingsActions } from "./settings";
 
 export type UseChatActionsParams = {

@@ -13,20 +13,16 @@ import {
   getUsageEvents,
   getUsageSummary,
 } from "../lib/api";
+import type { HealthResponse, RuntimeStatsResponse, SessionResponse } from "../types/runtime";
+import type { ModelResponse } from "../types/model";
 import type {
-  AgentAdapterRecord,
-  ChatSessionRecord,
-  ChatSessionsResponse,
   ConfiguredStateResponse,
-  HealthResponse,
-  ModelResponse,
   ProviderPresetRecord,
   ProviderStatusResponse,
-  RuntimeStatsResponse,
-  SessionResponse,
-  UsageSummaryResponse,
-  UsageEventsResponse,
-} from "../types/runtime";
+} from "../types/provider";
+import type { AgentAdapterRecord } from "../types/agent-adapter";
+import type { ChatSessionRecord, ChatSessionsResponse } from "../types/chat";
+import type { UsageEventsResponse, UsageSummaryResponse } from "../types/usage";
 
 export type SessionState = {
   label: string;

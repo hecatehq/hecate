@@ -1,7 +1,7 @@
 import { describe, expect, it } from "vitest";
 
 import { providerDotColor, resolvedBaseURL } from "./provider-utils";
-import type { ConfiguredProviderRecord, ProviderPresetRecord } from "../types/runtime";
+import type { ConfiguredProviderRecord, ProviderPresetRecord } from "../types/provider";
 
 const presets: ProviderPresetRecord[] = [
   { id: "openai",   name: "OpenAI",   kind: "cloud", protocol: "openai",   base_url: "https://api.openai.com/v1",   description: "" },

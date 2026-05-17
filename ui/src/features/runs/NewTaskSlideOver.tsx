@@ -1,5 +1,6 @@
 import { useEffect, useMemo, useState } from "react";
-import type { ModelRecord, ProviderPresetRecord, ProviderRecord } from "../../types/runtime";
+import type { ModelRecord } from "../../types/model";
+import type { ProviderPresetRecord, ProviderRecord } from "../../types/provider";
 import { Icon, Icons, ModelPicker, ProviderPicker, SlideOver, type ProviderOption } from "../shared/ui";
 
 export type ExecutionKind = "shell" | "git" | "file" | "agent_loop";

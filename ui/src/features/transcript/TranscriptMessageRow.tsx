@@ -1,6 +1,6 @@
 import { useState } from "react";
 
-import type { ChatActivityRecord, ChatChangedFileDiffRecord, ChatChangedFileRecord, ChatTimingRecord, ChatUsageRecord } from "../../types/runtime";
+import type { ChatActivityRecord, ChatChangedFileDiffRecord, ChatChangedFileRecord, ChatTimingRecord, ChatUsageRecord } from "../../types/chat";
 import { formatDurationMs } from "../../lib/format";
 import { CodeBlock } from "../shared/Atoms";
 import { BrandAvatar } from "../shared/BrandAvatar";

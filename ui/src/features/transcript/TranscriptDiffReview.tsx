@@ -1,7 +1,7 @@
 import { useRef, useState } from "react";
 import type { SyntheticEvent } from "react";
 
-import type { ChatChangedFileDiffRecord, ChatChangedFileRecord } from "../../types/runtime";
+import type { ChatChangedFileDiffRecord, ChatChangedFileRecord } from "../../types/chat";
 import { CodeBlock, InlineError } from "../shared/Atoms";
 import { DiffStatList, formatDiffStatSummary } from "./TranscriptActivityTimeline";
 

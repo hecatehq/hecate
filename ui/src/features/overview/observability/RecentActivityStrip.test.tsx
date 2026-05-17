@@ -1,7 +1,7 @@
 import { describe, expect, it } from "vitest";
 import { render } from "@testing-library/react";
 
-import type { TraceListItem } from "../../../types/runtime";
+import type { TraceListItem } from "../../../types/trace";
 
 import { RecentActivityStrip } from "./RecentActivityStrip";
 

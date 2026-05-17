@@ -1,4 +1,4 @@
-import type { AgentAdapterSetupCommandStatus } from "../types/runtime";
+import type { AgentAdapterSetupCommandStatus } from "../types/agent-adapter";
 
 export function claudeCodeSetupTokenCommand(status?: AgentAdapterSetupCommandStatus): string {
   return `${claudeCodeCommandPrefix(status)} setup-token`;

@@ -28,7 +28,11 @@ import {
   tracePhaseFromSpan,
 } from "./runtime-utils";
 import type { TraceRouteRecord } from "./runtime-utils";
-import type { ModelRecord, ProviderRecord, RuntimeHeaders, TraceListItem, TraceSpanRecord, UsageSummaryRecord } from "../types/runtime";
+import type { RuntimeHeaders } from "../types/runtime";
+import type { ModelRecord } from "../types/model";
+import type { ProviderRecord } from "../types/provider";
+import type { TraceListItem, TraceSpanRecord } from "../types/trace";
+import type { UsageSummaryRecord } from "../types/usage";
 
 const models: ModelRecord[] = [
   { id: "gpt-4o-mini", owned_by: "openai", metadata: { provider: "openai", provider_kind: "cloud" } },

@@ -5,7 +5,9 @@ import { resolveChatSetupRepairState, type ChatSetupRepairState } from "../../li
 import { describeGatewayError } from "../../lib/error-diagnostics";
 import { buildSelectedModelIssue } from "../../lib/provider-issues";
 import { providerDisplayName } from "../../lib/provider-utils";
-import type { AgentAdapterRecord, ChatSessionRecord, ChatUsageRecord, LocalProviderDiscoveryRecord, ProviderPresetRecord } from "../../types/runtime";
+import type { AgentAdapterRecord } from "../../types/agent-adapter";
+import type { ChatSessionRecord, ChatUsageRecord } from "../../types/chat";
+import type { LocalProviderDiscoveryRecord, ProviderPresetRecord } from "../../types/provider";
 import { AgentApprovalAutoModeBanner, AgentApprovalsBanner } from "./AgentApprovalBanner";
 import { AgentApprovalModal } from "./AgentApprovalModal";
 import { AddProviderModal } from "../providers/AddProviderModal";

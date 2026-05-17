@@ -3,7 +3,7 @@ import userEvent from "@testing-library/user-event";
 import { describe, expect, it, vi } from "vitest";
 
 import { TaskList } from "./TaskList";
-import type { TaskRecord } from "../../types/runtime";
+import type { TaskRecord } from "../../types/task";
 
 function makeTask(overrides: Partial<TaskRecord> = {}): TaskRecord {
   return {

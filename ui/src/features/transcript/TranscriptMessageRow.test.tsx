@@ -8,7 +8,7 @@ import type {
   ChatChangedFileRecord,
   ChatTimingRecord,
   ChatUsageRecord,
-} from "../../types/runtime";
+} from "../../types/chat";
 import { TranscriptMessageRow } from "./TranscriptMessageRow";
 
 const baseProps = {

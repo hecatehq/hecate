@@ -2,7 +2,7 @@ import { render, screen, waitFor } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { describe, expect, it, vi } from "vitest";
 
-import type { ChatApprovalRecord } from "../../types/runtime";
+import type { ChatApprovalRecord } from "../../types/chat";
 import { AgentApprovalModal } from "./AgentApprovalModal";
 
 function approvalRecord(overrides: Partial<ChatApprovalRecord> = {}): ChatApprovalRecord {

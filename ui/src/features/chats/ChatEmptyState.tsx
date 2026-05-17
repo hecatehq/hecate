@@ -2,7 +2,8 @@ import { useEffect, useState } from "react";
 
 import { type ChatSetupRepairState } from "../../lib/chat-setup-readiness";
 import type { SelectedModelIssue } from "../../lib/provider-issues";
-import type { AgentAdapterRecord, AgentAdapterSetupCommandStatus, LocalProviderDiscoveryRecord, ProviderPresetRecord } from "../../types/runtime";
+import type { AgentAdapterRecord, AgentAdapterSetupCommandStatus } from "../../types/agent-adapter";
+import type { LocalProviderDiscoveryRecord, ProviderPresetRecord } from "../../types/provider";
 import { BrandAvatar, Icon, Icons, InlineError } from "../shared/ui";
 
 import { SelectedModelReadinessNotice, repairActionIcon } from "./ChatComposer";

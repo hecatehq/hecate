@@ -21,7 +21,7 @@ import { createContext, useCallback, useContext, useMemo, useReducer, useRef, ty
 import { getRetentionRuns, runRetention as runRetentionRequest } from "../../lib/api";
 import { warn as logWarn } from "../../lib/log";
 import { parseCSV } from "../../lib/runtime-utils";
-import type { RetentionRunData } from "../../types/runtime";
+import type { RetentionRunData } from "../../types/retention";
 
 const RECENT_RUNS_LIMIT = 10;
 

@@ -29,10 +29,8 @@ import { usePolicyActions } from "./state/coordinators/policy";
 import { useProviderActions } from "./state/coordinators/providers";
 import { useRetentionActions } from "./state/coordinators/retention";
 import { useSettingsActions } from "./state/coordinators/settings";
-import type {
-  ChatSessionRecord,
-  ConfiguredStateResponse,
-} from "../types/runtime";
+import type { ChatSessionRecord } from "../types/chat";
+import type { ConfiguredStateResponse } from "../types/provider";
 
 function chatSessionIsExternal(session: ChatSessionRecord | null): boolean {
   return Boolean(session?.runtime_kind === "external_agent" || session?.adapter_id);

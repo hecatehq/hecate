@@ -12,7 +12,7 @@
 
 import { createContext, useCallback, useContext, useMemo, useReducer, type ReactNode } from "react";
 
-import type { ConfiguredStateResponse } from "../../types/runtime";
+import type { ConfiguredStateResponse } from "../../types/provider";
 
 export type NoticeState = {
   kind: "success" | "error";

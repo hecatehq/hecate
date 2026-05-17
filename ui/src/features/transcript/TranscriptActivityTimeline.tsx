@@ -1,6 +1,6 @@
 import { useEffect, useState, type ReactNode } from "react";
 
-import type { ChatActivityRecord } from "../../types/runtime";
+import type { ChatActivityRecord } from "../../types/chat";
 
 import {
   activityDisplay,

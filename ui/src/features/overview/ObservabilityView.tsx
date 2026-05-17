@@ -22,13 +22,9 @@ import {
   formatRelativeTime,
   traceStatusBadge,
 } from "../../lib/runtime-utils";
-import type {
-  MCPCacheStatsResponse,
-  ModelRecord,
-  RuntimeStatsResponse,
-  TraceListItem,
-  TraceResponse,
-} from "../../types/runtime";
+import type { MCPCacheStatsResponse, RuntimeStatsResponse } from "../../types/runtime";
+import type { ModelRecord } from "../../types/model";
+import type { TraceListItem, TraceResponse } from "../../types/trace";
 import { focusDropdownItem, focusInitialDropdownItem } from "../shared/dropdownKeyboard";
 import { useFloatingDropdownStyle } from "../shared/useFloatingDropdownStyle";
 import { useFloatingMenu } from "../shared/useFloatingMenu";

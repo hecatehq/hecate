@@ -2,7 +2,7 @@ import { Suspense, lazy, useEffect, useState } from "react";
 
 import { useRuntimeConsoleContext } from "./RuntimeConsoleContext";
 import type { RuntimeConsoleViewModel } from "./useRuntimeConsole";
-import type { ChatUsageRecord } from "../types/runtime";
+import type { ChatUsageRecord } from "../types/chat";
 import { UpdateBanner } from "../features/shared/UpdateBanner";
 import { usePersistedState } from "../lib/persistedState";
 import { isTauriOnMacOS } from "../lib/tauri";

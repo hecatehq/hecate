@@ -1,4 +1,4 @@
-import type { ProviderReadinessCheckRecord, ProviderReadinessSummaryRecord } from "../../types/runtime";
+import type { ProviderReadinessCheckRecord, ProviderReadinessSummaryRecord } from "../../types/provider";
 import { readinessRecommendation } from "../../lib/provider-readiness";
 
 export function ProviderReadinessSummary({ readiness }: { readiness?: ProviderReadinessSummaryRecord }) {

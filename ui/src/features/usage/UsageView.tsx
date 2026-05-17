@@ -1,7 +1,7 @@
 import type { ReactNode } from "react";
 import { useRuntimeConsoleContext } from "../../app/RuntimeConsoleContext";
 import { formatInteger, formatLocaleTime, formatMicrosUSD } from "../../lib/format";
-import type { UsageEventRecord } from "../../types/runtime";
+import type { UsageEventRecord } from "../../types/usage";
 import { CopyBtn } from "../shared/ui";
 
 type UsageEntry = UsageEventRecord;
