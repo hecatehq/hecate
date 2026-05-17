@@ -9,24 +9,8 @@ import (
 	"github.com/hecate/agent-runtime/pkg/types"
 )
 
-func TestMemoryStoreLifecycle(t *testing.T) {
-	t.Parallel()
-	runStoreLifecycle(t, NewMemoryStore())
-}
-
-func TestMemoryStoreReconcileInterruptedRuns(t *testing.T) {
-	t.Parallel()
-	runStoreReconcileInterruptedRuns(t, NewMemoryStore())
-}
-
-func TestMemoryStoreDoesNotHydrateTaskIDForAnonymousAgentSegment(t *testing.T) {
-	t.Parallel()
-	runStoreDoesNotHydrateTaskIDForAnonymousAgentSegment(t, NewMemoryStore())
-}
-
-func TestMemoryStoreDeepCopiesConfigOptions(t *testing.T) {
-	t.Parallel()
-	runStoreDeepCopiesConfigOptions(t, NewMemoryStore())
+func TestMemoryStoreConformance(t *testing.T) {
+	RunConformanceTests(t, "MemoryStore", func(*testing.T) Store { return NewMemoryStore() })
 }
 
 func runStoreLifecycle(t *testing.T, store Store) {

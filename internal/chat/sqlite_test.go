@@ -27,19 +27,10 @@ func newSQLiteTestStore(t *testing.T) *SQLiteStore {
 	return store
 }
 
-func TestSQLiteStoreLifecycle(t *testing.T) {
-	t.Parallel()
-	runStoreLifecycle(t, newSQLiteTestStore(t))
-}
-
-func TestSQLiteStoreReconcileInterruptedRuns(t *testing.T) {
-	t.Parallel()
-	runStoreReconcileInterruptedRuns(t, newSQLiteTestStore(t))
-}
-
-func TestSQLiteStoreDoesNotHydrateTaskIDForAnonymousAgentSegment(t *testing.T) {
-	t.Parallel()
-	runStoreDoesNotHydrateTaskIDForAnonymousAgentSegment(t, newSQLiteTestStore(t))
+func TestSQLiteStoreConformance(t *testing.T) {
+	RunConformanceTests(t, "SQLiteStore", func(t *testing.T) Store {
+		return newSQLiteTestStore(t)
+	})
 }
 
 func TestSQLiteStorePersistsAcrossInstances(t *testing.T) {
