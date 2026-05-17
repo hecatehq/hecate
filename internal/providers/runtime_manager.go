@@ -220,15 +220,14 @@ func (m *ControlPlaneRuntimeManager) resolvedConfigs(ctx context.Context) ([]con
 			Enabled:      true,
 		}
 		// Apply the gateway-wide Anthropic cache toggle to any
-		// Anthropic-protocol provider, regardless of whether it has
-		// a matching env-derived base config. The flag is global by
+		// provider whose protocol respects it. The flag is global by
 		// design (the AnthropicProvider's caching behavior is the
 		// same conceptual knob whether the operator added the
 		// provider via env or via the Providers tab); inheriting it
 		// only via name-match left CP-only Anthropic providers stuck
 		// at the default. SetGlobalAnthropicCacheDisabled is the
 		// single source of truth.
-		if strings.EqualFold(cfg.Protocol, "anthropic") {
+		if entry, _ := lookupProtocolDispatch(cfg.Protocol); entry.SupportsAnthropicCache {
 			cfg.AnthropicCacheDisabled = m.anthropicCacheDisabled
 		}
 		if builtIn, ok := builtInForControlPlaneProvider(item); ok {
@@ -382,12 +381,8 @@ func buildProviders(configs []config.OpenAICompatibleProviderConfig, logger *slo
 			logger.Warn("skipping provider with empty name")
 			continue
 		}
-		switch strings.ToLower(strings.TrimSpace(providerCfg.Protocol)) {
-		case "anthropic":
-			items = append(items, NewAnthropicProvider(providerCfg, logger))
-		default:
-			items = append(items, NewOpenAICompatibleProvider(providerCfg, logger))
-		}
+		entry, _ := lookupProtocolDispatch(providerCfg.Protocol)
+		items = append(items, entry.Constructor(providerCfg, logger))
 	}
 	return items
 }
