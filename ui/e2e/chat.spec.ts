@@ -55,9 +55,8 @@ test("empty Hecate Chat points operators to Connections before send", async ({ p
   await page.goto("/");
   await page.waitForSelector(".hecate-activitybar");
 
-  await expect(page.getByText("No chats yet").first()).toBeVisible();
-  await expect(page.getByText("Start your first Hecate chat from the sidebar.")).toBeVisible();
-  await page.getByRole("button", { name: "New Hecate chat", exact: true }).click();
+  // Brand-new users land directly on the chat empty state with the
+  // onboarding panel — no "click New Hecate chat to get started" detour.
   await expect(page.getByText("Nothing runnable yet")).toBeVisible();
   await page.getByRole("button", { name: "Open Connections" }).click();
   await expect(page.locator(".hecate-activitybar [aria-current='page']")).toHaveAttribute("aria-label", /Connections/);

@@ -13,7 +13,8 @@ import { expect, test } from "./fixtures";
 //
 // What's expected NOT to fire at boot:
 //   /hecate/v1/usage/summary, /hecate/v1/usage/events  (deferred to UsageView)
-//   /hecate/v1/providers/presets                       (deferred to AddProviderModal / TasksView)
+//   /hecate/v1/providers/presets  (deferred to AddProviderModal / TasksView;
+//                                  QuickLocalProviderAdd does not need presets)
 //   /hecate/v1/retention/*                             (deferred to SettingsView)
 //   /hecate/v1/observability/*                         (deferred to ObservabilityView)
 

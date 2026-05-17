@@ -2854,7 +2854,7 @@ describe("ChatView error display", () => {
 });
 
 describe("ChatView session title", () => {
-  it("hides the chat header and composer when no chat has been created", () => {
+  it("shows the chat empty state and composer when no chats exist", () => {
     const { state, actions } = setup({
       chatTarget: "model",
       chatSessions: [],
@@ -2863,9 +2863,11 @@ describe("ChatView session title", () => {
       message: "",
     });
     render(withRuntimeConsole(<ChatView />, { state, actions }));
-    expect(screen.getAllByText("No chats yet").length).toBeGreaterThan(0);
-    expect(screen.queryByRole("textbox", { name: "Message" })).toBeNull();
-    expect(screen.queryByLabelText("Chat header actions")).toBeNull();
+    // The bare ChatNoActiveState placeholder is gone — new users land
+    // directly on the chat canvas with its empty state + composer.
+    // (Sidebar still shows "No chats yet" — that's a different surface.)
+    expect(screen.queryByText(/Start your first .* chat from the sidebar/)).toBeNull();
+    expect(screen.queryByRole("textbox", { name: "Message" })).not.toBeNull();
   });
 
   it("shows the active session's title", () => {
