@@ -339,25 +339,6 @@ export async function mockGatewayAPIs(page: Page, opts: GatewayMockOptions = {})
     await route.fulfill(ok({ object: "agent_chat_approvals", data: [] }));
   });
 
-  await page.route("/hecate/v1/costs/budget*", r =>
-    r.fulfill(ok({
-      object: "budget_status",
-      data: {
-        key: "global", scope: "global", backend: "memory",
-        balance_source: "config",
-        debited_micros_usd: 0, debited_usd: "0.000000",
-        credited_micros_usd: 1_000_000, credited_usd: "1.000000",
-        balance_micros_usd: 1_000_000, balance_usd: "1.000000",
-        available_micros_usd: 1_000_000, available_usd: "1.000000",
-        enforced: false,
-      },
-    })),
-  );
-
-  await page.route("/hecate/v1/costs/summary*", r =>
-    r.fulfill(ok({ object: "account_summary", data: null })),
-  );
-
   await page.route("/hecate/v1/chat/sessions*", r =>
     r.fulfill(ok({ object: "list", data: [], has_more: false })),
   );
@@ -370,10 +351,19 @@ export async function mockGatewayAPIs(page: Page, opts: GatewayMockOptions = {})
   // the empty-state copy is what specs assert against; specs that need
   // populated data can re-register the route.
   await page.route("/hecate/v1/usage/events*", r =>
-    r.fulfill(ok({ object: "list", data: [] })),
+    r.fulfill(ok({ object: "usage_events", data: [] })),
   );
   await page.route("/hecate/v1/usage/summary*", r =>
-    r.fulfill(ok({ object: "usage_summary", data: null })),
+    r.fulfill(ok({
+      object: "usage_summary",
+      data: {
+        key: "global",
+        scope: "global",
+        backend: "memory",
+        used_micros_usd: 0,
+        used_usd: "$0.000000",
+      },
+    })),
   );
 
   // Bare /hecate/v1/settings (status) — register FIRST so the more-specific
