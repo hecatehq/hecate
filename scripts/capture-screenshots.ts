@@ -962,7 +962,12 @@ async function seedChatSessions() {
     const res = await fetch(`${HECATE_API}/chat/sessions`, {
       method: "POST",
       headers: jsonHeaders,
-      body: JSON.stringify({ title }),
+      body: JSON.stringify({
+        title,
+        runtime_kind: "model",
+        provider: "ollama",
+        model: "llama3.1:8b",
+      }),
     });
     const json = (await res.json()) as { data: { id: string } };
     ids.push(json.data.id);
@@ -1126,7 +1131,7 @@ async function main() {
     window.localStorage.setItem("hecate.workspace.v2", "chats");
     window.localStorage.setItem("hecate.chatTarget", "agent");
     window.localStorage.setItem("hecate.chatTargetBySessionID", JSON.stringify({ [sessionID]: "agent" }));
-    window.localStorage.setItem("hecate.agentChatSessionID", sessionID);
+    window.localStorage.setItem("hecate.chatSessionID", sessionID);
     window.localStorage.setItem("hecate.providerFilter", "ollama");
     window.localStorage.setItem("hecate.model", "ministral-3:latest");
     window.localStorage.setItem("hecate.agentWorkspace", "/Users/alice/dev/hecate");
@@ -1249,7 +1254,7 @@ async function main() {
     window.localStorage.setItem("hecate.chatTargetBySessionID", JSON.stringify({ [sessionID]: "external_agent" }));
     window.localStorage.setItem("hecate.agentAdapterID", "codex");
     window.localStorage.setItem("hecate.agentWorkspace", "/Users/alice/dev/hecate");
-    window.localStorage.setItem("hecate.agentChatSessionID", sessionID);
+    window.localStorage.setItem("hecate.chatSessionID", sessionID);
   }, docsChatSessionID);
   await page.reload();
   await page.waitForSelector("[data-testid='agent-approval-banner']", { timeout: 5_000 });
