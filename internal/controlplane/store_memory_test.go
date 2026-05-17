@@ -64,6 +64,11 @@ func TestMemoryStore_ModelCapabilityLifecycle(t *testing.T) {
 	runStoreModelCapabilityLifecycle(t, NewMemoryStore())
 }
 
+func TestMemoryStore_InstalledModelLifecycle(t *testing.T) {
+	t.Parallel()
+	runStoreInstalledModelLifecycle(t, NewMemoryStore())
+}
+
 func TestMemoryStore_PruneAuditEvents(t *testing.T) {
 	t.Parallel()
 	store := NewMemoryStore()

@@ -134,6 +134,27 @@ const (
 	EventAgentChatRunCancelled  = "agent_chat.run.cancelled"
 )
 
+// Local models — Hecate-managed llama.cpp runtime. See
+// docs/local-models.md for the operator-facing surface and
+// docs/rfcs/local-models-llamacpp.md for the design contract. The
+// install events fire on the install span; the runtime / proxy
+// events fire on the lifecycle span. ProgressEvent is sampled —
+// install.progress is rate-limited by the same byte / time step
+// the SSE stream uses, so spans don't blow up with thousands of
+// per-chunk events on a large download.
+const (
+	EventLocalModelInstallStarted   = "local_model.install.started"
+	EventLocalModelInstallProgress  = "local_model.install.progress"
+	EventLocalModelInstallCompleted = "local_model.install.completed"
+	EventLocalModelInstallFailed    = "local_model.install.failed"
+	EventLocalModelInstallCancelled = "local_model.install.cancelled"
+	EventLocalModelRuntimeStarting  = "local_model.runtime.starting"
+	EventLocalModelRuntimeStarted   = "local_model.runtime.started"
+	EventLocalModelRuntimeStopped   = "local_model.runtime.stopped"
+	EventLocalModelRuntimeCrashed   = "local_model.runtime.crashed"
+	EventLocalModelProxyRouted      = "local_model.proxy.routed"
+)
+
 var allEventNames = []string{
 	EventRequestReceived,
 	EventRequestInvalid,
@@ -196,6 +217,16 @@ var allEventNames = []string{
 	EventAgentChatRunFinished,
 	EventAgentChatRunFailed,
 	EventAgentChatRunCancelled,
+	EventLocalModelInstallStarted,
+	EventLocalModelInstallProgress,
+	EventLocalModelInstallCompleted,
+	EventLocalModelInstallFailed,
+	EventLocalModelInstallCancelled,
+	EventLocalModelRuntimeStarting,
+	EventLocalModelRuntimeStarted,
+	EventLocalModelRuntimeStopped,
+	EventLocalModelRuntimeCrashed,
+	EventLocalModelProxyRouted,
 }
 
 func AllEventNames() []string {
@@ -229,6 +260,10 @@ const (
 	SpanRetentionRun = "retention.run"
 
 	SpanAgentChatRun = "agent_chat.run"
+
+	SpanLocalModelInstall = "local_model.install"
+	SpanLocalModelRuntime = "local_model.runtime"
+	SpanLocalModelProxy   = "local_model.proxy"
 )
 
 // ---------------------------------------------------------------------------

@@ -101,3 +101,101 @@ func runStoreModelCapabilityLifecycle(t *testing.T, store Store) {
 		t.Fatalf("probe state after override delete = %+v, want preserved probe", state.ModelCapabilityProbeState)
 	}
 }
+
+// runStoreInstalledModelLifecycle exercises the create / update /
+// delete path on the InstalledModel surface. Run by both the memory
+// and sqlite store test suites so the audit semantics and field
+// preservation stay in sync.
+func runStoreInstalledModelLifecycle(t *testing.T, store Store) {
+	t.Helper()
+	ctx := WithActor(context.Background(), "operator:installer-test")
+
+	first, err := store.UpsertInstalledModel(ctx, InstalledModel{
+		ID:                 "qwen2.5-0_5b-q4_k_m",
+		DisplayName:        "Qwen 2.5 0.5B Instruct (Q4_K_M)",
+		FilePath:           "models/qwen2.5-0_5b-q4_k_m.gguf",
+		SourceURL:          "https://huggingface.co/example/repo/resolve/main/qwen.gguf",
+		SHA256:             "deadbeef",
+		SizeBytes:          398_000_000,
+		RecommendedContext: 8192,
+		Capabilities: InstalledModelCapabilities{
+			Streaming:        true,
+			ToolCalling:      "none",
+			MaxContextTokens: 32768,
+		},
+	})
+	if err != nil {
+		t.Fatalf("Upsert (create): %v", err)
+	}
+	if first.InstalledAt.IsZero() {
+		t.Fatal("InstalledAt should default to time.Now on first write")
+	}
+
+	// Refresh the same row — InstalledAt must be preserved, audit
+	// event must record an update rather than a second create.
+	original := first.InstalledAt
+	updated, err := store.UpsertInstalledModel(ctx, InstalledModel{
+		ID:        first.ID,
+		FilePath:  first.FilePath,
+		SourceURL: first.SourceURL,
+		SHA256:    "newhash",
+	})
+	if err != nil {
+		t.Fatalf("Upsert (update): %v", err)
+	}
+	if !updated.InstalledAt.Equal(original) {
+		t.Fatalf("InstalledAt mutated on update: %v → %v", original, updated.InstalledAt)
+	}
+	if updated.SHA256 != "newhash" {
+		t.Fatalf("update did not persist SHA256: got %q", updated.SHA256)
+	}
+
+	state, err := store.Snapshot(context.Background())
+	if err != nil {
+		t.Fatalf("Snapshot: %v", err)
+	}
+	if len(state.InstalledModels) != 1 {
+		t.Fatalf("InstalledModels count = %d, want 1", len(state.InstalledModels))
+	}
+
+	// Two audit events expected: created + updated.
+	createdCount, updatedCount := 0, 0
+	for _, event := range state.Events {
+		if event.TargetType != "installed_model" || event.TargetID != first.ID {
+			continue
+		}
+		switch event.Action {
+		case "installed_model.created":
+			createdCount++
+		case "installed_model.updated":
+			updatedCount++
+		}
+	}
+	if createdCount != 1 {
+		t.Fatalf("created audit events = %d, want 1", createdCount)
+	}
+	if updatedCount != 1 {
+		t.Fatalf("updated audit events = %d, want 1", updatedCount)
+	}
+
+	if err := store.DeleteInstalledModel(ctx, first.ID); err != nil {
+		t.Fatalf("Delete: %v", err)
+	}
+	state, _ = store.Snapshot(context.Background())
+	if len(state.InstalledModels) != 0 {
+		t.Fatalf("InstalledModels after delete = %+v, want empty", state.InstalledModels)
+	}
+
+	// Delete is idempotent — second call on the same id is a no-op.
+	if err := store.DeleteInstalledModel(ctx, first.ID); err != nil {
+		t.Fatalf("second Delete should no-op, got: %v", err)
+	}
+
+	// Empty id is rejected so the handler can rely on it.
+	if _, err := store.UpsertInstalledModel(ctx, InstalledModel{FilePath: "models/x.gguf"}); err == nil {
+		t.Fatal("Upsert with empty id should error")
+	}
+	if err := store.DeleteInstalledModel(ctx, ""); err == nil {
+		t.Fatal("Delete with empty id should error")
+	}
+}

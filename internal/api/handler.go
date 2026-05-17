@@ -16,6 +16,7 @@ import (
 	"github.com/hecate/agent-runtime/internal/config"
 	"github.com/hecate/agent-runtime/internal/controlplane"
 	"github.com/hecate/agent-runtime/internal/gateway"
+	"github.com/hecate/agent-runtime/internal/llamacpp"
 	mcpclient "github.com/hecate/agent-runtime/internal/mcp/client"
 	"github.com/hecate/agent-runtime/internal/modelcaps"
 	"github.com/hecate/agent-runtime/internal/orchestrator"
@@ -73,6 +74,14 @@ type Handler struct {
 	// spawning real ACP binaries.
 	agentAdapterProbe    AgentAdapterProbe
 	agentAdapterEnvProbe AgentAdapterEnvProbe
+	// localModels is the Hecate-managed local-model runtime
+	// service (llama.cpp). Nil when the feature is dormant —
+	// every handler under /hecate/v1/local-models/* checks this
+	// and short-circuits to 503 with local_models_unavailable. The
+	// internal reverse-proxy at /hecate/internal/llamacpp/v1/* is
+	// only mounted when this is non-nil. See
+	// docs/rfcs/local-models-llamacpp.md.
+	localModels *llamacpp.Service
 }
 
 // approvalConfig bundles everything the coordinator needs apart from
@@ -395,6 +404,23 @@ func (h *Handler) SetSecretCipher(cipher secrets.Cipher) {
 	}
 }
 
+// SetLocalModelsService wires the Hecate-managed local-models
+// service (llama.cpp). nil disables every /hecate/v1/local-models/*
+// handler with a 503 and skips mounting the internal proxy — the
+// feature is dormant in builds without a bundled llama-server. main.go
+// is expected to call this once during bootstrap when
+// HECATE_LLAMA_SERVER_BIN resolves to an executable file. See
+// docs/rfcs/local-models-llamacpp.md for the boot story.
+func (h *Handler) SetLocalModelsService(svc *llamacpp.Service) {
+	h.localModels = svc
+}
+
+// LocalModelsService returns the wired service (or nil). server.go
+// reads this when deciding whether to mount the internal proxy route.
+func (h *Handler) LocalModelsService() *llamacpp.Service {
+	return h.localModels
+}
+
 // SetMCPClientCache wires a SharedClientCache into the runner so MCP
 // subprocesses are reused across runs instead of spawned-and-torn-down
 // per run. nil is a valid argument — it disables caching, which is
@@ -515,6 +541,43 @@ func (h *Handler) HandleModels(w http.ResponseWriter, r *http.Request) {
 				"readiness":        renderModelReadiness(model.Readiness),
 			},
 		})
+	}
+
+	// Append Hecate-managed local models (llama.cpp). The
+	// auto-registered "llamacpp" provider's catalog row has an
+	// empty Models slice — installed models come from the
+	// llama-server registry instead, so there's no overlap with
+	// the loop above. discovery_source distinguishes them in the
+	// composer's model picker; readiness is "ready" once the file
+	// is on disk because the runtime can on-demand-load any
+	// installed model.
+	if h.localModels != nil {
+		installed, lmErr := h.localModels.ListInstalled(ctx)
+		if lmErr != nil {
+			telemetry.Error(h.logger, ctx, "gateway.models.local_list.failed",
+				slog.String("event.name", "gateway.models.local_list.failed"),
+				slog.Any("error", lmErr),
+			)
+		} else {
+			activeID := h.localModels.Runtime().Status().ActiveModelID
+			for _, m := range installed {
+				data = append(data, OpenAIModelData{
+					ID:      m.ID,
+					Object:  "model",
+					OwnedBy: "llamacpp",
+					Metadata: map[string]any{
+						"provider":         "llamacpp",
+						"provider_kind":    "local",
+						"default":          false,
+						"discovery_source": "local_model_registry",
+						"capabilities":     m.Capabilities,
+						"display_name":     m.DisplayName,
+						"size_bytes":       m.SizeBytes,
+						"loaded":           m.ID == activeID,
+					},
+				})
+			}
+		}
 	}
 
 	WriteJSON(w, http.StatusOK, OpenAIModelsResponse{

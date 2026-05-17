@@ -322,6 +322,12 @@ func spanSpecForEvent(name string) spanSpec {
 		return spanSpec{name: telemetry.SpanGatewayProvider, kind: "client"}
 	case name == telemetry.EventUsageNormalized || name == telemetry.EventUsageRecorded:
 		return spanSpec{name: telemetry.SpanGatewayUsage, kind: "internal"}
+	case hasPrefix(name, "local_model.install."):
+		return spanSpec{name: telemetry.SpanLocalModelInstall, kind: "internal"}
+	case hasPrefix(name, "local_model.runtime."):
+		return spanSpec{name: telemetry.SpanLocalModelRuntime, kind: "internal"}
+	case hasPrefix(name, "local_model.proxy."):
+		return spanSpec{name: telemetry.SpanLocalModelProxy, kind: "internal"}
 	default:
 		return spanSpec{name: telemetry.SpanGatewayRuntime, kind: "internal"}
 	}
@@ -368,6 +374,12 @@ func otelAttributesForEvent(name string, attrs map[string]any) map[string]any {
 		out[telemetry.AttrHecatePhase] = "retention"
 	case hasPrefix(name, "agent_chat."):
 		out[telemetry.AttrHecatePhase] = "agent_chat"
+	case hasPrefix(name, "local_model.install."):
+		out[telemetry.AttrHecatePhase] = "local_model_install"
+	case hasPrefix(name, "local_model.runtime."):
+		out[telemetry.AttrHecatePhase] = "local_model_runtime"
+	case hasPrefix(name, "local_model.proxy."):
+		out[telemetry.AttrHecatePhase] = "local_model_proxy"
 	}
 
 	return out

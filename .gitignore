@@ -33,6 +33,17 @@
 # elsewhere is not ignored.
 /hecate
 /hecate-acp
+# Local dev build of the bundled llama.cpp llama-server. Staged at the
+# repo root by scripts/fetch-llama-server.ts when the operator runs
+# the script with no --target argument and resolve_llama_server_binary
+# resolves it. The Tauri externalBin layout lives under
+# tauri/src-tauri/binaries/ — see below.
+/llama-server
+
+# Bundled llama-server binaries staged by scripts/fetch-llama-server.ts.
+# Tauri's externalBin bundler expects them at this path; the script is
+# the only sanctioned producer so we don't track the binary itself.
+tauri/src-tauri/binaries/llama-server-*
 
 # Root release output
 #

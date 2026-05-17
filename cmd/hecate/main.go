@@ -2,6 +2,7 @@ package main
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"log/slog"
 	"net"
@@ -9,6 +10,7 @@ import (
 	"os"
 	"os/signal"
 	"path/filepath"
+	"strconv"
 	"strings"
 	"syscall"
 	"time"
@@ -26,6 +28,7 @@ import (
 	"github.com/hecate/agent-runtime/internal/controlplane"
 	"github.com/hecate/agent-runtime/internal/gateway"
 	"github.com/hecate/agent-runtime/internal/governor"
+	"github.com/hecate/agent-runtime/internal/llamacpp"
 	"github.com/hecate/agent-runtime/internal/orchestrator"
 	"github.com/hecate/agent-runtime/internal/profiler"
 	"github.com/hecate/agent-runtime/internal/providers"
@@ -288,6 +291,50 @@ func main() {
 		Metrics:      handler.OrchestratorMetrics(),
 	}))
 
+	// Local-models subsystem (Hecate-managed llama.cpp). v1 was
+	// dormant unless HECATE_LLAMA_SERVER_BIN was already set; v2
+	// adds an opt-in lazy-download path that resolves the binary
+	// from <data_dir>/llamacpp/bin/ or downloads + verifies the
+	// pinned upstream release on first call. Tauri sidecar startup
+	// keeps setting HECATE_LLAMA_SERVER_BIN directly; headless
+	// gateways flip HECATE_LOCAL_MODELS_LAZY_DOWNLOAD=on to opt in.
+	if shouldInitLocalModels() {
+		resolver, _ := llamacpp.NewBinaryResolver(llamacpp.BinaryResolverOptions{
+			DataDir:       cfg.Server.DataDir,
+			ExplicitPath:  os.Getenv("HECATE_LLAMA_SERVER_BIN"),
+			AllowDownload: os.Getenv("HECATE_LOCAL_MODELS_LAZY_DOWNLOAD") == "on",
+		})
+		binaryPath := ""
+		if resolver != nil {
+			ctx, cancel := context.WithTimeout(context.Background(), 60*time.Second)
+			resolved, resolveErr := resolver.Resolve(ctx)
+			cancel()
+			if resolveErr == nil {
+				binaryPath = resolved
+			} else if !errors.Is(resolveErr, llamacpp.ErrBinaryUnavailable) {
+				logger.Warn("local-models binary resolution failed; feature dormant",
+					slog.Any("error", resolveErr))
+			}
+		}
+		localModelsSvc, lmErr := llamacpp.NewService(llamacpp.ServiceOptions{
+			BinaryPath: binaryPath,
+			DataDir:    cfg.Server.DataDir,
+			Store:      controlPlaneStore,
+			RuntimeOptions: llamacpp.RuntimeOptions{
+				MaxResident: parseMaxResident(os.Getenv("HECATE_LOCAL_MODELS_MAX_RESIDENT")),
+			},
+		})
+		if lmErr != nil {
+			logger.Warn("local models service init failed; feature disabled",
+				slog.Any("error", lmErr))
+		} else {
+			handler.SetLocalModelsService(localModelsSvc)
+			// EnsureAutoRegisteredProvider runs below, after the
+			// listener binds — we need the bound address as a
+			// fallback when cfg.Server.PublicURL is empty.
+		}
+	}
+
 	server := &http.Server{
 		Addr:              cfg.Server.Address,
 		Handler:           api.NewServer(logger, handler),
@@ -297,6 +344,29 @@ func main() {
 	if err != nil {
 		logger.Error("gateway listen failed", slog.String("addr", cfg.Server.Address), slog.Any("error", err))
 		os.Exit(1)
+	}
+
+	// Auto-register the llamacpp provider AFTER the listener binds so
+	// we can fall back to the bound loopback address when
+	// HECATE_PUBLIC_URL / cfg.Server.PublicURL is empty. Without that
+	// fallback, the stored provider BaseURL would be a relative path
+	// (just `/hecate/internal/llamacpp/v1`) and any downstream that
+	// resolves the URL fails. Tauri sets PublicURL explicitly; headless
+	// / dev gateways frequently leave it empty.
+	if svc := handler.LocalModelsService(); svc != nil {
+		gatewayURL := strings.TrimSpace(cfg.Server.PublicURL)
+		if gatewayURL == "" {
+			gatewayURL = "http://" + listener.Addr().String()
+		}
+		if err := svc.EnsureAutoRegisteredProvider(context.Background(), gatewayURL); err != nil {
+			if errors.Is(err, llamacpp.ErrAutoProviderOperatorOwned) {
+				logger.Info("llamacpp provider already exists; operator override retained",
+					slog.String("preset_id", "llamacpp"))
+			} else {
+				logger.Warn("local models auto-provider registration failed",
+					slog.Any("error", err))
+			}
+		}
 	}
 	gatewayStatePath, err := writeGatewayRuntimeState(cfg.Server.DataDir, listener.Addr().String(), cfg.Server.PublicURL)
 	if err != nil {
@@ -731,6 +801,47 @@ func buildApprovalStore(cfg config.Config, logger *slog.Logger, sqliteClient *st
 	default:
 		return agentadapters.NewMemoryApprovalStore()
 	}
+}
+
+// parseMaxResident reads the LRU keep-warm cap from env. Defaults to
+// 0 (which the Runtime collapses to 1 — v1 behavior). Negative or
+// non-numeric values fall back to default with no warning; the
+// gateway boot is the wrong place to be noisy about minor env typos
+// when the safe default is the v1 behavior.
+func parseMaxResident(raw string) int {
+	if raw == "" {
+		return 0
+	}
+	n, err := strconv.Atoi(strings.TrimSpace(raw))
+	if err != nil || n < 1 {
+		return 0
+	}
+	return n
+}
+
+// shouldInitLocalModels gates the local-models subsystem on operator
+// opt-in. Any of these flags triggers init:
+//
+//   - HECATE_LLAMA_SERVER_BIN is set (Tauri sidecar path, or an
+//     operator pointing at their own binary).
+//   - HECATE_LOCAL_MODELS=on (force-on; pairs with cache hit or
+//     lazy download).
+//   - HECATE_LOCAL_MODELS_LAZY_DOWNLOAD=on (headless lazy-download
+//     opt-in; downloads + verifies upstream on first request).
+//
+// When none are set the gateway boots without mounting the
+// local-models endpoints — same dormant shape as v1.
+func shouldInitLocalModels() bool {
+	if strings.TrimSpace(os.Getenv("HECATE_LLAMA_SERVER_BIN")) != "" {
+		return true
+	}
+	if os.Getenv("HECATE_LOCAL_MODELS") == "on" {
+		return true
+	}
+	if os.Getenv("HECATE_LOCAL_MODELS_LAZY_DOWNLOAD") == "on" {
+		return true
+	}
+	return false
 }
 
 func retentionHistoryKey(key string) string {

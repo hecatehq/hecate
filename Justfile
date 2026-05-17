@@ -329,7 +329,11 @@ tauri-build-sidecars: ui-build _go-cache
 # Build hecate + hecate-acp and stage them as Tauri sidecars. Pass an explicit
 # target triple in CI matrix builds; local builds auto-detect the host triple.
 # Stage gateway and ACP sidecars for Tauri.
-tauri-sidecar target="": tauri-build-sidecars
+#
+# Note: llama-server is staged separately via `just tauri-llama-sidecar` —
+# the macOS arm64 path runs the fetch script, every other triple gets
+# an executable placeholder since the v2 bundle only ships macOS arm64.
+tauri-sidecar target="": tauri-build-sidecars (tauri-llama-sidecar target)
 	rust_target="{{target}}"; \
 	if [ -z "$rust_target" ]; then \
 	  rust_target=$(rustc -vV 2>/dev/null | awk '/^host:/{print $2}'); \
@@ -344,6 +348,32 @@ tauri-sidecar target="": tauri-build-sidecars
 	  echo "staging sidecar: $dest"; \
 	  cp "$src" "$dest"; \
 	done
+
+# Stage the llama-server sidecar. macOS arm64 fetches the real binary
+# via the bun script (requires bun in PATH + a pinned sha or the
+# HECATE_ALLOW_UNVERIFIED_LLAMA_SERVER=1 escape hatch). Every other
+# triple gets an executable placeholder — the v2 desktop bundle only
+# ships macOS arm64, and Tauri's externalBin still wants the file to
+# exist for `cargo test` / `cargo build` on the host triple.
+tauri-llama-sidecar target="":
+	rust_target="{{target}}"; \
+	if [ -z "$rust_target" ]; then \
+	  rust_target=$(rustc -vV 2>/dev/null | awk '/^host:/{print $2}'); \
+	fi; \
+	mkdir -p tauri/src-tauri/binaries; \
+	dest="tauri/src-tauri/binaries/llama-server-$rust_target"; \
+	if [ -f "$dest" ]; then \
+	  echo "llama-server sidecar already staged: $dest"; \
+	  exit 0; \
+	fi; \
+	if [ "$rust_target" = "aarch64-apple-darwin" ] && command -v bun >/dev/null 2>&1; then \
+	  echo "fetching llama-server sidecar: $dest"; \
+	  bun scripts/fetch-llama-server.ts --target "$rust_target"; \
+	else \
+	  echo "staging llama-server placeholder: $dest"; \
+	  printf '#!/bin/sh\n# hecate-llama-server-placeholder\n# This file exists to satisfy Tauri externalBin resolution\n# at build time. It is NOT a real llama-server. The Tauri\n# sidecar resolver and the gateway both detect this sentinel\n# and refuse to set HECATE_LLAMA_SERVER_BIN to point at it.\nexit 0\n' > "$dest"; \
+	  chmod +x "$dest"; \
+	fi
 
 # Hot-reload development mode. Launches the Tauri window backed by a fresh
 # hecate sidecar build. The hecate binary is rebuilt first so the sidecar is up
