@@ -6,7 +6,6 @@ import {
   getSettingsConfig,
   getHealth,
   getModels,
-  getProviderPresets,
   getProviders,
   getRuntimeStats,
   getSession,
@@ -15,7 +14,6 @@ import type { HealthResponse, RuntimeStatsResponse, SessionResponse } from "../t
 import type { ModelResponse } from "../types/model";
 import type {
   ConfiguredStateResponse,
-  ProviderPresetRecord,
   ProviderStatusResponse,
 } from "../types/provider";
 import type { AgentAdapterRecord } from "../types/agent-adapter";
@@ -42,9 +40,10 @@ export type DashboardPreviousState = {
 // load in the background and lands when ready. The status-bar model
 // count starts at 0 and updates once wave 2 lands; the brief flash
 // is an accepted trade-off for clearing the gate sooner. Retention
-// runs and Usage events/summary are view-deferred: SettingsView and
-// UsageView mount and call dedicated actions when they need them;
-// they're not in this snapshot at all.
+// runs, Usage events/summary, and provider presets are view-deferred:
+// SettingsView / UsageView / AddProviderModal / TasksView mount and
+// call dedicated actions when they need them; none are in this
+// snapshot.
 export type DashboardEssentials = {
   health: HealthResponse;
   sessionInfo: SessionResponse["data"] | null;
@@ -56,7 +55,6 @@ export type DashboardSnapshot = {
   sessionInfo: SessionResponse["data"] | null;
   models: ModelResponse["data"];
   providers: ProviderStatusResponse["data"];
-  providerPresets: ProviderPresetRecord[];
   agentAdapters: AgentAdapterRecord[];
   chatSessions: ChatSessionsResponse["data"];
   activeChatSessionID: string;
@@ -72,7 +70,6 @@ type DashboardResults = {
   session: PromiseSettledResult<SessionResponse>;
   models: PromiseSettledResult<ModelResponse>;
   providers: PromiseSettledResult<ProviderStatusResponse>;
-  providerPresets: PromiseSettledResult<{ object: string; data: ProviderPresetRecord[] }>;
   agentAdapters: PromiseSettledResult<{ object: string; data: AgentAdapterRecord[] }>;
   chatSessions: PromiseSettledResult<ChatSessionsResponse>;
   settingsConfig: PromiseSettledResult<ConfiguredStateResponse>;
@@ -101,7 +98,6 @@ export async function resolveDashboardSnapshot(args: {
   const sessionInfo = results.session.status === "fulfilled" ? results.session.value.data : null;
   const models = resolveModelsResult(results.models);
   const providers = resolveDashboardResult(results.providers, args.previous.providers);
-  const providerPresets = results.providerPresets.status === "fulfilled" ? results.providerPresets.value.data : [];
   const agentAdapters = resolveDashboardResult(results.agentAdapters, args.previous.agentAdapters);
   const settingsConfig = resolveDashboardResult(results.settingsConfig, args.previous.settingsConfig);
   const agentAdapterApprovalMode = results.runtimeStats.status === "fulfilled"
@@ -125,7 +121,6 @@ export async function resolveDashboardSnapshot(args: {
     sessionInfo,
     models,
     providers,
-    providerPresets,
     agentAdapters,
     chatSessions: chatState.sessions,
     activeChatSessionID: chatState.activeSessionID,
@@ -179,7 +174,6 @@ async function loadDashboardResults(opts: {
   const initialReject = <T,>(): PromiseSettledResult<T> => ({ status: "rejected", reason: new Error("uninitialized") });
   let models: PromiseSettledResult<ModelResponse> = initialReject();
   let providers: PromiseSettledResult<ProviderStatusResponse> = initialReject();
-  let providerPresets: PromiseSettledResult<{ object: string; data: ProviderPresetRecord[] }> = initialReject();
   let agentAdapters: PromiseSettledResult<{ object: string; data: AgentAdapterRecord[] }> = initialReject();
   let chatSessions: PromiseSettledResult<ChatSessionsResponse> = initialReject();
   let runtimeStats: PromiseSettledResult<RuntimeStatsResponse> = initialReject();
@@ -192,7 +186,6 @@ async function loadDashboardResults(opts: {
   const configured = resolvedSettingsConfig?.providers ?? [];
   const secondary: Promise<unknown>[] = [
     getModels().then(r => { models = { status: "fulfilled", value: r }; }, e => { models = { status: "rejected", reason: e }; }),
-    getProviderPresets().then(r => { providerPresets = { status: "fulfilled", value: r }; }, e => { providerPresets = { status: "rejected", reason: e }; }),
     getAgentAdapters().then(r => { agentAdapters = { status: "fulfilled", value: r }; }, e => { agentAdapters = { status: "rejected", reason: e }; }),
     getChatSessions().then(r => { chatSessions = { status: "fulfilled", value: r }; }, e => { chatSessions = { status: "rejected", reason: e }; }),
     getRuntimeStats().then(r => { runtimeStats = { status: "fulfilled", value: r }; }, e => { runtimeStats = { status: "rejected", reason: e }; }),
@@ -216,7 +209,6 @@ async function loadDashboardResults(opts: {
     session,
     models,
     providers,
-    providerPresets,
     agentAdapters,
     chatSessions,
     settingsConfig,

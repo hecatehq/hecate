@@ -1,14 +1,15 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import {
   ApiError,
-  applyTaskRunPatch, cancelTaskRun, createTask, deleteTask, getModels, getProviderPresets, getProviders,
+  applyTaskRunPatch, cancelTaskRun, createTask, deleteTask, getModels, getProviders,
   getTaskApprovals, getTaskRunArtifacts, getTaskRunEvents,
   getTaskRuns, getTaskRunSteps, getTasks, resolveTaskApproval, revertTaskRunPatch,
   retryTaskRun, retryTaskRunFromTurn, resumeTaskRun, resumeTaskRunRaisingCeiling,
   startTask, streamTaskRun,
 } from "../../lib/api";
+import { useEnsureProviderPresetsLoaded, useProvidersAndModels } from "../../app/state/providersAndModels";
 import type { ModelRecord } from "../../types/model";
-import type { ProviderPresetRecord, ProviderRecord } from "../../types/provider";
+import type { ProviderRecord } from "../../types/provider";
 import type {
   TaskActivityRecord,
   TaskApprovalRecord,
@@ -79,7 +80,8 @@ export function TasksView({
   // changes (enabling/disabling a provider) take effect after the
   // operator opens a new tab or refreshes.
   const [availableProviders, setAvailableProviders] = useState<ProviderRecord[]>([]);
-  const [providerPresets, setProviderPresets] = useState<ProviderPresetRecord[]>([]);
+  useEnsureProviderPresetsLoaded();
+  const providerPresets = useProvidersAndModels().state.providerPresets;
 
   const streamCursorRef = useRef(0);
 
@@ -152,7 +154,6 @@ export function TasksView({
     // names, and a missing model list shows "no models match".
     getModels().then(res => setAvailableModels(res.data ?? [])).catch(() => {});
     getProviders().then(res => setAvailableProviders(res.data ?? [])).catch(() => {});
-    getProviderPresets().then(res => setProviderPresets(res.data ?? [])).catch(() => {});
   }, []);
 
   useEffect(() => {

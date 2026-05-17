@@ -48,7 +48,6 @@ export function useDashboardActions(params: UseDashboardActionsParams) {
   const { providers, agentAdapters } = providersAndModels.state;
   const {
     setProviders,
-    setProviderPresets,
     setModels,
     setAgentAdapters,
     setAgentAdapterApprovalMode,
@@ -93,7 +92,6 @@ export function useDashboardActions(params: UseDashboardActionsParams) {
       setSessionInfo(snapshot.sessionInfo);
       setModels(snapshot.models);
       setProviders(snapshot.providers);
-      setProviderPresets(snapshot.providerPresets);
       setAgentAdapters(snapshot.agentAdapters);
       setChatSessions(snapshot.chatSessions);
       pruneQueuedChatMessagesForSessions(snapshot.chatSessions.map((session: ChatSessionRecord) => session.id));
