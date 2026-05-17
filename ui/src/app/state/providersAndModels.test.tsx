@@ -105,6 +105,30 @@ describe("useEnsureProviderPresetsLoaded", () => {
     expect(result.current.state.providerPresetsLoaded).toBe(false);
   });
 
+  it("skips the fetch when called with when=false", async () => {
+    getProviderPresetsMock.mockResolvedValue({ object: "list", data: [] });
+
+    // The when gate exists for always-mounted consumers like
+    // AddProviderModal (mounted with open=false inside ChatView).
+    // Without the gate, the optimization would no-op on Chats boots.
+    const { rerender, result } = renderHook(
+      ({ when }: { when: boolean }) => {
+        useEnsureProviderPresetsLoaded(when);
+        return useProvidersAndModels();
+      },
+      { wrapper: Wrapper, initialProps: { when: false } },
+    );
+
+    // Give the effect a tick to (not) fire.
+    await new Promise(r => setTimeout(r, 10));
+    expect(getProviderPresetsMock).toHaveBeenCalledTimes(0);
+    expect(result.current.state.providerPresetsLoaded).toBe(false);
+
+    // Flip the gate to true — now the fetch fires.
+    rerender({ when: true });
+    expect(getProviderPresetsMock).toHaveBeenCalledTimes(1);
+  });
+
   it("retries on next mount after a failure", async () => {
     getProviderPresetsMock.mockRejectedValueOnce(new Error("transient"));
 

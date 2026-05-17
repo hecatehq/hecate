@@ -85,33 +85,25 @@ describe("useEnsureUsageLoaded", () => {
     expect(getUsageEventsMock).toHaveBeenCalledTimes(1);
   });
 
-  it("dedupes parallel callers via inflight ref", async () => {
+  it("inflight ref blocks re-firing while the first fetch is pending", async () => {
     let resolveSummary: (value: unknown) => void = () => undefined;
     let resolveEvents: (value: unknown) => void = () => undefined;
     getUsageSummaryMock.mockReturnValue(new Promise(r => { resolveSummary = r; }));
     getUsageEventsMock.mockReturnValue(new Promise(r => { resolveEvents = r; }));
 
-    // Two consumers in the same provider — same UsageContext instance,
-    // same inflight ref since the ref is per-hook-call but the loaded
-    // flag is shared. The second consumer reads loaded=false on first
-    // render (before the first promise resolves) but the inflight
-    // ref on its own instance is also false, so technically it could
-    // fire a second fetch. Dedup-across-consumers is bounded by the
-    // shared loaded flag once one fetch resolves.
-    function Multi({ children }: { children: ReactNode }) {
-      return <UsageProvider>{children}</UsageProvider>;
-    }
-    renderHook(
-      () => {
-        useEnsureUsageLoaded();
-        return useUsage();
-      },
-      { wrapper: Multi },
-    );
-
-    // One fetch pair is in flight; resolve them.
+    // Single hook instance; multiple re-renders while the first
+    // fetch is still pending. The inflight ref must prevent a second
+    // pair of fetches from firing before the first resolves.
+    const { rerender } = renderHook(() => useEnsureUsageLoaded(), { wrapper: Wrapper });
     expect(getUsageSummaryMock).toHaveBeenCalledTimes(1);
     expect(getUsageEventsMock).toHaveBeenCalledTimes(1);
+
+    rerender();
+    rerender();
+    expect(getUsageSummaryMock).toHaveBeenCalledTimes(1);
+    expect(getUsageEventsMock).toHaveBeenCalledTimes(1);
+
+    // Resolve so the test cleans up cleanly.
     resolveSummary({ data: { total_micros_usd: 0 } });
     resolveEvents({ data: [] });
   });
