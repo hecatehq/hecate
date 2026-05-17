@@ -8,7 +8,8 @@ import { describeGatewayError, formatErrorCode } from "../../lib/error-diagnosti
 import { usePersistedState } from "../../lib/persistedState";
 import type { SelectedModelIssue } from "../../lib/provider-issues";
 import { providerDisplayName } from "../../lib/provider-utils";
-import type { AgentAdapterRecord, ModelRecord } from "../../types/runtime";
+import type { AgentAdapterRecord } from "../../types/agent-adapter";
+import type { ModelRecord } from "../../types/model";
 import { Icon, Icons, InlineError } from "../shared/ui";
 
 import {

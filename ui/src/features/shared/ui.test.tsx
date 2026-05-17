@@ -21,7 +21,8 @@ import {
   SlideOver,
   Toggle,
 } from "./ui";
-import type { AgentAdapterRecord, ModelRecord } from "../../types/runtime";
+import type { AgentAdapterRecord } from "../../types/agent-adapter";
+import type { ModelRecord } from "../../types/model";
 
 describe("Toggle", () => {
   it("renders with role=switch and aria-checked", () => {

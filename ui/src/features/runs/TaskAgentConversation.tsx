@@ -1,7 +1,7 @@
 import { useState } from "react";
 
 import { formatMicrosUSD } from "../../lib/format";
-import type { TaskStepRecord } from "../../types/runtime";
+import type { TaskStepRecord } from "../../types/task";
 import { Modal } from "../shared/ui";
 
 // AgentConversationMessage mirrors pkg/types.Message (the shape the

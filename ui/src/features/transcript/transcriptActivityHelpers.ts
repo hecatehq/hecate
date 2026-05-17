@@ -1,4 +1,4 @@
-import type { ChatActivityRecord } from "../../types/runtime";
+import type { ChatActivityRecord } from "../../types/chat";
 
 const terminalRunSummaryTypes = new Set(["run_result", "completed", "failed", "cancelled"]);
 

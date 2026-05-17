@@ -7,13 +7,17 @@ import {
   retryTaskRun, retryTaskRunFromTurn, resumeTaskRun, resumeTaskRunRaisingCeiling,
   startTask, streamTaskRun,
 } from "../../lib/api";
+import type { ModelRecord } from "../../types/model";
+import type { ProviderPresetRecord, ProviderRecord } from "../../types/provider";
 import type {
-  ModelRecord,
-  ProviderPresetRecord,
-  ProviderRecord,
-  TaskApprovalRecord, TaskArtifactRecord, TaskRecord, TaskRunRecord, TaskStepRecord,
-  TaskRunEventRecord, TaskActivityRecord,
-} from "../../types/runtime";
+  TaskActivityRecord,
+  TaskApprovalRecord,
+  TaskArtifactRecord,
+  TaskRecord,
+  TaskRunEventRecord,
+  TaskRunRecord,
+  TaskStepRecord,
+} from "../../types/task";
 import { TaskList } from "./TaskList";
 import { TaskDetail } from "./TaskDetail";
 import { NewTaskSlideOver, type CreateTaskPayload } from "./NewTaskSlideOver";

@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 
-import type { ChatActivityRecord } from "../../types/runtime";
+import type { ChatActivityRecord } from "../../types/chat";
 
 import {
   activityDisplay,

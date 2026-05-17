@@ -37,7 +37,7 @@ import type {
   ChatApprovalRecord,
   ChatGrantRecord,
   PendingAgentApproval,
-} from "../../types/runtime";
+} from "../../types/chat";
 
 export type ApprovalsState = {
   pendingBySessionID: Map<string, PendingAgentApproval[]>;

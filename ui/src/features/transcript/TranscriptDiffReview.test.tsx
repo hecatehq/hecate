@@ -2,7 +2,7 @@ import { render, screen, waitFor } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { describe, expect, it, vi } from "vitest";
 
-import type { ChatChangedFileDiffRecord, ChatChangedFileRecord } from "../../types/runtime";
+import type { ChatChangedFileDiffRecord, ChatChangedFileRecord } from "../../types/chat";
 import { TranscriptDiffReview } from "./TranscriptDiffReview";
 
 function file(overrides: Partial<ChatChangedFileRecord> = {}): ChatChangedFileRecord {

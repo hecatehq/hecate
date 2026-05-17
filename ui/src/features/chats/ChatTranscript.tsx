@@ -2,7 +2,7 @@ import { useEffect, useRef, useState, type ReactNode } from "react";
 
 import { useRuntimeConsoleContext } from "../../app/RuntimeConsoleContext";
 import { formatDurationMs } from "../../lib/format";
-import type { ChatActivityRecord, ChatSegmentRecord, ChatTimingRecord, ChatUsageRecord } from "../../types/runtime";
+import type { ChatActivityRecord, ChatSegmentRecord, ChatTimingRecord, ChatUsageRecord } from "../../types/chat";
 import { CodeBlock, Icon, Icons } from "../shared/ui";
 import { TranscriptMessageRow } from "../transcript/TranscriptMessageRow";
 

@@ -26,7 +26,7 @@ import {
 import { defaultModelForProvider, defaultProviderForChat } from "../../runtimeConsoleChatHelpers";
 import { useChat } from "../chat";
 import { useProvidersAndModels } from "../providersAndModels";
-import type { ConfiguredStateResponse } from "../../../types/runtime";
+import type { ConfiguredStateResponse } from "../../../types/provider";
 import type { SettingsActions } from "./settings";
 
 type SetStateAction<T> = T | ((prev: T) => T);

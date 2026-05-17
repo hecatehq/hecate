@@ -1,13 +1,9 @@
 import { describe, expect, it } from "vitest";
 
-import type {
-  ChatApprovalRecord,
-  ChatSessionRecord,
-  ModelRecord,
-  ProviderPresetRecord,
-  ProviderRecord,
-  RuntimeHeaders,
-} from "../types/runtime";
+import type { RuntimeHeaders } from "../types/runtime";
+import type { ModelRecord } from "../types/model";
+import type { ProviderPresetRecord, ProviderRecord } from "../types/provider";
+import type { ChatApprovalRecord, ChatSessionRecord } from "../types/chat";
 import {
   approvalRecordToPending,
   buildAssistantToolCallMessage,

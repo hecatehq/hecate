@@ -1,7 +1,7 @@
 import { describe, expect, it } from "vitest";
 
 import { buildSpanWaterfall, buildTraceTimeline, findModelInTrace, findProviderInTrace, parseISOWithSubMs } from "./runtime-trace";
-import type { TraceSpanRecord } from "../types/runtime";
+import type { TraceSpanRecord } from "../types/trace";
 
 // Helpers for the synthetic-trace fixtures. `at(ms)` returns an ISO
 // string `ms` after the trace anchor; `span(...)` builds a minimal

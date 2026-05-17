@@ -1,7 +1,7 @@
 import { useMemo, useState, type ReactNode } from "react";
 import { useRuntimeConsoleContext } from "../../app/RuntimeConsoleContext";
 import { formatInteger } from "../../lib/format";
-import type { ModelRecord } from "../../types/runtime";
+import type { ModelRecord } from "../../types/model";
 
 function SectionHeader({
   title,

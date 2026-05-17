@@ -1,16 +1,17 @@
+import type { HealthResponse, MCPCacheStatsResponse, RuntimeHeaders, RuntimeStatsResponse, SessionResponse } from "../types/runtime";
+import type { ModelCapabilityResponse, ModelResponse } from "../types/model";
 import type {
-  UsageSummaryResponse,
-  ChatResponse,
   ConfiguredStateResponse,
-  HealthResponse,
-  MCPCacheStatsResponse,
-  ModelResponse,
   LocalProviderDiscoveryResponse,
-  ModelCapabilityResponse,
   ProviderPresetResponse,
-  AgentAdapterProbeResponse,
+  ProviderStatusResponse,
+} from "../types/provider";
+import type {
   AgentAdapterCredentialResponse,
+  AgentAdapterProbeResponse,
   AgentAdapterResponse,
+} from "../types/agent-adapter";
+import type {
   ChatApprovalRequestedEvent,
   ChatApprovalResolvedEvent,
   ChatApprovalResponse,
@@ -18,31 +19,28 @@ import type {
   ChatChangedFileDiffResponse,
   ChatChangedFilesResponse,
   ChatGrantsResponse,
+  ChatResponse,
   ChatRevertResponse,
   ChatSessionResponse,
   ChatSessionsResponse,
   ChatStreamEvent,
   WorkspaceDialogResponse,
-  ProviderStatusResponse,
-  RuntimeStatsResponse,
-  UsageEventsResponse,
-  RuntimeHeaders,
-  SessionResponse,
+} from "../types/chat";
+import type {
   TaskApprovalsResponse,
   TaskArtifactsResponse,
-  TaskResponse,
-  TaskRunResponse,
-  TaskRunEventsResponse,
-  TaskRunStreamEventResponse,
   TaskPatchResponse,
+  TaskResponse,
+  TaskRunEventsResponse,
+  TaskRunResponse,
+  TaskRunStreamEventResponse,
   TaskRunsResponse,
   TaskStepsResponse,
   TasksResponse,
-  TraceResponse,
-  TraceListResponse,
-  RetentionRunResponse,
-  RetentionRunsResponse,
-} from "../types/runtime";
+} from "../types/task";
+import type { TraceListResponse, TraceResponse } from "../types/trace";
+import type { UsageEventsResponse, UsageSummaryResponse } from "../types/usage";
+import type { RetentionRunResponse, RetentionRunsResponse } from "../types/retention";
 
 type RequestOptions = {
   method?: "GET" | "POST" | "PATCH" | "PUT" | "DELETE";

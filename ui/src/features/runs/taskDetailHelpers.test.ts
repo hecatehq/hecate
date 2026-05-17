@@ -4,7 +4,7 @@ import type {
   TaskActivityRecord,
   TaskArtifactRecord,
   TaskRecord,
-} from "../../types/runtime";
+} from "../../types/task";
 
 import {
   approvalCommandPreview,

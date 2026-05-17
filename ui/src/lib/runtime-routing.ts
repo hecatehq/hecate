@@ -3,7 +3,9 @@
 // observability views to render route reasons, candidate health, and
 // provider status without sprinkling switch statements through React.
 
-import type { ProviderRecord, RuntimeHeaders, TraceResponse } from "../types/runtime";
+import type { RuntimeHeaders } from "../types/runtime";
+import type { ProviderRecord } from "../types/provider";
+import type { TraceResponse } from "../types/trace";
 
 export type TraceRouteRecord = TraceResponse["data"]["route"];
 type TraceRouteCandidate = NonNullable<NonNullable<TraceRouteRecord>["candidates"]>[number];

@@ -35,13 +35,9 @@ import {
   setAgentAdapterCredential as setAgentAdapterCredentialRequest,
   deleteAgentAdapterCredential as deleteAgentAdapterCredentialRequest,
 } from "../../lib/api";
-import type {
-  AgentAdapterHealthRecord,
-  AgentAdapterRecord,
-  ModelResponse,
-  ProviderPresetRecord,
-  ProviderStatusResponse,
-} from "../../types/runtime";
+import type { AgentAdapterHealthRecord, AgentAdapterRecord } from "../../types/agent-adapter";
+import type { ModelResponse } from "../../types/model";
+import type { ProviderPresetRecord, ProviderStatusResponse } from "../../types/provider";
 
 export type ProvidersAndModelsState = {
   providers: ProviderStatusResponse["data"];

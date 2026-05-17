@@ -2,7 +2,7 @@ import { render, screen } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { describe, expect, it, vi } from "vitest";
 
-import type { PendingAgentApproval } from "../../types/runtime";
+import type { PendingAgentApproval } from "../../types/chat";
 import { AgentApprovalAutoModeBanner, AgentApprovalsBanner } from "./AgentApprovalBanner";
 
 function approval(overrides: Partial<PendingAgentApproval> = {}): PendingAgentApproval {

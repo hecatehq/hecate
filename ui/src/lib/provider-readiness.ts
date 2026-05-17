@@ -1,4 +1,4 @@
-import type { ConfiguredProviderRecord, ProviderReadinessCheckRecord, ProviderRecord } from "../types/runtime";
+import type { ConfiguredProviderRecord, ProviderReadinessCheckRecord, ProviderRecord } from "../types/provider";
 import { describeRoutingBlockedReason } from "./runtime-routing";
 
 export type ProviderRepairHint = {

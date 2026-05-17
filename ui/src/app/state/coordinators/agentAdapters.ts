@@ -5,7 +5,7 @@
 // global notice banner.
 
 import { useProvidersAndModels } from "../providersAndModels";
-import type { AgentAdapterHealthRecord } from "../../../types/runtime";
+import type { AgentAdapterHealthRecord } from "../../../types/agent-adapter";
 import type { SettingsActions } from "./settings";
 
 export type UseAgentAdapterActionsParams = {

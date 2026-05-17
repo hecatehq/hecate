@@ -5,7 +5,8 @@
 // cross-domain helpers (CSV parsing, model filters, relative time)
 // remain here because they don't fit any of the more focused files.
 
-import type { ModelFilter, ModelRecord, ProviderFilter } from "../types/runtime";
+import type { ModelFilter, ModelRecord } from "../types/model";
+import type { ProviderFilter } from "../types/provider";
 
 export function parseCSV(value: string): string[] {
   return value

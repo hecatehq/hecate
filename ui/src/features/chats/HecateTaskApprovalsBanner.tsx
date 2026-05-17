@@ -1,5 +1,5 @@
 import { formatLocaleTime } from "../../lib/format";
-import type { ChatActivityRecord, ChatSegmentRecord, ChatSessionRecord } from "../../types/runtime";
+import type { ChatActivityRecord, ChatSegmentRecord, ChatSessionRecord } from "../../types/chat";
 import { ChatNoticeFrame, ChatNoticeHeader, ChatNoticeRow } from "./ChatNotice";
 
 export type HecateTaskApproval = {

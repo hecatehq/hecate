@@ -2,7 +2,7 @@ import { render, screen } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { describe, expect, it } from "vitest";
 
-import type { ChatActivityRecord } from "../../types/runtime";
+import type { ChatActivityRecord } from "../../types/chat";
 import { TranscriptActivityTimeline, DiffStatList, formatDiffStatSummary } from "./TranscriptActivityTimeline";
 
 describe("formatDiffStatSummary", () => {

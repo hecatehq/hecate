@@ -14,7 +14,7 @@
 // `chatSession{IsExternal,IsBusy}`). Those are
 // chats-domain specific and move with the chats slice.
 
-import type { ProviderFilter } from "../../types/runtime";
+import type { ProviderFilter } from "../../types/provider";
 
 export type ChatTarget = "model" | "agent" | "external_agent";
 export type HecateChatTarget = "model" | "agent";

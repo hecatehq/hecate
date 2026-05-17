@@ -13,7 +13,7 @@ import {
   healthStatusTone,
   routeOutcomeTone,
 } from "../../../lib/runtime-utils";
-import type { TraceListItem, TraceResponse } from "../../../types/runtime";
+import type { TraceListItem, TraceResponse } from "../../../types/trace";
 import { Badge } from "../../shared/ui";
 
 type RouteCandidatesProps = {

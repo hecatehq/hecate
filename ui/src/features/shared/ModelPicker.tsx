@@ -15,7 +15,8 @@
 import { useEffect, useRef, useState } from "react";
 import type { KeyboardEvent } from "react";
 
-import type { ModelRecord, ProviderPresetRecord } from "../../types/runtime";
+import type { ModelRecord } from "../../types/model";
+import type { ProviderPresetRecord } from "../../types/provider";
 import { Icon, Icons } from "./Icons";
 import { focusDropdownItem, focusInitialDropdownItem } from "./dropdownKeyboard";
 import { useFloatingDropdownStyle } from "./useFloatingDropdownStyle";

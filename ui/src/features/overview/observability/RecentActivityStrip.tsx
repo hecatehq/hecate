@@ -9,7 +9,7 @@
 // already-loaded recent-traces feed — no new endpoint, no new
 // polling.
 
-import type { TraceListItem } from "../../../types/runtime";
+import type { TraceListItem } from "../../../types/trace";
 
 type Props = {
   traces: TraceListItem[];

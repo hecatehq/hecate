@@ -1,17 +1,19 @@
 import type { ChatMessage } from "../lib/api";
+import type { RuntimeHeaders } from "../types/runtime";
+import type { ModelResponse } from "../types/model";
 import type {
-  ChatApprovalRecord,
-  ChatSessionRecord,
-  ChatSessionsResponse,
-  ChatResponse,
   ConfiguredStateResponse,
-  ModelResponse,
-  PendingAgentApproval,
   ProviderFilter,
   ProviderPresetRecord,
   ProviderStatusResponse,
-  RuntimeHeaders,
-} from "../types/runtime";
+} from "../types/provider";
+import type {
+  ChatApprovalRecord,
+  ChatResponse,
+  ChatSessionRecord,
+  ChatSessionsResponse,
+  PendingAgentApproval,
+} from "../types/chat";
 
 // humanizeChatError translates raw gateway/provider errors into something
 // an operator can act on. The backend's "api key is required for cloud

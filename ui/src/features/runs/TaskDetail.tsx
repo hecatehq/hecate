@@ -1,5 +1,5 @@
 import { useEffect, useMemo, useRef, useState, type ReactNode } from "react";
-import type { TaskActivityRecord, TaskApprovalRecord, TaskArtifactRecord, TaskRecord, TaskRunEventRecord, TaskRunRecord, TaskStepRecord } from "../../types/runtime";
+import type { TaskActivityRecord, TaskApprovalRecord, TaskArtifactRecord, TaskRecord, TaskRunEventRecord, TaskRunRecord, TaskStepRecord } from "../../types/task";
 import { formatDurationRange, formatLocaleDateTime, formatLocaleTime, formatMicrosUSD } from "../../lib/format";
 import { Badge, BrandAvatar, Dot, Icon, Icons, Modal } from "../shared/ui";
 import { TranscriptActivityTimeline } from "../transcript/TranscriptActivityTimeline";

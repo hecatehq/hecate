@@ -12,7 +12,7 @@ import {
   formatTraceAttributeValue,
   traceStatusBadge,
 } from "../../../lib/runtime-utils";
-import type { TraceListItem, TraceResponse } from "../../../types/runtime";
+import type { TraceListItem, TraceResponse } from "../../../types/trace";
 import { Badge } from "../../shared/ui";
 
 import { RouteCandidates } from "./RouteCandidates";

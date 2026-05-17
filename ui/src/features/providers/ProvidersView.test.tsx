@@ -7,7 +7,7 @@ import { AddProviderModal } from "./AddProviderModal";
 import { discoverLocalProviders } from "../../lib/api";
 import { createRuntimeConsoleActions, createRuntimeConsoleFixture } from "../../test/runtime-console-fixture";
 import { withRuntimeConsole } from "../../test/runtime-console-render";
-import type { ConfiguredProviderRecord, ProviderPresetRecord, ProviderRecord } from "../../types/runtime";
+import type { ConfiguredProviderRecord, ProviderPresetRecord, ProviderRecord } from "../../types/provider";
 
 vi.mock("../../lib/api", async importOriginal => {
   const actual = await importOriginal<typeof import("../../lib/api")>();

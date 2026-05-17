@@ -3,7 +3,7 @@
 // ordered list; buildSpanWaterfall computes the per-span waterfall row
 // data including critical-path classification.
 
-import type { TraceListItem, TraceSpanRecord } from "../types/runtime";
+import type { TraceListItem, TraceSpanRecord } from "../types/trace";
 import { describeRouteReason } from "./runtime-routing";
 
 export type TraceTimelineItem = {

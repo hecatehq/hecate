@@ -1,4 +1,4 @@
-import type { ChatSessionRecord } from "../../types/runtime";
+import type { ChatSessionRecord } from "../../types/chat";
 import { BrandAvatar, Icon, Icons } from "../shared/ui";
 
 type Props = {

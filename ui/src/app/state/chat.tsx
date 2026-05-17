@@ -26,13 +26,13 @@ import { createContext, useCallback, useContext, useEffect, useMemo, useRef, use
 
 import { ApiError, type ChatMessage } from "../../lib/api";
 import { parseStoredJSON, parseStoredString, usePersistedState } from "../../lib/persistedState";
+import type { ModelFilter } from "../../types/model";
+import type { ProviderFilter } from "../../types/provider";
 import type {
+  ChatResponse,
   ChatSessionRecord,
   ChatSessionsResponse,
-  ChatResponse,
-  ModelFilter,
-  ProviderFilter,
-} from "../../types/runtime";
+} from "../../types/chat";
 import {
   type ChatTarget,
   type HecateChatTarget,

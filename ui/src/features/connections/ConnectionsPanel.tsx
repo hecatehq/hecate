@@ -4,7 +4,9 @@ import type { RuntimeConsoleViewModel } from "../../app/useRuntimeConsole";
 import { claudeCodeSetupTokenCommand } from "../../lib/claude-code-setup";
 import { formatLocaleDateTime } from "../../lib/format";
 import { providerFleetRepairHint, providerReadinessMeaning, providerRepairActionLabel } from "../../lib/provider-readiness";
-import type { AgentAdapterHealthRecord, AgentAdapterRecord, ChatGrantRecord, ConfiguredProviderRecord, ProviderRecord } from "../../types/runtime";
+import type { AgentAdapterHealthRecord, AgentAdapterRecord } from "../../types/agent-adapter";
+import type { ChatGrantRecord } from "../../types/chat";
+import type { ConfiguredProviderRecord, ProviderRecord } from "../../types/provider";
 import { BrandAvatar, Icon, Icons, InlineError } from "../shared/ui";
 import { ModelCapabilitiesSection } from "./ModelCapabilitiesSection";
 

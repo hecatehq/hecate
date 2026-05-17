@@ -15,10 +15,8 @@ import { useChat } from "../chat";
 import { useProvidersAndModels } from "../providersAndModels";
 import { useRuntime } from "../runtime";
 import { useUsage } from "../usage";
-import type {
-  ChatSessionRecord,
-  ConfiguredStateResponse,
-} from "../../../types/runtime";
+import type { ChatSessionRecord } from "../../../types/chat";
+import type { ConfiguredStateResponse } from "../../../types/provider";
 import type { ChatActions } from "./chat";
 
 type SetStateAction<T> = T | ((prev: T) => T);

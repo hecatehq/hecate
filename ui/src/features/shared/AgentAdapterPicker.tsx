@@ -7,7 +7,7 @@
 import { useEffect } from "react";
 import type { KeyboardEvent } from "react";
 
-import type { AgentAdapterHealthRecord, AgentAdapterRecord } from "../../types/runtime";
+import type { AgentAdapterHealthRecord, AgentAdapterRecord } from "../../types/agent-adapter";
 import { Icon, Icons } from "./Icons";
 import { focusDropdownItem, focusInitialDropdownItem } from "./dropdownKeyboard";
 import { useFloatingDropdownStyle } from "./useFloatingDropdownStyle";

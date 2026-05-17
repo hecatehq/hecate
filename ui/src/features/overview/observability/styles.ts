@@ -6,7 +6,7 @@
 import type { CSSProperties } from "react";
 
 import type { TraceTimelineItem } from "../../../lib/runtime-trace";
-import type { TraceSpanRecord } from "../../../types/runtime";
+import type { TraceSpanRecord } from "../../../types/trace";
 
 // 900px chosen because at narrower widths the inline split between
 // table and drawer feels too cramped — the table only has so many

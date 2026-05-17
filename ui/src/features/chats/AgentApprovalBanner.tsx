@@ -1,4 +1,4 @@
-import type { PendingAgentApproval } from "../../types/runtime";
+import type { PendingAgentApproval } from "../../types/chat";
 import { Icon, Icons } from "../shared/ui";
 import { ChatNoticeFrame, ChatNoticeHeader, ChatNoticeRow } from "./ChatNotice";
 

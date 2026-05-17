@@ -1,4 +1,4 @@
-import type { TaskRecord } from "../../types/runtime";
+import type { TaskRecord } from "../../types/task";
 import { Badge, Icon, Icons } from "../shared/ui";
 
 type Props = {

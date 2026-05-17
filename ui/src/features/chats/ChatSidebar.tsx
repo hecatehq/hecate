@@ -2,7 +2,8 @@ import { useState } from "react";
 
 import { useRuntimeConsoleContext } from "../../app/RuntimeConsoleContext";
 import { formatAbsoluteTime } from "../../lib/format";
-import type { AgentAdapterRecord, ChatSessionRecord } from "../../types/runtime";
+import type { AgentAdapterRecord } from "../../types/agent-adapter";
+import type { ChatSessionRecord } from "../../types/chat";
 import { BrandAvatar, Icon, Icons } from "../shared/ui";
 
 import { NewChatAgentButton, chatAgentOption, chatAgentOptionStatus } from "./ChatAgentControls";

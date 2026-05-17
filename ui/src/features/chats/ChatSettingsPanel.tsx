@@ -1,6 +1,6 @@
 import type { ReactNode } from "react";
 import { formatInteger } from "../../lib/format";
-import type { ChatSessionRecord, ChatUsageRecord } from "../../types/runtime";
+import type { ChatSessionRecord, ChatUsageRecord } from "../../types/chat";
 import { Icon, Icons } from "../shared/ui";
 import { ExternalAgentSettingsControls } from "./ChatAgentControls";
 import { compactID } from "./ChatComposer";

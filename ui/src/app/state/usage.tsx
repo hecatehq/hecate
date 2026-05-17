@@ -6,7 +6,7 @@
 
 import { createContext, useCallback, useContext, useMemo, useReducer, type ReactNode } from "react";
 
-import type { UsageEventsResponse, UsageSummaryResponse } from "../../types/runtime";
+import type { UsageEventsResponse, UsageSummaryResponse } from "../../types/usage";
 
 export type UsageState = {
   summary: UsageSummaryResponse["data"] | null;

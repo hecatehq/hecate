@@ -1,4 +1,5 @@
-import type { ConfiguredProviderRecord, ModelRecord, ProviderRecord } from "../types/runtime";
+import type { ModelRecord } from "../types/model";
+import type { ConfiguredProviderRecord, ProviderRecord } from "../types/provider";
 
 export type LocalProviderIssue = {
   provider: string;
