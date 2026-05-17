@@ -185,27 +185,79 @@ Motion supports orientation, not decoration. Allowed: view transitions that help
 ```
 src/
   app/                  app shell, top-level orchestration, route/mode switching
+    AppShell.tsx        the chrome (nav, theme, header) — consumes slice hooks directly
+    App.tsx             mounts slice providers + <RootEffects />
+    state/              the canonical state surface — every UI piece reads from here
+      runtime.tsx         health, session, RTK availability, copy-command transient
+      chat.tsx            chat sessions, composer state, in-flight machinery
+      providersAndModels.tsx  provider status, presets, model catalog, agent adapters
+      approvals.tsx       pending approvals + agent-chat grants
+      retention.tsx       retention runs + subsystems
+      usage.tsx           cost summary + recent events
+      settings.tsx        server config snapshot + settings error + notice banner
+      derived.ts          cross-slice derived selectors (useChatTarget, useRuntimeDerivedState, ...)
+      rootEffects.ts      <RootEffects /> — dashboard-load, RTK-sync, queued-message-drain
+      coordinators/
+        chat.ts           submission + lifecycle + targeting + files + approvals (the big one)
+        providers.ts      provider CRUD + model capabilities
+        dashboard.ts      loadDashboard + refreshes
+        settings.ts       runSettingsMutation + setNoticeMessage
+        agentAdapters.ts  adapter credential + probe ops
+        policy.ts         policy rule CRUD
+        retention.ts      runRetention (wires the slice's Result to the notice banner)
+        wired.ts          useWiredXActions — composes the cross-slice param graph once per view
+        overrides.tsx     test-only CoordinatorOverridesContext for action stubs
   features/
-    runs/               TasksView, TaskDetail, NewTaskSlideOver, TaskList — agent task list + run replay (the headline UI)
-    chats/              ChatView — interactive chat against the gateway
-    transcript/         reusable transcript pieces for Chats and Task Detail: markdown, message rows, activity timeline, file diff review
-    overview/           ConnectYourClient, ObservabilityView — request history + trace drilldown + Codex/Claude Code setup
+    runs/               TasksView, TaskDetail, NewTaskSlideOver — agent task list + run replay (the headline UI)
+    chats/              ChatView, ChatSidebar, ChatComposer, ChatHeader, ChatTranscript, ChatSettingsPanel, HecateTaskApprovalsBanner, ...
+    transcript/         reusable transcript pieces for Chats and Task Detail
+    overview/           ConnectYourClient, ObservabilityView — request history + trace drilldown
     connections/        ConnectionsPanel — provider readiness, model capabilities, external-agent setup/grants
     settings/           SettingsView — retention and non-connection configuration
     providers/          ProvidersView — detailed provider catalog/editor
-    shared/             primitives, pickers, overlays; ui.tsx is a compatibility barrel
+    shared/             primitives, pickers, overlays; ui.ts is a compatibility barrel
+    usage/              UsageView
   lib/
     api.ts              fetch wrappers + streamTaskRun (SSE consumer)
-    markdown.ts, provider-utils.ts, runtime-utils.ts
-  types/
-    runtime.ts          TypeScript mirrors of Go API types — keep in lockstep with pkg/types/ and internal/api/
+    persistedState.ts   useState wrapper that mirrors to localStorage with a schema guard
+    format.ts, markdown.ts, provider-utils.ts, runtime-utils.ts
+  types/                TypeScript mirrors of Go API types — keep in lockstep with pkg/types/ and internal/api/
+    chat.ts, task.ts, provider.ts, model.ts, agent-adapter.ts, trace.ts, usage.ts, retention.ts, runtime.ts
   test/                 shared test setup
+    runtime-console-test-composer.ts   test-only composer that aggregates slices + coordinators into the legacy {state, actions} shape
+    runtime-console-fixture.ts         default fixture state + action stubs
+    runtime-console-render.tsx         withRuntimeConsole(ui, fixture) wraps in slice providers seeded with fixture state
   styles.css            design tokens, .dropdown-menu rule, animations
 ```
 
-There is no `src/components/`. Reusable primitives live in `src/features/shared/ui.tsx`; feature-specific components live with their feature.
+There is no `src/components/`. Reusable primitives live in `src/features/shared/`; feature-specific components live with their feature.
 
 When a file gets crowded, split by responsibility, not arbitrary line count: view shell vs data hooks; presentation vs transport; domain formatting vs generic utilities.
+
+## State + action architecture
+
+Views read slice state and call coordinator actions **directly** — there is no facade hook. The shape is:
+
+- **Slice hooks** (`useRuntime`, `useChat`, `useSettings`, `useProvidersAndModels`, `useApprovals`, `useRetention`, `useUsage`) — each owns a `useReducer`-backed state slice and exposes `{state, actions}`. Views call them and destructure only the fields they use.
+- **Coordinator hooks** (`useChatActions`, `useProviderActions`, `useDashboardActions`, `useSettingsActions`, `useAgentAdapterActions`, `usePolicyActions`, `useRetentionActions`) — each owns the cross-slice action implementations for a domain. Most coordinators take a small parameter bag for cross-coordinator wiring; the **`wired.ts`** hooks (`useWiredSettingsActions`, `useWiredDashboardActions`, `useWiredProviderActions`, `useWiredPolicyActions`) resolve that wiring once and are what views typically call.
+- **Derived selectors** (`derived.ts`) — `useChatTarget`, `useRuntimeDerivedState`, `useNewChatAgentID` — for cross-slice values that don't belong in any single slice's state.
+- **Root effects** (`rootEffects.ts`) — `<RootEffects />` is mounted once in `App.tsx` and owns all cross-slice effects (dashboard-load on mount, approvals catch-up on session switch, RTK-sync, notice auto-dismiss, provider/model default cascade, queued-message-drain). Don't add cross-slice effects inside views.
+
+A typical view looks like:
+
+```tsx
+function MyView() {
+  const chat = useChat();                                       // slice state + actions
+  const { providers } = useProvidersAndModels().state;
+  const chatTarget = useChatTarget();                           // derived selector
+  const { submitChat } = useChatActions({ chatTarget, setNoticeMessage });
+  // ... or, more often, the wired variant that resolves the param bag for you:
+  const { runSettingsMutation } = useWiredSettingsActions();
+  return <div>...</div>;
+}
+```
+
+Tests use `withRuntimeConsole(ui, fixture)` from `src/test/runtime-console-render.tsx` — it mounts all slice providers seeded with fixture state and an overrides context for action stubs. The 2284-LOC composition regression suite at `src/test/runtime-console-composition.test.tsx` exercises slices + coordinators end-to-end via the test-only `runtime-console-test-composer.ts`. Per-view tests don't need to touch the composer.
 
 ## State and data rules
 
