@@ -11,6 +11,7 @@ const (
 	errCodeInvalidRequest          = "invalid_request"
 	errCodeForbidden               = "forbidden"
 	errCodeGatewayError            = "gateway_error"
+	errCodeInternalError           = "internal_error"
 	errCodeUpstreamError           = "upstream_error"
 	errCodeNotFound                = "not_found"
 	errCodeConflict                = "conflict"

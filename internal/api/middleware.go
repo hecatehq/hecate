@@ -86,7 +86,7 @@ func LoggingMiddleware(logger *slog.Logger) middleware {
 func SameOriginMiddleware(next http.Handler) http.Handler {
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		if !sameOriginAllowed(r) {
-			WriteError(w, http.StatusForbidden, "forbidden", "cross-origin browser request rejected")
+			WriteError(w, http.StatusForbidden, errCodeForbidden, "cross-origin browser request rejected")
 			return
 		}
 		next.ServeHTTP(w, r)
@@ -127,7 +127,7 @@ func RecoveryMiddleware(logger *slog.Logger) middleware {
 						slog.String("event.name", "http.server.panic"),
 						slog.String("exception.message", stringifyPanic(recovered)),
 					)
-					WriteError(w, http.StatusInternalServerError, "internal_error", "unexpected server error")
+					WriteError(w, http.StatusInternalServerError, errCodeInternalError, "unexpected server error")
 				}
 			}()
 
