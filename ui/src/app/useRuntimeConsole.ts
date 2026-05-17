@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useState, type SyntheticEvent } from "react";
+import { useEffect, useMemo, type SyntheticEvent } from "react";
 
 import {
   type ChatTarget,
@@ -57,6 +57,7 @@ import { useChat } from "./state/chat";
 import { useProvidersAndModels } from "./state/providersAndModels";
 import { useRetention } from "./state/retention";
 import { useRuntime } from "./state/runtime";
+import { useSettings, type NoticeState } from "./state/settings";
 import { useUsage } from "./state/usage";
 import type {
   AgentAdapterHealthRecord,
@@ -66,15 +67,9 @@ import type {
   ChatChangedFileRecord,
   ChatSessionRecord,
   ChatResponse,
-  ConfiguredStateResponse,
   ProviderFilter,
   RuntimeHeaders,
 } from "../types/runtime";
-
-type NoticeState = {
-  kind: "success" | "error";
-  message: string;
-};
 
 function chatSessionIsExternal(session: ChatSessionRecord | null): boolean {
   return Boolean(session?.runtime_kind === "external_agent" || session?.adapter_id);
@@ -261,10 +256,17 @@ export function useRuntimeConsole() {
   // chatGrants,chatGrantsLoading,chatGrantsError}`
   // keys and the actions under their legacy identifiers.
   const approvals = useApprovals();
-  const [settingsConfig, setSettingsConfig] = useState<ConfiguredStateResponse["data"] | null>(null);
 
-  const [settingsError, setSettingsError] = useState("");
-  const [notice, setNotice] = useState<NoticeState | null>(null);
+  // Settings slice: server config snapshot, settings-mutation error,
+  // transient notice banner. Legacy aliases below keep the rest of
+  // the hook body reading identically to its pre-slice form.
+  const settings = useSettings();
+  const settingsConfig = settings.state.config;
+  const settingsError = settings.state.error;
+  const notice = settings.state.notice;
+  const setSettingsError = settings.actions.setError;
+  const setNotice = settings.actions.setNotice;
+  const dismissNotice = settings.actions.dismissNotice;
 
   const chatTarget = activeChatSessionID && activeChatSession
     ? (chatSessionIsExternal(activeChatSession)
@@ -340,10 +342,10 @@ export function useRuntimeConsole() {
       return;
     }
     const timeout = window.setTimeout(() => {
-      setNotice((current) => (current === notice ? null : current));
+      settings.actions.dismissNoticeIfMatching(notice);
     }, 3000);
     return () => window.clearTimeout(timeout);
-  }, [notice]);
+  }, [notice, settings.actions]);
 
   useEffect(() => {
     if (providerFilter !== "auto") {
@@ -490,7 +492,7 @@ export function useRuntimeConsole() {
           setHealth(essentials.health);
           setSessionInfo(essentials.sessionInfo);
           setModels(essentials.models);
-          setSettingsConfig(essentials.settingsConfig);
+          settings.actions.setConfig(essentials.settingsConfig);
         },
       });
 
@@ -507,7 +509,7 @@ export function useRuntimeConsole() {
       setActiveChatSession(snapshot.activeChatSession);
       syncHecateSelectionFromSession(snapshot.activeChatSession);
       setUsageEvents(snapshot.usageEvents);
-      setSettingsConfig(snapshot.settingsConfig);
+      settings.actions.setConfig(snapshot.settingsConfig);
       setAgentAdapterApprovalMode(snapshot.agentAdapterApprovalMode);
       setHecateRTKAvailable(snapshot.rtkAvailable);
       setHecateRTKPath(snapshot.rtkPath);
@@ -940,7 +942,7 @@ export function useRuntimeConsole() {
     const previousProviderFilter = providerFilter;
     const previousModel = model;
 
-    setSettingsConfig(current => current
+    settings.actions.updateConfig(current => current
       ? { ...current, providers: current.providers.filter(provider => provider.id !== id) }
       : current);
     setProviders(current => current.filter(provider => provider.name !== id));
@@ -957,7 +959,7 @@ export function useRuntimeConsole() {
       setNoticeMessage("success", "Provider removed.");
       void loadDashboard();
     } catch (error) {
-      setSettingsConfig(current => {
+      settings.actions.updateConfig(current => {
         if (!removedConfiguredProvider) return current;
         if (!current) return current;
         if (current.providers.some(provider => provider.id === id)) return current;
@@ -1627,7 +1629,7 @@ export function useRuntimeConsole() {
       probeAgentAdapter,
       setAgentAdapterCredential,
       deleteAgentAdapterCredential,
-      dismissNotice: () => setNotice(null),
+      dismissNotice,
     },
   };
 }
