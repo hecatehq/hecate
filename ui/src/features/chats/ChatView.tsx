@@ -108,10 +108,6 @@ export function ChatView({ onNavigate, onOpenTask, onOpenTrace }: Props) {
   const pendingTaskApprovals = isHecateChat
     ? pendingHecateTaskApprovals(state.activeChatSession)
     : [];
-  // Empty for now — agent-chat assistant rows don't carry the
-  // provider-call ID; the lookup map keeps the transcript-row prop
-  // surface unchanged for future use.
-  const callsByID = new Map<string, never>();
   // Hide system messages and any assistant placeholder that is still
   // waiting for content — the streaming-content block below renders
   // the live text instead.
@@ -578,17 +574,11 @@ export function ChatView({ onNavigate, onOpenTask, onOpenTrace }: Props) {
         )}
 
         <ChatTranscript
-          isAgentChat={isAgentChat}
           isHecateAgentChat={isHecateAgentChat}
           activeSessionID={activeSessionID}
           transcriptItems={transcriptItems}
-          callsByID={callsByID}
           visibleMessageCount={visibleMessages.length}
           streaming={streaming}
-          selectedAgent={selectedAgent}
-          selectedConfiguredProvider={selectedConfiguredProvider}
-          selectedRuntimeProvider={selectedRuntimeProvider}
-          hecateChatModelValue={hecateChatModelValue}
           onNavigate={onNavigate}
           onOpenTask={onOpenTask}
           onOpenTrace={onOpenTrace}

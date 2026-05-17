@@ -2,20 +2,8 @@ import { useEffect, useRef, useState, type ReactNode } from "react";
 
 import { useRuntimeConsoleContext } from "../../app/RuntimeConsoleContext";
 import { formatDurationMs } from "../../lib/format";
-import type { AgentAdapterRecord, ChatActivityRecord, ChatSegmentRecord, ChatTimingRecord, ChatUsageRecord, ConfiguredProviderRecord, ProviderRecord } from "../../types/runtime";
-
-// Placeholder shape kept for the produced_by_call_id lookup in the transcript.
-// The legacy /chat/sessions data path used to populate this map with rich
-// per-call records; agent-chat messages don't, so callers pass an empty map.
-type LegacyProviderCallInfo = {
-  request_id?: string;
-  provider?: string;
-  model?: string;
-  prompt_tokens?: number;
-  completion_tokens?: number;
-  cost_usd?: string;
-};
-import { BrandAvatar, CodeBlock, Icon, Icons } from "../shared/ui";
+import type { ChatActivityRecord, ChatSegmentRecord, ChatTimingRecord, ChatUsageRecord } from "../../types/runtime";
+import { CodeBlock, Icon, Icons } from "../shared/ui";
 import { TranscriptMessageRow } from "../transcript/TranscriptMessageRow";
 
 import { compactID } from "./ChatComposer";
@@ -55,21 +43,13 @@ export type TranscriptItem =
 
 type Props = {
   // Active chat shape (derived in ChatView and threaded through here).
-  isAgentChat: boolean;
   isHecateAgentChat: boolean;
   activeSessionID: string;
 
-  // Transcript content + provider-call lookup.
+  // Transcript content.
   transcriptItems: TranscriptItem[];
-  callsByID: Map<string, LegacyProviderCallInfo>;
   visibleMessageCount: number;
   streaming: boolean;
-
-  // Streaming-pane branding (read in the model-chat path).
-  selectedAgent?: AgentAdapterRecord;
-  selectedConfiguredProvider?: ConfiguredProviderRecord;
-  selectedRuntimeProvider?: ProviderRecord;
-  hecateChatModelValue: string;
 
   // Pre-rendered empty state. ChatView builds the <ChatEmptyState> with
   // its derived props bag; transcript just slots it in below the
@@ -85,17 +65,11 @@ type Props = {
 };
 
 export function ChatTranscript({
-  isAgentChat,
   isHecateAgentChat,
   activeSessionID,
   transcriptItems,
-  callsByID,
   visibleMessageCount,
   streaming,
-  selectedAgent,
-  selectedConfiguredProvider,
-  selectedRuntimeProvider,
-  hecateChatModelValue,
   emptyState,
   onNavigate,
   onOpenTask,
@@ -156,33 +130,29 @@ export function ChatTranscript({
             return <ChatSegmentDivider key={item.key} segment={item.segment} />;
           }
           const m = item.message;
-          const call = m.produced_by_call_id ? callsByID.get(m.produced_by_call_id) : undefined;
           const role = m.role === "assistant" ? "assistant" : "user";
           const content = typeof m.content === "string" ? m.content : (m.content === null ? "" : JSON.stringify(m.content));
           const time = m.created_at ? new Date(m.created_at).toLocaleTimeString("en-US", { hour: "2-digit", minute: "2-digit" }) : "";
           const agentModel = isHecateAgentChat
             ? (m.model || state.activeChatSession?.model || "Hecate Agent")
             : (m.agent_adapter_name || m.agent_adapter_id);
-          const agentRuntime = isAgentChat && role === "assistant"
+          const agentRuntime = role === "assistant"
             ? formatAgentRuntimeMeta(m.run_id, m.duration_ms, m.native_session_id)
             : "";
           const taskID = m.runtime_kind === "agent" ? m.task_id : "";
           const taskRunID = taskID ? m.run_id : "";
-          const traceRequestID = isAgentChat ? m.request_id : call?.request_id;
-          const traceID = isAgentChat ? m.trace_id : undefined;
+          const traceRequestID = m.request_id;
+          const traceID = m.trace_id;
           return (
             <TranscriptMessageRow
               key={item.key}
               id={m.id}
               role={role}
-              model={isAgentChat ? agentModel : call?.model}
-              brand={messageBrand(m, call?.provider, isAgentChat, isHecateAgentChat)}
+              model={agentModel}
+              brand={messageBrand(m, isHecateAgentChat)}
               content={content}
               time={time}
-              promptTokens={call?.prompt_tokens}
-              completionTokens={call?.completion_tokens}
-              costUsd={call?.cost_usd}
-              badge={isAgentChat && role === "assistant" ? (m.agent_status || m.cost_mode) : undefined}
+              badge={role === "assistant" ? (m.agent_status || m.cost_mode) : undefined}
               runtimeMeta={agentRuntime}
               taskLink={isHecateAgentChat && role === "assistant" && taskID
                 ? {
@@ -205,17 +175,17 @@ export function ChatTranscript({
                     },
                   }
                 : undefined}
-              activities={isAgentChat && role === "assistant" ? m.activities : undefined}
-              diffStat={isAgentChat && role === "assistant" ? m.diff_stat : undefined}
-              diff={isAgentChat && role === "assistant" ? m.diff : undefined}
-              agentSessionID={isAgentChat ? state.activeChatSessionID : ""}
+              activities={role === "assistant" ? m.activities : undefined}
+              diffStat={role === "assistant" ? m.diff_stat : undefined}
+              diff={role === "assistant" ? m.diff : undefined}
+              agentSessionID={state.activeChatSessionID}
               onListAgentFiles={actions.listChatMessageFiles}
               onGetAgentFileDiff={actions.getChatMessageFileDiff}
               onRevertAgentFiles={actions.revertChatMessageFiles}
-              rawOutput={isAgentChat && role === "assistant" ? m.raw_output : undefined}
-              agentUsage={isAgentChat && role === "assistant" ? m.usage : undefined}
-              agentTiming={isAgentChat && role === "assistant" ? m.timing : undefined}
-              error={isAgentChat && role === "assistant" ? m.error : undefined}
+              rawOutput={role === "assistant" ? m.raw_output : undefined}
+              agentUsage={role === "assistant" ? m.usage : undefined}
+              agentTiming={role === "assistant" ? m.timing : undefined}
+              error={role === "assistant" ? m.error : undefined}
               setupAction={
                 // Render the "Open Claude Code setup" button only
                 // when the server-side message carries the
@@ -225,7 +195,7 @@ export function ChatTranscript({
                 // time; the token itself is stable contract between
                 // internal/agentadapters/auth_status.go and this UI
                 // handler.
-                isAgentChat && role === "assistant" && m.agent_adapter_id === "claude_code"
+                role === "assistant" && m.agent_adapter_id === "claude_code"
                   && typeof m.error === "string" && m.error.includes("claude_code_auth_required")
                     ? {
                       label: "Open Claude Code setup",
@@ -240,32 +210,6 @@ export function ChatTranscript({
           );
         })}
 
-        {/* Streaming */}
-        {!isAgentChat && streaming && state.streamingContent !== null && (
-          <div style={{ padding: "4px 16px 16px", maxWidth: 820, margin: "0 auto", width: "100%" }}>
-            <div style={{ display: "flex", gap: 10, alignItems: "flex-start" }}>
-              <BrandAvatar
-                brand={isAgentChat ? selectedAgent?.id : (selectedConfiguredProvider?.id || selectedRuntimeProvider?.name || hecateChatModelValue)}
-                fallback={isAgentChat ? selectedAgent?.name : state.model}
-                size={28}
-                style={{ marginTop: 2 }}
-              />
-              <div style={{ flex: 1, minWidth: 0 }}>
-                <div style={{ display: "flex", alignItems: "center", gap: 8, marginBottom: 6 }}>
-                  <span style={{ fontFamily: "var(--font-mono)", fontSize: 11, color: "var(--teal)" }}>
-                    {isAgentChat ? (selectedAgent?.name || state.agentAdapterID || "agent") : (state.model || "hecate")}
-                  </span>
-                  <span className="badge badge-teal" style={{ animation: "pulse 1s ease-in-out infinite", fontSize: 10 }}>
-                    {isAgentChat ? "running" : "streaming"}
-                  </span>
-                </div>
-                <p style={{ fontSize: 13, color: "var(--t0)", lineHeight: 1.7, whiteSpace: "pre-wrap" }}>
-                  {state.streamingContent}<span className="cursor-blink">▋</span>
-                </p>
-              </div>
-            </div>
-          </div>
-        )}
 
         {/* Pending tool calls */}
         {state.pendingToolCalls.length > 0 && (
@@ -464,14 +408,11 @@ function describeChatSegment(segment: ChatSegmentRecord): { kicker: string; titl
 
 function messageBrand(
   message: VisibleChatMessage,
-  provider: string | undefined,
-  isAgentChat: boolean,
   isHecateAgentChat: boolean,
 ): string | undefined {
-  if (!isAgentChat) return provider || message.model;
   if (message.agent_adapter_id) return message.agent_adapter_id;
   if (message.agent_adapter_name) return message.agent_adapter_name;
-  if (isHecateAgentChat) return provider || message.provider || message.model || "hecate";
+  if (isHecateAgentChat) return message.provider || message.model || "hecate";
   return message.provider || message.model;
 }
 

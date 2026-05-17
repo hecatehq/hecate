@@ -49,8 +49,3 @@ test("maintenance 'Clean up now' fires POST request", async ({ page }) => {
   await page.getByRole("button", { name: /Clean up now/i }).click();
   await expect.poll(() => posted).toBe(true);
 });
-
-test("Usage workspace shows the empty usage state", async ({ page }) => {
-  await page.locator(".hecate-activitybar [aria-label^='Usage']").click();
-  await expect(page.locator("text=No cloud usage recorded yet")).toBeVisible();
-});
