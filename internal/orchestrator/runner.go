@@ -809,7 +809,6 @@ func (r *Runner) cancelRunWithMessage(ctx context.Context, task types.Task, run 
 	return run, nil
 }
 
-
 // Shutdown stops the runner's queue workers, cancels every in-flight
 // agent loop, and waits for them to finalize. Two reasons it matters:
 //
