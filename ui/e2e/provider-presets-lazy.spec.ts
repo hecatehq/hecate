@@ -2,7 +2,8 @@ import { expect, test } from "./fixtures";
 
 // Pins the lazy-fetch contract for /hecate/v1/providers/presets:
 // the dashboard loader no longer pulls presets at boot; only the
-// AddProviderModal mount (and TasksView mount) trigger the fetch.
+// AddProviderModal mount and TasksView mount trigger the fetch.
+// QuickLocalProviderAdd (chat empty-state) does not need presets.
 // A regression here would put presets back in Wave 2 and waste a
 // network round-trip on every cold boot.
 

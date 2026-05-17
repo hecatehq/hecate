@@ -275,7 +275,7 @@ function QuickLocalProviderAdd({
   onAdd: (providers: LocalProviderDiscoveryRecord[]) => void;
   onRefresh: () => void;
 }) {
-  const candidates = discoveries.filter(discovery => presets.some(preset => preset.id === discovery.preset_id));
+  const candidates = discoveries.filter(discovery => discovery.preset_id != null);
   const candidateKeys = candidates.map(localProviderDiscoveryKey).join("\u0000");
   const [selectedKeys, setSelectedKeys] = useState<Set<string>>(() => new Set(candidates.map(localProviderDiscoveryKey)));
   useEffect(() => {

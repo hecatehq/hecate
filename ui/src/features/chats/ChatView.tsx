@@ -15,7 +15,7 @@ import { buildSelectedModelIssue } from "../../lib/provider-issues";
 import { providerDisplayName } from "../../lib/provider-utils";
 import type { AgentAdapterRecord } from "../../types/agent-adapter";
 import type { ChatSessionRecord, ChatUsageRecord } from "../../types/chat";
-import type { LocalProviderDiscoveryRecord, ProviderPresetRecord } from "../../types/provider";
+import type { LocalProviderDiscoveryRecord } from "../../types/provider";
 import { AgentApprovalAutoModeBanner, AgentApprovalsBanner } from "./AgentApprovalBanner";
 import { AgentApprovalModal } from "./AgentApprovalModal";
 import { AddProviderModal } from "../providers/AddProviderModal";
@@ -149,7 +149,11 @@ export function ChatView({ onNavigate, onOpenTask, onOpenTrace }: Props) {
   const externalAgentHasConfigControls = Boolean(isExternalAgentChat && state.activeChatSession?.config_options?.length);
   const instructionsAvailable = isHecateChat;
   const activeSessionID = state.activeChatSessionID;
-  const chatCanvasActive = Boolean(activeSessionID || draftChatOpen);
+  // With zero chats, always show the chat canvas (which renders
+  // ChatEmptyState — onboarding when no providers, composer when ready).
+  // The "No chats yet" placeholder only adds friction here and leaves
+  // new users with nowhere to go.
+  const chatCanvasActive = Boolean(activeSessionID || draftChatOpen || state.chatSessions.length === 0);
   const activeQueuedChatMessages = activeSessionID
     ? state.queuedChatMessages.filter((queued) => queued.session_id === activeSessionID)
     : [];
@@ -477,10 +481,10 @@ export function ChatView({ onNavigate, onOpenTask, onOpenTrace }: Props) {
     if (quickAddingProviders) return;
     const seenBaseURLs = new Set<string>();
     const addable = discoveries
-      .map(discovery => ({ discovery, preset: state.providerPresets.find(p => p.id === discovery.preset_id) }))
-      .filter((entry): entry is { discovery: LocalProviderDiscoveryRecord; preset: ProviderPresetRecord } => Boolean(entry.preset))
-      .filter(({ discovery, preset }) => {
-        const baseURL = normalizeProviderBaseURL(discovery.base_url || preset.base_url);
+      .filter(discovery => discovery.preset_id != null)
+      .filter(discovery => {
+        const preset = state.providerPresets.find(p => p.id === discovery.preset_id);
+        const baseURL = normalizeProviderBaseURL(discovery.base_url || preset?.base_url || "");
         if (!baseURL) return true;
         if (seenBaseURLs.has(baseURL)) return false;
         seenBaseURLs.add(baseURL);
@@ -493,14 +497,15 @@ export function ChatView({ onNavigate, onOpenTask, onOpenTrace }: Props) {
     let createdCount = 0;
     let firstError: unknown = null;
     try {
-      for (const { discovery, preset } of addable) {
+      for (const discovery of addable) {
+        const preset = state.providerPresets.find(p => p.id === discovery.preset_id);
         try {
           await actions.createProvider({
-            name: preset.name,
-            preset_id: preset.id,
-            base_url: discovery.base_url || preset.base_url,
-            kind: preset.kind,
-            protocol: preset.protocol ?? "openai",
+            name: preset?.name ?? discovery.name,
+            preset_id: discovery.preset_id ?? preset?.id,
+            base_url: discovery.base_url || preset?.base_url || "",
+            kind: preset?.kind ?? "local",
+            protocol: preset?.protocol ?? "openai",
           }, { refresh: false });
           createdCount++;
         } catch (error) {
