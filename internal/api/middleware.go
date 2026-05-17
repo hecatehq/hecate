@@ -8,13 +8,19 @@ import (
 	"net"
 	"net/http"
 	"net/url"
+	"strconv"
 	"time"
 
 	"go.opentelemetry.io/otel"
+	"go.opentelemetry.io/otel/attribute"
+	"go.opentelemetry.io/otel/codes"
 	"go.opentelemetry.io/otel/propagation"
+	semconv "go.opentelemetry.io/otel/semconv/v1.34.0"
 
 	"github.com/hecate/agent-runtime/internal/telemetry"
 )
+
+var httpServerTracer = otel.Tracer("github.com/hecate/agent-runtime/internal/api")
 
 type middleware func(http.Handler) http.Handler
 
@@ -48,6 +54,56 @@ func RequestIDMiddleware(next http.Handler) http.Handler {
 		ctx := telemetry.WithRequestID(r.Context(), requestID)
 		w.Header().Set("X-Request-Id", requestID)
 		next.ServeHTTP(w, r.WithContext(ctx))
+	})
+}
+
+// OTelHTTPSpanMiddleware opens one `http.server.request` span per
+// inbound request. Without it, the OTLP exporter pipeline sees the
+// per-subsystem spans Hecate handlers create (router decision,
+// provider call, governor check, etc.) but never the top-level
+// request envelope they should hang off — operator dashboards that
+// filter on `http.server.request` would never light up.
+//
+// Runs after TraceContextMiddleware (so an inbound traceparent is
+// the parent of this span) and after RequestIDMiddleware (so the
+// span carries the operator-visible hecate.request_id attribute).
+//
+// Span attributes follow OTel HTTP semconv:
+//
+//	http.request.method, http.route, http.response.status_code
+//
+// plus `hecate.request_id` for the operator UI / log correlation.
+// 5xx responses set span.Status to Error so OTel-aware backends can
+// surface them without re-deriving the threshold.
+func OTelHTTPSpanMiddleware(next http.Handler) http.Handler {
+	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		ctx, span := httpServerTracer.Start(r.Context(), "http.server.request")
+		defer span.End()
+
+		span.SetAttributes(semconv.HTTPRequestMethodKey.String(r.Method))
+		if requestID := telemetry.RequestIDFromContext(ctx); requestID != "" {
+			span.SetAttributes(attribute.String("hecate.request_id", requestID))
+		}
+
+		rw := &statusRecorder{ResponseWriter: w, status: http.StatusOK}
+		r = r.WithContext(ctx)
+		next.ServeHTTP(rw, r)
+
+		// r.Pattern is populated by http.ServeMux during dispatch
+		// (Go 1.22+), so we can only read it AFTER next.ServeHTTP.
+		// Fall back to URL.Path for routes that didn't go through a
+		// pattern-aware mux (e.g. notfound handler).
+		route := r.Pattern
+		if route == "" {
+			route = r.URL.Path
+		}
+		span.SetAttributes(
+			semconv.HTTPRouteKey.String(route),
+			semconv.HTTPResponseStatusCodeKey.Int(rw.status),
+		)
+		if rw.status >= 500 {
+			span.SetStatus(codes.Error, "HTTP "+strconv.Itoa(rw.status))
+		}
 	})
 }
 
