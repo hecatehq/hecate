@@ -46,6 +46,19 @@ test.describe("Provider presets lazy-fetch", () => {
         }),
       });
     });
+    // Stub the Connections-view fetches the default fixture doesn't
+    // cover so navigating there doesn't print Vite proxy ECONNREFUSED.
+    // Probes return a 404 the slice's catch block tolerates — a
+    // synthetic 200 shape would break the success path that reads
+    // payload.data.adapter.id.
+    await page.route(/\/hecate\/v1\/agent-adapters\/[^/]+\/probe$/, route =>
+      route.fulfill({ status: 404, contentType: "application/json",
+        body: JSON.stringify({ error: { code: "not_found", message: "stub" } }) }),
+    );
+    await page.route("/hecate/v1/chat/grants*", route =>
+      route.fulfill({ status: 200, contentType: "application/json",
+        body: JSON.stringify({ object: "list", data: [] }) }),
+    );
 
     await page.goto("/");
     await page.waitForSelector(".hecate-activitybar");
