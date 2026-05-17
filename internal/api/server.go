@@ -27,6 +27,7 @@ func NewServer(logger *slog.Logger, handler *Handler) http.Handler {
 		mux,
 		TraceContextMiddleware,
 		RequestIDMiddleware,
+		OTelHTTPSpanMiddleware,
 		SameOriginMiddleware,
 		LoggingMiddleware(logger),
 		RecoveryMiddleware(logger),
