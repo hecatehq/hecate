@@ -25,7 +25,6 @@ import (
 	"github.com/hecate/agent-runtime/internal/agentchat"
 	"github.com/hecate/agent-runtime/internal/agentcontrols"
 	"github.com/hecate/agent-runtime/internal/catalog"
-	"github.com/hecate/agent-runtime/internal/chatstate"
 	"github.com/hecate/agent-runtime/internal/config"
 	"github.com/hecate/agent-runtime/internal/controlplane"
 	"github.com/hecate/agent-runtime/internal/eventprotocol"
@@ -3172,195 +3171,6 @@ func TestUsageEndpointsStayDocumented(t *testing.T) {
 	}
 }
 
-func TestChatSessionsPersistMessagesAndProviderCalls(t *testing.T) {
-	t.Parallel()
-
-	logger := slog.New(slog.NewJSONHandler(io.Discard, nil))
-	provider := &fakeProvider{
-		name: "anthropic",
-		capabilities: providers.Capabilities{
-			Name:         "anthropic",
-			Kind:         providers.KindCloud,
-			DefaultModel: "claude-sonnet-4-20250514",
-			Models:       []string{"claude-sonnet-4-20250514"},
-		},
-		response: &types.ChatResponse{
-			ID:        "msg_123",
-			Model:     "claude-sonnet-4-20250514",
-			CreatedAt: time.Now().UTC(),
-			Choices:   []types.ChatChoice{{Index: 0, Message: types.Message{Role: "assistant", Content: "Hello from Claude."}, FinishReason: "end_turn"}},
-			Usage:     types.Usage{PromptTokens: 12, CompletionTokens: 4, TotalTokens: 16},
-		},
-	}
-
-	handler := newTestHTTPHandlerForProviders(logger, []providers.Provider{provider}, config.Config{
-		Router: config.RouterConfig{
-			DefaultModel: "claude-sonnet-4-20250514",
-		},
-	})
-	client := newAPITestClient(t, handler)
-	created := mustRequestJSON[ChatSessionResponse](client, http.MethodPost, "/hecate/v1/chat/sessions", `{"title":"Claude debugging"}`)
-	if created.Data.ID == "" {
-		t.Fatal("session id = empty, want session id")
-	}
-
-	chatBody := fmt.Sprintf(`{"model":"claude-sonnet-4-20250514","provider":"anthropic","session_id":"%s","messages":[{"role":"user","content":"Say hello."}]}`, created.Data.ID)
-	chatRecorder := performJSONRequest(t, handler, chatBody)
-	if chatRecorder.Code != http.StatusOK {
-		t.Fatalf("chat status = %d, want %d, body=%s", chatRecorder.Code, http.StatusOK, chatRecorder.Body.String())
-	}
-
-	session := mustRequestJSON[ChatSessionResponse](client, http.MethodGet, "/hecate/v1/chat/sessions/"+created.Data.ID, "")
-	if len(session.Data.Messages) != 2 {
-		t.Fatalf("messages = %d, want 2 (user + assistant)", len(session.Data.Messages))
-	}
-	if len(session.Data.ProviderCalls) != 1 {
-		t.Fatalf("provider_calls = %d, want 1", len(session.Data.ProviderCalls))
-	}
-	user := session.Data.Messages[0]
-	assistant := session.Data.Messages[1]
-	if user.Role != "user" || user.Content.AsString() != "Say hello." {
-		t.Fatalf("user message = {%q, %q}, want user/Say hello.", user.Role, user.Content.AsString())
-	}
-	if user.Sequence != 0 || user.ProducedByCallID != "" {
-		t.Fatalf("user metadata = {seq=%d, produced_by=%q}, want seq=0/produced_by=\"\"", user.Sequence, user.ProducedByCallID)
-	}
-	if assistant.Role != "assistant" || assistant.Content.AsString() != "Hello from Claude." {
-		t.Fatalf("assistant message = {%q, %q}", assistant.Role, assistant.Content.AsString())
-	}
-	if assistant.Sequence != 1 || assistant.ProducedByCallID == "" {
-		t.Fatalf("assistant metadata = {seq=%d, produced_by=%q}, want seq=1/produced_by != empty", assistant.Sequence, assistant.ProducedByCallID)
-	}
-	call := session.Data.ProviderCalls[0]
-	if call.Provider != "anthropic" || call.Model != "claude-sonnet-4-20250514" {
-		t.Fatalf("provider_call = {provider=%q, model=%q}, want anthropic/Claude", call.Provider, call.Model)
-	}
-	if assistant.ProducedByCallID != call.ID {
-		t.Fatalf("assistant.produced_by_call_id = %q, want %q (call.id)", assistant.ProducedByCallID, call.ID)
-	}
-	if call.PromptTokens != 12 || call.CompletionTokens != 4 || call.TotalTokens != 16 {
-		t.Fatalf("token usage on provider_call = {%d, %d, %d}, want 12/4/16", call.PromptTokens, call.CompletionTokens, call.TotalTokens)
-	}
-}
-
-// TestChatSessionSystemPromptIsPrepended is the end-to-end check for B1:
-// PATCH a session's system_prompt, GET it back, then make a chat call
-// targeting that session and verify the gateway prepended the prompt as a
-// system-role message before forwarding to the provider.
-func TestChatSessionSystemPromptIsPrepended(t *testing.T) {
-	t.Parallel()
-
-	logger := slog.New(slog.NewJSONHandler(io.Discard, nil))
-	provider := &fakeProvider{
-		name: "openai",
-		capabilities: providers.Capabilities{
-			Name:         "openai",
-			Kind:         providers.KindCloud,
-			DefaultModel: "gpt-4o-mini",
-			Models:       []string{"gpt-4o-mini"},
-		},
-		response: &types.ChatResponse{
-			ID:        "msg_1",
-			Model:     "gpt-4o-mini",
-			CreatedAt: time.Now().UTC(),
-			Choices:   []types.ChatChoice{{Index: 0, Message: types.Message{Role: "assistant", Content: "ok"}, FinishReason: "stop"}},
-			Usage:     types.Usage{PromptTokens: 1, CompletionTokens: 1, TotalTokens: 2},
-		},
-	}
-	handler := newTestHTTPHandlerForProviders(logger, []providers.Provider{provider}, config.Config{
-		Router: config.RouterConfig{DefaultModel: "gpt-4o-mini"},
-	})
-	client := newAPITestClient(t, handler)
-
-	created := mustRequestJSON[ChatSessionResponse](client, http.MethodPost, "/hecate/v1/chat/sessions", `{"title":"with system"}`)
-	if created.Data.SystemPrompt != "" {
-		t.Fatalf("freshly-created session SystemPrompt = %q, want empty", created.Data.SystemPrompt)
-	}
-
-	const prompt = "you are a terse assistant"
-	patched := mustRequestJSON[ChatSessionResponse](client, http.MethodPatch, "/hecate/v1/chat/sessions/"+created.Data.ID, `{"system_prompt":"`+prompt+`"}`)
-	if patched.Data.SystemPrompt != prompt {
-		t.Fatalf("PATCH response SystemPrompt = %q, want %q", patched.Data.SystemPrompt, prompt)
-	}
-	// PATCH must not clobber the title.
-	if patched.Data.Title != "with system" {
-		t.Fatalf("PATCH cleared Title: got %q, want %q", patched.Data.Title, "with system")
-	}
-
-	// GET round-trip — confirms persistence (memory store, but exercises
-	// the API response shape too).
-	roundTripped := mustRequestJSON[ChatSessionResponse](client, http.MethodGet, "/hecate/v1/chat/sessions/"+created.Data.ID, "")
-	if roundTripped.Data.SystemPrompt != prompt {
-		t.Fatalf("GET SystemPrompt = %q, want %q", roundTripped.Data.SystemPrompt, prompt)
-	}
-
-	// Chat completion targeting the session — the prompt should be
-	// prepended so the provider sees [system, user] instead of [user].
-	body := fmt.Sprintf(`{"model":"gpt-4o-mini","provider":"openai","session_id":"%s","messages":[{"role":"user","content":"hi"}]}`, created.Data.ID)
-	rec := performJSONRequest(t, handler, body)
-	if rec.Code != http.StatusOK {
-		t.Fatalf("chat status = %d, want 200; body=%s", rec.Code, rec.Body.String())
-	}
-
-	got := provider.LastRequest()
-	if len(got.Messages) != 2 {
-		t.Fatalf("provider received %d messages, want 2 (prepended system + user); got %+v", len(got.Messages), got.Messages)
-	}
-	if got.Messages[0].Role != "system" || got.Messages[0].Content != prompt {
-		t.Fatalf("first message = {%q, %q}, want {system, %q}", got.Messages[0].Role, got.Messages[0].Content, prompt)
-	}
-	if got.Messages[1].Role != "user" || got.Messages[1].Content != "hi" {
-		t.Fatalf("second message = {%q, %q}, want {user, hi}", got.Messages[1].Role, got.Messages[1].Content)
-	}
-}
-
-// TestChatSessionSystemPromptDoesNotOverrideExplicit covers the "client
-// already sends a system message" branch — the session's stored prompt
-// must NOT be prepended in that case, otherwise per-call overrides become
-// impossible.
-func TestChatSessionSystemPromptDoesNotOverrideExplicit(t *testing.T) {
-	t.Parallel()
-
-	logger := slog.New(slog.NewJSONHandler(io.Discard, nil))
-	provider := &fakeProvider{
-		name: "openai",
-		capabilities: providers.Capabilities{
-			Name:         "openai",
-			Kind:         providers.KindCloud,
-			DefaultModel: "gpt-4o-mini",
-			Models:       []string{"gpt-4o-mini"},
-		},
-		response: &types.ChatResponse{
-			ID:        "msg_1",
-			Model:     "gpt-4o-mini",
-			CreatedAt: time.Now().UTC(),
-			Choices:   []types.ChatChoice{{Index: 0, Message: types.Message{Role: "assistant", Content: "ok"}, FinishReason: "stop"}},
-			Usage:     types.Usage{PromptTokens: 1, CompletionTokens: 1, TotalTokens: 2},
-		},
-	}
-	handler := newTestHTTPHandlerForProviders(logger, []providers.Provider{provider}, config.Config{
-		Router: config.RouterConfig{DefaultModel: "gpt-4o-mini"},
-	})
-	client := newAPITestClient(t, handler)
-
-	created := mustRequestJSON[ChatSessionResponse](client, http.MethodPost, "/hecate/v1/chat/sessions", `{"title":"override test"}`)
-	mustRequestJSON[ChatSessionResponse](client, http.MethodPatch, "/hecate/v1/chat/sessions/"+created.Data.ID, `{"system_prompt":"session-level prompt"}`)
-
-	body := fmt.Sprintf(`{"model":"gpt-4o-mini","provider":"openai","session_id":"%s","messages":[{"role":"system","content":"per-call override"},{"role":"user","content":"hi"}]}`, created.Data.ID)
-	rec := performJSONRequest(t, handler, body)
-	if rec.Code != http.StatusOK {
-		t.Fatalf("chat status = %d, want 200", rec.Code)
-	}
-
-	got := provider.LastRequest()
-	if len(got.Messages) != 2 {
-		t.Fatalf("provider received %d messages, want exactly 2 (no double system); got %+v", len(got.Messages), got.Messages)
-	}
-	if got.Messages[0].Content != "per-call override" {
-		t.Fatalf("first message Content = %q, want per-call override (session prompt should NOT have been prepended on top)", got.Messages[0].Content)
-	}
-}
-
 func TestTasksCreateListAndGet(t *testing.T) {
 	t.Parallel()
 
@@ -5614,7 +5424,6 @@ func newTestAPIHandlerWithSettings(logger *slog.Logger, items []providers.Provid
 		Tracer:          profiler.NewInMemoryTracer(nil),
 		Metrics:         telemetry.NewMetrics(),
 		Retention:       retentionManager,
-		ChatSessions:    chatstate.NewMemoryStore(),
 	})
 
 	cfg.Governor = governorCfg
@@ -5632,14 +5441,13 @@ func newUsageTestHandlerWithConfig(logger *slog.Logger, cfg config.Config, usage
 	providerCatalog := catalog.NewRegistryCatalog(registry, nil)
 	governorCfg := mergeGovernorDefaults(cfg.Governor)
 	service := gateway.NewService(gateway.Dependencies{
-		Logger:       logger,
-		Router:       router.NewRuleRouter("gpt-4o-mini", providerCatalog),
-		Catalog:      providerCatalog,
-		Governor:     governor.NewStaticGovernor(governorCfg, usageStore, usageStore),
-		Providers:    registry,
-		Tracer:       profiler.NewInMemoryTracer(nil),
-		Metrics:      telemetry.NewMetrics(),
-		ChatSessions: chatstate.NewMemoryStore(),
+		Logger:    logger,
+		Router:    router.NewRuleRouter("gpt-4o-mini", providerCatalog),
+		Catalog:   providerCatalog,
+		Governor:  governor.NewStaticGovernor(governorCfg, usageStore, usageStore),
+		Providers: registry,
+		Tracer:    profiler.NewInMemoryTracer(nil),
+		Metrics:   telemetry.NewMetrics(),
 	})
 
 	handler := NewHandler(cfg, logger, service, cpStore, nil, nil)

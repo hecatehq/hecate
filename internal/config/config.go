@@ -189,8 +189,6 @@ type ProviderConfig struct {
 
 type ChatConfig struct {
 	SessionsBackend string
-	SessionsKey     string
-	SessionLimit    int
 }
 
 type OTelSignalConfig struct {
@@ -401,8 +399,6 @@ func LoadFromEnv() Config {
 		},
 		Chat: ChatConfig{
 			SessionsBackend: getEnv("GATEWAY_CHAT_SESSIONS_BACKEND", "memory"),
-			SessionsKey:     getEnv("GATEWAY_CHAT_SESSIONS_KEY", "chat-sessions"),
-			SessionLimit:    getEnvInt("GATEWAY_CHAT_SESSIONS_LIMIT", 50),
 		},
 		OTel: loadOTelFromEnv(),
 		Governor: GovernorConfig{

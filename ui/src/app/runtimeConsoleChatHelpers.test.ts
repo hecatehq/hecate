@@ -3,9 +3,6 @@ import { describe, expect, it } from "vitest";
 import type {
   AgentChatApprovalRecord,
   AgentChatSessionRecord,
-  ChatProviderCallRecord,
-  ChatSessionMessageRecord,
-  ChatSessionRecord,
   ModelRecord,
   ProviderPresetRecord,
   ProviderRecord,
@@ -14,7 +11,6 @@ import type {
 import {
   approvalRecordToPending,
   buildAssistantToolCallMessage,
-  buildMessagesForSubmission,
   buildSyntheticChatResult,
   defaultModelForProvider,
   defaultProviderForChat,
@@ -22,34 +18,7 @@ import {
   humanizeChatError,
   isModelValidForProvider,
   renderAgentChatSessionSummary,
-  renderChatSessionSummary,
 } from "./runtimeConsoleChatHelpers";
-
-let seq = 0;
-function persistedMessage(overrides: Partial<ChatSessionMessageRecord> = {}): ChatSessionMessageRecord {
-  return {
-    id: `m${++seq}`,
-    sequence: seq,
-    role: "user",
-    content: "",
-    ...overrides,
-  };
-}
-
-function providerCall(overrides: Partial<ChatProviderCallRecord> = {}): ChatProviderCallRecord {
-  return {
-    id: "c1",
-    request_id: "r1",
-    provider: "openai",
-    model: "gpt-4o",
-    cost_micros_usd: 0,
-    cost_usd: "0",
-    prompt_tokens: 0,
-    completion_tokens: 0,
-    total_tokens: 0,
-    ...overrides,
-  };
-}
 
 function emptyRuntimeHeaders(overrides: Partial<RuntimeHeaders> = {}): RuntimeHeaders {
   return {
@@ -138,32 +107,6 @@ describe("deriveChatSessionTitle", () => {
     const out = deriveChatSessionTitle(long);
     expect(out).toHaveLength(48);
     expect(out.endsWith("...")).toBe(true);
-  });
-});
-
-describe("buildMessagesForSubmission", () => {
-  it("prepends the system prompt and appends the new user message", () => {
-    const out = buildMessagesForSubmission(null, "ping", "be terse");
-    expect(out).toEqual([
-      { role: "system", content: "be terse" },
-      { role: "user", content: "ping" },
-    ]);
-  });
-
-  it("includes prior session messages and skips pending placeholders", () => {
-    const session: ChatSessionRecord = {
-      id: "s1",
-      title: "t",
-      messages: [
-        persistedMessage({ id: "m1", role: "user", content: "earlier" }),
-        persistedMessage({ id: "pending-9", role: "assistant", content: "incomplete draft" }),
-        persistedMessage({ id: "m2", role: "assistant", content: "earlier reply" }),
-      ],
-    };
-    const out = buildMessagesForSubmission(session, "follow up");
-    expect(out.map((m) => m.content)).toEqual(["earlier", "earlier reply", "follow up"]);
-    // No system prompt prepended when none was supplied.
-    expect(out[0].role).toBe("user");
   });
 });
 
@@ -278,25 +221,6 @@ describe("isModelValidForProvider", () => {
   it("rejects models not listed by a provider record", () => {
     const providers = [provider({ name: "openai", default_model: "gpt-4o", models: ["gpt-4o"] })];
     expect(isModelValidForProvider("gpt-3.5", "openai", [], providers, [])).toBe(false);
-  });
-});
-
-describe("renderChatSessionSummary", () => {
-  it("derives counts and the last provider-call metadata", () => {
-    const session: ChatSessionRecord = {
-      id: "s1",
-      title: "t",
-      messages: [persistedMessage({ id: "m1", role: "user", content: "hi" })],
-      provider_calls: [
-        providerCall({ id: "c1", model: "old", request_id: "r1", cost_usd: "0.001" }),
-        providerCall({ id: "c2", model: "gpt-4o", request_id: "r2", cost_usd: "0.002" }),
-      ],
-    };
-    const out = renderChatSessionSummary(session);
-    expect(out.message_count).toBe(1);
-    expect(out.provider_call_count).toBe(2);
-    expect(out.last_model).toBe("gpt-4o");
-    expect(out.last_cost_usd).toBe("0.002");
   });
 });
 

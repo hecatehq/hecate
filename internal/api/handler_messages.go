@@ -55,16 +55,6 @@ func (h *Handler) HandleMessages(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	if internalReq.SessionID != "" {
-		if _, err := h.service.RecordChatExchange(ctx, internalReq.SessionID, internalReq, result); err != nil {
-			telemetry.Warn(h.logger, ctx, "gateway.chat.sessions.record_failed",
-				slog.String("event.name", "gateway.chat.sessions.record_failed"),
-				slog.String("hecate.chat.session_id", internalReq.SessionID),
-				slog.Any("error", err),
-			)
-		}
-	}
-
 	wireResp := renderAnthropicMessagesResponse(result.Response)
 	applyRuntimeHeaders(w, result.Metadata.Provider, result.Metadata.ProviderKind, result.Metadata.RouteReason,
 		result.Metadata.RequestedModel, result.Metadata.CanonicalRequestedModel,
@@ -239,8 +229,6 @@ func normalizeAnthropicRequest(req AnthropicMessagesRequest, requestID string) (
 
 	return types.ChatRequest{
 		RequestID:     requestID,
-		SessionID:     req.SessionID,
-		SessionTitle:  req.SessionTitle,
 		Model:         req.Model,
 		Messages:      messages,
 		MaxTokens:     req.MaxTokens,

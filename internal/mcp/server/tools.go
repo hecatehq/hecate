@@ -64,20 +64,6 @@ func RegisterDefaultTools(s *Server, client *GatewayClient) {
 	}, getTaskStatusHandler(client))
 
 	s.RegisterTool(mcp.Tool{
-		Name:        "list_chat_sessions",
-		Title:       "List chat sessions",
-		Description: "List recent chat sessions on the Hecate gateway. Returns each session's id, title, turn count, and last-updated time.",
-		InputSchema: json.RawMessage(`{
-			"type": "object",
-			"properties": {
-				"limit": {"type": "integer", "minimum": 1, "maximum": 100, "default": 20, "description": "Maximum number of sessions to return."},
-				"tenant": {"type": "string", "description": "Filter to a single tenant id. Empty = all tenants the caller can see."}
-			}
-		}`),
-		Annotations: readOnly,
-	}, listChatSessionsHandler(client))
-
-	s.RegisterTool(mcp.Tool{
 		Name:        "summarize_recent_traffic",
 		Title:       "Summarize recent traffic",
 		Description: "Summarize recent gateway request activity: total count, by-provider breakdown, error rate, and average latency.",
@@ -280,64 +266,6 @@ func getTaskStatusHandler(client *GatewayClient) ToolHandler {
 		}
 		if t.UpdatedAt != "" {
 			fmt.Fprintf(&b, "Updated: %s\n", t.UpdatedAt)
-		}
-		return mcp.CallToolResult{Content: mcp.TextContent(b.String())}, nil
-	}
-}
-
-// ─── list_chat_sessions ──────────────────────────────────────────────
-
-type listChatSessionsArgs struct {
-	Limit  int    `json:"limit"`
-	Tenant string `json:"tenant"`
-}
-
-type listChatSessionsResponse struct {
-	Data []struct {
-		ID                string `json:"id"`
-		Title             string `json:"title"`
-		Tenant            string `json:"tenant"`
-		MessageCount      int    `json:"message_count"`
-		ProviderCallCount int    `json:"provider_call_count"`
-		UpdatedAt         string `json:"updated_at"`
-	} `json:"data"`
-}
-
-func listChatSessionsHandler(client *GatewayClient) ToolHandler {
-	return func(ctx context.Context, raw json.RawMessage) (mcp.CallToolResult, error) {
-		var args listChatSessionsArgs
-		if len(raw) > 0 {
-			_ = json.Unmarshal(raw, &args)
-		}
-		if args.Limit <= 0 {
-			args.Limit = 20
-		}
-		q := url.Values{}
-		q.Set("limit", fmt.Sprintf("%d", args.Limit))
-		q.Set("tenant", args.Tenant)
-
-		var resp listChatSessionsResponse
-		if err := client.Get(ctx, "/hecate/v1/chat/sessions", q, &resp); err != nil {
-			return mcp.CallToolResult{}, err
-		}
-		if len(resp.Data) == 0 {
-			return mcp.CallToolResult{Content: mcp.TextContent("No chat sessions yet.")}, nil
-		}
-		var b strings.Builder
-		fmt.Fprintf(&b, "Found %d chat session(s):\n\n", len(resp.Data))
-		for _, sess := range resp.Data {
-			title := sess.Title
-			if title == "" {
-				title = "(untitled)"
-			}
-			fmt.Fprintf(&b, "- %s · %s (%d messages, %d calls)", shortID(sess.ID), title, sess.MessageCount, sess.ProviderCallCount)
-			if sess.Tenant != "" {
-				fmt.Fprintf(&b, " · tenant=%s", sess.Tenant)
-			}
-			if sess.UpdatedAt != "" {
-				fmt.Fprintf(&b, " · updated %s", sess.UpdatedAt)
-			}
-			b.WriteByte('\n')
 		}
 		return mcp.CallToolResult{Content: mcp.TextContent(b.String())}, nil
 	}

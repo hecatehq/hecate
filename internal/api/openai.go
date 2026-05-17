@@ -97,17 +97,15 @@ type OpenAIContentImageURL struct {
 }
 
 type OpenAIChatCompletionRequest struct {
-	Model        string              `json:"model"`
-	Provider     string              `json:"provider,omitempty"`
-	SessionID    string              `json:"session_id,omitempty"`
-	SessionTitle string              `json:"session_title,omitempty"`
-	Messages     []OpenAIChatMessage `json:"messages"`
-	MaxTokens    int                 `json:"max_tokens,omitempty"`
-	Temperature  float64             `json:"temperature,omitempty"`
-	User         string              `json:"user,omitempty"`
-	Tools        []OpenAITool        `json:"tools,omitempty"`
-	ToolChoice   json.RawMessage     `json:"tool_choice,omitempty"`
-	Stream       bool                `json:"stream,omitempty"`
+	Model       string              `json:"model"`
+	Provider    string              `json:"provider,omitempty"`
+	Messages    []OpenAIChatMessage `json:"messages"`
+	MaxTokens   int                 `json:"max_tokens,omitempty"`
+	Temperature float64             `json:"temperature,omitempty"`
+	User        string              `json:"user,omitempty"`
+	Tools       []OpenAITool        `json:"tools,omitempty"`
+	ToolChoice  json.RawMessage     `json:"tool_choice,omitempty"`
+	Stream      bool                `json:"stream,omitempty"`
 	// ResponseFormat carries the OpenAI structured-output knob:
 	// {"type":"text"|"json_object"|"json_schema",...}. Passed
 	// through verbatim to OpenAI-compat upstreams; Anthropic
@@ -264,99 +262,11 @@ type SessionResponse struct {
 	Data   SessionResponseItem `json:"data"`
 }
 
-type ChatSessionsResponse struct {
-	Object  string                   `json:"object"`
-	Data    []ChatSessionSummaryItem `json:"data"`
-	HasMore bool                     `json:"has_more"`
-}
-
-type ChatSessionResponse struct {
-	Object string          `json:"object"`
-	Data   ChatSessionItem `json:"data"`
-}
-
-type CreateChatSessionRequest struct {
-	Title string `json:"title"`
-}
-
-// UpdateChatSessionRequest patches an existing chat session. Both fields
-// are pointers so a request can leave a field unchanged by omitting it
-// entirely (`null` and "absent" are treated the same — leave alone). To
-// clear a field, send the empty string explicitly.
-type UpdateChatSessionRequest struct {
-	Title        *string `json:"title,omitempty"`
-	SystemPrompt *string `json:"system_prompt,omitempty"`
-}
-
 // SessionResponseItem reports who is calling. In single-user mode this
 // always describes the anonymous local operator — auth was removed and
 // the gateway treats every caller as fully privileged.
 type SessionResponseItem struct {
 	Role string `json:"role"`
-}
-
-type ChatSessionSummaryItem struct {
-	ID                string `json:"id"`
-	Title             string `json:"title"`
-	MessageCount      int    `json:"message_count"`
-	ProviderCallCount int    `json:"provider_call_count"`
-	CreatedAt         string `json:"created_at,omitempty"`
-	UpdatedAt         string `json:"updated_at,omitempty"`
-	LastModel         string `json:"last_model,omitempty"`
-	LastProvider      string `json:"last_provider,omitempty"`
-	LastCostUSD       string `json:"last_cost_usd,omitempty"`
-	LastRequestID     string `json:"last_request_id,omitempty"`
-}
-
-// ChatSessionItem is the full session payload returned by the
-// session-fetch endpoint. Messages and ProviderCalls are flat,
-// independently-iterable arrays — the relationship between them is
-// expressed through ChatSessionMessageItem.ProducedByCallID, which
-// references ChatProviderCallItem.ID. The UI builds whatever
-// projection it wants (exchange-grouped view, raw transcript, etc.).
-type ChatSessionItem struct {
-	ID            string                   `json:"id"`
-	Title         string                   `json:"title"`
-	SystemPrompt  string                   `json:"system_prompt,omitempty"`
-	CreatedAt     string                   `json:"created_at,omitempty"`
-	UpdatedAt     string                   `json:"updated_at,omitempty"`
-	Messages      []ChatSessionMessageItem `json:"messages"`
-	ProviderCalls []ChatProviderCallItem   `json:"provider_calls"`
-}
-
-// ChatSessionMessageItem is one row from the session's flat message
-// stream. Sequence is monotonic per session and is the authoritative
-// ordering. ProducedByCallID, when set, points at the
-// ChatProviderCallItem.ID that emitted this message (assistant or
-// runtime-emitted tool messages); empty for client-supplied messages
-// (user, system, client-injected tool results). The OpenAIChatMessage
-// embed flattens role / content / tool_calls / content_blocks /
-// tool_error onto the same JSON object.
-type ChatSessionMessageItem struct {
-	ID               string `json:"id"`
-	Sequence         int    `json:"sequence"`
-	ProducedByCallID string `json:"produced_by_call_id,omitempty"`
-	CreatedAt        string `json:"created_at,omitempty"`
-	OpenAIChatMessage
-}
-
-// ChatProviderCallItem is one row from the session's provider-call
-// observability stream. Each row corresponds to one upstream
-// chat-completion request (its routing decision, model, tokens, cost).
-type ChatProviderCallItem struct {
-	ID                string `json:"id"`
-	RequestID         string `json:"request_id"`
-	RequestedProvider string `json:"requested_provider,omitempty"`
-	Provider          string `json:"provider"`
-	ProviderKind      string `json:"provider_kind,omitempty"`
-	RequestedModel    string `json:"requested_model,omitempty"`
-	Model             string `json:"model"`
-	CostMicrosUSD     int64  `json:"cost_micros_usd"`
-	CostUSD           string `json:"cost_usd"`
-	PromptTokens      int    `json:"prompt_tokens"`
-	CompletionTokens  int    `json:"completion_tokens"`
-	TotalTokens       int    `json:"total_tokens"`
-	CreatedAt         string `json:"created_at,omitempty"`
 }
 
 type OpenAIModelData struct {

@@ -7,9 +7,7 @@ import (
 	"log/slog"
 	"net/http"
 	"strconv"
-	"strings"
 
-	"github.com/hecate/agent-runtime/internal/gateway"
 	"github.com/hecate/agent-runtime/internal/providers"
 	"github.com/hecate/agent-runtime/internal/requestscope"
 	"github.com/hecate/agent-runtime/internal/telemetry"
@@ -33,13 +31,6 @@ func (h *Handler) HandleChatCompletions(w http.ResponseWriter, r *http.Request) 
 		return
 	}
 
-	// If the request targets a session that has a stored system prompt,
-	// prepend it as a system-role message — but only when the request
-	// doesn't already lead with one. This lets the session prompt act as
-	// the default while still allowing the client to override per-call by
-	// sending its own system message at index 0.
-	h.applySessionSystemPrompt(ctx, &internalReq)
-
 	if internalReq.Stream {
 		h.handleChatCompletionsStream(w, r, ctx, internalReq)
 		return
@@ -55,16 +46,6 @@ func (h *Handler) HandleChatCompletions(w http.ResponseWriter, r *http.Request) 
 
 		writeOpenAIGatewayError(w, classifyGatewayError(err), h.gatewayErrorDetails(ctx, internalReq.RequestID))
 		return
-	}
-
-	if internalReq.SessionID != "" {
-		if _, err := h.service.RecordChatExchange(ctx, internalReq.SessionID, internalReq, result); err != nil {
-			telemetry.Warn(h.logger, ctx, "gateway.chat.sessions.record_failed",
-				slog.String("event.name", "gateway.chat.sessions.record_failed"),
-				slog.String("hecate.chat.session_id", internalReq.SessionID),
-				slog.Any("error", err),
-			)
-		}
 	}
 
 	wireResp := renderChatCompletionResponse(result.Response)
@@ -120,8 +101,7 @@ func (h *Handler) handleChatCompletionsStream(w http.ResponseWriter, r *http.Req
 	w.Header().Set("X-Span-Id", handle.Metadata.SpanID)
 	w.WriteHeader(http.StatusOK)
 
-	captured, err := handle.ExecuteAndCapture(flushWriter{w, flusher})
-	if err != nil {
+	if _, err := handle.ExecuteAndCapture(flushWriter{w, flusher}); err != nil {
 		telemetry.Error(h.logger, streamCtx, "gen_ai.gateway.stream.failed",
 			slog.String("event.name", "gen_ai.gateway.stream.failed"),
 			slog.String(telemetry.AttrGenAIRequestModel, req.Model),
@@ -137,38 +117,6 @@ func (h *Handler) handleChatCompletionsStream(w http.ResponseWriter, r *http.Req
 		flusher.Flush()
 		return
 	}
-
-	if req.SessionID != "" && captured.Content != "" {
-		resolvedModel := captured.Model
-		if resolvedModel == "" {
-			resolvedModel = handle.Metadata.Model
-		}
-		syntheticResult := &gateway.ChatResult{
-			Response: &types.ChatResponse{
-				ID:    handle.Metadata.RequestID,
-				Model: resolvedModel,
-				Choices: []types.ChatChoice{{
-					Index:        0,
-					Message:      types.Message{Role: "assistant", Content: captured.Content},
-					FinishReason: captured.FinishReason,
-				}},
-			},
-			Metadata: gateway.ResponseMetadata{
-				RequestID:    handle.Metadata.RequestID,
-				Provider:     handle.Metadata.Provider,
-				ProviderKind: handle.Metadata.ProviderKind,
-				RouteReason:  handle.Metadata.RouteReason,
-				Model:        resolvedModel,
-			},
-		}
-		if _, err := h.service.RecordChatExchange(streamCtx, req.SessionID, req, syntheticResult); err != nil {
-			telemetry.Warn(h.logger, streamCtx, "gateway.chat.sessions.stream_record_failed",
-				slog.String("event.name", "gateway.chat.sessions.stream_record_failed"),
-				slog.String("hecate.chat.session_id", req.SessionID),
-				slog.Any("error", err),
-			)
-		}
-	}
 }
 
 type flushWriter struct {
@@ -178,31 +126,6 @@ type flushWriter struct {
 
 func (fw flushWriter) Write(p []byte) (int, error) { return fw.w.Write(p) }
 func (fw flushWriter) Flush()                      { fw.flusher.Flush() }
-
-// applySessionSystemPrompt looks up the session referenced by req.SessionID
-// (if any) and, if the session has a non-empty SystemPrompt, prepends it as
-// a system-role message. The prepend is skipped when the request already
-// has a system message at index 0 — that lets clients override per-call.
-// Lookup failures are silently ignored: a flaky session store shouldn't
-// kill the chat path; the worst case is the session prompt is missing
-// from this one request.
-func (h *Handler) applySessionSystemPrompt(ctx context.Context, req *types.ChatRequest) {
-	if req == nil || req.SessionID == "" {
-		return
-	}
-	if len(req.Messages) > 0 && strings.EqualFold(req.Messages[0].Role, "system") {
-		return
-	}
-	result, err := h.service.GetChatSession(ctx, req.SessionID)
-	if err != nil || result == nil {
-		return
-	}
-	if result.Session.SystemPrompt == "" {
-		return
-	}
-	prompt := types.Message{Role: "system", Content: result.Session.SystemPrompt}
-	req.Messages = append([]types.Message{prompt}, req.Messages...)
-}
 
 func normalizeChatRequest(req OpenAIChatCompletionRequest, requestID string) (types.ChatRequest, error) {
 	messages := make([]types.Message, 0, len(req.Messages))
@@ -264,8 +187,6 @@ func normalizeChatRequest(req OpenAIChatCompletionRequest, requestID string) (ty
 
 	return types.ChatRequest{
 		RequestID:         requestID,
-		SessionID:         req.SessionID,
-		SessionTitle:      req.SessionTitle,
 		Model:             req.Model,
 		Messages:          messages,
 		Temperature:       req.Temperature,

@@ -1,8 +1,6 @@
 import type {
   UsageSummaryResponse,
   ChatResponse,
-  ChatSessionResponse,
-  ChatSessionsResponse,
   ConfiguredStateResponse,
   HealthResponse,
   MCPCacheStatsResponse,
@@ -132,10 +130,6 @@ export type PolicyRuleUpsertPayload = {
 
 export type RetentionRunPayload = {
   subsystems: string[];
-};
-
-export type CreateChatSessionPayload = {
-  title: string;
 };
 
 export type CreateAgentChatSessionPayload = {
@@ -304,28 +298,6 @@ export async function getRecentTraces(limit = 50): Promise<TraceListResponse> {
 
 export async function getUsageSummary(query = ""): Promise<UsageSummaryResponse> {
   return fetchJSON<UsageSummaryResponse>(`${HECATE_API}/usage/summary${query}`);
-}
-
-export async function getChatSessions(limit = 20, offset = 0): Promise<ChatSessionsResponse> {
-  const params = new URLSearchParams({ limit: String(limit) });
-  if (offset > 0) params.set("offset", String(offset));
-  return fetchJSON<ChatSessionsResponse>(`${HECATE_API}/chat/sessions?${params.toString()}`);
-}
-
-export async function createChatSession(payload: CreateChatSessionPayload): Promise<ChatSessionResponse> {
-  return fetchJSON<ChatSessionResponse>(`${HECATE_API}/chat/sessions`, { method: "POST", body: payload });
-}
-
-export async function getChatSession(id: string): Promise<ChatSessionResponse> {
-  return fetchJSON<ChatSessionResponse>(`${HECATE_API}/chat/sessions/${encodeURIComponent(id)}`);
-}
-
-export async function deleteChatSession(id: string): Promise<void> {
-  await fetchJSON<unknown>(`${HECATE_API}/chat/sessions/${encodeURIComponent(id)}`, { method: "DELETE" });
-}
-
-export async function updateChatSession(id: string, title: string): Promise<ChatSessionResponse> {
-  return fetchJSON<ChatSessionResponse>(`${HECATE_API}/chat/sessions/${encodeURIComponent(id)}`, { method: "PATCH", body: { title } });
 }
 
 export async function getAgentChatSessions(): Promise<AgentChatSessionsResponse> {
