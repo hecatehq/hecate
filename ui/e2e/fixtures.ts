@@ -366,6 +366,16 @@ export async function mockGatewayAPIs(page: Page, opts: GatewayMockOptions = {})
     r.fulfill(ok({ object: "list", data: [] })),
   );
 
+  // Usage workspace: read-only cloud-token accounting. Default to empty so
+  // the empty-state copy is what specs assert against; specs that need
+  // populated data can re-register the route.
+  await page.route("/hecate/v1/usage/events*", r =>
+    r.fulfill(ok({ object: "list", data: [] })),
+  );
+  await page.route("/hecate/v1/usage/summary*", r =>
+    r.fulfill(ok({ object: "usage_summary", data: null })),
+  );
+
   // Bare /hecate/v1/settings (status) — register FIRST so the more-specific
   // /hecate/v1/settings/providers routes registered below win. Playwright
   // matches routes in REVERSE registration order (most recent first), so
