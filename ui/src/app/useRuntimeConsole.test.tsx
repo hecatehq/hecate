@@ -7,6 +7,7 @@ import { ChatProvider } from "./state/chat";
 import { ProvidersAndModelsProvider } from "./state/providersAndModels";
 import { RetentionProvider } from "./state/retention";
 import { RuntimeProvider } from "./state/runtime";
+import { SettingsProvider } from "./state/settings";
 import { UsageProvider } from "./state/usage";
 import { useRuntimeConsole } from "./useRuntimeConsole";
 
@@ -22,7 +23,9 @@ function SliceProviders({ children }: { children: ReactNode }) {
         <ProvidersAndModelsProvider>
           <ChatProvider>
             <RetentionProvider>
-              <ApprovalsProvider>{children}</ApprovalsProvider>
+              <ApprovalsProvider>
+                <SettingsProvider>{children}</SettingsProvider>
+              </ApprovalsProvider>
             </RetentionProvider>
           </ChatProvider>
         </ProvidersAndModelsProvider>

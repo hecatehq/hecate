@@ -7,6 +7,7 @@ import { ChatProvider } from "./state/chat";
 import { ProvidersAndModelsProvider } from "./state/providersAndModels";
 import { RetentionProvider } from "./state/retention";
 import { RuntimeProvider } from "./state/runtime";
+import { SettingsProvider } from "./state/settings";
 import { UsageProvider } from "./state/usage";
 import { usePersistedState } from "../lib/persistedState";
 import { isTauriRuntime } from "../lib/tauri";
@@ -31,9 +32,11 @@ export default function App() {
           <ChatProvider>
             <RetentionProvider>
               <ApprovalsProvider>
-                <RuntimeConsoleContextProvider>
-                  <AppConsole />
-                </RuntimeConsoleContextProvider>
+                <SettingsProvider>
+                  <RuntimeConsoleContextProvider>
+                    <AppConsole />
+                  </RuntimeConsoleContextProvider>
+                </SettingsProvider>
               </ApprovalsProvider>
             </RetentionProvider>
           </ChatProvider>
