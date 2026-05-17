@@ -528,17 +528,6 @@ func (e *AgentLoopExecutor) Execute(ctx context.Context, spec ExecutionSpec) (*E
 	return finalResult, nil
 }
 
-// recordMCPCallTelemetry emits the per-dispatch metrics and run event
-// for one MCP tool call. Pulled out so the four exit paths in
-// dispatchMCPToolCall (blocked / dispatched / tool_error / failed)
-// share a single telemetry surface — operators get a coherent
-// counter/histogram/event triple regardless of which branch fired.
-//
-// All sources are nil-safe: e.metrics may be unset (tests, early
-// boot) and spec.EmitRunEvent may be nil (executors invoked outside
-// the runner's wiring). Either side missing degrades gracefully to
-// "no signal" rather than crashing the dispatch.
-
 func emitAgentTurnStarted(spec ExecutionSpec, turn int, req types.ChatRequest) {
 	if spec.EmitRunEvent == nil {
 		return
