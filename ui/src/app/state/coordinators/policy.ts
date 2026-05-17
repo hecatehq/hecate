@@ -3,6 +3,9 @@
 // also populates the inline settings banner) for the same
 // can't-miss feedback contract the tenant + API-key flows use.
 
+import { useContext } from "react";
+
+import { applyOverride, CoordinatorOverridesContext } from "./overrides";
 import {
   type PolicyRuleUpsertPayload,
   deletePolicyRule as deletePolicyRuleRequest,
@@ -37,5 +40,6 @@ export function usePolicyActions(params: UsePolicyActionsParams) {
     });
   }
 
-  return { upsertPolicyRule, deletePolicyRule };
+  const overrides = useContext(CoordinatorOverridesContext);
+  return applyOverride({ upsertPolicyRule, deletePolicyRule }, overrides?.policy);
 }

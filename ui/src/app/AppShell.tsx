@@ -1,7 +1,13 @@
 import { Suspense, lazy, useEffect, useState } from "react";
 
-import { useRuntimeConsoleContext } from "./RuntimeConsoleContext";
-import type { RuntimeConsoleViewModel } from "./useRuntimeConsole";
+import { useChat, type ChatState } from "./state/chat";
+import { useProvidersAndModels } from "./state/providersAndModels";
+import { useRuntime } from "./state/runtime";
+import { useSettings } from "./state/settings";
+import { useChatTarget } from "./state/derived";
+import { useChatActions } from "./state/coordinators/chat";
+import { useWiredSettingsActions } from "./state/coordinators/wired";
+import { deriveSessionState } from "./runtimeConsoleDashboard";
 import type { ChatUsageRecord } from "../types/chat";
 import { UpdateBanner } from "../features/shared/UpdateBanner";
 import { usePersistedState } from "../lib/persistedState";
@@ -49,7 +55,6 @@ type WorkspaceDefinition = {
   icon: React.ReactNode;
 };
 
-type ConsoleState = RuntimeConsoleViewModel["state"];
 type TaskFocusRequest = { taskID: string; runID?: string; nonce: number };
 type TraceFocusRequest = { requestID: string; nonce: number };
 
@@ -158,11 +163,11 @@ export function ConsoleShell({
   activeWorkspace: WorkspaceID;
   onSelectWorkspace: (workspace: WorkspaceID) => void;
 }) {
-  const { state } = useRuntimeConsoleContext();
+  const runtime = useRuntime();
   // No auth: render the full console immediately. The brief
   // first-load splash stays so the workspace doesn't flash with
   // stale state before /healthz returns.
-  if (state.health === null && !state.error) {
+  if (runtime.state.health === null && !runtime.state.error) {
     return <AuthLoadingShell />;
   }
   return (
@@ -230,7 +235,14 @@ function AuthenticatedShell({
   activeWorkspace: WorkspaceID;
   onSelectWorkspace: (workspace: WorkspaceID) => void;
 }) {
-  const { state, actions } = useRuntimeConsoleContext();
+  const runtime = useRuntime();
+  const chat = useChat();
+  const providersAndModels = useProvidersAndModels();
+  const settings = useSettings();
+  const chatTarget = useChatTarget();
+  const { actions: settingsActions } = useWiredSettingsActions();
+  const chatActions = useChatActions({ chatTarget, setNoticeMessage: settingsActions.setNoticeMessage });
+  const session = deriveSessionState(runtime.state.sessionInfo);
   const workspaces = getAvailableWorkspaces();
   const [taskFocusRequest, setTaskFocusRequest] = useState<TaskFocusRequest | null>(null);
   const [traceFocusRequest, setTraceFocusRequest] = useState<TraceFocusRequest | null>(null);
@@ -242,8 +254,8 @@ function AuthenticatedShell({
   }
 
   function openChatFromTask(sessionID: string) {
-    actions.setChatTarget("agent");
-    void actions.selectChatSession(sessionID);
+    chatActions.setChatTarget("agent");
+    void chatActions.selectChatSession(sessionID);
     onSelectWorkspace("chats");
   }
 
@@ -253,9 +265,9 @@ function AuthenticatedShell({
   }
 
   const isBare = BARE_WORKSPACES.includes(activeWorkspace);
-  const agentWorkspace = state.activeChatSession?.workspace || state.agentWorkspace;
-  const agentWorkspaceBranch = state.activeChatSession?.workspace_branch || state.agentWorkspaceBranch;
-  const agentUsage = latestAgentUsage(state);
+  const agentWorkspace = chat.state.activeChatSession?.workspace || chat.state.agentWorkspace;
+  const agentWorkspaceBranch = chat.state.activeChatSession?.workspace_branch || chat.state.agentWorkspaceBranch;
+  const agentUsage = latestAgentUsage(chat.state.activeChatSession);
   const agentUsageLabel = formatAgentUsagePill(agentUsage);
 
   // Only macOS gets the overlay-titlebar surface. titleBarStyle:
@@ -309,7 +321,7 @@ function AuthenticatedShell({
         {/* Main content */}
         <main className="hecate-content">
           {!hasOverlayTitlebar && <UpdateBanner />}
-          {state.error && <div className="page-banner page-banner--error">{state.error}</div>}
+          {runtime.state.error && <div className="page-banner page-banner--error">{runtime.state.error}</div>}
           <div className={`console-content${isBare ? " console-content--bare" : ""}`}>
             <Suspense fallback={<WorkspaceFallback />}>
               {activeWorkspace === "overview"   && <ObservabilityView onNavigate={onSelectWorkspace} focusRequest={traceFocusRequest} />}
@@ -326,14 +338,14 @@ function AuthenticatedShell({
       {/* Status bar */}
       <div className="hecate-statusbar">
         <span className="hecate-statusbar__brand">hecate</span>
-        {state.health?.version && (
+        {runtime.state.health?.version && (
           <>
             <span className="hecate-statusbar__sep">|</span>
-            <span style={{ fontFamily: "var(--font-mono)" }}>{state.health.version}</span>
+            <span style={{ fontFamily: "var(--font-mono)" }}>{runtime.state.health.version}</span>
           </>
         )}
         <span className="hecate-statusbar__sep">|</span>
-        <span>{state.session.label}</span>
+        <span>{session.label}</span>
         <span className="hecate-statusbar__sep">|</span>
         {/* "configured" = providers in the CP store (operator-added).
             "models" is intersected with the configured set so the count
@@ -343,14 +355,14 @@ function AuthenticatedShell({
             see the unfiltered model list since the runtime is their
             only source of truth. */}
         {(() => {
-          const configured = state.settingsConfig?.providers ?? null;
+          const configured = settings.state.config?.providers ?? null;
           const configuredCount = configured?.length ?? 0;
           const modelCount = configured
-            ? state.models.filter(m => {
+            ? providersAndModels.state.models.filter(m => {
                 const p = m.metadata?.provider;
                 return typeof p === "string" && configured.some(c => c.id === p);
               }).length
-            : state.models.length;
+            : providersAndModels.state.models.length;
           return (
             <>
               <span>{configuredCount} configured</span>
@@ -359,7 +371,7 @@ function AuthenticatedShell({
             </>
           );
         })()}
-        {activeWorkspace === "chats" && state.chatTarget !== "model" && agentWorkspace && (
+        {activeWorkspace === "chats" && chatTarget !== "model" && agentWorkspace && (
           <>
             <span className="hecate-statusbar__sep">|</span>
             <span className="hecate-statusbar__path" title={agentWorkspace}>
@@ -382,18 +394,18 @@ function AuthenticatedShell({
       </div>
 
       {/* Toast notifications */}
-      {!state.error && state.notice && (
-        <div className={`toast toast--${state.notice.kind}`} role="alert">
-          <span>{state.notice.message}</span>
-          <button className="toast__dismiss" onClick={actions.dismissNotice} type="button">✕</button>
+      {!runtime.state.error && settings.state.notice && (
+        <div className={`toast toast--${settings.state.notice.kind}`} role="alert">
+          <span>{settings.state.notice.message}</span>
+          <button className="toast__dismiss" onClick={settings.actions.dismissNotice} type="button">✕</button>
         </div>
       )}
     </div>
   );
 }
 
-function latestAgentUsage(state: ConsoleState): ChatUsageRecord | undefined {
-  const messages = state.activeChatSession?.messages ?? [];
+function latestAgentUsage(activeChatSession: ChatState["activeChatSession"]): ChatUsageRecord | undefined {
+  const messages = activeChatSession?.messages ?? [];
   for (let i = messages.length - 1; i >= 0; i -= 1) {
     const usage = messages[i].usage;
     if (usage && hasAgentUsage(usage)) return usage;

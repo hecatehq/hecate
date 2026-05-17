@@ -2,20 +2,21 @@ import { act, renderHook, waitFor, type RenderHookOptions } from "@testing-libra
 import { type ReactNode } from "react";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
-import { ApprovalsProvider } from "./state/approvals";
-import { ChatProvider } from "./state/chat";
-import { ProvidersAndModelsProvider } from "./state/providersAndModels";
-import { RetentionProvider } from "./state/retention";
-import { RuntimeProvider } from "./state/runtime";
-import { SettingsProvider } from "./state/settings";
-import { UsageProvider } from "./state/usage";
-import { useRuntimeConsole } from "./useRuntimeConsole";
+import { ApprovalsProvider } from "../app/state/approvals";
+import { ChatProvider } from "../app/state/chat";
+import { ProvidersAndModelsProvider } from "../app/state/providersAndModels";
+import { RetentionProvider } from "../app/state/retention";
+import { RuntimeProvider } from "../app/state/runtime";
+import { SettingsProvider } from "../app/state/settings";
+import { UsageProvider } from "../app/state/usage";
+import { useRuntimeConsole } from "./runtime-console-test-composer";
 
-// useRuntimeConsole consumes slice contexts (runtime, usage,
-// providersAndModels, chat, retention, approvals, and more as
-// slices are added). Every renderHook call needs the matching
-// providers above it; this wrapper composes them so the test
-// bodies don't have to thread the chain through each call.
+// This suite is the canonical regression net for the composed
+// slice + coordinator viewmodel — historically owned by
+// useRuntimeConsole.test.tsx, now scoped to the test-only composer
+// after the production facade was retired. Each renderHook call
+// needs the full provider chain; the wrapper composes them so the
+// test bodies don't have to thread it through every call.
 function SliceProviders({ children }: { children: ReactNode }) {
   return (
     <RuntimeProvider>
@@ -2221,25 +2222,25 @@ describe("useRuntimeConsole", () => {
 
 describe("humanizeChatError", () => {
   it("rewrites the api-key-required message into actionable copy", async () => {
-    const { humanizeChatError } = await import("./useRuntimeConsole");
+    const { humanizeChatError } = await import("./runtime-console-test-composer");
     expect(humanizeChatError("api key is required for cloud provider openai when stub mode is disabled"))
       .toBe("openai has no API key. Open Connections and add one.");
   });
 
   it("preserves the provider name verbatim including hyphens / casing", async () => {
-    const { humanizeChatError } = await import("./useRuntimeConsole");
+    const { humanizeChatError } = await import("./runtime-console-test-composer");
     expect(humanizeChatError("api key is required for cloud provider together_ai when stub mode is disabled"))
       .toBe("together_ai has no API key. Open Connections and add one.");
   });
 
   it("passes unrelated errors through unchanged", async () => {
-    const { humanizeChatError } = await import("./useRuntimeConsole");
+    const { humanizeChatError } = await import("./runtime-console-test-composer");
     expect(humanizeChatError("rate limit exceeded")).toBe("rate limit exceeded");
     expect(humanizeChatError("")).toBe("");
   });
 
   it("humanizes busy, unroutable model, and upstream provider errors", async () => {
-    const { humanizeChatError } = await import("./useRuntimeConsole");
+    const { humanizeChatError } = await import("./runtime-console-test-composer");
     expect(humanizeChatError("Hecate Agent is already running for this chat session."))
       .toBe("Hecate Chat is still working on this task. Open the task, resolve approval, or stop it before sending another message.");
     expect(humanizeChatError("workspace is required"))

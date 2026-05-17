@@ -8,6 +8,9 @@
 // useRuntimeConsole resolves it through a ref so we don't depend
 // on creation order between hooks.
 
+import { useContext } from "react";
+
+import { applyOverride, CoordinatorOverridesContext } from "./overrides";
 import type { NoticeState } from "../settings";
 
 export type UseSettingsActionsParams = {
@@ -59,5 +62,9 @@ export function useSettingsActions(params: UseSettingsActionsParams): SettingsAc
     }
   }
 
-  return { setNoticeMessage, describeError, resetSettingsFeedback, runSettingsMutation };
+  const overrides = useContext(CoordinatorOverridesContext);
+  return applyOverride(
+    { setNoticeMessage, describeError, resetSettingsFeedback, runSettingsMutation },
+    overrides?.settings,
+  );
 }

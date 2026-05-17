@@ -1,5 +1,13 @@
 import { useEffect, useRef, useState } from "react";
-import { useRuntimeConsoleContext } from "../../app/RuntimeConsoleContext";
+import { useApprovals } from "../../app/state/approvals";
+import { useChat } from "../../app/state/chat";
+import { useProvidersAndModels } from "../../app/state/providersAndModels";
+import { useRuntime } from "../../app/state/runtime";
+import { useSettings } from "../../app/state/settings";
+import { useChatActions } from "../../app/state/coordinators/chat";
+import { useAgentAdapterActions } from "../../app/state/coordinators/agentAdapters";
+import { useChatTarget, useNewChatAgentID, useRuntimeDerivedState } from "../../app/state/derived";
+import { useWiredProviderActions, useWiredSettingsActions, useWiredDashboardActions } from "../../app/state/coordinators/wired";
 import { discoverLocalProviders } from "../../lib/api";
 import { resolveChatSetupRepairState, type ChatSetupRepairState } from "../../lib/chat-setup-readiness";
 import { describeGatewayError } from "../../lib/error-diagnostics";
@@ -30,7 +38,81 @@ type Props = {
 
 
 export function ChatView({ onNavigate, onOpenTask, onOpenTrace }: Props) {
-  const { state, actions } = useRuntimeConsoleContext();
+  const runtime = useRuntime();
+  const chat = useChat();
+  const providersAndModels = useProvidersAndModels();
+  const approvals = useApprovals();
+  const settings = useSettings();
+  const chatTarget = useChatTarget();
+  const newChatAgentID = useNewChatAgentID();
+  const derived = useRuntimeDerivedState();
+  const { actions: settingsActions } = useWiredSettingsActions();
+  const chatActions = useChatActions({ chatTarget, setNoticeMessage: settingsActions.setNoticeMessage });
+  const agentAdapterActions = useAgentAdapterActions({ setNoticeMessage: settingsActions.setNoticeMessage });
+  const providerActions = useWiredProviderActions();
+  const dashboardActions = useWiredDashboardActions();
+  // Compose the legacy `state` and `actions` lookalikes so the JSX
+  // below stays close to the pre-migration shape. Each field is read
+  // off the slice (or computed via a derived hook) the field used to
+  // live on; coordinator actions stay on `chatActions` / `providerActions`
+  // / `agentAdapterActions` so the call sites read the intent clearly.
+  const state = {
+    activeChatSession: chat.state.activeChatSession,
+    activeChatSessionID: chat.state.activeChatSessionID,
+    agentAdapterID: chat.state.agentAdapterID,
+    agentAdapters: providersAndModels.state.agentAdapters,
+    agentAdapterApprovalMode: providersAndModels.state.agentAdapterApprovalMode,
+    agentAdapterHealthByID: providersAndModels.state.agentAdapterHealthByID,
+    agentAdapterHealthLoadingByID: providersAndModels.state.agentAdapterHealthLoadingByID,
+    agentWorkspace: chat.state.agentWorkspace,
+    chatCancelling: chat.state.chatCancelling,
+    chatError: chat.state.chatError,
+    chatErrorCode: chat.state.chatErrorCode,
+    chatErrorStatus: chat.state.chatErrorStatus,
+    chatLoading: chat.state.chatLoading,
+    chatSessions: chat.state.chatSessions,
+    chatTarget,
+    hecateRTKAvailable: runtime.state.hecateRTKAvailable,
+    hecateRTKEnabled: runtime.state.hecateRTKEnabled,
+    hecateRTKPath: runtime.state.hecateRTKPath,
+    loading: runtime.state.loading,
+    message: runtime.state.message,
+    model: chat.state.model,
+    newChatAgentID,
+    pendingApprovalsBySessionID: approvals.state.pendingBySessionID,
+    pendingToolCalls: chat.state.pendingToolCalls,
+    providerFilter: chat.state.providerFilter,
+    providerPresets: providersAndModels.state.providerPresets,
+    providers: providersAndModels.state.providers,
+    providerScopedModels: derived.providerScopedModels,
+    queuedChatMessages: chat.state.queuedChatMessages,
+    settingsConfig: settings.state.config,
+    streamingContent: chat.state.streamingContent,
+    systemPrompt: chat.state.systemPrompt,
+  };
+  const actions = {
+    cancelAgentChat: chatActions.cancelAgentChat,
+    chooseAgentWorkspace: chatActions.chooseAgentWorkspace,
+    createChatSession: chatActions.createChatSession,
+    copyCommand: runtime.actions.copyCommand,
+    createProvider: providerActions.createProvider,
+    getChatApproval: chatActions.getChatApproval,
+    loadDashboard: dashboardActions.loadDashboard,
+    probeAgentAdapter: agentAdapterActions.probeAgentAdapter,
+    resolveChatApproval: chatActions.resolveChatApproval,
+    resolveTaskApproval: chatActions.resolveTaskApproval,
+    cancelChatApproval: chatActions.cancelChatApproval,
+    selectChatSession: chatActions.selectChatSession,
+    setAgentAdapterCredential: agentAdapterActions.setAgentAdapterCredential,
+    setAgentWorkspace: chatActions.updateAgentWorkspace,
+    setChatConfigOption: chatActions.setChatConfigOption,
+    setChatTarget: chatActions.setChatTarget,
+    setHecateRTKEnabled: chatActions.setHecateRTKEnabled,
+    setModel: chat.actions.setModel,
+    setProviderFilter: chatActions.selectProviderRoute,
+    setSystemPrompt: chat.actions.setSystemPrompt,
+    upsertModelCapabilityOverride: providerActions.upsertModelCapabilityOverride,
+  };
   const [sidebarOpen, setSidebarOpen] = useState(true);
   // approvalModalID is the per-banner-click open state for the
   // approval modal. The modal itself fetches the full row on mount;
@@ -195,7 +277,8 @@ export function ChatView({ onNavigate, onOpenTask, onOpenTrace }: Props) {
   })();
   const agentRouteUnavailable = availableAgents.length === 0;
   const selectedAgentUnavailable = isExternalAgentChat && Boolean(selectedAgent) && !selectedAgent?.available;
-  const newChatAgentID = state.newChatAgentID || "hecate";
+  // newChatAgentID is already computed at the top of the component
+  // via useNewChatAgentID(); no need to re-derive here.
   const nothingRunnable = !state.loading && modelRouteUnavailable && agentRouteUnavailable;
   const activeHecateAgentSegment = activeTaskBackedHecateSegment(state.activeChatSession);
   const hecateAgentBusy = isHecateChat && Boolean(activeHecateAgentSegment);

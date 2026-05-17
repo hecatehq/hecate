@@ -1,10 +1,18 @@
+// Test-only composition of the slice + coordinator hooks into the
+// legacy {state, actions} viewmodel. Production code does NOT use
+// this — views call slice hooks and coordinator hooks directly. The
+// composer survives only as a target for the historical
+// useRuntimeConsole regression suite (renamed to
+// runtime-console-composition.test.tsx) which exercises the same
+// composed shape end-to-end.
+
 import { useEffect, useMemo, useRef } from "react";
 
 import {
   type ChatTarget,
   type HecateChatTarget,
   normalizeStoredHecateChatTarget,
-} from "./state/_shared";
+} from "../app/state/_shared";
 import { buildLocalProviderIssue } from "../lib/provider-issues";
 import type { LocalProviderIssue } from "../lib/provider-issues";
 import { filterModelsByKind, filterModelsByProvider } from "../lib/runtime-utils";
@@ -13,22 +21,22 @@ import {
   defaultProviderForChat,
   humanizeChatError,
   isModelValidForProvider,
-} from "./runtimeConsoleChatHelpers";
-import { deriveSessionState } from "./runtimeConsoleDashboard";
-import { useApprovals } from "./state/approvals";
-import { useChat } from "./state/chat";
-import { useProvidersAndModels } from "./state/providersAndModels";
-import { useRetention } from "./state/retention";
-import { useRuntime } from "./state/runtime";
-import { useSettings } from "./state/settings";
-import { useUsage } from "./state/usage";
-import { useAgentAdapterActions } from "./state/coordinators/agentAdapters";
-import { useChatActions } from "./state/coordinators/chat";
-import { useDashboardActions } from "./state/coordinators/dashboard";
-import { usePolicyActions } from "./state/coordinators/policy";
-import { useProviderActions } from "./state/coordinators/providers";
-import { useRetentionActions } from "./state/coordinators/retention";
-import { useSettingsActions } from "./state/coordinators/settings";
+} from "../app/runtimeConsoleChatHelpers";
+import { deriveSessionState } from "../app/runtimeConsoleDashboard";
+import { useApprovals } from "../app/state/approvals";
+import { useChat } from "../app/state/chat";
+import { useProvidersAndModels } from "../app/state/providersAndModels";
+import { useRetention } from "../app/state/retention";
+import { useRuntime } from "../app/state/runtime";
+import { useSettings } from "../app/state/settings";
+import { useUsage } from "../app/state/usage";
+import { useAgentAdapterActions } from "../app/state/coordinators/agentAdapters";
+import { useChatActions } from "../app/state/coordinators/chat";
+import { useDashboardActions } from "../app/state/coordinators/dashboard";
+import { usePolicyActions } from "../app/state/coordinators/policy";
+import { useProviderActions } from "../app/state/coordinators/providers";
+import { useRetentionActions } from "../app/state/coordinators/retention";
+import { useSettingsActions } from "../app/state/coordinators/settings";
 import type { ChatSessionRecord } from "../types/chat";
 import type { ConfiguredStateResponse } from "../types/provider";
 

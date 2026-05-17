@@ -12,6 +12,7 @@
 
 import { createContext, useCallback, useContext, useMemo, useReducer, type ReactNode } from "react";
 
+import { applyOverride, CoordinatorOverridesContext } from "./coordinators/overrides";
 import type { ConfiguredStateResponse } from "../../types/provider";
 
 export type NoticeState = {
@@ -70,8 +71,14 @@ function reducer(state: SettingsState, action: Action): SettingsState {
 
 const SettingsContext = createContext<SettingsContextValue | null>(null);
 
-export function SettingsProvider({ children }: { children: ReactNode }) {
-  const [state, dispatch] = useReducer(reducer, initialState);
+export function SettingsProvider({ children, initialState: seededState }: {
+  children: ReactNode;
+  initialState?: Partial<SettingsState>;
+}) {
+  const [state, dispatch] = useReducer(
+    reducer,
+    seededState ? { ...initialState, ...seededState } : initialState,
+  );
 
   const setConfig = useCallback((value: ConfiguredStateResponse["data"] | null) => {
     dispatch({ type: "config/set", value });
@@ -109,5 +116,6 @@ export function useSettings(): SettingsContextValue {
   if (!ctx) {
     throw new Error("useSettings must be used inside a <SettingsProvider>");
   }
-  return ctx;
+  const overrides = useContext(CoordinatorOverridesContext);
+  return { state: ctx.state, actions: applyOverride(ctx.actions, overrides?.settingsSlice) };
 }

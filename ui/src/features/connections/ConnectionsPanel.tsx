@@ -1,12 +1,19 @@
 import { useEffect, useMemo, useRef, useState, type ReactNode } from "react";
-import { useRuntimeConsoleContext } from "../../app/RuntimeConsoleContext";
-import type { RuntimeConsoleViewModel } from "../../app/useRuntimeConsole";
+import { useApprovals } from "../../app/state/approvals";
+import { useChatActions } from "../../app/state/coordinators/chat";
+import { useAgentAdapterActions } from "../../app/state/coordinators/agentAdapters";
+import { useWiredProviderActions, useWiredSettingsActions } from "../../app/state/coordinators/wired";
+import { useChatTarget } from "../../app/state/derived";
+import { useProvidersAndModels, type ProvidersAndModelsState } from "../../app/state/providersAndModels";
+import { useRuntime } from "../../app/state/runtime";
+import { useSettings } from "../../app/state/settings";
 import { claudeCodeSetupTokenCommand } from "../../lib/claude-code-setup";
 import { formatLocaleDateTime } from "../../lib/format";
 import { providerFleetRepairHint, providerReadinessMeaning, providerRepairActionLabel } from "../../lib/provider-readiness";
 import type { AgentAdapterHealthRecord, AgentAdapterRecord } from "../../types/agent-adapter";
 import type { ChatGrantRecord } from "../../types/chat";
-import type { ConfiguredProviderRecord, ProviderRecord } from "../../types/provider";
+import type { ModelRecord } from "../../types/model";
+import type { ConfiguredProviderRecord, ConfiguredStateResponse, ProviderRecord } from "../../types/provider";
 import { BrandAvatar, Icon, Icons, InlineError } from "../shared/ui";
 import { ModelCapabilitiesSection } from "./ModelCapabilitiesSection";
 
@@ -57,30 +64,51 @@ export function ConnectionsPanel({
   onNavigate,
   showProviderSummary = true,
 }: Props & { showProviderSummary?: boolean }) {
-  const { state, actions } = useRuntimeConsoleContext();
-  const liveAnthropicProvider = findAnthropicProvider(state.settingsConfig?.providers ?? []);
+  const settings = useSettings();
+  const providersAndModels = useProvidersAndModels();
+  const approvals = useApprovals();
+  const runtime = useRuntime();
+  const providerActions = useWiredProviderActions();
+  const { actions: settingsActions } = useWiredSettingsActions();
+  const agentAdapterActions = useAgentAdapterActions({ setNoticeMessage: settingsActions.setNoticeMessage });
+  const chatActions = useChatActions({
+    chatTarget: useChatTarget(),
+    setNoticeMessage: settingsActions.setNoticeMessage,
+  });
+  const settingsConfig = settings.state.config;
+  const models = providersAndModels.state.models;
+  const providers = providersAndModels.state.providers;
+  const agentAdapters = providersAndModels.state.agentAdapters;
+  const agentAdapterHealthByID = providersAndModels.state.agentAdapterHealthByID;
+  const agentAdapterHealthLoadingByID = providersAndModels.state.agentAdapterHealthLoadingByID;
+  const chatGrants = approvals.state.grants;
+  const chatGrantsLoading = approvals.state.grantsLoading;
+  const chatGrantsError = approvals.state.grantsError;
+  const liveAnthropicProvider = findAnthropicProvider(settingsConfig?.providers ?? []);
   const [rememberedAnthropicProvider, setRememberedAnthropicProvider] = useState<ConfiguredProviderRecord | null>(liveAnthropicProvider);
   const probedAdapterIDsRef = useRef<Set<string>>(new Set());
-  const adapterIDsKey = useMemo(() => state.agentAdapters.map((adapter) => adapter.id).sort().join(","), [state.agentAdapters]);
+  const adapterIDsKey = useMemo(() => agentAdapters.map((adapter) => adapter.id).sort().join(","), [agentAdapters]);
+  const listChatGrants = approvals.actions.loadGrants;
+  const probeAgentAdapter = agentAdapterActions.probeAgentAdapter;
 
   useEffect(() => {
     if (liveAnthropicProvider) setRememberedAnthropicProvider(liveAnthropicProvider);
   }, [liveAnthropicProvider]);
 
   useEffect(() => {
-    for (const adapter of state.agentAdapters) {
+    for (const adapter of agentAdapters) {
       if (probedAdapterIDsRef.current.has(adapter.id)) continue;
       probedAdapterIDsRef.current.add(adapter.id);
-      void actions.probeAgentAdapter(adapter.id);
+      void probeAgentAdapter(adapter.id);
     }
-    // `actions` is a view-model object and can be re-created by parent
-    // renders. Probe only when the adapter ID set changes; the ref prevents
-    // duplicate probes for IDs we've already checked in this tab instance.
+    // `probeAgentAdapter` is a coordinator action that can be re-created
+    // by parent renders. Probe only when the adapter ID set changes; the
+    // ref prevents duplicate probes for IDs we've already checked.
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [adapterIDsKey]);
 
   useEffect(() => {
-    void actions.listChatGrants();
+    void listChatGrants();
     // Grants are lazy-loaded once when the tab mounts; Refresh handles
     // explicit re-fetches.
     // eslint-disable-next-line react-hooks/exhaustive-deps
@@ -136,65 +164,81 @@ export function ConnectionsPanel({
     };
   }, []);
 
-  const grants = state.chatGrants;
-  const loading = state.chatGrantsLoading;
-  const error = state.chatGrantsError;
+  // Adapter status section needs a credential-write action; this
+  // also touches the runtime slice (copyCommand) — held off the
+  // runtime slice instead of the chat coordinator's setHecateRTKEnabled
+  // because it's a clipboard side-effect, not a session mutation.
+  const copyCommand = runtime.actions.copyCommand;
 
   return (
     <>
-      {showProviderSummary && <ModelProviderConnectionsSection state={state} onNavigate={onNavigate} />}
+      {showProviderSummary && (
+        <ModelProviderConnectionsSection
+          settingsConfig={settingsConfig}
+          providers={providers}
+          models={models}
+          onNavigate={onNavigate}
+        />
+      )}
 
       <ModelCapabilitiesSection />
 
       {rememberedAnthropicProvider && (
         <AnthropicProviderKeyCard
           provider={rememberedAnthropicProvider}
-          onSave={(key) => actions.setProviderAPIKey(rememberedAnthropicProvider.id, key)}
-          onClear={() => actions.setProviderAPIKey(rememberedAnthropicProvider.id, "")}
+          onSave={(key) => providerActions.setProviderAPIKey(rememberedAnthropicProvider.id, key)}
+          onClear={() => providerActions.setProviderAPIKey(rememberedAnthropicProvider.id, "")}
         />
       )}
 
-      <AdapterStatusSection state={state} actions={actions} />
+      <AdapterStatusSection
+        agentAdapters={agentAdapters}
+        agentAdapterHealthByID={agentAdapterHealthByID}
+        agentAdapterHealthLoadingByID={agentAdapterHealthLoadingByID}
+        copyCommand={copyCommand}
+        setAgentAdapterCredential={agentAdapterActions.setAgentAdapterCredential}
+        deleteAgentAdapterCredential={agentAdapterActions.deleteAgentAdapterCredential}
+      />
 
       <SectionHeader
         title="External agent grants"
         description="Durable “always allow / always deny” rules persisted by the approval coordinator. Revoke removes a grant immediately and doesn't undo decisions already applied to in-flight calls."
-        meta={`${grants.length} grant${grants.length === 1 ? "" : "s"}`}
+        meta={`${chatGrants.length} grant${chatGrants.length === 1 ? "" : "s"}`}
         actions={
           <button
             type="button"
             className="btn btn-ghost btn-sm"
-            onClick={() => void actions.listChatGrants()}
-            disabled={loading}
+            onClick={() => void listChatGrants()}
+            disabled={chatGrantsLoading}
             data-testid="external-agents-refresh"
           >
-            <Icon d={Icons.refresh} size={13} /> {loading ? "Loading…" : "Refresh"}
+            <Icon d={Icons.refresh} size={13} /> {chatGrantsLoading ? "Loading…" : "Refresh"}
           </button>
         }
       />
 
-      {error && (
+      {chatGrantsError && (
         <div style={{ marginBottom: 12 }}>
-          <InlineError message={error} />
+          <InlineError message={chatGrantsError} />
         </div>
       )}
 
-      {grants.length === 0 ? (
+      {chatGrants.length === 0 ? (
         <div
           className="card"
           style={{ padding: "24px", textAlign: "center", color: "var(--t3)", fontSize: 12 }}
           data-testid="external-agents-empty"
         >
-          {loading ? "Loading grants…" : "No grants yet. Approvals stay scoped to a single call until an operator picks a broader scope."}
+          {chatGrantsLoading ? "Loading grants…" : "No grants yet. Approvals stay scoped to a single call until an operator picks a broader scope."}
         </div>
       ) : (
         <div className="card" style={{ overflow: "hidden" }} data-testid="external-agents-list">
-          {grants.map((g, i) => (
+          {chatGrants.map((g, i) => (
             <GrantRow
               key={g.id}
               grant={g}
-              divider={i < grants.length - 1}
-              onRevoke={() => void actions.deleteChatGrant(g.id)}
+              divider={i < chatGrants.length - 1}
+              onRevoke={() => void chatActions.deleteChatGrant(g.id)}
             />
           ))}
         </div>
@@ -204,19 +248,23 @@ export function ConnectionsPanel({
 }
 
 function ModelProviderConnectionsSection({
-  state,
+  settingsConfig,
+  providers,
+  models,
   onNavigate,
 }: {
-  state: RuntimeConsoleViewModel["state"];
+  settingsConfig: ConfiguredStateResponse["data"] | null;
+  providers: ProviderRecord[];
+  models: ModelRecord[];
   onNavigate?: Props["onNavigate"];
 }) {
-  const configuredProviders = state.settingsConfig?.providers ?? [];
+  const configuredProviders = settingsConfig?.providers ?? [];
   const configuredProviderIDs = new Set(configuredProviders.map((provider) => provider.id));
-  const knownStatuses = state.providers.filter((provider) => configuredProviderIDs.has(provider.name));
+  const knownStatuses = providers.filter((provider) => configuredProviderIDs.has(provider.name));
   const readyProviders = knownStatuses.filter(isProviderReady).length;
   const blockedProviders = knownStatuses.filter(isProviderBlocked).length;
-  const modelCount = state.models.length || knownStatuses.reduce((sum, provider) => sum + (provider.model_count ?? provider.models?.length ?? 0), 0);
-  const statusByName = new Map(state.providers.map((provider) => [provider.name, provider]));
+  const modelCount = models.length || knownStatuses.reduce((sum, provider) => sum + (provider.model_count ?? provider.models?.length ?? 0), 0);
+  const statusByName = new Map(providers.map((provider) => [provider.name, provider]));
   const repair = providerFleetRepairHint(configuredProviders, statusByName);
   const repairLabel = repair?.tone === "muted" ? "Ready for chat" : "Next repair";
   const repairButton = providerRepairButtonLabel(repair);
@@ -470,12 +518,22 @@ function AnthropicProviderKeyCard({
 // availability are still owned by the dashboard fan-out's
 // /hecate/v1/agent-adapters response. We just surface the additional
 // per-adapter "can I actually use this?" check here.
-function AdapterStatusSection({ state, actions }: {
-  state: RuntimeConsoleViewModel["state"];
-  actions: RuntimeConsoleViewModel["actions"];
+function AdapterStatusSection({
+  agentAdapters,
+  agentAdapterHealthByID,
+  agentAdapterHealthLoadingByID,
+  copyCommand,
+  setAgentAdapterCredential,
+  deleteAgentAdapterCredential,
+}: {
+  agentAdapters: ProvidersAndModelsState["agentAdapters"];
+  agentAdapterHealthByID: ProvidersAndModelsState["agentAdapterHealthByID"];
+  agentAdapterHealthLoadingByID: ProvidersAndModelsState["agentAdapterHealthLoadingByID"];
+  copyCommand: (command: string) => Promise<void>;
+  setAgentAdapterCredential: (adapterID: string, value: string, name?: string) => Promise<boolean>;
+  deleteAgentAdapterCredential: (adapterID: string, name: string) => Promise<boolean>;
 }) {
-  const adapters = state.agentAdapters;
-  if (!adapters || adapters.length === 0) {
+  if (!agentAdapters || agentAdapters.length === 0) {
     return null;
   }
   return (
@@ -483,19 +541,19 @@ function AdapterStatusSection({ state, actions }: {
       <SectionHeader
         title="Adapters"
         description="Checks adapter readiness and auth by starting the adapter, completing the ACP handshake, and creating a session. Auth-required failures show here before a chat fails."
-        meta={`${adapters.length} adapter${adapters.length === 1 ? "" : "s"}`}
+        meta={`${agentAdapters.length} adapter${agentAdapters.length === 1 ? "" : "s"}`}
       />
       <div className="card" style={{ overflow: "hidden" }}>
-        {adapters.map((adapter, i) => (
+        {agentAdapters.map((adapter, i) => (
           <AdapterStatusRow
             key={adapter.id}
             adapter={adapter}
-            divider={i < adapters.length - 1}
-            health={state.agentAdapterHealthByID.get(adapter.id) ?? null}
-            loading={Boolean(state.agentAdapterHealthLoadingByID.get(adapter.id))}
-            onSaveCredential={(value) => actions.setAgentAdapterCredential(adapter.id, value, "CLAUDE_CODE_OAUTH_TOKEN")}
-            onDeleteCredential={() => actions.deleteAgentAdapterCredential(adapter.id, "CLAUDE_CODE_OAUTH_TOKEN")}
-            onCopyCommand={() => void actions.copyCommand(claudeCodeSetupTokenCommand(adapter.claude_code_cli))}
+            divider={i < agentAdapters.length - 1}
+            health={agentAdapterHealthByID.get(adapter.id) ?? null}
+            loading={Boolean(agentAdapterHealthLoadingByID.get(adapter.id))}
+            onSaveCredential={(value) => setAgentAdapterCredential(adapter.id, value, "CLAUDE_CODE_OAUTH_TOKEN")}
+            onDeleteCredential={() => deleteAgentAdapterCredential(adapter.id, "CLAUDE_CODE_OAUTH_TOKEN")}
+            onCopyCommand={() => void copyCommand(claudeCodeSetupTokenCommand(adapter.claude_code_cli))}
           />
         ))}
       </div>

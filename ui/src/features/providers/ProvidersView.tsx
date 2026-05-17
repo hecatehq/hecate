@@ -1,6 +1,8 @@
 import { useEffect, useState, type CSSProperties } from "react";
-import { useRuntimeConsoleContext } from "../../app/RuntimeConsoleContext";
-import type { RuntimeConsoleViewModel } from "../../app/useRuntimeConsole";
+import { useProvidersAndModels } from "../../app/state/providersAndModels";
+import { useSettings } from "../../app/state/settings";
+import { useWiredDashboardActions, useWiredProviderActions } from "../../app/state/coordinators/wired";
+import type { ConfiguredProviderRecord, ProviderRecord } from "../../types/provider";
 import { formatLocaleTime } from "../../lib/format";
 import { providerFleetRepairHint, providerReadinessMeaning, providerRepairActionLabel } from "../../lib/provider-readiness";
 import { resolvedBaseURL } from "../../lib/provider-utils";
@@ -16,7 +18,7 @@ const PROVIDER_POLL_INTERVAL_MS = 30_000;
 // Credentials are tracked in a separate column so a freshly-saved key
 // doesn't have to wait for the next probe to flip the cell.
 function resolveHealthBadge(
-  rt: RuntimeConsoleViewModel["state"]["providers"][number] | undefined,
+  rt: ProviderRecord | undefined,
   credentialConfigured: boolean,
 ): { status: string; label: string } {
   if (!rt) return { status: "disabled", label: "Pending" };
@@ -58,7 +60,14 @@ function resolveCredentialBadge(
 }
 
 export function ProvidersView() {
-  const { state, actions } = useRuntimeConsoleContext();
+  const settings = useSettings();
+  const providersAndModels = useProvidersAndModels();
+  const dashboardActions = useWiredDashboardActions();
+  const providerActions = useWiredProviderActions();
+  const settingsConfig = settings.state.config;
+  const providers = providersAndModels.state.providers;
+  const models = providersAndModels.state.models;
+  const providerPresets = providersAndModels.state.providerPresets;
   const [selectedID, setSelectedID] = useState<string | null>(null);
   const [pendingKey, setPendingKey] = useState("");
   const [pendingURL, setPendingURL] = useState("");
@@ -71,15 +80,15 @@ export function ProvidersView() {
   // either at least one configured provider, or the Add modal is open
   // (so a freshly-added provider's models surface immediately). Otherwise
   // /hecate/v1/providers/status + /v1/models are no-op network calls; skip them.
-  const hasProviders = (state.settingsConfig?.providers?.length ?? 0) > 0;
+  const hasProviders = (settingsConfig?.providers?.length ?? 0) > 0;
   const shouldPoll = hasProviders || addProviderOpen;
   useEffect(() => {
     if (!shouldPoll) return;
     const id = setInterval(() => {
-      void actions.refreshProviders();
+      void dashboardActions.refreshProviders();
     }, PROVIDER_POLL_INTERVAL_MS);
     return () => clearInterval(id);
-  }, [actions.refreshProviders, shouldPoll]);
+  }, [dashboardActions.refreshProviders, shouldPoll]);
 
   // Reset pending key when the selected provider changes.
   useEffect(() => {
@@ -89,7 +98,7 @@ export function ProvidersView() {
   // Reset pendingURL and pendingName when selected provider changes.
   useEffect(() => {
     if (selectedID && selectedConfig) {
-      setPendingURL(resolvedBaseURL(selectedID, selectedConfig ?? undefined, state.providerPresets));
+      setPendingURL(resolvedBaseURL(selectedID, selectedConfig ?? undefined, providerPresets));
       setPendingName(selectedConfig.name || selectedID);
       setPendingCustomName(selectedConfig.custom_name ?? "");
     } else {
@@ -107,18 +116,18 @@ export function ProvidersView() {
   // the next render reconciles. First write wins.
   const configuredProviders = (() => {
     const seen = new Set<string>();
-    const out: NonNullable<typeof state.settingsConfig>["providers"] = [];
-    for (const p of state.settingsConfig?.providers ?? []) {
+    const out: NonNullable<typeof settingsConfig>["providers"] = [];
+    for (const p of settingsConfig?.providers ?? []) {
       if (seen.has(p.id)) continue;
       seen.add(p.id);
       out.push(p);
     }
     return out;
   })();
-  const statusByName = new Map(state.providers.map(p => [p.name, p]));
+  const statusByName = new Map(providers.map(p => [p.name, p]));
   const configuredByID = new Map(configuredProviders.map(p => [p.id, p]));
 
-  const presetOrder = new Map(state.providerPresets.map((p, i) => [p.id, i]));
+  const presetOrder = new Map(providerPresets.map((p, i) => [p.id, i]));
   const stableSort = (a: string, b: string) => {
     const ai = presetOrder.get(a) ?? 999;
     const bi = presetOrder.get(b) ?? 999;
@@ -129,7 +138,7 @@ export function ProvidersView() {
   const localIDs = configuredProviders.filter(p => p.kind !== "cloud").map(p => p.id).sort(stableSort);
   const readyProviderCount = configuredProviders.filter(provider => isProviderRoutingReady(provider, statusByName.get(provider.id))).length;
   const blockedProviderCount = configuredProviders.filter(provider => isProviderNeedsAttention(provider, statusByName.get(provider.id))).length;
-  const discoveredModelCount = state.models.length || configuredProviders.reduce((sum, provider) => {
+  const discoveredModelCount = models.length || configuredProviders.reduce((sum, provider) => {
     const status = statusByName.get(provider.id);
     return sum + (status?.model_count ?? status?.models?.length ?? 0);
   }, 0);
@@ -153,7 +162,7 @@ export function ProvidersView() {
         if (fleetRepair.providerID) setSelectedID(fleetRepair.providerID);
         break;
       case "refresh_providers":
-        void actions.refreshProviders();
+        void dashboardActions.refreshProviders();
         break;
       case "none":
         break;
@@ -162,9 +171,9 @@ export function ProvidersView() {
 
   const selectedConfig = selectedID ? configuredByID.get(selectedID) ?? null : null;
   const selectedStatus = selectedID ? statusByName.get(selectedID) : null;
-  const selectedPreset = selectedID ? state.providerPresets.find(p => p.id === selectedID) : null;
+  const selectedPreset = selectedID ? providerPresets.find(p => p.id === selectedID) : null;
   const deleteConfirmConfig = deleteConfirmID ? configuredByID.get(deleteConfirmID) ?? null : null;
-  const deleteConfirmPreset = deleteConfirmID ? state.providerPresets.find(p => p.id === deleteConfirmID) : null;
+  const deleteConfirmPreset = deleteConfirmID ? providerPresets.find(p => p.id === deleteConfirmID) : null;
   const deleteConfirmName = deleteConfirmConfig
     ? deleteConfirmPreset?.name || deleteConfirmConfig.name || deleteConfirmID || "provider"
     : "provider";
@@ -181,9 +190,9 @@ export function ProvidersView() {
   function renderRow(id: string, isLast = false) {
     const cp = configuredByID.get(id);
     const rt = statusByName.get(id);
-    const preset = state.providerPresets.find(p => p.id === id);
+    const preset = providerPresets.find(p => p.id === id);
     const displayName = preset?.name || cp?.name || id;
-    const baseURL = rt?.base_url || resolvedBaseURL(id, cp ?? undefined, state.providerPresets);
+    const baseURL = rt?.base_url || resolvedBaseURL(id, cp ?? undefined, providerPresets);
     const modelCount = rt?.model_count ?? rt?.models?.length ?? 0;
     const modelBadge = modelCount > 0
       ? null
@@ -577,7 +586,7 @@ export function ProvidersView() {
                   className="btn btn-primary btn-sm"
                   style={{ alignSelf: "flex-start" }}
                   disabled={!pendingName.trim() || pendingName === (selectedConfig.name || selectedID)}
-                  onClick={() => void actions.setProviderName(selectedID, pendingName)}>
+                  onClick={() => void providerActions.setProviderName(selectedID, pendingName)}>
                   <Icon d={Icons.check} size={13} /> Save name
                 </button>
               </div>
@@ -602,7 +611,7 @@ export function ProvidersView() {
                 className="btn btn-primary btn-sm"
                 style={{ alignSelf: "flex-start" }}
                 disabled={pendingCustomName === (selectedConfig.custom_name ?? "")}
-                onClick={() => void actions.setProviderCustomName(selectedID, pendingCustomName)}>
+                onClick={() => void providerActions.setProviderCustomName(selectedID, pendingCustomName)}>
                 <Icon d={Icons.check} size={13} /> Save custom name
               </button>
             </div>
@@ -623,8 +632,8 @@ export function ProvidersView() {
                 <button
                   className="btn btn-primary btn-sm"
                   style={{ alignSelf: "flex-start" }}
-                  disabled={!pendingURL.trim() || pendingURL === resolvedBaseURL(selectedID, selectedConfig ?? undefined, state.providerPresets)}
-                  onClick={() => void actions.setProviderBaseURL(selectedID, pendingURL)}>
+                  disabled={!pendingURL.trim() || pendingURL === resolvedBaseURL(selectedID, selectedConfig ?? undefined, providerPresets)}
+                  onClick={() => void providerActions.setProviderBaseURL(selectedID, pendingURL)}>
                   <Icon d={Icons.check} size={13} /> Save URL
                 </button>
               </div>
@@ -660,7 +669,7 @@ export function ProvidersView() {
                     className="btn btn-primary btn-sm"
                     disabled={!pendingKey.trim()}
                     onClick={() =>
-                      void actions.setProviderAPIKey(selectedID, pendingKey).then(() => setPendingKey(""))
+                      void providerActions.setProviderAPIKey(selectedID, pendingKey).then(() => setPendingKey(""))
                     }>
                     <Icon d={Icons.check} size={13} />
                     {selectedConfig.credential_configured ? "Update API key" : "Save API key"}
@@ -668,7 +677,7 @@ export function ProvidersView() {
                   {selectedConfig.credential_source === "vault" && (
                     <button
                       className="btn btn-danger btn-sm"
-                      onClick={() => void actions.setProviderAPIKey(selectedID, "")}>
+                      onClick={() => void providerActions.setProviderAPIKey(selectedID, "")}>
                       <Icon d={Icons.trash} size={13} /> Delete
                     </button>
                   )}
@@ -776,7 +785,7 @@ export function ProvidersView() {
             const id = deleteConfirmID;
             setDeleteConfirmID(null);
             if (selectedID === id) setSelectedID(null);
-            await actions.deleteProvider(id);
+            await providerActions.deleteProvider(id);
           }}
         />
       )}
@@ -839,8 +848,8 @@ function statColor(tone: ConnectionStatTone): string {
 }
 
 function isProviderRoutingReady(
-  provider: NonNullable<RuntimeConsoleViewModel["state"]["settingsConfig"]>["providers"][number],
-  status: RuntimeConsoleViewModel["state"]["providers"][number] | undefined,
+  provider: ConfiguredProviderRecord,
+  status: ProviderRecord | undefined,
 ): boolean {
   if (status?.readiness?.status) {
     return status.readiness.status === "ok" || status.readiness.status === "warning";
@@ -851,8 +860,8 @@ function isProviderRoutingReady(
 }
 
 function isProviderNeedsAttention(
-  provider: NonNullable<RuntimeConsoleViewModel["state"]["settingsConfig"]>["providers"][number],
-  status: RuntimeConsoleViewModel["state"]["providers"][number] | undefined,
+  provider: ConfiguredProviderRecord,
+  status: ProviderRecord | undefined,
 ): boolean {
   if (!status) return true;
   if (status?.readiness?.status === "blocked") return true;

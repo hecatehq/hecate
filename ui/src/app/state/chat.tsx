@@ -24,6 +24,7 @@
 
 import { createContext, useCallback, useContext, useEffect, useMemo, useRef, useState, type ReactNode } from "react";
 
+import { applyOverride, CoordinatorOverridesContext } from "./coordinators/overrides";
 import { ApiError, type ChatMessage } from "../../lib/api";
 import { parseStoredJSON, parseStoredString, usePersistedState } from "../../lib/persistedState";
 import type { ModelFilter } from "../../types/model";
@@ -124,67 +125,74 @@ type ChatContextValue = {
 
 const ChatContext = createContext<ChatContextValue | null>(null);
 
-export function ChatProvider({ children }: { children: ReactNode }) {
+// Optional seed for tests. The slice's persisted fields are still
+// initialized through usePersistedState (so localStorage-driven boot
+// paths stay covered), but every other slice field can be preloaded
+// with deterministic test data without exercising the dashboard loader.
+export function ChatProvider({ children, initialState }: {
+  children: ReactNode;
+  initialState?: Partial<ChatState>;
+}) {
   const [defaultChatTarget, setDefaultChatTarget] = usePersistedState<ChatTarget>(
     "hecate.chatTarget",
     parseStoredChatTarget,
-    "agent",
+    initialState?.defaultChatTarget ?? "agent",
   );
   const [chatTargetBySessionID, setChatTargetBySessionID] = usePersistedState<Map<string, HecateChatTarget>>(
     "hecate.chatTargetBySessionID",
     parseStoredJSON(parseChatTargetsBySessionID),
-    new Map(),
+    initialState?.chatTargetBySessionID ?? new Map(),
     { serialize: serializeChatTargetsBySessionID },
   );
   const [agentAdapterID, setAgentAdapterID] = usePersistedState(
     "hecate.agentAdapterID",
     parseStoredString,
-    "codex",
+    initialState?.agentAdapterID ?? "codex",
   );
   const [agentWorkspace, setAgentWorkspace] = usePersistedState(
     "hecate.agentWorkspace",
     parseStoredString,
-    "",
+    initialState?.agentWorkspace ?? "",
   );
-  const [agentWorkspaceBranch, setAgentWorkspaceBranch] = useState("");
-  const [chatSessions, setChatSessions] = useState<ChatSessionsResponse["data"]>([]);
+  const [agentWorkspaceBranch, setAgentWorkspaceBranch] = useState(initialState?.agentWorkspaceBranch ?? "");
+  const [chatSessions, setChatSessions] = useState<ChatSessionsResponse["data"]>(initialState?.chatSessions ?? []);
   const [activeChatSessionID, setActiveChatSessionID] = usePersistedState(
     "hecate.chatSessionID",
     parseStoredString,
-    "",
+    initialState?.activeChatSessionID ?? "",
     { shouldRemove: (v) => v === "" },
   );
-  const [activeChatSession, setActiveChatSession] = useState<ChatSessionRecord | null>(null);
+  const [activeChatSession, setActiveChatSession] = useState<ChatSessionRecord | null>(initialState?.activeChatSession ?? null);
   const [queuedChatMessages, setQueuedChatMessages] = usePersistedState<QueuedChatMessage[]>(
     queuedChatMessagesStorageKey,
     parseStoredJSON(parseQueuedChatMessageList),
-    [],
+    initialState?.queuedChatMessages ?? [],
     { shouldRemove: (v) => v.length === 0 },
   );
   const [model, setModel] = usePersistedState(
     "hecate.model",
     parseStoredString,
-    "",
+    initialState?.model ?? "",
     { shouldRemove: (v) => v === "" },
   );
   const [systemPrompt, setSystemPrompt] = usePersistedState(
     "hecate.systemPrompt",
     parseStoredString,
-    "",
+    initialState?.systemPrompt ?? "",
   );
-  const [chatLoading, setChatLoading] = useState(false);
-  const [chatCancelling, setChatCancelling] = useState(false);
-  const [streamingContent, setStreamingContent] = useState<string | null>(null);
-  const [chatResult, setChatResult] = useState<ChatResponse | null>(null);
-  const [pendingToolCalls, setPendingToolCalls] = useState<PendingToolCall[]>([]);
-  const [pendingThread, setPendingThread] = useState<ChatMessage[] | null>(null);
-  const [chatError, setChatError] = useState("");
-  const [chatErrorCode, setChatErrorCode] = useState("");
-  const [chatErrorStatus, setChatErrorStatus] = useState<number | null>(null);
-  const [chatErrorAction, setChatErrorAction] = useState("");
-  const [chatErrorRequestID, setChatErrorRequestID] = useState("");
-  const [chatErrorTraceID, setChatErrorTraceID] = useState("");
-  const [modelFilter, setModelFilter] = useState<ModelFilter>("all");
+  const [chatLoading, setChatLoading] = useState(initialState?.chatLoading ?? false);
+  const [chatCancelling, setChatCancelling] = useState(initialState?.chatCancelling ?? false);
+  const [streamingContent, setStreamingContent] = useState<string | null>(initialState?.streamingContent ?? null);
+  const [chatResult, setChatResult] = useState<ChatResponse | null>(initialState?.chatResult ?? null);
+  const [pendingToolCalls, setPendingToolCalls] = useState<PendingToolCall[]>(initialState?.pendingToolCalls ?? []);
+  const [pendingThread, setPendingThread] = useState<ChatMessage[] | null>(initialState?.pendingThread ?? null);
+  const [chatError, setChatError] = useState(initialState?.chatError ?? "");
+  const [chatErrorCode, setChatErrorCode] = useState(initialState?.chatErrorCode ?? "");
+  const [chatErrorStatus, setChatErrorStatus] = useState<number | null>(initialState?.chatErrorStatus ?? null);
+  const [chatErrorAction, setChatErrorAction] = useState(initialState?.chatErrorAction ?? "");
+  const [chatErrorRequestID, setChatErrorRequestID] = useState(initialState?.chatErrorRequestID ?? "");
+  const [chatErrorTraceID, setChatErrorTraceID] = useState(initialState?.chatErrorTraceID ?? "");
+  const [modelFilter, setModelFilter] = useState<ModelFilter>(initialState?.modelFilter ?? "all");
   // providerFilter is the lone holdout from the usePersistedState
   // migration. Three e2e scenarios broke when it was migrated — the
   // `test("...")` blocks that begin at chat.spec.ts:617 ("Hecate
@@ -205,7 +213,7 @@ export function ChatProvider({ children }: { children: ReactNode }) {
   // they do not depend on render-cycle timing is separate cleanup.
   // Until that lands, providerFilter stays on the original useState
   // + mount-read + write-on-change pattern.
-  const [providerFilter, setProviderFilter] = useState<ProviderFilter>("auto");
+  const [providerFilter, setProviderFilter] = useState<ProviderFilter>(initialState?.providerFilter ?? "auto");
   useEffect(() => {
     const stored = window.localStorage.getItem("hecate.providerFilter");
     if (stored) setProviderFilter(stored as ProviderFilter);
@@ -332,5 +340,6 @@ export function useChat(): ChatContextValue {
   if (!ctx) {
     throw new Error("useChat must be used inside a <ChatProvider>");
   }
-  return ctx;
+  const overrides = useContext(CoordinatorOverridesContext);
+  return { state: ctx.state, actions: applyOverride(ctx.actions, overrides?.chatSlice) };
 }

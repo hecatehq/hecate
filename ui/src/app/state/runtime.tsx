@@ -20,6 +20,7 @@
 
 import { createContext, useCallback, useContext, useMemo, useReducer, type ReactNode } from "react";
 
+import { applyOverride, CoordinatorOverridesContext } from "./coordinators/overrides";
 import type { HealthResponse, RuntimeHeaders, SessionResponse } from "../../types/runtime";
 
 export type RuntimeState = {
@@ -100,8 +101,17 @@ const RuntimeContext = createContext<RuntimeContextValue | null>(null);
 
 const COPY_INDICATOR_MS = 1500;
 
-export function RuntimeProvider({ children }: { children: ReactNode }) {
-  const [state, dispatch] = useReducer(reducer, initialState);
+// initialState lets tests preload the slice with deterministic state
+// without exercising the dashboard loader. Production wiring leaves
+// the default; the prop ships as test-only sugar.
+export function RuntimeProvider({ children, initialState: seededState }: {
+  children: ReactNode;
+  initialState?: Partial<RuntimeState>;
+}) {
+  const [state, dispatch] = useReducer(
+    reducer,
+    seededState ? { ...initialState, ...seededState } : initialState,
+  );
 
   const setHealth = useCallback((value: HealthResponse | null) => dispatch({ type: "health/set", value }), []);
   const setSessionInfo = useCallback((value: SessionResponse["data"] | null) => dispatch({ type: "sessionInfo/set", value }), []);
@@ -152,5 +162,6 @@ export function useRuntime(): RuntimeContextValue {
   if (!ctx) {
     throw new Error("useRuntime must be used inside a <RuntimeProvider>");
   }
-  return ctx;
+  const overrides = useContext(CoordinatorOverridesContext);
+  return { state: ctx.state, actions: applyOverride(ctx.actions, overrides?.runtimeSlice) };
 }

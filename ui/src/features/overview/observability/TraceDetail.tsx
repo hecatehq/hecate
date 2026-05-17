@@ -4,7 +4,6 @@
 // composition over the smaller components in this directory plus
 // the shared Badge primitive.
 
-import type { RuntimeConsoleViewModel } from "../../../app/useRuntimeConsole";
 import type { TraceTimelineItem, TraceWaterfall } from "../../../lib/runtime-trace";
 import {
   describeRouteReason,
@@ -13,12 +12,13 @@ import {
   traceStatusBadge,
 } from "../../../lib/runtime-utils";
 import type { TraceListItem, TraceResponse } from "../../../types/trace";
+import type { UsageEventsResponse } from "../../../types/usage";
 import { Badge } from "../../shared/ui";
 
 import { RouteCandidates } from "./RouteCandidates";
 import { SpanWaterfall } from "./SpanWaterfall";
 
-type UsageEntry = NonNullable<RuntimeConsoleViewModel["state"]["usageEvents"]>[number];
+type UsageEntry = NonNullable<UsageEventsResponse["data"]>[number];
 
 type TraceDetailProps = {
   selectedID: string;

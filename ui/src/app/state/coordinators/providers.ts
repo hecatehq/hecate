@@ -11,6 +11,9 @@
 // captures the pre-delete record by index so a subsequent
 // loadDashboard race can't blow it away.
 
+import { useContext } from "react";
+
+import { applyOverride, CoordinatorOverridesContext } from "./overrides";
 import {
   type ModelCapabilityUpsertPayload,
   createProvider as createProviderRequest,
@@ -182,17 +185,21 @@ export function useProviderActions(params: UseProviderActionsParams) {
     }
   }
 
-  return {
-    setProviderAPIKey,
-    createProvider,
-    deleteProvider,
-    setProviderBaseURL,
-    setProviderName,
-    setProviderCustomName,
-    upsertModelCapabilityOverride,
-    recordModelCapabilityProbe,
-    deleteModelCapabilityOverride,
-  };
+  const overrides = useContext(CoordinatorOverridesContext);
+  return applyOverride(
+    {
+      setProviderAPIKey,
+      createProvider,
+      deleteProvider,
+      setProviderBaseURL,
+      setProviderName,
+      setProviderCustomName,
+      upsertModelCapabilityOverride,
+      recordModelCapabilityProbe,
+      deleteModelCapabilityOverride,
+    },
+    overrides?.providers,
+  );
 }
 
 function insertAtIndex<T>(items: T[], item: T, index: number): T[] {
