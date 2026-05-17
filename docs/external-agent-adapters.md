@@ -262,7 +262,7 @@ the same release step and then removes the persisted history.
 
 Every prompt also gets OTel-shaped observability. The message response includes
 `request_id`, `trace_id`, and `span_id`, and `GET
-/hecate/v1/traces?request_id=<request_id>` shows the `agent_chat.run` span with adapter
+/hecate/v1/traces?request_id=<request_id>` shows the `chat.run` span with adapter
 identity, workspace, status, duration, output byte counts, and diff-capture
 state. Approval gating adds two more spans:
 `agent_adapter.approval.request` covers the coordinator's decision (grant
@@ -273,7 +273,7 @@ path with `decision` and `scope` attributes.
 
 Durable approval grants are part of the Agent Chat SQLite bundle. When
 `GATEWAY_CHAT_SESSIONS_BACKEND=sqlite`, grants survive gateway restarts and are
-listed from `GET /hecate/v1/agent-chat/grants`; the operator can revoke them from
+listed from `GET /hecate/v1/chat/grants`; the operator can revoke them from
 Connections. Pending approvals from a dead process are not
 replayed as actionable prompts — startup reconcile marks them `timed_out` with
 `path=startup_reconcile` before the gateway accepts traffic.
@@ -289,7 +289,7 @@ replayed as actionable prompts — startup reconcile marks them `timed_out` with
 
 - `prompt` (default) — the gateway records a pending row and waits for an
   operator decision via the Chats workspace banner / modal or the
-  `/hecate/v1/agent-chat/sessions/{id}/approvals` REST surface. Without an operator
+  `/hecate/v1/chat/sessions/{id}/approvals` REST surface. Without an operator
   reviewing within `GATEWAY_AGENT_ADAPTER_APPROVAL_TIMEOUT` (default 5m), the
   approval times out and the adapter receives ACP `Cancelled`.
 - `auto` — every adapter request is permitted without review. Surfaces a red
@@ -310,14 +310,14 @@ request in a new chat will block for the full timeout and then surface as
 
 ### Per-session turn ceiling
 
-`GATEWAY_AGENT_CHAT_MAX_TURNS_PER_SESSION` caps the number of user→assistant
-round-trips per agent-chat session. When a session reaches the ceiling,
-`POST /hecate/v1/agent-chat/sessions/{id}/messages` returns HTTP 422:
+`GATEWAY_CHAT_MAX_TURNS_PER_SESSION` caps the number of user→assistant
+round-trips per chat session. When a session reaches the ceiling,
+`POST /hecate/v1/chat/sessions/{id}/messages` returns HTTP 422:
 
 ```json
 {
   "error": {
-    "type": "agent_chat.session_limit_exceeded",
+    "type": "chat.session_limit_exceeded",
     "message": "session has reached the 50-turn limit; start a new session to continue",
     "limit": 50,
     "turns_used": 50
@@ -327,8 +327,8 @@ round-trips per agent-chat session. When a session reaches the ceiling,
 
 | Setting | Behavior |
 |---|---|
-| `GATEWAY_AGENT_CHAT_MAX_TURNS_PER_SESSION=0` | Unlimited (default) |
-| `GATEWAY_AGENT_CHAT_MAX_TURNS_PER_SESSION=50` | Enforce 50-turn ceiling per session |
+| `GATEWAY_CHAT_MAX_TURNS_PER_SESSION=0` | Unlimited (default) |
+| `GATEWAY_CHAT_MAX_TURNS_PER_SESSION=50` | Enforce 50-turn ceiling per session |
 
 When a limit is set, the chat header shows a `{turns_used}/{max} turns` badge.
 The badge turns amber when the ceiling is reached.
@@ -343,20 +343,20 @@ into invisible background processes:
 
 | Setting | Behavior |
 |---|---|
-| `GATEWAY_AGENT_CHAT_MAX_SESSION_DURATION=0s` | Unlimited wall-clock age (default) |
-| `GATEWAY_AGENT_CHAT_MAX_SESSION_DURATION=2h` | Reject new turns once the session is at least 2 hours old |
-| `GATEWAY_AGENT_CHAT_IDLE_TIMEOUT=0s` | No idle sweeper (default) |
-| `GATEWAY_AGENT_CHAT_IDLE_TIMEOUT=1h` | Auto-close idle sessions after 1 hour without updates |
+| `GATEWAY_CHAT_MAX_SESSION_DURATION=0s` | Unlimited wall-clock age (default) |
+| `GATEWAY_CHAT_MAX_SESSION_DURATION=2h` | Reject new turns once the session is at least 2 hours old |
+| `GATEWAY_CHAT_IDLE_TIMEOUT=0s` | No idle sweeper (default) |
+| `GATEWAY_CHAT_IDLE_TIMEOUT=1h` | Auto-close idle sessions after 1 hour without updates |
 
 When the wall-clock limit is exceeded, `POST
-/hecate/v1/agent-chat/sessions/{id}/messages` returns HTTP 422 with
-`agent_chat.session_duration_limit_exceeded`.
+/hecate/v1/chat/sessions/{id}/messages` returns HTTP 422 with
+`chat.session_duration_limit_exceeded`.
 
 When the idle limit is exceeded, the background sweeper cancels the session,
 clears the native ACP handle, and appends an `interrupted` activity to the last
 assistant message when one exists. If the operator sends a new prompt before
 the sweeper has closed the stale session, the request returns HTTP 422 with
-`agent_chat.session_idle_timeout`; start a new chat to continue.
+`chat.session_idle_timeout`; start a new chat to continue.
 
 ## Stable alpha scope
 

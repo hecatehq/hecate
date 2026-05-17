@@ -2,7 +2,7 @@ import { render, screen } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { describe, expect, it } from "vitest";
 
-import type { AgentChatActivityRecord } from "../../types/runtime";
+import type { ChatActivityRecord } from "../../types/runtime";
 import { TranscriptActivityTimeline, DiffStatList, formatDiffStatSummary } from "./TranscriptActivityTimeline";
 
 describe("formatDiffStatSummary", () => {
@@ -51,7 +51,7 @@ describe("TranscriptActivityTimeline", () => {
   });
 
   it("renders the summary with running status when no terminal activity is present", () => {
-    const activities: AgentChatActivityRecord[] = [
+    const activities: ChatActivityRecord[] = [
       { type: "tool_call", title: "read_file", status: "running", kind: "fs" },
     ];
     render(<TranscriptActivityTimeline activities={activities} />);
@@ -59,7 +59,7 @@ describe("TranscriptActivityTimeline", () => {
   });
 
   it("renders the summary with running status for in-progress plan-only activity", () => {
-    const activities: AgentChatActivityRecord[] = [
+    const activities: ChatActivityRecord[] = [
       { type: "plan", title: "Inspect the branch", status: "in_progress" },
     ];
     render(<TranscriptActivityTimeline activities={activities} />);
@@ -67,7 +67,7 @@ describe("TranscriptActivityTimeline", () => {
   });
 
   it("renders the terminal status in the summary when a completed activity exists", () => {
-    const activities: AgentChatActivityRecord[] = [
+    const activities: ChatActivityRecord[] = [
       { type: "tool_call", title: "read_file", status: "completed" },
       { type: "completed", title: "Final answer", status: "completed" },
     ];
@@ -76,7 +76,7 @@ describe("TranscriptActivityTimeline", () => {
   });
 
   it("preserves operator-expanded completed details across rerenders", async () => {
-    const activities: AgentChatActivityRecord[] = [
+    const activities: ChatActivityRecord[] = [
       { type: "tool_call", title: "read_file", status: "completed" },
       { type: "completed", title: "Final answer", status: "completed" },
     ];
@@ -99,14 +99,14 @@ describe("TranscriptActivityTimeline", () => {
     // as `run_result` (the fixture uses title "Run finished" so it
     // bypasses isTerminalRunSummary's `/^run (completed|failed|cancelled)$/`
     // filter, which strips the literal "run completed" titles), and
-    // an explicit `Activity{Type: status, Title: finalAgentChatActivityTitle(status)}`
+    // an explicit `Activity{Type: status, Title: finalChatActivityTitle(status)}`
     // appended by the agent-chat handler at turn end. Without
     // dedupe the operator sees two side-by-side terminal rows for
     // one run; the timeline should keep only one. Earlier
     // rows that match `isTerminalRunSummary` were already dropped,
     // but type-only collisions (e.g. type=completed title="Done")
     // survived prior to the dedupe rule.
-    const activities: AgentChatActivityRecord[] = [
+    const activities: ChatActivityRecord[] = [
       { type: "tool_call", title: "read_file", status: "completed" },
       { type: "run_result", title: "Run finished", status: "completed" },
       { type: "completed", title: "Done", status: "completed" },
@@ -130,7 +130,7 @@ describe("TranscriptActivityTimeline", () => {
     // the row before the dedupe-pick step ran. Real diagnostic rows
     // typically carry richer titles like "LLM call failed on turn 3"
     // anyway.
-    const activities: AgentChatActivityRecord[] = [
+    const activities: ChatActivityRecord[] = [
       { type: "tool_call", title: "shell_exec", status: "failed" },
       { type: "run_result", title: "LLM call failed on turn 3", status: "failed", terminal: true, detail: "rate limit exceeded" },
       { type: "failed", title: "Failed", status: "failed" },
@@ -145,7 +145,7 @@ describe("TranscriptActivityTimeline", () => {
   });
 
   it("renders plan items with their plan-status indicators", () => {
-    const activities: AgentChatActivityRecord[] = [
+    const activities: ChatActivityRecord[] = [
       { type: "plan", title: "Step 1", status: "completed" },
       { type: "plan", title: "Step 2", status: "in_progress" },
       { type: "plan", title: "Step 3", status: "pending" },
@@ -157,7 +157,7 @@ describe("TranscriptActivityTimeline", () => {
   });
 
   it("renders Hecate tool calls with operator-facing labels and detail", () => {
-    const activities: AgentChatActivityRecord[] = [
+    const activities: ChatActivityRecord[] = [
       { type: "tool_call", title: "read_file", status: "completed", kind: "fs", detail: "src/index.ts" },
     ];
     render(<TranscriptActivityTimeline activities={activities} />);
@@ -167,7 +167,7 @@ describe("TranscriptActivityTimeline", () => {
   });
 
   it("removes duplicate tool details that repeat title and status", () => {
-    const activities: AgentChatActivityRecord[] = [
+    const activities: ChatActivityRecord[] = [
       { type: "tool_call", title: "git_exec", status: "completed", kind: "tool", detail: "git_exec - completed" },
     ];
     render(<TranscriptActivityTimeline activities={activities} />);
@@ -176,7 +176,7 @@ describe("TranscriptActivityTimeline", () => {
   });
 
   it("humanizes failed tool titles with status suffixes and marks the summary", () => {
-    const activities: AgentChatActivityRecord[] = [
+    const activities: ChatActivityRecord[] = [
       { type: "tool_call", title: "git_exec (failed)", status: "failed", kind: "git", detail: "git_exec - failed" },
       { type: "completed", title: "Run completed", status: "completed" },
     ];
@@ -187,7 +187,7 @@ describe("TranscriptActivityTimeline", () => {
   });
 
   it("humanizes opaque external-agent tool call ids", () => {
-    const activities: AgentChatActivityRecord[] = [
+    const activities: ChatActivityRecord[] = [
       { type: "tool_call", title: "call_YLnXdDBfBhiiQnC46sCy8NzM", status: "completed", kind: "execute", detail: "execute" },
       { type: "tool_call", title: "call_MGCYNWm0EHPZwWuQ4QmcNgU5", status: "completed", kind: "read", detail: "read" },
       { type: "cancelled", title: "Cancelled", status: "cancelled" },
@@ -202,7 +202,7 @@ describe("TranscriptActivityTimeline", () => {
   });
 
   it("prefers adapter-provided command details over opaque tool ids", () => {
-    const activities: AgentChatActivityRecord[] = [
+    const activities: ChatActivityRecord[] = [
       {
         type: "tool_call",
         title: "call_ERrtqCoyxGRidDjwpaR9OZEX",
@@ -218,7 +218,7 @@ describe("TranscriptActivityTimeline", () => {
   });
 
   it("describes failed tools as interrupted when the run is cancelled", () => {
-    const activities: AgentChatActivityRecord[] = [
+    const activities: ChatActivityRecord[] = [
       { type: "tool_call", title: "call_one", status: "failed", kind: "execute", detail: "execute" },
       { type: "tool_call", title: "call_two", status: "failed", kind: "execute", detail: "execute" },
       { type: "cancelled", title: "Cancelled", status: "cancelled" },
@@ -228,7 +228,7 @@ describe("TranscriptActivityTimeline", () => {
   });
 
   it("includes changed files in the summary and expanded activity list when diffStat is supplied", () => {
-    const activities: AgentChatActivityRecord[] = [
+    const activities: ChatActivityRecord[] = [
       { type: "tool_call", title: "read_file", status: "completed" },
     ];
     render(<TranscriptActivityTimeline activities={activities} diffStat="src/foo.ts | 3 +-\n1 file changed, 2 insertions(+), 1 deletion(-)" />);
@@ -238,7 +238,7 @@ describe("TranscriptActivityTimeline", () => {
   });
 
   it("hides the 'started' activity when a terminal activity has appeared", () => {
-    const activities: AgentChatActivityRecord[] = [
+    const activities: ChatActivityRecord[] = [
       { type: "started", title: "Started" },
       { type: "tool_call", title: "read_file", status: "completed" },
       { type: "completed", title: "Final answer" },
@@ -248,7 +248,7 @@ describe("TranscriptActivityTimeline", () => {
   });
 
   it("groups internal task artifacts under Details", () => {
-    const activities: AgentChatActivityRecord[] = [
+    const activities: ChatActivityRecord[] = [
       { type: "tool_call", title: "git_exec", status: "completed", kind: "git" },
       { type: "artifact", title: "git-stdout.txt", status: "ready" },
       { type: "artifact", title: "git-stderr.txt", status: "ready", artifact_size_bytes: 0 },
@@ -265,7 +265,7 @@ describe("TranscriptActivityTimeline", () => {
   });
 
   it("renders zero-byte output sizes instead of hiding them", () => {
-    const activities: AgentChatActivityRecord[] = [
+    const activities: ChatActivityRecord[] = [
       { type: "output", title: "stderr", status: "ready", artifact_size_bytes: 0 },
     ];
     render(<TranscriptActivityTimeline activities={activities} />);
@@ -273,7 +273,7 @@ describe("TranscriptActivityTimeline", () => {
   });
 
   it("hides internal agent-loop approval markers from operator-facing rows", () => {
-    const activities: AgentChatActivityRecord[] = [
+    const activities: ChatActivityRecord[] = [
       {
         type: "approval",
         title: "builtin.agent_loop_approval",
@@ -287,7 +287,7 @@ describe("TranscriptActivityTimeline", () => {
   });
 
   it("summarizes Hecate Agent task internals without duplicate terminal rows", () => {
-    const activities: AgentChatActivityRecord[] = [
+    const activities: ChatActivityRecord[] = [
       { type: "tool_call", title: "git_exec", status: "completed", kind: "git", detail: "git_exec - completed" },
       { type: "task_run", title: "Backing task", status: "completed", detail: "completed · task_123 · run_456" },
       { type: "thinking", title: "Agent turn 1", status: "completed", detail: "builtin.agent_loop_llm - completed" },
@@ -308,7 +308,7 @@ describe("TranscriptActivityTimeline", () => {
   });
 
   it("renders expanded activity rows in chronological order instead of grouping tools first", () => {
-    const activities: AgentChatActivityRecord[] = [
+    const activities: ChatActivityRecord[] = [
       { type: "started", title: "Starting Hecate Agent", status: "running" },
       { type: "task_run", title: "Backing task", status: "running", detail: "running · task_123 · run_456" },
       { type: "thinking", title: "Agent turn 1", status: "completed", detail: "builtin.agent_loop_llm - completed" },
@@ -323,7 +323,7 @@ describe("TranscriptActivityTimeline", () => {
 
   it("uses operator-facing order for Hecate task rows with identical timestamps", () => {
     const at = "2026-05-07T20:00:00Z";
-    const activities: AgentChatActivityRecord[] = [
+    const activities: ChatActivityRecord[] = [
       { type: "tool_call", title: "git_exec (failed)", status: "failed", kind: "git", detail: "git_exec - failed", created_at: at },
       { type: "thinking", title: "Agent turn 1", status: "completed", detail: "builtin.agent_loop_llm - completed", created_at: at },
       { type: "task_run", title: "Backing task", status: "failed", detail: "failed", created_at: at },
@@ -337,7 +337,7 @@ describe("TranscriptActivityTimeline", () => {
   });
 
   it("hides generic terminal summaries but keeps diagnostic failed rows", () => {
-    const activities: AgentChatActivityRecord[] = [
+    const activities: ChatActivityRecord[] = [
       { type: "tool_call", title: "git_exec", status: "failed", kind: "git" },
       { type: "failed", title: "Run failed", status: "failed", terminal: true },
       { type: "run_result", title: "LLM call failed on turn 2: timeout", status: "failed", terminal: true },
@@ -349,7 +349,7 @@ describe("TranscriptActivityTimeline", () => {
   });
 
   it("keeps external-agent activity rows chronological too", () => {
-    const activities: AgentChatActivityRecord[] = [
+    const activities: ChatActivityRecord[] = [
       { type: "started", title: "Starting external agent", status: "running" },
       { type: "running", title: "Running", status: "running" },
       { type: "plan", title: "Inspect the repository", status: "in_progress" },

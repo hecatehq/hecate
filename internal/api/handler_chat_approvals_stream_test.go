@@ -20,7 +20,7 @@ import (
 
 // ─── SSE event capture ───────────────────────────────────────────────────────
 //
-// The runtime publishes typed envelopes on /hecate/v1/agent-chat/sessions/{id}/stream.
+// The runtime publishes typed envelopes on /hecate/v1/chat/sessions/{id}/stream.
 // These tests connect a real HTTP client, parse the SSE frames, and assert
 // approval.requested / approval.resolved arrive when the coordinator drives
 // each terminal path (operator approve / cancel / timeout / grant short-circuit
@@ -43,7 +43,7 @@ type streamCollector struct {
 func startStreamCollector(t *testing.T, baseURL, sessionID string) *streamCollector {
 	t.Helper()
 	ctx, cancel := context.WithCancel(context.Background())
-	url := fmt.Sprintf("%s/hecate/v1/agent-chat/sessions/%s/stream", baseURL, sessionID)
+	url := fmt.Sprintf("%s/hecate/v1/chat/sessions/%s/stream", baseURL, sessionID)
 	req, err := http.NewRequestWithContext(ctx, http.MethodGet, url, nil)
 	if err != nil {
 		cancel()
@@ -171,7 +171,7 @@ func TestSSEPublishesApprovalRequestedAndResolvedOnOperatorApprove(t *testing.T)
 	}()
 
 	requested := stream.awaitFrame(t, "approval.requested", 2*time.Second)
-	var reqPayload AgentChatApprovalRequestedEvent
+	var reqPayload ChatApprovalRequestedEvent
 	if err := json.Unmarshal([]byte(requested.Data), &reqPayload); err != nil {
 		t.Fatalf("decode requested: %v", err)
 	}
@@ -185,7 +185,7 @@ func TestSSEPublishesApprovalRequestedAndResolvedOnOperatorApprove(t *testing.T)
 	// Resolve via HTTP. The coordinator publishes approval.resolved
 	// from the OnResolved hook fired inside Resolve.
 	httpResp := postJSONApprovalEndpoint(t,
-		f.server.URL+"/hecate/v1/agent-chat/sessions/s/approvals/"+reqPayload.ApprovalID+"/resolve",
+		f.server.URL+"/hecate/v1/chat/sessions/s/approvals/"+reqPayload.ApprovalID+"/resolve",
 		`{"decision":"approve","scope":"once"}`)
 	httpResp.Body.Close()
 	if httpResp.StatusCode != http.StatusOK {
@@ -193,7 +193,7 @@ func TestSSEPublishesApprovalRequestedAndResolvedOnOperatorApprove(t *testing.T)
 	}
 
 	resolved := stream.awaitFrame(t, "approval.resolved", 2*time.Second)
-	var resPayload AgentChatApprovalResolvedEvent
+	var resPayload ChatApprovalResolvedEvent
 	if err := json.Unmarshal([]byte(resolved.Data), &resPayload); err != nil {
 		t.Fatalf("decode resolved: %v", err)
 	}
@@ -229,15 +229,15 @@ func TestSSEPublishesResolvedOnOperatorCancel(t *testing.T) {
 	}()
 
 	requested := stream.awaitFrame(t, "approval.requested", 2*time.Second)
-	var reqPayload AgentChatApprovalRequestedEvent
+	var reqPayload ChatApprovalRequestedEvent
 	_ = json.Unmarshal([]byte(requested.Data), &reqPayload)
 
 	httpResp := postJSONApprovalEndpoint(t,
-		f.server.URL+"/hecate/v1/agent-chat/sessions/s/approvals/"+reqPayload.ApprovalID+"/cancel", "")
+		f.server.URL+"/hecate/v1/chat/sessions/s/approvals/"+reqPayload.ApprovalID+"/cancel", "")
 	httpResp.Body.Close()
 
 	resolved := stream.awaitFrame(t, "approval.resolved", 2*time.Second)
-	var resPayload AgentChatApprovalResolvedEvent
+	var resPayload ChatApprovalResolvedEvent
 	_ = json.Unmarshal([]byte(resolved.Data), &resPayload)
 	if resPayload.Status != "cancelled" || resPayload.Path != "operator" {
 		t.Fatalf("cancel resolved payload wrong: %+v", resPayload)
@@ -264,7 +264,7 @@ func TestSSEPublishesResolvedOnTimeout(t *testing.T) {
 
 	stream.awaitFrame(t, "approval.requested", 2*time.Second)
 	resolved := stream.awaitFrame(t, "approval.resolved", 2*time.Second)
-	var resPayload AgentChatApprovalResolvedEvent
+	var resPayload ChatApprovalResolvedEvent
 	_ = json.Unmarshal([]byte(resolved.Data), &resPayload)
 	if resPayload.Status != "timed_out" || resPayload.Path != "timeout" {
 		t.Fatalf("timeout resolved payload wrong: %+v", resPayload)
@@ -305,7 +305,7 @@ func TestSSEPublishesResolvedOnGrantShortCircuit(t *testing.T) {
 
 	stream.awaitFrame(t, "approval.requested", 2*time.Second)
 	resolved := stream.awaitFrame(t, "approval.resolved", 2*time.Second)
-	var resPayload AgentChatApprovalResolvedEvent
+	var resPayload ChatApprovalResolvedEvent
 	_ = json.Unmarshal([]byte(resolved.Data), &resPayload)
 	if resPayload.Path != "grant" {
 		t.Fatalf("path = %q, want grant", resPayload.Path)
@@ -332,7 +332,7 @@ func TestSSEPublishesResolvedOnDefaultModeAuto(t *testing.T) {
 
 	stream.awaitFrame(t, "approval.requested", 2*time.Second)
 	resolved := stream.awaitFrame(t, "approval.resolved", 2*time.Second)
-	var resPayload AgentChatApprovalResolvedEvent
+	var resPayload ChatApprovalResolvedEvent
 	_ = json.Unmarshal([]byte(resolved.Data), &resPayload)
 	if resPayload.Path != "default_mode" {
 		t.Fatalf("path = %q, want default_mode", resPayload.Path)
@@ -388,11 +388,11 @@ func TestSSEResolveViaHTTPPublishesExactlyOneResolvedEvenWithActiveWaiter(t *tes
 		)
 	}()
 	requested := stream.awaitFrame(t, "approval.requested", 2*time.Second)
-	var reqPayload AgentChatApprovalRequestedEvent
+	var reqPayload ChatApprovalRequestedEvent
 	_ = json.Unmarshal([]byte(requested.Data), &reqPayload)
 
 	httpResp := postJSONApprovalEndpoint(t,
-		f.server.URL+"/hecate/v1/agent-chat/sessions/s/approvals/"+reqPayload.ApprovalID+"/resolve",
+		f.server.URL+"/hecate/v1/chat/sessions/s/approvals/"+reqPayload.ApprovalID+"/resolve",
 		`{"decision":"approve","scope":"once"}`)
 	httpResp.Body.Close()
 
@@ -431,7 +431,7 @@ func TestSSEResolveVsTimeoutPublishesExactlyOneResolved(t *testing.T) {
 		)
 	}()
 	requested := stream.awaitFrame(t, "approval.requested", 2*time.Second)
-	var reqPayload AgentChatApprovalRequestedEvent
+	var reqPayload ChatApprovalRequestedEvent
 	_ = json.Unmarshal([]byte(requested.Data), &reqPayload)
 
 	// Fire HTTP Resolve as close to the timeout as we can. Both code
@@ -439,7 +439,7 @@ func TestSSEResolveVsTimeoutPublishesExactlyOneResolved(t *testing.T) {
 	// publishes; the loser must suppress.
 	go func() {
 		httpResp := postJSONApprovalEndpoint(t,
-			f.server.URL+"/hecate/v1/agent-chat/sessions/s/approvals/"+reqPayload.ApprovalID+"/resolve",
+			f.server.URL+"/hecate/v1/chat/sessions/s/approvals/"+reqPayload.ApprovalID+"/resolve",
 			`{"decision":"approve","scope":"once"}`)
 		httpResp.Body.Close()
 	}()
@@ -469,7 +469,7 @@ func TestSSEDropsOnSlowConsumerWithoutBlockingCoordinator(t *testing.T) {
 	// while the coordinator publishes. This simulates a stalled UI and
 	// exercises the drop-on-full branch for approval events.
 	for i := 0; i < cap(updates); i++ {
-		f.handler.agentChatLive.publishApprovalRequested(AgentChatApprovalRequestedEvent{
+		f.handler.agentChatLive.publishApprovalRequested(ChatApprovalRequestedEvent{
 			ApprovalID: fmt.Sprintf("seed_%d", i),
 			SessionID:  "s",
 			AdapterID:  "codex",

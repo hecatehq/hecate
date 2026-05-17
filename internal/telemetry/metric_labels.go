@@ -32,7 +32,7 @@ var knownRunStatuses = map[string]struct{}{
 }
 
 var knownExecutionKinds = map[string]struct{}{
-	"agent_chat": {},
+	"chat":       {},
 	"agent_loop": {},
 	"file":       {},
 	"git":        {},

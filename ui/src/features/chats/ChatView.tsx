@@ -7,7 +7,7 @@ import { describeGatewayError } from "../../lib/error-diagnostics";
 import { formatInteger, formatLocaleTime } from "../../lib/format";
 import { buildSelectedModelIssue } from "../../lib/provider-issues";
 import { providerDisplayName } from "../../lib/provider-utils";
-import type { AgentAdapterRecord, AgentChatActivityRecord, AgentChatSegmentRecord, AgentChatSessionRecord, AgentChatUsageRecord, LocalProviderDiscoveryRecord, ProviderPresetRecord } from "../../types/runtime";
+import type { AgentAdapterRecord, ChatActivityRecord, ChatSegmentRecord, ChatSessionRecord, ChatUsageRecord, LocalProviderDiscoveryRecord, ProviderPresetRecord } from "../../types/runtime";
 import { Icon, Icons } from "../shared/ui";
 import { AgentApprovalAutoModeBanner, AgentApprovalsBanner } from "./AgentApprovalBanner";
 import { AgentApprovalModal } from "./AgentApprovalModal";
@@ -65,21 +65,21 @@ export function ChatView({ onNavigate, onOpenTask, onOpenTrace }: Props) {
   const textareaRef = useRef<HTMLTextAreaElement>(null);
   const focusComposerAfterNewChatRef = useRef(false);
 
-  const activeSessionIsExternal = Boolean(state.activeAgentChatSession?.runtime_kind === "external_agent" || state.activeAgentChatSession?.adapter_id);
-  const activeSessionIsHecate = Boolean(state.activeAgentChatSession && !activeSessionIsExternal);
+  const activeSessionIsExternal = Boolean(state.activeChatSession?.runtime_kind === "external_agent" || state.activeChatSession?.adapter_id);
+  const activeSessionIsHecate = Boolean(state.activeChatSession && !activeSessionIsExternal);
   const isHecateChat = activeSessionIsHecate || (!activeSessionIsExternal && (state.chatTarget === "agent" || state.chatTarget === "model"));
   const isAgentChat = isHecateChat || state.chatTarget === "external_agent";
   const isHecateAgentChat = isHecateChat && state.chatTarget === "agent";
   const isExternalAgentChat = activeSessionIsExternal || (!activeSessionIsHecate && state.chatTarget === "external_agent");
-  const externalAgentHasConfigControls = Boolean(isExternalAgentChat && state.activeAgentChatSession?.config_options?.length);
+  const externalAgentHasConfigControls = Boolean(isExternalAgentChat && state.activeChatSession?.config_options?.length);
   const instructionsAvailable = isHecateChat;
-  const activeSessionID = state.activeAgentChatSessionID;
+  const activeSessionID = state.activeChatSessionID;
   const chatCanvasActive = Boolean(activeSessionID || draftChatOpen);
   const activeQueuedChatMessages = activeSessionID
     ? state.queuedChatMessages.filter((queued) => queued.session_id === activeSessionID)
     : [];
-  const activeTitle = state.activeAgentChatSession?.title;
-  const messages: VisibleChatMessage[] = (state.activeAgentChatSession?.messages ?? []).map((m, index) => ({
+  const activeTitle = state.activeChatSession?.title;
+  const messages: VisibleChatMessage[] = (state.activeChatSession?.messages ?? []).map((m, index) => ({
     id: m.id || `agent-message-${index}`,
     runtime_kind: m.runtime_kind,
     segment_id: m.segment_id,
@@ -106,7 +106,7 @@ export function ChatView({ onNavigate, onOpenTask, onOpenTrace }: Props) {
     error: m.error,
   }));
   const pendingTaskApprovals = isHecateChat
-    ? pendingHecateTaskApprovals(state.activeAgentChatSession)
+    ? pendingHecateTaskApprovals(state.activeChatSession)
     : [];
   // Empty for now — agent-chat assistant rows don't carry the
   // provider-call ID; the lookup map keeps the transcript-row prop
@@ -125,12 +125,12 @@ export function ChatView({ onNavigate, onOpenTask, onOpenTrace }: Props) {
     .map((m) => (m.content ?? "").trimEnd());
   const transcriptItems = buildTranscriptItems(
     visibleMessages,
-    state.activeAgentChatSession?.segments,
+    state.activeChatSession?.segments,
     isHecateChat,
   );
   const streaming = state.chatLoading;
   const chatDiagnostic = describeGatewayError(state.chatErrorCode, state.chatErrorStatus ?? undefined);
-  const activeAgentAdapterID = state.activeAgentChatSession?.adapter_id || state.agentAdapterID;
+  const activeAgentAdapterID = state.activeChatSession?.adapter_id || state.agentAdapterID;
   const selectedAgent = state.agentAdapters.find((adapter) => adapter.id === activeAgentAdapterID);
   const selectedAgentHealth = activeAgentAdapterID
     ? state.agentAdapterHealthByID.get(activeAgentAdapterID) ?? null
@@ -208,35 +208,35 @@ export function ChatView({ onNavigate, onOpenTask, onOpenTrace }: Props) {
   const selectedAgentUnavailable = isExternalAgentChat && Boolean(selectedAgent) && !selectedAgent?.available;
   const newChatAgentID = state.newChatAgentID || "hecate";
   const nothingRunnable = !state.loading && modelRouteUnavailable && agentRouteUnavailable;
-  const activeHecateAgentSegment = activeTaskBackedHecateSegment(state.activeAgentChatSession);
+  const activeHecateAgentSegment = activeTaskBackedHecateSegment(state.activeChatSession);
   const hecateAgentBusy = isHecateChat && Boolean(activeHecateAgentSegment);
   const activeHecateTaskID = activeHecateAgentSegment?.task_id || "";
   const activeHecateRunID = activeHecateAgentSegment?.latest_run_id || "";
   const hecateAgentModelLocked = isHecateChat && Boolean(activeHecateAgentSegment);
   const hecateChatProviderValue = hecateAgentModelLocked
-    ? (activeHecateAgentSegment?.provider || state.activeAgentChatSession?.provider || "auto")
+    ? (activeHecateAgentSegment?.provider || state.activeChatSession?.provider || "auto")
     : state.providerFilter;
   const hecateChatModelValue = hecateAgentModelLocked
-    ? (activeHecateAgentSegment?.model || state.activeAgentChatSession?.model || "")
+    ? (activeHecateAgentSegment?.model || state.activeChatSession?.model || "")
     : state.model;
   const activeHeaderBrand = isAgentChat
-    ? (state.activeAgentChatSession ? sidebarSessionBrand(state.activeAgentChatSession) : newChatAgentID)
+    ? (state.activeChatSession ? sidebarSessionBrand(state.activeChatSession) : newChatAgentID)
     : selectedConfiguredProvider?.id || selectedRuntimeProvider?.name || state.providerFilter;
   const activeHeaderFallback = isAgentChat
-    ? (state.activeAgentChatSession
-        ? sidebarSessionAgentLabel(state.activeAgentChatSession, state.agentAdapters)
+    ? (state.activeChatSession
+        ? sidebarSessionAgentLabel(state.activeChatSession, state.agentAdapters)
         : chatAgentOption(newChatAgentID, state.agentAdapters).label)
     : selectedProviderName;
   const activeHeaderSubline = buildActiveChatHeaderSubline({
     isAgentChat,
     isExternalAgentChat,
     isHecateAgentChat,
-    activeSession: state.activeAgentChatSession,
+    activeSession: state.activeChatSession,
     selectedAgent,
     newChatAgentID,
     adapters: state.agentAdapters,
   });
-  const latestChatUsage = isAgentChat ? findLatestAgentUsage(state.activeAgentChatSession) : null;
+  const latestChatUsage = isAgentChat ? findLatestAgentUsage(state.activeChatSession) : null;
   const selectedHecateModelRecord = hecateAgentModelLocked
     ? undefined
     : selectableModels.find((entry) => entry.id === state.model && (!state.providerFilter || state.providerFilter === "auto" || entry.metadata?.provider === state.providerFilter));
@@ -250,7 +250,7 @@ export function ChatView({ onNavigate, onOpenTask, onOpenTrace }: Props) {
       })
     : null;
   const selectedModelCapabilities = hecateAgentModelLocked
-    ? state.activeAgentChatSession?.capabilities
+    ? state.activeChatSession?.capabilities
     : selectedHecateModelRecord?.metadata?.capabilities;
   const hecateAgentToolsDisabledForModel = selectedModelCapabilities?.tool_calling === "none";
   const selectedCapabilityProvider = hecateAgentModelLocked
@@ -271,7 +271,7 @@ export function ChatView({ onNavigate, onOpenTask, onOpenTrace }: Props) {
     && isHecateChat
     && !chatSettingsOpen
     && !rtkOnboardingDismissed
-    && !state.activeAgentChatSessionID
+    && !state.activeChatSessionID
     && visibleMessages.length === 0
     && activeQueuedChatMessages.length === 0
     && state.pendingToolCalls.length === 0
@@ -451,7 +451,7 @@ export function ChatView({ onNavigate, onOpenTask, onOpenTrace }: Props) {
   }
 
   async function handleResolveTaskApproval(approvalID: string, decision: "approve" | "reject") {
-    const taskID = state.activeAgentChatSession?.task_id;
+    const taskID = state.activeChatSession?.task_id;
     if (!taskID) return;
     setTaskApprovalBusyID(`${approvalID}:${decision}`);
     try {
@@ -505,9 +505,9 @@ export function ChatView({ onNavigate, onOpenTask, onOpenTrace }: Props) {
             onOpenSidebar={() => setSidebarOpen(true)}
             brand={activeHeaderBrand}
             fallback={activeHeaderFallback}
-            title={activeTitle || (state.agentChatSessions.length === 0 ? "New chat" : "Select a chat")}
+            title={activeTitle || (state.chatSessions.length === 0 ? "New chat" : "Select a chat")}
             subline={activeHeaderSubline}
-            sublineHoverTitle={isExternalAgentChat ? formatAgentSessionTitle(state.activeAgentChatSession, selectedAgent) : activeHeaderSubline}
+            sublineHoverTitle={isExternalAgentChat ? formatAgentSessionTitle(state.activeChatSession, selectedAgent) : activeHeaderSubline}
             isAgentChat={isAgentChat}
             isExternalAgentChat={isExternalAgentChat}
             showWorkspaceButton={showHeaderWorkspaceButton}
@@ -515,7 +515,7 @@ export function ChatView({ onNavigate, onOpenTask, onOpenTrace }: Props) {
             chatSettingsOpen={chatSettingsOpen}
             onChooseWorkspace={() => void chooseWorkspace()}
             onToggleChatSettings={() => setChatSettingsOpen((open) => !open)}
-            activeAgentChatSession={state.activeAgentChatSession}
+            activeChatSession={state.activeChatSession}
           />
         )}
 
@@ -524,7 +524,7 @@ export function ChatView({ onNavigate, onOpenTask, onOpenTrace }: Props) {
         {!chatCanvasActive ? (
           <NoActiveChatState
             agentLabel={chatAgentOption(newChatAgentID, state.agentAdapters).label}
-            hasSessions={state.agentChatSessions.length > 0}
+            hasSessions={state.chatSessions.length > 0}
           />
         ) : (
           <>
@@ -557,20 +557,20 @@ export function ChatView({ onNavigate, onOpenTask, onOpenTrace }: Props) {
         {isExternalAgentChat && (
           <>
             <AgentApprovalAutoModeBanner mode={state.agentAdapterApprovalMode} />
-            {state.activeAgentChatSessionID && (
+            {state.activeChatSessionID && (
               <AgentApprovalsBanner
-                pending={state.pendingApprovalsBySessionID.get(state.activeAgentChatSessionID) ?? []}
+                pending={state.pendingApprovalsBySessionID.get(state.activeChatSessionID) ?? []}
                 onSelect={(id) => setApprovalModalID(id)}
               />
             )}
           </>
         )}
 
-        {isHecateAgentChat && state.activeAgentChatSession?.task_id && pendingTaskApprovals.length > 0 && (
+        {isHecateAgentChat && state.activeChatSession?.task_id && pendingTaskApprovals.length > 0 && (
           <HecateTaskApprovalsBanner
             approvals={pendingTaskApprovals}
-            taskID={state.activeAgentChatSession.task_id}
-            runID={state.activeAgentChatSession.latest_run_id}
+            taskID={state.activeChatSession.task_id}
+            runID={state.activeChatSession.latest_run_id}
             busyID={taskApprovalBusyID}
             onOpenTask={onOpenTask}
             onResolve={handleResolveTaskApproval}
@@ -696,23 +696,23 @@ export function ChatView({ onNavigate, onOpenTask, onOpenTrace }: Props) {
             rtkAvailable={Boolean(state.hecateRTKAvailable)}
             rtkPath={state.hecateRTKPath}
             externalAgentID={isExternalAgentChat ? activeAgentAdapterID : ""}
-            taskID={state.activeAgentChatSession?.task_id}
+            taskID={state.activeChatSession?.task_id}
             agentName={selectedAgent?.name || activeHeaderFallback}
             model={state.model}
             provider={selectedProviderName}
-            workspace={state.activeAgentChatSession?.workspace || state.agentWorkspace}
-            status={state.activeAgentChatSession?.status || ""}
-            messageCount={state.activeAgentChatSession?.messages?.length ?? 0}
+            workspace={state.activeChatSession?.workspace || state.agentWorkspace}
+            status={state.activeChatSession?.status || ""}
+            messageCount={state.activeChatSession?.messages?.length ?? 0}
             agentUsage={latestChatUsage}
             usageSource={isHecateChat ? "hecate" : "adapter"}
-            externalSession={isExternalAgentChat ? state.activeAgentChatSession : null}
+            externalSession={isExternalAgentChat ? state.activeChatSession : null}
             instructionsAvailable={instructionsAvailable}
             isHecateAgentChat={isHecateAgentChat}
             instructionsLocked={messages.length > 0}
             systemPrompt={state.systemPrompt}
             onToolsChange={(enabled) => actions.setChatTarget(enabled ? "agent" : "model")}
             onRTKChange={handleRTKChange}
-            onConfigOptionChange={actions.setAgentChatConfigOption}
+            onConfigOptionChange={actions.setChatConfigOption}
             onSystemPromptChange={actions.setSystemPrompt}
             onCopyCommand={actions.copyCommand}
           />
@@ -729,14 +729,14 @@ export function ChatView({ onNavigate, onOpenTask, onOpenTrace }: Props) {
         }
       `}</style>
 
-      {approvalModalID && isExternalAgentChat && state.activeAgentChatSessionID && (
+      {approvalModalID && isExternalAgentChat && state.activeChatSessionID && (
         <AgentApprovalModal
-          sessionID={state.activeAgentChatSessionID}
+          sessionID={state.activeChatSessionID}
           approvalID={approvalModalID}
           onClose={() => setApprovalModalID(null)}
-          fetchApproval={actions.getAgentChatApproval}
-          onResolve={actions.resolveAgentChatApproval}
-          onCancel={actions.cancelAgentChatApproval}
+          fetchApproval={actions.getChatApproval}
+          onResolve={actions.resolveChatApproval}
+          onCancel={actions.cancelChatApproval}
         />
       )}
       <AddProviderModal
@@ -786,7 +786,7 @@ function buildActiveChatHeaderSubline({
   isAgentChat: boolean;
   isExternalAgentChat: boolean;
   isHecateAgentChat: boolean;
-  activeSession: AgentChatSessionRecord | null;
+  activeSession: ChatSessionRecord | null;
   selectedAgent?: AgentAdapterRecord;
   newChatAgentID: string;
   adapters: AgentAdapterRecord[];
@@ -807,7 +807,7 @@ function buildActiveChatHeaderSubline({
   ].filter(Boolean).join(" · ");
 }
 
-function pendingHecateTaskApprovals(session: AgentChatSessionRecord | null): HecateTaskApproval[] {
+function pendingHecateTaskApprovals(session: ChatSessionRecord | null): HecateTaskApproval[] {
   if (!session?.task_id) return [];
   const byID = new Map<string, HecateTaskApproval>();
   for (const message of session.messages ?? []) {
@@ -846,7 +846,7 @@ function cleanApprovalDetail(detail?: string): string {
     .trim();
 }
 
-function taskApprovalDisplayKind(activity: AgentChatActivityRecord): string {
+function taskApprovalDisplayKind(activity: ChatActivityRecord): string {
   const kind = (activity.kind || "").trim();
   if (kind && kind !== "approval" && kind !== "agent_loop_approval") {
     return kind;
@@ -864,7 +864,7 @@ function hecateAgentSessionIsActive(status?: string): boolean {
   return status === "queued" || status === "running" || status === "awaiting_approval";
 }
 
-function activeTaskBackedHecateSegment(session: AgentChatSessionRecord | null): AgentChatSegmentRecord | null {
+function activeTaskBackedHecateSegment(session: ChatSessionRecord | null): ChatSegmentRecord | null {
   const segments = [...(session?.segments ?? [])].reverse();
   const activeSegment = segments.find((segment) =>
     segment.runtime_kind === "agent"
@@ -1059,7 +1059,7 @@ function normalizeProviderBaseURL(baseURL: string | undefined): string {
 }
 
 
-function formatAgentSessionLabel(session: AgentChatSessionRecord | null, adapter?: AgentAdapterRecord): string {
+function formatAgentSessionLabel(session: ChatSessionRecord | null, adapter?: AgentAdapterRecord): string {
   const agentName = adapter?.name || (session?.adapter_id ? chatAgentOption(session.adapter_id, []).label : "External agent");
   if (!session) {
     return adapter?.available ? `${agentName} · New session` : `${agentName} · Not ready`;
@@ -1093,7 +1093,7 @@ function titleCaseWords(value: string): string {
   return value.replace(/\b\w/g, (char) => char.toUpperCase());
 }
 
-function formatAgentSessionTitle(session: AgentChatSessionRecord | null, adapter?: AgentAdapterRecord): string {
+function formatAgentSessionTitle(session: ChatSessionRecord | null, adapter?: AgentAdapterRecord): string {
   if (!session) {
     return adapter?.available
       ? `A new ${adapter.name} session will be created on send.`
@@ -1109,7 +1109,7 @@ function formatAgentSessionTitle(session: AgentChatSessionRecord | null, adapter
 }
 
 
-function findLatestAgentUsage(session: AgentChatSessionRecord | null): AgentChatUsageRecord | null {
+function findLatestAgentUsage(session: ChatSessionRecord | null): ChatUsageRecord | null {
   const messages = session?.messages ?? [];
   for (let index = messages.length - 1; index >= 0; index -= 1) {
     const usage = messages[index]?.usage;
@@ -1118,11 +1118,11 @@ function findLatestAgentUsage(session: AgentChatSessionRecord | null): AgentChat
   return null;
 }
 
-function agentUsageEmpty(usage: AgentChatUsageRecord): boolean {
+function agentUsageEmpty(usage: ChatUsageRecord): boolean {
   return !usage.reported_cost_amount && !usage.reported_cost_currency && !(usage.context_size ?? 0) && !(usage.context_used ?? 0);
 }
 
-function formatAgentContextUsage(usage: AgentChatUsageRecord): string {
+function formatAgentContextUsage(usage: ChatUsageRecord): string {
   const used = usage.context_used ?? 0;
   const size = usage.context_size ?? 0;
   if (size > 0) return `${formatInteger(used)} / ${formatInteger(size)}`;
@@ -1130,7 +1130,7 @@ function formatAgentContextUsage(usage: AgentChatUsageRecord): string {
   return "—";
 }
 
-function formatAgentReportedCost(usage: AgentChatUsageRecord): string {
+function formatAgentReportedCost(usage: ChatUsageRecord): string {
   if (!usage.reported_cost_amount && !usage.reported_cost_currency) return "";
   const currency = usage.reported_cost_currency ? ` ${usage.reported_cost_currency}` : "";
   return `${usage.reported_cost_amount || "0"}${currency}`;
@@ -1178,9 +1178,9 @@ function ChatSettingsPanel({
   workspace?: string;
   status?: string;
   messageCount: number;
-  agentUsage: AgentChatUsageRecord | null;
+  agentUsage: ChatUsageRecord | null;
   usageSource: "hecate" | "adapter";
-  externalSession: AgentChatSessionRecord | null;
+  externalSession: ChatSessionRecord | null;
   instructionsAvailable: boolean;
   isHecateAgentChat: boolean;
   instructionsLocked: boolean;
@@ -1566,5 +1566,5 @@ function CopyCommandRow({ label, command, onCopy }: { label: string; command: st
 }
 
 function shortID(id: string): string {
-  return compactID(id, ["task_", "run_", "agent_chat_"], 8);
+  return compactID(id, ["task_", "run_", "chat_"], 8);
 }

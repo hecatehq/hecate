@@ -341,7 +341,7 @@ func (m *AgentChatMetrics) RecordRun(ctx context.Context, rec AgentChatRunMetric
 			continue
 		}
 		bucketAttrs := append([]attribute.KeyValue{}, attrs...)
-		bucketAttrs = append(bucketAttrs, attribute.String(AttrHecateAgentChatTimingBucket, bucket.name))
+		bucketAttrs = append(bucketAttrs, attribute.String(AttrHecateChatTimingBucket, bucket.name))
 		m.runTiming.Record(ctx, bucket.ms, otmetric.WithAttributes(bucketAttrs...))
 	}
 }
@@ -376,7 +376,7 @@ func (m *AgentChatMetrics) RecordChatCancelled(ctx context.Context, rec AgentCha
 		attrs = append(attrs, attribute.String(AttrHecateAgentAdapterID, NormalizeMetricLabel(rec.AdapterID)))
 	}
 	if rec.Reason != "" {
-		attrs = append(attrs, attribute.String(AttrHecateAgentChatCancelReason, NormalizeAgentChatCancelReason(rec.Reason)))
+		attrs = append(attrs, attribute.String(AttrHecateChatCancelReason, NormalizeAgentChatCancelReason(rec.Reason)))
 	}
 	m.cancelledTotal.Add(ctx, 1, otmetric.WithAttributes(attrs...))
 }

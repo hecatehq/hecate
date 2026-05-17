@@ -24,7 +24,7 @@ a scoped duration, surface what's been granted."
 
 Implementation gates:
 
-- Wire shape on `/hecate/v1/agent-chat/sessions/{id}/approvals` is finalized for
+- Wire shape on `/hecate/v1/chat/sessions/{id}/approvals` is finalized for
   alpha. _(Status: implemented)_
 - Persisted decision scopes (session / adapter+tool / workspace+tool) are
   agreed and have memory + sqlite schemas. _(Status: implemented)_
@@ -75,13 +75,13 @@ Hecate already has a `task_approval` model for the native runtime (see
 [`runtime-api.md`](../runtime-api.md)). External adapters don't reuse it
 verbatim — the wire payload is different, the lifecycle is different, and the
 audience (one operator chat) is narrower than tasks. v1 ships a parallel
-**`agent_chat_approval`** entity with the same shape so frontends can render
+**`chat_approval`** entity with the same shape so frontends can render
 them with one chrome:
 
 ```
-agent_chat_approval
+chat_approval
   id              ULID
-  session_id      ULID  (FK → agent_chat_sessions)
+  session_id      ULID  (FK → chat_sessions)
   message_id      ULID  (the prompt turn that triggered it)
   adapter_id      string ("codex" | "claude_code" | "cursor_agent" | …)
   status          string ("pending" | "approved" | "denied" | "timed_out" | "cancelled")
@@ -115,11 +115,11 @@ decision. v1 supports four scopes, in increasing breadth:
 | `workspace_tool` | re-asked for the same `(adapter, tool_name)` in a different workspace | Hecate-side approval grant |
 | `adapter_tool` | re-asked for a different tool, but auto-applied for this `(adapter, tool_name)` pair across sessions | Hecate-side approval grant |
 
-Decisions broader than `once` persist in a new `agent_chat_approval_grants`
+Decisions broader than `once` persist in a new `chat_approval_grants`
 table:
 
 ```
-agent_chat_approval_grants
+chat_approval_grants
   id              ULID
   scope           string ("session" | "workspace_tool" | "adapter_tool")
   adapter_id      string
@@ -135,7 +135,7 @@ agent_chat_approval_grants
 When a new `RequestPermission` arrives, the session manager checks the grants
 table from most-specific to broadest (session → workspace_tool → adapter_tool).
 A matching grant short-circuits the operator prompt; the resolution still gets
-recorded as an `agent_chat_approval` row with `status=approved/denied` and
+recorded as an `chat_approval` row with `status=approved/denied` and
 `scope` of the matching grant, so the audit trail stays complete.
 
 ### Tool-kind extraction
@@ -193,7 +193,7 @@ Hecate replies to the adapter with an ACP `Cancelled` outcome.
 The 5-minute default matches operator-attention reality — long enough for a
 context switch, short enough that an abandoned session doesn't hold an adapter
 process forever. Configurable per session via a future
-`POST /hecate/v1/agent-chat/sessions/{id}` field; v1 keeps it global.
+`POST /hecate/v1/chat/sessions/{id}` field; v1 keeps it global.
 
 When `mode=prompt` and timeout fires, the resulting cancellation is the
 operator's signal: the chat shows "Approval timed out — adapter cancelled
@@ -209,8 +209,8 @@ controls around it.
 ### Pending list
 
 ```
-GET /hecate/v1/agent-chat/sessions/{id}/approvals
-GET /hecate/v1/agent-chat/sessions/{id}/approvals?status=pending
+GET /hecate/v1/chat/sessions/{id}/approvals
+GET /hecate/v1/chat/sessions/{id}/approvals?status=pending
 ```
 
 Returns approvals for the session. Filterable by `status`. Default sort:
@@ -246,13 +246,13 @@ oldest pending first.
 ### Single approval
 
 ```
-GET /hecate/v1/agent-chat/sessions/{id}/approvals/{approval_id}
+GET /hecate/v1/chat/sessions/{id}/approvals/{approval_id}
 ```
 
 ### Resolve
 
 ```
-POST /hecate/v1/agent-chat/sessions/{id}/approvals/{approval_id}/resolve
+POST /hecate/v1/chat/sessions/{id}/approvals/{approval_id}/resolve
 {
   "decision": "approve",          // "approve" | "deny"
   "scope":    "session",          // "once" | "session" | "workspace_tool" | "adapter_tool"
@@ -272,7 +272,7 @@ falls back to the ACP `Cancelled` outcome.
 ### Cancel (operator-initiated)
 
 ```
-POST /hecate/v1/agent-chat/sessions/{id}/approvals/{approval_id}/cancel
+POST /hecate/v1/chat/sessions/{id}/approvals/{approval_id}/cancel
 ```
 
 Operator-driven cancellation that resolves to ACP `Cancelled`. Different from
@@ -282,12 +282,12 @@ the adapter to "back off and ask again later."
 ### List grants
 
 ```
-GET /hecate/v1/agent-chat/grants?adapter_id=codex&scope=adapter_tool
-DELETE /hecate/v1/agent-chat/grants/{grant_id}
+GET /hecate/v1/chat/grants?adapter_id=codex&scope=adapter_tool
+DELETE /hecate/v1/chat/grants/{grant_id}
 ```
 
 So the operator can see and revoke "always allow" decisions they made earlier.
-Listing on `agent_chat_approval_grants`; deletion is hard (no soft-delete —
+Listing on `chat_approval_grants`; deletion is hard (no soft-delete —
 the existing approvals already record the audit trail).
 
 ## Stream integration
@@ -295,7 +295,7 @@ the existing approvals already record the audit trail).
 Pending approvals surface on the existing chat SSE stream:
 
 ```
-GET /hecate/v1/agent-chat/sessions/{id}/stream
+GET /hecate/v1/chat/sessions/{id}/stream
 ```
 
 emits a new event type:
@@ -332,7 +332,7 @@ For one frontend concretely:
 - **Approve / Deny / Cancel** buttons; the chosen ACP option_id is the
   primary button text ("Allow once" or whatever the adapter named it)
 - **Grants management** in Connections: list of every
-  `agent_chat_approval_grants` row with revoke buttons
+  `chat_approval_grants` row with revoke buttons
 
 Frontends are free to render this differently. The wire contract is the
 contract.
@@ -362,11 +362,11 @@ the turn, so log → trace → approval correlation is one-hop.
 
 ## Persistence
 
-New tables in the SQLite schema (`agent_chat_approvals`,
-`agent_chat_approval_grants`). Memory-backend equivalent stores them in
+New tables in the SQLite schema (`chat_approvals`,
+`chat_approval_grants`). Memory-backend equivalent stores them in
 process-local maps and discards on restart — same as the existing
-agent-chat memory store. The retention worker gets a new
-`agent_chat_approvals` subsystem with default `MAX_AGE=30d`,
+chat memory store. The retention worker gets a new
+`chat_approvals` subsystem with default `MAX_AGE=30d`,
 `MAX_COUNT=10000` (mirrors `task_approval` retention).
 
 Resolved grants survive longer than approvals: a grant is the operator's
@@ -415,7 +415,7 @@ These need resolution before this draft can become v1.0 stable.
 
 6. **Grant export / import.** An operator with grant lists on machine A
    wants the same grants on machine B. The simplest thing: operator copies
-   `~/.config/hecate/agent-chat-grants.json`. v1 doesn't ship export
+   `~/.config/hecate/chat-grants.json`. v1 doesn't ship export
    tooling; verify that's OK with at least one operator.
    - Status: open
 
@@ -463,7 +463,7 @@ When this lands:
   action that asked for permission has an approval row with timestamps,
   decision, scope, and trace IDs.
 - The Agent Chat → Tasks convergence has a concrete adapter for how to
-  unify the two approval surfaces (drop `agent_chat_approvals` into
+  unify the two approval surfaces (drop `chat_approvals` into
   `task_approvals` with a discriminator; the rest of the model already
   matches).
 - An "auto-approve" mode for batch / CI usage stays explicit and gated

@@ -98,7 +98,7 @@ Agent Chat has three runtime kinds:
 
 External Agent has two live/persistence layers:
 
-1. `internal/agentchat` stores the Hecate transcript and native ACP session id
+1. `internal/chat` stores the Hecate transcript and native ACP session id
    in memory or sqlite.
 2. `internal/agentadapters` owns the live ACP/process session manager.
 
@@ -106,8 +106,8 @@ Hecate Agent additionally uses `internal/orchestrator`, `internal/taskstate`,
 and `internal/modelcaps`. Do not add a second lightweight tool-loop runtime;
 reuse task approvals, run events, artifacts, patch review, and OTel. When
 adding live-output behavior, stream through the existing gateway/provider path
-where possible and publish snapshots through Agent Chat; do not fork a second
-chat-only event stream for Hecate-owned tools.
+where possible and publish snapshots through the chat live stream; do not fork
+a second chat-only event stream for Hecate-owned tools.
 
 When changing this path:
 

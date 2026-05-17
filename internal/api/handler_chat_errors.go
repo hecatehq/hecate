@@ -6,7 +6,7 @@ import (
 	"net/http"
 	"strings"
 
-	"github.com/hecate/agent-runtime/internal/agentchat"
+	"github.com/hecate/agent-runtime/internal/chat"
 	"github.com/hecate/agent-runtime/internal/gateway"
 )
 
@@ -104,21 +104,21 @@ func writeAgentChatAdapterNotFound(w http.ResponseWriter, adapterID string) {
 	})
 }
 
-func writeAgentChatSessionStopping(w http.ResponseWriter) {
+func writeChatSessionStopping(w http.ResponseWriter) {
 	WriteErrorDetails(w, http.StatusConflict, errCodeSessionStopping, "agent chat session is still stopping", ErrorDetails{
 		UserMessage:    "This chat is still stopping.",
 		OperatorAction: "Wait a moment, then retry the action.",
 	})
 }
 
-func writeAgentChatSessionNotRunning(w http.ResponseWriter) {
+func writeChatSessionNotRunning(w http.ResponseWriter) {
 	WriteErrorDetails(w, http.StatusConflict, errCodeSessionNotRunning, "agent chat session is not running", ErrorDetails{
 		UserMessage:    "There is no active run to stop.",
 		OperatorAction: "Send a new message if you want to start another run.",
 	})
 }
 
-func writeHecateAgentBusy(w http.ResponseWriter, session agentchat.Session, runStatus string) {
+func writeHecateAgentBusy(w http.ResponseWriter, session chat.Session, runStatus string) {
 	WriteErrorDetails(w, http.StatusConflict, errCodeAgentSessionBusy, "Hecate Chat is still working on the current task. Wait for it to finish, resolve the approval, or stop it before sending another message.", ErrorDetails{
 		Fields: map[string]any{
 			"task_id":       session.TaskID,

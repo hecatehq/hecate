@@ -22,8 +22,8 @@ const (
 	// Other event types (run.started / run.finished / approval.*) are
 	// kept for forensics — turn events are bulk telemetry that's only
 	// useful while the run is hot.
-	SubsystemTurnEvents         = "turn_events"
-	SubsystemAgentChatApprovals = "agent_chat_approvals"
+	SubsystemTurnEvents    = "turn_events"
+	SubsystemChatApprovals = "chat_approvals"
 )
 
 // Pruner prunes old or excess records from a subsystem store.
@@ -48,11 +48,11 @@ type TurnEventPruner interface {
 	PruneTurnEvents(ctx context.Context, maxAge time.Duration, maxCount int) (int, error)
 }
 
-// AgentChatApprovalPruner is implemented by approval stores that
+// ChatApprovalPruner is implemented by approval stores that
 // support pruning resolved external-adapter approvals + expired
 // grants. Pending rows are never pruned. Grants ignore maxAge /
 // maxCount; only their own ExpiresAt drives deletion.
-type AgentChatApprovalPruner interface {
+type ChatApprovalPruner interface {
 	PruneApprovals(ctx context.Context, now time.Time, maxAge time.Duration, maxCount int) (int64, error)
 	PruneExpiredGrants(ctx context.Context, now time.Time) (int64, error)
 }
@@ -75,14 +75,14 @@ func (a turnEventPrunerAdapter) Prune(ctx context.Context, maxAge time.Duration,
 	return a.p.PruneTurnEvents(ctx, maxAge, maxCount)
 }
 
-// agentChatApprovalPrunerAdapter wraps an AgentChatApprovalPruner so
+// agentChatApprovalPrunerAdapter wraps an ChatApprovalPruner so
 // the retention worker can call Prune(maxAge, maxCount) uniformly.
 // One pass deletes resolved approvals (subject to maxAge / maxCount)
 // then deletes expired grants (independent of maxAge / maxCount —
 // grants honor only their own ExpiresAt, never the retention window).
 // Both deletion counts are summed in the returned `deleted` total so
 // operators see total rows removed by this subsystem in one number.
-type agentChatApprovalPrunerAdapter struct{ p AgentChatApprovalPruner }
+type agentChatApprovalPrunerAdapter struct{ p ChatApprovalPruner }
 
 func (a agentChatApprovalPrunerAdapter) Prune(ctx context.Context, maxAge time.Duration, maxCount int) (int, error) {
 	now := time.Now().UTC()
@@ -143,7 +143,7 @@ func NewManager(
 	audit AuditEventPruner,
 	providerHistory Pruner,
 	turnEvents TurnEventPruner,
-	approvals AgentChatApprovalPruner,
+	approvals ChatApprovalPruner,
 	history HistoryStore,
 ) *Manager {
 	var usagePruner Pruner
@@ -172,7 +172,7 @@ func NewManager(
 			{SubsystemAuditEvents, cfg.AuditEvents, auditPruner},
 			{SubsystemProviderHistory, cfg.ProviderHistory, providerHistory},
 			{SubsystemTurnEvents, cfg.TurnEvents, turnEventsPruner},
-			{SubsystemAgentChatApprovals, cfg.AgentChatApprovals, approvalsPruner},
+			{SubsystemChatApprovals, cfg.ChatApprovals, approvalsPruner},
 		},
 		history: history,
 	}

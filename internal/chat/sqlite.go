@@ -1,4 +1,4 @@
-package agentchat
+package chat
 
 import (
 	"context"
@@ -26,8 +26,8 @@ func NewSQLiteStore(ctx context.Context, client *storage.SQLiteClient) (*SQLiteS
 	}
 	store := &SQLiteStore{
 		client:        client,
-		sessionsTable: client.QualifiedTable("agent_chat_sessions"),
-		messagesTable: client.QualifiedTable("agent_chat_messages"),
+		sessionsTable: client.QualifiedTable("chat_sessions"),
+		messagesTable: client.QualifiedTable("chat_messages"),
 	}
 	if err := store.migrate(ctx); err != nil {
 		return nil, err

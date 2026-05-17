@@ -3,11 +3,11 @@ import userEvent from "@testing-library/user-event";
 import { describe, expect, it, vi } from "vitest";
 
 import type {
-  AgentChatActivityRecord,
-  AgentChatChangedFileDiffRecord,
-  AgentChatChangedFileRecord,
-  AgentChatTimingRecord,
-  AgentChatUsageRecord,
+  ChatActivityRecord,
+  ChatChangedFileDiffRecord,
+  ChatChangedFileRecord,
+  ChatTimingRecord,
+  ChatUsageRecord,
 } from "../../types/runtime";
 import { TranscriptMessageRow } from "./TranscriptMessageRow";
 
@@ -80,7 +80,7 @@ describe("TranscriptMessageRow", () => {
   });
 
   it("shows the waiting-for-output indicator when assistant has no content but a running activity", () => {
-    const activities: AgentChatActivityRecord[] = [
+    const activities: ChatActivityRecord[] = [
       { type: "tool_call", title: "read_file", status: "running" },
     ];
     render(<TranscriptMessageRow {...baseProps} content="" activities={activities} />);
@@ -88,7 +88,7 @@ describe("TranscriptMessageRow", () => {
   });
 
   it("shows the waiting-for-output indicator for in-progress plan-only activity", () => {
-    const activities: AgentChatActivityRecord[] = [
+    const activities: ChatActivityRecord[] = [
       { type: "plan", title: "Check the diff", status: "in_progress" },
     ];
     render(<TranscriptMessageRow {...baseProps} content="" activities={activities} />);
@@ -144,7 +144,7 @@ describe("TranscriptMessageRow", () => {
   });
 
   it("renders the agent usage line when adapter-reported usage is present", () => {
-    const usage: AgentChatUsageRecord = {
+    const usage: ChatUsageRecord = {
       reported_cost_amount: "0.42",
       reported_cost_currency: "USD",
       context_used: 12000,
@@ -157,7 +157,7 @@ describe("TranscriptMessageRow", () => {
   });
 
   it("hides the agent usage line when all usage fields are empty/zero", () => {
-    const usage: AgentChatUsageRecord = {
+    const usage: ChatUsageRecord = {
       reported_cost_amount: "",
       reported_cost_currency: "",
       context_used: 0,
@@ -168,7 +168,7 @@ describe("TranscriptMessageRow", () => {
   });
 
   it("renders the Hecate Agent timing summary when timing is present", () => {
-    const timing: AgentChatTimingRecord = {
+    const timing: ChatTimingRecord = {
       total_ms: 12_400,
       queue_ms: 120,
       model_ms: 8_500,
@@ -190,7 +190,7 @@ describe("TranscriptMessageRow", () => {
   it("links failed tools to related stdout and stderr artifacts", async () => {
     const onOpenTask = vi.fn();
     const user = userEvent.setup();
-    const activities: AgentChatActivityRecord[] = [
+    const activities: ChatActivityRecord[] = [
       { type: "tool_call", title: "git_exec (failed)", status: "failed", kind: "git", detail: "git_exec - failed" },
       { type: "artifact", title: "git-stdout.txt", status: "ready", artifact_id: "artifact_stdout", artifact_size_bytes: 42, artifact_preview: "  diff --git a/README.md b/README.md\n+hello\n" },
       { type: "artifact", title: "git-stderr.txt", status: "ready", artifact_id: "artifact_stderr", artifact_size_bytes: 19, artifact_preview: "fatal: not a git repository" },
@@ -217,7 +217,7 @@ describe("TranscriptMessageRow", () => {
 
   it("does not link empty stderr artifacts from failed tools", async () => {
     const user = userEvent.setup();
-    const activities: AgentChatActivityRecord[] = [
+    const activities: ChatActivityRecord[] = [
       { type: "tool_call", title: "git_exec (failed)", status: "failed", kind: "git", detail: "git_exec - failed" },
       { type: "artifact", title: "git-stdout.txt", status: "ready", artifact_id: "artifact_stdout", artifact_size_bytes: 42, artifact_preview: "stdout details" },
       { type: "artifact", title: "git-stderr.txt", status: "ready", artifact_id: "artifact_stderr", artifact_size_bytes: 0 },
@@ -239,7 +239,7 @@ describe("TranscriptMessageRow", () => {
 
   it("lets output detail rows reveal captured previews", async () => {
     const user = userEvent.setup();
-    const activities: AgentChatActivityRecord[] = [
+    const activities: ChatActivityRecord[] = [
       {
         type: "output",
         title: "stdout",
@@ -258,8 +258,8 @@ describe("TranscriptMessageRow", () => {
   });
 
   it("renders the diff review section when diff metadata is present", () => {
-    const onListFiles: (sid: string, mid: string) => Promise<AgentChatChangedFileRecord[]> = vi.fn(async () => []);
-    const onGetFileDiff: (sid: string, mid: string, p: string) => Promise<AgentChatChangedFileDiffRecord | null> = vi.fn(async () => null);
+    const onListFiles: (sid: string, mid: string) => Promise<ChatChangedFileRecord[]> = vi.fn(async () => []);
+    const onGetFileDiff: (sid: string, mid: string, p: string) => Promise<ChatChangedFileDiffRecord | null> = vi.fn(async () => null);
     const onRevertFiles: (sid: string, mid: string, ps: string[]) => Promise<boolean> = vi.fn(async () => true);
 
     render(

@@ -216,7 +216,7 @@ export type AgentAdapterSetupCommandStatus = {
   executable_path?: string;
 };
 
-export type AgentChatSessionSummaryRecord = {
+export type ChatSessionSummaryRecord = {
   id: string;
   title: string;
   runtime_kind?: "external_agent" | "agent" | "model" | string;
@@ -237,7 +237,7 @@ export type AgentChatSessionSummaryRecord = {
   updated_at?: string;
 };
 
-export type AgentChatMessageRecord = {
+export type ChatMessageRecord = {
   id: string;
   runtime_kind?: "external_agent" | "agent" | "model" | string;
   segment_id?: string;
@@ -267,12 +267,12 @@ export type AgentChatMessageRecord = {
   completed_at?: string;
   duration_ms?: number;
   error?: string;
-  activities?: AgentChatActivityRecord[];
-  usage?: AgentChatUsageRecord;
-  timing?: AgentChatTimingRecord;
+  activities?: ChatActivityRecord[];
+  usage?: ChatUsageRecord;
+  timing?: ChatTimingRecord;
 };
 
-export type AgentChatSegmentRecord = {
+export type ChatSegmentRecord = {
   id: string;
   runtime_kind: "external_agent" | "agent" | "model" | string;
   provider?: string;
@@ -286,14 +286,14 @@ export type AgentChatSegmentRecord = {
   updated_at?: string;
 };
 
-export type AgentChatUsageRecord = {
+export type ChatUsageRecord = {
   context_size?: number;
   context_used?: number;
   reported_cost_amount?: string;
   reported_cost_currency?: string;
 };
 
-export type AgentChatTimingRecord = {
+export type ChatTimingRecord = {
   total_ms?: number;
   queue_ms?: number;
   model_ms?: number;
@@ -306,7 +306,7 @@ export type AgentChatTimingRecord = {
   bottleneck_ms?: number;
 };
 
-export type AgentChatActivityRecord = {
+export type ChatActivityRecord = {
   id?: string;
   type: string;
   status?: string;
@@ -322,7 +322,7 @@ export type AgentChatActivityRecord = {
   terminal?: boolean;
 };
 
-export type AgentChatConfigSelectOptionRecord = {
+export type ChatConfigSelectOptionRecord = {
   value: string;
   name: string;
   description?: string;
@@ -330,7 +330,7 @@ export type AgentChatConfigSelectOptionRecord = {
   group_name?: string;
 };
 
-export type AgentChatConfigOptionRecord = {
+export type ChatConfigOptionRecord = {
   id: string;
   name: string;
   description?: string;
@@ -338,10 +338,10 @@ export type AgentChatConfigOptionRecord = {
   type: "select" | "boolean" | (string & {});
   current_value?: string;
   current_bool?: boolean;
-  options?: AgentChatConfigSelectOptionRecord[];
+  options?: ChatConfigSelectOptionRecord[];
 };
 
-export type AgentChatSessionRecord = {
+export type ChatSessionRecord = {
   id: string;
   title: string;
   runtime_kind?: "external_agent" | "agent" | "model" | string;
@@ -364,65 +364,65 @@ export type AgentChatSessionRecord = {
   idle_timeout_ms?: number;
   created_at?: string;
   updated_at?: string;
-  config_options?: AgentChatConfigOptionRecord[];
-  segments?: AgentChatSegmentRecord[];
-  messages?: AgentChatMessageRecord[];
+  config_options?: ChatConfigOptionRecord[];
+  segments?: ChatSegmentRecord[];
+  messages?: ChatMessageRecord[];
 };
 
-export type AgentChatSessionsResponse = {
+export type ChatSessionsResponse = {
   object: string;
-  data: AgentChatSessionSummaryRecord[];
+  data: ChatSessionSummaryRecord[];
 };
 
-export type AgentChatSessionResponse = {
+export type ChatSessionResponse = {
   object: string;
-  data: AgentChatSessionRecord;
+  data: ChatSessionRecord;
 };
 
-export type AgentChatChangedFileRecord = {
+export type ChatChangedFileRecord = {
   path: string;
   additions: number;
   deletions: number;
   status: string;
 };
 
-export type AgentChatChangedFilesResponse = {
+export type ChatChangedFilesResponse = {
   object: string;
-  data: AgentChatChangedFileRecord[];
+  data: ChatChangedFileRecord[];
 };
 
-export type AgentChatChangedFileDiffRecord = AgentChatChangedFileRecord & {
+export type ChatChangedFileDiffRecord = ChatChangedFileRecord & {
   diff: string;
 };
 
-export type AgentChatChangedFileDiffResponse = {
+export type ChatChangedFileDiffResponse = {
   object: string;
-  data: AgentChatChangedFileDiffRecord;
+  data: ChatChangedFileDiffRecord;
 };
 
-export type AgentChatRevertResponse = {
+export type ChatRevertResponse = {
   object: string;
   data: {
     reverted: boolean;
     paths: string[];
     diff_stat?: string;
-    files: AgentChatChangedFileRecord[];
+    files: ChatChangedFileRecord[];
   };
 };
 
-// AgentChatApprovalOption mirrors agentApprovalOptionItem on the wire.
+// ChatApprovalOption mirrors agentApprovalOptionItem on the wire.
 // One per ACP option offered by the adapter.
-export type AgentChatApprovalOption = {
+export type ChatApprovalOption = {
   option_id: string;
   kind: string;
   name: string;
 };
 
-// AgentChatApprovalRecord is the full row returned by GET
-// /hecate/v1/agent-chat/sessions/{id}/approvals[/{approval_id}]. The
+// ChatApprovalRecord is the full row returned by GET
+// /hecate/v1/chat/sessions/{id}/approvals[/{approval_id}]. The
 // renderAgentApproval function on the backend is the source of truth
 // for field names and optionality.
-export type AgentChatApprovalRecord = {
+export type ChatApprovalRecord = {
   id: string;
   session_id: string;
   adapter_id: string;
@@ -430,7 +430,7 @@ export type AgentChatApprovalRecord = {
   tool_kind: string;
   tool_name?: string;
   status: string;
-  acp_options: AgentChatApprovalOption[];
+  acp_options: ChatApprovalOption[];
   scope_choices?: string[];
   selected_option?: string;
   scope?: string;
@@ -442,21 +442,21 @@ export type AgentChatApprovalRecord = {
   expires_at: string;
 };
 
-// AgentChatApprovalsResponse is the list-endpoint wire shape.
-export type AgentChatApprovalsResponse = {
+// ChatApprovalsResponse is the list-endpoint wire shape.
+export type ChatApprovalsResponse = {
   object: string;
-  data: AgentChatApprovalRecord[];
+  data: ChatApprovalRecord[];
 };
 
-// AgentChatApprovalResponse is the single-row wire shape.
-export type AgentChatApprovalResponse = {
+// ChatApprovalResponse is the single-row wire shape.
+export type ChatApprovalResponse = {
   object: string;
-  data: AgentChatApprovalRecord;
+  data: ChatApprovalRecord;
 };
 
-// AgentChatGrantRecord is the wire shape for an "always allow / always
-// deny" grant. Returned by GET /hecate/v1/agent-chat/grants.
-export type AgentChatGrantRecord = {
+// ChatGrantRecord is the wire shape for an "always allow / always
+// deny" grant. Returned by GET /hecate/v1/chat/grants.
+export type ChatGrantRecord = {
   id: string;
   scope: string;
   adapter_id: string;
@@ -469,17 +469,17 @@ export type AgentChatGrantRecord = {
   expires_at?: string;
 };
 
-export type AgentChatGrantsResponse = {
+export type ChatGrantsResponse = {
   object: string;
-  data: AgentChatGrantRecord[];
+  data: ChatGrantRecord[];
 };
 
-// AgentChatApprovalRequestedEvent is the SSE payload published when a
+// ChatApprovalRequestedEvent is the SSE payload published when a
 // new approval is recorded. Minimal — the full row is reachable via
-// GET /hecate/v1/agent-chat/sessions/{id}/approvals/{approval_id}.
+// GET /hecate/v1/chat/sessions/{id}/approvals/{approval_id}.
 //
-// Mirror of api.AgentChatApprovalRequestedEvent (Go).
-export type AgentChatApprovalRequestedEvent = {
+// Mirror of api.ChatApprovalRequestedEvent (Go).
+export type ChatApprovalRequestedEvent = {
   approval_id: string;
   session_id: string;
   adapter_id: string;
@@ -490,12 +490,12 @@ export type AgentChatApprovalRequestedEvent = {
   expires_at: string;
 };
 
-// AgentChatApprovalResolvedEvent is the SSE payload published on every
+// ChatApprovalResolvedEvent is the SSE payload published on every
 // terminal transition. The Path field discriminates how the approval
 // resolved: operator | grant | default_mode | timeout | request_cancelled.
 //
-// Mirror of api.AgentChatApprovalResolvedEvent (Go).
-export type AgentChatApprovalResolvedEvent = {
+// Mirror of api.ChatApprovalResolvedEvent (Go).
+export type ChatApprovalResolvedEvent = {
   approval_id: string;
   session_id: string;
   status: string;
@@ -506,13 +506,13 @@ export type AgentChatApprovalResolvedEvent = {
   resolved_at?: string;
 };
 
-// AgentChatStreamEvent is the discriminated union surfaced by
-// streamAgentChatSession. Consumers switch on `type` and tolerate
+// ChatStreamEvent is the discriminated union surfaced by
+// streamChatSession. Consumers switch on `type` and tolerate
 // unknown values (forward-compat for new event kinds).
-export type AgentChatStreamEvent =
-  | { type: "session_update"; payload: AgentChatSessionResponse }
-  | { type: "approval.requested"; payload: AgentChatApprovalRequestedEvent }
-  | { type: "approval.resolved"; payload: AgentChatApprovalResolvedEvent };
+export type ChatStreamEvent =
+  | { type: "session_update"; payload: ChatSessionResponse }
+  | { type: "approval.requested"; payload: ChatApprovalRequestedEvent }
+  | { type: "approval.resolved"; payload: ChatApprovalResolvedEvent };
 
 // PendingAgentApproval is the banner-essentials projection of an
 // approval row. Stored in `pendingApprovalsBySessionID` and consumed
@@ -520,7 +520,7 @@ export type AgentChatStreamEvent =
 // the SSE `approval.requested` event payload — both the catch-up
 // refetch and the streamed event project down to this — but the alias
 // keeps UI components decoupled from the SSE wire vocabulary.
-export type PendingAgentApproval = AgentChatApprovalRequestedEvent;
+export type PendingAgentApproval = ChatApprovalRequestedEvent;
 
 // AgentAdapterHealthRecord mirrors agentadapters.ProbeResult. Returned
 // by GET /hecate/v1/agent-adapters/{id}/health. The status string is one of

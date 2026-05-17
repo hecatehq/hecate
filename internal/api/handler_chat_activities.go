@@ -6,17 +6,17 @@ import (
 	"time"
 
 	"github.com/hecate/agent-runtime/internal/agentadapters"
-	"github.com/hecate/agent-runtime/internal/agentchat"
+	"github.com/hecate/agent-runtime/internal/chat"
 	"github.com/hecate/agent-runtime/internal/telemetry"
 )
 
-func renderAgentChatActivities(items []agentchat.Activity) []AgentChatActivityItem {
+func renderAgentChatActivities(items []chat.Activity) []ChatActivityItem {
 	if len(items) == 0 {
 		return nil
 	}
-	out := make([]AgentChatActivityItem, 0, len(items))
+	out := make([]ChatActivityItem, 0, len(items))
 	for _, item := range items {
-		out = append(out, AgentChatActivityItem{
+		out = append(out, ChatActivityItem{
 			ID:                item.ID,
 			Type:              item.Type,
 			Status:            item.Status,
@@ -34,8 +34,8 @@ func renderAgentChatActivities(items []agentchat.Activity) []AgentChatActivityIt
 	return out
 }
 
-func newAgentChatActivity(kind, status, title, detail string) agentchat.Activity {
-	return agentchat.Activity{
+func newChatActivity(kind, status, title, detail string) chat.Activity {
+	return chat.Activity{
 		Type:      kind,
 		Status:    status,
 		Title:     title,
@@ -44,8 +44,8 @@ func newAgentChatActivity(kind, status, title, detail string) agentchat.Activity
 	}
 }
 
-func agentChatActivityFromAdapter(activity agentadapters.Activity) agentchat.Activity {
-	return agentchat.Activity{
+func agentChatActivityFromAdapter(activity agentadapters.Activity) chat.Activity {
+	return chat.Activity{
 		ID:        strings.TrimSpace(activity.ID),
 		Type:      strings.TrimSpace(activity.Type),
 		Status:    strings.TrimSpace(activity.Status),
@@ -56,11 +56,11 @@ func agentChatActivityFromAdapter(activity agentadapters.Activity) agentchat.Act
 	}
 }
 
-func agentChatActivitiesFromTaskActivity(items []TaskActivityItem) []agentchat.Activity {
+func agentChatActivitiesFromTaskActivity(items []TaskActivityItem) []chat.Activity {
 	if len(items) == 0 {
 		return nil
 	}
-	out := make([]agentchat.Activity, 0, len(items))
+	out := make([]chat.Activity, 0, len(items))
 	for _, item := range items {
 		activity := agentChatActivityFromTaskActivity(item)
 		if activity.Type == "" || activity.Title == "" {
@@ -71,16 +71,16 @@ func agentChatActivitiesFromTaskActivity(items []TaskActivityItem) []agentchat.A
 	return out
 }
 
-func agentChatActivityFromTaskActivity(item TaskActivityItem) agentchat.Activity {
+func agentChatActivityFromTaskActivity(item TaskActivityItem) chat.Activity {
 	title := strings.TrimSpace(firstNonEmpty(item.Title, item.ToolName, item.Path, item.Kind, item.Type))
-	return agentchat.Activity{
+	return chat.Activity{
 		ID:                strings.TrimSpace("task:" + item.ID),
 		Type:              strings.TrimSpace(item.Type),
 		Status:            strings.TrimSpace(item.Status),
 		Kind:              strings.TrimSpace(firstNonEmpty(item.Kind, item.ToolName)),
 		Title:             title,
 		Detail:            agentChatTaskActivityDetail(item),
-		CreatedAt:         parseAgentChatActivityTime(item.OccurredAt),
+		CreatedAt:         parseChatActivityTime(item.OccurredAt),
 		ArtifactID:        strings.TrimSpace(item.ArtifactID),
 		ArtifactSizeBytes: agentChatTaskArtifactSize(item),
 		ArtifactPreview:   agentChatTaskArtifactPreview(item),
@@ -165,7 +165,7 @@ func compactActivityArgv(value any) string {
 	}
 }
 
-func parseAgentChatActivityTime(value string) time.Time {
+func parseChatActivityTime(value string) time.Time {
 	if strings.TrimSpace(value) == "" {
 		return time.Time{}
 	}
@@ -178,7 +178,7 @@ func parseAgentChatActivityTime(value string) time.Time {
 	return time.Time{}
 }
 
-func agentChatActivitySignature(items []agentchat.Activity) string {
+func agentChatActivitySignature(items []chat.Activity) string {
 	if len(items) == 0 {
 		return "[]"
 	}
@@ -189,7 +189,7 @@ func agentChatActivitySignature(items []agentchat.Activity) string {
 	return string(payload)
 }
 
-func mergeAgentChatActivity(items []agentchat.Activity, next agentchat.Activity) []agentchat.Activity {
+func mergeChatActivity(items []chat.Activity, next chat.Activity) []chat.Activity {
 	if next.Type == "" || (next.ID == "" && next.Title == "") {
 		return items
 	}
@@ -232,7 +232,7 @@ func mergeAgentChatActivity(items []agentchat.Activity, next agentchat.Activity)
 	return append(items, next)
 }
 
-func finalAgentChatActivityTitle(status string) string {
+func finalChatActivityTitle(status string) string {
 	switch status {
 	case "completed":
 		return "Final answer"

@@ -1,4 +1,4 @@
-import type { AgentChatSessionRecord } from "../../types/runtime";
+import type { ChatSessionRecord } from "../../types/runtime";
 import { BrandAvatar, Icon, Icons } from "../shared/ui";
 
 type Props = {
@@ -26,7 +26,7 @@ type Props = {
 
   // External-agent turn budget pill — only renders when the active
   // session has a max_turns_per_session set.
-  activeAgentChatSession: AgentChatSessionRecord | null;
+  activeChatSession: ChatSessionRecord | null;
 };
 
 export function ChatHeader(props: Props) {
@@ -45,7 +45,7 @@ export function ChatHeader(props: Props) {
     chatSettingsOpen,
     onChooseWorkspace,
     onToggleChatSettings,
-    activeAgentChatSession,
+    activeChatSession,
   } = props;
 
   return (
@@ -85,9 +85,9 @@ export function ChatHeader(props: Props) {
         )}
       </div>
       {isExternalAgentChat && (() => {
-        if (!activeAgentChatSession || !activeAgentChatSession.max_turns_per_session) return null;
-        const turnsUsed = activeAgentChatSession.turns_used ?? 0;
-        const maxTurns = activeAgentChatSession.max_turns_per_session;
+        if (!activeChatSession || !activeChatSession.max_turns_per_session) return null;
+        const turnsUsed = activeChatSession.turns_used ?? 0;
+        const maxTurns = activeChatSession.max_turns_per_session;
         const atLimit = turnsUsed >= maxTurns;
         return (
           <span

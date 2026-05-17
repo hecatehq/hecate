@@ -13,7 +13,7 @@ import (
 
 	acp "github.com/coder/acp-go-sdk"
 	"github.com/hecate/agent-runtime/internal/agentadapters"
-	"github.com/hecate/agent-runtime/internal/agentchat"
+	"github.com/hecate/agent-runtime/internal/chat"
 	"github.com/hecate/agent-runtime/internal/config"
 	"github.com/hecate/agent-runtime/internal/providers"
 )
@@ -26,7 +26,7 @@ type approvalsHTTPFixture struct {
 	handler  *Handler
 	coord    *agentadapters.ApprovalCoordinator
 	store    *agentadapters.MemoryApprovalStore
-	chatMgmt *agentchat.MemoryStore
+	chatMgmt *chat.MemoryStore
 }
 
 func newApprovalsHTTPFixture(t *testing.T) *approvalsHTTPFixture {
@@ -39,7 +39,7 @@ func newApprovalsHTTPFixture(t *testing.T) *approvalsHTTPFixture {
 	// Replace the auto-wired coordinator with one tied to our local
 	// store so tests can seed/inspect rows directly. Reuse the
 	// handler's existing approval hooks (telemetry + SSE bus) so
-	// approval.* SSE events flow on /hecate/v1/agent-chat/sessions/{id}/stream.
+	// approval.* SSE events flow on /hecate/v1/chat/sessions/{id}/stream.
 	store := agentadapters.NewMemoryApprovalStore()
 	coord := agentadapters.NewApprovalCoordinator(agentadapters.CoordinatorOptions{
 		Mode:    agentadapters.ModePrompt,
@@ -53,7 +53,7 @@ func newApprovalsHTTPFixture(t *testing.T) *approvalsHTTPFixture {
 	}
 	mgr.SetApprovalCoordinator(coord)
 
-	chat := agentchat.NewMemoryStore()
+	chat := chat.NewMemoryStore()
 	apiHandler.agentChat = chat
 
 	srv := httptest.NewServer(NewServer(logger, apiHandler))
@@ -63,7 +63,7 @@ func newApprovalsHTTPFixture(t *testing.T) *approvalsHTTPFixture {
 
 func (f *approvalsHTTPFixture) seedSession(t *testing.T, id string) {
 	t.Helper()
-	if _, err := f.chatMgmt.Create(context.Background(), agentchat.Session{
+	if _, err := f.chatMgmt.Create(context.Background(), chat.Session{
 		ID:        id,
 		Title:     "test session",
 		AdapterID: "codex",
@@ -129,7 +129,7 @@ func TestHTTPListApprovalsReturnsSessionRowsOldestFirst(t *testing.T) {
 	a2 := mustCreateApproval(t, f.store, agentadapters.Approval{SessionID: "sess1", AdapterID: "codex", Status: agentadapters.ApprovalStatusPending, CreatedAt: t0.Add(time.Second)})
 	mustCreateApproval(t, f.store, agentadapters.Approval{SessionID: "other", AdapterID: "codex", Status: agentadapters.ApprovalStatusPending, CreatedAt: t0})
 
-	resp, err := http.Get(f.server.URL + "/hecate/v1/agent-chat/sessions/sess1/approvals")
+	resp, err := http.Get(f.server.URL + "/hecate/v1/chat/sessions/sess1/approvals")
 	if err != nil {
 		t.Fatalf("GET: %v", err)
 	}
@@ -161,7 +161,7 @@ func TestHTTPListApprovalsFilterByStatus(t *testing.T) {
 	mustCreateApproval(t, f.store, agentadapters.Approval{SessionID: "s", Status: agentadapters.ApprovalStatusPending})
 	_, _ = f.store.ResolveApproval(context.Background(), row.ID, agentadapters.ApprovalStatusApproved, agentadapters.ApprovalDecisionApprove, "x", agentadapters.ApprovalScopeOnce, agentadapters.PathOperator, "", time.Now())
 
-	resp, err := http.Get(f.server.URL + "/hecate/v1/agent-chat/sessions/s/approvals?status=pending")
+	resp, err := http.Get(f.server.URL + "/hecate/v1/chat/sessions/s/approvals?status=pending")
 	if err != nil {
 		t.Fatalf("GET: %v", err)
 	}
@@ -178,7 +178,7 @@ func TestHTTPListApprovalsFilterByStatus(t *testing.T) {
 func TestHTTPListApprovalsUnknownSessionReturns404(t *testing.T) {
 	t.Parallel()
 	f := newApprovalsHTTPFixture(t)
-	resp, err := http.Get(f.server.URL + "/hecate/v1/agent-chat/sessions/missing/approvals")
+	resp, err := http.Get(f.server.URL + "/hecate/v1/chat/sessions/missing/approvals")
 	if err != nil {
 		t.Fatalf("request: %v", err)
 	}
@@ -196,7 +196,7 @@ func TestHTTPGetApprovalHappyPath(t *testing.T) {
 	f.seedSession(t, "s")
 	row := f.seedPending(t, "s", defaultAllowDenyOptions())
 
-	resp, err := http.Get(f.server.URL + "/hecate/v1/agent-chat/sessions/s/approvals/" + row.ID)
+	resp, err := http.Get(f.server.URL + "/hecate/v1/chat/sessions/s/approvals/" + row.ID)
 	if err != nil {
 		t.Fatalf("request: %v", err)
 	}
@@ -214,7 +214,7 @@ func TestHTTPGetApprovalHappyPath(t *testing.T) {
 func TestHTTPGetApprovalUnknownReturns404(t *testing.T) {
 	t.Parallel()
 	f := newApprovalsHTTPFixture(t)
-	resp, err := http.Get(f.server.URL + "/hecate/v1/agent-chat/sessions/s/approvals/missing")
+	resp, err := http.Get(f.server.URL + "/hecate/v1/chat/sessions/s/approvals/missing")
 	if err != nil {
 		t.Fatalf("request: %v", err)
 	}
@@ -231,7 +231,7 @@ func TestHTTPGetApprovalWrongSessionReturns404(t *testing.T) {
 	f.seedSession(t, "s2")
 	row := f.seedPending(t, "s1", defaultAllowDenyOptions())
 
-	resp, err := http.Get(f.server.URL + "/hecate/v1/agent-chat/sessions/s2/approvals/" + row.ID)
+	resp, err := http.Get(f.server.URL + "/hecate/v1/chat/sessions/s2/approvals/" + row.ID)
 	if err != nil {
 		t.Fatalf("request: %v", err)
 	}
@@ -249,7 +249,7 @@ func TestHTTPResolveApproveScopeOnce(t *testing.T) {
 	f.seedSession(t, "s")
 	row := f.seedPending(t, "s", defaultAllowDenyOptions())
 
-	resp := postJSONApprovalEndpoint(t, f.server.URL+"/hecate/v1/agent-chat/sessions/s/approvals/"+row.ID+"/resolve",
+	resp := postJSONApprovalEndpoint(t, f.server.URL+"/hecate/v1/chat/sessions/s/approvals/"+row.ID+"/resolve",
 		`{"decision":"approve","scope":"once"}`)
 	defer resp.Body.Close()
 	if resp.StatusCode != http.StatusOK {
@@ -268,7 +268,7 @@ func TestHTTPResolveCreatesGrantOnSessionScope(t *testing.T) {
 	f.seedSession(t, "s")
 	row := f.seedPending(t, "s", defaultAllowDenyOptions())
 
-	resp := postJSONApprovalEndpoint(t, f.server.URL+"/hecate/v1/agent-chat/sessions/s/approvals/"+row.ID+"/resolve",
+	resp := postJSONApprovalEndpoint(t, f.server.URL+"/hecate/v1/chat/sessions/s/approvals/"+row.ID+"/resolve",
 		`{"decision":"approve","scope":"session"}`)
 	defer resp.Body.Close()
 	if resp.StatusCode != http.StatusOK {
@@ -291,10 +291,10 @@ func TestHTTPResolveAlreadyResolvedReturns409(t *testing.T) {
 	row := f.seedPending(t, "s", defaultAllowDenyOptions())
 
 	body := `{"decision":"approve","scope":"once"}`
-	first := postJSONApprovalEndpoint(t, f.server.URL+"/hecate/v1/agent-chat/sessions/s/approvals/"+row.ID+"/resolve", body)
+	first := postJSONApprovalEndpoint(t, f.server.URL+"/hecate/v1/chat/sessions/s/approvals/"+row.ID+"/resolve", body)
 	first.Body.Close()
 
-	second := postJSONApprovalEndpoint(t, f.server.URL+"/hecate/v1/agent-chat/sessions/s/approvals/"+row.ID+"/resolve", body)
+	second := postJSONApprovalEndpoint(t, f.server.URL+"/hecate/v1/chat/sessions/s/approvals/"+row.ID+"/resolve", body)
 	defer second.Body.Close()
 	if second.StatusCode != http.StatusConflict {
 		t.Fatalf("status = %d, want 409", second.StatusCode)
@@ -312,7 +312,7 @@ func TestHTTPResolveAmbiguousOptionReturns409WithOptions(t *testing.T) {
 		{OptionId: "r1", Kind: acp.PermissionOptionKindRejectOnce, Name: "Deny"},
 	})
 
-	resp := postJSONApprovalEndpoint(t, f.server.URL+"/hecate/v1/agent-chat/sessions/s/approvals/"+row.ID+"/resolve",
+	resp := postJSONApprovalEndpoint(t, f.server.URL+"/hecate/v1/chat/sessions/s/approvals/"+row.ID+"/resolve",
 		`{"decision":"approve","scope":"once"}`)
 	defer resp.Body.Close()
 	if resp.StatusCode != http.StatusConflict {
@@ -345,7 +345,7 @@ func TestHTTPResolveExplicitSelectedOptionDisambiguates(t *testing.T) {
 		{OptionId: "a2", Kind: acp.PermissionOptionKindAllowAlways, Name: "Allow always"},
 	})
 
-	resp := postJSONApprovalEndpoint(t, f.server.URL+"/hecate/v1/agent-chat/sessions/s/approvals/"+row.ID+"/resolve",
+	resp := postJSONApprovalEndpoint(t, f.server.URL+"/hecate/v1/chat/sessions/s/approvals/"+row.ID+"/resolve",
 		`{"decision":"approve","scope":"once","selected_option":"a2"}`)
 	defer resp.Body.Close()
 	if resp.StatusCode != http.StatusOK {
@@ -364,7 +364,7 @@ func TestHTTPResolveUnknownSelectedOptionReturns400(t *testing.T) {
 	f.seedSession(t, "s")
 	row := f.seedPending(t, "s", defaultAllowDenyOptions())
 
-	resp := postJSONApprovalEndpoint(t, f.server.URL+"/hecate/v1/agent-chat/sessions/s/approvals/"+row.ID+"/resolve",
+	resp := postJSONApprovalEndpoint(t, f.server.URL+"/hecate/v1/chat/sessions/s/approvals/"+row.ID+"/resolve",
 		`{"decision":"approve","scope":"once","selected_option":"phantom"}`)
 	defer resp.Body.Close()
 	if resp.StatusCode != http.StatusBadRequest {
@@ -378,7 +378,7 @@ func TestHTTPResolveSelectedOptionMustMatchDecision(t *testing.T) {
 	f.seedSession(t, "s")
 	row := f.seedPending(t, "s", defaultAllowDenyOptions())
 
-	resp := postJSONApprovalEndpoint(t, f.server.URL+"/hecate/v1/agent-chat/sessions/s/approvals/"+row.ID+"/resolve",
+	resp := postJSONApprovalEndpoint(t, f.server.URL+"/hecate/v1/chat/sessions/s/approvals/"+row.ID+"/resolve",
 		`{"decision":"deny","scope":"once","selected_option":"allow_once_id"}`)
 	defer resp.Body.Close()
 	if resp.StatusCode != http.StatusConflict {
@@ -393,7 +393,7 @@ func TestHTTPResolveWrongSessionReturns404(t *testing.T) {
 	f.seedSession(t, "s2")
 	row := f.seedPending(t, "s1", defaultAllowDenyOptions())
 
-	resp := postJSONApprovalEndpoint(t, f.server.URL+"/hecate/v1/agent-chat/sessions/s2/approvals/"+row.ID+"/resolve",
+	resp := postJSONApprovalEndpoint(t, f.server.URL+"/hecate/v1/chat/sessions/s2/approvals/"+row.ID+"/resolve",
 		`{"decision":"approve","scope":"once"}`)
 	defer resp.Body.Close()
 	if resp.StatusCode != http.StatusNotFound {
@@ -416,7 +416,7 @@ func TestHTTPCancelApprovalHappyPath(t *testing.T) {
 	f.seedSession(t, "s")
 	row := f.seedPending(t, "s", defaultAllowDenyOptions())
 
-	resp := postJSONApprovalEndpoint(t, f.server.URL+"/hecate/v1/agent-chat/sessions/s/approvals/"+row.ID+"/cancel", "")
+	resp := postJSONApprovalEndpoint(t, f.server.URL+"/hecate/v1/chat/sessions/s/approvals/"+row.ID+"/cancel", "")
 	defer resp.Body.Close()
 	if resp.StatusCode != http.StatusOK {
 		t.Fatalf("status = %d, want 200", resp.StatusCode)
@@ -433,10 +433,10 @@ func TestHTTPCancelOnAlreadyResolvedReturns409(t *testing.T) {
 	f := newApprovalsHTTPFixture(t)
 	f.seedSession(t, "s")
 	row := f.seedPending(t, "s", defaultAllowDenyOptions())
-	first := postJSONApprovalEndpoint(t, f.server.URL+"/hecate/v1/agent-chat/sessions/s/approvals/"+row.ID+"/resolve", `{"decision":"approve","scope":"once"}`)
+	first := postJSONApprovalEndpoint(t, f.server.URL+"/hecate/v1/chat/sessions/s/approvals/"+row.ID+"/resolve", `{"decision":"approve","scope":"once"}`)
 	first.Body.Close()
 
-	resp := postJSONApprovalEndpoint(t, f.server.URL+"/hecate/v1/agent-chat/sessions/s/approvals/"+row.ID+"/cancel", "")
+	resp := postJSONApprovalEndpoint(t, f.server.URL+"/hecate/v1/chat/sessions/s/approvals/"+row.ID+"/cancel", "")
 	defer resp.Body.Close()
 	if resp.StatusCode != http.StatusConflict {
 		t.Fatalf("status = %d, want 409", resp.StatusCode)
@@ -450,7 +450,7 @@ func TestHTTPCancelWrongSessionReturns404(t *testing.T) {
 	f.seedSession(t, "s2")
 	row := f.seedPending(t, "s1", defaultAllowDenyOptions())
 
-	resp := postJSONApprovalEndpoint(t, f.server.URL+"/hecate/v1/agent-chat/sessions/s2/approvals/"+row.ID+"/cancel", "")
+	resp := postJSONApprovalEndpoint(t, f.server.URL+"/hecate/v1/chat/sessions/s2/approvals/"+row.ID+"/cancel", "")
 	defer resp.Body.Close()
 	if resp.StatusCode != http.StatusNotFound {
 		t.Fatalf("status = %d, want 404", resp.StatusCode)
@@ -479,7 +479,7 @@ func TestHTTPListGrants(t *testing.T) {
 		Workspace: "/tmp/w", Decision: agentadapters.ApprovalDecisionDeny, GrantedAt: now,
 	})
 
-	resp, err := http.Get(f.server.URL + "/hecate/v1/agent-chat/grants?adapter_id=codex")
+	resp, err := http.Get(f.server.URL + "/hecate/v1/chat/grants?adapter_id=codex")
 	if err != nil {
 		t.Fatalf("request: %v", err)
 	}
@@ -502,7 +502,7 @@ func TestHTTPDeleteGrantHappyPath(t *testing.T) {
 		Decision: agentadapters.ApprovalDecisionApprove, GrantedAt: time.Now().UTC(),
 	})
 
-	req, _ := http.NewRequest(http.MethodDelete, f.server.URL+"/hecate/v1/agent-chat/grants/"+g.ID, nil)
+	req, _ := http.NewRequest(http.MethodDelete, f.server.URL+"/hecate/v1/chat/grants/"+g.ID, nil)
 	resp, err := http.DefaultClient.Do(req)
 	if err != nil {
 		t.Fatalf("request: %v", err)
@@ -521,7 +521,7 @@ func TestHTTPDeleteGrantHappyPath(t *testing.T) {
 func TestHTTPDeleteGrantUnknownReturns404(t *testing.T) {
 	t.Parallel()
 	f := newApprovalsHTTPFixture(t)
-	req, _ := http.NewRequest(http.MethodDelete, f.server.URL+"/hecate/v1/agent-chat/grants/missing", nil)
+	req, _ := http.NewRequest(http.MethodDelete, f.server.URL+"/hecate/v1/chat/grants/missing", nil)
 	resp, err := http.DefaultClient.Do(req)
 	if err != nil {
 		t.Fatalf("request: %v", err)
@@ -567,7 +567,7 @@ func TestHTTPResolveWakesBlockedPromptModeRequest(t *testing.T) {
 		t.Fatal("blocked RequestPermission never registered a pending row")
 	}
 
-	httpResp := postJSONApprovalEndpoint(t, f.server.URL+"/hecate/v1/agent-chat/sessions/s/approvals/"+pending.ID+"/resolve",
+	httpResp := postJSONApprovalEndpoint(t, f.server.URL+"/hecate/v1/chat/sessions/s/approvals/"+pending.ID+"/resolve",
 		`{"decision":"approve","scope":"once"}`)
 	httpResp.Body.Close()
 	if httpResp.StatusCode != http.StatusOK {

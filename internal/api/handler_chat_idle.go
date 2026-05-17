@@ -5,11 +5,11 @@ import (
 	"log/slog"
 	"time"
 
-	"github.com/hecate/agent-runtime/internal/agentchat"
+	"github.com/hecate/agent-runtime/internal/chat"
 )
 
 func (h *Handler) startAgentChatIdleSweeper() {
-	timeout := h.config.Server.AgentChatIdleTimeout
+	timeout := h.config.Server.ChatIdleTimeout
 	if timeout <= 0 || h.agentChat == nil {
 		return
 	}
@@ -30,15 +30,15 @@ func (h *Handler) runAgentChatIdleSweeper(ctx context.Context, timeout, cadence 
 		case <-ctx.Done():
 			return
 		case <-ticker.C:
-			h.closeIdleAgentChatSessions(ctx, timeout, time.Now().UTC())
+			h.closeIdleChatSessions(ctx, timeout, time.Now().UTC())
 		}
 	}
 }
 
-func (h *Handler) closeIdleAgentChatSessions(ctx context.Context, timeout time.Duration, now time.Time) {
+func (h *Handler) closeIdleChatSessions(ctx context.Context, timeout time.Duration, now time.Time) {
 	items, err := h.agentChat.List(ctx)
 	if err != nil {
-		h.logger.WarnContext(ctx, "agent_chat.idle_sweep.list_failed", slog.Any("error", err))
+		h.logger.WarnContext(ctx, "chat.idle_sweep.list_failed", slog.Any("error", err))
 		return
 	}
 	cutoff := now.Add(-timeout)
@@ -52,7 +52,7 @@ func (h *Handler) closeIdleAgentChatSessions(ctx context.Context, timeout time.D
 		session, ok, err := h.agentChat.Get(ctx, summary.ID)
 		if err != nil || !ok {
 			if err != nil {
-				h.logger.WarnContext(ctx, "agent_chat.idle_sweep.get_failed", slog.String("session_id", summary.ID), slog.Any("error", err))
+				h.logger.WarnContext(ctx, "chat.idle_sweep.get_failed", slog.String("session_id", summary.ID), slog.Any("error", err))
 			}
 			continue
 		}
@@ -62,21 +62,21 @@ func (h *Handler) closeIdleAgentChatSessions(ctx context.Context, timeout time.D
 		if h.agentChatRunner != nil {
 			_ = h.agentChatRunner.CloseSession(ctx, session.ID)
 		}
-		updated, err := h.agentChat.UpdateSession(ctx, session.ID, func(item *agentchat.Session) {
+		updated, err := h.agentChat.UpdateSession(ctx, session.ID, func(item *chat.Session) {
 			item.Status = "cancelled"
 			item.DriverKind = ""
 			item.NativeSessionID = ""
 		})
 		if err != nil {
-			h.logger.WarnContext(ctx, "agent_chat.idle_sweep.update_failed", slog.String("session_id", session.ID), slog.Any("error", err))
+			h.logger.WarnContext(ctx, "chat.idle_sweep.update_failed", slog.String("session_id", session.ID), slog.Any("error", err))
 			continue
 		}
-		h.annotateAgentChatIdleTimeout(ctx, session.ID, timeout, now)
+		h.annotateChatIdleTimeout(ctx, session.ID, timeout, now)
 		h.agentChatLive.publishSession(updated)
 	}
 }
 
-func (h *Handler) annotateAgentChatIdleTimeout(ctx context.Context, sessionID string, timeout time.Duration, now time.Time) {
+func (h *Handler) annotateChatIdleTimeout(ctx context.Context, sessionID string, timeout time.Duration, now time.Time) {
 	session, ok, err := h.agentChat.Get(ctx, sessionID)
 	if err != nil || !ok {
 		return
@@ -86,14 +86,14 @@ func (h *Handler) annotateAgentChatIdleTimeout(ctx context.Context, sessionID st
 		if message.Role != "assistant" {
 			continue
 		}
-		_, _ = h.agentChat.UpdateMessage(ctx, session.ID, message.ID, func(item *agentchat.Message) {
+		_, _ = h.agentChat.UpdateMessage(ctx, session.ID, message.ID, func(item *chat.Message) {
 			item.Status = "cancelled"
 			item.CompletedAt = now
 			item.Error = "idle timeout"
 			if item.Content == "" {
 				item.Content = "Agent chat session closed after being idle."
 			}
-			item.Activities = append(item.Activities, agentchat.Activity{
+			item.Activities = append(item.Activities, chat.Activity{
 				Type:      "interrupted",
 				Status:    "cancelled",
 				Title:     "Idle timeout",

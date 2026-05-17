@@ -217,11 +217,10 @@ Internal packages (each `internal/<name>/` is a single Go package):
 ```
 acp                     # ACP protocol types + dispatcher used by cmd/hecate-acp
 agentadapters           # external coding-agent adapter framework (Codex, Claude Code, Cursor Agent)
-agentchat               # agent chat session storage and replay
 api                     # HTTP handlers — chat, messages, tasks, settings, telemetry
 bootstrap               # first-run secret-key generation and persistence
 catalog                 # provider/model discovery and registration
-chatstate               # chat session storage (memory / sqlite)
+chat                    # chat session storage and replay (memory / sqlite)
 config                  # env-driven config loading
 controlplane            # persisted providers, secrets, policy, and capability overrides
 eventprotocol           # typed agent-event envelope + emitter (see docs/event-protocol-v1.md)

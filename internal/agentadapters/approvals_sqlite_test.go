@@ -12,7 +12,7 @@ import (
 )
 
 // newSQLiteTestStore opens an in-tempdir SQLite-backed approval store
-// scrubbed at test cleanup. Same shape as the agentchat / chatstate
+// scrubbed at test cleanup. Same shape as the chat package
 // test helpers so the parity suite can take either backend.
 func newSQLiteTestStore(t *testing.T) *SQLiteApprovalStore {
 	t.Helper()

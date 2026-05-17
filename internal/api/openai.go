@@ -296,14 +296,14 @@ type AgentAdapterResponse struct {
 	Data   []AgentAdapterResponseItem `json:"data"`
 }
 
-type AgentChatSessionsResponse struct {
-	Object string                        `json:"object"`
-	Data   []AgentChatSessionSummaryItem `json:"data"`
+type ChatSessionsResponse struct {
+	Object string                   `json:"object"`
+	Data   []ChatSessionSummaryItem `json:"data"`
 }
 
-type AgentChatSessionResponse struct {
-	Object string               `json:"object"`
-	Data   AgentChatSessionItem `json:"data"`
+type ChatSessionResponse struct {
+	Object string          `json:"object"`
+	Data   ChatSessionItem `json:"data"`
 }
 
 type WorkspaceDialogResponse struct {
@@ -576,7 +576,7 @@ type AgentAdapterCredentialResponseItem struct {
 	Preview    string `json:"preview,omitempty"`
 }
 
-type CreateAgentChatSessionRequest struct {
+type CreateChatSessionRequest struct {
 	Title       string `json:"title,omitempty"`
 	RuntimeKind string `json:"runtime_kind,omitempty"`
 	AdapterID   string `json:"adapter_id,omitempty"`
@@ -586,7 +586,7 @@ type CreateAgentChatSessionRequest struct {
 	RTKEnabled  bool   `json:"rtk_enabled,omitempty"`
 }
 
-type CreateAgentChatMessageRequest struct {
+type CreateChatMessageRequest struct {
 	Content      string `json:"content"`
 	RuntimeKind  string `json:"runtime_kind,omitempty"`
 	Provider     string `json:"provider,omitempty"`
@@ -595,7 +595,7 @@ type CreateAgentChatMessageRequest struct {
 	Workspace    string `json:"workspace,omitempty"`
 }
 
-type UpdateAgentChatSessionRequest struct {
+type UpdateChatSessionRequest struct {
 	Title *string `json:"title,omitempty"`
 }
 
@@ -607,7 +607,7 @@ type SetAgentChatSettingsRequest struct {
 	RTKEnabled *bool `json:"rtk_enabled,omitempty"`
 }
 
-type AgentChatSessionSummaryItem struct {
+type ChatSessionSummaryItem struct {
 	ID              string                  `json:"id"`
 	Title           string                  `json:"title"`
 	RuntimeKind     string                  `json:"runtime_kind"`
@@ -628,7 +628,7 @@ type AgentChatSessionSummaryItem struct {
 	UpdatedAt       string                  `json:"updated_at,omitempty"`
 }
 
-type AgentChatSessionItem struct {
+type ChatSessionItem struct {
 	ID                   string                       `json:"id"`
 	Title                string                       `json:"title"`
 	RuntimeKind          string                       `json:"runtime_kind"`
@@ -652,11 +652,11 @@ type AgentChatSessionItem struct {
 	ConfigOptions        []agentcontrols.ConfigOption `json:"config_options,omitempty"`
 	CreatedAt            string                       `json:"created_at,omitempty"`
 	UpdatedAt            string                       `json:"updated_at,omitempty"`
-	Segments             []AgentChatSegmentItem       `json:"segments,omitempty"`
-	Messages             []AgentChatMessageItem       `json:"messages"`
+	Segments             []ChatSegmentItem            `json:"segments,omitempty"`
+	Messages             []ChatMessageItem            `json:"messages"`
 }
 
-type AgentChatSegmentItem struct {
+type ChatSegmentItem struct {
 	ID           string `json:"id"`
 	RuntimeKind  string `json:"runtime_kind"`
 	Provider     string `json:"provider,omitempty"`
@@ -670,7 +670,7 @@ type AgentChatSegmentItem struct {
 	UpdatedAt    string `json:"updated_at,omitempty"`
 }
 
-type AgentChatMessageItem struct {
+type ChatMessageItem struct {
 	ID              string                  `json:"id"`
 	RuntimeKind     string                  `json:"runtime_kind,omitempty"`
 	SegmentID       string                  `json:"segment_id,omitempty"`
@@ -700,24 +700,24 @@ type AgentChatMessageItem struct {
 	CompletedAt     string                  `json:"completed_at,omitempty"`
 	DurationMS      int64                   `json:"duration_ms,omitempty"`
 	Error           string                  `json:"error,omitempty"`
-	Activities      []AgentChatActivityItem `json:"activities,omitempty"`
-	Usage           *AgentChatUsageItem     `json:"usage,omitempty"`
-	Timing          *AgentChatTimingItem    `json:"timing,omitempty"`
+	Activities      []ChatActivityItem      `json:"activities,omitempty"`
+	Usage           *ChatUsageItem          `json:"usage,omitempty"`
+	Timing          *ChatTimingItem         `json:"timing,omitempty"`
 }
 
-type AgentChatChangedFileItem struct {
+type ChatChangedFileItem struct {
 	Path      string `json:"path"`
 	Additions int    `json:"additions"`
 	Deletions int    `json:"deletions"`
 	Status    string `json:"status"`
 }
 
-type AgentChatChangedFilesResponse struct {
-	Object string                     `json:"object"`
-	Data   []AgentChatChangedFileItem `json:"data"`
+type ChatChangedFilesResponse struct {
+	Object string                `json:"object"`
+	Data   []ChatChangedFileItem `json:"data"`
 }
 
-type AgentChatChangedFileDiffItem struct {
+type ChatChangedFileDiffItem struct {
 	Path      string `json:"path"`
 	Additions int    `json:"additions"`
 	Deletions int    `json:"deletions"`
@@ -725,28 +725,28 @@ type AgentChatChangedFileDiffItem struct {
 	Diff      string `json:"diff"`
 }
 
-type AgentChatChangedFileDiffResponse struct {
-	Object string                       `json:"object"`
-	Data   AgentChatChangedFileDiffItem `json:"data"`
+type ChatChangedFileDiffResponse struct {
+	Object string                  `json:"object"`
+	Data   ChatChangedFileDiffItem `json:"data"`
 }
 
-type RevertAgentChatMessageFilesRequest struct {
+type RevertChatMessageFilesRequest struct {
 	Paths []string `json:"paths,omitempty"`
 }
 
-type AgentChatRevertItem struct {
-	Reverted bool                       `json:"reverted"`
-	Paths    []string                   `json:"paths"`
-	DiffStat string                     `json:"diff_stat,omitempty"`
-	Files    []AgentChatChangedFileItem `json:"files"`
+type ChatRevertItem struct {
+	Reverted bool                  `json:"reverted"`
+	Paths    []string              `json:"paths"`
+	DiffStat string                `json:"diff_stat,omitempty"`
+	Files    []ChatChangedFileItem `json:"files"`
 }
 
-type AgentChatRevertResponse struct {
-	Object string              `json:"object"`
-	Data   AgentChatRevertItem `json:"data"`
+type ChatRevertResponse struct {
+	Object string         `json:"object"`
+	Data   ChatRevertItem `json:"data"`
 }
 
-type AgentChatActivityItem struct {
+type ChatActivityItem struct {
 	ID                string `json:"id,omitempty"`
 	Type              string `json:"type"`
 	Status            string `json:"status,omitempty"`
@@ -761,14 +761,14 @@ type AgentChatActivityItem struct {
 	NeedsAction       bool   `json:"needs_action,omitempty"`
 }
 
-type AgentChatUsageItem struct {
+type ChatUsageItem struct {
 	ContextSize          int    `json:"context_size,omitempty"`
 	ContextUsed          int    `json:"context_used,omitempty"`
 	ReportedCostAmount   string `json:"reported_cost_amount,omitempty"`
 	ReportedCostCurrency string `json:"reported_cost_currency,omitempty"`
 }
 
-type AgentChatTimingItem struct {
+type ChatTimingItem struct {
 	TotalMS        int64  `json:"total_ms,omitempty"`
 	QueueMS        int64  `json:"queue_ms,omitempty"`
 	ModelMS        int64  `json:"model_ms,omitempty"`

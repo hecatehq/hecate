@@ -1,4 +1,4 @@
-package agentchat
+package chat
 
 import (
 	"context"
@@ -12,7 +12,7 @@ func newSQLiteTestStore(t *testing.T) *SQLiteStore {
 	t.Helper()
 	dir := t.TempDir()
 	client, err := storage.NewSQLiteClient(context.Background(), storage.SQLiteConfig{
-		Path:        filepath.Join(dir, "agentchat.db"),
+		Path:        filepath.Join(dir, "chat.db"),
 		TablePrefix: "test",
 	})
 	if err != nil {
@@ -45,7 +45,7 @@ func TestSQLiteStoreDoesNotHydrateTaskIDForAnonymousAgentSegment(t *testing.T) {
 func TestSQLiteStorePersistsAcrossInstances(t *testing.T) {
 	t.Parallel()
 	dir := t.TempDir()
-	path := filepath.Join(dir, "agentchat.db")
+	path := filepath.Join(dir, "chat.db")
 	client, err := storage.NewSQLiteClient(context.Background(), storage.SQLiteConfig{
 		Path:        path,
 		TablePrefix: "test",
@@ -58,7 +58,7 @@ func TestSQLiteStorePersistsAcrossInstances(t *testing.T) {
 		t.Fatalf("NewSQLiteStore: %v", err)
 	}
 	if _, err := store.Create(context.Background(), Session{
-		ID:              "agent_chat_1",
+		ID:              "chat_1",
 		Title:           "Persist me",
 		AdapterID:       "cursor_agent",
 		Workspace:       "/tmp/hecate",
@@ -66,7 +66,7 @@ func TestSQLiteStorePersistsAcrossInstances(t *testing.T) {
 	}); err != nil {
 		t.Fatalf("Create: %v", err)
 	}
-	if _, err := store.AppendMessage(context.Background(), "agent_chat_1", Message{
+	if _, err := store.AppendMessage(context.Background(), "chat_1", Message{
 		ID:      "msg_1",
 		Role:    "user",
 		Content: "hello",
@@ -89,7 +89,7 @@ func TestSQLiteStorePersistsAcrossInstances(t *testing.T) {
 	if err != nil {
 		t.Fatalf("NewSQLiteStore reopen: %v", err)
 	}
-	got, ok, err := reopened.Get(context.Background(), "agent_chat_1")
+	got, ok, err := reopened.Get(context.Background(), "chat_1")
 	if err != nil || !ok {
 		t.Fatalf("Get after reopen: ok=%v err=%v", ok, err)
 	}

@@ -10,39 +10,39 @@ import (
 	"strings"
 	"time"
 
-	"github.com/hecate/agent-runtime/internal/agentchat"
+	"github.com/hecate/agent-runtime/internal/chat"
 )
 
-func (h *Handler) HandleAgentChatMessageFiles(w http.ResponseWriter, r *http.Request) {
-	_, message, ok := h.loadAgentChatMessage(r.Context(), w, r)
+func (h *Handler) HandleChatMessageFiles(w http.ResponseWriter, r *http.Request) {
+	_, message, ok := h.loadChatMessage(r.Context(), w, r)
 	if !ok {
 		return
 	}
-	files := agentchat.ParseChangedFiles(message.Diff, message.DiffStat)
-	items := make([]AgentChatChangedFileItem, 0, len(files))
+	files := chat.ParseChangedFiles(message.Diff, message.DiffStat)
+	items := make([]ChatChangedFileItem, 0, len(files))
 	for _, file := range files {
-		items = append(items, renderAgentChatChangedFile(file))
+		items = append(items, renderChatChangedFile(file))
 	}
-	WriteJSON(w, http.StatusOK, AgentChatChangedFilesResponse{
-		Object: "agent_chat_changed_files",
+	WriteJSON(w, http.StatusOK, ChatChangedFilesResponse{
+		Object: "chat_changed_files",
 		Data:   items,
 	})
 }
 
-func (h *Handler) HandleAgentChatMessageFileDiff(w http.ResponseWriter, r *http.Request) {
-	_, message, ok := h.loadAgentChatMessage(r.Context(), w, r)
+func (h *Handler) HandleChatMessageFileDiff(w http.ResponseWriter, r *http.Request) {
+	_, message, ok := h.loadChatMessage(r.Context(), w, r)
 	if !ok {
 		return
 	}
 	path := strings.TrimSpace(r.PathValue("path"))
-	file, found := agentchat.ExtractFileDiff(message.Diff, path)
+	file, found := chat.ExtractFileDiff(message.Diff, path)
 	if !found {
 		WriteError(w, http.StatusNotFound, errCodeNotFound, "changed file not found")
 		return
 	}
-	WriteJSON(w, http.StatusOK, AgentChatChangedFileDiffResponse{
-		Object: "agent_chat_changed_file_diff",
-		Data: AgentChatChangedFileDiffItem{
+	WriteJSON(w, http.StatusOK, ChatChangedFileDiffResponse{
+		Object: "chat_changed_file_diff",
+		Data: ChatChangedFileDiffItem{
 			Path:      file.Path,
 			Additions: file.Additions,
 			Deletions: file.Deletions,
@@ -52,17 +52,17 @@ func (h *Handler) HandleAgentChatMessageFileDiff(w http.ResponseWriter, r *http.
 	})
 }
 
-func (h *Handler) HandleRevertAgentChatMessageFiles(w http.ResponseWriter, r *http.Request) {
-	session, message, ok := h.loadAgentChatMessage(r.Context(), w, r)
+func (h *Handler) HandleRevertChatMessageFiles(w http.ResponseWriter, r *http.Request) {
+	session, message, ok := h.loadChatMessage(r.Context(), w, r)
 	if !ok {
 		return
 	}
-	files := agentchat.ParseChangedFiles(message.Diff, message.DiffStat)
+	files := chat.ParseChangedFiles(message.Diff, message.DiffStat)
 	if len(files) == 0 {
 		WriteError(w, http.StatusBadRequest, errCodeInvalidRequest, "agent chat message has no captured diff")
 		return
 	}
-	var req RevertAgentChatMessageFilesRequest
+	var req RevertChatMessageFilesRequest
 	if err := json.NewDecoder(r.Body).Decode(&req); err != nil && !errors.Is(err, io.EOF) {
 		WriteError(w, http.StatusBadRequest, errCodeInvalidRequest, "invalid JSON body")
 		return
@@ -105,10 +105,10 @@ func (h *Handler) HandleRevertAgentChatMessageFiles(w http.ResponseWriter, r *ht
 		return
 	}
 	now := time.Now().UTC()
-	updated, err := h.agentChat.UpdateMessage(r.Context(), session.ID, message.ID, func(item *agentchat.Message) {
+	updated, err := h.agentChat.UpdateMessage(r.Context(), session.ID, message.ID, func(item *chat.Message) {
 		item.DiffStat = strings.TrimSpace(diffStat)
 		item.Diff = strings.TrimSpace(diff)
-		item.Activities = append(item.Activities, agentchat.Activity{
+		item.Activities = append(item.Activities, chat.Activity{
 			Type:      "files_reverted",
 			Status:    "completed",
 			Title:     "Files reverted",
@@ -121,14 +121,14 @@ func (h *Handler) HandleRevertAgentChatMessageFiles(w http.ResponseWriter, r *ht
 		return
 	}
 	h.agentChatLive.publishSession(updated)
-	remaining := agentchat.ParseChangedFiles(strings.TrimSpace(diff), strings.TrimSpace(diffStat))
-	items := make([]AgentChatChangedFileItem, 0, len(remaining))
+	remaining := chat.ParseChangedFiles(strings.TrimSpace(diff), strings.TrimSpace(diffStat))
+	items := make([]ChatChangedFileItem, 0, len(remaining))
 	for _, file := range remaining {
-		items = append(items, renderAgentChatChangedFile(file))
+		items = append(items, renderChatChangedFile(file))
 	}
-	WriteJSON(w, http.StatusOK, AgentChatRevertResponse{
-		Object: "agent_chat_revert",
-		Data: AgentChatRevertItem{
+	WriteJSON(w, http.StatusOK, ChatRevertResponse{
+		Object: "chat_revert",
+		Data: ChatRevertItem{
 			Reverted: true,
 			Paths:    paths,
 			DiffStat: strings.TrimSpace(diffStat),
@@ -137,21 +137,21 @@ func (h *Handler) HandleRevertAgentChatMessageFiles(w http.ResponseWriter, r *ht
 	})
 }
 
-func (h *Handler) loadAgentChatMessage(ctx context.Context, w http.ResponseWriter, r *http.Request) (agentchat.Session, agentchat.Message, bool) {
+func (h *Handler) loadChatMessage(ctx context.Context, w http.ResponseWriter, r *http.Request) (chat.Session, chat.Message, bool) {
 	sessionID := strings.TrimSpace(r.PathValue("id"))
 	messageID := strings.TrimSpace(r.PathValue("message_id"))
 	if sessionID == "" || messageID == "" {
 		WriteError(w, http.StatusBadRequest, errCodeInvalidRequest, "session id and message id are required")
-		return agentchat.Session{}, agentchat.Message{}, false
+		return chat.Session{}, chat.Message{}, false
 	}
 	session, ok, err := h.agentChat.Get(ctx, sessionID)
 	if err != nil {
 		WriteError(w, http.StatusInternalServerError, errCodeGatewayError, err.Error())
-		return agentchat.Session{}, agentchat.Message{}, false
+		return chat.Session{}, chat.Message{}, false
 	}
 	if !ok {
 		WriteError(w, http.StatusNotFound, errCodeNotFound, "agent chat session not found")
-		return agentchat.Session{}, agentchat.Message{}, false
+		return chat.Session{}, chat.Message{}, false
 	}
 	for _, message := range session.Messages {
 		if message.ID == messageID {
@@ -159,7 +159,7 @@ func (h *Handler) loadAgentChatMessage(ctx context.Context, w http.ResponseWrite
 		}
 	}
 	WriteError(w, http.StatusNotFound, errCodeNotFound, "agent chat message not found")
-	return agentchat.Session{}, agentchat.Message{}, false
+	return chat.Session{}, chat.Message{}, false
 }
 
 func normalizeRevertPaths(paths []string) []string {
@@ -196,8 +196,8 @@ func runGit(ctx context.Context, workspace string, args ...string) (string, erro
 	return string(out), err
 }
 
-func renderAgentChatChangedFile(file agentchat.ChangedFile) AgentChatChangedFileItem {
-	return AgentChatChangedFileItem{
+func renderChatChangedFile(file chat.ChangedFile) ChatChangedFileItem {
+	return ChatChangedFileItem{
 		Path:      file.Path,
 		Additions: file.Additions,
 		Deletions: file.Deletions,

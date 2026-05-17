@@ -387,8 +387,8 @@ export function ChatComposer(props: ChatComposerProps) {
         >
           {isExternalAgentChat ? (
             <ExternalAgentConfigControls
-              session={state.activeAgentChatSession}
-              onChange={actions.setAgentChatConfigOption}
+              session={state.activeChatSession}
+              onChange={actions.setChatConfigOption}
               placement="composer"
             />
           ) : hecateAgentModelLocked ? (
@@ -442,8 +442,8 @@ export function ChatComposer(props: ChatComposerProps) {
           <button type="button"
             className="btn btn-danger"
             aria-label="Stop current run"
-            disabled={state.agentChatCancelling}
-            title={state.agentChatCancelling ? "Stopping..." : "Stop current run"}
+            disabled={state.chatCancelling}
+            title={state.chatCancelling ? "Stopping..." : "Stop current run"}
             onClick={actions.cancelAgentChat}
             style={{
               position: "absolute", right: 8, top: "50%", transform: "translateY(-50%)",
@@ -493,9 +493,9 @@ export function ChatComposer(props: ChatComposerProps) {
               type="button"
               className="btn btn-ghost btn-sm"
               aria-label={isExternalAgentChat ? "Stop external agent" : "Stop active task"}
-              title={state.agentChatCancelling ? "Stopping..." : isExternalAgentChat ? "Stop external agent" : "Stop active task"}
+              title={state.chatCancelling ? "Stopping..." : isExternalAgentChat ? "Stop external agent" : "Stop active task"}
               onClick={actions.cancelAgentChat}
-              disabled={state.agentChatCancelling}
+              disabled={state.chatCancelling}
               style={{ fontFamily: "var(--font-mono)", fontSize: 10, padding: "2px 6px", color: "var(--danger)" }}
             >
               Stop
@@ -503,7 +503,7 @@ export function ChatComposer(props: ChatComposerProps) {
           </span>
         </div>
       )}
-      {isAgentChat && state.agentChatCancelling && (
+      {isAgentChat && state.chatCancelling && (
         <div style={{ maxWidth: 820, margin: "6px auto 0", color: "var(--t3)", fontFamily: "var(--font-mono)", fontSize: 11 }}>
           Stopping...
         </div>

@@ -63,8 +63,8 @@ function defaultBackendMock(routes: Record<string, (init?: RequestInit) => Respo
       data: { key: "global", scope: "global", backend: "memory", used_micros_usd: 0, used_usd: "$0.000000" },
     });
     if (url.startsWith("/hecate/v1/usage/events")) return jsonResponse({ object: "usage_events", data: [] });
-    if (url === "/hecate/v1/agent-chat/sessions") return jsonResponse({ object: "agent_chat_sessions", data: [] });
-    if (url.startsWith("/hecate/v1/agent-chat/sessions/") && url.endsWith("/approvals?status=pending")) return jsonResponse({ object: "list", data: [] });
+    if (url === "/hecate/v1/chat/sessions") return jsonResponse({ object: "chat_sessions", data: [] });
+    if (url.startsWith("/hecate/v1/chat/sessions/") && url.endsWith("/approvals?status=pending")) return jsonResponse({ object: "list", data: [] });
     if (url.startsWith("/hecate/v1/chat/sessions")) return jsonResponse({ object: "chat_sessions", data: [], has_more: false });
     if (url.startsWith("/hecate/v1/system/retention/runs")) return jsonResponse({ object: "retention_runs", data: [] });
     if (url.startsWith("/hecate/v1/observability/requests")) return jsonResponse({ object: "requests", data: [] });
@@ -153,13 +153,13 @@ describe("useRuntimeConsole", () => {
         object: "agent_adapters",
         data: [{ id: "claude_code", name: "Claude Code", available: true }],
       }),
-      "/hecate/v1/agent-chat/sessions": (init) => {
+      "/hecate/v1/chat/sessions": (init) => {
         if (init?.method === "POST") {
           createBody = JSON.parse(String(init.body ?? "{}"));
           return jsonResponse({
-            object: "agent_chat_session",
+            object: "chat_session",
             data: {
-              id: "agent_chat_1",
+              id: "chat_1",
               title: "Claude Code chat",
               runtime_kind: "external_agent",
               adapter_id: "claude_code",
@@ -172,7 +172,7 @@ describe("useRuntimeConsole", () => {
             },
           });
         }
-        return jsonResponse({ object: "agent_chat_sessions", data: [] });
+        return jsonResponse({ object: "chat_sessions", data: [] });
       },
     }));
 
@@ -188,23 +188,23 @@ describe("useRuntimeConsole", () => {
       adapter_id: "claude_code",
       workspace: "/tmp/hecate-project",
     });
-    expect(result.current.state.activeAgentChatSessionID).toBe("agent_chat_1");
-    expect(result.current.state.activeAgentChatSession?.config_options?.[0]?.current_value).toBe("sonnet");
+    expect(result.current.state.activeChatSessionID).toBe("chat_1");
+    expect(result.current.state.activeChatSession?.config_options?.[0]?.current_value).toBe("sonnet");
   });
 
   it("uses the new-chat agent selection instead of the active external session", async () => {
-    window.localStorage.setItem("hecate.agentChatSessionID", "a1");
+    window.localStorage.setItem("hecate.chatSessionID", "a1");
     window.localStorage.setItem("hecate.agentWorkspace", "/tmp/hecate");
     window.localStorage.setItem("hecate.model", "gpt-4o-mini");
     let createBody: any = null;
     fetchMock.mockImplementation(defaultBackendMock({
-      "/hecate/v1/agent-chat/sessions": (init) => {
+      "/hecate/v1/chat/sessions": (init) => {
         if (init?.method === "POST") {
           createBody = JSON.parse(String(init.body ?? "{}"));
           return jsonResponse({
-            object: "agent_chat_session",
+            object: "chat_session",
             data: {
-              id: "agent_chat_hecate",
+              id: "chat_hecate",
               title: "Hecate Agent chat",
               runtime_kind: "agent",
               provider: "",
@@ -216,19 +216,19 @@ describe("useRuntimeConsole", () => {
           });
         }
         return jsonResponse({
-          object: "agent_chat_sessions",
+          object: "chat_sessions",
           data: [{ id: "a1", title: "Codex chat", runtime_kind: "external_agent", adapter_id: "codex", workspace: "/tmp/hecate", status: "idle", message_count: 0 }],
         });
       },
-      "/hecate/v1/agent-chat/sessions/a1": () => jsonResponse({
-        object: "agent_chat_session",
+      "/hecate/v1/chat/sessions/a1": () => jsonResponse({
+        object: "chat_session",
         data: { id: "a1", title: "Codex chat", runtime_kind: "external_agent", adapter_id: "codex", workspace: "/tmp/hecate", status: "idle", messages: [] },
       }),
     }));
 
     const { result } = renderRuntimeConsoleHook();
     await waitFor(() => expect(result.current.state.loading).toBe(false));
-    await waitFor(() => expect(result.current.state.activeAgentChatSessionID).toBe("a1"));
+    await waitFor(() => expect(result.current.state.activeChatSessionID).toBe("a1"));
     expect(result.current.state.newChatAgentID).toBe("hecate");
 
     await act(async () => {
@@ -241,8 +241,8 @@ describe("useRuntimeConsole", () => {
       workspace: "/tmp/hecate",
     });
     expect(createBody).not.toHaveProperty("adapter_id");
-    expect(result.current.state.activeAgentChatSessionID).toBe("agent_chat_hecate");
-    expect(result.current.state.activeAgentChatSession?.runtime_kind).toBe("agent");
+    expect(result.current.state.activeChatSessionID).toBe("chat_hecate");
+    expect(result.current.state.activeChatSession?.runtime_kind).toBe("agent");
   });
 
   it("does not create a Hecate chat session until a model is selected", async () => {
@@ -250,11 +250,11 @@ describe("useRuntimeConsole", () => {
     window.localStorage.setItem("hecate.agentWorkspace", "/tmp/hecate");
     let createCalled = false;
     fetchMock.mockImplementation(defaultBackendMock({
-      "/hecate/v1/agent-chat/sessions": (init) => {
+      "/hecate/v1/chat/sessions": (init) => {
         if (init?.method === "POST") {
           createCalled = true;
         }
-        return jsonResponse({ object: "agent_chat_sessions", data: [] });
+        return jsonResponse({ object: "chat_sessions", data: [] });
       },
     }));
 
@@ -266,7 +266,7 @@ describe("useRuntimeConsole", () => {
     });
 
     expect(createCalled).toBe(false);
-    expect(result.current.state.activeAgentChatSessionID).toBe("");
+    expect(result.current.state.activeChatSessionID).toBe("");
     expect(result.current.state.chatError).toBe("");
   });
 
@@ -279,16 +279,16 @@ describe("useRuntimeConsole", () => {
         object: "agent_adapters",
         data: [{ id: "claude_code", name: "Claude Code", available: true }],
       }),
-      "/hecate/v1/agent-chat/sessions": (init) => {
+      "/hecate/v1/chat/sessions": (init) => {
         if (init?.method === "POST") {
           return jsonResponse({
             error: {
-              type: "agent_chat.adapter_unavailable",
+              type: "chat.adapter_unavailable",
               message: "Claude Code could not start.",
             },
           }, 502);
         }
-        return jsonResponse({ object: "agent_chat_sessions", data: [] });
+        return jsonResponse({ object: "chat_sessions", data: [] });
       },
     }));
 
@@ -299,29 +299,29 @@ describe("useRuntimeConsole", () => {
       await result.current.actions.createChatSession();
     });
 
-    expect(result.current.state.activeAgentChatSessionID).toBe("");
-    expect(result.current.state.activeAgentChatSession).toBeNull();
+    expect(result.current.state.activeChatSessionID).toBe("");
+    expect(result.current.state.activeChatSession).toBeNull();
     expect(result.current.state.notice).toEqual({ kind: "error", message: "Claude Code could not start." });
     expect(result.current.state.chatError).toContain("Claude Code could not start.");
   });
 
   it("updates RTK through per-chat settings for an active Hecate chat", async () => {
     window.localStorage.setItem("hecate.chatTarget", "agent");
-    window.localStorage.setItem("hecate.agentChatSessionID", "a1");
+    window.localStorage.setItem("hecate.chatSessionID", "a1");
     let settingsBody: any = null;
     fetchMock.mockImplementation(defaultBackendMock({
-      "/hecate/v1/agent-chat/sessions": () => jsonResponse({
-        object: "agent_chat_sessions",
+      "/hecate/v1/chat/sessions": () => jsonResponse({
+        object: "chat_sessions",
         data: [{ id: "a1", title: "Hecate", runtime_kind: "agent", status: "completed", workspace: "/workspace", rtk_enabled: false, message_count: 0 }],
       }),
-      "/hecate/v1/agent-chat/sessions/a1": () => jsonResponse({
-        object: "agent_chat_session",
+      "/hecate/v1/chat/sessions/a1": () => jsonResponse({
+        object: "chat_session",
         data: { id: "a1", title: "Hecate", runtime_kind: "agent", status: "completed", workspace: "/workspace", rtk_enabled: false, messages: [], created_at: "2026-04-20T00:00:00Z", updated_at: "2026-04-20T00:00:00Z" },
       }),
-      "/hecate/v1/agent-chat/sessions/a1/settings": (init) => {
+      "/hecate/v1/chat/sessions/a1/settings": (init) => {
         settingsBody = JSON.parse(String(init?.body ?? "{}"));
         return jsonResponse({
-          object: "agent_chat_session",
+          object: "chat_session",
           data: { id: "a1", title: "Hecate", runtime_kind: "agent", status: "completed", workspace: "/workspace", rtk_enabled: true, messages: [], created_at: "2026-04-20T00:00:00Z", updated_at: "2026-04-20T00:00:01Z" },
         });
       },
@@ -329,7 +329,7 @@ describe("useRuntimeConsole", () => {
 
     const { result } = renderRuntimeConsoleHook();
     await waitFor(() => expect(result.current.state.loading).toBe(false));
-    await waitFor(() => expect(result.current.state.activeAgentChatSession?.id).toBe("a1"));
+    await waitFor(() => expect(result.current.state.activeChatSession?.id).toBe("a1"));
 
     let ok = false;
     await act(async () => {
@@ -339,24 +339,24 @@ describe("useRuntimeConsole", () => {
     expect(ok).toBe(true);
     expect(settingsBody).toEqual({ rtk_enabled: true });
     expect(result.current.state.hecateRTKEnabled).toBe(true);
-    expect(result.current.state.activeAgentChatSession?.rtk_enabled).toBe(true);
+    expect(result.current.state.activeChatSession?.rtk_enabled).toBe(true);
   });
 
   it("keeps the active agent chat selection when session refresh fails transiently", async () => {
-    window.localStorage.setItem("hecate.agentChatSessionID", "a1");
+    window.localStorage.setItem("hecate.chatSessionID", "a1");
     fetchMock.mockImplementation(defaultBackendMock({
-      "/hecate/v1/agent-chat/sessions": () => jsonResponse({
-        object: "agent_chat_sessions",
+      "/hecate/v1/chat/sessions": () => jsonResponse({
+        object: "chat_sessions",
         data: [{ id: "a1", title: "Still exists", adapter_id: "codex", status: "running", message_count: 2 }],
       }),
-      "/hecate/v1/agent-chat/sessions/a1": () => jsonResponse({ error: { type: "gateway_error", message: "temporary failure" } }, 500),
+      "/hecate/v1/chat/sessions/a1": () => jsonResponse({ error: { type: "gateway_error", message: "temporary failure" } }, 500),
     }));
 
     const { result } = renderRuntimeConsoleHook();
     await waitFor(() => expect(result.current.state.loading).toBe(false));
 
-    expect(result.current.state.activeAgentChatSessionID).toBe("a1");
-    expect(window.localStorage.getItem("hecate.agentChatSessionID")).toBe("a1");
+    expect(result.current.state.activeChatSessionID).toBe("a1");
+    expect(window.localStorage.getItem("hecate.chatSessionID")).toBe("a1");
   });
 
   it("settles into a Local session after the dashboard loads", async () => {
@@ -660,7 +660,7 @@ describe("useRuntimeConsole", () => {
 
     function withSessions(sessions: Array<{ id: string; title: string }>, routes: Record<string, () => Response> = {}) {
       return defaultBackendMock({
-        "/hecate/v1/agent-chat/sessions": () => {
+        "/hecate/v1/chat/sessions": () => {
           const data = sessions.map(s => ({
             ...s,
             runtime_kind: "model",
@@ -669,16 +669,16 @@ describe("useRuntimeConsole", () => {
             created_at: "2026-04-20T00:00:00Z",
             updated_at: "2026-04-20T00:00:00Z",
           }));
-          return jsonResponse({ object: "agent_chat_sessions", data });
+          return jsonResponse({ object: "chat_sessions", data });
         },
         ...routes,
       });
     }
 
-    it("selectChatSession populates activeAgentChatSession on success", async () => {
+    it("selectChatSession populates activeChatSession on success", async () => {
       fetchMock.mockImplementation(withSessions([{ id: "sess_42", title: "Existing" }], {
-        "/hecate/v1/agent-chat/sessions/sess_42": () => jsonResponse({
-          object: "agent_chat_session",
+        "/hecate/v1/chat/sessions/sess_42": () => jsonResponse({
+          object: "chat_session",
           data: {
             id: "sess_42",
             title: "Existing",
@@ -701,25 +701,25 @@ describe("useRuntimeConsole", () => {
       await act(async () => {
         await result.current.actions.selectChatSession("sess_42");
       });
-      await waitFor(() => expect(result.current.state.activeAgentChatSession?.id).toBe("sess_42"));
-      expect(result.current.state.activeAgentChatSessionID).toBe("sess_42");
-      expect(result.current.state.activeAgentChatSession?.messages).toHaveLength(2);
-      expect(result.current.state.activeAgentChatSession?.model).toBe("gpt-4o-mini");
+      await waitFor(() => expect(result.current.state.activeChatSession?.id).toBe("sess_42"));
+      expect(result.current.state.activeChatSessionID).toBe("sess_42");
+      expect(result.current.state.activeChatSession?.messages).toHaveLength(2);
+      expect(result.current.state.activeChatSession?.model).toBe("gpt-4o-mini");
       expect(result.current.state.providerFilter).toBe("openai");
       expect(result.current.state.chatError).toBe("");
     });
 
     it("sends Hecate Chat instructions to task-backed turns", async () => {
       window.localStorage.setItem("hecate.chatTarget", "agent");
-      window.localStorage.setItem("hecate.agentChatSessionID", "a1");
+      window.localStorage.setItem("hecate.chatSessionID", "a1");
       window.localStorage.setItem("hecate.agentWorkspace", "/workspace");
       window.localStorage.setItem("hecate.systemPrompt", "Prefer small, reviewable diffs.");
       let postedBody: any = null;
       fetchMock.mockImplementation(async (input, init) => {
         const url = String(input);
-        if (url === "/hecate/v1/agent-chat/sessions") {
+        if (url === "/hecate/v1/chat/sessions") {
           return jsonResponse({
-            object: "agent_chat_sessions",
+            object: "chat_sessions",
             data: [{
               id: "a1",
               title: "Agent",
@@ -732,9 +732,9 @@ describe("useRuntimeConsole", () => {
             }],
           });
         }
-        if (url === "/hecate/v1/agent-chat/sessions/a1") {
+        if (url === "/hecate/v1/chat/sessions/a1") {
           return jsonResponse({
-            object: "agent_chat_session",
+            object: "chat_session",
             data: {
               id: "a1",
               title: "Agent",
@@ -749,13 +749,13 @@ describe("useRuntimeConsole", () => {
             },
           });
         }
-        if (url === "/hecate/v1/agent-chat/sessions/a1/stream") {
+        if (url === "/hecate/v1/chat/sessions/a1/stream") {
           return emptyStreamResponse();
         }
-        if (url === "/hecate/v1/agent-chat/sessions/a1/messages") {
+        if (url === "/hecate/v1/chat/sessions/a1/messages") {
           postedBody = JSON.parse(String(init?.body ?? "{}"));
           return jsonResponse({
-            object: "agent_chat_session",
+            object: "chat_session",
             data: {
               id: "a1",
               title: "Agent",
@@ -798,15 +798,15 @@ describe("useRuntimeConsole", () => {
 
     it("queues a prompt while the active agent run is busy and sends it after completion", async () => {
       window.localStorage.setItem("hecate.chatTarget", "agent");
-      window.localStorage.setItem("hecate.agentChatSessionID", "a1");
+      window.localStorage.setItem("hecate.chatSessionID", "a1");
       window.localStorage.setItem("hecate.agentWorkspace", "/workspace");
       let sessionStatus = "running";
       let messagePostCount = 0;
       fetchMock.mockImplementation(async (input, init) => {
         const url = String(input);
-        if (url === "/hecate/v1/agent-chat/sessions") {
+        if (url === "/hecate/v1/chat/sessions") {
           return jsonResponse({
-            object: "agent_chat_sessions",
+            object: "chat_sessions",
             data: [{
               id: "a1",
               title: "Agent",
@@ -819,9 +819,9 @@ describe("useRuntimeConsole", () => {
             }],
           });
         }
-        if (url === "/hecate/v1/agent-chat/sessions/a1") {
+        if (url === "/hecate/v1/chat/sessions/a1") {
           return jsonResponse({
-            object: "agent_chat_session",
+            object: "chat_session",
             data: {
               id: "a1",
               title: "Agent",
@@ -836,14 +836,14 @@ describe("useRuntimeConsole", () => {
             },
           });
         }
-        if (url === "/hecate/v1/agent-chat/sessions/a1/stream") {
+        if (url === "/hecate/v1/chat/sessions/a1/stream") {
           return emptyStreamResponse();
         }
-        if (url === "/hecate/v1/agent-chat/sessions/a1/messages") {
+        if (url === "/hecate/v1/chat/sessions/a1/messages") {
           messagePostCount += 1;
           void init;
           return jsonResponse({
-            object: "agent_chat_session",
+            object: "chat_session",
             data: {
               id: "a1",
               title: "Agent",
@@ -865,7 +865,7 @@ describe("useRuntimeConsole", () => {
 
       const { result } = renderRuntimeConsoleHook();
       await waitFor(() => expect(result.current.state.loading).toBe(false));
-      await waitFor(() => expect(result.current.state.activeAgentChatSession?.status).toBe("running"));
+      await waitFor(() => expect(result.current.state.activeChatSession?.status).toBe("running"));
       await waitFor(() => expect(result.current.state.model).toBe("gpt-4o-mini"));
 
       act(() => {
@@ -892,7 +892,7 @@ describe("useRuntimeConsole", () => {
 
     it("restores queued prompts from local storage and persists edits", async () => {
       window.localStorage.setItem("hecate.chatTarget", "agent");
-      window.localStorage.setItem("hecate.agentChatSessionID", "a1");
+      window.localStorage.setItem("hecate.chatSessionID", "a1");
       window.localStorage.setItem("hecate.agentWorkspace", "/workspace");
       window.localStorage.setItem("hecate.queuedChatMessages", JSON.stringify([
         {
@@ -909,12 +909,12 @@ describe("useRuntimeConsole", () => {
         },
       ]));
       fetchMock.mockImplementation(defaultBackendMock({
-        "/hecate/v1/agent-chat/sessions": () => jsonResponse({
-          object: "agent_chat_sessions",
+        "/hecate/v1/chat/sessions": () => jsonResponse({
+          object: "chat_sessions",
           data: [{ id: "a1", title: "Agent", runtime_kind: "agent", status: "running", workspace: "/workspace", message_count: 0 }],
         }),
-        "/hecate/v1/agent-chat/sessions/a1": () => jsonResponse({
-          object: "agent_chat_session",
+        "/hecate/v1/chat/sessions/a1": () => jsonResponse({
+          object: "chat_session",
           data: { id: "a1", title: "Agent", runtime_kind: "agent", status: "running", workspace: "/workspace", messages: [], created_at: "2026-04-20T00:00:00Z", updated_at: "2026-04-20T00:00:00Z" },
         }),
       }));
@@ -936,7 +936,7 @@ describe("useRuntimeConsole", () => {
 
     it("keeps queued prompt edits usable when browser storage writes fail", async () => {
       window.localStorage.setItem("hecate.chatTarget", "agent");
-      window.localStorage.setItem("hecate.agentChatSessionID", "a1");
+      window.localStorage.setItem("hecate.chatSessionID", "a1");
       window.localStorage.setItem("hecate.agentWorkspace", "/workspace");
       window.localStorage.setItem("hecate.queuedChatMessages", JSON.stringify([
         {
@@ -960,12 +960,12 @@ describe("useRuntimeConsole", () => {
         return originalSetItem.call(this, key, value);
       });
       fetchMock.mockImplementation(defaultBackendMock({
-        "/hecate/v1/agent-chat/sessions": () => jsonResponse({
-          object: "agent_chat_sessions",
+        "/hecate/v1/chat/sessions": () => jsonResponse({
+          object: "chat_sessions",
           data: [{ id: "a1", title: "Agent", runtime_kind: "agent", status: "running", workspace: "/workspace", message_count: 0 }],
         }),
-        "/hecate/v1/agent-chat/sessions/a1": () => jsonResponse({
-          object: "agent_chat_session",
+        "/hecate/v1/chat/sessions/a1": () => jsonResponse({
+          object: "chat_session",
           data: { id: "a1", title: "Agent", runtime_kind: "agent", status: "running", workspace: "/workspace", messages: [], created_at: "2026-04-20T00:00:00Z", updated_at: "2026-04-20T00:00:00Z" },
         }),
       }));
@@ -1013,8 +1013,8 @@ describe("useRuntimeConsole", () => {
         },
       ]));
       fetchMock.mockImplementation(defaultBackendMock({
-        "/hecate/v1/agent-chat/sessions": () => jsonResponse({
-          object: "agent_chat_sessions",
+        "/hecate/v1/chat/sessions": () => jsonResponse({
+          object: "chat_sessions",
           data: [{ id: "a1", title: "Agent", runtime_kind: "agent", status: "running", workspace: "/workspace", message_count: 0 }],
         }),
       }));
@@ -1031,7 +1031,7 @@ describe("useRuntimeConsole", () => {
 
     it("does not drain a queued prompt into a different selected chat", async () => {
       window.localStorage.setItem("hecate.chatTarget", "agent");
-      window.localStorage.setItem("hecate.agentChatSessionID", "a1");
+      window.localStorage.setItem("hecate.chatSessionID", "a1");
       window.localStorage.setItem("hecate.agentWorkspace", "/workspace");
       let messagePostCount = 0;
       let resolveA2: (() => void) | undefined;
@@ -1040,39 +1040,39 @@ describe("useRuntimeConsole", () => {
       });
       fetchMock.mockImplementation(async (input, init) => {
         const url = String(input);
-        if (url === "/hecate/v1/agent-chat/sessions") {
+        if (url === "/hecate/v1/chat/sessions") {
           return jsonResponse({
-            object: "agent_chat_sessions",
+            object: "chat_sessions",
             data: [
               { id: "a1", title: "Busy chat", runtime_kind: "agent", status: "running", workspace: "/workspace", message_count: 0 },
               { id: "a2", title: "Idle chat", runtime_kind: "agent", status: "completed", workspace: "/workspace", message_count: 0 },
             ],
           });
         }
-        if (url === "/hecate/v1/agent-chat/sessions/a1") {
+        if (url === "/hecate/v1/chat/sessions/a1") {
           return jsonResponse({
-            object: "agent_chat_session",
+            object: "chat_session",
             data: { id: "a1", title: "Busy chat", runtime_kind: "agent", status: "running", workspace: "/workspace", messages: [], created_at: "2026-04-20T00:00:00Z", updated_at: "2026-04-20T00:00:00Z" },
           });
         }
-        if (url === "/hecate/v1/agent-chat/sessions/a2") {
+        if (url === "/hecate/v1/chat/sessions/a2") {
           await a2Gate;
           return jsonResponse({
-            object: "agent_chat_session",
+            object: "chat_session",
             data: { id: "a2", title: "Idle chat", runtime_kind: "agent", status: "completed", workspace: "/workspace", messages: [], created_at: "2026-04-20T00:00:00Z", updated_at: "2026-04-20T00:00:00Z" },
           });
         }
         if (url.endsWith("/messages")) {
           messagePostCount += 1;
           void init;
-          return jsonResponse({ object: "agent_chat_session", data: {} });
+          return jsonResponse({ object: "chat_session", data: {} });
         }
         return defaultBackendMock()(input, init);
       });
 
       const { result } = renderRuntimeConsoleHook();
       await waitFor(() => expect(result.current.state.loading).toBe(false));
-      await waitFor(() => expect(result.current.state.activeAgentChatSession?.id).toBe("a1"));
+      await waitFor(() => expect(result.current.state.activeChatSession?.id).toBe("a1"));
 
       act(() => {
         result.current.actions.setMessage("keep this with a1");
@@ -1087,8 +1087,8 @@ describe("useRuntimeConsole", () => {
         selectPromise = result.current.actions.selectChatSession("a2");
       });
 
-      await waitFor(() => expect(result.current.state.activeAgentChatSessionID).toBe("a2"));
-      expect(result.current.state.activeAgentChatSession?.id).toBe("a1");
+      await waitFor(() => expect(result.current.state.activeChatSessionID).toBe("a2"));
+      expect(result.current.state.activeChatSession?.id).toBe("a1");
       expect(result.current.state.queuedChatMessages).toHaveLength(1);
       expect(result.current.state.queuedChatMessages[0].session_id).toBe("a1");
       expect(messagePostCount).toBe(0);
@@ -1096,13 +1096,13 @@ describe("useRuntimeConsole", () => {
       await act(async () => {
         await selectPromise;
       });
-      await waitFor(() => expect(result.current.state.activeAgentChatSession?.id).toBe("a2"));
+      await waitFor(() => expect(result.current.state.activeChatSession?.id).toBe("a2"));
       expect(messagePostCount).toBe(0);
     });
 
     it("waits for the selected chat record before draining a queued prompt", async () => {
       window.localStorage.setItem("hecate.chatTarget", "agent");
-      window.localStorage.setItem("hecate.agentChatSessionID", "a2");
+      window.localStorage.setItem("hecate.chatSessionID", "a2");
       window.localStorage.setItem("hecate.agentWorkspace", "/workspace");
 
       let messagePostCount = 0;
@@ -1112,7 +1112,7 @@ describe("useRuntimeConsole", () => {
         resolveA2Refresh = resolve;
       });
       const session = (id: string, status: string) => ({
-        object: "agent_chat_session",
+        object: "chat_session",
         data: {
           id,
           title: id,
@@ -1129,19 +1129,19 @@ describe("useRuntimeConsole", () => {
 
       fetchMock.mockImplementation(async (input, init) => {
         const url = String(input);
-        if (url === "/hecate/v1/agent-chat/sessions") {
+        if (url === "/hecate/v1/chat/sessions") {
           return jsonResponse({
-            object: "agent_chat_sessions",
+            object: "chat_sessions",
             data: [
               { id: "a1", title: "Idle chat", runtime_kind: "agent", status: "completed", workspace: "/workspace", message_count: 0 },
               { id: "a2", title: "Busy chat", runtime_kind: "agent", status: "running", workspace: "/workspace", message_count: 0 },
             ],
           });
         }
-        if (url === "/hecate/v1/agent-chat/sessions/a1") {
+        if (url === "/hecate/v1/chat/sessions/a1") {
           return jsonResponse(session("a1", "completed"));
         }
-        if (url === "/hecate/v1/agent-chat/sessions/a2") {
+        if (url === "/hecate/v1/chat/sessions/a2") {
           a2FetchCount += 1;
           if (a2FetchCount > 1) {
             await a2RefreshGate;
@@ -1149,7 +1149,7 @@ describe("useRuntimeConsole", () => {
           }
           return jsonResponse(session("a2", "running"));
         }
-        if (url === "/hecate/v1/agent-chat/sessions/a2/messages") {
+        if (url === "/hecate/v1/chat/sessions/a2/messages") {
           messagePostCount += 1;
           void init;
           return jsonResponse(session("a2", "completed"));
@@ -1162,8 +1162,8 @@ describe("useRuntimeConsole", () => {
 
       const { result } = renderRuntimeConsoleHook();
       await waitFor(() => expect(result.current.state.loading).toBe(false));
-      await waitFor(() => expect(result.current.state.activeAgentChatSession?.id).toBe("a2"));
-      await waitFor(() => expect(result.current.state.activeAgentChatSession?.status).toBe("running"));
+      await waitFor(() => expect(result.current.state.activeChatSession?.id).toBe("a2"));
+      await waitFor(() => expect(result.current.state.activeChatSession?.status).toBe("running"));
       await waitFor(() => expect(result.current.state.model).toBe("gpt-4o-mini"));
 
       act(() => {
@@ -1178,15 +1178,15 @@ describe("useRuntimeConsole", () => {
       await act(async () => {
         await result.current.actions.selectChatSession("a1");
       });
-      await waitFor(() => expect(result.current.state.activeAgentChatSession?.id).toBe("a1"));
+      await waitFor(() => expect(result.current.state.activeChatSession?.id).toBe("a1"));
 
       let selectA2Promise!: Promise<void>;
       act(() => {
         selectA2Promise = result.current.actions.selectChatSession("a2");
       });
 
-      await waitFor(() => expect(result.current.state.activeAgentChatSessionID).toBe("a2"));
-      expect(result.current.state.activeAgentChatSession?.id).toBe("a1");
+      await waitFor(() => expect(result.current.state.activeChatSessionID).toBe("a2"));
+      expect(result.current.state.activeChatSession?.id).toBe("a1");
       expect(result.current.state.queuedChatMessages).toHaveLength(1);
       expect(messagePostCount).toBe(0);
 
@@ -1195,14 +1195,14 @@ describe("useRuntimeConsole", () => {
         await selectA2Promise;
       });
 
-      await waitFor(() => expect(result.current.state.activeAgentChatSession?.id).toBe("a2"));
+      await waitFor(() => expect(result.current.state.activeChatSession?.id).toBe("a2"));
       await waitFor(() => expect(messagePostCount).toBe(1));
       await waitFor(() => expect(result.current.state.queuedChatMessages).toHaveLength(0));
     });
 
     it("keeps the tools toggle scoped to the selected Hecate chat", async () => {
       const hecateSession = (id: string) => ({
-        object: "agent_chat_session",
+        object: "chat_session",
         data: {
           id,
           title: id,
@@ -1220,8 +1220,8 @@ describe("useRuntimeConsole", () => {
         { id: "chat_a", title: "A" },
         { id: "chat_b", title: "B" },
       ], {
-        "/hecate/v1/agent-chat/sessions/chat_a": () => jsonResponse(hecateSession("chat_a")),
-        "/hecate/v1/agent-chat/sessions/chat_b": () => jsonResponse(hecateSession("chat_b")),
+        "/hecate/v1/chat/sessions/chat_a": () => jsonResponse(hecateSession("chat_a")),
+        "/hecate/v1/chat/sessions/chat_b": () => jsonResponse(hecateSession("chat_b")),
       }));
 
       const { result } = renderRuntimeConsoleHook();
@@ -1230,7 +1230,7 @@ describe("useRuntimeConsole", () => {
       await act(async () => {
         await result.current.actions.selectChatSession("chat_a");
       });
-      await waitFor(() => expect(result.current.state.activeAgentChatSession?.id).toBe("chat_a"));
+      await waitFor(() => expect(result.current.state.activeChatSession?.id).toBe("chat_a"));
       expect(result.current.state.chatTarget).toBe("agent");
 
       act(() => {
@@ -1241,13 +1241,13 @@ describe("useRuntimeConsole", () => {
       await act(async () => {
         await result.current.actions.selectChatSession("chat_b");
       });
-      await waitFor(() => expect(result.current.state.activeAgentChatSession?.id).toBe("chat_b"));
+      await waitFor(() => expect(result.current.state.activeChatSession?.id).toBe("chat_b"));
       expect(result.current.state.chatTarget).toBe("agent");
 
       await act(async () => {
         await result.current.actions.selectChatSession("chat_a");
       });
-      await waitFor(() => expect(result.current.state.activeAgentChatSession?.id).toBe("chat_a"));
+      await waitFor(() => expect(result.current.state.activeChatSession?.id).toBe("chat_a"));
       expect(result.current.state.chatTarget).toBe("model");
     });
 
@@ -1260,8 +1260,8 @@ describe("useRuntimeConsole", () => {
             { id: "qwen2.5-coder", owned_by: "ollama", metadata: { provider: "ollama", provider_kind: "local" } },
           ],
         }),
-        "/hecate/v1/agent-chat/sessions/mixed_chat": () => jsonResponse({
-          object: "agent_chat_session",
+        "/hecate/v1/chat/sessions/mixed_chat": () => jsonResponse({
+          object: "chat_session",
           data: {
             id: "mixed_chat",
             title: "Mixed",
@@ -1288,14 +1288,14 @@ describe("useRuntimeConsole", () => {
         await result.current.actions.selectChatSession("mixed_chat");
       });
 
-      await waitFor(() => expect(result.current.state.activeAgentChatSession?.id).toBe("mixed_chat"));
+      await waitFor(() => expect(result.current.state.activeChatSession?.id).toBe("mixed_chat"));
       expect(result.current.state.providerFilter).toBe("ollama");
       expect(result.current.state.model).toBe("qwen2.5-coder");
     });
 
     it("selectChatSession 404 clears the active agent-chat selection and surfaces an error", async () => {
       fetchMock.mockImplementation(withSessions([{ id: "sess_gone", title: "Gone" }], {
-        "/hecate/v1/agent-chat/sessions/sess_gone": () => new Response(
+        "/hecate/v1/chat/sessions/sess_gone": () => new Response(
           JSON.stringify({ error: { message: "session not found" } }),
           { status: 404, headers: { "Content-Type": "application/json" } },
         ),
@@ -1307,7 +1307,7 @@ describe("useRuntimeConsole", () => {
       await act(async () => {
         await result.current.actions.selectChatSession("sess_gone");
       });
-      expect(result.current.state.activeAgentChatSessionID).toBe("");
+      expect(result.current.state.activeChatSessionID).toBe("");
       await waitFor(() => expect(result.current.state.chatError).toContain("session not found"));
       expect(result.current.state.notice?.kind).toBe("error");
     });
@@ -1316,7 +1316,7 @@ describe("useRuntimeConsole", () => {
       let deleteCalls = 0;
       fetchMock.mockImplementation(async (input, init) => {
         const url = String(input);
-        if (url === "/hecate/v1/agent-chat/sessions/sess_b" && init?.method === "DELETE") {
+        if (url === "/hecate/v1/chat/sessions/sess_b" && init?.method === "DELETE") {
           deleteCalls++;
           return new Response(null, { status: 204 });
         }
@@ -1326,41 +1326,41 @@ describe("useRuntimeConsole", () => {
       });
 
       const { result } = renderRuntimeConsoleHook();
-      await waitFor(() => expect(result.current.state.agentChatSessions).toHaveLength(2));
+      await waitFor(() => expect(result.current.state.chatSessions).toHaveLength(2));
 
       await act(async () => {
         await result.current.actions.deleteChatSession("sess_b");
       });
 
       expect(deleteCalls).toBe(1);
-      await waitFor(() => expect(result.current.state.agentChatSessions.map(s => s.id)).toEqual(["sess_a"]));
+      await waitFor(() => expect(result.current.state.chatSessions.map(s => s.id)).toEqual(["sess_a"]));
       expect(result.current.state.notice?.kind).toBe("success");
       expect(result.current.state.notice?.message).toBe("Agent chat deleted.");
     });
 
     it("deleteChatSession removes queued prompts for the deleted session", async () => {
       window.localStorage.setItem("hecate.chatTarget", "agent");
-      window.localStorage.setItem("hecate.agentChatSessionID", "sess_b");
+      window.localStorage.setItem("hecate.chatSessionID", "sess_b");
       window.localStorage.setItem("hecate.agentWorkspace", "/workspace");
       let deleteCalls = 0;
       fetchMock.mockImplementation(async (input, init) => {
         const url = String(input);
-        if (url === "/hecate/v1/agent-chat/sessions") {
+        if (url === "/hecate/v1/chat/sessions") {
           return jsonResponse({
-            object: "agent_chat_sessions",
+            object: "chat_sessions",
             data: [
               { id: "sess_a", title: "Keep", runtime_kind: "agent", status: "completed", workspace: "/workspace", message_count: 0 },
               { id: "sess_b", title: "Delete me", runtime_kind: "agent", status: "running", workspace: "/workspace", message_count: 0 },
             ],
           });
         }
-        if (url === "/hecate/v1/agent-chat/sessions/sess_b" && init?.method === "DELETE") {
+        if (url === "/hecate/v1/chat/sessions/sess_b" && init?.method === "DELETE") {
           deleteCalls += 1;
           return new Response(null, { status: 204 });
         }
-        if (url === "/hecate/v1/agent-chat/sessions/sess_b") {
+        if (url === "/hecate/v1/chat/sessions/sess_b") {
           return jsonResponse({
-            object: "agent_chat_session",
+            object: "chat_session",
             data: { id: "sess_b", title: "Delete me", runtime_kind: "agent", status: "running", workspace: "/workspace", messages: [], created_at: "2026-04-20T00:00:00Z", updated_at: "2026-04-20T00:00:00Z" },
           });
         }
@@ -1368,7 +1368,7 @@ describe("useRuntimeConsole", () => {
       });
 
       const { result } = renderRuntimeConsoleHook();
-      await waitFor(() => expect(result.current.state.activeAgentChatSession?.id).toBe("sess_b"));
+      await waitFor(() => expect(result.current.state.activeChatSession?.id).toBe("sess_b"));
 
       act(() => {
         result.current.actions.setMessage("do this later");
@@ -1384,17 +1384,17 @@ describe("useRuntimeConsole", () => {
 
       expect(deleteCalls).toBe(1);
       expect(result.current.state.queuedChatMessages).toHaveLength(0);
-      expect(result.current.state.activeAgentChatSessionID).toBe("");
+      expect(result.current.state.activeChatSessionID).toBe("");
     });
 
     it("renameChatSession patches agent-chat session titles", async () => {
       window.localStorage.setItem("hecate.chatTarget", "external_agent");
-      window.localStorage.setItem("hecate.agentChatSessionID", "agent_a");
+      window.localStorage.setItem("hecate.chatSessionID", "agent_a");
       fetchMock.mockImplementation(async (input, init) => {
         const url = String(input);
-        if (url === "/hecate/v1/agent-chat/sessions/agent_a" && init?.method === "PATCH") {
+        if (url === "/hecate/v1/chat/sessions/agent_a" && init?.method === "PATCH") {
           return jsonResponse({
-            object: "agent_chat_session",
+            object: "chat_session",
             data: {
               id: "agent_a",
               title: "Renamed agent chat",
@@ -1409,8 +1409,8 @@ describe("useRuntimeConsole", () => {
           });
         }
         return defaultBackendMock({
-          "/hecate/v1/agent-chat/sessions": () => jsonResponse({
-            object: "agent_chat_sessions",
+          "/hecate/v1/chat/sessions": () => jsonResponse({
+            object: "chat_sessions",
             data: [{
               id: "agent_a",
               title: "Old agent title",
@@ -1423,8 +1423,8 @@ describe("useRuntimeConsole", () => {
               updated_at: "2026-04-20T00:00:00Z",
             }],
           }),
-          "/hecate/v1/agent-chat/sessions/agent_a": () => jsonResponse({
-            object: "agent_chat_session",
+          "/hecate/v1/chat/sessions/agent_a": () => jsonResponse({
+            object: "chat_session",
             data: {
               id: "agent_a",
               title: "Old agent title",
@@ -1441,14 +1441,14 @@ describe("useRuntimeConsole", () => {
       });
 
       const { result } = renderRuntimeConsoleHook();
-      await waitFor(() => expect(result.current.state.agentChatSessions[0]?.title).toBe("Old agent title"));
+      await waitFor(() => expect(result.current.state.chatSessions[0]?.title).toBe("Old agent title"));
 
       await act(async () => {
         await result.current.actions.renameChatSession("agent_a", "Renamed agent chat");
       });
 
-      await waitFor(() => expect(result.current.state.agentChatSessions[0].title).toBe("Renamed agent chat"));
-      expect(result.current.state.activeAgentChatSession?.title).toBe("Renamed agent chat");
+      await waitFor(() => expect(result.current.state.chatSessions[0].title).toBe("Renamed agent chat"));
+      expect(result.current.state.activeChatSession?.title).toBe("Renamed agent chat");
     });
 
     it("resolveTaskApproval optimistically marks the row resolved before the API call returns", async () => {
@@ -1465,7 +1465,7 @@ describe("useRuntimeConsole", () => {
       // surfaced as a 50–500 ms unresponsive UI on slow links
       // and let an operator double-click a duplicate request.
       window.localStorage.setItem("hecate.chatTarget", "agent");
-      window.localStorage.setItem("hecate.agentChatSessionID", "a1");
+      window.localStorage.setItem("hecate.chatSessionID", "a1");
 
       const seededSession = {
         id: "a1",
@@ -1507,14 +1507,14 @@ describe("useRuntimeConsole", () => {
       let refetchCalls = 0;
       fetchMock.mockImplementation(async (input, init) => {
         const url = String(input);
-        if (url === "/hecate/v1/agent-chat/sessions") {
-          return jsonResponse({ object: "agent_chat_sessions", data: [seededSession] });
+        if (url === "/hecate/v1/chat/sessions") {
+          return jsonResponse({ object: "chat_sessions", data: [seededSession] });
         }
-        if (url === "/hecate/v1/agent-chat/sessions/a1") {
+        if (url === "/hecate/v1/chat/sessions/a1") {
           refetchCalls += 1;
-          return jsonResponse({ object: "agent_chat_session", data: seededSession });
+          return jsonResponse({ object: "chat_session", data: seededSession });
         }
-        if (url === "/hecate/v1/agent-chat/sessions/a1/approvals?status=pending") {
+        if (url === "/hecate/v1/chat/sessions/a1/approvals?status=pending") {
           return jsonResponse({ object: "list", data: [] });
         }
         if (url === "/hecate/v1/tasks/task_42/approvals/appr_1/resolve" && init?.method === "POST") {
@@ -1528,7 +1528,7 @@ describe("useRuntimeConsole", () => {
 
       const { result } = renderRuntimeConsoleHook();
       await waitFor(() => expect(result.current.state.loading).toBe(false));
-      await waitFor(() => expect(result.current.state.activeAgentChatSession?.task_id).toBe("task_42"));
+      await waitFor(() => expect(result.current.state.activeChatSession?.task_id).toBe("task_42"));
       const initialRefetches = refetchCalls;
 
       let pendingResolve: Promise<boolean> | undefined;
@@ -1543,7 +1543,7 @@ describe("useRuntimeConsole", () => {
       // The API call is in flight; the optimistic patch must already
       // be visible on the local session.
       expect(resolveCalls).toBe(1);
-      const activity = result.current.state.activeAgentChatSession?.messages?.[0]?.activities?.[0];
+      const activity = result.current.state.activeChatSession?.messages?.[0]?.activities?.[0];
       expect(activity?.status).toBe("approved");
       expect(activity?.needs_action).toBe(false);
       // No refresh has fired yet — those are sequenced after the API
@@ -1562,7 +1562,7 @@ describe("useRuntimeConsole", () => {
       // restores the prior state — otherwise the operator sees the
       // banner gone forever even though the run is still gated.
       window.localStorage.setItem("hecate.chatTarget", "agent");
-      window.localStorage.setItem("hecate.agentChatSessionID", "a1");
+      window.localStorage.setItem("hecate.chatSessionID", "a1");
 
       const seededSession = {
         id: "a1",
@@ -1601,13 +1601,13 @@ describe("useRuntimeConsole", () => {
       };
       fetchMock.mockImplementation(async (input, init) => {
         const url = String(input);
-        if (url === "/hecate/v1/agent-chat/sessions") {
-          return jsonResponse({ object: "agent_chat_sessions", data: [seededSession] });
+        if (url === "/hecate/v1/chat/sessions") {
+          return jsonResponse({ object: "chat_sessions", data: [seededSession] });
         }
-        if (url === "/hecate/v1/agent-chat/sessions/a1") {
-          return jsonResponse({ object: "agent_chat_session", data: seededSession });
+        if (url === "/hecate/v1/chat/sessions/a1") {
+          return jsonResponse({ object: "chat_session", data: seededSession });
         }
-        if (url === "/hecate/v1/agent-chat/sessions/a1/approvals?status=pending") {
+        if (url === "/hecate/v1/chat/sessions/a1/approvals?status=pending") {
           return jsonResponse({ object: "list", data: [] });
         }
         if (url === "/hecate/v1/tasks/task_42/approvals/appr_1/resolve" && init?.method === "POST") {
@@ -1621,7 +1621,7 @@ describe("useRuntimeConsole", () => {
 
       const { result } = renderRuntimeConsoleHook();
       await waitFor(() => expect(result.current.state.loading).toBe(false));
-      await waitFor(() => expect(result.current.state.activeAgentChatSession?.task_id).toBe("task_42"));
+      await waitFor(() => expect(result.current.state.activeChatSession?.task_id).toBe("task_42"));
 
       let ok: boolean | undefined;
       await act(async () => {
@@ -1636,17 +1636,17 @@ describe("useRuntimeConsole", () => {
       expect(result.current.state.notice?.kind).toBe("error");
       // Rollback restored the original `awaiting_approval` status so
       // the banner reappears and the operator can retry.
-      // NB: `refreshAgentChatSession` is NOT called on a generic
+      // NB: `refreshChatSession` is NOT called on a generic
       // failure (only on the "not pending" branch), so the only way
       // the row returns to its prior state is via the rollback
       // inside the catch.
-      const activity = result.current.state.activeAgentChatSession?.messages?.[0]?.activities?.[0];
+      const activity = result.current.state.activeChatSession?.messages?.[0]?.activities?.[0];
       expect(activity?.status).toBe("awaiting_approval");
       expect(activity?.needs_action).toBe(true);
     });
 
     it("resolveTaskApproval rollback restores the right activity when activity.id is absent", async () => {
-      // AgentChatActivityRecord.id is optional. Earlier the rollback
+      // ChatActivityRecord.id is optional. Earlier the rollback
       // matched the snapshot row by `activity.id === activity.id`,
       // which (a) fails to restore when the current row has no id
       // and (b) would wrongly match the first id-less snapshot row
@@ -1655,7 +1655,7 @@ describe("useRuntimeConsole", () => {
       // `task:approval:<id>` id), the same predicate the dedupe
       // selection uses.
       window.localStorage.setItem("hecate.chatTarget", "agent");
-      window.localStorage.setItem("hecate.agentChatSessionID", "a1");
+      window.localStorage.setItem("hecate.chatSessionID", "a1");
 
       const seededSession = {
         id: "a1",
@@ -1703,13 +1703,13 @@ describe("useRuntimeConsole", () => {
       };
       fetchMock.mockImplementation(async (input, init) => {
         const url = String(input);
-        if (url === "/hecate/v1/agent-chat/sessions") {
-          return jsonResponse({ object: "agent_chat_sessions", data: [seededSession] });
+        if (url === "/hecate/v1/chat/sessions") {
+          return jsonResponse({ object: "chat_sessions", data: [seededSession] });
         }
-        if (url === "/hecate/v1/agent-chat/sessions/a1") {
-          return jsonResponse({ object: "agent_chat_session", data: seededSession });
+        if (url === "/hecate/v1/chat/sessions/a1") {
+          return jsonResponse({ object: "chat_session", data: seededSession });
         }
-        if (url === "/hecate/v1/agent-chat/sessions/a1/approvals?status=pending") {
+        if (url === "/hecate/v1/chat/sessions/a1/approvals?status=pending") {
           return jsonResponse({ object: "list", data: [] });
         }
         if (url === "/hecate/v1/tasks/task_42/approvals/appr_1/resolve" && init?.method === "POST") {
@@ -1723,7 +1723,7 @@ describe("useRuntimeConsole", () => {
 
       const { result } = renderRuntimeConsoleHook();
       await waitFor(() => expect(result.current.state.loading).toBe(false));
-      await waitFor(() => expect(result.current.state.activeAgentChatSession?.task_id).toBe("task_42"));
+      await waitFor(() => expect(result.current.state.activeChatSession?.task_id).toBe("task_42"));
 
       let ok: boolean | undefined;
       await act(async () => {
@@ -1735,7 +1735,7 @@ describe("useRuntimeConsole", () => {
       });
       expect(ok).toBe(false);
 
-      const activities = result.current.state.activeAgentChatSession?.messages?.[0]?.activities ?? [];
+      const activities = result.current.state.activeChatSession?.messages?.[0]?.activities ?? [];
       // The thinking row should be untouched.
       const thinking = activities.find((a) => a.type === "thinking");
       expect(thinking?.title).toBe("preparing");
@@ -1757,7 +1757,7 @@ describe("useRuntimeConsole", () => {
       // and must roll back so the row reflects "still pending"
       // rather than a possibly-wrong final state.
       window.localStorage.setItem("hecate.chatTarget", "agent");
-      window.localStorage.setItem("hecate.agentChatSessionID", "a1");
+      window.localStorage.setItem("hecate.chatSessionID", "a1");
 
       const seededSession = {
         id: "a1",
@@ -1797,20 +1797,20 @@ describe("useRuntimeConsole", () => {
       let firstRefetchServed = false;
       fetchMock.mockImplementation(async (input, init) => {
         const url = String(input);
-        if (url === "/hecate/v1/agent-chat/sessions") {
-          return jsonResponse({ object: "agent_chat_sessions", data: [seededSession] });
+        if (url === "/hecate/v1/chat/sessions") {
+          return jsonResponse({ object: "chat_sessions", data: [seededSession] });
         }
-        if (url === "/hecate/v1/agent-chat/sessions/a1") {
+        if (url === "/hecate/v1/chat/sessions/a1") {
           // Serve the catch-up refetch on session select, then fail
           // every subsequent refetch — including the one inside
           // the not-pending branch.
           if (!firstRefetchServed) {
             firstRefetchServed = true;
-            return jsonResponse({ object: "agent_chat_session", data: seededSession });
+            return jsonResponse({ object: "chat_session", data: seededSession });
           }
           return new Response(null, { status: 503 });
         }
-        if (url === "/hecate/v1/agent-chat/sessions/a1/approvals?status=pending") {
+        if (url === "/hecate/v1/chat/sessions/a1/approvals?status=pending") {
           return jsonResponse({ object: "list", data: [] });
         }
         if (url === "/hecate/v1/tasks/task_42/approvals/appr_1/resolve" && init?.method === "POST") {
@@ -1824,7 +1824,7 @@ describe("useRuntimeConsole", () => {
 
       const { result } = renderRuntimeConsoleHook();
       await waitFor(() => expect(result.current.state.loading).toBe(false));
-      await waitFor(() => expect(result.current.state.activeAgentChatSession?.task_id).toBe("task_42"));
+      await waitFor(() => expect(result.current.state.activeChatSession?.task_id).toBe("task_42"));
 
       let ok: boolean | undefined;
       await act(async () => {
@@ -1838,7 +1838,7 @@ describe("useRuntimeConsole", () => {
       // Both API and refresh failed — the function reports failure
       // (rather than a misleading success) and rolls back.
       expect(ok).toBe(false);
-      const activity = result.current.state.activeAgentChatSession?.messages?.[0]?.activities?.[0];
+      const activity = result.current.state.activeChatSession?.messages?.[0]?.activities?.[0];
       expect(activity?.status).toBe("awaiting_approval");
       expect(activity?.needs_action).toBe(true);
       expect(result.current.state.notice?.kind).toBe("error");
@@ -1848,12 +1848,12 @@ describe("useRuntimeConsole", () => {
       // Concurrency hazard: the operator clicks Approve on session
       // a1, then navigates to a2 while the request is in flight.
       // The API call rejects. A naïve rollback that does
-      // `setActiveAgentChatSession(snapshot)` would replace the
+      // `setActiveChatSession(snapshot)` would replace the
       // active session (now a2) with a1's pre-resolve snapshot,
       // dragging the operator back to a1. The functional updater
       // must bail when current.id !== snapshot.id.
       window.localStorage.setItem("hecate.chatTarget", "agent");
-      window.localStorage.setItem("hecate.agentChatSessionID", "a1");
+      window.localStorage.setItem("hecate.chatSessionID", "a1");
 
       const sessionA = {
         id: "a1",
@@ -1905,16 +1905,16 @@ describe("useRuntimeConsole", () => {
       let resolveResolveCall: ((response: Response) => void) | undefined;
       fetchMock.mockImplementation(async (input, init) => {
         const url = String(input);
-        if (url === "/hecate/v1/agent-chat/sessions") {
-          return jsonResponse({ object: "agent_chat_sessions", data: [sessionA, sessionB] });
+        if (url === "/hecate/v1/chat/sessions") {
+          return jsonResponse({ object: "chat_sessions", data: [sessionA, sessionB] });
         }
-        if (url === "/hecate/v1/agent-chat/sessions/a1") {
-          return jsonResponse({ object: "agent_chat_session", data: sessionA });
+        if (url === "/hecate/v1/chat/sessions/a1") {
+          return jsonResponse({ object: "chat_session", data: sessionA });
         }
-        if (url === "/hecate/v1/agent-chat/sessions/a2") {
-          return jsonResponse({ object: "agent_chat_session", data: sessionB });
+        if (url === "/hecate/v1/chat/sessions/a2") {
+          return jsonResponse({ object: "chat_session", data: sessionB });
         }
-        if (url.startsWith("/hecate/v1/agent-chat/sessions/") && url.includes("/approvals?status=pending")) {
+        if (url.startsWith("/hecate/v1/chat/sessions/") && url.includes("/approvals?status=pending")) {
           return jsonResponse({ object: "list", data: [] });
         }
         if (url === "/hecate/v1/tasks/task_42/approvals/appr_1/resolve" && init?.method === "POST") {
@@ -1927,7 +1927,7 @@ describe("useRuntimeConsole", () => {
 
       const { result } = renderRuntimeConsoleHook();
       await waitFor(() => expect(result.current.state.loading).toBe(false));
-      await waitFor(() => expect(result.current.state.activeAgentChatSession?.id).toBe("a1"));
+      await waitFor(() => expect(result.current.state.activeChatSession?.id).toBe("a1"));
 
       // Operator clicks Approve on a1 (request hangs).
       let pendingResolve: Promise<boolean> | undefined;
@@ -1938,14 +1938,14 @@ describe("useRuntimeConsole", () => {
           { decision: "approve" },
         );
       });
-      expect(result.current.state.activeAgentChatSession?.id).toBe("a1");
+      expect(result.current.state.activeChatSession?.id).toBe("a1");
 
       // Operator navigates to a2 while the resolve is still in
       // flight.
       await act(async () => {
         await result.current.actions.selectChatSession("a2");
       });
-      await waitFor(() => expect(result.current.state.activeAgentChatSession?.id).toBe("a2"));
+      await waitFor(() => expect(result.current.state.activeChatSession?.id).toBe("a2"));
 
       // Now the API rejects. Rollback fires, but the active session
       // is a2 — the rollback must NOT pull the operator back to a1.
@@ -1955,19 +1955,19 @@ describe("useRuntimeConsole", () => {
       }));
       const ok = await act(async () => pendingResolve!);
       expect(ok).toBe(false);
-      expect(result.current.state.activeAgentChatSession?.id).toBe("a2");
+      expect(result.current.state.activeChatSession?.id).toBe("a2");
     });
   });
 
   // ─── Agent-chat approvals state ───────────────────────────────────────────
   //
   // On session select we fire a catch-up refetch against
-  // /hecate/v1/agent-chat/sessions/{id}/approvals?status=pending. The
+  // /hecate/v1/chat/sessions/{id}/approvals?status=pending. The
   // returned rows are projected to banner-essentials and stored in
   // `pendingApprovalsBySessionID`. SSE events later upsert/remove on
   // top of the same map. The Map instance is always replaced — never
   // mutated in place.
-  describe("agent-chat approvals state", () => {
+  describe("chat approvals state", () => {
     function approvalRow(overrides: Record<string, unknown> = {}) {
       return {
         id: "ap-1",
@@ -1988,21 +1988,21 @@ describe("useRuntimeConsole", () => {
       const { result } = renderRuntimeConsoleHook();
       await waitFor(() => expect(result.current.state.loading).toBe(false));
       expect(result.current.state.pendingApprovalsBySessionID.size).toBe(0);
-      expect(result.current.state.agentChatGrants).toEqual([]);
+      expect(result.current.state.chatGrants).toEqual([]);
     });
 
     it("populates the pending map from the catch-up refetch when a session is selected", async () => {
-      window.localStorage.setItem("hecate.agentChatSessionID", "a1");
+      window.localStorage.setItem("hecate.chatSessionID", "a1");
       fetchMock.mockImplementation(defaultBackendMock({
-        "/hecate/v1/agent-chat/sessions": () => jsonResponse({
-          object: "agent_chat_sessions",
+        "/hecate/v1/chat/sessions": () => jsonResponse({
+          object: "chat_sessions",
           data: [{ id: "a1", title: "S1", adapter_id: "codex", status: "running", message_count: 0 }],
         }),
-        "/hecate/v1/agent-chat/sessions/a1": () => jsonResponse({
-          object: "agent_chat_session",
+        "/hecate/v1/chat/sessions/a1": () => jsonResponse({
+          object: "chat_session",
           data: { id: "a1", title: "S1", adapter_id: "codex", workspace: "/tmp", status: "running" },
         }),
-        "/hecate/v1/agent-chat/sessions/a1/approvals?status=pending": () => jsonResponse({
+        "/hecate/v1/chat/sessions/a1/approvals?status=pending": () => jsonResponse({
           object: "list",
           data: [approvalRow()],
         }),
@@ -2010,7 +2010,7 @@ describe("useRuntimeConsole", () => {
 
       const { result } = renderRuntimeConsoleHook();
       await waitFor(() => expect(result.current.state.loading).toBe(false));
-      // Effect-driven refetch may need a tick after activeAgentChatSessionID
+      // Effect-driven refetch may need a tick after activeChatSessionID
       // hydrates from localStorage.
       await waitFor(() => {
         expect(result.current.state.pendingApprovalsBySessionID.get("a1")).toBeDefined();
@@ -2032,20 +2032,20 @@ describe("useRuntimeConsole", () => {
       // never see an `approval.resolved` event for the missed transition.
       let approvalsForA: unknown[] = [approvalRow({ id: "ap-1", session_id: "a1" })];
       fetchMock.mockImplementation(defaultBackendMock({
-        "/hecate/v1/agent-chat/sessions": () => jsonResponse({ object: "agent_chat_sessions", data: [] }),
-        "/hecate/v1/agent-chat/sessions/a1": () => jsonResponse({
-          object: "agent_chat_session",
+        "/hecate/v1/chat/sessions": () => jsonResponse({ object: "chat_sessions", data: [] }),
+        "/hecate/v1/chat/sessions/a1": () => jsonResponse({
+          object: "chat_session",
           data: { id: "a1", title: "A", adapter_id: "codex", workspace: "/tmp", status: "running" },
         }),
-        "/hecate/v1/agent-chat/sessions/b1": () => jsonResponse({
-          object: "agent_chat_session",
+        "/hecate/v1/chat/sessions/b1": () => jsonResponse({
+          object: "chat_session",
           data: { id: "b1", title: "B", adapter_id: "codex", workspace: "/tmp", status: "running" },
         }),
-        "/hecate/v1/agent-chat/sessions/a1/approvals?status=pending": () => jsonResponse({
+        "/hecate/v1/chat/sessions/a1/approvals?status=pending": () => jsonResponse({
           object: "list",
           data: approvalsForA,
         }),
-        "/hecate/v1/agent-chat/sessions/b1/approvals?status=pending": () => jsonResponse({
+        "/hecate/v1/chat/sessions/b1/approvals?status=pending": () => jsonResponse({
           object: "list",
           data: [],
         }),
@@ -2085,16 +2085,16 @@ describe("useRuntimeConsole", () => {
       let delayARefetch = false;
       let releaseARefetch: (() => void) | undefined;
       fetchMock.mockImplementation(defaultBackendMock({
-        "/hecate/v1/agent-chat/sessions": () => jsonResponse({ object: "agent_chat_sessions", data: [] }),
-        "/hecate/v1/agent-chat/sessions/a1": () => jsonResponse({
-          object: "agent_chat_session",
+        "/hecate/v1/chat/sessions": () => jsonResponse({ object: "chat_sessions", data: [] }),
+        "/hecate/v1/chat/sessions/a1": () => jsonResponse({
+          object: "chat_session",
           data: { id: "a1", title: "A", adapter_id: "codex", workspace: "/tmp", status: "running" },
         }),
-        "/hecate/v1/agent-chat/sessions/b1": () => jsonResponse({
-          object: "agent_chat_session",
+        "/hecate/v1/chat/sessions/b1": () => jsonResponse({
+          object: "chat_session",
           data: { id: "b1", title: "B", adapter_id: "codex", workspace: "/tmp", status: "running" },
         }),
-        "/hecate/v1/agent-chat/sessions/a1/approvals?status=pending": () => {
+        "/hecate/v1/chat/sessions/a1/approvals?status=pending": () => {
           if (!delayARefetch) {
             return jsonResponse({ object: "list", data: [approvalRow()] });
           }
@@ -2102,12 +2102,12 @@ describe("useRuntimeConsole", () => {
             releaseARefetch = () => resolve(jsonResponse({ object: "list", data: [approvalRow()] }));
           });
         },
-        "/hecate/v1/agent-chat/sessions/b1/approvals?status=pending": () => jsonResponse({
+        "/hecate/v1/chat/sessions/b1/approvals?status=pending": () => jsonResponse({
           object: "list",
           data: [],
         }),
-        "/hecate/v1/agent-chat/sessions/a1/approvals/ap-1/resolve": () => jsonResponse({
-          object: "agent_chat_approval",
+        "/hecate/v1/chat/sessions/a1/approvals/ap-1/resolve": () => jsonResponse({
+          object: "chat_approval",
           data: approvalRow({ status: "approved", decision: "approve", scope: "once", path: "operator" }),
         }),
       }));
@@ -2133,7 +2133,7 @@ describe("useRuntimeConsole", () => {
       await waitFor(() => expect(releaseARefetch).toBeDefined());
 
       await act(async () => {
-        const ok = await result.current.actions.resolveAgentChatApproval("a1", "ap-1", {
+        const ok = await result.current.actions.resolveChatApproval("a1", "ap-1", {
           decision: "approve",
           scope: "once",
         });
@@ -2150,19 +2150,19 @@ describe("useRuntimeConsole", () => {
     });
 
     it("removes a pending approval when the operator resolves it (optimistic update)", async () => {
-      window.localStorage.setItem("hecate.agentChatSessionID", "a1");
+      window.localStorage.setItem("hecate.chatSessionID", "a1");
       fetchMock.mockImplementation(defaultBackendMock({
-        "/hecate/v1/agent-chat/sessions": () => jsonResponse({ object: "agent_chat_sessions", data: [] }),
-        "/hecate/v1/agent-chat/sessions/a1": () => jsonResponse({
-          object: "agent_chat_session",
+        "/hecate/v1/chat/sessions": () => jsonResponse({ object: "chat_sessions", data: [] }),
+        "/hecate/v1/chat/sessions/a1": () => jsonResponse({
+          object: "chat_session",
           data: { id: "a1", title: "S1", adapter_id: "codex", workspace: "/tmp", status: "running" },
         }),
-        "/hecate/v1/agent-chat/sessions/a1/approvals?status=pending": () => jsonResponse({
+        "/hecate/v1/chat/sessions/a1/approvals?status=pending": () => jsonResponse({
           object: "list",
           data: [approvalRow()],
         }),
-        "/hecate/v1/agent-chat/sessions/a1/approvals/ap-1/resolve": () => jsonResponse({
-          object: "agent_chat_approval",
+        "/hecate/v1/chat/sessions/a1/approvals/ap-1/resolve": () => jsonResponse({
+          object: "chat_approval",
           data: approvalRow({ status: "resolved", decision: "approve", scope: "once", path: "operator" }),
         }),
       }));
@@ -2174,7 +2174,7 @@ describe("useRuntimeConsole", () => {
       );
 
       await act(async () => {
-        const ok = await result.current.actions.resolveAgentChatApproval("a1", "ap-1", {
+        const ok = await result.current.actions.resolveChatApproval("a1", "ap-1", {
           decision: "approve",
           scope: "once",
         });
@@ -2189,29 +2189,29 @@ describe("useRuntimeConsole", () => {
 
     it("loads grants and removes them on revoke", async () => {
       fetchMock.mockImplementation(defaultBackendMock({
-        "/hecate/v1/agent-chat/grants": () => jsonResponse({
+        "/hecate/v1/chat/grants": () => jsonResponse({
           object: "list",
           data: [
             { id: "g1", scope: "session", adapter_id: "codex", tool_kind: "fs", decision: "approve", granted_by: "operator", granted_at: "2026-04-21T10:00:00Z" },
             { id: "g2", scope: "workspace_tool", adapter_id: "codex", tool_kind: "exec", decision: "approve", granted_by: "operator", granted_at: "2026-04-21T10:01:00Z" },
           ],
         }),
-        "/hecate/v1/agent-chat/grants/g1": () => new Response(null, { status: 204 }),
+        "/hecate/v1/chat/grants/g1": () => new Response(null, { status: 204 }),
       }));
 
       const { result } = renderRuntimeConsoleHook();
       await waitFor(() => expect(result.current.state.loading).toBe(false));
 
       await act(async () => {
-        await result.current.actions.listAgentChatGrants();
+        await result.current.actions.listChatGrants();
       });
-      expect(result.current.state.agentChatGrants.map((g) => g.id)).toEqual(["g1", "g2"]);
+      expect(result.current.state.chatGrants.map((g) => g.id)).toEqual(["g1", "g2"]);
 
       await act(async () => {
-        const ok = await result.current.actions.deleteAgentChatGrant("g1");
+        const ok = await result.current.actions.deleteChatGrant("g1");
         expect(ok).toBe(true);
       });
-      expect(result.current.state.agentChatGrants.map((g) => g.id)).toEqual(["g2"]);
+      expect(result.current.state.chatGrants.map((g) => g.id)).toEqual(["g2"]);
     });
   });
 });

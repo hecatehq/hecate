@@ -1,7 +1,7 @@
 import { useRef, useState } from "react";
 import type { SyntheticEvent } from "react";
 
-import type { AgentChatChangedFileDiffRecord, AgentChatChangedFileRecord } from "../../types/runtime";
+import type { ChatChangedFileDiffRecord, ChatChangedFileRecord } from "../../types/runtime";
 import { CodeBlock, InlineError } from "../shared/Atoms";
 import { DiffStatList, formatDiffStatSummary } from "./TranscriptActivityTimeline";
 
@@ -10,8 +10,8 @@ type Props = {
   messageID: string;
   diffStat?: string;
   diff?: string;
-  onListFiles?: (sessionID: string, messageID: string) => Promise<AgentChatChangedFileRecord[]>;
-  onGetFileDiff?: (sessionID: string, messageID: string, path: string) => Promise<AgentChatChangedFileDiffRecord | null>;
+  onListFiles?: (sessionID: string, messageID: string) => Promise<ChatChangedFileRecord[]>;
+  onGetFileDiff?: (sessionID: string, messageID: string, path: string) => Promise<ChatChangedFileDiffRecord | null>;
   onRevertFiles?: (sessionID: string, messageID: string, paths: string[]) => Promise<boolean>;
 };
 
@@ -24,8 +24,8 @@ export function TranscriptDiffReview({
   onGetFileDiff,
   onRevertFiles,
 }: Props) {
-  const [files, setFiles] = useState<AgentChatChangedFileRecord[] | null>(null);
-  const [selectedDiff, setSelectedDiff] = useState<AgentChatChangedFileDiffRecord | null>(null);
+  const [files, setFiles] = useState<ChatChangedFileRecord[] | null>(null);
+  const [selectedDiff, setSelectedDiff] = useState<ChatChangedFileDiffRecord | null>(null);
   const [loadingFiles, setLoadingFiles] = useState(false);
   const [loadingPath, setLoadingPath] = useState("");
   const [revertingPath, setRevertingPath] = useState("");
@@ -48,7 +48,7 @@ export function TranscriptDiffReview({
     }
   }
 
-  async function inspectFile(file: AgentChatChangedFileRecord) {
+  async function inspectFile(file: ChatChangedFileRecord) {
     if (!hasReviewAPI || !onGetFileDiff) return;
     setLoadingPath(file.path);
     setLocalError("");
@@ -246,7 +246,7 @@ export function TranscriptDiffReview({
   );
 }
 
-function formatChangedFileMeta(file: AgentChatChangedFileRecord): string {
+function formatChangedFileMeta(file: ChatChangedFileRecord): string {
   const parts = [file.status || "modified"];
   if (file.additions > 0) parts.push(`+${file.additions}`);
   if (file.deletions > 0) parts.push(`-${file.deletions}`);

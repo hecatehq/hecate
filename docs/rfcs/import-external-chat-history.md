@@ -28,7 +28,7 @@ useful without confusing them with live sessions.
 In rough priority order:
 
 1. **One-shot import** of Claude Code and Codex JSONL transcripts
-   into the agent-chat store. An imported session shows up in the
+   into the chat store. An imported session shows up in the
    Chats list, opens in the same transcript view, and is searchable
    alongside live sessions.
 2. **Read-only by construction.** An imported session can never
@@ -96,11 +96,11 @@ In rough priority order:
   on-disk file hasn't changed (size + mtime check); replaces the
   Hecate record if it has.
 - **No schema fork.** Imported sessions live in the same
-  `agent_chat_sessions` and `agent_chat_messages` tables as live
+  `chat_sessions` and `chat_messages` tables as live
   sessions. Activities are kept on the message row in the existing
   `activities` JSON column — no separate activities table exists
   today and this RFC does not add one. A small set of columns gets
-  added to `agent_chat_sessions`; no parallel schema.
+  added to `chat_sessions`; no parallel schema.
 
 ## Source formats
 
@@ -190,7 +190,7 @@ The mapping is lossy in two known places:
 
 ## Data model
 
-Five new columns on `agent_chat_sessions`, added through the
+Five new columns on `chat_sessions`, added through the
 existing additive-migration pattern in `internal/agentchat/sqlite.go`
 (repeated `ensureSessionColumn` calls — Hecate has no standalone
 SQL migration files; see [migration-cli](migration-cli.md) for the
@@ -209,7 +209,7 @@ alongside the existing `messagesIndex` / `sessionsIndex` block.
 Its name is derived from the (possibly prefixed) `sessionsTable`
 the same way the existing indexes derive theirs — `tablePrefix`
 flows through `SQLiteClient.TableName`, so a hard-coded literal
-`agent_chat_sessions` would collide or mismatch in test / multi-
+`chat_sessions` would collide or mismatch in test / multi-
 instance setups:
 
 ```go
@@ -224,7 +224,7 @@ CREATE UNIQUE INDEX IF NOT EXISTS "<sessionsSourceIndex>"
 
 Why a partial index: live sessions leave `source_tool=''`, so the
 new uniqueness constraint only covers rows written by the import
-path. `agent_chat_sessions` does not currently have a unique
+path. `chat_sessions` does not currently have a unique
 constraint on `(adapter_id, native_session_id)` for live sessions,
 and this RFC does not propose adding one — live sessions can
 plausibly share that pair across reconnects, while imported rows
@@ -249,9 +249,9 @@ and refuses with a structured error. Single chokepoint, single test.
 
 ## API surface
 
-Two new endpoints under `/hecate/v1/agent-chat/imports/`:
+Two new endpoints under `/hecate/v1/chat/imports/`:
 
-### `POST /hecate/v1/agent-chat/imports/scan`
+### `POST /hecate/v1/chat/imports/scan`
 
 Body:
 ```json
@@ -288,7 +288,7 @@ Response:
 
 Pure read; no writes. Lets the UI render a picker before committing.
 
-### `POST /hecate/v1/agent-chat/imports/apply`
+### `POST /hecate/v1/chat/imports/apply`
 
 Body:
 ```json
@@ -304,7 +304,7 @@ Response:
 ```json
 {
   "imported": [
-    {"session_id": "agc_…", "native_session_id": "f2ea6177-…", "messages": 24, "warnings": 0}
+    {"session_id": "chat_…", "native_session_id": "f2ea6177-…", "messages": 24, "warnings": 0}
   ],
   "skipped": [
     {"path": "…", "reason": "already imported, source unchanged"}
@@ -315,14 +315,14 @@ Response:
 }
 ```
 
-Streaming progress over `/hecate/v1/agent-chat/imports/stream` (SSE)
+Streaming progress over `/hecate/v1/chat/imports/stream` (SSE)
 for the bulk case where the operator might be importing 200+
 sessions. Same envelope as existing chat streams.
 
 ### Read path
 
 Imported sessions surface through the existing
-`GET /hecate/v1/agent-chat/sessions[/:id]` with the new fields
+`GET /hecate/v1/chat/sessions[/:id]` with the new fields
 included. A query filter `?source_tool=claude_code|codex|live`
 lets the UI partition the list. Default is "all".
 
@@ -408,7 +408,7 @@ Phases 1–2 are the meaningful unit; 3–5 are mechanical follow-ups.
 ## Migration / rollback
 
 - Forward: additive only — five new columns + one partial unique
-  index on `agent_chat_sessions`, applied through the existing
+  index on `chat_sessions`, applied through the existing
   `ensureSessionColumn` pattern. No data rewrite. Old code reads
   the new columns and ignores them (default-empty); new code reads
   them and treats `source_tool != ""` rows as imported.

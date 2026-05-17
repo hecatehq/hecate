@@ -83,7 +83,7 @@ const RETENTION_SUBSYSTEMS = [
     description: "Verbose per-turn task-runtime events.",
   },
   {
-    id: "agent_chat_approvals",
+    id: "chat_approvals",
     label: "External-agent approvals",
     description: "Resolved approval prompts. Durable grants are kept.",
   },

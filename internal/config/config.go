@@ -134,21 +134,21 @@ type ServerConfig struct {
 	// before resolving to ACP `Cancelled`. Default 5m. Set via
 	// GATEWAY_AGENT_ADAPTER_APPROVAL_TIMEOUT (Go duration string).
 	AgentAdapterApprovalTimeout time.Duration
-	// AgentChatMaxTurnsPerSession caps how many user→assistant round-trips
+	// ChatMaxTurnsPerSession caps how many user→assistant round-trips
 	// a single agent-chat session may execute. 0 (default) means unlimited.
 	// When the ceiling is reached, POST
-	// /hecate/v1/agent-chat/sessions/{id}/messages returns HTTP 422 with code
-	// "agent_chat.session_limit_exceeded".
-	// Set via GATEWAY_AGENT_CHAT_MAX_TURNS_PER_SESSION.
-	AgentChatMaxTurnsPerSession int
-	// AgentChatMaxSessionDuration caps wall-clock age for an agent-chat
+	// /hecate/v1/chat/sessions/{id}/messages returns HTTP 422 with code
+	// "chat.session_limit_exceeded".
+	// Set via GATEWAY_CHAT_MAX_TURNS_PER_SESSION.
+	ChatMaxTurnsPerSession int
+	// ChatMaxSessionDuration caps wall-clock age for an agent-chat
 	// session. 0 (default) means unlimited.
-	// Set via GATEWAY_AGENT_CHAT_MAX_SESSION_DURATION.
-	AgentChatMaxSessionDuration time.Duration
-	// AgentChatIdleTimeout auto-closes sessions that have not changed for this
+	// Set via GATEWAY_CHAT_MAX_SESSION_DURATION.
+	ChatMaxSessionDuration time.Duration
+	// ChatIdleTimeout auto-closes sessions that have not changed for this
 	// long. 0 (default) disables the sweeper.
-	// Set via GATEWAY_AGENT_CHAT_IDLE_TIMEOUT.
-	AgentChatIdleTimeout time.Duration
+	// Set via GATEWAY_CHAT_IDLE_TIMEOUT.
+	ChatIdleTimeout time.Duration
 
 	// TraceBodyCapture enables recording (redacted) request and response bodies
 	// in the distributed trace.  Off by default; enable via GATEWAY_TRACE_BODIES=true.
@@ -259,12 +259,12 @@ type RetentionConfig struct {
 	// task-run events table. Other event types (run.started/finished,
 	// approval.*) are kept for forensics.
 	TurnEvents RetentionPolicy
-	// AgentChatApprovals prunes resolved (non-pending) external-adapter
+	// ChatApprovals prunes resolved (non-pending) external-adapter
 	// approval rows. Pending rows are never auto-pruned — they're caller
 	// state, not history. Grants are not subject to MaxAge / MaxCount;
 	// only their own ExpiresAt drives deletion (operator-authored intent
 	// outlives normal retention windows).
-	AgentChatApprovals RetentionPolicy
+	ChatApprovals RetentionPolicy
 }
 
 type RetentionPolicy struct {
@@ -372,9 +372,9 @@ func LoadFromEnv() Config {
 			TaskShellAllowedHosts:          splitCSV(getEnv("GATEWAY_TASK_SHELL_ALLOWED_HOSTS", "")),
 			AgentAdapterApprovalMode:       getEnv("GATEWAY_AGENT_ADAPTER_APPROVAL_MODE", "prompt"),
 			AgentAdapterApprovalTimeout:    getEnvDuration("GATEWAY_AGENT_ADAPTER_APPROVAL_TIMEOUT", 5*time.Minute),
-			AgentChatMaxTurnsPerSession:    getEnvInt("GATEWAY_AGENT_CHAT_MAX_TURNS_PER_SESSION", 0),
-			AgentChatMaxSessionDuration:    getEnvDuration("GATEWAY_AGENT_CHAT_MAX_SESSION_DURATION", 0),
-			AgentChatIdleTimeout:           getEnvDuration("GATEWAY_AGENT_CHAT_IDLE_TIMEOUT", 0),
+			ChatMaxTurnsPerSession:         getEnvInt("GATEWAY_CHAT_MAX_TURNS_PER_SESSION", 0),
+			ChatMaxSessionDuration:         getEnvDuration("GATEWAY_CHAT_MAX_SESSION_DURATION", 0),
+			ChatIdleTimeout:                getEnvDuration("GATEWAY_CHAT_IDLE_TIMEOUT", 0),
 			TaskMaxConcurrentPerTenant:     getEnvInt("GATEWAY_TASK_MAX_CONCURRENT_PER_TENANT", 0),
 			TraceBodyCapture:               getEnvBool("GATEWAY_TRACE_BODIES", false),
 			TraceBodyMaxBytes:              getEnvInt("GATEWAY_TRACE_BODY_MAX_BYTES", 4096),
@@ -431,7 +431,7 @@ func LoadFromEnv() Config {
 			// External-adapter approval history. Only resolved rows
 			// are pruned; pending rows stay until startup reconcile
 			// flips them. Default 30d/10k mirrors task_approvals.
-			AgentChatApprovals: loadRetentionPolicyFromEnv("GATEWAY_RETENTION_AGENT_CHAT_APPROVALS_", 30*24*time.Hour, 10_000),
+			ChatApprovals: loadRetentionPolicyFromEnv("GATEWAY_RETENTION_CHAT_APPROVALS_", 30*24*time.Hour, 10_000),
 		},
 		SQLite: SQLiteConfig{
 			Path:        getEnv("GATEWAY_SQLITE_PATH", ".data/hecate.db"),
@@ -523,14 +523,14 @@ func (c Config) Validate() error {
 	if c.Server.TaskQueueBuffer < 0 {
 		errs = append(errs, errors.New("GATEWAY_TASK_QUEUE_BUFFER must be zero or positive"))
 	}
-	if c.Server.AgentChatMaxTurnsPerSession < 0 {
-		errs = append(errs, errors.New("GATEWAY_AGENT_CHAT_MAX_TURNS_PER_SESSION must be zero or positive"))
+	if c.Server.ChatMaxTurnsPerSession < 0 {
+		errs = append(errs, errors.New("GATEWAY_CHAT_MAX_TURNS_PER_SESSION must be zero or positive"))
 	}
-	if c.Server.AgentChatMaxSessionDuration < 0 {
-		errs = append(errs, errors.New("GATEWAY_AGENT_CHAT_MAX_SESSION_DURATION must be zero or positive"))
+	if c.Server.ChatMaxSessionDuration < 0 {
+		errs = append(errs, errors.New("GATEWAY_CHAT_MAX_SESSION_DURATION must be zero or positive"))
 	}
-	if c.Server.AgentChatIdleTimeout < 0 {
-		errs = append(errs, errors.New("GATEWAY_AGENT_CHAT_IDLE_TIMEOUT must be zero or positive"))
+	if c.Server.ChatIdleTimeout < 0 {
+		errs = append(errs, errors.New("GATEWAY_CHAT_IDLE_TIMEOUT must be zero or positive"))
 	}
 	if c.Server.RateLimit.Enabled && c.Server.RateLimit.RequestsPerMinute <= 0 {
 		errs = append(errs, errors.New("GATEWAY_RATE_LIMIT_RPM must be positive when rate limiting is enabled"))
@@ -588,8 +588,8 @@ func durationEnvKeys() []string {
 		"GATEWAY_RETENTION_AUDIT_EVENTS_MAX_AGE",
 		"GATEWAY_RETENTION_PROVIDER_HISTORY_MAX_AGE",
 		"GATEWAY_RETENTION_TURN_EVENTS_MAX_AGE",
-		"GATEWAY_AGENT_CHAT_MAX_SESSION_DURATION",
-		"GATEWAY_AGENT_CHAT_IDLE_TIMEOUT",
+		"GATEWAY_CHAT_MAX_SESSION_DURATION",
+		"GATEWAY_CHAT_IDLE_TIMEOUT",
 		"GATEWAY_SQLITE_BUSY_TIMEOUT",
 	}
 }

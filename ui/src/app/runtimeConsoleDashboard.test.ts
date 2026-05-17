@@ -15,8 +15,8 @@ vi.mock("../lib/api", async () => {
     getAgentAdapters: vi.fn(),
     getUsageSummary: vi.fn(),
     getUsageEvents: vi.fn(),
-    getAgentChatSessions: vi.fn(),
-    getAgentChatSession: vi.fn(),
+    getChatSessions: vi.fn(),
+    getChatSession: vi.fn(),
     getSettingsConfig: vi.fn(),
     getRetentionRuns: vi.fn(),
     getRuntimeStats: vi.fn(),
@@ -30,8 +30,8 @@ const emptyPrev = {
   agentAdapters: [],
   usageSummary: null,
   usageEvents: [],
-  agentChatSessions: [],
-  activeAgentChatSession: null,
+  chatSessions: [],
+  activeChatSession: null,
   settingsConfig: null,
   retentionRuns: [],
   retentionLastRun: null,
@@ -49,7 +49,7 @@ function setupAllResolved(overrides: Record<string, unknown> = {}) {
     data: { key: "global", scope: "global", backend: "memory", used_micros_usd: 0, used_usd: "$0.000000" },
   });
   vi.mocked(api.getUsageEvents).mockResolvedValue({ object: "usage_events", data: [] });
-  vi.mocked(api.getAgentChatSessions).mockResolvedValue({ object: "list", data: [] });
+  vi.mocked(api.getChatSessions).mockResolvedValue({ object: "list", data: [] });
   vi.mocked(api.getSettingsConfig).mockResolvedValue({
     object: "settings",
     data: { backend: "memory", providers: [], policy_rules: [], events: [] },
@@ -93,7 +93,7 @@ describe("resolveDashboardSnapshot", () => {
     });
 
     const snapshot = await resolveDashboardSnapshot({
-      activeAgentChatSessionID: "",
+      activeChatSessionID: "",
       previous: emptyPrev,
     });
 
@@ -113,42 +113,42 @@ describe("resolveDashboardSnapshot", () => {
     };
 
     const snapshot = await resolveDashboardSnapshot({
-      activeAgentChatSessionID: "",
+      activeChatSessionID: "",
       previous,
     });
 
     expect(snapshot.agentAdapters).toEqual(previous.agentAdapters);
   });
 
-  it("clears the active agent chat session when getAgentChatSession 404s", async () => {
-    vi.mocked(api.getAgentChatSessions).mockResolvedValue({
+  it("clears the active agent chat session when getChatSession 404s", async () => {
+    vi.mocked(api.getChatSessions).mockResolvedValue({
       object: "list",
       data: [
         { id: "ac1", title: "old", adapter_id: "codex", workspace: "/repo", status: "running", message_count: 0 },
       ],
     });
-    vi.mocked(api.getAgentChatSession).mockRejectedValue(new ApiError("not found", 404, "agent_chat session not found"));
+    vi.mocked(api.getChatSession).mockRejectedValue(new ApiError("not found", 404, "chat session not found"));
 
     const snapshot = await resolveDashboardSnapshot({
-      activeAgentChatSessionID: "ac1",
+      activeChatSessionID: "ac1",
       previous: emptyPrev,
     });
 
-    expect(snapshot.activeAgentChatSessionID).toBe("");
-    expect(snapshot.activeAgentChatSession).toBeNull();
+    expect(snapshot.activeChatSessionID).toBe("");
+    expect(snapshot.activeChatSession).toBeNull();
   });
 
   it("preserves the previous agent chat session on non-404 errors", async () => {
-    vi.mocked(api.getAgentChatSessions).mockResolvedValue({
+    vi.mocked(api.getChatSessions).mockResolvedValue({
       object: "list",
       data: [
         { id: "ac1", title: "current", adapter_id: "codex", workspace: "/repo", status: "running", message_count: 0 },
       ],
     });
-    vi.mocked(api.getAgentChatSession).mockRejectedValue(new Error("network"));
+    vi.mocked(api.getChatSession).mockRejectedValue(new Error("network"));
     const previous = {
       ...emptyPrev,
-      activeAgentChatSession: {
+      activeChatSession: {
         id: "ac1",
         title: "stale",
         adapter_id: "codex",
@@ -158,12 +158,12 @@ describe("resolveDashboardSnapshot", () => {
     };
 
     const snapshot = await resolveDashboardSnapshot({
-      activeAgentChatSessionID: "ac1",
+      activeChatSessionID: "ac1",
       previous,
     });
 
-    expect(snapshot.activeAgentChatSessionID).toBe("ac1");
-    expect(snapshot.activeAgentChatSession?.title).toBe("stale");
+    expect(snapshot.activeChatSessionID).toBe("ac1");
+    expect(snapshot.activeChatSession?.title).toBe("stale");
   });
 
   it("skips the providers fetch when no providers are configured in the settings", async () => {
@@ -172,7 +172,7 @@ describe("resolveDashboardSnapshot", () => {
       data: { backend: "memory", providers: [], policy_rules: [], events: [] },
     });
     await resolveDashboardSnapshot({
-      activeAgentChatSessionID: "",
+      activeChatSessionID: "",
       previous: emptyPrev,
     });
     expect(api.getProviders).not.toHaveBeenCalled();
@@ -189,7 +189,7 @@ describe("resolveDashboardSnapshot", () => {
       },
     });
     await resolveDashboardSnapshot({
-      activeAgentChatSessionID: "",
+      activeChatSessionID: "",
       previous: emptyPrev,
     });
     expect(api.getProviders).toHaveBeenCalled();
@@ -213,7 +213,7 @@ describe("resolveDashboardSnapshot", () => {
       data: [{ name: "openai", state: "ready" } as never],
     });
     const snapshot = await resolveDashboardSnapshot({
-      activeAgentChatSessionID: "",
+      activeChatSessionID: "",
       previous,
     });
     expect(api.getProviders).toHaveBeenCalled();
@@ -229,7 +229,7 @@ describe("resolveDashboardSnapshot", () => {
     // resolveDashboardResult on the outer call).
     vi.mocked(api.getSettingsConfig).mockRejectedValue(new Error("boom"));
     const snapshot = await resolveDashboardSnapshot({
-      activeAgentChatSessionID: "",
+      activeChatSessionID: "",
       previous: emptyPrev,
     });
     expect(api.getProviders).not.toHaveBeenCalled();
@@ -240,14 +240,14 @@ describe("resolveDashboardSnapshot", () => {
     vi.mocked(api.getHealth).mockRejectedValue(new Error("backend down"));
     await expect(
       resolveDashboardSnapshot({
-        activeAgentChatSessionID: "",
+        activeChatSessionID: "",
         previous: emptyPrev,
       }),
     ).rejects.toThrow(/runtime console/);
   });
 
   it("fires onEssentials before the secondary wave starts", async () => {
-    // Hold the secondary wave (getAgentChatSessions is on it) until
+    // Hold the secondary wave (getChatSessions is on it) until
     // we signal completion. The essentials wave should resolve and
     // fire its callback while this promise is still pending — that
     // is the whole point of the early-commit hook.
@@ -255,11 +255,11 @@ describe("resolveDashboardSnapshot", () => {
     const pending = new Promise<{ object: string; data: never[] }>((resolve) => {
       releaseSecondary = () => resolve({ object: "list", data: [] });
     });
-    vi.mocked(api.getAgentChatSessions).mockImplementation(() => pending);
+    vi.mocked(api.getChatSessions).mockImplementation(() => pending);
 
     const onEssentials = vi.fn();
     const snapshotPromise = resolveDashboardSnapshot({
-      activeAgentChatSessionID: "",
+      activeChatSessionID: "",
       previous: emptyPrev,
       onEssentials,
     });
@@ -288,7 +288,7 @@ describe("resolveDashboardSnapshot", () => {
     vi.mocked(api.getHealth).mockRejectedValue(new Error("backend down"));
     const onEssentials = vi.fn();
     await resolveDashboardSnapshot({
-      activeAgentChatSessionID: "",
+      activeChatSessionID: "",
       previous: emptyPrev,
       onEssentials,
     }).catch(() => undefined); // outer promise still rejects; that's fine

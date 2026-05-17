@@ -37,7 +37,7 @@ var ErrSessionNotActive = errors.New("agent chat session is not active")
 // UUIDs are hex+dashes only, so an underscore-led prefix cannot
 // appear in any spec-conformant id.
 //
-// The counter exists because mergeAgentChatActivity dedupes by
+// The counter exists because mergeChatActivity dedupes by
 // Activity.ID and *replaces* Detail wholesale on merge: if two
 // distinct fallback episodes shared one id (e.g. an adapter
 // mixing messageId-bearing and no-id chunks like
@@ -56,7 +56,7 @@ const thoughtFallbackBlockID = "__fallback"
 
 // thoughtMaxBytesPerBlock caps the per-block thought accumulator.
 // Each chunk of an `agent_thought_chunk` stream re-emits the full
-// accumulated `Detail` (mergeAgentChatActivity replaces the row's
+// accumulated `Detail` (mergeChatActivity replaces the row's
 // Detail wholesale by ID), so an unbounded accumulator would
 // inflate the persisted activities JSON and the websocket payload
 // with every chunk. 32 KiB is comfortably above any practical
@@ -879,7 +879,7 @@ type acpTurn struct {
 	// stream, sharing a messageId across chunks of the same thought
 	// and bumping it when a new thought block starts. We use it to
 	// keep one merged "thinking" activity per block instead of one
-	// per chunk; mergeAgentChatActivity dedupes by Activity.ID
+	// per chunk; mergeChatActivity dedupes by Activity.ID
 	// downstream.
 	agentThoughtID string
 	// agentThoughtFallback is the source of truth for whether the
@@ -993,7 +993,7 @@ func (t *acpTurn) appendAgentMessageChunk(update *acp.SessionUpdateAgentMessageC
 // untouched. ACP streams a thought block as multiple chunks sharing
 // a `messageId`; we accumulate chunks per messageId and emit one
 // activity row per block, refreshing its `Detail` as new chunks
-// arrive (mergeAgentChatActivity dedupes by Activity.ID downstream).
+// arrive (mergeChatActivity dedupes by Activity.ID downstream).
 // Block boundaries are detected by the four-case transition table
 // inside the function (real → real, real → empty, empty → real,
 // continuation); the goal is that Activity.ID stays stable for the
@@ -1015,7 +1015,7 @@ func (t *acpTurn) appendAgentThoughtChunk(update *acp.SessionUpdateAgentThoughtC
 	// Resolve the active block id with explicit boundary detection.
 	// Each transition is decided by what we know now vs. what was
 	// active before — the goal is that Activity.ID is stable for the
-	// lifetime of every emitted block (mergeAgentChatActivity dedupes
+	// lifetime of every emitted block (mergeChatActivity dedupes
 	// by id downstream, so a mid-block id flip would split one
 	// thought into two timeline rows or — worse — silently merge two
 	// thoughts into one row).
@@ -1032,7 +1032,7 @@ func (t *acpTurn) appendAgentThoughtChunk(update *acp.SessionUpdateAgentThoughtC
 	//      continuation of the old one). Mint the next fallback
 	//      counter so the new row never collides on Activity.ID
 	//      with a prior fallback episode in the same turn —
-	//      mergeAgentChatActivity replaces Detail wholesale on
+	//      mergeChatActivity replaces Detail wholesale on
 	//      collision, so reusing an id would silently lose the
 	//      earlier episode's reasoning.
 	//   4. Empty id while a *fallback* id is active, OR matching
@@ -1140,7 +1140,7 @@ func (t *acpTurn) recordToolCallUpdate(update *acp.SessionToolCallUpdate) {
 	if update.Title != nil {
 		title = *update.Title
 	}
-	// SessionToolCallUpdate.Title is optional. mergeAgentChatActivity
+	// SessionToolCallUpdate.Title is optional. mergeChatActivity
 	// drops an emission whose Title is empty when there is no prior
 	// row with the same Activity.ID to merge into — that loses tool-call
 	// state updates that arrive before (or instead of) a matching
@@ -1228,7 +1228,7 @@ func (t *acpTurn) lookupToolKind(toolCallID string) acp.ToolKind {
 // edits files outside an ACP-reported location.
 //
 // IDs are scoped per (tool_call, path) so duplicate updates from the
-// same tool reach the same activity row in mergeAgentChatActivity
+// same tool reach the same activity row in mergeChatActivity
 // instead of stacking. Read / search / execute / fetch / think /
 // other tool kinds are NOT promoted — they don't change files.
 func (t *acpTurn) emitFileChangeActivities(toolCallID string, kind acp.ToolKind, status string, locations []acp.ToolCallLocation) {
@@ -1241,7 +1241,7 @@ func (t *acpTurn) emitFileChangeActivities(toolCallID string, kind acp.ToolKind,
 	// Aggregate by path so that multiple ToolCallLocation entries for
 	// the same file (e.g. several edited line ranges in one call)
 	// collapse to a single activity row instead of colliding on a
-	// shared Activity.ID — mergeAgentChatActivity dedupes by ID
+	// shared Activity.ID — mergeChatActivity dedupes by ID
 	// downstream, so two emissions with the same id would overwrite
 	// each other's title and timestamp instead of stacking. We retain
 	// insertion order: the first time we see a path defines its row's

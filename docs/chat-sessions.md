@@ -1,7 +1,7 @@
 # Chat sessions
 
 All chat persistence in Hecate today goes through Agent Chat sessions under
-`/hecate/v1/agent-chat/sessions`. The same store backs three flavors in the
+`/hecate/v1/chat/sessions`. The same store backs three flavors in the
 Chats workspace: direct model turns (Hecate, tools off), tools-on
 Hecate Agent runs (with a backing `agent_loop` task — see
 [agent-runtime.md](agent-runtime.md) for the runtime), and supervised
@@ -80,7 +80,7 @@ operators can compare the command Hecate validated with the argv that RTK
 wrapped.
 
 The operator UI's **Hecate** agent choice uses **Agent Chat** sessions under
-`/hecate/v1/agent-chat/sessions` for both tools-off direct model turns and tools-on
+`/hecate/v1/chat/sessions` for both tools-off direct model turns and tools-on
 Hecate Agent turns. Those records can point at a runtime when tools are enabled,
 but they can also store direct model segments:
 
@@ -117,7 +117,7 @@ but they can also store direct model segments:
   session such as Codex, Claude Code, or Cursor Agent.
 
 The Agent Chat API shape used by the operator UI is in
-[`runtime-api.md`](runtime-api.md#get-hecatev1agent-chatsessions), and external
+[`runtime-api.md`](runtime-api.md#get-hecatev1chatsessions), and external
 adapter behavior is in [`external-agent-adapters.md`](external-agent-adapters.md).
 
 ## Activity rendering

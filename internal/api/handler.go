@@ -12,7 +12,7 @@ import (
 	"time"
 
 	"github.com/hecate/agent-runtime/internal/agentadapters"
-	"github.com/hecate/agent-runtime/internal/agentchat"
+	"github.com/hecate/agent-runtime/internal/chat"
 	"github.com/hecate/agent-runtime/internal/config"
 	"github.com/hecate/agent-runtime/internal/controlplane"
 	"github.com/hecate/agent-runtime/internal/gateway"
@@ -38,7 +38,7 @@ type Handler struct {
 	taskStore                taskstate.Store
 	taskRunner               *orchestrator.Runner
 	tracer                   profiler.Tracer
-	agentChat                agentchat.Store
+	agentChat                chat.Store
 	agentChatRunner          agentadapters.Runner
 	agentChatLive            *agentChatLive
 	agentChatIdleSweepCancel context.CancelFunc
@@ -290,7 +290,7 @@ func NewHandler(cfg config.Config, logger *slog.Logger, service *gateway.Service
 		taskRunner:          runner,
 		tracer:              tracer,
 		rateLimiter:         rl,
-		agentChat:           agentchat.NewMemoryStore(),
+		agentChat:           chat.NewMemoryStore(),
 		agentChatRunner:     agentChatRunner,
 		agentChatLive:       agentChatLive,
 		orchestratorMetrics: orchestratorMetrics,
@@ -349,7 +349,7 @@ func (h *Handler) SetAgentApprovalStore(store agentadapters.ApprovalStore) {
 	}
 }
 
-func (h *Handler) SetAgentChatStore(store agentchat.Store) {
+func (h *Handler) SetAgentChatStore(store chat.Store) {
 	if store == nil {
 		return
 	}
@@ -368,7 +368,7 @@ func (h *Handler) reconcileAgentChatStore(ctx context.Context) {
 	if h.agentChat == nil {
 		return
 	}
-	count, err := agentchat.ReconcileInterruptedRuns(ctx, h.agentChat, time.Now().UTC())
+	count, err := chat.ReconcileInterruptedRuns(ctx, h.agentChat, time.Now().UTC())
 	if err != nil {
 		telemetry.Warn(h.logger, ctx, "agent chat reconciliation failed", slog.Any("error", err))
 		return
@@ -624,7 +624,7 @@ func buildApprovalCoordinatorHooks(
 				Mode:      string(mode),
 			})
 			if live != nil {
-				live.publishApprovalRequested(AgentChatApprovalRequestedEvent{
+				live.publishApprovalRequested(ChatApprovalRequestedEvent{
 					ApprovalID:   a.ID,
 					SessionID:    a.SessionID,
 					AdapterID:    a.AdapterID,
@@ -682,9 +682,9 @@ func buildApprovalCoordinatorHooks(
 // approvalResolvedEventFromRow projects the coordinator's full
 // Approval shape down to the SSE payload. Frontends that need more
 // detail (acp_options, full payload) follow up with
-// GET /hecate/v1/agent-chat/sessions/{id}/approvals/{id}.
-func approvalResolvedEventFromRow(a agentadapters.Approval) AgentChatApprovalResolvedEvent {
-	out := AgentChatApprovalResolvedEvent{
+// GET /hecate/v1/chat/sessions/{id}/approvals/{id}.
+func approvalResolvedEventFromRow(a agentadapters.Approval) ChatApprovalResolvedEvent {
+	out := ChatApprovalResolvedEvent{
 		ApprovalID:     a.ID,
 		SessionID:      a.SessionID,
 		Status:         string(a.Status),

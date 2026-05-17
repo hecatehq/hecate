@@ -148,10 +148,10 @@ Two options are plausible.
 | Option | Shape | Pros | Cons |
 |---|---|---|---|
 | Add agent mode to chat sessions | Extend `/hecate/v1/chat/sessions` with `target_type=model|agent` | One user-facing Chats surface; easier history | Risks mixing model-provider and agent-runtime semantics too early |
-| Add explicit agent-chat API | `/hecate/v1/agent-chat/sessions/*` | Clean boundary; easy to change during alpha | UI has to bridge two chat APIs |
+| Add explicit chat API | `/hecate/v1/chat/sessions/*` | Clean boundary; easy to change during alpha | UI has to bridge two chat APIs |
 
-Recommendation for alpha: **explicit agent-chat API** first. Once behavior is
-stable, Chats UI can render both model-chat and agent-chat sessions behind one
+Recommendation for alpha: **explicit chat API** first. Once behavior is
+stable, Chats UI can render both model-chat and chat sessions behind one
 experience.
 
 Implemented MVP endpoints:
@@ -161,22 +161,22 @@ GET  /hecate/v1/agent-adapters
 POST /hecate/v1/agent-adapters/{id}/probe
 GET  /hecate/v1/agent-adapters/{id}/health
 POST /hecate/v1/agent-adapters/{id}/refresh-launcher
-GET  /hecate/v1/agent-chat/sessions
-POST /hecate/v1/agent-chat/sessions
-GET  /hecate/v1/agent-chat/sessions/{id}
-GET  /hecate/v1/agent-chat/sessions/{id}/stream
-POST /hecate/v1/agent-chat/sessions/{id}/messages
-GET  /hecate/v1/agent-chat/sessions/{id}/messages/{message_id}/files
-GET  /hecate/v1/agent-chat/sessions/{id}/messages/{message_id}/files/{path}
-POST /hecate/v1/agent-chat/sessions/{id}/messages/{message_id}/revert
-POST /hecate/v1/agent-chat/sessions/{id}/cancel
-DELETE /hecate/v1/agent-chat/sessions/{id}
-GET  /hecate/v1/agent-chat/sessions/{id}/approvals
-GET  /hecate/v1/agent-chat/sessions/{id}/approvals/{approval_id}
-POST /hecate/v1/agent-chat/sessions/{id}/approvals/{approval_id}/resolve
-POST /hecate/v1/agent-chat/sessions/{id}/approvals/{approval_id}/cancel
-GET  /hecate/v1/agent-chat/grants
-DELETE /hecate/v1/agent-chat/grants/{grant_id}
+GET  /hecate/v1/chat/sessions
+POST /hecate/v1/chat/sessions
+GET  /hecate/v1/chat/sessions/{id}
+GET  /hecate/v1/chat/sessions/{id}/stream
+POST /hecate/v1/chat/sessions/{id}/messages
+GET  /hecate/v1/chat/sessions/{id}/messages/{message_id}/files
+GET  /hecate/v1/chat/sessions/{id}/messages/{message_id}/files/{path}
+POST /hecate/v1/chat/sessions/{id}/messages/{message_id}/revert
+POST /hecate/v1/chat/sessions/{id}/cancel
+DELETE /hecate/v1/chat/sessions/{id}
+GET  /hecate/v1/chat/sessions/{id}/approvals
+GET  /hecate/v1/chat/sessions/{id}/approvals/{approval_id}
+POST /hecate/v1/chat/sessions/{id}/approvals/{approval_id}/resolve
+POST /hecate/v1/chat/sessions/{id}/approvals/{approval_id}/cancel
+GET  /hecate/v1/chat/grants
+DELETE /hecate/v1/chat/grants/{grant_id}
 ```
 
 Message creation is still a blocking POST for the submitted prompt, but clients
@@ -243,7 +243,7 @@ Agent Chat currently has three observability surfaces:
 - Assistant messages carry stable run metadata (`run_id`, timestamps, duration,
   trace ids, native session id), structured activity records, raw ACP
   diagnostics, usage updates, and captured diff data.
-- OpenTelemetry spans and metrics cover `agent_chat.run`, adapter probe
+- OpenTelemetry spans and metrics cover `chat.run`, adapter probe
   outcomes, approval request/resolve paths, approval timeout/grant counters,
   cancellation reasons, output byte counts, and diff-capture state.
 
@@ -253,7 +253,7 @@ Important attributes include:
 - `hecate.agent_adapter.command`
 - `hecate.agent_adapter.driver.kind`
 - `hecate.agent_adapter.native_session.id`
-- `hecate.agent_chat.session.id`
+- `hecate.chat.session.id`
 - `hecate.workspace.path`
 - `hecate.run.id`
 - `hecate.agent_adapter.output.bytes`

@@ -10,7 +10,7 @@ import (
 // MemoryApprovalStore is a goroutine-safe in-process ApprovalStore.
 // All state lives in maps and is discarded on process exit. Suitable
 // for tests, dev, and anyone running with
-// GATEWAY_AGENT_CHAT_BACKEND=memory (the default).
+// GATEWAY_CHAT_BACKEND=memory (the default).
 type MemoryApprovalStore struct {
 	mu        sync.Mutex
 	approvals map[string]Approval

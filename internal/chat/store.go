@@ -1,4 +1,4 @@
-package agentchat
+package chat
 
 import (
 	"context"
@@ -33,7 +33,7 @@ type Session struct {
 	RTKEnabled      bool
 	// TurnsUsed counts how many user→assistant round-trips have completed
 	// (successfully or with failure) in this session. Used to enforce the
-	// GATEWAY_AGENT_CHAT_MAX_TURNS_PER_SESSION ceiling.
+	// GATEWAY_CHAT_MAX_TURNS_PER_SESSION ceiling.
 	TurnsUsed int
 	CreatedAt time.Time
 	UpdatedAt time.Time

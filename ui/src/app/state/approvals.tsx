@@ -23,32 +23,32 @@
 import { createContext, useCallback, useContext, useMemo, useReducer, useRef, type ReactNode } from "react";
 
 import {
-  type AgentChatGrantFilter,
-  cancelAgentChatApproval as cancelAgentChatApprovalRequest,
-  deleteAgentChatGrant as deleteAgentChatGrantRequest,
-  getAgentChatApproval as getAgentChatApprovalRequest,
-  listAgentChatApprovals as listAgentChatApprovalsRequest,
-  listAgentChatGrants as listAgentChatGrantsRequest,
-  type ResolveAgentChatApprovalPayload,
-  resolveAgentChatApproval as resolveAgentChatApprovalRequest,
+  type ChatGrantFilter,
+  cancelChatApproval as cancelChatApprovalRequest,
+  deleteChatGrant as deleteChatGrantRequest,
+  getChatApproval as getChatApprovalRequest,
+  listChatApprovals as listChatApprovalsRequest,
+  listChatGrants as listChatGrantsRequest,
+  type ResolveChatApprovalPayload,
+  resolveChatApproval as resolveChatApprovalRequest,
 } from "../../lib/api";
 import { approvalRecordToPending } from "../runtimeConsoleChatHelpers";
 import type {
-  AgentChatApprovalRecord,
-  AgentChatGrantRecord,
+  ChatApprovalRecord,
+  ChatGrantRecord,
   PendingAgentApproval,
 } from "../../types/runtime";
 
 export type ApprovalsState = {
   pendingBySessionID: Map<string, PendingAgentApproval[]>;
-  grants: AgentChatGrantRecord[];
+  grants: ChatGrantRecord[];
   grantsLoading: boolean;
   grantsError: string;
 };
 
 export type ApprovalActionResult = { ok: true } | { ok: false; error: string };
 export type GetApprovalResult =
-  | { ok: true; record: AgentChatApprovalRecord }
+  | { ok: true; record: ChatApprovalRecord }
   | { ok: false; error: string };
 
 export type ApprovalsActions = {
@@ -64,13 +64,13 @@ export type ApprovalsActions = {
   resolveApproval: (
     sessionID: string,
     approvalID: string,
-    decision: ResolveAgentChatApprovalPayload,
+    decision: ResolveChatApprovalPayload,
   ) => Promise<ApprovalActionResult>;
   cancelApproval: (sessionID: string, approvalID: string) => Promise<ApprovalActionResult>;
   // Grants — error state lives inside the slice (grantsError)
   // because Connections renders it inline; no Result needed for
   // loadGrants.
-  loadGrants: (filter?: AgentChatGrantFilter) => Promise<void>;
+  loadGrants: (filter?: ChatGrantFilter) => Promise<void>;
   deleteGrant: (grantID: string) => Promise<ApprovalActionResult>;
 };
 
@@ -84,7 +84,7 @@ type Action =
   | { type: "pending/upsert"; event: PendingAgentApproval }
   | { type: "pending/remove"; sessionID: string; approvalID: string }
   | { type: "grants/loadStart" }
-  | { type: "grants/loaded"; rows: AgentChatGrantRecord[] }
+  | { type: "grants/loaded"; rows: ChatGrantRecord[] }
   | { type: "grants/loadFailed"; error: string }
   | { type: "grants/removed"; grantID: string };
 
@@ -175,7 +175,7 @@ export function ApprovalsProvider({ children }: { children: ReactNode }) {
     if (!sessionID) return;
     const startedAtVersion = versionBySessionID.current.get(sessionID) ?? 0;
     try {
-      const result = await listAgentChatApprovalsRequest(sessionID, "pending");
+      const result = await listChatApprovalsRequest(sessionID, "pending");
       const currentVersion = versionBySessionID.current.get(sessionID) ?? 0;
       if (currentVersion !== startedAtVersion) {
         // A live SSE update or optimistic local action landed
@@ -198,7 +198,7 @@ export function ApprovalsProvider({ children }: { children: ReactNode }) {
     approvalID: string,
   ): Promise<GetApprovalResult> => {
     try {
-      const payload = await getAgentChatApprovalRequest(sessionID, approvalID);
+      const payload = await getChatApprovalRequest(sessionID, approvalID);
       return { ok: true, record: payload.data };
     } catch (error) {
       return { ok: false, error: error instanceof Error ? error.message : "Failed to load approval." };
@@ -208,10 +208,10 @@ export function ApprovalsProvider({ children }: { children: ReactNode }) {
   const resolveApproval = useCallback(async (
     sessionID: string,
     approvalID: string,
-    decision: ResolveAgentChatApprovalPayload,
+    decision: ResolveChatApprovalPayload,
   ): Promise<ApprovalActionResult> => {
     try {
-      await resolveAgentChatApprovalRequest(sessionID, approvalID, decision);
+      await resolveChatApprovalRequest(sessionID, approvalID, decision);
       // Optimistic removal: the SSE `approval.resolved` event will
       // also fire and remove the row, but updating immediately
       // keeps the banner snappy when the operator closes the modal.
@@ -228,7 +228,7 @@ export function ApprovalsProvider({ children }: { children: ReactNode }) {
     approvalID: string,
   ): Promise<ApprovalActionResult> => {
     try {
-      await cancelAgentChatApprovalRequest(sessionID, approvalID);
+      await cancelChatApprovalRequest(sessionID, approvalID);
       bumpVersion(sessionID);
       dispatch({ type: "pending/remove", sessionID, approvalID });
       return { ok: true };
@@ -237,10 +237,10 @@ export function ApprovalsProvider({ children }: { children: ReactNode }) {
     }
   }, [bumpVersion]);
 
-  const loadGrants = useCallback(async (filter: AgentChatGrantFilter = {}): Promise<void> => {
+  const loadGrants = useCallback(async (filter: ChatGrantFilter = {}): Promise<void> => {
     dispatch({ type: "grants/loadStart" });
     try {
-      const payload = await listAgentChatGrantsRequest(filter);
+      const payload = await listChatGrantsRequest(filter);
       dispatch({ type: "grants/loaded", rows: payload.data ?? [] });
     } catch (error) {
       const msg = error instanceof Error ? error.message : "failed to load grants";
@@ -250,7 +250,7 @@ export function ApprovalsProvider({ children }: { children: ReactNode }) {
 
   const deleteGrant = useCallback(async (grantID: string): Promise<ApprovalActionResult> => {
     try {
-      await deleteAgentChatGrantRequest(grantID);
+      await deleteChatGrantRequest(grantID);
       dispatch({ type: "grants/removed", grantID });
       return { ok: true };
     } catch (error) {

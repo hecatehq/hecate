@@ -1,6 +1,6 @@
 import { useEffect, useState, type ReactNode } from "react";
 
-import type { AgentChatActivityRecord } from "../../types/runtime";
+import type { ChatActivityRecord } from "../../types/runtime";
 
 import {
   activityDisplay,
@@ -67,10 +67,10 @@ export function TranscriptActivityTimeline({
   defaultOpen = false,
   renderAdvancedActivity,
 }: {
-  activities: AgentChatActivityRecord[];
+  activities: ChatActivityRecord[];
   diffStat?: string;
   defaultOpen?: boolean;
-  renderAdvancedActivity?: (activity: AgentChatActivityRecord) => ReactNode;
+  renderAdvancedActivity?: (activity: ChatActivityRecord) => ReactNode;
 }) {
   const visible = orderVisibleActivities(compactAgentActivities(activities));
   const details = orderVisibleActivities(compactDetailActivities(activities, Boolean(diffStat)));
@@ -153,8 +153,8 @@ function TimelineActivityLine({
   activity,
   renderAdvancedActivity,
 }: {
-  activity: AgentChatActivityRecord;
-  renderAdvancedActivity?: (activity: AgentChatActivityRecord) => ReactNode;
+  activity: ChatActivityRecord;
+  renderAdvancedActivity?: (activity: ChatActivityRecord) => ReactNode;
 }) {
   const line = activity.type === "plan"
     ? <PlanActivityLine activity={activity} />
@@ -189,13 +189,13 @@ function TimelineActivityLine({
   );
 }
 
-function advancedSummaryLabel(activity: AgentChatActivityRecord): string {
+function advancedSummaryLabel(activity: ChatActivityRecord): string {
   if (activity.type === "output") return "Preview";
   if (activity.type === "artifact" && isOutputArtifactActivity(activity)) return "Preview";
   return "Advanced";
 }
 
-function PlanActivityLine({ activity }: { activity: AgentChatActivityRecord }) {
+function PlanActivityLine({ activity }: { activity: ChatActivityRecord }) {
   return (
     <div style={{ display: "flex", alignItems: "baseline", gap: 8, minWidth: 0 }}>
       <span style={{ color: activity.status === "completed" ? "var(--green)" : activity.status === "in_progress" ? "var(--teal)" : "var(--t3)", flexShrink: 0, fontFamily: "var(--font-mono)", fontSize: 11 }}>
@@ -213,7 +213,7 @@ function PlanActivityLine({ activity }: { activity: AgentChatActivityRecord }) {
   );
 }
 
-function ActivityLine({ activity, prefix }: { activity: AgentChatActivityRecord; prefix?: string }) {
+function ActivityLine({ activity, prefix }: { activity: ChatActivityRecord; prefix?: string }) {
   const display = activityDisplay(activity);
   return (
     <div style={{ display: "flex", alignItems: "baseline", gap: 8, minWidth: 0 }}>

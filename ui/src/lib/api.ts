@@ -11,17 +11,17 @@ import type {
   AgentAdapterProbeResponse,
   AgentAdapterCredentialResponse,
   AgentAdapterResponse,
-  AgentChatApprovalRequestedEvent,
-  AgentChatApprovalResolvedEvent,
-  AgentChatApprovalResponse,
-  AgentChatApprovalsResponse,
-  AgentChatChangedFileDiffResponse,
-  AgentChatChangedFilesResponse,
-  AgentChatGrantsResponse,
-  AgentChatRevertResponse,
-  AgentChatSessionResponse,
-  AgentChatSessionsResponse,
-  AgentChatStreamEvent,
+  ChatApprovalRequestedEvent,
+  ChatApprovalResolvedEvent,
+  ChatApprovalResponse,
+  ChatApprovalsResponse,
+  ChatChangedFileDiffResponse,
+  ChatChangedFilesResponse,
+  ChatGrantsResponse,
+  ChatRevertResponse,
+  ChatSessionResponse,
+  ChatSessionsResponse,
+  ChatStreamEvent,
   WorkspaceDialogResponse,
   ProviderStatusResponse,
   RuntimeStatsResponse,
@@ -132,7 +132,7 @@ export type RetentionRunPayload = {
   subsystems: string[];
 };
 
-export type CreateAgentChatSessionPayload = {
+export type CreateChatSessionPayload = {
   title?: string;
   runtime_kind?: "external_agent" | "agent" | "model";
   adapter_id?: string;
@@ -142,7 +142,7 @@ export type CreateAgentChatSessionPayload = {
   rtk_enabled?: boolean;
 };
 
-export type CreateAgentChatMessagePayload = {
+export type CreateChatMessagePayload = {
   content: string;
   runtime_kind?: "external_agent" | "agent" | "model";
   provider?: string;
@@ -300,81 +300,81 @@ export async function getUsageSummary(query = ""): Promise<UsageSummaryResponse>
   return fetchJSON<UsageSummaryResponse>(`${HECATE_API}/usage/summary${query}`);
 }
 
-export async function getAgentChatSessions(): Promise<AgentChatSessionsResponse> {
-  return fetchJSON<AgentChatSessionsResponse>(`${HECATE_API}/agent-chat/sessions`);
+export async function getChatSessions(): Promise<ChatSessionsResponse> {
+  return fetchJSON<ChatSessionsResponse>(`${HECATE_API}/chat/sessions`);
 }
 
-export async function createAgentChatSession(payload: CreateAgentChatSessionPayload): Promise<AgentChatSessionResponse> {
-  return fetchJSON<AgentChatSessionResponse>(`${HECATE_API}/agent-chat/sessions`, { method: "POST", body: payload });
+export async function createChatSession(payload: CreateChatSessionPayload): Promise<ChatSessionResponse> {
+  return fetchJSON<ChatSessionResponse>(`${HECATE_API}/chat/sessions`, { method: "POST", body: payload });
 }
 
-export async function getAgentChatSession(id: string): Promise<AgentChatSessionResponse> {
-  return fetchJSON<AgentChatSessionResponse>(`${HECATE_API}/agent-chat/sessions/${encodeURIComponent(id)}`);
+export async function getChatSession(id: string): Promise<ChatSessionResponse> {
+  return fetchJSON<ChatSessionResponse>(`${HECATE_API}/chat/sessions/${encodeURIComponent(id)}`);
 }
 
-export async function updateAgentChatSession(id: string, title: string): Promise<AgentChatSessionResponse> {
-  return fetchJSON<AgentChatSessionResponse>(`${HECATE_API}/agent-chat/sessions/${encodeURIComponent(id)}`, { method: "PATCH", body: { title } });
+export async function updateChatSession(id: string, title: string): Promise<ChatSessionResponse> {
+  return fetchJSON<ChatSessionResponse>(`${HECATE_API}/chat/sessions/${encodeURIComponent(id)}`, { method: "PATCH", body: { title } });
 }
 
-export async function deleteAgentChatSession(id: string): Promise<void> {
-  await fetchJSON<unknown>(`${HECATE_API}/agent-chat/sessions/${encodeURIComponent(id)}`, { method: "DELETE" });
+export async function deleteChatSession(id: string): Promise<void> {
+  await fetchJSON<unknown>(`${HECATE_API}/chat/sessions/${encodeURIComponent(id)}`, { method: "DELETE" });
 }
 
-export async function cancelAgentChatSession(id: string): Promise<AgentChatSessionResponse> {
-  return fetchJSON<AgentChatSessionResponse>(`${HECATE_API}/agent-chat/sessions/${encodeURIComponent(id)}/cancel`, { method: "POST", body: {} });
+export async function cancelChatSession(id: string): Promise<ChatSessionResponse> {
+  return fetchJSON<ChatSessionResponse>(`${HECATE_API}/chat/sessions/${encodeURIComponent(id)}/cancel`, { method: "POST", body: {} });
 }
 
-export async function createAgentChatMessage(id: string, payload: string | CreateAgentChatMessagePayload): Promise<AgentChatSessionResponse> {
+export async function createChatMessage(id: string, payload: string | CreateChatMessagePayload): Promise<ChatSessionResponse> {
   const body = typeof payload === "string" ? { content: payload } : payload;
-  return fetchJSON<AgentChatSessionResponse>(`${HECATE_API}/agent-chat/sessions/${encodeURIComponent(id)}/messages`, { method: "POST", body });
+  return fetchJSON<ChatSessionResponse>(`${HECATE_API}/chat/sessions/${encodeURIComponent(id)}/messages`, { method: "POST", body });
 }
 
-export async function setAgentChatConfigOption(id: string, configID: string, value: string | boolean): Promise<AgentChatSessionResponse> {
-  return fetchJSON<AgentChatSessionResponse>(
-    `${HECATE_API}/agent-chat/sessions/${encodeURIComponent(id)}/config-options/${encodeURIComponent(configID)}`,
+export async function setChatConfigOption(id: string, configID: string, value: string | boolean): Promise<ChatSessionResponse> {
+  return fetchJSON<ChatSessionResponse>(
+    `${HECATE_API}/chat/sessions/${encodeURIComponent(id)}/config-options/${encodeURIComponent(configID)}`,
     { method: "POST", body: { value } },
   );
 }
 
-export async function setAgentChatSettings(id: string, settings: { rtk_enabled?: boolean }): Promise<AgentChatSessionResponse> {
-  return fetchJSON<AgentChatSessionResponse>(
-    `${HECATE_API}/agent-chat/sessions/${encodeURIComponent(id)}/settings`,
+export async function setChatSettings(id: string, settings: { rtk_enabled?: boolean }): Promise<ChatSessionResponse> {
+  return fetchJSON<ChatSessionResponse>(
+    `${HECATE_API}/chat/sessions/${encodeURIComponent(id)}/settings`,
     { method: "PATCH", body: settings },
   );
 }
 
-export async function listAgentChatMessageFiles(sessionID: string, messageID: string): Promise<AgentChatChangedFilesResponse> {
-  return fetchJSON<AgentChatChangedFilesResponse>(
-    `${HECATE_API}/agent-chat/sessions/${encodeURIComponent(sessionID)}/messages/${encodeURIComponent(messageID)}/files`,
+export async function listChatMessageFiles(sessionID: string, messageID: string): Promise<ChatChangedFilesResponse> {
+  return fetchJSON<ChatChangedFilesResponse>(
+    `${HECATE_API}/chat/sessions/${encodeURIComponent(sessionID)}/messages/${encodeURIComponent(messageID)}/files`,
   );
 }
 
-export async function getAgentChatMessageFileDiff(sessionID: string, messageID: string, path: string): Promise<AgentChatChangedFileDiffResponse> {
-  return fetchJSON<AgentChatChangedFileDiffResponse>(
-    `${HECATE_API}/agent-chat/sessions/${encodeURIComponent(sessionID)}/messages/${encodeURIComponent(messageID)}/files/${encodeURIComponent(path)}`,
+export async function getChatMessageFileDiff(sessionID: string, messageID: string, path: string): Promise<ChatChangedFileDiffResponse> {
+  return fetchJSON<ChatChangedFileDiffResponse>(
+    `${HECATE_API}/chat/sessions/${encodeURIComponent(sessionID)}/messages/${encodeURIComponent(messageID)}/files/${encodeURIComponent(path)}`,
   );
 }
 
-export async function revertAgentChatMessageFiles(sessionID: string, messageID: string, paths: string[] = []): Promise<AgentChatRevertResponse> {
-  return fetchJSON<AgentChatRevertResponse>(
-    `${HECATE_API}/agent-chat/sessions/${encodeURIComponent(sessionID)}/messages/${encodeURIComponent(messageID)}/revert`,
+export async function revertChatMessageFiles(sessionID: string, messageID: string, paths: string[] = []): Promise<ChatRevertResponse> {
+  return fetchJSON<ChatRevertResponse>(
+    `${HECATE_API}/chat/sessions/${encodeURIComponent(sessionID)}/messages/${encodeURIComponent(messageID)}/revert`,
     { method: "POST", body: { paths } },
   );
 }
 
-// streamAgentChatSession reads the per-session SSE feed and dispatches
-// each event to the consumer as a typed AgentChatStreamEvent. The Type
+// streamChatSession reads the per-session SSE feed and dispatches
+// each event to the consumer as a typed ChatStreamEvent. The Type
 // discriminator on the wire (`session_update`, `approval.requested`,
 // `approval.resolved`) maps directly onto the union members. Unknown
 // event names are silently ignored — frontends are forward-compatible
 // with new event kinds added on the backend.
-export async function streamAgentChatSession(
+export async function streamChatSession(
   id: string,
-  onEvent: (event: AgentChatStreamEvent) => void,
+  onEvent: (event: ChatStreamEvent) => void,
   signal?: AbortSignal,
 ): Promise<void> {
   const response = await fetchWithNetworkError(
-    `${HECATE_API}/agent-chat/sessions/${encodeURIComponent(id)}/stream`,
+    `${HECATE_API}/chat/sessions/${encodeURIComponent(id)}/stream`,
     { ...buildRequestOptions({}), signal },
   );
   if (!response.ok) {
@@ -404,7 +404,7 @@ export async function streamAgentChatSession(
     // Default event name is "message" (no `event:` line). The backend
     // always sends an explicit `event: …` line for every typed event,
     // so unnamed events are treated as legacy session updates.
-    const dispatched = dispatchAgentChatStreamEvent(eventName, raw);
+    const dispatched = dispatchChatStreamEvent(eventName, raw);
     if (dispatched) {
       onEvent(dispatched);
     }
@@ -440,24 +440,24 @@ export async function streamAgentChatSession(
   }
 }
 
-// dispatchAgentChatStreamEvent maps a wire SSE event name + JSON
-// payload onto the typed AgentChatStreamEvent union. Returns null for
+// dispatchChatStreamEvent maps a wire SSE event name + JSON
+// payload onto the typed ChatStreamEvent union. Returns null for
 // unknown event types so the consumer doesn't see noise. Exported for
 // unit tests.
-export function dispatchAgentChatStreamEvent(
+export function dispatchChatStreamEvent(
   eventName: string,
   rawData: string,
-): AgentChatStreamEvent | null {
+): ChatStreamEvent | null {
   switch (eventName) {
     case "session_update":
     case "snapshot":
     case "done":
     case "message":
-      return { type: "session_update", payload: JSON.parse(rawData) as AgentChatSessionResponse };
+      return { type: "session_update", payload: JSON.parse(rawData) as ChatSessionResponse };
     case "approval.requested":
-      return { type: "approval.requested", payload: JSON.parse(rawData) as AgentChatApprovalRequestedEvent };
+      return { type: "approval.requested", payload: JSON.parse(rawData) as ChatApprovalRequestedEvent };
     case "approval.resolved":
-      return { type: "approval.resolved", payload: JSON.parse(rawData) as AgentChatApprovalResolvedEvent };
+      return { type: "approval.resolved", payload: JSON.parse(rawData) as ChatApprovalResolvedEvent };
     default:
       return null;
   }
@@ -465,74 +465,74 @@ export function dispatchAgentChatStreamEvent(
 
 // ─── Agent-chat approvals ──────────────────────────────────────────────────────
 
-// listAgentChatApprovals fetches approvals for a session. Pass
+// listChatApprovals fetches approvals for a session. Pass
 // status="pending" to scope to the operator's review queue.
-export async function listAgentChatApprovals(
+export async function listChatApprovals(
   sessionID: string,
   status?: string,
-): Promise<AgentChatApprovalsResponse> {
+): Promise<ChatApprovalsResponse> {
   const qs = status ? `?status=${encodeURIComponent(status)}` : "";
-  return fetchJSON<AgentChatApprovalsResponse>(
-    `${HECATE_API}/agent-chat/sessions/${encodeURIComponent(sessionID)}/approvals${qs}`,
+  return fetchJSON<ChatApprovalsResponse>(
+    `${HECATE_API}/chat/sessions/${encodeURIComponent(sessionID)}/approvals${qs}`,
   );
 }
 
-export async function getAgentChatApproval(
+export async function getChatApproval(
   sessionID: string,
   approvalID: string,
-): Promise<AgentChatApprovalResponse> {
-  return fetchJSON<AgentChatApprovalResponse>(
-    `${HECATE_API}/agent-chat/sessions/${encodeURIComponent(sessionID)}/approvals/${encodeURIComponent(approvalID)}`,
+): Promise<ChatApprovalResponse> {
+  return fetchJSON<ChatApprovalResponse>(
+    `${HECATE_API}/chat/sessions/${encodeURIComponent(sessionID)}/approvals/${encodeURIComponent(approvalID)}`,
   );
 }
 
-export type ResolveAgentChatApprovalPayload = {
+export type ResolveChatApprovalPayload = {
   decision: "approve" | "deny";
   scope: string;
   selected_option?: string;
   note?: string;
 };
 
-export async function resolveAgentChatApproval(
+export async function resolveChatApproval(
   sessionID: string,
   approvalID: string,
-  payload: ResolveAgentChatApprovalPayload,
-): Promise<AgentChatApprovalResponse> {
-  return fetchJSON<AgentChatApprovalResponse>(
-    `${HECATE_API}/agent-chat/sessions/${encodeURIComponent(sessionID)}/approvals/${encodeURIComponent(approvalID)}/resolve`,
+  payload: ResolveChatApprovalPayload,
+): Promise<ChatApprovalResponse> {
+  return fetchJSON<ChatApprovalResponse>(
+    `${HECATE_API}/chat/sessions/${encodeURIComponent(sessionID)}/approvals/${encodeURIComponent(approvalID)}/resolve`,
     { method: "POST", body: payload },
   );
 }
 
-export async function cancelAgentChatApproval(
+export async function cancelChatApproval(
   sessionID: string,
   approvalID: string,
-): Promise<AgentChatApprovalResponse> {
-  return fetchJSON<AgentChatApprovalResponse>(
-    `${HECATE_API}/agent-chat/sessions/${encodeURIComponent(sessionID)}/approvals/${encodeURIComponent(approvalID)}/cancel`,
+): Promise<ChatApprovalResponse> {
+  return fetchJSON<ChatApprovalResponse>(
+    `${HECATE_API}/chat/sessions/${encodeURIComponent(sessionID)}/approvals/${encodeURIComponent(approvalID)}/cancel`,
     { method: "POST", body: {} },
   );
 }
 
-export type AgentChatGrantFilter = {
+export type ChatGrantFilter = {
   adapter_id?: string;
   scope?: string;
   tool_kind?: string;
 };
 
-export async function listAgentChatGrants(
-  filter: AgentChatGrantFilter = {},
-): Promise<AgentChatGrantsResponse> {
+export async function listChatGrants(
+  filter: ChatGrantFilter = {},
+): Promise<ChatGrantsResponse> {
   const params = new URLSearchParams();
   if (filter.adapter_id) params.set("adapter_id", filter.adapter_id);
   if (filter.scope) params.set("scope", filter.scope);
   if (filter.tool_kind) params.set("tool_kind", filter.tool_kind);
   const qs = params.toString();
-  return fetchJSON<AgentChatGrantsResponse>(`${HECATE_API}/agent-chat/grants${qs ? `?${qs}` : ""}`);
+  return fetchJSON<ChatGrantsResponse>(`${HECATE_API}/chat/grants${qs ? `?${qs}` : ""}`);
 }
 
-export async function deleteAgentChatGrant(grantID: string): Promise<void> {
-  await fetchJSON<unknown>(`${HECATE_API}/agent-chat/grants/${encodeURIComponent(grantID)}`, { method: "DELETE" });
+export async function deleteChatGrant(grantID: string): Promise<void> {
+  await fetchJSON<unknown>(`${HECATE_API}/chat/grants/${encodeURIComponent(grantID)}`, { method: "DELETE" });
 }
 
 export async function chooseWorkspaceDirectory(): Promise<WorkspaceDialogResponse> {

@@ -76,7 +76,7 @@ export function TaskList({ tasks, selectedTaskID, loading, busyAction, onSelect,
                   {t.execution_kind}
                 </span>
               )}
-              {t.origin_kind === "agent_chat" && (
+              {t.origin_kind === "chat" && (
                 <span
                   className="badge badge-muted"
                   title={t.origin_id ? `Created from chat ${t.origin_id}` : "Created from a Hecate Agent chat"}

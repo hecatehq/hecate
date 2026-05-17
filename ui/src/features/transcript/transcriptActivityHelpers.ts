@@ -1,4 +1,4 @@
-import type { AgentChatActivityRecord } from "../../types/runtime";
+import type { ChatActivityRecord } from "../../types/runtime";
 
 const terminalRunSummaryTypes = new Set(["run_result", "completed", "failed", "cancelled"]);
 
@@ -7,7 +7,7 @@ export function formatDiffStatSummary(diffStat: string): string {
   return lines.find(line => /\bfiles? changed\b/.test(line)) || lines[0] || "";
 }
 
-export function fileChangesActivity(diffStat: string): AgentChatActivityRecord {
+export function fileChangesActivity(diffStat: string): ChatActivityRecord {
   return {
     id: "hecate-agent:files-changed",
     type: "files_changed",
@@ -31,12 +31,12 @@ export function parseDiffStatRows(diffStat: string): Array<{ path: string; chang
     .filter((row): row is { path: string; change: string } => row !== null);
 }
 
-export function compactAgentActivities(activities: AgentChatActivityRecord[]): AgentChatActivityRecord[] {
+export function compactAgentActivities(activities: ChatActivityRecord[]): ChatActivityRecord[] {
   const hiddenTypes = new Set(["artifact", "changed_files", "final_answer", "output"]);
   const terminalIndex = pickTerminalActivityIndex(activities);
   const lastTaskRunIndex = lastIndexOfTaskRunActivity(activities);
   const lastApprovalIndexByID = lastIndexByApprovalID(activities);
-  const out: AgentChatActivityRecord[] = [];
+  const out: ChatActivityRecord[] = [];
   for (const [index, activity] of activities.entries()) {
     if (hiddenTypes.has(activity.type)) continue;
     if (activity.type === "completed" && activity.title.toLowerCase() === "final answer") continue;
@@ -62,7 +62,7 @@ export function compactAgentActivities(activities: AgentChatActivityRecord[]): A
 // counts as terminal — an earlier mismatch let `terminalAgentActivity`
 // (which only looked at completed/failed/cancelled+terminal) pick
 // the wrong row when a `run_result`-typed terminal arrived later.
-export function isTerminalActivity(activity: AgentChatActivityRecord): boolean {
+export function isTerminalActivity(activity: ChatActivityRecord): boolean {
   return activity.terminal === true || terminalRunSummaryTypes.has(activity.type);
 }
 
@@ -83,7 +83,7 @@ export function isTerminalActivity(activity: AgentChatActivityRecord): boolean {
 //      informative is available.
 //   3. -1 when no terminal-shaped row exists; the dedupe filter
 //      becomes a no-op and the timeline stays as-is.
-export function pickTerminalActivityIndex(activities: AgentChatActivityRecord[]): number {
+export function pickTerminalActivityIndex(activities: ChatActivityRecord[]): number {
   let lastByFlag = -1;
   let lastByShape = -1;
   for (let index = 0; index < activities.length; index += 1) {
@@ -95,7 +95,7 @@ export function pickTerminalActivityIndex(activities: AgentChatActivityRecord[])
   return lastByShape;
 }
 
-export function compactDetailActivities(activities: AgentChatActivityRecord[], hasDiffStat: boolean): AgentChatActivityRecord[] {
+export function compactDetailActivities(activities: ChatActivityRecord[], hasDiffStat: boolean): ChatActivityRecord[] {
   const detailTypes = new Set(["artifact", "changed_files", "final_answer", "output"]);
   return activities.filter(activity => {
     if (!detailTypes.has(activity.type)) return false;
@@ -104,7 +104,7 @@ export function compactDetailActivities(activities: AgentChatActivityRecord[], h
   });
 }
 
-export function orderVisibleActivities(activities: AgentChatActivityRecord[]): AgentChatActivityRecord[] {
+export function orderVisibleActivities(activities: ChatActivityRecord[]): ChatActivityRecord[] {
   return activities
     .map((activity, index) => ({ activity, index, time: activitySortTime(activity.created_at), phase: activitySortPhase(activity) }))
     .sort((a, b) => {
@@ -121,7 +121,7 @@ function activitySortTime(value?: string): number {
   return Number.isNaN(parsed) ? Number.MAX_SAFE_INTEGER : parsed;
 }
 
-function lastIndexByApprovalID(activities: AgentChatActivityRecord[]): Map<string, number> {
+function lastIndexByApprovalID(activities: ChatActivityRecord[]): Map<string, number> {
   const out = new Map<string, number>();
   for (const [index, activity] of activities.entries()) {
     if (activity.type === "approval" && activity.approval_id) {
@@ -131,29 +131,29 @@ function lastIndexByApprovalID(activities: AgentChatActivityRecord[]): Map<strin
   return out;
 }
 
-function lastIndexOfTaskRunActivity(activities: AgentChatActivityRecord[]): number {
+function lastIndexOfTaskRunActivity(activities: ChatActivityRecord[]): number {
   for (let index = activities.length - 1; index >= 0; index -= 1) {
     if (isTaskRunActivity(activities[index])) return index;
   }
   return -1;
 }
 
-function isTaskRunActivity(activity: AgentChatActivityRecord): boolean {
+function isTaskRunActivity(activity: ChatActivityRecord): boolean {
   return activity.type === "task_run" || (activity.type.startsWith("task_") && activity.title.startsWith("Task run"));
 }
 
-function isTerminalRunSummary(activity: AgentChatActivityRecord): boolean {
+function isTerminalRunSummary(activity: ChatActivityRecord): boolean {
   if (!terminalRunSummaryTypes.has(activity.type)) return false;
   return /^run\s+(completed|failed|cancelled)$/i.test(activity.title.trim());
 }
 
-function collapseModelTurnActivities(activities: AgentChatActivityRecord[]): AgentChatActivityRecord[] {
+function collapseModelTurnActivities(activities: ChatActivityRecord[]): ChatActivityRecord[] {
   const turnActivities = activities.filter(isModelTurnActivity);
   if (turnActivities.length <= 1) return activities;
 
   const firstTurnIndex = activities.findIndex(isModelTurnActivity);
   const status = aggregateActivityStatus(turnActivities);
-  const collapsed: AgentChatActivityRecord = {
+  const collapsed: ChatActivityRecord = {
     id: "hecate-agent:model-turns",
     type: "model_turns",
     status,
@@ -167,11 +167,11 @@ function collapseModelTurnActivities(activities: AgentChatActivityRecord[]): Age
   return out;
 }
 
-function isModelTurnActivity(activity: AgentChatActivityRecord): boolean {
+function isModelTurnActivity(activity: ChatActivityRecord): boolean {
   return activity.type === "thinking" && /^Agent turn \d+/i.test(activity.title.trim());
 }
 
-function aggregateActivityStatus(activities: AgentChatActivityRecord[]): string {
+function aggregateActivityStatus(activities: ChatActivityRecord[]): string {
   if (activities.some(activity => activity.status === "failed")) return "failed";
   if (activities.some(activity => activity.status === "cancelled")) return "cancelled";
   if (activities.some(isActiveAgentActivity)) return "running";
@@ -179,7 +179,7 @@ function aggregateActivityStatus(activities: AgentChatActivityRecord[]): string 
   return activities[activities.length - 1]?.status || "completed";
 }
 
-export function activityDisplay(activity: AgentChatActivityRecord): { title: string; detail?: string } {
+export function activityDisplay(activity: ChatActivityRecord): { title: string; detail?: string } {
   if (activity.type === "approval") {
     const title = approvalActivityTitle(activity);
     const detail = cleanApprovalDetail(activity.detail);
@@ -226,7 +226,7 @@ export function activityDisplay(activity: AgentChatActivityRecord): { title: str
   return { title: "Backing task", detail };
 }
 
-export function activityLinePrefix(activity: AgentChatActivityRecord): string | undefined {
+export function activityLinePrefix(activity: ChatActivityRecord): string | undefined {
   switch (activity.type) {
     case "tool_call":
       return "tool";
@@ -240,7 +240,7 @@ export function activityLinePrefix(activity: AgentChatActivityRecord): string | 
   }
 }
 
-function toolActivityTitle(activity: AgentChatActivityRecord): string {
+function toolActivityTitle(activity: ChatActivityRecord): string {
   const raw = stripStatusSuffix(activity.title || activity.kind || "tool").trim();
   const normalized = raw.toLowerCase();
   const kind = (activity.kind || activity.detail || "").trim().toLowerCase();
@@ -286,13 +286,13 @@ function toolActivityTitle(activity: AgentChatActivityRecord): string {
   return raw;
 }
 
-function modelTurnDetail(activity: AgentChatActivityRecord): string {
+function modelTurnDetail(activity: ChatActivityRecord): string {
   const status = humanActivityStatus(activity.status);
   const turn = activity.title.match(/turn\s+(\d+)/i)?.[1];
   return turn ? `turn ${turn} ${status}` : status;
 }
 
-function fallbackToolDetail(activity: AgentChatActivityRecord, displayTitle: string): string | undefined {
+function fallbackToolDetail(activity: ChatActivityRecord, displayTitle: string): string | undefined {
   const raw = stripStatusSuffix(activity.title || "").trim();
   const opaqueID = opaqueToolCallID(raw);
   if (opaqueID) {
@@ -309,7 +309,7 @@ function opaqueToolCallID(value: string): string | undefined {
   return match?.[1];
 }
 
-export function isOutputArtifactActivity(activity: AgentChatActivityRecord): boolean {
+export function isOutputArtifactActivity(activity: ChatActivityRecord): boolean {
   const label = `${activity.title} ${activity.detail ?? ""} ${activity.kind ?? ""}`.toLowerCase();
   return /\b(std(out|err)|git-std(out|err))\b/.test(label);
 }
@@ -327,7 +327,7 @@ function toolKindLabel(kind?: string): string | undefined {
   return normalized.replaceAll("_", " ");
 }
 
-function outputActivityDetail(activity: AgentChatActivityRecord): string | undefined {
+function outputActivityDetail(activity: ChatActivityRecord): string | undefined {
   const detail = cleanActivityDetail(activity) || activity.title;
   const size = formatBytes(activity.artifact_size_bytes);
   return [detail, size].filter(Boolean).join(" · ") || undefined;
@@ -349,7 +349,7 @@ function cleanApprovalDetail(detail?: string): string | undefined {
   return cleaned || undefined;
 }
 
-function cleanActivityDetail(activity: AgentChatActivityRecord): string | undefined {
+function cleanActivityDetail(activity: ChatActivityRecord): string | undefined {
   const detail = activity.detail?.trim();
   const title = activity.title.trim();
   if (/^call_[a-z0-9_-]+$/i.test(title)) {
@@ -397,7 +397,7 @@ function humanActivityStatus(status?: string): string {
   }
 }
 
-function approvalActivityTitle(activity: AgentChatActivityRecord): string {
+function approvalActivityTitle(activity: ChatActivityRecord): string {
   if (activity.needs_action || activity.status === "awaiting_approval" || activity.status === "pending") {
     return "Waiting for approval";
   }
@@ -421,7 +421,7 @@ function approvalActivityTitle(activity: AgentChatActivityRecord): string {
 // could miss a `run_result`-typed terminal that pickTerminalActivityIndex
 // would correctly pick — leading to the dedupe dropping the row
 // the timeline summary needed.
-export function terminalAgentActivity(activities: AgentChatActivityRecord[]): AgentChatActivityRecord | undefined {
+export function terminalAgentActivity(activities: ChatActivityRecord[]): ChatActivityRecord | undefined {
   const index = pickTerminalActivityIndex(activities);
   return index === -1 ? undefined : activities[index];
 }
@@ -439,7 +439,7 @@ export function terminalStatusLabel(status?: string): string {
   }
 }
 
-export function detailSummaryLabel(details: AgentChatActivityRecord[]): string {
+export function detailSummaryLabel(details: ChatActivityRecord[]): string {
   const count = `${details.length} item${details.length === 1 ? "" : "s"}`;
   const hasOutput = details.some(activity => activity.type === "output" || /\bstd(out|err)\b/i.test(`${activity.title} ${activity.detail ?? ""}`));
   const hasArtifact = details.some(activity => activity.type === "artifact" || activity.type === "final_answer");
@@ -449,7 +449,7 @@ export function detailSummaryLabel(details: AgentChatActivityRecord[]): string {
   return `More details · ${count}`;
 }
 
-function activitySortPhase(activity: AgentChatActivityRecord): number {
+function activitySortPhase(activity: ChatActivityRecord): number {
   if (activity.type === "started") return 0;
   if (activity.type === "running") return 1;
   if (isTaskRunActivity(activity)) return 2;
@@ -480,6 +480,6 @@ export function activityStatusColor(status?: string) {
   }
 }
 
-export function isActiveAgentActivity(activity: AgentChatActivityRecord): boolean {
+export function isActiveAgentActivity(activity: ChatActivityRecord): boolean {
   return activity.status === "running" || activity.status === "in_progress" || activity.status === "awaiting_approval" || activity.status === "pending" || Boolean(activity.needs_action);
 }

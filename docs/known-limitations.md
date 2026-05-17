@@ -90,7 +90,7 @@ shipping `v0.1.0-alpha.N` releases from reviewed PRs merged into `master`.
   persisted so old turns keep their original provider/model/task context even
   when the header selection changes later.
 - Only one task-backed Hecate Agent segment can be active in a chat at a time.
-  The HTTP API rejects new turns with `409 agent_chat.agent_session_busy` while
+  The HTTP API rejects new turns with `409 chat.agent_session_busy` while
   the backing task is queued, running, or awaiting approval. The operator UI
   turns this into a local **Queued next** composer FIFO and sends the prompt
   after the active run settles; queued prompts are not durable until submitted.

@@ -2,7 +2,7 @@ import { useState } from "react";
 
 import { useRuntimeConsoleContext } from "../../app/RuntimeConsoleContext";
 import { formatAbsoluteTime } from "../../lib/format";
-import type { AgentAdapterRecord, AgentChatSessionRecord } from "../../types/runtime";
+import type { AgentAdapterRecord, ChatSessionRecord } from "../../types/runtime";
 import { BrandAvatar, Icon, Icons } from "../shared/ui";
 
 import { NewChatAgentButton, chatAgentOption, chatAgentOptionStatus } from "./ChatAgentControls";
@@ -40,7 +40,7 @@ export function ChatSidebar({ isAgentChat, onSelectSession, onCreateChat }: Prop
   const [renameValue, setRenameValue] = useState("");
   const [hoveredChatId, setHoveredChatId] = useState<string | null>(null);
 
-  const sessions: SidebarSession[] = (state.agentChatSessions ?? []).map((s) => ({
+  const sessions: SidebarSession[] = (state.chatSessions ?? []).map((s) => ({
     id: s.id,
     title: s.title,
     message_count: s.message_count,
@@ -55,7 +55,7 @@ export function ChatSidebar({ isAgentChat, onSelectSession, onCreateChat }: Prop
   }));
   const filteredSessions = filterSidebarSessions(sessions, sidebarQuery);
   const groupedSessions = groupSidebarSessions(filteredSessions);
-  const activeSessionID = state.activeAgentChatSessionID;
+  const activeSessionID = state.activeChatSessionID;
 
   const newChatAgentID = state.newChatAgentID || "hecate";
   const newChatAgentAdapter = newChatAgentID === "hecate" ? undefined : state.agentAdapters.find((adapter) => adapter.id === newChatAgentID);
@@ -248,7 +248,7 @@ export function filterSidebarSessions(sessions: SidebarSession[], query: string)
   });
 }
 
-export function sidebarSessionBrand(session: AgentChatSessionRecord): string | undefined {
+export function sidebarSessionBrand(session: ChatSessionRecord): string | undefined {
   if (session.runtime_kind === "external_agent" || session.adapter_id) {
     return session.adapter_id;
   }
@@ -258,7 +258,7 @@ export function sidebarSessionBrand(session: AgentChatSessionRecord): string | u
   return session.provider || session.model;
 }
 
-export function sidebarSessionAgentLabel(session: AgentChatSessionRecord, adapters: AgentAdapterRecord[]): string | undefined {
+export function sidebarSessionAgentLabel(session: ChatSessionRecord, adapters: AgentAdapterRecord[]): string | undefined {
   if (session.runtime_kind === "external_agent" || session.adapter_id) {
     return chatAgentOption(session.adapter_id || "", adapters).label;
   }

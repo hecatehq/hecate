@@ -2,7 +2,7 @@ import { Suspense, lazy, useEffect, useState } from "react";
 
 import { useRuntimeConsoleContext } from "./RuntimeConsoleContext";
 import type { RuntimeConsoleViewModel } from "./useRuntimeConsole";
-import type { AgentChatUsageRecord } from "../types/runtime";
+import type { ChatUsageRecord } from "../types/runtime";
 import { UpdateBanner } from "../features/shared/UpdateBanner";
 import { usePersistedState } from "../lib/persistedState";
 import { isTauriOnMacOS } from "../lib/tauri";
@@ -241,7 +241,7 @@ function AuthenticatedShell({
     onSelectWorkspace("runs");
   }
 
-  function openAgentChatFromTask(sessionID: string) {
+  function openChatFromTask(sessionID: string) {
     actions.setChatTarget("agent");
     void actions.selectChatSession(sessionID);
     onSelectWorkspace("chats");
@@ -253,8 +253,8 @@ function AuthenticatedShell({
   }
 
   const isBare = BARE_WORKSPACES.includes(activeWorkspace);
-  const agentWorkspace = state.activeAgentChatSession?.workspace || state.agentWorkspace;
-  const agentWorkspaceBranch = state.activeAgentChatSession?.workspace_branch || state.agentWorkspaceBranch;
+  const agentWorkspace = state.activeChatSession?.workspace || state.agentWorkspace;
+  const agentWorkspaceBranch = state.activeChatSession?.workspace_branch || state.agentWorkspaceBranch;
   const agentUsage = latestAgentUsage(state);
   const agentUsageLabel = formatAgentUsagePill(agentUsage);
 
@@ -314,7 +314,7 @@ function AuthenticatedShell({
             <Suspense fallback={<WorkspaceFallback />}>
               {activeWorkspace === "overview"   && <ObservabilityView onNavigate={onSelectWorkspace} focusRequest={traceFocusRequest} />}
               {activeWorkspace === "chats" && <ChatView onNavigate={onSelectWorkspace} onOpenTask={openTaskFromChat} onOpenTrace={openTraceFromChat} />}
-              {activeWorkspace === "runs"          && <TasksView focusRequest={taskFocusRequest} onOpenAgentChat={openAgentChatFromTask} onOpenTrace={openTraceFromChat} />}
+              {activeWorkspace === "runs"          && <TasksView focusRequest={taskFocusRequest} onOpenChat={openChatFromTask} onOpenTrace={openTraceFromChat} />}
               {activeWorkspace === "connections"     && <ProvidersView />}
               {activeWorkspace === "usage"         && <UsageView />}
               {activeWorkspace === "settings" && <SettingsView />}
@@ -392,8 +392,8 @@ function AuthenticatedShell({
   );
 }
 
-function latestAgentUsage(state: ConsoleState): AgentChatUsageRecord | undefined {
-  const messages = state.activeAgentChatSession?.messages ?? [];
+function latestAgentUsage(state: ConsoleState): ChatUsageRecord | undefined {
+  const messages = state.activeChatSession?.messages ?? [];
   for (let i = messages.length - 1; i >= 0; i -= 1) {
     const usage = messages[i].usage;
     if (usage && hasAgentUsage(usage)) return usage;
@@ -401,7 +401,7 @@ function latestAgentUsage(state: ConsoleState): AgentChatUsageRecord | undefined
   return undefined;
 }
 
-function hasAgentUsage(usage?: AgentChatUsageRecord): usage is AgentChatUsageRecord {
+function hasAgentUsage(usage?: ChatUsageRecord): usage is ChatUsageRecord {
   return Boolean(
     usage
     && (usage.context_size
@@ -411,7 +411,7 @@ function hasAgentUsage(usage?: AgentChatUsageRecord): usage is AgentChatUsageRec
   );
 }
 
-function formatAgentUsagePill(usage?: AgentChatUsageRecord): string {
+function formatAgentUsagePill(usage?: ChatUsageRecord): string {
   if (!hasAgentUsage(usage)) return "";
   const size = usage.context_size ?? 0;
   const used = usage.context_used ?? 0;
@@ -426,7 +426,7 @@ function formatAgentUsagePill(usage?: AgentChatUsageRecord): string {
   return "";
 }
 
-function formatAgentUsageTitle(usage?: AgentChatUsageRecord): string {
+function formatAgentUsageTitle(usage?: ChatUsageRecord): string {
   if (!hasAgentUsage(usage)) return "";
   const parts: string[] = [];
   const size = usage.context_size ?? 0;
@@ -441,7 +441,7 @@ function formatAgentUsageTitle(usage?: AgentChatUsageRecord): string {
   return parts.join(" · ");
 }
 
-function formatReportedCost(usage: AgentChatUsageRecord): string {
+function formatReportedCost(usage: ChatUsageRecord): string {
   const currency = (usage.reported_cost_currency || "").trim().toUpperCase();
   return currency ? `${usage.reported_cost_amount} ${currency}` : usage.reported_cost_amount || "";
 }

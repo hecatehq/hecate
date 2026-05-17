@@ -1,6 +1,6 @@
 import { useEffect, useRef, useState } from "react";
 import type { KeyboardEvent } from "react";
-import type { AgentAdapterHealthRecord, AgentAdapterRecord, AgentChatConfigOptionRecord, ModelRecord, ProviderPresetRecord } from "../../types/runtime";
+import type { AgentAdapterHealthRecord, AgentAdapterRecord, ChatConfigOptionRecord, ModelRecord, ProviderPresetRecord } from "../../types/runtime";
 import { BrandAvatar, DropdownPicker, Icon, Icons } from "../shared/ui";
 import type { DropdownPickerOption, ProviderOption } from "../shared/ui";
 import { focusDropdownItem, focusInitialDropdownItem } from "../shared/dropdownKeyboard";
@@ -341,7 +341,7 @@ export function ExternalAgentConfigControls({
   onChange,
   placement = "header",
 }: {
-  session: { id?: string; runtime_kind?: string; config_options?: AgentChatConfigOptionRecord[] } | null;
+  session: { id?: string; runtime_kind?: string; config_options?: ChatConfigOptionRecord[] } | null;
   onChange: (sessionID: string, configID: string, value: string | boolean) => Promise<boolean>;
   placement?: "header" | "composer";
 }) {
@@ -382,7 +382,7 @@ export function ExternalAgentSettingsControls({
   session,
   onChange,
 }: {
-  session: { id?: string; runtime_kind?: string; config_options?: AgentChatConfigOptionRecord[] } | null;
+  session: { id?: string; runtime_kind?: string; config_options?: ChatConfigOptionRecord[] } | null;
   onChange: (sessionID: string, configID: string, value: string | boolean) => Promise<boolean>;
 }) {
   if (!session?.id || session.runtime_kind !== "external_agent" || !session.config_options?.length) {
@@ -509,7 +509,7 @@ function ExternalAgentConfigControl({
   menuPlacement = "down",
 }: {
   sessionID: string;
-  option: AgentChatConfigOptionRecord;
+  option: ChatConfigOptionRecord;
   onChange: (sessionID: string, configID: string, value: string | boolean) => Promise<boolean>;
   menuPlacement?: "down" | "up";
 }) {
@@ -571,7 +571,7 @@ function ExternalAgentSettingsControl({
   onChange,
 }: {
   sessionID: string;
-  option: AgentChatConfigOptionRecord;
+  option: ChatConfigOptionRecord;
   onChange: (sessionID: string, configID: string, value: string | boolean) => Promise<boolean>;
 }) {
   if (agentConfigOptionIsText(option)) {
@@ -615,7 +615,7 @@ function ExternalAgentTextConfigControl({
   onChange,
 }: {
   sessionID: string;
-  option: AgentChatConfigOptionRecord;
+  option: ChatConfigOptionRecord;
   onChange: (sessionID: string, configID: string, value: string | boolean) => Promise<boolean>;
 }) {
   const [draft, setDraft] = useState(option.current_value ?? "");
@@ -694,8 +694,8 @@ function ExternalAgentTextConfigControl({
   );
 }
 
-function prioritizeAgentConfigOptions(options: AgentChatConfigOptionRecord[]): AgentChatConfigOptionRecord[] {
-  const priority = (option: AgentChatConfigOptionRecord) => {
+function prioritizeAgentConfigOptions(options: ChatConfigOptionRecord[]): ChatConfigOptionRecord[] {
+  const priority = (option: ChatConfigOptionRecord) => {
     if (agentConfigOptionIsInstructions(option)) return -1;
     switch (option.category) {
       case "model":
@@ -711,12 +711,12 @@ function prioritizeAgentConfigOptions(options: AgentChatConfigOptionRecord[]): A
   return [...options].sort((a, b) => priority(a) - priority(b) || a.name.localeCompare(b.name));
 }
 
-function agentConfigOptionIsText(option: AgentChatConfigOptionRecord): boolean {
+function agentConfigOptionIsText(option: ChatConfigOptionRecord): boolean {
   const type = option.type.toLowerCase();
   return type === "text" || type === "textarea" || type === "string" || type === "prompt" || type === "multiline";
 }
 
-function agentConfigOptionIsInstructions(option: AgentChatConfigOptionRecord): boolean {
+function agentConfigOptionIsInstructions(option: ChatConfigOptionRecord): boolean {
   const key = `${option.id} ${option.name} ${option.category ?? ""}`.toLowerCase();
   return key.includes("system_prompt")
     || key.includes("system prompt")
@@ -725,7 +725,7 @@ function agentConfigOptionIsInstructions(option: AgentChatConfigOptionRecord): b
     || key.includes("instructions");
 }
 
-function agentConfigOptionLabel(option: AgentChatConfigOptionRecord): string {
+function agentConfigOptionLabel(option: ChatConfigOptionRecord): string {
   if (agentConfigOptionIsInstructions(option)) return "instructions";
   switch (option.category) {
     case "model":
