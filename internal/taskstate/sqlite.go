@@ -693,10 +693,10 @@ func (s *SQLiteStore) ListEvents(ctx context.Context, filter EventFilter) ([]typ
 	return items, rows.Err()
 }
 
-// PruneTurnEvents drops `turn.completed` rows older than maxAge
+// Prune drops `turn.completed` rows older than maxAge
 // or, when maxCount > 0, beyond the most recent maxCount rows
 // (ordered by sequence DESC). Other event types are preserved.
-func (s *SQLiteStore) PruneTurnEvents(ctx context.Context, maxAge time.Duration, maxCount int) (int, error) {
+func (s *SQLiteStore) Prune(ctx context.Context, maxAge time.Duration, maxCount int) (int, error) {
 	deleted := int64(0)
 
 	if maxAge > 0 {

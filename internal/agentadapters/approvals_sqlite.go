@@ -356,6 +356,12 @@ func (s *SQLiteApprovalStore) DeleteGrant(ctx context.Context, id string) error 
 	return nil
 }
 
+// Prune implements retention.Pruner. See ApprovalRetentionStore.Prune
+// for the contract.
+func (s *SQLiteApprovalStore) Prune(ctx context.Context, maxAge time.Duration, maxCount int) (int, error) {
+	return pruneApprovalsAndGrants(ctx, s, maxAge, maxCount)
+}
+
 // PruneExpiredGrants removes grants whose ExpiresAt is in the past.
 // Returns the number deleted. Called by the retention worker. Live
 // grants (no expiry, or expiry in the future) are never touched.

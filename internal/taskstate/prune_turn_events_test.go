@@ -8,7 +8,7 @@ import (
 	"github.com/hecate/agent-runtime/pkg/types"
 )
 
-// TestPruneTurnEvents_AgeAndCount exercises the retention sweep
+// TestPrune_AgeAndCount exercises the retention sweep
 // against every Store implementation that ships in this binary
 // (memory + sqlite). Each backend should:
 //
@@ -19,7 +19,7 @@ import (
 //
 // The age path is verified by injecting a stale CreatedAt directly;
 // the count path uses real append order.
-func TestPruneTurnEvents_AgeAndCount(t *testing.T) {
+func TestPrune_AgeAndCount(t *testing.T) {
 	t.Parallel()
 
 	cases := []struct {
@@ -70,9 +70,9 @@ func TestPruneTurnEvents_AgeAndCount(t *testing.T) {
 			}
 
 			// Sweep with 1h cutoff (no count cap).
-			n, err := store.PruneTurnEvents(ctx, time.Hour, 0)
+			n, err := store.Prune(ctx, time.Hour, 0)
 			if err != nil {
-				t.Fatalf("PruneTurnEvents(age): %v", err)
+				t.Fatalf("Prune(age): %v", err)
 			}
 			if n != 1 {
 				t.Fatalf("age sweep deleted = %d, want 1", n)
@@ -121,9 +121,9 @@ func TestPruneTurnEvents_AgeAndCount(t *testing.T) {
 				}
 			}
 
-			n, err = store.PruneTurnEvents(ctx, 0, 2)
+			n, err = store.Prune(ctx, 0, 2)
 			if err != nil {
-				t.Fatalf("PruneTurnEvents(count): %v", err)
+				t.Fatalf("Prune(count): %v", err)
 			}
 			if n != 3 {
 				t.Fatalf("count sweep deleted = %d, want 3", n)
@@ -143,10 +143,10 @@ func TestPruneTurnEvents_AgeAndCount(t *testing.T) {
 	}
 }
 
-// TestPruneTurnEvents_NoOpWithZeroBounds confirms the sweep is a
+// TestPrune_NoOpWithZeroBounds confirms the sweep is a
 // genuine no-op when both maxAge and maxCount are zero — the worker
 // uses zero to disable a particular bound.
-func TestPruneTurnEvents_NoOpWithZeroBounds(t *testing.T) {
+func TestPrune_NoOpWithZeroBounds(t *testing.T) {
 	t.Parallel()
 
 	for _, tc := range []struct {
@@ -171,9 +171,9 @@ func TestPruneTurnEvents_NoOpWithZeroBounds(t *testing.T) {
 					t.Fatalf("append: %v", err)
 				}
 			}
-			n, err := store.PruneTurnEvents(ctx, 0, 0)
+			n, err := store.Prune(ctx, 0, 0)
 			if err != nil {
-				t.Fatalf("PruneTurnEvents(0, 0): %v", err)
+				t.Fatalf("Prune(0, 0): %v", err)
 			}
 			if n != 0 {
 				t.Fatalf("deleted = %d, want 0 (both bounds disabled)", n)

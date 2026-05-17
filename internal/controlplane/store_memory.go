@@ -114,7 +114,7 @@ func (s *MemoryStore) UpsertModelCapabilityProbe(ctx context.Context, record Mod
 	return applyModelCapabilityProbe(ctx, &s.data, record)
 }
 
-func (s *MemoryStore) PruneAuditEvents(_ context.Context, maxAge time.Duration, maxCount int) (int, error) {
+func (s *MemoryStore) Prune(_ context.Context, maxAge time.Duration, maxCount int) (int, error) {
 	s.mu.Lock()
 	defer s.mu.Unlock()
 	return pruneAuditEvents(&s.data, maxAge, maxCount), nil

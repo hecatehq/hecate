@@ -502,7 +502,7 @@ func (s *MemoryStore) ListEvents(_ context.Context, filter EventFilter) ([]types
 	return result, nil
 }
 
-// PruneTurnEvents removes `turn.completed` rows older than
+// Prune removes `turn.completed` rows older than
 // maxAge or, if maxCount > 0, beyond the most recent maxCount rows
 // (counted globally across all runs). Returns the number of rows
 // removed. Other event types are preserved.
@@ -510,7 +510,7 @@ func (s *MemoryStore) ListEvents(_ context.Context, filter EventFilter) ([]types
 // Both bounds are evaluated additively — i.e. a row is dropped if it
 // fails *either* the age check (when maxAge > 0) or the count check
 // (when maxCount > 0). With both zero, this is a no-op.
-func (s *MemoryStore) PruneTurnEvents(_ context.Context, maxAge time.Duration, maxCount int) (int, error) {
+func (s *MemoryStore) Prune(_ context.Context, maxAge time.Duration, maxCount int) (int, error) {
 	s.mu.Lock()
 	defer s.mu.Unlock()
 

@@ -13,19 +13,19 @@ import (
 
 type fakeUsagePruner struct{ deleted int }
 
-func (f fakeUsagePruner) PruneEvents(context.Context, time.Duration, int) (int, error) {
+func (f fakeUsagePruner) Prune(context.Context, time.Duration, int) (int, error) {
 	return f.deleted, nil
 }
 
 type fakeAuditPruner struct{ deleted int }
 
-func (f fakeAuditPruner) PruneAuditEvents(context.Context, time.Duration, int) (int, error) {
+func (f fakeAuditPruner) Prune(context.Context, time.Duration, int) (int, error) {
 	return f.deleted, nil
 }
 
 type fakeTurnEventPruner struct{ deleted int }
 
-func (f fakeTurnEventPruner) PruneTurnEvents(context.Context, time.Duration, int) (int, error) {
+func (f fakeTurnEventPruner) Prune(context.Context, time.Duration, int) (int, error) {
 	return f.deleted, nil
 }
 

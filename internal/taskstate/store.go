@@ -86,10 +86,10 @@ type Store interface {
 	// — passing an empty slice means "no task constraint" (admin).
 	ListEvents(ctx context.Context, filter EventFilter) ([]types.TaskRunEvent, error)
 
-	// PruneTurnEvents deletes `turn.completed` rows that are
+	// Prune deletes `turn.completed` rows that are
 	// older than maxAge or, if maxCount > 0, beyond the most recent
 	// maxCount rows (ordered by sequence DESC). Run-level events
 	// (run.started, run.finished, approval.*) are never touched. The
 	// retention worker calls this on its scheduled tick.
-	PruneTurnEvents(ctx context.Context, maxAge time.Duration, maxCount int) (int, error)
+	Prune(ctx context.Context, maxAge time.Duration, maxCount int) (int, error)
 }

@@ -173,7 +173,7 @@ func TestSQLiteUsageStore_AppendEventEmptyKeyNoOp(t *testing.T) {
 	}
 }
 
-func TestSQLiteUsageStore_PruneEvents(t *testing.T) {
+func TestSQLiteUsageStore_Prune(t *testing.T) {
 	t.Parallel()
 	store := newSQLiteUsageTestStore(t)
 	ctx := context.Background()
@@ -187,9 +187,9 @@ func TestSQLiteUsageStore_PruneEvents(t *testing.T) {
 		t.Fatalf("AppendEvent(fresh): %v", err)
 	}
 
-	deleted, err := store.PruneEvents(ctx, 30*time.Minute, 0)
+	deleted, err := store.Prune(ctx, 30*time.Minute, 0)
 	if err != nil {
-		t.Fatalf("PruneEvents by age: %v", err)
+		t.Fatalf("Prune by age: %v", err)
 	}
 	if deleted != 1 {
 		t.Fatalf("age deleted = %d, want 1", deleted)
@@ -206,9 +206,9 @@ func TestSQLiteUsageStore_PruneEvents(t *testing.T) {
 		}
 	}
 
-	deleted, err = store.PruneEvents(ctx, 0, 3)
+	deleted, err = store.Prune(ctx, 0, 3)
 	if err != nil {
-		t.Fatalf("PruneEvents by count: %v", err)
+		t.Fatalf("Prune by count: %v", err)
 	}
 	if deleted != 8 {
 		t.Fatalf("count deleted = %d, want 8", deleted)
