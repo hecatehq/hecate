@@ -150,7 +150,7 @@ Top-level groups, by category:
 | [`tool.*`](#tool-calls) | Tool invocation lifecycle. Subgroups per tool kind. |
 | [`approval.*`](#approvals) | Approval requests + resolutions. |
 | [`artifact.*`](#artifacts) | Patch/file/output artifact lifecycle. Experimental until artifact storage is candidate-stable. |
-| [`cost.*`](#cost) | Token + USD totals as they accrue. |
+| [`cost.*`](#usage-and-task-cost-ceiling) | Token + USD totals as they accrue. |
 | [`policy.*`](#policy) | Policy gate decisions. |
 | [`error.*`](#errors) | Recoverable + unrecoverable errors not tied to a tool. |
 | [`gap.*`](#gaps) | Stream-integrity markers (pruned events, missing turns). |
