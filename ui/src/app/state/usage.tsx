@@ -1,22 +1,27 @@
-// Usage slice: cost summary + recent events. Owns two state
-// fields and exposes a single applySnapshot action; the dashboard
-// loader fans the snapshot into here. Future direct fetches
-// (refresh button, filter changes) get their own actions when the
-// consuming views ask for them.
+// Usage slice: cost summary + recent events. Owned entirely by
+// UsageView — neither field is in the dashboard snapshot any more.
+// useEnsureUsageLoaded fetches both lazily on first UsageView mount
+// and caches via the `loaded` flag so in-session navigations don't
+// re-fetch. A full page reload resets the slice and the next mount
+// re-fetches.
 
-import { createContext, useCallback, useContext, useMemo, useReducer, type ReactNode } from "react";
+import { createContext, useCallback, useContext, useEffect, useMemo, useReducer, useRef, type ReactNode } from "react";
 
 import { applyOverride, CoordinatorOverridesContext } from "./coordinators/overrides";
+import { getUsageEvents, getUsageSummary } from "../../lib/api";
+import { warn } from "../../lib/log";
 import type { UsageEventsResponse, UsageSummaryResponse } from "../../types/usage";
 
 export type UsageState = {
   summary: UsageSummaryResponse["data"] | null;
   events: UsageEventsResponse["data"];
+  loaded: boolean;
 };
 
 export type UsageActions = {
   setSummary: (summary: UsageSummaryResponse["data"] | null) => void;
   setEvents: (events: UsageEventsResponse["data"]) => void;
+  markLoaded: () => void;
 };
 
 type UsageContextValue = {
@@ -26,11 +31,13 @@ type UsageContextValue = {
 
 type Action =
   | { type: "summary/set"; summary: UsageSummaryResponse["data"] | null }
-  | { type: "events/set"; events: UsageEventsResponse["data"] };
+  | { type: "events/set"; events: UsageEventsResponse["data"] }
+  | { type: "loaded/set" };
 
 const initialState: UsageState = {
   summary: null,
   events: [],
+  loaded: false,
 };
 
 function reducer(state: UsageState, action: Action): UsageState {
@@ -39,6 +46,8 @@ function reducer(state: UsageState, action: Action): UsageState {
       return { ...state, summary: action.summary };
     case "events/set":
       return { ...state, events: action.events };
+    case "loaded/set":
+      return state.loaded ? state : { ...state, loaded: true };
   }
 }
 
@@ -61,7 +70,14 @@ export function UsageProvider({ children, initialState: seededState }: {
     dispatch({ type: "events/set", events });
   }, []);
 
-  const actions = useMemo<UsageActions>(() => ({ setSummary, setEvents }), [setSummary, setEvents]);
+  const markLoaded = useCallback(() => {
+    dispatch({ type: "loaded/set" });
+  }, []);
+
+  const actions = useMemo<UsageActions>(
+    () => ({ setSummary, setEvents, markLoaded }),
+    [setSummary, setEvents, markLoaded],
+  );
   const value = useMemo(() => ({ state, actions }), [state, actions]);
 
   return <UsageContext.Provider value={value}>{children}</UsageContext.Provider>;
@@ -74,4 +90,33 @@ export function useUsage(): UsageContextValue {
   }
   const overrides = useContext(CoordinatorOverridesContext);
   return { state: ctx.state, actions: applyOverride(ctx.actions, overrides?.usageSlice) };
+}
+
+// useEnsureUsageLoaded fetches the usage summary + recent events on
+// first call if the slice hasn't been hydrated yet. Dedupes parallel
+// callers via an inflight ref; tolerates failed fetches by leaving
+// `loaded` false so the next mount can retry. Used by UsageView.
+export function useEnsureUsageLoaded(): void {
+  const { state, actions } = useUsage();
+  const inFlight = useRef(false);
+
+  useEffect(() => {
+    if (state.loaded || inFlight.current) return;
+    inFlight.current = true;
+    void (async () => {
+      try {
+        const [summary, events] = await Promise.all([
+          getUsageSummary(""),
+          getUsageEvents(20),
+        ]);
+        actions.setSummary(summary.data);
+        actions.setEvents(events.data);
+        actions.markLoaded();
+      } catch (err) {
+        warn("usage.ensureLoaded.failed", { err: err instanceof Error ? err.message : String(err) });
+      } finally {
+        inFlight.current = false;
+      }
+    })();
+  }, [state.loaded, actions]);
 }

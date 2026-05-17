@@ -1,6 +1,6 @@
 import type { ReactNode } from "react";
 import { useSettings } from "../../app/state/settings";
-import { useUsage } from "../../app/state/usage";
+import { useEnsureUsageLoaded, useUsage } from "../../app/state/usage";
 import { formatInteger, formatLocaleTime, formatMicrosUSD } from "../../lib/format";
 import type { UsageEventRecord } from "../../types/usage";
 import { CopyBtn } from "../shared/ui";
@@ -16,6 +16,7 @@ type UsageTotals = {
 // Only cross-chat Hecate-controlled provider calls belong here; active-chat
 // adapter usage lives in ChatView where the reported values have context.
 export function UsageView() {
+  useEnsureUsageLoaded();
   const usage = useUsage();
   const settings = useSettings();
   const usageEvents = usage.state.events ?? [];
