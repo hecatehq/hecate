@@ -39,7 +39,7 @@ func newSQLiteTestStore(t *testing.T) *SQLiteApprovalStore {
 // runs as t.Run("memory", …) and t.Run("sqlite", …) so backend
 // behavior cannot drift silently.
 
-func runParity(t *testing.T, fn func(t *testing.T, store ApprovalStore)) {
+func RunConformanceTests(t *testing.T, fn func(t *testing.T, store ApprovalStore)) {
 	t.Helper()
 	t.Run("memory", func(t *testing.T) {
 		t.Parallel()
@@ -52,7 +52,7 @@ func runParity(t *testing.T, fn func(t *testing.T, store ApprovalStore)) {
 }
 
 func TestParityCreateAndGetApproval(t *testing.T) {
-	runParity(t, func(t *testing.T, store ApprovalStore) {
+	RunConformanceTests(t, func(t *testing.T, store ApprovalStore) {
 		ctx := context.Background()
 		now := time.Date(2026, 5, 4, 10, 0, 0, 0, time.UTC)
 		row := Approval{
@@ -90,7 +90,7 @@ func TestParityCreateAndGetApproval(t *testing.T) {
 }
 
 func TestParityGetMissingReturnsNotFound(t *testing.T) {
-	runParity(t, func(t *testing.T, store ApprovalStore) {
+	RunConformanceTests(t, func(t *testing.T, store ApprovalStore) {
 		_, err := store.GetApproval(context.Background(), "missing")
 		if !errors.Is(err, ErrApprovalNotFound) {
 			t.Fatalf("got %v, want ErrApprovalNotFound", err)
@@ -99,7 +99,7 @@ func TestParityGetMissingReturnsNotFound(t *testing.T) {
 }
 
 func TestParityResolveTransitionsAndDoubleResolveFails(t *testing.T) {
-	runParity(t, func(t *testing.T, store ApprovalStore) {
+	RunConformanceTests(t, func(t *testing.T, store ApprovalStore) {
 		ctx := context.Background()
 		now := time.Now().UTC()
 		row, _ := store.CreateApproval(ctx, Approval{
@@ -128,7 +128,7 @@ func TestParityResolveTransitionsAndDoubleResolveFails(t *testing.T) {
 }
 
 func TestParityResolveUnknownIDReturnsNotFound(t *testing.T) {
-	runParity(t, func(t *testing.T, store ApprovalStore) {
+	RunConformanceTests(t, func(t *testing.T, store ApprovalStore) {
 		_, err := store.ResolveApproval(context.Background(), "missing",
 			ApprovalStatusApproved, ApprovalDecisionApprove, "x",
 			ApprovalScopeOnce, PathOperator, "", time.Now())
@@ -139,7 +139,7 @@ func TestParityResolveUnknownIDReturnsNotFound(t *testing.T) {
 }
 
 func TestParityListSortsOldestFirstAndFiltersStatus(t *testing.T) {
-	runParity(t, func(t *testing.T, store ApprovalStore) {
+	RunConformanceTests(t, func(t *testing.T, store ApprovalStore) {
 		ctx := context.Background()
 		t0 := time.Date(2026, 5, 4, 10, 0, 0, 0, time.UTC)
 		for i := 0; i < 3; i++ {
@@ -177,7 +177,7 @@ func TestParityListSortsOldestFirstAndFiltersStatus(t *testing.T) {
 }
 
 func TestParityFindMatchingGrantSpecificityAndExpiry(t *testing.T) {
-	runParity(t, func(t *testing.T, store ApprovalStore) {
+	RunConformanceTests(t, func(t *testing.T, store ApprovalStore) {
 		ctx := context.Background()
 		now := time.Date(2026, 5, 4, 10, 0, 0, 0, time.UTC)
 
@@ -229,7 +229,7 @@ func TestParityFindMatchingGrantSpecificityAndExpiry(t *testing.T) {
 }
 
 func TestParityListGrantsFiltersAndSorts(t *testing.T) {
-	runParity(t, func(t *testing.T, store ApprovalStore) {
+	RunConformanceTests(t, func(t *testing.T, store ApprovalStore) {
 		ctx := context.Background()
 		t0 := time.Date(2026, 5, 4, 10, 0, 0, 0, time.UTC)
 
@@ -258,7 +258,7 @@ func TestParityListGrantsFiltersAndSorts(t *testing.T) {
 }
 
 func TestParityDeleteGrant(t *testing.T) {
-	runParity(t, func(t *testing.T, store ApprovalStore) {
+	RunConformanceTests(t, func(t *testing.T, store ApprovalStore) {
 		ctx := context.Background()
 		g, _ := store.CreateGrant(ctx, Grant{
 			Scope: ApprovalScopeAdapterTool, AdapterID: "codex", ToolKind: ToolKindFileWrite,
