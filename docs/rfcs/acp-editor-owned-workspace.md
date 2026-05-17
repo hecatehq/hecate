@@ -13,7 +13,7 @@
 
 ## The problem
 
-The orchestrator runs in the `hecate` gateway process. The ACP
+The orchestrator runs in the main `hecate` process. The ACP
 dispatcher runs in the `hecate-acp` bridge process — spawned by the
 editor over stdio, talking HTTP REST to the gateway for forward calls
 (`POST /hecate/v1/tasks/...`). When `HECATE_WORKSPACE_MODE` resolves to

@@ -20,7 +20,7 @@ _website-deps:
 # Build a single self-contained `hecate` binary with the UI bundle embedded.
 # The UI is built first so //go:embed picks up the real assets; without this
 # step the binary still runs but serves the "UI not built" fallback page.
-# Build the embedded-UI gateway binary.
+# Build the embedded-UI runtime binary.
 build: ui-build _go-cache
 	GOCACHE="$PWD/{{gocache}}" go build -o hecate ./cmd/hecate
 
@@ -81,7 +81,7 @@ run *args: _go-cache
 # stale process is still listening, so a forgotten Ctrl-C never blocks a
 # restart. It also sources .env so configured providers are available,
 # matching the `just dev` workflow.
-# Serve the pre-built gateway binary. Optional arg: --reset.
+# Serve the pre-built runtime binary. Optional arg: --reset.
 serve *args:
 	needs_reset=0; \
 	for arg in {{args}}; do \

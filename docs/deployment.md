@@ -39,7 +39,7 @@ If a `docker run` (or `docker compose up`) errors with `bind: address already in
 
 ## Binary install
 
-The release workflow publishes static, single-file binaries for `linux+darwin × amd64+arm64` to GitHub Releases. Skip Docker if you'd rather run the gateway directly:
+The release workflow publishes static, single-file binaries for `linux+darwin × amd64+arm64` to GitHub Releases. Skip Docker if you'd rather run Hecate directly from the terminal:
 
 ```bash
 # pick the right tarball for your OS / arch
@@ -48,7 +48,7 @@ tar -xzf hecate_0.1.0-alpha.31_linux_amd64.tar.gz
 ./hecate
 ```
 
-The gateway embeds the React operator UI, listens on `127.0.0.1:8765` by default, and stores state under `GATEWAY_DATA_DIR` (default `.data/`). No additional runtime dependencies — the binaries are statically linked and CGO-free.
+The `hecate` binary starts the gateway service, embeds the React operator UI, listens on `127.0.0.1:8765` by default, and stores state under `GATEWAY_DATA_DIR` (default `.data/`). No additional runtime dependencies — the binaries are statically linked and CGO-free.
 
 To pin the data directory to a known location:
 
@@ -82,7 +82,7 @@ A third install path for personal use on a laptop. Same release, different artif
 | Linux x86_64 | `Hecate_X.Y.Z_amd64.deb`, `Hecate_X.Y.Z_amd64.AppImage` |
 | Windows x86_64 | `Hecate_X.Y.Z_x64_en-US.msi` |
 
-The bundle is a Tauri 2.x chrome around the same `hecate` binary used in Docker and the tarballs. On launch the app spawns Hecate as a sidecar on a free loopback port, polls `/healthz`, then loads the embedded UI directly.
+The bundle is a Tauri 2.x chrome around the same `hecate` runtime binary used in Docker and the tarballs. On launch the app spawns it as a gateway sidecar on a free loopback port, polls `/healthz`, then loads the embedded UI directly.
 
 State lives in the platform data dir, not next to the binary:
 
@@ -109,9 +109,9 @@ Full state, footguns, and roadmap: [`desktop-app.md`](desktop-app.md).
 ## External-agent startup knobs
 
 Web, Docker, tarball, and native-app launches use the same gateway env vars for
-Agent Chat. The native app spawns the bundled gateway sidecar with these env
-vars inherited from the app process; Docker reads them from `.env` / compose;
-bare binaries read the shell environment.
+Agent Chat. The native app spawns the bundled `hecate` runtime in gateway mode
+with these env vars inherited from the app process; Docker reads them from
+`.env` / compose; bare binaries read the shell environment.
 
 | Env var | Default | Applies to |
 |---|---|---|

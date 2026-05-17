@@ -1,10 +1,10 @@
 # Desktop app
 
 Hecate ships a native desktop app (`tauri/`) alongside the binary tarball and
-Docker image. It's a thin Tauri 2.x chrome around the same `hecate` binary
-used everywhere else: on launch, the Rust layer spawns Hecate as a
-companion process on a free loopback port, polls `/healthz`, then navigates a
-webview to `http://127.0.0.1:{port}/` where the gateway serves its embedded UI.
+Docker image. It's a thin Tauri 2.x chrome around the same `hecate` runtime
+binary used everywhere else: on launch, the Rust layer spawns it in gateway
+mode on a free loopback port, polls `/healthz`, then navigates a webview to
+`http://127.0.0.1:{port}/` where the gateway serves its embedded UI.
 
 The desktop app bundles both `hecate` and `hecate-acp`. ACP clients still
 launch `hecate-acp` themselves over stdio, but the gateway writes
@@ -130,7 +130,7 @@ The desktop app bundles the `hecate` and `hecate-acp` binaries. Agent tool calls
 subprocess directly from the gateway with env sanitisation, output cap,
 and wall-clock timeout applied inline (Layer 1). On macOS the call is
 additionally wrapped by `sandbox-exec` (Layer 2) for filesystem and
-network confinement; the binary ships on every macOS install so this
+network confinement; `sandbox-exec` ships on every macOS install so this
 is automatic.
 
 See [`docs/sandbox.md`](sandbox.md) for the layer model and policy
