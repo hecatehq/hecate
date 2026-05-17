@@ -216,6 +216,29 @@ type ApprovalRetentionStore interface {
 	// this at startup before serving requests. Returns rows
 	// reconciled.
 	ReconcilePending(ctx context.Context, now time.Time) (int64, error)
+
+	// Prune implements retention.Pruner — one call that runs both
+	// the resolved-approval sweep (subject to maxAge / maxCount)
+	// and the expired-grant sweep (grants honor only ExpiresAt;
+	// maxAge / maxCount don't apply). Returns the sum so operators
+	// see total rows removed by this subsystem in one number.
+	// Captures `now := time.Now().UTC()` internally; the
+	// per-deletion `now`-tolerant methods stay on the interface for
+	// tests and ad-hoc callers.
+	Prune(ctx context.Context, maxAge time.Duration, maxCount int) (int, error)
+}
+
+func pruneApprovalsAndGrants(ctx context.Context, store ApprovalRetentionStore, maxAge time.Duration, maxCount int) (int, error) {
+	now := time.Now().UTC()
+	approvals, err := store.PruneApprovals(ctx, now, maxAge, maxCount)
+	if err != nil {
+		return int(approvals), err
+	}
+	grants, err := store.PruneExpiredGrants(ctx, now)
+	if err != nil {
+		return int(approvals + grants), err
+	}
+	return int(approvals + grants), nil
 }
 
 // ErrApprovalNotFound is returned by ApprovalStore.GetApproval and

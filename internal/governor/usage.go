@@ -50,7 +50,7 @@ type UsageEventStore interface {
 	AppendEvent(ctx context.Context, event UsageHistoryEvent) error
 	ListEvents(ctx context.Context, key string, limit int) ([]UsageHistoryEvent, error)
 	ListRecentEvents(ctx context.Context, limit int) ([]UsageHistoryEvent, error)
-	PruneEvents(ctx context.Context, maxAge time.Duration, maxCount int) (int, error)
+	Prune(ctx context.Context, maxAge time.Duration, maxCount int) (int, error)
 }
 
 type UsageRepository interface {
@@ -139,7 +139,7 @@ func (s *MemoryUsageStore) ListRecentEvents(_ context.Context, limit int) ([]Usa
 	return append([]UsageHistoryEvent(nil), all[:limit]...), nil
 }
 
-func (s *MemoryUsageStore) PruneEvents(_ context.Context, maxAge time.Duration, maxCount int) (int, error) {
+func (s *MemoryUsageStore) Prune(_ context.Context, maxAge time.Duration, maxCount int) (int, error) {
 	s.mu.Lock()
 	defer s.mu.Unlock()
 

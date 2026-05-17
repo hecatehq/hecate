@@ -251,7 +251,7 @@ func (s *SQLiteUsageStore) ListRecentEvents(ctx context.Context, limit int) ([]U
 	return events, nil
 }
 
-func (s *SQLiteUsageStore) PruneEvents(ctx context.Context, maxAge time.Duration, maxCount int) (int, error) {
+func (s *SQLiteUsageStore) Prune(ctx context.Context, maxAge time.Duration, maxCount int) (int, error) {
 	deleted := int64(0)
 
 	if maxAge > 0 {

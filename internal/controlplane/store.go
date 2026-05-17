@@ -98,7 +98,7 @@ type Store interface {
 	UpsertModelCapabilityOverride(ctx context.Context, record ModelCapabilityRecord) (ModelCapabilityRecord, error)
 	DeleteModelCapabilityOverride(ctx context.Context, provider, model string) error
 	UpsertModelCapabilityProbe(ctx context.Context, record ModelCapabilityRecord) (ModelCapabilityRecord, error)
-	PruneAuditEvents(ctx context.Context, maxAge time.Duration, maxCount int) (int, error)
+	Prune(ctx context.Context, maxAge time.Duration, maxCount int) (int, error)
 }
 
 type actorContextKey struct{}

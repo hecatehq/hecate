@@ -257,7 +257,7 @@ func (s *SQLiteStore) UpsertModelCapabilityProbe(ctx context.Context, record Mod
 	return record, nil
 }
 
-func (s *SQLiteStore) PruneAuditEvents(ctx context.Context, maxAge time.Duration, maxCount int) (int, error) {
+func (s *SQLiteStore) Prune(ctx context.Context, maxAge time.Duration, maxCount int) (int, error) {
 	s.mu.Lock()
 	defer s.mu.Unlock()
 

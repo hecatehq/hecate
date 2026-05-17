@@ -261,6 +261,12 @@ func (s *MemoryApprovalStore) PruneExpiredGrants(_ context.Context, now time.Tim
 	return deleted, nil
 }
 
+// Prune implements retention.Pruner. See ApprovalRetentionStore.Prune
+// for the contract.
+func (s *MemoryApprovalStore) Prune(ctx context.Context, maxAge time.Duration, maxCount int) (int, error) {
+	return pruneApprovalsAndGrants(ctx, s, maxAge, maxCount)
+}
+
 // ReconcilePending sweeps pending rows and marks them timed_out
 // with path=startup_reconcile. The memory backend never has rows
 // surviving a restart in practice (the map is process-local), but

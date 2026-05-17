@@ -546,13 +546,12 @@ func pruneableProviderHistory(store providers.HealthHistoryStore) retention.Prun
 	return pruner
 }
 
-// approvalRetentionPruner exposes the ChatApprovalPruner surface
-// when the configured approval store implements it. Memory and SQLite
-// both do; tests that swap in a stub may not — returning nil is
-// harmless because the retention worker skips subsystems with a nil
-// pruner.
-func approvalRetentionPruner(store agentadapters.ApprovalStore) retention.ChatApprovalPruner {
-	pruner, _ := store.(retention.ChatApprovalPruner)
+// approvalRetentionPruner exposes the Pruner surface when the
+// configured approval store implements it. Memory and SQLite both do;
+// tests that swap in a stub may not — returning nil is harmless
+// because the retention worker skips subsystems with a nil pruner.
+func approvalRetentionPruner(store agentadapters.ApprovalStore) retention.Pruner {
+	pruner, _ := store.(retention.Pruner)
 	return pruner
 }
 
