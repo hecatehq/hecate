@@ -1,4 +1,4 @@
-import type { ConfiguredProviderRecord, ProviderPresetRecord } from "../types/runtime";
+import type { ConfiguredProviderRecord, ProviderPresetRecord, ProviderRecord } from "../types/runtime";
 
 const PROVIDER_ICON_COLORS: Record<string, string> = {
   anthropic: "var(--brand-anthropic)",
@@ -33,4 +33,18 @@ export function providerDotColor(enabled: boolean, healthy: boolean): "green" | 
 
 export function providerIconColor(id: string): string {
   return PROVIDER_ICON_COLORS[id.toLowerCase()] ?? "var(--teal)";
+}
+
+export function providerDisplayName(
+  providerID: string,
+  configuredProviders: ConfiguredProviderRecord[] = [],
+  presets: ProviderPresetRecord[] = [],
+  runtimeProviders: ProviderRecord[] = [],
+): string {
+  const configured = configuredProviders.find(provider => provider.id === providerID);
+  const presetID = configured?.preset_id || providerID;
+  return presets.find(preset => preset.id === presetID)?.name
+    || configured?.name
+    || runtimeProviders.find(provider => provider.name === providerID)?.name
+    || providerID;
 }

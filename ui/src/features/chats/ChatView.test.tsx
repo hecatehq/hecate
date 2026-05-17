@@ -1101,6 +1101,55 @@ describe("ChatView input", () => {
     expect(setModel).toHaveBeenCalledWith("qwen2.5-coder");
   });
 
+  it("keeps the catalog provider label while the Hecate composer is busy", () => {
+    const { state, actions } = setup({
+      chatTarget: "agent",
+      chatLoading: true,
+      agentWorkspace: "/tmp/hecate",
+      providerFilter: "local-ollama",
+      model: "qwen2.5-coder",
+      settingsConfig: {
+        backend: "memory",
+        providers: [
+          { id: "local-ollama", name: "ollama", preset_id: "ollama", kind: "local", protocol: "openai", base_url: "http://127.0.0.1:11434/v1", credential_configured: true },
+        ],
+        policy_rules: [],
+        events: [],
+      },
+      providerPresets: [
+        { id: "ollama", name: "Ollama", kind: "local", protocol: "openai", base_url: "http://127.0.0.1:11434/v1", description: "" },
+      ],
+      providerScopedModels: [
+        {
+          id: "qwen2.5-coder",
+          owned_by: "local-ollama",
+          metadata: {
+            provider: "local-ollama",
+            provider_kind: "local",
+            capabilities: { tool_calling: "basic", streaming: true, source: "operator_override" },
+          },
+        },
+      ],
+      activeAgentChatSessionID: "agent_chat_1",
+      activeAgentChatSession: {
+        id: "agent_chat_1",
+        runtime_kind: "agent",
+        title: "Repo work",
+        provider: "local-ollama",
+        model: "qwen2.5-coder",
+        workspace: "/tmp/hecate",
+        status: "running",
+        messages: [],
+      } as any,
+    });
+    render(withRuntimeConsole(<ChatView />, { state, actions }));
+
+    const controls = screen.getByLabelText("Hecate message controls");
+    const provider = within(controls).getByRole("button", { name: "Provider picker: Ollama" });
+    expect(provider.textContent).toContain("Ollama");
+    expect(provider.textContent).not.toContain("ollama");
+  });
+
   it("locks provider and model while a task-backed Hecate Agent segment is active", () => {
     const { state, actions } = setup({
       chatTarget: "agent",

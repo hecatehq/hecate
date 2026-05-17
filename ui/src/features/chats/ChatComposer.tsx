@@ -7,6 +7,7 @@ import { claudeCodeSetupTokenCommand } from "../../lib/claude-code-setup";
 import { describeGatewayError, formatErrorCode } from "../../lib/error-diagnostics";
 import { usePersistedState } from "../../lib/persistedState";
 import type { SelectedModelIssue } from "../../lib/provider-issues";
+import { providerDisplayName } from "../../lib/provider-utils";
 import type { AgentAdapterRecord, ModelRecord } from "../../types/runtime";
 import { Icon, Icons, InlineError } from "../shared/ui";
 
@@ -752,10 +753,7 @@ function providerLabelForHecateChat(state: RuntimeConsoleViewModel["state"], pro
   if (!providerID || providerID === "auto") {
     return "Select provider";
   }
-  return state.settingsConfig?.providers.find(provider => provider.id === providerID)?.name
-    || state.providerPresets.find(preset => preset.id === providerID)?.name
-    || state.providers.find(provider => provider.name === providerID)?.name
-    || providerID;
+  return providerDisplayName(providerID, state.settingsConfig?.providers, state.providerPresets, state.providers);
 }
 
 export function repairActionIcon(repair: ChatSetupRepairState) {

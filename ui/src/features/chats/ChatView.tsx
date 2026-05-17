@@ -6,6 +6,7 @@ import { resolveChatSetupRepairState, type ChatSetupRepairState } from "../../li
 import { describeGatewayError } from "../../lib/error-diagnostics";
 import { formatInteger, formatLocaleTime } from "../../lib/format";
 import { buildSelectedModelIssue } from "../../lib/provider-issues";
+import { providerDisplayName } from "../../lib/provider-utils";
 import type { AgentAdapterRecord, AgentChatActivityRecord, AgentChatSegmentRecord, AgentChatSessionRecord, AgentChatUsageRecord, ChatProviderCallRecord, LocalProviderDiscoveryRecord, ProviderPresetRecord } from "../../types/runtime";
 import { Icon, Icons } from "../shared/ui";
 import { AgentApprovalAutoModeBanner, AgentApprovalsBanner } from "./AgentApprovalBanner";
@@ -164,7 +165,7 @@ export function ChatView({ onNavigate, onOpenTask, onOpenTrace }: Props) {
     : state.providers.find(provider => provider.name === state.providerFilter);
   const selectedProviderName = state.providerFilter === "auto"
     ? "Select provider"
-    : selectedConfiguredProvider?.name || selectedRuntimeProvider?.name || state.providerFilter;
+    : providerDisplayName(state.providerFilter, configuredProviders, state.providerPresets, state.providers);
   const hecateProviderOptions = (() => {
     // Source the picker from the operator's configured providers
     // (the CP store), not the runtime status list. Health is not
@@ -186,7 +187,7 @@ export function ChatView({ onNavigate, onOpenTask, onOpenTrace }: Props) {
       const cloudUnconfigured = !!cfg && cfg.kind === "cloud" && !cfg.credential_configured;
       return {
         id: p.id,
-        name: state.providerPresets.find(pr => pr.id === p.id)?.name || p.name || p.id,
+        name: providerDisplayName(p.id, configured, state.providerPresets, state.providers),
         healthy: true,
         kind: p.kind,
         configured: cfg ? cfg.credential_configured : undefined,
@@ -1567,4 +1568,3 @@ function CopyCommandRow({ label, command, onCopy }: { label: string; command: st
 function shortID(id: string): string {
   return compactID(id, ["task_", "run_", "agent_chat_"], 8);
 }
-
