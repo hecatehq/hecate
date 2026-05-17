@@ -70,6 +70,7 @@ yet.
 | [Artifact storage v1 candidate](rfcs/artifact-storage-v1.md) | Candidate shape for persisted command output, patches, fetched resources, and artifact retention. |
 | [External agent adapters candidate](rfcs/external-agent-adapters.md) | Candidate shape for chatting with Codex, Claude Code, Cursor Agent, and future coding-agent CLIs through Hecate. |
 | [Hecate Chat and model capabilities](rfcs/unified-chats-and-model-capabilities.md) | Accepted alpha direction for Hecate Chat tools on/off segments, model capability metadata, profiles, and future probes. |
+| [Terminal / CLI distribution](rfcs/terminal-distribution.md) | Candidate shape for a terminal-first install with `hecate`, `hecate-acp`, and a future first-class TUI. |
 
 ## External Entry Points
 
