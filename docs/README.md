@@ -67,6 +67,10 @@ direction, implemented records, and experimental parking-lot ideas.
 | [RFC index](rfcs/README.md) | Catalog of active proposals, accepted alpha direction, implemented records, and experimental ideas. |
 | [Hecate Chat and model capabilities](rfcs/hecate-chat-model-capabilities.md) | Accepted alpha direction for Hecate Chat tools on/off segments, model capability metadata, profiles, and future probes. |
 | [External agent adapters](rfcs/external-agent-adapters.md) | Accepted alpha direction for Codex, Claude Code, Cursor Agent, ACP controls, approvals, readiness, diagnostics, and diff review. |
+| [Projects](rfcs/projects.md) | Active proposal for durable project identity, project-scoped memory, agent profiles, presets, and workspace separation. |
+| [Context assembly and injection boundaries](rfcs/context-assembly-and-injection-boundaries.md) | Active proposal for context packets, trust labels, prompt-injection boundaries, and "what did the model see?" inspection. |
+| [Agent memory](rfcs/agent-memory.md) | Active proposal for durable operator-authored memory that feeds context assembly. |
+| [LLM context window management](rfcs/llm-context-window-management.md) | Active proposal for token estimation, context warnings/caps, and optional fitting policies. |
 | [Terminal / CLI distribution](rfcs/terminal-distribution.md) | Active proposal for a terminal-first install with `hecate`, `hecate-acp`, and a future first-class TUI. |
 | [Event protocol v1](rfcs/event-protocol-v1.md) | Candidate event envelope; implemented for task-run event streams, but payload stability is still in progress. |
 

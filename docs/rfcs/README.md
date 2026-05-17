@@ -38,8 +38,10 @@ Implemented runtime behavior lives in the main docs:
 |---|---|---|
 | [Terminal / CLI distribution](terminal-distribution.md) | Proposed. Release archives already ship `hecate` and `hecate-acp`; the first-class TUI and terminal setup commands do not exist yet. | Decide the command surface and build the first attach-only TUI slice. |
 | [Migration CLI](migration-cli.md) | Proposed. No dedicated migration/rollback CLI exists yet. | Design `hecate migrate` around the current SQLite migration packages. |
-| [Agent memory](agent-memory.md) | Proposed. No durable memory primitive exists yet. | Reconfirm product placement now that Connections and Chat settings exist. |
-| [LLM context window management](llm-context-window-management.md) | Proposed. Hecate still needs better token estimation, context limits, truncation policy, and summarization. | Refresh naming around context limits before implementation. |
+| [Projects](projects.md) | Proposed. Hecate does not yet have durable project identities separate from concrete workspaces. | Introduce `project_id` before project-scoped memory, agent profiles, presets, and richer context assembly. |
+| [Context assembly and injection boundaries](context-assembly-and-injection-boundaries.md) | Proposed. Hecate does not yet persist an inspectable "what did the model see?" context packet. | Implement context-packet snapshots before memory or summarization work. |
+| [Agent memory](agent-memory.md) | Proposed. No durable operator-authored memory primitive exists yet. | Build after context packets so memory inclusion is visible and auditable. |
+| [LLM context window management](llm-context-window-management.md) | Proposed. Hecate still needs token estimation, context warnings/caps, and optional fitting policies. | Use context packets as the estimator input; keep trust decisions in context assembly. |
 | [Import external chat history](import-external-chat-history.md) | Proposed. Import from Claude Code and Codex transcripts is not implemented. | Keep as-is until import work starts. |
 | [Embeddings](embeddings.md) | Proposed. OpenAI-compatible embeddings routing is not implemented. | Refresh provider/capability references before implementation. |
 | [Provider response extensions](provider-response-extensions.md) | Proposed. Vendor-specific response extras are still not preserved end-to-end. | Use when adding Perplexity citations, DeepSeek/xAI reasoning content, or Gemini citation metadata. |
