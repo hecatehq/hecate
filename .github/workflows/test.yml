@@ -191,10 +191,20 @@ jobs:
         run: go vet ./...
 
   test-go:
-    name: Go tests
+    name: Go tests (${{ matrix.name }})
     needs: changes
     if: needs.changes.outputs.go == 'true' || needs.changes.outputs.workflow == 'true'
-    runs-on: ubuntu-latest
+    runs-on: ${{ matrix.os }}
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - name: Linux race
+            os: ubuntu-latest
+            command: go test -race -timeout 10m ./...
+          - name: Windows bootstrap
+            os: windows-latest
+            command: go test ./internal/bootstrap
     steps:
       - uses: actions/checkout@v6
 
@@ -204,23 +214,7 @@ jobs:
           cache: true
 
       - name: Test
-        run: go test -race -timeout 10m ./...
-
-  test-bootstrap-windows:
-    name: Bootstrap tests (Windows)
-    needs: changes
-    if: needs.changes.outputs.go == 'true' || needs.changes.outputs.workflow == 'true'
-    runs-on: windows-latest
-    steps:
-      - uses: actions/checkout@v6
-
-      - uses: actions/setup-go@v6
-        with:
-          go-version-file: go.mod
-          cache: true
-
-      - name: Test bootstrap package
-        run: go test ./internal/bootstrap
+        run: ${{ matrix.command }}
 
   build-hecate:
     name: Build hecate
@@ -475,7 +469,6 @@ jobs:
       - test-tauri-rust
       - lint-go
       - test-go
-      - test-bootstrap-windows
       - build-hecate
       - e2e
       - e2e-ollama
@@ -511,7 +504,6 @@ jobs:
       contains(fromJSON('["success","skipped"]'), needs.test-tauri-rust.result) &&
       contains(fromJSON('["success","skipped"]'), needs.lint-go.result) &&
       contains(fromJSON('["success","skipped"]'), needs.test-go.result) &&
-      contains(fromJSON('["success","skipped"]'), needs.test-bootstrap-windows.result) &&
       contains(fromJSON('["success","skipped"]'), needs.build-hecate.result) &&
       contains(fromJSON('["success","skipped"]'), needs.e2e.result) &&
       contains(fromJSON('["success","skipped"]'), needs.e2e-ollama.result) &&
