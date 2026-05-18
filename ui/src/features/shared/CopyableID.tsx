@@ -1,4 +1,4 @@
-import { useState } from "react";
+import { useEffect, useRef, useState } from "react";
 
 import { Icon, Icons } from "./Icons";
 
@@ -12,15 +12,40 @@ function compactID(text: string): string {
 // the tooltip and clipboard; the visible label stays compact.
 export function CopyableID({ text, compact = false }: { text: string; compact?: boolean }) {
   const [copied, setCopied] = useState(false);
+  const resetTimerRef = useRef<number | null>(null);
   const label = compact ? compactID(text) : text;
+
+  useEffect(() => {
+    return () => {
+      if (resetTimerRef.current !== null) {
+        window.clearTimeout(resetTimerRef.current);
+      }
+    };
+  }, []);
+
+  function markCopied() {
+    if (resetTimerRef.current !== null) {
+      window.clearTimeout(resetTimerRef.current);
+    }
+    setCopied(true);
+    resetTimerRef.current = window.setTimeout(() => {
+      setCopied(false);
+      resetTimerRef.current = null;
+    }, 1500);
+  }
+
   return (
     <button
       type="button"
-      onClick={e => {
+      onClick={async e => {
         e.stopPropagation();
-        navigator.clipboard?.writeText(text).catch(() => {});
-        setCopied(true);
-        window.setTimeout(() => setCopied(false), 1500);
+        if (!navigator.clipboard?.writeText) return;
+        try {
+          await navigator.clipboard.writeText(text);
+          markCopied();
+        } catch {
+          // Keep the icon honest: no success state unless the browser confirms the write.
+        }
       }}
       title={text}
       aria-label={`Copy ${text}`}
