@@ -287,9 +287,9 @@ test("conflict response surfaces the inline error inside the modal", async ({ pa
   // Override the create route to return 409 unconditionally — the stateful
   // fixture would only return 409 on a real duplicate, and we want to pin
   // the inline-error path without juggling two adds.
-  await page.route("/hecate/v1/settings/providers", (route) => {
+  await page.route("/hecate/v1/settings/providers", async (route) => {
     if (route.request().method() === "POST") {
-      route.fulfill({
+      await route.fulfill({
         status: 409,
         contentType: "application/json",
         body: JSON.stringify({
@@ -301,7 +301,7 @@ test("conflict response surfaces the inline error inside the modal", async ({ pa
       });
       return;
     }
-    route.continue();
+    await route.continue();
   });
 
   await page

@@ -20,6 +20,8 @@
   "rules": {
     "react/react-in-jsx-scope": "off",
     "import/no-unassigned-import": "off",
+    "typescript/no-base-to-string": "off",
+    "typescript/no-redundant-type-constituents": "off",
     "vitest/require-mock-type-parameters": "off",
     "react-hooks/exhaustive-deps": "off",
     "jsx-a11y/aria-role": "off",

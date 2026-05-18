@@ -284,7 +284,7 @@ Tests use `withRuntimeConsole(ui, fixture)` from `src/test/runtime-console-rende
 | Command                                         | What it does                                        | When to use                                      |
 | ----------------------------------------------- | --------------------------------------------------- | ------------------------------------------------ |
 | `bun run typecheck`                             | `tsgo -b` — fast type check, no test execution      | First sanity check after edits                   |
-| `bun run lint`                                  | Oxc lint checks                                     | Before committing                                |
+| `bun run lint`                                  | Type-aware Oxc lint checks                          | Before committing                                |
 | `bun run format:check`                          | Oxfmt formatting check                              | Before committing                                |
 | `just docs-format-check`                        | Oxfmt Markdown / `.mdc` formatting check            | When UI changes update docs or screenshots       |
 | `bun run test`                                  | `vitest run` — full test suite                      | Before committing                                |
@@ -295,10 +295,11 @@ Tests use `withRuntimeConsole(ui, fixture)` from `src/test/runtime-console-rende
 **Never `bun test`** — it skips testing-library DOM setup and panics with `document[isPrepared]`. Always `bun run test`.
 
 Oxc config lives at repo root in `.oxlintrc.json` and is shared by the UI and
-website. It enables the React, JSX accessibility, Vitest, import, TypeScript,
-Unicorn, and Oxc rule families, with current legacy-noise rules disabled
-explicitly. Do not loosen the config casually; if a rule is noisy, name the
-specific rule and why it is disabled.
+website. UI and website lint scripts run `oxlint --type-aware`, backed by the
+`oxlint-tsgolint` package. The config enables the React, JSX accessibility,
+Vitest, import, TypeScript, Unicorn, and Oxc rule families, with current
+legacy-noise rules disabled explicitly. Do not loosen the config casually; if a
+rule is noisy, name the specific rule and why it is disabled.
 
 Markdown and `.mdc` docs are formatted by Oxfmt through `just docs-format` /
 `just docs-format-check`. Keep lychee for link and anchor validation; Oxfmt

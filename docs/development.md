@@ -164,9 +164,10 @@ The race detector is the strongest correctness check (and the slowest); CI runs 
 
 Before cutting a public tag, run `just verify` and follow the checklist in [Release](release.md).
 
-TypeScript linting uses Oxc. `just ui-lint`, `just ui-format-check`,
-`just website-lint`, `just website-format-check`, and `just docs-format-check`
-are part of `just verify` and CI. Formatting commands (`just ui-format`,
+TypeScript linting uses Oxc with type-aware checks through `oxlint-tsgolint`.
+`just ui-lint`, `just ui-format-check`, `just website-lint`,
+`just website-format-check`, and `just docs-format-check` are part of
+`just verify` and CI. Formatting commands (`just ui-format`,
 `just website-format`, `just docs-format`) are available for intentional
 cleanup passes; review the resulting diff like any other code change. The
 shared `.oxlintrc.json` enables React, accessibility, Vitest, import,
