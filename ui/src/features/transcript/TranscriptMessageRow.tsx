@@ -583,7 +583,7 @@ function AgentTiming({ timing }: { timing: ChatTimingRecord }) {
     .join(" · ");
   return (
     <div
-      aria-label="Hecate Agent timing summary"
+      aria-label="Hecate Chat timing summary"
       style={{
         background: "rgba(0, 194, 184, 0.05)",
         border: "1px solid var(--teal-border)",

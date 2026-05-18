@@ -283,7 +283,7 @@ describe("useRuntimeConsole", () => {
               object: "chat_session",
               data: {
                 id: "chat_hecate",
-                title: "Hecate Agent chat",
+                title: "Hecate Chat",
                 agent_id: "hecate",
                 provider: "",
                 model: "gpt-4o-mini",
@@ -398,7 +398,7 @@ describe("useRuntimeConsole", () => {
               object: "chat_session",
               data: {
                 id: "chat_ollama",
-                title: "Hecate Agent chat",
+                title: "Hecate Chat",
                 agent_id: "hecate",
                 provider: "ollama",
                 model: "llama3.1:8b",
@@ -499,6 +499,65 @@ describe("useRuntimeConsole", () => {
       "Choose a workspace before using Hecate Chat tools or External Agent.",
     );
     expect(result.current.state.chatErrorCode).toBe("chat.workspace_required");
+  });
+
+  it("starts a direct Hecate chat when the selected model explicitly has no tools", async () => {
+    window.localStorage.setItem("hecate.chatTarget", "agent");
+    window.localStorage.setItem("hecate.model", "llama3.1:8b");
+    let createBody: any = null;
+    fetchMock.mockImplementation(
+      defaultBackendMock({
+        "/v1/models": () =>
+          jsonResponse({
+            object: "list",
+            data: [
+              {
+                id: "llama3.1:8b",
+                owned_by: "ollama",
+                metadata: {
+                  provider: "ollama",
+                  provider_kind: "local",
+                  capabilities: { tool_calling: "none", streaming: true },
+                },
+              },
+            ],
+          }),
+        "/hecate/v1/chat/sessions": (init) => {
+          if (init?.method === "POST") {
+            createBody = JSON.parse(String(init.body ?? "{}"));
+            return jsonResponse({
+              object: "chat_session",
+              data: {
+                id: "chat_direct_tools_unavailable",
+                title: "Hecate Chat",
+                agent_id: "hecate",
+                provider: "",
+                model: "llama3.1:8b",
+                status: "idle",
+                messages: [],
+              },
+            });
+          }
+          return jsonResponse({ object: "chat_sessions", data: [] });
+        },
+      }),
+    );
+
+    const { result } = renderRuntimeConsoleHook();
+    await waitFor(() => expect(result.current.state.loading).toBe(false));
+
+    await act(async () => {
+      await result.current.actions.createChatSession();
+    });
+
+    expect(createBody).toMatchObject({
+      agent_id: "hecate",
+      model: "llama3.1:8b",
+    });
+    expect(createBody).not.toHaveProperty("workspace");
+    expect(result.current.state.activeChatSessionID).toBe("chat_direct_tools_unavailable");
+    expect(result.current.state.chatTarget).toBe("model");
+    expect(result.current.state.chatError).toBe("");
   });
 
   it("surfaces a clear error when external-agent chat has no workspace", async () => {
@@ -3049,14 +3108,14 @@ describe("humanizeChatError", () => {
 
   it("humanizes busy, unroutable model, and upstream provider errors", async () => {
     const { humanizeChatError } = await import("./runtime-console-test-composer");
-    expect(humanizeChatError("Hecate Agent is already running for this chat session.")).toBe(
+    expect(humanizeChatError("Hecate Chat is already running for this chat session.")).toBe(
       "Hecate Chat is still working on this task. Open the task, resolve approval, or stop it before sending another message.",
     );
     expect(humanizeChatError("workspace is required")).toBe(
       "Choose a workspace before using Hecate Chat tools or External Agent.",
     );
     expect(humanizeChatError("tool calling support is unknown")).toBe(
-      "This model is not marked as tool-capable. Turn tools off, test it, or enable tools in Connections → Model capabilities.",
+      "This model is not marked as tool-capable. Send directly, test it, or enable tools in Connections → Model capabilities.",
     );
     expect(
       humanizeChatError('route request: no provider supports explicit model "gpt-5.4-mini"'),

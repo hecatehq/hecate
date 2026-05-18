@@ -38,7 +38,7 @@ export function ChatInstructionsPanel({
       </div>
       <div style={{ color: "var(--t2)", fontSize: 12, marginBottom: 8, lineHeight: 1.45 }}>
         {isHecateAgentChat
-          ? "This is the system prompt for future Hecate Agent turns. It steers the model, but does not change approval policy, sandboxing, or external-agent settings."
+          ? "This is the system prompt for future tool-backed Hecate Chat turns. It steers the model, but does not change approval policy, sandboxing, or external-agent settings."
           : "This is the system prompt for future direct model turns in this Hecate Chat."}
       </div>
       <textarea

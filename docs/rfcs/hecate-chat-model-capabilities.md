@@ -229,17 +229,23 @@ The operator UI may also keep a local FIFO for prompts typed while the backing
 task is busy. That queue is a UX layer above the API invariant: queued prompts
 are not persisted until the UI submits them after the active task settles.
 
-If tools are explicitly disabled for the selected model, the message endpoint returns:
+If tools are explicitly disabled for the selected model and the client still
+requests `execution_mode="hecate_task"`, the message endpoint returns:
 
 ```text
 422 chat.model_capability_required
 ```
 
-The UI copy is:
+The API copy is:
 
 ```text
-Tools are disabled for this model. Turn tools off for direct model chat or enable tools in Connections.
+Tools are unavailable for this model. Continue with direct model chat or enable tools in Connections.
 ```
+
+The operator UI should normally avoid this server error: when the selected model
+is explicitly `tool_calling="none"`, Hecate Chat keeps the composer sendable and
+starts a direct model segment instead. The UI still shows a repair affordance to
+enable/test tool support in Connections.
 
 ## Workspace Modes
 
@@ -340,28 +346,30 @@ Shows:
 - live run activity from task-run events
 - pending task approvals with Approve / Deny actions
 
-Send is disabled unless a workspace is selected. If the selected model has
-`tool_calling="none"`, the tools-on send path is disabled and the operator can
-either turn tools off for direct model chat or enable tools in Connections.
+Task-backed sends are disabled unless a workspace is selected. If the selected
+model has `tool_calling="none"`, Hecate Chat should keep normal chat available:
+the next send starts a direct model segment, the tools indicator reports that
+tools are unavailable for the selected model, and repair copy points to
+Connections for capability override/probe controls.
 
-When a Hecate Agent task-backed segment is running, provider/model controls are
-locked to that segment's snapshot and the chat composer treats the whole
-session as busy. Operators can turn tools off while waiting, but direct model
-sends are blocked until the backing task finishes, is cancelled, or reaches an
-approval the operator resolves. The busy composer should keep **Open task** and
-**Stop** close to the input so the operator does not need to hunt for the
-canonical Task view. After the active task settles, tools-off sends create
-normal direct model segments; turning tools on again creates a new task-backed
-segment instead of mutating the older task.
+When a task-backed Hecate Chat segment is running, provider/model controls are
+locked to that segment's snapshot and the chat composer treats the whole session
+as busy. Operators can turn tools off while waiting, but direct model sends are
+blocked until the backing task finishes, is cancelled, or reaches an approval
+the operator resolves. The busy composer should keep **Open task** and **Stop**
+close to the input so the operator does not need to hunt for the canonical Task
+view. After the active task settles, tools-off sends create normal direct model
+segments; turning tools on again creates a new task-backed segment instead of
+mutating the older task.
 
 On browser refresh or reconnect, the UI should hydrate from the persisted
 Agent Chat session plus its backing task/run snapshot. Active task-backed
 segments must come back as running, awaiting approval, completed, cancelled, or
 failed without requiring a fresh prompt.
 
-Hecate Agent uses the task runtime, so approvals, artifacts, diff/patch review,
-workspace modes, retry/resume, and OTel should come from Tasks rather than a
-new parallel agent runtime.
+Task-backed Hecate Chat uses the task runtime, so approvals, artifacts,
+diff/patch review, workspace modes, retry/resume, and OTel should come from
+Tasks rather than a new parallel agent runtime.
 
 ### External Agent
 
@@ -379,15 +387,15 @@ Memory and SQLite must persist:
 - Hecate Agent profiles
 - selected `agent_profile_id`
 - `agent_id`
-- Hecate Agent task/run linkage fields on chat sessions
+- task-backed Hecate Chat task/run linkage fields on chat sessions
 - per-message `execution_mode`, `segment_id`, provider/model, capability
   snapshot, and task/run linkage
 - derived API segment metadata from the persisted message snapshots
-- workspace mode snapshot on Hecate Agent sessions
+- workspace mode snapshot on task-backed Hecate Chat sessions
 
 The effective capability record is a snapshot at session creation time. Model
-metadata can change later, but a running Hecate Agent session should keep the
-capability record it was created with for audit/debugging.
+metadata can change later, but a running task-backed Hecate Chat segment should
+keep the capability record it was created with for audit/debugging.
 
 Profile settings and workspace mode should also be snapshotted onto the
 session or backing task. Historical sessions should explain what was actually
@@ -401,16 +409,17 @@ Minimum coverage:
   unknown local default.
 - `/v1/models` includes capability metadata.
 - Override/probe endpoints persist and affect `/v1/models`.
-- Hecate Agent first message creates a visible task/run.
-- Hecate Agent follow-up continues the same task after the latest run is
+- Task-backed Hecate Chat first message creates a visible task/run.
+- Task-backed Hecate Chat follow-up continues the same task after the latest run is
   terminal.
 - Busy backing runs return `409 chat.agent_session_busy`.
-- Explicitly disabled tools return `422 chat.model_capability_required`.
+- Explicit `hecate_task` requests against models with disabled tools return
+  `422 chat.model_capability_required`.
 - Memory/SQLite parity for capability records and new session fields.
-- UI target picker, tools on/off switches, disabled Hecate Agent send state, and
-  task/run links.
-- Hecate Agent run activity projection from task-run SSE into Chats.
-- Hecate Agent task approval banner in Chats, including approve, reject, and a
+- UI target picker, tools on/off switches, tools-unavailable direct fallback,
+  and task/run links.
+- Task-backed Hecate Chat run activity projection from task-run SSE into Chats.
+- Task-backed Hecate Chat task approval banner in Chats, including approve, reject, and a
   link to the backing Task.
 - Busy-state UX and local queued-prompt behavior in Chats.
 - Workspace mode selection and task creation parity.

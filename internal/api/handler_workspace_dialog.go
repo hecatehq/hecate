@@ -40,7 +40,7 @@ func chooseWorkspaceDirectory(ctx context.Context) (string, error) {
 			dialogCtx,
 			"osascript",
 			"-e",
-			`POSIX path of (choose folder with prompt "Choose a workspace for Hecate Agent Chat")`,
+			`POSIX path of (choose folder with prompt "Choose a workspace for Hecate Chat")`,
 		).CombinedOutput()
 		if isWorkspaceDialogCancelled(err, string(out)) {
 			return "", nil

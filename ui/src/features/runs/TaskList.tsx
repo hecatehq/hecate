@@ -168,9 +168,7 @@ export function TaskList({
                   <span
                     className="badge badge-muted"
                     title={
-                      t.origin_id
-                        ? `Created from chat ${t.origin_id}`
-                        : "Created from a Hecate Agent chat"
+                      t.origin_id ? `Created from chat ${t.origin_id}` : "Created from Hecate Chat"
                     }
                     style={{
                       fontSize: 9,

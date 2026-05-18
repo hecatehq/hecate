@@ -167,7 +167,7 @@ export function ChatTranscript({
               })
             : "";
           const agentModel = isHecateAgentChat
-            ? m.model || activeChatSession?.model || "Hecate Agent"
+            ? m.model || activeChatSession?.model || "Hecate Chat"
             : m.agent_name || m.agent_id;
           const agentRuntime =
             role === "assistant"

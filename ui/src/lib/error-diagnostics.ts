@@ -44,7 +44,7 @@ const diagnostics: Record<string, GatewayErrorDiagnostic> = {
   },
   "chat.workspace_required": {
     title: "Workspace required",
-    action: "Choose a workspace before using Hecate Agent or External Agent.",
+    action: "Choose a workspace before using Hecate Chat tools or an external agent.",
     tone: "warning",
   },
   "chat.model_required": {
@@ -61,7 +61,7 @@ const diagnostics: Record<string, GatewayErrorDiagnostic> = {
   "chat.model_capability_required": {
     title: "Tools unavailable for this model",
     action:
-      "Turn tools off for direct model chat, test the model, or enable tool support in Connections.",
+      "Continue with direct model chat, test the model, or enable tool support in Connections.",
     tone: "warning",
   },
   "chat.agent_session_busy": {

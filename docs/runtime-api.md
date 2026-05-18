@@ -58,20 +58,20 @@ Hecate-native JSON errors use one stable envelope:
 
 Common Hecate-native error types:
 
-| Type                                   | Status | Meaning                                                                         |
-| -------------------------------------- | -----: | ------------------------------------------------------------------------------- |
-| `invalid_request`                      |    400 | Request JSON, query parameters, or required fields are invalid.                 |
-| `not_found`                            |    404 | The requested Hecate resource does not exist.                                   |
-| `conflict`                             |    409 | The resource changed state or the requested transition is not valid now.        |
-| `gateway_error`                        |    500 | Hecate failed before it could classify the failure more specifically.           |
-| `rate_limit_exceeded`                  |    429 | The local gateway rate limiter rejected the request.                            |
-| `model_not_configured`                 |    422 | The selected model is stale or not currently reported by the selected provider. |
-| `chat.agent_session_busy`              |    409 | A Hecate Chat task-backed loop is queued, running, or awaiting approval.        |
-| `chat.model_capability_required`       |    422 | Tools are on, but the model is not marked tool-capable.                         |
-| `chat.workspace_required`              |    400 | Task-backed Hecate Chat or External Agent chat needs a workspace path.          |
-| `chat.session_limit_exceeded`          |    422 | The chat turn limit was reached.                                                |
-| `chat.session_duration_limit_exceeded` |    422 | The chat wall-clock limit was reached.                                          |
-| `chat.session_idle_timeout`            |    422 | The chat was idle beyond the configured timeout.                                |
+| Type                                   | Status | Meaning                                                                          |
+| -------------------------------------- | -----: | -------------------------------------------------------------------------------- |
+| `invalid_request`                      |    400 | Request JSON, query parameters, or required fields are invalid.                  |
+| `not_found`                            |    404 | The requested Hecate resource does not exist.                                    |
+| `conflict`                             |    409 | The resource changed state or the requested transition is not valid now.         |
+| `gateway_error`                        |    500 | Hecate failed before it could classify the failure more specifically.            |
+| `rate_limit_exceeded`                  |    429 | The local gateway rate limiter rejected the request.                             |
+| `model_not_configured`                 |    422 | The selected model is stale or not currently reported by the selected provider.  |
+| `chat.agent_session_busy`              |    409 | A Hecate Chat task-backed loop is queued, running, or awaiting approval.         |
+| `chat.model_capability_required`       |    422 | A task-backed Hecate Chat turn was requested, but the model is not tool-capable. |
+| `chat.workspace_required`              |    400 | Task-backed Hecate Chat or External Agent chat needs a workspace path.           |
+| `chat.session_limit_exceeded`          |    422 | The chat turn limit was reached.                                                 |
+| `chat.session_duration_limit_exceeded` |    422 | The chat wall-clock limit was reached.                                           |
+| `chat.session_idle_timeout`            |    422 | The chat was idle beyond the configured timeout.                                 |
 
 OpenAI-compatible and Anthropic-compatible ingress paths keep their protocol
 shape, but gateway-classified failures also include the same
@@ -1487,7 +1487,7 @@ Chat execution errors:
 | `409`  | `chat.session_stopping`          | The session is still cancelling or closing; retry after it settles.                                                                                                                      |
 | `409`  | `chat.session_not_running`       | A stop request was issued when no run was active.                                                                                                                                        |
 | `422`  | `model_not_configured`           | The selected model is not currently reported by the selected provider. Choose a discovered model or refresh/fix provider discovery.                                                      |
-| `422`  | `chat.model_capability_required` | Tools are explicitly disabled for the selected model. Turn tools off for direct model chat or enable tools in Connections.                                                               |
+| `422`  | `chat.model_capability_required` | A task-backed Hecate Chat turn was explicitly requested, but tools are unavailable for the selected model. Continue with direct model chat or enable tools in Connections.               |
 
 Client note: browser/operator clients may queue a prompt locally when they
 receive or predict `chat.agent_session_busy`, but the server still

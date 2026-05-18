@@ -610,7 +610,7 @@ func (h *Handler) HandleCreateChatMessage(w http.ResponseWriter, r *http.Request
 		return
 	case chat.ExecutionModeHecateTask:
 		if isExternalChatSession(session) {
-			writeAgentChatRuntimeMismatch(w, "external agent sessions cannot run Hecate Agent turns")
+			writeAgentChatRuntimeMismatch(w, "external agent sessions cannot run task-backed Hecate Chat turns")
 			return
 		}
 		h.handleCreateHecateChatMessage(w, r, session, req)

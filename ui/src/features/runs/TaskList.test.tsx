@@ -213,7 +213,7 @@ describe("TaskList", () => {
     expect(screen.getByText("agent")).toBeTruthy();
   });
 
-  it("renders Hecate Agent chat origin metadata", () => {
+  it("renders Hecate Chat origin metadata", () => {
     const { render } = setup({
       tasks: [
         makeTask({

@@ -233,7 +233,7 @@ export function activityDisplay(activity: ChatActivityRecord): { title: string; 
       detail: cleanActivityDetail(activity) || activity.title,
     };
   }
-  if (activity.type === "started" && /^Starting Hecate Agent$/i.test(activity.title.trim())) {
+  if (activity.type === "started" && /^Starting Hecate Chat tools$/i.test(activity.title.trim())) {
     return { title: "Starting agent", detail: cleanActivityDetail(activity) };
   }
   if (activity.type === "cancelled") {

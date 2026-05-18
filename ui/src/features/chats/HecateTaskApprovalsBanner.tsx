@@ -138,7 +138,7 @@ export function HecateTaskApprovalsBanner({
   const overflow = approvals.length - visible.length;
   return (
     <ChatNoticeFrame
-      aria-label="Pending Hecate Agent task approvals"
+      aria-label="Pending Hecate Chat task approvals"
       testID="hecate-task-approval-banner"
       tone="amber"
     >

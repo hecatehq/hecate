@@ -192,11 +192,11 @@ func defaultErrorAction(code string) string {
 	case errCodeAgentSessionBusy:
 		return "Open the backing task, resolve the pending approval, or stop the run before sending another message."
 	case errCodeModelCapability:
-		return "Turn tools off for direct model chat, test the model, or enable tool support in Connections."
+		return "Send as direct model chat, test the model, or enable tool support in Connections."
 	case errCodeModelNotConfigured:
 		return "Choose a discovered model, refresh provider status, or open Connections to fix model discovery."
 	case errCodeWorkspaceRequired:
-		return "Use the workspace picker in Chats. Hecate Agent and External Agent sessions need a real workspace path."
+		return "Use the workspace picker in Chats. Task-backed Hecate Chat and External Agent sessions need a real workspace path."
 	case errCodeModelRequired:
 		return "Use the model picker in the chat header, or add a provider that reports at least one model."
 	case errCodeAgentIDInvalid, errCodeExecutionModeInvalid:

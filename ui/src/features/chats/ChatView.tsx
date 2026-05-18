@@ -14,6 +14,7 @@ import {
 } from "../../app/state/coordinators/wired";
 import { discoverLocalProviders } from "../../lib/api";
 import {
+  modelSelectionHasNoToolCalling,
   resolveChatSetupRepairState,
   type ChatSetupRepairState,
 } from "../../lib/chat-setup-readiness";
@@ -358,15 +359,6 @@ export function ChatView({ onNavigate, onOpenTask, onOpenTrace }: Props) {
       ? sidebarSessionAgentLabel(state.activeChatSession, state.agentAdapters)
       : chatAgentOption(newChatAgentID, state.agentAdapters).label
     : selectedProviderName;
-  const activeHeaderSubline = buildActiveChatHeaderSubline({
-    isAgentChat,
-    isExternalAgentChat,
-    isHecateAgentChat,
-    activeSession: state.activeChatSession,
-    selectedAgent,
-    newChatAgentID,
-    adapters: state.agentAdapters,
-  });
   const latestChatUsage = isAgentChat ? findLatestAgentUsage(state.activeChatSession) : null;
   const selectedHecateModelRecord = hecateAgentModelLocked
     ? undefined
@@ -390,7 +382,14 @@ export function ChatView({ onNavigate, onOpenTask, onOpenTrace }: Props) {
   const selectedModelCapabilities = hecateAgentModelLocked
     ? state.activeChatSession?.capabilities
     : selectedHecateModelRecord?.metadata?.capabilities;
-  const hecateAgentToolsDisabledForModel = selectedModelCapabilities?.tool_calling === "none";
+  const hecateAgentToolsDisabledForModel = hecateAgentModelLocked
+    ? selectedModelCapabilities?.tool_calling === "none"
+    : modelSelectionHasNoToolCalling({
+        models: selectableModels,
+        providerFilter: state.providerFilter,
+        model: state.model,
+      });
+  const hecateTaskToolsAvailable = isHecateAgentChat && !hecateAgentToolsDisabledForModel;
   const selectedCapabilityProvider = hecateAgentModelLocked
     ? ""
     : state.providerFilter !== "auto"
@@ -401,7 +400,17 @@ export function ChatView({ onNavigate, onOpenTask, onOpenTrace }: Props) {
     isHecateAgentChat && hecateAgentModelLocked
       ? Boolean(hecateChatModelValue)
       : Boolean(state.model) && !modelRouteUnavailable && !selectedModelIssue;
-  const showHeaderWorkspaceButton = isExternalAgentChat || isHecateAgentChat;
+  const showHeaderWorkspaceButton = isExternalAgentChat || hecateTaskToolsAvailable;
+  const activeHeaderSubline = buildActiveChatHeaderSubline({
+    isAgentChat,
+    isExternalAgentChat,
+    isHecateAgentChat,
+    hecateTaskToolsAvailable,
+    activeSession: state.activeChatSession,
+    selectedAgent,
+    newChatAgentID,
+    adapters: state.agentAdapters,
+  });
   const showClaudeCodeEmptyPreflight =
     isExternalAgentChat &&
     visibleMessages.length === 0 &&
@@ -452,7 +461,8 @@ export function ChatView({ onNavigate, onOpenTask, onOpenTrace }: Props) {
     (!agentBusy && isExternalAgentChat && Boolean(claudeCodePreflight?.blockSend)) ||
     (!agentBusy &&
       isHecateAgentChat &&
-      (!state.agentWorkspace.trim() || !hecateChatModelReady || hecateAgentToolsDisabledForModel));
+      (!hecateChatModelReady ||
+        (!hecateAgentToolsDisabledForModel && !state.agentWorkspace.trim())));
 
   async function enableToolsForSelectedModel() {
     if (!selectedCapabilityProvider || !selectedCapabilityModel || capabilitySaving) {
@@ -873,7 +883,7 @@ export function ChatView({ onNavigate, onOpenTask, onOpenTrace }: Props) {
               isAgentChat={isAgentChat}
               isHecateChat={isHecateChat}
               isExternalAgentChat={isExternalAgentChat}
-              isHecateAgentChat={isHecateAgentChat}
+              hecateTaskToolsAvailable={hecateTaskToolsAvailable}
               activeSessionID={activeSessionID}
               textareaRef={textareaRef}
               composerVisible={composerVisible}
@@ -970,6 +980,7 @@ function buildActiveChatHeaderSubline({
   isAgentChat,
   isExternalAgentChat,
   isHecateAgentChat,
+  hecateTaskToolsAvailable,
   activeSession,
   selectedAgent,
   newChatAgentID,
@@ -978,6 +989,7 @@ function buildActiveChatHeaderSubline({
   isAgentChat: boolean;
   isExternalAgentChat: boolean;
   isHecateAgentChat: boolean;
+  hecateTaskToolsAvailable: boolean;
   activeSession: ChatSessionRecord | null;
   selectedAgent?: AgentAdapterRecord;
   newChatAgentID: string;
@@ -990,7 +1002,11 @@ function buildActiveChatHeaderSubline({
       : `${chatAgentOption(newChatAgentID, adapters).label} · new session`;
     return [base, activeSession?.workspace || ""].filter(Boolean).join(" · ");
   }
-  const mode = isHecateAgentChat ? "Tools on" : "Tools off";
+  const mode = isHecateAgentChat
+    ? hecateTaskToolsAvailable
+      ? "Tools on"
+      : "Tools unavailable"
+    : "Tools off";
   return [mode, activeSession?.workspace || ""].filter(Boolean).join(" · ");
 }
 

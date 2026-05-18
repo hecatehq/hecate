@@ -98,7 +98,7 @@ func registerHecateAgentRoutes(mux *http.ServeMux, handler *Handler) {
 
 func registerHecateTaskRoutes(mux *http.ServeMux, handler *Handler) {
 	// Native task/runtime API: tasks, runs, approvals, events, patches, and
-	// artifacts. This is the canonical execution surface for Hecate Agent.
+	// artifacts. This is the canonical execution surface for task-backed Hecate Chat.
 	mux.HandleFunc("GET /hecate/v1/tasks", handler.HandleTasks)
 	mux.HandleFunc("POST /hecate/v1/tasks", handler.HandleCreateTask)
 	mux.HandleFunc("GET /hecate/v1/tasks/{id}", handler.HandleTask)

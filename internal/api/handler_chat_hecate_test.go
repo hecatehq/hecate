@@ -32,7 +32,7 @@ func TestHecateAgentChatCreatesVisibleTaskAndContinuesSameTask(t *testing.T) {
 			CreatedAt: time.Now().UTC(),
 			Choices: []types.ChatChoice{{
 				Index:        0,
-				Message:      types.Message{Role: "assistant", Content: "Hecate Agent final answer."},
+				Message:      types.Message{Role: "assistant", Content: "Hecate Chat final answer."},
 				FinishReason: "stop",
 			}},
 			Usage: types.Usage{PromptTokens: 10, CompletionTokens: 4, TotalTokens: 14},
@@ -70,7 +70,7 @@ func TestHecateAgentChatCreatesVisibleTaskAndContinuesSameTask(t *testing.T) {
 	if first.Data.Status != "completed" {
 		t.Fatalf("first status = %q, want completed", first.Data.Status)
 	}
-	if len(first.Data.Messages) < 2 || !strings.Contains(first.Data.Messages[len(first.Data.Messages)-1].Content, "Hecate Agent final answer") {
+	if len(first.Data.Messages) < 2 || !strings.Contains(first.Data.Messages[len(first.Data.Messages)-1].Content, "Hecate Chat final answer") {
 		t.Fatalf("first transcript = %+v", first.Data.Messages)
 	}
 	assistant := first.Data.Messages[len(first.Data.Messages)-1]
@@ -90,7 +90,7 @@ func TestHecateAgentChatCreatesVisibleTaskAndContinuesSameTask(t *testing.T) {
 		t.Fatalf("assistant activities missing projected task run result activity: %+v", assistant.Activities)
 	}
 	if assistant.Timing == nil || assistant.Timing.TurnCount == 0 || assistant.Timing.Bottleneck == "" {
-		t.Fatalf("assistant timing = %+v, want persisted Hecate Agent run timing", assistant.Timing)
+		t.Fatalf("assistant timing = %+v, want persisted Hecate Chat run timing", assistant.Timing)
 	}
 
 	taskResponse := mustRequestJSON[TaskResponse](client, http.MethodGet, "/hecate/v1/tasks/"+first.Data.TaskID, "")
@@ -906,7 +906,7 @@ func TestHecateAgentChatRejectsDisabledToolCapability(t *testing.T) {
 	if payload.Error.Type != errCodeModelCapability {
 		t.Fatalf("error type = %q, want %s", payload.Error.Type, errCodeModelCapability)
 	}
-	if !strings.Contains(payload.Error.Message, "Tools are disabled for this model") {
+	if !strings.Contains(payload.Error.Message, "Tools are unavailable for this model") {
 		t.Fatalf("message = %q", payload.Error.Message)
 	}
 }

@@ -303,7 +303,7 @@ describe("activityDisplay", () => {
 
   it("renders 'Starting agent' for the canonical start-row title", () => {
     expect(
-      activityDisplay(activity({ type: "started", title: "Starting Hecate Agent" })).title,
+      activityDisplay(activity({ type: "started", title: "Starting Hecate Chat tools" })).title,
     ).toBe("Starting agent");
   });
 

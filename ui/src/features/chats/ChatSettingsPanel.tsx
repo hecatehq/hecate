@@ -250,6 +250,7 @@ function ChatSettingsToolsRow({
   disabled: boolean;
   onChange: (enabled: boolean) => void;
 }) {
+  const effectiveEnabled = enabled && !disabled;
   return (
     <div
       style={{
@@ -266,33 +267,34 @@ function ChatSettingsToolsRow({
       <div>
         <div style={{ fontSize: 12, fontWeight: 650, color: "var(--t0)" }}>Tools</div>
         <div style={{ marginTop: 3, fontSize: 11, color: "var(--t3)", lineHeight: 1.45 }}>
-          {enabled
+          {effectiveEnabled
             ? "Use Hecate's task runtime, approvals, artifacts, and sandboxed tool calls."
             : "Send the next turn directly to the selected provider/model without local tools."}
         </div>
         {disabled && (
           <div style={{ marginTop: 4, fontSize: 11, color: "var(--amber)", lineHeight: 1.45 }}>
-            This model does not have known tool-calling support.
+            This model does not have known tool-calling support. You can still chat normally.
           </div>
         )}
       </div>
       <button
         className="btn btn-ghost btn-sm"
         type="button"
-        aria-label={`Tools ${enabled ? "on" : "off"}`}
-        aria-pressed={enabled}
+        aria-label={`Tools ${effectiveEnabled ? "on" : "off"}`}
+        aria-pressed={effectiveEnabled}
         disabled={disabled && !enabled}
         onClick={() => onChange(!enabled)}
         style={{
           flexShrink: 0,
           minWidth: 72,
           justifyContent: "center",
-          color: enabled ? "var(--teal)" : "var(--t2)",
-          borderColor: enabled ? "var(--teal-border)" : "var(--border)",
-          background: enabled ? "var(--teal-bg)" : "transparent",
+          color:
+            enabled && disabled ? "var(--amber)" : effectiveEnabled ? "var(--teal)" : "var(--t2)",
+          borderColor: effectiveEnabled ? "var(--teal-border)" : "var(--border)",
+          background: effectiveEnabled ? "var(--teal-bg)" : "transparent",
         }}
       >
-        {enabled ? "on" : "off"}
+        {effectiveEnabled ? "on" : "off"}
       </button>
     </div>
   );
