@@ -191,7 +191,7 @@ The mapping is lossy in two known places:
 ## Data model
 
 Five new columns on `chat_sessions`, added through the
-existing additive-migration pattern in `internal/agentchat/sqlite.go`
+existing additive-migration pattern in `internal/chat/sqlite.go`
 (repeated `ensureSessionColumn` calls — Hecate has no standalone
 SQL migration files; see [migration-cli](migration-cli.md) for the
 convention):

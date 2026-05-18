@@ -238,8 +238,8 @@ environment that starts Hecate.
 Each External Agent chat session maps to one native ACP session. Hecate starts or
 restores the selected adapter process when the chat is created, creates the ACP
 session before the first prompt, and reuses it for later prompts in the same
-Hecate chat. The adapter is fixed for the chat session; start a new External
-Agent chat to choose another adapter.
+External Agent chat session. The adapter is fixed for the chat session; start a
+new External Agent chat to choose another adapter.
 The visible chat title can be renamed from the Chats sidebar without changing
 the ACP native session, workspace, or adapter selection.
 Hecate-owned chats are different: their provider/model selection can change

@@ -211,7 +211,7 @@ Add a new `internal/projects/` package with memory and SQLite stores.
 
 Persist `project_id` on:
 
-- Agent Chat sessions.
+- Chat sessions.
 - Chat-completion sessions where a workspace/project is selected.
 - Tasks and runs.
 - Context packets.

@@ -24,13 +24,12 @@ inventing a parallel migration system.
 
 ## What exists today
 
-Nine SQLite-backed packages, each owning its own schema:
+Eight SQLite-backed packages, each owning its own schema:
 
 | Package                                      | What it stores                                            |
 | -------------------------------------------- | --------------------------------------------------------- |
-| `internal/agentchat/sqlite.go`               | External-agent chat sessions and messages                 |
 | `internal/agentadapters/approvals_sqlite.go` | Adapter approvals + grants                                |
-| `internal/chatstate/sqlite.go`               | Hecate Chat sessions and provider-call rows               |
+| `internal/chat/sqlite.go`                    | Chat sessions and messages                                |
 | `internal/controlplane/store_sqlite.go`      | Configured providers, policy rules, secrets, audit events |
 | `internal/governor/usage_sqlite.go`          | Usage totals and usage events                             |
 | `internal/orchestrator/queue_sqlite.go`      | Task run queue                                            |
@@ -38,7 +37,7 @@ Nine SQLite-backed packages, each owning its own schema:
 | `internal/retention/history_sqlite.go`       | Retention sweep run records                               |
 | `internal/taskstate/sqlite.go`               | Task runs, steps, artifacts, approvals                    |
 
-All nine share a single SQLite file (`.data/hecate.db` by default,
+All eight share a single SQLite file (`.data/hecate.db` by default,
 overridable via `GATEWAY_SQLITE_PATH`). Each package's `migrate(ctx)`
 runs lazily on first store use:
 
@@ -109,7 +108,7 @@ hecate migrate verify         # sanity-check tables (counts, no orphans)
 
 Reads the live SQLite file (read-only connection, no migrate call)
 and emits a human-readable table plus a `--json` flag for machine
-consumption. For each of the nine packages, shows:
+consumption. For each of the eight packages, shows:
 
 - Table presence (`exists` / `missing`)
 - Row count
@@ -120,13 +119,13 @@ Output something like:
 
 ```text
 package                  table                       rows      schema
-agentchat                chat_sessions               42        ok
-agentchat                chat_messages               318       ok
+chat                     chat_sessions               42        ok
+chat                     chat_messages               318       ok
 controlplane             providers                   3         ok
 controlplane             policy_rules                7         pending: column 'expires_at' not present
 taskstate                task_runs                   124       ok
 ...
-9 packages, 24 tables. 1 pending migration.
+8 packages, 24 tables. 1 pending migration.
 ```
 
 This is the highest-leverage subcommand because it turns "is my

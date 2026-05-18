@@ -144,7 +144,7 @@ overwrite an explicit operator override.
 
 ## Hecate Agent Sessions
 
-Agent Chat sessions use a stable `agent_id` for ownership, while each message
+Chat sessions use a stable `agent_id` for ownership, while each message
 records the execution mode that produced that turn:
 
 ```ts
