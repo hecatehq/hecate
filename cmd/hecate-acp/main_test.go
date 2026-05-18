@@ -161,6 +161,64 @@ func TestGatewayHTTPClientProviderStatuses(t *testing.T) {
 	}
 }
 
+func TestRunAuthCommandUsage(t *testing.T) {
+	t.Parallel()
+
+	for _, tt := range []struct {
+		name       string
+		args       []string
+		wantCode   int
+		wantStdout string
+		wantStderr string
+	}{
+		{
+			name:       "bare auth",
+			args:       nil,
+			wantCode:   1,
+			wantStderr: "usage: hecate-acp auth setup",
+		},
+		{
+			name:       "auth help",
+			args:       []string{"--help"},
+			wantCode:   0,
+			wantStdout: "usage: hecate-acp auth setup",
+		},
+		{
+			name:       "setup help",
+			args:       []string{"setup", "--help"},
+			wantCode:   0,
+			wantStdout: "usage: hecate-acp auth setup",
+		},
+		{
+			name:       "unknown subcommand",
+			args:       []string{"login"},
+			wantCode:   1,
+			wantStderr: `unknown auth subcommand "login"`,
+		},
+		{
+			name:       "unexpected setup argument",
+			args:       []string{"setup", "--json"},
+			wantCode:   1,
+			wantStderr: `unexpected auth setup argument "--json"`,
+		},
+	} {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+			var stdout, stderr bytes.Buffer
+			got := runAuthCommand(context.Background(), tt.args, &stdout, &stderr)
+			if got != tt.wantCode {
+				t.Fatalf("runAuthCommand() = %d, want %d", got, tt.wantCode)
+			}
+			if tt.wantStdout != "" && !strings.Contains(stdout.String(), tt.wantStdout) {
+				t.Fatalf("stdout = %q, want %q", stdout.String(), tt.wantStdout)
+			}
+			if tt.wantStderr != "" && !strings.Contains(stderr.String(), tt.wantStderr) {
+				t.Fatalf("stderr = %q, want %q", stderr.String(), tt.wantStderr)
+			}
+		})
+	}
+}
+
 func TestRunAuthSetupReady(t *testing.T) {
 	t.Parallel()
 
@@ -184,6 +242,33 @@ func TestRunAuthSetupReady(t *testing.T) {
 	}
 	output := stdout.String()
 	if !strings.Contains(output, "ACP setup is ready") {
+		t.Fatalf("output = %q", output)
+	}
+}
+
+func TestRunAuthSetupExplainsModelListFailure(t *testing.T) {
+	t.Parallel()
+
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("Content-Type", "application/json")
+		switch r.URL.Path {
+		case "/healthz":
+			_, _ = w.Write([]byte(`{"ok":true}`))
+		case "/v1/models":
+			http.Error(w, "model list unavailable", http.StatusServiceUnavailable)
+		default:
+			t.Fatalf("unexpected request %s %s", r.Method, r.URL.Path)
+		}
+	}))
+	defer srv.Close()
+
+	var stdout bytes.Buffer
+	err := runAuthSetup(context.Background(), &stdout, bridgeConfig{GatewayURL: srv.URL})
+	if !errors.Is(err, errAuthSetupFailed) {
+		t.Fatalf("runAuthSetup() error = %v, want errAuthSetupFailed", err)
+	}
+	output := stdout.String()
+	if !strings.Contains(output, "Models: could not list models from the gateway.") || !strings.Contains(output, "check HECATE_GATEWAY_URL") {
 		t.Fatalf("output = %q", output)
 	}
 }

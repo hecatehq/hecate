@@ -88,7 +88,7 @@ func initParamsWithTerminalAuth(t *testing.T) json.RawMessage {
 	t.Helper()
 	p := InitializeParams{ProtocolVersion: DeclaredProtocolVersion}
 	p.ClientCaps.Permissions = &PermissionCapability{}
-	p.ClientCaps.Auth = &AuthCapabilities{Terminal: true}
+	p.ClientCaps.Auth = &AuthCapability{Terminal: true}
 	raw, err := json.Marshal(p)
 	if err != nil {
 		t.Fatalf("marshal: %v", err)

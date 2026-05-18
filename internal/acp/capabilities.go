@@ -15,7 +15,7 @@ type ClientCapabilities struct {
 	FS          *FSCapability         `json:"fs,omitempty"`
 	Terminal    *TerminalCapability   `json:"terminal,omitempty"`
 	Permissions *PermissionCapability `json:"permissions,omitempty"`
-	Auth        *AuthCapabilities     `json:"auth,omitempty"`
+	Auth        *AuthCapability       `json:"auth,omitempty"`
 }
 
 // FSCapability mirrors the ACP spec's fs capability block. Both fields
@@ -35,10 +35,10 @@ type TerminalCapability struct{}
 // editor either supports session/request_permission or it doesn't.
 type PermissionCapability struct{}
 
-// AuthCapabilities advertises which authentication setup helpers the
+// AuthCapability advertises which authentication setup helpers the
 // editor can present. Terminal auth requires an explicit opt-in because
 // it asks the client to launch an interactive terminal command.
-type AuthCapabilities struct {
+type AuthCapability struct {
 	Terminal bool `json:"terminal,omitempty"`
 }
 
