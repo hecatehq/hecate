@@ -387,7 +387,7 @@ Tool names come back un-namespaced — the operator wants to see what the upstre
 
 `POST /hecate/v1/system/shutdown` requests an orderly process shutdown. The desktop app uses this from its window-close confirmation flow so the gateway runs the same drain path `SIGINT`/`SIGTERM` take (retention cancel, runner drain — including MCP subprocess teardown, then HTTP server shutdown) instead of being SIGKILL'd by the child-process handle. Empty body, returns `202` and an `object: "system_shutdown"` ack; the signal fires asynchronously after a short delay so the response can flush before the listener tears down. Clients that need to observe the gateway actually exiting should poll `/healthz` until it stops responding (the desktop app uses a 12-second deadline).
 
-Returns `503` with `error.code = "gateway_error"` when the endpoint is not wired — Docker/systemd deployments deliberately leave `Handler.SetQuitFunc` unset because they stop the process via signal or container stop. The 503 is the right behavior there: an operator who hits the endpoint expecting a clean shutdown gets told to use the signal path instead.
+The shipped `cmd/hecate` binary wires `Handler.SetQuitFunc` unconditionally, so the endpoint is available in every standard deployment (Tauri sidecar, Docker, systemd) — operators can POST it as an alternative to `docker stop` / `systemctl stop` / `kill`. Returns `503` with `error.code = "gateway_error"` when the endpoint is not wired; this path is reached only by test harnesses or custom embedders that build a `Handler` without calling `SetQuitFunc`.
 
 ## Usage endpoints
 

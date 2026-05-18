@@ -364,9 +364,12 @@ func (h *Handler) HandleMCPCacheStats(w http.ResponseWriter, r *http.Request) {
 // desktop app (Tauri) calls this from its window-close handler so the
 // gateway runs the same drain path SIGINT/SIGTERM takes — retention
 // cancel, runner drain (MCP subprocess teardown), HTTP server shutdown
-// — instead of being SIGKILL'd by the child-process handle. Returns 503
-// when no quit function is wired (Docker / systemd deployments stop the
-// process via signal or container stop; the endpoint is desktop-only).
+// — instead of being SIGKILL'd by the child-process handle. The
+// shipped cmd/hecate binary wires SetQuitFunc unconditionally, so the
+// endpoint is available in every standard deployment (Tauri sidecar,
+// Docker, systemd) — operators can also POST it as an alternative to
+// signalling the process. The 503 path is for test harnesses and
+// custom embedders that build a Handler without wiring quit.
 //
 // The response is 202 Accepted: the signal is fired asynchronously
 // after a short delay so the response can flush before the HTTP server
