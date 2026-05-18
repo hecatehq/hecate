@@ -920,6 +920,47 @@ func TestHecateChatRejectsUnknownExecutionMode(t *testing.T) {
 	}
 }
 
+func TestExternalAgentChatRejectsDirectModelExecutionMode(t *testing.T) {
+	t.Parallel()
+
+	logger := slog.New(slog.NewJSONHandler(io.Discard, nil))
+	provider := &fakeProvider{
+		name: "openai",
+		response: &types.ChatResponse{
+			ID:        "chatcmpl-external-direct-rejected",
+			Model:     "gpt-4o-mini",
+			CreatedAt: time.Now().UTC(),
+			Choices: []types.ChatChoice{{
+				Index:        0,
+				Message:      types.Message{Role: "assistant", Content: "should not be appended"},
+				FinishReason: "stop",
+			}},
+		},
+	}
+	apiHandler := newTestAPIHandlerWithSettings(logger, []providers.Provider{provider}, config.Config{}, controlplane.NewMemoryStore())
+	apiHandler.SetAgentChatRunner(&fakeAgentChatRunner{nativeSessionID: "native_codex_direct_rejected"})
+	handler := NewServer(logger, apiHandler)
+	client := newTaskTestClient(t, handler)
+	workspace := t.TempDir()
+
+	session := mustRequestJSON[ChatSessionResponse](client, http.MethodPost, "/hecate/v1/chat/sessions",
+		fmt.Sprintf(`{"agent_id":"codex","workspace":%q}`, workspace))
+	recorder := client.mustRequestStatus(http.StatusBadRequest, http.MethodPost, "/hecate/v1/chat/sessions/"+session.Data.ID+"/messages",
+		`{"execution_mode":"direct_model","provider":"openai","model":"gpt-4o-mini","content":"answer directly"}`)
+	payload := decodeRecorder[struct {
+		Error struct {
+			Type    string `json:"type"`
+			Message string `json:"message"`
+		} `json:"error"`
+	}](t, recorder)
+	if payload.Error.Type != errCodeRuntimeMismatch {
+		t.Fatalf("error type = %q, want %s", payload.Error.Type, errCodeRuntimeMismatch)
+	}
+	if !strings.Contains(payload.Error.Message, "external agent sessions cannot run direct model turns") {
+		t.Fatalf("error message = %q", payload.Error.Message)
+	}
+}
+
 func TestHecateAgentChatRejectsBusyBackingRun(t *testing.T) {
 	t.Parallel()
 
