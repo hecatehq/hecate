@@ -116,12 +116,13 @@ Each section has exactly one job: orient, inspect, compare, edit, or confirm. If
   direct model chat and Hecate-owned task execution. Codex, Claude Code, and
   Cursor choices create External Agent sessions where adapter/workspace/native
   session diagnostics belong.
-- Hecate Agent sessions store a workspace plus backing `task_id` /
-  `latest_run_id`. New UI affordances should show per-turn task links in the
-  transcript. Chats may resolve pending task approvals inline; Tasks remains
-  canonical for artifacts, retry/resume, full event history, and patch review.
-  While a task-backed segment is active, the whole Hecate Chat session is busy:
-  keep provider/model controls locked to the segment snapshot. If the operator
+- Hecate-owned chats store provider/model state on the session and durable
+  runtime snapshots on each message. Tools-on turns create or continue a backing
+  task and should show per-turn task links in the transcript. Chats may resolve
+  pending task approvals inline; Tasks remains canonical for artifacts,
+  retry/resume, full event history, and patch review. While a task-backed
+  segment is active, the whole Hecate Chat session is busy: keep
+  provider/model controls locked to the segment snapshot. If the operator
   submits another prompt, queue it locally in the composer and send it after
   the task finishes, is stopped, or reaches a terminal approval outcome. Do not
   pretend that local queue is durable before the message is submitted.
@@ -133,10 +134,12 @@ Each section has exactly one job: orient, inspect, compare, edit, or confirm. If
 - External Agent sessions store their workspace and native ACP session id. New
   UI affordances should preserve that continuity instead of treating every
   prompt as a one-off subprocess.
-- Model capability badges gate Hecate Agent sends. Explicitly tools-off models
-  should offer an inline enable/override path; unknown local/custom models
-  should explain how to record a manual probe result or operator override in
-  Connections, not silently run as an agent.
+- Model capability badges are guidance and guardrails for tools, not a reason
+  to hide plain chat. Hecate Chat should remain available when a model is
+  routable; only task-backed tools-on turns are blocked when the selected model
+  is explicitly marked `tool_calling="none"`. Unknown local/custom models
+  should show a clear capability indicator and explain how to record a manual
+  probe result or operator override in Connections.
 - Stale selected-model readiness is a composition blocker, not a post-send
   error toast. If the selected model is not in the current model picker for the
   selected route, hide/disable send and show the selected model, provider route,
@@ -150,7 +153,7 @@ Each section has exactly one job: orient, inspect, compare, edit, or confirm. If
   `ui/src/lib/chat-setup-readiness.ts`. Keep the empty state, composer notice,
   and disabled-send copy aligned there instead of adding one-off branches to
   `ChatView`.
-- Agent Chat readiness belongs in Connections and in the picker
+- External Agent readiness belongs in Connections and in the picker
   diagnostics: distinguish missing binaries, auth/billing problems, unsupported
   versions, and managed-launcher issues without sending users to raw logs first.
   To smoke-test missing/available adapter states without uninstalling local
@@ -158,10 +161,10 @@ Each section has exactly one job: orient, inspect, compare, edit, or confirm. If
   `just dev-agent-adapters 'claude_code=missing,codex=available'`. The override
   is discovery-only; do not write tests that expect a forced-available adapter
   to run a real session.
-- Agent Chat usage is adapter-reported. Show it as helpful telemetry with the
+- External Agent usage is adapter-reported. Show it as helpful telemetry with the
   "reported by adapter · not enforced by Hecate" caveat, never as Hecate-enforced
   billing.
-- Agent Chat file changes are already applied to the selected workspace when
+- External Agent file changes are already applied to the selected workspace when
   Hecate captures them. UI copy should say "inspect" / "revert" / "keep", not
   "apply", unless the backend grows a true staged-artifact flow.
 - **Stable provider ordering.** Do not sort provider lists by health, blocked state, or availability unless explicitly asked. Fixed alphabetical/preset order within each section.

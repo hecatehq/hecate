@@ -76,9 +76,9 @@ The seven-step chain spans `pkg/types/` → `internal/api/` → `internal/provid
 3. Update the `docs/mcp.md` tool table.
 4. Tests in `internal/mcp/server/tools_test.go` using the `fakeGateway` helper.
 
-### Change Agent Chat / ACP adapter behavior
+### Change chat-session / ACP adapter behavior
 
-Agent Chat separates session ownership from turn execution:
+Chat sessions separate ownership from turn execution:
 
 1. `agent_id="hecate"` owns built-in Hecate Chat sessions. Each turn chooses
    `execution_mode="direct_model"` for a plain gateway/router call or
@@ -103,17 +103,18 @@ External Agent has two live/persistence layers:
    in memory or sqlite.
 2. `internal/agentadapters` owns the live ACP/process session manager.
 
-Hecate Agent additionally uses `internal/orchestrator`, `internal/taskstate`,
-and `internal/modelcaps`. Do not add a second lightweight tool-loop runtime;
-reuse task approvals, run events, artifacts, patch review, and OTel. When
-adding live-output behavior, stream through the existing gateway/provider path
-where possible and publish snapshots through the chat live stream; do not fork
-a second chat-only event stream for Hecate-owned tools.
+Task-backed Hecate Chat additionally uses `internal/orchestrator`,
+`internal/taskstate`, and `internal/modelcaps`. Do not add a second lightweight
+tool-loop runtime; reuse task approvals, run events, artifacts, patch review,
+and OTel. When adding live-output behavior, stream through the existing
+gateway/provider path where possible and publish snapshots through the chat
+live stream; do not fork a second chat-only event stream for Hecate-owned
+tools.
 
 When changing this path:
 
 1. Keep `docs/rfcs/hecate-chat-model-capabilities.md` and
-   `docs/runtime-api.md` aligned when changing Hecate Agent or capability
+   `docs/runtime-api.md` aligned when changing task-backed Hecate Chat or capability
    behavior.
 2. Keep provider/model readiness contracts aligned across
    `docs/providers.md`, `docs/chat-sessions.md`, and `docs/runtime-api.md`.

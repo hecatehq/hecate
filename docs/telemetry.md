@@ -381,9 +381,9 @@ the time the run spent in the queue between enqueue and claim.
 
 `agent_loop` runs _also_ emit one `turn.completed` per LLM round-trip on the **persisted run-event log** — not the OTel trace. That stream is documented in [`events.md`](events.md#turncompleted) and powers the per-run UI cost/tokens summary and `/hecate/v1/events` subscriptions. The OTel side carries duration on the spans above; the task-local cost breakdown lives on the run event.
 
-### Agent Chat Spans
+### Chat Run Spans
 
-External coding-agent chats emit OTel-shaped trace data as well. `POST
+Chat turns emit OTel-shaped trace data as well. `POST
 /hecate/v1/chat/sessions/{id}/messages` returns `X-Trace-Id` and `X-Span-Id`;
 the assistant message stores `request_id`, `trace_id`, and `span_id` so the
 Chats UI can point operators back to `/hecate/v1/traces?request_id=...`.
@@ -394,13 +394,13 @@ Chats UI can point operators back to `/hecate/v1/traces?request_id=...`.
 | `agent_adapter.approval.request` | wraps the coordinator's RequestPermission decision (grant short-circuit, mode default, or prompt-mode wait); attributes include `hecate.agent_adapter.id`, `hecate.agent_adapter.session_id`, `hecate.agent_adapter.tool_kind`, `hecate.agent_adapter.approval.mode`, and `hecate.agent_adapter.approval.path` once the resolution path is known |
 | `agent_adapter.approval.resolve` | wraps the operator decision-application path; attributes include `hecate.agent_adapter.approval.id`, `hecate.agent_adapter.approval.decision`, `hecate.agent_adapter.approval.scope`, and the same adapter / session / tool_kind context once the row loads                                                                                      |
 
-Agent-chat spans carry adapter and workspace attributes such as
+External Agent spans carry adapter and workspace attributes such as
 `hecate.agent_adapter.id`, `hecate.agent_adapter.command`,
 `hecate.agent_adapter.driver.kind`, `hecate.agent_adapter.native_session.id`,
 `hecate.chat.session.id`, `hecate.run.id`, `hecate.workspace.path`,
 `hecate.agent_adapter.output.bytes`, and
 `hecate.agent_adapter.diff.captured`. Raw transcript text is intentionally not
-emitted as OTel attributes; it is persisted on the Agent Chat message and shown
+emitted as OTel attributes; it is persisted on the chat message and shown
 behind the raw-output diagnostic disclosure instead.
 
 External-agent approval metrics:
@@ -482,14 +482,14 @@ Each prefix has a `_MAX_AGE` and `_MAX_COUNT` suffix (e.g. `GATEWAY_RETENTION_TR
 | `hecate.orchestrator.mcp.tool_call.duration`      | Histogram | `ms`         | MCP tool dispatch wall-clock duration; same attribute set as the counter                                                                                 |
 | `hecate.orchestrator.mcp.cache_events`            | Counter   | `{event}`    | Shared-client cache events grouped by `hecate.mcp.cache.event` (`hit` / `miss` / `evicted`) and (when known) `hecate.mcp.server`                         |
 
-### Agent Chat Metrics
+### Chat Run Metrics
 
-| Instrument                 | Type      | Unit             | Description                                                                                                                                                                                                                                                          |
-| -------------------------- | --------- | ---------------- | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| `hecate.chat.runs`         | Counter   | `{run}`          | Agent-chat runs grouped by adapter/runtime, driver kind, status, and result                                                                                                                                                                                          |
-| `hecate.chat.run.duration` | Histogram | `ms`             | Agent-chat run wall-clock duration                                                                                                                                                                                                                                   |
-| `hecate.chat.run.timing`   | Histogram | `ms`             | Task-backed Hecate Agent timing buckets grouped by `hecate.chat.timing.bucket` (`queue` / `model` / `tools` / `approval` / `overhead`) plus the same runtime/status/result labels as `hecate.chat.run.duration`                                                      |
-| `hecate.chat.cancelled`    | Counter   | `{cancellation}` | Agent-chat run/turn endings that terminated via cancellation, labeled by `adapter` and `reason` (`operator` / `request_cancelled` / `shutdown`). Distinguishes explicit operator cancels from request-context death and `SessionManager.Shutdown`-driven tear-downs. |
+| Instrument                 | Type      | Unit             | Description                                                                                                                                                                                                                                                    |
+| -------------------------- | --------- | ---------------- | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `hecate.chat.runs`         | Counter   | `{run}`          | Chat runs grouped by adapter/runtime, driver kind, status, and result                                                                                                                                                                                          |
+| `hecate.chat.run.duration` | Histogram | `ms`             | Chat run wall-clock duration                                                                                                                                                                                                                                   |
+| `hecate.chat.run.timing`   | Histogram | `ms`             | Task-backed Hecate Chat timing buckets grouped by `hecate.chat.timing.bucket` (`queue` / `model` / `tools` / `approval` / `overhead`) plus the same runtime/status/result labels as `hecate.chat.run.duration`                                                 |
+| `hecate.chat.cancelled`    | Counter   | `{cancellation}` | Chat run/turn endings that terminated via cancellation, labeled by `adapter` and `reason` (`operator` / `request_cancelled` / `shutdown`). Distinguishes explicit operator cancels from request-context death and `SessionManager.Shutdown`-driven tear-downs. |
 
 Metric attributes reuse the same vocabulary as traces — provider, model,
 cache, failover, result, step kind, approval decision, queue backend, run

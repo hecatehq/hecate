@@ -110,9 +110,10 @@ Full state, footguns, and roadmap: [`desktop-app.md`](desktop-app.md).
 ## External-agent startup knobs
 
 Web, Docker, tarball, and native-app launches use the same gateway env vars for
-Agent Chat. The native app spawns the bundled `hecate` runtime in gateway mode
-with these env vars inherited from the app process; Docker reads them from
-`.env` / compose; bare binaries read the shell environment.
+chat sessions and external-agent adapters. The native app spawns the bundled
+`hecate` runtime in gateway mode with these env vars inherited from the app
+process; Docker reads them from `.env` / compose; bare binaries read the shell
+environment.
 
 | Env var                              | Default             | Applies to                                           |
 | ------------------------------------ | ------------------- | ---------------------------------------------------- |
