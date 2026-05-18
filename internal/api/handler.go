@@ -73,6 +73,15 @@ type Handler struct {
 	// spawning real ACP binaries.
 	agentAdapterProbe    AgentAdapterProbe
 	agentAdapterEnvProbe AgentAdapterEnvProbe
+	// quitFunc is wired by main.go to request an orderly process
+	// shutdown — used by HandleSystemShutdown when the desktop app's
+	// close-window confirmation flow asks the gateway to quit. nil in
+	// tests and when no quit signal is wired (the endpoint then returns
+	// 503). The callback should be cheap and non-blocking: it typically
+	// just sends on a buffered channel that main.go selects on alongside
+	// SIGINT/SIGTERM, so the same drain path (retention cancel, runner
+	// shutdown, http server shutdown) runs regardless of trigger.
+	quitFunc func()
 }
 
 // approvalConfig bundles everything the coordinator needs apart from
@@ -376,6 +385,17 @@ func (h *Handler) reconcileAgentChatStore(ctx context.Context) {
 	if count > 0 {
 		telemetry.Info(h.logger, ctx, "agent chat reconciliation completed", slog.Int("interrupted_runs", count))
 	}
+}
+
+// SetQuitFunc wires the desktop-app shutdown trigger. When set, a
+// POST /hecate/v1/system/shutdown call invokes f after acknowledging the
+// request. main.go provides a closure that signals the same channel its
+// SIGINT/SIGTERM handler selects on, so the existing drain path runs
+// regardless of trigger. nil is a valid argument — the endpoint then
+// returns 503, which is the right behavior for non-desktop deployments
+// (Docker, systemd) that should be quit via signal or container stop.
+func (h *Handler) SetQuitFunc(f func()) {
+	h.quitFunc = f
 }
 
 // SetSecretCipher wires the settings AES-GCM cipher into the
