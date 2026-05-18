@@ -158,9 +158,12 @@ operator UI.
 
 Docker's default `/data` volume stores both `/data/hecate.db` and the default
 bootstrap file, so backing up the volume is enough for the default path. If you
-override `GATEWAY_CONTROL_PLANE_SECRET_KEY`, the secret lives in your shell,
-supervisor, container secret, or vault layer instead; back up that source with
-the same care as the database.
+override `GATEWAY_CONTROL_PLANE_SECRET_KEY`, treat the env var as the source
+that seeds the bootstrap key, not as env-only storage: Hecate persists that key
+to `GATEWAY_BOOTSTRAP_FILE` or the default bootstrap file on startup, overwriting
+any existing bootstrap key, and the bootstrap path must be writable. Back up the
+env/secret-manager value and the bootstrap file with the same care as the
+database; if they diverge, the env value wins on the next startup.
 
 ## Storage backends
 

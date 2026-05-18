@@ -63,14 +63,17 @@ Persisted provider, agent-adapter, and MCP literal credentials are encrypted
 with a gateway-local AES-GCM control-plane key. Hecate resolves that key at
 startup:
 
-1. If `GATEWAY_CONTROL_PLANE_SECRET_KEY` is set, Hecate validates and uses that
-   base64-encoded 32-byte key.
+1. If `GATEWAY_CONTROL_PLANE_SECRET_KEY` is set, Hecate validates that
+   base64-encoded 32-byte key, uses it for this run, and persists it to the
+   bootstrap file.
 2. Otherwise Hecate loads `hecate.bootstrap.json` from the data directory, or
    from `GATEWAY_BOOTSTRAP_FILE` when that path is set.
 3. If no bootstrap file exists, Hecate generates a new key and writes the file.
 
 The file-backed bootstrap path is intentionally local and boring:
 
+- An env-provided key is not env-only storage. On startup it overwrites the
+  bootstrap file at the resolved path, and that path must be writable.
 - POSIX platforms create the bootstrap file with `0600` permissions and repair
   broader group/world modes on startup. Stricter owner-only modes such as
   `0400` are accepted.
@@ -93,8 +96,9 @@ read both the database and bootstrap key can decrypt stored credentials.
 Back up the settings database and bootstrap key together when you want stored
 credentials to survive a restore. If the bootstrap key is deleted, lost, or
 changed while keeping the old database, existing encrypted credentials cannot be
-decrypted; restore the old key or re-enter the provider, adapter, and MCP
-credentials.
+decrypted. Changing `GATEWAY_CONTROL_PLANE_SECRET_KEY` has the same effect
+unless encrypted rows are rekeyed at the same time; today the recovery path is
+to restore the old key or re-enter the provider, adapter, and MCP credentials.
 
 ### Key storage roadmap
 
