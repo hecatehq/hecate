@@ -16,10 +16,10 @@ Hecate assumes the operator trusts their own machine, local user account, and se
 
 Hecate has two different execution surfaces with different trust levels.
 
-| Surface | Boundary |
-|---|---|
-| Hecate Chat with tools on / native `agent_loop` tasks | Hecate owns the task loop. Tool calls run as per-call subprocesses with env sanitisation, output caps, timeouts, policy checks, approvals, and `bwrap` / `sandbox-exec` wrappers where available. This is not a VM or container boundary. |
-| External Agent adapters | Codex, Claude Code, Cursor Agent, and similar adapters run as trusted local subprocesses in the selected workspace. Hecate supervises lifecycle, approvals, diagnostics, and Git diffs, but it does not sandbox the adapter's internal runtime. |
+| Surface                                               | Boundary                                                                                                                                                                                                                                        |
+| ----------------------------------------------------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| Hecate Chat with tools on / native `agent_loop` tasks | Hecate owns the task loop. Tool calls run as per-call subprocesses with env sanitisation, output caps, timeouts, policy checks, approvals, and `bwrap` / `sandbox-exec` wrappers where available. This is not a VM or container boundary.       |
+| External Agent adapters                               | Codex, Claude Code, Cursor Agent, and similar adapters run as trusted local subprocesses in the selected workspace. Hecate supervises lifecycle, approvals, diagnostics, and Git diffs, but it does not sandbox the adapter's internal runtime. |
 
 If you need a hard isolation boundary, run Hecate and its workspaces inside a VM, container, or dedicated OS user that you are comfortable letting tools modify.
 

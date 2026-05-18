@@ -39,18 +39,18 @@ need repo layout, ring rules, or risky-area guidance. `core/engineering-standard
 and `core/workflow.md` are reference — reach for them when you hit a style or
 commit question.
 
-| Task | Load first | Also load |
-|---|---|---|
-| Backend — any Go outside `ui/` and `tauri/` | `skills/backend/SKILL.md` | `core/project-context.md`, `core/verification.md` |
-| Provider adapter (`internal/providers/`) | `skills/providers/SKILL.md` | `skills/backend/SKILL.md` |
-| React UI (`ui/`) | `skills/ui/SKILL.md` | `core/project-context.md`, `core/verification.md` |
-| Native desktop (`tauri/`) | `skills/tauri/SKILL.md` | `core/project-context.md`, `core/verification.md` |
-| Substantial change — plan first | `skills/architect/SKILL.md` + `tasks/planning.md` | `core/project-context.md` |
-| Debugging | `tasks/debugging.md` | skill for the relevant area |
-| Code review | `tasks/code-review.md` | skill for the relevant area |
-| Test strategy / coverage | `skills/tester/SKILL.md` | `core/verification.md` |
-| Delivery / CI / env vars / schema | `skills/devops/SKILL.md` | `core/verification.md` |
-| Release / tag | `tasks/release.md` | `core/verification.md` |
+| Task                                        | Load first                                        | Also load                                         |
+| ------------------------------------------- | ------------------------------------------------- | ------------------------------------------------- |
+| Backend — any Go outside `ui/` and `tauri/` | `skills/backend/SKILL.md`                         | `core/project-context.md`, `core/verification.md` |
+| Provider adapter (`internal/providers/`)    | `skills/providers/SKILL.md`                       | `skills/backend/SKILL.md`                         |
+| React UI (`ui/`)                            | `skills/ui/SKILL.md`                              | `core/project-context.md`, `core/verification.md` |
+| Native desktop (`tauri/`)                   | `skills/tauri/SKILL.md`                           | `core/project-context.md`, `core/verification.md` |
+| Substantial change — plan first             | `skills/architect/SKILL.md` + `tasks/planning.md` | `core/project-context.md`                         |
+| Debugging                                   | `tasks/debugging.md`                              | skill for the relevant area                       |
+| Code review                                 | `tasks/code-review.md`                            | skill for the relevant area                       |
+| Test strategy / coverage                    | `skills/tester/SKILL.md`                          | `core/verification.md`                            |
+| Delivery / CI / env vars / schema           | `skills/devops/SKILL.md`                          | `core/verification.md`                            |
+| Release / tag                               | `tasks/release.md`                                | `core/verification.md`                            |
 
 ## Core rules (always in force)
 

@@ -162,14 +162,14 @@ The provider-side extension layer alone makes the data available at
 `/v1/chat/completions`. Persisting it across sessions and rendering
 it in the operator UI is additional work that depends on it.
 
-| Layer | Files | Lines (rough) |
-|---|---|---|
-| Provider extensions | `pkg/types/`, `internal/api/`, `internal/providers/` (5 new files) | ~640 |
-| Persistence | `internal/chatstate/sqlite.go` (additive migration), memory store parity, api serialization | ~300-400 |
-| UI types | `ui/src/types/runtime.ts` | ~30 |
-| UI components | `ReasoningBlock.tsx`, `Citations.tsx`, `SearchResults.tsx` + tests | ~600-700 |
-| MessageRow + TaskDetail integration | `ChatView`'s `MessageRow.tsx`, possibly `TaskDetail.tsx` | ~100-150 |
-| Docs | drop the citations bullet in `known-limitations.md`; add a "Vendor response extensions" section to `docs/providers.md` | ~30 |
+| Layer                               | Files                                                                                                                  | Lines (rough) |
+| ----------------------------------- | ---------------------------------------------------------------------------------------------------------------------- | ------------- |
+| Provider extensions                 | `pkg/types/`, `internal/api/`, `internal/providers/` (5 new files)                                                     | ~640          |
+| Persistence                         | `internal/chatstate/sqlite.go` (additive migration), memory store parity, api serialization                            | ~300-400      |
+| UI types                            | `ui/src/types/runtime.ts`                                                                                              | ~30           |
+| UI components                       | `ReasoningBlock.tsx`, `Citations.tsx`, `SearchResults.tsx` + tests                                                     | ~600-700      |
+| MessageRow + TaskDetail integration | `ChatView`'s `MessageRow.tsx`, possibly `TaskDetail.tsx`                                                               | ~100-150      |
+| Docs                                | drop the citations bullet in `known-limitations.md`; add a "Vendor response extensions" section to `docs/providers.md` | ~30           |
 
 Total: ~1700 lines, ~18-20 commits across 4-5 PRs.
 
@@ -207,7 +207,7 @@ applies for response decoding. Streaming extensions add:
   a chunk-shaped variant on the same interface.
 
 UX cost of deferring: the first non-streaming version renders
-citations / reasoning *after* the stream completes — operators see a
+citations / reasoning _after_ the stream completes — operators see a
 visible "snap-in" at the end of each response. Tolerable in v1 with
 a follow-up note in `known-limitations.md`. Not free.
 

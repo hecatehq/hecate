@@ -22,7 +22,7 @@ goes one way; there is no return path.
 A naive fix is to add a return path (a WebSocket per session, an SSE
 stream, etc.) so the gateway can push reverse-RPC envelopes into the
 bridge, which then writes them onto the editor's stdio. That works,
-but it cuts the boundary *through* the ACP protocol stack: the
+but it cuts the boundary _through_ the ACP protocol stack: the
 dispatcher and the workspace that consumes its `Call` end up on
 opposite sides of a process boundary, talking through three protocols
 (stdio JSON-RPC, REST, WebSocket JSON-RPC). Adding any new
@@ -134,11 +134,11 @@ relay socket instead of `os.Stdin` / `os.Stdout`.
 The relay needs a bidirectional byte stream between the bridge and the
 gateway, both on the same host. Three options:
 
-| Option | Pros | Cons |
-|---|---|---|
-| **WebSocket upgrade on existing HTTP port** | Same port, no new firewall surface, auth reuses the existing middleware, cross-platform with one Go library (`gorilla/websocket` or `nhooyr/websocket`), framing is "lines in / lines out" once upgraded. | One more transport on top of HTTP/1.1 keepalive; framing is per-message which we treat as per-line. |
-| **Unix Domain Socket** | "Real" IPC, slightly lower overhead, no TLS concerns. | Windows AF_UNIX support is Windows-10+ but tooling is awkward; separate code path from existing HTTP server; needs a discovery file with the socket path. |
-| **Raw TCP loopback on a separate port** | Simplest framing. | Needs port discovery, separate firewall/listener, separate auth, easy to confuse with the REST port. |
+| Option                                      | Pros                                                                                                                                                                                                      | Cons                                                                                                                                                      |
+| ------------------------------------------- | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | --------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| **WebSocket upgrade on existing HTTP port** | Same port, no new firewall surface, auth reuses the existing middleware, cross-platform with one Go library (`gorilla/websocket` or `nhooyr/websocket`), framing is "lines in / lines out" once upgraded. | One more transport on top of HTTP/1.1 keepalive; framing is per-message which we treat as per-line.                                                       |
+| **Unix Domain Socket**                      | "Real" IPC, slightly lower overhead, no TLS concerns.                                                                                                                                                     | Windows AF_UNIX support is Windows-10+ but tooling is awkward; separate code path from existing HTTP server; needs a discovery file with the socket path. |
+| **Raw TCP loopback on a separate port**     | Simplest framing.                                                                                                                                                                                         | Needs port discovery, separate firewall/listener, separate auth, easy to confuse with the REST port.                                                      |
 
 **Choice: WebSocket on the existing HTTP listener.** New route
 `POST /hecate/v1/acp/connect` (or similar — final path bikeshed
@@ -160,7 +160,7 @@ lifetime of that connection, and tears it down when the WS closes.
 The dispatcher's existing internal state (pending permissions, pending
 calls, session store) moves with it — each connection has its own.
 
-This means session-store sharing across connections is *not* a thing
+This means session-store sharing across connections is _not_ a thing
 in v1. If a relay disconnects and reconnects, the new connection
 starts fresh. (Durable reattachment was a non-goal above.)
 

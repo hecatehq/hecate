@@ -24,7 +24,7 @@ How to write a plan when [`../core/workflow.md`](../core/workflow.md) says "stop
 ## Anti-patterns
 
 - Plans that recap the obvious (file paths, the existence of tests, the names of well-known packages).
-- Plans that list every file ahead of time without explaining the *why* — that is a task list, not a plan.
+- Plans that list every file ahead of time without explaining the _why_ — that is a task list, not a plan.
 - Plans that name implementation phases as "Phase 1 / Phase 2 / Milestone X" — those labels are not allowed in commits or comments either, and they tend to leak. Sequence the work in prose if sequencing matters.
 - Plans that defer all decisions ("we'll figure out X during implementation"). Decide what can be decided.
 - Plans that don't name what's being given up.

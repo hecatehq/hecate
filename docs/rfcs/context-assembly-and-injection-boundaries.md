@@ -27,15 +27,15 @@ the packet itself.
 
 ## Relationship To Adjacent RFCs
 
-| Concept | Owns | Does not own |
-|---|---|---|
-| [**Projects**](projects.md) | Durable identity for a codebase/work area: defaults, memory scope, history grouping, trusted context sources. | Concrete sandbox/workspace execution or per-call prompt rendering. |
-| **Context assembly** (this RFC) | Source collection, trust labels, injection boundaries, final context packet snapshot, "what did the model see?" UI. | Token fitting, summarization algorithms, long-term memory CRUD. |
-| [**Agent memory**](agent-memory.md) | Durable operator-approved facts and preferences with scopes. | Deciding whether an entry fits a model window or whether untrusted content should become memory. |
-| [**LLM context window management**](llm-context-window-management.md) | Token estimation, warning/cap thresholds, truncation, summarization, model limit lookup. | Deciding whether a source is trusted, authoritative, or eligible. |
-| **Agent profiles** | Saved runtime configurations: agent/provider/model controls, tools, RTK, approvals, memory-source selection, and system prompt text. | Durable project identity, memory storage, or prompt rendering by itself. |
-| **Presets** | Templates for creating/updating project defaults or agent profiles. | Runtime identity. Once applied, the resolved profile/settings are what matter. |
-| **Prompt-injection defense** | Enforced mostly by context assembly: source labels, authority boundaries, and no silent promotion from untrusted text to instructions. | Perfect detection of malicious text. Hecate should label and bound sources, not pretend it can classify every attack. |
+| Concept                                                               | Owns                                                                                                                                   | Does not own                                                                                                          |
+| --------------------------------------------------------------------- | -------------------------------------------------------------------------------------------------------------------------------------- | --------------------------------------------------------------------------------------------------------------------- |
+| [**Projects**](projects.md)                                           | Durable identity for a codebase/work area: defaults, memory scope, history grouping, trusted context sources.                          | Concrete sandbox/workspace execution or per-call prompt rendering.                                                    |
+| **Context assembly** (this RFC)                                       | Source collection, trust labels, injection boundaries, final context packet snapshot, "what did the model see?" UI.                    | Token fitting, summarization algorithms, long-term memory CRUD.                                                       |
+| [**Agent memory**](agent-memory.md)                                   | Durable operator-approved facts and preferences with scopes.                                                                           | Deciding whether an entry fits a model window or whether untrusted content should become memory.                      |
+| [**LLM context window management**](llm-context-window-management.md) | Token estimation, warning/cap thresholds, truncation, summarization, model limit lookup.                                               | Deciding whether a source is trusted, authoritative, or eligible.                                                     |
+| **Agent profiles**                                                    | Saved runtime configurations: agent/provider/model controls, tools, RTK, approvals, memory-source selection, and system prompt text.   | Durable project identity, memory storage, or prompt rendering by itself.                                              |
+| **Presets**                                                           | Templates for creating/updating project defaults or agent profiles.                                                                    | Runtime identity. Once applied, the resolved profile/settings are what matter.                                        |
+| **Prompt-injection defense**                                          | Enforced mostly by context assembly: source labels, authority boundaries, and no silent promotion from untrusted text to instructions. | Perfect detection of malicious text. Hecate should label and bound sources, not pretend it can classify every attack. |
 
 ## Goals
 
@@ -88,17 +88,17 @@ flowchart LR
 
 Candidate sources are collected from the active runtime surface:
 
-| Source | Examples |
-|---|---|
-| Chat state | User and assistant messages, direct-model segment history, task-backed segment summaries. |
-| Runtime state | Task/run status, approvals, artifacts, changed files, prior tool output. |
-| Operator settings | System prompt, tools on/off, RTK state, profile/preset choices when they exist. |
-| Project context | `project_id`, project defaults, project instructions, saved project memory, trusted project docs. |
-| Agent profile context | Profile-selected memory sources, adapter/model controls, profile instructions. |
-| Workspace context | Concrete workspace path, `AGENTS.md`, `CLAUDE.md`, selected files, git diff, file tree snippets. |
-| Memory | Future operator-authored memory entries selected by scope. |
-| External memory providers | Future profile-selected memory sources normalized through Hecate memory service. |
-| External imports | Future imported Codex/Claude transcripts, PR comments, issue text, web content, raw adapter output. |
+| Source                    | Examples                                                                                            |
+| ------------------------- | --------------------------------------------------------------------------------------------------- |
+| Chat state                | User and assistant messages, direct-model segment history, task-backed segment summaries.           |
+| Runtime state             | Task/run status, approvals, artifacts, changed files, prior tool output.                            |
+| Operator settings         | System prompt, tools on/off, RTK state, profile/preset choices when they exist.                     |
+| Project context           | `project_id`, project defaults, project instructions, saved project memory, trusted project docs.   |
+| Agent profile context     | Profile-selected memory sources, adapter/model controls, profile instructions.                      |
+| Workspace context         | Concrete workspace path, `AGENTS.md`, `CLAUDE.md`, selected files, git diff, file tree snippets.    |
+| Memory                    | Future operator-authored memory entries selected by scope.                                          |
+| External memory providers | Future profile-selected memory sources normalized through Hecate memory service.                    |
+| External imports          | Future imported Codex/Claude transcripts, PR comments, issue text, web content, raw adapter output. |
 
 Discovery is allowed to over-collect candidates. Later stages decide inclusion.
 
@@ -106,15 +106,15 @@ Discovery is allowed to over-collect candidates. Later stages decide inclusion.
 
 Every context item gets a trust level before rendering:
 
-| Trust level | Meaning | Examples |
-|---|---|---|
-| `system_instruction` | Highest authority. Hecate-authored runtime instructions and operator-authored system prompt. | Built-in tool rules, explicit chat system prompt. |
-| `operator_memory` | Durable facts or preferences intentionally saved by the operator. | "Use conventional commits", "Prefer Go-first tooling". |
-| `workspace_guidance` | Repository-local guidance. Trusted for this workspace, but still less authoritative than operator/system policy. | `AGENTS.md`, `CLAUDE.md`, repo docs selected by user. |
-| `runtime_state` | Hecate-observed state. Evidence, not instruction. | Run status, approvals, artifact metadata, changed files. |
-| `tool_output` | Output produced by tools. Evidence, not instruction. | `git status`, `go test`, stdout/stderr artifacts. |
-| `generated_summary` | Model-generated compression of older context. Evidence with lossy provenance. | Conversation summary produced by a summarizer. |
-| `external_untrusted` | Text from outside the current operator/runtime trust boundary. Must be quoted/labelled as untrusted. | PR comments, imported chat text, web pages, raw adapter output. |
+| Trust level          | Meaning                                                                                                          | Examples                                                        |
+| -------------------- | ---------------------------------------------------------------------------------------------------------------- | --------------------------------------------------------------- |
+| `system_instruction` | Highest authority. Hecate-authored runtime instructions and operator-authored system prompt.                     | Built-in tool rules, explicit chat system prompt.               |
+| `operator_memory`    | Durable facts or preferences intentionally saved by the operator.                                                | "Use conventional commits", "Prefer Go-first tooling".          |
+| `workspace_guidance` | Repository-local guidance. Trusted for this workspace, but still less authoritative than operator/system policy. | `AGENTS.md`, `CLAUDE.md`, repo docs selected by user.           |
+| `runtime_state`      | Hecate-observed state. Evidence, not instruction.                                                                | Run status, approvals, artifact metadata, changed files.        |
+| `tool_output`        | Output produced by tools. Evidence, not instruction.                                                             | `git status`, `go test`, stdout/stderr artifacts.               |
+| `generated_summary`  | Model-generated compression of older context. Evidence with lossy provenance.                                    | Conversation summary produced by a summarizer.                  |
+| `external_untrusted` | Text from outside the current operator/runtime trust boundary. Must be quoted/labelled as untrusted.             | PR comments, imported chat text, web pages, raw adapter output. |
 
 The renderer must never merge untrusted text into an instruction block. If a
 PR comment says "ignore previous instructions," it remains labelled as external
@@ -261,13 +261,13 @@ packets are audit snapshots owned by their parent message/run.
 
 ## Implementation Plan
 
-| PR | Scope |
-|---|---|
-| 1 | Add `internal/context/` packet types, in-memory assembly for Hecate Chat direct-model and tools-on messages, and context inspector API. |
-| 2 | Persist context packet snapshots in memory and SQLite chat/task stores. |
-| 3 | Add UI context inspector for chat messages and task runs. |
-| 4 | Wire token estimates from the context-window RFC against packet items. |
-| 5 | Add agent-memory selection as a packet source after the memory store exists. |
+| PR  | Scope                                                                                                                                   |
+| --- | --------------------------------------------------------------------------------------------------------------------------------------- |
+| 1   | Add `internal/context/` packet types, in-memory assembly for Hecate Chat direct-model and tools-on messages, and context inspector API. |
+| 2   | Persist context packet snapshots in memory and SQLite chat/task stores.                                                                 |
+| 3   | Add UI context inspector for chat messages and task runs.                                                                               |
+| 4   | Wire token estimates from the context-window RFC against packet items.                                                                  |
+| 5   | Add agent-memory selection as a packet source after the memory store exists.                                                            |
 
 The first PR is intentionally small: no memory, no summarization, no vector
 retrieval. Just create the audit boundary.

@@ -113,14 +113,14 @@ const (
 
 Scope semantics:
 
-| Scope | Activates when |
-|---|---|
-| `global` | Every Hecate-controlled model call. |
-| `project` | Active `project_id` matches. |
-| `chat` | Active chat/session ID matches. |
-| `agent_profile` | Active agent profile opts into the entry or backing source. |
-| `surface` | Runtime surface matches `surface`, such as Hecate Chat or task runs. |
-| `composite` | Project, chat, profile, and/or surface constraints all match. |
+| Scope           | Activates when                                                       |
+| --------------- | -------------------------------------------------------------------- |
+| `global`        | Every Hecate-controlled model call.                                  |
+| `project`       | Active `project_id` matches.                                         |
+| `chat`          | Active chat/session ID matches.                                      |
+| `agent_profile` | Active agent profile opts into the entry or backing source.          |
+| `surface`       | Runtime surface matches `surface`, such as Hecate Chat or task runs. |
+| `composite`     | Project, chat, profile, and/or surface constraints all match.        |
 
 Agent profiles can reference a set of memory entries, memory scopes, or
 external memory sources, but they should not become memory themselves. A profile
@@ -130,13 +130,13 @@ preset is applied, the resolved profile settings control memory activation.
 
 ## Memory Layers
 
-| Layer | Persistence | Scope | Promotion |
-|---|---|---|---|
-| Global memory | Durable | Whole local Hecate instance | Explicit only |
-| Project memory | Durable | One `project_id` | Explicit save from chat/task |
-| Chat/session memory | Session-local or durable-per-chat | One chat/session | Never auto-promoted |
-| Profile-selected memory | Durable selection rule | One agent profile | References scopes/sources; does not store memory itself |
-| Current context | Per request | One model/agent call | Not memory |
+| Layer                   | Persistence                       | Scope                       | Promotion                                               |
+| ----------------------- | --------------------------------- | --------------------------- | ------------------------------------------------------- |
+| Global memory           | Durable                           | Whole local Hecate instance | Explicit only                                           |
+| Project memory          | Durable                           | One `project_id`            | Explicit save from chat/task                            |
+| Chat/session memory     | Session-local or durable-per-chat | One chat/session            | Never auto-promoted                                     |
+| Profile-selected memory | Durable selection rule            | One agent profile           | References scopes/sources; does not store memory itself |
+| Current context         | Per request                       | One model/agent call        | Not memory                                              |
 
 Project memory should be the default durable scope. Chat/session memory is for
 short-lived continuity and notes inside one conversation. If something learned
@@ -266,6 +266,7 @@ Recommended rendered block:
 ## Operator Memory
 
 ### <title>
+
 <body>
 ```
 
@@ -300,14 +301,14 @@ visibility at the point of use.
 
 ## Implementation Plan
 
-| PR | Scope |
-|---|---|
-| 1 | `internal/memory/` store interface with memory + SQLite backends and parity tests. |
-| 2 | CRUD and `/active` API endpoints with structured errors and trace IDs. |
-| 3 | Context assembly integration that emits `operator_memory` context items. |
-| 4 | Agent profile memory-source selection for Hecate Chat and external agents. |
-| 5 | UI management surface plus active-memory indicators in Chat and Task Detail. |
-| 6 | Docs, screenshots, and e2e coverage for scoped memory visibility. |
+| PR  | Scope                                                                              |
+| --- | ---------------------------------------------------------------------------------- |
+| 1   | `internal/memory/` store interface with memory + SQLite backends and parity tests. |
+| 2   | CRUD and `/active` API endpoints with structured errors and trace IDs.             |
+| 3   | Context assembly integration that emits `operator_memory` context items.           |
+| 4   | Agent profile memory-source selection for Hecate Chat and external agents.         |
+| 5   | UI management surface plus active-memory indicators in Chat and Task Detail.       |
+| 6   | Docs, screenshots, and e2e coverage for scoped memory visibility.                  |
 
 This should land after the first context-packet implementation. Otherwise
 memory will have no durable "what saw this entry?" audit trail.

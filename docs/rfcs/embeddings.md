@@ -90,7 +90,7 @@ In rough priority order:
   arrays (pre-tokenized — rare; punt to a not-supported error).
   Responses:
   `{object: "list", data: [{object, index, embedding}], model,
-  usage: {prompt_tokens, total_tokens}}`. v1.0 ships only
+usage: {prompt_tokens, total_tokens}}`. v1.0 ships only
   `encoding_format=float` — see "Encoding format" below.
 - **Pinned routing — exact provider/model resolution, no
   failover.** Hecate's chat router today supports default-route
@@ -113,7 +113,7 @@ In rough priority order:
   `CredentialReporter` interfaces. No new secret slots.
 - **Same usage-recording path as chat.** Each embedding response
   emits a `governor.UsageEvent` with `Usage{PromptTokens,
-  TotalTokens, CompletionTokens=0}` and `CostMicros` pre-computed
+TotalTokens, CompletionTokens=0}` and `CostMicros` pre-computed
   by the adapter (same shape chat uses today). No new
   operator-editable pricing surface — embedding cost metadata lives
   alongside chat cost metadata inside each adapter. See "Usage and
@@ -123,10 +123,10 @@ In rough priority order:
 
 Public, OpenAI-compatible:
 
-| Method | Path | Body shape |
-|---|---|---|
-| `POST` | `/v1/embeddings` | `{model, input, dimensions?, user?, encoding_format?}` |
-| `GET`  | `/v1/models` | unchanged shape; each model's `metadata.capabilities` block grows a new `kind` field (`"chat"` default, `"embedding"` for embedding-class models). See "Model catalog / capability shape" below. |
+| Method | Path             | Body shape                                                                                                                                                                                       |
+| ------ | ---------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------ |
+| `POST` | `/v1/embeddings` | `{model, input, dimensions?, user?, encoding_format?}`                                                                                                                                           |
+| `GET`  | `/v1/models`     | unchanged shape; each model's `metadata.capabilities` block grows a new `kind` field (`"chat"` default, `"embedding"` for embedding-class models). See "Model catalog / capability shape" below. |
 
 No new Hecate-native endpoints — the operator UI's embedding-model
 picker reads from `/v1/models` filtered client-side on
@@ -269,17 +269,17 @@ directions.
 
 ### Provider coverage matrix (v1)
 
-| Provider | Embeddings? | Adapter path | Default model | Native dims |
-|---|---|---|---|---|
-| OpenAI | yes | `internal/providers/openai.go` | `text-embedding-3-small` | 1536 |
-| Voyage AI | yes | new `internal/providers/voyage.go` | `voyage-3` | 1024 |
-| Google Gemini | yes | extend Gemini adapter | `text-embedding-004` | 768 |
-| Azure OpenAI | yes | extend OpenAI adapter (same shape, different base URL) | deployment-named | 1536 |
-| llama.cpp `llama-server` | yes (local) | extend local-models runtime | per-installed-model | per-installed-model |
-| Anthropic | no | no `Embedder` impl | — | — |
-| DeepSeek | no | no `Embedder` impl | — | — |
-| Groq | no | no `Embedder` impl | — | — |
-| Perplexity | no | no `Embedder` impl | — | — |
+| Provider                 | Embeddings? | Adapter path                                           | Default model            | Native dims         |
+| ------------------------ | ----------- | ------------------------------------------------------ | ------------------------ | ------------------- |
+| OpenAI                   | yes         | `internal/providers/openai.go`                         | `text-embedding-3-small` | 1536                |
+| Voyage AI                | yes         | new `internal/providers/voyage.go`                     | `voyage-3`               | 1024                |
+| Google Gemini            | yes         | extend Gemini adapter                                  | `text-embedding-004`     | 768                 |
+| Azure OpenAI             | yes         | extend OpenAI adapter (same shape, different base URL) | deployment-named         | 1536                |
+| llama.cpp `llama-server` | yes (local) | extend local-models runtime                            | per-installed-model      | per-installed-model |
+| Anthropic                | no          | no `Embedder` impl                                     | —                        | —                   |
+| DeepSeek                 | no          | no `Embedder` impl                                     | —                        | —                   |
+| Groq                     | no          | no `Embedder` impl                                     | —                        | —                   |
+| Perplexity               | no          | no `Embedder` impl                                     | —                        | —                   |
 
 Voyage is a new adapter. Justified because Voyage is what
 Anthropic's docs recommend for Claude RAG workflows, and Hecate
@@ -478,7 +478,7 @@ contract everyone downstream depends on.
 ## Acceptance criteria
 
 - `POST /v1/embeddings` with `{model: "text-embedding-3-small",
-  input: "hello world"}` returns an OpenAI-compatible
+input: "hello world"}` returns an OpenAI-compatible
   `data: [{embedding: [...]}]` envelope when the operator has
   an OpenAI provider configured.
 - `POST /v1/embeddings` with `{model: "claude-sonnet-4-5", ...}`

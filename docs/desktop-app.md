@@ -18,11 +18,11 @@ Code: [`tauri/`](../tauri/) · agent guide: [`docs-ai/skills/tauri/SKILL.md`](..
 Released alongside the rest of the alpha. The release pipeline builds three
 matrix legs in parallel and attaches bundles to the GitHub Release entry:
 
-| Platform | Bundle |
-|---|---|
-| macOS (Apple Silicon) | `Hecate_X.Y.Z_aarch64.dmg` |
-| Linux x86_64 | `Hecate_X.Y.Z_amd64.deb`, `Hecate_X.Y.Z_amd64.AppImage` |
-| Windows x86_64 | `Hecate_X.Y.Z_x64_en-US.msi` |
+| Platform              | Bundle                                                  |
+| --------------------- | ------------------------------------------------------- |
+| macOS (Apple Silicon) | `Hecate_X.Y.Z_aarch64.dmg`                              |
+| Linux x86_64          | `Hecate_X.Y.Z_amd64.deb`, `Hecate_X.Y.Z_amd64.AppImage` |
+| Windows x86_64        | `Hecate_X.Y.Z_x64_en-US.msi`                            |
 
 PR validation: [`test.yml`](../.github/workflows/test.yml) runs the desktop
 bundle matrix only after the cheaper Go, TypeScript, e2e, Docker smoke, and
@@ -79,7 +79,7 @@ What doesn't yet:
 
 - No Windows code signing — SmartScreen warns on every install. Real users
   click "More info → Run anyway"; documented in release notes. Authenticode
-  + EV cert is roadmap.
+  - EV cert is roadmap.
 - No Homebrew formula or cask yet. A formula would help CLI installation, and
   a cask would help app distribution. macOS now signs+notarizes via
   `APPLE_*` repo secrets; a cask would still be additional polish.
@@ -96,23 +96,23 @@ the bundle is polished enough to recommend.
 
 ### Tier 1 — polish before the next alpha
 
-| Item | Scope | Notes |
-|---|---|---|
-| **Test the Linux + Windows bundles** | ~30 min per OS | Download from the current alpha release, install the `.deb` / `.AppImage` / `.msi`, configure a provider, send one chat, quit, relaunch, confirm config persists. macOS is done; these two are the remaining platform unknowns. |
-| **Homebrew distribution** | Formula/cask decision | Useful for install ergonomics, especially the CLI. Does not remove the need for macOS signing/notarization for the desktop app; treat it as distribution, not trust. |
+| Item                                 | Scope                 | Notes                                                                                                                                                                                                                           |
+| ------------------------------------ | --------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| **Test the Linux + Windows bundles** | ~30 min per OS        | Download from the current alpha release, install the `.deb` / `.AppImage` / `.msi`, configure a provider, send one chat, quit, relaunch, confirm config persists. macOS is done; these two are the remaining platform unknowns. |
+| **Homebrew distribution**            | Formula/cask decision | Useful for install ergonomics, especially the CLI. Does not remove the need for macOS signing/notarization for the desktop app; treat it as distribution, not trust.                                                            |
 
 ### Tier 2 — operational gates
 
-| Item | Cost / decision | Notes |
-|---|---|---|
+| Item                     | Cost / decision     | Notes                                                                                                                                                                           |
+| ------------------------ | ------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
 | **Windows code signing** | EV cert (~$300+/yr) | Lower priority. Reputation builds over hundreds of installs anyway, so signing a low-volume alpha is mostly about removing the SmartScreen warning, not unlocking distribution. |
 
 ### Tier 3 — features
 
-| Item | Scope | Notes |
-|---|---|---|
-| **Tray / menubar mode** | Multi-day | "Always on, click to focus." Adds tray icon + show/hide window logic, dock-icon hiding on macOS. Worth doing if "background gateway" is a use case. |
-| **Deep links (`hecate://...`)** | ~1 day | Open specific runs, configure providers from a link. Real value depends on whether such links would appear anywhere — premature today. |
+| Item                            | Scope     | Notes                                                                                                                                               |
+| ------------------------------- | --------- | --------------------------------------------------------------------------------------------------------------------------------------------------- |
+| **Tray / menubar mode**         | Multi-day | "Always on, click to focus." Adds tray icon + show/hide window logic, dock-icon hiding on macOS. Worth doing if "background gateway" is a use case. |
+| **Deep links (`hecate://...`)** | ~1 day    | Open specific runs, configure providers from a link. Real value depends on whether such links would appear anywhere — premature today.              |
 
 ### Skip / reconsider later
 

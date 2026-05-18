@@ -12,11 +12,11 @@ without pretending those agents are model providers.
 
 The core distinction:
 
-| Concept | Examples | What Hecate controls |
-|---|---|---|
-| Model provider | OpenAI, Anthropic, Ollama, LM Studio | Request routing, usage reporting, provider health, model choice |
-| Agent adapter | Codex ACP, Claude ACP, Cursor Agent ACP, future ACP-capable coding agents | Process lifecycle, workspace, prompt/session flow, output capture, diff capture |
-| Protocol adapter | ACP, MCP, OpenAI-compatible HTTP, Anthropic Messages | How another system talks to or from Hecate |
+| Concept          | Examples                                                                  | What Hecate controls                                                            |
+| ---------------- | ------------------------------------------------------------------------- | ------------------------------------------------------------------------------- |
+| Model provider   | OpenAI, Anthropic, Ollama, LM Studio                                      | Request routing, usage reporting, provider health, model choice                 |
+| Agent adapter    | Codex ACP, Claude ACP, Cursor Agent ACP, future ACP-capable coding agents | Process lifecycle, workspace, prompt/session flow, output capture, diff capture |
+| Protocol adapter | ACP, MCP, OpenAI-compatible HTTP, Anthropic Messages                      | How another system talks to or from Hecate                                      |
 
 Providers answer LLM calls. Agent adapters drive coding-agent loops.
 
@@ -145,10 +145,10 @@ path unless a future adapter explicitly opts in.
 
 Two options are plausible.
 
-| Option | Shape | Pros | Cons |
-|---|---|---|---|
-| Add agent mode to chat sessions | Extend `/hecate/v1/chat/sessions` with `target_type=model|agent` | One user-facing Chats surface; easier history | Risks mixing model-provider and agent-runtime semantics too early |
-| Add explicit chat API | `/hecate/v1/chat/sessions/*` | Clean boundary; easy to change during alpha | UI has to bridge two chat APIs |
+| Option                          | Shape                                                     | Pros                                        | Cons                                          |
+| ------------------------------- | --------------------------------------------------------- | ------------------------------------------- | --------------------------------------------- | ----------------------------------------------------------------- |
+| Add agent mode to chat sessions | Extend `/hecate/v1/chat/sessions` with `target_type=model | agent`                                      | One user-facing Chats surface; easier history | Risks mixing model-provider and agent-runtime semantics too early |
+| Add explicit chat API           | `/hecate/v1/chat/sessions/*`                              | Clean boundary; easy to change during alpha | UI has to bridge two chat APIs                |
 
 Recommendation for alpha: **explicit chat API** first. Once behavior is
 stable, Chats UI can render both model-chat and chat sessions behind one

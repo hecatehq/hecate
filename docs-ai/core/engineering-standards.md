@@ -4,7 +4,7 @@ Project-wide coding and style standards. Applies to backend Go and the React UI.
 
 ## Comments
 
-Comments explain *why*, not *what*. Dense and contextual. State the trade-off in the code so the next reader does not have to `git blame` for context. Comments that paraphrase identifiers (`// increment counter`) age into noise — drop them. When the *why* is obvious from the code, no comment is needed.
+Comments explain _why_, not _what_. Dense and contextual. State the trade-off in the code so the next reader does not have to `git blame` for context. Comments that paraphrase identifiers (`// increment counter`) age into noise — drop them. When the _why_ is obvious from the code, no comment is needed.
 
 ## Field shape rules (Go)
 

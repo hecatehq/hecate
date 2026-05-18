@@ -37,14 +37,14 @@ The server runs as a subcommand of the `gateway` binary on stdio, talking back t
 
 Six tools — three reads and three writes:
 
-| Tool | Kind | Description |
-|---|---|---|
-| `list_tasks` | read | Recent agent tasks: id, title, status, execution kind, step count |
-| `get_task_status` | read | Detailed status of one task by id, including its latest run |
-| `summarize_recent_traffic` | read | Aggregated request stats: by-provider breakdown, error rate, avg latency |
-| `create_task` | write | Queue a new `agent_loop` task with optional title / working_directory / model / provider / budget. Returns the new task id |
-| `resolve_approval` | write (destructive) | Approve or reject a pending approval gate (pre-execution or mid-loop). Approve resumes; reject terminates the run as failed |
-| `cancel_run` | write (destructive, idempotent) | Cancel an in-flight task run. Cooperative — the worker stops at the next safe checkpoint |
+| Tool                       | Kind                            | Description                                                                                                                 |
+| -------------------------- | ------------------------------- | --------------------------------------------------------------------------------------------------------------------------- |
+| `list_tasks`               | read                            | Recent agent tasks: id, title, status, execution kind, step count                                                           |
+| `get_task_status`          | read                            | Detailed status of one task by id, including its latest run                                                                 |
+| `summarize_recent_traffic` | read                            | Aggregated request stats: by-provider breakdown, error rate, avg latency                                                    |
+| `create_task`              | write                           | Queue a new `agent_loop` task with optional title / working_directory / model / provider / budget. Returns the new task id  |
+| `resolve_approval`         | write (destructive)             | Approve or reject a pending approval gate (pre-execution or mid-loop). Approve resumes; reject terminates the run as failed |
+| `cancel_run`               | write (destructive, idempotent) | Cancel an in-flight task run. Cooperative — the worker stops at the next safe checkpoint                                    |
 
 Together the write tools turn the MCP surface into an operator-grade control plane: list tasks → see approvals → approve/reject → create new tasks → cancel runaway runs without leaving the editor.
 
@@ -63,8 +63,8 @@ Each tool declares MCP `annotations` so clients know whether to auto-approve inv
 
 The MCP server is a stdio subprocess. One environment variable controls where it talks:
 
-| Variable | Default | Notes |
-|---|---|---|
+| Variable          | Default                 | Notes                             |
+| ----------------- | ----------------------- | --------------------------------- |
 | `HECATE_BASE_URL` | `http://127.0.0.1:8765` | URL of the running Hecate gateway |
 
 #### Claude Desktop
@@ -154,15 +154,19 @@ The same shape is reachable from the UI under "New task → Agent loop → MCP S
 
 Each entry uses **exactly one** transport. The gateway rejects configs that set both or neither.
 
-| Transport | Required | Optional |
-|---|---|---|
+| Transport | Required  | Optional      |
+| --------- | --------- | ------------- |
 | **stdio** | `command` | `args`, `env` |
-| **HTTP** | `url` | `headers` |
+| **HTTP**  | `url`     | `headers`     |
 
 **stdio** — for local servers (`npx`, `bunx`, `uvx`, a binary on PATH):
 
 ```json
-{ "name": "fs", "command": "bunx", "args": ["--bun", "@modelcontextprotocol/server-filesystem", "/workspace"] }
+{
+  "name": "fs",
+  "command": "bunx",
+  "args": ["--bun", "@modelcontextprotocol/server-filesystem", "/workspace"]
+}
 ```
 
 **HTTP** — for remote / cloud MCP servers, using the [Streamable HTTP](https://spec.modelcontextprotocol.io/specification/basic/transports/) protocol. Hecate handles both `application/json` (single response) and `text/event-stream` (SSE, multi-frame) responses, and threads the `Mcp-Session-Id` header across requests.
@@ -179,11 +183,11 @@ Each entry uses **exactly one** transport. The gateway rejects configs that set 
 
 Values in `env` (stdio) and `headers` (HTTP) are stored in one of three forms. Same rules apply to both:
 
-| Form | Example | Behavior |
-|---|---|---|
-| Process-env reference | `$GITHUB_TOKEN` | Resolved from Hecate's process environment at subprocess spawn time. The reference is what's stored on the task; the token itself never hits the database. |
-| Encrypted literal | `enc:<base64>` | AES-GCM encrypted with `GATEWAY_CONTROL_PLANE_SECRET_KEY`. Decrypted at spawn time. |
-| Bare literal | `secret-token-xyz` | Stored as-is. Acceptable for non-secret values. |
+| Form                  | Example            | Behavior                                                                                                                                                   |
+| --------------------- | ------------------ | ---------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| Process-env reference | `$GITHUB_TOKEN`    | Resolved from Hecate's process environment at subprocess spawn time. The reference is what's stored on the task; the token itself never hits the database. |
+| Encrypted literal     | `enc:<base64>`     | AES-GCM encrypted with `GATEWAY_CONTROL_PLANE_SECRET_KEY`. Decrypted at spawn time.                                                                        |
+| Bare literal          | `secret-token-xyz` | Stored as-is. Acceptable for non-secret values.                                                                                                            |
 
 Behavior of the API layer:
 
@@ -196,11 +200,11 @@ If a value arrives as `enc:...` and no settings encryption key is configured, th
 
 `approval_policy` gates how tool calls dispatch. Per-server, not per-tool.
 
-| Value | Behavior |
-|---|---|
-| `auto` (default — omittable) | Tool calls dispatch immediately. |
-| `require_approval` | Every tool call to this server pauses the agent loop. The run goes to `awaiting_approval` with a pending approval record; the operator approves or rejects via `POST /hecate/v1/tasks/{id}/approvals/{approval_id}/resolve`; the same run resumes from the saved conversation and dispatches the previously-pending call. |
-| `block` | Never dispatch. The agent loop returns a tool error to the LLM ("blocked by policy") so the model picks a different path on the next turn. Distinct from `require_approval` — block is a hard refusal, not a pause. The run does NOT go to `awaiting_approval`. |
+| Value                        | Behavior                                                                                                                                                                                                                                                                                                                  |
+| ---------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `auto` (default — omittable) | Tool calls dispatch immediately.                                                                                                                                                                                                                                                                                          |
+| `require_approval`           | Every tool call to this server pauses the agent loop. The run goes to `awaiting_approval` with a pending approval record; the operator approves or rejects via `POST /hecate/v1/tasks/{id}/approvals/{approval_id}/resolve`; the same run resumes from the saved conversation and dispatches the previously-pending call. |
+| `block`                      | Never dispatch. The agent loop returns a tool error to the LLM ("blocked by policy") so the model picks a different path on the next turn. Distinct from `require_approval` — block is a hard refusal, not a pause. The run does NOT go to `awaiting_approval`.                                                           |
 
 The pause-and-resume machinery is the same the gateway already uses for built-in `shell_exec` gating; MCP gating reuses it without changing the runner or resume path.
 
@@ -226,10 +230,10 @@ Hecate maintains a shared client cache so multiple tasks targeting the same upst
 
 ### Resource limits
 
-| Knob | Default | What it does |
-|---|---|---|
-| `GATEWAY_TASK_MAX_MCP_SERVERS_PER_TASK` | `16` | Per-task cap on `mcp_servers` entries. The gateway rejects creates that exceed this with a 400 — protects the worker from a single misconfigured task spawning hundreds of subprocesses before failing. `0` disables the check. |
-| `GATEWAY_TASK_MCP_CLIENT_CACHE_MAX_ENTRIES` | `256` | Gateway-wide soft cap on cached MCP clients. See "Lifecycle and caching" above for the LRU-idle eviction contract. `0` disables. |
+| Knob                                        | Default | What it does                                                                                                                                                                                                                    |
+| ------------------------------------------- | ------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `GATEWAY_TASK_MAX_MCP_SERVERS_PER_TASK`     | `16`    | Per-task cap on `mcp_servers` entries. The gateway rejects creates that exceed this with a 400 — protects the worker from a single misconfigured task spawning hundreds of subprocesses before failing. `0` disables the check. |
+| `GATEWAY_TASK_MCP_CLIENT_CACHE_MAX_ENTRIES` | `256`   | Gateway-wide soft cap on cached MCP clients. See "Lifecycle and caching" above for the LRU-idle eviction contract. `0` disables.                                                                                                |
 
 ### Shutdown
 
@@ -243,13 +247,13 @@ Order matters and is enforced by the handler: runner first, cache second. Closin
 
 ### Error handling
 
-| Failure | What you see |
-|---|---|
-| Subprocess can't spawn (`npx not found`, exec error) | Run fails at start. `last_error` carries the spawn diagnostic. |
-| `initialize` handshake fails | Run fails at start. For stdio servers, the error message includes the captured stderr — usually pinpoints missing deps, bad args, or auth failures the upstream prints before exiting. |
-| Tool call returns `isError: true` | The agent loop forwards the upstream's error text as a tool message with `is_error: true`. The LLM gets a chance to retry or pick a different tool; the run does NOT fail. |
-| Transport closed mid-run (subprocess died, HTTP server hung up) | The cache evicts the entry; the call returns a transport error to the loop, which surfaces it as a tool error on the next turn. The next task respawns. |
-| `enc:` value arrives without `GATEWAY_CONTROL_PLANE_SECRET_KEY` | Run fails fast at spawn time with a clear error. |
+| Failure                                                         | What you see                                                                                                                                                                           |
+| --------------------------------------------------------------- | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| Subprocess can't spawn (`npx not found`, exec error)            | Run fails at start. `last_error` carries the spawn diagnostic.                                                                                                                         |
+| `initialize` handshake fails                                    | Run fails at start. For stdio servers, the error message includes the captured stderr — usually pinpoints missing deps, bad args, or auth failures the upstream prints before exiting. |
+| Tool call returns `isError: true`                               | The agent loop forwards the upstream's error text as a tool message with `is_error: true`. The LLM gets a chance to retry or pick a different tool; the run does NOT fail.             |
+| Transport closed mid-run (subprocess died, HTTP server hung up) | The cache evicts the entry; the call returns a transport error to the loop, which surfaces it as a tool error on the next turn. The next task respawns.                                |
+| `enc:` value arrives without `GATEWAY_CONTROL_PLANE_SECRET_KEY` | Run fails fast at spawn time with a clear error.                                                                                                                                       |
 
 Bring-up (initialize + tools/list) gets one bounded retry with a 500ms backoff, rebuilding the transport from scratch between attempts. Absorbs ordinary flakiness — slow-booting subprocess, brief network blip, transient 5xx — without hiding real failures: a permanent broken config (missing binary, bad args, auth rejected) fails twice and surfaces the same diagnostic, just delayed by ~500ms. Cancellation aborts the retry promptly rather than waiting out the backoff, so runner shutdown stays responsive.
 
@@ -297,10 +301,17 @@ The `$GITHUB_TOKEN` reference resolves from Hecate's process environment at spaw
   "execution_kind": "agent_loop",
   "prompt": "Read CHANGELOG.md, then open a PR if today's section is empty.",
   "mcp_servers": [
-    { "name": "fs",     "command": "bunx", "args": ["--bun", "@modelcontextprotocol/server-filesystem", "/workspace"] },
-    { "name": "github", "url": "https://api.example.com/mcp",
+    {
+      "name": "fs",
+      "command": "bunx",
+      "args": ["--bun", "@modelcontextprotocol/server-filesystem", "/workspace"]
+    },
+    {
+      "name": "github",
+      "url": "https://api.example.com/mcp",
       "headers": { "Authorization": "Bearer $GITHUB_TOKEN" },
-      "approval_policy": "require_approval" }
+      "approval_policy": "require_approval"
+    }
   ]
 }
 ```

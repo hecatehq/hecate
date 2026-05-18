@@ -198,6 +198,14 @@ website-format: _website-deps
 website-format-check: _website-deps
 	cd website && bun --bun run format:check
 
+# Format tracked Markdown and MDC docs with Oxfmt.
+docs-format: _ui-deps
+	git ls-files -z '*.md' '*.mdc' | xargs -0 ./ui/node_modules/.bin/oxfmt --write
+
+# Check tracked Markdown and MDC docs formatting with Oxfmt.
+docs-format-check: _ui-deps
+	git ls-files -z '*.md' '*.mdc' | xargs -0 ./ui/node_modules/.bin/oxfmt --check
+
 # Build the Astro website.
 website-build: _website-deps
 	cd website && bun --bun run build
@@ -247,7 +255,7 @@ check-links:
 # Project verification gate. It intentionally runs only non-destructive
 # checks, but it is not cheap: Docker and UI e2e can take a bit.
 # Run the full project verification gate.
-verify: docs-env-check test vet test-race test-acp-smoke test-docker-smoke ui-lint ui-format-check website-lint website-format-check ui-test ui-test-e2e build
+verify: docs-env-check docs-format-check test vet test-race test-acp-smoke test-docker-smoke ui-lint ui-format-check website-lint website-format-check ui-test ui-test-e2e build
 
 # Run verification, then cut a release tag. Optional args pass through to
 # scripts/release.ts, for example: just release vX.Y.Z --skip-snapshot.

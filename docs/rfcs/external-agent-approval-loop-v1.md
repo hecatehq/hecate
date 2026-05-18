@@ -108,12 +108,12 @@ to land that yet.
 When the operator resolves an approval, they pick a **scope** alongside the
 decision. v1 supports four scopes, in increasing breadth:
 
-| Scope | Re-prompts when… | ACP option this maps to |
-|---|---|---|
-| `once` | every subsequent matching request | explicitly selected `allow_once`-style option |
-| `session` | re-asked next session, but auto-applied within this one | `allow_always` (when adapter scopes "always" to its session) |
-| `workspace_tool` | re-asked for the same `(adapter, tool_name)` in a different workspace | Hecate-side approval grant |
-| `adapter_tool` | re-asked for a different tool, but auto-applied for this `(adapter, tool_name)` pair across sessions | Hecate-side approval grant |
+| Scope            | Re-prompts when…                                                                                     | ACP option this maps to                                      |
+| ---------------- | ---------------------------------------------------------------------------------------------------- | ------------------------------------------------------------ |
+| `once`           | every subsequent matching request                                                                    | explicitly selected `allow_once`-style option                |
+| `session`        | re-asked next session, but auto-applied within this one                                              | `allow_always` (when adapter scopes "always" to its session) |
+| `workspace_tool` | re-asked for the same `(adapter, tool_name)` in a different workspace                                | Hecate-side approval grant                                   |
+| `adapter_tool`   | re-asked for a different tool, but auto-applied for this `(adapter, tool_name)` pair across sessions | Hecate-side approval grant                                   |
 
 Decisions broader than `once` persist in a new `chat_approval_grants`
 table:
@@ -227,10 +227,16 @@ oldest pending first.
       "adapter_id": "codex",
       "status": "pending",
       "tool_kind": "file_write",
-      "acp_payload": { /* verbatim RequestPermissionRequest */ },
+      "acp_payload": {
+        /* verbatim RequestPermissionRequest */
+      },
       "acp_options": [
         { "option_id": "allow_once", "kind": "allow_once", "name": "Allow once" },
-        { "option_id": "allow_always_for_session", "kind": "allow_always", "name": "Allow for this session" },
+        {
+          "option_id": "allow_always_for_session",
+          "kind": "allow_always",
+          "name": "Allow for this session"
+        },
         { "option_id": "deny_once", "kind": "reject_once", "name": "Deny" }
       ],
       "scope_choices": ["once", "session", "workspace_tool", "adapter_tool"],
@@ -341,13 +347,13 @@ contract.
 
 New OTel instruments under `hecate.agent_adapter.approval.*`:
 
-| Instrument | Type | Labels | Meaning |
-|---|---|---|---|
-| `hecate.agent_adapter.approval.requested` | counter | `adapter`, `tool_kind`, `mode` | Approval requests received from adapters. |
-| `hecate.agent_adapter.approval.resolved` | counter | `adapter`, `tool_kind`, `mode`, `decision`, `scope`, `path`, `status` | How approvals get resolved — by operator, by a pre-existing grant, by the configured default mode (`auto` / `deny`), by timeout, or by request cancellation. |
-| `hecate.agent_adapter.approval.timed_out` | counter | `adapter`, `tool_kind`, `mode` | Approvals that hit the prompt-mode timeout. Dedicated counter so dashboards can alert without joining `resolved` on `path=timeout`. |
-| `hecate.agent_adapter.approval.duration` | histogram | same labels as `resolved` | Time from request to resolution. |
-| `hecate.agent_adapter.approval.grants_active` | up-down counter | none | Current count of active durable grants. Seeded from the live store at startup, incremented on grant create, decremented on grant delete. |
+| Instrument                                    | Type            | Labels                                                                | Meaning                                                                                                                                                      |
+| --------------------------------------------- | --------------- | --------------------------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------ |
+| `hecate.agent_adapter.approval.requested`     | counter         | `adapter`, `tool_kind`, `mode`                                        | Approval requests received from adapters.                                                                                                                    |
+| `hecate.agent_adapter.approval.resolved`      | counter         | `adapter`, `tool_kind`, `mode`, `decision`, `scope`, `path`, `status` | How approvals get resolved — by operator, by a pre-existing grant, by the configured default mode (`auto` / `deny`), by timeout, or by request cancellation. |
+| `hecate.agent_adapter.approval.timed_out`     | counter         | `adapter`, `tool_kind`, `mode`                                        | Approvals that hit the prompt-mode timeout. Dedicated counter so dashboards can alert without joining `resolved` on `path=timeout`.                          |
+| `hecate.agent_adapter.approval.duration`      | histogram       | same labels as `resolved`                                             | Time from request to resolution.                                                                                                                             |
+| `hecate.agent_adapter.approval.grants_active` | up-down counter | none                                                                  | Current count of active durable grants. Seeded from the live store at startup, incremented on grant create, decremented on grant delete.                     |
 
 Spans:
 

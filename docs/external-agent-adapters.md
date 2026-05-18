@@ -22,10 +22,10 @@ Hecate transcript.
 
 ACP appears in Hecate in two directions:
 
-| Direction | What Hecate does | Where to read |
-|---|---|---|
-| **Hecate as an ACP client/operator** | Launches and supervises external ACP adapters from the **Chats** agent picker. This is the flow documented here. | This page |
-| **Hecate as an ACP agent** | Exposes Hecate's task runtime to external editor ACP hosts through `hecate-acp`. | [ACP bridge](acp.md) |
+| Direction                            | What Hecate does                                                                                                 | Where to read        |
+| ------------------------------------ | ---------------------------------------------------------------------------------------------------------------- | -------------------- |
+| **Hecate as an ACP client/operator** | Launches and supervises external ACP adapters from the **Chats** agent picker. This is the flow documented here. | This page            |
+| **Hecate as an ACP agent**           | Exposes Hecate's task runtime to external editor ACP hosts through `hecate-acp`.                                 | [ACP bridge](acp.md) |
 
 The two flows share the ACP protocol vocabulary, but they do not share a
 process model. Agent Chat owns the external adapter process. Editor ACP hosts
@@ -33,11 +33,11 @@ own the `hecate-acp` bridge process.
 
 ## Supported adapters
 
-| Adapter | How Hecate starts it | Auth expected by the underlying agent |
-|---|---|---|
-| Codex | Hecate-managed launcher for `@zed-industries/codex-acp` via local `npx`; direct `codex-acp` also works | Codex CLI / adapter login or config |
-| Claude Code | Hecate-managed launcher for `@agentclientprotocol/claude-agent-acp` via local `npx`; direct `claude-agent-acp` also works | Adapter-visible Claude auth: `CLAUDE_CODE_OAUTH_TOKEN` from `claude setup-token`, `ANTHROPIC_API_KEY`, or `ANTHROPIC_AUTH_TOKEN` |
-| Cursor Agent | `cursor-agent acp` | `cursor-agent login` or `CURSOR_API_KEY` |
+| Adapter      | How Hecate starts it                                                                                                      | Auth expected by the underlying agent                                                                                            |
+| ------------ | ------------------------------------------------------------------------------------------------------------------------- | -------------------------------------------------------------------------------------------------------------------------------- |
+| Codex        | Hecate-managed launcher for `@zed-industries/codex-acp` via local `npx`; direct `codex-acp` also works                    | Codex CLI / adapter login or config                                                                                              |
+| Claude Code  | Hecate-managed launcher for `@agentclientprotocol/claude-agent-acp` via local `npx`; direct `claude-agent-acp` also works | Adapter-visible Claude auth: `CLAUDE_CODE_OAUTH_TOKEN` from `claude setup-token`, `ANTHROPIC_API_KEY`, or `ANTHROPIC_AUTH_TOKEN` |
+| Cursor Agent | `cursor-agent acp`                                                                                                        | `cursor-agent login` or `CURSOR_API_KEY`                                                                                         |
 
 ## Quick start from the operator UI
 
@@ -325,9 +325,9 @@ round-trips per chat session. When a session reaches the ceiling,
 }
 ```
 
-| Setting | Behavior |
-|---|---|
-| `GATEWAY_CHAT_MAX_TURNS_PER_SESSION=0` | Unlimited (default) |
+| Setting                                 | Behavior                            |
+| --------------------------------------- | ----------------------------------- |
+| `GATEWAY_CHAT_MAX_TURNS_PER_SESSION=0`  | Unlimited (default)                 |
 | `GATEWAY_CHAT_MAX_TURNS_PER_SESSION=50` | Enforce 50-turn ceiling per session |
 
 When a limit is set, the chat header shows a `{turns_used}/{max} turns` badge.
@@ -341,12 +341,12 @@ the same workspace resets the counter.
 Two optional time-based limits protect long-lived ACP sessions from turning
 into invisible background processes:
 
-| Setting | Behavior |
-|---|---|
-| `GATEWAY_CHAT_MAX_SESSION_DURATION=0s` | Unlimited wall-clock age (default) |
+| Setting                                | Behavior                                                  |
+| -------------------------------------- | --------------------------------------------------------- |
+| `GATEWAY_CHAT_MAX_SESSION_DURATION=0s` | Unlimited wall-clock age (default)                        |
 | `GATEWAY_CHAT_MAX_SESSION_DURATION=2h` | Reject new turns once the session is at least 2 hours old |
-| `GATEWAY_CHAT_IDLE_TIMEOUT=0s` | No idle sweeper (default) |
-| `GATEWAY_CHAT_IDLE_TIMEOUT=1h` | Auto-close idle sessions after 1 hour without updates |
+| `GATEWAY_CHAT_IDLE_TIMEOUT=0s`         | No idle sweeper (default)                                 |
+| `GATEWAY_CHAT_IDLE_TIMEOUT=1h`         | Auto-close idle sessions after 1 hour without updates     |
 
 When the wall-clock limit is exceeded, `POST
 /hecate/v1/chat/sessions/{id}/messages` returns HTTP 422 with

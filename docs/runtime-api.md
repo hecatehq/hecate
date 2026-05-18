@@ -10,11 +10,11 @@ For the high-level execution flow (lease semantics, sandbox boundary, event sequ
 
 Hecate serves three intentionally separate HTTP surfaces:
 
-| Namespace | Purpose |
-|---|---|
-| `/v1/*` | Provider-compatible protocol ingress. These paths stay OpenAI- or Anthropic-shaped so existing SDKs can point at Hecate without learning Hecate-specific URLs. Today that means `GET /v1/models`, `POST /v1/chat/completions`, and `POST /v1/messages`. |
-| `/hecate/v1/*` | Hecate-native product API: tasks, Hecate Chat sessions, external-agent adapters, settings, usage, traces, events, and system operations. Operator UI, MCP tools, ACP bridge, and Hecate-aware clients should use this namespace. |
-| `/healthz` | Unversioned process liveness for local scripts, desktop sidecars, and load balancers. It is intentionally tiny and not wrapped in the normal `{object,data}` API envelope. |
+| Namespace      | Purpose                                                                                                                                                                                                                                                 |
+| -------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `/v1/*`        | Provider-compatible protocol ingress. These paths stay OpenAI- or Anthropic-shaped so existing SDKs can point at Hecate without learning Hecate-specific URLs. Today that means `GET /v1/models`, `POST /v1/chat/completions`, and `POST /v1/messages`. |
+| `/hecate/v1/*` | Hecate-native product API: tasks, Hecate Chat sessions, external-agent adapters, settings, usage, traces, events, and system operations. Operator UI, MCP tools, ACP bridge, and Hecate-aware clients should use this namespace.                        |
+| `/healthz`     | Unversioned process liveness for local scripts, desktop sidecars, and load balancers. It is intentionally tiny and not wrapped in the normal `{object,data}` API envelope.                                                                              |
 
 OTLP collector/export endpoints keep their standard protocol paths
 (`/v1/traces`, `/v1/metrics`, `/v1/logs`) when Hecate is configured to export to
@@ -58,20 +58,20 @@ Hecate-native JSON errors use one stable envelope:
 
 Common Hecate-native error types:
 
-| Type | Status | Meaning |
-|---|---:|---|
-| `invalid_request` | 400 | Request JSON, query parameters, or required fields are invalid. |
-| `not_found` | 404 | The requested Hecate resource does not exist. |
-| `conflict` | 409 | The resource changed state or the requested transition is not valid now. |
-| `gateway_error` | 500 | Hecate failed before it could classify the failure more specifically. |
-| `rate_limit_exceeded` | 429 | The local gateway rate limiter rejected the request. |
-| `model_not_configured` | 422 | The selected model is stale or not currently reported by the selected provider. |
-| `chat.agent_session_busy` | 409 | A Hecate Chat task-backed loop is queued, running, or awaiting approval. |
-| `chat.model_capability_required` | 422 | Tools are on, but the model is not marked tool-capable. |
-| `chat.workspace_required` | 400 | Hecate Agent or External Agent chat needs a workspace path. |
-| `chat.session_limit_exceeded` | 422 | The chat turn limit was reached. |
-| `chat.session_duration_limit_exceeded` | 422 | The chat wall-clock limit was reached. |
-| `chat.session_idle_timeout` | 422 | The chat was idle beyond the configured timeout. |
+| Type                                   | Status | Meaning                                                                         |
+| -------------------------------------- | -----: | ------------------------------------------------------------------------------- |
+| `invalid_request`                      |    400 | Request JSON, query parameters, or required fields are invalid.                 |
+| `not_found`                            |    404 | The requested Hecate resource does not exist.                                   |
+| `conflict`                             |    409 | The resource changed state or the requested transition is not valid now.        |
+| `gateway_error`                        |    500 | Hecate failed before it could classify the failure more specifically.           |
+| `rate_limit_exceeded`                  |    429 | The local gateway rate limiter rejected the request.                            |
+| `model_not_configured`                 |    422 | The selected model is stale or not currently reported by the selected provider. |
+| `chat.agent_session_busy`              |    409 | A Hecate Chat task-backed loop is queued, running, or awaiting approval.        |
+| `chat.model_capability_required`       |    422 | Tools are on, but the model is not marked tool-capable.                         |
+| `chat.workspace_required`              |    400 | Hecate Agent or External Agent chat needs a workspace path.                     |
+| `chat.session_limit_exceeded`          |    422 | The chat turn limit was reached.                                                |
+| `chat.session_duration_limit_exceeded` |    422 | The chat wall-clock limit was reached.                                          |
+| `chat.session_idle_timeout`            |    422 | The chat was idle beyond the configured timeout.                                |
 
 OpenAI-compatible and Anthropic-compatible ingress paths keep their protocol
 shape, but gateway-classified failures also include the same
@@ -127,9 +127,9 @@ The `task` resource accepts these fields on `POST /hecate/v1/tasks`:
 
 `execution_profile` applies task-create defaults:
 
-| Profile | Defaults |
-|---|---|
-| `repo_local` | `execution_kind=agent_loop`, `workspace_mode=persistent`, `working_directory=.`, `timeout_ms=120000` |
+| Profile        | Defaults                                                                                                                                                              |
+| -------------- | --------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `repo_local`   | `execution_kind=agent_loop`, `workspace_mode=persistent`, `working_directory=.`, `timeout_ms=120000`                                                                  |
 | `coding_agent` | Same as `repo_local`, plus `timeout_ms=300000` and a coding-oriented system prompt that nudges the model toward read-before-edit and `file_edit` for targeted changes |
 
 ### Run fields
@@ -228,14 +228,14 @@ Resolve payload: `{"decision": "approve" | "reject", "note": "..."}`. Approving 
 
 `GATEWAY_TASK_APPROVAL_POLICIES` (default `shell_exec,git_exec,file_write`) is a comma-separated allowlist of which approval gates are active across the task runtime. It controls both pre-execution gates on `shell` / `git` / `file` tasks **and** mid-loop gates inside `agent_loop` runs — same env var, same names. Recognized values:
 
-| Value | Effect |
-|---|---|
-| `shell_exec` | Gate `execution_kind=shell` task creates and `agent_loop` `shell_exec` tool calls. |
-| `git_exec` | Gate `execution_kind=git` task creates and `agent_loop` `git_exec` tool calls. |
-| `file_write` | Gate `execution_kind=file` task creates and `agent_loop` `file_write` / `file_edit` tool calls. |
-| `network_egress` | Gate task creates that opt into `sandbox_network=true` and `agent_loop` `http_request` tool calls. |
-| `read_file` | Gate `agent_loop` `read_file` tool calls. Useful when operators want visibility into every file the agent reads, not just what it writes. |
-| `all_tools` | Gate every agent tool call (`shell_exec`, `git_exec`, `file_write`, `file_edit`, `read_file`, `list_dir`, `http_request`) and all pre-execution task gates. Short-circuits to the full set — no need to list individual names. |
+| Value            | Effect                                                                                                                                                                                                                         |
+| ---------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------ |
+| `shell_exec`     | Gate `execution_kind=shell` task creates and `agent_loop` `shell_exec` tool calls.                                                                                                                                             |
+| `git_exec`       | Gate `execution_kind=git` task creates and `agent_loop` `git_exec` tool calls.                                                                                                                                                 |
+| `file_write`     | Gate `execution_kind=file` task creates and `agent_loop` `file_write` / `file_edit` tool calls.                                                                                                                                |
+| `network_egress` | Gate task creates that opt into `sandbox_network=true` and `agent_loop` `http_request` tool calls.                                                                                                                             |
+| `read_file`      | Gate `agent_loop` `read_file` tool calls. Useful when operators want visibility into every file the agent reads, not just what it writes.                                                                                      |
+| `all_tools`      | Gate every agent tool call (`shell_exec`, `git_exec`, `file_write`, `file_edit`, `read_file`, `list_dir`, `http_request`) and all pre-execution task gates. Short-circuits to the full set — no need to list individual names. |
 
 Unknown policy names are rejected at startup with a clear error. Empty value disables every gate (use only in trusted environments). For per-MCP-server gating in `agent_loop` runs, see `approval_policy` on `mcp_servers` entries in [`mcp.md#approval-policy`](mcp.md#approval-policy).
 
@@ -402,11 +402,11 @@ read the global bucket.
 
 Query parameters:
 
-| Name | Meaning |
-|---|---|
-| `scope` | `global` (default) or `provider`. Unknown values fall back to `global`. |
-| `provider` | Provider id when `scope=provider`. |
-| `key` | Explicit internal usage key. Intended for diagnostics, not normal UI use. |
+| Name       | Meaning                                                                   |
+| ---------- | ------------------------------------------------------------------------- |
+| `scope`    | `global` (default) or `provider`. Unknown values fall back to `global`.   |
+| `provider` | Provider id when `scope=provider`.                                        |
+| `key`      | Explicit internal usage key. Intended for diagnostics, not normal UI use. |
 
 ```json
 GET /hecate/v1/usage/summary
@@ -431,8 +431,8 @@ read-only.
 
 Query parameters:
 
-| Name | Meaning |
-|---|---|
+| Name    | Meaning                                                                 |
+| ------- | ----------------------------------------------------------------------- |
 | `limit` | Maximum rows to return. Defaults to the configured usage history limit. |
 
 ```json
@@ -879,6 +879,7 @@ POST /hecate/v1/agent-adapters/codex/probe
 ```
 
 Status codes:
+
 - `200 OK` when the adapter id is registered; `health.status` carries
   `ready`, `not_installed`, `auth_required`, or `error`.
 - `404 not_found` when the adapter id is not registered.
@@ -919,6 +920,7 @@ allowlisted per adapter:
 - Cursor Agent: `CURSOR_API_KEY`
 
 Status codes:
+
 - `200 OK` when the credential is stored.
 - `400 invalid_request` when secret storage is not configured, the credential
   name is unsupported, or the value is empty.
@@ -981,6 +983,7 @@ GET /hecate/v1/agent-adapters/codex/health
 error): `lookup` / `spawn` / `initialize` / `new_session` / `ready`.
 
 Status codes:
+
 - `200 OK` with the typed result on every classification (`ready`,
   `not_installed`, `auth_required`, `error`). The probe completing
   successfully is itself a 200; the adapter's status lives in the body.
@@ -1018,6 +1021,7 @@ POST /hecate/v1/agent-adapters/codex/refresh-launcher
 ```
 
 Status codes:
+
 - `200 OK` for managed adapters when a local package runner such as `npx` is
   available.
 - `404 not_found` when the adapter id is not registered.
@@ -1470,18 +1474,18 @@ envelope.
 
 Hecate Agent-specific errors:
 
-| Status | `error.type` | Meaning |
-|---|---|---|
-| `400` | `chat.workspace_required` | Hecate Agent and External Agent sessions need a selected workspace path before the first turn. |
-| `400` | `chat.model_required` | Hecate Chat needs an explicit selected model before direct model or Hecate Agent turns. |
-| `400` | `chat.runtime_kind_invalid` | The requested chat runtime is not one of `model`, `agent`, or `external_agent`. |
-| `400` | `chat.runtime_mismatch` | The request tried to run a turn through a runtime that does not match the existing session type. |
-| `400` | `chat.adapter_not_found` | The selected external-agent adapter is not registered. |
-| `409` | `chat.agent_session_busy` | The backing task run is queued, running, or awaiting approval. Resolve/cancel the active run before sending another prompt, even for direct model turns in the same Hecate Chat session. |
-| `409` | `chat.session_stopping` | The session is still cancelling or closing; retry after it settles. |
-| `409` | `chat.session_not_running` | A stop request was issued when no run was active. |
-| `422` | `model_not_configured` | The selected model is not currently reported by the selected provider. Choose a discovered model or refresh/fix provider discovery. |
-| `422` | `chat.model_capability_required` | Tools are explicitly disabled for the selected model. Turn tools off for direct model chat or enable tools in Connections. |
+| Status | `error.type`                     | Meaning                                                                                                                                                                                  |
+| ------ | -------------------------------- | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `400`  | `chat.workspace_required`        | Hecate Agent and External Agent sessions need a selected workspace path before the first turn.                                                                                           |
+| `400`  | `chat.model_required`            | Hecate Chat needs an explicit selected model before direct model or Hecate Agent turns.                                                                                                  |
+| `400`  | `chat.runtime_kind_invalid`      | The requested chat runtime is not one of `model`, `agent`, or `external_agent`.                                                                                                          |
+| `400`  | `chat.runtime_mismatch`          | The request tried to run a turn through a runtime that does not match the existing session type.                                                                                         |
+| `400`  | `chat.adapter_not_found`         | The selected external-agent adapter is not registered.                                                                                                                                   |
+| `409`  | `chat.agent_session_busy`        | The backing task run is queued, running, or awaiting approval. Resolve/cancel the active run before sending another prompt, even for direct model turns in the same Hecate Chat session. |
+| `409`  | `chat.session_stopping`          | The session is still cancelling or closing; retry after it settles.                                                                                                                      |
+| `409`  | `chat.session_not_running`       | A stop request was issued when no run was active.                                                                                                                                        |
+| `422`  | `model_not_configured`           | The selected model is not currently reported by the selected provider. Choose a discovered model or refresh/fix provider discovery.                                                      |
+| `422`  | `chat.model_capability_required` | Tools are explicitly disabled for the selected model. Turn tools off for direct model chat or enable tools in Connections.                                                               |
 
 Client note: browser/operator clients may queue a prompt locally when they
 receive or predict `chat.agent_session_busy`, but the server still
@@ -1533,6 +1537,7 @@ GET /hecate/v1/chat/sessions/chat_.../messages/msg_.../files/src%2Ffoo.go
 ```
 
 Status codes:
+
 - `200 OK` with the per-file diff.
 - `404 not_found` when the session, message, or file path is unknown.
 
@@ -1652,10 +1657,10 @@ returns the standard error envelope and the UI keeps the workspace unchanged.
 
 Every response from `POST /v1/chat/completions` and `POST /v1/messages` carries three rate-limit headers, regardless of whether rate limiting is enabled (the headers are zero-value when off):
 
-| Header | Type | Meaning |
-|---|---|---|
-| `X-RateLimit-Limit` | int | Steady-state refill rate (`GATEWAY_RATE_LIMIT_RPM`). |
-| `X-RateLimit-Remaining` | int | Tokens still available in the bucket. Decrements per request. |
-| `X-RateLimit-Reset` | Unix seconds | When the bucket will be full again. |
+| Header                  | Type         | Meaning                                                       |
+| ----------------------- | ------------ | ------------------------------------------------------------- |
+| `X-RateLimit-Limit`     | int          | Steady-state refill rate (`GATEWAY_RATE_LIMIT_RPM`).          |
+| `X-RateLimit-Remaining` | int          | Tokens still available in the bucket. Decrements per request. |
+| `X-RateLimit-Reset`     | Unix seconds | When the bucket will be full again.                           |
 
 Over-limit requests get `429 Too Many Requests` with the standard error envelope and `code: "rate_limit_exceeded"`. See [Deployment: Rate limiting](deployment.md#rate-limiting) for the env-var knobs.

@@ -148,6 +148,8 @@ just ui-test-e2e       # UI end-to-end tests (Playwright)
 just website-lint      # website oxlint checks
 just website-format-check # website Oxfmt formatting check
 just website-format    # format website source with Oxfmt
+just docs-format-check # Markdown and .mdc Oxfmt formatting check
+just docs-format       # format tracked Markdown and .mdc docs with Oxfmt
 just website-build     # Astro website check + production build
 just test-acp-smoke    # ACP stdio bridge smoke against fake local upstream
 just ui-coverage       # UI coverage report (vitest --coverage)
@@ -163,24 +165,26 @@ The race detector is the strongest correctness check (and the slowest); CI runs 
 Before cutting a public tag, run `just verify` and follow the checklist in [Release](release.md).
 
 TypeScript linting uses Oxc. `just ui-lint`, `just ui-format-check`,
-`just website-lint`, and `just website-format-check` are part of `just verify`
-and CI. Formatting commands (`just ui-format`, `just website-format`) are
-available for intentional cleanup passes; review the resulting diff like any
-other code change. The shared `.oxlintrc.json` enables React, accessibility,
-Vitest, import, TypeScript, Unicorn, and Oxc rules for both UI surfaces.
+`just website-lint`, `just website-format-check`, and `just docs-format-check`
+are part of `just verify` and CI. Formatting commands (`just ui-format`,
+`just website-format`, `just docs-format`) are available for intentional
+cleanup passes; review the resulting diff like any other code change. The
+shared `.oxlintrc.json` enables React, accessibility, Vitest, import,
+TypeScript, Unicorn, and Oxc rules for both UI surfaces. Markdown and `.mdc`
+docs use Oxfmt for formatting; lychee still validates links and fragments.
 
 ## CI workflow
 
 GitHub Actions is split by surface so small changes do not wake the whole
 project:
 
-| Workflow | Trigger | Purpose |
-|---|---|---|
-| `test.yml` | PRs and pushes to `master` except markdown-only and website-only changes | Main quality gate: Go, UI, e2e, Docker smoke, Tauri Rust tests, and gated desktop bundle validation. |
-| `website.yml` | Website changes and release-manifest updates | Astro check/build and GitHub Pages deploy for [hecate.sh](https://hecate.sh). |
-| `links.yml` | PRs and pushes | Markdown link and Mermaid validation. |
-| `release.yml` | `v*` tags and manual dispatch | Goreleaser artifacts, Docker images, signed desktop bundles, updater manifest, website manifest publish. |
-| `tauri-build.yml` | Manual dispatch only | Explicit desktop bundle rebuild/debug run from the Actions tab. |
+| Workflow          | Trigger                                                                  | Purpose                                                                                                  |
+| ----------------- | ------------------------------------------------------------------------ | -------------------------------------------------------------------------------------------------------- |
+| `test.yml`        | PRs and pushes to `master` except markdown-only and website-only changes | Main quality gate: Go, UI, e2e, Docker smoke, Tauri Rust tests, and gated desktop bundle validation.     |
+| `website.yml`     | Website changes and release-manifest updates                             | Astro check/build and GitHub Pages deploy for [hecate.sh](https://hecate.sh).                            |
+| `links.yml`       | PRs and pushes                                                           | Markdown formatting, link, fragment, and Mermaid validation.                                             |
+| `release.yml`     | `v*` tags and manual dispatch                                            | Goreleaser artifacts, Docker images, signed desktop bundles, updater manifest, website manifest publish. |
+| `tauri-build.yml` | Manual dispatch only                                                     | Explicit desktop bundle rebuild/debug run from the Actions tab.                                          |
 
 The main `Test` workflow starts with a path filter. Go, TypeScript, Docker,
 and Tauri Rust jobs run only when their inputs changed, while workflow edits

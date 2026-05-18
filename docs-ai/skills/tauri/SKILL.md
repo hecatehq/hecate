@@ -25,7 +25,7 @@ The Tauri app is a thin chrome-frame around the main Hecate runtime running in g
 Most Tauri apps point `tauri.conf.json` → `frontendDist: "../ui/dist"` and let the webview load UI files directly from the bundled app. We don't, on purpose:
 
 - **Same-origin loopback surface.** The webview loads from `http://127.0.0.1:{port}/` and the API is at `http://127.0.0.1:{port}/v1/...`. Same origin means no CORS dance and no Tauri IPC bridge. Splitting UI (`tauri://localhost`) from API (`127.0.0.1:{port}`) breaks that property and requires a meaningful security refactor to restore.
-- **Hecate-sidecar property.** The same `hecate` runtime binary ships through Docker, the goreleaser tarballs, *and* the Tauri sidecar. The embed makes that work without conditional builds or runtime path resolution. Reading `ui/dist` from disk inside a bundled `.app` would require a working-dir-independent resolver and a new "UI files missing" failure mode.
+- **Hecate-sidecar property.** The same `hecate` runtime binary ships through Docker, the goreleaser tarballs, _and_ the Tauri sidecar. The embed makes that work without conditional builds or runtime path resolution. Reading `ui/dist` from disk inside a bundled `.app` would require a working-dir-independent resolver and a new "UI files missing" failure mode.
 - **Bundle-size cost is small.** Embedding adds ~13 MB to the binary, which means a `.dmg` of ~25 MB instead of ~12 MB. Desktop apps routinely ship at 100+ MB; this isn't a real constraint.
 
 If the gateway and UI ever decouple (gateway as pure API + separate static-server for UI), revisit this. Until then, keep the embed.
@@ -64,14 +64,14 @@ tauri/
 
 ## Just recipes
 
-| Recipe | What it does |
-|---|---|
-| `just tauri-install` | `bun install` inside `tauri/` |
-| `just tauri-version` | runs `scripts/stamp-version.ts` — stamps Cargo.toml, package.json, tauri.conf.json to current git tag (or `TAURI_VERSION`) |
-| `just tauri-sidecar` | `just build` then copies `hecate` → `tauri/src-tauri/binaries/hecate-{triple}` |
-| `just tauri-dev` | `tauri-sidecar` + `tauri-install` + `bunx tauri dev` |
-| `just tauri-build` | `tauri-sidecar` + `tauri-version` + `bunx tauri build` |
-| `just test-tauri-smoke` | app-only Tauri build + launch packaged macOS app, probe `/healthz`, quit, verify sidecar exits |
+| Recipe                  | What it does                                                                                                               |
+| ----------------------- | -------------------------------------------------------------------------------------------------------------------------- |
+| `just tauri-install`    | `bun install` inside `tauri/`                                                                                              |
+| `just tauri-version`    | runs `scripts/stamp-version.ts` — stamps Cargo.toml, package.json, tauri.conf.json to current git tag (or `TAURI_VERSION`) |
+| `just tauri-sidecar`    | `just build` then copies `hecate` → `tauri/src-tauri/binaries/hecate-{triple}`                                             |
+| `just tauri-dev`        | `tauri-sidecar` + `tauri-install` + `bunx tauri dev`                                                                       |
+| `just tauri-build`      | `tauri-sidecar` + `tauri-version` + `bunx tauri build`                                                                     |
+| `just test-tauri-smoke` | app-only Tauri build + launch packaged macOS app, probe `/healthz`, quit, verify sidecar exits                             |
 
 Pass `TAURI_TARGET=universal-apple-darwin` (or any Rust target triple) to `tauri-build` for cross-compile. With just, env vars go before the command: `TAURI_TARGET=universal-apple-darwin just tauri-build`. Run `just tauri-sidecar` separately when you change Go code but not Rust — it's the fast path.
 
@@ -82,11 +82,13 @@ Pass `TAURI_TARGET=universal-apple-darwin` (or any Rust target triple) to `tauri
 Three responsibilities:
 
 **`resolve_binary()`** — finds the `hecate` binary. Priority:
+
 1. `HECATE_BIN` env var (override for CI / custom layouts)
 2. Debug build: walks up from `CARGO_MANIFEST_DIR` (= `tauri/src-tauri`) → repo root → `hecate`
 3. Release build: looks next to the running executable for `hecate-{TARGET}` (externalBin canonical name) then plain `hecate`
 
 **`resolve_data_dir(app)`** — resolves the platform data directory via Tauri's path API, creates it if absent, passes it to the gateway as `GATEWAY_DATA_DIR`:
+
 - macOS: `~/Library/Application Support/sh.hecate.app/`
 - Windows: `%APPDATA%\sh.hecate.app\`
 - Linux: `~/.local/share/sh.hecate.app/`
@@ -96,6 +98,7 @@ Three responsibilities:
 ### `lib.rs`
 
 Tauri builder setup:
+
 - Gets the `"main"` window (already created by `tauri.conf.json`) — does NOT call `WebviewWindowBuilder::new` (that would panic with "label already exists").
 - Manages `GatewayChild(Mutex<Option<std::process::Child>>)` in Tauri app state.
 - Spawns a `tauri::async_runtime` task: calls `spawn_and_wait`, stores the child, navigates the window.
@@ -104,6 +107,7 @@ Tauri builder setup:
 ## Gateway↔webview integration
 
 The webview loads `http://127.0.0.1:{port}/`. Because this is a loopback connection with no `Origin` header:
+
 - The gateway treats the native app as the local operator surface.
 - Browser same-origin checks still protect ordinary web traffic, but they are
   not a network security boundary.
@@ -111,11 +115,11 @@ The webview loads `http://127.0.0.1:{port}/`. Because this is a loopback connect
 
 ## Binary resolver — dev vs release
 
-| Context | How `hecate` is found |
-|---|---|
-| `just tauri-dev` | `CARGO_MANIFEST_DIR/../../hecate` (repo root, built by `just build`) |
-| `just tauri-build` bundle | `exe_dir/hecate-{TARGET}` (placed by Tauri's externalBin bundler) |
-| Any context | `HECATE_BIN` env var wins if set |
+| Context                   | How `hecate` is found                                                |
+| ------------------------- | -------------------------------------------------------------------- |
+| `just tauri-dev`          | `CARGO_MANIFEST_DIR/../../hecate` (repo root, built by `just build`) |
+| `just tauri-build` bundle | `exe_dir/hecate-{TARGET}` (placed by Tauri's externalBin bundler)    |
+| Any context               | `HECATE_BIN` env var wins if set                                     |
 
 The `externalBin: ["binaries/hecate"]` entry in `tauri.conf.json` tells Tauri's bundler to include the sidecar binary. When signing is configured later, Tauri signs/notarizes bundled sidecars as part of the native app pipeline. `just tauri-sidecar` stages it as `binaries/hecate-{triple}` which is the name the bundler expects.
 
@@ -146,12 +150,12 @@ Tauri 2 gates every IPC call (custom commands AND auto-injected runtime scripts 
 
 ### Symptom → cause table
 
-| Symptom | Likely cause | Fix |
-|---|---|---|
-| `data-tauri-drag-region` doesn't drag the window on the gateway UI but works on the splash | The gateway origin (`http://127.0.0.1:{port}`) isn't an allowed remote URL for the capability | Add `"remote": { "urls": ["http://127.0.0.1:*/*"] }` to `capabilities/default.json` |
-| Drag doesn't work anywhere | `core:window:allow-start-dragging` not in the capability's `permissions` (not in `core:default`) | Add it explicitly |
-| `invoke("my_command", …)` rejects with `"… not allowed. Plugin not found"` | App-defined commands have no ACL entry by default; on remote origins they're rejected | Add to `AppManifest::commands(&[...])` in `build.rs` *and* reference the generated `allow-<command>` in the capability |
-| Webview console shows nothing on click but drag still fails | Tauri's `drag.js` reject is unhandled — promise rejection vanishes. Add temporary capture-phase `mousedown` listener in App.tsx that invokes `getCurrentWindow().startDragging()` with an explicit `.catch(console.warn)` | Diagnostic only; remove once the capability is right |
+| Symptom                                                                                    | Likely cause                                                                                                                                                                                                              | Fix                                                                                                                    |
+| ------------------------------------------------------------------------------------------ | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | ---------------------------------------------------------------------------------------------------------------------- |
+| `data-tauri-drag-region` doesn't drag the window on the gateway UI but works on the splash | The gateway origin (`http://127.0.0.1:{port}`) isn't an allowed remote URL for the capability                                                                                                                             | Add `"remote": { "urls": ["http://127.0.0.1:*/*"] }` to `capabilities/default.json`                                    |
+| Drag doesn't work anywhere                                                                 | `core:window:allow-start-dragging` not in the capability's `permissions` (not in `core:default`)                                                                                                                          | Add it explicitly                                                                                                      |
+| `invoke("my_command", …)` rejects with `"… not allowed. Plugin not found"`                 | App-defined commands have no ACL entry by default; on remote origins they're rejected                                                                                                                                     | Add to `AppManifest::commands(&[...])` in `build.rs` _and_ reference the generated `allow-<command>` in the capability |
+| Webview console shows nothing on click but drag still fails                                | Tauri's `drag.js` reject is unhandled — promise rejection vanishes. Add temporary capture-phase `mousedown` listener in App.tsx that invokes `getCurrentWindow().startDragging()` with an explicit `.catch(console.warn)` | Diagnostic only; remove once the capability is right                                                                   |
 
 ### What `core:default` includes (and doesn't)
 
@@ -193,7 +197,7 @@ The relevant pieces live in `ui/src/app/`:
 
 ### Rules
 
-- **`data-tauri-drag-region` values matter.** Bare attribute / `="true"` / `=""` triggers drag *only* when the click target IS that element — a click on any child doesn't drag. Use `="deep"` when you wrap interactive content (titlebar with banner buttons) so the empty parent areas drag while children stay live. Tauri's drag.js auto-detects clickable elements (`<button>`, `<input>`, `<a>`, things with `role=button`, `contenteditable`, non-`-1` `tabindex`) and skips drag for them; no `-webkit-app-region: no-drag` opt-out needed.
+- **`data-tauri-drag-region` values matter.** Bare attribute / `="true"` / `=""` triggers drag _only_ when the click target IS that element — a click on any child doesn't drag. Use `="deep"` when you wrap interactive content (titlebar with banner buttons) so the empty parent areas drag while children stay live. Tauri's drag.js auto-detects clickable elements (`<button>`, `<input>`, `<a>`, things with `role=button`, `contenteditable`, non-`-1` `tabindex`) and skips drag for them; no `-webkit-app-region: no-drag` opt-out needed.
 - **Don't rely on CSS `-webkit-app-region: drag` on macOS.** Modern WKWebView doesn't honor it in Tauri 2; the JS-based `data-tauri-drag-region` path (gated on `core:window:allow-start-dragging`) is the one that actually works.
 - **Set `user-select: none` and `cursor: default` on the titlebar.** Without them, dragging from over the banner text leaves a selection smear and the I-beam cursor flickers.
 - **Splash drag works without the remote-URL capability** because `frontendDist: "../splash"` is a local origin. The main UI needs `remote.urls` (see the Capabilities / ACL section).
@@ -201,6 +205,7 @@ The relevant pieces live in `ui/src/app/`:
 ## Adding a new Tauri feature
 
 Before adding Tauri commands (`#[tauri::command]`) or IPC:
+
 - Check if the gateway REST API already covers the use case. The webview can call `http://127.0.0.1:{port}/v1/…` directly — no IPC needed for gateway operations.
 - Use IPC only for truly desktop-native concerns: file dialogs, OS notifications, system tray, auto-update triggers, deep links.
 
@@ -233,20 +238,20 @@ not part of `verify` because it opens a GUI window.
 
 Three workflow files split responsibilities:
 
-| File | Trigger | What it does |
-|---|---|---|
-| `.github/workflows/_tauri-shared.yml` | `workflow_call` only | Reusable matrix build. Single source of truth for Tauri build steps. |
-| `.github/workflows/release.yml` | tag push (`v*`) | Goreleaser job, then calls `_tauri-shared.yml` with `tagName` set → bundles upload to the GitHub Release. |
-| `.github/workflows/test.yml` | PR / `master` push | Main test gate. Its `Tauri desktop bundles` job calls `_tauri-shared.yml` after cheaper checks pass or skip. |
-| `.github/workflows/tauri-build.yml` | manual dispatch | Explicit desktop rebuild/debug run from the Actions tab. |
+| File                                  | Trigger              | What it does                                                                                                 |
+| ------------------------------------- | -------------------- | ------------------------------------------------------------------------------------------------------------ |
+| `.github/workflows/_tauri-shared.yml` | `workflow_call` only | Reusable matrix build. Single source of truth for Tauri build steps.                                         |
+| `.github/workflows/release.yml`       | tag push (`v*`)      | Goreleaser job, then calls `_tauri-shared.yml` with `tagName` set → bundles upload to the GitHub Release.    |
+| `.github/workflows/test.yml`          | PR / `master` push   | Main test gate. Its `Tauri desktop bundles` job calls `_tauri-shared.yml` after cheaper checks pass or skip. |
+| `.github/workflows/tauri-build.yml`   | manual dispatch      | Explicit desktop rebuild/debug run from the Actions tab.                                                     |
 
 **Matrix** (same for both callers):
 
-| Runner | Rust target | Bundles produced |
-|---|---|---|
-| `macos-latest` | `aarch64-apple-darwin` | `.dmg` |
-| `ubuntu-22.04` | `x86_64-unknown-linux-gnu` | `.deb`, `.AppImage` |
-| `windows-latest` | `x86_64-pc-windows-msvc` | `.msi` |
+| Runner           | Rust target                | Bundles produced    |
+| ---------------- | -------------------------- | ------------------- |
+| `macos-latest`   | `aarch64-apple-darwin`     | `.dmg`              |
+| `ubuntu-22.04`   | `x86_64-unknown-linux-gnu` | `.deb`, `.AppImage` |
+| `windows-latest` | `x86_64-pc-windows-msvc`   | `.msi`              |
 
 **Steps per matrix leg** (in `_tauri-shared.yml`): Rust + Go + Bun setup → Linux Tauri 2 prereqs (webkit2gtk-4.1, libxdo, patchelf, …) → `just ui-install` → `just tauri-sidecar <matrix-target>` (builds `hecate` / `hecate-acp` with the tag injected, then stages them as `binaries/<name>-{triple}[.exe]`) → `cd tauri && bun install --frozen-lockfile` → `bun scripts/stamp-version.ts` → `tauri-apps/tauri-action@v0` (build, conditionally upload).
 

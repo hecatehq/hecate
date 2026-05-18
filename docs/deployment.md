@@ -76,21 +76,21 @@ gateway URL before falling back to `http://127.0.0.1:8765`.
 
 A third install path for personal use on a laptop. Same release, different artifacts:
 
-| Platform | Bundle |
-|---|---|
-| macOS (Apple Silicon) | `Hecate_X.Y.Z_aarch64.dmg` |
-| Linux x86_64 | `Hecate_X.Y.Z_amd64.deb`, `Hecate_X.Y.Z_amd64.AppImage` |
-| Windows x86_64 | `Hecate_X.Y.Z_x64_en-US.msi` |
+| Platform              | Bundle                                                  |
+| --------------------- | ------------------------------------------------------- |
+| macOS (Apple Silicon) | `Hecate_X.Y.Z_aarch64.dmg`                              |
+| Linux x86_64          | `Hecate_X.Y.Z_amd64.deb`, `Hecate_X.Y.Z_amd64.AppImage` |
+| Windows x86_64        | `Hecate_X.Y.Z_x64_en-US.msi`                            |
 
 The bundle is a Tauri 2.x chrome around the same `hecate` runtime binary used in Docker and the tarballs. On launch the app spawns it as a gateway sidecar on a free loopback port, polls `/healthz`, then loads the embedded UI directly.
 
 State lives in the platform data dir, not next to the binary:
 
-| Platform | Data dir |
-|---|---|
-| macOS | `~/Library/Application Support/sh.hecate.app/` |
-| Linux | `~/.local/share/sh.hecate.app/` |
-| Windows | `%APPDATA%\sh.hecate.app\` |
+| Platform | Data dir                                       |
+| -------- | ---------------------------------------------- |
+| macOS    | `~/Library/Application Support/sh.hecate.app/` |
+| Linux    | `~/.local/share/sh.hecate.app/`                |
+| Windows  | `%APPDATA%\sh.hecate.app\`                     |
 
 First-launch behavior depends on the platform and on how the bundle was built:
 
@@ -113,12 +113,12 @@ Agent Chat. The native app spawns the bundled `hecate` runtime in gateway mode
 with these env vars inherited from the app process; Docker reads them from
 `.env` / compose; bare binaries read the shell environment.
 
-| Env var | Default | Applies to |
-|---|---|---|
-| `HECATE_AGENT_ADAPTERS_DIR` | platform user cache | Managed Codex / Claude ACP launcher scripts |
-| `GATEWAY_CHAT_MAX_TURNS_PER_SESSION` | `0` | Per-session user→assistant turn ceiling |
-| `GATEWAY_CHAT_MAX_SESSION_DURATION` | `0s` | Wall-clock age ceiling before new turns are rejected |
-| `GATEWAY_CHAT_IDLE_TIMEOUT` | `0s` | Background idle auto-close sweeper |
+| Env var                              | Default             | Applies to                                           |
+| ------------------------------------ | ------------------- | ---------------------------------------------------- |
+| `HECATE_AGENT_ADAPTERS_DIR`          | platform user cache | Managed Codex / Claude ACP launcher scripts          |
+| `GATEWAY_CHAT_MAX_TURNS_PER_SESSION` | `0`                 | Per-session user→assistant turn ceiling              |
+| `GATEWAY_CHAT_MAX_SESSION_DURATION`  | `0s`                | Wall-clock age ceiling before new turns are rejected |
+| `GATEWAY_CHAT_IDLE_TIMEOUT`          | `0s`                | Background idle auto-close sweeper                   |
 
 Managed launchers are small wrapper scripts around a local package runner such
 as `npx`; Hecate garbage-collects stale launcher names at startup. If you move
@@ -143,17 +143,17 @@ For local (non-Docker) development resets, see [`development.md`](development.md
 
 Hecate keeps the storage model intentionally boring: each subsystem chooses a backend independently — either `memory` or `sqlite`.
 
-| Subsystem | Env var | memory | sqlite |
-|---|---|---:|---:|
-| Settings store | `GATEWAY_CONTROL_PLANE_BACKEND` | local default | Docker default |
-| Provider credentials | `GATEWAY_PROVIDER_STORE_BACKEND` | local default | Docker default |
-| Usage events | `GATEWAY_USAGE_BACKEND` | local default | Docker default |
-| Audit events | `GATEWAY_AUDIT_BACKEND` | local default | Docker default |
-| Trace snapshots | `GATEWAY_TRACE_STORE_BACKEND` | local default | Docker default |
-| Retention history | `GATEWAY_RETENTION_HISTORY_BACKEND` | local default | Docker default |
-| Chat sessions + chat approvals/grants | `GATEWAY_CHAT_SESSIONS_BACKEND` | local default | Docker default |
-| Tasks | `GATEWAY_TASKS_BACKEND` | local default | Docker default |
-| Task queue | `GATEWAY_TASK_QUEUE_BACKEND` | local default | Docker default |
+| Subsystem                             | Env var                             |        memory |         sqlite |
+| ------------------------------------- | ----------------------------------- | ------------: | -------------: |
+| Settings store                        | `GATEWAY_CONTROL_PLANE_BACKEND`     | local default | Docker default |
+| Provider credentials                  | `GATEWAY_PROVIDER_STORE_BACKEND`    | local default | Docker default |
+| Usage events                          | `GATEWAY_USAGE_BACKEND`             | local default | Docker default |
+| Audit events                          | `GATEWAY_AUDIT_BACKEND`             | local default | Docker default |
+| Trace snapshots                       | `GATEWAY_TRACE_STORE_BACKEND`       | local default | Docker default |
+| Retention history                     | `GATEWAY_RETENTION_HISTORY_BACKEND` | local default | Docker default |
+| Chat sessions + chat approvals/grants | `GATEWAY_CHAT_SESSIONS_BACKEND`     | local default | Docker default |
+| Tasks                                 | `GATEWAY_TASKS_BACKEND`             | local default | Docker default |
+| Task queue                            | `GATEWAY_TASK_QUEUE_BACKEND`        | local default | Docker default |
 
 Deployment-specific notes:
 
@@ -165,10 +165,10 @@ Deployment-specific notes:
 
 Rate limiting is a per-process token bucket. It is disabled by default so first-run local testing does not surprise users.
 
-| Variable | Default | Notes |
-|---|---:|---|
-| `GATEWAY_RATE_LIMIT_ENABLED` | `false` | Enables request rate limits. |
-| `GATEWAY_RATE_LIMIT_RPM` | `60` | Steady-state refill rate. |
-| `GATEWAY_RATE_LIMIT_BURST` | `0` | Optional burst capacity. `0` means "same as RPM". |
+| Variable                     | Default | Notes                                             |
+| ---------------------------- | ------: | ------------------------------------------------- |
+| `GATEWAY_RATE_LIMIT_ENABLED` | `false` | Enables request rate limits.                      |
+| `GATEWAY_RATE_LIMIT_RPM`     |    `60` | Steady-state refill rate.                         |
+| `GATEWAY_RATE_LIMIT_BURST`   |     `0` | Optional burst capacity. `0` means "same as RPM". |
 
 Over-limit requests return `429 Too Many Requests` with `code: "rate_limit_exceeded"` and standard `X-RateLimit-*` headers.

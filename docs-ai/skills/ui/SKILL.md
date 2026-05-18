@@ -149,9 +149,10 @@ Each section has exactly one job: orient, inspect, compare, edit, or confirm. If
   diagnostics: distinguish missing binaries, auth/billing problems, unsupported
   versions, and managed-launcher issues without sending users to raw logs first.
   To smoke-test missing/available adapter states without uninstalling local
-  tools, use `just dev-no-agent-adapters` or `just dev-agent-adapters
-  'claude_code=missing,codex=available'`. The override is discovery-only; do
-  not write tests that expect a forced-available adapter to run a real session.
+  tools, use `just dev-no-agent-adapters` or
+  `just dev-agent-adapters 'claude_code=missing,codex=available'`. The override
+  is discovery-only; do not write tests that expect a forced-available adapter
+  to run a real session.
 - Agent Chat usage is adapter-reported. Show it as helpful telemetry with the
   "reported by adapter · not enforced by Hecate" caveat, never as Hecate-enforced
   billing.
@@ -258,9 +259,9 @@ A typical view looks like:
 
 ```tsx
 function MyView() {
-  const chat = useChat();                                       // slice state + actions
+  const chat = useChat(); // slice state + actions
   const { providers } = useProvidersAndModels().state;
-  const chatTarget = useChatTarget();                           // derived selector
+  const chatTarget = useChatTarget(); // derived selector
   const { submitChat } = useChatActions({ chatTarget, setNoticeMessage });
   // ... or, more often, the wired variant that resolves the param bag for you:
   const { runSettingsMutation } = useWiredSettingsActions();
@@ -280,15 +281,16 @@ Tests use `withRuntimeConsole(ui, fixture)` from `src/test/runtime-console-rende
 
 ## Build / test commands
 
-| Command | What it does | When to use |
-|---|---|---|
-| `bun run typecheck` | `tsgo -b` — fast type check, no test execution | First sanity check after edits |
-| `bun run lint` | Oxc lint checks | Before committing |
-| `bun run format:check` | Oxfmt formatting check | Before committing |
-| `bun run test` | `vitest run` — full test suite | Before committing |
-| `bun run test:watch` | watch mode | During iteration |
-| `bun run format` | Oxfmt source formatting | Formatting-only cleanup or after formatter drift |
-| `bun run dev` (or `just ui-dev` from repo root) | Vite dev server on `:5173`, proxying API to `:8765` | Live UI iteration alongside `just dev` |
+| Command                                         | What it does                                        | When to use                                      |
+| ----------------------------------------------- | --------------------------------------------------- | ------------------------------------------------ |
+| `bun run typecheck`                             | `tsgo -b` — fast type check, no test execution      | First sanity check after edits                   |
+| `bun run lint`                                  | Oxc lint checks                                     | Before committing                                |
+| `bun run format:check`                          | Oxfmt formatting check                              | Before committing                                |
+| `just docs-format-check`                        | Oxfmt Markdown / `.mdc` formatting check            | When UI changes update docs or screenshots       |
+| `bun run test`                                  | `vitest run` — full test suite                      | Before committing                                |
+| `bun run test:watch`                            | watch mode                                          | During iteration                                 |
+| `bun run format`                                | Oxfmt source formatting                             | Formatting-only cleanup or after formatter drift |
+| `bun run dev` (or `just ui-dev` from repo root) | Vite dev server on `:5173`, proxying API to `:8765` | Live UI iteration alongside `just dev`           |
 
 **Never `bun test`** — it skips testing-library DOM setup and panics with `document[isPrepared]`. Always `bun run test`.
 
@@ -297,6 +299,10 @@ website. It enables the React, JSX accessibility, Vitest, import, TypeScript,
 Unicorn, and Oxc rule families, with current legacy-noise rules disabled
 explicitly. Do not loosen the config casually; if a rule is noisy, name the
 specific rule and why it is disabled.
+
+Markdown and `.mdc` docs are formatted by Oxfmt through `just docs-format` /
+`just docs-format-check`. Keep lychee for link and anchor validation; Oxfmt
+does not replace link checking.
 
 Do not mix broad Oxfmt churn into a feature diff unless the task is explicitly a
 formatting pass. When formatting is needed, run `bun run format`, then review

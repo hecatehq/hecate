@@ -30,10 +30,10 @@ Pick the right skill for the change:
 
 ## Useful slash commands
 
-| Command | What it does |
-|---|---|
-| `/race` | Full Go race suite — the canonical "ready to commit" check for runtime/backend changes |
-| `/test-affected` | Tests only for packages touched in the working tree |
+| Command          | What it does                                                                           |
+| ---------------- | -------------------------------------------------------------------------------------- |
+| `/race`          | Full Go race suite — the canonical "ready to commit" check for runtime/backend changes |
+| `/test-affected` | Tests only for packages touched in the working tree                                    |
 
 ## Repo policy
 
