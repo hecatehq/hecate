@@ -133,33 +133,52 @@ The main `hecate` process runs the local gateway service and embeds the React op
 
 ```mermaid
 flowchart LR
-    UI["Operator UI<br/>Chats · Connections · Tasks · Observability"]
-    Clients["OpenAI / Anthropic clients"]
-    Editors["ACP editors"]
+    subgraph Callers["Operator and client surfaces"]
+        Browser["Browser / desktop UI"]
+        APIClients["OpenAI / Anthropic-shaped clients"]
+        ACPHosts["ACP editor hosts"]
+    end
 
-    Chat["Hecate Chat<br/>tools off: model turn<br/>tools on: task-backed agent"]
-    Gateway["Model gateway"]
-    Runtime["Task runtime<br/>agent_loop · approvals · artifacts"]
-    External["External Agent<br/>Codex · Claude Code · Cursor"]
-    ACP["hecate-acp"]
+    subgraph HecateHost["Hecate host"]
+        UI["Embedded operator UI<br/>Chats · Connections · Tasks · Observability"]
+        Chat["Chats API<br/>model turns · task-backed turns · External Agent turns"]
+        Gateway["Model gateway<br/>routing · policy · rate limits · usage"]
+        Runtime["Task runtime<br/>agent_loop · approvals · artifacts"]
+        Tools["Sandboxed tools + MCP<br/>per-call subprocesses"]
+        ExternalSupervisor["External Agent supervisor<br/>local ACP sessions · approvals · diagnostics · diff capture"]
+        HecateACP["hecate-acp<br/>stdio bridge for editors"]
+        Traces["Trace + event recorder<br/>local view · optional OTLP export"]
+    end
 
+    subgraph LocalPrograms["Subprocesses on the Hecate host"]
+        AdapterCLIs["Local ACP adapters / coding-agent CLIs<br/>Codex · Claude Code · Cursor"]
+    end
+
+    subgraph ExternalServices["External services"]
+        Providers["Cloud + local model providers"]
+        OTel["OpenTelemetry collector/backend"]
+    end
+
+    Browser --> UI
     UI --> Chat
-    UI --> External
-    Clients --> Gateway
-    Editors --> ACP
+    APIClients --> Gateway
+    ACPHosts --> HecateACP
 
     Chat --> Gateway
     Chat --> Runtime
-    ACP --> Runtime
-    External --> AgentCLIs["Coding-agent CLIs"]
+    Chat --> ExternalSupervisor
+    HecateACP --> Runtime
 
     Runtime --> Gateway
-    Gateway --> Providers["Cloud + local model providers"]
-    Runtime --> Tools["Sandboxed tools + MCP"]
+    Runtime --> Tools
+    Gateway --> Providers
+    ExternalSupervisor --> AdapterCLIs
 
-    Gateway --> OTel["OpenTelemetry"]
-    Runtime --> OTel
-    External --> OTel
+    Gateway --> Traces
+    Runtime --> Traces
+    ExternalSupervisor --> Traces
+    HecateACP --> Traces
+    Traces --> OTel
 ```
 
 For deeper internals, read [docs/architecture.md](docs/architecture.md), [docs/runtime-api.md](docs/runtime-api.md), [docs/events.md](docs/events.md), and [docs/telemetry.md](docs/telemetry.md).
