@@ -473,7 +473,7 @@ export async function mockGatewayAPIs(page: Page, opts: GatewayMockOptions = {})
       const content = String(body.content || "");
       const runtimeKind =
         body.execution_mode ||
-        (session.agent_id && session.agent_id !== "hecate" ? "external_agent" : "hecate_task");
+        (session.agent_id && session.agent_id !== "hecate" ? "external_agent" : "direct_model");
       session.messages.push(
         {
           id: `agent-msg-user-${chatSequence}`,

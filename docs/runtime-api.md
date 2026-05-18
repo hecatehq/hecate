@@ -1150,6 +1150,10 @@ Creates an Agent Chat session. `agent_id` chooses the session owner:
 - Any registered external-agent id, such as `codex`, `claude_code`, or
   `cursor_agent`, creates an External Agent chat and requires `workspace`.
 
+Hecate Chat sessions require `model` when they are created. `provider` is
+optional; omit it to let Hecate route across configured providers that expose
+the selected model.
+
 For Hecate Chat sessions, `rtk_enabled` records the chat's command-output
 compaction preference. It is only applied when a future turn runs through the
 task-backed `hecate_task` execution mode; direct model turns never execute

@@ -78,23 +78,24 @@ The seven-step chain spans `pkg/types/` → `internal/api/` → `internal/provid
 
 ### Change Agent Chat / ACP adapter behavior
 
-Agent Chat has three runtime kinds:
+Agent Chat separates session ownership from turn execution:
 
-1. `model`: the chat session calls the gateway/router directly and stores
-   direct user/assistant messages. No task is created.
-2. `agent`: the chat session points at one visible `agent_loop` task-backed
-   segment.
-   The first prompt creates the task; follow-ups continue the latest terminal
-   run through the task runtime while the immediately previous segment was also
-   Hecate Agent. Re-enabling tools after a direct model segment creates a new
-   task-backed segment in the same transcript. While a task-backed segment is
-   queued, running, or awaiting approval, the entire Hecate Chat session is
-   busy: direct model turns are rejected too, so one transcript cannot race a
-   live task loop against a separate model call. The browser UI may queue a
-   prompt locally while busy, but the backend contract remains one active
-   task-backed turn per session.
-3. `external_agent`: the chat session points at one supervised adapter session
-   such as Codex, Claude Code, or Cursor Agent.
+1. `agent_id="hecate"` owns built-in Hecate Chat sessions. Each turn chooses
+   `execution_mode="direct_model"` for a plain gateway/router call or
+   `execution_mode="hecate_task"` for task-backed tools.
+2. `agent_id` values such as `codex`, `claude_code`, or `cursor_agent` own
+   External Agent sessions. Their turns use `execution_mode="external_agent"`
+   and point at one supervised adapter session.
+
+For Hecate-owned task turns, the first prompt creates the task; follow-ups
+continue the latest terminal run through the task runtime while the immediately
+previous segment was also task-backed. Re-enabling tools after a direct model
+segment creates a new task-backed segment in the same transcript. While a
+task-backed segment is queued, running, or awaiting approval, the entire Hecate
+Chat session is busy: direct model turns are rejected too, so one transcript
+cannot race a live task loop against a separate model call. The browser UI may
+queue a prompt locally while busy, but the backend contract remains one active
+task-backed turn per session.
 
 External Agent has two live/persistence layers:
 
@@ -176,4 +177,8 @@ For errors that should surface before a run is created (bad config, missing requ
 
 ## Done criteria
 
-See [`../../core/verification.md`](../../core/verification.md). Race suite is the floor for runtime/backend work, not a nice-to-have.
+See [`../../core/verification.md`](../../core/verification.md). Before filing a
+PR that touches Go/backend files, run the relevant Go checks: targeted or broad
+`go vet`, affected `go test` packages, and the race suite for runtime paths. If
+UI/TypeScript files changed too, run the UI ladder as well. Race suite is the
+floor for runtime/backend work, not a nice-to-have.

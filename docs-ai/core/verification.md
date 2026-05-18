@@ -2,6 +2,22 @@
 
 How "done" is determined. Treat the floors as floors, not nice-to-haves.
 
+## Pre-PR rule
+
+Do not file a PR until the verification for every touched implementation
+surface has passed locally:
+
+- Touch `ui/`, `website/`, `.ts`, `.tsx`, `.js`, `.jsx`, CSS, Vitest, or
+  Playwright files: run the UI checks listed below.
+- Touch Go files, Go modules, backend config, or e2e helpers: run the Go
+  checks listed below.
+- Touch both frontend and backend surfaces: run both ladders.
+
+Docs-only and agent-guidance-only changes do not require TypeScript or Go
+tests, but still need the relevant docs checks when formatting, links, or
+screenshots are affected. If a required check cannot run, say why before
+filing the PR and call out the residual risk.
+
 ## Backend verification ladder
 
 | Step          | Command                                                        | When                                                                         |
