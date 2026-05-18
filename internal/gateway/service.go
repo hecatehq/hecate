@@ -71,6 +71,7 @@ type Service struct {
 const (
 	traceBodyModeMetadata     = "metadata"
 	traceBodyModeRedactedText = "redacted_text"
+	traceBodyMaxItems         = 128
 )
 
 type ChatResult struct {
@@ -704,9 +705,11 @@ func (s *Service) captureRequestBody(trace *profiler.Trace, req types.ChatReques
 		Blocks       int    `json:"blocks,omitempty"`
 		ToolCalls    int    `json:"tool_calls,omitempty"`
 	}
-	msgs := make([]capturedMessage, 0, len(req.Messages))
+	messageCount := len(req.Messages)
+	captureCount := min(messageCount, traceBodyMaxItems)
+	msgs := make([]capturedMessage, 0, captureCount)
 	remaining := s.traceBodyMaxBytes
-	for _, m := range req.Messages {
+	for _, m := range req.Messages[:captureCount] {
 		item := capturedMessage{
 			Role:         m.Role,
 			ContentBytes: len(m.Content),
@@ -723,9 +726,12 @@ func (s *Service) captureRequestBody(trace *profiler.Trace, req types.ChatReques
 	}
 	b, _ := json.Marshal(msgs)
 	trace.Record("request.body.captured", map[string]any{
-		"messages": string(b),
-		"model":    req.Model,
-		"mode":     s.traceBodyMode,
+		"messages":          string(b),
+		"message_count":     messageCount,
+		"messages_captured": len(msgs),
+		"truncated":         len(msgs) < messageCount || (s.traceBodyMode == traceBodyModeRedactedText && remaining <= 0),
+		"model":             req.Model,
+		"mode":              s.traceBodyMode,
 	})
 }
 
@@ -742,9 +748,11 @@ func (s *Service) captureResponseBody(trace *profiler.Trace, resp *types.ChatRes
 		FinishReason string `json:"finish_reason,omitempty"`
 		ToolCalls    int    `json:"tool_calls,omitempty"`
 	}
-	choices := make([]capturedChoice, 0, len(resp.Choices))
+	choiceCount := len(resp.Choices)
+	captureCount := min(choiceCount, traceBodyMaxItems)
+	choices := make([]capturedChoice, 0, captureCount)
 	remaining := s.traceBodyMaxBytes
-	for _, c := range resp.Choices {
+	for _, c := range resp.Choices[:captureCount] {
 		item := capturedChoice{
 			Role:         c.Message.Role,
 			ContentBytes: len(c.Message.Content),
@@ -761,9 +769,12 @@ func (s *Service) captureResponseBody(trace *profiler.Trace, resp *types.ChatRes
 	}
 	b, _ := json.Marshal(choices)
 	trace.Record("response.body.captured", map[string]any{
-		"choices": string(b),
-		"model":   resp.Model,
-		"mode":    s.traceBodyMode,
+		"choices":          string(b),
+		"choice_count":     choiceCount,
+		"choices_captured": len(choices),
+		"truncated":        len(choices) < choiceCount || (s.traceBodyMode == traceBodyModeRedactedText && remaining <= 0),
+		"model":            resp.Model,
+		"mode":             s.traceBodyMode,
 	})
 }
 
