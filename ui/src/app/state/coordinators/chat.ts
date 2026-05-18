@@ -327,7 +327,7 @@ export function useChatActions(params: UseChatActionsParams): ChatActionsReturn 
       model,
       workspace: agentWorkspace.trim(),
       system_prompt: systemPrompt,
-      agent_id: agentAdapterID,
+      agent_id: executionMode === "external_agent" ? agentAdapterID : "hecate",
       created_at: new Date().toISOString(),
     };
   }
