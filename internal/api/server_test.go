@@ -3074,11 +3074,12 @@ func TestMCPCacheStatsConfiguredEmpty(t *testing.T) {
 	}
 }
 
-// TestSystemShutdownReturns503WhenNotWired asserts the desktop-only
-// /system/shutdown endpoint is harmless on deployments where main.go
-// hasn't wired SetQuitFunc — Docker / systemd stop the process via
-// signal or container stop and should see a clean 503, not a panic or
-// a silent 200 that does nothing.
+// TestSystemShutdownReturns503WhenNotWired asserts the endpoint is
+// harmless when a Handler is built without SetQuitFunc — the path
+// reached by test harnesses and custom embedders. cmd/hecate/main.go
+// wires SetQuitFunc unconditionally, so shipped deployments never see
+// this 503; the test pins the contract so a refactor doesn't replace
+// it with a panic or a silent 200 that does nothing.
 func TestSystemShutdownReturns503WhenNotWired(t *testing.T) {
 	t.Parallel()
 

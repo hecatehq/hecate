@@ -82,12 +82,21 @@ struct GatewayDiagnostics {
     state_path: PathBuf,
 }
 
-/// Latch that flips to true the first time the operator has confirmed
-/// (or doesn't need to confirm) a quit. Window-close, cmd+Q, and the
-/// menu "Quit Hecate" item all funnel through the same async drain
-/// path; the latch keeps the drain from re-entering when app.exit()
-/// fires a second RunEvent::ExitRequested at the tail of the path.
+/// Re-entry guard for `handle_quit_request`. Set to true while a drain
+/// task is in flight (between the first user trigger and the dialog
+/// dismissal / drain completion). A second cmd+Q or red-X while the
+/// dialog is up still hits ExitRequested / CloseRequested, but the
+/// no-op early return here keeps us from starting a second drain.
 static QUIT_IN_PROGRESS: AtomicBool = AtomicBool::new(false);
+
+/// Set to true only by `handle_quit_request` immediately before its
+/// terminating `app.exit(0)` call. Lets `RunEvent::ExitRequested`
+/// distinguish "our own programmatic exit, let it through" from "user
+/// is trying to bypass the drain by pressing cmd+Q again" — the latter
+/// must be intercepted even while QUIT_IN_PROGRESS is set, otherwise
+/// the second ExitRequested would close the app mid-dialog or
+/// mid-drain.
+static INTENTIONAL_EXIT: AtomicBool = AtomicBool::new(false);
 
 /// How long to wait for the gateway to acknowledge a drain before
 /// falling back to SIGKILL'ing the child. Generous because the drain
@@ -391,6 +400,10 @@ fn handle_quit_request(app: AppHandle) {
         } else {
             log::debug!("quit requested before gateway base URL was ready; exiting without drain");
         }
+        // Flag the next ExitRequested as our own programmatic exit so
+        // the run-event handler lets it through instead of intercepting
+        // and re-spawning this same task.
+        INTENTIONAL_EXIT.store(true, Ordering::SeqCst);
         app.exit(0);
     });
 }
@@ -601,14 +614,16 @@ pub fn run() {
             // funnels through the same drain path as the red-X button.
             // We prevent the default exit, run the confirmation + drain
             // off the main thread, then call app.exit() ourselves once
-            // the gateway has acknowledged. QUIT_IN_PROGRESS keeps the
-            // re-entrant ExitRequested fired by app.exit() from
-            // re-prompting.
+            // the gateway has acknowledged. INTENTIONAL_EXIT distinguishes
+            // our own programmatic exit (let it through) from the user
+            // triggering another quit mid-drain (intercept so the drain
+            // doesn't get bypassed and the app doesn't close mid-dialog).
             RunEvent::ExitRequested { api, .. } => {
-                if !QUIT_IN_PROGRESS.load(Ordering::SeqCst) {
-                    api.prevent_exit();
-                    handle_quit_request(app_handle.clone());
+                if INTENTIONAL_EXIT.load(Ordering::SeqCst) {
+                    return;
                 }
+                api.prevent_exit();
+                handle_quit_request(app_handle.clone());
             }
             RunEvent::Exit => {
                 // Belt-and-suspenders kill in case the graceful drain

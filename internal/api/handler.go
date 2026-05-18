@@ -387,13 +387,16 @@ func (h *Handler) reconcileAgentChatStore(ctx context.Context) {
 	}
 }
 
-// SetQuitFunc wires the desktop-app shutdown trigger. When set, a
+// SetQuitFunc wires a programmatic shutdown trigger. When set, a
 // POST /hecate/v1/system/shutdown call invokes f after acknowledging the
-// request. main.go provides a closure that signals the same channel its
-// SIGINT/SIGTERM handler selects on, so the existing drain path runs
-// regardless of trigger. nil is a valid argument — the endpoint then
-// returns 503, which is the right behavior for non-desktop deployments
-// (Docker, systemd) that should be quit via signal or container stop.
+// request. cmd/hecate/main.go provides a closure that signals the same
+// channel its SIGINT/SIGTERM handler selects on, so the existing drain
+// path runs regardless of trigger — that wiring is unconditional, so
+// every standard gateway deployment (Docker, systemd, Tauri sidecar)
+// exposes the endpoint. nil is a valid argument and is the default;
+// the endpoint then returns 503. This path is for test harnesses and
+// custom embedders that build a Handler without wiring quit — never
+// reached by the shipped cmd/hecate binary.
 func (h *Handler) SetQuitFunc(f func()) {
 	h.quitFunc = f
 }
