@@ -73,6 +73,19 @@ func main() {
 		case "--version", "-v", "version":
 			fmt.Println(version.Version)
 			return
+		case "auth":
+			if len(os.Args) > 2 && os.Args[2] == "setup" {
+				cfg, err := configFromEnv()
+				if err != nil {
+					fmt.Fprintf(os.Stderr, "hecate-acp: %v\n", err)
+					os.Exit(1)
+				}
+				if err := runAuthSetup(context.Background(), os.Stdout, cfg); err != nil {
+					fmt.Fprintf(os.Stderr, "hecate-acp: %v\n", err)
+					os.Exit(1)
+				}
+				return
+			}
 		}
 	}
 	cfg, err := configFromEnv()
@@ -290,6 +303,42 @@ func gatewayHealthy(baseURL string) bool {
 	return resp.StatusCode >= 200 && resp.StatusCode < 300
 }
 
+func runAuthSetup(ctx context.Context, stdout io.Writer, cfg bridgeConfig) error {
+	client, err := newGatewayHTTPClient(cfg)
+	if err != nil {
+		return err
+	}
+	if err := client.Health(ctx); err != nil {
+		fmt.Fprintf(stdout, "Hecate gateway: not reachable at %s\n", cfg.GatewayURL)
+		fmt.Fprintln(stdout, "Start Hecate first, or set HECATE_GATEWAY_URL to the running gateway URL.")
+		return err
+	}
+	fmt.Fprintf(stdout, "Hecate gateway: reachable at %s\n", cfg.GatewayURL)
+
+	models, err := client.ListModels(ctx)
+	if err != nil {
+		fmt.Fprintln(stdout, "Models: could not list models from the gateway.")
+		return err
+	}
+	if len(models) > 0 {
+		fmt.Fprintf(stdout, "Models: %d available\n", len(models))
+		fmt.Fprintln(stdout, "ACP setup is ready.")
+		return nil
+	}
+
+	fmt.Fprintln(stdout, "Models: none available")
+	statuses, statusErr := client.ProviderStatuses(ctx)
+	if statusErr == nil && len(statuses) > 0 {
+		fmt.Fprintln(stdout, "Provider readiness:")
+		for _, status := range statuses {
+			message := firstNonEmpty(status.Readiness.Message, status.RoutingBlockedReason, status.Status)
+			fmt.Fprintf(stdout, "- %s: %s\n", status.Name, message)
+		}
+	}
+	fmt.Fprintln(stdout, "Open the Hecate operator console and configure at least one routable provider/model.")
+	return fmt.Errorf("no Hecate models are available")
+}
+
 func bridgeTracer() oteltrace.Tracer {
 	return otel.Tracer("hecate.acp")
 }
@@ -477,6 +526,51 @@ func (c *gatewayHTTPClient) ListModels(ctx context.Context) ([]string, error) {
 		}
 	}
 	return models, nil
+}
+
+func (c *gatewayHTTPClient) Health(ctx context.Context) error {
+	ctx, span := startGatewaySpan(ctx, http.MethodGet, "/healthz")
+	defer span.End()
+	req, err := http.NewRequestWithContext(ctx, http.MethodGet, c.baseURL+"/healthz", nil)
+	if err != nil {
+		recordSpanError(span, err)
+		return err
+	}
+	injectBridgeTraceContext(req)
+	resp, err := c.httpClient.Do(req)
+	if err != nil {
+		recordSpanError(span, err)
+		return err
+	}
+	defer resp.Body.Close()
+	recordSpanStatus(span, resp.StatusCode)
+	if resp.StatusCode < 200 || resp.StatusCode >= 300 {
+		body, _ := io.ReadAll(io.LimitReader(resp.Body, 4096))
+		err := fmt.Errorf("gateway returned %d: %s", resp.StatusCode, strings.TrimSpace(string(body)))
+		recordSpanError(span, err)
+		return err
+	}
+	io.Copy(io.Discard, resp.Body)
+	return nil
+}
+
+type providerStatus struct {
+	Name                 string `json:"name"`
+	Status               string `json:"status"`
+	RoutingBlockedReason string `json:"routing_blocked_reason"`
+	Readiness            struct {
+		Message string `json:"message"`
+	} `json:"readiness"`
+}
+
+func (c *gatewayHTTPClient) ProviderStatuses(ctx context.Context) ([]providerStatus, error) {
+	var payload struct {
+		Data []providerStatus `json:"data"`
+	}
+	if err := c.doJSON(ctx, http.MethodGet, "/hecate/v1/providers/status", nil, &payload); err != nil {
+		return nil, err
+	}
+	return payload.Data, nil
 }
 
 func (c *gatewayHTTPClient) CreateAgentLoopTask(ctx context.Context, request acp.CreateTaskRequest) (acp.CreateTaskResult, error) {

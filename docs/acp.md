@@ -97,6 +97,29 @@ Prefer `HECATE_GATEWAY_URL` when a parent process or launcher already knows the
 gateway URL. The runtime file is intentionally only an ephemeral discovery
 fallback for independently launched ACP hosts.
 
+## ACP registry authentication setup
+
+The bridge advertises a terminal auth method named `hecate-setup` when an ACP
+host declares `clientCapabilities.auth.terminal=true` during `initialize`. The
+method runs the same bridge binary with:
+
+```sh
+hecate-acp auth setup
+```
+
+This command does not create a separate Hecate key or ask for provider
+credentials in the editor. It verifies that the local gateway is reachable,
+lists routable models, and prints provider-readiness guidance when no model is
+available. Operators can run it directly while testing a registry install:
+
+```sh
+/absolute/path/to/hecate-acp auth setup
+```
+
+For native-app users, the command discovers the sidecar through
+`hecate.runtime.json` the same way stdio mode does. For Docker, non-default
+ports, or reverse proxies, set `HECATE_GATEWAY_URL` before running it.
+
 ## Gateway launch options
 
 ACP hosts always start `hecate-acp`; they do not start the gateway. Start
