@@ -2,13 +2,10 @@ import { expect, test } from "./fixtures";
 
 // Usage workspace. Cross-chat Hecate-controlled cloud-provider token
 // accounting; active-chat adapter usage lives in ChatView instead.
-test.beforeEach(async ({ page }) => {
+test("shows the empty usage state when no cloud calls have been recorded", async ({ page }) => {
   await page.goto("/");
   await page.waitForSelector(".hecate-activitybar");
   await page.locator(".hecate-activitybar [aria-label^='Usage']").click();
-});
-
-test("shows the empty usage state when no cloud calls have been recorded", async ({ page }) => {
   await expect(page.locator("text=No cloud usage recorded yet")).toBeVisible();
 });
 
@@ -17,8 +14,6 @@ test("shows the empty usage state when no cloud calls have been recorded", async
 // and caches via a slice-level `loaded` flag so in-session navigation
 // doesn't re-fetch. A full page reload resets the slice.
 test.describe("Usage lazy-fetch", () => {
-  // Override beforeEach — these specs need to control navigation
-  // themselves to observe boot-time vs view-mount fetch behavior.
   test.beforeEach(async ({ page }) => {
     // Replace the default empty-list routes with counters. The default
     // routes registered in mockGatewayAPIs would have already
