@@ -31,9 +31,7 @@ import type { TraceListItem, TraceResponse } from "../../types/trace";
 import { focusDropdownItem, focusInitialDropdownItem } from "../shared/dropdownKeyboard";
 import { useFloatingDropdownStyle } from "../shared/useFloatingDropdownStyle";
 import { useFloatingMenu } from "../shared/useFloatingMenu";
-import { Badge, BrandAvatar, Icon, Icons, Modal, ModelPicker, ProviderPicker, Toggle } from "../shared/ui";
-
-import { CopyableID } from "../shared/ui";
+import { Badge, BrandAvatar, CopyableID, Icon, Icons, Modal, ModelPicker, ProviderPicker, Toggle } from "../shared/ui";
 import { RecentActivityStrip } from "./observability/RecentActivityStrip";
 import { StatCard } from "./observability/StatCard";
 import { TraceDetail } from "./observability/TraceDetail";
