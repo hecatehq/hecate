@@ -165,7 +165,7 @@ it in the operator UI is additional work that depends on it.
 | Layer                               | Files                                                                                                                  | Lines (rough) |
 | ----------------------------------- | ---------------------------------------------------------------------------------------------------------------------- | ------------- |
 | Provider extensions                 | `pkg/types/`, `internal/api/`, `internal/providers/` (5 new files)                                                     | ~640          |
-| Persistence                         | `internal/chatstate/sqlite.go` (additive migration), memory store parity, api serialization                            | ~300-400      |
+| Persistence                         | `internal/chat/sqlite.go` (additive migration), memory store parity, api serialization                                 | ~300-400      |
 | UI types                            | `ui/src/types/runtime.ts`                                                                                              | ~30           |
 | UI components                       | `ReasoningBlock.tsx`, `Citations.tsx`, `SearchResults.tsx` + tests                                                     | ~600-700      |
 | MessageRow + TaskDetail integration | `ChatView`'s `MessageRow.tsx`, possibly `TaskDetail.tsx`                                                               | ~100-150      |
@@ -180,7 +180,7 @@ Each PR is mergeable on its own; later PRs cleanly stack:
 1. **Provider extensions** — interface, registry, four decoders,
    types in `pkg/types` + `internal/api`. API consumers see the new
    fields immediately. No persistence, no UI.
-2. **Persistence** — `chatstate` schema + memory/sqlite parity for
+2. **Persistence** — chat store schema + memory/sqlite parity for
    the new fields. Required before the UI can re-render them on chat
    reload.
 3. **UI types + components** — runtime.ts additions, standalone

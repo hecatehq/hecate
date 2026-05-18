@@ -65,7 +65,6 @@ internal/
   acp/                  Agent Client Protocol — JSON-RPC bridge for ACP-driving editors
   eventprotocol/        agent-runtime event protocol v1 envelopes (API-facing shape)
   chat/                 chat transcript persistence (memory / sqlite)
-  chatstate/            chat-completion conversation persistence
   storage/              sqlite client wrappers
   retention/            retention worker (subsystems: traces, usage_events, audit, provider_history, turn_events, agent_chat_approvals)
   mcp/                  stdio MCP server (read tools + write tools)

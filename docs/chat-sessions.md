@@ -1,10 +1,10 @@
 # Chat sessions
 
 All chat persistence in Hecate today goes through chat sessions under
-`/hecate/v1/chat/sessions`. The same store backs two session owners in the
-Chats workspace: Hecate-owned chats and supervised External Agent sessions
-(Codex, Claude Code, Cursor). Hecate-owned chats can contain direct model turns
-and task-backed tools-on turns with a backing `agent_loop` task — see
+`/hecate/v1/chat/sessions`. The same store backs two session-owner categories
+in the Chats workspace: Hecate-owned chats and supervised External Agent
+sessions (Codex, Claude Code, Cursor). Hecate-owned chats can contain direct
+model turns and task-backed tools-on turns with a backing `agent_loop` task — see
 [agent-runtime.md](agent-runtime.md) for the runtime.
 
 The Chats workspace has one shell and an agent picker. **Hecate** is always
