@@ -56,14 +56,13 @@ func (s *SQLiteStore) Create(ctx context.Context, session Session) (Session, err
 		ctx,
 		fmt.Sprintf(
 			`INSERT INTO %s (
-				id, title, runtime_kind, adapter_id, driver_kind, native_session_id, workspace, workspace_branch,
+				id, title, agent_id, driver_kind, native_session_id, workspace, workspace_branch,
 				status, task_id, latest_run_id, provider, model, capabilities, config_options, rtk_enabled, turns_used, created_at, updated_at
 			 )
-			 VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+			 VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
 			 ON CONFLICT(id) DO UPDATE SET
 			   title = excluded.title,
-			   runtime_kind = excluded.runtime_kind,
-			   adapter_id = excluded.adapter_id,
+			   agent_id = excluded.agent_id,
 			   driver_kind = excluded.driver_kind,
 			   native_session_id = excluded.native_session_id,
 			   workspace = excluded.workspace,
@@ -81,8 +80,7 @@ func (s *SQLiteStore) Create(ctx context.Context, session Session) (Session, err
 		),
 		session.ID,
 		session.Title,
-		normalizeRuntimeKind(session),
-		session.AdapterID,
+		normalizeAgentID(session),
 		session.DriverKind,
 		session.NativeSessionID,
 		session.Workspace,
@@ -120,12 +118,12 @@ func (s *SQLiteStore) List(ctx context.Context) ([]Session, error) {
 	rows, err := s.client.DB().QueryContext(
 		ctx,
 		fmt.Sprintf(
-			`SELECT s.id, s.title, s.runtime_kind, s.adapter_id, s.driver_kind, s.native_session_id, s.workspace, s.workspace_branch,
+			`SELECT s.id, s.title, s.agent_id, s.driver_kind, s.native_session_id, s.workspace, s.workspace_branch,
 			        s.status, s.task_id, s.latest_run_id, s.provider, s.model, s.capabilities, s.config_options, s.rtk_enabled, s.turns_used, s.created_at, s.updated_at,
 			        COUNT(m.id) AS message_count
 			 FROM %s AS s
 			 LEFT JOIN %s AS m ON m.session_id = s.id
-			 GROUP BY s.id, s.title, s.runtime_kind, s.adapter_id, s.driver_kind, s.native_session_id, s.workspace, s.workspace_branch,
+			 GROUP BY s.id, s.title, s.agent_id, s.driver_kind, s.native_session_id, s.workspace, s.workspace_branch,
 			          s.status, s.task_id, s.latest_run_id, s.provider, s.model, s.capabilities, s.config_options, s.rtk_enabled, s.turns_used, s.created_at, s.updated_at
 			 ORDER BY s.updated_at DESC, s.created_at DESC`,
 			s.sessionsTable,
@@ -146,8 +144,7 @@ func (s *SQLiteStore) List(ctx context.Context) ([]Session, error) {
 		if err := rows.Scan(
 			&session.ID,
 			&session.Title,
-			&session.RuntimeKind,
-			&session.AdapterID,
+			&session.AgentID,
 			&session.DriverKind,
 			&session.NativeSessionID,
 			&session.Workspace,
@@ -169,8 +166,8 @@ func (s *SQLiteStore) List(ctx context.Context) ([]Session, error) {
 		}
 		session.Capabilities = unmarshalModelCapabilities(capabilities)
 		session.ConfigOptions = unmarshalConfigOptions(configOptions)
-		if session.RuntimeKind == "" {
-			session.RuntimeKind = defaultRuntimeKind(session)
+		if session.AgentID == "" {
+			session.AgentID = DefaultAgentID
 		}
 		if messageCount > 0 {
 			session.Messages = make([]Message, messageCount)
@@ -207,14 +204,13 @@ func (s *SQLiteStore) UpdateSession(ctx context.Context, id string, update func(
 		ctx,
 		fmt.Sprintf(
 			`UPDATE %s SET
-			   title = ?, runtime_kind = ?, adapter_id = ?, driver_kind = ?, native_session_id = ?, workspace = ?, workspace_branch = ?,
+			   title = ?, agent_id = ?, driver_kind = ?, native_session_id = ?, workspace = ?, workspace_branch = ?,
 			   status = ?, task_id = ?, latest_run_id = ?, provider = ?, model = ?, capabilities = ?, config_options = ?, rtk_enabled = ?, turns_used = ?, updated_at = ?
 			 WHERE id = ?`,
 			s.sessionsTable,
 		),
 		session.Title,
-		normalizeRuntimeKind(session),
-		session.AdapterID,
+		normalizeAgentID(session),
 		session.DriverKind,
 		session.NativeSessionID,
 		session.Workspace,
@@ -269,8 +265,8 @@ func (s *SQLiteStore) AppendMessage(ctx context.Context, sessionID string, messa
 		ctx,
 		fmt.Sprintf(
 			`INSERT INTO %s (
-				id, session_id, sequence, runtime_kind, segment_id, task_id, run_id, request_id, trace_id, span_id,
-				role, content, raw_output, adapter_id, adapter_name, driver_kind, native_session_id, status, exit_code,
+				id, session_id, sequence, execution_mode, segment_id, task_id, run_id, request_id, trace_id, span_id,
+				role, content, raw_output, agent_id, agent_name, driver_kind, native_session_id, status, exit_code,
 				cost_mode, provider, model, capabilities, workspace, diff_stat, diff, created_at, started_at, completed_at,
 				error, activities, usage, timing
 			) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
@@ -279,7 +275,7 @@ func (s *SQLiteStore) AppendMessage(ctx context.Context, sessionID string, messa
 		message.ID,
 		sessionID,
 		nextSeq,
-		message.RuntimeKind,
+		message.ExecutionMode,
 		message.SegmentID,
 		message.TaskID,
 		message.RunID,
@@ -289,8 +285,8 @@ func (s *SQLiteStore) AppendMessage(ctx context.Context, sessionID string, messa
 		message.Role,
 		message.Content,
 		message.RawOutput,
-		message.AdapterID,
-		message.AdapterName,
+		message.AgentID,
+		message.AgentName,
 		message.DriverKind,
 		message.NativeSessionID,
 		message.Status,
@@ -338,14 +334,14 @@ func (s *SQLiteStore) UpdateMessage(ctx context.Context, sessionID string, messa
 		ctx,
 		fmt.Sprintf(
 			`UPDATE %s SET
-			   runtime_kind = ?, segment_id = ?, task_id = ?, run_id = ?, request_id = ?, trace_id = ?, span_id = ?, role = ?, content = ?, raw_output = ?, adapter_id = ?, adapter_name = ?,
+			   execution_mode = ?, segment_id = ?, task_id = ?, run_id = ?, request_id = ?, trace_id = ?, span_id = ?, role = ?, content = ?, raw_output = ?, agent_id = ?, agent_name = ?,
 			   driver_kind = ?, native_session_id = ?, status = ?, exit_code = ?,
 			   cost_mode = ?, provider = ?, model = ?, capabilities = ?, workspace = ?, diff_stat = ?, diff = ?, created_at = ?,
 			   started_at = ?, completed_at = ?, error = ?, activities = ?, usage = ?, timing = ?
 			 WHERE id = ? AND session_id = ?`,
 			s.messagesTable,
 		),
-		message.RuntimeKind,
+		message.ExecutionMode,
 		message.SegmentID,
 		message.TaskID,
 		message.RunID,
@@ -355,8 +351,8 @@ func (s *SQLiteStore) UpdateMessage(ctx context.Context, sessionID string, messa
 		message.Role,
 		message.Content,
 		message.RawOutput,
-		message.AdapterID,
-		message.AdapterName,
+		message.AgentID,
+		message.AgentName,
 		message.DriverKind,
 		message.NativeSessionID,
 		message.Status,
@@ -396,8 +392,7 @@ func (s *SQLiteStore) migrate(ctx context.Context) error {
 			`CREATE TABLE IF NOT EXISTS %s (
 				id TEXT PRIMARY KEY,
 				title TEXT NOT NULL,
-				runtime_kind TEXT NOT NULL DEFAULT 'external_agent',
-				adapter_id TEXT NOT NULL,
+				agent_id TEXT NOT NULL DEFAULT 'hecate',
 				driver_kind TEXT NOT NULL DEFAULT '',
 				native_session_id TEXT NOT NULL DEFAULT '',
 				workspace TEXT NOT NULL,
@@ -426,14 +421,14 @@ func (s *SQLiteStore) migrate(ctx context.Context) error {
 				id TEXT PRIMARY KEY,
 				session_id TEXT NOT NULL REFERENCES %s (id) ON DELETE CASCADE,
 				sequence INTEGER NOT NULL,
-				runtime_kind TEXT NOT NULL DEFAULT '',
+				execution_mode TEXT NOT NULL DEFAULT '',
 				segment_id TEXT NOT NULL DEFAULT '',
 				task_id TEXT NOT NULL DEFAULT '',
 				role TEXT NOT NULL,
 				content TEXT NOT NULL,
 				raw_output TEXT NOT NULL DEFAULT '',
-				adapter_id TEXT NOT NULL,
-				adapter_name TEXT NOT NULL,
+				agent_id TEXT NOT NULL,
+				agent_name TEXT NOT NULL,
 				driver_kind TEXT NOT NULL DEFAULT '',
 				native_session_id TEXT NOT NULL DEFAULT '',
 				status TEXT NOT NULL,
@@ -480,7 +475,7 @@ func (s *SQLiteStore) migrate(ctx context.Context) error {
 		name       string
 		definition string
 	}{
-		{name: "runtime_kind", definition: "TEXT NOT NULL DEFAULT 'external_agent'"},
+		{name: "agent_id", definition: "TEXT NOT NULL DEFAULT 'hecate'"},
 		{name: "task_id", definition: "TEXT NOT NULL DEFAULT ''"},
 		{name: "latest_run_id", definition: "TEXT NOT NULL DEFAULT ''"},
 		{name: "provider", definition: "TEXT NOT NULL DEFAULT ''"},
@@ -498,7 +493,7 @@ func (s *SQLiteStore) migrate(ctx context.Context) error {
 		definition string
 	}{
 		{name: "run_id", definition: "TEXT NOT NULL DEFAULT ''"},
-		{name: "runtime_kind", definition: "TEXT NOT NULL DEFAULT ''"},
+		{name: "execution_mode", definition: "TEXT NOT NULL DEFAULT ''"},
 		{name: "segment_id", definition: "TEXT NOT NULL DEFAULT ''"},
 		{name: "task_id", definition: "TEXT NOT NULL DEFAULT ''"},
 		{name: "request_id", definition: "TEXT NOT NULL DEFAULT ''"},
@@ -546,7 +541,7 @@ func (s *SQLiteStore) loadSession(ctx context.Context, id string) (Session, erro
 	err := s.client.DB().QueryRowContext(
 		ctx,
 		fmt.Sprintf(
-			`SELECT id, title, runtime_kind, adapter_id, driver_kind, native_session_id, workspace, workspace_branch,
+			`SELECT id, title, agent_id, driver_kind, native_session_id, workspace, workspace_branch,
 			        status, task_id, latest_run_id, provider, model, capabilities, config_options, rtk_enabled, turns_used, created_at, updated_at
 			 FROM %s WHERE id = ?`,
 			s.sessionsTable,
@@ -555,8 +550,7 @@ func (s *SQLiteStore) loadSession(ctx context.Context, id string) (Session, erro
 	).Scan(
 		&session.ID,
 		&session.Title,
-		&session.RuntimeKind,
-		&session.AdapterID,
+		&session.AgentID,
 		&session.DriverKind,
 		&session.NativeSessionID,
 		&session.Workspace,
@@ -579,8 +573,8 @@ func (s *SQLiteStore) loadSession(ctx context.Context, id string) (Session, erro
 		}
 		return Session{}, fmt.Errorf("read sqlite agent chat session: %w", err)
 	}
-	if session.RuntimeKind == "" {
-		session.RuntimeKind = defaultRuntimeKind(session)
+	if session.AgentID == "" {
+		session.AgentID = DefaultAgentID
 	}
 	session.Capabilities = unmarshalModelCapabilities(capabilities)
 	session.ConfigOptions = unmarshalConfigOptions(configOptions)
@@ -599,7 +593,7 @@ func (s *SQLiteStore) loadMessages(ctx context.Context, sessionID string) ([]Mes
 	rows, err := s.client.DB().QueryContext(
 		ctx,
 		fmt.Sprintf(
-			`SELECT id, runtime_kind, segment_id, task_id, run_id, request_id, trace_id, span_id, role, content, raw_output, adapter_id, adapter_name, driver_kind, native_session_id, status, exit_code, cost_mode,
+			`SELECT id, execution_mode, segment_id, task_id, run_id, request_id, trace_id, span_id, role, content, raw_output, agent_id, agent_name, driver_kind, native_session_id, status, exit_code, cost_mode,
 			        provider, model, capabilities, workspace, diff_stat, diff, created_at, started_at, completed_at, error, activities, usage, timing
 			 FROM %s
 			 WHERE session_id = ?
@@ -623,7 +617,7 @@ func (s *SQLiteStore) loadMessages(ctx context.Context, sessionID string) ([]Mes
 		var capabilities string
 		if err := rows.Scan(
 			&message.ID,
-			&message.RuntimeKind,
+			&message.ExecutionMode,
 			&message.SegmentID,
 			&message.TaskID,
 			&message.RunID,
@@ -633,8 +627,8 @@ func (s *SQLiteStore) loadMessages(ctx context.Context, sessionID string) ([]Mes
 			&message.Role,
 			&message.Content,
 			&message.RawOutput,
-			&message.AdapterID,
-			&message.AdapterName,
+			&message.AgentID,
+			&message.AgentName,
 			&message.DriverKind,
 			&message.NativeSessionID,
 			&message.Status,
@@ -747,7 +741,7 @@ func loadMessage(ctx context.Context, tx txRunner, table string, sessionID strin
 	err := tx.QueryRowContext(
 		ctx,
 		fmt.Sprintf(
-			`SELECT id, runtime_kind, segment_id, task_id, run_id, request_id, trace_id, span_id, role, content, raw_output, adapter_id, adapter_name, driver_kind, native_session_id, status, exit_code, cost_mode,
+			`SELECT id, execution_mode, segment_id, task_id, run_id, request_id, trace_id, span_id, role, content, raw_output, agent_id, agent_name, driver_kind, native_session_id, status, exit_code, cost_mode,
 			        provider, model, capabilities, workspace, diff_stat, diff, created_at, started_at, completed_at, error, activities, usage, timing
 			 FROM %s
 			 WHERE id = ? AND session_id = ?`,
@@ -757,7 +751,7 @@ func loadMessage(ctx context.Context, tx txRunner, table string, sessionID strin
 		sessionID,
 	).Scan(
 		&message.ID,
-		&message.RuntimeKind,
+		&message.ExecutionMode,
 		&message.SegmentID,
 		&message.TaskID,
 		&message.RunID,
@@ -767,8 +761,8 @@ func loadMessage(ctx context.Context, tx txRunner, table string, sessionID strin
 		&message.Role,
 		&message.Content,
 		&message.RawOutput,
-		&message.AdapterID,
-		&message.AdapterName,
+		&message.AgentID,
+		&message.AgentName,
 		&message.DriverKind,
 		&message.NativeSessionID,
 		&message.Status,
@@ -883,11 +877,11 @@ func unmarshalTiming(raw string) Timing {
 	return timing
 }
 
-func normalizeRuntimeKind(session Session) string {
-	if session.RuntimeKind != "" {
-		return session.RuntimeKind
+func normalizeAgentID(session Session) string {
+	if strings.TrimSpace(session.AgentID) != "" {
+		return strings.TrimSpace(session.AgentID)
 	}
-	return defaultRuntimeKind(session)
+	return DefaultAgentID
 }
 
 func marshalModelCapabilities(capabilities types.ModelCapabilities) string {

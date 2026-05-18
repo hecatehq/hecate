@@ -141,7 +141,7 @@ type ContextPacket struct {
     SourcePreset string
     Provider    string
     Model       string
-    RuntimeKind string // direct_model | hecate_agent | external_agent_projection
+    ExecutionMode string // direct_model | hecate_task | external_agent
     Items       []ContextItem
 }
 

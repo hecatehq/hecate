@@ -14,27 +14,34 @@ import { CoordinatorOverridesContext } from "./coordinators/overrides";
 import { useProvidersAndModels } from "./providersAndModels";
 import { useRuntime } from "./runtime";
 import { deriveSessionState, type SessionState } from "../runtimeConsoleDashboard";
-import { type ChatTarget, type HecateChatTarget, normalizeStoredHecateChatTarget } from "./_shared";
+import {
+  type ChatTarget,
+  type HecateChatTarget,
+  executionModeToChatTarget,
+  normalizeStoredHecateChatTarget,
+} from "./_shared";
 import type { ChatSessionRecord } from "../../types/chat";
 import type { ModelRecord } from "../../types/model";
 import type { ProviderRecord } from "../../types/provider";
 
 function chatSessionIsExternal(session: ChatSessionRecord | null): boolean {
-  return Boolean(session?.runtime_kind === "external_agent" || session?.adapter_id);
+  return Boolean(session?.agent_id && session.agent_id !== "hecate");
 }
 
 function deriveHecateChatTargetFromSession(session: ChatSessionRecord | null): HecateChatTarget {
   if (!session) return "agent";
   const messages = session.messages ?? [];
   for (let i = messages.length - 1; i >= 0; i--) {
-    const target = normalizeStoredHecateChatTarget(messages[i]?.runtime_kind ?? "");
+    const target = normalizeStoredHecateChatTarget(
+      executionModeToChatTarget(messages[i]?.execution_mode ?? ""),
+    );
     if (target) return target;
   }
-  return normalizeStoredHecateChatTarget(session.runtime_kind ?? "") || "agent";
+  return "agent";
 }
 
 // chatTarget gates several views' route/copy decisions. The active
-// agent-chat session forces a target via its runtime_kind / adapter_id
+// agent-chat session forces a target via its agent_id
 // shape; the per-session map override (used by Hecate Chat to flip
 // between agent and direct model) and the default target take effect
 // only when nothing in the session pins the target.

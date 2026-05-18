@@ -34,8 +34,7 @@ func renderChatSessionSummary(session chat.Session) ChatSessionSummaryItem {
 	return ChatSessionSummaryItem{
 		ID:              session.ID,
 		Title:           session.Title,
-		RuntimeKind:     renderAgentChatRuntimeKind(session),
-		AdapterID:       session.AdapterID,
+		AgentID:         renderChatAgentID(session),
 		DriverKind:      session.DriverKind,
 		NativeSessionID: session.NativeSessionID,
 		TaskID:          session.TaskID,
@@ -58,7 +57,7 @@ func renderChatSession(session chat.Session, limits agentChatSnapshotConfig) Cha
 	for _, message := range session.Messages {
 		messages = append(messages, ChatMessageItem{
 			ID:              message.ID,
-			RuntimeKind:     message.RuntimeKind,
+			ExecutionMode:   message.ExecutionMode,
 			SegmentID:       message.SegmentID,
 			TaskID:          message.TaskID,
 			RunID:           message.RunID,
@@ -68,8 +67,8 @@ func renderChatSession(session chat.Session, limits agentChatSnapshotConfig) Cha
 			Role:            message.Role,
 			Content:         message.Content,
 			RawOutput:       message.RawOutput,
-			AdapterID:       message.AdapterID,
-			AdapterName:     message.AdapterName,
+			AgentID:         message.AgentID,
+			AgentName:       message.AgentName,
 			DriverKind:      message.DriverKind,
 			NativeSessionID: message.NativeSessionID,
 			Status:          message.Status,
@@ -94,8 +93,7 @@ func renderChatSession(session chat.Session, limits agentChatSnapshotConfig) Cha
 	return ChatSessionItem{
 		ID:                   session.ID,
 		Title:                session.Title,
-		RuntimeKind:          renderAgentChatRuntimeKind(session),
-		AdapterID:            session.AdapterID,
+		AgentID:              renderChatAgentID(session),
 		DriverKind:           session.DriverKind,
 		NativeSessionID:      session.NativeSessionID,
 		TaskID:               session.TaskID,
@@ -143,19 +141,19 @@ func renderChatSegments(session chat.Session) []ChatSegmentItem {
 			positions[segmentID] = idx
 			builders = append(builders, agentChatSegmentBuilder{
 				item: ChatSegmentItem{
-					ID:          segmentID,
-					RuntimeKind: firstNonEmpty(message.RuntimeKind, renderAgentChatRuntimeKind(session)),
-					Provider:    firstNonEmpty(message.Provider, session.Provider),
-					Model:       firstNonEmpty(message.Model, session.Model),
-					TaskID:      message.TaskID,
-					Workspace:   firstNonEmpty(message.Workspace, session.Workspace),
+					ID:            segmentID,
+					ExecutionMode: firstNonEmpty(message.ExecutionMode, defaultMessageExecutionModeForRender(session)),
+					Provider:      firstNonEmpty(message.Provider, session.Provider),
+					Model:         firstNonEmpty(message.Model, session.Model),
+					TaskID:        message.TaskID,
+					Workspace:     firstNonEmpty(message.Workspace, session.Workspace),
 				},
 			})
 		}
 		builder := &builders[idx]
 		builder.item.MessageCount++
-		if builder.item.RuntimeKind == "" {
-			builder.item.RuntimeKind = firstNonEmpty(message.RuntimeKind, renderAgentChatRuntimeKind(session))
+		if builder.item.ExecutionMode == "" {
+			builder.item.ExecutionMode = firstNonEmpty(message.ExecutionMode, defaultMessageExecutionModeForRender(session))
 		}
 		if builder.item.Provider == "" {
 			builder.item.Provider = message.Provider
@@ -223,14 +221,21 @@ func agentChatMessageSegmentTime(message chat.Message) time.Time {
 	}
 }
 
-func renderAgentChatRuntimeKind(session chat.Session) string {
-	if session.RuntimeKind != "" {
-		return session.RuntimeKind
+func renderChatAgentID(session chat.Session) string {
+	if session.AgentID != "" {
+		return session.AgentID
 	}
-	if session.AdapterID != "" {
-		return "external_agent"
+	return chat.DefaultAgentID
+}
+
+func defaultMessageExecutionModeForRender(session chat.Session) string {
+	if session.AgentID != "" && session.AgentID != chat.DefaultAgentID {
+		return chat.ExecutionModeExternalAgent
 	}
-	return "agent"
+	if session.TaskID != "" {
+		return chat.ExecutionModeHecateTask
+	}
+	return chat.ExecutionModeDirectModel
 }
 
 func agentChatUsageFromResult(usage agentadapters.Usage) chat.Usage {

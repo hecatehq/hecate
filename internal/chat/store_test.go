@@ -24,7 +24,7 @@ func runStoreLifecycle(t *testing.T, store Store) {
 	created, err := store.Create(ctx, Session{
 		ID:              "chat_1",
 		Title:           "Review diff",
-		RuntimeKind:     "agent",
+		AgentID:         DefaultAgentID,
 		TaskID:          "task_chat_1",
 		LatestRunID:     "run_chat_1",
 		Provider:        "openai",
@@ -42,42 +42,42 @@ func runStoreLifecycle(t *testing.T, store Store) {
 	if created.WorkspaceBranch != "main" {
 		t.Fatalf("created workspace branch = %q, want main", created.WorkspaceBranch)
 	}
-	if created.RuntimeKind != "agent" || created.TaskID != "task_chat_1" || created.LatestRunID != "run_chat_1" {
-		t.Fatalf("created linkage = runtime %q task %q run %q", created.RuntimeKind, created.TaskID, created.LatestRunID)
+	if created.AgentID != DefaultAgentID || created.TaskID != "task_chat_1" || created.LatestRunID != "run_chat_1" {
+		t.Fatalf("created linkage = agent %q task %q run %q", created.AgentID, created.TaskID, created.LatestRunID)
 	}
 	if created.Provider != "openai" || created.Model != "gpt-4o-mini" || created.Capabilities.ToolCalling != "basic" {
 		t.Fatalf("created model snapshot = provider %q model %q caps %+v", created.Provider, created.Model, created.Capabilities)
 	}
 
 	if _, err := store.AppendMessage(ctx, created.ID, Message{
-		ID:          "msg_user",
-		SegmentID:   "task:task_chat_1",
-		RuntimeKind: "agent",
-		TaskID:      "task_chat_1",
-		Provider:    "openai",
-		Model:       "gpt-4o-mini",
-		Role:        "user",
-		Content:     "review this",
+		ID:            "msg_user",
+		ExecutionMode: ExecutionModeHecateTask,
+		SegmentID:     "task:task_chat_1",
+		TaskID:        "task_chat_1",
+		Provider:      "openai",
+		Model:         "gpt-4o-mini",
+		Role:          "user",
+		Content:       "review this",
 	}); err != nil {
 		t.Fatalf("AppendMessage(user): %v", err)
 	}
 	startedAt := time.Now().UTC().Add(-2 * time.Second)
 	if _, err := store.AppendMessage(ctx, created.ID, Message{
-		ID:           "msg_assistant",
-		RuntimeKind:  "agent",
-		SegmentID:    "task:task_chat_1",
-		TaskID:       "task_chat_1",
-		RunID:        "agent_run_1",
-		Provider:     "openai",
-		Model:        "gpt-4o-mini",
-		Capabilities: types.ModelCapabilities{ToolCalling: "basic", Streaming: true, Source: "operator_override"},
-		Role:         "assistant",
-		Content:      "running",
-		AdapterID:    "codex",
-		AdapterName:  "Codex",
-		Status:       "running",
-		CostMode:     "external",
-		Workspace:    "/tmp/hecate",
+		ID:            "msg_assistant",
+		ExecutionMode: ExecutionModeHecateTask,
+		SegmentID:     "task:task_chat_1",
+		TaskID:        "task_chat_1",
+		RunID:         "agent_run_1",
+		Provider:      "openai",
+		Model:         "gpt-4o-mini",
+		Capabilities:  types.ModelCapabilities{ToolCalling: "basic", Streaming: true, Source: "operator_override"},
+		Role:          "assistant",
+		Content:       "running",
+		AgentID:       DefaultAgentID,
+		AgentName:     "Hecate",
+		Status:        "running",
+		CostMode:      "hecate",
+		Workspace:     "/tmp/hecate",
 	}); err != nil {
 		t.Fatalf("AppendMessage(assistant): %v", err)
 	}
@@ -138,8 +138,8 @@ func runStoreLifecycle(t *testing.T, store Store) {
 	if got.WorkspaceBranch != "main" {
 		t.Fatalf("persisted workspace branch = %q, want main", got.WorkspaceBranch)
 	}
-	if got.RuntimeKind != "agent" || got.TaskID != "task_chat_1" || got.LatestRunID != "run_chat_1" {
-		t.Fatalf("persisted linkage = runtime %q task %q run %q", got.RuntimeKind, got.TaskID, got.LatestRunID)
+	if got.AgentID != DefaultAgentID || got.TaskID != "task_chat_1" || got.LatestRunID != "run_chat_1" {
+		t.Fatalf("persisted linkage = agent %q task %q run %q", got.AgentID, got.TaskID, got.LatestRunID)
 	}
 	if got.Provider != "openai" || got.Model != "gpt-4o-mini" || got.Capabilities.ToolCalling != "basic" || got.Capabilities.Source != "operator_override" {
 		t.Fatalf("persisted model snapshot = provider %q model %q caps %+v", got.Provider, got.Model, got.Capabilities)
@@ -153,8 +153,8 @@ func runStoreLifecycle(t *testing.T, store Store) {
 	if got.Messages[1].Timing.Bottleneck != "model" || got.Messages[1].Timing.ModelMS != 900 || got.Messages[1].Timing.TurnCount != 1 {
 		t.Fatalf("persisted timing = %+v, want model bottleneck", got.Messages[1].Timing)
 	}
-	if got.Messages[1].RuntimeKind != "agent" || got.Messages[1].SegmentID != "task:task_chat_1" || got.Messages[1].TaskID != "task_chat_1" {
-		t.Fatalf("persisted message runtime = runtime %q segment %q task %q", got.Messages[1].RuntimeKind, got.Messages[1].SegmentID, got.Messages[1].TaskID)
+	if got.Messages[1].ExecutionMode != ExecutionModeHecateTask || got.Messages[1].SegmentID != "task:task_chat_1" || got.Messages[1].TaskID != "task_chat_1" {
+		t.Fatalf("persisted message execution = mode %q segment %q task %q", got.Messages[1].ExecutionMode, got.Messages[1].SegmentID, got.Messages[1].TaskID)
 	}
 	if got.Messages[1].Provider != "openai" || got.Messages[1].Model != "gpt-4o-mini" || got.Messages[1].Capabilities.ToolCalling != "basic" {
 		t.Fatalf("persisted message model snapshot = provider %q model %q caps %+v", got.Messages[1].Provider, got.Messages[1].Model, got.Messages[1].Capabilities)
@@ -167,7 +167,7 @@ func runStoreLifecycle(t *testing.T, store Store) {
 	if len(list) != 1 || list[0].ID != created.ID {
 		t.Fatalf("List = %+v, want created session", list)
 	}
-	if list[0].WorkspaceBranch != "main" || len(list[0].Messages) != 2 || list[0].RuntimeKind != "agent" || list[0].TaskID != "task_chat_1" {
+	if list[0].WorkspaceBranch != "main" || len(list[0].Messages) != 2 || list[0].AgentID != DefaultAgentID || list[0].TaskID != "task_chat_1" {
 		t.Fatalf("List summary = %+v, want cached branch and message count", list[0])
 	}
 
@@ -187,9 +187,8 @@ func runStoreDeepCopiesConfigOptions(t *testing.T, store Store) {
 	t.Helper()
 	ctx := context.Background()
 	created, err := store.Create(ctx, Session{
-		ID:          "chat_config_options",
-		RuntimeKind: "external_agent",
-		AdapterID:   "codex",
+		ID:      "chat_config_options",
+		AgentID: "codex",
 		ConfigOptions: []agentcontrols.ConfigOption{
 			{
 				ID:           "model",
@@ -245,7 +244,7 @@ func runStoreDoesNotHydrateTaskIDForAnonymousAgentSegment(t *testing.T, store St
 	ctx := context.Background()
 	created, err := store.Create(ctx, Session{
 		ID:          "chat_1",
-		RuntimeKind: "agent",
+		AgentID:     DefaultAgentID,
 		TaskID:      "task_previous",
 		LatestRunID: "run_previous",
 		Provider:    "openai",
@@ -256,11 +255,11 @@ func runStoreDoesNotHydrateTaskIDForAnonymousAgentSegment(t *testing.T, store St
 	}
 
 	updated, err := store.AppendMessage(ctx, created.ID, Message{
-		ID:          "msg_new_segment",
-		RuntimeKind: "agent",
-		SegmentID:   "segment_pending_new_task",
-		Role:        "user",
-		Content:     "tools again",
+		ID:            "msg_new_segment",
+		ExecutionMode: ExecutionModeHecateTask,
+		SegmentID:     "segment_pending_new_task",
+		Role:          "user",
+		Content:       "tools again",
 	})
 	if err != nil {
 		t.Fatalf("AppendMessage: %v", err)
@@ -270,11 +269,11 @@ func runStoreDoesNotHydrateTaskIDForAnonymousAgentSegment(t *testing.T, store St
 	}
 
 	updated, err = store.AppendMessage(ctx, created.ID, Message{
-		ID:          "msg_existing_task",
-		RuntimeKind: "agent",
-		SegmentID:   "task:task_previous",
-		Role:        "assistant",
-		Content:     "continuing previous task",
+		ID:            "msg_existing_task",
+		ExecutionMode: ExecutionModeHecateTask,
+		SegmentID:     "task:task_previous",
+		Role:          "assistant",
+		Content:       "continuing previous task",
 	})
 	if err != nil {
 		t.Fatalf("AppendMessage(existing task): %v", err)
@@ -290,7 +289,7 @@ func runStoreReconcileInterruptedRuns(t *testing.T, store Store) {
 	created, err := store.Create(ctx, Session{
 		ID:        "chat_interrupted",
 		Title:     "Interrupted",
-		AdapterID: "codex",
+		AgentID:   "codex",
 		Workspace: "/tmp/hecate",
 	})
 	if err != nil {
@@ -305,16 +304,17 @@ func runStoreReconcileInterruptedRuns(t *testing.T, store Store) {
 		t.Fatalf("AppendMessage(user): %v", err)
 	}
 	if _, err := store.AppendMessage(ctx, created.ID, Message{
-		ID:          "msg_assistant",
-		RunID:       "agent_run_interrupted",
-		Role:        "assistant",
-		Content:     "partial answer",
-		AdapterID:   "codex",
-		AdapterName: "Codex",
-		Status:      "running",
-		CostMode:    "external",
-		Workspace:   "/tmp/hecate",
-		StartedAt:   time.Now().UTC().Add(-time.Minute),
+		ID:            "msg_assistant",
+		ExecutionMode: ExecutionModeExternalAgent,
+		RunID:         "agent_run_interrupted",
+		Role:          "assistant",
+		Content:       "partial answer",
+		AgentID:       "codex",
+		AgentName:     "Codex",
+		Status:        "running",
+		CostMode:      "external",
+		Workspace:     "/tmp/hecate",
+		StartedAt:     time.Now().UTC().Add(-time.Minute),
 		Activities: []Activity{
 			{Type: "running", Status: "running", Title: "Running"},
 		},

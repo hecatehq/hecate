@@ -18,17 +18,18 @@ import type { ProviderFilter } from "../../types/provider";
 
 export type ChatTarget = "model" | "agent" | "external_agent";
 export type HecateChatTarget = "model" | "agent";
+export type ChatExecutionMode = "direct_model" | "hecate_task" | "external_agent";
 
 export type QueuedChatMessage = {
   id: string;
   session_id: string;
   content: string;
-  runtime_kind: ChatTarget;
+  execution_mode: ChatExecutionMode;
   provider_filter: ProviderFilter;
   model: string;
   workspace: string;
   system_prompt: string;
-  adapter_id: string;
+  agent_id: string;
   created_at: string;
 };
 
@@ -36,16 +37,39 @@ export const queuedChatMessagesStorageKey = "hecate.queuedChatMessages";
 
 // Coercive normalizer — drops unknown values onto the safe default
 // rather than rejecting them. Used by code paths where the wider
-// type system has already vouched for the input (e.g. an
-// `ChatSessionRecord.runtime_kind` field straight off the
-// wire). For localStorage reads use the strict
-// `parseStoredChatTarget` below so corrupt keys get wiped.
+// type system has already vouched for the input. For localStorage
+// reads use the strict `parseStoredChatTarget` below so corrupt keys
+// get wiped.
 export function normalizeStoredChatTarget(value: string): ChatTarget {
   switch (value) {
     case "model":
     case "agent":
     case "external_agent":
       return value;
+    default:
+      return "agent";
+  }
+}
+
+export function chatTargetToExecutionMode(target: ChatTarget): ChatExecutionMode {
+  switch (target) {
+    case "model":
+      return "direct_model";
+    case "agent":
+      return "hecate_task";
+    case "external_agent":
+      return "external_agent";
+  }
+}
+
+export function executionModeToChatTarget(mode: string): ChatTarget {
+  switch (mode) {
+    case "direct_model":
+      return "model";
+    case "hecate_task":
+      return "agent";
+    case "external_agent":
+      return "external_agent";
     default:
       return "agent";
   }
@@ -94,9 +118,12 @@ export function parseQueuedChatMessageList(parsed: unknown): QueuedChatMessage[]
         id,
         session_id: sessionID,
         content,
-        runtime_kind: normalizeStoredChatTarget(
-          typeof item.runtime_kind === "string" ? item.runtime_kind : "",
-        ),
+        execution_mode:
+          item.execution_mode === "direct_model" ||
+          item.execution_mode === "hecate_task" ||
+          item.execution_mode === "external_agent"
+            ? item.execution_mode
+            : "hecate_task",
         provider_filter:
           typeof item.provider_filter === "string"
             ? (item.provider_filter as ProviderFilter)
@@ -104,7 +131,7 @@ export function parseQueuedChatMessageList(parsed: unknown): QueuedChatMessage[]
         model: typeof item.model === "string" ? item.model : "",
         workspace: typeof item.workspace === "string" ? item.workspace : "",
         system_prompt: typeof item.system_prompt === "string" ? item.system_prompt : "",
-        adapter_id: typeof item.adapter_id === "string" ? item.adapter_id : "",
+        agent_id: typeof item.agent_id === "string" ? item.agent_id : "",
         created_at:
           typeof item.created_at === "string" ? item.created_at : new Date().toISOString(),
       },

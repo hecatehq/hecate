@@ -24,7 +24,8 @@ const (
 	errCodeModelNotConfigured      = "model_not_configured"
 	errCodeWorkspaceRequired       = "chat.workspace_required"
 	errCodeModelRequired           = "chat.model_required"
-	errCodeRuntimeKindInvalid      = "chat.runtime_kind_invalid"
+	errCodeAgentIDInvalid          = "chat.agent_id_invalid"
+	errCodeExecutionModeInvalid    = "chat.execution_mode_invalid"
 	errCodeRuntimeMismatch         = "chat.runtime_mismatch"
 	errCodeAgentAdapterNotFound    = "chat.adapter_not_found"
 	errCodeAgentAdapterUnavailable = "chat.adapter_unavailable"
@@ -150,7 +151,7 @@ func defaultErrorUserMessage(code string) string {
 		return "Choose a workspace before starting this chat mode."
 	case errCodeModelRequired:
 		return "Choose a model before sending this message."
-	case errCodeRuntimeKindInvalid:
+	case errCodeAgentIDInvalid, errCodeExecutionModeInvalid:
 		return "This chat mode is not supported by the current API."
 	case errCodeRuntimeMismatch:
 		return "This message belongs to a different chat runtime."
@@ -198,7 +199,7 @@ func defaultErrorAction(code string) string {
 		return "Use the workspace picker in Chats. Hecate Agent and External Agent sessions need a real workspace path."
 	case errCodeModelRequired:
 		return "Use the model picker in the chat header, or add a provider that reports at least one model."
-	case errCodeRuntimeKindInvalid:
+	case errCodeAgentIDInvalid, errCodeExecutionModeInvalid:
 		return "Use one of: model, agent, or external_agent."
 	case errCodeRuntimeMismatch:
 		return "Start a new chat or switch back to the runtime that created this session."

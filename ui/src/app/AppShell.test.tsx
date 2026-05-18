@@ -180,7 +180,7 @@ describe("ConsoleShell navigation", () => {
       activeChatSession: {
         id: "chat_1",
         title: "Active Cursor work",
-        adapter_id: "cursor_agent",
+        agent_id: "cursor_agent",
         workspace: "/Users/alice/dev/hecate",
         workspace_branch: "main",
         status: "completed",
@@ -206,7 +206,7 @@ describe("ConsoleShell navigation", () => {
       activeChatSession: {
         id: "chat_1",
         title: "Codex work",
-        adapter_id: "codex",
+        agent_id: "codex",
         workspace: "/Users/alice/dev/hecate",
         workspace_branch: "main",
         status: "completed",

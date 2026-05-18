@@ -141,8 +141,7 @@ export type RetentionRunPayload = {
 
 export type CreateChatSessionPayload = {
   title?: string;
-  runtime_kind?: "external_agent" | "agent" | "model";
-  adapter_id?: string;
+  agent_id?: string;
   provider?: string;
   model?: string;
   workspace?: string;
@@ -151,7 +150,7 @@ export type CreateChatSessionPayload = {
 
 export type CreateChatMessagePayload = {
   content: string;
-  runtime_kind?: "external_agent" | "agent" | "model";
+  execution_mode?: "external_agent" | "hecate_task" | "direct_model";
   provider?: string;
   model?: string;
   system_prompt?: string;

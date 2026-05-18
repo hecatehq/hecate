@@ -76,7 +76,7 @@ export function activeTaskBackedHecateSegment(
   const segments = [...(session?.segments ?? [])].reverse();
   const activeSegment = segments.find(
     (segment) =>
-      segment.runtime_kind === "agent" &&
+      segment.execution_mode === "hecate_task" &&
       Boolean(segment.task_id) &&
       hecateAgentSessionIsActive(segment.status),
   );
@@ -86,7 +86,7 @@ export function activeTaskBackedHecateSegment(
   if (session?.task_id && hecateAgentSessionIsActive(session.status)) {
     return {
       id: `task:${session.task_id}`,
-      runtime_kind: "agent",
+      execution_mode: "hecate_task",
       provider: session.provider,
       model: session.model,
       task_id: session.task_id,

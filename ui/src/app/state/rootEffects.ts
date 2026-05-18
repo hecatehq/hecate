@@ -30,10 +30,8 @@ import { useDashboardActions } from "./coordinators/dashboard";
 import { useSettingsActions } from "./coordinators/settings";
 import type { ConfiguredStateResponse } from "../../types/provider";
 
-function chatSessionIsExternal(
-  session: { runtime_kind?: string; adapter_id?: string } | null,
-): boolean {
-  return Boolean(session?.runtime_kind === "external_agent" || session?.adapter_id);
+function chatSessionIsExternal(session: { agent_id?: string } | null): boolean {
+  return Boolean(session?.agent_id && session.agent_id !== "hecate");
 }
 
 function chatSessionIsBusy(

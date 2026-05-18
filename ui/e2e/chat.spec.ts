@@ -111,7 +111,7 @@ test("Hecate composer provider and model controls match shared chat dropdowns", 
   await expect(providerBtn).toContainText("Anthropic");
 
   const modelBtn = page.getByRole("button", { name: /model picker/i });
-  await expect(modelBtn).toContainText("model");
+  await expect(modelBtn).toContainText("claude-sonnet-4-6");
   await modelBtn.click();
 
   const menu = page.locator(".dropdown-menu");
@@ -151,7 +151,7 @@ test("New chat keeps an unsent draft on the active empty chat", async ({ page })
   await page.getByRole("button", { name: "New Hecate chat", exact: true }).click();
   // The current empty chat is still the target, so an unsent draft is
   // preserved rather than discarded.
-  await expect(page.getByRole("button", { name: "Chat Hecate chat, anthropic" })).toBeVisible();
+  await expect(page.getByRole("button", { name: /Chat Hecate chat/ })).toBeVisible();
   await expect(page.locator("textarea")).toHaveValue("some prior message");
 });
 
@@ -214,9 +214,8 @@ test("New chat creates an external-agent session with controls before the first 
         data: {
           id: "agent-chat-codex-e2e",
           title: "Codex chat",
-          runtime_kind: "external_agent",
-          adapter_id: "codex",
-          adapter_name: "Codex",
+          agent_id: "codex",
+          agent_name: "Codex",
           driver_kind: "acp",
           native_session_id: "native-codex-e2e",
           workspace: "/tmp/hecate-e2e",
@@ -253,8 +252,7 @@ test("New chat creates an external-agent session with controls before the first 
   await expect
     .poll(() => createBody)
     .toMatchObject({
-      runtime_kind: "external_agent",
-      adapter_id: "codex",
+      agent_id: "codex",
       workspace: "/tmp/hecate-e2e",
     });
   await expect(page.getByRole("button", { name: "Model" })).toContainText("Fast");
@@ -282,8 +280,7 @@ test("sidebar rename works for agent-chat sessions", async ({ page }) => {
           {
             id: "rename-chat-e2e",
             title,
-            runtime_kind: "external_agent",
-            adapter_id: "codex",
+            agent_id: "codex",
             workspace: "/tmp/hecate-e2e",
             status: "idle",
             message_count: 0,
@@ -307,8 +304,7 @@ test("sidebar rename works for agent-chat sessions", async ({ page }) => {
         data: {
           id: "rename-chat-e2e",
           title,
-          runtime_kind: "external_agent",
-          adapter_id: "codex",
+          agent_id: "codex",
           workspace: "/tmp/hecate-e2e",
           status: "idle",
           messages: [],
@@ -414,7 +410,7 @@ test("chat error renders inline with the humanized message", async ({ page }) =>
         data: {
           id: "chat_err_e2e",
           title: "x",
-          runtime_kind: "model",
+          agent_id: "hecate",
           status: "created",
           provider: "anthropic",
           model: "claude-sonnet-4-6",
@@ -457,7 +453,7 @@ test("agent chat renders indented fenced code blocks as code", async ({ page }) 
   const session = {
     id: "markdown-fence-e2e",
     title: "Markdown fence",
-    runtime_kind: "agent",
+    agent_id: "hecate",
     provider: "ollama",
     model: "qwen2.5-coder",
     workspace: "/tmp/e2e",
@@ -532,7 +528,7 @@ test("agent chat previews failed tool stdout and stderr in Advanced details", as
   const session = {
     id: "failed-tool-output-e2e",
     title: "Failed tool",
-    runtime_kind: "agent",
+    agent_id: "hecate",
     provider: "ollama",
     model: "qwen2.5-coder",
     workspace: "/tmp/e2e",
@@ -548,7 +544,7 @@ test("agent chat previews failed tool stdout and stderr in Advanced details", as
       {
         id: "m-agent",
         role: "assistant",
-        runtime_kind: "agent",
+        execution_mode: "hecate_task",
         content: "The command failed while inspecting git state.",
         provider: "ollama",
         model: "qwen2.5-coder",
@@ -750,7 +746,7 @@ test("Hecate Agent local-provider onboarding renders the real final answer after
       const session = {
         id: "chat-hecate-e2e",
         title: body.title || "show diff",
-        runtime_kind: "agent",
+        agent_id: "hecate",
         provider: body.provider || "",
         model: body.model || "qwen2.5",
         capabilities: { tool_calling: "basic", streaming: true, source: "operator_override" },
@@ -801,7 +797,7 @@ test("Hecate Agent local-provider onboarding renders the real final answer after
       messages: [
         {
           id: "msg-user-e2e",
-          runtime_kind: "agent",
+          execution_mode: "hecate_task",
           segment_id: "task:task-hecate-e2e",
           task_id: "task-hecate-e2e",
           role: "user",
@@ -810,7 +806,7 @@ test("Hecate Agent local-provider onboarding renders the real final answer after
         },
         {
           id: "msg-assistant-e2e",
-          runtime_kind: "agent",
+          execution_mode: "hecate_task",
           segment_id: "task:task-hecate-e2e",
           task_id: "task-hecate-e2e",
           run_id: "run-hecate-e2e",
@@ -855,7 +851,7 @@ test("Hecate Agent local-provider onboarding renders the real final answer after
   await page.getByRole("button", { name: "Add selected" }).click();
   await expect(page.getByRole("button", { name: /Add selected/i })).toHaveCount(0);
   await expect(page.getByText("2 configured")).toBeVisible();
-  await page.getByRole("button", { name: /Chat show diff, Hecate/ }).click();
+  await page.getByRole("button", { name: /Chat show diff/ }).click();
 
   await page.getByRole("button", { name: /model picker/i }).click();
   await page.locator(".dropdown-menu").locator("text=qwen2.5").first().click();
@@ -869,7 +865,7 @@ test("Hecate Agent local-provider onboarding renders the real final answer after
   await expect
     .poll(() => messagePayload)
     .toMatchObject({
-      runtime_kind: "agent",
+      execution_mode: "hecate_task",
       model: "qwen2.5",
       workspace: "/tmp/hecate-e2e-workspace",
     });
@@ -987,7 +983,7 @@ test("Hecate Chat can move tools on, tools off, then tools on again in one trans
       session = {
         id: "chat-tools-switch-e2e",
         title: body.title || "tools switch",
-        runtime_kind: body.runtime_kind,
+        agent_id: body.agent_id || "hecate",
         provider: body.provider || "",
         model: body.model || "qwen2.5",
         capabilities: { tool_calling: "basic", streaming: true, source: "operator_override" },
@@ -1049,9 +1045,9 @@ test("Hecate Chat can move tools on, tools off, then tools on again in one trans
     const body = await route.request().postDataJSON();
     submittedTurns.push(body);
     const turn = submittedTurns.length;
-    const runtimeKind = body.runtime_kind || "model";
-    const isHecateAgent = runtimeKind === "agent";
-    const agentTurn = submittedTurns.filter((t) => t.runtime_kind === "agent").length;
+    const runtimeKind = body.execution_mode || "direct_model";
+    const isHecateAgent = runtimeKind === "hecate_task";
+    const agentTurn = submittedTurns.filter((t) => t.execution_mode === "hecate_task").length;
     const taskID = isHecateAgent ? `task-tools-${agentTurn}` : "";
     const runID = isHecateAgent ? `run-tools-${agentTurn}` : "";
     const firstTaskNeedsApproval = isHecateAgent && agentTurn === 1 && !taskApprovalResolved;
@@ -1064,7 +1060,7 @@ test("Hecate Chat can move tools on, tools off, then tools on again in one trans
     messages.push(
       {
         id: `msg-user-${turn}`,
-        runtime_kind: runtimeKind,
+        execution_mode: runtimeKind,
         segment_id: isHecateAgent ? `task:${taskID}` : `model:${turn}`,
         task_id: isHecateAgent ? taskID : undefined,
         provider: body.provider || "",
@@ -1075,7 +1071,7 @@ test("Hecate Chat can move tools on, tools off, then tools on again in one trans
       },
       {
         id: `msg-assistant-${turn}`,
-        runtime_kind: runtimeKind,
+        execution_mode: runtimeKind,
         segment_id: isHecateAgent ? `task:${taskID}` : `model:${turn}`,
         task_id: isHecateAgent ? taskID : undefined,
         run_id: isHecateAgent ? runID : undefined,
@@ -1129,7 +1125,7 @@ test("Hecate Chat can move tools on, tools off, then tools on again in one trans
 
     session = {
       ...session,
-      runtime_kind: runtimeKind,
+      execution_mode: runtimeKind,
       provider: body.provider || "",
       model: body.model,
       capabilities: { tool_calling: "basic", streaming: true, source: "operator_override" },
@@ -1179,13 +1175,13 @@ test("Hecate Chat can move tools on, tools off, then tools on again in one trans
   await expect(page.getByLabel("Tools off segment using qwen2.5")).toHaveCount(1);
 
   expect(createSessionCount).toBe(1);
-  expect(submittedTurns.map((turn) => turn.runtime_kind)).toEqual(["agent", "model", "agent"]);
+  expect(submittedTurns.map((turn) => turn.execution_mode)).toEqual(["hecate_task", "direct_model", "hecate_task"]);
   expect(submittedTurns.map((turn) => turn.content)).toEqual([
     "first with tools",
     "direct model turn",
     "tools again",
   ]);
-  expect(submittedTurns.filter((turn) => turn.runtime_kind === "agent")).toEqual([
+  expect(submittedTurns.filter((turn) => turn.execution_mode === "hecate_task")).toEqual([
     expect.objectContaining({ model: "qwen2.5", workspace: "/tmp/hecate-e2e-workspace" }),
     expect.objectContaining({ model: "qwen2.5", workspace: "/tmp/hecate-e2e-workspace" }),
   ]);
@@ -1200,7 +1196,7 @@ test("Hecate Chat rehydrates an active task and blocks direct sends after refres
     window.localStorage.setItem("hecate.chatSessionID", "chat-busy-e2e");
     window.localStorage.setItem(
       "hecate.chatTargetBySessionID",
-      JSON.stringify({ "chat-busy-e2e": "model" }),
+      JSON.stringify({ "chat-busy-e2e": "direct_model" }),
     );
     window.localStorage.setItem("hecate.agentWorkspace", "/tmp/hecate-e2e-workspace");
   });
@@ -1227,7 +1223,7 @@ test("Hecate Chat rehydrates an active task and blocks direct sends after refres
   const session = {
     id: "chat-busy-e2e",
     title: "busy tools turn",
-    runtime_kind: "model",
+    agent_id: "hecate",
     provider: "lmstudio",
     model: "qwen2.5",
     capabilities: { tool_calling: "basic", streaming: true, source: "operator_override" },
@@ -1239,7 +1235,7 @@ test("Hecate Chat rehydrates an active task and blocks direct sends after refres
     segments: [
       {
         id: "model:first",
-        runtime_kind: "model",
+        execution_mode: "direct_model",
         provider: "lmstudio",
         model: "qwen2.5",
         status: "completed",
@@ -1247,7 +1243,7 @@ test("Hecate Chat rehydrates an active task and blocks direct sends after refres
       },
       {
         id: "task:task-busy-e2e",
-        runtime_kind: "agent",
+        execution_mode: "hecate_task",
         provider: "lmstudio",
         model: "qwen2.5",
         task_id: "task-busy-e2e",
@@ -1259,7 +1255,7 @@ test("Hecate Chat rehydrates an active task and blocks direct sends after refres
     messages: [
       {
         id: "msg-user",
-        runtime_kind: "agent",
+        execution_mode: "hecate_task",
         segment_id: "task:task-busy-e2e",
         task_id: "task-busy-e2e",
         role: "user",
@@ -1268,7 +1264,7 @@ test("Hecate Chat rehydrates an active task and blocks direct sends after refres
       },
       {
         id: "msg-assistant",
-        runtime_kind: "agent",
+        execution_mode: "hecate_task",
         segment_id: "task:task-busy-e2e",
         task_id: "task-busy-e2e",
         run_id: "run-busy-e2e",
@@ -1347,10 +1343,10 @@ test("Hecate Chat rehydrates an active task and blocks direct sends after refres
   await page.goto("/");
   await page.waitForSelector(".hecate-activitybar");
 
-  await expect(page.getByText("Tools off · /tmp/hecate-e2e-workspace")).toBeVisible();
+  await expect(page.getByText("Tools on · /tmp/hecate-e2e-workspace")).toBeVisible();
   await expect(page.getByRole("button", { name: "Fixed model: qwen2.5" })).toBeVisible();
   await expect(page.getByRole("button", { name: "Stop active task" })).toBeVisible();
-  await expect(page.getByRole("button", { name: "Open task" })).toBeVisible();
+  await expect(page.getByRole("button", { name: "Open task", exact: true })).toBeVisible();
   await expect(page.getByText(/Hecate Chat is still working on this task/)).toBeVisible();
   await expect(page.getByText("Backing task")).toBeVisible();
 
@@ -1397,7 +1393,7 @@ test("Hecate Chat rehydrates an awaiting-approval task and resolves it after ref
   const pendingSession = {
     id: "chat-approval-refresh-e2e",
     title: "approval refresh",
-    runtime_kind: "agent",
+    agent_id: "hecate",
     provider: "lmstudio",
     model: "qwen2.5",
     capabilities: { tool_calling: "basic", streaming: true, source: "operator_override" },
@@ -1409,7 +1405,7 @@ test("Hecate Chat rehydrates an awaiting-approval task and resolves it after ref
     segments: [
       {
         id: "task:task-approval-refresh-e2e",
-        runtime_kind: "agent",
+        execution_mode: "hecate_task",
         provider: "lmstudio",
         model: "qwen2.5",
         task_id: "task-approval-refresh-e2e",
@@ -1421,7 +1417,7 @@ test("Hecate Chat rehydrates an awaiting-approval task and resolves it after ref
     messages: [
       {
         id: "msg-user-approval",
-        runtime_kind: "agent",
+        execution_mode: "hecate_task",
         segment_id: "task:task-approval-refresh-e2e",
         task_id: "task-approval-refresh-e2e",
         role: "user",
@@ -1430,7 +1426,7 @@ test("Hecate Chat rehydrates an awaiting-approval task and resolves it after ref
       },
       {
         id: "msg-assistant-approval",
-        runtime_kind: "agent",
+        execution_mode: "hecate_task",
         segment_id: "task:task-approval-refresh-e2e",
         task_id: "task-approval-refresh-e2e",
         run_id: "run-approval-refresh-e2e",
@@ -1747,6 +1743,7 @@ test("selected-model readiness can switch to the backend-suggested fallback mode
     window.localStorage.setItem("hecate.chatTarget", "model");
     window.localStorage.setItem("hecate.providerFilter", "anthropic");
     window.localStorage.setItem("hecate.model", "claude-sonnet-4-6");
+    window.localStorage.setItem("hecate.agentWorkspace", "/tmp/hecate-e2e");
   });
 
   await page.goto("/");
@@ -1787,8 +1784,7 @@ test("agent approval banner: review, allow, banner clears", async ({ page }) => 
           {
             id: "a-e2e-1",
             title: "E2E approval test",
-            runtime_kind: "external_agent",
-            adapter_id: "codex",
+            agent_id: "codex",
             status: "running",
             message_count: 0,
           },
@@ -1821,7 +1817,7 @@ test("agent approval banner: review, allow, banner clears", async ({ page }) => 
           {
             id: "ap-e2e-1",
             session_id: "a-e2e-1",
-            adapter_id: "codex",
+            agent_id: "codex",
             tool_kind: "fs",
             tool_name: "write_file",
             status: "pending",
@@ -1844,7 +1840,7 @@ test("agent approval banner: review, allow, banner clears", async ({ page }) => 
         data: {
           id: "ap-e2e-1",
           session_id: "a-e2e-1",
-          adapter_id: "codex",
+          agent_id: "codex",
           tool_kind: "fs",
           tool_name: "write_file",
           status: "pending",
@@ -1869,7 +1865,7 @@ test("agent approval banner: review, allow, banner clears", async ({ page }) => 
         data: {
           id: "ap-e2e-1",
           session_id: "a-e2e-1",
-          adapter_id: "codex",
+          agent_id: "codex",
           tool_kind: "fs",
           status: "resolved",
           acp_options: [],
@@ -1896,8 +1892,7 @@ test("agent approval banner: review, allow, banner clears", async ({ page }) => 
         data: {
           id: "a-e2e-1",
           title: "E2E approval test",
-          runtime_kind: "external_agent",
-          adapter_id: "codex",
+          agent_id: "codex",
           workspace: "/tmp/e2e",
           status: "running",
           messages: [],
@@ -1949,8 +1944,7 @@ test("agent changed-files review inspects and reverts a captured file", async ({
           {
             id: "a-diff-1",
             title: "Diff review",
-            runtime_kind: "external_agent",
-            adapter_id: "codex",
+            agent_id: "codex",
             status: "completed",
             message_count: 2,
           },
@@ -1964,8 +1958,7 @@ test("agent changed-files review inspects and reverts a captured file", async ({
     data: {
       id: "a-diff-1",
       title: "Diff review",
-      runtime_kind: "external_agent",
-      adapter_id: "codex",
+      agent_id: "codex",
       workspace: "/tmp/e2e",
       status: "completed",
       messages: [
@@ -1974,8 +1967,8 @@ test("agent changed-files review inspects and reverts a captured file", async ({
           id: "m-agent",
           role: "assistant",
           content: "Updated the docs.",
-          adapter_id: "codex",
-          adapter_name: "Codex",
+          agent_id: "codex",
+          agent_name: "Codex",
           status: "completed",
           diff_stat:
             "README.md | 3 ++-\ndocs/runtime-api.md | 4 ++++\n2 files changed, 6 insertions(+), 1 deletion(-)",
@@ -2120,7 +2113,7 @@ async function openClaudeExternalAgent(page: Page, fixture: ClaudeAdapterFixture
                 ? { ...adapter, auth_status: "ok", auth_error: undefined }
                 : adapter,
             health: {
-              adapter_id: "claude_code",
+              agent_id: "claude_code",
               status,
               stage:
                 status === "ready"
@@ -2152,9 +2145,8 @@ async function openClaudeExternalAgent(page: Page, fixture: ClaudeAdapterFixture
   const session = {
     id: "claude-code-onboarding-e2e",
     title: "Claude Code chat",
-    runtime_kind: "external_agent",
-    adapter_id: "claude_code",
-    adapter_name: "Claude Code",
+    agent_id: "claude_code",
+    agent_name: "Claude Code",
     driver_kind: "acp",
     native_session_id: "native-claude-code-e2e",
     workspace: "/tmp/hecate-e2e",
@@ -2358,7 +2350,7 @@ test("Claude Code valid token save clears onboarding and enables chat", async ({
       body: JSON.stringify({
         object: "agent_adapter_credential",
         data: {
-          adapter_id: "claude_code",
+          agent_id: "claude_code",
           name: "CLAUDE_CODE_OAUTH_TOKEN",
           configured: true,
           preview: "sk-v...7890",
@@ -2394,7 +2386,7 @@ test("Claude Code valid token save clears onboarding and enables chat", async ({
           data: {
             adapter,
             health: {
-              adapter_id: "claude_code",
+              agent_id: "claude_code",
               status: "ready",
               stage: "ready",
               path: "/usr/local/bin/claude-agent-acp",
@@ -2418,9 +2410,8 @@ test("Claude Code valid token save clears onboarding and enables chat", async ({
   const session = {
     id: "claude-code-token-e2e",
     title: "Claude Code chat",
-    runtime_kind: "external_agent",
-    adapter_id: "claude_code",
-    adapter_name: "Claude Code",
+    agent_id: "claude_code",
+    agent_name: "Claude Code",
     driver_kind: "acp",
     native_session_id: "native-claude-token-e2e",
     workspace: "/tmp/hecate-e2e",

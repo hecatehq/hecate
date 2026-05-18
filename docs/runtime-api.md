@@ -1033,23 +1033,20 @@ Status codes:
 Lists Agent Chat sessions. Agent Chat uses the same backend selection as model
 chat history: memory by default, SQLite when
 `GATEWAY_CHAT_SESSIONS_BACKEND=sqlite`. It is the alpha transcript surface for
-Hecate Chat and External Agent sessions:
+Hecate Chat and External Agent sessions. A session has a stable `agent_id`
+that chooses the chat owner:
 
-- `runtime_kind="model"` — Hecate Chat sends the turn directly through the
-  gateway/router to the selected provider/model. No task is created and no
-  tools run, but the turn is stored in the same transcript as later Hecate
-  Agent turns.
-- `runtime_kind="agent"` — Hecate creates and continues a visible
-  `agent_loop` task with Hecate tools, task approvals, artifacts, and OTel.
-  The chat transcript projects backing task-run activity and can resolve
-  pending task approvals through the existing task approval endpoint.
-  Agent sessions may opt into RTK command-output compaction with
-  `rtk_enabled=true`; shell and git tool calls then launch as
-  `rtk sh -lc <command>` while keeping Hecate approvals, policy validation,
-  sandboxing, limits, and timeouts in place.
-- `runtime_kind="external_agent"` — Codex, Claude Code, Cursor Agent, or
-  another adapter owns the native session while Hecate supervises lifecycle,
-  transcript, diagnostics, and external-agent approvals.
+- `agent_id="hecate"` — Hecate owns the chat. Individual turns choose
+  `execution_mode="direct_model"` for normal provider/model chat or
+  `execution_mode="hecate_task"` for a visible `agent_loop` task with Hecate
+  tools, task approvals, artifacts, and OTel. Hecate Chat sessions may opt into
+  RTK command-output compaction with `rtk_enabled=true`; shell and git tool
+  calls then launch as `rtk sh -lc <command>` while keeping Hecate approvals,
+  policy validation, sandboxing, limits, and timeouts in place.
+- `agent_id="codex"`, `"claude_code"`, `"cursor_agent"`, or another
+  registered adapter id — the external adapter owns the native session while
+  Hecate supervises lifecycle, transcript, diagnostics, and external-agent
+  approvals. Turns use `execution_mode="external_agent"`.
 
 `GATEWAY_CHAT_SESSIONS_BACKEND=sqlite` is the single selector for the entire
 chat state bundle: sessions, messages, **and** the operator-facing
@@ -1120,7 +1117,7 @@ GET /hecate/v1/chat/sessions
     {
       "id": "chat_...",
       "title": "Hecate Chat",
-      "runtime_kind": "model",
+      "agent_id": "hecate",
       "provider": "ollama",
       "model": "qwen2.5-coder",
       "capabilities": {
@@ -1145,25 +1142,25 @@ GET /hecate/v1/chat/sessions
 
 ### `POST /hecate/v1/chat/sessions`
 
-Creates an Agent Chat session. `runtime_kind` chooses the execution target:
+Creates an Agent Chat session. `agent_id` chooses the session owner:
 
-- `model` requires `model`. `provider` is optional; when omitted, Hecate uses
-  the normal routing path for the requested model. `workspace` is optional
-  because no local tools run.
-- `agent` requires `provider`, `model`, and `workspace`.
-- `external_agent` requires `adapter_id` and `workspace`.
+- `hecate` (default) creates a Hecate Chat. It can later run
+  `execution_mode="direct_model"` turns or `execution_mode="hecate_task"`
+  turns.
+- Any registered external-agent id, such as `codex`, `claude_code`, or
+  `cursor_agent`, creates an External Agent chat and requires `workspace`.
 
-For Hecate Chat sessions (`runtime_kind="model"` or `"agent"`),
-`rtk_enabled` records the chat's command-output compaction preference. It is
-only applied when a future turn runs through the task-backed `agent` runtime;
-direct model turns never execute local commands.
+For Hecate Chat sessions, `rtk_enabled` records the chat's command-output
+compaction preference. It is only applied when a future turn runs through the
+task-backed `hecate_task` execution mode; direct model turns never execute
+local commands.
 
 When `workspace` is provided, it must be an operator-controlled local
 directory. Hecate validates and canonicalizes the path before a tool-backed or
 external-agent run starts, so later runs use the resolved directory instead of
 failing only after execution starts.
 
-For `runtime_kind="external_agent"`, session creation also starts or restores
+For external-agent `agent_id` values, session creation also starts or restores
 the native ACP session immediately. That lets clients render adapter-owned
 `config_options` before the first prompt. If the adapter binary is missing,
 unauthenticated, or fails its ACP handshake, session creation fails and Hecate
@@ -1172,7 +1169,7 @@ removes the empty chat record.
 ```json
 POST /hecate/v1/chat/sessions
 {
-  "runtime_kind": "model",
+  "agent_id": "hecate",
   "provider": "ollama",
   "model": "qwen2.5-coder",
   "title": "Hecate Chat"
@@ -1184,7 +1181,7 @@ POST /hecate/v1/chat/sessions
   "data": {
     "id": "chat_...",
     "title": "Hecate Chat",
-    "runtime_kind": "model",
+    "agent_id": "hecate",
     "provider": "ollama",
     "model": "qwen2.5-coder",
     "capabilities": {
@@ -1207,7 +1204,7 @@ Returns the full session transcript, including user messages and assistant
 messages produced by the backing runtime. Hecate Agent sessions include
 `task_id`, `latest_run_id`, `provider`, `model`, and the capability snapshot
 used when the session was created. Individual chat messages also carry a
-runtime snapshot: `runtime_kind`, `segment_id`, optional `task_id`, optional
+runtime snapshot: `execution_mode`, `segment_id`, optional `task_id`, optional
 `run_id`, provider/model, and capabilities. Frontends should prefer those
 message-level fields when rendering historical turns because the session header
 can change as the operator switches tools on/off. If tools are re-enabled after
@@ -1218,7 +1215,7 @@ The response also includes a derived `segments` array. Messages remain the
 durable source of truth; segments are a render helper that groups contiguous
 turns with the same `segment_id` so clients can show transcript boundaries such
 as "tools off with smollm2" → "tools on with qwen2.5-coder". Each segment
-contains its `runtime_kind`, provider/model snapshot, optional `task_id`,
+contains its `execution_mode`, provider/model snapshot, optional `task_id`,
 latest run id, status, message count, and first/last timestamps.
 
 External Agent sessions may also include `config_options`, a normalized
@@ -1232,7 +1229,7 @@ must handle missing or custom categories.
 ### `PATCH /hecate/v1/chat/sessions/{id}`
 
 Renames an Agent Chat session. This is shared by Hecate Chat
-(`runtime_kind="model"` / `"agent"`) and External Agent sessions. The title is
+(`agent_id="hecate"`) and External Agent sessions. The title is
 metadata only; it does not change the prompt history, workspace, provider/model,
 or ACP native session.
 
@@ -1248,7 +1245,7 @@ PATCH /hecate/v1/chat/sessions/chat_...
   "data": {
     "id": "chat_...",
     "title": "Review release notes",
-    "runtime_kind": "agent",
+    "agent_id": "hecate",
     "status": "completed",
     "messages": []
   }
@@ -1277,8 +1274,7 @@ after the session has been restored.
 ### `PATCH /hecate/v1/chat/sessions/{id}/settings`
 
 Updates Hecate-owned chat settings for future turns. This endpoint currently
-accepts `rtk_enabled` for `runtime_kind="model"` and `runtime_kind="agent"`
-sessions. External Agent sessions reject it with
+accepts `rtk_enabled` for `agent_id="hecate"` sessions. External Agent sessions reject it with
 `chat.runtime_mismatch` because Codex, Claude Code, Cursor, and other ACP
 adapters own their own command execution.
 
@@ -1297,7 +1293,7 @@ PATCH /hecate/v1/chat/sessions/chat_.../settings
   "object": "chat_session",
   "data": {
     "id": "chat_...",
-    "runtime_kind": "agent",
+    "agent_id": "hecate",
     "rtk_enabled": true
   }
 }
@@ -1310,9 +1306,9 @@ the user message and assistant output.
 
 `POST` also accepts per-turn overrides:
 
-- `runtime_kind` — `model`, `agent`, or `external_agent`. Hecate Chat
-  sessions may switch between `model` and `agent`; External Agent
-  sessions cannot switch into Hecate Chat runtimes.
+- `execution_mode` — `direct_model`, `hecate_task`, or `external_agent`.
+  Hecate Chat sessions may switch between `direct_model` and `hecate_task`;
+  External Agent sessions always use `external_agent`.
 - `provider` / `model` — used for direct model turns and new Hecate Agent
   task-backed segments. Existing Hecate Agent task segments continue with their
   saved model snapshot until the operator turns tools off or starts a new
@@ -1321,10 +1317,10 @@ the user message and assistant output.
 - `workspace` — required when starting a Hecate Agent turn on a session that
   does not already have a workspace.
 
-For `runtime_kind="model"`, Hecate calls the normal gateway path and stores the
-user/assistant messages without creating a Task. For
-`runtime_kind="external_agent"`, Hecate sends the prompt to the session's
-native ACP session. For `runtime_kind="agent"`, the first tool-enabled
+For `execution_mode="direct_model"`, Hecate calls the normal gateway path and
+stores the user/assistant messages without creating a Task. For
+`execution_mode="external_agent"`, Hecate sends the prompt to the session's
+native ACP session. For `execution_mode="hecate_task"`, the first tool-enabled
 prompt creates a visible `agent_loop` task and starts it; follow-up prompts
 continue the latest terminal run when the immediately previous segment was also
 Hecate Agent. If the previous segment was direct model chat, Hecate starts a
@@ -1333,7 +1329,7 @@ fresh task-backed segment in the same transcript.
 Only one task-backed segment can be active in a Hecate Chat session at a time.
 If the latest backing task is queued, running, or awaiting approval, **all** new
 turns on that chat are rejected with `409 chat.agent_session_busy`,
-including direct `runtime_kind="model"` turns. Operators should wait for the
+including direct `execution_mode="direct_model"` turns. Operators should wait for the
 task to finish, resolve the pending approval, or cancel/stop the active run
 before sending another prompt. The operator UI layers a local composer queue on
 top of that API contract: prompts submitted while a run is busy are held in a
@@ -1393,8 +1389,8 @@ POST /hecate/v1/chat/sessions/chat_.../messages
         "role": "assistant",
         "content": "...",
         "raw_output": "...",
-        "adapter_id": "codex",
-        "adapter_name": "Codex",
+        "agent_id": "codex",
+        "agent_name": "Codex",
         "driver_kind": "acp",
         "native_session_id": "session_...",
         "status": "completed",
@@ -1478,7 +1474,8 @@ Hecate Agent-specific errors:
 | ------ | -------------------------------- | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
 | `400`  | `chat.workspace_required`        | Hecate Agent and External Agent sessions need a selected workspace path before the first turn.                                                                                           |
 | `400`  | `chat.model_required`            | Hecate Chat needs an explicit selected model before direct model or Hecate Agent turns.                                                                                                  |
-| `400`  | `chat.runtime_kind_invalid`      | The requested chat runtime is not one of `model`, `agent`, or `external_agent`.                                                                                                          |
+| `400`  | `chat.agent_id_invalid`          | The requested session owner is not `hecate` and does not match a registered external-agent adapter.                                                                                      |
+| `400`  | `chat.execution_mode_invalid`    | The requested turn execution mode is not one of `direct_model`, `hecate_task`, or `external_agent`.                                                                                      |
 | `400`  | `chat.runtime_mismatch`          | The request tried to run a turn through a runtime that does not match the existing session type.                                                                                         |
 | `400`  | `chat.adapter_not_found`         | The selected external-agent adapter is not registered.                                                                                                                                   |
 | `409`  | `chat.agent_session_busy`        | The backing task run is queued, running, or awaiting approval. Resolve/cancel the active run before sending another prompt, even for direct model turns in the same Hecate Chat session. |

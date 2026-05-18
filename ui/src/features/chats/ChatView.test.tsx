@@ -103,7 +103,7 @@ describe("ChatView input", () => {
         activeChatSessionID: "chat_1",
         activeChatSession: {
           id: "chat_1",
-          runtime_kind: "agent",
+          execution_mode: "hecate_task",
           title: "Repo work",
           provider: "openai",
           model: "gpt-4o-mini",
@@ -163,7 +163,7 @@ describe("ChatView input", () => {
       activeChatSessionID: "chat_hecate",
       activeChatSession: {
         id: "chat_hecate",
-        runtime_kind: "agent",
+        execution_mode: "hecate_task",
         title: "Repo work",
         task_id: "task_hecate_123456",
         provider: "ollama",
@@ -193,7 +193,7 @@ describe("ChatView input", () => {
         activeChatSessionID: "chat_1",
         activeChatSession: {
           id: "chat_1",
-          runtime_kind: "agent",
+          execution_mode: "hecate_task",
           title: "Repo work",
           task_id: "task_hecate_123456",
           provider: "ollama",
@@ -313,9 +313,8 @@ describe("ChatView input", () => {
         activeChatSessionID: "a1",
         activeChatSession: {
           id: "a1",
-          runtime_kind: "external_agent",
+          agent_id: "codex",
           title: "Codex work",
-          adapter_id: "codex",
           workspace: "/Users/alice/dev/hecate",
           status: "idle",
           config_options: [
@@ -503,7 +502,7 @@ describe("ChatView input", () => {
       activeChatSession: {
         id: "chat_1",
         title: "Existing chat",
-        runtime_kind: "model",
+        execution_mode: "direct_model",
         status: "completed",
         provider: "ollama",
         model: "llama3.1:8b",
@@ -512,7 +511,7 @@ describe("ChatView input", () => {
             id: "m1",
             role: "user",
             content: "hi",
-            runtime_kind: "model",
+            execution_mode: "direct_model",
             created_at: "2026-04-20T00:00:00Z",
           },
         ],
@@ -1309,7 +1308,7 @@ describe("ChatView input", () => {
       activeChatSessionID: "chat_1",
       activeChatSession: {
         id: "chat_1",
-        runtime_kind: "agent",
+        execution_mode: "hecate_task",
         title: "Repo work",
         task_id: "task_hecate_123456",
         latest_run_id: "run_hecate_abcdef",
@@ -1403,7 +1402,7 @@ describe("ChatView input", () => {
         activeChatSessionID: "chat_1",
         activeChatSession: {
           id: "chat_1",
-          runtime_kind: "agent",
+          execution_mode: "hecate_task",
           title: "Repo work",
           task_id: "task_hecate_123456",
           latest_run_id: "run_hecate_abcdef",
@@ -1487,7 +1486,7 @@ describe("ChatView input", () => {
       activeChatSessionID: "chat_1",
       activeChatSession: {
         id: "chat_1",
-        runtime_kind: "agent",
+        execution_mode: "hecate_task",
         title: "Repo work",
         provider: "local-ollama",
         model: "qwen2.5-coder",
@@ -1541,7 +1540,7 @@ describe("ChatView input", () => {
       activeChatSessionID: "chat_1",
       activeChatSession: {
         id: "chat_1",
-        runtime_kind: "agent",
+        execution_mode: "hecate_task",
         title: "Repo work",
         task_id: "task_hecate_123456",
         latest_run_id: "run_hecate_abcdef",
@@ -1617,7 +1616,7 @@ describe("ChatView input", () => {
       activeChatSessionID: "chat_1",
       activeChatSession: {
         id: "chat_1",
-        runtime_kind: "model",
+        execution_mode: "direct_model",
         title: "Mixed chat",
         provider: "ollama",
         model: "smollm2:135m",
@@ -1626,7 +1625,7 @@ describe("ChatView input", () => {
         segments: [
           {
             id: "model:first",
-            runtime_kind: "model",
+            execution_mode: "direct_model",
             provider: "ollama",
             model: "smollm2:135m",
             status: "completed",
@@ -1634,7 +1633,7 @@ describe("ChatView input", () => {
           },
           {
             id: "task:task_hecate_123456",
-            runtime_kind: "agent",
+            execution_mode: "hecate_task",
             provider: "ollama",
             model: "qwen2.5-coder",
             task_id: "task_hecate_123456",
@@ -1669,12 +1668,12 @@ describe("ChatView input", () => {
             id: "queued_1",
             session_id: "chat_1",
             content: "run tests after this",
-            runtime_kind: "agent",
+            execution_mode: "hecate_task",
             provider_filter: "ollama",
             model: "qwen2.5-coder",
             workspace: "/workspace",
             system_prompt: "",
-            adapter_id: "codex",
+            agent_id: "hecate",
             created_at: "2026-04-20T00:00:00Z",
           },
         ],
@@ -1704,24 +1703,24 @@ describe("ChatView input", () => {
           id: "queued_active",
           session_id: "chat_active",
           content: "send this here",
-          runtime_kind: "agent",
+          execution_mode: "hecate_task",
           provider_filter: "ollama",
           model: "qwen2.5-coder",
           workspace: "/workspace",
           system_prompt: "",
-          adapter_id: "codex",
+          agent_id: "codex",
           created_at: "2026-04-20T00:00:00Z",
         },
         {
           id: "queued_other",
           session_id: "chat_other",
           content: "not in this chat",
-          runtime_kind: "agent",
+          execution_mode: "hecate_task",
           provider_filter: "ollama",
           model: "qwen2.5-coder",
           workspace: "/workspace",
           system_prompt: "",
-          adapter_id: "codex",
+          agent_id: "codex",
           created_at: "2026-04-20T00:00:00Z",
         },
       ],
@@ -1818,7 +1817,7 @@ describe("ChatView input", () => {
       activeChatSessionID: "chat_1",
       activeChatSession: {
         id: "chat_1",
-        runtime_kind: "agent",
+        execution_mode: "hecate_task",
         title: "Repo work",
         task_id: "task_hecate_123456",
         latest_run_id: "run_hecate_abcdef",
@@ -1829,7 +1828,7 @@ describe("ChatView input", () => {
         messages: [
           {
             id: "m1",
-            runtime_kind: "agent",
+            execution_mode: "hecate_task",
             segment_id: "task:task_hecate_123456",
             task_id: "task_hecate_123456",
             role: "user",
@@ -1838,7 +1837,7 @@ describe("ChatView input", () => {
           },
           {
             id: "m2",
-            runtime_kind: "agent",
+            execution_mode: "hecate_task",
             segment_id: "task:task_hecate_123456",
             task_id: "task_hecate_123456",
             run_id: "run_hecate_abcdef",
@@ -1867,7 +1866,7 @@ describe("ChatView input", () => {
       activeChatSessionID: "chat_1",
       activeChatSession: {
         id: "chat_1",
-        runtime_kind: "model",
+        execution_mode: "direct_model",
         title: "Mixed chat",
         task_id: "task_latest",
         latest_run_id: "run_latest",
@@ -1878,7 +1877,7 @@ describe("ChatView input", () => {
         messages: [
           {
             id: "m1",
-            runtime_kind: "model",
+            execution_mode: "direct_model",
             segment_id: "model:direct",
             role: "user",
             content: "tell a joke",
@@ -1886,7 +1885,7 @@ describe("ChatView input", () => {
           },
           {
             id: "m2",
-            runtime_kind: "model",
+            execution_mode: "direct_model",
             segment_id: "model:direct",
             run_id: "model_run_1",
             trace_id: "trace_1",
@@ -1912,7 +1911,7 @@ describe("ChatView input", () => {
       activeChatSessionID: "chat_1",
       activeChatSession: {
         id: "chat_1",
-        runtime_kind: "agent",
+        execution_mode: "hecate_task",
         title: "Mixed chat",
         task_id: "task_second",
         latest_run_id: "run_second",
@@ -1923,7 +1922,7 @@ describe("ChatView input", () => {
         segments: [
           {
             id: "model:first",
-            runtime_kind: "model",
+            execution_mode: "direct_model",
             provider: "ollama",
             model: "smollm2:135m",
             status: "completed",
@@ -1931,7 +1930,7 @@ describe("ChatView input", () => {
           },
           {
             id: "task:task_first",
-            runtime_kind: "agent",
+            execution_mode: "hecate_task",
             provider: "ollama",
             model: "qwen2.5-coder",
             task_id: "task_first",
@@ -1941,7 +1940,7 @@ describe("ChatView input", () => {
           },
           {
             id: "model:second",
-            runtime_kind: "model",
+            execution_mode: "direct_model",
             provider: "ollama",
             model: "smollm2:135m",
             status: "completed",
@@ -1951,7 +1950,7 @@ describe("ChatView input", () => {
         messages: [
           {
             id: "m1",
-            runtime_kind: "model",
+            execution_mode: "direct_model",
             segment_id: "model:first",
             role: "user",
             content: "answer directly",
@@ -1959,7 +1958,7 @@ describe("ChatView input", () => {
           },
           {
             id: "m2",
-            runtime_kind: "model",
+            execution_mode: "direct_model",
             segment_id: "model:first",
             role: "assistant",
             content: "Direct answer.",
@@ -1969,7 +1968,7 @@ describe("ChatView input", () => {
           },
           {
             id: "m3",
-            runtime_kind: "agent",
+            execution_mode: "hecate_task",
             segment_id: "task:task_first",
             task_id: "task_first",
             role: "user",
@@ -1978,7 +1977,7 @@ describe("ChatView input", () => {
           },
           {
             id: "m4",
-            runtime_kind: "agent",
+            execution_mode: "hecate_task",
             segment_id: "task:task_first",
             task_id: "task_first",
             run_id: "run_first",
@@ -1990,7 +1989,7 @@ describe("ChatView input", () => {
           },
           {
             id: "m5",
-            runtime_kind: "model",
+            execution_mode: "direct_model",
             segment_id: "model:second",
             role: "user",
             content: "back to direct",
@@ -1998,7 +1997,7 @@ describe("ChatView input", () => {
           },
           {
             id: "m6",
-            runtime_kind: "model",
+            execution_mode: "direct_model",
             segment_id: "model:second",
             role: "assistant",
             content: "Direct again.",
@@ -2025,7 +2024,7 @@ describe("ChatView input", () => {
       activeChatSessionID: "chat_1",
       activeChatSession: {
         id: "chat_1",
-        runtime_kind: "agent",
+        execution_mode: "hecate_task",
         title: "Repo work",
         task_id: "task_hecate_123456",
         latest_run_id: "run_hecate_abcdef",
@@ -2112,7 +2111,7 @@ describe("ChatView input", () => {
         activeChatSessionID: "chat_1",
         activeChatSession: {
           id: "chat_1",
-          runtime_kind: "agent",
+          execution_mode: "hecate_task",
           title: "Repo work",
           task_id: "task_hecate_123456",
           latest_run_id: "run_hecate_abcdef",
@@ -2178,7 +2177,7 @@ describe("ChatView input", () => {
       activeChatSessionID: "chat_1",
       activeChatSession: {
         id: "chat_1",
-        runtime_kind: "agent",
+        execution_mode: "hecate_task",
         title: "Repo work",
         task_id: "task_hecate_123456",
         latest_run_id: "run_hecate_abcdef",
@@ -2422,7 +2421,7 @@ describe("ChatView chats sidebar", () => {
         {
           id: "s1",
           title: "Budget check",
-          runtime_kind: "model",
+          execution_mode: "direct_model",
           status: "completed",
           provider: "anthropic",
           message_count: 4,
@@ -2431,7 +2430,7 @@ describe("ChatView chats sidebar", () => {
         {
           id: "s2",
           title: "Draft release notes",
-          runtime_kind: "model",
+          execution_mode: "direct_model",
           status: "completed",
           provider: "openai",
           message_count: 2,
@@ -2453,7 +2452,7 @@ describe("ChatView chats sidebar", () => {
         {
           id: "a1",
           title: "Codex refactor",
-          adapter_id: "codex",
+          agent_id: "hecate",
           status: "completed",
           message_count: 4,
           updated_at: daysAgo(0),
@@ -2461,7 +2460,7 @@ describe("ChatView chats sidebar", () => {
         {
           id: "a2",
           title: "Cursor repro",
-          adapter_id: "cursor_agent",
+          agent_id: "cursor_agent",
           status: "failed",
           message_count: 2,
           updated_at: daysAgo(0),
@@ -2484,7 +2483,7 @@ describe("ChatView chats sidebar", () => {
           {
             id: "a1",
             title: "Codex refactor",
-            adapter_id: "codex",
+            agent_id: "codex",
             status: "completed",
             message_count: 4,
             updated_at: daysAgo(0),
@@ -2622,7 +2621,7 @@ describe("ChatView external-agent target", () => {
           {
             id: "a1",
             title: "Codex work",
-            adapter_id: "codex",
+            agent_id: "codex",
             workspace: "/tmp/hecate",
             status: "completed",
             message_count: 2,
@@ -2632,8 +2631,7 @@ describe("ChatView external-agent target", () => {
         activeChatSession: {
           id: "a1",
           title: "Codex work",
-          adapter_id: "codex",
-          runtime_kind: "external_agent",
+          agent_id: "codex",
           workspace: "/tmp/hecate",
           status: "completed",
           config_options: [
@@ -2666,8 +2664,8 @@ describe("ChatView external-agent target", () => {
               role: "assistant",
               content: "Looks good.",
               raw_output: `{"sessionId":"native_codex_1","update":{"sessionUpdate":"agent_message_chunk","content":{"type":"text","text":"Looks good."}}}`,
-              adapter_id: "codex",
-              adapter_name: "Codex",
+              agent_id: "codex",
+              agent_name: "Codex",
               driver_kind: "acp",
               native_session_id: "native_codex_1",
               status: "completed",
@@ -2873,8 +2871,8 @@ describe("ChatView external-agent target", () => {
       activeChatSession: {
         id: "chat_1",
         title: "Claude work",
-        adapter_id: "claude_code",
-        adapter_name: "Claude Code",
+        agent_id: "claude_code",
+        agent_name: "Claude Code",
         workspace: "/tmp/hecate",
         messages: [],
         status: "idle",
@@ -3040,7 +3038,7 @@ describe("ChatView external-agent target", () => {
       activeChatSession: {
         id: "a1",
         title: "Running work",
-        adapter_id: "codex",
+        agent_id: "codex",
         driver_kind: "acp",
         workspace: "/tmp/hecate",
         status: "running",
@@ -3050,8 +3048,8 @@ describe("ChatView external-agent target", () => {
             id: "m2",
             role: "assistant",
             content: "",
-            adapter_id: "codex",
-            adapter_name: "Codex",
+            agent_id: "codex",
+            agent_name: "Codex",
             status: "running",
             created_at: "2026-05-03T10:00:01Z",
             activities: [
@@ -3091,7 +3089,7 @@ describe("ChatView external-agent target", () => {
       activeChatSession: {
         id: "a1",
         title: "Inspect diff",
-        adapter_id: "codex",
+        agent_id: "codex",
         driver_kind: "acp",
         workspace: "/tmp/hecate",
         status: "running",
@@ -3102,8 +3100,8 @@ describe("ChatView external-agent target", () => {
             role: "assistant",
             content:
               "I’ll check the current worktree diff and summarize the changed files plus the important hunks.",
-            adapter_id: "codex",
-            adapter_name: "Codex",
+            agent_id: "codex",
+            agent_name: "Codex",
             status: "running",
             created_at: "2026-05-03T10:00:01Z",
             activities: [
@@ -3154,7 +3152,7 @@ describe("ChatView external-agent target", () => {
       activeChatSession: {
         id: "a1",
         title: "Usage check",
-        adapter_id: "codex",
+        agent_id: "codex",
         driver_kind: "acp",
         workspace: "/tmp/hecate",
         status: "completed",
@@ -3164,8 +3162,8 @@ describe("ChatView external-agent target", () => {
             id: "m2",
             role: "assistant",
             content: "Done.",
-            adapter_id: "codex",
-            adapter_name: "Codex",
+            agent_id: "codex",
+            agent_name: "Codex",
             status: "completed",
             created_at: "2026-05-03T10:00:01Z",
             usage: {
@@ -3198,7 +3196,7 @@ describe("ChatView external-agent target", () => {
       activeChatSessionID: "h1",
       activeChatSession: {
         id: "h1",
-        runtime_kind: "agent",
+        execution_mode: "hecate_task",
         title: "Hecate work",
         provider: "ollama",
         model: "qwen2.5-coder",
@@ -3256,7 +3254,7 @@ describe("ChatView external-agent target", () => {
         activeChatSession: {
           id: "a1",
           title: "Review files",
-          adapter_id: "codex",
+          agent_id: "hecate",
           workspace: "/tmp/hecate",
           status: "completed",
           messages: [
@@ -3265,8 +3263,8 @@ describe("ChatView external-agent target", () => {
               id: "m2",
               role: "assistant",
               content: "Updated the docs.",
-              adapter_id: "codex",
-              adapter_name: "Codex",
+              agent_id: "codex",
+              agent_name: "Codex",
               status: "completed",
               diff_stat:
                 "README.md | 3 ++-\ndocs/runtime-api.md | 4 ++++\n2 files changed, 6 insertions(+), 1 deletion(-)",
@@ -3317,7 +3315,7 @@ describe("ChatView external-agent target", () => {
         activeChatSession: {
           id: "a1",
           title: "Review files",
-          adapter_id: "codex",
+          agent_id: "codex",
           workspace: "/tmp/hecate",
           status: "completed",
           messages: [
@@ -3326,8 +3324,8 @@ describe("ChatView external-agent target", () => {
               id: "m2",
               role: "assistant",
               content: "Updated the docs.",
-              adapter_id: "codex",
-              adapter_name: "Codex",
+              agent_id: "codex",
+              agent_name: "Codex",
               status: "completed",
               diff_stat: "README.md | 3 ++-\n1 file changed, 2 insertions(+), 1 deletion(-)",
               diff: "diff --git a/README.md b/README.md\n+new line",
@@ -3372,7 +3370,7 @@ describe("ChatView external-agent target", () => {
         activeChatSession: {
           id: "a1",
           title: "Review files",
-          adapter_id: "codex",
+          agent_id: "codex",
           workspace: "/tmp/hecate",
           status: "completed",
           messages: [
@@ -3380,8 +3378,8 @@ describe("ChatView external-agent target", () => {
               id: "m2",
               role: "assistant",
               content: "Updated the docs.",
-              adapter_id: "codex",
-              adapter_name: "Codex",
+              agent_id: "codex",
+              agent_name: "Codex",
               status: "completed",
               diff_stat: "README.md | 3 ++-\n1 file changed, 2 insertions(+), 1 deletion(-)",
               diff: "diff --git a/README.md b/README.md\n+new line",
@@ -3423,7 +3421,7 @@ describe("ChatView external-agent target", () => {
         activeChatSession: {
           id: "a1",
           title: "Review all",
-          adapter_id: "codex",
+          agent_id: "codex",
           workspace: "/tmp/hecate",
           status: "completed",
           messages: [
@@ -3432,8 +3430,8 @@ describe("ChatView external-agent target", () => {
               id: "m2",
               role: "assistant",
               content: "Updated the docs.",
-              adapter_id: "codex",
-              adapter_name: "Codex",
+              agent_id: "codex",
+              agent_name: "Codex",
               status: "completed",
               diff_stat: "README.md | 3 ++-\n1 file changed, 2 insertions(+), 1 deletion(-)",
               diff: "diff --git a/README.md b/README.md",
@@ -3479,7 +3477,7 @@ describe("ChatView external-agent target", () => {
       activeChatSession: {
         id: "a1",
         title: "Stopping work",
-        adapter_id: "codex",
+        agent_id: "codex",
         driver_kind: "acp",
         workspace: "/tmp/hecate",
         status: "running",
@@ -3513,7 +3511,7 @@ describe("ChatView external-agent target", () => {
       activeChatSession: {
         id: "a1",
         title: "Failed work",
-        adapter_id: "claude_code",
+        agent_id: "claude_code",
         driver_kind: "acp",
         workspace: "/tmp/hecate",
         status: "failed",
@@ -3525,8 +3523,8 @@ describe("ChatView external-agent target", () => {
             content: "Claude Code usage limit: credit balance is too low",
             raw_output: `{"code":-32603,"message":"Internal error: Credit balance is too low"}`,
             error: "Claude Code usage limit: credit balance is too low",
-            adapter_id: "claude_code",
-            adapter_name: "Claude Code",
+            agent_id: "claude_code",
+            agent_name: "Claude Code",
             status: "failed",
             created_at: "2026-05-03T10:00:01Z",
             activities: [
@@ -3850,7 +3848,7 @@ describe("ChatView session title", () => {
       activeChatSessionID: "chat_1",
       activeChatSession: {
         id: "chat_1",
-        runtime_kind: "agent",
+        execution_mode: "hecate_task",
         title: "Repo work",
         provider: "ollama",
         model: "qwen2.5-coder",
@@ -4045,7 +4043,7 @@ describe("ChatView agent approvals", () => {
         activeChatSession: {
           id: sessionID,
           title: "S1",
-          adapter_id: "codex",
+          agent_id: "codex",
           workspace: "/tmp",
           status: "running",
         } as any,
@@ -4054,7 +4052,7 @@ describe("ChatView agent approvals", () => {
           {
             id: sessionID,
             title: "S1",
-            adapter_id: "codex",
+            agent_id: "codex",
             status: "running",
             message_count: 0,
           } as any,
@@ -4084,7 +4082,7 @@ describe("ChatView agent approvals", () => {
           {
             approval_id: "ap-external",
             session_id: sessionID,
-            adapter_id: "codex",
+            agent_id: "codex",
             tool_kind: "fs",
             tool_name: "write_file",
             created_at: "2026-04-21T10:00:00Z",
@@ -4101,7 +4099,7 @@ describe("ChatView agent approvals", () => {
         activeChatSession: {
           id: sessionID,
           title: "Codex",
-          adapter_id: "codex",
+          agent_id: "codex",
           workspace: "/tmp",
           status: "running",
         } as any,
@@ -4110,7 +4108,7 @@ describe("ChatView agent approvals", () => {
           {
             id: sessionID,
             title: "Codex",
-            adapter_id: "codex",
+            agent_id: "codex",
             status: "running",
             message_count: 0,
           } as any,
@@ -4131,7 +4129,7 @@ describe("ChatView agent approvals", () => {
         activeChatSession: {
           id: "hecate-session",
           title: "Hecate",
-          runtime_kind: "agent",
+          execution_mode: "hecate_task",
           workspace: "/tmp",
           status: "completed",
         } as any,
