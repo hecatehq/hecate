@@ -17,12 +17,13 @@ ui/src/
     chats/                ChatView
     transcript/           reusable Chats transcript rendering pieces
     overview/             ConnectYourClient, ObservabilityView
-    costs/                CostsView
-    settings/             SettingsView, PricebookTab
-    providers/            ProvidersView
+    connections/          ConnectionsPanel
+    providers/            detailed provider catalog/editor
+    settings/             RetentionSettingsView and non-connection configuration
+    usage/                UsageView
     shared/               primitives, pickers, overlays; ui.tsx is a compatibility barrel
-  lib/                    api.ts (incl. streamTaskRun SSE), markdown.ts, runtime-utils.ts
-  types/runtime.ts        TypeScript mirrors of the Go API types — keep in lockstep
+  lib/                    api.ts (incl. streamTaskRun SSE), markdown.ts, provider/readiness helpers
+  types/                  TypeScript mirrors of Go API types — keep in lockstep
   styles.css              design tokens, .dropdown-menu rule, animations
 ```
 

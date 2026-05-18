@@ -38,6 +38,17 @@ Prefer restrained layout, strong type hierarchy, clear sectioning without over-c
 
 Avoid card mosaics, oversized hero copy, decorative gradients behind routine product UI, multiple accent colors fighting for attention, visual noise that hides runtime state.
 
+## Consistency guardrails
+
+Before adding or changing UI, find the closest existing precedent and reuse it unless the product behavior truly differs. Hecate's UX should feel like one operator console, not a set of unrelated experiments.
+
+- Reuse shared primitives for recurring patterns: `DropdownPicker`, `BrandAvatar`, `CopyableID`, `TranscriptActivityTimeline`, badges, inline errors, and modal/slide-over chrome.
+- Keep button height, dropdown rhythm, icon treatment, metadata labels, empty-state spacing, and hover/focus affordances consistent across Chats, Tasks, Connections, Observability, and Usage.
+- Long machine identifiers belong behind compact labels with tooltip + copy affordances. Prefer full context in Details or Task Detail over leaking raw ids into list rows.
+- If a screen already has an empty, loading, repair, or onboarding precedent, extend that component/copy path instead of adding a second parallel state.
+- When making Hecate Chat and External Agent behavior more similar, preserve their real runtime differences: Hecate owns task-backed tools; external agents own ACP-native sessions.
+- Add role/name-based tests for shared controls and view-level tests for every state that previously regressed. E2E should cover cross-view navigation, onboarding, and setup/repair flows when a bug came from app composition.
+
 ## UX priorities
 
 Every screen should answer the following quickly:
