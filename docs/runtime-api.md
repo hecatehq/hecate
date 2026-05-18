@@ -887,7 +887,7 @@ Status codes:
 ### `PUT /hecate/v1/agent-adapters/{id}/credentials`
 
 Stores a local adapter credential. Hecate encrypts the value with the
-configured control-plane secret key and injects it only into the matching
+startup-resolved control-plane key and injects it only into the matching
 adapter subprocess. The first guided setup uses this for Claude Code
 subscription auth: save the token from `claude setup-token` as
 `CLAUDE_CODE_OAUTH_TOKEN`, then run the adapter probe again.

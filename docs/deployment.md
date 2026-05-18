@@ -10,6 +10,7 @@ Hecate defaults to `127.0.0.1:8765` and enforces same-origin for browser request
 - [Binary install](#binary-install)
 - [Desktop app](#desktop-app)
 - [Resetting state](#resetting-state)
+- [Bootstrap key and backups](#bootstrap-key-and-backups)
 - [Storage backends](#storage-backends)
 - [External-agent startup knobs](#external-agent-startup-knobs)
 - [Rate limiting](#rate-limiting)
@@ -138,6 +139,28 @@ just reset-docker
 ```
 
 For local (non-Docker) development resets, see [`development.md`](development.md#reset-state).
+
+## Bootstrap key and backups
+
+Encrypted local credentials depend on two pieces of state:
+
+- the settings database, usually `hecate.db` when the relevant storage backend
+  is `sqlite`;
+- the bootstrap control-plane key, loaded from
+  `GATEWAY_CONTROL_PLANE_SECRET_KEY`, `GATEWAY_BOOTSTRAP_FILE`, or
+  `hecate.bootstrap.json` in the data directory.
+
+Back up and restore those pieces together when you want provider keys, external
+agent credentials, or encrypted MCP literals to remain usable. Restoring the
+database without the matching bootstrap key leaves encrypted secrets
+undecryptable; restore the old key or re-enter the credentials from the
+operator UI.
+
+Docker's default `/data` volume stores both `/data/hecate.db` and the default
+bootstrap file, so backing up the volume is enough for the default path. If you
+override `GATEWAY_CONTROL_PLANE_SECRET_KEY`, the secret lives in your shell,
+supervisor, container secret, or vault layer instead; back up that source with
+the same care as the database.
 
 ## Storage backends
 
