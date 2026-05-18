@@ -58,6 +58,7 @@ export type ChatComposerProps = {
   // Composer gating.
   composerVisible: boolean;
   composerRepair: ChatSetupRepairState | null;
+  suppressChatError?: boolean;
   messageControlsVisible: boolean;
   showClaudeCodeEmptyPreflight: boolean;
   sendDisabled: boolean;
@@ -118,7 +119,7 @@ export function ChatComposer(props: ChatComposerProps) {
   // Pull the slice fields the composer reads. Destructured to keep the
   // rest of the component readable.
   const message = runtime.state.message;
-  const chatError = chat.state.chatError;
+  const rawChatError = chat.state.chatError;
   const chatErrorAction = chat.state.chatErrorAction;
   const chatErrorCode = chat.state.chatErrorCode;
   const chatErrorRequestID = chat.state.chatErrorRequestID;
@@ -140,6 +141,7 @@ export function ChatComposer(props: ChatComposerProps) {
     textareaRef,
     composerVisible,
     composerRepair,
+    suppressChatError = false,
     messageControlsVisible,
     showClaudeCodeEmptyPreflight,
     sendDisabled,
@@ -170,6 +172,7 @@ export function ChatComposer(props: ChatComposerProps) {
     onOpenTask,
     onOpenTrace,
   } = props;
+  const chatError = suppressChatError ? "" : rawChatError;
 
   const isMac = typeof navigator !== "undefined" && /mac/i.test(navigator.platform);
   const modKey = isMac ? "⌘" : "Ctrl";

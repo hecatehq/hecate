@@ -3751,6 +3751,99 @@ describe("ChatView error display", () => {
     expect(screen.getByText(/Provider returned 500/)).toBeTruthy();
   });
 
+  it("hides model-required errors when the empty repair state already explains the fix", async () => {
+    const { state, actions } = setup({
+      chatTarget: "agent",
+      settingsConfig: { backend: "memory", providers: [], policy_rules: [], events: [] },
+      providerScopedModels: [],
+      agentAdapters: [
+        {
+          id: "codex",
+          name: "Codex",
+          kind: "acp",
+          command: "codex-acp",
+          available: true,
+          status: "available",
+          cost_mode: "external",
+        },
+      ],
+      chatError: "Choose a model before starting this chat.",
+      chatErrorCode: "chat.model_required",
+      chatErrorStatus: 400,
+    });
+    render(withRuntimeConsole(<ChatView />, { state, actions }));
+
+    expect(await screen.findByText("No model provider configured")).toBeTruthy();
+    expect(screen.getByRole("button", { name: /Open Connections/i })).toBeTruthy();
+    expect(screen.queryByText("Model required")).toBeNull();
+    expect(screen.queryByText("400 · chat.model_required")).toBeNull();
+    expect(screen.queryByText("Choose a model before starting this chat.")).toBeNull();
+  });
+
+  it("keeps model-required errors visible while pending tool calls hide the empty repair state", () => {
+    const { state, actions } = setup({
+      chatTarget: "agent",
+      settingsConfig: { backend: "memory", providers: [], policy_rules: [], events: [] },
+      providerScopedModels: [],
+      agentAdapters: [
+        {
+          id: "codex",
+          name: "Codex",
+          kind: "acp",
+          command: "codex-acp",
+          available: true,
+          status: "available",
+          cost_mode: "external",
+        },
+      ],
+      pendingToolCalls: [{ id: "call_1", name: "lookup", arguments: "{}", result: "" }],
+      chatError: "Choose a model before starting this chat.",
+      chatErrorCode: "chat.model_required",
+      chatErrorStatus: 400,
+    });
+    render(withRuntimeConsole(<ChatView />, { state, actions }));
+
+    expect(screen.getByText("Model required")).toBeTruthy();
+    expect(screen.getByText("400 · chat.model_required")).toBeTruthy();
+    expect(screen.getByText("Choose a model before starting this chat.")).toBeTruthy();
+    expect(screen.queryByText("No model provider configured")).toBeNull();
+  });
+
+  it("keeps model-required errors visible after the chat already has transcript context", () => {
+    const { state, actions } = setup({
+      chatTarget: "agent",
+      settingsConfig: { backend: "memory", providers: [], policy_rules: [], events: [] },
+      providerScopedModels: [],
+      activeChatSessionID: "chat_1",
+      activeChatSession: {
+        id: "chat_1",
+        agent_id: "hecate",
+        execution_mode: "hecate_task",
+        title: "Repo work",
+        provider: "ollama",
+        model: "ministral-3:latest",
+        workspace: "/tmp/hecate",
+        status: "completed",
+        messages: [
+          {
+            id: "m1",
+            role: "user",
+            content: "show status",
+            created_at: "2026-05-03T10:00:00Z",
+          },
+        ],
+      } as any,
+      chatError: "Choose a model before starting this chat.",
+      chatErrorCode: "chat.model_required",
+      chatErrorStatus: 400,
+    });
+    render(withRuntimeConsole(<ChatView />, { state, actions }));
+
+    expect(screen.getByText("Model required")).toBeTruthy();
+    expect(screen.getByText("400 · chat.model_required")).toBeTruthy();
+    expect(screen.getByText("Choose a model before starting this chat.")).toBeTruthy();
+  });
+
   it("renders operator guidance for stable gateway error codes", () => {
     const openTrace = vi.fn();
     const { state, actions } = setup({
