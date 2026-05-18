@@ -371,7 +371,8 @@ export async function mockGatewayAPIs(page: Page, opts: GatewayMockOptions = {})
       if (method === "POST") {
         const body = JSON.parse(request.postData() || "{}");
         const isExternalAgentID = Boolean(body.agent_id && body.agent_id !== "hecate");
-        const runtimeKind = body.execution_mode || (isExternalAgentID ? "external_agent" : "hecate_task");
+        const runtimeKind =
+          body.execution_mode || (isExternalAgentID ? "external_agent" : "hecate_task");
         const adapter = MOCK_AGENT_ADAPTERS.find((item) => item.id === body.agent_id);
         const isExternal = runtimeKind === "external_agent";
         const session = {
@@ -471,7 +472,8 @@ export async function mockGatewayAPIs(page: Page, opts: GatewayMockOptions = {})
       const body = JSON.parse(request.postData() || "{}");
       const content = String(body.content || "");
       const runtimeKind =
-        body.execution_mode || (session.agent_id && session.agent_id !== "hecate" ? "external_agent" : "hecate_task");
+        body.execution_mode ||
+        (session.agent_id && session.agent_id !== "hecate" ? "external_agent" : "hecate_task");
       session.messages.push(
         {
           id: `agent-msg-user-${chatSequence}`,
@@ -492,7 +494,8 @@ export async function mockGatewayAPIs(page: Page, opts: GatewayMockOptions = {})
           provider: body.provider || session.provider,
           model: body.model || session.model,
           workspace: session.workspace,
-          run_id: runtimeKind === "direct_model" ? `model_run_${chatSequence}` : `run_${chatSequence}`,
+          run_id:
+            runtimeKind === "direct_model" ? `model_run_${chatSequence}` : `run_${chatSequence}`,
           request_id: `req_${chatSequence}`,
           trace_id: `trace_${chatSequence}`,
           cost_mode: runtimeKind === "external_agent" ? "external" : "hecate",

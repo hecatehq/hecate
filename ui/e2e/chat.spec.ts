@@ -1175,7 +1175,11 @@ test("Hecate Chat can move tools on, tools off, then tools on again in one trans
   await expect(page.getByLabel("Tools off segment using qwen2.5")).toHaveCount(1);
 
   expect(createSessionCount).toBe(1);
-  expect(submittedTurns.map((turn) => turn.execution_mode)).toEqual(["hecate_task", "direct_model", "hecate_task"]);
+  expect(submittedTurns.map((turn) => turn.execution_mode)).toEqual([
+    "hecate_task",
+    "direct_model",
+    "hecate_task",
+  ]);
   expect(submittedTurns.map((turn) => turn.content)).toEqual([
     "first with tools",
     "direct model turn",

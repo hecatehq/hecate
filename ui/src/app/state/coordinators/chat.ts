@@ -369,7 +369,8 @@ export function useChatActions(params: UseChatActionsParams): ChatActionsReturn 
     const content = (queued?.content ?? message).trim();
     if (!content) return;
 
-    const turnExecutionMode = queued?.execution_mode ?? chatTargetToExecutionMode(params.chatTarget);
+    const turnExecutionMode =
+      queued?.execution_mode ?? chatTargetToExecutionMode(params.chatTarget);
     if (!queued && activeChatSessionID && chatSessionIsBusy(activeChatSession)) {
       queueChatMessage(content, turnExecutionMode, activeChatSessionID);
       return;
