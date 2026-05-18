@@ -4,6 +4,7 @@ import (
 	"bytes"
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"net/http"
 	"net/http/httptest"
@@ -169,7 +170,7 @@ func TestRunAuthSetupReady(t *testing.T) {
 		case "/healthz":
 			_, _ = w.Write([]byte(`{"ok":true}`))
 		case "/v1/models":
-			_, _ = w.Write([]byte(`{"object":"list","data":[{"id":"llama3.1:8b"}]}`))
+			_, _ = w.Write([]byte(`{"object":"list","data":[{"id":"llama3.1:8b","metadata":{"readiness":{"ready":true,"routing_ready":true}}}]}`))
 		default:
 			t.Fatalf("unexpected request %s %s", r.Method, r.URL.Path)
 		}
@@ -183,6 +184,35 @@ func TestRunAuthSetupReady(t *testing.T) {
 	}
 	output := stdout.String()
 	if !strings.Contains(output, "ACP setup is ready") {
+		t.Fatalf("output = %q", output)
+	}
+}
+
+func TestRunAuthSetupRejectsListedUnreadyModels(t *testing.T) {
+	t.Parallel()
+
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("Content-Type", "application/json")
+		switch r.URL.Path {
+		case "/healthz":
+			_, _ = w.Write([]byte(`{"ok":true}`))
+		case "/v1/models":
+			_, _ = w.Write([]byte(`{"object":"list","data":[{"id":"llama3.1:8b","metadata":{"readiness":{"ready":false,"routing_ready":false}}}]}`))
+		case "/hecate/v1/providers/status":
+			_, _ = w.Write([]byte(`{"object":"provider_status","data":[{"name":"ollama","status":"blocked","readiness":{"message":"Provider is disabled."}}]}`))
+		default:
+			t.Fatalf("unexpected request %s %s", r.Method, r.URL.Path)
+		}
+	}))
+	defer srv.Close()
+
+	var stdout bytes.Buffer
+	err := runAuthSetup(context.Background(), &stdout, bridgeConfig{GatewayURL: srv.URL})
+	if !errors.Is(err, errAuthSetupFailed) {
+		t.Fatalf("runAuthSetup() error = %v, want errAuthSetupFailed", err)
+	}
+	output := stdout.String()
+	if !strings.Contains(output, "1 listed, none ready for routing") || !strings.Contains(output, "Provider is disabled.") {
 		t.Fatalf("output = %q", output)
 	}
 }
@@ -207,8 +237,8 @@ func TestRunAuthSetupExplainsMissingModels(t *testing.T) {
 
 	var stdout bytes.Buffer
 	err := runAuthSetup(context.Background(), &stdout, bridgeConfig{GatewayURL: srv.URL})
-	if err == nil {
-		t.Fatal("runAuthSetup() error = nil, want missing models error")
+	if !errors.Is(err, errAuthSetupFailed) {
+		t.Fatalf("runAuthSetup() error = %v, want errAuthSetupFailed", err)
 	}
 	output := stdout.String()
 	if !strings.Contains(output, "Models: none available") || !strings.Contains(output, "Start Ollama and load a model.") {

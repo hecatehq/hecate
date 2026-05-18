@@ -5,6 +5,7 @@ import (
 	"bytes"
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"io"
 	"net/http"
@@ -44,6 +45,8 @@ const (
 	maxMessageBytes   = 4 << 20
 )
 
+var errAuthSetupFailed = errors.New("auth setup failed")
+
 type bridgeConfig struct {
 	GatewayURL    string
 	AgentName     string
@@ -74,18 +77,23 @@ func main() {
 			fmt.Println(version.Version)
 			return
 		case "auth":
-			if len(os.Args) > 2 && os.Args[2] == "setup" {
+			if len(os.Args) == 3 && os.Args[2] == "setup" {
 				cfg, err := configFromEnv()
 				if err != nil {
 					fmt.Fprintf(os.Stderr, "hecate-acp: %v\n", err)
 					os.Exit(1)
 				}
 				if err := runAuthSetup(context.Background(), os.Stdout, cfg); err != nil {
+					if errors.Is(err, errAuthSetupFailed) {
+						os.Exit(1)
+					}
 					fmt.Fprintf(os.Stderr, "hecate-acp: %v\n", err)
 					os.Exit(1)
 				}
 				return
 			}
+			fmt.Fprintln(os.Stderr, "usage: hecate-acp auth setup")
+			os.Exit(1)
 		}
 	}
 	cfg, err := configFromEnv()
@@ -311,22 +319,26 @@ func runAuthSetup(ctx context.Context, stdout io.Writer, cfg bridgeConfig) error
 	if err := client.Health(ctx); err != nil {
 		fmt.Fprintf(stdout, "Hecate gateway: not reachable at %s\n", cfg.GatewayURL)
 		fmt.Fprintln(stdout, "Start Hecate first, or set HECATE_GATEWAY_URL to the running gateway URL.")
-		return err
+		return errAuthSetupFailed
 	}
 	fmt.Fprintf(stdout, "Hecate gateway: reachable at %s\n", cfg.GatewayURL)
 
-	models, err := client.ListModels(ctx)
+	models, err := client.ListModelDescriptions(ctx)
 	if err != nil {
 		fmt.Fprintln(stdout, "Models: could not list models from the gateway.")
 		return err
 	}
-	if len(models) > 0 {
-		fmt.Fprintf(stdout, "Models: %d available\n", len(models))
+	if ready := readyModelCount(models); ready > 0 {
+		fmt.Fprintf(stdout, "Models: %d ready\n", ready)
 		fmt.Fprintln(stdout, "ACP setup is ready.")
 		return nil
 	}
 
-	fmt.Fprintln(stdout, "Models: none available")
+	if len(models) == 0 {
+		fmt.Fprintln(stdout, "Models: none available")
+	} else {
+		fmt.Fprintf(stdout, "Models: %d listed, none ready for routing\n", len(models))
+	}
 	statuses, statusErr := client.ProviderStatuses(ctx)
 	if statusErr == nil && len(statuses) > 0 {
 		fmt.Fprintln(stdout, "Provider readiness:")
@@ -336,7 +348,17 @@ func runAuthSetup(ctx context.Context, stdout io.Writer, cfg bridgeConfig) error
 		}
 	}
 	fmt.Fprintln(stdout, "Open the Hecate operator console and configure at least one routable provider/model.")
-	return fmt.Errorf("no Hecate models are available")
+	return errAuthSetupFailed
+}
+
+func readyModelCount(models []modelDescription) int {
+	count := 0
+	for _, model := range models {
+		if model.Metadata.Readiness.Ready && model.Metadata.Readiness.RoutingReady {
+			count++
+		}
+	}
+	return count
 }
 
 func bridgeTracer() oteltrace.Tracer {
@@ -490,6 +512,30 @@ func newGatewayHTTPClient(cfg bridgeConfig) (*gatewayHTTPClient, error) {
 }
 
 func (c *gatewayHTTPClient) ListModels(ctx context.Context) ([]string, error) {
+	descriptions, err := c.ListModelDescriptions(ctx)
+	if err != nil {
+		return nil, err
+	}
+	models := make([]string, 0, len(descriptions))
+	for _, item := range descriptions {
+		if strings.TrimSpace(item.ID) != "" {
+			models = append(models, item.ID)
+		}
+	}
+	return models, nil
+}
+
+type modelDescription struct {
+	ID       string `json:"id"`
+	Metadata struct {
+		Readiness struct {
+			Ready        bool `json:"ready"`
+			RoutingReady bool `json:"routing_ready"`
+		} `json:"readiness"`
+	} `json:"metadata"`
+}
+
+func (c *gatewayHTTPClient) ListModelDescriptions(ctx context.Context) ([]modelDescription, error) {
 	ctx, span := startGatewaySpan(ctx, http.MethodGet, "/v1/models")
 	defer span.End()
 	req, err := http.NewRequestWithContext(ctx, http.MethodGet, c.baseURL+"/v1/models", nil)
@@ -512,20 +558,12 @@ func (c *gatewayHTTPClient) ListModels(ctx context.Context) ([]string, error) {
 		return nil, err
 	}
 	var payload struct {
-		Data []struct {
-			ID string `json:"id"`
-		} `json:"data"`
+		Data []modelDescription `json:"data"`
 	}
 	if err := json.NewDecoder(resp.Body).Decode(&payload); err != nil {
 		return nil, err
 	}
-	models := make([]string, 0, len(payload.Data))
-	for _, item := range payload.Data {
-		if strings.TrimSpace(item.ID) != "" {
-			models = append(models, item.ID)
-		}
-	}
-	return models, nil
+	return payload.Data, nil
 }
 
 func (c *gatewayHTTPClient) Health(ctx context.Context) error {
