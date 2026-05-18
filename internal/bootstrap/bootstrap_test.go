@@ -1,6 +1,8 @@
 package bootstrap
 
 import (
+	"bytes"
+	"encoding/base64"
 	"encoding/json"
 	"os"
 	"path/filepath"
@@ -69,7 +71,7 @@ func TestResolveEnvOverridesFile(t *testing.T) {
 		t.Fatalf("seed Resolve: %v", err)
 	}
 
-	const overrideSecret = "abcdef0123456789abcdef0123456789abcdef0123456789ab=="
+	overrideSecret := testBootstrapKey(0xab)
 	b, err := Resolve(path, overrideSecret)
 	if err != nil {
 		t.Fatalf("Resolve with env override: %v", err)
@@ -115,4 +117,43 @@ func TestResolveRejectsCorruptFile(t *testing.T) {
 	if _, err := Resolve(path, ""); err == nil {
 		t.Error("expected error on corrupt JSON, got nil")
 	}
+}
+
+func TestResolveRejectsInvalidEnvSecret(t *testing.T) {
+	dir := t.TempDir()
+	path := filepath.Join(dir, "hecate.bootstrap.json")
+
+	if _, err := Resolve(path, "not-base64"); err == nil {
+		t.Fatal("Resolve() error = nil, want invalid env secret error")
+	}
+}
+
+func TestResolveRepairsLooseExistingFilePermissions(t *testing.T) {
+	dir := t.TempDir()
+	path := filepath.Join(dir, "hecate.bootstrap.json")
+	b := Bootstrap{
+		ControlPlaneSecretKey: testBootstrapKey(0xef),
+	}
+	raw, err := json.Marshal(b)
+	if err != nil {
+		t.Fatalf("marshal fixture: %v", err)
+	}
+	if err := os.WriteFile(path, raw, 0o644); err != nil {
+		t.Fatalf("write fixture: %v", err)
+	}
+
+	if _, err := Resolve(path, ""); err != nil {
+		t.Fatalf("Resolve: %v", err)
+	}
+	info, err := os.Stat(path)
+	if err != nil {
+		t.Fatalf("stat: %v", err)
+	}
+	if info.Mode().Perm() != 0o600 {
+		t.Fatalf("file mode = %o, want 0600", info.Mode().Perm())
+	}
+}
+
+func testBootstrapKey(fill byte) string {
+	return base64.StdEncoding.EncodeToString(bytes.Repeat([]byte{fill}, 32))
 }
