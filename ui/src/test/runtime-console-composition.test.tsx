@@ -172,6 +172,49 @@ describe("useRuntimeConsole", () => {
     expect(result.current.state.chatTarget).toBe("model");
   });
 
+  it("keeps a newly created tools-off Hecate chat in direct model mode", async () => {
+    window.localStorage.setItem("hecate.chatTarget", "model");
+    window.localStorage.setItem("hecate.model", "gpt-4o-mini");
+    let createBody: any = null;
+    fetchMock.mockImplementation(
+      defaultBackendMock({
+        "/hecate/v1/chat/sessions": (init) => {
+          if (init?.method === "POST") {
+            createBody = JSON.parse(String(init.body ?? "{}"));
+            return jsonResponse({
+              object: "chat_session",
+              data: {
+                id: "chat_direct",
+                title: "Hecate Chat",
+                agent_id: "hecate",
+                provider: "",
+                model: "gpt-4o-mini",
+                status: "idle",
+                messages: [],
+              },
+            });
+          }
+          return jsonResponse({ object: "chat_sessions", data: [] });
+        },
+      }),
+    );
+
+    const { result } = renderRuntimeConsoleHook();
+    await waitFor(() => expect(result.current.state.loading).toBe(false));
+
+    await act(async () => {
+      await result.current.actions.createChatSession();
+    });
+
+    expect(createBody).toMatchObject({
+      agent_id: "hecate",
+      model: "gpt-4o-mini",
+    });
+    expect(createBody).not.toHaveProperty("workspace");
+    expect(result.current.state.activeChatSessionID).toBe("chat_direct");
+    expect(result.current.state.chatTarget).toBe("model");
+  });
+
   it("creates an external-agent session from the selected agent and workspace", async () => {
     window.localStorage.setItem("hecate.chatTarget", "external_agent");
     window.localStorage.setItem("hecate.agentAdapterID", "claude_code");
@@ -2942,7 +2985,7 @@ describe("useRuntimeConsole", () => {
                 {
                   id: "g1",
                   scope: "session",
-                  agent_id: "codex",
+                  adapter_id: "codex",
                   tool_kind: "fs",
                   decision: "approve",
                   granted_by: "operator",
@@ -2951,7 +2994,7 @@ describe("useRuntimeConsole", () => {
                 {
                   id: "g2",
                   scope: "workspace_tool",
-                  agent_id: "codex",
+                  adapter_id: "codex",
                   tool_kind: "exec",
                   decision: "approve",
                   granted_by: "operator",

@@ -2452,7 +2452,7 @@ describe("ChatView chats sidebar", () => {
         {
           id: "a1",
           title: "Codex refactor",
-          agent_id: "hecate",
+          agent_id: "codex",
           status: "completed",
           message_count: 4,
           updated_at: daysAgo(0),
@@ -3254,7 +3254,7 @@ describe("ChatView external-agent target", () => {
         activeChatSession: {
           id: "a1",
           title: "Review files",
-          agent_id: "hecate",
+          agent_id: "codex",
           workspace: "/tmp/hecate",
           status: "completed",
           messages: [
@@ -4082,7 +4082,7 @@ describe("ChatView agent approvals", () => {
           {
             approval_id: "ap-external",
             session_id: sessionID,
-            agent_id: "codex",
+            adapter_id: "codex",
             tool_kind: "fs",
             tool_name: "write_file",
             created_at: "2026-04-21T10:00:00Z",

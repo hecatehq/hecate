@@ -62,9 +62,12 @@ func (h *Handler) HandleCreateChatSession(w http.ResponseWriter, r *http.Request
 			return
 		}
 	} else if workspace != "" {
-		if resolved, err := agentadapters.ValidateWorkspace(workspace); err == nil {
-			workspace = resolved
+		resolved, err := agentadapters.ValidateWorkspace(workspace)
+		if err != nil {
+			WriteError(w, http.StatusBadRequest, errCodeInvalidRequest, err.Error())
+			return
 		}
+		workspace = resolved
 	}
 	workspaceBranch := workspaceGitBranch(workspace)
 	title := strings.TrimSpace(req.Title)

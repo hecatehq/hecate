@@ -62,7 +62,7 @@ export function chatTargetToExecutionMode(target: ChatTarget): ChatExecutionMode
   }
 }
 
-export function executionModeToChatTarget(mode: string): ChatTarget {
+export function executionModeToChatTarget(mode: string): ChatTarget | "" {
   switch (mode) {
     case "direct_model":
       return "model";
@@ -71,7 +71,7 @@ export function executionModeToChatTarget(mode: string): ChatTarget {
     case "external_agent":
       return "external_agent";
     default:
-      return "agent";
+      return "";
   }
 }
 

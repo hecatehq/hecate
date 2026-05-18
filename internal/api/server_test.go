@@ -1681,9 +1681,26 @@ func TestAgentChatCreateRejectsInvalidWorkspace(t *testing.T) {
 	handler := NewServer(logger, NewHandler(config.Config{}, logger, nil, nil, nil, nil))
 	client := newAPITestClient(t, handler)
 
-	rec := client.mustRequestStatus(http.StatusBadRequest, http.MethodPost, "/hecate/v1/chat/sessions", `{"agent_id":"codex","workspace":"/path/that/does/not/exist"}`)
-	if !strings.Contains(rec.Body.String(), "not accessible") {
-		t.Fatalf("body = %s, want not accessible error", rec.Body.String())
+	tests := []struct {
+		name string
+		body string
+	}{
+		{
+			name: "external agent",
+			body: `{"agent_id":"codex","workspace":"/path/that/does/not/exist"}`,
+		},
+		{
+			name: "hecate chat",
+			body: `{"agent_id":"hecate","provider":"openai","model":"gpt-4o-mini","workspace":"/path/that/does/not/exist"}`,
+		},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			rec := client.mustRequestStatus(http.StatusBadRequest, http.MethodPost, "/hecate/v1/chat/sessions", tt.body)
+			if !strings.Contains(rec.Body.String(), "not accessible") {
+				t.Fatalf("body = %s, want not accessible error", rec.Body.String())
+			}
+		})
 	}
 }
 

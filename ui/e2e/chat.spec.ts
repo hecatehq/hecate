@@ -1821,7 +1821,7 @@ test("agent approval banner: review, allow, banner clears", async ({ page }) => 
           {
             id: "ap-e2e-1",
             session_id: "a-e2e-1",
-            agent_id: "codex",
+            adapter_id: "codex",
             tool_kind: "fs",
             tool_name: "write_file",
             status: "pending",
@@ -1844,7 +1844,7 @@ test("agent approval banner: review, allow, banner clears", async ({ page }) => 
         data: {
           id: "ap-e2e-1",
           session_id: "a-e2e-1",
-          agent_id: "codex",
+          adapter_id: "codex",
           tool_kind: "fs",
           tool_name: "write_file",
           status: "pending",
@@ -1869,7 +1869,7 @@ test("agent approval banner: review, allow, banner clears", async ({ page }) => 
         data: {
           id: "ap-e2e-1",
           session_id: "a-e2e-1",
-          agent_id: "codex",
+          adapter_id: "codex",
           tool_kind: "fs",
           status: "resolved",
           acp_options: [],
@@ -2117,7 +2117,7 @@ async function openClaudeExternalAgent(page: Page, fixture: ClaudeAdapterFixture
                 ? { ...adapter, auth_status: "ok", auth_error: undefined }
                 : adapter,
             health: {
-              agent_id: "claude_code",
+              adapter_id: "claude_code",
               status,
               stage:
                 status === "ready"
@@ -2354,7 +2354,7 @@ test("Claude Code valid token save clears onboarding and enables chat", async ({
       body: JSON.stringify({
         object: "agent_adapter_credential",
         data: {
-          agent_id: "claude_code",
+          adapter_id: "claude_code",
           name: "CLAUDE_CODE_OAUTH_TOKEN",
           configured: true,
           preview: "sk-v...7890",
@@ -2390,7 +2390,7 @@ test("Claude Code valid token save clears onboarding and enables chat", async ({
           data: {
             adapter,
             health: {
-              agent_id: "claude_code",
+              adapter_id: "claude_code",
               status: "ready",
               stage: "ready",
               path: "/usr/local/bin/claude-agent-acp",

@@ -683,6 +683,11 @@ export function useChatActions(params: UseChatActionsParams): ChatActionsReturn 
           : {}),
       });
       setActiveChatSessionID(created.data.id);
+      setChatTargetBySessionID((current) => {
+        const next = new Map(current);
+        next.set(created.data.id, defaultChatTarget);
+        return next;
+      });
       applyChatSession(created.data);
     } catch (error) {
       setChatErrorState(error, "failed to create Hecate chat");
