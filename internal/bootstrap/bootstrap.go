@@ -13,7 +13,6 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
-	"runtime"
 	"strings"
 )
 
@@ -111,14 +110,10 @@ func secureExistingFile(path string) error {
 	if err != nil {
 		return err
 	}
-	if !modeExposesSharedPermissions(info.Mode().Perm()) {
+	if !bootstrapFileNeedsModeRepair(info.Mode().Perm()) {
 		return nil
 	}
 	return chmodBootstrapFile(path)
-}
-
-func modeExposesSharedPermissions(mode os.FileMode) bool {
-	return mode&0o077 != 0
 }
 
 func replaceBootstrapFile(path string, data []byte) error {
@@ -154,52 +149,6 @@ func replaceBootstrapFile(path string, data []byte) error {
 	}
 	keepTemp = true
 	return chmodBootstrapFile(path)
-}
-
-func replaceFile(tmpPath, path string) error {
-	renameErr := os.Rename(tmpPath, path)
-	if renameErr == nil {
-		return nil
-	}
-	if runtime.GOOS != "windows" {
-		return renameErr
-	}
-
-	if _, err := os.Stat(path); os.IsNotExist(err) {
-		return renameErr
-	} else if err != nil {
-		return err
-	}
-
-	backup, err := os.CreateTemp(filepath.Dir(path), "."+filepath.Base(path)+".old-*")
-	if err != nil {
-		return err
-	}
-	backupPath := backup.Name()
-	if err := backup.Close(); err != nil {
-		_ = os.Remove(backupPath)
-		return err
-	}
-	if err := os.Remove(backupPath); err != nil {
-		return err
-	}
-	if err := os.Rename(path, backupPath); err != nil {
-		return err
-	}
-	restoreBackup := true
-	defer func() {
-		if restoreBackup {
-			_ = os.Rename(backupPath, path)
-		} else {
-			_ = os.Remove(backupPath)
-		}
-	}()
-
-	if err := os.Rename(tmpPath, path); err != nil {
-		return fmt.Errorf("replace existing bootstrap file after backup: %w", err)
-	}
-	restoreBackup = false
-	return nil
 }
 
 func chmodBootstrapFile(path string) error {

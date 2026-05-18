@@ -97,9 +97,8 @@ fn build_diagnostics_report(app: &tauri::AppHandle) -> String {
 fn startup_failure_hint(message: &str) -> Option<&'static str> {
     let lower = message.to_ascii_lowercase();
     if lower.contains("bootstrap key setup failed")
-        || lower.contains("bootstrap secret init failed")
         || lower.contains("secure bootstrap file")
-        || lower.contains("persist bootstrap file")
+        || lower.contains("set bootstrap file permissions to 0600")
         || lower.contains("control-plane secret key")
     {
         return Some(
@@ -425,5 +424,14 @@ mod tests {
 
         assert!(hint.contains("hecate.bootstrap.json"));
         assert!(hint.contains("private"));
+    }
+
+    #[test]
+    fn test_startup_failure_hint_ignores_generic_persist_failures() {
+        let hint = startup_failure_hint(
+            "gateway exited before becoming healthy. Last gateway log line: bootstrap secret init failed error=\"persist bootstrap file: no space left on device\"",
+        );
+
+        assert_eq!(hint, None);
     }
 }
