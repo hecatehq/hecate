@@ -35,6 +35,7 @@ mkdirSync(OUT_DIR, { recursive: true });
 // enough that GitHub's README column doesn't have to downscale much.
 const VIEWPORT = { width: 1280, height: 800 };
 const THEME_KEY = "hecate.theme";
+const WORKSPACE_KEY = "hecate.workspace";
 
 async function clearAndNavigate(page: Page, path = "/") {
   await page.context().clearCookies();
@@ -57,9 +58,12 @@ async function snap(page: Page, name: string) {
 }
 
 async function openWorkspace(page: Page, id: "overview" | "runs" | "chats" | "connections" | "usage" | "settings") {
-  await page.evaluate((workspace) => {
-    window.localStorage.setItem("hecate.workspace.v2", workspace);
-  }, id);
+  await page.evaluate(
+    ({ key, workspace }) => {
+      window.localStorage.setItem(key, workspace);
+    },
+    { key: WORKSPACE_KEY, workspace: id },
+  );
   await page.reload();
   await page.waitForSelector(".hecate-activitybar", { timeout: 5_000 });
 }
@@ -1065,10 +1069,10 @@ async function main() {
   }));
   await routeLocalProviderDiscoveryDocsFixture(page);
   await clearAndNavigate(page);
-  await page.evaluate(() => {
-    window.localStorage.setItem("hecate.workspace.v2", "chats");
+  await page.evaluate((workspaceKey) => {
+    window.localStorage.setItem(workspaceKey, "chats");
     window.localStorage.setItem("hecate.chatTarget", "model");
-  });
+  }, WORKSPACE_KEY);
   await page.reload();
   await openWorkspace(page, "chats");
   await page.getByRole("button", { name: /New Hecate chat/i }).click();
@@ -1127,15 +1131,15 @@ async function main() {
   console.log("→ chat (Hecate Chat, tools on/off transcript)");
   await routeHecateChatDocsFixture(page);
   await clearAndNavigate(page);
-  await page.evaluate((sessionID) => {
-    window.localStorage.setItem("hecate.workspace.v2", "chats");
+  await page.evaluate(({ sessionID, workspaceKey }) => {
+    window.localStorage.setItem(workspaceKey, "chats");
     window.localStorage.setItem("hecate.chatTarget", "agent");
     window.localStorage.setItem("hecate.chatTargetBySessionID", JSON.stringify({ [sessionID]: "agent" }));
     window.localStorage.setItem("hecate.chatSessionID", sessionID);
     window.localStorage.setItem("hecate.providerFilter", "ollama");
     window.localStorage.setItem("hecate.model", "ministral-3:latest");
     window.localStorage.setItem("hecate.agentWorkspace", "/Users/alice/dev/hecate");
-  }, docsHecateChatSessionID);
+  }, { sessionID: docsHecateChatSessionID, workspaceKey: WORKSPACE_KEY });
   await page.reload();
   await page.waitForSelector(".hecate-activitybar", { timeout: 10_000 });
   await openWorkspace(page, "chats");
@@ -1248,14 +1252,14 @@ async function main() {
   await snap(page, "connections-external-agents");
 
   console.log("→ chat / pending agent approval");
-  await page.evaluate((sessionID) => {
-    window.localStorage.setItem("hecate.workspace.v2", "chats");
+  await page.evaluate(({ sessionID, workspaceKey }) => {
+    window.localStorage.setItem(workspaceKey, "chats");
     window.localStorage.setItem("hecate.chatTarget", "external_agent");
     window.localStorage.setItem("hecate.chatTargetBySessionID", JSON.stringify({ [sessionID]: "external_agent" }));
     window.localStorage.setItem("hecate.agentAdapterID", "codex");
     window.localStorage.setItem("hecate.agentWorkspace", "/Users/alice/dev/hecate");
     window.localStorage.setItem("hecate.chatSessionID", sessionID);
-  }, docsChatSessionID);
+  }, { sessionID: docsChatSessionID, workspaceKey: WORKSPACE_KEY });
   await page.reload();
   await page.waitForSelector("[data-testid='agent-approval-banner']", { timeout: 5_000 });
   await page.waitForTimeout(700);

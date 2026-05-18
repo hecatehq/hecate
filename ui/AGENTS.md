@@ -17,9 +17,9 @@ ui/src/
     chats/                ChatView
     transcript/           reusable Chats transcript rendering pieces
     overview/             ConnectYourClient, ObservabilityView
-    connections/          ConnectionsPanel
-    providers/            detailed provider catalog/editor
-    settings/             RetentionSettingsView and non-connection configuration
+    connections/          ConnectionsPanel — providers, model capabilities, external agents
+    providers/            provider catalog/editor components used by Connections
+    settings/             SettingsView — local data cleanup / retention controls
     usage/                UsageView
     shared/               primitives, pickers, overlays; ui.tsx is a compatibility barrel
   lib/                    api.ts (incl. streamTaskRun SSE), markdown.ts, provider/readiness helpers

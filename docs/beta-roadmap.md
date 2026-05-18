@@ -26,7 +26,7 @@ is released in alpha tags only after it merges.
 | View          | Beta bar                                                                                                                                                                                                                                                                                           |
 | ------------- | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
 | Chats         | Hecate Chat, External Agent, and direct model chat have clear segment boundaries, queued prompts, busy state, task/trace/run links, approvals, markdown/code rendering, run activity grouping, changed-files review, model/tool capability state, stale-model repair, and refresh/resume accuracy. |
-| Providers     | Provider setup is self-explanatory: readiness cards, discovered/running/installed states, credential repair, duplicate endpoint handling, route blocking reasons, model discovery failures, local provider discovery, and optimistic edits/deletes where safe.                                     |
+| Connections   | Provider setup is self-explanatory: readiness cards, discovered/running/installed states, credential repair, duplicate endpoint handling, route blocking reasons, model discovery failures, local provider discovery, and optimistic edits/deletes where safe.                                     |
 | Tasks         | Task Detail is the canonical deep-debug view: clear run timeline, grouped advanced activity, approval cards, stdout/stderr/artifacts, retry/resume/cancel explanations, patch review, and chat-origin links.                                                                                       |
 | Observability | The UI answers "what happened?" without JSON archaeology: request history, route report, trace viewer, skipped providers, policy denial, usage, cache path, provider failure, and final outcome.                                                                                                   |
 | Settings      | Settings stays focused on retention and OTel/export knobs when needed. Provider readiness, model capability overrides/probes, and External Agent grants live in Connections.                                                                                                                       |
@@ -86,7 +86,7 @@ true:
   worker recovery, and shutdown.
 - Memory/SQLite persistence and retention boundaries are tested and documented.
 - OTel covers the important runtime decisions.
-- UI polish passes are complete for Chats, Providers, Tasks, Observability, and
+- UI polish passes are complete for Chats, Connections, Tasks, Observability, and
   Settings.
 - README, known limitations, runtime API docs, release docs, screenshots, and
   `docs-ai` guidance all describe the same product.

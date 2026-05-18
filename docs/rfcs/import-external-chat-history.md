@@ -328,8 +328,8 @@ lets the UI partition the list. Default is "all".
 
 ## UI surface
 
-One new entry point: **Settings → Chats → Import history**. Opens a
-modal:
+One new entry point: **Chats → Import history** from the chat list or
+empty-state actions. Opens a modal:
 
 1. Tool list with detected file counts ("`~/.claude/projects/`:
    142 sessions" / "`~/.codex/sessions/`: 38 sessions").

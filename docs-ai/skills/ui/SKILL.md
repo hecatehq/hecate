@@ -92,7 +92,7 @@ Organize the UI around operator jobs, not components:
 - Inspect providers and models.
 - Run and compare requests.
 - Inspect trace and runtime metadata.
-- Manage providers, retention, and policy-adjacent state.
+- Manage Connections, local cleanup, and policy-adjacent state.
 - Inspect usage events and reported cost where available.
 
 Views are task-shaped, not component-shaped. If a page mixes too many concerns, split it.
@@ -225,8 +225,8 @@ src/
     transcript/         reusable transcript pieces for Chats and Task Detail
     overview/           ConnectYourClient, ObservabilityView — request history + trace drilldown
     connections/        ConnectionsPanel — provider readiness, model capabilities, external-agent setup/grants
-    settings/           SettingsView — retention and non-connection configuration
-    providers/          ProvidersView — detailed provider catalog/editor
+    settings/           SettingsView — local data cleanup / retention controls
+    providers/          provider catalog/editor components used by Connections
     shared/             primitives, pickers, overlays; ui.ts is a compatibility barrel
     usage/              UsageView
   lib/
