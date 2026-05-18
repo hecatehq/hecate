@@ -264,6 +264,31 @@ func (e *AgentLoopExecutor) Execute(ctx context.Context, spec ExecutionSpec) (*E
 		costSpent = spec.ResumeCheckpoint.ThisRunCostMicrosUSD
 	}
 	turnCosts := make([]TurnCostRecord, 0, e.maxTurns)
+	recordRoute := func(resp *types.ChatResponse) {
+		if resp == nil {
+			return
+		}
+		if resp.Route.Provider != "" {
+			finalResult.Provider = resp.Route.Provider
+		}
+		if resp.Route.ProviderKind != "" {
+			finalResult.ProviderKind = resp.Route.ProviderKind
+		}
+		if resp.Route.Model != "" {
+			finalResult.Model = resp.Route.Model
+		} else if resp.Model != "" {
+			finalResult.Model = resp.Model
+		}
+	}
+	withRoute := func(res *ExecutionResult) *ExecutionResult {
+		if res == nil {
+			return nil
+		}
+		res.Provider = firstNonEmpty(res.Provider, finalResult.Provider)
+		res.ProviderKind = firstNonEmpty(res.ProviderKind, finalResult.ProviderKind)
+		res.Model = firstNonEmpty(res.Model, finalResult.Model)
+		return res
+	}
 
 	// Resume detection: if the conversation tail is an assistant
 	// message with tool_calls and no following tool messages, we're
@@ -281,7 +306,7 @@ func (e *AgentLoopExecutor) Execute(ctx context.Context, spec ExecutionSpec) (*E
 			finalResult.Artifacts = allArtifacts
 			finalResult.CostMicrosUSD = costSpent
 			finalResult.TurnCosts = turnCosts
-			return finalResult, nil
+			return withRoute(finalResult), nil
 		}
 
 		var assistantMsg types.Message
@@ -340,8 +365,9 @@ func (e *AgentLoopExecutor) Execute(ctx context.Context, spec ExecutionSpec) (*E
 					failed.CostMicrosUSD = costSpent
 					failed.TurnCosts = turnCosts
 				}
-				return failed, ferr
+				return withRoute(failed), ferr
 			}
+			recordRoute(r)
 			if r == nil || len(r.Choices) == 0 {
 				failed, ferr := e.failedFromError(spec, allSteps, allArtifacts, nextIndex, turnStartedAt,
 					fmt.Sprintf("LLM returned empty response on turn %d", turn))
@@ -349,7 +375,7 @@ func (e *AgentLoopExecutor) Execute(ctx context.Context, spec ExecutionSpec) (*E
 					failed.CostMicrosUSD = costSpent
 					failed.TurnCosts = turnCosts
 				}
-				return failed, ferr
+				return withRoute(failed), ferr
 			}
 			resp = r
 			// Accumulate the LLM cost for this turn. Even when the
@@ -410,7 +436,7 @@ func (e *AgentLoopExecutor) Execute(ctx context.Context, spec ExecutionSpec) (*E
 				finalResult.OtelStatusCode = "ok"
 				finalResult.CostMicrosUSD = costSpent
 				finalResult.TurnCosts = turnCosts
-				return finalResult, nil
+				return withRoute(finalResult), nil
 			}
 
 			// 4b. Approval gate. If any tool in this turn is gated,
@@ -430,7 +456,7 @@ func (e *AgentLoopExecutor) Execute(ctx context.Context, spec ExecutionSpec) (*E
 					return nil, err
 				}
 				allSteps = append(allSteps, awaitingStep)
-				return &ExecutionResult{
+				return withRoute(&ExecutionResult{
 					Status:           "awaiting_approval",
 					Steps:            allSteps,
 					Artifacts:        allArtifacts,
@@ -438,7 +464,7 @@ func (e *AgentLoopExecutor) Execute(ctx context.Context, spec ExecutionSpec) (*E
 					OtelStatusCode:   "ok",
 					CostMicrosUSD:    costSpent,
 					TurnCosts:        turnCosts,
-				}, nil
+				}), nil
 			}
 		}
 
@@ -511,7 +537,7 @@ func (e *AgentLoopExecutor) Execute(ctx context.Context, spec ExecutionSpec) (*E
 			finalResult.Artifacts = allArtifacts
 			finalResult.CostMicrosUSD = costSpent
 			finalResult.TurnCosts = turnCosts
-			return finalResult, nil
+			return withRoute(finalResult), nil
 		}
 	}
 
@@ -525,7 +551,7 @@ func (e *AgentLoopExecutor) Execute(ctx context.Context, spec ExecutionSpec) (*E
 	finalResult.Artifacts = allArtifacts
 	finalResult.CostMicrosUSD = costSpent
 	finalResult.TurnCosts = turnCosts
-	return finalResult, nil
+	return withRoute(finalResult), nil
 }
 
 func emitAgentTurnStarted(spec ExecutionSpec, turn int, req types.ChatRequest) {
