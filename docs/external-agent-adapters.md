@@ -28,8 +28,8 @@ ACP appears in Hecate in two directions:
 | **Hecate as an ACP agent**           | Exposes Hecate's task runtime to external editor ACP hosts through `hecate-acp`.                                 | [ACP bridge](acp.md) |
 
 The two flows share the ACP protocol vocabulary, but they do not share a
-process model. Agent Chat owns the external adapter process. Editor ACP hosts
-own the `hecate-acp` bridge process.
+process model. External Agent chat sessions own the external adapter process.
+Editor ACP hosts own the `hecate-acp` bridge process.
 
 ## Supported adapters
 
@@ -235,14 +235,15 @@ environment that starts Hecate.
 
 ## Runtime behavior
 
-Each Agent Chat session maps to one native ACP session. Hecate starts the
-selected adapter process the first time the chat sends a prompt, creates the ACP
-session, and reuses it for later prompts in the same Hecate chat. The adapter is
-fixed for the chat session; start a new Agent Chat to choose another adapter.
+Each External Agent chat session maps to one native ACP session. Hecate starts or
+restores the selected adapter process when the chat is created, creates the ACP
+session before the first prompt, and reuses it for later prompts in the same
+Hecate chat. The adapter is fixed for the chat session; start a new External
+Agent chat to choose another adapter.
 The visible chat title can be renamed from the Chats sidebar without changing
 the ACP native session, workspace, or adapter selection.
-Model Chats are different: their provider/model selection is per request and
-can change inside one session.
+Hecate-owned chats are different: their provider/model selection can change
+between direct model turns and new task-backed segments in one transcript.
 
 Hecate validates the workspace before creating a session, sanitizes the
 environment passed to the ACP adapter process, applies timeout/cancel behavior,
@@ -252,11 +253,11 @@ selected workspace; this is not equivalent to the task runtime sandbox.
 Read [Security](security.md) for the full runtime-boundary and workspace-safety
 model.
 
-On Hecate shutdown, active Agent Chat turns are cancelled first. Hecate waits
+On Hecate shutdown, active External Agent turns are cancelled first. Hecate waits
 briefly for the ACP turn to drain, asks the native ACP session to close, and
 then kills the owned adapter process group if it is still alive. This keeps app
 quit / restart from leaving Codex, Claude, or Cursor adapter processes behind.
-Operators can also close an Agent Chat session manually to release the external
+Operators can also close an External Agent chat session manually to release the external
 adapter process while keeping the Hecate chat history. Deleting a chat performs
 the same release step and then removes the persisted history.
 
@@ -271,7 +272,7 @@ short-circuit, mode default, or prompt-mode wait) and carries
 `agent_adapter.approval.resolve` wraps the operator's decision-application
 path with `decision` and `scope` attributes.
 
-Durable approval grants are part of the Agent Chat SQLite bundle. When
+Durable approval grants are part of the chat-session SQLite bundle. When
 `GATEWAY_CHAT_SESSIONS_BACKEND=sqlite`, grants survive gateway restarts and are
 listed from `GET /hecate/v1/chat/grants`; the operator can revoke them from
 Connections. Pending approvals from a dead process are not
@@ -376,7 +377,7 @@ inspect/revert.
 - Adapter-specific ACP mappers can make Codex, Claude Code, and Cursor progress
   updates prettier over time. The current generic mapper plus raw diagnostics is
   sufficient for alpha stability.
-- Agent Chat is a lightweight API around opaque external runtimes. Future work
-  may reuse task-runtime primitives for artifacts, event history, retention,
-  and trace correlation, but Hecate should not pretend it owns the Codex /
-  Claude / Cursor runtime loop.
+- External Agent chat is a lightweight API around opaque external runtimes.
+  Future work may reuse more task-runtime primitives for artifacts, event
+  history, retention, and trace correlation, but Hecate should not pretend it
+  owns the Codex / Claude / Cursor runtime loop.

@@ -1,11 +1,11 @@
 # Chat sessions
 
-All chat persistence in Hecate today goes through Agent Chat sessions under
-`/hecate/v1/chat/sessions`. The same store backs three flavors in the
-Chats workspace: direct model turns (Hecate, tools off), tools-on
-Hecate Agent runs (with a backing `agent_loop` task — see
-[agent-runtime.md](agent-runtime.md) for the runtime), and supervised
-External Agent sessions (Codex, Claude Code, Cursor).
+All chat persistence in Hecate today goes through chat sessions under
+`/hecate/v1/chat/sessions`. The same store backs two session owners in the
+Chats workspace: Hecate-owned chats and supervised External Agent sessions
+(Codex, Claude Code, Cursor). Hecate-owned chats can contain direct model turns
+and task-backed tools-on turns with a backing `agent_loop` task — see
+[agent-runtime.md](agent-runtime.md) for the runtime.
 
 The Chats workspace has one shell and an agent picker. **Hecate** is always
 first and covers both direct model chat and Hecate-owned agent execution: the
@@ -79,18 +79,18 @@ actually used RTK. When compact output is enabled, telemetry also carries
 operators can compare the command Hecate validated with the argv that RTK
 wrapped.
 
-The operator UI's **Hecate** agent choice uses **Agent Chat** sessions under
+The operator UI's **Hecate** agent choice uses chat sessions under
 `/hecate/v1/chat/sessions` for both tools-off direct model turns and tools-on
-Hecate Agent turns. Those records can point at a runtime when tools are enabled,
-but they can also store direct model segments:
+task-backed turns. Session ownership is stable (`agent_id="hecate"`), while
+each message records the execution mode that produced it:
 
 - **Model** segments call the gateway/router directly and store user/assistant
   messages with `execution_mode="direct_model"`. They do not create Tasks.
-- **Hecate Agent** sessions map one chat session to one visible
-  `agent_loop` task-backed segment. The first tool-enabled prompt creates the
-  task; follow-up prompts continue the latest terminal run when the previous
-  segment was also Hecate Agent. If tools are re-enabled after a direct model
-  segment, Hecate creates a new task-backed segment in the same transcript.
+- **Task-backed Hecate Chat** segments map a tools-on stretch of a chat to one
+  visible `agent_loop` task. The first tool-enabled prompt creates the task;
+  follow-up prompts continue the latest terminal run when the previous segment
+  was also task-backed. If tools are re-enabled after a direct model segment,
+  Hecate creates a new task-backed segment in the same transcript.
   While a task-backed segment is queued, running, or awaiting approval, the
   whole Hecate Chat session is busy: direct model sends are blocked too, so one
   transcript cannot race a live task loop against a separate model turn. The
@@ -116,7 +116,7 @@ but they can also store direct model segments:
 - **External Agent** sessions map one chat session to one supervised adapter
   session such as Codex, Claude Code, or Cursor Agent.
 
-The Agent Chat API shape used by the operator UI is in
+The chat session API shape used by the operator UI is in
 [`runtime-api.md`](runtime-api.md#get-hecatev1chatsessions), and external
 adapter behavior is in [`external-agent-adapters.md`](external-agent-adapters.md).
 

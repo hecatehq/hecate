@@ -86,10 +86,10 @@ shipping `v0.1.0-alpha.N` releases from reviewed PRs merged into `master`.
 ## Hecate Chat
 
 - Hecate Chat can mix tools-off direct model turns and tools-on task-backed
-  Hecate Agent turns in one transcript. Message-level runtime snapshots are
+  turns in one transcript. Message-level runtime snapshots are
   persisted so old turns keep their original provider/model/task context even
   when the header selection changes later.
-- Only one task-backed Hecate Agent segment can be active in a chat at a time.
+- Only one task-backed segment can be active in a Hecate chat at a time.
   The HTTP API rejects new turns with `409 chat.agent_session_busy` while
   the backing task is queued, running, or awaiting approval. The operator UI
   turns this into a local **Queued next** composer FIFO and sends the prompt
@@ -98,7 +98,7 @@ shipping `v0.1.0-alpha.N` releases from reviewed PRs merged into `master`.
   `tool_calling="none"`. Unknown local/custom models are labelled as unknown
   and can be marked manually in Connections; automatic capability probing is
   not shipped yet.
-- Workspace modes and named Hecate Agent profiles are still roadmap items.
+- Workspace modes and named Hecate profiles are still roadmap items.
   Tools-on chat uses the selected workspace with the current built-in profile.
 - Tasks remains canonical for full run history, retry/resume, artifacts, and
   patch review. Chats projects the high-signal run activity and approval

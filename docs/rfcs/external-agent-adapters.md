@@ -43,7 +43,8 @@ Putting Codex, Claude Code, or Cursor Agent in the provider/model dropdown would
 
 ## Goals
 
-- Add a product and backend seam for **Agent Chat** alongside Model Chat.
+- Add a product and backend seam for **External Agent chat** alongside
+  Hecate-owned chat.
 - Support Codex, Claude, and Cursor Agent through ACP-capable adapters first.
 - Keep provider/model routing unchanged.
 - Let Hecate supervise external agent sessions: start, stream, cancel,
@@ -141,18 +142,14 @@ adapter package remains independent from provider routing: external coding
 agents are not model providers, and provider APIs are not threaded into this
 path unless a future adapter explicitly opts in.
 
-## API Options
+## API Shape
 
-Two options are plausible.
-
-| Option                          | Shape                                                     | Pros                                        | Cons                                          |
-| ------------------------------- | --------------------------------------------------------- | ------------------------------------------- | --------------------------------------------- | ----------------------------------------------------------------- |
-| Add agent mode to chat sessions | Extend `/hecate/v1/chat/sessions` with `target_type=model | agent`                                      | One user-facing Chats surface; easier history | Risks mixing model-provider and agent-runtime semantics too early |
-| Add explicit chat API           | `/hecate/v1/chat/sessions/*`                              | Clean boundary; easy to change during alpha | UI has to bridge two chat APIs                |
-
-Recommendation for alpha: **explicit chat API** first. Once behavior is
-stable, Chats UI can render both model-chat and chat sessions behind one
-experience.
+The shipped alpha shape uses one chat-session API:
+`/hecate/v1/chat/sessions/*`. A session is owned by `agent_id`: `hecate` for
+Hecate-owned chat, or an external adapter id such as `codex`, `claude_code`, or
+`cursor_agent`. Individual messages record the execution mode that produced
+them. This replaced the earlier model-vs-agent session-type sketch from this
+RFC; there is no separate live target selector field.
 
 Implemented MVP endpoints:
 
@@ -190,7 +187,7 @@ Hecate transcript intact.
 
 ## Adapter Session Behavior
 
-For the first prompt in an Agent Chat session:
+When an External Agent chat session is created:
 
 1. Resolve the adapter through a direct ACP command or a Hecate-managed launcher.
    Codex and Claude can use local `npx` managed launchers; Cursor currently
@@ -200,13 +197,17 @@ For the first prompt in an Agent Chat session:
    forwarded by default.
 4. Spawn the ACP adapter in the selected workspace.
 5. Complete ACP `initialize` and `session/new`.
-6. Send the prompt as the first ACP turn.
-7. Normalize ACP updates into transcript text, structured activity records,
-   raw diagnostics, usage telemetry, and approval requests.
-8. Enforce timeout, cancellation, turn ceilings, wall-clock limits, and idle
-   cleanup.
-9. If the workspace is a Git repo, capture `git diff --stat` and
-   `git diff --binary` onto the assistant message.
+6. Store the native ACP session id on the Hecate chat session.
+
+For each prompt in that chat, Hecate:
+
+- Sends the next ACP turn.
+- Normalizes ACP updates into transcript text, structured activity records, raw
+  diagnostics, usage telemetry, and approval requests.
+- Enforces timeout, cancellation, turn ceilings, wall-clock limits, and idle
+  cleanup.
+- Captures `git diff --stat` and `git diff --binary` onto the assistant message
+  when the workspace is a Git repo.
 
 For later prompts in the same External Agent chat session, Hecate reuses the same
 adapter process and native ACP session. If the gateway restarts and SQLite chat
@@ -236,7 +237,7 @@ paths.
 
 ## Observability
 
-Agent Chat currently has three observability surfaces:
+External Agent chat currently has three observability surfaces:
 
 - The per-session SSE stream emits typed `session_update`,
   `approval.requested`, and `approval.resolved` events.
@@ -311,14 +312,14 @@ not a drop-in fit.
   revert already-applied Git paths and is sufficient for alpha stability.
 - Deeper adapter-specific structured mappers for ACP tool output. The current
   generic mapper plus raw diagnostics is sufficient for alpha stability.
-- Decide which task-runtime primitives Agent Chat should reuse without
+- Decide which task-runtime primitives External Agent chat should reuse without
   pretending Hecate owns the external agent runtime.
 
 ## Open Questions
 
-- Should Agent Chat reuse task-runtime primitives for artifacts, event history,
-  retention, and trace correlation while keeping Codex, Claude Code, and Cursor
-  as opaque supervised runtimes?
+- Should External Agent chat reuse task-runtime primitives for artifacts, event
+  history, retention, and trace correlation while keeping Codex, Claude Code,
+  and Cursor as opaque supervised runtimes?
 - How much of the external process environment should be configurable by the
   operator?
 - Should Hecate eventually offer optional process containment for external

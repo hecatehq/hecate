@@ -382,10 +382,10 @@ For alpha, one ACP session maps to one durable Hecate `agent_loop` task after th
 The gateway remains the source of truth. The bridge does not invent runtime
 state that Hecate did not emit.
 
-This is separate from Agent Chat persistence. Chats that run Codex/Claude/Cursor
-from inside Hecate persist their own transcript and native ACP session id in
-the Agent Chat store. See [External agent adapters](external-agent-adapters.md)
-for that behavior.
+This is separate from chat-session persistence. Chats that run
+Codex/Claude/Cursor from inside Hecate persist their own transcript and native
+ACP session id in the chat-session store. See
+[External agent adapters](external-agent-adapters.md) for that behavior.
 
 ## Configuration
 

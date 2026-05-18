@@ -68,7 +68,7 @@ Common Hecate-native error types:
 | `model_not_configured`                 |    422 | The selected model is stale or not currently reported by the selected provider. |
 | `chat.agent_session_busy`              |    409 | A Hecate Chat task-backed loop is queued, running, or awaiting approval.        |
 | `chat.model_capability_required`       |    422 | Tools are on, but the model is not marked tool-capable.                         |
-| `chat.workspace_required`              |    400 | Hecate Agent or External Agent chat needs a workspace path.                     |
+| `chat.workspace_required`              |    400 | Task-backed Hecate Chat or External Agent chat needs a workspace path.          |
 | `chat.session_limit_exceeded`          |    422 | The chat turn limit was reached.                                                |
 | `chat.session_duration_limit_exceeded` |    422 | The chat wall-clock limit was reached.                                          |
 | `chat.session_idle_timeout`            |    422 | The chat was idle beyond the configured timeout.                                |
@@ -687,7 +687,7 @@ GET /v1/models
 ```
 
 `capabilities.tool_calling` is one of `unknown`, `none`, `basic`, or
-`parallel`. Hecate Agent treats tools as on by default and only blocks a model
+`parallel`. Hecate Chat treats tools as on by default and only blocks a model
 when the effective value is `none`. Local/custom models often report
 `unknown`; operators can use Connections → Model capabilities to explicitly turn
 tools on or off for a provider/model pair.
@@ -759,7 +759,7 @@ defaults.
 ### `GET /hecate/v1/agent-adapters`
 
 External coding-agent adapter catalog. This is the first discovery surface for
-Agent Chat: it reports the agent runtimes Hecate knows how to supervise and
+External Agent chats: it reports the agent runtimes Hecate knows how to supervise and
 whether their direct command or Hecate-managed launcher can be started.
 
 ```json
@@ -1030,7 +1030,7 @@ Status codes:
 
 ### `GET /hecate/v1/chat/sessions`
 
-Lists Agent Chat sessions. Agent Chat uses the same backend selection as model
+Lists chat sessions. Chat sessions use the same backend selection as model
 chat history: memory by default, SQLite when
 `GATEWAY_CHAT_SESSIONS_BACKEND=sqlite`. It is the alpha transcript surface for
 Hecate Chat and External Agent sessions. A session has a stable `agent_id`
@@ -1142,7 +1142,7 @@ GET /hecate/v1/chat/sessions
 
 ### `POST /hecate/v1/chat/sessions`
 
-Creates an Agent Chat session. `agent_id` chooses the session owner:
+Creates a chat session. `agent_id` chooses the session owner:
 
 - `hecate` (default) creates a Hecate Chat. It can later run
   `execution_mode="direct_model"` turns or `execution_mode="hecate_task"`
@@ -1205,15 +1205,16 @@ POST /hecate/v1/chat/sessions
 ### `GET /hecate/v1/chat/sessions/{id}`
 
 Returns the full session transcript, including user messages and assistant
-messages produced by the backing runtime. Hecate Agent sessions include
-`task_id`, `latest_run_id`, `provider`, `model`, and the capability snapshot
-used when the session was created. Individual chat messages also carry a
-runtime snapshot: `execution_mode`, `segment_id`, optional `task_id`, optional
-`run_id`, provider/model, and capabilities. Frontends should prefer those
-message-level fields when rendering historical turns because the session header
-can change as the operator switches tools on/off. If tools are re-enabled after
-a direct model segment, Hecate creates a new task-backed segment in the same
-transcript; older messages keep their original runtime/model/task snapshots.
+messages produced by the backing runtime. Hecate-owned sessions include
+`provider`, `model`, and the current capability snapshot; once a tools-on turn
+creates a backing task, they also include `task_id` and `latest_run_id`.
+Individual chat messages carry the durable runtime snapshot:
+`execution_mode`, `segment_id`, optional `task_id`, optional `run_id`,
+provider/model, and capabilities. Frontends should prefer those message-level
+fields when rendering historical turns because the session header can change as
+the operator switches tools on/off. If tools are re-enabled after a direct
+model segment, Hecate creates a new task-backed segment in the same transcript;
+older messages keep their original runtime/model/task snapshots.
 
 The response also includes a derived `segments` array. Messages remain the
 durable source of truth; segments are a render helper that groups contiguous
@@ -1232,7 +1233,7 @@ must handle missing or custom categories.
 
 ### `PATCH /hecate/v1/chat/sessions/{id}`
 
-Renames an Agent Chat session. This is shared by Hecate Chat
+Renames a chat session. This is shared by Hecate Chat
 (`agent_id="hecate"`) and External Agent sessions. The title is
 metadata only; it does not change the prompt history, workspace, provider/model,
 or ACP native session.
@@ -1278,9 +1279,9 @@ after the session has been restored.
 ### `PATCH /hecate/v1/chat/sessions/{id}/settings`
 
 Updates Hecate-owned chat settings for future turns. This endpoint currently
-accepts `rtk_enabled` for `agent_id="hecate"` sessions. External Agent sessions reject it with
-`chat.runtime_mismatch` because Codex, Claude Code, Cursor, and other ACP
-adapters own their own command execution.
+accepts `rtk_enabled` for `agent_id="hecate"` sessions. External Agent sessions
+reject it with `chat.runtime_mismatch` because Codex, Claude Code, Cursor, and
+other ACP adapters own their own command execution.
 
 When an existing Hecate Chat session already has a backing task, the task
 record is updated too so later continued runs inherit the same setting.
@@ -1313,12 +1314,12 @@ the user message and assistant output.
 - `execution_mode` — `direct_model`, `hecate_task`, or `external_agent`.
   Hecate Chat sessions may switch between `direct_model` and `hecate_task`;
   External Agent sessions always use `external_agent`.
-- `provider` / `model` — used for direct model turns and new Hecate Agent
-  task-backed segments. Existing Hecate Agent task segments continue with their
-  saved model snapshot until the operator turns tools off or starts a new
+- `provider` / `model` — used for direct model turns and new task-backed
+  Hecate Chat segments. Existing task-backed segments continue with their saved
+  model snapshot until the operator turns tools off or starts a new
   task-backed segment.
 - `system_prompt` — applied to direct model turns.
-- `workspace` — required when starting a Hecate Agent turn on a session that
+- `workspace` — required when starting a task-backed Hecate Chat turn on a session that
   does not already have a workspace.
 
 For `execution_mode="direct_model"`, Hecate calls the normal gateway path and
@@ -1327,7 +1328,7 @@ stores the user/assistant messages without creating a Task. For
 native ACP session. For `execution_mode="hecate_task"`, the first tool-enabled
 prompt creates a visible `agent_loop` task and starts it; follow-up prompts
 continue the latest terminal run when the immediately previous segment was also
-Hecate Agent. If the previous segment was direct model chat, Hecate starts a
+task-backed. If the previous segment was direct model chat, Hecate starts a
 fresh task-backed segment in the same transcript.
 
 Only one task-backed segment can be active in a Hecate Chat session at a time.
@@ -1351,7 +1352,7 @@ models, and an `operator_action` repair hint in the error details.
 
 The response returns after the backing turn finishes, times out, is cancelled,
 or fails. For live output while the turn is running, subscribe to the session
-stream before posting the message. Hecate Agent turns update the running
+stream before posting the message. Task-backed Hecate Chat turns update the running
 assistant message's `content` when the backing task's model route supports
 streaming; non-streaming providers still publish the final assistant content
 when the run finishes. External Agent turns continue to publish normalized
@@ -1438,7 +1439,7 @@ artifacts without treating the assistant message id as the runtime identity.
 It also stores `request_id`, `trace_id`, and `span_id`; use
 `GET /hecate/v1/traces?request_id=<request_id>` to inspect the OTel-shaped
 `chat.run` span for that prompt.
-Task-backed Hecate Agent messages also include a `timing` object derived from
+Task-backed Hecate Chat messages also include a `timing` object derived from
 the backing run's task steps, approvals, and run events:
 
 ```json
@@ -1472,12 +1473,12 @@ messages with `"status": "failed"` and `error` so the transcript stays intact.
 Transport or request validation failures still use the normal Hecate error
 envelope.
 
-Hecate Agent-specific errors:
+Chat execution errors:
 
 | Status | `error.type`                     | Meaning                                                                                                                                                                                  |
 | ------ | -------------------------------- | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| `400`  | `chat.workspace_required`        | Hecate Agent and External Agent sessions need a selected workspace path before the first turn.                                                                                           |
-| `400`  | `chat.model_required`            | Hecate Chat needs an explicit selected model before direct model or Hecate Agent turns.                                                                                                  |
+| `400`  | `chat.workspace_required`        | Task-backed Hecate Chat turns and External Agent sessions need a selected workspace path before the first turn.                                                                          |
+| `400`  | `chat.model_required`            | Hecate Chat needs an explicit selected model before direct model or task-backed turns.                                                                                                   |
 | `400`  | `chat.agent_id_invalid`          | The requested session owner is not `hecate` and does not match a registered external-agent adapter.                                                                                      |
 | `400`  | `chat.execution_mode_invalid`    | The requested turn execution mode is not one of `direct_model`, `hecate_task`, or `external_agent`.                                                                                      |
 | `400`  | `chat.runtime_mismatch`          | The request tried to run a turn through a runtime that does not match the existing session type.                                                                                         |
@@ -1494,7 +1495,7 @@ accepts only one active task-backed turn per Hecate Chat session.
 
 ### `GET /hecate/v1/chat/sessions/{id}/messages/{message_id}/files`
 
-Returns a structured file list for an Agent Chat assistant message that captured
+Returns a structured file list for a chat assistant message that captured
 a workspace diff. The data is derived from the stored `diff` first, then falls
 back to `diff_stat` when only the stat text is available.
 
@@ -1544,7 +1545,7 @@ Status codes:
 
 ### `POST /hecate/v1/chat/sessions/{id}/messages/{message_id}/revert`
 
-Reverts workspace changes captured by an Agent Chat assistant message. This is
+Reverts workspace changes captured by a chat assistant message. This is
 only available for Git workspaces and only for paths present in the stored
 agent-message diff; Hecate rejects arbitrary paths. Pass a non-empty `paths`
 array to revert selected files, or an empty array to revert every file in the
@@ -1577,14 +1578,14 @@ POST /hecate/v1/chat/sessions/chat_.../messages/msg_.../revert
 
 After a successful revert, Hecate refreshes the message's stored `diff` and
 `diff_stat` for the originally captured path set, appends a `files_reverted`
-activity, and publishes an updated Agent Chat session snapshot. Non-Git
+activity, and publishes an updated chat session snapshot. Non-Git
 workspaces return `400 invalid_request` with a human-readable limitation.
 
 ### `GET /hecate/v1/chat/sessions/{id}/stream`
 
-Streams live Agent Chat session snapshots as Server-Sent Events. This is an
+Streams live chat session snapshots as Server-Sent Events. This is an
 in-process live feed, not the durable task-event log: session history remains in
-the configured Agent Chat backend, while the stream fans out updates from the
+the configured chat-session backend, while the stream fans out updates from the
 currently running gateway process.
 
 ```text
@@ -1597,8 +1598,9 @@ data: {"object":"chat_session","data":{"status":"completed",...}}
 
 Clients should subscribe before sending a message so they can receive live
 updates. For External Agent sessions, snapshots include partial ACP output from
-the adapter. For Hecate Agent sessions, snapshots can include partial assistant
-text from the backing task's streamed model turn plus projected task activity.
+the adapter. For task-backed Hecate Chat turns, snapshots can include partial
+assistant text from the backing task's streamed model turn plus projected task
+activity.
 Projected task activity uses the same compact vocabulary as Task Detail:
 tool calls, approvals, changed files, final-answer artifacts, terminal state,
 and a low-level Details group. The stream stays open for an idle or previously
@@ -1625,7 +1627,7 @@ the external session.
 
 ### `DELETE /hecate/v1/chat/sessions/{id}`
 
-Deletes an Agent Chat session from the configured chat-session backend.
+Deletes a chat session from the configured chat-session backend.
 If the session has an active native ACP adapter process, Hecate closes the
 native session and terminates the owned process as part of deletion.
 
@@ -1650,7 +1652,7 @@ POST /hecate/v1/workspace-dialog
 ```
 
 Current native-dialog support is macOS via `osascript`; unsupported platforms
-return `501`. The UI falls back to a manual path entry so Agent Chat remains
+return `501`. The UI falls back to a manual path entry so Chats remains
 usable on Linux and Windows. If the operator cancels the dialog, the endpoint
 returns the standard error envelope and the UI keeps the workspace unchanged.
 

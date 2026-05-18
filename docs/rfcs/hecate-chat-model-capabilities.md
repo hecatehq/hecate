@@ -5,6 +5,12 @@
 > [Agent runtime](../agent-runtime.md), and [Runtime API](../runtime-api.md).
 > **Next action:** implement workspace modes, named agent profiles, automatic
 > capability probes, and broader e2e hardening.
+>
+> **Terminology note:** this RFC was written while "Hecate Agent" was the
+> proposed product label for Hecate-owned tools-on chat. Current UI and
+> operator docs use **Hecate Chat** as the product surface and describe
+> tools-on turns as task-backed Hecate Chat segments. Older "Hecate Agent"
+> wording below is design history unless the current docs say otherwise.
 
 ## Summary
 
