@@ -493,9 +493,7 @@ export async function mockGatewayAPIs(page: Page, opts: GatewayMockOptions = {})
           model: body.model || session.model,
           workspace: session.workspace,
           run_id:
-            executionMode === "direct_model"
-              ? `model_run_${chatSequence}`
-              : `run_${chatSequence}`,
+            executionMode === "direct_model" ? `model_run_${chatSequence}` : `run_${chatSequence}`,
           request_id: `req_${chatSequence}`,
           trace_id: `trace_${chatSequence}`,
           cost_mode: executionMode === "external_agent" ? "external" : "hecate",
