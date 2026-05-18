@@ -6,6 +6,7 @@
 
 export { Icon, Icons } from "./Icons";
 export { Badge, Dot, Toggle, CopyBtn, InlineError, CodeBlock } from "./Atoms";
+export { CopyableID } from "./CopyableID";
 export { ChipInput } from "./ChipInput";
 export type { ChipOption } from "./ChipInput";
 export { DropdownPicker } from "./DropdownPicker";
