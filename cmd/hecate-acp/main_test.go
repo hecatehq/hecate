@@ -114,6 +114,108 @@ func TestGatewayHTTPClientListModels(t *testing.T) {
 	}
 }
 
+func TestGatewayHTTPClientHealth(t *testing.T) {
+	t.Parallel()
+
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.URL.Path != "/healthz" {
+			t.Fatalf("path = %q, want /healthz", r.URL.Path)
+		}
+		w.WriteHeader(http.StatusOK)
+		_, _ = w.Write([]byte(`{"ok":true}`))
+	}))
+	defer srv.Close()
+
+	client, err := newGatewayHTTPClient(bridgeConfig{GatewayURL: srv.URL})
+	if err != nil {
+		t.Fatalf("newGatewayHTTPClient() error = %v", err)
+	}
+	if err := client.Health(context.Background()); err != nil {
+		t.Fatalf("Health() error = %v", err)
+	}
+}
+
+func TestGatewayHTTPClientProviderStatuses(t *testing.T) {
+	t.Parallel()
+
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.URL.Path != "/hecate/v1/providers/status" {
+			t.Fatalf("path = %q, want /hecate/v1/providers/status", r.URL.Path)
+		}
+		w.Header().Set("Content-Type", "application/json")
+		_, _ = w.Write([]byte(`{"object":"provider_status","data":[{"name":"ollama","status":"blocked","routing_blocked_reason":"no_models","readiness":{"message":"Load at least one model."}}]}`))
+	}))
+	defer srv.Close()
+
+	client, err := newGatewayHTTPClient(bridgeConfig{GatewayURL: srv.URL})
+	if err != nil {
+		t.Fatalf("newGatewayHTTPClient() error = %v", err)
+	}
+	statuses, err := client.ProviderStatuses(context.Background())
+	if err != nil {
+		t.Fatalf("ProviderStatuses() error = %v", err)
+	}
+	if len(statuses) != 1 || statuses[0].Name != "ollama" || statuses[0].Readiness.Message != "Load at least one model." {
+		t.Fatalf("statuses = %+v", statuses)
+	}
+}
+
+func TestRunAuthSetupReady(t *testing.T) {
+	t.Parallel()
+
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("Content-Type", "application/json")
+		switch r.URL.Path {
+		case "/healthz":
+			_, _ = w.Write([]byte(`{"ok":true}`))
+		case "/v1/models":
+			_, _ = w.Write([]byte(`{"object":"list","data":[{"id":"llama3.1:8b"}]}`))
+		default:
+			t.Fatalf("unexpected request %s %s", r.Method, r.URL.Path)
+		}
+	}))
+	defer srv.Close()
+
+	var stdout bytes.Buffer
+	err := runAuthSetup(context.Background(), &stdout, bridgeConfig{GatewayURL: srv.URL})
+	if err != nil {
+		t.Fatalf("runAuthSetup() error = %v", err)
+	}
+	output := stdout.String()
+	if !strings.Contains(output, "ACP setup is ready") {
+		t.Fatalf("output = %q", output)
+	}
+}
+
+func TestRunAuthSetupExplainsMissingModels(t *testing.T) {
+	t.Parallel()
+
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("Content-Type", "application/json")
+		switch r.URL.Path {
+		case "/healthz":
+			_, _ = w.Write([]byte(`{"ok":true}`))
+		case "/v1/models":
+			_, _ = w.Write([]byte(`{"object":"list","data":[]}`))
+		case "/hecate/v1/providers/status":
+			_, _ = w.Write([]byte(`{"object":"provider_status","data":[{"name":"ollama","status":"blocked","readiness":{"message":"Start Ollama and load a model."}}]}`))
+		default:
+			t.Fatalf("unexpected request %s %s", r.Method, r.URL.Path)
+		}
+	}))
+	defer srv.Close()
+
+	var stdout bytes.Buffer
+	err := runAuthSetup(context.Background(), &stdout, bridgeConfig{GatewayURL: srv.URL})
+	if err == nil {
+		t.Fatal("runAuthSetup() error = nil, want missing models error")
+	}
+	output := stdout.String()
+	if !strings.Contains(output, "Models: none available") || !strings.Contains(output, "Start Ollama and load a model.") {
+		t.Fatalf("output = %q", output)
+	}
+}
+
 func TestGatewayHTTPClientCreateAgentLoopTask(t *testing.T) {
 	t.Parallel()
 
@@ -339,7 +441,7 @@ func TestRunInitializeOverStdio(t *testing.T) {
 	}))
 	defer srv.Close()
 
-	input := strings.NewReader(`{"jsonrpc":"2.0","id":1,"method":"initialize","params":{"protocolVersion":"0.1","clientCapabilities":{"permissions":{}}}}` + "\n")
+	input := strings.NewReader(`{"jsonrpc":"2.0","id":1,"method":"initialize","params":{"protocolVersion":"0.1","clientCapabilities":{"permissions":{},"auth":{"terminal":true}}}}` + "\n")
 	var stdout, stderr bytes.Buffer
 	err := run(context.Background(), input, &stdout, &stderr, bridgeConfig{
 		GatewayURL:    srv.URL,
@@ -372,12 +474,20 @@ func TestRunInitializeOverStdio(t *testing.T) {
 		AvailableModels []struct {
 			ID string `json:"id"`
 		} `json:"availableModels"`
+		AuthMethods []struct {
+			ID   string   `json:"id"`
+			Type string   `json:"type"`
+			Args []string `json:"args"`
+		} `json:"authMethods"`
 	}
 	if err := json.Unmarshal(resp.Result, &result); err != nil {
 		t.Fatalf("decode result: %v", err)
 	}
 	if len(result.AvailableModels) != 1 || result.AvailableModels[0].ID != "llama3.1:8b" {
 		t.Fatalf("availableModels = %#v", result.AvailableModels)
+	}
+	if len(result.AuthMethods) != 1 || result.AuthMethods[0].ID != "hecate-setup" || result.AuthMethods[0].Type != "terminal" || strings.Join(result.AuthMethods[0].Args, " ") != "auth setup" {
+		t.Fatalf("authMethods = %#v", result.AuthMethods)
 	}
 }
 

@@ -84,6 +84,18 @@ func initParams(t *testing.T, perms bool) json.RawMessage {
 	return raw
 }
 
+func initParamsWithTerminalAuth(t *testing.T) json.RawMessage {
+	t.Helper()
+	p := InitializeParams{ProtocolVersion: DeclaredProtocolVersion}
+	p.ClientCaps.Permissions = &PermissionCapability{}
+	p.ClientCaps.Auth = &AuthCapabilities{Terminal: true}
+	raw, err := json.Marshal(p)
+	if err != nil {
+		t.Fatalf("marshal: %v", err)
+	}
+	return raw
+}
+
 func TestInitialize_Happy(t *testing.T) {
 	gw := &fakeGateway{models: []string{"claude-sonnet-4-5", "gpt-4o"}}
 	d := NewDispatcher(gw, NewSessionStore(), Config{AgentName: "Hecate", AgentVersion: "v0.42.0", ApprovalRoute: "editor"})
@@ -112,6 +124,54 @@ func TestInitialize_Happy(t *testing.T) {
 	}
 	if !result.AgentCaps.Permissions {
 		t.Error("agentCaps.Permissions = false, want true with ApprovalRoute=editor")
+	}
+}
+
+func TestInitialize_AdvertisesTerminalAuthWhenSupported(t *testing.T) {
+	gw := &fakeGateway{models: []string{"claude-sonnet-4-5"}}
+	d := NewDispatcher(gw, NewSessionStore(), Config{AgentName: "Hecate", AgentVersion: "v0.42.0", ApprovalRoute: "editor"})
+
+	resp := d.Handle(context.Background(), &Request{
+		JSONRPC: JSONRPCVersion,
+		ID:      makeID(t, 1),
+		Method:  MethodInitialize,
+		Params:  initParamsWithTerminalAuth(t),
+	})
+	if resp.Error != nil {
+		t.Fatalf("initialize error = %v", resp.Error)
+	}
+	var result InitializeResult
+	if err := json.Unmarshal(resp.Result, &result); err != nil {
+		t.Fatalf("decode: %v", err)
+	}
+	if len(result.AuthMethods) != 1 {
+		t.Fatalf("authMethods len = %d, want 1", len(result.AuthMethods))
+	}
+	method := result.AuthMethods[0]
+	if method.ID != "hecate-setup" || method.Type != "terminal" || strings.Join(method.Args, " ") != "auth setup" {
+		t.Fatalf("auth method = %+v", method)
+	}
+}
+
+func TestInitialize_OmitsTerminalAuthWhenUnsupported(t *testing.T) {
+	gw := &fakeGateway{models: []string{"claude-sonnet-4-5"}}
+	d := NewDispatcher(gw, NewSessionStore(), Config{AgentName: "Hecate", AgentVersion: "v0.42.0", ApprovalRoute: "editor"})
+
+	resp := d.Handle(context.Background(), &Request{
+		JSONRPC: JSONRPCVersion,
+		ID:      makeID(t, 1),
+		Method:  MethodInitialize,
+		Params:  initParams(t, true),
+	})
+	if resp.Error != nil {
+		t.Fatalf("initialize error = %v", resp.Error)
+	}
+	var result InitializeResult
+	if err := json.Unmarshal(resp.Result, &result); err != nil {
+		t.Fatalf("decode: %v", err)
+	}
+	if len(result.AuthMethods) != 0 {
+		t.Fatalf("authMethods = %+v, want omitted", result.AuthMethods)
 	}
 }
 

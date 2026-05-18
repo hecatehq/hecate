@@ -191,6 +191,15 @@ func (d *Dispatcher) handleInitialize(ctx context.Context, req *Request) *Respon
 		},
 		AvailableModels: descriptions,
 	}
+	if params.ClientCaps.Auth != nil && params.ClientCaps.Auth.Terminal {
+		result.AuthMethods = []AuthMethod{{
+			ID:          "hecate-setup",
+			Name:        "Set up Hecate",
+			Description: "Verify the local Hecate gateway and provider readiness.",
+			Type:        "terminal",
+			Args:        []string{"auth", "setup"},
+		}}
+	}
 	// Commit the negotiated mode only after the rest of initialize
 	// has succeeded — otherwise a downstream failure (gateway
 	// unreachable, etc.) leaves WorkspaceMode() reporting a value
