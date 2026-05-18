@@ -104,7 +104,10 @@ func save(path string, b Bootstrap) error {
 	}
 	// 0o600 because the file holds the encryption key. Anything more
 	// permissive lets a co-located service decrypt provider credentials.
-	return os.WriteFile(path, data, 0o600)
+	if err := os.WriteFile(path, data, 0o600); err != nil {
+		return err
+	}
+	return os.Chmod(path, 0o600)
 }
 
 func secureExistingFile(path string) error {
