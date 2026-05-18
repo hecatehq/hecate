@@ -77,23 +77,7 @@ func main() {
 			fmt.Println(version.Version)
 			return
 		case "auth":
-			if len(os.Args) == 3 && os.Args[2] == "setup" {
-				cfg, err := configFromEnv()
-				if err != nil {
-					fmt.Fprintf(os.Stderr, "hecate-acp: %v\n", err)
-					os.Exit(1)
-				}
-				if err := runAuthSetup(context.Background(), os.Stdout, cfg); err != nil {
-					if errors.Is(err, errAuthSetupFailed) {
-						os.Exit(1)
-					}
-					fmt.Fprintf(os.Stderr, "hecate-acp: %v\n", err)
-					os.Exit(1)
-				}
-				return
-			}
-			fmt.Fprintln(os.Stderr, "usage: hecate-acp auth setup")
-			os.Exit(1)
+			os.Exit(runAuthCommand(context.Background(), os.Args[2:], os.Stdout, os.Stderr))
 		}
 	}
 	cfg, err := configFromEnv()
@@ -311,6 +295,46 @@ func gatewayHealthy(baseURL string) bool {
 	return resp.StatusCode >= 200 && resp.StatusCode < 300
 }
 
+func runAuthCommand(ctx context.Context, args []string, stdout, stderr io.Writer) int {
+	if len(args) == 0 {
+		fmt.Fprintln(stderr, "usage: hecate-acp auth setup")
+		return 1
+	}
+	switch args[0] {
+	case "help", "--help", "-h":
+		fmt.Fprintln(stdout, "usage: hecate-acp auth setup")
+		return 0
+	case "setup":
+		if len(args) > 1 {
+			if len(args) == 2 && (args[1] == "--help" || args[1] == "-h") {
+				fmt.Fprintln(stdout, "usage: hecate-acp auth setup")
+				return 0
+			}
+			fmt.Fprintf(stderr, "hecate-acp: unexpected auth setup argument %q\n", args[1])
+			fmt.Fprintln(stderr, "usage: hecate-acp auth setup")
+			return 1
+		}
+	default:
+		fmt.Fprintf(stderr, "hecate-acp: unknown auth subcommand %q\n", args[0])
+		fmt.Fprintln(stderr, "usage: hecate-acp auth setup")
+		return 1
+	}
+
+	cfg, err := configFromEnv()
+	if err != nil {
+		fmt.Fprintf(stderr, "hecate-acp: %v\n", err)
+		return 1
+	}
+	if err := runAuthSetup(ctx, stdout, cfg); err != nil {
+		if errors.Is(err, errAuthSetupFailed) {
+			return 1
+		}
+		fmt.Fprintf(stderr, "hecate-acp: %v\n", err)
+		return 1
+	}
+	return 0
+}
+
 func runAuthSetup(ctx context.Context, stdout io.Writer, cfg bridgeConfig) error {
 	client, err := newGatewayHTTPClient(cfg)
 	if err != nil {
@@ -326,7 +350,8 @@ func runAuthSetup(ctx context.Context, stdout io.Writer, cfg bridgeConfig) error
 	models, err := client.ListModelDescriptions(ctx)
 	if err != nil {
 		fmt.Fprintln(stdout, "Models: could not list models from the gateway.")
-		return err
+		fmt.Fprintln(stdout, "Open the Hecate operator console or check HECATE_GATEWAY_URL, then retry setup.")
+		return errAuthSetupFailed
 	}
 	if ready := readyModelCount(models); ready > 0 {
 		fmt.Fprintf(stdout, "Models: %d ready\n", ready)
