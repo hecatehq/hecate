@@ -385,6 +385,10 @@ POST /hecate/v1/mcp/probe
 
 Tool names come back un-namespaced — the operator wants to see what the upstream itself calls them, not the gateway's runtime alias. Bounded by a 10-second deadline; a stuck upstream surfaces as a 400 with the diagnostic rather than wedging the request.
 
+`POST /hecate/v1/system/shutdown` requests an orderly process shutdown. The desktop app uses this from its window-close confirmation flow so the gateway runs the same drain path `SIGINT`/`SIGTERM` take (retention cancel, runner drain — including MCP subprocess teardown, then HTTP server shutdown) instead of being SIGKILL'd by the child-process handle. Empty body, returns `202` and an `object: "system_shutdown"` ack; the signal fires asynchronously after a short delay so the response can flush before the listener tears down. Clients that need to observe the gateway actually exiting should poll `/healthz` until it stops responding (the desktop app uses a 12-second deadline).
+
+Returns `503` with `error.code = "gateway_error"` when the endpoint is not wired — Docker/systemd deployments deliberately leave `Handler.SetQuitFunc` unset because they stop the process via signal or container stop. The 503 is the right behavior there: an operator who hits the endpoint expecting a clean shutdown gets told to use the signal path instead.
+
 ## Usage endpoints
 
 Hecate records usage for operator visibility, not global spend enforcement.
